@@ -364,6 +364,24 @@ public:
     render();
     return true;
   }
+  bool toggleEnglishGloss() {
+    if (!session_) return false;
+    const bool enabled = !preferences_.value("candidate_english_gloss", false);
+    auto snapshot = preferences_snapshot_;
+    if (!snapshot.is_object() || !snapshot.contains("revision") ||
+        !snapshot.contains("preferences")) return false;
+    snapshot["preferences"]["candidate_english_gloss"] = enabled;
+    const auto encoded = snapshot.dump();
+    view_ = response(msime_client_update_preferences(
+        session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
+    preferences_ = snapshot.at("preferences");
+    preferences_snapshot_ = std::move(snapshot);
+    saveBooleanPreference("candidate_english_gloss", enabled);
+    translation_query_.clear();
+    translation_pending_.clear();
+    render();
+    return true;
+  }
   bool toggleWidth() {
     if (!session_) return false;
     const auto width = view_.value("character_width", std::string("Halfwidth"));
@@ -1521,6 +1539,33 @@ private:
   const char *label_;
 };
 
+class FcitxEnglishGlossAction : public fcitx::Action {
+public:
+  explicit FcitxEnglishGlossAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
+    setCheckable(true);
+  }
+  std::string shortText(fcitx::InputContext *) const override { return "英文释义"; }
+  std::string icon(fcitx::InputContext *) const override { return "accessories-dictionary"; }
+  bool isChecked(fcitx::InputContext *ic) const override {
+    if (!ic) return false;
+    const auto *state = ic->propertyFor(factory_);
+    return state->session_ && state->preferences_.value("candidate_english_gloss", false);
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    auto *state = ic->propertyFor(factory_);
+    if (!state->session_ || state->restricted() || state->privateInput()) return;
+    try {
+      if (state->ensure() && state->toggleEnglishGloss()) update(ic);
+    } catch (...) {
+      state->close();
+      state->clearPanel();
+    }
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
 class FcitxPunctuationAction : public fcitx::Action {
 public:
   enum class Mode { Chinese, Paired };
@@ -1998,6 +2043,7 @@ public:
     mixed_english_action_.registerAction("msime-mixed-english", &instance->userInterfaceManager());
     mixed_emoji_action_.registerAction("msime-mixed-emoji", &instance->userInterfaceManager());
     mixed_kaomoji_action_.registerAction("msime-mixed-kaomoji", &instance->userInterfaceManager());
+    english_gloss_action_.registerAction("msime-english-gloss", &instance->userInterfaceManager());
     maintenance_action_.registerAction("msime-candidate-tools", &instance->userInterfaceManager());
     clipboard_action_.registerAction("msime-clipboard", &instance->userInterfaceManager());
     cloud_clipboard_action_.registerAction("msime-cloud-clipboard", &instance->userInterfaceManager());
@@ -2094,6 +2140,7 @@ public:
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &mixed_english_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &mixed_emoji_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &mixed_kaomoji_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &english_gloss_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &maintenance_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &clipboard_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &cloud_clipboard_action_);
@@ -2122,6 +2169,7 @@ public:
     event.inputContext()->statusArea().removeAction(&mixed_english_action_);
     event.inputContext()->statusArea().removeAction(&mixed_emoji_action_);
     event.inputContext()->statusArea().removeAction(&mixed_kaomoji_action_);
+    event.inputContext()->statusArea().removeAction(&english_gloss_action_);
     event.inputContext()->statusArea().removeAction(&maintenance_action_);
     event.inputContext()->statusArea().removeAction(&clipboard_action_);
     event.inputContext()->statusArea().removeAction(&cloud_clipboard_action_);
@@ -2169,6 +2217,7 @@ public:
   FcitxMixedEnglishAction mixed_english_action_{&factory_};
   FcitxMixedCandidateAction mixed_emoji_action_{&factory_, "emoji", "混合 Emoji"};
   FcitxMixedCandidateAction mixed_kaomoji_action_{&factory_, "kaomoji", "混合颜文字"};
+  FcitxEnglishGlossAction english_gloss_action_{&factory_};
   fcitx::Menu maintenance_menu_;
   FcitxMaintenanceAction maintenance_action_{&factory_, 0, "候选维护"};
   FcitxClipboardAction clipboard_action_{&factory_};
