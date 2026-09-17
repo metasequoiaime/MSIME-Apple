@@ -451,9 +451,22 @@ public:
                 auto result = response(msime_client_translation_provider_request(
                     reinterpret_cast<const uint8_t *>(request.data()), request.size(),
                     reinterpret_cast<const uint8_t *>(socket.data()), socket.size()));
-                if (result.is_object())
+                if (result.is_object()) {
                   for (const auto &item : result.value("translations", Json::array()))
                     local.push_back(item);
+                  const auto userData = query.value("user_data", std::string{});
+                  const auto target = query.value("target_language", std::string{});
+                  if (target == "en" && !userData.empty()) {
+                    auto translations = result.value("translations", Json::array());
+                    if (translations.is_array() && translations.size() > 9)
+                      translations.erase(translations.begin() + 9, translations.end());
+                    const auto save = Json{{"target_language", target},
+                                           {"translations", std::move(translations)}}.dump();
+                    msime_client_string_free(msime_client_translation_gloss_save(
+                        reinterpret_cast<const uint8_t *>(save.data()), save.size(),
+                        reinterpret_cast<const uint8_t *>(userData.data()), userData.size()));
+                  }
+                }
               } catch (...) {} // Retain local hits on provider failure.
             }
           }
