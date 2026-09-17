@@ -266,6 +266,7 @@ public:
     voice_options_ = Json::object();
     voice_enabled_ = true;
     voice_hotkey_ctrl_f9_ = true;
+    voice_hotkey_ralt_ = true;
     voice_job_ = {};
     voice_mailbox_.reset();
     voice_generation_ = 0;
@@ -625,6 +626,7 @@ public:
     const auto voicePreferences = preferences_.value("voice_input", Json::object());
     voice_enabled_ = voicePreferences.value("enabled", true);
     voice_hotkey_ctrl_f9_ = voicePreferences.value("hotkey_ctrl_f9", true);
+    voice_hotkey_ralt_ = voicePreferences.value("hotkey_ralt", true);
     voice_language_ = voicePreferences.value("language", std::string("zh-cn"));
     voice_options_ = voiceProviderOptions(preferences_);
     online_socket_ = onlineSocket(options);
@@ -681,6 +683,7 @@ public:
             const auto voicePreferences = preferences_.value("voice_input", Json::object());
             voice_enabled_ = voicePreferences.value("enabled", voice_enabled_);
             voice_hotkey_ctrl_f9_ = voicePreferences.value("hotkey_ctrl_f9", voice_hotkey_ctrl_f9_);
+            voice_hotkey_ralt_ = voicePreferences.value("hotkey_ralt", voice_hotkey_ralt_);
             voice_language_ = voicePreferences.value("language", voice_language_);
             voice_options_ = voiceProviderOptions(preferences_);
             preferences_snapshot_ = std::move(snapshot);
@@ -1333,6 +1336,7 @@ public:
   Json voice_options_ = Json::object();
   bool voice_enabled_ = true;
   bool voice_hotkey_ctrl_f9_ = true;
+  bool voice_hotkey_ralt_ = true;
   std::shared_future<Json> voice_job_;
   std::shared_ptr<FcitxVoiceMailbox> voice_mailbox_;
   uint64_t voice_generation_ = 0;
@@ -2594,10 +2598,22 @@ void FcitxState::maintenance(int operation) {
 
 bool FcitxState::key(fcitx::KeyEvent &event) {
   const auto &key = event.key();
-  if (event.isRelease() || key.isModifier()) return false;
-  const bool composing = !view_.value("editing_text", std::string()).empty();
   const auto sym = key.sym();
   const auto states = key.states();
+  if (sym == FcitxKey_Alt_R && voice_hotkey_ralt_ && voice_enabled_ &&
+      !states.testAny(fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Shift,
+                                       fcitx::KeyState::Super, fcitx::KeyState::Hyper}) &&
+      !restricted() && !privateInput() && ic_.hasFocus()) {
+    if (event.isRelease()) {
+      if (voice_loading_) stopVoice();
+      return true;
+    }
+    if (voice_loading_) return true;
+    requestVoice();
+    return true;
+  }
+  if (event.isRelease() || key.isModifier()) return false;
+  const bool composing = !view_.value("editing_text", std::string()).empty();
   const bool ctrl = states.test(fcitx::KeyState::Ctrl);
   const bool alt = states.test(fcitx::KeyState::Alt);
   const bool shift = states.test(fcitx::KeyState::Shift);
