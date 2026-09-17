@@ -734,6 +734,20 @@ class FcitxClipboardItemAction : public fcitx::SimpleAction {
 public:
   FcitxClipboardItemAction(fcitx::FactoryFor<FcitxState> *factory, size_t index)
       : factory_(factory), index_(index) { setLabel("剪贴板 " + std::to_string(index + 1)); }
+  std::string shortText(fcitx::InputContext *ic) const override {
+    if (ic) {
+      const auto *state = ic->propertyFor(factory_);
+      if (index_ < state->clipboard_items_.size()) {
+        const auto &item = state->clipboard_items_.at(index_);
+        const auto text = item.is_string() ? item.get<std::string>() : item.value("text", std::string{});
+        if (!text.empty()) {
+          const auto clipped = text.substr(0, 40);
+          return clipped + (text.size() > clipped.size() ? "…" : "");
+        }
+      }
+    }
+    return "剪贴板 " + std::to_string(index_ + 1);
+  }
   void setLabel(const std::string &label) { setShortText(label); setLongText(label); }
   void activate(fcitx::InputContext *ic) override {
     if (!ic || !ic->hasFocus()) return;
