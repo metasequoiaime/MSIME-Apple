@@ -225,25 +225,31 @@ public:
         auto result = online_job_.get();
         if (session_ && session_ == online_job_session_ && !privateInput() &&
             ic_.hasFocus() && result.is_object() && result.value("query", "") == online_query_) {
-          Json candidates = Json::array();
+          Json candidates[2] = {Json::array(), Json::array()};
           for (const auto &item : result.value("candidates", Json::array())) {
-            if (item.is_object() && item.value("source", 255u) == 0 &&
-                item.value("text", std::string{}).size() > 0)
-              candidates.push_back(item.at("text"));
+            if (!item.is_object() || item.value("text", std::string{}).empty()) continue;
+            const auto source = item.value("source", 255u);
+            if (source < 2) candidates[source].push_back(item.at("text"));
           }
-          if (!candidates.empty()) {
-            const auto encoded = candidates.dump();
+          for (uint8_t source = 0; source < 2; ++source) {
+            if (candidates[source].empty()) continue;
+            const auto encoded = candidates[source].dump();
             view_ = response(msime_client_apply_online_candidates(
                 session_, reinterpret_cast<const uint8_t *>(online_query_.data()), online_query_.size(),
-                reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size(), 0)).at("view");
+                reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size(), source)).at("view");
             render();
           }
         }
       }
       if (!session_ || online_socket_.empty() || privateInput() || !ic_.hasFocus() || restricted()) return;
       const auto query = response(msime_client_online_query(session_));
-      if (!query.is_object() || !query.value("cloud_eligible", false) ||
-          !query.value("cloud_candidates", true)) return;
+      if (!query.is_object()) return;
+      const bool cloud = query.value("cloud_eligible", false) &&
+                         query.value("cloud_candidates", true);
+      const auto aiConfig = query.value("ai_assistant", Json::object());
+      const bool ai = query.value("ai_eligible", false) &&
+                      aiConfig.is_object() && aiConfig.value("enabled", false);
+      if (!cloud && !ai) return;
       const auto encoded = query.dump();
       if (encoded == online_query_ || online_job_.valid()) return;
       online_query_ = encoded;
