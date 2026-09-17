@@ -2,6 +2,8 @@
 #include "../FcitxEngine.cpp"
 #include <iostream>
 #include <filesystem>
+#include <thread>
+#include <chrono>
 
 using namespace msime::fcitx_host;
 class FixtureContext : public fcitx::InputContext {
@@ -45,6 +47,26 @@ int main(int argc, char **argv) {
     engine.activate(entry, focus);
     auto *state = ic.propertyFor(&engine.factory_);
     require(state->session_ != 0 && state->view_.contains("candidates"), "focus must unpack transition view");
+    auto changedPreferences = options["preferences"];
+    changedPreferences["number_row_selection"] = false;
+    const auto preferenceDirectory = options["preferences_directory"].get<std::string>();
+    const auto currentSnapshot = response(msime_client_load_preferences(
+        reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size()));
+    const auto changed = Json{{"format_version", 1},
+                              {"revision", currentSnapshot.value("revision", uint64_t{}) + 1},
+                              {"preferences", changedPreferences}};
+    const auto changedDocument = changed.dump();
+    auto saved = response(msime_client_save_preferences(
+        reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size(),
+        currentSnapshot.value("revision", uint64_t{}),
+        reinterpret_cast<const uint8_t *>(changedDocument.data()), changedDocument.size()));
+    require(saved.value("revision", uint64_t{}) > currentSnapshot.value("revision", uint64_t{}),
+            "preference store update");
+    state->refreshPreferences();
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    state->refreshPreferences();
+    require(!state->preferences_.value("number_row_selection", true),
+            "runtime preferences reload in active Fcitx session");
     require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 2,
             "native status actions attached");
     require(!engine.english_action_.isChecked(&ic), "English candidates initially disabled");
