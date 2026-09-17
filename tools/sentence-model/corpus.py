@@ -25,6 +25,8 @@ WIKI_DUMP = "https://dumps.wikimedia.org/zhwiki/latest/zhwiki-latest-pages-artic
 LCCC_BASE = "https://huggingface.co/datasets/silver/lccc/resolve/main/lccc_base_train.jsonl.gz"
 LCCC_LARGE = "https://huggingface.co/datasets/silver/lccc/resolve/main/lccc_large.jsonl.gz"
 
+USER_AGENT = "MSIME-Client sentence-model corpus builder (https://github.com/metasequoiaime/MSIME-Client)"
+
 # CJK unified ideographs plus extension A, and the handful of punctuation marks that carry
 # sentence structure. Latin, digits and everything else become boundaries.
 KEEP = re.compile(r"[一-鿿㐀-䶿]+")
@@ -42,14 +44,18 @@ def download(url, path):
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     tmp = path + ".part"
     print(f"downloading {url}", file=sys.stderr)
-    with urllib.request.urlopen(url) as response, open(tmp, "wb") as out:
+    # Wikimedia refuses the default urllib agent with 403; their policy requires a descriptive one.
+    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+    with urllib.request.urlopen(request) as response, open(tmp, "wb") as out:
         total = int(response.headers.get("content-length") or 0)
-        done = 0
+        done = reported = 0
         while chunk := response.read(1 << 20):
             out.write(chunk)
             done += len(chunk)
-            pct = f"{100 * done / total:.1f}%" if total else f"{done >> 20} MiB"
-            print(f"\r  {pct}", end="", file=sys.stderr)
+            if done - reported >= 1 << 26:
+                reported = done
+                pct = f"{100 * done / total:.0f}%" if total else f"{done >> 20} MiB"
+                print(f"  {pct}", file=sys.stderr)
     print("", file=sys.stderr)
     os.replace(tmp, path)
     return path
