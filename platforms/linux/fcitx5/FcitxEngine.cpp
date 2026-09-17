@@ -98,6 +98,7 @@ public:
           refreshPreferences();
           refreshOnline();
           refreshTranslations();
+          refreshClipboard();
           timer->setNextInterval(250000);
           timer->setOneShot();
           return true;
@@ -122,6 +123,10 @@ public:
     translation_query_.clear();
     translation_pending_.clear();
     translation_socket_.clear();
+    clipboard_path_.clear();
+    clipboard_items_.clear();
+    clipboard_loading_ = false;
+    clipboard_job_ = {};
   }
   void clearPanel() {
     ic_.inputPanel().reset();
@@ -177,6 +182,8 @@ public:
     word_character_minus_equal_ = wordCharacter.value("keys", std::string("brackets")) == "minus_equal";
     options_path_ = options.value("preferences_directory", std::string());
     resources_ = options.value("resources", std::string());
+    clipboard_path_ = options.value("preferences_directory", std::string());
+    if (clipboard_path_.empty()) clipboard_path_ = options.value("clipboard_history_path", std::string());
     online_socket_ = onlineSocket(options);
     translation_socket_ = options.value("translation_provider_socket", std::string{});
     if (translation_socket_.empty()) {
@@ -383,6 +390,35 @@ public:
       startTranslation(query, query.value("english_gloss", false));
     } catch (...) { /* Never expose candidate text or provider credentials in errors. */ }
   }
+  void refreshClipboard() {
+    try {
+      if (clipboard_job_.valid()) {
+        if (clipboard_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+        auto result = clipboard_job_.get();
+        clipboard_loading_ = false;
+        if (session_ && ic_.hasFocus() && !restricted() && !privateInput() && result.is_object())
+          clipboard_items_ = result.value("entries", Json::array());
+      }
+      if (clipboard_loading_ || clipboard_path_.empty() || restricted() || privateInput() || !ic_.hasFocus()) return;
+      clipboard_loading_ = true;
+      const auto path = clipboard_path_;
+      clipboard_job_ = std::async(std::launch::async, [path] {
+        auto raw = response(msime_client_load_clipboard_history(
+            reinterpret_cast<const uint8_t *>(path.data()), path.size()));
+        return raw.is_object() ? raw : Json::object();
+      });
+    } catch (...) { clipboard_loading_ = false; clipboard_items_.clear(); }
+  }
+  bool pasteClipboard() {
+    if (restricted() || privateInput() || !ic_.hasFocus()) return false;
+    refreshClipboard();
+    if (clipboard_items_.empty()) return false;
+    const auto &item = clipboard_items_.front();
+    const auto text = item.is_string() ? item.get<std::string>() : item.value("text", std::string{});
+    if (text.empty()) return false;
+    ic_.commitString(text);
+    return true;
+  }
   bool apply(char *raw) {
     auto result = response(raw);
     if (result.contains("commit") && result["commit"].is_string())
@@ -438,6 +474,10 @@ public:
   std::chrono::steady_clock::time_point translation_due_{};
   uint64_t translation_session_ = 0;
   std::future<Json> translation_job_;
+  std::string clipboard_path_;
+  Json clipboard_items_ = Json::array();
+  bool clipboard_loading_ = false;
+  std::future<Json> clipboard_job_;
   bool word_character_enabled_ = true;
   bool word_character_minus_equal_ = false;
 };
@@ -635,6 +675,20 @@ private:
   int operation_;
 };
 
+class FcitxClipboardAction : public fcitx::SimpleAction {
+public:
+  explicit FcitxClipboardAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
+    setShortText("剪贴板");
+    setLongText("插入最近的剪贴板历史");
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try { ic->propertyFor(factory_)->pasteClipboard(); } catch (...) {}
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
 // Each context owns a thread-bound Host API session. Fcitx never copies composing state.
 class FcitxEngine : public fcitx::InputMethodEngine {
 public:
@@ -643,6 +697,7 @@ public:
     english_action_.registerAction("msime-english-candidates", &instance->userInterfaceManager());
     width_action_.registerAction("msime-fullwidth", &instance->userInterfaceManager());
     maintenance_action_.registerAction("msime-candidate-tools", &instance->userInterfaceManager());
+    clipboard_action_.registerAction("msime-clipboard", &instance->userInterfaceManager());
     maintenance_action_.setMenu(&maintenance_menu_);
     maintenance_menu_.addAction(&pin_action_);
     maintenance_menu_.addAction(&remove_action_);
@@ -682,6 +737,7 @@ public:
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &english_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &width_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &maintenance_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &clipboard_action_);
     try { if (state->ensure()) state->render(); } catch (...) { unavailable(*state); }
   }
   void deactivate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
@@ -689,6 +745,7 @@ public:
     event.inputContext()->statusArea().removeAction(&english_action_);
     event.inputContext()->statusArea().removeAction(&width_action_);
     event.inputContext()->statusArea().removeAction(&maintenance_action_);
+    event.inputContext()->statusArea().removeAction(&clipboard_action_);
     state->close(); state->clearPanel();
   }
   void reset(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
@@ -716,6 +773,7 @@ public:
   FcitxModeAction width_action_{&factory_, FcitxModeAction::Mode::Fullwidth};
   fcitx::Menu maintenance_menu_;
   FcitxMaintenanceAction maintenance_action_{&factory_, 0, "候选维护"};
+  FcitxClipboardAction clipboard_action_{&factory_};
   FcitxMaintenanceAction pin_action_{&factory_, 1, "固定候选"};
   FcitxMaintenanceAction remove_action_{&factory_, 2, "删除候选"};
   FcitxMaintenanceAction fix1_action_{&factory_, 11, "固定到 1"};

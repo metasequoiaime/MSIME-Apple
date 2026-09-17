@@ -37,6 +37,10 @@ int main(int argc, char **argv) {
         reinterpret_cast<const uint8_t *>(request.data()), request.size()));
     options["preferences"]["learning"] = false;
     options["preferences"]["candidate_page_size"] = 2;
+    options["preferences"]["clipboard_history"] = true;
+    const auto clipboardPath = std::filesystem::path(options.at("preferences_directory").get<std::string>()) /
+                               "clipboard_history.json";
+    std::ofstream(clipboardPath) << Json::array({"剪贴板合成测试", "第二条"}).dump();
     options["preferences"]["cloud_candidates"] = !ai;
     options["preferences"]["ai_assistant"]["enabled"] = ai;
     options["preferences"]["ai_assistant"]["candidate_limit"] = 1;
@@ -123,7 +127,7 @@ int main(int argc, char **argv) {
     }
     require(!state->preferences_.value("number_row_selection", true),
             "runtime preferences reload in active Fcitx session");
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 3,
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 4,
             "native status actions attached");
     require(engine.maintenance_menu_.actions().size() == 8,
             "candidate maintenance menu attached");
@@ -156,6 +160,16 @@ int main(int argc, char **argv) {
                            FcitxKey_j, FcitxKey_i, FcitxKey_e})
       require(key(sym), "composition after refocus");
     const auto onlineQuery = response(msime_client_online_query(state->session_));
+    state->refreshClipboard();
+    const auto clipboardDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (state->clipboard_items_.empty() && std::chrono::steady_clock::now() < clipboardDeadline) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      state->refreshClipboard();
+    }
+    require(!state->clipboard_items_.empty(), "clipboard history loaded asynchronously");
+    const auto beforeClipboard = ic.committed;
+    engine.clipboard_action_.activate(&ic);
+    require(ic.committed == beforeClipboard + "剪贴板合成测试", "clipboard action commits newest history");
     if (ai) {
       require(onlineQuery.value("ai_eligible", false), "AI query eligible");
       require(onlineQuery.at("ai_assistant").value("enabled", false), "AI provider enabled");
