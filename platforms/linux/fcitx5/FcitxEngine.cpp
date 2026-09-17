@@ -1424,6 +1424,8 @@ public:
   FcitxCandidate(fcitx::FactoryFor<FcitxState> *factory, const Json &candidate, bool traditional)
       : CandidateWord(fcitx::Text((traditional ? msime_linux_simplified_to_traditional(candidate.at("text").get<std::string>())
                                                : candidate.at("text").get<std::string>()) +
+          (candidate.value("source", 0u) == 2 ? "  ☁️" :
+           candidate.value("source", 0u) == 3 ? "  🤖" : "") +
           (candidate.value("annotation", std::string()).empty() ? "" :
            "  " + candidate.at("annotation").get<std::string>()) +
           (candidate.contains("translation") && candidate.at("translation").is_string()
