@@ -779,6 +779,16 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         self.assertIn("github.base_ref == 'main' || github.ref_name == 'main'", handwriting)
         self.assertNotIn("github.event_name != 'pull_request'", handwriting)
 
+    def test_the_testflight_handover_can_install_its_dependency(self):
+        """没有 --break-system-packages,这一步每次发布都挂。
+
+        runner 的 Homebrew Python 是 externally-managed,pip 按 PEP 668 直接拒绝装到系统环境。挂的位置在包已经上传之后、分发之前,而 GitHub release 那时已经建好了 —— 于是从外面看这次发布是成功的,只有测试者永远等不到那个 build。自 #501 合入起每一次都是这样。
+        """
+        workflow = (IOS_ROOT.parents[1] / ".github/workflows/release-ios.yml").read_text()
+        install = next(line for line in workflow.splitlines() if "pip install" in line)
+        self.assertIn("--break-system-packages", install)
+        self.assertIn("pyjwt", install)
+
     def test_the_simulator_script_generates_before_it_builds(self):
         """生成必须在编译之前,而且不能加条件。
 
