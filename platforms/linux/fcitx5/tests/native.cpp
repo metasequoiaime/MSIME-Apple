@@ -261,6 +261,8 @@ int main(int argc, char **argv) {
     require(horizontalPage->layoutHint() == fcitx::CandidateLayoutHint::Horizontal,
             "previous candidate page retains its layout snapshot");
     require(page && page->size() == 2 && page->toPageable()->hasNext(), "runtime candidate page");
+    require(key(FcitxKey_KP_End), "keypad end candidate navigation");
+    require(key(FcitxKey_KP_Home), "keypad home candidate navigation");
     require(key(FcitxKey_Page_Down), "page down");
     const auto oldCommit = ic.committed;
     page->candidate(0).select(&ic);
