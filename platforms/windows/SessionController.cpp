@@ -487,6 +487,24 @@ bool SessionController::send_caps_lock(const FocusLease &lease, bool enabled) {
   }
   return sent;
 }
+bool SessionController::reset_cache() {
+  if (input_.on_worker_thread() || active_controller == this || stopping_)
+    return false;
+  std::unique_lock transaction(*transactions_, std::try_to_lock);
+  if (!transaction.owns_lock())
+    return false;
+  auto result = std::make_shared<std::atomic<bool>>(false);
+  auto submitted = input_.submit([this, result](InputState &state) {
+    if (stopping_)
+      return;
+    result->store(state.reset_cache(), std::memory_order_release);
+  });
+  if (!submitted || submitted->wait_for(std::chrono::milliseconds(100)) !=
+                         std::future_status::ready)
+    return false;
+  return submitted->get() == InputTaskStatus::Completed &&
+         result->load(std::memory_order_acquire);
+}
 bool SessionController::send_tsf_config(const TsfLocalConfig &config) {
   if (input_.on_worker_thread() || active_controller == this)
     throw std::logic_error("Config push cannot reenter controller callbacks");

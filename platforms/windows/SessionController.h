@@ -52,6 +52,8 @@ public:
   // delivered, not that TSF applied the mode. Never call from input/event callbacks.
   ModeRequestResult request_mode(const FocusLease &lease, WorkerMode mode);
   bool send_caps_lock(const FocusLease &lease, bool enabled);
+  // External maintenance callback. The Engine operation remains queue-owned.
+  bool reset_cache();
   // Push the TSF-local settings to every registered TIP. Returns true only
   // when every snapshot ticket accepted the complete frame set.
   bool send_tsf_config(const TsfLocalConfig &config);

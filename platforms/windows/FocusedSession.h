@@ -72,6 +72,8 @@ public:
   bool cancel_focus_token(uint64_t token);
   // Explicit host composition termination, preserving the active focus lease.
   bool cancel_composition(const FocusLease &lease);
+  // Queue-owned maintenance operation; it is available without a focus lease.
+  bool reset_cache();
   bool set_input_enabled(const FocusLease &lease, bool enabled);
   bool set_chinese_punctuation(const FocusLease &lease, bool enabled);
   // Retain at most one latest snapshot while a reply is pending. True means

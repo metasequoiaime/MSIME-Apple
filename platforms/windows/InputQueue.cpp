@@ -185,6 +185,18 @@ bool InputState::confirmed(const FocusLease &lease) {
   }
   return true;
 }
+bool InputState::reset_cache() {
+  check_thread();
+  bool all_reset = true;
+  for (auto &[id, client] : clients_) {
+    (void)id;
+    if (!client.session)
+      continue;
+    if (!client.session->reset_cache())
+      all_reset = false;
+  }
+  return all_reset;
+}
 FocusRoute InputState::failed(const FocusLease &lease) {
   check_thread();
   auto result = router_.failed(lease);

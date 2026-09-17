@@ -78,6 +78,7 @@ public:
   bool send_tsf_config(const TsfLocalConfig &config) {
     return controller_->send_tsf_config(config);
   }
+  bool reset_cache() { return controller_->reset_cache(); }
   bool send_caps_lock(const FocusLease &lease, bool enabled) {
     return controller_->send_caps_lock(lease, enabled);
   }
