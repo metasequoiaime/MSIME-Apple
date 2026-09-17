@@ -109,6 +109,48 @@ class BuildNumberTests(unittest.TestCase):
                 text=True, capture_output=True)
             self.assertEqual(probe.returncode == 0, accepted, tag)
 
+    def test_the_tag_validator_and_the_build_validator_accept_the_same_shapes(self):
+        """两道校验串在一条路上:tag 校验放行一个 tag,分配步骤再从它里面取出 build 号、用另一条正则校一遍。前者收后者不收,发布就死在中间。
+
+        这个 bug 发生过,而且在 CI 上是绿的 —— 它只在手动指定 tag 重发旧版本时才走到。上面两条用例各管一半(七处 tag 校验彼此一致、旧三段号能过分配步骤),却都钉的是具体形状:把两边的 tag 正则一起放宽到一种新形状,两条都还是绿的,而发布照样会断。
+
+        所以这里不比形状,比语言:凡是 tag 校验认的 build 后缀,build 号校验都必须认,反之亦然。
+        """
+        root = MACOS_ROOT.parents[1]
+        workflow = (root / ".github/workflows/release-macos.yml").read_text()
+        tag_pattern = re.search(r'"\$TAG_NAME" =~ (\S+) \]\]', workflow)
+        build_pattern = re.search(r'"\$build" =~ (\S+) \]\]', workflow)
+        self.assertIsNotNone(tag_pattern, "读不出 tag 校验的正则")
+        self.assertIsNotNone(build_pattern, "读不出 build 号校验的正则")
+        tag_expression = re.compile(tag_pattern.group(1))
+        build_expression = re.compile(build_pattern.group(1))
+
+        # 形状自己生成,不写死清单 —— 写死的话,放宽成一个没列进来的形状照样溜过去,那正是这条用例要拦的。
+        parts = ("0", "1", "9", "01", "23", "99", "100", "1002", "71", "999999999", "1234567890")
+        candidates = set(parts)
+        for a in parts:
+            for b in parts:
+                candidates.add(f"{a}.{b}")
+                for c in parts:
+                    candidates.add(f"{a}.{b}.{c}")
+                    candidates.add(f"{a}.{b}.{c}.{a}")
+        disagreed = sorted(
+            candidate for candidate in candidates
+            if bool(tag_expression.fullmatch(f"v1.2.3-build.{candidate}"))
+            != bool(build_expression.fullmatch(candidate))
+        )
+        self.assertEqual(disagreed, [], f"tag 校验与 build 号校验对这些形状意见不一致: {disagreed[:10]}")
+
+        # 上面是拿 Python 的 re 读这两条正则,而实际跑它们的是 bash。抽几个真的走一遍步骤,确认两边理解一致。
+        for candidate in ("1", "23", "1002.71.1", "0", "1.2", "1.2.3.4"):
+            expected = bool(build_expression.fullmatch(candidate))
+            result, output = self.run_step("Allocate build number",
+                                           REQUESTED_TAG=f"v0.48.6-build.{candidate}")
+            with self.subTest(candidate=candidate):
+                self.assertEqual(result.returncode == 0, expected, result.stderr)
+                if expected:
+                    self.assertEqual(output, f"value={candidate}\n")
+
     def test_manual_build_draft_preserves_its_build(self):
         result, output = self.run_step("Allocate build number",
                                      REQUESTED_TAG="v0.48.6-build.23")
