@@ -1248,6 +1248,10 @@ public:
     if (!id.is_object() || !id.contains("generation") || !id.contains("index")) return false;
     return apply(msime_client_remove_candidate(session_, id.at("generation"), id.at("index")));
   }
+  bool resetCache() {
+    if (!ensure() || restricted() || privateInput() || !ic_.hasFocus()) return false;
+    return apply(msime_client_reset_cache(session_));
+  }
   bool toggleTraditional() {
     if (!session_ || view_.value("scheme", 0u) == 3) return false;
     traditional_ = !traditional_;
@@ -2652,6 +2656,7 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   }
   if (ctrl && shift && alt &&
       !states.testAny(fcitx::KeyStates{fcitx::KeyState::Super, fcitx::KeyState::Hyper})) {
+    if (sym == FcitxKey_c || sym == FcitxKey_C) return resetCache();
     std::optional<size_t> slot;
     if (sym >= FcitxKey_1 && sym <= FcitxKey_8)
       slot = static_cast<size_t>(sym - FcitxKey_1);
