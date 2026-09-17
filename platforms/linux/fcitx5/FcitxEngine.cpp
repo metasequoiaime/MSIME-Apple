@@ -97,6 +97,7 @@ public:
         10000, [this](fcitx::EventSourceTime *timer, uint64_t) {
           refreshPreferences();
           refreshOnline();
+          refreshTranslations();
           timer->setNextInterval(250000);
           timer->setOneShot();
           return true;
@@ -110,6 +111,7 @@ public:
     preferences_ = Json::object();
     navigation_ = Json::object();
     options_path_.clear();
+    resources_.clear();
     preferences_job_session_ = 0;
     preferences_snapshot_ = Json();
     online_socket_.clear();
@@ -117,6 +119,7 @@ public:
     online_job_session_ = 0;
     ++online_epoch_;
     online_due_ = {};
+    translation_query_.clear();
   }
   void clearPanel() {
     ic_.inputPanel().reset();
@@ -171,6 +174,7 @@ public:
     word_character_enabled_ = wordCharacter.value("enabled", true);
     word_character_minus_equal_ = wordCharacter.value("keys", std::string("brackets")) == "minus_equal";
     options_path_ = options.value("preferences_directory", std::string());
+    resources_ = options.value("resources", std::string());
     online_socket_ = onlineSocket(options);
     if (private_) {
       preferences_["learning"] = false;
@@ -292,6 +296,50 @@ public:
       online_query_.clear();
     }
   }
+  void refreshTranslations() {
+    try {
+      if (translation_job_.valid()) {
+        if (translation_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+        auto result = translation_job_.get();
+        if (session_ && session_ == translation_session_ && ic_.hasFocus() &&
+            result.is_object() && result.value("query", "") == translation_query_) {
+          const auto encoded = result.value("translations", Json::array()).dump();
+          view_ = response(msime_client_apply_translations(
+              session_, translation_generation_, reinterpret_cast<const uint8_t *>(encoded.data()),
+              encoded.size())).at("view");
+          render();
+        }
+      }
+      if (!session_ || !ic_.hasFocus() || restricted() || privateInput() ||
+          !preferences_.value("candidate_translations", false) ||
+          !view_.value("candidates", Json::array()).is_array() ||
+          view_.at("candidates").empty()) return;
+      auto query = response(msime_client_translation_query(session_));
+      if (!query.is_object()) return;
+      query["target_language"] = preferences_.value("translation_target_language", "en");
+      const auto encoded = query.dump();
+      if (encoded == translation_query_ || translation_job_.valid()) return;
+      translation_query_ = encoded;
+      translation_session_ = session_;
+      translation_generation_ = query.value("generation", uint64_t{});
+      auto candidates = Json::array();
+      for (const auto &candidate : query.at("candidates"))
+        candidates.push_back(Json{{"text", candidate.at("text")},
+                                  {"source", candidate.value("source", 0)}});
+      const auto request = Json{{"generation", translation_generation_},
+                                {"candidates", candidates}}.dump();
+      const auto resources = resources_;
+      translation_job_ = std::async(std::launch::async,
+          [request, resources, encoded] {
+            auto raw = response(msime_client_candidate_gloss_request(
+                reinterpret_cast<const uint8_t *>(request.data()), request.size(),
+                reinterpret_cast<const uint8_t *>(resources.data()), resources.size()));
+            Json result = raw.is_object() ? raw : Json::object();
+            result["query"] = encoded;
+            return result;
+          });
+    } catch (...) { translation_query_.clear(); }
+  }
   bool apply(char *raw) {
     auto result = response(raw);
     if (result.contains("commit") && result["commit"].is_string())
@@ -326,6 +374,7 @@ public:
   Json preferences_ = Json::object();
   Json navigation_ = Json::object();
   std::string options_path_;
+  std::string resources_;
   Json preferences_snapshot_;
   uint64_t preferences_job_session_ = 0;
   std::future<Json> preferences_job_;
@@ -342,6 +391,10 @@ public:
   } online_slots_[2];
   uint64_t online_epoch_ = 0;
   std::chrono::steady_clock::time_point online_due_{};
+  std::string translation_query_;
+  uint64_t translation_session_ = 0;
+  uint64_t translation_generation_ = 0;
+  std::future<Json> translation_job_;
   bool word_character_enabled_ = true;
   bool word_character_minus_equal_ = false;
 };
