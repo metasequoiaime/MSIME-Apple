@@ -45,6 +45,17 @@ int main(int argc, char **argv) {
     engine.activate(entry, focus);
     auto *state = ic.propertyFor(&engine.factory_);
     require(state->session_ != 0 && state->view_.contains("candidates"), "focus must unpack transition view");
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 2,
+            "native status actions attached");
+    require(!engine.english_action_.isChecked(&ic), "English candidates initially disabled");
+    engine.english_action_.activate(&ic);
+    require(engine.english_action_.isChecked(&ic), "status action enables English candidates");
+    engine.english_action_.activate(&ic);
+    require(!engine.english_action_.isChecked(&ic), "status action disables English candidates");
+    engine.width_action_.activate(&ic);
+    require(engine.width_action_.isChecked(&ic), "status action enables fullwidth");
+    engine.width_action_.activate(&ic);
+    require(!engine.width_action_.isChecked(&ic), "status action restores halfwidth");
     const auto key = [&](fcitx::KeySym sym) {
       fcitx::KeyEvent event(&ic, fcitx::Key(sym));
       engine.keyEvent(entry, event);
@@ -75,6 +86,8 @@ int main(int argc, char **argv) {
     require(key(FcitxKey_n), "restart composition");
     ic.setCapabilityFlags(fcitx::CapabilityFlag::Password);
     require(state->session_ == 0, "password capability immediately closes session");
+    engine.english_action_.activate(&ic);
+    require(state->session_ == 0, "status action cannot reopen password context");
     require(ic.inputPanel().clientPreedit().empty(), "password immediately clears preedit");
     require(!key(FcitxKey_i) && state->session_ == 0, "password context closes session");
     require(ic.inputPanel().clientPreedit().empty(), "password clears preedit");

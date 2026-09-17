@@ -5,6 +5,8 @@
 #include <fcitx-utils/event.h>
 #include <fcitx/addonfactory.h>
 #include <fcitx/addonmanager.h>
+#include <fcitx/action.h>
+#include <fcitx/statusarea.h>
 #include <fcitx/candidatelist.h>
 #include <fcitx/inputcontext.h>
 #include <fcitx/inputcontextmanager.h>
@@ -347,11 +349,53 @@ private:
   std::vector<fcitx::Text> labels_;
 };
 
+// Status actions are shared by the addon, but their values belong to the
+// supplied context. Never cache one application's checked state globally.
+class FcitxModeAction : public fcitx::Action {
+public:
+  enum class Mode { EnglishCandidates, Fullwidth };
+  FcitxModeAction(fcitx::FactoryFor<FcitxState> *factory, Mode mode)
+      : factory_(factory), mode_(mode) { setCheckable(true); }
+  std::string shortText(fcitx::InputContext *) const override {
+    return mode_ == Mode::EnglishCandidates ? "英文候选" : "全角";
+  }
+  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  bool isChecked(fcitx::InputContext *ic) const override {
+    if (!ic) return false;
+    const auto *state = ic->propertyFor(factory_);
+    if (!state->session_) return false;
+    return mode_ == Mode::EnglishCandidates
+        ? state->view_.value("dedicated_english", false)
+        : state->view_.value("character_width", std::string{}) == "Fullwidth";
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    auto *state = ic->propertyFor(factory_);
+    if (!state->session_ || state->restricted()) return;
+    try {
+      if (!state->ensure()) return;
+      if (!state->view_.value("editing_text", std::string{}).empty())
+        state->command(MSIME_COMMIT_RAW);
+      if (mode_ == Mode::EnglishCandidates) state->toggleEnglish();
+      else state->toggleWidth();
+      update(ic);
+    } catch (...) {
+      state->close();
+      state->clearPanel();
+    }
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+  Mode mode_;
+};
+
 // Each context owns a thread-bound Host API session. Fcitx never copies composing state.
 class FcitxEngine : public fcitx::InputMethodEngine {
 public:
   explicit FcitxEngine(fcitx::Instance *instance) : instance_(instance) {
     instance->inputContextManager().registerProperty("msimeState", &factory_);
+    english_action_.registerAction("msime-english-candidates", &instance->userInterfaceManager());
+    width_action_.registerAction("msime-fullwidth", &instance->userInterfaceManager());
     capability_watch_ = instance->watchEvent(
         fcitx::EventType::InputContextCapabilityChanged,
         fcitx::EventWatcherPhase::PreInputMethod, [this](fcitx::Event &event) {
@@ -370,10 +414,14 @@ public:
   }
   void activate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
     auto *state = event.inputContext()->propertyFor(&factory_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &english_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &width_action_);
     try { if (state->ensure()) state->render(); } catch (...) { unavailable(*state); }
   }
   void deactivate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
     auto *state = event.inputContext()->propertyFor(&factory_);
+    event.inputContext()->statusArea().removeAction(&english_action_);
+    event.inputContext()->statusArea().removeAction(&width_action_);
     state->close(); state->clearPanel();
   }
   void reset(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
@@ -396,9 +444,15 @@ public:
     return new FcitxState(ic, this, instance_->eventLoop());
   }};
   std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>> capability_watch_;
+  FcitxModeAction english_action_{&factory_, FcitxModeAction::Mode::EnglishCandidates};
+  FcitxModeAction width_action_{&factory_, FcitxModeAction::Mode::Fullwidth};
 };
 
 void FcitxState::render() {
+  if (engine_) {
+    engine_->english_action_.update(&ic_);
+    engine_->width_action_.update(&ic_);
+  }
   ic_.inputPanel().reset();
   const auto editing = view_.value("editing_text", std::string());
   fcitx::Text preedit(editing, fcitx::TextFormatFlag::Underline);
