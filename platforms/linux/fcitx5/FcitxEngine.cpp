@@ -271,7 +271,9 @@ class FcitxPage : public fcitx::CandidateList,
 public:
   FcitxPage(FcitxState &state, fcitx::FactoryFor<FcitxState> *factory) : state_(state),
       session_(state.session_), generation_(state.view_.at("generation")),
-      page_(state.view_.at("page")), pages_(state.view_.at("page_count")) {
+      page_(state.view_.at("page")), pages_(state.view_.at("page_count")),
+      layout_(state.preferences_.value("candidate_layout", std::string("vertical")) == "horizontal"
+          ? fcitx::CandidateLayoutHint::Horizontal : fcitx::CandidateLayoutHint::Vertical) {
     setPageable(this);
 #ifdef MSIME_FCITX_ACTIONS
     setActionable(this);
@@ -286,7 +288,7 @@ public:
   const fcitx::CandidateWord &candidate(int index) const override { return *words_.at(index); }
   int size() const override { return words_.size(); }
   int cursorIndex() const override { return cursor_; }
-  fcitx::CandidateLayoutHint layoutHint() const override { return fcitx::CandidateLayoutHint::Vertical; }
+  fcitx::CandidateLayoutHint layoutHint() const override { return layout_; }
   bool hasPrev() const override { return page_ > 0; }
   bool hasNext() const override { return page_ + 1 < pages_; }
   bool usedNextBefore() const override { return page_ > 0; }
@@ -368,6 +370,7 @@ private:
   FcitxState &state_;
   uint64_t session_, generation_;
   int page_, pages_, cursor_ = -1;
+  fcitx::CandidateLayoutHint layout_;
   std::vector<std::unique_ptr<FcitxCandidate>> words_;
   std::vector<fcitx::Text> labels_;
 };

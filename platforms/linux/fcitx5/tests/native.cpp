@@ -49,6 +49,7 @@ int main(int argc, char **argv) {
     require(state->session_ != 0 && state->view_.contains("candidates"), "focus must unpack transition view");
     auto changedPreferences = options["preferences"];
     changedPreferences["number_row_selection"] = false;
+    changedPreferences["candidate_layout"] = "horizontal";
     const auto preferenceDirectory = options["preferences_directory"].get<std::string>();
     const auto currentSnapshot = response(msime_client_load_preferences(
         reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size()));
@@ -62,9 +63,12 @@ int main(int argc, char **argv) {
         reinterpret_cast<const uint8_t *>(changedDocument.data()), changedDocument.size()));
     require(saved.value("revision", uint64_t{}) > currentSnapshot.value("revision", uint64_t{}),
             "preference store update");
-    state->refreshPreferences();
-    std::this_thread::sleep_for(std::chrono::milliseconds(100));
-    state->refreshPreferences();
+    const auto reloadDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (state->preferences_.value("number_row_selection", true) &&
+           std::chrono::steady_clock::now() < reloadDeadline) {
+      state->refreshPreferences();
+      std::this_thread::sleep_for(std::chrono::milliseconds(5));
+    }
     require(!state->preferences_.value("number_row_selection", true),
             "runtime preferences reload in active Fcitx session");
     require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 2,
@@ -85,6 +89,9 @@ int main(int argc, char **argv) {
     };
     require(key(FcitxKey_n) && key(FcitxKey_i), "composition keys");
     require(ic.inputPanel().clientPreedit().toString() == "ni", "native preedit");
+    auto horizontalPage = ic.inputPanel().candidateList();
+    require(horizontalPage && horizontalPage->layoutHint() == fcitx::CandidateLayoutHint::Horizontal,
+            "hot-loaded horizontal layout reaches native candidate list");
     ic.focusOut();
     require(state->session_ == 0, "focus out destroys host session");
     require(ic.inputPanel().clientPreedit().empty(), "focus out clears preedit");
@@ -93,6 +100,10 @@ int main(int argc, char **argv) {
     require(state->session_ != 0, "focus in creates a fresh host session");
     require(key(FcitxKey_n) && key(FcitxKey_i), "composition after refocus");
     auto page = ic.inputPanel().candidateList();
+    require(page && page->layoutHint() == fcitx::CandidateLayoutHint::Vertical,
+            "bootstrap vertical layout reaches native candidate list");
+    require(horizontalPage->layoutHint() == fcitx::CandidateLayoutHint::Horizontal,
+            "previous candidate page retains its layout snapshot");
     require(page && page->size() == 2 && page->toPageable()->hasNext(), "runtime candidate page");
     require(key(FcitxKey_Page_Down), "page down");
     const auto oldCommit = ic.committed;
