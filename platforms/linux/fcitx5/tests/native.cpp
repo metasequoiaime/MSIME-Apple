@@ -61,6 +61,10 @@ int main(int argc, char **argv) {
     page = ic.inputPanel().candidateList();
     page->candidate(0).select(&ic);
     require(!ic.committed.empty(), "native candidate selection");
+    require(key(FcitxKey_n) && key(FcitxKey_i), "second composition keys");
+    require(key(FcitxKey_minus), "configured minus previous-page binding");
+    require(key(FcitxKey_equal), "configured equal next-page binding");
+    require(key(FcitxKey_Escape), "cancel after navigation");
     const auto beforePunctuation = ic.committed;
     ic.surroundingText().setText("😀A", 2, 2);
     require(!key(FcitxKey_comma), "ASCII punctuation remains with editor");
