@@ -235,6 +235,31 @@ else
   echo "cargo-audit not installed; skipping (cargo install cargo-audit)"
 fi
 
+note "sentence conversion eval"
+# Conversion quality had no number attached to it, so nothing could show that a lattice or ranking
+# change helped. This compares against a committed baseline; resources/eval/README.md explains what
+# each set can and cannot measure. Skipped where no verified dictionary is present, like the native
+# phases - the directory is a 181 MB download this script must not require.
+if [ -n "${MSIME_EVAL_RESOURCES:-}" ] && [ -d "${MSIME_EVAL_RESOURCES:-}" ]; then
+  for set in sentences words; do
+    case "$set" in
+      sentences) args="--set resources/eval/sentences-v1.tsv" ;;
+      words) args="--set resources/eval/quanpin-words-v1.tsv --limit 3000" ;;
+    esac
+    # shellcheck disable=SC2086
+    if cargo run --release -q -p msime-input-runtime --example convert_eval --locked -- \
+        --resources "$MSIME_EVAL_RESOURCES" $args \
+        --baseline "scripts/eval-baseline-$set.json" >/dev/null 2>&1; then
+      echo "eval $set: at baseline"
+    else
+      fail "eval $set differs from scripts/eval-baseline-$set.json"
+      echo "  accept it with --update-baseline once you have read the diff"
+    fi
+  done
+else
+  echo "skipped: set MSIME_EVAL_RESOURCES to a verified dictionary directory to run the eval"
+fi
+
 note "native tests"
 if [ -d "$MSIME_NATIVE_BUILD" ]; then
   (cd "$MSIME_NATIVE_BUILD" && ctest -C Debug 2>&1) |

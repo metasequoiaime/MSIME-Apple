@@ -1,0 +1,391 @@
+{
+  "by_syllables": {
+    "10": {
+      "cases": 1,
+      "found": 1.0,
+      "mrr": 1.0,
+      "top1": 1.0,
+      "top1_char_prefix": 1.0,
+      "top5": 1.0,
+      "top9": 1.0
+    },
+    "11": {
+      "cases": 2,
+      "found": 0.5,
+      "mrr": 0.5,
+      "top1": 0.5,
+      "top1_char_prefix": 0.545,
+      "top5": 0.5,
+      "top9": 0.5
+    },
+    "12": {
+      "cases": 3,
+      "found": 0.667,
+      "mrr": 0.667,
+      "top1": 0.667,
+      "top1_char_prefix": 0.778,
+      "top5": 0.667,
+      "top9": 0.667
+    },
+    "15": {
+      "cases": 2,
+      "found": 1.0,
+      "mrr": 1.0,
+      "top1": 1.0,
+      "top1_char_prefix": 1.0,
+      "top5": 1.0,
+      "top9": 1.0
+    },
+    "3": {
+      "cases": 2,
+      "found": 1.0,
+      "mrr": 1.0,
+      "top1": 1.0,
+      "top1_char_prefix": 1.0,
+      "top5": 1.0,
+      "top9": 1.0
+    },
+    "4": {
+      "cases": 1,
+      "found": 0.0,
+      "mrr": 0.0,
+      "top1": 0.0,
+      "top1_char_prefix": 0.25,
+      "top5": 0.0,
+      "top9": 0.0
+    },
+    "5": {
+      "cases": 6,
+      "found": 0.667,
+      "mrr": 0.667,
+      "top1": 0.667,
+      "top1_char_prefix": 0.933,
+      "top5": 0.667,
+      "top9": 0.667
+    },
+    "6": {
+      "cases": 14,
+      "found": 0.571,
+      "mrr": 0.571,
+      "top1": 0.571,
+      "top1_char_prefix": 0.726,
+      "top5": 0.571,
+      "top9": 0.571
+    },
+    "7": {
+      "cases": 18,
+      "found": 0.278,
+      "mrr": 0.278,
+      "top1": 0.278,
+      "top1_char_prefix": 0.635,
+      "top5": 0.278,
+      "top9": 0.278
+    },
+    "8": {
+      "cases": 9,
+      "found": 0.556,
+      "mrr": 0.556,
+      "top1": 0.556,
+      "top1_char_prefix": 0.75,
+      "top5": 0.556,
+      "top9": 0.556
+    },
+    "9": {
+      "cases": 2,
+      "found": 0.5,
+      "mrr": 0.5,
+      "top1": 0.5,
+      "top1_char_prefix": 0.889,
+      "top5": 0.5,
+      "top9": 0.5
+    }
+  },
+  "by_tag": {
+    "function-word": {
+      "cases": 10,
+      "found": 0.4,
+      "mrr": 0.4,
+      "top1": 0.4,
+      "top1_char_prefix": 0.68,
+      "top5": 0.4,
+      "top9": 0.4
+    },
+    "homophone": {
+      "cases": 12,
+      "found": 0.583,
+      "mrr": 0.583,
+      "top1": 0.583,
+      "top1_char_prefix": 0.855,
+      "top5": 0.583,
+      "top9": 0.583
+    },
+    "long-sentence": {
+      "cases": 8,
+      "found": 0.75,
+      "mrr": 0.75,
+      "top1": 0.75,
+      "top1_char_prefix": 0.803,
+      "top5": 0.75,
+      "top9": 0.75
+    },
+    "name-place": {
+      "cases": 6,
+      "found": 0.167,
+      "mrr": 0.167,
+      "top1": 0.167,
+      "top1_char_prefix": 0.452,
+      "top5": 0.167,
+      "top9": 0.167
+    },
+    "number-measure": {
+      "cases": 6,
+      "found": 0.333,
+      "mrr": 0.333,
+      "top1": 0.333,
+      "top1_char_prefix": 0.615,
+      "top5": 0.333,
+      "top9": 0.333
+    },
+    "seg-ambiguity": {
+      "cases": 12,
+      "found": 0.583,
+      "mrr": 0.583,
+      "top1": 0.583,
+      "top1_char_prefix": 0.813,
+      "top5": 0.583,
+      "top9": 0.583
+    },
+    "short-phrase": {
+      "cases": 6,
+      "found": 0.667,
+      "mrr": 0.667,
+      "top1": 0.667,
+      "top1_char_prefix": 0.792,
+      "top5": 0.667,
+      "top9": 0.667
+    }
+  },
+  "cases": 60,
+  "gold_source": {
+    "database": 2,
+    "generated": 29
+  },
+  "overall": {
+    "cases": 60,
+    "found": 0.517,
+    "mrr": 0.517,
+    "top1": 0.517,
+    "top1_char_prefix": 0.74,
+    "top5": 0.517,
+    "top9": 0.517
+  },
+  "sample_failures": [
+    {
+      "gold": "我今天去上班",
+      "id": "s-001",
+      "input": "wojintianqushangban",
+      "rank": null,
+      "top1": "握紧天趣上班"
+    },
+    {
+      "gold": "这是一个好主意",
+      "id": "s-003",
+      "input": "zheshiyigehaozhuyi",
+      "rank": null,
+      "top1": "这是一个好注意"
+    },
+    {
+      "gold": "他把书放在桌子上",
+      "id": "s-006",
+      "input": "tabashufangzaizhuozishang",
+      "rank": null,
+      "top1": "他把书房在桌子上"
+    },
+    {
+      "gold": "我的手机没电了",
+      "id": "s-007",
+      "input": "wodeshoujimeidianle",
+      "rank": null,
+      "top1": "我的手机没点了"
+    },
+    {
+      "gold": "我们一起吃饭吧",
+      "id": "s-009",
+      "input": "womenyiqichifanba",
+      "rank": null,
+      "top1": "我们一起吃饭把"
+    },
+    {
+      "gold": "你昨天去哪里了",
+      "id": "s-010",
+      "input": "nizuotianqunalile",
+      "rank": null,
+      "top1": "你做天趣那里了"
+    },
+    {
+      "gold": "现在几点钟",
+      "id": "s-011",
+      "input": "xianzaijidianzhong",
+      "rank": null,
+      "top1": "现在几点中"
+    },
+    {
+      "gold": "他是工程师",
+      "id": "s-013",
+      "input": "tashigongchengshi",
+      "rank": null,
+      "top1": "他是工程是"
+    },
+    {
+      "gold": "请问洗手间在哪里",
+      "id": "s-016",
+      "input": "qingwenxishoujianzainali",
+      "rank": null,
+      "top1": "请问吸收建在那里"
+    },
+    {
+      "gold": "我买了一本书",
+      "id": "s-019",
+      "input": "womaileyibenshu",
+      "rank": null,
+      "top1": "我买乐意本书"
+    },
+    {
+      "gold": "请帮我打印这个",
+      "id": "s-022",
+      "input": "qingbangwodayindaozhege",
+      "rank": null,
+      "top1": "请帮我打引导这个"
+    },
+    {
+      "gold": "我们要研究这个方案",
+      "id": "s-024",
+      "input": "womenyaoyanjiuzhegefangan",
+      "rank": null,
+      "top1": "我们要研究这个反感"
+    },
+    {
+      "gold": "他已经到家了",
+      "id": "s-026",
+      "input": "tayijingdaojiale",
+      "rank": null,
+      "top1": "他一惊道加了"
+    },
+    {
+      "gold": "请你再说一遍",
+      "id": "s-028",
+      "input": "qingnizaishuoyibian",
+      "rank": null,
+      "top1": "请你再说一边"
+    },
+    {
+      "gold": "这件事情很难办",
+      "id": "s-029",
+      "input": "zhejianshiqinghennanban",
+      "rank": null,
+      "top1": "这件事情很难半"
+    },
+    {
+      "gold": "我们应该早一点去",
+      "id": "s-031",
+      "input": "womenyinggaizaoyidianqu",
+      "rank": null,
+      "top1": "我们应该早已淀区"
+    },
+    {
+      "gold": "三百五十九块钱",
+      "id": "s-035",
+      "input": "sanbaiwushijiukuaiqian",
+      "rank": null,
+      "top1": "三百五十就块钱"
+    },
+    {
+      "gold": "这里有三个人",
+      "id": "s-037",
+      "input": "zheligeyousangeren",
+      "rank": null,
+      "top1": "这里各有三个人"
+    },
+    {
+      "gold": "一共一千二百元",
+      "id": "s-039",
+      "input": "yigongyiqianerbaiyuan",
+      "rank": null,
+      "top1": "一共以前二百元"
+    },
+    {
+      "gold": "我们开了两小时会",
+      "id": "s-040",
+      "input": "womenkaileliangxiaoshihui",
+      "rank": null,
+      "top1": "我们开了良宵实惠"
+    },
+    {
+      "gold": "李明在北京工作",
+      "id": "s-042",
+      "input": "liminzaibeijinggongzuo",
+      "rank": null,
+      "top1": "利民在北京工作"
+    },
+    {
+      "gold": "王芳是我的同事",
+      "id": "s-043",
+      "input": "wangfangshiwodetongshi",
+      "rank": null,
+      "top1": "王方式我的同时"
+    },
+    {
+      "gold": "他们从上海来的",
+      "id": "s-044",
+      "input": "tamencongshanghailaide",
+      "rank": null,
+      "top1": "他们从上还来的"
+    },
+    {
+      "gold": "我想去成都看看",
+      "id": "s-045",
+      "input": "woxiangquchengdukankan",
+      "rank": null,
+      "top1": "我想去程度看看"
+    },
+    {
+      "gold": "张敏明天回广州",
+      "id": "s-046",
+      "input": "zhangminmingtianhuiguangzhou",
+      "rank": null,
+      "top1": "张敏明天会广州"
+    },
+    {
+      "gold": "我们需要再认真地考虑一下",
+      "id": "s-047",
+      "input": "womenxuyaozairenzhendekaolvyixia",
+      "rank": null,
+      "top1": "我们需要在人真的考虑一下"
+    },
+    {
+      "gold": "这个项目的进度非常顺利",
+      "id": "s-048",
+      "input": "zheigexiangmudejindufeichangshunli",
+      "rank": null,
+      "top1": "这各项母的进度非常顺利"
+    },
+    {
+      "gold": "没问题交给我",
+      "id": "s-056",
+      "input": "meiwentijiaogewo",
+      "rank": null,
+      "top1": "没问题叫个我"
+    },
+    {
+      "gold": "我马上到",
+      "id": "s-060",
+      "input": "womashangdao",
+      "rank": null,
+      "top1": "我吗上到"
+    }
+  ],
+  "top1_source": {
+    "database": 2,
+    "generated": 58
+  }
+}
