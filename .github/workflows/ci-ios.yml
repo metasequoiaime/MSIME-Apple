@@ -141,9 +141,11 @@ jobs:
         # The cap is what the whole suite took on arm64 before that, with room to spare, rather than
         # a number the suite has to fit inside. The 110 it used to carry was for an Intel runner
         # doing this work on a Simulator half the speed, and a 25-minute build in front of it.
+        #
+        # 60 rather than 45, because the cap has to cover the build as well: run_ui_tests.sh does build-for-testing and test-without-building in the one step, so a compile from cold is inside the budget along with the whole suite. Measured at this gate, the job takes 33 to 34 minutes; a runner half again as slow took 50 and was killed mid-suite, which reads as a test failure and is not one. The point of the cap is to stop a hang, and a hang is open-ended -- it does not need a tight number to be caught.
         env:
           MSIME_TEST_SCOPE: ${{ (github.base_ref == 'main' || github.ref_name == 'main') && 'all' || 'pr' }}
-        timeout-minutes: 45
+        timeout-minutes: 60
         run: bash platforms/ios/scripts/run_ui_tests.sh
       - name: Upload iOS test results
         if: ${{ !cancelled() }}
