@@ -15,6 +15,7 @@ int main() {
         assert([defaults objectForKey:@"MSIMEClientFloatingToolbarEnabled"] == nil);
         NSDictionary *merged = [preferences sharedPreferencesByMerging:@{}];
         assert(![merged[@"floating_toolbar"][@"enabled"] boolValue]);
+        assert([merged[@"floating_toolbar"][@"english_mode"] boolValue]);
         assert([merged[@"floating_toolbar"][@"punctuation"] boolValue]);
         assert([merged[@"floating_toolbar"][@"fullwidth"] boolValue]);
         assert([merged[@"floating_toolbar"][@"character_set"] boolValue]);
@@ -35,9 +36,11 @@ int main() {
         assert([merged[@"floating_toolbar"][@"scale_percent"] integerValue] == 125);
         assert([merged[@"floating_toolbar"][@"font_size"] integerValue] == 28);
         [preferences applySharedToolbarPreferences:@{@"floating_toolbar": @{
-            @"punctuation": @YES, @"screen_keyboard": @NO, @"scale_percent": @75, @"font_size": @16}}];
+            @"english_mode": @NO, @"punctuation": @YES, @"screen_keyboard": @NO, @"scale_percent": @75, @"font_size": @16}}];
         assert(preferences.floatingToolbarPunctuation && !preferences.floatingToolbarScreenKeyboard);
         assert(preferences.floatingToolbarScalePercent == 75 && preferences.floatingToolbarFontSize == 16);
+        merged = [preferences sharedPreferencesByMerging:@{}];
+        assert(![merged[@"floating_toolbar"][@"english_mode"] boolValue]);
         assert([defaults objectForKey:@"MSIMEClientFloatingToolbarOptions"] != nil);
         NSUInteger beforeSharedVisibility = notifications;
         [preferences applySharedToolbarVisibility:YES];

@@ -195,11 +195,11 @@ int main() {
         assert(NSEqualSizes(panel.frame.size, configuredSize));
         [panel deactivateForDelegate:sizingDelegate];
         [panel applySizingPreferences:@{}];
-        NSArray<NSButton *> *optionalButtons = @[punctuation, fullWidth, traditional, emoji, keyboard, settings];
-        NSArray<NSString *> *keys = @[@"punctuation", @"fullwidth", @"character_set", @"emoji", @"screen_keyboard", @"settings"];
-        for (NSUInteger mask = 0; mask < 64; ++mask) {
+        NSArray<NSButton *> *optionalButtons = @[inputMode, punctuation, fullWidth, traditional, emoji, keyboard, settings];
+        NSArray<NSString *> *keys = @[@"english_mode", @"punctuation", @"fullwidth", @"character_set", @"emoji", @"screen_keyboard", @"settings"];
+        for (NSUInteger mask = 0; mask < 128; ++mask) {
             NSMutableDictionary *components = [@{@"scale_percent": @150, @"font_size": @28, @"english_mode": @NO} mutableCopy];
-            NSUInteger count = 3;
+            NSUInteger count = 2;
             for (NSUInteger index = 0; index < keys.count; ++index) {
                 const BOOL enabled = (mask & (1u << index)) != 0;
                 components[keys[index]] = @(enabled);
@@ -208,7 +208,6 @@ int main() {
             [panel applySizingPreferences:@{@"floating_toolbar": components}];
             for (NSUInteger index = 0; index < keys.count; ++index)
                 assert(optionalButtons[index].hidden == ((mask & (1u << index)) == 0));
-            assert(!inputMode.hidden);
             assert(panel.frame.size.width == std::ceil((count * 46.0 + (count - 1) * 8.0 + 30.0) * 1.5));
             assert(inputMode.superview != nil);
             CGFloat previousRight = 0;

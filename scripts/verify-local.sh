@@ -3,8 +3,8 @@
 #
 # AGENTS.md pauses private-repo CI to control cost and requires local
 # verification instead. Nothing here talks to CI; it runs the checks that
-# document requires - Rust tests, fmt and clippy; UI type check; native host
-# build and tests - and reports the result.
+# document requires - Rust tests, fmt, clippy and a dependency audit; UI type
+# check; native host build and tests - and reports the result.
 #
 # The point of this script is the baseline. Several suites have long-standing
 # failures, so a bare pass/fail number says nothing: the only question that
@@ -58,6 +58,9 @@ export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
 export CMAKE_PREFIX_PATH="$MSIME_VCPKG_PREFIX"
 export CXXFLAGS="-I$MSIME_VCPKG_PREFIX/include"
 
+windows_host=0
+case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) windows_host=1 ;; esac
+
 failed=0
 note() { printf '\n=== %s ===\n' "$1"; }
 fail() { echo "FAIL: $1"; failed=1; }
@@ -95,8 +98,21 @@ note "default config contracts"
 python3 scripts/test-default-config-parity.py || fail "default config contracts"
 
 note "compile: rust workspace"
-cargo check --workspace --all-targets 2>&1 | tail -3
-[ "${PIPESTATUS[0]}" -eq 0 ] || fail "cargo check"
+# The desktop app's Tauri config lists the platform IME bundle as a packaged
+# resource, and Tauri's build script fails when a listed resource is absent. On
+# a checkout that has not built the native host yet that is not a code error, so
+# it is skipped rather than reported as a broken workspace - the same treatment
+# the native phases below already get.
+desktop_resource="target/macos/MSIMEClientInputMethod.app"
+[ "$windows_host" -eq 1 ] && desktop_resource="target/win-full"
+if [ -e "$desktop_resource" ]; then
+  cargo check --workspace --all-targets 2>&1 | tail -3
+  [ "${PIPESTATUS[0]}" -eq 0 ] || fail "cargo check"
+else
+  echo "msime-desktop: skipped ($desktop_resource not built yet)"
+  cargo check --workspace --all-targets --exclude msime-desktop 2>&1 | tail -3
+  [ "${PIPESTATUS[0]}" -eq 0 ] || fail "cargo check"
+fi
 
 note "compile: native host"
 if [ -d "$MSIME_NATIVE_BUILD" ]; then
@@ -131,6 +147,12 @@ if cmake -S platforms/windows -B "$MSIME_PIPE_BUILD" -DMSIME_WINDOWS_PIPE_ONLY=O
     cmake --build "$MSIME_PIPE_BUILD" --config Debug 2>&1 |
       grep -Ei "error C[0-9]|error LNK" | head -5
   fi
+elif [ "$windows_host" -eq 0 ]; then
+  # platforms/windows cannot configure off Windows, and this phase had no guard
+  # for that while every other native phase does. --quick is documented as the
+  # pre-merge gate, so an unconditional failure here made that gate permanently
+  # red on macOS and Linux - which is a good way to teach everyone to skip it.
+  echo "pipe-only: skipped (needs a Windows host)"
 else
   fail "pipe-only configure"
 fi
@@ -155,17 +177,87 @@ for package in msime-client-core msime-host-api msime-input-runtime msime-host-w
 done
 compare "rust tests" "$collected.rust"
 
-note "rust fmt and clippy (changed files only)"
+note "rust fmt (changed files only)"
 # The whole tree is not clean, and reformatting it would collide with every
-# other branch in flight. What matters is that this change does not add to it.
+# other branch in flight. What matters is that this change does not add to it -
+# so an unformatted file this change touched is a failure, not a printed note.
 changed="$(git diff --name-only origin/develop...HEAD -- '*.rs' 2>/dev/null || true)"
 if [ -n "$changed" ]; then
+  unformatted=""
   for file in $changed; do
     [ -f "$file" ] || continue
-    rustfmt --check --edition 2021 "$file" >/dev/null 2>&1 || echo "  unformatted: $file"
+    rustfmt --check --edition 2021 "$file" >/dev/null 2>&1 || unformatted="$unformatted  $file"$'\n'
   done
+  if [ -n "$unformatted" ]; then
+    fail "these changed files are not rustfmt-clean:"
+    printf '%s' "$unformatted"
+  else
+    echo "changed Rust files: rustfmt-clean"
+  fi
 else
   echo "no Rust files changed against origin/develop"
+fi
+
+note "clippy: first-party crates"
+# The header promised clippy for a long time without running it anywhere; the
+# disabled CI workflow was the only place it had ever run. All seven crates
+# under crates/ are clean at -D warnings today, so this is a hard gate with no
+# baseline - if it starts failing, the change under test caused it.
+#
+# The workspace as a whole is not gated: apps/desktop needs a built frontend
+# before its Tauri build script will run, which makes "clippy failed" and
+# "frontend not built" indistinguishable on a developer machine.
+clippy_failed=""
+for crate in msime-client-core msime-engine-bridge msime-host-api msime-host-macos \
+             msime-host-windows msime-input-runtime msime-tauri-mobile-platform; do
+  cargo clippy -p "$crate" --all-targets -- -D warnings >/dev/null 2>&1 ||
+    clippy_failed="$clippy_failed  $crate"$'\n'
+done
+if [ -n "$clippy_failed" ]; then
+  fail "clippy -D warnings failed for:"
+  printf '%s' "$clippy_failed"
+else
+  echo "first-party crates: clippy clean at -D warnings"
+fi
+
+note "dependency advisories"
+# Lockfile-only, so it runs without building anything. A vulnerability is fatal;
+# unmaintained and unsound advisories are accepted one at a time in
+# .cargo/audit.toml, each with the chain that pulls it in and why - the same
+# discipline as known-failures.txt, for the same reason.
+#
+# Not part of --quick: that gate has to work offline, and this fetches the
+# advisory database.
+if command -v cargo-audit >/dev/null 2>&1; then
+  cargo audit 2>&1 | tail -3
+  [ "${PIPESTATUS[0]}" -eq 0 ] || fail "cargo audit"
+else
+  echo "cargo-audit not installed; skipping (cargo install cargo-audit)"
+fi
+
+note "sentence conversion eval"
+# Conversion quality had no number attached to it, so nothing could show that a lattice or ranking
+# change helped. This compares against a committed baseline; resources/eval/README.md explains what
+# each set can and cannot measure. Skipped where no verified dictionary is present, like the native
+# phases - the directory is a 181 MB download this script must not require.
+if [ -n "${MSIME_EVAL_RESOURCES:-}" ] && [ -d "${MSIME_EVAL_RESOURCES:-}" ]; then
+  for set in sentences words; do
+    case "$set" in
+      sentences) args="--set resources/eval/sentences-v1.tsv" ;;
+      words) args="--set resources/eval/quanpin-words-v1.tsv --limit 3000" ;;
+    esac
+    # shellcheck disable=SC2086
+    if cargo run --release -q -p msime-input-runtime --example convert_eval --locked -- \
+        --resources "$MSIME_EVAL_RESOURCES" $args \
+        --baseline "scripts/eval-baseline-$set.json" >/dev/null 2>&1; then
+      echo "eval $set: at baseline"
+    else
+      fail "eval $set differs from scripts/eval-baseline-$set.json"
+      echo "  accept it with --update-baseline once you have read the diff"
+    fi
+  done
+else
+  echo "skipped: set MSIME_EVAL_RESOURCES to a verified dictionary directory to run the eval"
 fi
 
 note "native tests"

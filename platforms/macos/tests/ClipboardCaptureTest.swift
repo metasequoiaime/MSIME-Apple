@@ -33,11 +33,16 @@ import AppKit
       assert(capture.sample(enabled: true) == nil && source.reads == reads)
     }
     source.types = [.string]
-    for invalid in ["", "synthetic\0invalid", String(repeating: "界", count: 1366)] {
+    for invalid in ["", "synthetic\0invalid", String(repeating: "界", count: 4001)] {
       source.changeCount += 1
       source.value = invalid
       assert(capture.sample(enabled: true) == nil)
     }
+    source.changeCount += 1
+    source.value = String(repeating: "界", count: 4000)
+    let bounded = capture.sample(enabled: true)!
+    assert(bounded.text.utf16.count == MacClipboardTextLimits.maxUTF16Units && bounded.text.utf8.count == MacClipboardTextLimits.maxUTF8Bytes)
+    capture.acknowledge(bounded)
     source.changeCount += 1
     source.value = "synthetic race"
     source.changeWhileReading = true

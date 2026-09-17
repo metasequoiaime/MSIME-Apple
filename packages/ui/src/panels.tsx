@@ -291,7 +291,12 @@ export function KeyboardPanel({ client, platform, theme = "dark", layout = "twen
   }, [layout]);
   const sourceRows = activeLayout === "nine_key" ? nineKeyRows : keyboardRows;
   const rows = platform === "macos" ? sourceRows.map(row => row
-    .filter(item => ![0x2c, 0x91, 0x13, 0x2d].includes(item.virtualKey))
+    // macOS has no PC application/Menu key. The native panel omits it and
+    // host-macos deliberately rejects the Windows VK_MENU (0x5d) contract
+    // value rather than guessing at a Command/Option equivalent. Keep the
+    // shared layout's other keypad/navigation keys because CoreGraphics has
+    // stable ANSI mappings for those values.
+    .filter(item => ![0x2c, 0x91, 0x13, 0x2d, 0x5d].includes(item.virtualKey))
     .map(item => ({ ...item, label: item.label === "Win" ? "Command" : item.label === "Alt" ? "Option" : item.label === "Num Lock" ? "Clear" : item.label }))) : sourceRows;
   const [activeModifiers, setActiveModifiers] = useState<Set<Modifier>>(new Set());
   const modifiersRef = useRef<Set<Modifier>>(new Set());
@@ -299,7 +304,13 @@ export function KeyboardPanel({ client, platform, theme = "dark", layout = "twen
   const [openingVoice, setOpeningVoice] = useState(false);
   type QueuedKey = { request: KeyboardInputRequest; description: string };
   const inputQueue = useRef<{ active: boolean; running: boolean; openingVoice: boolean; pending: QueuedKey[] }>({ active: true, running: false, openingVoice: false, pending: [] });
+  const keyRepeat = useRef<{ delay?: number; interval?: number }>({});
   const drag = usePanelDrag(client, () => setNotice("无法移动窗口，请重试。"));
+  function stopKeyRepeat() {
+    if (keyRepeat.current.delay !== undefined) window.clearTimeout(keyRepeat.current.delay);
+    if (keyRepeat.current.interval !== undefined) window.clearInterval(keyRepeat.current.interval);
+    keyRepeat.current = {};
+  }
   useEffect(() => {
     const queue = { active: true, running: false, openingVoice: false, pending: [] as QueuedKey[] };
     setOpeningVoice(false);
@@ -309,7 +320,14 @@ export function KeyboardPanel({ client, platform, theme = "dark", layout = "twen
     if (client.rememberInputTarget) void client.rememberInputTarget().catch(() => {
       if (queue.active) setNotice("未能记录前台输入窗口");
     });
-    return () => { queue.active = false; queue.pending = []; };
+    const stopForBlur = () => stopKeyRepeat();
+    window.addEventListener("blur", stopForBlur);
+    return () => {
+      window.removeEventListener("blur", stopForBlur);
+      stopKeyRepeat();
+      queue.active = false;
+      queue.pending = [];
+    };
   }, [client]);
   function toggleModifier(keyToToggle: Modifier) {
     const next = new Set(modifiersRef.current);
@@ -426,6 +444,15 @@ export function KeyboardPanel({ client, platform, theme = "dark", layout = "twen
       syncKeyboardFaces(next);
     }
   }
+  function beginPointerKey(event: PointerEvent<HTMLButtonElement>, keyToPress: KeyboardKey) {
+    if (!event.isPrimary || event.button !== 0 || keyToPress.modifier || openingVoice) return;
+    stopKeyRepeat();
+    pressKey(resolveRenderedKey(keyToPress, event.currentTarget.textContent ?? ""));
+    keyRepeat.current.delay = window.setTimeout(() => {
+      pressKey(keyToPress);
+      keyRepeat.current.interval = window.setInterval(() => pressKey(keyToPress), 75);
+    }, 450);
+  }
   function resolveRenderedKey(fallback: KeyboardKey, displayed: string) {
     if (!modifiersRef.current.has("Shift")) return fallback;
     const match = rows.flat().find(item => item.shifted === displayed || (item.shifted == null && item.label.length === 1 && item.label.toUpperCase() === displayed));
@@ -447,7 +474,13 @@ export function KeyboardPanel({ client, platform, theme = "dark", layout = "twen
           const shifted = renderedModifiers.has("Shift") && keyToRender.label.length === 1;
           const label = shifted ? (keyToRender.shifted || (letter ? keyToRender.label.toUpperCase() : keyToRender.label)) : keyToRender.label;
           const action = keyToRender.modifier || keyboardActionLabels.has(keyToRender.label);
-          return <button type="button" disabled={openingVoice} key={`${keyToRender.label}-${keyIndex}`} style={{ flexGrow: activeLayout === "nine_key" ? 1 : keyboardKeyWeight(keyToRender.label, keyIndex, row.some(item => item.virtualKey === 0x20)) }} aria-pressed={keyToRender.modifier ? renderedModifiers.has(keyToRender.modifier) : undefined} className={`keyboard-key material-${keyMaterial}${action ? " action" : ""}${keyToRender.modifier ? " modifier" : ""}${keyToRender.label === "Space" ? " space" : ""}${keyToRender.label.length > 1 ? " wide" : ""}${keyToRender.modifier && renderedModifiers.has(keyToRender.modifier) ? " active" : ""}`} onClick={event => pressKey(resolveRenderedKey(keyToRender, event.currentTarget.textContent ?? ""))}>{label}</button>;
+          return <button type="button" disabled={openingVoice} key={`${keyToRender.label}-${keyIndex}`} style={{ flexGrow: activeLayout === "nine_key" ? 1 : keyboardKeyWeight(keyToRender.label, keyIndex, row.some(item => item.virtualKey === 0x20)) }} aria-pressed={keyToRender.modifier ? renderedModifiers.has(keyToRender.modifier) : undefined} className={`keyboard-key${keyToRender.modifier ? " modifier" : ""}${keyToRender.label === "Space" ? " space" : ""}${keyToRender.label.length > 1 ? " wide" : ""}${keyToRender.modifier && renderedModifiers.has(keyToRender.modifier) ? " active" : ""}`} onPointerDown={event => beginPointerKey(event, keyToRender)} onPointerUp={stopKeyRepeat} onPointerCancel={stopKeyRepeat} onPointerLeave={stopKeyRepeat} onClick={event => {
+            // Pointer activation is delivered on pointerdown for immediate
+            // response and repeat. A detail-zero click comes from keyboard or
+            // assistive activation and still sends exactly one key.
+            if (keyToRender.modifier || event.detail === 0)
+              pressKey(resolveRenderedKey(keyToRender, event.currentTarget.textContent ?? ""));
+          }}>{label}</button>;
         })}</div>)}
       </div>
     </div>

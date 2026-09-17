@@ -11,8 +11,8 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 pub(crate) const INPUT_SOURCE_BUNDLE_ID: &str = "app.msime.client.preview.inputmethod";
-const INPUT_SOURCE_BUNDLE_NAME: &str = "MSIMEClientInputMethod.app";
-const INPUT_SOURCE_EXECUTABLE: &str = "MSIMEClientInputMethod";
+const INPUT_SOURCE_BUNDLE_NAME: &str = "水杉输入法（预览）.app";
+const INPUT_SOURCE_EXECUTABLE: &str = "水杉输入法（预览）";
 
 #[derive(Debug)]
 pub(crate) enum InstallError {
@@ -196,7 +196,7 @@ mod tests {
             format!("CFBundleIdentifier={id}"),
         )
         .unwrap();
-        let executable = bundle.join("Contents/MacOS/MSIMEClientInputMethod");
+        let executable = bundle.join(format!("Contents/MacOS/{INPUT_SOURCE_EXECUTABLE}"));
         fs::write(&executable, executable_contents).unwrap();
         fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
         bundle
@@ -209,11 +209,11 @@ mod tests {
         let destination = root.path().join("Library/Input Methods");
         let installed = install_bundle_at(&source, &destination).unwrap();
         assert_eq!(
-            fs::read(installed.join("Contents/MacOS/MSIMEClientInputMethod")).unwrap(),
+            fs::read(installed.join(format!("Contents/MacOS/{INPUT_SOURCE_EXECUTABLE}"))).unwrap(),
             b"new"
         );
         assert_eq!(
-            fs::metadata(installed.join("Contents/MacOS/MSIMEClientInputMethod"))
+            fs::metadata(installed.join(format!("Contents/MacOS/{INPUT_SOURCE_EXECUTABLE}")))
                 .unwrap()
                 .permissions()
                 .mode()
@@ -227,7 +227,7 @@ mod tests {
             fs::read(
                 destination
                     .join(INPUT_SOURCE_BUNDLE_NAME)
-                    .join("Contents/MacOS/MSIMEClientInputMethod")
+                    .join(format!("Contents/MacOS/{INPUT_SOURCE_EXECUTABLE}"))
             )
             .unwrap(),
             b"replacement"
@@ -255,7 +255,7 @@ mod tests {
             fs::read(
                 destination
                     .join(INPUT_SOURCE_BUNDLE_NAME)
-                    .join("Contents/MacOS/MSIMEClientInputMethod")
+                    .join(format!("Contents/MacOS/{INPUT_SOURCE_EXECUTABLE}"))
             )
             .unwrap(),
             b"existing"

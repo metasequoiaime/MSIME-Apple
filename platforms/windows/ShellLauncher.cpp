@@ -4,6 +4,18 @@
 
 namespace msime::windows {
 namespace {
+struct ForegroundWindow { DWORD pid; HWND window = nullptr; };
+BOOL CALLBACK find_process_window(HWND window, LPARAM data) {
+  auto *result = reinterpret_cast<ForegroundWindow *>(data);
+  DWORD pid = 0;
+  GetWindowThreadProcessId(window, &pid);
+  if (pid == result->pid && IsWindowVisible(window) && GetWindow(window, GW_OWNER) == nullptr) {
+    result->window = window;
+    return FALSE;
+  }
+  return TRUE;
+}
+
 bool launch_shell_surface_impl(const std::filesystem::path &executable,
                                const ShellSurfaceRequest &request,
                                const ShellLaunchContext *context) {
@@ -37,6 +49,15 @@ bool launch_shell_surface_impl(const std::filesystem::path &executable,
                       environment.data(), directory.c_str(), &startup,
                       &process))
     return false;
+  // Give the newly requested surface a chance to appear even when another
+  // shell instance handles the route through the single-instance plugin.
+  WaitForInputIdle(process.hProcess, 1500);
+  ForegroundWindow foreground{process.dwProcessId};
+  EnumWindows(find_process_window, reinterpret_cast<LPARAM>(&foreground));
+  if (foreground.window) {
+    ShowWindow(foreground.window, SW_RESTORE);
+    SetForegroundWindow(foreground.window);
+  }
   // The shell owns its own lifetime; this process only started it.
   CloseHandle(process.hThread);
   CloseHandle(process.hProcess);

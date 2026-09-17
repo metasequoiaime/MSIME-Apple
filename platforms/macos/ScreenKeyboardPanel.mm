@@ -3,6 +3,7 @@
 #import <CoreGraphics/CoreGraphics.h>
 #include <algorithm>
 #include <vector>
+#include "ScreenKeyboardTargetPolicy.h"
 
 namespace {
 NSColor *KeyboardColor(NSAppearance *appearance, unsigned light, unsigned dark) {
@@ -56,11 +57,23 @@ bool CommitKey(const Key &key) {
         key.code == kVK_Space || key.code == kVK_Return || key.code == kVK_Tab ||
         key.code == kVK_Delete || key.code == kVK_ForwardDelete;
 }
-BOOL PostKey(unsigned short code, NSEventModifierFlags flags) {
-    // Permission prompts can change focus. Never send the pending key after prompting.
-    if (!CGPreflightPostEventAccess()) { CGRequestPostEventAccess(); return NO; }
-    NSRunningApplication *target = NSWorkspace.sharedWorkspace.frontmostApplication;
-    if (!target || target.processIdentifier == NSProcessInfo.processInfo.processIdentifier) return NO;
+bool RepeatableKey(const Key &key) { return key.modifier == 0; }
+BOOL PostKey(unsigned short code, NSEventModifierFlags flags, pid_t targetPID) {
+    (void)targetPID;
+    // The panel is a non-activating utility surface. Never request permission
+    // from a key click: the prompt can change focus and the user must opt in
+    // through the host's normal Accessibility settings flow instead.
+    if (!CGPreflightPostEventAccess()) return NO;
+    // Resolve the destination for every stroke. The panel is non-activating,
+    // so the user may switch editors while it remains visible; a cached PID
+    // from showKeyboard must never send a later key to the old editor.
+    const pid_t ownProcess = NSProcessInfo.processInfo.processIdentifier;
+    const pid_t foreground = NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier;
+    const pid_t destination = msime::mac::LiveScreenKeyboardTarget(foreground, ownProcess);
+    NSRunningApplication *target = destination > 0
+        ? [NSRunningApplication runningApplicationWithProcessIdentifier:destination]
+        : nil;
+    if (!target || target.terminated) return NO;
     CGEventRef down = CGEventCreateKeyboardEvent(nullptr, code, true);
     CGEventRef up = CGEventCreateKeyboardEvent(nullptr, code, false);
     if (!down || !up) {
@@ -75,12 +88,17 @@ BOOL PostKey(unsigned short code, NSEventModifierFlags flags) {
     if (flags & NSEventModifierFlagCommand) eventFlags |= kCGEventFlagMaskCommand;
     CGEventSetFlags(down, eventFlags);
     CGEventSetFlags(up, eventFlags);
-    // Pin delivery to the foreground process sampled for this click, not a cached old client.
-    CGEventPostToPid(target.processIdentifier, down);
-    CGEventPostToPid(target.processIdentifier, up);
+    // Do not deliver a pending click after a focus change while events were
+    // being allocated.
+    const pid_t currentForeground = NSWorkspace.sharedWorkspace.frontmostApplication.processIdentifier;
+    const BOOL valid = currentForeground == destination && !target.terminated;
+    if (valid) {
+        CGEventPostToPid(destination, down);
+        CGEventPostToPid(destination, up);
+    }
     CFRelease(down);
     CFRelease(up);
-    return YES;
+    return valid;
 }
 }
 
@@ -138,6 +156,8 @@ BOOL PostKey(unsigned short code, NSEventModifierFlags flags) {
 
 @implementation MSIMEScreenKeyboardPanel {
     MSIMEScreenKeyboardSender _sender;
+    MSIMEScreenKeyboardTargetProvider _targetProvider;
+    pid_t _inputTargetPID;
     NSMutableArray<NSButton *> *_buttons;
     std::vector<Key> _keys;
     NSEventModifierFlags _modifiers;
@@ -149,12 +169,34 @@ BOOL PostKey(unsigned short code, NSEventModifierFlags flags) {
     dispatch_once(&once, ^{ panel = [[self alloc] init]; });
     return panel;
 }
-- (instancetype)init { return [self initWithKeySender:^BOOL(unsigned short code, NSEventModifierFlags flags) { return PostKey(code, flags); }]; }
+- (instancetype)init {
+    self = [self initWithKeySender:nil targetProvider:^pid_t {
+        NSRunningApplication *frontmost = NSWorkspace.sharedWorkspace.frontmostApplication;
+        return frontmost ? frontmost.processIdentifier : 0;
+    }];
+    if (self) {
+        __weak MSIMEScreenKeyboardPanel *weakSelf = self;
+        _sender = ^BOOL(unsigned short code, NSEventModifierFlags flags) {
+            MSIMEScreenKeyboardPanel *strongSelf = weakSelf;
+            return strongSelf ? PostKey(code, flags, strongSelf->_inputTargetPID) : NO;
+        };
+    }
+    return self;
+}
 - (instancetype)initWithKeySender:(MSIMEScreenKeyboardSender)sender {
+    return [self initWithKeySender:sender targetProvider:^pid_t {
+        NSRunningApplication *frontmost = NSWorkspace.sharedWorkspace.frontmostApplication;
+        return frontmost ? frontmost.processIdentifier : 0;
+    }];
+}
+- (instancetype)initWithKeySender:(MSIMEScreenKeyboardSender)sender
+                    targetProvider:(MSIMEScreenKeyboardTargetProvider)targetProvider {
     self = [super initWithContentRect:NSMakeRect(0, 0, 1100, 400)
         styleMask:NSWindowStyleMaskBorderless | NSWindowStyleMaskNonactivatingPanel backing:NSBackingStoreBuffered defer:NO];
     if (!self) return nil;
     _sender = [sender copy];
+    _targetProvider = [targetProvider copy];
+    _inputTargetPID = 0;
     _buttons = [NSMutableArray new];
     self.releasedWhenClosed = NO;
     self.opaque = NO;
@@ -185,6 +227,11 @@ BOOL PostKey(unsigned short code, NSEventModifierFlags flags) {
         button.font = [NSFont systemFontOfSize:key.normal[1] == '\0' ? 15 : 12];
         button.bezelStyle = NSBezelStyleRegularSquare;
         button.buttonType = NSButtonTypePushOnPushOff;
+        // Use AppKit's native press-and-hold tracking so character, editing and
+        // commit keys repeat while the pointer remains down. Sticky modifiers
+        // stay one-shot toggles and must never oscillate during a long press.
+        button.continuous = RepeatableKey(key);
+        if (button.continuous) [button setPeriodicDelay:0.45 interval:0.075];
         [_buttons addObject:button];
         _keys.push_back(key);
         [content addSubview:button];
@@ -246,8 +293,10 @@ BOOL PostKey(unsigned short code, NSEventModifierFlags flags) {
     }
     [self refreshKeys];
 }
-- (void)closeKeyboard:(id)sender { (void)sender; _modifiers = 0; [self refreshKeys]; [self orderOut:nil]; }
+- (void)closeKeyboard:(id)sender { (void)sender; _modifiers = 0; _inputTargetPID = 0; [self refreshKeys]; [self orderOut:nil]; }
 - (void)showKeyboard {
+    pid_t candidate = _targetProvider ? _targetProvider() : 0;
+    _inputTargetPID = msime::mac::CapturedScreenKeyboardTarget(candidate, NSProcessInfo.processInfo.processIdentifier);
     if (!self.visible) {
         NSRect visible = (NSScreen.mainScreen ?: NSScreen.screens.firstObject).visibleFrame;
         if (!NSIsEmptyRect(visible)) {

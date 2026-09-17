@@ -65,7 +65,6 @@ test("failed initial load retains default dark theme", async () => {
   await waitFor(() => expect(load).toHaveBeenCalledOnce());
   expect(theme()).toBe("dark");
 });
-
 test("keyboard applies selected built-in and custom skin preferences", async () => {
   let emit!: (value: Snapshot) => void;
   const custom = {
@@ -98,4 +97,15 @@ test("keyboard applies selected built-in and custom skin preferences", async () 
   expect(main.style.getPropertyValue("background-image")).toContain("data:image/jpeg;base64,");
   expect(main.style.getPropertyValue("background-image")).toContain("linear-gradient");
   expect(main.style.getPropertyValue("background-position")).toContain("75% 75%");
+});
+
+test("macOS standalone keyboard does not expose an unauthenticated voice panel", async () => {
+  const value = snapshot(1, "dark");
+  value.preferences.touch_voice_shortcut = true;
+  render(<DesktopKeyboard client={{ ...panel, openVoice: vi.fn() }} preferences={{
+    host: { platform: "macos" } as never,
+    load: async () => value,
+  }} />);
+  await waitFor(() => expect(screen.getByRole("main", { name: "屏幕键盘" })).toBeTruthy());
+  expect(screen.queryByRole("button", { name: "打开语音输入" })).toBeNull();
 });

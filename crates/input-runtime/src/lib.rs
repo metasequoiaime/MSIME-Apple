@@ -34,6 +34,7 @@ pub mod character_width {
     }
 }
 
+pub use chinese_ime_lm::{Reranker, SentenceModel};
 use msime_client_core::preferences::TouchKeyboardLayout;
 use msime_engine_bridge::{
     CandidateEdge, Command, EngineResult, EngineSnapshot, OnlineQuerySnapshot, Session,
@@ -1371,6 +1372,19 @@ pub struct Runtime<E: InputEngine = Session> {
     /// the sentence in progress. Every host but Linux left this empty, which
     /// made AI suggestions guess from the pinyin alone.
     ai_context: String,
+    /// Reorders candidates the pinyin decoder assembled, when a host supplied a model.
+    ///
+    /// Absent unless a host calls [`Runtime::set_reranker`], and absent is the only state the
+    /// hosts that ship no model ever see.
+    reranker: Option<Reranker>,
+}
+
+/// Move the element at `index` to the front, keeping everything else in its existing order.
+///
+/// A rotation rather than a swap, so the rest of the list stays as the engine ranked it: promoting
+/// one candidate is the whole change, not a reshuffle.
+fn rotate_to_front<T>(items: &mut [T], index: usize) {
+    items[..=index].rotate_right(1);
 }
 
 impl Runtime<Session> {
@@ -1566,6 +1580,7 @@ impl<E: InputEngine> Runtime<E> {
             session,
             generation: 0,
             ai_context: String::new(),
+            reranker: None,
             focused: false,
             page_size: page_size.into(),
             highlighted: 0,
@@ -1575,6 +1590,13 @@ impl<E: InputEngine> Runtime<E> {
             character_width: CharacterWidth::Halfwidth,
             touch_keyboard_layout,
         })
+    }
+
+    /// Attach a candidate reranker. Hosts load the model themselves, because where a model file
+    /// lives is a packaging question that differs per platform and the runtime has no business
+    /// guessing at it.
+    pub fn set_reranker(&mut self, reranker: Option<Reranker>) {
+        self.reranker = reranker;
     }
 
     pub fn set_character_width(&mut self, width: CharacterWidth) {
@@ -1806,6 +1828,43 @@ impl<E: InputEngine> Runtime<E> {
         }
     }
 
+    /// Let the model promote a candidate the pinyin decoder assembled, if a host attached one.
+    ///
+    /// Reordering happens here because this is the one place a candidate list enters the runtime,
+    /// so everything downstream — the view, `all_candidates`, the evaluation harness — sees the
+    /// same order the user does.
+    ///
+    /// The candidate arrays run in parallel and every one of them has to move together. Rotating
+    /// only the texts would leave each candidate wearing another's code, annotation and source.
+    fn rerank(&mut self) {
+        let Some(reranker) = self.reranker.as_mut() else {
+            return;
+        };
+        let snapshot = &self.cached;
+        let count = snapshot.candidates.len();
+        if count < 2
+            || snapshot.candidate_sources.len() != count
+            || snapshot.candidate_codes.len() != count
+            || snapshot.candidate_annotations.len() != count
+            || snapshot.candidate_positions.len() != count
+            || snapshot.candidate_corrected.len() != count
+        {
+            return;
+        }
+        let texts: Vec<&str> = snapshot.candidates.iter().map(String::as_str).collect();
+        let Some(promote) = reranker.best(&self.ai_context, &texts, &snapshot.candidate_sources)
+        else {
+            return;
+        };
+        let snapshot = &mut self.cached;
+        rotate_to_front(&mut snapshot.candidates, promote);
+        rotate_to_front(&mut snapshot.candidate_codes, promote);
+        rotate_to_front(&mut snapshot.candidate_annotations, promote);
+        rotate_to_front(&mut snapshot.candidate_sources, promote);
+        rotate_to_front(&mut snapshot.candidate_positions, promote);
+        rotate_to_front(&mut snapshot.candidate_corrected, promote);
+    }
+
     fn refresh(&mut self) -> Result<(), RuntimeError> {
         self.snapshot_valid = false;
         self.translations.clear();
@@ -1836,6 +1895,7 @@ impl<E: InputEngine> Runtime<E> {
         let previous_highlight = self.highlighted;
         self.highlighted = 0;
         self.cached = self.engine.snapshot()?;
+        self.rerank();
         self.snapshot_valid = true;
         if self.cached.editing_text == previous.editing_text
             && self.cached.scheme == previous.scheme
@@ -1923,7 +1983,9 @@ impl<E: InputEngine> Runtime<E> {
         {
             return Err(RuntimeError::InvalidPunctuation);
         }
-        if !self.focused {
+        // Cache maintenance belongs to the session, including while its host
+        // has no focus. Ordinary input must still pass through unchanged.
+        if !self.focused && !matches!(&action, Action::ResetCache) {
             return Ok(self.transition(empty_result(false)));
         }
         if let Action::SelectAnyCandidate(id) = &action {
@@ -2090,6 +2152,7 @@ mod tests {
         text: String,
         snapshot_fails: bool,
         balanced_openings: Vec<u8>,
+        cache_resets: usize,
     }
 
     #[cfg(unix)]
@@ -2326,6 +2389,10 @@ mod tests {
         );
     }
     impl InputEngine for Fixture {
+        fn reset_cache(&mut self) -> Result<(), RuntimeError> {
+            self.cache_resets += 1;
+            Ok(())
+        }
         fn balance_paired_punctuation_after_auto_close(
             &mut self,
             opening: u8,
@@ -2456,6 +2523,7 @@ mod tests {
                 text: String::new(),
                 snapshot_fails: false,
                 balanced_openings: Vec::new(),
+                cache_resets: 0,
             },
             5,
         )
@@ -2539,6 +2607,7 @@ mod tests {
                 text: String::new(),
                 snapshot_fails: false,
                 balanced_openings: Vec::new(),
+                cache_resets: 0,
             },
             2,
         )
@@ -3188,6 +3257,29 @@ mod tests {
             a.dispatch(Action::Select(id)),
             Err(RuntimeError::StaleCandidate)
         ));
+    }
+    #[test]
+    fn cache_maintenance_reaches_engine_without_acquiring_focus() {
+        let mut runtime = runtime();
+        let idle = runtime.dispatch(Action::ResetCache).unwrap();
+        assert!(idle.handled);
+        assert!(idle.commit.is_none());
+        assert_eq!(runtime.engine.cache_resets, 1);
+        assert!(!runtime.focused);
+        assert!(!type_key(&mut runtime).handled);
+
+        runtime.focus(true).unwrap();
+        let composed = type_key(&mut runtime);
+        let refreshed = runtime.dispatch(Action::ResetCache).unwrap();
+        assert_eq!(runtime.engine.cache_resets, 2);
+        assert_eq!(refreshed.view.preedit, composed.view.preedit);
+        assert!(refreshed.commit.is_none());
+
+        runtime.focus(false).unwrap();
+        assert!(runtime.dispatch(Action::ResetCache).unwrap().handled);
+        assert_eq!(runtime.engine.cache_resets, 3);
+        assert!(!runtime.focused);
+        assert!(!type_key(&mut runtime).handled);
     }
     #[test]
     fn unfocused_keys_pass_through_and_blur_cancels_composition() {

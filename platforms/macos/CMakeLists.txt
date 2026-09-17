@@ -6,6 +6,10 @@ add_executable(desktop-input-session-test tests/DesktopInputSessionTest.mm Deskt
 target_compile_options(desktop-input-session-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
 target_link_libraries(desktop-input-session-test PRIVATE "-framework AppKit")
 add_test(NAME desktop-input-session COMMAND desktop-input-session-test)
+add_executable(voice-provider-socket-test tests/VoiceProviderSocketTest.mm)
+target_compile_options(voice-provider-socket-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
+target_link_libraries(voice-provider-socket-test PRIVATE "-framework Foundation")
+add_test(NAME voice-provider-socket COMMAND voice-provider-socket-test)
 add_executable(input-mode-hud-panel-test tests/InputModeHUDPanelTest.mm InputModeHUDPanel.mm)
 target_compile_options(input-mode-hud-panel-test PRIVATE -fobjc-arc -UNDEBUG -Wall -Wextra -Werror)
 target_link_libraries(input-mode-hud-panel-test PRIVATE "-framework AppKit")
@@ -87,6 +91,23 @@ target_include_directories(MSIMEClientInputMethod PRIVATE ../../vendor/MSIME-Eng
 target_compile_options(MSIMEClientInputMethod PRIVATE -fobjc-arc -Wall -Wextra -Werror)
 target_link_libraries(MSIMEClientInputMethod PRIVATE apple-client msime-voice-providers "-framework AppKit" "-framework InputMethodKit" "-framework Carbon" "-framework AVFoundation" "-framework Speech")
 set_target_properties(MSIMEClientInputMethod PROPERTIES MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in")
+# The Dock takes its label from the bundle's filename — not CFBundleDisplayName, CFBundleName or a
+# localized InfoPlist.strings, all of which it ignores here. Naming the product is the only lever.
+set_target_properties(MSIMEClientInputMethod PROPERTIES OUTPUT_NAME "水杉输入法（预览）")
+# The preferences window runs under NSApplicationActivationPolicyRegular, so the bundle appears in
+# the Dock and needs an icon; without CFBundleIconFile plus the file itself it shows the generic one.
+target_sources(MSIMEClientInputMethod PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethod.icns")
+set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethod.icns"
+  PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+# LaunchServices takes the Dock and menu bar name from a localized InfoPlist.strings, not from the
+# CFBundleDisplayName in the plist; without these the Dock falls back to the executable's filename.
+# The TIS identifier keys name the entry in the system input menu.
+foreach(MSIME_BUNDLE_LOCALE zh-Hans en)
+  target_sources(MSIMEClientInputMethod
+    PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/resources/${MSIME_BUNDLE_LOCALE}.lproj/InfoPlist.strings")
+  set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/resources/${MSIME_BUNDLE_LOCALE}.lproj/InfoPlist.strings"
+    PROPERTIES MACOSX_PACKAGE_LOCATION "Resources/${MSIME_BUNDLE_LOCALE}.lproj")
+endforeach()
 add_custom_command(TARGET MSIMEClientInputMethod POST_BUILD
   COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks"
   COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${MSIME_SWIFT_BACKEND_OUTPUT}" "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks/MSIMEBackend.dylib")
@@ -436,6 +457,9 @@ add_executable(candidate-skin-test tests/CandidateSkinTest.cpp CandidateSkin.cpp
 target_include_directories(candidate-skin-test PRIVATE .)
 target_compile_options(candidate-skin-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 add_test(NAME candidate-skin COMMAND candidate-skin-test)
+add_executable(wubi-code-hint-test tests/WubiCodeHintPolicyTest.cpp)
+target_compile_options(wubi-code-hint-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+add_test(NAME wubi-code-hint COMMAND wubi-code-hint-test)
 add_executable(external-skin-test tests/ExternalSkinTest.cpp CandidateSkin.cpp)
 target_include_directories(external-skin-test PRIVATE .)
 target_compile_options(external-skin-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
@@ -497,7 +521,7 @@ add_executable(voice-session-delivery-test tests/VoiceSessionDeliveryTest.mm Voi
 target_compile_options(voice-session-delivery-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(voice-session-delivery-test PRIVATE apple-client "-framework AVFoundation" "-framework Speech" "-framework CoreAudio" "-framework AudioToolbox")
 add_test(NAME voice-session-delivery COMMAND voice-session-delivery-test)
-add_executable(shortcut-test tests/ShortcutTest.mm AppearancePreferences.mm CandidateSkin.cpp CandidateSkinPreviewView.mm SkinSettingsView.mm ChineseTextConversion.mm ShuangpinKeymapPanel.mm InputSourceRegistration.mm FloatingToolbarPanel.mm UpdateController.mm DictionaryWindowController.mm ClientDictionaryRuntime.mm)
+add_executable(shortcut-test tests/ShortcutTest.mm DiagnosticLog.cpp AppearancePreferences.mm CandidateSkin.cpp CandidateSkinPreviewView.mm SkinSettingsView.mm ChineseTextConversion.mm ShuangpinKeymapPanel.mm InputSourceRegistration.mm FloatingToolbarPanel.mm UpdateController.mm DictionaryWindowController.mm ClientDictionaryRuntime.mm)
 target_include_directories(shortcut-test PRIVATE ../../vendor/MSIME-Engine ../../vendor/MSIME-Engine/include)
 target_compile_options(shortcut-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(shortcut-test PRIVATE apple-client "-framework AppKit" "-framework InputMethodKit" "-framework Carbon")

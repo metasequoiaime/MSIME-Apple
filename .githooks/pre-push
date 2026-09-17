@@ -1,0 +1,13 @@
+#!/usr/bin/env bash
+# Enable: git config core.hooksPath .githooks   Skip once: git push --no-verify
+#
+# The compile gate, as a backstop for commits that never went through a merge.
+# Tests are not run here: the suite has long-standing failures that only mean
+# something compared against scripts/known-failures.txt, which the full
+# scripts/verify-local.sh does.
+set -uo pipefail
+cd "$(git rev-parse --show-toplevel)" || exit 1
+# git exports GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE into hooks, which redirects every
+# git command the script runs - fetch_engine.py fails outright under them.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+exec bash scripts/verify-local.sh --quick

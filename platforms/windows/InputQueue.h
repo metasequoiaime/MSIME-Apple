@@ -24,6 +24,8 @@ public:
   FocusRoute dispatch(const PipeTicket &ticket,
                       const FanyImeNamedpipeData &packet);
   bool confirmed(const FocusLease &lease);
+  // Reset every live Engine session, including clients without focus.
+  bool reset_cache();
   // The DLL's Aux-pipe fallback: deactivate a client it names by id and focus
   // token, having failed to write the deactivate on the Main pipe. True means
   // that client is not focused under that token - which is what the DLL is

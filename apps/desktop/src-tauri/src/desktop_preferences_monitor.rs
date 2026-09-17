@@ -9,6 +9,44 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use tauri::{AppHandle, Emitter, Runtime};
 
+#[cfg(target_os = "macos")]
+pub(crate) fn record_macos_clipboard_change(
+    snapshot: msime_host_macos::ClipboardSnapshot,
+    last_change_count: &mut Option<i64>,
+    enabled: bool,
+    preferences: &PreferencesStore,
+    history: &Mutex<ClipboardHistoryStore>,
+) {
+    if *last_change_count == Some(snapshot.change_count) {
+        return;
+    }
+    *last_change_count = Some(snapshot.change_count);
+    if !enabled {
+        return;
+    }
+    let Some(text) = snapshot.text else { return };
+    let already_current = history
+        .lock()
+        .ok()
+        .and_then(|mut history| {
+            history.load().ok()?;
+            Some(
+                history
+                    .entries()
+                    .first()
+                    .is_some_and(|entry| entry.text == text),
+            )
+        })
+        .unwrap_or(false);
+    if already_current {
+        return;
+    }
+    let _ = preferences.capture_clipboard_text(text);
+    if let Ok(mut history) = history.lock() {
+        let _ = history.load();
+    }
+}
+
 /// Wait for a filesystem notification without making the desktop clipboard
 /// panel depend on a fixed polling interval. The IBus host has its own GIO
 /// monitor, but the Tauri shell runs in a separate process and must observe
@@ -240,5 +278,66 @@ mod tests {
         monitor.poll(app.handle(), &store, &history);
         assert_eq!(received.try_recv().unwrap(), Value::Null);
         assert!(monitor.history.as_ref().unwrap().is_empty());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn macos_clipboard_changes_are_bounded_by_change_count_and_history_state() {
+        let root = tempfile::tempdir().unwrap();
+        let store = PreferencesStore::new(root.path());
+        let initial = store.load().unwrap();
+        let mut preferences = initial.preferences;
+        preferences.clipboard_history = true;
+        store.save(initial.revision, preferences).unwrap();
+        let history = Mutex::new(ClipboardHistoryStore::open(
+            root.path().join("clipboard_history.json"),
+        ));
+        let mut last_change_count = None;
+        record_macos_clipboard_change(
+            msime_host_macos::ClipboardSnapshot {
+                change_count: 1,
+                text: Some("synthetic-external".into()),
+            },
+            &mut last_change_count,
+            true,
+            &store,
+            &history,
+        );
+        let first = history.lock().unwrap().entries().to_vec();
+        assert_eq!(first.len(), 1);
+        assert_eq!(first[0].text, "synthetic-external");
+        record_macos_clipboard_change(
+            msime_host_macos::ClipboardSnapshot {
+                change_count: 1,
+                text: Some("synthetic-ignored".into()),
+            },
+            &mut last_change_count,
+            true,
+            &store,
+            &history,
+        );
+        assert_eq!(history.lock().unwrap().entries(), first.as_slice());
+        record_macos_clipboard_change(
+            msime_host_macos::ClipboardSnapshot {
+                change_count: 2,
+                text: Some("synthetic-external".into()),
+            },
+            &mut last_change_count,
+            true,
+            &store,
+            &history,
+        );
+        assert_eq!(history.lock().unwrap().entries(), first.as_slice());
+        record_macos_clipboard_change(
+            msime_host_macos::ClipboardSnapshot {
+                change_count: 3,
+                text: Some("synthetic-second".into()),
+            },
+            &mut last_change_count,
+            false,
+            &store,
+            &history,
+        );
+        assert_eq!(history.lock().unwrap().entries(), first.as_slice());
     }
 }

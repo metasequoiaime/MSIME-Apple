@@ -37,6 +37,8 @@ public:
   nlohmann::json activate(uint64_t epoch);
   nlohmann::json deactivate(uint64_t epoch);
   void cancel_composition(uint64_t epoch);
+  // Clear the Engine candidate-provider cache without requiring focus.
+  void reset_cache();
   void set_input_enabled(uint64_t epoch, bool enabled);
   void set_chinese_punctuation(uint64_t epoch, bool enabled);
   // Toggle the host-side simplified/traditional output projection without

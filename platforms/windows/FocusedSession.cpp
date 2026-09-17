@@ -263,6 +263,15 @@ bool FocusedSession::cancel_composition(const FocusLease &lease) {
     composer_->cancel();
   });
 }
+bool FocusedSession::reset_cache() {
+  check_thread();
+  try {
+    session_.reset_cache();
+    return true;
+  } catch (...) {
+    return false;
+  }
+}
 bool FocusedSession::cancel(const FocusLease &lease) {
   check_thread();
   if (!prepared(lease))

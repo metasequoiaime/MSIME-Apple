@@ -28,6 +28,12 @@ impl PanelState {
             lifecycle: Arc::new(AtomicU8::new(0)),
         })
     }
+
+    pub(crate) fn can_open_voice_panel(&self) -> bool {
+        self.session
+            .as_ref()
+            .is_some_and(|session| !session.accepts_clipboard() && !session.is_used())
+    }
 }
 
 pub(crate) fn startup_panel(route: Option<SurfaceRoute>) -> Option<PanelSurface> {
@@ -41,11 +47,33 @@ pub(crate) fn startup_panel(route: Option<SurfaceRoute>) -> Option<PanelSurface>
         .panel()
 }
 
+fn startup_panel_for_session(
+    route: Option<SurfaceRoute>,
+    voice_session_available: bool,
+) -> Option<PanelSurface> {
+    let panel = startup_panel(route)?;
+    if route == Some(SurfaceRoute::Voice) && !voice_session_available {
+        return None;
+    }
+    Some(panel)
+}
+
+pub(crate) fn startup_panel_for_launch(route: Option<SurfaceRoute>) -> Option<PanelSurface> {
+    let voice_session_available = if route == Some(SurfaceRoute::Voice) {
+        PanelState::from_environment()
+            .ok()
+            .is_some_and(|state| state.can_open_voice_panel())
+    } else {
+        true
+    };
+    startup_panel_for_session(route, voice_session_available)
+}
+
 pub(crate) fn prepare_windows(
     windows: &mut [tauri::utils::config::WindowConfig],
     route: Option<SurfaceRoute>,
 ) {
-    if startup_panel(route).is_some() {
+    if startup_panel_for_launch(route).is_some() {
         for window in windows.iter_mut().filter(|window| window.label == "main") {
             window.visible = false;
             window.focus = false;
@@ -65,6 +93,23 @@ pub(crate) async fn submit(
     window: tauri::WebviewWindow,
     text: String,
 ) -> Result<(), HostActionError> {
+    submit_with_mode(app, window, text, false).await
+}
+
+pub(crate) async fn submit_clipboard(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    text: String,
+) -> Result<(), HostActionError> {
+    submit_with_mode(app, window, text, true).await
+}
+
+async fn submit_with_mode(
+    app: tauri::AppHandle,
+    window: tauri::WebviewWindow,
+    text: String,
+    clipboard: bool,
+) -> Result<(), HostActionError> {
     if !owns_input_panel(super::requested_surface_route(), window.label()) {
         return Err(error(SessionError::Unavailable));
     }
@@ -73,7 +118,6 @@ pub(crate) async fn submit(
         .session
         .clone()
         .ok_or_else(|| error(SessionError::Unavailable))?;
-    let clipboard = super::requested_surface_route() == Some(SurfaceRoute::CloudClipboard);
     validate_submission(&session, clipboard, &text).map_err(error)?;
     if session.is_used()
         || state
@@ -98,7 +142,14 @@ pub(crate) async fn submit(
         if !received.recv().unwrap_or(false) {
             return (false, Err(SessionError::Unavailable));
         }
-        (true, session.submit(&text))
+        (
+            true,
+            if clipboard {
+                session.submit_clipboard(&text)
+            } else {
+                session.submit_candidate(&text)
+            },
+        )
     })
     .await
     .map_err(|_| error(SessionError::Unavailable))?;
@@ -166,7 +217,7 @@ fn validate_submission(
     clipboard: bool,
     text: &str,
 ) -> Result<(), SessionError> {
-    if clipboard != session.accepts_clipboard() {
+    if clipboard && !session.accepts_clipboard() {
         return Err(SessionError::Rejected);
     }
     if clipboard {
@@ -214,10 +265,7 @@ mod tests {
             validate_submission(&candidate, true, &text),
             Err(SessionError::Rejected)
         );
-        assert_eq!(
-            validate_submission(&clipboard, false, "synthetic"),
-            Err(SessionError::Rejected)
-        );
+        assert_eq!(validate_submission(&clipboard, false, "synthetic"), Ok(()));
         assert_eq!(
             validate_submission(&candidate, false, &text),
             Err(SessionError::Invalid)
@@ -272,6 +320,14 @@ mod tests {
         assert!(!windows[0].visible && !windows[0].focus);
         assert_eq!(startup_panel(route).unwrap().label, "voice-panel");
         assert!(super::super::macos_cloud_clipboard::startup_panel(route).is_none());
+    }
+
+    #[test]
+    fn voice_launch_requires_an_authenticated_session_but_other_panels_do_not() {
+        assert!(startup_panel_for_session(Some(SurfaceRoute::Voice), true).is_some());
+        assert!(startup_panel_for_session(Some(SurfaceRoute::Voice), false).is_none());
+        assert!(startup_panel_for_session(Some(SurfaceRoute::Emoji), false).is_some());
+        assert!(startup_panel_for_session(Some(SurfaceRoute::Handwriting), false).is_some());
     }
     #[test]
     fn close_and_submit_have_an_exclusive_lifecycle() {

@@ -1,4 +1,5 @@
 #import "../ScreenKeyboardPanel.h"
+#include "../ScreenKeyboardTargetPolicy.h"
 #import <Carbon/Carbon.h>
 #include <cassert>
 #include <vector>
@@ -36,6 +37,13 @@ static void Press(NSPanel *panel, NSUInteger index) {
 }
 int main() {
     @autoreleasepool {
+        assert(msime::mac::CapturedScreenKeyboardTarget(4321, 100) == 4321);
+        assert(msime::mac::CapturedScreenKeyboardTarget(100, 100) == 0);
+        assert(msime::mac::CapturedScreenKeyboardTarget(0, 100) == 0);
+        assert(msime::mac::CapturedScreenKeyboardTarget(-1, 100) == 0);
+        assert(msime::mac::LiveScreenKeyboardTarget(4321, 100) == 4321);
+        assert(msime::mac::LiveScreenKeyboardTarget(9876, 100) == 9876);
+        assert(msime::mac::LiveScreenKeyboardTarget(100, 100) == 0);
         [NSApplication sharedApplication];
         __block unsigned short lastCode = 65535;
         __block NSEventModifierFlags lastFlags = 0;
@@ -65,6 +73,19 @@ int main() {
         };
         assert(codes.size() == 61);
         assert(Key(panel, 29).font.pointSize == 15 && Key(panel, 56).font.pointSize == 12);
+        for (NSUInteger i = 0; i < codes.size(); ++i) {
+            NSButton *button = Key(panel, i);
+            const BOOL modifier = codes[i] == 57 || codes[i] == 56 || codes[i] == 59 ||
+                codes[i] == 55 || codes[i] == 58;
+            assert(button.continuous == !modifier);
+            if (!modifier) {
+                float delay = 0;
+                float interval = 0;
+                [button getPeriodicDelay:&delay interval:&interval];
+                assert(std::abs(delay - 0.45f) < 0.001f);
+                assert(std::abs(interval - 0.075f) < 0.001f);
+            }
+        }
         for (NSNumber *dark in @[@NO, @YES]) {
             panel.appearance = [NSAppearance appearanceNamed:dark.boolValue ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua];
             NSButton *button = Key(panel, 41);

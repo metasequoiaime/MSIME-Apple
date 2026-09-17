@@ -1,0 +1,36 @@
+#!/usr/bin/env bash
+# Enable: git config core.hooksPath .githooks   Skip once: git commit --no-verify
+#
+# Commit-time checks are sub-second by design. Anything that compiles belongs in
+# pre-merge-commit or pre-push; a hook that costs a minute is a hook people turn
+# off, and then none of them run.
+set -uo pipefail
+cd "$(git rev-parse --show-toplevel)" || exit 1
+status=0
+
+# Conflict markers have reached develop before: 8f35bd20 introduced them and
+# 83336482 reverted. -G searches added/removed *content*; -S counts occurrences
+# and matches nothing useful here.
+if git diff --cached -G'^(<{7}|>{7}) ' --name-only | grep -q .; then
+  echo "conflict markers in staged changes:" >&2
+  git diff --cached -G'^(<{7}|>{7}) ' --name-only | sed 's/^/  /' >&2
+  status=1
+fi
+
+# rustfmt on staged Rust files only. The tree as a whole is not clean and
+# reformatting it would collide with every branch in flight.
+staged_rs="$(git diff --cached --name-only --diff-filter=ACM -- '*.rs')"
+if [ -n "$staged_rs" ] && command -v rustfmt >/dev/null 2>&1; then
+  unformatted=""
+  for file in $staged_rs; do
+    [ -f "$file" ] || continue
+    rustfmt --check --edition 2021 "$file" >/dev/null 2>&1 || unformatted="$unformatted  $file"$'\n'
+  done
+  if [ -n "$unformatted" ]; then
+    echo "not rustfmt-clean:" >&2
+    printf '%s' "$unformatted" >&2
+    status=1
+  fi
+fi
+
+exit "$status"

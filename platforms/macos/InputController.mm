@@ -45,6 +45,7 @@
 #import "FloatingToolbarPanel.h"
 #import "InputModeHUDPanel.h"
 #import "VoiceInputService.h"
+#import "VoiceProviderSocket.h"
 #import "VoiceWaveOverlay.h"
 #import "VoiceInputLevel.h"
 #include "../../shared/voice/CaptureDuration.h"
@@ -56,6 +57,7 @@
 #import "CustomTranslationBatch.h"
 #import "TranslationCache.h"
 #include "WubiCommitPolicy.h"
+#include "WubiCodeHintPolicy.h"
 #include "PairedPunctuation.h"
 #include "PairedPunctuation.h"
 #include "TypingStatistics.h"
@@ -161,6 +163,29 @@ static NSString *CandidateDisplay(NSDictionary *candidate, BOOL traditional) {
         if ([source isEqual:@3]) return [text stringByAppendingString:@" 🤖"];
     }
     return text;
+}
+
+static NSString *MSIMEWubiCodeHint(NSDictionary *candidate, NSDictionary *view, BOOL enabled) {
+    if (![candidate isKindOfClass:NSDictionary.class] || ![view isKindOfClass:NSDictionary.class]) return @"";
+    NSString *code = candidate[@"code"];
+    NSString *typed = [view[@"preedit"] isKindOfClass:NSString.class] ? view[@"preedit"] : view[@"editing_text"];
+    NSNumber *scheme = view[@"scheme"];
+    NSString *localMode = [view[@"local_mode"] isKindOfClass:NSString.class] ? view[@"local_mode"] : @"none";
+    if (![code isKindOfClass:NSString.class] || ![typed isKindOfClass:NSString.class] ||
+        ![scheme isKindOfClass:NSNumber.class]) return @"";
+    const std::string codeUTF8 = code.UTF8String ? code.UTF8String : "";
+    const std::string typedUTF8 = typed.UTF8String ? typed.UTF8String : "";
+    const std::string hint = msime::mac::WubiCodeHint(codeUTF8, typedUTF8, enabled, scheme.intValue,
+                                                       localMode.UTF8String ?: "none",
+                                                       [view[@"answered_by_pinyin_fallback"] boolValue]);
+    return hint.empty() ? @"" : [[NSString alloc] initWithBytes:hint.data() length:hint.size() encoding:NSUTF8StringEncoding];
+}
+
+static NSString *CandidateDisplayWithWubiHint(NSDictionary *candidate, BOOL traditional, NSString *hint) {
+    if (![hint isKindOfClass:NSString.class] || hint.length == 0) return CandidateDisplay(candidate, traditional);
+    NSMutableDictionary *annotated = [candidate mutableCopy];
+    annotated[@"annotation"] = [NSString stringWithFormat:@"(%@)", hint];
+    return CandidateDisplay(annotated, traditional);
 }
 
 static NSString *CandidateTranslation(NSDictionary *candidate) {
@@ -483,6 +508,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     MSIMEPreferenceLoadState _preferenceLoadState;
     MSIMEPreferenceSaveState _preferenceSaveState;
     MSIMEAppearancePreferences *_appearance;
+    BOOL _wubiCodeHintEnabled;
     BOOL _capsLock;
     NSUInteger _requestedPageSize;
     BOOL _skinShowsSelectedBar;
@@ -1096,6 +1122,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 
 - (void)ensureAppearance {
     if (_appearance) return;
+    _wubiCodeHintEnabled = YES;
     _appearance = [MSIMEAppearancePreferences sharedPreferences];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(appearanceChanged:) name:MSIMEAppearanceDidChangeNotification object:_appearance];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(translationPreferencesSaved:) name:MSIMETranslationPreferencesDidSaveNotification object:_appearance];
@@ -1354,11 +1381,18 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     Class bridge = NSClassFromString(@"MSIMEBackendWindowBridge");
     id shared = [bridge respondsToSelector:@selector(shared)] ? [bridge performSelector:@selector(shared)] : nil;
     NSDictionary *options = [self runtimeOptions];
-    if (![shared respondsToSelector:@selector(showEmojiWithOptions:selectionAttempt:)]) return;
+    // The shared Tauri/Swift surface is the normal path, but the input source
+    // can be alive before that bridge is loaded (or while the desktop bundle
+    // is being repaired). Keep the macOS character viewer as a useful,
+    // platform-native fallback instead of silently dropping the menu action.
+    if (![shared respondsToSelector:@selector(showEmojiWithOptions:selectionAttempt:)]) {
+        [self showSystemCharacterPalette];
+        return;
+    }
     [self showSharedTextTool:@"emoji" options:options bridge:shared];
 }
 - (void)showVoicePanel {
-    NSString *providerSocket = NSProcessInfo.processInfo.environment[@"MSIME_VOICE_PROVIDER_SOCKET"];
+    NSString *providerSocket = MSIMEVoiceProviderSocket();
     if (![providerSocket isKindOfClass:NSString.class] || !providerSocket.isAbsolutePath ||
         ![[NSFileManager defaultManager] fileExistsAtPath:providerSocket]) {
         // Direct macOS Speech/HTTP/Doubao providers remain native. The shared
@@ -1486,7 +1520,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     };
     MSIMEDesktopInputSession *inputSession = [[MSIMEDesktopInputSession alloc]
         initWithTargetPID:application.processIdentifier launchTime:application.launchDate.timeIntervalSince1970
-        clipboard:[route isEqualToString:@"cloud-clipboard"]
+        clipboard:[route isEqualToString:@"cloud-clipboard"] || [route isEqualToString:@"emoji"]
         handler:^(NSString *text, double deadline, MSIMEPanelTextCompletion completion) {
             MSIMEInputController *controller = weakSelf;
             if (!controller || controller->_emojiReturn.generation != token || controller->_desktopEmojiCompletion) {
@@ -1586,12 +1620,12 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 - (BOOL)usesNativeHTTPVoice {
     NSString *provider = [NSUserDefaults.standardUserDefaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"";
-    return ![NSProcessInfo.processInfo.environment[@"MSIME_VOICE_PROVIDER_SOCKET"] length] &&
+    return !MSIMEVoiceProviderSocket() &&
         [@[@"openai", @"groq", @"siliconflow", @"cloud"] containsObject:provider.lowercaseString];
 }
 - (BOOL)usesNativeDoubaoVoice {
     NSString *provider = [NSUserDefaults.standardUserDefaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"doubao";
-    return ![NSProcessInfo.processInfo.environment[@"MSIME_VOICE_PROVIDER_SOCKET"] length] &&
+    return !MSIMEVoiceProviderSocket() &&
         [provider.lowercaseString isEqual:@"doubao"];
 }
 - (void)dealloc { [_desktopInputSession stop]; [_httpVoiceRequest cancel]; [_doubaoVoiceRequest cancel]; [_doubaoPolishRequest cancel]; [_livePolishRequest cancel]; }
@@ -2065,7 +2099,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         if ([NSUserDefaults.standardUserDefaults boolForKey:@"MSIMEClientVoiceMuteSystemAudio"]) [controller->_voiceAudioMuter mute:&error];
         [controller->_voiceOverlay setListening:YES];
         NSString *language = [[NSUserDefaults standardUserDefaults] stringForKey:@"MSIMEClientVoiceLanguage"] ?: @"zh-CN";
-        NSString *socket = NSProcessInfo.processInfo.environment[@"MSIME_VOICE_PROVIDER_SOCKET"];
+        NSString *socket = MSIMEVoiceProviderSocket();
         NSDictionary *query = @{ @"language": language.lowercaseString, @"generation": @(controller->_voiceGeneration), @"stream": @([defaults objectForKey:@"MSIMEClientVoiceStreamInlinePreedit"] == nil || [defaults boolForKey:@"MSIMEClientVoiceStreamInlinePreedit"]), @"asr_provider": [defaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"doubao", @"asr_endpoint": [defaults stringForKey:@"MSIMEClientVoiceASREndpoint"] ?: @"", @"asr_model": [defaults stringForKey:@"MSIMEClientVoiceASRModel"] ?: @"", @"asr_token": [defaults stringForKey:@"MSIMEClientVoiceASRToken"] ?: @"", @"doubao_boosting_table_id": [defaults stringForKey:@"MSIMEClientVoiceDoubaoBoostingTableID"] ?: @"", @"asr_app_key": [defaults stringForKey:@"MSIMEClientVoiceDoubaoAppKey"] ?: @"", @"asr_resource_id": [defaults stringForKey:@"MSIMEClientVoiceDoubaoResourceID"] ?: @"", @"polish_enabled": @([defaults boolForKey:@"MSIMEClientVoicePolish"]), @"polish_prompt_id": [defaults stringForKey:@"MSIMEClientVoicePolishPromptID"] ?: @"cleanup", @"polish_provider": [defaults stringForKey:@"MSIMEClientVoicePolishProvider"] ?: @"siliconflow", @"polish_model": [defaults stringForKey:@"MSIMEClientVoicePolishModel"] ?: @"", @"polish_endpoint": [defaults stringForKey:@"MSIMEClientVoicePolishEndpoint"] ?: @"", @"polish_token": [defaults stringForKey:@"MSIMEClientVoicePolishToken"] ?: @"", @"polish_prompt": [defaults stringForKey:@"MSIMEClientVoicePolishPrompt"] ?: @"", @"polish_prompt_custom_1": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom1"] ?: @"", @"polish_prompt_custom_2": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom2"] ?: @"", @"polish_prompt_custom_3": [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom3"] ?: @"" };
         query = MSIMEVoiceProviderOptions(query, defaults);
         if (socket.length) {
@@ -2110,7 +2144,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     // A permission sheet can outlive the physical hold. Require a fresh hold
     // after authorization instead of starting capture after the key was released.
     const BOOL resumeAfterPermission = !_voiceHoldStarting;
-    if (![self usesNativeHTTPVoice] && ![self usesNativeDoubaoVoice] && ![NSProcessInfo.processInfo.environment[@"MSIME_VOICE_PROVIDER_SOCKET"] length] &&
+    if (![self usesNativeHTTPVoice] && ![self usesNativeDoubaoVoice] && !MSIMEVoiceProviderSocket() &&
         _voiceService.speechAuthorizationStatus != SFSpeechRecognizerAuthorizationStatusAuthorized) {
         [self requestVoicePermissionForSpeech:YES resume:resumeAfterPermission];
         return;
@@ -2382,6 +2416,10 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     msime_macos_diagnostic_configure(directory, diagnosticEnabled);
     if (diagnosticEnabled) msime_macos_diagnostic_write("preferences_applied");
     if ([preferences isKindOfClass:NSDictionary.class]) {
+        id wubiCodeHint = preferences[@"wubi_code_hint"];
+        if ([wubiCodeHint isKindOfClass:NSNumber.class] &&
+            CFGetTypeID((__bridge CFTypeRef)wubiCodeHint) == CFBooleanGetTypeID())
+            _wubiCodeHintEnabled = [wubiCodeHint boolValue];
         _voiceThemePreferences = [preferences copy];
         _menuThemePreferences = [preferences copy];
         if (_voiceOverlay) [_voiceOverlay applyThemePreferences:preferences];
@@ -2484,7 +2522,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     [self cancelDoubaoVoiceInput];
     [self cancelHTTPVoiceInput];
     MSIMEDeactivateVoice(_voiceService, _session, _voiceAudioMuter, _voiceOverlay,
-        NSProcessInfo.processInfo.environment[@"MSIME_VOICE_PROVIDER_SOCKET"], _voiceGeneration);
+        MSIMEVoiceProviderSocket(), _voiceGeneration);
     [self cancelCandidateTranslations];
     [self cancelCloudCandidates];
     _modifierTap.reset();
@@ -3038,7 +3076,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         CGFloat rowHeight = MSIMECandidateTextHeight(@"", font) + 12;
         BOOL traditional = _appearance.traditionalOutput && MSIMEScriptConversionApplies(_view);
         for (NSDictionary *candidate in candidates)
-            rowHeight = MAX(rowHeight, MSIMECandidateTextHeight(CandidateDisplay(candidate, traditional), font) + 12);
+            rowHeight = MAX(rowHeight, MSIMECandidateTextHeight(CandidateDisplayWithWubiHint(candidate, traditional,
+                MSIMEWubiCodeHint(candidate, _view, _wubiCodeHintEnabled)), font) + 12);
         if (!_appearance.vertical) {
             CGFloat glossHeight = 0;
             NSFont *glossFont = [_appearance candidateFontOfSize:font.pointSize * 0.78 englishFirst:YES];
@@ -3109,7 +3148,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     CGFloat glossHeight = 0;
     for (NSDictionary *candidate in candidates) {
         NSString *number = [NSString stringWithFormat:@"%lu", (unsigned long)++index];
-        NSString *display = CandidateDisplay(candidate, traditional);
+        NSString *display = CandidateDisplayWithWubiHint(candidate, traditional,
+            MSIMEWubiCodeHint(candidate, _view, _wubiCodeHintEnabled));
         NSString *title = [NSString stringWithFormat:@"%@  %@", number, display];
         rowHeight = MAX(rowHeight, MSIMECandidateTextHeight(title, font) + 12);
         CGFloat itemWidth = ceil([number sizeWithAttributes:@{NSFontAttributeName: numberFont}].width +
@@ -3172,7 +3212,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSUInteger slot = 0;
     CGFloat x = inset;
     for (NSDictionary *candidate in candidates) {
-        NSString *display = CandidateDisplay(candidate, traditional);
+        NSString *display = CandidateDisplayWithWubiHint(candidate, traditional,
+            MSIMEWubiCodeHint(candidate, _view, _wubiCodeHintEnabled));
         NSString *title = [NSString stringWithFormat:@"%lu  %@", (unsigned long)(slot + 1), display];
         MSIMECandidateButton *button = [MSIMECandidateButton buttonWithTitle:title target:self action:@selector(selectCandidate:)];
         button.candidateID = candidate[@"id"];

@@ -53,7 +53,7 @@ import Foundation
     precondition(removed)
     let absent = try MacEmojiClipboardHistory.remove(directory: "/synthetic-state", text: "synthetic absent")
     precondition(!absent)
-    for text in ["", String(repeating: "界", count: 1366), "synthetic malformed", "synthetic error"] {
+    for text in ["", String(repeating: "界", count: 4001), "synthetic malformed", "synthetic error"] {
       do { _ = try MacEmojiClipboardHistory.remove(directory: "/synthetic-state", text: text); preconditionFailure("invalid removal accepted") }
       catch { }
     }
@@ -64,12 +64,15 @@ import Foundation
     precondition(history.matching("").count == 2)
     let disabled = try MacEmojiClipboardHistory.decode(["enabled": false, "entries": []])
     precondition(!disabled.enabled && disabled.matching("").isEmpty)
+    let boundaryText = String(repeating: "界", count: 4000)
+    let boundary = try MacEmojiClipboardHistory.decode(["enabled": true, "entries": [boundaryText]])
+    precondition(boundary.entries == [boundaryText] && boundaryText.utf8.count == MacClipboardTextLimits.maxUTF8Bytes)
     let invalid: [NSDictionary] = [
       [:], ["enabled": true], ["enabled": 1, "entries": []],
       ["enabled": false, "entries": ["synthetic"]],
       ["enabled": true, "entries": [""]],
       ["enabled": true, "entries": ["synthetic", "synthetic"]],
-      ["enabled": true, "entries": [String(repeating: "界", count: 1366)]],
+      ["enabled": true, "entries": [String(repeating: "界", count: 4001)]],
       ["enabled": true, "entries": (0..<51).map { "synthetic-\($0)" }],
       ["enabled": true, "entries": [], "error": true]
     ]

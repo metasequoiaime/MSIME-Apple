@@ -402,56 +402,6 @@ async fn ai_test(
     })?
 }
 
-#[cfg(any(target_os = "macos", test))]
-fn macos_voice_capture_devices(document: &Value) -> Vec<Value> {
-    fn collect(value: &Value, devices: &mut Vec<Value>) {
-        if devices.len() >= 128 {
-            return;
-        }
-        if let Some(object) = value.as_object() {
-            let input_channels = object
-                .get("coreaudio_device_input")
-                .and_then(Value::as_u64)
-                .unwrap_or_default();
-            if input_channels > 0 {
-                if let Some(name) = object
-                    .get("_name")
-                    .and_then(Value::as_str)
-                    .map(str::trim)
-                    .filter(|name| {
-                        !name.is_empty() && name.len() <= 512 && !name.chars().any(char::is_control)
-                    })
-                {
-                    let id = object
-                        .get("coreaudio_device_uid")
-                        .and_then(Value::as_str)
-                        .map(str::trim)
-                        .filter(|id| {
-                            !id.is_empty() && id.len() <= 512 && !id.chars().any(char::is_control)
-                        })
-                        .unwrap_or(name);
-                    devices.push(serde_json::json!({
-                        "backend": "macos",
-                        "id": id,
-                        "label": name
-                    }));
-                }
-            }
-            for child in object.values() {
-                collect(child, devices);
-            }
-        } else if let Some(array) = value.as_array() {
-            for child in array {
-                collect(child, devices);
-            }
-        }
-    }
-
-    let mut devices = Vec::new();
-    collect(document, &mut devices);
-    devices
-}
-
 #[tauri::command]
 async fn list_voice_capture_devices() -> Result<Value, CommandError> {
     #[cfg(target_os = "linux")]
@@ -490,21 +440,26 @@ async fn list_voice_capture_devices() -> Result<Value, CommandError> {
     }
     #[cfg(target_os = "macos")]
     {
-        let output = std::process::Command::new("system_profiler")
-            .args(["SPAudioDataType", "-json"])
-            .output()
+        let devices = tauri::async_runtime::spawn_blocking(msime_host_macos::voice_capture_devices)
+            .await
             .map_err(|_| CommandError {
                 code: "audio_devices",
             })?;
-        if !output.status.success() {
-            return Err(CommandError {
-                code: "audio_devices",
-            });
-        }
-        let document: Value = serde_json::from_slice(&output.stdout).map_err(|_| CommandError {
+        serde_json::to_value(
+            devices
+                .into_iter()
+                .map(|(id, label)| {
+                    serde_json::json!({
+                        "backend": "macos",
+                        "id": id,
+                        "label": label
+                    })
+                })
+                .collect::<Vec<_>>(),
+        )
+        .map_err(|_| CommandError {
             code: "audio_devices",
-        })?;
-        Ok(Value::Array(macos_voice_capture_devices(&document)))
+        })
     }
     #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
     Err(CommandError {
@@ -821,7 +776,15 @@ enum PanelInputTarget {
 #[derive(Clone, Copy, Debug)]
 struct PanelInputTarget(msime_host_windows::InputTarget);
 
-#[cfg(not(any(target_os = "linux", target_os = "windows")))]
+#[cfg(target_os = "macos")]
+#[derive(Clone, Debug)]
+struct PanelInputTarget(msime_host_macos::LaunchTarget);
+
+#[cfg(all(
+    not(target_os = "linux"),
+    not(target_os = "windows"),
+    not(target_os = "macos")
+))]
 #[derive(Clone, Debug)]
 struct PanelInputTarget;
 
@@ -1201,6 +1164,14 @@ fn start_desktop_preferences_monitor(
         .name("msime-preferences-monitor".to_owned())
         .spawn(move || {
             let mut monitor = desktop_preferences_monitor::Monitor::new(&store);
+            #[cfg(target_os = "macos")]
+            let mut last_change_count = msime_host_macos::clipboard_snapshot(
+                store
+                    .load()
+                    .map(|snapshot| snapshot.preferences.clipboard_history)
+                    .unwrap_or(false),
+            )
+            .map(|snapshot| snapshot.change_count);
             loop {
                 #[cfg(target_os = "windows")]
                 {
@@ -1219,7 +1190,24 @@ fn start_desktop_preferences_monitor(
                         std::time::Duration::from_millis(750),
                     );
                 }
-                #[cfg(not(any(target_os = "linux", target_os = "windows")))]
+                #[cfg(target_os = "macos")]
+                {
+                    std::thread::sleep(std::time::Duration::from_millis(750));
+                    let enabled = store
+                        .load()
+                        .map(|snapshot| snapshot.preferences.clipboard_history)
+                        .unwrap_or(false);
+                    if let Some(snapshot) = msime_host_macos::clipboard_snapshot(enabled) {
+                        desktop_preferences_monitor::record_macos_clipboard_change(
+                            snapshot,
+                            &mut last_change_count,
+                            enabled,
+                            &store,
+                            &history,
+                        );
+                    }
+                }
+                #[cfg(not(any(target_os = "linux", target_os = "windows", target_os = "macos")))]
                 std::thread::sleep(std::time::Duration::from_millis(750));
                 monitor.poll(&app, &store, &history);
             }
@@ -2939,6 +2927,17 @@ fn remember_input_target(
     return remember_panel_input_target(&state);
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
+        #[cfg(target_os = "macos")]
+        {
+            let _ = window;
+            let target = msime_host_macos::capture_launch_target().ok_or(HostActionError {
+                code: "unavailable",
+            })?;
+            *state.0.lock().map_err(|_| HostActionError {
+                code: "unavailable",
+            })? = Some(PanelInputTarget(target));
+            return Ok(());
+        }
         let _ = (window, state);
         Ok(())
     }
@@ -2953,7 +2952,7 @@ async fn send_key(
 ) -> Result<(), HostActionError> {
     // Linux routes through the display server, Windows injects directly, so the
     // app handle belongs to only one of them.
-    let _ = (&app, &window);
+    let _ = (&app, &window, &state);
     #[cfg(target_os = "linux")]
     {
         request.validate().map_err(|_| HostActionError {
@@ -2978,12 +2977,11 @@ async fn send_key(
     return send_panel_key_windows(&state, request, window.label() == "keyboard-panel");
     #[cfg(target_os = "macos")]
     {
-        let _ = state;
         request.validate().map_err(|_| HostActionError {
             code: "invalid_key",
         })?;
         // Only the non-focusable keyboard follows the current editor. Other
-        // panels will use their own captured input-session handoff.
+        // panels use their own captured input-session handoff.
         if window.label() != "keyboard-panel" {
             return Err(HostActionError {
                 code: "unavailable",
@@ -2991,6 +2989,9 @@ async fn send_key(
         }
         let (send, received) = std::sync::mpsc::sync_channel(1);
         app.run_on_main_thread(move || {
+            // The keyboard is non-activating, so the user can switch editors
+            // while it remains open. Resolve the foreground target immediately
+            // before each stroke and re-check it in native code before posting.
             let _ = send.send(msime_host_macos::send_keyboard_key(&request));
         })
         .map_err(|_| HostActionError {
@@ -3895,7 +3896,11 @@ async fn send_text(
 
 #[tauri::command]
 fn supports_clipboard_paste() -> bool {
-    cfg!(any(target_os = "linux", target_os = "windows"))
+    cfg!(any(
+        target_os = "linux",
+        target_os = "windows",
+        target_os = "macos"
+    ))
 }
 
 #[tauri::command]
@@ -3962,6 +3967,8 @@ async fn paste_clipboard_text(
             code: "unavailable",
         })?;
     }
+    #[cfg(target_os = "macos")]
+    return macos_panel_session::submit_clipboard(app, window, text).await;
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
         let _ = (app, window, state, text);
@@ -4452,6 +4459,17 @@ fn open_voice_panel(
     app: tauri::AppHandle,
     state: tauri::State<'_, PanelInputState>,
 ) -> Result<(), HostActionError> {
+    #[cfg(target_os = "macos")]
+    if !app
+        .state::<macos_panel_session::PanelState>()
+        .can_open_voice_panel()
+    {
+        // A standalone Tauri keyboard has no authenticated IMK target. Do not
+        // open a panel which could recognize text but can never submit it.
+        return Err(HostActionError {
+            code: "unavailable",
+        });
+    }
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     let _ = &state;
     #[cfg(target_os = "linux")]
@@ -5501,7 +5519,7 @@ pub fn run() {
             });
             #[cfg(target_os = "macos")]
             if let Some(surface) = macos_keyboard::startup_panel(requested_surface_route())
-                .or_else(|| macos_panel_session::startup_panel(requested_surface_route()))
+                .or_else(|| macos_panel_session::startup_panel_for_launch(requested_surface_route()))
                 .or_else(|| macos_cloud_clipboard::startup_panel(requested_surface_route()))
                 .or_else(|| macos_cloud_dictionary::startup_panel(requested_surface_route())) {
                 open_panel_window(
@@ -5802,7 +5820,7 @@ pub fn run() {
             #[cfg(target_os = "macos")]
             if matches!(_event, tauri::RunEvent::WindowEvent { event: tauri::WindowEvent::Destroyed, .. })
                 && (macos_keyboard::startup_panel(requested_surface_route()).is_some()
-                    || macos_panel_session::startup_panel(requested_surface_route()).is_some()
+                    || macos_panel_session::startup_panel_for_launch(requested_surface_route()).is_some()
                     || macos_cloud_clipboard::startup_panel(requested_surface_route()).is_some()
                     || macos_cloud_dictionary::startup_panel(requested_surface_route()).is_some())
                 && !_app.webview_windows().values().any(|window| window.is_visible().unwrap_or(true))
@@ -6105,35 +6123,6 @@ mod tests {
             .headers
             .iter()
             .any(|header| header.name == "x-api-access-key"));
-    }
-
-    #[test]
-    fn macos_voice_devices_match_the_picker_and_exclude_outputs() {
-        let document = serde_json::json!({
-            "SPAudioDataType": [
-                {"_name": "Fixture Speakers", "coreaudio_device_output": 2},
-                {"_name": "Fixture Microphone", "coreaudio_device_input": 1,
-                 "coreaudio_device_uid": "fixture-input"},
-                {"_name": "Fallback Microphone", "coreaudio_device_input": 2},
-                {"_name": "Not An Input", "coreaudio_device_input": 0}
-            ]
-        });
-
-        assert_eq!(
-            super::macos_voice_capture_devices(&document),
-            vec![
-                serde_json::json!({
-                    "backend": "macos",
-                    "id": "fixture-input",
-                    "label": "Fixture Microphone"
-                }),
-                serde_json::json!({
-                    "backend": "macos",
-                    "id": "Fallback Microphone",
-                    "label": "Fallback Microphone"
-                }),
-            ]
-        );
     }
 
     #[cfg(unix)]

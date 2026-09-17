@@ -1147,12 +1147,7 @@ int wmain(int argc, wchar_t **argv) {
         stopping.store(true);
         return true;
       case MaintenanceAction::ClearCache: {
-        const auto view = server.candidate_view();
-        if (!view)
-          return false;
-        std::unique_ptr<char, decltype(&msime_client_string_free)> reply(
-            msime_client_reset_cache(view->session), msime_client_string_free);
-        return static_cast<bool>(reply);
+        return server.reset_cache();
       }
       case MaintenanceAction::OpenScreenKeyboard: {
         const auto request =

@@ -20,7 +20,7 @@ function(msime_clipboard_swift_test name entry)
   set_tests_properties(${name} PROPERTIES LABELS "clipboard-local" TIMEOUT 30)
 endfunction()
 
-set(clipboard_catalog_sources BackendEmojiSymbolGroups.swift BackendEmojiCatalog.swift
+set(clipboard_catalog_sources BackendClipboardTextLimits.swift BackendEmojiSymbolGroups.swift BackendEmojiCatalog.swift
   BackendEmojiClipboardHistory.swift)
 set(clipboard_monitor_sources ${clipboard_catalog_sources} BackendClipboardCapture.swift
   BackendClipboardMonitor.swift)
@@ -31,7 +31,7 @@ msime_clipboard_swift_test(clipboard-history-adapter tests/EmojiClipboardHistory
   ${clipboard_catalog_sources})
 msime_clipboard_swift_test(clipboard-history-observation tests/EmojiClipboardObservationTest.swift
   ${clipboard_catalog_sources})
-msime_clipboard_swift_test(clipboard-capture tests/ClipboardCaptureTest.swift BackendClipboardCapture.swift)
+msime_clipboard_swift_test(clipboard-capture tests/ClipboardCaptureTest.swift BackendClipboardCapture.swift BackendClipboardTextLimits.swift)
 msime_clipboard_swift_test(clipboard-monitor tests/ClipboardMonitorTest.swift ${clipboard_monitor_sources})
 msime_clipboard_swift_test(clipboard-service tests/ClipboardServiceTest.swift
   ${clipboard_monitor_sources} BackendClipboardService.swift)

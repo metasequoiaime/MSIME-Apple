@@ -6,6 +6,11 @@ add_custom_target(uninstall
   COMMAND "${CMAKE_COMMAND}" -P "${CMAKE_CURRENT_BINARY_DIR}/uninstall.cmake"
   COMMENT "Remove installed MSIME files while preserving runtime configuration")
 include(CTest)
+if(BUILD_TESTING)
+  find_package(Python3 COMPONENTS Interpreter REQUIRED)
+  add_test(NAME linux-fcitx5-contract
+           COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/fcitx5_contract.py")
+endif()
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(PkgConfig REQUIRED)
@@ -348,4 +353,9 @@ add_test(NAME linux-native-compose COMMAND linux-native-compose-test
 option(MSIME_ENABLE_PACKAGING "Enable Linux TGZ and Debian package generation" OFF)
 if(MSIME_ENABLE_PACKAGING)
   include(cmake/packaging.cmake)
+endif()
+
+option(MSIME_ENABLE_FCITX5 "Build the native Fcitx5 input method addon" OFF)
+if(MSIME_ENABLE_FCITX5)
+  add_subdirectory(fcitx5)
 endif()

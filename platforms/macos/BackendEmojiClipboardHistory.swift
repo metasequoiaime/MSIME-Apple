@@ -32,7 +32,7 @@ struct MacEmojiClipboardHistory: Equatable, Sendable {
     guard response["error"] == nil, let flag = response["enabled"] as? NSNumber,
           CFGetTypeID(flag) == CFBooleanGetTypeID(),
           let entries = response["entries"] as? [String], entries.count <= 50,
-          entries.allSatisfy({ !$0.isEmpty && $0.utf8.count <= 4096 }),
+          entries.allSatisfy(MacClipboardTextLimits.valid),
           Set(entries).count == entries.count,
           flag.boolValue || entries.isEmpty else {
       throw NSError(domain: "MSIMEClipboardHistory", code: 1)
@@ -59,7 +59,7 @@ struct MacEmojiClipboardHistory: Equatable, Sendable {
 
   static func remove(directory: String, text: String) throws -> Bool {
     let selector = NSSelectorFromString("removeClipboardHistoryRequest:")
-    guard NSString(string: directory).isAbsolutePath, !text.isEmpty, text.utf8.count <= 4096,
+    guard NSString(string: directory).isAbsolutePath, MacClipboardTextLimits.valid(text),
           let type = NSClassFromString("MSIMEClientSession") as? NSObject.Type,
           type.responds(to: selector),
           let response = type.perform(selector, with: ["directory": directory, "text": text] as NSDictionary)?.takeUnretainedValue() as? NSDictionary,
@@ -97,7 +97,7 @@ struct MacEmojiClipboardHistory: Equatable, Sendable {
 
   static func capture(directory: String, text: String) throws -> Bool {
     let selector = NSSelectorFromString("captureClipboardHistoryRequest:")
-    guard NSString(string: directory).isAbsolutePath, text.utf8.count <= 4096,
+    guard NSString(string: directory).isAbsolutePath, MacClipboardTextLimits.valid(text),
           let type = NSClassFromString("MSIMEClientSession") as? NSObject.Type,
           type.responds(to: selector),
           let response = type.perform(selector, with: ["directory": directory, "text": text] as NSDictionary)?.takeUnretainedValue() as? NSDictionary,

@@ -1,0 +1,74 @@
+# Hand-authored whole-sentence cases. Unlike the word set, these are not in any dictionary as a
+# single entry, so answering them requires segmentation plus assembly — which is what the word
+# lattice and the fallback decoder actually do.
+#
+# Gold is the one natural writing a native reader would produce for the pinyin as given. Cases
+# whose pinyin genuinely admits two equally natural writings were not included: an eval set cannot
+# be honest and ambiguous at the same time.
+#
+# n=60. The 95% confidence half-width on a single proportion at this size is roughly 13 points, so
+# aggregate movement here is not evidence on its own. Compare runs case by case, using the rank of
+# each gold answer, not by differencing the summary numbers.
+#
+# No real personal data: every name is a common surname plus a generic given name.
+id	input	gold	syllables	tags
+s-001	wojintianqushangban	我今天去上班	6	function-word
+s-002	tamenzhengzaikaihui	他们正在开会	6	function-word
+s-003	zheshiyigehaozhuyi	这是一个好主意	7	function-word
+s-004	womingtianzaolaigongsi	我明天早来公司	7	function-word
+s-005	qingnibangwokankan	请你帮我看看	6	function-word
+s-006	tabashufangzaizhuozishang	他把书放在桌子上	8	function-word
+s-007	wodeshoujimeidianle	我的手机没电了	7	function-word
+s-008	zheigewentihenzhongyao	这个问题很重要	7	function-word
+s-009	womenyiqichifanba	我们一起吃饭吧	7	function-word
+s-010	nizuotianqunalile	你昨天去哪里了	7	function-word
+s-011	xianzaijidianzhong	现在几点钟	5	seg-ambiguity
+s-012	woyaoquxianggang	我要去香港	5	seg-ambiguity
+s-013	tashigongchengshi	他是工程师	5	seg-ambiguity
+s-014	zhejianyifuhenpiaoliang	这件衣服很漂亮	7	seg-ambiguity
+s-015	womenxuexihanyu	我们学习汉语	6	seg-ambiguity
+s-016	qingwenxishoujianzainali	请问洗手间在哪里	8	seg-ambiguity
+s-017	jintiantianqihenhao	今天天气很好	6	seg-ambiguity
+s-018	tadeyingyushuipinghengao	他的英语水平很高	8	seg-ambiguity
+s-019	womaileyibenshu	我买了一本书	6	seg-ambiguity
+s-020	zhegechengshihenda	这个城市很大	6	seg-ambiguity
+s-021	womenxuyaogengduoshijian	我们需要更多时间	8	seg-ambiguity
+s-022	qingbangwodayindaozhege	请帮我打印这个	7	seg-ambiguity
+s-023	tazhengzaixiezuoye	他正在写作业	6	homophone
+s-024	womenyaoyanjiuzhegefangan	我们要研究这个方案	9	homophone
+s-025	zhebenshuhenyouyisi	这本书很有意思	7	homophone
+s-026	tayijingdaojiale	他已经到家了	6	homophone
+s-027	womenmingtiankaishi	我们明天开始	6	homophone
+s-028	qingnizaishuoyibian	请你再说一遍	6	homophone
+s-029	zhejianshiqinghennanban	这件事情很难办	7	homophone
+s-030	tadegongzuofeichangmang	他的工作非常忙	7	homophone
+s-031	womenyinggaizaoyidianqu	我们应该早一点去	8	homophone
+s-032	zhegedifangwomeilaiguo	这个地方我没来过	8	homophone
+s-033	tamenzaitaolunjishuwenti	他们在讨论技术问题	9	homophone
+s-034	womenxuyaotigaoxiaolv	我们需要提高效率	8	homophone
+s-035	sanbaiwushijiukuaiqian	三百五十九块钱	7	number-measure
+s-036	womailiangpingshui	我买两瓶水	5	number-measure
+s-037	zheligeyousangeren	这里有三个人	6	number-measure
+s-038	tazhulesantian	他住了三天	5	number-measure
+s-039	yigongyiqianerbaiyuan	一共一千二百元	7	number-measure
+s-040	womenkaileliangxiaoshihui	我们开了两小时会	8	number-measure
+s-041	zhangweiqunianqulehangzhou	张伟去年去了杭州	8	name-place
+s-042	liminzaibeijinggongzuo	李明在北京工作	7	name-place
+s-043	wangfangshiwodetongshi	王芳是我的同事	7	name-place
+s-044	tamencongshanghailaide	他们从上海来的	7	name-place
+s-045	woxiangquchengdukankan	我想去成都看看	7	name-place
+s-046	zhangminmingtianhuiguangzhou	张敏明天回广州	7	name-place
+s-047	womenxuyaozairenzhendekaolvyixia	我们需要再认真地考虑一下	12	long-sentence
+s-048	zheigexiangmudejindufeichangshunli	这个项目的进度非常顺利	11	long-sentence
+s-049	tamenzhengzaizhunbeixianiandejihua	他们正在准备下年的计划	11	long-sentence
+s-050	womenyinggaibazhegewentijiejuediao	我们应该把这个问题解决掉	12	long-sentence
+s-051	jintianxiawudehuiyituichidaomingtian	今天下午的会议推迟到明天	12	long-sentence
+s-052	zhefenwenjianxuyaojingliqianzihoucainengfachu	这份文件需要经理签字后才能发出	15	long-sentence
+s-053	womenmeitiandouyaojianchaxitongdeyunxingzhuangtai	我们每天都要检查系统的运行状态	15	long-sentence
+s-054	tazaigongsigongzuolesannianduo	他在公司工作了三年多	10	long-sentence
+s-055	haodezhidaole	好的知道了	5	short-phrase
+s-056	meiwentijiaogewo	没问题交给我	6	short-phrase
+s-057	xiexienidebangzhu	谢谢你的帮助	6	short-phrase
+s-058	mingtianjian	明天见	3	short-phrase
+s-059	qingshaodeng	请稍等	3	short-phrase
+s-060	womashangdao	我马上到	4	short-phrase

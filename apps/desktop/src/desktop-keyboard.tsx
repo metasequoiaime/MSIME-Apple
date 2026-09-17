@@ -45,5 +45,10 @@ export function DesktopKeyboard({ client, preferences }: { client: PanelClient; 
   const voiceShortcut = snapshot?.preferences.touch_voice_shortcut === true;
   const skin = snapshot?.preferences.touch_keyboard_skin ?? "forest";
   const customDesign = snapshot?.preferences.custom_touch_keyboard_skin;
+  // macOS voice submission belongs to the native IMK session. A standalone
+  // Tauri keyboard does not own that session, so exposing this button would
+  // only lead to an unusable voice panel; the native input-method toolbar and
+  // shortcut remain the supported entry points.
+  const voiceShortcut = platform !== undefined && platform !== "macos" && snapshot?.preferences.touch_voice_shortcut === true;
   return <KeyboardPanel client={client} platform={platform} theme={theme} layout={layout} keySpacingTenths={keySpacingTenths} rowSpacingTenths={rowSpacingTenths} voiceShortcut={voiceShortcut} skin={skin as TouchKeyboardSkin} customDesign={customDesign as TouchKeyboardSkinDesign | undefined} />;
 }
