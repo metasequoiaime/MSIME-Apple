@@ -4,12 +4,14 @@ Two sources, both redistributable:
 
 - Chinese Wikipedia article dumps (CC BY-SA 4.0) — written prose, supplies the vocabulary and the register the IME meets when someone is composing a sentence.
 - LCCC (MIT) — open-domain dialogue, supplies the colloquial register that Wikipedia has almost none of.
+- Chinese technical documentation (CC BY 4.0, CC BY-SA 2.5, Apache-2.0) — the register someone writes in while working, which neither of the other two contains at all.
 
 Output is one normalized sentence per line, UTF-8. Everything outside the kept character set is a segmentation boundary rather than a substitution, because the model only ever scores runs of Chinese characters: at inference the candidates handed to it come from the pinyin decoder and contain nothing else.
 
 usage:
   python corpus.py wiki  --out data/wiki.txt  [--max-chars 2_000_000_000]
   python corpus.py lccc  --out data/lccc.txt  [--split base|large]
+  python corpus.py docs  --out data/docs.txt
 """
 
 import argparse
@@ -18,6 +20,7 @@ import gzip
 import json
 import os
 import re
+import subprocess
 import sys
 import urllib.error
 import urllib.request
@@ -230,9 +233,84 @@ def lccc_lines(path, max_chars):
                         return
 
 
+# Chinese technical documentation, each repository redistributable under the license named beside
+# it. Wikipedia is encyclopedic and LCCC is casual conversation, so neither contains the register
+# someone writes in while working: a model trained on those two has never seen 本地模型 once, and
+# scores 街上本地模型 above 接上本地模型 because the first is ordinary prose and the second is a
+# collocation from a world it was never shown.
+DOCS = [
+    ("https://github.com/kubernetes/website", "content/zh-cn", "CC BY 4.0"),
+    ("https://github.com/mdn/translated-content", "files/zh-cn", "CC BY-SA 2.5"),
+    ("https://github.com/tensorflow/docs-l10n", "site/zh-cn", "Apache-2.0"),
+]
+
+MARKDOWN_NOISE = [
+    re.compile(r"(?s)^---\n.*?\n---\n"),
+    re.compile(r"(?s)```.*?```"),
+    re.compile(r"(?s)<!--.*?-->"),
+    re.compile(r"(?s)\{\{%.*?%\}\}"),
+    re.compile(r"(?s)\{\{<.*?>\}\}"),
+    re.compile(r"`[^`]*`"),
+    re.compile(r"!?\[([^\]]*)\]\([^)]*\)"),
+    re.compile(r"</?[a-zA-Z][^>]*>"),
+    re.compile(r"^\s*\|.*$", re.MULTILINE),
+]
+
+
+def strip_markdown(raw):
+    text = raw
+    for pattern in MARKDOWN_NOISE:
+        # Links keep their label, everything else becomes a boundary.
+        text = pattern.sub(r"\1" if "\\]" in pattern.pattern else " ", text)
+    return text
+
+
+def clone(url, path):
+    if os.path.isdir(path):
+        print(f"cached {path}", file=sys.stderr)
+        return path
+    os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
+    print(f"cloning {url}", file=sys.stderr)
+    # A shallow clone of one branch: the history is several times the size of the content and
+    # nothing here needs it.
+    subprocess.run(
+        ["git", "clone", "--depth", "1", "--filter=blob:none", url, path],
+        check=True,
+    )
+    return path
+
+
+def docs_lines(cache, max_chars):
+    emitted = 0
+    for url, subdirectory, license_name in DOCS:
+        name = url.rsplit("/", 1)[-1]
+        root = os.path.join(clone(url, os.path.join(cache, name)), subdirectory)
+        if not os.path.isdir(root):
+            print(f"  {name}: {subdirectory} is missing, skipping", file=sys.stderr)
+            continue
+        print(f"  {name} ({license_name})", file=sys.stderr)
+        for directory, _, files in os.walk(root):
+            for file in sorted(files):
+                if not file.endswith((".md", ".html")):
+                    continue
+                try:
+                    with open(os.path.join(directory, file), encoding="utf-8") as handle:
+                        raw = handle.read()
+                except (OSError, UnicodeDecodeError):
+                    continue
+                stripped = strip_markdown(raw)
+                if is_traditional_document(stripped):
+                    continue
+                for line in segment(stripped):
+                    yield line
+                    emitted += len(line)
+                    if max_chars and emitted >= max_chars:
+                        return
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("source", choices=["wiki", "lccc"])
+    parser.add_argument("source", choices=["wiki", "lccc", "docs"])
     parser.add_argument("--out", required=True)
     parser.add_argument("--cache", default="data/raw")
     parser.add_argument("--split", choices=["base", "large"], default="base")
@@ -242,6 +320,8 @@ def main():
     if args.source == "wiki":
         archive = download(WIKI_DUMP, os.path.join(args.cache, "zhwiki-latest-pages-articles.xml.bz2"))
         lines = wiki_lines(archive, args.max_chars)
+    elif args.source == "docs":
+        lines = docs_lines(args.cache, args.max_chars)
     else:
         url = LCCC_LARGE if args.split == "large" else LCCC_BASE
         archive = download(url, os.path.join(args.cache, os.path.basename(url)))

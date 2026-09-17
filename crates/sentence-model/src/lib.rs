@@ -400,6 +400,12 @@ impl SentenceModel {
     /// summed exponentials. The full vocabulary is needed for the denominator, which is why this is
     /// the most expensive step per scored character.
     fn log_probability(&self, hidden: &[f32], token: u32) -> f32 {
+        let token = (token as usize).min(self.config.vocab - 1);
+        self.distribution(hidden)[token]
+    }
+
+    /// log P over the whole vocabulary for the state at `hidden`.
+    fn distribution(&self, hidden: &[f32]) -> Vec<f32> {
         let n_embd = self.config.n_embd;
         let mut logits = Vec::with_capacity(self.config.vocab);
         let mut highest = f32::NEG_INFINITY;
@@ -409,8 +415,30 @@ impl SentenceModel {
             logits.push(logit);
         }
         let sum: f32 = logits.iter().map(|logit| (logit - highest).exp()).sum();
-        let token = (token as usize).min(self.config.vocab - 1);
-        logits[token] - highest - sum.ln()
+        let offset = highest + sum.ln();
+        for logit in &mut logits {
+            *logit -= offset;
+        }
+        logits
+    }
+
+    /// log P(next character | text), over the whole vocabulary.
+    ///
+    /// This is the primitive a search needs: reranking asks the model to judge finished strings,
+    /// while a search asks it what should come next, which is what lets it reach a reading the
+    /// engine never proposed.
+    pub fn next_log_probabilities(&self, text: &str) -> Vec<f32> {
+        let mut tokens = vec![BOS];
+        let encoded = self.encode(text);
+        let room = self.config.context - 1;
+        tokens.extend_from_slice(&encoded[encoded.len().saturating_sub(room)..]);
+        let prefix = self.run_prefix(&tokens);
+        self.distribution(&prefix.last_hidden)
+    }
+
+    /// The identifier this model uses for `character`, when it has one.
+    pub fn token(&self, character: char) -> Option<u32> {
+        self.index.get(&character).copied()
     }
 
     fn attention(&self, q: &[f32], k: &[f32], v: &[f32], rows: usize, offset: usize) -> Vec<f32> {
@@ -509,6 +537,15 @@ impl Reranker {
             }
         }
         (best != 0).then(|| considered[best])
+    }
+
+    /// Mean log-probability per character for each candidate, in the order given.
+    ///
+    /// Exposed because the model's opinion is only one term in the decision: combining it with the
+    /// evidence the engine already has is a different question from letting it decide alone, and
+    /// answering that question needs the numbers rather than the verdict.
+    pub fn log_probabilities(&mut self, context: &str, candidates: &[&str]) -> Vec<f32> {
+        self.score(context, candidates)
     }
 
     fn score(&mut self, context: &str, candidates: &[&str]) -> Vec<f32> {
