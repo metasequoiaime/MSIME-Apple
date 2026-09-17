@@ -264,6 +264,7 @@ public:
       if (preferences_job_.valid()) {
         if (preferences_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
         auto snapshot = preferences_job_.get();
+        preferences_job_ = {};
         if (session_ && session_ == preferences_job_session_ && ic_.hasFocus() &&
             !restricted() && private_ == privateInput() && !snapshot.is_null()) {
           if (private_) {
@@ -303,6 +304,7 @@ public:
         if (!slot.job.valid() || slot.job.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
           continue;
         auto result = slot.job.get();
+        slot.job = {};
         if (session_ && session_ == online_job_session_ && slot.epoch == online_epoch_ &&
             !privateInput() && ic_.hasFocus() && result.is_object() &&
             result.value("query", "") == slot.query) {
@@ -423,6 +425,7 @@ public:
       if (translation_job_.valid()) {
         if (translation_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
         auto result = translation_job_.get();
+        translation_job_ = {};
         if (allowed && session_ == translation_session_ && query.is_object() &&
             result.is_object() && result.value("query", "") == encodedQuery) {
           const auto encoded = result.value("translations", Json::array()).dump();
@@ -452,6 +455,7 @@ public:
       if (clipboard_job_.valid()) {
         if (clipboard_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
         auto result = clipboard_job_.get();
+        clipboard_job_ = {};
         clipboard_loading_ = false;
         if (session_ && ic_.hasFocus() && !restricted() && !privateInput() && result.is_object())
           clipboard_items_ = result.value("entries", Json::array());
@@ -481,6 +485,7 @@ public:
       if (cloud_clipboard_job_.valid()) {
         if (cloud_clipboard_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
         auto result = cloud_clipboard_job_.get();
+        cloud_clipboard_job_ = {};
         if (ic_.hasFocus() && !restricted() && !privateInput() && result.is_object())
           cloud_clipboard_items_ = result.value("entries", Json::array());
       }
@@ -510,6 +515,7 @@ public:
       if (emoji_job_.valid()) {
         if (emoji_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
         auto result = emoji_job_.get();
+        emoji_job_ = {};
         if (ic_.hasFocus() && !restricted() && !privateInput() && result.is_object())
           emoji_items_ = result.value("items", Json::array());
       }
@@ -539,6 +545,7 @@ public:
       if (!voice_job_.valid()) return false;
       if (voice_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return false;
       auto result = voice_job_.get();
+      voice_job_ = {};
       voice_loading_ = false;
       if (session_ && ic_.hasFocus() && !restricted() && !privateInput() && result.is_object()) {
         const auto text = result.value("text", std::string{});
