@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+# Enable: git config core.hooksPath .githooks   Skip once: git merge --no-verify
+#
+# scripts/verify-local.sh records why this exists: six compile breaks reached
+# develop in one session because branches were merged without building the merge
+# result. This runs at the moment such a merge is created - earlier and more
+# precisely than finding out at push time.
+#
+# Conflicted merges stop before this hook and land in pre-commit instead, so the
+# two together cover both shapes.
+set -uo pipefail
+cd "$(git rev-parse --show-toplevel)" || exit 1
+# git exports GIT_DIR/GIT_WORK_TREE/GIT_INDEX_FILE into hooks, which redirects every
+# git command the script runs - fetch_engine.py fails outright under them.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE
+exec bash scripts/verify-local.sh --quick
