@@ -26,7 +26,7 @@ use msime_input_runtime::HandwritingQuery;
 use msime_input_runtime::UnixSocketProvider;
 use msime_input_runtime::{
     Action, AiAssistantProviderConfig, CandidateId, CharacterWidth, NineKeySpellingId, OnlineQuery,
-    Runtime, Transition,
+    Reranker, Runtime, SentenceModel, Transition,
 };
 #[cfg(unix)]
 use msime_input_runtime::{EmojiPanelQuery, TranslationQuery};
@@ -35,6 +35,7 @@ use serde_json::{json, Value};
 use std::cell::RefCell;
 use std::collections::HashMap;
 use std::ffi::{c_char, CString};
+use std::sync::{Arc, OnceLock};
 // Only the Unix socket streaming entry point takes raw callback context.
 #[cfg(unix)]
 use std::ffi::c_void;
@@ -1348,6 +1349,33 @@ pub unsafe extern "C" fn msime_client_save_preferences(
     })
 }
 
+/// The file name the reranking model is published under inside the resource set.
+const SENTENCE_MODEL_FILE: &str = "sentence-model.safetensors";
+
+/// The candidate reranking model, loaded once and shared by every session.
+///
+/// It ships next to the dictionaries because it is the same kind of artifact: large, versioned with
+/// the resource set, and absent on installations that have not downloaded it. Absence is the normal
+/// case for a host that ships no model, so it is not an error and leaves behaviour unchanged.
+fn sentence_model(dictionaries: &str) -> Option<Arc<SentenceModel>> {
+    static MODEL: OnceLock<Option<Arc<SentenceModel>>> = OnceLock::new();
+    MODEL
+        .get_or_init(|| {
+            let path = std::path::Path::new(dictionaries).join(SENTENCE_MODEL_FILE);
+            let bytes = std::fs::read(&path).ok()?;
+            match SentenceModel::load(&bytes) {
+                Ok(model) => Some(Arc::new(model)),
+                Err(error) => {
+                    // A corrupt or mismatched model is worth saying out loud: the input method keeps
+                    // working without it, so nothing else would ever reveal that it is not running.
+                    eprintln!("msime: ignoring {}: {error}", path.display());
+                    None
+                }
+            }
+        })
+        .clone()
+}
+
 /// # Safety
 /// `options` must point to `length` readable bytes for this call. Null is rejected.
 #[no_mangle]
@@ -1391,9 +1419,10 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
         // nothing on the way back clears a mode the user never turned on.
         // Dedicated English starts off and is only ever set by the menu row or
         // the hotkey that owns it.
-        let runtime =
+        let mut runtime =
             Runtime::new_with_touch_layout(engine, page_size, applied.touch_keyboard_layout)
                 .map_err(|e| e.to_string())?;
+        runtime.set_reranker(sentence_model(&options.dictionaries).map(Reranker::new));
         let view = runtime.view();
         let output = serde_json::to_value(&view).map_err(|e| e.to_string())?;
         SESSIONS.with(|sessions| {

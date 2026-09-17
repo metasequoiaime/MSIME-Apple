@@ -2432,9 +2432,19 @@ version = "0.1.0"
 dependencies = [
  "msime-client-core",
  "msime-engine-bridge",
+ "msime-sentence-model",
  "serde",
  "serde_json",
  "tempfile",
+ "thiserror 2.0.20",
+]
+
+[[package]]
+name = "msime-sentence-model"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
  "thiserror 2.0.20",
 ]
 
