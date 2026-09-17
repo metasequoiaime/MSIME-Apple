@@ -18,7 +18,8 @@ permissions:
 
 jobs:
   triage:
-    if: github.actor == 'github-actions[bot]'
+    # Keyed on the branch engine-update.yml pushes rather than on github.actor. The bump is opened with RELEASE_PLEASE_TOKEN, because GITHUB_TOKEN is not permitted to create pull requests here at all, and that makes the actor the account behind the token instead of github-actions[bot]. An actor check would leave this job silently skipped and the bump sitting unclassified - the same quiet stall the token was changed to fix. The head-repository test keeps the old guarantee that only a branch pushed into this repository can reach the auto-merge step.
+    if: github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'automation/engine-')
     name: Classify the engine range
     runs-on: ubuntu-latest
     timeout-minutes: 10

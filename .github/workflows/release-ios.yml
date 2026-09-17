@@ -50,14 +50,13 @@ jobs:
             if [[ "$BUMP_VERSION" == true ]]; then
               test -z "$REQUESTED_TAG"
             fi
-            # A release carries its platforms in its name, so only a run that creates its own draft
-            # still has that choice to make. A promotion is always the complete release under the
-            # bare vX.Y.Z that release-please and Sparkle key on, and an existing draft was named
-            # when it was created; letting the input disagree with either would publish one
-            # platform's assets into a release whose name promises the other.
-            if [[ "$BUMP_VERSION" == true || -n "$REQUESTED_TAG" ]]; then
-              test "$REQUESTED_PLATFORM" = both
-            fi
+            # 这里原先还有一条 `test "$REQUESTED_PLATFORM" = both`,用来拦「platform 输入和 tag 里的前缀
+            # 说的不是同一个平台」。拆成两个 workflow 之后 platform 这个输入没了,而引用留着 —— 空字符串
+            # 对比 both 恒假,于是任何带 tag 或 bump_version 的手动触发都在这一步直接退出,手动发布和升版本
+            # 两条路一起断掉,而且报错只是一行 exit 1,看不出原因。
+            #
+            # 现在平台由文件本身决定:这个 workflow 只发 iOS,release-macos.yml 只发 macOS,没有可以互相
+            # 矛盾的输入了,这条校验也就没有对象。
           fi
       - name: Allocate build number
         id: build_number

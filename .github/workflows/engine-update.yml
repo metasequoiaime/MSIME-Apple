@@ -21,7 +21,7 @@ jobs:
       - name: Update the locked Engine archive
         id: update
         env:
-          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           commit="$(git ls-remote https://github.com/metasequoiaime/MSIME-Engine.git refs/heads/main | cut -f1)"
@@ -40,7 +40,7 @@ jobs:
           # GITHUB_TOKEN 开不了 PR:组织把「Allow GitHub Actions to create and approve pull requests」关着,gh pr create 直接被拒 —— 分支推上去了,PR 没有,于是引擎更新静悄悄地停在那儿,只有翻 Actions 才看得见。
           #
           # 用和 release-please 同一个凭据,理由也一样(见 release-*.yml 里那条注释):真实账号开的 PR 不会被卡在 action_required,CI 自己就会跑。留 GITHUB_TOKEN 作回退,是为了让没配这个 secret 的分叉仓库至少还能走到推分支那一步。
-          GH_TOKEN: ${{ github.token }}
+          GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}
         run: |
           branch="automation/engine-${{ steps.update.outputs.commit }}"
           git config user.name github-actions[bot]

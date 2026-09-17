@@ -1056,7 +1056,11 @@ class ReleaseConfigurationTests(unittest.TestCase):
         engine_update = (PROJECT_ROOT / ".github/workflows/engine-update.yml").read_text()
         self.assertIn("python3 scripts/relock_engine.py", engine_update)
         # 开 PR 那一步不能只靠 GITHUB_TOKEN:组织关着「Allow GitHub Actions to create and approve pull requests」,gh pr create 会被拒,而分支已经推上去了 —— 引擎更新于是静悄悄地停住,不翻 Actions 根本看不见。和 release-please 用同一个凭据,回退保留给没配这个 secret 的分叉。
-        self.assertIn("GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}", engine_update)
+        #
+        # 比的是那一个步骤,不是整个文件。上一版只问了「文件里有没有这个字符串」,于是凭据被放到了前一个
+        # 步骤上、注释留在这一步,代码和注释各说各的而测试照样绿 —— 真正会失败的那次 gh pr create 一点没修。
+        create_pr = engine_update.split("- name: Create pull request", 1)[1].split("run: |", 1)[0]
+        self.assertIn("GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}", create_pr)
 
     def engine_submodule_paths(self):
         """The Engine's own submodules, read from the .gitmodules its archive ships."""
