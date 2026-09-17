@@ -401,7 +401,8 @@ jobs:
             echo "IOS_APP_STORE_CONNECT_APP_ID and $missing must be set; the build would stay uploaded but undistributed." >&2
             exit 1
           fi
-          python3 -m pip install --quiet --disable-pip-version-check 'pyjwt[crypto]==2.10.1'
+          # --break-system-packages:runner 的 Homebrew Python 是 externally-managed,不加这个 pip 直接报 PEP 668 拒绝安装。没有它,每一次发布都在这里挂 —— 包已经传上去,分发那一步从来没跑到过,而 release 是建好的,所以从外面看像是成功了。
+          python3 -m pip install --quiet --disable-pip-version-check --break-system-packages 'pyjwt[crypto]==2.10.1'
           python3 platforms/ios/scripts/submit_testflight_review.py \
             --app "$IOS_APP_ID" \
             --build-version "$BUILD_NUMBER" \
