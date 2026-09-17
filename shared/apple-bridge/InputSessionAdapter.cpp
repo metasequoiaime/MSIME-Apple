@@ -7,6 +7,8 @@
 #include <metasequoia/session.h>
 #include "quanpin/quanpin_utils.h"
 
+#include <algorithm>
+#include <cctype>
 #include <filesystem>
 #include <system_error>
 #include <utility>
@@ -246,6 +248,22 @@ void InputSessionAdapter::set_wubi_mixed_pinyin(bool enabled)
         return;
     wubi_mixed_pinyin_ = enabled;
     impl_->session.set_wubi_mixed_pinyin(enabled);
+}
+
+std::vector<std::string> InputSessionAdapter::english_completions(const std::string &prefix, std::size_t limit)
+{
+    if (prefix.empty() || limit == 0)
+        return {};
+    std::string lowered = prefix;
+    std::transform(lowered.begin(), lowered.end(), lowered.begin(),
+                   [](unsigned char character) { return static_cast<char>(std::tolower(character)); });
+    EnglishDictionary *dictionary = gloss_dictionary();
+    if (dictionary == nullptr)
+        return {};
+    std::vector<std::string> words;
+    for (const auto &item : dictionary->query_prefix(lowered, limit))
+        words.push_back(item.word);
+    return words;
 }
 
 bool InputSessionAdapter::set_english_mixed_candidates(bool enabled)

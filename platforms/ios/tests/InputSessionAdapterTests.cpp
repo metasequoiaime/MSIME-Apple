@@ -248,6 +248,56 @@ void TestWubiCandidateCodes(const std::filesystem::path &root)
             "A candidate reached by a longer code did not carry that code.");
 }
 
+void TestEnglishCompletions(const std::filesystem::path &root)
+{
+    std::filesystem::create_directories(root);
+    if (setenv("METASEQUOIA_IME_DATA_DIR", root.c_str(), 1) != 0)
+    {
+        throw std::runtime_error("Failed to set the English adapter test data directory.");
+    }
+    sqlite3 *database = nullptr;
+    Require(sqlite3_open((root / "msime.db").c_str(), &database) == SQLITE_OK, "Cannot create the English fixture.");
+    Require(sqlite3_exec(database, "CREATE TABLE tbl_1_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
+                                   "INSERT INTO tbl_1_h VALUES('he','h','和',100);",
+                         nullptr, nullptr, nullptr) == SQLITE_OK,
+            "Cannot populate the English fixture's main dictionary.");
+    sqlite3_close(database);
+    Require(sqlite3_open((root / "english.db").c_str(), &database) == SQLITE_OK,
+            "Cannot create the English word fixture.");
+    Require(sqlite3_exec(database,
+                         "CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER);"
+                         "INSERT INTO english_words VALUES('hello','hello',900),('help','help',800),"
+                         "('helicopter','helicopter',10);",
+                         nullptr, nullptr, nullptr) == SQLITE_OK,
+            "Cannot populate the English word fixture.");
+    sqlite3_close(database);
+
+    metasequoia::apple::InputSessionAdapter adapter;
+    // 权重高的在前 —— 候选栏第一格给的就是「常用单词」。
+    const auto completions = adapter.english_completions("hel", 10);
+    Require(completions.size() == 3, "The English prefix query did not return every matching word.");
+    Require(completions.front() == "hello", "The English completions did not lead with the most common word.");
+    Require(std::find(completions.begin(), completions.end(), "helicopter") != completions.end(),
+            "A rarer word matching the same prefix was dropped.");
+
+    // 大小写由调用方管,查询照样要答得上 —— 句首敲的是大写。
+    Require(adapter.english_completions("Hel", 10) == completions,
+            "An uppercase prefix did not match the same words.");
+
+    Require(adapter.english_completions("zzq", 10).empty(), "A prefix with no match invented a word.");
+    Require(adapter.english_completions("", 10).empty(), "An empty prefix queried the dictionary.");
+    Require(adapter.english_completions("hel", 0).empty(), "A zero limit still queried the dictionary.");
+    Require(adapter.english_completions("hel", 2).size() == 2, "The limit was not applied.");
+
+    // 补全是只读的:查过之后中文那一侧必须一点没变。这是换掉「开一个引擎英文模式」那版方案的理由 ——
+    // 那个开关会让中文候选出不来,而这里连会话都没碰。
+    metasequoia::apple::InputSnapshot snapshot;
+    for (char letter : std::string("he"))
+        snapshot = adapter.handle_character(letter);
+    Require(std::find(snapshot.candidates.begin(), snapshot.candidates.end(), "和") != snapshot.candidates.end(),
+            "Querying English completions disturbed Chinese candidates.");
+}
+
 int RunTest()
 {
     const std::filesystem::path dataDirectory =
@@ -625,6 +675,7 @@ int RunTest()
 
     TestRuntimeGenerationUpgrade(dataDirectory / "upgrade");
     TestWubiCandidateCodes(dataDirectory / "wubi");
+    TestEnglishCompletions(dataDirectory / "english");
     user_dictionary::close_default_user_database();
     std::filesystem::remove_all(dataDirectory);
     return 0;
