@@ -2092,6 +2092,23 @@ private:
   fcitx::FactoryFor<FcitxState> *factory_;
 };
 
+class FcitxVoiceCancelAction : public fcitx::SimpleAction {
+public:
+  explicit FcitxVoiceCancelAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
+    setShortText("取消语音");
+    setLongText("取消当前录音、识别或润色，不提交语音结果");
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try {
+      auto *state = ic->propertyFor(factory_);
+      if (state->voice_loading_) state->cancelVoice();
+    } catch (...) {}
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
 class FcitxTraditionalAction : public fcitx::Action {
 public:
   explicit FcitxTraditionalAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
@@ -2139,6 +2156,7 @@ public:
     emoji_action_.registerAction("msime-emoji", &instance->userInterfaceManager());
     emoji_category_action_.registerAction("msime-emoji-category", &instance->userInterfaceManager());
     voice_action_.registerAction("msime-voice", &instance->userInterfaceManager());
+    voice_cancel_action_.registerAction("msime-voice-cancel", &instance->userInterfaceManager());
     desktop_tools_action_.registerAction("msime-desktop-tools", &instance->userInterfaceManager());
     traditional_action_.registerAction("msime-traditional", &instance->userInterfaceManager());
     chinese_punctuation_action_.registerAction("msime-chinese-punctuation", &instance->userInterfaceManager());
@@ -2238,6 +2256,7 @@ public:
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &emoji_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &emoji_category_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &voice_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &voice_cancel_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &desktop_tools_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &traditional_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &chinese_punctuation_action_);
@@ -2269,6 +2288,7 @@ public:
     event.inputContext()->statusArea().removeAction(&emoji_action_);
     event.inputContext()->statusArea().removeAction(&emoji_category_action_);
     event.inputContext()->statusArea().removeAction(&voice_action_);
+    event.inputContext()->statusArea().removeAction(&voice_cancel_action_);
     event.inputContext()->statusArea().removeAction(&desktop_tools_action_);
     event.inputContext()->statusArea().removeAction(&traditional_action_);
     event.inputContext()->statusArea().removeAction(&chinese_punctuation_action_);
@@ -2320,6 +2340,7 @@ public:
   FcitxEmojiAction emoji_action_{&factory_};
   FcitxEmojiCategoryAction emoji_category_action_{&factory_};
   FcitxVoiceAction voice_action_{&factory_};
+  FcitxVoiceCancelAction voice_cancel_action_{&factory_};
   FcitxDesktopToolsAction desktop_tools_action_;
   FcitxTraditionalAction traditional_action_{&factory_};
   FcitxPunctuationAction chinese_punctuation_action_{&factory_, FcitxPunctuationAction::Mode::Chinese};
