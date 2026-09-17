@@ -9,6 +9,7 @@
 #import "UpdateController.h"
 #import "BackendAccountEntry.h"
 #import "SupportWindowController.h"
+#import "VoiceSettings.h"
 #include "ShuangpinProfileNames.h"
 #include "CandidatePageSize.h"
 
@@ -159,22 +160,57 @@ static BOOL ValidToolbarFontSize(id value) {
            !CFNumberIsFloatType((__bridge CFNumberRef)value) && [value integerValue] >= 16 && [value integerValue] <= 28;
 }
 
-// Layout primitives migrated from the pinned Apple source's PreferencesWindowController.mm
-// (MSIME-Apple develop b637828e15eafcb5e459edd270a962dd14517285): toolbar pages built from
-// bordered cards, each card a vertical stack of label/control rows. Geometry, corner radius
-// and row height are the upstream values; only the page inventory differs, because this host
-// carries the Windows-baseline settings the Apple source never had.
-static NSToolbarIdentifier const PreferencesToolbarIdentifier = @"MSIMEClientPreferencesToolbar";
-static NSToolbarItemIdentifier const KeyboardToolbarItemIdentifier = @"MSIMEClientPreferencesKeyboard";
-static NSToolbarItemIdentifier const AppearanceToolbarItemIdentifier = @"MSIMEClientPreferencesAppearance";
-static NSToolbarItemIdentifier const SkinToolbarItemIdentifier = @"MSIMEClientPreferencesSkin";
-static NSToolbarItemIdentifier const DataToolbarItemIdentifier = @"MSIMEClientPreferencesData";
-static NSToolbarItemIdentifier const UpdatesToolbarItemIdentifier = @"MSIMEClientPreferencesUpdates";
+// Layout primitives migrated from the upstream preferences window: MSIME-Apple develop
+// cd36eba4d2572f747785450959332c7f68f4715c, platforms/macos/src/PreferencesWindowController.mm.
+// A 220pt sidebar of grouped navigation buttons drives a page container; each page is a scroll
+// view whose content is section labels above bordered cards of label/control rows. Geometry,
+// fonts, corner radii and the selected-row accent are the upstream values.
+//
+// The client README still pins b637828e for this window. That commit predates the sidebar — it
+// had an NSToolbar — so it is not what ships today; the remote default branch is authoritative
+// here, per AGENTS.md.
+
+/// Scroll views lay an unflipped document view out from the bottom, which would park a short
+/// page against the bottom edge instead of under the title.
+@interface MSIMEPreferencesDocumentView : NSView
+@end
+@implementation MSIMEPreferencesDocumentView
+- (BOOL)isFlipped { return YES; }
+@end
+
+/// Sidebar row: a tinted rounded pill plus a leading accent bar when selected, drawn rather than
+/// assembled from subviews so the icon and label keep upstream's fixed offsets.
+@interface MSIMESettingsNavigationButton : NSButton
+@end
+@implementation MSIMESettingsNavigationButton
+- (void)drawRect:(NSRect)rect {
+    (void)rect;
+    if (self.state == NSControlStateValueOn) {
+        [[[NSColor labelColor] colorWithAlphaComponent:0.06] setFill];
+        [[NSBezierPath bezierPathWithRoundedRect:NSInsetRect(self.bounds, 0.0, 2.0) xRadius:6.0 yRadius:6.0] fill];
+        [[NSColor colorWithSRGBRed:0.45 green:0.42 blue:0.77 alpha:1.0] setFill];
+        [[NSBezierPath bezierPathWithRoundedRect:NSMakeRect(0.0, 12.0, 3.0, NSHeight(self.bounds) - 24.0)
+                                         xRadius:1.5
+                                         yRadius:1.5] fill];
+    }
+    NSImage *symbol = [self.image
+        imageWithSymbolConfiguration:[NSImageSymbolConfiguration configurationWithPaletteColors:@[NSColor.labelColor]]];
+    [symbol drawInRect:NSMakeRect(19.0, (NSHeight(self.bounds) - 20.0) / 2.0, 20.0, 20.0)];
+    NSDictionary *attributes =
+        @{NSFontAttributeName : [NSFont systemFontOfSize:16.0], NSForegroundColorAttributeName : NSColor.labelColor};
+    NSSize size = [self.title sizeWithAttributes:attributes];
+    [self.title drawAtPoint:NSMakePoint(57.0, (NSHeight(self.bounds) - size.height) / 2.0) withAttributes:attributes];
+    if (self.window.firstResponder == self) {
+        [NSColor.keyboardFocusIndicatorColor setStroke];
+        [[NSBezierPath bezierPathWithRoundedRect:NSInsetRect(self.bounds, 1.0, 2.0) xRadius:6.0 yRadius:6.0] stroke];
+    }
+}
+@end
 
 static void ConfigureCard(NSBox *card) {
     card.boxType = NSBoxCustom;
     card.titlePosition = NSNoTitle;
-    card.borderWidth = 1.0;
+    card.borderWidth = 0.5;
     card.cornerRadius = 12.0;
     card.borderColor = [NSColor separatorColor];
     card.fillColor = [NSColor controlBackgroundColor];
@@ -191,19 +227,19 @@ static NSTextField *SectionLabel(NSString *title) {
 static NSView *PreferenceRow(NSString *title, NSView *control) {
     NSView *row = [[NSView alloc] initWithFrame:NSZeroRect];
     NSTextField *label = [NSTextField labelWithString:title];
-    label.font = [NSFont systemFontOfSize:13.0 weight:NSFontWeightMedium];
+    label.font = [NSFont systemFontOfSize:15.0 weight:NSFontWeightRegular];
     label.translatesAutoresizingMaskIntoConstraints = NO;
     control.translatesAutoresizingMaskIntoConstraints = NO;
     [row addSubview:label];
     [row addSubview:control];
     [NSLayoutConstraint activateConstraints:@[
-        [row.heightAnchor constraintEqualToConstant:34.0],
+        [row.heightAnchor constraintEqualToConstant:48.0],
         [label.leadingAnchor constraintEqualToAnchor:row.leadingAnchor],
         [label.centerYAnchor constraintEqualToAnchor:row.centerYAnchor],
         [label.trailingAnchor constraintLessThanOrEqualToAnchor:control.leadingAnchor constant:-12.0],
         [control.trailingAnchor constraintEqualToAnchor:row.trailingAnchor],
         [control.centerYAnchor constraintEqualToAnchor:row.centerYAnchor],
-        [control.widthAnchor constraintEqualToConstant:188.0],
+        [control.widthAnchor constraintEqualToConstant:[control isKindOfClass:NSSwitch.class] ? 52.0 : 188.0],
     ]];
     return row;
 }
@@ -224,12 +260,51 @@ static NSView *CardHeader(NSString *title) {
     return row;
 }
 
+static void LinkifyButton(NSButton *button, NSString *accessibilityLabel) {
+    button.bezelStyle = NSBezelStyleInline;
+    button.accessibilityLabel = accessibilityLabel;
+    button.contentTintColor = [NSColor linkColor];
+    button.attributedTitle = [[NSAttributedString alloc]
+        initWithString:button.title
+            attributes:@{
+                NSFontAttributeName : [NSFont systemFontOfSize:13.0 weight:NSFontWeightMedium],
+                NSForegroundColorAttributeName : [NSColor linkColor],
+            }];
+}
+
 static NSBox *CardSeparator() {
     NSBox *separator = [[NSBox alloc] initWithFrame:NSZeroRect];
     separator.boxType = NSBoxSeparator;
     separator.translatesAutoresizingMaskIntoConstraints = NO;
     [separator.heightAnchor constraintEqualToConstant:1.0].active = YES;
     return separator;
+}
+
+/// A scheme choice: the radio on the left, its scheme-specific popup trailing and disabled until
+/// that scheme is the selected one.
+static NSView *SchemeChoiceRow(NSButton *choice, NSView *accessory) {
+    NSView *row = [[NSView alloc] initWithFrame:NSZeroRect];
+    choice.translatesAutoresizingMaskIntoConstraints = NO;
+    [row addSubview:choice];
+    NSMutableArray<NSLayoutConstraint *> *constraints = [NSMutableArray arrayWithArray:@[
+        [row.heightAnchor constraintEqualToConstant:44.0],
+        [choice.leadingAnchor constraintEqualToAnchor:row.leadingAnchor],
+        [choice.centerYAnchor constraintEqualToAnchor:row.centerYAnchor],
+    ]];
+    if (accessory == nil) {
+        [constraints addObject:[choice.trailingAnchor constraintLessThanOrEqualToAnchor:row.trailingAnchor]];
+    } else {
+        accessory.translatesAutoresizingMaskIntoConstraints = NO;
+        [row addSubview:accessory];
+        [constraints addObjectsFromArray:@[
+            [choice.trailingAnchor constraintLessThanOrEqualToAnchor:accessory.leadingAnchor constant:-12.0],
+            [accessory.trailingAnchor constraintEqualToAnchor:row.trailingAnchor],
+            [accessory.centerYAnchor constraintEqualToAnchor:row.centerYAnchor],
+            [accessory.widthAnchor constraintEqualToConstant:150.0],
+        ]];
+    }
+    [NSLayoutConstraint activateConstraints:constraints];
+    return row;
 }
 
 static NSBox *CardWithViews(NSArray<NSView *> *views, CGFloat spacing) {
@@ -252,65 +327,61 @@ static NSBox *CardWithViews(NSArray<NSView *> *views, CGFloat spacing) {
     return card;
 }
 
-// A scroll view lays its document view out from the bottom unless the document is flipped,
-// which would park a short page against the bottom edge and leave a gap under the toolbar.
-@interface MSIMEFlippedView : NSView
-@end
-@implementation MSIMEFlippedView
-- (BOOL)isFlipped { return YES; }
-@end
-
-// Upstream pages fit their window unscrolled. This host carries roughly twice the settings,
-// so every page rides in its own scroll view; the page content itself keeps upstream metrics.
+/// The summary is not drawn: upstream carries it as accessibility help so the page opens on its
+/// first card rather than a paragraph.
 static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *content) {
-    NSView *page = [[MSIMEFlippedView alloc] initWithFrame:NSZeroRect];
+    NSScrollView *page = [[NSScrollView alloc] initWithFrame:NSZeroRect];
     page.translatesAutoresizingMaskIntoConstraints = NO;
+    page.hasVerticalScroller = YES;
+    page.autohidesScrollers = YES;
+    page.drawsBackground = NO;
+    page.accessibilityLabel = title;
+    page.accessibilityHelp = summary;
     NSTextField *titleLabel = [NSTextField labelWithString:title];
     titleLabel.font = [NSFont systemFontOfSize:24.0 weight:NSFontWeightSemibold];
-    NSTextField *descriptionLabel = [NSTextField labelWithString:summary];
-    descriptionLabel.textColor = [NSColor secondaryLabelColor];
-    descriptionLabel.maximumNumberOfLines = 2;
-    NSStackView *stack = [NSStackView stackViewWithViews:@[titleLabel, descriptionLabel]];
+    NSStackView *stack = [NSStackView stackViewWithViews:@[titleLabel]];
     stack.orientation = NSUserInterfaceLayoutOrientationVertical;
     stack.alignment = NSLayoutAttributeLeading;
     stack.distribution = NSStackViewDistributionFill;
-    stack.spacing = 7.0;
+    stack.spacing = 18.0;
     for (NSView *view in content) {
         [stack addArrangedSubview:view];
         [view.widthAnchor constraintEqualToAnchor:stack.widthAnchor].active = YES;
     }
-    [stack setCustomSpacing:22.0 afterView:descriptionLabel];
+    [stack setCustomSpacing:30.0 afterView:titleLabel];
     stack.translatesAutoresizingMaskIntoConstraints = NO;
-    [page addSubview:stack];
+    NSView *document = [[MSIMEPreferencesDocumentView alloc] initWithFrame:NSZeroRect];
+    document.translatesAutoresizingMaskIntoConstraints = NO;
+    page.documentView = document;
+    [document addSubview:stack];
     [NSLayoutConstraint activateConstraints:@[
-        [stack.leadingAnchor constraintEqualToAnchor:page.leadingAnchor constant:30.0],
-        [stack.trailingAnchor constraintEqualToAnchor:page.trailingAnchor constant:-30.0],
-        [stack.topAnchor constraintEqualToAnchor:page.topAnchor constant:28.0],
-        [stack.bottomAnchor constraintEqualToAnchor:page.bottomAnchor constant:-28.0],
+        [document.widthAnchor constraintEqualToAnchor:page.contentView.widthAnchor],
+        [document.heightAnchor constraintGreaterThanOrEqualToAnchor:page.contentView.heightAnchor],
+        // The document opts out of autoresizing, so its origin needs pinning too: width and
+        // height alone leave its position ambiguous.
+        [document.leadingAnchor constraintEqualToAnchor:page.contentView.leadingAnchor],
+        [document.topAnchor constraintEqualToAnchor:page.contentView.topAnchor],
+        [stack.leadingAnchor constraintEqualToAnchor:document.leadingAnchor constant:30.0],
+        [stack.trailingAnchor constraintEqualToAnchor:document.trailingAnchor constant:-30.0],
+        [stack.topAnchor constraintEqualToAnchor:document.topAnchor constant:28.0],
+        [stack.bottomAnchor constraintLessThanOrEqualToAnchor:document.bottomAnchor constant:-28.0],
     ]];
-    NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
-    scroll.translatesAutoresizingMaskIntoConstraints = NO;
-    scroll.hasVerticalScroller = YES;
-    scroll.drawsBackground = NO;
-    scroll.documentView = page;
-    scroll.accessibilityLabel = [title stringByAppendingString:@"设置页"];
-    // The document view opts out of autoresizing, so its origin needs pinning as well as its
-    // width; width plus an intrinsic height alone leaves the page's position ambiguous.
-    [NSLayoutConstraint activateConstraints:@[
-        [page.widthAnchor constraintEqualToAnchor:scroll.contentView.widthAnchor],
-        [page.leadingAnchor constraintEqualToAnchor:scroll.contentView.leadingAnchor],
-        [page.topAnchor constraintEqualToAnchor:scroll.contentView.topAnchor],
-    ]];
-    return scroll;
+    NSLayoutConstraint *height = [document.heightAnchor constraintEqualToAnchor:page.contentView.heightAnchor];
+    height.priority = NSLayoutPriorityDefaultLow;
+    height.active = YES;
+    return page;
 }
 
-@interface MSIMEAppearancePreferences () <NSToolbarDelegate>
+@interface MSIMEAppearancePreferences ()
 @end
 
 @implementation MSIMEAppearancePreferences {
     NSUserDefaults *_defaults;
     NSArray<NSView *> *_preferencePages;
-    NSArray<NSToolbarItemIdentifier> *_preferenceToolbarItemIdentifiers;
+    NSArray<NSButton *> *_sidebarButtons;
+    NSArray<NSButton *> *_schemeButtons;
+    NSPopUpButton *_shuangpinSchemeButton;
+    NSPopUpButton *_wubiSchemeButton;
     NSTextField *_versionLabel;
     NSTextField *_automaticUpdateLabel;
     NSButton *_updatePageButton;
@@ -401,7 +472,6 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     NSMutableDictionary *_sharedLocalModes;
     NSMutableArray<NSButton *> *_localModeButtons;
     NSPopUpButton *_layoutButton;
-    NSPopUpButton *_schemeButton;
     NSPopUpButton *_profileButton;
     NSPopUpButton *_preeditButton;
     NSPopUpButton *_fontButton;
@@ -1550,7 +1620,13 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     _characterSetShortcutButton.state = self.characterSetShortcut ? NSControlStateValueOn : NSControlStateValueOff;
     [_layoutButton selectItemAtIndex:self.vertical ? 1 : 0];
     NSDictionary *schemeIndexes = @{@"quanpin": @0, @"shuangpin": @1, @"wubi": @2, @"japanese": @3};
-    [_schemeButton selectItemAtIndex:[schemeIndexes[self.inputScheme] integerValue]];
+    const NSInteger storedScheme = [schemeIndexes[self.inputScheme] integerValue];
+    // The radios and the scheme popups mirror the same stored value: only the selected scheme's
+    // popup is usable, so a disabled row cannot look like it is configuring the active scheme.
+    for (NSInteger index = 0; index < (NSInteger)_schemeButtons.count; ++index)
+        _schemeButtons[index].state = index == storedScheme ? NSControlStateValueOn : NSControlStateValueOff;
+    _shuangpinSchemeButton.enabled = storedScheme == 1;
+    _wubiSchemeButton.enabled = storedScheme == 2;
     NSDictionary *profileIndexes = @{@"xiaohe": @0, @"ziranma": @1, @"shoudao": @2, @"microsoft": @3};
     [_profileButton selectItemAtIndex:[profileIndexes[self.shuangpinProfile] integerValue]];
     [_preeditButton selectItemAtIndex:self.shuangpinPreeditUsesRaw ? 1 : 0];
@@ -1588,13 +1664,14 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     return window;
 }
 - (void)loadWindow {
-    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 720, 680)
+    NSWindow *window = [[NSWindow alloc] initWithContentRect:NSMakeRect(0, 0, 980, 800)
                                                    styleMask:NSWindowStyleMaskTitled | NSWindowStyleMaskClosable |
-                                                             NSWindowStyleMaskResizable
+                                                             NSWindowStyleMaskMiniaturizable | NSWindowStyleMaskResizable
                                                      backing:NSBackingStoreBuffered
                                                        defer:NO];
     window.title = @"水杉输入法设置";
-    window.contentMinSize = NSMakeSize(680, 520);
+    window.restorable = NO;
+    window.contentMinSize = NSMakeSize(900, 650);
     window.releasedWhenClosed = NO;
     _layoutButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     [_layoutButton addItemsWithTitles:@[@"横向排列", @"纵向列表"]];
@@ -1603,10 +1680,6 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     _layoutButton.action = @selector(layoutChanged:);
     _candidateFollowCursorButton = [NSButton checkboxWithTitle:@"候选窗口跟随光标" target:self action:@selector(candidateFollowCursorChanged:)];
     _candidateFollowCursorButton.accessibilityLabel = @"候选窗口跟随光标";
-    _schemeButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    [_schemeButton addItemsWithTitles:@[@"全拼", @"双拼", @"五笔", @"日语"]];
-    _schemeButton.target = self;
-    _schemeButton.action = @selector(schemeChanged:);
     _profileButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     for (const char *identifier : msime::mac::kShuangpinSchemaIdentifiers)
         [_profileButton addItemWithTitle:[NSString stringWithUTF8String:msime::mac::ShuangpinSchemaTitle(identifier)]];
@@ -1803,32 +1876,50 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     _fuzzyPinyinRuleButtons = [NSMutableDictionary dictionary];
     _localModeButtons = [NSMutableArray array];
 
+    // ---- 输入 -------------------------------------------------------------------------------
     NSButton *wubiSettingsButton = [NSButton buttonWithTitle:@"五笔功能设置" target:self action:@selector(showWubiSettings:)];
-    wubiSettingsButton.bezelStyle = NSBezelStyleInline;
+    LinkifyButton(wubiSettingsButton, @"五笔功能设置");
     wubiSettingsButton.image = [NSImage imageWithSystemSymbolName:@"chevron.right" accessibilityDescription:nil];
     wubiSettingsButton.imagePosition = NSImageRight;
     wubiSettingsButton.alignment = NSTextAlignmentRight;
-    wubiSettingsButton.contentTintColor = [NSColor linkColor];
-    wubiSettingsButton.accessibilityLabel = @"五笔功能设置";
 
-    NSBox *schemeCard = CardWithViews(@[
-        CardHeader(@"输入方式"), CardSeparator(),
-        PreferenceRow(@"输入方案", _schemeButton),
-        PreferenceRow(@"默认输入模式", _defaultImeModeButton),
+    NSBox *inputModeCard = CardWithViews(@[
+        PreferenceRow(@"输入模式", _defaultImeModeButton),
         PreferenceRow(@"模式作用范围", _imeModeScopeButton),
-        PreferenceRow(@"双拼键盘", _profileButton),
+    ], 0.0);
+    inputModeCard.accessibilityLabel = @"输入模式卡片";
+
+    // The scheme is one choice, so it reads as radios with each scheme's own popup trailing it,
+    // disabled until that scheme is selected. The stored value stays the same scheme string.
+    NSArray<NSString *> *schemeTitles = @[@"全拼输入", @"双拼输入", @"五笔输入", @"日语输入"];
+    NSMutableArray<NSButton *> *schemeButtons = [NSMutableArray array];
+    NSMutableArray<NSView *> *schemeRows = [NSMutableArray arrayWithObjects:CardHeader(@"输入方式"), CardSeparator(), nil];
+    _shuangpinSchemeButton = _profileButton;
+    _wubiSchemeButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
+    [_wubiSchemeButton addItemWithTitle:@"86 五笔"];
+    _wubiSchemeButton.accessibilityLabel = @"五笔方案";
+    for (NSInteger index = 0; index < (NSInteger)schemeTitles.count; ++index) {
+        NSButton *button = [NSButton radioButtonWithTitle:schemeTitles[index] target:self action:@selector(schemeRadioChanged:)];
+        button.tag = index;
+        button.font = [NSFont systemFontOfSize:13.0 weight:NSFontWeightMedium];
+        button.accessibilityLabel = schemeTitles[index];
+        [schemeButtons addObject:button];
+        NSView *accessory = index == 1 ? _shuangpinSchemeButton : (index == 2 ? _wubiSchemeButton : nil);
+        [schemeRows addObject:SchemeChoiceRow(button, accessory)];
+        if (index < (NSInteger)schemeTitles.count - 1) [schemeRows addObject:CardSeparator()];
+    }
+    _schemeButtons = schemeButtons;
+    NSBox *schemeCard = CardWithViews(schemeRows, 0.0);
+    schemeCard.accessibilityLabel = @"输入方式卡片";
+
+    NSBox *shuangpinCard = CardWithViews(@[
         PreferenceRow(@"双拼预编辑", _preeditButton),
         PreferenceRow(@"双拼初学者", _keymapButton),
-        PreferenceRow(@"五笔功能", wubiSettingsButton),
     ], 0.0);
-    schemeCard.accessibilityLabel = @"输入方式卡片";
-    NSBox *behaviorCard = CardWithViews(@[
-        _inputModeShortcutButton, _shiftTapShortcutButton, _controlTapShortcutButton,
-        _controlOptionSpaceShortcutButton, _characterSetShortcutButton, _fullWidthButton,
-    ], 9.0);
-    behaviorCard.accessibilityLabel = @"中英文状态切换卡片";
-    NSBox *correctionCard = CardWithViews(@[_transpositionButton, _neighborButton], 9.0);
-    correctionCard.accessibilityLabel = @"拼音纠错卡片";
+    shuangpinCard.accessibilityLabel = @"双拼选项卡片";
+    NSBox *wubiEntryCard = CardWithViews(@[PreferenceRow(@"五笔功能", wubiSettingsButton)], 0.0);
+    wubiEntryCard.accessibilityLabel = @"五笔入口卡片";
+
     NSBox *punctuationCard = CardWithViews(@[
         _punctuationButton, _smartPunctuationButton, _smartPunctuationRepeatButton, _pairedPunctuationButton,
         PreferenceRow(@"标点锁定", _punctuationLockButton),
@@ -1838,30 +1929,26 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         _mixedEnglishButton, PreferenceRow(@"中英混输触发长度", _mixedEnglishPrefixButton),
         _mixedEmojiButton, _mixedKaomojiButton,
     ], 9.0);
-    mixedCard.accessibilityLabel = @"混合输入卡片";
-    NSBox *shortcutCard = CardWithViews(@[
-        PreferenceRow(@"上翻 / 下翻", _pageShortcutButton),
-        PreferenceRow(@"独立候选导航", navigationControls),
-        _wordCharacterButton,
-        PreferenceRow(@"首字／尾字键组", _wordCharacterKeys),
-    ], 9.0);
-    shortcutCard.accessibilityLabel = @"候选翻页快捷键卡片";
-    for (NSArray<NSString *> *entry in LocalModeControls()) {
-        NSButton *button = [NSButton checkboxWithTitle:entry[1] target:self action:@selector(localModeChanged:)];
+    mixedCard.accessibilityLabel = @"中英混输卡片";
+    NSBox *correctionCard = CardWithViews(@[_transpositionButton, _neighborButton], 9.0);
+    correctionCard.accessibilityLabel = @"拼音纠错卡片";
+    NSMutableArray<NSView *> *fuzzyRows = [NSMutableArray arrayWithObject:_fuzzyPinyinButton];
+    for (NSArray *entry in FuzzyPinyinRuleControls()) {
+        NSButton *button = [NSButton checkboxWithTitle:entry[1] target:self action:@selector(fuzzyPinyinRuleChanged:)];
         button.identifier = entry[0];
-        [_localModeButtons addObject:button];
+        _fuzzyPinyinRuleButtons[entry[0]] = button;
+        [fuzzyRows addObject:button];
     }
-    NSBox *localModesCard = CardWithViews(_localModeButtons, 9.0);
-    localModesCard.accessibilityLabel = @"扩展输入卡片";
-    NSScrollView *keyboardPage = PreferencesPage(@"键盘输入", @"选择全拼、双拼、五笔或日语，并调整日常输入行为。", @[
-        schemeCard, SectionLabel(@"中英文状态切换"), behaviorCard, SectionLabel(@"拼音纠错"), correctionCard,
-        SectionLabel(@"标点输入"), punctuationCard, SectionLabel(@"混合输入"), mixedCard,
-        SectionLabel(@"候选翻页与选字"), shortcutCard, SectionLabel(@"扩展输入"), localModesCard,
+    NSBox *fuzzyCard = CardWithViews(fuzzyRows, 9.0);
+    fuzzyCard.accessibilityLabel = @"模糊音卡片";
+
+    NSScrollView *generalPage = PreferencesPage(@"键盘输入", @"选择中文或日语输入模式，并调整日常输入行为。", @[
+        inputModeCard, SectionLabel(@"中文输入方案"), schemeCard, shuangpinCard, wubiEntryCard,
+        SectionLabel(@"标点输入"), punctuationCard, SectionLabel(@"中英混输"), mixedCard,
+        SectionLabel(@"拼音纠错"), correctionCard, SectionLabel(@"模糊音"), fuzzyCard,
     ]);
 
-    // The preview keeps its own height constraint in sync with previewContentHeight, so it sits
-    // directly in the page stack; wrapping it in a fixed-height scroll view would leave a gap
-    // under the shorter single-layout preview and clip the taller showcase one.
+    // ---- 外观 -------------------------------------------------------------------------------
     _preview = [[MSIMECandidatePreviewView alloc] initWithFrame:NSMakeRect(0, 0, 580, 190)];
     _preview.preferences = self;
     _preview.translatesAutoresizingMaskIntoConstraints = NO;
@@ -1871,7 +1958,6 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     NSStackView *previewControls = [NSStackView stackViewWithViews:@[showcase, _themeButton]];
     previewControls.orientation = NSUserInterfaceLayoutOrientationHorizontal;
     previewControls.spacing = 12.0;
-
     NSBox *candidateWindowCard = CardWithViews(@[
         PreferenceRow(@"候选排列", _layoutButton),
         PreferenceRow(@"每页候选", _pageSizeButton),
@@ -1879,7 +1965,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         PreferenceRow(@"候选窗拼音字号", _preeditFontButton),
         PreferenceRow(@"候选窗预编辑", _candidatePreeditButton),
         _candidateFollowCursorButton,
-    ], 4.0);
+    ], 0.0);
     candidateWindowCard.accessibilityLabel = @"候选窗口卡片";
     NSBox *fontCard = CardWithViews(@[
         PreferenceRow(@"候选字体", _fontFamilyControl),
@@ -1887,39 +1973,88 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         PreferenceRow(@"候选文字颜色", textColorControls),
         PreferenceRow(@"补充字体（最多 32 项）", fallbackAdd),
         PreferenceRow(@"补充字体优先顺序", fallbackOrder),
-    ], 4.0);
+    ], 0.0);
     fontCard.accessibilityLabel = @"候选字体卡片";
-    NSBox *floatingToolbarCard = CardWithViews(@[
-        _toolbarButton, _toolbarPunctuationButton, _toolbarFullWidthButton, _toolbarCharacterSetButton,
-        _toolbarEmojiButton, _toolbarScreenKeyboardButton, _toolbarSettingsButton,
-        PreferenceRow(@"工具栏缩放", _toolbarScaleButton),
-        PreferenceRow(@"工具栏字号", _toolbarFontSizeButton),
-    ], 9.0);
-    floatingToolbarCard.accessibilityLabel = @"悬浮状态栏卡片";
-    NSScrollView *appearancePage = PreferencesPage(@"外观", @"调整候选窗口、候选字体与悬浮状态栏的显示方式。", @[
+    NSScrollView *appearancePage = PreferencesPage(@"外观", @"调整候选窗口与输入状态栏的显示方式。", @[
         SectionLabel(@"效果预览"), _preview, previewControls,
         SectionLabel(@"候选窗口"), candidateWindowCard,
         SectionLabel(@"候选字体"), fontCard,
-        SectionLabel(@"悬浮状态栏"), floatingToolbarCard,
     ]);
 
+    // ---- 皮肤 -------------------------------------------------------------------------------
     NSBox *skinCard = CardWithViews(@[
         PreferenceRow(@"候选皮肤", _skinButton),
         PreferenceRow(@"外部皮肤", reload),
         PreferenceRow(@"皮肤卡片", browse),
-    ], 4.0);
+    ], 0.0);
     skinCard.accessibilityLabel = @"候选皮肤卡片";
     NSScrollView *skinPage = PreferencesPage(@"皮肤", @"选择内置皮肤，或加载放入皮肤目录的外部皮肤包。", @[
         SectionLabel(@"候选皮肤"), skinCard,
     ]);
 
+    // ---- 词库与数据 --------------------------------------------------------------------------
     NSBox *learningCard = CardWithViews(@[
         _candidateLearningButton,
         PreferenceRow(@"词频调整方式", _frequencyModeButton),
         PreferenceRow(@"词频触发次数", _frequencyTriggerButton),
         PreferenceRow(@"线性调整步长", _frequencyStepButton),
-    ], 9.0);
+    ], 0.0);
     learningCard.accessibilityLabel = @"候选与学习卡片";
+    NSButton *aiButton = [NSButton buttonWithTitle:@"配置 AI 联想…" target:self action:@selector(showAISettings:)];
+    NSButton *translationButton = [NSButton buttonWithTitle:@"配置候选翻译…" target:self action:@selector(showTranslationSettings:)];
+    NSBox *cloudCard = CardWithViews(@[
+        _cloudCandidatesButton, _candidateTranslationsButton, _candidateEnglishGlossButton,
+        PreferenceRow(@"AI 联想", aiButton),
+        PreferenceRow(@"翻译服务与目标语言", translationButton),
+    ], 9.0);
+    cloudCard.accessibilityLabel = @"云端与智能候选卡片";
+    NSScrollView *dataPage = PreferencesPage(@"词库与数据", @"管理本机词库、用户词条与学习数据。", @[
+        SectionLabel(@"候选与学习"), learningCard, SectionLabel(@"云端与智能候选"), cloudCard,
+    ]);
+
+    // ---- 关于 -------------------------------------------------------------------------------
+    Class updateControllerClass = NSClassFromString(@"MetasequoiaUpdateController");
+    if ([updateControllerClass respondsToSelector:@selector(sharedController)])
+        _updateController = [updateControllerClass sharedController];
+    _versionLabel = [NSTextField labelWithString:@"开发构建"];
+    _versionLabel.textColor = [NSColor secondaryLabelColor];
+    _versionLabel.alignment = NSTextAlignmentRight;
+    _versionLabel.accessibilityLabel = @"当前版本";
+    _automaticUpdateLabel = [NSTextField labelWithString:@"检查自动更新状态…"];
+    _automaticUpdateLabel.textColor = [NSColor secondaryLabelColor];
+    _automaticUpdateLabel.alignment = NSTextAlignmentRight;
+    _automaticUpdateLabel.accessibilityLabel = @"自动更新状态";
+    _updatePageButton = [NSButton buttonWithTitle:@"检查更新…" target:self action:@selector(checkForUpdates:)];
+    _updatePageButton.accessibilityLabel = @"立即检查更新";
+    NSBox *updateCard = CardWithViews(@[
+        PreferenceRow(@"当前版本", _versionLabel),
+        PreferenceRow(@"自动更新", _automaticUpdateLabel),
+        PreferenceRow(@"立即检查", _updatePageButton),
+    ], 0.0);
+    updateCard.accessibilityLabel = @"软件更新卡片";
+    NSButton *websiteButton = [NSButton buttonWithTitle:@"访问 msime.app" target:self action:@selector(openProductWebsite:)];
+    LinkifyButton(websiteButton, @"访问水杉官网");
+    NSBox *aboutCard = CardWithViews(@[PreferenceRow(@"产品主页", websiteButton)], 0.0);
+    aboutCard.accessibilityLabel = @"关于卡片";
+    NSScrollView *aboutPage = PreferencesPage(@"关于", @"版本与更新，以及水杉输入法的产品主页。", @[
+        SectionLabel(@"软件更新"), updateCard, SectionLabel(@"产品信息"), aboutCard,
+    ]);
+
+    // ---- 五笔设置（输入页的子页，不在侧边栏里） ------------------------------------------------
+    NSButton *backToKeyboardButton = [NSButton buttonWithTitle:@"返回键盘输入" target:self action:@selector(backToKeyboardInput:)];
+    backToKeyboardButton.bezelStyle = NSBezelStyleInline;
+    backToKeyboardButton.image = [NSImage imageWithSystemSymbolName:@"chevron.left" accessibilityDescription:nil];
+    backToKeyboardButton.imagePosition = NSImageLeft;
+    backToKeyboardButton.alignment = NSTextAlignmentLeft;
+    NSTextField *wubiSchemeLabel = [NSTextField labelWithString:@"86 五笔"];
+    wubiSchemeLabel.textColor = [NSColor secondaryLabelColor];
+    NSBox *wubiCard = CardWithViews(@[PreferenceRow(@"编码方案", wubiSchemeLabel), _wubiButton], 8.0);
+    wubiCard.accessibilityLabel = @"五笔选项卡片";
+    NSScrollView *wubiPage = PreferencesPage(@"五笔设置", @"调整 86 五笔的输入与上屏行为。", @[
+        backToKeyboardButton, SectionLabel(@"输入行为"), wubiCard,
+    ]);
+
+    // ---- 辅助码 -----------------------------------------------------------------------------
     NSMutableArray<NSView *> *helpcodeRows = [NSMutableArray arrayWithObjects:_quanpinHelpcodeButton, _shuangpinHelpcodeButton, nil];
     for (NSString *scheme in @[@"quanpin", @"shuangpin"]) {
         NSString *name = [scheme isEqual:@"quanpin"] ? @"全拼" : @"双拼";
@@ -1940,94 +2075,170 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     }
     NSBox *helpcodeCard = CardWithViews(helpcodeRows, 9.0);
     helpcodeCard.accessibilityLabel = @"辅助码卡片";
-    NSMutableArray<NSView *> *fuzzyRows = [NSMutableArray arrayWithObject:_fuzzyPinyinButton];
-    for (NSArray *entry in FuzzyPinyinRuleControls()) {
-        NSButton *button = [NSButton checkboxWithTitle:entry[1] target:self action:@selector(fuzzyPinyinRuleChanged:)];
-        button.identifier = entry[0];
-        _fuzzyPinyinRuleButtons[entry[0]] = button;
-        [fuzzyRows addObject:button];
-    }
-    NSBox *fuzzyCard = CardWithViews(fuzzyRows, 9.0);
-    fuzzyCard.accessibilityLabel = @"模糊音卡片";
-    NSButton *aiButton = [NSButton buttonWithTitle:@"配置 AI 联想…" target:self action:@selector(showAISettings:)];
-    NSButton *translationButton = [NSButton buttonWithTitle:@"配置候选翻译…" target:self action:@selector(showTranslationSettings:)];
-    NSBox *cloudCard = CardWithViews(@[
-        _cloudCandidatesButton, _candidateTranslationsButton, _candidateEnglishGlossButton,
-        PreferenceRow(@"AI 联想", aiButton),
-        PreferenceRow(@"翻译服务与目标语言", translationButton),
-    ], 9.0);
-    cloudCard.accessibilityLabel = @"云端与智能候选卡片";
-    NSScrollView *dataPage = PreferencesPage(@"词库与数据", @"管理候选学习、辅助码、模糊音与云端候选。", @[
-        SectionLabel(@"候选与学习"), learningCard, SectionLabel(@"辅助码"), helpcodeCard,
-        SectionLabel(@"模糊音"), fuzzyCard, SectionLabel(@"云端与智能候选"), cloudCard,
+    NSScrollView *helpcodePage = PreferencesPage(@"辅助码", @"为全拼与双拼分别选择辅助码方案。", @[
+        SectionLabel(@"辅助码方案"), helpcodeCard,
     ]);
 
-    // Resolved at runtime, like the backend account entry below: the focused test targets
-    // compile this file without linking the update controller, and pulling it in would drag
-    // Sparkle into every preference test.
-    Class updateControllerClass = NSClassFromString(@"MetasequoiaUpdateController");
-    if ([updateControllerClass respondsToSelector:@selector(sharedController)])
-        _updateController = [updateControllerClass sharedController];
+    // ---- 快捷键 -----------------------------------------------------------------------------
+    NSBox *pagingCard = CardWithViews(@[
+        PreferenceRow(@"上翻 / 下翻", _pageShortcutButton),
+        PreferenceRow(@"独立候选导航", navigationControls),
+        _wordCharacterButton,
+        PreferenceRow(@"首字／尾字键组", _wordCharacterKeys),
+    ], 0.0);
+    pagingCard.accessibilityLabel = @"候选翻页卡片";
+    NSBox *switchingCard = CardWithViews(@[
+        _inputModeShortcutButton, _shiftTapShortcutButton, _controlTapShortcutButton,
+        _controlOptionSpaceShortcutButton, _characterSetShortcutButton, _fullWidthButton,
+    ], 9.0);
+    switchingCard.accessibilityLabel = @"输入状态切换卡片";
+    NSScrollView *shortcutsPage = PreferencesPage(@"快捷键", @"设置候选翻页与输入状态切换快捷键。", @[
+        SectionLabel(@"候选翻页与选字"), pagingCard, SectionLabel(@"输入状态切换"), switchingCard,
+    ]);
+
+    // ---- 悬浮工具栏 --------------------------------------------------------------------------
+    NSBox *toolbarCard = CardWithViews(@[
+        _toolbarButton, _toolbarPunctuationButton, _toolbarFullWidthButton, _toolbarCharacterSetButton,
+        _toolbarEmojiButton, _toolbarScreenKeyboardButton, _toolbarSettingsButton,
+    ], 9.0);
+    toolbarCard.accessibilityLabel = @"悬浮工具栏卡片";
+    NSBox *toolbarSizeCard = CardWithViews(@[
+        PreferenceRow(@"工具栏缩放", _toolbarScaleButton),
+        PreferenceRow(@"工具栏字号", _toolbarFontSizeButton),
+    ], 0.0);
+    toolbarSizeCard.accessibilityLabel = @"悬浮工具栏尺寸卡片";
+    NSScrollView *floatingPage = PreferencesPage(@"悬浮工具栏", @"随时查看输入状态，通过工具栏切换常用输入选项。", @[
+        SectionLabel(@"显示与组件"), toolbarCard, SectionLabel(@"尺寸"), toolbarSizeCard,
+    ]);
+
+    // ---- 账号 -------------------------------------------------------------------------------
     NSButton *accountButton = [NSButton buttonWithTitle:@"管理水杉账号…" target:self action:@selector(showBackendAccount:)];
     accountButton.accessibilityIdentifier = @"MSIMEClientBackendAccount";
-    NSBox *accountCard = CardWithViews(@[PreferenceRow(@"登录与账号管理", accountButton)], 4.0);
+    NSBox *accountCard = CardWithViews(@[PreferenceRow(@"登录与账号管理", accountButton)], 0.0);
     accountCard.accessibilityLabel = @"水杉账号卡片";
-    _versionLabel = [NSTextField labelWithString:@"开发构建"];
-    _versionLabel.textColor = [NSColor secondaryLabelColor];
-    _versionLabel.alignment = NSTextAlignmentRight;
-    _versionLabel.accessibilityLabel = @"当前版本";
-    _automaticUpdateLabel = [NSTextField labelWithString:@"检查自动更新状态…"];
-    _automaticUpdateLabel.textColor = [NSColor secondaryLabelColor];
-    _automaticUpdateLabel.alignment = NSTextAlignmentRight;
-    _automaticUpdateLabel.accessibilityLabel = @"自动更新状态";
-    _updatePageButton = [NSButton buttonWithTitle:@"检查更新…" target:self action:@selector(checkForUpdates:)];
-    _updatePageButton.accessibilityLabel = @"立即检查更新";
-    NSBox *updateCard = CardWithViews(@[
-        PreferenceRow(@"当前版本", _versionLabel),
-        PreferenceRow(@"自动更新", _automaticUpdateLabel),
-        PreferenceRow(@"立即检查", _updatePageButton),
-    ], 4.0);
-    updateCard.accessibilityLabel = @"软件更新卡片";
-    NSButton *supportButton = [NSButton buttonWithTitle:@"打开帮助与反馈…" target:self action:@selector(showSupport:)];
-    supportButton.accessibilityLabel = @"打开帮助与反馈";
-    NSBox *supportCard = CardWithViews(@[PreferenceRow(@"问题反馈与使用帮助", supportButton)], 4.0);
-    supportCard.accessibilityLabel = @"反馈与帮助卡片";
-    NSScrollView *updatesPage = PreferencesPage(@"更新与反馈", @"保持水杉输入法为最新版本，并告诉我们哪里还可以做得更好。", @[
-        SectionLabel(@"水杉账号"), accountCard, SectionLabel(@"软件更新"), updateCard,
-        SectionLabel(@"反馈与帮助"), supportCard,
+    NSScrollView *accountPage = PreferencesPage(@"账号", @"登录水杉账号后，候选词翻译、云同步等需要账号的功能才会生效。", @[
+        SectionLabel(@"水杉账号"), accountCard,
     ]);
 
-    NSButton *backToKeyboardButton = [NSButton buttonWithTitle:@"返回键盘输入" target:self action:@selector(backToKeyboardInput:)];
-    backToKeyboardButton.bezelStyle = NSBezelStyleInline;
-    backToKeyboardButton.image = [NSImage imageWithSystemSymbolName:@"chevron.left" accessibilityDescription:nil];
-    backToKeyboardButton.imagePosition = NSImageLeft;
-    backToKeyboardButton.alignment = NSTextAlignmentLeft;
-    NSTextField *wubiSchemeLabel = [NSTextField labelWithString:@"86 五笔"];
-    wubiSchemeLabel.textColor = [NSColor secondaryLabelColor];
-    NSBox *wubiCard = CardWithViews(@[PreferenceRow(@"编码方案", wubiSchemeLabel), _wubiButton], 8.0);
-    wubiCard.accessibilityLabel = @"五笔选项卡片";
-    NSScrollView *wubiPage = PreferencesPage(@"五笔设置", @"调整 86 五笔的输入与上屏行为。", @[
-        backToKeyboardButton, SectionLabel(@"输入行为"), wubiCard,
+    // ---- 帮助 / 反馈 -------------------------------------------------------------------------
+    // Upstream builds both pages out of its own help copy and a local issue form. This host has
+    // neither; it routes to the existing support window instead of inventing the content here.
+    NSButton *helpButton = [NSButton buttonWithTitle:@"打开使用帮助…" target:self action:@selector(showSupport:)];
+    NSBox *helpCard = CardWithViews(@[PreferenceRow(@"常用按键与常见问题", helpButton)], 0.0);
+    helpCard.accessibilityLabel = @"帮助卡片";
+    NSScrollView *helpPage = PreferencesPage(@"帮助", @"常用按键、候选词释义的工作方式，以及常见问题。", @[
+        SectionLabel(@"使用帮助"), helpCard,
+    ]);
+    NSButton *feedbackButton = [NSButton buttonWithTitle:@"提交反馈…" target:self action:@selector(showSupport:)];
+    NSBox *feedbackCard = CardWithViews(@[PreferenceRow(@"问题反馈与功能建议", feedbackButton)], 0.0);
+    feedbackCard.accessibilityLabel = @"反馈卡片";
+    NSScrollView *feedbackPage = PreferencesPage(@"反馈", @"在这里写清问题，提交时会带上版本与系统信息。", @[
+        SectionLabel(@"问题反馈"), feedbackCard,
     ]);
 
-    // The wubi page trails the toolbar pages: it is reached from the keyboard page's row,
-    // not from the toolbar, so its index stays outside the toolbar identifier list.
-    _preferencePages = @[keyboardPage, appearancePage, skinPage, dataPage, updatesPage, wubiPage];
-    _preferenceToolbarItemIdentifiers = @[
-        KeyboardToolbarItemIdentifier, AppearanceToolbarItemIdentifier, SkinToolbarItemIdentifier,
-        DataToolbarItemIdentifier, UpdatesToolbarItemIdentifier,
+    // ---- 语音输入 ---------------------------------------------------------------------------
+    NSButton *voiceButton = [NSButton buttonWithTitle:@"配置语音输入…" target:self action:@selector(showVoiceSettings:)];
+    NSBox *voiceCard = CardWithViews(@[PreferenceRow(@"识别服务与文本整理", voiceButton)], 0.0);
+    voiceCard.accessibilityLabel = @"语音输入卡片";
+    NSScrollView *voicePage = PreferencesPage(@"语音输入", @"配置听写使用的识别服务，以及识别后的文本整理。", @[
+        SectionLabel(@"语音输入"), voiceCard,
+    ]);
+
+    // ---- 实用功能 ---------------------------------------------------------------------------
+    for (NSArray<NSString *> *entry in LocalModeControls()) {
+        NSButton *button = [NSButton checkboxWithTitle:entry[1] target:self action:@selector(localModeChanged:)];
+        button.identifier = entry[0];
+        [_localModeButtons addObject:button];
+    }
+    NSBox *localModesCard = CardWithViews(_localModeButtons, 9.0);
+    localModesCard.accessibilityLabel = @"扩展输入卡片";
+    NSScrollView *utilitiesPage = PreferencesPage(@"实用功能", @"未组词时用 Shift 加一个字母，临时切到另一种输入方式。", @[
+        SectionLabel(@"扩展输入模式"), localModesCard,
+    ]);
+
+    // The index is both the page index and the navigation button tag. 五笔设置 trails the list:
+    // it is a sub-page of 输入, entered from that page's row, so no sidebar item points at it.
+    _preferencePages = @[
+        generalPage, appearancePage, skinPage, dataPage, aboutPage, wubiPage, helpcodePage, shortcutsPage,
+        floatingPage, accountPage, helpPage, feedbackPage, voicePage, utilitiesPage,
     ];
-    NSToolbar *toolbar = [[NSToolbar alloc] initWithIdentifier:PreferencesToolbarIdentifier];
-    toolbar.delegate = self;
-    toolbar.displayMode = NSToolbarDisplayModeIconAndLabel;
-    toolbar.sizeMode = NSToolbarSizeModeRegular;
-    toolbar.allowsUserCustomization = NO;
-    toolbar.autosavesConfiguration = NO;
-    window.toolbar = toolbar;
+
+    NSView *contentView = window.contentView;
+    NSView *sidebar = [[NSView alloc] initWithFrame:NSZeroRect];
+    sidebar.translatesAutoresizingMaskIntoConstraints = NO;
+    NSTextField *brand = [NSTextField labelWithString:@"水杉 IME"];
+    brand.font = [NSFont systemFontOfSize:19.0 weight:NSFontWeightSemibold];
+    NSImageView *logo = [[NSImageView alloc] initWithFrame:NSZeroRect];
+    logo.image = [NSImage imageWithSystemSymbolName:@"character.cursor.ibeam" accessibilityDescription:@"水杉 IME"];
+    logo.translatesAutoresizingMaskIntoConstraints = NO;
+    [logo.widthAnchor constraintEqualToConstant:26.0].active = YES;
+    [logo.heightAnchor constraintEqualToConstant:32.0].active = YES;
+    NSStackView *brandRow = [NSStackView stackViewWithViews:@[logo, brand]];
+    brandRow.spacing = 12.0;
+    brandRow.edgeInsets = NSEdgeInsetsMake(0.0, 18.0, 0.0, 0.0);
+    NSStackView *navigation = [NSStackView stackViewWithViews:@[brandRow]];
+    navigation.orientation = NSUserInterfaceLayoutOrientationVertical;
+    navigation.alignment = NSLayoutAttributeLeading;
+    navigation.spacing = 2.0;
+    navigation.translatesAutoresizingMaskIntoConstraints = NO;
+    [navigation setCustomSpacing:30.0 afterView:brandRow];
+    NSArray<NSString *> *navigationLabels = @[
+        @"输入", @"外观", @"皮肤", @"词库", @"关于", @"五笔", @"辅助码", @"快捷键", @"悬浮工具栏", @"账号", @"帮助",
+        @"反馈", @"语音输入", @"实用功能",
+    ];
+    NSArray<NSString *> *navigationSymbols = @[
+        @"keyboard", @"paintpalette", @"photo.on.rectangle", @"book", @"info.circle", @"keyboard", @"a.circle",
+        @"command", @"ellipsis.rectangle", @"person.crop.circle", @"questionmark.square", @"ladybug", @"mic",
+        @"wand.and.stars",
+    ];
+    NSArray<NSArray<NSNumber *> *> *navigationGroups = @[
+        @[@0, @6, @7, @13, @12],  // 输入 · 辅助码 · 快捷键 · 实用功能 · 语音输入
+        @[@1, @2, @8],            // 外观 · 皮肤 · 悬浮工具栏
+        @[@3, @9],                // 词库 · 账号
+        @[@10, @11, @4],          // 帮助 · 反馈 · 关于
+    ];
+    NSMutableArray<NSButton *> *navigationButtons = [NSMutableArray array];
+    for (NSArray<NSNumber *> *group in navigationGroups) {
+        NSButton *lastInGroup = nil;
+        for (NSNumber *pageIndex in group) {
+            NSInteger index = pageIndex.integerValue;
+            NSButton *button = [[MSIMESettingsNavigationButton alloc] initWithFrame:NSZeroRect];
+            button.title = navigationLabels[index];
+            button.target = self;
+            button.action = @selector(selectPreferencesPage:);
+            button.tag = index;
+            [button setButtonType:NSButtonTypePushOnPushOff];
+            button.bordered = NO;
+            button.alignment = NSTextAlignmentLeft;
+            button.imagePosition = NSImageLeft;
+            button.image = [NSImage imageWithSystemSymbolName:navigationSymbols[index] accessibilityDescription:nil];
+            button.font = [NSFont systemFontOfSize:14.0 weight:NSFontWeightMedium];
+            button.accessibilityLabel = navigationLabels[index];
+            [navigation addArrangedSubview:button];
+            [button.widthAnchor constraintEqualToAnchor:navigation.widthAnchor].active = YES;
+            [button.heightAnchor constraintEqualToConstant:42.0].active = YES;
+            [navigationButtons addObject:button];
+            lastInGroup = button;
+        }
+        if (lastInGroup != nil && group != navigationGroups.lastObject)
+            [navigation setCustomSpacing:16.0 afterView:lastInGroup];
+    }
+    _sidebarButtons = navigationButtons;
+    [sidebar addSubview:navigation];
+    [contentView addSubview:sidebar];
+    [NSLayoutConstraint activateConstraints:@[
+        [sidebar.leadingAnchor constraintEqualToAnchor:contentView.leadingAnchor],
+        [sidebar.topAnchor constraintEqualToAnchor:contentView.topAnchor],
+        [sidebar.bottomAnchor constraintEqualToAnchor:contentView.bottomAnchor],
+        [sidebar.widthAnchor constraintEqualToConstant:220.0],
+        [navigation.leadingAnchor constraintEqualToAnchor:sidebar.leadingAnchor constant:10.0],
+        [navigation.trailingAnchor constraintEqualToAnchor:sidebar.trailingAnchor constant:-10.0],
+        [navigation.topAnchor constraintEqualToAnchor:sidebar.topAnchor constant:30.0],
+    ]];
 
     NSView *pageContainer = [[NSView alloc] initWithFrame:NSZeroRect];
     pageContainer.translatesAutoresizingMaskIntoConstraints = NO;
-    [window.contentView addSubview:pageContainer];
+    [contentView addSubview:pageContainer];
     for (NSView *page in _preferencePages) {
         [pageContainer addSubview:page];
         [NSLayoutConstraint activateConstraints:@[
@@ -2037,22 +2248,28 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
             [page.bottomAnchor constraintEqualToAnchor:pageContainer.bottomAnchor],
         ]];
     }
+    NSButton *restoreButton = [NSButton buttonWithTitle:@"恢复默认设置" target:self action:@selector(restoreDefaults:)];
+    restoreButton.bezelStyle = NSBezelStyleRounded;
+    restoreButton.translatesAutoresizingMaskIntoConstraints = NO;
     NSButton *closeButton = [NSButton buttonWithTitle:@"关闭" target:self action:@selector(closePreferences:)];
     closeButton.bezelStyle = NSBezelStyleRounded;
     closeButton.keyEquivalent = @"\r";
     closeButton.translatesAutoresizingMaskIntoConstraints = NO;
-    [window.contentView addSubview:closeButton];
+    [contentView addSubview:restoreButton];
+    [contentView addSubview:closeButton];
     [NSLayoutConstraint activateConstraints:@[
-        [pageContainer.leadingAnchor constraintEqualToAnchor:window.contentView.leadingAnchor],
-        [pageContainer.trailingAnchor constraintEqualToAnchor:window.contentView.trailingAnchor],
-        [pageContainer.topAnchor constraintEqualToAnchor:window.contentView.topAnchor],
-        [pageContainer.bottomAnchor constraintEqualToAnchor:closeButton.topAnchor constant:-16.0],
-        [closeButton.trailingAnchor constraintEqualToAnchor:window.contentView.trailingAnchor constant:-30.0],
-        [closeButton.bottomAnchor constraintEqualToAnchor:window.contentView.bottomAnchor constant:-20.0],
+        [pageContainer.leadingAnchor constraintEqualToAnchor:sidebar.trailingAnchor],
+        [pageContainer.trailingAnchor constraintEqualToAnchor:contentView.trailingAnchor],
+        [pageContainer.topAnchor constraintEqualToAnchor:contentView.topAnchor],
+        [pageContainer.bottomAnchor constraintEqualToAnchor:restoreButton.topAnchor constant:-16.0],
+        [restoreButton.leadingAnchor constraintEqualToAnchor:pageContainer.leadingAnchor constant:30.0],
+        [restoreButton.bottomAnchor constraintEqualToAnchor:contentView.bottomAnchor constant:-20.0],
+        [closeButton.trailingAnchor constraintEqualToAnchor:contentView.trailingAnchor constant:-30.0],
+        [closeButton.centerYAnchor constraintEqualToAnchor:restoreButton.centerYAnchor],
         [closeButton.widthAnchor constraintGreaterThanOrEqualToConstant:80.0],
     ]];
     self.window = window;
-    [self showPreferencesPageAtIndex:0 toolbarIndex:0];
+    [self showPreferencesPageAtIndex:0 navigationIndex:0];
     [self refreshUpdateControls];
     [self refreshControls];
     [window center];
@@ -2070,7 +2287,6 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 - (void)candidateEnglishGlossChanged:(NSButton *)sender { self.candidateEnglishGloss = sender.state == NSControlStateValueOn; }
 - (void)quanpinHelpcodeChanged:(NSButton *)sender { self.quanpinHelpcodeEnabled = sender.state == NSControlStateValueOn; }
 - (void)shuangpinHelpcodeChanged:(NSButton *)sender { self.shuangpinHelpcodeEnabled = sender.state == NSControlStateValueOn; }
-- (void)schemeChanged:(NSPopUpButton *)sender { self.inputScheme = @[@"quanpin", @"shuangpin", @"wubi", @"japanese"][sender.indexOfSelectedItem]; }
 - (void)profileChanged:(NSPopUpButton *)sender { self.shuangpinProfile = @[@"xiaohe", @"ziranma", @"shoudao", @"microsoft"][sender.indexOfSelectedItem]; }
 - (void)preeditChanged:(NSPopUpButton *)sender { self.shuangpinPreeditUsesRaw = sender.indexOfSelectedItem == 1; }
 - (void)inputModeShortcutChanged:(NSButton *)sender { self.inputModeShortcut = sender.state == NSControlStateValueOn; }
@@ -2130,58 +2346,29 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 }
 - (void)togglePreviewTheme:(id)sender { (void)sender; [_preview toggleForcedTheme]; }
 - (void)togglePreviewShowcase:(NSButton *)sender { [_preview setShowsLayoutShowcase:sender.state == NSControlStateValueOn]; }
-- (NSArray<NSToolbarItemIdentifier> *)toolbarAllowedItemIdentifiers:(NSToolbar *)toolbar {
-    (void)toolbar;
-    return _preferenceToolbarItemIdentifiers;
+- (void)selectPreferencesPage:(id)sender {
+    NSButton *button = [sender isKindOfClass:NSButton.class] ? (NSButton *)sender : nil;
+    const NSInteger index = button == nil ? 0 : button.tag;
+    [self showPreferencesPageAtIndex:index navigationIndex:index];
 }
-- (NSArray<NSToolbarItemIdentifier> *)toolbarDefaultItemIdentifiers:(NSToolbar *)toolbar {
-    (void)toolbar;
-    return _preferenceToolbarItemIdentifiers;
-}
-- (NSArray<NSToolbarItemIdentifier> *)toolbarSelectableItemIdentifiers:(NSToolbar *)toolbar {
-    (void)toolbar;
-    return _preferenceToolbarItemIdentifiers;
-}
-- (NSToolbarItem *)toolbar:(NSToolbar *)toolbar
-        itemForItemIdentifier:(NSToolbarItemIdentifier)itemIdentifier
-    willBeInsertedIntoToolbar:(BOOL)flag {
-    (void)toolbar;
-    (void)flag;
-    const NSInteger index = (NSInteger)[_preferenceToolbarItemIdentifiers indexOfObject:itemIdentifier];
-    if (index == NSNotFound) return nil;
-    NSArray<NSString *> *labels = @[@"键盘输入", @"外观", @"皮肤", @"词库与数据", @"更新与反馈"];
-    NSArray<NSString *> *symbols = @[@"keyboard", @"paintpalette", @"paintbrush", @"books.vertical", @"arrow.triangle.2.circlepath"];
-    NSToolbarItem *item = [[NSToolbarItem alloc] initWithItemIdentifier:itemIdentifier];
-    item.label = labels[index];
-    item.paletteLabel = labels[index];
-    item.toolTip = labels[index];
-    item.image = [NSImage imageWithSystemSymbolName:symbols[index] accessibilityDescription:labels[index]];
-    item.target = self;
-    item.action = @selector(selectPreferencesPageFromToolbar:);
-    item.tag = index;
-    return item;
-}
-- (void)selectPreferencesPageFromToolbar:(id)sender {
-    NSToolbarItem *selected = [sender isKindOfClass:NSToolbarItem.class] ? (NSToolbarItem *)sender : nil;
-    const NSInteger index = selected == nil ? 0 : selected.tag;
-    [self showPreferencesPageAtIndex:index toolbarIndex:index];
-}
-- (void)showPreferencesPageAtIndex:(NSInteger)pageIndex toolbarIndex:(NSInteger)toolbarIndex {
+- (void)showPreferencesPageAtIndex:(NSInteger)pageIndex navigationIndex:(NSInteger)navigationIndex {
     for (NSInteger index = 0; index < (NSInteger)_preferencePages.count; ++index)
         _preferencePages[index].hidden = index != pageIndex;
-    if (toolbarIndex >= 0 && toolbarIndex < (NSInteger)_preferenceToolbarItemIdentifiers.count)
-        self.window.toolbar.selectedItemIdentifier = _preferenceToolbarItemIdentifiers[toolbarIndex];
+    for (NSButton *button in _sidebarButtons)
+        button.state = button.tag == navigationIndex ? NSControlStateValueOn : NSControlStateValueOff;
 }
-// The wubi page keeps the keyboard toolbar item selected: it is a drill-down of that page,
-// and clearing the selection would leave the toolbar with no highlighted item.
+// 五笔设置是「输入」页的子页,靠页内按钮进出,所以侧边栏保持停在「输入」上。
 - (void)showWubiSettings:(id)sender {
     (void)sender;
     [self refreshControls];
-    [self showPreferencesPageAtIndex:5 toolbarIndex:0];
+    [self showPreferencesPageAtIndex:5 navigationIndex:0];
 }
 - (void)backToKeyboardInput:(id)sender {
     (void)sender;
-    [self showPreferencesPageAtIndex:0 toolbarIndex:0];
+    [self showPreferencesPageAtIndex:0 navigationIndex:0];
+}
+- (void)schemeRadioChanged:(NSButton *)sender {
+    self.inputScheme = @[@"quanpin", @"shuangpin", @"wubi", @"japanese"][sender.tag];
 }
 - (void)showBackendAccount:(id)sender {
     (void)sender;
@@ -2194,6 +2381,17 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     [[supportClass sharedController] showWindow:self];
     [NSApp activateIgnoringOtherApps:YES];
 }
+- (void)showVoiceSettings:(id)sender {
+    (void)sender;
+    Class voiceClass = NSClassFromString(@"MSIMEVoiceSettings");
+    if (![voiceClass respondsToSelector:@selector(sharedSettings)]) return;
+    [[voiceClass sharedSettings] showWindow:self];
+    [NSApp activateIgnoringOtherApps:YES];
+}
+- (void)openProductWebsite:(id)sender {
+    (void)sender;
+    [NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:@"https://msime.app"]];
+}
 - (void)checkForUpdates:(id)sender { [_updateController checkForUpdates:sender]; }
 - (void)refreshUpdateControls {
     NSString *version = [NSBundle.mainBundle objectForInfoDictionaryKey:@"CFBundleShortVersionString"];
@@ -2203,6 +2401,21 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     const BOOL automatic = [_updateController automaticallyChecksForUpdates];
     _automaticUpdateLabel.stringValue = automatic ? @"已开启自动检查" : @"自动检查已关闭";
     _updatePageButton.enabled = [_updateController canCheckForUpdates];
+}
+// Clears only this host's own preference domain, by an explicit key list, the way the upstream
+// window does. It never touches the Apple product's domain or the user dictionary.
+- (void)restoreDefaults:(id)sender {
+    (void)sender;
+    for (NSString *key in @[
+             LayoutKey, CandidateFollowCursorKey, InputModeHUDKey, SchemeKey, ShuangpinProfileKey,
+             ShuangpinPreeditKey, LocalModesKey, HelpcodeKey, HelpcodeOptionsKey, QuanpinHelpcodeKey,
+             ShuangpinHelpcodeKey, KeymapKey, WubiKey, InputModeShortcutKey, ShiftTapShortcutKey,
+             ControlTapShortcutKey, ControlOptionSpaceShortcutKey, CharacterSetShortcutKey,
+             FloatingToolbarKey, FloatingToolbarOptionsKey,
+         ])
+        [_defaults removeObjectForKey:key];
+    [self refreshControls];
+    [NSNotificationCenter.defaultCenter postNotificationName:MSIMEAppearanceDidChangeNotification object:self];
 }
 - (void)closePreferences:(id)sender {
     (void)sender;
