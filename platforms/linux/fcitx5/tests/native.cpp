@@ -67,6 +67,15 @@ int main(int argc, char **argv) {
     require(bind(cloudServer, reinterpret_cast<sockaddr *>(&cloudAddress), sizeof(cloudAddress)) == 0 &&
             listen(cloudServer, 1) == 0, "cloud clipboard listener");
     options["cloud_clipboard_provider_socket"] = cloudSocketPath;
+    const auto voiceSocketPath = std::string(directory) + "/voice.sock";
+    const int voiceServer = socket(AF_UNIX, SOCK_STREAM, 0);
+    require(voiceServer >= 0, "voice socket");
+    sockaddr_un voiceAddress{};
+    voiceAddress.sun_family = AF_UNIX;
+    std::strncpy(voiceAddress.sun_path, voiceSocketPath.c_str(), sizeof(voiceAddress.sun_path) - 1);
+    require(bind(voiceServer, reinterpret_cast<sockaddr *>(&voiceAddress), sizeof(voiceAddress)) == 0 &&
+            listen(voiceServer, 1) == 0, "voice listener");
+    options["voice_provider_socket"] = voiceSocketPath;
     const auto path = std::string(directory) + "/runtime-options.json";
     std::ofstream(path) << options.dump();
     std::thread provider([providerServer, ai, suggestion] {
@@ -107,6 +116,19 @@ int main(int argc, char **argv) {
       const bool valid = count > 0 && std::string(request, count).find("cloud_clipboard") != std::string::npos;
       const bool sent = send(client, reply, std::strlen(reply), MSG_NOSIGNAL) == static_cast<ssize_t>(std::strlen(reply));
       close(client); close(cloudServer);
+      return valid && sent;
+    });
+    auto voiceProvider = std::async(std::launch::async, [voiceServer] {
+      pollfd ready{voiceServer, POLLIN, 0};
+      if (poll(&ready, 1, 5000) <= 0) { close(voiceServer); return false; }
+      const int client = accept(voiceServer, nullptr, nullptr);
+      if (client < 0) { close(voiceServer); return false; }
+      char request[4096]{};
+      const auto count = read(client, request, sizeof(request) - 1);
+      const auto reply = "{\"text\":\"语音测试\"}\n";
+      const bool valid = count > 0 && std::string(request, count).find("voice") != std::string::npos;
+      const bool sent = send(client, reply, std::strlen(reply), MSG_NOSIGNAL) == static_cast<ssize_t>(std::strlen(reply));
+      close(client); close(voiceServer);
       return valid && sent;
     });
     setenv("MSIME_FCITX5_OPTIONS", path.c_str(), 1);
@@ -203,6 +225,16 @@ int main(int argc, char **argv) {
     }
     require(ic.committed.find("云剪贴板测试") != std::string::npos, "cloud clipboard action commits provider entry");
     require(cloudProvider.get(), "cloud clipboard socket protocol");
+    engine.voice_action_.activate(&ic);
+    const auto voiceDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (ic.committed.find("语音测试") == std::string::npos &&
+           std::chrono::steady_clock::now() < voiceDeadline) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      state->refreshVoice();
+      engine.voice_action_.activate(&ic);
+    }
+    require(ic.committed.find("语音测试") != std::string::npos, "voice action commits provider text");
+    require(voiceProvider.get(), "voice socket protocol");
     if (ai) {
       require(onlineQuery.value("ai_eligible", false), "AI query eligible");
       require(onlineQuery.at("ai_assistant").value("enabled", false), "AI provider enabled");
