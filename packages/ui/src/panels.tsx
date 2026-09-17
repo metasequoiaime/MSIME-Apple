@@ -194,7 +194,13 @@ export function KeyboardPanel({ client, platform, theme = "dark", layout = "twen
   const [openingVoice, setOpeningVoice] = useState(false);
   type QueuedKey = { request: KeyboardInputRequest; description: string };
   const inputQueue = useRef<{ active: boolean; running: boolean; openingVoice: boolean; pending: QueuedKey[] }>({ active: true, running: false, openingVoice: false, pending: [] });
+  const keyRepeat = useRef<{ delay?: number; interval?: number }>({});
   const drag = usePanelDrag(client, () => setNotice("无法移动窗口，请重试。"));
+  function stopKeyRepeat() {
+    if (keyRepeat.current.delay !== undefined) window.clearTimeout(keyRepeat.current.delay);
+    if (keyRepeat.current.interval !== undefined) window.clearInterval(keyRepeat.current.interval);
+    keyRepeat.current = {};
+  }
   useEffect(() => {
     const queue = { active: true, running: false, openingVoice: false, pending: [] as QueuedKey[] };
     setOpeningVoice(false);
@@ -204,7 +210,14 @@ export function KeyboardPanel({ client, platform, theme = "dark", layout = "twen
     if (client.rememberInputTarget) void client.rememberInputTarget().catch(() => {
       if (queue.active) setNotice("未能记录前台输入窗口");
     });
-    return () => { queue.active = false; queue.pending = []; };
+    const stopForBlur = () => stopKeyRepeat();
+    window.addEventListener("blur", stopForBlur);
+    return () => {
+      window.removeEventListener("blur", stopForBlur);
+      stopKeyRepeat();
+      queue.active = false;
+      queue.pending = [];
+    };
   }, [client]);
   function toggleModifier(keyToToggle: Modifier) {
     const next = new Set(modifiersRef.current);
@@ -313,6 +326,15 @@ export function KeyboardPanel({ client, platform, theme = "dark", layout = "twen
       syncKeyboardFaces(next);
     }
   }
+  function beginPointerKey(event: PointerEvent<HTMLButtonElement>, keyToPress: KeyboardKey) {
+    if (!event.isPrimary || event.button !== 0 || keyToPress.modifier || openingVoice) return;
+    stopKeyRepeat();
+    pressKey(resolveRenderedKey(keyToPress, event.currentTarget.textContent ?? ""));
+    keyRepeat.current.delay = window.setTimeout(() => {
+      pressKey(keyToPress);
+      keyRepeat.current.interval = window.setInterval(() => pressKey(keyToPress), 75);
+    }, 450);
+  }
   function resolveRenderedKey(fallback: KeyboardKey, displayed: string) {
     if (!modifiersRef.current.has("Shift")) return fallback;
     const match = rows.flat().find(item => item.shifted === displayed || (item.shifted == null && item.label.length === 1 && item.label.toUpperCase() === displayed));
@@ -331,7 +353,13 @@ export function KeyboardPanel({ client, platform, theme = "dark", layout = "twen
           const letter = keyToRender.label.length === 1 && /[a-z]/i.test(keyToRender.label);
           const shifted = renderedModifiers.has("Shift") && keyToRender.label.length === 1;
           const label = shifted ? (keyToRender.shifted || (letter ? keyToRender.label.toUpperCase() : keyToRender.label)) : keyToRender.label;
-          return <button type="button" disabled={openingVoice} key={`${keyToRender.label}-${keyIndex}`} style={{ flexGrow: activeLayout === "nine_key" ? 1 : keyboardKeyWeight(keyToRender.label, keyIndex, row.some(item => item.virtualKey === 0x20)) }} aria-pressed={keyToRender.modifier ? renderedModifiers.has(keyToRender.modifier) : undefined} className={`keyboard-key${keyToRender.modifier ? " modifier" : ""}${keyToRender.label === "Space" ? " space" : ""}${keyToRender.label.length > 1 ? " wide" : ""}${keyToRender.modifier && renderedModifiers.has(keyToRender.modifier) ? " active" : ""}`} onClick={event => pressKey(resolveRenderedKey(keyToRender, event.currentTarget.textContent ?? ""))}>{label}</button>;
+          return <button type="button" disabled={openingVoice} key={`${keyToRender.label}-${keyIndex}`} style={{ flexGrow: activeLayout === "nine_key" ? 1 : keyboardKeyWeight(keyToRender.label, keyIndex, row.some(item => item.virtualKey === 0x20)) }} aria-pressed={keyToRender.modifier ? renderedModifiers.has(keyToRender.modifier) : undefined} className={`keyboard-key${keyToRender.modifier ? " modifier" : ""}${keyToRender.label === "Space" ? " space" : ""}${keyToRender.label.length > 1 ? " wide" : ""}${keyToRender.modifier && renderedModifiers.has(keyToRender.modifier) ? " active" : ""}`} onPointerDown={event => beginPointerKey(event, keyToRender)} onPointerUp={stopKeyRepeat} onPointerCancel={stopKeyRepeat} onPointerLeave={stopKeyRepeat} onClick={event => {
+            // Pointer activation is delivered on pointerdown for immediate
+            // response and repeat. A detail-zero click comes from keyboard or
+            // assistive activation and still sends exactly one key.
+            if (keyToRender.modifier || event.detail === 0)
+              pressKey(resolveRenderedKey(keyToRender, event.currentTarget.textContent ?? ""));
+          }}>{label}</button>;
         })}</div>)}
       </div>
     </div>
