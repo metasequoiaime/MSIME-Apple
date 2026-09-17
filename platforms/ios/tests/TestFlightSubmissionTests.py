@@ -29,10 +29,46 @@ class TestFlightSubmissionTests(unittest.TestCase):
     def setUp(self):
         self.module = load_module()
 
+    def test_a_build_that_has_not_appeared_yet_is_waited_for(self):
+        """altool 一把字节交给 Apple 就返回,build 要几分钟后才出现在 API 里。
+
+        不等的后果今天见过:0.48.6 的 1002.68.1 上传成功,下一步立刻去查、查不到,整个发布报红,而包已经
+        在 Apple 手里 —— 看起来像发布失败,实际只差分发,测试者干等。这条用例钉住「先等再放弃」。
+        """
+        attempts = []
+
+        def answer(method, path, auth, body=None):
+            if "sort=-uploadedDate" in path:
+                return {"data": []}
+            attempts.append(path)
+            if len(attempts) < 3:
+                return {"data": []}
+            return {"data": [{"id": "late", "attributes": {"version": "1002.68.1"}}]}
+
+        with mock.patch.object(self.module, "request", side_effect=answer), \
+                mock.patch.object(self.module.time, "sleep"):
+            found = self.module.find_build("t", "1", "1002.68.1", 600)
+        self.assertEqual(found["id"], "late")
+        self.assertEqual(len(attempts), 3, "没有重试,第一次查不到就放弃了")
+
+    def test_waiting_still_gives_up_and_says_what_it_saw(self):
+        """等不是无限等:超时之后仍要报出它看到的版本,否则发布当天只知道「没找到」。"""
+        def answer(method, path, auth, body=None):
+            if "sort=-uploadedDate" in path:
+                return {"data": [{"attributes": {"version": "1002.71.1"}}]}
+            return {"data": []}
+
+        with mock.patch.object(self.module, "request", side_effect=answer), \
+                mock.patch.object(self.module.time, "sleep"):
+            with self.assertRaises(self.module.Failure) as raised:
+                self.module.find_build("t", "1", "1002.68.1", 0)
+        self.assertIn("1002.68.1", str(raised.exception))
+        self.assertIn("1002.71.1", str(raised.exception))
+
     def test_the_exact_build_is_chosen_and_a_miss_names_what_is_there(self):
         builds = {"data": [{"id": "b1", "attributes": {"version": "1003.1.1"}}]}
         with mock.patch.object(self.module, "request", return_value=builds):
-            self.assertEqual(self.module.find_build("t", "1", "1003.1.1")["id"], "b1")
+            self.assertEqual(self.module.find_build("t", "1", "1003.1.1", 0)["id"], "b1")
 
         # 过滤是服务端做的,但返回里混进别的版本时不能将就着用 —— 提交错一个 build 比失败更难发现。
         def answer(method, path, auth, body=None):
@@ -43,7 +79,7 @@ class TestFlightSubmissionTests(unittest.TestCase):
 
         with mock.patch.object(self.module, "request", side_effect=answer):
             with self.assertRaises(self.module.Failure) as raised:
-                self.module.find_build("t", "1", "1003.1.1")
+                self.module.find_build("t", "1", "1003.1.1", 0)
         # 报错要说出它看到了什么,否则发布当天只知道"没找到"。
         self.assertIn("1003.1.1", str(raised.exception))
         self.assertIn("1002.71.1", str(raised.exception))
