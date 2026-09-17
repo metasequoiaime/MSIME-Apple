@@ -113,7 +113,7 @@ int main(int argc, char **argv) {
       if (client < 0) { close(cloudServer); return false; }
       char request[4096]{};
       const auto count = read(client, request, sizeof(request) - 1);
-      const auto reply = "{\"entries\":[{\"id\":\"synthetic-1\",\"text\":\"云剪贴板测试\"}]}\n";
+      const auto reply = "{\"entries\":[{\"id\":\"synthetic-1\",\"text\":\"云剪贴板测试\"},{\"id\":\"synthetic-2\",\"text\":\"云剪贴板第二条\"}]}\n";
       const bool valid = count > 0 && std::string(request, count).find("cloud_clipboard") != std::string::npos;
       const bool sent = send(client, reply, std::strlen(reply), MSG_NOSIGNAL) == static_cast<ssize_t>(std::strlen(reply));
       close(client); close(cloudServer);
@@ -198,6 +198,8 @@ int main(int argc, char **argv) {
             "candidate maintenance menu attached");
     require(engine.clipboard_menu_.actions().size() == 11,
             "clipboard history management menu attached");
+    require(engine.cloud_clipboard_menu_.actions().size() == 5,
+            "cloud clipboard menu attached");
     require(engine.desktop_tools_menu_.actions().size() == 9,
             "desktop tools menu attached");
     require(engine.emoji_menu_.actions().size() == 7,
@@ -324,6 +326,10 @@ int main(int argc, char **argv) {
     }
     require(ic.committed.find("云剪贴板测试") != std::string::npos, "cloud clipboard action commits provider entry");
     require(cloudProvider.get(), "cloud clipboard socket protocol");
+    const auto beforeCloudSecond = ic.committed;
+    engine.cloud_clipboard_item2_.activate(&ic);
+    require(ic.committed == beforeCloudSecond + "云剪贴板第二条",
+            "cloud clipboard menu commits selected provider entry");
     engine.voice_action_.activate(&ic);
     bool observedVoicePartial = false;
     const auto voiceDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);

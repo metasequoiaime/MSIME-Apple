@@ -653,14 +653,15 @@ public:
       }
     } catch (...) { cloud_clipboard_items_.clear(); }
   }
-  bool requestCloudClipboard() {
+  bool pasteCloudClipboard(size_t index = 0) {
     if (cloud_clipboard_socket_.empty() || restricted() || privateInput() || !ic_.hasFocus()) return false;
     refreshCloudClipboard();
-    if (!cloud_clipboard_items_.empty()) {
-      const auto &item = cloud_clipboard_items_.front();
+    if (index < cloud_clipboard_items_.size()) {
+      const auto &item = cloud_clipboard_items_.at(index);
       const auto text = item.is_string() ? item.get<std::string>() : item.value("text", std::string{});
       if (!text.empty()) { ic_.commitString(text); return true; }
     }
+    if (index != 0) return false;
     if (cloud_clipboard_job_.valid()) return false;
     const auto socket = cloud_clipboard_socket_;
     cloud_clipboard_job_ = std::async(std::launch::async, [socket] {
@@ -672,6 +673,7 @@ public:
     }).share();
     return false;
   }
+  bool requestCloudClipboard() { return pasteCloudClipboard(); }
   void refreshEmoji() {
     try {
       if (emoji_job_.valid()) {
@@ -1247,6 +1249,30 @@ private:
   fcitx::FactoryFor<FcitxState> *factory_;
 };
 
+class FcitxCloudClipboardItemAction : public fcitx::SimpleAction {
+public:
+  FcitxCloudClipboardItemAction(fcitx::FactoryFor<FcitxState> *factory, size_t index)
+      : factory_(factory), index_(index) {}
+  std::string shortText(fcitx::InputContext *ic) const override {
+    if (ic && index_ < ic->propertyFor(factory_)->cloud_clipboard_items_.size()) {
+      const auto &item = ic->propertyFor(factory_)->cloud_clipboard_items_.at(index_);
+      const auto text = item.is_string() ? item.get<std::string>() : item.value("text", std::string{});
+      if (!text.empty()) {
+        const auto clipped = text.substr(0, 40);
+        return clipped + (text.size() > clipped.size() ? "…" : "");
+      }
+    }
+    return "云剪贴板 " + std::to_string(index_ + 1);
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try { ic->propertyFor(factory_)->pasteCloudClipboard(index_); } catch (...) {}
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+  size_t index_;
+};
+
 class FcitxEmojiAction : public fcitx::SimpleAction {
 public:
   explicit FcitxEmojiAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
@@ -1374,6 +1400,12 @@ public:
     clipboard_menu_.addAction(&clipboard_remove4_);
     clipboard_menu_.addAction(&clipboard_remove5_);
     clipboard_menu_.addAction(&clipboard_clear_action_);
+    cloud_clipboard_action_.setMenu(&cloud_clipboard_menu_);
+    cloud_clipboard_menu_.addAction(&cloud_clipboard_item1_);
+    cloud_clipboard_menu_.addAction(&cloud_clipboard_item2_);
+    cloud_clipboard_menu_.addAction(&cloud_clipboard_item3_);
+    cloud_clipboard_menu_.addAction(&cloud_clipboard_item4_);
+    cloud_clipboard_menu_.addAction(&cloud_clipboard_item5_);
     desktop_tools_action_.setMenu(&desktop_tools_menu_);
     desktop_tools_menu_.addAction(&handwriting_action_);
     desktop_tools_menu_.addAction(&keyboard_action_);
@@ -1495,6 +1527,12 @@ public:
   FcitxClipboardRemoveAction clipboard_remove4_{&factory_, 3};
   FcitxClipboardRemoveAction clipboard_remove5_{&factory_, 4};
   FcitxClipboardClearAction clipboard_clear_action_{&factory_};
+  fcitx::Menu cloud_clipboard_menu_;
+  FcitxCloudClipboardItemAction cloud_clipboard_item1_{&factory_, 0};
+  FcitxCloudClipboardItemAction cloud_clipboard_item2_{&factory_, 1};
+  FcitxCloudClipboardItemAction cloud_clipboard_item3_{&factory_, 2};
+  FcitxCloudClipboardItemAction cloud_clipboard_item4_{&factory_, 3};
+  FcitxCloudClipboardItemAction cloud_clipboard_item5_{&factory_, 4};
   FcitxMaintenanceAction pin_action_{&factory_, 1, "固定候选"};
   FcitxMaintenanceAction remove_action_{&factory_, 2, "删除候选"};
   FcitxMaintenanceAction fix1_action_{&factory_, 11, "固定到 1"};
