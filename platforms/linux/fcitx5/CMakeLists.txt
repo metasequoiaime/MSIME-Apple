@@ -21,3 +21,24 @@ install(TARGETS msime-fcitx5 LIBRARY DESTINATION "${MSIME_FCITX5_ADDON_DIR}")
 install(FILES "${MSIME_HOST_LIBRARY}" DESTINATION "${CMAKE_INSTALL_LIBDIR}/msime-client")
 install(FILES msime.conf DESTINATION "${CMAKE_INSTALL_DATADIR}/fcitx5/addon")
 install(FILES msime-inputmethod.conf DESTINATION "${CMAKE_INSTALL_DATADIR}/fcitx5/inputmethod" RENAME msime.conf)
+if(BUILD_TESTING)
+  add_executable(fcitx5-native-test tests/native.cpp)
+  target_compile_features(fcitx5-native-test PRIVATE cxx_std_17)
+  target_compile_options(fcitx5-native-test PRIVATE -Wall -Wextra -Werror)
+  target_include_directories(fcitx5-native-test PRIVATE ../../../crates/host-api/include)
+  target_link_libraries(fcitx5-native-test PRIVATE Fcitx5::Core nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}")
+  set(MSIME_FCITX5_TEST_RESOURCES "" CACHE PATH "Verified resources directory for the native Fcitx5 test")
+  if(MSIME_FCITX5_TEST_RESOURCES)
+    add_test(NAME fcitx5-native-context
+      COMMAND fcitx5-native-test "${MSIME_FCITX5_TEST_RESOURCES}")
+    find_package(Python3 COMPONENTS Interpreter)
+    find_program(DBUS_RUN_SESSION dbus-run-session)
+    if(Python3_Interpreter_FOUND AND DBUS_RUN_SESSION)
+      add_test(NAME fcitx5-daemon-frontend
+        COMMAND "${DBUS_RUN_SESSION}" --
+          "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/daemon.py"
+          "${MSIME_FCITX5_TEST_RESOURCES}" "${MSIME_HOST_LIBRARY}"
+          "$<TARGET_FILE:msime-fcitx5>")
+    endif()
+  endif()
+endif()
