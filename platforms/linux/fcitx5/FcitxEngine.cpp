@@ -101,6 +101,7 @@ public:
           refreshClipboard();
           refreshCloudClipboard();
           refreshEmoji();
+          refreshVoice();
           timer->setNextInterval(250000);
           timer->setOneShot();
           return true;
@@ -134,6 +135,9 @@ public:
     cloud_clipboard_job_ = {};
     emoji_items_.clear();
     emoji_job_ = {};
+    voice_socket_.clear();
+    voice_job_ = {};
+    voice_loading_ = false;
   }
   void clearPanel() {
     ic_.inputPanel().reset();
@@ -195,6 +199,10 @@ public:
     if (cloud_clipboard_socket_.empty()) {
       if (const auto *socket = std::getenv("MSIME_CLOUD_CLIPBOARD_PROVIDER_SOCKET"))
         cloud_clipboard_socket_ = socket;
+    }
+    voice_socket_ = options.value("voice_provider_socket", std::string());
+    if (voice_socket_.empty()) {
+      if (const auto *socket = std::getenv("MSIME_VOICE_PROVIDER_SOCKET")) voice_socket_ = socket;
     }
     online_socket_ = onlineSocket(options);
     translation_socket_ = options.value("translation_provider_socket", std::string{});
@@ -487,6 +495,34 @@ public:
     });
     return false;
   }
+  void refreshVoice() {
+    try {
+      if (!voice_job_.valid()) return;
+      if (voice_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+      auto result = voice_job_.get();
+      voice_loading_ = false;
+      if (session_ && ic_.hasFocus() && !restricted() && !privateInput() && result.is_object()) {
+        const auto text = result.value("text", std::string{});
+        if (!text.empty()) ic_.commitString(text);
+      }
+    } catch (...) { voice_loading_ = false; }
+  }
+  bool requestVoice() {
+    if (voice_socket_.empty() || restricted() || privateInput() || !ic_.hasFocus() || voice_loading_) return false;
+    refreshVoice();
+    if (voice_loading_) return false;
+    voice_loading_ = true;
+    const auto socket = voice_socket_;
+    const auto generation = view_.value("generation", uint64_t{});
+    voice_job_ = std::async(std::launch::async, [socket, generation] {
+      const auto query = Json{{"language", "zh-cn"}, {"generation", generation}}.dump();
+      auto result = response(msime_client_voice_provider_request(
+          reinterpret_cast<const uint8_t *>(query.data()), query.size(),
+          reinterpret_cast<const uint8_t *>(socket.data()), socket.size()));
+      return result.is_object() ? result : Json::object();
+    });
+    return true;
+  }
   bool apply(char *raw) {
     auto result = response(raw);
     if (result.contains("commit") && result["commit"].is_string())
@@ -551,6 +587,9 @@ public:
   std::future<Json> cloud_clipboard_job_;
   Json emoji_items_ = Json::array();
   std::future<Json> emoji_job_;
+  std::string voice_socket_;
+  std::future<Json> voice_job_;
+  bool voice_loading_ = false;
   bool word_character_enabled_ = true;
   bool word_character_minus_equal_ = false;
 };
@@ -819,6 +858,20 @@ private:
   fcitx::FactoryFor<FcitxState> *factory_;
 };
 
+class FcitxVoiceAction : public fcitx::SimpleAction {
+public:
+  explicit FcitxVoiceAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
+    setShortText("语音");
+    setLongText("请求用户语音服务并插入识别文本");
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try { ic->propertyFor(factory_)->requestVoice(); } catch (...) {}
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
 // Each context owns a thread-bound Host API session. Fcitx never copies composing state.
 class FcitxEngine : public fcitx::InputMethodEngine {
 public:
@@ -830,6 +883,7 @@ public:
     clipboard_action_.registerAction("msime-clipboard", &instance->userInterfaceManager());
     cloud_clipboard_action_.registerAction("msime-cloud-clipboard", &instance->userInterfaceManager());
     emoji_action_.registerAction("msime-emoji", &instance->userInterfaceManager());
+    voice_action_.registerAction("msime-voice", &instance->userInterfaceManager());
     clipboard_action_.setMenu(&clipboard_menu_);
     clipboard_menu_.addAction(&clipboard_item1_);
     clipboard_menu_.addAction(&clipboard_item2_);
@@ -878,6 +932,7 @@ public:
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &clipboard_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &cloud_clipboard_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &emoji_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &voice_action_);
     try { if (state->ensure()) state->render(); } catch (...) { unavailable(*state); }
   }
   void deactivate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
@@ -888,6 +943,7 @@ public:
     event.inputContext()->statusArea().removeAction(&clipboard_action_);
     event.inputContext()->statusArea().removeAction(&cloud_clipboard_action_);
     event.inputContext()->statusArea().removeAction(&emoji_action_);
+    event.inputContext()->statusArea().removeAction(&voice_action_);
     state->close(); state->clearPanel();
   }
   void reset(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
@@ -918,6 +974,7 @@ public:
   FcitxClipboardAction clipboard_action_{&factory_};
   FcitxCloudClipboardAction cloud_clipboard_action_{&factory_};
   FcitxEmojiAction emoji_action_{&factory_};
+  FcitxVoiceAction voice_action_{&factory_};
   fcitx::Menu clipboard_menu_;
   FcitxClipboardItemAction clipboard_item1_{&factory_, 0};
   FcitxClipboardItemAction clipboard_item2_{&factory_, 1};

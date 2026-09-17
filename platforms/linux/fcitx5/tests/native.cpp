@@ -149,7 +149,7 @@ int main(int argc, char **argv) {
     }
     require(!state->preferences_.value("number_row_selection", true),
             "runtime preferences reload in active Fcitx session");
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 6,
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 7,
             "native status actions attached");
     require(engine.maintenance_menu_.actions().size() == 8,
             "candidate maintenance menu attached");
