@@ -24,6 +24,7 @@
 #include <filesystem>
 #include <fstream>
 #include <memory>
+#include <optional>
 #include <stdexcept>
 #include <future>
 #include <chrono>
@@ -89,6 +90,10 @@ public:
     if (session_) msime_client_string_free(msime_client_destroy(session_));
     session_ = 0;
     view_ = Json::object();
+    preferences_ = Json::object();
+    navigation_ = Json::object();
+    options_path_.clear();
+    preferences_job_session_ = 0;
     preferences_snapshot_ = Json();
   }
   void clearPanel() {
@@ -562,11 +567,18 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
       break;
     default: break;
     }
-    if (sym >= FcitxKey_1 && sym <= FcitxKey_9 && !shift &&
+    const auto number = [&]() -> std::optional<size_t> {
+      if (sym >= FcitxKey_1 && sym <= FcitxKey_9)
+        return static_cast<size_t>(sym - FcitxKey_1);
+      if (sym >= FcitxKey_KP_1 && sym <= FcitxKey_KP_9)
+        return static_cast<size_t>(sym - FcitxKey_KP_1);
+      return std::nullopt;
+    }();
+    if (number && !shift &&
         view_.value("local_mode", std::string("none")) != "unicode" &&
         !view_.value("nine_key", false) &&
         preferences_.value("number_row_selection", true)) {
-      const size_t index = sym - FcitxKey_1;
+      const size_t index = *number;
       if (index < view_.at("candidates").size()) {
         const auto id = view_.at("candidates").at(index).at("id");
         return apply(msime_client_select(session_, id.at("generation"), id.at("index")));

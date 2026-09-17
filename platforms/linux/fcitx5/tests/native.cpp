@@ -77,6 +77,9 @@ int main(int argc, char **argv) {
     require(key(FcitxKey_bracketleft), "configured word-to-character binding");
     require(ic.committed != beforeWordCharacter, "word-to-character commits selected edge");
     require(key(FcitxKey_n) && key(FcitxKey_i), "third composition keys");
+    require(key(FcitxKey_KP_1), "keypad candidate selection");
+    require(!ic.committed.empty(), "keypad selection commits candidate");
+    require(key(FcitxKey_n) && key(FcitxKey_i), "fourth composition keys");
     require(key(FcitxKey_minus), "configured minus previous-page binding");
     require(key(FcitxKey_equal), "configured equal next-page binding");
     require(key(FcitxKey_Escape), "cancel after navigation");
