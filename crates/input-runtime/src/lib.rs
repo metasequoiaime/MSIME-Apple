@@ -1899,7 +1899,9 @@ impl<E: InputEngine> Runtime<E> {
         {
             return Err(RuntimeError::InvalidPunctuation);
         }
-        if !self.focused {
+        // Cache maintenance belongs to the session, including while its host
+        // has no focus. Ordinary input must still pass through unchanged.
+        if !self.focused && !matches!(&action, Action::ResetCache) {
             return Ok(self.transition(empty_result(false)));
         }
         if let Action::SelectAnyCandidate(id) = &action {
@@ -2064,6 +2066,7 @@ mod tests {
         text: String,
         snapshot_fails: bool,
         balanced_openings: Vec<u8>,
+        cache_resets: usize,
     }
 
     #[cfg(unix)]
@@ -2277,6 +2280,10 @@ mod tests {
         );
     }
     impl InputEngine for Fixture {
+        fn reset_cache(&mut self) -> Result<(), RuntimeError> {
+            self.cache_resets += 1;
+            Ok(())
+        }
         fn balance_paired_punctuation_after_auto_close(
             &mut self,
             opening: u8,
@@ -2407,6 +2414,7 @@ mod tests {
                 text: String::new(),
                 snapshot_fails: false,
                 balanced_openings: Vec::new(),
+                cache_resets: 0,
             },
             5,
         )
@@ -2490,6 +2498,7 @@ mod tests {
                 text: String::new(),
                 snapshot_fails: false,
                 balanced_openings: Vec::new(),
+                cache_resets: 0,
             },
             2,
         )
@@ -3139,6 +3148,29 @@ mod tests {
             a.dispatch(Action::Select(id)),
             Err(RuntimeError::StaleCandidate)
         ));
+    }
+    #[test]
+    fn cache_maintenance_reaches_engine_without_acquiring_focus() {
+        let mut runtime = runtime();
+        let idle = runtime.dispatch(Action::ResetCache).unwrap();
+        assert!(idle.handled);
+        assert!(idle.commit.is_none());
+        assert_eq!(runtime.engine.cache_resets, 1);
+        assert!(!runtime.focused);
+        assert!(!type_key(&mut runtime).handled);
+
+        runtime.focus(true).unwrap();
+        let composed = type_key(&mut runtime);
+        let refreshed = runtime.dispatch(Action::ResetCache).unwrap();
+        assert_eq!(runtime.engine.cache_resets, 2);
+        assert_eq!(refreshed.view.preedit, composed.view.preedit);
+        assert!(refreshed.commit.is_none());
+
+        runtime.focus(false).unwrap();
+        assert!(runtime.dispatch(Action::ResetCache).unwrap().handled);
+        assert_eq!(runtime.engine.cache_resets, 3);
+        assert!(!runtime.focused);
+        assert!(!type_key(&mut runtime).handled);
     }
     #[test]
     fn unfocused_keys_pass_through_and_blur_cancels_composition() {
