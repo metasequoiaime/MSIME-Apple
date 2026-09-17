@@ -19,6 +19,7 @@ import json
 import os
 import re
 import sys
+import urllib.error
 import urllib.request
 
 WIKI_DUMP = "https://dumps.wikimedia.org/zhwiki/latest/zhwiki-latest-pages-articles.xml.bz2"
@@ -27,38 +28,86 @@ LCCC_LARGE = "https://huggingface.co/datasets/silver/lccc/resolve/main/lccc_larg
 
 USER_AGENT = "MSIME-Client sentence-model corpus builder (https://github.com/metasequoiaime/MSIME-Client)"
 
-# CJK unified ideographs plus extension A, and the handful of punctuation marks that carry
-# sentence structure. Latin, digits and everything else become boundaries.
+# CJK unified ideographs plus extension A. Everything else — Latin, digits, punctuation — is a
+# boundary rather than a substitution, because at inference the candidates handed to the model
+# come from the pinyin decoder and contain nothing but these characters.
 KEEP = re.compile(r"[一-鿿㐀-䶿]+")
-PUNCT = "，。！？、；：""''（）《》…—"
 
 MIN_LINE = 4
 MAX_LINE = 96
 
+# Chinese Wikipedia stores each article in whichever variant its editors used and converts only at
+# render time, so the dump is a mix. This engine emits simplified characters, so traditional text
+# would teach the model a parallel vocabulary that no candidate can ever contain, splitting
+# probability mass between variants and spending vocabulary slots on the half we never score.
+#
+# These are traditional forms whose simplified counterpart is a different character. The decision
+# is made per document rather than per extracted fragment: fragments run a handful of characters
+# and frequently contain no marker at all, while a whole article in traditional Chinese is certain
+# to contain several. There is far more corpus available than a training run needs, so a document
+# that merely quotes a traditional title is discarded too rather than risk admitting the variant.
+TRADITIONAL = set(
+    "們來這國會個時發當後萬與東車長門問開關電話語說讀點對還進遠過樣學實現經濟應該為數屬體麼兩內從產業讓認機動華區"
+    "邏輯嚴謹導詞稱種義議論據處質網統標準級結構總織線給續練縮聯興舉寫農運達適選鐵錄鐘銀陸際隨險難靜韓頭題顯風飛馬驗黨齊龍"
+)
+
+
+def is_traditional(text):
+    return any(ch in TRADITIONAL for ch in text)
+
+
+ATTEMPTS = 5
+
+
+def fetch_once(url, tmp):
+    """One transfer attempt, resuming from whatever is already in `tmp`. Returns (bytes on disk, expected total)."""
+    done = os.path.getsize(tmp) if os.path.exists(tmp) else 0
+    # Wikimedia refuses the default urllib agent with 403; their policy requires a descriptive one.
+    headers = {"User-Agent": USER_AGENT}
+    if done:
+        headers["Range"] = f"bytes={done}-"
+    request = urllib.request.Request(url, headers=headers)
+    with urllib.request.urlopen(request) as response:
+        # A server that ignores Range answers 200 with the whole body. Appending that to what is
+        # already on disk would produce a corrupt file that still satisfies a length check, so the
+        # partial file is discarded instead.
+        if done and response.status != 206:
+            done = 0
+        total = done + int(response.headers.get("content-length") or 0)
+        reported = done
+        with open(tmp, "ab" if done else "wb") as out:
+            while chunk := response.read(1 << 20):
+                out.write(chunk)
+                done += len(chunk)
+                if done - reported >= 1 << 26:
+                    reported = done
+                    print(f"  {100 * done / total:.0f}%" if total else f"  {done >> 20} MiB", file=sys.stderr)
+    return done, total
+
 
 def download(url, path):
-    """Fetch to `path` unless it is already there, reporting progress on a single line."""
+    """Fetch to `path` unless it is already there, resuming and retrying until the whole body arrives."""
     if os.path.exists(path):
         print(f"cached {path}", file=sys.stderr)
         return path
     os.makedirs(os.path.dirname(path) or ".", exist_ok=True)
     tmp = path + ".part"
     print(f"downloading {url}", file=sys.stderr)
-    # Wikimedia refuses the default urllib agent with 403; their policy requires a descriptive one.
-    request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(request) as response, open(tmp, "wb") as out:
-        total = int(response.headers.get("content-length") or 0)
-        done = reported = 0
-        while chunk := response.read(1 << 20):
-            out.write(chunk)
-            done += len(chunk)
-            if done - reported >= 1 << 26:
-                reported = done
-                pct = f"{100 * done / total:.0f}%" if total else f"{done >> 20} MiB"
-                print(f"  {pct}", file=sys.stderr)
-    print("", file=sys.stderr)
-    os.replace(tmp, path)
-    return path
+    # A multi-gigabyte transfer gets cut short often enough that it has to be treated as normal.
+    # urllib reports a truncated body as a clean end of stream, so without comparing what arrived
+    # against the advertised length the result is a short file that still decompresses, and it
+    # then reads as a smaller corpus rather than as a failure.
+    for attempt in range(1, ATTEMPTS + 1):
+        try:
+            done, total = fetch_once(url, tmp)
+        except (urllib.error.URLError, ConnectionError, TimeoutError) as error:
+            print(f"  attempt {attempt} failed: {error}", file=sys.stderr)
+            continue
+        if not total or done >= total:
+            os.replace(tmp, path)
+            return path
+        print(f"  attempt {attempt} short by {(total - done) >> 20} MiB", file=sys.stderr)
+    raise IOError(f"{url}: incomplete after {ATTEMPTS} attempts")
 
 
 def segment(text):
@@ -86,6 +135,13 @@ WIKI_NOISE = [
 WIKI_LINK = re.compile(r"\[\[(?:[^\]|]*\|)?([^\]|]*)\]\]")
 TEXT_OPEN = re.compile(rb"<text[^>]*>")
 TEXT_CLOSE = b"</text>"
+# `pages-articles` is articles plus templates, file descriptions and meta-pages. Only namespace 0
+# is prose; the rest is interface strings and boilerplate repeated across thousands of pages.
+NAMESPACE = re.compile(rb"<ns>(\d+)</ns>")
+ARTICLE_NAMESPACE = b"0"
+# Enough to hold a page header, so that an <ns> element is never separated from the <text> it
+# describes when the two straddle a read boundary.
+CARRY = 4096
 
 
 def strip_wikitext(raw):
@@ -105,6 +161,7 @@ def wiki_lines(path, max_chars):
     emitted = 0
     buffer = b""
     capturing = False
+    article = False
     with bz2.open(path, "rb") as handle:
         while chunk := handle.read(1 << 22):
             buffer += chunk
@@ -112,8 +169,11 @@ def wiki_lines(path, max_chars):
                 if not capturing:
                     match = TEXT_OPEN.search(buffer)
                     if not match:
-                        buffer = buffer[-16:]
+                        buffer = buffer[-CARRY:]
                         break
+                    namespaces = NAMESPACE.findall(buffer[: match.start()])
+                    if namespaces:
+                        article = namespaces[-1] == ARTICLE_NAMESPACE
                     buffer = buffer[match.end() :]
                     capturing = True
                 end = buffer.find(TEXT_CLOSE)
@@ -122,7 +182,12 @@ def wiki_lines(path, max_chars):
                 body = buffer[:end].decode("utf-8", "replace")
                 buffer = buffer[end + len(TEXT_CLOSE) :]
                 capturing = False
-                for line in segment(strip_wikitext(body)):
+                if not article:
+                    continue
+                stripped = strip_wikitext(body)
+                if is_traditional(stripped):
+                    continue
+                for line in segment(stripped):
                     yield line
                     emitted += len(line)
                     if max_chars and emitted >= max_chars:
@@ -143,7 +208,10 @@ def lccc_lines(path, max_chars):
                 continue
             for turn in turns:
                 # LCCC ships pre-tokenized with spaces between characters; joining restores the raw text.
-                for line in segment(str(turn).replace(" ", "")):
+                utterance = str(turn).replace(" ", "")
+                if is_traditional(utterance):
+                    continue
+                for line in segment(utterance):
                     yield line
                     emitted += len(line)
                     if max_chars and emitted >= max_chars:
