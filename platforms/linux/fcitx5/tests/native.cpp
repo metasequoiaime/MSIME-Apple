@@ -85,6 +85,13 @@ int main(int argc, char **argv) {
     };
     require(key(FcitxKey_n) && key(FcitxKey_i), "composition keys");
     require(ic.inputPanel().clientPreedit().toString() == "ni", "native preedit");
+    ic.focusOut();
+    require(state->session_ == 0, "focus out destroys host session");
+    require(ic.inputPanel().clientPreedit().empty(), "focus out clears preedit");
+    ic.focusIn();
+    engine.activate(entry, focus);
+    require(state->session_ != 0, "focus in creates a fresh host session");
+    require(key(FcitxKey_n) && key(FcitxKey_i), "composition after refocus");
     auto page = ic.inputPanel().candidateList();
     require(page && page->size() == 2 && page->toPageable()->hasNext(), "runtime candidate page");
     require(key(FcitxKey_Page_Down), "page down");

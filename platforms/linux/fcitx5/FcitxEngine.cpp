@@ -434,6 +434,15 @@ public:
             try { state->render(); } catch (...) { unavailable(*state); }
           }
         });
+    focus_watch_ = instance->watchEvent(
+        fcitx::EventType::InputContextFocusOut,
+        fcitx::EventWatcherPhase::PreInputMethod, [this](fcitx::Event &event) {
+          auto *ic = static_cast<fcitx::InputContextEvent &>(event).inputContext();
+          auto *state = ic->propertyFor(&factory_);
+          if (!state->session_) return;
+          state->close();
+          state->clearPanel();
+        });
   }
   void activate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
     auto *state = event.inputContext()->propertyFor(&factory_);
@@ -467,6 +476,7 @@ public:
     return new FcitxState(ic, this, instance_->eventLoop());
   }};
   std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>> capability_watch_;
+  std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>> focus_watch_;
   FcitxModeAction english_action_{&factory_, FcitxModeAction::Mode::EnglishCandidates};
   FcitxModeAction width_action_{&factory_, FcitxModeAction::Mode::Fullwidth};
 };
