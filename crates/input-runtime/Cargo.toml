@@ -7,7 +7,9 @@ license.workspace = true
 [dependencies]
 msime-engine-bridge = { path = "../engine-bridge" }
 msime-client-core = { path = "../client-core" }
-msime-sentence-model = { path = "../sentence-model" }
+# The model and its reference implementation live upstream, where other input methods
+# can use them too. Pinned by commit: this is a build input, not a moving target.
+chinese-ime-lm = { git = "https://github.com/metasequoiaime/chinese-ime-lm", rev = "b40f81cfd9ffa489287f0b63a2414c93a541c06e" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true

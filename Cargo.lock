@@ -495,6 +495,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "chinese-ime-lm"
+version = "0.1.0"
+source = "git+https://github.com/metasequoiaime/chinese-ime-lm?rev=b40f81cfd9ffa489287f0b63a2414c93a541c06e#b40f81cfd9ffa489287f0b63a2414c93a541c06e"
+dependencies = [
+ "serde",
+ "serde_json",
+ "thiserror 2.0.20",
+]
+
+[[package]]
 name = "chrono"
 version = "0.4.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2430,21 +2440,12 @@ dependencies = [
 name = "msime-input-runtime"
 version = "0.1.0"
 dependencies = [
+ "chinese-ime-lm",
  "msime-client-core",
  "msime-engine-bridge",
- "msime-sentence-model",
  "serde",
  "serde_json",
  "tempfile",
- "thiserror 2.0.20",
-]
-
-[[package]]
-name = "msime-sentence-model"
-version = "0.1.0"
-dependencies = [
- "serde",
- "serde_json",
  "thiserror 2.0.20",
 ]
 

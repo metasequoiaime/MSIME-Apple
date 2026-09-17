@@ -34,11 +34,11 @@ pub mod character_width {
     }
 }
 
+pub use chinese_ime_lm::{Reranker, SentenceModel};
 use msime_client_core::preferences::TouchKeyboardLayout;
 use msime_engine_bridge::{
     CandidateEdge, Command, EngineResult, EngineSnapshot, OnlineQuerySnapshot, Session,
 };
-pub use msime_sentence_model::{Reranker, SentenceModel};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
