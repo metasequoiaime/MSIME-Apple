@@ -4,6 +4,10 @@
 #include <filesystem>
 #include <thread>
 #include <chrono>
+#include <sys/socket.h>
+#include <sys/un.h>
+#include <unistd.h>
+#include <cstring>
 
 using namespace msime::fcitx_host;
 class FixtureContext : public fcitx::InputContext {
@@ -29,8 +33,30 @@ int main(int argc, char **argv) {
         reinterpret_cast<const uint8_t *>(request.data()), request.size()));
     options["preferences"]["learning"] = false;
     options["preferences"]["candidate_page_size"] = 2;
+    const auto socketPath = std::string(directory) + "/online.sock";
+    const int providerServer = socket(AF_UNIX, SOCK_STREAM, 0);
+    require(providerServer >= 0, "online provider socket");
+    sockaddr_un providerAddress{};
+    providerAddress.sun_family = AF_UNIX;
+    require(socketPath.size() < sizeof(providerAddress.sun_path), "online socket path length");
+    std::strncpy(providerAddress.sun_path, socketPath.c_str(), sizeof(providerAddress.sun_path) - 1);
+    require(bind(providerServer, reinterpret_cast<sockaddr *>(&providerAddress), sizeof(providerAddress)) == 0,
+            "online provider bind");
+    require(listen(providerServer, 1) == 0, "online provider listen");
+    options["online_provider_socket"] = socketPath;
     const auto path = std::string(directory) + "/runtime-options.json";
     std::ofstream(path) << options.dump();
+    std::thread provider([providerServer] {
+      const int client = accept(providerServer, nullptr, nullptr);
+      require(client >= 0, "online provider accept");
+      char request[16384]{};
+      require(read(client, request, sizeof(request) - 1) > 0, "online provider query");
+      const std::string reply = "{\"text\":\"在线\",\"source\":0}\n";
+      require(write(client, reply.data(), reply.size()) == static_cast<ssize_t>(reply.size()),
+              "online provider reply");
+      close(client);
+      close(providerServer);
+    });
     setenv("MSIME_FCITX5_OPTIONS", path.c_str(), 1);
     char name[] = "fcitx5-native-test";
     char disable[] = "--disable=all";
@@ -101,6 +127,15 @@ int main(int argc, char **argv) {
     engine.activate(entry, focus);
     require(state->session_ != 0, "focus in creates a fresh host session");
     require(key(FcitxKey_n) && key(FcitxKey_i), "composition after refocus");
+    const auto onlineDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (state->view_.at("candidates").dump().find("在线") == std::string::npos &&
+           std::chrono::steady_clock::now() < onlineDeadline) {
+      state->refreshOnline();
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    require(state->view_.at("candidates").dump().find("在线") != std::string::npos,
+            "online provider candidate applied to Fcitx view");
+    provider.join();
     auto page = ic.inputPanel().candidateList();
     require(page && page->layoutHint() == fcitx::CandidateLayoutHint::Vertical,
             "bootstrap vertical layout reaches native candidate list");
