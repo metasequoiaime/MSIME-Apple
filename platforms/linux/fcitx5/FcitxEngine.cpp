@@ -1235,6 +1235,19 @@ public:
     apply(msime_client_select(session_, generation, index));
   }
   void render();
+  bool removeCandidateSlot(size_t slot) {
+    if (!ensure() || restricted() || privateInput() || !ic_.hasFocus()) return false;
+    const auto candidates = view_.value("candidates", Json::array());
+    if (!candidates.is_array() || slot >= candidates.size()) return false;
+    const auto &candidate = candidates.at(slot);
+    if (!candidate.is_object() ||
+        !msime::linux_host::candidate_dictionary_removal_available(
+            view_.value("scheme", 0u), candidate.value("source", 0u),
+            candidate.value("text", std::string{}))) return false;
+    const auto &id = candidate.value("id", Json::object());
+    if (!id.is_object() || !id.contains("generation") || !id.contains("index")) return false;
+    return apply(msime_client_remove_candidate(session_, id.at("generation"), id.at("index")));
+  }
   bool toggleTraditional() {
     if (!session_ || view_.value("scheme", 0u) == 3) return false;
     traditional_ = !traditional_;
@@ -2636,6 +2649,15 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
       return true;
     }
     return true;
+  }
+  if (ctrl && shift && alt &&
+      !states.testAny(fcitx::KeyStates{fcitx::KeyState::Super, fcitx::KeyState::Hyper})) {
+    std::optional<size_t> slot;
+    if (sym >= FcitxKey_1 && sym <= FcitxKey_8)
+      slot = static_cast<size_t>(sym - FcitxKey_1);
+    else if (sym >= FcitxKey_KP_1 && sym <= FcitxKey_KP_8)
+      slot = static_cast<size_t>(sym - FcitxKey_KP_1);
+    if (slot) return removeCandidateSlot(*slot);
   }
   if (sym == FcitxKey_Escape && voice_loading_) {
     cancelVoice();
