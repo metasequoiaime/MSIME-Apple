@@ -111,6 +111,16 @@ int main(int argc, char **argv) {
             ic.inputPanel().clientPreedit().toString() == "n", "capability moves active preedit to client");
     state->close();
     state->clearPanel();
+    options["preferences"]["scheme"] = "japanese";
+    std::ofstream(path) << options.dump();
+    require(key(FcitxKey_k) && key(FcitxKey_o), "Japanese romaji composition");
+    require(state->view_.at("scheme") == 3, "Engine Japanese scheme active");
+    require(key(FcitxKey_minus), "Japanese long vowel key");
+    require(state->view_.at("editing_text") == "ko-", "minus extends romaji instead of paging");
+    require(state->view_.at("reading") == "こー", "Engine resolves Japanese long vowel");
+    require(key(FcitxKey_Escape), "cancel Japanese composition");
+    state->close();
+    state->clearPanel();
     std::filesystem::remove_all(directory);
     std::cout << "Fcitx5 native context tests passed\n";
   } catch (const std::exception &error) {

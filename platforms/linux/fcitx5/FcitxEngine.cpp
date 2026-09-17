@@ -493,12 +493,13 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     return false;
   }
   if (composing) {
-    if (!shift) {
-      if ((sym == FcitxKey_minus && navigation_.value("minus_equal", true)) ||
+    const bool japanese = view_.value("scheme", 0u) == 3;
+    if (!shift && !view_.at("candidates").empty()) {
+      if ((sym == FcitxKey_minus && !japanese && navigation_.value("minus_equal", true)) ||
           (sym == FcitxKey_comma && navigation_.value("comma_period", true)) ||
           (sym == FcitxKey_bracketleft && navigation_.value("brackets", false)))
         return command(MSIME_PREVIOUS_PAGE);
-      if ((sym == FcitxKey_equal && navigation_.value("minus_equal", true)) ||
+      if ((sym == FcitxKey_equal && !japanese && navigation_.value("minus_equal", true)) ||
           (sym == FcitxKey_period && navigation_.value("comma_period", true)) ||
           (sym == FcitxKey_bracketright && navigation_.value("brackets", false)))
         return command(MSIME_NEXT_PAGE);
