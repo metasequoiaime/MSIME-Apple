@@ -890,15 +890,24 @@ private:
   fcitx::FactoryFor<FcitxState> *factory_;
 };
 
-class FcitxTraditionalAction : public fcitx::SimpleAction {
+class FcitxTraditionalAction : public fcitx::Action {
 public:
   explicit FcitxTraditionalAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
-    setShortText("繁体");
-    setLongText("切换繁体中文候选显示和提交");
+    setCheckable(true);
+  }
+  std::string shortText(fcitx::InputContext *) const override { return "繁体"; }
+  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  bool isChecked(fcitx::InputContext *ic) const override {
+    if (!ic) return false;
+    const auto *state = ic->propertyFor(factory_);
+    return state->session_ && state->view_.value("scheme", 0u) != 3 && state->traditional_;
   }
   void activate(fcitx::InputContext *ic) override {
     if (!ic || !ic->hasFocus()) return;
-    try { ic->propertyFor(factory_)->toggleTraditional(); } catch (...) {}
+    try {
+      auto *state = ic->propertyFor(factory_);
+      if (state->toggleTraditional()) update(ic);
+    } catch (...) {}
   }
 private:
   fcitx::FactoryFor<FcitxState> *factory_;
