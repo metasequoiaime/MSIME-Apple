@@ -23,7 +23,7 @@ public:
     }
     KeyResult commit_number(Session &session, char character, size_t page_size = candidates_per_page) const {
         if (character < '1' || character > '9') return {};
-        page_size = NormalizeCandidatePageSize(page_size);
+        page_size = msime::mac::NormalizeCandidatePageSize(page_size);
         const size_t offset = static_cast<size_t>(character - '1');
         if (offset >= page_size) return {};
         const auto snapshot = session.snapshot();

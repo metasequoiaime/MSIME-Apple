@@ -178,6 +178,20 @@ static BOOL ValidToolbarFontSize(id value) {
 - (BOOL)isFlipped { return YES; }
 @end
 
+/// The window surface behind the cards: a shade off white, so the controlBackgroundColor cards
+/// read as raised. Used for both the content view and the sidebar, as upstream does.
+@interface MSIMESettingsSurface : NSView
+@end
+@implementation MSIMESettingsSurface
+- (void)drawRect:(NSRect)rect {
+    const BOOL dark = [[self.effectiveAppearance
+        bestMatchFromAppearancesWithNames:@[NSAppearanceNameAqua, NSAppearanceNameDarkAqua]]
+        isEqualToString:NSAppearanceNameDarkAqua];
+    [(dark ? [NSColor colorWithWhite:0.12 alpha:1.0] : [NSColor colorWithWhite:0.96 alpha:1.0]) setFill];
+    NSRectFill(rect);
+}
+@end
+
 /// Sidebar row: a tinted rounded pill plus a leading accent bar when selected, drawn rather than
 /// assembled from subviews so the icon and label keep upstream's fixed offsets.
 @interface MSIMESettingsNavigationButton : NSButton
@@ -2163,16 +2177,22 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         floatingPage, accountPage, helpPage, feedbackPage, voicePage, utilitiesPage,
     ];
 
-    NSView *contentView = window.contentView;
-    NSView *sidebar = [[NSView alloc] initWithFrame:NSZeroRect];
+    NSView *contentView = [[MSIMESettingsSurface alloc] initWithFrame:window.contentView.frame];
+    window.contentView = contentView;
+    NSView *sidebar = [[MSIMESettingsSurface alloc] initWithFrame:NSZeroRect];
     sidebar.translatesAutoresizingMaskIntoConstraints = NO;
+    sidebar.accessibilityLabel = @"水杉输入法导航";
     NSTextField *brand = [NSTextField labelWithString:@"水杉 IME"];
     brand.font = [NSFont systemFontOfSize:19.0 weight:NSFontWeightSemibold];
     NSImageView *logo = [[NSImageView alloc] initWithFrame:NSZeroRect];
-    logo.image = [NSImage imageWithSystemSymbolName:@"character.cursor.ibeam" accessibilityDescription:@"水杉 IME"];
+    // The bundle's own icon, not a redrawn approximation of it: the sidebar mark and the Dock tile
+    // are then the same artwork by construction and cannot drift apart in shape or colour.
+    logo.image = [NSImage imageNamed:NSImageNameApplicationIcon];
+    logo.imageScaling = NSImageScaleProportionallyUpOrDown;
+    logo.accessibilityLabel = @"水杉 IME";
     logo.translatesAutoresizingMaskIntoConstraints = NO;
-    [logo.widthAnchor constraintEqualToConstant:26.0].active = YES;
-    [logo.heightAnchor constraintEqualToConstant:32.0].active = YES;
+    [logo.widthAnchor constraintEqualToConstant:30.0].active = YES;
+    [logo.heightAnchor constraintEqualToConstant:30.0].active = YES;
     NSStackView *brandRow = [NSStackView stackViewWithViews:@[logo, brand]];
     brandRow.spacing = 12.0;
     brandRow.edgeInsets = NSEdgeInsetsMake(0.0, 18.0, 0.0, 0.0);
