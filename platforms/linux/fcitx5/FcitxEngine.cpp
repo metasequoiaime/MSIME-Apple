@@ -75,6 +75,20 @@ Json readOptions() {
   return Json::parse(data.data(), data.data() + file.gcount());
 }
 
+std::string onlineSocket(const Json &options) {
+  auto value = options.value("online_provider_socket", std::string{});
+  if (value.empty()) {
+    if (const auto *env = std::getenv("MSIME_ONLINE_PROVIDER_SOCKET")) value = env;
+  }
+  if (!value.empty()) return value;
+  if (const auto *runtime = std::getenv("XDG_RUNTIME_DIR")) {
+    const auto candidate = std::filesystem::path(runtime) / "msime-client" / "online.sock";
+    std::error_code error;
+    if (std::filesystem::is_socket(candidate, error)) return candidate.string();
+  }
+  return {};
+}
+
 class FcitxState : public fcitx::InputContextProperty {
 public:
   explicit FcitxState(fcitx::InputContext &ic, FcitxEngine *engine, fcitx::EventLoop &loop)
@@ -82,6 +96,7 @@ public:
     preferences_timer_ = loop.addTimeEvent(CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 250000,
         10000, [this](fcitx::EventSourceTime *timer, uint64_t) {
           refreshPreferences();
+          refreshOnline();
           timer->setNextInterval(250000);
           timer->setOneShot();
           return true;
@@ -97,6 +112,9 @@ public:
     options_path_.clear();
     preferences_job_session_ = 0;
     preferences_snapshot_ = Json();
+    online_socket_.clear();
+    online_query_.clear();
+    online_job_session_ = 0;
   }
   void clearPanel() {
     ic_.inputPanel().reset();
@@ -151,6 +169,7 @@ public:
     word_character_enabled_ = wordCharacter.value("enabled", true);
     word_character_minus_equal_ = wordCharacter.value("keys", std::string("brackets")) == "minus_equal";
     options_path_ = options.value("preferences_directory", std::string());
+    online_socket_ = onlineSocket(options);
     if (private_) {
       preferences_["learning"] = false;
       preferences_["cloud_candidates"] = false;
@@ -199,6 +218,48 @@ public:
       // Keep the active settings on malformed or concurrently written files.
     }
   }
+  void refreshOnline() {
+    try {
+      if (online_job_.valid()) {
+        if (online_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+        auto result = online_job_.get();
+        if (session_ && session_ == online_job_session_ && !privateInput() &&
+            ic_.hasFocus() && result.is_object() && result.value("query", "") == online_query_) {
+          Json candidates = Json::array();
+          for (const auto &item : result.value("candidates", Json::array())) {
+            if (item.is_object() && item.value("source", 255u) == 0 &&
+                item.value("text", std::string{}).size() > 0)
+              candidates.push_back(item.at("text"));
+          }
+          if (!candidates.empty()) {
+            const auto encoded = candidates.dump();
+            view_ = response(msime_client_apply_online_candidates(
+                session_, reinterpret_cast<const uint8_t *>(online_query_.data()), online_query_.size(),
+                reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size(), 0)).at("view");
+            render();
+          }
+        }
+      }
+      if (!session_ || online_socket_.empty() || privateInput() || !ic_.hasFocus() || restricted()) return;
+      const auto query = response(msime_client_online_query(session_));
+      if (!query.is_object() || !query.value("cloud_eligible", false) ||
+          !query.value("cloud_candidates", true)) return;
+      const auto encoded = query.dump();
+      if (encoded == online_query_ || online_job_.valid()) return;
+      online_query_ = encoded;
+      online_job_session_ = session_;
+      online_job_ = std::async(std::launch::async, [encoded, socket = online_socket_] {
+        auto raw = response(msime_client_online_provider_request(
+            reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size(),
+            reinterpret_cast<const uint8_t *>(socket.data()), socket.size()));
+        Json result = raw.is_object() ? raw : Json::object();
+        result["query"] = encoded;
+        return result;
+      });
+    } catch (...) {
+      online_query_.clear();
+    }
+  }
   bool apply(char *raw) {
     auto result = response(raw);
     if (result.contains("commit") && result["commit"].is_string())
@@ -240,6 +301,9 @@ public:
   fcitx::InputContext &ic_;
   FcitxEngine *engine_;
   bool private_ = false;
+  std::string online_socket_, online_query_;
+  uint64_t online_job_session_ = 0;
+  std::future<Json> online_job_;
   bool word_character_enabled_ = true;
   bool word_character_minus_equal_ = false;
 };
