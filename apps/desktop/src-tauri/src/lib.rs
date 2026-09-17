@@ -3508,6 +3508,20 @@ fn resolve_voice_provider_socket(document: &serde_json::Value) -> Option<std::pa
         .or_else(|| discover_session_provider("voice.sock"))
 }
 
+fn refresh_voice_preferences(
+    mut document: Value,
+    store: &PreferencesStore,
+) -> Result<Value, HostActionError> {
+    let preferences = store.load().map_err(|_| HostActionError {
+        code: "unavailable",
+    })?;
+    document["preferences"] =
+        serde_json::to_value(preferences.preferences).map_err(|_| HostActionError {
+            code: "unavailable",
+        })?;
+    Ok(document)
+}
+
 #[tauri::command]
 async fn recognize_voice(
     app: tauri::AppHandle,
@@ -3563,21 +3577,15 @@ async fn recognize_voice(
             let document = runtime.snapshot().map_err(|_| HostActionError {
                 code: "unavailable",
             })?;
-            // The shared preference store is also written by IBus and other
-            // settings windows; new recordings must use those saved settings.
-            #[cfg(target_os = "linux")]
-            let document = {
-                let mut document = document;
-                let preferences = store.load().map_err(|_| HostActionError {
-                    code: "unavailable",
-                })?;
-                document["preferences"] =
-                    serde_json::to_value(preferences.preferences).map_err(|_| HostActionError {
-                        code: "unavailable",
-                    })?;
-                document
-            };
-            #[cfg(not(target_os = "linux"))]
+            // The shared preference store is also written by IBus, the macOS
+            // native settings bridge, and other settings windows; new
+            // recordings must use those saved settings instead of the
+            // launch-time HostOptions snapshot. This matters on macOS where
+            // the native IMK process and the Tauri panel can remain alive
+            // while a settings window changes the active provider.
+            #[cfg(any(target_os = "linux", target_os = "macos"))]
+            let document = refresh_voice_preferences(document, &store)?;
+            #[cfg(not(any(target_os = "linux", target_os = "macos")))]
             let _ = store;
             Ok::<_, HostActionError>(document)
         })
@@ -6199,6 +6207,28 @@ mod tests {
         assert_eq!(model.len(), 510);
         assert_eq!(model.chars().count(), 170);
         assert_eq!(device.len(), 512);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn voice_preferences_refresh_keeps_transport_and_reads_latest_store_snapshot() {
+        let root = tempfile::tempdir().unwrap();
+        let store = super::PreferencesStore::new(root.path());
+        let initial = store.load().unwrap();
+        let mut preferences = initial.preferences;
+        preferences.voice_input.asr_provider = "openai".into();
+        let saved = store.save(initial.revision, preferences).unwrap();
+        let document = serde_json::json!({
+            "voice_provider_socket": "/fixture/voice.sock",
+            "preferences": {"voice_input": {"asr_provider": "stale"}}
+        });
+        let refreshed = super::refresh_voice_preferences(document, &store).unwrap();
+        assert_eq!(
+            refreshed["preferences"]["voice_input"]["asr_provider"],
+            "openai"
+        );
+        assert_eq!(refreshed["voice_provider_socket"], "/fixture/voice.sock");
+        assert_eq!(saved.revision, store.load().unwrap().revision);
     }
 
     #[cfg(unix)]
