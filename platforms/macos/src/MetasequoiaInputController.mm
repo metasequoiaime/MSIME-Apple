@@ -2005,9 +2005,9 @@ static NSInteger MetasequoiaSecondaryTranslationLanguageIndex()
     }
 }
 
-// Shift tapped on its own: with letters on screen it commits them as typed, which is how a word the
-// dictionary does not carry leaves in the middle of Chinese input; with nothing composing it
-// switches between Chinese and English.
+// Shift tapped on its own: with letters on screen it commits them as typed and then switches to English, which is how a
+// word the dictionary does not carry leaves in the middle of Chinese input and how the rest of that word gets typed;
+// with nothing composing it just switches between Chinese and English.
 - (void)handleSolitaryShiftFlags:(NSEvent *)event client:(id)sender
 {
     if (!_solitaryShift.flagsChanged(event.modifierFlags & NSEventModifierFlagDeviceIndependentFlagsMask,
@@ -2019,8 +2019,10 @@ static NSInteger MetasequoiaSecondaryTranslationLanguageIndex()
     switch (metasequoia::mac::ActionForSolitaryShift(
         [MetasequoiaPreferencesWindowController storedInputModeShortcutEnabled], composing))
     {
-    case metasequoia::mac::SolitaryShiftAction::CommitComposition:
+    case metasequoia::mac::SolitaryShiftAction::CommitCompositionAndToggleInputMode:
+        // 先上屏再切:切换会重建输入会话,顺序反过来正在组的那几个字母就没了。
         [self commitComposition:sender];
+        [self setEnglishInputMode:![MetasequoiaPreferencesWindowController storedEnglishInputMode] client:sender];
         break;
     case metasequoia::mac::SolitaryShiftAction::ToggleInputMode:
         [self setEnglishInputMode:![MetasequoiaPreferencesWindowController storedEnglishInputMode] client:sender];
