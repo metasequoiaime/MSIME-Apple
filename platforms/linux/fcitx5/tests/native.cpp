@@ -192,8 +192,19 @@ int main(int argc, char **argv) {
     }
     require(!state->preferences_.value("number_row_selection", true),
             "runtime preferences reload in active Fcitx session");
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 12,
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 13,
             "native status actions attached");
+    require(engine.punctuation_lock_action_.shortText(&ic) == "标点：跟随",
+            "punctuation lock status action starts in follow mode");
+    engine.punctuation_lock_action_.activate(&ic);
+    require(state->punctuation_lock_ == 1 && engine.punctuation_lock_action_.shortText(&ic) == "标点：中文",
+            "punctuation lock cycles to Chinese mode");
+    engine.punctuation_lock_action_.activate(&ic);
+    require(state->punctuation_lock_ == 2 && engine.punctuation_lock_action_.shortText(&ic) == "标点：英文",
+            "punctuation lock cycles to English mode");
+    engine.punctuation_lock_action_.activate(&ic);
+    require(state->punctuation_lock_ == 0 && engine.punctuation_lock_action_.shortText(&ic) == "标点：跟随",
+            "punctuation lock cycles back to follow mode");
     require(engine.chinese_punctuation_action_.isChecked(&ic),
             "Chinese punctuation status action reflects preference");
     engine.chinese_punctuation_action_.activate(&ic);

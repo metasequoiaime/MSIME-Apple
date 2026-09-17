@@ -315,6 +315,24 @@ public:
           reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
     }).share();
   }
+  void saveStringPreference(const char *key, const std::string &value) {
+    if (!key || !*key || options_path_.empty() || private_) return;
+    const auto directory = options_path_;
+    const std::string preference(key);
+    preferences_save_job_ = std::async(std::launch::async, [directory, preference, value] {
+      auto snapshot = response(msime_client_load_preferences(
+          reinterpret_cast<const uint8_t *>(directory.data()), directory.size()));
+      if (!snapshot.is_object() || !snapshot.contains("revision") ||
+          !snapshot.contains("preferences") || !snapshot.at("preferences").is_object())
+        return Json::object();
+      snapshot["preferences"][preference] = value;
+      const auto encoded = snapshot.dump();
+      return response(msime_client_save_preferences(
+          reinterpret_cast<const uint8_t *>(directory.data()), directory.size(),
+          snapshot.at("revision").get<uint64_t>(),
+          reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
+    }).share();
+  }
   bool toggleChinesePunctuation() {
     if (!session_) return false;
     chinese_punctuation_ = !chinese_punctuation_;
@@ -347,6 +365,15 @@ public:
     render();
     return true;
   }
+  bool cyclePunctuationLock() {
+    if (!session_) return false;
+    punctuation_lock_ = static_cast<uint8_t>((punctuation_lock_ + 1) % 3);
+    view_ = response(msime_client_set_punctuation_lock(session_, punctuation_lock_));
+    saveStringPreference("punctuation_lock", punctuation_lock_ == 1 ? "chinese" :
+                                                     punctuation_lock_ == 2 ? "english" : "follow");
+    render();
+    return true;
+  }
   bool selectEdge(uint8_t edge) {
     if (!session_ || view_.value("candidates", Json::array()).empty()) return false;
     for (const auto &candidate : view_.at("candidates")) {
@@ -368,6 +395,8 @@ public:
     traditional_ = preferences_.value("traditional_chinese_output", false);
     chinese_punctuation_ = preferences_.value("chinese_punctuation", true);
     paired_punctuation_ = preferences_.value("paired_punctuation", true);
+    const auto punctuationLock = preferences_.value("punctuation_lock", std::string("follow"));
+    punctuation_lock_ = punctuationLock == "chinese" ? 1 : punctuationLock == "english" ? 2 : 0;
     navigation_ = preferences_.value("navigation", Json::object());
     const auto wordCharacter = preferences_.value("word_character", Json::object());
     word_character_enabled_ = wordCharacter.value("enabled", true);
@@ -434,6 +463,8 @@ public:
             traditional_ = preferences_.value("traditional_chinese_output", traditional_);
             chinese_punctuation_ = preferences_.value("chinese_punctuation", chinese_punctuation_);
             paired_punctuation_ = preferences_.value("paired_punctuation", paired_punctuation_);
+            const auto punctuationLock = preferences_.value("punctuation_lock", std::string("follow"));
+            punctuation_lock_ = punctuationLock == "chinese" ? 1 : punctuationLock == "english" ? 2 : 0;
             navigation_ = preferences_.value("navigation", Json::object());
             const auto wordCharacter = preferences_.value("word_character", Json::object());
             word_character_enabled_ = wordCharacter.value("enabled", true);
@@ -951,6 +982,7 @@ public:
   bool traditional_ = false;
   bool chinese_punctuation_ = true;
   bool paired_punctuation_ = true;
+  uint8_t punctuation_lock_ = 0;
   std::string online_socket_, online_query_;
   uint64_t online_job_session_ = 0;
   struct OnlineSlot {
@@ -1228,6 +1260,32 @@ public:
       state->close();
       state->clearPanel();
     }
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
+class FcitxPunctuationLockAction : public fcitx::SimpleAction {
+public:
+  explicit FcitxPunctuationLockAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
+    setLongText("循环切换跟随、固定中文和固定英文标点");
+  }
+  std::string shortText(fcitx::InputContext *ic) const override {
+    if (!ic) return "标点锁定";
+    const auto *state = ic->propertyFor(factory_);
+    switch (state->punctuation_lock_) {
+    case 1: return "标点：中文";
+    case 2: return "标点：英文";
+    default: return "标点：跟随";
+    }
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try {
+      auto *state = ic->propertyFor(factory_);
+      if (state->session_ && !state->restricted() && !state->privateInput())
+        state->cyclePunctuationLock();
+    } catch (...) {}
   }
 private:
   fcitx::FactoryFor<FcitxState> *factory_;
@@ -1512,6 +1570,7 @@ public:
     chinese_punctuation_action_.registerAction("msime-chinese-punctuation", &instance->userInterfaceManager());
     paired_punctuation_action_.registerAction("msime-paired-punctuation", &instance->userInterfaceManager());
     candidate_translation_action_.registerAction("msime-candidate-translations", &instance->userInterfaceManager());
+    punctuation_lock_action_.registerAction("msime-punctuation-lock", &instance->userInterfaceManager());
     clipboard_action_.setMenu(&clipboard_menu_);
     clipboard_menu_.addAction(&clipboard_item1_);
     clipboard_menu_.addAction(&clipboard_item2_);
@@ -1596,6 +1655,7 @@ public:
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &chinese_punctuation_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &paired_punctuation_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &candidate_translation_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &punctuation_lock_action_);
     try { if (state->ensure()) state->render(); } catch (...) { unavailable(*state); }
   }
   void deactivate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
@@ -1612,6 +1672,7 @@ public:
     event.inputContext()->statusArea().removeAction(&chinese_punctuation_action_);
     event.inputContext()->statusArea().removeAction(&paired_punctuation_action_);
     event.inputContext()->statusArea().removeAction(&candidate_translation_action_);
+    event.inputContext()->statusArea().removeAction(&punctuation_lock_action_);
     state->close(); state->clearPanel();
   }
   void reset(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
@@ -1648,6 +1709,7 @@ public:
   FcitxPunctuationAction chinese_punctuation_action_{&factory_, FcitxPunctuationAction::Mode::Chinese};
   FcitxPunctuationAction paired_punctuation_action_{&factory_, FcitxPunctuationAction::Mode::Paired};
   FcitxCandidateTranslationAction candidate_translation_action_{&factory_};
+  FcitxPunctuationLockAction punctuation_lock_action_{&factory_};
   fcitx::Menu clipboard_menu_;
   FcitxClipboardItemAction clipboard_item1_{&factory_, 0};
   FcitxClipboardItemAction clipboard_item2_{&factory_, 1};
