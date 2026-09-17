@@ -115,6 +115,8 @@ public:
     online_socket_.clear();
     online_query_.clear();
     online_job_session_ = 0;
+    ++online_epoch_;
+    online_due_ = {};
   }
   void clearPanel() {
     ic_.inputPanel().reset();
@@ -220,11 +222,14 @@ public:
   }
   void refreshOnline() {
     try {
-      if (online_job_.valid()) {
-        if (online_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
-        auto result = online_job_.get();
-        if (session_ && session_ == online_job_session_ && !privateInput() &&
-            ic_.hasFocus() && result.is_object() && result.value("query", "") == online_query_) {
+      for (uint8_t source = 0; source < 2; ++source) {
+        auto &slot = online_slots_[source];
+        if (!slot.job.valid() || slot.job.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+          continue;
+        auto result = slot.job.get();
+        if (session_ && session_ == online_job_session_ && slot.epoch == online_epoch_ &&
+            !privateInput() && ic_.hasFocus() && result.is_object() &&
+            result.value("query", "") == slot.query) {
           Json candidates[2] = {Json::array(), Json::array()};
           for (const auto &item : result.value("candidates", Json::array())) {
             if (!item.is_object() || item.value("text", std::string{}).empty()) continue;
@@ -235,7 +240,7 @@ public:
             if (candidates[source].empty()) continue;
             const auto encoded = candidates[source].dump();
             view_ = response(msime_client_apply_online_candidates(
-                session_, reinterpret_cast<const uint8_t *>(online_query_.data()), online_query_.size(),
+                session_, reinterpret_cast<const uint8_t *>(slot.query.data()), slot.query.size(),
                 reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size(), source)).at("view");
             render();
           }
@@ -251,17 +256,38 @@ public:
                       aiConfig.is_object() && aiConfig.value("enabled", false);
       if (!cloud && !ai) return;
       const auto encoded = query.dump();
-      if (encoded == online_query_ || online_job_.valid()) return;
+      if (encoded != online_query_) {
+        online_query_ = encoded;
+        online_due_ = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
+        return;
+      }
+      if (std::chrono::steady_clock::now() < online_due_) return;
       online_query_ = encoded;
       online_job_session_ = session_;
-      online_job_ = std::async(std::launch::async, [encoded, socket = online_socket_] {
-        auto raw = response(msime_client_online_provider_request(
-            reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size(),
-            reinterpret_cast<const uint8_t *>(socket.data()), socket.size()));
-        Json result = raw.is_object() ? raw : Json::object();
-        result["query"] = encoded;
-        return result;
-      });
+      for (uint8_t source = 0; source < 2; ++source) {
+        const bool enabled = source == 0 ? cloud : ai;
+        auto &slot = online_slots_[source];
+        if (!enabled || slot.job.valid()) continue;
+        auto providerQuery = query;
+        if (source == 0) {
+          providerQuery.erase("ai_assistant");
+          providerQuery.erase("ai_context");
+        } else {
+          providerQuery["cloud_candidates"] = false;
+        }
+        const auto providerEncoded = providerQuery.dump();
+        slot.query = encoded;
+        slot.epoch = online_epoch_;
+        slot.job = std::async(std::launch::async,
+            [providerEncoded, encoded, socket = online_socket_] {
+              auto raw = response(msime_client_online_provider_request(
+                  reinterpret_cast<const uint8_t *>(providerEncoded.data()), providerEncoded.size(),
+                  reinterpret_cast<const uint8_t *>(socket.data()), socket.size()));
+              Json result = raw.is_object() ? raw : Json::object();
+              result["query"] = encoded;
+              return result;
+            });
+      }
     } catch (...) {
       online_query_.clear();
     }
@@ -309,7 +335,13 @@ public:
   bool private_ = false;
   std::string online_socket_, online_query_;
   uint64_t online_job_session_ = 0;
-  std::future<Json> online_job_;
+  struct OnlineSlot {
+    std::future<Json> job;
+    std::string query;
+    uint64_t epoch = 0;
+  } online_slots_[2];
+  uint64_t online_epoch_ = 0;
+  std::chrono::steady_clock::time_point online_due_{};
   bool word_character_enabled_ = true;
   bool word_character_minus_equal_ = false;
 };
