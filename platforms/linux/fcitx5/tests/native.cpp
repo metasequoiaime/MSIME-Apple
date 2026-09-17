@@ -192,8 +192,16 @@ int main(int argc, char **argv) {
     }
     require(!state->preferences_.value("number_row_selection", true),
             "runtime preferences reload in active Fcitx session");
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 17,
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 18,
             "native status actions attached");
+    if (state->view_.value("scheme", 0u) == 0) {
+      require(!engine.nine_key_action_.isChecked(&ic),
+              "nine-key status action starts disabled");
+      engine.nine_key_action_.activate(&ic);
+      require(state->view_.value("nine_key", false), "nine-key status action enables mode");
+      engine.nine_key_action_.activate(&ic);
+      require(!state->view_.value("nine_key", true), "nine-key status action disables mode");
+    }
     if (state->preferences_.value("cloud_candidates", false)) {
       require(engine.cloud_candidates_action_.isChecked(&ic),
               "cloud candidates status action reflects preference");
@@ -207,7 +215,7 @@ int main(int argc, char **argv) {
       require(!engine.cloud_candidates_action_.isChecked(&ic),
               "cloud candidates status action reflects disabled preference");
     }
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 17,
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 18,
             "AI status action attached");
     require(engine.emoji_category_action_.shortText(&ic) == "表情：Emoji",
             "emoji category starts in the default catalog");

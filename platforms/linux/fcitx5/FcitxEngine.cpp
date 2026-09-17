@@ -290,6 +290,14 @@ public:
     render();
     return true;
   }
+  bool toggleNineKey() {
+    if (!session_ || view_.value("scheme", 0u) != 0) return false;
+    const bool enabled = !view_.value("nine_key", false);
+    view_ = response(msime_client_set_nine_key_mode(session_, enabled));
+    saveStringPreference("touch_keyboard_layout", enabled ? "nine_key" : "twenty_six_key");
+    render();
+    return true;
+  }
   bool toggleWidth() {
     if (!session_) return false;
     const auto width = view_.value("character_width", std::string("Halfwidth"));
@@ -1294,6 +1302,37 @@ private:
   Mode mode_;
 };
 
+class FcitxNineKeyAction : public fcitx::Action {
+public:
+  explicit FcitxNineKeyAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
+    setCheckable(true);
+  }
+  std::string shortText(fcitx::InputContext *) const override { return "九键"; }
+  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  bool isChecked(fcitx::InputContext *ic) const override {
+    if (!ic) return false;
+    const auto *state = ic->propertyFor(factory_);
+    return state->session_ && state->view_.value("scheme", 0u) == 0 &&
+           state->view_.value("nine_key", false);
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    auto *state = ic->propertyFor(factory_);
+    if (!state->session_ || state->restricted() || state->privateInput()) return;
+    try {
+      if (state->ensure() && state->view_.value("scheme", 0u) == 0) {
+        state->toggleNineKey();
+        update(ic);
+      }
+    } catch (...) {
+      state->close();
+      state->clearPanel();
+    }
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
 class FcitxPunctuationAction : public fcitx::Action {
 public:
   enum class Mode { Chinese, Paired };
@@ -1764,6 +1803,7 @@ public:
     instance->inputContextManager().registerProperty("msimeState", &factory_);
     english_action_.registerAction("msime-english-candidates", &instance->userInterfaceManager());
     width_action_.registerAction("msime-fullwidth", &instance->userInterfaceManager());
+    nine_key_action_.registerAction("msime-nine-key", &instance->userInterfaceManager());
     maintenance_action_.registerAction("msime-candidate-tools", &instance->userInterfaceManager());
     clipboard_action_.registerAction("msime-clipboard", &instance->userInterfaceManager());
     cloud_clipboard_action_.registerAction("msime-cloud-clipboard", &instance->userInterfaceManager());
@@ -1853,6 +1893,7 @@ public:
     auto *state = event.inputContext()->propertyFor(&factory_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &english_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &width_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &nine_key_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &maintenance_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &clipboard_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &cloud_clipboard_action_);
@@ -1874,6 +1915,7 @@ public:
     auto *state = event.inputContext()->propertyFor(&factory_);
     event.inputContext()->statusArea().removeAction(&english_action_);
     event.inputContext()->statusArea().removeAction(&width_action_);
+    event.inputContext()->statusArea().removeAction(&nine_key_action_);
     event.inputContext()->statusArea().removeAction(&maintenance_action_);
     event.inputContext()->statusArea().removeAction(&clipboard_action_);
     event.inputContext()->statusArea().removeAction(&cloud_clipboard_action_);
@@ -1914,6 +1956,7 @@ public:
   std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>> focus_watch_;
   FcitxModeAction english_action_{&factory_, FcitxModeAction::Mode::EnglishCandidates};
   FcitxModeAction width_action_{&factory_, FcitxModeAction::Mode::Fullwidth};
+  FcitxNineKeyAction nine_key_action_{&factory_};
   fcitx::Menu maintenance_menu_;
   FcitxMaintenanceAction maintenance_action_{&factory_, 0, "候选维护"};
   FcitxClipboardAction clipboard_action_{&factory_};
