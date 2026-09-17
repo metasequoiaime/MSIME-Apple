@@ -5,6 +5,7 @@ Two sources, both redistributable:
 - Chinese Wikipedia article dumps (CC BY-SA 4.0) — written prose, supplies the vocabulary and the register the IME meets when someone is composing a sentence.
 - LCCC (MIT) — open-domain dialogue, supplies the colloquial register that Wikipedia has almost none of.
 - Chinese technical documentation (CC BY 4.0, CC BY-SA 2.5, Apache-2.0) — the register someone writes in while working, which neither of the other two contains at all.
+- The Chinese portion of C4 (ODC-BY) — web text, the register people type in, and the only source here that reaches the scale a language model needs.
 
 Output is one normalized sentence per line, UTF-8. Everything outside the kept character set is a segmentation boundary rather than a substitution, because the model only ever scores runs of Chinese characters: at inference the candidates handed to it come from the pinyin decoder and contain nothing else.
 
@@ -12,6 +13,7 @@ usage:
   python corpus.py wiki  --out data/wiki.txt  [--max-chars 2_000_000_000]
   python corpus.py lccc  --out data/lccc.txt  [--split base|large]
   python corpus.py docs  --out data/docs.txt
+  python corpus.py c4    --out data/c4.txt --max-chars 1_000_000_000
 """
 
 import argparse
@@ -69,6 +71,28 @@ def traditional_share(text):
 
 def is_traditional_document(text):
     return traditional_share(text) > TRADITIONAL_SHARE
+
+
+# Web text carries a great deal that is not prose: link farms, navigation, price lists, pages that
+# are mostly markup residue. None of it is a sentence anyone would type, and a model trained on it
+# learns collocations that exist only on such pages.
+#
+# A document that is mostly Chinese characters and whose Chinese comes in runs rather than isolated
+# characters is prose or close enough. This is deliberately crude: separating Chinese spam from
+# Chinese writing needs a classifier, and this only removes what is structurally not writing.
+PROSE_SHARE = 0.5
+PROSE_RUN = 8
+
+
+def is_prose(text):
+    sample = text[:4000]
+    dense = [ch for ch in sample if not ch.isspace()]
+    if len(dense) < 64:
+        return False
+    chinese = sum(1 for ch in dense if "一" <= ch <= "鿿")
+    if chinese < PROSE_SHARE * len(dense):
+        return False
+    return any(len(run.group()) >= PROSE_RUN for run in KEEP.finditer(sample))
 
 
 ATTEMPTS = 5
@@ -308,12 +332,55 @@ def docs_lines(cache, max_chars):
                         return
 
 
+# Web text, which is the register people actually type in and the only source here that reaches the
+# scale a language model needs. Wikipedia is exhausted at 201 million characters and LCCC at 318
+# million, which together sit at roughly what a 24M-parameter model can absorb; going further means
+# going wider than either.
+#
+# Shards are streamed and decompressed in flight rather than downloaded, because the Chinese portion
+# runs to tens of gigabytes compressed and only the normalized output is worth keeping.
+C4_SHARD = (
+    "https://huggingface.co/datasets/allenai/c4/resolve/main/multilingual/"
+    "c4-zh.tfrecord-{index:05d}-of-01024.json.gz"
+)
+C4_SHARDS = 1024
+
+
+def c4_lines(max_chars, first_shard=0):
+    emitted = 0
+    for index in range(first_shard, C4_SHARDS):
+        url = C4_SHARD.format(index=index)
+        request = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
+        try:
+            with urllib.request.urlopen(request) as response:
+                stream = gzip.GzipFile(fileobj=response)
+                for row in stream:
+                    try:
+                        document = json.loads(row)
+                    except (json.JSONDecodeError, UnicodeDecodeError):
+                        continue
+                    text = document.get("text", "")
+                    if not text or is_traditional_document(text) or not is_prose(text):
+                        continue
+                    for line in segment(text):
+                        yield line
+                        emitted += len(line)
+                        if max_chars and emitted >= max_chars:
+                            return
+        except (urllib.error.URLError, ConnectionError, TimeoutError, EOFError, OSError) as error:
+            # One bad shard out of a thousand is not a reason to abandon the corpus.
+            print(f"  shard {index} failed: {error}", file=sys.stderr)
+            continue
+        print(f"  shard {index} done, {emitted:,} chars", file=sys.stderr)
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("source", choices=["wiki", "lccc", "docs"])
+    parser.add_argument("source", choices=["wiki", "lccc", "docs", "c4"])
     parser.add_argument("--out", required=True)
     parser.add_argument("--cache", default="data/raw")
     parser.add_argument("--split", choices=["base", "large"], default="base")
+    parser.add_argument("--first-shard", type=int, default=0, help="c4 only: shard to start from")
     parser.add_argument("--max-chars", type=int, default=0, help="stop after this many kept characters; 0 means the whole source")
     args = parser.parse_args()
 
@@ -322,6 +389,8 @@ def main():
         lines = wiki_lines(archive, args.max_chars)
     elif args.source == "docs":
         lines = docs_lines(args.cache, args.max_chars)
+    elif args.source == "c4":
+        lines = c4_lines(args.max_chars, args.first_shard)
     else:
         url = LCCC_LARGE if args.split == "large" else LCCC_BASE
         archive = download(url, os.path.join(args.cache, os.path.basename(url)))
