@@ -85,6 +85,7 @@ int main() {
       std::this_thread::sleep_for(std::chrono::milliseconds(1));
     assert(result && *result == false);
     assert(transport.writes == 1); // Only the activation fence; reads send nothing.
+    assert(controller.reset_cache());
     DedicatedEnglishMailbox mailbox;
     assert(!mailbox.snapshot(lease));
     mailbox.publish(lease, *result);

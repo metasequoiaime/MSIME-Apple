@@ -77,6 +77,10 @@ void ServerSession::cancel_composition(uint64_t epoch) {
       !result.at("view").at("candidates").empty())
     throw std::logic_error("Shared host did not cancel composition");
 }
+void ServerSession::reset_cache() {
+  check_thread();
+  (void)response(msime_client_reset_cache(session_));
+}
 void ServerSession::set_chinese_punctuation(uint64_t epoch, bool enabled) {
   check_active(epoch);
   response(msime_client_set_chinese_punctuation(session_, enabled));

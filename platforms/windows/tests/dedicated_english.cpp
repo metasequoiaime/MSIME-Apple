@@ -24,6 +24,8 @@ int main() {
     InputState state(gate, 2, serialized);
     const PipeTicket ticket{42, {1, 2, 3}};
     assert(state.connected(ticket).accepted);
+    // Maintenance reaches an idle session without a candidate snapshot.
+    assert(state.reset_cache());
     FanyImeNamedpipeData packet{};
     packet.client_id = 42;
     packet.event_type = FanyImePipeEventType::ClientActivated;
