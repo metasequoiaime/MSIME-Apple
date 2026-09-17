@@ -1061,6 +1061,23 @@ class ReleaseConfigurationTests(unittest.TestCase):
         create_pr = engine_update.split("- name: Create pull request", 1)[1].split("run: |", 1)[0]
         self.assertIn("GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}", create_pr)
 
+    def test_the_macos_matrix_reports_the_names_branch_protection_waits_for(self):
+        """矩阵 job 不能整个被 `if:` 跳过,否则它上报的是没展开的字面量名字。
+
+        main 的必需检查是 `macOS 15 arm64` 和 `macOS 15 x86_64`。job 级的 `if:` 让 GitHub 不展开矩阵,
+        只上报一个 `macOS 15 ${{ matrix.architecture }}`,那两个名字永远不出现 —— 于是只动 platforms/ios
+        的 PR 检查全绿却合不进 main,报错只有一句「the base branch policy prohibits the merge」。
+        非矩阵的 job 没有这个问题,被跳过时照常按自己的名字上报 skipped,所以这条只针对带矩阵的。
+        """
+        # 按文本读,不引第三方 YAML 库:这套测试跑在 contracts.yml 的 ubuntu runner 上,那里只保证标准库。
+        body = (PROJECT_ROOT / ".github/workflows/ci-macos.yml").read_text()
+        job = body.split("\n  macos:\n", 1)[1].split("\n  sanitizers:", 1)[0]
+        header = job.split("    steps:", 1)[0]
+        self.assertIn("strategy:", header, "这条用例是针对带矩阵的 job 的")
+        self.assertNotIn("\n    if:", header, "macos 带矩阵,不能在 job 级跳过 —— 条件要放在步骤上")
+        # 跳过重活的条件还得在:否则只改 iOS 也会把 macOS 全量编一遍。
+        self.assertIn("needs.changes.outputs.build == 'true'", job.split("    steps:", 1)[1])
+
     def engine_submodule_paths(self):
         """The Engine's own submodules, read from the .gitmodules its archive ships."""
         gitmodules = PROJECT_ROOT / "vendor/MetasequoiaImeEngine/.gitmodules"
