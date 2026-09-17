@@ -126,11 +126,23 @@ int main(int argc, char **argv) {
       if (client < 0) { close(voiceServer); return false; }
       char request[4096]{};
       const auto count = read(client, request, sizeof(request) - 1);
-      const auto reply = "{\"text\":\"语音测试\"}\n";
+      uint64_t generation = 1;
+      try {
+        generation = Json::parse(request, request + std::max<ssize_t>(count, 0))
+                         .at("query").at("generation").get<uint64_t>();
+      } catch (...) {}
+      const auto partial = Json{{"type", "partial"}, {"generation", generation},
+                                {"text", "语音中"}}.dump() + "\n";
+      const auto final = Json{{"type", "final"}, {"generation", generation},
+                              {"text", "语音测试"}}.dump() + "\n";
       const bool valid = count > 0 && std::string(request, count).find("voice") != std::string::npos;
-      const bool sent = send(client, reply, std::strlen(reply), MSG_NOSIGNAL) == static_cast<ssize_t>(std::strlen(reply));
+      const bool partialSent = send(client, partial.data(), partial.size(), MSG_NOSIGNAL) ==
+                               static_cast<ssize_t>(partial.size());
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+      const bool finalSent = send(client, final.data(), final.size(), MSG_NOSIGNAL) ==
+                             static_cast<ssize_t>(final.size());
       close(client); close(voiceServer);
-      return valid && sent;
+      return valid && partialSent && finalSent;
     });
     setenv("MSIME_FCITX5_OPTIONS", path.c_str(), 1);
     char name[] = "fcitx5-native-test";
@@ -274,13 +286,18 @@ int main(int argc, char **argv) {
     require(ic.committed.find("云剪贴板测试") != std::string::npos, "cloud clipboard action commits provider entry");
     require(cloudProvider.get(), "cloud clipboard socket protocol");
     engine.voice_action_.activate(&ic);
+    bool observedVoicePartial = false;
     const auto voiceDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
     while (ic.committed.find("语音测试") == std::string::npos &&
            std::chrono::steady_clock::now() < voiceDeadline) {
       std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      if (state->voice_mailbox_) {
+        std::lock_guard lock(state->voice_mailbox_->mutex);
+        observedVoicePartial = observedVoicePartial || state->voice_mailbox_->partial == "语音中";
+      }
       state->refreshVoice();
-      engine.voice_action_.activate(&ic);
     }
+    require(observedVoicePartial || state->voice_partial_seen_, "voice action receives provider partial text");
     require(ic.committed.find("语音测试") != std::string::npos, "voice action commits provider text");
     require(voiceProvider.get(), "voice socket protocol");
     if (ai) {

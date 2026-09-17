@@ -33,6 +33,7 @@
 #include <spawn.h>
 #include <vector>
 #include <cstring>
+#include <mutex>
 #if __has_include(<fcitx/candidateaction.h>)
 #include <fcitx/candidateaction.h>
 #define MSIME_FCITX_ACTIONS 1
@@ -56,6 +57,29 @@ Json response(char *raw) {
   auto value = Json::parse(raw);
   if (!value.value("ok", false)) throw std::runtime_error("MSIME request failed");
   return value.at("value");
+}
+
+struct FcitxVoiceMailbox {
+  std::mutex mutex;
+  std::string partial;
+  std::string final;
+  bool final_ready = false;
+};
+
+extern "C" void fcitxVoiceUpdate(const uint8_t *text, size_t length,
+                                  bool final, void *context) noexcept {
+  if (!context || (!text && length != 0) || length > 4096) return;
+  try {
+    auto *mailbox = static_cast<FcitxVoiceMailbox *>(context);
+    const std::string value(reinterpret_cast<const char *>(text), length);
+    std::lock_guard lock(mailbox->mutex);
+    if (final) {
+      mailbox->final = value;
+      mailbox->final_ready = true;
+    } else {
+      mailbox->partial = value;
+    }
+  } catch (...) {}
 }
 
 Json readOptions() {
@@ -174,8 +198,17 @@ public:
     emoji_next_offset_ = 0;
     emoji_complete_ = false;
     emoji_previous_offsets_.clear();
+    if (voice_job_.valid() && !voice_socket_.empty() && voice_generation_ != 0) {
+      const auto socket = voice_socket_;
+      const auto generation = voice_generation_;
+      msime_client_string_free(msime_client_voice_provider_cancel(
+          reinterpret_cast<const uint8_t *>(socket.data()), socket.size(), generation));
+    }
     voice_socket_.clear();
     voice_job_ = {};
+    voice_mailbox_.reset();
+    voice_generation_ = 0;
+    voice_partial_seen_ = false;
     voice_loading_ = false;
   }
   void clearPanel() {
@@ -569,16 +602,36 @@ public:
   }
   bool refreshVoice() {
     try {
+      const auto mailbox = voice_mailbox_;
+      if (mailbox && ic_.hasFocus() && !restricted() && !privateInput()) {
+        std::string partial;
+        {
+          std::lock_guard lock(mailbox->mutex);
+          partial = mailbox->partial;
+        }
+        if (!partial.empty()) {
+          voice_partial_seen_ = true;
+          ic_.inputPanel().setAuxUp(fcitx::Text("语音：" + partial));
+          ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+        }
+      }
       if (!voice_job_.valid()) return false;
       if (voice_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return false;
       auto result = voice_job_.get();
       voice_job_ = {};
       voice_loading_ = false;
       if (session_ && ic_.hasFocus() && !restricted() && !privateInput() && result.is_object()) {
-        const auto text = result.value("text", std::string{});
+        auto text = result.value("text", std::string{});
+        if (mailbox) {
+          std::lock_guard lock(mailbox->mutex);
+          if (text.empty() && mailbox->final_ready) text = mailbox->final;
+        }
+        ic_.inputPanel().setAuxUp(fcitx::Text());
+        ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
+        voice_mailbox_.reset();
         if (!text.empty()) { ic_.commitString(text); return true; }
       }
-    } catch (...) { voice_loading_ = false; }
+    } catch (...) { voice_loading_ = false; voice_mailbox_.reset(); }
     return false;
   }
   bool requestVoice() {
@@ -588,13 +641,41 @@ public:
     voice_loading_ = true;
     const auto socket = voice_socket_;
     const auto generation = view_.value("generation", uint64_t{});
-    voice_job_ = std::async(std::launch::async, [socket, generation] {
-      const auto query = Json{{"language", "zh-cn"}, {"generation", generation}}.dump();
-      auto result = response(msime_client_voice_provider_request(
+    voice_generation_ = generation;
+    voice_mailbox_ = std::make_shared<FcitxVoiceMailbox>();
+    voice_partial_seen_ = false;
+    const auto mailbox = voice_mailbox_;
+    voice_job_ = std::async(std::launch::async, [socket, generation, mailbox] {
+      const auto query = Json{{"language", "zh-cn"}, {"generation", generation},
+                              {"stream", true}}.dump();
+      auto result = response(msime_client_voice_provider_stream(
           reinterpret_cast<const uint8_t *>(query.data()), query.size(),
-          reinterpret_cast<const uint8_t *>(socket.data()), socket.size()));
+          reinterpret_cast<const uint8_t *>(socket.data()), socket.size(),
+          fcitxVoiceUpdate, mailbox.get()));
       return result.is_object() ? result : Json::object();
     }).share();
+    return true;
+  }
+  bool stopVoice() {
+    if (!voice_loading_ || voice_socket_.empty() || voice_generation_ == 0) return false;
+    const auto socket = voice_socket_;
+    msime_client_string_free(msime_client_voice_provider_stop(
+        reinterpret_cast<const uint8_t *>(socket.data()), socket.size(), voice_generation_));
+    return true;
+  }
+  bool cancelVoice() {
+    if (!voice_loading_) return false;
+    const auto socket = voice_socket_;
+    const auto generation = voice_generation_;
+    if (!socket.empty() && generation != 0)
+      msime_client_string_free(msime_client_voice_provider_cancel(
+          reinterpret_cast<const uint8_t *>(socket.data()), socket.size(), generation));
+    voice_job_ = {};
+    voice_mailbox_.reset();
+    voice_loading_ = false;
+    voice_partial_seen_ = false;
+    ic_.inputPanel().setAuxUp(fcitx::Text());
+    ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
     return true;
   }
   bool apply(char *raw) {
@@ -678,6 +759,9 @@ public:
   std::vector<size_t> emoji_previous_offsets_;
   std::string voice_socket_;
   std::shared_future<Json> voice_job_;
+  std::shared_ptr<FcitxVoiceMailbox> voice_mailbox_;
+  uint64_t voice_generation_ = 0;
+  bool voice_partial_seen_ = false;
   bool voice_loading_ = false;
   bool word_character_enabled_ = true;
   bool word_character_minus_equal_ = false;
@@ -1028,11 +1112,15 @@ class FcitxVoiceAction : public fcitx::SimpleAction {
 public:
   explicit FcitxVoiceAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
     setShortText("语音");
-    setLongText("请求用户语音服务并插入识别文本");
+    setLongText("开始或停止流式语音识别");
   }
   void activate(fcitx::InputContext *ic) override {
     if (!ic || !ic->hasFocus()) return;
-    try { ic->propertyFor(factory_)->requestVoice(); } catch (...) {}
+    try {
+      auto *state = ic->propertyFor(factory_);
+      if (state->voice_loading_) state->stopVoice();
+      else state->requestVoice();
+    } catch (...) {}
   }
 private:
   fcitx::FactoryFor<FcitxState> *factory_;
@@ -1278,6 +1366,10 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   const bool ctrl = states.test(fcitx::KeyState::Ctrl);
   const bool alt = states.test(fcitx::KeyState::Alt);
   const bool shift = states.test(fcitx::KeyState::Shift);
+  if (sym == FcitxKey_Escape && voice_loading_) {
+    cancelVoice();
+    return composing ? command(MSIME_CANCEL) : true;
+  }
   if (ctrl && shift && !alt && (sym == FcitxKey_e || sym == FcitxKey_E)) {
     if (composing) command(MSIME_COMMIT_RAW);
     return toggleEnglish();
