@@ -120,6 +120,8 @@ public:
     ++online_epoch_;
     online_due_ = {};
     translation_query_.clear();
+    translation_pending_.clear();
+    translation_socket_.clear();
   }
   void clearPanel() {
     ic_.inputPanel().reset();
@@ -176,6 +178,12 @@ public:
     options_path_ = options.value("preferences_directory", std::string());
     resources_ = options.value("resources", std::string());
     online_socket_ = onlineSocket(options);
+    translation_socket_ = options.value("translation_provider_socket", std::string{});
+    if (translation_socket_.empty()) {
+      if (const auto *socket = std::getenv("MSIME_TRANSLATION_PROVIDER_SOCKET"))
+        translation_socket_ = socket;
+    }
+    if (translation_socket_.empty()) translation_socket_ = online_socket_;
     if (private_) {
       preferences_["learning"] = false;
       preferences_["cloud_candidates"] = false;
@@ -296,49 +304,84 @@ public:
       online_query_.clear();
     }
   }
+  void startTranslation(const Json &query, bool offline, Json local = Json::array()) {
+    const auto encoded = query.dump();
+    translation_query_ = encoded;
+    translation_session_ = session_;
+    auto candidates = Json::array();
+    for (const auto &candidate : view_.at("candidates"))
+      candidates.push_back({{"text", candidate.at("text")}, {"source", candidate.at("source")}});
+    const auto gloss = Json{{"generation", query.at("generation")},
+                            {"user_data", query.value("user_data", Json())},
+                            {"candidates", candidates}}.dump();
+    const auto socket = preferences_.value("candidate_translations", false)
+                            ? translation_socket_ : std::string{};
+    translation_job_ = std::async(std::launch::async,
+        [query, encoded, gloss, offline, local, socket, resources = resources_] () mutable {
+          if (offline) {
+            try {
+              local = response(msime_client_candidate_gloss_request(
+                  reinterpret_cast<const uint8_t *>(gloss.data()), gloss.size(),
+                  reinterpret_cast<const uint8_t *>(resources.data()), resources.size()))
+                  .value("translations", Json::array());
+            } catch (...) {} // A missing local dictionary must not prevent online fallback.
+          } else if (!socket.empty()) {
+            auto transport = query;
+            auto missing = Json::array();
+            for (const auto &candidate : query.at("candidates")) {
+              const auto &text = candidate.at("text");
+              if (std::none_of(local.begin(), local.end(), [&](const Json &item) {
+                    return item.at("text") == text;
+                  })) missing.push_back(text);
+            }
+            transport["candidates"] = std::move(missing);
+            if (!transport.at("candidates").empty()) {
+              const auto request = transport.dump();
+              try {
+                auto result = response(msime_client_translation_provider_request(
+                    reinterpret_cast<const uint8_t *>(request.data()), request.size(),
+                    reinterpret_cast<const uint8_t *>(socket.data()), socket.size()));
+                if (result.is_object())
+                  for (const auto &item : result.value("translations", Json::array()))
+                    local.push_back(item);
+              } catch (...) {} // Retain local hits on provider failure.
+            }
+          }
+          return Json{{"query", encoded}, {"translations", local},
+                      {"continue_online", offline && !socket.empty()}};
+        });
+  }
   void refreshTranslations() {
     try {
+      const bool allowed = session_ && ic_.hasFocus() && !restricted() && !privateInput();
+      const auto query = allowed ? response(msime_client_translation_query(session_)) : Json();
+      const auto encodedQuery = query.is_object() ? query.dump() : std::string{};
       if (translation_job_.valid()) {
         if (translation_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
         auto result = translation_job_.get();
-        if (session_ && session_ == translation_session_ && ic_.hasFocus() &&
-            result.is_object() && result.value("query", "") == translation_query_) {
+        if (allowed && session_ == translation_session_ && query.is_object() &&
+            result.is_object() && result.value("query", "") == encodedQuery) {
           const auto encoded = result.value("translations", Json::array()).dump();
           view_ = response(msime_client_apply_translations(
-              session_, translation_generation_, reinterpret_cast<const uint8_t *>(encoded.data()),
+              session_, query.at("generation"), reinterpret_cast<const uint8_t *>(encoded.data()),
               encoded.size())).at("view");
           render();
+          if (result.value("continue_online", false)) {
+            startTranslation(query, false, result.at("translations"));
+            return;
+          }
         }
       }
-      if (!session_ || !ic_.hasFocus() || restricted() || privateInput() ||
-          !preferences_.value("candidate_translations", false) ||
-          !view_.value("candidates", Json::array()).is_array() ||
-          view_.at("candidates").empty()) return;
-      auto query = response(msime_client_translation_query(session_));
-      if (!query.is_object()) return;
-      query["target_language"] = preferences_.value("translation_target_language", "en");
-      const auto encoded = query.dump();
-      if (encoded == translation_query_ || translation_job_.valid()) return;
-      translation_query_ = encoded;
-      translation_session_ = session_;
-      translation_generation_ = query.value("generation", uint64_t{});
-      auto candidates = Json::array();
-      for (const auto &candidate : query.at("candidates"))
-        candidates.push_back(Json{{"text", candidate.at("text")},
-                                  {"source", candidate.value("source", 0)}});
-      const auto request = Json{{"generation", translation_generation_},
-                                {"candidates", candidates}}.dump();
-      const auto resources = resources_;
-      translation_job_ = std::async(std::launch::async,
-          [request, resources, encoded] {
-            auto raw = response(msime_client_candidate_gloss_request(
-                reinterpret_cast<const uint8_t *>(request.data()), request.size(),
-                reinterpret_cast<const uint8_t *>(resources.data()), resources.size()));
-            Json result = raw.is_object() ? raw : Json::object();
-            result["query"] = encoded;
-            return result;
-          });
-    } catch (...) { translation_query_.clear(); }
+      if (!query.is_object()) { translation_pending_.clear(); return; }
+      if (encodedQuery == translation_query_) return;
+      if (encodedQuery != translation_pending_) {
+        translation_pending_ = encodedQuery;
+        translation_due_ = std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
+        return;
+      }
+      if (std::chrono::steady_clock::now() < translation_due_) return;
+      startTranslation(query, query.value("english_gloss", false));
+    } catch (...) { /* Never expose candidate text or provider credentials in errors. */ }
   }
   bool apply(char *raw) {
     auto result = response(raw);
@@ -391,9 +434,9 @@ public:
   } online_slots_[2];
   uint64_t online_epoch_ = 0;
   std::chrono::steady_clock::time_point online_due_{};
-  std::string translation_query_;
+  std::string translation_query_, translation_pending_, translation_socket_;
+  std::chrono::steady_clock::time_point translation_due_{};
   uint64_t translation_session_ = 0;
-  uint64_t translation_generation_ = 0;
   std::future<Json> translation_job_;
   bool word_character_enabled_ = true;
   bool word_character_minus_equal_ = false;
@@ -404,7 +447,9 @@ public:
   FcitxCandidate(fcitx::FactoryFor<FcitxState> *factory, const Json &candidate)
       : CandidateWord(fcitx::Text(candidate.at("text").get<std::string>() +
           (candidate.value("annotation", std::string()).empty() ? "" :
-           "  " + candidate.at("annotation").get<std::string>()))), factory_(factory),
+           "  " + candidate.at("annotation").get<std::string>()) +
+          (candidate.contains("translation") && candidate.at("translation").is_string()
+              ? "  " + candidate.at("translation").get<std::string>() : ""))), factory_(factory),
         session_(candidate.at("id").at("session")), generation_(candidate.at("id").at("generation")),
         index_(candidate.at("id").at("index")) {}
   void select(fcitx::InputContext *ic) const override {

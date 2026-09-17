@@ -252,6 +252,63 @@ int main(int argc, char **argv) {
             "CapsLock does not begin composition");
     state->close();
     state->clearPanel();
+    // Real translation socket: no HTTP, credentials, or user input in this fixture.
+    const auto translationPath = std::string(directory) + "/translation.sock";
+    const int translationServer = socket(AF_UNIX, SOCK_STREAM, 0);
+    require(translationServer >= 0, "translation socket");
+    sockaddr_un translationAddress{};
+    translationAddress.sun_family = AF_UNIX;
+    std::strncpy(translationAddress.sun_path, translationPath.c_str(), sizeof(translationAddress.sun_path) - 1);
+    require(bind(translationServer, reinterpret_cast<sockaddr *>(&translationAddress), sizeof(translationAddress)) == 0 &&
+            listen(translationServer, 1) == 0, "translation listener");
+    auto translationProvider = std::async(std::launch::async, [translationServer] {
+      struct Descriptor { int fd; ~Descriptor() { if (fd >= 0) close(fd); } } server{translationServer};
+      pollfd ready{server.fd, POLLIN, 0};
+      if (poll(&ready, 1, 5000) <= 0) return false;
+      Descriptor client{accept(server.fd, nullptr, nullptr)};
+      if (client.fd < 0) return false;
+      std::string request;
+      const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+      while (request.size() < 16384 && request.find('\n') == std::string::npos &&
+             std::chrono::steady_clock::now() < deadline) {
+        pollfd readable{client.fd, POLLIN, 0};
+        if (poll(&readable, 1, 100) <= 0) continue;
+        char buffer[1024];
+        const auto count = read(client.fd, buffer, sizeof(buffer));
+        if (count <= 0) return false;
+        request.append(buffer, count);
+      }
+      const auto document = Json::parse(request);
+      if (document.at("kind") != "translation" || document.at("query").at("target_language") != "fr") return false;
+      const auto &texts = document.at("query").at("candidates");
+      if (texts.empty() || !texts.at(0).is_string()) return false;
+      const auto reply = Json{{"translations", Json::array({
+          Json{{"text", texts.at(0)}, {"translation", "synthetic-gloss"}}})}}.dump() + "\n";
+      return send(client.fd, reply.data(), reply.size(), MSG_NOSIGNAL) == static_cast<ssize_t>(reply.size());
+    });
+    options["translation_provider_socket"] = translationPath;
+    options["preferences"]["candidate_translations"] = true;
+    options["preferences"]["candidate_english_gloss"] = false;
+    options["preferences"]["translation_target_language"] = "fr";
+    std::ofstream(path) << options.dump();
+    require(key(FcitxKey_n) && key(FcitxKey_i), "translation composition");
+    state->refreshTranslations();
+    require(!state->translation_job_.valid(), "translation waits for idle debounce");
+    const auto translationDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(5);
+    while (state->view_.at("candidates").dump().find("synthetic-gloss") == std::string::npos &&
+           std::chrono::steady_clock::now() < translationDeadline) {
+      state->refreshTranslations();
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    require(translationProvider.get(), "translation socket protocol");
+    require(ic.inputPanel().candidateList()->candidate(0).text().toString().find("synthetic-gloss") != std::string::npos,
+            "translation visible in native Fcitx candidate");
+    const auto translatedText = state->view_.at("candidates").at(0).at("text").get<std::string>();
+    const auto beforeTranslatedCommit = ic.committed;
+    ic.inputPanel().candidateList()->candidate(0).select(&ic);
+    require(ic.committed == beforeTranslatedCommit + translatedText, "gloss excluded from committed text");
+    state->close();
+    state->clearPanel();
     options["preferences"]["scheme"] = "japanese";
     std::ofstream(path) << options.dump();
     require(key(FcitxKey_k) && key(FcitxKey_o), "Japanese romaji composition");
