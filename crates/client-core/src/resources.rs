@@ -13,7 +13,16 @@ use std::path::{Path, PathBuf};
 #[serde(deny_unknown_fields)]
 pub struct Artifact {
     pub name: String,
+    /// Download location. Empty when the artifact is supplied by the Engine tree instead; see
+    /// `engine_path`.
+    #[serde(default)]
     pub url: String,
+    /// Path inside the pinned Engine checkout, for artifacts that ship with the Engine rather than
+    /// with the dictionary release. The Engine is already pinned by commit and archive SHA-256 in
+    /// engine-lock.json, so republishing the same bytes in the dictionary release would create a
+    /// second source of truth for them.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub engine_path: String,
     pub sha256: String,
     pub size: u64,
 }
@@ -75,7 +84,12 @@ impl ResourceSet {
                 || !names.insert(artifact.name.to_ascii_lowercase())
                 || !hex(&artifact.sha256, 64)
                 || artifact.size > 2 * 1024 * 1024 * 1024
-                || !artifact.url.starts_with("https://")
+                // Exactly one source, and a download must be HTTPS. An artifact with both, or
+                // with neither, is a manifest that cannot be resolved unambiguously.
+                || artifact.url.is_empty() == artifact.engine_path.is_empty()
+                || (!artifact.url.is_empty() && !artifact.url.starts_with("https://"))
+                || artifact.engine_path.contains("..")
+                || artifact.engine_path.starts_with('/')
             {
                 return Err(ResourceError::InvalidManifest);
             }
@@ -210,6 +224,7 @@ mod tests {
             artifacts: vec![Artifact {
                 name: "msime.db".into(),
                 url: "https://example.invalid/msime.db".into(),
+                engine_path: String::new(),
                 sha256: format!("{:x}", Sha256::digest(b"fixture")),
                 size: 7,
             }],
@@ -218,6 +233,25 @@ mod tests {
     fn source(bytes: &[u8]) -> Box<dyn Read> {
         Box::new(Cursor::new(bytes.to_vec()))
     }
+    #[test]
+    fn an_artifact_names_exactly_one_source() {
+        let with = |url: &str, engine: &str| {
+            let mut set = specification();
+            set.artifacts[0].url = url.into();
+            set.artifacts[0].engine_path = engine.into();
+            set.validate()
+        };
+        assert!(with("https://example.invalid/a", "").is_ok());
+        assert!(with("", "googlepinyinime-rev/data/dict_pinyin.dat").is_ok());
+        // Neither source, or both, leaves the artifact unresolvable.
+        assert!(with("", "").is_err());
+        assert!(with("https://example.invalid/a", "data/a.dat").is_err());
+        // A download must still be HTTPS, and an Engine path must stay inside the checkout.
+        assert!(with("http://example.invalid/a", "").is_err());
+        assert!(with("", "../escape.dat").is_err());
+        assert!(with("", "/absolute.dat").is_err());
+    }
+
     #[test]
     fn publishes_complete_generation_and_verifies_cached_bytes() {
         let root = tempfile::tempdir().unwrap();
