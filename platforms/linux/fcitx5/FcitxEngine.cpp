@@ -244,6 +244,10 @@ public:
     emoji_items_.clear();
     emoji_job_ = {};
     emoji_category_.clear();
+    emoji_group_.clear();
+    emoji_groups_.clear();
+    emoji_groups_job_ = {};
+    emoji_group_index_ = 0;
     emoji_offset_ = 0;
     emoji_next_offset_ = 0;
     emoji_complete_ = false;
@@ -963,6 +967,16 @@ public:
   bool requestCloudClipboard() { return pasteCloudClipboard(); }
   void refreshEmoji() {
     try {
+      if (emoji_groups_job_.valid() &&
+          emoji_groups_job_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        auto result = emoji_groups_job_.get();
+        emoji_groups_job_ = {};
+        if (result.is_object()) {
+          emoji_groups_.clear();
+          for (const auto &item : result.value("groups", Json::array()))
+            if (item.is_string() && !item.get<std::string>().empty()) emoji_groups_.push_back(item.get<std::string>());
+        }
+      }
       if (emoji_job_.valid()) {
         if (emoji_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
         auto result = emoji_job_.get();
@@ -979,10 +993,11 @@ public:
     if (emoji_job_.valid() || resources_.empty()) return false;
     const auto resources = resources_;
     const auto category = emoji_category_;
+    const auto group = emoji_group_;
     emoji_offset_ = offset;
-    emoji_job_ = std::async(std::launch::async, [resources, category, offset] {
+    emoji_job_ = std::async(std::launch::async, [resources, category, group, offset] {
       const auto query = Json{{"limit", 5}, {"offset", offset}, {"cursor", true},
-                              {"category", category}}.dump();
+                              {"category", category}, {"group", group}}.dump();
       auto result = response(msime_client_emoji_catalog_request(
           reinterpret_cast<const uint8_t *>(query.data()), query.size(),
           reinterpret_cast<const uint8_t *>(resources.data()), resources.size()));
@@ -1022,6 +1037,34 @@ public:
     auto it = std::find(categories.begin(), categories.end(), emoji_category_);
     emoji_category_ = it == categories.end() || std::next(it) == categories.end()
         ? categories.front() : *std::next(it);
+    emoji_group_.clear();
+    emoji_groups_.clear();
+    emoji_group_index_ = 0;
+    emoji_items_.clear();
+    emoji_offset_ = 0;
+    emoji_next_offset_ = 0;
+    emoji_complete_ = false;
+    emoji_previous_offsets_.clear();
+    return requestEmojiPage(0);
+  }
+  bool cycleEmojiGroup() {
+    if (restricted() || privateInput() || !ic_.hasFocus() || emoji_job_.valid() ||
+        emoji_groups_job_.valid()) return false;
+    if (emoji_groups_.empty()) {
+      if (resources_.empty()) return false;
+      const auto resources = resources_;
+      const auto category = emoji_category_;
+      emoji_groups_job_ = std::async(std::launch::async, [resources, category] {
+        const auto query = Json{{"limit", 1}, {"list_groups", true}, {"category", category}}.dump();
+        auto result = response(msime_client_emoji_catalog_request(
+            reinterpret_cast<const uint8_t *>(query.data()), query.size(),
+            reinterpret_cast<const uint8_t *>(resources.data()), resources.size()));
+        return result.is_object() ? result : Json::object();
+      }).share();
+      return false;
+    }
+    emoji_group_index_ = (emoji_group_index_ + 1) % (emoji_groups_.size() + 1);
+    emoji_group_ = emoji_group_index_ == 0 ? std::string{} : emoji_groups_.at(emoji_group_index_ - 1);
     emoji_items_.clear();
     emoji_offset_ = 0;
     emoji_next_offset_ = 0;
@@ -1222,6 +1265,10 @@ public:
   Json emoji_items_ = Json::array();
   std::shared_future<Json> emoji_job_;
   std::string emoji_category_;
+  std::string emoji_group_;
+  std::vector<std::string> emoji_groups_;
+  std::shared_future<Json> emoji_groups_job_;
+  size_t emoji_group_index_ = 0;
   size_t emoji_offset_ = 0;
   size_t emoji_next_offset_ = 0;
   bool emoji_complete_ = false;
@@ -2030,6 +2077,27 @@ private:
   fcitx::FactoryFor<FcitxState> *factory_;
 };
 
+class FcitxEmojiGroupAction : public fcitx::SimpleAction {
+public:
+  explicit FcitxEmojiGroupAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
+    setLongText("循环切换当前 Emoji 目录的分组");
+  }
+  std::string shortText(fcitx::InputContext *ic) const override {
+    if (!ic) return "表情分组";
+    const auto *state = ic->propertyFor(factory_);
+    return state->emoji_group_.empty() ? "表情：全部" : "表情：" + state->emoji_group_;
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try {
+      auto *state = ic->propertyFor(factory_);
+      if (state->ensure()) state->cycleEmojiGroup();
+    } catch (...) {}
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
 class FcitxEmojiItemAction : public fcitx::SimpleAction {
 public:
   FcitxEmojiItemAction(fcitx::FactoryFor<FcitxState> *factory, size_t index)
@@ -2155,6 +2223,7 @@ public:
     cloud_clipboard_action_.registerAction("msime-cloud-clipboard", &instance->userInterfaceManager());
     emoji_action_.registerAction("msime-emoji", &instance->userInterfaceManager());
     emoji_category_action_.registerAction("msime-emoji-category", &instance->userInterfaceManager());
+    emoji_group_action_.registerAction("msime-emoji-group", &instance->userInterfaceManager());
     voice_action_.registerAction("msime-voice", &instance->userInterfaceManager());
     voice_cancel_action_.registerAction("msime-voice-cancel", &instance->userInterfaceManager());
     desktop_tools_action_.registerAction("msime-desktop-tools", &instance->userInterfaceManager());
@@ -2255,6 +2324,7 @@ public:
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &cloud_clipboard_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &emoji_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &emoji_category_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &emoji_group_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &voice_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &voice_cancel_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &desktop_tools_action_);
@@ -2287,6 +2357,7 @@ public:
     event.inputContext()->statusArea().removeAction(&cloud_clipboard_action_);
     event.inputContext()->statusArea().removeAction(&emoji_action_);
     event.inputContext()->statusArea().removeAction(&emoji_category_action_);
+    event.inputContext()->statusArea().removeAction(&emoji_group_action_);
     event.inputContext()->statusArea().removeAction(&voice_action_);
     event.inputContext()->statusArea().removeAction(&voice_cancel_action_);
     event.inputContext()->statusArea().removeAction(&desktop_tools_action_);
@@ -2339,6 +2410,7 @@ public:
   FcitxCloudClipboardAction cloud_clipboard_action_{&factory_};
   FcitxEmojiAction emoji_action_{&factory_};
   FcitxEmojiCategoryAction emoji_category_action_{&factory_};
+  FcitxEmojiGroupAction emoji_group_action_{&factory_};
   FcitxVoiceAction voice_action_{&factory_};
   FcitxVoiceCancelAction voice_cancel_action_{&factory_};
   FcitxDesktopToolsAction desktop_tools_action_;

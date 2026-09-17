@@ -192,7 +192,7 @@ int main(int argc, char **argv) {
     }
     require(!state->preferences_.value("number_row_selection", true),
             "runtime preferences reload in active Fcitx session");
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 28,
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 29,
             "native status actions attached");
     if (state->preferences_.value("cloud_candidates", false)) {
       require(engine.cloud_candidates_action_.isChecked(&ic),
@@ -207,7 +207,7 @@ int main(int argc, char **argv) {
       require(!engine.cloud_candidates_action_.isChecked(&ic),
               "cloud candidates status action reflects disabled preference");
     }
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 28,
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 29,
             "AI status action attached");
     require(engine.emoji_category_action_.shortText(&ic) == "表情：Emoji",
             "emoji category starts in the default catalog");
@@ -228,6 +228,20 @@ int main(int argc, char **argv) {
     }
     engine.emoji_category_action_.activate(&ic);
     require(state->emoji_category_.empty(), "emoji category action cycles back to default catalog");
+    const auto defaultEmojiDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (state->emoji_job_.valid() && std::chrono::steady_clock::now() < defaultEmojiDeadline) {
+      state->refreshEmoji();
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    engine.emoji_group_action_.activate(&ic);
+    const auto groupsDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (state->emoji_groups_job_.valid() && std::chrono::steady_clock::now() < groupsDeadline) {
+      state->refreshEmoji();
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    require(!state->emoji_groups_.empty(), "emoji group action loads catalog groups");
+    engine.emoji_group_action_.activate(&ic);
+    require(!state->emoji_group_.empty(), "emoji group action selects a group");
     const bool aiEnabled = state->preferences_.value("ai_assistant", Json::object())
                                .value("enabled", false);
     require(engine.ai_candidates_action_.isChecked(&ic) == aiEnabled,
