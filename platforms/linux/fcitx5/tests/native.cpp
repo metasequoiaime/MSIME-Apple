@@ -188,8 +188,8 @@ int main(int argc, char **argv) {
             "native status actions attached");
     require(engine.maintenance_menu_.actions().size() == 8,
             "candidate maintenance menu attached");
-    require(engine.clipboard_menu_.actions().size() == 5,
-            "clipboard history menu attached");
+    require(engine.clipboard_menu_.actions().size() == 11,
+            "clipboard history management menu attached");
     require(engine.desktop_tools_menu_.actions().size() == 9,
             "desktop tools menu attached");
     require(engine.emoji_menu_.actions().size() == 7,
@@ -276,6 +276,24 @@ int main(int argc, char **argv) {
     const auto beforeClipboard = ic.committed;
     engine.clipboard_action_.activate(&ic);
     require(ic.committed == beforeClipboard + "剪贴板合成测试", "clipboard action commits newest history");
+    engine.clipboard_remove1_.activate(&ic);
+    const auto removeClipboardDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (std::any_of(state->clipboard_items_.begin(), state->clipboard_items_.end(),
+                       [](const Json &item) { return (item.is_string() ? item.get<std::string>() : item.value("text", std::string{})) == "剪贴板合成测试"; }) &&
+           std::chrono::steady_clock::now() < removeClipboardDeadline) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      state->refreshClipboard();
+    }
+    require(std::none_of(state->clipboard_items_.begin(), state->clipboard_items_.end(),
+                         [](const Json &item) { return (item.is_string() ? item.get<std::string>() : item.value("text", std::string{})) == "剪贴板合成测试"; }),
+            "clipboard remove action updates history");
+    engine.clipboard_clear_action_.activate(&ic);
+    const auto clearClipboardDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (!state->clipboard_items_.empty() && std::chrono::steady_clock::now() < clearClipboardDeadline) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      state->refreshClipboard();
+    }
+    require(state->clipboard_items_.empty(), "clipboard clear action updates history");
     engine.cloud_clipboard_action_.activate(&ic);
     const auto cloudDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
     while (ic.committed.find("云剪贴板测试") == std::string::npos &&

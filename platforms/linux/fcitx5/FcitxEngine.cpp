@@ -189,6 +189,7 @@ public:
     clipboard_items_.clear();
     clipboard_loading_ = false;
     clipboard_job_ = {};
+    clipboard_mutation_job_ = {};
     cloud_clipboard_socket_.clear();
     cloud_clipboard_items_.clear();
     cloud_clipboard_job_ = {};
@@ -489,6 +490,13 @@ public:
   }
   void refreshClipboard() {
     try {
+      if (clipboard_mutation_job_.valid()) {
+        if (clipboard_mutation_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+        clipboard_mutation_job_.get();
+        clipboard_mutation_job_ = {};
+        clipboard_items_.clear();
+        clipboard_loading_ = false;
+      }
       if (clipboard_job_.valid()) {
         if (clipboard_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
         auto result = clipboard_job_.get();
@@ -515,6 +523,44 @@ public:
     const auto text = item.is_string() ? item.get<std::string>() : item.value("text", std::string{});
     if (text.empty()) return false;
     ic_.commitString(text);
+    return true;
+  }
+  bool removeClipboard(size_t index) {
+    if (restricted() || privateInput() || !ic_.hasFocus() || clipboard_path_.empty()) return false;
+    refreshClipboard();
+    if (clipboard_mutation_job_.valid() || index >= clipboard_items_.size()) return false;
+    const auto &item = clipboard_items_.at(index);
+    const auto text = item.is_string() ? item.get<std::string>() : item.value("text", std::string{});
+    if (text.empty()) return false;
+    const auto path = clipboard_path_;
+    clipboard_mutation_job_ = std::async(std::launch::async, [path, text] {
+      const auto request = Json{{"directory", path}, {"text", text}}.dump();
+      auto raw = response(msime_client_remove_clipboard_history(
+          reinterpret_cast<const uint8_t *>(request.data()), request.size()));
+      return raw.is_object() ? raw : Json::object();
+    }).share();
+    return true;
+  }
+  bool clearClipboard() {
+    if (restricted() || privateInput() || !ic_.hasFocus() || clipboard_path_.empty()) return false;
+    refreshClipboard();
+    if (clipboard_mutation_job_.valid() || clipboard_items_.empty()) return false;
+    std::vector<std::string> texts;
+    for (const auto &item : clipboard_items_) {
+      const auto text = item.is_string() ? item.get<std::string>() : item.value("text", std::string{});
+      if (!text.empty()) texts.push_back(text);
+    }
+    if (texts.empty()) return false;
+    const auto path = clipboard_path_;
+    clipboard_mutation_job_ = std::async(std::launch::async, [path, texts = std::move(texts)] {
+      Json result = Json::object();
+      for (const auto &text : texts) {
+        const auto request = Json{{"directory", path}, {"text", text}}.dump();
+        result = response(msime_client_remove_clipboard_history(
+            reinterpret_cast<const uint8_t *>(request.data()), request.size()));
+      }
+      return result;
+    }).share();
     return true;
   }
   void refreshCloudClipboard() {
@@ -748,6 +794,7 @@ public:
   Json clipboard_items_ = Json::array();
   bool clipboard_loading_ = false;
   std::shared_future<Json> clipboard_job_;
+  std::shared_future<Json> clipboard_mutation_job_;
   std::string cloud_clipboard_socket_;
   Json cloud_clipboard_items_ = Json::array();
   std::shared_future<Json> cloud_clipboard_job_;
@@ -1035,6 +1082,38 @@ private:
   size_t index_;
 };
 
+class FcitxClipboardRemoveAction : public fcitx::SimpleAction {
+public:
+  FcitxClipboardRemoveAction(fcitx::FactoryFor<FcitxState> *factory, size_t index)
+      : factory_(factory), index_(index) {}
+  std::string shortText(fcitx::InputContext *ic) const override {
+    if (ic && index_ < ic->propertyFor(factory_)->clipboard_items_.size())
+      return "删除 " + std::to_string(index_ + 1);
+    return "删除剪贴板 " + std::to_string(index_ + 1);
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try { ic->propertyFor(factory_)->removeClipboard(index_); } catch (...) {}
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+  size_t index_;
+};
+
+class FcitxClipboardClearAction : public fcitx::SimpleAction {
+public:
+  explicit FcitxClipboardClearAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
+    setShortText("清空历史");
+    setLongText("删除全部本地剪贴板历史");
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try { ic->propertyFor(factory_)->clearClipboard(); } catch (...) {}
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
 class FcitxCloudClipboardAction : public fcitx::SimpleAction {
 public:
   explicit FcitxCloudClipboardAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
@@ -1169,6 +1248,12 @@ public:
     clipboard_menu_.addAction(&clipboard_item3_);
     clipboard_menu_.addAction(&clipboard_item4_);
     clipboard_menu_.addAction(&clipboard_item5_);
+    clipboard_menu_.addAction(&clipboard_remove1_);
+    clipboard_menu_.addAction(&clipboard_remove2_);
+    clipboard_menu_.addAction(&clipboard_remove3_);
+    clipboard_menu_.addAction(&clipboard_remove4_);
+    clipboard_menu_.addAction(&clipboard_remove5_);
+    clipboard_menu_.addAction(&clipboard_clear_action_);
     desktop_tools_action_.setMenu(&desktop_tools_menu_);
     desktop_tools_menu_.addAction(&handwriting_action_);
     desktop_tools_menu_.addAction(&keyboard_action_);
@@ -1284,6 +1369,12 @@ public:
   FcitxClipboardItemAction clipboard_item3_{&factory_, 2};
   FcitxClipboardItemAction clipboard_item4_{&factory_, 3};
   FcitxClipboardItemAction clipboard_item5_{&factory_, 4};
+  FcitxClipboardRemoveAction clipboard_remove1_{&factory_, 0};
+  FcitxClipboardRemoveAction clipboard_remove2_{&factory_, 1};
+  FcitxClipboardRemoveAction clipboard_remove3_{&factory_, 2};
+  FcitxClipboardRemoveAction clipboard_remove4_{&factory_, 3};
+  FcitxClipboardRemoveAction clipboard_remove5_{&factory_, 4};
+  FcitxClipboardClearAction clipboard_clear_action_{&factory_};
   FcitxMaintenanceAction pin_action_{&factory_, 1, "固定候选"};
   FcitxMaintenanceAction remove_action_{&factory_, 2, "删除候选"};
   FcitxMaintenanceAction fix1_action_{&factory_, 11, "固定到 1"};
