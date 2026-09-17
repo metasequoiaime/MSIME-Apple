@@ -151,11 +151,15 @@ final class SkinUITests: KeyboardInterfaceTests {
     // 抽卡和设计模板一起搬到了「模板」栏 —— 它们换的是整套设计,而编辑器默认停在只改背景的那一栏。
     app.buttons["skinEditorTab_模板"].tap()
     app.buttons["openAISkinDesigner"].tap()
-    XCTAssertTrue(app.buttons["generateAISkins"].waitForExistence(timeout: 5))
-    app.buttons["generateAISkins"].tap()
-    // 5 秒,和这个文件里其它每一处等待一样。3 秒是漏网的异常值,在 CI 上间歇性地不够:报出来是
-    // 「No matches found for '取消' … from input { Button, label: '完成' }」,看着像按钮不见了,
-    // 实际只是生成还没开始。这条曾经被一整片 background assertion 超时盖住,以为是基础设施问题。
+    // 等到可点,不只是等到存在。waitForExistence 满足于元素进入无障碍层级,而那时它未必已经可交互:
+    // 落空的 tap 什么都不做,busy 保持 false,取消按钮于是永远不出现 —— 报出来是
+    // 「No matches found for '取消' … from input { Button, label: '完成' }」,看着像那个按钮没做出来。
+    //
+    // 一度以为是等得不够久,把 3 秒放到 5 秒,照样红:取消按钮在 busy 置真的同一刻就存在(见
+    // AISkinGenerationView 里 busy = true 是同步的),等多久都不会让一次没生效的点击重新生效。
+    let generate = app.buttons["generateAISkins"]
+    XCTAssertTrue(wait(generate, until: "exists == true AND isHittable == true"))
+    generate.tap()
     XCTAssertTrue(app.buttons["取消"].waitForExistence(timeout: 5))
     app.buttons["取消"].tap()
     let late = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true"), object: app.buttons["saveAISkin_AI 测试 1"])
