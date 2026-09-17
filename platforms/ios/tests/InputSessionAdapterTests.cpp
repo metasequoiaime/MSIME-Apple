@@ -257,8 +257,9 @@ void TestEnglishCompletions(const std::filesystem::path &root)
     }
     sqlite3 *database = nullptr;
     Require(sqlite3_open((root / "msime.db").c_str(), &database) == SQLITE_OK, "Cannot create the English fixture.");
-    Require(sqlite3_exec(database, "CREATE TABLE tbl_1_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
-                                   "INSERT INTO tbl_1_h VALUES('he','h','和',100);",
+    Require(sqlite3_exec(database,
+                         "CREATE TABLE tbl_1_h(key TEXT,jp TEXT,value TEXT,weight INTEGER);"
+                         "INSERT INTO tbl_1_h VALUES('he','h','和',100);",
                          nullptr, nullptr, nullptr) == SQLITE_OK,
             "Cannot populate the English fixture's main dictionary.");
     sqlite3_close(database);
@@ -281,8 +282,7 @@ void TestEnglishCompletions(const std::filesystem::path &root)
             "A rarer word matching the same prefix was dropped.");
 
     // 大小写由调用方管,查询照样要答得上 —— 句首敲的是大写。
-    Require(adapter.english_completions("Hel", 10) == completions,
-            "An uppercase prefix did not match the same words.");
+    Require(adapter.english_completions("Hel", 10) == completions, "An uppercase prefix did not match the same words.");
 
     Require(adapter.english_completions("zzq", 10).empty(), "A prefix with no match invented a word.");
     Require(adapter.english_completions("", 10).empty(), "An empty prefix queried the dictionary.");
