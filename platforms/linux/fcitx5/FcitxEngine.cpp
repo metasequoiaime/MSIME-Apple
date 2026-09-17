@@ -100,6 +100,7 @@ public:
           refreshTranslations();
           refreshClipboard();
           refreshCloudClipboard();
+          refreshEmoji();
           timer->setNextInterval(250000);
           timer->setOneShot();
           return true;
@@ -131,6 +132,8 @@ public:
     cloud_clipboard_socket_.clear();
     cloud_clipboard_items_.clear();
     cloud_clipboard_job_ = {};
+    emoji_items_.clear();
+    emoji_job_ = {};
   }
   void clearPanel() {
     ic_.inputPanel().reset();
@@ -456,6 +459,34 @@ public:
     });
     return false;
   }
+  void refreshEmoji() {
+    try {
+      if (emoji_job_.valid()) {
+        if (emoji_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+        auto result = emoji_job_.get();
+        if (result.is_object()) emoji_items_ = result.value("items", Json::array());
+      }
+    } catch (...) { emoji_items_.clear(); }
+  }
+  bool insertEmoji() {
+    if (restricted() || privateInput() || !ic_.hasFocus()) return false;
+    refreshEmoji();
+    if (!emoji_items_.empty()) {
+      const auto &item = emoji_items_.front();
+      const auto text = item.is_string() ? item.get<std::string>() : item.value("text", std::string{});
+      if (!text.empty()) { ic_.commitString(text); return true; }
+    }
+    if (emoji_job_.valid() || resources_.empty()) return false;
+    const auto resources = resources_;
+    emoji_job_ = std::async(std::launch::async, [resources] {
+      const auto query = Json{{"limit", 5}, {"cursor", true}}.dump();
+      auto result = response(msime_client_emoji_catalog_request(
+          reinterpret_cast<const uint8_t *>(query.data()), query.size(),
+          reinterpret_cast<const uint8_t *>(resources.data()), resources.size()));
+      return result.is_object() ? result : Json::object();
+    });
+    return false;
+  }
   bool apply(char *raw) {
     auto result = response(raw);
     if (result.contains("commit") && result["commit"].is_string())
@@ -518,6 +549,8 @@ public:
   std::string cloud_clipboard_socket_;
   Json cloud_clipboard_items_ = Json::array();
   std::future<Json> cloud_clipboard_job_;
+  Json emoji_items_ = Json::array();
+  std::future<Json> emoji_job_;
   bool word_character_enabled_ = true;
   bool word_character_minus_equal_ = false;
 };
@@ -772,6 +805,20 @@ private:
   fcitx::FactoryFor<FcitxState> *factory_;
 };
 
+class FcitxEmojiAction : public fcitx::SimpleAction {
+public:
+  explicit FcitxEmojiAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
+    setShortText("表情");
+    setLongText("插入本地表情目录中的第一项");
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try { ic->propertyFor(factory_)->insertEmoji(); } catch (...) {}
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
 // Each context owns a thread-bound Host API session. Fcitx never copies composing state.
 class FcitxEngine : public fcitx::InputMethodEngine {
 public:
@@ -782,6 +829,7 @@ public:
     maintenance_action_.registerAction("msime-candidate-tools", &instance->userInterfaceManager());
     clipboard_action_.registerAction("msime-clipboard", &instance->userInterfaceManager());
     cloud_clipboard_action_.registerAction("msime-cloud-clipboard", &instance->userInterfaceManager());
+    emoji_action_.registerAction("msime-emoji", &instance->userInterfaceManager());
     clipboard_action_.setMenu(&clipboard_menu_);
     clipboard_menu_.addAction(&clipboard_item1_);
     clipboard_menu_.addAction(&clipboard_item2_);
@@ -829,6 +877,7 @@ public:
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &maintenance_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &clipboard_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &cloud_clipboard_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &emoji_action_);
     try { if (state->ensure()) state->render(); } catch (...) { unavailable(*state); }
   }
   void deactivate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
@@ -838,6 +887,7 @@ public:
     event.inputContext()->statusArea().removeAction(&maintenance_action_);
     event.inputContext()->statusArea().removeAction(&clipboard_action_);
     event.inputContext()->statusArea().removeAction(&cloud_clipboard_action_);
+    event.inputContext()->statusArea().removeAction(&emoji_action_);
     state->close(); state->clearPanel();
   }
   void reset(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
@@ -867,6 +917,7 @@ public:
   FcitxMaintenanceAction maintenance_action_{&factory_, 0, "候选维护"};
   FcitxClipboardAction clipboard_action_{&factory_};
   FcitxCloudClipboardAction cloud_clipboard_action_{&factory_};
+  FcitxEmojiAction emoji_action_{&factory_};
   fcitx::Menu clipboard_menu_;
   FcitxClipboardItemAction clipboard_item1_{&factory_, 0};
   FcitxClipboardItemAction clipboard_item2_{&factory_, 1};
