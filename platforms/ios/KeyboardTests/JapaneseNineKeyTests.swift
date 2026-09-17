@@ -130,9 +130,14 @@ final class JapaneseNineKeyTests: XCTestCase {
     XCTAssertEqual(modes[2].bounds.height, single * 2 + 7, accuracy: 1.5, "英 应当跨两格")
 
     // 三个键连同缝隙正好填满整列,没有多余空当。
+    //
+    // 容差按键数给,不是一个拍脑袋的常数:一格的理想高度带半点小数(列高 235 时是 53.5),而布局把每个键
+    // 取到整点,于是每个键差不到一点,三个键累加起来能到两点多。钉死到 1.5 会让这条用例在某些 iOS 版本上
+    // 红,而它想问的「有没有多余空当」并没有被破坏 —— 真正会破坏它的是漏掉一道缝或者某个键没参与分配,
+    // 那种错是七点起步,这个容差拦得住。
     let column = try XCTUnwrap(nodes(panel).first { $0.accessibilityIdentifier == "japaneseModeColumn" })
     let used = modes.map { $0.bounds.height }.reduce(0, +) + 7 * 2
-    XCTAssertEqual(used, column.bounds.height, accuracy: 1.5, "左列应当被填满")
+    XCTAssertEqual(used, column.bounds.height, accuracy: Double(modes.count), "左列应当被填满")
   }
 
   func testDigitLayerKeepsTheSameThreeColumnGrid() throws {
