@@ -106,22 +106,29 @@ final class JapaneseNineKeyView: UIStackView {
       // and is not: that constraint spans two stacks, and the engine settles it by handing every row
       // the whole panel height instead.
       //
-      //   一格 = (H - 3×7) / 4          两格 = 2×(H - 3×7)/4 + 7
+      // 关系只在兄弟键之间表达,不引用本列的高度。原先每个键写成 modes.heightAnchor × span/4 加一个常数,
+      // 算出来是对的,可它成了环:子键的高度引用父 stack,而 .fill 的 stack 高度又由子键决定。iOS 26 的求解器
+      // 凑出了那个唯一解,iOS 27 没有 —— 123 比 ^_^ 高 2.33pt,三个键加缝隙撑出列高 2pt。
+      //
+      // 现在只说两件事:单格键彼此等高;跨两格的那个等于两格加中间那道缝。总高由 stack 的 fill 补齐,一格
+      // 到底多高不必写死,环也就不存在了。
+      //
       // 优先级压到 999:UIStackView 用必需优先级把隐藏的 arranged subview 压成零高,地球键不出现时
       // 两条必需约束会当场打架。
-      let pin = { (key: UIButton, span: CGFloat) -> NSLayoutConstraint in
-        let constraint = key.heightAnchor.constraint(
-          equalTo: modes.heightAnchor, multiplier: span / 4,
-          constant: span == 2 ? -3.5 : -5.25)
+      let relate = { (constraint: NSLayoutConstraint) in
         constraint.priority = .required - 1
-        return constraint
+        constraint.isActive = true
+      }
+      let singleSpanKeys = modeKeys.enumerated().filter { $0.offset != 2 }.map(\.element)
+      for key in singleSpanKeys.dropFirst() {
+        relate(key.heightAnchor.constraint(equalTo: singleSpanKeys[0].heightAnchor))
       }
       let row = { (span: CGFloat) -> NSLayoutConstraint? in
-        guard modeKeys.indices.contains(2) else { return nil }
-        return pin(modeKeys[2], span)
-      }
-      for (index, key) in modeKeys.enumerated() where index != 2 {
-        pin(key, 1).isActive = true
+        guard modeKeys.indices.contains(2), let reference = singleSpanKeys.first else { return nil }
+        let constraint = modeKeys[2].heightAnchor.constraint(
+          equalTo: reference.heightAnchor, multiplier: span, constant: span == 2 ? 7 : 0)
+        constraint.priority = .required - 1
+        return constraint
       }
       scriptKeyOneRow = row(1)
       scriptKeyTwoRows = row(2)

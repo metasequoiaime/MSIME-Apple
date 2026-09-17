@@ -588,14 +588,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let delete = makeDeleteKey()
     delete.accessibilityIdentifier = "nineKeyDelete"
     controls.addArrangedSubview(delete)
-    let clear = makeKey(title: "重输", accessibilityLabel: "清空当前拼音重新输入") { [weak self] in
-      guard let self else { return }
-      self.playInputClick()
-      self.render(self.session.cancel())
+    // 句点交给引擎的标点策略,和其它标点键一个走法:中文标点开着出「。」,关着出「.」。所以这一列在打字时
+    // 是句号,在打数字时是小数点,不必为此再占一个键位。
+    //
+    // 这里原先是「重输」(session.cancel)。清空整段拼音这件事挪到了退格长按 —— 那个手势本来就是「删多一点」
+    // 的意思,而一个只在组字时有用的键,占着九宫格右列三分之一的位置太贵了。
+    let period = makeKey(title: ".", accessibilityLabel: "句点") { [weak self] in
+      self?.handleSymbol(".")
     }
-    clear.configuration?.contentInsets = .zero
-    clear.accessibilityIdentifier = "nineKeyClear"
-    controls.addArrangedSubview(clear)
+    period.configuration?.contentInsets = .zero
+    period.accessibilityIdentifier = "nineKeyPeriod"
+    controls.addArrangedSubview(period)
     let zero = makeKey(title: "0", accessibilityLabel: "数字 0") { [weak self] in
       self?.handleSymbol("0")
     }
@@ -1310,6 +1313,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     } else {
       let output = letterCaseState == .lowercase ? character : character.uppercased()
       insertOwnText(output)
+      refreshEnglishSuggestions()
       if letterCaseState == .shifted {
         letterCaseState = .lowercase
         lastShiftTapTime = nil
@@ -1318,10 +1322,44 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
   }
 
+  // 当前这个词从文档里读,不自己记。光标被点到别处、宿主自动更正、撤销 —— 这些都会让一份自己维护的
+  // 记录和文档走散,而走散之后候选是错的却不会报错。每次重新读就没有这个问题。
+  private var englishWordBeforeCursor: String {
+    guard !isChineseMode, EnglishSuggestionsPreference.isEnabled else { return "" }
+    return EnglishSuggestionPolicy.currentWord(before: textDocumentProxy.documentContextBeforeInput ?? "")
+  }
+
+  // 英文的候选只有候选,没有 preedit —— 字母已经在文档里了,再画一遍 preedit 就成了重影。
+  private func refreshEnglishSuggestions() {
+    let prefix = englishWordBeforeCursor
+    guard prefix.count >= 2 else {
+      updateCandidateStrip(preedit: "", candidates: [])
+      return
+    }
+    updateCandidateStrip(preedit: "", candidates: session.englishCompletions(forPrefix: prefix, limit: 12))
+  }
+
+  // 点候选:把已敲的那截退掉,换成整词。退几个、插什么由 EnglishSuggestionPolicy 算,那一段单独可测。
+  private func useEnglishSuggestion(at index: Int) {
+    guard index < visibleCandidates.count else { return }
+    let typed = englishWordBeforeCursor
+    let startedCapitalized = typed.first.map { $0.isUppercase } ?? false
+    guard let replacement = EnglishSuggestionPolicy.replacement(
+      typed: typed, candidate: visibleCandidates[index], startedCapitalized: startedCapitalized)
+    else {
+      updateCandidateStrip(preedit: "", candidates: [])
+      return
+    }
+    for _ in 0..<replacement.deleteCount { deleteOwnBackward() }
+    insertOwnText(replacement.insert)
+    updateCandidateStrip(preedit: "", candidates: [])
+  }
+
   private func handleSymbol(_ symbol: String) {
     playInputClick()
     if !isChineseMode {
       insertOwnText(symbol)
+      refreshEnglishSuggestions()
       return
     }
 
@@ -2162,6 +2200,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func handleBackspace() {
     if !handwriting.isHidden && handwriting.hasInk { handwriting.canvas.undo(); return }
     playInputClick()
+    if !isChineseMode {
+      // 文档里已经有字母了,退格就是删文档,然后照着删完的样子重新读一次。
+      deleteOwnBackward()
+      refreshEnglishSuggestions()
+      return
+    }
     let snapshot = session.handleBackspace()
     if !snapshot.isHandled {
       deleteOwnBackward()
@@ -2199,6 +2243,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   @objc private func repeatBackspace() {
+    // 长按第一次触发时正在组字,就当作「重输」:整段拼音一次清掉,并且不再继续重复 —— 不然接下来那几十次
+    // 重复会转而去删文档里已经上屏的内容,而人只是想把这段没打完的拼音扔掉。
+    //
+    // 没在组字时维持原样:连续删除文档。这是长按退格在任何键盘上的含义,不能因为加了清空就把它弄丢。
+    if !didRepeatBackspace && hasComposition {
+      // 只停表,不走 cancelBackspacePress —— 那个会把 didRepeatBackspace 清掉,松手时就会再删一个字符。
+      backspaceRepeatTimer?.invalidate()
+      backspaceRepeatTimer = nil
+      didRepeatBackspace = true
+      playInputClick()
+      render(session.cancel())
+      return
+    }
     didRepeatBackspace = true
     handleBackspace()
   }
@@ -2253,6 +2310,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func handleSpace() {
     if !handwriting.isHidden && handwriting.hasInk { _ = handwriting.commitFirst(); return }
     playInputClick()
+    // 英文的空格上屏的是你敲的原文,不是候选第一项。候选是建议,抢走空格就把打字变成了挑词。
+    if !isChineseMode {
+      insertOwnText(" ")
+      refreshEnglishSuggestions()
+      return
+    }
     // 日语的空格是変換,不是確定。First press highlights the leading candidate, each one after that
     // steps down the list, and Return is what commits. Committing on the first press left no way to
     // reach the second candidate without abandoning the keyboard for the strip.
@@ -2485,6 +2548,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         // 手写的候选不是引擎给的,不能按下标回给引擎选。
         if self.inputScheme == .handwriting, !self.handwritingResults.isEmpty {
           if self.handwriting.use(at: index) { self.handwritingResults = [] }
+          return
+        }
+        // 英文的候选是补全,不是上屏 —— 文档里已经有敲进去的那截了,选中意味着替换它。
+        if !self.isChineseMode {
+          self.useEnglishSuggestion(at: index)
           return
         }
         self.render(self.session.selectCandidate(at: UInt(index)))

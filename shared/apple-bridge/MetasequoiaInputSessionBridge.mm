@@ -451,6 +451,15 @@ metasequoia::apple::DictionaryInstallation ConfigureDataDirectory(bool refresh =
     _adapter->set_wubi_mixed_pinyin(enabled);
 }
 
+- (NSArray<NSString *> *)englishCompletionsForPrefix:(NSString *)prefix limit:(NSUInteger)limit
+{
+    const auto words = _adapter->english_completions(prefix.UTF8String ?: "", limit);
+    NSMutableArray<NSString *> *result = [NSMutableArray arrayWithCapacity:words.size()];
+    for (const auto &word : words)
+        [result addObject:@(word.c_str())];
+    return result;
+}
+
 - (void)setCandidateGlossesEnabled:(BOOL)enabled
 {
     _adapter->set_candidate_glosses_enabled(enabled);

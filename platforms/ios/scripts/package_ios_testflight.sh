@@ -15,8 +15,8 @@ tag_name=${1:-}
 : "${METASEQUOIA_IOS_APP_PROVISIONING_PROFILE_PATH:?METASEQUOIA_IOS_APP_PROVISIONING_PROFILE_PATH is required}"
 : "${METASEQUOIA_IOS_KEYBOARD_PROVISIONING_PROFILE_PATH:?METASEQUOIA_IOS_KEYBOARD_PROVISIONING_PROFILE_PATH is required}"
 
-if [[ ! "$tag_name" =~ ^(macos-|ios-)?v[0-9]+\.[0-9]+\.[0-9]+(-build\.[1-9][0-9]{0,3}\.[0-9]{1,2}\.[0-9]{1,2})?$ ]]; then
-    printf '%s\n' 'Tag must use vMAJOR.MINOR.PATCH with an optional -build.X.Y.Z suffix.' >&2
+if [[ ! "$tag_name" =~ ^(macos-|ios-)?v[0-9]+\.[0-9]+\.[0-9]+(-build\.[1-9][0-9]{0,8}(\.[0-9]{1,2}\.[0-9]{1,2})?)?$ ]]; then
+    printf '%s\n' 'Tag must use vMAJOR.MINOR.PATCH with an optional -build.N suffix.' >&2
     exit 1
 fi
 if [[ ! -s "$METASEQUOIA_IOS_AUTH_KEY_PATH" ]]; then

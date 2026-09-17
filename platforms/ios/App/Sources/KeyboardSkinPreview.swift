@@ -46,7 +46,7 @@ struct KeyboardSkinPreview: View {
           }
           VStack(spacing: layout.rowSpacing) {
             key("⌫")
-            key("重输")
+            key(".")
             key("0")
           }.frame(width: nineKeySidebarWidth)
         }.frame(maxHeight: .infinity)

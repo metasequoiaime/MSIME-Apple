@@ -114,6 +114,8 @@ jobs:
         run: |
           python3 platforms/ios/tests/ProjectConfigurationTests.py
           python3 platforms/ios/tests/DictionaryPackagingTests.py
+          # 提交 TestFlight 审核那段只在发布当天跑,而那一天出错的代价是一次失败的发布。缺 pyjwt 时它自己跳过。
+          python3 platforms/ios/tests/TestFlightSubmissionTests.py
       - name: Package iOS dictionary
         run: python3 platforms/ios/scripts/prepare_dictionary.py
       - name: Generate Xcode project
@@ -139,9 +141,11 @@ jobs:
         # The cap is what the whole suite took on arm64 before that, with room to spare, rather than
         # a number the suite has to fit inside. The 110 it used to carry was for an Intel runner
         # doing this work on a Simulator half the speed, and a 25-minute build in front of it.
+        #
+        # 60 rather than 45, because the cap has to cover the build as well: run_ui_tests.sh does build-for-testing and test-without-building in the one step, so a compile from cold is inside the budget along with the whole suite. Measured at this gate, the job takes 33 to 34 minutes; a runner half again as slow took 50 and was killed mid-suite, which reads as a test failure and is not one. The point of the cap is to stop a hang, and a hang is open-ended -- it does not need a tight number to be caught.
         env:
           MSIME_TEST_SCOPE: ${{ (github.base_ref == 'main' || github.ref_name == 'main') && 'all' || 'pr' }}
-        timeout-minutes: 45
+        timeout-minutes: 60
         run: bash platforms/ios/scripts/run_ui_tests.sh
       - name: Upload iOS test results
         if: ${{ !cancelled() }}
@@ -154,12 +158,12 @@ jobs:
   ios-handwriting:
     needs: changes
     name: iOS Handwriting
-    # The three cases that need MLKitDigitalInkRecognition, which has no arm64 Simulator slice, and
-    # therefore the only ones that still need an Intel runner. They are here rather than in the job
-    # above so that the interface suite does not wait behind an Intel build for a dependency it does
-    # not use. Deferred to merge for the same reason the whole suite used to be: the build in front
-    # of three cases costs more than the cases do, and a review signal is not worth that.
-    if: ${{ needs.changes.outputs.build == 'true' && github.event_name != 'pull_request' }}
+    # The three cases that need MLKitDigitalInkRecognition, which has no arm64 Simulator slice, and therefore the only ones that still need an Intel runner. They are here rather than in the job above so that the interface suite does not wait behind an Intel build for a dependency it does not use.
+    #
+    # It used to say three and run seven: the runner skipped the whole HandwritingTests class on arm64, so the four cases in it that never touch recognition -- hit testing, panel height, stroke undo -- only ever ran here, behind a twenty-five minute Intel build, and never on a pull request at all. They run on arm64 now, in two and a half seconds, and this job is the three that are left.
+    #
+    # Deferred to the gate rather than to merge, which is where the interface suite already sits for the same reason. On a develop push this was the critical path by a wide margin -- 25 to 31 minutes against 19 for the next longest job -- and it gated nothing: the pull request run is the gate, and this job was skipped there. A regression in the ML Kit integration now surfaces on the promotion to main rather than on the merge that caused it.
+    if: ${{ needs.changes.outputs.build == 'true' && (github.base_ref == 'main' || github.ref_name == 'main') }}
     runs-on: macos-15-intel
     timeout-minutes: 75
     env:

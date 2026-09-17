@@ -1,4 +1,4 @@
-name: Release IOS
+name: Release iOS
 
 # iOS 的发布:打包 xcarchive 与 TestFlight 上传。macOS 走 release-macos.yml,两者各自触发、各自打 tag、各自出产物。
 
@@ -64,14 +64,17 @@ jobs:
         env:
           REQUESTED_TAG: ${{ inputs.tag }}
         run: |
-          # Start above the legacy iOS commit-count builds (491 at migration) and the 1002.x builds already on TestFlight and Sparkle; #405 dropped this offset from a stale checkout and shipped 3.64.1.
-          # Three numeric components; retries receive a distinct build, up to 99 attempts.
-          test "$GITHUB_RUN_ATTEMPT" -lt 100
-          build="$((1000 + GITHUB_RUN_NUMBER / 100)).$((GITHUB_RUN_NUMBER % 100)).$GITHUB_RUN_ATTEMPT"
+          # The build is the run number, and nothing else. It used to be three components on an offset that cleared the 1002.x line already on TestFlight and Sparkle; the counter is deliberately reset below that line, and the offset goes with it.
+          #
+          # What the reset costs, written here so the next person does not rediscover it: Sparkle compares this number -- generate-sparkle-appcast.sh passes it as --versions -- so a Mac already running 1002.71.1 is offered nothing by this line until it climbs back past 1002.71.1, and reports no error while doing it. App Store Connect judges uniqueness per marketing version and build, so a reset number only uploads once the marketing version moves up. The macOS installer also rides on this number -- package_release.sh passes it to pkgbuild --version and into InstallerDistribution.xml's pkg-ref -- so an existing install's receipt will be newer than the package offered to it; what the Installer does with that has not been tested here.
+          #
+          # The third component used to hand a rerun of the same run a distinct number. There is no third component now, so a rerun computes the number the run already used, and rerunning a release that uploaded successfully fails at the upload step against that uniqueness check. The way through is the manual tag input, not a credentials hunt.
+          build="$GITHUB_RUN_NUMBER"
           if [[ "$REQUESTED_TAG" == *-build.* ]]; then
             build="${REQUESTED_TAG##*-build.}"
           fi
-          if [[ ! "$build" =~ ^[1-9][0-9]{0,3}\.[0-9]{1,2}\.[0-9]{1,2}$ ]]; then
+          # A plain integer is what this workflow allocates. The three-component form is still accepted because tags from before the reset are still on releases, and rebuilding one of those drafts feeds its number back through here -- the same reason the tag validators still accept that shape.
+          if [[ ! "$build" =~ ^[1-9][0-9]{0,8}(\.[0-9]{1,2}\.[0-9]{1,2})?$ ]]; then
             echo "Invalid build number: $build" >&2
             exit 1
           fi
@@ -166,8 +169,8 @@ jobs:
           GH_REPO: ${{ github.repository }}
           TAG_NAME: ${{ inputs.tag }}
         run: |
-          if [[ ! "$TAG_NAME" =~ ^(macos-|ios-)?v[0-9]+\.[0-9]+\.[0-9]+(-build\.[1-9][0-9]{0,3}\.[0-9]{1,2}\.[0-9]{1,2})?$ ]]; then
-            echo "Tag must use vMAJOR.MINOR.PATCH with an optional -build.X.Y.Z suffix." >&2
+          if [[ ! "$TAG_NAME" =~ ^(macos-|ios-)?v[0-9]+\.[0-9]+\.[0-9]+(-build\.[1-9][0-9]{0,8}(\.[0-9]{1,2}\.[0-9]{1,2})?)?$ ]]; then
+            echo "Tag must use vMAJOR.MINOR.PATCH with an optional -build.N suffix." >&2
             exit 1
           fi
           release_json=$(gh release view "$TAG_NAME" --json isDraft,targetCommitish)
@@ -367,6 +370,51 @@ jobs:
           export METASEQUOIA_IOS_KEYBOARD_PROVISIONING_PROFILE_PATH="$IOS_KEYBOARD_PROFILE_PATH"
           export METASEQUOIA_IOS_RELEASE_DIR="$GITHUB_WORKSPACE/dist"
           exec "$RUNNER_TEMP/package-ios-testflight.sh" "$TAG_NAME"
+      # 上传只是把文件交给 App Store Connect;build 会一直停在 READY_FOR_BETA_SUBMISSION,直到有人进网站点提交。
+      # 所以外部测试者拿到的一直是某个人上次手动提交的那一版,而不是刚发的这一版。
+      #
+      # 只有主动发起的发布走这一步。每次合并产生的自动构建是 prerelease 那个意义上的构建,值得上传,
+      # 但不值得一天十几次去占 Apple 的审核配额。
+      # 上传只是把文件交给 App Store Connect;build 会一直停在那里,直到有人进网站把它分发出去。
+      # 之前每次发布传上去的 build,测试者都没看见 —— 他们停在某个人上次手动分发的那一版。
+      #
+      # 两类受众走两条路:合进 main 的构建进内部组,不需要审核,处理完就能装;主动发起的发布还要进
+      # 外部组并提交 Apple 审核,那个队列值得一次发布占一个名额,而不是一次合并占一个。
+      - name: Hand the build to its testers
+        if: ${{ steps.testflight_credentials.outputs.enabled == 'true' }}
+        env:
+          BUILD_NUMBER: ${{ needs.prepare.outputs.build_number }}
+          IOS_API_KEY_ID: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_ID }}
+          IOS_API_KEY_ISSUER_ID: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
+          IOS_API_KEY_PATH: ${{ steps.testflight_credentials.outputs.key_path }}
+          IOS_APP_ID: ${{ vars.IOS_APP_STORE_CONNECT_APP_ID }}
+          IOS_INTERNAL_GROUP: ${{ vars.IOS_TESTFLIGHT_INTERNAL_GROUP }}
+          IOS_EXTERNAL_GROUP: ${{ vars.IOS_TESTFLIGHT_EXTERNAL_GROUP }}
+          DELIBERATE: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          set -euo pipefail
+          if [[ "$DELIBERATE" == true ]]; then
+            group=$IOS_EXTERNAL_GROUP
+            review=--submit-review
+            missing=IOS_TESTFLIGHT_EXTERNAL_GROUP
+          else
+            group=$IOS_INTERNAL_GROUP
+            review=
+            missing=IOS_TESTFLIGHT_INTERNAL_GROUP
+          fi
+          if [[ -z "$IOS_APP_ID" || -z "$group" ]]; then
+            echo "IOS_APP_STORE_CONNECT_APP_ID and $missing must be set; the build would stay uploaded but undistributed." >&2
+            exit 1
+          fi
+          python3 -m pip install --quiet --disable-pip-version-check 'pyjwt[crypto]==2.10.1'
+          python3 platforms/ios/scripts/submit_testflight_review.py \
+            --app "$IOS_APP_ID" \
+            --build-version "$BUILD_NUMBER" \
+            --group "$group" \
+            ${review:+$review} \
+            --key-id "$IOS_API_KEY_ID" \
+            --issuer-id "$IOS_API_KEY_ISSUER_ID" \
+            --key-path "$IOS_API_KEY_PATH"
       - name: Revalidate draft release target
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}

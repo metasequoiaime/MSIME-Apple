@@ -2,6 +2,7 @@ import base64
 import hashlib
 import json
 import os
+import re
 import textwrap
 import subprocess
 import tempfile
@@ -39,33 +40,143 @@ class BuildNumberTests(unittest.TestCase):
                                     env=environment, text=True, capture_output=True)
             return result, output.read_text() if output.exists() else ""
 
-    def test_build_increases_across_runs_rollover_and_retries(self):
+    def test_the_build_is_the_run_number(self):
+        """号就是运行序号,一个整数。跟着来的性质是它单调递增 —— 同一条线上后发的号必须比先发的大,否则 Sparkle 看不见更新、App Store Connect 收不进去。
+
+        这一条不拿它跟曾经发出去的最高号(1002.71.1)比:计数是被有意重置到那条线之下的。代价是 Sparkle 要重新爬过去,已装的 macOS 用户才会再收到更新。而在一次重置之内号还往回走,那就只是个 bug,上面那个等式会拦住。
+        """
         builds = []
-        for run, attempt in [(99, 1), (99, 2), (100, 1), (101, 1)]:
-            result, output = self.run_step("Allocate build number",
-                                         GITHUB_RUN_NUMBER=str(run),
-                                         GITHUB_RUN_ATTEMPT=str(attempt))
+        for run in (1, 2, 99, 100, 101):
+            result, output = self.run_step("Allocate build number", GITHUB_RUN_NUMBER=str(run))
             self.assertEqual(result.returncode, 0, result.stderr)
-            builds.append(tuple(map(int, output.strip().split("=")[1].split("."))))
-        self.assertEqual(builds, sorted(set(builds)))
-        # The offset keeps every build above the legacy commit-count builds (491): #405 dropped it from a stale checkout and shipped 3.64.1, a CFBundleVersion below the 1002.x line TestFlight and Sparkle already carry.
-        self.assertGreater(builds[0], (1000, 0, 0))
+            builds.append(int(output.strip().split("=")[1]))
+        self.assertEqual(builds, [1, 2, 99, 100, 101])
+
+    def test_a_retry_reuses_its_number(self):
+        """重跑拿不到新号了 —— 第三段没有了。
+
+        这不是疏漏,是取舍:号就是运行序号。代价是重跑一个已上传成功的发布会在上传那一步撞上 App Store Connect 的唯一性检查,那时要走手动指定 tag 那条路。写成测试,免得下次有人对着上传失败去查凭据。
+        """
+        numbers = set()
+        for attempt in (1, 2):
+            result, output = self.run_step("Allocate build number",
+                                           GITHUB_RUN_NUMBER="7", GITHUB_RUN_ATTEMPT=str(attempt))
+            self.assertEqual(result.returncode, 0, result.stderr)
+            numbers.add(output.strip())
+        self.assertEqual(numbers, {"value=7"})
+
+    def test_both_release_workflows_allocate_the_build_the_same_way(self):
+        """两个 workflow 各有各的 GITHUB_RUN_NUMBER,算法却必须一起改。
+
+        一边改一边忘,两个产品的号会悄悄按不同规则走,而没有任何东西会报错 —— 直到某天要回答「这两个号是不是同一批代码」的时候。这个类里其余用例只读 release-macos.yml,所以这一条是把它们的结论接到 iOS 那一半上的唯一一根线:逐字比,连注释里的取舍说明一起。
+        """
+        root = MACOS_ROOT.parents[1] / ".github/workflows"
+
+        def allocation_step(name):
+            workflow = (root / name).read_text()
+            body = workflow.split("      - name: Allocate build number\n", 1)[1]
+            return body.split("\n      - name:", 1)[0].split("        run: |\n", 1)[1]
+
+        self.assertEqual(allocation_step("release-macos.yml"), allocation_step("release-ios.yml"))
+
+    def test_every_tag_validator_carries_the_same_pattern(self):
+        """七处 tag 校验是同一条正则的七份拷贝,散在五个脚本和两个 workflow 里,没有共享的 shell 库可以放。
+
+        这条就是那个库的替代品。刚踩过一次同类:tag 校验放宽了,而分配步骤里另一道 build 号校验没跟上,断的是一条平时不走的路,全绿。这里按错误文案发现拷贝,不是写死名单 —— 再多出一份来也自动纳入。
+        """
+        root = MACOS_ROOT.parents[1]
+        pattern = re.compile(r"=~ '?(\^\(macos-\|ios-\)\?v[^\s']+\$)'?")
+        found = {}
+        for path in sorted(root.glob("platforms/**/*.sh")) + sorted(root.glob(".github/workflows/*.yml")):
+            text = path.read_text()
+            if "Tag must use vMAJOR.MINOR.PATCH" not in text:
+                continue
+            match = pattern.search(text)
+            self.assertIsNotNone(match, f"{path} 有 tag 校验的错误文案,却读不出正则")
+            found[str(path.relative_to(root))] = match.group(1)
+
+        self.assertEqual(len(found), 7, f"tag 校验的份数变了,确认每一份都还同步: {sorted(found)}")
+        self.assertEqual(len(set(found.values())), 1, found)
+
+        # 形状本身:整数收,重置之前的三段号也收 —— 那些 tag 还挂在 releases 上。
+        expression = next(iter(found.values()))
+        for tag, accepted in [("v0.48.6", True), ("v0.48.6-build.1", True),
+                              ("macos-v0.48.6-build.23", True), ("ios-v0.48.6-build.1002.71.1", True),
+                              ("v0.48.6-build.0", False), ("v0.48.6-build.1.2", False),
+                              ("v0.48.6-build.", False), ("0.48.6", False)]:
+            probe = subprocess.run(
+                ["bash", "-c", f'[[ "$1" =~ {expression} ]]', "probe", tag],
+                text=True, capture_output=True)
+            self.assertEqual(probe.returncode == 0, accepted, tag)
+
+    def test_the_tag_validator_and_the_build_validator_accept_the_same_shapes(self):
+        """两道校验串在一条路上:tag 校验放行一个 tag,分配步骤再从它里面取出 build 号、用另一条正则校一遍。前者收后者不收,发布就死在中间。
+
+        这个 bug 发生过,而且在 CI 上是绿的 —— 它只在手动指定 tag 重发旧版本时才走到。上面两条用例各管一半(七处 tag 校验彼此一致、旧三段号能过分配步骤),却都钉的是具体形状:把两边的 tag 正则一起放宽到一种新形状,两条都还是绿的,而发布照样会断。
+
+        所以这里不比形状,比语言:凡是 tag 校验认的 build 后缀,build 号校验都必须认,反之亦然。
+        """
+        root = MACOS_ROOT.parents[1]
+        workflow = (root / ".github/workflows/release-macos.yml").read_text()
+        tag_pattern = re.search(r'"\$TAG_NAME" =~ (\S+) \]\]', workflow)
+        build_pattern = re.search(r'"\$build" =~ (\S+) \]\]', workflow)
+        self.assertIsNotNone(tag_pattern, "读不出 tag 校验的正则")
+        self.assertIsNotNone(build_pattern, "读不出 build 号校验的正则")
+        tag_expression = re.compile(tag_pattern.group(1))
+        build_expression = re.compile(build_pattern.group(1))
+
+        # 形状自己生成,不写死清单 —— 写死的话,放宽成一个没列进来的形状照样溜过去,那正是这条用例要拦的。
+        parts = ("0", "1", "9", "01", "23", "99", "100", "1002", "71", "999999999", "1234567890")
+        candidates = set(parts)
+        for a in parts:
+            for b in parts:
+                candidates.add(f"{a}.{b}")
+                for c in parts:
+                    candidates.add(f"{a}.{b}.{c}")
+                    candidates.add(f"{a}.{b}.{c}.{a}")
+        disagreed = sorted(
+            candidate for candidate in candidates
+            if bool(tag_expression.fullmatch(f"v1.2.3-build.{candidate}"))
+            != bool(build_expression.fullmatch(candidate))
+        )
+        self.assertEqual(disagreed, [], f"tag 校验与 build 号校验对这些形状意见不一致: {disagreed[:10]}")
+
+        # 上面是拿 Python 的 re 读这两条正则,而实际跑它们的是 bash。抽几个真的走一遍步骤,确认两边理解一致。
+        for candidate in ("1", "23", "1002.71.1", "0", "1.2", "1.2.3.4"):
+            expected = bool(build_expression.fullmatch(candidate))
+            result, output = self.run_step("Allocate build number",
+                                           REQUESTED_TAG=f"v0.48.6-build.{candidate}")
+            with self.subTest(candidate=candidate):
+                self.assertEqual(result.returncode == 0, expected, result.stderr)
+                if expected:
+                    self.assertEqual(output, f"value={candidate}\n")
 
     def test_manual_build_draft_preserves_its_build(self):
         result, output = self.run_step("Allocate build number",
-                                     REQUESTED_TAG="v0.48.6-build.2.23.1")
+                                     REQUESTED_TAG="v0.48.6-build.23")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertEqual(output, "value=2.23.1\n")
+        self.assertEqual(output, "value=23\n")
+
+    def test_a_draft_from_before_the_reset_can_still_be_rebuilt(self):
+        """重置之前发出去的 tag 是三段号,重发那些 draft 会把它喂回这一步。
+
+        tag 校验放宽就是为了这条路,但这一步还另有一道 build 号校验 —— 只放宽前者,重发会死在这里,而这条路平时根本不走,红不了。两道校验必须收一样的形状。
+        """
+        for tag in ("v0.48.6-build.1002.71.1", "macos-v0.48.6-build.1002.71.1"):
+            with self.subTest(tag=tag):
+                result, output = self.run_step("Allocate build number", REQUESTED_TAG=tag)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(output, "value=1002.71.1\n")
 
     def test_push_creates_unique_draft_at_exact_source_commit(self):
         result, output = self.run_step(
             "Create the build draft",
             prefix='cat() { printf "0.48.6\\n"; }; gh() { printf "%s\\n" "$*"; }',
-            BUILD_NUMBER="2.23.1", GITHUB_SHA=HEAD_SHA)
+            BUILD_NUMBER="23", GITHUB_SHA=HEAD_SHA)
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("release create v0.48.6-build.2.23.1 --target " + HEAD_SHA, result.stdout)
+        self.assertIn("release create v0.48.6-build.23 --target " + HEAD_SHA, result.stdout)
         self.assertIn("--draft --prerelease", result.stdout)
-        self.assertEqual(output, "release_created=true\ntag_name=v0.48.6-build.2.23.1\ntarget_sha=" + HEAD_SHA + "\n")
+        self.assertEqual(output, "release_created=true\ntag_name=v0.48.6-build.23\ntarget_sha=" + HEAD_SHA + "\n")
 
     def test_manual_version_bump_and_draft_selection_are_exclusive(self):
         # Leaving both empty is the third mode: it creates its own draft rather than promoting a
@@ -921,15 +1032,24 @@ fi
         self.assertIn("sign:test-private-key:", calls)
 
     def test_build_tag_selects_internal_build_for_appcast(self):
-        result, appcast, calls = self.run_generator(tag="v1.2.3-build.2.23.1")
+        result, appcast, calls = self.run_generator(tag="v1.2.3-build.23")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("--versions 2.23.1", calls)
-        self.assertIn("releases/download/v1.2.3-build.2.23.1/", appcast)
+        self.assertIn("--versions 23", calls)
+        self.assertIn("releases/download/v1.2.3-build.23/", appcast)
+
+    def test_a_tag_from_before_the_reset_is_still_publishable(self):
+        """重置之前发出去的三段号还挂在 releases 上,重发某个旧 draft 会把它喂回这里来。
+
+        新号是纯整数,但收得下旧形状要单独钉一条 —— 不然哪天有人顺手把正则收紧成 `[0-9]+`,断的是一条只在重发旧版本时才走到的路,平时全绿。
+        """
+        result, appcast, calls = self.run_generator(tag="v1.2.3-build.1002.71.1")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("--versions 1002.71.1", calls)
 
     def test_formal_release_uses_independent_build(self):
-        result, appcast, calls = self.run_generator(build="2.24.1")
+        result, appcast, calls = self.run_generator(build="24")
         self.assertEqual(result.returncode, 0, result.stderr)
-        self.assertIn("--versions 2.24.1", calls)
+        self.assertIn("--versions 24", calls)
 
     def test_rejects_archive_that_does_not_match_release_tag(self):
         result, appcast, calls = self.run_generator(

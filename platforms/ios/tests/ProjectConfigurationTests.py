@@ -744,6 +744,61 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
 
         self.assertIn("textDocumentProxy.autocapitalizationType ?? .sentences", controller)
 
+    def test_only_the_cases_that_need_ml_kit_go_to_the_intel_runner(self):
+        """手写这一类按用例分,不按类分 —— 名单必须和「谁真的碰识别」对得上。
+
+        整类跳过的时候,类里四个纯 UIKit 用例(hitTest、面板高度、笔画增删)也只在合并后的 Intel job 里跑,PR 上一点覆盖没有。现在 arm64 只跳需要 ML Kit 的那几个。
+        真正要守的是这条:以后有人往这个类里加一条识别用例却忘了登记,它会在 arm64 上静默失败 —— 那台机器根本没有可链接的 SDK。所以这里不核对写死的名字,而是从用例体里判断谁引用了 HandwritingRecognizer,再跟脚本里的名单比。
+        """
+        runner = (IOS_ROOT / "scripts/run_ui_tests.sh").read_text()
+        source = (IOS_ROOT / "KeyboardTests/HandwritingTests.swift").read_text()
+
+        declared = re.search(r"recognition_cases=\(\n(.*?)\n\)", runner, re.S)
+        self.assertIsNotNone(declared, "run_ui_tests.sh 应当把识别用例列成一个数组")
+        listed = [line.strip().rsplit("/", 1)[-1] for line in declared.group(1).splitlines() if line.strip()]
+
+        spans = [(m.group(1), m.start()) for m in re.finditer(r"func (test\w+)\s*\(", source)]
+        self.assertGreater(len(spans), len(listed), "HandwritingTests 里应当还有不需要 ML Kit 的用例")
+        needs_ml_kit = []
+        for index, (name, start) in enumerate(spans):
+            end = spans[index + 1][1] if index + 1 < len(spans) else len(source)
+            if "HandwritingRecognizer" in source[start:end]:
+                needs_ml_kit.append(name)
+        self.assertEqual(sorted(listed), sorted(needs_ml_kit))
+
+        # 两边都从那一个数组推导,不要谁再写死一份。
+        self.assertIn('for recognition_case in "${recognition_cases[@]}"', runner)
+        self.assertIn('skip_arguments+=(-skip-testing:"${recognition_case}")', runner)
+        self.assertIn('scope_arguments+=(-only-testing:"${recognition_case}")', runner)
+        self.assertNotIn("-skip-testing:MetasequoiaKeyboardTests/HandwritingTests)", runner)
+        self.assertNotIn("-only-testing:MetasequoiaKeyboardTests/HandwritingTests)", runner)
+
+        # Intel 那个 job 降到合 main 那道门上 —— 在 develop 的 push 上它是关键路径,却什么都不拦。
+        workflow = (IOS_ROOT.parents[1] / ".github/workflows/ci-ios.yml").read_text()
+        handwriting = workflow.split("  ios-handwriting:", 1)[1].split("\n    steps:", 1)[0]
+        self.assertIn("github.base_ref == 'main' || github.ref_name == 'main'", handwriting)
+        self.assertNotIn("github.event_name != 'pull_request'", handwriting)
+
+    def test_the_simulator_script_generates_before_it_builds(self):
+        """生成必须在编译之前,而且不能加条件。
+
+        xcodegen 在生成那一刻枚举文件,所以新增一个源文件、project.yml 一个字没改,也要重新生成。少了这一步的报错是 `cannot find 'X' in scope`,看着像名字打错。这一步是免费的 —— 内容没变时重写出的 pbxproj 字节相同,Xcode 按内容判断、零重编 —— 所以任何「只在 project.yml 变了才生成」的优化都是纯亏,这条用例就是拦它的。
+        """
+        script = (IOS_ROOT / "scripts/build_sim.sh").read_text()
+        commands = "\n".join(line for line in script.splitlines() if not line.lstrip().startswith("#"))
+        generate = commands.index("xcodegen generate")
+        build = commands.index("xcodebuild")
+        self.assertLess(generate, build, "build_sim.sh 在生成工程之前就开始编译了")
+        # 生成那一行不能被包在 if 里 —— 那等于把「什么时候需要重新生成」这个判断交还给人。
+        generate_line = next(line for line in script.splitlines() if "xcodegen generate" in line)
+        self.assertEqual(generate_line, generate_line.lstrip(), "xcodegen 被放进了条件分支里")
+        # 这条路没有 Pods,用 .xcodeproj 不是 .xcworkspace,手写必须跳过。
+        # 比的是命令,不是注释 —— 脚本的注释里正解释着为什么不跑 pod install。
+        self.assertIn("MSIME_IOS_SKIP_HANDWRITING=1", commands)
+        self.assertIn("build/ios-sim/MetasequoiaImeIOS.xcodeproj", commands)
+        self.assertNotIn("pod install", commands)
+        self.assertNotIn(".xcworkspace", commands)
+
     def test_project_and_ci_run_native_onboarding_ui_tests(self):
         project = (IOS_ROOT / "project.yml").read_text()
         workflow = (IOS_ROOT.parents[1] / ".github/workflows/ci-ios.yml").read_text()
@@ -950,7 +1005,7 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
             derivation = "\n".join(reversed(collected))
             archived = subprocess.run(
                 ["bash", "-eu", "-c", derivation + f'\nprintf "%s" "${setting.group(1)}"'],
-                env=dict(os.environ, tag_name=f"v{product_version}-build.1002.57.1"),
+                env=dict(os.environ, tag_name=f"v{product_version}-build.57"),
                 text=True, capture_output=True,
             )
             self.assertEqual(archived.returncode, 0, archived.stderr)
@@ -967,12 +1022,14 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         self.assertEqual(*fragments.values(), "both release paths must derive the build number alike")
 
         fragment = next(iter(fragments.values()))
+        # 号现在是纯整数。最后那行留着三段的形状:重置之前发出去的 tag 还挂在 releases 上,重发某个旧 draft 会把它喂回这里,而这条路平时不走。
         for tag, supplied, expected in [
             (f"v{product_version}", None, product_version),
+            (f"v{product_version}-build.57", None, "57"),
+            (f"ios-v{product_version}-build.57", None, "57"),
+            (f"v{product_version}-build.57", "57", "57"),
+            (f"v{product_version}-build.57", "58", None),
             (f"v{product_version}-build.1002.57.1", None, "1002.57.1"),
-            (f"ios-v{product_version}-build.1002.57.1", None, "1002.57.1"),
-            (f"v{product_version}-build.1002.57.1", "1002.57.1", "1002.57.1"),
-            (f"v{product_version}-build.1002.57.1", "1002.58.1", None),
         ]:
             environment = dict(os.environ, tag_name=tag, version=product_version)
             environment.pop("METASEQUOIA_BUILD_NUMBER", None)
