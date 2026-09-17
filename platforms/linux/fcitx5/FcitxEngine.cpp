@@ -423,6 +423,17 @@ public:
     }
     return true;
   }
+  bool toggleInputMode() {
+    if (!session_ || restricted() || privateInput() || !ic_.hasFocus()) return false;
+    input_enabled_ = !input_enabled_;
+    if (!input_enabled_) {
+      if (!view_.value("editing_text", std::string{}).empty()) command(MSIME_FINISH_COMPOSITION);
+      clearPanel();
+    } else {
+      render();
+    }
+    return true;
+  }
   bool toggleWordCharacter() {
     if (!session_) return false;
     const bool enabled = !preferences_.value("word_character", Json::object()).value("enabled", true);
@@ -1396,6 +1407,7 @@ public:
   bool voice_f9_held_ = false;
   bool voice_ctrl_win_held_ = false;
   bool voice_rctrl_ralt_held_ = false;
+  bool input_enabled_ = true;
   std::shared_future<Json> voice_job_;
   std::shared_ptr<FcitxVoiceMailbox> voice_mailbox_;
   uint64_t voice_generation_ = 0;
@@ -1582,6 +1594,27 @@ public:
 private:
   fcitx::FactoryFor<FcitxState> *factory_;
   Mode mode_;
+};
+
+class FcitxInputModeAction : public fcitx::Action {
+public:
+  explicit FcitxInputModeAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
+    setCheckable(true);
+  }
+  std::string shortText(fcitx::InputContext *) const override { return "中文输入"; }
+  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  bool isChecked(fcitx::InputContext *ic) const override {
+    return ic && ic->propertyFor(factory_)->session_ && ic->propertyFor(factory_)->input_enabled_;
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try {
+      auto *state = ic->propertyFor(factory_);
+      if (state->ensure() && state->toggleInputMode()) update(ic);
+    } catch (...) {}
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
 };
 
 class FcitxNineKeyAction : public fcitx::Action {
@@ -2366,6 +2399,7 @@ public:
   explicit FcitxEngine(fcitx::Instance *instance) : instance_(instance) {
     instance->inputContextManager().registerProperty("msimeState", &factory_);
     english_action_.registerAction("msime-english-candidates", &instance->userInterfaceManager());
+    input_mode_action_.registerAction("msime-input-mode", &instance->userInterfaceManager());
     width_action_.registerAction("msime-fullwidth", &instance->userInterfaceManager());
     nine_key_action_.registerAction("msime-nine-key", &instance->userInterfaceManager());
     helpcode_action_.registerAction("msime-helpcode", &instance->userInterfaceManager());
@@ -2469,6 +2503,7 @@ public:
   void activate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
     auto *state = event.inputContext()->propertyFor(&factory_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &english_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &input_mode_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &width_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &nine_key_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &helpcode_action_);
@@ -2504,6 +2539,7 @@ public:
   void deactivate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
     auto *state = event.inputContext()->propertyFor(&factory_);
     event.inputContext()->statusArea().removeAction(&english_action_);
+    event.inputContext()->statusArea().removeAction(&input_mode_action_);
     event.inputContext()->statusArea().removeAction(&width_action_);
     event.inputContext()->statusArea().removeAction(&nine_key_action_);
     event.inputContext()->statusArea().removeAction(&helpcode_action_);
@@ -2558,6 +2594,7 @@ public:
   std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>> capability_watch_;
   std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>> focus_watch_;
   FcitxModeAction english_action_{&factory_, FcitxModeAction::Mode::EnglishCandidates};
+  FcitxInputModeAction input_mode_action_{&factory_};
   FcitxModeAction width_action_{&factory_, FcitxModeAction::Mode::Fullwidth};
   FcitxNineKeyAction nine_key_action_{&factory_};
   FcitxHelpcodeAction helpcode_action_{&factory_};
@@ -2718,6 +2755,7 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     return true;
   }
   if (event.isRelease()) return false;
+  if (!input_enabled_) return false;
   if ((sym == FcitxKey_k || sym == FcitxKey_K) &&
       states.test(fcitx::KeyState::Ctrl) && states.test(fcitx::KeyState::Shift) &&
       states.test(fcitx::KeyState::Super) &&
