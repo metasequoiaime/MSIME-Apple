@@ -1,4 +1,5 @@
 #include "msime_client.h"
+#include "../ChineseTextConversion.h"
 #include <fcitx-utils/capabilityflags.h>
 #include <fcitx-utils/key.h>
 #include <fcitx-utils/utf8.h>
@@ -187,6 +188,7 @@ public:
     auto options = readOptions();
     private_ = privateInput();
     preferences_ = options.value("preferences", Json::object());
+    traditional_ = preferences_.value("traditional_chinese_output", false);
     navigation_ = preferences_.value("navigation", Json::object());
     const auto wordCharacter = preferences_.value("word_character", Json::object());
     word_character_enabled_ = wordCharacter.value("enabled", true);
@@ -240,6 +242,7 @@ public:
             view_ = response(msime_client_update_preferences(session_,
                 reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
             preferences_ = snapshot.at("preferences");
+            traditional_ = preferences_.value("traditional_chinese_output", traditional_);
             navigation_ = preferences_.value("navigation", Json::object());
             const auto wordCharacter = preferences_.value("word_character", Json::object());
             word_character_enabled_ = wordCharacter.value("enabled", true);
@@ -528,8 +531,12 @@ public:
   }
   bool apply(char *raw) {
     auto result = response(raw);
-    if (result.contains("commit") && result["commit"].is_string())
-      ic_.commitString(result["commit"].get<std::string>());
+    if (result.contains("commit") && result["commit"].is_string()) {
+      auto text = result["commit"].get<std::string>();
+      if (traditional_ && view_.value("scheme", 0u) != 3)
+        text = msime_linux_simplified_to_traditional(text);
+      ic_.commitString(text);
+    }
     view_ = result.contains("view") ? result.at("view") : result;
     render();
     return result.value("handled", false);
@@ -554,6 +561,12 @@ public:
     apply(msime_client_select(session_, generation, index));
   }
   void render();
+  bool toggleTraditional() {
+    if (!session_ || view_.value("scheme", 0u) == 3) return false;
+    traditional_ = !traditional_;
+    render();
+    return true;
+  }
   bool key(fcitx::KeyEvent &event);
   uint64_t session_ = 0;
   Json view_ = Json::object();
@@ -568,6 +581,7 @@ public:
   fcitx::InputContext &ic_;
   FcitxEngine *engine_;
   bool private_ = false;
+  bool traditional_ = false;
   std::string online_socket_, online_query_;
   uint64_t online_job_session_ = 0;
   struct OnlineSlot {
@@ -599,8 +613,9 @@ public:
 
 class FcitxCandidate : public fcitx::CandidateWord {
 public:
-  FcitxCandidate(fcitx::FactoryFor<FcitxState> *factory, const Json &candidate)
-      : CandidateWord(fcitx::Text(candidate.at("text").get<std::string>() +
+  FcitxCandidate(fcitx::FactoryFor<FcitxState> *factory, const Json &candidate, bool traditional)
+      : CandidateWord(fcitx::Text((traditional ? msime_linux_simplified_to_traditional(candidate.at("text").get<std::string>())
+                                               : candidate.at("text").get<std::string>()) +
           (candidate.value("annotation", std::string()).empty() ? "" :
            "  " + candidate.at("annotation").get<std::string>()) +
           (candidate.contains("translation") && candidate.at("translation").is_string()
@@ -638,7 +653,7 @@ public:
 #endif
     for (const auto &candidate : state.view_.at("candidates")) {
       if (candidate.value("highlighted", false)) cursor_ = words_.size();
-      words_.push_back(std::make_unique<FcitxCandidate>(factory, candidate));
+      words_.push_back(std::make_unique<FcitxCandidate>(factory, candidate, state.traditional_));
       labels_.emplace_back(std::to_string(words_.size()) + ". ");
     }
   }
@@ -875,6 +890,20 @@ private:
   fcitx::FactoryFor<FcitxState> *factory_;
 };
 
+class FcitxTraditionalAction : public fcitx::SimpleAction {
+public:
+  explicit FcitxTraditionalAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
+    setShortText("繁体");
+    setLongText("切换繁体中文候选显示和提交");
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try { ic->propertyFor(factory_)->toggleTraditional(); } catch (...) {}
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
 // Each context owns a thread-bound Host API session. Fcitx never copies composing state.
 class FcitxEngine : public fcitx::InputMethodEngine {
 public:
@@ -887,6 +916,7 @@ public:
     cloud_clipboard_action_.registerAction("msime-cloud-clipboard", &instance->userInterfaceManager());
     emoji_action_.registerAction("msime-emoji", &instance->userInterfaceManager());
     voice_action_.registerAction("msime-voice", &instance->userInterfaceManager());
+    traditional_action_.registerAction("msime-traditional", &instance->userInterfaceManager());
     clipboard_action_.setMenu(&clipboard_menu_);
     clipboard_menu_.addAction(&clipboard_item1_);
     clipboard_menu_.addAction(&clipboard_item2_);
@@ -936,6 +966,7 @@ public:
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &cloud_clipboard_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &emoji_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &voice_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &traditional_action_);
     try { if (state->ensure()) state->render(); } catch (...) { unavailable(*state); }
   }
   void deactivate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
@@ -947,6 +978,7 @@ public:
     event.inputContext()->statusArea().removeAction(&cloud_clipboard_action_);
     event.inputContext()->statusArea().removeAction(&emoji_action_);
     event.inputContext()->statusArea().removeAction(&voice_action_);
+    event.inputContext()->statusArea().removeAction(&traditional_action_);
     state->close(); state->clearPanel();
   }
   void reset(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
@@ -978,6 +1010,7 @@ public:
   FcitxCloudClipboardAction cloud_clipboard_action_{&factory_};
   FcitxEmojiAction emoji_action_{&factory_};
   FcitxVoiceAction voice_action_{&factory_};
+  FcitxTraditionalAction traditional_action_{&factory_};
   fcitx::Menu clipboard_menu_;
   FcitxClipboardItemAction clipboard_item1_{&factory_, 0};
   FcitxClipboardItemAction clipboard_item2_{&factory_, 1};

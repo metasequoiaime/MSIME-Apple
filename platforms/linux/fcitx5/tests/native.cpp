@@ -171,13 +171,18 @@ int main(int argc, char **argv) {
     }
     require(!state->preferences_.value("number_row_selection", true),
             "runtime preferences reload in active Fcitx session");
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 7,
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 8,
             "native status actions attached");
     require(engine.maintenance_menu_.actions().size() == 8,
             "candidate maintenance menu attached");
     require(engine.clipboard_menu_.actions().size() == 5,
             "clipboard history menu attached");
     require(!engine.english_action_.isChecked(&ic), "English candidates initially disabled");
+    require(msime_linux_simplified_to_traditional("汉语") == "漢語", "traditional conversion available");
+    engine.traditional_action_.activate(&ic);
+    require(state->traditional_, "traditional status action enables conversion");
+    engine.traditional_action_.activate(&ic);
+    require(!state->traditional_, "traditional status action disables conversion");
     engine.english_action_.activate(&ic);
     require(engine.english_action_.isChecked(&ic), "status action enables English candidates");
     engine.english_action_.activate(&ic);
