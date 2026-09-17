@@ -192,7 +192,7 @@ int main(int argc, char **argv) {
     }
     require(!state->preferences_.value("number_row_selection", true),
             "runtime preferences reload in active Fcitx session");
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 16,
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 17,
             "native status actions attached");
     if (state->preferences_.value("cloud_candidates", false)) {
       require(engine.cloud_candidates_action_.isChecked(&ic),
@@ -207,8 +207,27 @@ int main(int argc, char **argv) {
       require(!engine.cloud_candidates_action_.isChecked(&ic),
               "cloud candidates status action reflects disabled preference");
     }
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 16,
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 17,
             "AI status action attached");
+    require(engine.emoji_category_action_.shortText(&ic) == "表情：Emoji",
+            "emoji category starts in the default catalog");
+    engine.emoji_category_action_.activate(&ic);
+    const auto kaomojiDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while ((state->emoji_category_ != "kaomoji" || state->emoji_items_.empty()) &&
+           std::chrono::steady_clock::now() < kaomojiDeadline) {
+      state->refreshEmoji();
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    require(state->emoji_category_ == "kaomoji" && !state->emoji_items_.empty(),
+            "emoji category action loads kaomoji catalog");
+    engine.emoji_category_action_.activate(&ic);
+    const auto symbolsDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (state->emoji_job_.valid() && std::chrono::steady_clock::now() < symbolsDeadline) {
+      state->refreshEmoji();
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    engine.emoji_category_action_.activate(&ic);
+    require(state->emoji_category_.empty(), "emoji category action cycles back to default catalog");
     const bool aiEnabled = state->preferences_.value("ai_assistant", Json::object())
                                .value("enabled", false);
     require(engine.ai_candidates_action_.isChecked(&ic) == aiEnabled,
