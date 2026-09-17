@@ -201,6 +201,7 @@ public:
       : ic_(ic), engine_(engine) {
     preferences_timer_ = loop.addTimeEvent(CLOCK_MONOTONIC, fcitx::now(CLOCK_MONOTONIC) + 250000,
         10000, [this](fcitx::EventSourceTime *timer, uint64_t) {
+          refreshProviderSockets();
           refreshPreferences();
           refreshOnline();
           refreshTranslations();
@@ -718,6 +719,39 @@ public:
       }).share();
     } catch (...) {
       // Keep the active settings on malformed or concurrently written files.
+    }
+  }
+  void refreshProviderSockets() {
+    try {
+      if (!session_ || !ic_.hasFocus() || restricted()) return;
+      const auto options = readOptions();
+      auto nextVoice = options.value("voice_provider_socket", std::string{});
+      if (nextVoice.empty()) {
+        if (const auto *socket = std::getenv("MSIME_VOICE_PROVIDER_SOCKET")) nextVoice = socket;
+      }
+      if (nextVoice != voice_socket_) {
+        if (voice_loading_) cancelVoice();
+        voice_socket_ = std::move(nextVoice);
+      }
+      const auto nextOnline = onlineSocket(options);
+      if (nextOnline != online_socket_) {
+        online_socket_ = nextOnline;
+        ++online_epoch_;
+        online_query_.clear();
+        for (auto &slot : online_slots_) slot.query.clear();
+      }
+      auto nextTranslation = options.value("translation_provider_socket", std::string{});
+      if (nextTranslation.empty()) {
+        if (const auto *socket = std::getenv("MSIME_TRANSLATION_PROVIDER_SOCKET")) nextTranslation = socket;
+      }
+      if (nextTranslation.empty()) nextTranslation = online_socket_;
+      if (nextTranslation != translation_socket_) {
+        translation_socket_ = std::move(nextTranslation);
+        translation_query_.clear();
+        translation_pending_.clear();
+      }
+    } catch (...) {
+      // Keep the active provider endpoints when options are being atomically replaced.
     }
   }
   void refreshOnline() {
