@@ -142,11 +142,19 @@ fi
 # idle. Cloning the Simulator and running test classes across the clones is what that idleness is
 # for. Only where there is a suite worth spreading -- the handwriting scope is three cases, and the
 # clones would cost more to boot than the cases take to run.
+#
+# 两个克隆,不是四个。四个时这一套在 CI 上反复整片倒下,失败信息全是同一句
+#   Failed to get background assertion for target app with pid …: Timed out while acquiring background assertion.
+# 一条断言失败都没有 —— 那是 runner 扛不住四台模拟器同时冷启动,SpringBoard 给不出后台断言,而它看起来
+# 像是测试挂了。一次八条、一次五条,重跑照旧。
+#
+# 慢一些是有意换的:这一套现在 33 到 40 分钟,步骤上限是 60,装得下。一次假红要人来判断它是不是真的,
+# 那比多出来的几分钟贵得多,而它挡的是发布。
 parallel_arguments=()
 if [[ "${MSIME_TEST_SCOPE:-all}" == "all" ]]; then
   parallel_arguments=(
     -parallel-testing-enabled YES
-    -maximum-concurrent-test-simulator-destinations "${MSIME_IOS_PARALLEL_SIMULATORS:-4}"
+    -maximum-concurrent-test-simulator-destinations "${MSIME_IOS_PARALLEL_SIMULATORS:-2}"
   )
 fi
 

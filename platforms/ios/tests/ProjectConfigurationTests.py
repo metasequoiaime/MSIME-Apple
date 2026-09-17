@@ -779,6 +779,18 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         self.assertIn("github.base_ref == 'main' || github.ref_name == 'main'", handwriting)
         self.assertNotIn("github.event_name != 'pull_request'", handwriting)
 
+    def test_the_interface_suite_does_not_clone_more_simulators_than_the_runner_carries(self):
+        """并行数是稳定性问题,不是速度问题。
+
+        四个克隆时这一套在 CI 上反复整片倒下,八条、五条,失败信息全是同一句 background assertion 超时,
+        一条断言失败都没有 —— runner 扛不住四台模拟器同时冷启动。假红要人来判断真假,而它挡的是发布。
+        往回调会红,这条用例就是为此存在;真要提速,先证明 runner 扛得住,再连这条注释一起改。
+        """
+        runner = (IOS_ROOT / "scripts/run_ui_tests.sh").read_text()
+        default = re.search(r"MSIME_IOS_PARALLEL_SIMULATORS:-(\d+)", runner)
+        self.assertIsNotNone(default, "并行数应当有一个可读的默认值")
+        self.assertLessEqual(int(default.group(1)), 2)
+
     def test_the_testflight_handover_can_install_its_dependency(self):
         """没有 --break-system-packages,这一步每次发布都挂。
 
