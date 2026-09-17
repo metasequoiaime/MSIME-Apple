@@ -1,0 +1,33 @@
+# Accepted advisories, each with the chain that pulls it in and why it is accepted.
+#
+# This file is debt, not an exemption, in the same sense as scripts/known-failures.txt: a bare
+# "audit passed" says nothing unless what it passed over is written down. Delete a line when the
+# dependency moves, never add one to silence a vulnerability this workspace actually introduced.
+#
+# Every entry below is `unmaintained` or `unsound` — no vulnerability is ignored. All of them
+# arrive through Tauri, none through first-party code, so none can be resolved here; they clear
+# when Tauri updates its own tree.
+#
+# Chains were resolved from Cargo.lock, not guessed:
+#   unic-*           urlpattern -> tauri-utils -> tauri-build -> Tauri
+#   glib             gtk/gio/gdk -> wry/tao -> tauri -> msime-desktop   (Linux GTK stack only)
+#   proc-macro-error glib-macros / gtk3-macros -> glib / gtk -> ... -> tauri  (build-time macros)
+
+[advisories]
+ignore = [
+    # unic-* are unmaintained Unicode crates reached only through Tauri's urlpattern. They run at
+    # build/parse time on URL patterns, never on user input.
+    "RUSTSEC-2025-0075", # unic-char-range unmaintained
+    "RUSTSEC-2025-0080", # unic-common unmaintained
+    "RUSTSEC-2025-0081", # unic-char-property unmaintained
+    "RUSTSEC-2025-0098", # unic-ucd-version unmaintained
+    "RUSTSEC-2025-0100", # unic-ucd-ident unmaintained
+
+    # proc-macro-error is a build-time proc-macro dependency of the GTK bindings' derive crates.
+    # It never ships in a binary.
+    "RUSTSEC-2024-0370", # proc-macro-error unmaintained
+
+    # glib's VariantStrIter unsoundness is in the Linux GTK stack under Tauri. The desktop app does
+    # not construct VariantStrIter; the macOS and Windows hosts do not link glib at all.
+    "RUSTSEC-2024-0429", # glib VariantStrIter Iterator/DoubleEndedIterator unsoundness
+]
