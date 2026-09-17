@@ -779,6 +779,30 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         self.assertIn("github.base_ref == 'main' || github.ref_name == 'main'", handwriting)
         self.assertNotIn("github.event_name != 'pull_request'", handwriting)
 
+    def test_no_interface_wait_is_tighter_than_the_rest(self):
+        """界面套件里的等待要么一致,要么就是下一个间歇性假红。
+
+        今天有两条卡在 3 秒上:一条报「No matches found for '取消'」,看着像按钮没了,其实是生成还没开始;
+        一条报 UI 查询超时。同文件其余每一处都是 5 秒,那三处是漏网的异常值,不是有意收紧。
+        一次假红要人来判断真假,而它挡的是发布。
+        """
+        for path in sorted((IOS_ROOT / "UITests").glob("*.swift")):
+            tight = re.findall(r"waitForExistence\(timeout: ([0-4])\)", path.read_text())
+            with self.subTest(file=path.name):
+                self.assertEqual(tight, [], f"{path.name} 里有比 5 秒更紧的等待")
+
+    def test_the_interface_suite_does_not_clone_more_simulators_than_the_runner_carries(self):
+        """并行数是稳定性问题,不是速度问题。
+
+        四个克隆时这一套在 CI 上反复整片倒下,八条、五条,失败信息全是同一句 background assertion 超时,
+        一条断言失败都没有 —— runner 扛不住四台模拟器同时冷启动。假红要人来判断真假,而它挡的是发布。
+        往回调会红,这条用例就是为此存在;真要提速,先证明 runner 扛得住,再连这条注释一起改。
+        """
+        runner = (IOS_ROOT / "scripts/run_ui_tests.sh").read_text()
+        default = re.search(r"MSIME_IOS_PARALLEL_SIMULATORS:-(\d+)", runner)
+        self.assertIsNotNone(default, "并行数应当有一个可读的默认值")
+        self.assertLessEqual(int(default.group(1)), 2)
+
     def test_the_testflight_handover_can_install_its_dependency(self):
         """没有 --break-system-packages,这一步每次发布都挂。
 
