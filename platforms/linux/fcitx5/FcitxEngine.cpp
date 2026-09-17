@@ -170,6 +170,10 @@ public:
     cloud_clipboard_job_ = {};
     emoji_items_.clear();
     emoji_job_ = {};
+    emoji_offset_ = 0;
+    emoji_next_offset_ = 0;
+    emoji_complete_ = false;
+    emoji_previous_offsets_.clear();
     voice_socket_.clear();
     voice_job_ = {};
     voice_loading_ = false;
@@ -516,29 +520,52 @@ public:
         if (emoji_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
         auto result = emoji_job_.get();
         emoji_job_ = {};
-        if (ic_.hasFocus() && !restricted() && !privateInput() && result.is_object())
+        if (ic_.hasFocus() && !restricted() && !privateInput() && result.is_object()) {
           emoji_items_ = result.value("items", Json::array());
+          emoji_next_offset_ = result.value("next_offset", emoji_offset_ + emoji_items_.size());
+          emoji_complete_ = result.value("complete", true);
+        }
       }
     } catch (...) { emoji_items_.clear(); }
   }
-  bool insertEmoji() {
-    if (restricted() || privateInput() || !ic_.hasFocus()) return false;
-    refreshEmoji();
-    if (!emoji_items_.empty()) {
-      const auto &item = emoji_items_.front();
-      const auto text = item.is_string() ? item.get<std::string>() : item.value("text", std::string{});
-      if (!text.empty()) { ic_.commitString(text); return true; }
-    }
+  bool requestEmojiPage(size_t offset) {
     if (emoji_job_.valid() || resources_.empty()) return false;
     const auto resources = resources_;
-    emoji_job_ = std::async(std::launch::async, [resources] {
-      const auto query = Json{{"limit", 5}, {"cursor", true}}.dump();
+    emoji_offset_ = offset;
+    emoji_job_ = std::async(std::launch::async, [resources, offset] {
+      const auto query = Json{{"limit", 5}, {"offset", offset}, {"cursor", true}}.dump();
       auto result = response(msime_client_emoji_catalog_request(
           reinterpret_cast<const uint8_t *>(query.data()), query.size(),
           reinterpret_cast<const uint8_t *>(resources.data()), resources.size()));
       return result.is_object() ? result : Json::object();
     }).share();
-    return false;
+    return true;
+  }
+  bool insertEmoji(size_t index = 0) {
+    if (restricted() || privateInput() || !ic_.hasFocus()) return false;
+    refreshEmoji();
+    if (index < emoji_items_.size()) {
+      const auto &item = emoji_items_.at(index);
+      const auto text = item.is_string() ? item.get<std::string>() : item.value("text", std::string{});
+      if (!text.empty()) { ic_.commitString(text); return true; }
+    }
+    if (index != 0 || !emoji_items_.empty()) return false;
+    return requestEmojiPage(0);
+  }
+  bool nextEmojiPage() {
+    if (restricted() || privateInput() || !ic_.hasFocus()) return false;
+    refreshEmoji();
+    if (emoji_complete_ || emoji_job_.valid()) return false;
+    emoji_previous_offsets_.push_back(emoji_offset_);
+    return requestEmojiPage(emoji_next_offset_);
+  }
+  bool previousEmojiPage() {
+    if (restricted() || privateInput() || !ic_.hasFocus()) return false;
+    refreshEmoji();
+    if (emoji_job_.valid() || emoji_previous_offsets_.empty()) return false;
+    const auto offset = emoji_previous_offsets_.back();
+    emoji_previous_offsets_.pop_back();
+    return requestEmojiPage(offset);
   }
   bool refreshVoice() {
     try {
@@ -645,6 +672,10 @@ public:
   std::shared_future<Json> cloud_clipboard_job_;
   Json emoji_items_ = Json::array();
   std::shared_future<Json> emoji_job_;
+  size_t emoji_offset_ = 0;
+  size_t emoji_next_offset_ = 0;
+  bool emoji_complete_ = false;
+  std::vector<size_t> emoji_previous_offsets_;
   std::string voice_socket_;
   std::shared_future<Json> voice_job_;
   bool voice_loading_ = false;
@@ -938,14 +969,59 @@ class FcitxEmojiAction : public fcitx::SimpleAction {
 public:
   explicit FcitxEmojiAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
     setShortText("表情");
-    setLongText("插入本地表情目录中的第一项");
+    setLongText("浏览并插入本地表情目录");
   }
+  void setMenu(fcitx::Menu *menu) { fcitx::SimpleAction::setMenu(menu); }
   void activate(fcitx::InputContext *ic) override {
     if (!ic || !ic->hasFocus()) return;
     try { ic->propertyFor(factory_)->insertEmoji(); } catch (...) {}
   }
 private:
   fcitx::FactoryFor<FcitxState> *factory_;
+};
+
+class FcitxEmojiItemAction : public fcitx::SimpleAction {
+public:
+  FcitxEmojiItemAction(fcitx::FactoryFor<FcitxState> *factory, size_t index)
+      : factory_(factory), index_(index) {}
+  std::string shortText(fcitx::InputContext *ic) const override {
+    if (ic) {
+      const auto *state = ic->propertyFor(factory_);
+      if (index_ < state->emoji_items_.size()) {
+        const auto &item = state->emoji_items_.at(index_);
+        const auto text = item.is_string() ? item.get<std::string>() : item.value("text", std::string{});
+        const auto annotation = item.is_object() ? item.value("annotation", std::string{}) : std::string{};
+        if (!text.empty()) return text + (annotation.empty() ? "" : "  " + annotation);
+      }
+    }
+    return "表情 " + std::to_string(index_ + 1);
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try { ic->propertyFor(factory_)->insertEmoji(index_); } catch (...) {}
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+  size_t index_;
+};
+
+class FcitxEmojiPageAction : public fcitx::SimpleAction {
+public:
+  FcitxEmojiPageAction(fcitx::FactoryFor<FcitxState> *factory, bool next)
+      : factory_(factory), next_(next) {}
+  std::string shortText(fcitx::InputContext *) const override {
+    return next_ ? "下一页" : "上一页";
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try {
+      if (next_) ic->propertyFor(factory_)->nextEmojiPage();
+      else ic->propertyFor(factory_)->previousEmojiPage();
+    } catch (...) {}
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+  bool next_;
 };
 
 class FcitxVoiceAction : public fcitx::SimpleAction {
@@ -1015,6 +1091,14 @@ public:
     desktop_tools_menu_.addAction(&desktop_cloud_clipboard_action_);
     desktop_tools_menu_.addAction(&settings_action_);
     desktop_tools_menu_.addAction(&about_action_);
+    emoji_action_.setMenu(&emoji_menu_);
+    emoji_menu_.addAction(&emoji_item1_);
+    emoji_menu_.addAction(&emoji_item2_);
+    emoji_menu_.addAction(&emoji_item3_);
+    emoji_menu_.addAction(&emoji_item4_);
+    emoji_menu_.addAction(&emoji_item5_);
+    emoji_menu_.addAction(&emoji_previous_action_);
+    emoji_menu_.addAction(&emoji_next_action_);
     maintenance_action_.setMenu(&maintenance_menu_);
     maintenance_menu_.addAction(&pin_action_);
     maintenance_menu_.addAction(&remove_action_);
@@ -1130,6 +1214,14 @@ public:
   FcitxDesktopPanelAction desktop_cloud_clipboard_action_{&factory_, "cloud-clipboard", "云剪贴板"};
   FcitxDesktopPanelAction settings_action_{&factory_, "settings", "设置"};
   FcitxDesktopPanelAction about_action_{&factory_, "about", "关于"};
+  fcitx::Menu emoji_menu_;
+  FcitxEmojiItemAction emoji_item1_{&factory_, 0};
+  FcitxEmojiItemAction emoji_item2_{&factory_, 1};
+  FcitxEmojiItemAction emoji_item3_{&factory_, 2};
+  FcitxEmojiItemAction emoji_item4_{&factory_, 3};
+  FcitxEmojiItemAction emoji_item5_{&factory_, 4};
+  FcitxEmojiPageAction emoji_previous_action_{&factory_, false};
+  FcitxEmojiPageAction emoji_next_action_{&factory_, true};
 };
 
 void FcitxState::render() {

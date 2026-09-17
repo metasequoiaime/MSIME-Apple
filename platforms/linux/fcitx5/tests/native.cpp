@@ -180,6 +180,8 @@ int main(int argc, char **argv) {
             "clipboard history menu attached");
     require(engine.desktop_tools_menu_.actions().size() == 9,
             "desktop tools menu attached");
+    require(engine.emoji_menu_.actions().size() == 7,
+            "emoji paging menu attached");
     const auto routeScript = std::string(directory) + "/route-helper.sh";
     const auto routeOutput = std::string(directory) + "/route-output";
     std::ofstream(routeScript) << "#!/bin/sh\nprintf '%s\\n' \"$MSIME_CLIENT_ROUTE\" > \"$MSIME_TEST_ROUTE_OUTPUT\"\n";
@@ -195,6 +197,29 @@ int main(int argc, char **argv) {
     std::string route;
     std::getline(routeFile, route);
     require(route == "handwriting", "desktop route environment propagated");
+    engine.emoji_action_.activate(&ic);
+    const auto emojiDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (state->emoji_items_.empty() && std::chrono::steady_clock::now() < emojiDeadline) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      state->refreshEmoji();
+    }
+    require(!state->emoji_items_.empty() && state->emoji_items_.size() <= 5,
+            "emoji first page loaded asynchronously");
+    const auto firstEmoji = state->emoji_items_.front().value("text", std::string{});
+    require(!firstEmoji.empty() && !state->emoji_complete_, "emoji page exposes continuation");
+    engine.emoji_next_action_.activate(&ic);
+    const auto nextEmojiDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (state->emoji_offset_ == 0 && std::chrono::steady_clock::now() < nextEmojiDeadline) {
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+      state->refreshEmoji();
+    }
+    require(state->emoji_offset_ > 0 && !state->emoji_items_.empty(),
+            "emoji next page loaded");
+    require(state->emoji_items_.front().value("text", std::string{}).size() > 0,
+            "emoji pagination returns catalog entries");
+    const auto beforeEmoji = ic.committed;
+    engine.emoji_item1_.activate(&ic);
+    require(ic.committed != beforeEmoji, "emoji menu item commits selected text");
     require(!engine.english_action_.isChecked(&ic), "English candidates initially disabled");
     require(msime_linux_simplified_to_traditional("汉语") == "漢語", "traditional conversion available");
     engine.traditional_action_.activate(&ic);
