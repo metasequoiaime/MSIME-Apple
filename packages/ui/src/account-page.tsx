@@ -629,7 +629,7 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
       <button type="button" className="secondary" disabled={busy} onClick={onOpenLocalDesigns}>打开设计器</button>
     </section>}
     {user ? <>
-      <section className="section account-profile">
+      {!mobile && <section className="section account-profile">
         <div>
           <h2>个人资料</h2>
           <p>昵称会显示在社区作品中，已发布的作品也会同步更新。</p>
@@ -646,8 +646,8 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
           <div><dt>账号 ID</dt><dd>#{user.id.slice(0, 6).toUpperCase()}</dd></div>
           <div><dt>登录方式</dt><dd>{profile?.providers.map(providerName).join("、") || "正在读取"}</dd></div>
         </dl>
-      </section>
-      {editingProfile && <div className="account-modal-backdrop" role="presentation" onMouseDown={event => {
+      </section>}
+      {!mobile && editingProfile && <div className="account-modal-backdrop" role="presentation" onMouseDown={event => {
         if (event.target === event.currentTarget && !busy) setEditingProfile(false);
       }}>
         <section className="account-modal" role="dialog" aria-modal="true" aria-label="编辑个人资料">
@@ -668,21 +668,13 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
           }}>保存修改</button><button type="button" className="secondary" disabled={busy} onClick={() => setEditingProfile(false)}>取消</button></div>
         </section>
       </div>}
-      <section className="section account-actions">
+      {!mobile && <section className="section account-actions">
         <h2>账号</h2>
-        {mobile ? <details className="account-mobile-menu">
-          <summary>账号操作</summary>
-          <div role="menu" aria-label="账号操作">
-            <button type="button" className="secondary" role="menuitem" disabled={busy} onClick={() => signOut(false)}>退出登录</button>
-            <button type="button" className="secondary" role="menuitem" disabled={busy} onClick={() => setConfirmation("logout-all")}>退出所有设备</button>
-            <button type="button" className="secondary" role="menuitem" disabled={busy} onClick={clearExpired}>重新登录</button>
-            <button type="button" className="danger-text" role="menuitem" disabled={busy} onClick={() => setConfirmation("delete")}>注销账号</button>
-          </div>
-        </details> : <div>
+        <div>
           <button type="button" className="secondary" disabled={busy} onClick={() => signOut(false)}>退出登录</button>
           <button type="button" className="secondary" disabled={busy} onClick={() => setConfirmation("logout-all")}>退出所有设备</button>
           <button type="button" className="danger-text" disabled={busy} onClick={() => setConfirmation("delete")}>注销账号</button>
-        </div>}
+        </div>
         {confirmation && <div className="account-confirmation" role="alertdialog" aria-label={confirmation === "delete" ? "确认注销账号" : "确认退出所有设备"}>
           <p>{confirmation === "delete"
             ? "注销账号将删除已发布皮肤、评分及其他云端账号数据，无法撤销。"
@@ -695,7 +687,7 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
             <button type="button" className="secondary" disabled={busy} onClick={() => setConfirmation(null)}>取消</button>
           </div>
         </div>}
-      </section>
+      </section>}
       {client.settingsSync && <SettingsSyncCard client={client.settingsSync} userId={user.id} />}
       {(onOpenCloudDictionary || onOpenCloudClipboard) && <section className="section account-community-actions">
         <div><h2>云端</h2><p>访问账号中的云词库和云剪贴板。</p></div>
