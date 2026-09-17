@@ -99,11 +99,12 @@ def await_processing(auth: str, build_id: str, timeout: int) -> None:
     raise Failure(f"Build {build_id} was still {seen or 'processing'} after {timeout}s")
 
 
-def group_id(auth: str, app_id: str, name: str) -> str:
+def find_group(auth: str, app_id: str, name: str) -> tuple[str, bool]:
+    """The group's id, and whether it is an internal one -- the two callers need both."""
     page = request("GET", f"/betaGroups?filter[app]={app_id}&limit=50", auth)
     for group in page.get("data", []):
         if group["attributes"]["name"] == name:
-            return group["id"]
+            return group["id"], bool(group["attributes"].get("isInternalGroup"))
     names = ", ".join(g["attributes"]["name"] for g in page.get("data", []))
     raise Failure(f"No beta group named {name!r}. Groups: {names or 'none'}")
 
@@ -130,10 +131,16 @@ def main() -> int:
     await_processing(token(*credentials), build["id"], arguments.processing_timeout)
 
     auth = token(*credentials)
-    group = group_id(auth, arguments.app, arguments.group)
-    request("POST", f"/betaGroups/{group}/relationships/builds", auth,
-            {"data": [{"type": "builds", "id": build["id"]}]})
-    print(f"added to beta group {arguments.group}", flush=True)
+    group, internal = find_group(auth, arguments.app, arguments.group)
+    if internal:
+        # 内部组自动拥有每一个 build,Apple 也不接受把 build 显式加进去:那个 POST 回 422
+        # "Builds cannot be assigned to this internal group."。处理完成就等于内测已经拿到了,
+        # 这一步不是可选的优化,是做了必错 —— 它让每一次合并到 main 的发布都染红,而内测其实是好的。
+        print(f"internal group {arguments.group} already has every build", flush=True)
+    else:
+        request("POST", f"/betaGroups/{group}/relationships/builds", auth,
+                {"data": [{"type": "builds", "id": build["id"]}]})
+        print(f"added to beta group {arguments.group}", flush=True)
 
     # 内部组自己就能分发,只有外部测试要过 Apple 的审核。
     if not arguments.submit_review:

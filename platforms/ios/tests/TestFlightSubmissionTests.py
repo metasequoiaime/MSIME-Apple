@@ -110,14 +110,42 @@ class TestFlightSubmissionTests(unittest.TestCase):
             with self.assertRaises(self.module.Failure):
                 self.module.await_processing("t", "b1", timeout=1)
 
-    def test_the_group_is_found_by_name_and_a_miss_lists_the_names(self):
-        groups = {"data": [{"id": "g1", "attributes": {"name": "外部测试"}},
-                           {"id": "g2", "attributes": {"name": "内部"}}]}
+    def test_the_group_is_found_by_name_with_its_kind(self):
+        groups = {"data": [{"id": "g1", "attributes": {"name": "外部测试", "isInternalGroup": False}},
+                           {"id": "g2", "attributes": {"name": "internal", "isInternalGroup": True}}]}
         with mock.patch.object(self.module, "request", return_value=groups):
-            self.assertEqual(self.module.group_id("t", "1", "外部测试"), "g1")
+            self.assertEqual(self.module.find_group("t", "1", "外部测试"), ("g1", False))
+            self.assertEqual(self.module.find_group("t", "1", "internal"), ("g2", True))
             with self.assertRaises(self.module.Failure) as raised:
-                self.module.group_id("t", "1", "没有这个组")
+                self.module.find_group("t", "1", "没有这个组")
         self.assertIn("外部测试", str(raised.exception))
+
+    def test_an_internal_group_is_never_asked_to_take_a_build(self):
+        """内部组自动拥有每一个 build,Apple 对显式添加回 422。
+
+        做了必错:每一次合并到 main 的发布都会在最后一步染红,而内测其实已经拿到了 build。
+        这条用例钉住「内部组只等处理完成,不发那个 POST」。
+        """
+        posts = []
+
+        def answer(method, path, auth, body=None):
+            if method == "POST":
+                posts.append(path)
+                return {}
+            if "/betaGroups" in path:
+                return {"data": [{"id": "g2", "attributes": {"name": "internal", "isInternalGroup": True}}]}
+            if "/builds/" in path:
+                return {"data": {"attributes": {"processingState": "VALID"}}}
+            return {"data": [{"id": "b1", "attributes": {"version": "9"}}]}
+
+        with mock.patch.object(self.module, "request", side_effect=answer), \
+                mock.patch.object(self.module, "token", return_value="t"), \
+                mock.patch.object(self.module.time, "sleep"), \
+                mock.patch.object(self.module.sys, "argv", [
+                    "x", "--app", "1", "--build-version", "9", "--group", "internal",
+                    "--key-id", "k", "--issuer-id", "i", "--key-path", "/dev/null"]):
+            self.assertEqual(self.module.main(), 0)
+        self.assertEqual(posts, [], f"内部组不该收到任何 POST,却发了 {posts}")
 
     def test_an_internal_handover_does_not_ask_apple_for_anything(self):
         """合进 main 的构建进内部组。内部测试不需要审核,提交它只会白占一个名额。"""
