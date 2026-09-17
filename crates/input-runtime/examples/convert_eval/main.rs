@@ -36,6 +36,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut report_path: Option<PathBuf> = None;
     let mut baseline: Option<PathBuf> = None;
     let mut update = false;
+    let mut dump: Option<PathBuf> = None;
 
     let args: Vec<String> = std::env::args().skip(1).collect();
     let mut index = 0;
@@ -53,6 +54,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             "--report" => report_path = Some(PathBuf::from(take(&mut index)?)),
             "--baseline" => baseline = Some(PathBuf::from(take(&mut index)?)),
             "--update-baseline" => update = true,
+            "--dump" => dump = Some(PathBuf::from(take(&mut index)?)),
             other => return Err(format!("unknown option: {other}").into()),
         }
         index += 1;
@@ -76,7 +78,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     eprintln!("{} cases from {} set(s)", cases.len(), sets.len());
 
     let state = tempfile::tempdir()?;
-    let report = run(&resources, state.path(), &cases)?;
+    let report = run(&resources, state.path(), &cases, dump.as_deref())?;
     let json = render(&report, &cases);
 
     if let Some(path) = &report_path {
@@ -140,7 +142,11 @@ fn run(
     resources: &Path,
     state: &Path,
     cases: &[Case],
+    dump: Option<&Path>,
 ) -> Result<Report, Box<dyn std::error::Error>> {
+    // Optional JSONL of the real candidate lists, for offline experiments that must not be able
+    // to change what the harness measures.
+    let mut dumped = String::new();
     // prepare_options is what actually makes a resource directory usable: it verifies the
     // generation, creates the user dictionaries and returns the four paths the Engine expects.
     // Passing the verified directory straight to EngineOptions yields a session with no
@@ -215,6 +221,20 @@ fn run(
             .iter()
             .map(|c| (c.text.clone(), c.source))
             .collect();
+        if dump.is_some() {
+            let rows: Vec<serde_json::Value> = candidates
+                .iter()
+                .map(|(text, source)| serde_json::json!({"text": text, "source": source}))
+                .collect();
+            dumped.push_str(
+                &serde_json::json!({
+                    "id": case.id, "input": case.input, "gold": case.gold,
+                    "context": "", "candidates": rows,
+                })
+                .to_string(),
+            );
+            dumped.push('\n');
+        }
         report.observe(Observation {
             id: &case.id,
             input: &case.input,
@@ -225,6 +245,12 @@ fn run(
             keep_failure: report.failures.len() < 40,
         });
         runtime.dispatch(Action::Command(Command::Cancel))?;
+    }
+    if let Some(path) = dump {
+        if let Some(parent) = path.parent() {
+            std::fs::create_dir_all(parent)?;
+        }
+        std::fs::write(path, dumped)?;
     }
     Ok(report)
 }
