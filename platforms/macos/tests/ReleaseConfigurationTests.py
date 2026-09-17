@@ -765,6 +765,9 @@ class ReleaseConfigurationTests(unittest.TestCase):
         self.assertIn("${METASEQUOIA_MACOS_ROOT}/scripts/uninstall.sh", cmake)
         self.assertIn("MACOSX_PACKAGE_LOCATION Resources", cmake)
         preferences_controller = (MACOS_ROOT / "src/PreferencesWindowController.mm").read_text()
+        # 关于页的卸载按钮按 Uninstall.command 这个名字去 bundle 里找脚本。改了 CMake 这边的输出名,按钮不会报错,只会安静地退回「未找到卸载程序」那条路 —— 这两处必须同名。
+        self.assertIn("Uninstall.command", cmake)
+        self.assertIn('URLForResource:@"Uninstall" withExtension:@"command"', preferences_controller)
         self.assertIn("initWithWindowNibName:(NSNibName)windowNibName owner:(id)owner", preferences_controller)
         self.assertIn("showAndActivate", preferences_controller)
         self.assertIn("showAndActivateForStandaloneLaunch", preferences_controller)

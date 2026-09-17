@@ -2121,9 +2121,21 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
         4.0);
     legalCard.accessibilityLabel = @"法务信息卡片";
 
+    // 卸载程序随 bundle 一起装好(CMakeLists.txt 把 scripts/uninstall.sh 配置进
+    // Contents/Resources),这里只负责把它交给终端,不在 app 内部跑。理由有两条:脚本第一件事是 pkill
+    // 掉正在运行的输入法,也就是会去启动它的这个进程;而它带着一整套失败回滚,回滚不干净时要打印恢复目录的位置,那条信息得有地方可看。交给终端两件事都成立。
+    NSButton *uninstallButton = [NSButton buttonWithTitle:@"卸载水杉输入法…"
+                                                   target:self
+                                                   action:@selector(confirmUninstall:)];
+    uninstallButton.bezelStyle = NSBezelStyleRounded;
+    uninstallButton.contentTintColor = [NSColor systemRedColor];
+    uninstallButton.accessibilityLabel = @"卸载水杉输入法";
+    NSBox *uninstallCard = CardWithViews(@[ PreferenceRow(@"移除输入法，词库与偏好默认保留", uninstallButton) ], 0.0);
+    uninstallCard.accessibilityLabel = @"卸载卡片";
+
     NSView *updatesPage = PreferencesPage(@"关于", @"版本、更新，以及水杉输入法用到的开源组件与隐私说明。", @[
         aboutIdentityCard, SectionLabel(@"软件更新"), updateCard, SectionLabel(@"许可与隐私"), legalCard,
-        SectionLabel(@"反馈与帮助"), updatesLinksCard
+        SectionLabel(@"反馈与帮助"), updatesLinksCard, SectionLabel(@"卸载"), uninstallCard
     ]);
     updatesPage.accessibilityLabel = @"关于设置页";
 
@@ -3095,6 +3107,47 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
 {
     NSButton *button = (NSButton *)sender;
     [MetasequoiaPreferencesWindowController setShuangpinKeymapEnabled:button.state == NSControlStateValueOn];
+}
+
+- (void)confirmUninstall:(id)sender
+{
+    (void)sender;
+    NSURL *uninstaller = [NSBundle.mainBundle URLForResource:@"Uninstall" withExtension:@"command"];
+
+    NSAlert *alert = [[NSAlert alloc] init];
+    alert.alertStyle = NSAlertStyleWarning;
+    if (uninstaller == nil)
+    {
+        // 独立跑设置(测试宿主)时 bundle 里没有这份资源。装好的那一份仍在原位,所以给出路径而不是无声失败。
+        alert.messageText = @"未找到卸载程序。";
+        alert.informativeText =
+            @"卸载程序随安装的输入法一起提供，位于 ~/Library/Input "
+            @"Methods/MetasequoiaIME.app/Contents/Resources/Uninstall.command。也可以使用安装包里同名的那一份。";
+        [alert addButtonWithTitle:@"好"];
+        [alert beginSheetModalForWindow:self.window completionHandler:nil];
+        return;
+    }
+
+    alert.messageText = @"卸载水杉输入法？";
+    alert.informativeText =
+        @"卸载程序会在「终端」里打开，先请你输入一行确认，再把输入法移到废纸篓——放错了可以取回。词库与偏好默认保留；要"
+        @"一并清除，在它后面加上 --remove-user-data。\n\n卸载会退出正在运行的输入法。完成后重新登录系统，macOS "
+        @"才会刷新输入源列表。";
+    [alert addButtonWithTitle:@"取消"];
+    [alert addButtonWithTitle:@"打开卸载程序"];
+    alert.buttons[0].keyEquivalent = @"\r";
+    alert.buttons[1].keyEquivalent = @"";
+    alert.buttons[1].accessibilityLabel = @"打开卸载程序";
+    alert.window.defaultButtonCell = (NSButtonCell *)alert.buttons[0].cell;
+
+    [alert beginSheetModalForWindow:self.window
+                  completionHandler:^(NSModalResponse response) {
+                    if (response != NSAlertSecondButtonReturn)
+                    {
+                        return;
+                    }
+                    [[NSWorkspace sharedWorkspace] openURL:uninstaller];
+                  }];
 }
 
 - (void)confirmResetLearningData:(id)sender

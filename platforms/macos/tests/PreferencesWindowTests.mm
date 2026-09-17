@@ -690,6 +690,25 @@ int main()
         NSRect feedbackCardRect = [updatesDocument convertRect:feedbackCard.bounds fromView:feedbackCard];
         require(NSMaxY(feedbackCardRect) <= NSMaxY(updatesDocument.bounds) + 0.5,
                 "The feedback card overflowed the about page's scrollable content.");
+        // 卸载按钮所在的卡片。它落在「关于」页的最后一段,和其他卡片同宽,并且要留在可滚动内容之内 ——
+        // 这一页本来就一屏放不下,新加一段最容易犯的错就是把它推到裁剪区之外,人找不到。
+        NSView *uninstallCard = FindViewWithAccessibilityLabel(controller.window.contentView, @"卸载卡片");
+        require(uninstallCard != nil, "The about page did not expose the uninstall card.");
+        require(NSWidth(uninstallCard.frame) == NSWidth(feedbackCard.frame),
+                "The uninstall card did not match the other about-page card widths.");
+        NSRect uninstallCardRect = [updatesDocument convertRect:uninstallCard.bounds fromView:uninstallCard];
+        require(NSMaxY(uninstallCardRect) <= NSMaxY(updatesDocument.bounds) + 0.5,
+                "The uninstall card overflowed the about page's scrollable content.");
+        require(NSMinY(uninstallCardRect) >= NSMinY(updatesDocument.bounds) - 0.5,
+                "The uninstall card fell below the about page's scrollable content.");
+        NSButton *uninstallButton = FindButtonWithTitle(controller.window.contentView, @"卸载水杉输入法…");
+        require(uninstallButton != nil, "The about page did not expose the uninstall button.");
+        require([uninstallButton.contentTintColor isEqual:[NSColor systemRedColor]],
+                "The uninstall button was not marked as a destructive action.");
+        // 点它只该弹确认,不该直接开卸载。它和「清除学习数据」走同一套 sheet idiom,所以对得上同一个判据。
+        require(uninstallButton.action == @selector(confirmUninstall:),
+                "The uninstall button did not route through a confirmation step.");
+
         require(dataPrivacyCard != nil, "The data page did not expose its final preference card.");
         NSRect dataPrivacyRectInWindow = [controller.window.contentView convertRect:dataPrivacyCard.bounds
                                                                            fromView:dataPrivacyCard];
