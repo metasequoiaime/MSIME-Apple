@@ -257,7 +257,7 @@ public:
       preferences_job_ = std::async(std::launch::async, [directory = options_path_] {
         return response(msime_client_try_load_preferences(
             reinterpret_cast<const uint8_t *>(directory.data()), directory.size()));
-      });
+      }).share();
     } catch (...) {
       // Keep the active settings on malformed or concurrently written files.
     }
@@ -328,7 +328,7 @@ public:
               Json result = raw.is_object() ? raw : Json::object();
               result["query"] = encoded;
               return result;
-            });
+            }).share();
       }
     } catch (...) {
       online_query_.clear();
@@ -379,7 +379,7 @@ public:
           }
           return Json{{"query", encoded}, {"translations", local},
                       {"continue_online", offline && !socket.empty()}};
-        });
+        }).share();
   }
   void refreshTranslations() {
     try {
@@ -429,7 +429,7 @@ public:
         auto raw = response(msime_client_load_clipboard_history(
             reinterpret_cast<const uint8_t *>(path.data()), path.size()));
         return raw.is_object() ? raw : Json::object();
-      });
+      }).share();
     } catch (...) { clipboard_loading_ = false; clipboard_items_.clear(); }
   }
   bool pasteClipboard(size_t index = 0) {
@@ -468,7 +468,7 @@ public:
           reinterpret_cast<const uint8_t *>(request.data()), request.size(),
           reinterpret_cast<const uint8_t *>(socket.data()), socket.size()));
       return raw.is_object() ? raw : Json::object();
-    });
+    }).share();
     return false;
   }
   void refreshEmoji() {
@@ -497,7 +497,7 @@ public:
           reinterpret_cast<const uint8_t *>(query.data()), query.size(),
           reinterpret_cast<const uint8_t *>(resources.data()), resources.size()));
       return result.is_object() ? result : Json::object();
-    });
+    }).share();
     return false;
   }
   bool refreshVoice() {
@@ -526,7 +526,7 @@ public:
           reinterpret_cast<const uint8_t *>(query.data()), query.size(),
           reinterpret_cast<const uint8_t *>(socket.data()), socket.size()));
       return result.is_object() ? result : Json::object();
-    });
+    }).share();
     return true;
   }
   bool apply(char *raw) {
@@ -576,7 +576,7 @@ public:
   std::string resources_;
   Json preferences_snapshot_;
   uint64_t preferences_job_session_ = 0;
-  std::future<Json> preferences_job_;
+  std::shared_future<Json> preferences_job_;
   std::unique_ptr<fcitx::EventSourceTime> preferences_timer_;
   fcitx::InputContext &ic_;
   FcitxEngine *engine_;
@@ -585,7 +585,7 @@ public:
   std::string online_socket_, online_query_;
   uint64_t online_job_session_ = 0;
   struct OnlineSlot {
-    std::future<Json> job;
+    std::shared_future<Json> job;
     std::string query;
     uint64_t epoch = 0;
   } online_slots_[2];
@@ -594,18 +594,18 @@ public:
   std::string translation_query_, translation_pending_, translation_socket_;
   std::chrono::steady_clock::time_point translation_due_{};
   uint64_t translation_session_ = 0;
-  std::future<Json> translation_job_;
+  std::shared_future<Json> translation_job_;
   std::string clipboard_path_;
   Json clipboard_items_ = Json::array();
   bool clipboard_loading_ = false;
-  std::future<Json> clipboard_job_;
+  std::shared_future<Json> clipboard_job_;
   std::string cloud_clipboard_socket_;
   Json cloud_clipboard_items_ = Json::array();
-  std::future<Json> cloud_clipboard_job_;
+  std::shared_future<Json> cloud_clipboard_job_;
   Json emoji_items_ = Json::array();
-  std::future<Json> emoji_job_;
+  std::shared_future<Json> emoji_job_;
   std::string voice_socket_;
-  std::future<Json> voice_job_;
+  std::shared_future<Json> voice_job_;
   bool voice_loading_ = false;
   bool word_character_enabled_ = true;
   bool word_character_minus_equal_ = false;
