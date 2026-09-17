@@ -30,6 +30,7 @@
 #include <stdexcept>
 #include <future>
 #include <chrono>
+#include <cmath>
 #include <spawn.h>
 #include <vector>
 #include <cstring>
@@ -63,6 +64,10 @@ struct FcitxVoiceMailbox {
   std::mutex mutex;
   std::string partial;
   std::string final;
+  uint8_t phase = 0;
+  bool phase_seen = false;
+  uint8_t level = 0;
+  bool level_seen = false;
   bool final_ready = false;
 };
 
@@ -79,6 +84,26 @@ extern "C" void fcitxVoiceUpdate(const uint8_t *text, size_t length,
     } else {
       mailbox->partial = value;
     }
+  } catch (...) {}
+}
+
+extern "C" void fcitxVoiceStatus(uint8_t phase, void *context) noexcept {
+  if (!context || phase > 2) return;
+  try {
+    auto *mailbox = static_cast<FcitxVoiceMailbox *>(context);
+    std::lock_guard lock(mailbox->mutex);
+    mailbox->phase = phase;
+    mailbox->phase_seen = true;
+  } catch (...) {}
+}
+
+extern "C" void fcitxVoiceLevel(float level, void *context) noexcept {
+  if (!context || !std::isfinite(level) || level < 0.0f || level > 1.0f) return;
+  try {
+    auto *mailbox = static_cast<FcitxVoiceMailbox *>(context);
+    std::lock_guard lock(mailbox->mutex);
+    mailbox->level = static_cast<uint8_t>(level * 10.0f + 0.5f);
+    mailbox->level_seen = true;
   } catch (...) {}
 }
 
@@ -703,13 +728,23 @@ public:
       const auto mailbox = voice_mailbox_;
       if (mailbox && ic_.hasFocus() && !restricted() && !privateInput()) {
         std::string partial;
+        uint8_t phase = 0, level = 0;
+        bool phaseSeen = false, levelSeen = false;
         {
           std::lock_guard lock(mailbox->mutex);
           partial = mailbox->partial;
+          phase = mailbox->phase;
+          phaseSeen = mailbox->phase_seen;
+          level = mailbox->level;
+          levelSeen = mailbox->level_seen;
         }
-        if (!partial.empty()) {
+        if (!partial.empty() || phaseSeen || levelSeen) {
           voice_partial_seen_ = true;
-          ic_.inputPanel().setAuxUp(fcitx::Text("语音：" + partial));
+          const char *phaseLabel[] = {"录音中", "识别中", "整理中"};
+          std::string status = phaseSeen ? phaseLabel[std::min<size_t>(phase, 2)] : "录音中";
+          if (levelSeen) status += " " + std::string(level, '#');
+          if (!partial.empty()) status += "：" + partial;
+          ic_.inputPanel().setAuxUp(fcitx::Text("语音：" + status));
           ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
         }
       }
@@ -748,10 +783,10 @@ public:
     voice_job_ = std::async(std::launch::async, [socket, generation, language, options, mailbox] {
       const auto query = Json{{"language", language}, {"generation", generation},
                               {"options", options}, {"stream", true}}.dump();
-      auto result = response(msime_client_voice_provider_stream(
+      auto result = response(msime_client_voice_provider_stream_feedback(
           reinterpret_cast<const uint8_t *>(query.data()), query.size(),
           reinterpret_cast<const uint8_t *>(socket.data()), socket.size(),
-          fcitxVoiceUpdate, mailbox.get()));
+          fcitxVoiceUpdate, fcitxVoiceStatus, fcitxVoiceLevel, mailbox.get()));
       return result.is_object() ? result : Json::object();
     }).share();
     return true;
