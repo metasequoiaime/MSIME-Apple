@@ -17,7 +17,7 @@ mod metrics;
 
 use metrics::{Bucket, Observation, Report};
 use msime_engine_bridge::{Command, Session};
-use msime_input_runtime::{Action, Runtime};
+use msime_input_runtime::{Action, Reranker, Runtime, SentenceModel};
 use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
@@ -182,6 +182,20 @@ fn run(
     let engine = Session::new(&options)?;
     // page_size is capped at 9 by the runtime, but all_candidates() is not paginated.
     let mut runtime = Runtime::new(engine, 9)?;
+    // Measuring the shipped path means measuring it with whatever the resource set contains. The
+    // model is optional there, so its absence has to leave these numbers exactly as they were.
+    let model_path = resources.join("sentence-model.safetensors");
+    match std::fs::read(&model_path) {
+        Ok(bytes) => {
+            let model = SentenceModel::load(&bytes)?;
+            eprintln!("reranking with {}", model_path.display());
+            runtime.set_reranker(Some(Reranker::new(std::sync::Arc::new(model))));
+        }
+        Err(_) => eprintln!(
+            "no model at {}, measuring the engine alone",
+            model_path.display()
+        ),
+    }
     // dispatch() drops every action while unfocused, which yields an empty candidate list rather
     // than an error.
     runtime.focus(true)?;
