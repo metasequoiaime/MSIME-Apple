@@ -267,8 +267,10 @@ public:
     voice_enabled_ = true;
     voice_hotkey_ctrl_f9_ = true;
     voice_hotkey_ralt_ = true;
+    voice_hotkey_ctrl_win_ = false;
     voice_ralt_held_ = false;
     voice_f9_held_ = false;
+    voice_ctrl_win_held_ = false;
     voice_job_ = {};
     voice_mailbox_.reset();
     voice_generation_ = 0;
@@ -629,6 +631,7 @@ public:
     voice_enabled_ = voicePreferences.value("enabled", true);
     voice_hotkey_ctrl_f9_ = voicePreferences.value("hotkey_ctrl_f9", true);
     voice_hotkey_ralt_ = voicePreferences.value("hotkey_ralt", true);
+    voice_hotkey_ctrl_win_ = voicePreferences.value("hotkey_ctrl_win", false);
     voice_language_ = voicePreferences.value("language", std::string("zh-cn"));
     voice_options_ = voiceProviderOptions(preferences_);
     online_socket_ = onlineSocket(options);
@@ -686,6 +689,7 @@ public:
             voice_enabled_ = voicePreferences.value("enabled", voice_enabled_);
             voice_hotkey_ctrl_f9_ = voicePreferences.value("hotkey_ctrl_f9", voice_hotkey_ctrl_f9_);
             voice_hotkey_ralt_ = voicePreferences.value("hotkey_ralt", voice_hotkey_ralt_);
+            voice_hotkey_ctrl_win_ = voicePreferences.value("hotkey_ctrl_win", voice_hotkey_ctrl_win_);
             voice_language_ = voicePreferences.value("language", voice_language_);
             voice_options_ = voiceProviderOptions(preferences_);
             preferences_snapshot_ = std::move(snapshot);
@@ -1339,8 +1343,10 @@ public:
   bool voice_enabled_ = true;
   bool voice_hotkey_ctrl_f9_ = true;
   bool voice_hotkey_ralt_ = true;
+  bool voice_hotkey_ctrl_win_ = false;
   bool voice_ralt_held_ = false;
   bool voice_f9_held_ = false;
+  bool voice_ctrl_win_held_ = false;
   std::shared_future<Json> voice_job_;
   std::shared_ptr<FcitxVoiceMailbox> voice_mailbox_;
   uint64_t voice_generation_ = 0;
@@ -2617,7 +2623,26 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     }
     return true;
   }
+  const bool controlKey = sym == FcitxKey_Control_L || sym == FcitxKey_Control_R;
+  const bool superKey = sym == FcitxKey_Super_L || sym == FcitxKey_Super_R;
+  if (voice_ctrl_win_held_ && (controlKey || superKey)) {
+    if (event.isRelease()) {
+      voice_ctrl_win_held_ = false;
+      if (voice_loading_) stopVoice();
+    }
+    return true;
+  }
   if (event.isRelease()) return false;
+  if (voice_hotkey_ctrl_win_ && voice_enabled_ && !voice_socket_.empty() &&
+      (controlKey || superKey) &&
+      states.testAny(fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Super}) &&
+      !states.testAny(fcitx::KeyStates{fcitx::KeyState::Alt, fcitx::KeyState::Shift,
+                                       fcitx::KeyState::Hyper}) &&
+      !restricted() && !privateInput() && ic_.hasFocus()) {
+    if (!voice_loading_ && !requestVoice()) return false;
+    voice_ctrl_win_held_ = true;
+    return true;
+  }
   if (sym == FcitxKey_Alt_R && voice_hotkey_ralt_ && voice_enabled_ && !voice_socket_.empty() &&
       !states.testAny(fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Shift,
                                        fcitx::KeyState::Super, fcitx::KeyState::Hyper}) &&
