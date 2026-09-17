@@ -8,6 +8,8 @@
 <key>CFBundleDisplayName</key><string>水杉输入法（预览）</string>
 <key>CFBundleIconFile</key><string>MSIMEClientInputMethod.icns</string>
 <key>CFBundlePackageType</key><string>APPL</string>
+<key>CFBundleInfoDictionaryVersion</key><string>6.0</string>
+<key>NSPrincipalClass</key><string>NSApplication</string>
 <key>CFBundleVersion</key><string>1</string>
 <key>CFBundleShortVersionString</key><string>0.1.0</string>
 <key>NSMicrophoneUsageDescription</key><string>语音输入需要使用麦克风录音。</string>
@@ -15,7 +17,35 @@
 <key>LSMinimumSystemVersion</key><string>13.0</string>
 <key>InputMethodConnectionName</key><string>MSIMEClientPreviewConnection</string>
 <key>InputMethodServerControllerClass</key><string>MSIMEInputController</string>
+<key>InputMethodServerDelegateClass</key><string>MSIMEInputController</string>
+<key>InputMethodServerPreferencesWindowControllerClass</key><string>MSIMEPreferencesWindowController</string>
 <key>tsInputMethodCharacterRepertoireKey</key><array><string>Hans</string></array>
 <key>TISIntendedLanguage</key><string>zh-Hans</string>
+<key>TISInputSourceLanguages</key><array><string>zh-Hans</string></array>
 <key>TISInputSourceID</key><string>app.msime.client.preview.inputmethod</string>
+<!-- macOS offers an input method through its visible input modes, not through the bundle itself.
+     Without this dictionary TISRegisterInputSource still returns noErr, but the source never
+     appears in TISCreateInputSourceList and never reaches the picker in System Settings, so the
+     input method cannot be selected at all. The mode identifier extends the bundle identifier,
+     which is how the system tells one bundle's modes apart. -->
+<key>ComponentInputModeDict</key>
+<dict>
+  <key>tsInputModeListKey</key>
+  <dict>
+    <key>app.msime.client.preview.inputmethod.Hans</key>
+    <dict>
+      <key>TISInputSourceID</key><string>app.msime.client.preview.inputmethod.Hans</string>
+      <key>TISIntendedLanguage</key><string>zh-Hans</string>
+      <key>tsInputModeCharacterRepertoireKey</key><array><string>Hans</string></array>
+      <key>tsInputModeDefaultStateKey</key><true/>
+      <key>tsInputModeIsVisibleKey</key><true/>
+      <key>tsInputModeMenuIconFileKey</key><string>MSIMEClientInputMethod.icns</string>
+      <key>tsInputModePaletteIconFileKey</key><string>MSIMEClientInputMethod.icns</string>
+      <key>tsInputModePrimaryInScriptKey</key><true/>
+      <key>tsInputModeScriptKey</key><string>smSimpChinese</string>
+    </dict>
+  </dict>
+  <key>tsVisibleInputModeOrderedArrayKey</key>
+  <array><string>app.msime.client.preview.inputmethod.Hans</string></array>
+</dict>
 </dict></plist>
