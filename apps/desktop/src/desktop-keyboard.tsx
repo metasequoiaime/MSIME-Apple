@@ -42,7 +42,6 @@ export function DesktopKeyboard({ client, preferences }: { client: PanelClient; 
   const layout = snapshot?.preferences.touch_keyboard_layout === "nine_key" ? "nine_key" : "twenty_six_key";
   const keySpacingTenths = snapshot?.preferences.touch_key_spacing_tenths ?? 60;
   const rowSpacingTenths = snapshot?.preferences.touch_row_spacing_tenths ?? 70;
-  const voiceShortcut = snapshot?.preferences.touch_voice_shortcut === true;
   const skin = snapshot?.preferences.touch_keyboard_skin ?? "forest";
   const customDesign = snapshot?.preferences.custom_touch_keyboard_skin;
   // macOS voice submission belongs to the native IMK session. A standalone
