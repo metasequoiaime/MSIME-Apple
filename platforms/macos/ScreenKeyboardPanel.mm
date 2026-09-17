@@ -57,6 +57,7 @@ bool CommitKey(const Key &key) {
         key.code == kVK_Space || key.code == kVK_Return || key.code == kVK_Tab ||
         key.code == kVK_Delete || key.code == kVK_ForwardDelete;
 }
+bool RepeatableKey(const Key &key) { return key.modifier == 0; }
 BOOL PostKey(unsigned short code, NSEventModifierFlags flags, pid_t targetPID) {
     (void)targetPID;
     // The panel is a non-activating utility surface. Never request permission
@@ -226,6 +227,11 @@ BOOL PostKey(unsigned short code, NSEventModifierFlags flags, pid_t targetPID) {
         button.font = [NSFont systemFontOfSize:key.normal[1] == '\0' ? 15 : 12];
         button.bezelStyle = NSBezelStyleRegularSquare;
         button.buttonType = NSButtonTypePushOnPushOff;
+        // Use AppKit's native press-and-hold tracking so character, editing and
+        // commit keys repeat while the pointer remains down. Sticky modifiers
+        // stay one-shot toggles and must never oscillate during a long press.
+        button.continuous = RepeatableKey(key);
+        if (button.continuous) [button setPeriodicDelay:0.45 interval:0.075];
         [_buttons addObject:button];
         _keys.push_back(key);
         [content addSubview:button];

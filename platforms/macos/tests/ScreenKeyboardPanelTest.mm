@@ -73,6 +73,19 @@ int main() {
         };
         assert(codes.size() == 61);
         assert(Key(panel, 29).font.pointSize == 15 && Key(panel, 56).font.pointSize == 12);
+        for (NSUInteger i = 0; i < codes.size(); ++i) {
+            NSButton *button = Key(panel, i);
+            const BOOL modifier = codes[i] == 57 || codes[i] == 56 || codes[i] == 59 ||
+                codes[i] == 55 || codes[i] == 58;
+            assert(button.continuous == !modifier);
+            if (!modifier) {
+                float delay = 0;
+                float interval = 0;
+                [button getPeriodicDelay:&delay interval:&interval];
+                assert(std::abs(delay - 0.45f) < 0.001f);
+                assert(std::abs(interval - 0.075f) < 0.001f);
+            }
+        }
         for (NSNumber *dark in @[@NO, @YES]) {
             panel.appearance = [NSAppearance appearanceNamed:dark.boolValue ? NSAppearanceNameDarkAqua : NSAppearanceNameAqua];
             NSButton *button = Key(panel, 41);
