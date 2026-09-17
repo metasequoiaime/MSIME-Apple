@@ -779,6 +779,26 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         self.assertIn("github.base_ref == 'main' || github.ref_name == 'main'", handwriting)
         self.assertNotIn("github.event_name != 'pull_request'", handwriting)
 
+    def test_the_simulator_script_generates_before_it_builds(self):
+        """生成必须在编译之前,而且不能加条件。
+
+        xcodegen 在生成那一刻枚举文件,所以新增一个源文件、project.yml 一个字没改,也要重新生成。少了这一步的报错是 `cannot find 'X' in scope`,看着像名字打错。这一步是免费的 —— 内容没变时重写出的 pbxproj 字节相同,Xcode 按内容判断、零重编 —— 所以任何「只在 project.yml 变了才生成」的优化都是纯亏,这条用例就是拦它的。
+        """
+        script = (IOS_ROOT / "scripts/build_sim.sh").read_text()
+        commands = "\n".join(line for line in script.splitlines() if not line.lstrip().startswith("#"))
+        generate = commands.index("xcodegen generate")
+        build = commands.index("xcodebuild")
+        self.assertLess(generate, build, "build_sim.sh 在生成工程之前就开始编译了")
+        # 生成那一行不能被包在 if 里 —— 那等于把「什么时候需要重新生成」这个判断交还给人。
+        generate_line = next(line for line in script.splitlines() if "xcodegen generate" in line)
+        self.assertEqual(generate_line, generate_line.lstrip(), "xcodegen 被放进了条件分支里")
+        # 这条路没有 Pods,用 .xcodeproj 不是 .xcworkspace,手写必须跳过。
+        # 比的是命令,不是注释 —— 脚本的注释里正解释着为什么不跑 pod install。
+        self.assertIn("MSIME_IOS_SKIP_HANDWRITING=1", commands)
+        self.assertIn("build/ios-sim/MetasequoiaImeIOS.xcodeproj", commands)
+        self.assertNotIn("pod install", commands)
+        self.assertNotIn(".xcworkspace", commands)
+
     def test_project_and_ci_run_native_onboarding_ui_tests(self):
         project = (IOS_ROOT / "project.yml").read_text()
         workflow = (IOS_ROOT.parents[1] / ".github/workflows/ci-ios.yml").read_text()
