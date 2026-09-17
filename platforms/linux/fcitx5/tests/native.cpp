@@ -192,7 +192,7 @@ int main(int argc, char **argv) {
     }
     require(!state->preferences_.value("number_row_selection", true),
             "runtime preferences reload in active Fcitx session");
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 11,
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 12,
             "native status actions attached");
     require(engine.chinese_punctuation_action_.isChecked(&ic),
             "Chinese punctuation status action reflects preference");
@@ -206,6 +206,14 @@ int main(int argc, char **argv) {
     require(!state->paired_punctuation_, "paired punctuation status action toggles live mode");
     engine.paired_punctuation_action_.activate(&ic);
     require(state->paired_punctuation_, "paired punctuation status action restores live mode");
+    require(engine.candidate_translation_action_.isChecked(&ic),
+            "candidate translation status action reflects preference");
+    engine.candidate_translation_action_.activate(&ic);
+    require(!state->preferences_.value("candidate_translations", true),
+            "candidate translation status action disables live mode");
+    engine.candidate_translation_action_.activate(&ic);
+    require(state->preferences_.value("candidate_translations", false),
+            "candidate translation status action restores live mode");
     require(engine.maintenance_menu_.actions().size() == 8,
             "candidate maintenance menu attached");
     require(engine.clipboard_menu_.actions().size() == 11,

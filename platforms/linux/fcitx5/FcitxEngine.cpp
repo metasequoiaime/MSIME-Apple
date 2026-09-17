@@ -331,6 +331,22 @@ public:
     render();
     return true;
   }
+  bool toggleCandidateTranslations() {
+    if (!session_) return false;
+    const bool enabled = !preferences_.value("candidate_translations", false);
+    preferences_["candidate_translations"] = enabled;
+    if (!enabled && view_.contains("generation")) {
+      const auto empty = std::string("[]");
+      view_ = response(msime_client_apply_translations(
+          session_, view_.at("generation"),
+          reinterpret_cast<const uint8_t *>(empty.data()), empty.size())).at("view");
+      translation_query_.clear();
+      translation_pending_.clear();
+    }
+    saveBooleanPreference("candidate_translations", enabled);
+    render();
+    return true;
+  }
   bool selectEdge(uint8_t edge) {
     if (!session_ || view_.value("candidates", Json::array()).empty()) return false;
     for (const auto &candidate : view_.at("candidates")) {
@@ -1188,6 +1204,35 @@ private:
   Mode mode_;
 };
 
+class FcitxCandidateTranslationAction : public fcitx::Action {
+public:
+  explicit FcitxCandidateTranslationAction(fcitx::FactoryFor<FcitxState> *factory)
+      : factory_(factory) { setCheckable(true); }
+  std::string shortText(fcitx::InputContext *) const override { return "候选翻译"; }
+  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  bool isChecked(fcitx::InputContext *ic) const override {
+    if (!ic) return false;
+    const auto *state = ic->propertyFor(factory_);
+    return state->session_ && state->preferences_.value("candidate_translations", false);
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    auto *state = ic->propertyFor(factory_);
+    if (!state->session_ || state->restricted() || state->privateInput()) return;
+    try {
+      if (state->ensure()) {
+        state->toggleCandidateTranslations();
+        update(ic);
+      }
+    } catch (...) {
+      state->close();
+      state->clearPanel();
+    }
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
 class FcitxMaintenanceAction : public fcitx::SimpleAction {
 public:
   FcitxMaintenanceAction(fcitx::FactoryFor<FcitxState> *factory, int operation,
@@ -1466,6 +1511,7 @@ public:
     traditional_action_.registerAction("msime-traditional", &instance->userInterfaceManager());
     chinese_punctuation_action_.registerAction("msime-chinese-punctuation", &instance->userInterfaceManager());
     paired_punctuation_action_.registerAction("msime-paired-punctuation", &instance->userInterfaceManager());
+    candidate_translation_action_.registerAction("msime-candidate-translations", &instance->userInterfaceManager());
     clipboard_action_.setMenu(&clipboard_menu_);
     clipboard_menu_.addAction(&clipboard_item1_);
     clipboard_menu_.addAction(&clipboard_item2_);
@@ -1549,6 +1595,7 @@ public:
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &traditional_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &chinese_punctuation_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &paired_punctuation_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &candidate_translation_action_);
     try { if (state->ensure()) state->render(); } catch (...) { unavailable(*state); }
   }
   void deactivate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
@@ -1564,6 +1611,7 @@ public:
     event.inputContext()->statusArea().removeAction(&traditional_action_);
     event.inputContext()->statusArea().removeAction(&chinese_punctuation_action_);
     event.inputContext()->statusArea().removeAction(&paired_punctuation_action_);
+    event.inputContext()->statusArea().removeAction(&candidate_translation_action_);
     state->close(); state->clearPanel();
   }
   void reset(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
@@ -1599,6 +1647,7 @@ public:
   FcitxTraditionalAction traditional_action_{&factory_};
   FcitxPunctuationAction chinese_punctuation_action_{&factory_, FcitxPunctuationAction::Mode::Chinese};
   FcitxPunctuationAction paired_punctuation_action_{&factory_, FcitxPunctuationAction::Mode::Paired};
+  FcitxCandidateTranslationAction candidate_translation_action_{&factory_};
   fcitx::Menu clipboard_menu_;
   FcitxClipboardItemAction clipboard_item1_{&factory_, 0};
   FcitxClipboardItemAction clipboard_item2_{&factory_, 1};
