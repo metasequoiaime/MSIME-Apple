@@ -131,6 +131,8 @@ int main(int argc, char **argv) {
             "native status actions attached");
     require(engine.maintenance_menu_.actions().size() == 8,
             "candidate maintenance menu attached");
+    require(engine.clipboard_menu_.actions().size() == 5,
+            "clipboard history menu attached");
     require(!engine.english_action_.isChecked(&ic), "English candidates initially disabled");
     engine.english_action_.activate(&ic);
     require(engine.english_action_.isChecked(&ic), "status action enables English candidates");

@@ -409,11 +409,11 @@ public:
       });
     } catch (...) { clipboard_loading_ = false; clipboard_items_.clear(); }
   }
-  bool pasteClipboard() {
+  bool pasteClipboard(size_t index = 0) {
     if (restricted() || privateInput() || !ic_.hasFocus()) return false;
     refreshClipboard();
-    if (clipboard_items_.empty()) return false;
-    const auto &item = clipboard_items_.front();
+    if (index >= clipboard_items_.size()) return false;
+    const auto &item = clipboard_items_.at(index);
     const auto text = item.is_string() ? item.get<std::string>() : item.value("text", std::string{});
     if (text.empty()) return false;
     ic_.commitString(text);
@@ -681,12 +681,27 @@ public:
     setShortText("剪贴板");
     setLongText("插入最近的剪贴板历史");
   }
+  void setMenu(fcitx::Menu *menu) { fcitx::SimpleAction::setMenu(menu); }
   void activate(fcitx::InputContext *ic) override {
     if (!ic || !ic->hasFocus()) return;
     try { ic->propertyFor(factory_)->pasteClipboard(); } catch (...) {}
   }
 private:
   fcitx::FactoryFor<FcitxState> *factory_;
+};
+
+class FcitxClipboardItemAction : public fcitx::SimpleAction {
+public:
+  FcitxClipboardItemAction(fcitx::FactoryFor<FcitxState> *factory, size_t index)
+      : factory_(factory), index_(index) { setLabel("剪贴板 " + std::to_string(index + 1)); }
+  void setLabel(const std::string &label) { setShortText(label); setLongText(label); }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try { ic->propertyFor(factory_)->pasteClipboard(index_); } catch (...) {}
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+  size_t index_;
 };
 
 // Each context owns a thread-bound Host API session. Fcitx never copies composing state.
@@ -698,6 +713,12 @@ public:
     width_action_.registerAction("msime-fullwidth", &instance->userInterfaceManager());
     maintenance_action_.registerAction("msime-candidate-tools", &instance->userInterfaceManager());
     clipboard_action_.registerAction("msime-clipboard", &instance->userInterfaceManager());
+    clipboard_action_.setMenu(&clipboard_menu_);
+    clipboard_menu_.addAction(&clipboard_item1_);
+    clipboard_menu_.addAction(&clipboard_item2_);
+    clipboard_menu_.addAction(&clipboard_item3_);
+    clipboard_menu_.addAction(&clipboard_item4_);
+    clipboard_menu_.addAction(&clipboard_item5_);
     maintenance_action_.setMenu(&maintenance_menu_);
     maintenance_menu_.addAction(&pin_action_);
     maintenance_menu_.addAction(&remove_action_);
@@ -774,6 +795,12 @@ public:
   fcitx::Menu maintenance_menu_;
   FcitxMaintenanceAction maintenance_action_{&factory_, 0, "候选维护"};
   FcitxClipboardAction clipboard_action_{&factory_};
+  fcitx::Menu clipboard_menu_;
+  FcitxClipboardItemAction clipboard_item1_{&factory_, 0};
+  FcitxClipboardItemAction clipboard_item2_{&factory_, 1};
+  FcitxClipboardItemAction clipboard_item3_{&factory_, 2};
+  FcitxClipboardItemAction clipboard_item4_{&factory_, 3};
+  FcitxClipboardItemAction clipboard_item5_{&factory_, 4};
   FcitxMaintenanceAction pin_action_{&factory_, 1, "固定候选"};
   FcitxMaintenanceAction remove_action_{&factory_, 2, "删除候选"};
   FcitxMaintenanceAction fix1_action_{&factory_, 11, "固定到 1"};
