@@ -6,7 +6,7 @@ import maximizeIcon from "../../../packages/ui/src/assets/maximize.svg";
 import restoreIcon from "../../../packages/ui/src/assets/restore.svg";
 import closeIcon from "../../../packages/ui/src/assets/close.svg";
 import keyboardCapability from "../src-tauri/capabilities/keyboard.json";
-import { AI_PROVIDER_OPTIONS, CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryCatalogPanel, CloudDictionaryFilesPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, aiCredentialOrigin, aiProviderUpdate, type AiAssistantPreferences, type CustomSkinLibraryAction, type HostCapabilities, type SavedTouchKeyboardSkin, type SettingsClient, type Snapshot, type TouchKeyboardSkinDesign } from "@msime/ui";
+import { AI_PROVIDER_OPTIONS, CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryApplyPanel, CloudDictionaryCatalogPanel, CloudDictionaryFilesPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, aiCredentialOrigin, aiProviderUpdate, type AiAssistantPreferences, type CustomSkinLibraryAction, type HostCapabilities, type SavedTouchKeyboardSkin, type SettingsClient, type Snapshot, type TouchKeyboardSkinDesign } from "@msime/ui";
 import { validateGitHubRelease } from "../../../packages/ui/src/update-manifest";
 
 afterEach(cleanup);
@@ -2267,26 +2267,26 @@ test("cloud dictionary panel can queue an entry for the local dictionary", async
   panel.unmount();
 });
 
-test("cloud dictionary snapshot requires preview and explicit confirmation", async () => {
+test("cloud dictionary apply requires preview and explicit confirmation", async () => {
   const close = vi.fn().mockResolvedValue(undefined);
   const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   const request = vi.fn().mockImplementation(async (action: { operation: string }) => {
-    if (action.operation === "list") return { entries: [], has_more: false, offset: 0 };
+    if (action.operation === "snapshot_status") return { localVersion: "local-v1", request: null };
     if (action.operation === "snapshot_preview") return {
       previewToken: "snapshot-token",
       snapshot: { cloudRevision: 42, sha256: "a".repeat(64), bytes: 2048, records: 12, entries: 4, overlays: 4, positions: 2, selections: 2 },
     };
     return { request: { id: "request", cloudRevision: 42, fileSha256: "a".repeat(64), status: action.operation === "snapshot_cancel" ? "cancelled" : "queued" } };
   });
-  render(<CloudDictionaryPanel client={{ close, request, snapshot: true }} />);
-  await screen.findByText("暂无词条");
-  fireEvent.click(screen.getByRole("button", { name: "下载并预览" }));
+  render(<CloudDictionaryApplyPanel client={{ close, request, snapshot: true }} />);
+  await screen.findByText("已获取本机词库版本");
+  fireEvent.click(screen.getByRole("button", { name: "下载云词库并预览" }));
   expect(await screen.findByText(/云端 revision 42/)).toBeDefined();
   expect(request).not.toHaveBeenCalledWith({ operation: "snapshot_enqueue", token: "snapshot-token" });
-  fireEvent.click(screen.getByRole("button", { name: "确认加入本机" }));
+  fireEvent.click(screen.getByRole("button", { name: "替换本机词库" }));
   await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "snapshot_enqueue", token: "snapshot-token" }));
-  expect(confirm).toHaveBeenCalledWith("确认将此云词典快照加入本机词库？输入法会在下一次空闲边界应用。");
-  fireEvent.click(screen.getByRole("button", { name: "取消待应用" }));
+  expect(confirm).toHaveBeenCalledWith(expect.stringContaining("确认用这份云端快照替换"));
+  fireEvent.click(screen.getByRole("button", { name: "取消待应用快照" }));
   await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "snapshot_cancel" }));
 });
 
@@ -2294,7 +2294,6 @@ test("cloud dictionary snapshot backup and restore stay behind validation and co
   const close = vi.fn().mockResolvedValue(undefined);
   const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   const request = vi.fn().mockImplementation(async (action: { operation: string }) => {
-    if (action.operation === "list") return { entries: [], has_more: false, offset: 0 };
     if (action.operation === "snapshot_export") return { text: "{\"type\":\"header\"}\n", filename: "snapshot.ndjson" };
     if (action.operation === "snapshot_restore_preview") return {
       snapshot: { cloudRevision: 7, sha256: "b".repeat(64), bytes: 20, records: 0, entries: 0, overlays: 0, positions: 0, selections: 0 },
@@ -2303,11 +2302,10 @@ test("cloud dictionary snapshot backup and restore stay behind validation and co
     if (action.operation === "snapshot_restore") return { revision: 13, reset: true };
     return {};
   });
-  render(<CloudDictionaryPanel client={{ close, request, snapshot: true }} />);
-  await screen.findByText("暂无词条");
+  render(<CloudDictionaryFilesPanel client={{ close, request, snapshot: true }} />);
   const file = new File(["snapshot fixture"], "snapshot.ndjson", { type: "application/x-ndjson" });
-  fireEvent.change(screen.getByLabelText("恢复快照"), { target: { files: [file] } });
-  expect(await screen.findByText(/当前云端 revision：12/)).toBeDefined();
+  fireEvent.change(screen.getByLabelText("选择快照恢复到云端"), { target: { files: [file] } });
+  expect(await screen.findByText(/云端 revision 7/)).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "确认恢复云端词库" }));
   await waitFor(() => expect(request).toHaveBeenCalledWith({
     operation: "snapshot_restore", text: "snapshot fixture", expected_sha256: "b".repeat(64), revision: 12,
