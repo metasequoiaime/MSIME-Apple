@@ -333,6 +333,25 @@ public:
           reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
     }).share();
   }
+  void saveNestedBooleanPreference(const char *object, const char *key, bool enabled) {
+    if (!object || !*object || !key || !*key || options_path_.empty() || private_) return;
+    const auto directory = options_path_;
+    const std::string section(object), preference(key);
+    preferences_save_job_ = std::async(std::launch::async,
+        [directory, section, preference, enabled] {
+      auto snapshot = response(msime_client_load_preferences(
+          reinterpret_cast<const uint8_t *>(directory.data()), directory.size()));
+      if (!snapshot.is_object() || !snapshot.contains("revision") ||
+          !snapshot.contains("preferences") || !snapshot.at("preferences").is_object())
+        return Json::object();
+      snapshot["preferences"][section][preference] = enabled;
+      const auto encoded = snapshot.dump();
+      return response(msime_client_save_preferences(
+          reinterpret_cast<const uint8_t *>(directory.data()), directory.size(),
+          snapshot.at("revision").get<uint64_t>(),
+          reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
+    }).share();
+  }
   bool toggleChinesePunctuation() {
     if (!session_) return false;
     chinese_punctuation_ = !chinese_punctuation_;
@@ -390,6 +409,24 @@ public:
     translation_query_.clear();
     translation_pending_.clear();
     saveStringPreference("translation_target_language", next);
+    render();
+    return true;
+  }
+  bool toggleCloudCandidates() {
+    if (!session_) return false;
+    const bool enabled = !preferences_.value("cloud_candidates", true);
+    preferences_["cloud_candidates"] = enabled;
+    if (!enabled && !online_query_.empty()) {
+      const auto empty = std::string("[]");
+      view_ = response(msime_client_apply_online_candidates(
+          session_, reinterpret_cast<const uint8_t *>(online_query_.data()), online_query_.size(),
+          reinterpret_cast<const uint8_t *>(empty.data()), empty.size(), 0)).at("view");
+      ++online_epoch_;
+      online_query_.clear();
+      online_slots_[0].query.clear();
+      online_slots_[1].query.clear();
+    }
+    saveBooleanPreference("cloud_candidates", enabled);
     render();
     return true;
   }
@@ -1338,6 +1375,36 @@ private:
   fcitx::FactoryFor<FcitxState> *factory_;
 };
 
+class FcitxCloudCandidatesAction : public fcitx::Action {
+public:
+  explicit FcitxCloudCandidatesAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
+    setCheckable(true);
+  }
+  std::string shortText(fcitx::InputContext *) const override { return "云联想"; }
+  std::string icon(fcitx::InputContext *) const override { return "network-wireless"; }
+  bool isChecked(fcitx::InputContext *ic) const override {
+    if (!ic) return false;
+    const auto *state = ic->propertyFor(factory_);
+    return state->session_ && state->preferences_.value("cloud_candidates", true);
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    auto *state = ic->propertyFor(factory_);
+    if (!state->session_ || state->restricted() || state->privateInput()) return;
+    try {
+      if (state->ensure()) {
+        state->toggleCloudCandidates();
+        update(ic);
+      }
+    } catch (...) {
+      state->close();
+      state->clearPanel();
+    }
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
 class FcitxMaintenanceAction : public fcitx::SimpleAction {
 public:
   FcitxMaintenanceAction(fcitx::FactoryFor<FcitxState> *factory, int operation,
@@ -1619,6 +1686,7 @@ public:
     candidate_translation_action_.registerAction("msime-candidate-translations", &instance->userInterfaceManager());
     punctuation_lock_action_.registerAction("msime-punctuation-lock", &instance->userInterfaceManager());
     translation_language_action_.registerAction("msime-translation-language", &instance->userInterfaceManager());
+    cloud_candidates_action_.registerAction("msime-cloud-candidates", &instance->userInterfaceManager());
     clipboard_action_.setMenu(&clipboard_menu_);
     clipboard_menu_.addAction(&clipboard_item1_);
     clipboard_menu_.addAction(&clipboard_item2_);
@@ -1705,6 +1773,7 @@ public:
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &candidate_translation_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &punctuation_lock_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &translation_language_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &cloud_candidates_action_);
     try { if (state->ensure()) state->render(); } catch (...) { unavailable(*state); }
   }
   void deactivate(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
@@ -1723,6 +1792,7 @@ public:
     event.inputContext()->statusArea().removeAction(&candidate_translation_action_);
     event.inputContext()->statusArea().removeAction(&punctuation_lock_action_);
     event.inputContext()->statusArea().removeAction(&translation_language_action_);
+    event.inputContext()->statusArea().removeAction(&cloud_candidates_action_);
     state->close(); state->clearPanel();
   }
   void reset(const fcitx::InputMethodEntry &, fcitx::InputContextEvent &event) override {
@@ -1761,6 +1831,7 @@ public:
   FcitxCandidateTranslationAction candidate_translation_action_{&factory_};
   FcitxPunctuationLockAction punctuation_lock_action_{&factory_};
   FcitxTranslationLanguageAction translation_language_action_{&factory_};
+  FcitxCloudCandidatesAction cloud_candidates_action_{&factory_};
   fcitx::Menu clipboard_menu_;
   FcitxClipboardItemAction clipboard_item1_{&factory_, 0};
   FcitxClipboardItemAction clipboard_item2_{&factory_, 1};

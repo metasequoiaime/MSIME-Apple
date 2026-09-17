@@ -192,8 +192,21 @@ int main(int argc, char **argv) {
     }
     require(!state->preferences_.value("number_row_selection", true),
             "runtime preferences reload in active Fcitx session");
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 14,
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 15,
             "native status actions attached");
+    if (state->preferences_.value("cloud_candidates", false)) {
+      require(engine.cloud_candidates_action_.isChecked(&ic),
+              "cloud candidates status action reflects preference");
+      engine.cloud_candidates_action_.activate(&ic);
+      require(!state->preferences_.value("cloud_candidates", true),
+              "cloud candidates status action disables live mode");
+      engine.cloud_candidates_action_.activate(&ic);
+      require(state->preferences_.value("cloud_candidates", false),
+              "cloud candidates status action restores live mode");
+    } else {
+      require(!engine.cloud_candidates_action_.isChecked(&ic),
+              "cloud candidates status action reflects disabled preference");
+    }
     require(engine.translation_language_action_.shortText(&ic) == "翻译：英语",
             "translation language action starts in English");
     engine.translation_language_action_.activate(&ic);
