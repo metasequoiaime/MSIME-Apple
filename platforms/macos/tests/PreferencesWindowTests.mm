@@ -705,7 +705,7 @@ int main()
         require(uninstallButton != nil, "The about page did not expose the uninstall button.");
         require([uninstallButton.contentTintColor isEqual:[NSColor systemRedColor]],
                 "The uninstall button was not marked as a destructive action.");
-        // 点它只该弹确认,不该直接开卸载。它和「清除学习数据」走同一套 sheet idiom,所以对得上同一个判据。
+        // 点它只该弹确认,不该直接卸载。它和「清除学习数据」走同一套 sheet idiom,所以对得上同一个判据。
         require(uninstallButton.action == @selector(confirmUninstall:),
                 "The uninstall button did not route through a confirmation step.");
 

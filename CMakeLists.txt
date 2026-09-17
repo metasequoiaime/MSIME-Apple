@@ -60,6 +60,10 @@ if(BUILD_TESTING)
     find_package(Python3 REQUIRED COMPONENTS Interpreter)
     find_library(APPKIT_FRAMEWORK AppKit REQUIRED)
     find_library(INPUT_METHOD_KIT_FRAMEWORK InputMethodKit REQUIRED)
+    add_executable(MetasequoiaUninstallerTests ${METASEQUOIA_MACOS_ROOT}/tests/UninstallerTests.mm ${METASEQUOIA_MACOS_ROOT}/src/Uninstaller.mm)
+    target_compile_options(MetasequoiaUninstallerTests PRIVATE -fobjc-arc -Wall -Wextra -Wpedantic -Werror)
+    target_link_libraries(MetasequoiaUninstallerTests PRIVATE "-framework AppKit" "-framework Security")
+    add_test(NAME uninstaller COMMAND MetasequoiaUninstallerTests)
     add_executable(MetasequoiaVoiceSettingsTests ${METASEQUOIA_MACOS_ROOT}/tests/VoiceSettingsTests.mm)
     target_compile_options(MetasequoiaVoiceSettingsTests PRIVATE -fobjc-arc -Wall -Wextra -Wpedantic -Werror)
     target_link_libraries(MetasequoiaVoiceSettingsTests PRIVATE "-framework AppKit" "-framework Security")
@@ -294,7 +298,7 @@ if(METASEQUOIA_IME_BUILD_INPUT_METHOD)
         ${METASEQUOIA_IME_LEGAL_DIRECTORY}/MIT-nlohmann-json.txt
         ${METASEQUOIA_IME_LEGAL_DIRECTORY}/miniaudio-LICENSE.txt
         ${METASEQUOIA_IME_LEGAL_DIRECTORY}/MIT-whisper.txt)
-    add_executable(MetasequoiaIME MACOSX_BUNDLE ${METASEQUOIA_MACOS_ROOT}/src/main.mm ${METASEQUOIA_MACOS_ROOT}/src/CandidatePanel.mm ${CMAKE_CURRENT_SOURCE_DIR}/shared/apple-bridge/CandidateTranslation.cpp ${METASEQUOIA_CANDIDATE_SKIN_SOURCES} ${METASEQUOIA_MACOS_ROOT}/src/ChineseTextConversion.mm ${METASEQUOIA_MACOS_ROOT}/src/DictionaryInstaller.mm ${METASEQUOIA_MACOS_ROOT}/src/FloatingToolbarPanel.mm ${METASEQUOIA_MACOS_ROOT}/src/InputModeHUDPanel.mm ${METASEQUOIA_MACOS_ROOT}/src/InputSourceRegistration.mm ${METASEQUOIA_MACOS_ROOT}/src/MetasequoiaInputController.mm ${METASEQUOIA_MACOS_ROOT}/src/PersonalDictionaryStore.mm ${CMAKE_CURRENT_SOURCE_DIR}/shared/apple-bridge/PersonalDictionaryBridge.mm ${METASEQUOIA_MACOS_ROOT}/src/PersonalDictionaryView.mm ${METASEQUOIA_MACOS_ROOT}/src/PreferencesWindowController.mm ${METASEQUOIA_MACOS_ROOT}/src/ShuangpinKeymapPanel.mm ${METASEQUOIA_MACOS_ROOT}/src/StringConversion.mm ${METASEQUOIA_MACOS_ROOT}/src/UpdateController.mm ${METASEQUOIA_IME_DICTIONARY} ${METASEQUOIA_IME_CUSTOM_TRANSLATIONS} ${METASEQUOIA_IME_ICONS} ${METASEQUOIA_IME_HELPCODES} ${METASEQUOIA_IME_LOCALIZATIONS} ${METASEQUOIA_IME_LEGAL_RESOURCES} ${METASEQUOIA_IME_UNINSTALLER})
+    add_executable(MetasequoiaIME MACOSX_BUNDLE ${METASEQUOIA_MACOS_ROOT}/src/main.mm ${METASEQUOIA_MACOS_ROOT}/src/CandidatePanel.mm ${CMAKE_CURRENT_SOURCE_DIR}/shared/apple-bridge/CandidateTranslation.cpp ${METASEQUOIA_CANDIDATE_SKIN_SOURCES} ${METASEQUOIA_MACOS_ROOT}/src/ChineseTextConversion.mm ${METASEQUOIA_MACOS_ROOT}/src/DictionaryInstaller.mm ${METASEQUOIA_MACOS_ROOT}/src/FloatingToolbarPanel.mm ${METASEQUOIA_MACOS_ROOT}/src/InputModeHUDPanel.mm ${METASEQUOIA_MACOS_ROOT}/src/InputSourceRegistration.mm ${METASEQUOIA_MACOS_ROOT}/src/MetasequoiaInputController.mm ${METASEQUOIA_MACOS_ROOT}/src/PersonalDictionaryStore.mm ${CMAKE_CURRENT_SOURCE_DIR}/shared/apple-bridge/PersonalDictionaryBridge.mm ${METASEQUOIA_MACOS_ROOT}/src/PersonalDictionaryView.mm ${METASEQUOIA_MACOS_ROOT}/src/PreferencesWindowController.mm ${METASEQUOIA_MACOS_ROOT}/src/ShuangpinKeymapPanel.mm ${METASEQUOIA_MACOS_ROOT}/src/StringConversion.mm ${METASEQUOIA_MACOS_ROOT}/src/Uninstaller.mm ${METASEQUOIA_MACOS_ROOT}/src/UpdateController.mm ${METASEQUOIA_IME_DICTIONARY} ${METASEQUOIA_IME_CUSTOM_TRANSLATIONS} ${METASEQUOIA_IME_ICONS} ${METASEQUOIA_IME_HELPCODES} ${METASEQUOIA_IME_LOCALIZATIONS} ${METASEQUOIA_IME_LEGAL_RESOURCES} ${METASEQUOIA_IME_UNINSTALLER})
     target_sources(MetasequoiaIME PRIVATE ${METASEQUOIA_MACOS_ROOT}/src/TranslationClient.mm)
     get_filename_component(dictionary_directory "${METASEQUOIA_IME_DICTIONARY}" DIRECTORY)
     if(EXISTS "${dictionary_directory}/dictionary-manifest.json")
@@ -355,6 +359,7 @@ if(METASEQUOIA_IME_BUILD_INPUT_METHOD)
             ${METASEQUOIA_MACOS_ROOT}/src/PersonalDictionaryStore.mm ${CMAKE_CURRENT_SOURCE_DIR}/shared/apple-bridge/PersonalDictionaryBridge.mm
             ${METASEQUOIA_MACOS_ROOT}/src/PersonalDictionaryView.mm
             ${METASEQUOIA_MACOS_ROOT}/src/PreferencesWindowController.mm
+            ${METASEQUOIA_MACOS_ROOT}/src/Uninstaller.mm
             ${METASEQUOIA_MACOS_ROOT}/src/ShuangpinKeymapPanel.mm
             ${METASEQUOIA_MACOS_ROOT}/src/StringConversion.mm
             ${METASEQUOIA_MACOS_ROOT}/src/TranslationClient.mm
@@ -381,7 +386,7 @@ if(METASEQUOIA_IME_BUILD_INPUT_METHOD)
         target_link_libraries(MetasequoiaUpdateControllerTests PRIVATE MetasequoiaSparkle ${APPKIT_FRAMEWORK})
         set_target_properties(MetasequoiaUpdateControllerTests PROPERTIES BUILD_RPATH "${METASEQUOIA_SPARKLE_ROOT}")
         add_test(NAME update_controller COMMAND MetasequoiaUpdateControllerTests)
-        add_executable(MetasequoiaPreferencesWindowTests ${METASEQUOIA_MACOS_ROOT}/tests/PreferencesWindowTests.mm ${METASEQUOIA_MACOS_ROOT}/src/PersonalDictionaryStore.mm ${CMAKE_CURRENT_SOURCE_DIR}/shared/apple-bridge/PersonalDictionaryBridge.mm ${METASEQUOIA_MACOS_ROOT}/src/PersonalDictionaryView.mm ${METASEQUOIA_MACOS_ROOT}/src/PreferencesWindowController.mm ${METASEQUOIA_CANDIDATE_SKIN_SOURCES} ${METASEQUOIA_MACOS_ROOT}/src/DictionaryInstaller.mm ${METASEQUOIA_MACOS_ROOT}/src/UpdateController.mm)
+        add_executable(MetasequoiaPreferencesWindowTests ${METASEQUOIA_MACOS_ROOT}/tests/PreferencesWindowTests.mm ${METASEQUOIA_MACOS_ROOT}/src/PersonalDictionaryStore.mm ${CMAKE_CURRENT_SOURCE_DIR}/shared/apple-bridge/PersonalDictionaryBridge.mm ${METASEQUOIA_MACOS_ROOT}/src/PersonalDictionaryView.mm ${METASEQUOIA_MACOS_ROOT}/src/PreferencesWindowController.mm ${METASEQUOIA_CANDIDATE_SKIN_SOURCES} ${METASEQUOIA_MACOS_ROOT}/src/DictionaryInstaller.mm ${METASEQUOIA_MACOS_ROOT}/src/Uninstaller.mm ${METASEQUOIA_MACOS_ROOT}/src/UpdateController.mm)
         target_include_directories(MetasequoiaPreferencesWindowTests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/shared/apple-bridge)
         target_compile_options(MetasequoiaPreferencesWindowTests PRIVATE -fobjc-arc -Wall -Wextra -Wpedantic -Werror)
         target_link_libraries(MetasequoiaPreferencesWindowTests PRIVATE MSIMEBackendAccount MetasequoiaAppleVoice MetasequoiaMacDictionaryRuntime MetasequoiaIme::Engine MetasequoiaSparkle ${APPKIT_FRAMEWORK} ${INPUT_METHOD_KIT_FRAMEWORK})

@@ -24,6 +24,7 @@ extern "C" void MSIMEAccountPaneClose(void);
 #import "CandidateSkinAppearance.h"
 #import "CandidateSkinPreviewView.h"
 #import "DictionaryInstaller.h"
+#import "Uninstaller.h"
 #import "PersonalDictionaryView.h"
 #import "SkinSettingsView.h"
 #import "UpdateController.h"
@@ -2121,9 +2122,10 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
         4.0);
     legalCard.accessibilityLabel = @"法务信息卡片";
 
-    // 卸载程序随 bundle 一起装好(CMakeLists.txt 把 scripts/uninstall.sh 配置进
-    // Contents/Resources),这里只负责把它交给终端,不在 app 内部跑。理由有两条:脚本第一件事是 pkill
-    // 掉正在运行的输入法,也就是会去启动它的这个进程;而它带着一整套失败回滚,回滚不干净时要打印恢复目录的位置,那条信息得有地方可看。交给终端两件事都成立。
+    // 卸载在进程内做。先前这里是把 Contents/Resources/Uninstall.command 交给终端 —— 因为那个脚本要先 pkill
+    // 掉输入法,而那正是会去启动它的进程。可这在 Mac 上不是用户认得的样子:弹一个终端窗口,再要人手打一行 REMOVE
+    // METASEQUOIAIME。在进程内做那个矛盾根本不存在:我们就是要退出的那个进程,活儿干完最后再退出自己,不用杀谁,也不用抢安装锁。
+    // 脚本原样留着,那是安装包和命令行那条路,scripts/uninstall.sh 与 UninstallTests.py 都没动。
     NSButton *uninstallButton = [NSButton buttonWithTitle:@"卸载水杉输入法…"
                                                    target:self
                                                    action:@selector(confirmUninstall:)];
@@ -3112,32 +3114,24 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
 - (void)confirmUninstall:(id)sender
 {
     (void)sender;
-    NSURL *uninstaller = [NSBundle.mainBundle URLForResource:@"Uninstall" withExtension:@"command"];
+    NSButton *removeUserDataButton = [NSButton checkboxWithTitle:@"同时删除词库、偏好与语音密钥" target:nil action:nil];
+    removeUserDataButton.accessibilityLabel = @"同时删除用户数据";
+    removeUserDataButton.state = NSControlStateValueOff;
+    [removeUserDataButton sizeToFit];
 
     NSAlert *alert = [[NSAlert alloc] init];
     alert.alertStyle = NSAlertStyleWarning;
-    if (uninstaller == nil)
-    {
-        // 独立跑设置(测试宿主)时 bundle 里没有这份资源。装好的那一份仍在原位,所以给出路径而不是无声失败。
-        alert.messageText = @"未找到卸载程序。";
-        alert.informativeText =
-            @"卸载程序随安装的输入法一起提供，位于 ~/Library/Input "
-            @"Methods/MetasequoiaIME.app/Contents/Resources/Uninstall.command。也可以使用安装包里同名的那一份。";
-        [alert addButtonWithTitle:@"好"];
-        [alert beginSheetModalForWindow:self.window completionHandler:nil];
-        return;
-    }
-
     alert.messageText = @"卸载水杉输入法？";
     alert.informativeText =
-        @"卸载程序会在「终端」里打开，先请你输入一行确认，再把输入法移到废纸篓——放错了可以取回。词库与偏好默认保留；要"
-        @"一并清除，在它后面加上 --remove-user-data。\n\n卸载会退出正在运行的输入法。完成后重新登录系统，macOS "
-        @"才会刷新输入源列表。";
+        @"输入法会被移到废纸篓，放错了可以从那里放回原处。不勾下面这项时，词库、学习记录和偏好都会留着，重新安装后接着"
+        @"用。\n\n卸载后输入法立即退出。重新登录系统，macOS 才会把它从输入源列表里去掉。";
+    alert.accessoryView = removeUserDataButton;
     [alert addButtonWithTitle:@"取消"];
-    [alert addButtonWithTitle:@"打开卸载程序"];
+    [alert addButtonWithTitle:@"卸载"];
     alert.buttons[0].keyEquivalent = @"\r";
     alert.buttons[1].keyEquivalent = @"";
-    alert.buttons[1].accessibilityLabel = @"打开卸载程序";
+    alert.buttons[1].hasDestructiveAction = YES;
+    alert.buttons[1].accessibilityLabel = @"确认卸载";
     alert.window.defaultButtonCell = (NSButtonCell *)alert.buttons[0].cell;
 
     [alert beginSheetModalForWindow:self.window
@@ -3146,7 +3140,33 @@ NSView *PreferencesPage(NSString *title, NSString *summary, NSArray<NSView *> *c
                     {
                         return;
                     }
-                    [[NSWorkspace sharedWorkspace] openURL:uninstaller];
+                    BOOL removeUserData = removeUserDataButton.state == NSControlStateValueOn;
+                    NSError *error = nil;
+                    if (!UninstallMetasequoiaForCurrentUser(removeUserData, &error))
+                    {
+                        NSAlert *failure = [[NSAlert alloc] init];
+                        failure.alertStyle = NSAlertStyleWarning;
+                        failure.messageText = @"卸载未能完成。";
+                        NSString *reason = error.localizedDescription;
+                        failure.informativeText = reason.length > 0 ? reason : @"请稍后重试。";
+                        [failure addButtonWithTitle:@"好"];
+                        [failure beginSheetModalForWindow:self.window completionHandler:nil];
+                        return;
+                    }
+                    // bundle 已经不在原处,这个进程继续跑下去只会对着一个半截安装工作。告诉人下一步要做什么,然后退出 ——
+                    // 输入源列表要重新登录才会刷新,这一条不说清楚,人会以为没卸干净。
+                    NSAlert *done = [[NSAlert alloc] init];
+                    done.messageText = @"水杉输入法已移到废纸篓。";
+                    done.informativeText =
+                        removeUserData
+                            ? @"词库、偏好与语音密钥也一并移除了。重新登录系统后，它会从输入源列表里消失。"
+                            : @"词库与偏好留在原处，重新安装后可以接着用。重新登录系统后，它会从输入源列表里消失。";
+                    [done addButtonWithTitle:@"退出"];
+                    [done beginSheetModalForWindow:self.window
+                                 completionHandler:^(NSModalResponse ignored) {
+                                   (void)ignored;
+                                   [NSApp terminate:nil];
+                                 }];
                   }];
 }
 
