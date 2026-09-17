@@ -495,21 +495,22 @@ public:
     });
     return false;
   }
-  void refreshVoice() {
+  bool refreshVoice() {
     try {
-      if (!voice_job_.valid()) return;
-      if (voice_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
+      if (!voice_job_.valid()) return false;
+      if (voice_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return false;
       auto result = voice_job_.get();
       voice_loading_ = false;
       if (session_ && ic_.hasFocus() && !restricted() && !privateInput() && result.is_object()) {
         const auto text = result.value("text", std::string{});
-        if (!text.empty()) ic_.commitString(text);
+        if (!text.empty()) { ic_.commitString(text); return true; }
       }
     } catch (...) { voice_loading_ = false; }
+    return false;
   }
   bool requestVoice() {
     if (voice_socket_.empty() || restricted() || privateInput() || !ic_.hasFocus() || voice_loading_) return false;
-    refreshVoice();
+    if (refreshVoice()) return true;
     if (voice_loading_) return false;
     voice_loading_ = true;
     const auto socket = voice_socket_;
