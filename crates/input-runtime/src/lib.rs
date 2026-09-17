@@ -34,6 +34,7 @@ pub mod character_width {
     }
 }
 
+pub use chinese_ime_lm::{Reranker, SentenceModel};
 use msime_client_core::preferences::TouchKeyboardLayout;
 use msime_engine_bridge::{
     CandidateEdge, Command, EngineResult, EngineSnapshot, OnlineQuerySnapshot, Session,
@@ -1347,6 +1348,19 @@ pub struct Runtime<E: InputEngine = Session> {
     /// the sentence in progress. Every host but Linux left this empty, which
     /// made AI suggestions guess from the pinyin alone.
     ai_context: String,
+    /// Reorders candidates the pinyin decoder assembled, when a host supplied a model.
+    ///
+    /// Absent unless a host calls [`Runtime::set_reranker`], and absent is the only state the
+    /// hosts that ship no model ever see.
+    reranker: Option<Reranker>,
+}
+
+/// Move the element at `index` to the front, keeping everything else in its existing order.
+///
+/// A rotation rather than a swap, so the rest of the list stays as the engine ranked it: promoting
+/// one candidate is the whole change, not a reshuffle.
+fn rotate_to_front<T>(items: &mut [T], index: usize) {
+    items[..=index].rotate_right(1);
 }
 
 impl Runtime<Session> {
@@ -1542,6 +1556,7 @@ impl<E: InputEngine> Runtime<E> {
             session,
             generation: 0,
             ai_context: String::new(),
+            reranker: None,
             focused: false,
             page_size: page_size.into(),
             highlighted: 0,
@@ -1551,6 +1566,13 @@ impl<E: InputEngine> Runtime<E> {
             character_width: CharacterWidth::Halfwidth,
             touch_keyboard_layout,
         })
+    }
+
+    /// Attach a candidate reranker. Hosts load the model themselves, because where a model file
+    /// lives is a packaging question that differs per platform and the runtime has no business
+    /// guessing at it.
+    pub fn set_reranker(&mut self, reranker: Option<Reranker>) {
+        self.reranker = reranker;
     }
 
     pub fn set_character_width(&mut self, width: CharacterWidth) {
@@ -1782,6 +1804,43 @@ impl<E: InputEngine> Runtime<E> {
         }
     }
 
+    /// Let the model promote a candidate the pinyin decoder assembled, if a host attached one.
+    ///
+    /// Reordering happens here because this is the one place a candidate list enters the runtime,
+    /// so everything downstream — the view, `all_candidates`, the evaluation harness — sees the
+    /// same order the user does.
+    ///
+    /// The candidate arrays run in parallel and every one of them has to move together. Rotating
+    /// only the texts would leave each candidate wearing another's code, annotation and source.
+    fn rerank(&mut self) {
+        let Some(reranker) = self.reranker.as_mut() else {
+            return;
+        };
+        let snapshot = &self.cached;
+        let count = snapshot.candidates.len();
+        if count < 2
+            || snapshot.candidate_sources.len() != count
+            || snapshot.candidate_codes.len() != count
+            || snapshot.candidate_annotations.len() != count
+            || snapshot.candidate_positions.len() != count
+            || snapshot.candidate_corrected.len() != count
+        {
+            return;
+        }
+        let texts: Vec<&str> = snapshot.candidates.iter().map(String::as_str).collect();
+        let Some(promote) = reranker.best(&self.ai_context, &texts, &snapshot.candidate_sources)
+        else {
+            return;
+        };
+        let snapshot = &mut self.cached;
+        rotate_to_front(&mut snapshot.candidates, promote);
+        rotate_to_front(&mut snapshot.candidate_codes, promote);
+        rotate_to_front(&mut snapshot.candidate_annotations, promote);
+        rotate_to_front(&mut snapshot.candidate_sources, promote);
+        rotate_to_front(&mut snapshot.candidate_positions, promote);
+        rotate_to_front(&mut snapshot.candidate_corrected, promote);
+    }
+
     fn refresh(&mut self) -> Result<(), RuntimeError> {
         self.snapshot_valid = false;
         self.translations.clear();
@@ -1812,6 +1871,7 @@ impl<E: InputEngine> Runtime<E> {
         let previous_highlight = self.highlighted;
         self.highlighted = 0;
         self.cached = self.engine.snapshot()?;
+        self.rerank();
         self.snapshot_valid = true;
         if self.cached.editing_text == previous.editing_text
             && self.cached.scheme == previous.scheme
