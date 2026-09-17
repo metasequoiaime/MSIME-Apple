@@ -472,7 +472,7 @@ int main(int argc, char **argv) {
         request.append(buffer, count);
       }
       const auto document = Json::parse(request);
-      if (document.at("kind") != "translation" || document.at("query").at("target_language") != "fr") return false;
+      if (document.at("kind") != "translation" || document.at("query").at("target_language") != "en") return false;
       const auto &texts = document.at("query").at("candidates");
       if (texts.empty() || !texts.at(0).is_string()) return false;
       const auto reply = Json{{"translations", Json::array({
@@ -482,7 +482,7 @@ int main(int argc, char **argv) {
     options["translation_provider_socket"] = translationPath;
     options["preferences"]["candidate_translations"] = true;
     options["preferences"]["candidate_english_gloss"] = false;
-    options["preferences"]["translation_target_language"] = "fr";
+    options["preferences"]["translation_target_language"] = "en";
     std::ofstream(path) << options.dump();
     require(key(FcitxKey_n) && key(FcitxKey_i), "translation composition");
     state->refreshTranslations();
@@ -496,6 +496,14 @@ int main(int argc, char **argv) {
     require(translationProvider.get(), "translation socket protocol");
     require(ic.inputPanel().candidateList()->candidate(0).text().toString().find("synthetic-gloss") != std::string::npos,
             "translation visible in native Fcitx candidate");
+    const auto glossPath = std::filesystem::path(options.at("user_data").get<std::string>()) /
+                           "translation-glosses.db";
+    require(std::filesystem::exists(glossPath), "English translation gloss database exists");
+    std::ifstream glossFile(glossPath);
+    const std::string glossContent((std::istreambuf_iterator<char>(glossFile)),
+                                   std::istreambuf_iterator<char>());
+    require(glossContent.find("synthetic-gloss") != std::string::npos,
+            "English translation gloss is persisted");
     const auto translatedText = state->view_.at("candidates").at(0).at("text").get<std::string>();
     const auto beforeTranslatedCommit = ic.committed;
     ic.inputPanel().candidateList()->candidate(0).select(&ic);
