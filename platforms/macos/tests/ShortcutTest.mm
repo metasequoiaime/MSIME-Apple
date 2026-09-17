@@ -18,6 +18,26 @@ static NSFont *MissingKeyFont(id cls, SEL selector, CGFloat size, NSFontWeight w
     return ((NSFont *(*)(id, SEL, CGFloat, NSFontWeight))originalMonospacedFont)(cls, selector, size, weight);
 }
 
+// The scheme is a radio group now, not a popup: report the checked one, and check one by
+// sending the action the way a click does.
+static NSInteger SelectedSchemeIndex(MSIMEAppearancePreferences *preferences) {
+    for (NSControl *control in MSIMEFindPreferenceControls(preferences.window.contentView,
+                                                           @selector(schemeRadioChanged:)))
+        if (((NSButton *)control).state == NSControlStateValueOn) return control.tag;
+    return -1;
+}
+
+static void SelectScheme(MSIMEAppearancePreferences *preferences, NSInteger index) {
+    for (NSControl *control in MSIMEFindPreferenceControls(preferences.window.contentView,
+                                                           @selector(schemeRadioChanged:)))
+        if (control.tag == index) {
+            ((NSButton *)control).state = NSControlStateValueOn;
+            [NSApp sendAction:control.action to:control.target from:control];
+            return;
+        }
+    assert(false && "Missing scheme radio");
+}
+
 static NSControl *PreferenceControl(MSIMEAppearancePreferences *preferences, SEL action) {
     NSControl *control = MSIMEFindPreferenceControl(preferences.window.contentView, action);
     assert(control && "Missing preference action");
@@ -544,10 +564,9 @@ static void TestSharedInputPreferences() {
     NSDictionary *shared = @{@"scheme": @"shuangpin", @"shuangpin_profile": @"microsoft", @"shuangpin_preedit_uses_raw": @NO};
     [controller applySharedToolbarPreferences:shared];
     assert([prefs.inputScheme isEqual:@"shuangpin"] && [prefs.shuangpinProfile isEqual:@"microsoft"] && !prefs.shuangpinPreeditUsesRaw);
-    NSPopUpButton *scheme = (id)PreferenceControl(prefs, @selector(schemeChanged:));
     NSPopUpButton *profile = (id)PreferenceControl(prefs, @selector(profileChanged:));
     NSPopUpButton *preedit = (id)PreferenceControl(prefs, @selector(preeditChanged:));
-    assert(scheme.indexOfSelectedItem == 1 && profile.indexOfSelectedItem == 3 && preedit.indexOfSelectedItem == 0);
+    assert(SelectedSchemeIndex(prefs) == 1 && profile.indexOfSelectedItem == 3 && preedit.indexOfSelectedItem == 0);
     assert(saves == 0);
     assert([[defaults stringForKey:@"MSIMEClientInputScheme"] isEqual:@"quanpin"]);
     for (NSString *key in shared) assert([[prefs sharedPreferencesByMerging:shared][key] isEqual:shared[key]]);
@@ -555,12 +574,11 @@ static void TestSharedInputPreferences() {
     [controller applySharedToolbarPreferences:@{}];
     assert([prefs.inputScheme isEqual:@"shuangpin"] && [prefs.shuangpinProfile isEqual:@"microsoft"] && !prefs.shuangpinPreeditUsesRaw && saves == 0);
     [controller applySharedToolbarPreferences:@{@"scheme": @"japanese"}];
-    assert([prefs.inputScheme isEqual:@"japanese"] && scheme.indexOfSelectedItem == 3 && saves == 0);
+    assert([prefs.inputScheme isEqual:@"japanese"] && SelectedSchemeIndex(prefs) == 3 && saves == 0);
     assert([[prefs sharedPreferencesByMerging:shared][@"scheme"] isEqual:@"japanese"]);
     [controller applySharedToolbarPreferences:shared];
-    assert([prefs.inputScheme isEqual:@"shuangpin"] && scheme.indexOfSelectedItem == 1);
-    [scheme selectItemAtIndex:2];
-    [NSApp sendAction:scheme.action to:scheme.target from:scheme];
+    assert([prefs.inputScheme isEqual:@"shuangpin"] && SelectedSchemeIndex(prefs) == 1);
+    SelectScheme(prefs, 2);
     [profile selectItemAtIndex:2];
     [NSApp sendAction:profile.action to:profile.target from:profile];
     [preedit selectItemAtIndex:1];
@@ -568,7 +586,7 @@ static void TestSharedInputPreferences() {
     NSDictionary *edited = [prefs sharedPreferencesByMerging:shared];
     assert([edited[@"scheme"] isEqual:@"wubi"] && [edited[@"shuangpin_profile"] isEqual:@"shoudao"] && [edited[@"shuangpin_preedit_uses_raw"] isEqual:@YES] && saves == 3);
     [controller applySharedToolbarPreferences:shared];
-    assert(scheme.indexOfSelectedItem == 1 && profile.indexOfSelectedItem == 3 && preedit.indexOfSelectedItem == 0 && saves == 3);
+    assert(SelectedSchemeIndex(prefs) == 1 && profile.indexOfSelectedItem == 3 && preedit.indexOfSelectedItem == 0 && saves == 3);
     NSPopUpButton *layout = (id)PreferenceControl(prefs, @selector(layoutChanged:));
     NSPopUpButton *font = (id)PreferenceControl(prefs, @selector(fontChanged:));
     NSPopUpButton *page = (id)PreferenceControl(prefs, @selector(pageSizeChanged:));
