@@ -444,7 +444,8 @@ public:
       if (cloud_clipboard_job_.valid()) {
         if (cloud_clipboard_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
         auto result = cloud_clipboard_job_.get();
-        if (result.is_object()) cloud_clipboard_items_ = result.value("entries", Json::array());
+        if (ic_.hasFocus() && !restricted() && !privateInput() && result.is_object())
+          cloud_clipboard_items_ = result.value("entries", Json::array());
       }
     } catch (...) { cloud_clipboard_items_.clear(); }
   }
@@ -472,7 +473,8 @@ public:
       if (emoji_job_.valid()) {
         if (emoji_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
         auto result = emoji_job_.get();
-        if (result.is_object()) emoji_items_ = result.value("items", Json::array());
+        if (ic_.hasFocus() && !restricted() && !privateInput() && result.is_object())
+          emoji_items_ = result.value("items", Json::array());
       }
     } catch (...) { emoji_items_.clear(); }
   }
