@@ -514,7 +514,26 @@ impl Reranker {
     /// alongside 阿爸 — and those are not alternatives to the leader, they are different lengths of
     /// answer. Candidates matching the leader's length are the ones that answered the same key.
     pub fn best(&mut self, context: &str, texts: &[&str], sources: &[u8]) -> Option<usize> {
-        if !should_rerank(sources) {
+        self.best_where(context, texts, |index| {
+            sources
+                .get(index)
+                .is_some_and(|source| DICTIONARY_SOURCES.contains(source))
+        })
+    }
+
+    /// The same decision with the caller deciding which candidates carry dictionary evidence.
+    ///
+    /// `trusted(index)` answers whether the candidate at that position is an exact dictionary hit on
+    /// the whole key. That question is what the measurements are about, but how an engine answers it
+    /// is its own business: the source numbering `best` assumes belongs to one particular engine,
+    /// and nothing else about this crate does.
+    pub fn best_where(
+        &mut self,
+        context: &str,
+        texts: &[&str],
+        trusted: impl Fn(usize) -> bool,
+    ) -> Option<usize> {
+        if texts.is_empty() || trusted(0) {
             return None;
         }
         let width = texts.first()?.chars().count();
