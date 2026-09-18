@@ -580,6 +580,9 @@ int main(int argc, char **argv) {
     ic.surroundingText().setText("A😀", 2, 2);
     require(key(FcitxKey_comma), "non-ASCII surrounding context");
     require(ic.committed == beforePunctuation + "，", "Unicode scalar cursor context");
+    ic.surroundingText().setText("A", 1, 1);
+    require(key(FcitxKey_apostrophe), "ASCII apostrophe enters punctuation routing");
+    require(ic.committed == beforePunctuation + "，‘", "apostrophe follows shared punctuation policy");
     require(key(FcitxKey_n), "restart composition");
     ic.setCapabilityFlags(fcitx::CapabilityFlag::Password);
     require(state->session_ == 0, "password capability immediately closes session");
