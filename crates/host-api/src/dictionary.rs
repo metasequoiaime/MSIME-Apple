@@ -971,6 +971,7 @@ mod tests {
             local_super_jianpin: true,
             local_temporary_english: true,
             local_temporary_japanese: true,
+            sentence_alternatives: true,
         }
     }
 

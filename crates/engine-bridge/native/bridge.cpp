@@ -381,6 +381,7 @@ metasequoia::SessionOptions options_for(const EngineOptions& value) {
     options.local_modes = {value.local_unicode, value.local_date_time, value.local_quick_phrase, value.local_emoji,
                            value.local_kaomoji, value.local_super_jianpin, value.local_temporary_english,
                            value.local_temporary_japanese};
+    options.sentence_alternatives = value.sentence_alternatives;
     return options;
 }
 EngineResult result_for(const metasequoia::KeyResult& value) {

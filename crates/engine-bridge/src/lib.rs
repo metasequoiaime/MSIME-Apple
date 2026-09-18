@@ -86,6 +86,10 @@ mod ffi {
         pub local_super_jianpin: bool,
         pub local_temporary_english: bool,
         pub local_temporary_japanese: bool,
+        /// Ask the decoder for every whole-sentence reading it found rather than only its best.
+        /// The runtime reorders them and crops the list, so a host that sets this must also be the
+        /// one deciding what reaches the candidate page.
+        pub sentence_alternatives: bool,
     }
     #[derive(Debug)]
     pub struct EngineSnapshot {
@@ -868,6 +872,7 @@ mod tests {
             local_super_jianpin: true,
             local_temporary_english: true,
             local_temporary_japanese: true,
+            sentence_alternatives: true,
         }
     }
 

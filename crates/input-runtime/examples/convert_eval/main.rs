@@ -184,6 +184,8 @@ fn run(
     options.local_super_jianpin = false;
     options.local_temporary_english = false;
     options.local_temporary_japanese = false;
+    // Measure the shipped path: the host asks for every reading and crops the list itself.
+    options.sentence_alternatives = true;
 
     let engine = Session::new(&options)?;
     // page_size is capped at 9 by the runtime, but all_candidates() is not paginated.

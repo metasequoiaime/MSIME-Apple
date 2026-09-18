@@ -1,8 +1,8 @@
 {
   "repository": "metasequoiaime/MSIME-Engine",
-  "commit": "375c0670e582d7b829b2f8870432aea455d7adf9",
-  "archive": "https://github.com/metasequoiaime/MSIME-Engine/archive/375c0670e582d7b829b2f8870432aea455d7adf9.tar.gz",
-  "sha256": "b7af78dec4210e9fe825d3deccbee3cf18495a9639e5e530aa116eb4393830fe",
+  "commit": "06e6700bf51aef080f7610c8e335203725dddc87",
+  "archive": "https://github.com/metasequoiaime/MSIME-Engine/archive/06e6700bf51aef080f7610c8e335203725dddc87.tar.gz",
+  "sha256": "e5ab181931ba9ad6244154c2b6a3f34aadfda5b9badf9ef31a422b7294fd0f79",
   "dependencies": [
     {
       "path": "googlepinyinime-rev",

@@ -237,6 +237,11 @@ impl HostSession {
         options.local_super_jianpin = snapshot.preferences.local_modes.super_jianpin;
         options.local_temporary_english = snapshot.preferences.local_modes.temporary_english;
         options.local_temporary_japanese = snapshot.preferences.local_modes.temporary_japanese;
+        // Unconditional, because `Runtime::crop_alternative_readings` runs whether or not a model is
+        // attached: the host always shows one whole-sentence reading. Asking for the rest only ever
+        // gives it more to choose from, and even with no model the engine's own pick among them is
+        // better than the one it makes when it searches without alternatives.
+        options.sentence_alternatives = true;
         apply_local_mode_resource_gates(&mut options);
         let helpcode = snapshot.preferences.active_helpcode();
         options.helpcode = helpcode.enabled;
@@ -429,6 +434,7 @@ impl HostOptions {
             local_super_jianpin: self.preferences.local_modes.super_jianpin,
             local_temporary_english: self.preferences.local_modes.temporary_english,
             local_temporary_japanese: self.preferences.local_modes.temporary_japanese,
+            sentence_alternatives: true,
             helpcode: helpcode.enabled,
             show_helpcode: helpcode.show_in_candidate_window,
             helpcode_schema: helpcode.schema.as_str().into(),
@@ -3612,6 +3618,7 @@ mod tests {
             local_super_jianpin: true,
             local_temporary_english: true,
             local_temporary_japanese: true,
+            sentence_alternatives: true,
         };
         apply_local_mode_resource_gates(&mut options);
         assert!(options.local_unicode);

@@ -67,6 +67,7 @@ fn discard_does_not_require_maintenance_lock_for_live_paths() {
         local_super_jianpin: true,
         local_temporary_english: true,
         local_temporary_japanese: true,
+        sentence_alternatives: true,
     };
     registry().lock().unwrap().insert(
         456,
@@ -146,6 +147,7 @@ fn activation_case(nested_dictionaries: bool, hold_session: bool, handle: u64) {
         local_super_jianpin: true,
         local_temporary_english: true,
         local_temporary_japanese: true,
+        sentence_alternatives: true,
     };
     let active_options = make(&active);
     let staged_options = make(&staged);
