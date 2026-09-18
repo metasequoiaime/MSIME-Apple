@@ -7,6 +7,7 @@ fn main() {
     println!("cargo:rerun-if-changed=native/voice_capture_devices.mm");
     println!("cargo:rerun-if-changed=native/clipboard.mm");
     println!("cargo:rerun-if-changed=native/uninstaller.mm");
+    println!("cargo:rerun-if-changed=native/dictionary.mm");
     println!("cargo:rerun-if-changed=../../platforms/macos/src/VoiceCaptureDevice.h");
     cc::Build::new()
         .cpp(true)
@@ -14,6 +15,7 @@ fn main() {
         .file("native/voice_capture_devices.mm")
         .file("native/clipboard.mm")
         .file("native/uninstaller.mm")
+        .file("native/dictionary.mm")
         .flag("-fobjc-arc")
         .std("c++17")
         .compile("msime_macos_keyboard");

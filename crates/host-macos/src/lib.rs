@@ -190,6 +190,21 @@ pub fn uninstall_input_source(
     ok.then_some(()).ok_or("uninstall failed")
 }
 
+/// Ask the separate IMK process to release active dictionary sessions before a
+/// settings process takes the exclusive maintenance lock.  The notification
+/// carries no input, credentials, or paths.
+#[cfg(target_os = "macos")]
+pub fn quiesce_input_sessions() {
+    unsafe extern "C" {
+        fn msime_macos_quiesce_input_sessions();
+    }
+    // SAFETY: the native function has no arguments and retains no state.
+    unsafe { msime_macos_quiesce_input_sessions() };
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn quiesce_input_sessions() {}
+
 #[cfg(not(target_os = "macos"))]
 pub fn uninstall_input_source(
     _: &std::path::Path,

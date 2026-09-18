@@ -1340,6 +1340,13 @@ fn dictionary_error_code(reason: &str) -> &'static str {
     }
 }
 
+fn dictionary_action_requires_quiesce(action: &Value) -> bool {
+    matches!(
+        action.get("operation").and_then(Value::as_str),
+        Some("edit" | "import")
+    )
+}
+
 #[cfg(any(target_os = "ios", test))]
 fn ios_personal_dictionary_action(action: &Value) -> bool {
     matches!(
@@ -1402,6 +1409,13 @@ async fn dictionary_request(
     let options = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let options = options.snapshot()?;
+        let requires_quiesce = dictionary_action_requires_quiesce(&action);
+        #[cfg(not(target_os = "macos"))]
+        let _ = requires_quiesce;
+        #[cfg(target_os = "macos")]
+        if requires_quiesce {
+            msime_host_macos::quiesce_input_sessions();
+        }
         let request = serde_json::json!({ "options": options, "action": action });
         #[cfg(target_os = "ios")]
         if ios_personal_dictionary_action(&request["action"]) {
@@ -1419,6 +1433,23 @@ async fn dictionary_request(
         #[cfg(not(target_os = "android"))]
         {
             let first = msime_host_api::dictionary_request_json(&bytes);
+            #[cfg(target_os = "macos")]
+            if requires_quiesce {
+                // Distributed notifications are delivered asynchronously to
+                // the IMK process.  Retry only the lock-acquisition failure;
+                // a completed write is never replayed.
+                let mut result = first;
+                for _ in 0..20 {
+                    if !matches!(&result, Err(reason) if reason == "dictionary maintenance busy") {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(25));
+                    result = msime_host_api::dictionary_request_json(&bytes);
+                }
+                return result.map_err(|reason| CommandError {
+                    code: dictionary_error_code(&reason),
+                });
+            }
             // Only the lock is worth a handshake. Every other failure is about
             // the request itself and would fail again with sessions released.
             #[cfg(target_os = "windows")]
@@ -6413,6 +6444,22 @@ mod tests {
             None
         );
         assert_eq!(super::launch_route_from_args(&["--other".into()]), None);
+    }
+
+    #[test]
+    fn dictionary_mutations_quiesce_but_reads_do_not() {
+        assert!(super::dictionary_action_requires_quiesce(
+            &serde_json::json!({"operation": "edit"})
+        ));
+        assert!(super::dictionary_action_requires_quiesce(
+            &serde_json::json!({"operation": "import"})
+        ));
+        assert!(!super::dictionary_action_requires_quiesce(
+            &serde_json::json!({"operation": "list"})
+        ));
+        assert!(!super::dictionary_action_requires_quiesce(
+            &serde_json::json!({"operation": "export"})
+        ));
     }
 
     #[test]
