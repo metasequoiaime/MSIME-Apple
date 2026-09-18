@@ -6,11 +6,11 @@
 
 ## 模块边界
 
-- `crates/client-core`：已实现本地配置和固定资源分代安装；账号与同步待迁移，不依赖 Tauri、UI 或平台宿主。
+- `crates/client-core`：已实现本地配置和固定资源分代安装；账号、同步等业务契约按模块迁入，不依赖 Tauri、UI 或平台宿主。
 - `crates/input-runtime`：会话编排、焦点取消、候选分页和带代次的选择；不复制 Engine 组词状态机。
 - `crates/engine-bridge`：通过 CXX 调用固定上游 C++ Engine 的公共 Session。
 - `crates/host-api`：版本化 C 接口、线程绑定的会话句柄和显式响应释放。
-- `packages/ui`、`apps/desktop`：共享 React 设置页与 Tauri 应用壳，桌面和 Android 使用同一个 Rust 入口库、commands 与 React 页面；目录名暂沿用 desktop。Rust 入口按 `platform/{android,ios,linux,macos,windows,desktop}`、`shared/`、`tests/` 分层。
+- `packages/ui`、`apps/desktop`：共享 React 设置页与 Tauri 应用壳，桌面、Android 和 iOS 使用同一个 Rust 入口库、commands 与 React 页面；目录名暂沿用 desktop。Rust 入口按 `platform/{android,ios,linux,macos,windows,desktop}`、`shared/`、`tests/` 分层。
 - `shared/apple/`：macOS 与 iOS 共用的 Foundation / Objective-C++ 桥接，不包含系统输入法入口。
 - `platforms/`：各系统入口和适配层。Android、iOS、macOS、Linux、Windows 与 HarmonyOS 均保留自己的宿主边界；共享输入算法和组合状态仍在 C++ Engine。Android 15 arm64 模拟器已验证系统输入和共享设置，Linux arm64 容器已验证 IBus daemon 输入链路，Windows 已完成跨目标与本地边界测试，HarmonyOS 目前只有源码/交叉构建入口。真机、Linux 图形桌面、Windows 系统入口、HarmonyOS 设备以及 iOS 签名和设备验收仍待完成。
 
@@ -18,18 +18,18 @@
 
 | 平台 | 入口目录 | 当前可复现证据 | 尚未完成 |
 | --- | --- | --- | --- |
-| Android | `platforms/android/` | API 35 arm64 专用模拟器、Tauri/IME 合包和共享设置 | 真机、x86_64 合包、完整生命周期 |
-| iOS | `platforms/ios/` | Swift/配置测试和模拟器构建脚本 | Xcode target 签名、真机键盘扩展 |
-| macOS | `platforms/macos/` | IMK 预览 bundle、Rust/C++/CTest 和离屏 UI 测试 | 安装输入源、真实编辑器和权限验收 |
-| Linux | `platforms/linux/` | arm64 容器中的 IBus daemon、Fcitx5 构建和隔离测试 | 图形桌面、安装包和 Wayland/X11 端到端 |
-| Windows | `platforms/windows/`、`platforms/windows/tsf/` | x86/x64 交叉编译、管道/Server 边界测试 | Windows 原生运行、TSF 注册和编辑器验收 |
-| HarmonyOS | `platforms/harmony/` | ArkTS 逻辑测试和 OpenHarmony NDK 构建入口 | DevEco/HAP 设备运行和系统输入验收 |
+| [Android](platforms/android/README.md) | `platforms/android/` | API 35 arm64 专用模拟器、Tauri/IME 合包和共享设置 | 真机、x86_64 合包、完整生命周期 |
+| [iOS](platforms/ios/README.md) | `platforms/ios/` | Swift/配置测试和模拟器构建脚本 | Xcode target 签名、真机键盘扩展 |
+| [macOS](platforms/macos/README.md) | `platforms/macos/` | IMK 预览 bundle、Rust/C++/CTest 和离屏 UI 测试 | 安装输入源、真实编辑器和权限验收 |
+| [Linux](platforms/linux/README.md) | `platforms/linux/` | arm64 容器中的 IBus daemon、Fcitx5 构建和隔离测试 | 图形桌面、安装包和 Wayland/X11 端到端 |
+| [Windows](platforms/windows/README.md) | `platforms/windows/`、`platforms/windows/tsf/` | x86/x64 交叉编译、管道/Server 边界测试 | Windows 原生运行、TSF 注册和编辑器验收 |
+| [HarmonyOS](platforms/harmony/README.md) | `platforms/harmony/` | ArkTS 逻辑测试和 OpenHarmony NDK 构建入口 | DevEco/HAP 设备运行和系统输入验收 |
 
 共享库可以加载进不同宿主进程；不要求启动 Tauri 才能输入。跨进程设置变更需要明确的持久化与通知机制。
 
 ## 开发
 
-贡献代码前请阅读 [贡献指南](CONTRIBUTING.md)、[安全策略](SECURITY.md) 和 [行为规范](CODE_OF_CONDUCT.md)。仓库当前仍处于渐进迁移阶段；请以每个平台 README 和本地验证结果为准，不把未执行的原生宿主验收当作已完成。
+贡献代码前请阅读 [贡献指南](CONTRIBUTING.md)、[安全策略](SECURITY.md) 和 [行为规范](CODE_OF_CONDUCT.md)。准备公开源代码或平台构建物时，再阅读 [开源发布清单](docs/open-source-release.md)；它列出第三方通知、资源许可、敏感文件检查和验证边界。仓库当前仍处于渐进迁移阶段；请以每个平台 README 和本地验证结果为准，不把未执行的原生宿主验收当作已完成。
 
 ```sh
 cargo test -p msime-client-core --locked
@@ -45,13 +45,13 @@ pnpm tauri dev
 
 桌面设置默认通过 `app.msime.client.preview` 应用数据目录中的 `preferences.json` 保存，也可用绝对路径环境变量 `MSIME_CLIENT_STATE_DIR` 指向隔离开发目录。新 macOS 预览宿主可后台读取同一目录，输入中延迟应用；这不修改旧产品的已安装输入法。多个设置窗口保存时通过 revision 检测冲突，用户须显式重新读取后决定是否覆盖。
 
-Android 合包构建和设备测试见 [Android 宿主](platforms/android/README.md#tauri--react-共享设置合包)。Tauri 设置与原生 `:ime` 服务同包、不同进程，共享私有 files/bootstrap/state；关闭设置窗口不结束输入法进程。iOS 已接入共享键盘控制器源码和宿主桥接，Xcode 扩展 target、签名及设备验收仍待完成。
+Android 合包构建和设备测试见 [Android 宿主](platforms/android/README.md#tauri--react-共享设置合包)。Tauri 设置与原生 `:ime` 服务同包、不同进程，共享私有 files/bootstrap/state；关闭设置窗口不结束输入法进程。iOS Tauri App 已嵌入原生键盘扩展 target，并通过 App Group 共享状态；签名和设备验收边界见 [iOS 宿主](platforms/ios/README.md)。
 
 每个可验证的功能单独 commit。新实现接入并通过行为回归之前，各平台现有实现继续运行。
 
 共享设置支持 shuangpin_profile：xiaohe（小鹤）、ziranma（自然码）、shoudao（首道）、microsoft（微软）。旧配置缺省按小鹤读取且不自动改写，未知值拒绝；设置页在非双拼方案下禁用此选择但保留已选值。方案更改沿用组词结束后替换 Engine 的规则。新宿主会写出此字段，旧版本严格解析器可能拒绝新配置，设置端和宿主应成套更新，不得通过删除未知字段强行降级。
 
-Linux 本地构建和隔离 D-Bus / IBus 测试见 [Linux 宿主](platforms/linux/README.md)。目前使用准备好的配置快照，自动重读设置与图形桌面安装验收仍待完成。
+Linux 本地构建和隔离 D-Bus / IBus 测试见 [Linux 宿主](platforms/linux/README.md)。宿主已支持设置文件自动重读；图形桌面安装和真实编辑器验证仍需分别执行。
 
 平台迁移以 MSIME-Windows 完整功能为行为基线，逐项把公共业务和界面接入共享层/Tauri，同时保留 Windows TSF DLL / Server 的进程和协议边界。Android、iOS、macOS、Linux 与 HarmonyOS 按各自系统能力适配；目录整理或跨目标编译不等于系统入口、签名、安装和设备验收完成。
 
@@ -74,7 +74,7 @@ Engine 由 `engine-lock.json` 固定：锁文件同时记录 Engine 及其第三
 
 宿主创建会话后须显式传入焦点状态，将 `handled` 映射为系统吃键，将 `commit` 通过系统 API 上屏，将值快照渲染为候选。候选选择携带返回的 generation 和全局 index。全部会话操作在创建线程执行；过期、销毁或错误线程句柄返回错误。每个 UTF-8 JSON 响应必须通过 `msime_client_string_free` 释放一次。此版本优先验证互操作正确性；逐键快照 JSON 的延迟和分配成本尚未测量。
 
-`msime_client_select_edge(session, generation, index, edge)` 是 ABI 1 附加接口，适配器与宿主库须成套更新。方向使用 `MSIME_FIRST_HAN` / `MSIME_LAST_HAN`；共享层核对候选所属会话、代次和当前页，C++ Engine 提取首／尾汉字并在成功后清空整个组合。候选没有汉字时返回未处理并保留组合，不自动选词或追加标点；这类有效调用仍更新视图代次，宿主后续操作必须使用新快照。非法方向和失效身份在状态推进前拒绝。Windows 适配库已有配置键路由、无汉字回退与 TSF 回复编码，产品 KeyHandler 和实机验收仍未完成，不能把共享能力已暴露视为产品按键已可用。
+`msime_client_select_edge(session, generation, index, edge)` 是 ABI 1 附加接口，适配器与宿主库须成套更新。方向使用 `MSIME_FIRST_HAN` / `MSIME_LAST_HAN`；共享层核对候选所属会话、代次和当前页，C++ Engine 提取首／尾汉字并在成功后清空整个组合。候选没有汉字时返回未处理并保留组合，不自动选词或追加标点；这类有效调用仍更新视图代次，宿主后续操作必须使用新快照。非法方向和失效身份在状态推进前拒绝。Windows 适配库已有配置键路由、无汉字回退与 TSF 回复编码，生产 KeyHandler 已接线，实机验收仍待完成，不能把共享能力已暴露视为产品按键已可用。
 
 ## 固定词库资源
 
