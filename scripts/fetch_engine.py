@@ -8,6 +8,7 @@ same lock marker is left alone.
 """
 import hashlib
 import json
+import runpy
 import shutil
 import sys
 import tarfile
@@ -23,7 +24,11 @@ MARKER = DEST / ".msime-engine-lock"
 
 def lock_marker(lock: dict) -> str:
     """Include deterministic local compatibility overlays in the prepared marker."""
-    overlays = json.dumps(lock.get("patches", []), sort_keys=True, separators=(",", ":"))
+    overlays = json.dumps(
+        {"patches": lock.get("patches", []), "scripts": lock.get("overlay_scripts", [])},
+        sort_keys=True,
+        separators=(",", ":"),
+    )
     return f"{lock['commit']}\n{overlays}"
 
 
@@ -103,6 +108,15 @@ def main() -> int:
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copytree(dependency_root, destination, dirs_exist_ok=True)
         apply_patches(staging, lock)
+        for overlay in lock.get("overlay_scripts", []):
+            script = ROOT / overlay
+            if not script.is_file():
+                raise RuntimeError(f"Engine overlay script is missing: {overlay}")
+            namespace = runpy.run_path(str(script), run_name="__engine_overlay__")
+            apply_overlay = namespace.get("apply")
+            if not callable(apply_overlay):
+                raise RuntimeError(f"Engine overlay has no apply() function: {overlay}")
+            apply_overlay(staging)
         remove_git_metadata(staging)
         if DEST.exists():
             shutil.rmtree(DEST)
