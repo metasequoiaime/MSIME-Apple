@@ -271,6 +271,18 @@ group('row heights spend the whole adjustment without losing a pixel', () => {
   }
 });
 
+group('candidate window height follows the shared layout orientation', () => {
+  const horizontal = KeyboardMetrics.candidateHeightVp('horizontal', 9);
+  const vertical = KeyboardMetrics.candidateHeightVp('vertical', 9);
+  check(horizontal === KeyboardMetrics.candidateHeightVp('horizontal', 1),
+    'horizontal candidates stay a single row');
+  check(vertical > horizontal, 'vertical candidates get room for their page');
+  check(KeyboardMetrics.candidateHeightVp('vertical', 0) ===
+    KeyboardMetrics.candidateHeightVp('vertical', 1), 'an empty page keeps one row');
+  check(KeyboardMetrics.candidateHeightVp('vertical', 99) === vertical,
+    'vertical height is bounded to one candidate page');
+});
+
 group('invalid geometry is rejected rather than silently clamped', () => {
   assertThrows(() => KeyboardGeometry.adjustedRowHeight(0, 0, 3, 0), /Invalid keyboard height/, "rejects invalid input");
   assertThrows(() => KeyboardGeometry.adjustedRowHeight(48, 0, 0, 0), /Invalid keyboard height/, "rejects invalid input");

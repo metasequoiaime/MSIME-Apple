@@ -824,57 +824,19 @@ struct KeyboardView {
 
   @Builder
   candidateRow() {
-    Row() {
+    if (KeyboardFormFactor.isDesktop() && this.settings.candidateLayout === 'vertical') {
+      Column() {
+        ForEach(this.candidates, (candidate: CandidateEntry, index: number) => {
+          this.candidateCell(candidate, index)
+        }, (candidate: CandidateEntry, index: number) => `${index}:${candidate.text}`)
+      }
+      .width('100%')
+    } else {
+      Row() {
       Scroll() {
         Row() {
           ForEach(this.candidates, (candidate: CandidateEntry, index: number) => {
-            Row() {
-              Text(`${index + 1}`)
-                .fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
-                .fontColor(this.candidateNumberColor())
-                .fontFamily(this.candidateFontFamily())
-                .opacity(0.72)
-                .padding({ right: 4 })
-              Text(candidate.text)
-                .fontSize(this.settings.candidateFontSize)
-                .fontColor(index === 0 ? this.candidateAccentColor() : this.candidateTextColor())
-                .fontFamily(this.candidateFontFamily())
-              // The untyped tail of a Wubi code, and any suffix the Engine derived. Both are
-              // printed beside the candidate and neither is part of what gets committed.
-              if (candidate.hint.length > 0) {
-                Text(candidate.hint)
-                  .fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
-                  .fontColor(this.candidateTextColor())
-                  .fontFamily(this.candidateFontFamily())
-                  .opacity(0.5)
-                  .padding({ left: 2 })
-              }
-              if (candidate.annotation.length > 0) {
-                Text(candidate.annotation)
-                  .fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
-                  .fontColor(this.candidateAccentColor())
-                  .fontFamily(this.candidateFontFamily())
-                  .opacity(0.7)
-                  .padding({ left: 4 })
-              }
-            }
-            .alignItems(VerticalAlign.Center)
-            .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
-              right: KeyboardMetrics.CANDIDATE_PADDING_VP })
-            .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP)
-            .backgroundColor(index === this.hoveredCandidate
-              ? this.candidateHoverColor() : index === 0
-                ? (this.settings.candidateSelectedColor ?? '#00000000') : '#00000000')
-            .borderWidth(this.settings.candidateBorderColor === null ? 0 : 1)
-            .borderColor(this.candidateBorderColor())
-            .onClick(() => KeyboardSession.shared.choose(index))
-            .onHover((isHover: boolean): void => {
-              this.hoveredCandidate = isHover ? index : -1;
-            })
-            .gesture(LongPressGesture().onAction(() => {
-              this.punctuation = false;
-              this.managing = index;
-            }))
+            this.candidateCell(candidate, index)
           }, (candidate: CandidateEntry, index: number) => `${index}:${candidate.text}`)
         }
         .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP)
@@ -891,9 +853,38 @@ struct KeyboardView {
         .onClick(() => {
           this.expanded = KeyboardSession.shared.allCandidates();
         })
+      }
     }
     .width('100%')
-    .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP)
+    .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP
+      * (KeyboardFormFactor.isDesktop() && this.settings.candidateLayout === 'vertical'
+        ? Math.max(1, Math.min(9, this.candidates.length)) : 1))
+  }
+
+  @Builder
+  candidateCell(candidate: CandidateEntry, index: number) {
+    Row() {
+      Text(`${index + 1}`).fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
+        .fontColor(this.candidateNumberColor()).padding({ right: 4 })
+      Text(candidate.text).fontSize(this.settings.candidateFontSize)
+        .fontColor(index === 0 ? this.candidateAccentColor() : this.candidateTextColor())
+      if (candidate.hint.length > 0) {
+        Text(candidate.hint).fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
+          .fontColor(this.candidateTextColor()).opacity(0.5).padding({ left: 2 })
+      }
+      if (candidate.annotation.length > 0) {
+        Text(candidate.annotation).fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
+          .fontColor(this.candidateAccentColor()).opacity(0.7).padding({ left: 4 })
+      }
+    }.alignItems(VerticalAlign.Center)
+      .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP, right: KeyboardMetrics.CANDIDATE_PADDING_VP })
+      .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP).width('100%')
+      .backgroundColor(index === this.hoveredCandidate ? this.candidateHoverColor()
+        : index === 0 ? (this.settings.candidateSelectedColor ?? '#00000000') : '#00000000')
+      .borderWidth(this.settings.candidateBorderColor === null ? 0 : 1)
+      .borderColor(this.candidateBorderColor()).onClick(() => KeyboardSession.shared.choose(index))
+      .onHover((isHover: boolean): void => { this.hoveredCandidate = isHover ? index : -1; })
+      .gesture(LongPressGesture().onAction(() => { this.punctuation = false; this.managing = index; }))
   }
 
   /**

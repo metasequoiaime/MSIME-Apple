@@ -311,6 +311,7 @@ interface PreparedPreferences {
   candidate_follow_cursor: boolean;
   number_row_selection: boolean;
   navigation: PreparedNavigationPreferences;
+  candidate_layout: string;
   candidate_preedit_style: string;
   candidate_font_size: number;
   candidate_preedit_font_size: number;
@@ -387,6 +388,7 @@ export interface KeyboardPreferences {
   readonly navigation: HardwareNavigationPreferences;
   /** Whether the desktop candidate panel shows the spelling above its candidates. */
   readonly candidateShowPreedit: boolean;
+  readonly candidateLayout: string;
   readonly candidateFontSize: number;
   readonly candidatePreeditFontSize: number;
   readonly candidateFontFamily: string;
@@ -487,6 +489,7 @@ export class KeyboardSession {
     candidateFollowCursor: true,
     numberRowSelection: false,
     candidateShowPreedit: true,
+    candidateLayout: 'vertical',
     navigation: {
       minusEqual: true, commaPeriod: true, brackets: false,
       tab: true, pageUpDown: true, arrows: true
@@ -510,6 +513,8 @@ export class KeyboardSession {
   private voiceInput: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
 
   onChanged: ((state: KeyboardState) => void) | undefined = undefined;
+  /** Lets a desktop panel resize when a vertical candidate page changes height. */
+  onCandidateCount: ((count: number) => void) | undefined = undefined;
   /**
    * Whether a composition is open, for the host that owns the panel.
    *
@@ -596,6 +601,7 @@ export class KeyboardSession {
         candidateFollowCursor: preferences.candidate_follow_cursor,
         numberRowSelection: preferences.number_row_selection,
         candidateShowPreedit: preferences.candidate_preedit_style !== 'empty',
+        candidateLayout: preferences.candidate_layout === 'horizontal' ? 'horizontal' : 'vertical',
         navigation: {
           minusEqual: preferences.navigation?.minus_equal ?? true,
           commaPeriod: preferences.navigation?.comma_period ?? true,
@@ -1315,6 +1321,9 @@ export class KeyboardSession {
         english: view.dedicated_english,
         diagnostic: this.diagnostic
       });
+    }
+    if (this.onCandidateCount !== undefined) {
+      this.onCandidateCount(entries.length);
     }
     // Candidate annotations and online providers are display-only work. Both run after the Engine
     // view is published, and native result application rechecks the exact generation.
