@@ -21,5 +21,9 @@ oh_modules/
 local.properties
 .gitnexus
 
+# Local audit and artifact reports must never enter a source release.
+.tmp-*
+*.report.html
+
 # Prepared by scripts/fetch_engine.py from engine-lock.json rather than tracked or submoduled.
 /vendor/MSIME-Engine/
