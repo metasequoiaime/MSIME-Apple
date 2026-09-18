@@ -162,6 +162,9 @@ Root: HKLM; Subkey: "Software\Metasequoia\MetasequoiaIME"; \
     Flags: uninsdeletevalue
 
 [Code]
+const
+  DataDirMarkerName = '.metasequoiaime-data';
+
 var
   VersionDirName: String;
   NetworkPage: TInputOptionWizardPage;
@@ -219,6 +222,31 @@ begin
     LowerCase(AddBackslash(Directory))) = 1 then
     Exit;
   Result := True;
+end;
+
+function DataDirMarkerPath(const Directory: String): String;
+begin
+  Result := AddBackslash(Directory) + DataDirMarkerName;
+end;
+
+function OwnsDataDir(const Directory: String): Boolean;
+begin
+  Result :=
+    (CompareText(Directory, ExpandConstant('{localappdata}\metasequoiaime')) = 0) or
+    FileExists(DataDirMarkerPath(Directory));
+end;
+
+procedure WriteDataDirMarker(const Directory: String);
+var
+  Lines: TArrayOfString;
+begin
+  if not ForceDirectories(Directory) then
+    Exit;
+  if FileExists(DataDirMarkerPath(Directory)) then
+    Exit;
+  SetArrayLength(Lines, 1);
+  Lines[0] := 'This directory is managed by Metasequoia IME.';
+  SaveStringsToFile(DataDirMarkerPath(Directory), Lines, False);
 end;
 
 { 云候选是唯一一个装完就会联网的功能：输入过程中把当前拼写发给 Google 的 input-tools 服务。
@@ -487,6 +515,8 @@ var
   ItemPath: String;
 begin
   AppDataPath := GetDataDir('');
+  if not OwnsDataDir(AppDataPath) then
+    exit;
   if not DirExists(AppDataPath) then
     exit;
 
@@ -677,6 +707,7 @@ procedure CurStepChanged(CurStep: TSetupStep);
 begin
   if CurStep = ssPostInstall then
   begin
+    WriteDataDirMarker(GetDataDir(''));
 #ifndef LightPackage
     ReplayUserDictionary;
     ApplyNetworkChoiceToUserConfig;
@@ -719,7 +750,8 @@ begin
     end;
     TryDeleteTree(ExpandConstant('{commonpf32}\metasequoiaime'));
     TryDeleteTree(ExpandConstant('{commonpf64}\metasequoiaime'));
-    TryDeleteTree(GetDataDir(''));
+    if OwnsDataDir(GetDataDir('')) then
+      TryDeleteTree(GetDataDir(''));
     TryDeleteTree(ExpandConstant('{commonappdata}\metasequoiaime'));
   end;
 end;

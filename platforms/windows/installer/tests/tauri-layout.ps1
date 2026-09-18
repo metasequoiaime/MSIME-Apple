@@ -26,4 +26,12 @@ if (-not $script.Contains('function DataDirIsSafe') -or
     -not $script.Contains('DataDirIsSafe(GetDataDir')) {
     throw 'Installer does not validate the selected DataDir'
 }
+if (-not $script.Contains("DataDirMarkerName = '.metasequoiaime-data'") -or
+    -not $script.Contains('function OwnsDataDir') -or
+    -not $script.Contains('WriteDataDirMarker(GetDataDir')) {
+    throw 'Installer does not protect user-owned data directories with a marker'
+}
+if (-not $script.Contains('if not OwnsDataDir(AppDataPath) then')) {
+    throw 'Installer cleanup is not guarded by data-directory ownership'
+}
 Write-Output 'Installer carries native/Tauri outputs without loose legacy HTML'
