@@ -9,5 +9,5 @@ for source in "$root"/shared/backend/account/*.swift "$root"/shared/backend/clie
 done
 swift_target=${MSIME_SWIFT_TARGET:-$(uname -m)-apple-macosx${MACOSX_DEPLOYMENT_TARGET:-13.0}}
 xcrun swiftc -parse-as-library -emit-executable -target "$swift_target" \
-  -o "$out" "${sources[@]}" "$root/platforms/macos/tests/BackendAccountTests.swift"
+  -o "$out" "${sources[@]}" "$root/platforms/macos/tests/core/BackendAccountTests.swift"
 "$out"

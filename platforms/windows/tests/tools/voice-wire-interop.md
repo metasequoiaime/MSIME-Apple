@@ -4,9 +4,9 @@ Run from the repository root after preparing the locked Engine sources:
 
 ```sh
 python3 scripts/fetch_engine.py
-bash platforms/windows/tests/voice-wire-interop.sh
-rustfmt --check --edition 2021 platforms/windows/tests/voice_wire_interop.rs
-clippy-driver --edition=2021 --test -D warnings platforms/windows/tests/voice_wire_interop.rs -o target/voice-wire-interop/clippy-tests
+bash tests/tools/voice-wire-interop.sh
+rustfmt --check --edition 2021 tests/voice/voice_wire_interop.rs
+clippy-driver --edition=2021 --test -D warnings tests/voice/voice_wire_interop.rs -o target/voice-wire-interop/clippy-tests
 ```
 
 Requires a host C++17 compiler with AddressSanitizer/UndefinedBehaviorSanitizer

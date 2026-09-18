@@ -1,22 +1,22 @@
 import inputMethodEngine from '@ohos.inputMethodEngine';
 import client from 'libmsimeclient.so';
 import { KeyboardLog, describeError } from './KeyboardLog';
-import { KeyboardSkin } from './KeyboardSkin';
-import { EditorPolicy, EditorTraits } from './EditorPolicy';
-import { WubiCodeHintPolicy } from './WubiCodeHintPolicy';
+import { KeyboardSkin } from './skin/KeyboardSkin';
+import { EditorPolicy, EditorTraits } from './input/EditorPolicy';
+import { WubiCodeHintPolicy } from './input/WubiCodeHintPolicy';
 import { KeyboardGeometry } from './KeyboardGeometry';
-import { FullWidthInputPolicy } from './FullWidthInputPolicy';
-import { ChineseHelpcodePolicy } from './ChineseHelpcodePolicy';
-import { ChineseOutputPolicy } from './ChineseOutputPolicy';
+import { FullWidthInputPolicy } from './input/FullWidthInputPolicy';
+import { ChineseHelpcodePolicy } from './input/ChineseHelpcodePolicy';
+import { ChineseOutputPolicy } from './input/ChineseOutputPolicy';
 import { KeyboardFeedback, FeedbackSettings, HapticStrength } from './KeyboardFeedback';
 import vibrator from '@ohos.vibrator';
 import i18n from '@ohos.i18n';
-import { InputDiagnosticPolicy } from './InputDiagnosticPolicy';
+import { InputDiagnosticPolicy } from './input/InputDiagnosticPolicy';
 import { ModeBindings, DEFAULT_MODE_BINDINGS } from './InputModeRouting';
 import { FloatingToolbarLayout, ToolbarButton, ToolbarComponents, ToolbarState }
   from './FloatingToolbarLayout';
 import { DesktopSurface } from './DesktopSurface';
-import { CandidateGlossPolicy, GlossToken } from './CandidateGlossPolicy';
+import { CandidateGlossPolicy, GlossToken } from './candidate/CandidateGlossPolicy';
 import fs from '@ohos.file.fs';
 import pasteboard from '@ohos.pasteboard';
 import abilityAccessCtrl from '@ohos.abilityAccessCtrl';
@@ -24,7 +24,7 @@ import bundleManager from '@ohos.bundle.bundleManager';
 import {
   ClipboardHistoryStore, ClipboardHistoryItem, ClipboardHistoryError, ClipboardFailure,
   MAX_FILE_BYTES
-} from './ClipboardHistoryStore';
+} from './clipboard/ClipboardHistoryStore';
 
 // Shapes of the JSON the shared C ABI answers with. Only the fields this minimal surface reads are
 // declared; the responses carry considerably more.

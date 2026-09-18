@@ -2,33 +2,33 @@ import {
   KeyboardSession, KeyboardPreferences, KeyboardState, CandidateEntry, EmojiPage, EmojiRow
 } from './KeyboardSession';
 import { KeyboardScheme, SchemeDefinition } from './KeyboardScheme';
-import { KeyboardSkin } from './KeyboardSkin';
-import { EnglishLetterCaseState, LetterCaseMode } from './EnglishLetterCaseState';
-import { LetterKeyFacePolicy } from './LetterKeyFacePolicy';
-import { ShuangpinKeyHintPolicy } from './ShuangpinKeyHintPolicy';
-import { ReturnKeyAction } from './ReturnKeyAction';
-import { InputDiagnosticPolicy } from './InputDiagnosticPolicy';
-import { LocalInputMode, LocalInputModeDefinition } from './LocalInputMode';
-import { CandidateWrapPolicy } from './CandidateWrapPolicy';
+import { KeyboardSkin } from './skin/KeyboardSkin';
+import { EnglishLetterCaseState, LetterCaseMode } from './input/EnglishLetterCaseState';
+import { LetterKeyFacePolicy } from './input/LetterKeyFacePolicy';
+import { ShuangpinKeyHintPolicy } from './input/ShuangpinKeyHintPolicy';
+import { ReturnKeyAction } from './input/ReturnKeyAction';
+import { InputDiagnosticPolicy } from './input/InputDiagnosticPolicy';
+import { LocalInputMode, LocalInputModeDefinition } from './input/LocalInputMode';
+import { CandidateWrapPolicy } from './candidate/CandidateWrapPolicy';
 import { KeyboardFeedback, FeedbackSettings, HapticStrength } from './KeyboardFeedback';
-import { QuickPunctuationPolicy, PunctuationEntry } from './QuickPunctuationPolicy';
+import { QuickPunctuationPolicy, PunctuationEntry } from './input/QuickPunctuationPolicy';
 import {
   JapaneseNineKeyLayout, JapaneseKey, VariantGroup, DIRECTION_CENTRE
-} from './JapaneseNineKeyLayout';
-import { JapaneseNineKeyActions } from './JapaneseNineKeyActions';
-import { JapaneseVariantPolicy } from './JapaneseVariantPolicy';
-import { CandidateManagementAction, ManagementAction } from './CandidateManagementAction';
+} from './input/JapaneseNineKeyLayout';
+import { JapaneseNineKeyActions } from './input/JapaneseNineKeyActions';
+import { JapaneseVariantPolicy } from './input/JapaneseVariantPolicy';
+import { CandidateManagementAction, ManagementAction } from './candidate/CandidateManagementAction';
 import { KeyboardMetrics } from './KeyboardMetrics';
 import { KeyboardGeometry } from './KeyboardGeometry';
-import { NineKeyLayout, NineKey } from './NineKeyLayout';
-import { SpaceCursorMovement } from './SpaceCursorMovement';
-import { EmojiCatalogModel, EmojiCategory, EmojiItem, EMOJI_PAGE_SIZE } from './EmojiCatalogModel';
+import { NineKeyLayout, NineKey } from './input/NineKeyLayout';
+import { SpaceCursorMovement } from './input/SpaceCursorMovement';
+import { EmojiCatalogModel, EmojiCategory, EmojiItem, EMOJI_PAGE_SIZE } from './emoji/EmojiCatalogModel';
 import { KeyboardLog, describeError } from './KeyboardLog';
 import { KeyboardFormFactor } from './KeyboardFormFactor';
 import { DesktopSurface } from './DesktopSurface';
 import {
   ClipboardHistoryStore, ClipboardHistoryItem, ClipboardHistoryError
-} from './ClipboardHistoryStore';
+} from './clipboard/ClipboardHistoryStore';
 
 /**
  * The 26-key touch keyboard, laid out to the same metrics as the iOS extension in

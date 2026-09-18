@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 
-IOS_ROOT = Path(__file__).resolve().parents[1]
+IOS_ROOT = Path(__file__).resolve().parents[2]
 
 
 def target_blocks(project):
@@ -159,14 +159,14 @@ class ProjectConfigurationTests(unittest.TestCase):
         podfile = (IOS_ROOT / "Podfile").read_text()
         self.assertIn("pod 'MLKitDigitalInkRecognition', '8.0.0'", podfile)
         self.assertIn("target 'MSIMEKeyboardExtension'", podfile)
-        fallback = (IOS_ROOT / "SharedUI/HandwritingInputViewFallback.swift").read_text()
+        fallback = (IOS_ROOT / "SharedUI/input/HandwritingInputViewFallback.swift").read_text()
         self.assertIn("var onResults: (([String]) -> Void)?", fallback)
         self.assertIn("func use(at index: Int) -> Bool { false }", fallback)
         self.assertIn("func commitFirst() -> Bool { false }", fallback)
 
     def test_every_keyboard_scroll_view_turns_off_the_ios26_edge_effect(self):
         roots = [IOS_ROOT / "SharedUI", IOS_ROOT / "KeyboardExtension/Sources"]
-        sources = sorted(path for root in roots for path in root.glob("*.swift"))
+        sources = sorted(path for root in roots for path in root.rglob("*.swift"))
         self.assertTrue(sources)
         uikit, swiftui = [], []
         for path in sources:
@@ -181,8 +181,8 @@ class ProjectConfigurationTests(unittest.TestCase):
         self.assertEqual(swiftui, [], "SwiftUI scroll views must call disablingScrollEdgeEffects()")
 
     def test_about_and_download_links_use_the_shared_client_repository(self):
-        source = (IOS_ROOT / "App/Sources/AboutAndDownloadViews.swift").read_text()
-        feedback = (IOS_ROOT / "App/Sources/HelpAndFeedbackViews.swift").read_text()
+        source = (IOS_ROOT / "App/Sources/settings/AboutAndDownloadViews.swift").read_text()
+        feedback = (IOS_ROOT / "App/Sources/settings/HelpAndFeedbackViews.swift").read_text()
         self.assertEqual(source.count('"MSIME-Client"'), 1)
         self.assertNotIn("MSIME-Apple", source)
         self.assertNotIn("MSIME-Windows", source)

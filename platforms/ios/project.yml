@@ -121,7 +121,7 @@ targets:
       - path: ../../shared/backend/storage/BackendLocalStore.swift
       - path: ../../shared/backend/clients/BackendSnapshotClient.swift
       - path: App/Services/KeyboardAIService.swift
-      - path: KeyboardExtension/Sources/KeyboardServiceFallback.swift
+      - path: KeyboardExtension/Sources/keyboard/KeyboardServiceFallback.swift
       - path: ../../target/ios/EngineResources
         buildPhase: resources
         type: folder
@@ -132,7 +132,7 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios.keyboard
         PRODUCT_NAME: MSIMEKeyboardExtension
         CODE_SIGN_ENTITLEMENTS: KeyboardExtension/Resources/MSIMEKeyboardExtension.entitlements
-        SWIFT_OBJC_BRIDGING_HEADER: "$(SRCROOT)/KeyboardExtension/Sources/MetasequoiaKeyboard-Bridging-Header.h"
+        SWIFT_OBJC_BRIDGING_HEADER: "$(SRCROOT)/KeyboardExtension/Sources/core/MetasequoiaKeyboard-Bridging-Header.h"
         EXCLUDED_SOURCE_FILE_NAMES[sdk=iphoneos*]: HandwritingInputViewFallback.swift
         EXCLUDED_SOURCE_FILE_NAMES[sdk=iphonesimulator*]: HandwritingInputView.swift HandwritingDownloadSession.m
         OTHER_LDFLAGS:
@@ -207,14 +207,14 @@ targets:
     platform: iOS
     sources:
       - path: ServiceTests
-      - path: App/Sources/AppIconSettingsView.swift
+      - path: App/Sources/settings/AppIconSettingsView.swift
       - path: App/Services/CustomService.swift
       - path: App/Services/DoubaoHostFrameCodec.swift
       - path: App/Services/DoubaoVoiceCoordinator.swift
       - path: App/Services/DoubaoWebSocketTransport.swift
       - path: App/Services/WAVPCMExtractor.swift
-      - path: SharedUI/AppServicesBridge.swift
-      - path: SharedUI/MetasequoiaTheme.swift
+      - path: SharedUI/core/AppServicesBridge.swift
+      - path: SharedUI/core/MetasequoiaTheme.swift
       - path: ../../shared/backend
         excludes:
           - Tests/**
@@ -248,7 +248,7 @@ targets:
           - HandwritingTests.swift
           - build-native.sh
           - tools/**
-      - path: KeyboardTests/InputSchemeTestSupport.swift
+      - path: KeyboardTests/input/InputSchemeTestSupport.swift
       - path: App/Services/CustomService.swift
       - path: App/Services/DoubaoHostFrameCodec.swift
       - path: App/Services/DoubaoVoiceCoordinator.swift

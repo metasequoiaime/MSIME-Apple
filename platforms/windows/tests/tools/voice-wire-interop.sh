@@ -7,7 +7,7 @@ mkdir -p "$output"
 "${CXX:-c++}" -std=c++17 -Wall -Wextra -Werror -pthread \
   -fsanitize=address,undefined -fno-omit-frame-pointer \
   -I"$repo_root/vendor/MSIME-Engine/contracts" \
-  "$repo_root/platforms/windows/tests/voice_wire_peer.cpp" -o "$output/peer"
+  "$repo_root/platforms/windows/tests/voice/voice_wire_peer.cpp" -o "$output/peer"
 rustc --edition=2021 --test -D warnings \
-  "$repo_root/platforms/windows/tests/voice_wire_interop.rs" -o "$output/tests"
+  "$repo_root/platforms/windows/tests/voice/voice_wire_interop.rs" -o "$output/tests"
 MSIME_VOICE_WIRE_PEER="$output/peer" "$output/tests"

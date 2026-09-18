@@ -10,7 +10,7 @@
  * fields the page shows, so an unknown key written by a newer build survives a save from this one.
  */
 import client from 'libmsimeclient.so';
-import { KeyboardLog } from './KeyboardLog';
+import { KeyboardLog } from '../KeyboardLog';
 
 interface Snapshot {
   revision: number;

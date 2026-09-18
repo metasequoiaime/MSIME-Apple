@@ -39,7 +39,7 @@ Existing directories, including incomplete preparation, are never rebuilt
 automatically. Upgrade/recovery policy and native installation verification
 remain unfinished; merely building does not prove a working installation.
 
-`tests/prepare_host.cpp` exercises the orchestration with synthetic Host API
+`tests/runtime/prepare_host.cpp` exercises the orchestration with synthetic Host API
 responses: publication, invalid paths, refusal of existing state, failed host
 responses, and concurrent destination preservation. It is not a pinned-resource
 integration test or a Windows runtime test.

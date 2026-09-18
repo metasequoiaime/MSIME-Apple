@@ -29,7 +29,7 @@ inherits the default shell's unrelated symbols.
 
 Every native command exit status is checked immediately. The caller's directory,
 dependency prefix, Cargo target directory and release-debug setting are restored
-on success or failure. `tests/build_client.ps1` tests the orchestration using
+on success or failure. `tests/tools/build_client.ps1` tests the orchestration using
 command probes, including failure at every stage; it does not compile native
 code or prove runtime dependency closure.
 

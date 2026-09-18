@@ -4,7 +4,7 @@
  *
  * The byte bound is measured in UTF-8, which is what the store writes.
  */
-import { utf8Length } from './Utf8';
+import { utf8Length } from '../Utf8';
 
 const MAX_CHARS: number = 10000;
 const MAX_BYTES: number = 40000;

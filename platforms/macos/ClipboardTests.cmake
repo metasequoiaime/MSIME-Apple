@@ -27,21 +27,21 @@ set(clipboard_monitor_sources ${clipboard_catalog_sources} src/backend/BackendCl
 set(clipboard_row_sources src/backend/BackendEmojiAppearance.swift src/backend/BackendEmojiClipboardRow.swift
   src/backend/BackendEmojiClipboardTooltip.swift)
 
-msime_clipboard_swift_test(clipboard-history-adapter tests/EmojiClipboardHistoryTest.swift
+msime_clipboard_swift_test(clipboard-history-adapter tests/emoji/EmojiClipboardHistoryTest.swift
   ${clipboard_catalog_sources})
-msime_clipboard_swift_test(clipboard-history-observation tests/EmojiClipboardObservationTest.swift
+msime_clipboard_swift_test(clipboard-history-observation tests/emoji/EmojiClipboardObservationTest.swift
   ${clipboard_catalog_sources})
-msime_clipboard_swift_test(clipboard-capture tests/ClipboardCaptureTest.swift src/backend/BackendClipboardCapture.swift src/backend/BackendClipboardTextLimits.swift)
-msime_clipboard_swift_test(clipboard-monitor tests/ClipboardMonitorTest.swift ${clipboard_monitor_sources})
-msime_clipboard_swift_test(clipboard-service tests/ClipboardServiceTest.swift
+msime_clipboard_swift_test(clipboard-capture tests/clipboard/ClipboardCaptureTest.swift src/backend/BackendClipboardCapture.swift src/backend/BackendClipboardTextLimits.swift)
+msime_clipboard_swift_test(clipboard-monitor tests/clipboard/ClipboardMonitorTest.swift ${clipboard_monitor_sources})
+msime_clipboard_swift_test(clipboard-service tests/clipboard/ClipboardServiceTest.swift
   ${clipboard_monitor_sources} src/backend/BackendClipboardService.swift)
-msime_clipboard_swift_test(clipboard-preview tests/EmojiClipboardPreviewTest.swift ${clipboard_row_sources})
-msime_clipboard_swift_test(clipboard-tooltip tests/EmojiClipboardTooltipTest.swift ${clipboard_row_sources})
-msime_clipboard_swift_test(clipboard-window-close tests/EmojiWindowCloseTest.swift src/backend/BackendEmojiWindowController.swift)
-msime_clipboard_swift_test(clipboard-copy-recents tests/EmojiRecentsTest.swift
+msime_clipboard_swift_test(clipboard-preview tests/emoji/EmojiClipboardPreviewTest.swift ${clipboard_row_sources})
+msime_clipboard_swift_test(clipboard-tooltip tests/emoji/EmojiClipboardTooltipTest.swift ${clipboard_row_sources})
+msime_clipboard_swift_test(clipboard-window-close tests/emoji/EmojiWindowCloseTest.swift src/backend/BackendEmojiWindowController.swift)
+msime_clipboard_swift_test(clipboard-copy-recents tests/emoji/EmojiRecentsTest.swift
   src/backend/BackendEmojiSymbolGroups.swift src/backend/BackendEmojiCatalog.swift src/backend/BackendEmojiRecents.swift)
 
-add_executable(clipboard-preferences-test tests/ClipboardPreferencesTest.mm)
+add_executable(clipboard-preferences-test tests/clipboard/ClipboardPreferencesTest.mm)
 target_compile_options(clipboard-preferences-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(clipboard-preferences-test PRIVATE "-framework Foundation")
 add_dependencies(macos-clipboard-tests clipboard-preferences-test)
