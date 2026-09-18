@@ -7,7 +7,7 @@
 #import "../core/AISettingsWindow.h"
 #import "../core/SharedVoicePreferences.h"
 #import "../core/UpdateController.h"
-#import "../backend/BackendAccountEntry.h"
+#import "../backend/account/BackendAccountEntry.h"
 #import "../core/SupportWindowController.h"
 #import "../voice/VoiceSettings.h"
 #include "ShuangpinProfileNames.h"
@@ -442,6 +442,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     NSButton *_mixedEmojiButton;
     NSButton *_mixedKaomojiButton;
     NSNumber *_sharedTraditionalOutput;
+    NSNumber *_sharedFullWidthInput;
     NSNumber *_sharedAutocorrect;
     NSNumber *_sharedCloudCandidates;
     NSButton *_cloudCandidatesButton;
@@ -612,6 +613,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     }
     if ([_defaults objectForKey:TraditionalKey] != nil)
         merged[@"traditional_chinese_output"] = @(self.traditionalOutput);
+    merged[@"character_width"] = self.fullWidthInput ? @"fullwidth" : @"halfwidth";
     if ([_defaults objectForKey:CloudCandidatesKey] != nil)
         merged[@"cloud_candidates"] = @(self.cloudCandidates);
     if ([_defaults objectForKey:CandidateTranslationsKey] != nil)
@@ -780,6 +782,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     _sharedSmartPunctuation = nil;
     _sharedSmartPunctuationRepeatToChinese = nil;
     _sharedTraditionalOutput = nil;
+    _sharedFullWidthInput = nil;
     _sharedAutocorrect = nil;
     _sharedToolbarEnabled = nil;
     _sharedCandidateLearning = nil;
@@ -1073,6 +1076,9 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     }
     id traditional = preferences[@"traditional_chinese_output"];
     if (LocalModeBoolean(traditional)) _sharedTraditionalOutput = traditional;
+    id characterWidth = preferences[@"character_width"];
+    if ([characterWidth isEqual:@"fullwidth"] || [characterWidth isEqual:@"halfwidth"])
+        _sharedFullWidthInput = @([characterWidth isEqual:@"fullwidth"]);
     id cloud = preferences[@"cloud_candidates"];
     if (LocalModeBoolean(cloud)) _sharedCloudCandidates = cloud;
     id translations = preferences[@"candidate_translations"];
@@ -1130,7 +1136,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 - (void)lockActiveInputMode { [self rememberActiveInputMode:self.englishMode]; }
 - (void)resetGlobalInputMode { _globalInputMode = nil; }
 - (BOOL)traditionalOutput { return _sharedTraditionalOutput ? _sharedTraditionalOutput.boolValue : [_defaults boolForKey:TraditionalKey]; }
-- (BOOL)fullWidthInput { return [_defaults boolForKey:FullWidthKey]; }
+- (BOOL)fullWidthInput { return _sharedFullWidthInput ? _sharedFullWidthInput.boolValue : [_defaults boolForKey:FullWidthKey]; }
 - (BOOL)chinesePunctuation { if (_sharedChinesePunctuation) return _sharedChinesePunctuation.boolValue; return [_defaults objectForKey:ChinesePunctuationKey] == nil ? YES : [_defaults boolForKey:ChinesePunctuationKey]; }
 - (BOOL)smartPunctuation { return _sharedSmartPunctuation ? _sharedSmartPunctuation.boolValue : ([_defaults objectForKey:SmartPunctuationKey] == nil ? YES : [_defaults boolForKey:SmartPunctuationKey]); }
 - (void)setSmartPunctuation:(BOOL)value { _sharedSmartPunctuation = nil; [_defaults setBool:value forKey:SmartPunctuationKey]; [self preferencesChanged]; }
@@ -1209,6 +1215,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     [self preferencesChanged];
 }
 - (void)setFullWidthInput:(BOOL)value {
+    _sharedFullWidthInput = nil;
     [_defaults setBool:value forKey:FullWidthKey];
     [self preferencesChanged];
 }

@@ -244,6 +244,8 @@ export type Preferences = {
   navigation?: NavigationPreferences;
   keybindings?: KeybindingPreferences;
   scheme: "quanpin" | "shuangpin" | "wubi" | "japanese";
+  /** Width used when desktop hosts commit printable ASCII characters. */
+  character_width?: "halfwidth" | "fullwidth";
   wubi_code_hint?: boolean;
   touch_keyboard_layout?: "twenty_six_key" | "nine_key" | "handwriting";
   touch_keyboard_skin?: TouchKeyboardSkin;
@@ -1977,6 +1979,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
         </div>}
         <div className="section"><label className="section-header"><span className="section-title">学习选词习惯<small>根据选词调整候选顺序</small></span><input className="toggle" type="checkbox" checked={draft.learning} onChange={event => setDraft({ ...draft, learning: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">中文标点<small>默认使用中文标点符号</small></span><input className="toggle" type="checkbox" checked={draft.chinese_punctuation} onChange={event => setDraft({ ...draft, chinese_punctuation: event.target.checked })} /></label></div>
+        {!mobilePlatform && <div className="section"><label className="section-header"><span className="section-title">全角输入<small>将英文字符和空格提交为全角形式，可用工具栏或快捷键临时切换</small></span><input aria-label="全角输入" className="toggle" type="checkbox" checked={(draft.character_width ?? "halfwidth") === "fullwidth"} onChange={event => setDraft({ ...draft, character_width: event.target.checked ? "fullwidth" : "halfwidth" })} /></label></div>}
         <div className="section"><label className="section-header"><span className="section-title">智能标点<small>根据输入上下文选择中文或英文标点形式</small></span><input className="toggle" type="checkbox" checked={smartPunctuation} onChange={event => setDraft({ ...draft, smart_punctuation: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">重复标点转中文<small>短时间重复输入 ASCII 标点时转换为中文标点</small></span><input className="toggle" type="checkbox" checked={smartPunctuationRepeat} onChange={event => setDraft({ ...draft, smart_punctuation_repeat: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">中文标点后按空格转换<small>刚输入中文标点后按空格，转换为对应英文标点</small></span><input className="toggle" type="checkbox" checked={smartPunctuationSpaceConvert} onChange={event => setDraft({ ...draft, smart_punctuation_space_convert: event.target.checked })} /></label></div>
