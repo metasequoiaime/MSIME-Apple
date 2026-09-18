@@ -250,8 +250,15 @@ std::vector<std::vector<uint8_t>> tsf_config_frames(const TsfLocalConfig &config
                                      config.japanese_input_mode));
   frames.push_back(worker_flag_frame(
       FanyImeWorkerReplyType::TsfDiagnosticLogChanged, config.tsf_diagnostic_log));
-  const wchar_t lock[] = {static_cast<wchar_t>(L'0' + (config.punctuation_lock % 3)),
-                          L'\0'};
+  // Keep the first character compatible with the historical lock-only frame.
+  // The suffix is a versioned extension consumed by the paired client DLL;
+  // older DLLs ignore the extended lock frame while retaining all other
+  // punctuation settings.
+  std::wstring lock = {static_cast<wchar_t>(L'0' + (config.punctuation_lock % 3)),
+                       L'|', L'd',
+                       static_cast<wchar_t>(config.smart_punctuation_direct_digit ? L'1' : L'0'),
+                       L'l',
+                       static_cast<wchar_t>(config.smart_punctuation_direct_letter ? L'1' : L'0')};
   frames.push_back(
       worker_text_frame(FanyImeWorkerReplyType::PunctuationLockChanged, lock));
   return frames;

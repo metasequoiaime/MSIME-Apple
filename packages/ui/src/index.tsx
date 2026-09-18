@@ -292,6 +292,8 @@ export type Preferences = {
   chinese_punctuation: boolean;
   smart_punctuation?: boolean;
   smart_punctuation_repeat?: boolean;
+  smart_punctuation_direct_digit?: boolean;
+  smart_punctuation_direct_letter?: boolean;
   paired_punctuation?: boolean;
   punctuation_lock?: "follow" | "chinese" | "english";
   traditional_chinese_output?: boolean;
@@ -1524,6 +1526,8 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
   };
   const smartPunctuation = draft?.smart_punctuation ?? false;
   const smartPunctuationRepeat = draft?.smart_punctuation_repeat ?? false;
+  const smartPunctuationDirectDigit = draft?.smart_punctuation_direct_digit ?? false;
+  const smartPunctuationDirectLetter = draft?.smart_punctuation_direct_letter ?? false;
   const pairedPunctuation = draft?.paired_punctuation ?? true;
   const inputModeHUD = draft?.input_mode_hud ?? true;
   const punctuationLock = draft?.punctuation_lock ?? "follow";
@@ -1970,6 +1974,8 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
         <div className="section"><label className="section-header"><span className="section-title">中文标点<small>默认使用中文标点符号</small></span><input className="toggle" type="checkbox" checked={draft.chinese_punctuation} onChange={event => setDraft({ ...draft, chinese_punctuation: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">智能标点<small>根据输入上下文选择中文或英文标点形式</small></span><input className="toggle" type="checkbox" checked={smartPunctuation} onChange={event => setDraft({ ...draft, smart_punctuation: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">重复标点转中文<small>短时间重复输入 ASCII 标点时转换为中文标点</small></span><input className="toggle" type="checkbox" checked={smartPunctuationRepeat} onChange={event => setDraft({ ...draft, smart_punctuation_repeat: event.target.checked })} /></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">数字后直出<small>数字后输入逗号、句点或冒号时保留 ASCII 标点</small></span><input className="toggle" type="checkbox" checked={smartPunctuationDirectDigit} onChange={event => setDraft({ ...draft, smart_punctuation_direct_digit: event.target.checked })} /></label></div>
+        <div className="section"><label className="section-header"><span className="section-title">字母后直出<small>字母后输入逗号、句点或冒号时保留 ASCII 标点</small></span><input className="toggle" type="checkbox" checked={smartPunctuationDirectLetter} onChange={event => setDraft({ ...draft, smart_punctuation_direct_letter: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">成对标点<small>自动补全成对引号和括号</small></span><input className="toggle" type="checkbox" checked={pairedPunctuation} onChange={event => setDraft({ ...draft, paired_punctuation: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">标点锁定</span><select aria-label="标点锁定" value={punctuationLock} onChange={event => setDraft({ ...draft, punctuation_lock: event.target.value as Preferences["punctuation_lock"] })}><option value="follow">跟随输入模式</option><option value="chinese">固定中文标点</option><option value="english">固定英文标点</option></select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">繁体中文输出<small>将提交的简体中文转换为繁体中文</small></span><input aria-label="繁体中文输出" className="toggle" type="checkbox" checked={draft.traditional_chinese_output ?? false} onChange={event => setDraft({ ...draft, traditional_chinese_output: event.target.checked })} /></label></div>

@@ -69,8 +69,12 @@ struct TsfLocalConfig {
   bool paging_comma_period = false;
   // "raw" | "pinyin" | "empty" - rides along with the paging frame.
   std::string preedit_style = "raw";
-  bool smart_punctuation = true;
-  bool smart_punctuation_repeat_to_chinese = true;
+  bool smart_punctuation = false;
+  bool smart_punctuation_repeat_to_chinese = false;
+  // Fine-grained direct ASCII punctuation policy. These ride on the
+  // punctuation-lock frame extension so older worker opcodes remain valid.
+  bool smart_punctuation_direct_digit = false;
+  bool smart_punctuation_direct_letter = false;
   bool paired_punctuation = true;
   bool microsoft_shuangpin = false;
   bool japanese_input_mode = false;

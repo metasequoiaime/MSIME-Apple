@@ -742,9 +742,13 @@ BOOL CCompositionProcessorEngine::IsSmartAsciiPunctuationKey(WCHAR wch)
 
 std::wstring CCompositionProcessorEngine::ResolvePunctuation(WCHAR wch, WCHAR precedingChar)
 {
+    const bool digit = precedingChar >= L'0' && precedingChar <= L'9';
+    const bool letter = (precedingChar >= L'A' && precedingChar <= L'Z') ||
+                        (precedingChar >= L'a' && precedingChar <= L'z');
+    const bool directDigit = Global::SmartPunctuationDirectDigitEnabled.load(std::memory_order_relaxed);
+    const bool directLetter = Global::SmartPunctuationDirectLetterEnabled.load(std::memory_order_relaxed);
     if (Global::SmartPunctuationEnabled.load(std::memory_order_relaxed) && IsSmartAsciiPunctuationKey(wch) &&
-        ((precedingChar >= L'0' && precedingChar <= L'9') || (precedingChar >= L'A' && precedingChar <= L'Z') ||
-         (precedingChar >= L'a' && precedingChar <= L'z')))
+        ((digit && directDigit) || (letter && directLetter)))
     {
         return std::wstring(1, wch);
     }

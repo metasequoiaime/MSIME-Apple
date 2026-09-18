@@ -1801,8 +1801,14 @@ void CMetasequoiaIME::IpcWorkerThread(CMetasequoiaIME *pIME)
                     break;
                 }
             }
-            validFrame = hasTerminator && (buf.data[0] == L'0' || buf.data[0] == L'1' || buf.data[0] == L'2') &&
-                         buf.data[1] == L'\0';
+            const bool validLock = buf.data[0] == L'0' || buf.data[0] == L'1' || buf.data[0] == L'2';
+            const bool legacyPayload = buf.data[1] == L'\0';
+            const bool directPolicyPayload = buf.data[1] == L'|' && buf.data[2] == L'd' &&
+                                             (buf.data[3] == L'0' || buf.data[3] == L'1') &&
+                                             buf.data[4] == L'l' &&
+                                             (buf.data[5] == L'0' || buf.data[5] == L'1') &&
+                                             buf.data[6] == L'\0';
+            validFrame = hasTerminator && validLock && (legacyPayload || directPolicyPayload);
         }
         if (validFrame && (buf.msg_type == Global::DataToTsfWorkerThreadMsgType::UpdateVoiceComposition ||
                            buf.msg_type == Global::DataToTsfWorkerThreadMsgType::CommitVoiceComposition))
@@ -1971,6 +1977,20 @@ void CMetasequoiaIME::IpcWorkerThread(CMetasequoiaIME *pIME)
                 lock = Global::PunctuationLock::AlwaysEnglish;
             }
             Global::PunctuationLockMode.store(lock, std::memory_order_relaxed);
+            if (buf.data[1] == L'|' && buf.data[2] == L'd' && buf.data[4] == L'l')
+            {
+                Global::SmartPunctuationDirectDigitEnabled.store(buf.data[3] == L'1',
+                                                                  std::memory_order_relaxed);
+                Global::SmartPunctuationDirectLetterEnabled.store(buf.data[5] == L'1',
+                                                                   std::memory_order_relaxed);
+            }
+            else
+            {
+                // A legacy Server has no split policy; fail closed rather
+                // than retaining values from a previous extended frame.
+                Global::SmartPunctuationDirectDigitEnabled.store(false, std::memory_order_relaxed);
+                Global::SmartPunctuationDirectLetterEnabled.store(false, std::memory_order_relaxed);
+            }
             const HWND ownerWindow = pIME->_msgWndHandle;
             if (ownerWindow && IsWindow(ownerWindow))
             {
