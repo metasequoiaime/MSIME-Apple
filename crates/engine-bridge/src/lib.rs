@@ -985,6 +985,23 @@ mod tests {
             assert_eq!(session.snapshot().unwrap().segment_raw_boundaries, expected);
         }
     }
+
+    #[test]
+    fn xiaohe_profile_accepts_yo_as_a_complete_syllable() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut options = options(dir.path());
+        options.scheme = 1;
+        options.shuangpin_profile = 0; // Xiaohe.
+        let mut session = Session::new(&options).unwrap();
+        for character in b"yo" {
+            assert!(session.character(*character, false).unwrap().handled);
+        }
+        assert_eq!(
+            session.snapshot().unwrap().segment_raw_boundaries,
+            vec![0, 2]
+        );
+    }
+
     #[test]
     fn real_engine_handles_unicode_mode_without_a_dictionary_bundle() {
         let dir = tempfile::tempdir().unwrap();
