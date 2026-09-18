@@ -407,6 +407,7 @@ export class KeyboardSession {
 
   private handle: number = 0;
   private inputClient: inputMethodEngine.InputClient | undefined = undefined;
+  private editorGeneration: number = 0;
   private generation: number = 0;
   // The Engine opens a session in whichever mode the preferences name, and the shared default is
   // English. Remembered here so every focus reasserts it rather than inheriting the previous editor.
@@ -844,8 +845,12 @@ export class KeyboardSession {
 
   /** The framework hands over a fresh client on every inputStart. */
   attach(inputClient: inputMethodEngine.InputClient): void {
+    const editorGeneration: number = ++this.editorGeneration;
     this.inputClient = inputClient;
     inputClient.getEditorAttribute().then((attribute: inputMethodEngine.EditorAttribute): void => {
+      if (editorGeneration !== this.editorGeneration || this.inputClient !== inputClient) {
+        return;
+      }
       this.enterKey = attribute.enterKeyType;
       this.traits = KeyboardSession.traitsFor(attribute.inputPattern);
       // A password field must never see a composition buffer, and a field that asked for no
@@ -870,6 +875,7 @@ export class KeyboardSession {
   }
 
   detach(): void {
+    this.editorGeneration++;
     this.cancelOnlineProviders();
     if (this.handle !== 0) {
       this.apply(client.focus(this.handle, false));
@@ -878,6 +884,7 @@ export class KeyboardSession {
   }
 
   stop(): void {
+    this.editorGeneration++;
     this.cancelOnlineProviders();
     if (this.handle !== 0) {
       client.destroy(this.handle);
