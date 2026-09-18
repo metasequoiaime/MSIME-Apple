@@ -235,11 +235,19 @@ std::optional<PendingReply> ReplyComposer::basic_key(
     return dispatch(session, packet, epoch, ReplyPath::LocalCancel, uiless);
   if (action.kind == KeyKind::Ignore)
     return dispatch(session, packet, epoch, ReplyPath::NoReply, uiless);
+  // Control+Enter is a candidate-only translation action. It must be checked
+  // before the generic modifier fallback, which intentionally forwards other
+  // Control combinations to the host application.
+  if (packet.keycode == 0x0D &&
+      PipeMetadata::key_modifiers(packet.modifiers_down) == 2u &&
+      (packet.modifiers_down & PipeMetadata::CandidateActive) != 0) {
+    if (auto translation =
+            commit_candidate_translation(session, packet, epoch))
+      return translation;
+  }
   if (action.kind == KeyKind::CancelAndForward)
     return std::nullopt; // Configuration-specific shortcuts are not generic
                          // cancel.
-  if (auto translation = commit_candidate_translation(session, packet, epoch))
-    return translation;
   if (action.kind == KeyKind::Command && action.value == MSIME_COMMIT_RAW) {
     const auto current = session.view();
     const bool candidate_active =
