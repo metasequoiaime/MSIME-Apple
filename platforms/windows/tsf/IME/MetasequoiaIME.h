@@ -182,6 +182,7 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     HRESULT _HandleUpdateVoiceComposition(TfEditCookie ec, _In_ ITfContext *pContext, const std::wstring &text);
     HRESULT _HandleCommitVoiceComposition(TfEditCookie ec, _In_ ITfContext *pContext, const std::wstring &text);
     HRESULT _HandleCancelVoiceComposition(TfEditCookie ec, _In_ ITfContext *pContext);
+    HRESULT _HandleSmartPunctuationConvert(TfEditCookie ec, _In_ ITfContext *pContext);
 
     // key event handlers for composition object.
     HRESULT _HandleCompositionInput(TfEditCookie ec, _In_ ITfContext *pContext, WCHAR wch, uint64_t requestId);
@@ -214,6 +215,9 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     bool _QueueRepeatedSmartPunctuationReplacement(WCHAR wch);
     void _NoteKeyForSmartPunctuation(UINT code, WCHAR wch, bool isEaten);
     void _ResetSmartPunctuationHistory();
+    bool _CanConvertSmartPunctuationSpace() const;
+    void _ArmSmartPunctuationSpace(WCHAR chinese, bool autoClosedPair);
+    void _ClearSmartPunctuationSpace();
     void _UpdateSmartPunctuationShadow(UINT code, WCHAR wch, bool isEaten);
     void _InvalidateSmartPunctuationShadow();
     HRESULT _HandleCompositionDoubleSingleByte(TfEditCookie ec, _In_ ITfContext *pContext, WCHAR wch);
@@ -547,6 +551,13 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     uint64_t _pendingSmartPunctuationFocusToken = 0;
     HWND _pendingSmartPunctuationForegroundWindow = nullptr;
     ULONGLONG _pendingSmartPunctuationDeadline = 0;
+
+    // A just-committed standalone Chinese punctuation awaiting a following
+    // space. The edit-session conversion is local to TSF and never enters IPC.
+    bool _smartPunctuationSpaceArmed = false;
+    WCHAR _smartPunctuationSpaceChinese = 0;
+    uint64_t _smartPunctuationSpaceFocusToken = 0;
+    HWND _smartPunctuationSpaceForegroundWindow = nullptr;
 
     // Last character known to have reached the application. Hosts such as the
     // VS Code terminal back the context with a proxy text store that only ever

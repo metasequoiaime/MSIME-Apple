@@ -91,24 +91,26 @@ int main() {
 
     // Punctuation lock starts with a digit and carries the fine-grained direct
     // punctuation policy as a bounded extension.
+    config.smart_punctuation_space_convert = true;
     config.smart_punctuation_direct_digit = true;
     config.smart_punctuation_direct_letter = false;
-    require(frame_text(tsf_config_frames(config)[7]) == L"0|d1l0");
+    require(frame_text(tsf_config_frames(config)[7]) == L"0|s1d1l0");
+    config.smart_punctuation_space_convert = false;
     config.smart_punctuation_direct_digit = false;
     config.smart_punctuation_direct_letter = true;
-    require(frame_text(tsf_config_frames(config)[7]) == L"0|d0l1");
+    require(frame_text(tsf_config_frames(config)[7]) == L"0|s0d0l1");
     for (uint8_t lock = 0; lock < 3; ++lock) {
       config.punctuation_lock = lock;
       const auto text = frame_text(tsf_config_frames(config)[7]);
-      require(text.size() == 6 && text[0] == static_cast<wchar_t>(L'0' + lock) &&
-              text[1] == L'|' && text[2] == L'd' && text[3] == L'0' &&
-              text[4] == L'l' && text[5] == L'1');
+      require(text.size() == 8 && text[0] == static_cast<wchar_t>(L'0' + lock) &&
+              text[1] == L'|' && text[2] == L's' && text[3] == L'0' &&
+              text[4] == L'd' && text[5] == L'0' && text[6] == L'l' && text[7] == L'1');
     }
     // Defensive normalization keeps malformed persisted values within the
     // three-state TIP contract instead of emitting an invalid compartment.
     for (uint8_t lock : {static_cast<uint8_t>(3), static_cast<uint8_t>(255)}) {
       config.punctuation_lock = lock;
-      require(frame_text(tsf_config_frames(config)[7]) == L"0|d0l1");
+      require(frame_text(tsf_config_frames(config)[7]) == L"0|s0d0l1");
     }
 
     std::cout << "TSF config frames: every setting the TIP reads is encoded\n";

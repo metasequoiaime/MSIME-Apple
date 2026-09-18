@@ -164,6 +164,8 @@ word_to_character_keys = "brackets"
 smart_punctuation = false
 # 同键转回中文：转换后的英文标点在短时间内再次输入同一键时恢复中文标点
 smart_punctuation_repeat_to_chinese = false
+# 中文标点后按空格转换：将刚提交的中文标点改为对应英文标点
+smart_punctuation_space_convert = false
 # 数字后直出：数字后输入 , . : 时保留英文标点
 smart_punctuation_direct_digit = false
 # 字母后直出：字母后输入 , . : 时保留英文标点

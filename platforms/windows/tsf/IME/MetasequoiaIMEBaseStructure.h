@@ -69,7 +69,10 @@ enum KEYSTROKE_FUNCTION
     FUNCTION_UPDATE_VOICE_COMPOSITION,
     FUNCTION_COMMIT_VOICE_COMPOSITION,
     FUNCTION_CANCEL_VOICE_COMPOSITION,
-    FUNCTION_TOGGLE_CHARACTER_SET
+    FUNCTION_TOGGLE_CHARACTER_SET,
+    // Local edit: convert the immediately preceding Chinese punctuation when
+    // the following space is claimed by smart punctuation.
+    FUNCTION_SMART_PUNCTUATION_CONVERT
 };
 
 //---------------------------------------------------------------------

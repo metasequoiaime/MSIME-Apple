@@ -397,6 +397,8 @@ msime::windows::TsfLocalConfig tsf_local_config(const nlohmann::json &preference
   config.smart_punctuation = preferences.value("smart_punctuation", false);
   config.smart_punctuation_repeat_to_chinese =
       preferences.value("smart_punctuation_repeat", false);
+  config.smart_punctuation_space_convert =
+      preferences.value("smart_punctuation_space_convert", false);
   config.smart_punctuation_direct_digit =
       preferences.value("smart_punctuation_direct_digit", false);
   config.smart_punctuation_direct_letter =

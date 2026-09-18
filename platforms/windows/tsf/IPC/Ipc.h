@@ -169,6 +169,7 @@ inline std::atomic_bool PagingCommaPeriodEnabled{false};
 // settings, including during a transient worker reconnect.
 inline std::atomic_bool SmartPunctuationEnabled{false};
 inline std::atomic_bool SmartPunctuationRepeatToChineseEnabled{false};
+inline std::atomic_bool SmartPunctuationSpaceConvertEnabled{false};
 inline std::atomic_bool SmartPunctuationDirectDigitEnabled{false};
 inline std::atomic_bool SmartPunctuationDirectLetterEnabled{false};
 // Default on until the Server sends the persisted setting.

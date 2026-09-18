@@ -101,6 +101,9 @@ HRESULT CKeyStateCategory::KeyStateHandler(KEYSTROKE_FUNCTION function, KeyHandl
     case FUNCTION_CANCEL_VOICE_COMPOSITION:
         return _pTextService->_HandleCancelVoiceComposition(dto.ec, dto.pContext);
 
+    case FUNCTION_SMART_PUNCTUATION_CONVERT:
+        return _pTextService->_HandleSmartPunctuationConvert(dto.ec, dto.pContext);
+
     case FUNCTION_CONVERT: {
         return HandleKeyConvert(dto);
     }

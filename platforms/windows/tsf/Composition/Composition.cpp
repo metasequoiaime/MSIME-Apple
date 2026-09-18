@@ -117,6 +117,47 @@ bool AreCaretModifiersPhysicallyDown()
     }
     return false;
 }
+
+WCHAR SmartPunctuationAsciiFor(WCHAR chinese)
+{
+    switch (chinese)
+    {
+    case L'。':
+        return L'.';
+    case L'，':
+        return L',';
+    case L'！':
+        return L'!';
+    case L'？':
+        return L'?';
+    case L'；':
+        return L';';
+    case L'：':
+        return L':';
+    case L'、':
+        return L'/';
+    case L'“':
+    case L'”':
+        return L'"';
+    case L'‘':
+    case L'’':
+        return L'\'';
+    case L'【':
+        return L'[';
+    case L'】':
+        return L']';
+    case L'《':
+        return L'<';
+    case L'》':
+        return L'>';
+    case L'（':
+        return static_cast<WCHAR>(L'(');
+    case L'）':
+        return L')';
+    default:
+        return 0;
+    }
+}
 } // namespace
 
 WCHAR CMetasequoiaIME::_GetPrecedingDocumentChar(TfEditCookie ec, _In_ ITfContext *pContext)
@@ -235,6 +276,100 @@ WCHAR CMetasequoiaIME::_GetPrecedingCharForSmartPunctuation(TfEditCookie ec, _In
         return _smartPunctuationShadowChar;
     }
     return _GetPrecedingDocumentChar(ec, pContext);
+}
+
+bool CMetasequoiaIME::_CanConvertSmartPunctuationSpace() const
+{
+    return _smartPunctuationSpaceArmed &&
+           Global::SmartPunctuationSpaceConvertEnabled.load(std::memory_order_relaxed) &&
+           _IsFocusSessionCurrent(_smartPunctuationSpaceFocusToken) &&
+           GetForegroundWindow() == _smartPunctuationSpaceForegroundWindow;
+}
+
+void CMetasequoiaIME::_ClearSmartPunctuationSpace()
+{
+    _smartPunctuationSpaceArmed = false;
+    _smartPunctuationSpaceChinese = 0;
+    _smartPunctuationSpaceFocusToken = 0;
+    _smartPunctuationSpaceForegroundWindow = nullptr;
+}
+
+void CMetasequoiaIME::_ArmSmartPunctuationSpace(WCHAR chinese, bool autoClosedPair)
+{
+    _ClearSmartPunctuationSpace();
+    if (autoClosedPair || chinese == 0 ||
+        !Global::SmartPunctuationEnabled.load(std::memory_order_relaxed) ||
+        !Global::SmartPunctuationSpaceConvertEnabled.load(std::memory_order_relaxed) ||
+        SmartPunctuationAsciiFor(chinese) == 0)
+    {
+        return;
+    }
+    _smartPunctuationSpaceArmed = true;
+    _smartPunctuationSpaceChinese = chinese;
+    _smartPunctuationSpaceFocusToken = _CaptureFocusSessionToken();
+    _smartPunctuationSpaceForegroundWindow = GetForegroundWindow();
+}
+
+HRESULT CMetasequoiaIME::_HandleSmartPunctuationConvert(TfEditCookie ec, _In_ ITfContext *pContext)
+{
+    const WCHAR chinese = _smartPunctuationSpaceChinese;
+    const WCHAR ascii = SmartPunctuationAsciiFor(chinese);
+    _ClearSmartPunctuationSpace();
+    if (ascii == 0)
+    {
+        CStringRange space;
+        space.Set(L" ", 1);
+        return _AddCharAndFinalize(ec, pContext, &space);
+    }
+
+    const WCHAR preceding = _GetPrecedingDocumentChar(ec, pContext);
+    if (preceding != 0 && preceding != chinese)
+    {
+        CStringRange space;
+        space.Set(L" ", 1);
+        return _AddCharAndFinalize(ec, pContext, &space);
+    }
+
+    TF_SELECTION selection = {};
+    ULONG fetched = 0;
+    HRESULT hr = pContext->GetSelection(ec, TF_DEFAULT_SELECTION, 1, &selection, &fetched);
+    if (FAILED(hr) || fetched != 1 || selection.range == nullptr)
+    {
+        CStringRange space;
+        space.Set(L" ", 1);
+        return _AddCharAndFinalize(ec, pContext, &space);
+    }
+
+    LONG shifted = 0;
+    hr = selection.range->Collapse(ec, TF_ANCHOR_START);
+    if (SUCCEEDED(hr))
+    {
+        hr = SafeRangeShiftStart(selection.range, ec, -1, &shifted);
+        if (SUCCEEDED(hr) && shifted != -1)
+        {
+            hr = E_FAIL;
+        }
+    }
+    if (SUCCEEDED(hr))
+    {
+        const WCHAR replacement[] = {ascii};
+        hr = SafeRangeSetText(selection.range, ec, 0, replacement, 1);
+    }
+    if (SUCCEEDED(hr))
+    {
+        selection.range->Collapse(ec, TF_ANCHOR_END);
+        pContext->SetSelection(ec, 1, &selection);
+        _smartPunctuationShadowChar = ascii;
+        _smartPunctuationShadowValid = true;
+    }
+    selection.range->Release();
+    if (FAILED(hr))
+    {
+        CStringRange space;
+        space.Set(L" ", 1);
+        return _AddCharAndFinalize(ec, pContext, &space);
+    }
+    return S_OK;
 }
 
 WCHAR CMetasequoiaIME::_GetPairedPunctuationClosingFor(WCHAR opening)
@@ -463,6 +598,7 @@ void CMetasequoiaIME::_RunPairedPunctuationCaretMove()
 
 void CMetasequoiaIME::_ResetSmartPunctuationHistory()
 {
+    _ClearSmartPunctuationSpace();
     _smartPunctuationKey = 0;
     _smartPunctuationPrecedingChar = 0;
     _smartPunctuationCommittedAscii = false;
@@ -592,6 +728,18 @@ void CMetasequoiaIME::_NoteKeyForSmartPunctuation(UINT code, WCHAR wch, bool isE
         _pendingSmartPunctuationFocusToken = 0;
         _pendingSmartPunctuationForegroundWindow = nullptr;
         _pendingSmartPunctuationDeadline = 0;
+    }
+
+    if (_smartPunctuationSpaceArmed && !_CanConvertSmartPunctuationSpace())
+    {
+        _ClearSmartPunctuationSpace();
+    }
+
+    // Preserve the local conversion arm through OnTestKeyDown and OnKeyDown;
+    // the edit session consumes it after both key-sink passes complete.
+    if (code == VK_SPACE && _CanConvertSmartPunctuationSpace())
+    {
+        return;
     }
 
     _UpdateSmartPunctuationShadow(code, wch, isEaten);

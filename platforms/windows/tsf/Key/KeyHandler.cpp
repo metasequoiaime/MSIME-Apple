@@ -1577,6 +1577,12 @@ HRESULT CMetasequoiaIME::_HandleCompositionPunctuation(TfEditCookie ec, _In_ ITf
         _HandleComplete(ec, pContext);
     }
     double completeElapsedMs = completeTimer.ElapsedMs();
+    // Arm the local space conversion only for a standalone one-character
+    // Chinese punctuation commit. Auto-completed pairs and candidate-prefixed
+    // commits are deliberately left untouched so a following space cannot
+    // rewrite half of a pair or historical candidate text.
+    _ArmSmartPunctuationSpace(punctuationStr.size() == 1 ? punctuationStr.back() : 0,
+                              pairedClosing != 0 || punctuationStr.size() != 1);
     if (pairedClosing != 0)
     {
         _InvalidateSmartPunctuationShadow();
@@ -1584,7 +1590,7 @@ HRESULT CMetasequoiaIME::_HandleCompositionPunctuation(TfEditCookie ec, _In_ ITf
         const uint64_t focusToken = _CaptureFocusSessionToken();
         if (_msgWndHandle != nullptr)
         {
-            PostMessage(_msgWndHandle, WM_PairedPunctuationMoveLeft, static_cast<WPARAM>(focusToken & 0xFFFFFFFFULL),
+            PostMessage(_msgWndHandle, WM_PairedPunctuationCaretMove, static_cast<WPARAM>(focusToken & 0xFFFFFFFFULL),
                         static_cast<LPARAM>((focusToken >> 32) & 0xFFFFFFFFULL));
         }
     }

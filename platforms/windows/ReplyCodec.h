@@ -71,6 +71,7 @@ struct TsfLocalConfig {
   std::string preedit_style = "raw";
   bool smart_punctuation = false;
   bool smart_punctuation_repeat_to_chinese = false;
+  bool smart_punctuation_space_convert = false;
   // Fine-grained direct ASCII punctuation policy. These ride on the
   // punctuation-lock frame extension so older worker opcodes remain valid.
   bool smart_punctuation_direct_digit = false;

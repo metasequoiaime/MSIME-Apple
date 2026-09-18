@@ -747,6 +747,20 @@ BOOL CMetasequoiaIME::_IsKeyEaten(         //
             (isComposing || (candidateMode != CANDIDATE_NONE) ||
              (pCompositionProcessorEngine && pCompositionProcessorEngine->GetVirtualKeyLength() > 0));
 
+        // A following space is a local document rewrite only when the last
+        // commit armed the smart-punctuation action. Candidate conversion and
+        // composition spaces retain their normal Server-owned semantics.
+        if (codeIn == VK_SPACE && !isInputInProgress && candidateMode == CANDIDATE_NONE &&
+            _CanConvertSmartPunctuationSpace())
+        {
+            if (pKeyState)
+            {
+                pKeyState->Category = CATEGORY_COMPOSING;
+                pKeyState->Function = FUNCTION_SMART_PUNCTUATION_CONVERT;
+            }
+            return TRUE;
+        }
+
         // CapsLock ON + uppercase(没有按 Shift) alphabet:
         // - start of input: don't eat
         // - middle of input: eat
