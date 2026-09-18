@@ -524,11 +524,11 @@ final class NineKeyKeyboardTests: XCTestCase {
     try button("layoutShortcut", in: controller).sendActions(for: .primaryActionTriggered)
     XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier?.hasPrefix("layoutCard-") == true })
     let voice = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "voiceShortcutSwitch" } as? UISwitch)
-    let height = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardHeightSlider" } as? UISlider)
+    let height = try XCTUnwrap(
+      descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardHeightGrip" })
     controller.view.layoutIfNeeded()
     let initialHeight = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" }).constant
-    height.value = 24
-    height.sendActions(for: .valueChanged)
+    for _ in 0..<12 { height.accessibilityIncrement() }
     controller.view.layoutIfNeeded()
     let adjustedHeight = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" }).constant
     XCTAssertEqual(adjustedHeight, initialHeight + 24, accuracy: 0.5)
@@ -565,7 +565,7 @@ final class NineKeyKeyboardTests: XCTestCase {
                 KeyboardLayoutPreference.heightAdjustmentKey, KeyboardLayoutPreference.voiceShortcutKey] {
       XCTAssertNil(KeyboardLayoutPreference.defaults.object(forKey: key), "\(key) 应被恢复默认")
     }
-    XCTAssertNotNil(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardHeightSlider" })
+    XCTAssertNotNil(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardHeightGrip" })
   }
 
   func testTouchGeometryWritesAndResetsCanonicalPreferences() throws {
