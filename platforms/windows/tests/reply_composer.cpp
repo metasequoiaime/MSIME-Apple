@@ -52,6 +52,8 @@ int main() {
     require(first_translation_sense(" apple ; fruit") == "apple");
     require(first_translation_sense("苹果；水果") == "苹果");
     require(first_translation_sense(" ; \t").empty());
+    require(first_translation_sense(" ; fruit") == "fruit");
+    require(first_translation_sense("；\t水果； fruit") == "水果");
     FanyImeNamedpipeData semicolon{};
     semicolon.event_type = FanyImePipeEventType::KeyEvent;
     semicolon.keycode = 0xBA;
