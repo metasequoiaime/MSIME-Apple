@@ -4,6 +4,7 @@
 #include "ServerSession.h"
 #include <functional>
 #include <optional>
+#include <vector>
 
 namespace msime::windows {
 // Supplied by the TSF-compatible dispatch path, not inferred from a VK alone:
@@ -79,6 +80,12 @@ public:
   std::optional<PendingReply> commit_candidate_translation(
       ServerSession &session, const FanyImeNamedpipeData &packet,
       uint64_t epoch);
+  std::optional<PendingReply> translation_page_key(
+      ServerSession &session, const FanyImeNamedpipeData &packet,
+      uint64_t epoch);
+  PendingReply translation_page_reply(const FanyImeNamedpipeData &packet,
+                                     uint64_t epoch,
+                                     const nlohmann::json &view);
   // Null: not an editing key; no Engine action. Non-null may have no frame
   // because TSF completed this edit locally; still confirm it through the pump.
   std::optional<PendingReply> edit(ServerSession &session,
@@ -111,5 +118,7 @@ private:
   std::string prefix_;
   std::optional<PendingReply> pending_;
   bool traditional_output_ = false;
+  bool translation_page_active_ = false;
+  std::vector<std::string> translation_page_items_;
 };
 } // namespace msime::windows

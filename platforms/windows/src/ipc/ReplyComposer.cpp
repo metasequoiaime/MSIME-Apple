@@ -2,6 +2,8 @@
 #include "CandidateTranslationPolicy.h"
 #include "ChineseTextConversion.h"
 #include "PunctuationPolicy.h"
+#include <algorithm>
+#include <limits>
 #include <stdexcept>
 
 namespace msime::windows {
@@ -229,6 +231,10 @@ std::optional<PendingReply> ReplyComposer::basic_key(
   if (style != TsfPreeditStyle::Local && style != TsfPreeditStyle::Pinyin &&
       style != TsfPreeditStyle::Empty)
     throw std::invalid_argument("Invalid TSF preedit style");
+  if (translation_page_active_) {
+    if (auto translation = translation_page_key(session, packet, epoch))
+      return translation;
+  }
   const auto action = translate_key(packet);
   const bool uiless = (packet.modifiers_down & FanyImePipeFlags::UiLess) != 0;
   if (action.kind == KeyKind::LocalReset)
@@ -382,6 +388,27 @@ std::optional<PendingReply> ReplyComposer::select_candidate(ServerSession &sessi
       (session_ && session_ != expected_session) ||
       view.at("generation") != generation || !view.at("focused").get<bool>())
     return std::nullopt;
+  if (translation_page_active_) {
+    if (index >= translation_page_items_.size())
+      return std::nullopt;
+    const auto text = simplified_to_traditional(translation_page_items_[index],
+                                                traditional_output_);
+    session.cancel_composition(epoch_);
+    auto transition = session.view();
+    transition["commit"] = nullptr;
+    PendingReply next;
+    next.source = {client_, epoch_, 0, true, std::move(transition)};
+    next.next_prefix.clear();
+    next.traditional_output = traditional_output_;
+    next.ui_selection = ui_complete_selection(prefix_ + text);
+    if (!next.ui_selection)
+      throw std::runtime_error("Unencodable translation selection");
+    translation_page_active_ = false;
+    translation_page_items_.clear();
+    session_ = expected_session;
+    pending_ = std::move(next);
+    return pending_;
+  }
   bool found = false;
   for (const auto &candidate : view.at("candidates")) {
     const auto &id = candidate.at("id");
@@ -447,13 +474,30 @@ std::optional<PendingReply> ReplyComposer::commit_candidate_translation(
       continue;
     }
     index = candidate.at("id").at("index").get<size_t>();
-    translation = first_translation_sense(
-        candidate.value("translation", std::string{}));
+    translation = candidate.value("translation", std::string{});
     found = true;
     break;
   }
   if (!found || translation.empty())
     return std::nullopt;
+  const auto senses = translation_senses(translation);
+  if (senses.size() > 1) {
+    nlohmann::json page = {{"commit", nullptr}, {"view", view}};
+    page["view"]["candidates"] = nlohmann::json::array();
+    const auto count = std::min<size_t>(senses.size(), 9);
+    for (size_t item = 0; item < count; ++item) {
+      page["view"]["candidates"].push_back({
+          {"id", {{"session", expected_session}, {"generation", generation},
+                   {"index", item}}},
+          {"text", senses[item]}, {"highlighted", item == 0},
+          {"annotation", ""}, {"source", 0}, {"fixed_position", false},
+          {"translation", ""}});
+    }
+    translation_page_items_.assign(senses.begin(), senses.begin() + count);
+    translation_page_active_ = true;
+    return translation_page_reply(packet, epoch, page);
+  }
+  translation = first_translation_sense(translation);
   auto transition = session.select(epoch, generation, index);
   const auto raw = transition.at("view").at("editing_text").get<std::string>();
   const auto output = simplified_to_traditional(translation, traditional_output_);
@@ -477,6 +521,60 @@ std::optional<PendingReply> ReplyComposer::commit_candidate_translation(
   return pending_;
 }
 
+PendingReply ReplyComposer::translation_page_reply(
+    const FanyImeNamedpipeData &packet, uint64_t epoch,
+    const nlohmann::json &transition) {
+  PendingReply next;
+  next.source = {client_, epoch, packet.request_id, true, transition};
+  next.encoded = navigation_reply(packet.request_id, NavigationReply::Ignored);
+  next.next_prefix = prefix_;
+  next.traditional_output = traditional_output_;
+  session_ = transition.at("view").at("session").get<uint64_t>();
+  pending_ = std::move(next);
+  return *pending_;
+}
+
+std::optional<PendingReply> ReplyComposer::translation_page_key(
+    ServerSession &session, const FanyImeNamedpipeData &packet,
+    uint64_t epoch) {
+  if (!translation_page_active_)
+    return std::nullopt;
+  if (packet.event_type != FanyImePipeEventType::KeyEvent ||
+      (packet.modifiers_down & PipeMetadata::CandidateActive) == 0 ||
+      PipeMetadata::key_modifiers(packet.modifiers_down) != 0)
+    return std::nullopt;
+  size_t index = std::numeric_limits<size_t>::max();
+  if (packet.keycode == 0x20)
+    index = 0;
+  else {
+    const auto key = normalize_digit_key(packet.keycode);
+    if (key >= '1' && key <= '9')
+      index = static_cast<size_t>(key - '1');
+  }
+  if (index == std::numeric_limits<size_t>::max()) {
+    translation_page_active_ = false;
+    translation_page_items_.clear();
+    return std::nullopt;
+  }
+  const auto current = session.view();
+  if (index >= translation_page_items_.size())
+    return translation_page_reply(packet, epoch, current);
+  const auto text = simplified_to_traditional(translation_page_items_[index],
+                                              traditional_output_);
+  session.cancel_composition(epoch);
+  auto transition = session.view();
+  transition["commit"] = nullptr;
+  PendingReply next;
+  next.source = {client_, epoch, packet.request_id, true, transition};
+  next.encoded = exact_commit(packet.request_id, prefix_ + text);
+  next.next_prefix.clear();
+  next.traditional_output = traditional_output_;
+  translation_page_active_ = false;
+  translation_page_items_.clear();
+  pending_ = std::move(next);
+  return *pending_;
+}
+
 void ReplyComposer::confirm_ui_delivery(uint64_t client, uint64_t epoch,
                                         uint64_t generation) {
   const auto &current = pending();
@@ -489,6 +587,8 @@ void ReplyComposer::confirm_ui_delivery(uint64_t client, uint64_t epoch,
 void ReplyComposer::cancel() {
   pending_.reset();
   prefix_.clear();
+  translation_page_active_ = false;
+  translation_page_items_.clear();
 }
 std::optional<PendingReply> ReplyComposer::configured_key(
     ServerSession &session, const FanyImeNamedpipeData &packet, uint64_t epoch,
