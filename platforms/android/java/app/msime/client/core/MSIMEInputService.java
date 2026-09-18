@@ -296,6 +296,7 @@ public final class MSIMEInputService extends InputMethodService {
     private Runnable backspaceRepeatTask;
     private Button backspaceRepeatButton;
     private boolean backspaceRepeated;
+    private boolean backspaceClearedComposition;
     private long personalDictionarySyncGeneration;
     private Runnable personalDictionarySyncTask;
     private long engineStartGeneration;
@@ -1736,11 +1737,20 @@ public final class MSIMEInputService extends InputMethodService {
                     cancelBackspaceRepeat();
                     backspaceRepeatButton = button;
                     backspaceRepeated = false;
+                    backspaceClearedComposition = false;
                     button.setPressed(true);
                     backspaceRepeatTask = new Runnable() {
                         @Override public void run() {
                             if (backspaceRepeatButton != button || !button.isPressed()) return;
                             backspaceRepeated = true;
+                            if (hasEngineComposition()) {
+                                playFeedback(button);
+                                command(3);
+                                backspaceClearedComposition = true;
+                                main.removeCallbacks(this);
+                                backspaceRepeatTask = null;
+                                return;
+                            }
                             playFeedback(button);
                             action.run();
                             main.postDelayed(this, BACKSPACE_REPEAT_INTERVAL_MILLIS);
@@ -1760,7 +1770,7 @@ public final class MSIMEInputService extends InputMethodService {
                 }
                 case MotionEvent.ACTION_UP -> {
                     boolean active = backspaceRepeatButton == button;
-                    boolean repeated = active && backspaceRepeated;
+                    boolean repeated = active && (backspaceRepeated || backspaceClearedComposition);
                     cancelBackspaceRepeat();
                     button.setPressed(false);
                     if (active && !repeated) button.performClick();
@@ -1782,6 +1792,11 @@ public final class MSIMEInputService extends InputMethodService {
         if (backspaceRepeatButton != null) backspaceRepeatButton.setPressed(false);
         backspaceRepeatButton = null;
         backspaceRepeated = false;
+        backspaceClearedComposition = false;
+    }
+
+    private boolean hasEngineComposition() {
+        return view != null && !view.optString("editing_text", "").isEmpty();
     }
 
     private int pixels(int value) {
@@ -4738,7 +4753,7 @@ public final class MSIMEInputService extends InputMethodService {
         Button delete = keyboardKey("⌫", "删除", deleteAction);
         bindBackspaceRepeat(delete, deleteAction);
         addNineKey(actions, delete);
-        addNineKey(actions, keyboardKey("重输", "清空当前拼音重新输入", () -> command(3)));
+        addNineKey(actions, keyboardKey(".", "句点", this::commitNineKeyPeriod));
         addNineKey(actions, keyboardKey("0", "数字 0", () -> commitNineKeyLiteral("0")));
         container.addView(actions, new LinearLayout.LayoutParams(0,
             LinearLayout.LayoutParams.MATCH_PARENT, 0.8f));
@@ -5077,6 +5092,10 @@ public final class MSIMEInputService extends InputMethodService {
         if (connection == null) return;
         command(2);
         commitText(fullWidthOutput(text));
+    }
+
+    private void commitNineKeyPeriod() {
+        if (dedicatedEnglish || !punctuation('.')) commitNineKeyLiteral(".");
     }
 
     private void chooseNineKeySpelling(long generation, int index) {
