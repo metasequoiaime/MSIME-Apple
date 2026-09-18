@@ -573,6 +573,23 @@ public:
     render();
     return true;
   }
+  bool cycleCandidateLayout() {
+    if (!session_) return false;
+    const auto current = preferences_.value("candidate_layout", std::string("vertical"));
+    const std::string next = current == "horizontal" ? "vertical" : "horizontal";
+    auto snapshot = preferences_snapshot_;
+    if (!snapshot.is_object() || !snapshot.contains("revision") ||
+        !snapshot.contains("preferences")) return false;
+    snapshot["preferences"]["candidate_layout"] = next;
+    const auto encoded = snapshot.dump();
+    view_ = response(msime_client_update_preferences(
+        session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
+    preferences_ = snapshot.at("preferences");
+    preferences_snapshot_ = std::move(snapshot);
+    saveStringPreference("candidate_layout", next);
+    render();
+    return true;
+  }
   bool toggleCloudCandidates() {
     if (!session_) return false;
     const bool enabled = !preferences_.value("cloud_candidates", true);
@@ -1921,6 +1938,32 @@ private:
   Mode mode_;
 };
 
+class FcitxCandidateLayoutAction : public fcitx::SimpleAction {
+public:
+  explicit FcitxCandidateLayoutAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
+    setLongText("循环切换候选栏横向和纵向布局");
+  }
+  std::string shortText(fcitx::InputContext *ic) const override {
+    if (!ic) return "候选布局";
+    const auto *state = ic->propertyFor(factory_);
+    return state->preferences_.value("candidate_layout", std::string("vertical")) == "horizontal"
+        ? "候选：横向" : "候选：纵向";
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    auto *state = ic->propertyFor(factory_);
+    if (!state->session_ || state->restricted() || state->privateInput()) return;
+    try {
+      if (state->ensure() && state->cycleCandidateLayout()) update(ic);
+    } catch (...) {
+      state->close();
+      state->clearPanel();
+    }
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
 class FcitxCandidateTranslationAction : public fcitx::Action {
 public:
   explicit FcitxCandidateTranslationAction(fcitx::FactoryFor<FcitxState> *factory)
@@ -2462,6 +2505,7 @@ public:
     paired_punctuation_action_.registerAction("msime-paired-punctuation", &instance->userInterfaceManager());
     smart_punctuation_action_.registerAction("msime-smart-punctuation", &instance->userInterfaceManager());
     smart_punctuation_repeat_action_.registerAction("msime-smart-punctuation-repeat", &instance->userInterfaceManager());
+    candidate_layout_action_.registerAction("msime-candidate-layout", &instance->userInterfaceManager());
     candidate_translation_action_.registerAction("msime-candidate-translations", &instance->userInterfaceManager());
     punctuation_lock_action_.registerAction("msime-punctuation-lock", &instance->userInterfaceManager());
     translation_language_action_.registerAction("msime-translation-language", &instance->userInterfaceManager());
@@ -2568,6 +2612,7 @@ public:
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &paired_punctuation_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &smart_punctuation_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &smart_punctuation_repeat_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &candidate_layout_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &candidate_translation_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &punctuation_lock_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &translation_language_action_);
@@ -2606,6 +2651,7 @@ public:
     event.inputContext()->statusArea().removeAction(&paired_punctuation_action_);
     event.inputContext()->statusArea().removeAction(&smart_punctuation_action_);
     event.inputContext()->statusArea().removeAction(&smart_punctuation_repeat_action_);
+    event.inputContext()->statusArea().removeAction(&candidate_layout_action_);
     event.inputContext()->statusArea().removeAction(&candidate_translation_action_);
     event.inputContext()->statusArea().removeAction(&punctuation_lock_action_);
     event.inputContext()->statusArea().removeAction(&translation_language_action_);
@@ -2664,6 +2710,7 @@ public:
   FcitxPunctuationAction paired_punctuation_action_{&factory_, FcitxPunctuationAction::Mode::Paired};
   FcitxSmartPunctuationAction smart_punctuation_action_{&factory_, FcitxSmartPunctuationAction::Mode::Smart};
   FcitxSmartPunctuationAction smart_punctuation_repeat_action_{&factory_, FcitxSmartPunctuationAction::Mode::Repeat};
+  FcitxCandidateLayoutAction candidate_layout_action_{&factory_};
   FcitxCandidateTranslationAction candidate_translation_action_{&factory_};
   FcitxPunctuationLockAction punctuation_lock_action_{&factory_};
   FcitxTranslationLanguageAction translation_language_action_{&factory_};
