@@ -114,12 +114,12 @@ targets:
         excludes:
           - KeyboardServiceFallback.swift
       - path: SharedUI
-      - path: ../../shared/backend/BackendAccountClient.swift
-      - path: ../../shared/backend/BackendChatClient.swift
-      - path: ../../shared/backend/BackendAccountSession.swift
-      - path: ../../shared/backend/BackendAnonymousAccount.swift
-      - path: ../../shared/backend/BackendLocalStore.swift
-      - path: ../../shared/backend/BackendSnapshotClient.swift
+      - path: ../../shared/backend/account/BackendAccountClient.swift
+      - path: ../../shared/backend/clients/BackendChatClient.swift
+      - path: ../../shared/backend/account/BackendAccountSession.swift
+      - path: ../../shared/backend/account/BackendAnonymousAccount.swift
+      - path: ../../shared/backend/storage/BackendLocalStore.swift
+      - path: ../../shared/backend/clients/BackendSnapshotClient.swift
       - path: App/Services/KeyboardAIService.swift
       - path: KeyboardExtension/Sources/KeyboardServiceFallback.swift
       - path: ../../target/ios/EngineResources

@@ -79,7 +79,10 @@ target_sources(MSIMEClientInputMethod PRIVATE src/core/DesktopInputSession.mm)
 target_sources(MSIMEClientInputMethod PRIVATE src/core/DesktopCloudClipboard.mm)
 target_link_libraries(MSIMEClientInputMethod PRIVATE "-framework CoreGraphics" "-framework CoreText" "-framework UniformTypeIdentifiers")
 file(GLOB MSIME_BACKEND_SWIFT CONFIGURE_DEPENDS
-  "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/*.swift"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/account/*.swift"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/clients/*.swift"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/content/*.swift"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/storage/*.swift"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend-ui/*.swift"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/backend/Backend*.swift")
 set(MSIME_SWIFT_BACKEND_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/MSIMEBackend.dylib")
@@ -119,9 +122,9 @@ if(MSIME_OPTIONS_FILE)
 endif()
 include(ClipboardTests.cmake)
 set(MSIME_DESKTOP_DICTIONARY_PROVIDER_SOURCES
-  ../../shared/backend/BackendAccountClient.swift ../../shared/backend/BackendAccountSession.swift
-  ../../shared/backend/BackendDictionaryClient.swift ../../shared/backend/BackendCandidateClient.swift
-  ../../shared/backend/BackendSnapshotClient.swift src/backend/BackendCloudDictionaryProvider.swift
+  ../../shared/backend/account/BackendAccountClient.swift ../../shared/backend/account/BackendAccountSession.swift
+  ../../shared/backend/content/BackendDictionaryClient.swift ../../shared/backend/clients/BackendCandidateClient.swift
+  ../../shared/backend/clients/BackendSnapshotClient.swift src/backend/BackendCloudDictionaryProvider.swift
   src/backend/BackendLocalSnapshot.swift src/backend/BackendFileTransfer.swift src/backend/BackendDesktopSnapshots.swift
   tests/DesktopCloudDictionaryProviderTest.swift)
 list(TRANSFORM MSIME_DESKTOP_DICTIONARY_PROVIDER_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
@@ -134,8 +137,8 @@ add_custom_target(desktop-dictionary-provider-test-build ALL DEPENDS "${CMAKE_CU
 add_test(NAME desktop-dictionary-provider COMMAND "${CMAKE_CURRENT_BINARY_DIR}/desktop-dictionary-provider-test")
 set_tests_properties(desktop-dictionary-provider PROPERTIES TIMEOUT 30)
 set(MSIME_DESKTOP_CLOUD_PROVIDER_SOURCES
-  ../../shared/backend/BackendAccountClient.swift ../../shared/backend/BackendAccountSession.swift
-  ../../shared/backend/BackendClipboardClient.swift src/backend/BackendCloudClipboardProvider.swift
+  ../../shared/backend/account/BackendAccountClient.swift ../../shared/backend/account/BackendAccountSession.swift
+  ../../shared/backend/clients/BackendClipboardClient.swift src/backend/BackendCloudClipboardProvider.swift
   tests/DesktopCloudClipboardProviderTest.swift)
 list(TRANSFORM MSIME_DESKTOP_CLOUD_PROVIDER_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/desktop-cloud-provider-test"
