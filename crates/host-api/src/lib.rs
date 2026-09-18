@@ -2078,6 +2078,10 @@ pub unsafe extern "C" fn msime_client_candidate_gloss_request(
 
 /// Query copied prefixes against the packaged English dictionary. This does not
 /// create or mutate an Engine session and is suitable for a host worker thread.
+///
+/// # Safety
+/// The request and resources pointers must point to readable buffers of the supplied lengths.
+/// Neither buffer is retained after the call returns.
 #[no_mangle]
 pub unsafe extern "C" fn msime_client_english_completions_request(
     request: *const u8,
@@ -2121,7 +2125,7 @@ pub unsafe extern "C" fn msime_client_english_completions_request(
         let items = msime_engine_bridge::english_completions(
             resources,
             &request.prefix,
-            u16::from(request.limit),
+            usize::from(request.limit),
         )
         .map_err(|_| "English completion dictionary unavailable")?;
         Ok(json!({"prefix": request.prefix, "items": items}))
