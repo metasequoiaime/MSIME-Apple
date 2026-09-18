@@ -1,4 +1,4 @@
-#include "../../../platforms/macos/VoiceCaptureDevice.h"
+#include "../../../platforms/macos/src/VoiceCaptureDevice.h"
 
 #include <cstddef>
 
