@@ -54,7 +54,11 @@ std::string default_asr_endpoint(std::string_view provider) {
     return "https://api.groq.com/openai/v1/audio/transcriptions";
   if (id == "siliconflow")
     return "https://api.siliconflow.cn/v1/audio/transcriptions";
-  return "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async";
+  if (id == "doubao")
+    return "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async";
+  // Keep unknown legacy values on the HTTP provider fallback used by the
+  // Windows reference instead of silently selecting the Doubao websocket.
+  return "https://api.siliconflow.cn/v1/audio/transcriptions";
 }
 
 std::string default_asr_model(std::string_view provider) {
@@ -65,7 +69,9 @@ std::string default_asr_model(std::string_view provider) {
     return "whisper-large-v3-turbo";
   if (id == "siliconflow")
     return "FunAudioLLM/SenseVoiceSmall";
-  return {};
+  if (id == "doubao")
+    return {};
+  return "FunAudioLLM/SenseVoiceSmall";
 }
 
 std::string default_polish_endpoint(std::string_view provider) {

@@ -29,6 +29,8 @@ int main() {
     assert(!is_doubao_asr_provider("openai"));
     assert(resolved_asr_endpoint("openai", default_asr_endpoint("doubao")) == default_asr_endpoint("openai"));
     assert(resolved_asr_endpoint("doubao", default_asr_endpoint("groq")) == default_asr_endpoint("doubao"));
+    assert(!voice_endpoint_is_websocket(default_asr_endpoint("legacy-unknown")));
+    assert(default_asr_model("legacy-unknown") == "FunAudioLLM/SenseVoiceSmall");
     assert(default_asr_model("groq") == "whisper-large-v3-turbo");
     assert(default_polish_model("openai") == "gpt-4o-mini");
     auto cancelled = std::make_shared<std::atomic_bool>(true);
