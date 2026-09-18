@@ -3289,6 +3289,28 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     if (composing) command(MSIME_COMMIT_RAW);
     return toggleWidth();
   }
+  // Match the Windows candidate-translation shortcut. Fcitx owns the
+  // candidate panel, so commit the currently highlighted rendered gloss
+  // directly and close the shared composition; without a valid gloss the
+  // chord remains an application shortcut.
+  if (ctrl && !alt && !shift &&
+      (sym == FcitxKey_Return || sym == FcitxKey_KP_Enter) && composing &&
+      preferences_.value("candidate_translations", false)) {
+    const auto candidates = view_.value("candidates", Json::array());
+    if (candidates.is_array()) {
+      for (const auto &candidate : candidates) {
+        if (!candidate.is_object() || !candidate.value("highlighted", false))
+          continue;
+        const auto translation = candidate.value("translation", std::string{});
+        if (!translation.empty() && translation.size() <= 4096) {
+          commitText(translation, msime::linux_host::TypingSource::Reply);
+          command(MSIME_CANCEL);
+          return true;
+        }
+        break;
+      }
+    }
+  }
   if (states.testAny(fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Alt,
                                       fcitx::KeyState::Super, fcitx::KeyState::Hyper})) {
     if (composing) command(MSIME_CANCEL);
