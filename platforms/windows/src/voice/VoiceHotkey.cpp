@@ -66,6 +66,33 @@ VoiceHotkeyController::~VoiceHotkeyController() {
     force_release_ralt();
 }
 
+void VoiceHotkeyController::refresh() {
+  const auto config = config_provider_();
+  const bool changed =
+      !observed_config_ || observed_enabled_ != config.enabled ||
+      observed_hotkey_ralt_ != config.hotkey_ralt ||
+      observed_hotkey_ctrl_f9_ != config.hotkey_ctrl_f9 ||
+      observed_hotkey_ctrl_win_ != config.hotkey_ctrl_win ||
+      observed_hotkey_rctrl_ralt_ != config.hotkey_rctrl_ralt ||
+      observed_hotkey_hold_space_lock_ != config.hotkey_hold_space_lock;
+  if (!changed)
+    return;
+  observed_config_ = true;
+  observed_enabled_ = config.enabled;
+  observed_hotkey_ralt_ = config.hotkey_ralt;
+  observed_hotkey_ctrl_f9_ = config.hotkey_ctrl_f9;
+  observed_hotkey_ctrl_win_ = config.hotkey_ctrl_win;
+  observed_hotkey_rctrl_ralt_ = config.hotkey_rctrl_ralt;
+  observed_hotkey_hold_space_lock_ = config.hotkey_hold_space_lock;
+  const bool release_ralt = suppress_ralt_until_up_.load();
+  if (active_hold_.load() != HoldShortcut::None ||
+      (!config.enabled && voice_.recording()))
+    voice_.stop();
+  reset_state();
+  if (release_ralt)
+    force_release_ralt();
+}
+
 LRESULT CALLBACK VoiceHotkeyController::window_proc(HWND hwnd, UINT message,
                                                       WPARAM wparam,
                                                       LPARAM lparam) {
