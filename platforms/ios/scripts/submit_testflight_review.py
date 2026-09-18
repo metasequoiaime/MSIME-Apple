@@ -55,15 +55,31 @@ def request(method: str, path: str, auth: str, body: dict | None = None) -> dict
         raise Failure(f"{method} {url} -> {error.code}\n{detail}") from None
 
 
-def find_build(auth: str, app_id: str, version: str) -> dict:
-    """The build with this exact CFBundleVersion, or a clear failure naming what is there instead."""
-    page = request("GET", f"/builds?filter[app]={app_id}&filter[version]={version}&limit=10", auth)
-    for build in page.get("data", []):
-        if build["attributes"]["version"] == version:
-            return build
+def find_build(auth: str, app_id: str, version: str, timeout: int) -> dict:
+    """The build with this exact CFBundleVersion, waiting for it to appear first.
+
+    A successful upload does not put the build in the API straight away -- altool returns as soon as
+    Apple has the bytes, and the build shows up minutes later. Asking once and giving up turned a
+    finished upload into "No build 1002.68.1 ... Most recent: 2, 1000.1.1, ...", which reads as a
+    failed release and is not one: the package was already with Apple and only the distribution was
+    missing, leaving the testers waiting while the run looked broken.
+    """
+    deadline = time.time() + timeout
+    announced = False
+    while True:
+        page = request("GET", f"/builds?filter[app]={app_id}&filter[version]={version}&limit=10", auth)
+        for build in page.get("data", []):
+            if build["attributes"]["version"] == version:
+                return build
+        if time.time() >= deadline:
+            break
+        if not announced:
+            print(f"waiting for build {version} to appear", flush=True)
+            announced = True
+        time.sleep(30)
     recent = request("GET", f"/builds?filter[app]={app_id}&sort=-uploadedDate&limit=5", auth)
     names = ", ".join(b["attributes"]["version"] for b in recent.get("data", []))
-    raise Failure(f"No build {version} for app {app_id}. Most recent: {names or 'none'}")
+    raise Failure(f"No build {version} for app {app_id} after {timeout}s. Most recent: {names or 'none'}")
 
 
 def await_processing(auth: str, build_id: str, timeout: int) -> None:
@@ -83,11 +99,12 @@ def await_processing(auth: str, build_id: str, timeout: int) -> None:
     raise Failure(f"Build {build_id} was still {seen or 'processing'} after {timeout}s")
 
 
-def group_id(auth: str, app_id: str, name: str) -> str:
+def find_group(auth: str, app_id: str, name: str) -> tuple[str, bool]:
+    """The group's id, and whether it is an internal one -- the two callers need both."""
     page = request("GET", f"/betaGroups?filter[app]={app_id}&limit=50", auth)
     for group in page.get("data", []):
         if group["attributes"]["name"] == name:
-            return group["id"]
+            return group["id"], bool(group["attributes"].get("isInternalGroup"))
     names = ", ".join(g["attributes"]["name"] for g in page.get("data", []))
     raise Failure(f"No beta group named {name!r}. Groups: {names or 'none'}")
 
@@ -107,16 +124,23 @@ def main() -> int:
 
     credentials = (arguments.key_id, arguments.issuer_id, arguments.key_path)
     auth = token(*credentials)
-    build = find_build(auth, arguments.app, arguments.build_version)
+    # 出现和处理完是同一段等待的两半,共用一个预算:上传之后先等它出现在 API 里,再等它处理成 VALID。
+    build = find_build(auth, arguments.app, arguments.build_version, arguments.processing_timeout)
     print(f"build {arguments.build_version} is {build['id']}", flush=True)
 
     await_processing(token(*credentials), build["id"], arguments.processing_timeout)
 
     auth = token(*credentials)
-    group = group_id(auth, arguments.app, arguments.group)
-    request("POST", f"/betaGroups/{group}/relationships/builds", auth,
-            {"data": [{"type": "builds", "id": build["id"]}]})
-    print(f"added to beta group {arguments.group}", flush=True)
+    group, internal = find_group(auth, arguments.app, arguments.group)
+    if internal:
+        # 内部组自动拥有每一个 build,Apple 也不接受把 build 显式加进去:那个 POST 回 422
+        # "Builds cannot be assigned to this internal group."。处理完成就等于内测已经拿到了,
+        # 这一步不是可选的优化,是做了必错 —— 它让每一次合并到 main 的发布都染红,而内测其实是好的。
+        print(f"internal group {arguments.group} already has every build", flush=True)
+    else:
+        request("POST", f"/betaGroups/{group}/relationships/builds", auth,
+                {"data": [{"type": "builds", "id": build["id"]}]})
+        print(f"added to beta group {arguments.group}", flush=True)
 
     # 内部组自己就能分发,只有外部测试要过 Apple 的审核。
     if not arguments.submit_review:

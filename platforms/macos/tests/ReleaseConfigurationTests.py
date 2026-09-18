@@ -1055,8 +1055,28 @@ class ReleaseConfigurationTests(unittest.TestCase):
         # The lock is rewritten by a script rather than by hand, so a bump moves the submodule pins with the Engine instead of leaving them on the previous commit.
         engine_update = (PROJECT_ROOT / ".github/workflows/engine-update.yml").read_text()
         self.assertIn("python3 scripts/relock_engine.py", engine_update)
-        # 开 PR 那一步不能只靠 GITHUB_TOKEN:组织关着「Allow GitHub Actions to create and approve pull requests」,gh pr create 会被拒,而分支已经推上去了 —— 引擎更新于是静悄悄地停住,不翻 Actions 根本看不见。和 release-please 用同一个凭据,回退保留给没配这个 secret 的分叉。
-        self.assertIn("GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}", engine_update)
+        # 开 PR 那一步不能只靠 GITHUB_TOKEN:组织关着「Allow GitHub Actions to create and approve pull requests」,gh pr create 会被拒,而分支已经推上去了 —— 引擎更新静悄悄地停住。
+        #
+        # 比的是那一个步骤,不是整个文件。只问「文件里有没有这个字符串」的话,凭据放到前一个步骤上、注释留在这一步,代码和注释各说各的而测试照样绿 —— 真正会失败的那次 gh pr create 一点没修。这个错犯过。
+        create_pr = engine_update.split("- name: Create pull request", 1)[1].split("run: |", 1)[0]
+        self.assertIn("GH_TOKEN: ${{ secrets.RELEASE_PLEASE_TOKEN || github.token }}", create_pr)
+
+    def test_the_macos_matrix_reports_the_names_branch_protection_waits_for(self):
+        """矩阵 job 不能整个被 `if:` 跳过,否则它上报的是没展开的字面量名字。
+
+        main 的必需检查是 `macOS 15 arm64` 和 `macOS 15 x86_64`。job 级的 `if:` 让 GitHub 不展开矩阵,
+        只上报一个 `macOS 15 ${{ matrix.architecture }}`,那两个名字永远不出现 —— 于是只动 platforms/ios
+        的 PR 检查全绿却合不进 main,报错只有一句「the base branch policy prohibits the merge」。
+        非矩阵的 job 没有这个问题,被跳过时照常按自己的名字上报 skipped,所以这条只针对带矩阵的。
+        """
+        # 按文本读,不引第三方 YAML 库:这套测试跑在 contracts.yml 的 ubuntu runner 上,那里只保证标准库。
+        body = (PROJECT_ROOT / ".github/workflows/ci-macos.yml").read_text()
+        job = body.split("\n  macos:\n", 1)[1].split("\n  sanitizers:", 1)[0]
+        header = job.split("    steps:", 1)[0]
+        self.assertIn("strategy:", header, "这条用例是针对带矩阵的 job 的")
+        self.assertNotIn("\n    if:", header, "macos 带矩阵,不能在 job 级跳过 —— 条件要放在步骤上")
+        # 跳过重活的条件还得在:否则只改 iOS 也会把 macOS 全量编一遍。
+        self.assertIn("needs.changes.outputs.build == 'true'", job.split("    steps:", 1)[1])
 
     def engine_submodule_paths(self):
         """The Engine's own submodules, read from the .gitmodules its archive ships."""

@@ -178,6 +178,22 @@ class BuildNumberTests(unittest.TestCase):
         self.assertIn("--draft --prerelease", result.stdout)
         self.assertEqual(output, "release_created=true\ntag_name=v0.48.6-build.23\ntarget_sha=" + HEAD_SHA + "\n")
 
+    def test_a_dispatch_with_a_tag_is_accepted(self):
+        """手动发布和升版本这两条路都必须过得了 Validate invocation。
+
+        它们曾经一起断掉:校验里留着 `test "$REQUESTED_PLATFORM" = both`,而 platform 这个输入在 workflow 拆成两个之后就没有了。空字符串对比 both 恒假,于是每一次带 tag 或带 bump_version 的手动触发都在第一步 exit 1 —— 只有一行报错,看不出在拦什么,而这两条路平时都不走,红不了,直到真要手动发一版的那天。
+        """
+        for tag in ("v0.48.6", "ios-v0.48.6-build.1002.68.1", "macos-v0.48.6-build.23"):
+            result, _ = self.run_step("Validate invocation", GITHUB_REF="refs/heads/main",
+                                      GITHUB_EVENT_NAME="workflow_dispatch",
+                                      BUMP_VERSION="false", REQUESTED_TAG=tag)
+            with self.subTest(tag=tag):
+                self.assertEqual(result.returncode, 0, result.stderr)
+        result, _ = self.run_step("Validate invocation", GITHUB_REF="refs/heads/main",
+                                  GITHUB_EVENT_NAME="workflow_dispatch",
+                                  BUMP_VERSION="true", REQUESTED_TAG="")
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_manual_version_bump_and_draft_selection_are_exclusive(self):
         # Leaving both empty is the third mode: it creates its own draft rather than promoting a
         # version or rebuilding an existing one.
@@ -192,23 +208,9 @@ class BuildNumberTests(unittest.TestCase):
                                  GITHUB_EVENT_NAME="push")
         self.assertNotEqual(result.returncode, 0)
 
-    def test_only_a_run_creating_its_own_draft_may_choose_its_platforms(self):
-        # A promotion is the complete release under the bare name release-please and Sparkle read,
-        # and an existing draft was named when it was created. Accepting a platform that disagrees
-        # with either would upload one platform's assets under a name promising the other.
-        for bump, tag, platform, valid in [("false", "", "macos", True),
-                                           ("false", "", "ios", True),
-                                           ("false", "", "both", True),
-                                           ("true", "", "macos", False),
-                                           ("true", "", "both", True),
-                                           ("false", "v0.48.6-build.2.23.1", "ios", False),
-                                           ("false", "ios-v0.48.6-build.2.23.1", "ios", False),
-                                           ("false", "ios-v0.48.6-build.2.23.1", "both", True)]:
-            result, _ = self.run_step("Validate invocation", GITHUB_REF="refs/heads/main",
-                                     GITHUB_EVENT_NAME="workflow_dispatch",
-                                     BUMP_VERSION=bump, REQUESTED_TAG=tag,
-                                     REQUESTED_PLATFORM=platform)
-            self.assertEqual(result.returncode == 0, valid, f"{bump}/{tag}/{platform}")
+    # 这里原先有一条 test_only_a_run_creating_its_own_draft_may_choose_its_platforms,用八组 (bump, tag, platform) 断言 platform 输入不能和 tag 前缀矛盾。那个输入在发布拆成两个 workflow 时就没了,而它一直是绿的 —— 因为校验里同样残留的 `test "$REQUESTED_PLATFORM" = both` 把八种组合全拒了,于是每个「应当失败」的用例都如愿失败,三个「应当成功」的也失败,只是没人看见。删掉那条失效校验之后它立刻红,这才是它第一次说真话。
+    #
+    # 平台由文件决定,下面那条用例守着;手动触发过不过得了第一步,由 test_a_dispatch_with_a_tag_is_accepted 守着。
 
     def test_each_workflow_publishes_only_its_own_platform(self):
         """发布拆成了两个 workflow,平台不再由一次判定得出,而是由文件本身决定。
