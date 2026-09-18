@@ -1,4 +1,5 @@
 #include "InputQueue.h"
+#include "TerminalDeactivationPolicy.h"
 
 namespace msime::windows {
 std::optional<PendingReply>
@@ -120,10 +121,14 @@ bool InputState::deactivate_terminal(uint64_t client, uint64_t token) {
   if (!client || !token)
     return false;
   auto found = clients_.find(client);
-  // An unregistered client cannot be focused, so the state the DLL asked for
-  // already holds. Saying so is not the same as claiming a teardown happened.
-  if (found == clients_.end() || !found->second.session)
-    return true;
+  // The token is an authenticated identity, not a best-effort hint. An
+  // unknown client (or a client whose session was already quiesced) must not
+  // receive an OK: a delayed Aux request could otherwise acknowledge a newer
+  // activation that reused the same client id.
+  if (!terminal_deactivation_state_available(
+          found != clients_.end(), found != clients_.end() &&
+                                    found->second.session != nullptr))
+    return false;
   return found->second.session->cancel_focus_token(token);
 }
 void InputState::cleanup(const FocusRoute &route) {
