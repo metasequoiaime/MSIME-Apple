@@ -350,7 +350,7 @@ int main() {
     packet.event_type = FanyImePipeEventType::ClientActivated;
     packet.request_id = 77;
     require(write_frame(main.handle, fixture_bytes(packet), 2000).complete());
-    const auto fence = *focus_ready_bytes(77);
+      const auto fence = *focus_ready_bytes(7, 8, 77);
     auto activation =
         read_frame(worker.handle, static_cast<DWORD>(fence.size()), 2000);
     require(activation.complete() && activation.frame == fence);

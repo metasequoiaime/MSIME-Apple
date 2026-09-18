@@ -47,7 +47,9 @@ std::optional<std::vector<uint8_t>> pipe_ready_bytes(uint32_t role);
 // Worker focus fence echoes the TSF activation request token, NOT the Server
 // epoch. Caller must check current client/activation/transport ownership and
 // order this before subsequent worker output. Encoding is not authorization.
-std::optional<std::vector<uint8_t>> focus_ready_bytes(uint64_t focus_token);
+std::optional<std::vector<uint8_t>> focus_ready_bytes(uint64_t client_id,
+                                                      uint64_t activation_epoch,
+                                                      uint64_t focus_token);
 enum class WorkerMode {
   English,
   Chinese,

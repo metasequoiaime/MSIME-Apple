@@ -150,8 +150,10 @@ std::optional<std::vector<uint8_t>> pipe_ready_bytes(uint32_t role) {
         static_cast<uint8_t>(FanyImeWorkerReplyType::PipeReady >> (8 * i));
   return bytes;
 }
-std::optional<std::vector<uint8_t>> focus_ready_bytes(uint64_t token) {
-  if (!token)
+std::optional<std::vector<uint8_t>> focus_ready_bytes(uint64_t client_id,
+                                                       uint64_t activation_epoch,
+                                                       uint64_t token) {
+  if (!client_id || !activation_epoch || !token)
     return std::nullopt;
   std::array<char, 20> decimal{};
   const auto converted =

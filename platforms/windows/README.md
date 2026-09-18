@@ -170,7 +170,7 @@ stop 幂等地停止监听、等待握手池、shutdown Registry 并释放监听
 
 ## Worker 焦点确认编码
 
-`focus_ready_bytes` 生成固定上游 FocusSessionReady worker 帧，将 TSF 激活请求的非零 focus token 以无区域设置影响的十进制 UTF-16 编码；支持完整 uint64 范围，拒绝零标记，保留终止符并清零全部剩余字节。这个字段不是 Server 的 activation epoch，也不是传输注册代次。调用者仍须确认当前焦点、client/activation/注册所有权，并保证确认先于后续 worker 输出；编码函数不授予焦点，也不自动激活 Engine。
+`focus_ready_bytes` 生成固定上游 FocusSessionReady worker 帧，将已认证的非零 client、activation epoch 和 focus token 中的 token 以无区域设置影响的十进制 UTF-16 编码；支持完整 uint64 范围，拒绝任一零标记，保留终止符并清零全部剩余字节。activation epoch 不是传输注册代次。编码函数不授予焦点，也不自动激活 Engine。
 
 本机编码测试验证零拒绝、跨 32 位值和 uint64 最大值的精确字节；原生注册器测试增加真实 worker 路由发送与完整帧读取，但仅交叉编译，未 Windows 实测。焦点激活状态机仍是下一步接入工作。
 

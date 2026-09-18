@@ -868,7 +868,7 @@ void session_pump_tests(const std::string &options) {
     if (mode == 0) {
       require(result == PumpResult::Disconnected && keys == 6 &&
               transport.next == 8 && transport.writes.size() == 13);
-      const auto fence = *focus_ready_bytes(77);
+      const auto fence = *focus_ready_bytes(7, 8, 77);
       require(transport.writes[0].first == FanyImePipeRole::ToTsfWorkerThread &&
               transport.writes[0].second == fence);
       for (size_t i = 0; i < 6; ++i) {

@@ -78,7 +78,9 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
       if (packet->event_type == FanyImePipeEventType::ClientHello)
         continue;
       if (route.route && route.fence) {
-        const auto bytes = focus_ready_bytes(route.route->token);
+        const auto bytes = focus_ready_bytes(
+            route.route->transport.client, route.route->epoch,
+            route.route->token);
         if (!bytes)
           return PumpResult::DispatchFailed;
         bool sent = false;
