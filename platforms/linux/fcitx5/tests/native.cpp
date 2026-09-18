@@ -173,6 +173,7 @@ int main(int argc, char **argv) {
     changedPreferences["candidate_layout"] = "horizontal";
     changedPreferences["smart_punctuation"] = true;
     changedPreferences["smart_punctuation_repeat"] = true;
+    changedPreferences["learning"] = true;
     const auto preferenceDirectory = options["preferences_directory"].get<std::string>();
     const auto currentSnapshot = response(msime_client_load_preferences(
         reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size()));
@@ -194,7 +195,7 @@ int main(int argc, char **argv) {
     }
     require(!state->preferences_.value("number_row_selection", true),
             "runtime preferences reload in active Fcitx session");
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 35,
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 36,
             "native status actions attached");
     require(engine.candidate_layout_action_.shortText(&ic) == "候选：横向",
             "candidate layout action reflects reloaded preference");
@@ -204,6 +205,14 @@ int main(int argc, char **argv) {
     engine.candidate_layout_action_.activate(&ic);
     require(state->preferences_.value("candidate_layout", std::string{}) == "horizontal",
             "candidate layout action cycles back to horizontal");
+    require(engine.learning_action_.isChecked(&ic),
+            "learning status action reflects reloaded preference");
+    engine.learning_action_.activate(&ic);
+    require(!state->preferences_.value("learning", true),
+            "learning status action disables user learning");
+    engine.learning_action_.activate(&ic);
+    require(state->preferences_.value("learning", false),
+            "learning status action restores user learning");
     if (state->preferences_.value("cloud_candidates", false)) {
       require(engine.cloud_candidates_action_.isChecked(&ic),
               "cloud candidates status action reflects preference");
@@ -217,7 +226,7 @@ int main(int argc, char **argv) {
       require(!engine.cloud_candidates_action_.isChecked(&ic),
               "cloud candidates status action reflects disabled preference");
     }
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 35,
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 36,
             "AI status action attached");
     require(engine.emoji_category_action_.shortText(&ic) == "表情：Emoji",
             "emoji category starts in the default catalog");
