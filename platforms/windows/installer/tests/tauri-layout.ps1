@@ -22,4 +22,8 @@ if (-not $script.Contains('ValueName: "DataDir"') -or
     -not $script.Contains('{param:DATADIR|}')) {
     throw 'Installer does not persist or accept the selected DataDir'
 }
+if (-not $script.Contains('function DataDirIsSafe') -or
+    -not $script.Contains('DataDirIsSafe(GetDataDir')) {
+    throw 'Installer does not validate the selected DataDir'
+}
 Write-Output 'Installer carries native/Tauri outputs without loose legacy HTML'

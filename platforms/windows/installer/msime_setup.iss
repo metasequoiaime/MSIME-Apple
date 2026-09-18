@@ -194,6 +194,33 @@ begin
   Result := DataDirValue;
 end;
 
+function DataDirIsSafe(const Directory: String): Boolean;
+var
+  Root: String;
+begin
+  Result := False;
+  if (Length(Directory) < 4) or (Directory[2] <> ':') or
+    (Directory[3] <> '\') then
+    Exit;
+  Root := Copy(Directory, 1, 3);
+  if not DirExists(Root) then
+    Exit;
+  if CompareText(Directory, Root) = 0 then
+    Exit;
+  if CompareText(Directory, ExpandConstant('{win}')) = 0 then
+    Exit;
+  if CompareText(Directory, ExpandConstant('{commonpf64}')) = 0 then
+    Exit;
+  if CompareText(Directory, ExpandConstant('{commonappdata}')) = 0 then
+    Exit;
+  if CompareText(Directory, ExpandConstant('{localappdata}')) = 0 then
+    Exit;
+  if Pos(LowerCase(AddBackslash(ExpandConstant('{commonpf64}\metasequoiaime'))),
+    LowerCase(AddBackslash(Directory))) = 1 then
+    Exit;
+  Result := True;
+end;
+
 { 云候选是唯一一个装完就会联网的功能：输入过程中把当前拼写发给 Google 的 input-tools 服务。
   出厂默认开启，而安装器此前没有任何一屏提到过它，用户要读文档才会知道。这一页把它摆到安装
   过程里，选择写进首次生成的 config.toml。
@@ -610,6 +637,11 @@ var
 begin
   { 先锁定本次目录名，再清理能够释放的旧版本 DLL。}
   VersionDirName := GetVersionDir('');
+  if not DataDirIsSafe(GetDataDir('')) then
+  begin
+    Result := '数据目录必须是本机磁盘上的安全子目录，且不能位于系统目录或程序目录内。';
+    exit;
+  end;
   StopProcess('{#MyWatchdogName}');
   StopProcess('{#MyAppExeName}');
 #ifdef LightPackage
