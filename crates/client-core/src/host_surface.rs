@@ -204,7 +204,10 @@ impl HostCapabilities {
                 platform,
                 HostPlatform::Linux | HostPlatform::Windows | HostPlatform::Macos
             ),
-            number_row_selection: platform == HostPlatform::Linux,
+            // Harmony 2-in-1 hardware keyboards use the same candidate number
+            // row as Windows; the ArkTS router releases digits when this
+            // preference is enabled, so the focused editor can consume them.
+            number_row_selection: matches!(platform, HostPlatform::Linux | HostPlatform::Harmony),
             voice_capture_devices: matches!(
                 platform,
                 HostPlatform::Linux | HostPlatform::Windows | HostPlatform::Macos
@@ -742,7 +745,7 @@ mod tests {
         // Consumed: the hardware key router reads all four bindings, so the page may offer them.
         assert!(harmony.mode_switch_shortcuts);
         assert!(!harmony.panel_shortcuts);
-        assert!(!harmony.number_row_selection);
+        assert!(harmony.number_row_selection);
         assert!(!harmony.voice_capture_devices);
         assert!(harmony.candidate_font_controls);
         assert!(harmony.candidate_row_colors);

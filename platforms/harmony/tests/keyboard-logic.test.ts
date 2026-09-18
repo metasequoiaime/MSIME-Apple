@@ -63,6 +63,8 @@ import { OnlineCandidatePolicy } from
   '../entry/src/main/ets/keyboard/candidate/OnlineCandidatePolicy';
 import { TranslationPolicy, TranslationQuery, TranslationEntry } from
   '../entry/src/main/ets/keyboard/candidate/TranslationPolicy';
+import { HardwareKeyRouter, HardwareKeyAction, HardwareKey } from
+  '../entry/src/main/ets/keyboard/HardwareKeyRouter';
 
 let failures = 0;
 let checks = 0;
@@ -637,6 +639,17 @@ group('a negative uptime is rejected rather than treated as a fast tap', () => {
 });
 
 console.log('Output and editor policies');
+
+group('releases the candidate number row when the shared preference asks', () => {
+  const key: HardwareKey = {
+    keyCode: 0, unicodeChar: '2'.charCodeAt(0), ctrlKey: false,
+    altKey: false, logoKey: false, shiftKey: false
+  };
+  check(HardwareKeyRouter.route(key, true, true).action === HardwareKeyAction.SELECT,
+    'the default hardware route selects a candidate');
+  check(HardwareKeyRouter.route(key, true, true, true).action === HardwareKeyAction.RELEASE,
+    'the preference releases the digit to the focused editor');
+});
 
 group('fullwidth conversion maps space to the ideographic form', () => {
   check(FullWidthInputPolicy.output('a', true) === 'ａ', 'a printable ASCII letter shifts by 0xfee0');

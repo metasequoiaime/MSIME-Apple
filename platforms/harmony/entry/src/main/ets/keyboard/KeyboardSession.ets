@@ -308,6 +308,7 @@ interface PreparedPreferences {
   touch_keyboard_layout: string;
   touch_keyboard_skin: string;
   candidate_follow_cursor: boolean;
+  number_row_selection: boolean;
   candidate_font_size: number;
   candidate_preedit_font_size: number;
   candidate_font_family: string;
@@ -368,6 +369,7 @@ export interface KeyboardPreferences {
   readonly shuangpinProfile: string;
   readonly layout: string;
   readonly candidateFollowCursor: boolean;
+  readonly numberRowSelection: boolean;
   readonly candidateFontSize: number;
   readonly candidatePreeditFontSize: number;
   readonly candidateFontFamily: string;
@@ -457,6 +459,7 @@ export class KeyboardSession {
     shuangpinProfile: 'xiaohe',
     layout: 'twenty_six_key',
     candidateFollowCursor: true,
+    numberRowSelection: false,
     candidateFontSize: 18,
     candidatePreeditFontSize: 15,
     candidateFontFamily: 'Noto Sans SC',
@@ -559,6 +562,7 @@ export class KeyboardSession {
         shuangpinProfile: preferences.shuangpin_profile,
         layout: preferences.touch_keyboard_layout,
         candidateFollowCursor: preferences.candidate_follow_cursor,
+        numberRowSelection: preferences.number_row_selection,
         // The shared store validates these to 12..32 and strips control
         // characters from family names. Clamp again at the host boundary so
         // an older staged document cannot produce an unusable panel.

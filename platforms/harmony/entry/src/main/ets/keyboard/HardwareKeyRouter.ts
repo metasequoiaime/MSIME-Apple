@@ -70,7 +70,8 @@ export class HardwareKeyRouter {
    * @param composing whether the Engine is holding a composition right now
    * @param chinese whether the Engine would spell with a letter rather than pass it through
    */
-  static route(key: HardwareKey, composing: boolean, chinese: boolean): HardwareKeyDecision {
+  static route(key: HardwareKey, composing: boolean, chinese: boolean,
+               releaseNumberRow: boolean = false): HardwareKeyDecision {
     // A modifier means the key is part of a shortcut, which belongs to the application even mid
     // composition. Shift is not one of those: it is how capitals and helpcodes are typed.
     if (key.ctrlKey || key.altKey || key.logoKey) {
@@ -95,6 +96,9 @@ export class HardwareKeyRouter {
       // 1 through 9 pick a candidate off the strip while something is being spelled, which is what
       // the number row is for on every desktop input method.
       if (key.unicodeChar >= 0x31 && key.unicodeChar <= 0x39) {
+        if (releaseNumberRow) {
+          return RELEASE;
+        }
         return decision(HardwareKeyAction.SELECT, 0, key.unicodeChar - 0x31);
       }
     }

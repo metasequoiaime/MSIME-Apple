@@ -340,7 +340,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       return false;
     }
     const decision: HardwareKeyDecision =
-      HardwareKeyRouter.route(key, session.composing(), !session.isEnglish());
+      HardwareKeyRouter.route(key, session.composing(), !session.isEnglish(),
+        KeyboardSession.shared.preferences().numberRowSelection);
     if (decision.action === HardwareKeyAction.RELEASE) {
       return false;
     }
