@@ -781,6 +781,26 @@ public:
     }
     return true;
   }
+  bool cycleCandidateTheme() {
+    if (!session_ || restricted() || privateInput()) return false;
+    static constexpr std::array<const char *, 3> themes = {"follow", "light", "dark"};
+    const auto current = preferences_.value("candidate_theme", std::string("follow"));
+    const auto it = std::find(themes.begin(), themes.end(), current);
+    const auto next = it == themes.end() || std::next(it) == themes.end()
+        ? themes.front() : *std::next(it);
+    auto snapshot = preferences_snapshot_;
+    if (!snapshot.is_object() || !snapshot.contains("revision") ||
+        !snapshot.contains("preferences")) return false;
+    snapshot["preferences"]["candidate_theme"] = next;
+    const auto encoded = snapshot.dump();
+    view_ = response(msime_client_update_preferences(
+        session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
+    preferences_ = snapshot.at("preferences");
+    preferences_snapshot_ = std::move(snapshot);
+    saveStringPreference("candidate_theme", next);
+    render();
+    return true;
+  }
   bool cycleModeScope() {
     if (!session_) return false;
     const auto current = preferences_.value("ime_mode_scope", std::string("app"));
@@ -2446,6 +2466,29 @@ private:
   fcitx::FactoryFor<FcitxState> *factory_;
 };
 
+class FcitxCandidateThemeAction : public fcitx::SimpleAction {
+public:
+  explicit FcitxCandidateThemeAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {}
+  std::string shortText(fcitx::InputContext *ic) const override {
+    if (!ic) return "候选主题";
+    const auto theme = ic->propertyFor(factory_)->preferences_.value("candidate_theme", std::string("follow"));
+    return theme == "light" ? "候选主题：浅色" : theme == "dark" ? "候选主题：深色" : "候选主题：跟随系统";
+  }
+  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try {
+      auto *state = ic->propertyFor(factory_);
+      if (state->cycleCandidateTheme()) update(ic);
+    } catch (...) {
+      ic->propertyFor(factory_)->close();
+      ic->propertyFor(factory_)->clearPanel();
+    }
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
 class FcitxCandidatePageSizeItemAction : public fcitx::SimpleAction {
 public:
   FcitxCandidatePageSizeItemAction(fcitx::FactoryFor<FcitxState> *factory, uint8_t size)
@@ -3149,6 +3192,7 @@ public:
     smart_punctuation_action_.registerAction("msime-smart-punctuation", &instance->userInterfaceManager());
     smart_punctuation_repeat_action_.registerAction("msime-smart-punctuation-repeat", &instance->userInterfaceManager());
     candidate_layout_action_.registerAction("msime-candidate-layout", &instance->userInterfaceManager());
+    candidate_theme_action_.registerAction("msime-candidate-theme", &instance->userInterfaceManager());
     candidate_page_size_action_.registerAction("msime-candidate-page-size", &instance->userInterfaceManager());
     candidate_page_size_action_.setMenu(&candidate_page_size_menu_);
     candidate_page_size_menu_.addAction(&candidate_page_size1_);
@@ -3276,6 +3320,7 @@ public:
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &smart_punctuation_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &smart_punctuation_repeat_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &candidate_layout_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &candidate_theme_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &candidate_page_size_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &learning_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &frequency_action_);
@@ -3325,6 +3370,7 @@ public:
     event.inputContext()->statusArea().removeAction(&smart_punctuation_action_);
     event.inputContext()->statusArea().removeAction(&smart_punctuation_repeat_action_);
     event.inputContext()->statusArea().removeAction(&candidate_layout_action_);
+    event.inputContext()->statusArea().removeAction(&candidate_theme_action_);
     event.inputContext()->statusArea().removeAction(&candidate_page_size_action_);
     event.inputContext()->statusArea().removeAction(&learning_action_);
     event.inputContext()->statusArea().removeAction(&frequency_action_);
@@ -3404,6 +3450,7 @@ public:
   FcitxSmartPunctuationAction smart_punctuation_action_{&factory_, FcitxSmartPunctuationAction::Mode::Smart};
   FcitxSmartPunctuationAction smart_punctuation_repeat_action_{&factory_, FcitxSmartPunctuationAction::Mode::Repeat};
   FcitxCandidateLayoutAction candidate_layout_action_{&factory_};
+  FcitxCandidateThemeAction candidate_theme_action_{&factory_};
   fcitx::Menu candidate_page_size_menu_;
   FcitxCandidatePageSizeAction candidate_page_size_action_;
   FcitxCandidatePageSizeItemAction candidate_page_size1_{&factory_, 1};
