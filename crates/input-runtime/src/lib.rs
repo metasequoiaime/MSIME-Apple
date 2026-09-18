@@ -2228,9 +2228,16 @@ mod tests {
     }
 
     #[cfg(unix)]
+    fn private_tempdir() -> tempfile::TempDir {
+        let directory = tempfile::tempdir().unwrap();
+        std::fs::set_permissions(directory.path(), std::fs::Permissions::from_mode(0o700)).unwrap();
+        directory
+    }
+
+    #[cfg(unix)]
     #[test]
     fn provider_connect_rejects_untrusted_filesystem_endpoints() {
-        let root = tempfile::tempdir().unwrap();
+        let root = private_tempdir();
         let socket = root.path().join("provider.sock");
         std::fs::write(&socket, b"synthetic").unwrap();
         assert!(UnixSocketProvider::new(&socket).connect().is_none());
@@ -2253,7 +2260,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn cloud_dictionary_provider_forwards_bounded_request() {
-        let directory = tempfile::tempdir().unwrap();
+        let directory = private_tempdir();
         let socket = directory.path().join("cloud-dictionary.sock");
         let listener = UnixListener::bind(&socket).unwrap();
         let server = std::thread::spawn(move || {
@@ -2280,7 +2287,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn credential_test_provider_keeps_request_and_response_bounded() {
-        let directory = tempfile::tempdir().unwrap();
+        let directory = private_tempdir();
         let socket = directory.path().join("online.sock");
         let listener = UnixListener::bind(&socket).unwrap();
         let server = std::thread::spawn(move || {
@@ -2323,7 +2330,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn translation_provider_rejects_controls_at_the_socket_boundary() {
-        let directory = tempfile::tempdir().unwrap();
+        let directory = private_tempdir();
         let request_socket = directory.path().join("translation-request.sock");
         let listener = UnixListener::bind(&request_socket).unwrap();
         listener.set_nonblocking(true).unwrap();
@@ -2417,7 +2424,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn voice_provider_rejects_events_without_generation_binding() {
-        let directory = tempfile::tempdir().unwrap();
+        let directory = private_tempdir();
         let socket = directory.path().join("voice.sock");
         let listener = UnixListener::bind(&socket).unwrap();
         let server = std::thread::spawn(move || {
@@ -2449,7 +2456,7 @@ mod tests {
     #[cfg(unix)]
     #[test]
     fn voice_control_rejects_zero_generation_without_connecting() {
-        let directory = tempfile::tempdir().unwrap();
+        let directory = private_tempdir();
         let socket = directory.path().join("voice-control.sock");
         let listener = UnixListener::bind(&socket).unwrap();
         listener.set_nonblocking(true).unwrap();
