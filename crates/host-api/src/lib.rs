@@ -2493,6 +2493,39 @@ pub extern "C" fn msime_client_all_candidates(handle: u64) -> *mut c_char {
     })
 }
 
+/// Return bounded, lower-case English completions for the word immediately before the cursor.
+/// This query is read-only and does not touch the Engine session's composition state.
+///
+/// # Safety
+/// `prefix` must point to `prefix_length` readable UTF-8 bytes. The buffer is not retained.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_english_completions(
+    handle: u64,
+    prefix: *const u8,
+    prefix_length: usize,
+    limit: usize,
+) -> *mut c_char {
+    response(|| {
+        if prefix.is_null() || !(1..=64).contains(&prefix_length) || !(1..=32).contains(&limit) {
+            return Err("invalid English completion buffer".into());
+        }
+        let bytes = unsafe { std::slice::from_raw_parts(prefix, prefix_length) };
+        let prefix = std::str::from_utf8(bytes).map_err(|_| "invalid English completion prefix")?;
+        if !prefix.bytes().all(|value| value.is_ascii_alphabetic()) {
+            return Err("invalid English completion prefix".into());
+        }
+        with_session(handle, |session| {
+            let words = msime_engine_bridge::english_completions(
+                &session.options.dictionaries,
+                prefix,
+                limit,
+            )
+            .map_err(|error| error.to_string())?;
+            Ok(json!({"completions": words}))
+        })
+    })
+}
+
 #[no_mangle]
 pub extern "C" fn msime_client_view(handle: u64) -> *mut c_char {
     response(|| {
@@ -4378,6 +4411,35 @@ mod tests {
             assert_eq!(session.options.helpcode_schema, "lantian");
             assert!(session.options.show_helpcode);
         });
+        read(msime_client_destroy(handle));
+    }
+
+    #[test]
+    fn english_completion_boundary_is_read_only_and_case_insensitive() {
+        let dir = tempfile::tempdir().unwrap();
+        let dictionaries = dir.path().join("dictionaries");
+        std::fs::create_dir_all(&dictionaries).unwrap();
+        let db = rusqlite::Connection::open(dictionaries.join("english.db")).unwrap();
+        db.execute_batch(
+            "CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER);
+             INSERT INTO english_words VALUES('hello','hello',1000);
+             INSERT INTO english_words VALUES('help','help',900);
+             INSERT INTO english_words VALUES('helium','helium',800);",
+        )
+        .unwrap();
+        drop(db);
+        let handle = test_host(dir.path());
+        let before = read(msime_client_view(handle))["value"].clone();
+        let prefix = b"He";
+        let result = read(unsafe {
+            msime_client_english_completions(handle, prefix.as_ptr(), prefix.len(), 2)
+        });
+        assert_eq!(result["ok"], true, "{result}");
+        assert_eq!(result["value"]["completions"], json!(["hello", "help"]));
+        assert_eq!(read(msime_client_view(handle))["value"], before);
+        let invalid =
+            read(unsafe { msime_client_english_completions(handle, b"he!".as_ptr(), 3, 2) });
+        assert_eq!(invalid["ok"], false);
         read(msime_client_destroy(handle));
     }
 

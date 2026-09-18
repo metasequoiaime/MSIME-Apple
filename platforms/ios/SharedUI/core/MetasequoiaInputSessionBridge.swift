@@ -44,6 +44,10 @@ private func msimeClientLoadPreferences(_ directory: UnsafePointer<MSIMEByte>?, 
 private func msimeClientView(_ session: UInt64) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_all_candidates")
 private func msimeClientAllCandidates(_ session: UInt64) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_english_completions")
+private func msimeClientEnglishCompletions(
+  _ session: UInt64, _ prefix: UnsafePointer<MSIMEByte>?, _ prefixLength: UInt, _ limit: UInt
+) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_candidate_gloss_request")
 private func msimeClientCandidateGlossRequest(
   _ request: UnsafePointer<MSIMEByte>?, _ requestLength: UInt,
@@ -365,6 +369,27 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
 
   func allCandidates() throws -> [String: Any] {
     try Self.callHandle(msimeClientAllCandidates, handle)
+  }
+
+  /// Read-only English completion lookup for the word immediately before the cursor.
+  /// The caller owns the document-context parsing; the Engine session remains untouched.
+  func englishCompletions(forPrefix prefix: String, limit: Int) -> [String] {
+    guard handle != 0, (1...32).contains(limit),
+          !prefix.isEmpty, prefix.utf8.count <= 64,
+          prefix.utf8.allSatisfy({ ($0 >= 65 && $0 <= 90) || ($0 >= 97 && $0 <= 122) })
+    else { return [] }
+    let bytes = Array(prefix.utf8)
+    do {
+      let response: Any = try bytes.withUnsafeBufferPointer { buffer in
+        try Self.decode(msimeClientEnglishCompletions(
+          handle, buffer.baseAddress, UInt(buffer.count), UInt(limit)))
+      }
+      guard let value = response as? [String: Any],
+            let completions = value["completions"] as? [String] else { return [] }
+      return completions
+    } catch {
+      return []
+    }
   }
 
   func candidateGlossResources() -> String? {

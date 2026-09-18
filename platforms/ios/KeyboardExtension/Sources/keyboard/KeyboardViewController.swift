@@ -587,14 +587,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let delete = makeDeleteKey()
     delete.accessibilityIdentifier = "nineKeyDelete"
     controls.addArrangedSubview(delete)
-    let clear = makeKey(title: "重输", accessibilityLabel: "清空当前拼音重新输入") { [weak self] in
-      guard let self else { return }
-      self.playInputClick()
-      self.render(self.session.cancel())
+    let period = makeKey(title: ".", accessibilityLabel: "句点") { [weak self] in
+      self?.handleSymbol(".")
     }
-    clear.configuration?.contentInsets = .zero
-    clear.accessibilityIdentifier = "nineKeyClear"
-    controls.addArrangedSubview(clear)
+    period.configuration?.contentInsets = .zero
+    period.accessibilityIdentifier = "nineKeyPeriod"
+    controls.addArrangedSubview(period)
     let zero = makeKey(title: "0", accessibilityLabel: "数字 0") { [weak self] in
       self?.handleSymbol("0")
     }
@@ -1186,7 +1184,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       render(session.handleCharacter(character))
     } else {
       let output = letterCaseState == .lowercase ? character : character.uppercased()
-      insertDirectText(output)
+      insertOwnText(output)
+      refreshEnglishSuggestions()
       if letterCaseState == .shifted {
         letterCaseState = .lowercase
         lastShiftTapTime = nil
@@ -1195,10 +1194,44 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
   }
 
+  /// Read the current word from the host document instead of maintaining a shadow
+  /// buffer; autocorrect, cursor movement and external edits then stay truthful.
+  private var englishWordBeforeCursor: String {
+    guard !isChineseMode, EnglishSuggestionsPreference.isEnabled else { return "" }
+    let before = textDocumentProxy.documentContextBeforeInput ?? ""
+    return EnglishSuggestionPolicy.currentWord(before: before)
+  }
+
+  private func refreshEnglishSuggestions() {
+    let prefix = englishWordBeforeCursor
+    guard prefix.count >= 2 else {
+      updateCandidateStrip(preedit: "", candidates: [])
+      return
+    }
+    updateCandidateStrip(
+      preedit: "", candidates: session.englishCompletions(forPrefix: prefix, limit: 12))
+  }
+
+  private func useEnglishSuggestion(at index: Int) {
+    guard visibleCandidates.indices.contains(index) else { return }
+    let typed = englishWordBeforeCursor
+    let startedCapitalized = typed.first?.isUppercase ?? false
+    guard let replacement = EnglishSuggestionPolicy.replacement(
+      typed: typed, candidate: visibleCandidates[index], startedCapitalized: startedCapitalized)
+    else {
+      updateCandidateStrip(preedit: "", candidates: [])
+      return
+    }
+    for _ in 0..<replacement.deleteCount { deleteOwnBackward() }
+    insertOwnText(replacement.insert)
+    updateCandidateStrip(preedit: "", candidates: [])
+  }
+
   private func handleSymbol(_ symbol: String) {
     playInputClick()
     if !isChineseMode {
-      insertDirectText(symbol)
+      insertOwnText(symbol)
+      refreshEnglishSuggestions()
       return
     }
 
@@ -2107,6 +2140,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func handleBackspace() {
     if !handwriting.isHidden && handwriting.hasInk { handwriting.canvas.undo(); return }
     playInputClick()
+    if !isChineseMode {
+      deleteOwnBackward()
+      refreshEnglishSuggestions()
+      return
+    }
     let snapshot = session.handleBackspace()
     if !snapshot.isHandled {
       deleteOwnBackward()
@@ -2144,6 +2182,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   @objc private func repeatBackspace() {
+    if !didRepeatBackspace && hasComposition {
+      backspaceRepeatTimer?.invalidate()
+      backspaceRepeatTimer = nil
+      didRepeatBackspace = true
+      playInputClick()
+      render(session.cancel())
+      return
+    }
     didRepeatBackspace = true
     handleBackspace()
   }
@@ -2198,6 +2244,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func handleSpace() {
     if !handwriting.isHidden && handwriting.hasInk { _ = handwriting.commitFirst(); return }
     playInputClick()
+    if !isChineseMode {
+      insertOwnText(" ")
+      refreshEnglishSuggestions()
+      return
+    }
     let snapshot = commitVisibleCandidate()
     if !snapshot.isHandled {
       insertDirectText(" ")
@@ -2557,6 +2608,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         // through the handwriting panel rather than through session.selectCandidate.
         if self.inputScheme == .handwriting, !self.handwritingResults.isEmpty {
           if self.handwriting.use(at: index) { self.handwritingResults = [] }
+          return
+        }
+        if !self.isChineseMode {
+          self.useEnglishSuggestion(at: index)
           return
         }
         self.render(self.session.selectCandidate(at: UInt(index)))

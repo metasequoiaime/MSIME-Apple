@@ -493,6 +493,24 @@ DictionaryPage dictionary_entries(const EngineOptions& options, std::size_t offs
     for (const auto& entry : page.entries) result.entries.push_back(entry_for(entry));
     return result;
 }
+rust::Vec<rust::String> english_completions(rust::Str resources, rust::Str prefix, std::size_t limit) {
+    if (limit == 0 || limit > 32) throw std::invalid_argument("Invalid English completion limit");
+    std::string lowered(prefix);
+    for (char &character : lowered) {
+        const auto value = static_cast<unsigned char>(character);
+        if (value >= 'A' && value <= 'Z') character = static_cast<char>(value + ('a' - 'A'));
+        else if (value < 'a' || value > 'z') throw std::invalid_argument("Invalid English completion prefix");
+    }
+    if (lowered.empty()) return {};
+    const auto path = std::filesystem::u8path(std::string(resources)) /
+                      metasequoia::assets::english_dictionary;
+    EnglishDictionary dictionary(path.u8string(), false);
+    if (!dictionary.ready()) throw std::runtime_error("English dictionary unavailable");
+    rust::Vec<rust::String> result;
+    for (const auto &item : dictionary.query_prefix(lowered, limit))
+        result.push_back(rust::String(item.word));
+    return result;
+}
 DictionaryEntry dictionary_validate(const DictionaryEntry& entry) {
     const auto validation = metasequoia::validate_personal_dictionary_entry(entry_for(entry));
     if (!validation.entry) throw std::invalid_argument(validation.error);
