@@ -1887,6 +1887,16 @@ impl<E: InputEngine> Runtime<E> {
         if count < 2 || snapshot.candidate_sources.len() != count {
             return;
         }
+        // Only a sentence has alternative readings. The lattice never runs on fewer than three
+        // syllables — `merge_lattice_candidates` gates on that itself — so anything shorter reached
+        // the list some other way and is not a reading of the same sentence.
+        //
+        // This bound is load-bearing, not caution. Without it the rule also fired on Japanese kana,
+        // where あ and ア are both `Generated` and both one character: the katakana was dropped as a
+        // duplicate reading of the hiragana. A source number says which code produced a candidate,
+        // not that two candidates answer the same key.
+        const SENTENCE_SYLLABLES: usize = 3;
+
         // Whole-sentence readings all answer the whole key, so they share the leading candidate's
         // length. Anything shorter is a prefix or a word and is not an alternative to them.
         let Some(width) = snapshot
@@ -1898,6 +1908,9 @@ impl<E: InputEngine> Runtime<E> {
         else {
             return;
         };
+        if width < SENTENCE_SYLLABLES {
+            return;
+        }
         let mut seen: Vec<u8> = Vec::new();
         let mut keep: Vec<bool> = Vec::with_capacity(count);
         for (text, source) in snapshot.candidates.iter().zip(&snapshot.candidate_sources) {
