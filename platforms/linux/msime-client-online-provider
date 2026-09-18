@@ -485,7 +485,11 @@ def ai_credential_test(config, path):
     elif provider == "siliconflow":
         body["enable_thinking"] = False
     result = fetch(selected["endpoint"], 7.0, body, selected["token"])
-    return isinstance(result, dict) and isinstance(result.get("choices"), list)
+    # A successful chat probe must contain at least one choice. An empty
+    # choices array is a valid JSON error-shaped response from some gateways,
+    # but it does not prove that the configured model can answer requests.
+    return (isinstance(result, dict) and isinstance(result.get("choices"), list)
+            and bool(result["choices"]))
 
 
 def credential_test(query, server):
