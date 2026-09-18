@@ -965,6 +965,26 @@ mod tests {
             );
         }
     }
+
+    #[test]
+    fn microsoft_profile_keeps_trailing_semicolon_in_segment_boundaries() {
+        let dir = tempfile::tempdir().unwrap();
+        for (input, expected) in [
+            ("nihkb;", vec![0, 2, 4, 6]),
+            // `cb` is a valid Microsoft shuangpin pair and must win over
+            // pairing the final `b` with the trailing semicolon.
+            ("nihcb;", vec![0, 2, 3, 5, 6]),
+        ] {
+            let mut options = options(dir.path());
+            options.scheme = 1;
+            options.shuangpin_profile = 3;
+            let mut session = Session::new(&options).unwrap();
+            for character in input.bytes() {
+                session.character(character, false).unwrap();
+            }
+            assert_eq!(session.snapshot().unwrap().segment_raw_boundaries, expected);
+        }
+    }
     #[test]
     fn real_engine_handles_unicode_mode_without_a_dictionary_bundle() {
         let dir = tempfile::tempdir().unwrap();
