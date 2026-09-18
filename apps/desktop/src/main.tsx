@@ -70,6 +70,7 @@ const client: SettingsClient = {
   openCloudDictionary: () => invoke("open_cloud_dictionary_panel"),
   restartInputMethod: () => invoke("restart_input_method"),
   installInputSource: () => invoke("install_input_source"),
+  uninstallInputSource: removeUserData => invoke("uninstall_input_source", { removeUserData }),
   windowControl: async action => {
     const window = getCurrentWindow();
     if (action === "minimize") return window.minimize();
