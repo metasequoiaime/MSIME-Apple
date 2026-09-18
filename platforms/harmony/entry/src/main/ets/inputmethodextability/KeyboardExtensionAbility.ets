@@ -67,7 +67,11 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
   private readonly caretMoved: (x: number, y: number, height: number) => void =
     (x: number, y: number, height: number): void => {
       this.caret = [x, y, height];
-      if (KeyboardSession.shared.composing()) {
+      // When follow-cursor is disabled, the first composition position is the anchor for the
+      // whole candidate window lifetime. Keep recording the latest caret while idle so the next
+      // composition still starts beside the newly focused text.
+      if (KeyboardSession.shared.composing()
+        && KeyboardSession.shared.preferences().candidateFollowCursor) {
         this.placeCandidateWindow();
       }
     };

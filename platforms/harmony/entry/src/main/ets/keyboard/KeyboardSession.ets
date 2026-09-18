@@ -307,6 +307,7 @@ interface PreparedPreferences {
   shuangpin_profile: string;
   touch_keyboard_layout: string;
   touch_keyboard_skin: string;
+  candidate_follow_cursor: boolean;
   // 'follow', 'dark' or 'light' for the keyboard specifically; theme is the global one it falls
   // back to, and only if both defer does the system decide.
   screen_keyboard_theme: string;
@@ -356,6 +357,7 @@ export interface KeyboardPreferences {
   readonly scheme: string;
   readonly shuangpinProfile: string;
   readonly layout: string;
+  readonly candidateFollowCursor: boolean;
   readonly keySpacingTenths: number;
   readonly rowSpacingTenths: number;
   readonly heightAdjustment: number;
@@ -434,6 +436,7 @@ export class KeyboardSession {
     scheme: 'quanpin',
     shuangpinProfile: 'xiaohe',
     layout: 'twenty_six_key',
+    candidateFollowCursor: true,
     keySpacingTenths: KeyboardGeometry.DEFAULT_KEY_SPACING_TENTHS,
     rowSpacingTenths: KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS,
     heightAdjustment: KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_VP,
@@ -525,6 +528,7 @@ export class KeyboardSession {
         scheme: preferences.scheme,
         shuangpinProfile: preferences.shuangpin_profile,
         layout: preferences.touch_keyboard_layout,
+        candidateFollowCursor: preferences.candidate_follow_cursor,
         // Clamped rather than trusted: the store validates, but an older document or a host that
         // never learned the bounds would otherwise draw a keyboard nobody can hit.
         keySpacingTenths: KeyboardGeometry.keySpacing(preferences.touch_key_spacing_tenths),
