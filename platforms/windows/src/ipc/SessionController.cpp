@@ -243,7 +243,7 @@ CandidateActionRequestResult SessionController::request_candidate_action(
   if (input_.on_worker_thread() || active_controller == this)
     throw std::logic_error(
         "Candidate action cannot reenter controller callbacks");
-  if (!valid_candidate_ui_index(index) || action == CandidateAction::Select ||
+  if (action == CandidateAction::Select ||
       (action == CandidateAction::FixPosition &&
        (position < 1 || position > 5)) ||
       (action != CandidateAction::FixPosition && position != 0))
@@ -280,12 +280,8 @@ CandidateActionRequestResult SessionController::request_candidate_action(
         painted->lease.token != lease.token ||
         !same_ticket(painted->lease.transport, lease.transport))
       return CandidateActionRequestResult::Rejected;
-    bool found = false;
-    for (const auto &candidate : painted->candidates)
-      if (candidate.index == index && candidate.session == session &&
-          candidate.generation == generation)
-        found = true;
-    if (!found)
+    if (!candidate_ui_action_matches(painted->candidates, session, generation,
+                                     index))
       return CandidateActionRequestResult::Rejected;
     std::optional<nlohmann::json> transition;
     auto prepared = input_.submit([&](InputState &state) {
