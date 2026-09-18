@@ -19,6 +19,9 @@ It selects the connected Certum code-signing certificate, signs every EXE/DLL
 under `server_exe` and `tsf_dll` in one signtool invocation, then verifies the
 certificate and trusted timestamp on every file. The local test-certificate
 script remains separate and must not be used for public releases.
+After Inno Setup creates the outer installer, run
+`Sign-Installer-SimplySign.ps1` to apply and verify the same release signature
+and timestamp to the installer itself.
 
 Build the Tauri desktop release before staging. `Prepare-PackageFiles.ps1`
 requires `target/release/msime-desktop.exe` by default; use `-DesktopExecutable`
