@@ -321,6 +321,15 @@ public:
     render();
     return true;
   }
+  bool setCandidatePageSize(uint8_t size) {
+    if (!session_ || size < 1 || size > 9 || restricted() || privateInput()) return false;
+    if (view_.value("page_size", size_t{}) == size) return true;
+    view_ = response(msime_client_set_candidate_page_size(session_, size));
+    preferences_["candidate_page_size"] = size;
+    saveNumberPreference("candidate_page_size", size);
+    render();
+    return true;
+  }
   bool chooseNineKeySpelling(size_t index) {
     if (!session_ || view_.value("scheme", 0u) != 0 ||
         !view_.value("nine_key", false) || restricted() || privateInput()) return false;
@@ -510,6 +519,24 @@ public:
     }).share();
   }
   void saveStringPreference(const char *key, const std::string &value) {
+    if (!key || !*key || options_path_.empty() || private_) return;
+    const auto directory = options_path_;
+    const std::string preference(key);
+    preferences_save_job_ = std::async(std::launch::async, [directory, preference, value] {
+      auto snapshot = response(msime_client_load_preferences(
+          reinterpret_cast<const uint8_t *>(directory.data()), directory.size()));
+      if (!snapshot.is_object() || !snapshot.contains("revision") ||
+          !snapshot.contains("preferences") || !snapshot.at("preferences").is_object())
+        return Json::object();
+      snapshot["preferences"][preference] = value;
+      const auto encoded = snapshot.dump();
+      return response(msime_client_save_preferences(
+          reinterpret_cast<const uint8_t *>(directory.data()), directory.size(),
+          snapshot.at("revision").get<uint64_t>(),
+          reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
+    }).share();
+  }
+  void saveNumberPreference(const char *key, uint8_t value) {
     if (!key || !*key || options_path_.empty() || private_) return;
     const auto directory = options_path_;
     const std::string preference(key);
@@ -2096,6 +2123,37 @@ private:
   fcitx::FactoryFor<FcitxState> *factory_;
 };
 
+class FcitxCandidatePageSizeItemAction : public fcitx::SimpleAction {
+public:
+  FcitxCandidatePageSizeItemAction(fcitx::FactoryFor<FcitxState> *factory, uint8_t size)
+      : factory_(factory), size_(size) {}
+  std::string shortText(fcitx::InputContext *ic) const override {
+    if (ic) {
+      const auto *state = ic->propertyFor(factory_);
+      if (state->view_.value("page_size", uint8_t{}) == size_)
+        return std::to_string(size_) + " 个候选 ✓";
+    }
+    return std::to_string(size_) + " 个候选";
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try { ic->propertyFor(factory_)->setCandidatePageSize(size_); } catch (...) {}
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+  uint8_t size_;
+};
+
+class FcitxCandidatePageSizeAction : public fcitx::SimpleAction {
+public:
+  FcitxCandidatePageSizeAction() {
+    setShortText("候选数量");
+    setLongText("选择每页显示的候选数量");
+  }
+  void setMenu(fcitx::Menu *menu) { fcitx::SimpleAction::setMenu(menu); }
+  void activate(fcitx::InputContext *) override {}
+};
+
 class FcitxLearningAction : public fcitx::Action {
 public:
   explicit FcitxLearningAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
@@ -2711,6 +2769,17 @@ public:
     smart_punctuation_action_.registerAction("msime-smart-punctuation", &instance->userInterfaceManager());
     smart_punctuation_repeat_action_.registerAction("msime-smart-punctuation-repeat", &instance->userInterfaceManager());
     candidate_layout_action_.registerAction("msime-candidate-layout", &instance->userInterfaceManager());
+    candidate_page_size_action_.registerAction("msime-candidate-page-size", &instance->userInterfaceManager());
+    candidate_page_size_action_.setMenu(&candidate_page_size_menu_);
+    candidate_page_size_menu_.addAction(&candidate_page_size1_);
+    candidate_page_size_menu_.addAction(&candidate_page_size2_);
+    candidate_page_size_menu_.addAction(&candidate_page_size3_);
+    candidate_page_size_menu_.addAction(&candidate_page_size4_);
+    candidate_page_size_menu_.addAction(&candidate_page_size5_);
+    candidate_page_size_menu_.addAction(&candidate_page_size6_);
+    candidate_page_size_menu_.addAction(&candidate_page_size7_);
+    candidate_page_size_menu_.addAction(&candidate_page_size8_);
+    candidate_page_size_menu_.addAction(&candidate_page_size9_);
     learning_action_.registerAction("msime-learning", &instance->userInterfaceManager());
     mode_scope_action_.registerAction("msime-mode-scope", &instance->userInterfaceManager());
     candidate_translation_action_.registerAction("msime-candidate-translations", &instance->userInterfaceManager());
@@ -2820,6 +2889,7 @@ public:
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &smart_punctuation_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &smart_punctuation_repeat_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &candidate_layout_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &candidate_page_size_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &learning_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &mode_scope_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &candidate_translation_action_);
@@ -2861,6 +2931,7 @@ public:
     event.inputContext()->statusArea().removeAction(&smart_punctuation_action_);
     event.inputContext()->statusArea().removeAction(&smart_punctuation_repeat_action_);
     event.inputContext()->statusArea().removeAction(&candidate_layout_action_);
+    event.inputContext()->statusArea().removeAction(&candidate_page_size_action_);
     event.inputContext()->statusArea().removeAction(&learning_action_);
     event.inputContext()->statusArea().removeAction(&mode_scope_action_);
     event.inputContext()->statusArea().removeAction(&candidate_translation_action_);
@@ -2932,6 +3003,17 @@ public:
   FcitxSmartPunctuationAction smart_punctuation_action_{&factory_, FcitxSmartPunctuationAction::Mode::Smart};
   FcitxSmartPunctuationAction smart_punctuation_repeat_action_{&factory_, FcitxSmartPunctuationAction::Mode::Repeat};
   FcitxCandidateLayoutAction candidate_layout_action_{&factory_};
+  fcitx::Menu candidate_page_size_menu_;
+  FcitxCandidatePageSizeAction candidate_page_size_action_;
+  FcitxCandidatePageSizeItemAction candidate_page_size1_{&factory_, 1};
+  FcitxCandidatePageSizeItemAction candidate_page_size2_{&factory_, 2};
+  FcitxCandidatePageSizeItemAction candidate_page_size3_{&factory_, 3};
+  FcitxCandidatePageSizeItemAction candidate_page_size4_{&factory_, 4};
+  FcitxCandidatePageSizeItemAction candidate_page_size5_{&factory_, 5};
+  FcitxCandidatePageSizeItemAction candidate_page_size6_{&factory_, 6};
+  FcitxCandidatePageSizeItemAction candidate_page_size7_{&factory_, 7};
+  FcitxCandidatePageSizeItemAction candidate_page_size8_{&factory_, 8};
+  FcitxCandidatePageSizeItemAction candidate_page_size9_{&factory_, 9};
   FcitxLearningAction learning_action_{&factory_};
   FcitxModeScopeAction mode_scope_action_{&factory_};
   FcitxCandidateTranslationAction candidate_translation_action_{&factory_};
