@@ -391,9 +391,12 @@ msime::windows::TsfLocalConfig tsf_local_config(const nlohmann::json &preference
   // PreviewConfig spells the pass-through case "local"; the TIP spells it "raw".
   if (config.preedit_style == "local")
     config.preedit_style = "raw";
-  config.smart_punctuation = preferences.value("smart_punctuation", true);
+  // Windows follows the upstream split smart-punctuation policy: the feature
+  // is opt-in, and legacy profiles without the key must not silently enable
+  // punctuation rewriting.
+  config.smart_punctuation = preferences.value("smart_punctuation", false);
   config.smart_punctuation_repeat_to_chinese =
-      preferences.value("smart_punctuation_repeat", true);
+      preferences.value("smart_punctuation_repeat", false);
   config.paired_punctuation = preferences.value("paired_punctuation", true);
   config.microsoft_shuangpin =
       preferences.value("scheme", std::string("quanpin")) == "shuangpin" &&

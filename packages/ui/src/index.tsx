@@ -1522,8 +1522,8 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
     if (!field) return polishPresetPrompt(slot);
     return (current as Record<string, unknown>)[field] as string ?? "";
   };
-  const smartPunctuation = draft?.smart_punctuation ?? true;
-  const smartPunctuationRepeat = draft?.smart_punctuation_repeat ?? true;
+  const smartPunctuation = draft?.smart_punctuation ?? false;
+  const smartPunctuationRepeat = draft?.smart_punctuation_repeat ?? false;
   const pairedPunctuation = draft?.paired_punctuation ?? true;
   const inputModeHUD = draft?.input_mode_hud ?? true;
   const punctuationLock = draft?.punctuation_lock ?? "follow";
