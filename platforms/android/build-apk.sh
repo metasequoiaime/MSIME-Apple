@@ -19,7 +19,8 @@ while IFS= read -r artifact; do cp "$resource_dir/$artifact" "$build_dir/assets/
 cargo run --quiet -p msime-client-core --example verify_resources --locked -- "$build_dir/assets/dictionary" >/dev/null
 cp -R target/android/notices "$build_dir/assets/native-notices"
 cp LICENSE "$build_dir/assets/client-LICENSE.txt"
-javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$build_dir/classes" platforms/android/java/app/msime/client/*.java
+mapfile -t client_sources < <(find platforms/android/java/app/msime/client -name "*.java" -print)
+javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$build_dir/classes" "${client_sources[@]}"
 jar --create --file "$build_dir/classes.jar" -C "$build_dir/classes" .
 "$tools_dir/d8" --release --min-api 28 --lib "$android_jar" --output "$build_dir/dex" "$build_dir/classes.jar"
 "$tools_dir/aapt2" compile --dir platforms/android/res -o "$build_dir/resources.zip"
