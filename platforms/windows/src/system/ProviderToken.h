@@ -4,8 +4,17 @@
 
 #include <cctype>
 #include <string>
+#include <string_view>
 
 namespace msime::windows {
+
+inline std::string usable_provider_token(std::string_view token) {
+  if (token.empty() ||
+      (token.size() >= 2 && token.front() == '<' && token.back() == '>') ||
+      token.rfind("FAKESECRET_", 0) == 0)
+    return {};
+  return std::string(token);
+}
 
 // Provider IDs are persisted configuration values and older settings files can
 // contain a different ASCII casing. Match them like the Windows reference
@@ -30,11 +39,11 @@ inline std::string provider_token(const nlohmann::json &input,
           break;
         }
       }
-      if (matches && !it.value().get<std::string>().empty())
-        return it.value().get<std::string>();
+      if (matches)
+        return usable_provider_token(it.value().get<std::string>());
     }
   }
-  return input.value(flat_key, std::string{});
+  return usable_provider_token(input.value(flat_key, std::string{}));
 }
 
 } // namespace msime::windows
