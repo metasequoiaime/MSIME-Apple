@@ -32,4 +32,6 @@ assert 'msime-shuangpin-profile' in source
 assert 'cycleShuangpinProfile' in source
 assert 'cycleFrequencyMode' in source
 assert 'msime-frequency' in source
+assert 'msime-frequency-trigger' in source
+assert 'msime-frequency-step' in source
 print("Fcitx5 addon metadata passed")
