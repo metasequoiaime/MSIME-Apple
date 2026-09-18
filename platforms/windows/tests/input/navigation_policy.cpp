@@ -1,4 +1,4 @@
-#include "../src/input/NavigationPolicy.h"
+#include "../../src/input/NavigationPolicy.h"
 #include <cassert>
 int main() {
   FanyImeNamedpipeData packet{};

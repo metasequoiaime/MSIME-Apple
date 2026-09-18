@@ -1,5 +1,5 @@
-#include "../src/candidate/CandidateCardSize.h"
-#include "../src/candidate/CandidateLayoutSettings.h"
+#include "../../src/candidate/CandidateCardSize.h"
+#include "../../src/candidate/CandidateLayoutSettings.h"
 #include <cassert>
 
 int main() {

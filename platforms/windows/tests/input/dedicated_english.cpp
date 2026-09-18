@@ -1,4 +1,4 @@
-#include "../src/input/InputQueue.h"
+#include "../../src/input/InputQueue.h"
 #include "TestHostOptions.h"
 #include <cassert>
 #include <chrono>

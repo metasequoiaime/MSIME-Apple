@@ -1,4 +1,4 @@
-#include "../src/system/SharedConfigKeybindings.h"
+#include "../../src/system/SharedConfigKeybindings.h"
 
 #include <cassert>
 #include <iostream>

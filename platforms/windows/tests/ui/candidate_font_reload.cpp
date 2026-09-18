@@ -1,4 +1,4 @@
-#include "../src/candidate/CandidateFontSettings.h"
+#include "../../src/candidate/CandidateFontSettings.h"
 #include <cassert>
 #include <thread>
 
