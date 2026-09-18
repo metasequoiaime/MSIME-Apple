@@ -124,6 +124,21 @@ test("offline candidate gloss is host-enabled, defaults on and persists", async 
   expect(screen.queryByRole("checkbox", { name: "显示英文释义" })).toBeNull();
 });
 
+test("Android English suggestions default on and persist independently", async () => {
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
+  render(<SettingsPage client={{
+    load: async () => initial, save, host: { platform: "android" } as HostCapabilities,
+  }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  const toggle = screen.getByRole("checkbox", { name: "英文建议" }) as HTMLInputElement;
+  expect(toggle.checked).toBe(true);
+  expect(screen.getByText(/英文 26 键直接输入时/)).toBeDefined();
+  fireEvent.click(toggle);
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ english_suggestions: false }));
+});
+
 test("Linux can expose the shared offline candidate gloss setting", async () => {
   render(<SettingsPage client={{
     load: async () => initial,

@@ -138,6 +138,7 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean clipboardHistoryEnabled;
     private boolean candidateEnglishGloss;
     private boolean candidateTranslationsEnabled;
+    private boolean englishSuggestionsEnabled = true;
     private java.util.List<String> candidateTranslationTargets = java.util.List.of("en");
     private CandidateTranslationStore candidateTranslationStore;
     private boolean wubiCodeHint = true;
@@ -537,6 +538,7 @@ public final class MSIMEInputService extends InputMethodService {
                 applyClipboardPreference(preferences);
                 applyChineseOutputPreference(preferences);
                 applyCandidateGlossPreference(preferences);
+                applyEnglishSuggestionsPreference(preferences);
                 applyCandidateTranslationPreference(preferences);
                 applyWubiCodeHintPreference(preferences);
                 wubiMixedPinyin = preferences != null
@@ -835,6 +837,13 @@ public final class MSIMEInputService extends InputMethodService {
         candidateEnglishGloss = next;
     }
 
+    private void applyEnglishSuggestionsPreference(JSONObject preferences) {
+        boolean next = preferences == null
+            || preferences.optBoolean("english_suggestions", true);
+        if (englishSuggestionsEnabled != next) clearEnglishSuggestions();
+        englishSuggestionsEnabled = next;
+    }
+
     private void applyCandidateTranslationPreference(JSONObject preferences) {
         boolean nextEnabled = preferences == null
             || preferences.optBoolean("candidate_translations", true);
@@ -913,6 +922,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean previousTraditional = traditionalChineseOutput;
         boolean previousCandidateGloss = candidateEnglishGloss;
         boolean previousCandidateTranslations = candidateTranslationsEnabled;
+        boolean previousEnglishSuggestions = englishSuggestionsEnabled;
         java.util.List<String> previousTranslationTargets = candidateTranslationTargets;
         boolean previousWubiCodeHint = wubiCodeHint;
         boolean previousWubiMixedPinyin = wubiMixedPinyin;
@@ -935,6 +945,7 @@ public final class MSIMEInputService extends InputMethodService {
                 || previousTraditional != traditionalChineseOutput
                 || previousCandidateGloss != candidateEnglishGloss
                 || previousCandidateTranslations != candidateTranslationsEnabled
+                || previousEnglishSuggestions != englishSuggestionsEnabled
                 || !previousTranslationTargets.equals(candidateTranslationTargets)
                 || previousWubiCodeHint != wubiCodeHint
                 || previousWubiMixedPinyin != wubiMixedPinyin
@@ -969,6 +980,7 @@ public final class MSIMEInputService extends InputMethodService {
         boolean nextTraditional = preferences.optBoolean("traditional_chinese_output", false);
         boolean nextCandidateGloss = preferences.optBoolean("candidate_english_gloss", true);
         boolean nextCandidateTranslations = preferences.optBoolean("candidate_translations", true);
+        boolean nextEnglishSuggestions = preferences.optBoolean("english_suggestions", true);
         java.util.List<String> nextTranslationTargets = translationTargetsFrom(preferences);
         boolean nextWubiCodeHint = preferences.optBoolean("wubi_code_hint", true);
         boolean nextWubiMixedPinyin = preferences.optBoolean("wubi_mixed_pinyin", false);
@@ -1000,6 +1012,8 @@ public final class MSIMEInputService extends InputMethodService {
         traditionalChineseOutput = nextTraditional;
         if (candidateEnglishGloss != nextCandidateGloss) invalidateCandidateGlosses();
         candidateEnglishGloss = nextCandidateGloss;
+        if (englishSuggestionsEnabled != nextEnglishSuggestions) clearEnglishSuggestions();
+        englishSuggestionsEnabled = nextEnglishSuggestions;
         if (candidateTranslationsEnabled != nextCandidateTranslations
                 || !candidateTranslationTargets.equals(nextTranslationTargets)) {
             if (candidateTranslationStore != null) candidateTranslationStore.clear();
@@ -1062,6 +1076,10 @@ public final class MSIMEInputService extends InputMethodService {
         return dedicatedEnglish && !englishNineKeyActive();
     }
 
+    private boolean englishSuggestionsActive() {
+        return directEnglishActive() && englishSuggestionsEnabled;
+    }
+
     private void clearEnglishSuggestions() {
         englishSuggestionEpoch++;
         englishSuggestionRequestedEpoch = -1;
@@ -1082,7 +1100,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void refreshEnglishSuggestions() {
-        if (!directEnglishActive() || candidateGlossResources.isEmpty()) {
+        if (!englishSuggestionsActive() || candidateGlossResources.isEmpty()) {
             if (!englishSuggestions.isEmpty() || !englishSuggestionPrefix.isEmpty()) {
                 clearEnglishSuggestions();
                 render();
@@ -1123,7 +1141,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void applyEnglishSuggestions(long epoch, String prefix,
                                          EnglishSuggestionModel.Result result) {
-        if (epoch != englishSuggestionEpoch || !directEnglishActive()
+        if (epoch != englishSuggestionEpoch || !englishSuggestionsActive()
                 || !prefix.equals(englishWordBeforeCursor())
                 || !prefix.equals(result.prefix())) return;
         englishSuggestions = result.items();
@@ -5826,7 +5844,7 @@ public final class MSIMEInputService extends InputMethodService {
             });
         if (candidatePage != null) candidatePage.setText(page.isEmpty() ? "" : page.substring(3));
         JSONArray visibleCandidates = view == null ? null : view.optJSONArray("candidates");
-        boolean hasEnglishSuggestions = directEnglishActive() && !englishSuggestions.isEmpty();
+        boolean hasEnglishSuggestions = englishSuggestionsActive() && !englishSuggestions.isEmpty();
         boolean handwriting = handwritingActive();
         boolean hasHandwritingResults = handwriting && !handwritingResults.isEmpty()
             && handwritingCandidateToken != null;
@@ -6018,7 +6036,7 @@ public final class MSIMEInputService extends InputMethodService {
         JSONArray entries = view.optJSONArray("candidates");
         if (handwriting) {
             renderSharedHandwritingCandidates(activeCandidates);
-        } else if (directEnglishActive()) {
+        } else if (englishSuggestionsActive()) {
             renderEnglishSuggestions(activeCandidates);
         } else if (entries != null) {
             for (int slot = 0; slot < entries.length(); slot++) {
