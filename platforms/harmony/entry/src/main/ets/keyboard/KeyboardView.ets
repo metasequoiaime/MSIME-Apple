@@ -18,6 +18,7 @@ import {
 import { JapaneseNineKeyActions } from './input/JapaneseNineKeyActions';
 import { JapaneseVariantPolicy } from './input/JapaneseVariantPolicy';
 import { CandidateManagementAction, ManagementAction } from './candidate/CandidateManagementAction';
+import { CandidateSkinPolicy } from './candidate/CandidateSkinPolicy';
 import { KeyboardMetrics } from './KeyboardMetrics';
 import { KeyboardGeometry } from './KeyboardGeometry';
 import { NineKeyLayout, NineKey } from './input/NineKeyLayout';
@@ -208,6 +209,7 @@ struct KeyboardView {
   @State availableWidth: number = 0;
   @State caseMode: LetterCaseMode = LetterCaseMode.LOWERCASE;
   @State skin: KeyboardSkin = KeyboardSkin.from('forest', false);
+  @State candidateSkin: KeyboardSkin = KeyboardSkin.from('forest', false);
   @State scheme: SchemeDefinition = KeyboardScheme.QUANPIN;
   @State handwritingStrokes: HandwritingStroke[] = [];
   @State handwritingRedo: HandwritingStroke[] = [];
@@ -249,6 +251,8 @@ struct KeyboardView {
     this.feedback = KeyboardSession.shared.feedback();
     this.traditional = KeyboardSession.shared.usesTraditional();
     this.skin = KeyboardSkin.from(this.settings.skinId, this.settings.dark);
+    this.candidateSkin = KeyboardSkin.from(
+      CandidateSkinPolicy.harmonySkin(this.settings.candidateSkinId), this.settings.candidateDark);
     this.scheme = this.resolveScheme(this.settings.layout);
     this.nineKey = this.scheme.touchKeyboardLayout === 'nine_key';
     this.japanese = this.scheme.engineScheme === 'japanese' && this.nineKey;
@@ -736,11 +740,11 @@ struct KeyboardView {
   }
 
   private candidateTextColor(): string {
-    return this.settings.candidateTextColor ?? this.skin.keyForeground;
+    return this.settings.candidateTextColor ?? this.candidatePalette().keyForeground;
   }
 
   private candidateAccentColor(): string {
-    return this.settings.candidateAccentColor ?? this.skin.accent;
+    return this.settings.candidateAccentColor ?? this.candidatePalette().accent;
   }
 
   private candidateNumberColor(): string {
@@ -753,7 +757,11 @@ struct KeyboardView {
   }
 
   private candidateBorderColor(): string {
-    return this.settings.candidateBorderColor ?? this.skin.borderColor;
+    return this.settings.candidateBorderColor ?? this.candidatePalette().borderColor;
+  }
+
+  private candidatePalette(): KeyboardSkin {
+    return KeyboardFormFactor.isDesktop() ? this.candidateSkin : this.skin;
   }
 
   /**
@@ -813,7 +821,7 @@ struct KeyboardView {
     }
     .width('100%')
     .backgroundColor(this.settings.candidateSurfaceColor
-      ?? this.skin.translucentKeyBackground(STRIP_BACKGROUND_ALPHA))
+      ?? this.candidatePalette().translucentKeyBackground(STRIP_BACKGROUND_ALPHA))
     .borderRadius(KeyboardMetrics.STRIP_CORNER_VP)
     .borderWidth(this.settings.candidateBorderColor === null ? 0 : 1)
     .borderColor(this.candidateBorderColor())
@@ -848,7 +856,7 @@ struct KeyboardView {
       .align(Alignment.Start)
       Text('\u2228')
         .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
-        .fontColor(this.skin.accent)
+        .fontColor(this.candidatePalette().accent)
         .padding({ left: 10, right: 12 })
         .onClick(() => {
           this.expanded = KeyboardSession.shared.allCandidates();

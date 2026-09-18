@@ -308,6 +308,8 @@ interface PreparedPreferences {
   shuangpin_profile: string;
   touch_keyboard_layout: string;
   touch_keyboard_skin: string;
+  candidate_skin: string;
+  candidate_theme: string;
   candidate_follow_cursor: boolean;
   number_row_selection: boolean;
   navigation: PreparedNavigationPreferences;
@@ -378,6 +380,8 @@ interface PreparedKeybindings {
 export interface KeyboardPreferences {
   readonly dark: boolean;
   readonly skinId: string;
+  readonly candidateSkinId: string;
+  readonly candidateDark: boolean;
   readonly keyboardTheme: string;
   readonly globalTheme: string;
   readonly scheme: string;
@@ -481,6 +485,8 @@ export class KeyboardSession {
   private appearance: KeyboardPreferences = {
     dark: false,
     skinId: 'forest',
+    candidateSkinId: 'willow_green',
+    candidateDark: false,
     keyboardTheme: 'follow',
     globalTheme: 'system',
     scheme: 'quanpin',
@@ -593,6 +599,9 @@ export class KeyboardSession {
         dark: KeyboardSkin.resolveDark(preferences.screen_keyboard_theme, preferences.theme,
           systemDark),
         skinId: preferences.touch_keyboard_skin,
+        candidateSkinId: preferences.candidate_skin,
+        candidateDark: KeyboardSkin.resolveDark(preferences.candidate_theme, preferences.theme,
+          systemDark),
         keyboardTheme: preferences.screen_keyboard_theme,
         globalTheme: preferences.theme,
         scheme: preferences.scheme,

@@ -65,6 +65,7 @@ import { TranslationPolicy, TranslationQuery, TranslationEntry } from
   '../entry/src/main/ets/keyboard/candidate/TranslationPolicy';
 import { HardwareKeyRouter, HardwareKeyAction, HardwareKey } from
   '../entry/src/main/ets/keyboard/HardwareKeyRouter';
+import { CandidateSkinPolicy } from '../entry/src/main/ets/keyboard/candidate/CandidateSkinPolicy';
 
 let failures = 0;
 let checks = 0;
@@ -651,6 +652,14 @@ group('a negative uptime is rejected rather than treated as a fast tap', () => {
 });
 
 console.log('Output and editor policies');
+
+group('maps shared candidate skins to native Harmony palettes', () => {
+  check(CandidateSkinPolicy.harmonySkin('fluent') === 'porcelain', 'Fluent uses the clean palette');
+  check(CandidateSkinPolicy.harmonySkin('wechat') === 'forest', 'WeChat uses the green palette');
+  check(CandidateSkinPolicy.harmonySkin('graphite') === 'blueprint', 'Graphite uses the blue-gray palette');
+  check(CandidateSkinPolicy.harmonySkin('willow_green') === 'forest', 'Willow green uses the green palette');
+  check(CandidateSkinPolicy.harmonySkin('unknown') === 'forest', 'unknown ids fall back safely');
+});
 
 group('releases the candidate number row when the shared preference asks', () => {
   const key: HardwareKey = {
