@@ -252,7 +252,9 @@ pub fn write_clipboard_text(text: &str) -> bool {
     use windows_sys::Win32::System::DataExchange::{
         EmptyClipboard, OpenClipboard, SetClipboardData,
     };
-    use windows_sys::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
+    use windows_sys::Win32::System::Memory::{
+        GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE,
+    };
     if text.contains('\0') {
         return false;
     }
@@ -455,28 +457,67 @@ pub fn send_text(text: &str) -> bool {
     send(&inputs)
 }
 
-/// The primary work area, excluding the taskbar.
+/// The foreground monitor's work area, excluding the taskbar.
+///
+/// Panels are non-activating, so the foreground window remains the editor the
+/// user is working in. Using that window's monitor keeps a panel on the same
+/// display in multi-monitor setups; the system work area remains a safe
+/// fallback when Windows reports no foreground window or monitor information.
 pub fn work_area() -> Option<WorkArea> {
     use windows_sys::Win32::Foundation::RECT;
-    use windows_sys::Win32::UI::WindowsAndMessaging::{SystemParametersInfoW, SPI_GETWORKAREA};
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        GetForegroundWindow, GetMonitorInfoW, MonitorFromWindow, SystemParametersInfoW,
+        MONITORINFO, MONITOR_DEFAULTTONEAREST, SPI_GETWORKAREA,
+    };
+
+    let to_work_area = |rect: RECT| {
+        (rect.right > rect.left && rect.bottom > rect.top).then_some(WorkArea {
+            left: f64::from(rect.left),
+            top: f64::from(rect.top),
+            right: f64::from(rect.right),
+            bottom: f64::from(rect.bottom),
+        })
+    };
+
+    // SAFETY: these calls only query process-independent window/monitor state;
+    // `GetMonitorInfoW` receives a caller-owned, correctly sized structure.
+    let foreground = unsafe { GetForegroundWindow() };
+    if !foreground.is_null() {
+        let monitor = unsafe { MonitorFromWindow(foreground, MONITOR_DEFAULTTONEAREST) };
+        if !monitor.is_null() {
+            let mut info = MONITORINFO {
+                cbSize: std::mem::size_of::<MONITORINFO>() as u32,
+                rcMonitor: RECT {
+                    left: 0,
+                    top: 0,
+                    right: 0,
+                    bottom: 0,
+                },
+                rcWork: RECT {
+                    left: 0,
+                    top: 0,
+                    right: 0,
+                    bottom: 0,
+                },
+                dwFlags: 0,
+            };
+            if unsafe { GetMonitorInfoW(monitor, &mut info) } != 0 {
+                if let Some(area) = to_work_area(info.rcWork) {
+                    return Some(area);
+                }
+            }
+        }
+    }
+
     let mut rect = RECT {
         left: 0,
         top: 0,
         right: 0,
         bottom: 0,
     };
-    // SAFETY: the call writes the work area into the caller-owned rectangle.
     let read =
         unsafe { SystemParametersInfoW(SPI_GETWORKAREA, 0, (&mut rect as *mut RECT).cast(), 0) };
-    if read == 0 || rect.right <= rect.left || rect.bottom <= rect.top {
-        return None;
-    }
-    Some(WorkArea {
-        left: f64::from(rect.left),
-        top: f64::from(rect.top),
-        right: f64::from(rect.right),
-        bottom: f64::from(rect.bottom),
-    })
+    (read != 0).then(|| to_work_area(rect)).flatten()
 }
 
 /// Reveal an existing directory in the shell. The caller owns the path; a
