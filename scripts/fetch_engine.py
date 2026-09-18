@@ -21,9 +21,15 @@ DEST = ROOT / "vendor/MSIME-Engine"
 MARKER = DEST / ".msime-engine-lock"
 
 
+def lock_marker(lock: dict) -> str:
+    """Include deterministic local compatibility overlays in the prepared marker."""
+    overlays = json.dumps(lock.get("patches", []), sort_keys=True, separators=(",", ":"))
+    return f"{lock['commit']}\n{overlays}"
+
+
 def prepared_at_lock(lock: dict) -> bool:
     """Whether DEST contains every source tree named by the lock and no Git metadata."""
-    if not MARKER.is_file() or MARKER.read_text().strip() != lock["commit"]:
+    if not MARKER.is_file() or MARKER.read_text() != lock_marker(lock):
         return False
     if any(path.name in {".git", ".gitmodules"} for path in DEST.rglob("*") if path.is_dir()):
         return False
@@ -66,6 +72,21 @@ def remove_git_metadata(directory: Path) -> None:
         shutil.rmtree(path)
 
 
+def apply_patches(directory: Path, lock: dict) -> None:
+    """Apply small, reviewed compatibility fixes absent from the locked archive."""
+    for patch in lock.get("patches", []):
+        target = directory / patch["path"]
+        if not target.is_file():
+            raise RuntimeError(f"Engine overlay target is missing: {patch['path']}")
+        contents = target.read_text()
+        before = patch["find"]
+        after = patch["replace"]
+        if before in contents:
+            target.write_text(contents.replace(before, after, 1))
+        elif after not in contents:
+            raise RuntimeError(f"Engine overlay did not match: {patch['path']}")
+
+
 def main() -> int:
     lock = json.loads(LOCK.read_text())
     if prepared_at_lock(lock):
@@ -81,12 +102,13 @@ def main() -> int:
             destination = staging / dependency["path"]
             destination.parent.mkdir(parents=True, exist_ok=True)
             shutil.copytree(dependency_root, destination, dirs_exist_ok=True)
+        apply_patches(staging, lock)
         remove_git_metadata(staging)
         if DEST.exists():
             shutil.rmtree(DEST)
         DEST.parent.mkdir(parents=True, exist_ok=True)
         shutil.move(str(staging), str(DEST))
-    MARKER.write_text(lock["commit"] + "\n")
+    MARKER.write_text(lock_marker(lock))
     print(f"Prepared Engine {lock['commit']} at {DEST}")
     return 0
 
