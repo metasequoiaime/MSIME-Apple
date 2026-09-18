@@ -31,8 +31,10 @@ inline EditKind edit_kind(const FanyImeNamedpipeData &packet,
   // Japanese reserves the OEM minus key for the long-vowel mark. Route it
   // through Engine while composing instead of treating it as navigation or
   // punctuation.
-  if (composing && japanese_scheme && modifiers == 0 && key == 0xBD &&
-      text == '-')
+  if (composing && modifiers == 0 &&
+      should_send_composition_reply(false, false, false, false, false,
+                                    japanese_scheme && key == 0xBD &&
+                                        text == '-'))
     return EditKind::Character;
   if (composing && modifiers == 0) {
     if (key == 0x08 || key == 0x2E)
