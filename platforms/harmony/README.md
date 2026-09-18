@@ -7,18 +7,21 @@ OpenHarmony 适配保留 ArkTS/ArkUI 应用入口与 NAPI 原生边界。共享�
 - `entry/src/`：ArkTS 应用与键盘宿主源码。
 - `native/`：NAPI/C++ 适配层。
 - `tests/`：不依赖设备的 TypeScript 键盘逻辑测试。
-- `AppScope/`、`entry/resources/`：应用元数据和资源。
+- `AppScope/`、`entry/src/main/resources/`：应用元数据和资源。
 - `build-native.sh`、`stage-resources.sh`：共享 Host API、NAPI 库和固定资源的构建/暂存入口。
 
 ## 本地构建
 
-准备 DevEco Studio 提供的 OpenHarmony NDK，或设置 `MSIME_OHOS_NDK` 指向包含 `build/cmake/ohos.toolchain.cmake` 的 NDK。先为目标 ABI 准备 SQLite 前缀，再运行：
+准备 DevEco Studio 提供的 OpenHarmony NDK，或设置 `MSIME_OHOS_NDK` 指向包含 `build/cmake/ohos.toolchain.cmake` 的 NDK。先安装依赖（根目录 `pnpm install --frozen-lockfile`），准备对应 Rust target、目标 ABI 的 SQLite 前缀和 Boost/fmt/spdlog CMake 配置目录。非 Homebrew 布局需显式设置 `MSIME_BOOST_DIR`、`MSIME_BOOST_HEADERS_DIR`、`MSIME_FMT_DIR` 和 `MSIME_SPDLOG_DIR`，再运行：
 
 ```sh
+resource_dir="$(cargo run --quiet -p msime-client-core --example install_resources --locked -- target/resources)"
+bash platforms/harmony/stage-resources.sh "$resource_dir"
 MSIME_OHOS_NDK=/absolute/openharmony/native \
 MSIME_OHOS_DEPS=/absolute/ohos-deps/arm64-v8a \
 bash platforms/harmony/build-native.sh arm64-v8a
 cd platforms/harmony
+# 使用 DevEco SDK 配套且已加入 PATH 的 hvigorw
 hvigorw assembleHap
 ```
 
