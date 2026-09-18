@@ -1075,7 +1075,7 @@ Windows TSF 的键事件路径现在从共享偏好读取中英文与简繁切�
 
 修正 `msime-client-server.exe --help` 与当前生产装配不一致的问题：帮助信息现在明确区分 `--production`/`--watchdog-managed` 的安装态生产管道和 `--config` 的隔离预览，并说明 TSF 注册由安装器负责。同步更新 Windows 文档，避免把已接入生产管道的 Server 描述成只有预览能力；隔离预览仍明确不是可安装输入法，未改变协议、注册或启动行为。
 
-本地验证：`platforms/windows/tests/server_launch.cpp` 以 C++17、`-Wall -Wextra -Werror` 编译并通过；`git diff --check` 通过。没有 Windows 主机，因此未执行 Server、TSF 注册、真实编辑器或安装验收，CI 保持禁用。
+本地验证：`platforms/windows/tests/runtime/server_launch.cpp` 以 C++17、`-Wall -Wextra -Werror` 编译并通过；`git diff --check` 通过。没有 Windows 主机，因此未执行 Server、TSF 注册、真实编辑器或安装验收，CI 保持禁用。
 
 ### macOS Tauri 正式输入源安装入口
 
