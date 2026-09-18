@@ -171,7 +171,7 @@ final class SkinUITests: KeyboardInterfaceTests {
     let late = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true"), object: app.buttons["saveAISkin_AI 测试 1"])
     late.isInverted = true
     XCTAssertEqual(XCTWaiter.wait(for: [late], timeout: 6), .completed)
-    XCTAssertTrue(wait(generate, until: "isEnabled == true", timeout: 30))
+    XCTAssertTrue(wait(generate, until: "isEnabled == true"))
   }
 
   @MainActor
