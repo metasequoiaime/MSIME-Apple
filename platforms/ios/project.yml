@@ -248,7 +248,7 @@ targets:
           - HandwritingTests.swift
           - build-native.sh
           - tools/**
-      - path: KeyboardTests/InputSchemeTestSupport.swift
+      - path: KeyboardTests/input/InputSchemeTestSupport.swift
       - path: App/Services/CustomService.swift
       - path: App/Services/DoubaoHostFrameCodec.swift
       - path: App/Services/DoubaoVoiceCoordinator.swift

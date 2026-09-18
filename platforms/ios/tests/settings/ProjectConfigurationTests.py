@@ -4,7 +4,7 @@ import unittest
 from pathlib import Path
 
 
-IOS_ROOT = Path(__file__).resolve().parents[1]
+IOS_ROOT = Path(__file__).resolve().parents[2]
 
 
 def target_blocks(project):
