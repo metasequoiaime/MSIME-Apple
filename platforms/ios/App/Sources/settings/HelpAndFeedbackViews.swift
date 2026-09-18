@@ -123,7 +123,7 @@ struct FeedbackView: View {
 
   private func submit() {
     let body = String(report.prefix(4000))
-    var components = URLComponents(string: "https://github.com/metasequoiaime/MSIME-Client/issues/new")
+    var components = URLComponents(string: "https://github.com/metasequoiaime/msime/issues/new")
     components?.queryItems = [
       URLQueryItem(name: "title", value: kind),
       URLQueryItem(name: "body", value: body)

@@ -102,7 +102,7 @@ struct AboutView: View {
           Label("反馈问题与建议", systemImage: "bubble.left.and.bubble.right")
         }.accessibilityIdentifier("feedbackLink")
         Link(destination: URL(string: "https://msime.app/")!) { Label("官方网站", systemImage: "globe") }
-        Link(destination: URL(string: "https://github.com/metasequoiaime/MSIME-Client")!) { Label("开源代码与许可证", systemImage: "curlybraces") }
+        Link(destination: URL(string: "https://github.com/metasequoiaime/msime")!) { Label("开源代码与许可证", systemImage: "curlybraces") }
       }
       Section("隐私") {
         Text("键盘默认离线。仅在你使用 AI 或语音时，将本次文字或录音发送到所配置的服务。账号、云同步和皮肤社区按你启用的功能联网。手写首次联网下载模型，之后在设备上识别；Google ML Kit 会发送性能及使用统计，不会上传笔迹或识别结果。").font(.footnote).foregroundStyle(.secondary)

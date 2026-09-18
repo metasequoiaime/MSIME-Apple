@@ -188,8 +188,8 @@ class ProjectConfigurationTests(unittest.TestCase):
         self.assertNotIn("MSIME-Windows", source)
         self.assertNotIn("MSIME-Linux", source)
         self.assertEqual(
-            source.count("https://github.com/metasequoiaime/MSIME-Client")
-            + feedback.count("https://github.com/metasequoiaime/MSIME-Client"),
+            source.count("https://github.com/metasequoiaime/msime")
+            + feedback.count("https://github.com/metasequoiaime/msime"),
             2,
         )
         project = (IOS_ROOT / "MSIMEClient.xcodeproj/project.pbxproj").read_text()

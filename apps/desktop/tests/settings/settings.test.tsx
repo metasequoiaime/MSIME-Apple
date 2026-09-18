@@ -1865,7 +1865,7 @@ test("Android help and about pages use mobile instructions and project links", a
   expect(await screen.findByText(/Android 触屏输入体验/)).toBeDefined();
   expect(screen.queryByRole("button", { name: "悬浮工具栏" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "开源许可协议" }));
-  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/MSIME-Client/blob/main/LICENSE"));
+  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/msime/blob/develop/LICENSE"));
   fireEvent.click(screen.getByRole("button", { name: "隐私政策" }));
   await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://msime.app/privacy/"));
 
@@ -1878,7 +1878,7 @@ test("Android help and about pages use mobile instructions and project links", a
 
   fireEvent.click(screen.getByRole("button", { name: "反馈" }));
   fireEvent.click(screen.getByRole("button", { name: "查看 Issues" }));
-  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/MSIME-Client/issues"));
+  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/msime/issues"));
 });
 
 test("Linux about page exposes the shared privacy policy", async () => {
@@ -1929,13 +1929,13 @@ test("macOS support pages use client project and privacy links", async () => {
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
   await screen.findByText("Metasequoia IME");
   fireEvent.click(screen.getByRole("button", { name: "开源许可协议" }));
-  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/MSIME-Client/blob/main/LICENSE"));
+  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/msime/blob/develop/LICENSE"));
   fireEvent.click(screen.getByRole("button", { name: "隐私政策" }));
   await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://msime.app/privacy/"));
 
   fireEvent.click(screen.getByRole("button", { name: "反馈" }));
   fireEvent.click(screen.getByRole("button", { name: "查看 Issues" }));
-  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/MSIME-Client/issues"));
+  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/msime/issues"));
 });
 
 test("macOS and iOS help pages use their native host instructions", async () => {
@@ -2004,7 +2004,7 @@ test("Linux offers a validated newer client release", async () => {
     status: 200,
     json: async () => ({
       tag_name: "v1.2.0",
-      html_url: "https://github.com/metasequoiaime/MSIME-Client/releases/tag/v1.2.0",
+      html_url: "https://github.com/metasequoiaime/msime/releases/tag/v1.2.0",
     }),
   }));
   const openExternalUrl = vi.fn().mockResolvedValue(undefined);
@@ -2017,7 +2017,7 @@ test("Linux offers a validated newer client release", async () => {
   expect(await screen.findByText("发现新版本 v1.2.0")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "前往下载" }));
   await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith(
-    "https://github.com/metasequoiaime/MSIME-Client/releases/tag/v1.2.0",
+    "https://github.com/metasequoiaime/msime/releases/tag/v1.2.0",
   ));
   expect(screen.queryByText(/SHA256/)).toBeNull();
   vi.unstubAllGlobals();
@@ -2029,7 +2029,7 @@ test("about page uses the packaged app version for display and update comparison
     status: 200,
     json: async () => ({
       tag_name: "v1.2.0",
-      html_url: "https://github.com/metasequoiaime/MSIME-Client/releases/tag/v1.2.0",
+      html_url: "https://github.com/metasequoiaime/msime/releases/tag/v1.2.0",
     }),
   }));
   render(<SettingsPage client={{
@@ -2049,7 +2049,7 @@ test("client release validation rejects a release URL outside MSIME-Client", () 
   expect(validateGitHubRelease({
     tag_name: "v1.2.0",
     html_url: "https://github.com/metasequoiaime/MSIME-Windows/releases/tag/v1.2.0",
-  }, "https://github.com/metasequoiaime/MSIME-Client/releases")).toBeNull();
+  }, "https://github.com/metasequoiaime/msime/releases")).toBeNull();
 });
 
 test("screen keyboard and handwriting pages expose the native panel actions", async () => {
