@@ -4017,10 +4017,13 @@ async fn send_voice_text(
                 .voice_input
                 .commit_mode;
             voice_output::submit(&text, &mode, |mode, text| match mode {
-                // The TSF mode must use the Server's active-client/epoch lease;
-                // do not bypass that boundary with an unacknowledged fallback.
-                voice_output::OutputMode::Tsf => false,
-                voice_output::OutputMode::SendInput => {
+                // The native VoiceInputSession owns the Server's TSF
+                // composition lease. A shared Tauri voice panel has no TSF
+                // context of its own, so adapt the default `tsf` preference
+                // to the same guarded foreground injection used by its
+                // explicit SendInput mode. The native hotkey path remains
+                // unchanged and continues to commit through TSF.
+                voice_output::OutputMode::Tsf | voice_output::OutputMode::SendInput => {
                     msime_host_windows::focus_external(target)
                         && msime_host_windows::send_text(text)
                 }
