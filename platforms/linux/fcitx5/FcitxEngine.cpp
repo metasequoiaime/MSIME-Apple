@@ -1959,6 +1959,46 @@ private:
   fcitx::FactoryFor<FcitxState> *factory_;
 };
 
+class FcitxSchemeBooleanAction : public fcitx::Action {
+public:
+  enum class Kind { ShuangpinPreedit, WubiCodeHint };
+  FcitxSchemeBooleanAction(fcitx::FactoryFor<FcitxState> *factory, Kind kind)
+      : factory_(factory), kind_(kind) { setCheckable(true); }
+  std::string shortText(fcitx::InputContext *) const override {
+    return kind_ == Kind::ShuangpinPreedit ? "双拼原始预编辑" : "五笔剩余编码";
+  }
+  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  bool isChecked(fcitx::InputContext *ic) const override {
+    if (!ic) return false;
+    const auto *state = ic->propertyFor(factory_);
+    const auto scheme = state->view_.value("scheme", 0u);
+    if (kind_ == Kind::ShuangpinPreedit && scheme != 1) return false;
+    if (kind_ == Kind::WubiCodeHint && scheme != 2) return false;
+    const auto key = kind_ == Kind::ShuangpinPreedit
+        ? "shuangpin_preedit_uses_raw" : "wubi_code_hint";
+    return state->preferences_.value(key, true);
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    auto *state = ic->propertyFor(factory_);
+    const auto scheme = state->view_.value("scheme", 0u);
+    if ((kind_ == Kind::ShuangpinPreedit && scheme != 1) ||
+        (kind_ == Kind::WubiCodeHint && scheme != 2) ||
+        state->restricted() || state->privateInput()) return;
+    const auto key = kind_ == Kind::ShuangpinPreedit
+        ? "shuangpin_preedit_uses_raw" : "wubi_code_hint";
+    try {
+      if (state->toggleTopLevelBoolean(key, true)) update(ic);
+    } catch (...) {
+      state->close();
+      state->clearPanel();
+    }
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+  Kind kind_;
+};
+
 class FcitxAutocorrectAction : public fcitx::Action {
 public:
   enum class Mode { Transposition, Neighbor };
@@ -2854,6 +2894,8 @@ public:
     english_gloss_action_.registerAction("msime-english-gloss", &instance->userInterfaceManager());
     word_character_action_.registerAction("msime-word-character", &instance->userInterfaceManager());
     number_row_action_.registerAction("msime-number-row", &instance->userInterfaceManager());
+    shuangpin_preedit_action_.registerAction("msime-shuangpin-preedit", &instance->userInterfaceManager());
+    wubi_code_hint_action_.registerAction("msime-wubi-code-hint", &instance->userInterfaceManager());
     maintenance_action_.registerAction("msime-candidate-tools", &instance->userInterfaceManager());
     clipboard_action_.registerAction("msime-clipboard", &instance->userInterfaceManager());
     clipboard_history_action_.registerAction("msime-clipboard-history", &instance->userInterfaceManager());
@@ -2974,6 +3016,8 @@ public:
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &english_gloss_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &word_character_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &number_row_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &shuangpin_preedit_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &wubi_code_hint_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &maintenance_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &clipboard_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &clipboard_history_action_);
@@ -3016,6 +3060,8 @@ public:
     event.inputContext()->statusArea().removeAction(&english_gloss_action_);
     event.inputContext()->statusArea().removeAction(&word_character_action_);
     event.inputContext()->statusArea().removeAction(&number_row_action_);
+    event.inputContext()->statusArea().removeAction(&shuangpin_preedit_action_);
+    event.inputContext()->statusArea().removeAction(&wubi_code_hint_action_);
     event.inputContext()->statusArea().removeAction(&maintenance_action_);
     event.inputContext()->statusArea().removeAction(&clipboard_action_);
     event.inputContext()->statusArea().removeAction(&clipboard_history_action_);
@@ -3087,6 +3133,8 @@ public:
   FcitxEnglishGlossAction english_gloss_action_{&factory_};
   FcitxWordCharacterAction word_character_action_{&factory_};
   FcitxNumberRowAction number_row_action_{&factory_};
+  FcitxSchemeBooleanAction shuangpin_preedit_action_{&factory_, FcitxSchemeBooleanAction::Kind::ShuangpinPreedit};
+  FcitxSchemeBooleanAction wubi_code_hint_action_{&factory_, FcitxSchemeBooleanAction::Kind::WubiCodeHint};
   fcitx::Menu maintenance_menu_;
   FcitxMaintenanceAction maintenance_action_{&factory_, 0, "候选维护"};
   FcitxClipboardAction clipboard_action_{&factory_};
