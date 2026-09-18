@@ -9,11 +9,16 @@ public final class EnglishSuggestionPolicy {
         StringBuilder result = new StringBuilder();
         for (int offset = beforeCursor.length(); offset > 0;) {
             int codePoint = Character.codePointBefore(beforeCursor, offset);
-            if (!Character.isLetter(codePoint)) break;
+            if (!isAsciiLetter(codePoint)) break;
             result.appendCodePoint(codePoint);
             offset -= Character.charCount(codePoint);
         }
         return result.reverse().toString();
+    }
+
+    private static boolean isAsciiLetter(int codePoint) {
+        return (codePoint >= 'A' && codePoint <= 'Z')
+            || (codePoint >= 'a' && codePoint <= 'z');
     }
 
     public static Replacement replacement(String typed, String candidate, boolean startedCapitalized) {

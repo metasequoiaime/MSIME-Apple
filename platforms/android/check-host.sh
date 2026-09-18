@@ -57,6 +57,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/keyboard/ChineseSymbolFacesSmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/ShuangpinKeyHintPolicySmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/EnglishSuggestionPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/keyboard/EnglishSuggestionModelSmoke.java" \
   "$repo_root/platforms/android/tests/candidate/CandidatePanelSmoke.java" \
   "$repo_root/platforms/android/tests/candidate/CandidateManagementSmoke.java" \
   "$repo_root/platforms/android/tests/dictionary/ClipboardHistoryPolicySmoke.java" \
@@ -101,6 +102,7 @@ java -cp "$output_dir" WubiCodeHintPolicySmoke
 java -cp "$output_dir" ChineseSymbolFacesSmoke
 java -cp "$output_dir" ShuangpinKeyHintPolicySmoke
 java -cp "$output_dir" EnglishSuggestionPolicySmoke
+java -cp "$output_dir" EnglishSuggestionModelSmoke
 java -cp "$output_dir" CandidatePanelSmoke
 java -cp "$output_dir" CandidateManagementSmoke
 java -cp "$output_dir" ClipboardHistoryPolicySmoke

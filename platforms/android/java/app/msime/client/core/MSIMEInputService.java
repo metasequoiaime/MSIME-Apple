@@ -46,6 +46,8 @@ import android.widget.Switch;
 import android.widget.TextView;
 import android.widget.HorizontalScrollView;
 import android.widget.Toast;
+import app.msime.client.candidate.EnglishSuggestionModel;
+import app.msime.client.keyboard.EnglishSuggestionPolicy;
 import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -91,6 +93,7 @@ public final class MSIMEInputService extends InputMethodService {
     private HorizontalScrollView horizontalCandidateScroll;
     private ScrollView verticalCandidateScroll;
     private final java.util.List<Button> candidateButtons = new java.util.ArrayList<>();
+    private final java.util.List<Button> englishSuggestionButtons = new java.util.ArrayList<>();
     private LinearLayout candidatePaging;
     private LinearLayout expandedCandidates;
     private ScrollView expandedCandidateScroll;
@@ -143,6 +146,11 @@ public final class MSIMEInputService extends InputMethodService {
     private long candidateGlossEpoch;
     private long candidateGlossRequestedSession;
     private long candidateGlossRequestedGeneration = -1;
+    private java.util.List<String> englishSuggestions = java.util.List.of();
+    private String englishSuggestionPrefix = "";
+    private long englishSuggestionEpoch;
+    private long englishSuggestionRequestedEpoch = -1;
+    private String englishSuggestionRequestedPrefix = "";
     private boolean candidateHorizontal;
     private int candidateFontSize = 16;
     private int candidatePreeditFontSize = 16;
@@ -309,6 +317,9 @@ public final class MSIMEInputService extends InputMethodService {
         1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(1),
         new ThreadPoolExecutor.DiscardOldestPolicy());
     private final ExecutorService candidateTranslationWorker = new ThreadPoolExecutor(
+        1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(1),
+        new ThreadPoolExecutor.DiscardOldestPolicy());
+    private final ExecutorService englishSuggestionWorker = new ThreadPoolExecutor(
         1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(1),
         new ThreadPoolExecutor.DiscardOldestPolicy());
     private final AiPolishClient aiPolishClient = new AiPolishClient(new AiPolishHttpTransport());
@@ -489,6 +500,7 @@ public final class MSIMEInputService extends InputMethodService {
         sharedSchemePreferences = false;
         enabledSchemes = KeyboardScheme.enabledFromPreferenceIds(null);
         letterCase.reset();
+        clearEnglishSuggestions();
         keyboardLayer = KeyboardLayout.Layer.LETTERS;
         editorInputType = info == null ? 0 : info.inputType;
         Boolean englishOverride = inputContext.englishOverride(
@@ -577,6 +589,7 @@ public final class MSIMEInputService extends InputMethodService {
         emojiWorker.shutdown();
         candidateGlossWorker.shutdownNow();
         candidateTranslationWorker.shutdownNow();
+        englishSuggestionWorker.shutdownNow();
         aiPolishClient.close();
         connection = null;
         super.onDestroy();
@@ -596,6 +609,7 @@ public final class MSIMEInputService extends InputMethodService {
         candidateEnglishGloss = false;
         candidateTranslationsEnabled = false;
         candidateTranslationTargets = java.util.List.of("en");
+        clearEnglishSuggestions();
         if (candidateTranslationStore != null) candidateTranslationStore.clear();
         wubiCodeHint = true;
         wubiMixedPinyin = false;
@@ -685,6 +699,8 @@ public final class MSIMEInputService extends InputMethodService {
             }
             apply(NativeClient.focus(session, true));
             view = value(NativeClient.setEnglishMode(session, dedicatedEnglish));
+            refreshEnglishSuggestions();
+            render();
             message = "MSIME Preview";
             String directory = options.optString("preferences_directory", "");
             if (!directory.isEmpty() && new File(directory).isAbsolute()) {
@@ -1038,6 +1054,141 @@ public final class MSIMEInputService extends InputMethodService {
         return result.getBoolean("handled");
     }
 
+    private boolean englishNineKeyActive() {
+        return dedicatedEnglish && displayedTouchLayout(view) == QUANPIN_NINE_KEY_LAYOUT;
+    }
+
+    private boolean directEnglishActive() {
+        return dedicatedEnglish && !englishNineKeyActive();
+    }
+
+    private void clearEnglishSuggestions() {
+        englishSuggestionEpoch++;
+        englishSuggestionRequestedEpoch = -1;
+        englishSuggestionRequestedPrefix = "";
+        englishSuggestionPrefix = "";
+        englishSuggestions = java.util.List.of();
+    }
+
+    private String englishWordBeforeCursor() {
+        if (!directEnglishActive() || connection == null) return "";
+        CharSequence before;
+        try {
+            before = connection.getTextBeforeCursor(CAPITALIZATION_CONTEXT_LIMIT, 0);
+        } catch (RuntimeException ignored) {
+            return "";
+        }
+        return EnglishSuggestionPolicy.currentWord(before);
+    }
+
+    private void refreshEnglishSuggestions() {
+        if (!directEnglishActive() || candidateGlossResources.isEmpty()) {
+            if (!englishSuggestions.isEmpty() || !englishSuggestionPrefix.isEmpty()) {
+                clearEnglishSuggestions();
+                render();
+            }
+            return;
+        }
+        String prefix = englishWordBeforeCursor();
+        if (prefix.length() < 2 || !prefix.chars().allMatch(value ->
+                value >= 'A' && value <= 'Z' || value >= 'a' && value <= 'z')) {
+            if (!englishSuggestions.isEmpty() || !englishSuggestionPrefix.isEmpty()) {
+                clearEnglishSuggestions();
+                render();
+            }
+            return;
+        }
+        if (prefix.equals(englishSuggestionRequestedPrefix)
+                && englishSuggestionRequestedEpoch == englishSuggestionEpoch) return;
+        clearEnglishSuggestions();
+        englishSuggestionPrefix = prefix;
+        long epoch = englishSuggestionEpoch;
+        String resources = candidateGlossResources;
+        englishSuggestionRequestedEpoch = epoch;
+        englishSuggestionRequestedPrefix = prefix;
+        try {
+            englishSuggestionWorker.execute(() -> {
+                try {
+                    EnglishSuggestionModel.Result result = EnglishSuggestionModel.decode(
+                        NativeClient.englishCompletions(prefix, resources));
+                    main.post(() -> applyEnglishSuggestions(epoch, prefix, result));
+                } catch (Exception | LinkageError ignored) {
+                    // Completion failures are optional display state and never block input.
+                }
+            });
+        } catch (RuntimeException ignored) {
+            // A stopped or saturated host must not affect input.
+        }
+    }
+
+    private void applyEnglishSuggestions(long epoch, String prefix,
+                                         EnglishSuggestionModel.Result result) {
+        if (epoch != englishSuggestionEpoch || !directEnglishActive()
+                || !prefix.equals(englishWordBeforeCursor())
+                || !prefix.equals(result.prefix())) return;
+        englishSuggestions = result.items();
+        englishSuggestionPrefix = prefix;
+        render();
+    }
+
+    private void useEnglishSuggestion(int slot, Button button) {
+        if (slot < 0 || slot >= englishSuggestions.size() || connection == null) return;
+        String typed = englishWordBeforeCursor();
+        if (!typed.equals(englishSuggestionPrefix)) {
+            clearEnglishSuggestions();
+            render();
+            return;
+        }
+        String candidate = englishSuggestions.get(slot);
+        boolean startedCapitalized = !typed.isEmpty() && Character.isUpperCase(typed.codePointAt(0));
+        EnglishSuggestionPolicy.Replacement replacement = EnglishSuggestionPolicy.replacement(
+            typed, candidate, startedCapitalized);
+        if (replacement == null) {
+            clearEnglishSuggestions();
+            render();
+            return;
+        }
+        try {
+            connection.beginBatchEdit();
+            if (!connection.deleteSurroundingText(replacement.deleteCount(), 0)) return;
+            if (!commitText(replacement.insert())) return;
+        } finally {
+            connection.endBatchEdit();
+        }
+        clearEnglishSuggestions();
+        render();
+    }
+
+    private Button makeEnglishSuggestionButton(int slot) {
+        Button button = new KeyboardPressButton(this);
+        button.setAllCaps(false);
+        button.setOnClickListener(ignored -> {
+            playFeedback(button);
+            useEnglishSuggestion(slot, button);
+        });
+        return button;
+    }
+
+    private void renderEnglishSuggestions(LinearLayout activeCandidates) {
+        for (int slot = 0; slot < englishSuggestions.size(); slot++) {
+            while (englishSuggestionButtons.size() <= slot)
+                englishSuggestionButtons.add(makeEnglishSuggestionButton(englishSuggestionButtons.size()));
+            Button button = englishSuggestionButtons.get(slot);
+            String text = englishSuggestions.get(slot);
+            button.setVisibility(View.VISIBLE);
+            button.setText(text);
+            button.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidateFontSize);
+            button.setContentDescription("英文建议 " + (slot + 1) + "：" + text);
+            styleButton(button, false);
+            activeCandidates.addView(button, new LinearLayout.LayoutParams(
+                candidateHorizontal ? LinearLayout.LayoutParams.WRAP_CONTENT
+                    : LinearLayout.LayoutParams.MATCH_PARENT,
+                LinearLayout.LayoutParams.WRAP_CONTENT));
+        }
+        for (int slot = englishSuggestions.size(); slot < englishSuggestionButtons.size(); slot++)
+            englishSuggestionButtons.get(slot).setVisibility(View.GONE);
+    }
+
     /** Copies Engine candidates on the IME thread, then performs only session-free IO off-thread. */
     private void scheduleCandidateGlosses() {
         if (!candidateEnglishGloss || session == 0 || view == null
@@ -1235,6 +1386,17 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void type(char key) {
         if (connection == null) return;
+        if (directEnglishActive()) {
+            char output = letterCase.usesUppercase() ? Character.toUpperCase(key) : key;
+            if (isAsciiLetter(output)) {
+                commitEnglishLiteral(output);
+                if (letterCase.consumeLetter()) {
+                    rebuildKeyRows();
+                    render();
+                }
+                return;
+            }
+        }
         if (dedicatedEnglish && !isAsciiLetter(key)) {
             commitEnglishLiteral(key);
             return;
@@ -1279,8 +1441,9 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void commitEnglishLiteral(int value) {
         if (connection == null || value < 32 || value > 126) return;
-        if (session != 0) command(2);
-        if (connection != null) commitText(fullWidthOutput(String.valueOf((char) value)));
+        if (englishNineKeyActive() && session != 0) command(2);
+        commitText(fullWidthOutput(String.valueOf((char) value)));
+        if (directEnglishActive()) refreshEnglishSuggestions();
     }
 
     private void space() {
@@ -1303,6 +1466,10 @@ public final class MSIMEInputService extends InputMethodService {
                 }
                 return;
             }
+        }
+        if (directEnglishActive()) {
+            commitEnglishLiteral(' ');
+            return;
         }
         if (dedicatedEnglish) {
             if (session != 0) command(1);
@@ -1450,6 +1617,8 @@ public final class MSIMEInputService extends InputMethodService {
             letterCase.reset();
             if (previousLayout != displayedTouchLayout(view) || previousUppercase) rebuildKeyRows();
             updateAutomaticCapitalization();
+            if (directEnglishActive()) refreshEnglishSuggestions();
+            else { clearEnglishSuggestions(); render(); }
         } catch (JSONException | LinkageError error) {
             fail();
         }
@@ -1611,6 +1780,26 @@ public final class MSIMEInputService extends InputMethodService {
             closeEmojiPicker();
             return true;
         }
+        if (directEnglishActive() && !event.isCtrlPressed() && !event.isAltPressed()
+                && !event.isMetaPressed()) {
+            if (keyCode == KeyEvent.KEYCODE_DEL) {
+                clearEnglishSuggestions();
+                return super.onKeyDown(keyCode, event);
+            }
+            int unicode = event.getUnicodeChar();
+            if (unicode >= 32 && unicode <= 126) {
+                if (isAsciiLetter(unicode)) {
+                    char output = letterCase.usesUppercase() || event.isShiftPressed()
+                        ? Character.toUpperCase((char) unicode) : Character.toLowerCase((char) unicode);
+                    commitEnglishLiteral(output);
+                    if (letterCase.consumeLetter()) rebuildKeyRows();
+                } else {
+                    commitEnglishLiteral(unicode);
+                }
+                render();
+                return true;
+            }
+        }
         if (session == 0 || event.isCtrlPressed() || event.isAltPressed() || event.isMetaPressed()) {
             if (session != 0 && connection != null) {
                 // Preserve displayed source text before the editor handles a shortcut.
@@ -1659,6 +1848,7 @@ public final class MSIMEInputService extends InputMethodService {
             render();
         }
         updateAutomaticCapitalization();
+        if (directEnglishActive()) refreshEnglishSuggestions();
     }
 
     private Button button(LinearLayout row, String label, Runnable action) {
@@ -4517,6 +4707,10 @@ public final class MSIMEInputService extends InputMethodService {
     private void deleteFromHandwriting() {
         if (handwritingCanvas != null && handwritingCanvas.hasInk()) {
             handwritingCanvas.undo();
+        } else if (directEnglishActive() && connection != null) {
+            clearEnglishSuggestions();
+            connection.deleteSurroundingTextInCodePoints(1, 0);
+            refreshEnglishSuggestions();
         } else if (connection != null && !command(0)) {
             connection.deleteSurroundingTextInCodePoints(1, 0);
         }
@@ -5157,6 +5351,7 @@ public final class MSIMEInputService extends InputMethodService {
     @Override public View onCreateInputView() {
         deactivateHandwriting();
         candidateButtons.clear();
+        englishSuggestionButtons.clear();
         nineKeySpellingButtons.clear();
         nineKeySpellingIndices = java.util.List.of();
         nineKeySpellingGeneration = -1;
@@ -5631,12 +5826,14 @@ public final class MSIMEInputService extends InputMethodService {
             });
         if (candidatePage != null) candidatePage.setText(page.isEmpty() ? "" : page.substring(3));
         JSONArray visibleCandidates = view == null ? null : view.optJSONArray("candidates");
+        boolean hasEnglishSuggestions = directEnglishActive() && !englishSuggestions.isEmpty();
         boolean handwriting = handwritingActive();
         boolean hasHandwritingResults = handwriting && !handwritingResults.isEmpty()
             && handwritingCandidateToken != null;
         boolean idle = view == null || (view.optString("editing_text", "").isEmpty()
             && "none".equals(view.optString("local_mode", "none"))
             && (visibleCandidates == null || visibleCandidates.length() == 0)
+            && !hasEnglishSuggestions
             && !hasHandwritingResults);
         if (preedit != null) {
             preedit.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidatePreeditFontSize);
@@ -5813,12 +6010,16 @@ public final class MSIMEInputService extends InputMethodService {
             candidatePaging.setVisibility(hasDiagnostic ? View.GONE : View.VISIBLE);
         if (view == null) {
             closeCandidatePanel();
+            renderEnglishSuggestions(activeCandidates);
+            for (Button button : candidateButtons) button.setVisibility(View.GONE);
             applySkin();
             return;
         }
         JSONArray entries = view.optJSONArray("candidates");
         if (handwriting) {
             renderSharedHandwritingCandidates(activeCandidates);
+        } else if (directEnglishActive()) {
+            renderEnglishSuggestions(activeCandidates);
         } else if (entries != null) {
             for (int slot = 0; slot < entries.length(); slot++) {
                 JSONObject candidate = entries.optJSONObject(slot);
@@ -5839,7 +6040,10 @@ public final class MSIMEInputService extends InputMethodService {
         int visibleSlots = entries == null ? 0 : entries.length();
         for (int slot = visibleSlots; slot < candidateButtons.size(); slot++)
             candidateButtons.get(slot).setVisibility(View.GONE);
-        if (!handwriting && candidatePaging != null) {
+        if (directEnglishActive()) {
+            for (Button button : candidateButtons) button.setVisibility(View.GONE);
+        }
+        if (!handwriting && !directEnglishActive() && candidatePaging != null) {
             button(candidatePaging, "上词", () -> command(103));
             button(candidatePaging, "下词", () -> command(102));
             button(candidatePaging, "上一页", () -> command(101));
