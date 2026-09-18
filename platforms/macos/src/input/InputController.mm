@@ -1047,8 +1047,6 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
                         byTarget[target] = translation;
                     }
                 }
-                if ([target isEqual:@"en"] && results.count)
-                    [latest persistCandidateTranslations:results query:query];
                 latest->_customResults = [combinedResults() copy];
                 [latest applyCandidateTranslationResults];
                 latest->_customBatch = nil;
@@ -1114,13 +1112,23 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     }
     return items;
 }
-- (void)persistCandidateTranslations:(NSArray *)results query:(NSDictionary *)query {
-    NSString *directory = query[@"directory"];
-    if (!directory.isAbsolutePath || ![MSIMETranslationTargets(query) containsObject:@"en"] || !results.count) return;
-    NSArray *items = [self learnedTranslationItems:query[@"candidates"] results:results];
+- (void)persistCommittedCandidateTranslation:(NSString *)text {
+    if (![text isKindOfClass:NSString.class] || !text.length) return;
+    NSDictionary *query = _customQuery ?: _accountGlossRequest;
+    NSArray *targets = query ? (query[@"target_languages"] ?: @[]) : @[];
+    NSString *directory = query[@"directory"] ?: _preferencesDirectory;
+    if (!directory.isAbsolutePath || ![targets containsObject:@"en"]) return;
+    NSArray *available = _customResults.count ? _customResults : _accountGlossResults;
+    NSDictionary *match = nil;
+    for (NSDictionary *entry in available)
+        if ([entry[@"text"] isEqual:text] && [entry[@"translation"] isKindOfClass:NSString.class] && [entry[@"translation"] length]) {
+            match = entry;
+            break;
+        }
+    if (!match) return;
+    NSArray *items = [self learnedTranslationItems:@[@{ @"text": text }] results:@[match]];
     if (!items.count) return;
-    // Copy only storage fields; never retain provider credentials in the IO queue.
-    NSDictionary *request = @{@"directory":[directory copy], @"generation":query[@"generation"],
+    NSDictionary *request = @{ @"directory":[directory copy], @"generation":query[@"generation"] ?: @0,
         @"target_language":@"en", @"action":@"remember", @"items":items};
     dispatch_async([MSIMEInputController learnedTranslationQueue], ^{
         [MSIMEClientSession learnedTranslationRequest:request error:nil];
@@ -3137,6 +3145,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     _typingSourceOverride = nil;
     NSDictionary *previousView = _view;
     NSString *commitForTracking = transition[@"commit"];
+    if ([commitForTracking isKindOfClass:NSString.class] && commitForTracking.length)
+        [self persistCommittedCandidateTranslation:commitForTracking];
     if ([commitForTracking isKindOfClass:NSString.class] && commitForTracking.length >= 2 && _appearance.pairedPunctuation) {
         static NSArray<NSArray<NSString *> *> *pairs;
         static dispatch_once_t once;
