@@ -1,4 +1,4 @@
-#include "../src/FrequencyAdjustmentPreference.h"
+#include "../src/core/FrequencyAdjustmentPreference.h"
 #include <cassert>
 #include <cstring>
 

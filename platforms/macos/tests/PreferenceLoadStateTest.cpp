@@ -1,4 +1,4 @@
-#include "../src/PreferenceLoadState.h"
+#include "../src/settings/PreferenceLoadState.h"
 #include <cassert>
 
 int main() {

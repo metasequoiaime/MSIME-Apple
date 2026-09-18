@@ -1,4 +1,4 @@
-#include "../src/VoiceControlMessage.h"
+#include "../src/voice/VoiceControlMessage.h"
 #include <iostream>
 
 int main() {

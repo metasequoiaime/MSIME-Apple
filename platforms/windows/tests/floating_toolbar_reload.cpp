@@ -1,4 +1,4 @@
-#include "../src/FloatingToolbarSettings.h"
+#include "../src/candidate/FloatingToolbarSettings.h"
 #include <cassert>
 #include <thread>
 using namespace msime::windows;

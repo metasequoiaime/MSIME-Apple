@@ -1,5 +1,5 @@
-#include "../src/SessionController.h"
-#include "../src/DedicatedEnglishMailbox.h"
+#include "../src/ipc/SessionController.h"
+#include "../src/system/DedicatedEnglishMailbox.h"
 #include "TestHostOptions.h"
 #include <cassert>
 using namespace msime::windows;

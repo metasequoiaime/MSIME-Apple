@@ -1,5 +1,5 @@
-#import "PreferencesWindowController.h"
-#import "AppearancePreferences.h"
+#import "../src/settings/PreferencesWindowController.h"
+#import "../src/settings/AppearancePreferences.h"
 #include <cassert>
 
 // Deliver AppKit close notifications to the real window delegate without presenting a window.

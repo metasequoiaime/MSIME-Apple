@@ -1,4 +1,4 @@
-#include "CandidateSkin.h"
+#include "../src/candidate/CandidateSkin.h"
 #include <cassert>
 #include <cmath>
 #include <string_view>

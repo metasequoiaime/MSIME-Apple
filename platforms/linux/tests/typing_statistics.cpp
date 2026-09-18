@@ -1,4 +1,4 @@
-#include "../src/TypingStatistics.h"
+#include "../src/system/TypingStatistics.h"
 
 #include <cassert>
 #include <string_view>

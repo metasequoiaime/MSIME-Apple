@@ -1,4 +1,4 @@
-#include "NativeCompose.h"
+#include "../src/core/NativeCompose.h"
 #include <xkbcommon/xkbcommon-keysyms.h>
 #include <stdexcept>
 

@@ -1,4 +1,4 @@
-#include "../src/TypingStatistics.h"
+#include "../src/core/TypingStatistics.h"
 #include "msime_client.h"
 
 #include <cassert>

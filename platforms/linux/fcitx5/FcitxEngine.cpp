@@ -1,5 +1,5 @@
 #include "msime_client.h"
-#include "../src/ChineseTextConversion.h"
+#include "../src/system/ChineseTextConversion.h"
 #include <fcitx-utils/capabilityflags.h>
 #include <fcitx-utils/key.h>
 #include <fcitx-utils/utf8.h>
@@ -18,8 +18,8 @@
 #include <fcitx/instance.h>
 #include <fcitx/surroundingtext.h>
 #include <fcitx/userinterface.h>
-#include "../src/CandidateActionPolicy.h"
-#include "../src/TypingStatistics.h"
+#include "../src/candidates/CandidateActionPolicy.h"
+#include "../src/system/TypingStatistics.h"
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <array>

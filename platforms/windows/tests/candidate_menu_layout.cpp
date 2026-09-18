@@ -1,4 +1,4 @@
-#include "../src/CandidateMenuLayout.h"
+#include "../src/candidate/CandidateMenuLayout.h"
 
 #include <cassert>
 #include <iostream>

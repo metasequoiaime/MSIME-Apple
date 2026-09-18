@@ -1,4 +1,4 @@
-#include "PairedPunctuation.h"
+#include "../src/candidates/PairedPunctuation.h"
 
 #include <cassert>
 

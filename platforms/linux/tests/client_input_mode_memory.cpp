@@ -1,4 +1,4 @@
-#include "ClientInputModeMemory.h"
+#include "../src/core/ClientInputModeMemory.h"
 
 #include <cassert>
 #include <string>

@@ -1,7 +1,7 @@
-#import "AppearancePreferences.h"
-#import "CandidateSkinPreviewView.h"
-#import "CloudAppearanceSettings.h"
-#import "PreferenceSnapshotMerge.h"
+#import "../src/settings/AppearancePreferences.h"
+#import "../src/candidate/CandidateSkinPreviewView.h"
+#import "../src/cloud/CloudAppearanceSettings.h"
+#import "../src/settings/PreferenceSnapshotMerge.h"
 #import <CoreText/CoreText.h>
 #include <cassert>
 #include <fstream>

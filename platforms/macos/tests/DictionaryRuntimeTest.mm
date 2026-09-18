@@ -1,4 +1,4 @@
-#import "../src/ClientDictionaryRuntime.h"
+#import "../src/core/ClientDictionaryRuntime.h"
 #import "../../../shared/apple/MSIMEClientSession.h"
 #include <cassert>
 

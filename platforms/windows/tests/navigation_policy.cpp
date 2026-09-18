@@ -1,4 +1,4 @@
-#include "../src/NavigationPolicy.h"
+#include "../src/input/NavigationPolicy.h"
 #include <cassert>
 int main() {
   msime::windows::FanyImeNamedpipeData packet{};

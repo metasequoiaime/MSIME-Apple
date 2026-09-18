@@ -1,5 +1,5 @@
-#import "../src/ScreenKeyboardPanel.h"
-#include "../src/ScreenKeyboardTargetPolicy.h"
+#import "../src/core/ScreenKeyboardPanel.h"
+#include "../src/core/ScreenKeyboardTargetPolicy.h"
 #import <Carbon/Carbon.h>
 #include <cassert>
 #include <vector>

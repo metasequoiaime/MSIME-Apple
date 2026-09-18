@@ -1,6 +1,6 @@
-#include "HelpcodeDefaults.h"
-#include "NavigationBindings.h"
-#include "WordCharacterBinding.h"
+#include "../src/core/HelpcodeDefaults.h"
+#include "../src/core/NavigationBindings.h"
+#include "../src/core/WordCharacterBinding.h"
 
 #include <cassert>
 

@@ -1,4 +1,4 @@
-#include "ShuangpinProfileNames.h"
+#include "../src/candidates/ShuangpinProfileNames.h"
 
 #include <cassert>
 #include <string_view>

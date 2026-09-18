@@ -1,5 +1,5 @@
-#include "VoiceAction.h"
-#include "VoiceWorker.h"
+#include "../src/voice/VoiceAction.h"
+#include "../src/voice/VoiceWorker.h"
 
 #include <atomic>
 #include <cassert>
