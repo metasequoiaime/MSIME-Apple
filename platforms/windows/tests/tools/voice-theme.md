@@ -8,10 +8,10 @@ Local regression check (18 combinations of surface/global/system):
 
 ```sh
 c++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
-  platforms/windows/tests/voice_theme.cpp -o /tmp/msime-voice-theme-test
+  tests/voice/voice_theme.cpp -o /tmp/msime-voice-theme-test
 /tmp/msime-voice-theme-test
 x86_64-w64-mingw32-g++ -std=c++17 -Wall -Wextra -Werror \
-  platforms/windows/tests/voice_theme.cpp -o /tmp/msime-voice-theme-test.exe
+  tests/voice/voice_theme.cpp -o /tmp/msime-voice-theme-test.exe
 ```
 
 The host-side sanitizer test executes the policy, not Win32. The Windows

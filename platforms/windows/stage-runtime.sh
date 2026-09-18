@@ -53,5 +53,5 @@ while (( index < ${#files[@]} )); do
     esac
   done < <(printf '%s\n' "$imports" | awk '/DLL Name:/ {print $3}')
 done
-cmake -E copy_if_different "$repo_root/platforms/windows/tests/run-smoke.ps1" "$output/run-smoke.ps1"
+cmake -E copy_if_different "$repo_root/platforms/windows/tests/tools/run-smoke.ps1" "$output/run-smoke.ps1"
 echo "Staged $arch local validation directory; import graph checked, Windows execution not performed. Not a release package."
