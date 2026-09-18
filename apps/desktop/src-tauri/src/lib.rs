@@ -24,6 +24,8 @@ mod macos_keyboard;
 mod macos_launch;
 #[cfg(target_os = "macos")]
 mod macos_panel_session;
+#[cfg(target_os = "windows")]
+mod windows_account;
 
 use msime_client_core::clipboard::{ClipboardHistoryEntry, ClipboardHistoryStore};
 use msime_client_core::custom_skin_library::{
@@ -5327,6 +5329,8 @@ pub fn run() {
     let builder = builder.plugin(msime_tauri_mobile_platform::init());
     builder
         .setup(|app| {
+            #[cfg(target_os = "windows")]
+            windows_account::setup(app.handle())?;
             #[cfg(target_os = "ios")]
             ios_account::setup(app.handle())?;
             #[cfg(target_os = "macos")]
@@ -5705,6 +5709,8 @@ pub fn run() {
             install_input_source,
             #[cfg(target_os = "android")]
             android_account::account_status,
+            #[cfg(target_os = "windows")]
+            windows_account::account_status,
             #[cfg(target_os = "android")]
             android_account::android_open_input_method_settings,
             #[cfg(target_os = "android")]
@@ -5719,24 +5725,40 @@ pub fn run() {
             android_account::ai_test,
             #[cfg(target_os = "android")]
             android_account::account_providers,
+            #[cfg(target_os = "windows")]
+            windows_account::account_providers,
             #[cfg(target_os = "android")]
             android_account::account_request_code,
+            #[cfg(target_os = "windows")]
+            windows_account::account_request_code,
             #[cfg(target_os = "android")]
             android_account::account_login,
+            #[cfg(target_os = "windows")]
+            windows_account::account_login,
             #[cfg(target_os = "android")]
             android_account::account_profile,
+            #[cfg(target_os = "windows")]
+            windows_account::account_profile,
             #[cfg(target_os = "android")]
             android_account::account_chat_models,
             #[cfg(target_os = "android")]
             android_account::account_chat,
             #[cfg(target_os = "android")]
             android_account::account_rename,
+            #[cfg(target_os = "windows")]
+            windows_account::account_rename,
             #[cfg(target_os = "android")]
             android_account::account_logout,
+            #[cfg(target_os = "windows")]
+            windows_account::account_logout,
             #[cfg(target_os = "android")]
             android_account::account_delete,
+            #[cfg(target_os = "windows")]
+            windows_account::account_delete,
             #[cfg(target_os = "android")]
             android_account::account_forget,
+            #[cfg(target_os = "windows")]
+            windows_account::account_forget,
             #[cfg(target_os = "android")]
             android_account::app_icon_info,
             #[cfg(target_os = "android")]
