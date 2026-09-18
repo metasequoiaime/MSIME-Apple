@@ -1,5 +1,10 @@
 # Linux IBus 预览宿主
 
+## 目录结构
+
+Linux 平台代码按职责分层：`src/` 放置 IBus、Wayland/X11 和 provider 客户端的 C++ 实现及头文件，`tests/` 放置本地与容器测试，`scripts/` 放置运行时 Python/启动脚本，`data/` 放置 systemd、桌面入口和协议模板，`fcitx5/` 保留 Fcitx5 适配器，`cmake/` 保留安装辅助模块。平台根目录只保留构建入口和说明文档。
+
+
 ## Fcitx5
 
 Linux also ships a native Fcitx5 addon. Configure the normal Linux build with

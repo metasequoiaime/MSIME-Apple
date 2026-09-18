@@ -43,7 +43,7 @@ class ConfigDiscovery(unittest.TestCase):
 
     def start(self, *args):
         process = subprocess.Popen(
-            [sys.executable, "-c", HARNESS, str(ROOT / "msime-client-online-provider"),
+            [sys.executable, "-c", HARNESS, str(ROOT / "scripts" / "msime-client-online-provider"),
              str(self.address), *map(str, args)], env=self.env,
             stdout=subprocess.DEVNULL, stderr=subprocess.PIPE)
         self.addCleanup(self.stop, process)
@@ -64,7 +64,7 @@ class ConfigDiscovery(unittest.TestCase):
                 return json.loads(reader.readline(16385))
 
     def test_launcher_tracks_directory_before_files_exist(self):
-        loader = importlib.machinery.SourceFileLoader("launcher", str(ROOT / "msime-client-provider-session"))
+        loader = importlib.machinery.SourceFileLoader("launcher", str(ROOT / "scripts" / "msime-client-provider-session"))
         spec = importlib.util.spec_from_loader(loader.name, loader)
         module = importlib.util.module_from_spec(spec)
         loader.exec_module(module)

@@ -12,8 +12,8 @@ import unittest
 from unittest import mock
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
-loader = importlib.machinery.SourceFileLoader("online_provider", str(ROOT / "msime-client-online-provider"))
+sys.path.insert(0, str(ROOT / "scripts"))
+loader = importlib.machinery.SourceFileLoader("online_provider", str(ROOT / "scripts" / "msime-client-online-provider"))
 spec = importlib.util.spec_from_loader(loader.name, loader)
 provider = importlib.util.module_from_spec(spec)
 loader.exec_module(provider)

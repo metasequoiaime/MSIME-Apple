@@ -1,4 +1,4 @@
-#include "../WaveOverlayPlacement.h"
+#include "../src/WaveOverlayPlacement.h"
 
 #include <cassert>
 
