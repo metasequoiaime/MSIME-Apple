@@ -197,14 +197,6 @@ int main(int argc, char **argv) {
             "runtime preferences reload in active Fcitx session");
     require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 37,
             "native status actions attached");
-    require(engine.candidate_layout_action_.shortText(&ic) == "候选：横向",
-            "candidate layout action reflects reloaded preference");
-    engine.candidate_layout_action_.activate(&ic);
-    require(state->preferences_.value("candidate_layout", std::string{}) == "vertical",
-            "candidate layout action cycles to vertical");
-    engine.candidate_layout_action_.activate(&ic);
-    require(state->preferences_.value("candidate_layout", std::string{}) == "horizontal",
-            "candidate layout action cycles back to horizontal");
     require(engine.learning_action_.isChecked(&ic),
             "learning status action reflects reloaded preference");
     engine.learning_action_.activate(&ic);
@@ -213,6 +205,14 @@ int main(int argc, char **argv) {
     engine.learning_action_.activate(&ic);
     require(state->preferences_.value("learning", false),
             "learning status action restores user learning");
+    require(engine.candidate_layout_action_.shortText(&ic) == "候选：横向",
+            "candidate layout action reflects reloaded preference");
+    engine.candidate_layout_action_.activate(&ic);
+    require(state->preferences_.value("candidate_layout", std::string{}) == "vertical",
+            "candidate layout action cycles to vertical");
+    engine.candidate_layout_action_.activate(&ic);
+    require(state->preferences_.value("candidate_layout", std::string{}) == "horizontal",
+            "candidate layout action cycles back to horizontal");
     require(engine.mode_scope_action_.shortText(&ic) == "模式：应用",
             "mode scope action starts at application scope");
     engine.mode_scope_action_.activate(&ic);

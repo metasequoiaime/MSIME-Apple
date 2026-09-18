@@ -399,6 +399,20 @@ public:
   }
   bool toggleTopLevelBoolean(const char *key, bool fallback = false) {
     if (!session_ || !key || !*key) return false;
+    if (preferences_save_job_.valid()) {
+      try { preferences_save_job_.get(); } catch (...) {}
+      preferences_save_job_ = {};
+      if (!options_path_.empty()) {
+        try {
+          auto latest = response(msime_client_load_preferences(
+              reinterpret_cast<const uint8_t *>(options_path_.data()), options_path_.size()));
+          if (latest.is_object() && latest.contains("revision") && latest.contains("preferences")) {
+            preferences_snapshot_ = latest;
+            preferences_ = latest.at("preferences");
+          }
+        } catch (...) {}
+      }
+    }
     const bool enabled = !preferences_.value(key, fallback);
     auto snapshot = preferences_snapshot_;
     if (!snapshot.is_object() || !snapshot.contains("revision") ||
@@ -577,34 +591,40 @@ public:
     if (!session_) return false;
     const auto current = preferences_.value("candidate_layout", std::string("vertical"));
     const std::string next = current == "horizontal" ? "vertical" : "horizontal";
-    auto snapshot = preferences_snapshot_;
-    if (!snapshot.is_object() || !snapshot.contains("revision") ||
-        !snapshot.contains("preferences")) return false;
-    snapshot["preferences"]["candidate_layout"] = next;
-    const auto encoded = snapshot.dump();
-    view_ = response(msime_client_update_preferences(
-        session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
-    preferences_ = snapshot.at("preferences");
-    preferences_snapshot_ = std::move(snapshot);
+    preferences_["candidate_layout"] = next;
     saveStringPreference("candidate_layout", next);
-    render();
+    if (preferences_save_job_.valid()) {
+      try { preferences_save_job_.get(); } catch (...) {}
+      preferences_save_job_ = {};
+    }
+    if (!options_path_.empty()) {
+      try {
+        auto latest = response(msime_client_load_preferences(
+            reinterpret_cast<const uint8_t *>(options_path_.data()), options_path_.size()));
+        if (latest.is_object() && latest.contains("revision") && latest.contains("preferences"))
+          preferences_snapshot_ = std::move(latest);
+      } catch (...) {}
+    }
     return true;
   }
   bool cycleModeScope() {
     if (!session_) return false;
     const auto current = preferences_.value("ime_mode_scope", std::string("app"));
     const std::string next = current == "global" ? "app" : "global";
-    auto snapshot = preferences_snapshot_;
-    if (!snapshot.is_object() || !snapshot.contains("revision") ||
-        !snapshot.contains("preferences")) return false;
-    snapshot["preferences"]["ime_mode_scope"] = next;
-    const auto encoded = snapshot.dump();
-    view_ = response(msime_client_update_preferences(
-        session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
-    preferences_ = snapshot.at("preferences");
-    preferences_snapshot_ = std::move(snapshot);
+    preferences_["ime_mode_scope"] = next;
     saveStringPreference("ime_mode_scope", next);
-    render();
+    if (preferences_save_job_.valid()) {
+      try { preferences_save_job_.get(); } catch (...) {}
+      preferences_save_job_ = {};
+    }
+    if (!options_path_.empty()) {
+      try {
+        auto latest = response(msime_client_load_preferences(
+            reinterpret_cast<const uint8_t *>(options_path_.data()), options_path_.size()));
+        if (latest.is_object() && latest.contains("revision") && latest.contains("preferences"))
+          preferences_snapshot_ = std::move(latest);
+      } catch (...) {}
+    }
     return true;
   }
   bool toggleCloudCandidates() {
@@ -1998,7 +2018,17 @@ public:
     auto *state = ic->propertyFor(factory_);
     if (!state->session_ || state->restricted() || state->privateInput()) return;
     try {
-      if (state->ensure() && state->toggleTopLevelBoolean("learning", true)) update(ic);
+      if (state->ensure()) {
+        const bool enabled = !state->preferences_.value("learning", true);
+        state->preferences_["learning"] = enabled;
+        state->saveBooleanPreference("learning", enabled);
+        if (state->preferences_save_job_.valid()) {
+          try { state->preferences_save_job_.get(); } catch (...) {}
+          state->preferences_save_job_ = {};
+        }
+        state->render();
+        update(ic);
+      }
     } catch (...) {
       state->close();
       state->clearPanel();
