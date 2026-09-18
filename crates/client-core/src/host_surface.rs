@@ -210,10 +210,12 @@ impl HostCapabilities {
                 HostPlatform::Linux | HostPlatform::Windows | HostPlatform::Macos
             ),
             // Native Windows/macOS candidate windows consume the shared font
-            // controls; IBus lookup tables and mobile hosts do not expose them.
+            // controls. Harmony's desktop candidate panel also applies the
+            // family chain and both candidate/preedit sizes in ArkUI; the
+            // touch-only hosts still use their fixed key typography.
             candidate_font_controls: matches!(
                 platform,
-                HostPlatform::Windows | HostPlatform::Macos
+                HostPlatform::Windows | HostPlatform::Macos | HostPlatform::Harmony
             ),
             // IBus exposes candidate and label foreground/background RGB
             // attributes, but not native hover state or card borders.
@@ -739,7 +741,7 @@ mod tests {
         assert!(!harmony.panel_shortcuts);
         assert!(!harmony.number_row_selection);
         assert!(!harmony.voice_capture_devices);
-        assert!(!harmony.candidate_font_controls);
+        assert!(harmony.candidate_font_controls);
         assert!(!harmony.candidate_row_colors);
         assert!(!harmony.candidate_selection_appearance);
         assert!(harmony.candidate_follow_cursor);

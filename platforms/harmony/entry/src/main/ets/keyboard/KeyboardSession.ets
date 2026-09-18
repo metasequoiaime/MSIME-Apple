@@ -308,6 +308,10 @@ interface PreparedPreferences {
   touch_keyboard_layout: string;
   touch_keyboard_skin: string;
   candidate_follow_cursor: boolean;
+  candidate_font_size: number;
+  candidate_preedit_font_size: number;
+  candidate_font_family: string;
+  candidate_fallback_fonts: string[];
   // 'follow', 'dark' or 'light' for the keyboard specifically; theme is the global one it falls
   // back to, and only if both defer does the system decide.
   screen_keyboard_theme: string;
@@ -358,6 +362,10 @@ export interface KeyboardPreferences {
   readonly shuangpinProfile: string;
   readonly layout: string;
   readonly candidateFollowCursor: boolean;
+  readonly candidateFontSize: number;
+  readonly candidatePreeditFontSize: number;
+  readonly candidateFontFamily: string;
+  readonly candidateFallbackFonts: string[];
   readonly keySpacingTenths: number;
   readonly rowSpacingTenths: number;
   readonly heightAdjustment: number;
@@ -437,6 +445,10 @@ export class KeyboardSession {
     shuangpinProfile: 'xiaohe',
     layout: 'twenty_six_key',
     candidateFollowCursor: true,
+    candidateFontSize: 18,
+    candidatePreeditFontSize: 15,
+    candidateFontFamily: 'Noto Sans SC',
+    candidateFallbackFonts: ['Noto Sans SC', 'Microsoft YaHei'],
     keySpacingTenths: KeyboardGeometry.DEFAULT_KEY_SPACING_TENTHS,
     rowSpacingTenths: KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS,
     heightAdjustment: KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_VP,
@@ -529,6 +541,16 @@ export class KeyboardSession {
         shuangpinProfile: preferences.shuangpin_profile,
         layout: preferences.touch_keyboard_layout,
         candidateFollowCursor: preferences.candidate_follow_cursor,
+        // The shared store validates these to 12..32 and strips control
+        // characters from family names. Clamp again at the host boundary so
+        // an older staged document cannot produce an unusable panel.
+        candidateFontSize: Math.max(12, Math.min(32, preferences.candidate_font_size)),
+        candidatePreeditFontSize:
+          Math.max(12, Math.min(32, preferences.candidate_preedit_font_size)),
+        candidateFontFamily: preferences.candidate_font_family.trim().length > 0
+          ? preferences.candidate_font_family : 'Noto Sans SC',
+        candidateFallbackFonts: preferences.candidate_fallback_fonts.filter(
+          (font: string): boolean => font.trim().length > 0),
         // Clamped rather than trusted: the store validates, but an older document or a host that
         // never learned the bounds would otherwise draw a keyboard nobody can hit.
         keySpacingTenths: KeyboardGeometry.keySpacing(preferences.touch_key_spacing_tenths),

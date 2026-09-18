@@ -693,7 +693,7 @@ struct KeyboardView {
   private expandedRows(): number[][] {
     const widths: number[] = [];
     for (const candidate of this.expanded) {
-      widths.push(candidate.length * KeyboardMetrics.CANDIDATE_FONT_SIZE
+      widths.push(candidate.length * this.settings.candidateFontSize
         + KeyboardMetrics.CANDIDATE_PADDING_VP * 2);
     }
     const assignment: number[] = CandidateWrapPolicy.rows(this.availableWidth, 0, widths);
@@ -716,6 +716,22 @@ struct KeyboardView {
       width: 0,
       action: () => this.tapLetter(letter)
     };
+  }
+
+  /**
+   * ArkUI accepts a CSS-style family list, so the shared primary family and
+   * fallback order can travel through one Text modifier. Keeping this at the
+   * view boundary also means malformed legacy entries cannot create an empty
+   * family declaration.
+   */
+  private candidateFontFamily(): string {
+    const families: string[] = [this.settings.candidateFontFamily];
+    for (const fallback of this.settings.candidateFallbackFonts) {
+      if (fallback.length > 0 && !families.includes(fallback)) {
+        families.push(fallback);
+      }
+    }
+    return families.join(', ');
   }
 
   /**
@@ -747,8 +763,9 @@ struct KeyboardView {
             })
         } else {
           Text(this.diagnostic.length > 0 ? this.diagnostic : this.editing)
-            .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
+            .fontSize(this.settings.candidatePreeditFontSize)
             .fontColor(this.skin.accent)
+            .fontFamily(this.candidateFontFamily())
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
         }
@@ -785,21 +802,24 @@ struct KeyboardView {
           ForEach(this.candidates, (candidate: CandidateEntry, index: number) => {
             Row() {
               Text(candidate.text)
-                .fontSize(KeyboardMetrics.CANDIDATE_FONT_SIZE)
+                .fontSize(this.settings.candidateFontSize)
                 .fontColor(index === 0 ? this.skin.accent : this.skin.keyForeground)
+                .fontFamily(this.candidateFontFamily())
               // The untyped tail of a Wubi code, and any suffix the Engine derived. Both are
               // printed beside the candidate and neither is part of what gets committed.
               if (candidate.hint.length > 0) {
                 Text(candidate.hint)
-                  .fontSize(KEY_HINT_FONT_SIZE)
+                  .fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
                   .fontColor(this.skin.keyForeground)
+                  .fontFamily(this.candidateFontFamily())
                   .opacity(0.5)
                   .padding({ left: 2 })
               }
               if (candidate.annotation.length > 0) {
                 Text(candidate.annotation)
-                  .fontSize(KEY_HINT_FONT_SIZE)
+                  .fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
                   .fontColor(this.skin.accent)
+                  .fontFamily(this.candidateFontFamily())
                   .opacity(0.7)
                   .padding({ left: 4 })
               }
@@ -1987,8 +2007,9 @@ struct KeyboardView {
             Row() {
               ForEach(row, (index: number) => {
                 Text(this.expanded[index])
-                  .fontSize(KeyboardMetrics.CANDIDATE_FONT_SIZE)
+                  .fontSize(this.settings.candidateFontSize)
                   .fontColor(this.skin.keyForeground)
+                  .fontFamily(this.candidateFontFamily())
                   .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
                     right: KeyboardMetrics.CANDIDATE_PADDING_VP })
                   .height(KeyboardMetrics.ROW_HEIGHT_VP)
