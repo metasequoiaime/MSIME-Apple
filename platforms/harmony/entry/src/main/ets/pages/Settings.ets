@@ -5,6 +5,7 @@ import pasteboard from '@ohos.pasteboard';
 import Want from '@ohos.app.ability.Want';
 import bundleManager from '@ohos.bundle.bundleManager';
 import http from '@ohos.net.http';
+import util from '@ohos.util';
 import fs from '@ohos.file.fs';
 import { KeyboardLog, describeError } from '../keyboard/KeyboardLog';
 import { KeyboardSession } from '../keyboard/KeyboardSession';
@@ -558,7 +559,7 @@ class SettingsBridge {
       return this.chatCredential(request.config);
     }
     if (request.service === 'voice.asr') {
-      return this.credentialReply(false, 'Harmony 当前尚未接入此服务的凭据测试。');
+      return this.asrCredential(request.config);
     }
     return this.credentialReply(false, 'Harmony 不支持此配置测试类型。');
   }
@@ -746,6 +747,88 @@ class SettingsBridge {
     } finally {
       request.destroy();
     }
+  }
+
+  private async asrCredential(config: ApiCredentialConfig): Promise<string> {
+    const provider: string = (config.provider ?? '').trim();
+    const endpoint: string | null = this.validCredentialEndpoint(config.endpoint ?? '', false);
+    const token: string = (config.token ?? '').trim();
+    const model: string = (config.model ?? '').trim();
+    if (!['openai', 'siliconflow', 'groq'].includes(provider) || endpoint === null
+      || !this.validCredentialSecret(token, 8192) || model.length === 0
+      || utf8Length(model) > 256 || this.hasControl(model)) {
+      return this.credentialReply(false, '请填写有效的 HTTPS 转写接口地址、API Key 和模型名。');
+    }
+    const boundary: string = '----MSIMEHarmonyCredentialProbe';
+    const body: ArrayBuffer = this.silentMultipart(boundary, model);
+    const request = http.createHttp();
+    try {
+      const response: http.HttpResponse = await request.request(endpoint, {
+        method: http.RequestMethod.POST,
+        header: { Accept: 'application/json', Authorization: `Bearer ${token}`,
+          'Content-Type': `multipart/form-data; boundary=${boundary}` },
+        connectTimeout: 5000,
+        readTimeout: 15000,
+        extraData: body
+      });
+      if (response.responseCode >= 200 && response.responseCode < 300) {
+        return this.credentialReply(true, '连接成功，API Key 和模型配置有效。');
+      }
+      if (response.responseCode === 401 || response.responseCode === 403) {
+        return this.credentialReply(false, '认证失败，请检查 API Key 和访问权限。');
+      }
+      if (response.responseCode === 429) {
+        return this.credentialReply(false, '服务限流或额度不足，请稍后重试。');
+      }
+      return this.credentialReply(false, '转写测试未成功，请检查接口地址、模型和服务配置。');
+    } catch (error) {
+      KeyboardLog.error(`ASR credential unavailable: ${describeError(error)}`);
+      return this.credentialReply(false, '连接失败，请检查转写接口、模型、API Key 和网络。');
+    } finally {
+      request.destroy();
+    }
+  }
+
+  private silentMultipart(boundary: string, model: string): ArrayBuffer {
+    const encoder: util.TextEncoder = util.TextEncoder.create('utf-8');
+    const wav: Uint8Array = new Uint8Array(44 + 32000);
+    this.writeAscii(wav, 0, 'RIFF');
+    this.writeU32(wav, 4, 32036);
+    this.writeAscii(wav, 8, 'WAVEfmt ');
+    this.writeU32(wav, 16, 16);
+    this.writeU16(wav, 20, 1);
+    this.writeU16(wav, 22, 1);
+    this.writeU32(wav, 24, 16000);
+    this.writeU32(wav, 28, 32000);
+    this.writeU16(wav, 32, 2);
+    this.writeU16(wav, 34, 16);
+    this.writeAscii(wav, 36, 'data');
+    this.writeU32(wav, 40, 32000);
+    const prefix: Uint8Array = encoder.encode(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="credential-test.wav"\r\nContent-Type: audio/wav\r\n\r\n`);
+    const modelPart: Uint8Array = encoder.encode(`\r\n--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\n${model}\r\n--${boundary}--\r\n`);
+    const output: ArrayBuffer = new ArrayBuffer(prefix.length + wav.length + modelPart.length);
+    const bytes: Uint8Array = new Uint8Array(output);
+    bytes.set(prefix, 0);
+    bytes.set(wav, prefix.length);
+    bytes.set(modelPart, prefix.length + wav.length);
+    return output;
+  }
+
+  private writeAscii(bytes: Uint8Array, offset: number, value: string): void {
+    const encoder: util.TextEncoder = util.TextEncoder.create('utf-8');
+    bytes.set(encoder.encode(value), offset);
+  }
+
+  private writeU16(bytes: Uint8Array, offset: number, value: number): void {
+    bytes[offset] = value & 0xff;
+    bytes[offset + 1] = (value >>> 8) & 0xff;
+  }
+
+  private writeU32(bytes: Uint8Array, offset: number, value: number): void {
+    bytes[offset] = value & 0xff;
+    bytes[offset + 1] = (value >>> 8) & 0xff;
+    bytes[offset + 2] = (value >>> 16) & 0xff;
+    bytes[offset + 3] = (value >>> 24) & 0xff;
   }
 
   private translationText(document: TranslationDocument): string | null {
