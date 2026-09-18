@@ -743,6 +743,10 @@ struct KeyboardView {
     return this.settings.candidateAccentColor ?? this.skin.accent;
   }
 
+  private candidateNumberColor(): string {
+    return this.settings.candidateNumberColor ?? this.candidateTextColor();
+  }
+
   private candidateHoverColor(): string {
     return this.settings.candidateHoverColor ?? this.settings.candidateSelectedColor
       ?? '#00000000';
@@ -822,6 +826,12 @@ struct KeyboardView {
         Row() {
           ForEach(this.candidates, (candidate: CandidateEntry, index: number) => {
             Row() {
+              Text(`${index + 1}`)
+                .fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
+                .fontColor(this.candidateNumberColor())
+                .fontFamily(this.candidateFontFamily())
+                .opacity(0.72)
+                .padding({ right: 4 })
               Text(candidate.text)
                 .fontSize(this.settings.candidateFontSize)
                 .fontColor(index === 0 ? this.candidateAccentColor() : this.candidateTextColor())
@@ -2035,10 +2045,18 @@ struct KeyboardView {
           ForEach(this.expandedRows(), (row: number[]) => {
             Row() {
               ForEach(row, (index: number) => {
-                Text(this.expanded[index])
+                Row() {
+                  Text(`${index + 1}`)
+                    .fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
+                    .fontColor(this.candidateNumberColor())
+                    .fontFamily(this.candidateFontFamily())
+                    .opacity(0.72)
+                    .padding({ right: 4 })
+                  Text(this.expanded[index])
                   .fontSize(this.settings.candidateFontSize)
                   .fontColor(this.candidateTextColor())
                   .fontFamily(this.candidateFontFamily())
+                }
                   .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
                     right: KeyboardMetrics.CANDIDATE_PADDING_VP })
                   .height(KeyboardMetrics.ROW_HEIGHT_VP)

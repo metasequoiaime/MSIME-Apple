@@ -315,6 +315,7 @@ interface PreparedPreferences {
   candidate_fallback_fonts: string[];
   candidate_text_color: string | null;
   candidate_accent_color: string | null;
+  candidate_number_color: string | null;
   candidate_selected_color: string | null;
   candidate_hover_color: string | null;
   candidate_surface_color: string | null;
@@ -376,6 +377,7 @@ export interface KeyboardPreferences {
   readonly candidateFallbackFonts: string[];
   readonly candidateTextColor: string | null;
   readonly candidateAccentColor: string | null;
+  readonly candidateNumberColor: string | null;
   readonly candidateSelectedColor: string | null;
   readonly candidateHoverColor: string | null;
   readonly candidateSurfaceColor: string | null;
@@ -466,6 +468,7 @@ export class KeyboardSession {
     candidateFallbackFonts: ['Noto Sans SC', 'Microsoft YaHei'],
     candidateTextColor: null,
     candidateAccentColor: null,
+    candidateNumberColor: null,
     candidateSelectedColor: null,
     candidateHoverColor: null,
     candidateSurfaceColor: null,
@@ -575,6 +578,7 @@ export class KeyboardSession {
           (font: string): boolean => font.trim().length > 0),
         candidateTextColor: preferences.candidate_text_color,
         candidateAccentColor: preferences.candidate_accent_color,
+        candidateNumberColor: preferences.candidate_number_color,
         candidateSelectedColor: preferences.candidate_selected_color,
         candidateHoverColor: preferences.candidate_hover_color,
         candidateSurfaceColor: preferences.candidate_surface_color,
