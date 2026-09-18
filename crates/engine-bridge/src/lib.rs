@@ -104,6 +104,7 @@ mod ffi {
         pub reading: String,
         pub editing_text: String,
         pub caret_position: usize,
+        pub segment_raw_boundaries: Vec<u64>,
         pub candidates: Vec<String>,
         pub candidate_codes: Vec<String>,
         pub scheme: u8,

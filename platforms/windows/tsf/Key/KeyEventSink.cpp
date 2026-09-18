@@ -43,6 +43,7 @@ struct DeferredShadowState
     size_t caret = 0;
     bool candidateActive = false;
     bool unicodeMode = false;
+    bool projectionValid = true;
 };
 
 bool IsBareModifierKey(UINT code)
@@ -120,6 +121,11 @@ void ApplyDeferredKeyState(DeferredShadowState &shadow, const _KEYSTROKE_STATE &
             shadow.unicodeMode = false;
         }
         break;
+    case FUNCTION_BACKSPACE_SEGMENT:
+    case FUNCTION_MOVE_LEFT_SEGMENT:
+    case FUNCTION_MOVE_RIGHT_SEGMENT:
+        shadow.projectionValid = false;
+        break;
     case FUNCTION_CONVERT_WILDCARD:
         shadow.candidateActive = shadow.inputLength > 0;
         break;
@@ -176,6 +182,9 @@ bool IsRecoverableDeferredPrefix(const _KEYSTROKE_STATE &keyState)
     {
     case FUNCTION_INPUT:
     case FUNCTION_BACKSPACE:
+    case FUNCTION_BACKSPACE_SEGMENT:
+    case FUNCTION_MOVE_LEFT_SEGMENT:
+    case FUNCTION_MOVE_RIGHT_SEGMENT:
     case FUNCTION_DELETE:
     case FUNCTION_MOVE_LEFT:
     case FUNCTION_MOVE_RIGHT:
@@ -215,6 +224,22 @@ bool IsEnglishInputModeToggle(UINT code, UINT modifiers)
 {
     // Ctrl+Shift+E, without Alt.
     return code == 'E' && (modifiers & 0b00000111u) == 0b00000011u;
+}
+
+KEYSTROKE_FUNCTION SegmentEditFunction(UINT code, UINT modifiers)
+{
+    if ((modifiers & 0b00000111u) != 0b00000010u ||
+        (GetAsyncKeyState(VK_LWIN) & 0x8000) != 0 || (GetAsyncKeyState(VK_RWIN) & 0x8000) != 0)
+    {
+        return FUNCTION_NONE;
+    }
+    switch (code)
+    {
+    case VK_BACK: return FUNCTION_BACKSPACE_SEGMENT;
+    case VK_LEFT: return FUNCTION_MOVE_LEFT_SEGMENT;
+    case VK_RIGHT: return FUNCTION_MOVE_RIGHT_SEGMENT;
+    default: return FUNCTION_NONE;
+    }
 }
 
 bool IsCharacterSetInputModeToggle(UINT code, UINT modifiers)
@@ -754,6 +779,16 @@ BOOL CMetasequoiaIME::_IsKeyEaten(         //
         if ((shortcutModifiers & 0b00000110u) != 0 || (GetAsyncKeyState(VK_LWIN) & 0x8000) != 0 ||
             (GetAsyncKeyState(VK_RWIN) & 0x8000) != 0)
         {
+            const KEYSTROKE_FUNCTION segmentEdit = SegmentEditFunction(*pCodeOut, shortcutModifiers);
+            if (segmentEdit != FUNCTION_NONE && _IsComposing())
+            {
+                if (pKeyState)
+                {
+                    pKeyState->Category = CATEGORY_COMPOSING;
+                    pKeyState->Function = segmentEdit;
+                }
+                return TRUE;
+            }
             return isTouchKeyboardSpecialKeys;
         }
 
@@ -1047,6 +1082,16 @@ void CMetasequoiaIME::_ApplyDeferredKeyProjection(const _KEYSTROKE_STATE &keySta
     shadow.candidateActive = _deferredProjectedCandidateActive;
     shadow.unicodeMode = _deferredProjectedUnicodeMode;
     ApplyDeferredKeyState(shadow, keyState, wch);
+    if (!shadow.projectionValid)
+    {
+        _deferredKeyProjectionValid = false;
+        _deferredProjectedInputLength = 0;
+        _deferredProjectedRawInput.clear();
+        _deferredProjectedCaret = 0;
+        _deferredProjectedCandidateActive = false;
+        _deferredProjectedUnicodeMode = false;
+        return;
+    }
     _deferredProjectedInputLength = shadow.inputLength;
     _deferredProjectedRawInput = std::move(shadow.rawInput);
     _deferredProjectedCaret = shadow.caret;
@@ -1227,8 +1272,20 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
         return true;
     }
 
-    // Other Ctrl/Alt/Windows combinations belong to the application. In particular,
-    // never turn a recovery FIFO into a shortcut sink.
+    // Segment edits are the only Ctrl chords claimed while a projected
+    // composition is live; all other modifier combinations belong to the host.
+    const bool projectedCompositionActive = _deferredKeyProjectionValid
+                                                ? (_deferredProjectedInputLength > 0 ||
+                                                   _deferredProjectedCandidateActive)
+                                                : (_pCompositionProcessorEngine->GetVirtualKeyLength() > 0 ||
+                                                   _candidateMode != CANDIDATE_NONE);
+    const KEYSTROKE_FUNCTION segmentEdit = SegmentEditFunction(*classifiedCode, capturedModifiers);
+    if (segmentEdit != FUNCTION_NONE && !_IsKeyboardDisabled() && projectedCompositionActive)
+    {
+        keyState->Category = CATEGORY_COMPOSING;
+        keyState->Function = segmentEdit;
+        return true;
+    }
     if ((capturedModifiers & 0b00000110) != 0 || (GetAsyncKeyState(VK_LWIN) & 0x8000) != 0 ||
         (GetAsyncKeyState(VK_RWIN) & 0x8000) != 0 || IsBareModifierKey(*classifiedCode) || _IsKeyboardDisabled())
     {

@@ -122,9 +122,7 @@ KeyResult ServerSession::key(const FanyImeNamedpipeData &packet,
   }
   const auto modifiers = PipeMetadata::key_modifiers(packet.modifiers_down);
   const auto digit_key = normalize_digit_key(packet.keycode);
-  nlohmann::json current;
-  if (modifiers <= 1 && digit_key >= '1' && digit_key <= '9')
-    current = view();
+  nlohmann::json current = view();
   if (!current.is_null() && current.at("local_mode") != "unknown" &&
       ((current.at("local_mode") == "unicode" && modifiers == 1) ||
        (current.at("local_mode") != "unicode" && modifiers == 0))) {
@@ -152,6 +150,11 @@ KeyResult ServerSession::key(const FanyImeNamedpipeData &packet,
     result = response(msime_client_character(
         session_, static_cast<uint8_t>(action.value), action.shift));
   } else {
+    if ((action.value == MSIME_BACKSPACE_SEGMENT || action.value == MSIME_MOVE_LEFT_SEGMENT ||
+         action.value == MSIME_MOVE_RIGHT_SEGMENT) && current.at("editing_text").get<std::string>().empty()) {
+      result = {{"handled", false}, {"commit", nullptr}, {"diagnostic", nullptr}, {"view", current}};
+      return {client_, epoch_, packet.request_id, false, std::move(result)};
+    }
     result = response(msime_client_command(session_, action.value));
     if (action.kind == KeyKind::CancelAndForward ||
         action.kind == KeyKind::LocalReset)

@@ -113,6 +113,38 @@ pub trait InputEngine {
     fn snapshot(&self) -> Result<EngineSnapshot, RuntimeError>;
     fn character(&mut self, value: u8, shift: bool) -> Result<EngineResult, RuntimeError>;
     fn command(&mut self, command: Command) -> Result<EngineResult, RuntimeError>;
+    fn segment_command(&mut self, command: SegmentCommand) -> Result<EngineResult, RuntimeError> {
+        let snapshot = self.snapshot()?;
+        let fallback = match command {
+            SegmentCommand::Backspace => Command::Backspace,
+            SegmentCommand::MoveLeft => Command::MoveLeft,
+            SegmentCommand::MoveRight => Command::MoveRight,
+        };
+        let caret = snapshot.caret_position as u64;
+        let steps = match command {
+            SegmentCommand::Backspace | SegmentCommand::MoveLeft => snapshot
+                .segment_raw_boundaries
+                .iter()
+                .rev()
+                .find(|&&boundary| boundary < caret)
+                .map_or(1, |&boundary| (caret - boundary) as usize),
+            SegmentCommand::MoveRight => snapshot
+                .segment_raw_boundaries
+                .iter()
+                .find(|&&boundary| boundary > caret)
+                .map_or(1, |&boundary| (boundary - caret) as usize),
+        };
+        let mut result = EngineResult {
+            handled: false,
+            has_commit: false,
+            commit: String::new(),
+            diagnostic: String::new(),
+        };
+        for _ in 0..steps {
+            result = self.command(fallback)?;
+        }
+        Ok(result)
+    }
     fn select(&mut self, index: usize) -> Result<EngineResult, RuntimeError>;
     fn pin_candidate(&mut self, _index: usize) -> Result<EngineResult, RuntimeError> {
         Err(RuntimeError::Engine(
@@ -145,6 +177,13 @@ pub trait InputEngine {
     ) -> Result<EngineResult, RuntimeError>;
     fn finish(&mut self, index: usize) -> Result<EngineResult, RuntimeError>;
     fn punctuation(&mut self, value: u8) -> Result<EngineResult, RuntimeError>;
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SegmentCommand {
+    Backspace,
+    MoveLeft,
+    MoveRight,
 }
 
 impl InputEngine for Session {
@@ -1334,6 +1373,9 @@ pub enum Action {
     /// authoritative for every other punctuation action.
     PunctuationAscii(u8),
     Command(Command),
+    SegmentBackspace,
+    SegmentMoveLeft,
+    SegmentMoveRight,
     Select(CandidateId),
     /// Select any candidate in the current Engine generation. This is reserved
     /// for hosts that explicitly requested [`Runtime::all_candidates`].
@@ -1968,6 +2010,7 @@ impl<E: InputEngine> Runtime<E> {
                 reading: String::new(),
                 editing_text: String::new(),
                 caret_position: 0,
+                segment_raw_boundaries: vec![],
                 candidates: Vec::new(),
             },
         );
@@ -2170,6 +2213,9 @@ impl<E: InputEngine> Runtime<E> {
                 })
             }
             Action::Command(command) => self.engine.command(command),
+            Action::SegmentBackspace => self.engine.segment_command(SegmentCommand::Backspace),
+            Action::SegmentMoveLeft => self.engine.segment_command(SegmentCommand::MoveLeft),
+            Action::SegmentMoveRight => self.engine.segment_command(SegmentCommand::MoveRight),
             Action::Select(id) => self.engine.select(id.index),
             Action::SelectAnyCandidate(id) => self.engine.select(id.index),
             Action::SelectEdge(id, edge) => self.engine.select_edge(id.index, edge),
@@ -2549,6 +2595,7 @@ mod tests {
                 reading: String::new(),
                 editing_text: self.text.clone(),
                 caret_position: self.text.len(),
+                segment_raw_boundaries: vec![],
                 candidates: if self.text.is_empty() {
                     vec![]
                 } else {
