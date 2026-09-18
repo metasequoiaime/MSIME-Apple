@@ -1,4 +1,4 @@
-#import "../src/InputMenu.h"
+#import "../src/input/InputMenu.h"
 
 #import <AppKit/AppKit.h>
 

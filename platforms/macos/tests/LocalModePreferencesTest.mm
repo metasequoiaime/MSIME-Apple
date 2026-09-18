@@ -1,4 +1,4 @@
-#import "../src/AppearancePreferences.h"
+#import "../src/settings/AppearancePreferences.h"
 #import "MSIMEClientSession.h"
 #include "msime_client.h"
 #include <cassert>

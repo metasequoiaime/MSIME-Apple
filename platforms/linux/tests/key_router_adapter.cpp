@@ -1,4 +1,4 @@
-#include "KeyRouterAdapter.h"
+#include "../src/core/KeyRouterAdapter.h"
 #include <cassert>
 
 int main() {

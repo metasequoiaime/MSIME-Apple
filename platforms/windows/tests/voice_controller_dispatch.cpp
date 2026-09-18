@@ -1,4 +1,4 @@
-#include "../src/VoiceControllerMailbox.h"
+#include "../src/voice/VoiceControllerMailbox.h"
 #include <cassert>
 #include <stdexcept>
 #include <thread>

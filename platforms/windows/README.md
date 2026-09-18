@@ -2,7 +2,7 @@
 
 ## Directory layout
 
-Windows platform implementation sources live under `src/`; `tsf/`, `msimeui/`, `tests/`, and `installer/` retain their independent protocol, UI, test, and packaging boundaries. The platform root keeps build files, scripts, manifests, and documentation.
+Windows platform implementation sources live under `src/` 下按 `candidate/`、`voice/`、`clipboard/`、`ipc/`、`input/` 和 `system/` 分层; `tsf/`, `msimeui/`, `tests/`, and `installer/` retain their independent protocol, UI, test, and packaging boundaries. The platform root keeps build files, scripts, manifests, and documentation.
 
 本阶段将固定 Engine 的 `FanyImeNamedpipeData` 键包接到 `msime-host-api`，不是完整 Windows 输入法。共享库只进入独立 Server，不能加载到注入应用的 TSF DLL 中。后续仍保留 TSF DLL / Server 进程隔离、现有版本化 Named Pipe 契约及 UI 原生窗口所有权。
 

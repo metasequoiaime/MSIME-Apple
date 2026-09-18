@@ -1,4 +1,4 @@
-#import "../src/CloudAppearanceSettings.h"
+#import "../src/cloud/CloudAppearanceSettings.h"
 #include <cassert>
 #import "TestPreferenceSuite.h"
 int main() {

@@ -1,6 +1,6 @@
-#import "../src/CandidatePanel.h"
-#import "../src/CandidateSkinAppearance.h"
-#import "../src/CandidateTypography.h"
+#import "../src/candidate/CandidatePanel.h"
+#import "../src/candidate/CandidateSkinAppearance.h"
+#import "../src/candidate/CandidateTypography.h"
 #include <cstdlib>
 #include <filesystem>
 #include <fstream>

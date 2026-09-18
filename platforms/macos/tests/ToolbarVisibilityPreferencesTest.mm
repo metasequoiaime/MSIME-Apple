@@ -1,4 +1,4 @@
-#import "../src/AppearancePreferences.h"
+#import "../src/settings/AppearancePreferences.h"
 #include <cassert>
 #import "TestPreferenceSuite.h"
 

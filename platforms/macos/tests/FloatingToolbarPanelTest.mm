@@ -1,5 +1,5 @@
-#import "../src/FloatingToolbarPanel.h"
-#import "../src/CandidateSkinAppearance.h"
+#import "../src/core/FloatingToolbarPanel.h"
+#import "../src/candidate/CandidateSkinAppearance.h"
 
 #include <cassert>
 #include <cmath>

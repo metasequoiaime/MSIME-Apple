@@ -1,6 +1,6 @@
-#import "AppearancePreferences.h"
-#import "SkinSettingsView.h"
-#import "CandidateSkinPreviewView.h"
+#import "../src/settings/AppearancePreferences.h"
+#import "../src/candidate/SkinSettingsView.h"
+#import "../src/candidate/CandidateSkinPreviewView.h"
 #include <cassert>
 #include <fstream>
 #import "TestPreferenceSuite.h"

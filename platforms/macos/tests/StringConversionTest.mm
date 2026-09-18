@@ -1,4 +1,4 @@
-#include "../src/StringConversion.h"
+#include "../src/core/StringConversion.h"
 
 #include <stdexcept>
 #include <string>

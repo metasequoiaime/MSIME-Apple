@@ -1,4 +1,4 @@
-#import "../src/InputSourceRegistration.h"
+#import "../src/input/InputSourceRegistration.h"
 
 #include <stdexcept>
 #include <vector>

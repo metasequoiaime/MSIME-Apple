@@ -1,4 +1,5 @@
 cmake_minimum_required(VERSION 3.25)
+include_directories("${CMAKE_CURRENT_SOURCE_DIR}/src/server" "${CMAKE_CURRENT_SOURCE_DIR}/src/ipc" "${CMAKE_CURRENT_SOURCE_DIR}/src/candidate" "${CMAKE_CURRENT_SOURCE_DIR}/src/voice" "${CMAKE_CURRENT_SOURCE_DIR}/src/clipboard" "${CMAKE_CURRENT_SOURCE_DIR}/src/input" "${CMAKE_CURRENT_SOURCE_DIR}/src/system")
 project(MSIMEClientWindowsBoundary LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -56,7 +57,7 @@ if(WIN32)
   endif()
   add_test(NAME windows-candidate-font-format COMMAND windows-candidate-font-format)
   set_tests_properties(windows-candidate-font-format PROPERTIES TIMEOUT 10)
-  add_executable(windows-voice-controller-listener tests/voice_controller_listener.cpp src/PipeIo.cpp src/PipeListener.cpp src/PipePeer.cpp)
+  add_executable(windows-voice-controller-listener tests/voice_controller_listener.cpp src/ipc/PipeIo.cpp src/ipc/PipeListener.cpp src/ipc/PipePeer.cpp)
   target_include_directories(windows-voice-controller-listener PRIVATE src ../../vendor/MSIME-Engine/contracts)
   target_link_libraries(windows-voice-controller-listener PRIVATE advapi32 Threads::Threads)
   if(MSVC)
@@ -86,7 +87,7 @@ else()
 endif()
 add_test(NAME windows-voice-controller-protocol COMMAND windows-voice-controller-protocol)
 if(WIN32)
-  add_executable(windows-voice-controller-connection tests/voice_controller_connection.cpp src/PipeIo.cpp src/PipeListener.cpp src/PipePeer.cpp)
+  add_executable(windows-voice-controller-connection tests/voice_controller_connection.cpp src/ipc/PipeIo.cpp src/ipc/PipeListener.cpp src/ipc/PipePeer.cpp)
   target_include_directories(windows-voice-controller-connection PRIVATE src ../../vendor/MSIME-Engine/contracts)
   target_link_libraries(windows-voice-controller-connection PRIVATE advapi32 Threads::Threads)
   if(MSVC)
@@ -388,7 +389,7 @@ else()
 endif()
 add_test(NAME windows-candidate-palette COMMAND windows-candidate-palette)
 set_tests_properties(windows-candidate-palette PROPERTIES TIMEOUT 10)
-add_library(msime-windows-replies STATIC src/ReplyCodec.cpp)
+add_library(msime-windows-replies STATIC src/ipc/ReplyCodec.cpp)
 target_include_directories(msime-windows-replies PUBLIC src ../../vendor/MSIME-Engine/contracts)
 if(MSVC)
   target_compile_options(msime-windows-replies PRIVATE /W4 /WX /utf-8)
@@ -442,18 +443,18 @@ set(MSIME_HOST_LIBRARY "" CACHE FILEPATH "Built shared host library or Windows D
 if(NOT EXISTS "${MSIME_HOST_LIBRARY}")
   message(FATAL_ERROR "Set MSIME_HOST_LIBRARY to the Cargo-built shared host library for this target")
 endif()
-add_library(msime-windows-session STATIC src/ServerSession.cpp)
+add_library(msime-windows-session STATIC src/ipc/ServerSession.cpp)
 target_include_directories(msime-windows-session PUBLIC src ../../crates/host-api/include ../../vendor/MSIME-Engine/contracts)
 target_link_libraries(msime-windows-session PUBLIC nlohmann_json::nlohmann_json Threads::Threads "${MSIME_HOST_LIBRARY}")
 enable_testing()
 add_executable(windows-session-smoke tests/session_smoke.cpp tests/session_pump.cpp tests/session_workers.cpp tests/preference_monitor.cpp tests/candidate_mailbox.cpp tests/ui_selection.cpp)
 add_executable(windows-reply-codec tests/reply_codec.cpp)
 target_link_libraries(windows-reply-codec PRIVATE msime-windows-replies)
-add_library(msime-windows-composer STATIC src/ReplyComposer.cpp src/ChineseTextConversion.cpp)
+add_library(msime-windows-composer STATIC src/ipc/ReplyComposer.cpp src/input/ChineseTextConversion.cpp)
 target_link_libraries(msime-windows-composer PUBLIC msime-windows-session msime-windows-replies)
-add_library(msime-windows-focused STATIC src/FocusedSession.cpp)
+add_library(msime-windows-focused STATIC src/input/FocusedSession.cpp)
 target_link_libraries(msime-windows-focused PUBLIC msime-windows-composer)
-add_library(msime-windows-input STATIC src/InputQueue.cpp)
+add_library(msime-windows-input STATIC src/input/InputQueue.cpp)
 target_link_libraries(msime-windows-input PUBLIC msime-windows-focused)
 add_executable(windows-dedicated-english tests/dedicated_english.cpp)
 target_link_libraries(windows-dedicated-english PRIVATE msime-windows-input)
@@ -464,9 +465,9 @@ else()
 endif()
 add_test(NAME windows-dedicated-english COMMAND windows-dedicated-english)
 set_tests_properties(windows-dedicated-english PROPERTIES TIMEOUT 30)
-add_library(msime-windows-pump STATIC src/SessionPump.cpp src/SessionWorkers.cpp src/SessionController.cpp src/PreferenceMonitor.cpp
-            src/CloudCandidateWorker.cpp src/TranslationWorker.cpp
-            src/AiCandidateWorker.cpp)
+add_library(msime-windows-pump STATIC src/ipc/SessionPump.cpp src/ipc/SessionWorkers.cpp src/ipc/SessionController.cpp src/system/PreferenceMonitor.cpp
+            src/system/CloudCandidateWorker.cpp src/system/TranslationWorker.cpp
+            src/system/AiCandidateWorker.cpp)
 target_link_libraries(msime-windows-pump PUBLIC msime-windows-input CURL::libcurl)
 add_executable(windows-dedicated-english-controller tests/dedicated_english_controller.cpp)
 target_link_libraries(windows-dedicated-english-controller PRIVATE msime-windows-pump)
@@ -507,7 +508,7 @@ add_test(NAME windows-candidate-initialization COMMAND windows-candidate-initial
 set_tests_properties(windows-candidate-initialization PROPERTIES TIMEOUT 10)
 add_executable(windows-preedit-caret tests/preedit_caret.cpp)
 target_include_directories(windows-preedit-caret PRIVATE src ../../vendor/MSIME-Engine/contracts)
-# src/CandidatePresentation.h reaches src/KeyEvent.h and so the host API headers; the
+# src/candidate/CandidatePresentation.h reaches src/input/KeyEvent.h and so the host API headers; the
 # session library is what carries those include paths.
 target_link_libraries(windows-preedit-caret PRIVATE msime-windows-session msime-windows-composer)
 if(MSVC)
@@ -583,7 +584,7 @@ endif()
 add_test(NAME windows-candidate-font-reload COMMAND windows-candidate-font-reload)
 set_tests_properties(windows-candidate-font-reload PROPERTIES TIMEOUT 10)
 target_include_directories(windows-candidate-appearance PRIVATE src)
-# src/PreviewConfig.h reaches src/KeyEvent.h and so the host API headers; the session
+# src/system/PreviewConfig.h reaches src/input/KeyEvent.h and so the host API headers; the session
 # library is what carries those include paths, as windows-preview-config does.
 target_link_libraries(windows-candidate-appearance PRIVATE msime-windows-session)
 if(MSVC)
@@ -617,14 +618,14 @@ if(WIN32)
   else()
     set(MSIME_SQLITE_TARGET SQLite::SQLite3)
   endif()
-  add_library(msime-windows-server STATIC src/WindowsServer.cpp src/CandidateWindow.cpp src/CandidateFlyoutWindow.cpp src/TrayMenuWindow.cpp)
-  # src/main.cpp constructs ClipboardHistory and ClipboardMonitor, whose definitions
+  add_library(msime-windows-server STATIC src/system/WindowsServer.cpp src/candidate/CandidateWindow.cpp src/candidate/CandidateFlyoutWindow.cpp src/candidate/TrayMenuWindow.cpp)
+  # src/system/main.cpp constructs ClipboardHistory and ClipboardMonitor, whose definitions
   # are out of line. Without these the Server target does not link at all.
-  target_sources(msime-windows-server PRIVATE src/ClipboardHistory.cpp src/ClipboardMonitor.cpp)
-  target_sources(msime-windows-server PRIVATE src/FloatingToolbarWindow.cpp src/ShellLauncher.cpp
-                 src/WaveOverlay.cpp src/WaveOverlayUtils.cpp src/VoiceInputSession.cpp
-                 src/DoubaoAsrClient.cpp src/CuePlayer.cpp src/SystemAudioMuter.cpp
-                 src/VoiceHotkey.cpp src/MaintenanceHotkey.cpp src/VoiceControlMessage.cpp)
+  target_sources(msime-windows-server PRIVATE src/clipboard/ClipboardHistory.cpp src/clipboard/ClipboardMonitor.cpp)
+  target_sources(msime-windows-server PRIVATE src/candidate/FloatingToolbarWindow.cpp src/system/ShellLauncher.cpp
+                 src/system/WaveOverlay.cpp src/system/WaveOverlayUtils.cpp src/voice/VoiceInputSession.cpp
+                 src/voice/DoubaoAsrClient.cpp src/voice/CuePlayer.cpp src/voice/SystemAudioMuter.cpp
+                 src/voice/VoiceHotkey.cpp src/input/MaintenanceHotkey.cpp src/voice/VoiceControlMessage.cpp)
   add_subdirectory(../../shared/voice shared-voice)
   target_include_directories(msime-windows-server PRIVATE
                              ../../vendor/MSIME-Engine/voice/third_party/miniaudio)
@@ -648,7 +649,7 @@ if(WIN32)
   add_test(NAME windows-voice-providers COMMAND windows-voice-providers)
   set_tests_properties(windows-voice-providers PROPERTIES TIMEOUT 10)
   add_executable(windows-server-smoke tests/server_smoke.cpp)
-  add_executable(msime-client-watchdog WIN32 src/Watchdog.cpp)
+  add_executable(msime-client-watchdog WIN32 src/system/Watchdog.cpp)
   # Match the installed logon task and uninstall process-stop contract.
   set_target_properties(msime-client-watchdog PROPERTIES OUTPUT_NAME MetasequoiaImeWatchdog)
   target_include_directories(msime-client-watchdog PRIVATE src)
@@ -664,7 +665,7 @@ if(WIN32)
   endif()
   add_test(NAME windows-watchdog-help COMMAND msime-client-watchdog --help)
   set_tests_properties(windows-watchdog-help PROPERTIES TIMEOUT 5)
-  add_executable(msime-client-server src/main.cpp)
+  add_executable(msime-client-server src/system/main.cpp)
   # The product mark, which the toolbar loads out of the running executable.
   # Compiled into the Server itself rather than shipped beside it: an icon the
   # installer could forget to copy is an icon that silently stops appearing.
@@ -675,7 +676,7 @@ if(WIN32)
     "${CMAKE_CURRENT_LIST_DIR}/ServerResources.h"
     "${CMAKE_CURRENT_LIST_DIR}/installer/assets/icons/msime.ico")
   include(ServerManifest.cmake)
-  add_executable(msime-client-prepare src/prepare_host.cpp)
+  add_executable(msime-client-prepare src/system/prepare_host.cpp)
   target_include_directories(msime-client-prepare PRIVATE ../../crates/host-api/include)
   target_link_libraries(msime-client-prepare PRIVATE
     nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}")
@@ -734,7 +735,7 @@ add_test(NAME windows-reply-codec COMMAND windows-reply-codec)
 add_test(NAME windows-reply-composer COMMAND windows-reply-composer)
 
 add_executable(windows-voice-control-message
-               src/VoiceControlMessage.cpp tests/voice_control_message.cpp)
+               src/voice/VoiceControlMessage.cpp tests/voice_control_message.cpp)
 target_include_directories(windows-voice-control-message PRIVATE src ../../vendor/MSIME-Engine/contracts)
 if(MSVC)
   target_compile_options(windows-voice-control-message PRIVATE /W4 /WX /utf-8)

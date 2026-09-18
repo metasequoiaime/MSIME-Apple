@@ -1,4 +1,4 @@
-#include "CandidateActionPolicy.h"
+#include "../src/candidates/CandidateActionPolicy.h"
 
 #include <cassert>
 

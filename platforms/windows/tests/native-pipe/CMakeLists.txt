@@ -1,4 +1,4 @@
-add_library(msime-windows-pipe STATIC ../../src/PipeIo.cpp ../../src/PipePeer.cpp ../../src/PipeHandshake.cpp ../../src/PipeListener.cpp ../../src/PipeRegistry.cpp ../../src/PipeIntake.cpp ../../src/PipeService.cpp ../../src/PipeMainTransport.cpp ../../src/AuxListener.cpp ../../src/DiagnosticListener.cpp)
+add_library(msime-windows-pipe STATIC ../../../../../../../src/ipc/PipeIo.cpp ../../../../../../../src/ipc/PipePeer.cpp ../../../../../../../src/ipc/PipeHandshake.cpp ../../../../../../../src/ipc/PipeListener.cpp ../../../../../../../src/ipc/PipeRegistry.cpp ../../../../../../../src/ipc/PipeIntake.cpp ../../../../../../../src/ipc/PipeService.cpp ../../../../../../../src/ipc/PipeMainTransport.cpp ../../../../../../../src/ipc/AuxListener.cpp ../../../../../../../src/ipc/DiagnosticListener.cpp)
 target_include_directories(msime-windows-pipe PUBLIC ../../src)
 target_link_libraries(msime-windows-pipe PUBLIC advapi32 msime-windows-replies)
 add_executable(windows-pipe-io ../pipe_io.cpp)

@@ -1,7 +1,7 @@
 #pragma once
 
 #include "ClientKeyRouter.h"
-#include "../../src/TsfFocusLeaseProtocol.h"
+#include "../../src/system/TsfFocusLeaseProtocol.h"
 
 // Adapter-side gate for the future versioned TSF lease transport. It keeps
 // authentication before the shared router and never mutates the event.

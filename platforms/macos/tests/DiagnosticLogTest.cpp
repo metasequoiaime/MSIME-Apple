@@ -1,4 +1,4 @@
-#include "../src/DiagnosticLog.h"
+#include "../src/core/DiagnosticLog.h"
 
 #include <cassert>
 #include <filesystem>

@@ -1,4 +1,4 @@
-#import "../src/VoiceTextCommit.h"
+#import "../src/voice/VoiceTextCommit.h"
 #include <cassert>
 
 int main() {

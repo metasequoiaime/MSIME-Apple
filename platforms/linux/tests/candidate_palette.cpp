@@ -1,4 +1,4 @@
-#include "CandidatePalette.h"
+#include "../src/candidates/CandidatePalette.h"
 
 #include <cassert>
 
