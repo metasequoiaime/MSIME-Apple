@@ -13,6 +13,22 @@ cargo run --release -p msime-input-runtime --example convert_eval -- \
 
 `--update-baseline` 接受当前结果。`--limit N` 取等距子集（不是前 N 条，否则全是短词）。
 
+## 延迟基准
+
+同一批输入还用来量重排的代价。`convert_eval` 回答「排得对不对」，`rerank_latency` 回答「一次按键为此多花多少毫秒」：
+
+```sh
+cargo run --release -p msime-input-runtime --example rerank_latency -- \
+  --resources <已校验的词库目录> \
+  --set resources/eval/sentences-v1.tsv
+```
+
+需要资源目录里有 `sentence-model.safetensors`——它量的就是重排的开销，没有模型就没有可量的东西。`--budget-ms` 默认 16（一帧），p95 超出即以非零码退出；`--warmup N` 丢弃前 N 条用例的样本（默认 5）。
+
+同进程里开两个 runtime，一个挂重排一个不挂，逐条交替先后顺序，按键**配对**相减。配对是必须的：真正要问的不是一次按键多久，而是**因为重排**多了多久，两次独立运行的差值里混着散热状态和页缓存。
+
+**要看超预算的按键占比，不要只看均值。** 多数按键根本不走重排（三音节以下词图不跑，只有一条读法时也无从选择），均值把少数按键的代价摊到了全部按键上。6.8M int8 在整句集上均值只多 7.9ms，看着在预算内，实际是 25.2% 的按键超过一帧。
+
 ## 两个集，测的不是一回事
 
 ### `quanpin-words-v1.tsv` — 25,119 条词级
@@ -35,7 +51,7 @@ cargo run --release -p msime-input-runtime --example convert_eval -- \
 
 ## 为什么报告要分 source
 
-候选带 `source`，对应 `vendor/MSIME-Engine/core/word_item.h` 的 `CandidateSource`。3 音节以上时，Engine 只加一条词图路径（`nbest = 1`），随后**在 Google-Pinyin 回退产出了整句的前提下**把那条回退搬到 index 0（`quanpin/quanpin_dictionary.cpp`，注释原文：「The lattice is a secondary source」）。
+候选带 `source`，对应 `vendor/MSIME-Engine/core/word_item.h` 的 `CandidateSource`。3 音节以上时 Engine 加入词图路径（`sentence_alternatives` 打开时是多条，关闭时一条），随后**在 Google-Pinyin 回退产出了整句的前提下**把那条回退搬到 index 0（`quanpin/quanpin_dictionary.cpp`，注释原文：「The lattice is a secondary source」）。
 
 所以位置 1 到底是谁，随输入而变——词图的改动能不能反映到 top-1 也随之而变。`top1_source` 和 `gold_source` 每次运行都记录实际情况，而不是假定其中一种。
 
