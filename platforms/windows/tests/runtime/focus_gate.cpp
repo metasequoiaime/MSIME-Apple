@@ -104,6 +104,19 @@ int main() {
     require(stale.acknowledge(second_change.pending, [] { return true; }));
     require(!stale.deactivate(first_change.pending));
     require(stale.with_active(second_change.pending, [] {}));
+
+    // A reconnect from the same TSF client is a new session and must advance
+    // the epoch; the old acknowledged lease must not authorize new input.
+    FocusGate reconnect;
+    PipeTicket client{41, {13, 14, 15}};
+    const auto old_change = *reconnect.begin(client, 91);
+    require(reconnect.acknowledge(old_change.pending, [] { return true; }));
+    require(reconnect.deactivate(old_change.pending));
+    const auto new_change = *reconnect.begin(client, 92);
+    require(new_change.pending.epoch != old_change.pending.epoch);
+    require(!reconnect.with_active(old_change.pending, [] {}));
+    require(reconnect.acknowledge(new_change.pending, [] { return true; }));
+    require(reconnect.with_active(new_change.pending, [] {}));
     std::cout << "Focus pending/ready, stale fences and serialized activation "
                  "passed\n";
   } catch (const std::exception &error) {
