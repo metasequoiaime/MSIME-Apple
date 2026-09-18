@@ -1,3 +1,5 @@
+import { utf8Length } from '../keyboard/Utf8';
+
 export type AccountTransportResponse = { status: number; body: string };
 
 export interface AccountTransport {
@@ -45,11 +47,11 @@ function validToken(value: unknown): value is string {
 }
 
 function boundedUtf8(value: unknown, maximumBytes: number): value is string {
-  return typeof value === "string" && new TextEncoder().encode(value).length <= maximumBytes;
+  return typeof value === "string" && utf8Length(value) <= maximumBytes;
 }
 
 function parseBody(body: string): Action | null {
-  if (body.length === 0 || new TextEncoder().encode(body).length > MAX_ACTION_BYTES) return null;
+  if (body.length === 0 || utf8Length(body) > MAX_ACTION_BYTES) return null;
   try {
     const value: unknown = JSON.parse(body);
     return value !== null && typeof value === "object" && !Array.isArray(value)
@@ -138,6 +140,17 @@ export class AccountCloudBridge {
     } catch (cause) {
       return error(cause instanceof Error ? cause.message : "account_unavailable");
     }
+  }
+
+  /** Native-only raw download used for bounded snapshot files; never exposed to the WebView. */
+  async rawAuthenticated(method: string, path: string): Promise<AccountTransportResponse> {
+    const session = this.session;
+    if (session === null || session.expires_at <= Date.now()) return { status: 401, body: "" };
+    const generation = this.generation;
+    const response = await this.transport.request(method, path, session.access_token);
+    if (generation !== this.generation) return { status: 499, body: "" };
+    if (response.status === 401) this.clearExpired();
+    return response;
   }
 
   private async requestCode(action: Action): Promise<string> {

@@ -3,7 +3,7 @@ import { type ReactNode, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { SettingsPage, type DictionaryClient, type DictionaryEntry, type DictionaryImportResult,
   type HostCapabilities, type LocalDictionaryFormat, type LocalDictionaryKind, type Preferences,
-  CloudClipboardPanel, CloudDictionaryPanel, CloudDictionaryCatalogPanel, CloudDictionaryFilesPanel,
+  CloudClipboardPanel, CloudDictionaryPanel, CloudDictionaryCatalogPanel, CloudDictionaryFilesPanel, CloudDictionaryApplyPanel,
   CloudCandidatesPanel, type AccountClient, type CloudClipboardPanelClient,
   type CloudDictionaryAction, type CloudDictionaryPanelClient, type SettingsClient, type Snapshot } from "@msime/ui";
 import "@msime/ui/styles.css";
@@ -31,6 +31,7 @@ interface NativeBridge {
   account(action: string): Promise<string>;
   cloudDictionary(action: string): Promise<string>;
   cloudDictionaryDownload(entry: string): string;
+  cloudDictionarySnapshot(action: string): Promise<string>;
   openExternalUrl(url: string): void;
   copyText(text: string): void;
   openSystemKeyboardSettings(): void;
@@ -106,7 +107,7 @@ function cloudClipboardClient(native: NativeBridge, close: () => void): CloudCli
   };
 }
 
-type CloudDictionaryPage = "main" | "catalog" | "candidates" | "files";
+type CloudDictionaryPage = "main" | "catalog" | "candidates" | "files" | "apply";
 
 function cloudDictionaryClient(native: NativeBridge, close: () => void, setPage: (page: CloudDictionaryPage) => void): CloudDictionaryPanelClient {
   type Response = Awaited<ReturnType<CloudDictionaryPanelClient["request"]>>;
@@ -116,11 +117,18 @@ function cloudDictionaryClient(native: NativeBridge, close: () => void, setPage:
     openCatalog: async () => setPage("catalog"),
     openCandidates: async () => setPage("candidates"),
     openFiles: async () => setPage("files"),
+    openApply: async () => setPage("apply"),
+    snapshot: true,
+    snapshotNative: true,
     downloadToLocal: async entry => {
       unwrap<{ applied: boolean }>(native.cloudDictionaryDownload(JSON.stringify(entry)));
     },
     request: async (action: CloudDictionaryAction) => {
       const { operation, ...payload } = action;
+      if (operation.startsWith("snapshot_")) {
+        const snapshot = await native.cloudDictionarySnapshot(JSON.stringify(action));
+        return unwrap<Response>(snapshot);
+      }
       const value = await native.cloudDictionary(JSON.stringify({ operation: "dictionary", dictionary_operation: operation, ...payload }));
       return unwrap<Response>(value);
     },
@@ -181,13 +189,17 @@ function HarmonySettings({ native }: { native: NativeBridge }): ReactNode {
   const [cloudDictionaryPage, setCloudDictionaryPage] = useState<CloudDictionaryPage>("main");
   const client = makeClient(native, () => setCloudClipboardOpen(true), () => { setCloudDictionaryPage("main"); setCloudDictionaryOpen(true); });
   const dictionaryClient = cloudDictionaryClient(native, () => setCloudDictionaryOpen(false), setCloudDictionaryPage);
+  // Harmony's native snapshot path is an apply-to-device flow. The shared Files panel's
+  // restore-to-cloud controls need a different provider capability and must stay hidden here.
+  const filesClient: CloudDictionaryPanelClient = { ...dictionaryClient, snapshot: false, snapshotNative: false };
   return <>
     <SettingsPage client={client} />
     {cloudClipboardOpen && <CloudClipboardPanel client={cloudClipboardClient(native, () => setCloudClipboardOpen(false))} />}
     {cloudDictionaryOpen && cloudDictionaryPage === "main" && <CloudDictionaryPanel client={dictionaryClient} />}
     {cloudDictionaryOpen && cloudDictionaryPage === "catalog" && <CloudDictionaryCatalogPanel client={dictionaryClient} />}
     {cloudDictionaryOpen && cloudDictionaryPage === "candidates" && <CloudCandidatesPanel client={dictionaryClient} />}
-    {cloudDictionaryOpen && cloudDictionaryPage === "files" && <CloudDictionaryFilesPanel client={dictionaryClient} />}
+    {cloudDictionaryOpen && cloudDictionaryPage === "files" && <CloudDictionaryFilesPanel client={filesClient} />}
+    {cloudDictionaryOpen && cloudDictionaryPage === "apply" && <CloudDictionaryApplyPanel client={dictionaryClient} />}
   </>;
 }
 

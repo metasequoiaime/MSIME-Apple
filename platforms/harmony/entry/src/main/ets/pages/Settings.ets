@@ -26,6 +26,27 @@ import { HarmonyAccountCloudBridge } from '../account/HarmonyAccountCloudBridge'
 const BRIDGE_NAME: string = 'msimeHarmony';
 const PLATFORM: string = 'harmony';
 
+interface CloudDownloadEntry {
+  kind: string;
+  code: string;
+  word: string;
+  weight: number;
+}
+
+interface LocalDictionaryEntry {
+  kind: string;
+  key: string;
+  value: string;
+  weight: number;
+}
+
+interface LocalDictionaryEditRequest {
+  operation: string;
+  previous: LocalDictionaryEntry | null;
+  replacement: LocalDictionaryEntry;
+  request_id: string;
+}
+
 @Entry
 @Component
 struct Settings {
@@ -48,7 +69,7 @@ struct Settings {
           object: this.bridge,
           name: BRIDGE_NAME,
           methodList: ['loadPreferences', 'savePreferences', 'hostCapabilities', 'appVersion',
-            'dictionary', 'account', 'cloudDictionary', 'cloudDictionaryDownload', 'openExternalUrl', 'copyText', 'openSystemKeyboardSettings'],
+            'dictionary', 'account', 'cloudDictionary', 'cloudDictionaryDownload', 'cloudDictionarySnapshot', 'openExternalUrl', 'copyText', 'openSystemKeyboardSettings'],
           controller: this.controller
         })
         .width('100%')
@@ -140,25 +161,25 @@ class SettingsBridge {
       return JSON.stringify({ ok: false, error: 'settings context unavailable' });
     }
     try {
-      const entry: Record<string, Object> = JSON.parse(entryDocument) as Record<string, Object>;
-      const kind: Object | undefined = entry.kind;
-      const code: Object | undefined = entry.code;
-      const word: Object | undefined = entry.word;
-      const weight: Object | undefined = entry.weight;
+      const entry: CloudDownloadEntry = JSON.parse(entryDocument) as CloudDownloadEntry;
+      const kind: string = entry.kind;
+      const code: string = entry.code;
+      const word: string = entry.word;
+      const weight: number = entry.weight;
       if (typeof kind !== 'string' || !['pinyin', 'wubi', 'quick', 'english'].includes(kind)
         || typeof code !== 'string' || code.length === 0 || code.length > 256
         || typeof word !== 'string' || word.length === 0 || word.length > 1024
         || typeof weight !== 'number' || !Number.isInteger(weight) || weight < 0) {
         return JSON.stringify({ ok: false, error: 'account_invalid' });
       }
-      const replacement: Record<string, Object> = {
+      const replacement: LocalDictionaryEntry = {
         kind: kind === 'quick' ? 'quick_phrase' : kind,
         key: code,
         value: word,
         weight: weight
       };
       this.cloudDownloadRequest += 1;
-      const request: Record<string, Object> = {
+      const request: LocalDictionaryEditRequest = {
         operation: 'edit',
         previous: null,
         replacement: replacement,
@@ -169,6 +190,13 @@ class SettingsBridge {
     } catch {
       return JSON.stringify({ ok: false, error: 'account_invalid' });
     }
+  }
+
+  cloudDictionarySnapshot(action: string): Promise<string> {
+    if (this.accountBridge === undefined || this.context === undefined) {
+      return Promise.resolve(JSON.stringify({ ok: false, error: 'snapshot_unavailable' }));
+    }
+    return this.accountBridge.snapshot(action, `${this.context.filesDir}/engine`, this.stateDirectory);
   }
 
   appVersion(): string {

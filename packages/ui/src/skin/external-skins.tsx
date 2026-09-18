@@ -1,6 +1,6 @@
 import { useEffect, useId, useRef, useState, type CSSProperties } from "react";
 import { SkinCandidatePreview } from "./skin-candidate-preview";
-import { SkinToolbarPreview } from "../upstream/skin-toolbar-preview";
+import { SkinToolbarPreview } from "./skin-toolbar-preview";
 import { useSkinImage, type SkinImageReader } from "./skin-image";
 import type { SkinFontReader } from "./skin-font";
 import { installSkinPalette } from "./skin-palette";

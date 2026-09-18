@@ -1,4 +1,4 @@
-import toolbarMarkup from "../upstream/skin-toolbar-preview";
+import toolbarMarkup from "../upstream/skin-toolbar-preview.html?raw";
 import { useEffect, useRef, type CSSProperties } from "react";
 import type { FloatingToolbarPreferences } from "../index";
 

@@ -1,11 +1,11 @@
 @import "./upstream/variables.css";
 @import "./upstream/sections.css";
 @import "./upstream/sidebar.css";
-@import "./skin-preview.css";
-@import "./skin-candidate-preview.css";
-@import "./skin-candidate-decorations.css";
-@import "./skin-toolbar-preview.css";
-@import "./external-skin-geometry.css";
+@import "./skin/skin-preview.css";
+@import "./skin/skin-candidate-preview.css";
+@import "./skin/skin-candidate-decorations.css";
+@import "./skin/skin-toolbar-preview.css";
+@import "./skin/external-skin-geometry.css";
 
 * { box-sizing: border-box; }
 html, body, #root { width: 100%; height: 100%; margin: 0; }

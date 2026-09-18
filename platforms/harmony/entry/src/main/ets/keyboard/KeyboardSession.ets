@@ -783,6 +783,46 @@ export class KeyboardSession {
     }
   }
 
+  /** Activate a prepared dictionary snapshot only at an idle boundary. */
+  snapshotActivate(handle: number, expectedVersion: string): string {
+    if (handle <= 0 || !/^[0-9a-f]{64}$/.test(expectedVersion) || this.composing()) {
+      return JSON.stringify({ ok: false, error: 'snapshot access busy' });
+    }
+    const hadSession: boolean = this.handle !== 0;
+    const english: boolean = this.englishMode;
+    const nineKey: boolean = this.nineKeyMode;
+    if (hadSession) this.stop();
+    let result: string;
+    try {
+      result = client.snapshotActivate(handle, expectedVersion);
+    } catch (error) {
+      KeyboardLog.error(`snapshot activation unavailable: ${describeError(error)}`);
+      result = JSON.stringify({ ok: false, error: 'snapshot activation failed' });
+    }
+    try {
+      const parsed: SnapshotResponse = JSON.parse(result) as SnapshotResponse;
+      if (!parsed.ok) {
+        KeyboardLog.error(`snapshot activation refused: ${parsed.error}`);
+      }
+    } catch {
+      // Preserve the native response for the caller; a malformed response is already an error.
+    }
+    // Stopping the live session is part of the maintenance boundary. Always recreate it, even
+    // when the native activation refused, so a transient conflict cannot leave the keyboard dead.
+    if (hadSession && this.start(this.resourceDirectory, this.stateDirectory, this.systemDark)) {
+      this.englishMode = english;
+      this.nineKeyMode = nineKey;
+      if (this.inputClient !== undefined) {
+        this.apply(client.focus(this.handle, true));
+        this.applyView(client.setEnglishMode(this.handle, english));
+        this.applyView(client.setNineKeyMode(this.handle, nineKey));
+      }
+    } else if (hadSession) {
+      KeyboardLog.error('snapshot activation left the session unavailable');
+    }
+    return result;
+  }
+
   /**
    * Run one shared dictionary-management action without violating the Engine maintenance lock.
    *
