@@ -1,5 +1,6 @@
 #include "msime_client.h"
 #include <napi/native_api.h>
+#include <zlib.h>
 #include <cstring>
 #include <fstream>
 #include <limits>
@@ -99,6 +100,55 @@ static bool argumentIndex(napi_env env, napi_value value, size_t &out) {
     if (index < 0 || static_cast<uint64_t>(index) > std::numeric_limits<size_t>::max()) return false;
     out = static_cast<size_t>(index);
     return true;
+}
+
+static bool argumentInt32(napi_env env, napi_value value, int32_t &out) {
+    return napi_get_value_int32(env, value, &out) == napi_ok;
+}
+
+static bool argumentArrayBuffer(napi_env env, napi_value value, std::vector<uint8_t> &out) {
+    bool is_array_buffer = false;
+    if (napi_is_arraybuffer(env, value, &is_array_buffer) != napi_ok || !is_array_buffer) return false;
+    void *data = nullptr;
+    size_t length = 0;
+    if (napi_get_arraybuffer_info(env, value, &data, &length) != napi_ok || !data) return false;
+    out.assign(static_cast<const uint8_t *>(data), static_cast<const uint8_t *>(data) + length);
+    return true;
+}
+
+static bool gzipCompress(const std::vector<uint8_t> &input, std::vector<uint8_t> &output) {
+    if (input.size() > static_cast<size_t>(std::numeric_limits<uInt>::max())) return false;
+    z_stream stream{};
+    if (deflateInit2(&stream, Z_DEFAULT_COMPRESSION, Z_DEFLATED, 15 + 16, 8,
+            Z_DEFAULT_STRATEGY) != Z_OK) return false;
+    const size_t capacity = compressBound(static_cast<uLong>(input.size())) + 32;
+    output.assign(capacity, 0);
+    stream.next_in = const_cast<Bytef *>(reinterpret_cast<const Bytef *>(input.data()));
+    stream.avail_in = static_cast<uInt>(input.size());
+    stream.next_out = reinterpret_cast<Bytef *>(output.data());
+    stream.avail_out = static_cast<uInt>(output.size());
+    const int status = deflate(&stream, Z_FINISH);
+    const bool ok = status == Z_STREAM_END;
+    if (ok) output.resize(stream.total_out);
+    deflateEnd(&stream);
+    return ok;
+}
+
+static bool gzipDecompress(const uint8_t *input, size_t input_length, std::vector<uint8_t> &output) {
+    constexpr size_t max_output = 1024 * 1024;
+    if (!input || input_length == 0 || input_length > max_output) return false;
+    z_stream stream{};
+    if (inflateInit2(&stream, 15 + 16) != Z_OK) return false;
+    output.assign(max_output, 0);
+    stream.next_in = const_cast<Bytef *>(reinterpret_cast<const Bytef *>(input));
+    stream.avail_in = static_cast<uInt>(input_length);
+    stream.next_out = reinterpret_cast<Bytef *>(output.data());
+    stream.avail_out = static_cast<uInt>(output.size());
+    const int status = inflate(&stream, Z_FINISH);
+    const bool ok = status == Z_STREAM_END && stream.avail_in == 0;
+    if (ok) output.resize(stream.total_out);
+    inflateEnd(&stream);
+    return ok;
 }
 
 static bool arguments(napi_env env, napi_callback_info info, size_t expected,
@@ -442,6 +492,74 @@ static napi_value HostCapabilities(napi_env env, napi_callback_info info) {
         reinterpret_cast<const uint8_t *>(platform.data()), platform.size()));
 }
 
+static napi_value DoubaoEncodeFrame(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    int32_t message_type = 0;
+    int32_t flags = 0;
+    int32_t sequence = 0;
+    std::vector<uint8_t> payload;
+    if (!arguments(env, info, 4, argv) || !argumentInt32(env, argv[0], message_type)
+            || !argumentInt32(env, argv[1], flags) || !argumentInt32(env, argv[2], sequence)
+            || !argumentArrayBuffer(env, argv[3], payload)
+            || message_type < 0 || message_type > 15 || flags < 0 || flags > 15
+            || payload.size() > 1024 * 1024) {
+        return invalid(env, "Invalid Doubao frame");
+    }
+    std::vector<uint8_t> compressed;
+    if (!gzipCompress(payload, compressed)
+            || compressed.size() > static_cast<size_t>(std::numeric_limits<int32_t>::max())) {
+        return invalid(env, "Unable to encode Doubao frame");
+    }
+    std::vector<uint8_t> frame(12 + compressed.size());
+    frame[0] = 0x11;
+    frame[1] = static_cast<uint8_t>((message_type << 4) | flags);
+    frame[2] = 0x11;
+    frame[3] = 0;
+    const uint32_t sequence_bits = static_cast<uint32_t>(sequence);
+    const uint32_t compressed_size = static_cast<uint32_t>(compressed.size());
+    for (size_t index = 0; index < 4; ++index) {
+        frame[4 + index] = static_cast<uint8_t>(sequence_bits >> (24 - index * 8));
+        frame[8 + index] = static_cast<uint8_t>(compressed_size >> (24 - index * 8));
+    }
+    std::memcpy(frame.data() + 12, compressed.data(), compressed.size());
+    napi_value output = nullptr;
+    void *data = nullptr;
+    if (napi_create_arraybuffer(env, frame.size(), &data, &output) != napi_ok || !data) return nullptr;
+    std::memcpy(data, frame.data(), frame.size());
+    return output;
+}
+
+static napi_value DoubaoDecodeFrame(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    std::vector<uint8_t> frame;
+    if (!arguments(env, info, 1, argv) || !argumentArrayBuffer(env, argv[0], frame)
+            || frame.size() < 12 || frame.size() > 1024 * 1024 || frame[0] != 0x11
+            || (frame[1] >> 4) != 0x09 || frame[2] != 0x11) return nullptr;
+    const uint8_t flags = frame[1] & 0x0f;
+    size_t offset = 4;
+    if ((flags & 0x01) != 0) offset += 4;
+    if ((flags & 0x04) != 0) offset += 4;
+    if (offset + 4 > frame.size()) return nullptr;
+    uint32_t compressed_size = 0;
+    for (size_t index = 0; index < 4; ++index) {
+        compressed_size = (compressed_size << 8) | frame[offset + index];
+    }
+    offset += 4;
+    if (compressed_size != frame.size() - offset) return nullptr;
+    std::vector<uint8_t> payload;
+    if (!gzipDecompress(frame.data() + offset, compressed_size, payload)) return nullptr;
+    std::string text(reinterpret_cast<const char *>(payload.data()), payload.size());
+    napi_value result = nullptr;
+    napi_value last = nullptr;
+    napi_value body = nullptr;
+    if (napi_create_object(env, &result) != napi_ok
+            || napi_get_boolean(env, (flags & 0x02) != 0, &last) != napi_ok
+            || napi_create_string_utf8(env, text.data(), text.size(), &body) != napi_ok
+            || napi_set_named_property(env, result, "last", last) != napi_ok
+            || napi_set_named_property(env, result, "payload", body) != napi_ok) return nullptr;
+    return result;
+}
+
 #define ENTRY(exported, function)                                                                  \
     { exported, nullptr, function, nullptr, nullptr, nullptr, napi_default, nullptr }
 
@@ -498,6 +616,8 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("voiceStart", VoiceStart),
         ENTRY("voiceCancel", VoiceCancel),
         ENTRY("voiceApply", VoiceApply),
+        ENTRY("doubaoEncodeFrame", DoubaoEncodeFrame),
+        ENTRY("doubaoDecodeFrame", DoubaoDecodeFrame),
     };
     if (napi_define_properties(env, exports,
             sizeof(properties) / sizeof(properties[0]), properties) != napi_ok) {

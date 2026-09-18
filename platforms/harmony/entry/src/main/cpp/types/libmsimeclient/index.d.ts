@@ -69,3 +69,13 @@ export const applyTranslations: (handle: number, generation: number, translation
 export const voiceStart: (handle: number) => string;
 export const voiceCancel: (handle: number) => string;
 export const voiceApply: (handle: number, generation: number, text: string) => string;
+
+export interface DoubaoFrameResult {
+  last: boolean;
+  payload: string;
+}
+
+/** Native gzip framing keeps the ArkTS WebSocket adapter free of credential or transcript logging. */
+export const doubaoEncodeFrame: (messageType: number, flags: number, sequence: number,
+  payload: ArrayBuffer) => ArrayBuffer;
+export const doubaoDecodeFrame: (frame: ArrayBuffer) => DoubaoFrameResult | null;

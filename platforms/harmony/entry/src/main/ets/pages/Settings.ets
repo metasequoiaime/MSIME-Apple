@@ -5,6 +5,7 @@ import pasteboard from '@ohos.pasteboard';
 import Want from '@ohos.app.ability.Want';
 import bundleManager from '@ohos.bundle.bundleManager';
 import http from '@ohos.net.http';
+import webSocket from '@ohos.net.webSocket';
 import util from '@ohos.util';
 import fs from '@ohos.file.fs';
 import { KeyboardLog, describeError } from '../keyboard/KeyboardLog';
@@ -113,6 +114,10 @@ interface ApiCredentialConfig {
   auth_mode?: string;
   app_key?: string;
   resource_id?: string;
+  doubao_enable_itn?: boolean;
+  doubao_enable_punc?: boolean;
+  doubao_enable_ddc?: boolean;
+  doubao_boosting_table_id?: string;
 }
 
 interface AiModelRow {
@@ -223,6 +228,49 @@ interface CredentialHeaders {
   Accept: string;
   'Content-Type': string;
   Authorization?: string;
+}
+
+interface DoubaoFrameResult {
+  last: boolean;
+  payload: string;
+}
+
+interface DoubaoResponseDocument {
+  error?: Object | null;
+  code?: number;
+  payload_msg?: DoubaoResponseDocument;
+}
+
+interface DoubaoStartRequestBody {
+  model_name: string;
+  enable_itn: boolean;
+  enable_punc: boolean;
+  enable_ddc: boolean;
+  show_utterances: boolean;
+  result_type: string;
+  corpus?: DoubaoCorpus;
+}
+
+interface DoubaoCorpus {
+  boosting_table_id: string;
+}
+
+interface DoubaoUser {
+  uid: string;
+}
+
+interface DoubaoAudio {
+  format: string;
+  codec: string;
+  rate: number;
+  bits: number;
+  channel: number;
+}
+
+interface DoubaoStartRequest {
+  user: DoubaoUser;
+  audio: DoubaoAudio;
+  request: DoubaoStartRequestBody;
 }
 
 @Entry
@@ -559,6 +607,9 @@ class SettingsBridge {
       return this.chatCredential(request.config);
     }
     if (request.service === 'voice.asr') {
+      if ((request.config.provider ?? '').trim() === 'doubao') {
+        return this.doubaoCredential(request.config);
+      }
       return this.asrCredential(request.config);
     }
     return this.credentialReply(false, 'Harmony 不支持此配置测试类型。');
@@ -789,6 +840,118 @@ class SettingsBridge {
     }
   }
 
+  private async doubaoCredential(config: ApiCredentialConfig): Promise<string> {
+    const endpoint: string | null = this.validDoubaoEndpoint(config.endpoint ?? '');
+    const authMode: string = (config.auth_mode ?? '').trim();
+    const appId: string = (config.app_id ?? '').trim();
+    const token: string = (config.token ?? '').trim();
+    const resourceId: string = (config.resource_id ?? '').trim();
+    const boostingTableId: string = (config.doubao_boosting_table_id ?? '').trim();
+    if (endpoint === null || !['api_key', 'legacy'].includes(authMode)
+      || !this.validCredentialSecret(token, 8192)
+      || (authMode === 'legacy' && !this.validCredentialSecret(appId, 8192))
+      || !this.validCredentialSecret(resourceId, 256)
+      || utf8Length(boostingTableId) > 256 || this.hasControl(boostingTableId)) {
+      return this.credentialReply(false, '请填写有效的 WSS 接口、资源 ID 及对应鉴权方式的凭据。');
+    }
+    const requestId: string = util.generateRandomUUID(false);
+    const connectionOptions: webSocket.WebSocketRequestOptions = authMode === 'legacy'
+      ? { header: { 'x-api-resource-id': resourceId, 'x-api-request-id': requestId,
+          'x-api-app-key': appId, 'x-api-access-key': token } }
+      : { header: { 'x-api-resource-id': resourceId, 'x-api-request-id': requestId,
+          'x-api-key': token } };
+    const socket: webSocket.WebSocket = webSocket.createWebSocket();
+    let settled: boolean = false;
+    let connectTimer: number | undefined = undefined;
+    let totalTimer: number | undefined = undefined;
+    const finish = (ok: boolean): void => {
+      if (settled) return;
+      settled = true;
+      if (connectTimer !== undefined) clearTimeout(connectTimer);
+      if (totalTimer !== undefined) clearTimeout(totalTimer);
+      socket.close().catch((): void => undefined);
+    };
+    const result: Promise<boolean> = new Promise((resolve: (value: boolean) => void): void => {
+      const complete = (ok: boolean): void => {
+        if (settled) return;
+        finish(ok);
+        resolve(ok);
+      };
+      socket.on('error', (): void => complete(false));
+      socket.on('close', (_error: Object, _result: webSocket.CloseResult): void => complete(false));
+      socket.on('message', (_error: Object, value: string | ArrayBuffer): void => {
+        if (settled || typeof value === 'string') {
+          if (typeof value === 'string') complete(false);
+          return;
+        }
+        const decoded: DoubaoFrameResult | null = client.doubaoDecodeFrame(value);
+        if (decoded === null || utf8Length(decoded.payload) > 1024 * 1024) {
+          complete(false);
+          return;
+        }
+        try {
+          const document: DoubaoResponseDocument = JSON.parse(decoded.payload) as DoubaoResponseDocument;
+          if (document === null || Array.isArray(document)
+            || document.error !== undefined && document.error !== null) {
+            complete(false);
+            return;
+          }
+          if (document.code !== undefined && document.code !== 0) {
+            complete(false);
+            return;
+          }
+          if (document.payload_msg !== undefined && document.payload_msg.code !== undefined
+            && document.payload_msg.code !== 0) {
+            complete(false);
+            return;
+          }
+          if (decoded.last) complete(true);
+        } catch {
+          complete(false);
+        }
+      });
+      connectTimer = setTimeout((): void => complete(false), 5000);
+      totalTimer = setTimeout((): void => complete(false), 15000);
+      socket.connect(endpoint, connectionOptions).then((connected: boolean): void => {
+        if (settled) return;
+        if (!connected) {
+          complete(false);
+          return;
+        }
+        if (connectTimer !== undefined) clearTimeout(connectTimer);
+        const start: DoubaoStartRequest = {
+          user: { uid: 'metasequoia-ime' },
+          audio: { format: 'pcm', codec: 'raw', rate: 16000, bits: 16, channel: 1 },
+          request: {
+            model_name: 'bigmodel',
+            enable_itn: config.doubao_enable_itn !== false,
+            enable_punc: config.doubao_enable_punc !== false,
+            enable_ddc: config.doubao_enable_ddc === true,
+            show_utterances: false,
+            result_type: 'full'
+          }
+        };
+        if (boostingTableId.length > 0) {
+          start.request.corpus = { boosting_table_id: boostingTableId } as DoubaoCorpus;
+        }
+        const encoder: util.TextEncoder = util.TextEncoder.create('utf-8');
+        const startPayload: ArrayBuffer = encoder.encode(JSON.stringify(start)).buffer as ArrayBuffer;
+        const audioPayload: ArrayBuffer = new Uint8Array(32000).buffer as ArrayBuffer;
+        const startFrame: ArrayBuffer = client.doubaoEncodeFrame(1, 1, 1, startPayload);
+        const finalFrame: ArrayBuffer = client.doubaoEncodeFrame(2, 3, -2, audioPayload);
+        socket.send(startFrame).then((first: boolean): Promise<boolean> => {
+          return first ? socket.send(finalFrame) : Promise.resolve(false);
+        }).then((second: boolean): void => {
+          if (!second) complete(false);
+        }).catch((): void => complete(false));
+      }).catch((): void => complete(false));
+    });
+    const ok: boolean = await result;
+    return this.credentialReply(ok, ok
+      ? '连接成功，豆包语音识别凭据有效。'
+      : '豆包测试未成功或超时，请检查凭据、资源权限、接口地址和网络。');
+  }
+
   private silentMultipart(boundary: string, model: string): ArrayBuffer {
     const encoder: util.TextEncoder = util.TextEncoder.create('utf-8');
     const wav: Uint8Array = new Uint8Array(44 + 32000);
@@ -861,6 +1024,16 @@ class SettingsBridge {
       || endpoint.includes('@') || endpoint.includes('#')) return null;
     const authority: string = endpoint.substring(endpoint.indexOf('://') + 3).split('/')[0]
       .split('?')[0];
+    return authority.length === 0 ? null : endpoint;
+  }
+
+  private validDoubaoEndpoint(value: string): string | null {
+    const endpoint: string = value.trim();
+    if (endpoint.length === 0 || utf8Length(endpoint) > 2048 || this.hasControl(endpoint)
+      || !endpoint.startsWith('wss://') || endpoint.includes('@') || endpoint.includes('#')) {
+      return null;
+    }
+    const authority: string = endpoint.substring(6).split('/')[0].split('?')[0];
     return authority.length === 0 ? null : endpoint;
   }
 

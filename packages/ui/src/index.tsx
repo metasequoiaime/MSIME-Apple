@@ -2288,7 +2288,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
           doubao_enable_punc: voiceInput.doubao_enable_punc !== false,
           doubao_enable_ddc: voiceInput.doubao_enable_ddc === true,
         })}
-        {(windowsPlatform || macosPlatform || harmonyPlatform) && ["openai", "siliconflow", "groq"].includes(voiceInput.asr_provider ?? "") && <>
+        {(windowsPlatform || macosPlatform || harmonyPlatform) && (["openai", "siliconflow", "groq"].includes(voiceInput.asr_provider ?? "") || (harmonyPlatform && voiceInput.asr_provider === "doubao")) && <>
           <p className="panel-inline-note">测试会向当前服务发送一秒合成静音，不使用麦克风；服务可能计入 API 用量。</p>
           {credentialTestControl("voice.asr", voiceInput.asr_provider === "doubao" ? "测试豆包识别配置" : "测试语音识别配置", {
             provider: voiceInput.asr_provider,
@@ -2299,6 +2299,10 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
               auth_mode: doubaoAuthMode,
               app_id: doubaoAuthMode === "legacy" ? voiceInput.asr_app_key ?? "" : "",
               resource_id: voiceInput.asr_resource_id ?? "volc.seedasr.sauc.duration",
+              doubao_enable_itn: voiceInput.doubao_enable_itn !== false,
+              doubao_enable_punc: voiceInput.doubao_enable_punc !== false,
+              doubao_enable_ddc: voiceInput.doubao_enable_ddc === true,
+              doubao_boosting_table_id: voiceInput.doubao_boosting_table_id ?? "",
             } : {}),
           }, !voiceInput.asr_token?.trim() || (voiceInput.asr_provider === "doubao" && doubaoAuthMode === "legacy" && !voiceInput.asr_app_key?.trim()))}
         </>}
