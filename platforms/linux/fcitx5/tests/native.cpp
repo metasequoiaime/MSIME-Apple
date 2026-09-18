@@ -195,7 +195,7 @@ int main(int argc, char **argv) {
     }
     require(!state->preferences_.value("number_row_selection", true),
             "runtime preferences reload in active Fcitx session");
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 36,
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 37,
             "native status actions attached");
     require(engine.candidate_layout_action_.shortText(&ic) == "候选：横向",
             "candidate layout action reflects reloaded preference");
@@ -213,6 +213,14 @@ int main(int argc, char **argv) {
     engine.learning_action_.activate(&ic);
     require(state->preferences_.value("learning", false),
             "learning status action restores user learning");
+    require(engine.mode_scope_action_.shortText(&ic) == "模式：应用",
+            "mode scope action starts at application scope");
+    engine.mode_scope_action_.activate(&ic);
+    require(state->preferences_.value("ime_mode_scope", std::string{}) == "global",
+            "mode scope action switches to global scope");
+    engine.mode_scope_action_.activate(&ic);
+    require(state->preferences_.value("ime_mode_scope", std::string{}) == "app",
+            "mode scope action restores application scope");
     if (state->preferences_.value("cloud_candidates", false)) {
       require(engine.cloud_candidates_action_.isChecked(&ic),
               "cloud candidates status action reflects preference");
@@ -226,7 +234,7 @@ int main(int argc, char **argv) {
       require(!engine.cloud_candidates_action_.isChecked(&ic),
               "cloud candidates status action reflects disabled preference");
     }
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 36,
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 37,
             "AI status action attached");
     require(engine.emoji_category_action_.shortText(&ic) == "表情：Emoji",
             "emoji category starts in the default catalog");
