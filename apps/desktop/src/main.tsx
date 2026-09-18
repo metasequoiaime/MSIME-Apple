@@ -202,7 +202,7 @@ function DesktopSettings() {
   const [settingsClient, setSettingsClient] = useState<SettingsClient | null>(null);
   const [bootstrapRequired, setBootstrapRequired] = useState<boolean | null>(null);
   const [replayOnboarding, setReplayOnboarding] = useState(false);
-  const [mobilePanel, setMobilePanel] = useState<"voice" | "cloud-clipboard" | "cloud-dictionary" | "cloud-dictionary-catalog" | "cloud-candidates" | "cloud-dictionary-files" | "cloud-dictionary-apply" | null>(null);
+  const [mobilePanel, setMobilePanel] = useState<"voice" | "emoji" | "clipboard" | "cloud-clipboard" | "cloud-dictionary" | "cloud-dictionary-catalog" | "cloud-candidates" | "cloud-dictionary-files" | "cloud-dictionary-apply" | null>(null);
   const mobilePanelRef = useRef(mobilePanel);
   useEffect(() => { mobilePanelRef.current = mobilePanel; }, [mobilePanel]);
   const navigateMobilePanel = (next: NonNullable<typeof mobilePanel>, replace = false) => {
@@ -315,6 +315,11 @@ function DesktopSettings() {
       const mobileHosted = host?.platform === "android"
         ? {
           ...hosted,
+          home: {
+            ...hosted.home,
+            openEmojiPanel: async () => navigateMobilePanel("emoji"),
+            openClipboardPanel: async () => navigateMobilePanel("clipboard"),
+          },
           openCloudClipboard: async () => navigateMobilePanel("cloud-clipboard"),
           openCloudDictionary: async () => navigateMobilePanel("cloud-dictionary"),
         }
@@ -382,6 +387,14 @@ function DesktopSettings() {
       } : {}),
     }} theme="light" />;
   }
+  if (mobilePanel === "emoji" || mobilePanel === "clipboard") {
+    return <DesktopPanelTheme preferences={settingsClient} surface="emoji">{theme => <DesktopEmojiPanel
+      theme={theme}
+      initialPage={mobilePanel === "clipboard" ? "clipboard" : "home"}
+      client={{ ...panelClients.emoji, close: async () => closeMobilePanel(), rememberInputTarget: undefined, sendText: undefined }}
+      close={async () => closeMobilePanel()}
+    />}</DesktopPanelTheme>;
+  }
   if (mobilePanel === "cloud-clipboard") {
     return <CloudClipboardPanel client={{
       ...panelClients.cloudClipboard,
@@ -448,7 +461,7 @@ function DesktopCloudDictionarySurface() {
   };
   return <DesktopCloudDictionary client={cloudDictionary} />;
 }
-function DesktopEmojiPanel({ theme, initialPage = "home" }: { theme: "dark" | "light"; initialPage?: "home" | "clipboard" }) {
+function DesktopEmojiPanel({ theme, initialPage = "home", client: providedClient, close }: { theme: "dark" | "light"; initialPage?: "home" | "clipboard"; client?: EmojiPanelClient; close?: () => Promise<void> }) {
   const [emojiClient, setEmojiClient] = useState<EmojiPanelClient | null>(null);
   const panelLabel = initialPage === "clipboard" ? "clipboard-panel" : "emoji-panel";
   useEffect(() => {
@@ -458,17 +471,19 @@ function DesktopEmojiPanel({ theme, initialPage = "home" }: { theme: "dark" | "l
       : Promise.resolve(false);
     void capability.then(supported => {
       if (!active) return;
+      const baseClient = providedClient ?? panelClients.emoji;
+      const closePanel = close ?? (() => invoke("close_panel", { label: panelLabel }));
       setEmojiClient(supported ? {
-        ...panelClients.emoji,
-        close: () => invoke("close_panel", { label: panelLabel }),
-        clipboard: {
-          ...panelClients.emoji.clipboard,
+        ...baseClient,
+        close: closePanel,
+        clipboard: baseClient.clipboard ? {
+          ...baseClient.clipboard,
           paste: text => invoke<void>("paste_clipboard_text", { text }),
-        },
-      } : { ...panelClients.emoji, close: () => invoke("close_panel", { label: panelLabel }) });
+        } : undefined,
+      } : { ...baseClient, close: closePanel });
     });
     return () => { active = false; };
-  }, [panelLabel]);
+  }, [close, panelLabel, providedClient]);
   return emojiClient ? <EmojiPanel client={emojiClient} theme={theme} initialPage={initialPage} />
     : <p role="status">正在连接面板…</p>;
 }
