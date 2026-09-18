@@ -1,6 +1,7 @@
 import { speechRecognizer } from '@kit.CoreSpeechKit';
 import { VoiceRecognitionPolicy } from './VoiceRecognitionPolicy';
 import { HarmonyDoubaoRecognizer } from './HarmonyDoubaoRecognizer';
+import { HarmonyVoicePolisher } from './HarmonyVoicePolisher';
 import { VoiceInputConfiguration } from './VoiceInputConfiguration';
 
 export type VoiceResultHandler = (text: string, final: boolean) => void;
@@ -18,13 +19,16 @@ export class HarmonyVoiceRecognizer {
   private resultHandler: VoiceResultHandler | undefined = undefined;
   private errorHandler: VoiceErrorHandler | undefined = undefined;
   private readonly doubao: HarmonyDoubaoRecognizer = new HarmonyDoubaoRecognizer();
+  private readonly polisher: HarmonyVoicePolisher = new HarmonyVoicePolisher();
+  private polishGeneration: number = 0;
+  private lastResultText: string = '';
+  private finalDelivered: boolean = false;
 
   async start(language: string, config: VoiceInputConfiguration, onResult: VoiceResultHandler,
     onError: VoiceErrorHandler): Promise<void> {
-    if (config.asr_provider === 'doubao' && config.asr_token.trim().length > 0) {
-      await this.doubao.start(config, onResult, onError);
-      return;
-    }
+    const doubaoProvider: boolean = config.asr_provider === 'doubao'
+      && config.asr_token.trim().length > 0;
+    if (doubaoProvider && this.doubao.isActive()) throw new Error('豆包语音识别正在进行');
     if (config.asr_provider !== 'doubao' && config.asr_provider !== 'system'
       && config.asr_provider.length > 0) {
       throw new Error('当前 Harmony 尚未支持该云端语音服务');
@@ -34,6 +38,16 @@ export class HarmonyVoiceRecognizer {
     }
     this.resultHandler = onResult;
     this.errorHandler = onError;
+    this.lastResultText = '';
+    this.finalDelivered = false;
+    this.polishGeneration += 1;
+    const deliver: VoiceResultHandler = (text: string, final: boolean): void => {
+      this.deliver(config, text, final);
+    };
+    if (doubaoProvider) {
+      await this.doubao.start(config, deliver, onError);
+      return;
+    }
     this.generation = (this.generation + 1) % 1000000000;
     this.sessionId = VoiceRecognitionPolicy.sessionId(this.generation);
     if (this.engine === undefined) {
@@ -50,12 +64,10 @@ export class HarmonyVoiceRecognizer {
           if (session !== this.sessionId || this.resultHandler === undefined) {
             return;
           }
-          this.resultHandler(VoiceRecognitionPolicy.result(result.result), result.isFinal);
+          this.deliver(config, result.result, result.isFinal);
         },
         onComplete: (session: string): void => {
-          if (session === this.sessionId && this.resultHandler !== undefined) {
-            this.resultHandler('', true);
-          }
+          if (session === this.sessionId) this.deliver(config, this.lastResultText, true);
         },
         onError: (session: string, code: number, message: string): void => {
           if (session === this.sessionId && this.errorHandler !== undefined) {
@@ -84,14 +96,20 @@ export class HarmonyVoiceRecognizer {
   }
 
   cancel(): void {
+    this.polishGeneration += 1;
+    this.polisher.cancel();
     this.doubao.cancel();
     if (this.engine !== undefined && this.sessionId.length > 0) {
       this.engine.cancel(this.sessionId);
     }
     this.sessionId = '';
+    this.lastResultText = '';
+    this.finalDelivered = false;
   }
 
   shutdown(): void {
+    this.polishGeneration += 1;
+    this.polisher.cancel();
     this.doubao.shutdown();
     try {
       this.cancel();
@@ -109,5 +127,32 @@ export class HarmonyVoiceRecognizer {
     }
     this.resultHandler = undefined;
     this.errorHandler = undefined;
+  }
+
+  private deliver(config: VoiceInputConfiguration, text: string, final: boolean): void {
+    const handler: VoiceResultHandler | undefined = this.resultHandler;
+    if (handler === undefined) return;
+    const normalized: string = VoiceRecognitionPolicy.result(text);
+    if (!final) {
+      if (normalized.length > 0) this.lastResultText = normalized;
+      handler(normalized, false);
+      return;
+    }
+    if (this.finalDelivered) return;
+    this.finalDelivered = true;
+    const finalText: string = normalized.length > 0 ? normalized : this.lastResultText;
+    if (finalText.length === 0 || (!config.polish_enabled && !config.polish_text)) {
+      handler(finalText, true);
+      return;
+    }
+    const polishGeneration: number = ++this.polishGeneration;
+    void this.polisher.polish(config, finalText).then((polished: string | null): void => {
+      if (polishGeneration !== this.polishGeneration || this.resultHandler === undefined) return;
+      handler(polished ?? finalText, true);
+    }).catch((): void => {
+      if (polishGeneration === this.polishGeneration && this.resultHandler !== undefined) {
+        handler(finalText, true);
+      }
+    });
   }
 }

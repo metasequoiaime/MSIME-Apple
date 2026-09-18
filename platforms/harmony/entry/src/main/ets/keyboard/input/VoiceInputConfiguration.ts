@@ -1,4 +1,11 @@
 /** The non-secret shape of the voice settings read from the Engine's prepared preferences. */
+export interface VoicePolishTokens {
+  siliconflow?: string;
+  openai?: string;
+  deepseek?: string;
+  groq?: string;
+}
+
 export interface VoiceInputConfiguration {
   asr_provider: string;
   language: string;
@@ -8,6 +15,18 @@ export interface VoiceInputConfiguration {
   doubao_auth_mode: string;
   asr_resource_id: string;
   asr_model: string;
+  polish_enabled: boolean;
+  polish_text: boolean;
+  polish_provider: string;
+  polish_token: string;
+  polish_tokens: VoicePolishTokens;
+  polish_endpoint: string;
+  polish_model: string;
+  polish_prompt_id: string;
+  polish_prompt: string;
+  polish_prompt_custom_1: string;
+  polish_prompt_custom_2: string;
+  polish_prompt_custom_3: string;
   doubao_enable_itn: boolean;
   doubao_enable_punc: boolean;
   doubao_enable_ddc: boolean;
@@ -23,6 +42,18 @@ export const DEFAULT_VOICE_INPUT_CONFIGURATION: VoiceInputConfiguration = {
   doubao_auth_mode: 'api_key',
   asr_resource_id: 'volc.seedasr.sauc.duration',
   asr_model: '',
+  polish_enabled: false,
+  polish_text: false,
+  polish_provider: 'siliconflow',
+  polish_token: '',
+  polish_tokens: {},
+  polish_endpoint: 'https://api.siliconflow.cn/v1/chat/completions',
+  polish_model: 'Qwen/Qwen3-8B',
+  polish_prompt_id: 'cleanup',
+  polish_prompt: '',
+  polish_prompt_custom_1: '',
+  polish_prompt_custom_2: '',
+  polish_prompt_custom_3: '',
   doubao_enable_itn: true,
   doubao_enable_punc: true,
   doubao_enable_ddc: false,
