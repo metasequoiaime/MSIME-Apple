@@ -448,6 +448,7 @@ public:
     view_ = response(msime_client_update_preferences(
         session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
     preferences_ = snapshot.at("preferences");
+    applyContextOverrides(preferences_);
     preferences_snapshot_ = std::move(snapshot);
     saveNestedBooleanPreference(section.c_str(), "enabled", enabled);
     render();
@@ -464,6 +465,7 @@ public:
     view_ = response(msime_client_update_preferences(
         session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
     preferences_ = snapshot.at("preferences");
+    applyContextOverrides(preferences_);
     preferences_snapshot_ = std::move(snapshot);
     saveNestedBooleanPreference("quanpin", key, enabled);
     render();
@@ -480,6 +482,7 @@ public:
     view_ = response(msime_client_update_preferences(
         session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
     preferences_ = snapshot.at("preferences");
+    applyContextOverrides(preferences_);
     preferences_snapshot_ = std::move(snapshot);
     saveNestedBooleanPreference("mixed_input", "english", enabled);
     render();
@@ -496,6 +499,7 @@ public:
     view_ = response(msime_client_update_preferences(
         session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
     preferences_ = snapshot.at("preferences");
+    applyContextOverrides(preferences_);
     preferences_snapshot_ = std::move(snapshot);
     saveNestedBooleanPreference("mixed_input", key, enabled);
     render();
@@ -516,6 +520,7 @@ public:
     view_ = response(msime_client_update_preferences(
         session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
     preferences_ = snapshot.at("preferences");
+    applyContextOverrides(preferences_);
     preferences_snapshot_ = std::move(snapshot);
     saveNestedBooleanPreference("local_modes", key, enabled);
     render();
@@ -532,6 +537,7 @@ public:
     view_ = response(msime_client_update_preferences(
         session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
     preferences_ = snapshot.at("preferences");
+    applyContextOverrides(preferences_);
     preferences_snapshot_ = std::move(snapshot);
     saveBooleanPreference("candidate_english_gloss", enabled);
     translation_query_.clear();
@@ -551,6 +557,7 @@ public:
           if (latest.is_object() && latest.contains("revision") && latest.contains("preferences")) {
             preferences_snapshot_ = latest;
             preferences_ = latest.at("preferences");
+            applyContextOverrides(preferences_);
           }
         } catch (...) {}
       }
@@ -564,6 +571,7 @@ public:
     view_ = response(msime_client_update_preferences(
         session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
     preferences_ = snapshot.at("preferences");
+    applyContextOverrides(preferences_);
     preferences_snapshot_ = std::move(snapshot);
     saveBooleanPreference(key, enabled);
     render();
@@ -601,6 +609,7 @@ public:
     view_ = response(msime_client_update_preferences(
         session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
     preferences_ = snapshot.at("preferences");
+    applyContextOverrides(preferences_);
     preferences_snapshot_ = std::move(snapshot);
     saveNestedBooleanPreference("word_character", "enabled", enabled);
     render();
@@ -737,6 +746,7 @@ public:
     view_ = response(msime_client_update_preferences(
         session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
     preferences_ = snapshot.at("preferences");
+    applyContextOverrides(preferences_);
     preferences_snapshot_ = std::move(snapshot);
     saveNestedNumberPreference("frequency", key, value);
     render();
@@ -763,6 +773,7 @@ public:
     view_ = response(msime_client_update_preferences(
         session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
     preferences_ = snapshot.at("preferences");
+    applyContextOverrides(preferences_);
     preferences_snapshot_ = std::move(snapshot);
     saveNestedStringPreference("frequency", "mode", next);
     render();
@@ -863,6 +874,7 @@ public:
     view_ = response(msime_client_update_preferences(
         session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
     preferences_ = snapshot.at("preferences");
+    applyContextOverrides(preferences_);
     preferences_snapshot_ = std::move(snapshot);
     saveStringPreference("candidate_theme", next);
     render();
