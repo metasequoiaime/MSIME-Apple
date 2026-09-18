@@ -91,7 +91,7 @@ int main(int argc, char **argv) {
   auto component = ibus_component_new(
       "app.msime.client.preview", "MSIME Client preview", "0.1.0",
       "GPL-3.0-only", "MSIME contributors",
-      "https://github.com/metasequoiaime/MSIME-Client", "", "");
+      "https://github.com/metasequoiaime/msime", "", "");
   ibus_component_add_engine(
       component,
       ibus_engine_desc_new("msime-client-preview", "MSIME Client Preview",
