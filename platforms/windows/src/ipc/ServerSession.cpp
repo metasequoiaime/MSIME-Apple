@@ -1,4 +1,5 @@
 #include "ServerSession.h"
+#include "CandidateCompletionPolicy.h"
 #include "KeyEvent.h"
 #include <memory>
 #include <stdexcept>
@@ -212,13 +213,8 @@ nlohmann::json ServerSession::select(uint64_t epoch, uint64_t generation,
       const auto &id = candidate.at("id");
       if (id.at("generation").get<uint64_t>() == generation &&
           id.at("index").get<size_t>() == index) {
-        // CandidateSource values are part of the shared Engine view: cloud=2,
-        // AI=3, English=4, QuickPhrase=5, Emoji=6, Kaomoji=7, Generated=8.
-        // These sources are already complete results in the Windows server and
-        // must not leave a residual pinyin buffer for word creation.
-        const auto source = candidate.value("source", 0u);
-        completes_composition = source == 2u || source == 4u || source == 5u ||
-                                source == 6u || source == 7u || source == 8u;
+        completes_composition = candidate_finishes_composition(
+            candidate.value("source", 0u));
         break;
       }
     }
