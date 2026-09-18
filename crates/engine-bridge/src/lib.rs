@@ -293,6 +293,7 @@ mod ffi {
             index: usize,
         ) -> Result<EngineResult>;
         fn command(self: Pin<&mut EngineSession>, value: u8) -> Result<EngineResult>;
+        fn commit_raw_with_policy(self: Pin<&mut EngineSession>) -> Result<EngineResult>;
         fn select(self: Pin<&mut EngineSession>, index: usize) -> Result<EngineResult>;
         fn pin_candidate(self: Pin<&mut EngineSession>, index: usize) -> Result<EngineResult>;
         fn remove_candidate(self: Pin<&mut EngineSession>, index: usize) -> Result<EngineResult>;
@@ -625,7 +626,11 @@ impl Session {
         self.inner.pin_mut().choose_nine_key_spelling(index)
     }
     pub fn command(&mut self, command: Command) -> Result<EngineResult, cxx::Exception> {
-        self.inner.pin_mut().command(command as u8)
+        if matches!(command, Command::CommitRaw) {
+            self.inner.pin_mut().commit_raw_with_policy()
+        } else {
+            self.inner.pin_mut().command(command as u8)
+        }
     }
     pub fn select(&mut self, index: usize) -> Result<EngineResult, cxx::Exception> {
         self.inner.pin_mut().select(index)
@@ -1018,5 +1023,29 @@ mod tests {
         assert_eq!(session.snapshot().unwrap().reading, "が");
         assert!(session.command(Command::CycleKanaVariant).unwrap().handled);
         assert_eq!(session.snapshot().unwrap().reading, "か");
+    }
+
+    #[test]
+    fn commit_raw_applies_windows_english_learning_policy() {
+        let dir = tempfile::tempdir().unwrap();
+        let value = options(dir.path());
+        let mut session = Session::new(&value).unwrap();
+        session.set_dedicated_english(true).unwrap();
+        for character in b"hello" {
+            assert!(session.character(*character, false).unwrap().handled);
+        }
+        assert_eq!(session.command(Command::CommitRaw).unwrap().commit, "hello");
+        let database = rusqlite::Connection::open(
+            std::path::Path::new(&value.dictionaries).join("english.db"),
+        )
+        .unwrap();
+        let learned: String = database
+            .query_row(
+                "SELECT display FROM english_words WHERE word='hello'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(learned, "hello");
     }
 }
