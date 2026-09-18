@@ -78,7 +78,12 @@ impl CloudCandidateState {
     }
 
     pub fn apply(&self, generation: u64, candidate: &str) -> Option<String> {
-        if generation != self.generation || self.input.is_empty() || candidate.is_empty() {
+        if generation != self.generation
+            || self.input.is_empty()
+            || candidate.is_empty()
+            || candidate.len() > MAX_CANDIDATE
+            || candidate.chars().any(|c| c.is_control())
+        {
             return None;
         }
         Some(candidate.to_owned())
@@ -159,6 +164,8 @@ mod tests {
         let (new, _) = state.update(true, "ni hao").unwrap();
         assert!(state.apply(old, "你好").is_none());
         assert_eq!(state.apply(new, "你好"), Some("你好".into()));
+        assert!(state.apply(new, &"字".repeat(513)).is_none());
+        assert!(state.apply(new, "好\n").is_none());
     }
 
     #[test]
