@@ -202,7 +202,27 @@ nlohmann::json ServerSession::select(uint64_t epoch, uint64_t generation,
   check_active(epoch);
   if (!input_enabled_)
     throw std::logic_error("Candidate selection while input disabled");
-  return response(msime_client_select(session_, generation, index));
+  // Cloud suggestions are already complete results for their query. The
+  // Windows server commits them as a whole and clears any shorter residual
+  // pinyin instead of entering the ordinary partial-word creation path.
+  bool cloud_candidate = false;
+  const auto current = view();
+  if (current.at("generation").get<uint64_t>() == generation) {
+    for (const auto &candidate : current.at("candidates")) {
+      const auto &id = candidate.at("id");
+      if (id.at("generation").get<uint64_t>() == generation &&
+          id.at("index").get<size_t>() == index) {
+        cloud_candidate = candidate.value("source", 0u) == 2u;
+        break;
+      }
+    }
+  }
+  auto result = response(msime_client_select(session_, generation, index));
+  if (cloud_candidate && !result.at("commit").is_null()) {
+    const auto cleared = response(msime_client_command(session_, MSIME_CANCEL));
+    result["view"] = cleared.at("view");
+  }
+  return result;
 }
 nlohmann::json ServerSession::candidate_action(uint64_t epoch,
                                                uint64_t generation,
