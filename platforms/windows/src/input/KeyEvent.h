@@ -17,7 +17,7 @@ struct KeyAction {
 // Match the legacy Server boundary: TSF classifies both digit rows as
 // candidate keys. Preserve the original packet for request/transport checks.
 inline constexpr uint32_t normalize_digit_key(uint32_t key) {
-  return key >= 0x60 && key <= 0x69 ? '0' + key - 0x60 : key;
+  return normalize_numpad_digit_key(key);
 }
 
 // Win32 VK values are stable wire values, not characters. Text comes from wch,
@@ -32,7 +32,7 @@ inline KeyAction translate_key(const FanyImeNamedpipeData &packet) {
   // Existing TSF consumes these locally and tells Server to cancel without a
   // reverse-pipe key reply. This differs from raw OS modifier key-down
   // handling.
-  if (key == 0x10 || key == 0xA0 || key == 0xA1 || key == 0x1B)
+  if (is_backend_independent_reset_key(key))
     return {KeyKind::LocalReset, MSIME_CANCEL};
   if (key == 0x11 || key == 0x12 || (key >= 0xA2 && key <= 0xA5) ||
       key == 0x5B || key == 0x5C)
