@@ -1,6 +1,7 @@
 import { speechRecognizer } from '@kit.CoreSpeechKit';
 import { VoiceRecognitionPolicy } from './VoiceRecognitionPolicy';
 import { HarmonyDoubaoRecognizer } from './HarmonyDoubaoRecognizer';
+import { HarmonyHttpAsrRecognizer } from './HarmonyHttpAsrRecognizer';
 import { HarmonyVoicePolisher } from './HarmonyVoicePolisher';
 import { VoiceInputConfiguration } from './VoiceInputConfiguration';
 
@@ -19,6 +20,7 @@ export class HarmonyVoiceRecognizer {
   private resultHandler: VoiceResultHandler | undefined = undefined;
   private errorHandler: VoiceErrorHandler | undefined = undefined;
   private readonly doubao: HarmonyDoubaoRecognizer = new HarmonyDoubaoRecognizer();
+  private readonly httpAsr: HarmonyHttpAsrRecognizer = new HarmonyHttpAsrRecognizer();
   private readonly polisher: HarmonyVoicePolisher = new HarmonyVoicePolisher();
   private polishGeneration: number = 0;
   private lastResultText: string = '';
@@ -28,8 +30,11 @@ export class HarmonyVoiceRecognizer {
     onError: VoiceErrorHandler): Promise<void> {
     const doubaoProvider: boolean = config.asr_provider === 'doubao'
       && config.asr_token.trim().length > 0;
+    const httpProvider: boolean = config.asr_provider === 'openai'
+      || config.asr_provider === 'siliconflow' || config.asr_provider === 'groq';
     if (doubaoProvider && this.doubao.isActive()) throw new Error('豆包语音识别正在进行');
-    if (config.asr_provider !== 'doubao' && config.asr_provider !== 'system'
+    if (httpProvider && this.httpAsr.isActive()) throw new Error('语音识别正在进行');
+    if (config.asr_provider !== 'doubao' && !httpProvider && config.asr_provider !== 'system'
       && config.asr_provider.length > 0) {
       throw new Error('当前 Harmony 尚未支持该云端语音服务');
     }
@@ -46,6 +51,10 @@ export class HarmonyVoiceRecognizer {
     };
     if (doubaoProvider) {
       await this.doubao.start(config, deliver, onError);
+      return;
+    }
+    if (httpProvider) {
+      await this.httpAsr.start(config, deliver, onError);
       return;
     }
     this.generation = (this.generation + 1) % 1000000000;
@@ -90,6 +99,10 @@ export class HarmonyVoiceRecognizer {
       this.doubao.stop();
       return;
     }
+    if (this.httpAsr.isActive()) {
+      this.httpAsr.stop();
+      return;
+    }
     if (this.engine !== undefined && this.sessionId.length > 0) {
       this.engine.finish(this.sessionId);
     }
@@ -99,6 +112,7 @@ export class HarmonyVoiceRecognizer {
     this.polishGeneration += 1;
     this.polisher.cancel();
     this.doubao.cancel();
+    this.httpAsr.cancel();
     if (this.engine !== undefined && this.sessionId.length > 0) {
       this.engine.cancel(this.sessionId);
     }
@@ -111,6 +125,7 @@ export class HarmonyVoiceRecognizer {
     this.polishGeneration += 1;
     this.polisher.cancel();
     this.doubao.shutdown();
+    this.httpAsr.shutdown();
     try {
       this.cancel();
     } catch (error) {
