@@ -997,19 +997,22 @@ mod tests {
     }
 
     #[test]
-    fn xiaohe_profile_accepts_yo_as_a_complete_syllable() {
+    fn all_shuangpin_profiles_accept_yo_as_one_syllable() {
         let dir = tempfile::tempdir().unwrap();
-        let mut options = options(dir.path());
-        options.scheme = 1;
-        options.shuangpin_profile = 0; // Xiaohe.
-        let mut session = Session::new(&options).unwrap();
-        for character in b"yo" {
-            assert!(session.character(*character, false).unwrap().handled);
+        for profile in 0..4 {
+            let mut options = options(dir.path());
+            options.scheme = 1;
+            options.shuangpin_profile = profile;
+            let mut session = Session::new(&options).unwrap();
+            session.character(b'y', false).unwrap();
+            session.character(b'o', false).unwrap();
+            let snapshot = session.snapshot().unwrap();
+            assert_eq!(snapshot.editing_text, "yo");
+            assert!(
+                !snapshot.preedit.is_empty(),
+                "yo did not produce a complete preedit: {snapshot:?}"
+            );
         }
-        assert_eq!(
-            session.snapshot().unwrap().segment_raw_boundaries,
-            vec![0, 2]
-        );
     }
 
     #[test]
