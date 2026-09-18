@@ -2,7 +2,7 @@
 //! Creates hidden synthetic windows only. Never requests permissions or posts input.
 #[cfg(all(target_os = "macos", not(test)))]
 #[allow(dead_code)]
-#[path = "../src/macos_keyboard.rs"]
+#[path = "../src/platform/macos/macos_keyboard.rs"]
 mod macos_keyboard;
 
 #[cfg(all(target_os = "macos", not(test)))]
