@@ -3,7 +3,9 @@ import { type ReactNode, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { SettingsPage, type DictionaryClient, type DictionaryEntry, type DictionaryImportResult,
   type HostCapabilities, type LocalDictionaryFormat, type LocalDictionaryKind, type Preferences,
-  CloudClipboardPanel, type AccountClient, type CloudClipboardPanelClient, type SettingsClient, type Snapshot } from "@msime/ui";
+  CloudClipboardPanel, CloudDictionaryPanel, CloudDictionaryCatalogPanel, CloudDictionaryFilesPanel,
+  CloudCandidatesPanel, type AccountClient, type CloudClipboardPanelClient,
+  type CloudDictionaryAction, type CloudDictionaryPanelClient, type SettingsClient, type Snapshot } from "@msime/ui";
 import "@msime/ui/styles.css";
 
 /**
@@ -27,6 +29,7 @@ interface NativeBridge {
   appVersion(): string;
   dictionary(action: string): string;
   account(action: string): Promise<string>;
+  cloudDictionary(action: string): Promise<string>;
   openExternalUrl(url: string): void;
   copyText(text: string): void;
   openSystemKeyboardSettings(): void;
@@ -102,7 +105,25 @@ function cloudClipboardClient(native: NativeBridge, close: () => void): CloudCli
   };
 }
 
-function makeClient(native: NativeBridge, openCloudClipboard: () => void): SettingsClient {
+type CloudDictionaryPage = "main" | "catalog" | "candidates" | "files";
+
+function cloudDictionaryClient(native: NativeBridge, close: () => void, setPage: (page: CloudDictionaryPage) => void): CloudDictionaryPanelClient {
+  type Response = Awaited<ReturnType<CloudDictionaryPanelClient["request"]>>;
+  return {
+    close: async () => close(),
+    back: async () => setPage("main"),
+    openCatalog: async () => setPage("catalog"),
+    openCandidates: async () => setPage("candidates"),
+    openFiles: async () => setPage("files"),
+    request: async (action: CloudDictionaryAction) => {
+      const { operation, ...payload } = action;
+      const value = await native.cloudDictionary(JSON.stringify({ operation: "dictionary", dictionary_operation: operation, ...payload }));
+      return unwrap<Response>(value);
+    },
+  };
+}
+
+function makeClient(native: NativeBridge, openCloudClipboard: () => void, openCloudDictionary: () => void): SettingsClient {
   const dictionaryReply = <T,>(action: Record<string, unknown>): T =>
     unwrap<T>(native.dictionary(JSON.stringify(action)));
   const dictionary: DictionaryClient = {
@@ -146,15 +167,23 @@ function makeClient(native: NativeBridge, openCloudClipboard: () => void): Setti
     dictionary,
     account: accountClient(native),
     openCloudClipboard: async () => openCloudClipboard(),
+    openCloudDictionary: async () => openCloudDictionary(),
   };
 }
 
 function HarmonySettings({ native }: { native: NativeBridge }): ReactNode {
   const [cloudClipboardOpen, setCloudClipboardOpen] = useState(false);
-  const client = makeClient(native, () => setCloudClipboardOpen(true));
+  const [cloudDictionaryOpen, setCloudDictionaryOpen] = useState(false);
+  const [cloudDictionaryPage, setCloudDictionaryPage] = useState<CloudDictionaryPage>("main");
+  const client = makeClient(native, () => setCloudClipboardOpen(true), () => { setCloudDictionaryPage("main"); setCloudDictionaryOpen(true); });
+  const dictionaryClient = cloudDictionaryClient(native, () => setCloudDictionaryOpen(false), setCloudDictionaryPage);
   return <>
     <SettingsPage client={client} />
     {cloudClipboardOpen && <CloudClipboardPanel client={cloudClipboardClient(native, () => setCloudClipboardOpen(false))} />}
+    {cloudDictionaryOpen && cloudDictionaryPage === "main" && <CloudDictionaryPanel client={dictionaryClient} />}
+    {cloudDictionaryOpen && cloudDictionaryPage === "catalog" && <CloudDictionaryCatalogPanel client={dictionaryClient} />}
+    {cloudDictionaryOpen && cloudDictionaryPage === "candidates" && <CloudCandidatesPanel client={dictionaryClient} />}
+    {cloudDictionaryOpen && cloudDictionaryPage === "files" && <CloudDictionaryFilesPanel client={dictionaryClient} />}
   </>;
 }
 

@@ -1235,6 +1235,7 @@ group('account and cloud clipboard bridge keeps secrets native', () => {
         access_token: 'a'.repeat(64), refresh_token: 'b'.repeat(64), token_type: 'Bearer', expires_in: 3600,
         user: { id: 'u1', display_name: 'Test', created_at: '2026-01-01' }
       }) };
+      if (path.includes('/dictionaries/pinyin')) return { status: 200, body: '{"entries":[],"has_more":false,"offset":0}' };
       if (path.includes('/clipboard')) return { status: 200, body: path.endsWith('/clipboard')
         ? '{"enabled":true,"items":[{"id":"1","text":"hello"}]}' : '{}' };
       return { status: 200, body: '{"user":{"id":"u1","display_name":"Test","created_at":"2026-01-01"},"identities":[]}' };
@@ -1256,6 +1257,12 @@ group('account and cloud clipboard bridge keeps secrets native', () => {
   void bridge.handle('{"operation":"profile"}').then(result => {
     check(JSON.parse(result).error === 'account_unauthorized', 'requests before login return unauthorized');
     check(calls.every(call => call.token === undefined), 'invalid requests do not carry a token');
+  });
+  void bridge.handle(JSON.stringify({ operation: 'dictionary', dictionary_operation: 'list', kind: 'pinyin', offset: 0, search: 'ni hao' })).then(result => {
+    check(JSON.parse(result).error === 'account_unauthorized', 'dictionary requests require the native session');
+  });
+  void bridge.handle(JSON.stringify({ operation: 'dictionary', dictionary_operation: 'list', kind: 'pinyin', offset: -1, search: '' })).then(result => {
+    check(JSON.parse(result).error === 'account_invalid', 'dictionary offsets are bounded before transport');
   });
 });
 

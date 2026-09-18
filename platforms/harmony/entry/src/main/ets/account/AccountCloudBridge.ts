@@ -44,6 +44,10 @@ function validToken(value: unknown): value is string {
   return typeof value === "string" && value.length === 64 && /^[0-9a-f]+$/.test(value);
 }
 
+function boundedUtf8(value: unknown, maximumBytes: number): value is string {
+  return typeof value === "string" && new TextEncoder().encode(value).length <= maximumBytes;
+}
+
 function parseBody(body: string): Action | null {
   if (body.length === 0 || new TextEncoder().encode(body).length > MAX_ACTION_BYTES) return null;
   try {
@@ -128,6 +132,7 @@ export class AccountCloudBridge {
         case "delete_account": return await this.deleteAccount();
         case "clear_expired": this.clearExpired(); return success({});
         case "clipboard": return await this.clipboard(action);
+        case "dictionary": return await this.dictionary(action);
         default: return error("account_invalid");
       }
     } catch (cause) {
@@ -210,6 +215,75 @@ export class AccountCloudBridge {
     return error("account_invalid");
   }
 
+  private kind(value: unknown): string | null {
+    return typeof value === "string" && ["pinyin", "wubi", "quick", "english"].includes(value)
+      ? value : null;
+  }
+
+  private boundedNumber(value: unknown, minimum: number, maximum: number): value is number {
+    return typeof value === "number" && Number.isInteger(value) && value >= minimum && value <= maximum;
+  }
+
+  private async dictionary(action: Action): Promise<string> {
+    const operation = action.dictionary_operation;
+    const kind = this.kind(action.kind);
+    if (operation === "list") {
+      if (kind === null || !validString(action.search, 1024, true) || !this.boundedNumber(action.offset, 0, 1000000)) return error("account_invalid");
+      return this.authenticated("GET", `/v1/users/me/dictionaries/${kind}?q=${encodeURIComponent(action.search)}&offset=${action.offset}&limit=100`);
+    }
+    if (operation === "catalog") {
+      if (kind === null || !validString(action.code, 256, true) || !validString(action.scheme, 64) || !validString(action.profile, 64) || !this.boundedNumber(action.offset, 0, 1000000)) return error("account_invalid");
+      return this.authenticated("GET", `/v1/users/me/dictionaries/${kind}/catalog?q=${encodeURIComponent(action.code)}&offset=${action.offset}&limit=100&scheme=${encodeURIComponent(action.scheme)}&profile=${encodeURIComponent(action.profile)}`);
+    }
+    if (operation === "add") {
+      if (kind === null || !validString(action.code, 256) || !validString(action.word, 1024) || !this.boundedNumber(action.weight, 0, 2147483647)) return error("account_invalid");
+      return this.authenticated("POST", `/v1/users/me/dictionaries/${kind}/add`, { code: action.code, word: action.word, weight: action.weight });
+    }
+    if (operation === "update" || operation === "delete") {
+      if (kind === null || !validString(action.id, 64) || !/^[0-9a-f]{64}$/.test(action.id) || !this.boundedNumber(action.revision, 1, 2147483647)) return error("account_invalid");
+      const body = operation === "delete" ? { revision: action.revision } : { code: action.code, word: action.word, weight: action.weight, revision: action.revision };
+      if (operation === "update" && (!validString(action.code, 256) || !validString(action.word, 1024) || !this.boundedNumber(action.weight, 0, 2147483647))) return error("account_invalid");
+      return this.authenticated(operation === "delete" ? "DELETE" : "PUT", `/v1/users/me/dictionaries/${kind}/${action.id}`, body);
+    }
+    if (operation === "edit_catalog") {
+      if (kind === null || !validString(action.code, 256) || !validString(action.word, 1024) || !this.boundedNumber(action.revision, 0, 2147483647)) return error("account_invalid");
+      const replacement = action.replacement;
+      if (replacement !== null && (replacement === null || typeof replacement !== "object" || !validString((replacement as Action).code, 256) || !validString((replacement as Action).word, 1024) || !this.boundedNumber((replacement as Action).weight, 0, 2147483647))) return error("account_invalid");
+      return this.authenticated("POST", `/v1/users/me/dictionaries/${kind}/edit`, { revision: action.revision, previous: { code: action.code, word: action.word }, replacement });
+    }
+    if (operation === "candidates") {
+      if (!validString(action.text, 1024) || !validString(action.kind, 32) || !validString(action.scheme, 64) || !validString(action.profile, 64) || !this.boundedNumber(action.limit, 1, 100)) return error("account_invalid");
+      return this.authenticated("POST", "/v1/users/me/dictionary/candidates", { text: action.text, kind: action.kind, scheme: action.scheme, profile: action.profile, limit: action.limit });
+    }
+    if (operation === "rank") {
+      if (!validString(action.text, 1024) || !validString(action.kind, 32) || !validString(action.scheme, 64) || !validString(action.profile, 64) || !this.boundedNumber(action.limit, 1, 100) || !validString(action.code, 256) || !validString(action.word, 1024) || !this.boundedNumber(action.revision, 0, 2147483647) || !validString(action.mode, 16) || !this.boundedNumber(action.linear_step, 0, 100) || !this.boundedNumber(action.trigger_count, 0, 100) || typeof action.force_top !== "boolean") return error("account_invalid");
+      return this.authenticated("POST", "/v1/users/me/dictionary/ranking", { revision: action.revision, query: { text: action.text, kind: action.kind, scheme: action.scheme, profile: action.profile, limit: action.limit }, action: { code: action.code, word: action.word, mode: action.mode, linear_step: action.linear_step, trigger_count: action.trigger_count, force_top: action.force_top } });
+    }
+    if (operation === "remove_candidate") {
+      if (!validString(action.text, 1024) || !validString(action.kind, 32) || !validString(action.scheme, 64) || !validString(action.profile, 64) || !this.boundedNumber(action.limit, 1, 100) || !validString(action.code, 256) || !validString(action.word, 1024) || !this.boundedNumber(action.revision, 0, 2147483647)) return error("account_invalid");
+      return this.authenticated("DELETE", "/v1/users/me/dictionary/candidates", { revision: action.revision, query: { text: action.text, kind: action.kind, scheme: action.scheme, profile: action.profile, limit: action.limit }, code: action.code, word: action.word });
+    }
+    if (operation === "fixed_positions") {
+      if (!validString(action.context, 1024, true) || !this.boundedNumber(action.offset, 0, 1000000)) return error("account_invalid");
+      return this.authenticated("GET", `/v1/users/me/dictionary/positions?context=${encodeURIComponent(action.context)}&offset=${action.offset}&limit=100`);
+    }
+    if (operation === "set_fixed_position") {
+      if (!validString(action.context, 1024, true) || !validString(action.code, 256) || !validString(action.word, 1024) || !this.boundedNumber(action.revision, 0, 2147483647) || (action.position !== null && !this.boundedNumber(action.position, 1, 5))) return error("account_invalid");
+      return this.authenticated(action.position === null ? "DELETE" : "PUT", "/v1/users/me/dictionary/positions", { context: action.context, code: action.code, word: action.word, position: action.position, revision: action.revision });
+    }
+    if (operation === "import") {
+      if (kind === null || !validString(action.format, 16) || !["standard", "windows", "hans"].includes(action.format) || (action.format === "hans" && kind !== "pinyin") || !validString(action.text, 64 * 1024) || !boundedUtf8(action.text, 64 * 1024)) return error("account_invalid");
+      const path = action.format === "hans" ? `/v1/users/me/dictionaries/${kind}/import-hans` : `/v1/users/me/dictionaries/${kind}/import`;
+      const body = action.format === "hans" ? { text: action.text, weight: 100000 } : { text: action.text, format: action.format };
+      return this.authenticated("POST", path, body);
+    }
+    if (operation === "export") {
+      if (kind === null || !validString(action.format, 16) || !["standard", "windows"].includes(action.format)) return error("account_invalid");
+      return this.authenticatedRaw("GET", `/v1/users/me/dictionaries/${kind}/export?format=${action.format}`, { text: true, filename: `dictionary-${kind}.tsv` });
+    }
+    return error("account_invalid");
+  }
+
   private async requestPublic(method: string, path: string, body?: Record<string, unknown>): Promise<string> {
     const response = await this.transport.request(method, path, undefined, body);
     return this.response(response);
@@ -227,6 +301,18 @@ export class AccountCloudBridge {
       return error("account_unauthorized");
     }
     return this.response(response);
+  }
+
+  private async authenticatedRaw(method: string, path: string, value: Record<string, unknown>): Promise<string> {
+    const session = this.session;
+    if (session === null) return error("account_unauthorized");
+    const generation = this.generation;
+    if (session.expires_at <= Date.now()) return error("account_unauthorized");
+    const response = await this.transport.request(method, path, session.access_token);
+    if (generation !== this.generation) return error("account_cancelled");
+    if (response.status === 401) { this.clearExpired(); return error("account_unauthorized"); }
+    if (response.status < 200 || response.status >= 300 || response.body.length === 0 || response.body.includes("\u0000")) return error(mapStatus(response.status));
+    return success({ ...value, text: response.body });
   }
 
   private response(response: AccountTransportResponse): string {

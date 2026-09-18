@@ -48,7 +48,7 @@ struct Settings {
           object: this.bridge,
           name: BRIDGE_NAME,
           methodList: ['loadPreferences', 'savePreferences', 'hostCapabilities', 'appVersion',
-            'dictionary', 'account', 'openExternalUrl', 'copyText', 'openSystemKeyboardSettings'],
+            'dictionary', 'account', 'cloudDictionary', 'openExternalUrl', 'copyText', 'openSystemKeyboardSettings'],
           controller: this.controller
         })
         .width('100%')
@@ -120,6 +120,13 @@ class SettingsBridge {
 
   /** Account and cloud clipboard requests stay native; the WebView sees only safe JSON DTOs. */
   account(action: string): Promise<string> {
+    if (this.accountBridge === undefined) {
+      return Promise.resolve(JSON.stringify({ ok: false, error: 'account_unavailable' }));
+    }
+    return this.accountBridge.request(action);
+  }
+
+  cloudDictionary(action: string): Promise<string> {
     if (this.accountBridge === undefined) {
       return Promise.resolve(JSON.stringify({ ok: false, error: 'account_unavailable' }));
     }
