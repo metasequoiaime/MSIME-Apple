@@ -84,7 +84,9 @@ int main() {
     }
     error(navigation_reply(77, static_cast<NavigationReply>(99)),
           ReplyError::InvalidFields);
-    require(!focus_ready_bytes(0));
+      require(!focus_ready_bytes(7, 8, 0));
+      require(!focus_ready_bytes(0, 8, 9));
+      require(!focus_ready_bytes(7, 0, 9));
     for (const auto &[mode, opcode] :
          std::vector<std::pair<WorkerMode, uint32_t>>{
              {WorkerMode::English, FanyImeWorkerReplyType::SwitchToEnglish},
@@ -122,7 +124,7 @@ int main() {
              {77, "77"},
              {4294967296ULL, "4294967296"},
              {UINT64_MAX, "18446744073709551615"}}) {
-      const auto fence = focus_ready_bytes(example.first);
+      const auto fence = focus_ready_bytes(7, 8, example.first);
       require(fence &&
               fence->size() == sizeof(FanyImeNamedpipeDataToTsfWorkerThread));
       require(fence->at(0) == FanyImeWorkerReplyType::FocusSessionReady);

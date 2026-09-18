@@ -317,7 +317,7 @@ void registries(int malformed = 0) {
   require(ack.complete() && ack.frame[0] == FanyImeReplyType::ProtocolReady);
   auto registered = handshake.get();
   require(registered.status == RegistryStatus::Ready);
-  const auto fence = *focus_ready_bytes(90);
+  const auto fence = *focus_ready_bytes(7, 8, 90);
   FocusGate focus;
   FocusRouter router(focus, 1);
   require(router.connected(registered.ticket).accepted);
