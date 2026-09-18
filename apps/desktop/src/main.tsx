@@ -293,6 +293,19 @@ function DesktopSettings() {
               test: ({ endpoint, model, prompt, token, text }) => invoke<string>("ai_test", { endpoint, model, prompt, token, text }),
             },
           } : {}),
+          ...(host.platform === "windows" ? {
+            account: {
+              status: () => invoke("account_status"),
+              providers: () => invoke("account_providers"),
+              requestCode: (provider: string, target: string) => invoke("account_request_code", { provider, target }),
+              login: (challengeId: string, code: string) => invoke("account_login", { challengeId, code }),
+              profile: () => invoke("account_profile"),
+              rename: (displayName: string) => invoke("account_rename", { displayName }),
+              logout: (all: boolean) => invoke("account_logout", { all }),
+              deleteAccount: () => invoke("account_delete"),
+              clearExpired: () => invoke("account_forget"),
+            } satisfies AccountClient,
+          } : {}),
           ...(host.platform === "ios" ? {
             testApiCredential: (service: ApiCredentialTestService, config: Record<string, unknown>) =>
               invoke<ApiCredentialTestResult>("test_api_credential", { service, config }),
