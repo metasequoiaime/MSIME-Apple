@@ -36,6 +36,12 @@ inline KeyAction translate_key(const FanyImeNamedpipeData &packet) {
   if (key == 0x11 || key == 0x12 || (key >= 0xA2 && key <= 0xA5) ||
       key == 0x5B || key == 0x5C)
     return {};
+  if ((modifiers & 0x1u) == 0x1u && (modifiers & ~0x1u) == 0 &&
+      (key == 0x08 || key == 0x25 || key == 0x27)) {
+    return {KeyKind::Command, key == 0x08 ? MSIME_BACKSPACE_SEGMENT
+                                         : key == 0x25 ? MSIME_MOVE_LEFT_SEGMENT
+                                                       : MSIME_MOVE_RIGHT_SEGMENT};
+  }
   if (modifiers & ~1u)
     return {KeyKind::CancelAndForward, MSIME_CANCEL};
   switch (key) {

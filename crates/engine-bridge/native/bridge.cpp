@@ -655,6 +655,8 @@ EngineSnapshot EngineSession::snapshot() const {
                          : std::string{};
     output.editing_text = value.editing_text;
     output.caret_position = value.caret_position;
+    for (const auto boundary : session_.segment_raw_boundaries())
+        output.segment_raw_boundaries.push_back(static_cast<std::uint64_t>(boundary));
     for (std::size_t index = 0; index < value.candidates.size(); ++index) {
         const auto &candidate = value.candidates[index];
         output.candidates.push_back(rust::String(candidate.word));

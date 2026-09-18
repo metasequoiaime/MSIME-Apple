@@ -130,6 +130,11 @@ HRESULT CKeyStateCategory::KeyStateHandler(KEYSTROKE_FUNCTION function, KeyHandl
     case FUNCTION_MOVE_RIGHT:
         return HandleKeyArrow(dto);
 
+    case FUNCTION_BACKSPACE_SEGMENT:
+    case FUNCTION_MOVE_LEFT_SEGMENT:
+    case FUNCTION_MOVE_RIGHT_SEGMENT:
+        return _pTextService->_HandleCompositionSegmentEdit(dto.ec, dto.pContext, dto.arrowKey, dto.requestId);
+
     case FUNCTION_MOVE_UP:
     case FUNCTION_MOVE_DOWN:
     case FUNCTION_MOVE_PAGE_UP:

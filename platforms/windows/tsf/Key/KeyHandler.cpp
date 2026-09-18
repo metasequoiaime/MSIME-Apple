@@ -1206,6 +1206,73 @@ Exit:
     return workerResult;
 }
 
+HRESULT CMetasequoiaIME::_HandleCompositionSegmentEdit(TfEditCookie ec, _In_ ITfContext *pContext,
+                                                       KEYSTROKE_FUNCTION keyFunction, uint64_t requestId)
+{
+    const bool isBackspace = keyFunction == FUNCTION_BACKSPACE_SEGMENT;
+    const uint32_t command = isBackspace
+                                 ? MSIME_BACKSPACE_SEGMENT
+                                 : (keyFunction == FUNCTION_MOVE_LEFT_SEGMENT ? MSIME_MOVE_LEFT_SEGMENT
+                                                                               : MSIME_MOVE_RIGHT_SEGMENT);
+    auto fallback = [&]() -> HRESULT {
+        if (isBackspace)
+            return _HandleCompositionBackspace(ec, pContext, requestId);
+        return _HandleCompositionArrowKey(ec, pContext,
+                                          keyFunction == FUNCTION_MOVE_LEFT_SEGMENT ? FUNCTION_MOVE_LEFT
+                                                                                     : FUNCTION_MOVE_RIGHT,
+                                          requestId);
+    };
+    if (!_IsComposing())
+        return S_OK;
+    auto *host = _pCompositionProcessorEngine->GetHostEngineAdapter();
+    if (!host || !host->valid())
+        return fallback();
+
+    std::string raw, error;
+    msime::tsf::EngineResult result;
+    if (!host->command(command, &raw, &error) || !msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error) ||
+        !result.handled)
+        return fallback();
+
+    if (isBackspace)
+    {
+        const std::string &value = result.view.preedit;
+        const int length = value.empty() ? 0 : MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
+                                                                    static_cast<int>(value.size()), nullptr, 0);
+        if (length <= 0)
+            return _HandleCompositionFinalize(ec, pContext, FALSE);
+        std::wstring preedit(static_cast<size_t>(length), L'\0');
+        if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(), static_cast<int>(value.size()),
+                                preedit.data(), length) != length)
+            return fallback();
+        CStringRange rendered;
+        rendered.Set(preedit.c_str(), preedit.size());
+        return _AddComposingAndChar(ec, pContext, &rendered);
+    }
+
+    for (unsigned char byte : result.view.editing_text)
+        if (byte > 0x7f)
+            return fallback();
+    const std::wstring editing(result.view.editing_text.begin(), result.view.editing_text.end());
+    const DWORD_PTR displayCaret = _pCompositionProcessorEngine->GetRenderedCaretPosition(editing, result.view.caret);
+    if (_pComposition == nullptr)
+        return S_OK;
+    ITfRange *caretRange = nullptr;
+    if (FAILED(_pComposition->GetRange(&caretRange)) || caretRange == nullptr)
+        return S_OK;
+    caretRange->Collapse(ec, TF_ANCHOR_START);
+    LONG shifted = 0;
+    caretRange->ShiftEnd(ec, static_cast<LONG>(displayCaret), &shifted, nullptr);
+    caretRange->Collapse(ec, TF_ANCHOR_END);
+    TF_SELECTION selection = {};
+    selection.range = caretRange;
+    selection.style.ase = TF_AE_NONE;
+    selection.style.fInterimChar = FALSE;
+    const HRESULT hr = pContext->SetSelection(ec, 1, &selection);
+    caretRange->Release();
+    return SUCCEEDED(hr) ? S_OK : hr;
+}
+
 //+---------------------------------------------------------------------------
 //
 // _HandleCompositionDelete
