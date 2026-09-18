@@ -1,4 +1,5 @@
 #include "SessionController.h"
+#include "input/CandidateUiActionPolicy.h"
 #include "CandidateRenderSync.h"
 #include "ReplyCodec.h"
 #include "UiSelectionDelivery.h"
@@ -242,7 +243,7 @@ CandidateActionRequestResult SessionController::request_candidate_action(
   if (input_.on_worker_thread() || active_controller == this)
     throw std::logic_error(
         "Candidate action cannot reenter controller callbacks");
-  if (action == CandidateAction::Select ||
+  if (!valid_candidate_ui_index(index) || action == CandidateAction::Select ||
       (action == CandidateAction::FixPosition &&
        (position < 1 || position > 5)) ||
       (action != CandidateAction::FixPosition && position != 0))
