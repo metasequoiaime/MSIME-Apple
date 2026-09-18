@@ -960,6 +960,16 @@ public:
     return false;
   }
   void maintenance(int operation);
+  void applyContextOverrides(Json &preferences) const {
+    if (scheme_override_) preferences["scheme"] = *scheme_override_;
+    if (shuangpin_profile_override_) preferences["shuangpin_profile"] = *shuangpin_profile_override_;
+    if (helpcode_schema_override_) {
+      const auto section = preferences.value("scheme", std::string("quanpin")) == "shuangpin"
+          ? "shuangpin_helpcode" : "quanpin_helpcode";
+      preferences[section]["schema"] = *helpcode_schema_override_;
+    }
+    if (skin_override_) preferences["candidate_skin"] = *skin_override_;
+  }
   bool ensure() {
     if (!ic_.hasFocus() || restricted()) { close(); clearPanel(); return false; }
     if (session_ && private_ != privateInput()) { close(); clearPanel(); }
@@ -968,15 +978,7 @@ public:
     candidate_skin_catalog_ = parseCandidateSkinCatalog(options);
     private_ = privateInput();
     preferences_ = options.value("preferences", Json::object());
-    if (scheme_override_) preferences_["scheme"] = *scheme_override_;
-    if (shuangpin_profile_override_)
-      preferences_["shuangpin_profile"] = *shuangpin_profile_override_;
-    if (helpcode_schema_override_) {
-      const auto section = preferences_.value("scheme", std::string("quanpin")) == "shuangpin"
-          ? "shuangpin_helpcode" : "quanpin_helpcode";
-      preferences_[section]["schema"] = *helpcode_schema_override_;
-    }
-    if (skin_override_) preferences_["candidate_skin"] = *skin_override_;
+    applyContextOverrides(preferences_);
     traditional_ = preferences_.value("traditional_chinese_output", false);
     chinese_punctuation_ = preferences_.value("chinese_punctuation", true);
     paired_punctuation_ = preferences_.value("paired_punctuation", true);
@@ -1056,10 +1058,14 @@ public:
             snapshot["preferences"]["ai_assistant"]["enabled"] = false;
           }
           if (snapshot != preferences_snapshot_) {
-            const auto encoded = snapshot.dump();
+            auto effective = snapshot;
+            auto effectivePreferences = snapshot.at("preferences");
+            applyContextOverrides(effectivePreferences);
+            effective["preferences"] = effectivePreferences;
+            const auto encoded = effective.dump();
             view_ = response(msime_client_update_preferences(session_,
                 reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
-            preferences_ = snapshot.at("preferences");
+            preferences_ = std::move(effectivePreferences);
             traditional_ = preferences_.value("traditional_chinese_output", traditional_);
             chinese_punctuation_ = preferences_.value("chinese_punctuation", chinese_punctuation_);
             paired_punctuation_ = preferences_.value("paired_punctuation", paired_punctuation_);
