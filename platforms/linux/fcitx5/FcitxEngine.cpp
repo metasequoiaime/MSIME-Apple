@@ -19,6 +19,7 @@
 #include <fcitx/surroundingtext.h>
 #include <fcitx/userinterface.h>
 #include "../src/candidates/CandidateActionPolicy.h"
+#include "../src/candidates/CandidateTranslationPolicy.h"
 #include "../src/system/TypingStatistics.h"
 #include <nlohmann/json.hpp>
 #include <algorithm>
@@ -290,6 +291,11 @@ public:
     voice_loading_ = false;
     chinese_punctuation_ = true;
     paired_punctuation_ = true;
+    translation_candidates_active_ = false;
+    translation_saved_view_ = Json::object();
+    translation_options_.clear();
+    translation_page_ = 0;
+    translation_cursor_ = 0;
   }
   void clearPanel() {
     ic_.inputPanel().reset();
@@ -1448,8 +1454,86 @@ public:
     return apply(msime_client_punctuation_with_context(session_, value, preceding));
   }
   void select(uint64_t session, uint64_t generation, size_t index) {
+    if (translation_candidates_active_) {
+      if (session_ == session && view_.value("generation", uint64_t{}) == generation)
+        commitTranslationCandidate(index);
+      return;
+    }
     if (!ensure() || session_ != session || view_.value("generation", uint64_t{}) != generation) return;
     apply(msime_client_select(session_, generation, index));
+  }
+  bool translationCandidatesActive() const { return translation_candidates_active_; }
+  void translationPage(uint32_t command) {
+    if (!translation_candidates_active_) return;
+    const auto pageSize = std::clamp(
+        translation_saved_view_.value("page_size", size_t{9}), size_t{1}, size_t{9});
+    const auto pageCount = (translation_options_.size() + pageSize - 1) / pageSize;
+    if (command == MSIME_PREVIOUS_PAGE && translation_page_ > 0)
+      --translation_page_;
+    else if (command == MSIME_NEXT_PAGE && translation_page_ + 1 < pageCount)
+      ++translation_page_;
+    else
+      return;
+    translation_cursor_ = 0;
+    renderTranslationCandidates();
+  }
+  bool enterTranslationCandidates(const std::string &gloss) {
+    const auto senses = msime::linux_host::split_translation_gloss(gloss);
+    if (senses.size() <= 1) return false;
+    translation_saved_view_ = view_;
+    translation_options_ = senses;
+    translation_candidates_active_ = true;
+    translation_page_ = 0;
+    translation_cursor_ = 0;
+    renderTranslationCandidates();
+    return true;
+  }
+  void exitTranslationCandidates() {
+    if (!translation_candidates_active_) return;
+    translation_candidates_active_ = false;
+    if (translation_saved_view_.is_object()) view_ = std::move(translation_saved_view_);
+    translation_saved_view_ = Json::object();
+    translation_options_.clear();
+    translation_page_ = 0;
+    translation_cursor_ = 0;
+    render();
+  }
+  void renderTranslationCandidates() {
+    if (!translation_candidates_active_ || !translation_saved_view_.is_object() ||
+        translation_options_.empty()) return;
+    const auto pageSize = std::clamp(
+        translation_saved_view_.value("page_size", size_t{9}), size_t{1}, size_t{9});
+    const auto pageCount = (translation_options_.size() + pageSize - 1) / pageSize;
+    translation_page_ = std::min(translation_page_, pageCount - 1);
+    const auto start = translation_page_ * pageSize;
+    translation_cursor_ = std::min(translation_cursor_, translation_options_.size() - start - 1);
+    auto overlay = translation_saved_view_;
+    overlay["page"] = translation_page_;
+    overlay["page_size"] = pageSize;
+    overlay["page_count"] = pageCount;
+    overlay["candidates"] = Json::array();
+    const auto end = std::min(start + pageSize, translation_options_.size());
+    for (size_t index = start; index < end; ++index) {
+      Json candidate = Json::object();
+      candidate["text"] = translation_options_.at(index);
+      candidate["highlighted"] = index - start == translation_cursor_;
+      candidate["source"] = 5;
+      candidate["fixed_position"] = 0;
+      candidate["annotation"] = "";
+      candidate["id"] = {{"session", session_},
+                          {"generation", overlay.value("generation", uint64_t{})},
+                          {"index", index}};
+      overlay["candidates"].push_back(std::move(candidate));
+    }
+    view_ = std::move(overlay);
+    render();
+  }
+  void commitTranslationCandidate(size_t index) {
+    if (!translation_candidates_active_ || index >= translation_options_.size()) return;
+    const auto text = translation_options_.at(index);
+    exitTranslationCandidates();
+    commitText(text, msime::linux_host::TypingSource::Reply);
+    command(MSIME_CANCEL);
   }
   void render();
   bool removeCandidateSlot(size_t slot) {
@@ -1570,6 +1654,11 @@ public:
   bool voice_loading_ = false;
   bool word_character_enabled_ = true;
   bool word_character_minus_equal_ = false;
+  bool translation_candidates_active_ = false;
+  Json translation_saved_view_ = Json::object();
+  std::vector<std::string> translation_options_;
+  size_t translation_page_ = 0;
+  size_t translation_cursor_ = 0;
 };
 
 class FcitxCandidate : public fcitx::CandidateWord {
@@ -1634,7 +1723,8 @@ public:
   void next() override { move(MSIME_NEXT_PAGE); }
 #ifdef MSIME_FCITX_ACTIONS
   bool hasAction(const fcitx::CandidateWord &candidate) const override {
-    return dynamic_cast<const FcitxCandidate *>(&candidate) != nullptr;
+    return !state_.translationCandidatesActive() &&
+           dynamic_cast<const FcitxCandidate *>(&candidate) != nullptr;
   }
   std::vector<fcitx::CandidateAction>
   candidateActions(const fcitx::CandidateWord &candidate) const override {
@@ -1695,6 +1785,10 @@ private:
   void move(uint32_t command) {
     // render() replaces this list. Do not access members after dispatch.
     auto *state = &state_;
+    if (state->translationCandidatesActive()) {
+      state->translationPage(command);
+      return;
+    }
     const auto session = session_;
     const auto generation = generation_;
     try {
@@ -3289,10 +3383,50 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     if (composing) command(MSIME_COMMIT_RAW);
     return toggleWidth();
   }
+  if (translation_candidates_active_) {
+    if (ctrl && !alt && !shift &&
+        (sym == FcitxKey_Return || sym == FcitxKey_KP_Enter))
+      return true;
+    if (sym == FcitxKey_Escape) {
+      exitTranslationCandidates();
+      return command(MSIME_CANCEL);
+    }
+    const auto pageSize = std::clamp(
+        translation_saved_view_.value("page_size", size_t{9}), size_t{1}, size_t{9});
+    const auto pageStart = translation_page_ * pageSize;
+    const auto pageEnd = std::min(pageStart + pageSize, translation_options_.size());
+    if (!ctrl && !alt && !shift && (sym == FcitxKey_space ||
+                                    (sym >= FcitxKey_1 && sym <= FcitxKey_9) ||
+                                    (sym >= FcitxKey_KP_1 && sym <= FcitxKey_KP_9))) {
+      const auto slot = sym == FcitxKey_space
+                            ? translation_cursor_
+                            : static_cast<size_t>(sym >= FcitxKey_KP_1
+                                                      ? sym - FcitxKey_KP_1
+                                                      : sym - FcitxKey_1);
+      const auto index = pageStart + slot;
+      if (index < translation_options_.size()) commitTranslationCandidate(index);
+      return true;
+    }
+    if (!ctrl && !alt && !shift && (sym == FcitxKey_Up || sym == FcitxKey_Down)) {
+      if (sym == FcitxKey_Up)
+        translation_cursor_ = translation_cursor_ == 0 ? 0 : translation_cursor_ - 1;
+      else if (translation_cursor_ + 1 < pageEnd - pageStart)
+        ++translation_cursor_;
+      renderTranslationCandidates();
+      return true;
+    }
+    if (!ctrl && !alt && !shift &&
+        (sym == FcitxKey_Page_Up || sym == FcitxKey_Page_Down)) {
+      translationPage(sym == FcitxKey_Page_Up ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE);
+      return true;
+    }
+    // Other editing keys first restore the Engine-owned candidate page below.
+    exitTranslationCandidates();
+  }
   // Match the Windows candidate-translation shortcut. Fcitx owns the
   // candidate panel, so commit the currently highlighted rendered gloss
-  // directly and close the shared composition; without a valid gloss the
-  // chord remains an application shortcut.
+  // directly for one sense, or expose a temporary native candidate page for
+  // multiple senses; without a valid gloss the chord remains an application shortcut.
   if (ctrl && !alt && !shift &&
       (sym == FcitxKey_Return || sym == FcitxKey_KP_Enter) && composing &&
       preferences_.value("candidate_translations", false)) {
@@ -3303,9 +3437,13 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
           continue;
         const auto translation = candidate.value("translation", std::string{});
         if (!translation.empty() && translation.size() <= 4096) {
-          commitText(translation, msime::linux_host::TypingSource::Reply);
-          command(MSIME_CANCEL);
-          return true;
+          if (enterTranslationCandidates(translation)) return true;
+          const auto senses = msime::linux_host::split_translation_gloss(translation);
+          if (!senses.empty()) {
+            commitText(senses.front(), msime::linux_host::TypingSource::Reply);
+            command(MSIME_CANCEL);
+            return true;
+          }
         }
         break;
       }
