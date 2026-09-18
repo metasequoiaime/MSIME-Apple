@@ -1379,16 +1379,30 @@ pub struct Runtime<E: InputEngine = Session> {
     reranker: Option<Reranker>,
 }
 
+/// `CandidateSource::Generated`: a whole-sentence path the word lattice assembled. The one source
+/// whose members really are alternative readings of the same key.
+const LATTICE_SOURCE: u8 = 8;
+
+/// Move the flagged elements to the end, keeping both groups in their existing order.
+fn move_to_back<T>(items: &mut Vec<T>, moved: &[bool]) {
+    let mut flags = moved.iter();
+    let mut tail: Vec<T> = Vec::new();
+    let mut head: Vec<T> = Vec::with_capacity(items.len());
+    for item in items.drain(..) {
+        if flags.next().copied().unwrap_or(false) {
+            tail.push(item);
+        } else {
+            head.push(item);
+        }
+    }
+    head.append(&mut tail);
+    *items = head;
+}
+
 /// Move the element at `index` to the front, keeping everything else in its existing order.
 ///
 /// A rotation rather than a swap, so the rest of the list stays as the engine ranked it: promoting
 /// one candidate is the whole change, not a reshuffle.
-/// Drop the elements whose flag is false, keeping the rest in order.
-fn retain_by<T>(items: &mut Vec<T>, keep: &[bool]) {
-    let mut flags = keep.iter();
-    items.retain(|_| flags.next().copied().unwrap_or(true));
-}
-
 fn rotate_to_front<T>(items: &mut [T], index: usize) {
     items[..=index].rotate_right(1);
 }
@@ -1871,39 +1885,38 @@ impl<E: InputEngine> Runtime<E> {
         rotate_to_front(&mut snapshot.candidate_corrected, promote);
     }
 
-    /// Keep one whole-sentence reading per decoder source and drop the rest.
+    /// Move the runner-up sentence readings behind the rest of the list.
     ///
-    /// The lattice searches several readings so that something downstream can choose between them;
-    /// showing all of them would fill the page with near-duplicate sentences and push the short
-    /// candidates a user actually wants off it. That is why the search used to be pinned to a single
-    /// path — the alternatives were never the point, the choice was.
+    /// The lattice searches several readings of the whole key so that something can choose between
+    /// them. Leaving all of them at the front fills the candidate page with near-duplicate
+    /// sentences and pushes the short candidates a user actually wants off it, which is why the
+    /// search used to be pinned to a single path.
     ///
-    /// So the engine decodes many, the reranker decides which one wins, and this drops the losers.
-    /// It runs whether or not a model is attached: without one the first reading simply stays, which
-    /// is the list an installation without a model saw before the search was widened.
-    fn crop_alternative_readings(&mut self) {
+    /// They are moved rather than removed. A candidate page needs its *first* row to be the chosen
+    /// reading; it does not need the others gone. Deleting them threw away the model's second and
+    /// third choices, so a reading the model ranked third was unreachable even when it was right.
+    ///
+    /// Only lattice readings are touched. An earlier version of this keyed on "any source that is
+    /// not a dictionary", which is wrong twice over: a source number says which code produced a
+    /// candidate, not that two candidates are spellings of one answer, and most of the other
+    /// sources are plural by design — English words, emoji, kaomoji, quick phrases and AI
+    /// suggestions all arrive as lists, and that version silently dropped all but one of each.
+    fn demote_runner_up_readings(&mut self) {
+        // The lattice never runs on fewer than three syllables, so a shorter candidate reached the
+        // list some other way and is not a reading of the same sentence. Japanese kana are the case
+        // that proves it: あ and ア are both Generated and both one character.
+        const SENTENCE_SYLLABLES: usize = 3;
+
         let snapshot = &self.cached;
         let count = snapshot.candidates.len();
         if count < 2 || snapshot.candidate_sources.len() != count {
             return;
         }
-        // Only a sentence has alternative readings. The lattice never runs on fewer than three
-        // syllables — `merge_lattice_candidates` gates on that itself — so anything shorter reached
-        // the list some other way and is not a reading of the same sentence.
-        //
-        // This bound is load-bearing, not caution. Without it the rule also fired on Japanese kana,
-        // where あ and ア are both `Generated` and both one character: the katakana was dropped as a
-        // duplicate reading of the hiragana. A source number says which code produced a candidate,
-        // not that two candidates answer the same key.
-        const SENTENCE_SYLLABLES: usize = 3;
-
-        // Whole-sentence readings all answer the whole key, so they share the leading candidate's
-        // length. Anything shorter is a prefix or a word and is not an alternative to them.
         let Some(width) = snapshot
             .candidates
             .iter()
             .zip(&snapshot.candidate_sources)
-            .find(|(_, source)| !DICTIONARY_SOURCES.contains(source))
+            .find(|(_, source)| **source == LATTICE_SOURCE)
             .map(|(text, _)| text.chars().count())
         else {
             return;
@@ -1911,29 +1924,24 @@ impl<E: InputEngine> Runtime<E> {
         if width < SENTENCE_SYLLABLES {
             return;
         }
-        let mut seen: Vec<u8> = Vec::new();
-        let mut keep: Vec<bool> = Vec::with_capacity(count);
+        // Everything after the first lattice reading of the full key is a runner-up.
+        let mut kept_one = false;
+        let mut demote: Vec<bool> = Vec::with_capacity(count);
         for (text, source) in snapshot.candidates.iter().zip(&snapshot.candidate_sources) {
-            let alternative = !DICTIONARY_SOURCES.contains(source) && text.chars().count() == width;
-            if alternative && seen.contains(source) {
-                keep.push(false);
-                continue;
-            }
-            if alternative {
-                seen.push(*source);
-            }
-            keep.push(true);
+            let reading = *source == LATTICE_SOURCE && text.chars().count() == width;
+            demote.push(reading && kept_one);
+            kept_one |= reading;
         }
-        if keep.iter().all(|kept| *kept) {
+        if !demote.iter().any(|moved| *moved) {
             return;
         }
         let snapshot = &mut self.cached;
-        retain_by(&mut snapshot.candidates, &keep);
-        retain_by(&mut snapshot.candidate_codes, &keep);
-        retain_by(&mut snapshot.candidate_annotations, &keep);
-        retain_by(&mut snapshot.candidate_sources, &keep);
-        retain_by(&mut snapshot.candidate_positions, &keep);
-        retain_by(&mut snapshot.candidate_corrected, &keep);
+        move_to_back(&mut snapshot.candidates, &demote);
+        move_to_back(&mut snapshot.candidate_codes, &demote);
+        move_to_back(&mut snapshot.candidate_annotations, &demote);
+        move_to_back(&mut snapshot.candidate_sources, &demote);
+        move_to_back(&mut snapshot.candidate_positions, &demote);
+        move_to_back(&mut snapshot.candidate_corrected, &demote);
     }
 
     fn refresh(&mut self) -> Result<(), RuntimeError> {
@@ -1967,7 +1975,7 @@ impl<E: InputEngine> Runtime<E> {
         self.highlighted = 0;
         self.cached = self.engine.snapshot()?;
         self.rerank();
-        self.crop_alternative_readings();
+        self.demote_runner_up_readings();
         self.snapshot_valid = true;
         if self.cached.editing_text == previous.editing_text
             && self.cached.scheme == previous.scheme
@@ -3381,5 +3389,56 @@ mod tests {
         assert_eq!(full, "Ａ　１！");
         assert_eq!(crate::character_width::to_halfwidth(&full), "A 1!");
         assert_eq!(crate::character_width::to_fullwidth("中文"), "中文");
+    }
+
+    /// `move_to_back` is the whole of the demotion rule that can be tested without an engine, and
+    /// the version this replaced shipped with no test at all — which is how it reached `develop`
+    /// dropping Japanese katakana and, separately, the model's own runner-up choices.
+    #[test]
+    fn demotion_moves_flagged_items_to_the_end_and_keeps_both_orders() {
+        let mut items = vec!["a", "b", "c", "d", "e"];
+        crate::move_to_back(&mut items, &[false, true, false, true, false]);
+        assert_eq!(items, vec!["a", "c", "e", "b", "d"]);
+    }
+
+    #[test]
+    fn demotion_loses_nothing() {
+        // The point of moving rather than removing: every candidate is still reachable by paging.
+        let mut items: Vec<u32> = (0..9).collect();
+        crate::move_to_back(
+            &mut items,
+            &[false, true, true, false, true, false, false, true, true],
+        );
+        let mut sorted = items.clone();
+        sorted.sort_unstable();
+        assert_eq!(sorted, (0..9).collect::<Vec<u32>>());
+        assert_eq!(items.len(), 9);
+    }
+
+    #[test]
+    fn demotion_with_no_flags_is_identity() {
+        let mut items = vec![1, 2, 3];
+        crate::move_to_back(&mut items, &[false, false, false]);
+        assert_eq!(items, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn a_short_flag_list_leaves_the_tail_in_place() {
+        // Defensive: the parallel arrays are length-checked before this runs, but a mismatch must
+        // not reorder anything it was not told about.
+        let mut items = vec![1, 2, 3, 4];
+        crate::move_to_back(&mut items, &[true]);
+        assert_eq!(items, vec![2, 3, 4, 1]);
+    }
+
+    /// Only `CandidateSource::Generated` names alternative readings of one key. Every other source
+    /// is plural by design — English words, emoji, kaomoji, quick phrases, AI suggestions — and an
+    /// earlier version of this rule kept one of each and dropped the rest.
+    #[test]
+    fn only_the_lattice_source_is_treated_as_alternative_readings() {
+        assert_eq!(crate::LATTICE_SOURCE, 8);
+        for plural in [2u8, 3, 4, 5, 6, 7] {
+            assert_ne!(crate::LATTICE_SOURCE, plural);
+        }
     }
 }
