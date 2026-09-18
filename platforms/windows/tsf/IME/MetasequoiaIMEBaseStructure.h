@@ -47,9 +47,6 @@ enum KEYSTROKE_FUNCTION
     FUNCTION_DELETE,
     FUNCTION_MOVE_LEFT,
     FUNCTION_MOVE_RIGHT,
-    FUNCTION_BACKSPACE_SEGMENT,
-    FUNCTION_MOVE_LEFT_SEGMENT,
-    FUNCTION_MOVE_RIGHT_SEGMENT,
     FUNCTION_MOVE_UP,
     FUNCTION_MOVE_DOWN,
     FUNCTION_MOVE_PAGE_UP,
@@ -76,8 +73,21 @@ enum KEYSTROKE_FUNCTION
     // Local edit: convert the immediately preceding Chinese punctuation when
     // the following space is claimed by smart punctuation.
     FUNCTION_SMART_PUNCTUATION_CONVERT,
-    FUNCTION_SMART_PUNCTUATION_REVERT
+    FUNCTION_SMART_PUNCTUATION_REVERT,
+
+    // Append new functions here; preserve every pre-existing ordinal.
+    FUNCTION_BACKSPACE_SEGMENT,
+    FUNCTION_MOVE_LEFT_SEGMENT,
+    FUNCTION_MOVE_RIGHT_SEGMENT
 };
+
+static_assert(FUNCTION_MOVE_UP == 16 && FUNCTION_MOVE_PAGE_BOTTOM == 21,
+              "Segment editing must not renumber existing navigation functions");
+static_assert(FUNCTION_INSERT_TEXT == 25 && FUNCTION_TOGGLE_CHARACTER_SET == 29,
+              "Preserve unsolicited input and character-set function ordinals");
+static_assert(FUNCTION_SMART_PUNCTUATION_REVERT == 31 && FUNCTION_BACKSPACE_SEGMENT == 32 &&
+                  FUNCTION_MOVE_LEFT_SEGMENT == 33 && FUNCTION_MOVE_RIGHT_SEGMENT == 34,
+              "New composition functions must be append-only");
 
 //---------------------------------------------------------------------
 // candidate list
