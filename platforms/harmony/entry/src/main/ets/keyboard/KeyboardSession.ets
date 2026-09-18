@@ -310,6 +310,7 @@ interface PreparedPreferences {
   touch_keyboard_skin: string;
   candidate_skin: string;
   candidate_theme: string;
+  candidate_selected_bar: boolean | null;
   candidate_follow_cursor: boolean;
   number_row_selection: boolean;
   navigation: PreparedNavigationPreferences;
@@ -382,6 +383,7 @@ export interface KeyboardPreferences {
   readonly skinId: string;
   readonly candidateSkinId: string;
   readonly candidateDark: boolean;
+  readonly candidateSelectedBar: boolean | null;
   readonly keyboardTheme: string;
   readonly globalTheme: string;
   readonly scheme: string;
@@ -487,6 +489,7 @@ export class KeyboardSession {
     skinId: 'forest',
     candidateSkinId: 'willow_green',
     candidateDark: false,
+    candidateSelectedBar: null,
     keyboardTheme: 'follow',
     globalTheme: 'system',
     scheme: 'quanpin',
@@ -602,6 +605,7 @@ export class KeyboardSession {
         candidateSkinId: preferences.candidate_skin,
         candidateDark: KeyboardSkin.resolveDark(preferences.candidate_theme, preferences.theme,
           systemDark),
+        candidateSelectedBar: preferences.candidate_selected_bar ?? null,
         keyboardTheme: preferences.screen_keyboard_theme,
         globalTheme: preferences.theme,
         scheme: preferences.scheme,

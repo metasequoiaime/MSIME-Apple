@@ -18,4 +18,8 @@ export class CandidateSkinPolicy {
         return 'forest';
     }
   }
+
+  static showSelectedBar(candidateSkin: string | null | undefined): boolean {
+    return candidateSkin !== 'wechat' && candidateSkin !== 'graphite';
+  }
 }

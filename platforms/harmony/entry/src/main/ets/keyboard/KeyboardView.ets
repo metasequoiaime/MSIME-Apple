@@ -872,6 +872,11 @@ struct KeyboardView {
   @Builder
   candidateCell(candidate: CandidateEntry, index: number) {
     Row() {
+      if (index === 0 && (this.settings.candidateSelectedBar
+        ?? CandidateSkinPolicy.showSelectedBar(this.settings.candidateSkinId))) {
+        Blank().width(3).height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP * 0.55)
+          .backgroundColor(this.candidatePalette().accent).borderRadius(2)
+      }
       Text(`${index + 1}`).fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
         .fontColor(this.candidateNumberColor()).padding({ right: 4 })
       Text(candidate.text).fontSize(this.settings.candidateFontSize)

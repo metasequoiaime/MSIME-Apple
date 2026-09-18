@@ -67,6 +67,10 @@ import { HardwareKeyRouter, HardwareKeyAction, HardwareKey } from
   '../entry/src/main/ets/keyboard/HardwareKeyRouter';
 import { CandidateSkinPolicy } from '../entry/src/main/ets/keyboard/candidate/CandidateSkinPolicy';
 
+function selectedBarVisible(value: boolean | null): boolean {
+  return value !== false;
+}
+
 let failures = 0;
 let checks = 0;
 
@@ -659,6 +663,15 @@ group('maps shared candidate skins to native Harmony palettes', () => {
   check(CandidateSkinPolicy.harmonySkin('graphite') === 'blueprint', 'Graphite uses the blue-gray palette');
   check(CandidateSkinPolicy.harmonySkin('willow_green') === 'forest', 'Willow green uses the green palette');
   check(CandidateSkinPolicy.harmonySkin('unknown') === 'forest', 'unknown ids fall back safely');
+  check(CandidateSkinPolicy.showSelectedBar('fluent'), 'Fluent shows its selected bar');
+  check(!CandidateSkinPolicy.showSelectedBar('wechat'), 'WeChat skin omits its selected bar');
+  check(!CandidateSkinPolicy.showSelectedBar('graphite'), 'Graphite skin omits its selected bar');
+});
+
+group('preserves the candidate skin selected-bar default while honoring an explicit disable', () => {
+  check(selectedBarVisible(null), 'absent preference keeps the skin default');
+  check(selectedBarVisible(true), 'explicit enable keeps the bar');
+  check(!selectedBarVisible(false), 'explicit disable hides the bar');
 });
 
 group('releases the candidate number row when the shared preference asks', () => {
