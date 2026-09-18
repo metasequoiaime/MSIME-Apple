@@ -3994,17 +3994,26 @@ async fn send_voice_text(
     #[cfg(target_os = "windows")]
     {
         let _ = (&app, &window);
-        let target = state
-            .0
-            .lock()
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?
-            .as_ref()
-            .map(|target| target.0)
-            .ok_or(HostActionError {
+        let target = {
+            let mut remembered = state.0.lock().map_err(|_| HostActionError {
                 code: "unavailable",
             })?;
+            // Voice recognition is asynchronous. If the user moved to another
+            // editor while it was running, the external foreground window is
+            // the new destination; when the panel itself is foreground keep
+            // the target captured before the panel opened.
+            if msime_host_windows::foreground_is_external() {
+                if let Some(current) = msime_host_windows::foreground_window() {
+                    *remembered = Some(PanelInputTarget(current));
+                }
+            }
+            remembered
+                .as_ref()
+                .map(|target| target.0)
+                .ok_or(HostActionError {
+                    code: "unavailable",
+                })?
+        };
         let store = store.inner().clone();
         let statistics = typing_statistics.0.clone();
         tauri::async_runtime::spawn_blocking(move || {
