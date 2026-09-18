@@ -217,6 +217,11 @@ int main(int argc, char **argv) {
     engine.candidate_layout_action_.activate(&ic);
     require(state->preferences_.value("candidate_layout", std::string{}) == "horizontal",
             "candidate layout action cycles back to horizontal");
+    require(engine.candidate_theme_action_.shortText(&ic) == "主题：跟随系统",
+            "candidate theme action reads the preference snapshot");
+    engine.candidate_theme_action_.activate(&ic);
+    require(state->preferences_.value("candidate_theme", std::string{}) == "light",
+            "candidate theme action updates the active session");
     require(engine.candidate_skin_action_.shortText(&ic) == "候选皮肤：杨柳青",
             "candidate skin action starts at the built-in preference");
     for (int i = 0; i < 5; ++i) engine.candidate_skin_action_.activate(&ic);
