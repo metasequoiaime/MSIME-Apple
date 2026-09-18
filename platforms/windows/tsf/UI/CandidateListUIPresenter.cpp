@@ -143,6 +143,7 @@ HRESULT CMetasequoiaIME::_HandleCandidateFinalize(TfEditCookie ec, _In_ ITfConte
                     curWord = rest.substr(0, secondSeparator);
                     displayPreedit = rest.substr(secondSeparator + 1);
                 }
+                const std::wstring previousWord = GlobalIme::word_for_creating_word;
                 GlobalIme::word_for_creating_word = curWord;
                 if (GlobalSettings::getTsfPreeditStyle() == GlobalSettings::TsfPreeditStyle::Pinyin)
                 {
@@ -162,7 +163,7 @@ HRESULT CMetasequoiaIME::_HandleCandidateFinalize(TfEditCookie ec, _In_ ITfConte
                     const size_t consumedLength = previousRaw.size() - remainingRawInput.size();
                     if (consumedLength > 0)
                         _creatingWordRestoreHistory.push_back(
-                            {std::string(previousRaw.begin(), previousRaw.begin() + consumedLength), curWord});
+                            {std::string(previousRaw.begin(), previousRaw.begin() + consumedLength), previousWord});
                 }
 
                 DWORD_PTR vKeyLen = pCompositionProcessorEngine->GetVirtualKeyLength();
