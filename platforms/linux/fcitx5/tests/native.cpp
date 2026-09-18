@@ -517,6 +517,18 @@ int main(int argc, char **argv) {
             "voice action receives provider status and level");
     require(ic.committed.find("语音测试") != std::string::npos, "voice action commits provider text");
     require(voiceProvider.get(), "voice socket protocol");
+    Json statistics;
+    const auto statisticsDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (std::chrono::steady_clock::now() < statisticsDeadline) {
+      const auto request = Json{{"directory", preferenceDirectory},
+                                {"action", Json{{"operation", "load"}}}}.dump();
+      statistics = response(msime_client_typing_statistics(
+          reinterpret_cast<const uint8_t *>(request.data()), request.size()));
+      if (statistics.value("total", uint64_t{}) > 0) break;
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    require(statistics.value("total", uint64_t{}) > 0,
+            "committed Fcitx text is recorded in aggregate typing statistics");
     state->voice_loading_ = true;
     state->voice_ralt_held_ = true;
     state->voice_hotkey_hold_space_lock_ = true;

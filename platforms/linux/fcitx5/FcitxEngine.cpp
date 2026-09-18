@@ -19,6 +19,7 @@
 #include <fcitx/surroundingtext.h>
 #include <fcitx/userinterface.h>
 #include "../CandidateActionPolicy.h"
+#include "../TypingStatistics.h"
 #include <nlohmann/json.hpp>
 #include <algorithm>
 #include <array>
@@ -36,6 +37,8 @@
 #include <cstring>
 #include <cctype>
 #include <mutex>
+#include <thread>
+#include <ctime>
 #if __has_include(<fcitx/candidateaction.h>)
 #include <fcitx/candidateaction.h>
 #define MSIME_FCITX_ACTIONS 1
@@ -1019,6 +1022,45 @@ public:
       }).share();
     } catch (...) { clipboard_loading_ = false; clipboard_items_.clear(); }
   }
+  msime::linux_host::TypingSource typingSource() const {
+    const auto profile = preferences_.value("shuangpin_profile", std::string("xiaohe"));
+    return msime::linux_host::resolve_typing_source(
+        view_.value("scheme", -1), view_.value("nine_key", false),
+        view_.value("dedicated_english", false),
+        view_.value("local_mode", std::string("none")), profile);
+  }
+  void recordTypingStatistics(const std::string &text,
+                              msime::linux_host::TypingSource source) const {
+    if (text.empty() || options_path_.empty() || privateInput()) return;
+    const auto directory = options_path_;
+    if (directory.front() != '/') return;
+    std::time_t now = std::time(nullptr);
+    std::tm local{};
+    if (localtime_r(&now, &local) == nullptr) return;
+    char day[11]{};
+    if (std::strftime(day, sizeof(day), "%Y-%m-%d", &local) == 0) return;
+    const auto sourceId = std::string(msime::linux_host::typing_source_id(source));
+    std::thread([directory, text, sourceId, day = std::string(day)] {
+      try {
+        const auto request = Json{
+            {"directory", directory},
+            {"action", Json{{"operation", "record"}, {"text", text},
+                              {"source", sourceId}, {"day", day}}}}
+                                  .dump();
+        if (auto *raw = msime_client_typing_statistics(
+                reinterpret_cast<const uint8_t *>(request.data()), request.size()))
+          msime_client_string_free(raw);
+      } catch (...) {
+        // Statistics are best effort and must never affect text commitment.
+      }
+    }).detach();
+  }
+  void commitText(const std::string &text,
+                  std::optional<msime::linux_host::TypingSource> source = std::nullopt) {
+    if (text.empty()) return;
+    ic_.commitString(text);
+    recordTypingStatistics(text, source.value_or(typingSource()));
+  }
   bool pasteClipboard(size_t index = 0) {
     if (restricted() || privateInput() || !ic_.hasFocus()) return false;
     refreshClipboard();
@@ -1026,7 +1068,7 @@ public:
     const auto &item = clipboard_items_.at(index);
     const auto text = item.is_string() ? item.get<std::string>() : item.value("text", std::string{});
     if (text.empty()) return false;
-    ic_.commitString(text);
+    commitText(text, msime::linux_host::TypingSource::Reply);
     return true;
   }
   bool removeClipboard(size_t index) {
@@ -1084,7 +1126,7 @@ public:
     if (index < cloud_clipboard_items_.size()) {
       const auto &item = cloud_clipboard_items_.at(index);
       const auto text = item.is_string() ? item.get<std::string>() : item.value("text", std::string{});
-      if (!text.empty()) { ic_.commitString(text); return true; }
+      if (!text.empty()) { commitText(text, msime::linux_host::TypingSource::Reply); return true; }
     }
     if (index != 0) return false;
     if (cloud_clipboard_job_.valid()) return false;
@@ -1174,7 +1216,7 @@ public:
     if (index < emoji_items_.size()) {
       const auto &item = emoji_items_.at(index);
       const auto text = item.is_string() ? item.get<std::string>() : item.value("text", std::string{});
-      if (!text.empty()) { ic_.commitString(text); return true; }
+      if (!text.empty()) { commitText(text, msime::linux_host::TypingSource::Local); return true; }
     }
     if (index != 0 || !emoji_items_.empty()) return false;
     return requestEmojiPage(0);
@@ -1278,7 +1320,7 @@ public:
         ic_.inputPanel().setAuxUp(fcitx::Text());
         ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);
         voice_mailbox_.reset();
-        if (!text.empty()) { ic_.commitString(text); return true; }
+        if (!text.empty()) { commitText(text, msime::linux_host::TypingSource::Voice); return true; }
       }
     } catch (...) {
       voice_loading_ = false;
@@ -1346,7 +1388,7 @@ public:
       auto text = result["commit"].get<std::string>();
       if (traditional_ && view_.value("scheme", 0u) != 3)
         text = msime_linux_simplified_to_traditional(text);
-      ic_.commitString(text);
+      commitText(text);
     }
     view_ = result.contains("view") ? result.at("view") : result;
     render();
@@ -3068,7 +3110,7 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
       if (!emoji_items_.empty()) {
         const auto &item = emoji_items_.front();
         const auto text = item.is_string() ? item.get<std::string>() : item.value("text", std::string{});
-        if (!text.empty()) ic_.commitString(text);
+        if (!text.empty()) commitText(text, msime::linux_host::TypingSource::Local);
       }
       endEmojiSearch();
       return true;
