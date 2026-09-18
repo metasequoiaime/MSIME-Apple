@@ -1,6 +1,7 @@
 #pragma once
 #include "msime_client.h"
 #include "PipeMetadata.h"
+#include "InputKeyPolicy.h"
 #include "windows_ipc.h"
 #include <optional>
 #include <string>
@@ -39,8 +40,8 @@ inline KeyAction translate_key(const FanyImeNamedpipeData &packet) {
   // TSF's wire modifier bits are Shift=1, Control=2, Alt=4. Segment
   // editing is deliberately Ctrl-only; Shift+Backspace/Arrow belongs to the
   // host and must not mutate the Engine composition.
-  if ((modifiers & 0x2u) == 0x2u && (modifiers & ~0x2u) == 0 &&
-      (key == 0x08 || key == 0x25 || key == 0x27)) {
+  if (is_segment_backspace_key(key, modifiers) ||
+      is_segment_caret_key(key, modifiers)) {
     return {KeyKind::Command, key == 0x08 ? MSIME_BACKSPACE_SEGMENT
                                          : key == 0x25 ? MSIME_MOVE_LEFT_SEGMENT
                                                        : MSIME_MOVE_RIGHT_SEGMENT};
