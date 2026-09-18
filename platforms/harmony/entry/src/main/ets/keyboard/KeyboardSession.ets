@@ -870,6 +870,7 @@ export class KeyboardSession {
   }
 
   detach(): void {
+    this.cancelOnlineProviders();
     if (this.handle !== 0) {
       this.apply(client.focus(this.handle, false));
     }
@@ -877,6 +878,15 @@ export class KeyboardSession {
   }
 
   stop(): void {
+    this.cancelOnlineProviders();
+    if (this.handle !== 0) {
+      client.destroy(this.handle);
+      this.handle = 0;
+    }
+  }
+
+  /** Invalidate host-side network work before the focused editor changes or the session dies. */
+  private cancelOnlineProviders(): void {
     this.onlineEpoch++;
     this.onlineSignature = '';
     if (this.onlineTimer >= 0) {
@@ -888,10 +898,6 @@ export class KeyboardSession {
     if (this.translationTimer >= 0) {
       clearTimeout(this.translationTimer);
       this.translationTimer = -1;
-    }
-    if (this.handle !== 0) {
-      client.destroy(this.handle);
-      this.handle = 0;
     }
   }
 
