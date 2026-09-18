@@ -80,18 +80,20 @@ test("profile rename, logout-all confirmation and account deletion use explicit 
   await waitFor(() => expect(client.logout).toHaveBeenCalledWith(true));
 });
 
-test("mobile accounts group session actions in an account menu and offer re-login", async () => {
+test("mobile accounts keep profile editing and session actions on the pushed profile page", async () => {
+  window.history.replaceState({ msimeSettings: true, page: "account" }, "");
   const client = account({ status: vi.fn().mockResolvedValue({ user }) });
   render(<AccountPage client={client} platform="ios" />);
-  await screen.findByRole("heading", { name: "账号" });
-  const summary = screen.getByText("账号操作");
-  expect((summary.closest("details") as HTMLDetailsElement).open).toBe(false);
-  fireEvent.click(summary);
-  expect((summary.closest("details") as HTMLDetailsElement).open).toBe(true);
-  expect(screen.getByRole("menu", { name: "账号操作" })).not.toBeNull();
-  fireEvent.click(screen.getByRole("menuitem", { name: "重新登录" }));
+  const profileCard = await screen.findByRole("button", { name: "编辑个人资料" });
+  expect(screen.queryByRole("heading", { name: "个人资料" })).toBeNull();
+  expect(screen.queryByRole("heading", { name: "账号" })).toBeNull();
+  expect(screen.queryByText("账号操作")).toBeNull();
+  fireEvent.click(profileCard);
+  expect(await screen.findByRole("heading", { name: "编辑资料" })).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "重新登录" }));
+  expect(screen.getByRole("alertdialog", { name: "确认重新登录" })).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "确认" }));
   await waitFor(() => expect(client.clearExpired).toHaveBeenCalledTimes(1));
-  expect(await screen.findByText("已清除失效登录状态。")).not.toBeNull();
 });
 
 test("profile card opens the shared editor and copies the complete account ID", async () => {
