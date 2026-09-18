@@ -4236,8 +4236,10 @@ fn voice_input_language(
 }
 
 fn external_url_is_safe(url: &str) -> bool {
-    url.strip_prefix("https://")
-        .is_some_and(|rest| !rest.is_empty() && rest.as_bytes()[0] != b'/')
+    url.len() <= 4096
+        && url
+            .strip_prefix("https://")
+            .is_some_and(|rest| !rest.is_empty() && rest.as_bytes()[0] != b'/')
         && url.starts_with("https://")
         && !url.bytes().any(|byte| {
             byte <= b' '
@@ -4249,11 +4251,24 @@ fn external_url_is_safe(url: &str) -> bool {
 }
 
 #[tauri::command]
-fn open_external_url(url: String) -> Result<(), HostActionError> {
+fn open_external_url(
+    url: String,
+    #[cfg(target_os = "android")] account: tauri::State<'_, android_account::AccountState>,
+) -> Result<(), HostActionError> {
     if !external_url_is_safe(&url) {
         return Err(HostActionError {
             code: "invalid_url",
         });
+    }
+    #[cfg(target_os = "android")]
+    {
+        account
+            .platform
+            .run_mobile_plugin::<()>("openExternalUrl", serde_json::json!({ "url": url }))
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?;
+        return Ok(());
     }
     #[cfg(target_os = "macos")]
     let result = std::process::Command::new("open").arg(&url).status();
@@ -6043,6 +6058,10 @@ mod tests {
         ] {
             assert!(!super::external_url_is_safe(url));
         }
+        assert!(!super::external_url_is_safe(&format!(
+            "https://example.com/{}",
+            "x".repeat(4096)
+        )));
     }
 
     #[test]
