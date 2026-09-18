@@ -3,9 +3,10 @@
 #import "../core/ClientDictionaryRuntime.h"
 #import <UniformTypeIdentifiers/UniformTypeIdentifiers.h>
 
-@interface MSIMEDictionaryWindowController ()
+@interface MSIMEDictionaryWindowController () <NSTableViewDataSource, NSTableViewDelegate>
 @property(nonatomic, copy) NSDictionary *options;
-@property(nonatomic, strong) NSTextView *content;
+@property(nonatomic, strong) NSTableView *table;
+@property(nonatomic, copy) NSArray<NSDictionary *> *entries;
 @property(nonatomic) NSUInteger offset;
 @property(nonatomic, strong) NSButton *previous;
 @property(nonatomic, strong) NSButton *next;
@@ -14,6 +15,9 @@
 @property(nonatomic, strong) NSPopUpButton *format;
 @property(nonatomic, strong) NSButton *importButton;
 @property(nonatomic, strong) NSButton *exportButton;
+@property(nonatomic, strong) NSButton *addButton;
+@property(nonatomic, strong) NSButton *editButton;
+@property(nonatomic, strong) NSButton *removeButton;
 @property(nonatomic, strong) NSTextField *status;
 @property(nonatomic, copy) NSString *runtimeError;
 @end
@@ -44,6 +48,9 @@
     _format.translatesAutoresizingMaskIntoConstraints = NO;
     NSButton *refresh = [NSButton buttonWithTitle:@"刷新" target:self action:@selector(refresh:)];
     refresh.translatesAutoresizingMaskIntoConstraints = NO;
+    _addButton = [NSButton buttonWithTitle:@"新增…" target:self action:@selector(addEntry:)];
+    _editButton = [NSButton buttonWithTitle:@"编辑…" target:self action:@selector(editEntry:)];
+    _removeButton = [NSButton buttonWithTitle:@"删除" target:self action:@selector(removeEntry:)];
     _importButton = [NSButton buttonWithTitle:@"导入…" target:self action:@selector(importFile:)];
     _importButton.translatesAutoresizingMaskIntoConstraints = NO;
     _exportButton = [NSButton buttonWithTitle:@"导出…" target:self action:@selector(exportFile:)];
@@ -53,41 +60,133 @@
     _previous.translatesAutoresizingMaskIntoConstraints = _next.translatesAutoresizingMaskIntoConstraints = NO;
     _pageLabel = [NSTextField labelWithString:@"第 1 页"]; _pageLabel.translatesAutoresizingMaskIntoConstraints = NO;
     _status = [NSTextField labelWithString:@""]; _status.translatesAutoresizingMaskIntoConstraints = NO;
-    _content = [[NSTextView alloc] initWithFrame:NSZeroRect];
-    _content.editable = NO; _content.font = [NSFont systemFontOfSize:13]; _content.translatesAutoresizingMaskIntoConstraints = NO;
+    _entries = @[];
+    _table = [[NSTableView alloc] initWithFrame:NSZeroRect];
+    _table.dataSource = self; _table.delegate = self; _table.usesAlternatingRowBackgroundColors = YES;
+    _table.allowsMultipleSelection = NO; _table.rowHeight = 22.0;
+    for (NSArray<NSString *> *definition in @[@[@"key", @"编码", @"190"], @[@"value", @"词条", @"270"], @[@"weight", @"权重", @"90"]]) {
+        NSTableColumn *column = [[NSTableColumn alloc] initWithIdentifier:definition[0]];
+        column.title = definition[1]; column.width = definition[2].doubleValue; [_table addTableColumn:column];
+    }
     NSScrollView *scroll = [[NSScrollView alloc] initWithFrame:NSZeroRect];
-    scroll.hasVerticalScroller = YES; scroll.documentView = _content; scroll.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.window.contentView addSubview:_kind]; [self.window.contentView addSubview:_format]; [self.window.contentView addSubview:refresh]; [self.window.contentView addSubview:_importButton]; [self.window.contentView addSubview:_exportButton]; [self.window.contentView addSubview:_previous]; [self.window.contentView addSubview:_next]; [self.window.contentView addSubview:_pageLabel]; [self.window.contentView addSubview:_status]; [self.window.contentView addSubview:scroll];
-    [NSLayoutConstraint activateConstraints:@[[_kind.topAnchor constraintEqualToAnchor:self.window.contentView.topAnchor constant:12], [_kind.leadingAnchor constraintEqualToAnchor:self.window.contentView.leadingAnchor constant:12], [_format.topAnchor constraintEqualToAnchor:_kind.topAnchor], [_format.leadingAnchor constraintEqualToAnchor:_kind.trailingAnchor constant:8], [refresh.topAnchor constraintEqualToAnchor:_kind.topAnchor], [refresh.leadingAnchor constraintEqualToAnchor:_format.trailingAnchor constant:8], [_importButton.topAnchor constraintEqualToAnchor:_kind.topAnchor], [_importButton.leadingAnchor constraintEqualToAnchor:refresh.trailingAnchor constant:8], [_exportButton.topAnchor constraintEqualToAnchor:_kind.topAnchor], [_exportButton.leadingAnchor constraintEqualToAnchor:_importButton.trailingAnchor constant:8], [_exportButton.trailingAnchor constraintEqualToAnchor:self.window.contentView.trailingAnchor constant:-12], [_next.topAnchor constraintEqualToAnchor:_kind.bottomAnchor constant:8], [_next.trailingAnchor constraintEqualToAnchor:self.window.contentView.trailingAnchor constant:-12], [_previous.topAnchor constraintEqualToAnchor:_next.topAnchor], [_previous.trailingAnchor constraintEqualToAnchor:_next.leadingAnchor constant:-8], [_pageLabel.centerYAnchor constraintEqualToAnchor:_next.centerYAnchor], [_pageLabel.trailingAnchor constraintEqualToAnchor:_previous.leadingAnchor constant:-12], [_status.topAnchor constraintEqualToAnchor:_next.bottomAnchor constant:8], [_status.leadingAnchor constraintEqualToAnchor:self.window.contentView.leadingAnchor constant:12], [_status.trailingAnchor constraintEqualToAnchor:self.window.contentView.trailingAnchor constant:-12], [scroll.topAnchor constraintEqualToAnchor:_status.bottomAnchor constant:8], [scroll.leadingAnchor constraintEqualToAnchor:self.window.contentView.leadingAnchor constant:12], [scroll.trailingAnchor constraintEqualToAnchor:self.window.contentView.trailingAnchor constant:-12], [scroll.bottomAnchor constraintEqualToAnchor:self.window.contentView.bottomAnchor constant:-12]]];
+    scroll.hasVerticalScroller = YES; scroll.borderType = NSBezelBorder; scroll.documentView = _table; scroll.translatesAutoresizingMaskIntoConstraints = NO;
+    NSArray<NSButton *> *buttons = @[_addButton, _editButton, _removeButton, refresh, _importButton, _exportButton];
+    for (NSButton *button in buttons) { button.translatesAutoresizingMaskIntoConstraints = NO; button.bezelStyle = NSBezelStyleRounded; }
+    _removeButton.hasDestructiveAction = YES;
+    [self.window.contentView addSubview:_previous]; [self.window.contentView addSubview:_next]; [self.window.contentView addSubview:_pageLabel]; [self.window.contentView addSubview:_status]; [self.window.contentView addSubview:scroll];
+    NSStackView *toolbar = [NSStackView stackViewWithViews:@[_kind, _format, _addButton, _editButton, _removeButton, refresh, _importButton, _exportButton]];
+    toolbar.orientation = NSUserInterfaceLayoutOrientationHorizontal; toolbar.spacing = 8.0; toolbar.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.window.contentView addSubview:toolbar];
+    [NSLayoutConstraint activateConstraints:@[[toolbar.topAnchor constraintEqualToAnchor:self.window.contentView.topAnchor constant:12], [toolbar.leadingAnchor constraintEqualToAnchor:self.window.contentView.leadingAnchor constant:12], [toolbar.trailingAnchor constraintEqualToAnchor:self.window.contentView.trailingAnchor constant:-12], [_next.topAnchor constraintEqualToAnchor:toolbar.bottomAnchor constant:8], [_next.trailingAnchor constraintEqualToAnchor:self.window.contentView.trailingAnchor constant:-12], [_previous.topAnchor constraintEqualToAnchor:_next.topAnchor], [_previous.trailingAnchor constraintEqualToAnchor:_next.leadingAnchor constant:-8], [_pageLabel.centerYAnchor constraintEqualToAnchor:_next.centerYAnchor], [_pageLabel.trailingAnchor constraintEqualToAnchor:_previous.leadingAnchor constant:-12], [_status.topAnchor constraintEqualToAnchor:_next.bottomAnchor constant:8], [_status.leadingAnchor constraintEqualToAnchor:self.window.contentView.leadingAnchor constant:12], [_status.trailingAnchor constraintEqualToAnchor:self.window.contentView.trailingAnchor constant:-12], [scroll.topAnchor constraintEqualToAnchor:_status.bottomAnchor constant:8], [scroll.leadingAnchor constraintEqualToAnchor:self.window.contentView.leadingAnchor constant:12], [scroll.trailingAnchor constraintEqualToAnchor:self.window.contentView.trailingAnchor constant:-12], [scroll.bottomAnchor constraintEqualToAnchor:self.window.contentView.bottomAnchor constant:-12]]];
+    [self updateEditButtons];
     [self refresh:nil];
 }
 - (NSString *)selectedKind { return self.kind.selectedItem.representedObject ?: @"pinyin"; }
 - (NSString *)selectedFormat { return self.format.selectedItem.representedObject ?: @"standard"; }
+- (void)updateEditButtons {
+    const BOOL selected = self.table.selectedRow >= 0 && self.table.selectedRow < (NSInteger)self.entries.count;
+    self.editButton.enabled = selected;
+    self.removeButton.enabled = selected;
+}
 - (void)showMessage:(NSString *)message {
     self.status.stringValue = message.length ? message : @"操作失败";
+}
+- (NSInteger)numberOfRowsInTableView:(NSTableView *)tableView {
+    (void)tableView;
+    return (NSInteger)self.entries.count;
+}
+- (NSView *)tableView:(NSTableView *)tableView viewForTableColumn:(NSTableColumn *)tableColumn row:(NSInteger)row {
+    (void)tableView;
+    if (row < 0 || row >= (NSInteger)self.entries.count) return nil;
+    NSDictionary *entry = self.entries[(NSUInteger)row];
+    NSString *value = [tableColumn.identifier isEqualToString:@"key"] ? entry[@"key"] :
+        [tableColumn.identifier isEqualToString:@"value"] ? entry[@"value"] : [entry[@"weight"] stringValue];
+    NSTextField *cell = [NSTextField labelWithString:[value isKindOfClass:NSString.class] ? value : @""];
+    cell.lineBreakMode = NSLineBreakByTruncatingTail;
+    return cell;
+}
+- (void)tableViewSelectionDidChange:(NSNotification *)notification {
+    (void)notification;
+    [self updateEditButtons];
 }
 - (void)refresh:(id)sender {
     (void)sender;
     NSUInteger offset = self.offset;
-    if (self.runtimeError) { self.content.string = self.runtimeError; self.previous.enabled = NO; self.next.enabled = NO; return; }
-    NSDictionary *request = @{ @"options": self.options, @"action": @{ @"operation": @"list", @"offset": @(offset), @"limit": @100 } };
+    if (self.runtimeError) { [self showMessage:self.runtimeError]; self.entries = @[]; [self.table reloadData]; self.previous.enabled = NO; self.next.enabled = NO; return; }
+    NSDictionary *request = @{ @"options": self.options, @"action": @{ @"operation": @"list", @"offset": @(offset), @"limit": @100, @"kind": [self selectedKind] } };
     __weak MSIMEDictionaryWindowController *weakSelf = self;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         NSError *error = nil;
         NSDictionary *result = [MSIMEClientSession dictionaryRequest:request error:&error];
+        NSArray *entries = [result[@"entries"] isKindOfClass:NSArray.class] ? result[@"entries"] : @[];
         NSString *message = nil;
         BOOL hasMore = [result[@"has_more"] boolValue];
         if (!result) message = error.localizedDescription ?: @"词典读取失败";
-        else {
-            NSMutableString *text = [NSMutableString string];
-            for (NSDictionary *entry in result[@"entries"]) [text appendFormat:@"%@\t%@\n", entry[@"key"] ?: @"", entry[@"value"] ?: @""];
-            message = text.length ? text : @"暂无个人词条";
-        }
+        else message = entries.count ? [NSString stringWithFormat:@"第 %lu 页，共显示 %lu 条%@", (unsigned long)(offset / 100 + 1), (unsigned long)entries.count, hasMore ? @"，还有更多" : @""] : @"暂无个人词条";
         dispatch_async(dispatch_get_main_queue(), ^{
             MSIMEDictionaryWindowController *controller = weakSelf;
-            if (controller) { controller.content.string = message; controller.previous.enabled = offset >= 100; controller.next.enabled = hasMore; controller.pageLabel.stringValue = [NSString stringWithFormat:@"第 %lu 页", (unsigned long)(offset / 100 + 1)]; }
+            if (controller) { controller.entries = entries; [controller.table reloadData]; [controller updateEditButtons]; [controller showMessage:message]; controller.previous.enabled = offset >= 100; controller.next.enabled = hasMore; controller.pageLabel.stringValue = [NSString stringWithFormat:@"第 %lu 页", (unsigned long)(offset / 100 + 1)]; }
         });
     });
+}
+- (void)quiesceInputSessions {
+    NSNotificationName const name = @"MetasequoiaWillResetLearnedDataNotification";
+    [NSNotificationCenter.defaultCenter postNotificationName:name object:nil];
+    [NSDistributedNotificationCenter.defaultCenter postNotificationName:name object:nil userInfo:nil deliverImmediately:YES];
+}
+- (void)presentEditorForEntry:(NSDictionary *)existing {
+    NSTextField *key = [NSTextField textFieldWithString:existing[@"key"] ?: @""];
+    NSTextField *value = [NSTextField textFieldWithString:existing[@"value"] ?: @""];
+    NSTextField *weight = [NSTextField textFieldWithString:[existing[@"weight"] stringValue] ?: @"100000"];
+    key.placeholderString = @"编码"; value.placeholderString = @"上屏内容"; weight.placeholderString = @"权重";
+    for (NSTextField *field in @[key, value, weight]) { field.translatesAutoresizingMaskIntoConstraints = NO; [field.widthAnchor constraintEqualToConstant:280.0].active = YES; }
+    NSGridView *grid = [NSGridView gridViewWithViews:@[
+        @[[NSTextField labelWithString:@"编码"], key], @[[NSTextField labelWithString:@"词条"], value], @[[NSTextField labelWithString:@"权重"], weight]
+    ]];
+    grid.rowSpacing = 8.0; grid.columnSpacing = 10.0; [grid layoutSubtreeIfNeeded]; grid.frame = NSMakeRect(0, 0, grid.fittingSize.width, grid.fittingSize.height);
+    NSAlert *alert = [NSAlert new]; alert.messageText = existing ? @"编辑词条" : @"新增词条"; alert.informativeText = @"编码和词条格式由输入法引擎校验。"; alert.accessoryView = grid;
+    [alert addButtonWithTitle:existing ? @"保存" : @"添加"]; [alert addButtonWithTitle:@"取消"];
+    __weak MSIMEDictionaryWindowController *weakSelf = self;
+    [alert beginSheetModalForWindow:self.window completionHandler:^(NSModalResponse response) {
+        if (response != NSAlertFirstButtonReturn) return;
+        MSIMEDictionaryWindowController *controller = weakSelf; if (!controller) return;
+        NSDictionary *replacement = @{ @"kind": [controller selectedKind], @"key": key.stringValue, @"value": value.stringValue, @"weight": @([weight.stringValue longLongValue]) };
+        NSDictionary *action = @{ @"operation": @"edit", @"previous": existing ?: [NSNull null], @"replacement": replacement, @"request_id": NSUUID.UUID.UUIDString };
+        NSMutableDictionary *mutableAction = [action mutableCopy];
+        if (!existing) mutableAction[@"previous"] = [NSNull null];
+        [controller quiesceInputSessions];
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+            NSError *error = nil; NSDictionary *result = [MSIMEClientSession dictionaryRequest:@{ @"options": controller.options, @"action": mutableAction } error:&error];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                if (!weakSelf) return;
+                if (!result) [weakSelf showMessage:error.localizedDescription ?: (existing ? @"词条保存失败。" : @"词条添加失败。")];
+                else { weakSelf.offset = existing ? weakSelf.offset : 0; [weakSelf refresh:nil]; }
+            });
+        });
+    }];
+}
+- (void)addEntry:(id)sender { (void)sender; if (!self.runtimeError) [self presentEditorForEntry:nil]; }
+- (void)editEntry:(id)sender {
+    (void)sender; NSInteger row = self.table.selectedRow;
+    if (row >= 0 && row < (NSInteger)self.entries.count) [self presentEditorForEntry:self.entries[(NSUInteger)row]];
+}
+- (void)removeEntry:(id)sender {
+    (void)sender; NSInteger row = self.table.selectedRow;
+    if (row < 0 || row >= (NSInteger)self.entries.count) return;
+    NSDictionary *entry = self.entries[(NSUInteger)row]; NSAlert *alert = [NSAlert new]; alert.alertStyle = NSAlertStyleWarning;
+    alert.messageText = [NSString stringWithFormat:@"删除「%@」？", entry[@"value"] ?: @""]; alert.informativeText = @"此操作无法撤销。";
+    [alert addButtonWithTitle:@"取消"]; [alert addButtonWithTitle:@"删除"]; alert.buttons[1].hasDestructiveAction = YES;
+    __weak MSIMEDictionaryWindowController *weakSelf = self;
+    [alert beginSheetModalForWindow:self.window completionHandler:^(NSModalResponse response) {
+        if (response != NSAlertSecondButtonReturn) return;
+        MSIMEDictionaryWindowController *controller = weakSelf; if (!controller) return;
+        [controller quiesceInputSessions];
+        NSDictionary *action = @{ @"operation": @"edit", @"previous": entry, @"replacement": [NSNull null], @"request_id": NSUUID.UUID.UUIDString };
+        dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
+            NSError *error = nil; NSDictionary *result = [MSIMEClientSession dictionaryRequest:@{ @"options": controller.options, @"action": action } error:&error];
+            dispatch_async(dispatch_get_main_queue(), ^{ if (!weakSelf) return; if (!result) [weakSelf showMessage:error.localizedDescription ?: @"词条删除失败。"]; else { weakSelf.offset = weakSelf.entries.count == 1 && weakSelf.offset >= 100 ? weakSelf.offset - 100 : weakSelf.offset; [weakSelf refresh:nil]; } });
+        });
+    }];
 }
 - (void)importFile:(id)sender {
     (void)sender;
@@ -118,6 +217,7 @@
             return;
         }
         NSDictionary *request = @{ @"options": controller.options, @"action": @{ @"operation": @"import", @"kind": [controller selectedKind], @"format": [controller selectedFormat], @"text": text, @"request_id": NSUUID.UUID.UUIDString } };
+        [controller quiesceInputSessions];
         dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
             NSError *requestError = nil;
             NSDictionary *result = [MSIMEClientSession dictionaryRequest:request error:&requestError];
