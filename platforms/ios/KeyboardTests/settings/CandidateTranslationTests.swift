@@ -99,6 +99,34 @@ final class CandidateTranslationTests: XCTestCase {
     XCTAssertEqual(bare.configuration?.title, "泥嚎")
   }
 
+  func testCandidateLongPressOffersGlossInsertion() throws {
+    let previousScheme = InputSchemePreference.scheme
+    let previousGloss = CandidateGlossPreference.enabled
+    defer {
+      InputSchemePreference.scheme = previousScheme
+      CandidateGlossPreference.enabled = previousGloss
+    }
+    InputSchemePreference.scheme = .quanpin
+    CandidateGlossPreference.enabled = true
+
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 320)
+    controller.viewWillAppear(false)
+    for letter in ["字母 N", "字母 I", "字母 H", "字母 A", "字母 O"] {
+      try XCTUnwrap(descendants(controller.view).first { $0.accessibilityLabel == letter } as? UIButton)
+        .sendActions(for: .primaryActionTriggered)
+    }
+    controller.view.layoutIfNeeded()
+
+    let enabledTitles = controller.candidateMenuElements(at: 0).compactMap { ($0 as? UIAction)?.title }
+    XCTAssertTrue(enabledTitles.contains { $0.lowercased().contains("hello") })
+
+    CandidateGlossPreference.enabled = false
+    let disabledTitles = controller.candidateMenuElements(at: 0).compactMap { ($0 as? UIAction)?.title }
+    XCTAssertFalse(disabledTitles.contains { $0.lowercased().contains("hello") })
+  }
+
   private func descendants(_ view: UIView) -> [UIView] {
     [view] + view.subviews.flatMap { descendants($0) }
   }

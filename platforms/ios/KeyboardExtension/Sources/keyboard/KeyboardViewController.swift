@@ -1878,7 +1878,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         display: { [weak self] in self?.chineseOutput($0) ?? $0 },
         menuElements: { [weak self] index in
           guard let self, indexes.indices.contains(index) else { return [] }
-          return candidateMenuElements(generation: generation, globalIndex: indexes[index])
+          let entry = snapshot.entries[index]
+          return candidateMenuElements(
+            generation: generation, globalIndex: indexes[index], candidate: entry.text,
+            offlineGloss: entry.translation)
         },
         onSelect: { [weak self] index in
           guard let self, indexes.indices.contains(index) else { return }
@@ -2631,6 +2634,38 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return button
   }
 
+  /// What a long press on a candidate's gloss offers. The action is deferred until the menu opens,
+  /// so a chip reused for another composition cannot insert a stale translation.
+  private func glossMenuElements(
+    _ glosses: [String], isCurrent: @escaping () -> Bool
+  ) -> [UIMenuElement] {
+    glosses
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+      .map { gloss in
+        UIAction(title: gloss, image: UIImage(systemName: "character.bubble")) { [weak self] _ in
+          guard let self, isCurrent() else { return }
+          playInputClick()
+          insertOwnText(gloss, source: .local)
+          render(session.cancel())
+          UIAccessibility.post(notification: .announcement, argument: "已输入 \(gloss)")
+        }
+      }
+  }
+
+  private func glossMenuElements(at index: Int) -> [UIMenuElement] {
+    guard visibleCandidates.indices.contains(index) else { return [] }
+    let candidate = visibleCandidates[index]
+    let revision = candidateRevision
+    return glossMenuElements(candidateGlosses(at: index)) { [weak self] in
+      guard let self, candidateRevision == revision,
+            visibleCandidates.indices.contains(index), visibleCandidates[index] == candidate else {
+        return false
+      }
+      return true
+    }
+  }
+
   /// What a long press on a strip candidate offers.
   ///
   /// The expanded panel shares this menu through the overload below. It built its own chips and
@@ -2641,11 +2676,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           visibleCandidates.indices.contains(index) else { return [] }
     let candidate = visibleCandidates[index]
     let revision = candidateRevision
-    return candidateMenuElements { [weak self] operation in
+    let glosses = glossMenuElements(at: index)
+    let management = candidateMenuElements { [weak self] operation in
       guard let self, candidateRevision == revision,
             visibleCandidates.indices.contains(index), visibleCandidates[index] == candidate else { return nil }
       return session.editCandidate(at: UInt(index), expectedWord: candidate, action: operation)
     }
+    return glosses + management
   }
 
   /// The same menu for a candidate identified the way the expanded panel holds it. Panel positions
@@ -2655,6 +2692,26 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return candidateMenuElements { [weak self] operation in
       self?.session.editCandidate(generation: generation, globalIndex: globalIndex, action: operation)
     }
+  }
+
+  private func candidateMenuElements(
+    generation: UInt64, globalIndex: UInt64, candidate: String, offlineGloss: String
+  ) -> [UIMenuElement] {
+    guard isChineseMode, !inputScheme.isJapanese, !session.isInLocalMode else { return [] }
+    let glosses = glossMenuElements(glosses(word: candidate, offline: offlineGloss)) { [weak self] in
+      guard let self else { return false }
+      guard let snapshot = try? session.allCandidates(),
+            let current = try? CandidatePanelSnapshot.decode(snapshot),
+            current.generation == generation,
+            current.entries.contains(where: { $0.index == globalIndex && $0.text == candidate }) else {
+        return false
+      }
+      return true
+    }
+    let management = candidateMenuElements { [weak self] operation in
+      self?.session.editCandidate(generation: generation, globalIndex: globalIndex, action: operation)
+    }
+    return glosses + management
   }
 
   private func candidateMenuElements(
