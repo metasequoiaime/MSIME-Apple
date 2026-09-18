@@ -14,6 +14,10 @@ $server = @($records | Where-Object { $_.Value.Contains('\server_exe\*') })
 if ($server.Count -ne 1 -or -not $server[0].Value.Contains('recursesubdirs')) {
     throw 'Missing native/Tauri executable installation rule'
 }
+if (-not $script.Contains('#define MySettingsExeName "msime-client-settings.exe"') -or
+    -not $script.Contains('{#MySettingsExeName}')) {
+    throw 'Start Menu shortcut does not target the staged Tauri settings executable'
+}
 $dataDirRecords = @($records | Where-Object { $_.Value.Contains('{code:GetDataDir}') })
 if ($dataDirRecords.Count -lt 3) {
     throw 'Installer resources do not follow the selected DataDir'
