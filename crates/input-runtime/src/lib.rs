@@ -34,7 +34,7 @@ pub mod character_width {
     }
 }
 
-pub use chinese_ime_lm::{Reranker, SentenceModel};
+pub use chinese_ime_lm::{Reranker, SentenceModel, DICTIONARY_SOURCES};
 use msime_client_core::preferences::TouchKeyboardLayout;
 use msime_engine_bridge::{
     CandidateEdge, Command, EngineResult, EngineSnapshot, OnlineQuerySnapshot, Session,
@@ -1383,6 +1383,12 @@ pub struct Runtime<E: InputEngine = Session> {
 ///
 /// A rotation rather than a swap, so the rest of the list stays as the engine ranked it: promoting
 /// one candidate is the whole change, not a reshuffle.
+/// Drop the elements whose flag is false, keeping the rest in order.
+fn retain_by<T>(items: &mut Vec<T>, keep: &[bool]) {
+    let mut flags = keep.iter();
+    items.retain(|_| flags.next().copied().unwrap_or(true));
+}
+
 fn rotate_to_front<T>(items: &mut [T], index: usize) {
     items[..=index].rotate_right(1);
 }
@@ -1865,6 +1871,58 @@ impl<E: InputEngine> Runtime<E> {
         rotate_to_front(&mut snapshot.candidate_corrected, promote);
     }
 
+    /// Keep one whole-sentence reading per decoder source and drop the rest.
+    ///
+    /// The lattice searches several readings so that something downstream can choose between them;
+    /// showing all of them would fill the page with near-duplicate sentences and push the short
+    /// candidates a user actually wants off it. That is why the search used to be pinned to a single
+    /// path — the alternatives were never the point, the choice was.
+    ///
+    /// So the engine decodes many, the reranker decides which one wins, and this drops the losers.
+    /// It runs whether or not a model is attached: without one the first reading simply stays, which
+    /// is the list an installation without a model saw before the search was widened.
+    fn crop_alternative_readings(&mut self) {
+        let snapshot = &self.cached;
+        let count = snapshot.candidates.len();
+        if count < 2 || snapshot.candidate_sources.len() != count {
+            return;
+        }
+        // Whole-sentence readings all answer the whole key, so they share the leading candidate's
+        // length. Anything shorter is a prefix or a word and is not an alternative to them.
+        let Some(width) = snapshot
+            .candidates
+            .iter()
+            .zip(&snapshot.candidate_sources)
+            .find(|(_, source)| !DICTIONARY_SOURCES.contains(source))
+            .map(|(text, _)| text.chars().count())
+        else {
+            return;
+        };
+        let mut seen: Vec<u8> = Vec::new();
+        let mut keep: Vec<bool> = Vec::with_capacity(count);
+        for (text, source) in snapshot.candidates.iter().zip(&snapshot.candidate_sources) {
+            let alternative = !DICTIONARY_SOURCES.contains(source) && text.chars().count() == width;
+            if alternative && seen.contains(source) {
+                keep.push(false);
+                continue;
+            }
+            if alternative {
+                seen.push(*source);
+            }
+            keep.push(true);
+        }
+        if keep.iter().all(|kept| *kept) {
+            return;
+        }
+        let snapshot = &mut self.cached;
+        retain_by(&mut snapshot.candidates, &keep);
+        retain_by(&mut snapshot.candidate_codes, &keep);
+        retain_by(&mut snapshot.candidate_annotations, &keep);
+        retain_by(&mut snapshot.candidate_sources, &keep);
+        retain_by(&mut snapshot.candidate_positions, &keep);
+        retain_by(&mut snapshot.candidate_corrected, &keep);
+    }
+
     fn refresh(&mut self) -> Result<(), RuntimeError> {
         self.snapshot_valid = false;
         self.translations.clear();
@@ -1896,6 +1954,7 @@ impl<E: InputEngine> Runtime<E> {
         self.highlighted = 0;
         self.cached = self.engine.snapshot()?;
         self.rerank();
+        self.crop_alternative_readings();
         self.snapshot_valid = true;
         if self.cached.editing_text == previous.editing_text
             && self.cached.scheme == previous.scheme
