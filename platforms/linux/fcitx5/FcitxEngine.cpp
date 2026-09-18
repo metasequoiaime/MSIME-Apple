@@ -3311,6 +3311,16 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
       }
     }
   }
+  // Keep Ctrl-only segment editing consistent with IBus and the Windows
+  // composition editor. The shared runtime resolves the actual segment
+  // boundaries and falls back safely for local modes.
+  if (ctrl && !alt && !shift && composing) {
+    if (sym == FcitxKey_BackSpace) return command(MSIME_BACKSPACE_SEGMENT);
+    if (sym == FcitxKey_Left || sym == FcitxKey_KP_Left)
+      return command(MSIME_MOVE_LEFT_SEGMENT);
+    if (sym == FcitxKey_Right || sym == FcitxKey_KP_Right)
+      return command(MSIME_MOVE_RIGHT_SEGMENT);
+  }
   if (states.testAny(fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Alt,
                                       fcitx::KeyState::Super, fcitx::KeyState::Hyper})) {
     if (composing) command(MSIME_CANCEL);
