@@ -957,6 +957,27 @@ int main(int argc, char **argv) {
         using namespace msime::windows;
         ReplyComposer basic(42, epoch);
         for (char c : std::string("nihao")) key(c - 'a' + 'A', c);
+        const auto translated_view = session.view();
+        require(session.apply_translations(
+                    epoch, translated_view.at("generation").get<uint64_t>(),
+                    R"([{"text":"你好","translation":"hello"}])"),
+                "Synthetic candidate translation was not applied");
+        FanyImeNamedpipeData translation_enter{};
+        translation_enter.client_id = 42;
+        translation_enter.event_type = FanyImePipeEventType::KeyEvent;
+        translation_enter.request_id = request++;
+        translation_enter.keycode = 0x0D;
+        translation_enter.modifiers_down = PipeMetadata::CandidateActive | 2u;
+        const auto translated = basic.configured_key(
+            session, translation_enter, epoch, TsfPreeditStyle::Pinyin, {});
+        require(translated && translated->ui_selection &&
+                    translated->next_prefix.empty(),
+                "Ctrl+Enter did not route the highlighted translation");
+        basic.confirm_ui_delivery(
+            42, epoch,
+            translated->source.transition.at("view")
+                .at("generation")
+                .get<uint64_t>());
         const auto unchanged = session.view();
         FanyImeNamedpipeData digit{};
         digit.client_id = 42;
