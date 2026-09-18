@@ -912,7 +912,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
         : iosPlatform
           ? "为 iPhone 与 iPad 触屏输入体验打造的开放中文输入法。"
           : "为现代 Windows 桌面体验打造的开放中文输入法。";
-  const mobilePlatform = iosPlatform || androidPlatform;
+  const mobilePlatform = iosPlatform || androidPlatform || harmonyPlatform;
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [draft, setDraft] = useState<Preferences>();
   const [busy, setBusy] = useState(true);
@@ -1569,9 +1569,12 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
   const mobilePrimaryPageIds: readonly SettingsPageId[] = ["home", "community", "typing-statistics", "account"];
   const mobilePrimaryPages = availablePages.filter(item => mobilePrimaryPageIds.includes(item.id));
   // Physical-keyboard shortcuts, helper-code switches, and a desktop floating
-  // toolbar have no mobile surface in the Apple/Android hosts. Keep them in the
-  // desktop sidebar while preventing dead-end entries in the mobile picker.
-  const mobileHiddenPageIds: readonly SettingsPageId[] = ["helpcode", "shortcuts", "floating-toolbar"];
+  // toolbar have no mobile surface in the Apple/Android hosts. HarmonyOS keeps
+  // its hardware shortcuts and keyboard toolbar in the input-method panel, so
+  // only the helper-code page stays hidden there.
+  const mobileHiddenPageIds: readonly SettingsPageId[] = harmonyPlatform
+    ? ["helpcode"]
+    : ["helpcode", "shortcuts", "floating-toolbar"];
   const mobileSecondaryPages = availablePages.filter(item =>
     !mobilePrimaryPageIds.includes(item.id) && !mobileHiddenPageIds.includes(item.id));
   const selectPage = (next: SettingsPageId) => {
