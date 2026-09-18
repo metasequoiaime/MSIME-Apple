@@ -72,6 +72,19 @@ int main() {
             EditKind::None);
     semicolon.modifiers_down = 2;
     require(edit_kind(semicolon, "none", true, true, "b", 1) == EditKind::None);
+    FanyImeNamedpipeData segment{};
+    segment.event_type = FanyImePipeEventType::KeyEvent;
+    segment.keycode = 0x25;
+    segment.modifiers_down = 2;
+    require(translate_key(segment).kind == KeyKind::Command &&
+            translate_key(segment).value == MSIME_MOVE_LEFT_SEGMENT);
+    segment.modifiers_down = 1;
+    require(translate_key(segment).value != MSIME_MOVE_LEFT_SEGMENT);
+    segment.modifiers_down = 2;
+    require(translate_key(segment).kind == KeyKind::Command &&
+            translate_key(segment).value == MSIME_MOVE_LEFT_SEGMENT);
+    segment.modifiers_down = 3;
+    require(translate_key(segment).kind == KeyKind::CancelAndForward);
     FanyImeNamedpipeData enter{};
     enter.event_type = FanyImePipeEventType::KeyEvent;
     enter.keycode = 0x0D;

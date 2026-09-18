@@ -36,7 +36,10 @@ inline KeyAction translate_key(const FanyImeNamedpipeData &packet) {
   if (key == 0x11 || key == 0x12 || (key >= 0xA2 && key <= 0xA5) ||
       key == 0x5B || key == 0x5C)
     return {};
-  if ((modifiers & 0x1u) == 0x1u && (modifiers & ~0x1u) == 0 &&
+  // TSF's wire modifier bits are Shift=1, Control=2, Alt=4. Segment
+  // editing is deliberately Ctrl-only; Shift+Backspace/Arrow belongs to the
+  // host and must not mutate the Engine composition.
+  if ((modifiers & 0x2u) == 0x2u && (modifiers & ~0x2u) == 0 &&
       (key == 0x08 || key == 0x25 || key == 0x27)) {
     return {KeyKind::Command, key == 0x08 ? MSIME_BACKSPACE_SEGMENT
                                          : key == 0x25 ? MSIME_MOVE_LEFT_SEGMENT
