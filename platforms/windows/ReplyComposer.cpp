@@ -5,6 +5,22 @@
 
 namespace msime::windows {
 namespace {
+std::string first_translation_sense(std::string value) {
+  const auto fullwidth = value.find("\xEF\xBC\x9B");
+  const auto ascii = value.find(';');
+  const auto cut = fullwidth == std::string::npos
+                       ? ascii
+                       : (ascii == std::string::npos ? fullwidth
+                                                     : (std::min)(ascii, fullwidth));
+  if (cut != std::string::npos)
+    value.resize(cut);
+  const auto first = value.find_first_not_of(" \t\r\n");
+  if (first == std::string::npos)
+    return {};
+  const auto last = value.find_last_not_of(" \t\r\n");
+  return value.substr(first, last - first + 1);
+}
+
 std::optional<NavigationReply> navigation_for(ReplyPath path) {
   switch (path) {
   case ReplyPath::IgnoredNavigation:
@@ -437,7 +453,8 @@ std::optional<PendingReply> ReplyComposer::commit_candidate_translation(
       continue;
     }
     index = candidate.at("id").at("index").get<size_t>();
-    translation = candidate.value("translation", std::string{});
+    translation = first_translation_sense(
+        candidate.value("translation", std::string{}));
     found = true;
     break;
   }
