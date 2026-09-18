@@ -4476,6 +4476,44 @@ mod tests {
             false
         );
     }
+
+    #[test]
+    #[cfg(not(target_os = "android"))]
+    fn save_preferences_uses_compare_and_swap_and_rejects_invalid_snapshots() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().to_string_lossy().into_owned();
+        let snapshot = serde_json::to_string(&PreferencesSnapshot::default()).unwrap();
+        let save = |revision, document: &str| {
+            read(unsafe {
+                msime_client_save_preferences(
+                    path.as_ptr(),
+                    path.len(),
+                    revision,
+                    document.as_ptr(),
+                    document.len(),
+                )
+            })
+        };
+
+        let saved = save(0, &snapshot);
+        assert_eq!(saved["ok"], true);
+        assert_eq!(saved["value"]["revision"], 1);
+        let file = directory.path().join("preferences.json");
+        let original = std::fs::read_to_string(&file).unwrap();
+
+        let conflict = save(0, &snapshot);
+        assert_eq!(conflict["ok"], false);
+        assert!(conflict["error"].as_str().unwrap().contains("changed"));
+        assert_eq!(std::fs::read_to_string(&file).unwrap(), original);
+
+        let mut invalid = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+        invalid["format_version"] = json!(2);
+        let invalid = invalid.to_string();
+        let rejected = save(1, &invalid);
+        assert_eq!(rejected["ok"], false);
+        assert!(rejected["error"].as_str().unwrap().contains("unsupported"));
+        assert_eq!(std::fs::read_to_string(file).unwrap(), original);
+    }
     #[test]
     fn background_preferences_reader_uses_shared_store_and_preserves_bad_files() {
         let directory = tempfile::tempdir().unwrap();
