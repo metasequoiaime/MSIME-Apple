@@ -379,9 +379,10 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     void _ApplyDeferredPreservedKeyProjection(REFGUID preservedKey);
     bool _RefreshDeferredRecoveryPrefix(_In_ ITfContext *pContext);
     void _ArmDeferredRecoveryForTransport(_In_opt_ ITfContext *pContext);
-    bool _ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM wParam, _In_opt_ const WCHAR *translatedWch,
-                                  _In_opt_ const UINT *modifiersDown, _Out_ WCHAR *classifiedWch,
-                                  _Out_ UINT *classifiedCode, _Out_ _KEYSTROKE_STATE *keyState);
+    bool _ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM wParam, LPARAM lParam,
+                                  _In_opt_ const WCHAR *translatedWch, _In_opt_ const UINT *modifiersDown,
+                                  _Out_ WCHAR *classifiedWch, _Out_ UINT *classifiedCode,
+                                  _Out_ _KEYSTROKE_STATE *keyState);
     bool _QueueDeferredKeyDown(_In_ ITfContext *pContext, WPARAM wParam, LPARAM lParam, WCHAR translatedWch,
                                UINT modifiersDown, const _KEYSTROKE_STATE &keyState);
     bool _QueueDeferredPreservedKey(_In_ ITfContext *pContext, REFGUID preservedKey);
@@ -399,6 +400,8 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
                                            _In_opt_ const UINT *modifiersDown,
                                            _In_opt_ const _KEYSTROKE_STATE *prevalidatedKeyState, bool canDefer,
                                            uint64_t expectedFocusGeneration, uint64_t deferredReplayToken = 0);
+    bool _IsCompositionActiveForKeyGuard();
+    bool _ApplyBackspaceHoldGuard(WPARAM wParam, LPARAM lParam);
     void _DispatchPreservedKey(_In_ ITfContext *pContext, REFGUID preservedKey, _Out_ BOOL *pIsEaten,
                                uint64_t expectedFocusGeneration, bool isPrevalidated, uint64_t deferredReplayToken = 0);
 
@@ -652,6 +655,9 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     uint64_t _deferredKeyFocusGeneration;
     bool _deferredKeyDrainPosted;
     bool _serverUnavailableFallbackActive;
+
+    // True while the current Backspace hold began inside a composition.
+    bool _backspaceHoldArmed;
 
     // Bare Shift/Ctrl toggle arming (Weasel-style: release within timeout).
     bool _shiftHotkeyArmed;

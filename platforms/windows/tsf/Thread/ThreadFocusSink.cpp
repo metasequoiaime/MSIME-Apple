@@ -101,6 +101,7 @@ STDAPI CMetasequoiaIME::OnSetThreadFocus()
 
 STDAPI CMetasequoiaIME::OnKillThreadFocus()
 {
+    _backspaceHoldArmed = false;
     if (!IsNamedpipeFocusStateOwner(this) || !Global::g_connected)
     {
         return S_OK;

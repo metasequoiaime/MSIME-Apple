@@ -1166,7 +1166,10 @@ HRESULT CMetasequoiaIME::_HandleCompositionBackspace(TfEditCookie ec, _In_ ITfCo
                 std::wstring preedit(static_cast<size_t>(n > 0 ? n : 0), L'\0');
                 if (n > 0) MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
                                                static_cast<int>(value.size()), preedit.data(), n);
-                if (preedit.empty()) return _HandleCompositionFinalize(ec, pContext, FALSE);
+                if (preedit.empty()) {
+                    _backspaceHoldArmed = true;
+                    return _HandleCompositionFinalize(ec, pContext, FALSE);
+                }
                 CStringRange rendered;
                 rendered.Set(preedit.c_str(), preedit.size());
                 return _AddComposingAndChar(ec, pContext, &rendered);
@@ -1191,6 +1194,7 @@ HRESULT CMetasequoiaIME::_HandleCompositionBackspace(TfEditCookie ec, _In_ ITfCo
         }
         else
         {
+            _backspaceHoldArmed = true;
             _HandleCancel(ec, pContext);
         }
     }

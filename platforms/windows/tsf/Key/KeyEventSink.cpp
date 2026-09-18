@@ -4,6 +4,7 @@
 #include "CandidateListUIPresenter.h"
 #include "CompositionProcessorEngine.h"
 #include "KeyHandlerEditSession.h"
+#include "KeyRepeatGuard.h"
 #include "Compartment.h"
 #include "MetasequoiaIMEBaseStructure.h"
 #include <debugapi.h>
@@ -305,6 +306,24 @@ void ClearReleasedShiftModifierState()
     Global::ModifiersValue &= ~(TF_MOD_SHIFT | TF_MOD_LSHIFT | TF_MOD_RSHIFT);
 }
 } // namespace
+
+bool CMetasequoiaIME::_IsCompositionActiveForKeyGuard()
+{
+    if (_IsComposing() != FALSE) return true;
+    if (_pCompositionProcessorEngine != nullptr && _pCompositionProcessorEngine->GetVirtualKeyLength() > 0)
+        return true;
+    return !GlobalIme::word_for_creating_word.empty();
+}
+
+bool CMetasequoiaIME::_ApplyBackspaceHoldGuard(WPARAM wParam, LPARAM lParam)
+{
+    if (static_cast<UINT>(wParam) != VK_BACK) return false;
+    if (!IsAutoRepeat(lParam)) {
+        _backspaceHoldArmed = _IsCompositionActiveForKeyGuard();
+        return false;
+    }
+    return ShouldSuppressBackspaceRepeat(_backspaceHoldArmed, _IsCompositionActiveForKeyGuard(), true);
+}
 
 void CMetasequoiaIME::_InitMinttyKeyboardHook()
 {
@@ -941,6 +960,8 @@ STDAPI CMetasequoiaIME::OnSetFocus(BOOL fForeground)
 {
     fForeground;
 
+    _backspaceHoldArmed = false;
+
     return S_OK;
 }
 
@@ -1031,6 +1052,8 @@ void CMetasequoiaIME::_ApplyDeferredKeyProjection(const _KEYSTROKE_STATE &keySta
     _deferredProjectedCaret = shadow.caret;
     _deferredProjectedCandidateActive = shadow.candidateActive;
     _deferredProjectedUnicodeMode = shadow.unicodeMode;
+    if (keyState.Function == FUNCTION_BACKSPACE && shadow.inputLength == 0)
+        _backspaceHoldArmed = true;
 }
 
 void CMetasequoiaIME::_ApplyDeferredPreservedKeyProjection(REFGUID preservedKey)
@@ -1170,7 +1193,7 @@ void CMetasequoiaIME::_ArmDeferredRecoveryForTransport(_In_opt_ ITfContext *pCon
     _ScheduleDeferredKeyDownDrain();
 }
 
-bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM wParam,
+bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM wParam, LPARAM lParam,
                                                _In_opt_ const WCHAR *translatedWch, _In_opt_ const UINT *modifiersDown,
                                                _Out_ WCHAR *classifiedWch, _Out_ UINT *classifiedCode,
                                                _Out_ _KEYSTROKE_STATE *keyState)
@@ -1241,6 +1264,14 @@ bool CMetasequoiaIME::_ClassifyDeferredKeyDown(_In_ ITfContext *pContext, WPARAM
             min(static_cast<size_t>(_pCompositionProcessorEngine->GetCaretPosition()), shadow.rawInput.size());
         shadow.candidateActive = _candidateMode == CANDIDATE_ORIGINAL;
         shadow.unicodeMode = _pCompositionProcessorEngine->IsUnicodeModeComposition() != FALSE;
+    }
+
+    if (static_cast<UINT>(wParam) == VK_BACK && _backspaceHoldArmed && IsAutoRepeat(lParam) &&
+        shadow.inputLength == 0 && !shadow.candidateActive)
+    {
+        keyState->Category = CATEGORY_COMPOSING;
+        keyState->Function = FUNCTION_BACKSPACE;
+        return true;
     }
 
     const auto setKeyState = [keyState](KEYSTROKE_CATEGORY category, KEYSTROKE_FUNCTION function) {
@@ -1412,6 +1443,12 @@ STDAPI CMetasequoiaIME::OnTestKeyDown(ITfContext *pContext, WPARAM wParam, LPARA
     PerfTimer onTestKeyDownTimer;
     Global::UpdateModifiers(wParam, lParam);
     _TrackModifierHotkeyArming(wParam, lParam, false);
+    if (_ApplyBackspaceHoldGuard(wParam, lParam))
+    {
+        *pIsEaten = TRUE;
+        _NoteKeyForSmartPunctuation(VK_BACK, ConvertVKey(VK_BACK), true);
+        return S_OK;
+    }
     if (IsShiftVk(LOWORD(wParam)))
     {
         *pIsEaten = FALSE;
@@ -1435,7 +1472,7 @@ STDAPI CMetasequoiaIME::OnTestKeyDown(ITfContext *pContext, WPARAM wParam, LPARA
             return S_OK;
         }
         *pIsEaten =
-            _ClassifyDeferredKeyDown(pContext, wParam, nullptr, nullptr, &deferredWch, &deferredCode, &deferredState)
+            _ClassifyDeferredKeyDown(pContext, wParam, lParam, nullptr, nullptr, &deferredWch, &deferredCode, &deferredState)
                 ? TRUE
                 : FALSE;
         // Classify always fills code/wch before failing. Track rejection even
@@ -1537,6 +1574,7 @@ bool CMetasequoiaIME::_QueueDeferredPreservedKey(_In_ ITfContext *pContext, REFG
 
 void CMetasequoiaIME::_ClearDeferredKeyDowns()
 {
+    _backspaceHoldArmed = false;
     const size_t queuedCount = _deferredKeyDowns.size();
     const bool hadInFlight = _hasDeferredKeyInFlight;
     const uint64_t inFlightToken = _deferredKeyReplayToken;
@@ -1978,6 +2016,14 @@ CMetasequoiaIME::KeyDownDispatchResult CMetasequoiaIME::_DispatchKeyDown(
         return KeyDownDispatchResult::Complete;
     }
 
+    if (_ApplyBackspaceHoldGuard(wParam, lParam))
+    {
+        *pIsEaten = TRUE;
+        _NoteKeyForSmartPunctuation(VK_BACK, ConvertVKey(VK_BACK), true);
+        if (deferredReplayToken != 0) _CompleteDeferredKeyReplay(deferredReplayToken);
+        return KeyDownDispatchResult::Complete;
+    }
+
     if (translatedWch == nullptr)
     {
         Global::UpdateModifiers(wParam, lParam);
@@ -2015,7 +2061,7 @@ CMetasequoiaIME::KeyDownDispatchResult CMetasequoiaIME::_DispatchKeyDown(
     if (canDefer && _HasDeferredKeyBarrier())
     {
         if (!_DeferredKeyQueueHasCapacity() ||
-            !_ClassifyDeferredKeyDown(pContext, wParam, translatedWch, &capturedModifiers, &wch, &code,
+            !_ClassifyDeferredKeyDown(pContext, wParam, lParam, translatedWch, &capturedModifiers, &wch, &code,
                                       &KeystrokeState))
         {
             // Mirror OnTestKeyDown: uneaten keys (esp. Backspace) must still
@@ -2111,7 +2157,7 @@ CMetasequoiaIME::KeyDownDispatchResult CMetasequoiaIME::_DispatchKeyDown(
         // classification. Reclassify against the FIFO's future state before
         // retaining the key.
         if (!_DeferredKeyQueueHasCapacity() ||
-            !_ClassifyDeferredKeyDown(pContext, wParam, translatedWch, &capturedModifiers, &wch, &code,
+            !_ClassifyDeferredKeyDown(pContext, wParam, lParam, translatedWch, &capturedModifiers, &wch, &code,
                                       &KeystrokeState) ||
             !_QueueDeferredKeyDown(pContext, wParam, lParam, wch, capturedModifiers, KeystrokeState))
         {
