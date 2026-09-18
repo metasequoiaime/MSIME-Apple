@@ -131,7 +131,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var japaneseHeight: NSLayoutConstraint!
   private var nineKeyHeight: NSLayoutConstraint!
   private var nineKeySymbolsButton: UIButton!
-  private var symbolPanel: KeyboardSymbolPanelView?
   private let punctuationStack = UIStackView()
   private var quickPunctuationButton: UIButton!
   private var quickPunctuationWidth: NSLayoutConstraint?
