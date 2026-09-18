@@ -5435,6 +5435,13 @@ pub fn run() {
             );
             #[cfg(target_os = "linux")]
             start_linux_clipboard_monitor(Arc::clone(&clipboard_state.0), preferences);
+            #[cfg(target_os = "windows")]
+            msime_host_windows::start_clipboard_monitor({
+                let preferences = preferences.clone();
+                move |text| {
+                    let _ = preferences.capture_clipboard_text(text);
+                }
+            });
             app.manage(PanelInputState::default());
             #[cfg(any(target_os = "linux", target_os = "windows"))]
             {

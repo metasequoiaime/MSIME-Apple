@@ -73,6 +73,10 @@ pub struct InputTarget(isize);
 /// Longest text a panel may inject in one call, matching the shared contract.
 pub const MAX_TEXT_BYTES: usize = 4096;
 
+const CLIPBOARD_CAPTURE_TIMER_ID: usize = 1;
+const CLIPBOARD_CAPTURE_MESSAGE: u32 = windows_sys::Win32::UI::WindowsAndMessaging::WM_APP + 1;
+const CLIPBOARD_CAPTURE_DEBOUNCE_MS: u32 = 80;
+
 /// Modifier keys a panel asks to be held while its key is pressed.
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
 pub struct Modifiers {
@@ -455,6 +459,116 @@ pub fn send_text(text: &str) -> bool {
         inputs.push(unicode_input(unit, true));
     }
     send(&inputs)
+}
+
+unsafe extern "system" fn clipboard_monitor_window_proc(
+    hwnd: windows_sys::Win32::Foundation::HWND,
+    message: u32,
+    wparam: usize,
+    _lparam: isize,
+) -> isize {
+    use windows_sys::Win32::System::DataExchange::RemoveClipboardFormatListener;
+    use windows_sys::Win32::System::Threading::GetCurrentThreadId;
+    use windows_sys::Win32::UI::WindowsAndMessaging::{
+        DefWindowProcW, DestroyWindow, KillTimer, PostQuitMessage, PostThreadMessageW, SetTimer,
+        WM_CLIPBOARDUPDATE, WM_CLOSE, WM_DESTROY, WM_TIMER,
+    };
+
+    match message {
+        WM_CLIPBOARDUPDATE => {
+            // Clipboard writers often publish several formats in sequence;
+            // defer the read until the writer has finished populating them.
+            SetTimer(
+                hwnd,
+                CLIPBOARD_CAPTURE_TIMER_ID,
+                CLIPBOARD_CAPTURE_DEBOUNCE_MS,
+                None,
+            );
+            0
+        }
+        WM_TIMER if wparam == CLIPBOARD_CAPTURE_TIMER_ID => {
+            KillTimer(hwnd, CLIPBOARD_CAPTURE_TIMER_ID);
+            PostThreadMessageW(GetCurrentThreadId(), CLIPBOARD_CAPTURE_MESSAGE, 0, 0);
+            0
+        }
+        WM_CLOSE => {
+            DestroyWindow(hwnd);
+            0
+        }
+        WM_DESTROY => {
+            RemoveClipboardFormatListener(hwnd);
+            PostQuitMessage(0);
+            0
+        }
+        _ => DefWindowProcW(hwnd, message, wparam, _lparam),
+    }
+}
+
+/// Watch native clipboard updates until the process exits and invoke `on_text`
+/// for each debounced Unicode value. The callback owns the persistence policy;
+/// this crate only performs Win32 observation and decoding.
+pub fn start_clipboard_monitor<F>(mut on_text: F)
+where
+    F: FnMut(String) + Send + 'static,
+{
+    std::thread::Builder::new()
+        .name("msime-windows-clipboard-monitor".to_owned())
+        .spawn(move || {
+            use windows_sys::Win32::System::DataExchange::AddClipboardFormatListener;
+            use windows_sys::Win32::UI::WindowsAndMessaging::{
+                CreateWindowExW, DispatchMessageW, GetMessageW, RegisterClassExW, TranslateMessage,
+                HWND_MESSAGE, WNDCLASSEXW,
+            };
+
+            const CLASS_NAME: &[u16] = &[
+                'M' as u16, 'S' as u16, 'I' as u16, 'M' as u16, 'E' as u16, 'C' as u16, 'l' as u16,
+                'i' as u16, 'p' as u16, 'b' as u16, 'o' as u16, 'a' as u16, 'r' as u16, 'd' as u16,
+                'L' as u16, 'i' as u16, 's' as u16, 't' as u16, 'e' as u16, 'n' as u16, 'e' as u16,
+                'r' as u16, 0,
+            ];
+            // SAFETY: all pointers refer to static data or this thread's
+            // message loop, and the callback is confined to this thread.
+            unsafe {
+                let class = WNDCLASSEXW {
+                    cbSize: std::mem::size_of::<WNDCLASSEXW>() as u32,
+                    lpfnWndProc: Some(clipboard_monitor_window_proc),
+                    lpszClassName: CLASS_NAME.as_ptr(),
+                    ..std::mem::zeroed()
+                };
+                if RegisterClassExW(&class) == 0 {
+                    return;
+                }
+                let hwnd = CreateWindowExW(
+                    0,
+                    CLASS_NAME.as_ptr(),
+                    CLASS_NAME.as_ptr(),
+                    0,
+                    0,
+                    0,
+                    0,
+                    0,
+                    HWND_MESSAGE,
+                    std::ptr::null_mut(),
+                    std::ptr::null_mut(),
+                    std::ptr::null(),
+                );
+                if hwnd.is_null() || AddClipboardFormatListener(hwnd) == 0 {
+                    return;
+                }
+                let mut message = std::mem::zeroed();
+                while GetMessageW(&mut message, std::ptr::null_mut(), 0, 0) > 0 {
+                    if message.message == CLIPBOARD_CAPTURE_MESSAGE {
+                        if let Ok(text) = read_clipboard_text() {
+                            on_text(text);
+                        }
+                    } else {
+                        TranslateMessage(&message);
+                        DispatchMessageW(&message);
+                    }
+                }
+            }
+        })
+        .ok();
 }
 
 /// The foreground monitor's work area, excluding the taskbar.
