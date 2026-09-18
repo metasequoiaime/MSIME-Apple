@@ -315,7 +315,9 @@ interface PreparedPreferences {
   candidate_text_color: string | null;
   candidate_accent_color: string | null;
   candidate_selected_color: string | null;
+  candidate_hover_color: string | null;
   candidate_surface_color: string | null;
+  candidate_border_color: string | null;
   // 'follow', 'dark' or 'light' for the keyboard specifically; theme is the global one it falls
   // back to, and only if both defer does the system decide.
   screen_keyboard_theme: string;
@@ -373,7 +375,9 @@ export interface KeyboardPreferences {
   readonly candidateTextColor: string | null;
   readonly candidateAccentColor: string | null;
   readonly candidateSelectedColor: string | null;
+  readonly candidateHoverColor: string | null;
   readonly candidateSurfaceColor: string | null;
+  readonly candidateBorderColor: string | null;
   readonly keySpacingTenths: number;
   readonly rowSpacingTenths: number;
   readonly heightAdjustment: number;
@@ -460,7 +464,9 @@ export class KeyboardSession {
     candidateTextColor: null,
     candidateAccentColor: null,
     candidateSelectedColor: null,
+    candidateHoverColor: null,
     candidateSurfaceColor: null,
+    candidateBorderColor: null,
     keySpacingTenths: KeyboardGeometry.DEFAULT_KEY_SPACING_TENTHS,
     rowSpacingTenths: KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS,
     heightAdjustment: KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_VP,
@@ -566,7 +572,9 @@ export class KeyboardSession {
         candidateTextColor: preferences.candidate_text_color,
         candidateAccentColor: preferences.candidate_accent_color,
         candidateSelectedColor: preferences.candidate_selected_color,
+        candidateHoverColor: preferences.candidate_hover_color,
         candidateSurfaceColor: preferences.candidate_surface_color,
+        candidateBorderColor: preferences.candidate_border_color,
         // Clamped rather than trusted: the store validates, but an older document or a host that
         // never learned the bounds would otherwise draw a keyboard nobody can hit.
         keySpacingTenths: KeyboardGeometry.keySpacing(preferences.touch_key_spacing_tenths),

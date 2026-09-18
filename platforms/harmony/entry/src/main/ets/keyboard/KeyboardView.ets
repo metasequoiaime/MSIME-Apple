@@ -218,6 +218,7 @@ struct KeyboardView {
   @State voiceNotice: string = '';
   @State voiceBusy: boolean = false;
   @State voiceFinishing: boolean = false;
+  @State hoveredCandidate: number = -1;
 
   private readonly letterCase: EnglishLetterCaseState = new EnglishLetterCaseState();
   private settings: KeyboardPreferences = KeyboardSession.shared.preferences();
@@ -742,6 +743,15 @@ struct KeyboardView {
     return this.settings.candidateAccentColor ?? this.skin.accent;
   }
 
+  private candidateHoverColor(): string {
+    return this.settings.candidateHoverColor ?? this.settings.candidateSelectedColor
+      ?? '#00000000';
+  }
+
+  private candidateBorderColor(): string {
+    return this.settings.candidateBorderColor ?? this.skin.borderColor;
+  }
+
   /**
    * The composition gets a line of its own. Sharing the candidate row costs it width on the one row
    * where width is worth most, which is the reasoning the iOS implementation records.
@@ -798,6 +808,8 @@ struct KeyboardView {
     .backgroundColor(this.settings.candidateSurfaceColor
       ?? this.skin.translucentKeyBackground(STRIP_BACKGROUND_ALPHA))
     .borderRadius(KeyboardMetrics.STRIP_CORNER_VP)
+    .borderWidth(this.settings.candidateBorderColor === null ? 0 : 1)
+    .borderColor(this.candidateBorderColor())
     .onAreaChange((_old: Area, now: Area): void => {
       this.availableWidth = Number(now.width);
     })
@@ -837,9 +849,15 @@ struct KeyboardView {
             .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
               right: KeyboardMetrics.CANDIDATE_PADDING_VP })
             .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP)
-            .backgroundColor(index === 0
-              ? (this.settings.candidateSelectedColor ?? '#00000000') : '#00000000')
+            .backgroundColor(index === this.hoveredCandidate
+              ? this.candidateHoverColor() : index === 0
+                ? (this.settings.candidateSelectedColor ?? '#00000000') : '#00000000')
+            .borderWidth(this.settings.candidateBorderColor === null ? 0 : 1)
+            .borderColor(this.candidateBorderColor())
             .onClick(() => KeyboardSession.shared.choose(index))
+            .onHover((isHover: boolean): void => {
+              this.hoveredCandidate = isHover ? index : -1;
+            })
             .gesture(LongPressGesture().onAction(() => {
               this.punctuation = false;
               this.managing = index;

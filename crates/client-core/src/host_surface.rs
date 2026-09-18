@@ -228,7 +228,7 @@ impl HostCapabilities {
             ),
             candidate_selection_appearance: matches!(
                 platform,
-                HostPlatform::Windows | HostPlatform::Macos
+                HostPlatform::Windows | HostPlatform::Macos | HostPlatform::Harmony
             ),
             // macOS CandidatePanel and the HarmonyOS candidate panel track the current insertion
             // rect themselves; expose the shared toggle on both hosts.
@@ -746,7 +746,7 @@ mod tests {
         assert!(!harmony.voice_capture_devices);
         assert!(harmony.candidate_font_controls);
         assert!(harmony.candidate_row_colors);
-        assert!(!harmony.candidate_selection_appearance);
+        assert!(harmony.candidate_selection_appearance);
         assert!(harmony.candidate_follow_cursor);
         // Typing statistics are unconditional across every host.
         assert!(harmony.typing_statistics);
