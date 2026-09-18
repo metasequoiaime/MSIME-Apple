@@ -1,4 +1,5 @@
 #include "ReplyComposer.h"
+#include "CandidateTranslationPolicy.h"
 #include <iostream>
 #include <stdexcept>
 
@@ -48,6 +49,9 @@ void confirm(ReplyComposer &composer) {
 } // namespace
 int main() {
   try {
+    require(first_translation_sense(" apple ; fruit") == "apple");
+    require(first_translation_sense("苹果；水果") == "苹果");
+    require(first_translation_sense(" ; \t").empty());
     FanyImeNamedpipeData semicolon{};
     semicolon.event_type = FanyImePipeEventType::KeyEvent;
     semicolon.keycode = 0xBA;
