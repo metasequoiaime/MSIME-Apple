@@ -1,5 +1,6 @@
 #include "ServerSession.h"
 #include "CandidateCompletionPolicy.h"
+#include "input/CandidateTextPolicy.h"
 #include "KeyEvent.h"
 #include <memory>
 #include <stdexcept>
@@ -456,6 +457,10 @@ ServerSession::word_character(const FanyImeNamedpipeData &packet,
           true};
     break;
   }
+  if (const auto character = extract_han_character(
+          fallback, *edge == MSIME_FIRST_HAN ? HanCharacterEdge::First
+                                             : HanCharacterEdge::Last))
+    fallback = *character;
   // Legacy Normal delegates smart punctuation to TSF. Do not finish remaining
   // segments or translate punctuation here; only the highlighted text is sent.
   auto cancelled = response(msime_client_command(session_, MSIME_CANCEL));
