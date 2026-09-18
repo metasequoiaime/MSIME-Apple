@@ -1,11 +1,11 @@
-import type { Preferences } from "./index";
-import { SkinCandidatePreview } from "./skin-candidate-preview";
+import type { Preferences } from "../index";
+import { SkinCandidatePreview } from "../skin/skin-candidate-preview";
 import { candidateFontSize, candidateFontStyle } from "./candidate-font-size";
 import { candidateTextStyle } from "./candidate-text-color";
 import { candidateFamilyStyle } from "./candidate-font-family";
-import { ExternalAppearancePreview } from "./external-appearance-preview";
-import type { SkinCatalog } from "./external-skins";
-import type { SkinImageReader } from "./skin-image";
+import { ExternalAppearancePreview } from "../skin/external-appearance-preview";
+import type { SkinCatalog } from "../skin/external-skins";
+import type { SkinImageReader } from "../skin/skin-image";
 import { useCandidatePreviewTheme } from "./candidate-preview-theme";
 import { useResolvedCandidateFonts, type FontFamilyResolver } from "./resolved-candidate-fonts";
 

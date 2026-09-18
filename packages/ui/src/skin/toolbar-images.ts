@@ -1,5 +1,5 @@
-import { rewriteCssImages } from "./css-image-value.js";
-import { preserveAnimationShorthands } from "./animation-shorthand-source.js";
+import { rewriteCssImages } from "./css-image-value";
+import { preserveAnimationShorthands } from "./animation-shorthand-source";
 
 export async function prepareToolbarImages(css: string, resolve: (relative: string) => Promise<string>): Promise<{ css: string; partial: boolean }> {
   const preserved = preserveAnimationShorthands(css);

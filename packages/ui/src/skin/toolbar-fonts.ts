@@ -1,7 +1,7 @@
-import { decodeCssUrl } from "./css-image-value.js";
-import { animationVariables } from "./skin-animation-variables.js";
-import { preserveAnimationShorthands, preserveFontShorthands } from "./animation-shorthand-source.js";
-import { installConditionalFonts, type ConditionalFont } from "./conditional-fonts.js";
+import { decodeCssUrl } from "./css-image-value";
+import { animationVariables } from "./skin-animation-variables";
+import { preserveAnimationShorthands, preserveFontShorthands } from "./animation-shorthand-source";
+import { installConditionalFonts, type ConditionalFont } from "./conditional-fonts";
 
 export function splitCssFontList(value: string): string[] {
   const parts: string[] = [];

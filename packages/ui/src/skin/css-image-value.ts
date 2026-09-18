@@ -1,5 +1,5 @@
-import { normalizeImageSets } from "./css-image-set.js";
-import { maskVariableNames } from "./css-custom-property.js";
+import { normalizeImageSets } from "./css-image-set";
+import { maskVariableNames } from "./css-custom-property";
 const imageData = /^data:image\/(?:png|jpeg|gif|webp|svg\+xml|x-icon|bmp|avif);base64,[A-Za-z0-9+/]*={0,2}$/;
 // Consume strings as opaque tokens before considering URL functions, so e.g.
 // content: "url(icon.png)" never starts a resource request.

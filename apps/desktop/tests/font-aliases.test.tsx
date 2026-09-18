@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { act, cleanup, render, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { useResolvedCandidateFonts } from "../../../packages/ui/src/resolved-candidate-fonts";
-import { AppearanceCandidatePreview } from "../../../packages/ui/src/appearance-candidate-preview";
+import { useResolvedCandidateFonts } from "../../../packages/ui/src/candidate/resolved-candidate-fonts";
+import { AppearanceCandidatePreview } from "../../../packages/ui/src/candidate/appearance-candidate-preview";
 afterEach(cleanup);
 
 test("the built-in preview consumes resolved CSS names", async () => {

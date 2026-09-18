@@ -1,4 +1,4 @@
-import { animationVariables, type AnimationMode } from "./skin-animation-variables.js";
+import { animationVariables, type AnimationMode } from "./skin-animation-variables";
 // Names are decoded by the browser using the same grammar as @keyframes.
 // A sticky token scan keeps quoted/escaped commas inside their name.
 export function rewriteAnimationNames(value: string, names: ReadonlyMap<string, string>): { value: string; partial: boolean } {

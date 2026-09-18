@@ -1,12 +1,12 @@
 // Source: MSIME-Apple@9ca823ab40018ced3cb71812503dbc3b94615ac0
 // (`SkinCommunityView.swift`, `CommunityGalleryStyle.swift`).
 import { useEffect, useRef, useState, type FormEvent } from "react";
-import { ScreenKeyboardPreview } from "./screen-keyboard-preview";
+import { ScreenKeyboardPreview } from "../keyboard/screen-keyboard-preview";
 import type {
   CustomSkinLibraryClient,
   SavedTouchKeyboardSkin,
   TouchKeyboardSkinDesign,
-} from "./touch-keyboard-skin-design";
+} from "../keyboard/touch-keyboard-skin-design";
 
 export type CommunitySkin = {
   id: string;

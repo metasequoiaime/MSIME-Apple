@@ -1,5 +1,5 @@
 export type AnimationMode = "animation" | "animation-name";
-import { customPropertyNames, decodeCustomPropertyName } from "./css-custom-property.js";
+import { customPropertyNames, decodeCustomPropertyName } from "./css-custom-property";
 
 // Recognize a whole var() value, preserving commas in strings/functions in its
 // fallback. Partial token substitution is a separate compatibility step.

@@ -1,7 +1,7 @@
-import { hasUnresolvedCssResource } from "./css-image-value.js";
-import { isolateToolbarAnimations } from "./skin-animations.js";
-import { preserveAnimationShorthands } from "./animation-shorthand-source.js";
-import { scopeRootSelector } from "./skin-root-selector.js";
+import { hasUnresolvedCssResource } from "./css-image-value";
+import { isolateToolbarAnimations } from "./skin-animations";
+import { preserveAnimationShorthands } from "./animation-shorthand-source";
+import { scopeRootSelector } from "./skin-root-selector";
 // Parse first, then insert rules into a browser-created scope. Concatenating an
 // untrusted stylesheet inside @scope would let an unmatched brace escape it.
 export function installToolbarCss(scope: string, css: string): { remove: () => void; partial: boolean } {

@@ -1,6 +1,6 @@
 import { expect, test } from "vitest";
-import { skinFontBytes } from "../../../packages/ui/src/skin-font";
-import { fontPackagePath, splitCssFontList } from "../../../packages/ui/src/toolbar-fonts";
+import { skinFontBytes } from "../../../packages/ui/src/skin/skin-font";
+import { fontPackagePath, splitCssFontList } from "../../../packages/ui/src/skin/toolbar-fonts";
 test.each(["font/woff", "font/woff2", "font/ttf", "font/otf"])("accepts bounded font bytes %s", contentType => {
   expect(new Uint8Array(skinFontBytes({ contentType, bytes: [0, 1, 255] }))).toEqual(new Uint8Array([0, 1, 255]));
 });

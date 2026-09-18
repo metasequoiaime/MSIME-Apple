@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { candidateFontSize, candidateFontSizes, candidateFontStyle, candidatePreeditFontSize } from "../../../packages/ui/src/candidate-font-size";
+import { candidateFontSize, candidateFontSizes, candidateFontStyle, candidatePreeditFontSize } from "../../../packages/ui/src/candidate/candidate-font-size";
 
 test("font controls expose every shared 12–32 integer", () => {
   expect(candidateFontSizes).toEqual(Array.from({ length: 21 }, (_, i) => i + 12));

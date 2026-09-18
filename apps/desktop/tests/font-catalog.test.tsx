@@ -2,7 +2,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { SettingsPage, type Snapshot } from "@msime/ui";
-import { normalizeFontCatalog } from "../../../packages/ui/src/font-catalog";
+import { normalizeFontCatalog } from "../../../packages/ui/src/candidate/font-catalog";
 afterEach(cleanup);
 const initial: Snapshot = { format_version: 1, revision: 1, preferences: { scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 6, learning: true, chinese_punctuation: true } };
 

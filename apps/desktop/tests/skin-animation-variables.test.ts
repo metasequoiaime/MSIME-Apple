@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { expect, test } from "vitest";
-import { animationVariables, parseAnimationVariable } from "../../../packages/ui/src/skin-animation-variables";
+import { animationVariables, parseAnimationVariable } from "../../../packages/ui/src/skin/skin-animation-variables";
 
 test.each([
   ["var(--name)", { name: "--name" }],

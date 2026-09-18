@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { HostActionButton } from "../../../packages/ui/src/HostActionButton";
+import { HostActionButton } from "../../../packages/ui/src/keyboard/HostActionButton";
 
 afterEach(cleanup);
 

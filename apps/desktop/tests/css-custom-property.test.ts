@@ -1,7 +1,7 @@
 import { expect, test, vi } from "vitest";
-import { customPropertyNames, decodeCustomPropertyName, maskVariableNames } from "../../../packages/ui/src/css-custom-property";
-import { parseAnimationVariable } from "../../../packages/ui/src/skin-animation-variables";
-import { hasUnresolvedCssResource, rewriteCssImages } from "../../../packages/ui/src/css-image-value";
+import { customPropertyNames, decodeCustomPropertyName, maskVariableNames } from "../../../packages/ui/src/skin/css-custom-property";
+import { parseAnimationVariable } from "../../../packages/ui/src/skin/skin-animation-variables";
+import { hasUnresolvedCssResource, rewriteCssImages } from "../../../packages/ui/src/skin/css-image-value";
 
 test.each([
   ["--动画", "--动画"],

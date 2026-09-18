@@ -7,7 +7,7 @@ import {
   type SavedTouchKeyboardSkin, type TouchKeyboardSkinDesign, type TouchSkinKeyMaterial,
   type TouchSkinKeyShape,
 } from "./touch-keyboard-skin-design";
-import type { CommunitySkinClient } from "./community-skins";
+import type { CommunitySkinClient } from "../community/community-skins";
 
 type Category = "背景" | "按键" | "文本" | "设计" | "我的";
 type NameEditor = { operation: "create" } | { operation: "rename"; id: string };

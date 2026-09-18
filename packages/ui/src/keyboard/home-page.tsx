@@ -1,6 +1,6 @@
 import { ScreenKeyboardPreview, type TouchKeyboardSkin } from "./screen-keyboard-preview";
-import { useCandidatePreviewTheme } from "./candidate-preview-theme";
-import type { Preferences, TouchKeyboardScheme } from "./index";
+import { useCandidatePreviewTheme } from "../candidate/candidate-preview-theme";
+import type { Preferences, TouchKeyboardScheme } from "../index";
 
 export interface HomePageActions {
   openKeyboard?: () => Promise<void>;

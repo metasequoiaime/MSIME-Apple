@@ -7,7 +7,7 @@ import restoreIcon from "../../../packages/ui/src/assets/restore.svg";
 import closeIcon from "../../../packages/ui/src/assets/close.svg";
 import keyboardCapability from "../src-tauri/capabilities/keyboard.json";
 import { AI_PROVIDER_OPTIONS, CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryApplyPanel, CloudDictionaryCatalogPanel, CloudDictionaryFilesPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, aiCredentialOrigin, aiProviderUpdate, type AiAssistantPreferences, type CustomSkinLibraryAction, type HostCapabilities, type SavedTouchKeyboardSkin, type SettingsClient, type Snapshot, type TouchKeyboardSkinDesign } from "@msime/ui";
-import { validateGitHubRelease } from "../../../packages/ui/src/update-manifest";
+import { validateGitHubRelease } from "../../../packages/ui/src/settings/update-manifest";
 
 afterEach(cleanup);
 

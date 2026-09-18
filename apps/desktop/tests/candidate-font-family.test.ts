@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { candidateFamilyStyle, quoteFontFamily, validCandidateFonts, validFontFamily } from "../../../packages/ui/src/candidate-font-family";
+import { candidateFamilyStyle, quoteFontFamily, validCandidateFonts, validFontFamily } from "../../../packages/ui/src/candidate/candidate-font-family";
 
 test("font names preserve Unicode and enforce UTF-8 and list bounds", () => {
   expect(validFontFamily("字".repeat(42) + "ab")).toBe(true);

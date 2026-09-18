@@ -1,12 +1,12 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within, waitFor } from "@testing-library/react";
-import { ExternalSkins, paletteCss } from "../../../packages/ui/src/external-skins";
+import { ExternalSkins, paletteCss } from "../../../packages/ui/src/skin/external-skins";
 import { SettingsPage, type SkinCatalog, type Snapshot } from "@msime/ui";
-import geometryCss from "../../../packages/ui/src/external-skin-geometry.css?raw";
-import { skinImageUrl, type SkinImage } from "../../../packages/ui/src/skin-image";
+import geometryCss from "../../../packages/ui/src/skin/external-skin-geometry.css?raw";
+import { skinImageUrl, type SkinImage } from "../../../packages/ui/src/skin/skin-image";
 import desktopConfig from "../src-tauri/tauri.conf.json";
-import * as fontPreparation from "../../../packages/ui/src/toolbar-fonts";
+import * as fontPreparation from "../../../packages/ui/src/skin/toolbar-fonts";
 
 afterEach(cleanup);
 // jsdom parses CSS rules but does not implement adopted stylesheet rendering.

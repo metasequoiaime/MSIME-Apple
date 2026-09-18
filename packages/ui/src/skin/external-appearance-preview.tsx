@@ -1,12 +1,12 @@
 import { useEffect, useId, useMemo, useState, type CSSProperties } from "react";
-import type { Preferences } from "./index";
+import type { Preferences } from "../index";
 import { dimension, previewPaletteCss, type ExternalSkin, type SkinCatalog } from "./external-skins";
 import { installSkinPalette } from "./skin-palette";
 import { useSkinImage, type SkinImageReader } from "./skin-image";
 import { SkinCandidatePreview } from "./skin-candidate-preview";
-import { candidateFontSize, candidateFontStyle } from "./candidate-font-size";
-import { candidateTextStyle } from "./candidate-text-color";
-import { candidateFamilyStyle } from "./candidate-font-family";
+import { candidateFontSize, candidateFontStyle } from "../candidate/candidate-font-size";
+import { candidateTextStyle } from "../candidate/candidate-text-color";
+import { candidateFamilyStyle } from "../candidate/candidate-font-family";
 
 function LoadedPreview({ skin, preferences, readImage, helpcode, theme }: {
   skin: ExternalSkin; preferences: Preferences; readImage?: SkinImageReader; helpcode: boolean; theme: "dark" | "light";

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { candidateTextColor, candidateTextStyle } from "../../../packages/ui/src/candidate-text-color";
+import { candidateTextColor, candidateTextStyle } from "../../../packages/ui/src/candidate/candidate-text-color";
 
 test("candidate colours match core hex format and upstream number alpha", () => {
   expect(candidateTextColor("#Ab12Ef")).toBe("#ab12ef");

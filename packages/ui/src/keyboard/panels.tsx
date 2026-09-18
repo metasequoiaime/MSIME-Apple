@@ -1,7 +1,7 @@
 import { usePanelDrag } from "./use-panel-drag";
-import { useEmojiNavigation } from "./use-emoji-navigation";
+import { useEmojiNavigation } from "../emoji/use-emoji-navigation";
 import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
-import { fallbackEmojiGroups, fallbackKaomojiGroups, fallbackSymbolGroups, type EmojiCatalogGroup, type EmojiCatalogItem } from "./emoji-catalog";
+import { fallbackEmojiGroups, fallbackKaomojiGroups, fallbackSymbolGroups, type EmojiCatalogGroup, type EmojiCatalogItem } from "../emoji/emoji-catalog";
 import { touchKeyboardSkinOptions, type TouchKeyboardSkin } from "./screen-keyboard-preview";
 import { skinColor, skinLuminance, type TouchKeyboardSkinDesign } from "./touch-keyboard-skin-design";
 

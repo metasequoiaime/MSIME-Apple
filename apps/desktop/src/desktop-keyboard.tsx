@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import { KeyboardPanel, type PanelClient, type SettingsClient, type Snapshot, type TouchKeyboardSkin, type TouchKeyboardSkinDesign } from "@msime/ui";
-import { useCandidatePreviewTheme } from "../../../packages/ui/src/candidate-preview-theme";
+import { useCandidatePreviewTheme } from "../../../packages/ui/src/candidate/candidate-preview-theme";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
 type ThemeClient = Pick<SettingsClient, "load" | "onPreferencesChanged" | "host">;

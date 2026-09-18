@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { DICTIONARY_PAGE_SIZE, decodeDictionaryBytes, dictionaryPageStatus } from "../../../packages/ui/src/dictionary-file";
+import { DICTIONARY_PAGE_SIZE, decodeDictionaryBytes, dictionaryPageStatus } from "../../../packages/ui/src/dictionary/dictionary-file";
 
 const utf8 = (text: string) => new TextEncoder().encode(text);
 

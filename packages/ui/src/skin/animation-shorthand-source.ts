@@ -1,7 +1,7 @@
 import parse from "postcss/lib/parse";
 import type { Declaration } from "postcss";
-import { animationVariables, parseAnimationVariable } from "./skin-animation-variables.js";
-import { decodeCustomPropertyName } from "./css-custom-property.js";
+import { animationVariables, parseAnimationVariable } from "./skin-animation-variables";
+import { decodeCustomPropertyName } from "./css-custom-property";
 
 let generation = 0;
 // CSSOM loses pending shorthand substitution when even one longhand is
