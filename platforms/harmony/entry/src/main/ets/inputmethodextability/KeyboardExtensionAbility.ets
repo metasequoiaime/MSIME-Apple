@@ -359,6 +359,30 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       case HardwareKeyAction.CANCEL:
         session.cancel();
         break;
+      case HardwareKeyAction.MOVE_LEFT:
+        session.moveLeft();
+        break;
+      case HardwareKeyAction.MOVE_RIGHT:
+        session.moveRight();
+        break;
+      case HardwareKeyAction.MOVE_HOME:
+        session.moveHome();
+        break;
+      case HardwareKeyAction.MOVE_END:
+        session.moveEnd();
+        break;
+      case HardwareKeyAction.DELETE_FORWARD:
+        session.deleteForward();
+        break;
+      case HardwareKeyAction.BACKSPACE_SEGMENT:
+        session.backspaceSegment();
+        break;
+      case HardwareKeyAction.MOVE_LEFT_SEGMENT:
+        session.moveLeftSegment();
+        break;
+      case HardwareKeyAction.MOVE_RIGHT_SEGMENT:
+        session.moveRightSegment();
+        break;
       case HardwareKeyAction.COMMIT:
         session.commitHighlighted();
         break;

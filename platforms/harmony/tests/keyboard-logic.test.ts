@@ -679,6 +679,30 @@ group('maps hardware navigation according to the shared preferences', () => {
     HardwareKeyAction.RELEASE, 'modifier shortcuts remain with the editor');
 });
 
+group('maps hardware composition editing commands like Windows', () => {
+  const key = (keyCode: number, ctrlKey: boolean = false, shiftKey: boolean = false): HardwareKey => ({
+    keyCode, unicodeChar: 0, ctrlKey, altKey: false, logoKey: false, shiftKey
+  });
+  check(HardwareKeyRouter.route(key(2014), true, true).action === HardwareKeyAction.MOVE_LEFT,
+    'left moves within the composition');
+  check(HardwareKeyRouter.route(key(2015), true, true).action === HardwareKeyAction.MOVE_RIGHT,
+    'right moves within the composition');
+  check(HardwareKeyRouter.route(key(2081), true, true).action === HardwareKeyAction.MOVE_HOME,
+    'Home moves to the start');
+  check(HardwareKeyRouter.route(key(2082), true, true).action === HardwareKeyAction.MOVE_END,
+    'End moves to the end');
+  check(HardwareKeyRouter.route(key(2071), true, true).action === HardwareKeyAction.DELETE_FORWARD,
+    'Delete removes the next unit');
+  check(HardwareKeyRouter.route(key(2055, true), true, true).action ===
+    HardwareKeyAction.BACKSPACE_SEGMENT, 'Ctrl+Backspace removes one segment');
+  check(HardwareKeyRouter.route(key(2014, true), true, true).action ===
+    HardwareKeyAction.MOVE_LEFT_SEGMENT, 'Ctrl+Left moves one segment left');
+  check(HardwareKeyRouter.route(key(2015, true), true, true).action ===
+    HardwareKeyAction.MOVE_RIGHT_SEGMENT, 'Ctrl+Right moves one segment right');
+  check(HardwareKeyRouter.route(key(2055, true, true), true, true).action ===
+    HardwareKeyAction.RELEASE, 'Shift+Ctrl remains an editor shortcut');
+});
+
 group('fullwidth conversion maps space to the ideographic form', () => {
   check(FullWidthInputPolicy.output('a', true) === 'ａ', 'a printable ASCII letter shifts by 0xfee0');
   check(FullWidthInputPolicy.output(' ', true) === '\u3000',

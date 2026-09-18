@@ -45,7 +45,15 @@ export enum HardwareKeyAction {
   NEXT_PAGE,
   PREVIOUS_PAGE,
   NEXT_CANDIDATE,
-  PREVIOUS_CANDIDATE
+  PREVIOUS_CANDIDATE,
+  MOVE_LEFT,
+  MOVE_RIGHT,
+  MOVE_HOME,
+  MOVE_END,
+  DELETE_FORWARD,
+  BACKSPACE_SEGMENT,
+  MOVE_LEFT_SEGMENT,
+  MOVE_RIGHT_SEGMENT
 }
 
 export interface HardwareKeyDecision {
@@ -73,6 +81,8 @@ const KEYCODE_ESCAPE: number = 2070;
 const KEYCODE_NUMPAD_ENTER: number = 2119;
 const KEYCODE_DPAD_UP: number = 2012;
 const KEYCODE_DPAD_DOWN: number = 2013;
+const KEYCODE_DPAD_LEFT: number = 2014;
+const KEYCODE_DPAD_RIGHT: number = 2015;
 const KEYCODE_TAB: number = 2049;
 const KEYCODE_COMMA: number = 2043;
 const KEYCODE_PERIOD: number = 2044;
@@ -82,6 +92,9 @@ const KEYCODE_LEFT_BRACKET: number = 2059;
 const KEYCODE_RIGHT_BRACKET: number = 2060;
 const KEYCODE_PAGE_UP: number = 2068;
 const KEYCODE_PAGE_DOWN: number = 2069;
+const KEYCODE_FORWARD_DEL: number = 2071;
+const KEYCODE_MOVE_HOME: number = 2081;
+const KEYCODE_MOVE_END: number = 2082;
 
 const RELEASE: HardwareKeyDecision = {
   action: HardwareKeyAction.RELEASE, character: 0, index: 0
@@ -103,14 +116,40 @@ export class HardwareKeyRouter {
                  minusEqual: true, commaPeriod: true, brackets: false,
                  tab: true, pageUpDown: true, arrows: true
                }): HardwareKeyDecision {
-    // A modifier means the key is part of a shortcut, which belongs to the application even mid
-    // composition. Shift is not one of those: it is how capitals and helpcodes are typed.
+    // Windows reserves Ctrl+Backspace/Left/Right for editing one Engine segment at a time. Other
+    // modifier chords belong to the application, even in the middle of a composition.
+    if (composing && key.ctrlKey && !key.altKey && !key.logoKey && !key.shiftKey) {
+      if (key.keyCode === KEYCODE_DEL) {
+        return decision(HardwareKeyAction.BACKSPACE_SEGMENT);
+      }
+      if (key.keyCode === KEYCODE_DPAD_LEFT) {
+        return decision(HardwareKeyAction.MOVE_LEFT_SEGMENT);
+      }
+      if (key.keyCode === KEYCODE_DPAD_RIGHT) {
+        return decision(HardwareKeyAction.MOVE_RIGHT_SEGMENT);
+      }
+    }
     if (key.ctrlKey || key.altKey || key.logoKey) {
       return RELEASE;
     }
     if (composing) {
       if (key.keyCode === KEYCODE_DEL) {
         return decision(HardwareKeyAction.BACKSPACE);
+      }
+      if (key.keyCode === KEYCODE_FORWARD_DEL) {
+        return decision(HardwareKeyAction.DELETE_FORWARD);
+      }
+      if (key.keyCode === KEYCODE_MOVE_HOME) {
+        return decision(HardwareKeyAction.MOVE_HOME);
+      }
+      if (key.keyCode === KEYCODE_MOVE_END) {
+        return decision(HardwareKeyAction.MOVE_END);
+      }
+      if (key.keyCode === KEYCODE_DPAD_LEFT) {
+        return decision(HardwareKeyAction.MOVE_LEFT);
+      }
+      if (key.keyCode === KEYCODE_DPAD_RIGHT) {
+        return decision(HardwareKeyAction.MOVE_RIGHT);
       }
       if (key.keyCode === KEYCODE_ESCAPE) {
         return decision(HardwareKeyAction.CANCEL);

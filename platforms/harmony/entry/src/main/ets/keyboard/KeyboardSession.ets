@@ -431,6 +431,12 @@ enum InputCommand {
   CANCEL = 3,
   MOVE_LEFT = 4,
   MOVE_RIGHT = 5,
+  MOVE_HOME = 6,
+  MOVE_END = 7,
+  DELETE_FORWARD = 8,
+  BACKSPACE_SEGMENT = 12,
+  MOVE_LEFT_SEGMENT = 13,
+  MOVE_RIGHT_SEGMENT = 14,
   NEXT_PAGE = 100,
   PREVIOUS_PAGE = 101,
   NEXT_CANDIDATE = 102,
@@ -1140,6 +1146,30 @@ export class KeyboardSession {
 
   moveRight(): void {
     this.command(InputCommand.MOVE_RIGHT);
+  }
+
+  moveHome(): void {
+    this.command(InputCommand.MOVE_HOME);
+  }
+
+  moveEnd(): void {
+    this.command(InputCommand.MOVE_END);
+  }
+
+  deleteForward(): void {
+    this.command(InputCommand.DELETE_FORWARD);
+  }
+
+  backspaceSegment(): void {
+    this.command(InputCommand.BACKSPACE_SEGMENT);
+  }
+
+  moveLeftSegment(): void {
+    this.command(InputCommand.MOVE_LEFT_SEGMENT);
+  }
+
+  moveRightSegment(): void {
+    this.command(InputCommand.MOVE_RIGHT_SEGMENT);
   }
 
   nextPage(): void {
