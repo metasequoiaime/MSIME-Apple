@@ -590,6 +590,12 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
         uint64_t focusToken = 0;
     };
     std::vector<PairedPunctuationEntry> _pairedPunctuationStack;
+    struct CreatingWordRestoreEntry
+    {
+        std::string consumedRaw;
+        std::wstring previousWord;
+    };
+    std::vector<CreatingWordRestoreEntry> _creatingWordRestoreHistory;
     int _pendingPairedCaretDelta = 0;
     uint64_t _pendingPairedCaretFocusToken = 0;
     ULONGLONG _pendingPairedCaretDeadline = 0;
