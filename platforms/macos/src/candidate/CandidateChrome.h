@@ -14,6 +14,7 @@ static const CGFloat MSIMECandidateTranslationOpacity = 0.62;
 @property(nonatomic, copy) NSColor *translationColor;
 @property(nonatomic) BOOL translationBelow;
 @property(nonatomic) CGFloat translationRowHeight;
+@property(nonatomic) NSInteger armedGlossColumn;
 @property(nonatomic, copy) NSColor *fillColor;
 @property(nonatomic, copy) NSColor *hoverColor;
 @property(nonatomic, copy) NSColor *titleColor;
@@ -136,8 +137,20 @@ static const CGFloat MSIMECandidateTranslationOpacity = 0.62;
     if (self.translation.length) {
         CGFloat glossY = self.translationBelow ? (extraHeight - glossSize.height) / 2 : (self.bounds.size.height - glossSize.height) / 2;
         CGFloat drawHeight = self.translationBelow ? MAX(0, extraHeight - 4) : glossSize.height;
-        [self.translation drawInRect:NSMakeRect(glossX, glossY, MAX(0, self.bounds.size.width - glossX - 8), drawHeight)
-            withAttributes:glossAttributes];
+        NSMutableAttributedString *glossText = [[NSMutableAttributedString alloc] initWithString:self.translation
+                                                                                       attributes:glossAttributes];
+        if (self.armedGlossColumn > 0) {
+            NSArray<NSString *> *parts = [self.translation componentsSeparatedByString:@"\n"];
+            NSUInteger selected = (NSUInteger)(self.armedGlossColumn - 1);
+            if (selected < parts.count && parts[selected].length) {
+                NSUInteger location = 0;
+                for (NSUInteger index = 0; index < selected; ++index)
+                    location += parts[index].length + 1;
+                [glossText addAttribute:NSUnderlineStyleAttributeName value:@((NSInteger)NSUnderlineStyleSingle)
+                                  range:NSMakeRange(location, parts[selected].length)];
+            }
+        }
+        [glossText drawInRect:NSMakeRect(glossX, glossY, MAX(0, self.bounds.size.width - glossX - 8), drawHeight)];
     }
 }
 @end

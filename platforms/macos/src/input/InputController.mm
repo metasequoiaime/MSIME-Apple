@@ -198,6 +198,13 @@ static NSString *CandidateTranslation(NSDictionary *candidate) {
     return [text isKindOfClass:NSString.class] ? text : @"";
 }
 
+static NSString *MSIMECandidateTranslationColumn(NSDictionary *candidate, NSInteger column) {
+    if (column <= 0) return @"";
+    NSArray<NSString *> *parts = [CandidateTranslation(candidate) componentsSeparatedByString:@"\n"];
+    NSUInteger index = (NSUInteger)(column - 1);
+    return index < parts.count && [parts[index] isKindOfClass:NSString.class] ? parts[index] : @"";
+}
+
 static NSSize MSIMETranslationTextSize(NSString *text, NSFont *font) {
     if (!text.length) return NSZeroSize;
     NSRect bounds = [text boundingRectWithSize:NSMakeSize(CGFLOAT_MAX, CGFLOAT_MAX)
@@ -241,11 +248,11 @@ static NSString *MSIMETranslationWorkKey(NSString *target, NSString *text) {
 static NSString *MSIMEJoinedTranslations(NSDictionary<NSString *, NSString *> *values,
                                           NSArray<NSString *> *targets) {
     NSMutableArray<NSString *> *ordered = [NSMutableArray array];
-    for (NSString *target in targets) {
-        NSString *value = values[target];
-        if (value.length) [ordered addObject:value];
-    }
-    return [ordered componentsJoinedByString:@"\n"];
+    for (NSString *target in targets) [ordered addObject:values[target] ?: @""];
+    while (ordered.count && ![ordered.lastObject length]) [ordered removeLastObject];
+    BOOL hasValue = NO;
+    for (NSString *value in ordered) if (value.length) { hasValue = YES; break; }
+    return hasValue ? [ordered componentsJoinedByString:@"\n"] : @"";
 }
 
 static NSColor *SkinColor(msime::mac::Rgba color) {
@@ -517,6 +524,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     BOOL _capsLock;
     NSUInteger _requestedPageSize;
     BOOL _skinShowsSelectedBar;
+    NSInteger _armedGlossColumn;
     BOOL _focusPending;
     unichar _lastSmartPunctuation;
     NSTimeInterval _lastSmartPunctuationTime;
@@ -676,6 +684,50 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     [self cancelCandidateGloss];
     [self cancelCustomTranslations];
     [self cancelAITranslations];
+}
+
+- (NSDictionary *)highlightedCandidateForGloss {
+    NSArray *candidates = _view[@"candidates"];
+    if (![candidates isKindOfClass:NSArray.class]) return nil;
+    for (NSDictionary *candidate in candidates)
+        if ([candidate isKindOfClass:NSDictionary.class] && [candidate[@"highlighted"] boolValue]) return candidate;
+    return nil;
+}
+
+- (BOOL)commitCandidateGlossColumn:(NSInteger)column candidate:(NSDictionary *)candidate client:(id)sender {
+    if (!_session || ![sender respondsToSelector:@selector(insertText:replacementRange:)] ||
+        ![candidate isKindOfClass:NSDictionary.class] || column <= 0) return NO;
+    NSString *gloss = MSIMECandidateTranslationColumn(candidate, column);
+    if (!gloss.length) return NO;
+    [(id<MSIMETextClient>)sender insertText:gloss replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+    _armedGlossColumn = 0;
+    NSDictionary *cancelled = [_session command:MSIME_CANCEL error:nil];
+    if (cancelled) [self apply:cancelled];
+    return YES;
+}
+
+- (BOOL)commitHighlightedGlossColumn:(NSInteger)column client:(id)sender {
+    return [self commitCandidateGlossColumn:column candidate:[self highlightedCandidateForGloss] client:sender];
+}
+
+- (BOOL)cycleArmedGlossColumnBackwards:(BOOL)backwards {
+    if (!_session || ![_view[@"editing_text"] length]) return NO;
+    NSDictionary *candidate = [self highlightedCandidateForGloss];
+    if (!candidate) return NO;
+    BOOL hasPrimary = MSIMECandidateTranslationColumn(candidate, 1).length > 0;
+    BOOL hasSecondary = MSIMECandidateTranslationColumn(candidate, 2).length > 0;
+    if (!hasPrimary && !hasSecondary) return NO;
+    NSMutableArray<NSNumber *> *available = [NSMutableArray arrayWithObject:@0];
+    if (hasPrimary) [available addObject:@1];
+    if (hasSecondary) [available addObject:@2];
+    NSUInteger current = [available indexOfObject:@(_armedGlossColumn)];
+    if (current == NSNotFound) current = 0;
+    NSInteger step = backwards ? -1 : 1;
+    NSInteger next = (NSInteger)current + step;
+    if (next < 0) next = (NSInteger)available.count - 1;
+    if (next >= (NSInteger)available.count) next = 0;
+    _armedGlossColumn = available[(NSUInteger)next].integerValue;
+    return YES;
 }
 
 - (void)synchronizeAITranslations {
@@ -844,9 +896,11 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         NSMutableArray *values = [NSMutableArray array];
         for (NSString *target in request[@"target_languages"]) {
             NSString *value = _accountGlossCache[[NSString stringWithFormat:@"%@|%@", target, text]];
-            if (value.length) [values addObject:value];
+            [values addObject:value ?: @""];
         }
-        if (values.count) [results addObject:@{ @"text": text, @"translation": [values componentsJoinedByString:@" / "] }];
+        BOOL hasValue = NO;
+        for (NSString *value in values) if (value.length) { hasValue = YES; break; }
+        if (hasValue) [results addObject:@{ @"text": text, @"translation": [values componentsJoinedByString:@"\n"] }];
     }
     return results;
 }
@@ -2894,6 +2948,24 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     // characters.  Let nine-key mode and modified chords reach the Engine.
     const NSEventModifierFlags candidateDigitModifiers = NSEventModifierFlagShift | NSEventModifierFlagControl |
                                                           NSEventModifierFlagOption | NSEventModifierFlagCommand;
+    const int physicalDigit = msime::mac::PhysicalCandidateDigitSlot(event.keyCode);
+    NSArray *visibleCandidates = [_view[@"candidates"] isKindOfClass:NSArray.class] ? _view[@"candidates"] : @[];
+    const NSEventModifierFlags glossModifiers = event.modifierFlags &
+        (NSEventModifierFlagShift | NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagCommand);
+    if (_panel.isVisible && physicalDigit >= 0 &&
+        glossModifiers == NSEventModifierFlagOption) {
+        NSDictionary *candidate = ((NSUInteger)physicalDigit < visibleCandidates.count) ? visibleCandidates[(NSUInteger)physicalDigit] : nil;
+        if ([self commitCandidateGlossColumn:1 candidate:candidate client:sender]) return YES;
+    }
+    if (_panel.isVisible && physicalDigit >= 0 &&
+        glossModifiers == NSEventModifierFlagControl) {
+        NSDictionary *candidate = ((NSUInteger)physicalDigit < visibleCandidates.count) ? visibleCandidates[(NSUInteger)physicalDigit] : nil;
+        if ([self commitCandidateGlossColumn:2 candidate:candidate client:sender]) return YES;
+    }
+    if (_panel.isVisible && physicalDigit >= 0 && glossModifiers == 0 && _armedGlossColumn > 0) {
+        NSDictionary *candidate = ((NSUInteger)physicalDigit < visibleCandidates.count) ? visibleCandidates[(NSUInteger)physicalDigit] : nil;
+        if ([self commitCandidateGlossColumn:_armedGlossColumn candidate:candidate client:sender]) return YES;
+    }
     if (msime::mac::ShouldRoutePhysicalCandidateDigit(
             _panel.isVisible, [_view[@"nine_key"] boolValue], [_view[@"local_mode"] isEqual:@"unicode"],
             (event.modifierFlags & candidateDigitModifiers) != 0)) {
@@ -2948,9 +3020,16 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     }
     uint32_t command = UINT32_MAX;
     [self ensureAppearance];
-    if (_panel.isVisible && event.keyCode == 48 && [_appearance navigationEnabled:@"tab"]) {
-        [self apply:[_session command:(event.modifierFlags & NSEventModifierFlagShift) ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE error:nil]];
-        return YES;
+    if (_panel.isVisible && event.keyCode == 48 &&
+        !(event.modifierFlags & (NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagCommand))) {
+        if ([self cycleArmedGlossColumnBackwards:(event.modifierFlags & NSEventModifierFlagShift) != 0]) {
+            [self renderCandidates];
+            return YES;
+        }
+        if ([_appearance navigationEnabled:@"tab"]) {
+            [self apply:[_session command:(event.modifierFlags & NSEventModifierFlagShift) ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE error:nil]];
+            return YES;
+        }
     }
     // Candidate paging is keyed by the physical ANSI key, matching Windows
     // even when the current keyboard layout produces a different glyph (or no
@@ -3028,6 +3107,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         NSDictionary *identifier = MSIMERenderedHighlightedCandidateIdentity(_panel);
         if (identifier) {
             if (!MSIMECurrentCandidateIdentity(identifier, _view)) return YES;
+            if (_armedGlossColumn > 0 && [self commitHighlightedGlossColumn:_armedGlossColumn client:sender]) return YES;
             NSDictionary *selected = [_session selectGeneration:[identifier[@"generation"] unsignedLongLongValue]
                                                            index:[identifier[@"index"] unsignedIntegerValue]
                                                            error:nil];
@@ -3035,6 +3115,10 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             return YES;
         }
     }
+    if (_panel.isVisible && (event.keyCode == 36 || event.keyCode == 76) &&
+        !(event.modifierFlags & (NSEventModifierFlagShift | NSEventModifierFlagControl |
+                                 NSEventModifierFlagOption | NSEventModifierFlagCommand)) &&
+        _armedGlossColumn > 0 && [self commitHighlightedGlossColumn:_armedGlossColumn client:sender]) return YES;
     // NSTextInputClient has no caret setter; replacing the known following
     // closing mark atomically advances the caret without duplicating text.
     if (_appearance.pairedPunctuation && event.characters.length == 1 &&
@@ -3147,6 +3231,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSString *commitForTracking = transition[@"commit"];
     if ([commitForTracking isKindOfClass:NSString.class] && commitForTracking.length)
         [self persistCommittedCandidateTranslation:commitForTracking];
+    if ([commitForTracking isKindOfClass:NSString.class] && commitForTracking.length)
+        _armedGlossColumn = 0;
     if ([commitForTracking isKindOfClass:NSString.class] && commitForTracking.length >= 2 && _appearance.pairedPunctuation) {
         static NSArray<NSArray<NSString *> *> *pairs;
         static dispatch_once_t once;
@@ -3170,6 +3256,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
                                     displayTransition[@"commit"], source);
     }
     _view = transition[@"view"];
+    if (![_view[@"candidates"] isKindOfClass:NSArray.class] || ![_view[@"candidates"] count])
+        _armedGlossColumn = 0;
     [self refreshFloatingToolbarState];
     [self renderCandidates];
     [self synchronizeCloudCandidates];
@@ -3235,9 +3323,14 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (_appearance.englishMode) { [self resetCandidateAnchor]; [_panel orderOut:nil]; return; }
     NSArray *candidates = _view[@"candidates"];
     if (![candidates isKindOfClass:NSArray.class] || candidates.count == 0) {
+        _armedGlossColumn = 0;
         [self resetCandidateAnchor];
         [_panel orderOut:nil];
         return;
+    }
+    if (_armedGlossColumn > 0) {
+        NSDictionary *highlighted = [self highlightedCandidateForGloss];
+        if (!MSIMECandidateTranslationColumn(highlighted, _armedGlossColumn).length) _armedGlossColumn = 0;
     }
     NSRect reportedCursor = NSZeroRect;
     [(id<IMKTextInput>)_activeClient attributesForCharacterIndex:0 lineHeightRectangle:&reportedCursor];
@@ -3360,6 +3453,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         button.lineBreakMode = NSLineBreakByTruncatingTail;
         button.toolTip = display;
         button.translation = CandidateTranslation(candidate);
+        button.armedGlossColumn = _armedGlossColumn;
         button.translationFont = glossFont;
         button.translationBelow = !vertical;
         button.translationRowHeight = glossHeight;
