@@ -264,8 +264,23 @@ CandidateActionRequestResult SessionController::request_candidate_action(
         shown->lease.token != lease.token ||
         !same_ticket(shown->lease.transport, lease.transport))
       return CandidateActionRequestResult::Rejected;
+    if (should_wait_for_candidate_render(0, shown->render_serial, false,
+                                         shown->visible))
+      (void)candidates_.wait_rendered(
+          lease, shown->render_serial,
+          std::chrono::milliseconds(candidate_render_wait_max_ms));
+    // Re-read after the receipt. A cloud/translation refresh can replace the
+    // visible page while the native menu is painting; never apply an action
+    // against a candidate list that was not the one most recently rendered.
+    const auto painted = candidate_view();
+    if (!painted || !painted->visible || painted->session != session ||
+        painted->generation != generation ||
+        painted->lease.epoch != lease.epoch ||
+        painted->lease.token != lease.token ||
+        !same_ticket(painted->lease.transport, lease.transport))
+      return CandidateActionRequestResult::Rejected;
     bool found = false;
-    for (const auto &candidate : shown->candidates)
+    for (const auto &candidate : painted->candidates)
       if (candidate.index == index && candidate.session == session &&
           candidate.generation == generation)
         found = true;
