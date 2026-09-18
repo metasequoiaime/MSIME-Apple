@@ -640,6 +640,45 @@ public:
           reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
     }).share();
   }
+  void saveNestedNumberPreference(const char *object, const char *key, uint8_t value) {
+    if (!object || !*object || !key || !*key || options_path_.empty() || private_) return;
+    const auto directory = options_path_;
+    const std::string section(object), preference(key);
+    preferences_save_job_ = std::async(std::launch::async,
+        [directory, section, preference, value] {
+      auto snapshot = response(msime_client_load_preferences(
+          reinterpret_cast<const uint8_t *>(directory.data()), directory.size()));
+      if (!snapshot.is_object() || !snapshot.contains("revision") ||
+          !snapshot.contains("preferences") || !snapshot.at("preferences").is_object())
+        return Json::object();
+      snapshot["preferences"][section][preference] = value;
+      const auto encoded = snapshot.dump();
+      return response(msime_client_save_preferences(
+          reinterpret_cast<const uint8_t *>(directory.data()), directory.size(),
+          snapshot.at("revision").get<uint64_t>(),
+          reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
+    }).share();
+  }
+  bool setFrequencyNumber(const char *key, uint8_t value) {
+    if (!session_ || restricted() || privateInput() || value < 1 || value > 10)
+      return false;
+    auto snapshot = preferences_snapshot_;
+    if (!snapshot.is_object() || !snapshot.contains("revision") ||
+        !snapshot.contains("preferences")) return false;
+    snapshot["preferences"]["frequency"][key] = value;
+    const auto encoded = snapshot.dump();
+    view_ = response(msime_client_update_preferences(
+        session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
+    preferences_ = snapshot.at("preferences");
+    preferences_snapshot_ = std::move(snapshot);
+    saveNestedNumberPreference("frequency", key, value);
+    render();
+    return true;
+  }
+  bool cycleFrequencyNumber(const char *key) {
+    const auto current = preferences_.value("frequency", Json::object()).value(key, 1u);
+    return setFrequencyNumber(key, static_cast<uint8_t>(current >= 10 ? 1 : current + 1));
+  }
   bool cycleFrequencyMode() {
     if (!session_ || restricted() || privateInput()) return false;
     static constexpr std::array<const char *, 5> modes = {
@@ -2501,6 +2540,33 @@ private:
   fcitx::FactoryFor<FcitxState> *factory_;
 };
 
+class FcitxFrequencyNumberAction : public fcitx::SimpleAction {
+public:
+  FcitxFrequencyNumberAction(fcitx::FactoryFor<FcitxState> *factory, const char *key,
+                             const char *label)
+      : factory_(factory), key_(key), label_(label) {}
+  std::string shortText(fcitx::InputContext *ic) const override {
+    const auto value = ic ? ic->propertyFor(factory_)->preferences_
+        .value("frequency", Json::object()).value(key_, 1u) : 1u;
+    return std::string(label_) + "：" + std::to_string(value);
+  }
+  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try {
+      auto *state = ic->propertyFor(factory_);
+      if (state->cycleFrequencyNumber(key_)) update(ic);
+    } catch (...) {
+      ic->propertyFor(factory_)->close();
+      ic->propertyFor(factory_)->clearPanel();
+    }
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+  const char *key_;
+  const char *label_;
+};
+
 class FcitxModeScopeAction : public fcitx::SimpleAction {
 public:
   explicit FcitxModeScopeAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
@@ -3096,6 +3162,8 @@ public:
     candidate_page_size_menu_.addAction(&candidate_page_size9_);
     learning_action_.registerAction("msime-learning", &instance->userInterfaceManager());
     frequency_action_.registerAction("msime-frequency", &instance->userInterfaceManager());
+    frequency_trigger_action_.registerAction("msime-frequency-trigger", &instance->userInterfaceManager());
+    frequency_step_action_.registerAction("msime-frequency-step", &instance->userInterfaceManager());
     mode_scope_action_.registerAction("msime-mode-scope", &instance->userInterfaceManager());
     candidate_translation_action_.registerAction("msime-candidate-translations", &instance->userInterfaceManager());
     punctuation_lock_action_.registerAction("msime-punctuation-lock", &instance->userInterfaceManager());
@@ -3211,6 +3279,8 @@ public:
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &candidate_page_size_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &learning_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &frequency_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &frequency_trigger_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &frequency_step_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &mode_scope_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &candidate_translation_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &punctuation_lock_action_);
@@ -3258,6 +3328,8 @@ public:
     event.inputContext()->statusArea().removeAction(&candidate_page_size_action_);
     event.inputContext()->statusArea().removeAction(&learning_action_);
     event.inputContext()->statusArea().removeAction(&frequency_action_);
+    event.inputContext()->statusArea().removeAction(&frequency_trigger_action_);
+    event.inputContext()->statusArea().removeAction(&frequency_step_action_);
     event.inputContext()->statusArea().removeAction(&mode_scope_action_);
     event.inputContext()->statusArea().removeAction(&candidate_translation_action_);
     event.inputContext()->statusArea().removeAction(&punctuation_lock_action_);
@@ -3345,6 +3417,8 @@ public:
   FcitxCandidatePageSizeItemAction candidate_page_size9_{&factory_, 9};
   FcitxLearningAction learning_action_{&factory_};
   FcitxFrequencyAction frequency_action_{&factory_};
+  FcitxFrequencyNumberAction frequency_trigger_action_{&factory_, "trigger_count", "词频触发次数"};
+  FcitxFrequencyNumberAction frequency_step_action_{&factory_, "linear_step", "线性调整步长"};
   FcitxModeScopeAction mode_scope_action_{&factory_};
   FcitxCandidateTranslationAction candidate_translation_action_{&factory_};
   FcitxPunctuationLockAction punctuation_lock_action_{&factory_};
