@@ -171,6 +171,8 @@ int main(int argc, char **argv) {
     auto changedPreferences = options["preferences"];
     changedPreferences["number_row_selection"] = false;
     changedPreferences["candidate_layout"] = "horizontal";
+    changedPreferences["smart_punctuation"] = true;
+    changedPreferences["smart_punctuation_repeat"] = true;
     const auto preferenceDirectory = options["preferences_directory"].get<std::string>();
     const auto currentSnapshot = response(msime_client_load_preferences(
         reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size()));
@@ -192,7 +194,7 @@ int main(int argc, char **argv) {
     }
     require(!state->preferences_.value("number_row_selection", true),
             "runtime preferences reload in active Fcitx session");
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 32,
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 34,
             "native status actions attached");
     if (state->preferences_.value("cloud_candidates", false)) {
       require(engine.cloud_candidates_action_.isChecked(&ic),
@@ -207,7 +209,7 @@ int main(int argc, char **argv) {
       require(!engine.cloud_candidates_action_.isChecked(&ic),
               "cloud candidates status action reflects disabled preference");
     }
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 32,
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 34,
             "AI status action attached");
     require(engine.emoji_category_action_.shortText(&ic) == "表情：Emoji",
             "emoji category starts in the default catalog");
@@ -272,6 +274,22 @@ int main(int argc, char **argv) {
     engine.punctuation_lock_action_.activate(&ic);
     require(state->punctuation_lock_ == 0 && engine.punctuation_lock_action_.shortText(&ic) == "标点：跟随",
             "punctuation lock cycles back to follow mode");
+    require(engine.smart_punctuation_action_.isChecked(&ic),
+            "smart punctuation status action reflects preference");
+    engine.smart_punctuation_action_.activate(&ic);
+    require(!state->preferences_.value("smart_punctuation", true),
+            "smart punctuation status action toggles live mode");
+    engine.smart_punctuation_action_.activate(&ic);
+    require(state->preferences_.value("smart_punctuation", false),
+            "smart punctuation status action restores live mode");
+    require(engine.smart_punctuation_repeat_action_.isChecked(&ic),
+            "smart punctuation repeat status action reflects preference");
+    engine.smart_punctuation_repeat_action_.activate(&ic);
+    require(!state->preferences_.value("smart_punctuation_repeat", true),
+            "smart punctuation repeat action toggles live mode");
+    engine.smart_punctuation_repeat_action_.activate(&ic);
+    require(state->preferences_.value("smart_punctuation_repeat", false),
+            "smart punctuation repeat status action restores live mode");
     require(engine.chinese_punctuation_action_.isChecked(&ic),
             "Chinese punctuation status action reflects preference");
     engine.chinese_punctuation_action_.activate(&ic);

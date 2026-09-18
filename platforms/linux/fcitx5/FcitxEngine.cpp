@@ -1888,6 +1888,39 @@ private:
   Mode mode_;
 };
 
+class FcitxSmartPunctuationAction : public fcitx::Action {
+public:
+  enum class Mode { Smart, Repeat };
+  FcitxSmartPunctuationAction(fcitx::FactoryFor<FcitxState> *factory, Mode mode)
+      : factory_(factory), mode_(mode) { setCheckable(true); }
+  std::string shortText(fcitx::InputContext *) const override {
+    return mode_ == Mode::Smart ? "智能标点" : "重复标点回切中文";
+  }
+  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  bool isChecked(fcitx::InputContext *ic) const override {
+    if (!ic) return false;
+    const auto *state = ic->propertyFor(factory_);
+    if (!state->session_) return false;
+    const char *key = mode_ == Mode::Smart ? "smart_punctuation" : "smart_punctuation_repeat";
+    return state->preferences_.value(key, true);
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    auto *state = ic->propertyFor(factory_);
+    if (!state->session_ || state->restricted() || state->privateInput()) return;
+    try {
+      const char *key = mode_ == Mode::Smart ? "smart_punctuation" : "smart_punctuation_repeat";
+      if (state->ensure() && state->toggleTopLevelBoolean(key, true)) update(ic);
+    } catch (...) {
+      state->close();
+      state->clearPanel();
+    }
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+  Mode mode_;
+};
+
 class FcitxCandidateTranslationAction : public fcitx::Action {
 public:
   explicit FcitxCandidateTranslationAction(fcitx::FactoryFor<FcitxState> *factory)
@@ -2427,6 +2460,8 @@ public:
     traditional_action_.registerAction("msime-traditional", &instance->userInterfaceManager());
     chinese_punctuation_action_.registerAction("msime-chinese-punctuation", &instance->userInterfaceManager());
     paired_punctuation_action_.registerAction("msime-paired-punctuation", &instance->userInterfaceManager());
+    smart_punctuation_action_.registerAction("msime-smart-punctuation", &instance->userInterfaceManager());
+    smart_punctuation_repeat_action_.registerAction("msime-smart-punctuation-repeat", &instance->userInterfaceManager());
     candidate_translation_action_.registerAction("msime-candidate-translations", &instance->userInterfaceManager());
     punctuation_lock_action_.registerAction("msime-punctuation-lock", &instance->userInterfaceManager());
     translation_language_action_.registerAction("msime-translation-language", &instance->userInterfaceManager());
@@ -2531,6 +2566,8 @@ public:
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &traditional_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &chinese_punctuation_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &paired_punctuation_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &smart_punctuation_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &smart_punctuation_repeat_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &candidate_translation_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &punctuation_lock_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &translation_language_action_);
@@ -2567,6 +2604,8 @@ public:
     event.inputContext()->statusArea().removeAction(&traditional_action_);
     event.inputContext()->statusArea().removeAction(&chinese_punctuation_action_);
     event.inputContext()->statusArea().removeAction(&paired_punctuation_action_);
+    event.inputContext()->statusArea().removeAction(&smart_punctuation_action_);
+    event.inputContext()->statusArea().removeAction(&smart_punctuation_repeat_action_);
     event.inputContext()->statusArea().removeAction(&candidate_translation_action_);
     event.inputContext()->statusArea().removeAction(&punctuation_lock_action_);
     event.inputContext()->statusArea().removeAction(&translation_language_action_);
@@ -2623,6 +2662,8 @@ public:
   FcitxTraditionalAction traditional_action_{&factory_};
   FcitxPunctuationAction chinese_punctuation_action_{&factory_, FcitxPunctuationAction::Mode::Chinese};
   FcitxPunctuationAction paired_punctuation_action_{&factory_, FcitxPunctuationAction::Mode::Paired};
+  FcitxSmartPunctuationAction smart_punctuation_action_{&factory_, FcitxSmartPunctuationAction::Mode::Smart};
+  FcitxSmartPunctuationAction smart_punctuation_repeat_action_{&factory_, FcitxSmartPunctuationAction::Mode::Repeat};
   FcitxCandidateTranslationAction candidate_translation_action_{&factory_};
   FcitxPunctuationLockAction punctuation_lock_action_{&factory_};
   FcitxTranslationLanguageAction translation_language_action_{&factory_};
