@@ -5593,6 +5593,27 @@ mod tests {
         read(msime_client_destroy(handle));
     }
 
+    #[test]
+    fn enabling_dedicated_english_cancels_active_composition() {
+        let dir = tempfile::tempdir().unwrap();
+        let handle = test_host(dir.path());
+        read(msime_client_focus(handle, true));
+        read(msime_client_character(handle, b'n', false));
+        let composing = read(msime_client_character(handle, b'i', false));
+        assert!(!composing["value"]["view"]["editing_text"]
+            .as_str()
+            .unwrap()
+            .is_empty());
+        let enabled = read(msime_client_set_english_mode(handle, true));
+        assert_eq!(enabled["value"]["dedicated_english"], true);
+        assert_eq!(enabled["value"]["editing_text"], "");
+        assert!(enabled["value"]["candidates"]
+            .as_array()
+            .unwrap()
+            .is_empty());
+        read(msime_client_destroy(handle));
+    }
+
     // 默认输入状态 = 英文 is the host's passthrough state: the host keeps the
     // letters and no session sees them. It must not put the session itself
     // into dedicated English. A session that starts there answers the first
