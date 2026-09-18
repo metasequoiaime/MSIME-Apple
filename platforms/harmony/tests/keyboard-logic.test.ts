@@ -59,6 +59,8 @@ import { VoiceRecognitionPolicy, VOICE_MAX_TEXT } from
 import { AccountCloudBridge, AccountSessionStore, AccountTransport } from
   '../entry/src/main/ets/account/AccountCloudBridge';
 import { TypingStatisticsPolicy } from '../entry/src/main/ets/keyboard/TypingStatisticsPolicy';
+import { OnlineCandidatePolicy } from
+  '../entry/src/main/ets/keyboard/candidate/OnlineCandidatePolicy';
 
 let failures = 0;
 let checks = 0;
@@ -124,6 +126,21 @@ group('maps Harmony commits to shared typing-statistics sources', () => {
     'temporary_japanese') === 'japanese', 'temporary Japanese retains its language source');
   check(TypingStatisticsPolicy.day(new Date(2026, 8, 19)) === '2026-09-19',
     'day keys use the native local calendar date');
+});
+
+group('bounds and deduplicates asynchronous online AI candidates', () => {
+  const response = JSON.stringify({ choices: [{ message: { content: JSON.stringify({
+    candidates: [{ text: '你好' }, { text: '你好' }, { text: '世界' }, { text: 'bad\ntext' }]
+  }) } }] });
+  const values = OnlineCandidatePolicy.aiCandidates(response, 3);
+  check(values !== null && values.length === 2 && values[0] === '你好' && values[1] === '世界',
+    'AI response keeps provider order and removes duplicates or controls');
+  check(OnlineCandidatePolicy.aiCandidates(JSON.stringify({ error: { code: 'bad' } }), 3) === null,
+    'AI error envelope is rejected');
+  check(OnlineCandidatePolicy.aiCandidates(response, 0) === null,
+    'AI candidate limit stays within shared bounds');
+  check(OnlineCandidatePolicy.aiCandidates('x'.repeat(1024 * 1024 + 1), 3) === null,
+    'oversized AI response is rejected before parsing');
 });
 
 group('bounds native speech language, session and result text', () => {

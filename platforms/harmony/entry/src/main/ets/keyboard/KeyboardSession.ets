@@ -19,10 +19,12 @@ import { FloatingToolbarLayout, ToolbarButton, ToolbarComponents, ToolbarState }
   from './FloatingToolbarLayout';
 import { DesktopSurface } from './DesktopSurface';
 import { CandidateGlossPolicy, GlossToken } from './candidate/CandidateGlossPolicy';
+import { OnlineCandidatePolicy, OnlineQuery } from './candidate/OnlineCandidatePolicy';
 import fs from '@ohos.file.fs';
 import pasteboard from '@ohos.pasteboard';
 import abilityAccessCtrl from '@ohos.abilityAccessCtrl';
 import bundleManager from '@ohos.bundle.bundleManager';
+import http from '@ohos.net.http';
 import {
   ClipboardHistoryStore, ClipboardHistoryItem, ClipboardHistoryError, ClipboardFailure,
   MAX_FILE_BYTES
@@ -156,6 +158,27 @@ interface SnapshotCandidates {
   ok: boolean;
   value: CandidateSnapshot;
   error: string;
+}
+
+interface NativeReply<T> {
+  ok: boolean;
+  value: T;
+  error: string;
+}
+
+interface AiHttpDescriptor {
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  body: Object;
+  timeout_ms: number;
+  connect_timeout_ms: number;
+  max_response_bytes: number;
+}
+
+interface OnlineApplyValue {
+  applied: boolean;
+  view: EngineView;
 }
 
 /** What the view draws. Grouped so a new field does not change every signature on the way there. */
@@ -795,6 +818,12 @@ export class KeyboardSession {
   }
 
   stop(): void {
+    this.onlineEpoch++;
+    this.onlineSignature = '';
+    if (this.onlineTimer >= 0) {
+      clearTimeout(this.onlineTimer);
+      this.onlineTimer = -1;
+    }
     if (this.handle !== 0) {
       client.destroy(this.handle);
       this.handle = 0;
@@ -1032,6 +1061,9 @@ export class KeyboardSession {
   // it, and by then the composition may have moved on; anything stale is dropped rather than painted
   // onto whatever is on screen now.
   private glossEpoch: number = 0;
+  private onlineTimer: number = -1;
+  private onlineEpoch: number = 0;
+  private onlineSignature: string = '';
   // ICU's Simplified-Traditional, which is the same transliteration Android reaches through its own
   // ICU and Apple through its host boundary. Built once: constructing one per commit would pay for
   // the table on every keystroke.
@@ -1128,6 +1160,133 @@ export class KeyboardSession {
         english: view.dedicated_english,
         diagnostic: this.diagnostic
       });
+    }
+    // Candidate annotations and online suggestions are display-only work. Both run after the
+    // Engine view is published, and native result application rechecks the exact generation.
+    setTimeout((): void => this.requestGlosses(view, entries), 0);
+    this.scheduleOnlineProviders();
+  }
+
+  private scheduleOnlineProviders(): void {
+    if (this.handle === 0) return;
+    let reply: NativeReply<OnlineQuery | null>;
+    try {
+      reply = JSON.parse(client.onlineQuery(this.handle)) as NativeReply<OnlineQuery | null>;
+    } catch (error) {
+      KeyboardLog.error(`online query unavailable: ${describeError(error)}`);
+      return;
+    }
+    if (!reply.ok || reply.value === null) {
+      this.onlineSignature = '';
+      return;
+    }
+    const query: OnlineQuery = reply.value;
+    const signature: string = OnlineCandidatePolicy.signature(query);
+    if (signature === this.onlineSignature) return;
+    this.onlineSignature = signature;
+    if (this.onlineTimer >= 0) clearTimeout(this.onlineTimer);
+    const epoch: number = ++this.onlineEpoch;
+    const handle: number = this.handle;
+    this.onlineTimer = setTimeout((): void => {
+      this.onlineTimer = -1;
+      void this.fetchOnline(handle, JSON.stringify(query), query, epoch);
+    }, OnlineCandidatePolicy.QUIET_INTERVAL_MS);
+  }
+
+  private async fetchOnline(handle: number, queryDocument: string, query: OnlineQuery,
+    epoch: number): Promise<void> {
+    if (epoch !== this.onlineEpoch || handle !== this.handle) return;
+    let aiQuery: OnlineQuery = query;
+    let aiDocument: string = queryDocument;
+    if (query.cloud_candidates && query.cloud_eligible) {
+      const applied: boolean = await this.fetchCloud(handle, queryDocument, epoch);
+      // Applying a cloud result advances Engine's generation. Re-read the exact query before
+      // sending AI so both optional providers can contribute without one becoming stale.
+      if (applied && handle === this.handle && epoch === this.onlineEpoch) {
+        try {
+          const current: NativeReply<OnlineQuery | null> = JSON.parse(
+            client.onlineQuery(handle)) as NativeReply<OnlineQuery | null>;
+          if (current.ok && current.value !== null) {
+            aiQuery = current.value;
+            aiDocument = JSON.stringify(current.value);
+          }
+        } catch {
+          return;
+        }
+      }
+    }
+    const assistant = aiQuery.ai_assistant;
+    if (assistant?.enabled === true && aiQuery.ai_eligible) {
+      await this.fetchAi(handle, aiDocument, assistant.candidate_limit, epoch);
+    }
+  }
+
+  private async fetchCloud(handle: number, queryDocument: string, epoch: number): Promise<boolean> {
+    let url: string;
+    try {
+      const reply: NativeReply<string> = JSON.parse(
+        client.cloudRequestUrl(queryDocument)) as NativeReply<string>;
+      if (!reply.ok || typeof reply.value !== 'string') return false;
+      url = reply.value;
+    } catch (error) {
+      KeyboardLog.error(`cloud query unavailable: ${describeError(error)}`);
+      return false;
+    }
+    const request = http.createHttp();
+    try {
+      const response: http.HttpResponse = await request.request(url, {
+        method: http.RequestMethod.GET,
+        header: { Accept: 'application/json' },
+        connectTimeout: 2500,
+        readTimeout: 8000
+      });
+      if (epoch !== this.onlineEpoch || handle !== this.handle || response.responseCode < 200
+        || response.responseCode >= 300 || typeof response.result !== 'string'
+        || OnlineCandidatePolicy.MAX_CLOUD_RESPONSE_BYTES < response.result.length) return false;
+      const applied: NativeReply<OnlineApplyValue> = JSON.parse(client.applyCloudResponse(
+        handle, queryDocument, response.result)) as NativeReply<OnlineApplyValue>;
+      if (applied.ok && applied.value.applied) this.render(applied.value.view);
+      return applied.ok && applied.value.applied;
+    } catch (error) {
+      KeyboardLog.error(`cloud candidate unavailable: ${describeError(error)}`);
+      return false;
+    } finally {
+      request.destroy();
+    }
+  }
+
+  private async fetchAi(handle: number, queryDocument: string, limit: number,
+    epoch: number): Promise<void> {
+    let descriptor: AiHttpDescriptor | null;
+    try {
+      const reply: NativeReply<AiHttpDescriptor | null> = JSON.parse(
+        client.aiRequestForQuery(handle, queryDocument)) as NativeReply<AiHttpDescriptor | null>;
+      if (!reply.ok || reply.value === null) return;
+      descriptor = reply.value;
+    } catch (error) {
+      KeyboardLog.error(`AI query unavailable: ${describeError(error)}`);
+      return;
+    }
+    const request = http.createHttp();
+    try {
+      const response: http.HttpResponse = await request.request(descriptor.url, {
+        method: http.RequestMethod.POST,
+        header: descriptor.headers,
+        connectTimeout: Math.min(8000, Math.max(1000, descriptor.connect_timeout_ms)),
+        readTimeout: Math.min(10000, Math.max(1000, descriptor.timeout_ms)),
+        extraData: JSON.stringify(descriptor.body)
+      });
+      if (epoch !== this.onlineEpoch || handle !== this.handle || response.responseCode < 200
+        || response.responseCode >= 300 || typeof response.result !== 'string') return;
+      const candidates: string[] | null = OnlineCandidatePolicy.aiCandidates(response.result, limit);
+      if (candidates === null || candidates.length === 0) return;
+      const applied: NativeReply<OnlineApplyValue> = JSON.parse(client.applyOnlineCandidates(
+        handle, queryDocument, JSON.stringify(candidates), 1)) as NativeReply<OnlineApplyValue>;
+      if (applied.ok && applied.value.applied) this.render(applied.value.view);
+    } catch (error) {
+      KeyboardLog.error(`AI candidate unavailable: ${describeError(error)}`);
+    } finally {
+      request.destroy();
     }
   }
 

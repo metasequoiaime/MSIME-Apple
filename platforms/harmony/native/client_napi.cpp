@@ -133,6 +133,7 @@ TEXT_ENTRY(TypingStatistics, msime_client_typing_statistics)
 TEXT_ENTRY(PersonalDictionarySync, msime_client_personal_dictionary_sync)
 TEXT_ENTRY(PrepareHost, msime_client_prepare_host)
 TEXT_ENTRY(SnapshotVersion, msime_client_snapshot_version)
+TEXT_ENTRY(CloudRequestUrl, msime_client_cloud_request_url)
 TEXT_ENTRY(Create, msime_client_create)
 
 #define PAIR_ENTRY(name, call)                                                                     \
@@ -151,6 +152,59 @@ TEXT_ENTRY(Create, msime_client_create)
 
 PAIR_ENTRY(EmojiCatalog, msime_client_emoji_catalog_request)
 PAIR_ENTRY(CandidateGlosses, msime_client_candidate_gloss_request)
+
+static napi_value OnlineQuery(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    uint64_t handle = 0;
+    if (!arguments(env, info, 1, argv) || !argumentHandle(env, argv[0], handle)) {
+        return response(env, msime_client_online_query(0));
+    }
+    return response(env, msime_client_online_query(handle));
+}
+
+static napi_value AiRequestForQuery(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    uint64_t handle = 0;
+    std::string query;
+    if (!arguments(env, info, 2, argv) || !argumentHandle(env, argv[0], handle)
+            || !argumentText(env, argv[1], query)) {
+        return response(env, msime_client_ai_request_for_query(0, nullptr, 0));
+    }
+    return response(env, msime_client_ai_request_for_query(
+        handle, reinterpret_cast<const uint8_t *>(query.data()), query.size()));
+}
+
+static napi_value ApplyCloudResponse(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    uint64_t handle = 0;
+    std::string query;
+    std::string body;
+    if (!arguments(env, info, 3, argv) || !argumentHandle(env, argv[0], handle)
+            || !argumentText(env, argv[1], query) || !argumentText(env, argv[2], body)) {
+        return response(env, msime_client_apply_cloud_response(0, nullptr, 0, nullptr, 0));
+    }
+    return response(env, msime_client_apply_cloud_response(
+        handle, reinterpret_cast<const uint8_t *>(query.data()), query.size(),
+        reinterpret_cast<const uint8_t *>(body.data()), body.size()));
+}
+
+static napi_value ApplyOnlineCandidates(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    uint64_t handle = 0;
+    size_t source = 0;
+    std::string query;
+    std::string candidates;
+    if (!arguments(env, info, 4, argv) || !argumentHandle(env, argv[0], handle)
+            || !argumentText(env, argv[1], query) || !argumentText(env, argv[2], candidates)
+            || !argumentIndex(env, argv[3], source) || source > 1) {
+        return response(env, msime_client_apply_online_candidates(
+            0, nullptr, 0, nullptr, 0, 2));
+    }
+    return response(env, msime_client_apply_online_candidates(
+        handle, reinterpret_cast<const uint8_t *>(query.data()), query.size(),
+        reinterpret_cast<const uint8_t *>(candidates.data()), candidates.size(),
+        static_cast<uint8_t>(source)));
+}
 
 #define HANDLE_ENTRY(name, call)                                                                   \
     static napi_value name(napi_env env, napi_callback_info info) {                                 \
@@ -382,6 +436,11 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("typingStatistics", TypingStatistics),
         ENTRY("emojiCatalog", EmojiCatalog),
         ENTRY("candidateGlosses", CandidateGlosses),
+        ENTRY("onlineQuery", OnlineQuery),
+        ENTRY("cloudRequestUrl", CloudRequestUrl),
+        ENTRY("aiRequestForQuery", AiRequestForQuery),
+        ENTRY("applyCloudResponse", ApplyCloudResponse),
+        ENTRY("applyOnlineCandidates", ApplyOnlineCandidates),
         ENTRY("personalDictionarySync", PersonalDictionarySync),
         ENTRY("prepareHost", PrepareHost),
         ENTRY("snapshotVersion", SnapshotVersion),
