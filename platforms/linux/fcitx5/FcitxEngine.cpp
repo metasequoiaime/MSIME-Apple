@@ -3414,8 +3414,10 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
       if (index < translation_options_.size()) commitTranslationCandidate(index);
       return true;
     }
-    if (!ctrl && !alt && !shift && (sym == FcitxKey_Up || sym == FcitxKey_Down)) {
-      if (sym == FcitxKey_Up)
+    if (!ctrl && !alt && !shift &&
+        (sym == FcitxKey_Up || sym == FcitxKey_KP_Up ||
+         sym == FcitxKey_Down || sym == FcitxKey_KP_Down)) {
+      if (sym == FcitxKey_Up || sym == FcitxKey_KP_Up)
         translation_cursor_ = translation_cursor_ == 0 ? 0 : translation_cursor_ - 1;
       else if (translation_cursor_ + 1 < pageEnd - pageStart)
         ++translation_cursor_;
@@ -3423,8 +3425,10 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
       return true;
     }
     if (!ctrl && !alt && !shift &&
-        (sym == FcitxKey_Page_Up || sym == FcitxKey_Page_Down)) {
-      translationPage(sym == FcitxKey_Page_Up ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE);
+        (sym == FcitxKey_Page_Up || sym == FcitxKey_KP_Page_Up ||
+         sym == FcitxKey_Page_Down || sym == FcitxKey_KP_Page_Down)) {
+      translationPage(sym == FcitxKey_Page_Up || sym == FcitxKey_KP_Page_Up
+                          ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE);
       return true;
     }
     // Other editing keys first restore the Engine-owned candidate page below.
