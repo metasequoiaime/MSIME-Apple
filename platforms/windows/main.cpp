@@ -36,6 +36,7 @@
 #include <iostream>
 #include <memory>
 #include <mutex>
+#include <cstdlib>
 #ifdef _WIN32
 #include <shlobj.h>
 #endif
@@ -154,6 +155,16 @@ bool contains(const std::filesystem::path &parent,
 }
 std::filesystem::path production_state_directory() {
 #ifdef _WIN32
+  // Keep the Windows host relocatable like the upstream installer. The
+  // installer/enterprise launcher can provide one absolute data directory;
+  // all preferences, dictionaries and runtime leases then follow it instead
+  // of silently splitting state between the redirected path and LocalAppData.
+  if (const auto *configured = _wgetenv(L"METASEQUOIA_IME_DATA_DIR");
+      configured && *configured) {
+    const std::filesystem::path value(configured);
+    if (value.is_absolute())
+      return value;
+  }
   PWSTR app_data = nullptr;
   if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr,
                                   &app_data)))
@@ -386,7 +397,7 @@ void publish_switch_language_keybindings(const nlohmann::json &preferences) {
   if (FAILED(SHGetKnownFolderPath(FOLDERID_LocalAppData, 0, nullptr, &app_data)))
     return;
   const std::filesystem::path path =
-      std::filesystem::path(app_data) / L"metasequoiaime" / L"config.toml";
+      production_state_directory() / L"config.toml";
   CoTaskMemFree(app_data);
   const auto bindings =
       preferences.value("keybindings", nlohmann::json::object());
