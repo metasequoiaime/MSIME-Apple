@@ -151,12 +151,17 @@ final class SkinUITests: KeyboardInterfaceTests {
     // 抽卡和设计模板一起搬到了「模板」栏 —— 它们换的是整套设计,而编辑器默认停在只改背景的那一栏。
     app.buttons["skinEditorTab_模板"].tap()
     app.buttons["openAISkinDesigner"].tap()
-    // 等到可点,不只是等到存在。waitForExistence 满足于元素进入无障碍层级,而那时它未必已经可交互:
-    // 落空的 tap 什么都不做,busy 保持 false,取消按钮于是永远不出现 —— 报出来是
-    // 「No matches found for '取消' … from input { Button, label: '完成' }」,看着像那个按钮没做出来。
+    // 等到可点,不只是等到存在:waitForExistence 满足于元素进入无障碍层级,而那时它未必已经可交互。
     //
-    // 一度以为是等得不够久,把 3 秒放到 5 秒,照样红:取消按钮在 busy 置真的同一刻就存在(见
-    // AISkinGenerationView 里 busy = true 是同步的),等多久都不会让一次没生效的点击重新生效。
+    // 这条用例红过三轮,前两次都归错了因 —— 先当成等得不够久(3 秒放到 5 秒),再当成 tap 落空。真正的
+    // 原因在 fixture 那一侧:取消按钮只在生成期间存在,而 -skinGenerationSlowFixture 原先只把生成撑到
+    // 5 秒。XCUITest 在 tap 返回(要先等 app 静止)到查出按钮之间,本机空载就花掉 2.8 秒,CI 上两台克隆
+    // 并行时超过 5 秒 —— 于是查询开始时生成已经结束,报出来是
+    // 「No matches found for '取消' … from input { Button, label: '再抽三张', saveAISkin_AI 测试 1 … }」,
+    // 那几个 saveAISkin 就是生成已经完成的证据。窗口现在是 30 秒,不再和查询开销赛跑。
+    //
+    // 窗口长了还让最后那句断言真正成立:5 秒的时候 busy 会自己落下,取消就算完全没生效,按钮照样会重新
+    // 可用。现在只有取消真的生效了它才可用。
     let generate = app.buttons["generateAISkins"]
     XCTAssertTrue(wait(generate, until: "exists == true AND isHittable == true"))
     generate.tap()
