@@ -301,7 +301,8 @@ ReplyComposer::edit(ServerSession &session, const FanyImeNamedpipeData &packet,
                 !before.at("editing_text").get<std::string>().empty(),
                 before.value("microsoft_shuangpin", false),
                 before.at("editing_text").get<std::string>(),
-                before.at("caret_position").get<size_t>());
+                before.at("caret_position").get<size_t>(),
+                before.value("scheme", 0u) == 3u);
   if (kind == EditKind::None)
     return std::nullopt;
   auto result = session.key(packet, epoch);
