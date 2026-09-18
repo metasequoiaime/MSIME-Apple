@@ -1259,11 +1259,6 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
   const [hasMore, setHasMore] = useState(false);
   const [form, setForm] = useState<{ entry: CloudDictionaryEntry | null; code: string; word: string; weight: number } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [snapshot, setSnapshot] = useState<CloudDictionarySnapshotMetadata | null>(null);
-  const [snapshotToken, setSnapshotToken] = useState<string | null>(null);
-  const [snapshotStatus, setSnapshotStatus] = useState<CloudDictionaryResponse | null>(null);
-  const [restorePreview, setRestorePreview] = useState<{ text: string; snapshot: CloudDictionarySnapshotMetadata; expectedRevision: number } | null>(null);
-  const [snapshotBusy, setSnapshotBusy] = useState(false);
   const [notice, setNotice] = useState("管理当前账号的云端词条");
   const refreshRevision = useRef(0);
   const busyRef = useRef(false);
@@ -1297,109 +1292,6 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
     setHasMore(result.has_more === true);
   }
 
-  async function previewSnapshot() {
-    setSnapshotBusy(true);
-    try {
-      const result = await client.request({ operation: "snapshot_preview" });
-      setSnapshot(result.snapshot ?? null);
-      setSnapshotToken(result.previewToken ?? null);
-      setNotice("云词典快照已下载并通过完整性校验，请确认后入列");
-    } catch { setNotice("下载云词典快照失败"); }
-    finally { setSnapshotBusy(false); }
-  }
-
-  async function enqueueSnapshot() {
-    const token = snapshotToken;
-    if (!token || !window.confirm("确认将此云词典快照加入本机词库？输入法会在下一次空闲边界应用。")) return;
-    setSnapshotBusy(true);
-    try {
-      const result = await client.request({ operation: "snapshot_enqueue", token });
-      setSnapshot(null);
-      setSnapshotToken(null);
-      setSnapshotStatus(result);
-      setNotice("快照已入列，将在输入法空闲时应用");
-    } catch { setNotice("快照入列失败，当前本机词库未改变"); }
-    finally { setSnapshotBusy(false); }
-  }
-
-  async function exportSnapshot() {
-    setSnapshotBusy(true);
-    try {
-      const result = await client.request({ operation: "snapshot_export" });
-      if (client.snapshotNative && result.saved === true) { setNotice("完整云词库快照已保存"); return; }
-      const text = typeof result.text === "string" ? result.text : result.content;
-      if (typeof text !== "string" || !text) throw new Error("provider returned no snapshot");
-      const anchor = document.createElement("a");
-      const url = URL.createObjectURL(new Blob([text], { type: "application/x-ndjson;charset=utf-8" }));
-      anchor.href = url;
-      anchor.download = result.filename || "msime-dictionary-snapshot.ndjson";
-      document.body.appendChild(anchor);
-      try { anchor.click(); setNotice("完整云词库快照已导出"); }
-      finally { anchor.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 1000); }
-    } catch { setNotice("导出完整云词库快照失败"); }
-    finally { setSnapshotBusy(false); }
-  }
-
-  async function chooseRestoreSnapshot(file: File) {
-    if (client.snapshotNative) {
-      setSnapshotBusy(true);
-      try {
-        const result = await client.request({ operation: "snapshot_restore_preview", text: "" });
-        if (result.previewToken && result.snapshot && typeof result.expectedRevision === "number") {
-          setRestorePreview({ text: result.previewToken, snapshot: result.snapshot, expectedRevision: result.expectedRevision });
-          setNotice("快照已校验，请确认后替换云端词库");
-        } else throw new Error("invalid native snapshot preview");
-      } catch { setNotice("无法校验快照，云端词库未改变"); }
-      finally { setSnapshotBusy(false); }
-      return;
-    }
-    const maximumBytes = 512 * 1024 * 1024;
-    if (file.size === 0 || file.size > maximumBytes) {
-      setNotice("快照文件必须大于 0 且不超过 512 MiB");
-      return;
-    }
-    setSnapshotBusy(true);
-    try {
-      const text = await file.text();
-      const result = await client.request({ operation: "snapshot_restore_preview", text });
-      if (!result.snapshot || typeof result.expectedRevision !== "number") throw new Error("invalid snapshot preview");
-      setRestorePreview({ text, snapshot: result.snapshot, expectedRevision: result.expectedRevision });
-      setNotice("快照已校验，请确认后替换云端词库");
-    } catch { setNotice("无法校验快照，云端词库未改变"); }
-    finally { setSnapshotBusy(false); }
-  }
-
-  async function restoreSnapshot() {
-    const prepared = restorePreview;
-    if (!prepared || !window.confirm("确认用此快照替换全部云端词库和排序记录？")) return;
-    setSnapshotBusy(true);
-    try {
-      const result = await client.request(client.snapshotNative
-        ? { operation: "snapshot_restore_native", token: prepared.text }
-        : { operation: "snapshot_restore", text: prepared.text, expected_sha256: prepared.snapshot.sha256, revision: prepared.expectedRevision });
-      setRestorePreview(null);
-      setNotice(`云端词库已恢复到新版本 ${result.revision ?? ""}`.trim());
-    } catch { setNotice("恢复失败，可能是云端版本已变化；云端词库未改变"); }
-    finally { setSnapshotBusy(false); }
-  }
-
-  async function refreshSnapshotStatus() {
-    setSnapshotBusy(true);
-    try { setSnapshotStatus(await client.request({ operation: "snapshot_status" })); }
-    catch { setNotice("读取快照状态失败"); }
-    finally { setSnapshotBusy(false); }
-  }
-
-  async function cancelSnapshot() {
-    if (!window.confirm("确认取消待应用的云词典快照？")) return;
-    setSnapshotBusy(true);
-    try {
-      setSnapshotStatus(await client.request({ operation: "snapshot_cancel" }));
-      setNotice("已取消待应用快照");
-    } catch { setNotice("取消快照失败"); }
-    finally { setSnapshotBusy(false); }
-  }
-
   function refresh(nextOffset = 0, nextSearch = searchRef.current, nextKind = kind) {
     return run(async revision => {
       await load(revision, nextOffset, nextSearch, nextKind);
@@ -1413,9 +1305,7 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
     setOffset(0);
     setHasMore(false);
     setForm(null);
-    setRestorePreview(null);
     void refresh(0);
-    if (client.snapshot) void refreshSnapshotStatus();
     return () => { refreshRevision.current++; };
   }, [client]);
 
@@ -1496,10 +1386,6 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
       <p className="cloud-dictionary-description">管理当前账号的云端词条。修改需要 provider 提供登录态和同步服务。</p>
       <div className="cloud-dictionary-kind-tabs" role="tablist" aria-label="云词库类型">{cloudDictionaryKinds.map(([value, label]) => <button key={value} type="button" role="tab" aria-selected={kind === value} className={kind === value ? "active" : ""} onClick={() => changeKind(value)} disabled={busy}>{label}</button>)}</div>
       <div className="cloud-dictionary-toolbar"><label>词库<select aria-label="词库类型" value={kind} onChange={event => changeKind(event.target.value as CloudDictionaryKind)} disabled={busy}>{cloudDictionaryKinds.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className="cloud-dictionary-search">搜索<input aria-label="搜索云词条" value={search} onChange={event => { searchRef.current = event.target.value; setSearch(event.target.value); }} onKeyDown={event => { if (event.key === "Enter") void refresh(0); }} placeholder="词条或编码" /></label><button type="button" onClick={() => void refresh(0)} disabled={busy}>查询</button><button type="button" onClick={beginAdd} disabled={busy}>添加词条</button>{client.openCatalog && <button type="button" onClick={() => void client.openCatalog?.()} disabled={busy}>完整目录</button>}{client.openCandidates && <button type="button" onClick={() => void client.openCandidates?.()} disabled={busy}>云端候选排序</button>}{client.openFiles && <button type="button" onClick={() => void client.openFiles?.()} disabled={busy}>导入与导出</button>}{client.openApply && client.snapshot && <button type="button" onClick={() => void client.openApply?.()} disabled={busy}>应用到本机</button>}</div>
-      {client.snapshot && <div className="cloud-dictionary-actions"><button type="button" onClick={() => void previewSnapshot()} disabled={busy || snapshotBusy}>下载并预览</button><button type="button" onClick={() => void exportSnapshot()} disabled={busy || snapshotBusy}>导出完整快照</button><label className="secondary">恢复快照<input hidden type="file" accept=".ndjson,application/x-ndjson" disabled={busy || snapshotBusy} onChange={event => { const file = event.target.files?.[0]; if (file) void chooseRestoreSnapshot(file); event.currentTarget.value = ""; }} /></label><button type="button" className="secondary" onClick={() => void refreshSnapshotStatus()} disabled={busy || snapshotBusy}>快照状态</button></div>}
-      {client.snapshot && snapshot && <div className="cloud-dictionary-notice" role="status"><p>云端 revision {snapshot.cloudRevision} · {snapshot.records} 条记录 · {snapshot.bytes} 字节</p><p>词条 {snapshot.entries} · 覆盖 {snapshot.overlays} · 固定 {snapshot.positions} · 选择 {snapshot.selections}</p><small>SHA-256：{snapshot.sha256}</small><div><button type="button" onClick={() => void enqueueSnapshot()} disabled={snapshotBusy || !snapshotToken}>确认加入本机</button><button type="button" className="secondary" onClick={() => { setSnapshot(null); setSnapshotToken(null); }} disabled={snapshotBusy}>放弃预览</button></div></div>}
-      {client.snapshot && snapshotStatus?.request && <div className="cloud-dictionary-notice" role="status">快照状态：{snapshotStatus.request.status} · 云端 revision {snapshotStatus.request.cloudRevision}{(snapshotStatus.request.status === "queued" || snapshotStatus.request.status === "preparing") && <button type="button" className="secondary" onClick={() => void cancelSnapshot()} disabled={snapshotBusy}>取消待应用</button>}</div>}
-      {client.snapshot && restorePreview && <div className="cloud-dictionary-notice" role="status"><p>待恢复快照：云端 revision {restorePreview.snapshot.cloudRevision} · {restorePreview.snapshot.records} 条记录 · {restorePreview.snapshot.bytes} 字节</p><p>词条 {restorePreview.snapshot.entries} · 覆盖 {restorePreview.snapshot.overlays} · 固定 {restorePreview.snapshot.positions} · 选择 {restorePreview.snapshot.selections}</p><small>当前云端 revision：{restorePreview.expectedRevision} · SHA-256：{restorePreview.snapshot.sha256}</small><div><button type="button" onClick={() => void restoreSnapshot()} disabled={snapshotBusy}>确认恢复云端词库</button><button type="button" className="secondary" onClick={() => setRestorePreview(null)} disabled={snapshotBusy}>放弃恢复</button></div></div>}
       {form && <div className="cloud-dictionary-form"><label>编码<input disabled={busy} value={form.code} onChange={event => setForm({ ...form, code: event.target.value })} /></label><label className="cloud-dictionary-word">词条<input disabled={busy} value={form.word} onChange={event => setForm({ ...form, word: event.target.value })} /></label><label>权重<input disabled={busy} type="number" min="0" value={form.weight} onChange={event => setForm({ ...form, weight: Number(event.target.value) })} /></label><button type="button" onClick={() => void save()} disabled={busy}>保存</button><button type="button" className="secondary" onClick={() => setForm(null)} disabled={busy}>取消</button></div>}
       {entries.length > 0 && <p className="cloud-dictionary-mobile-hint">点按词条可编辑；窄屏下的下载和删除操作会分组显示。</p>}
       <div className="cloud-dictionary-list" aria-label="云词条">{entries.length ? entries.map(entry => <article className="cloud-dictionary-item" key={entry.id}><button type="button" className="cloud-dictionary-item-main" aria-label={`编辑云词条 ${entry.word}`} onClick={() => beginEdit(entry)} disabled={busy}><strong>{entry.word}</strong><small>{entry.code} · 权重 {entry.weight}</small></button><div className="cloud-dictionary-item-actions">{client.downloadToLocal && <button type="button" className="secondary" aria-label={`下载到本机 ${entry.word}`} onClick={() => void downloadToLocal(entry)} disabled={busy}>下载到本机</button>}<button type="button" className="secondary" onClick={() => beginEdit(entry)} disabled={busy}>编辑</button><button type="button" className="secondary" onClick={() => confirmRemove(entry)} disabled={busy}>删除</button></div></article>) : <p className="cloud-dictionary-empty">暂无词条</p>}</div>
@@ -1516,6 +1402,8 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
   const [file, setFile] = useState<{ name: string; text: string; bytes: number } | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("选择 UTF-8 TSV 文件后确认上传；导出不会改变云端内容");
+  const [snapshotBusy, setSnapshotBusy] = useState(false);
+  const [restorePreview, setRestorePreview] = useState<{ text: string; snapshot: CloudDictionarySnapshotMetadata; expectedRevision: number } | null>(null);
   const requestRevision = useRef(0);
   const busyRef = useRef(false);
 
@@ -1594,7 +1482,57 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
     }, "导出失败，请确认 provider 已连接");
   }
 
-  useEffect(() => () => { requestRevision.current++; }, []);
+  async function exportSnapshot() {
+    setSnapshotBusy(true);
+    try {
+      const result = await client.request({ operation: "snapshot_export" });
+      if (client.snapshotNative && result.saved === true) { setNotice("完整云词库快照已保存"); return; }
+      const text = typeof result.text === "string" ? result.text : result.content;
+      if (typeof text !== "string" || !text) throw new Error("provider returned no snapshot");
+      const anchor = document.createElement("a");
+      const url = URL.createObjectURL(new Blob([text], { type: "application/x-ndjson;charset=utf-8" }));
+      anchor.href = url;
+      anchor.download = result.filename || "msime-dictionary-snapshot.ndjson";
+      document.body.appendChild(anchor);
+      try { anchor.click(); setNotice("完整云词库快照已导出"); }
+      finally { anchor.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 1000); }
+    } catch { setNotice("导出完整云词库快照失败"); }
+    finally { setSnapshotBusy(false); }
+  }
+
+  async function chooseRestoreSnapshot(selected: File) {
+    if (selected.size === 0 || selected.size > 512 * 1024 * 1024) {
+      setNotice("快照文件必须大于 0 且不超过 512 MiB");
+      return;
+    }
+    setSnapshotBusy(true);
+    try {
+      const text = client.snapshotNative ? "" : await selected.text();
+      const result = await client.request({ operation: "snapshot_restore_preview", text });
+      if (!result.snapshot || typeof result.expectedRevision !== "number") throw new Error("invalid snapshot preview");
+      if (client.snapshotNative && typeof result.previewToken !== "string") throw new Error("invalid native snapshot preview");
+      const preparedText = client.snapshotNative ? result.previewToken! : text;
+      setRestorePreview({ text: preparedText, snapshot: result.snapshot, expectedRevision: result.expectedRevision });
+      setNotice("快照已校验，请确认后替换云端词库");
+    } catch { setNotice("无法校验快照，云端词库未改变"); }
+    finally { setSnapshotBusy(false); }
+  }
+
+  async function restoreSnapshot() {
+    const prepared = restorePreview;
+    if (!prepared || !window.confirm("确认用此快照替换全部云端词库和排序记录？")) return;
+    setSnapshotBusy(true);
+    try {
+      const result = await client.request(client.snapshotNative
+        ? { operation: "snapshot_restore_native", token: prepared.text }
+        : { operation: "snapshot_restore", text: prepared.text, expected_sha256: prepared.snapshot.sha256, revision: prepared.expectedRevision });
+      setRestorePreview(null);
+      setNotice(`云端词库已恢复到新版本 ${result.revision ?? ""}`.trim());
+    } catch { setNotice("恢复失败，可能是云端版本已变化；云端词库未改变"); }
+    finally { setSnapshotBusy(false); }
+  }
+
+  useEffect(() => () => { requestRevision.current++; setRestorePreview(null); }, []);
 
   return <main className="native-panel cloud-dictionary-panel" aria-label="云词库文件">
     <header className="native-panel-header"><button type="button" aria-label="返回云词典" onClick={() => void (client.back ? client.back() : client.close())}>‹</button><span>导入与导出</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
@@ -1604,6 +1542,7 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
       <p className="cloud-dictionary-description">导入只处理你明确选择的本地文件，读取和上传均有 64 KiB 边界；导出所选类型的云端个人词条。</p>
       <section className="cloud-dictionary-file-section" aria-label="导入云词库"><h2>导入云词库</h2><label className="secondary">选择 UTF-8 文件<input hidden type="file" accept=".txt,.tsv,text/plain" disabled={busy} onChange={event => { const selected = event.target.files?.[0]; if (selected) chooseFile(selected); event.currentTarget.value = ""; }} /></label>{file && <div className="cloud-dictionary-file-preview"><strong>{file.name}</strong><small>{file.bytes} 字节</small><pre>{file.text.slice(0, 2000)}</pre><button type="button" onClick={importFile} disabled={busy}>确认上传到云端</button><button type="button" className="secondary" onClick={() => setFile(null)} disabled={busy}>取消</button></div>}</section>
       <section className="cloud-dictionary-file-section" aria-label="导出云词库"><h2>导出云词库</h2><p className="cloud-dictionary-description">文件会下载到当前设备，不会修改云端词条。</p><button type="button" onClick={exportDictionary} disabled={busy || format === "hans"}>导出当前类型</button></section>
+      {client.snapshot && <section className="cloud-dictionary-file-section" aria-label="完整云词库备份"><h2>完整云词库备份</h2><p className="cloud-dictionary-description">包含四类词库和排序记录；恢复只写云端，不会自动改动本机词库。</p><button type="button" onClick={() => void exportSnapshot()} disabled={busy || snapshotBusy}>导出完整快照</button><label className="secondary">选择快照恢复到云端<input hidden type="file" accept=".ndjson,application/x-ndjson" disabled={busy || snapshotBusy} onChange={event => { const selected = event.target.files?.[0]; if (selected) void chooseRestoreSnapshot(selected); event.currentTarget.value = ""; }} /></label>{restorePreview && <div className="cloud-dictionary-file-preview"><strong>已校验快照</strong><small>云端 revision {restorePreview.snapshot.cloudRevision} · {restorePreview.snapshot.records} 条记录 · {restorePreview.snapshot.bytes} 字节</small><button type="button" onClick={() => void restoreSnapshot()} disabled={busy || snapshotBusy}>确认恢复云端词库</button><button type="button" className="secondary" onClick={() => setRestorePreview(null)} disabled={busy || snapshotBusy}>放弃恢复</button></div>}</section>}
       <p className="cloud-dictionary-notice" role="status">{notice}</p>
     </div>
   </main>;
