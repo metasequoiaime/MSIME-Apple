@@ -360,6 +360,28 @@ public:
     render();
     return true;
   }
+  bool cycleHelpcodeSchema() {
+    const auto scheme = view_.value("scheme", 0u);
+    if (!session_ || (scheme != 0 && scheme != 1) || restricted() || privateInput())
+      return false;
+    static constexpr std::array<const char *, 5> schemas = {
+        "lantian", "ziranma", "shouyou2_0", "shouyouplus", "xiaohe"};
+    const auto section = scheme == 1 ? "shuangpin_helpcode" : "quanpin_helpcode";
+    const auto current = preferences_.value(section, Json::object()).value(
+        "schema", scheme == 1 ? std::string("lantian") : std::string("ziranma"));
+    const auto it = std::find(schemas.begin(), schemas.end(), current);
+    const auto next = it == schemas.end() || std::next(it) == schemas.end()
+        ? schemas.front() : *std::next(it);
+    if (!view_.value("editing_text", std::string{}).empty())
+      command(MSIME_FINISH_COMPOSITION);
+    saveNestedStringPreference(section, "schema", next);
+    helpcode_schema_override_ = next;
+    close();
+    if (!ensure()) return false;
+    view_ = response(msime_client_focus(session_, true)).at("view");
+    render();
+    return true;
+  }
   bool toggleNineKey() {
     if (!session_ || view_.value("scheme", 0u) != 0) return false;
     const bool enabled = !view_.value("nine_key", false);
@@ -879,6 +901,11 @@ public:
     if (scheme_override_) preferences_["scheme"] = *scheme_override_;
     if (shuangpin_profile_override_)
       preferences_["shuangpin_profile"] = *shuangpin_profile_override_;
+    if (helpcode_schema_override_) {
+      const auto section = preferences_.value("scheme", std::string("quanpin")) == "shuangpin"
+          ? "shuangpin_helpcode" : "quanpin_helpcode";
+      preferences_[section]["schema"] = *helpcode_schema_override_;
+    }
     traditional_ = preferences_.value("traditional_chinese_output", false);
     chinese_punctuation_ = preferences_.value("chinese_punctuation", true);
     paired_punctuation_ = preferences_.value("paired_punctuation", true);
@@ -1729,6 +1756,7 @@ public:
   std::string resources_;
   std::optional<std::string> scheme_override_;
   std::optional<std::string> shuangpin_profile_override_;
+  std::optional<std::string> helpcode_schema_override_;
   Json preferences_snapshot_;
   uint64_t preferences_job_session_ = 0;
   std::shared_future<Json> preferences_job_;
@@ -2198,6 +2226,35 @@ public:
 private:
   fcitx::FactoryFor<FcitxState> *factory_;
   Kind kind_;
+};
+
+class FcitxHelpcodeSchemaAction : public fcitx::SimpleAction {
+public:
+  explicit FcitxHelpcodeSchemaAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {}
+  std::string shortText(fcitx::InputContext *ic) const override {
+    if (!ic) return "辅助码方案";
+    const auto *state = ic->propertyFor(factory_);
+    const auto scheme = state->view_.value("scheme", 0u);
+    const auto section = scheme == 1 ? "shuangpin_helpcode" : "quanpin_helpcode";
+    const auto value = state->preferences_.value(section, Json::object())
+        .value("schema", scheme == 1 ? std::string("lantian") : std::string("ziranma"));
+    const auto label = value == "lantian" ? "蓝天" : value == "ziranma" ? "自然码" :
+        value == "shouyou2_0" ? "搜狗 2.0" : value == "shouyouplus" ? "搜狗 Plus" : "小鹤";
+    return std::string("辅助码：") + label;
+  }
+  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try {
+      auto *state = ic->propertyFor(factory_);
+      if (state->cycleHelpcodeSchema()) update(ic);
+    } catch (...) {
+      ic->propertyFor(factory_)->close();
+      ic->propertyFor(factory_)->clearPanel();
+    }
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
 };
 
 class FcitxAutocorrectAction : public fcitx::Action {
@@ -3175,6 +3232,7 @@ public:
     number_row_action_.registerAction("msime-number-row", &instance->userInterfaceManager());
     shuangpin_preedit_action_.registerAction("msime-shuangpin-preedit", &instance->userInterfaceManager());
     wubi_code_hint_action_.registerAction("msime-wubi-code-hint", &instance->userInterfaceManager());
+    helpcode_schema_action_.registerAction("msime-helpcode-schema", &instance->userInterfaceManager());
     maintenance_action_.registerAction("msime-candidate-tools", &instance->userInterfaceManager());
     clipboard_action_.registerAction("msime-clipboard", &instance->userInterfaceManager());
     clipboard_history_action_.registerAction("msime-clipboard-history", &instance->userInterfaceManager());
@@ -3303,6 +3361,7 @@ public:
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &number_row_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &shuangpin_preedit_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &wubi_code_hint_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &helpcode_schema_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &maintenance_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &clipboard_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &clipboard_history_action_);
@@ -3353,6 +3412,7 @@ public:
     event.inputContext()->statusArea().removeAction(&number_row_action_);
     event.inputContext()->statusArea().removeAction(&shuangpin_preedit_action_);
     event.inputContext()->statusArea().removeAction(&wubi_code_hint_action_);
+    event.inputContext()->statusArea().removeAction(&helpcode_schema_action_);
     event.inputContext()->statusArea().removeAction(&maintenance_action_);
     event.inputContext()->statusArea().removeAction(&clipboard_action_);
     event.inputContext()->statusArea().removeAction(&clipboard_history_action_);
@@ -3432,6 +3492,7 @@ public:
   FcitxNumberRowAction number_row_action_{&factory_};
   FcitxSchemeBooleanAction shuangpin_preedit_action_{&factory_, FcitxSchemeBooleanAction::Kind::ShuangpinPreedit};
   FcitxSchemeBooleanAction wubi_code_hint_action_{&factory_, FcitxSchemeBooleanAction::Kind::WubiCodeHint};
+  FcitxHelpcodeSchemaAction helpcode_schema_action_{&factory_};
   fcitx::Menu maintenance_menu_;
   FcitxMaintenanceAction maintenance_action_{&factory_, 0, "候选维护"};
   FcitxClipboardAction clipboard_action_{&factory_};
