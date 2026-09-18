@@ -34,4 +34,6 @@ assert 'cycleFrequencyMode' in source
 assert 'msime-frequency' in source
 assert 'msime-frequency-trigger' in source
 assert 'msime-frequency-step' in source
+assert 'msime-candidate-theme' in source
+assert 'cycleCandidateTheme' in source
 print("Fcitx5 addon metadata passed")
