@@ -20,49 +20,49 @@ fi
 mapfile -t client_sources < <(find "$repo_root/platforms/android/java/app/msime/client" -name "*.java" -print)
 javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "${client_sources[@]}" \
-  "$repo_root/platforms/android/tests/EditorSmoke.java" \
-  "$repo_root/platforms/android/tests/EditorContextSnapshotSmoke.java" \
-  "$repo_root/platforms/android/tests/PreferencesSmoke.java" \
-  "$repo_root/platforms/android/tests/KeyboardLayoutSmoke.java" \
-  "$repo_root/platforms/android/tests/LetterKeyFacePolicySmoke.java" \
-  "$repo_root/platforms/android/tests/ReturnKeyActionSmoke.java" \
-  "$repo_root/platforms/android/tests/SpaceCursorMovementSmoke.java" \
-  "$repo_root/platforms/android/tests/EnglishCapitalizationPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/EnglishLetterCaseStateSmoke.java" \
-  "$repo_root/platforms/android/tests/ChineseHelpcodePolicySmoke.java" \
-  "$repo_root/platforms/android/tests/MicrosoftShuangpinKeyPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/ChineseOutputPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/FullWidthInputPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/KeyboardInputContextSmoke.java" \
-  "$repo_root/platforms/android/tests/KeyboardGeometrySmoke.java" \
-  "$repo_root/platforms/android/tests/VoiceResultStoreSmoke.java" \
-  "$repo_root/platforms/android/tests/AiPolishClientSmoke.java" \
-  "$repo_root/platforms/android/tests/ReplyKeyboardSmoke.java" \
-  "$repo_root/platforms/android/tests/KeyboardSkinSmoke.java" \
-  "$repo_root/platforms/android/tests/KeyboardFeedbackSmoke.java" \
-  "$repo_root/platforms/android/tests/TypingSourceSmoke.java" \
-  "$repo_root/platforms/android/tests/EmojiCatalogModelSmoke.java" \
-  "$repo_root/platforms/android/tests/MoreToolsLayoutSmoke.java" \
-  "$repo_root/platforms/android/tests/LocalInputModeSmoke.java" \
-  "$repo_root/platforms/android/tests/KeyboardSchemeSmoke.java" \
-  "$repo_root/platforms/android/tests/NineKeyLayoutSmoke.java" \
-  "$repo_root/platforms/android/tests/JapaneseNineKeyLayoutSmoke.java" \
-  "$repo_root/platforms/android/tests/JapaneseNineKeyActionsSmoke.java" \
-  "$repo_root/platforms/android/tests/JapaneseVariantPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/HandwritingContractSmoke.java" \
-  "$repo_root/platforms/android/tests/CandidateAppearanceSmoke.java" \
-  "$repo_root/platforms/android/tests/CandidateGlossModelSmoke.java" \
-  "$repo_root/platforms/android/tests/CandidateTranslationPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/WubiCodeHintPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/ChineseSymbolFacesSmoke.java" \
-  "$repo_root/platforms/android/tests/ShuangpinKeyHintPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/CandidatePanelSmoke.java" \
-  "$repo_root/platforms/android/tests/CandidateManagementSmoke.java" \
-  "$repo_root/platforms/android/tests/ClipboardHistoryPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/DictionarySnapshotQueueSmoke.java" \
-  "$repo_root/platforms/android/tests/DiagnosticPolicySmoke.java" \
-  "$repo_root/platforms/android/tests/SmartPunctuationContextSmoke.java" \
-  "$repo_root/platforms/android/tests/SymbolPanelModelSmoke.java"
+  "$repo_root/platforms/android/tests/core/EditorSmoke.java" \
+  "$repo_root/platforms/android/tests/core/EditorContextSnapshotSmoke.java" \
+  "$repo_root/platforms/android/tests/settings/PreferencesSmoke.java" \
+  "$repo_root/platforms/android/tests/keyboard/KeyboardLayoutSmoke.java" \
+  "$repo_root/platforms/android/tests/keyboard/LetterKeyFacePolicySmoke.java" \
+  "$repo_root/platforms/android/tests/keyboard/ReturnKeyActionSmoke.java" \
+  "$repo_root/platforms/android/tests/keyboard/SpaceCursorMovementSmoke.java" \
+  "$repo_root/platforms/android/tests/settings/EnglishCapitalizationPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/settings/EnglishLetterCaseStateSmoke.java" \
+  "$repo_root/platforms/android/tests/dictionary/ChineseHelpcodePolicySmoke.java" \
+  "$repo_root/platforms/android/tests/keyboard/MicrosoftShuangpinKeyPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/dictionary/ChineseOutputPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/core/FullWidthInputPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/keyboard/KeyboardInputContextSmoke.java" \
+  "$repo_root/platforms/android/tests/keyboard/KeyboardGeometrySmoke.java" \
+  "$repo_root/platforms/android/tests/voice/VoiceResultStoreSmoke.java" \
+  "$repo_root/platforms/android/tests/voice/AiPolishClientSmoke.java" \
+  "$repo_root/platforms/android/tests/candidate/ReplyKeyboardSmoke.java" \
+  "$repo_root/platforms/android/tests/keyboard/KeyboardSkinSmoke.java" \
+  "$repo_root/platforms/android/tests/keyboard/KeyboardFeedbackSmoke.java" \
+  "$repo_root/platforms/android/tests/voice/TypingSourceSmoke.java" \
+  "$repo_root/platforms/android/tests/keyboard/EmojiCatalogModelSmoke.java" \
+  "$repo_root/platforms/android/tests/core/MoreToolsLayoutSmoke.java" \
+  "$repo_root/platforms/android/tests/keyboard/LocalInputModeSmoke.java" \
+  "$repo_root/platforms/android/tests/keyboard/KeyboardSchemeSmoke.java" \
+  "$repo_root/platforms/android/tests/keyboard/NineKeyLayoutSmoke.java" \
+  "$repo_root/platforms/android/tests/keyboard/JapaneseNineKeyLayoutSmoke.java" \
+  "$repo_root/platforms/android/tests/keyboard/JapaneseNineKeyActionsSmoke.java" \
+  "$repo_root/platforms/android/tests/core/JapaneseVariantPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/voice/HandwritingContractSmoke.java" \
+  "$repo_root/platforms/android/tests/candidate/CandidateAppearanceSmoke.java" \
+  "$repo_root/platforms/android/tests/candidate/CandidateGlossModelSmoke.java" \
+  "$repo_root/platforms/android/tests/candidate/CandidateTranslationPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/dictionary/WubiCodeHintPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/keyboard/ChineseSymbolFacesSmoke.java" \
+  "$repo_root/platforms/android/tests/keyboard/ShuangpinKeyHintPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/candidate/CandidatePanelSmoke.java" \
+  "$repo_root/platforms/android/tests/candidate/CandidateManagementSmoke.java" \
+  "$repo_root/platforms/android/tests/dictionary/ClipboardHistoryPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/dictionary/DictionarySnapshotQueueSmoke.java" \
+  "$repo_root/platforms/android/tests/settings/DiagnosticPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/settings/SmartPunctuationContextSmoke.java" \
+  "$repo_root/platforms/android/tests/keyboard/SymbolPanelModelSmoke.java"
 java -cp "$output_dir" EditorSmoke
 java -cp "$output_dir" EditorContextSnapshotSmoke
 java -cp "$output_dir" PreferencesSmoke
