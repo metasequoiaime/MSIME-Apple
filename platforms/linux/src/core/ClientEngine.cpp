@@ -5496,6 +5496,29 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
                       msime_client_command(s.session, segment_command));
       return;
     }
+    // Windows uses Ctrl+Enter to commit the highlighted candidate's
+    // translation. IBus cannot replace its lookup table with a second native
+    // candidate window, so the Linux adaptation commits the currently
+    // rendered gloss directly and then closes the Engine composition. The
+    // rendered identity fence prevents a delayed translation from being
+    // committed for a newer page than the user saw.
+    if (ctrl_only && (key == IBUS_Return || key == IBUS_KP_Enter) &&
+        s.candidate_translations && s.rendered_session == s.session &&
+        s.rendered_candidates.is_array() && !s.rendered_candidates.empty() &&
+        s.rendered_view.value("generation", uint64_t{0}) ==
+            s.view.value("generation", uint64_t{0})) {
+      for (const auto &candidate : s.rendered_candidates) {
+        if (!candidate.is_object() || !candidate.value("highlighted", false))
+          continue;
+        const auto translation = candidate.value("translation", std::string{});
+        if (translation.empty() || translation.size() > 4096)
+          break;
+        commit_text(engine, translation);
+        (void)apply(engine, msime_client_command(s.session, MSIME_CANCEL));
+        handled = true;
+        return;
+      }
+    }
     // Disabled navigation keys belong to the application, including when a
     // composition is active. Finalize that composition first so the editor
     // never receives a navigation key while stale preedit is still owned by

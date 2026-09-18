@@ -745,6 +745,18 @@ int main(int argc, char **argv) {
                   seen.candidates.front().find("synthetic gloss [1]") !=
                       std::string::npos,
               "Initial translation provider result did not render");
+      seen.committed.clear();
+      auto translation_commit = call(
+          client, destination, "ProcessKeyEvent",
+          g_variant_new("(uuu)", IBUS_Return, 0, IBUS_CONTROL_MASK));
+      gboolean translation_handled = FALSE;
+      g_variant_get(translation_commit, "(b)", &translation_handled);
+      g_variant_unref(translation_commit);
+      require(translation_handled &&
+                  seen.committed.find("synthetic gloss [1]") != std::string::npos &&
+                  !seen.preedit_visible && !seen.lookup_visible,
+              "Ctrl+Enter did not commit the rendered candidate translation");
+      invoke("Reset");
       provider.hold_responses = true;
       translated["preferences"]["niutrans"] = {
           {"enabled", true}, {"app_id", "synthetic-app"},
