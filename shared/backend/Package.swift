@@ -14,6 +14,7 @@ let package = Package(
         "account/BackendAccountClient.swift",
         "clients/BackendAiClient.swift",
         "account/BackendAccountSession.swift",
+        "account/BackendAnonymousAccount.swift",
         "clients/BackendChatClient.swift",
         "clients/BackendCandidateClient.swift",
         "clients/BackendClipboardClient.swift",
@@ -23,6 +24,7 @@ let package = Package(
         "clients/BackendSnapshotClient.swift",
         "clients/BackendSkinArtworkClient.swift",
         "storage/IOSPreferencePlan.swift",
+        "storage/BackendLocalStore.swift",
       ]
     ),
     .testTarget(
