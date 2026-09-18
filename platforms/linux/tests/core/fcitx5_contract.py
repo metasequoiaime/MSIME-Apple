@@ -28,4 +28,6 @@ assert 'candidate_preedit_style' in source
 assert 'FcitxSchemeBooleanAction' in source
 assert 'msime-shuangpin-preedit' in source
 assert 'msime-wubi-code-hint' in source
+assert 'msime-shuangpin-profile' in source
+assert 'cycleShuangpinProfile' in source
 print("Fcitx5 addon metadata passed")
