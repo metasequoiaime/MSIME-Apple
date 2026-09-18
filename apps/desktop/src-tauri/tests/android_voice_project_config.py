@@ -11,10 +11,10 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
         app_rust = (ROOT / "apps/desktop/src-tauri/src/lib.rs").read_text()
         manifest = (ROOT / "apps/desktop/src-tauri/Cargo.toml").read_text()
         gradle = (ROOT / "apps/desktop/src-tauri/gen/android/app/build.gradle.kts").read_text()
-        plugin = (ROOT / "platforms/android/java/app/msime/client/VoicePlugin.kt").read_text()
+        plugin = (ROOT / "platforms/android/java/app/msime/client/voice/VoicePlugin.kt").read_text()
         activity = (
             ROOT
-            / "platforms/android/java/app/msime/client/VoiceRecognitionActivity.java"
+            / "platforms/android/java/app/msime/client/voice/VoiceRecognitionActivity.java"
         ).read_text()
 
         self.assertIn(
@@ -39,7 +39,7 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
         self.assertIn("public static boolean isRequestActive(String requestId)", activity)
         self.assertIn("EXTRA_REQUEST_ID", activity)
         self.assertIn("markLaunched(requestId)", activity)
-        self.assertIn('String requestId = "ime-"', (ROOT / "platforms/android/java/app/msime/client/MSIMEInputService.java").read_text())
+        self.assertIn('String requestId = "ime-"', (ROOT / "platforms/android/java/app/msime/client/core/MSIMEInputService.java").read_text())
         self.assertIn("public static void cancelActive()", activity)
 
 
