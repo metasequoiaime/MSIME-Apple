@@ -120,5 +120,6 @@ private:
   bool traditional_output_ = false;
   bool translation_page_active_ = false;
   std::vector<std::string> translation_page_items_;
+  nlohmann::json translation_page_view_;
 };
 } // namespace msime::windows

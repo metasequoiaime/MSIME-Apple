@@ -494,6 +494,7 @@ std::optional<PendingReply> ReplyComposer::commit_candidate_translation(
           {"translation", ""}});
     }
     translation_page_items_.assign(senses.begin(), senses.begin() + count);
+    translation_page_view_ = page;
     translation_page_active_ = true;
     return translation_page_reply(packet, epoch, page);
   }
@@ -543,11 +544,23 @@ std::optional<PendingReply> ReplyComposer::translation_page_key(
       (packet.modifiers_down & PipeMetadata::CandidateActive) == 0 ||
       PipeMetadata::key_modifiers(packet.modifiers_down) != 0)
     return std::nullopt;
+  const auto key = normalize_digit_key(packet.keycode);
+  const bool navigation = packet.keycode == 0x21 || packet.keycode == 0x22 ||
+                          packet.keycode == 0x23 || packet.keycode == 0x24 ||
+                          packet.keycode == 0x26 || packet.keycode == 0x28;
+  if (navigation) {
+    if (PipeMetadata::key_modifiers(packet.modifiers_down) == 0) {
+      return translation_page_reply(packet, epoch, translation_page_view_);
+    }
+    translation_page_active_ = false;
+    translation_page_items_.clear();
+    translation_page_view_ = {};
+    return std::nullopt;
+  }
   size_t index = std::numeric_limits<size_t>::max();
   if (packet.keycode == 0x20)
     index = 0;
   else {
-    const auto key = normalize_digit_key(packet.keycode);
     if (key >= '1' && key <= '9')
       index = static_cast<size_t>(key - '1');
   }
@@ -556,9 +569,8 @@ std::optional<PendingReply> ReplyComposer::translation_page_key(
     translation_page_items_.clear();
     return std::nullopt;
   }
-  const auto current = session.view();
   if (index >= translation_page_items_.size())
-    return translation_page_reply(packet, epoch, current);
+    return translation_page_reply(packet, epoch, translation_page_view_);
   const auto text = simplified_to_traditional(translation_page_items_[index],
                                               traditional_output_);
   session.cancel_composition(epoch);
@@ -571,6 +583,7 @@ std::optional<PendingReply> ReplyComposer::translation_page_key(
   next.traditional_output = traditional_output_;
   translation_page_active_ = false;
   translation_page_items_.clear();
+  translation_page_view_ = {};
   pending_ = std::move(next);
   return *pending_;
 }
@@ -589,6 +602,7 @@ void ReplyComposer::cancel() {
   prefix_.clear();
   translation_page_active_ = false;
   translation_page_items_.clear();
+  translation_page_view_ = {};
 }
 std::optional<PendingReply> ReplyComposer::configured_key(
     ServerSession &session, const FanyImeNamedpipeData &packet, uint64_t epoch,

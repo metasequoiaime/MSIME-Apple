@@ -981,6 +981,18 @@ int main(int argc, char **argv) {
                         "greeting",
                 "Ctrl+Enter did not open the multi-sense translation page");
         multi.confirm_delivery(42, epoch, translation_enter.request_id);
+        FanyImeNamedpipeData multi_next = translation_enter;
+        multi_next.request_id = request++;
+        multi_next.keycode = 0x22;
+        multi_next.modifiers_down = PipeMetadata::CandidateActive;
+        const auto multi_navigated = multi.basic_key(
+            session, multi_next, epoch, TsfPreeditStyle::Pinyin);
+        require(multi_navigated && multi_navigated->encoded &&
+                    multi_navigated->encoded->packet.msg_type ==
+                        FanyImeReplyType::NavigationIgnored &&
+                    multi_navigated->source.transition.at("view").at("candidates").size() == 3,
+                "Translation page navigation left the multi-sense page");
+        multi.confirm_delivery(42, epoch, multi_next.request_id);
         FanyImeNamedpipeData multi_digit = translation_enter;
         multi_digit.request_id = request++;
         multi_digit.keycode = '2';
