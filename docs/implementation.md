@@ -206,6 +206,8 @@ Debian bookworm arm64 容器构建真实共享 Rust/C++ 动态库和 IBus 1.5.27
 
 Linux IBus 宿主已支持设置文件自动重读；GTK/Qt 实际编辑器、X11/Wayland 焦点与选区、panel 原生翻页按钮和安装打包仍待完成，不据此宣称 Linux 产品迁移完成。未复制相邻 Linux 仓库的未提交内容，CI 继续禁用。
 
+Linux 在线 provider 的 AI 凭据测试现在要求响应包含非空 `choices` 数组；空数组、错误对象或其他无模型回答的 JSON 不再报告为有效配置。回归只使用合成响应，不记录真实 token、提示词或服务端正文；该检查只收紧响应契约，不替代真实 AI 服务联调。
+
 ### 第二十三条功能：Windows Server 共享会话适配
 
 按新优先级转入 Windows。ServerSession 消费固定上游 TSF 键包并调用共享 C API，限定 Server 输入队列线程、客户端和 activation epoch；不在注入的 TSF DLL 加载引擎。候选选择和偏好延迟仍归共享层；忽略包中复制的拼音状态，采用布局转换后的 wch，数字小键盘规范化后走共享选词，既有 TSF 的本地 Shift/Escape 取消不回按键回复。

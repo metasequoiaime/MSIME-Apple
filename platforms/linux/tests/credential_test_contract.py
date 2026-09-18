@@ -38,7 +38,7 @@ class OnlineCredentialTest(unittest.TestCase):
         query = {"service": "ai.assistant", "config": {
             "provider": "deepseek", "endpoint": private["endpoint"], "model": private["model"]}}
         with mock.patch.object(online, "load_ai_config", return_value=private), \
-                mock.patch.object(online, "fetch", return_value={"choices": [{}]}) as fetch:
+                mock.patch.object(online, "fetch", return_value={"choices": [{"message": {}}]}) as fetch:
             result = online.credential_test(query, self.server)
         self.assertTrue(result["ok"])
         self.assertEqual(fetch.call_args.args[3], "fixture-private-token")
@@ -48,6 +48,17 @@ class OnlineCredentialTest(unittest.TestCase):
             result = online.credential_test(query, self.server)
         self.assertFalse(result["ok"])
         fetch.assert_not_called()
+
+    def test_ai_rejects_empty_choices_and_error_objects(self):
+        private = {"provider": "openai", "endpoint": "https://fixture.invalid/chat",
+                   "model": "fixture-model", "token": "fixture-private-token"}
+        query = {"service": "ai.assistant", "config": {
+            "provider": "openai", "endpoint": private["endpoint"], "model": private["model"]}}
+        for response in ({"choices": []}, {"error": {"message": "invalid"}}):
+            with self.subTest(response=response), \
+                    mock.patch.object(online, "load_ai_config", return_value=private), \
+                    mock.patch.object(online, "fetch", return_value=response):
+                self.assertFalse(online.credential_test(query, self.server)["ok"])
 
     def test_ai_private_tokens_normalize_pasted_whitespace(self):
         configuration = {
