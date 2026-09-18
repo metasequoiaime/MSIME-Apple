@@ -2,7 +2,7 @@
 
 `MSIMEClientSession` 是 Foundation / Objective-C++ 适配器，可通过桥接头被 Swift 调用。它不依赖 AppKit、UIKit、Tauri 或旧 Apple 产品仓。会话创建和动作在主线程执行；响应复制为 Foundation 值并立即释放 C 缓冲区。关闭后操作报错；非主线程释放对象时将句柄销毁派发回主线程。
 
-macOS InputMethodKit 控制器与 iOS 键盘扩展负责创建资源路径和配置、调用本适配器、处理返回的 handled/commit/view，以及系统文本提交。此目录目前只实现共享原生消费边界，尚未注册系统输入法或建立键盘扩展目标。
+macOS InputMethodKit 控制器与 iOS 键盘扩展负责创建资源路径和配置、调用本适配器、处理返回的 handled/commit/view，以及系统文本提交。macOS 目标由 `platforms/macos/CMakeLists.txt` 构建，iOS 键盘扩展由 `platforms/ios/project.yml` 注册为 `com.apple.keyboard-service`；本目录只实现共享原生消费边界，不替代系统安装、签名和真机验收。
 
 macOS 验证（先构建 msime-host-api）：
 

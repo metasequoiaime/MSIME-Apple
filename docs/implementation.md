@@ -118,9 +118,9 @@ macOS 上 2 项 host-api 测试通过，覆盖真实 Unicode 输入链路、错�
 
 ### 第六条功能：Apple Foundation 适配器
 
-共用桥接位于 `shared/apple`，macOS 专属 InputMethodKit 宿主位于 `platforms/macos`；iOS 键盘扩展尚未实现。
+共用桥接位于 `shared/apple`，macOS 专属 InputMethodKit 宿主位于 `platforms/macos`；iOS 键盘扩展位于 `platforms/ios/KeyboardExtension`，由 `platforms/ios/project.yml` 注册为 `com.apple.keyboard-service` 扩展目标。
 
-提供可供 Swift 使用的 Objective-C++ 会话对象，负责 C 响应释放、Foundation 值转换、主线程约束和对象销毁。macOS 使用系统 clang++ 编译并链接实际动态库；Unicode 上屏结果、后台线程拒绝和关闭后拒绝测试通过。这是 Apple 原生消费边界，不是已安装的 InputMethodKit 输入法，也不是 iOS 扩展构建验收。
+提供可供 Swift 使用的 Objective-C++ 会话对象，负责 C 响应释放、Foundation 值转换、主线程约束和对象销毁。macOS 使用系统 clang++ 编译并链接实际动态库；Unicode 上屏结果、后台线程拒绝和关闭后拒绝测试通过。macOS 输入源和 iOS 键盘扩展均有源码及工程目标，但本地桥接 smoke test 不等于已安装的 InputMethodKit 输入法、已签名扩展或真机宿主验收。
 
 ### 第七条功能：Android JNI 边界
 
