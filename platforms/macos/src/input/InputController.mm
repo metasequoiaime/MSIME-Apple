@@ -67,6 +67,7 @@
 // keeps credentials and transport on the Swift side; this process receives only bounded glosses.
 extern "C" void MSIMEFetchAccountCandidateGlosses(const char *wordsJSON, const char *primaryCode,
                                                     const char *secondaryCode, unsigned long long generation);
+extern "C" void MSIMEEnsureAnonymousAccount(void);
 
 static dispatch_queue_t MSIMETypingStatisticsQueue(void) {
     static dispatch_queue_t queue;
@@ -2491,6 +2492,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 - (NSDictionary *)runtimeOptions { return MSIMELoadRuntimeOptions(); }
 
 - (void)prepareSession {
+    MSIMEEnsureAnonymousAccount();
     if (!_session) {
         NSDictionary *options = [self runtimeOptions];
         if (options) {
