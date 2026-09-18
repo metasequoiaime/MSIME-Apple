@@ -55,8 +55,8 @@ constexpr bool should_send_composition_reply(bool is_alpha_key,
          is_unicode_plus || is_japanese_long_vowel;
 }
 
-constexpr std::size_t previous_segment_boundary(const std::vector<std::size_t> &boundaries,
-                                                std::size_t caret) {
+inline std::size_t previous_segment_boundary(const std::vector<std::size_t> &boundaries,
+                                             std::size_t caret) {
   std::size_t result = caret;
   for (const auto boundary : boundaries) {
     if (boundary >= caret) break;
@@ -65,8 +65,8 @@ constexpr std::size_t previous_segment_boundary(const std::vector<std::size_t> &
   return result;
 }
 
-constexpr std::size_t next_segment_boundary(const std::vector<std::size_t> &boundaries,
-                                            std::size_t caret) {
+inline std::size_t next_segment_boundary(const std::vector<std::size_t> &boundaries,
+                                          std::size_t caret) {
   for (const auto boundary : boundaries)
     if (boundary > caret) return boundary;
   return caret;
