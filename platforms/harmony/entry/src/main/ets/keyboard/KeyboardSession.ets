@@ -34,6 +34,9 @@ import {
   ClipboardHistoryStore, ClipboardHistoryItem, ClipboardHistoryError, ClipboardFailure,
   MAX_FILE_BYTES
 } from './clipboard/ClipboardHistoryStore';
+import {
+  DEFAULT_VOICE_INPUT_CONFIGURATION, VoiceInputConfiguration
+} from './input/VoiceInputConfiguration';
 
 // Shapes of the JSON the shared C ABI answers with. Only the fields this minimal surface reads are
 // declared; the responses carry considerably more.
@@ -319,6 +322,7 @@ interface PreparedPreferences {
   touch_keyboard_height_adjustment: number;
   /** Show the native Harmony voice entry in the top touch-keyboard shortcut bar. */
   touch_voice_shortcut: boolean;
+  voice_input: VoiceInputConfiguration;
   keybindings: PreparedKeybindings;
 }
 
@@ -434,6 +438,7 @@ export class KeyboardSession {
     heightAdjustment: KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_VP,
     voiceShortcut: false
   };
+  private voiceInput: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
 
   onChanged: ((state: KeyboardState) => void) | undefined = undefined;
   /**
@@ -500,6 +505,7 @@ export class KeyboardSession {
       }
       options = JSON.stringify(prepared.value);
       const preferences: PreparedPreferences = prepared.value.preferences;
+      this.voiceInput = preferences.voice_input;
       this.englishMode = preferences.default_ime_mode === 'english';
       this.bindings = {
         switchLanguageShift: preferences.keybindings.switch_language_shift,
@@ -805,6 +811,10 @@ export class KeyboardSession {
       KeyboardLog.error(`voice session unavailable: ${describeError(error)}`);
       return 0;
     }
+  }
+
+  voiceInputConfiguration(): VoiceInputConfiguration {
+    return this.voiceInput;
   }
 
   voiceCancel(): void {

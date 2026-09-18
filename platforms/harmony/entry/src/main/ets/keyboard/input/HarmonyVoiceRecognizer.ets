@@ -1,5 +1,7 @@
 import { speechRecognizer } from '@kit.CoreSpeechKit';
 import { VoiceRecognitionPolicy } from './VoiceRecognitionPolicy';
+import { HarmonyDoubaoRecognizer } from './HarmonyDoubaoRecognizer';
+import { VoiceInputConfiguration } from './VoiceInputConfiguration';
 
 export type VoiceResultHandler = (text: string, final: boolean) => void;
 export type VoiceErrorHandler = (message: string) => void;
@@ -15,8 +17,18 @@ export class HarmonyVoiceRecognizer {
   private generation: number = 0;
   private resultHandler: VoiceResultHandler | undefined = undefined;
   private errorHandler: VoiceErrorHandler | undefined = undefined;
+  private readonly doubao: HarmonyDoubaoRecognizer = new HarmonyDoubaoRecognizer();
 
-  async start(language: string, onResult: VoiceResultHandler, onError: VoiceErrorHandler): Promise<void> {
+  async start(language: string, config: VoiceInputConfiguration, onResult: VoiceResultHandler,
+    onError: VoiceErrorHandler): Promise<void> {
+    if (config.asr_provider === 'doubao' && config.asr_token.trim().length > 0) {
+      await this.doubao.start(config, onResult, onError);
+      return;
+    }
+    if (config.asr_provider !== 'doubao' && config.asr_provider !== 'system'
+      && config.asr_provider.length > 0) {
+      throw new Error('当前 Harmony 尚未支持该云端语音服务');
+    }
     if (this.engine !== undefined && this.engine.isBusy()) {
       throw new Error('语音识别正在进行');
     }
@@ -62,12 +74,17 @@ export class HarmonyVoiceRecognizer {
   }
 
   stop(): void {
+    if (this.doubao.isActive()) {
+      this.doubao.stop();
+      return;
+    }
     if (this.engine !== undefined && this.sessionId.length > 0) {
       this.engine.finish(this.sessionId);
     }
   }
 
   cancel(): void {
+    this.doubao.cancel();
     if (this.engine !== undefined && this.sessionId.length > 0) {
       this.engine.cancel(this.sessionId);
     }
@@ -75,6 +92,7 @@ export class HarmonyVoiceRecognizer {
   }
 
   shutdown(): void {
+    this.doubao.shutdown();
     try {
       this.cancel();
     } catch (error) {

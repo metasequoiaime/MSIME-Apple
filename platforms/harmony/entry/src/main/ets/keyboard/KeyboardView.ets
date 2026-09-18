@@ -1361,7 +1361,9 @@ struct KeyboardView {
     this.voiceNotice = '正在聆听…';
     this.voiceBusy = true;
     this.voiceFinishing = false;
-    this.voiceRecognizer.start('zh-CN', (text: string, final: boolean): void => {
+    const voiceConfiguration = KeyboardSession.shared.voiceInputConfiguration();
+    this.voiceRecognizer.start(voiceConfiguration.language || 'zh-CN', voiceConfiguration,
+      (text: string, final: boolean): void => {
       if (text.length > 0) {
         this.voiceText = VoiceRecognitionPolicy.result(text);
       }
@@ -1377,13 +1379,13 @@ struct KeyboardView {
         this.voiceNotice = accepted !== null ? '识别完成，可提交结果。' :
           (this.voiceText.length > 0 ? '已忽略过期的语音结果。' : '没有识别到语音。');
       }
-    }, (message: string): void => {
+      }, (message: string): void => {
       KeyboardSession.shared.voiceCancel();
       this.voiceGeneration = 0;
       this.voiceBusy = false;
       this.voiceFinishing = false;
       this.voiceNotice = message;
-    }).catch((error: Object): void => {
+      }).catch((error: Object): void => {
       KeyboardSession.shared.voiceCancel();
       this.voiceGeneration = 0;
       this.voiceBusy = false;
@@ -1431,6 +1433,13 @@ struct KeyboardView {
     this.voiceNotice = '已提交';
   }
 
+  private voiceDescription(): string {
+    const config = KeyboardSession.shared.voiceInputConfiguration();
+    return config.asr_provider === 'doubao' && config.asr_token.trim().length > 0
+      ? '使用豆包实时语音识别；原始音频只在本次识别期间发送。'
+      : '使用 HarmonyOS 系统语音识别；输入法不会保存原始音频。';
+  }
+
   @Builder
   voiceFace() {
     Column({ space: KeyboardMetrics.KEY_SPACING_VP }) {
@@ -1449,7 +1458,7 @@ struct KeyboardView {
       .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
         right: KeyboardMetrics.CANDIDATE_PADDING_VP })
 
-      Text(this.voiceNotice.length > 0 ? this.voiceNotice : '使用 HarmonyOS 系统语音识别；输入法不会保存原始音频。')
+      Text(this.voiceNotice.length > 0 ? this.voiceNotice : this.voiceDescription())
         .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
         .fontColor(this.skin.keyForeground)
         .opacity(0.72)
