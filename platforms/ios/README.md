@@ -1,5 +1,11 @@
 # iOS App 与键盘扩展
 
+## 目录结构与验证边界
+
+App 业务位于 `App/Sources/<feature>/`，键盘扩展位于 `KeyboardExtension/Sources/<feature>/`，共享 SwiftUI/UIKit 位于 `SharedUI/<feature>/`；`KeyboardTests/`、`ServiceTests/`、`TransportTests/` 和 `UITests/` 分别覆盖键盘、服务、桥接和界面边界。Tauri 生成工程位于 `apps/desktop/src-tauri/gen/apple`，不在其中维护第二份键盘实现。
+
+Swift 单元/配置测试与模拟器构建只证明源码和桥接可编译。Xcode target 签名、App Group 权限、ML Kit 真机模型、键盘扩展启用、真实编辑器和生命周期仍需设备验收；缺少 `target/ios/EngineResources` 时，构建会按文档先执行资源暂存步骤，不把失败描述为宿主接入完成。
+
 `MSIMEClient.xcodeproj` 包含设置 App、`UIInputViewController` 键盘扩展和共享 Swift 适配层。输入算法与组合状态仍由 C++ Engine 管理；扩展只负责宿主事件、候选展示和文本提交。键盘扩展不直接使用桌面音频采集桥接。
 
 共享 Tauri/React 设置宿主生成在 `apps/desktop/src-tauri/gen/apple`，使用正式 App bundle identifier、iOS 17 最低版本和同一 `group.app.msime.ios` App Group。原生入口只解析系统提供的共享容器 URL 并注入状态根；偏好校验、并发 revision 和首次 HostOptions 默认文档仍由 Rust 共享层负责。生成工程链接 Engine 所需的系统 SQLite，并从既有 `target/ios/EngineResources` 嵌入固定词库。
