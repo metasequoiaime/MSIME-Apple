@@ -798,6 +798,47 @@ int main(int argc, char **argv) {
       g_object_unref(engine);
     }
     {
+      const auto socket = (root / "translation-multi-sense.sock").string();
+      TranslationProviderFixture provider(socket);
+      provider.multi_sense = true;
+      auto translated = options;
+      translated.erase("preferences_directory");
+      translated["translation_provider_socket"] = socket;
+      translated["preferences"]["candidate_translations"] = true;
+      translated["preferences"]["candidate_page_size"] = 2;
+      msime_preview_configure(translated.dump());
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
+      phrase();
+      const auto deadline = g_get_monotonic_time() + 3000000;
+      while ((seen.candidates.empty() ||
+              seen.candidates.front().find("first sense") == std::string::npos) &&
+             g_get_monotonic_time() < deadline) {
+        while (g_main_context_iteration(nullptr, FALSE)) {}
+        g_usleep(1000);
+      }
+      require(provider.requests == 1 && !seen.candidates.empty(),
+              "Multi-sense translation did not render");
+      seen.committed.clear();
+      auto translation_commit = call(
+          client, destination, "ProcessKeyEvent",
+          g_variant_new("(uuu)", IBUS_Return, 0, IBUS_CONTROL_MASK));
+      gboolean translation_handled = FALSE;
+      g_variant_get(translation_commit, "(b)", &translation_handled);
+      g_variant_unref(translation_commit);
+      require(translation_handled && seen.candidates.size() == 2 &&
+                  seen.candidates[0] == "first sense" &&
+                  seen.candidates[1] == "second sense" && seen.committed.empty(),
+              "Ctrl+Enter did not open the multi-sense translation page");
+      invoke("CandidateClicked", g_variant_new("(uuu)", 1, 1, 0));
+      require(seen.committed == "second sense" && !seen.preedit_visible &&
+                  !seen.lookup_visible,
+              "Selecting a translated sense did not commit and close the page");
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
+    }
+    {
       const auto history_path = root / "clipboard-generation-history.json";
       std::ofstream(history_path)
           << nlohmann::json::array({"synthetic-old"}).dump();

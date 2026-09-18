@@ -15,7 +15,8 @@
 class TranslationProviderFixture {
 public:
   std::atomic<unsigned> requests{0}, english_greeting_requests{0}, online_requests{0};
-  std::atomic<bool> hold_responses{false}, return_online_candidate{false}, tag_responses{false};
+  std::atomic<bool> hold_responses{false}, return_online_candidate{false}, tag_responses{false},
+      multi_sense{false};
   explicit TranslationProviderFixture(const std::string &path) : path_(path) {
     sockaddr_un address{};
     address.sun_family = AF_UNIX;
@@ -57,9 +58,11 @@ private:
       if (value.is_object() && value.value("kind", "") == "translation" &&
           value.contains("query") && value["query"].contains("candidates")) {
         auto translations = nlohmann::json::array();
-        const auto gloss = tag_responses
-            ? "synthetic gloss [" + std::to_string(requests.load() + 1) + "]"
-            : std::string("synthetic gloss");
+        const auto gloss = multi_sense
+            ? std::string("first sense; second sense")
+            : tag_responses
+                  ? "synthetic gloss [" + std::to_string(requests.load() + 1) + "]"
+                  : std::string("synthetic gloss");
         for (const auto &text : value["query"]["candidates"])
           translations.push_back({{"text", text}, {"translation", gloss}});
         const auto response = nlohmann::json{{"translations", translations}}.dump() + "\n";
