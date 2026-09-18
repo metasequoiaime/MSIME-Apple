@@ -1,4 +1,4 @@
-#import "../src/backend/BackendSelectionObservation.h"
+#import "../../src/backend/core/BackendSelectionObservation.h"
 #include <cassert>
 
 @interface SelectionObserver : NSObject

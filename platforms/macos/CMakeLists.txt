@@ -84,7 +84,7 @@ file(GLOB_RECURSE MSIME_BACKEND_SWIFT CONFIGURE_DEPENDS
   "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/content/*.swift"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/storage/*.swift"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend-ui/*.swift"
-  "${CMAKE_CURRENT_SOURCE_DIR}/src/backend/Backend*.swift")
+  "${CMAKE_CURRENT_SOURCE_DIR}/src/backend/*.swift")
 set(MSIME_SWIFT_BACKEND_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/MSIMEBackend.dylib")
 add_custom_command(OUTPUT "${MSIME_SWIFT_BACKEND_OUTPUT}"
   COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/scripts/build_backend_swift.sh" "${MSIME_SWIFT_BACKEND_OUTPUT}"
@@ -124,8 +124,8 @@ include(ClipboardTests.cmake)
 set(MSIME_DESKTOP_DICTIONARY_PROVIDER_SOURCES
   ../../shared/backend/account/BackendAccountClient.swift ../../shared/backend/account/BackendAccountSession.swift
   ../../shared/backend/content/BackendDictionaryClient.swift ../../shared/backend/clients/BackendCandidateClient.swift
-  ../../shared/backend/clients/BackendSnapshotClient.swift src/backend/BackendCloudDictionaryProvider.swift
-  src/backend/BackendLocalSnapshot.swift src/backend/BackendFileTransfer.swift src/backend/BackendDesktopSnapshots.swift
+  ../../shared/backend/clients/BackendSnapshotClient.swift src/backend/dictionary/BackendCloudDictionaryProvider.swift
+  src/backend/dictionary/BackendLocalSnapshot.swift src/backend/dictionary/BackendFileTransfer.swift src/backend/dictionary/BackendDesktopSnapshots.swift
   tests/dictionary/DesktopCloudDictionaryProviderTest.swift)
 list(TRANSFORM MSIME_DESKTOP_DICTIONARY_PROVIDER_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/desktop-dictionary-provider-test"
@@ -138,7 +138,7 @@ add_test(NAME desktop-dictionary-provider COMMAND "${CMAKE_CURRENT_BINARY_DIR}/d
 set_tests_properties(desktop-dictionary-provider PROPERTIES TIMEOUT 30)
 set(MSIME_DESKTOP_CLOUD_PROVIDER_SOURCES
   ../../shared/backend/account/BackendAccountClient.swift ../../shared/backend/account/BackendAccountSession.swift
-  ../../shared/backend/clients/BackendClipboardClient.swift src/backend/BackendCloudClipboardProvider.swift
+  ../../shared/backend/clients/BackendClipboardClient.swift src/backend/clipboard/BackendCloudClipboardProvider.swift
   tests/clipboard/DesktopCloudClipboardProviderTest.swift)
 list(TRANSFORM MSIME_DESKTOP_CLOUD_PROVIDER_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/desktop-cloud-provider-test"
@@ -149,7 +149,7 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/desktop-cloud-provider-te
 add_custom_target(desktop-cloud-provider-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/desktop-cloud-provider-test")
 add_test(NAME desktop-cloud-provider COMMAND "${CMAKE_CURRENT_BINARY_DIR}/desktop-cloud-provider-test")
 set_tests_properties(desktop-cloud-provider PROPERTIES TIMEOUT 30)
-set(MSIME_EMOJI_WINDOW_CHROME_SOURCES src/backend/BackendEmojiWindowController.swift tests/emoji/EmojiWindowChromeTest.swift)
+set(MSIME_EMOJI_WINDOW_CHROME_SOURCES src/backend/emoji/BackendEmojiWindowController.swift tests/emoji/EmojiWindowChromeTest.swift)
 list(TRANSFORM MSIME_EMOJI_WINDOW_CHROME_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-window-chrome-test"
   COMMAND "${MSIME_XCRUN}" swiftc -Onone -parse-as-library -target "${CMAKE_HOST_SYSTEM_PROCESSOR}-apple-macosx${CMAKE_OSX_DEPLOYMENT_TARGET}"
@@ -158,7 +158,7 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-window-chrome-test"
 add_custom_target(emoji-window-chrome-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/emoji-window-chrome-test")
 add_test(NAME emoji-window-chrome COMMAND "${CMAKE_CURRENT_BINARY_DIR}/emoji-window-chrome-test")
 set_tests_properties(emoji-window-chrome PROPERTIES LABELS "emoji-local" TIMEOUT 30)
-set(MSIME_EMOJI_APPEARANCE_TEST_SOURCES src/backend/BackendEmojiAppearance.swift tests/emoji/EmojiAppearanceTest.swift)
+set(MSIME_EMOJI_APPEARANCE_TEST_SOURCES src/backend/emoji/BackendEmojiAppearance.swift tests/emoji/EmojiAppearanceTest.swift)
 list(TRANSFORM MSIME_EMOJI_APPEARANCE_TEST_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-appearance-test"
   COMMAND "${MSIME_XCRUN}" swiftc -Onone
@@ -168,7 +168,7 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-appearance-test"
 add_custom_target(emoji-appearance-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/emoji-appearance-test")
 add_test(NAME emoji-appearance COMMAND "${CMAKE_CURRENT_BINARY_DIR}/emoji-appearance-test")
 set_tests_properties(emoji-appearance PROPERTIES LABELS "emoji-local" TIMEOUT 30)
-set(MSIME_EMOJI_EMPTY_TEST_SOURCES src/backend/BackendEmojiAppearance.swift src/backend/BackendEmojiEmptyState.swift tests/emoji/EmojiEmptyStateTest.swift)
+set(MSIME_EMOJI_EMPTY_TEST_SOURCES src/backend/emoji/BackendEmojiAppearance.swift src/backend/emoji/BackendEmojiEmptyState.swift tests/emoji/EmojiEmptyStateTest.swift)
 list(TRANSFORM MSIME_EMOJI_EMPTY_TEST_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-empty-test"
   COMMAND "${MSIME_XCRUN}" swiftc -Onone -target "${CMAKE_HOST_SYSTEM_PROCESSOR}-apple-macosx${CMAKE_OSX_DEPLOYMENT_TARGET}"
@@ -177,7 +177,7 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-empty-test"
 add_custom_target(emoji-empty-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/emoji-empty-test")
 add_test(NAME emoji-empty COMMAND "${CMAKE_CURRENT_BINARY_DIR}/emoji-empty-test")
 set_tests_properties(emoji-empty PROPERTIES LABELS "emoji-local" TIMEOUT 30)
-set(MSIME_EMOJI_EXIT_SOURCES src/backend/BackendEmojiExit.swift tests/emoji/EmojiExitTest.swift)
+set(MSIME_EMOJI_EXIT_SOURCES src/backend/emoji/BackendEmojiExit.swift tests/emoji/EmojiExitTest.swift)
 list(TRANSFORM MSIME_EMOJI_EXIT_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-exit-test"
   COMMAND "${MSIME_XCRUN}" swiftc -Onone
@@ -192,8 +192,8 @@ target_compile_options(emoji-host-cursor-test PRIVATE -fobjc-arc -UNDEBUG -Wall 
 target_link_libraries(emoji-host-cursor-test PRIVATE apple-client)
 add_test(NAME emoji-host-cursor COMMAND emoji-host-cursor-test)
 set_tests_properties(emoji-host-cursor PROPERTIES LABELS "emoji-local" TIMEOUT 30)
-set(MSIME_EMOJI_SWIFT_HOST_SOURCES src/backend/BackendEmojiSymbolGroups.swift src/backend/BackendEmojiCatalog.swift
-  src/backend/BackendEmojiCatalogCursor.swift tests/emoji/EmojiSwiftHostTest.swift)
+set(MSIME_EMOJI_SWIFT_HOST_SOURCES src/backend/emoji/BackendEmojiSymbolGroups.swift src/backend/emoji/BackendEmojiCatalog.swift
+  src/backend/emoji/BackendEmojiCatalogCursor.swift tests/emoji/EmojiSwiftHostTest.swift)
 list(TRANSFORM MSIME_EMOJI_SWIFT_HOST_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-swift-host-test"
   COMMAND "${MSIME_XCRUN}" swiftc -Onone
@@ -206,9 +206,9 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-swift-host-test"
 add_custom_target(emoji-swift-host-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/emoji-swift-host-test")
 add_test(NAME emoji-swift-host COMMAND "${CMAKE_CURRENT_BINARY_DIR}/emoji-swift-host-test")
 set_tests_properties(emoji-swift-host PROPERTIES LABELS "emoji-local" TIMEOUT 30)
-set(MSIME_EMOJI_HOME_TEST_SOURCES src/backend/BackendEmojiSymbolGroups.swift src/backend/BackendEmojiCatalog.swift src/backend/BackendEmojiCatalogCursor.swift src/backend/BackendEmojiClipboardDisabled.swift src/backend/BackendEmojiEmptyState.swift src/backend/BackendEmojiBackButton.swift
-  src/backend/BackendEmojiAppearance.swift src/backend/BackendEmojiScroll.swift src/backend/BackendEmojiHomeHeading.swift src/backend/BackendEmojiHome.swift src/backend/BackendEmojiHomeNavigation.swift
-  src/backend/BackendEmojiKeyboard.swift src/backend/BackendEmojiFlow.swift src/backend/BackendEmojiGrid.swift src/backend/BackendEmojiNavigation.swift tests/emoji/EmojiHomeTest.swift)
+set(MSIME_EMOJI_HOME_TEST_SOURCES src/backend/emoji/BackendEmojiSymbolGroups.swift src/backend/emoji/BackendEmojiCatalog.swift src/backend/emoji/BackendEmojiCatalogCursor.swift src/backend/emoji/BackendEmojiClipboardDisabled.swift src/backend/emoji/BackendEmojiEmptyState.swift src/backend/emoji/BackendEmojiBackButton.swift
+  src/backend/emoji/BackendEmojiAppearance.swift src/backend/emoji/BackendEmojiScroll.swift src/backend/emoji/BackendEmojiHomeHeading.swift src/backend/emoji/BackendEmojiHome.swift src/backend/emoji/BackendEmojiHomeNavigation.swift
+  src/backend/emoji/BackendEmojiKeyboard.swift src/backend/emoji/BackendEmojiFlow.swift src/backend/emoji/BackendEmojiGrid.swift src/backend/emoji/BackendEmojiNavigation.swift tests/emoji/EmojiHomeTest.swift)
 list(TRANSFORM MSIME_EMOJI_HOME_TEST_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-home-test"
   COMMAND "${MSIME_XCRUN}" swiftc -Onone
@@ -218,8 +218,8 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-home-test"
 add_custom_target(emoji-home-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/emoji-home-test")
 add_test(NAME emoji-home COMMAND "${CMAKE_CURRENT_BINARY_DIR}/emoji-home-test")
 set_tests_properties(emoji-home PROPERTIES LABELS "emoji-local" TIMEOUT 30)
-set(MSIME_EMOJI_FLOW_TEST_SOURCES src/backend/BackendEmojiSymbolGroups.swift src/backend/BackendEmojiCatalog.swift
-  src/backend/BackendEmojiAppearance.swift src/backend/BackendEmojiFlow.swift tests/emoji/EmojiFlowTest.swift)
+set(MSIME_EMOJI_FLOW_TEST_SOURCES src/backend/emoji/BackendEmojiSymbolGroups.swift src/backend/emoji/BackendEmojiCatalog.swift
+  src/backend/emoji/BackendEmojiAppearance.swift src/backend/emoji/BackendEmojiFlow.swift tests/emoji/EmojiFlowTest.swift)
 list(TRANSFORM MSIME_EMOJI_FLOW_TEST_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-flow-test"
   COMMAND "${MSIME_XCRUN}" swiftc -Onone
@@ -229,9 +229,9 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-flow-test"
 add_custom_target(emoji-flow-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/emoji-flow-test")
 add_test(NAME emoji-flow COMMAND "${CMAKE_CURRENT_BINARY_DIR}/emoji-flow-test")
 set_tests_properties(emoji-flow PROPERTIES LABELS "emoji-local" TIMEOUT 30)
-set(MSIME_EMOJI_GRID_TEST_SOURCES src/backend/BackendEmojiSymbolGroups.swift src/backend/BackendEmojiCatalog.swift
-  src/backend/BackendEmojiAppearance.swift src/backend/BackendEmojiFlow.swift src/backend/BackendEmojiGrid.swift
-  src/backend/BackendEmojiKeyboard.swift tests/emoji/EmojiGridTest.swift)
+set(MSIME_EMOJI_GRID_TEST_SOURCES src/backend/emoji/BackendEmojiSymbolGroups.swift src/backend/emoji/BackendEmojiCatalog.swift
+  src/backend/emoji/BackendEmojiAppearance.swift src/backend/emoji/BackendEmojiFlow.swift src/backend/emoji/BackendEmojiGrid.swift
+  src/backend/emoji/BackendEmojiKeyboard.swift tests/emoji/EmojiGridTest.swift)
 list(TRANSFORM MSIME_EMOJI_GRID_TEST_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-grid-test"
   COMMAND "${MSIME_XCRUN}" swiftc -Onone
@@ -241,7 +241,7 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-grid-test"
 add_custom_target(emoji-grid-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/emoji-grid-test")
 add_test(NAME emoji-grid COMMAND "${CMAKE_CURRENT_BINARY_DIR}/emoji-grid-test")
 set_tests_properties(emoji-grid PROPERTIES LABELS "emoji-local" TIMEOUT 30)
-set(MSIME_EMOJI_SCROLL_TEST_SOURCES src/backend/BackendEmojiScroll.swift tests/emoji/EmojiScrollTest.swift)
+set(MSIME_EMOJI_SCROLL_TEST_SOURCES src/backend/emoji/BackendEmojiScroll.swift tests/emoji/EmojiScrollTest.swift)
 list(TRANSFORM MSIME_EMOJI_SCROLL_TEST_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-scroll-test"
   COMMAND "${MSIME_XCRUN}" swiftc -Onone
@@ -251,7 +251,7 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-scroll-test"
 add_custom_target(emoji-scroll-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/emoji-scroll-test")
 add_test(NAME emoji-scroll COMMAND "${CMAKE_CURRENT_BINARY_DIR}/emoji-scroll-test")
 set_tests_properties(emoji-scroll PROPERTIES LABELS "emoji-local" TIMEOUT 30)
-set(MSIME_EMOJI_SEARCH_TEST_SOURCES src/backend/BackendEmojiAppearance.swift src/backend/BackendEmojiSearchField.swift tests/emoji/EmojiSearchChromeTest.swift)
+set(MSIME_EMOJI_SEARCH_TEST_SOURCES src/backend/emoji/BackendEmojiAppearance.swift src/backend/emoji/BackendEmojiSearchField.swift tests/emoji/EmojiSearchChromeTest.swift)
 list(TRANSFORM MSIME_EMOJI_SEARCH_TEST_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-search-test"
   COMMAND "${MSIME_XCRUN}" swiftc -Onone
@@ -261,7 +261,7 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-search-test"
 add_custom_target(emoji-search-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/emoji-search-test")
 add_test(NAME emoji-search COMMAND "${CMAKE_CURRENT_BINARY_DIR}/emoji-search-test")
 set_tests_properties(emoji-search PROPERTIES LABELS "emoji-local" TIMEOUT 30)
-set(MSIME_EMOJI_TOAST_TEST_SOURCES src/backend/BackendEmojiAppearance.swift src/backend/BackendEmojiToast.swift tests/emoji/EmojiToastTest.swift)
+set(MSIME_EMOJI_TOAST_TEST_SOURCES src/backend/emoji/BackendEmojiAppearance.swift src/backend/emoji/BackendEmojiToast.swift tests/emoji/EmojiToastTest.swift)
 list(TRANSFORM MSIME_EMOJI_TOAST_TEST_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-toast-test"
   COMMAND "${MSIME_XCRUN}" swiftc -Onone
@@ -271,8 +271,8 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-toast-test"
 add_custom_target(emoji-toast-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/emoji-toast-test")
 add_test(NAME emoji-toast COMMAND "${CMAKE_CURRENT_BINARY_DIR}/emoji-toast-test")
 set_tests_properties(emoji-toast PROPERTIES LABELS "emoji-local" TIMEOUT 30)
-set(MSIME_EMOJI_TABS_TEST_SOURCES src/backend/BackendEmojiAppearance.swift src/backend/BackendEmojiNavigation.swift
-  src/backend/BackendEmojiMainTabs.swift tests/emoji/EmojiMainTabsTest.swift)
+set(MSIME_EMOJI_TABS_TEST_SOURCES src/backend/emoji/BackendEmojiAppearance.swift src/backend/emoji/BackendEmojiNavigation.swift
+  src/backend/emoji/BackendEmojiMainTabs.swift tests/emoji/EmojiMainTabsTest.swift)
 list(TRANSFORM MSIME_EMOJI_TABS_TEST_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-main-tabs-test"
   COMMAND "${MSIME_XCRUN}" swiftc -Onone
@@ -282,8 +282,8 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-main-tabs-test"
 add_custom_target(emoji-main-tabs-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/emoji-main-tabs-test")
 add_test(NAME emoji-main-tabs COMMAND "${CMAKE_CURRENT_BINARY_DIR}/emoji-main-tabs-test")
 set_tests_properties(emoji-main-tabs PROPERTIES LABELS "emoji-local" TIMEOUT 30)
-set(MSIME_EMOJI_CATEGORY_TEST_SOURCES src/backend/BackendEmojiAppearance.swift src/backend/BackendEmojiNavigation.swift
-  src/backend/BackendEmojiSymbolGroups.swift src/backend/BackendEmojiCategoryTabs.swift tests/emoji/EmojiCategoryTabsTest.swift)
+set(MSIME_EMOJI_CATEGORY_TEST_SOURCES src/backend/emoji/BackendEmojiAppearance.swift src/backend/emoji/BackendEmojiNavigation.swift
+  src/backend/emoji/BackendEmojiSymbolGroups.swift src/backend/emoji/BackendEmojiCategoryTabs.swift tests/emoji/EmojiCategoryTabsTest.swift)
 list(TRANSFORM MSIME_EMOJI_CATEGORY_TEST_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-category-tabs-test"
   COMMAND "${MSIME_XCRUN}" swiftc -Onone
@@ -293,9 +293,9 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-category-tabs-test"
 add_custom_target(emoji-category-tabs-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/emoji-category-tabs-test")
 add_test(NAME emoji-category-tabs COMMAND "${CMAKE_CURRENT_BINARY_DIR}/emoji-category-tabs-test")
 set_tests_properties(emoji-category-tabs PROPERTIES LABELS "emoji-local" TIMEOUT 30)
-set(MSIME_EMOJI_SECTIONS_TEST_SOURCES src/backend/BackendEmojiAppearance.swift src/backend/BackendEmojiSymbolGroups.swift
-  src/backend/BackendEmojiCatalog.swift src/backend/BackendEmojiFlow.swift src/backend/BackendEmojiGrid.swift src/backend/BackendEmojiKeyboard.swift
-  src/backend/BackendEmojiSymbolSections.swift tests/emoji/EmojiSymbolSectionsTest.swift)
+set(MSIME_EMOJI_SECTIONS_TEST_SOURCES src/backend/emoji/BackendEmojiAppearance.swift src/backend/emoji/BackendEmojiSymbolGroups.swift
+  src/backend/emoji/BackendEmojiCatalog.swift src/backend/emoji/BackendEmojiFlow.swift src/backend/emoji/BackendEmojiGrid.swift src/backend/emoji/BackendEmojiKeyboard.swift
+  src/backend/emoji/BackendEmojiSymbolSections.swift tests/emoji/EmojiSymbolSectionsTest.swift)
 list(TRANSFORM MSIME_EMOJI_SECTIONS_TEST_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-symbol-sections-test"
   COMMAND "${MSIME_XCRUN}" swiftc -Onone
@@ -305,8 +305,8 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-symbol-sections-tes
 add_custom_target(emoji-symbol-sections-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/emoji-symbol-sections-test")
 add_test(NAME emoji-symbol-sections COMMAND "${CMAKE_CURRENT_BINARY_DIR}/emoji-symbol-sections-test")
 set_tests_properties(emoji-symbol-sections PROPERTIES LABELS "emoji-local" TIMEOUT 30)
-set(MSIME_EMOJI_CURSOR_TEST_SOURCES src/backend/BackendEmojiSymbolGroups.swift src/backend/BackendEmojiCatalog.swift
-  src/backend/BackendEmojiCatalogCursor.swift tests/emoji/EmojiCatalogCursorTest.swift)
+set(MSIME_EMOJI_CURSOR_TEST_SOURCES src/backend/emoji/BackendEmojiSymbolGroups.swift src/backend/emoji/BackendEmojiCatalog.swift
+  src/backend/emoji/BackendEmojiCatalogCursor.swift tests/emoji/EmojiCatalogCursorTest.swift)
 list(TRANSFORM MSIME_EMOJI_CURSOR_TEST_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-catalog-cursor-test"
   COMMAND "${MSIME_XCRUN}" swiftc -Onone
@@ -316,7 +316,7 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-catalog-cursor-test
 add_custom_target(emoji-catalog-cursor-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/emoji-catalog-cursor-test")
 add_test(NAME emoji-catalog-cursor COMMAND "${CMAKE_CURRENT_BINARY_DIR}/emoji-catalog-cursor-test")
 set_tests_properties(emoji-catalog-cursor PROPERTIES LABELS "emoji-local" TIMEOUT 30)
-set(MSIME_HANDWRITING_TEST_SOURCES src/backend/BackendHandwritingView.swift tests/core/HandwritingProviderTest.swift)
+set(MSIME_HANDWRITING_TEST_SOURCES src/backend/handwriting/BackendHandwritingView.swift tests/core/HandwritingProviderTest.swift)
 list(TRANSFORM MSIME_HANDWRITING_TEST_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/handwriting-provider-test"
   COMMAND "${MSIME_XCRUN}" swiftc -Onone
