@@ -63,3 +63,34 @@ test("modifier holds toggle only on activation and keyboard clicks remain single
   expect(sendKey).toHaveBeenCalledTimes(1);
   expect(sendKey).toHaveBeenCalledWith(expect.objectContaining({ virtual_key: 0x41, shift: true }));
 });
+
+test("Linux stops held-key retries after delivery failure and does not repeat Num Lock", async () => {
+  vi.useFakeTimers();
+  const sendKey = vi.fn()
+    .mockResolvedValueOnce(undefined)
+    .mockRejectedValueOnce(new Error("synthetic"));
+  render(<KeyboardPanel client={{ close: async () => {}, sendKey }} platform="linux" />);
+  const key = screen.getByRole("button", { name: "a" });
+  fireEvent.pointerDown(key, { button: 0, isPrimary: true, pointerId: 3 });
+  expect(sendKey).toHaveBeenCalledTimes(1);
+  await act(async () => {
+    vi.advanceTimersByTime(450);
+    await Promise.resolve();
+  });
+  expect(sendKey).toHaveBeenCalledTimes(2);
+  expect(screen.getByRole("status").textContent).toContain("后续排队按键已取消");
+  await act(async () => {
+    vi.advanceTimersByTime(600);
+    await Promise.resolve();
+  });
+  expect(sendKey).toHaveBeenCalledTimes(2);
+
+  const numLock = screen.getByRole("button", { name: "Num Lock" });
+  fireEvent.pointerDown(numLock, { button: 0, isPrimary: true, pointerId: 4 });
+  fireEvent.click(numLock, { detail: 1 });
+  await act(async () => {
+    vi.advanceTimersByTime(900);
+    await Promise.resolve();
+  });
+  expect(sendKey).toHaveBeenCalledTimes(3);
+});

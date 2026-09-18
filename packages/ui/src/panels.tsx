@@ -371,6 +371,7 @@ export function KeyboardPanel({ client, platform, theme = "dark", layout = "twen
         catch {
           // Delivery may have partially succeeded; never replay a failed key.
           queue.pending = [];
+          stopKeyRepeat();
           if (queue.active) setNotice("按键发送失败，后续排队按键已取消，请确认输入位置后继续");
           return;
         }
@@ -402,6 +403,7 @@ export function KeyboardPanel({ client, platform, theme = "dark", layout = "twen
     const queue = inputQueue.current;
     queue.active = false;
     queue.pending = [];
+    stopKeyRepeat();
     void client.close().catch(() => {
       if (inputQueue.current === queue) {
         queue.active = true;
@@ -445,7 +447,9 @@ export function KeyboardPanel({ client, platform, theme = "dark", layout = "twen
     }
   }
   function beginPointerKey(event: PointerEvent<HTMLButtonElement>, keyToPress: KeyboardKey) {
-    if (!event.isPrimary || event.button !== 0 || keyToPress.modifier || openingVoice) return;
+    // Num Lock is a lock key in the Linux extended layout, so a held pointer
+    // must not toggle it repeatedly like an ordinary keypad key.
+    if (!event.isPrimary || event.button !== 0 || keyToPress.modifier || keyToPress.virtualKey === 0x90 || openingVoice) return;
     stopKeyRepeat();
     pressKey(resolveRenderedKey(keyToPress, event.currentTarget.textContent ?? ""));
     keyRepeat.current.delay = window.setTimeout(() => {
@@ -478,7 +482,7 @@ export function KeyboardPanel({ client, platform, theme = "dark", layout = "twen
             // Pointer activation is delivered on pointerdown for immediate
             // response and repeat. A detail-zero click comes from keyboard or
             // assistive activation and still sends exactly one key.
-            if (keyToRender.modifier || event.detail === 0)
+            if (keyToRender.modifier || keyToRender.virtualKey === 0x90 || event.detail === 0)
               pressKey(resolveRenderedKey(keyToRender, event.currentTarget.textContent ?? ""));
           }}>{label}</button>;
         })}</div>)}
