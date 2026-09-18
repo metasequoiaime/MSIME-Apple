@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { DesktopCloudDictionary } from "./desktop-cloud-dictionary";
+import { DesktopCloudDictionary } from "../src/desktop-cloud-dictionary";
 import { CloudCandidatesPanel, CloudDictionaryCatalogPanel } from "@msime/ui";
 
 afterEach(cleanup);

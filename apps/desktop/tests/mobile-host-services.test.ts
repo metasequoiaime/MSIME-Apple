@@ -2,7 +2,7 @@ import { expect, test, vi } from "vitest";
 import {
   createMobileHostServices,
   type MobileHostServiceDependencies,
-} from "./mobile-host-services";
+} from "../src/mobile-host-services";
 
 function dependencies() {
   const invokeMock = vi.fn(async () => undefined);
