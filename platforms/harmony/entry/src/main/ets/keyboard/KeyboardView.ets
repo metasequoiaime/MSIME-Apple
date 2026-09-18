@@ -852,6 +852,14 @@ struct KeyboardView {
           this.loadEmoji(this.emojiGroup);
         }
       });
+      if (this.settings.voiceShortcut) {
+        this.shortcutText('🎙', this.surface === SURFACE_VOICE, () => {
+          this.show(SURFACE_VOICE);
+          if (!this.voiceBusy && this.voiceText.length === 0) {
+            this.startVoice();
+          }
+        });
+      }
       this.shortcutIcon($r('app.media.tool_skin'), this.surface === SURFACE_SKIN, () => {
         this.toggle(SURFACE_SKIN);
       });
@@ -880,6 +888,21 @@ struct KeyboardView {
         // opacity says which one is open. Tinting an idle icon with the key foreground made the bar
         // read as black-on-green against an interface that is otherwise entirely accent.
         .fillColor(this.skin.accent)
+        .opacity(active ? 1 : 0.7)
+    }
+    .layoutWeight(1)
+    .height('100%')
+    .justifyContent(FlexAlign.Center)
+    .onClick(action)
+  }
+
+  @Builder
+  shortcutText(face: string, active: boolean, action: () => void) {
+    Column() {
+      Text(face)
+        .fontSize(SHORTCUT_ICON_VP - 2)
+        .fontColor(this.skin.accent)
+        .textAlign(TextAlign.Center)
         .opacity(active ? 1 : 0.7)
     }
     .layoutWeight(1)

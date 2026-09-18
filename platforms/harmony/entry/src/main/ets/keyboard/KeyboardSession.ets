@@ -231,6 +231,8 @@ interface PreparedPreferences {
   touch_row_spacing_tenths: number;
   /** Added to the total height of the key rows, between -12 and 48 vp. */
   touch_keyboard_height_adjustment: number;
+  /** Show the native Harmony voice entry in the top touch-keyboard shortcut bar. */
+  touch_voice_shortcut: boolean;
   keybindings: PreparedKeybindings;
 }
 
@@ -267,6 +269,7 @@ export interface KeyboardPreferences {
   readonly keySpacingTenths: number;
   readonly rowSpacingTenths: number;
   readonly heightAdjustment: number;
+  readonly voiceShortcut: boolean;
 }
 
 interface PreparedOptions {
@@ -341,7 +344,8 @@ export class KeyboardSession {
     layout: 'twenty_six_key',
     keySpacingTenths: KeyboardGeometry.DEFAULT_KEY_SPACING_TENTHS,
     rowSpacingTenths: KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS,
-    heightAdjustment: KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_VP
+    heightAdjustment: KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_VP,
+    voiceShortcut: false
   };
 
   onChanged: ((state: KeyboardState) => void) | undefined = undefined;
@@ -432,7 +436,8 @@ export class KeyboardSession {
         keySpacingTenths: KeyboardGeometry.keySpacing(preferences.touch_key_spacing_tenths),
         rowSpacingTenths: KeyboardGeometry.rowSpacing(preferences.touch_row_spacing_tenths),
         heightAdjustment:
-          KeyboardGeometry.heightAdjustment(preferences.touch_keyboard_height_adjustment)
+          KeyboardGeometry.heightAdjustment(preferences.touch_keyboard_height_adjustment),
+        voiceShortcut: preferences.touch_voice_shortcut
       };
       this.schemeName = preferences.scheme;
       this.traditional = preferences.traditional_chinese_output;

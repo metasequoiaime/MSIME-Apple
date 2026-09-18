@@ -8,6 +8,8 @@ Harmony 设置页也暴露共享的模糊拼音规则。设置保存到同一个
 
 语音输入使用 HarmonyOS Core Speech Kit 的 `speechRecognizer` 离线短语音模式。工具面板可以开始、停止或取消识别，最终文字经过长度和控制字符边界检查后通过当前 `KeyboardSession` 提交；原始音频始终留在系统服务内，不写入文件、不进入日志，也不复制到 Engine。该路径需要 `SystemCapability.AI.SpeechRecognizer` 和用户授予 `ohos.permission.MICROPHONE`，单次录音受系统 60 秒上限约束。
 
+共享设置中的“顶部语音入口”现在也会驱动 Harmony 触屏键盘：开启后，快捷栏会显示麦克风入口并直接打开系统识别；关闭时仍可从“工具”面板手动打开，保持平台特性与 Windows 的可选快捷入口一致。
+
 ## 目录结构
 
 - `entry/src/`：ArkTS 应用与键盘宿主源码。
