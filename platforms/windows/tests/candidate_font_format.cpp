@@ -1,4 +1,4 @@
-#include "../CandidateFontFormat.h"
+#include "../src/CandidateFontFormat.h"
 #include <cassert>
 
 int main() {

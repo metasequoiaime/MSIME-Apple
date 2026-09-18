@@ -1,4 +1,4 @@
-#include "../CandidatePresentation.h"
+#include "../src/CandidatePresentation.h"
 #include <cassert>
 
 int main() {

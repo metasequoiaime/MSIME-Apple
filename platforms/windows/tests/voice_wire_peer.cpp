@@ -1,6 +1,6 @@
 // Portable subprocess fixture: real codec/dispatcher, synthetic capture only.
 // Length-prefixed stdio is test transport, NOT the authenticated Windows pipe.
-#include "../VoiceControllerDispatch.h"
+#include "../src/VoiceControllerDispatch.h"
 #include <array>
 #include <iostream>
 

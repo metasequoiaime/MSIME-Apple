@@ -1,4 +1,4 @@
-#include "../HostCharacterResult.h"
+#include "../src/HostCharacterResult.h"
 #include <cstdlib>
 #include <vector>
 using msime::tsf::CharacterResultStatus;

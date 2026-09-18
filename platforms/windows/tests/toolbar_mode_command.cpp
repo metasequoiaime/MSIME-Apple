@@ -1,4 +1,4 @@
-#include "../ToolbarModeCommand.h"
+#include "../src/ToolbarModeCommand.h"
 #include <cassert>
 #include <tuple>
 using namespace msime::windows;

@@ -1,4 +1,4 @@
-#include "../SkinResourceRevision.h"
+#include "../src/SkinResourceRevision.h"
 #include <cassert>
 #include <chrono>
 #include <fstream>

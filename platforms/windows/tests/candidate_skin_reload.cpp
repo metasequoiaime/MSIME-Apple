@@ -1,4 +1,4 @@
-#include "../CandidateThemeSettings.h"
+#include "../src/CandidateThemeSettings.h"
 #include <cassert>
 #include <chrono>
 #include <fstream>

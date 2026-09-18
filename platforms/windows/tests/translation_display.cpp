@@ -1,4 +1,4 @@
-#include "../TranslationDisplay.h"
+#include "../src/TranslationDisplay.h"
 #include <cassert>
 
 using msime::windows::append_translation_display;

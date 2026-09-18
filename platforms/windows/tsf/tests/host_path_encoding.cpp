@@ -1,4 +1,4 @@
-#include "../HostPathEncoding.h"
+#include "../src/HostPathEncoding.h"
 #include <cassert>
 
 int main() {
