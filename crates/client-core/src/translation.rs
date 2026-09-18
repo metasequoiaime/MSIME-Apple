@@ -262,6 +262,12 @@ pub fn is_cloud_translatable_chinese(text: &str) -> bool {
             || ch == '\u{3007}'
         {
             has_han = true;
+        } else if matches!(ch, '\u{200D}' | '\u{FE0E}' | '\u{FE0F}' | '\u{20E3}')
+            || ('\u{2600}'..='\u{27BF}').contains(&ch)
+            || ('\u{1F000}'..='\u{1FAFF}').contains(&ch)
+            || ('\u{1F1E6}'..='\u{1F1FF}').contains(&ch)
+        {
+            return false;
         } else if ch.is_ascii_punctuation() || ch.is_ascii_whitespace() {
             continue;
         } else if ch.is_ascii() || ('\u{1F000}'..='\u{1FAFF}').contains(&ch) {
@@ -726,5 +732,8 @@ mod tests {
         assert!(!is_cloud_translatable_english("123"));
         assert!(is_cloud_translatable_chinese("你好"));
         assert!(!is_cloud_translatable_chinese("你好😀"));
+        assert!(!is_cloud_translatable_chinese("你好☀️"));
+        assert!(!is_cloud_translatable_chinese("你‍好"));
+        assert!(!is_cloud_translatable_chinese("你⃣"));
     }
 }
