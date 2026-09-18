@@ -1595,6 +1595,16 @@ int main(int argc, char **argv) {
     phrase();
     require(key(IBUS_End), "End did not move to the page edge");
     require(key(IBUS_Home), "Home did not move to the page edge");
+    const auto property_first_page = seen.candidates;
+    IBUS_ENGINE_GET_CLASS(engine)->property_activate(
+        IBUS_ENGINE(engine), "CandidateNextPage", PROP_STATE_UNCHECKED);
+    require(seen.lookup_visible && !seen.candidates.empty() &&
+                seen.candidates != property_first_page,
+            "Candidate panel next-page action did not use shared paging");
+    IBUS_ENGINE_GET_CLASS(engine)->property_activate(
+        IBUS_ENGINE(engine), "CandidatePreviousPage", PROP_STATE_UNCHECKED);
+    require(seen.candidates == property_first_page,
+            "Candidate panel previous-page action did not restore the shared page");
     invoke("PageDown");
     require(seen.lookup_visible && !seen.candidates.empty(),
             "Shared next page missing");

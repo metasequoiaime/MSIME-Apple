@@ -100,6 +100,7 @@ Json skin_display_preferences(Json preferences) {
 }
 std::optional<bool> global_input_enabled;
 void register_properties(IBusEngine *engine);
+void page(IBusEngine *engine, uint32_t command);
 Json response(char *raw) {
   std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
       raw, msime_client_string_free);
@@ -2152,6 +2153,34 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
         actions_available && fixed_position > 0, TRUE,
         PROP_STATE_UNCHECKED, nullptr));
   }
+  const auto page = s.rendered_view.is_object()
+                        ? s.rendered_view.value("page", size_t{0})
+                        : size_t{0};
+  const auto page_count = s.rendered_view.is_object()
+                              ? s.rendered_view.value("page_count", size_t{0})
+                              : size_t{0};
+  const bool paging_available = actions_available && !candidates.empty() &&
+                                page_count > 1;
+  auto paging = ibus_prop_list_new();
+  ibus_prop_list_append(
+      paging, ibus_property_new(
+                  "CandidatePreviousPage", PROP_TYPE_NORMAL,
+                  ibus_text_new_from_static_string("上一页"), "",
+                  ibus_text_new_from_static_string("显示上一页候选"),
+                  paging_available && page > 0, TRUE, PROP_STATE_UNCHECKED, nullptr));
+  ibus_prop_list_append(
+      paging, ibus_property_new(
+                  "CandidateNextPage", PROP_TYPE_NORMAL,
+                  ibus_text_new_from_static_string("下一页"), "",
+                  ibus_text_new_from_static_string("显示下一页候选"),
+                  paging_available && page + 1 < page_count, TRUE,
+                  PROP_STATE_UNCHECKED, nullptr));
+  ibus_prop_list_append(
+      items, ibus_property_new(
+                 "CandidatePaging", PROP_TYPE_MENU,
+                 ibus_text_new_from_static_string("候选翻页"), "",
+                 ibus_text_new_from_static_string("切换候选页"), paging_available,
+                 TRUE, PROP_STATE_UNCHECKED, paging));
   return ibus_property_new("CandidateActions", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("候选操作"), "",
       ibus_text_new_from_static_string("固定或删除当前页候选"),
@@ -3788,6 +3817,15 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     const char *target = candidate_name == "InputEnabled" ? "InputMode"
         : candidate_name == "ChinesePunctuation" ? "Punctuation" : "CharacterMode";
     property_activate(engine, target, value);
+    return;
+  }
+  if (candidate_name == "CandidatePreviousPage" ||
+      candidate_name == "CandidateNextPage") {
+    if (value != PROP_STATE_UNCHECKED && value != PROP_STATE_CHECKED)
+      return;
+    page(engine, candidate_name == "CandidatePreviousPage"
+                   ? MSIME_PREVIOUS_PAGE
+                   : MSIME_NEXT_PAGE);
     return;
   }
   if (candidate_name.rfind("CandidatePin", 0) == 0 ||
