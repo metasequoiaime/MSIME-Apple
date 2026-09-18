@@ -225,8 +225,8 @@ int main(int argc, char **argv) {
     require(engine.candidate_skin_action_.shortText(&ic) == "候选皮肤：Solarized",
             "candidate skin action labels catalog entries");
     engine.candidate_skin_action_.activate(&ic);
-    require(state->preferences_.value("candidate_skin", std::string{}) == "willow_green",
-            "candidate skin action wraps after the configured catalog");
+    require(state->preferences_.value("candidate_skin", std::string{}) == "fluent",
+            "candidate skin action wraps to the built-in catalog");
     require(engine.mode_scope_action_.shortText(&ic) == "模式：应用",
             "mode scope action starts at application scope");
     engine.mode_scope_action_.activate(&ic);
