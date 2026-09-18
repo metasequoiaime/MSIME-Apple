@@ -333,6 +333,21 @@ SessionController::request_page(const CandidatePage &page) {
         shown->lease.token != page.lease.token ||
         !same_ticket(shown->lease.transport, page.lease.transport))
       return CandidatePageRequestResult::Rejected;
+    if (should_wait_for_candidate_render(0, shown->render_serial, false,
+                                         shown->visible))
+      (void)candidates_.wait_rendered(
+          page.lease, shown->render_serial,
+          std::chrono::milliseconds(candidate_render_wait_max_ms));
+    // A mouse-wheel/page-button request can outlive the frame that opened the
+    // menu. Re-read after the render receipt so a replacement page cannot be
+    // mistaken for the still-visible one.
+    const auto painted = candidate_view();
+    if (!painted || !painted->visible || painted->session != page.session ||
+        painted->generation != page.generation ||
+        painted->lease.epoch != page.lease.epoch ||
+        painted->lease.token != page.lease.token ||
+        !same_ticket(painted->lease.transport, page.lease.transport))
+      return CandidatePageRequestResult::Rejected;
     std::optional<nlohmann::json> transition;
     auto prepared = input_.submit([&](InputState &state) {
       if (!stopping_ && transport_.current(page.lease.transport))
