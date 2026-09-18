@@ -30,6 +30,7 @@ interface NativeBridge {
   dictionary(action: string): string;
   account(action: string): Promise<string>;
   cloudDictionary(action: string): Promise<string>;
+  cloudDictionaryDownload(entry: string): string;
   openExternalUrl(url: string): void;
   copyText(text: string): void;
   openSystemKeyboardSettings(): void;
@@ -115,6 +116,9 @@ function cloudDictionaryClient(native: NativeBridge, close: () => void, setPage:
     openCatalog: async () => setPage("catalog"),
     openCandidates: async () => setPage("candidates"),
     openFiles: async () => setPage("files"),
+    downloadToLocal: async entry => {
+      unwrap<{ applied: boolean }>(native.cloudDictionaryDownload(JSON.stringify(entry)));
+    },
     request: async (action: CloudDictionaryAction) => {
       const { operation, ...payload } = action;
       const value = await native.cloudDictionary(JSON.stringify({ operation: "dictionary", dictionary_operation: operation, ...payload }));

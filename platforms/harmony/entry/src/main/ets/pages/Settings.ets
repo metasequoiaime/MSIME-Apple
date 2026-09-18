@@ -48,7 +48,7 @@ struct Settings {
           object: this.bridge,
           name: BRIDGE_NAME,
           methodList: ['loadPreferences', 'savePreferences', 'hostCapabilities', 'appVersion',
-            'dictionary', 'account', 'cloudDictionary', 'openExternalUrl', 'copyText', 'openSystemKeyboardSettings'],
+            'dictionary', 'account', 'cloudDictionary', 'cloudDictionaryDownload', 'openExternalUrl', 'copyText', 'openSystemKeyboardSettings'],
           controller: this.controller
         })
         .width('100%')
@@ -69,6 +69,7 @@ class SettingsBridge {
   private stateDirectory: string = '';
   private context: common.UIAbilityContext | undefined = undefined;
   private accountBridge: HarmonyAccountCloudBridge | undefined = undefined;
+  private cloudDownloadRequest: number = 0;
 
   attach(context: common.UIAbilityContext): void {
     this.context = context;
@@ -131,6 +132,43 @@ class SettingsBridge {
       return Promise.resolve(JSON.stringify({ ok: false, error: 'account_unavailable' }));
     }
     return this.accountBridge.request(action);
+  }
+
+  /** Add one explicitly selected cloud entry through the Engine's existing maintenance boundary. */
+  cloudDictionaryDownload(entryDocument: string): string {
+    if (this.context === undefined) {
+      return JSON.stringify({ ok: false, error: 'settings context unavailable' });
+    }
+    try {
+      const entry: Record<string, Object> = JSON.parse(entryDocument) as Record<string, Object>;
+      const kind: Object | undefined = entry.kind;
+      const code: Object | undefined = entry.code;
+      const word: Object | undefined = entry.word;
+      const weight: Object | undefined = entry.weight;
+      if (typeof kind !== 'string' || !['pinyin', 'wubi', 'quick', 'english'].includes(kind)
+        || typeof code !== 'string' || code.length === 0 || code.length > 256
+        || typeof word !== 'string' || word.length === 0 || word.length > 1024
+        || typeof weight !== 'number' || !Number.isInteger(weight) || weight < 0) {
+        return JSON.stringify({ ok: false, error: 'account_invalid' });
+      }
+      const replacement: Record<string, Object> = {
+        kind: kind === 'quick' ? 'quick_phrase' : kind,
+        key: code,
+        value: word,
+        weight: weight
+      };
+      this.cloudDownloadRequest += 1;
+      const request: Record<string, Object> = {
+        operation: 'edit',
+        previous: null,
+        replacement: replacement,
+        request_id: `cloud-download-${this.cloudDownloadRequest}`
+      };
+      return KeyboardSession.shared.dictionary(JSON.stringify(request), `${this.context.filesDir}/engine`,
+        this.stateDirectory);
+    } catch {
+      return JSON.stringify({ ok: false, error: 'account_invalid' });
+    }
   }
 
   appVersion(): string {
