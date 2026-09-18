@@ -1,6 +1,7 @@
 import inputMethodEngine from '@ohos.inputMethodEngine';
 import client from 'libmsimeclient.so';
 import { KeyboardLog, describeError } from './KeyboardLog';
+import { DictionaryMaintenancePolicy } from './DictionaryMaintenancePolicy';
 import { KeyboardSkin } from './skin/KeyboardSkin';
 import { EditorPolicy, EditorTraits } from './input/EditorPolicy';
 import { WubiCodeHintPolicy } from './input/WubiCodeHintPolicy';
@@ -266,6 +267,15 @@ interface PrepareResponse {
   error: string;
 }
 
+interface DictionaryAction {
+  operation: string;
+}
+
+interface DictionaryRequest {
+  options: PreparedOptions;
+  action: DictionaryAction;
+}
+
 /**
  * The shared command table from msime_client_command. Spelling the numbers out here keeps the call
  * sites readable and keeps the table in one place instead of scattered behind comments.
@@ -302,6 +312,7 @@ export class KeyboardSession {
   private schemeName: string = 'quanpin';
   private resourceDirectory: string = '';
   private stateDirectory: string = '';
+  private systemDark: boolean = false;
   // What the editor wants its return key to do. Sending this rather than a newline is what makes the
   // key search in a search field and send in a message field, which is the whole point of having it.
   private enterKey: number = inputMethodEngine.ENTER_KEY_TYPE_UNSPECIFIED;
@@ -373,6 +384,7 @@ export class KeyboardSession {
     }
     this.resourceDirectory = resources;
     this.stateDirectory = stateRoot;
+    this.systemDark = systemDark;
     this.feedbackSettings = this.feedback();
     const request: PrepareRequest = { resources: resources, state_root: stateRoot };
     let options: string;
@@ -712,6 +724,65 @@ export class KeyboardSession {
       client.destroy(this.handle);
       this.handle = 0;
     }
+  }
+
+  /**
+   * Run one shared dictionary-management action without violating the Engine maintenance lock.
+   *
+   * Reads can coexist with the live session. A write briefly recreates an idle session so the
+   * Engine has exclusive dictionary access, but never cancels a composition to obtain it.
+   */
+  dictionary(actionDocument: string, resources: string, stateRoot: string): string {
+    let action: DictionaryAction;
+    try {
+      const decoded: DictionaryAction | null = JSON.parse(actionDocument) as DictionaryAction | null;
+      if (decoded === null || typeof decoded.operation !== 'string') {
+        return JSON.stringify({ ok: false, error: 'invalid dictionary action' });
+      }
+      action = decoded;
+    } catch (error) {
+      return JSON.stringify({ ok: false, error: 'invalid dictionary action' });
+    }
+    const decision = DictionaryMaintenancePolicy.decide(action.operation, this.composing());
+    if (!decision.allowed) {
+      return JSON.stringify({ ok: false, error: decision.error });
+    }
+    const maintenance: boolean = decision.maintenance;
+    const hadSession: boolean = this.handle !== 0;
+    const english: boolean = this.englishMode;
+    const nineKey: boolean = this.nineKeyMode;
+    if (maintenance && hadSession) {
+      this.stop();
+    }
+    let result: string;
+    try {
+      const bootstrap: PrepareRequest = { resources: resources, state_root: stateRoot };
+      const prepared: PrepareResponse =
+        JSON.parse(client.prepareHost(JSON.stringify(bootstrap))) as PrepareResponse;
+      if (!prepared.ok) {
+        return JSON.stringify(prepared);
+      }
+      const request: DictionaryRequest = { options: prepared.value, action: action };
+      result = client.dictionary(JSON.stringify(request));
+    } catch (error) {
+      KeyboardLog.error(`dictionary request unavailable: ${describeError(error)}`);
+      result = JSON.stringify({ ok: false, error: 'dictionary request failed' });
+    } finally {
+      if (maintenance && hadSession) {
+        if (this.start(resources, stateRoot, this.systemDark)) {
+          this.englishMode = english;
+          this.nineKeyMode = nineKey;
+          if (this.inputClient !== undefined) {
+            this.apply(client.focus(this.handle, true));
+            this.applyView(client.setEnglishMode(this.handle, english));
+            this.applyView(client.setNineKeyMode(this.handle, nineKey));
+          }
+        } else {
+          KeyboardLog.error('dictionary maintenance left the session unavailable');
+        }
+      }
+    }
+    return result;
   }
 
   press(ascii: number, shift: boolean): void {

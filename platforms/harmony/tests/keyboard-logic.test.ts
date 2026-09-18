@@ -10,45 +10,47 @@ import { KeyboardGeometry } from '../entry/src/main/ets/keyboard/KeyboardGeometr
 import { KeyboardMetrics } from '../entry/src/main/ets/keyboard/KeyboardMetrics';
 import {
   ClipboardHistoryStore, ClipboardHistoryItem, ClipboardHistoryError, ClipboardFailure
-} from '../entry/src/main/ets/keyboard/ClipboardHistoryStore';
+} from '../entry/src/main/ets/keyboard/clipboard/ClipboardHistoryStore';
 import {
   EmojiCatalogModel, EmojiItem, EMOJI_PAGE_SIZE, EMOJI_RECENTS_LIMIT, MAX_TEXT_CODE_POINTS
-} from '../entry/src/main/ets/keyboard/EmojiCatalogModel';
-import { CandidateWrapPolicy } from '../entry/src/main/ets/keyboard/CandidateWrapPolicy';
+} from '../entry/src/main/ets/keyboard/emoji/EmojiCatalogModel';
+import { CandidateWrapPolicy } from '../entry/src/main/ets/keyboard/candidate/CandidateWrapPolicy';
 import { KeyboardScheme, SchemeDefinition, PreferenceMapping }
   from '../entry/src/main/ets/keyboard/KeyboardScheme';
-import { NineKeyLayout, NineKey } from '../entry/src/main/ets/keyboard/NineKeyLayout';
+import { NineKeyLayout, NineKey } from '../entry/src/main/ets/keyboard/input/NineKeyLayout';
 import {
   JapaneseNineKeyLayout, JapaneseKey, VariantGroup,
   DIRECTION_CENTRE, DIRECTION_LEFT, DIRECTION_UP, DIRECTION_RIGHT, DIRECTION_DOWN
-} from '../entry/src/main/ets/keyboard/JapaneseNineKeyLayout';
-import { JapaneseNineKeyActions } from '../entry/src/main/ets/keyboard/JapaneseNineKeyActions';
-import { ChineseHelpcodePolicy } from '../entry/src/main/ets/keyboard/ChineseHelpcodePolicy';
-import { WubiCodeHintPolicy } from '../entry/src/main/ets/keyboard/WubiCodeHintPolicy';
-import { LetterKeyFacePolicy } from '../entry/src/main/ets/keyboard/LetterKeyFacePolicy';
+} from '../entry/src/main/ets/keyboard/input/JapaneseNineKeyLayout';
+import { JapaneseNineKeyActions } from '../entry/src/main/ets/keyboard/input/JapaneseNineKeyActions';
+import { ChineseHelpcodePolicy } from '../entry/src/main/ets/keyboard/input/ChineseHelpcodePolicy';
+import { WubiCodeHintPolicy } from '../entry/src/main/ets/keyboard/input/WubiCodeHintPolicy';
+import { LetterKeyFacePolicy } from '../entry/src/main/ets/keyboard/input/LetterKeyFacePolicy';
 import { EnglishCapitalizationPolicy, CapitalizationMode }
-  from '../entry/src/main/ets/keyboard/EnglishCapitalizationPolicy';
+  from '../entry/src/main/ets/keyboard/input/EnglishCapitalizationPolicy';
 import { EnglishLetterCaseState, LetterCaseMode }
-  from '../entry/src/main/ets/keyboard/EnglishLetterCaseState';
-import { JapaneseVariantPolicy } from '../entry/src/main/ets/keyboard/JapaneseVariantPolicy';
-import { ClipboardHistoryPolicy } from '../entry/src/main/ets/keyboard/ClipboardHistoryPolicy';
-import { FullWidthInputPolicy } from '../entry/src/main/ets/keyboard/FullWidthInputPolicy';
-import { InputDiagnosticPolicy } from '../entry/src/main/ets/keyboard/InputDiagnosticPolicy';
-import { ChineseOutputPolicy } from '../entry/src/main/ets/keyboard/ChineseOutputPolicy';
-import { LocalInputMode } from '../entry/src/main/ets/keyboard/LocalInputMode';
+  from '../entry/src/main/ets/keyboard/input/EnglishLetterCaseState';
+import { JapaneseVariantPolicy } from '../entry/src/main/ets/keyboard/input/JapaneseVariantPolicy';
+import { ClipboardHistoryPolicy } from '../entry/src/main/ets/keyboard/clipboard/ClipboardHistoryPolicy';
+import { FullWidthInputPolicy } from '../entry/src/main/ets/keyboard/input/FullWidthInputPolicy';
+import { InputDiagnosticPolicy } from '../entry/src/main/ets/keyboard/input/InputDiagnosticPolicy';
+import { ChineseOutputPolicy } from '../entry/src/main/ets/keyboard/input/ChineseOutputPolicy';
+import { LocalInputMode } from '../entry/src/main/ets/keyboard/input/LocalInputMode';
 import { QuickPunctuationPolicy, PunctuationEntry }
-  from '../entry/src/main/ets/keyboard/QuickPunctuationPolicy';
-import { ReturnKeyAction } from '../entry/src/main/ets/keyboard/ReturnKeyAction';
-import { SpaceCursorMovement } from '../entry/src/main/ets/keyboard/SpaceCursorMovement';
+  from '../entry/src/main/ets/keyboard/input/QuickPunctuationPolicy';
+import { ReturnKeyAction } from '../entry/src/main/ets/keyboard/input/ReturnKeyAction';
+import { SpaceCursorMovement } from '../entry/src/main/ets/keyboard/input/SpaceCursorMovement';
 import { CandidateManagementAction, ManagementAction }
-  from '../entry/src/main/ets/keyboard/CandidateManagementAction';
+  from '../entry/src/main/ets/keyboard/candidate/CandidateManagementAction';
 import { CandidateGlossPolicy, GlossToken }
-  from '../entry/src/main/ets/keyboard/CandidateGlossPolicy';
-import { ShuangpinKeyHintPolicy } from '../entry/src/main/ets/keyboard/ShuangpinKeyHintPolicy';
-import { EditorPolicy, EditorTraits } from '../entry/src/main/ets/keyboard/EditorPolicy';
-import { KeyboardSkin } from '../entry/src/main/ets/keyboard/KeyboardSkin';
+  from '../entry/src/main/ets/keyboard/candidate/CandidateGlossPolicy';
+import { ShuangpinKeyHintPolicy } from '../entry/src/main/ets/keyboard/input/ShuangpinKeyHintPolicy';
+import { EditorPolicy, EditorTraits } from '../entry/src/main/ets/keyboard/input/EditorPolicy';
+import { KeyboardSkin } from '../entry/src/main/ets/keyboard/skin/KeyboardSkin';
 import { CustomKeyboardSkin, CustomSkinDocument, supportedPhoto }
-  from '../entry/src/main/ets/keyboard/CustomKeyboardSkin';
+  from '../entry/src/main/ets/keyboard/skin/CustomKeyboardSkin';
+import { DictionaryMaintenancePolicy }
+  from '../entry/src/main/ets/keyboard/DictionaryMaintenancePolicy';
 
 let failures = 0;
 let checks = 0;
@@ -90,6 +92,31 @@ function check(condition: boolean, message: string): void {
 }
 
 console.log('KeyboardGeometry');
+
+console.log('DictionaryMaintenancePolicy');
+
+group('allows reads during composition without restarting the session', () => {
+  const decision = DictionaryMaintenancePolicy.decide('list', true);
+  check(decision.allowed, 'dictionary reads remain available while composing');
+  check(!decision.maintenance, 'dictionary reads do not request maintenance');
+});
+
+group('opens an exclusive window for idle mutations', () => {
+  for (const operation of ['edit', 'import', 'retry', 'dismiss_failure']) {
+    const decision = DictionaryMaintenancePolicy.decide(operation, false);
+    check(decision.allowed, `${operation} is allowed while idle`);
+    check(decision.maintenance, `${operation} is marked as maintenance`);
+  }
+});
+
+group('refuses every mutation while composition is active', () => {
+  for (const operation of ['edit', 'import', 'retry', 'dismiss_failure']) {
+    const decision = DictionaryMaintenancePolicy.decide(operation, true);
+    check(!decision.allowed, `${operation} is refused while composing`);
+    check(decision.maintenance, `${operation} remains classified as maintenance`);
+    check(decision.error === 'dictionary maintenance busy', `${operation} reports the busy state`);
+  }
+});
 
 group('spacing clamps to its range and falls back on a negative', () => {
   check(KeyboardGeometry.keySpacing(-1) === KeyboardGeometry.DEFAULT_KEY_SPACING_TENTHS,

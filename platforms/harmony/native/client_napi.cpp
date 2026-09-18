@@ -126,6 +126,7 @@ static napi_value invalid(napi_env env, const char *message) {
     }
 
 TEXT_ENTRY(LoadPreferences, msime_client_load_preferences)
+TEXT_ENTRY(Dictionary, msime_client_dictionary)
 TEXT_ENTRY(TypingStatistics, msime_client_typing_statistics)
 TEXT_ENTRY(PersonalDictionarySync, msime_client_personal_dictionary_sync)
 TEXT_ENTRY(PrepareHost, msime_client_prepare_host)
@@ -358,6 +359,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("abiVersion", AbiVersion),
         ENTRY("hostCapabilities", HostCapabilities),
         ENTRY("loadPreferences", LoadPreferences),
+        ENTRY("dictionary", Dictionary),
         ENTRY("savePreferences", SavePreferences),
         ENTRY("updatePreferences", UpdatePreferences),
         ENTRY("typingStatistics", TypingStatistics),

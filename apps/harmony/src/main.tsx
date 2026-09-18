@@ -1,6 +1,8 @@
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
-import { SettingsPage, type HostCapabilities, type Preferences, type SettingsClient, type Snapshot } from "@msime/ui";
+import { SettingsPage, type DictionaryClient, type DictionaryEntry, type DictionaryImportResult,
+  type HostCapabilities, type LocalDictionaryFormat, type LocalDictionaryKind, type Preferences,
+  type SettingsClient, type Snapshot } from "@msime/ui";
 import "@msime/ui/styles.css";
 
 /**
@@ -22,6 +24,7 @@ interface NativeBridge {
   /** The capability record for this host, as client-core writes it. */
   hostCapabilities(): string;
   appVersion(): string;
+  dictionary(action: string): string;
   openExternalUrl(url: string): void;
   copyText(text: string): void;
   openSystemKeyboardSettings(): void;
@@ -64,6 +67,30 @@ function whenBridgeReady(): Promise<NativeBridge> {
 }
 
 function makeClient(native: NativeBridge): SettingsClient {
+  const dictionaryReply = <T,>(action: Record<string, unknown>): T =>
+    unwrap<T>(native.dictionary(JSON.stringify(action)));
+  const dictionary: DictionaryClient = {
+    list: async (offset: number, limit: number, kind?: LocalDictionaryKind, query?: string) =>
+      dictionaryReply<{ entries: DictionaryEntry[]; has_more: boolean }>({
+        operation: "list", offset, limit, ...(kind ? { kind } : {}), ...(query ? { query } : {})
+      }),
+    edit: async (previous: DictionaryEntry | null, replacement: DictionaryEntry | null,
+                 request_id: string) => {
+      dictionaryReply<{ applied: boolean }>({ operation: "edit", previous, replacement, request_id });
+    },
+    import: async (kind: LocalDictionaryKind, format: LocalDictionaryFormat, text: string,
+                   request_id: string): Promise<DictionaryImportResult> =>
+      dictionaryReply<DictionaryImportResult>({ operation: "import", kind, format, text, request_id }),
+    export: async (kind: LocalDictionaryKind, format: Exclude<LocalDictionaryFormat, "rime" | "hans">,
+                   offset: number, limit: number) =>
+      dictionaryReply<{ text: string; has_more: boolean }>({ operation: "export", kind, format, offset, limit }),
+    retry: async (request_id: string) => {
+      dictionaryReply<{ applied: boolean }>({ operation: "retry", request_id });
+    },
+    dismissFailure: async (request_id: string) => {
+      dictionaryReply<{ applied: boolean }>({ operation: "dismiss_failure", request_id });
+    },
+  };
   return {
     // Wrapped like every other reply from the shared ABI. Reading it as the record itself leaves every
     // capability undefined, which the page reads as "this host cannot", and the whole surface silently
@@ -80,6 +107,7 @@ function makeClient(native: NativeBridge): SettingsClient {
     openExternalUrl: async (url: string) => native.openExternalUrl(url),
     copyText: async (text: string) => native.copyText(text),
     openSystemKeyboardSettings: async () => native.openSystemKeyboardSettings(),
+    dictionary,
   };
 }
 

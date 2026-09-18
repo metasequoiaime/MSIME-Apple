@@ -4,7 +4,9 @@ import client from 'libmsimeclient.so';
 import pasteboard from '@ohos.pasteboard';
 import Want from '@ohos.app.ability.Want';
 import bundleManager from '@ohos.bundle.bundleManager';
+import fs from '@ohos.file.fs';
 import { KeyboardLog, describeError } from '../keyboard/KeyboardLog';
+import { KeyboardSession } from '../keyboard/KeyboardSession';
 
 /**
  * The settings window, which is the shared settings UI rather than a second one written here.
@@ -45,7 +47,7 @@ struct Settings {
           object: this.bridge,
           name: BRIDGE_NAME,
           methodList: ['loadPreferences', 'savePreferences', 'hostCapabilities', 'appVersion',
-            'openExternalUrl', 'copyText', 'openSystemKeyboardSettings'],
+            'dictionary', 'openExternalUrl', 'copyText', 'openSystemKeyboardSettings'],
           controller: this.controller
         })
         .width('100%')
@@ -69,6 +71,23 @@ class SettingsBridge {
   attach(context: common.UIAbilityContext): void {
     this.context = context;
     this.stateDirectory = `${context.filesDir}/state`;
+    this.stageResources(`${context.resourceDir}/engine`, `${context.filesDir}/engine`);
+  }
+
+  private stageResources(packaged: string, destination: string): void {
+    try {
+      if (!fs.accessSync(packaged)) {
+        return;
+      }
+      if (!fs.accessSync(destination)) {
+        fs.mkdirSync(destination, true);
+      }
+      for (const name of fs.listFileSync(packaged)) {
+        fs.copyFileSync(`${packaged}/${name}`, `${destination}/${name}`);
+      }
+    } catch (error) {
+      KeyboardLog.error(`settings resources unavailable: ${describeError(error)}`);
+    }
   }
 
   loadPreferences(): string {
@@ -86,6 +105,14 @@ class SettingsBridge {
 
   hostCapabilities(): string {
     return client.hostCapabilities(PLATFORM);
+  }
+
+  dictionary(action: string): string {
+    if (this.context === undefined) {
+      return JSON.stringify({ ok: false, error: 'settings context unavailable' });
+    }
+    return KeyboardSession.shared.dictionary(action, `${this.context.filesDir}/engine`,
+      this.stateDirectory);
   }
 
   appVersion(): string {
