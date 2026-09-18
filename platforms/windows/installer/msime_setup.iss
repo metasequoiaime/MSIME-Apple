@@ -596,6 +596,13 @@ var
   Path: String;
 begin
   AppDataPath := GetDataDir('');
+  { A custom DataDir may already contain files owned by another application.
+    Marker/default ownership is required before removing any database names. }
+  if not OwnsDataDir(AppDataPath) then
+  begin
+    Result := True;
+    exit;
+  end;
   { 先删 sidecar；若仍被占用，可在动主库和其他应用数据前安全中止。}
   FileNames[0] := 'msime.db-wal';
   FileNames[1] := 'msime.db-shm';

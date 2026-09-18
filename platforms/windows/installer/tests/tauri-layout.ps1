@@ -34,6 +34,9 @@ if (-not $script.Contains("DataDirMarkerName = '.metasequoiaime-data'") -or
 if (-not $script.Contains('if not OwnsDataDir(AppDataPath) then')) {
     throw 'Installer cleanup is not guarded by data-directory ownership'
 }
+if (-not $script.Contains('custom DataDir may already contain files')) {
+    throw 'Installer database cleanup lacks custom-directory ownership protection'
+}
 if (-not $script.Contains('function MigrateUserDataDir') -or
     -not $script.Contains('robocopy.exe') -or
     -not $script.Contains('MigrateUserDataDir(ResolvePreviousDataDir')) {
