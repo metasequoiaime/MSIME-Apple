@@ -19,6 +19,7 @@
 #include <fcitx/surroundingtext.h>
 #include <fcitx/userinterface.h>
 #include "../src/candidates/CandidateActionPolicy.h"
+#include "../src/candidates/CandidatePalette.h"
 #include "../src/candidates/CandidateTranslationPolicy.h"
 #include "../src/system/TypingStatistics.h"
 #include <nlohmann/json.hpp>
@@ -3175,11 +3176,16 @@ void FcitxState::render() {
   }
   ic_.inputPanel().reset();
   const auto editing = view_.value("editing_text", std::string());
-  fcitx::Text preedit(editing, fcitx::TextFormatFlag::Underline);
-  preedit.setCursor(std::min(editing.size(), view_.value("caret_position", size_t{})));
-  if (ic_.capabilityFlags().test(fcitx::CapabilityFlag::Preedit))
-    ic_.inputPanel().setClientPreedit(preedit);
-  else ic_.inputPanel().setPreedit(preedit);
+  const auto style = preferences_.value("tsf_preedit_style", std::string("raw"));
+  if (style != "empty") {
+    const auto text = style == "pinyin" ? view_.value("preedit", editing) : editing;
+    fcitx::Text preedit(text, fcitx::TextFormatFlag::Underline);
+    if (text == editing)
+      preedit.setCursor(std::min(editing.size(), view_.value("caret_position", size_t{})));
+    if (ic_.capabilityFlags().test(fcitx::CapabilityFlag::Preedit))
+      ic_.inputPanel().setClientPreedit(preedit);
+    else ic_.inputPanel().setPreedit(preedit);
+  }
   if (!view_.at("candidates").empty()) {
     // Look up the registered factory via the owning engine for stable candidate callbacks.
     if (engine_) ic_.inputPanel().setCandidateList(std::make_unique<FcitxPage>(*this, &engine_->factory_));
@@ -3191,6 +3197,15 @@ void FcitxState::render() {
         mode == "kaomoji" ? "颜文字" : mode == "abbreviation" ? "简拼" :
         mode == "english" ? "EN" : mode == "japanese" ? "日文" : "";
     if (*modeLabel) aux += " · " + std::string(modeLabel);
+    if (preferences_.value("candidate_preedit_style", std::string("pinyin")) == "pinyin") {
+      const auto candidatePreedit = view_.value("preedit", std::string{});
+      if (!candidatePreedit.empty()) {
+        const auto caret = std::min(editing.size(), view_.value("caret_position", editing.size()));
+        const auto displayed = msime::linux_host::candidate_preedit_with_caret(
+            candidatePreedit, editing, caret);
+        if (!displayed.empty()) aux += " · " + displayed;
+      }
+    }
     ic_.inputPanel().setAuxDown(fcitx::Text(aux));
   }
   if (emoji_search_mode_)
