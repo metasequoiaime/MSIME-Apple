@@ -21,9 +21,7 @@ namespace FanyUtils
 {
 std::string GetIMEDataDirPath()
 {
-    const char *localAppDataPath = std::getenv("LOCALAPPDATA");
-    std::string IMEDataPath = std::string(localAppDataPath) + "\\" + wstring_to_string(std::wstring(IME_NAME));
-    return IMEDataPath;
+    return msime::tsf::default_state_directory();
 }
 
 namespace
@@ -105,12 +103,9 @@ std::filesystem::path SharedConfigPath()
     // Build a wide path and open it as such. A narrow std::string path would be opened through the
     // ANSI code page, which cannot round-trip a non-ASCII (e.g. Chinese) user profile path on a
     // non-UTF-8 system, so the TSF would read the wrong file or fail to find the config.
-    const wchar_t *localAppDataPath = _wgetenv(L"LOCALAPPDATA");
-    if (!localAppDataPath)
-    {
-        return {};
-    }
-    return std::filesystem::path(localAppDataPath) / L"metasequoiaime" / L"config.toml";
+    const auto state = msime::tsf::default_state_directory();
+    return state.empty() ? std::filesystem::path{} :
+                           std::filesystem::u8path(state) / L"config.toml";
 }
 } // namespace
 
