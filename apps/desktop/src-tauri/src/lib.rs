@@ -835,18 +835,13 @@ async fn load_preferences(
         .map_err(|_| CommandError { code: "storage" })?
 }
 
-#[tauri::command]
-async fn save_preferences(
-    store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
-    runtime: tauri::State<'_, RuntimeOptionsState>,
-    #[cfg(target_os = "ios")] platform: tauri::State<'_, MobilePlatform<tauri::Wry>>,
+async fn save_preferences_impl(
+    store: Arc<PreferencesStore>,
+    runtime: RuntimeOptionsState,
     expected_revision: u64,
     preferences: Preferences,
+    #[cfg(target_os = "ios")] platform: MobilePlatform<tauri::Wry>,
 ) -> Result<PreferencesSnapshot, CommandError> {
-    let store = store.inner().clone();
-    let runtime = runtime.inner().clone();
-    #[cfg(target_os = "ios")]
-    let platform = platform.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         #[cfg(target_os = "ios")]
         let previous = store.load().map_err(CommandError::from)?;
@@ -878,6 +873,42 @@ async fn save_preferences(
     })
     .await
     .map_err(|_| CommandError { code: "storage" })?
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+async fn save_preferences(
+    store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
+    runtime: tauri::State<'_, RuntimeOptionsState>,
+    platform: tauri::State<'_, MobilePlatform<tauri::Wry>>,
+    expected_revision: u64,
+    preferences: Preferences,
+) -> Result<PreferencesSnapshot, CommandError> {
+    save_preferences_impl(
+        store.inner().clone(),
+        runtime.inner().clone(),
+        expected_revision,
+        preferences,
+        platform.inner().clone(),
+    )
+    .await
+}
+
+#[cfg(not(target_os = "ios"))]
+#[tauri::command]
+async fn save_preferences(
+    store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
+    runtime: tauri::State<'_, RuntimeOptionsState>,
+    expected_revision: u64,
+    preferences: Preferences,
+) -> Result<PreferencesSnapshot, CommandError> {
+    save_preferences_impl(
+        store.inner().clone(),
+        runtime.inner().clone(),
+        expected_revision,
+        preferences,
+    )
+    .await
 }
 
 #[cfg(any(target_os = "ios", test))]
