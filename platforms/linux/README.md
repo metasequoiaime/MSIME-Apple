@@ -4,6 +4,8 @@
 
 Linux 平台代码按职责分层：`src/` 下按 `core/`、`candidates/`、`clipboard/`、`providers/`、`voice/`、`overlay/`、`system/` 和 `entrypoints/` 分层放置 C++ 实现及头文件，`tests/` 放置本地与容器测试，`scripts/` 放置运行时 Python/启动脚本，`data/` 放置 systemd、桌面入口和协议模板，`fcitx5/` 保留 Fcitx5 适配器，`cmake/` 保留安装辅助模块。平台根目录只保留构建入口和说明文档。
 
+arm64 容器已覆盖隔离 IBus daemon 与真实 Engine 链路，Fcitx5 具备同一 Host API 的构建入口。容器测试和 CMake/CPack 构建不等于发行版安装、GTK/Qt 编辑器、X11/Wayland 焦点或图形桌面验收；这些仍按本文件的安装和隔离章节单独执行。
+
 
 ## Fcitx5
 

@@ -4,6 +4,8 @@
 
 Windows platform implementation sources live under `src/` 下按 `candidate/`、`voice/`、`clipboard/`、`ipc/`、`input/` 和 `system/` 分层; `tsf/`, `msimeui/`, `tests/`, and `installer/` retain their independent protocol, UI, test, and packaging boundaries. The platform root keeps build files, scripts, manifests, and documentation.
 
+当前目录以 MSIME-Windows 完整功能和既有 TSF DLL / Server 协议为迁移基线。Rust/C++ 共享会话、管道、焦点和回复编排已有跨目标/本地边界证据，但不能把 MinGW 交叉编译或 macOS 测试替代 Windows 原生运行；TSF 注册、Server/Host DLL、候选窗口、安装和真实编辑器验收仍需在 Windows 主机完成。
+
 本阶段将固定 Engine 的 `FanyImeNamedpipeData` 键包接到 `msime-host-api`，不是完整 Windows 输入法。共享库只进入独立 Server，不能加载到注入应用的 TSF DLL 中。后续仍保留 TSF DLL / Server 进程隔离、现有版本化 Named Pipe 契约及 UI 原生窗口所有权。
 
 ## 原生界面渲染与皮肤

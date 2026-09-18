@@ -2,7 +2,7 @@
 
 ## 目标与验收
 
-一个客户端工程，共享 Rust 业务、React 管理界面与输入运行时，各端保留系统入口。C++ Engine 继续负责输入算法。完成新仓不代表现有五端均已迁移。
+一个客户端工程，共享 Rust 业务、React 管理界面与输入运行时，各端保留系统入口。C++ Engine 继续负责输入算法。完成新仓不代表现有平台均已迁移；当前平台集合包括 Android、iOS、macOS、Linux、Windows 和 HarmonyOS。
 
 实施阶段（按功能提交，不能用空目录冒充实现）：
 
@@ -12,7 +12,13 @@
 4. 固定 C++ Engine，建立可运行的桥接与输入运行时。
 5. 原生宿主接口，先验证一个真实消费端，再逐端推进。
 6. 账号、同步、资源下载等业务按现有后端契约迁入共享层。
-7. 五端适配、原生行为验证与组合 CI；已接入部分才删除重复实现。
+7. 全平台适配、原生行为验证与本地组合检查；已接入部分才删除重复实现。CI 按仓库策略保持停用，不以 CI 状态代替本地证据。
+
+## 当前目录与证据索引
+
+共享层位于 `crates/`、`packages/ui/`、`apps/desktop/src-tauri/src/shared/`；Tauri 平台 commands 位于 `apps/desktop/src-tauri/src/platform/`，测试位于 `apps/desktop/src-tauri/src/tests/`。平台代码和测试按职责分层：Android 使用 `java/app/msime/client/<feature>/` 与 `tests/<feature>/`，iOS 使用 `App/Sources/<feature>/`、`SharedUI/<feature>/`、`KeyboardExtension/Sources/<feature>/` 和独立测试目录，macOS 使用 `src/<feature>/` 与 `tests/<feature>/`，Linux 使用 `src/<feature>/` 与 `tests/<feature>/`，Windows 使用 `src/<feature>/`、`tests/<feature>/`、`tsf/<feature>/` 及 `tsf/tests/`，HarmonyOS 使用 `entry/src/`、`native/` 和 `tests/`。
+
+验证证据分为三层：本地单元/集成测试、跨目标或容器构建、真实系统入口验收。前两层通过不代表第三层完成；未执行设备、桌面编辑器、TSF、签名或安装验证时，平台 README 和提交说明必须明确写出缺口。最新的逐阶段记录在下方，平台命令索引在根 [README](../README.md) 的平台表中。
 
 ## 当前证据
 

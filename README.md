@@ -2,7 +2,7 @@
 
 水杉输入法共享客户端，渐进迁移中的新工程。React 管理界面通过 Tauri 调用普通 Rust 业务库；原生输入法宿主接入共享输入运行时；输入算法继续由 MSIME-Engine 提供。
 
-目前不能替代已发布的平台输入法。各阶段实现和验证记录见 [实施记录](docs/implementation.md)。
+目前不能替代已发布的平台输入法。各阶段实现和验证记录见 [实施记录](docs/implementation.md)；平台目录、构建入口和已知缺口见各平台 README。
 
 ## 模块边界
 
@@ -10,9 +10,20 @@
 - `crates/input-runtime`：会话编排、焦点取消、候选分页和带代次的选择；不复制 Engine 组词状态机。
 - `crates/engine-bridge`：通过 CXX 调用固定上游 C++ Engine 的公共 Session。
 - `crates/host-api`：版本化 C 接口、线程绑定的会话句柄和显式响应释放。
-- `packages/ui`、`apps/desktop`：共享 React 设置页与 Tauri 应用壳，桌面和 Android 使用同一个 Rust 入口库、commands 与 React 页面；目录名暂沿用 desktop。
+- `packages/ui`、`apps/desktop`：共享 React 设置页与 Tauri 应用壳，桌面和 Android 使用同一个 Rust 入口库、commands 与 React 页面；目录名暂沿用 desktop。Rust 入口按 `platform/{android,ios,linux,macos,windows,desktop}`、`shared/`、`tests/` 分层。
 - `shared/apple/`：macOS 与 iOS 共用的 Foundation / Objective-C++ 桥接，不包含系统输入法入口。
-- `platforms/`：macOS IMK、iOS 键盘控制器、Android InputMethodService 与 Linux IBus 预览宿主；Android 15 arm64 模拟器已验证系统输入和共享设置，Linux arm64 容器已验证 IBus daemon 输入链路。真机、Linux 图形桌面、Windows 系统入口以及 iOS Xcode target/签名仍待验证或完成。
+- `platforms/`：各系统入口和适配层。Android、iOS、macOS、Linux、Windows 与 HarmonyOS 均保留自己的宿主边界；共享输入算法和组合状态仍在 C++ Engine。Android 15 arm64 模拟器已验证系统输入和共享设置，Linux arm64 容器已验证 IBus daemon 输入链路，Windows 已完成跨目标与本地边界测试，HarmonyOS 目前只有源码/交叉构建入口。真机、Linux 图形桌面、Windows 系统入口、HarmonyOS 设备以及 iOS 签名和设备验收仍待完成。
+
+## 平台目录与状态
+
+| 平台 | 入口目录 | 当前可复现证据 | 尚未完成 |
+| --- | --- | --- | --- |
+| Android | `platforms/android/` | API 35 arm64 专用模拟器、Tauri/IME 合包和共享设置 | 真机、x86_64 合包、完整生命周期 |
+| iOS | `platforms/ios/` | Swift/配置测试和模拟器构建脚本 | Xcode target 签名、真机键盘扩展 |
+| macOS | `platforms/macos/` | IMK 预览 bundle、Rust/C++/CTest 和离屏 UI 测试 | 安装输入源、真实编辑器和权限验收 |
+| Linux | `platforms/linux/` | arm64 容器中的 IBus daemon、Fcitx5 构建和隔离测试 | 图形桌面、安装包和 Wayland/X11 端到端 |
+| Windows | `platforms/windows/`、`platforms/windows/tsf/` | x86/x64 交叉编译、管道/Server 边界测试 | Windows 原生运行、TSF 注册和编辑器验收 |
+| HarmonyOS | `platforms/harmony/` | ArkTS 逻辑测试和 OpenHarmony NDK 构建入口 | DevEco/HAP 设备运行和系统输入验收 |
 
 共享库可以加载进不同宿主进程；不要求启动 Tauri 才能输入。跨进程设置变更需要明确的持久化与通知机制。
 
@@ -42,7 +53,7 @@ Android 合包构建和设备测试见 [Android 宿主](platforms/android/README
 
 Linux 本地构建和隔离 D-Bus / IBus 测试见 [Linux 宿主](platforms/linux/README.md)。目前使用准备好的配置快照，自动重读设置与图形桌面安装验收仍待完成。
 
-平台宿主按 Windows → macOS → iOS → Linux 渐进迁移；Client 侧当前集中完善 macOS、iOS 与 Android 的共享宿主边界，并保留 Linux IBus 预览宿主。Windows 目录属于独立平台实现，不是本轮 Client 共享层的依赖；各平台的真实系统入口、签名、安装和设备验收按宿主条件分别推进。
+平台迁移以 MSIME-Windows 完整功能为行为基线，逐项把公共业务和界面接入共享层/Tauri，同时保留 Windows TSF DLL / Server 的进程和协议边界。Android、iOS、macOS、Linux 与 HarmonyOS 按各自系统能力适配；目录整理或跨目标编译不等于系统入口、签名、安装和设备验收完成。
 
 ## Engine 桥接
 
