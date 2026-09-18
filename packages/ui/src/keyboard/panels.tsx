@@ -480,7 +480,6 @@ export function KeyboardPanel({ client, platform, theme = "dark", layout = "twen
           const letter = keyToRender.label.length === 1 && /[a-z]/i.test(keyToRender.label);
           const shifted = renderedModifiers.has("Shift") && keyToRender.label.length === 1;
           const label = shifted ? (keyToRender.shifted || (letter ? keyToRender.label.toUpperCase() : keyToRender.label)) : keyToRender.label;
-          const action = keyToRender.modifier || keyboardActionLabels.has(keyToRender.label);
           return <button type="button" disabled={openingVoice} key={`${keyToRender.label}-${keyIndex}`} style={{ flexGrow: activeLayout === "nine_key" ? 1 : keyboardKeyWeight(keyToRender.label, keyIndex, row.some(item => item.virtualKey === 0x20)) }} aria-pressed={keyToRender.modifier ? renderedModifiers.has(keyToRender.modifier) : undefined} className={`keyboard-key${materialClass}${keyToRender.modifier ? " modifier" : ""}${keyToRender.label === "Space" ? " space" : ""}${keyToRender.label.length > 1 ? " wide" : ""}${keyToRender.modifier && renderedModifiers.has(keyToRender.modifier) ? " active" : ""}`} onPointerDown={event => beginPointerKey(event, keyToRender)} onPointerUp={stopKeyRepeat} onPointerCancel={stopKeyRepeat} onPointerLeave={stopKeyRepeat} onClick={event => {
             // Pointer activation is delivered on pointerdown for immediate
             // response and repeat. A detail-zero click comes from keyboard or
