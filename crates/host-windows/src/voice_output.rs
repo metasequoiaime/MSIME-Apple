@@ -1,6 +1,8 @@
 //! Native output only; voice policy and recognition belong to the caller.
 
 use super::{InputTarget, MAX_TEXT_BYTES};
+#[path = "paste_policy.rs"]
+mod paste_policy;
 use windows_sys::Win32::Foundation::GlobalFree;
 use windows_sys::Win32::System::DataExchange::{
     CloseClipboard, EmptyClipboard, GetClipboardSequenceNumber, OpenClipboard, SetClipboardData,
@@ -27,8 +29,13 @@ pub fn focus_external(target: InputTarget) -> bool {
 
 /// Copy bounded text and paste it into the remembered external editor.
 /// Clipboard failure never sends Ctrl+V with unrelated existing contents.
+/// History uses its shared UTF-8 byte budget, not the smaller SendInput budget.
 pub fn paste_text(target: InputTarget, text: &str) -> bool {
-    if text.is_empty() || text.len() > MAX_TEXT_BYTES || text.contains('\0') {
+    paste_text_with_limit(target, text, msime_client_core::clipboard::MAX_TEXT_BYTES)
+}
+
+fn paste_text_with_limit(target: InputTarget, text: &str, max_bytes: usize) -> bool {
+    if !paste_policy::valid_paste_text(text, max_bytes) {
         return false;
     }
     if !focus_external(target) {
@@ -53,8 +60,9 @@ pub fn paste_text(target: InputTarget, text: &str) -> bool {
 }
 
 /// Paste voice output through the same guarded external-editor path.
+/// Keep the voice limit independent of the larger clipboard-history budget.
 pub fn paste_voice_text(target: InputTarget, text: &str) -> bool {
-    paste_text(target, text)
+    paste_text_with_limit(target, text, MAX_TEXT_BYTES)
 }
 
 fn write_unicode_clipboard(text: &str) -> Option<u32> {
