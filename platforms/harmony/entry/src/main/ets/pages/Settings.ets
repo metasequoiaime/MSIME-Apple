@@ -10,6 +10,7 @@ import { KeyboardLog, describeError } from '../keyboard/KeyboardLog';
 import { KeyboardSession } from '../keyboard/KeyboardSession';
 import { HarmonyAccountCloudBridge } from '../account/HarmonyAccountCloudBridge';
 import { utf8Length } from '../keyboard/Utf8';
+import { niutransAuth, tencentAuthorization } from '../keyboard/CredentialCrypto';
 
 /**
  * The settings window, which is the shared settings UI rather than a second one written here.
@@ -189,6 +190,28 @@ interface ChatCredentialBody {
   messages: AiMessageRequest[];
   thinking?: ThinkingOptions;
   enable_thinking?: boolean;
+}
+
+interface TencentTranslationBody {
+  Source: string;
+  Target: string;
+  ProjectId: number;
+  SourceTextList: string[];
+}
+
+interface TencentTranslationDocument {
+  Response?: TencentTranslationResponse;
+}
+
+interface TencentTranslationResponse {
+  TargetTextList?: string[];
+  Error?: Object;
+}
+
+interface NiuTransDocument {
+  tgtText?: string;
+  errorCode?: string | number;
+  errorMsg?: string;
 }
 
 interface ThinkingOptions {
@@ -525,11 +548,16 @@ class SettingsBridge {
     if (request.service === 'translation.custom') {
       return this.translationCredential(request.config);
     }
+    if (request.service === 'translation.tencent') {
+      return this.tencentCredential(request.config);
+    }
+    if (request.service === 'translation.niutrans') {
+      return this.niutransCredential(request.config);
+    }
     if (request.service === 'voice.polish') {
       return this.chatCredential(request.config);
     }
-    if (request.service === 'translation.tencent' || request.service === 'translation.niutrans'
-      || request.service === 'voice.asr') {
+    if (request.service === 'voice.asr') {
       return this.credentialReply(false, 'Harmony 当前尚未接入此服务的凭据测试。');
     }
     return this.credentialReply(false, 'Harmony 不支持此配置测试类型。');
@@ -573,6 +601,102 @@ class SettingsBridge {
     } catch (error) {
       KeyboardLog.error(`translation credential unavailable: ${describeError(error)}`);
       return this.credentialReply(false, '连接失败，请检查翻译接口地址、API Key 和网络。');
+    } finally {
+      request.destroy();
+    }
+  }
+
+  private async tencentCredential(config: ApiCredentialConfig): Promise<string> {
+    const secretId: string = (config.secret_id ?? '').trim();
+    const secretKey: string = (config.secret_key ?? '').trim();
+    const region: string = (config.region ?? '').trim();
+    if (!this.validCredentialSecret(secretId, 4096) || !this.validCredentialSecret(secretKey, 4096)
+      || region.length > 64 || Array.from(region).some((character: string): boolean => {
+        return !(/[A-Za-z0-9-]/.test(character));
+      })) {
+      return this.credentialReply(false, '请填写有效的腾讯云 SecretId、SecretKey 和地域。');
+    }
+    const milliseconds: number = Date.now();
+    const timestamp: number = Math.floor(milliseconds / 1000);
+    const date: string = new Date(milliseconds).toISOString().substring(0, 10);
+    const body: TencentTranslationBody = {
+      Source: 'zh', Target: 'en', ProjectId: 0, SourceTextList: ['测试']
+    };
+    const bodyDocument: string = JSON.stringify(body);
+    const authorization: string = await tencentAuthorization(
+      secretId, secretKey, timestamp, date, bodyDocument);
+    const request = http.createHttp();
+    try {
+      const response: http.HttpResponse = await request.request('https://tmt.tencentcloudapi.com', {
+        method: http.RequestMethod.POST,
+        header: {
+          Accept: 'application/json', 'Content-Type': 'application/json; charset=utf-8',
+          Host: 'tmt.tencentcloudapi.com', 'X-TC-Action': 'TextTranslateBatch',
+          'X-TC-Timestamp': String(timestamp), 'X-TC-Version': '2018-03-21',
+          'X-TC-Region': region.length > 0 ? region : 'ap-guangzhou', Authorization: authorization
+        },
+        connectTimeout: 5000,
+        readTimeout: 15000,
+        extraData: bodyDocument
+      });
+      if (response.responseCode < 200 || response.responseCode >= 300
+        || typeof response.result !== 'string' || utf8Length(response.result) > 256 * 1024) {
+        return this.credentialReply(false, '测试失败：腾讯云未返回有效译文。');
+      }
+      const document: TencentTranslationDocument = JSON.parse(response.result) as TencentTranslationDocument;
+      const translated: string[] | undefined = document.Response?.TargetTextList;
+      if (document.Response?.Error !== undefined || translated === undefined
+        || translated.length !== 1 || translated[0].trim().length === 0) {
+        return this.credentialReply(false, '测试失败：腾讯云未返回有效译文。');
+      }
+      return this.credentialReply(true, '连接成功，翻译服务配置有效。');
+    } catch (error) {
+      KeyboardLog.error(`Tencent translation credential unavailable: ${describeError(error)}`);
+      return this.credentialReply(false, '连接失败，请检查腾讯云凭据、地域和网络。');
+    } finally {
+      request.destroy();
+    }
+  }
+
+  private async niutransCredential(config: ApiCredentialConfig): Promise<string> {
+    const appId: string = (config.app_id ?? '').trim();
+    const apiKey: string = (config.apikey ?? '').trim();
+    if (!this.validCredentialSecret(appId, 4096) || !this.validCredentialSecret(apiKey, 4096)) {
+      return this.credentialReply(false, '请填写有效的小牛翻译 App ID 和 API Key。');
+    }
+    const timestamp: string = String(Date.now());
+    const authStr: string = await niutransAuth(appId, apiKey, timestamp, '测试');
+    const form: string = [
+      `from=${encodeURIComponent('zh')}`,
+      `to=${encodeURIComponent('en')}`,
+      `appId=${encodeURIComponent(appId)}`,
+      `timestamp=${encodeURIComponent(timestamp)}`,
+      `srcText=${encodeURIComponent('测试')}`,
+      `authStr=${encodeURIComponent(authStr)}`
+    ].join('&');
+    const request = http.createHttp();
+    try {
+      const response: http.HttpResponse = await request.request(
+        'https://api.niutrans.com/v2/text/translate', {
+          method: http.RequestMethod.POST,
+          header: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8' },
+          connectTimeout: 5000,
+          readTimeout: 15000,
+          extraData: form
+        });
+      if (response.responseCode < 200 || response.responseCode >= 300
+        || typeof response.result !== 'string' || utf8Length(response.result) > 256 * 1024) {
+        return this.credentialReply(false, '测试失败：小牛翻译未返回有效译文。');
+      }
+      const document: NiuTransDocument = JSON.parse(response.result) as NiuTransDocument;
+      if (document.errorCode !== undefined || document.errorMsg !== undefined
+        || document.tgtText === undefined || document.tgtText.trim().length === 0) {
+        return this.credentialReply(false, '测试失败：小牛翻译未返回有效译文。');
+      }
+      return this.credentialReply(true, '连接成功，翻译服务配置有效。');
+    } catch (error) {
+      KeyboardLog.error(`NiuTrans credential unavailable: ${describeError(error)}`);
+      return this.credentialReply(false, '连接失败，请检查小牛翻译凭据和网络。');
     } finally {
       request.destroy();
     }
