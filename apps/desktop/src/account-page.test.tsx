@@ -151,6 +151,42 @@ test("account errors are stable and never expose backend text", async () => {
   expect(screen.queryByText(/private backend detail/)).toBeNull();
 });
 
+test("account cancellation does not show a stale error alert", async () => {
+  const client = account({
+    status: vi.fn().mockRejectedValue({ code: "account_cancelled" }),
+  });
+  render(<AccountPage client={client} />);
+  expect(await screen.findByRole("heading", { name: "登录方式" })).not.toBeNull();
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+test("an aborted profile request leaves the account page quiet", async () => {
+  const client = account({
+    status: vi.fn().mockResolvedValue({ user }),
+    profile: vi.fn().mockRejectedValue(new DOMException("The user aborted a request.", "AbortError")),
+  });
+  render(<AccountPage client={client} />);
+  expect(await screen.findByRole("heading", { name: "个人资料" })).not.toBeNull();
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
+test("settings sync cancellation does not become a visible account error", async () => {
+  const cancelled = vi.fn().mockRejectedValue({ code: "account_cancelled" });
+  const client = account({
+    status: vi.fn().mockResolvedValue({ user }),
+    settingsSync: {
+      schema: cancelled,
+      load: cancelled,
+      upload: vi.fn(),
+      apply: vi.fn(),
+    },
+  });
+  render(<AccountPage client={client} />);
+  expect(await screen.findByRole("heading", { name: "设置同步" })).not.toBeNull();
+  await waitFor(() => expect(screen.queryByText("操作已取消，请重试。")).toBeNull());
+  expect(screen.queryByRole("alert")).toBeNull();
+});
+
 test("logged-in accounts can open their published skin list", async () => {
   const openPublishedSkins = vi.fn();
   const client = account({ status: vi.fn().mockResolvedValue({ user }) });

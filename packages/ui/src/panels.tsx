@@ -103,6 +103,7 @@ export interface CloudDictionaryPanelClient extends PanelClient {
   downloadToLocal?(entry: CloudDictionaryEntry): Promise<void>;
   openCatalog?(): Promise<void>;
   openCandidates?(): Promise<void>;
+  openFiles?(): Promise<void>;
   back?(): Promise<void>;
 }
 
@@ -1177,7 +1178,11 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
   }, [client]);
 
   function add() {
-    if (!draft || !enabled) return;
+    if (!enabled || draft.trim().length === 0 || draft.length > 4000) {
+      if (draft.trim().length === 0) setNotice("请输入要上传的文本");
+      else if (draft.length > 4000) setNotice("上传内容不能超过 4000 个 UTF-16 单元");
+      return;
+    }
     const uploadedRevision = draftRevision.current;
     return run(async revision => {
       await client.request({ operation: "add", text: draft });
@@ -1228,7 +1233,7 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
       <label className="cloud-clipboard-toggle"><span>启用云剪贴板</span><input type="checkbox" checked={enabled} onChange={() => void toggle()} disabled={busy || !loaded} /></label>
       {confirmDisable && <div role="alertdialog" aria-label="关闭云剪贴板" aria-modal="true"><p>关闭云剪贴板会删除云端历史，是否继续？</p><button type="button" disabled={busy} onClick={() => void toggle(true)}>确认关闭并删除历史</button><button type="button" onClick={() => setConfirmDisable(false)}>取消</button></div>}
       <div className="cloud-clipboard-search"><input aria-label="搜索云端历史" value={search} onChange={event => { searchRef.current = event.target.value; setSearch(event.target.value); }} onKeyDown={event => { if (event.key === "Enter") void refresh(); }} placeholder="搜索云端历史" /><button type="button" onClick={() => void refresh()} disabled={busy}>刷新</button></div>
-      <div className="cloud-clipboard-add"><textarea aria-label="待上传文本" value={draft} onChange={event => { draftRevision.current++; setDraft(event.target.value); }} placeholder="输入要上传的文本" rows={3} /><button type="button" onClick={() => void add()} disabled={!enabled || !draft || busy}>上传明确选择的文本</button></div>
+      <div className="cloud-clipboard-add"><textarea aria-label="待上传文本" value={draft} onChange={event => { draftRevision.current++; setDraft(event.target.value); }} placeholder="输入要上传的文本" rows={3} /><small className={draft.length > 4000 ? "cloud-clipboard-length invalid" : "cloud-clipboard-length"}>{draft.length} / 4000</small><button type="button" onClick={() => void add()} disabled={!enabled || draft.trim().length === 0 || draft.length > 4000 || busy}>上传明确选择的文本</button></div>
       <div className="cloud-clipboard-list" aria-label="云端历史">{items.length ? items.map(item => <article className="cloud-clipboard-item" key={item.id}><button type="button" disabled={busy} onClick={() => void choose(item)}>{item.text}</button>{client.copyText && <button type="button" disabled={busy} aria-label="复制此条云端记录" onClick={() => void choose(item, true)}>复制</button>}<button type="button" className="cloud-clipboard-delete" aria-label={`删除 ${item.text}`} onClick={() => void remove(item.id)} disabled={busy}>删除</button></article>) : <p className="cloud-clipboard-empty">暂无云端历史</p>}</div>
       <p className="cloud-clipboard-notice" role="status">{notice}</p>
     </div>
@@ -1248,7 +1253,6 @@ function cloudDictionaryEntries(value: CloudDictionaryResponse) {
 export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelClient }) {
   const [kind, setKind] = useState<CloudDictionaryKind>("pinyin");
   const [search, setSearch] = useState("");
-  const [format, setFormat] = useState<CloudDictionaryFileFormat>("standard");
   const [offset, setOffset] = useState(0);
   const [entries, setEntries] = useState<CloudDictionaryEntry[]>([]);
   const [hasMore, setHasMore] = useState(false);
@@ -1462,6 +1466,11 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
     }, "云词条删除失败，请刷新后重试");
   }
 
+  function confirmRemove(entry: CloudDictionaryEntry) {
+    if (busyRef.current || !window.confirm(`确认删除云词条“${entry.word}”？仅删除云端版本，本机词库不会改变。`)) return;
+    void remove(entry);
+  }
+
   function downloadToLocal(entry: CloudDictionaryEntry) {
     if (busyRef.current || !client.downloadToLocal || !window.confirm(`确认将云词条“${entry.word}”加入本机个人词典？`)) return;
     const download = client.downloadToLocal;
@@ -1471,22 +1480,104 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
     }, "加入本机词典失败，请重试");
   }
 
-  function importFile(file: File) {
+  function changeKind(next: CloudDictionaryKind) {
+    if (busyRef.current || next === kind) return;
+    setKind(next);
+    setForm(null);
+    setOffset(0);
+    setEntries([]);
+    setHasMore(false);
+    void refresh(0, searchRef.current, next);
+  }
+  return <main className="native-panel cloud-dictionary-panel" aria-label="云词典">
+    <header className="native-panel-header"><span>水杉云词典</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
+    <div className="cloud-dictionary-body">
+      <p className="cloud-dictionary-description">管理当前账号的云端词条。修改需要 provider 提供登录态和同步服务。</p>
+      <div className="cloud-dictionary-kind-tabs" role="tablist" aria-label="云词库类型">{cloudDictionaryKinds.map(([value, label]) => <button key={value} type="button" role="tab" aria-selected={kind === value} className={kind === value ? "active" : ""} onClick={() => changeKind(value)} disabled={busy}>{label}</button>)}</div>
+      <div className="cloud-dictionary-toolbar"><label>词库<select aria-label="词库类型" value={kind} onChange={event => changeKind(event.target.value as CloudDictionaryKind)} disabled={busy}>{cloudDictionaryKinds.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className="cloud-dictionary-search">搜索<input aria-label="搜索云词条" value={search} onChange={event => { searchRef.current = event.target.value; setSearch(event.target.value); }} onKeyDown={event => { if (event.key === "Enter") void refresh(0); }} placeholder="词条或编码" /></label><button type="button" onClick={() => void refresh(0)} disabled={busy}>查询</button><button type="button" onClick={beginAdd} disabled={busy}>添加词条</button>{client.openCatalog && <button type="button" onClick={() => void client.openCatalog?.()} disabled={busy}>完整目录</button>}{client.openCandidates && <button type="button" onClick={() => void client.openCandidates?.()} disabled={busy}>云端候选排序</button>}{client.openFiles && <button type="button" onClick={() => void client.openFiles?.()} disabled={busy}>导入与导出</button>}</div>
+      {client.snapshot && <div className="cloud-dictionary-actions"><button type="button" onClick={() => void previewSnapshot()} disabled={busy || snapshotBusy}>下载并预览</button><button type="button" onClick={() => void exportSnapshot()} disabled={busy || snapshotBusy}>导出完整快照</button><label className="secondary">恢复快照<input hidden type="file" accept=".ndjson,application/x-ndjson" disabled={busy || snapshotBusy} onChange={event => { const file = event.target.files?.[0]; if (file) void chooseRestoreSnapshot(file); event.currentTarget.value = ""; }} /></label><button type="button" className="secondary" onClick={() => void refreshSnapshotStatus()} disabled={busy || snapshotBusy}>快照状态</button></div>}
+      {client.snapshot && snapshot && <div className="cloud-dictionary-notice" role="status"><p>云端 revision {snapshot.cloudRevision} · {snapshot.records} 条记录 · {snapshot.bytes} 字节</p><p>词条 {snapshot.entries} · 覆盖 {snapshot.overlays} · 固定 {snapshot.positions} · 选择 {snapshot.selections}</p><small>SHA-256：{snapshot.sha256}</small><div><button type="button" onClick={() => void enqueueSnapshot()} disabled={snapshotBusy || !snapshotToken}>确认加入本机</button><button type="button" className="secondary" onClick={() => { setSnapshot(null); setSnapshotToken(null); }} disabled={snapshotBusy}>放弃预览</button></div></div>}
+      {client.snapshot && snapshotStatus?.request && <div className="cloud-dictionary-notice" role="status">快照状态：{snapshotStatus.request.status} · 云端 revision {snapshotStatus.request.cloudRevision}{(snapshotStatus.request.status === "queued" || snapshotStatus.request.status === "preparing") && <button type="button" className="secondary" onClick={() => void cancelSnapshot()} disabled={snapshotBusy}>取消待应用</button>}</div>}
+      {client.snapshot && restorePreview && <div className="cloud-dictionary-notice" role="status"><p>待恢复快照：云端 revision {restorePreview.snapshot.cloudRevision} · {restorePreview.snapshot.records} 条记录 · {restorePreview.snapshot.bytes} 字节</p><p>词条 {restorePreview.snapshot.entries} · 覆盖 {restorePreview.snapshot.overlays} · 固定 {restorePreview.snapshot.positions} · 选择 {restorePreview.snapshot.selections}</p><small>当前云端 revision：{restorePreview.expectedRevision} · SHA-256：{restorePreview.snapshot.sha256}</small><div><button type="button" onClick={() => void restoreSnapshot()} disabled={snapshotBusy}>确认恢复云端词库</button><button type="button" className="secondary" onClick={() => setRestorePreview(null)} disabled={snapshotBusy}>放弃恢复</button></div></div>}
+      {form && <div className="cloud-dictionary-form"><label>编码<input disabled={busy} value={form.code} onChange={event => setForm({ ...form, code: event.target.value })} /></label><label className="cloud-dictionary-word">词条<input disabled={busy} value={form.word} onChange={event => setForm({ ...form, word: event.target.value })} /></label><label>权重<input disabled={busy} type="number" min="0" value={form.weight} onChange={event => setForm({ ...form, weight: Number(event.target.value) })} /></label><button type="button" onClick={() => void save()} disabled={busy}>保存</button><button type="button" className="secondary" onClick={() => setForm(null)} disabled={busy}>取消</button></div>}
+      {entries.length > 0 && <p className="cloud-dictionary-mobile-hint">点按词条可编辑；窄屏下的下载和删除操作会分组显示。</p>}
+      <div className="cloud-dictionary-list" aria-label="云词条">{entries.length ? entries.map(entry => <article className="cloud-dictionary-item" key={entry.id}><button type="button" className="cloud-dictionary-item-main" aria-label={`编辑云词条 ${entry.word}`} onClick={() => beginEdit(entry)} disabled={busy}><strong>{entry.word}</strong><small>{entry.code} · 权重 {entry.weight}</small></button><div className="cloud-dictionary-item-actions">{client.downloadToLocal && <button type="button" className="secondary" aria-label={`下载到本机 ${entry.word}`} onClick={() => void downloadToLocal(entry)} disabled={busy}>下载到本机</button>}<button type="button" className="secondary" onClick={() => beginEdit(entry)} disabled={busy}>编辑</button><button type="button" className="secondary" onClick={() => confirmRemove(entry)} disabled={busy}>删除</button></div></article>) : <p className="cloud-dictionary-empty">暂无词条</p>}</div>
+      <div className="cloud-dictionary-pagination"><button type="button" onClick={() => void refresh(Math.max(0, offset - 100))} disabled={busy || offset === 0}>上一页</button><span>第 {Math.floor(offset / 100) + 1} 页</span><button type="button" onClick={() => void refresh(offset + 100)} disabled={busy || !hasMore}>下一页</button></div>
+      <p className="cloud-dictionary-notice" role="status">{notice}</p>
+    </div>
+  </main>;
+}
+
+/** File transfer lives on its own page so the dictionary list stays focused on entries. */
+export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryPanelClient }) {
+  const [kind, setKind] = useState<CloudDictionaryKind>("pinyin");
+  const [format, setFormat] = useState<CloudDictionaryFileFormat>("standard");
+  const [file, setFile] = useState<{ name: string; text: string; bytes: number } | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [notice, setNotice] = useState("选择 UTF-8 TSV 文件后确认上传；导出不会改变云端内容");
+  const requestRevision = useRef(0);
+  const busyRef = useRef(false);
+
+  async function run(action: (revision: number) => Promise<void>, failure: string) {
     if (busyRef.current) return;
-    if (file.size > 65536) { setNotice("导入文件不能超过 64 KiB"); return; }
-    return run(async revision => {
-      const text = await file.text();
-      if (revision !== refreshRevision.current) return;
-      await client.request({ operation: "import", kind, format, text });
-      await reloadAfterMutation(revision, "云词库已导入");
+    const revision = ++requestRevision.current;
+    busyRef.current = true;
+    setBusy(true);
+    try { await action(revision); }
+    catch { if (revision === requestRevision.current) setNotice(failure); }
+    finally {
+      if (revision === requestRevision.current) {
+        busyRef.current = false;
+        setBusy(false);
+      }
+    }
+  }
+
+  function changeKind(next: CloudDictionaryKind) {
+    if (busyRef.current || next === kind) return;
+    setKind(next);
+    setFile(null);
+    if (next !== "pinyin" && format === "hans") setFormat("standard");
+  }
+
+  function chooseFile(selected: File) {
+    if (busyRef.current) return;
+    if (selected.size === 0 || selected.size > 65536) {
+      setFile(null);
+      setNotice("导入文件必须大于 0 且不超过 64 KiB");
+      return;
+    }
+    void run(async revision => {
+      let text: string;
+      try {
+        text = await selected.text();
+      } catch {
+        throw new Error("invalid file");
+      }
+      if (revision !== requestRevision.current) return;
+      if (!text || text.includes("\u0000")) throw new Error("invalid file");
+      setFile({ name: selected.name || "dictionary.tsv", text, bytes: selected.size });
+      setNotice("文件已读取；确认后才会写入云端");
+    }, "无法读取文件，请确认是大小不超过 64 KiB 的 UTF-8 文本");
+  }
+
+  function importFile() {
+    const prepared = file;
+    if (!prepared || busyRef.current) return;
+    if (!window.confirm(`确认按“${format === "hans" ? "汉字自动注音" : format === "windows" ? "Windows TSV" : "标准 TSV"}”导入 ${kind === "pinyin" ? "拼音" : kind === "wubi" ? "五笔" : kind === "quick" ? "快捷短语" : "英文"}词库？`)) return;
+    void run(async revision => {
+      await client.request({ operation: "import", kind, format, text: prepared.text });
+      if (revision !== requestRevision.current) return;
+      setFile(null);
+      setNotice("云词库已导入；如需影响本机输入，请另行应用到本机");
     }, "导入失败，请检查 UTF-8 TSV 文件格式");
   }
 
   function exportDictionary() {
-    return run(async revision => {
-      if (format === "hans") throw new Error("format cannot be exported");
+    if (format === "hans") return;
+    void run(async revision => {
       const result = await client.request({ operation: "export", kind, format });
-      if (revision !== refreshRevision.current) return;
+      if (revision !== requestRevision.current) return;
       const text = typeof result.text === "string" ? result.text : result.content;
       if (typeof text !== "string") throw new Error("provider returned no file");
       const anchor = document.createElement("a");
@@ -1502,28 +1593,16 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
     }, "导出失败，请确认 provider 已连接");
   }
 
-  function changeKind(next: CloudDictionaryKind) {
-    if (busyRef.current || next === kind) return;
-    setKind(next);
-    setForm(null);
-    if (next !== "pinyin" && format === "hans") setFormat("standard");
-    setOffset(0);
-    setEntries([]);
-    setHasMore(false);
-    void refresh(0, searchRef.current, next);
-  }
-  return <main className="native-panel cloud-dictionary-panel" aria-label="云词典">
-    <header className="native-panel-header"><span>水杉云词典</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
+  useEffect(() => () => { requestRevision.current++; }, []);
+
+  return <main className="native-panel cloud-dictionary-panel" aria-label="云词库文件">
+    <header className="native-panel-header"><button type="button" aria-label="返回云词典" onClick={() => void (client.back ? client.back() : client.close())}>‹</button><span>导入与导出</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
     <div className="cloud-dictionary-body">
-      <p className="cloud-dictionary-description">管理当前账号的云端词条。修改需要 provider 提供登录态和同步服务。</p>
-      <div className="cloud-dictionary-toolbar"><label>词库<select aria-label="词库类型" value={kind} onChange={event => changeKind(event.target.value as CloudDictionaryKind)} disabled={busy}>{cloudDictionaryKinds.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className="cloud-dictionary-search">搜索<input aria-label="搜索云词条" value={search} onChange={event => { searchRef.current = event.target.value; setSearch(event.target.value); }} onKeyDown={event => { if (event.key === "Enter") void refresh(0); }} placeholder="词条或编码" /></label><button type="button" onClick={() => void refresh(0)} disabled={busy}>查询</button><button type="button" onClick={beginAdd} disabled={busy}>添加词条</button>{client.openCatalog && <button type="button" onClick={() => void client.openCatalog?.()} disabled={busy}>完整目录</button>}{client.openCandidates && <button type="button" onClick={() => void client.openCandidates?.()} disabled={busy}>云端候选排序</button>}</div>
-      <div className="cloud-dictionary-actions"><label>文件格式<select aria-label="文件格式" value={format} onChange={event => setFormat(event.target.value as CloudDictionaryFileFormat)} disabled={busy}><option value="standard">标准 TSV</option><option value="windows">Windows TSV</option>{kind === "pinyin" && <option value="hans">汉字自动注音（仅导入）</option>}</select></label><button type="button" onClick={() => void exportDictionary()} disabled={busy || format === "hans"}>导出</button><label className="secondary">导入<input hidden type="file" accept=".txt,.tsv,text/plain" disabled={busy} onChange={event => { const file = event.target.files?.[0]; if (file) void importFile(file); event.currentTarget.value = ""; }} /></label>{client.snapshot && <><button type="button" onClick={() => void previewSnapshot()} disabled={busy || snapshotBusy}>下载并预览</button><button type="button" onClick={() => void exportSnapshot()} disabled={busy || snapshotBusy}>导出完整快照</button><label className="secondary">恢复快照<input hidden type="file" accept=".ndjson,application/x-ndjson" disabled={busy || snapshotBusy} onChange={event => { const file = event.target.files?.[0]; if (file) void chooseRestoreSnapshot(file); event.currentTarget.value = ""; }} /></label><button type="button" className="secondary" onClick={() => void refreshSnapshotStatus()} disabled={busy || snapshotBusy}>快照状态</button></>}</div>
-      {client.snapshot && snapshot && <div className="cloud-dictionary-notice" role="status"><p>云端 revision {snapshot.cloudRevision} · {snapshot.records} 条记录 · {snapshot.bytes} 字节</p><p>词条 {snapshot.entries} · 覆盖 {snapshot.overlays} · 固定 {snapshot.positions} · 选择 {snapshot.selections}</p><small>SHA-256：{snapshot.sha256}</small><div><button type="button" onClick={() => void enqueueSnapshot()} disabled={snapshotBusy || !snapshotToken}>确认加入本机</button><button type="button" className="secondary" onClick={() => { setSnapshot(null); setSnapshotToken(null); }} disabled={snapshotBusy}>放弃预览</button></div></div>}
-      {client.snapshot && snapshotStatus?.request && <div className="cloud-dictionary-notice" role="status">快照状态：{snapshotStatus.request.status} · 云端 revision {snapshotStatus.request.cloudRevision}{(snapshotStatus.request.status === "queued" || snapshotStatus.request.status === "preparing") && <button type="button" className="secondary" onClick={() => void cancelSnapshot()} disabled={snapshotBusy}>取消待应用</button>}</div>}
-      {client.snapshot && restorePreview && <div className="cloud-dictionary-notice" role="status"><p>待恢复快照：云端 revision {restorePreview.snapshot.cloudRevision} · {restorePreview.snapshot.records} 条记录 · {restorePreview.snapshot.bytes} 字节</p><p>词条 {restorePreview.snapshot.entries} · 覆盖 {restorePreview.snapshot.overlays} · 固定 {restorePreview.snapshot.positions} · 选择 {restorePreview.snapshot.selections}</p><small>当前云端 revision：{restorePreview.expectedRevision} · SHA-256：{restorePreview.snapshot.sha256}</small><div><button type="button" onClick={() => void restoreSnapshot()} disabled={snapshotBusy}>确认恢复云端词库</button><button type="button" className="secondary" onClick={() => setRestorePreview(null)} disabled={snapshotBusy}>放弃恢复</button></div></div>}
-      {form && <div className="cloud-dictionary-form"><label>编码<input disabled={busy} value={form.code} onChange={event => setForm({ ...form, code: event.target.value })} /></label><label className="cloud-dictionary-word">词条<input disabled={busy} value={form.word} onChange={event => setForm({ ...form, word: event.target.value })} /></label><label>权重<input disabled={busy} type="number" min="0" value={form.weight} onChange={event => setForm({ ...form, weight: Number(event.target.value) })} /></label><button type="button" onClick={() => void save()} disabled={busy}>保存</button><button type="button" className="secondary" onClick={() => setForm(null)} disabled={busy}>取消</button></div>}
-      <div className="cloud-dictionary-list" aria-label="云词条">{entries.length ? entries.map(entry => <article className="cloud-dictionary-item" key={entry.id}><div><strong>{entry.word}</strong><small>{entry.code} · 权重 {entry.weight}</small></div><span>{client.downloadToLocal && <button type="button" className="secondary" aria-label={`下载到本机 ${entry.word}`} onClick={() => void downloadToLocal(entry)} disabled={busy}>下载到本机</button>}<button type="button" className="secondary" onClick={() => beginEdit(entry)} disabled={busy}>编辑</button><button type="button" className="secondary" onClick={() => void remove(entry)} disabled={busy}>删除</button></span></article>) : <p className="cloud-dictionary-empty">暂无词条</p>}</div>
-      <div className="cloud-dictionary-pagination"><button type="button" onClick={() => void refresh(Math.max(0, offset - 100))} disabled={busy || offset === 0}>上一页</button><span>第 {Math.floor(offset / 100) + 1} 页</span><button type="button" onClick={() => void refresh(offset + 100)} disabled={busy || !hasMore}>下一页</button></div>
+      <div className="cloud-dictionary-kind-tabs" role="tablist" aria-label="云词库类型">{cloudDictionaryKinds.map(([value, label]) => <button key={value} type="button" role="tab" aria-selected={kind === value} className={kind === value ? "active" : ""} onClick={() => changeKind(value)} disabled={busy}>{label}</button>)}</div>
+      <div className="cloud-dictionary-toolbar"><label>词库<select aria-label="词库类型" value={kind} onChange={event => changeKind(event.target.value as CloudDictionaryKind)} disabled={busy}>{cloudDictionaryKinds.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>文件格式<select aria-label="文件格式" value={format} onChange={event => setFormat(event.target.value as CloudDictionaryFileFormat)} disabled={busy}><option value="standard">标准 TSV</option><option value="windows">Windows TSV</option>{kind === "pinyin" && <option value="hans">汉字自动注音（仅导入）</option>}</select></label></div>
+      <p className="cloud-dictionary-description">导入只处理你明确选择的本地文件，读取和上传均有 64 KiB 边界；导出所选类型的云端个人词条。</p>
+      <section className="cloud-dictionary-file-section" aria-label="导入云词库"><h2>导入云词库</h2><label className="secondary">选择 UTF-8 文件<input hidden type="file" accept=".txt,.tsv,text/plain" disabled={busy} onChange={event => { const selected = event.target.files?.[0]; if (selected) chooseFile(selected); event.currentTarget.value = ""; }} /></label>{file && <div className="cloud-dictionary-file-preview"><strong>{file.name}</strong><small>{file.bytes} 字节</small><pre>{file.text.slice(0, 2000)}</pre><button type="button" onClick={importFile} disabled={busy}>确认上传到云端</button><button type="button" className="secondary" onClick={() => setFile(null)} disabled={busy}>取消</button></div>}</section>
+      <section className="cloud-dictionary-file-section" aria-label="导出云词库"><h2>导出云词库</h2><p className="cloud-dictionary-description">文件会下载到当前设备，不会修改云端词条。</p><button type="button" onClick={exportDictionary} disabled={busy || format === "hans"}>导出当前类型</button></section>
       <p className="cloud-dictionary-notice" role="status">{notice}</p>
     </div>
   </main>;
@@ -1631,6 +1710,11 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
     }, "目录删除失败，请刷新后重试");
   }
 
+  function confirmRemove(entry: CloudDictionaryCatalogEntry) {
+    if (busyRef.current || !window.confirm(`确认删除完整目录词条“${entry.word}”？仅删除云端版本，本机词库不会改变。`)) return;
+    void remove(entry);
+  }
+
   function changeKind(next: CloudDictionaryKind) {
     if (busyRef.current || next === kind) return;
     setKind(next);
@@ -1647,7 +1731,8 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
       <div className="cloud-dictionary-toolbar"><label>词库<select aria-label="词库类型" value={kind} onChange={event => changeKind(event.target.value as CloudDictionaryKind)} disabled={busy}>{cloudDictionaryKinds.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className="cloud-dictionary-search">编码<input aria-label="完整目录编码" value={code} onChange={event => setCode(event.target.value)} onKeyDown={event => { if (event.key === "Enter") void queryCatalog(); }} placeholder={kind === "quick" ? "可留空" : "例如 shi、a 或 hello"} /></label><button type="button" onClick={() => void queryCatalog()} disabled={busy || (kind !== "quick" && !code.trim())}>查询完整目录</button></div>
       {kind === "pinyin" && <div className="cloud-dictionary-actions"><label>编码方案<select aria-label="编码方案" value={scheme} onChange={event => setScheme(event.target.value)} disabled={busy}><option value="pinyin">全拼</option><option value="shuangpin">双拼</option></select></label>{scheme === "shuangpin" && <label>双拼方案<select aria-label="双拼方案" value={profile} onChange={event => setProfile(event.target.value)} disabled={busy}><option value="xiaohe">小鹤</option><option value="ziranma">自然码</option><option value="microsoft">微软</option><option value="shoudao">首道</option></select></label>}</div>}
       <p className="cloud-dictionary-description">包含基础词库与当前账号修改。编辑和删除只影响云端目录，不会自动修改本机词库。</p>
-      {confirmed && <div className="cloud-dictionary-list" aria-label="完整目录结果"><p>查询编码：{normalized} · 云端版本 {revision}</p>{entries.length ? entries.map(entry => <article className="cloud-dictionary-item" key={`${entry.kind}:${entry.code}:${entry.word}`}><div><strong>{entry.word}</strong><small>{entry.code} · 权重 {entry.weight}</small></div><span><button type="button" className="secondary" onClick={() => beginEdit(entry)} disabled={busy}>编辑</button><button type="button" className="secondary" onClick={() => void remove(entry)} disabled={busy}>删除</button></span></article>) : <p className="cloud-dictionary-empty">没有匹配的词条</p>}</div>}
+      {confirmed && entries.length > 0 && <p className="cloud-dictionary-mobile-hint">点按词条可编辑；窄屏下的删除操作会分组显示。</p>}
+      {confirmed && <div className="cloud-dictionary-list" aria-label="完整目录结果"><p>查询编码：{normalized} · 云端版本 {revision}</p>{entries.length ? entries.map(entry => <article className="cloud-dictionary-item" key={`${entry.kind}:${entry.code}:${entry.word}`}><button type="button" className="cloud-dictionary-item-main" aria-label={`编辑完整目录词条 ${entry.word}`} onClick={() => beginEdit(entry)} disabled={busy}><strong>{entry.word}</strong><small>{entry.code} · 权重 {entry.weight}</small></button><div className="cloud-dictionary-item-actions"><button type="button" className="secondary" onClick={() => beginEdit(entry)} disabled={busy}>编辑</button><button type="button" className="secondary" onClick={() => confirmRemove(entry)} disabled={busy}>删除</button></div></article>) : <p className="cloud-dictionary-empty">没有匹配的词条</p>}</div>}
       {form && <div className="cloud-dictionary-form"><label>编码<input disabled={busy} value={form.code} onChange={event => setForm({ ...form, code: event.target.value })} /></label><label className="cloud-dictionary-word">词条<input disabled={busy} value={form.word} onChange={event => setForm({ ...form, word: event.target.value })} /></label><label>权重<input disabled={busy} type="number" min="0" value={form.weight} onChange={event => setForm({ ...form, weight: Number(event.target.value) })} /></label><button type="button" onClick={() => void save()} disabled={busy}>保存</button><button type="button" className="secondary" onClick={() => setForm(null)} disabled={busy}>取消</button></div>}
       {confirmed && <div className="cloud-dictionary-pagination"><button type="button" onClick={() => void queryCatalog(Math.max(0, offset - 100), confirmed)} disabled={busy || offset === 0}>上一页</button><span>第 {Math.floor(offset / 100) + 1} 页</span><button type="button" onClick={() => void queryCatalog(offset + 100, confirmed)} disabled={busy || !hasMore}>下一页</button></div>}
       <p className="cloud-dictionary-notice" role="status">{notice}</p>
@@ -1804,8 +1889,9 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
       {kind === "pinyin" && <div className="cloud-dictionary-actions"><label><input type="checkbox" checked={jianpin} onChange={event => setJianpin(event.target.checked)} disabled={busy} />简拼候选</label><label>编码方案<select aria-label="候选编码方案" value={scheme} onChange={event => setScheme(event.target.value)} disabled={busy}><option value="pinyin">全拼</option><option value="shuangpin">双拼</option></select></label>{scheme === "shuangpin" && <label>双拼方案<select aria-label="候选双拼方案" value={profile} onChange={event => setProfile(event.target.value)} disabled={busy}><option value="xiaohe">小鹤</option><option value="ziranma">自然码</option><option value="microsoft">微软</option><option value="shoudao">首道</option></select></label>}</div>}
       {kind !== "quick" && <div className="cloud-dictionary-actions"><label>调频方式<select aria-label="调频方式" value={mode} onChange={event => setMode(event.target.value as CloudRankingMode)} disabled={busy}>{cloudRankingModes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>线性步长<input aria-label="线性步长" type="number" min="1" max="100" value={step} onChange={event => setStep(Math.max(1, Math.min(100, Number(event.target.value) || 1)))} disabled={busy || mode !== "linear"} /></label><label>触发次数<input aria-label="触发次数" type="number" min="1" max="10" value={trigger} onChange={event => setTrigger(Math.max(1, Math.min(10, Number(event.target.value) || 1)))} disabled={busy} /></label><label><input type="checkbox" checked={forceTop} onChange={event => setForceTop(event.target.checked)} disabled={busy} />强制置顶</label><label>固定位置<select aria-label="固定位置" value={position} onChange={event => setPosition(Number(event.target.value))} disabled={busy}>{[1, 2, 3, 4, 5].map(value => <option key={value} value={value}>{value}</option>)}</select></label></div>}
       <p className="cloud-dictionary-description">排序、固定位置和删除只保存到当前账号；本机键盘需要后续同步才会采用云端状态。</p>
-      {query && <div className="cloud-dictionary-list" aria-label="云端候选结果"><p>查询编码：{query.text} · 云端版本 {revision}</p>{candidates.length ? candidates.map((candidate, index) => <article className="cloud-dictionary-item" key={`${candidateMutationCode(candidate)}:${candidate.word}`}><div><strong>{index + 1}. <span className="cloud-candidate-word">{candidate.word}</span></strong><small>{candidate.code} · 权重 {candidate.weight}</small></div>{kind !== "quick" && <span><button type="button" className="secondary" onClick={() => void rank(candidate)} disabled={busy}>调频</button><button type="button" className="secondary" onClick={() => void setFixed(candidate, position)} disabled={busy}>固定</button><button type="button" className="secondary" onClick={() => void remove(candidate)} disabled={busy || (kind !== "english" && Array.from(candidate.word).length <= 1)}>删除</button></span>}</article>) : <p className="cloud-dictionary-empty">没有匹配的候选</p>}</div>}
-      {positions.length > 0 && <div className="cloud-dictionary-list" aria-label="固定位置"><p>此查询的固定位置</p>{positions.map(item => <article className="cloud-dictionary-item" key={`${item.context}:${item.code}:${item.word}`}><div><strong>第 {item.position} 位 · {item.word}</strong><small>{item.code}</small></div><button type="button" className="secondary" onClick={() => void unfix(item)} disabled={busy}>取消固定</button></article>)}</div>}
+      {query && <div className="cloud-dictionary-list" aria-label="云端候选结果"><p>查询编码：{query.text} · 云端版本 {revision}</p>{candidates.length ? candidates.map((candidate, index) => <article className="cloud-dictionary-item" key={`${candidateMutationCode(candidate)}:${candidate.word}`}><button type="button" className="cloud-dictionary-item-main" aria-label={`调频候选 ${candidate.word}`} onClick={() => void rank(candidate)} disabled={busy || kind === "quick"}><strong>{index + 1}. <span className="cloud-candidate-word">{candidate.word}</span></strong><small>{candidate.code} · 权重 {candidate.weight}</small></button>{kind !== "quick" && <div className="cloud-dictionary-item-actions"><button type="button" className="secondary" onClick={() => void rank(candidate)} disabled={busy}>调频</button><button type="button" className="secondary" onClick={() => void setFixed(candidate, position)} disabled={busy}>固定</button><button type="button" className="secondary" onClick={() => void remove(candidate)} disabled={busy || (kind !== "english" && Array.from(candidate.word).length <= 1)}>删除</button></div>}</article>) : <p className="cloud-dictionary-empty">没有匹配的候选</p>}</div>}
+      {query && candidates.length > 0 && <p className="cloud-dictionary-mobile-hint">点按候选可调频；窄屏下的固定和删除操作会分组显示。</p>}
+      {positions.length > 0 && <div className="cloud-dictionary-list" aria-label="固定位置"><p>此查询的固定位置</p>{positions.map(item => <article className="cloud-dictionary-item" key={`${item.context}:${item.code}:${item.word}`}><div className="cloud-dictionary-item-main cloud-dictionary-item-static"><strong>第 {item.position} 位 · {item.word}</strong><small>{item.code}</small></div><div className="cloud-dictionary-item-actions"><button type="button" className="secondary" onClick={() => void unfix(item)} disabled={busy}>取消固定</button></div></article>)}</div>}
       <p className="cloud-dictionary-notice" role="status">{notice}</p>
     </div>
   </main>;

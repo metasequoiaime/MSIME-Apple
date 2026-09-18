@@ -79,6 +79,14 @@ export type AccountCommunityDestination =
 type Channel = "email" | "phone";
 type Confirmation = "logout-all" | "delete" | null;
 
+function isAccountCancellation(error: unknown): boolean {
+  if (typeof error === "object" && error !== null && "code" in error && error.code === "account_cancelled") return true;
+  if (typeof DOMException !== "undefined" && error instanceof DOMException && error.name === "AbortError") return true;
+  if (!(error instanceof Error)) return false;
+  const message = error.message.trim().toLowerCase();
+  return error.name === "AbortError" || message === "cancelled" || message === "the operation was aborted.";
+}
+
 function accountMessage(error: unknown): string {
   if (typeof error === "object" && error !== null && "code" in error) {
     switch (error.code) {
@@ -113,7 +121,7 @@ function MobileAccountProfilePage({ client, user, profile, onBack, onSignedOut, 
   const perform = async (operation: () => Promise<void>) => {
     if (busy) return;
     setBusy(true); setError(""); setNotice("");
-    try { await operation(); } catch (cause) { setError(accountMessage(cause)); } finally { setBusy(false); }
+    try { await operation(); } catch (cause) { if (!isAccountCancellation(cause)) setError(accountMessage(cause)); } finally { setBusy(false); }
   };
   const rename = () => void perform(async () => {
     if (!validName) throw { code: "account_invalid" };
@@ -297,7 +305,7 @@ function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; user
       setSchema(nextSchema);
       setCloud(nextCloud);
     } catch (error) {
-      setMessage(accountMessage(error));
+      if (!isAccountCancellation(error)) setMessage(accountMessage(error));
     } finally {
       setBusy(false);
     }
@@ -314,7 +322,7 @@ function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; user
       setSchema(nextSchema);
       setCloud(nextCloud);
     }).catch(error => {
-      if (active) setMessage(accountMessage(error));
+      if (active && !isAccountCancellation(error)) setMessage(accountMessage(error));
     }).finally(() => {
       if (active) setBusy(false);
     });
@@ -332,7 +340,7 @@ function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; user
       else await client.apply(userId, cloud);
       setMessage(operation === "upload" ? "本机设置已上传。" : "已应用云端设置。请重新打开键盘使部分设置生效。");
     } catch (error) {
-      setMessage(accountMessage(error));
+      if (!isAccountCancellation(error)) setMessage(accountMessage(error));
     } finally {
       setBusy(false);
     }
@@ -457,7 +465,7 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
       if (!active) return;
       const [status, available] = results;
       if (available.status === "fulfilled") setProviders(available.value);
-      else setError(accountMessage(available.reason));
+      else if (!isAccountCancellation(available.reason)) setError(accountMessage(available.reason));
       if (status.status === "fulfilled") {
         const nextUser = status.value.user ?? null;
         setUser(nextUser);
@@ -467,11 +475,11 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
             const value = await client.profile();
             if (active) applyProfile(value);
           } catch (profileError) {
-            if (active) setError(accountMessage(profileError));
+            if (active && !isAccountCancellation(profileError)) setError(accountMessage(profileError));
           }
         }
       } else {
-        setError(accountMessage(status.reason));
+        if (!isAccountCancellation(status.reason)) setError(accountMessage(status.reason));
       }
       if (active) setLoading(false);
     });
@@ -492,7 +500,7 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
     try {
       await operation();
     } catch (operationError) {
-      setError(accountMessage(operationError));
+      if (!isAccountCancellation(operationError)) setError(accountMessage(operationError));
     } finally {
       setBusy(false);
     }
