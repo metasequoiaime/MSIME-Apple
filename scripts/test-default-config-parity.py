@@ -22,12 +22,18 @@ with WINDOWS_DEFAULTS.open("rb") as config_file:
 
 shared_minimum_prefix = int(mixed_input_default.group(1))
 windows_minimum_prefix = windows_defaults["general"]["cn_en_mixed_input_min_chars"]
-assert windows_minimum_prefix == shared_minimum_prefix, (
-    "Windows cn_en_mixed_input_min_chars does not match "
-    f"MixedInputPreferences::default(): {windows_minimum_prefix} != {shared_minimum_prefix}"
+# Windows deliberately follows MSIME-Windows' installer baseline (5), while
+# the shared preference default remains 2 for hosts that do not use the
+# Windows installer template.
+assert windows_minimum_prefix == 5, (
+    "Windows cn_en_mixed_input_min_chars must preserve the Windows baseline: "
+    f"{windows_minimum_prefix}"
 )
 
-print(f"Windows mixed-input minimum prefix matches the shared default: {shared_minimum_prefix}")
+print(
+    "Windows mixed-input minimum prefix uses the Windows baseline: "
+    f"{windows_minimum_prefix} (shared default: {shared_minimum_prefix})"
+)
 
 voice_auth_default = re.search(
     r'impl Default for VoiceInputPreferences\s*\{.*?doubao_auth_mode:\s*"([^"]+)"\.into\(\)',
