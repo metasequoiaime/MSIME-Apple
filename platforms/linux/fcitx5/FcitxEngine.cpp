@@ -1729,6 +1729,7 @@ public:
   std::vector<fcitx::CandidateAction>
   candidateActions(const fcitx::CandidateWord &candidate) const override {
     std::vector<fcitx::CandidateAction> actions;
+    if (state_.translationCandidatesActive()) return actions;
     const auto *item = dynamic_cast<const FcitxCandidate *>(&candidate);
     if (!item) return actions;
     if (state_.session_ != item->session() ||
