@@ -326,6 +326,16 @@ bool TranslationWorker::submit(const FocusLease &lease, std::string query) {
   return true;
 }
 
+void TranslationWorker::clear_cache() {
+  clear_cache_requested_.store(true, std::memory_order_release);
+  latest_serial_.fetch_add(1, std::memory_order_acq_rel);
+  {
+    std::lock_guard lock(mutex_);
+    pending_.reset();
+  }
+  wake_.notify_one();
+}
+
 void TranslationWorker::request_stop() {
   stopping_.store(true, std::memory_order_release);
   {
@@ -621,10 +631,17 @@ void TranslationWorker::run() noexcept {
       std::unique_lock lock(mutex_);
       wake_.wait(lock, [&] {
         return stopping_.load(std::memory_order_acquire) ||
-               pending_.has_value();
+               pending_.has_value() ||
+               clear_cache_requested_.load(std::memory_order_acquire);
       });
       if (stopping_.load(std::memory_order_acquire))
         return;
+      if (clear_cache_requested_.exchange(false, std::memory_order_acq_rel)) {
+        translation_cache_.clear();
+        translation_negative_cache_.clear();
+      }
+      if (!pending_)
+        continue;
       request = std::move(*pending_);
       pending_.reset();
       for (;;) {

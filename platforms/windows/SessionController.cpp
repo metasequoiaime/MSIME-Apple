@@ -139,6 +139,8 @@ SessionController::SessionController(
             if (auto request = state.current_translation_request())
               (void)translations_.submit(request->first,
                                           std::move(request->second));
+            else
+              translations_.clear_cache();
           });
         });
   control_ = std::thread(&SessionController::run, this);

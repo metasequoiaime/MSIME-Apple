@@ -28,6 +28,10 @@ public:
   TranslationWorker &operator=(const TranslationWorker &) = delete;
 
   bool submit(const FocusLease &lease, std::string query);
+  // Invalidate reusable and negative results when preferences make the
+  // provider inapplicable. The request serial is advanced too, so an
+  // in-flight response cannot repopulate a cache after the invalidation.
+  void clear_cache();
   void request_stop();
   void stop();
 
@@ -49,6 +53,7 @@ private:
   std::optional<Request> pending_;
   uint64_t next_serial_ = 0;
   std::atomic<uint64_t> latest_serial_{0};
+  std::atomic<bool> clear_cache_requested_{false};
   std::atomic<bool> stopping_{false};
   std::mutex join_mutex_;
   // Results are reusable across generations. Keys include provider scope,
