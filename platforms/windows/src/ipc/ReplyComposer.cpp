@@ -191,6 +191,7 @@ const PendingReply &ReplyComposer::dispatch(
   const bool candidate_enter =
       path == ReplyPath::Selection && action.kind == KeyKind::Command &&
       action.value == MSIME_COMMIT_RAW;
+  std::string selected_raw_before;
   KeyResult result;
   if (path == ReplyPath::Punctuation) {
     result = session.punctuation(packet, epoch);
@@ -200,6 +201,7 @@ const PendingReply &ReplyComposer::dispatch(
         packet.pinyin_length < 0 || packet.pinyin_length >= 128)
       throw std::invalid_argument("Invalid Windows candidate Enter request");
     const auto current = session.view();
+    selected_raw_before = current.at("editing_text").get<std::string>();
     std::optional<std::pair<uint64_t, size_t>> highlighted;
     for (const auto &candidate : current.at("candidates")) {
       if (!candidate.at("highlighted").get<bool>())
@@ -220,7 +222,18 @@ const PendingReply &ReplyComposer::dispatch(
   if (!session.input_enabled())
     path = result.reply_expected ? ReplyPath::IgnoredNavigation
                                  : ReplyPath::NoReply;
-  return stage(result, path, uiless, std::move(local_text));
+  const auto &pending = stage(result, path, uiless, std::move(local_text));
+  if (candidate_enter && !selected_raw_before.empty()) {
+    const auto after = result.transition.at("view").at("editing_text").get<std::string>();
+    if (after.size() < selected_raw_before.size() &&
+        selected_raw_before.compare(selected_raw_before.size() - after.size(),
+                                    after.size(), after) == 0) {
+      pending_->segment_restore = PendingReply::SegmentRestore{
+          selected_raw_before.substr(0, selected_raw_before.size() - after.size()),
+          prefix_};
+    }
+  }
+  return pending;
 }
 std::optional<PendingReply> ReplyComposer::basic_key(
     ServerSession &session, const FanyImeNamedpipeData &packet, uint64_t epoch,
@@ -231,6 +244,8 @@ std::optional<PendingReply> ReplyComposer::basic_key(
   if (style != TsfPreeditStyle::Local && style != TsfPreeditStyle::Pinyin &&
       style != TsfPreeditStyle::Empty)
     throw std::invalid_argument("Invalid TSF preedit style");
+  if (auto restored = restore_segment(session, packet, epoch))
+    return restored;
   if (translation_page_active_) {
     if (auto translation = translation_page_key(session, packet, epoch))
       return translation;
@@ -377,6 +392,15 @@ void ReplyComposer::confirm_delivery(uint64_t client, uint64_t epoch,
   if (current.encoded && !*current.encoded)
     throw std::logic_error("Unencodable reply cannot be acknowledged");
   prefix_ = current.next_prefix;
+  if (current.segment_restore) {
+    if (current.restoring_segment && !segment_restore_history_.empty() &&
+        segment_restore_history_.back().raw == current.segment_restore->raw &&
+        segment_restore_history_.back().previous_prefix ==
+            current.segment_restore->previous_prefix)
+      segment_restore_history_.pop_back();
+    else if (!current.restoring_segment)
+      segment_restore_history_.push_back(*current.segment_restore);
+  }
   pending_.reset();
 }
 std::optional<PendingReply> ReplyComposer::select_candidate(ServerSession &session,
@@ -388,6 +412,7 @@ std::optional<PendingReply> ReplyComposer::select_candidate(ServerSession &sessi
       (session_ && session_ != expected_session) ||
       view.at("generation") != generation || !view.at("focused").get<bool>())
     return std::nullopt;
+  const auto raw_before = view.at("editing_text").get<std::string>();
   if (translation_page_active_) {
     if (index >= translation_page_items_.size())
       return std::nullopt;
@@ -437,6 +462,13 @@ std::optional<PendingReply> ReplyComposer::select_candidate(ServerSession &sessi
     next.next_prefix.clear();
   } else {
     next.next_prefix = prefix_ + output_delta;
+    const auto &raw_after = next.source.transition.at("view").at("editing_text").get<std::string>();
+    if (raw_after.size() < raw_before.size() &&
+        raw_before.compare(raw_before.size() - raw_after.size(),
+                          raw_after.size(), raw_after) == 0) {
+      next.segment_restore = PendingReply::SegmentRestore{
+          raw_before.substr(0, raw_before.size() - raw_after.size()), prefix_};
+    }
     next.ui_selection = ui_partial_selection(
         raw, next.next_prefix,
         next.next_prefix +
@@ -535,6 +567,43 @@ PendingReply ReplyComposer::translation_page_reply(
   return *pending_;
 }
 
+std::optional<PendingReply> ReplyComposer::restore_segment(
+    ServerSession &session, const FanyImeNamedpipeData &packet,
+    uint64_t epoch) {
+  if (packet.keycode != 0x08 ||
+      PipeMetadata::key_modifiers(packet.modifiers_down) != 2u ||
+      (packet.modifiers_down & PipeMetadata::CandidateActive) != 0 ||
+      prefix_.empty() || segment_restore_history_.empty())
+    return std::nullopt;
+  const auto current = session.view();
+  if (!current.at("focused").get<bool>() ||
+      !current.at("editing_text").get<std::string>().empty())
+    return std::nullopt;
+  const auto &entry = segment_restore_history_.back();
+  auto result = session.restore_raw(epoch, packet.request_id, entry.raw);
+  const auto &view = result.transition.at("view");
+  const auto raw = view.at("editing_text").get<std::string>();
+  const auto display = view.at("preedit").get<std::string>();
+  PendingReply next;
+  next.source = std::move(result);
+  next.next_prefix = entry.previous_prefix;
+  next.traditional_output = traditional_output_;
+  next.segment_restore = entry;
+  next.restoring_segment = true;
+  if (!raw.empty() && !entry.previous_prefix.empty())
+    next.encoded = partial_selection(packet.request_id, raw,
+                                     entry.previous_prefix,
+                                     entry.previous_prefix + display);
+  else if (!raw.empty())
+    next.encoded = preedit_reply(packet.request_id, display);
+  else
+    next.encoded = ignored_reply(packet.request_id);
+  if (!next.encoded || !*next.encoded)
+    throw std::runtime_error("Unencodable segment restoration");
+  pending_ = std::move(next);
+  return pending_;
+}
+
 std::optional<PendingReply> ReplyComposer::translation_page_key(
     ServerSession &session, const FanyImeNamedpipeData &packet,
     uint64_t epoch) {
@@ -595,11 +664,21 @@ void ReplyComposer::confirm_ui_delivery(uint64_t client, uint64_t epoch,
       current.source.transition.at("view").at("generation") != generation)
     throw std::logic_error("Expired UI delivery acknowledgement");
   prefix_ = current.next_prefix;
+  if (current.segment_restore) {
+    if (current.restoring_segment && !segment_restore_history_.empty() &&
+        segment_restore_history_.back().raw == current.segment_restore->raw &&
+        segment_restore_history_.back().previous_prefix ==
+            current.segment_restore->previous_prefix)
+      segment_restore_history_.pop_back();
+    else if (!current.restoring_segment)
+      segment_restore_history_.push_back(*current.segment_restore);
+  }
   pending_.reset();
 }
 void ReplyComposer::cancel() {
   pending_.reset();
   prefix_.clear();
+  segment_restore_history_.clear();
   translation_page_active_ = false;
   translation_page_items_.clear();
   translation_page_view_ = {};

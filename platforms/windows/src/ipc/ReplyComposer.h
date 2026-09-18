@@ -37,6 +37,12 @@ struct PendingReply {
   // A copied, bounded candidate-translation query, submitted after delivery.
   std::optional<std::string> translation_query = std::nullopt;
   bool traditional_output = false;
+  struct SegmentRestore {
+    std::string raw;
+    std::string previous_prefix;
+  };
+  std::optional<SegmentRestore> segment_restore;
+  bool restoring_segment = false;
 };
 // One instance per authenticated client activation, on the Server input queue.
 // prefix is transport presentation state: text already selected by Engine but
@@ -86,6 +92,9 @@ public:
   PendingReply translation_page_reply(const FanyImeNamedpipeData &packet,
                                      uint64_t epoch,
                                      const nlohmann::json &view);
+  std::optional<PendingReply> restore_segment(
+      ServerSession &session, const FanyImeNamedpipeData &packet,
+      uint64_t epoch);
   // Null: not an editing key; no Engine action. Non-null may have no frame
   // because TSF completed this edit locally; still confirm it through the pump.
   std::optional<PendingReply> edit(ServerSession &session,
@@ -121,5 +130,6 @@ private:
   bool translation_page_active_ = false;
   std::vector<std::string> translation_page_items_;
   nlohmann::json translation_page_view_;
+  std::vector<PendingReply::SegmentRestore> segment_restore_history_;
 };
 } // namespace msime::windows
