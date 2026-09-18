@@ -845,12 +845,18 @@ public:
   }
   bool cycleCandidateSkin() {
     if (!session_ || restricted() || privateInput()) return false;
-    static constexpr std::array<const char *, 4> skins = {
+    static constexpr std::array<const char *, 4> builtinSkins = {
         "fluent", "wechat", "graphite", "willow_green"};
+    std::vector<std::string> skins;
+    skins.reserve(builtinSkins.size() + candidate_skin_catalog_.size());
+    for (const auto *skin : builtinSkins) skins.emplace_back(skin);
+    for (const auto &[id, title] : candidate_skin_catalog_) {
+      (void)title;
+      if (std::find(skins.begin(), skins.end(), id) == skins.end()) skins.push_back(id);
+    }
     const auto current = preferences_.value("candidate_skin", std::string("willow_green"));
     const auto it = std::find(skins.begin(), skins.end(), current);
-    const auto next = it == skins.end() || std::next(it) == skins.end()
-        ? skins.front() : *std::next(it);
+    const auto next = it == skins.end() || std::next(it) == skins.end() ? skins.front() : *std::next(it);
     if (!view_.value("editing_text", std::string{}).empty())
       command(MSIME_FINISH_COMPOSITION);
     saveStringPreference("candidate_skin", next);
@@ -934,6 +940,24 @@ public:
     if (session_ && private_ != privateInput()) { close(); clearPanel(); }
     if (session_) return true;
     auto options = readOptions();
+    candidate_skin_catalog_.clear();
+    if (const auto catalog = options.find("candidate_skin_catalog");
+        catalog != options.end() && catalog->is_object()) {
+      if (const auto packages = catalog->find("packages");
+          packages != catalog->end() && packages->is_array()) {
+        for (const auto &package : *packages) {
+          if (!package.is_object()) continue;
+          const auto id = package.value("id", std::string{});
+          const auto title = package.value("title", id);
+          if (id.empty() || id.size() > 64 || title.empty() || title.size() > 128) continue;
+          if (!std::all_of(id.begin(), id.end(), [](unsigned char c) {
+                return std::isalnum(c) || c == '_' || c == '-' || c == '.';
+              })) continue;
+          if (id == "fluent" || id == "wechat" || id == "graphite" || id == "willow_green") continue;
+          candidate_skin_catalog_.emplace_back(id, title);
+        }
+      }
+    }
     private_ = privateInput();
     preferences_ = options.value("preferences", Json::object());
     if (scheme_override_) preferences_["scheme"] = *scheme_override_;
@@ -1797,6 +1821,7 @@ public:
   std::optional<std::string> shuangpin_profile_override_;
   std::optional<std::string> helpcode_schema_override_;
   std::optional<std::string> skin_override_;
+  std::vector<std::pair<std::string, std::string>> candidate_skin_catalog_;
   Json preferences_snapshot_;
   uint64_t preferences_job_session_ = 0;
   std::shared_future<Json> preferences_job_;
@@ -2620,7 +2645,10 @@ public:
   explicit FcitxCandidateSkinAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {}
   std::string shortText(fcitx::InputContext *ic) const override {
     if (!ic) return "候选皮肤";
-    const auto skin = ic->propertyFor(factory_)->preferences_.value("candidate_skin", std::string("willow_green"));
+    const auto *state = ic->propertyFor(factory_);
+    const auto skin = state->preferences_.value("candidate_skin", std::string("willow_green"));
+    for (const auto &[id, title] : state->candidate_skin_catalog_)
+      if (skin == id) return "候选皮肤：" + title;
     return skin == "fluent" ? "候选皮肤：Fluent" : skin == "wechat" ? "候选皮肤：微信绿" :
         skin == "graphite" ? "候选皮肤：石墨" : "候选皮肤：杨柳青";
   }
