@@ -34,6 +34,7 @@
 #include <spawn.h>
 #include <vector>
 #include <cstring>
+#include <cctype>
 #include <mutex>
 #if __has_include(<fcitx/candidateaction.h>)
 #include <fcitx/candidateaction.h>
@@ -3172,9 +3173,12 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
       if ((caret - start) % 2 == 1)
         return apply(msime_client_character(session_, ';', false));
     }
-    if (text[0] == ',' || text[0] == '.' || text[0] == ';' || text[0] == ':' ||
-        text[0] == '!' || text[0] == '?' || text[0] == '(' || text[0] == ')' ||
-        text[0] == '[' || text[0] == ']' || text[0] == '{' || text[0] == '}')
+    const bool asciiPunctuation =
+        std::ispunct(static_cast<unsigned char>(text[0])) != 0 &&
+        // An apostrophe in an active spelling is an Engine input character
+        // for emoji/kaomoji and Japanese modes, matching the IBus router.
+        !(text[0] == '\'' && composing);
+    if (asciiPunctuation)
       return punctuation(static_cast<uint8_t>(text[0]));
     return apply(msime_client_character(session_, static_cast<uint8_t>(text[0]), key.states().test(fcitx::KeyState::Shift)));
   }
