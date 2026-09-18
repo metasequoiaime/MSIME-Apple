@@ -224,6 +224,11 @@ int main(int argc, char **argv) {
             "candidate skin action cycles into the configured catalog");
     require(engine.candidate_skin_action_.shortText(&ic) == "候选皮肤：Solarized",
             "candidate skin action labels catalog entries");
+    options["candidate_skin_catalog"]["packages"][0]["title"] = "Solarized 更新";
+    std::ofstream(path) << options.dump();
+    state->refreshProviderSockets();
+    require(engine.candidate_skin_action_.shortText(&ic) == "候选皮肤：Solarized 更新",
+            "candidate skin catalog refreshes with runtime options");
     engine.candidate_skin_action_.activate(&ic);
     require(state->preferences_.value("candidate_skin", std::string{}) == "fluent",
             "candidate skin action wraps to the built-in catalog");
