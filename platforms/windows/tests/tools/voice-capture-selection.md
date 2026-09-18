@@ -21,7 +21,7 @@ Manual checks (no microphone required):
 
 ```sh
 c++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
-  -I/opt/homebrew/include platforms/windows/tests/voice_capture_selection.cpp \
+  -I/opt/homebrew/include tests/voice/voice_capture_selection.cpp \
   -o target/voice-capture-selection
 ./target/voice-capture-selection
 pnpm --filter @msime/desktop exec vitest run src/windows-capture-devices.test.tsx

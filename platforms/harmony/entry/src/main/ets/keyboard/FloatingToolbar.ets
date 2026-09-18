@@ -1,6 +1,6 @@
 import { KeyboardSession } from './KeyboardSession';
 import { ToolbarState, ToolbarButton, FloatingToolbarLayout } from './FloatingToolbarLayout';
-import { KeyboardSkin } from './KeyboardSkin';
+import { KeyboardSkin } from './skin/KeyboardSkin';
 
 /**
  * The bar that says what mode the keyboard is in and lets it be changed, ported from
