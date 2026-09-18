@@ -524,7 +524,8 @@ int main(int argc, char **argv) {
     for (int pages = 0; pages < 100 && !selected; ++pages) {
       page = ic.inputPanel().candidateList();
       for (int i = 0; i < page->size(); ++i) {
-        if (page->candidate(i).text().toString() == suggestion) {
+        const auto displayed = page->candidate(i).text().toString();
+        if (displayed.rfind(suggestion, 0) == 0) {
           page->candidate(i).select(&ic);
           selected = true;
           break;
