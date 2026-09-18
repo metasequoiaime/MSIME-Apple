@@ -1,12 +1,13 @@
 #!/bin/bash
 set -eu
+shopt -s globstar nullglob
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
 output=${1:-"$root/.build/macos/libMSIMEBackend.dylib"}
 module_dir=$(dirname "$output")
 mkdir -p "$module_dir"
 sources=()
-for source in "$root"/shared/backend/**/*.swift "$root"/shared/backend-ui/*.swift "$root"/platforms/macos/src/Backend*.swift; do
+for source in "$root"/shared/backend/**/*.swift "$root"/shared/backend-ui/*.swift "$root"/platforms/macos/src/backend/Backend*.swift; do
   if [[ ${source##*/} != Package.swift ]]; then sources+=("$source"); fi
 done
 swift_target=${MSIME_SWIFT_TARGET:-$(uname -m)-apple-macosx${MACOSX_DEPLOYMENT_TARGET:-13.0}}
