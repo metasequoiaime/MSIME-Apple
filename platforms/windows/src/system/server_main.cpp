@@ -19,6 +19,7 @@
 #include "PreviewDispatcher.h"
 #include "ProductionDispatcher.h"
 #include "ProductionPipeNames.h"
+#include "ProviderToken.h"
 #include "ServerLaunch.h"
 #include "SharedConfigKeybindings.h"
 #include "ShellLauncher.h"
@@ -371,17 +372,6 @@ bool toggle_stored_flag(const std::filesystem::path &directory,
 // key instead of sending the previous provider's key to the new endpoint. The
 // flat field remains the value the box currently holds, so it is the right
 // fallback for a store written before the slots existed.
-std::string provider_token(const nlohmann::json &input, const char *slots_key,
-                           const char *flat_key, const std::string &provider) {
-  const auto slots = input.value(slots_key, nlohmann::json::object());
-  if (slots.is_object() && !provider.empty() && slots.contains(provider) &&
-      slots.at(provider).is_string()) {
-    auto token = slots.at(provider).get<std::string>();
-    if (!token.empty())
-      return token;
-  }
-  return input.value(flat_key, std::string{});
-}
 msime::windows::TsfLocalConfig tsf_local_config(const nlohmann::json &preferences) {
   msime::windows::TsfLocalConfig config;
   const auto navigation =

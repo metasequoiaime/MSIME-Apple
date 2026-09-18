@@ -1,0 +1,40 @@
+#pragma once
+
+#include <nlohmann/json.hpp>
+
+#include <cctype>
+#include <string>
+
+namespace msime::windows {
+
+// Provider IDs are persisted configuration values and older settings files can
+// contain a different ASCII casing. Match them like the Windows reference
+// provider resolver does, while keeping the stored token itself untouched.
+inline std::string provider_token(const nlohmann::json &input,
+                                  const char *slots_key, const char *flat_key,
+                                  const std::string &provider) {
+  const auto slots = input.value(slots_key, nlohmann::json::object());
+  if (slots.is_object() && !provider.empty()) {
+    std::string wanted = provider;
+    for (char &ch : wanted)
+      ch = static_cast<char>(std::tolower(static_cast<unsigned char>(ch)));
+    for (auto it = slots.begin(); it != slots.end(); ++it) {
+      if (!it.value().is_string() || it.key().size() != wanted.size())
+        continue;
+      bool matches = true;
+      for (size_t i = 0; i < wanted.size(); ++i) {
+        const auto ch = static_cast<char>(
+            std::tolower(static_cast<unsigned char>(it.key()[i])));
+        if (ch != wanted[i]) {
+          matches = false;
+          break;
+        }
+      }
+      if (matches && !it.value().get<std::string>().empty())
+        return it.value().get<std::string>();
+    }
+  }
+  return input.value(flat_key, std::string{});
+}
+
+} // namespace msime::windows
