@@ -1912,6 +1912,46 @@ async fn install_input_source(app: tauri::AppHandle) -> Result<(), HostActionErr
     })?
 }
 
+#[cfg(target_os = "macos")]
+#[tauri::command]
+async fn uninstall_input_source(
+    remove_user_data: bool,
+    app: tauri::AppHandle,
+    runtime: tauri::State<'_, RuntimeOptionsState>,
+) -> Result<(), HostActionError> {
+    let document = runtime.snapshot().map_err(|_| HostActionError {
+        code: "unavailable",
+    })?;
+    let state = document
+        .get("preferences_directory")
+        .and_then(Value::as_str)
+        .filter(|path| std::path::Path::new(path).is_absolute())
+        .map(PathBuf::from)
+        .ok_or(HostActionError {
+            code: "unavailable",
+        })?;
+    let home = std::env::var_os("HOME").ok_or(HostActionError {
+        code: "unavailable",
+    })?;
+    let bundle = PathBuf::from(home).join("Library/Input Methods/水杉输入法（预览）.app");
+    tauri::async_runtime::spawn_blocking(move || {
+        msime_host_macos::uninstall_input_source(&bundle, &state, remove_user_data).map_err(|_| {
+            HostActionError {
+                code: "unavailable",
+            }
+        })
+    })
+    .await
+    .map_err(|_| HostActionError {
+        code: "unavailable",
+    })?;
+    // The installed bundle is gone after a successful operation. Exit the
+    // settings shell too, matching the native Apple flow and avoiding a UI
+    // process that can no longer repair the removed installation.
+    app.exit(0);
+    Ok(())
+}
+
 fn windows_restart_payload() -> Vec<u8> {
     "RestartServer"
         .encode_utf16()
@@ -5741,6 +5781,8 @@ pub fn run() {
             restart_input_method,
             #[cfg(target_os = "macos")]
             install_input_source,
+            #[cfg(target_os = "macos")]
+            uninstall_input_source,
             #[cfg(target_os = "android")]
             android_account::account_status,
             #[cfg(target_os = "windows")]

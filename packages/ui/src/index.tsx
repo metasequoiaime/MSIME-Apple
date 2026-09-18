@@ -662,6 +662,8 @@ export interface SettingsClient {
   restartInputMethod?: () => Promise<void>;
   /** macOS installs/updates the separate InputMethodKit bundle before registering it. */
   installInputSource?: () => Promise<void>;
+  /** macOS moves the installed input source to Trash; data removal is explicit. */
+  uninstallInputSource?: (removeUserData: boolean) => Promise<void>;
   windowControl?: (action: "minimize" | "maximize" | "restore" | "close") => Promise<void>;
   beginWindowDrag?: () => Promise<void>;
   resizeWindow?: (edge: "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw") => Promise<void>;
@@ -919,6 +921,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [removeUserDataOnUninstall, setRemoveUserDataOnUninstall] = useState(false);
   const [page, setPage] = useState<SettingsPageId>(() => requestedPage(initialPage ?? (client.home ? "home" : undefined)));
   // Mobile hosts use the WebView history stack for the system back gesture. The
   // native activity can therefore dismiss a nested page without the shared UI
@@ -2177,6 +2180,12 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
           {showInstallInputSource && <div className="service-action-row">
             <span>安装或更新水杉输入源<small>将当前应用随附的 IMK bundle 安装到本机输入法目录，然后注册到系统。</small></span>
             <HostActionButton action={client.installInputSource} label="安装 / 更新" success="输入源已安装并注册。" error="输入源安装或注册失败，请重试。" />
+          </div>}
+          {macosPlatform && client.uninstallInputSource && <div className="service-action-row service-action-row-danger">
+            <span>卸载水杉输入法<small>输入源会移到废纸篓；默认保留词库、学习记录和偏好，重新安装后可继续使用。</small>
+              <label><input type="checkbox" checked={removeUserDataOnUninstall} onChange={event => setRemoveUserDataOnUninstall(event.target.checked)} /> 同时删除词库、偏好与语音密钥</label>
+            </span>
+            <HostActionButton action={() => client.uninstallInputSource!(removeUserDataOnUninstall)} label="卸载…" success="输入法已移到废纸篓。" error="卸载未能完成，请稍后重试。" />
           </div>}
         </div>}
       </fieldset>

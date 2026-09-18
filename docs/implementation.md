@@ -1118,3 +1118,9 @@ macOS 原生候选面板现在消费共享 `wubi_code_hint`：在普通五笔组
 macOS 屏幕键盘在打开时捕获外部前台应用的进程 ID，并在后续按键中固定向该目标投递；输入法自身、无效 PID 或已退出的目标都会安全拒绝。面板继续保持非激活，不把平台按键注入或 Engine 组合状态移入共享 UI；重新打开面板会重新捕获目标。
 
 本地验证：`screen-keyboard-panel-test` 新增目标 PID 过滤回归，并保留布局、修饰键、主题、焦点失败和渲染覆盖；未执行辅助功能授权后的真实编辑器端到端验收，CI 保持禁用。
+
+### macOS 可撤销卸载与个人数据保留
+
+公共 Tauri 设置页新增 macOS 卸载入口，默认只将已安装的 InputMethodKit bundle 移入废纸篓，保留词库、学习记录和偏好；用户明确勾选后才一并移除状态目录、输入法偏好域和语音密钥。AppKit/Security 操作封装在 `host-macos` 原生边界，先移动 bundle，失败时不触碰用户数据；Tauri 仅传递受宿主配置约束的绝对路径并编排异步调用。这样设置页与 Apple 原版的“可放回原处、重装可续用”语义一致，同时不破坏输入法与设置应用的进程边界。
+
+本地验证：`msime-host-macos` 14 项 Rust 测试、Objective-C++ `shared-uninstaller-test` 和格式检查通过；未执行签名安装、LaunchServices 刷新、系统输入源列表更新或真实用户目录操作，CI 保持禁用。

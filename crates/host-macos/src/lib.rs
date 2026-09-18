@@ -152,6 +152,53 @@ pub fn voice_capture_devices() -> Vec<(String, String)> {
     devices
 }
 
+#[cfg(target_os = "macos")]
+pub fn uninstall_input_source(
+    bundle: &std::path::Path,
+    user_data: &std::path::Path,
+    remove_user_data: bool,
+) -> Result<(), &'static str> {
+    use std::ffi::CString;
+    let home = std::env::var_os("HOME").ok_or("home unavailable")?;
+    if !std::path::PathBuf::from(&home).is_absolute()
+        || !bundle.is_absolute()
+        || !user_data.is_absolute()
+    {
+        return Err("invalid uninstall path");
+    }
+    let bundle =
+        CString::new(bundle.to_string_lossy().as_bytes()).map_err(|_| "invalid uninstall path")?;
+    let user_data = CString::new(user_data.to_string_lossy().as_bytes())
+        .map_err(|_| "invalid uninstall path")?;
+    let domain = CString::new("app.msime.client.preview.inputmethod").unwrap();
+    unsafe extern "C" {
+        fn msime_macos_uninstall_input_source(
+            bundle: *const std::ffi::c_char,
+            user_data: *const std::ffi::c_char,
+            preferences_domain: *const std::ffi::c_char,
+            remove_user_data: bool,
+        ) -> bool;
+    }
+    let ok = unsafe {
+        msime_macos_uninstall_input_source(
+            bundle.as_ptr(),
+            user_data.as_ptr(),
+            domain.as_ptr(),
+            remove_user_data,
+        )
+    };
+    ok.then_some(()).ok_or("uninstall failed")
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn uninstall_input_source(
+    _: &std::path::Path,
+    _: &std::path::Path,
+    _: bool,
+) -> Result<(), &'static str> {
+    Err("uninstall unavailable")
+}
+
 #[cfg(not(target_os = "macos"))]
 pub fn voice_capture_devices() -> Vec<(String, String)> {
     Vec::new()
