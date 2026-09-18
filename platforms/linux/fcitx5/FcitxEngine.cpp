@@ -20,6 +20,7 @@
 #include <fcitx/userinterface.h>
 #include "../src/candidates/CandidateActionPolicy.h"
 #include "../src/candidates/CandidatePalette.h"
+#include "../src/candidates/ShuangpinProfileNames.h"
 #include "../src/candidates/CandidateTranslationPolicy.h"
 #include "../src/system/TypingStatistics.h"
 #include <nlohmann/json.hpp>
@@ -331,6 +332,28 @@ public:
     saveStringPreference("scheme", next);
     scheme_override_ = next;
     if (std::string(next) != "shuangpin") shuangpin_profile_override_.reset();
+    close();
+    if (!ensure()) return false;
+    view_ = response(msime_client_focus(session_, true)).at("view");
+    render();
+    return true;
+  }
+  bool cycleShuangpinProfile() {
+    if (!session_ || view_.value("scheme", 0u) != 1 || restricted() || privateInput())
+      return false;
+    const auto current = preferences_.value("shuangpin_profile", std::string("xiaohe"));
+    auto it = std::find_if(msime::linux_host::kShuangpinProfileNames.begin(),
+                           msime::linux_host::kShuangpinProfileNames.end(),
+                           [&](const auto &profile) { return current == profile.value; });
+    const auto next = it == msime::linux_host::kShuangpinProfileNames.end() ||
+                              std::next(it) == msime::linux_host::kShuangpinProfileNames.end()
+                          ? msime::linux_host::kShuangpinProfileNames.front()
+                          : *std::next(it);
+    if (!view_.value("editing_text", std::string{}).empty())
+      command(MSIME_FINISH_COMPOSITION);
+    saveStringPreference("shuangpin_profile", next.value);
+    scheme_override_ = "shuangpin";
+    shuangpin_profile_override_ = next.value;
     close();
     if (!ensure()) return false;
     view_ = response(msime_client_focus(session_, true)).at("view");
@@ -1924,6 +1947,33 @@ private:
   fcitx::FactoryFor<FcitxState> *factory_;
 };
 
+class FcitxShuangpinProfileAction : public fcitx::SimpleAction {
+public:
+  explicit FcitxShuangpinProfileAction(fcitx::FactoryFor<FcitxState> *factory)
+      : factory_(factory) {}
+  std::string shortText(fcitx::InputContext *ic) const override {
+    if (!ic) return "双拼方案";
+    const auto *state = ic->propertyFor(factory_);
+    const auto current = state->preferences_.value("shuangpin_profile", std::string("xiaohe"));
+    for (const auto &profile : msime::linux_host::kShuangpinProfileNames)
+      if (current == profile.value) return std::string("双拼方案：") + profile.label;
+    return "双拼方案";
+  }
+  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try {
+      auto *state = ic->propertyFor(factory_);
+      if (state->cycleShuangpinProfile()) update(ic);
+    } catch (...) {
+      ic->propertyFor(factory_)->close();
+      ic->propertyFor(factory_)->clearPanel();
+    }
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
 class FcitxNineKeyAction : public fcitx::SimpleAction {
 public:
   explicit FcitxNineKeyAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
@@ -2924,6 +2974,7 @@ public:
     english_action_.registerAction("msime-english-candidates", &instance->userInterfaceManager());
     input_mode_action_.registerAction("msime-input-mode", &instance->userInterfaceManager());
     scheme_action_.registerAction("msime-scheme", &instance->userInterfaceManager());
+    shuangpin_profile_action_.registerAction("msime-shuangpin-profile", &instance->userInterfaceManager());
     width_action_.registerAction("msime-fullwidth", &instance->userInterfaceManager());
     nine_key_action_.registerAction("msime-nine-key", &instance->userInterfaceManager());
     nine_key_action_.setMenu(&nine_key_menu_);
@@ -3057,6 +3108,7 @@ public:
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &english_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &input_mode_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &scheme_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &shuangpin_profile_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &width_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &nine_key_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &helpcode_action_);
@@ -3102,6 +3154,7 @@ public:
     event.inputContext()->statusArea().removeAction(&english_action_);
     event.inputContext()->statusArea().removeAction(&input_mode_action_);
     event.inputContext()->statusArea().removeAction(&scheme_action_);
+    event.inputContext()->statusArea().removeAction(&shuangpin_profile_action_);
     event.inputContext()->statusArea().removeAction(&width_action_);
     event.inputContext()->statusArea().removeAction(&nine_key_action_);
     event.inputContext()->statusArea().removeAction(&helpcode_action_);
@@ -3166,6 +3219,7 @@ public:
   FcitxModeAction english_action_{&factory_, FcitxModeAction::Mode::EnglishCandidates};
   FcitxInputModeAction input_mode_action_{&factory_};
   FcitxSchemeAction scheme_action_{&factory_};
+  FcitxShuangpinProfileAction shuangpin_profile_action_{&factory_};
   FcitxModeAction width_action_{&factory_, FcitxModeAction::Mode::Fullwidth};
   fcitx::Menu nine_key_menu_;
   FcitxNineKeyAction nine_key_action_{&factory_};
