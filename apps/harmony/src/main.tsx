@@ -1,8 +1,9 @@
 import { StrictMode } from "react";
+import { type ReactNode, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { SettingsPage, type DictionaryClient, type DictionaryEntry, type DictionaryImportResult,
   type HostCapabilities, type LocalDictionaryFormat, type LocalDictionaryKind, type Preferences,
-  type SettingsClient, type Snapshot } from "@msime/ui";
+  CloudClipboardPanel, type AccountClient, type CloudClipboardPanelClient, type SettingsClient, type Snapshot } from "@msime/ui";
 import "@msime/ui/styles.css";
 
 /**
@@ -25,6 +26,7 @@ interface NativeBridge {
   hostCapabilities(): string;
   appVersion(): string;
   dictionary(action: string): string;
+  account(action: string): Promise<string>;
   openExternalUrl(url: string): void;
   copyText(text: string): void;
   openSystemKeyboardSettings(): void;
@@ -66,7 +68,41 @@ function whenBridgeReady(): Promise<NativeBridge> {
   });
 }
 
-function makeClient(native: NativeBridge): SettingsClient {
+function accountClient(native: NativeBridge): AccountClient {
+  const request = <T,>(action: Record<string, unknown>): Promise<T> =>
+    native.account(JSON.stringify(action)).then(unwrap<T>);
+  const user = (value: { id: string; display_name: string; created_at: string }) => ({
+    id: value.id, displayName: value.display_name, createdAt: value.created_at
+  });
+  const profile = (value: { user: { id: string; display_name: string; created_at: string }; identities: { provider: string }[] }) => ({
+    user: user(value.user), providers: value.identities.map(identity => identity.provider)
+  });
+  return {
+    status: async () => { const value = await request<{ user: { id: string; display_name: string; created_at: string } | null }>({ operation: "status" }); return { user: value.user ? user(value.user) : null }; },
+    providers: async () => { const value = await request<{ providers: Record<string, boolean> }>({ operation: "providers" }); return { email: value.providers.email === true, phone: value.providers.phone === true, apple: value.providers.apple === true }; },
+    requestCode: async (provider, target) => { const value = await request<{ challenge_id: string; expires_in: number }>({ operation: "request_code", provider, target }); return { challengeId: value.challenge_id, expiresIn: value.expires_in }; },
+    login: async (challengeId, code) => { const value = await request<{ user: { id: string; display_name: string; created_at: string } }>({ operation: "login", challenge_id: challengeId, credential: code }); return { user: value.user ? user(value.user) : null }; },
+    profile: async () => profile(await request<{ user: { id: string; display_name: string; created_at: string }; identities: { provider: string }[] }>({ operation: "profile" })),
+    rename: async displayName => profile(await request<{ user: { id: string; display_name: string; created_at: string }; identities: { provider: string }[] }>({ operation: "rename", display_name: displayName })),
+    logout: async all => { await request({ operation: "logout", all }); },
+    deleteAccount: async () => { await request({ operation: "delete_account" }); },
+    clearExpired: async () => { await request({ operation: "clear_expired" }); },
+  };
+}
+
+function cloudClipboardClient(native: NativeBridge, close: () => void): CloudClipboardPanelClient {
+  return {
+    close: async () => close(),
+    copyText: async text => native.copyText(text),
+    request: async action => {
+      const { operation, ...payload } = action;
+      const value = await native.account(JSON.stringify({ operation: "clipboard", clipboard_operation: operation, ...payload }));
+      return unwrap<{ items?: { id: string; text: string }[]; enabled?: boolean }>(value);
+    },
+  };
+}
+
+function makeClient(native: NativeBridge, openCloudClipboard: () => void): SettingsClient {
   const dictionaryReply = <T,>(action: Record<string, unknown>): T =>
     unwrap<T>(native.dictionary(JSON.stringify(action)));
   const dictionary: DictionaryClient = {
@@ -108,16 +144,25 @@ function makeClient(native: NativeBridge): SettingsClient {
     copyText: async (text: string) => native.copyText(text),
     openSystemKeyboardSettings: async () => native.openSystemKeyboardSettings(),
     dictionary,
+    account: accountClient(native),
+    openCloudClipboard: async () => openCloudClipboard(),
   };
+}
+
+function HarmonySettings({ native }: { native: NativeBridge }): ReactNode {
+  const [cloudClipboardOpen, setCloudClipboardOpen] = useState(false);
+  const client = makeClient(native, () => setCloudClipboardOpen(true));
+  return <>
+    <SettingsPage client={client} />
+    {cloudClipboardOpen && <CloudClipboardPanel client={cloudClipboardClient(native, () => setCloudClipboardOpen(false))} />}
+  </>;
 }
 
 const root = document.getElementById("root");
 if (root) {
   whenBridgeReady().then(native => {
     createRoot(root).render(
-      <StrictMode>
-        <SettingsPage client={makeClient(native)} />
-      </StrictMode>
+      <StrictMode><HarmonySettings native={native} /></StrictMode>
     );
   }).catch((error: Error) => {
     // A blank window explains nothing. This is the one failure the page has to render itself,

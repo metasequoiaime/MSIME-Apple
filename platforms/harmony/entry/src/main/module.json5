@@ -20,6 +20,16 @@
     // and the keyboard checks at runtime rather than presenting an empty clipboard as an empty one.
     "requestPermissions": [
       {
+        // Account and cloud clipboard requests use the HTTPS account service only when the user
+        // opens the account or cloud surface; ordinary offline typing never touches the network.
+        "name": "ohos.permission.INTERNET",
+        "reason": "$string:internet_permission_reason",
+        "usedScene": {
+          "abilities": ["EntryAbility", "KeyboardExtensionAbility"],
+          "when": "inuse"
+        }
+      },
+      {
         // normal and system-granted: declaring it is all a keyboard needs to buzz a key.
         "name": "ohos.permission.VIBRATE",
         "reason": "$string:vibrate_permission_reason",

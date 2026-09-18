@@ -7,6 +7,7 @@ import bundleManager from '@ohos.bundle.bundleManager';
 import fs from '@ohos.file.fs';
 import { KeyboardLog, describeError } from '../keyboard/KeyboardLog';
 import { KeyboardSession } from '../keyboard/KeyboardSession';
+import { HarmonyAccountCloudBridge } from '../account/HarmonyAccountCloudBridge';
 
 /**
  * The settings window, which is the shared settings UI rather than a second one written here.
@@ -47,7 +48,7 @@ struct Settings {
           object: this.bridge,
           name: BRIDGE_NAME,
           methodList: ['loadPreferences', 'savePreferences', 'hostCapabilities', 'appVersion',
-            'dictionary', 'openExternalUrl', 'copyText', 'openSystemKeyboardSettings'],
+            'dictionary', 'account', 'openExternalUrl', 'copyText', 'openSystemKeyboardSettings'],
           controller: this.controller
         })
         .width('100%')
@@ -67,10 +68,12 @@ struct Settings {
 class SettingsBridge {
   private stateDirectory: string = '';
   private context: common.UIAbilityContext | undefined = undefined;
+  private accountBridge: HarmonyAccountCloudBridge | undefined = undefined;
 
   attach(context: common.UIAbilityContext): void {
     this.context = context;
     this.stateDirectory = `${context.filesDir}/state`;
+    this.accountBridge = new HarmonyAccountCloudBridge(context);
     this.stageResources(`${context.resourceDir}/engine`, `${context.filesDir}/engine`);
   }
 
@@ -113,6 +116,14 @@ class SettingsBridge {
     }
     return KeyboardSession.shared.dictionary(action, `${this.context.filesDir}/engine`,
       this.stateDirectory);
+  }
+
+  /** Account and cloud clipboard requests stay native; the WebView sees only safe JSON DTOs. */
+  account(action: string): Promise<string> {
+    if (this.accountBridge === undefined) {
+      return Promise.resolve(JSON.stringify({ ok: false, error: 'account_unavailable' }));
+    }
+    return this.accountBridge.request(action);
   }
 
   appVersion(): string {

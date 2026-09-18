@@ -56,6 +56,8 @@ import {
 } from '../entry/src/main/ets/keyboard/input/HandwritingStrokePolicy';
 import { VoiceRecognitionPolicy, VOICE_MAX_TEXT } from
   '../entry/src/main/ets/keyboard/input/VoiceRecognitionPolicy';
+import { AccountCloudBridge, AccountSessionStore, AccountTransport } from
+  '../entry/src/main/ets/account/AccountCloudBridge';
 
 let failures = 0;
 let checks = 0;
@@ -1216,8 +1218,53 @@ group('pinning and removing', () => {
     'removing something absent changes nothing');
 });
 
-console.log('');
-if (failures > 0) {
-  throw new Error(`${failures} group(s) failed`);
-}
-console.log(`all groups passed (${checks} assertions)`);
+group('account and cloud clipboard bridge keeps secrets native', () => {
+  let stored: string | null = null;
+  const store: AccountSessionStore = {
+    load: () => stored,
+    save: value => { stored = value; },
+    clear: () => { stored = null; },
+  };
+  const calls: { method: string; path: string; token?: string; body?: Record<string, unknown> }[] = [];
+  const transport: AccountTransport = {
+    request: async (method, path, token, body) => {
+      calls.push({ method, path, token, body });
+      if (path === '/v1/auth/providers') return { status: 200, body: '{"providers":{"email":true,"phone":false}}' };
+      if (path === '/v1/auth/challenges') return { status: 200, body: '{"challenge_id":"challenge","expires_in":60}' };
+      if (path === '/v1/auth/login') return { status: 200, body: JSON.stringify({
+        access_token: 'a'.repeat(64), refresh_token: 'b'.repeat(64), token_type: 'Bearer', expires_in: 3600,
+        user: { id: 'u1', display_name: 'Test', created_at: '2026-01-01' }
+      }) };
+      if (path.includes('/clipboard')) return { status: 200, body: path.endsWith('/clipboard')
+        ? '{"enabled":true,"items":[{"id":"1","text":"hello"}]}' : '{}' };
+      return { status: 200, body: '{"user":{"id":"u1","display_name":"Test","created_at":"2026-01-01"},"identities":[]}' };
+    },
+  };
+  const bridge = new AccountCloudBridge(transport, store);
+  void bridge.handle('{"operation":"request_code","provider":"email","target":"user@example.com"}').then(result => {
+    check(JSON.parse(result).ok === true, 'challenge response is structured');
+  });
+  void bridge.handle('{"operation":"login","challenge_id":"challenge","credential":"123456"}').then(result => {
+    check(JSON.parse(result).ok === true && stored !== null, 'login stores a native session');
+  });
+  void bridge.handle('{"operation":"unknown"}').then(result => {
+    check(JSON.parse(result).ok === false, 'unknown clipboard shape is rejected');
+  });
+  void bridge.handle(JSON.stringify({ operation: 'clipboard', clipboard_operation: 'add', text: '\u0000' })).then(result => {
+    check(JSON.parse(result).error === 'account_invalid', 'control characters never reach transport');
+  });
+  void bridge.handle('{"operation":"profile"}').then(result => {
+    check(JSON.parse(result).error === 'account_unauthorized', 'requests before login return unauthorized');
+    check(calls.every(call => call.token === undefined), 'invalid requests do not carry a token');
+  });
+});
+
+// The account bridge deliberately models the asynchronous device HTTP API. Give its immediate
+// mock responses one microtask turn before reporting the suite result.
+setTimeout(() => {
+  console.log('');
+  if (failures > 0) {
+    throw new Error(`${failures} group(s) failed`);
+  }
+  console.log(`all groups passed (${checks} assertions)`);
+}, 0);
