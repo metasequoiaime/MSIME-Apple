@@ -136,11 +136,14 @@ SessionController::SessionController(
           (void)input_.submit([this](InputState &state) {
             if (stopping_)
               return;
+            // Provider credentials, endpoint, target language, and the
+            // enablement flag are all part of the translation policy. Drop
+            // both positive and negative results before asking for the new
+            // query, even when the candidate page remains eligible.
+            translations_.clear_cache();
             if (auto request = state.current_translation_request())
               (void)translations_.submit(request->first,
                                           std::move(request->second));
-            else
-              translations_.clear_cache();
           });
         });
   control_ = std::thread(&SessionController::run, this);
