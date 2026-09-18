@@ -42,6 +42,12 @@
       "engine_path": "googlepinyinime-rev/data/dict_pinyin.dat",
       "sha256": "6bf0bbde4e3134cce38d08524a9f4dc1af40435243c8e36b38eb68d1e14462b2",
       "size": 1068442
+    },
+    {
+      "name": "sentence-model.safetensors",
+      "url": "https://github.com/metasequoiaime/chinese-ime-lm/releases/download/model-v1/sentence-model.safetensors",
+      "sha256": "86ac529510cb3b4968a5e6ade83ec8080f5b34a0a681e75c362accbbd387d1c1",
+      "size": 4486280
     }
   ]
 }
