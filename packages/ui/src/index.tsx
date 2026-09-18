@@ -2338,7 +2338,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
           {linuxPlatform && credentialTestControl("voice.polish", "测试语音润色配置", {
             polish_provider: voiceInput.polish_provider ?? "siliconflow", polish_model: voiceInput.polish_model ?? "",
           }, !(voiceInput.polish_text === true || voiceInput.polish_enabled === true))}
-          {(windowsPlatform || macosPlatform || iosPlatform) && credentialTestControl("voice.polish", "测试语音润色配置", {
+          {(windowsPlatform || macosPlatform || iosPlatform || harmonyPlatform) && credentialTestControl("voice.polish", "测试语音润色配置", {
             provider: voiceInput.polish_provider ?? "siliconflow",
             endpoint: voiceInput.polish_endpoint?.trim() || POLISH_PROVIDER_DEFAULTS[voiceInput.polish_provider ?? "siliconflow"]?.endpoint || "",
             model: voiceInput.polish_model?.trim() || POLISH_PROVIDER_DEFAULTS[voiceInput.polish_provider ?? "siliconflow"]?.model || "",

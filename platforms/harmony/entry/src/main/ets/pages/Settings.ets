@@ -94,14 +94,23 @@ interface AiTestRequest {
 
 interface ApiCredentialRequest {
   service: string;
-  config: AiCredentialConfig;
+  config: ApiCredentialConfig;
 }
 
-interface AiCredentialConfig {
+interface ApiCredentialConfig {
   endpoint?: string;
   model?: string;
   token?: string;
   provider?: string;
+  api_key?: string;
+  secret_id?: string;
+  secret_key?: string;
+  region?: string;
+  app_id?: string;
+  apikey?: string;
+  auth_mode?: string;
+  app_key?: string;
+  resource_id?: string;
 }
 
 interface AiModelRow {
@@ -150,6 +159,46 @@ interface ApiCredentialResult {
 interface ApiCredentialReply {
   ok: boolean;
   value: ApiCredentialResult;
+}
+
+interface TranslationBody {
+  text: string;
+  source_lang: string;
+  target_lang: string;
+}
+
+interface TranslationValue {
+  text?: string;
+  translation?: string;
+  data?: string;
+}
+
+interface TranslationDocument {
+  code?: number | string;
+  error?: Object;
+  data?: string | TranslationValue | TranslationValue[];
+  translation?: string | TranslationValue | TranslationValue[];
+  result?: string | TranslationValue | TranslationValue[];
+  translations?: TranslationValue[];
+}
+
+interface ChatCredentialBody {
+  model: string;
+  stream: boolean;
+  max_tokens: number;
+  messages: AiMessageRequest[];
+  thinking?: ThinkingOptions;
+  enable_thinking?: boolean;
+}
+
+interface ThinkingOptions {
+  type: string;
+}
+
+interface CredentialHeaders {
+  Accept: string;
+  'Content-Type': string;
+  Authorization?: string;
 }
 
 @Entry
@@ -460,23 +509,158 @@ class SettingsBridge {
     } catch {
       return this.credentialReply(false, '配置格式无效。');
     }
-    if (request.service !== 'ai.assistant' || request.config === undefined) {
+    if (request.config === undefined || typeof request.service !== 'string') {
       return this.credentialReply(false, 'Harmony 当前只支持 AI 配置测试。');
     }
-    const endpoint: string = request.config.endpoint ?? '';
-    const token: string = request.config.token ?? '';
-    const modelReply: string = await this.aiModels(JSON.stringify({ endpoint, token }));
-    const result: AiReply<string[]> = JSON.parse(modelReply) as AiReply<string[]>;
-    if (!result.ok) {
-      return this.credentialReply(false, '无法连接 AI 服务，请检查接口地址和 Token。');
+    if (request.service === 'ai.assistant') {
+      const endpoint: string = request.config.endpoint ?? '';
+      const token: string = request.config.token ?? '';
+      const modelReply: string = await this.aiModels(JSON.stringify({ endpoint, token }));
+      const result: AiReply<string[]> = JSON.parse(modelReply) as AiReply<string[]>;
+      if (!result.ok) {
+        return this.credentialReply(false, '无法连接 AI 服务，请检查接口地址和 Token。');
+      }
+      return this.credentialReply(true, `连接成功，可用模型 ${result.value.length} 个。`);
     }
-    return this.credentialReply(true, `连接成功，可用模型 ${result.value.length} 个。`);
+    if (request.service === 'translation.custom') {
+      return this.translationCredential(request.config);
+    }
+    if (request.service === 'voice.polish') {
+      return this.chatCredential(request.config);
+    }
+    if (request.service === 'translation.tencent' || request.service === 'translation.niutrans'
+      || request.service === 'voice.asr') {
+      return this.credentialReply(false, 'Harmony 当前尚未接入此服务的凭据测试。');
+    }
+    return this.credentialReply(false, 'Harmony 不支持此配置测试类型。');
   }
 
   private credentialReply(ok: boolean, message: string): string {
     const value: ApiCredentialResult = { ok, message };
     const reply: ApiCredentialReply = { ok: true, value };
     return JSON.stringify(reply);
+  }
+
+  private async translationCredential(config: ApiCredentialConfig): Promise<string> {
+    const endpoint: string | null = this.validCredentialEndpoint(config.endpoint ?? '', true);
+    const apiKey: string = (config.api_key ?? '').trim();
+    if (endpoint === null || (apiKey.length > 0 && !this.validCredentialSecret(apiKey, 4096))) {
+      return this.credentialReply(false, '请填写有效的翻译接口地址和 API Key。');
+    }
+    const body: TranslationBody = { text: '测试', source_lang: 'ZH', target_lang: 'EN' };
+    const headers: CredentialHeaders = {
+      Accept: 'application/json', 'Content-Type': 'application/json'
+    };
+    if (apiKey.length > 0) headers.Authorization = `Bearer ${apiKey}`;
+    const request = http.createHttp();
+    try {
+      const response: http.HttpResponse = await request.request(endpoint, {
+        method: http.RequestMethod.POST,
+        header: headers,
+        connectTimeout: 5000,
+        readTimeout: 15000,
+        extraData: JSON.stringify(body)
+      });
+      if (response.responseCode < 200 || response.responseCode >= 300
+        || typeof response.result !== 'string' || utf8Length(response.result) > 256 * 1024) {
+        return this.credentialReply(false, '测试失败：翻译服务未返回有效译文。');
+      }
+      const document: TranslationDocument = JSON.parse(response.result) as TranslationDocument;
+      const translated: string | null = this.translationText(document);
+      return translated === null
+        ? this.credentialReply(false, '测试失败：翻译服务未返回有效译文。')
+        : this.credentialReply(true, '连接成功，翻译服务配置有效。');
+    } catch (error) {
+      KeyboardLog.error(`translation credential unavailable: ${describeError(error)}`);
+      return this.credentialReply(false, '连接失败，请检查翻译接口地址、API Key 和网络。');
+    } finally {
+      request.destroy();
+    }
+  }
+
+  private async chatCredential(config: ApiCredentialConfig): Promise<string> {
+    const endpoint: string | null = this.validCredentialEndpoint(config.endpoint ?? '', false);
+    const token: string = (config.token ?? '').trim();
+    const model: string = (config.model ?? '').trim();
+    const provider: string = (config.provider ?? '').trim();
+    if (endpoint === null || !this.validCredentialSecret(token, 8192) || model.length === 0
+      || utf8Length(model) > 256 || this.hasControl(model)
+      || !['openai', 'siliconflow', 'deepseek', 'groq'].includes(provider)) {
+      return this.credentialReply(false, '请填写有效的 HTTPS 接口地址、API Key 和模型名。');
+    }
+    const body: ChatCredentialBody = {
+      model: model,
+      stream: false,
+      max_tokens: 1,
+      messages: [{ role: 'user', content: 'Reply OK' }]
+    };
+    if (provider === 'deepseek') body.thinking = { type: 'disabled' };
+    if (provider === 'siliconflow') body.enable_thinking = false;
+    const request = http.createHttp();
+    try {
+      const response: http.HttpResponse = await request.request(endpoint, {
+        method: http.RequestMethod.POST,
+        header: { Accept: 'application/json', 'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}` },
+        connectTimeout: 5000,
+        readTimeout: 15000,
+        extraData: JSON.stringify(body)
+      });
+      if (response.responseCode >= 200 && response.responseCode < 300) {
+        return this.credentialReply(true, '连接成功，API Key 和模型配置有效。');
+      }
+      if (response.responseCode === 401 || response.responseCode === 403) {
+        return this.credentialReply(false, '认证失败，请检查 API Key 和访问权限。');
+      }
+      if (response.responseCode === 429) {
+        return this.credentialReply(false, '服务限流或额度不足，请稍后重试。');
+      }
+      return this.credentialReply(false, '服务拒绝请求，请检查接口地址和模型配置。');
+    } catch (error) {
+      KeyboardLog.error(`chat credential unavailable: ${describeError(error)}`);
+      return this.credentialReply(false, '连接失败，请检查接口地址、模型、API Key 和网络。');
+    } finally {
+      request.destroy();
+    }
+  }
+
+  private translationText(document: TranslationDocument): string | null {
+    if (document.error !== undefined) return null;
+    if (document.code !== undefined && document.code !== 200 && document.code !== '200') return null;
+    const values: Array<string | TranslationValue | TranslationValue[]> = [];
+    if (document.data !== undefined) values.push(document.data);
+    if (document.translation !== undefined) values.push(document.translation);
+    if (document.result !== undefined) values.push(document.result);
+    if (document.translations !== undefined) values.push(document.translations);
+    for (const value of values) {
+      if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+      if (Array.isArray(value) && value.length > 0) {
+        const first: TranslationValue = value[0];
+        const text: string | undefined = first.text ?? first.translation ?? first.data;
+        if (text !== undefined && text.trim().length > 0) return text.trim();
+      } else if (typeof value === 'object' && value !== null) {
+        const objectValue: TranslationValue = value as TranslationValue;
+        const text: string | undefined = objectValue.text ?? objectValue.translation ?? objectValue.data;
+        if (text !== undefined && text.trim().length > 0) return text.trim();
+      }
+    }
+    return null;
+  }
+
+  private validCredentialEndpoint(value: string, allowHttp: boolean): string | null {
+    const endpoint: string = value.trim();
+    if (endpoint.length === 0 || utf8Length(endpoint) > 2048 || this.hasControl(endpoint)
+      || (!endpoint.startsWith('https://') && !(allowHttp && endpoint.startsWith('http://')))
+      || endpoint.includes('@') || endpoint.includes('#')) return null;
+    const authority: string = endpoint.substring(endpoint.indexOf('://') + 3).split('/')[0]
+      .split('?')[0];
+    return authority.length === 0 ? null : endpoint;
+  }
+
+  private validCredentialSecret(value: string, maxBytes: number): boolean {
+    return value.length > 0 && utf8Length(value) <= maxBytes && !this.hasControl(value)
+      && !value.startsWith('<') && !value.startsWith('FAKESECRET_')
+      && !Array.from(value).every((character: string): boolean => character === '*');
   }
 
   private validAiEndpoint(value: string): string | null {
