@@ -1,5 +1,5 @@
 // Real Fcitx input contexts and the real Host API. All input is synthetic.
-#include "../src/FcitxEngine.cpp"
+#include "../FcitxEngine.cpp"
 #include <iostream>
 #include <filesystem>
 #include <thread>

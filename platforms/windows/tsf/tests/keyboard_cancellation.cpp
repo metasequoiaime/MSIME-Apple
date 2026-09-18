@@ -1,4 +1,4 @@
-#include "../src/KeyboardCancellation.h"
+#include "../KeyboardCancellation.h"
 #include "../../../../vendor/MSIME-Engine/contracts/keyboard_composition_pipe.h"
 #include <cassert>
 #include <vector>

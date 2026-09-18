@@ -1,6 +1,6 @@
 #pragma once
 #import <AppKit/AppKit.h>
-#import "../../shared/apple/TextClient.h"
+#import "../../../shared/apple/TextClient.h"
 #include "CandidateSkin.h"
 
 FOUNDATION_EXPORT NSNotificationName const MSIMEAppearanceDidChangeNotification;

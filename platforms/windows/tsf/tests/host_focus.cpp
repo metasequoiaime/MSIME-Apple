@@ -1,4 +1,4 @@
-#include "../src/HostFocusState.h"
+#include "../HostFocusState.h"
 #include <cstdlib>
 #include <vector>
 int main() {

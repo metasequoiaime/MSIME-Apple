@@ -31,20 +31,20 @@ for arch in x86_64 i686; do
   "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Iplatforms/windows/msimeui/include -I"$json_include" \
     -c platforms/windows/msimeui/demos/msimeui-emoji-panel/EmojiPanel.cpp -o "$output/emoji-panel.o"
   "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Icrates/host-api/include \
-    -Ivendor/MSIME-Engine/contracts -I"$json_include" -c platforms/windows/FocusedSession.cpp -o "$output/FocusedSession.o"
+    -Ivendor/MSIME-Engine/contracts -I"$json_include" -c platforms/windows/src/FocusedSession.cpp -o "$output/FocusedSession.o"
   "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows \
     platforms/windows/tests/focus_gate.cpp -o "$output/focus-gate.exe"
   "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Ivendor/MSIME-Engine/contracts \
-    platforms/windows/PipeIo.cpp platforms/windows/PipePeer.cpp platforms/windows/PipeHandshake.cpp \
-    platforms/windows/PipeListener.cpp platforms/windows/PipeRegistry.cpp platforms/windows/PipeIntake.cpp platforms/windows/PipeService.cpp platforms/windows/PipeMainTransport.cpp platforms/windows/ReplyCodec.cpp platforms/windows/tests/pipe_io.cpp -ladvapi32 -o "$output/pipe-io.exe"
+    platforms/windows/src/PipeIo.cpp platforms/windows/src/PipePeer.cpp platforms/windows/src/PipeHandshake.cpp \
+    platforms/windows/src/PipeListener.cpp platforms/windows/src/PipeRegistry.cpp platforms/windows/src/PipeIntake.cpp platforms/windows/src/PipeService.cpp platforms/windows/src/PipeMainTransport.cpp platforms/windows/src/ReplyCodec.cpp platforms/windows/tests/pipe_io.cpp -ladvapi32 -o "$output/pipe-io.exe"
   "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Ivendor/MSIME-Engine/contracts \
-    platforms/windows/ReplyCodec.cpp platforms/windows/tests/reply_codec.cpp -o "$output/reply-codec.exe"
+    platforms/windows/src/ReplyCodec.cpp platforms/windows/tests/reply_codec.cpp -o "$output/reply-codec.exe"
   "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Icrates/host-api/include \
-    -Ivendor/MSIME-Engine/contracts -I"$json_include" -c platforms/windows/ReplyComposer.cpp -o "$output/ReplyComposer.o"
+    -Ivendor/MSIME-Engine/contracts -I"$json_include" -c platforms/windows/src/ReplyComposer.cpp -o "$output/ReplyComposer.o"
   "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Icrates/host-api/include \
     -Ivendor/MSIME-Engine/contracts -I"$json_include" -c platforms/windows/tests/reply_composer.cpp -o "$output/reply_composer.o"
   "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Icrates/host-api/include \
-    -Ivendor/MSIME-Engine/contracts -I"$json_include" -c platforms/windows/ServerSession.cpp -o "$output/ServerSession.o"
+    -Ivendor/MSIME-Engine/contracts -I"$json_include" -c platforms/windows/src/ServerSession.cpp -o "$output/ServerSession.o"
   "$compiler" -std=c++17 -Wall -Wextra -Werror -Iplatforms/windows -Icrates/host-api/include \
     -Ivendor/MSIME-Engine/contracts -I"$json_include" -c platforms/windows/tests/session_smoke.cpp -o "$output/session_smoke.o"
   "$compiler" -std=c++17 -Wall -Wextra -Werror -c vendor/MSIME-Engine/contracts/tests/windows_ipc_contract.cpp -o "$output/windows_ipc_contract.o"

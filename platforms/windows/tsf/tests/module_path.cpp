@@ -1,4 +1,4 @@
-#include "../src/ModulePath.h"
+#include "../ModulePath.h"
 #include <algorithm>
 #include <cstdlib>
 

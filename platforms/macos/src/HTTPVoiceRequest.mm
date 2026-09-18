@@ -1,6 +1,6 @@
 #import "HTTPVoiceRequest.h"
-#include "../../shared/voice/VoiceProviders.h"
-#include "../../shared/voice/PolishPrompt.h"
+#include "../../../shared/voice/VoiceProviders.h"
+#include "../../../shared/voice/PolishPrompt.h"
 #include <cmath>
 #include <cstring>
 

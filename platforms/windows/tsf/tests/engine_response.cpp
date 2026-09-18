@@ -1,4 +1,4 @@
-#include "../src/EngineSessionAdapter.h"
+#include "../EngineSessionAdapter.h"
 
 #include <cstdlib>
 

@@ -3,7 +3,7 @@
 #import <CoreText/CoreText.h>
 #import "MSIMEClientSession.h"
 #import "RuntimeOptions.h"
-#import "../../shared/apple/TextClient.h"
+#import "../../../shared/apple/TextClient.h"
 #include "msime_client.h"
 #import "CandidatePlacement.h"
 #import "InputSourceRegistration.h"
@@ -48,7 +48,7 @@
 #import "VoiceProviderSocket.h"
 #import "VoiceWaveOverlay.h"
 #import "VoiceInputLevel.h"
-#include "../../shared/voice/CaptureDuration.h"
+#include "../../../shared/voice/CaptureDuration.h"
 #import "VoiceCuePlayer.h"
 #import "VoiceAudioMuter.h"
 #import "VoiceProviderSettings.h"

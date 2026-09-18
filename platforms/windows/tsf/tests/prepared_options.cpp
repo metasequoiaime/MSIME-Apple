@@ -1,4 +1,4 @@
-#include "../src/HostOptionsPaths.h"
+#include "../HostOptionsPaths.h"
 #include <chrono>
 #include <cstdlib>
 #include <fstream>

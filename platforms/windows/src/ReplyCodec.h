@@ -1,6 +1,6 @@
 #pragma once
 #include "windows_ipc.h"
-#include "../../vendor/MSIME-Engine/contracts/voice_composition_pipe.h"
+#include "../../../vendor/MSIME-Engine/contracts/voice_composition_pipe.h"
 #include <array>
 #include <optional>
 #include <string>

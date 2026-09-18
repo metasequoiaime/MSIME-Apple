@@ -9,7 +9,7 @@
 
 namespace msime::windows {
 // The candidate right-click menu, mirroring the rows the IBus host already
-// offers (platforms/linux/ClientEngine.cpp:1701-1725). This header decides what
+// offers (platforms/linux/src/ClientEngine.cpp:1701-1725). This header decides what
 // the menu offers for a given candidate; drawing and routing stay outside, so
 // the rules are testable without a desktop or an Engine.
 enum class CandidateMenuCommand { Pin, Remove, Fix, Clear };

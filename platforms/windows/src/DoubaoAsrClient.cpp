@@ -1,5 +1,5 @@
 #include "DoubaoAsrClient.h"
-#include "../../shared/voice/DoubaoAuth.h"
+#include "../../../shared/voice/DoubaoAuth.h"
 
 #include <nlohmann/json.hpp>
 #include <windows.h>

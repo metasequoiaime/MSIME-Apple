@@ -6,7 +6,7 @@ fn main() {
     println!("cargo:rerun-if-changed=native/keyboard.h");
     println!("cargo:rerun-if-changed=native/voice_capture_devices.mm");
     println!("cargo:rerun-if-changed=native/clipboard.mm");
-    println!("cargo:rerun-if-changed=../../platforms/macos/VoiceCaptureDevice.h");
+    println!("cargo:rerun-if-changed=../../platforms/macos/src/VoiceCaptureDevice.h");
     cc::Build::new()
         .cpp(true)
         .file("native/keyboard.mm")

@@ -1,6 +1,6 @@
 #pragma once
 
-#include "../../vendor/MSIME-Engine/contracts/windows_ipc.h"
+#include "../../../vendor/MSIME-Engine/contracts/windows_ipc.h"
 
 namespace msime::windows::PipeMetadata {
 // Set by the TSF while its original candidate list is active. This metadata

@@ -1,4 +1,4 @@
-#include "../src/HostRawCommit.h"
+#include "../HostRawCommit.h"
 #include <cstdlib>
 #include <vector>
 using msime::tsf::RawCommitStatus;

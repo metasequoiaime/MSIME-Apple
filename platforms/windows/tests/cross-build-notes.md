@@ -28,7 +28,7 @@ c++ -std=c++17 -Wall -Wextra -Werror -fsanitize=address,undefined \
   -Iplatforms/windows -Icrates/host-api/include -Ivendor/MSIME-Engine/contracts \
   -Itarget/windows-native-deps/x64/x64-mingw-static/include \
   platforms/windows/tests/candidate_initialization.cpp \
-  platforms/windows/ChineseTextConversion.cpp -o target/candidate-initialization
+  platforms/windows/src/ChineseTextConversion.cpp -o target/candidate-initialization
 ./target/candidate-initialization
 ```
 

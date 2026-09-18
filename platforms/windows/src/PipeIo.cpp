@@ -1,5 +1,5 @@
 #include "PipeIo.h"
-#include "../../vendor/MSIME-Engine/contracts/voice_controller.h"
+#include "../../../vendor/MSIME-Engine/contracts/voice_controller.h"
 #include <utility>
 
 namespace msime::windows {
