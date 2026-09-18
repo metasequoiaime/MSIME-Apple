@@ -12,6 +12,19 @@ constexpr UINT kToggleMessage = WM_APP + 201;
 constexpr UINT kStopMessage = WM_APP + 202;
 constexpr UINT kLockMessage = WM_APP + 203;
 constexpr UINT kCancelMessage = WM_APP + 204;
+
+// The low-level hook swallows the RAlt key-up after using it as a voice
+// shortcut. If the controller is torn down before that key-up arrives (for
+// example while settings disable the hook or while Server exits), Windows
+// would otherwise retain the modifier as logically pressed for the focused
+// application. Match the native voice service's shutdown safety net.
+void force_release_ralt() {
+  INPUT input{};
+  input.type = INPUT_KEYBOARD;
+  input.ki.wVk = VK_RMENU;
+  input.ki.dwFlags = KEYEVENTF_KEYUP;
+  (void)SendInput(1, &input, sizeof(INPUT));
+}
 }
 
 VoiceHotkeyController *VoiceHotkeyController::instance_ = nullptr;
@@ -39,6 +52,7 @@ VoiceHotkeyController::VoiceHotkeyController(VoiceInputSession &voice,
 }
 
 VoiceHotkeyController::~VoiceHotkeyController() {
+  const bool release_ralt = suppress_ralt_until_up_.load();
   if (hook_)
     UnhookWindowsHookEx(hook_);
   hook_ = nullptr;
@@ -48,6 +62,8 @@ VoiceHotkeyController::~VoiceHotkeyController() {
     DestroyWindow(window_);
   window_ = nullptr;
   reset_state();
+  if (release_ralt)
+    force_release_ralt();
 }
 
 LRESULT CALLBACK VoiceHotkeyController::window_proc(HWND hwnd, UINT message,
