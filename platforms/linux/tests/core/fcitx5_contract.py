@@ -36,6 +36,8 @@ assert 'msime-frequency-trigger' in source
 assert 'msime-frequency-step' in source
 assert 'msime-candidate-theme' in source
 assert 'cycleCandidateTheme' in source
+assert 'msime-candidate-skin' in source
+assert 'cycleCandidateSkin' in source
 assert 'msime-helpcode-schema' in source
 assert 'cycleHelpcodeSchema' in source
 assert 'toggleLocalMode' in source
