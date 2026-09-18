@@ -27,11 +27,11 @@ public:
     for (auto generation : ticket.generations)
       if (!generation)
         return std::nullopt;
-    if (next_epoch_ == std::numeric_limits<uint64_t>::max()) {
-      current_.reset();
-      ready_ = false;
-      return std::nullopt;
-    }
+    // Match the Windows server's monotonically advancing epoch: zero is
+    // reserved as invalid, but exhausting uint64_t must not permanently
+    // disable every later focus activation.
+    if (next_epoch_ == std::numeric_limits<uint64_t>::max())
+      next_epoch_ = 0;
     FocusChange change{current_, {ticket, ++next_epoch_, token}, ready_};
     current_ = change.pending;
     ready_ = false;
