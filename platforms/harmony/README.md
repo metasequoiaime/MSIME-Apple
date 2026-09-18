@@ -6,6 +6,8 @@ Harmony 设置页也暴露共享的模糊拼音规则。设置保存到同一个
 
 手写方案使用 HarmonyOS Core Vision Kit 的 `textRecognition`：键盘内的 ArkUI Canvas 记录受界限约束的笔画，组件快照转换为 `PixelMap` 后交给系统 OCR，候选结果仍由共享 Engine 会话提交到编辑器。OCR 服务不可用时保留明确提示，不回退到伪造的 Engine 手写模型；该路径需要设备提供 `SystemCapability.AI.OCR.TextRecognition`。
 
+语音输入使用 HarmonyOS Core Speech Kit 的 `speechRecognizer` 离线短语音模式。工具面板可以开始、停止或取消识别，最终文字经过长度和控制字符边界检查后通过当前 `KeyboardSession` 提交；原始音频始终留在系统服务内，不写入文件、不进入日志，也不复制到 Engine。该路径需要 `SystemCapability.AI.SpeechRecognizer` 和用户授予 `ohos.permission.MICROPHONE`，单次录音受系统 60 秒上限约束。
+
 ## 目录结构
 
 - `entry/src/`：ArkTS 应用与键盘宿主源码。
@@ -41,5 +43,5 @@ hvigorw assembleHap
 bash platforms/harmony/tests/run.sh
 ```
 
-该命令编译并运行 `tests/keyboard-logic.test.ts`。`build-native.sh` 只证明指定 OpenHarmony NDK 下的 Rust/C++/NAPI 交叉构建和 ELF 导出检查；`hvigorw assembleHap` 只证明 HAP 打包。当前没有 HarmonyOS 真机或模拟器运行证据，未完成系统输入法注册、焦点/选区、生命周期、签名和设备编辑器验收，因此不能把交叉构建描述为平台接入完成。
+该命令编译并运行 `tests/keyboard-logic.test.ts`。`build-native.sh` 只证明指定 OpenHarmony NDK 下的 Rust/C++/NAPI 交叉构建和 ELF 导出检查；`hvigorw assembleHap` 只证明 HAP 打包。当前没有 HarmonyOS 真机或模拟器运行证据，未完成系统输入法注册、焦点/选区、生命周期、签名、麦克风授权流程、Core Speech Kit 实际识别和设备编辑器验收，因此不能把交叉构建描述为平台接入完成。
 本切片已完成主机边界与 HAP 打包验证，但仍需在 HarmonyOS 真机或模拟器上确认设置页的文件选择、沙盒资源暂存、编辑器焦点恢复以及实际词库读写；设备验证前不宣称完成平台接入。

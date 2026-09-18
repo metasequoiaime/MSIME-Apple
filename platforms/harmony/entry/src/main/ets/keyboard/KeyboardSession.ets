@@ -192,6 +192,18 @@ interface CreateResponse {
   error: string;
 }
 
+interface VoiceGenerationResponse {
+  ok: boolean;
+  value: number;
+  error: string;
+}
+
+interface VoiceTextResponse {
+  ok: boolean;
+  value: string | null;
+  error: string;
+}
+
 // ArkTS rejects untyped object literals, so the request prepareHost takes gets a shape too.
 interface PrepareRequest {
   resources: string;
@@ -682,6 +694,46 @@ export class KeyboardSession {
   submit(): void {
     if (this.inputClient !== undefined) {
       this.inputClient.sendKeyFunction(this.enterKey);
+    }
+  }
+
+  /** Begin one host-independent voice generation, so late platform callbacks can be rejected. */
+  voiceStart(): number {
+    if (this.handle === 0) {
+      return 0;
+    }
+    try {
+      const response: VoiceGenerationResponse = JSON.parse(client.voiceStart(this.handle)) as VoiceGenerationResponse;
+      return response.ok && Number.isSafeInteger(response.value) && response.value > 0
+        ? response.value : 0;
+    } catch (error) {
+      KeyboardLog.error(`voice session unavailable: ${describeError(error)}`);
+      return 0;
+    }
+  }
+
+  voiceCancel(): void {
+    if (this.handle === 0) {
+      return;
+    }
+    try {
+      client.voiceCancel(this.handle);
+    } catch (error) {
+      KeyboardLog.error(`voice cancellation unavailable: ${describeError(error)}`);
+    }
+  }
+
+  /** Accept only the active generation and never log the recognized text. */
+  voiceApply(generation: number, text: string): string | null {
+    if (this.handle === 0 || generation <= 0 || text.length === 0) {
+      return null;
+    }
+    try {
+      const response: VoiceTextResponse = JSON.parse(client.voiceApply(this.handle, generation, text)) as VoiceTextResponse;
+      return response.ok ? response.value : null;
+    } catch (error) {
+      KeyboardLog.error(`voice result unavailable: ${describeError(error)}`);
+      return null;
     }
   }
 

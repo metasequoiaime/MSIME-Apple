@@ -54,6 +54,8 @@ import { DictionaryMaintenancePolicy }
 import {
   HandwritingStrokePolicy, HANDWRITING_CANVAS_SIZE, HANDWRITING_MAX_CANDIDATES,
 } from '../entry/src/main/ets/keyboard/input/HandwritingStrokePolicy';
+import { VoiceRecognitionPolicy, VOICE_MAX_TEXT } from
+  '../entry/src/main/ets/keyboard/input/VoiceRecognitionPolicy';
 
 let failures = 0;
 let checks = 0;
@@ -99,6 +101,20 @@ console.log('KeyboardGeometry');
 console.log('DictionaryMaintenancePolicy');
 
 console.log('HandwritingStrokePolicy');
+
+console.log('VoiceRecognitionPolicy');
+
+group('bounds native speech language, session and result text', () => {
+  check(VoiceRecognitionPolicy.language('  ') === 'zh-CN', 'voice defaults to Chinese');
+  check(VoiceRecognitionPolicy.language('x'.repeat(100)).length <= 32,
+    'voice language is bounded');
+  check(VoiceRecognitionPolicy.sessionId(12) === 'msime-voice-12',
+    'voice session ids are deterministic');
+  check(VoiceRecognitionPolicy.result(' 水\n水\u0000 ') === '水\n水',
+    'voice result removes control bytes and trims');
+  check(VoiceRecognitionPolicy.result('x'.repeat(VOICE_MAX_TEXT + 20)).length === VOICE_MAX_TEXT,
+    'voice result is bounded');
+});
 
 group('bounds handwriting points and rejects empty recognition requests', () => {
   const point = HandwritingStrokePolicy.point(999, -4);

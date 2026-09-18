@@ -9,6 +9,8 @@ export enum DesktopSurface {
   /** Candidates, which is what the window is for when nothing else was asked for. */
   NONE,
   EMOJI,
+  /** Native CoreSpeechKit voice panel requested by the Harmony toolbar/host. */
+  VOICE,
   /** The soft keyboard, on a machine that has its own — for the characters a physical one lacks. */
   SCREEN_KEYBOARD
 }

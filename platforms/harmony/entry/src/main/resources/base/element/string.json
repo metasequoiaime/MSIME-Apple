@@ -21,6 +21,10 @@
       "value": "按键振动需要振动权限"
     },
     {
+      "name": "microphone_permission_reason",
+      "value": "语音输入需要使用麦克风"
+    },
+    {
       "name": "entry_ability_desc",
       "value": "水杉输入法的设置"
     },

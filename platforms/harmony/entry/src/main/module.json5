@@ -35,6 +35,17 @@
           "abilities": ["KeyboardExtensionAbility"],
           "when": "inuse"
         }
+      },
+      {
+        // CoreSpeechKit opens the device microphone on behalf of the input method. The recognizer
+        // refuses to start without this sensitive permission; raw audio remains inside the system
+        // service and is never handed to the Engine or persisted by this module.
+        "name": "ohos.permission.MICROPHONE",
+        "reason": "$string:microphone_permission_reason",
+        "usedScene": {
+          "abilities": ["KeyboardExtensionAbility"],
+          "when": "inuse"
+        }
       }
     ],
     "abilities": [

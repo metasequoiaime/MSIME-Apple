@@ -164,6 +164,8 @@ HANDLE_ENTRY(SnapshotDiscard, msime_client_snapshot_discard)
 HANDLE_ENTRY(View, msime_client_view)
 HANDLE_ENTRY(AllCandidates, msime_client_all_candidates)
 HANDLE_ENTRY(Destroy, msime_client_destroy)
+HANDLE_ENTRY(VoiceStart, msime_client_voice_start)
+HANDLE_ENTRY(VoiceCancel, msime_client_voice_cancel)
 
 #define FLAG_ENTRY(name, call)                                                                      \
     static napi_value name(napi_env env, napi_callback_info info) {                                 \
@@ -335,6 +337,19 @@ static napi_value ApplyTranslations(napi_env env, napi_callback_info info) {
         reinterpret_cast<const uint8_t *>(translations.data()), translations.size()));
 }
 
+static napi_value VoiceApply(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    uint64_t handle = 0;
+    uint64_t generation = 0;
+    std::string text;
+    if (!arguments(env, info, 3, argv) || !argumentHandle(env, argv[0], handle)
+            || !argumentHandle(env, argv[1], generation) || !argumentText(env, argv[2], text)) {
+        return response(env, msime_client_voice_apply(0, 0, nullptr, 0));
+    }
+    return response(env, msime_client_voice_apply(handle, generation,
+        reinterpret_cast<const uint8_t *>(text.data()), text.size()));
+}
+
 static napi_value AbiVersion(napi_env env, napi_callback_info) {
     napi_value output = nullptr;
     if (napi_create_uint32(env, msime_client_abi_version(), &output) != napi_ok) return nullptr;
@@ -390,6 +405,9 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("view", View),
         ENTRY("allCandidates", AllCandidates),
         ENTRY("applyTranslations", ApplyTranslations),
+        ENTRY("voiceStart", VoiceStart),
+        ENTRY("voiceCancel", VoiceCancel),
+        ENTRY("voiceApply", VoiceApply),
     };
     if (napi_define_properties(env, exports,
             sizeof(properties) / sizeof(properties[0]), properties) != napi_ok) {

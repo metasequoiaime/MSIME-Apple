@@ -50,3 +50,7 @@ export const chooseNineKeySpelling: (handle: number, generation: number, index: 
 export const view: (handle: number) => string;
 export const allCandidates: (handle: number) => string;
 export const applyTranslations: (handle: number, generation: number, translations: string) => string;
+/** Start/cancel the shared voice generation used to reject stale asynchronous recognition. */
+export const voiceStart: (handle: number) => string;
+export const voiceCancel: (handle: number) => string;
+export const voiceApply: (handle: number, generation: number, text: string) => string;

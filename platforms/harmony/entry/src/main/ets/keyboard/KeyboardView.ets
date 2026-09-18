@@ -36,6 +36,8 @@ import {
   HandwritingPoint, HandwritingStroke, HandwritingStrokePolicy,
   HANDWRITING_CANVAS_SIZE, HANDWRITING_MAX_POINTS, HANDWRITING_MAX_STROKES
 } from './input/HandwritingStrokePolicy';
+import { HarmonyVoiceRecognizer } from './input/HarmonyVoiceRecognizer';
+import { VoiceRecognitionPolicy } from './input/VoiceRecognitionPolicy';
 
 /**
  * The 26-key touch keyboard, laid out to the same metrics as the iOS extension in
@@ -111,6 +113,7 @@ const SURFACE_MODES: string = 'modes';
 const SURFACE_GEOMETRY: string = 'geometry';
 const SURFACE_EXPANDED: string = 'expanded';
 const SURFACE_VARIANTS: string = 'variants';
+const SURFACE_VOICE: string = 'voice';
 
 const TOOL_ICON_VP: number = 18;
 // Third, which is where iOS puts the English card.
@@ -211,6 +214,10 @@ struct KeyboardView {
   @State handwritingCandidates: string[] = [];
   @State handwritingNotice: string = '';
   @State handwritingBusy: boolean = false;
+  @State voiceText: string = '';
+  @State voiceNotice: string = '';
+  @State voiceBusy: boolean = false;
+  @State voiceFinishing: boolean = false;
 
   private readonly letterCase: EnglishLetterCaseState = new EnglishLetterCaseState();
   private settings: KeyboardPreferences = KeyboardSession.shared.preferences();
@@ -226,6 +233,8 @@ struct KeyboardView {
   private handwritingRevision: number = 0;
   private handwritingContext: CanvasRenderingContext2D =
     new CanvasRenderingContext2D(new RenderingContextSettings(true));
+  private readonly voiceRecognizer: HarmonyVoiceRecognizer = new HarmonyVoiceRecognizer();
+  private voiceGeneration: number = 0;
 
   aboutToAppear(): void {
     this.english = KeyboardSession.shared.isEnglish();
@@ -276,6 +285,11 @@ struct KeyboardView {
     KeyboardSession.shared.onChanged = undefined;
     KeyboardSession.shared.onEditorChanged = undefined;
     this.stopBackspace();
+    this.voiceRecognizer.shutdown();
+    KeyboardSession.shared.voiceCancel();
+    this.voiceGeneration = 0;
+    this.voiceBusy = false;
+    this.voiceFinishing = false;
   }
 
   /**
@@ -1311,6 +1325,159 @@ struct KeyboardView {
     this.clearHandwriting();
   }
 
+  private startVoice(): void {
+    if (this.voiceBusy) {
+      return;
+    }
+    this.voiceGeneration = KeyboardSession.shared.voiceStart();
+    if (this.voiceGeneration === 0) {
+      this.voiceNotice = '语音会话不可用';
+      return;
+    }
+    this.voiceText = '';
+    this.voiceNotice = '正在聆听…';
+    this.voiceBusy = true;
+    this.voiceFinishing = false;
+    this.voiceRecognizer.start('zh-CN', (text: string, final: boolean): void => {
+      if (text.length > 0) {
+        this.voiceText = VoiceRecognitionPolicy.result(text);
+      }
+      if (final && this.voiceGeneration > 0) {
+        const accepted: string | null = KeyboardSession.shared.voiceApply(
+          this.voiceGeneration, this.voiceText);
+        this.voiceGeneration = 0;
+        if (accepted !== null) {
+          this.voiceText = accepted;
+        }
+        this.voiceFinishing = false;
+        this.voiceBusy = false;
+        this.voiceNotice = accepted !== null ? '识别完成，可提交结果。' :
+          (this.voiceText.length > 0 ? '已忽略过期的语音结果。' : '没有识别到语音。');
+      }
+    }, (message: string): void => {
+      KeyboardSession.shared.voiceCancel();
+      this.voiceGeneration = 0;
+      this.voiceBusy = false;
+      this.voiceFinishing = false;
+      this.voiceNotice = message;
+    }).catch((error: Object): void => {
+      KeyboardSession.shared.voiceCancel();
+      this.voiceGeneration = 0;
+      this.voiceBusy = false;
+      this.voiceFinishing = false;
+      this.voiceNotice = error instanceof Error ? error.message : '语音识别不可用';
+    });
+  }
+
+  private stopVoice(): void {
+    if (!this.voiceBusy || this.voiceFinishing) {
+      return;
+    }
+    this.voiceFinishing = true;
+    this.voiceNotice = '正在完成识别…';
+    try {
+      this.voiceRecognizer.stop();
+    } catch (error) {
+      this.voiceBusy = false;
+      this.voiceFinishing = false;
+      this.voiceNotice = '无法结束语音识别';
+    }
+  }
+
+  private cancelVoice(): void {
+    try {
+      this.voiceRecognizer.cancel();
+    } catch (error) {
+      // Cancellation is best effort; the visible state still has to become idle.
+    }
+    this.voiceBusy = false;
+    this.voiceFinishing = false;
+    this.voiceText = '';
+    this.voiceNotice = '已取消语音识别';
+    KeyboardSession.shared.voiceCancel();
+    this.voiceGeneration = 0;
+  }
+
+  private submitVoice(): void {
+    const text: string = VoiceRecognitionPolicy.result(this.voiceText);
+    if (text.length === 0 || this.voiceBusy) {
+      return;
+    }
+    KeyboardSession.shared.insert(text);
+    this.voiceText = '';
+    this.voiceNotice = '已提交';
+  }
+
+  @Builder
+  voiceFace() {
+    Column({ space: KeyboardMetrics.KEY_SPACING_VP }) {
+      Row() {
+        Text('语音输入')
+          .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
+          .fontColor(this.skin.keyForeground)
+          .layoutWeight(1)
+        Text('返回')
+          .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+          .fontColor(this.skin.accent)
+          .onClick(() => this.show(SURFACE_NONE))
+      }
+      .width('100%')
+      .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 4)
+      .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
+        right: KeyboardMetrics.CANDIDATE_PADDING_VP })
+
+      Text(this.voiceNotice.length > 0 ? this.voiceNotice : '使用 HarmonyOS 系统语音识别；输入法不会保存原始音频。')
+        .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+        .fontColor(this.skin.keyForeground)
+        .opacity(0.72)
+        .maxLines(2)
+        .width('100%')
+        .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
+          right: KeyboardMetrics.CANDIDATE_PADDING_VP })
+
+      TextArea({ text: this.voiceText, placeholder: '识别结果会显示在这里' })
+        .width('100%')
+        .height(this.surfaceHeight() * 0.35)
+        .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+        .fontColor(this.skin.keyForeground)
+        .backgroundColor(this.skin.keyBackground)
+        .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
+        .onChange((value: string): void => {
+          this.voiceText = VoiceRecognitionPolicy.result(value);
+        })
+
+      Row({ space: KeyboardMetrics.KEY_SPACING_VP }) {
+        Text(this.voiceFinishing ? '正在完成…' : this.voiceBusy ? '停止录音' : '开始录音')
+          .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+          .fontColor(this.skin.actionForeground)
+          .layoutWeight(1)
+          .textAlign(TextAlign.Center)
+          .padding({ top: 10, bottom: 10 })
+          .backgroundColor(this.skin.actionBackground)
+          .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
+          .onClick(() => this.voiceBusy ? this.stopVoice() : this.startVoice())
+        Text('取消')
+          .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+          .fontColor(this.skin.keyForeground)
+          .padding({ left: 16, right: 16, top: 10, bottom: 10 })
+          .backgroundColor(this.skin.keyBackground)
+          .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
+          .onClick(() => this.cancelVoice())
+        Text('提交')
+          .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+          .fontColor(this.skin.keyForeground)
+          .padding({ left: 16, right: 16, top: 10, bottom: 10 })
+          .backgroundColor(this.skin.keyBackground)
+          .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
+          .opacity(this.voiceText.length > 0 && !this.voiceBusy ? 1 : 0.4)
+          .onClick(() => this.submitVoice())
+      }
+      .width('100%')
+    }
+    .width('100%')
+    .height(this.surfaceHeight())
+  }
+
   @Builder
   handwritingFace() {
     Column({ space: KeyboardMetrics.KEY_SPACING_VP }) {
@@ -1981,6 +2148,11 @@ struct KeyboardView {
                   this.show(SURFACE_MODES);
                 });
               }
+              GridItem() {
+                this.toolCard('语音输入', '🎙', null, this.voiceBusy, true, () => {
+                  this.show(SURFACE_VOICE);
+                });
+              }
             }
             .columnsTemplate('1fr 1fr')
             .width('100%')
@@ -2298,6 +2470,8 @@ struct KeyboardView {
         this.emojiFace()
       } else if (this.desktop === DesktopSurface.SCREEN_KEYBOARD) {
         this.keyFaces()
+      } else if (this.desktop === DesktopSurface.VOICE) {
+        this.voiceFace()
       }
     }
     .width('100%')
@@ -2324,6 +2498,8 @@ struct KeyboardView {
         this.expandedFace()
       } else if (this.surface === SURFACE_CLIPBOARD) {
         this.clipboardFace()
+      } else if (this.surface === SURFACE_VOICE) {
+        this.voiceFace()
       } else if (this.isPicker()) {
         this.pickerFace()
       } else if (this.surface === SURFACE_EMOJI) {
