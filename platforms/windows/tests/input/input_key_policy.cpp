@@ -11,6 +11,19 @@ int main() {
   assert(is_backend_independent_reset_key(0x1B));
   assert(is_backend_independent_reset_key(0xA1));
   assert(!is_backend_independent_reset_key(0xA2));
+  using msime::windows::is_segment_backspace_key;
+  using msime::windows::is_segment_caret_key;
+  using msime::windows::kModifierControl;
+  using msime::windows::kModifierShift;
+  using msime::windows::kVirtualKeyBackspace;
+  using msime::windows::kVirtualKeyLeft;
+  using msime::windows::kVirtualKeyRight;
+  assert(is_segment_backspace_key(kVirtualKeyBackspace, kModifierControl));
+  assert(!is_segment_backspace_key(kVirtualKeyBackspace,
+                                   kModifierControl | kModifierShift));
+  assert(is_segment_caret_key(kVirtualKeyLeft, kModifierControl));
+  assert(is_segment_caret_key(kVirtualKeyRight, kModifierControl));
+  assert(!is_segment_caret_key(kVirtualKeyRight, kModifierControl | kModifierShift));
   using msime::windows::should_send_composition_reply;
   assert(should_send_composition_reply(false, false, false, false, false,
                                         true));
