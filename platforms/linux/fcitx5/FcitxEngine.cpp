@@ -137,6 +137,31 @@ Json readOptions() {
   return Json::parse(data.data(), data.data() + file.gcount());
 }
 
+using CandidateSkinCatalog = std::vector<std::pair<std::string, std::string>>;
+
+CandidateSkinCatalog parseCandidateSkinCatalog(const Json &options) {
+  CandidateSkinCatalog result;
+  const auto catalog = options.find("candidate_skin_catalog");
+  if (catalog == options.end() || !catalog->is_object()) return result;
+  const auto packages = catalog->find("packages");
+  if (packages == catalog->end() || !packages->is_array()) return result;
+  for (const auto &package : *packages) {
+    if (!package.is_object()) continue;
+    const auto id = package.value("id", std::string{});
+    const auto title = package.value("title", id);
+    if (id.empty() || id.size() > 64 || title.empty() || title.size() > 128) continue;
+    if (!std::all_of(id.begin(), id.end(), [](unsigned char c) {
+          return std::isalnum(c) || c == '_' || c == '-' || c == '.';
+        })) continue;
+    if (id == "fluent" || id == "wechat" || id == "graphite" || id == "willow_green") continue;
+    if (std::find_if(result.begin(), result.end(), [&](const auto &item) {
+          return item.first == id;
+        }) == result.end())
+      result.emplace_back(id, title);
+  }
+  return result;
+}
+
 std::string onlineSocket(const Json &options) {
   auto value = options.value("online_provider_socket", std::string{});
   if (value.empty()) {
@@ -940,24 +965,7 @@ public:
     if (session_ && private_ != privateInput()) { close(); clearPanel(); }
     if (session_) return true;
     auto options = readOptions();
-    candidate_skin_catalog_.clear();
-    if (const auto catalog = options.find("candidate_skin_catalog");
-        catalog != options.end() && catalog->is_object()) {
-      if (const auto packages = catalog->find("packages");
-          packages != catalog->end() && packages->is_array()) {
-        for (const auto &package : *packages) {
-          if (!package.is_object()) continue;
-          const auto id = package.value("id", std::string{});
-          const auto title = package.value("title", id);
-          if (id.empty() || id.size() > 64 || title.empty() || title.size() > 128) continue;
-          if (!std::all_of(id.begin(), id.end(), [](unsigned char c) {
-                return std::isalnum(c) || c == '_' || c == '-' || c == '.';
-              })) continue;
-          if (id == "fluent" || id == "wechat" || id == "graphite" || id == "willow_green") continue;
-          candidate_skin_catalog_.emplace_back(id, title);
-        }
-      }
-    }
+    candidate_skin_catalog_ = parseCandidateSkinCatalog(options);
     private_ = privateInput();
     preferences_ = options.value("preferences", Json::object());
     if (scheme_override_) preferences_["scheme"] = *scheme_override_;
@@ -1079,6 +1087,7 @@ public:
     try {
       if (!session_ || !ic_.hasFocus() || restricted()) return;
       const auto options = readOptions();
+      candidate_skin_catalog_ = parseCandidateSkinCatalog(options);
       auto nextVoice = options.value("voice_provider_socket", std::string{});
       if (nextVoice.empty()) {
         if (const auto *socket = std::getenv("MSIME_VOICE_PROVIDER_SOCKET")) nextVoice = socket;
@@ -1821,7 +1830,7 @@ public:
   std::optional<std::string> shuangpin_profile_override_;
   std::optional<std::string> helpcode_schema_override_;
   std::optional<std::string> skin_override_;
-  std::vector<std::pair<std::string, std::string>> candidate_skin_catalog_;
+  CandidateSkinCatalog candidate_skin_catalog_;
   Json preferences_snapshot_;
   uint64_t preferences_job_session_ = 0;
   std::shared_future<Json> preferences_job_;
