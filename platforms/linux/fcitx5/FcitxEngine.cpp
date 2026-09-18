@@ -320,6 +320,23 @@ public:
     render();
     return true;
   }
+  bool cycleScheme() {
+    if (!session_ || restricted() || privateInput()) return false;
+    static constexpr std::array<const char *, 4> schemes = {
+        "quanpin", "shuangpin", "wubi", "japanese"};
+    const auto current = view_.value("scheme", 0u);
+    const auto next = schemes[(current + 1) % schemes.size()];
+    if (!view_.value("editing_text", std::string{}).empty())
+      command(MSIME_FINISH_COMPOSITION);
+    saveStringPreference("scheme", next);
+    scheme_override_ = next;
+    if (std::string(next) != "shuangpin") shuangpin_profile_override_.reset();
+    close();
+    if (!ensure()) return false;
+    view_ = response(msime_client_focus(session_, true)).at("view");
+    render();
+    return true;
+  }
   bool toggleNineKey() {
     if (!session_ || view_.value("scheme", 0u) != 0) return false;
     const bool enabled = !view_.value("nine_key", false);
@@ -735,6 +752,9 @@ public:
     auto options = readOptions();
     private_ = privateInput();
     preferences_ = options.value("preferences", Json::object());
+    if (scheme_override_) preferences_["scheme"] = *scheme_override_;
+    if (shuangpin_profile_override_)
+      preferences_["shuangpin_profile"] = *shuangpin_profile_override_;
     traditional_ = preferences_.value("traditional_chinese_output", false);
     chinese_punctuation_ = preferences_.value("chinese_punctuation", true);
     paired_punctuation_ = preferences_.value("paired_punctuation", true);
@@ -1583,6 +1603,8 @@ public:
   Json navigation_ = Json::object();
   std::string options_path_;
   std::string resources_;
+  std::optional<std::string> scheme_override_;
+  std::optional<std::string> shuangpin_profile_override_;
   Json preferences_snapshot_;
   uint64_t preferences_job_session_ = 0;
   std::shared_future<Json> preferences_job_;
@@ -1869,6 +1891,34 @@ public:
       auto *state = ic->propertyFor(factory_);
       if (state->ensure() && state->toggleInputMode()) update(ic);
     } catch (...) {}
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
+class FcitxSchemeAction : public fcitx::SimpleAction {
+public:
+  explicit FcitxSchemeAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {}
+  std::string shortText(fcitx::InputContext *ic) const override {
+    if (!ic) return "输入方案";
+    const auto scheme = ic->propertyFor(factory_)->view_.value("scheme", 0u);
+    switch (scheme) {
+    case 1: return "输入方案：双拼";
+    case 2: return "输入方案：五笔";
+    case 3: return "输入方案：日文";
+    default: return "输入方案：全拼";
+    }
+  }
+  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try {
+      auto *state = ic->propertyFor(factory_);
+      if (state->cycleScheme()) update(ic);
+    } catch (...) {
+      ic->propertyFor(factory_)->close();
+      ic->propertyFor(factory_)->clearPanel();
+    }
   }
 private:
   fcitx::FactoryFor<FcitxState> *factory_;
@@ -2873,6 +2923,7 @@ public:
     instance->inputContextManager().registerProperty("msimeState", &factory_);
     english_action_.registerAction("msime-english-candidates", &instance->userInterfaceManager());
     input_mode_action_.registerAction("msime-input-mode", &instance->userInterfaceManager());
+    scheme_action_.registerAction("msime-scheme", &instance->userInterfaceManager());
     width_action_.registerAction("msime-fullwidth", &instance->userInterfaceManager());
     nine_key_action_.registerAction("msime-nine-key", &instance->userInterfaceManager());
     nine_key_action_.setMenu(&nine_key_menu_);
@@ -3005,6 +3056,7 @@ public:
     auto *state = event.inputContext()->propertyFor(&factory_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &english_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &input_mode_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &scheme_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &width_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &nine_key_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &helpcode_action_);
@@ -3049,6 +3101,7 @@ public:
     auto *state = event.inputContext()->propertyFor(&factory_);
     event.inputContext()->statusArea().removeAction(&english_action_);
     event.inputContext()->statusArea().removeAction(&input_mode_action_);
+    event.inputContext()->statusArea().removeAction(&scheme_action_);
     event.inputContext()->statusArea().removeAction(&width_action_);
     event.inputContext()->statusArea().removeAction(&nine_key_action_);
     event.inputContext()->statusArea().removeAction(&helpcode_action_);
@@ -3112,6 +3165,7 @@ public:
   std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>> focus_watch_;
   FcitxModeAction english_action_{&factory_, FcitxModeAction::Mode::EnglishCandidates};
   FcitxInputModeAction input_mode_action_{&factory_};
+  FcitxSchemeAction scheme_action_{&factory_};
   FcitxModeAction width_action_{&factory_, FcitxModeAction::Mode::Fullwidth};
   fcitx::Menu nine_key_menu_;
   FcitxNineKeyAction nine_key_action_{&factory_};
