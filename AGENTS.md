@@ -1,4 +1,4 @@
-# MSIME-Client
+# 水杉输入法共享客户端
 
 遵循 metasequoiaime/.github 的组织约定。用户已授权按共享客户端设计渐进实施，每部分验证后独立 conventional commit。
 

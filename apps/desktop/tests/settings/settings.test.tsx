@@ -1836,14 +1836,14 @@ test("help, about and feedback pages expose their Windows content and actions", 
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
   expect(await screen.findByText("Metasequoia IME")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "开源许可协议" }));
-  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/MSIME-Windows/blob/main/LICENSE"));
+  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/msime/blob/develop/LICENSE"));
 
   fireEvent.click(screen.getByRole("button", { name: "反馈" }));
   expect(await screen.findByText("GitHub Issues")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "复制群号" }));
   await waitFor(() => expect(copyText).toHaveBeenCalledWith("829919142"));
   fireEvent.click(screen.getByRole("button", { name: "查看 Issues" }));
-  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/MSIME-Windows/issues"));
+  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/msime/issues"));
 });
 
 test("Android help and about pages use mobile instructions and project links", async () => {
@@ -1968,7 +1968,7 @@ test("macOS and iOS help pages use their native host instructions", async () => 
 test("about page validates a newer release before offering its URL", async () => {
   vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
     ok: true,
-    json: async () => ({ version: "v1.2.0", releaseUrl: "https://github.com/metasequoiaime/MSIME-Windows/releases", signed: true }),
+    json: async () => ({ version: "v1.2.0", releaseUrl: "https://github.com/metasequoiaime/msime/releases", signed: true }),
   }));
   const openExternalUrl = vi.fn().mockResolvedValue(undefined);
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn(), openExternalUrl };
@@ -1977,7 +1977,7 @@ test("about page validates a newer release before offering its URL", async () =>
   fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
   expect(await screen.findByText("发现新版本 v1.2.0")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "前往下载" }));
-  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/MSIME-Windows/releases"));
+  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/msime/releases"));
   vi.unstubAllGlobals();
 });
 
@@ -1992,7 +1992,7 @@ test("Linux checks the client release feed and treats no release as a normal res
   fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
   expect(await screen.findByText("暂无可用发行版")).toBeDefined();
   expect(fetch).toHaveBeenCalledWith(
-    expect.stringMatching(/^https:\/\/api\.github\.com\/repos\/metasequoiaime\/MSIME-Client\/releases\/latest\?t=\d+$/),
+    expect.stringMatching(/^https:\/\/api\.github\.com\/repos\/metasequoiaime\/msime\/releases\/latest\?t=\d+$/),
     { cache: "no-store" },
   );
   vi.unstubAllGlobals();
@@ -2045,7 +2045,7 @@ test("about page uses the packaged app version for display and update comparison
   vi.unstubAllGlobals();
 });
 
-test("client release validation rejects a release URL outside MSIME-Client", () => {
+test("client release validation rejects a release URL outside the shared repository", () => {
   expect(validateGitHubRelease({
     tag_name: "v1.2.0",
     html_url: "https://github.com/metasequoiaime/MSIME-Windows/releases/tag/v1.2.0",

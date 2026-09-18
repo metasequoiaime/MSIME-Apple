@@ -183,7 +183,7 @@ class ProjectConfigurationTests(unittest.TestCase):
     def test_about_and_download_links_use_the_shared_client_repository(self):
         source = (IOS_ROOT / "App/Sources/settings/AboutAndDownloadViews.swift").read_text()
         feedback = (IOS_ROOT / "App/Sources/settings/HelpAndFeedbackViews.swift").read_text()
-        self.assertEqual(source.count('"MSIME-Client"'), 1)
+        self.assertEqual(source.count('"msime"'), 1)
         self.assertNotIn("MSIME-Apple", source)
         self.assertNotIn("MSIME-Windows", source)
         self.assertNotIn("MSIME-Linux", source)

@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Local verification for MSIME-Client.
+# Local verification for the shared 水杉输入法 client.
 #
 # AGENTS.md pauses private-repo CI to control cost and requires local
 # verification instead. Nothing here talks to CI; it runs the checks that

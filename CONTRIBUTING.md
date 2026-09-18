@@ -1,4 +1,4 @@
-# Contributing to MSIME-Client
+# Contributing to 水杉输入法
 
 感谢参与水杉输入法共享客户端。提交改动前，请先阅读 [AGENTS.md](AGENTS.md) 了解模块边界、平台约束、验证命令和提交要求，并查看 [变更记录](CHANGELOG.md) 了解当前公开范围。
 

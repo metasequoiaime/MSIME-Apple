@@ -10,7 +10,7 @@ private enum DesktopPlatform: String, CaseIterable, Identifiable {
   var repository: String {
     // Desktop installers are published from the shared client repository. The
     // platform selector changes the guidance, not the ownership of the release.
-    "MSIME-Client"
+    "msime"
   }
   var releaseURL: URL { URL(string: "https://github.com/metasequoiaime/\(repository)/releases")! }
   var steps: [String] {

@@ -11,7 +11,7 @@ body:
     id: platform
     attributes:
       label: Platform and version
-      description: Include the OS, architecture, and the MSIME-Client commit or package version.
+      description: Include the OS, architecture, and the 水杉输入法 commit or package version.
       placeholder: e.g. Linux arm64 container, commit abc1234
     validations:
       required: true

@@ -88,7 +88,7 @@ macOS 关于页不再显示 Windows Server、TSF 或 Linux IBus 的诊断开关�
 
 下方各条记录是历史成果，不代表当前排期。此前的 **macOS → iOS** 优先级及 Windows 暂停新增属于历史安排；本轮 Windows 迁移任务按用户要求，以 MSIME-Windows 完整功能为基线，公共业务和界面进入共享层/Tauri，保留 TSF DLL / Server 边界，逐部分本地验证后及时合并。其他平台已合并成果保留，不回退、不混入其他会话改动。当前 Windows 基线、功能证据和缺口见 [Windows 功能迁移对照](windows-parity.md)。
 
-- 初始工作区中没有 MSIME-Client，GitHub 同名仓查询不存在。
+- 初始工作区中没有共享客户端，GitHub 同名仓查询不存在。
 - 组织远端 AGENTS 提到 Engine develop，但实际 GitHub 默认分支仍为 main，develop 查询为 404；依赖锁定必须按实际远端执行。
 - 相邻平台和 Engine 工作树包含其他任务修改；本工程不导入这些未提交内容。
 
@@ -634,7 +634,7 @@ run-smoke.ps1 增加可选 ResourcesDirectory，目录预检后追加带词库�
 
 ### Windows 功能复刻：全拼纠错设置
 
-在 MSIME-Client 共享设置接入全拼纠错分类开关 `quanpin.autocorrect_transposition` 与 `quanpin.autocorrect_neighbor`，并保留旧 `autocorrect` 字段的读取兼容。按固定 Windows 基线，旧字段不再启用任何纠错类型，新字段缺失时两项均默认关闭。设置经 PreferencesStore、host-api 创建/延迟更新、CXX 组合为 Engine 的纠错位掩码；活动组合结束前不应用变更。Linux IBus 与 React 设置页分别提供两个可保存的开关。
+在共享设置接入全拼纠错分类开关 `quanpin.autocorrect_transposition` 与 `quanpin.autocorrect_neighbor`，并保留旧 `autocorrect` 字段的读取兼容。按固定 Windows 基线，旧字段不再启用任何纠错类型，新字段缺失时两项均默认关闭。设置经 PreferencesStore、host-api 创建/延迟更新、CXX 组合为 Engine 的纠错位掩码；活动组合结束前不应用变更。Linux IBus 与 React 设置页分别提供两个可保存的开关。
 
 本地验证：client-core 11、engine-bridge 3、host-api 12 项测试通过，前端 5 项测试、TypeScript/Vite 构建、Rust fmt/clippy 通过。覆盖旧配置读取、关闭后持久化、活动组合延迟更新及设置页保存。尚未验证 Windows 编辑器中的端到端纠错行为；完整 Windows 功能复刻仍未完成。
 

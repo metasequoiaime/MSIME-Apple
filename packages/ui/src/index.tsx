@@ -158,12 +158,12 @@ const windowIcons = {
   close: new URL("./assets/close.svg", import.meta.url).href,
 };
 const fallbackAppVersion = "0.1.0";
-const releasesPageUrl = "https://github.com/metasequoiaime/MSIME-Windows/releases";
+const releasesPageUrl = "https://github.com/metasequoiaime/msime/releases";
 const linuxReleasesPageUrl = "https://github.com/metasequoiaime/msime/releases";
 const updateManifestUrl = "https://msime.app/update.json";
 const clientLatestReleaseUrl = "https://api.github.com/repos/metasequoiaime/msime/releases/latest";
-const licenseUrl = "https://github.com/metasequoiaime/MSIME-Windows/blob/main/LICENSE";
-const privacyUrl = "https://github.com/metasequoiaime/MSIME-Windows/blob/main/PRIVACY.md";
+const licenseUrl = "https://github.com/metasequoiaime/msime/blob/develop/LICENSE";
+const privacyUrl = "https://msime.app/privacy/";
 const androidPrivacyUrl = "https://msime.app/privacy/";
 const linuxLicenseUrl = "https://github.com/metasequoiaime/msime/blob/develop/LICENSE";
 const linuxIssuesUrl = "https://github.com/metasequoiaime/msime/issues";
@@ -860,7 +860,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
   const clientHostedPlatform = linuxPlatform || androidPlatform || macosPlatform || harmonyPlatform || host?.platform === "ios";
   const platformReleasesPageUrl = clientHostedPlatform ? linuxReleasesPageUrl : releasesPageUrl;
   const platformLicenseUrl = clientHostedPlatform ? linuxLicenseUrl : licenseUrl;
-  const platformIssuesUrl = clientHostedPlatform ? linuxIssuesUrl : "https://github.com/metasequoiaime/MSIME-Windows/issues";
+  const platformIssuesUrl = linuxIssuesUrl;
   const captureBackendOptions: readonly (readonly [NonNullable<VoiceInputPreferences["capture_backend"]>, string])[] = [
     ["auto", "自动选择"],
     ...(linuxPlatform ? [["pulse", "PulseAudio"], ["pipewire", "PipeWire"], ["alsa", "ALSA"]] as const : []),
