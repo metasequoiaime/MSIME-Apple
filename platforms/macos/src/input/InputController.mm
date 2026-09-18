@@ -25,8 +25,8 @@
 #import "../voice/VoiceHoldShortcut.h"
 #import "../voice/DoubaoVoiceRequest.h"
 #import "../core/SupportWindowController.h"
-#import "../backend/BackendAccountEntry.h"
-#import "../backend/BackendSelectionObservation.h"
+#import "../backend/account/BackendAccountEntry.h"
+#import "../backend/core/BackendSelectionObservation.h"
 #include "../core/ToolTextReturn.h"
 #include "../core/ToolApplicationActivation.h"
 #include "../settings/PreferenceSaveState.h"
@@ -62,6 +62,11 @@
 #include "../core/PairedPunctuation.h"
 #include "../core/TypingStatistics.h"
 #include "../core/DiagnosticLog.h"
+
+// Implemented by the Swift backend dylib loaded by input_method_main.mm. The account provider
+// keeps credentials and transport on the Swift side; this process receives only bounded glosses.
+extern "C" void MSIMEFetchAccountCandidateGlosses(const char *wordsJSON, const char *primaryCode,
+                                                    const char *secondaryCode, unsigned long long generation);
 
 static dispatch_queue_t MSIMETypingStatisticsQueue(void) {
     static dispatch_queue_t queue;
@@ -546,6 +551,11 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSDictionary *_tencentTranslationConfig;
     NSDictionary *_niuTransConfig;
     NSArray<NSDictionary *> *_customResults;
+    NSMutableDictionary<NSString *, NSString *> *_accountGlossCache;
+    NSString *_accountGlossSignature;
+    NSDictionary *_accountGlossRequest;
+    NSArray<NSDictionary *> *_accountGlossResults;
+    uint64_t _accountGlossEpoch;
     uint64_t _customEpoch;
     MSIMECustomTranslationBatch *_aiBatch;
     NSTimer *_aiTimer;
@@ -786,10 +796,110 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     BOOL glossCurrent = _glossResults && [_glossRequest isEqual:[self currentGlossRequest]];
     if (customCurrent && _customResults.count) [results addObjectsFromArray:_customResults];
     else if (glossCurrent) [results addObjectsFromArray:_glossResults];
+    if (_accountGlossResults && [_accountGlossRequest isEqual:[self currentAccountGlossRequest]]) {
+        NSMutableSet *existing = [NSMutableSet setWithArray:[results valueForKey:@"text"] ?: @[]];
+        for (NSDictionary *entry in _accountGlossResults) {
+            NSString *text = entry[@"text"];
+            if ([text isKindOfClass:NSString.class] && ![existing containsObject:text]) {
+                [results addObject:entry];
+                [existing addObject:text];
+            }
+        }
+    }
     NSDictionary *view = [_session viewWithError:nil];
     if (!view) return;
     NSDictionary *applied = [_session applyTranslations:results generation:[view[@"generation"] unsignedLongLongValue] error:nil];
     if ([applied[@"applied"] boolValue]) [self apply:applied];
+}
+
+- (void)cancelAccountGloss {
+    ++_accountGlossEpoch;
+    _accountGlossRequest = nil;
+    _accountGlossResults = nil;
+    _accountGlossSignature = nil;
+}
+
+- (NSDictionary *)currentAccountGlossRequest {
+    if (!_activeClient || !_session || _focusPending || _appearance.englishMode || !_appearance.candidateTranslations)
+        return nil;
+    NSDictionary *query = [_session translationQueryWithError:nil];
+    if (![query isKindOfClass:NSDictionary.class] || !query[@"generation"] ||
+        ![query[@"target_languages"] isKindOfClass:NSArray.class]) return nil;
+    // Explicit user-owned providers take precedence. The account endpoint is the native fallback
+    // for the shared candidate-translation toggle when no local credentials are configured.
+    if ([query[@"custom_translation"] isKindOfClass:NSDictionary.class] ||
+        [query[@"tencent_tmt"] isKindOfClass:NSDictionary.class] || [query[@"niutrans"] isKindOfClass:NSDictionary.class])
+        return nil;
+    NSArray *candidates = query[@"candidates"];
+    return [candidates isKindOfClass:NSArray.class] && candidates.count
+        ? @{ @"generation": query[@"generation"], @"target_languages": query[@"target_languages"],
+             @"candidates": [candidates copy] } : nil;
+}
+
+- (NSArray<NSDictionary *> *)accountGlossResultsForRequest:(NSDictionary *)request {
+    NSMutableArray *results = [NSMutableArray array];
+    for (NSDictionary *candidate in request[@"candidates"]) {
+        NSString *text = candidate[@"text"];
+        if (![text isKindOfClass:NSString.class]) continue;
+        NSMutableArray *values = [NSMutableArray array];
+        for (NSString *target in request[@"target_languages"]) {
+            NSString *value = _accountGlossCache[[NSString stringWithFormat:@"%@|%@", target, text]];
+            if (value.length) [values addObject:value];
+        }
+        if (values.count) [results addObject:@{ @"text": text, @"translation": [values componentsJoinedByString:@" / "] }];
+    }
+    return results;
+}
+
+- (void)synchronizeAccountGloss:(NSDictionary *)request {
+    if (!request) { [self cancelAccountGloss]; return; }
+    if ([_accountGlossRequest isEqual:request]) return;
+    [self cancelAccountGloss];
+    _accountGlossRequest = [request copy];
+    if (!_accountGlossCache) _accountGlossCache = [NSMutableDictionary dictionary];
+    NSArray *targets = request[@"target_languages"];
+    NSMutableArray *pending = [NSMutableArray array];
+    NSMutableString *signature = [NSMutableString string];
+    for (NSString *target in targets) {
+        for (NSDictionary *candidate in request[@"candidates"]) {
+            NSString *text = candidate[@"text"];
+            if (![target isKindOfClass:NSString.class] || ![text isKindOfClass:NSString.class]) continue;
+            [signature appendFormat:@"|%@|%@", target, text];
+            if (!_accountGlossCache[[NSString stringWithFormat:@"%@|%@", target, text]]) [pending addObject:text];
+        }
+    }
+    _accountGlossResults = [self accountGlossResultsForRequest:request];
+    [self applyCandidateTranslationResults];
+    if (!pending.count || [_accountGlossSignature isEqualToString:signature]) return;
+    _accountGlossSignature = [signature copy];
+    NSMutableArray *unique = [NSMutableArray array];
+    for (NSString *text in pending) if (![unique containsObject:text]) [unique addObject:text];
+    NSData *payload = [NSJSONSerialization dataWithJSONObject:unique options:0 error:nil];
+    if (!payload) return;
+    NSString *primary = targets.firstObject ?: @"";
+    NSString *secondary = targets.count > 1 ? targets[1] : @"";
+    MSIMEFetchAccountCandidateGlosses([[NSString alloc] initWithData:payload encoding:NSUTF8StringEncoding].UTF8String,
+                                      primary.UTF8String, secondary.UTF8String,
+                                      [request[@"generation"] unsignedLongLongValue]);
+}
+
+- (void)accountCandidateTranslationsDidArrive:(NSNotification *)notification {
+    NSDictionary *info = notification.userInfo;
+    if (![_accountGlossRequest isKindOfClass:NSDictionary.class] || ![info isKindOfClass:NSDictionary.class]) return;
+    if (!_accountGlossCache) _accountGlossCache = [NSMutableDictionary dictionary];
+    void (^merge)(NSDictionary *, NSString *) = ^(NSDictionary *values, NSString *target) {
+        if (![values isKindOfClass:NSDictionary.class]) return;
+        for (NSString *text in values) {
+            NSString *value = values[text];
+            if ([text isKindOfClass:NSString.class] && [value isKindOfClass:NSString.class] && value.length)
+                self->_accountGlossCache[[NSString stringWithFormat:@"%@|%@", target, text]] = value;
+        }
+    };
+    NSArray *targets = _accountGlossRequest[@"target_languages"];
+    merge(info[@"translations"], targets.firstObject ?: @"");
+    if (targets.count > 1) merge(info[@"secondaryTranslations"], targets[1]);
+    _accountGlossResults = [self accountGlossResultsForRequest:_accountGlossRequest];
+    [self applyCandidateTranslationResults];
 }
 - (MSIMECustomTranslationBatch *)customBatchForItems:(NSArray<NSDictionary *> *)items completion:(void (^)(NSArray<NSDictionary *> *))completion {
     return [[MSIMECustomTranslationBatch alloc] initWithItems:items configuration:NSURLSessionConfiguration.ephemeralSessionConfiguration completion:completion];
@@ -811,7 +921,12 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 - (void)synchronizeCustomTranslations {
     NSDictionary *query = [self currentCustomTranslationRequest];
-    if (!query) { [self cancelCustomTranslations]; return; }
+    if (!query) {
+        [self cancelCustomTranslations];
+        [self synchronizeAccountGloss:[self currentAccountGlossRequest]];
+        return;
+    }
+    [self cancelAccountGloss];
     if ([_customQuery isEqual:query]) return;
     [self cancelCustomTranslations];
     _customQuery = query;
@@ -1128,6 +1243,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(translationPreferencesSaved:) name:MSIMETranslationPreferencesDidSaveNotification object:_appearance];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(appearanceChanged:) name:MSIMEVoiceSettingsDidChangeNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(voiceProviderSettingsChanged:) name:MSIMEVoiceProviderSettingsDidChangeNotification object:nil];
+    [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(accountCandidateTranslationsDidArrive:) name:@"MSIMEBackendCandidateTranslationsDidArrive" object:nil];
     _globalVoiceHotkeyMonitor = [NSEvent addGlobalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:[self globalVoiceHotkeyHandler]];
 }
 - (void (^)(NSEvent *))globalVoiceHotkeyHandler {
@@ -1628,7 +1744,11 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     return !MSIMEVoiceProviderSocket() &&
         [provider.lowercaseString isEqual:@"doubao"];
 }
-- (void)dealloc { [_desktopInputSession stop]; [_httpVoiceRequest cancel]; [_doubaoVoiceRequest cancel]; [_doubaoPolishRequest cancel]; [_livePolishRequest cancel]; }
+- (void)dealloc {
+    [[NSNotificationCenter defaultCenter] removeObserver:self];
+    [_desktopInputSession stop]; [_httpVoiceRequest cancel]; [_doubaoVoiceRequest cancel];
+    [_doubaoPolishRequest cancel]; [_livePolishRequest cancel];
+}
 - (MSIMEHTTPVoiceRequest *)makeDoubaoPolishRequest:(NSDictionary *)options {
     if (!([options[@"polish_enabled"] boolValue] || [options[@"polish_text"] boolValue]) || ![options[@"polish_token"] length]) return nil;
     return [[MSIMEHTTPVoiceRequest alloc] initWithPolishOptions:options error:nil];
@@ -2383,6 +2503,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         [self renderCandidates];
         [self synchronizeCloudCandidates];
         [self synchronizeCandidateGloss];
+        [self synchronizeAccountGloss:[self currentAccountGlossRequest]];
         [self synchronizeCustomTranslations];
         [self synchronizeAITranslations];
     } else {
@@ -3043,6 +3164,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     [self renderCandidates];
     [self synchronizeCloudCandidates];
     [self synchronizeCandidateGloss];
+    [self synchronizeAccountGloss:[self currentAccountGlossRequest]];
     [self synchronizeCustomTranslations];
     [self synchronizeAITranslations];
 }
