@@ -78,8 +78,11 @@ target_sources(MSIMEClientInputMethod PRIVATE src/voice/DoubaoVoiceRequest.mm)
 target_sources(MSIMEClientInputMethod PRIVATE src/core/DesktopInputSession.mm)
 target_sources(MSIMEClientInputMethod PRIVATE src/core/DesktopCloudClipboard.mm)
 target_link_libraries(MSIMEClientInputMethod PRIVATE "-framework CoreGraphics" "-framework CoreText" "-framework UniformTypeIdentifiers")
-file(GLOB_RECURSE MSIME_BACKEND_SWIFT CONFIGURE_DEPENDS
-  "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/**/*.swift"
+file(GLOB MSIME_BACKEND_SWIFT CONFIGURE_DEPENDS
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/account/*.swift"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/clients/*.swift"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/content/*.swift"
+  "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend/storage/*.swift"
   "${CMAKE_CURRENT_SOURCE_DIR}/../../shared/backend-ui/*.swift"
   "${CMAKE_CURRENT_SOURCE_DIR}/src/backend/Backend*.swift")
 set(MSIME_SWIFT_BACKEND_OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/MSIMEBackend.dylib")
