@@ -38,4 +38,7 @@ assert 'msime-candidate-theme' in source
 assert 'cycleCandidateTheme' in source
 assert 'msime-helpcode-schema' in source
 assert 'cycleHelpcodeSchema' in source
+assert 'toggleLocalMode' in source
+assert 'msime-local-unicode' in source
+assert 'msime-local-temporary-japanese' in source
 print("Fcitx5 addon metadata passed")
