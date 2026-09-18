@@ -1506,6 +1506,17 @@ int main(int argc, char **argv) {
               "Enter selected an incremental candidate instead of raw spelling");
       seen.committed.clear();
     }
+    // Ctrl-only segment editing follows the Windows composition behavior:
+    // arrows cross one pinyin unit and Backspace removes the unit to the left.
+    phrase();
+    require(key(IBUS_Left, IBUS_CONTROL_MASK) && seen.preedit_cursor == 2,
+            "Ctrl+Left did not move to the preceding pinyin segment");
+    require(key(IBUS_Right, IBUS_CONTROL_MASK) && seen.preedit_cursor == 5,
+            "Ctrl+Right did not move to the following pinyin segment");
+    require(key(IBUS_BackSpace, IBUS_CONTROL_MASK) && seen.preedit == "ni" &&
+                seen.preedit_cursor == 2,
+            "Ctrl+Backspace did not remove one pinyin segment");
+    invoke("Reset");
     for (guint idle_key : {IBUS_BackSpace, IBUS_Delete, IBUS_KP_Delete,
                            IBUS_Return, IBUS_KP_Enter})
       require(!key(idle_key) && seen.committed.empty(),

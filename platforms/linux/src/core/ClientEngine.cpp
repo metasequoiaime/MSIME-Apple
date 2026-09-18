@@ -5471,6 +5471,31 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         return;
       }
     }
+    // Match the Windows composition editor for the three Ctrl-only segment
+    // edits. The shared runtime owns the segment boundaries (and falls back
+    // to one raw character for local modes), so the Linux host only has to
+    // preserve the editor's modifier boundary and route the action. With no
+    // active composition these remain ordinary application shortcuts.
+    const bool ctrl_only = modifiers == IBUS_CONTROL_MASK &&
+                           !(flags & IBUS_RELEASE_MASK);
+    const bool segment_edit_key = key == IBUS_BackSpace ||
+                                  key == IBUS_Left || key == IBUS_KP_Left ||
+                                  key == IBUS_Right || key == IBUS_KP_Right;
+    const auto active_editing = s.view.value("editing_text", std::string{});
+    const auto active_candidates = s.view.value("candidates", Json::array());
+    if (ctrl_only && segment_edit_key &&
+        (!active_editing.empty() ||
+         (active_candidates.is_array() && !active_candidates.empty()))) {
+      const uint32_t segment_command =
+          key == IBUS_BackSpace
+              ? MSIME_BACKSPACE_SEGMENT
+              : (key == IBUS_Left || key == IBUS_KP_Left
+                     ? MSIME_MOVE_LEFT_SEGMENT
+                     : MSIME_MOVE_RIGHT_SEGMENT);
+      handled = apply(engine,
+                      msime_client_command(s.session, segment_command));
+      return;
+    }
     // Disabled navigation keys belong to the application, including when a
     // composition is active. Finalize that composition first so the editor
     // never receives a navigation key while stale preedit is still owned by
