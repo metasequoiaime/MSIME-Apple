@@ -35,6 +35,10 @@ for name in sorted(symbols):
 print("Host API header exports verified")
 PY
 cargo test -p msime-client-core -p msime-input-runtime -p msime-host-api --locked
+if [[ ${MSIME_TEST_FCITX5:-0} == 1 ]]; then
+  bash platforms/linux/tests/fcitx5-container.sh
+  exit 0
+fi
 cmake -S platforms/linux -B /build/ibus -G Ninja -DMSIME_HOST_LIBRARY=/build/cargo/debug/libmsime_host_api.so -DMSIME_LINUX_VOICE=ON
 cmake --build /build/ibus
 ctest --test-dir /build/ibus --output-on-failure --no-tests=error
@@ -120,5 +124,6 @@ runuser -u nobody -- dbus-run-session -- bash platforms/linux/tests/wayland_smok
 
 runuser -u nobody -- dbus-run-session -- bash platforms/linux/tests/wayland_smoke.sh "$installed_host" /resources /build/cargo/debug/examples/prepare_host platforms/linux/tests/qt_smoke.py --wayland
 runuser -u nobody -- dbus-run-session -- bash platforms/linux/tests/wayland_smoke.sh "$installed_host" /resources /build/cargo/debug/examples/prepare_host platforms/linux/tests/qt_smoke.py --wayland --qt6
+
 
 runuser -u nobody -- dbus-run-session -- bash platforms/linux/tests/wayland_smoke.sh "$installed_host" /resources /build/cargo/debug/examples/prepare_host platforms/linux/tests/portal_smoke.py
