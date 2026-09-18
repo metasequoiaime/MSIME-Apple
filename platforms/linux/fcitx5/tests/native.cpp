@@ -343,6 +343,18 @@ int main(int argc, char **argv) {
             "cloud clipboard menu attached");
     require(engine.desktop_tools_menu_.actions().size() == 9,
             "desktop tools menu attached");
+    require(engine.nine_key_menu_.actions().size() == 9,
+            "nine-key spelling menu attached");
+    engine.nine_key_action_.activate(&ic);
+    require(state->view_.value("nine_key", false), "nine-key action enables nine-key mode");
+    const auto spellings = state->view_.value("nine_key_spellings", Json::array());
+    require(spellings.is_array() && !spellings.empty(),
+            "nine-key mode exposes spelling choices");
+    engine.nine_key_spelling1_.activate(&ic);
+    require(state->view_.value("nine_key", false),
+            "nine-key spelling action preserves nine-key mode");
+    engine.nine_key_action_.activate(&ic);
+    require(!state->view_.value("nine_key", true), "nine-key action restores alphabetic mode");
     require(engine.emoji_menu_.actions().size() == 7,
             "emoji paging menu attached");
     const auto routeScript = std::string(directory) + "/route-helper.sh";

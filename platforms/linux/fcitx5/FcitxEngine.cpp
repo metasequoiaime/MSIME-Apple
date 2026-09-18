@@ -321,6 +321,17 @@ public:
     render();
     return true;
   }
+  bool chooseNineKeySpelling(size_t index) {
+    if (!session_ || view_.value("scheme", 0u) != 0 ||
+        !view_.value("nine_key", false) || restricted() || privateInput()) return false;
+    const auto spellings = view_.value("nine_key_spellings", Json::array());
+    if (!spellings.is_array() || index >= spellings.size() || !spellings.at(index).is_string())
+      return false;
+    view_ = response(msime_client_choose_nine_key_spelling(
+        session_, view_.value("generation", uint64_t{}), index));
+    render();
+    return true;
+  }
   bool toggleHelpcode() {
     if (!session_ || (view_.value("scheme", 0u) != 0 && view_.value("scheme", 0u) != 1))
       return false;
@@ -1734,11 +1745,12 @@ private:
   fcitx::FactoryFor<FcitxState> *factory_;
 };
 
-class FcitxNineKeyAction : public fcitx::Action {
+class FcitxNineKeyAction : public fcitx::SimpleAction {
 public:
   explicit FcitxNineKeyAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
     setCheckable(true);
   }
+  void setMenu(fcitx::Menu *menu) { fcitx::SimpleAction::setMenu(menu); }
   std::string shortText(fcitx::InputContext *) const override { return "九键"; }
   std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
   bool isChecked(fcitx::InputContext *ic) const override {
@@ -1763,6 +1775,28 @@ public:
   }
 private:
   fcitx::FactoryFor<FcitxState> *factory_;
+};
+
+class FcitxNineKeySpellingAction : public fcitx::SimpleAction {
+public:
+  FcitxNineKeySpellingAction(fcitx::FactoryFor<FcitxState> *factory, size_t index)
+      : factory_(factory), index_(index) {}
+  std::string shortText(fcitx::InputContext *ic) const override {
+    if (ic) {
+      const auto *state = ic->propertyFor(factory_);
+      const auto spellings = state->view_.value("nine_key_spellings", Json::array());
+      if (spellings.is_array() && index_ < spellings.size() && spellings.at(index_).is_string())
+        return std::to_string(index_ + 1) + ". " + spellings.at(index_).get<std::string>();
+    }
+    return "九键拼写 " + std::to_string(index_ + 1);
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try { ic->propertyFor(factory_)->chooseNineKeySpelling(index_); } catch (...) {}
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+  size_t index_;
 };
 
 class FcitxHelpcodeAction : public fcitx::Action {
@@ -2641,6 +2675,16 @@ public:
     input_mode_action_.registerAction("msime-input-mode", &instance->userInterfaceManager());
     width_action_.registerAction("msime-fullwidth", &instance->userInterfaceManager());
     nine_key_action_.registerAction("msime-nine-key", &instance->userInterfaceManager());
+    nine_key_action_.setMenu(&nine_key_menu_);
+    nine_key_menu_.addAction(&nine_key_spelling1_);
+    nine_key_menu_.addAction(&nine_key_spelling2_);
+    nine_key_menu_.addAction(&nine_key_spelling3_);
+    nine_key_menu_.addAction(&nine_key_spelling4_);
+    nine_key_menu_.addAction(&nine_key_spelling5_);
+    nine_key_menu_.addAction(&nine_key_spelling6_);
+    nine_key_menu_.addAction(&nine_key_spelling7_);
+    nine_key_menu_.addAction(&nine_key_spelling8_);
+    nine_key_menu_.addAction(&nine_key_spelling9_);
     helpcode_action_.registerAction("msime-helpcode", &instance->userInterfaceManager());
     autocorrect_transposition_action_.registerAction("msime-autocorrect-transposition", &instance->userInterfaceManager());
     autocorrect_neighbor_action_.registerAction("msime-autocorrect-neighbor", &instance->userInterfaceManager());
@@ -2850,7 +2894,17 @@ public:
   FcitxModeAction english_action_{&factory_, FcitxModeAction::Mode::EnglishCandidates};
   FcitxInputModeAction input_mode_action_{&factory_};
   FcitxModeAction width_action_{&factory_, FcitxModeAction::Mode::Fullwidth};
+  fcitx::Menu nine_key_menu_;
   FcitxNineKeyAction nine_key_action_{&factory_};
+  FcitxNineKeySpellingAction nine_key_spelling1_{&factory_, 0};
+  FcitxNineKeySpellingAction nine_key_spelling2_{&factory_, 1};
+  FcitxNineKeySpellingAction nine_key_spelling3_{&factory_, 2};
+  FcitxNineKeySpellingAction nine_key_spelling4_{&factory_, 3};
+  FcitxNineKeySpellingAction nine_key_spelling5_{&factory_, 4};
+  FcitxNineKeySpellingAction nine_key_spelling6_{&factory_, 5};
+  FcitxNineKeySpellingAction nine_key_spelling7_{&factory_, 6};
+  FcitxNineKeySpellingAction nine_key_spelling8_{&factory_, 7};
+  FcitxNineKeySpellingAction nine_key_spelling9_{&factory_, 8};
   FcitxHelpcodeAction helpcode_action_{&factory_};
   FcitxAutocorrectAction autocorrect_transposition_action_{&factory_, FcitxAutocorrectAction::Mode::Transposition};
   FcitxAutocorrectAction autocorrect_neighbor_action_{&factory_, FcitxAutocorrectAction::Mode::Neighbor};
