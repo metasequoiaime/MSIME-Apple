@@ -508,7 +508,11 @@ TranslationWorker::translate(const Request &request,
     const auto custom =
         query.value("custom_translation", nlohmann::json(nullptr));
     if (niutrans.is_object() && niutrans.value("enabled", false)) {
-      provider_scope = "niutrans";
+      // NiuTrans app_id identifies the account used for the request. Keep it
+      // in the cache scope so switching accounts cannot reuse another
+      // account's glosses; the secret itself never enters the cache key.
+      provider_scope =
+          "niutrans:" + niutrans.value("app_id", std::string{});
     } else if (custom.is_object() && custom.value("enabled", false)) {
       provider_scope = "custom:" + custom.value("endpoint", std::string{});
     } else {
