@@ -181,6 +181,7 @@ HRESULT CMetasequoiaIME::_HandleComplete(TfEditCookie ec, _In_ ITfContext *pCont
 {
     PerfTimer timer;
     g_toggleImeFallbackBuffer.clear();
+    _creatingWordRestoreHistory.clear();
     PerfTimer deleteTimer;
     _DeleteCandidateList(FALSE, pContext);
     double deleteElapsedMs = deleteTimer.ElapsedMs();
@@ -197,6 +198,7 @@ HRESULT CMetasequoiaIME::_HandleCompleteCommitFirst(TfEditCookie ec, _In_ ITfCon
 {
     PerfTimer timer;
     g_toggleImeFallbackBuffer.clear();
+    _creatingWordRestoreHistory.clear();
 
     PerfTimer deleteTimer;
     _DeleteCandidateList(FALSE, pContext);
