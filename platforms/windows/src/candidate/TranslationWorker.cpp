@@ -23,6 +23,7 @@ constexpr size_t kMaximumResponseBytes = 1024 * 1024;
 constexpr long kCustomTranslationTimeoutMs = 2500;
 constexpr long kTencentTranslationTimeoutMs = 2000;
 constexpr long kNiuTransTranslationTimeoutMs = 2500;
+constexpr auto kTranslationBatchBudget = std::chrono::seconds(6);
 constexpr auto kNegativeTranslationTtl = std::chrono::minutes(8);
 constexpr size_t kMaximumTranslationCacheEntries = 4096;
 
@@ -557,16 +558,24 @@ TranslationWorker::translate(const Request &request,
       pending.push_back(item);
     }
 
+    const auto provider_deadline =
+        std::chrono::steady_clock::now() + kTranslationBatchBudget;
+    std::unordered_set<std::string> attempted_cache_ids;
+
     if (niutrans.is_object() && niutrans.value("enabled", false)) {
       for (const auto &item : pending) {
-        if (cancelled())
-          return std::nullopt;
+        if (cancelled() ||
+            std::chrono::steady_clock::now() >= provider_deadline)
+          break;
+        attempted_cache_ids.insert(item_cache_id(item));
         append_niutrans_item(niutrans, item, translations, cancelled);
       }
     } else if (custom.is_object() && custom.value("enabled", false)) {
       for (const auto &item : pending) {
-        if (cancelled())
-          return std::nullopt;
+        if (cancelled() ||
+            std::chrono::steady_clock::now() >= provider_deadline)
+          break;
+        attempted_cache_ids.insert(item_cache_id(item));
         if (auto value = custom_translation(custom, item, cancelled)) {
           auto output = nlohmann::json::parse(translations);
           output.push_back(
@@ -585,6 +594,11 @@ TranslationWorker::translate(const Request &request,
             .push_back(item);
       for (const auto &[key, items] : groups) {
         (void)key;
+        if (cancelled() ||
+            std::chrono::steady_clock::now() >= provider_deadline)
+          break;
+        for (const auto &item : items)
+          attempted_cache_ids.insert(item_cache_id(item));
         append_tencent_group(tencent, items, translations, cancelled);
       }
     }
@@ -593,6 +607,8 @@ TranslationWorker::translate(const Request &request,
     const auto output = nlohmann::json::parse(translations);
     for (const auto &item : pending) {
       const auto cache_id = item_cache_id(item);
+      if (attempted_cache_ids.find(cache_id) == attempted_cache_ids.end())
+        continue;
       const auto found =
           std::find_if(output.begin(), output.end(), [&](const auto &entry) {
             return entry.is_object() && entry.value("text", std::string{}) ==
