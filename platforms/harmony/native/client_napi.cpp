@@ -152,6 +152,25 @@ TEXT_ENTRY(Create, msime_client_create)
 
 PAIR_ENTRY(EmojiCatalog, msime_client_emoji_catalog_request)
 PAIR_ENTRY(CandidateGlosses, msime_client_candidate_gloss_request)
+PAIR_ENTRY(TranslationGlossSave, msime_client_translation_gloss_save)
+TEXT_ENTRY(TranslationPlan, msime_client_custom_translation_plan)
+TEXT_ENTRY(TencentTranslationHttpRequest, msime_client_tencent_translation_http_request)
+TEXT_ENTRY(NiuTransTranslationHttpRequest, msime_client_niutrans_translation_http_request)
+TEXT_ENTRY(CustomTranslationHttpRequest, msime_client_custom_translation_http_request)
+TEXT_ENTRY(ParseNiuTransTranslationResponse, msime_client_parse_niutrans_translation_response)
+TEXT_ENTRY(ParseCustomTranslationResponse, msime_client_parse_custom_translation_response)
+
+static napi_value ParseTencentTranslationResponse(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    std::string body;
+    size_t expected = 0;
+    if (!arguments(env, info, 2, argv) || !argumentText(env, argv[0], body)
+            || !argumentIndex(env, argv[1], expected)) {
+        return response(env, msime_client_parse_tencent_translation_response(nullptr, 0, 0));
+    }
+    return response(env, msime_client_parse_tencent_translation_response(
+        reinterpret_cast<const uint8_t *>(body.data()), body.size(), expected));
+}
 
 static napi_value OnlineQuery(napi_env env, napi_callback_info info) {
     std::vector<napi_value> argv;
@@ -219,6 +238,7 @@ static napi_value ApplyOnlineCandidates(napi_env env, napi_callback_info info) {
 HANDLE_ENTRY(SnapshotDiscard, msime_client_snapshot_discard)
 HANDLE_ENTRY(View, msime_client_view)
 HANDLE_ENTRY(AllCandidates, msime_client_all_candidates)
+HANDLE_ENTRY(TranslationQuery, msime_client_translation_query)
 HANDLE_ENTRY(Destroy, msime_client_destroy)
 HANDLE_ENTRY(VoiceStart, msime_client_voice_start)
 HANDLE_ENTRY(VoiceCancel, msime_client_voice_cancel)
@@ -436,6 +456,14 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("typingStatistics", TypingStatistics),
         ENTRY("emojiCatalog", EmojiCatalog),
         ENTRY("candidateGlosses", CandidateGlosses),
+        ENTRY("translationGlossSave", TranslationGlossSave),
+        ENTRY("translationPlan", TranslationPlan),
+        ENTRY("tencentTranslationHttpRequest", TencentTranslationHttpRequest),
+        ENTRY("niuTransTranslationHttpRequest", NiuTransTranslationHttpRequest),
+        ENTRY("customTranslationHttpRequest", CustomTranslationHttpRequest),
+        ENTRY("parseTencentTranslationResponse", ParseTencentTranslationResponse),
+        ENTRY("parseNiuTransTranslationResponse", ParseNiuTransTranslationResponse),
+        ENTRY("parseCustomTranslationResponse", ParseCustomTranslationResponse),
         ENTRY("onlineQuery", OnlineQuery),
         ENTRY("cloudRequestUrl", CloudRequestUrl),
         ENTRY("aiRequestForQuery", AiRequestForQuery),
@@ -465,6 +493,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("chooseNineKeySpelling", ChooseNineKeySpelling),
         ENTRY("view", View),
         ENTRY("allCandidates", AllCandidates),
+        ENTRY("translationQuery", TranslationQuery),
         ENTRY("applyTranslations", ApplyTranslations),
         ENTRY("voiceStart", VoiceStart),
         ENTRY("voiceCancel", VoiceCancel),

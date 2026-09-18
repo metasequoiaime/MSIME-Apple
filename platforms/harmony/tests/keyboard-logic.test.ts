@@ -61,6 +61,8 @@ import { AccountCloudBridge, AccountSessionStore, AccountTransport } from
 import { TypingStatisticsPolicy } from '../entry/src/main/ets/keyboard/TypingStatisticsPolicy';
 import { OnlineCandidatePolicy } from
   '../entry/src/main/ets/keyboard/candidate/OnlineCandidatePolicy';
+import { TranslationPolicy, TranslationQuery, TranslationEntry } from
+  '../entry/src/main/ets/keyboard/candidate/TranslationPolicy';
 
 let failures = 0;
 let checks = 0;
@@ -141,6 +143,40 @@ group('bounds and deduplicates asynchronous online AI candidates', () => {
     'AI candidate limit stays within shared bounds');
   check(OnlineCandidatePolicy.aiCandidates('x'.repeat(1024 * 1024 + 1), 3) === null,
     'oversized AI response is rejected before parsing');
+});
+
+group('keeps translation provider policy bounded and credential-free in signatures', () => {
+  const query: TranslationQuery = {
+    generation: 12,
+    target_language: 'en',
+    target_languages: ['en', 'ja'],
+    candidates: [{ text: '你好' }, { text: '你好' }],
+    custom_translation: null,
+    tencent_tmt: null,
+    niutrans: { enabled: true, app_id: 'account', apikey: 'secret' },
+    english_gloss: true,
+    resources: '/data/resources',
+    user_data: '/data/state'
+  };
+  check(TranslationPolicy.provider(query) === 'niutrans', 'NiuTrans has provider precedence');
+  check(TranslationPolicy.targets(query).join(',') === 'en,ja', 'targets are deduplicated');
+  check(!TranslationPolicy.signature(query).includes('secret'),
+    'provider signatures never contain credentials');
+  check(TranslationPolicy.cacheKey(query, 'en', {
+    text: '你好', key: '你好', source_language: 'zh', target_language: 'en'
+  }).includes('niutrans:account'), 'cache scope identifies the provider account');
+});
+
+group('merges translation rows without unbounded display growth', () => {
+  const entries: TranslationEntry[] = [];
+  TranslationPolicy.append(entries, '你好', 'hello');
+  TranslationPolicy.append(entries, '你好', 'hello');
+  TranslationPolicy.append(entries, '你好', 'greeting');
+  TranslationPolicy.append(entries, '世界', '\u0000bad');
+  check(entries.length === 1 && entries[0].translation === 'hello / greeting',
+    'rows deduplicate and join in provider order');
+  TranslationPolicy.append(entries, '你好', 'x'.repeat(5000));
+  check(entries[0].translation === 'hello / greeting', 'oversized glosses are ignored');
 });
 
 group('bounds native speech language, session and result text', () => {

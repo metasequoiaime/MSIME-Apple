@@ -1,5 +1,6 @@
 import inputMethodEngine from '@ohos.inputMethodEngine';
 import client from 'libmsimeclient.so';
+import { utf8Length } from './Utf8';
 import { KeyboardLog, describeError } from './KeyboardLog';
 import { DictionaryMaintenancePolicy } from './DictionaryMaintenancePolicy';
 import { TypingStatisticsPolicy } from './TypingStatisticsPolicy';
@@ -18,8 +19,12 @@ import { ModeBindings, DEFAULT_MODE_BINDINGS } from './InputModeRouting';
 import { FloatingToolbarLayout, ToolbarButton, ToolbarComponents, ToolbarState }
   from './FloatingToolbarLayout';
 import { DesktopSurface } from './DesktopSurface';
-import { CandidateGlossPolicy, GlossToken } from './candidate/CandidateGlossPolicy';
+import { CandidateGlossPolicy } from './candidate/CandidateGlossPolicy';
 import { OnlineCandidatePolicy, OnlineQuery } from './candidate/OnlineCandidatePolicy';
+import {
+  TranslationPolicy, TranslationQuery, TranslationPlanItem, TranslationEntry,
+  TranslationProviderConfig, TencentTranslationConfig, NiuTransTranslationConfig, TranslationCandidate
+} from './candidate/TranslationPolicy';
 import fs from '@ohos.file.fs';
 import pasteboard from '@ohos.pasteboard';
 import abilityAccessCtrl from '@ohos.abilityAccessCtrl';
@@ -32,23 +37,6 @@ import {
 
 // Shapes of the JSON the shared C ABI answers with. Only the fields this minimal surface reads are
 // declared; the responses carry considerably more.
-interface GlossRequestCandidate {
-  text: string;
-  source: number;
-}
-
-interface GlossRequest {
-  generation: number;
-  user_data: string;
-  candidates: GlossRequestCandidate[];
-}
-
-interface GlossResponse {
-  ok: boolean;
-  value: string[];
-  error: string;
-}
-
 interface Candidate {
   text: string;
   highlighted: boolean;
@@ -58,6 +46,8 @@ interface Candidate {
   code: string;
   /** An Engine-derived display suffix, never part of what gets committed. */
   annotation: string;
+  /** Optional translation attached by the shared Engine for this generation. */
+  translation?: string | null;
 }
 
 /** A candidate as the view draws it: the text, and whatever is printed beside it. */
@@ -174,6 +164,66 @@ interface AiHttpDescriptor {
   timeout_ms: number;
   connect_timeout_ms: number;
   max_response_bytes: number;
+}
+
+interface TranslationHttpDescriptor {
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  body?: Object;
+  body_utf8?: string;
+  timeout_ms: number;
+  max_response_bytes: number;
+  expected_count?: number;
+}
+
+interface TranslationResponseValue {
+  generation: number;
+  translations: TranslationEntry[];
+}
+
+interface GlossRequestCandidate {
+  text: string;
+  source: number;
+}
+
+interface GlossRequestDocument {
+  generation: number;
+  user_data: string;
+  candidates: GlossRequestCandidate[];
+}
+
+interface TranslationPlanDocument {
+  target_language: string;
+  candidates: GlossRequestCandidate[];
+}
+
+interface TencentTranslationRequest {
+  config: TencentTranslationConfig;
+  texts: string[];
+  source_language: string;
+  target_language: string;
+  timestamp: number;
+}
+
+interface NiuTransTranslationRequest {
+  config: NiuTransTranslationConfig;
+  text: string;
+  source_language: string;
+  target_language: string;
+  timestamp: string;
+}
+
+interface CustomTranslationRequest {
+  config: TranslationProviderConfig;
+  text: string;
+  source_language: string;
+  target_language: string;
+}
+
+interface TranslationGlossSaveRequest {
+  target_language: string;
+  translations: TranslationEntry[];
 }
 
 interface OnlineApplyValue {
@@ -481,7 +531,6 @@ export class KeyboardSession {
       this.traditional = preferences.traditional_chinese_output;
       this.chinesePunctuation = preferences.chinese_punctuation;
       this.toolbar = preferences.floating_toolbar;
-      this.glosses = preferences.candidate_english_gloss;
       this.nineKeyMode = preferences.touch_keyboard_layout === 'nine_key'
         && preferences.scheme === 'quanpin';
     } catch (error) {
@@ -824,6 +873,12 @@ export class KeyboardSession {
       clearTimeout(this.onlineTimer);
       this.onlineTimer = -1;
     }
+    this.translationEpoch++;
+    this.translationSignature = '';
+    if (this.translationTimer >= 0) {
+      clearTimeout(this.translationTimer);
+      this.translationTimer = -1;
+    }
     if (this.handle !== 0) {
       client.destroy(this.handle);
       this.handle = 0;
@@ -1056,14 +1111,14 @@ export class KeyboardSession {
     enabled: true, english_mode: true, punctuation: true, fullwidth: true, character_set: true,
     emoji: true, screen_keyboard: false, scale_percent: 100, font_size: 20
   };
-  private glosses: boolean = false;
-  // Which view a pending gloss lookup belongs to. A gloss arrives after the keystroke that asked for
-  // it, and by then the composition may have moved on; anything stale is dropped rather than painted
-  // onto whatever is on screen now.
-  private glossEpoch: number = 0;
   private onlineTimer: number = -1;
   private onlineEpoch: number = 0;
   private onlineSignature: string = '';
+  private translationTimer: number = -1;
+  private translationEpoch: number = 0;
+  private translationSignature: string = '';
+  private readonly translationCache: Map<string, string> = new Map<string, string>();
+  private readonly translationNegativeCache: Map<string, number> = new Map<string, number>();
   // ICU's Simplified-Traditional, which is the same transliteration Android reaches through its own
   // ICU and Apple through its host boundary. Built once: constructing one per commit would pay for
   // the table on every keystroke.
@@ -1071,58 +1126,6 @@ export class KeyboardSession {
   private editing: string = '';
   private scheme: number = 0;
   private localMode: string = 'none';
-
-  /**
-   * Asks the packaged dictionary for English glosses and reports them when they arrive.
-   *
-   * Opt-in, offline, and bounded by the policy: an entry too long to be a gloss is not one. The
-   * Engine's own annotation wins the shared slot, so a Wubi code is never displaced by a
-   * translation.
-   */
-  private requestGlosses(view: EngineView, entries: CandidateEntry[]): void {
-    if (!this.glosses || this.handle === 0 || view.candidates.length === 0) {
-      return;
-    }
-    const token: GlossToken = CandidateGlossPolicy.token(this.handle, view.generation,
-      ++this.glossEpoch);
-    const candidates: GlossRequestCandidate[] = [];
-    for (const candidate of view.candidates) {
-      candidates.push({ text: candidate.text, source: candidate.source });
-    }
-    const request: GlossRequest = {
-      generation: view.generation, user_data: '', candidates: candidates
-    };
-    try {
-      const response: GlossResponse = JSON.parse(
-        client.candidateGlosses(JSON.stringify(request), this.resourceDirectory)) as GlossResponse;
-      if (!response.ok) {
-        KeyboardLog.error(`candidate glosses refused: ${response.error}`);
-        return;
-      }
-      if (!CandidateGlossPolicy.isCurrent(token, this.handle, this.generation, this.glossEpoch)) {
-        return;
-      }
-      const glossed: CandidateEntry[] = [];
-      for (let index: number = 0; index < entries.length; index++) {
-        glossed.push({
-          text: entries[index].text,
-          hint: entries[index].hint,
-          annotation: CandidateGlossPolicy.annotation(entries[index].annotation,
-            index < response.value.length ? response.value[index] : null, true)
-        });
-      }
-      if (this.onChanged !== undefined) {
-        this.onChanged({
-          candidates: glossed, editing: view.editing_text, spellings: view.nine_key_spellings,
-          scheme: view.scheme, shuangpinProfile: view.shuangpin_profile,
-          localMode: view.local_mode, english: view.dedicated_english,
-          diagnostic: this.diagnostic
-        });
-      }
-    } catch (error) {
-      KeyboardLog.error(`candidate glosses unreadable: ${describeError(error)}`);
-    }
-  }
 
   private render(view: EngineView): void {
     this.generation = view.generation;
@@ -1146,7 +1149,8 @@ export class KeyboardSession {
         // decides; this just supplies what it reasons about.
         hint: WubiCodeHintPolicy.hint(candidate.code, view.preedit, true, view.scheme,
           view.local_mode, view.answered_by_pinyin_fallback),
-        annotation: candidate.annotation
+        annotation: CandidateGlossPolicy.annotation(candidate.annotation,
+          candidate.translation ?? null, true)
       });
     }
     if (this.onChanged !== undefined) {
@@ -1161,10 +1165,10 @@ export class KeyboardSession {
         diagnostic: this.diagnostic
       });
     }
-    // Candidate annotations and online suggestions are display-only work. Both run after the
-    // Engine view is published, and native result application rechecks the exact generation.
-    setTimeout((): void => this.requestGlosses(view, entries), 0);
+    // Candidate annotations and online providers are display-only work. Both run after the Engine
+    // view is published, and native result application rechecks the exact generation.
     this.scheduleOnlineProviders();
+    this.scheduleTranslations();
   }
 
   private scheduleOnlineProviders(): void {
@@ -1288,6 +1292,290 @@ export class KeyboardSession {
     } finally {
       request.destroy();
     }
+  }
+
+  private scheduleTranslations(): void {
+    if (this.handle === 0) return;
+    let reply: NativeReply<TranslationQuery | null>;
+    try {
+      reply = JSON.parse(client.translationQuery(this.handle)) as NativeReply<TranslationQuery | null>;
+    } catch (error) {
+      KeyboardLog.error(`translation query unavailable: ${describeError(error)}`);
+      return;
+    }
+    if (!reply.ok || reply.value === null) {
+      this.translationSignature = '';
+      return;
+    }
+    const query: TranslationQuery = reply.value;
+    const signature: string = TranslationPolicy.signature(query);
+    if (signature === this.translationSignature) return;
+    this.translationSignature = signature;
+    if (this.translationTimer >= 0) clearTimeout(this.translationTimer);
+    const epoch: number = ++this.translationEpoch;
+    const handle: number = this.handle;
+    this.translationTimer = setTimeout((): void => {
+      this.translationTimer = -1;
+      void this.fetchTranslations(handle, JSON.stringify(query), query, epoch);
+    }, TranslationPolicy.QUIET_INTERVAL_MS);
+  }
+
+  private async fetchTranslations(handle: number, queryDocument: string,
+    query: TranslationQuery, epoch: number): Promise<void> {
+    if (!this.translationCurrent(handle, epoch)) return;
+    const entries: TranslationEntry[] = [];
+    if (query.english_gloss && typeof query.resources === 'string' && query.resources.length > 0) {
+      this.appendOfflineGloss(query, entries);
+    }
+    const deadline: number = Date.now() + 6000;
+    const provider: string = TranslationPolicy.provider(query);
+    for (const target of TranslationPolicy.targets(query)) {
+      if (!this.translationCurrent(handle, epoch) || Date.now() >= deadline) return;
+      let plan: TranslationPlanItem[] = [];
+      try {
+        const planDocument: string = TranslationPolicy.planRequest(target, query.candidates);
+        const planReply: NativeReply<TranslationPlanItem[]> =
+          JSON.parse(client.translationPlan(planDocument)) as NativeReply<TranslationPlanItem[]>;
+        if (planReply.ok && Array.isArray(planReply.value)) plan = planReply.value;
+      } catch (error) {
+        KeyboardLog.error(`translation plan unavailable: ${describeError(error)}`);
+      }
+      if (plan.length === 0 || provider.length === 0) continue;
+      const pending: TranslationPlanItem[] = [];
+      for (const item of plan) {
+        if (target === 'en' && query.english_gloss
+          && entries.some((entry: TranslationEntry): boolean => entry.text === item.text)) {
+          continue;
+        }
+        const key: string = TranslationPolicy.cacheKey(query, target, item);
+        const cached: string | undefined = this.translationCache.get(key);
+        if (cached !== undefined) {
+          TranslationPolicy.append(entries, item.text, cached);
+          continue;
+        }
+        const negativeUntil: number | undefined = this.translationNegativeCache.get(key);
+        if (negativeUntil !== undefined) {
+          if (negativeUntil > Date.now()) continue;
+          this.translationNegativeCache.delete(key);
+        }
+        pending.push(item);
+      }
+      if (pending.length === 0) continue;
+      if (provider === 'tencent' && query.tencent_tmt !== null
+        && query.tencent_tmt !== undefined) {
+        await this.fetchTencentTranslations(query, pending, entries, epoch, handle, deadline);
+      } else {
+        for (const item of pending) {
+          if (!this.translationCurrent(handle, epoch) || Date.now() >= deadline) return;
+          let value: string | null = null;
+          if (provider === 'niutrans' && query.niutrans !== null
+            && query.niutrans !== undefined) {
+            value = await this.fetchNiuTranslation(query.niutrans, item, epoch, handle);
+          } else if (provider === 'custom' && query.custom_translation !== null
+            && query.custom_translation !== undefined) {
+            value = await this.fetchCustomTranslation(query.custom_translation, item, epoch, handle);
+          }
+          this.recordTranslation(query, target, item, value, entries);
+        }
+      }
+    }
+    if (!this.translationCurrent(handle, epoch) || entries.length === 0) return;
+    let appliedCurrent: boolean = false;
+    try {
+      const applied: NativeReply<OnlineApplyValue> = JSON.parse(client.applyTranslations(
+        handle, query.generation, JSON.stringify(entries))) as NativeReply<OnlineApplyValue>;
+      if (applied.ok && applied.value !== undefined && applied.value.view !== undefined
+        && applied.value.applied !== false) {
+        appliedCurrent = applied.value.applied;
+        this.render(applied.value.view);
+      }
+      if (appliedCurrent && query.user_data !== undefined && query.user_data.length > 0
+        && TranslationPolicy.targets(query).includes('en')) {
+        const saveRequest: TranslationGlossSaveRequest = {
+          target_language: 'en', translations: entries
+        };
+        client.translationGlossSave(JSON.stringify(saveRequest), query.user_data);
+      }
+    } catch (error) {
+      KeyboardLog.error(`candidate translations unavailable: ${describeError(error)}`);
+    }
+  }
+
+  private appendOfflineGloss(query: TranslationQuery, entries: TranslationEntry[]): void {
+    try {
+      const request: GlossRequestDocument = {
+        generation: query.generation,
+        user_data: query.user_data ?? '',
+        candidates: query.candidates.map((candidate: TranslationCandidate): GlossRequestCandidate => ({
+          text: candidate.text, source: 0
+        }))
+      };
+      const glossResponse: string = client.candidateGlosses(
+        JSON.stringify(request), query.resources ?? '');
+      const reply: NativeReply<TranslationResponseValue> =
+        JSON.parse(glossResponse) as NativeReply<TranslationResponseValue>;
+      if (!reply.ok || reply.value === undefined || reply.value.generation !== query.generation
+        || !Array.isArray(reply.value.translations)) return;
+      for (const entry of reply.value.translations) {
+        TranslationPolicy.append(entries, entry.text, entry.translation);
+      }
+    } catch (error) {
+      KeyboardLog.error(`offline candidate glosses unavailable: ${describeError(error)}`);
+    }
+  }
+
+  private async fetchTencentTranslations(query: TranslationQuery, items: TranslationPlanItem[],
+    entries: TranslationEntry[], epoch: number, handle: number, deadline: number): Promise<void> {
+    const groups: Map<string, TranslationPlanItem[]> = new Map<string, TranslationPlanItem[]>();
+    for (const item of items) {
+      const group: string = `${item.source_language}\n${item.target_language}`;
+      const values: TranslationPlanItem[] = groups.get(group) ?? [];
+      values.push(item);
+      groups.set(group, values);
+    }
+    for (const group of groups.values()) {
+      if (!this.translationCurrent(handle, epoch) || Date.now() >= deadline) return;
+      const config: TencentTranslationConfig | null | undefined = query.tencent_tmt;
+      if (config === null || config === undefined) return;
+      const request: TencentTranslationRequest = {
+        config: config,
+        texts: group.map((item: TranslationPlanItem): string => item.key),
+        source_language: group[0].source_language,
+        target_language: group[0].target_language,
+        timestamp: Math.floor(Date.now() / 1000)
+      };
+      let descriptor: TranslationHttpDescriptor | null = null;
+      try {
+        const descriptorResponse: string = client.tencentTranslationHttpRequest(
+          JSON.stringify(request));
+        const reply: NativeReply<TranslationHttpDescriptor | null> =
+          JSON.parse(descriptorResponse) as NativeReply<TranslationHttpDescriptor | null>;
+        if (reply.ok) descriptor = reply.value;
+      } catch (error) {
+        KeyboardLog.error(`Tencent translation descriptor unavailable: ${describeError(error)}`);
+      }
+      if (descriptor === null) continue;
+      const body: string | null = await this.translationHttp(descriptor, false, epoch, handle);
+      if (body === null) continue;
+      try {
+        const parsed: NativeReply<string[] | null> = JSON.parse(client.parseTencentTranslationResponse(
+          body, group.length)) as NativeReply<string[] | null>;
+        if (!parsed.ok || parsed.value === null || parsed.value.length !== group.length) continue;
+        for (let index: number = 0; index < group.length; index++) {
+          this.recordTranslation(query, group[0].target_language, group[index], parsed.value[index],
+            entries);
+        }
+      } catch (error) {
+        KeyboardLog.error(`Tencent translation response unavailable: ${describeError(error)}`);
+      }
+    }
+  }
+
+  private async fetchNiuTranslation(config: NiuTransTranslationConfig, item: TranslationPlanItem,
+    epoch: number, handle: number): Promise<string | null> {
+    const request: NiuTransTranslationRequest = {
+        config: config,
+        text: item.key,
+        source_language: item.source_language,
+        target_language: item.target_language,
+        timestamp: String(Date.now())
+    };
+    const descriptor: TranslationHttpDescriptor | null = this.translationDescriptor(
+      client.niuTransTranslationHttpRequest(JSON.stringify(request)));
+    if (descriptor === null) return null;
+    const body: string | null = await this.translationHttp(descriptor, false, epoch, handle);
+    if (body === null) return null;
+    try {
+      const reply: NativeReply<string | null> = JSON.parse(
+        client.parseNiuTransTranslationResponse(body)) as NativeReply<string | null>;
+      return reply.ok && reply.value !== null ? reply.value : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async fetchCustomTranslation(config: TranslationProviderConfig, item: TranslationPlanItem,
+    epoch: number, handle: number): Promise<string | null> {
+    const request: CustomTranslationRequest = {
+        config: config,
+        text: item.key,
+        source_language: item.source_language,
+        target_language: item.target_language
+    };
+    const descriptor: TranslationHttpDescriptor | null = this.translationDescriptor(
+      client.customTranslationHttpRequest(JSON.stringify(request)));
+    if (descriptor === null) return null;
+    const body: string | null = await this.translationHttp(descriptor, true, epoch, handle);
+    if (body === null) return null;
+    try {
+      const reply: NativeReply<string | null> = JSON.parse(
+        client.parseCustomTranslationResponse(body)) as NativeReply<string | null>;
+      return reply.ok && reply.value !== null ? reply.value : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private recordTranslation(query: TranslationQuery, target: string, item: TranslationPlanItem,
+    value: string | null, entries: TranslationEntry[]): void {
+    if (value === null) {
+      this.translationNegativeCache.set(TranslationPolicy.cacheKey(query, target, item),
+        Date.now() + TranslationPolicy.NEGATIVE_CACHE_MS);
+      return;
+    }
+    const normalised: string = TranslationPolicy.normalise(value);
+    if (normalised.length === 0) {
+      this.translationNegativeCache.set(TranslationPolicy.cacheKey(query, target, item),
+        Date.now() + TranslationPolicy.NEGATIVE_CACHE_MS);
+      return;
+    }
+    this.translationCache.set(TranslationPolicy.cacheKey(query, target, item), normalised);
+    this.translationNegativeCache.delete(TranslationPolicy.cacheKey(query, target, item));
+    TranslationPolicy.append(entries, item.text, normalised);
+  }
+
+  private translationDescriptor(raw: string): TranslationHttpDescriptor | null {
+    try {
+      const reply: NativeReply<TranslationHttpDescriptor | null> =
+        JSON.parse(raw) as NativeReply<TranslationHttpDescriptor | null>;
+      return reply.ok && reply.value !== null ? reply.value : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async translationHttp(descriptor: TranslationHttpDescriptor, allowHttp: boolean,
+    epoch: number, handle: number): Promise<string | null> {
+    if (!this.translationCurrent(handle, epoch) || typeof descriptor.url !== 'string'
+      || descriptor.url.length > 2048 || descriptor.url.includes('\n')
+      || descriptor.url.includes('\r')
+      || (!descriptor.url.startsWith('https://')
+        && !(allowHttp && descriptor.url.startsWith('http://')))) return null;
+    if (descriptor.max_response_bytes > TranslationPolicy.MAX_RESPONSE_BYTES) return null;
+    const request = http.createHttp();
+    try {
+      const response: http.HttpResponse = await request.request(descriptor.url, {
+        method: http.RequestMethod.POST,
+        header: descriptor.headers,
+        connectTimeout: Math.min(3000, Math.max(1000, descriptor.timeout_ms)),
+        readTimeout: Math.min(8000, Math.max(1000, descriptor.timeout_ms)),
+        extraData: descriptor.body_utf8 !== undefined
+          ? descriptor.body_utf8 : JSON.stringify(descriptor.body ?? {})
+      });
+      if (!this.translationCurrent(handle, epoch) || response.responseCode < 200
+        || response.responseCode >= 300 || typeof response.result !== 'string'
+        || utf8Length(response.result) > TranslationPolicy.MAX_RESPONSE_BYTES) return null;
+      return response.result;
+    } catch (error) {
+      KeyboardLog.error(`candidate translation request unavailable: ${describeError(error)}`);
+      return null;
+    } finally {
+      request.destroy();
+    }
+  }
+
+  private translationCurrent(handle: number, epoch: number): boolean {
+    return handle !== 0 && handle === this.handle && epoch === this.translationEpoch;
   }
 
   private feedbackFile(): string {

@@ -10,6 +10,8 @@ Harmony 设置页也暴露共享的模糊拼音规则。设置保存到同一个
 
 云联想与 AI 联想复用 Engine 的 `online_query` 代际契约：Harmony NAPI 只传递有界查询和结果，ArkTS 通过系统 HTTPS 栈异步访问云候选或用户配置的 Chat Completions 服务，结果再交回 Engine 做会话、偏好和 generation 校验。请求防抖、超时、响应大小、重复候选和控制字符检查均在宿主边界完成，失败只丢弃可选展示结果，不阻塞本地输入，也不把查询或响应写入日志。
 
+候选翻译复用共享 `translation_query` 与 `apply_translations` 代际契约。Harmony 原生边界负责把 Tencent TMT、NiuTrans 和 DeepLX 兼容自定义 provider 的签名/请求描述器及响应解析暴露给 ArkTS，网络传输仍由 Harmony HTTPS 栈完成；本地英文词典释义先在 Engine 侧解析，在线结果只补齐缺失项。多语言释义合并为有界的 ` / ` 展示文本，按 provider、目标语言和词条缓存，过期或 generation 不匹配的结果不会污染当前候选页。英文目标的成功释义通过共享 ABI 写入用户词典覆盖层，凭据只存在于当前请求内，不写日志。
+
 共享设置中的“顶部语音入口”现在也会驱动 Harmony 触屏键盘：开启后，快捷栏会显示麦克风入口并直接打开系统识别；关闭时仍可从“工具”面板手动打开，保持平台特性与 Windows 的可选快捷入口一致。
 
 ## 目录结构
