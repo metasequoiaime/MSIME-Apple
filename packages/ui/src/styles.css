@@ -731,6 +731,8 @@ button.statistics-heatmap-cell { cursor: pointer; }
 .cloud-dictionary-file-preview strong { flex: 1 1 auto; overflow-wrap: anywhere; }
 .cloud-dictionary-file-preview small { color: var(--text-muted); }
 .cloud-dictionary-file-preview pre { flex: 1 0 100%; max-height: 180px; margin: 0; padding: 8px; overflow: auto; border-radius: 6px; background: var(--surface-subtle); color: var(--text-secondary); font: 12px/1.45 ui-monospace, SFMono-Regular, Menlo, monospace; white-space: pre-wrap; overflow-wrap: anywhere; }
+.cloud-dictionary-snapshot-fact { display: flex; min-width: 180px; flex: 1 1 220px; flex-direction: column; gap: 3px; color: var(--text-color); }
+.cloud-dictionary-snapshot-fact small { color: var(--text-muted); overflow-wrap: anywhere; }
 @media (max-width: 600px) {
   .cloud-dictionary-kind-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 3px; padding: 3px; border-radius: 9px; background: var(--surface-subtle); }
   .cloud-dictionary-kind-tabs button { min-width: 0; min-height: 34px; padding: 5px 3px; overflow: hidden; border: 0; border-radius: 7px; background: transparent; color: var(--text-secondary); text-overflow: ellipsis; white-space: nowrap; }
