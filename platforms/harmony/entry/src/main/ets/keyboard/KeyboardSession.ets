@@ -311,6 +311,7 @@ interface PreparedPreferences {
   candidate_follow_cursor: boolean;
   number_row_selection: boolean;
   navigation: PreparedNavigationPreferences;
+  candidate_preedit_style: string;
   candidate_font_size: number;
   candidate_preedit_font_size: number;
   candidate_font_family: string;
@@ -384,6 +385,8 @@ export interface KeyboardPreferences {
   readonly candidateFollowCursor: boolean;
   readonly numberRowSelection: boolean;
   readonly navigation: HardwareNavigationPreferences;
+  /** Whether the desktop candidate panel shows the spelling above its candidates. */
+  readonly candidateShowPreedit: boolean;
   readonly candidateFontSize: number;
   readonly candidatePreeditFontSize: number;
   readonly candidateFontFamily: string;
@@ -483,6 +486,7 @@ export class KeyboardSession {
     layout: 'twenty_six_key',
     candidateFollowCursor: true,
     numberRowSelection: false,
+    candidateShowPreedit: true,
     navigation: {
       minusEqual: true, commaPeriod: true, brackets: false,
       tab: true, pageUpDown: true, arrows: true
@@ -591,6 +595,7 @@ export class KeyboardSession {
         layout: preferences.touch_keyboard_layout,
         candidateFollowCursor: preferences.candidate_follow_cursor,
         numberRowSelection: preferences.number_row_selection,
+        candidateShowPreedit: preferences.candidate_preedit_style !== 'empty',
         navigation: {
           minusEqual: preferences.navigation?.minus_equal ?? true,
           commaPeriod: preferences.navigation?.comma_period ?? true,

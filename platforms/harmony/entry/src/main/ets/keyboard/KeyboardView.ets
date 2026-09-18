@@ -783,13 +783,16 @@ struct KeyboardView {
             .onClick(() => {
               this.toggle(SURFACE_SCHEME);
             })
-        } else {
+        } else if (this.diagnostic.length > 0 || !KeyboardFormFactor.isDesktop()
+            || this.settings.candidateShowPreedit) {
           Text(this.diagnostic.length > 0 ? this.diagnostic : this.editing)
             .fontSize(this.settings.candidatePreeditFontSize)
             .fontColor(this.candidateAccentColor())
             .fontFamily(this.candidateFontFamily())
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
+        } else {
+          Blank()
         }
         Blank()
       }
