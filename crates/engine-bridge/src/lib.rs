@@ -1048,4 +1048,27 @@ mod tests {
             .unwrap();
         assert_eq!(learned, "hello");
     }
+
+    #[test]
+    fn complete_pinyin_raw_commit_does_not_learn_as_english() {
+        let dir = tempfile::tempdir().unwrap();
+        let value = options(dir.path());
+        let mut session = Session::new(&value).unwrap();
+        for character in b"ni" {
+            assert!(session.character(*character, false).unwrap().handled);
+        }
+        assert_eq!(session.command(Command::CommitRaw).unwrap().commit, "ni");
+        let database = std::path::Path::new(&value.dictionaries).join("english.db");
+        if database.exists() {
+            let database = rusqlite::Connection::open(database).unwrap();
+            let count: i64 = database
+                .query_row(
+                    "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='english_words'",
+                    [],
+                    |row| row.get(0),
+                )
+                .unwrap();
+            assert_eq!(count, 0);
+        }
+    }
 }
