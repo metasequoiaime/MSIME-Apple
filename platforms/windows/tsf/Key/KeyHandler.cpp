@@ -1168,10 +1168,12 @@ HRESULT CMetasequoiaIME::_HandleCompositionBackspace(TfEditCookie ec, _In_ ITfCo
                                                static_cast<int>(value.size()), preedit.data(), n);
                 if (preedit.empty()) {
                     _backspaceHoldArmed = true;
+                    tfSelection.range->Release();
                     return _HandleCompositionFinalize(ec, pContext, FALSE);
                 }
                 CStringRange rendered;
                 rendered.Set(preedit.c_str(), preedit.size());
+                tfSelection.range->Release();
                 return _AddComposingAndChar(ec, pContext, &rendered);
             }
         }
