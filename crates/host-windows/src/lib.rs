@@ -465,9 +465,11 @@ pub fn send_text(text: &str) -> bool {
 /// fallback when Windows reports no foreground window or monitor information.
 pub fn work_area() -> Option<WorkArea> {
     use windows_sys::Win32::Foundation::RECT;
+    use windows_sys::Win32::Graphics::Gdi::{
+        GetMonitorInfoW, MonitorFromWindow, MONITORINFO, MONITOR_DEFAULTTONEAREST,
+    };
     use windows_sys::Win32::UI::WindowsAndMessaging::{
-        GetForegroundWindow, GetMonitorInfoW, MonitorFromWindow, SystemParametersInfoW,
-        MONITORINFO, MONITOR_DEFAULTTONEAREST, SPI_GETWORKAREA,
+        GetForegroundWindow, SystemParametersInfoW, SPI_GETWORKAREA,
     };
 
     let to_work_area = |rect: RECT| {
