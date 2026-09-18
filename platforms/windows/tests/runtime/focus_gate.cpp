@@ -91,6 +91,19 @@ int main() {
     require(gate.acknowledge(fifth.pending, [] { return true; }));
     require(gate.invalidate(b));
     require(!gate.with_active(fifth.pending, [] {}));
+
+    // A delayed deactivation from the previous client must not clear a newer
+    // acknowledged focus lease, even when both lifecycle events are serialized
+    // through the same gate.
+    FocusGate stale;
+    PipeTicket first_ticket{31, {7, 8, 9}};
+    PipeTicket second_ticket{32, {10, 11, 12}};
+    const auto first_change = *stale.begin(first_ticket, 81);
+    require(stale.acknowledge(first_change.pending, [] { return true; }));
+    const auto second_change = *stale.begin(second_ticket, 82);
+    require(stale.acknowledge(second_change.pending, [] { return true; }));
+    require(!stale.deactivate(first_change.pending));
+    require(stale.with_active(second_change.pending, [] {}));
     std::cout << "Focus pending/ready, stale fences and serialized activation "
                  "passed\n";
   } catch (const std::exception &error) {
