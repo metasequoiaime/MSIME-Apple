@@ -205,20 +205,26 @@ nlohmann::json ServerSession::select(uint64_t epoch, uint64_t generation,
   // Cloud suggestions are already complete results for their query. The
   // Windows server commits them as a whole and clears any shorter residual
   // pinyin instead of entering the ordinary partial-word creation path.
-  bool cloud_candidate = false;
+  bool completes_composition = false;
   const auto current = view();
   if (current.at("generation").get<uint64_t>() == generation) {
     for (const auto &candidate : current.at("candidates")) {
       const auto &id = candidate.at("id");
       if (id.at("generation").get<uint64_t>() == generation &&
           id.at("index").get<size_t>() == index) {
-        cloud_candidate = candidate.value("source", 0u) == 2u;
+        // CandidateSource values are part of the shared Engine view: cloud=2,
+        // AI=3, English=4, QuickPhrase=5, Emoji=6, Kaomoji=7, Generated=8.
+        // These sources are already complete results in the Windows server and
+        // must not leave a residual pinyin buffer for word creation.
+        const auto source = candidate.value("source", 0u);
+        completes_composition = source == 2u || source == 4u || source == 5u ||
+                                source == 6u || source == 7u || source == 8u;
         break;
       }
     }
   }
   auto result = response(msime_client_select(session_, generation, index));
-  if (cloud_candidate && !result.at("commit").is_null()) {
+  if (completes_composition && !result.at("commit").is_null()) {
     const auto cleared = response(msime_client_command(session_, MSIME_CANCEL));
     result["view"] = cleared.at("view");
   }
