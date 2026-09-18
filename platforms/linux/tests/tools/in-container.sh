@@ -1,21 +1,21 @@
 #!/usr/bin/env bash
 set -euo pipefail
 [[ ${MSIME_ISOLATED_LINUX_TEST:-} == 1 && -d /resources && -d /build ]] || exit 2
-python3 platforms/linux/tests/panel_keymap.py
-python3 platforms/linux/tests/provider_config_discovery.py
-python3 platforms/linux/tests/provider_candidate_validation.py
-python3 platforms/linux/tests/cloud_timeout_parity.py
-python3 platforms/linux/tests/ai_candidate_cache.py
-python3 platforms/linux/tests/translation_cache_parity.py
-python3 platforms/linux/tests/provider_voice_text_validation.py
-python3 platforms/linux/tests/doubao_auth.py
-python3 platforms/linux/tests/niutrans_credential_normalization.py
-python3 platforms/linux/tests/tencent_credential_normalization.py
-python3 platforms/linux/tests/custom_translation_config.py
-python3 platforms/linux/tests/doubao_auth_mode.py
-python3 platforms/linux/tests/credential_test_contract.py
-python3 platforms/linux/tests/clipboard_capture_destination.py
-python3 platforms/linux/tests/clipboard_watch_lifecycle.py
+python3 platforms/linux/tests/candidate/panel_keymap.py
+python3 platforms/linux/tests/provider/provider_config_discovery.py
+python3 platforms/linux/tests/candidate/provider_candidate_validation.py
+python3 platforms/linux/tests/provider/cloud_timeout_parity.py
+python3 platforms/linux/tests/candidate/ai_candidate_cache.py
+python3 platforms/linux/tests/dictionary/translation_cache_parity.py
+python3 platforms/linux/tests/voice/provider_voice_text_validation.py
+python3 platforms/linux/tests/voice/doubao_auth.py
+python3 platforms/linux/tests/dictionary/niutrans_credential_normalization.py
+python3 platforms/linux/tests/dictionary/tencent_credential_normalization.py
+python3 platforms/linux/tests/dictionary/custom_translation_config.py
+python3 platforms/linux/tests/voice/doubao_auth_mode.py
+python3 platforms/linux/tests/provider/credential_test_contract.py
+python3 platforms/linux/tests/clipboard/clipboard_capture_destination.py
+python3 platforms/linux/tests/clipboard/clipboard_watch_lifecycle.py
 cargo build -p msime-host-api --locked
 python3 - <<'PY'
 import ctypes
@@ -36,7 +36,7 @@ print("Host API header exports verified")
 PY
 cargo test -p msime-client-core -p msime-input-runtime -p msime-host-api --locked
 if [[ ${MSIME_TEST_FCITX5:-0} == 1 ]]; then
-  bash platforms/linux/tests/fcitx5-container.sh
+  bash platforms/linux/tests/tools/fcitx5-container.sh
   exit 0
 fi
 cmake -S platforms/linux -B /build/ibus -G Ninja -DMSIME_HOST_LIBRARY=/build/cargo/debug/libmsime_host_api.so -DMSIME_LINUX_VOICE=ON
@@ -45,8 +45,8 @@ ctest --test-dir /build/ibus --output-on-failure --no-tests=error
 rm -rf /build/stage
 DESTDIR=/build/stage cmake --install /build/ibus
 if [[ -x /build/stage/usr/local/bin/msime-client-clipboard-watch-x11 ]]; then
-  xvfb-run -a python3 platforms/linux/tests/clipboard_x11_events.py /build/stage/usr/local/bin/msime-client-clipboard-watch-x11
-  xvfb-run -a python3 platforms/linux/tests/clipboard_x11_read.py /build/stage/usr/local/bin/msime-client-clipboard-watch-x11 /build/ibus/msime-test-x11-string-owner
+  xvfb-run -a python3 platforms/linux/tests/clipboard/clipboard_x11_events.py /build/stage/usr/local/bin/msime-client-clipboard-watch-x11
+  xvfb-run -a python3 platforms/linux/tests/clipboard/clipboard_x11_read.py /build/stage/usr/local/bin/msime-client-clipboard-watch-x11 /build/ibus/msime-test-x11-string-owner
 fi
 test -x /build/stage/usr/local/bin/msime-client-ibus
 test -x /build/stage/usr/local/bin/msime-client-dictionary
@@ -56,7 +56,7 @@ test -x /build/stage/usr/local/bin/msime-client-voice
 test -f /build/stage/usr/local/share/ibus/component/msime-client-preview.xml
 grep -q '/usr/local/etc/msime-client/runtime-options.json' \
   /build/stage/usr/local/share/ibus/component/msime-client-preview.xml
-python3 platforms/linux/tests/dictionary_smoke.py /build/ibus/msime-client-dictionary /build/cargo/debug/libmsime_host_api.so /resources
+python3 platforms/linux/tests/dictionary/dictionary_smoke.py /build/ibus/msime-client-dictionary /build/cargo/debug/libmsime_host_api.so /resources
 clipboard_fixture=$(mktemp -d /tmp/msime-clipboard.XXXXXX)
 trap 'rm -rf "$clipboard_fixture"' EXIT
 /build/stage/usr/local/bin/msime-client-clipboard "$clipboard_fixture/history.json" add $'first\nentry'
@@ -110,20 +110,20 @@ value.pop("preferences_directory", None)
 with os.fdopen(os.open(sys.argv[2], os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600), "w") as output:
     json.dump(value, output)
 PYTHON
-dbus-run-session -- bash platforms/linux/tests/daemon_smoke.sh "$installed_host" "$global_mode_options"
+dbus-run-session -- bash platforms/linux/tests/runtime/daemon_smoke.sh "$installed_host" "$global_mode_options"
 
-GTK_IM_MODULE=ibus XMODIFIERS=@im=ibus NO_AT_BRIDGE=1 xvfb-run -a dbus-run-session -- bash platforms/linux/tests/daemon_smoke.sh "$installed_host" "$options" platforms/linux/tests/gtk_smoke.py
+GTK_IM_MODULE=ibus XMODIFIERS=@im=ibus NO_AT_BRIDGE=1 xvfb-run -a dbus-run-session -- bash platforms/linux/tests/runtime/daemon_smoke.sh "$installed_host" "$options" platforms/linux/tests/runtime/gtk_smoke.py
 
-QT_IM_MODULE=ibus XMODIFIERS=@im=ibus xvfb-run -a dbus-run-session -- bash platforms/linux/tests/daemon_smoke.sh "$installed_host" "$options" platforms/linux/tests/qt_smoke.py
+QT_IM_MODULE=ibus XMODIFIERS=@im=ibus xvfb-run -a dbus-run-session -- bash platforms/linux/tests/runtime/daemon_smoke.sh "$installed_host" "$options" platforms/linux/tests/runtime/qt_smoke.py
 
-QT_IM_MODULE=ibus XMODIFIERS=@im=ibus xvfb-run -a dbus-run-session -- bash platforms/linux/tests/daemon_smoke.sh "$installed_host" "$options" platforms/linux/tests/qt_smoke.py --qt6
+QT_IM_MODULE=ibus XMODIFIERS=@im=ibus xvfb-run -a dbus-run-session -- bash platforms/linux/tests/runtime/daemon_smoke.sh "$installed_host" "$options" platforms/linux/tests/runtime/qt_smoke.py --qt6
 
-XCOMPOSEFILE="$PWD/platforms/linux/tests/compose.fixture" GTK_IM_MODULE=ibus XMODIFIERS=@im=ibus NO_AT_BRIDGE=1 xvfb-run -a dbus-run-session -- bash platforms/linux/tests/daemon_smoke.sh "$installed_host" "$options" platforms/linux/tests/gtk_smoke.py --custom-compose
+XCOMPOSEFILE="$PWD/platforms/linux/tests/input/compose.fixture" GTK_IM_MODULE=ibus XMODIFIERS=@im=ibus NO_AT_BRIDGE=1 xvfb-run -a dbus-run-session -- bash platforms/linux/tests/runtime/daemon_smoke.sh "$installed_host" "$options" platforms/linux/tests/runtime/gtk_smoke.py --custom-compose
 
-runuser -u nobody -- dbus-run-session -- bash platforms/linux/tests/wayland_smoke.sh "$installed_host" /resources /build/cargo/debug/examples/prepare_host
+runuser -u nobody -- dbus-run-session -- bash platforms/linux/tests/runtime/wayland_smoke.sh "$installed_host" /resources /build/cargo/debug/examples/prepare_host
 
-runuser -u nobody -- dbus-run-session -- bash platforms/linux/tests/wayland_smoke.sh "$installed_host" /resources /build/cargo/debug/examples/prepare_host platforms/linux/tests/qt_smoke.py --wayland
-runuser -u nobody -- dbus-run-session -- bash platforms/linux/tests/wayland_smoke.sh "$installed_host" /resources /build/cargo/debug/examples/prepare_host platforms/linux/tests/qt_smoke.py --wayland --qt6
+runuser -u nobody -- dbus-run-session -- bash platforms/linux/tests/runtime/wayland_smoke.sh "$installed_host" /resources /build/cargo/debug/examples/prepare_host platforms/linux/tests/runtime/qt_smoke.py --wayland
+runuser -u nobody -- dbus-run-session -- bash platforms/linux/tests/runtime/wayland_smoke.sh "$installed_host" /resources /build/cargo/debug/examples/prepare_host platforms/linux/tests/runtime/qt_smoke.py --wayland --qt6
 
 
-runuser -u nobody -- dbus-run-session -- bash platforms/linux/tests/wayland_smoke.sh "$installed_host" /resources /build/cargo/debug/examples/prepare_host platforms/linux/tests/portal_smoke.py
+runuser -u nobody -- dbus-run-session -- bash platforms/linux/tests/runtime/wayland_smoke.sh "$installed_host" /resources /build/cargo/debug/examples/prepare_host platforms/linux/tests/runtime/portal_smoke.py
