@@ -1,0 +1,28 @@
+name: Feature request
+description: Propose a scoped change to the shared client or a platform host.
+title: "[Feature]: "
+labels: [enhancement]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the user-facing behavior and the platform boundary. Do not attach private input, credentials, or proprietary upstream files.
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem and use case
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+    validations:
+      required: true
+  - type: textarea
+    id: platforms
+    attributes:
+      label: Affected platforms and verification plan
+      description: Explain which shared layer or platform host changes and how the result can be verified.
+    validations:
+      required: true

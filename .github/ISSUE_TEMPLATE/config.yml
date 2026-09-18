@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/metasequoiaime/msime/security/advisories/new
+    about: Please report credential, input-data, process-boundary, or other security issues privately.
