@@ -1787,6 +1787,12 @@ private:
     // render() replaces this list. Do not access members after dispatch.
     auto *state = &state_;
     if (state->translationCandidatesActive()) {
+      // A stale Fcitx candidate list must not page a newer translation overlay.
+      // Rendering replaces this list, but Fcitx may still dispatch an already
+      // queued pageable callback after the replacement.
+      if (state->session_ != session_ ||
+          state->view_.value("generation", uint64_t{}) != generation_)
+        return;
       state->translationPage(command);
       return;
     }
