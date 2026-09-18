@@ -23,6 +23,10 @@ After Inno Setup creates the outer installer, run
 `Sign-Installer-SimplySign.ps1` to apply and verify the same release signature
 and timestamp to the installer itself.
 
+For the complete release sequence, use `Package-SimplySign.ps1`. It builds both
+architectures, stages the package, signs payloads, compiles Inno Setup, and signs
+the outer installer; it never installs or modifies CI state.
+
 Build the Tauri desktop release before staging. `Prepare-PackageFiles.ps1`
 requires `target/release/msime-desktop.exe` by default; use `-DesktopExecutable`
 for an absolute path or a path relative to `-RepoRoot` (for example a Cargo
