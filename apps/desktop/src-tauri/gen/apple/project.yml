@@ -45,8 +45,8 @@ targets:
       # Tauri cloud-dictionary snapshots use the same validated wire format
       # and App Group queue as the native iOS keyboard worker.
       - path: ../../../../../platforms/ios/SharedUI/DictionarySnapshotQueue.swift
-      - path: ../../../../../shared/backend/BackendAccountClient.swift
-      - path: ../../../../../shared/backend/BackendSnapshotClient.swift
+      - path: ../../../../../shared/backend/account/BackendAccountClient.swift
+      - path: ../../../../../shared/backend/clients/BackendSnapshotClient.swift
       - path: ../../../../../platforms/ios/App/Sources/TauriDictionarySnapshotBridge.swift
       - path: Assets.xcassets
       - path: Externals
@@ -154,12 +154,12 @@ targets:
         excludes:
           - KeyboardServiceFallback.swift
       - path: ../../../../../platforms/ios/SharedUI
-      - path: ../../../../../shared/backend/BackendAccountClient.swift
-      - path: ../../../../../shared/backend/BackendChatClient.swift
-      - path: ../../../../../shared/backend/BackendAccountSession.swift
-      - path: ../../../../../shared/backend/BackendAnonymousAccount.swift
-      - path: ../../../../../shared/backend/BackendLocalStore.swift
-      - path: ../../../../../shared/backend/BackendSnapshotClient.swift
+      - path: ../../../../../shared/backend/account/BackendAccountClient.swift
+      - path: ../../../../../shared/backend/clients/BackendChatClient.swift
+      - path: ../../../../../shared/backend/account/BackendAccountSession.swift
+      - path: ../../../../../shared/backend/account/BackendAnonymousAccount.swift
+      - path: ../../../../../shared/backend/storage/BackendLocalStore.swift
+      - path: ../../../../../shared/backend/clients/BackendSnapshotClient.swift
       - path: ../../../../../platforms/ios/App/Services/KeyboardAIService.swift
       - path: ../../../../../platforms/ios/KeyboardExtension/Sources/KeyboardServiceFallback.swift
       - path: ../../../../../target/ios/EngineResources

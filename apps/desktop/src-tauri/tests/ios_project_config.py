@@ -345,7 +345,7 @@ class IOSProjectConfigTests(unittest.TestCase):
             self.assertIn(operation, account)
         for path in [
             "../../../../../platforms/ios/SharedUI/DictionarySnapshotQueue.swift",
-            "../../../../../shared/backend/BackendSnapshotClient.swift",
+            "../../../../../shared/backend/clients/BackendSnapshotClient.swift",
             "../../../../../platforms/ios/App/Sources/TauriDictionarySnapshotBridge.swift",
         ]:
             self.assertIn(path, project)
