@@ -221,7 +221,10 @@ impl HostCapabilities {
             // attributes, but not native hover state or card borders.
             candidate_row_colors: matches!(
                 platform,
-                HostPlatform::Windows | HostPlatform::Macos | HostPlatform::Linux
+                HostPlatform::Windows
+                    | HostPlatform::Macos
+                    | HostPlatform::Linux
+                    | HostPlatform::Harmony
             ),
             candidate_selection_appearance: matches!(
                 platform,
@@ -742,7 +745,7 @@ mod tests {
         assert!(!harmony.number_row_selection);
         assert!(!harmony.voice_capture_devices);
         assert!(harmony.candidate_font_controls);
-        assert!(!harmony.candidate_row_colors);
+        assert!(harmony.candidate_row_colors);
         assert!(!harmony.candidate_selection_appearance);
         assert!(harmony.candidate_follow_cursor);
         // Typing statistics are unconditional across every host.

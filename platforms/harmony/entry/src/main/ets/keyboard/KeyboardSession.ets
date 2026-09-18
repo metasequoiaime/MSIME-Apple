@@ -312,6 +312,10 @@ interface PreparedPreferences {
   candidate_preedit_font_size: number;
   candidate_font_family: string;
   candidate_fallback_fonts: string[];
+  candidate_text_color: string | null;
+  candidate_accent_color: string | null;
+  candidate_selected_color: string | null;
+  candidate_surface_color: string | null;
   // 'follow', 'dark' or 'light' for the keyboard specifically; theme is the global one it falls
   // back to, and only if both defer does the system decide.
   screen_keyboard_theme: string;
@@ -366,6 +370,10 @@ export interface KeyboardPreferences {
   readonly candidatePreeditFontSize: number;
   readonly candidateFontFamily: string;
   readonly candidateFallbackFonts: string[];
+  readonly candidateTextColor: string | null;
+  readonly candidateAccentColor: string | null;
+  readonly candidateSelectedColor: string | null;
+  readonly candidateSurfaceColor: string | null;
   readonly keySpacingTenths: number;
   readonly rowSpacingTenths: number;
   readonly heightAdjustment: number;
@@ -449,6 +457,10 @@ export class KeyboardSession {
     candidatePreeditFontSize: 15,
     candidateFontFamily: 'Noto Sans SC',
     candidateFallbackFonts: ['Noto Sans SC', 'Microsoft YaHei'],
+    candidateTextColor: null,
+    candidateAccentColor: null,
+    candidateSelectedColor: null,
+    candidateSurfaceColor: null,
     keySpacingTenths: KeyboardGeometry.DEFAULT_KEY_SPACING_TENTHS,
     rowSpacingTenths: KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS,
     heightAdjustment: KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_VP,
@@ -551,6 +563,10 @@ export class KeyboardSession {
           ? preferences.candidate_font_family : 'Noto Sans SC',
         candidateFallbackFonts: preferences.candidate_fallback_fonts.filter(
           (font: string): boolean => font.trim().length > 0),
+        candidateTextColor: preferences.candidate_text_color,
+        candidateAccentColor: preferences.candidate_accent_color,
+        candidateSelectedColor: preferences.candidate_selected_color,
+        candidateSurfaceColor: preferences.candidate_surface_color,
         // Clamped rather than trusted: the store validates, but an older document or a host that
         // never learned the bounds would otherwise draw a keyboard nobody can hit.
         keySpacingTenths: KeyboardGeometry.keySpacing(preferences.touch_key_spacing_tenths),

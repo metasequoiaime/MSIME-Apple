@@ -734,6 +734,14 @@ struct KeyboardView {
     return families.join(', ');
   }
 
+  private candidateTextColor(): string {
+    return this.settings.candidateTextColor ?? this.skin.keyForeground;
+  }
+
+  private candidateAccentColor(): string {
+    return this.settings.candidateAccentColor ?? this.skin.accent;
+  }
+
   /**
    * The composition gets a line of its own. Sharing the candidate row costs it width on the one row
    * where width is worth most, which is the reasoning the iOS implementation records.
@@ -764,7 +772,7 @@ struct KeyboardView {
         } else {
           Text(this.diagnostic.length > 0 ? this.diagnostic : this.editing)
             .fontSize(this.settings.candidatePreeditFontSize)
-            .fontColor(this.skin.accent)
+            .fontColor(this.candidateAccentColor())
             .fontFamily(this.candidateFontFamily())
             .maxLines(1)
             .textOverflow({ overflow: TextOverflow.Ellipsis })
@@ -787,7 +795,8 @@ struct KeyboardView {
       }
     }
     .width('100%')
-    .backgroundColor(this.skin.translucentKeyBackground(STRIP_BACKGROUND_ALPHA))
+    .backgroundColor(this.settings.candidateSurfaceColor
+      ?? this.skin.translucentKeyBackground(STRIP_BACKGROUND_ALPHA))
     .borderRadius(KeyboardMetrics.STRIP_CORNER_VP)
     .onAreaChange((_old: Area, now: Area): void => {
       this.availableWidth = Number(now.width);
@@ -803,14 +812,14 @@ struct KeyboardView {
             Row() {
               Text(candidate.text)
                 .fontSize(this.settings.candidateFontSize)
-                .fontColor(index === 0 ? this.skin.accent : this.skin.keyForeground)
+                .fontColor(index === 0 ? this.candidateAccentColor() : this.candidateTextColor())
                 .fontFamily(this.candidateFontFamily())
               // The untyped tail of a Wubi code, and any suffix the Engine derived. Both are
               // printed beside the candidate and neither is part of what gets committed.
               if (candidate.hint.length > 0) {
                 Text(candidate.hint)
                   .fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
-                  .fontColor(this.skin.keyForeground)
+                  .fontColor(this.candidateTextColor())
                   .fontFamily(this.candidateFontFamily())
                   .opacity(0.5)
                   .padding({ left: 2 })
@@ -818,7 +827,7 @@ struct KeyboardView {
               if (candidate.annotation.length > 0) {
                 Text(candidate.annotation)
                   .fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
-                  .fontColor(this.skin.accent)
+                  .fontColor(this.candidateAccentColor())
                   .fontFamily(this.candidateFontFamily())
                   .opacity(0.7)
                   .padding({ left: 4 })
@@ -828,6 +837,8 @@ struct KeyboardView {
             .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
               right: KeyboardMetrics.CANDIDATE_PADDING_VP })
             .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP)
+            .backgroundColor(index === 0
+              ? (this.settings.candidateSelectedColor ?? '#00000000') : '#00000000')
             .onClick(() => KeyboardSession.shared.choose(index))
             .gesture(LongPressGesture().onAction(() => {
               this.punctuation = false;
@@ -2008,7 +2019,7 @@ struct KeyboardView {
               ForEach(row, (index: number) => {
                 Text(this.expanded[index])
                   .fontSize(this.settings.candidateFontSize)
-                  .fontColor(this.skin.keyForeground)
+                  .fontColor(this.candidateTextColor())
                   .fontFamily(this.candidateFontFamily())
                   .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
                     right: KeyboardMetrics.CANDIDATE_PADDING_VP })
