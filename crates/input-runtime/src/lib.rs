@@ -61,6 +61,17 @@ static NEXT_SESSION: AtomicU64 = AtomicU64::new(1);
 /// Windows cloud-candidate settle delay, matching the native Server behavior.
 pub const WINDOWS_CLOUD_DEBOUNCE: std::time::Duration = std::time::Duration::from_millis(500);
 
+fn needs_dangling_segment_delimiter_backspace(raw: &str, caret: usize) -> bool {
+    let bytes = raw.as_bytes();
+    if caret > bytes.len() {
+        return false;
+    }
+    if caret < bytes.len() && bytes[caret] == b'\'' {
+        return caret > 0 && bytes[caret - 1] == b'\'';
+    }
+    caret == bytes.len() && caret > 0 && bytes[caret - 1] == b'\''
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum RuntimeError {
     #[error("candidate page size must be between 1 and 9")]
@@ -115,6 +126,7 @@ pub trait InputEngine {
     fn command(&mut self, command: Command) -> Result<EngineResult, RuntimeError>;
     fn segment_command(&mut self, command: SegmentCommand) -> Result<EngineResult, RuntimeError> {
         let snapshot = self.snapshot()?;
+        let has_segment_boundaries = !snapshot.segment_raw_boundaries.is_empty();
         let fallback = match command {
             SegmentCommand::Backspace => Command::Backspace,
             SegmentCommand::MoveLeft => Command::MoveLeft,
@@ -142,6 +154,15 @@ pub trait InputEngine {
         };
         for _ in 0..steps {
             result = self.command(fallback)?;
+        }
+        if matches!(command, SegmentCommand::Backspace) && has_segment_boundaries {
+            let after = self.snapshot()?;
+            if needs_dangling_segment_delimiter_backspace(&after.editing_text, after.caret_position)
+            {
+                // The boundary is owned by Engine; remove only the separator
+                // left adjacent to the new caret through Engine's command path.
+                result = self.command(Command::Backspace)?;
+            }
         }
         Ok(result)
     }
@@ -2508,6 +2529,16 @@ mod tests {
     }
 
     #[cfg(unix)]
+    #[test]
+    fn dangling_segment_delimiter_cleanup_matches_windows_policy() {
+        assert!(needs_dangling_segment_delimiter_backspace("ni'", 3));
+        assert!(needs_dangling_segment_delimiter_backspace("ni''ma", 3));
+        assert!(!needs_dangling_segment_delimiter_backspace("ni", 2));
+        assert!(!needs_dangling_segment_delimiter_backspace("'ma", 0));
+        assert!(!needs_dangling_segment_delimiter_backspace("ni'", 2));
+        assert!(!needs_dangling_segment_delimiter_backspace("ni'", 9));
+    }
+
     #[test]
     fn voice_control_rejects_zero_generation_without_connecting() {
         let directory = private_tempdir();
