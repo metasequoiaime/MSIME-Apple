@@ -476,6 +476,26 @@ public:
     render();
     return true;
   }
+  bool toggleLocalMode(const char *key) {
+    if (!session_ || !key || !*key || restricted() || privateInput()) return false;
+    static constexpr std::array<const char *, 8> allowed = {
+        "unicode", "date_time", "quick_phrase", "emoji", "kaomoji",
+        "super_jianpin", "temporary_english", "temporary_japanese"};
+    if (std::find(allowed.begin(), allowed.end(), key) == allowed.end()) return false;
+    const bool enabled = !preferences_.value("local_modes", Json::object()).value(key, true);
+    auto snapshot = preferences_snapshot_;
+    if (!snapshot.is_object() || !snapshot.contains("revision") ||
+        !snapshot.contains("preferences")) return false;
+    snapshot["preferences"]["local_modes"][key] = enabled;
+    const auto encoded = snapshot.dump();
+    view_ = response(msime_client_update_preferences(
+        session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
+    preferences_ = snapshot.at("preferences");
+    preferences_snapshot_ = std::move(snapshot);
+    saveNestedBooleanPreference("local_modes", key, enabled);
+    render();
+    return true;
+  }
   bool toggleEnglishGloss() {
     if (!session_) return false;
     const bool enabled = !preferences_.value("candidate_english_gloss", false);
@@ -2348,6 +2368,35 @@ private:
   const char *label_;
 };
 
+class FcitxLocalModeAction : public fcitx::Action {
+public:
+  FcitxLocalModeAction(fcitx::FactoryFor<FcitxState> *factory, const char *key,
+                       const char *label)
+      : factory_(factory), key_(key), label_(label) { setCheckable(true); }
+  std::string shortText(fcitx::InputContext *) const override { return label_; }
+  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  bool isChecked(fcitx::InputContext *ic) const override {
+    if (!ic) return false;
+    const auto *state = ic->propertyFor(factory_);
+    return state->session_ && state->preferences_.value("local_modes", Json::object())
+        .value(key_, true);
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try {
+      auto *state = ic->propertyFor(factory_);
+      if (state->toggleLocalMode(key_)) update(ic);
+    } catch (...) {
+      ic->propertyFor(factory_)->close();
+      ic->propertyFor(factory_)->clearPanel();
+    }
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+  const char *key_;
+  const char *label_;
+};
+
 class FcitxEnglishGlossAction : public fcitx::Action {
 public:
   explicit FcitxEnglishGlossAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
@@ -3227,6 +3276,14 @@ public:
     mixed_english_action_.registerAction("msime-mixed-english", &instance->userInterfaceManager());
     mixed_emoji_action_.registerAction("msime-mixed-emoji", &instance->userInterfaceManager());
     mixed_kaomoji_action_.registerAction("msime-mixed-kaomoji", &instance->userInterfaceManager());
+    local_unicode_action_.registerAction("msime-local-unicode", &instance->userInterfaceManager());
+    local_date_time_action_.registerAction("msime-local-date-time", &instance->userInterfaceManager());
+    local_quick_phrase_action_.registerAction("msime-local-quick-phrase", &instance->userInterfaceManager());
+    local_emoji_action_.registerAction("msime-local-emoji", &instance->userInterfaceManager());
+    local_kaomoji_action_.registerAction("msime-local-kaomoji", &instance->userInterfaceManager());
+    local_super_jianpin_action_.registerAction("msime-local-super-jianpin", &instance->userInterfaceManager());
+    local_temporary_english_action_.registerAction("msime-local-temporary-english", &instance->userInterfaceManager());
+    local_temporary_japanese_action_.registerAction("msime-local-temporary-japanese", &instance->userInterfaceManager());
     english_gloss_action_.registerAction("msime-english-gloss", &instance->userInterfaceManager());
     word_character_action_.registerAction("msime-word-character", &instance->userInterfaceManager());
     number_row_action_.registerAction("msime-number-row", &instance->userInterfaceManager());
@@ -3356,6 +3413,14 @@ public:
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &mixed_english_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &mixed_emoji_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &mixed_kaomoji_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &local_unicode_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &local_date_time_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &local_quick_phrase_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &local_emoji_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &local_kaomoji_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &local_super_jianpin_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &local_temporary_english_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &local_temporary_japanese_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &english_gloss_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &word_character_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &number_row_action_);
@@ -3407,6 +3472,14 @@ public:
     event.inputContext()->statusArea().removeAction(&mixed_english_action_);
     event.inputContext()->statusArea().removeAction(&mixed_emoji_action_);
     event.inputContext()->statusArea().removeAction(&mixed_kaomoji_action_);
+    event.inputContext()->statusArea().removeAction(&local_unicode_action_);
+    event.inputContext()->statusArea().removeAction(&local_date_time_action_);
+    event.inputContext()->statusArea().removeAction(&local_quick_phrase_action_);
+    event.inputContext()->statusArea().removeAction(&local_emoji_action_);
+    event.inputContext()->statusArea().removeAction(&local_kaomoji_action_);
+    event.inputContext()->statusArea().removeAction(&local_super_jianpin_action_);
+    event.inputContext()->statusArea().removeAction(&local_temporary_english_action_);
+    event.inputContext()->statusArea().removeAction(&local_temporary_japanese_action_);
     event.inputContext()->statusArea().removeAction(&english_gloss_action_);
     event.inputContext()->statusArea().removeAction(&word_character_action_);
     event.inputContext()->statusArea().removeAction(&number_row_action_);
@@ -3487,6 +3560,14 @@ public:
   FcitxMixedEnglishAction mixed_english_action_{&factory_};
   FcitxMixedCandidateAction mixed_emoji_action_{&factory_, "emoji", "混合 Emoji"};
   FcitxMixedCandidateAction mixed_kaomoji_action_{&factory_, "kaomoji", "混合颜文字"};
+  FcitxLocalModeAction local_unicode_action_{&factory_, "unicode", "Unicode（U 模式）"};
+  FcitxLocalModeAction local_date_time_action_{&factory_, "date_time", "日期时间（T 模式）"};
+  FcitxLocalModeAction local_quick_phrase_action_{&factory_, "quick_phrase", "快捷短语（K 模式）"};
+  FcitxLocalModeAction local_emoji_action_{&factory_, "emoji", "Emoji（E 模式）"};
+  FcitxLocalModeAction local_kaomoji_action_{&factory_, "kaomoji", "颜文字（M 模式）"};
+  FcitxLocalModeAction local_super_jianpin_action_{&factory_, "super_jianpin", "超级简拼（J 模式）"};
+  FcitxLocalModeAction local_temporary_english_action_{&factory_, "temporary_english", "临时英文（Y 模式）"};
+  FcitxLocalModeAction local_temporary_japanese_action_{&factory_, "temporary_japanese", "临时日文（R 模式）"};
   FcitxEnglishGlossAction english_gloss_action_{&factory_};
   FcitxWordCharacterAction word_character_action_{&factory_};
   FcitxNumberRowAction number_row_action_{&factory_};
