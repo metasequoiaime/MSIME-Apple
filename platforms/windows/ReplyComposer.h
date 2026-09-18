@@ -73,6 +73,12 @@ public:
   std::optional<PendingReply> basic_key(ServerSession &session,
       const FanyImeNamedpipeData &packet, uint64_t epoch, TsfPreeditStyle style,
       std::optional<std::string> local_text = std::nullopt);
+  // Ctrl+Enter commits the highlighted candidate's already-resolved
+  // translation when one is present. The Engine selection still advances
+  // normally; only the host projection uses the gloss text.
+  std::optional<PendingReply> commit_candidate_translation(
+      ServerSession &session, const FanyImeNamedpipeData &packet,
+      uint64_t epoch);
   // Null: not an editing key; no Engine action. Non-null may have no frame
   // because TSF completed this edit locally; still confirm it through the pump.
   std::optional<PendingReply> edit(ServerSession &session,

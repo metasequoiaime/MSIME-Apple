@@ -237,6 +237,8 @@ std::optional<PendingReply> ReplyComposer::basic_key(
   if (action.kind == KeyKind::CancelAndForward)
     return std::nullopt; // Configuration-specific shortcuts are not generic
                          // cancel.
+  if (auto translation = commit_candidate_translation(session, packet, epoch))
+    return translation;
   if (action.kind == KeyKind::Command && action.value == MSIME_COMMIT_RAW) {
     const auto current = session.view();
     const bool candidate_active =
@@ -410,6 +412,60 @@ std::optional<PendingReply> ReplyComposer::select_candidate(ServerSession &sessi
   pending_ = std::move(next);
   return pending_;
 }
+
+std::optional<PendingReply> ReplyComposer::commit_candidate_translation(
+    ServerSession &session, const FanyImeNamedpipeData &packet,
+    uint64_t epoch) {
+  if (pending_ || packet.client_id != client_ || epoch != epoch_ ||
+      !session.input_enabled())
+    throw std::logic_error("Invalid candidate translation commit route");
+  if (packet.keycode != 0x0D ||
+      PipeMetadata::key_modifiers(packet.modifiers_down) != 2u ||
+      (packet.modifiers_down & PipeMetadata::CandidateActive) == 0)
+    return std::nullopt;
+  traditional_output_ = session.traditional_output();
+  const auto view = session.view();
+  if (!view.at("focused").get<bool>() || view.at("candidates").empty())
+    return std::nullopt;
+  const auto generation = view.at("generation").get<uint64_t>();
+  const auto expected_session = view.at("session").get<uint64_t>();
+  size_t index = 0;
+  std::string translation;
+  bool found = false;
+  for (const auto &candidate : view.at("candidates")) {
+    if (!candidate.value("highlighted", false)) {
+      continue;
+    }
+    index = candidate.at("id").at("index").get<size_t>();
+    translation = candidate.value("translation", std::string{});
+    found = true;
+    break;
+  }
+  if (!found || translation.empty())
+    return std::nullopt;
+  auto transition = session.select(epoch, generation, index);
+  const auto raw = transition.at("view").at("editing_text").get<std::string>();
+  const auto output = simplified_to_traditional(translation, traditional_output_);
+  PendingReply next;
+  next.source = {client_, epoch_, packet.request_id, true, transition};
+  next.next_prefix = prefix_;
+  next.traditional_output = traditional_output_;
+  if (raw.empty()) {
+    next.ui_selection = ui_complete_selection(prefix_ + output);
+    next.next_prefix.clear();
+  } else {
+    next.next_prefix = prefix_ + output;
+    next.ui_selection = ui_partial_selection(
+        raw, next.next_prefix,
+        next.next_prefix + transition.at("view").at("preedit").get<std::string>());
+  }
+  if (!next.ui_selection)
+    throw std::runtime_error("Unencodable candidate translation selection");
+  session_ = expected_session;
+  pending_ = std::move(next);
+  return pending_;
+}
+
 void ReplyComposer::confirm_ui_delivery(uint64_t client, uint64_t epoch,
                                         uint64_t generation) {
   const auto &current = pending();
