@@ -843,6 +843,24 @@ public:
     render();
     return true;
   }
+  bool cycleCandidateSkin() {
+    if (!session_ || restricted() || privateInput()) return false;
+    static constexpr std::array<const char *, 4> skins = {
+        "fluent", "wechat", "graphite", "willow_green"};
+    const auto current = preferences_.value("candidate_skin", std::string("willow_green"));
+    const auto it = std::find(skins.begin(), skins.end(), current);
+    const auto next = it == skins.end() || std::next(it) == skins.end()
+        ? skins.front() : *std::next(it);
+    if (!view_.value("editing_text", std::string{}).empty())
+      command(MSIME_FINISH_COMPOSITION);
+    saveStringPreference("candidate_skin", next);
+    skin_override_ = next;
+    close();
+    if (!ensure()) return false;
+    view_ = response(msime_client_focus(session_, true)).at("view");
+    render();
+    return true;
+  }
   bool cycleModeScope() {
     if (!session_) return false;
     const auto current = preferences_.value("ime_mode_scope", std::string("app"));
@@ -926,6 +944,7 @@ public:
           ? "shuangpin_helpcode" : "quanpin_helpcode";
       preferences_[section]["schema"] = *helpcode_schema_override_;
     }
+    if (skin_override_) preferences_["candidate_skin"] = *skin_override_;
     traditional_ = preferences_.value("traditional_chinese_output", false);
     chinese_punctuation_ = preferences_.value("chinese_punctuation", true);
     paired_punctuation_ = preferences_.value("paired_punctuation", true);
@@ -1777,6 +1796,7 @@ public:
   std::optional<std::string> scheme_override_;
   std::optional<std::string> shuangpin_profile_override_;
   std::optional<std::string> helpcode_schema_override_;
+  std::optional<std::string> skin_override_;
   Json preferences_snapshot_;
   uint64_t preferences_job_session_ = 0;
   std::shared_future<Json> preferences_job_;
@@ -2595,6 +2615,30 @@ private:
   fcitx::FactoryFor<FcitxState> *factory_;
 };
 
+class FcitxCandidateSkinAction : public fcitx::SimpleAction {
+public:
+  explicit FcitxCandidateSkinAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {}
+  std::string shortText(fcitx::InputContext *ic) const override {
+    if (!ic) return "候选皮肤";
+    const auto skin = ic->propertyFor(factory_)->preferences_.value("candidate_skin", std::string("willow_green"));
+    return skin == "fluent" ? "候选皮肤：Fluent" : skin == "wechat" ? "候选皮肤：微信绿" :
+        skin == "graphite" ? "候选皮肤：石墨" : "候选皮肤：杨柳青";
+  }
+  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try {
+      auto *state = ic->propertyFor(factory_);
+      if (state->cycleCandidateSkin()) update(ic);
+    } catch (...) {
+      ic->propertyFor(factory_)->close();
+      ic->propertyFor(factory_)->clearPanel();
+    }
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
 class FcitxCandidatePageSizeItemAction : public fcitx::SimpleAction {
 public:
   FcitxCandidatePageSizeItemAction(fcitx::FactoryFor<FcitxState> *factory, uint8_t size)
@@ -3308,6 +3352,7 @@ public:
     smart_punctuation_repeat_action_.registerAction("msime-smart-punctuation-repeat", &instance->userInterfaceManager());
     candidate_layout_action_.registerAction("msime-candidate-layout", &instance->userInterfaceManager());
     candidate_theme_action_.registerAction("msime-candidate-theme", &instance->userInterfaceManager());
+    candidate_skin_action_.registerAction("msime-candidate-skin", &instance->userInterfaceManager());
     candidate_page_size_action_.registerAction("msime-candidate-page-size", &instance->userInterfaceManager());
     candidate_page_size_action_.setMenu(&candidate_page_size_menu_);
     candidate_page_size_menu_.addAction(&candidate_page_size1_);
@@ -3445,6 +3490,7 @@ public:
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &smart_punctuation_repeat_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &candidate_layout_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &candidate_theme_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &candidate_skin_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &candidate_page_size_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &learning_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &frequency_action_);
@@ -3504,6 +3550,7 @@ public:
     event.inputContext()->statusArea().removeAction(&smart_punctuation_repeat_action_);
     event.inputContext()->statusArea().removeAction(&candidate_layout_action_);
     event.inputContext()->statusArea().removeAction(&candidate_theme_action_);
+    event.inputContext()->statusArea().removeAction(&candidate_skin_action_);
     event.inputContext()->statusArea().removeAction(&candidate_page_size_action_);
     event.inputContext()->statusArea().removeAction(&learning_action_);
     event.inputContext()->statusArea().removeAction(&frequency_action_);
@@ -3593,6 +3640,7 @@ public:
   FcitxSmartPunctuationAction smart_punctuation_repeat_action_{&factory_, FcitxSmartPunctuationAction::Mode::Repeat};
   FcitxCandidateLayoutAction candidate_layout_action_{&factory_};
   FcitxCandidateThemeAction candidate_theme_action_{&factory_};
+  FcitxCandidateSkinAction candidate_skin_action_{&factory_};
   fcitx::Menu candidate_page_size_menu_;
   FcitxCandidatePageSizeAction candidate_page_size_action_;
   FcitxCandidatePageSizeItemAction candidate_page_size1_{&factory_, 1};
