@@ -404,6 +404,7 @@ const char* local_mode_name(metasequoia::LocalInputMode mode) {
 }
 }
 EngineSession::EngineSession(const EngineOptions& options) : session_(options_for(options)),
+    paths_(paths_for(options)),
     microsoft_shuangpin_(options.scheme == 1 && options.shuangpin_profile == 3),
     shuangpin_profile_(options_for(options).shuangpin_profile.name),
     helpcode_keymap_(options.helpcode
@@ -998,6 +999,34 @@ EngineResult EngineSession::command(std::uint8_t value) {
         case 10: return result_for(session_.command(Command::CommitReading));
         default: throw std::invalid_argument("Unsupported input command");
     }
+}
+EngineResult EngineSession::commit_raw_with_policy() {
+    const auto before = session_.snapshot();
+    const bool chinese_scheme = before.scheme == SchemeType::Quanpin ||
+                                before.scheme == SchemeType::Shuangpin;
+    const bool local_special_mode = before.local_mode != metasequoia::LocalInputMode::None;
+    bool complete_pure_pinyin = false;
+    if (chinese_scheme) {
+        const auto &segmentation = before.normalized_segmentation.empty()
+                                       ? before.raw_segmentation
+                                       : before.normalized_segmentation;
+        complete_pure_pinyin = !segmentation.empty() &&
+                               quanpin::is_complete_pinyin_input(segmentation);
+    }
+    const bool should_learn = before.dedicated_english || local_special_mode ||
+                              (chinese_scheme && !complete_pure_pinyin);
+    auto result = session_.command(metasequoia::Command::CommitRaw);
+    if (should_learn && result.commit && !result.commit->empty()) {
+        std::string word = *result.commit;
+        if (before.local_mode == metasequoia::LocalInputMode::TemporaryJapanese)
+            word.insert(0, "R");
+        if (!user_dictionary::learn_entered_english_word(
+                paths_.dictionary(metasequoia::assets::english_dictionary).u8string(),
+                paths_.user(metasequoia::assets::user_journal).u8string(), word)) {
+            result.diagnostic = "English word could not be learned.";
+        }
+    }
+    return result_for(result);
 }
 EngineResult EngineSession::select(std::size_t index) { return result_for(session_.select(index)); }
 EngineResult EngineSession::pin_candidate(std::size_t index) { return result_for(session_.pin(index)); }

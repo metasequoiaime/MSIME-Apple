@@ -38,6 +38,7 @@ public:
     void set_nine_key_enabled(bool enabled);
     EngineResult choose_nine_key_spelling(std::size_t index);
     EngineResult command(std::uint8_t value);
+    EngineResult commit_raw_with_policy();
     EngineResult select(std::size_t index);
     EngineResult pin_candidate(std::size_t index);
     EngineResult remove_candidate(std::size_t index);
@@ -53,6 +54,7 @@ public:
     void set_dedicated_english(bool enabled);
 private:
     metasequoia::Session session_;
+    metasequoia::RuntimePaths paths_;
     bool nine_key_ = false;
     bool microsoft_shuangpin_;
     std::string shuangpin_profile_;
