@@ -3945,16 +3945,26 @@ async fn paste_clipboard_text(
                 code: "invalid_text",
             });
         }
-        let target = state
-            .0
-            .lock()
-            .map_err(|_| HostActionError {
+        let target = {
+            let mut remembered = state.0.lock().map_err(|_| HostActionError {
                 code: "unavailable",
-            })?
-            .ok_or(HostActionError {
-                code: "unavailable",
-            })?
-            .0;
+            })?;
+            // Clipboard/Emoji submission can be asynchronous. If the user
+            // moved to another editor while the panel was open, use the
+            // current external foreground window just like voice submission;
+            // when the panel is foreground, retain the captured destination.
+            if msime_host_windows::foreground_is_external() {
+                if let Some(current) = msime_host_windows::foreground_window() {
+                    *remembered = Some(PanelInputTarget(current));
+                }
+            }
+            remembered
+                .as_ref()
+                .map(|target| target.0)
+                .ok_or(HostActionError {
+                    code: "unavailable",
+                })?
+        };
         return tauri::async_runtime::spawn_blocking(move || {
             msime_host_windows::paste_text(target, &text)
                 .then_some(())
