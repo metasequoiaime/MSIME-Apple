@@ -134,6 +134,9 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     try require(model.user?.id == "synthetic-user" && model.anonymous)
     model.name = "匿名昵称"; model.rename(); try await finished(model)
     try require(model.user?.display_name == "新昵称" && anonymousStorage.load()?.tokens.user.display_name == "新昵称")
+    model.name = "有效\n中文"; model.rename(); try await finished(model)
+    let storedName = try anonymousStorage.load()?.tokens.user.display_name
+    try require(model.message != nil && storedName == "新昵称")
     let realSession = BackendAccountSession(api: client, storage: realStorage)
     try await realSession.signIn(challenge: "synthetic", credential: "123456")
     let priorityModel = MacAccountModel(client: client, account: realSession, anonymousAccount: anonymousSession)
