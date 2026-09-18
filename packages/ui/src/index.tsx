@@ -1721,9 +1721,9 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
       onReplayOnboarding={mobilePlatform ? onReplayOnboarding : undefined}
     />}
     {client.chat && page === "chat" && <ChatPage client={client.chat} onLogin={() => selectPage("account")} />}
-    {client.communitySkins && client.communityResources && page === "community" && <CommunityHomePage key={communityDestination} skins={client.communitySkins} resources={client.communityResources} theme={keyboardPreviewTheme} initialMine={communityDestination === "published-skins"} initialCategory={initialCommunityCategory} initialScope={initialCommunityScope} localDictionary={client.dictionary} />}
+    {client.communitySkins && client.communityResources && page === "community" && <CommunityHomePage key={communityDestination} skins={client.communitySkins} resources={client.communityResources} theme={keyboardPreviewTheme} initialMine={communityDestination === "published-skins"} initialCategory={initialCommunityCategory} initialScope={initialCommunityScope} localDictionary={client.dictionary} mobile={mobilePlatform} />}
     {client.communitySkins && !client.communityResources && page === "community" && <CommunitySkinsPage key={communityDestination} client={client.communitySkins} theme={keyboardPreviewTheme} localSkinLibrary={client.customSkinLibrary} initialMine={communityDestination === "published-skins"} />}
-    {!client.communitySkins && client.communityResources && page === "community" && <CommunityResourcesPage client={client.communityResources} kind={initialCommunityCategory === "reply" ? "reply" : "dictionary"} initialScope={initialCommunityScope} />}
+    {!client.communitySkins && client.communityResources && page === "community" && <CommunityResourcesPage client={client.communityResources} kind={initialCommunityCategory === "reply" ? "reply" : "dictionary"} initialScope={initialCommunityScope} mobile={mobilePlatform} />}
     {client.typingStatistics && page === "typing-statistics" && <TypingStatisticsPage client={client.typingStatistics} mobile={mobilePlatform} />}
     {draft && page !== "typing-statistics" && page !== "account" && page !== "chat" && page !== "community" && <form onSubmit={event => { event.preventDefault(); void save(); }}>
       <fieldset disabled={busy} hidden={page !== "appearance"} aria-label="外观">

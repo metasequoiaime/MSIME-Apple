@@ -180,7 +180,7 @@ function ResourceDetail({ client, initial, close, localDictionary }: { client: C
   </section>{editing && <ResourceEditor client={client} kind={item.kind} existing={item} close={() => setEditing(false)} onPublished={async () => { setEditing(false); setItem(await client.detail(item.id)); }} />}</div>;
 }
 
-export function CommunityResourcesPage({ client, kind, initialScope = "", localDictionary }: { client: CommunityResourceClient; kind: CommunityResourceKind; initialScope?: CommunityResourceScope; localDictionary?: CommunityLocalDictionaryClient }) {
+export function CommunityResourcesPage({ client, kind, initialScope = "", localDictionary, mobile = false }: { client: CommunityResourceClient; kind: CommunityResourceKind; initialScope?: CommunityResourceScope; localDictionary?: CommunityLocalDictionaryClient; mobile?: boolean }) {
   const [scope, setScope] = useState<CommunityResourceScope>(initialScope);
   const [search, setSearch] = useState("");
   const [items, setItems] = useState<CommunityResource[]>([]);
@@ -192,13 +192,36 @@ export function CommunityResourcesPage({ client, kind, initialScope = "", localD
   const generation = useRef(0);
   const load = async (append = false) => { const current = ++generation.current; setBusy(true); setError(""); const offset = append ? items.length : 0; try { const page = await client.list(kind, scope, search, offset); if (current !== generation.current) return; setItems(value => append ? unique(value, page.items) : page.items); setMore(page.has_more); } catch (loadError) { if (current === generation.current) setError(resourceMessage(loadError)); } finally { if (current === generation.current) setBusy(false); } };
   useEffect(() => { void load(); return () => { generation.current += 1; }; }, [client, kind, scope]);
-  if (selected) return <ResourceDetail client={client} initial={selected} close={() => setSelected(null)} localDictionary={localDictionary} />;
+  const openDetail = (item: CommunityResource) => {
+    if (mobile && typeof window !== "undefined") {
+      const current = window.history.state;
+      window.history.pushState({ ...(current && typeof current === "object" ? current : {}), msimeSettings: true, page: "community", communityDetail: { kind, id: item.id } }, "");
+    }
+    setSelected(item);
+  };
+  const closeDetail = () => {
+    if (mobile && typeof window !== "undefined" && window.history.state?.communityDetail?.kind === kind) {
+      window.history.back();
+      return;
+    }
+    setSelected(null);
+  };
+  useEffect(() => {
+    if (!mobile || typeof window === "undefined") return;
+    const onPopState = (event: PopStateEvent) => {
+      const detail = event.state?.communityDetail;
+      if (selected && !(detail?.kind === kind && detail.id === selected.id)) setSelected(null);
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [mobile, kind, selected]);
+  if (selected) return <ResourceDetail client={client} initial={selected} close={closeDetail} localDictionary={localDictionary} />;
   return <div className="community-page"><form className="community-search" role="search" onSubmit={event => { event.preventDefault(); void load(); }}><input aria-label={`搜索${kindTitle(kind)}`} placeholder={`搜索${kindTitle(kind)}`} value={search} onChange={event => setSearch([...event.target.value].slice(0, 128).join(""))} /><button type="submit">搜索</button></form>
     <div className="community-heading"><div><h2>{scope === "mine" ? `我的${kindTitle(kind)}作品` : scope === "saved" ? `收藏的${kindTitle(kind)}` : kind === "dictionary" ? "好词，随手可得" : "找到舒服的表达"}</h2><p>{kind === "dictionary" ? "把常用词带进云词库，让输入更顺手" : "收藏喜欢的语气，给每次回应一点灵感"}</p></div><div className="community-heading-actions"><div className="community-scope-actions" role="group" aria-label={`${kindTitle(kind)}范围`}><button type="button" className={scope === "" ? "primary" : "secondary"} aria-pressed={scope === ""} onClick={() => setScope("")}>全部</button><button type="button" className={scope === "saved" ? "primary" : "secondary"} aria-pressed={scope === "saved"} onClick={() => setScope("saved")}>收藏</button><button type="button" className={scope === "mine" ? "primary" : "secondary"} aria-pressed={scope === "mine"} onClick={() => setScope("mine")}>我的作品</button></div><details className="community-scope-menu"><summary aria-label={`${kindTitle(kind)}筛选范围`}>{scopeTitle(scope)}</summary><div role="group" aria-label={`${kindTitle(kind)}筛选范围`}><button type="button" aria-label="筛选范围：全部" aria-pressed={scope === ""} onClick={event => { setScope(""); event.currentTarget.closest("details")?.removeAttribute("open"); }}>全部</button><button type="button" aria-label="筛选范围：收藏" aria-pressed={scope === "saved"} onClick={event => { setScope("saved"); event.currentTarget.closest("details")?.removeAttribute("open"); }}>收藏</button><button type="button" aria-label="筛选范围：我的作品" aria-pressed={scope === "mine"} onClick={event => { setScope("mine"); event.currentTarget.closest("details")?.removeAttribute("open"); }}>我的作品</button></div></details><button type="button" className="primary" onClick={() => setEditing(true)}>发布作品</button></div></div>
-    {error && <p role="alert" className="error">{error}</p>}{!busy && items.length === 0 && <p className="community-empty">这里还没有{kindTitle(kind)}作品。</p>}<div className="community-grid">{items.map(item => <ResourceCard key={item.id} item={item} open={() => setSelected(item)} />)}</div>{busy && <p role="status" className="community-loading">正在读取社区…</p>}{more && <button type="button" className="secondary community-more" disabled={busy} onClick={() => void load(true)}>加载更多</button>}{editing && <ResourceEditor client={client} kind={kind} close={() => setEditing(false)} onPublished={async () => { setEditing(false); await load(); }} />}</div>;
+    {error && <p role="alert" className="error">{error}</p>}{!busy && items.length === 0 && <p className="community-empty">这里还没有{kindTitle(kind)}作品。</p>}<div className="community-grid">{items.map(item => <ResourceCard key={item.id} item={item} open={() => openDetail(item)} />)}</div>{busy && <p role="status" className="community-loading">正在读取社区…</p>}{more && <button type="button" className="secondary community-more" disabled={busy} onClick={() => void load(true)}>加载更多</button>}{editing && <ResourceEditor client={client} kind={kind} close={() => setEditing(false)} onPublished={async () => { setEditing(false); await load(); }} />}</div>;
 }
 
-export function CommunityHomePage({ skins, resources, theme, initialMine = false, initialCategory = "skin", initialScope = "", localDictionary }: { skins: CommunitySkinClient; resources: CommunityResourceClient; theme: "light" | "dark"; initialMine?: boolean; initialCategory?: "skin" | CommunityResourceKind; initialScope?: CommunityResourceScope; localDictionary?: CommunityLocalDictionaryClient }) {
+export function CommunityHomePage({ skins, resources, theme, initialMine = false, initialCategory = "skin", initialScope = "", localDictionary, mobile = false }: { skins: CommunitySkinClient; resources: CommunityResourceClient; theme: "light" | "dark"; initialMine?: boolean; initialCategory?: "skin" | CommunityResourceKind; initialScope?: CommunityResourceScope; localDictionary?: CommunityLocalDictionaryClient; mobile?: boolean }) {
   const [category, setCategory] = useState<"skin" | CommunityResourceKind>(initialCategory);
-  return <div className="community-home"><div className="community-category-tabs" role="tablist" aria-label="社区分类"><button type="button" role="tab" aria-selected={category === "skin"} className={category === "skin" ? "active" : ""} onClick={() => setCategory("skin")}>皮肤</button><button type="button" role="tab" aria-selected={category === "dictionary"} className={category === "dictionary" ? "active" : ""} onClick={() => setCategory("dictionary")}>词库</button><button type="button" role="tab" aria-selected={category === "reply"} className={category === "reply" ? "active" : ""} onClick={() => setCategory("reply")}>回复</button></div>{category === "skin" ? <CommunitySkinsPage client={skins} theme={theme} initialMine={initialMine} /> : <CommunityResourcesPage client={resources} kind={category} initialScope={initialScope} localDictionary={localDictionary} />}</div>;
+  return <div className="community-home"><div className="community-category-tabs" role="tablist" aria-label="社区分类"><button type="button" role="tab" aria-selected={category === "skin"} className={category === "skin" ? "active" : ""} onClick={() => setCategory("skin")}>皮肤</button><button type="button" role="tab" aria-selected={category === "dictionary"} className={category === "dictionary" ? "active" : ""} onClick={() => setCategory("dictionary")}>词库</button><button type="button" role="tab" aria-selected={category === "reply"} className={category === "reply" ? "active" : ""} onClick={() => setCategory("reply")}>回复</button></div>{category === "skin" ? <CommunitySkinsPage client={skins} theme={theme} initialMine={initialMine} mobile={mobile} /> : <CommunityResourcesPage client={resources} kind={category} initialScope={initialScope} localDictionary={localDictionary} mobile={mobile} />}</div>;
 }

@@ -71,6 +71,22 @@ test("dictionary details apply the displayed revision and refresh saved state", 
   await waitFor(() => expect(save).toHaveBeenCalledWith(item.id, true));
 });
 
+test("mobile resource details join the WebView history stack and system back restores the list", async () => {
+  window.history.replaceState({ msimeSettings: true, page: "community" }, "");
+  const item = base("dictionary", "10000000-0000-4000-8000-000000000061");
+  render(<CommunityResourcesPage client={client({
+    list: vi.fn().mockResolvedValue({ items: [item], has_more: false }),
+    detail: vi.fn().mockResolvedValue(item),
+  })} kind="dictionary" mobile />);
+  fireEvent.click(await screen.findByRole("button", { name: "查看词库 开发词包" }));
+  expect(window.history.state.communityDetail).toEqual({ kind: "dictionary", id: item.id });
+  expect(await screen.findByRole("button", { name: "← 社区" })).not.toBeNull();
+  const state = { msimeSettings: true, page: "community" };
+  window.history.replaceState(state, "");
+  window.dispatchEvent(new PopStateEvent("popstate", { state }));
+  expect(await screen.findByRole("button", { name: "查看词库 开发词包" })).not.toBeNull();
+});
+
 test("dictionary details can import the preview into the local dictionary without cloud mutation", async () => {
   const item = base("dictionary"); const localImport = vi.fn().mockResolvedValue({ applied: 1 }); const apply = vi.fn();
   render(<CommunityResourcesPage client={client({ list: vi.fn().mockResolvedValue({ items: [item], has_more: false }), detail: vi.fn().mockResolvedValue(item), apply })} kind="dictionary" localDictionary={{ import: localImport }} />);

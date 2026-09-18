@@ -203,11 +203,12 @@ function CommunitySkinCard({ skin, theme, open }: {
   </button>;
 }
 
-export function CommunitySkinsPage({ client, theme, localSkinLibrary, initialMine = false }: {
+export function CommunitySkinsPage({ client, theme, localSkinLibrary, initialMine = false, mobile = false }: {
   client: CommunitySkinClient;
   theme: "light" | "dark";
   localSkinLibrary?: CustomSkinLibraryClient;
   initialMine?: boolean;
+  mobile?: boolean;
 }) {
   const [skins, setSkins] = useState<CommunitySkin[]>([]);
   const [hasMore, setHasMore] = useState(false);
@@ -259,6 +260,10 @@ export function CommunitySkinsPage({ client, theme, localSkinLibrary, initialMin
   }, [client]);
 
   const open = (skin: CommunitySkin) => {
+    if (mobile && typeof window !== "undefined") {
+      const current = window.history.state;
+      window.history.pushState({ ...(current && typeof current === "object" ? current : {}), msimeSettings: true, page: "community", communityDetail: { kind: "skin", id: skin.id } }, "");
+    }
     const generation = ++detailGeneration.current;
     setSelected(skin);
     setDetailBusy(true);
@@ -272,7 +277,7 @@ export function CommunitySkinsPage({ client, theme, localSkinLibrary, initialMin
     });
   };
 
-  const closeDetail = async () => {
+  const closeDetail = async (fromHistory = false) => {
     if (actionBusy) return;
     if (trial) {
       setActionBusy(true);
@@ -291,7 +296,20 @@ export function CommunitySkinsPage({ client, theme, localSkinLibrary, initialMin
     setSelected(null);
     setDetailBusy(false);
     setError("");
+    if (!fromHistory && mobile && typeof window !== "undefined" && window.history.state?.communityDetail?.kind === "skin") {
+      window.history.back();
+    }
   };
+
+  useEffect(() => {
+    if (!mobile || typeof window === "undefined") return;
+    const onPopState = (event: PopStateEvent) => {
+      const detail = event.state?.communityDetail;
+      if (selected && !(detail?.kind === "skin" && detail.id === selected.id)) void closeDetail(true);
+    };
+    window.addEventListener("popstate", onPopState);
+    return () => window.removeEventListener("popstate", onPopState);
+  }, [mobile, selected]);
 
   const download = async () => {
     if (!selected || actionBusy) return;

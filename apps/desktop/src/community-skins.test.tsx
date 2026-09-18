@@ -143,6 +143,22 @@ test("opening a card refreshes detail without mutating preferences or the local 
   expect(mutate).not.toHaveBeenCalled();
 });
 
+test("mobile skin details join the WebView history stack and system back restores the list", async () => {
+  window.history.replaceState({ msimeSettings: true, page: "community" }, "");
+  const original = skin("10000000-0000-4000-8000-000000000060", "历史皮肤");
+  render(<CommunitySkinsPage client={client({
+    list: vi.fn().mockResolvedValue({ skins: [original], has_more: false }),
+    detail: vi.fn().mockResolvedValue(original),
+  })} theme="light" mobile />);
+  fireEvent.click(await screen.findByRole("button", { name: `查看皮肤 ${original.name}` }));
+  expect(window.history.state.communityDetail).toEqual({ kind: "skin", id: original.id });
+  expect(await screen.findByRole("button", { name: "返回社区" })).not.toBeNull();
+  const state = { msimeSettings: true, page: "community" };
+  window.history.replaceState(state, "");
+  window.dispatchEvent(new PopStateEvent("popstate", { state }));
+  expect(await screen.findByRole("button", { name: `查看皮肤 ${original.name}` })).not.toBeNull();
+});
+
 test("community failures use stable messages and never expose backend details", async () => {
   const communitySkins = client({
     list: vi.fn().mockRejectedValue({ code: "community_rate_limited", message: "private backend detail" }),
