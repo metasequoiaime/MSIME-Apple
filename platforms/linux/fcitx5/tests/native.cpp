@@ -343,6 +343,14 @@ int main(int argc, char **argv) {
             "cloud clipboard menu attached");
     require(engine.desktop_tools_menu_.actions().size() == 9,
             "desktop tools menu attached");
+    require(engine.candidate_page_size_menu_.actions().size() == 9,
+            "candidate page-size menu attached");
+    engine.candidate_page_size3_.activate(&ic);
+    require(state->view_.value("page_size", 0u) == 3,
+            "candidate page-size action applies a larger page");
+    engine.candidate_page_size2_.activate(&ic);
+    require(state->view_.value("page_size", 0u) == 2,
+            "candidate page-size action restores the configured page");
     require(engine.nine_key_menu_.actions().size() == 9,
             "nine-key spelling menu attached");
     engine.nine_key_action_.activate(&ic);
