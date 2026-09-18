@@ -48,6 +48,10 @@ int main(int argc, char **argv) {
     options["preferences"]["ai_assistant"]["endpoint"] = "https://synthetic.invalid/v1/chat/completions";
     options["preferences"]["ai_assistant"]["model"] = "synthetic";
     options["preferences"]["ai_assistant"]["token"] = "synthetic-token";
+    options["candidate_skin_catalog"] = Json{{"packages", Json::array({
+        Json{{"id", "solarized"}, {"title", "Solarized"}},
+        Json{{"id", "unsafe/id"}, {"title", "Ignored"}},
+    })}};
     const auto socketPath = std::string(directory) + "/online.sock";
     const int providerServer = socket(AF_UNIX, SOCK_STREAM, 0);
     require(providerServer >= 0, "online provider socket");
@@ -213,6 +217,16 @@ int main(int argc, char **argv) {
     engine.candidate_layout_action_.activate(&ic);
     require(state->preferences_.value("candidate_layout", std::string{}) == "horizontal",
             "candidate layout action cycles back to horizontal");
+    require(engine.candidate_skin_action_.shortText(&ic) == "候选皮肤：杨柳青",
+            "candidate skin action starts at the built-in preference");
+    for (int i = 0; i < 5; ++i) engine.candidate_skin_action_.activate(&ic);
+    require(state->preferences_.value("candidate_skin", std::string{}) == "solarized",
+            "candidate skin action cycles into the configured catalog");
+    require(engine.candidate_skin_action_.shortText(&ic) == "候选皮肤：Solarized",
+            "candidate skin action labels catalog entries");
+    engine.candidate_skin_action_.activate(&ic);
+    require(state->preferences_.value("candidate_skin", std::string{}) == "willow_green",
+            "candidate skin action wraps after the configured catalog");
     require(engine.mode_scope_action_.shortText(&ic) == "模式：应用",
             "mode scope action starts at application scope");
     engine.mode_scope_action_.activate(&ic);
