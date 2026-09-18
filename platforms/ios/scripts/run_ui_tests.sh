@@ -91,28 +91,34 @@ raise SystemExit("No x86_64-compatible iPhone Simulator found; install a univers
 ')"
 fi
 
-# 并行范围下不预启动。Xcode 跑并行测试用的是克隆,它自己创建、自己启动,那台被选中的设备一条用例都不会
-# 跑 —— 预启动它等于在 runner 上多留一台 iOS 常驻内存。实测日志里三台同时活着(原始 + Clone 1 + Clone 2),
-# 而所有用例都落在两个克隆上。
+# 跑测试的时候只留两台模拟器,但克隆的模板必须是已经完成过首次启动的那一台。这两件事看着矛盾,实际是先后:
+# 启动它、等它真的起来、然后在 xcodebuild 之前关掉。
 #
-# 这就是 KeyboardSurfaceUITests 整类一起倒的由来:失败清一色是
+# 为什么不能常驻:Xcode 并行跑的是克隆,它自己创建、自己启动,那台被选中的设备一条用例都不跑,留着就是多一台
+# iOS 占内存。实测日志里三台同时活着(原始 + Clone 1 + Clone 2),而所有用例都落在两个克隆上 —— 这就是
+# KeyboardSurfaceUITests 整类一起倒的由来:失败清一色是
 #   Failed to get background assertion for target app with pid …: Timed out while acquiring…
 # 一条断言都没有,而 Xcode 是按类把用例分给克隆的,所以一台克隆被系统回收就带走一整类。把并行数从 4 调到 2
 # 只是把五台变成三台,频率降了没有消失。
 #
-# 克隆不要求源设备已启动 —— 关机状态下 xcodebuild 照样克隆并启动,这一点实测过。
+# 为什么又不能干脆不启动:那是上一版的做法,理由是「克隆不要求源设备已启动」—— 这句话本身没错,关机状态下
+# xcodebuild 照样克隆并启动。漏掉的是预启动在并行路径上还兼着第二个作用:把克隆的模板烤热。托管 runner 上的
+# 那台设备从来没有启动过,克隆继承的就是一台没走完首次启动的机器,于是首次启动的代价落到每一台克隆头上,落在
+# 一台已经在跑测试的机器上。代价是一种新的红,和上面那种不一样:
+#   DTServiceHub - Error resuming pid …: Failed to send signal 19 to process …: 3
+#   IDERunOperationFailingWorker = IDELaunchiPhoneSimulatorLauncher
+# 一条断言都没有,时间落在 test-without-building 之后七分半 —— 正好是克隆创建加首次启动,拉起 app 时进程已经
+# 不在了。这句报错在此之前的任何一次运行里都没出现过。
 parallel_scope=false
 if [[ "${MSIME_TEST_SCOPE:-all}" == "all" ]]; then
   parallel_scope=true
 fi
 
-# 关掉它:陈旧的已启动设备会在应用安装服务卡死时照常回应状态查询,而关机既清掉那个状态,也让并行路径少一台。
+# 先关一次:陈旧的已启动设备会在应用安装服务卡死时照常回应状态查询,而关机清掉那个状态。
 xcrun simctl shutdown "${test_device_id}" >/dev/null 2>&1 || true
-if [[ "$parallel_scope" != true ]]; then
-  # 非并行范围用的就是这台。`boot` 启动后立即返回,等待在后面的 bootstatus 里 —— 构建不需要模拟器,
-  # 所以先启动能让两者共用同一段时间,而不是一前一后;在托管 runner 上它要花四分钟左右。
-  xcrun simctl boot "${test_device_id}"
-fi
+# `boot` 启动后立即返回,等待在后面的 bootstatus 里 —— 构建不需要模拟器,所以先启动能让两者共用同一段时间,
+# 而不是一前一后;在托管 runner 上它要花四分钟左右。
+xcrun simctl boot "${test_device_id}"
 
 if [[ "${MSIME_IOS_SKIP_HANDWRITING:-0}" == "1" ]]; then
   destination="platform=iOS Simulator,id=${test_device_id}"
@@ -189,8 +195,10 @@ xcodebuild \
   COMPILER_INDEX_STORE_ENABLE=NO \
   build-for-testing
 
-if [[ "$parallel_scope" != true ]]; then
-  xcrun simctl bootstatus "${test_device_id}" -b
+xcrun simctl bootstatus "${test_device_id}" -b
+if [[ "$parallel_scope" == true ]]; then
+  # 模板已经烤热,这台自己一条用例都不跑。关掉它,测试期间就只有两台克隆活着。
+  xcrun simctl shutdown "${test_device_id}"
 fi
 
 xcodebuild \

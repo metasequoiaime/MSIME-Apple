@@ -791,20 +791,29 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
             with self.subTest(file=path.name):
                 self.assertEqual(tight, [], f"{path.name} 里有比 5 秒更紧的等待")
 
-    def test_the_parallel_scope_does_not_boot_a_simulator_it_never_uses(self):
-        """并行跑的是克隆,被选中的那台一条用例都不跑 —— 预启动它就是白留一台 iOS 占内存。
+    def test_the_parallel_scope_warms_its_clone_template_then_powers_it_down(self):
+        """并行路径要的是「模板热、跑的时候只剩两台」,这两件事靠先后顺序同时拿到。
 
-        日志里三台同时活着(原始 + Clone 1 + Clone 2),而所有用例都落在两个克隆上。这就是
-        KeyboardSurfaceUITests 整类一起倒的由来:失败清一色 background assertion 超时、一条断言都没有,
-        而 Xcode 按类把用例分给克隆,一台克隆被系统回收就带走一整类。把并行数从 4 调到 2 只是五台变三台。
+        被选中的那台一条用例都不跑,常驻着就是多一台 iOS 占内存 —— 三台同时活着(原始 + Clone 1 + Clone 2)
+        正是 KeyboardSurfaceUITests 整类一起倒的由来,失败清一色 background assertion 超时、一条断言都没有。
+
+        但干脆不启动也不行,那是上一版的做法。预启动在并行路径上还兼着第二个作用:托管 runner 上那台设备从来
+        没启动过,不先烤热,克隆继承的就是一台没走完首次启动的机器,代价落到每台克隆头上。换来的是另一种红:
+        DTServiceHub 拉不起 app(Failed to send signal 19 …,IDELaunchiPhoneSimulatorLauncher),同样一条断言
+        都没有。所以启动无条件做,关机放在 bootstatus 之后、跑测试之前。
         """
         runner = (IOS_ROOT / "scripts/run_ui_tests.sh").read_text()
         commands = "\n".join(l for l in runner.splitlines() if not l.lstrip().startswith("#"))
-        boot = commands.index("simctl boot")
-        guard = commands.rindex("parallel_scope", 0, boot)
-        self.assertIn("!= true", commands[guard:boot], "simctl boot 必须只在非并行范围下执行")
-        # 关机仍要无条件做:陈旧的已启动设备会在安装服务卡死时照常回应状态查询。
-        self.assertLess(commands.index("simctl shutdown"), boot)
+        boot = 'xcrun simctl boot "${test_device_id}"'
+        # 启动不再被范围挡住:它上面两行里不能有并行判断,否则热模板又只剩非并行路径拿得到。
+        before = commands[:commands.index(boot)].rstrip().splitlines()[-2:]
+        self.assertNotIn("parallel_scope", "\n".join(before), "simctl boot 必须无条件执行")
+        teardown = commands.index('xcrun simctl shutdown "${test_device_id}"', commands.index("simctl bootstatus"))
+        self.assertIn("== true", commands[commands.rindex("parallel_scope", 0, teardown):teardown],
+                      "跑测试前的那次关机只在并行范围下做,非并行范围要的就是这台")
+        self.assertLess(teardown, commands.index("test-without-building"))
+        # 开头那次关机仍要无条件做:陈旧的已启动设备会在安装服务卡死时照常回应状态查询。
+        self.assertLess(commands.index("simctl shutdown"), commands.index(boot))
 
     def test_the_interface_suite_does_not_clone_more_simulators_than_the_runner_carries(self):
         """并行数是稳定性问题,不是速度问题。
