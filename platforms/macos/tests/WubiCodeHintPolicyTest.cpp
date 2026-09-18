@@ -1,4 +1,4 @@
-#include "../WubiCodeHintPolicy.h"
+#include "../src/WubiCodeHintPolicy.h"
 
 #include <cassert>
 #include <string>

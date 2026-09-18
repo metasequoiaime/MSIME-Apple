@@ -1,5 +1,5 @@
 // Include the implementation so origin scoping is exercised without accessing a real Keychain.
-#import "../VoiceSettings.h"
+#import "../src/VoiceSettings.h"
 #include <cstdio>
 #include <cstdlib>
 

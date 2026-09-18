@@ -4,5 +4,5 @@
     "jsx": "react-jsx", "strict": true, "skipLibCheck": true, "noEmit": true,
     "allowImportingTsExtensions": true
   },
-  "include": ["src", "../../packages/ui/src", "vite.config.ts"]
+  "include": ["src", "tests", "../../packages/ui/src", "vite.config.ts"]
 }

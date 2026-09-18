@@ -1,7 +1,7 @@
-#include "../WaveOverlayModel.h"
-#include "../WaveOverlayIbusSurface.h"
-#include "../WaveOverlaySurfaceFactory.h"
-#include "../VoiceAction.h"
+#include "../src/WaveOverlayModel.h"
+#include "../src/WaveOverlayIbusSurface.h"
+#include "../src/WaveOverlaySurfaceFactory.h"
+#include "../src/VoiceAction.h"
 #include <cassert>
 #include <cstdlib>
 

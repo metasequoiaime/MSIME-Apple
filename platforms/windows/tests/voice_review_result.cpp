@@ -1,4 +1,4 @@
-#include "../VoiceReviewResult.h"
+#include "../src/VoiceReviewResult.h"
 #include <cassert>
 #include <limits>
 #include <thread>

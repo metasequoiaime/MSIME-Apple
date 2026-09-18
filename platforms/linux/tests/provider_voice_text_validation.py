@@ -8,9 +8,9 @@ import unittest
 
 
 ROOT = Path(__file__).resolve().parents[1]
-sys.path.insert(0, str(ROOT))
+sys.path.insert(0, str(ROOT / "scripts"))
 loader = importlib.machinery.SourceFileLoader(
-    "voice_text_provider", str(ROOT / "msime-client-voice-provider"))
+    "voice_text_provider", str(ROOT / "scripts" / "msime-client-voice-provider"))
 spec = importlib.util.spec_from_loader(loader.name, loader)
 voice = importlib.util.module_from_spec(spec)
 loader.exec_module(voice)

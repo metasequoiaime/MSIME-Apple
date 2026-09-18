@@ -1,4 +1,4 @@
-#include "../ChineseTextConversion.h"
+#include "../src/ChineseTextConversion.h"
 
 #include <cassert>
 

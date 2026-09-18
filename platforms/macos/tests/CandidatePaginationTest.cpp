@@ -1,5 +1,5 @@
-#include "../InputControllerKeyRouting.h"
-#include "../CandidateWheelRouting.h"
+#include "../src/InputControllerKeyRouting.h"
+#include "../src/CandidateWheelRouting.h"
 #include <stdexcept>
 
 static void require(bool value, const char *message) { if (!value) throw std::runtime_error(message); }

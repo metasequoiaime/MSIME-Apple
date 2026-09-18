@@ -1,7 +1,7 @@
 # Shared voice provider adaptation
 
 `msime-voice-providers` contains the provider defaults, HTTP recognition and
-polishing adapter extracted unchanged from `platforms/windows/VoiceProviders.cpp`
+polishing adapter extracted unchanged from `platforms/windows/src/VoiceProviders.h`
 at MSIME-Client `f78cf0fdf4f58d3e9405faec3158ed216b17ec78`.
 It uses the pinned Engine voice protocol/WAV library and has no desktop UI,
 Windows API, host-process, or microphone dependency.

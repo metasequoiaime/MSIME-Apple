@@ -1,5 +1,5 @@
-#import "../CustomTranslationBatch.h"
-#import "../CloudCandidateRequest.h"
+#import "../src/CustomTranslationBatch.h"
+#import "../src/CloudCandidateRequest.h"
 #import "MSIMEClientSession.h"
 #include <cassert>
 

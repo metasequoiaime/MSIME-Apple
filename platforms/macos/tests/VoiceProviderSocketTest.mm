@@ -1,4 +1,4 @@
-#import "../VoiceProviderSocket.h"
+#import "../src/VoiceProviderSocket.h"
 
 #include <stdexcept>
 

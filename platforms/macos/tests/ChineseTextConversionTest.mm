@@ -1,4 +1,4 @@
-#import "../ChineseTextConversion.h"
+#import "../src/ChineseTextConversion.h"
 
 #import <Foundation/Foundation.h>
 

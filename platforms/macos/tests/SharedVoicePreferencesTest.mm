@@ -1,4 +1,4 @@
-#import "../SharedVoicePreferences.h"
+#import "../src/SharedVoicePreferences.h"
 #include <cassert>
 #import "TestPreferenceSuite.h"
 

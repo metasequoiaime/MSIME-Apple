@@ -1,5 +1,5 @@
 import { expect, test, vi } from "vitest";
-import { subscribeWindowState, type WindowStateSource } from "./window-state";
+import { subscribeWindowState, type WindowStateSource } from "../src/window-state";
 
 function deferred<T>() {
   let resolve!: (value: T) => void;

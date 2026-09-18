@@ -1,4 +1,4 @@
-#include "../VoiceControllerConnection.h"
+#include "../src/VoiceControllerConnection.h"
 #include <cassert>
 #include <thread>
 

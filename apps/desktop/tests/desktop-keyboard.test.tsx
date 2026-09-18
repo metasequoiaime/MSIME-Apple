@@ -2,7 +2,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import type { Snapshot } from "@msime/ui";
-import { DesktopKeyboard } from "./desktop-keyboard";
+import { DesktopKeyboard } from "../src/desktop-keyboard";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
 const snapshot = (revision: number, theme: "light" | "dark" | "system", surface: "follow" | "light" | "dark" = "follow"): Snapshot => ({

@@ -1,7 +1,7 @@
 #import "VoiceInputService.h"
 #import "VoicePCMBuffer.h"
 #import "VoiceCaptureDevice.h"
-#include "../../shared/voice/CaptureDuration.h"
+#include "../../../shared/voice/CaptureDuration.h"
 #import <AVFoundation/AVFoundation.h>
 #import <CoreAudio/CoreAudio.h>
 #include <memory>

@@ -1,4 +1,4 @@
-#include "../CandidateRenderSync.h"
+#include "../src/CandidateRenderSync.h"
 
 #include <stdexcept>
 

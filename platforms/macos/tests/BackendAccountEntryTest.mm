@@ -1,4 +1,4 @@
-#import "../BackendAccountEntry.h"
+#import "../src/BackendAccountEntry.h"
 #include <cassert>
 
 @interface RecordingAccountWindow : NSObject <MSIMEBackendAccountEntry>

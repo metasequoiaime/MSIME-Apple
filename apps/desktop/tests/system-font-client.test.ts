@@ -1,5 +1,5 @@
 import { expect, test, vi } from "vitest";
-import { discoverFontReader } from "./system-font-client";
+import { discoverFontReader } from "../src/system-font-client";
 
 test("browser does not probe the host", async () => {
   const invoke = vi.fn();

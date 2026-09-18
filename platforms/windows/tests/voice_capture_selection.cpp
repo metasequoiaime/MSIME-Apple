@@ -1,4 +1,4 @@
-#include "../VoiceCaptureSelection.h"
+#include "../src/VoiceCaptureSelection.h"
 #include <cassert>
 
 int main() {

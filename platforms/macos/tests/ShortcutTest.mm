@@ -1,6 +1,6 @@
-#import "../InputController.mm"
-#import "../InputSourceRegistration.h"
-#import "../SkinSettingsView.h"
+#import "../src/InputController.mm"
+#import "../src/InputSourceRegistration.h"
+#import "../src/SkinSettingsView.h"
 #include <cassert>
 #include <fstream>
 #include <sqlite3.h>

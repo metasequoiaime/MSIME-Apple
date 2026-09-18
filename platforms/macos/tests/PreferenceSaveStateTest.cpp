@@ -1,4 +1,4 @@
-#include "../PreferenceSaveState.h"
+#include "../src/PreferenceSaveState.h"
 #include <cassert>
 
 int main() {

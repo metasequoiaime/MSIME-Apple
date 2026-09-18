@@ -1,5 +1,5 @@
-#import "../VoiceInputService.h"
-#import "../VoicePCMBuffer.h"
+#import "../src/VoiceInputService.h"
+#import "../src/VoicePCMBuffer.h"
 #include <cassert>
 #include <cmath>
 #include <limits>

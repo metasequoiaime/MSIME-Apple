@@ -13,7 +13,7 @@ import time
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
-loader = importlib.machinery.SourceFileLoader("clipboard_monitor", str(ROOT / "msime-client-clipboard-monitor"))
+loader = importlib.machinery.SourceFileLoader("clipboard_monitor", str(ROOT / "scripts" / "msime-client-clipboard-monitor"))
 spec = importlib.util.spec_from_loader(loader.name, loader)
 monitor = importlib.util.module_from_spec(spec)
 loader.exec_module(monitor)

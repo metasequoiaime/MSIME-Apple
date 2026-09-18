@@ -2,7 +2,7 @@
 #import <Foundation/Foundation.h>
 #import <AVFoundation/AVFoundation.h>
 #import <Speech/Speech.h>
-#import "../../shared/apple/MSIMEClientSession.h"
+#import "../../../shared/apple/MSIMEClientSession.h"
 NS_ASSUME_NONNULL_BEGIN
 typedef void (^MSIMEVoiceInputResult)(NSDictionary * _Nullable, NSError * _Nullable);
 typedef void (^MSIMEVoiceAudioBuffer)(AVAudioPCMBuffer *);

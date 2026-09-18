@@ -1,4 +1,4 @@
-#include "../PreparePaths.h"
+#include "../src/PreparePaths.h"
 
 #include <cassert>
 #include <filesystem>

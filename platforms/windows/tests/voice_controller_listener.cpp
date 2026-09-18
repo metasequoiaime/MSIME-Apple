@@ -1,4 +1,4 @@
-#include "../VoiceControllerListener.h"
+#include "../src/VoiceControllerListener.h"
 #include <cassert>
 
 int main() {

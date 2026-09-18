@@ -1,4 +1,4 @@
-#import "../VoiceInputService.h"
+#import "../src/VoiceInputService.h"
 #include "../../../shared/voice/CaptureDuration.h"
 #include <cassert>
 #include <limits>

@@ -1,4 +1,4 @@
-#import "../TranslationSettingsWindow.h"
+#import "../src/TranslationSettingsWindow.h"
 #import "MSIMEClientSession.h"
 #include <cassert>
 

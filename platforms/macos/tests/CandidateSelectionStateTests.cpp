@@ -1,4 +1,4 @@
-#include "../CandidateSelectionState.h"
+#include "../src/CandidateSelectionState.h"
 #include <cassert>
 
 int main()

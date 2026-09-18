@@ -1,5 +1,5 @@
-#import "../CloudClipboardWindowController.h"
-#import "../CloudClipboardClient.h"
+#import "../src/CloudClipboardWindowController.h"
+#import "../src/CloudClipboardClient.h"
 #include <cassert>
 
 static NSMutableArray *pending;
