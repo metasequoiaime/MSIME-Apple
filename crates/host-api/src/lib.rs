@@ -1784,10 +1784,18 @@ pub unsafe extern "C" fn msime_client_custom_translation_http_request(
             source_language: String,
             target_language: String,
         }
-        let request: Request =
-            serde_json::from_slice(unsafe { std::slice::from_raw_parts(request, length) })
-                .map_err(|_| "invalid custom translation request")?;
-        if !request.config.enabled {
+        let Request {
+            mut config,
+            text,
+            source_language,
+            target_language,
+        }: Request = serde_json::from_slice(unsafe { std::slice::from_raw_parts(request, length) })
+            .map_err(|_| "invalid custom translation request")?;
+        // Match the Windows source: settings pasted from a password manager
+        // are trimmed before endpoint and credential validation.
+        config.endpoint = config.endpoint.trim().to_owned();
+        config.api_key = config.api_key.trim().to_owned();
+        if !config.enabled {
             return Ok(Value::Null);
         }
         let valid_language = |value: &str| {
@@ -1797,27 +1805,27 @@ pub unsafe extern "C" fn msime_client_custom_translation_http_request(
                     .bytes()
                     .all(|byte| byte.is_ascii_alphabetic() || byte == b'-')
         };
-        if !msime_client_core::translation::is_supported_endpoint(&request.config.endpoint)
-            || request.config.api_key.len() > 4096
-            || request.config.api_key.chars().any(char::is_control)
-            || request.text.is_empty()
-            || request.text.chars().count() > 40
-            || request.text.chars().any(char::is_control)
-            || !valid_language(&request.source_language)
-            || !valid_language(&request.target_language)
+        if !msime_client_core::translation::is_supported_endpoint(&config.endpoint)
+            || config.api_key.len() > 4096
+            || config.api_key.chars().any(char::is_control)
+            || text.is_empty()
+            || text.chars().count() > 40
+            || text.chars().any(char::is_control)
+            || !valid_language(&source_language)
+            || !valid_language(&target_language)
         {
             return Err("invalid custom translation parameters".into());
         }
         let mut headers = json!({"Content-Type": "application/json"});
-        if !request.config.api_key.is_empty() {
-            headers["Authorization"] = Value::String(format!("Bearer {}", request.config.api_key));
+        if !config.api_key.is_empty() {
+            headers["Authorization"] = Value::String(format!("Bearer {}", config.api_key));
         }
         Ok(json!({
-            "url": request.config.endpoint,
+            "url": config.endpoint,
             "method": "POST",
             "headers": headers,
-            "body": {"text": request.text, "source_lang": request.source_language.to_ascii_uppercase(),
-                "target_lang": request.target_language.to_ascii_uppercase()},
+            "body": {"text": text, "source_lang": source_language.to_ascii_uppercase(),
+                "target_lang": target_language.to_ascii_uppercase()},
             "timeout_ms": 2500,
             "max_response_bytes": 1048576,
         }))
@@ -6065,6 +6073,18 @@ mod tests {
         );
         assert_eq!(value["value"]["timeout_ms"], 2500);
         assert_eq!(value["value"]["max_response_bytes"], 1048576);
+        let mut padded = request.clone();
+        padded["config"]["endpoint"] = json!("  https://translation.invalid/api  ");
+        padded["config"]["api_key"] = json!("  synthetic  ");
+        let padded_value = build(padded);
+        assert_eq!(
+            padded_value["value"]["url"],
+            "https://translation.invalid/api"
+        );
+        assert_eq!(
+            padded_value["value"]["headers"]["Authorization"],
+            "Bearer synthetic"
+        );
         let mut disabled = request.clone();
         disabled["config"]["enabled"] = json!(false);
         assert!(build(disabled)["value"].is_null());
