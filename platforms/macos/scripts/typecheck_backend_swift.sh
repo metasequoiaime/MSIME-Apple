@@ -3,7 +3,7 @@ set -eu
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
 backend_sources=$(find "$root/shared/backend" -type f -name '*.swift' ! -path '*/Tests/*' ! -name 'Package.swift' -print)
-backend_ui_sources=$(find "$root/shared/backend-ui" -maxdepth 1 -name '*.swift' -print)
+backend_ui_sources=$(find "$root/shared/backend-ui" -type f -name '*.swift' -print)
 mac_sources=$(find "$root/platforms/macos/src/backend" -maxdepth 1 -name 'Backend*.swift' -print)
 
 exec xcrun swiftc -typecheck -swift-version 5 -module-name MacBackendViews \

@@ -495,7 +495,7 @@
 		0A1100000000000000000001 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		0D051D288F9888171C74A55D /* KeyboardInputView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardInputView.swift; sourceTree = "<group>"; };
 		120F6FF0501F18C777329C9C /* VoiceTextHandoffTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VoiceTextHandoffTests.swift; sourceTree = "<group>"; };
-		152BF78634D4A0FE10FEDABB /* CloudDictionaryCatalogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDictionaryCatalogView.swift; sourceTree = "<group>"; };
+		152BF78634D4A0FE10FEDABB /* CloudDictionaryCatalogView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = dictionary/CloudDictionaryCatalogView.swift; sourceTree = "<group>"; };
 		189E59DDD068F5FEFC679880 /* MLKit-NOTICES.txt */ = {isa = PBXFileReference; lastKnownFileType = text; path = "MLKit-NOTICES.txt"; sourceTree = "<group>"; };
 		197361DEE845463DCC8EFEA3 /* AppServicesBridge.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AppServicesBridge.swift; sourceTree = "<group>"; };
 		1BF080C8B03E53908E30E67F /* AISkinGenerationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = AISkinGenerationView.swift; sourceTree = "<group>"; };
@@ -508,12 +508,12 @@
 		2225E2F292B5F2A32F615038 /* SkinCommunityTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkinCommunityTests.swift; sourceTree = "<group>"; };
 		227AE50EAC45DEB4D0AC5695 /* DictionarySnapshotQueueTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DictionarySnapshotQueueTests.swift; sourceTree = "<group>"; };
 		23E036ABB59A96B7092E97BE /* KeyboardSkinPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardSkinPickerView.swift; sourceTree = "<group>"; };
-		248707723B1A7E0DBDD3AD00 /* CloudCandidatesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudCandidatesView.swift; sourceTree = "<group>"; };
+		248707723B1A7E0DBDD3AD00 /* CloudCandidatesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = candidate/CloudCandidatesView.swift; sourceTree = "<group>"; };
 		265546A15E7D19E2AB1FE976 /* SmartPunctuationTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SmartPunctuationTests.swift; sourceTree = "<group>"; };
 		29BE2BE59A037096C7B197DF /* SkinGenerationModel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkinGenerationModel.swift; sourceTree = "<group>"; };
 		2B56028C58A7AE7141E6F303 /* SkinGenerationView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = SkinGenerationView.swift; sourceTree = "<group>"; };
 		2C43A76161C1E4AF5BA54EB4 /* KeyboardServiceFallback.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardServiceFallback.swift; sourceTree = "<group>"; };
-		2C7B2B136F9EECBB0DC83371 /* BackendInputModifiers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendInputModifiers.swift; sourceTree = "<group>"; };
+		2C7B2B136F9EECBB0DC83371 /* BackendInputModifiers.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = core/BackendInputModifiers.swift; sourceTree = "<group>"; };
 		2CF34895E0F30366F0D7E916 /* CustomKeyboardSkin.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomKeyboardSkin.swift; sourceTree = "<group>"; };
 		2F50522701A0D6A3455AA353 /* MSIMEKeyboardTestHost.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = MSIMEKeyboardTestHost.app; sourceTree = BUILT_PRODUCTS_DIR; };
 		346B18127F916031CA9DD345 /* KeyboardInputContext.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardInputContext.swift; sourceTree = "<group>"; };
@@ -540,10 +540,10 @@
 		50FEDFAB2CC1751E327C3E52 /* JapaneseNineKeyView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = JapaneseNineKeyView.swift; sourceTree = "<group>"; };
 		51A2744C199637AB401FB1CE /* KeyboardLayoutPreference.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardLayoutPreference.swift; sourceTree = "<group>"; };
 		51C015C63FB27B713EF2CF17 /* dictionary-manifest.json */ = {isa = PBXFileReference; lastKnownFileType = text.json; path = "dictionary-manifest.json"; sourceTree = "<group>"; };
-		5230C60A37C4DE2BEEE44488 /* CloudDictionaryEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CloudDictionaryEditor.swift; sourceTree = "<group>"; };
+		5230C60A37C4DE2BEEE44488 /* CloudDictionaryEditor.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = dictionary/CloudDictionaryEditor.swift; sourceTree = "<group>"; };
 		543760D3DF7BC7A55C9A0766 /* KeyboardEmojiPickerView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardEmojiPickerView.swift; sourceTree = "<group>"; };
 		0CE4979FF8CC400A0D690C45 /* KeyboardSymbolPanelView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardSymbolPanelView.swift; sourceTree = "<group>"; };
-		5527AACE909C132E50C8B726 /* BackendCommunityResourcesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendCommunityResourcesView.swift; sourceTree = "<group>"; };
+		5527AACE909C132E50C8B726 /* BackendCommunityResourcesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = dictionary/BackendCommunityResourcesView.swift; sourceTree = "<group>"; };
 		5A38FF01B17D1553BE46FCEE /* CustomSkinEditorView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CustomSkinEditorView.swift; sourceTree = "<group>"; };
 		5AFCE373F50C2668A9CAB71F /* CommunityResourcesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = CommunityResourcesView.swift; sourceTree = "<group>"; };
 		5D420506ABBA095DB243FF90 /* PersonalDictionaryImport.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PersonalDictionaryImport.swift; sourceTree = "<group>"; };
