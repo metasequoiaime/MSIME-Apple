@@ -1964,6 +1964,33 @@ private:
   fcitx::FactoryFor<FcitxState> *factory_;
 };
 
+class FcitxLearningAction : public fcitx::Action {
+public:
+  explicit FcitxLearningAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {
+    setCheckable(true);
+  }
+  std::string shortText(fcitx::InputContext *) const override { return "学习用户词频"; }
+  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  bool isChecked(fcitx::InputContext *ic) const override {
+    if (!ic) return false;
+    const auto *state = ic->propertyFor(factory_);
+    return state->session_ && state->preferences_.value("learning", true);
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    auto *state = ic->propertyFor(factory_);
+    if (!state->session_ || state->restricted() || state->privateInput()) return;
+    try {
+      if (state->ensure() && state->toggleTopLevelBoolean("learning", true)) update(ic);
+    } catch (...) {
+      state->close();
+      state->clearPanel();
+    }
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
 class FcitxCandidateTranslationAction : public fcitx::Action {
 public:
   explicit FcitxCandidateTranslationAction(fcitx::FactoryFor<FcitxState> *factory)
@@ -2506,6 +2533,7 @@ public:
     smart_punctuation_action_.registerAction("msime-smart-punctuation", &instance->userInterfaceManager());
     smart_punctuation_repeat_action_.registerAction("msime-smart-punctuation-repeat", &instance->userInterfaceManager());
     candidate_layout_action_.registerAction("msime-candidate-layout", &instance->userInterfaceManager());
+    learning_action_.registerAction("msime-learning", &instance->userInterfaceManager());
     candidate_translation_action_.registerAction("msime-candidate-translations", &instance->userInterfaceManager());
     punctuation_lock_action_.registerAction("msime-punctuation-lock", &instance->userInterfaceManager());
     translation_language_action_.registerAction("msime-translation-language", &instance->userInterfaceManager());
@@ -2613,6 +2641,7 @@ public:
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &smart_punctuation_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &smart_punctuation_repeat_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &candidate_layout_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &learning_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &candidate_translation_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &punctuation_lock_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &translation_language_action_);
@@ -2652,6 +2681,7 @@ public:
     event.inputContext()->statusArea().removeAction(&smart_punctuation_action_);
     event.inputContext()->statusArea().removeAction(&smart_punctuation_repeat_action_);
     event.inputContext()->statusArea().removeAction(&candidate_layout_action_);
+    event.inputContext()->statusArea().removeAction(&learning_action_);
     event.inputContext()->statusArea().removeAction(&candidate_translation_action_);
     event.inputContext()->statusArea().removeAction(&punctuation_lock_action_);
     event.inputContext()->statusArea().removeAction(&translation_language_action_);
@@ -2711,6 +2741,7 @@ public:
   FcitxSmartPunctuationAction smart_punctuation_action_{&factory_, FcitxSmartPunctuationAction::Mode::Smart};
   FcitxSmartPunctuationAction smart_punctuation_repeat_action_{&factory_, FcitxSmartPunctuationAction::Mode::Repeat};
   FcitxCandidateLayoutAction candidate_layout_action_{&factory_};
+  FcitxLearningAction learning_action_{&factory_};
   FcitxCandidateTranslationAction candidate_translation_action_{&factory_};
   FcitxPunctuationLockAction punctuation_lock_action_{&factory_};
   FcitxTranslationLanguageAction translation_language_action_{&factory_};
