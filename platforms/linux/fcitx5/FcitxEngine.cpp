@@ -324,7 +324,7 @@ public:
   bool setCandidatePageSize(uint8_t size) {
     if (!session_ || size < 1 || size > 9 || restricted() || privateInput()) return false;
     if (view_.value("page_size", size_t{}) == size) return true;
-    view_ = response(msime_client_set_candidate_page_size(session_, size));
+    view_ = response(msime_client_set_candidate_page_size(session_, size)).at("view");
     preferences_["candidate_page_size"] = size;
     saveNumberPreference("candidate_page_size", size);
     render();
@@ -337,7 +337,7 @@ public:
     if (!spellings.is_array() || index >= spellings.size() || !spellings.at(index).is_string())
       return false;
     view_ = response(msime_client_choose_nine_key_spelling(
-        session_, view_.value("generation", uint64_t{}), index));
+        session_, view_.value("generation", uint64_t{}), index)).at("view");
     render();
     return true;
   }
@@ -3389,6 +3389,10 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
         // An apostrophe in an active spelling is an Engine input character
         // for emoji/kaomoji and Japanese modes, matching the IBus router.
         !(text[0] == '\'' && composing);
+    const bool japaneseLongVowel = view_.value("scheme", 0u) == 3 && !shift &&
+                                   (text[0] == '-' || text[0] == '=');
+    if (japaneseLongVowel)
+      return apply(msime_client_character(session_, static_cast<uint8_t>(text[0]), false));
     if (asciiPunctuation)
       return punctuation(static_cast<uint8_t>(text[0]));
     return apply(msime_client_character(session_, static_cast<uint8_t>(text[0]), key.states().test(fcitx::KeyState::Shift)));

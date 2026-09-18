@@ -195,7 +195,7 @@ int main(int argc, char **argv) {
     }
     require(!state->preferences_.value("number_row_selection", true),
             "runtime preferences reload in active Fcitx session");
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 37,
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 38,
             "native status actions attached");
     require(engine.learning_action_.isChecked(&ic),
             "learning status action reflects reloaded preference");
@@ -234,7 +234,7 @@ int main(int argc, char **argv) {
       require(!engine.cloud_candidates_action_.isChecked(&ic),
               "cloud candidates status action reflects disabled preference");
     }
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 37,
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 38,
             "AI status action attached");
     require(engine.emoji_category_action_.shortText(&ic) == "表情：Emoji",
             "emoji category starts in the default catalog");
@@ -346,6 +346,8 @@ int main(int argc, char **argv) {
     require(engine.candidate_page_size_menu_.actions().size() == 9,
             "candidate page-size menu attached");
     engine.candidate_page_size3_.activate(&ic);
+    require(state->preferences_.value("candidate_page_size", 0u) == 3,
+            "candidate page-size action persists a larger page");
     require(state->view_.value("page_size", 0u) == 3,
             "candidate page-size action applies a larger page");
     engine.candidate_page_size2_.activate(&ic);
@@ -355,12 +357,18 @@ int main(int argc, char **argv) {
             "nine-key spelling menu attached");
     engine.nine_key_action_.activate(&ic);
     require(state->view_.value("nine_key", false), "nine-key action enables nine-key mode");
+    fcitx::KeyEvent nineKeyDigit(&ic, fcitx::Key(FcitxKey_6));
+    engine.keyEvent(entry, nineKeyDigit);
+    require(nineKeyDigit.accepted(), "nine-key digit starts a spelling composition");
     const auto spellings = state->view_.value("nine_key_spellings", Json::array());
     require(spellings.is_array() && !spellings.empty(),
             "nine-key mode exposes spelling choices");
     engine.nine_key_spelling1_.activate(&ic);
     require(state->view_.value("nine_key", false),
             "nine-key spelling action preserves nine-key mode");
+    fcitx::KeyEvent nineKeyEscape(&ic, fcitx::Key(FcitxKey_Escape));
+    engine.keyEvent(entry, nineKeyEscape);
+    require(nineKeyEscape.accepted(), "nine-key spelling composition cleanup");
     engine.nine_key_action_.activate(&ic);
     require(!state->view_.value("nine_key", true), "nine-key action restores alphabetic mode");
     require(engine.emoji_menu_.actions().size() == 7,
