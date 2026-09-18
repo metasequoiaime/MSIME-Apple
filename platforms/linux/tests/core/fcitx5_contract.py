@@ -40,6 +40,7 @@ assert 'msime-candidate-skin' in source
 assert 'cycleCandidateSkin' in source
 assert 'candidate_skin_catalog' in source
 assert 'msime_client_load_preferences' in source
+assert 'applyContextOverrides' in source
 assert 'msime-helpcode-schema' in source
 assert 'cycleHelpcodeSchema' in source
 assert 'toggleLocalMode' in source
