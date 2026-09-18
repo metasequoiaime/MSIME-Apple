@@ -791,6 +791,32 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
             with self.subTest(file=path.name):
                 self.assertEqual(tight, [], f"{path.name} 里有比 5 秒更紧的等待")
 
+    def test_the_full_suite_is_split_in_two_and_the_halves_cover_it_exactly(self):
+        """全量分两片跑,墙钟减半;但分片只有在「刚好互补」时才等于没少跑。
+
+        实测 185 条用例 2624 秒,其中 SettingsUITests 743.8s 和 SkinUITests 706.6s 占了一多半,所以那两类
+        自成一片。heavy 用 -only-testing 圈住它们,rest 用 -skip-testing 排掉它们 —— 两处必须是同一份名单,
+        名单漂了就会有类被跑两遍,或者一条不剩地漏掉,而漏掉是不会报错的。
+
+        job 名也钉在这里:分支保护按名字认必需检查,`iOS Simulator` 改了名,门就再也等不到它。
+        """
+        runner = (IOS_ROOT / "scripts/run_ui_tests.sh").read_text()
+        lists = re.findall(r"for heavy_class in (.+?); do", runner)
+        self.assertEqual(len(lists), 2, "分片应当只有 heavy 和 rest 两片")
+        self.assertEqual(lists[0].split(), lists[1].split(),
+                         "两片的类名单必须完全一致,否则有类会被跑两遍或漏掉")
+        self.assertTrue(lists[0].split(), "名单不能为空,否则 heavy 片什么都不跑")
+        blocks = runner.split("for heavy_class in")
+        self.assertIn("-only-testing:", blocks[1].split("esac")[0].split("for heavy_class in")[0])
+        self.assertIn("-skip-testing:", blocks[2].split("esac")[0])
+
+        workflow = (IOS_ROOT.parents[1] / ".github/workflows/ci-ios.yml").read_text()
+        self.assertIn("name: iOS Simulator\n", workflow)
+        self.assertIn("MSIME_TEST_SHARD: ${{ github.base_ref == 'main' && 'rest' || '' }}", workflow)
+        self.assertIn("MSIME_TEST_SHARD: ${{ github.base_ref == 'main' && 'heavy' || '' }}", workflow)
+        # 全量属于进 main 的那个 PR。push 到 main 是紧接着的第二遍,同样的内容再走一小时。
+        self.assertNotIn("github.ref_name == 'main') && 'all'", workflow)
+
     def test_the_parallel_scope_warms_its_clone_template_then_powers_it_down(self):
         """并行路径要的是「模板热、跑的时候只剩两台」,这两件事靠先后顺序同时拿到。
 
@@ -880,7 +906,10 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         self.assertIn("build-for-testing", runner)
         self.assertIn("test-without-building", runner)
         self.assertNotIn("generic/platform=iOS Simulator", workflow)
-        self.assertEqual(workflow.count("xcodebuild"), 0)
+        # 剥掉注释再数:契约是「工作流里不调用 xcodebuild」,不是「工作流里不许提到它」。一条解释超时上限为什么
+        # 要放宽的注释写了 xcodebuild 缓冲输出的行为,就把这条钉红了 —— 那时它拦的是措辞,不是调用。
+        steps = "\n".join(l for l in workflow.splitlines() if not l.lstrip().startswith("#"))
+        self.assertEqual(steps.count("xcodebuild"), 0)
         # Booting returns immediately and the build needs no simulator, so the wait belongs after
         # the build rather than before it. Compare the commands rather than the file: prose that
         # names a step would otherwise decide the order this reads.

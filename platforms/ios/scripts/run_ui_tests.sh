@@ -158,6 +158,36 @@ elif [[ "${MSIME_TEST_SCOPE:-all}" != "all" ]]; then
   exit 1
 fi
 
+# 全量分片:两台 runner 各跑一半,墙钟减半而一条用例都不少。不设分片就是整套,本机就该这么跑。
+#
+# 切在哪里是量出来的,不是猜的。一次跑完的全量里,185 条用例合计 2624 秒,其中界面那四类占 2433 秒:
+#   SettingsUITests 743.8s / SkinUITests 706.6s / KeyboardSurfaceUITests 691.2s / WelcomeUITests 291.8s
+# 剩下二十多个单元类加起来 191 秒。所以最肥的两类单独一片(1451 秒),其余一片(1173 秒),两边差不多齐。
+#
+# Xcode 是按类把用例分给克隆的,分片也按类分 —— 同一个单位,不会有哪一条被切成两半或漏掉。
+shard_arguments=()
+case "${MSIME_TEST_SHARD:-}" in
+  "") ;;
+  heavy)
+    for heavy_class in MetasequoiaImeIOSUITests/SettingsUITests MetasequoiaImeIOSUITests/SkinUITests; do
+      shard_arguments+=(-only-testing:"${heavy_class}")
+    done
+    ;;
+  rest)
+    for heavy_class in MetasequoiaImeIOSUITests/SettingsUITests MetasequoiaImeIOSUITests/SkinUITests; do
+      shard_arguments+=(-skip-testing:"${heavy_class}")
+    done
+    ;;
+  *)
+    echo "Unknown MSIME_TEST_SHARD: ${MSIME_TEST_SHARD} (expected heavy or rest)" >&2
+    exit 1
+    ;;
+esac
+if [[ -n "${MSIME_TEST_SHARD:-}" && "${MSIME_TEST_SCOPE:-all}" != "all" ]]; then
+  echo "MSIME_TEST_SHARD only divides the full suite; scope is ${MSIME_TEST_SCOPE}" >&2
+  exit 1
+fi
+
 # The interface cases are a cold launch and a walk through the app each, so they are bound by the
 # Simulator rather than the machine: running them one at a time leaves most of a multi-core runner
 # idle. Cloning the Simulator and running test classes across the clones is what that idleness is
@@ -210,6 +240,7 @@ xcodebuild \
   BREW_PREFIX="$(brew --prefix)" \
   COMPILER_INDEX_STORE_ENABLE=NO \
   ${scope_arguments[@]+"${scope_arguments[@]}"} \
+  ${shard_arguments[@]+"${shard_arguments[@]}"} \
   ${skip_arguments[@]+"${skip_arguments[@]}"} \
   ${parallel_arguments[@]+"${parallel_arguments[@]}"} \
   test-without-building

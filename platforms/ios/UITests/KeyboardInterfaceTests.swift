@@ -7,8 +7,12 @@ import XCTest
 /// parallel testing changed nothing. Split by the surface each case walks through, so the clones
 /// have something to divide.
 class KeyboardInterfaceTests: XCTestCase {
+  /// 默认 30 秒,不是 5 秒。等待成立时立刻返回,所以这个数只决定「真的坏了要多久才说」,不会让任何一条
+  /// 用例变慢。5 秒是按本机速度定的:同一套件在 CI 上,两台克隆并行时 testAIProviderSelection… 跑过 402 秒,
+  /// 一次无障碍查询就可能几十秒。于是 5 秒等的不是界面有没有到位,而是这台机器忙不忙 —— 报出来是一句
+  /// 光秃秃的 XCTAssertTrue failed,看不出是产品坏了还是 runner 慢。
   @MainActor
-  func wait(_ element: XCUIElement, until predicate: String, timeout: TimeInterval = 5) -> Bool {
+  func wait(_ element: XCUIElement, until predicate: String, timeout: TimeInterval = 30) -> Bool {
     let expectation = XCTNSPredicateExpectation(
       predicate: NSPredicate(format: predicate), object: element)
     return XCTWaiter.wait(for: [expectation], timeout: timeout) == .completed

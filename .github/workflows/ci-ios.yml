@@ -91,7 +91,8 @@ jobs:
     # test build before a case ran, then thirty-seven cases on a Simulator half the speed of an arm64
     # one. The handwriting cases are their own job now, so neither waits on the other.
     runs-on: macos-15
-    timeout-minutes: 60
+    # 这个上限盖住整个 job,比里面那一步还先到期 —— 2026-09-18 砍掉一次 `all` 范围的运行就是它:job 跑到 60 分 24 秒被砍,而那一步自己才 58 分。两处要一起调,只改里面那个不起作用。
+    timeout-minutes: 95
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
       MSIME_IOS_SKIP_HANDWRITING: '1'
@@ -142,16 +143,105 @@ jobs:
         # a number the suite has to fit inside. The 110 it used to carry was for an Intel runner
         # doing this work on a Simulator half the speed, and a 25-minute build in front of it.
         #
-        # 60 rather than 45, because the cap has to cover the build as well: run_ui_tests.sh does build-for-testing and test-without-building in the one step, so a compile from cold is inside the budget along with the whole suite. Measured at this gate, the job takes 33 to 34 minutes; a runner half again as slow took 50 and was killed mid-suite, which reads as a test failure and is not one. The point of the cap is to stop a hang, and a hang is open-ended -- it does not need a tight number to be caught.
+        # The cap has to cover the build as well: run_ui_tests.sh does build-for-testing and test-without-building in the one step, so a compile from cold is inside the budget along with the whole suite.
+        #
+        # 90 rather than 60, because 60 stopped catching hangs and started catching the suite. The `all` scope measured 38m43s, then 48m00s, then ran past 58 minutes and was killed with the tests still going -- and a killed run prints nothing at all, because xcodebuild only flushes its per-case lines at the end. So the cost of a tight cap is not a slower gate, it is a red run that says nothing about why. A hang is open-ended and 90 catches it just as well.
         env:
-          MSIME_TEST_SCOPE: ${{ (github.base_ref == 'main' || github.ref_name == 'main') && 'all' || 'pr' }}
-        timeout-minutes: 60
+          # 全量只跑在进 main 的 PR 上。push 到 main 是紧接着的第二遍,内容和刚绿的那个 PR 头一模一样 —— 一次发布为此付两轮,而第二轮没有任何一条是新的。
+          MSIME_TEST_SCOPE: ${{ github.base_ref == 'main' && 'all' || 'pr' }}
+          MSIME_TEST_SHARD: ${{ github.base_ref == 'main' && 'rest' || '' }}
+        timeout-minutes: 90
         run: bash platforms/ios/scripts/run_ui_tests.sh
       - name: Upload iOS test results
         if: ${{ !cancelled() }}
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
         with:
           name: ios-test-results
+          path: build/ios-derived/Logs/Test/*.xcresult
+          retention-days: 7
+
+
+  # 全量套件的另一半。分成两个 job 而不是一个 matrix:分支保护按 job 名认必需检查,而 matrix 的 job 被 job 级 if 跳过时上报的是没展开的名字(#519 就是栽在这上面),`iOS Simulator` 这个名字必须原样留着。
+  #
+  # 切在哪里见 run_ui_tests.sh 的 MSIME_TEST_SHARD:实测 SettingsUITests 743.8s 加 SkinUITests 706.6s 合 1451 秒,其余全部加起来 1173 秒。两边各跑一半,墙钟从一小时出头降到半小时上下,一条用例都不少。
+  ios-heavy-interface:
+    needs: changes
+    # 整片只在进 main 的 PR 上有事做,其余情况连构建都不必起。job 级的条件在非 matrix 的 job 上是安全的 —— #519 那个「跳过时上报没展开的名字」只发生在 matrix 上。
+    if: ${{ needs.changes.outputs.build == 'true' && github.base_ref == 'main' }}
+    name: iOS Simulator (settings and skins)
+    # Everything except the three handwriting cases, on arm64, always. Only MLKitDigitalInkRecognition
+    # needs an Intel runner -- its arm64 slice is built for devices, so there is none to link against
+    # on an Apple Silicon Simulator -- and only MetasequoiaKeyboardTests/HandwritingTests needs it.
+    # The interface suite does not, and used to be dragged onto Intel with it: a twenty-five minute
+    # test build before a case ran, then thirty-seven cases on a Simulator half the speed of an arm64
+    # one. The handwriting cases are their own job now, so neither waits on the other.
+    runs-on: macos-15
+    # 这个上限盖住整个 job,比里面那一步还先到期 —— 2026-09-18 砍掉一次 `all` 范围的运行就是它:job 跑到 60 分 24 秒被砍,而那一步自己才 58 分。两处要一起调,只改里面那个不起作用。
+    timeout-minutes: 95
+    env:
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+      MSIME_IOS_SKIP_HANDWRITING: '1'
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install project generator
+        run: |
+          brew install boost fmt spdlog nlohmann-json xcodegen
+          if ! command -v pod >/dev/null 2>&1; then
+            brew install cocoapods
+          fi
+          pod --version
+      - name: Test shared account transport and session lifecycle
+        run: swift test --package-path shared/backend
+      # CMake prepares the Engine on configure, but the checks below read it first. The fetch is a no-op once the tree matches the lock, so the later configure pays nothing.
+      - name: Prepare the locked Engine archive
+        run: python3 scripts/fetch_engine.py
+      - name: Validate keyboard configuration
+        run: |
+          python3 platforms/ios/tests/ProjectConfigurationTests.py
+          python3 platforms/ios/tests/DictionaryPackagingTests.py
+          # 提交 TestFlight 审核那段只在发布当天跑,而那一天出错的代价是一次失败的发布。缺 pyjwt 时它自己跳过。
+          python3 platforms/ios/tests/TestFlightSubmissionTests.py
+      - name: Package iOS dictionary
+        run: python3 platforms/ios/scripts/prepare_dictionary.py
+      - name: Generate Xcode project
+        run: |
+          mkdir -p build/ios
+          xcodegen generate --spec platforms/ios/project.yml --project build/ios --project-root .
+          if [ "${MSIME_IOS_SKIP_HANDWRITING}" != "1" ]; then
+            pod install --deployment --project-directory=platforms/ios
+          fi
+      - name: Test native iOS keyboard and settings
+        # The full interface suite runs where it gates something: the pull request that promotes
+        # develop to main, and main itself. Everywhere else runs the unit suites and the handful of
+        # interface cases in the pr scope.
+        #
+        # It used to run on every push to develop, which is after the merge -- 29 minutes of walking
+        # the app to tell us something a dozen times a day, blocking nothing, while the promotion
+        # that actually ships ran the cheap scope. The expensive scope belongs at the gate.
+        #
+        # The interface suite dominates either way -- each case is a cold launch and a walk through
+        # the app -- so it runs its classes across cloned Simulators rather than one after another.
+        # The runner has the cores; a single Simulator was leaving most of them idle.
+        #
+        # The cap is what the whole suite took on arm64 before that, with room to spare, rather than
+        # a number the suite has to fit inside. The 110 it used to carry was for an Intel runner
+        # doing this work on a Simulator half the speed, and a 25-minute build in front of it.
+        #
+        # The cap has to cover the build as well: run_ui_tests.sh does build-for-testing and test-without-building in the one step, so a compile from cold is inside the budget along with the whole suite.
+        #
+        # 90 rather than 60, because 60 stopped catching hangs and started catching the suite. The `all` scope measured 38m43s, then 48m00s, then ran past 58 minutes and was killed with the tests still going -- and a killed run prints nothing at all, because xcodebuild only flushes its per-case lines at the end. So the cost of a tight cap is not a slower gate, it is a red run that says nothing about why. A hang is open-ended and 90 catches it just as well.
+        env:
+          # 全量只跑在进 main 的 PR 上。push 到 main 是紧接着的第二遍,内容和刚绿的那个 PR 头一模一样 —— 一次发布为此付两轮,而第二轮没有任何一条是新的。
+          MSIME_TEST_SCOPE: ${{ github.base_ref == 'main' && 'all' || 'pr' }}
+          MSIME_TEST_SHARD: ${{ github.base_ref == 'main' && 'heavy' || '' }}
+        timeout-minutes: 90
+        run: bash platforms/ios/scripts/run_ui_tests.sh
+      - name: Upload iOS test results
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: ios-test-results-settings-and-skins
           path: build/ios-derived/Logs/Test/*.xcresult
           retention-days: 7
 

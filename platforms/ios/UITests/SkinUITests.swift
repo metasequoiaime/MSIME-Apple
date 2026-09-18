@@ -153,24 +153,25 @@ final class SkinUITests: KeyboardInterfaceTests {
     app.buttons["openAISkinDesigner"].tap()
     // 等到可点,不只是等到存在:waitForExistence 满足于元素进入无障碍层级,而那时它未必已经可交互。
     //
-    // 这条用例红过三轮,前两次都归错了因 —— 先当成等得不够久(3 秒放到 5 秒),再当成 tap 落空。真正的
-    // 原因在 fixture 那一侧:取消按钮只在生成期间存在,而 -skinGenerationSlowFixture 原先只把生成撑到
-    // 5 秒。XCUITest 在 tap 返回(要先等 app 静止)到查出按钮之间,本机空载就花掉 2.8 秒,CI 上两台克隆
-    // 并行时超过 5 秒 —— 于是查询开始时生成已经结束,报出来是
+    // 这条用例红过三轮,归因错了两次(先当成等得不够久,再当成 tap 落空),第三次才找对地方,却只改了常数:
+    // 取消按钮仅在生成期间存在,而 -skinGenerationSlowFixture 给的是一段有限的墙钟窗口。XCUITest 从 tap
+    // 返回(要先等 app 静止)到把按钮查出来要多久,取决于 runner 有多忙 —— 本机空载 2.8 秒,CI 上两台克隆
+    // 并行时,同一套件里有单条用例跑了 184 秒。5 秒不够,30 秒也不够,那次用例本身就跑了 31.4 秒,报出来是
     // 「No matches found for '取消' … from input { Button, label: '再抽三张', saveAISkin_AI 测试 1 … }」,
-    // 那几个 saveAISkin 就是生成已经完成的证据。窗口现在是 30 秒,不再和查询开销赛跑。
+    // 那几个 saveAISkin 正是生成已经结束的证据。
     //
-    // 窗口长了还让最后那句断言真正成立:5 秒的时候 busy 会自己落下,取消就算完全没生效,按钮照样会重新
-    // 可用。现在只有取消真的生效了它才可用。
+    // 所以 fixture 现在不自己结束,由下面这一下「取消」来结束它。没有窗口,就没有赛跑,也不需要猜一个够大的
+    // 数。断言反而更强了:生成不会自己停,按钮能重新可用只可能是因为取消真的生效了。
     let generate = app.buttons["generateAISkins"]
     XCTAssertTrue(wait(generate, until: "exists == true AND isHittable == true"))
     generate.tap()
-    XCTAssertTrue(app.buttons["取消"].waitForExistence(timeout: 5))
+    // 30 秒等的不是按钮出现 —— busy 置真和它出现是同一刻 —— 而是这台机器把无障碍快照算出来。
+    XCTAssertTrue(app.buttons["取消"].waitForExistence(timeout: 30))
     app.buttons["取消"].tap()
     let late = XCTNSPredicateExpectation(predicate: NSPredicate(format: "exists == true"), object: app.buttons["saveAISkin_AI 测试 1"])
     late.isInverted = true
     XCTAssertEqual(XCTWaiter.wait(for: [late], timeout: 6), .completed)
-    XCTAssertTrue(app.buttons["generateAISkins"].isEnabled)
+    XCTAssertTrue(wait(generate, until: "isEnabled == true"))
   }
 
   @MainActor
