@@ -29,6 +29,13 @@ import { DesktopSurface } from './DesktopSurface';
 import {
   ClipboardHistoryStore, ClipboardHistoryItem, ClipboardHistoryError
 } from './clipboard/ClipboardHistoryStore';
+import componentSnapshot from '@ohos.arkui.componentSnapshot';
+import { image } from '@kit.ImageKit';
+import { textRecognition } from '@kit.CoreVisionKit';
+import {
+  HandwritingPoint, HandwritingStroke, HandwritingStrokePolicy,
+  HANDWRITING_CANVAS_SIZE, HANDWRITING_MAX_POINTS, HANDWRITING_MAX_STROKES
+} from './input/HandwritingStrokePolicy';
 
 /**
  * The 26-key touch keyboard, laid out to the same metrics as the iOS extension in
@@ -110,8 +117,7 @@ const TOOL_ICON_VP: number = 18;
 const ENGLISH_CARD_POSITION: number = 2;
 // English has no entry in KeyboardScheme to take its name from, being a mode rather than a scheme.
 const ENGLISH_TITLES: string[] = ['英文 26 键', '英文 9 键'];
-// Said plainly: nothing is broken, the recogniser this scheme needs is not on this platform.
-const HANDWRITING_UNAVAILABLE: string = '手写识别在当前设备上不可用';
+const HANDWRITING_CANVAS_ID: string = 'msime-harmony-handwriting-canvas';
 const SCHEME_BADGE_VP: number = 26;
 const SCHEME_GLYPH_SIZE: number = 15;
 const SCHEME_BADGE_TEXT_SIZE: number = 9;
@@ -200,6 +206,11 @@ struct KeyboardView {
   @State caseMode: LetterCaseMode = LetterCaseMode.LOWERCASE;
   @State skin: KeyboardSkin = KeyboardSkin.from('forest', false);
   @State scheme: SchemeDefinition = KeyboardScheme.QUANPIN;
+  @State handwritingStrokes: HandwritingStroke[] = [];
+  @State handwritingRedo: HandwritingStroke[] = [];
+  @State handwritingCandidates: string[] = [];
+  @State handwritingNotice: string = '';
+  @State handwritingBusy: boolean = false;
 
   private readonly letterCase: EnglishLetterCaseState = new EnglishLetterCaseState();
   private settings: KeyboardPreferences = KeyboardSession.shared.preferences();
@@ -211,6 +222,10 @@ struct KeyboardView {
   private pendingRemoval: number = -1;
   private flickX: number = 0;
   private flickY: number = 0;
+  private handwritingCurrent: HandwritingPoint[] = [];
+  private handwritingRevision: number = 0;
+  private handwritingContext: CanvasRenderingContext2D =
+    new CanvasRenderingContext2D(new RenderingContextSettings(true));
 
   aboutToAppear(): void {
     this.english = KeyboardSession.shared.isEnglish();
@@ -527,16 +542,8 @@ struct KeyboardView {
       && !(KeyboardFormFactor.isDesktop() && candidate.touchKeyboardLayout === 'nine_key'));
   }
 
-  /**
-   * Whether picking this scheme would actually compose anything.
-   *
-   * Handwriting needs a recogniser the host injects, as Android injects one, and HarmonyOS has none;
-   * the engine is built without it here. The card is shown rather than hidden because leaving it out
-   * makes the keyboard look as though it has fewer schemes than it does, but it is dimmed and says
-   * why when tapped — silently doing nothing is the worse of the two.
-   */
   private schemeAvailable(candidate: SchemeDefinition): boolean {
-    return candidate.id !== 'HANDWRITING';
+    return true;
   }
 
   /** The scheme the keyboard is on, which the nine-key toggle can move without the picker. */
@@ -1139,6 +1146,238 @@ struct KeyboardView {
     }
   }
 
+  private redrawHandwriting(): void {
+    const context: CanvasRenderingContext2D = this.handwritingContext;
+    context.clearRect(0, 0, HANDWRITING_CANVAS_SIZE, HANDWRITING_CANVAS_SIZE);
+    context.strokeStyle = this.skin.keyForeground;
+    context.lineWidth = 4;
+    context.lineCap = 'round';
+    context.lineJoin = 'round';
+    for (const stroke of this.handwritingStrokes) {
+      if (stroke.points.length === 0) {
+        continue;
+      }
+      context.beginPath();
+      context.moveTo(stroke.points[0].x, stroke.points[0].y);
+      for (const point of stroke.points.slice(1)) {
+        context.lineTo(point.x, point.y);
+      }
+      context.stroke();
+    }
+    if (this.handwritingCurrent.length > 0) {
+      context.beginPath();
+      context.moveTo(this.handwritingCurrent[0].x, this.handwritingCurrent[0].y);
+      for (const point of this.handwritingCurrent.slice(1)) {
+        context.lineTo(point.x, point.y);
+      }
+      context.stroke();
+    }
+  }
+
+  private handwritingPoint(event: TouchEvent): HandwritingPoint {
+    const touch = event.touches[0];
+    return HandwritingStrokePolicy.point(touch.x, touch.y);
+  }
+
+  private handwritingTouch(event: TouchEvent): void {
+    if (event.touches.length === 0 || this.handwritingBusy) {
+      return;
+    }
+    if (event.type === TouchType.Down) {
+      this.handwritingCurrent = [this.handwritingPoint(event)];
+      this.redrawHandwriting();
+      return;
+    }
+    if (event.type === TouchType.Move) {
+      if (this.handwritingCurrent.length > 0
+        && this.handwritingCurrent.length < HANDWRITING_MAX_POINTS) {
+        this.handwritingCurrent.push(this.handwritingPoint(event));
+        this.redrawHandwriting();
+      }
+      return;
+    }
+    if (event.type === TouchType.Up) {
+      if (this.handwritingCurrent.length > 0) {
+        this.handwritingCurrent.push(this.handwritingPoint(event));
+        if (this.handwritingStrokes.length < HANDWRITING_MAX_STROKES) {
+          this.handwritingStrokes = [...this.handwritingStrokes,
+            { points: this.handwritingCurrent.slice() }];
+          this.handwritingRedo = [];
+          this.handwritingNotice = '';
+        } else {
+          this.handwritingNotice = '笔画过多，请先清除或撤销后再识别';
+        }
+      }
+      this.handwritingCurrent = [];
+      this.redrawHandwriting();
+      if (HandwritingStrokePolicy.canRecognize(this.handwritingStrokes)) {
+        this.recognizeHandwriting();
+      }
+    }
+  }
+
+  private clearHandwriting(): void {
+    this.handwritingRevision++;
+    this.handwritingStrokes = [];
+    this.handwritingRedo = [];
+    this.handwritingCandidates = [];
+    this.handwritingCurrent = [];
+    this.handwritingNotice = '';
+    this.redrawHandwriting();
+  }
+
+  private undoHandwriting(): void {
+    if (this.handwritingStrokes.length === 0 || this.handwritingBusy) {
+      return;
+    }
+    this.handwritingRevision++;
+    const removed: HandwritingStroke | undefined =
+      this.handwritingStrokes[this.handwritingStrokes.length - 1];
+    if (removed === undefined) {
+      return;
+    }
+    this.handwritingStrokes = this.handwritingStrokes.slice(0, -1);
+    this.handwritingRedo = [...this.handwritingRedo, removed];
+    this.handwritingCandidates = [];
+    this.handwritingNotice = '';
+    this.redrawHandwriting();
+  }
+
+  private redoHandwriting(): void {
+    if (this.handwritingRedo.length === 0 || this.handwritingBusy
+      || this.handwritingStrokes.length >= HANDWRITING_MAX_STROKES) {
+      return;
+    }
+    this.handwritingRevision++;
+    const restored: HandwritingStroke | undefined = this.handwritingRedo[
+      this.handwritingRedo.length - 1];
+    if (restored === undefined) {
+      return;
+    }
+    this.handwritingRedo = this.handwritingRedo.slice(0, -1);
+    this.handwritingStrokes = [...this.handwritingStrokes, restored];
+    this.handwritingCandidates = [];
+    this.handwritingNotice = '';
+    this.redrawHandwriting();
+    this.recognizeHandwriting();
+  }
+
+  private recognizeHandwriting(): void {
+    if (this.handwritingBusy || !HandwritingStrokePolicy.canRecognize(this.handwritingStrokes)) {
+      return;
+    }
+    const revision: number = ++this.handwritingRevision;
+    this.handwritingBusy = true;
+    this.handwritingNotice = '正在识别…';
+    componentSnapshot.get(HANDWRITING_CANVAS_ID, (error: Error, pixelMap: image.PixelMap): void => {
+      if (error) {
+        this.handwritingBusy = false;
+        this.handwritingNotice = '无法读取手写画布';
+        return;
+      }
+      textRecognition.init().then((ready: boolean): Promise<textRecognition.TextRecognitionResult> => {
+        if (!ready) {
+          throw new Error('text recognition unavailable');
+        }
+        return textRecognition.recognizeText({ pixelMap: pixelMap });
+      }).then((result: textRecognition.TextRecognitionResult): void => {
+        if (revision !== this.handwritingRevision) {
+          return;
+        }
+        this.handwritingCandidates = HandwritingStrokePolicy.candidates(result.value);
+        this.handwritingNotice = this.handwritingCandidates.length > 0
+          ? '' : '没有识别到文字，请重写';
+      }).catch((reason: Error): void => {
+        if (revision === this.handwritingRevision) {
+          KeyboardLog.error(`handwriting recognition unavailable: ${describeError(reason)}`);
+          this.handwritingCandidates = [];
+          this.handwritingNotice = '手写识别服务不可用';
+        }
+      }).finally((): void => {
+        void textRecognition.release();
+        void pixelMap.release();
+        if (revision === this.handwritingRevision) {
+          this.handwritingBusy = false;
+        }
+      });
+    });
+  }
+
+  private chooseHandwriting(candidate: string): void {
+    if (this.handwritingBusy || candidate.length === 0) {
+      return;
+    }
+    KeyboardSession.shared.insert(candidate);
+    this.clearHandwriting();
+  }
+
+  @Builder
+  handwritingFace() {
+    Column({ space: KeyboardMetrics.KEY_SPACING_VP }) {
+      Row() {
+        Text('手写输入')
+          .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
+          .fontColor(this.skin.keyForeground)
+          .layoutWeight(1)
+        Text('撤销')
+          .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+          .fontColor(this.skin.accent)
+          .onClick(() => this.undoHandwriting())
+        Text('重做')
+          .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+          .fontColor(this.skin.accent)
+          .padding({ left: 12 })
+          .onClick(() => this.redoHandwriting())
+        Text('清除')
+          .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+          .fontColor(this.skin.accent)
+          .padding({ left: 12 })
+          .onClick(() => this.clearHandwriting())
+      }
+      .width('100%')
+      .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 4)
+      .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
+        right: KeyboardMetrics.CANDIDATE_PADDING_VP })
+
+      Canvas(this.handwritingContext)
+        .id(HANDWRITING_CANVAS_ID)
+        .width('100%')
+        .height(this.surfaceHeight() * 0.58)
+        .backgroundColor(this.skin.keyBackground)
+        .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
+        .borderWidth(this.skin.borderWidth)
+        .borderColor(this.skin.borderColor)
+        .onReady(() => this.redrawHandwriting())
+        .onTouch((event: TouchEvent): void => this.handwritingTouch(event))
+
+      if (this.handwritingCandidates.length > 0) {
+        Row({ space: KeyboardMetrics.KEY_SPACING_VP }) {
+          ForEach(this.handwritingCandidates, (candidate: string) => {
+            Text(candidate)
+              .fontSize(KeyboardMetrics.KEY_FONT_SIZE)
+              .fontColor(this.skin.keyForeground)
+              .textAlign(TextAlign.Center)
+              .layoutWeight(1)
+              .padding({ top: 8, bottom: 8 })
+              .backgroundColor(this.skin.keyBackground)
+              .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
+              .onClick(() => this.chooseHandwriting(candidate));
+          }, (candidate: string): string => candidate)
+        }
+        .width('100%')
+      }
+      if (this.handwritingNotice.length > 0) {
+        Text(this.handwritingNotice)
+          .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+          .fontColor(this.skin.keyForeground)
+          .opacity(0.72)
+          .maxLines(1)
+      }
+    }
+    .width('100%')
+    .height(this.surfaceHeight())
+  }
+
   /**
    * The scheme and skin pickers, which take over the key rows rather than floating above them.
    *
@@ -1293,15 +1532,7 @@ struct KeyboardView {
       ? this.skin.tintedAccent(SELECTED_CARD_ALPHA) : Color.Transparent)
     .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
     .opacity(this.schemeAvailable(candidate) ? 1 : 0.4)
-    .onClick(() => {
-      if (!this.schemeAvailable(candidate)) {
-        this.diagnostic = HANDWRITING_UNAVAILABLE;
-        this.clearDiagnosticLater();
-        this.show(SURFACE_NONE);
-        return;
-      }
-      this.selectScheme(candidate);
-    })
+    .onClick(() => this.selectScheme(candidate))
   }
 
   /** A miniature keyboard in the skin being offered, drawn from the same values the real one uses. */
@@ -2101,6 +2332,8 @@ struct KeyboardView {
         this.variantFace()
       } else if (this.japanese && !this.symbols) {
         this.japaneseFace()
+      } else if (this.scheme.touchKeyboardLayout === 'handwriting') {
+        this.handwritingFace()
       } else if (this.nineKey && !this.symbols) {
         this.nineKeyFace()
       } else {

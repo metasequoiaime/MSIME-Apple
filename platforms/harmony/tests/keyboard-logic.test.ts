@@ -51,6 +51,9 @@ import { CustomKeyboardSkin, CustomSkinDocument, supportedPhoto }
   from '../entry/src/main/ets/keyboard/skin/CustomKeyboardSkin';
 import { DictionaryMaintenancePolicy }
   from '../entry/src/main/ets/keyboard/DictionaryMaintenancePolicy';
+import {
+  HandwritingStrokePolicy, HANDWRITING_CANVAS_SIZE, HANDWRITING_MAX_CANDIDATES,
+} from '../entry/src/main/ets/keyboard/input/HandwritingStrokePolicy';
 
 let failures = 0;
 let checks = 0;
@@ -94,6 +97,24 @@ function check(condition: boolean, message: string): void {
 console.log('KeyboardGeometry');
 
 console.log('DictionaryMaintenancePolicy');
+
+console.log('HandwritingStrokePolicy');
+
+group('bounds handwriting points and rejects empty recognition requests', () => {
+  const point = HandwritingStrokePolicy.point(999, -4);
+  check(point.x === HANDWRITING_CANVAS_SIZE && point.y === 0,
+    'handwriting points stay inside the canvas');
+  check(!HandwritingStrokePolicy.canRecognize([]), 'empty ink does not trigger OCR');
+  check(HandwritingStrokePolicy.canRecognize([{ points: [point] }]),
+    'a bounded stroke is recognisable');
+});
+
+group('normalizes OCR candidates without leaking control text or duplicates', () => {
+  const candidates = HandwritingStrokePolicy.candidates(' 水\n水\u0000永木未未 ');
+  check(candidates.join('') === '水永木未', 'OCR candidates are unique and trimmed');
+  check(HandwritingStrokePolicy.candidates('甲乙丙丁戊己庚辛').length === HANDWRITING_MAX_CANDIDATES,
+    'OCR candidates are bounded');
+});
 
 group('allows reads during composition without restarting the session', () => {
   const decision = DictionaryMaintenancePolicy.decide('list', true);

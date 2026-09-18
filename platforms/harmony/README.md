@@ -4,6 +4,8 @@ OpenHarmony 适配保留 ArkTS/ArkUI 应用入口与 NAPI 原生边界。共享�
 
 Harmony 设置页也暴露共享的模糊拼音规则。设置保存到同一个 `PreferencesStore`，键盘宿主在准备 Engine 会话时读取并应用启用的规则；这项能力不依赖桌面窗口或设备专属 API。
 
+手写方案使用 HarmonyOS Core Vision Kit 的 `textRecognition`：键盘内的 ArkUI Canvas 记录受界限约束的笔画，组件快照转换为 `PixelMap` 后交给系统 OCR，候选结果仍由共享 Engine 会话提交到编辑器。OCR 服务不可用时保留明确提示，不回退到伪造的 Engine 手写模型；该路径需要设备提供 `SystemCapability.AI.OCR.TextRecognition`。
+
 ## 目录结构
 
 - `entry/src/`：ArkTS 应用与键盘宿主源码。
