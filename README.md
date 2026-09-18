@@ -18,6 +18,8 @@
 
 ## 开发
 
+贡献代码前请阅读 [贡献指南](CONTRIBUTING.md)、[安全策略](SECURITY.md) 和 [行为规范](CODE_OF_CONDUCT.md)。仓库当前仍处于渐进迁移阶段；请以每个平台 README 和本地验证结果为准，不把未执行的原生宿主验收当作已完成。
+
 ```sh
 cargo test -p msime-client-core --locked
 cargo fmt --all --check
