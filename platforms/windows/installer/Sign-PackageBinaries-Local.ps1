@@ -134,17 +134,22 @@ function Test-SignedByLocalTestCertificate {
 }
 
 function Invoke-Sign {
-    param([Parameter(Mandatory)][string]$LiteralPath)
+    param([Parameter(Mandatory)][string[]]$LiteralPath)
 
     # 自签名证书的时间戳没有意义，测试机还可能离线，所以不加 /tr。
-    & $script:signTool sign /sha1 $script:thumbprint /s My /fd sha256 /v $LiteralPath
+    # 一次调用覆盖整个包，和正式签名流程保持一致，也避免 SimplySign/签名服务
+    # 对每个 EXE/DLL 重复触发确认。
+    $resolved = @($LiteralPath | ForEach-Object { (Resolve-Path -LiteralPath $_).Path })
+    & $script:signTool sign /sha1 $script:thumbprint /s My /fd sha256 /v @($resolved)
     if ($LASTEXITCODE -ne 0) {
         throw "signtool.exe 签名失败，退出码：$LASTEXITCODE"
     }
 
-    & $script:signTool verify /pa /v $LiteralPath
-    if ($LASTEXITCODE -ne 0) {
-        Write-Warning "已签名但链校验失败（测试证书尚未被本机信任）：$LiteralPath"
+    foreach ($path in $resolved) {
+        & $script:signTool verify /pa /v $path
+        if ($LASTEXITCODE -ne 0) {
+            Write-Warning "已签名但链校验失败（测试证书尚未被本机信任）：$path"
+        }
     }
 }
 
@@ -178,15 +183,20 @@ $script:signTool = Find-SignTool
 
 $signedCount = 0
 $skippedCount = 0
+$unsignedTargets = @()
 foreach ($target in $targets) {
     if (Test-SignedByLocalTestCertificate -LiteralPath $target.FullName) {
         Write-Host "已由本机测试证书签名，跳过：$($target.FullName)"
         $skippedCount++
         continue
     }
-    Write-Host "正在签名：$($target.FullName)"
-    Invoke-Sign -LiteralPath $target.FullName
-    $signedCount++
+    $unsignedTargets += $target.FullName
+}
+if ($unsignedTargets.Count -gt 0) {
+    Write-Host "正在一次性签名 $($unsignedTargets.Count) 个 EXE/DLL："
+    $unsignedTargets | ForEach-Object { Write-Host "  $_" }
+    Invoke-Sign -LiteralPath $unsignedTargets
+    $signedCount = $unsignedTargets.Count
 }
 
 Write-Host "包内 EXE/DLL 本地签名完成：新签名 $signedCount 个，已签名跳过 $skippedCount 个，总计 $($targets.Count) 个文件。"
