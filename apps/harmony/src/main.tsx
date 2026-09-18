@@ -5,7 +5,7 @@ import { SettingsPage, type DictionaryClient, type DictionaryEntry, type Diction
   type HostCapabilities, type LocalDictionaryFormat, type LocalDictionaryKind, type Preferences,
   CloudClipboardPanel, CloudDictionaryPanel, CloudDictionaryCatalogPanel, CloudDictionaryFilesPanel, CloudDictionaryApplyPanel,
   CloudCandidatesPanel, type AccountClient, type CloudClipboardPanelClient,
-  type CloudDictionaryAction, type CloudDictionaryPanelClient, type SettingsClient, type Snapshot } from "@msime/ui";
+  type CloudDictionaryAction, type CloudDictionaryPanelClient, type SettingsClient, type Snapshot, type TypingStatisticsClient, type TypingStatisticsStatus } from "@msime/ui";
 import "@msime/ui/styles.css";
 
 /**
@@ -32,6 +32,7 @@ interface NativeBridge {
   cloudDictionary(action: string): Promise<string>;
   cloudDictionaryDownload(entry: string): string;
   cloudDictionarySnapshot(action: string): Promise<string>;
+  typingStatistics(action: string): string;
   openExternalUrl(url: string): void;
   copyText(text: string): void;
   openSystemKeyboardSettings(): void;
@@ -160,6 +161,11 @@ function makeClient(native: NativeBridge, openCloudClipboard: () => void, openCl
       dictionaryReply<{ applied: boolean }>({ operation: "dismiss_failure", request_id });
     },
   };
+  const typingStatistics: TypingStatisticsClient = {
+    load: async () => unwrap<TypingStatisticsStatus>(native.typingStatistics(JSON.stringify({ operation: "load" }))),
+    setEnabled: async (enabled: boolean) => unwrap<TypingStatisticsStatus>(native.typingStatistics(JSON.stringify({ operation: "set_enabled", enabled }))),
+    reset: async () => unwrap<TypingStatisticsStatus>(native.typingStatistics(JSON.stringify({ operation: "reset" }))),
+  };
   return {
     // Wrapped like every other reply from the shared ABI. Reading it as the record itself leaves every
     // capability undefined, which the page reads as "this host cannot", and the whole surface silently
@@ -177,6 +183,7 @@ function makeClient(native: NativeBridge, openCloudClipboard: () => void, openCl
     copyText: async (text: string) => native.copyText(text),
     openSystemKeyboardSettings: async () => native.openSystemKeyboardSettings(),
     dictionary,
+    typingStatistics,
     account: accountClient(native),
     openCloudClipboard: async () => openCloudClipboard(),
     openCloudDictionary: async () => openCloudDictionary(),

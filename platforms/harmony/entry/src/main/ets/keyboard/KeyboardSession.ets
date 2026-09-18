@@ -2,6 +2,7 @@ import inputMethodEngine from '@ohos.inputMethodEngine';
 import client from 'libmsimeclient.so';
 import { KeyboardLog, describeError } from './KeyboardLog';
 import { DictionaryMaintenancePolicy } from './DictionaryMaintenancePolicy';
+import { TypingStatisticsPolicy } from './TypingStatisticsPolicy';
 import { KeyboardSkin } from './skin/KeyboardSkin';
 import { EditorPolicy, EditorTraits } from './input/EditorPolicy';
 import { WubiCodeHintPolicy } from './input/WubiCodeHintPolicy';
@@ -103,6 +104,18 @@ interface SnapshotResponse {
   ok: boolean;
   value: PreferencesSnapshot;
   error: string;
+}
+
+interface TypingStatisticsRecordAction {
+  operation: string;
+  text: string;
+  source: string;
+  day: string;
+}
+
+interface TypingStatisticsRecordRequest {
+  directory: string;
+  action: TypingStatisticsRecordAction;
 }
 
 // The local emoji catalog lives in others.db beside the dictionaries, so the query carries the
@@ -325,6 +338,7 @@ export class KeyboardSession {
   // nine-key spellings once it has been told the grid is up.
   private nineKeyMode: boolean = false;
   private schemeName: string = 'quanpin';
+  private profileName: string = 'xiaohe';
   private resourceDirectory: string = '';
   private stateDirectory: string = '';
   private systemDark: boolean = false;
@@ -440,6 +454,7 @@ export class KeyboardSession {
         voiceShortcut: preferences.touch_voice_shortcut
       };
       this.schemeName = preferences.scheme;
+      this.profileName = preferences.shuangpin_profile;
       this.traditional = preferences.traditional_chinese_output;
       this.chinesePunctuation = preferences.chinese_punctuation;
       this.toolbar = preferences.floating_toolbar;
@@ -654,8 +669,11 @@ export class KeyboardSession {
 
   /** Tells the Engine which grid the user is typing on, so a 2 means ABC rather than a digit. */
   /** The scheme now in force, which decides whether the nine-key flag means anything. */
-  useScheme(name: string): void {
+  useScheme(name: string, profileName: string | null = null): void {
     this.schemeName = name;
+    if (profileName !== null) {
+      this.profileName = profileName;
+    }
   }
 
   setNineKey(enabled: boolean): void {
@@ -975,7 +993,9 @@ export class KeyboardSession {
         && this.inputClient !== undefined) {
       // The Engine commits simplified; whether the user wanted traditional is a host decision, the
       // same boundary the Apple and Android hosts draw.
-      this.inputClient.insertText(this.asTraditional(commit));
+      const output: string = this.asTraditional(commit);
+      this.inputClient.insertText(output);
+      this.recordTypingStatistics(output, this.typingSource());
     }
     this.render(value.view);
   }
@@ -1364,8 +1384,45 @@ export class KeyboardSession {
   insert(text: string): void {
     if (this.inputClient !== undefined) {
       const widened: string | null = FullWidthInputPolicy.output(text, this.fullWidth);
-      this.inputClient.insertText(this.asTraditional(widened === null ? text : widened));
+      const output: string = this.asTraditional(widened === null ? text : widened);
+      this.inputClient.insertText(output);
+      this.recordTypingStatistics(output, this.typingSource());
     }
+  }
+
+  /** Insert a platform-produced result and attribute it to its actual source. */
+  insertWithSource(text: string, source: string): void {
+    if (this.inputClient === undefined || text.length === 0) return;
+    const output: string = this.asTraditional(text);
+    this.inputClient.insertText(output);
+    this.recordTypingStatistics(output, source);
+  }
+
+  private typingSource(): string {
+    return TypingStatisticsPolicy.source(this.schemeName, this.profileName, this.englishMode,
+      this.nineKeyMode, this.localMode);
+  }
+
+  private recordTypingStatistics(text: string, source: string): void {
+    if (text.length === 0 || this.stateDirectory.length === 0) return;
+    const action: TypingStatisticsRecordAction = {
+      operation: 'record', text: text, source: source, day: TypingStatisticsPolicy.day(new Date())
+    };
+    const requestDocument: TypingStatisticsRecordRequest = {
+      directory: this.stateDirectory, action: action
+    };
+    const request: string = JSON.stringify(requestDocument);
+    // Native storage takes a file lock. Defer it off the key event so a slow filesystem never
+    // changes the latency of the next key, while retaining the same bounded text and source.
+    setTimeout((): void => {
+      try {
+        const response: string = client.typingStatistics(request);
+        const value: Record<string, Object> = JSON.parse(response) as Record<string, Object>;
+        if (value.ok !== true) KeyboardLog.error('typing statistics write refused');
+      } catch (error) {
+        KeyboardLog.error(`typing statistics unavailable: ${describeError(error)}`);
+      }
+    }, 0);
   }
 
   /**

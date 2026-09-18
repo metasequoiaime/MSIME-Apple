@@ -58,6 +58,7 @@ import { VoiceRecognitionPolicy, VOICE_MAX_TEXT } from
   '../entry/src/main/ets/keyboard/input/VoiceRecognitionPolicy';
 import { AccountCloudBridge, AccountSessionStore, AccountTransport } from
   '../entry/src/main/ets/account/AccountCloudBridge';
+import { TypingStatisticsPolicy } from '../entry/src/main/ets/keyboard/TypingStatisticsPolicy';
 
 let failures = 0;
 let checks = 0;
@@ -105,6 +106,25 @@ console.log('DictionaryMaintenancePolicy');
 console.log('HandwritingStrokePolicy');
 
 console.log('VoiceRecognitionPolicy');
+
+group('maps Harmony commits to shared typing-statistics sources', () => {
+  check(TypingStatisticsPolicy.source('quanpin', 'xiaohe', false, false, 'none') === 'quanpin',
+    'quanpin uses the shared source id');
+  check(TypingStatisticsPolicy.source('quanpin', 'xiaohe', false, true, 'none') === 'nineKey',
+    'nine-key quanpin has its own source id');
+  check(TypingStatisticsPolicy.source('shuangpin', 'microsoft', false, false, 'none') === 'microsoft',
+    'shuangpin profile is retained');
+  check(TypingStatisticsPolicy.source('wubi', 'xiaohe', false, false, 'none') === 'wubi',
+    'wubi uses the shared source id');
+  check(TypingStatisticsPolicy.source('quanpin', 'xiaohe', true, false, 'none') === 'english',
+    'dedicated English takes precedence');
+  check(TypingStatisticsPolicy.source('quanpin', 'xiaohe', false, false, 'emoji') === 'local',
+    'local modes are attributed as local input');
+  check(TypingStatisticsPolicy.source('quanpin', 'xiaohe', false, false,
+    'temporary_japanese') === 'japanese', 'temporary Japanese retains its language source');
+  check(TypingStatisticsPolicy.day(new Date(2026, 8, 19)) === '2026-09-19',
+    'day keys use the native local calendar date');
+});
 
 group('bounds native speech language, session and result text', () => {
   check(VoiceRecognitionPolicy.language('  ') === 'zh-CN', 'voice defaults to Chinese');

@@ -47,6 +47,36 @@ interface LocalDictionaryEditRequest {
   request_id: string;
 }
 
+interface TypingStatisticsAction {
+  operation: string;
+  enabled?: boolean;
+}
+
+interface TypingStatisticsDocument {
+  enabled: boolean;
+  total: number;
+  days: Record<string, number>;
+  detail: Object;
+  dailyDetails: Record<string, Object>;
+}
+
+interface TypingStatisticsReply {
+  ok: boolean;
+  value: TypingStatisticsDocument;
+  error: string;
+}
+
+interface TypingStatisticsStatusValue {
+  statistics: TypingStatisticsDocument;
+  availability: string;
+  lastWrittenMs: number | null;
+}
+
+interface TypingStatisticsStatusReply {
+  ok: boolean;
+  value: TypingStatisticsStatusValue;
+}
+
 @Entry
 @Component
 struct Settings {
@@ -69,7 +99,7 @@ struct Settings {
           object: this.bridge,
           name: BRIDGE_NAME,
           methodList: ['loadPreferences', 'savePreferences', 'hostCapabilities', 'appVersion',
-            'dictionary', 'account', 'cloudDictionary', 'cloudDictionaryDownload', 'cloudDictionarySnapshot', 'openExternalUrl', 'copyText', 'openSystemKeyboardSettings'],
+            'dictionary', 'account', 'cloudDictionary', 'cloudDictionaryDownload', 'cloudDictionarySnapshot', 'typingStatistics', 'openExternalUrl', 'copyText', 'openSystemKeyboardSettings'],
           controller: this.controller
         })
         .width('100%')
@@ -197,6 +227,44 @@ class SettingsBridge {
       return Promise.resolve(JSON.stringify({ ok: false, error: 'snapshot_unavailable' }));
     }
     return this.accountBridge.snapshot(action, `${this.context.filesDir}/engine`, this.stateDirectory);
+  }
+
+  typingStatistics(actionDocument: string): string {
+    if (actionDocument.length === 0 || actionDocument.length > 4096) {
+      return JSON.stringify({ ok: false, error: 'invalid typing statistics request' });
+    }
+    try {
+      const action: TypingStatisticsAction = JSON.parse(actionDocument) as TypingStatisticsAction;
+      if (!['load', 'set_enabled', 'reset'].includes(action.operation)
+        || (action.operation === 'set_enabled' && typeof action.enabled !== 'boolean')) {
+        return JSON.stringify({ ok: false, error: 'invalid typing statistics request' });
+      }
+      const raw: string = client.typingStatistics(JSON.stringify({
+        directory: this.stateDirectory, action: action
+      }));
+      const reply: TypingStatisticsReply = JSON.parse(raw) as TypingStatisticsReply;
+      if (!reply.ok) return raw;
+      let lastWrittenMs: number | null = null;
+      let available: boolean = false;
+      const file: string = `${this.stateDirectory}/typing-statistics.json`;
+      try {
+        if (fs.accessSync(file)) {
+          available = true;
+          lastWrittenMs = fs.statSync(file).mtime;
+        }
+      } catch {
+        available = false;
+      }
+      const status: TypingStatisticsStatusValue = {
+        statistics: reply.value,
+        availability: available ? 'ready' : 'neverWritten',
+        lastWrittenMs: lastWrittenMs
+      };
+      const result: TypingStatisticsStatusReply = { ok: true, value: status };
+      return JSON.stringify(result);
+    } catch {
+      return JSON.stringify({ ok: false, error: 'invalid typing statistics request' });
+    }
   }
 
   appVersion(): string {

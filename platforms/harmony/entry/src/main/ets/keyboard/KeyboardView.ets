@@ -466,7 +466,7 @@ struct KeyboardView {
     if (!KeyboardSession.shared.changePreferences(changes)) {
       return;
     }
-    KeyboardSession.shared.useScheme(candidate.engineScheme);
+    KeyboardSession.shared.useScheme(candidate.engineScheme, candidate.shuangpinProfile);
     if (this.english) {
       // Picking a Chinese scheme is a request to compose Chinese with it.
       this.english = KeyboardSession.shared.toggleLanguage();
@@ -1344,7 +1344,7 @@ struct KeyboardView {
     if (this.handwritingBusy || candidate.length === 0) {
       return;
     }
-    KeyboardSession.shared.insert(candidate);
+    KeyboardSession.shared.insertWithSource(candidate, 'handwriting');
     this.clearHandwriting();
   }
 
@@ -1426,7 +1426,7 @@ struct KeyboardView {
     if (text.length === 0 || this.voiceBusy) {
       return;
     }
-    KeyboardSession.shared.insert(text);
+    KeyboardSession.shared.insertWithSource(text, 'voice');
     this.voiceText = '';
     this.voiceNotice = '已提交';
   }
