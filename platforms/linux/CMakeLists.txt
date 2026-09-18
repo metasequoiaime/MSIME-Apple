@@ -351,11 +351,14 @@ add_test(NAME linux-native-compose COMMAND linux-native-compose-test
   "${CMAKE_CURRENT_SOURCE_DIR}/tests/compose.fixture")
 
 option(MSIME_ENABLE_PACKAGING "Enable Linux TGZ and Debian package generation" OFF)
+# A distributable Linux package must include both native desktop input-method
+# entry points by default. Developers building only the IBus host can still
+# opt out explicitly with -DMSIME_ENABLE_FCITX5=OFF.
+option(MSIME_ENABLE_FCITX5 "Build the native Fcitx5 input method addon"
+       ${MSIME_ENABLE_PACKAGING})
 if(MSIME_ENABLE_PACKAGING)
   include(cmake/packaging.cmake)
 endif()
-
-option(MSIME_ENABLE_FCITX5 "Build the native Fcitx5 input method addon" OFF)
 if(MSIME_ENABLE_FCITX5)
   add_subdirectory(fcitx5)
 endif()

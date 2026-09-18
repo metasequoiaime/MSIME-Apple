@@ -16,6 +16,8 @@ assert entry["InputMethod"]["Addon"] == "msime"
 assert entry["InputMethod"]["LangCode"] == "zh_CN"
 cmake = (root / "CMakeLists.txt").read_text()
 assert "MSIME_ENABLE_FCITX5" in cmake
+assert '${MSIME_ENABLE_PACKAGING}' in cmake
+assert cmake.index('option(MSIME_ENABLE_FCITX5') < cmake.index('include(cmake/packaging.cmake)')
 packaging = (root / "cmake/packaging.cmake").read_text()
 assert "if(MSIME_ENABLE_FCITX5)" in packaging
 assert "fcitx5 (>= 5.0.20)" in packaging
