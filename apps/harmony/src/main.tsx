@@ -6,6 +6,7 @@ import { SettingsPage, type DictionaryClient, type DictionaryEntry, type Diction
   CloudClipboardPanel, CloudDictionaryPanel, CloudDictionaryCatalogPanel, CloudDictionaryFilesPanel, CloudDictionaryApplyPanel,
   CloudCandidatesPanel, type AccountClient, type CloudClipboardPanelClient,
   type CloudDictionaryAction, type CloudDictionaryPanelClient, type SettingsClient, type Snapshot, type TypingStatisticsClient, type TypingStatisticsStatus } from "@msime/ui";
+import type { AiAssistantClient, ApiCredentialTestResult, ApiCredentialTestService } from "@msime/ui";
 import "@msime/ui/styles.css";
 
 /**
@@ -33,6 +34,9 @@ interface NativeBridge {
   cloudDictionaryDownload(entry: string): string;
   cloudDictionarySnapshot(action: string): Promise<string>;
   typingStatistics(action: string): string;
+  aiModels(request: string): Promise<string>;
+  aiTest(request: string): Promise<string>;
+  testApiCredential(request: string): Promise<string>;
   openExternalUrl(url: string): void;
   copyText(text: string): void;
   openSystemKeyboardSettings(): void;
@@ -166,6 +170,14 @@ function makeClient(native: NativeBridge, openCloudClipboard: () => void, openCl
     setEnabled: async (enabled: boolean) => unwrap<TypingStatisticsStatus>(native.typingStatistics(JSON.stringify({ operation: "set_enabled", enabled }))),
     reset: async () => unwrap<TypingStatisticsStatus>(native.typingStatistics(JSON.stringify({ operation: "reset" }))),
   };
+  const aiAssistant: AiAssistantClient = {
+    fetchModels: configuration => native.aiModels(JSON.stringify(configuration))
+      .then(unwrap<string[]>),
+    test: configuration => native.aiTest(JSON.stringify(configuration)).then(unwrap<string>),
+  };
+  const testApiCredential = async (service: ApiCredentialTestService,
+    config: Record<string, unknown>): Promise<ApiCredentialTestResult> =>
+    unwrap<ApiCredentialTestResult>(await native.testApiCredential(JSON.stringify({ service, config })));
   return {
     // Wrapped like every other reply from the shared ABI. Reading it as the record itself leaves every
     // capability undefined, which the page reads as "this host cannot", and the whole surface silently
@@ -184,6 +196,8 @@ function makeClient(native: NativeBridge, openCloudClipboard: () => void, openCl
     openSystemKeyboardSettings: async () => native.openSystemKeyboardSettings(),
     dictionary,
     typingStatistics,
+    aiAssistant,
+    testApiCredential,
     account: accountClient(native),
     openCloudClipboard: async () => openCloudClipboard(),
     openCloudDictionary: async () => openCloudDictionary(),

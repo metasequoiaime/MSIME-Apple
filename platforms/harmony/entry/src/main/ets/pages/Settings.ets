@@ -4,10 +4,12 @@ import client from 'libmsimeclient.so';
 import pasteboard from '@ohos.pasteboard';
 import Want from '@ohos.app.ability.Want';
 import bundleManager from '@ohos.bundle.bundleManager';
+import http from '@ohos.net.http';
 import fs from '@ohos.file.fs';
 import { KeyboardLog, describeError } from '../keyboard/KeyboardLog';
 import { KeyboardSession } from '../keyboard/KeyboardSession';
 import { HarmonyAccountCloudBridge } from '../account/HarmonyAccountCloudBridge';
+import { utf8Length } from '../keyboard/Utf8';
 
 /**
  * The settings window, which is the shared settings UI rather than a second one written here.
@@ -77,6 +79,79 @@ interface TypingStatisticsStatusReply {
   value: TypingStatisticsStatusValue;
 }
 
+interface AiModelsRequest {
+  endpoint: string;
+  token: string;
+}
+
+interface AiTestRequest {
+  endpoint: string;
+  model: string;
+  prompt: string;
+  token: string;
+  text: string;
+}
+
+interface ApiCredentialRequest {
+  service: string;
+  config: AiCredentialConfig;
+}
+
+interface AiCredentialConfig {
+  endpoint?: string;
+  model?: string;
+  token?: string;
+  provider?: string;
+}
+
+interface AiModelRow {
+  id?: string;
+}
+
+interface AiModelsDocument {
+  data?: AiModelRow[];
+}
+
+interface AiMessage {
+  content?: string;
+}
+
+interface AiChoice {
+  message?: AiMessage;
+}
+
+interface AiCompletionDocument {
+  choices?: AiChoice[];
+}
+
+interface AiMessageRequest {
+  role: string;
+  content: string;
+}
+
+interface AiTestBody {
+  model: string;
+  stream: boolean;
+  temperature: number;
+  messages: AiMessageRequest[];
+}
+
+interface AiReply<T> {
+  ok: boolean;
+  value: T;
+  error: string;
+}
+
+interface ApiCredentialResult {
+  ok: boolean;
+  message: string;
+}
+
+interface ApiCredentialReply {
+  ok: boolean;
+  value: ApiCredentialResult;
+}
+
 @Entry
 @Component
 struct Settings {
@@ -99,7 +174,9 @@ struct Settings {
           object: this.bridge,
           name: BRIDGE_NAME,
           methodList: ['loadPreferences', 'savePreferences', 'hostCapabilities', 'appVersion',
-            'dictionary', 'account', 'cloudDictionary', 'cloudDictionaryDownload', 'cloudDictionarySnapshot', 'typingStatistics', 'openExternalUrl', 'copyText', 'openSystemKeyboardSettings'],
+            'dictionary', 'account', 'cloudDictionary', 'cloudDictionaryDownload', 'cloudDictionarySnapshot',
+            'typingStatistics', 'aiModels', 'aiTest', 'testApiCredential', 'openExternalUrl', 'copyText',
+            'openSystemKeyboardSettings'],
           controller: this.controller
         })
         .width('100%')
@@ -265,6 +342,175 @@ class SettingsBridge {
     } catch {
       return JSON.stringify({ ok: false, error: 'invalid typing statistics request' });
     }
+  }
+
+  async aiModels(requestDocument: string): Promise<string> {
+    let request: AiModelsRequest;
+    try {
+      request = JSON.parse(requestDocument) as AiModelsRequest;
+      if (typeof request.endpoint !== 'string' || typeof request.token !== 'string') {
+        return JSON.stringify({ ok: false, error: 'ai_models_invalid' });
+      }
+    } catch {
+      return JSON.stringify({ ok: false, error: 'ai_models_invalid' });
+    }
+    const endpoint: string | null = this.validAiEndpoint(request.endpoint);
+    const token: string = request.token.trim();
+    if (endpoint === null || token.length === 0 || utf8Length(token) > 16 * 1024
+      || this.hasControl(token)) {
+      return JSON.stringify({ ok: false, error: 'ai_invalid' });
+    }
+    const modelsUrl: string = this.aiModelsUrl(endpoint);
+    const httpRequest = http.createHttp();
+    try {
+      const response: http.HttpResponse = await httpRequest.request(modelsUrl, {
+        method: http.RequestMethod.GET,
+        header: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+        connectTimeout: 5000,
+        readTimeout: 15000
+      });
+      if (response.responseCode < 200 || response.responseCode >= 300
+        || typeof response.result !== 'string' || utf8Length(response.result) > 1024 * 1024) {
+        return JSON.stringify({ ok: false, error: 'ai_models_unavailable' });
+      }
+      const document: AiModelsDocument = JSON.parse(response.result) as AiModelsDocument;
+      if (!Array.isArray(document.data)) {
+        return JSON.stringify({ ok: false, error: 'ai_models_invalid' });
+      }
+      const models: string[] = [];
+      for (const row of document.data) {
+        const id: string | undefined = row.id;
+        if (id === undefined || id.length === 0 || utf8Length(id) > 256 || this.hasControl(id)
+          || models.includes(id)) continue;
+        models.push(id);
+        if (models.length === 128) break;
+      }
+      if (models.length === 0) return JSON.stringify({ ok: false, error: 'ai_models_invalid' });
+      return JSON.stringify({ ok: true, value: models });
+    } catch (error) {
+      KeyboardLog.error(`AI model list unavailable: ${describeError(error)}`);
+      return JSON.stringify({ ok: false, error: 'ai_models_unavailable' });
+    } finally {
+      httpRequest.destroy();
+    }
+  }
+
+  async aiTest(requestDocument: string): Promise<string> {
+    let request: AiTestRequest;
+    try {
+      request = JSON.parse(requestDocument) as AiTestRequest;
+      if (typeof request.endpoint !== 'string' || typeof request.model !== 'string'
+        || typeof request.prompt !== 'string' || typeof request.token !== 'string'
+        || typeof request.text !== 'string') {
+        return JSON.stringify({ ok: false, error: 'ai_invalid' });
+      }
+    } catch {
+      return JSON.stringify({ ok: false, error: 'ai_invalid' });
+    }
+    const endpoint: string | null = this.validAiEndpoint(request.endpoint);
+    const token: string = request.token.trim();
+    const model: string = request.model.trim();
+    if (endpoint === null || token.length === 0 || utf8Length(token) > 16 * 1024
+      || this.hasControl(token) || model.length === 0 || utf8Length(model) > 256
+      || this.hasControl(model) || !this.validAiText(request.prompt, true)
+      || !this.validAiText(request.text, false)) {
+      return JSON.stringify({ ok: false, error: 'ai_invalid' });
+    }
+    const body: AiTestBody = {
+      model: model,
+      stream: false,
+      temperature: 0.2,
+      messages: [
+        { role: 'system', content: request.prompt },
+        { role: 'user', content: request.text }
+      ]
+    };
+    const httpRequest = http.createHttp();
+    try {
+      const response: http.HttpResponse = await httpRequest.request(endpoint, {
+        method: http.RequestMethod.POST,
+        header: { Accept: 'application/json', 'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}` },
+        connectTimeout: 5000,
+        readTimeout: 15000,
+        extraData: JSON.stringify(body)
+      });
+      if (response.responseCode < 200 || response.responseCode >= 300
+        || typeof response.result !== 'string' || utf8Length(response.result) > 1024 * 1024) {
+        return JSON.stringify({ ok: false, error: 'ai_test_unavailable' });
+      }
+      const document: AiCompletionDocument = JSON.parse(response.result) as AiCompletionDocument;
+      const content: string | undefined = document.choices?.[0]?.message?.content;
+      if (content === undefined || !this.validAiText(content, false)) {
+        return JSON.stringify({ ok: false, error: 'ai_test_invalid' });
+      }
+      return JSON.stringify({ ok: true, value: content.trim() });
+    } catch (error) {
+      KeyboardLog.error(`AI test unavailable: ${describeError(error)}`);
+      return JSON.stringify({ ok: false, error: 'ai_test_unavailable' });
+    } finally {
+      httpRequest.destroy();
+    }
+  }
+
+  async testApiCredential(requestDocument: string): Promise<string> {
+    let request: ApiCredentialRequest;
+    try {
+      request = JSON.parse(requestDocument) as ApiCredentialRequest;
+    } catch {
+      return this.credentialReply(false, '配置格式无效。');
+    }
+    if (request.service !== 'ai.assistant' || request.config === undefined) {
+      return this.credentialReply(false, 'Harmony 当前只支持 AI 配置测试。');
+    }
+    const endpoint: string = request.config.endpoint ?? '';
+    const token: string = request.config.token ?? '';
+    const modelReply: string = await this.aiModels(JSON.stringify({ endpoint, token }));
+    const result: AiReply<string[]> = JSON.parse(modelReply) as AiReply<string[]>;
+    if (!result.ok) {
+      return this.credentialReply(false, '无法连接 AI 服务，请检查接口地址和 Token。');
+    }
+    return this.credentialReply(true, `连接成功，可用模型 ${result.value.length} 个。`);
+  }
+
+  private credentialReply(ok: boolean, message: string): string {
+    const value: ApiCredentialResult = { ok, message };
+    const reply: ApiCredentialReply = { ok: true, value };
+    return JSON.stringify(reply);
+  }
+
+  private validAiEndpoint(value: string): string | null {
+    const endpoint: string = value.trim();
+    if (endpoint.length === 0 || utf8Length(endpoint) > 2048 || this.hasControl(endpoint)
+      || (!endpoint.startsWith('http://') && !endpoint.startsWith('https://'))
+      || endpoint.includes('@') || endpoint.includes('#')) return null;
+    const authority: string = endpoint.substring(endpoint.indexOf('://') + 3).split('/')[0]
+      .split('?')[0];
+    return authority.length === 0 ? null : endpoint;
+  }
+
+  private aiModelsUrl(endpoint: string): string {
+    const query: number = endpoint.indexOf('?');
+    const clean: string = query >= 0 ? endpoint.substring(0, query) : endpoint;
+    const marker: string = '/v1/';
+    const index: number = clean.indexOf(marker);
+    const base: string = index >= 0 ? clean.substring(0, index) : clean.substring(0, clean.indexOf('/', 8) >= 0 ? clean.indexOf('/', 8) : clean.length);
+    return `${base}/v1/models`;
+  }
+
+  private validAiText(value: string, allowEmpty: boolean): boolean {
+    return (allowEmpty || value.trim().length > 0) && utf8Length(value) <= 16 * 1024
+      && !value.includes('\u0000') && !Array.from(value).some((character: string): boolean => {
+        const code: number = character.codePointAt(0) ?? 0;
+        return code < 0x20 && code !== 0x09 && code !== 0x0a && code !== 0x0d;
+      });
+  }
+
+  private hasControl(value: string): boolean {
+    return Array.from(value).some((character: string): boolean => {
+      const code: number = character.codePointAt(0) ?? 0;
+      return code <= 0x1f || (code >= 0x7f && code <= 0x9f);
+    });
   }
 
   appVersion(): string {
