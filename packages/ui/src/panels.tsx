@@ -468,6 +468,7 @@ export function KeyboardPanel({ client, platform, theme = "dark", layout = "twen
   const skinStyle = keyboardSkinStyles(theme, skin, customDesign);
   const renderedModifiers = modifiersRef.current;
   const keyMaterial = skin === "custom" ? customDesign?.keyMaterial ?? "flat" : "flat";
+  const materialClass = keyMaterial === "flat" ? "" : ` material-${keyMaterial}`;
   return <main className="native-panel keyboard-panel" style={skinStyle} data-keyboard-theme={theme} data-keyboard-skin={skin} data-keyboard-material={keyMaterial} data-keyboard-layout={activeLayout} aria-label="屏幕键盘">
     <header className="native-panel-header" {...drag}>
       <span className="keyboard-panel-notice" role="status" title={notice}>{notice}</span><button type="button" aria-label="切换键盘布局" onClick={switchLayout}>{activeLayout === "nine_key" ? "全键" : "九宫格"}</button>{voiceShortcut && client.openVoice && <button type="button" aria-label="打开语音输入" disabled={openingVoice} onClick={() => void openVoiceKeyboard()}>语音</button>}<button type="button" aria-label="关闭" disabled={openingVoice} onClick={closeKeyboard}>×</button></header>
@@ -478,7 +479,7 @@ export function KeyboardPanel({ client, platform, theme = "dark", layout = "twen
           const shifted = renderedModifiers.has("Shift") && keyToRender.label.length === 1;
           const label = shifted ? (keyToRender.shifted || (letter ? keyToRender.label.toUpperCase() : keyToRender.label)) : keyToRender.label;
           const action = keyToRender.modifier || keyboardActionLabels.has(keyToRender.label);
-          return <button type="button" disabled={openingVoice} key={`${keyToRender.label}-${keyIndex}`} style={{ flexGrow: activeLayout === "nine_key" ? 1 : keyboardKeyWeight(keyToRender.label, keyIndex, row.some(item => item.virtualKey === 0x20)) }} aria-pressed={keyToRender.modifier ? renderedModifiers.has(keyToRender.modifier) : undefined} className={`keyboard-key${keyToRender.modifier ? " modifier" : ""}${keyToRender.label === "Space" ? " space" : ""}${keyToRender.label.length > 1 ? " wide" : ""}${keyToRender.modifier && renderedModifiers.has(keyToRender.modifier) ? " active" : ""}`} onPointerDown={event => beginPointerKey(event, keyToRender)} onPointerUp={stopKeyRepeat} onPointerCancel={stopKeyRepeat} onPointerLeave={stopKeyRepeat} onClick={event => {
+          return <button type="button" disabled={openingVoice} key={`${keyToRender.label}-${keyIndex}`} style={{ flexGrow: activeLayout === "nine_key" ? 1 : keyboardKeyWeight(keyToRender.label, keyIndex, row.some(item => item.virtualKey === 0x20)) }} aria-pressed={keyToRender.modifier ? renderedModifiers.has(keyToRender.modifier) : undefined} className={`keyboard-key${materialClass}${keyToRender.modifier ? " modifier" : ""}${keyToRender.label === "Space" ? " space" : ""}${keyToRender.label.length > 1 ? " wide" : ""}${keyToRender.modifier && renderedModifiers.has(keyToRender.modifier) ? " active" : ""}`} onPointerDown={event => beginPointerKey(event, keyToRender)} onPointerUp={stopKeyRepeat} onPointerCancel={stopKeyRepeat} onPointerLeave={stopKeyRepeat} onClick={event => {
             // Pointer activation is delivered on pointerdown for immediate
             // response and repeat. A detail-zero click comes from keyboard or
             // assistive activation and still sends exactly one key.
