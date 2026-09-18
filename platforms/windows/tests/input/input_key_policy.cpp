@@ -3,6 +3,11 @@
 
 int main() {
   using msime::windows::should_learn_entered_english_word;
+  using msime::windows::should_send_composition_reply;
+  assert(should_send_composition_reply(false, false, false, false, false,
+                                        true));
+  assert(!should_send_composition_reply(false, false, false, false, false,
+                                         false));
   assert(should_learn_entered_english_word(false, false, true, false));
   assert(should_learn_entered_english_word(true, false, true, true));
   assert(should_learn_entered_english_word(false, true, true, true));

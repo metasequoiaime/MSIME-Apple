@@ -24,6 +24,20 @@ constexpr bool is_segment_caret_key(uint32_t keycode, uint32_t modifiers) {
          (modifiers & kKeyModifierMask) == kModifierControl;
 }
 
+// A composing key needs a reverse-pipe reply when the TSF side cannot finish
+// the edit locally. Japanese long-vowel input follows the same explicit policy
+// as letters, separators, and Unicode digits.
+constexpr bool should_send_composition_reply(bool is_alpha_key,
+                                             bool is_manual_pinyin_separator,
+                                             bool is_microsoft_shuangpin_ing_key,
+                                             bool is_unicode_hex_digit,
+                                             bool is_unicode_plus,
+                                             bool is_japanese_long_vowel) {
+  return is_alpha_key || is_manual_pinyin_separator ||
+         is_microsoft_shuangpin_ing_key || is_unicode_hex_digit ||
+         is_unicode_plus || is_japanese_long_vowel;
+}
+
 constexpr std::size_t previous_segment_boundary(const std::vector<std::size_t> &boundaries,
                                                 std::size_t caret) {
   std::size_t result = caret;
