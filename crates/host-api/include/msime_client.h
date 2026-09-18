@@ -225,6 +225,14 @@ char *msime_client_apply_translations(uint64_t session, uint64_t generation,
  * This function owns no session handle and may run on a worker thread. */
 char *msime_client_candidate_gloss_request(const uint8_t *request, size_t request_length,
                                            const uint8_t *resources, size_t resources_length);
+/* Query the packaged English dictionary without creating a session.
+ * JSON request: {prefix,limit}; prefix is an ASCII-letter word fragment and
+ * limit is 1..32. The response echoes prefix and returns {items:[...]}.
+ * Resources must be an absolute generation directory. */
+char *msime_client_english_completions_request(const uint8_t *request,
+                                               size_t request_length,
+                                               const uint8_t *resources,
+                                               size_t resources_length);
 // Live per-session mode, not a persisted preference. Preserves composition and
 // candidate generation; remains authoritative across preference replacement.
 char *msime_client_set_chinese_punctuation(uint64_t session, bool enabled);

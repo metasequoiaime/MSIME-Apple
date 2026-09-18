@@ -8,6 +8,7 @@ import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import org.json.JSONObject;
 
 /** JNI transport for an Android IME host. Session operations use the creating thread.
  * JSON response ownership is handled inside JNI. The host parses the envelope,
@@ -20,6 +21,7 @@ public final class NativeClient {
     private static final int GLOSS_REQUEST_LIMIT = 262_144;
     private static final int GLOSS_RESOURCES_LIMIT = 4_096;
     private static final int GLOSS_RESPONSE_LIMIT = 1_048_576;
+    private static final int ENGLISH_COMPLETION_RESPONSE_LIMIT = 262_144;
     static { System.loadLibrary("msime_android"); }
     private NativeClient() {}
     private static String text(byte[] value) { return new String(value, StandardCharsets.UTF_8); }
@@ -76,6 +78,24 @@ public final class NativeClient {
         if (result == null || result.length > GLOSS_RESPONSE_LIMIT)
             throw new IllegalStateException("Candidate gloss response is too large");
         return text(result);
+    }
+    /** Reads bounded English completions from the packaged dictionary. Call on a worker. */
+    public static String englishCompletions(String prefix, String resources) {
+        if (prefix == null || prefix.isEmpty() || prefix.length() > 128
+                || !prefix.chars().allMatch(value -> value >= 'A' && value <= 'Z'
+                    || value >= 'a' && value <= 'z'))
+            throw new IllegalArgumentException("Invalid English completion prefix");
+        try {
+            JSONObject request = new JSONObject().put("prefix", prefix).put("limit", 12);
+            byte[] requestBytes = request.toString().getBytes(StandardCharsets.UTF_8);
+            byte[] resourcesBytes = resources.getBytes(StandardCharsets.UTF_8);
+            byte[] result = englishCompletionsRaw(requestBytes, resourcesBytes);
+            if (result == null || result.length > ENGLISH_COMPLETION_RESPONSE_LIMIT)
+                throw new IllegalStateException("English completion response is too large");
+            return text(result);
+        } catch (org.json.JSONException error) {
+            throw new IllegalArgumentException("Invalid English completion request", error);
+        }
     }
     /** May block on the shared file lock. Call on a worker, without a session handle. */
     public static String savePreferences(String directory, long expectedRevision, String snapshot) {
@@ -158,6 +178,7 @@ public final class NativeClient {
     private static native byte[] typingStatisticsRaw(byte[] request);
     private static native byte[] emojiCatalogRaw(byte[] query, byte[] resources);
     private static native byte[] candidateGlossesRaw(byte[] request, byte[] resources);
+    private static native byte[] englishCompletionsRaw(byte[] request, byte[] resources);
     private static native byte[] savePreferencesRaw(byte[] directory, long expectedRevision, byte[] snapshot);
     private static native byte[] personalDictionarySyncRaw(byte[] options);
     private static native byte[] focusRaw(long session, boolean focused);

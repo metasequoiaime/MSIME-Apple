@@ -263,6 +263,7 @@ mod ffi {
         fn emoji_symbol_groups(resources: &str) -> Result<Vec<EmojiSymbolGroup>>;
         fn handwriting_order_candidates(candidates: &[String]) -> Result<Vec<String>>;
         fn emoji_catalog_groups(resources: &str, category: &str) -> Result<Vec<String>>;
+        fn english_completions(resources: &str, prefix: &str, limit: u16) -> Result<Vec<String>>;
         fn candidate_glosses(
             resources: &str,
             candidates: &[CandidateGlossInput],
@@ -480,6 +481,15 @@ pub fn emoji_catalog_groups(
     category: &str,
 ) -> Result<Vec<String>, cxx::Exception> {
     ffi::emoji_catalog_groups(resources, category)
+}
+
+/// Query the packaged English dictionary without creating or mutating an input session.
+pub fn english_completions(
+    resources: &str,
+    prefix: &str,
+    limit: u16,
+) -> Result<Vec<String>, cxx::Exception> {
+    ffi::english_completions(resources, prefix, limit)
 }
 
 /// Look up display-only candidate glosses in the packaged Engine dictionary.

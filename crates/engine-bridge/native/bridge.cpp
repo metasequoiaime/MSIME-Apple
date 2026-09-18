@@ -870,6 +870,30 @@ rust::Vec<rust::String> emoji_catalog_groups(rust::Str resources, rust::Str cate
     if (status != SQLITE_DONE) throw std::runtime_error("Emoji catalog read failed");
     return groups;
 }
+rust::Vec<rust::String> english_completions(rust::Str resources, rust::Str prefix,
+                                            std::uint16_t limit) {
+    rust::Vec<rust::String> result;
+    if (limit == 0 || limit > 64 || resources.empty() || prefix.empty() || prefix.size() > 128)
+        return result;
+    std::string lowered(prefix);
+    for (char &value : lowered) {
+        const auto byte = static_cast<unsigned char>(value);
+        if (byte < 'A' || byte > 'Z') {
+            if (byte < 'a' || byte > 'z') return result;
+        } else {
+            value = static_cast<char>(byte - 'A' + 'a');
+        }
+    }
+    const auto path = std::filesystem::u8path(std::string(resources)) /
+                      metasequoia::assets::english_dictionary;
+    std::error_code error;
+    if (!std::filesystem::is_regular_file(path, error)) return result;
+    EnglishDictionary dictionary(path.u8string(), false);
+    if (!dictionary.ready()) return result;
+    for (const auto &item : dictionary.query_prefix(lowered, limit))
+        result.push_back(rust::String(item.word));
+    return result;
+}
 rust::Vec<rust::String> candidate_glosses(
     rust::Str resources, rust::Slice<const CandidateGlossInput> candidates) {
     return candidate_glosses_with_user(resources, rust::Str(), candidates);
