@@ -67,7 +67,7 @@ Name: "english"; MessagesFile: "compiler:Default.isl"
 Name: "{commonpf32}\metasequoiaime\{code:GetVersionDir}"
 Name: "{commonpf64}\metasequoiaime\{code:GetVersionDir}"
 Name: "{commonpf64}\metasequoiaime\server"
-Name: "{localappdata}\metasequoiaime"
+Name: "{code:GetDataDir}"
 ; WebView2 子进程是中完整性，写不进内置 Administrator 的高完整性 LocalAppData。
 Name: "{commonappdata}\metasequoiaime"
 Name: "{commonappdata}\metasequoiaime\webview2"; Permissions: users-modify
@@ -76,7 +76,7 @@ Name: "{commonappdata}\metasequoiaime\webview2-settings"; Permissions: users-mod
 [Files]
 ; Native language-bar and toolbar status icons.
 Source: "{#MySourceRoot}\app_data\icons\*"; \
-    DestDir: "{localappdata}\metasequoiaime\icons"; \
+    DestDir: "{code:GetDataDir}\icons"; \
     Flags: ignoreversion recursesubdirs createallsubdirs uninsneveruninstall
 
 ; 独立安装应用图标，供 Windows“已安装的应用”列表稳定显示。
@@ -129,17 +129,17 @@ Source: "{#MySourceRoot}\server_exe\*"; \
 
 #ifndef LightPackage
 ; 包内故意不带 config.toml。通配复制再排除一次，防止以后又把用户配置打进包内。
-Source: "{#MySourceRoot}\app_data\*"; DestDir: "{localappdata}\metasequoiaime"; \
+Source: "{#MySourceRoot}\app_data\*"; DestDir: "{code:GetDataDir}"; \
     Excludes: "\config.toml,\config.base.toml,\config.default.toml,\html\*"; \
     Flags: ignoreversion recursesubdirs createallsubdirs uninsneveruninstall
 
 ; 用户配置只在首次安装时从出厂模板生成。升级时绝不覆盖已有 config.toml；
 ; Server 启动时再以 config.default.toml 合并：保留用户改过的值，带入新版新增项。
 Source: "{#MySourceRoot}\app_data\config.default.toml"; \
-    DestDir: "{localappdata}\metasequoiaime"; DestName: "config.toml"; \
+    DestDir: "{code:GetDataDir}"; DestName: "config.toml"; \
     Flags: onlyifdoesntexist uninsneveruninstall
 Source: "{#MySourceRoot}\app_data\config.default.toml"; \
-    DestDir: "{localappdata}\metasequoiaime"; DestName: "config.default.toml"; \
+    DestDir: "{code:GetDataDir}"; DestName: "config.default.toml"; \
     Flags: ignoreversion uninsneveruninstall
 #endif
 
@@ -157,6 +157,9 @@ Root: HKLM; Subkey: "Software\Metasequoia\MetasequoiaIME"; \
     ValueType: string; ValueName: "ServerPath"; \
     ValueData: "{commonpf64}\metasequoiaime\server\{#MyAppExeName}"; \
     Flags: uninsdeletevalue
+Root: HKLM; Subkey: "Software\Metasequoia\MetasequoiaIME"; \
+    ValueType: string; ValueName: "DataDir"; ValueData: "{code:GetDataDir}"; \
+    Flags: uninsdeletevalue
 
 [Code]
 var
@@ -164,10 +167,31 @@ var
   NetworkPage: TInputOptionWizardPage;
   CloudCandidatesIndex: Integer;
   UserConfigExistedBeforeInstall: Boolean;
+  DataDirValue: String;
 
 function UserConfigPath: String;
 begin
-  Result := ExpandConstant('{localappdata}\metasequoiaime\config.toml');
+  Result := AddBackslash(GetDataDir('')) + 'config.toml';
+end;
+
+function GetDataDir(Param: String): String;
+var
+  Requested: String;
+begin
+  if DataDirValue = '' then
+  begin
+    Requested := Trim(ExpandConstant('{param:DATADIR|}'));
+    if Requested = '' then
+      RegQueryStringValue(HKLM, 'Software\Metasequoia\MetasequoiaIME',
+        'DataDir', Requested);
+    if Trim(Requested) = '' then
+      Requested := ExpandConstant('{localappdata}\metasequoiaime');
+    DataDirValue := Trim(Requested);
+    while (Length(DataDirValue) > 3) and
+      (DataDirValue[Length(DataDirValue)] = '\') do
+      Delete(DataDirValue, Length(DataDirValue), 1);
+  end;
+  Result := DataDirValue;
 end;
 
 { 云候选是唯一一个装完就会联网的功能：输入过程中把当前拼写发给 Google 的 input-tools 服务。
@@ -435,7 +459,7 @@ var
   FindRec: TFindRec;
   ItemPath: String;
 begin
-  AppDataPath := ExpandConstant('{localappdata}\metasequoiaime');
+  AppDataPath := GetDataDir('');
   if not DirExists(AppDataPath) then
     exit;
 
@@ -491,7 +515,7 @@ var
   Index: Integer;
   Path: String;
 begin
-  AppDataPath := ExpandConstant('{localappdata}\metasequoiaime');
+  AppDataPath := GetDataDir('');
   { 先删 sidecar；若仍被占用，可在动主库和其他应用数据前安全中止。}
   FileNames[0] := 'msime.db-wal';
   FileNames[1] := 'msime.db-shm';
@@ -525,7 +549,7 @@ var
   DataPath: String;
   ResultCode: Integer;
 begin
-  DataPath := ExpandConstant('{localappdata}\metasequoiaime');
+  DataPath := GetDataDir('');
   if not FileExists(AddBackslash(DataPath) + 'msime_user.db') then
   begin
     Log('User dictionary replay skipped: msime_user.db does not exist.');
@@ -590,7 +614,7 @@ begin
   StopProcess('{#MyAppExeName}');
 #ifdef LightPackage
   { 轻量包不替换词库：只清 HTML 和 Server/TSF，保留本机 msime.db 等。}
-  TryDeleteTree(ExpandConstant('{localappdata}\metasequoiaime\html'));
+  TryDeleteTree(AddBackslash(GetDataDir('')) + 'html');
 #else
   { 不能让旧 WAL/SHM 与即将复制的新主数据库混用。}
   if not RemoveOldTargetDatabaseFiles(FailedPath) then
@@ -663,7 +687,7 @@ begin
     end;
     TryDeleteTree(ExpandConstant('{commonpf32}\metasequoiaime'));
     TryDeleteTree(ExpandConstant('{commonpf64}\metasequoiaime'));
-    TryDeleteTree(ExpandConstant('{localappdata}\metasequoiaime'));
+    TryDeleteTree(GetDataDir(''));
     TryDeleteTree(ExpandConstant('{commonappdata}\metasequoiaime'));
   end;
 end;

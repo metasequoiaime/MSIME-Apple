@@ -14,4 +14,12 @@ $server = @($records | Where-Object { $_.Value.Contains('\server_exe\*') })
 if ($server.Count -ne 1 -or -not $server[0].Value.Contains('recursesubdirs')) {
     throw 'Missing native/Tauri executable installation rule'
 }
+$dataDirRecords = @($records | Where-Object { $_.Value.Contains('{code:GetDataDir}') })
+if ($dataDirRecords.Count -lt 3) {
+    throw 'Installer resources do not follow the selected DataDir'
+}
+if (-not $script.Contains('ValueName: "DataDir"') -or
+    -not $script.Contains('{param:DATADIR|}')) {
+    throw 'Installer does not persist or accept the selected DataDir'
+}
 Write-Output 'Installer carries native/Tauri outputs without loose legacy HTML'
