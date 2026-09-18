@@ -987,6 +987,17 @@ public:
     word_character_enabled_ = wordCharacter.value("enabled", true);
     word_character_minus_equal_ = wordCharacter.value("keys", std::string("brackets")) == "minus_equal";
     options_path_ = options.value("preferences_directory", std::string());
+    if (!options_path_.empty()) {
+      try {
+        auto snapshot = response(msime_client_load_preferences(
+            reinterpret_cast<const uint8_t *>(options_path_.data()), options_path_.size()));
+        if (snapshot.is_object() && snapshot.contains("revision") && snapshot.contains("preferences"))
+          preferences_snapshot_ = std::move(snapshot);
+      } catch (...) {
+        // The prepared options remain usable for composition; preference actions will retry
+        // through the normal save/reload path when the store becomes available.
+      }
+    }
     resources_ = options.value("resources", std::string());
     clipboard_path_ = options.value("preferences_directory", std::string());
     if (clipboard_path_.empty()) clipboard_path_ = options.value("clipboard_history_path", std::string());
