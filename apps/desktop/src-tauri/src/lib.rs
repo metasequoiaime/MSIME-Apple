@@ -1,30 +1,44 @@
 #[cfg(target_os = "android")]
+#[path = "platform/android/android_account.rs"]
 mod android_account;
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", test))]
+#[path = "platform/desktop/desktop_preferences_monitor.rs"]
 mod desktop_preferences_monitor;
 #[cfg(any(target_os = "ios", test))]
+#[path = "platform/ios/ios_account.rs"]
 mod ios_account;
 #[cfg(target_os = "linux")]
+#[path = "platform/linux/linux_audio_devices.rs"]
 mod linux_audio_devices;
 #[cfg(target_os = "linux")]
+#[path = "platform/linux/linux_clipboard.rs"]
 mod linux_clipboard;
 #[cfg(target_os = "linux")]
+#[path = "platform/linux/linux_process.rs"]
 mod linux_process;
 #[cfg(target_os = "macos")]
+#[path = "platform/macos/macos_cloud_clipboard.rs"]
 mod macos_cloud_clipboard;
 #[cfg(target_os = "macos")]
+#[path = "platform/macos/macos_cloud_dictionary.rs"]
 mod macos_cloud_dictionary;
 #[cfg(any(target_os = "macos", test))]
+#[path = "platform/macos/macos_handwriting.rs"]
 mod macos_handwriting;
 #[cfg(any(target_os = "macos", test))]
+#[path = "platform/macos/macos_input_source.rs"]
 mod macos_input_source;
 #[cfg(any(target_os = "macos", test))]
+#[path = "platform/macos/macos_keyboard.rs"]
 mod macos_keyboard;
 #[cfg(any(target_os = "macos", test))]
+#[path = "platform/macos/macos_launch.rs"]
 mod macos_launch;
 #[cfg(target_os = "macos")]
+#[path = "platform/macos/macos_panel_session.rs"]
 mod macos_panel_session;
 #[cfg(target_os = "windows")]
+#[path = "platform/windows/windows_account.rs"]
 mod windows_account;
 
 use msime_client_core::clipboard::{ClipboardHistoryEntry, ClipboardHistoryStore};
@@ -79,16 +93,21 @@ use tauri::Manager;
 #[cfg(not(mobile))]
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 
+#[path = "shared/mobile_ai.rs"]
 mod mobile_ai;
+#[path = "shared/skin_directory.rs"]
 mod skin_directory;
 #[cfg(any(target_os = "linux", target_os = "windows", test))]
+#[path = "shared/voice/voice_output.rs"]
 mod voice_output;
 #[cfg(any(
     all(unix, not(any(target_os = "ios", target_os = "android"))),
     target_os = "windows"
 ))]
+#[path = "shared/voice/voice_sessions.rs"]
 mod voice_sessions;
 #[cfg(windows)]
+#[path = "platform/windows/windows_voice.rs"]
 mod windows_voice;
 use msime_host_api::system_fonts;
 
@@ -5923,6 +5942,7 @@ pub fn run() {
 }
 
 #[cfg(all(test, any(target_os = "macos", target_os = "windows")))]
+#[path = "tests/credential_command_tests.rs"]
 mod credential_command_tests;
 
 #[cfg(test)]
