@@ -5,6 +5,7 @@ import SwiftUI
 @MainActor
 final class MacAccountModel: NSObject, ObservableObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
   @Published var user: BackendAccountClient.User?
+  @Published var anonymous = false
   @Published var providers: [String: Bool] = [:]
   @Published var message: String?
   @Published var busy = false
@@ -19,15 +20,20 @@ final class MacAccountModel: NSObject, ObservableObject, ASAuthorizationControll
   weak var window: NSWindow?
   private let client: BackendAccountClient
   private let account: BackendAccountSession
+  private let anonymousAccount: BackendAccountSession
   private let closeAccountWindows: @MainActor () -> Void
+  private let discardAnonymous: () -> Void
   private var pending: Task<Void, Never>?
   private var appleController: ASAuthorizationController?
   private var appleChallenge: String?
 
   init(client: BackendAccountClient = BackendAccountClient(), account: BackendAccountSession = .shared,
-       closeAccountWindows: @escaping @MainActor () -> Void = { BackendWindowBridge.shared.closeAll() }) {
-    self.client = client; self.account = account
+       anonymousAccount: BackendAccountSession = BackendAccountSession(storage: BackendAnonymousAccount.sessionStorage()),
+       closeAccountWindows: @escaping @MainActor () -> Void = { BackendWindowBridge.shared.closeAll() },
+       discardAnonymous: @escaping () -> Void = BackendAnonymousAccount.discard) {
+    self.client = client; self.account = account; self.anonymousAccount = anonymousAccount
     self.closeAccountWindows = closeAccountWindows
+    self.discardAnonymous = discardAnonymous
     super.init()
   }
 
@@ -43,13 +49,20 @@ final class MacAccountModel: NSObject, ObservableObject, ASAuthorizationControll
   }
   func load() {
     perform {
-      self.user = try await self.account.user()
+      if let user = try await self.account.user() {
+        self.user = user
+        self.anonymous = false
+      } else {
+        self.user = try await self.anonymousAccount.user()
+        self.anonymous = self.user != nil
+      }
       self.name = self.user?.preferredDisplayName ?? ""
       let providers = try await self.client.providers()
       try Task.checkCancellation()
       self.providers = providers
     }
   }
+  private var currentSession: BackendAccountSession { anonymous ? anonymousAccount : account }
   func requestCode() {
     guard resendAt <= Date() else { return }
     perform {
@@ -65,10 +78,15 @@ final class MacAccountModel: NSObject, ObservableObject, ASAuthorizationControll
   func codeLogin() {
     guard let challenge, expiresAt > Date(), code.utf8.count == 6, code.utf8.allSatisfy({ (48...57).contains($0) }) else { return }
     perform {
+      let replacingAnonymous = self.anonymous
       try await self.account.signIn(challenge: challenge.challenge_id, credential: self.code)
+      if replacingAnonymous {
+        try await self.anonymousAccount.forget()
+        self.discardAnonymous()
+      }
       let user = try await self.account.user()
       try Task.checkCancellation()
-      self.user = user; self.name = self.user?.preferredDisplayName ?? ""
+      self.user = user; self.name = self.user?.preferredDisplayName ?? ""; self.anonymous = false
       self.challenge = nil; self.code = ""; self.target = ""
     }
   }
@@ -93,10 +111,15 @@ final class MacAccountModel: NSObject, ObservableObject, ASAuthorizationControll
     guard let challenge = appleChallenge, let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
           let data = credential.identityToken, let token = String(data: data, encoding: .utf8) else { return }
     perform {
+      let replacingAnonymous = self.anonymous
       try await self.account.signIn(challenge: challenge, credential: token)
+      if replacingAnonymous {
+        try await self.anonymousAccount.forget()
+        self.discardAnonymous()
+      }
       let user = try await self.account.user()
       try Task.checkCancellation()
-      self.user = user; self.name = self.user?.preferredDisplayName ?? ""
+      self.user = user; self.name = self.user?.preferredDisplayName ?? ""; self.anonymous = false
     }
   }
   func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
@@ -111,28 +134,30 @@ final class MacAccountModel: NSObject, ObservableObject, ASAuthorizationControll
       message = "昵称需为 1–64 个字符，不能包含换行或控制字符。"; return
     }
     perform {
-      let identity = try await self.account.credentials()
+      let identity = try await self.currentSession.credentials()
       try await self.client.rename(value, token: identity.token)
       let profile = try await self.client.profile(token: identity.token)
-      try await self.account.updateUser(profile.user, matching: identity.token)
+      try await self.currentSession.updateUser(profile.user, matching: identity.token)
       try Task.checkCancellation()
       self.user = profile.user; self.name = profile.user.preferredDisplayName
     }
   }
   func logout(all: Bool = false, delete: Bool = false) {
     perform {
+      let session = self.currentSession
       if delete {
-        let identity = try await self.account.credentials()
+        let identity = try await session.credentials()
         try await self.client.deleteAccount(token: identity.token)
         self.closeAccountWindows()
-        try await self.account.forget()
+        try await session.forget()
+        if self.anonymous { self.discardAnonymous() }
       } else {
         // Hide private views before awaiting logout, including offline failures.
         self.closeAccountWindows()
-        do { try await self.account.logout(all: all) }
-        catch { self.user = try await self.account.user(); throw error }
+        do { try await session.logout(all: all) }
+        catch { self.user = try await session.user(); throw error }
       }
-      self.user = nil; self.name = ""
+      self.user = nil; self.name = ""; self.anonymous = false
     }
   }
   func close() { pending?.cancel(); if #available(macOS 13.0, *) { appleController?.cancel() }; authorizing = false; appleController = nil; appleChallenge = nil; code = ""; target = ""; challenge = nil }
@@ -151,6 +176,9 @@ private struct MacAccountView: View {
       Form {
       if let user = model.user {
         Text(user.preferredDisplayName).font(.title2)
+        if model.anonymous {
+          Text("本机账号（仅保存在此设备）").font(.caption).foregroundStyle(.secondary)
+        }
         TextField("昵称", text: $model.name)
         Button("保存昵称") { model.rename() }
         Button("云剪贴板…") { clipboard = true }
