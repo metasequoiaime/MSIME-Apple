@@ -466,8 +466,8 @@ endif()
 add_test(NAME windows-dedicated-english COMMAND windows-dedicated-english)
 set_tests_properties(windows-dedicated-english PROPERTIES TIMEOUT 30)
 add_library(msime-windows-pump STATIC src/ipc/SessionPump.cpp src/ipc/SessionWorkers.cpp src/ipc/SessionController.cpp src/system/PreferenceMonitor.cpp
-            src/system/CloudCandidateWorker.cpp src/system/TranslationWorker.cpp
-            src/system/AiCandidateWorker.cpp)
+            src/candidate/CloudCandidateWorker.cpp src/candidate/TranslationWorker.cpp
+            src/candidate/AiCandidateWorker.cpp)
 target_link_libraries(msime-windows-pump PUBLIC msime-windows-input CURL::libcurl)
 add_executable(windows-dedicated-english-controller tests/dedicated_english_controller.cpp)
 target_link_libraries(windows-dedicated-english-controller PRIVATE msime-windows-pump)
@@ -619,7 +619,7 @@ if(WIN32)
     set(MSIME_SQLITE_TARGET SQLite::SQLite3)
   endif()
   add_library(msime-windows-server STATIC src/system/WindowsServer.cpp src/candidate/CandidateWindow.cpp src/candidate/CandidateFlyoutWindow.cpp src/candidate/TrayMenuWindow.cpp)
-  # src/system/main.cpp constructs ClipboardHistory and ClipboardMonitor, whose definitions
+  # src/system/server_main.cpp constructs ClipboardHistory and ClipboardMonitor, whose definitions
   # are out of line. Without these the Server target does not link at all.
   target_sources(msime-windows-server PRIVATE src/clipboard/ClipboardHistory.cpp src/clipboard/ClipboardMonitor.cpp)
   target_sources(msime-windows-server PRIVATE src/candidate/FloatingToolbarWindow.cpp src/system/ShellLauncher.cpp
@@ -665,7 +665,7 @@ if(WIN32)
   endif()
   add_test(NAME windows-watchdog-help COMMAND msime-client-watchdog --help)
   set_tests_properties(windows-watchdog-help PROPERTIES TIMEOUT 5)
-  add_executable(msime-client-server src/system/main.cpp)
+  add_executable(msime-client-server src/system/server_main.cpp)
   # The product mark, which the toolbar loads out of the running executable.
   # Compiled into the Server itself rather than shipped beside it: an icon the
   # installer could forget to copy is an icon that silently stops appearing.
@@ -676,7 +676,7 @@ if(WIN32)
     "${CMAKE_CURRENT_LIST_DIR}/ServerResources.h"
     "${CMAKE_CURRENT_LIST_DIR}/installer/assets/icons/msime.ico")
   include(ServerManifest.cmake)
-  add_executable(msime-client-prepare src/system/prepare_host.cpp)
+  add_executable(msime-client-prepare src/system/prepare_host_main.cpp)
   target_include_directories(msime-client-prepare PRIVATE ../../crates/host-api/include)
   target_link_libraries(msime-client-prepare PRIVATE
     nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}")

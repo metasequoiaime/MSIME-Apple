@@ -1,7 +1,7 @@
 set(TEST_EXECUTABLE_NAME "msimeui-tests")
 
 add_executable(${TEST_EXECUTABLE_NAME}
-    ../../../../../src/system/main.cpp
+    ../../../../../src/system/server_main.cpp
     src/test_fonts.cpp
     src/test_layout.cpp
     includes/test_framework.h
