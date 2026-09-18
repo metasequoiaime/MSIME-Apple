@@ -83,7 +83,9 @@ jobs:
 
   macos:
     needs: changes
-    if: ${{ needs.changes.outputs.build == 'true' }}
+    # 这个 job 总是启动,重活才按 changes 跳过。放在 job 级的 `if:` 会让矩阵根本不展开:GitHub 上报的是字面量 `macOS 15 ${{ matrix.architecture }}` 这一个 check,而分支保护等的是 `macOS 15 arm64` 和 `macOS 15 x86_64` —— 它们永远不会出现,于是只动 platforms/ios 的 PR 一个都合不进 main,报错只有一句「the base branch policy prohibits the merge」。
+    #
+    # 代价是两台 runner 为签出和格式检查各转一分钟。格式检查本来就是全仓库的,顺带覆盖了只改 iOS 的改动。
     name: macOS 15 ${{ matrix.architecture }}
     strategy:
       fail-fast: false
@@ -106,27 +108,34 @@ jobs:
         run: scripts/format.sh --check
       # runner 上下文在 job 级 env 里不可用,所以在这里写进 GITHUB_ENV,后面的步骤都能读到。
       - name: Point the Sparkle download at the cache
+        if: ${{ needs.changes.outputs.build == 'true' }}
         run: echo "METASEQUOIA_SPARKLE_CACHE_DIR=$RUNNER_TEMP/sparkle" >> "$GITHUB_ENV"
       - name: Cache the pinned Sparkle archive
+        if: ${{ needs.changes.outputs.build == 'true' }}
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ${{ runner.temp }}/sparkle
           # 版本和摘要都写在 CMakeLists.txt 里,所以按它的哈希做键:版本一动键就变,不会用到旧归档。
           key: sparkle-${{ runner.os }}-${{ hashFiles('CMakeLists.txt') }}
       - name: Remove unused runner taps
+        if: ${{ needs.changes.outputs.build == 'true' }}
         run: if brew tap | grep -Fxq aws/tap; then brew untap aws/tap; fi
       - name: Install dependencies
+        if: ${{ needs.changes.outputs.build == 'true' }}
         run: brew install boost fmt spdlog nlohmann-json
       # Against /usr/bin/python3 specifically, which is the Command Line Tools interpreter a
       # contributor gets by default and is several minor versions behind the runner's python3. A
       # PEP 701 f-string shipped in fetch_dictionary.py and broke build.sh on a clean machine while
       # CI stayed green, because CI never ran it under that interpreter.
       - name: Check the tooling parses under the stock macOS interpreter
+        if: ${{ needs.changes.outputs.build == 'true' }}
         run: /usr/bin/python3 -m compileall -q scripts platforms/macos/tests platforms/ios/scripts platforms/ios/tests
       # CMake prepares the Engine on configure, but the checks below read it first. The fetch is a no-op once the tree matches the lock, so the later configure pays nothing.
       - name: Prepare the locked Engine archive
+        if: ${{ needs.changes.outputs.build == 'true' }}
         run: python3 scripts/fetch_engine.py
       - name: Validate the product lock
+        if: ${{ needs.changes.outputs.build == 'true' }}
         run: |
           python3 scripts/check-dictionary-contract.py
           python3 scripts/check-product-lock-contract.py
@@ -136,16 +145,22 @@ jobs:
       # around composition, not dictionary content, and downloading 100 MB per run to do it would buy
       # nothing. The release build is what verifies the real data, against the digests in the lock.
       - name: Create test dictionary
+        if: ${{ needs.changes.outputs.build == 'true' }}
         run: python3 platforms/macos/tests/create_fixture_dictionary.py "$RUNNER_TEMP/msime.db"
       - name: Type-check registration helper
+        if: ${{ needs.changes.outputs.build == 'true' }}
         run: xcrun swiftc -typecheck platforms/macos/scripts/register_input_source.swift
       - name: Configure
+        if: ${{ needs.changes.outputs.build == 'true' }}
         run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$(brew --prefix)" -DMETASEQUOIA_IME_DICTIONARY="$RUNNER_TEMP/msime.db"
       - name: Build
+        if: ${{ needs.changes.outputs.build == 'true' }}
         run: cmake --build build --parallel
       - name: Test
+        if: ${{ needs.changes.outputs.build == 'true' }}
         run: ctest --no-tests=error --test-dir build --output-on-failure --timeout 20
       - name: Verify input method bundle
+        if: ${{ needs.changes.outputs.build == 'true' }}
         run: |
           codesign --verify --deep --strict --verbose=2 build/MetasequoiaIME.app
           lipo build/MetasequoiaIME.app/Contents/MacOS/MetasequoiaIME -verify_arch arm64 x86_64

@@ -779,6 +779,55 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         self.assertIn("github.base_ref == 'main' || github.ref_name == 'main'", handwriting)
         self.assertNotIn("github.event_name != 'pull_request'", handwriting)
 
+    def test_no_interface_wait_is_tighter_than_the_rest(self):
+        """界面套件里的等待要么一致,要么就是下一个间歇性假红。
+
+        今天有两条卡在 3 秒上:一条报「No matches found for '取消'」,看着像按钮没了,其实是生成还没开始;
+        一条报 UI 查询超时。同文件其余每一处都是 5 秒,那三处是漏网的异常值,不是有意收紧。
+        一次假红要人来判断真假,而它挡的是发布。
+        """
+        for path in sorted((IOS_ROOT / "UITests").glob("*.swift")):
+            tight = re.findall(r"waitForExistence\(timeout: ([0-4])\)", path.read_text())
+            with self.subTest(file=path.name):
+                self.assertEqual(tight, [], f"{path.name} 里有比 5 秒更紧的等待")
+
+    def test_the_parallel_scope_does_not_boot_a_simulator_it_never_uses(self):
+        """并行跑的是克隆,被选中的那台一条用例都不跑 —— 预启动它就是白留一台 iOS 占内存。
+
+        日志里三台同时活着(原始 + Clone 1 + Clone 2),而所有用例都落在两个克隆上。这就是
+        KeyboardSurfaceUITests 整类一起倒的由来:失败清一色 background assertion 超时、一条断言都没有,
+        而 Xcode 按类把用例分给克隆,一台克隆被系统回收就带走一整类。把并行数从 4 调到 2 只是五台变三台。
+        """
+        runner = (IOS_ROOT / "scripts/run_ui_tests.sh").read_text()
+        commands = "\n".join(l for l in runner.splitlines() if not l.lstrip().startswith("#"))
+        boot = commands.index("simctl boot")
+        guard = commands.rindex("parallel_scope", 0, boot)
+        self.assertIn("!= true", commands[guard:boot], "simctl boot 必须只在非并行范围下执行")
+        # 关机仍要无条件做:陈旧的已启动设备会在安装服务卡死时照常回应状态查询。
+        self.assertLess(commands.index("simctl shutdown"), boot)
+
+    def test_the_interface_suite_does_not_clone_more_simulators_than_the_runner_carries(self):
+        """并行数是稳定性问题,不是速度问题。
+
+        四个克隆时这一套在 CI 上反复整片倒下,八条、五条,失败信息全是同一句 background assertion 超时,
+        一条断言失败都没有 —— runner 扛不住四台模拟器同时冷启动。假红要人来判断真假,而它挡的是发布。
+        往回调会红,这条用例就是为此存在;真要提速,先证明 runner 扛得住,再连这条注释一起改。
+        """
+        runner = (IOS_ROOT / "scripts/run_ui_tests.sh").read_text()
+        default = re.search(r"MSIME_IOS_PARALLEL_SIMULATORS:-(\d+)", runner)
+        self.assertIsNotNone(default, "并行数应当有一个可读的默认值")
+        self.assertLessEqual(int(default.group(1)), 2)
+
+    def test_the_testflight_handover_can_install_its_dependency(self):
+        """没有 --break-system-packages,这一步每次发布都挂。
+
+        runner 的 Homebrew Python 是 externally-managed,pip 按 PEP 668 直接拒绝装到系统环境。挂的位置在包已经上传之后、分发之前,而 GitHub release 那时已经建好了 —— 于是从外面看这次发布是成功的,只有测试者永远等不到那个 build。自 #501 合入起每一次都是这样。
+        """
+        workflow = (IOS_ROOT.parents[1] / ".github/workflows/release-ios.yml").read_text()
+        install = next(line for line in workflow.splitlines() if "pip install" in line)
+        self.assertIn("--break-system-packages", install)
+        self.assertIn("pyjwt", install)
+
     def test_the_simulator_script_generates_before_it_builds(self):
         """生成必须在编译之前,而且不能加条件。
 

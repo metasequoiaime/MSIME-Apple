@@ -83,7 +83,11 @@ struct AISkinGenerationView: View {
         let values: [AISkinProposal]
         #if DEBUG && targetEnvironment(simulator)
         if ProcessInfo.processInfo.arguments.contains("-aiSkinPreview") {
-          try await Task.sleep(nanoseconds: ProcessInfo.processInfo.arguments.contains("-skinGenerationSlowFixture") ? 5_000_000_000 : 100_000_000)
+          // 30 秒不是「慢一点」,是要让取消按钮在整条用例期间都还在。XCUITest 光是 tap 之后等 app 静止再
+          // 把按钮从无障碍快照里查出来,本机空载就要 2.8 秒,CI 上两台克隆并行时会超过 5 秒 —— 窗口和查询
+          // 开销同数量级时,测试看到的是「已经抽完了」,报出来像是取消按钮没做出来。窗口长了也不拖慢用例:
+          // 取消会让这次 sleep 直接抛出。
+          try await Task.sleep(nanoseconds: ProcessInfo.processInfo.arguments.contains("-skinGenerationSlowFixture") ? 30_000_000_000 : 100_000_000)
           values = CustomKeyboardSkin.templates.prefix(3).enumerated().map {
             AISkinProposal(name: "AI 测试 \($0.offset + 1)", description: "仅用于界面自动化的合成设计", design: $0.element.1)
           }

@@ -46,7 +46,7 @@ final class SkinGenerationModel: ObservableObject {
       do {
         let reply: String
         if fixture {
-          try await Task.sleep(nanoseconds: ProcessInfo.processInfo.arguments.contains("-skinGenerationSlowFixture") ? 5_000_000_000 : 300_000_000)
+          try await Task.sleep(nanoseconds: ProcessInfo.processInfo.arguments.contains("-skinGenerationSlowFixture") ? 30_000_000_000 : 300_000_000)
           reply = ##"{"name":"AI 苔绿庭院","design":{"background":"#E8F0EB","keyBackground":"#FFFFFF","keyForeground":"#17251D","accent":"#185C47","actionBackground":"#185C47","cornerRadius":12,"borderWidth":0.5,"shadow":0.1,"pattern":3}}"##
         } else {
           var token = try await BackendAccountSession.shared.accessToken()
