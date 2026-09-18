@@ -15,7 +15,7 @@ cleanup() {
 }
 trap cleanup EXIT
 options=$("${3:?prepare-host executable required}" "${2:?resources required}" "$runtime/profile")
-sway -c platforms/linux/tests/sway-test.conf > "$runtime/sway.log" 2>&1 &
+sway -c platforms/linux/tests/tools/sway-test.conf > "$runtime/sway.log" 2>&1 &
 compositor_pid=$!
 for attempt in $(seq 1 100); do
   for socket in "$runtime"/wayland-*; do
@@ -25,4 +25,4 @@ for attempt in $(seq 1 100); do
   sleep 0.05
 done
 [[ -n ${WAYLAND_DISPLAY:-} ]] || exit 1
-GDK_BACKEND=wayland GTK_IM_MODULE=ibus QT_QPA_PLATFORM=wayland QT_IM_MODULE=ibus NO_AT_BRIDGE=1 bash platforms/linux/tests/daemon_smoke.sh "$1" "$options" "${4:-platforms/linux/tests/wayland_smoke.py}" "${@:5}"
+GDK_BACKEND=wayland GTK_IM_MODULE=ibus QT_QPA_PLATFORM=wayland QT_IM_MODULE=ibus NO_AT_BRIDGE=1 bash platforms/linux/tests/runtime/daemon_smoke.sh "$1" "$options" "${4:-platforms/linux/tests/runtime/wayland_smoke.py}" "${@:5}"

@@ -29,4 +29,4 @@ for attempt in $(seq 1 100); do
 done
 "$binary" "$options" &
 host_pid=$!
-/usr/bin/python3 "${3:-platforms/linux/tests/daemon_smoke.py}" "${@:4}"
+/usr/bin/python3 "${3:-platforms/linux/tests/runtime/daemon_smoke.py}" "${@:4}"
