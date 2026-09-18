@@ -21,7 +21,7 @@
 #define MyAppVersion   "0.0.1"
 #define MyAppPublisher "Metasequoia"
 #define MyAppExeName   "MetasequoiaImeServer.exe"
-#define MySettingsExeName "MetasequoiaImeSettings.exe"
+#define MySettingsExeName "msime-client-settings.exe"
 #define MyWatchdogName "MetasequoiaImeWatchdog.exe"
 #define MyWatchdogTaskName "Metasequoia IME Watchdog"
 #define MyReplayName   "MetasequoiaImeDictionaryReplay.exe"
