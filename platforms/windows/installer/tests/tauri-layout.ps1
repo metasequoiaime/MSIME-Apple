@@ -34,4 +34,9 @@ if (-not $script.Contains("DataDirMarkerName = '.metasequoiaime-data'") -or
 if (-not $script.Contains('if not OwnsDataDir(AppDataPath) then')) {
     throw 'Installer cleanup is not guarded by data-directory ownership'
 }
+if (-not $script.Contains('function MigrateUserDataDir') -or
+    -not $script.Contains('robocopy.exe') -or
+    -not $script.Contains('MigrateUserDataDir(ResolvePreviousDataDir')) {
+    throw 'Installer does not migrate user data when DataDir changes'
+}
 Write-Output 'Installer carries native/Tauri outputs without loose legacy HTML'

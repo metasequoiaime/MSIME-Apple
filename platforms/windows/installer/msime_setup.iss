@@ -171,10 +171,33 @@ var
   CloudCandidatesIndex: Integer;
   UserConfigExistedBeforeInstall: Boolean;
   DataDirValue: String;
+  PreviousDataDir: String;
 
 function UserConfigPath: String;
 begin
   Result := AddBackslash(GetDataDir('')) + 'config.toml';
+end;
+
+function ResolvePreviousDataDir: String;
+var
+  Recorded: String;
+begin
+  if PreviousDataDir = '' then
+  begin
+    Recorded := '';
+    if (RegQueryStringValue(
+          HKLM,
+          'Software\Metasequoia\MetasequoiaIME',
+          'DataDir',
+          Recorded)) and (Trim(Recorded) <> '') then
+      PreviousDataDir := Trim(Recorded)
+    else
+      PreviousDataDir := ExpandConstant('{localappdata}\metasequoiaime');
+    while (Length(PreviousDataDir) > 3) and
+      (PreviousDataDir[Length(PreviousDataDir)] = '\') do
+      Delete(PreviousDataDir, Length(PreviousDataDir), 1);
+  end;
+  Result := PreviousDataDir;
 end;
 
 function GetDataDir(Param: String): String;
@@ -659,9 +682,63 @@ begin
   end;
 end;
 
-function PrepareToInstall(var NeedsRestart: Boolean): String;
-#ifndef LightPackage
+function MigrateUserDataDir(const OldDir, NewDir: String): String;
 var
+  ResultCode: Integer;
+  Moved: Boolean;
+begin
+  Result := '';
+  if (OldDir = '') or (CompareText(OldDir, NewDir) = 0) or
+    (not DirExists(OldDir)) then
+    exit;
+
+  Log('Migrating user data from ' + OldDir + ' to ' + NewDir);
+  if not ForceDirectories(NewDir) then
+  begin
+    Result := '无法创建新的数据目录：' + NewDir;
+    exit;
+  end;
+
+  Moved := Exec(
+    ExpandConstant('{sys}\robocopy.exe'),
+    '"' + OldDir + '" "' + NewDir + '" ' +
+    'msime_user.db msime_user.db-wal msime_user.db-shm msime_user.db-journal ' +
+    'config.toml config.base.toml /MOVE /R:2 /W:1 /NJH /NJS /NP /NFL /NDL',
+    '',
+    SW_HIDE,
+    ewWaitUntilTerminated,
+    ResultCode
+  ) and (ResultCode < 8);
+
+  if DirExists(AddBackslash(OldDir) + 'skins') then
+    Moved := Exec(
+      ExpandConstant('{sys}\robocopy.exe'),
+      '"' + AddBackslash(OldDir) + 'skins" "' +
+      AddBackslash(NewDir) + 'skins" /E /MOVE /R:2 /W:1 /NJH /NJS /NP /NFL /NDL',
+      '',
+      SW_HIDE,
+      ewWaitUntilTerminated,
+      ResultCode
+    ) and (ResultCode < 8) and Moved;
+
+  if not Moved then
+  begin
+    Log('User data migration reported failures; leaving ' + OldDir + ' in place.');
+    if FileExists(AddBackslash(OldDir) + 'msime_user.db') then
+      Result :=
+        '无法把用户词库从 ' + OldDir + ' 移动到 ' + NewDir + '。' + #13#10 +
+        '请确认输入法相关进程已全部退出、目标磁盘可写后重试。';
+    exit;
+  end;
+
+  if OwnsDataDir(OldDir) then
+    TryDeleteTree(OldDir);
+end;
+
+function PrepareToInstall(var NeedsRestart: Boolean): String;
+var
+  MigrationError: String;
+#ifndef LightPackage
   FailedPath: String;
 #endif
 begin
@@ -674,6 +751,12 @@ begin
   end;
   StopProcess('{#MyWatchdogName}');
   StopProcess('{#MyAppExeName}');
+  MigrationError := MigrateUserDataDir(ResolvePreviousDataDir, GetDataDir(''));
+  if MigrationError <> '' then
+  begin
+    Result := MigrationError;
+    exit;
+  end;
 #ifdef LightPackage
   { 轻量包不替换词库：只清 HTML 和 Server/TSF，保留本机 msime.db 等。}
   TryDeleteTree(AddBackslash(GetDataDir('')) + 'html');
