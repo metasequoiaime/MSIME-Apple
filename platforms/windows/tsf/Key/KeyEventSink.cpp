@@ -760,6 +760,15 @@ BOOL CMetasequoiaIME::_IsKeyEaten(         //
             }
             return TRUE;
         }
+        if (!isInputInProgress && candidateMode == CANDIDATE_NONE && _CanRevertSmartPunctuation(wch))
+        {
+            if (pKeyState)
+            {
+                pKeyState->Category = CATEGORY_COMPOSING;
+                pKeyState->Function = FUNCTION_SMART_PUNCTUATION_REVERT;
+            }
+            return TRUE;
+        }
 
         // CapsLock ON + uppercase(没有按 Shift) alphabet:
         // - start of input: don't eat

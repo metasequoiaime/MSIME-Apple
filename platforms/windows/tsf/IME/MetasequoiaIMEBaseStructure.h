@@ -72,7 +72,8 @@ enum KEYSTROKE_FUNCTION
     FUNCTION_TOGGLE_CHARACTER_SET,
     // Local edit: convert the immediately preceding Chinese punctuation when
     // the following space is claimed by smart punctuation.
-    FUNCTION_SMART_PUNCTUATION_CONVERT
+    FUNCTION_SMART_PUNCTUATION_CONVERT,
+    FUNCTION_SMART_PUNCTUATION_REVERT
 };
 
 //---------------------------------------------------------------------

@@ -286,6 +286,17 @@ bool CMetasequoiaIME::_CanConvertSmartPunctuationSpace() const
            GetForegroundWindow() == _smartPunctuationSpaceForegroundWindow;
 }
 
+bool CMetasequoiaIME::_CanRevertSmartPunctuation(WCHAR wch) const
+{
+    const bool sameKey = wch == _smartPunctuationRevertAscii ||
+                         (_smartPunctuationRevertAscii == L'/' && wch == L'\\');
+    return _smartPunctuationRevertArmed && wch != 0 && sameKey &&
+           Global::SmartPunctuationRepeatToChineseEnabled.load(std::memory_order_relaxed) &&
+           GetTickCount64() <= _smartPunctuationRevertDeadline &&
+           _IsFocusSessionCurrent(_smartPunctuationRevertFocusToken) &&
+           GetForegroundWindow() == _smartPunctuationRevertForegroundWindow;
+}
+
 void CMetasequoiaIME::_ClearSmartPunctuationSpace()
 {
     _smartPunctuationSpaceArmed = false;
@@ -294,9 +305,36 @@ void CMetasequoiaIME::_ClearSmartPunctuationSpace()
     _smartPunctuationSpaceForegroundWindow = nullptr;
 }
 
+void CMetasequoiaIME::_ClearSmartPunctuationRevert()
+{
+    _smartPunctuationRevertArmed = false;
+    _smartPunctuationRevertAscii = 0;
+    _smartPunctuationRevertChinese = 0;
+    _smartPunctuationRevertFocusToken = 0;
+    _smartPunctuationRevertForegroundWindow = nullptr;
+    _smartPunctuationRevertDeadline = 0;
+}
+
+void CMetasequoiaIME::_ArmSmartPunctuationRevert(WCHAR ascii, WCHAR chinese)
+{
+    _ClearSmartPunctuationRevert();
+    if (ascii == 0 || chinese == 0 ||
+        !Global::SmartPunctuationRepeatToChineseEnabled.load(std::memory_order_relaxed))
+    {
+        return;
+    }
+    _smartPunctuationRevertArmed = true;
+    _smartPunctuationRevertAscii = ascii;
+    _smartPunctuationRevertChinese = chinese;
+    _smartPunctuationRevertFocusToken = _CaptureFocusSessionToken();
+    _smartPunctuationRevertForegroundWindow = GetForegroundWindow();
+    _smartPunctuationRevertDeadline = GetTickCount64() + SMART_PUNCTUATION_REPEAT_INTERVAL_MS;
+}
+
 void CMetasequoiaIME::_ArmSmartPunctuationSpace(WCHAR chinese, bool autoClosedPair)
 {
     _ClearSmartPunctuationSpace();
+    _ClearSmartPunctuationRevert();
     if (autoClosedPair || chinese == 0 ||
         !Global::SmartPunctuationEnabled.load(std::memory_order_relaxed) ||
         !Global::SmartPunctuationSpaceConvertEnabled.load(std::memory_order_relaxed) ||
@@ -361,6 +399,7 @@ HRESULT CMetasequoiaIME::_HandleSmartPunctuationConvert(TfEditCookie ec, _In_ IT
         pContext->SetSelection(ec, 1, &selection);
         _smartPunctuationShadowChar = ascii;
         _smartPunctuationShadowValid = true;
+        _ArmSmartPunctuationRevert(ascii, chinese);
     }
     selection.range->Release();
     if (FAILED(hr))
@@ -368,6 +407,66 @@ HRESULT CMetasequoiaIME::_HandleSmartPunctuationConvert(TfEditCookie ec, _In_ IT
         CStringRange space;
         space.Set(L" ", 1);
         return _AddCharAndFinalize(ec, pContext, &space);
+    }
+    return S_OK;
+}
+
+HRESULT CMetasequoiaIME::_HandleSmartPunctuationRevert(TfEditCookie ec, _In_ ITfContext *pContext, WCHAR wch)
+{
+    const WCHAR ascii = _smartPunctuationRevertAscii;
+    const WCHAR chinese = _smartPunctuationRevertChinese;
+    _ClearSmartPunctuationRevert();
+    const bool sameKey = wch == ascii || (ascii == L'/' && wch == L'\\');
+    if (ascii == 0 || chinese == 0 || !sameKey)
+    {
+        return E_INVALIDARG;
+    }
+
+    const WCHAR preceding = _GetPrecedingDocumentChar(ec, pContext);
+    if (preceding != 0 && preceding != ascii)
+    {
+        CStringRange fallback;
+        fallback.Set(&chinese, 1);
+        return _AddCharAndFinalize(ec, pContext, &fallback);
+    }
+
+    TF_SELECTION selection = {};
+    ULONG fetched = 0;
+    HRESULT hr = pContext->GetSelection(ec, TF_DEFAULT_SELECTION, 1, &selection, &fetched);
+    if (FAILED(hr) || fetched != 1 || selection.range == nullptr)
+    {
+        CStringRange fallback;
+        fallback.Set(&chinese, 1);
+        return _AddCharAndFinalize(ec, pContext, &fallback);
+    }
+
+    LONG shifted = 0;
+    hr = selection.range->Collapse(ec, TF_ANCHOR_START);
+    if (SUCCEEDED(hr))
+    {
+        hr = SafeRangeShiftStart(selection.range, ec, -1, &shifted);
+        if (SUCCEEDED(hr) && shifted != -1)
+        {
+            hr = E_FAIL;
+        }
+    }
+    if (SUCCEEDED(hr))
+    {
+        hr = SafeRangeSetText(selection.range, ec, 0, &chinese, 1);
+    }
+    if (SUCCEEDED(hr))
+    {
+        selection.range->Collapse(ec, TF_ANCHOR_END);
+        pContext->SetSelection(ec, 1, &selection);
+        _smartPunctuationShadowChar = chinese;
+        _smartPunctuationShadowValid = true;
+    }
+    selection.range->Release();
+    if (FAILED(hr))
+    {
+        CStringRange fallback;
+        fallback.Set(&chinese, 1);
+        return _AddCharAndFinalize(ec, pContext, &fallback);
     }
     return S_OK;
 }
@@ -599,6 +698,7 @@ void CMetasequoiaIME::_RunPairedPunctuationCaretMove()
 void CMetasequoiaIME::_ResetSmartPunctuationHistory()
 {
     _ClearSmartPunctuationSpace();
+    _ClearSmartPunctuationRevert();
     _smartPunctuationKey = 0;
     _smartPunctuationPrecedingChar = 0;
     _smartPunctuationCommittedAscii = false;
@@ -734,10 +834,18 @@ void CMetasequoiaIME::_NoteKeyForSmartPunctuation(UINT code, WCHAR wch, bool isE
     {
         _ClearSmartPunctuationSpace();
     }
+    if (_smartPunctuationRevertArmed && !_CanRevertSmartPunctuation(wch))
+    {
+        _ClearSmartPunctuationRevert();
+    }
 
     // Preserve the local conversion arm through OnTestKeyDown and OnKeyDown;
     // the edit session consumes it after both key-sink passes complete.
     if (code == VK_SPACE && _CanConvertSmartPunctuationSpace())
+    {
+        return;
+    }
+    if (_CanRevertSmartPunctuation(wch))
     {
         return;
     }

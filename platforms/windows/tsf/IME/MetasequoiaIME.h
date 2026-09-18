@@ -183,6 +183,7 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     HRESULT _HandleCommitVoiceComposition(TfEditCookie ec, _In_ ITfContext *pContext, const std::wstring &text);
     HRESULT _HandleCancelVoiceComposition(TfEditCookie ec, _In_ ITfContext *pContext);
     HRESULT _HandleSmartPunctuationConvert(TfEditCookie ec, _In_ ITfContext *pContext);
+    HRESULT _HandleSmartPunctuationRevert(TfEditCookie ec, _In_ ITfContext *pContext, WCHAR wch);
 
     // key event handlers for composition object.
     HRESULT _HandleCompositionInput(TfEditCookie ec, _In_ ITfContext *pContext, WCHAR wch, uint64_t requestId);
@@ -216,8 +217,11 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     void _NoteKeyForSmartPunctuation(UINT code, WCHAR wch, bool isEaten);
     void _ResetSmartPunctuationHistory();
     bool _CanConvertSmartPunctuationSpace() const;
+    bool _CanRevertSmartPunctuation(WCHAR wch) const;
     void _ArmSmartPunctuationSpace(WCHAR chinese, bool autoClosedPair);
     void _ClearSmartPunctuationSpace();
+    void _ArmSmartPunctuationRevert(WCHAR ascii, WCHAR chinese);
+    void _ClearSmartPunctuationRevert();
     void _UpdateSmartPunctuationShadow(UINT code, WCHAR wch, bool isEaten);
     void _InvalidateSmartPunctuationShadow();
     HRESULT _HandleCompositionDoubleSingleByte(TfEditCookie ec, _In_ ITfContext *pContext, WCHAR wch);
@@ -558,6 +562,12 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     WCHAR _smartPunctuationSpaceChinese = 0;
     uint64_t _smartPunctuationSpaceFocusToken = 0;
     HWND _smartPunctuationSpaceForegroundWindow = nullptr;
+    bool _smartPunctuationRevertArmed = false;
+    WCHAR _smartPunctuationRevertAscii = 0;
+    WCHAR _smartPunctuationRevertChinese = 0;
+    uint64_t _smartPunctuationRevertFocusToken = 0;
+    HWND _smartPunctuationRevertForegroundWindow = nullptr;
+    ULONGLONG _smartPunctuationRevertDeadline = 0;
 
     // Last character known to have reached the application. Hosts such as the
     // VS Code terminal back the context with a proxy text store that only ever
