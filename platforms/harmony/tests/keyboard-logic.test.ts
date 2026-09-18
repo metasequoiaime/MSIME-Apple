@@ -651,6 +651,34 @@ group('releases the candidate number row when the shared preference asks', () =>
     'the preference releases the digit to the focused editor');
 });
 
+group('maps hardware navigation according to the shared preferences', () => {
+  const navigation = {
+    minusEqual: true, commaPeriod: true, brackets: false,
+    tab: true, pageUpDown: true, arrows: true
+  };
+  const key = (keyCode: number, shiftKey: boolean = false): HardwareKey => ({
+    keyCode, unicodeChar: 0, ctrlKey: false, altKey: false, logoKey: false, shiftKey
+  });
+  check(HardwareKeyRouter.route(key(2068), true, true, false, navigation).action ===
+    HardwareKeyAction.PREVIOUS_PAGE, 'PageUp goes to the previous page');
+  check(HardwareKeyRouter.route(key(2069), true, true, false, navigation).action ===
+    HardwareKeyAction.NEXT_PAGE, 'PageDown goes to the next page');
+  check(HardwareKeyRouter.route(key(2012), true, true, false, navigation).action ===
+    HardwareKeyAction.PREVIOUS_CANDIDATE, 'Up goes to the previous candidate');
+  check(HardwareKeyRouter.route(key(2013), true, true, false, navigation).action ===
+    HardwareKeyAction.NEXT_CANDIDATE, 'Down goes to the next candidate');
+  check(HardwareKeyRouter.route(key(2049, true), true, true, false, navigation).action ===
+    HardwareKeyAction.PREVIOUS_PAGE, 'Shift+Tab goes to the previous page');
+  check(HardwareKeyRouter.route(key(2049), true, true, false, navigation).action ===
+    HardwareKeyAction.NEXT_PAGE, 'Tab goes to the next page');
+  check(HardwareKeyRouter.route(key(2057), true, true, false, navigation).action ===
+    HardwareKeyAction.PREVIOUS_PAGE, 'minus goes to the previous page');
+  check(HardwareKeyRouter.route(key(2059), true, true, false, navigation).action ===
+    HardwareKeyAction.IGNORED, 'disabled brackets are consumed without text input');
+  check(HardwareKeyRouter.route({ ...key(2012), ctrlKey: true }, true, true, false, navigation).action ===
+    HardwareKeyAction.RELEASE, 'modifier shortcuts remain with the editor');
+});
+
 group('fullwidth conversion maps space to the ideographic form', () => {
   check(FullWidthInputPolicy.output('a', true) === 'ａ', 'a printable ASCII letter shifts by 0xfee0');
   check(FullWidthInputPolicy.output(' ', true) === '\u3000',

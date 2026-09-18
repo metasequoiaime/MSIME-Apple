@@ -12,6 +12,7 @@ import { FullWidthInputPolicy } from './input/FullWidthInputPolicy';
 import { ChineseHelpcodePolicy } from './input/ChineseHelpcodePolicy';
 import { ChineseOutputPolicy } from './input/ChineseOutputPolicy';
 import { KeyboardFeedback, FeedbackSettings, HapticStrength } from './KeyboardFeedback';
+import { HardwareNavigationPreferences } from './HardwareKeyRouter';
 import vibrator from '@ohos.vibrator';
 import i18n from '@ohos.i18n';
 import { InputDiagnosticPolicy } from './input/InputDiagnosticPolicy';
@@ -309,6 +310,7 @@ interface PreparedPreferences {
   touch_keyboard_skin: string;
   candidate_follow_cursor: boolean;
   number_row_selection: boolean;
+  navigation: PreparedNavigationPreferences;
   candidate_font_size: number;
   candidate_preedit_font_size: number;
   candidate_font_family: string;
@@ -337,6 +339,16 @@ interface PreparedPreferences {
   touch_voice_shortcut: boolean;
   voice_input: VoiceInputConfiguration;
   keybindings: PreparedKeybindings;
+}
+
+interface PreparedNavigationPreferences {
+  minus_equal: boolean;
+  comma_period: boolean;
+  brackets: boolean;
+  tab: boolean;
+  page_up_down: boolean;
+  mouse_wheel: boolean;
+  arrows: boolean;
 }
 
 /** The shared floating toolbar record. Only what a HarmonyOS toolbar can honour is read from it. */
@@ -371,6 +383,7 @@ export interface KeyboardPreferences {
   readonly layout: string;
   readonly candidateFollowCursor: boolean;
   readonly numberRowSelection: boolean;
+  readonly navigation: HardwareNavigationPreferences;
   readonly candidateFontSize: number;
   readonly candidatePreeditFontSize: number;
   readonly candidateFontFamily: string;
@@ -419,7 +432,9 @@ enum InputCommand {
   MOVE_LEFT = 4,
   MOVE_RIGHT = 5,
   NEXT_PAGE = 100,
-  PREVIOUS_PAGE = 101
+  PREVIOUS_PAGE = 101,
+  NEXT_CANDIDATE = 102,
+  PREVIOUS_CANDIDATE = 103
 }
 
 /**
@@ -462,6 +477,10 @@ export class KeyboardSession {
     layout: 'twenty_six_key',
     candidateFollowCursor: true,
     numberRowSelection: false,
+    navigation: {
+      minusEqual: true, commaPeriod: true, brackets: false,
+      tab: true, pageUpDown: true, arrows: true
+    },
     candidateFontSize: 18,
     candidatePreeditFontSize: 15,
     candidateFontFamily: 'Noto Sans SC',
@@ -566,6 +585,14 @@ export class KeyboardSession {
         layout: preferences.touch_keyboard_layout,
         candidateFollowCursor: preferences.candidate_follow_cursor,
         numberRowSelection: preferences.number_row_selection,
+        navigation: {
+          minusEqual: preferences.navigation?.minus_equal ?? true,
+          commaPeriod: preferences.navigation?.comma_period ?? true,
+          brackets: preferences.navigation?.brackets ?? false,
+          tab: preferences.navigation?.tab ?? true,
+          pageUpDown: preferences.navigation?.page_up_down ?? true,
+          arrows: preferences.navigation?.arrows ?? true
+        },
         // The shared store validates these to 12..32 and strips control
         // characters from family names. Clamp again at the host boundary so
         // an older staged document cannot produce an unusable panel.
@@ -1121,6 +1148,14 @@ export class KeyboardSession {
 
   previousPage(): void {
     this.command(InputCommand.PREVIOUS_PAGE);
+  }
+
+  nextCandidate(): void {
+    this.command(InputCommand.NEXT_CANDIDATE);
+  }
+
+  previousCandidate(): void {
+    this.command(InputCommand.PREVIOUS_CANDIDATE);
   }
 
   choose(index: number): void {

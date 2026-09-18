@@ -39,7 +39,13 @@ export enum HardwareKeyAction {
   /** Commit the letters as typed, without choosing a candidate. */
   COMMIT_RAW,
   /** Choose the candidate at `index`. */
-  SELECT
+  SELECT,
+  /** Consume a disabled navigation binding without turning it into text. */
+  IGNORED,
+  NEXT_PAGE,
+  PREVIOUS_PAGE,
+  NEXT_CANDIDATE,
+  PREVIOUS_CANDIDATE
 }
 
 export interface HardwareKeyDecision {
@@ -50,11 +56,32 @@ export interface HardwareKeyDecision {
   readonly index: number;
 }
 
+/** The shared Windows-compatible candidate navigation bindings. */
+export interface HardwareNavigationPreferences {
+  readonly minusEqual: boolean;
+  readonly commaPeriod: boolean;
+  readonly brackets: boolean;
+  readonly tab: boolean;
+  readonly pageUpDown: boolean;
+  readonly arrows: boolean;
+}
+
 const KEYCODE_SPACE: number = 2050;
 const KEYCODE_ENTER: number = 2054;
 const KEYCODE_DEL: number = 2055;
 const KEYCODE_ESCAPE: number = 2070;
 const KEYCODE_NUMPAD_ENTER: number = 2119;
+const KEYCODE_DPAD_UP: number = 2012;
+const KEYCODE_DPAD_DOWN: number = 2013;
+const KEYCODE_TAB: number = 2049;
+const KEYCODE_COMMA: number = 2043;
+const KEYCODE_PERIOD: number = 2044;
+const KEYCODE_MINUS: number = 2057;
+const KEYCODE_EQUALS: number = 2058;
+const KEYCODE_LEFT_BRACKET: number = 2059;
+const KEYCODE_RIGHT_BRACKET: number = 2060;
+const KEYCODE_PAGE_UP: number = 2068;
+const KEYCODE_PAGE_DOWN: number = 2069;
 
 const RELEASE: HardwareKeyDecision = {
   action: HardwareKeyAction.RELEASE, character: 0, index: 0
@@ -71,7 +98,11 @@ export class HardwareKeyRouter {
    * @param chinese whether the Engine would spell with a letter rather than pass it through
    */
   static route(key: HardwareKey, composing: boolean, chinese: boolean,
-               releaseNumberRow: boolean = false): HardwareKeyDecision {
+               releaseNumberRow: boolean = false,
+               navigation: HardwareNavigationPreferences = {
+                 minusEqual: true, commaPeriod: true, brackets: false,
+                 tab: true, pageUpDown: true, arrows: true
+               }): HardwareKeyDecision {
     // A modifier means the key is part of a shortcut, which belongs to the application even mid
     // composition. Shift is not one of those: it is how capitals and helpcodes are typed.
     if (key.ctrlKey || key.altKey || key.logoKey) {
@@ -92,6 +123,11 @@ export class HardwareKeyRouter {
         // 重输-adjacent raw commit means on the touch keyboard. The editor's own return action is
         // what Enter does when nothing is being composed, and that is the untouched path below.
         return decision(HardwareKeyAction.COMMIT_RAW);
+      }
+      const navigationDecision: HardwareKeyDecision | undefined =
+        HardwareKeyRouter.navigation(key, navigation);
+      if (navigationDecision !== undefined) {
+        return navigationDecision;
       }
       // 1 through 9 pick a candidate off the strip while something is being spelled, which is what
       // the number row is for on every desktop input method.
@@ -115,5 +151,37 @@ export class HardwareKeyRouter {
       return RELEASE;
     }
     return decision(HardwareKeyAction.COMPOSE, key.unicodeChar);
+  }
+
+  private static navigation(key: HardwareKey,
+                            preferences: HardwareNavigationPreferences): HardwareKeyDecision | undefined {
+    let previous: boolean = false;
+    let enabled: boolean;
+    if (key.keyCode === KEYCODE_DPAD_UP || key.keyCode === KEYCODE_DPAD_DOWN) {
+      if (preferences.arrows) {
+        return decision(key.keyCode === KEYCODE_DPAD_UP
+          ? HardwareKeyAction.PREVIOUS_CANDIDATE : HardwareKeyAction.NEXT_CANDIDATE);
+      }
+      enabled = false;
+    } else if (key.keyCode === KEYCODE_PAGE_UP || key.keyCode === KEYCODE_PAGE_DOWN) {
+      previous = key.keyCode === KEYCODE_PAGE_UP;
+      enabled = preferences.pageUpDown;
+    } else if (key.keyCode === KEYCODE_TAB) {
+      previous = key.shiftKey;
+      enabled = preferences.tab;
+    } else if (key.keyCode === KEYCODE_MINUS || key.keyCode === KEYCODE_EQUALS) {
+      previous = key.keyCode === KEYCODE_MINUS;
+      enabled = preferences.minusEqual;
+    } else if (key.keyCode === KEYCODE_COMMA || key.keyCode === KEYCODE_PERIOD) {
+      previous = key.keyCode === KEYCODE_COMMA;
+      enabled = preferences.commaPeriod;
+    } else if (key.keyCode === KEYCODE_LEFT_BRACKET || key.keyCode === KEYCODE_RIGHT_BRACKET) {
+      previous = key.keyCode === KEYCODE_LEFT_BRACKET;
+      enabled = preferences.brackets;
+    } else {
+      return undefined;
+    }
+    return decision(enabled ? (previous ? HardwareKeyAction.PREVIOUS_PAGE
+      : HardwareKeyAction.NEXT_PAGE) : HardwareKeyAction.IGNORED);
   }
 }

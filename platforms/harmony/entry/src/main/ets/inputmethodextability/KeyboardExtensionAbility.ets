@@ -341,7 +341,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     }
     const decision: HardwareKeyDecision =
       HardwareKeyRouter.route(key, session.composing(), !session.isEnglish(),
-        KeyboardSession.shared.preferences().numberRowSelection);
+        KeyboardSession.shared.preferences().numberRowSelection,
+        KeyboardSession.shared.preferences().navigation);
     if (decision.action === HardwareKeyAction.RELEASE) {
       return false;
     }
@@ -366,6 +367,20 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         break;
       case HardwareKeyAction.SELECT:
         session.choose(decision.index);
+        break;
+      case HardwareKeyAction.NEXT_PAGE:
+        session.nextPage();
+        break;
+      case HardwareKeyAction.PREVIOUS_PAGE:
+        session.previousPage();
+        break;
+      case HardwareKeyAction.NEXT_CANDIDATE:
+        session.nextCandidate();
+        break;
+      case HardwareKeyAction.PREVIOUS_CANDIDATE:
+        session.previousCandidate();
+        break;
+      case HardwareKeyAction.IGNORED:
         break;
       default:
         return false;
