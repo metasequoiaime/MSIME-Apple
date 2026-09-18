@@ -42,4 +42,10 @@ if (-not $script.Contains('function MigrateUserDataDir') -or
     -not $script.Contains('MigrateUserDataDir(ResolvePreviousDataDir')) {
     throw 'Installer does not migrate user data when DataDir changes'
 }
+if (-not $script.Contains('/COPY:DAT') -or $script.Contains('/MOVE')) {
+    throw 'Installer migration must retain the previous data directory for recovery'
+}
+if (-not $script.Contains('用户数据复制失败，安装已停止')) {
+    throw 'Installer migration must fail closed when user data copy fails'
+}
 Write-Output 'Installer carries native/Tauri outputs without loose legacy HTML'

@@ -692,54 +692,64 @@ end;
 function MigrateUserDataDir(const OldDir, NewDir: String): String;
 var
   ResultCode: Integer;
-  Moved: Boolean;
+  Copied: Boolean;
 begin
   Result := '';
   if (OldDir = '') or (CompareText(OldDir, NewDir) = 0) or
     (not DirExists(OldDir)) then
     exit;
 
-  Log('Migrating user data from ' + OldDir + ' to ' + NewDir);
+  { Keep the source intact until the entire installation has succeeded. A move
+    can remove the main SQLite file before a locked WAL or configuration fails,
+    leaving neither directory with a complete recoverable user state. }
+  Log('Copying user data; the previous directory is retained for recovery.');
   if not ForceDirectories(NewDir) then
   begin
     Result := '无法创建新的数据目录：' + NewDir;
     exit;
   end;
 
-  Moved := Exec(
+  ResultCode := -1;
+  Copied := Exec(
     ExpandConstant('{sys}\robocopy.exe'),
     '"' + OldDir + '" "' + NewDir + '" ' +
     'msime_user.db msime_user.db-wal msime_user.db-shm msime_user.db-journal ' +
-    'config.toml config.base.toml /MOVE /R:2 /W:1 /NJH /NJS /NP /NFL /NDL',
+    'config.toml config.base.toml /COPY:DAT /R:2 /W:1 /NJH /NJS /NP /NFL /NDL',
     '',
     SW_HIDE,
     ewWaitUntilTerminated,
     ResultCode
-  ) and (ResultCode < 8);
+  ) and (ResultCode >= 0) and (ResultCode < 8);
+
+  if not Copied then
+  begin
+    Result := '用户数据复制失败，安装已停止；原目录中的数据保持不变。请关闭相关程序并检查目标磁盘后重试。';
+    exit;
+  end;
 
   if DirExists(AddBackslash(OldDir) + 'skins') then
-    Moved := Exec(
+  begin
+    ResultCode := -1;
+    Copied := Exec(
       ExpandConstant('{sys}\robocopy.exe'),
       '"' + AddBackslash(OldDir) + 'skins" "' +
-      AddBackslash(NewDir) + 'skins" /E /MOVE /R:2 /W:1 /NJH /NJS /NP /NFL /NDL',
+      AddBackslash(NewDir) + 'skins" /E /COPY:DAT /R:2 /W:1 /NJH /NJS /NP /NFL /NDL',
       '',
       SW_HIDE,
       ewWaitUntilTerminated,
       ResultCode
-    ) and (ResultCode < 8) and Moved;
+    ) and (ResultCode >= 0) and (ResultCode < 8);
+  end;
 
-  if not Moved then
+  if not Copied then
   begin
-    Log('User data migration reported failures; leaving ' + OldDir + ' in place.');
-    if FileExists(AddBackslash(OldDir) + 'msime_user.db') then
-      Result :=
-        '无法把用户词库从 ' + OldDir + ' 移动到 ' + NewDir + '。' + #13#10 +
-        '请确认输入法相关进程已全部退出、目标磁盘可写后重试。';
+    Result := '用户皮肤复制失败，安装已停止；原目录中的数据保持不变。请检查目标磁盘后重试。';
     exit;
   end;
 
-  if OwnsDataDir(OldDir) then
-    TryDeleteTree(OldDir);
+  { Do not recursively delete OldDir, even if it has an ownership marker.
+    NewDir may be a child of it, and later replay/installation can still fail.
+    The retained copy is a recovery snapshot, not a second active data store. }
 end;
 
 function PrepareToInstall(var NeedsRestart: Boolean): String;
