@@ -91,7 +91,8 @@ jobs:
     # test build before a case ran, then thirty-seven cases on a Simulator half the speed of an arm64
     # one. The handwriting cases are their own job now, so neither waits on the other.
     runs-on: macos-15
-    timeout-minutes: 60
+    # 这个上限盖住整个 job,比里面那一步还先到期 —— 2026-09-18 砍掉一次 `all` 范围的运行就是它:job 跑到 60 分 24 秒被砍,而那一步自己才 58 分。两处要一起调,只改里面那个不起作用。
+    timeout-minutes: 95
     env:
       DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
       MSIME_IOS_SKIP_HANDWRITING: '1'
@@ -142,10 +143,12 @@ jobs:
         # a number the suite has to fit inside. The 110 it used to carry was for an Intel runner
         # doing this work on a Simulator half the speed, and a 25-minute build in front of it.
         #
-        # 60 rather than 45, because the cap has to cover the build as well: run_ui_tests.sh does build-for-testing and test-without-building in the one step, so a compile from cold is inside the budget along with the whole suite. Measured at this gate, the job takes 33 to 34 minutes; a runner half again as slow took 50 and was killed mid-suite, which reads as a test failure and is not one. The point of the cap is to stop a hang, and a hang is open-ended -- it does not need a tight number to be caught.
+        # The cap has to cover the build as well: run_ui_tests.sh does build-for-testing and test-without-building in the one step, so a compile from cold is inside the budget along with the whole suite.
+        #
+        # 90 rather than 60, because 60 stopped catching hangs and started catching the suite. The `all` scope measured 38m43s, then 48m00s, then ran past 58 minutes and was killed with the tests still going -- and a killed run prints nothing at all, because xcodebuild only flushes its per-case lines at the end. So the cost of a tight cap is not a slower gate, it is a red run that says nothing about why. A hang is open-ended and 90 catches it just as well.
         env:
           MSIME_TEST_SCOPE: ${{ (github.base_ref == 'main' || github.ref_name == 'main') && 'all' || 'pr' }}
-        timeout-minutes: 60
+        timeout-minutes: 90
         run: bash platforms/ios/scripts/run_ui_tests.sh
       - name: Upload iOS test results
         if: ${{ !cancelled() }}

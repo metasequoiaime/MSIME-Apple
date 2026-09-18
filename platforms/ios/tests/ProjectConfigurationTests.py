@@ -880,7 +880,10 @@ sys.exit(int(os.environ["UPLOAD_STATUS"]))
         self.assertIn("build-for-testing", runner)
         self.assertIn("test-without-building", runner)
         self.assertNotIn("generic/platform=iOS Simulator", workflow)
-        self.assertEqual(workflow.count("xcodebuild"), 0)
+        # 剥掉注释再数:契约是「工作流里不调用 xcodebuild」,不是「工作流里不许提到它」。一条解释超时上限为什么
+        # 要放宽的注释写了 xcodebuild 缓冲输出的行为,就把这条钉红了 —— 那时它拦的是措辞,不是调用。
+        steps = "\n".join(l for l in workflow.splitlines() if not l.lstrip().startswith("#"))
+        self.assertEqual(steps.count("xcodebuild"), 0)
         # Booting returns immediately and the build needs no simulator, so the wait belongs after
         # the build rather than before it. Compare the commands rather than the file: prose that
         # names a step would otherwise decide the order this reads.
