@@ -162,6 +162,7 @@ impl HostCapabilities {
                     | HostPlatform::Macos
                     | HostPlatform::Android
                     | HostPlatform::Ios
+                    | HostPlatform::Harmony
             ),
             system_fonts: platform.is_desktop(),
             window_chrome: platform.is_desktop(),
@@ -730,7 +731,9 @@ mod tests {
         );
         assert!(!harmony.restart_input_method);
         assert!(!harmony.ime_mode_scope);
-        assert!(!harmony.fuzzy_pinyin);
+        // Harmony's Engine consumes the shared fuzzy-pinyin rules on every prepared session, so
+        // the settings page may expose the same rule picker as the other mobile hosts.
+        assert!(harmony.fuzzy_pinyin);
         // Consumed: the hardware key router reads all four bindings, so the page may offer them.
         assert!(harmony.mode_switch_shortcuts);
         assert!(!harmony.panel_shortcuts);

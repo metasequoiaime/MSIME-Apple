@@ -2,6 +2,8 @@
 
 OpenHarmony 适配保留 ArkTS/ArkUI 应用入口与 NAPI 原生边界。共享输入算法、组合状态、配置校验和资源准备继续由 Rust Host API 与 C++ Engine 提供；`platforms/harmony/native/client_napi.cpp` 只负责 NAPI 注册和 C ABI 转发，不复制候选分页或输入状态机。
 
+Harmony 设置页也暴露共享的模糊拼音规则。设置保存到同一个 `PreferencesStore`，键盘宿主在准备 Engine 会话时读取并应用启用的规则；这项能力不依赖桌面窗口或设备专属 API。
+
 ## 目录结构
 
 - `entry/src/`：ArkTS 应用与键盘宿主源码。
