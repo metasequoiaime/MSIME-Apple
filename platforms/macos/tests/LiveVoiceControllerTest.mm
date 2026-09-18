@@ -1,4 +1,4 @@
-#import "../InputController.mm"
+#import "../src/InputController.mm"
 #import "VoiceCueFixture.h"
 #import "VoiceMeterFixture.h"
 #include <cassert>

@@ -1,5 +1,5 @@
 #import <AppKit/AppKit.h>
-#import "../CandidateChrome.h"
+#import "../src/CandidateChrome.h"
 
 #include <cassert>
 

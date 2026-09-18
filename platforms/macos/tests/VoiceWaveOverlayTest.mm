@@ -1,4 +1,4 @@
-#import "../VoiceWaveOverlay.h"
+#import "../src/VoiceWaveOverlay.h"
 #include <cassert>
 #include <cmath>
 

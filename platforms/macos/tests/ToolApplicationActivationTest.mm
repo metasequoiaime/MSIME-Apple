@@ -1,4 +1,4 @@
-#import "../ToolApplicationActivation.h"
+#import "../src/ToolApplicationActivation.h"
 #include <cassert>
 
 static NSUInteger step;

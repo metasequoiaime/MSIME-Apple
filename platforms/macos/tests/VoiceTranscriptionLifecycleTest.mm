@@ -1,4 +1,4 @@
-#import "../VoiceInputService.h"
+#import "../src/VoiceInputService.h"
 #import <objc/runtime.h>
 #include <cassert>
 

@@ -1,4 +1,4 @@
-#import "../ToolTextReturn.h"
+#import "../src/ToolTextReturn.h"
 #include <cassert>
 
 int main() {

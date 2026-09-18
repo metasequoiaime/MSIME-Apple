@@ -1,4 +1,4 @@
-#import "../DesktopCloudClipboard.h"
+#import "../src/DesktopCloudClipboard.h"
 #include <cassert>
 
 @interface SyntheticDictionaryProvider : NSObject <MSIMEDesktopCloudClipboardProvider>

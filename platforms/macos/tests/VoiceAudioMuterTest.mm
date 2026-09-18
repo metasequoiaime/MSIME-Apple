@@ -1,4 +1,4 @@
-#import "../VoiceAudioMuter.h"
+#import "../src/VoiceAudioMuter.h"
 #include <cassert>
 #include <map>
 

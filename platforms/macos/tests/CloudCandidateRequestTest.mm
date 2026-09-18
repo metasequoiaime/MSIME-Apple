@@ -1,4 +1,4 @@
-#import "../CloudCandidateRequest.h"
+#import "../src/CloudCandidateRequest.h"
 #import "MSIMEClientSession.h"
 #include <cassert>
 

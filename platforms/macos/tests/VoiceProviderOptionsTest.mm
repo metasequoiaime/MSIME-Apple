@@ -1,5 +1,5 @@
-#import "../SharedVoicePreferences.h"
-#import "../VoiceProviderOptions.h"
+#import "../src/SharedVoicePreferences.h"
+#import "../src/VoiceProviderOptions.h"
 #include <cassert>
 #import "TestPreferenceSuite.h"
 

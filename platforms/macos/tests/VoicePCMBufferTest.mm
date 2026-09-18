@@ -1,4 +1,4 @@
-#import "../VoicePCMBuffer.h"
+#import "../src/VoicePCMBuffer.h"
 #include <cassert>
 #include <cmath>
 #include <limits>

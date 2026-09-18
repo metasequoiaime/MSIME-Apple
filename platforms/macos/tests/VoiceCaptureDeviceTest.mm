@@ -1,4 +1,4 @@
-#import "../VoiceCaptureDevice.h"
+#import "../src/VoiceCaptureDevice.h"
 #include <cassert>
 #include <cstring>
 

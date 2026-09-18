@@ -1,4 +1,4 @@
-#import "../CloudClipboardClient.h"
+#import "../src/CloudClipboardClient.h"
 #include <cassert>
 int main() {
     @autoreleasepool {
