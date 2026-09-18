@@ -151,7 +151,7 @@ Json voiceProviderOptions(const Json &preferences) {
   for (const auto *key : {"sound_enabled", "start_sound", "end_sound",
                           "mute_system_audio", "polish_enabled", "polish_text",
                           "doubao_enable_itn", "doubao_enable_punc", "doubao_enable_ddc",
-                          "stream_inline_preedit"}) {
+                          "stream_inline_preedit", "hotkey_hold_space_lock"}) {
     if (voice.contains(key) && voice.at(key).is_boolean()) options[key] = voice.at(key);
   }
   for (const auto *key : {"capture_backend", "capture_device", "commit_mode", "asr_provider",
@@ -271,9 +271,13 @@ public:
     voice_hotkey_ralt_ = true;
     voice_hotkey_ctrl_win_ = false;
     voice_hotkey_rctrl_ralt_ = false;
+    voice_hotkey_hold_space_lock_ = true;
     voice_ralt_held_ = false;
     voice_f9_held_ = false;
     voice_ctrl_win_held_ = false;
+    voice_rctrl_ralt_held_ = false;
+    voice_space_consumed_ = false;
+    voice_space_locked_ = false;
     voice_job_ = {};
     voice_mailbox_.reset();
     voice_generation_ = 0;
@@ -770,6 +774,8 @@ public:
             voice_hotkey_ralt_ = voicePreferences.value("hotkey_ralt", voice_hotkey_ralt_);
             voice_hotkey_ctrl_win_ = voicePreferences.value("hotkey_ctrl_win", voice_hotkey_ctrl_win_);
             voice_hotkey_rctrl_ralt_ = voicePreferences.value("hotkey_rctrl_ralt", voice_hotkey_rctrl_ralt_);
+            voice_hotkey_hold_space_lock_ =
+                voicePreferences.value("hotkey_hold_space_lock", voice_hotkey_hold_space_lock_);
             voice_language_ = voicePreferences.value("language", voice_language_);
             voice_options_ = voiceProviderOptions(preferences_);
             preferences_snapshot_ = std::move(snapshot);
@@ -1261,6 +1267,8 @@ public:
       auto result = voice_job_.get();
       voice_job_ = {};
       voice_loading_ = false;
+      voice_space_consumed_ = false;
+      voice_space_locked_ = false;
       if (session_ && ic_.hasFocus() && !restricted() && !privateInput() && result.is_object()) {
         auto text = result.value("text", std::string{});
         if (mailbox) {
@@ -1272,7 +1280,12 @@ public:
         voice_mailbox_.reset();
         if (!text.empty()) { ic_.commitString(text); return true; }
       }
-    } catch (...) { voice_loading_ = false; voice_mailbox_.reset(); }
+    } catch (...) {
+      voice_loading_ = false;
+      voice_space_consumed_ = false;
+      voice_space_locked_ = false;
+      voice_mailbox_.reset();
+    }
     return false;
   }
   bool requestVoice() {
@@ -1318,6 +1331,8 @@ public:
     voice_job_ = {};
     voice_mailbox_.reset();
     voice_loading_ = false;
+    voice_space_consumed_ = false;
+    voice_space_locked_ = false;
     voice_partial_seen_ = false;
     voice_phase_seen_ = false;
     voice_level_seen_ = false;
@@ -1458,10 +1473,13 @@ public:
   bool voice_hotkey_ralt_ = true;
   bool voice_hotkey_ctrl_win_ = false;
   bool voice_hotkey_rctrl_ralt_ = false;
+  bool voice_hotkey_hold_space_lock_ = true;
   bool voice_ralt_held_ = false;
   bool voice_f9_held_ = false;
   bool voice_ctrl_win_held_ = false;
   bool voice_rctrl_ralt_held_ = false;
+  bool voice_space_consumed_ = false;
+  bool voice_space_locked_ = false;
   bool input_enabled_ = true;
   std::shared_future<Json> voice_job_;
   std::shared_ptr<FcitxVoiceMailbox> voice_mailbox_;
@@ -2938,7 +2956,7 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   if (sym == FcitxKey_Alt_R && voice_ralt_held_) {
     if (event.isRelease()) {
       voice_ralt_held_ = false;
-      if (voice_loading_) stopVoice();
+      if (voice_loading_ && !voice_space_locked_) stopVoice();
     }
     return true;
   }
@@ -2949,15 +2967,19 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   if (voice_ctrl_win_held_ && (controlKey || superKey)) {
     if (event.isRelease()) {
       voice_ctrl_win_held_ = false;
-      if (voice_loading_) stopVoice();
+      if (voice_loading_ && !voice_space_locked_) stopVoice();
     }
     return true;
   }
   if (voice_rctrl_ralt_held_ && (rightControlKey || rightAltKey)) {
     if (event.isRelease()) {
       voice_rctrl_ralt_held_ = false;
-      if (voice_loading_) stopVoice();
+      if (voice_loading_ && !voice_space_locked_) stopVoice();
     }
+    return true;
+  }
+  if (sym == FcitxKey_space && voice_space_consumed_) {
+    if (event.isRelease()) voice_space_consumed_ = false;
     return true;
   }
   if (event.isRelease()) return false;
@@ -3001,6 +3023,17 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   const bool ctrl = states.test(fcitx::KeyState::Ctrl);
   const bool alt = states.test(fcitx::KeyState::Alt);
   const bool shift = states.test(fcitx::KeyState::Shift);
+  // Match the Windows/IBus hold-to-record interaction: pressing Space while
+  // a modifier-held voice recording is active locks recognition and consumes
+  // the complete Space stroke so it cannot leak into the editor. Ctrl+F9 is a
+  // toggle recording shortcut, not a hold-to-record shortcut.
+  const bool holdVoice = voice_loading_ && voice_hotkey_hold_space_lock_ &&
+      (voice_ralt_held_ || voice_ctrl_win_held_ || voice_rctrl_ralt_held_);
+  if (sym == FcitxKey_space && holdVoice) {
+    voice_space_consumed_ = true;
+    voice_space_locked_ = true;
+    return true;
+  }
   if (sym == FcitxKey_F9 && ctrl && !alt && !shift &&
       !states.testAny(fcitx::KeyStates{fcitx::KeyState::Super, fcitx::KeyState::Hyper}) &&
       voice_hotkey_ctrl_f9_ && voice_enabled_ && !voice_socket_.empty() && !restricted() && !privateInput() &&

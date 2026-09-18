@@ -517,6 +517,18 @@ int main(int argc, char **argv) {
             "voice action receives provider status and level");
     require(ic.committed.find("语音测试") != std::string::npos, "voice action commits provider text");
     require(voiceProvider.get(), "voice socket protocol");
+    state->voice_loading_ = true;
+    state->voice_ralt_held_ = true;
+    state->voice_hotkey_hold_space_lock_ = true;
+    fcitx::KeyEvent voiceLockDown(&ic, fcitx::Key(FcitxKey_space));
+    engine.keyEvent(entry, voiceLockDown);
+    require(voiceLockDown.accepted() && state->voice_space_locked_ &&
+                state->voice_space_consumed_,
+            "Space locks an active hold-to-record voice shortcut");
+    state->voice_loading_ = false;
+    state->voice_ralt_held_ = false;
+    state->voice_space_consumed_ = false;
+    state->voice_space_locked_ = false;
     if (ai) {
       require(onlineQuery.value("ai_eligible", false), "AI query eligible");
       require(onlineQuery.at("ai_assistant").value("enabled", false), "AI provider enabled");
