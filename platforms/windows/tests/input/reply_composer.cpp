@@ -58,6 +58,15 @@ int main() {
     semicolon.event_type = FanyImePipeEventType::KeyEvent;
     semicolon.keycode = 0xBA;
     semicolon.wch = ';';
+    FanyImeNamedpipeData japanese_minus{};
+    japanese_minus.event_type = FanyImePipeEventType::KeyEvent;
+    japanese_minus.keycode = 0xBD;
+    japanese_minus.wch = '-';
+    require(edit_kind(japanese_minus, "none", true, false, "ka", 2, true) ==
+            EditKind::Character);
+    japanese_minus.modifiers_down = 1;
+    require(edit_kind(japanese_minus, "none", true, false, "ka", 2, true) ==
+            EditKind::None);
     require(edit_kind(semicolon, "none", true, true, "b", 1) ==
             EditKind::Character);
     require(edit_kind(semicolon, "none", true, true, "ni'b", 4) ==

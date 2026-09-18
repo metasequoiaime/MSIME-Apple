@@ -19,7 +19,8 @@ enum class EditKind { None, Character, Erase, Caret };
 inline EditKind edit_kind(const FanyImeNamedpipeData &packet,
                           std::string_view mode, bool composing,
                           bool microsoft_shuangpin = false,
-                          std::string_view editing = {}, size_t caret = 0) {
+                          std::string_view editing = {}, size_t caret = 0,
+                          bool japanese_scheme = false) {
   if (packet.event_type != FanyImePipeEventType::KeyEvent || mode == "unknown")
     return EditKind::None;
   const auto modifiers = PipeMetadata::key_modifiers(packet.modifiers_down);
@@ -27,6 +28,12 @@ inline EditKind edit_kind(const FanyImeNamedpipeData &packet,
     return EditKind::None;
   const auto key = normalize_digit_key(packet.keycode);
   const auto text = static_cast<uint32_t>(packet.wch);
+  // Japanese reserves the OEM minus key for the long-vowel mark. Route it
+  // through Engine while composing instead of treating it as navigation or
+  // punctuation.
+  if (composing && japanese_scheme && modifiers == 0 && key == 0xBD &&
+      text == '-')
+    return EditKind::Character;
   if (composing && modifiers == 0) {
     if (key == 0x08 || key == 0x2E)
       return EditKind::Erase;
