@@ -7,12 +7,29 @@
 namespace msime::windows {
 
 inline constexpr uint32_t kVirtualKeyBackspace = 0x08;
+inline constexpr uint32_t kVirtualKeyShift = 0x10;
+inline constexpr uint32_t kVirtualKeyEscape = 0x1B;
 inline constexpr uint32_t kVirtualKeyLeft = 0x25;
 inline constexpr uint32_t kVirtualKeyRight = 0x27;
+inline constexpr uint32_t kVirtualKeyLeftShift = 0xA0;
+inline constexpr uint32_t kVirtualKeyRightShift = 0xA1;
+inline constexpr uint32_t kVirtualKeyNumpad0 = 0x60;
+inline constexpr uint32_t kVirtualKeyNumpad9 = 0x69;
 inline constexpr uint32_t kModifierShift = 0b00000001u;
 inline constexpr uint32_t kModifierControl = 0b00000010u;
 inline constexpr uint32_t kModifierAlt = 0b00000100u;
 inline constexpr uint32_t kKeyModifierMask = kModifierShift | kModifierControl | kModifierAlt;
+
+constexpr uint32_t normalize_numpad_digit_key(uint32_t keycode) {
+  return keycode >= kVirtualKeyNumpad0 && keycode <= kVirtualKeyNumpad9
+             ? static_cast<uint32_t>('0') + keycode - kVirtualKeyNumpad0
+             : keycode;
+}
+
+constexpr bool is_backend_independent_reset_key(uint32_t keycode) {
+  return keycode == kVirtualKeyShift || keycode == kVirtualKeyEscape ||
+         keycode == kVirtualKeyLeftShift || keycode == kVirtualKeyRightShift;
+}
 
 constexpr bool is_segment_backspace_key(uint32_t keycode, uint32_t modifiers) {
   return keycode == kVirtualKeyBackspace &&
