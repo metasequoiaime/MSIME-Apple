@@ -3,6 +3,10 @@
 #include <windows.h>
 
 namespace msime::windows {
-int wave_overlay_taskbar_height();
-RECT wave_overlay_monitor();
+struct WaveOverlayMonitorMetrics {
+  RECT monitor{};
+  RECT work{};
+};
+
+bool wave_overlay_monitor_metrics(WaveOverlayMonitorMetrics *metrics);
 } // namespace msime::windows

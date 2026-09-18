@@ -533,10 +533,14 @@ void WaveOverlay::update_window_bounds()
                     : (has_compact_status ? kProcessingHeight : (has_transcript ? kTranscriptHeight : kCompactHeight));
     const int width = static_cast<int>(std::lround(logical_width * scale_x_));
     const int height = static_cast<int>(std::lround(logical_height * scale_y_));
-    const RECT monitor = msime::windows::wave_overlay_monitor();
-    const int taskbar_height = msime::windows::wave_overlay_taskbar_height();
-    const int x = (monitor.right + monitor.left) / 2 - width / 2;
-    const int y = monitor.bottom - taskbar_height - height - 10;
+    msime::windows::WaveOverlayMonitorMetrics metrics;
+    if (!msime::windows::wave_overlay_monitor_metrics(&metrics))
+        return;
+    // Keep the bar horizontally centered on the physical monitor even when a
+    // taskbar is docked left/right; vertically use the work area to avoid the
+    // taskbar on any edge.
+    const int x = (metrics.monitor.right + metrics.monitor.left) / 2 - width / 2;
+    const int y = metrics.work.bottom - height - 10;
     SetWindowPos(hwnd_, HWND_TOPMOST, x, y, width, height, SWP_NOACTIVATE);
 }
 
