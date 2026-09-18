@@ -199,7 +199,7 @@ int main(int argc, char **argv) {
     }
     require(!state->preferences_.value("number_row_selection", true),
             "runtime preferences reload in active Fcitx session");
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 38,
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 39,
             "native status actions attached");
     require(engine.learning_action_.isChecked(&ic),
             "learning status action reflects reloaded preference");
@@ -253,7 +253,7 @@ int main(int argc, char **argv) {
       require(!engine.cloud_candidates_action_.isChecked(&ic),
               "cloud candidates status action reflects disabled preference");
     }
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 38,
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 39,
             "AI status action attached");
     require(engine.emoji_category_action_.shortText(&ic) == "表情：Emoji",
             "emoji category starts in the default catalog");
