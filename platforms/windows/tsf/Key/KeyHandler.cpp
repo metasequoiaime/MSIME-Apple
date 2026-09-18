@@ -343,6 +343,7 @@ HRESULT CMetasequoiaIME::_HandleCancel(TfEditCookie ec, _In_ ITfContext *pContex
         }
     }
     g_toggleImeFallbackBuffer.clear();
+    _creatingWordRestoreHistory.clear();
     GlobalIme::word_for_creating_word = L"";
     GlobalIme::pending_create_word_preedit.clear();
     PerfTimer removeDummyTimer;
@@ -1239,8 +1240,25 @@ HRESULT CMetasequoiaIME::_HandleCompositionSegmentEdit(TfEditCookie ec, _In_ ITf
         const std::string &value = result.view.preedit;
         const int length = value.empty() ? 0 : MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(),
                                                                     static_cast<int>(value.size()), nullptr, 0);
+        if (length <= 0 && !_creatingWordRestoreHistory.empty())
+        {
+            const auto restore = _creatingWordRestoreHistory.back();
+            _creatingWordRestoreHistory.pop_back();
+            GlobalIme::word_for_creating_word = restore.previousWord;
+            std::string replayResult, replayError;
+            for (const unsigned char ch : restore.consumedRaw)
+            {
+                if (!host->character(ch, false, &replayResult, &replayError))
+                    return fallback();
+            }
+            return _HandleCompositionInputWorker(_pCompositionProcessorEngine, ec, pContext,
+                                                 FANY_IME_NO_REQUEST_ID);
+        }
         if (length <= 0)
+        {
+            _creatingWordRestoreHistory.clear();
             return _HandleCompositionFinalize(ec, pContext, FALSE);
+        }
         std::wstring preedit(static_cast<size_t>(length), L'\0');
         if (MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS, value.data(), static_cast<int>(value.size()),
                                 preedit.data(), length) != length)
