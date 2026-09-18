@@ -1,4 +1,4 @@
-#include "../src/candidate/ToolbarCoordinates.h"
+#include "../../src/candidate/ToolbarCoordinates.h"
 #include <cassert>
 #include <limits>
 using namespace msime::windows;

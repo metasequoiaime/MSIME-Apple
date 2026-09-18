@@ -1,4 +1,4 @@
-#include "../src/candidate/ToolbarClick.h"
+#include "../../src/candidate/ToolbarClick.h"
 #include <cassert>
 using namespace msime::windows;
 int main() {

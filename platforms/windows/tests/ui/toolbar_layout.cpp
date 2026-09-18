@@ -1,4 +1,4 @@
-#include "../src/candidate/ToolbarLayout.h"
+#include "../../src/candidate/ToolbarLayout.h"
 
 #include <cassert>
 #include <cmath>

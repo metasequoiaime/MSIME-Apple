@@ -1,5 +1,5 @@
 #include "ReplyCodec.h"
-#include "../tsf/Global/PairedPunctuationHostPolicy.h"
+#include "../../tsf/Global/PairedPunctuationHostPolicy.h"
 #include "../../vendor/MSIME-Engine/contracts/windows_ipc.h"
 #include <iostream>
 #include <stdexcept>
