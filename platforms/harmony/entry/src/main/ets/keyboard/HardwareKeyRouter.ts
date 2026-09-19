@@ -63,7 +63,9 @@ export enum HardwareKeyAction {
   MOVE_LEFT_SEGMENT,
   MOVE_RIGHT_SEGMENT,
   /** Delete the candidate at `index` from the user dictionary, the Windows maintenance chord. */
-  REMOVE_CANDIDATE
+  REMOVE_CANDIDATE,
+  /** Throw away the Engine's candidate cache for this session, the other Windows maintenance key. */
+  RESET_CACHE
 }
 
 export interface HardwareKeyDecision {
@@ -110,6 +112,7 @@ const KEYCODE_MOVE_END: number = 2082;
 // the system resolves nothing useful, and Shift alone would already have turned 1 into '!'.
 const KEYCODE_1: number = 2001;
 const KEYCODE_8: number = 2008;
+const KEYCODE_C: number = 2019;
 
 const RELEASE: HardwareKeyDecision = {
   action: HardwareKeyAction.RELEASE, character: 0, index: 0
@@ -159,6 +162,12 @@ export class HardwareKeyRouter {
     if (composing && key.ctrlKey && key.shiftKey && key.altKey && !key.logoKey
         && key.keyCode >= KEYCODE_1 && key.keyCode <= KEYCODE_8) {
       return decision(HardwareKeyAction.REMOVE_CANDIDATE, 0, key.keyCode - KEYCODE_1);
+    }
+    // The cache belongs to the session rather than to a composition, so unlike the slot keys this
+    // one answers whether or not something is being spelled — which is also when a stale candidate
+    // list is most likely to be what the user is staring at.
+    if (key.ctrlKey && key.shiftKey && key.altKey && !key.logoKey && key.keyCode === KEYCODE_C) {
+      return decision(HardwareKeyAction.RESET_CACHE);
     }
     // Windows reserves Ctrl+Backspace/Left/Right for editing one Engine segment at a time. Other
     // modifier chords belong to the application, even in the middle of a composition.

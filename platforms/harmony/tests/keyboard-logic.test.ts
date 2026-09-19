@@ -1599,6 +1599,22 @@ group('every toolbar button is optional, the settings gear included', () => {
   check(FloatingToolbarLayout.buttons(none).length === 0, 'turning everything off leaves nothing');
 });
 
+group('the other Windows maintenance chord clears the engine cache', () => {
+  const chord: HardwareKey = {
+    keyCode: 2019, unicodeChar: 0, ctrlKey: true, altKey: true, logoKey: false, shiftKey: true
+  };
+  check(HardwareKeyRouter.route(chord, true, true).action === HardwareKeyAction.RESET_CACHE,
+    'Ctrl+Shift+Alt+C clears the cache while composing');
+  check(HardwareKeyRouter.route(chord, false, true).action === HardwareKeyAction.RESET_CACHE,
+    'and with nothing composed, which is when a stale list is most likely to be on screen');
+  const noAlt: HardwareKey = { ...chord, altKey: false };
+  check(HardwareKeyRouter.route(noAlt, true, true).action !== HardwareKeyAction.RESET_CACHE,
+    'Ctrl+Shift+C is not the chord');
+  const logo: HardwareKey = { ...chord, logoKey: true };
+  check(HardwareKeyRouter.route(logo, true, true).action === HardwareKeyAction.RELEASE,
+    'adding Super makes it a desktop shortcut');
+});
+
 group('the Windows maintenance chord reaches candidate removal on a hardware keyboard', () => {
   const chord = (keyCode: number): HardwareKey => ({
     keyCode: keyCode, unicodeChar: 0, ctrlKey: true, altKey: true, logoKey: false, shiftKey: true
