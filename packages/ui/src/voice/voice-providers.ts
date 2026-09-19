@@ -7,27 +7,69 @@
  * had their OpenAI token sent to ByteDance. Rewriting the endpoint when the
  * provider changes is what stops that at the source.
  */
-export type ProviderDefaults = { endpoint: string; model: string };
+/**
+ * `models` is what the service is known to accept, so a user can pick one before
+ * holding any credential; `documentation` is where that provider explains the
+ * endpoint and how to obtain an API key. Both are presentation only -- the model
+ * a request actually sends is still whatever is stored in preferences.
+ */
+export type ProviderDefaults = {
+  endpoint: string;
+  model: string;
+  models?: readonly string[];
+  documentation?: string;
+};
 
 export const ASR_PROVIDER_DEFAULTS: Record<string, ProviderDefaults> = {
   system: { endpoint: "", model: "" },
-  doubao: { endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async", model: "" },
-  openai: { endpoint: "https://api.openai.com/v1/audio/transcriptions", model: "whisper-1" },
-  siliconflow: { endpoint: "https://api.siliconflow.cn/v1/audio/transcriptions", model: "FunAudioLLM/SenseVoiceSmall" },
-  groq: { endpoint: "https://api.groq.com/openai/v1/audio/transcriptions", model: "whisper-large-v3-turbo" },
+  doubao: {
+    endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async", model: "",
+    documentation: "https://www.volcengine.com/docs/6561/1354869",
+  },
+  openai: {
+    endpoint: "https://api.openai.com/v1/audio/transcriptions", model: "whisper-1",
+    models: ["gpt-4o-mini-transcribe", "gpt-4o-transcribe", "whisper-1"],
+    documentation: "https://developers.openai.com/api/docs/guides/speech-to-text",
+  },
+  siliconflow: {
+    endpoint: "https://api.siliconflow.cn/v1/audio/transcriptions", model: "FunAudioLLM/SenseVoiceSmall",
+    models: ["FunAudioLLM/SenseVoiceSmall"],
+    documentation: "https://siliconflow.readme.io/reference/createaudiotranscriptions",
+  },
+  groq: {
+    endpoint: "https://api.groq.com/openai/v1/audio/transcriptions", model: "whisper-large-v3-turbo",
+    models: ["whisper-large-v3-turbo", "whisper-large-v3"],
+    documentation: "https://console.groq.com/docs/speech-to-text",
+  },
 };
 
 export const POLISH_PROVIDER_DEFAULTS: Record<string, ProviderDefaults> = {
-  siliconflow: { endpoint: "https://api.siliconflow.cn/v1/chat/completions", model: "Qwen/Qwen3-8B" },
-  openai: { endpoint: "https://api.openai.com/v1/chat/completions", model: "gpt-4o-mini" },
-  deepseek: { endpoint: "https://api.deepseek.com/chat/completions", model: "deepseek-v4-flash" },
-  groq: { endpoint: "https://api.groq.com/openai/v1/chat/completions", model: "llama-3.3-70b-versatile" },
+  siliconflow: {
+    endpoint: "https://api.siliconflow.cn/v1/chat/completions", model: "Qwen/Qwen3-8B",
+    models: ["Qwen/Qwen3-8B", "Qwen/Qwen3.6-27B"],
+    documentation: "https://docs.siliconflow.cn/docs/userguide/capabilities/text-generation",
+  },
+  openai: {
+    endpoint: "https://api.openai.com/v1/chat/completions", model: "gpt-4o-mini",
+    models: ["gpt-4o-mini", "gpt-4.1-mini"],
+    documentation: "https://developers.openai.com/api/docs/models/gpt-4.1-mini",
+  },
+  deepseek: {
+    endpoint: "https://api.deepseek.com/chat/completions", model: "deepseek-v4-flash",
+    models: ["deepseek-v4-flash", "deepseek-v4-pro"],
+    documentation: "https://api-docs.deepseek.com/",
+  },
+  groq: {
+    endpoint: "https://api.groq.com/openai/v1/chat/completions", model: "llama-3.3-70b-versatile",
+    models: ["llama-3.3-70b-versatile", "llama-3.1-8b-instant"],
+    documentation: "https://console.groq.com/docs/quickstart",
+  },
 };
 
 /** An older SiliconFlow default that should still be treated as untouched. */
 const LEGACY_ASR_MODELS = ["TeleAI/TeleSpeechASR"];
 
-function known(table: Record<string, ProviderDefaults>, field: keyof ProviderDefaults): string[] {
+function known(table: Record<string, ProviderDefaults>, field: "endpoint" | "model"): string[] {
   return Object.values(table).map(entry => entry[field]).filter(Boolean);
 }
 
