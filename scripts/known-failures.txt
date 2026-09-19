@@ -135,20 +135,19 @@ wine windows-fullscreen-foreground
 # installer script relative to the repository, which is not mounted into the
 # container - a property of this runner, not of the test.
 wine windows-installer-launch
-# windows-session-smoke now fails at session_workers.cpp:354, which is as far
-# as anything has ever got: each of these assertions is reached for the first
-# time as the one before it is fixed.
+# windows-session-smoke now fails at "Preference retry task failed", further
+# again. Each assertion in this suite is reached for the first time as the one
+# before it is resolved, and they have gone two ways so far.
 #
-# The two entries this replaces were both wrong about the cause, and the
-# measurement is worth keeping. session_pump.cpp:334 tested the Microsoft
-# shuangpin ';' final and looked like a punctuation-routing problem; the
-# Engine turned out to be right and the 'b' before it was never reaching the
-# Engine at all. ServerSession::key claimed every unmodified key for candidate
-# selection - 'b' is VK 66, so digit_key - '1' is 17 - and an empty page made
-# that a silent drop. windows-dedicated-english was recorded here as needing
-# the packaged English dictionary; it was the same swallowed key, and it passes
-# now that only digits take that branch.
+# A product defect: ServerSession::key claimed every unmodified key for
+# candidate selection, so 'b' (VK 66, slot 17) was swallowed and never reached
+# the Engine. Fixed by requiring a digit.
 #
-# 354 is `disabled_mode->chinese == false` after a mode-disable notification.
-# Not investigated yet.
+# A wrong expectation: the mode-notification loop asserted the same teardown
+# for all four event types, but a full/half-width switch carries no CN/EN state
+# - synchronize_input_mode returns early for it, ModeMailbox sets only
+# `fullwidth`, and ModePresentation's optionals exist so "unknown" is not
+# reported as "off". Corrected to assert what that event actually means.
+#
+# "Preference retry task failed" is not investigated yet.
 wine windows-session-smoke
