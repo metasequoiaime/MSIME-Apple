@@ -423,6 +423,19 @@ static napi_value PunctuationWithContext(napi_env env, napi_callback_info info) 
         handle, static_cast<uint8_t>(ascii), static_cast<uint32_t>(preceding)));
 }
 
+static napi_value BalancePairedPunctuationAfterAutoClose(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    uint64_t handle = 0;
+    int32_t opening = 0;
+    if (!arguments(env, info, 2, argv) || !argumentHandle(env, argv[0], handle)
+            || napi_get_value_int32(env, argv[1], &opening) != napi_ok) {
+        return invalid(env, "Expected a session handle and an ASCII opening mark");
+    }
+    if (opening < 0 || opening > 127) return invalid(env, "Invalid punctuation opening");
+    return response(env, msime_client_balance_paired_punctuation_after_auto_close(
+        handle, static_cast<uint8_t>(opening)));
+}
+
 static napi_value Command(napi_env env, napi_callback_info info) {
     std::vector<napi_value> argv;
     uint64_t handle = 0;
@@ -607,6 +620,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("setCharacterWidth", SetCharacterWidth),
         ENTRY("character", Character),
         ENTRY("punctuationWithContext", PunctuationWithContext),
+        ENTRY("balancePairedPunctuationAfterAutoClose", BalancePairedPunctuationAfterAutoClose),
         ENTRY("command", Command),
         ENTRY("select", Select),
         ENTRY("selectAnyCandidate", SelectAnyCandidate),

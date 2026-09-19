@@ -40,6 +40,8 @@ import { QuickPunctuationPolicy, PunctuationEntry }
   from '../entry/src/main/ets/keyboard/input/QuickPunctuationPolicy';
 import { SmartPunctuationContext } from
   '../entry/src/main/ets/keyboard/input/SmartPunctuationContext';
+import { PairedPunctuationPolicy } from
+  '../entry/src/main/ets/keyboard/input/PairedPunctuationPolicy';
 import { ReturnKeyAction } from '../entry/src/main/ets/keyboard/input/ReturnKeyAction';
 import { SpaceCursorMovement } from '../entry/src/main/ets/keyboard/input/SpaceCursorMovement';
 import { CandidateManagementAction, ManagementAction }
@@ -1156,6 +1158,21 @@ group('bounds Harmony smart punctuation editor context', () => {
     'supplementary context is reduced to one scalar');
   check(SmartPunctuationContext.precedingCodePoint('fixture\ud800') === 0,
     'unpaired surrogate context is rejected');
+});
+
+group('completes Engine opening punctuation only when paired mode is enabled', () => {
+  check(PairedPunctuationPolicy.completion('“', true)?.closing === '”',
+    'double quote opens a Chinese pair');
+  check(PairedPunctuationPolicy.completion('拟（', true)?.closing === '）',
+    'a composition commit can end in an opening parenthesis');
+  check(PairedPunctuationPolicy.completion('《', true)?.opening === 0x3c,
+    'book title marks retain the balance input');
+  check(PairedPunctuationPolicy.completion('”', true) === null,
+    'a closing quote is not completed again');
+  check(PairedPunctuationPolicy.completion('“', false) === null,
+    'disabled paired punctuation leaves the editor to the Engine');
+  check(PairedPunctuationPolicy.completion('', true) === null,
+    'an empty commit cannot open a pair');
 });
 
 group('return performs an editor action only when nothing else claimed it', () => {

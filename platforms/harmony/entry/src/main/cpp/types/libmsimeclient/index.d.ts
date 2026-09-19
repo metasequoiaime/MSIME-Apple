@@ -57,6 +57,7 @@ export const setCharacterWidth: (handle: number, fullwidth: boolean) => string;
 
 export const character: (handle: number, ascii: number, shift: boolean) => string;
 export const punctuationWithContext: (handle: number, ascii: number, preceding: number) => string;
+export const balancePairedPunctuationAfterAutoClose: (handle: number, opening: number) => string;
 export const command: (handle: number, command: number) => string;
 
 export const select: (handle: number, generation: number, index: number) => string;

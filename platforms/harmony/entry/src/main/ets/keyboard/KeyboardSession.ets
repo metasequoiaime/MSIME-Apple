@@ -47,6 +47,8 @@ import {
   DEFAULT_VOICE_INPUT_CONFIGURATION, VoiceInputConfiguration
 } from './input/VoiceInputConfiguration';
 import { SmartPunctuationContext } from './input/SmartPunctuationContext';
+import { PairedPunctuationPolicy, PairedPunctuationCompletion } from
+  './input/PairedPunctuationPolicy';
 
 // Shapes of the JSON the shared C ABI answers with. Only the fields this minimal surface reads are
 // declared; the responses carry considerably more.
@@ -378,6 +380,7 @@ interface PreparedPreferences {
   theme: string;
   traditional_chinese_output: boolean;
   chinese_punctuation: boolean;
+  paired_punctuation: boolean;
   floating_toolbar: PreparedFloatingToolbar;
   candidate_english_gloss: boolean;
   /** Tenths of a vp, which is the unit the shared settings store these in. */
@@ -438,6 +441,7 @@ export interface KeyboardPreferences {
   readonly candidateDecorationAspectRatio: number;
   readonly candidateDark: boolean;
   readonly candidateSelectedBar: boolean | null;
+  readonly pairedPunctuation: boolean;
   readonly keyboardTheme: string;
   readonly globalTheme: string;
   readonly scheme: string;
@@ -553,6 +557,7 @@ export class KeyboardSession {
     candidateDecorationAspectRatio: 1,
     candidateDark: false,
     candidateSelectedBar: null,
+    pairedPunctuation: true,
     keyboardTheme: 'follow',
     globalTheme: 'system',
     scheme: 'quanpin',
@@ -760,6 +765,7 @@ export class KeyboardSession {
         candidateDecorationAspectRatio: skinImage.aspectRatio,
         candidateDark: candidateDark,
         candidateSelectedBar: preferences.candidate_selected_bar ?? skinSelectedBar,
+        pairedPunctuation: preferences.paired_punctuation !== false,
         keyboardTheme: preferences.screen_keyboard_theme,
         globalTheme: preferences.theme,
         scheme: preferences.scheme,
@@ -1340,7 +1346,33 @@ export class KeyboardSession {
       // Editor context is optional; zero deliberately falls back to Engine punctuation.
       KeyboardLog.error(`editor punctuation context unavailable: ${describeError(error)}`);
     }
-    this.apply(client.punctuationWithContext(this.handle, ascii, preceding));
+    const raw: string = client.punctuationWithContext(this.handle, ascii, preceding);
+    let completion: PairedPunctuationCompletion | null = null;
+    try {
+      const response: Response = JSON.parse(raw) as Response;
+      completion = response.ok
+        ? PairedPunctuationPolicy.completion(response.value.commit,
+          this.appearance.pairedPunctuation) : null;
+    } catch (error) {
+      KeyboardLog.error(`paired punctuation response unavailable: ${describeError(error)}`);
+    }
+    this.apply(raw);
+    if (completion === null || this.inputClient === undefined) return;
+    try {
+      this.inputClient.insertTextSync(completion.closing);
+      this.recordTypingStatistics(completion.closing, this.typingSource());
+      if (completion.opening === 0x3c) {
+        const balanced: string = client.balancePairedPunctuationAfterAutoClose(
+          this.handle, completion.opening);
+        const balanceResponse: NativeReply<Object> = JSON.parse(balanced) as NativeReply<Object>;
+        if (!balanceResponse.ok) {
+          KeyboardLog.error(`book-title punctuation balance refused: ${balanceResponse.error}`);
+        }
+      }
+      this.inputClient.moveCursorSync(inputMethodEngine.Direction.CURSOR_LEFT);
+    } catch (error) {
+      KeyboardLog.error(`paired punctuation completion unavailable: ${describeError(error)}`);
+    }
   }
 
   private command(command: InputCommand): void {
