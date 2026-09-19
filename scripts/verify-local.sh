@@ -156,6 +156,14 @@ python3 scripts/test-windows-path-encoding.py || fail "windows path encoding"
 note "installer prerequisites"
 python3 scripts/test-installer-prerequisites.py || fail "installer prerequisites"
 
+# The 32-bit TSF DLL is loaded into every 32-bit host application, and nothing
+# built that architecture: build-cross.sh x86 needs a DWARF-unwinding MinGW for
+# the Rust side and the common macOS toolchain is SJLJ. This re-checks the same
+# sources with the same flags under the i686 compiler, which needs no 32-bit
+# libraries because it never links.
+note "windows x86 syntax"
+python3 scripts/test-windows-32bit-compile.py || fail "windows x86 syntax"
+
 note "compile: rust workspace"
 # The desktop app's Tauri config lists the platform IME bundle as a packaged
 # resource, and Tauri's build script fails when a listed resource is absent. On

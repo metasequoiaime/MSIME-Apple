@@ -54,8 +54,12 @@ env "MSIME_WINDOWS_DEPS=$prefix" "$linker_var=$compiler-gcc" \
 env "MSIME_WINDOWS_DEPS=$prefix" "$linker_var=$compiler-gcc" \
   cargo build --locked -p msime-engine-bridge --bin MetasequoiaImeDictionaryReplay --target "$triple"
 output="$repo_root/target/windows-full/$arch"
+# compile_commands.json is what lets the same sources be re-checked for the
+# other architecture with the flags they are really built with, rather than a
+# second hand-maintained list that drifts.
 cmake -S platforms/windows -B "$output" \
   -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_CXX_COMPILER="$compiler-g++" \
+  -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
   -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PREFIX_PATH="$prefix" \
   -DMSIME_WINDOWS_PIPE_ONLY=OFF \
   -DMSIMEUI_BUILD_HANDWRITING_DEMO=OFF \

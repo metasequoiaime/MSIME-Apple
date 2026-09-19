@@ -10,17 +10,24 @@
 
 namespace msime::windows {
 namespace {
+// A named CALLBACK rather than a lambda, as ShellLauncher's EnumWindows proc
+// already is. FONTENUMPROCW is __stdcall; a captureless lambda converts to a
+// __cdecl function pointer, and on x86 those are different types - this was a
+// compile error for the 32-bit build and only compiled at all on x86_64, where
+// there is one calling convention.
+int CALLBACK note_font_found(const LOGFONTW *, const TEXTMETRICW *, DWORD,
+                             LPARAM data) {
+  *reinterpret_cast<bool *>(data) = true;
+  return 0;
+}
 bool installed_font(const std::wstring &family) {
   HDC dc = GetDC(nullptr);
   if (!dc) return false;
   LOGFONTW logfont{};
   wcsncpy_s(logfont.lfFaceName, family.c_str(), LF_FACESIZE - 1);
   bool found = false;
-  EnumFontFamiliesExW(dc, &logfont,
-      [](const LOGFONTW *, const TEXTMETRICW *, DWORD, LPARAM data) -> int {
-        *reinterpret_cast<bool *>(data) = true;
-        return 0;
-      }, reinterpret_cast<LPARAM>(&found), 0);
+  EnumFontFamiliesExW(dc, &logfont, note_font_found,
+                      reinterpret_cast<LPARAM>(&found), 0);
   ReleaseDC(nullptr, dc);
   return found;
 }
