@@ -22,7 +22,7 @@ struct CommunityHomeView: View {
       }.id(refresh)
     }
     .background(Color(uiColor: .systemGroupedBackground))
-    .navigationTitle("社区")
+    .navigationTitle("")
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
       ToolbarItem(placement: .navigationBarTrailing) {

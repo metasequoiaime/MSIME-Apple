@@ -191,7 +191,7 @@ struct TypingStatisticsView: View {
       }
       if !errorMessage.isEmpty { Section { Text(errorMessage).foregroundStyle(.secondary) } }
     }
-    .navigationTitle("打字统计").navigationBarTitleDisplayMode(.inline)
+    .navigationTitle("").navigationBarTitleDisplayMode(.inline)
     .navigationBarTitleDisplayMode(.inline)
     .toolbar {
       ToolbarItem(placement: .navigationBarTrailing) {
