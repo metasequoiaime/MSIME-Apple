@@ -589,10 +589,9 @@ struct KeyboardView {
     const changes: Map<string, Object> = new Map<string, Object>();
     changes.set('scheme', candidate.engineScheme);
     changes.set('touch_keyboard_layout', candidate.touchKeyboardLayout);
-    changes.set('touch_keyboard_schemes', { enabled: [
-      'quanpin', 'nine_key', 'xiaohe', 'ziranma', 'microsoft', 'shoudao', 'wubi',
-      'japanese_nine_key', 'japanese', 'handwriting', 'thoughtful_reply'
-    ], selected: candidate.preferenceId });
+    changes.set('touch_keyboard_schemes', {
+      enabled: this.settings.enabledSchemes, selected: candidate.preferenceId
+    });
     if (candidate.shuangpinProfile !== null) {
       changes.set('shuangpin_profile', candidate.shuangpinProfile);
     }
@@ -686,6 +685,7 @@ struct KeyboardView {
    */
   private offeredSchemes(): SchemeDefinition[] {
     return KeyboardScheme.SCHEMES.filter((candidate: SchemeDefinition): boolean =>
+      this.settings.enabledSchemes.includes(candidate.preferenceId)
       // A grid is a way of getting twenty-six letters out of nine keys, which is a problem only a
       // touch screen has. On a machine with a physical keyboard every letter already has a key.
       && !(KeyboardFormFactor.isDesktop() && candidate.touchKeyboardLayout === 'nine_key'));
