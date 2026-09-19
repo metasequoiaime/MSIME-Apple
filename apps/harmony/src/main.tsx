@@ -1,13 +1,40 @@
 import { StrictMode } from "react";
 import { type ReactNode, useState } from "react";
 import { createRoot } from "react-dom/client";
-import { SettingsPage, type DictionaryClient, type DictionaryEntry, type DictionaryImportResult,
-  type HostCapabilities, type LocalDictionaryFormat, type LocalDictionaryKind, type Preferences,
-  type SkinCatalog, type SkinFont, type SkinImage,
-  CloudClipboardPanel, CloudDictionaryPanel, CloudDictionaryCatalogPanel, CloudDictionaryFilesPanel, CloudDictionaryApplyPanel,
-  CloudCandidatesPanel, type AccountClient, type CloudClipboardPanelClient,
-  type CloudDictionaryAction, type CloudDictionaryPanelClient, type SettingsClient, type Snapshot, type TypingStatisticsClient, type TypingStatisticsStatus } from "@msime/ui";
-import type { AiAssistantClient, ApiCredentialTestResult, ApiCredentialTestService, MobileKeyboardFeedback, VoiceCaptureDevice } from "@msime/ui";
+import {
+  SettingsPage,
+  type DictionaryClient,
+  type DictionaryEntry,
+  type DictionaryImportResult,
+  type HostCapabilities,
+  type LocalDictionaryFormat,
+  type LocalDictionaryKind,
+  type Preferences,
+  type SkinCatalog,
+  type SkinFont,
+  type SkinImage,
+  CloudClipboardPanel,
+  CloudDictionaryPanel,
+  CloudDictionaryCatalogPanel,
+  CloudDictionaryFilesPanel,
+  CloudDictionaryApplyPanel,
+  CloudCandidatesPanel,
+  type AccountClient,
+  type CloudClipboardPanelClient,
+  type CloudDictionaryAction,
+  type CloudDictionaryPanelClient,
+  type SettingsClient,
+  type Snapshot,
+  type TypingStatisticsClient,
+  type TypingStatisticsStatus,
+} from "@msime/ui";
+import type {
+  AiAssistantClient,
+  ApiCredentialTestResult,
+  ApiCredentialTestService,
+  MobileKeyboardFeedback,
+  VoiceCaptureDevice,
+} from "@msime/ui";
 import "@msime/ui/styles.css";
 
 /**
@@ -81,8 +108,14 @@ function whenBridgeReady(): Promise<NativeBridge> {
     const deadline = Date.now() + 5000;
     const poll = () => {
       const native = window.msimeHarmony;
-      if (native) { resolve(native); return; }
-      if (Date.now() > deadline) { reject(new Error("没有连接到水杉输入法。请从应用中打开设置。")); return; }
+      if (native) {
+        resolve(native);
+        return;
+      }
+      if (Date.now() > deadline) {
+        reject(new Error("没有连接到水杉输入法。请从应用中打开设置。"));
+        return;
+      }
       setTimeout(poll, 50);
     };
     poll();
@@ -93,31 +126,83 @@ function accountClient(native: NativeBridge): AccountClient {
   const request = <T,>(action: Record<string, unknown>): Promise<T> =>
     native.account(JSON.stringify(action)).then(unwrap<T>);
   const user = (value: { id: string; display_name: string; created_at: string }) => ({
-    id: value.id, displayName: value.display_name, createdAt: value.created_at
+    id: value.id,
+    displayName: value.display_name,
+    createdAt: value.created_at,
   });
-  const profile = (value: { user: { id: string; display_name: string; created_at: string }; identities: { provider: string }[] }) => ({
-    user: user(value.user), providers: value.identities.map(identity => identity.provider)
+  const profile = (value: {
+    user: { id: string; display_name: string; created_at: string };
+    identities: { provider: string }[];
+  }) => ({
+    user: user(value.user),
+    providers: value.identities.map((identity) => identity.provider),
   });
   return {
-    status: async () => { const value = await request<{ user: { id: string; display_name: string; created_at: string } | null }>({ operation: "status" }); return { user: value.user ? user(value.user) : null }; },
-    providers: async () => { const value = await request<{ providers: Record<string, boolean> }>({ operation: "providers" }); return { email: value.providers.email === true, phone: value.providers.phone === true, apple: value.providers.apple === true }; },
-    requestCode: async (provider, target) => { const value = await request<{ challenge_id: string; expires_in: number }>({ operation: "request_code", provider, target }); return { challengeId: value.challenge_id, expiresIn: value.expires_in }; },
-    login: async (challengeId, code) => { const value = await request<{ user: { id: string; display_name: string; created_at: string } }>({ operation: "login", challenge_id: challengeId, credential: code }); return { user: value.user ? user(value.user) : null }; },
-    profile: async () => profile(await request<{ user: { id: string; display_name: string; created_at: string }; identities: { provider: string }[] }>({ operation: "profile" })),
-    rename: async displayName => profile(await request<{ user: { id: string; display_name: string; created_at: string }; identities: { provider: string }[] }>({ operation: "rename", display_name: displayName })),
-    logout: async all => { await request({ operation: "logout", all }); },
-    deleteAccount: async () => { await request({ operation: "delete_account" }); },
-    clearExpired: async () => { await request({ operation: "clear_expired" }); },
+    status: async () => {
+      const value = await request<{
+        user: { id: string; display_name: string; created_at: string } | null;
+      }>({ operation: "status" });
+      return { user: value.user ? user(value.user) : null };
+    },
+    providers: async () => {
+      const value = await request<{ providers: Record<string, boolean> }>({
+        operation: "providers",
+      });
+      return {
+        email: value.providers.email === true,
+        phone: value.providers.phone === true,
+        apple: value.providers.apple === true,
+      };
+    },
+    requestCode: async (provider, target) => {
+      const value = await request<{ challenge_id: string; expires_in: number }>({
+        operation: "request_code",
+        provider,
+        target,
+      });
+      return { challengeId: value.challenge_id, expiresIn: value.expires_in };
+    },
+    login: async (challengeId, code) => {
+      const value = await request<{
+        user: { id: string; display_name: string; created_at: string };
+      }>({ operation: "login", challenge_id: challengeId, credential: code });
+      return { user: value.user ? user(value.user) : null };
+    },
+    profile: async () =>
+      profile(
+        await request<{
+          user: { id: string; display_name: string; created_at: string };
+          identities: { provider: string }[];
+        }>({ operation: "profile" }),
+      ),
+    rename: async (displayName) =>
+      profile(
+        await request<{
+          user: { id: string; display_name: string; created_at: string };
+          identities: { provider: string }[];
+        }>({ operation: "rename", display_name: displayName }),
+      ),
+    logout: async (all) => {
+      await request({ operation: "logout", all });
+    },
+    deleteAccount: async () => {
+      await request({ operation: "delete_account" });
+    },
+    clearExpired: async () => {
+      await request({ operation: "clear_expired" });
+    },
   };
 }
 
 function cloudClipboardClient(native: NativeBridge, close: () => void): CloudClipboardPanelClient {
   return {
     close: async () => close(),
-    copyText: async text => native.copyText(text),
-    request: async action => {
+    copyText: async (text) => native.copyText(text),
+    request: async (action) => {
       const { operation, ...payload } = action;
-      const value = await native.account(JSON.stringify({ operation: "clipboard", clipboard_operation: operation, ...payload }));
+      const value = await native.account(
+        JSON.stringify({ operation: "clipboard", clipboard_operation: operation, ...payload }),
+      );
       return unwrap<{ items?: { id: string; text: string }[]; enabled?: boolean }>(value);
     },
   };
@@ -125,7 +210,11 @@ function cloudClipboardClient(native: NativeBridge, close: () => void): CloudCli
 
 type CloudDictionaryPage = "main" | "catalog" | "candidates" | "files" | "apply";
 
-function cloudDictionaryClient(native: NativeBridge, close: () => void, setPage: (page: CloudDictionaryPage) => void): CloudDictionaryPanelClient {
+function cloudDictionaryClient(
+  native: NativeBridge,
+  close: () => void,
+  setPage: (page: CloudDictionaryPage) => void,
+): CloudDictionaryPanelClient {
   type Response = Awaited<ReturnType<CloudDictionaryPanelClient["request"]>>;
   return {
     close: async () => close(),
@@ -136,7 +225,7 @@ function cloudDictionaryClient(native: NativeBridge, close: () => void, setPage:
     openApply: async () => setPage("apply"),
     snapshot: true,
     snapshotNative: true,
-    downloadToLocal: async entry => {
+    downloadToLocal: async (entry) => {
       unwrap<{ applied: boolean }>(native.cloudDictionaryDownload(JSON.stringify(entry)));
     },
     request: async (action: CloudDictionaryAction) => {
@@ -145,30 +234,68 @@ function cloudDictionaryClient(native: NativeBridge, close: () => void, setPage:
         const snapshot = await native.cloudDictionarySnapshot(JSON.stringify(action));
         return unwrap<Response>(snapshot);
       }
-      const value = await native.cloudDictionary(JSON.stringify({ operation: "dictionary", dictionary_operation: operation, ...payload }));
+      const value = await native.cloudDictionary(
+        JSON.stringify({ operation: "dictionary", dictionary_operation: operation, ...payload }),
+      );
       return unwrap<Response>(value);
     },
   };
 }
 
-function makeClient(native: NativeBridge, openCloudClipboard: () => void, openCloudDictionary: () => void): SettingsClient {
+function makeClient(
+  native: NativeBridge,
+  openCloudClipboard: () => void,
+  openCloudDictionary: () => void,
+): SettingsClient {
   const dictionaryReply = <T,>(action: Record<string, unknown>): T =>
     unwrap<T>(native.dictionary(JSON.stringify(action)));
   const dictionary: DictionaryClient = {
     list: async (offset: number, limit: number, kind?: LocalDictionaryKind, query?: string) =>
       dictionaryReply<{ entries: DictionaryEntry[]; has_more: boolean }>({
-        operation: "list", offset, limit, ...(kind ? { kind } : {}), ...(query ? { query } : {})
+        operation: "list",
+        offset,
+        limit,
+        ...(kind ? { kind } : {}),
+        ...(query ? { query } : {}),
       }),
-    edit: async (previous: DictionaryEntry | null, replacement: DictionaryEntry | null,
-                 request_id: string) => {
-      dictionaryReply<{ applied: boolean }>({ operation: "edit", previous, replacement, request_id });
+    edit: async (
+      previous: DictionaryEntry | null,
+      replacement: DictionaryEntry | null,
+      request_id: string,
+    ) => {
+      dictionaryReply<{ applied: boolean }>({
+        operation: "edit",
+        previous,
+        replacement,
+        request_id,
+      });
     },
-    import: async (kind: LocalDictionaryKind, format: LocalDictionaryFormat, text: string,
-                   request_id: string): Promise<DictionaryImportResult> =>
-      dictionaryReply<DictionaryImportResult>({ operation: "import", kind, format, text, request_id }),
-    export: async (kind: LocalDictionaryKind, format: Exclude<LocalDictionaryFormat, "rime" | "hans">,
-                   offset: number, limit: number) =>
-      dictionaryReply<{ text: string; has_more: boolean }>({ operation: "export", kind, format, offset, limit }),
+    import: async (
+      kind: LocalDictionaryKind,
+      format: LocalDictionaryFormat,
+      text: string,
+      request_id: string,
+    ): Promise<DictionaryImportResult> =>
+      dictionaryReply<DictionaryImportResult>({
+        operation: "import",
+        kind,
+        format,
+        text,
+        request_id,
+      }),
+    export: async (
+      kind: LocalDictionaryKind,
+      format: Exclude<LocalDictionaryFormat, "rime" | "hans">,
+      offset: number,
+      limit: number,
+    ) =>
+      dictionaryReply<{ text: string; has_more: boolean }>({
+        operation: "export",
+        kind,
+        format,
+        offset,
+        limit,
+      }),
     retry: async (request_id: string) => {
       dictionaryReply<{ applied: boolean }>({ operation: "retry", request_id });
     },
@@ -177,18 +304,31 @@ function makeClient(native: NativeBridge, openCloudClipboard: () => void, openCl
     },
   };
   const typingStatistics: TypingStatisticsClient = {
-    load: async () => unwrap<TypingStatisticsStatus>(native.typingStatistics(JSON.stringify({ operation: "load" }))),
-    setEnabled: async (enabled: boolean) => unwrap<TypingStatisticsStatus>(native.typingStatistics(JSON.stringify({ operation: "set_enabled", enabled }))),
-    reset: async () => unwrap<TypingStatisticsStatus>(native.typingStatistics(JSON.stringify({ operation: "reset" }))),
+    load: async () =>
+      unwrap<TypingStatisticsStatus>(
+        native.typingStatistics(JSON.stringify({ operation: "load" })),
+      ),
+    setEnabled: async (enabled: boolean) =>
+      unwrap<TypingStatisticsStatus>(
+        native.typingStatistics(JSON.stringify({ operation: "set_enabled", enabled })),
+      ),
+    reset: async () =>
+      unwrap<TypingStatisticsStatus>(
+        native.typingStatistics(JSON.stringify({ operation: "reset" })),
+      ),
   };
   const aiAssistant: AiAssistantClient = {
-    fetchModels: configuration => native.aiModels(JSON.stringify(configuration))
-      .then(unwrap<string[]>),
-    test: configuration => native.aiTest(JSON.stringify(configuration)).then(unwrap<string>),
+    fetchModels: (configuration) =>
+      native.aiModels(JSON.stringify(configuration)).then(unwrap<string[]>),
+    test: (configuration) => native.aiTest(JSON.stringify(configuration)).then(unwrap<string>),
   };
-  const testApiCredential = async (service: ApiCredentialTestService,
-    config: Record<string, unknown>): Promise<ApiCredentialTestResult> =>
-    unwrap<ApiCredentialTestResult>(await native.testApiCredential(JSON.stringify({ service, config })));
+  const testApiCredential = async (
+    service: ApiCredentialTestService,
+    config: Record<string, unknown>,
+  ): Promise<ApiCredentialTestResult> =>
+    unwrap<ApiCredentialTestResult>(
+      await native.testApiCredential(JSON.stringify({ service, config })),
+    );
   return {
     // Wrapped like every other reply from the shared ABI. Reading it as the record itself leaves every
     // capability undefined, which the page reads as "this host cannot", and the whole surface silently
@@ -207,21 +347,26 @@ function makeClient(native: NativeBridge, openCloudClipboard: () => void, openCl
       unwrap<SkinImage>(native.readSkinImage(id, relative)),
     readSkinFont: async (id: string, relative: string) =>
       unwrap<SkinFont>(native.readSkinFont(id, relative)),
-    readSkinToolbarCss: async (id: string) =>
-      unwrap<string | null>(native.readSkinToolbarCss(id)),
+    readSkinToolbarCss: async (id: string) => unwrap<string | null>(native.readSkinToolbarCss(id)),
     openExternalUrl: async (url: string) => native.openExternalUrl(url),
     copyText: async (text: string) => native.copyText(text),
     openSystemKeyboardSettings: async () => native.openSystemKeyboardSettings(),
-    listVoiceCaptureDevices: async () => unwrap<VoiceCaptureDevice[]>(native.listVoiceCaptureDevices()),
+    listVoiceCaptureDevices: async () =>
+      unwrap<VoiceCaptureDevice[]>(native.listVoiceCaptureDevices()),
     listFontFamilies: async () => unwrap<string[]>(native.listFontFamilies()),
     mobileKeyboardFeedback: {
-      load: async () => unwrap<MobileKeyboardFeedback>(
-        native.keyboardFeedback(JSON.stringify({ operation: "load" }))),
-      save: async settings => unwrap<MobileKeyboardFeedback>(
-        native.keyboardFeedback(JSON.stringify({ operation: "save", settings }))),
-      preview: async strength => {
+      load: async () =>
         unwrap<MobileKeyboardFeedback>(
-          native.keyboardFeedback(JSON.stringify({ operation: "preview", strength })));
+          native.keyboardFeedback(JSON.stringify({ operation: "load" })),
+        ),
+      save: async (settings) =>
+        unwrap<MobileKeyboardFeedback>(
+          native.keyboardFeedback(JSON.stringify({ operation: "save", settings })),
+        ),
+      preview: async (strength) => {
+        unwrap<MobileKeyboardFeedback>(
+          native.keyboardFeedback(JSON.stringify({ operation: "preview", strength })),
+        );
       },
     },
     dictionary,
@@ -245,32 +390,67 @@ function HarmonySettings({ native }: { native: NativeBridge }): ReactNode {
   const [cloudClipboardOpen, setCloudClipboardOpen] = useState(false);
   const [cloudDictionaryOpen, setCloudDictionaryOpen] = useState(false);
   const [cloudDictionaryPage, setCloudDictionaryPage] = useState<CloudDictionaryPage>("main");
-  const client = makeClient(native, () => setCloudClipboardOpen(true), () => { setCloudDictionaryPage("main"); setCloudDictionaryOpen(true); });
-  const dictionaryClient = cloudDictionaryClient(native, () => setCloudDictionaryOpen(false), setCloudDictionaryPage);
+  const client = makeClient(
+    native,
+    () => setCloudClipboardOpen(true),
+    () => {
+      setCloudDictionaryPage("main");
+      setCloudDictionaryOpen(true);
+    },
+  );
+  const dictionaryClient = cloudDictionaryClient(
+    native,
+    () => setCloudDictionaryOpen(false),
+    setCloudDictionaryPage,
+  );
   // Harmony's native snapshot path is an apply-to-device flow. The shared Files panel's
   // restore-to-cloud controls need a different provider capability and must stay hidden here.
-  const filesClient: CloudDictionaryPanelClient = { ...dictionaryClient, snapshot: false, snapshotNative: false };
-  return <>
-    <SettingsPage client={client} />
-    {cloudClipboardOpen && <CloudClipboardPanel client={cloudClipboardClient(native, () => setCloudClipboardOpen(false))} />}
-    {cloudDictionaryOpen && cloudDictionaryPage === "main" && <CloudDictionaryPanel client={dictionaryClient} />}
-    {cloudDictionaryOpen && cloudDictionaryPage === "catalog" && <CloudDictionaryCatalogPanel client={dictionaryClient} />}
-    {cloudDictionaryOpen && cloudDictionaryPage === "candidates" && <CloudCandidatesPanel client={dictionaryClient} />}
-    {cloudDictionaryOpen && cloudDictionaryPage === "files" && <CloudDictionaryFilesPanel client={filesClient} />}
-    {cloudDictionaryOpen && cloudDictionaryPage === "apply" && <CloudDictionaryApplyPanel client={dictionaryClient} />}
-  </>;
+  const filesClient: CloudDictionaryPanelClient = {
+    ...dictionaryClient,
+    snapshot: false,
+    snapshotNative: false,
+  };
+  return (
+    <>
+      <SettingsPage client={client} />
+      {cloudClipboardOpen && (
+        <CloudClipboardPanel
+          client={cloudClipboardClient(native, () => setCloudClipboardOpen(false))}
+        />
+      )}
+      {cloudDictionaryOpen && cloudDictionaryPage === "main" && (
+        <CloudDictionaryPanel client={dictionaryClient} />
+      )}
+      {cloudDictionaryOpen && cloudDictionaryPage === "catalog" && (
+        <CloudDictionaryCatalogPanel client={dictionaryClient} />
+      )}
+      {cloudDictionaryOpen && cloudDictionaryPage === "candidates" && (
+        <CloudCandidatesPanel client={dictionaryClient} />
+      )}
+      {cloudDictionaryOpen && cloudDictionaryPage === "files" && (
+        <CloudDictionaryFilesPanel client={filesClient} />
+      )}
+      {cloudDictionaryOpen && cloudDictionaryPage === "apply" && (
+        <CloudDictionaryApplyPanel client={dictionaryClient} />
+      )}
+    </>
+  );
 }
 
 const root = document.getElementById("root");
 if (root) {
-  whenBridgeReady().then(native => {
-    createRoot(root).render(
-      <StrictMode><HarmonySettings native={native} /></StrictMode>
-    );
-  }).catch((error: Error) => {
-    // A blank window explains nothing. This is the one failure the page has to render itself,
-    // because it is the failure that means none of the rest of it can be rendered at all.
-    root.textContent = error.message;
-    root.setAttribute("style", "padding:24px;font:16px system-ui;color:#c0392b");
-  });
+  whenBridgeReady()
+    .then((native) => {
+      createRoot(root).render(
+        <StrictMode>
+          <HarmonySettings native={native} />
+        </StrictMode>,
+      );
+    })
+    .catch((error: Error) => {
+      // A blank window explains nothing. This is the one failure the page has to render itself,
+      // because it is the failure that means none of the rest of it can be rendered at all.
+      root.textContent = error.message;
+      root.setAttribute("style", "padding:24px;font:16px system-ui;color:#c0392b");
+    });
 }

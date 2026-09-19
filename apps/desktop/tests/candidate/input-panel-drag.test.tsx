@@ -16,7 +16,10 @@ test("drag capability is restricted to the handwriting and voice windows", () =>
   expect(capability.permissions).toEqual(["core:window:allow-start-dragging"]);
 });
 
-for (const [name, Panel] of [["handwriting", HandwritingPanel], ["voice", VoicePanel]] as const) {
+for (const [name, Panel] of [
+  ["handwriting", HandwritingPanel],
+  ["voice", VoicePanel],
+] as const) {
   test(`${name} titlebar starts one host drag after movement and excludes close`, () => {
     const beginWindowDrag = vi.fn().mockResolvedValue(undefined);
     const close = vi.fn().mockResolvedValue(undefined);
@@ -35,25 +38,38 @@ for (const [name, Panel] of [["handwriting", HandwritingPanel], ["voice", VoiceP
     expect(close).not.toHaveBeenCalled();
   });
 
-  test.each(["pointerup", "pointercancel", "pointerout", "blur"])(`${name} cancels pending drag on %s`, reason => {
-    const beginWindowDrag = vi.fn().mockResolvedValue(undefined);
-    const view = render(<Panel client={{ close: vi.fn(), beginWindowDrag }} />);
-    const header = view.container.querySelector("header")!;
-    pointer(header, "pointerdown", 10);
-    if (reason === "blur") fireEvent(window, new Event("blur"));
-    else pointer(header, reason, 10);
-    pointer(header, "pointermove", 20);
-    expect(beginWindowDrag).not.toHaveBeenCalled();
-  });
+  test.each(["pointerup", "pointercancel", "pointerout", "blur"])(
+    `${name} cancels pending drag on %s`,
+    (reason) => {
+      const beginWindowDrag = vi.fn().mockResolvedValue(undefined);
+      const view = render(<Panel client={{ close: vi.fn(), beginWindowDrag }} />);
+      const header = view.container.querySelector("header")!;
+      pointer(header, "pointerdown", 10);
+      if (reason === "blur") fireEvent(window, new Event("blur"));
+      else pointer(header, reason, 10);
+      pointer(header, "pointermove", 20);
+      expect(beginWindowDrag).not.toHaveBeenCalled();
+    },
+  );
 
-  test.each([false, true])(`${name} reports host drag failure (synchronous=%s)`, async synchronous => {
-    const view = render(<Panel client={{ close: vi.fn(), beginWindowDrag: () => {
-      if (synchronous) throw new Error("fixture");
-      return Promise.reject(new Error("fixture"));
-    } }} />);
-    const header = view.container.querySelector("header")!;
-    pointer(header, "pointerdown", 10);
-    pointer(header, "pointermove", 20);
-    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("无法移动窗口"));
-  });
+  test.each([false, true])(
+    `${name} reports host drag failure (synchronous=%s)`,
+    async (synchronous) => {
+      const view = render(
+        <Panel
+          client={{
+            close: vi.fn(),
+            beginWindowDrag: () => {
+              if (synchronous) throw new Error("fixture");
+              return Promise.reject(new Error("fixture"));
+            },
+          }}
+        />,
+      );
+      const header = view.container.querySelector("header")!;
+      pointer(header, "pointerdown", 10);
+      pointer(header, "pointermove", 20);
+      await waitFor(() => expect(screen.getByRole("status").textContent).toContain("无法移动窗口"));
+    },
+  );
 }

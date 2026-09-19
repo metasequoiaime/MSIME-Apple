@@ -28,7 +28,9 @@ export async function subscribeWindowState(
   // registration can leave the titlebar displaying the wrong action indefinitely.
   let unlisten: () => void;
   try {
-    unlisten = await source.onResized(() => { void refresh(); });
+    unlisten = await source.onResized(() => {
+      void refresh();
+    });
   } catch (error) {
     active = false;
     throw error;

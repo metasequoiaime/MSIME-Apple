@@ -6,7 +6,29 @@ import maximizeIcon from "../../../../packages/ui/src/assets/maximize.svg";
 import restoreIcon from "../../../../packages/ui/src/assets/restore.svg";
 import closeIcon from "../../../../packages/ui/src/assets/close.svg";
 import keyboardCapability from "../../src-tauri/capabilities/keyboard.json";
-import { AI_PROVIDER_OPTIONS, CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryApplyPanel, CloudDictionaryCatalogPanel, CloudDictionaryFilesPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, aiCredentialOrigin, aiProviderUpdate, type AiAssistantPreferences, type CustomSkinLibraryAction, type HostCapabilities, type SavedTouchKeyboardSkin, type SettingsClient, type Snapshot, type TouchKeyboardSkinDesign } from "@msime/ui";
+import {
+  AI_PROVIDER_OPTIONS,
+  CloudCandidatesPanel,
+  CloudClipboardPanel,
+  CloudDictionaryApplyPanel,
+  CloudDictionaryCatalogPanel,
+  CloudDictionaryFilesPanel,
+  CloudDictionaryPanel,
+  EmojiPanel,
+  HandwritingPanel,
+  KeyboardPanel,
+  VoicePanel,
+  SettingsPage,
+  aiCredentialOrigin,
+  aiProviderUpdate,
+  type AiAssistantPreferences,
+  type CustomSkinLibraryAction,
+  type HostCapabilities,
+  type SavedTouchKeyboardSkin,
+  type SettingsClient,
+  type Snapshot,
+  type TouchKeyboardSkinDesign,
+} from "@msime/ui";
 import { validateGitHubRelease } from "../../../../packages/ui/src/settings/update-manifest";
 
 afterEach(cleanup);
@@ -24,8 +46,16 @@ async function settingsReady() {
 }
 
 test("macOS voice shortcuts use native key names and space-lock semantics", async () => {
-  render(<SettingsPage initialPage="voice" client={{ load: async () => initial, save: vi.fn(),
-    host: { platform: "macos" } as HostCapabilities }} />);
+  render(
+    <SettingsPage
+      initialPage="voice"
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        host: { platform: "macos" } as HostCapabilities,
+      }}
+    />,
+  );
   await screen.findByRole("checkbox", { name: "按住右 Option 录音" });
   expect(screen.getByRole("checkbox", { name: "按住右 Control+右 Option 录音" })).toBeTruthy();
   expect(screen.getByRole("checkbox", { name: "按住 Control+Command 录音" })).toBeTruthy();
@@ -35,8 +65,16 @@ test("macOS voice shortcuts use native key names and space-lock semantics", asyn
 });
 
 test("macOS exposes the non-activating input-mode HUD preference", async () => {
-  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
-  render(<SettingsPage client={{ load: async () => initial, save, host: { platform: "macos" } as HostCapabilities }} />);
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 8,
+    preferences,
+  }));
+  render(
+    <SettingsPage
+      client={{ load: async () => initial, save, host: { platform: "macos" } as HostCapabilities }}
+    />,
+  );
   fireEvent.click(await screen.findByRole("button", { name: "输入" }));
   const toggle = screen.getByRole("checkbox", { name: "中英文切换提示" }) as HTMLInputElement;
   expect(toggle.checked).toBe(true);
@@ -47,22 +85,37 @@ test("macOS exposes the non-activating input-mode HUD preference", async () => {
 });
 
 test("macOS persists Wubi unique-candidate auto-commit outside shared preferences", async () => {
-  const wubiInitial = { ...initial, preferences: { ...initial.preferences, scheme: "wubi" as const } };
-  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...wubiInitial, revision: 8, preferences }));
+  const wubiInitial = {
+    ...initial,
+    preferences: { ...initial.preferences, scheme: "wubi" as const },
+  };
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...wubiInitial,
+    revision: 8,
+    preferences,
+  }));
   const loadWubiAutoCommit = vi.fn().mockResolvedValue(false);
   const saveWubiAutoCommit = vi.fn().mockResolvedValue(undefined);
-  render(<SettingsPage client={{
-    load: async () => wubiInitial,
-    save,
-    host: { platform: "macos" } as HostCapabilities,
-    loadMacosWubiAutoCommitUnique: loadWubiAutoCommit,
-    saveMacosWubiAutoCommitUnique: saveWubiAutoCommit,
-  }} />);
+  render(
+    <SettingsPage
+      client={{
+        load: async () => wubiInitial,
+        save,
+        host: { platform: "macos" } as HostCapabilities,
+        loadMacosWubiAutoCommitUnique: loadWubiAutoCommit,
+        saveMacosWubiAutoCommitUnique: saveWubiAutoCommit,
+      }}
+    />,
+  );
   fireEvent.click(await screen.findByRole("button", { name: "输入" }));
-  const toggle = await screen.findByRole("checkbox", { name: "五笔四码唯一候选自动上屏" }) as HTMLInputElement;
+  const toggle = (await screen.findByRole("checkbox", {
+    name: "五笔四码唯一候选自动上屏",
+  })) as HTMLInputElement;
   expect(toggle.checked).toBe(false);
   fireEvent.click(toggle);
-  expect((screen.getByRole("button", { name: "保存设置" }) as HTMLButtonElement).disabled).toBe(false);
+  expect((screen.getByRole("button", { name: "保存设置" }) as HTMLButtonElement).disabled).toBe(
+    false,
+  );
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(save).toHaveBeenCalledWith(7, wubiInitial.preferences);
@@ -71,15 +124,24 @@ test("macOS persists Wubi unique-candidate auto-commit outside shared preference
 });
 
 test("titlebar sits above the shared sidebar and content body", async () => {
-  const mounted = render(<SettingsPage client={{ load: async () => initial, save: vi.fn(),
-    windowControl: vi.fn().mockResolvedValue(undefined) }} />);
+  const mounted = render(
+    <SettingsPage
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        windowControl: vi.fn().mockResolvedValue(undefined),
+      }}
+    />,
+  );
   await screen.findByRole("button", { name: "保存设置" });
   const body = mounted.container.querySelector(".settings-body")!;
   expect(body.contains(screen.getByRole("navigation", { name: "设置分类" }))).toBe(true);
   expect(body.contains(screen.getByRole("main"))).toBe(true);
   expect(body.contains(screen.getByRole("banner", { name: "窗口控制" }))).toBe(false);
   expect(body.previousElementSibling).toBe(screen.getByRole("banner", { name: "窗口控制" }));
-  expect(screen.getByRole("button", { name: "关闭" }).classList.contains("window-close")).toBe(true);
+  expect(screen.getByRole("button", { name: "关闭" }).classList.contains("window-close")).toBe(
+    true,
+  );
   expect(mounted.container.querySelector(".window-title")?.textContent).toBe("水杉 IME");
 });
 
@@ -110,29 +172,98 @@ test("Android fuzzy-pinyin settings preserve rules while disabled and reset expl
 });
 
 test("Android fuzzy-pinyin first enable seeds every rule once", async () => {
-  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 8,
+    preferences,
+  }));
   render(<SettingsPage client={{ load: async () => initial, save, fuzzyPinyin: true }} />);
   fireEvent.click(await screen.findByRole("button", { name: "输入" }));
   const enabled = screen.getByRole("checkbox", { name: "启用模糊音" }) as HTMLInputElement;
   fireEvent.click(enabled);
-  for (const id of ["z-zh", "c-ch", "s-sh", "n-l", "f-h", "r-l", "an-ang", "en-eng", "in-ing", "ian-iang", "uan-uang"]) {
-    expect((screen.getByRole("checkbox", { name: `模糊音规则 ${id}` }) as HTMLInputElement).checked).toBe(true);
+  for (const id of [
+    "z-zh",
+    "c-ch",
+    "s-sh",
+    "n-l",
+    "f-h",
+    "r-l",
+    "an-ang",
+    "en-eng",
+    "in-ing",
+    "ian-iang",
+    "uan-uang",
+  ]) {
+    expect(
+      (screen.getByRole("checkbox", { name: `模糊音规则 ${id}` }) as HTMLInputElement).checked,
+    ).toBe(true);
   }
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(save).toHaveBeenCalledWith(7, expect.objectContaining({
-    fuzzy_pinyin: { enabled: true, rules: ["z-zh", "c-ch", "s-sh", "n-l", "f-h", "r-l", "an-ang", "en-eng", "in-ing", "ian-iang", "uan-uang"], seeded: true },
-  }));
+  expect(save).toHaveBeenCalledWith(
+    7,
+    expect.objectContaining({
+      fuzzy_pinyin: {
+        enabled: true,
+        rules: [
+          "z-zh",
+          "c-ch",
+          "s-sh",
+          "n-l",
+          "f-h",
+          "r-l",
+          "an-ang",
+          "en-eng",
+          "in-ing",
+          "ian-iang",
+          "uan-uang",
+        ],
+        seeded: true,
+      },
+    }),
+  );
 });
 
-const touchSchemeLabels = ["全拼 26 键", "全拼 9 键", "小鹤双拼", "自然码双拼", "微软双拼", "首道双拼", "86 五笔", "日语 9 键", "日语 26 键", "手写", "高情商回复"];
-const touchSchemeIds = ["quanpin", "nine_key", "xiaohe", "ziranma", "microsoft", "shoudao", "wubi", "japanese_nine_key", "japanese", "handwriting", "thoughtful_reply"];
+const touchSchemeLabels = [
+  "全拼 26 键",
+  "全拼 9 键",
+  "小鹤双拼",
+  "自然码双拼",
+  "微软双拼",
+  "首道双拼",
+  "86 五笔",
+  "日语 9 键",
+  "日语 26 键",
+  "手写",
+  "高情商回复",
+];
+const touchSchemeIds = [
+  "quanpin",
+  "nine_key",
+  "xiaohe",
+  "ziranma",
+  "microsoft",
+  "shoudao",
+  "wubi",
+  "japanese_nine_key",
+  "japanese",
+  "handwriting",
+  "thoughtful_reply",
+];
 
 test("Android touch schemes follow Apple order and stay absent on hosts without the capability", async () => {
-  const enabled = render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), touchKeyboardSchemes: true }} />);
+  const enabled = render(
+    <SettingsPage
+      client={{ load: async () => initial, save: vi.fn(), touchKeyboardSchemes: true }}
+    />,
+  );
   fireEvent.click(await screen.findByRole("button", { name: "输入" }));
   const group = screen.getByRole("group", { name: "输入方案" });
-  expect(within(group).getAllByRole("button").map(button => button.textContent?.replace("✓", ""))).toEqual(touchSchemeLabels);
+  expect(
+    within(group)
+      .getAllByRole("button")
+      .map((button) => button.textContent?.replace("✓", "")),
+  ).toEqual(touchSchemeLabels);
   expect(within(group).getAllByRole("checkbox")).toHaveLength(11);
   enabled.unmount();
   render(<SettingsPage client={{ load: async () => initial, save: vi.fn() }} />);
@@ -141,8 +272,14 @@ test("Android touch schemes follow Apple order and stay absent on hosts without 
 });
 
 test("offline candidate gloss is host-enabled, defaults off and persists", async () => {
-  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
-  const enabled = render(<SettingsPage client={{ load: async () => initial, save, candidateEnglishGloss: true }} />);
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 8,
+    preferences,
+  }));
+  const enabled = render(
+    <SettingsPage client={{ load: async () => initial, save, candidateEnglishGloss: true }} />,
+  );
   fireEvent.click(await screen.findByRole("button", { name: "输入" }));
   const toggle = screen.getByRole("checkbox", { name: "显示英文释义" }) as HTMLInputElement;
   expect(toggle.checked).toBe(false);
@@ -161,10 +298,20 @@ test("offline candidate gloss is host-enabled, defaults off and persists", async
 });
 
 test("Android English suggestions default on and persist independently", async () => {
-  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
-  render(<SettingsPage client={{
-    load: async () => initial, save, host: { platform: "android" } as HostCapabilities,
-  }} />);
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 8,
+    preferences,
+  }));
+  render(
+    <SettingsPage
+      client={{
+        load: async () => initial,
+        save,
+        host: { platform: "android" } as HostCapabilities,
+      }}
+    />,
+  );
   fireEvent.click(await screen.findByRole("button", { name: "输入" }));
   const toggle = screen.getByRole("checkbox", { name: "英文建议" }) as HTMLInputElement;
   expect(toggle.checked).toBe(true);
@@ -176,29 +323,44 @@ test("Android English suggestions default on and persist independently", async (
 });
 
 test("Linux can expose the shared offline candidate gloss setting", async () => {
-  render(<SettingsPage client={{
-    load: async () => initial,
-    save: vi.fn(),
-    host: { platform: "linux" } as HostCapabilities,
-    candidateEnglishGloss: true,
-  }} />);
+  render(
+    <SettingsPage
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        host: { platform: "linux" } as HostCapabilities,
+        candidateEnglishGloss: true,
+      }}
+    />,
+  );
   fireEvent.click(await screen.findByRole("button", { name: "输入" }));
   expect(screen.getByRole("checkbox", { name: "显示英文释义" })).toBeTruthy();
 });
 
 test("iOS exposes the shared offline candidate gloss setting", async () => {
-  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 8,
+    preferences,
+  }));
   const openExternalUrl = vi.fn().mockResolvedValue(undefined);
-  render(<SettingsPage client={{
-    load: async () => initial,
-    save, openExternalUrl,
-    host: { platform: "ios" } as HostCapabilities,
-    candidateEnglishGloss: true,
-  }} />);
+  render(
+    <SettingsPage
+      client={{
+        load: async () => initial,
+        save,
+        openExternalUrl,
+        host: { platform: "ios" } as HostCapabilities,
+        candidateEnglishGloss: true,
+      }}
+    />,
+  );
   fireEvent.click(await screen.findByRole("button", { name: "输入" }));
   expect(screen.getByText(/首次在键盘中使用手写时下载中文模型/)).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "手写 SDK 隐私说明" }));
-  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://developers.google.com/ml-kit/terms"));
+  await waitFor(() =>
+    expect(openExternalUrl).toHaveBeenCalledWith("https://developers.google.com/ml-kit/terms"),
+  );
   const toggle = screen.getByRole("checkbox", { name: "显示英文释义" }) as HTMLInputElement;
   expect(toggle.checked).toBe(false);
   fireEvent.click(toggle);
@@ -210,17 +372,23 @@ test("iOS exposes the shared offline candidate gloss setting", async () => {
 test("Android exposes handwriting model privacy and system settings", async () => {
   const openExternalUrl = vi.fn().mockResolvedValue(undefined);
   const openSystemKeyboardSettings = vi.fn().mockResolvedValue(undefined);
-  render(<SettingsPage client={{
-    load: async () => initial,
-    save: vi.fn(),
-    openExternalUrl,
-    openSystemKeyboardSettings,
-    host: { platform: "android" } as HostCapabilities,
-  }} />);
+  render(
+    <SettingsPage
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        openExternalUrl,
+        openSystemKeyboardSettings,
+        host: { platform: "android" } as HostCapabilities,
+      }}
+    />,
+  );
   fireEvent.click(await screen.findByRole("button", { name: "输入" }));
   expect(screen.getByText(/Android 键盘中切换到手写时/)).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "手写 SDK 隐私说明" }));
-  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://developers.google.com/ml-kit/terms"));
+  await waitFor(() =>
+    expect(openExternalUrl).toHaveBeenCalledWith("https://developers.google.com/ml-kit/terms"),
+  );
   fireEvent.click(screen.getByRole("button", { name: "手写识别板" }));
   expect(screen.getByText("Android 键盘手写")).toBeDefined();
   expect(screen.getByText(/Android 系统输入法设置中启用水杉键盘/)).toBeDefined();
@@ -230,10 +398,15 @@ test("Android exposes handwriting model privacy and system settings", async () =
 });
 
 test("mobile input settings expose the keyboard AI entry", async () => {
-  render(<SettingsPage client={{
-    load: async () => initial, save: vi.fn(),
-    host: { platform: "android" } as HostCapabilities,
-  }} />);
+  render(
+    <SettingsPage
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        host: { platform: "android" } as HostCapabilities,
+      }}
+    />,
+  );
   fireEvent.click(await screen.findByRole("button", { name: "输入" }));
   expect(screen.getByText(/切换到高情商回复键盘/)).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "配置键盘 AI" }));
@@ -241,58 +414,103 @@ test("mobile input settings expose the keyboard AI entry", async () => {
 });
 
 test("Android touch scheme selection, fallback, last-visible guard and save payload match Apple", async () => {
-  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 8,
+    preferences,
+  }));
   render(<SettingsPage client={{ load: async () => initial, save, touchKeyboardSchemes: true }} />);
   fireEvent.click(await screen.findByRole("button", { name: "输入" }));
   fireEvent.click(screen.getByRole("button", { name: "设为当前输入方案 全拼 9 键" }));
-  expect(screen.getByRole("button", { name: "设为当前输入方案 全拼 9 键" }).getAttribute("aria-pressed")).toBe("true");
+  expect(
+    screen.getByRole("button", { name: "设为当前输入方案 全拼 9 键" }).getAttribute("aria-pressed"),
+  ).toBe("true");
   fireEvent.click(screen.getByRole("checkbox", { name: "显示输入方案 全拼 9 键" }));
-  expect(screen.getByRole("button", { name: "设为当前输入方案 全拼 26 键" }).getAttribute("aria-pressed")).toBe("true");
+  expect(
+    screen
+      .getByRole("button", { name: "设为当前输入方案 全拼 26 键" })
+      .getAttribute("aria-pressed"),
+  ).toBe("true");
   for (const label of touchSchemeLabels.slice(1)) {
-    const toggle = screen.getByRole("checkbox", { name: `显示输入方案 ${label}` }) as HTMLInputElement;
+    const toggle = screen.getByRole("checkbox", {
+      name: `显示输入方案 ${label}`,
+    }) as HTMLInputElement;
     if (toggle.checked) fireEvent.click(toggle);
   }
-  const last = screen.getByRole("checkbox", { name: "显示输入方案 全拼 26 键" }) as HTMLInputElement;
+  const last = screen.getByRole("checkbox", {
+    name: "显示输入方案 全拼 26 键",
+  }) as HTMLInputElement;
   expect(last.checked).toBe(true);
   expect(last.disabled).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(save).toHaveBeenCalledWith(7, expect.objectContaining({
-    scheme: "quanpin",
-    last_chinese_scheme: "quanpin",
-    touch_keyboard_layout: "twenty_six_key",
-    touch_keyboard_schemes: { enabled: ["quanpin"], selected: "quanpin" },
-  }));
+  expect(save).toHaveBeenCalledWith(
+    7,
+    expect.objectContaining({
+      scheme: "quanpin",
+      last_chinese_scheme: "quanpin",
+      touch_keyboard_layout: "twenty_six_key",
+      touch_keyboard_schemes: { enabled: ["quanpin"], selected: "quanpin" },
+    }),
+  );
 });
 
 test("Android selecting nine-key saves the shared selected scheme and matching engine layout", async () => {
-  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 8,
+    preferences,
+  }));
   render(<SettingsPage client={{ load: async () => initial, save, touchKeyboardSchemes: true }} />);
   fireEvent.click(await screen.findByRole("button", { name: "输入" }));
   fireEvent.click(screen.getByRole("button", { name: "设为当前输入方案 全拼 9 键" }));
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(save).toHaveBeenCalledWith(7, expect.objectContaining({
-    scheme: "quanpin",
-    touch_keyboard_layout: "nine_key",
-    touch_keyboard_schemes: { enabled: touchSchemeIds, selected: "nine_key" },
-  }));
+  expect(save).toHaveBeenCalledWith(
+    7,
+    expect.objectContaining({
+      scheme: "quanpin",
+      touch_keyboard_layout: "nine_key",
+      touch_keyboard_schemes: { enabled: touchSchemeIds, selected: "nine_key" },
+    }),
+  );
 });
 
 test("Android touch schemes display the first enabled fallback for a valid selection-less snapshot", async () => {
-  const snapshot = { ...initial, preferences: { ...initial.preferences,
-    touch_keyboard_schemes: { enabled: ["wubi" as const] } } };
-  render(<SettingsPage client={{ load: async () => snapshot, save: vi.fn(), touchKeyboardSchemes: true }} />);
+  const snapshot = {
+    ...initial,
+    preferences: { ...initial.preferences, touch_keyboard_schemes: { enabled: ["wubi" as const] } },
+  };
+  render(
+    <SettingsPage
+      client={{ load: async () => snapshot, save: vi.fn(), touchKeyboardSchemes: true }}
+    />,
+  );
   fireEvent.click(await screen.findByRole("button", { name: "输入" }));
-  expect(screen.getByRole("button", { name: "设为当前输入方案 86 五笔" }).getAttribute("aria-pressed")).toBe("true");
-  expect((screen.getByRole("checkbox", { name: "显示输入方案 86 五笔" }) as HTMLInputElement).disabled).toBe(true);
+  expect(
+    screen.getByRole("button", { name: "设为当前输入方案 86 五笔" }).getAttribute("aria-pressed"),
+  ).toBe("true");
+  expect(
+    (screen.getByRole("checkbox", { name: "显示输入方案 86 五笔" }) as HTMLInputElement).disabled,
+  ).toBe(true);
 });
 
 test("window SVGs follow host state and retain accessible controls", async () => {
   let publish: (maximized: boolean) => void = () => {};
   const windowControl = vi.fn().mockResolvedValue(undefined);
-  render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), windowControl,
-    onWindowStateChanged: async listener => { publish = listener; return () => {}; } }} />);
+  render(
+    <SettingsPage
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        windowControl,
+        onWindowStateChanged: async (listener) => {
+          publish = listener;
+          return () => {};
+        },
+      }}
+    />,
+  );
   await screen.findByRole("button", { name: "保存设置" });
   function icon(label: string, source: string) {
     const button = screen.getByRole("button", { name: label });
@@ -322,20 +540,51 @@ test("window SVGs follow host state and retain accessible controls", async () =>
 
 test("resize starts on edge press, not pointer movement", async () => {
   const resizeWindow = vi.fn().mockResolvedValue(undefined);
-  const mounted = render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), resizeWindow }} />);
+  const mounted = render(
+    <SettingsPage client={{ load: async () => initial, save: vi.fn(), resizeWindow }} />,
+  );
   await screen.findByRole("button", { name: "保存设置" });
   const shell = mounted.container.querySelector(".settings-shell")!;
-  vi.spyOn(shell, "getBoundingClientRect").mockReturnValue({ left: 0, top: 0, right: 800, bottom: 600, width: 800, height: 600, x: 0, y: 0, toJSON() {} });
-  fireEvent(shell, new MouseEvent("pointermove", { bubbles: true, buttons: 1, clientX: 1, clientY: 1 }));
+  vi.spyOn(shell, "getBoundingClientRect").mockReturnValue({
+    left: 0,
+    top: 0,
+    right: 800,
+    bottom: 600,
+    width: 800,
+    height: 600,
+    x: 0,
+    y: 0,
+    toJSON() {},
+  });
+  fireEvent(
+    shell,
+    new MouseEvent("pointermove", { bubbles: true, buttons: 1, clientX: 1, clientY: 1 }),
+  );
   expect(resizeWindow).not.toHaveBeenCalled();
-  fireEvent(shell, new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 799, clientY: 599 }));
+  fireEvent(
+    shell,
+    new MouseEvent("pointerdown", { bubbles: true, button: 0, clientX: 799, clientY: 599 }),
+  );
   expect(resizeWindow).toHaveBeenCalledWith("se");
-  fireEvent(shell, new MouseEvent("pointerdown", { bubbles: true, button: 2, clientX: 1, clientY: 1 }));
+  fireEvent(
+    shell,
+    new MouseEvent("pointerdown", { bubbles: true, button: 2, clientX: 1, clientY: 1 }),
+  );
   expect(resizeWindow).toHaveBeenCalledTimes(1);
 });
 
-function titlebarPointer(target: Element, type: string, x: number, y: number, detail = 1, buttons = 1) {
-  fireEvent(target, new MouseEvent(type, { bubbles: true, button: 0, buttons, clientX: x, clientY: y, detail }));
+function titlebarPointer(
+  target: Element,
+  type: string,
+  x: number,
+  y: number,
+  detail = 1,
+  buttons = 1,
+) {
+  fireEvent(
+    target,
+    new MouseEvent(type, { bubbles: true, button: 0, buttons, clientX: x, clientY: y, detail }),
+  );
 }
 
 test("titlebar drag waits for upstream two-pixel threshold and starts only once", async () => {
@@ -354,7 +603,8 @@ test("titlebar drag waits for upstream two-pixel threshold and starts only once"
 });
 
 test.each(["pointerup", "pointercancel", "pointerout", "blur", "released", "double-press"])(
-  "%s cancels or excludes a pending titlebar drag", async reason => {
+  "%s cancels or excludes a pending titlebar drag",
+  async (reason) => {
     const beginWindowDrag = vi.fn().mockResolvedValue(undefined);
     render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), beginWindowDrag }} />);
     await screen.findByRole("button", { name: "保存设置" });
@@ -372,10 +622,32 @@ test("resize edges do not drag or double-click maximize the titlebar", async () 
   const beginWindowDrag = vi.fn().mockResolvedValue(undefined);
   const resizeWindow = vi.fn().mockResolvedValue(undefined);
   const windowControl = vi.fn().mockResolvedValue(undefined);
-  const mounted = render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), beginWindowDrag, resizeWindow, windowControl }} />);
+  const mounted = render(
+    <SettingsPage
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        beginWindowDrag,
+        resizeWindow,
+        windowControl,
+      }}
+    />,
+  );
   await screen.findByRole("button", { name: "保存设置" });
-  vi.spyOn(mounted.container.querySelector(".settings-shell")!, "getBoundingClientRect")
-    .mockReturnValue({ left: 0, top: 0, right: 800, bottom: 780, width: 800, height: 780, x: 0, y: 0, toJSON() {} });
+  vi.spyOn(
+    mounted.container.querySelector(".settings-shell")!,
+    "getBoundingClientRect",
+  ).mockReturnValue({
+    left: 0,
+    top: 0,
+    right: 800,
+    bottom: 780,
+    width: 800,
+    height: 780,
+    x: 0,
+    y: 0,
+    toJSON() {},
+  });
   const titlebar = screen.getByRole("banner", { name: "窗口控制" });
   titlebarPointer(titlebar, "pointerdown", 100, 2);
   titlebarPointer(titlebar, "pointermove", 110, 16);
@@ -388,29 +660,47 @@ test("resize edges do not drag or double-click maximize the titlebar", async () 
   expect(windowControl).toHaveBeenCalledWith("maximize");
 });
 
-test.each([false, true])("titlebar drag handles host failure (synchronous=%s)", async synchronous => {
-  const beginWindowDrag = vi.fn(() => {
-    if (synchronous) throw new Error("host unavailable");
-    return Promise.reject(new Error("host unavailable"));
-  });
-  render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), beginWindowDrag }} />);
-  await screen.findByRole("button", { name: "保存设置" });
-  const titlebar = screen.getByRole("banner", { name: "窗口控制" });
-  titlebarPointer(titlebar, "pointerdown", 100, 16);
-  titlebarPointer(titlebar, "pointermove", 110, 16);
-  expect(await screen.findByText("无法移动窗口，请重试。")).toBeTruthy();
-});
+test.each([false, true])(
+  "titlebar drag handles host failure (synchronous=%s)",
+  async (synchronous) => {
+    const beginWindowDrag = vi.fn(() => {
+      if (synchronous) throw new Error("host unavailable");
+      return Promise.reject(new Error("host unavailable"));
+    });
+    render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), beginWindowDrag }} />);
+    await screen.findByRole("button", { name: "保存设置" });
+    const titlebar = screen.getByRole("banner", { name: "窗口控制" });
+    titlebarPointer(titlebar, "pointerdown", 100, 16);
+    titlebarPointer(titlebar, "pointermove", 110, 16);
+    expect(await screen.findByText("无法移动窗口，请重试。")).toBeTruthy();
+  },
+);
 
 test("window state subscription failures are handled", async () => {
-  render(<SettingsPage client={{ load: async () => initial, save: vi.fn(),
-    onWindowStateChanged: async () => { throw new Error("unavailable"); } }} />);
+  render(
+    <SettingsPage
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        onWindowStateChanged: async () => {
+          throw new Error("unavailable");
+        },
+      }}
+    />,
+  );
   expect(await screen.findByText("无法读取窗口状态，请重试。")).toBeTruthy();
 });
 
 test("window state update errors are shown and detached hosts cannot report errors", async () => {
   let reportError = () => {};
-  const client: SettingsClient = { load: async () => initial, save: vi.fn(),
-    onWindowStateChanged: async (_listener, onError) => { reportError = onError!; return () => {}; } };
+  const client: SettingsClient = {
+    load: async () => initial,
+    save: vi.fn(),
+    onWindowStateChanged: async (_listener, onError) => {
+      reportError = onError!;
+      return () => {};
+    },
+  };
   const mounted = render(<SettingsPage client={client} />);
   await screen.findByRole("button", { name: "保存设置" });
   act(() => reportError());
@@ -428,14 +718,22 @@ test("late window subscriptions are disposed and old callbacks ignored", async (
   let finish: (cleanup: () => void) => void = () => {};
   const unsubscribe = vi.fn();
   const windowControl = vi.fn().mockResolvedValue(undefined);
-  const client: SettingsClient = { load: async () => initial, save: vi.fn(), windowControl,
-    onWindowStateChanged: listener => {
+  const client: SettingsClient = {
+    load: async () => initial,
+    save: vi.fn(),
+    windowControl,
+    onWindowStateChanged: (listener) => {
       publish = listener;
-      return new Promise(resolve => { finish = resolve; });
-    } };
+      return new Promise((resolve) => {
+        finish = resolve;
+      });
+    },
+  };
   const mounted = render(<SettingsPage client={client} />);
   await screen.findByRole("button", { name: "保存设置" });
-  mounted.rerender(<SettingsPage client={{ load: async () => initial, save: vi.fn(), windowControl }} />);
+  mounted.rerender(
+    <SettingsPage client={{ load: async () => initial, save: vi.fn(), windowControl }} />,
+  );
   finish(unsubscribe);
   await waitFor(() => expect(unsubscribe).toHaveBeenCalledTimes(1));
   publish(true);
@@ -444,7 +742,11 @@ test("late window subscriptions are disposed and old callbacks ignored", async (
 });
 
 test("drag-only hosts do not expose unavailable window controls", async () => {
-  render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), beginWindowDrag: vi.fn() }} />);
+  render(
+    <SettingsPage
+      client={{ load: async () => initial, save: vi.fn(), beginWindowDrag: vi.fn() }}
+    />,
+  );
   await screen.findByRole("button", { name: "保存设置" });
   expect(screen.queryByRole("button", { name: "关闭" })).toBeNull();
   expect(screen.queryByRole("button", { name: "最大化" })).toBeNull();
@@ -453,8 +755,20 @@ test("drag-only hosts do not expose unavailable window controls", async () => {
 test("window buttons do not bubble drag or double-click maximize", async () => {
   const windowControl = vi.fn().mockResolvedValue(undefined);
   const beginWindowDrag = vi.fn().mockResolvedValue(undefined);
-  render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), windowControl, beginWindowDrag,
-    onWindowStateChanged: async listener => { listener(true); return () => {}; } }} />);
+  render(
+    <SettingsPage
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        windowControl,
+        beginWindowDrag,
+        onWindowStateChanged: async (listener) => {
+          listener(true);
+          return () => {};
+        },
+      }}
+    />,
+  );
   const restore = await screen.findByRole("button", { name: "还原" });
   fireEvent.pointerDown(restore, { button: 0 });
   fireEvent.doubleClick(restore);
@@ -467,11 +781,18 @@ test("window buttons do not bubble drag or double-click maximize", async () => {
 });
 
 test("mixed candidate defaults, independent switches and threshold persist", async () => {
-  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn().mockImplementation(async (_revision, preferences) => ({
+      ...initial,
+      revision: 8,
+      preferences,
+    })),
+  };
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
-  const english = await screen.findByRole("checkbox", { name: /^中英混输/ }) as HTMLInputElement;
+  const english = (await screen.findByRole("checkbox", { name: /^中英混输/ })) as HTMLInputElement;
   const emoji = screen.getByRole("checkbox", { name: /^emoji 混输/ }) as HTMLInputElement;
   const kaomoji = screen.getByRole("checkbox", { name: /^颜文字混输/ }) as HTMLInputElement;
   const threshold = screen.getByLabelText("触发字符数") as HTMLSelectElement;
@@ -488,32 +809,60 @@ test("mixed candidate defaults, independent switches and threshold persist", asy
   fireEvent.click(kaomoji);
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, mixed_input: { english: false, minimum_prefix: 8, emoji: true, kaomoji: true } });
+  expect(client.save).toHaveBeenCalledWith(7, {
+    ...initial.preferences,
+    mixed_input: { english: false, minimum_prefix: 8, emoji: true, kaomoji: true },
+  });
 });
 
 test("traditional Chinese output toggle persists", async () => {
-  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn().mockImplementation(async (_revision, preferences) => ({
+      ...initial,
+      revision: 8,
+      preferences,
+    })),
+  };
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
-  const toggle = await screen.findByRole("checkbox", { name: "繁体中文输出" }) as HTMLInputElement;
+  const toggle = (await screen.findByRole("checkbox", {
+    name: "繁体中文输出",
+  })) as HTMLInputElement;
   expect(toggle.checked).toBe(false);
   fireEvent.click(toggle);
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, traditional_chinese_output: true });
+  expect(client.save).toHaveBeenCalledWith(7, {
+    ...initial.preferences,
+    traditional_chinese_output: true,
+  });
 });
 
 test("voice settings persist under the shared voice_input contract", async () => {
-  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn().mockImplementation(async (_revision, preferences) => ({
+      ...initial,
+      revision: 8,
+      preferences,
+    })),
+  };
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
-  const enabled = await screen.findByRole("checkbox", { name: "启用语音输入" }) as HTMLInputElement;
+  const enabled = (await screen.findByRole("checkbox", {
+    name: "启用语音输入",
+  })) as HTMLInputElement;
   expect(enabled.checked).toBe(true);
   fireEvent.click(enabled);
-  fireEvent.change(screen.getByRole("combobox", { name: "识别服务" }), { target: { value: "doubao" } });
-  fireEvent.change(screen.getByRole("combobox", { name: "豆包鉴权方式" }), { target: { value: "legacy" } });
+  fireEvent.change(screen.getByRole("combobox", { name: "识别服务" }), {
+    target: { value: "doubao" },
+  });
+  fireEvent.change(screen.getByRole("combobox", { name: "豆包鉴权方式" }), {
+    target: { value: "legacy" },
+  });
   fireEvent.change(screen.getByLabelText("识别语言"), { target: { value: "en-US" } });
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
@@ -523,20 +872,35 @@ test("voice settings persist under the shared voice_input contract", async () =>
     // That is the point of the change: the shipped endpoint default is Doubao's
     // websocket URL, and leaving it behind routed other providers' tokens to
     // ByteDance.
-    voice_input: { enabled: false, asr_provider: "doubao", language: "en-US", doubao_auth_mode: "legacy", asr_resource_id: "volc.seedasr.sauc.duration", asr_endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async", asr_model: "",
+    voice_input: {
+      enabled: false,
+      asr_provider: "doubao",
+      language: "en-US",
+      doubao_auth_mode: "legacy",
+      asr_resource_id: "volc.seedasr.sauc.duration",
+      asr_endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async",
+      asr_model: "",
       // Tokens are kept per provider, so switching also moves the credential
       // into the slot being left rather than carrying it to the new endpoint.
-      asr_token: "", asr_tokens: {} },
+      asr_token: "",
+      asr_tokens: {},
+    },
   });
 });
 
 test("voice settings default to the single API Key mode", async () => {
-  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 8,
+    preferences,
+  }));
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save };
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
-  const authMode = await screen.findByRole("combobox", { name: "豆包鉴权方式" }) as HTMLSelectElement;
+  const authMode = (await screen.findByRole("combobox", {
+    name: "豆包鉴权方式",
+  })) as HTMLSelectElement;
   expect(authMode.value).toBe("api_key");
   fireEvent.change(authMode, { target: { value: "legacy" } });
   fireEvent.change(authMode, { target: { value: "api_key" } });
@@ -547,13 +911,19 @@ test("voice settings default to the single API Key mode", async () => {
 
 test("voice capture backend choices follow the host platform", async () => {
   const options = async (platform: HostCapabilities["platform"]) => {
-    const mounted = render(<SettingsPage initialPage="voice" client={{
-      load: vi.fn().mockResolvedValue(initial), save: vi.fn(),
-      host: { platform, voice_capture_devices: true } as HostCapabilities,
-      listVoiceCaptureDevices: vi.fn().mockResolvedValue([]),
-    }} />);
-    const select = await screen.findByRole("combobox", { name: "录音后端" }) as HTMLSelectElement;
-    const values = Array.from(select.options).map(option => option.value);
+    const mounted = render(
+      <SettingsPage
+        initialPage="voice"
+        client={{
+          load: vi.fn().mockResolvedValue(initial),
+          save: vi.fn(),
+          host: { platform, voice_capture_devices: true } as HostCapabilities,
+          listVoiceCaptureDevices: vi.fn().mockResolvedValue([]),
+        }}
+      />,
+    );
+    const select = (await screen.findByRole("combobox", { name: "录音后端" })) as HTMLSelectElement;
+    const values = Array.from(select.options).map((option) => option.value);
     mounted.unmount();
     return values;
   };
@@ -563,22 +933,45 @@ test("voice capture backend choices follow the host platform", async () => {
 });
 
 test("AI credentials stay scoped to the normalized HTTPS origin", async () => {
-  expect(aiCredentialOrigin("https://Fixture.Invalid/v1/chat/completions")).toBe("https://fixture.invalid:443");
-  expect(aiCredentialOrigin("https://fixture.invalid:444/v1/chat/completions")).toBe("https://fixture.invalid:444");
+  expect(aiCredentialOrigin("https://Fixture.Invalid/v1/chat/completions")).toBe(
+    "https://fixture.invalid:443",
+  );
+  expect(aiCredentialOrigin("https://fixture.invalid:444/v1/chat/completions")).toBe(
+    "https://fixture.invalid:444",
+  );
   expect(aiCredentialOrigin("http://fixture.invalid/v1/chat/completions")).toBeNull();
   const firstOrigin = "https://fixture.invalid:443";
-  const snapshot: Snapshot = { ...initial, preferences: { ...initial.preferences, ai_assistant: {
-    enabled: true, provider: "openai", model: "fixture-model",
-    endpoint: "https://fixture.invalid/v1/chat/completions", candidate_limit: 3,
-    tokens: { [firstOrigin]: "first-origin-fixture" }, prompt_id: "polish",
-    prompt: "保持原意", prompt_custom_1: "", prompt_custom_2: "", prompt_custom_3: "",
-  } } };
-  const client: SettingsClient = { load: vi.fn().mockResolvedValue(snapshot),
-    save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...snapshot, revision: 8, preferences })) };
+  const snapshot: Snapshot = {
+    ...initial,
+    preferences: {
+      ...initial.preferences,
+      ai_assistant: {
+        enabled: true,
+        provider: "openai",
+        model: "fixture-model",
+        endpoint: "https://fixture.invalid/v1/chat/completions",
+        candidate_limit: 3,
+        tokens: { [firstOrigin]: "first-origin-fixture" },
+        prompt_id: "polish",
+        prompt: "保持原意",
+        prompt_custom_1: "",
+        prompt_custom_2: "",
+        prompt_custom_3: "",
+      },
+    },
+  };
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(snapshot),
+    save: vi.fn().mockImplementation(async (_revision, preferences) => ({
+      ...snapshot,
+      revision: 8,
+      preferences,
+    })),
+  };
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "AI 辅助" }));
-  const endpoint = await screen.findByLabelText("AI 接口地址") as HTMLInputElement;
+  const endpoint = (await screen.findByLabelText("AI 接口地址")) as HTMLInputElement;
   const token = screen.getByLabelText("AI API Token") as HTMLInputElement;
   expect(token.value).toBe("first-origin-fixture");
   fireEvent.change(endpoint, { target: { value: "https://fixture.invalid/v2/chat/completions" } });
@@ -599,59 +992,117 @@ test("AI credentials stay scoped to the normalized HTTPS origin", async () => {
 });
 
 test("mobile AI settings expose the Apple provider catalog and preserve custom edits", async () => {
-  expect(AI_PROVIDER_OPTIONS.map(option => option.id)).toEqual([
-    "everyapi", "openai", "anthropic", "gemini", "deepseek", "qwen", "kimi", "zhipu",
-    "siliconflow", "groq", "openrouter", "custom",
+  expect(AI_PROVIDER_OPTIONS.map((option) => option.id)).toEqual([
+    "everyapi",
+    "openai",
+    "anthropic",
+    "gemini",
+    "deepseek",
+    "qwen",
+    "kimi",
+    "zhipu",
+    "siliconflow",
+    "groq",
+    "openrouter",
+    "custom",
   ]);
   const base: AiAssistantPreferences = {
-    enabled: true, provider: "deepseek", model: "deepseek-v4-flash",
-    endpoint: "https://api.deepseek.com/chat/completions", candidate_limit: 3,
-    prompt: "保持原意", prompt_custom_1: "", prompt_custom_2: "", prompt_custom_3: "",
+    enabled: true,
+    provider: "deepseek",
+    model: "deepseek-v4-flash",
+    endpoint: "https://api.deepseek.com/chat/completions",
+    candidate_limit: 3,
+    prompt: "保持原意",
+    prompt_custom_1: "",
+    prompt_custom_2: "",
+    prompt_custom_3: "",
   };
   expect(aiProviderUpdate("anthropic", base)).toMatchObject({
-    provider: "anthropic", endpoint: "https://api.anthropic.com/v1/chat/completions",
+    provider: "anthropic",
+    endpoint: "https://api.anthropic.com/v1/chat/completions",
     model: "claude-sonnet-4-6",
   });
-  expect(aiProviderUpdate("openai", {
-    ...base,
+  expect(
+    aiProviderUpdate("openai", {
+      ...base,
+      endpoint: "https://private.invalid/v1/chat/completions",
+      model: "private-model",
+    }),
+  ).toMatchObject({
+    provider: "openai",
     endpoint: "https://private.invalid/v1/chat/completions",
     model: "private-model",
-  })).toMatchObject({
-    provider: "openai", endpoint: "https://private.invalid/v1/chat/completions", model: "private-model",
   });
 });
 
 test("Android AI settings fetch models and run a native-hosted polish test", async () => {
   const fetchModels = vi.fn().mockResolvedValue(["fixture-model", "fixture-fast"]);
   const testAi = vi.fn().mockResolvedValue("fixture-polished");
-  render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), aiAssistant: { fetchModels, test: testAi } }} />);
+  render(
+    <SettingsPage
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        aiAssistant: { fetchModels, test: testAi },
+      }}
+    />,
+  );
   fireEvent.click(await screen.findByRole("button", { name: "AI 辅助" }));
   fireEvent.change(screen.getByLabelText("AI API Token"), { target: { value: "fixture-token" } });
   fireEvent.click(screen.getByRole("button", { name: "获取模型列表" }));
   await screen.findByText("已获取 2 个可用模型。");
-  fireEvent.change(screen.getByRole("combobox", { name: "已获取的 AI 模型" }), { target: { value: "fixture-fast" } });
+  fireEvent.change(screen.getByRole("combobox", { name: "已获取的 AI 模型" }), {
+    target: { value: "fixture-fast" },
+  });
   fireEvent.change(screen.getByLabelText("AI 测试输入"), { target: { value: "fixture input" } });
   fireEvent.click(screen.getByRole("button", { name: "发送并润色" }));
   await screen.findByText("fixture-polished");
-  expect(fetchModels).toHaveBeenCalledWith({ endpoint: "https://api.deepseek.com/chat/completions", token: "fixture-token" });
-  expect(testAi).toHaveBeenCalledWith({ endpoint: "https://api.deepseek.com/chat/completions", model: "fixture-fast", prompt: "请润色以下文字，保持原意，只返回修改后的文字。", token: "fixture-token", text: "fixture input" });
+  expect(fetchModels).toHaveBeenCalledWith({
+    endpoint: "https://api.deepseek.com/chat/completions",
+    token: "fixture-token",
+  });
+  expect(testAi).toHaveBeenCalledWith({
+    endpoint: "https://api.deepseek.com/chat/completions",
+    model: "fixture-fast",
+    prompt: "请润色以下文字，保持原意，只返回修改后的文字。",
+    token: "fixture-token",
+    text: "fixture input",
+  });
 });
 
 test("AI settings explain the platform-specific keyboard surface", async () => {
-  const client = { load: async () => initial, save: vi.fn(), host: { platform: "ios" } as HostCapabilities };
+  const client = {
+    load: async () => initial,
+    save: vi.fn(),
+    host: { platform: "ios" } as HostCapabilities,
+  };
   render(<SettingsPage initialPage="ai" client={client} />);
   expect(await screen.findByText("为键盘 AI 联想、回复与润色提供共享配置")).toBeTruthy();
   cleanup();
-  render(<SettingsPage initialPage="ai" client={{ ...client, host: { platform: "android" } as HostCapabilities }} />);
+  render(
+    <SettingsPage
+      initialPage="ai"
+      client={{ ...client, host: { platform: "android" } as HostCapabilities }}
+    />,
+  );
   expect(await screen.findByText("为拼音联想和 Android 选中文字润色提供共享配置")).toBeTruthy();
 });
 
 test("input parity controls persist cloud, translation and punctuation settings", async () => {
-  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn().mockImplementation(async (_revision, preferences) => ({
+      ...initial,
+      revision: 8,
+      preferences,
+    })),
+  };
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
-  expect((await screen.findByLabelText("默认输入状态") as HTMLSelectElement).value).toBe("chinese");
+  expect(((await screen.findByLabelText("默认输入状态")) as HTMLSelectElement).value).toBe(
+    "chinese",
+  );
   fireEvent.click(await screen.findByRole("checkbox", { name: /云联想/ }));
   fireEvent.click(screen.getByRole("checkbox", { name: /候选翻译/ }));
   fireEvent.change(screen.getByLabelText("候选翻译目标语言"), { target: { value: "ja" } });
@@ -670,57 +1121,103 @@ test("input parity controls persist cloud, translation and punctuation settings"
 });
 
 test("Android candidate translations persist an optional second language", async () => {
-  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
-  render(<SettingsPage client={{
-    load: async () => initial,
-    save,
-    host: { platform: "android" } as HostCapabilities,
-  }} />);
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 8,
+    preferences,
+  }));
+  render(
+    <SettingsPage
+      client={{
+        load: async () => initial,
+        save,
+        host: { platform: "android" } as HostCapabilities,
+      }}
+    />,
+  );
   fireEvent.click(await screen.findByRole("button", { name: "输入" }));
-  const secondary = screen.getByRole("combobox", { name: "候选翻译第二种语言" }) as HTMLSelectElement;
+  const secondary = screen.getByRole("combobox", {
+    name: "候选翻译第二种语言",
+  }) as HTMLSelectElement;
   expect(secondary.value).toBe("");
   fireEvent.change(secondary, { target: { value: "ja" } });
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(save).toHaveBeenCalledWith(7, expect.objectContaining({
-    translation_secondary_language: "ja",
-  }));
+  expect(save).toHaveBeenCalledWith(
+    7,
+    expect.objectContaining({
+      translation_secondary_language: "ja",
+    }),
+  );
 });
 
 test("macOS candidate translations expose the shared second language", async () => {
-  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
-  render(<SettingsPage client={{
-    load: async () => initial,
-    save,
-    host: { platform: "macos" } as HostCapabilities,
-  }} />);
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 8,
+    preferences,
+  }));
+  render(
+    <SettingsPage
+      client={{
+        load: async () => initial,
+        save,
+        host: { platform: "macos" } as HostCapabilities,
+      }}
+    />,
+  );
   fireEvent.click(await screen.findByRole("button", { name: "输入" }));
-  const secondary = screen.getByRole("combobox", { name: "候选翻译第二种语言" }) as HTMLSelectElement;
+  const secondary = screen.getByRole("combobox", {
+    name: "候选翻译第二种语言",
+  }) as HTMLSelectElement;
   expect(secondary.value).toBe("");
-  expect([...secondary.options].map(option => option.value)).toEqual(["", "en", "fr", "ja", "es", "ru", "de", "ko"]);
+  expect([...secondary.options].map((option) => option.value)).toEqual([
+    "",
+    "en",
+    "fr",
+    "ja",
+    "es",
+    "ru",
+    "de",
+    "ko",
+  ]);
   fireEvent.change(secondary, { target: { value: "ko" } });
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(save).toHaveBeenCalledWith(7, expect.objectContaining({
-    translation_secondary_language: "ko",
-  }));
+  expect(save).toHaveBeenCalledWith(
+    7,
+    expect.objectContaining({
+      translation_secondary_language: "ko",
+    }),
+  );
 });
 
 test("mobile translation languages stay editable for offline English glosses", async () => {
-  const snapshot: Snapshot = { ...initial, preferences: {
-    ...initial.preferences, candidate_translations: false, candidate_english_gloss: true,
-  } };
-  render(<SettingsPage client={{
-    load: async () => snapshot,
-    save: vi.fn(),
-    host: { platform: "android" } as HostCapabilities,
-    candidateEnglishGloss: true,
-  }} />);
+  const snapshot: Snapshot = {
+    ...initial,
+    preferences: {
+      ...initial.preferences,
+      candidate_translations: false,
+      candidate_english_gloss: true,
+    },
+  };
+  render(
+    <SettingsPage
+      client={{
+        load: async () => snapshot,
+        save: vi.fn(),
+        host: { platform: "android" } as HostCapabilities,
+        candidateEnglishGloss: true,
+      }}
+    />,
+  );
   fireEvent.click(await screen.findByRole("button", { name: "输入" }));
   const primary = screen.getByRole("combobox", { name: "候选翻译目标语言" }) as HTMLSelectElement;
-  const secondary = screen.getByRole("combobox", { name: "候选翻译第二种语言" }) as HTMLSelectElement;
-  expect([...primary.options].map(option => option.value)).not.toContain("ru");
-  expect([...secondary.options].map(option => option.value)).not.toContain("ru");
+  const secondary = screen.getByRole("combobox", {
+    name: "候选翻译第二种语言",
+  }) as HTMLSelectElement;
+  expect([...primary.options].map((option) => option.value)).not.toContain("ru");
+  expect([...secondary.options].map((option) => option.value)).not.toContain("ru");
   expect(primary.disabled).toBe(false);
   expect(secondary.disabled).toBe(false);
   fireEvent.click(screen.getByRole("checkbox", { name: "显示英文释义" }));
@@ -729,50 +1226,100 @@ test("mobile translation languages stay editable for offline English glosses", a
 });
 
 test("mobile preserves legacy Russian gloss values without leaking them to new pages", async () => {
-  const legacy: Snapshot = { ...initial, preferences: {
-    ...initial.preferences, translation_target_language: "ru", translation_secondary_language: "ru",
-  } };
-  const client = { load: async () => legacy, save: vi.fn(), host: { platform: "ios" } as HostCapabilities };
+  const legacy: Snapshot = {
+    ...initial,
+    preferences: {
+      ...initial.preferences,
+      translation_target_language: "ru",
+      translation_secondary_language: "ru",
+    },
+  };
+  const client = {
+    load: async () => legacy,
+    save: vi.fn(),
+    host: { platform: "ios" } as HostCapabilities,
+  };
   const first = render(<SettingsPage client={client} />);
   fireEvent.click(await screen.findByRole("button", { name: "输入" }));
-  expect((screen.getByRole("combobox", { name: "候选翻译目标语言" }) as HTMLSelectElement).selectedOptions[0].textContent).toContain("已保存");
-  expect((screen.getByRole("combobox", { name: "候选翻译第二种语言" }) as HTMLSelectElement).selectedOptions[0].textContent).toContain("已保存");
+  expect(
+    (screen.getByRole("combobox", { name: "候选翻译目标语言" }) as HTMLSelectElement)
+      .selectedOptions[0].textContent,
+  ).toContain("已保存");
+  expect(
+    (screen.getByRole("combobox", { name: "候选翻译第二种语言" }) as HTMLSelectElement)
+      .selectedOptions[0].textContent,
+  ).toContain("已保存");
   first.unmount();
   render(<SettingsPage client={{ ...client, load: async () => initial }} />);
   fireEvent.click(await screen.findByRole("button", { name: "输入" }));
-  expect([...((screen.getByRole("combobox", { name: "候选翻译目标语言" }) as HTMLSelectElement).options)]
-    .map(option => option.value)).not.toContain("ru");
+  expect(
+    [
+      ...(screen.getByRole("combobox", { name: "候选翻译目标语言" }) as HTMLSelectElement).options,
+    ].map((option) => option.value),
+  ).not.toContain("ru");
 });
 
 test("frequency values above the upstream dropdown range remain visible", async () => {
-  const snapshot: Snapshot = { ...initial, preferences: { ...initial.preferences, frequency: { mode: "halve", trigger_count: 10, linear_step: 7 } } };
-  const client: SettingsClient = { load: vi.fn().mockResolvedValue(snapshot), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...snapshot, revision: 8, preferences })) };
+  const snapshot: Snapshot = {
+    ...initial,
+    preferences: {
+      ...initial.preferences,
+      frequency: { mode: "halve", trigger_count: 10, linear_step: 7 },
+    },
+  };
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(snapshot),
+    save: vi.fn().mockImplementation(async (_revision, preferences) => ({
+      ...snapshot,
+      revision: 8,
+      preferences,
+    })),
+  };
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   const trigger = await screen.findByRole("combobox", { name: "触发频次(第几次上屏触发)" });
   expect(trigger.textContent).toContain("10");
   expect(screen.getByRole("combobox", { name: "线性调频步长" }).textContent).toContain("7");
-  fireEvent.change(screen.getByRole("combobox", { name: "调频方式" }), { target: { value: "pin" } });
+  fireEvent.change(screen.getByRole("combobox", { name: "调频方式" }), {
+    target: { value: "pin" },
+  });
   fireEvent.click(screen.getByRole("option", { name: "一次置顶" }));
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(client.save).toHaveBeenCalledWith(7, { ...snapshot.preferences, frequency: { mode: "pin", trigger_count: 10, linear_step: 7 } });
+  expect(client.save).toHaveBeenCalledWith(7, {
+    ...snapshot.preferences,
+    frequency: { mode: "pin", trigger_count: 10, linear_step: 7 },
+  });
 });
 
 test("frequency modes, threshold and step persist independently", async () => {
-  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn().mockImplementation(async (_revision, preferences) => ({
+      ...initial,
+      revision: 8,
+      preferences,
+    })),
+  };
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   const mode = await screen.findByRole("combobox", { name: "调频方式" });
   expect(mode.textContent).toContain("一次置前");
   fireEvent.change(mode, { target: { value: "linear" } });
-  fireEvent.change(screen.getByRole("combobox", { name: "触发频次(第几次上屏触发)" }), { target: { value: "3" } });
-  fireEvent.change(screen.getByRole("combobox", { name: "线性调频步长" }), { target: { value: "2" } });
+  fireEvent.change(screen.getByRole("combobox", { name: "触发频次(第几次上屏触发)" }), {
+    target: { value: "3" },
+  });
+  fireEvent.change(screen.getByRole("combobox", { name: "线性调频步长" }), {
+    target: { value: "2" },
+  });
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, frequency: { mode: "linear", trigger_count: 3, linear_step: 2 } });
+  expect(client.save).toHaveBeenCalledWith(7, {
+    ...initial.preferences,
+    frequency: { mode: "linear", trigger_count: 3, linear_step: 2 },
+  });
 });
 
 test("frequency settings remain editable independently of learning and mode", async () => {
@@ -780,7 +1327,9 @@ test("frequency settings remain editable independently of learning and mode", as
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
-  const learning = await screen.findByRole("checkbox", { name: /学习选词习惯/ }) as HTMLInputElement;
+  const learning = (await screen.findByRole("checkbox", {
+    name: /学习选词习惯/,
+  })) as HTMLInputElement;
   const mode = screen.getByRole("combobox", { name: "调频方式" });
   const trigger = screen.getByRole("combobox", { name: "触发频次(第几次上屏触发)" });
   const step = screen.getByRole("combobox", { name: "线性调频步长" });
@@ -794,11 +1343,18 @@ test("frequency settings remain editable independently of learning and mode", as
 });
 
 test("word-to-character and paging disable each other while preserving the chosen keys", async () => {
-  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn().mockImplementation(async (_revision, preferences) => ({
+      ...initial,
+      revision: 8,
+      preferences,
+    })),
+  };
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
-  const word = await screen.findByRole("checkbox", { name: /以词定字/ }) as HTMLInputElement;
+  const word = (await screen.findByRole("checkbox", { name: /以词定字/ })) as HTMLInputElement;
   const minus = screen.getByRole("radio", { name: "- / =" }) as HTMLInputElement;
   expect(word.checked).toBe(true);
   expect(minus.disabled).toBe(true);
@@ -812,56 +1368,110 @@ test("word-to-character and paging disable each other while preserving the chose
   fireEvent.click(minus);
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences,
+  expect(client.save).toHaveBeenCalledWith(7, {
+    ...initial.preferences,
     word_character: { enabled: true, keys: "minus_equal" },
-    navigation: { minus_equal: false, comma_period: true, brackets: false, tab: true, page_up_down: true, arrows: true } });
+    navigation: {
+      minus_equal: false,
+      comma_period: true,
+      brackets: false,
+      tab: true,
+      page_up_down: true,
+      arrows: true,
+    },
+  });
 });
 
 test("paging defaults match Windows and individual edits persist", async () => {
-  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn().mockImplementation(async (_revision, preferences) => ({
+      ...initial,
+      revision: 8,
+      preferences,
+    })),
+  };
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
-  const brackets = await screen.findByRole("checkbox", { name: "[ / ]" }) as HTMLInputElement;
+  const brackets = (await screen.findByRole("checkbox", { name: "[ / ]" })) as HTMLInputElement;
   expect(brackets.checked).toBe(false);
-  for (const name of ["- / =", ", / .", "Shift+Tab / Tab", "PageUp / PageDown", "上 / 下（移动候选项）"]) {
+  for (const name of [
+    "- / =",
+    ", / .",
+    "Shift+Tab / Tab",
+    "PageUp / PageDown",
+    "上 / 下（移动候选项）",
+  ]) {
     expect((screen.getByRole("checkbox", { name }) as HTMLInputElement).checked).toBe(true);
   }
   fireEvent.click(brackets);
   fireEvent.click(screen.getByRole("checkbox", { name: "Shift+Tab / Tab" }));
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences,
+  expect(client.save).toHaveBeenCalledWith(7, {
+    ...initial.preferences,
     word_character: { enabled: false, keys: "brackets" },
-    navigation: { minus_equal: true, comma_period: true, brackets: true, tab: false, page_up_down: true, arrows: true } });
+    navigation: {
+      minus_equal: true,
+      comma_period: true,
+      brackets: true,
+      tab: false,
+      page_up_down: true,
+      arrows: true,
+    },
+  });
 });
 
 test("candidate-panel mouse-wheel paging is opt-in and persists", async () => {
-  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn().mockImplementation(async (_revision, preferences) => ({
+      ...initial,
+      revision: 8,
+      preferences,
+    })),
+  };
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
-  const wheel = await screen.findByRole("checkbox", { name: "鼠标滚轮（候选面板支持时翻页）" }) as HTMLInputElement;
+  const wheel = (await screen.findByRole("checkbox", {
+    name: "鼠标滚轮（候选面板支持时翻页）",
+  })) as HTMLInputElement;
   expect(wheel.checked).toBe(false);
   fireEvent.click(wheel);
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(client.save).toHaveBeenCalledWith(7, expect.objectContaining({
-    navigation: expect.objectContaining({ mouse_wheel: true }),
-  }));
+  expect(client.save).toHaveBeenCalledWith(
+    7,
+    expect.objectContaining({
+      navigation: expect.objectContaining({ mouse_wheel: true }),
+    }),
+  );
 });
 
 test("helpcode schemes save independently and retain disabled selections", async () => {
-  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn().mockImplementation(async (_revision, preferences) => ({
+      ...initial,
+      revision: 8,
+      preferences,
+    })),
+  };
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "辅助码" }));
-  const quanpin = await screen.findByRole("combobox", { name: "全拼辅助码方案" }) as HTMLSelectElement;
+  const quanpin = (await screen.findByRole("combobox", {
+    name: "全拼辅助码方案",
+  })) as HTMLSelectElement;
   const shuangpin = screen.getByRole("combobox", { name: "双拼辅助码方案" }) as HTMLSelectElement;
-  const displays = screen.getAllByRole("checkbox", { name: "在候选窗口显示辅助码" }) as HTMLInputElement[];
+  const displays = screen.getAllByRole("checkbox", {
+    name: "在候选窗口显示辅助码",
+  }) as HTMLInputElement[];
   expect(quanpin.value).toBe("ziranma");
   expect(shuangpin.value).toBe("lantian");
-  expect(displays.map(display => display.checked)).toEqual([true, false]);
+  expect(displays.map((display) => display.checked)).toEqual([true, false]);
   fireEvent.change(quanpin, { target: { value: "xiaohe" } });
   fireEvent.click(screen.getByRole("checkbox", { name: "全拼辅助码" }));
   expect(quanpin.disabled).toBe(true);
@@ -869,9 +1479,11 @@ test("helpcode schemes save independently and retain disabled selections", async
   fireEvent.change(shuangpin, { target: { value: "shouyou2_0" } });
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences,
+  expect(client.save).toHaveBeenCalledWith(7, {
+    ...initial.preferences,
     quanpin_helpcode: { enabled: false, schema: "xiaohe", show_in_candidate_window: false },
-    shuangpin_helpcode: { enabled: true, schema: "shouyou2_0", show_in_candidate_window: true } });
+    shuangpin_helpcode: { enabled: true, schema: "shouyou2_0", show_in_candidate_window: true },
+  });
 });
 
 test("shortcut page reflects enabled navigation shortcuts", async () => {
@@ -887,21 +1499,27 @@ test("shortcut page reflects enabled navigation shortcuts", async () => {
 
 test("macOS maintenance shortcuts use the current input context and Option", async () => {
   const restartInputMethod = vi.fn().mockResolvedValue(undefined);
-  render(<SettingsPage client={{
-    load: vi.fn().mockResolvedValue(initial),
-    save: vi.fn(),
-    restartInputMethod,
-    host: {
-      platform: "macos",
-      restart_input_method: true,
-      panel_windows: true,
-      mode_switch_shortcuts: true,
-      panel_shortcuts: true,
-    } as never,
-  }} />);
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        restartInputMethod,
+        host: {
+          platform: "macos",
+          restart_input_method: true,
+          panel_windows: true,
+          mode_switch_shortcuts: true,
+          panel_shortcuts: true,
+        } as never,
+      }}
+    />,
+  );
   fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
   expect(await screen.findByText("输入上下文维护快捷键")).toBeDefined();
-  expect(screen.getByText("仅在水杉输入法当前输入上下文生效；Option 对应 Windows 基线中的 Alt。")).toBeDefined();
+  expect(
+    screen.getByText("仅在水杉输入法当前输入上下文生效；Option 对应 Windows 基线中的 Alt。"),
+  ).toBeDefined();
   for (const key of ["1–8", "C", "R", "T"])
     expect(screen.getByText(`Ctrl+Shift+Option+${key}`)).toBeDefined();
   expect(screen.queryByText("Ctrl+Shift+Alt+C")).toBeNull();
@@ -914,13 +1532,17 @@ test("macOS maintenance shortcuts use the current input context and Option", asy
 
 test("macOS service page exposes installation separately from re-registration", async () => {
   const installInputSource = vi.fn().mockResolvedValue(undefined);
-  render(<SettingsPage client={{
-    load: vi.fn().mockResolvedValue(initial),
-    save: vi.fn(),
-    restartInputMethod: vi.fn().mockResolvedValue(undefined),
-    installInputSource,
-    host: { platform: "macos", restart_input_method: true, panel_windows: true } as never,
-  }} />);
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        restartInputMethod: vi.fn().mockResolvedValue(undefined),
+        installInputSource,
+        host: { platform: "macos", restart_input_method: true, panel_windows: true } as never,
+      }}
+    />,
+  );
   fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
   expect(await screen.findByText("安装或更新水杉输入源")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "安装 / 更新" }));
@@ -930,13 +1552,17 @@ test("macOS service page exposes installation separately from re-registration", 
 
 test("macOS about page exposes reversible uninstall with explicit data removal", async () => {
   const uninstallInputSource = vi.fn().mockResolvedValue(undefined);
-  render(<SettingsPage client={{
-    load: vi.fn().mockResolvedValue(initial),
-    save: vi.fn(),
-    restartInputMethod: vi.fn().mockResolvedValue(undefined),
-    uninstallInputSource,
-    host: { platform: "macos", restart_input_method: true, panel_windows: true } as never,
-  }} />);
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        restartInputMethod: vi.fn().mockResolvedValue(undefined),
+        uninstallInputSource,
+        host: { platform: "macos", restart_input_method: true, panel_windows: true } as never,
+      }}
+    />,
+  );
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
   expect(await screen.findByText("卸载水杉输入法")).toBeDefined();
   expect(screen.getByText("© 2026 Metasequoia IME")).toBeDefined();
@@ -958,19 +1584,43 @@ test("macOS about page exposes reversible uninstall with explicit data removal",
 });
 
 test("shortcut page reflects enabled candidate mouse-wheel paging", async () => {
-  const preferences = { ...initial.preferences, navigation: { minus_equal: true, comma_period: true, brackets: false, tab: true, page_up_down: true, mouse_wheel: true, arrows: true } };
-  render(<SettingsPage client={{ load: vi.fn().mockResolvedValue({ ...initial, preferences }), save: vi.fn() }} />);
+  const preferences = {
+    ...initial.preferences,
+    navigation: {
+      minus_equal: true,
+      comma_period: true,
+      brackets: false,
+      tab: true,
+      page_up_down: true,
+      mouse_wheel: true,
+      arrows: true,
+    },
+  };
+  render(
+    <SettingsPage
+      client={{ load: vi.fn().mockResolvedValue({ ...initial, preferences }), save: vi.fn() }}
+    />,
+  );
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
   expect(await screen.findByText("鼠标滚轮")).toBeDefined();
 });
 
 test("utility mode switches preserve defaults and drafts across pages", async () => {
-  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn().mockImplementation(async (_revision, preferences) => ({
+      ...initial,
+      revision: 8,
+      preferences,
+    })),
+  };
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "实用功能" }));
-  const unicode = await screen.findByRole("checkbox", { name: /^Unicode 便捷录入/ }) as HTMLInputElement;
+  const unicode = (await screen.findByRole("checkbox", {
+    name: /^Unicode 便捷录入/,
+  })) as HTMLInputElement;
   expect(unicode.checked).toBe(true);
   fireEvent.click(unicode);
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
@@ -978,15 +1628,36 @@ test("utility mode switches preserve defaults and drafts across pages", async ()
   expect(unicode.checked).toBe(false);
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, local_modes: { unicode: false, date_time: true, quick_phrase: true, emoji: true, kaomoji: true, super_jianpin: true, temporary_english: true, temporary_japanese: true } });
+  expect(client.save).toHaveBeenCalledWith(7, {
+    ...initial.preferences,
+    local_modes: {
+      unicode: false,
+      date_time: true,
+      quick_phrase: true,
+      emoji: true,
+      kaomoji: true,
+      super_jianpin: true,
+      temporary_english: true,
+      temporary_japanese: true,
+    },
+  });
 });
 
 test("macOS utility modes match the resources shipped in the IMK bundle", async () => {
-  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
-  render(<SettingsPage client={{
-    load: vi.fn().mockResolvedValue(initial), save,
-    host: { platform: "macos" } as HostCapabilities,
-  }} />);
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 8,
+    preferences,
+  }));
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save,
+        host: { platform: "macos" } as HostCapabilities,
+      }}
+    />,
+  );
   fireEvent.click(screen.getByRole("button", { name: "实用功能" }));
   expect(await screen.findByRole("checkbox", { name: /^快捷短语/ })).toBeDefined();
   expect(screen.getByRole("checkbox", { name: /^日期与时间/ })).toBeDefined();
@@ -999,19 +1670,38 @@ test("macOS utility modes match the resources shipped in the IMK bundle", async 
   fireEvent.click(screen.getByRole("checkbox", { name: /^Unicode/ }));
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(save).toHaveBeenCalledWith(7, { ...initial.preferences, local_modes: {
-    unicode: false, date_time: true, quick_phrase: true, emoji: true, kaomoji: true,
-    super_jianpin: true, temporary_english: true, temporary_japanese: true,
-  } });
+  expect(save).toHaveBeenCalledWith(7, {
+    ...initial.preferences,
+    local_modes: {
+      unicode: false,
+      date_time: true,
+      quick_phrase: true,
+      emoji: true,
+      kaomoji: true,
+      super_jianpin: true,
+      temporary_english: true,
+      temporary_japanese: true,
+    },
+  });
 });
 
 test("clipboard history defaults off, clears when disabled, and saves independently", async () => {
   const clear = vi.fn().mockResolvedValue(undefined);
-  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })), clipboard: { clear } };
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn().mockImplementation(async (_revision, preferences) => ({
+      ...initial,
+      revision: 8,
+      preferences,
+    })),
+    clipboard: { clear },
+  };
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "实用功能" }));
-  const clipboard = await screen.findByRole("checkbox", { name: "剪贴板管理" }) as HTMLInputElement;
+  const clipboard = (await screen.findByRole("checkbox", {
+    name: "剪贴板管理",
+  })) as HTMLInputElement;
   expect(clipboard.checked).toBe(false);
   fireEvent.click(clipboard);
   expect(clipboard.checked).toBe(true);
@@ -1029,15 +1719,18 @@ test("clipboard history exposes timestamps, pinning, deletion and two-step clear
   ];
   const list = vi.fn().mockImplementation(async () => entries);
   const setPinned = vi.fn().mockImplementation(async (text: string, pinned: boolean) => {
-    entries = entries.map(entry => entry.text === text ? { ...entry, pinned } : entry);
+    entries = entries.map((entry) => (entry.text === text ? { ...entry, pinned } : entry));
   });
   const remove = vi.fn().mockImplementation(async (text: string) => {
-    entries = entries.filter(entry => entry.text !== text);
+    entries = entries.filter((entry) => entry.text !== text);
   });
-  const clear = vi.fn().mockImplementation(async () => { entries = []; });
+  const clear = vi.fn().mockImplementation(async () => {
+    entries = [];
+  });
   const snapshot = { ...initial, preferences: { ...initial.preferences, clipboard_history: true } };
   const client: SettingsClient = {
-    load: vi.fn().mockResolvedValue(snapshot), save: vi.fn(),
+    load: vi.fn().mockResolvedValue(snapshot),
+    save: vi.fn(),
     clipboard: { list, setPinned, remove, clear },
   };
   render(<SettingsPage client={client} />);
@@ -1063,13 +1756,16 @@ test("clipboard history exposes timestamps, pinning, deletion and two-step clear
 });
 
 test("iOS clipboard history follows keyboard permission instead of the desktop preference", async () => {
-  const list = vi.fn().mockResolvedValue([
-    { text: "synthetic mobile", timestampMs: 1_789_000_000_000, pinned: false },
-  ]);
+  const list = vi
+    .fn()
+    .mockResolvedValue([
+      { text: "synthetic mobile", timestampMs: 1_789_000_000_000, pinned: false },
+    ]);
   const sync = vi.fn();
   const clear = vi.fn().mockResolvedValue(undefined);
   const client: SettingsClient = {
-    load: vi.fn().mockResolvedValue(initial), save: vi.fn(),
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn(),
     host: { platform: "ios" } as HostCapabilities,
     clipboard: { clear, list, sync },
   };
@@ -1090,25 +1786,37 @@ test("dictionary manager queries, edits and removes Engine entries", async () =>
   });
   const edit = vi.fn().mockResolvedValue(undefined);
   const client: SettingsClient = {
-    load: vi.fn().mockResolvedValue(initial), save: vi.fn(), dictionary: { list, edit },
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn(),
+    dictionary: { list, edit },
   };
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
   fireEvent.click(await screen.findByRole("button", { name: "查询" }));
   expect(await screen.findByText("fixture")).toBeDefined();
-  expect(within(screen.getByRole("region", { name: "快捷短语管理" })).queryByText("你好")).toBeNull();
+  expect(
+    within(screen.getByRole("region", { name: "快捷短语管理" })).queryByText("你好"),
+  ).toBeNull();
   // The host now selects the kind and code prefix instead of the client
   // filtering a page it had already fetched.
   expect(list).toHaveBeenCalledWith(0, 100, "quick_phrase", "");
   fireEvent.click(screen.getByRole("button", { name: "编辑" }));
   fireEvent.change(screen.getByLabelText("短语"), { target: { value: "updated" } });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
-  await waitFor(() => expect(edit).toHaveBeenCalledWith(quick, { ...quick, value: "updated" }, expect.stringMatching(/^ui-edit-/)));
+  await waitFor(() =>
+    expect(edit).toHaveBeenCalledWith(
+      quick,
+      { ...quick, value: "updated" },
+      expect.stringMatching(/^ui-edit-/),
+    ),
+  );
   // Deletion is not undoable, so it asks first.
   const confirmRemoval = vi.spyOn(window, "confirm").mockReturnValue(true);
   fireEvent.click(await screen.findByRole("button", { name: "删除" }));
-  await waitFor(() => expect(edit).toHaveBeenCalledWith(quick, null, expect.stringMatching(/^ui-remove-/)));
+  await waitFor(() =>
+    expect(edit).toHaveBeenCalledWith(quick, null, expect.stringMatching(/^ui-remove-/)),
+  );
   expect(confirmRemoval).toHaveBeenCalled();
   confirmRemoval.mockRestore();
 });
@@ -1116,15 +1824,21 @@ test("dictionary manager queries, edits and removes Engine entries", async () =>
 test("dictionary manager pages through entries instead of loading the whole dictionary", async () => {
   const page = (offset: number, count: number, has_more: boolean) => ({
     entries: Array.from({ length: count }, (_, index) => ({
-      kind: "pinyin" as const, key: `k${offset + index}`, value: `词${offset + index}`, weight: 100,
+      kind: "pinyin" as const,
+      key: `k${offset + index}`,
+      value: `词${offset + index}`,
+      weight: 100,
     })),
     has_more,
   });
-  const list = vi.fn()
+  const list = vi
+    .fn()
     .mockResolvedValueOnce(page(0, 100, true))
     .mockResolvedValueOnce(page(100, 20, false));
   const client: SettingsClient = {
-    load: vi.fn().mockResolvedValue(initial), save: vi.fn(), dictionary: { list, edit: vi.fn() },
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn(),
+    dictionary: { list, edit: vi.fn() },
   };
   render(<SettingsPage client={client} />);
   await settingsReady();
@@ -1146,12 +1860,30 @@ test("dictionary manager pages through entries instead of loading the whole dict
 
 test("dictionary manager ignores a stale page response", async () => {
   let resolveFirst: ((value: { entries: never[]; has_more: boolean }) => void) | undefined;
-  let resolveSecond: ((value: { entries: { kind: "pinyin"; key: string; value: string; weight: number }[]; has_more: boolean }) => void) | undefined;
-  const list = vi.fn()
-    .mockImplementationOnce(() => new Promise(resolve => { resolveFirst = resolve as typeof resolveFirst; }))
-    .mockImplementationOnce(() => new Promise(resolve => { resolveSecond = resolve as typeof resolveSecond; }));
+  let resolveSecond:
+    | ((value: {
+        entries: { kind: "pinyin"; key: string; value: string; weight: number }[];
+        has_more: boolean;
+      }) => void)
+    | undefined;
+  const list = vi
+    .fn()
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveFirst = resolve as typeof resolveFirst;
+        }),
+    )
+    .mockImplementationOnce(
+      () =>
+        new Promise((resolve) => {
+          resolveSecond = resolve as typeof resolveSecond;
+        }),
+    );
   const client: SettingsClient = {
-    load: vi.fn().mockResolvedValue(initial), save: vi.fn(), dictionary: { list, edit: vi.fn() },
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn(),
+    dictionary: { list, edit: vi.fn() },
   };
   render(<SettingsPage client={client} />);
   await settingsReady();
@@ -1163,20 +1895,32 @@ test("dictionary manager ignores a stale page response", async () => {
     fireEvent.change(kind, { target: { value: "pinyin" } });
   });
   expect(list).toHaveBeenCalledTimes(2);
-  resolveSecond?.({ entries: [{ kind: "pinyin", key: "new", value: "新结果", weight: 100 }], has_more: false });
+  resolveSecond?.({
+    entries: [{ kind: "pinyin", key: "new", value: "新结果", weight: 100 }],
+    has_more: false,
+  });
   await screen.findByText("新结果");
   resolveFirst?.({ entries: [], has_more: false });
-  await act(async () => { await Promise.resolve(); });
+  await act(async () => {
+    await Promise.resolve();
+  });
   expect(screen.getByText("新结果")).toBeDefined();
   expect(screen.queryByText("查询失败，请重试")).toBeNull();
 });
 
 test("diagnostic logging starts off and each host is saved separately", async () => {
-  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn().mockImplementation(async (_revision, preferences) => ({
+      ...initial,
+      revision: 8,
+      preferences,
+    })),
+  };
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
-  const server = await screen.findByLabelText("Server 端日志") as HTMLInputElement;
+  const server = (await screen.findByLabelText("Server 端日志")) as HTMLInputElement;
   const tsf = screen.getByLabelText("TSF 端日志") as HTMLInputElement;
   // A configuration that never mentioned diagnostics must not start logging.
   expect(server.checked).toBe(false);
@@ -1184,21 +1928,38 @@ test("diagnostic logging starts off and each host is saved separately", async ()
   fireEvent.click(server);
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, diagnostic_log: { server: true, tsf: false } });
+  expect(client.save).toHaveBeenCalledWith(7, {
+    ...initial.preferences,
+    diagnostic_log: { server: true, tsf: false },
+  });
   expect(server.checked).toBe(true);
   expect(tsf.checked).toBe(false);
 });
 
 test("Linux diagnostics expose the IBus host logger without a TSF switch", async () => {
   const host: HostCapabilities = {
-    platform: "linux", restart_input_method: true, panel_windows: true, ime_mode_scope: true,
-    typing_statistics: false, fuzzy_pinyin: true, system_fonts: true, window_chrome: true,
-    floating_toolbar: true, floating_toolbar_appearance: false, floating_toolbar_components: false,
-    mode_switch_shortcuts: true, panel_shortcuts: true, voice_capture_devices: true,
-    candidate_font_controls: false, candidate_row_colors: true, candidate_selection_appearance: false,
+    platform: "linux",
+    restart_input_method: true,
+    panel_windows: true,
+    ime_mode_scope: true,
+    typing_statistics: false,
+    fuzzy_pinyin: true,
+    system_fonts: true,
+    window_chrome: true,
+    floating_toolbar: true,
+    floating_toolbar_appearance: false,
+    floating_toolbar_components: false,
+    mode_switch_shortcuts: true,
+    panel_shortcuts: true,
+    voice_capture_devices: true,
+    candidate_font_controls: false,
+    candidate_row_colors: true,
+    candidate_selection_appearance: false,
     candidate_follow_cursor: false,
   };
-  render(<SettingsPage client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn(), host }} />);
+  render(
+    <SettingsPage client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn(), host }} />,
+  );
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
   expect(await screen.findByLabelText("IBus 宿主日志")).toBeDefined();
@@ -1206,10 +1967,15 @@ test("Linux diagnostics expose the IBus host logger without a TSF switch", async
 });
 
 test("macOS exposes its native server logger without a Windows TSF switch", async () => {
-  render(<SettingsPage client={{
-    load: vi.fn().mockResolvedValue(initial), save: vi.fn(),
-    host: { platform: "macos" } as HostCapabilities,
-  }} />);
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: { platform: "macos" } as HostCapabilities,
+      }}
+    />,
+  );
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
   expect(await screen.findByRole("heading", { name: "关于" })).toBeDefined();
   expect(screen.getByLabelText("Server 端日志")).toBeDefined();
@@ -1217,24 +1983,88 @@ test("macOS exposes its native server logger without a Windows TSF switch", asyn
   expect(screen.queryByLabelText("IBus 宿主日志")).toBeNull();
 });
 
-const initial: Snapshot = { format_version: 1, revision: 7, preferences: { scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 5, learning: true, chinese_punctuation: true } };
+const initial: Snapshot = {
+  format_version: 1,
+  revision: 7,
+  preferences: {
+    scheme: "quanpin",
+    shuangpin_profile: "xiaohe",
+    candidate_page_size: 5,
+    learning: true,
+    chinese_punctuation: true,
+  },
+};
 
 test("mobile hosts use Apple-style primary navigation and retain secondary settings", async () => {
   const host: HostCapabilities = {
-    platform: "ios", restart_input_method: false, panel_windows: false, ime_mode_scope: false,
-    typing_statistics: true, fuzzy_pinyin: false, system_fonts: false, window_chrome: false,
-    floating_toolbar: false, floating_toolbar_appearance: false, floating_toolbar_components: false,
-    mode_switch_shortcuts: false, panel_shortcuts: false, voice_capture_devices: false,
-    candidate_font_controls: false, candidate_row_colors: false, candidate_selection_appearance: false,
+    platform: "ios",
+    restart_input_method: false,
+    panel_windows: false,
+    ime_mode_scope: false,
+    typing_statistics: true,
+    fuzzy_pinyin: false,
+    system_fonts: false,
+    window_chrome: false,
+    floating_toolbar: false,
+    floating_toolbar_appearance: false,
+    floating_toolbar_components: false,
+    mode_switch_shortcuts: false,
+    panel_shortcuts: false,
+    voice_capture_devices: false,
+    candidate_font_controls: false,
+    candidate_row_colors: false,
+    candidate_selection_appearance: false,
     candidate_follow_cursor: false,
   };
-  render(<SettingsPage client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn(), host,
-    home: { openKeyboard: vi.fn(), openSystemKeyboardSettings: vi.fn() },
-    typingStatistics: { load: vi.fn().mockResolvedValue({ availability: "neverWritten", statistics: { enabled: false, total: 0, days: {}, detail: {} } }), setEnabled: vi.fn(), reset: vi.fn() },
-    account: { status: vi.fn().mockResolvedValue({ available: false }), providers: vi.fn().mockResolvedValue({ apple: false, email: false, phone: false }), requestCode: vi.fn(), login: vi.fn(), profile: vi.fn(), rename: vi.fn(), logout: vi.fn(), deleteAccount: vi.fn(), clearExpired: vi.fn() },
-    communitySkins: { list: vi.fn(), detail: vi.fn(), download: vi.fn(), rate: vi.fn(), publish: vi.fn(), unpublish: vi.fn(), finishTrial: vi.fn() },
-    communityResources: { list: vi.fn(), detail: vi.fn(), publish: vi.fn(), apply: vi.fn(), save: vi.fn(), rate: vi.fn(), unpublish: vi.fn(), storeReply: vi.fn(), removeReply: vi.fn() },
-  }} />);
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host,
+        home: { openKeyboard: vi.fn(), openSystemKeyboardSettings: vi.fn() },
+        typingStatistics: {
+          load: vi.fn().mockResolvedValue({
+            availability: "neverWritten",
+            statistics: { enabled: false, total: 0, days: {}, detail: {} },
+          }),
+          setEnabled: vi.fn(),
+          reset: vi.fn(),
+        },
+        account: {
+          status: vi.fn().mockResolvedValue({ available: false }),
+          providers: vi.fn().mockResolvedValue({ apple: false, email: false, phone: false }),
+          requestCode: vi.fn(),
+          login: vi.fn(),
+          profile: vi.fn(),
+          rename: vi.fn(),
+          logout: vi.fn(),
+          deleteAccount: vi.fn(),
+          clearExpired: vi.fn(),
+        },
+        communitySkins: {
+          list: vi.fn(),
+          detail: vi.fn(),
+          download: vi.fn(),
+          rate: vi.fn(),
+          publish: vi.fn(),
+          unpublish: vi.fn(),
+          finishTrial: vi.fn(),
+        },
+        communityResources: {
+          list: vi.fn(),
+          detail: vi.fn(),
+          publish: vi.fn(),
+          apply: vi.fn(),
+          save: vi.fn(),
+          rate: vi.fn(),
+          unpublish: vi.fn(),
+          storeReply: vi.fn(),
+          removeReply: vi.fn(),
+        },
+      }}
+    />,
+  );
   await screen.findByRole("button", { name: "保存设置" });
   const primary = screen.getByRole("navigation", { name: "主要功能" });
   expect(within(primary).getByRole("button", { name: "键盘" })).toBeTruthy();
@@ -1242,7 +2072,7 @@ test("mobile hosts use Apple-style primary navigation and retain secondary setti
   expect(within(primary).getByRole("button", { name: "统计" })).toBeTruthy();
   expect(within(primary).getByRole("button", { name: "账号" })).toBeTruthy();
   const more = within(primary).getByRole("combobox", { name: "更多设置" }) as HTMLSelectElement;
-  const secondaryLabels = Array.from(more.options).map(option => option.text);
+  const secondaryLabels = Array.from(more.options).map((option) => option.text);
   expect(secondaryLabels).toContain("输入");
   expect(secondaryLabels).toContain("实用功能");
   expect(secondaryLabels).not.toContain("辅助码");
@@ -1254,39 +2084,63 @@ test("mobile hosts use Apple-style primary navigation and retain secondary setti
 });
 
 test("mobile input settings expose native keyboard sound and haptic feedback", async () => {
-  const load = vi.fn().mockResolvedValue({ soundEnabled: true, hapticsEnabled: false, hapticStrength: "medium", englishSuggestions: true });
-  const save = vi.fn().mockImplementation(async settings => settings);
+  const load = vi.fn().mockResolvedValue({
+    soundEnabled: true,
+    hapticsEnabled: false,
+    hapticStrength: "medium",
+    englishSuggestions: true,
+  });
+  const save = vi.fn().mockImplementation(async (settings) => settings);
   const preview = vi.fn().mockResolvedValue(undefined);
-  render(<SettingsPage initialPage="input" client={{
-    load: vi.fn().mockResolvedValue(initial), save, host: { platform: "ios" } as HostCapabilities,
-    home: { openKeyboard: vi.fn() }, mobileKeyboardFeedback: { load, save, preview },
-  }} />);
+  render(
+    <SettingsPage
+      initialPage="input"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save,
+        host: { platform: "ios" } as HostCapabilities,
+        home: { openKeyboard: vi.fn() },
+        mobileKeyboardFeedback: { load, save, preview },
+      }}
+    />,
+  );
   expect(await screen.findByRole("heading", { name: "输入" })).toBeTruthy();
   const feedback = await screen.findByRole("group", { name: "按键反馈" });
   expect(within(feedback).getByLabelText("按键音")).toBeTruthy();
   const haptics = within(feedback).getByLabelText("按键振动") as HTMLInputElement;
   fireEvent.click(haptics);
-  await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ hapticsEnabled: true })));
+  await waitFor(() =>
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ hapticsEnabled: true })),
+  );
   expect(within(feedback).getByLabelText("振动强度")).toBeTruthy();
   fireEvent.click(within(feedback).getByRole("button", { name: "试一下振动" }));
   await waitFor(() => expect(preview).toHaveBeenCalledWith("medium"));
   fireEvent.click(within(feedback).getByLabelText("英文建议"));
-  await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ englishSuggestions: false })));
+  await waitFor(() =>
+    expect(save).toHaveBeenCalledWith(expect.objectContaining({ englishSuggestions: false })),
+  );
 });
 
 test("mobile settings pages follow the WebView back stack", async () => {
   const previous = window.history.state;
   window.history.replaceState(null, "");
   try {
-    render(<SettingsPage client={{
-      load: vi.fn().mockResolvedValue(initial), save: vi.fn(),
-      host: { platform: "ios" } as HostCapabilities,
-      home: { openKeyboard: vi.fn(), openSystemKeyboardSettings: vi.fn() },
-    }} />);
+    render(
+      <SettingsPage
+        client={{
+          load: vi.fn().mockResolvedValue(initial),
+          save: vi.fn(),
+          host: { platform: "ios" } as HostCapabilities,
+          home: { openKeyboard: vi.fn(), openSystemKeyboardSettings: vi.fn() },
+        }}
+      />,
+    );
     await screen.findByRole("button", { name: "保存设置" });
     const more = screen.getByRole("combobox", { name: "更多设置" }) as HTMLSelectElement;
     fireEvent.change(more, { target: { value: "input" } });
-    expect(window.history.state).toEqual(expect.objectContaining({ msimeSettings: true, page: "input" }));
+    expect(window.history.state).toEqual(
+      expect.objectContaining({ msimeSettings: true, page: "input" }),
+    );
     act(() => {
       const state = { msimeSettings: true, page: "appearance" };
       window.history.replaceState(state, "");
@@ -1302,10 +2156,16 @@ test("mobile settings reload shared preferences after returning to foreground", 
   let hidden = false;
   vi.spyOn(document, "hidden", "get").mockImplementation(() => hidden);
   const load = vi.fn().mockResolvedValue(initial);
-  render(<SettingsPage client={{
-    load, save: vi.fn(), host: { platform: "android" } as HostCapabilities,
-    home: { openKeyboard: vi.fn(), openSystemKeyboardSettings: vi.fn() },
-  }} />);
+  render(
+    <SettingsPage
+      client={{
+        load,
+        save: vi.fn(),
+        host: { platform: "android" } as HostCapabilities,
+        home: { openKeyboard: vi.fn(), openSystemKeyboardSettings: vi.fn() },
+      }}
+    />,
+  );
   await screen.findByRole("button", { name: "保存设置" });
   expect(load).toHaveBeenCalledTimes(1);
   hidden = true;
@@ -1319,20 +2179,32 @@ test("mobile account deep links participate in the back stack", async () => {
   const previous = window.history.state;
   window.history.replaceState(null, "");
   try {
-    render(<SettingsPage client={{
-      load: vi.fn().mockResolvedValue(initial), save: vi.fn(),
-      host: { platform: "ios" } as HostCapabilities,
-      account: {
-        status: vi.fn().mockResolvedValue({ available: false }),
-        providers: vi.fn().mockResolvedValue({ apple: false, email: false, phone: false }),
-        requestCode: vi.fn(), login: vi.fn(), profile: vi.fn(), rename: vi.fn(), logout: vi.fn(),
-        deleteAccount: vi.fn(), clearExpired: vi.fn(),
-      },
-    }} />);
+    render(
+      <SettingsPage
+        client={{
+          load: vi.fn().mockResolvedValue(initial),
+          save: vi.fn(),
+          host: { platform: "ios" } as HostCapabilities,
+          account: {
+            status: vi.fn().mockResolvedValue({ available: false }),
+            providers: vi.fn().mockResolvedValue({ apple: false, email: false, phone: false }),
+            requestCode: vi.fn(),
+            login: vi.fn(),
+            profile: vi.fn(),
+            rename: vi.fn(),
+            logout: vi.fn(),
+            deleteAccount: vi.fn(),
+            clearExpired: vi.fn(),
+          },
+        }}
+      />,
+    );
     await screen.findByRole("button", { name: "保存设置" });
     fireEvent.click(screen.getByRole("button", { name: "账号" }));
     fireEvent.click(await screen.findByRole("button", { name: "关于水杉" }));
-    expect(window.history.state).toEqual(expect.objectContaining({ msimeSettings: true, page: "about" }));
+    expect(window.history.state).toEqual(
+      expect.objectContaining({ msimeSettings: true, page: "about" }),
+    );
     act(() => {
       const state = { msimeSettings: true, page: "account" };
       window.history.replaceState(state, "");
@@ -1345,9 +2217,16 @@ test("mobile account deep links participate in the back stack", async () => {
 });
 
 test("candidate appearance settings persist and use Windows baseline defaults", async () => {
-  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn().mockImplementation(async (_revision, preferences) => ({
+      ...initial,
+      revision: 8,
+      preferences,
+    })),
+  };
   render(<SettingsPage client={client} />);
-  expect((await screen.findByLabelText("候选布局") as HTMLSelectElement).value).toBe("vertical");
+  expect(((await screen.findByLabelText("候选布局")) as HTMLSelectElement).value).toBe("vertical");
   expect((screen.getByLabelText("候选字号") as HTMLSelectElement).value).toBe("18");
   expect((screen.getByLabelText("候选窗预编辑字号") as HTMLSelectElement).value).toBe("15");
   fireEvent.change(screen.getByLabelText("候选布局"), { target: { value: "horizontal" } });
@@ -1357,27 +2236,45 @@ test("candidate appearance settings persist and use Windows baseline defaults", 
   fireEvent.click(screen.getByRole("switch", { name: /微信绿/ }));
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_layout: "horizontal", candidate_font_size: 20, candidate_skin: "wechat" });
+  expect(client.save).toHaveBeenCalledWith(7, {
+    ...initial.preferences,
+    candidate_layout: "horizontal",
+    candidate_font_size: 20,
+    candidate_skin: "wechat",
+  });
 });
 
 test("macOS exposes the shuangpin preedit presentation and persists the expanded pinyin choice", async () => {
-  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 8,
+    preferences,
+  }));
   const client: SettingsClient = {
     load: vi.fn().mockResolvedValue(initial),
     save,
     host: { platform: "macos" } as HostCapabilities,
   };
   render(<SettingsPage client={client} />);
-  const preedit = await screen.findByRole("combobox", { name: "双拼预编辑" }) as HTMLSelectElement;
+  const preedit = (await screen.findByRole("combobox", {
+    name: "双拼预编辑",
+  })) as HTMLSelectElement;
   expect(preedit.value).toBe("raw");
   fireEvent.change(preedit, { target: { value: "pinyin" } });
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(save).toHaveBeenCalledWith(7, { ...initial.preferences, shuangpin_preedit_uses_raw: false });
+  expect(save).toHaveBeenCalledWith(7, {
+    ...initial.preferences,
+    shuangpin_preedit_uses_raw: false,
+  });
 });
 
 test("font family controls preserve order, validate drafts and save Unicode", async () => {
-  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 8,
+    preferences,
+  }));
   const mounted = render(<SettingsPage client={{ load: async () => initial, save }} />);
   const primary = await screen.findByLabelText("候选窗主字体");
   expect((primary as HTMLInputElement).value).toBe("Noto Sans SC");
@@ -1385,7 +2282,9 @@ test("font family controls preserve order, validate drafts and save Unicode", as
   expect((screen.getByLabelText("补充字体 2") as HTMLInputElement).value).toBe("Microsoft YaHei");
   fireEvent.change(primary, { target: { value: "示例主字体" } });
   fireEvent.change(screen.getByLabelText("补充字体 1"), { target: { value: "" } });
-  expect((screen.getByRole("button", { name: "保存设置" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole("button", { name: "保存设置" }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
   fireEvent.submit(mounted.container.querySelector("form")!);
   expect(save).not.toHaveBeenCalled();
   fireEvent.change(screen.getByLabelText("补充字体 1"), { target: { value: "示例一" } });
@@ -1394,27 +2293,55 @@ test("font family controls preserve order, validate drafts and save Unicode", as
   expect((screen.getByLabelText("补充字体 1") as HTMLInputElement).value).toBe("示例二");
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(save).toHaveBeenLastCalledWith(7, { ...initial.preferences, candidate_font_family: "示例主字体", candidate_fallback_fonts: ["示例二", "示例一"] });
+  expect(save).toHaveBeenLastCalledWith(7, {
+    ...initial.preferences,
+    candidate_font_family: "示例主字体",
+    candidate_fallback_fonts: ["示例二", "示例一"],
+  });
   fireEvent.click(screen.getByRole("button", { name: "移除补充字体 1" }));
   fireEvent.change(primary, { target: { value: "字".repeat(43) } });
-  expect((screen.getByRole("button", { name: "保存设置" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole("button", { name: "保存设置" }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
   fireEvent.change(primary, { target: { value: "有效示例" } });
-  expect((screen.getByRole("button", { name: "保存设置" }) as HTMLButtonElement).disabled).toBe(false);
+  expect((screen.getByRole("button", { name: "保存设置" }) as HTMLButtonElement).disabled).toBe(
+    false,
+  );
 });
 
 test("font controls allow 32 existing fallbacks but prevent a 33rd", async () => {
-  render(<SettingsPage client={{ load: async () => ({ ...initial, preferences: { ...initial.preferences, candidate_fallback_fonts: Array.from({ length: 32 }, (_, i) => `示例${i}`) } }), save: vi.fn() }} />);
+  render(
+    <SettingsPage
+      client={{
+        load: async () => ({
+          ...initial,
+          preferences: {
+            ...initial.preferences,
+            candidate_fallback_fonts: Array.from({ length: 32 }, (_, i) => `示例${i}`),
+          },
+        }),
+        save: vi.fn(),
+      }}
+    />,
+  );
   await screen.findByLabelText("补充字体 32");
-  expect((screen.getByRole("button", { name: "添加补充字体" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole("button", { name: "添加补充字体" }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
   fireEvent.click(screen.getByRole("button", { name: "移除补充字体 32" }));
-  expect((screen.getByRole("button", { name: "添加补充字体" }) as HTMLButtonElement).disabled).toBe(false);
+  expect((screen.getByRole("button", { name: "添加补充字体" }) as HTMLButtonElement).disabled).toBe(
+    false,
+  );
 });
 
 test("automatic color swatch follows candidate theme without persisting a color override", async () => {
-  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, preferences }));
+  const save = vi
+    .fn()
+    .mockImplementation(async (_revision, preferences) => ({ ...initial, preferences }));
   render(<SettingsPage client={{ load: async () => initial, save }} />);
-  const color = await screen.findByLabelText("候选文字颜色") as HTMLInputElement;
-  const change = (label: string, value: string) => fireEvent.change(screen.getByLabelText(label), { target: { value } });
+  const color = (await screen.findByLabelText("候选文字颜色")) as HTMLInputElement;
+  const change = (label: string, value: string) =>
+    fireEvent.change(screen.getByLabelText(label), { target: { value } });
   expect(color.value).toBe("#e9e8e8");
   change("全局主题", "light");
   expect(color.value).toBe("#1a1a1a");
@@ -1427,15 +2354,23 @@ test("automatic color swatch follows candidate theme without persisting a color 
   expect(color.value).toBe("#123456");
   fireEvent.click(screen.getByRole("button", { name: "跟随主题" }));
   expect(color.value).toBe("#1a1a1a");
-  const preview = screen.getByRole("region", { name: "候选窗口预览" }).querySelector<HTMLElement>(".appearance-candidate-preview")!;
+  const preview = screen
+    .getByRole("region", { name: "候选窗口预览" })
+    .querySelector<HTMLElement>(".appearance-candidate-preview")!;
   expect(preview.style.getPropertyValue("--cand-text")).toBe("");
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
-  await waitFor(() => expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ candidate_text_color: null })));
+  await waitFor(() =>
+    expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ candidate_text_color: null })),
+  );
 });
 
 test("screen keyboard header drag is bounded and separate from close and keys", async () => {
   expect(keyboardCapability.windows).toEqual(["keyboard-panel"]);
-  expect(keyboardCapability.permissions).toEqual(["core:window:allow-start-dragging", "core:event:allow-listen", "core:event:allow-unlisten"]);
+  expect(keyboardCapability.permissions).toEqual([
+    "core:window:allow-start-dragging",
+    "core:event:allow-listen",
+    "core:event:allow-unlisten",
+  ]);
   const beginWindowDrag = vi.fn().mockResolvedValue(undefined);
   const close = vi.fn().mockResolvedValue(undefined);
   const sendKey = vi.fn().mockResolvedValue(undefined);
@@ -1447,7 +2382,10 @@ test("screen keyboard header drag is bounded and separate from close and keys", 
   titlebarPointer(header, "pointermove", 103, 14);
   titlebarPointer(header, "pointermove", 110, 14);
   expect(beginWindowDrag).toHaveBeenCalledTimes(1);
-  for (const target of [screen.getByRole("button", { name: "关闭" }), screen.getByRole("button", { name: "a" })]) {
+  for (const target of [
+    screen.getByRole("button", { name: "关闭" }),
+    screen.getByRole("button", { name: "a" }),
+  ]) {
     titlebarPointer(target, "pointerdown", 100, 14);
     titlebarPointer(target, "pointermove", 110, 14);
   }
@@ -1463,42 +2401,65 @@ test("screen keyboard header drag is bounded and separate from close and keys", 
   }
 });
 
-test.each([false, true])("keyboard drag reports host failure (synchronous=%s)", async synchronous => {
-  const view = render(<KeyboardPanel client={{ close: async () => {}, beginWindowDrag: () => {
-    if (synchronous) throw new Error("synthetic");
-    return Promise.reject(new Error("synthetic"));
-  } }} />);
-  const header = view.container.querySelector(".native-panel-header")!;
-  titlebarPointer(header, "pointerdown", 100, 14);
-  titlebarPointer(header, "pointermove", 110, 14);
-  await waitFor(() => expect(screen.getByRole("status").textContent).toBe("无法移动窗口，请重试。"));
-});
+test.each([false, true])(
+  "keyboard drag reports host failure (synchronous=%s)",
+  async (synchronous) => {
+    const view = render(
+      <KeyboardPanel
+        client={{
+          close: async () => {},
+          beginWindowDrag: () => {
+            if (synchronous) throw new Error("synthetic");
+            return Promise.reject(new Error("synthetic"));
+          },
+        }}
+      />,
+    );
+    const header = view.container.querySelector(".native-panel-header")!;
+    titlebarPointer(header, "pointerdown", 100, 14);
+    titlebarPointer(header, "pointermove", 110, 14);
+    await waitFor(() =>
+      expect(screen.getByRole("status").textContent).toBe("无法移动窗口，请重试。"),
+    );
+  },
+);
 
 test("screen keyboard matches upstream Shift and Caps posting combinations", async () => {
-  for (const caps of [false, true]) for (const shift of [false, true]) {
-    const sendKey = vi.fn().mockResolvedValue(undefined);
-    const panel = render(<KeyboardPanel client={{ close: async () => {}, sendKey }} />);
-    if (caps) fireEvent.click(screen.getByRole("button", { name: "Caps Lock" }));
-    if (shift) fireEvent.click(screen.getAllByRole("button", { name: "Shift" })[0]);
-    // Find the key by what it types: the preview's row layout is presentation
-    // and has already been rearranged once.
-    const letter = Array.from(panel.container.querySelectorAll<HTMLButtonElement>(".keyboard-row button"))
-      .find(button => button.textContent === (shift ? "A" : "a"))!;
-    expect(letter).toBeDefined();
-    expect(screen.getByRole("button", { name: "Space" })).toBeDefined();
-    fireEvent.click(letter);
-    expect(sendKey).toHaveBeenLastCalledWith(expect.objectContaining({ virtual_key: 0x41, shift: caps !== shift, include_sticky_modifiers: true }));
-    await waitFor(() => expect(screen.getByRole("status").textContent).toContain("已发送"));
-    expect(letter.textContent).toBe("a");
-    panel.unmount();
-  }
+  for (const caps of [false, true])
+    for (const shift of [false, true]) {
+      const sendKey = vi.fn().mockResolvedValue(undefined);
+      const panel = render(<KeyboardPanel client={{ close: async () => {}, sendKey }} />);
+      if (caps) fireEvent.click(screen.getByRole("button", { name: "Caps Lock" }));
+      if (shift) fireEvent.click(screen.getAllByRole("button", { name: "Shift" })[0]);
+      // Find the key by what it types: the preview's row layout is presentation
+      // and has already been rearranged once.
+      const letter = Array.from(
+        panel.container.querySelectorAll<HTMLButtonElement>(".keyboard-row button"),
+      ).find((button) => button.textContent === (shift ? "A" : "a"))!;
+      expect(letter).toBeDefined();
+      expect(screen.getByRole("button", { name: "Space" })).toBeDefined();
+      fireEvent.click(letter);
+      expect(sendKey).toHaveBeenLastCalledWith(
+        expect.objectContaining({
+          virtual_key: 0x41,
+          shift: caps !== shift,
+          include_sticky_modifiers: true,
+        }),
+      );
+      await waitFor(() => expect(screen.getByRole("status").textContent).toContain("已发送"));
+      expect(letter.textContent).toBe("a");
+      panel.unmount();
+    }
 });
 
 test("screen keyboard serializes rapid host commands and drops queued keys after failure", async () => {
   const deliveries: Array<{ resolve(): void; reject(): void }> = [];
-  const sendKey = vi.fn().mockImplementation(() => new Promise<void>((resolve, reject) => {
-    deliveries.push({ resolve, reject });
-  }));
+  const sendKey = vi.fn().mockImplementation(
+    () =>
+      new Promise<void>((resolve, reject) => {
+        deliveries.push({ resolve, reject });
+      }),
+  );
   render(<KeyboardPanel client={{ close: async () => {}, sendKey }} />);
 
   fireEvent.click(screen.getByRole("button", { name: "a" }));
@@ -1512,7 +2473,9 @@ test("screen keyboard serializes rapid host commands and drops queued keys after
   expect(sendKey.mock.calls[1][0].virtual_key).toBe(0x42);
 
   deliveries[1].reject();
-  await waitFor(() => expect(screen.getByRole("status").textContent).toContain("后续排队按键已取消"));
+  await waitFor(() =>
+    expect(screen.getByRole("status").textContent).toContain("后续排队按键已取消"),
+  );
   expect(sendKey).toHaveBeenCalledTimes(2);
 
   fireEvent.click(screen.getByRole("button", { name: "d" }));
@@ -1524,8 +2487,12 @@ test("screen keyboard serializes rapid host commands and drops queued keys after
 
 test("screen keyboard refreshes the external target before every queued key", async () => {
   const events: string[] = [];
-  const rememberInputTarget = vi.fn(async () => { events.push("remember"); });
-  const sendKey = vi.fn(async () => { events.push("send"); });
+  const rememberInputTarget = vi.fn(async () => {
+    events.push("remember");
+  });
+  const sendKey = vi.fn(async () => {
+    events.push("send");
+  });
   render(<KeyboardPanel client={{ close: async () => {}, rememberInputTarget, sendKey }} />);
   await waitFor(() => expect(rememberInputTarget).toHaveBeenCalledTimes(1));
   events.length = 0;
@@ -1547,10 +2514,14 @@ test("screen keyboard sends every digit as an unmodified IME selection key", asy
     fireEvent.click(screen.getByRole("button", { name: [..."!@#$%^&*()"][index] }));
     await waitFor(() => expect(sendKey).toHaveBeenCalledTimes(index + 1));
     expect(sendKey).toHaveBeenLastCalledWith({
-      virtual_key: digit.charCodeAt(0), shift: false,
-      modifiers: { ctrl: true, alt: true, win: true }, include_sticky_modifiers: false,
+      virtual_key: digit.charCodeAt(0),
+      shift: false,
+      modifiers: { ctrl: true, alt: true, win: true },
+      include_sticky_modifiers: false,
     });
-    expect(screen.getAllByRole("button", { name: "Shift" })[0].getAttribute("aria-pressed")).toBe("false");
+    expect(screen.getAllByRole("button", { name: "Shift" })[0].getAttribute("aria-pressed")).toBe(
+      "false",
+    );
   }
   await waitFor(() => expect(screen.getByRole("status").textContent).toContain("已发送"));
 });
@@ -1558,38 +2529,71 @@ test("screen keyboard sends every digit as an unmodified IME selection key", asy
 test("screen keyboard Shift key faces match punctuation and preserve virtual keys", async () => {
   const sendKey = vi.fn().mockResolvedValue(undefined);
   render(<KeyboardPanel client={{ close: async () => {}, sendKey }} />);
-  const keys: [string, string, number][] = [["`", "~", 0xc0], ["-", "_", 0xbd], ["=", "+", 0xbb], ["[", "{", 0xdb], ["]", "}", 0xdd], ["\\", "|", 0xdc], [";", ":", 0xba], ["'", '"', 0xde], [",", "<", 0xbc], [".", ">", 0xbe], ["/", "?", 0xbf]];
+  const keys: [string, string, number][] = [
+    ["`", "~", 0xc0],
+    ["-", "_", 0xbd],
+    ["=", "+", 0xbb],
+    ["[", "{", 0xdb],
+    ["]", "}", 0xdd],
+    ["\\", "|", 0xdc],
+    [";", ":", 0xba],
+    ["'", '"', 0xde],
+    [",", "<", 0xbc],
+    [".", ">", 0xbe],
+    ["/", "?", 0xbf],
+  ];
   for (const [index, [normal, shifted, code]] of keys.entries()) {
     fireEvent.click(screen.getAllByRole("button", { name: "Shift" })[0]);
     fireEvent.click(screen.getByRole("button", { name: shifted }));
     await waitFor(() => expect(sendKey).toHaveBeenCalledTimes(index + 1));
-    expect(sendKey).toHaveBeenLastCalledWith(expect.objectContaining({ virtual_key: code, shift: true, include_sticky_modifiers: true }));
+    expect(sendKey).toHaveBeenLastCalledWith(
+      expect.objectContaining({ virtual_key: code, shift: true, include_sticky_modifiers: true }),
+    );
     expect(screen.getByRole("button", { name: normal })).toBeDefined();
   }
   await waitFor(() => expect(screen.getByRole("status").textContent).toContain("已发送"));
 });
 
 test("screen keyboard theme and Apple skin load, save independently and reload", async () => {
-  let snapshot: Snapshot = { ...initial, preferences: { ...initial.preferences, theme: "light", screen_keyboard_theme: "light", toolbar_theme: "dark", candidate_skin: "graphite", touch_keyboard_skin: "typewriter" } };
+  let snapshot: Snapshot = {
+    ...initial,
+    preferences: {
+      ...initial.preferences,
+      theme: "light",
+      screen_keyboard_theme: "light",
+      toolbar_theme: "dark",
+      candidate_skin: "graphite",
+      touch_keyboard_skin: "typewriter",
+    },
+  };
   const save = vi.fn().mockImplementation(async (_revision, preferences) => {
-    snapshot = { ...snapshot, revision: 8, preferences }; return snapshot;
+    snapshot = { ...snapshot, revision: 8, preferences };
+    return snapshot;
   });
   render(<SettingsPage client={{ load: async () => snapshot, save }} />);
-  const select = await screen.findByLabelText("屏幕键盘主题") as HTMLSelectElement;
+  const select = (await screen.findByLabelText("屏幕键盘主题")) as HTMLSelectElement;
   fireEvent.click(screen.getByRole("button", { name: "屏幕键盘" }));
   expect(select.value).toBe("light");
   const preview = screen.getByRole("img", { name: "屏幕键盘完整布局预览" });
   expect(preview.getAttribute("data-preview-theme")).toBe("light");
   expect(preview.getAttribute("data-preview-skin")).toBe("typewriter");
   const skins = screen.getAllByRole("switch", { name: /屏幕键盘皮肤/ });
-  expect(skins.map(button => button.getAttribute("aria-label"))).toEqual([
-    "屏幕键盘皮肤 水杉绿", "屏幕键盘皮肤 海盐蓝", "屏幕键盘皮肤 浅蔷薇", "屏幕键盘皮肤 素白瓷",
-    "屏幕键盘皮肤 纸上时光", "屏幕键盘皮肤 奶油桃桃", "屏幕键盘皮肤 霓虹夜航", "屏幕键盘皮肤 工程蓝图",
+  expect(skins.map((button) => button.getAttribute("aria-label"))).toEqual([
+    "屏幕键盘皮肤 水杉绿",
+    "屏幕键盘皮肤 海盐蓝",
+    "屏幕键盘皮肤 浅蔷薇",
+    "屏幕键盘皮肤 素白瓷",
+    "屏幕键盘皮肤 纸上时光",
+    "屏幕键盘皮肤 奶油桃桃",
+    "屏幕键盘皮肤 霓虹夜航",
+    "屏幕键盘皮肤 工程蓝图",
   ]);
   fireEvent.click(screen.getByRole("switch", { name: "屏幕键盘皮肤 霓虹夜航" }));
   expect(preview.getAttribute("data-preview-skin")).toBe("midnight");
   expect(preview.querySelectorAll("[data-keyboard-key]")).toHaveLength(61);
-  expect([...preview.querySelectorAll("[data-keyboard-row]")].map(row => row.children.length)).toEqual([14, 14, 13, 12, 8]);
+  expect(
+    [...preview.querySelectorAll("[data-keyboard-row]")].map((row) => row.children.length),
+  ).toEqual([14, 14, 13, 12, 8]);
   expect(preview.querySelectorAll("button, [tabindex], a")).toHaveLength(0);
   for (const row of preview.querySelectorAll("[data-keyboard-row]")) {
     let right = 0;
@@ -1608,7 +2612,17 @@ test("screen keyboard theme and Apple skin load, save independently and reload",
   fireEvent.change(select, { target: { value: "dark" } });
   expect(preview.getAttribute("data-preview-theme")).toBe("dark");
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
-  await waitFor(() => expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ screen_keyboard_theme: "dark", toolbar_theme: "dark", candidate_skin: "graphite", touch_keyboard_skin: "midnight" })));
+  await waitFor(() =>
+    expect(save).toHaveBeenCalledWith(
+      7,
+      expect.objectContaining({
+        screen_keyboard_theme: "dark",
+        toolbar_theme: "dark",
+        candidate_skin: "graphite",
+        touch_keyboard_skin: "midnight",
+      }),
+    ),
+  );
   fireEvent.click(screen.getByRole("switch", { name: "屏幕键盘皮肤 水杉绿" }));
   expect(preview.getAttribute("data-preview-skin")).toBe("forest");
   fireEvent.change(select, { target: { value: "follow" } });
@@ -1622,8 +2636,14 @@ test("screen keyboard theme and Apple skin load, save independently and reload",
 });
 
 test("Android custom skin editor applies Apple templates, undo, materials and shared selection", async () => {
-  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
-  render(<SettingsPage client={{ load: async () => initial, save, customTouchKeyboardSkins: true }} />);
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 8,
+    preferences,
+  }));
+  render(
+    <SettingsPage client={{ load: async () => initial, save, customTouchKeyboardSkins: true }} />,
+  );
   await screen.findByRole("button", { name: "保存设置" });
   fireEvent.click(screen.getByRole("button", { name: "屏幕键盘" }));
   expect(screen.getAllByRole("switch", { name: /屏幕键盘皮肤/ })).toHaveLength(9);
@@ -1646,37 +2666,78 @@ test("Android custom skin editor applies Apple templates, undo, materials and sh
   fireEvent.click(within(editor).getByRole("tab", { name: "按键" }));
   fireEvent.change(within(editor).getByLabelText("键帽不透明度"), { target: { value: ".45" } });
   fireEvent.click(within(editor).getByRole("button", { name: "使用皮肤" }));
-  expect(screen.getByRole("switch", { name: "屏幕键盘皮肤 我的皮肤" }).getAttribute("aria-checked")).toBe("true");
+  expect(
+    screen.getByRole("switch", { name: "屏幕键盘皮肤 我的皮肤" }).getAttribute("aria-checked"),
+  ).toBe("true");
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
-  await waitFor(() => expect(save).toHaveBeenCalledWith(7, expect.objectContaining({
-    touch_keyboard_skin: "custom",
-    custom_touch_keyboard_skin: expect.objectContaining({
-      background: 0xFFE0D0, keyShape: "pebble", keyMaterial: "raised",
-      keyOpacity: .45, cornerRadius: 18, pattern: 3,
-    }),
-  })));
+  await waitFor(() =>
+    expect(save).toHaveBeenCalledWith(
+      7,
+      expect.objectContaining({
+        touch_keyboard_skin: "custom",
+        custom_touch_keyboard_skin: expect.objectContaining({
+          background: 0xffe0d0,
+          keyShape: "pebble",
+          keyMaterial: "raised",
+          keyOpacity: 0.45,
+          cornerRadius: 18,
+          pattern: 3,
+        }),
+      }),
+    ),
+  );
 });
 
-const savedSkinDesign = (patch: Partial<TouchKeyboardSkinDesign> = {}): TouchKeyboardSkinDesign => ({
-  background: 0xE8F0EB, keyBackground: 0xFFFFFF, keyForeground: 0x17251D,
-  accent: 0x185C47, actionBackground: 0x185C47, cornerRadius: 8,
-  borderWidth: 0, shadow: 0, pattern: 0, monospaced: false, ...patch,
+const savedSkinDesign = (
+  patch: Partial<TouchKeyboardSkinDesign> = {},
+): TouchKeyboardSkinDesign => ({
+  background: 0xe8f0eb,
+  keyBackground: 0xffffff,
+  keyForeground: 0x17251d,
+  accent: 0x185c47,
+  actionBackground: 0x185c47,
+  cornerRadius: 8,
+  borderWidth: 0,
+  shadow: 0,
+  pattern: 0,
+  monospaced: false,
+  ...patch,
 });
 
 test("Android named skin library loads and completes create, apply, update, rename and delete", async () => {
-  let saved: SavedTouchKeyboardSkin[] = [{
-    id: "11111111-1111-4111-8111-111111111111", name: "雾光样例",
-    design: savedSkinDesign({ keyShape: "ticket", keyMaterial: "paper" }),
-  }];
+  let saved: SavedTouchKeyboardSkin[] = [
+    {
+      id: "11111111-1111-4111-8111-111111111111",
+      name: "雾光样例",
+      design: savedSkinDesign({ keyShape: "ticket", keyMaterial: "paper" }),
+    },
+  ];
   const load = vi.fn(async () => saved);
   const mutate = vi.fn(async (action: CustomSkinLibraryAction) => {
-    if (action.operation === "create") saved = [...saved, { id: "22222222-2222-4222-8222-222222222222", name: action.name, design: action.design }];
-    if (action.operation === "rename") saved = saved.map(item => item.id === action.id ? { ...item, name: action.name } : item);
-    if (action.operation === "update") saved = saved.map(item => item.id === action.id ? { ...item, design: action.design } : item);
-    if (action.operation === "delete") saved = saved.filter(item => item.id !== action.id);
+    if (action.operation === "create")
+      saved = [
+        ...saved,
+        { id: "22222222-2222-4222-8222-222222222222", name: action.name, design: action.design },
+      ];
+    if (action.operation === "rename")
+      saved = saved.map((item) => (item.id === action.id ? { ...item, name: action.name } : item));
+    if (action.operation === "update")
+      saved = saved.map((item) =>
+        item.id === action.id ? { ...item, design: action.design } : item,
+      );
+    if (action.operation === "delete") saved = saved.filter((item) => item.id !== action.id);
     return saved;
   });
-  render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), customTouchKeyboardSkins: true, customSkinLibrary: { load, mutate } }} />);
+  render(
+    <SettingsPage
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        customTouchKeyboardSkins: true,
+        customSkinLibrary: { load, mutate },
+      }}
+    />,
+  );
   fireEvent.click(await screen.findByRole("button", { name: "屏幕键盘" }));
   fireEvent.click(screen.getByRole("button", { name: "设计我的皮肤" }));
   const editor = screen.getByLabelText("自定义皮肤编辑器");
@@ -1685,43 +2746,74 @@ test("Android named skin library loads and completes create, apply, update, rena
   await within(editor).findByRole("button", { name: "应用已保存皮肤 雾光样例" });
 
   fireEvent.click(within(editor).getByRole("button", { name: "应用已保存皮肤 雾光样例" }));
-  expect(within(editor).getByRole("img", { name: "屏幕键盘完整布局预览" }).getAttribute("data-key-shape")).toBe("ticket");
+  expect(
+    within(editor)
+      .getByRole("img", { name: "屏幕键盘完整布局预览" })
+      .getAttribute("data-key-shape"),
+  ).toBe("ticket");
 
   fireEvent.click(within(editor).getByRole("tab", { name: "设计" }));
   fireEvent.click(within(editor).getByRole("button", { name: "皮肤模板 奶油桃桃" }));
   fireEvent.click(within(editor).getByRole("tab", { name: "我的" }));
   fireEvent.click(within(editor).getByRole("button", { name: "用当前设计更新 雾光样例" }));
   fireEvent.click(within(editor).getByRole("button", { name: "确认更新" }));
-  await waitFor(() => expect(mutate).toHaveBeenCalledWith(expect.objectContaining({
-    operation: "update", id: "11111111-1111-4111-8111-111111111111",
-    design: expect.objectContaining({ keyShape: "pebble", keyMaterial: "raised" }),
-  })));
+  await waitFor(() =>
+    expect(mutate).toHaveBeenCalledWith(
+      expect.objectContaining({
+        operation: "update",
+        id: "11111111-1111-4111-8111-111111111111",
+        design: expect.objectContaining({ keyShape: "pebble", keyMaterial: "raised" }),
+      }),
+    ),
+  );
 
   fireEvent.click(within(editor).getByRole("button", { name: "重命名 雾光样例" }));
   fireEvent.change(within(editor).getByLabelText("皮肤名称"), { target: { value: "桃色样例" } });
   fireEvent.click(within(editor).getByRole("button", { name: "确认重命名" }));
   await within(editor).findByRole("button", { name: "应用已保存皮肤 桃色样例" });
-  expect(mutate).toHaveBeenCalledWith({ operation: "rename", id: "11111111-1111-4111-8111-111111111111", name: "桃色样例" });
+  expect(mutate).toHaveBeenCalledWith({
+    operation: "rename",
+    id: "11111111-1111-4111-8111-111111111111",
+    name: "桃色样例",
+  });
 
   fireEvent.click(within(editor).getByRole("button", { name: "删除 桃色样例" }));
   fireEvent.click(within(editor).getByRole("button", { name: "确认删除" }));
-  await waitFor(() => expect(within(editor).queryByRole("button", { name: "应用已保存皮肤 桃色样例" })).toBeNull());
-  expect(mutate).toHaveBeenCalledWith({ operation: "delete", id: "11111111-1111-4111-8111-111111111111" });
+  await waitFor(() =>
+    expect(within(editor).queryByRole("button", { name: "应用已保存皮肤 桃色样例" })).toBeNull(),
+  );
+  expect(mutate).toHaveBeenCalledWith({
+    operation: "delete",
+    id: "11111111-1111-4111-8111-111111111111",
+  });
 
   fireEvent.click(within(editor).getByRole("button", { name: "保存设计" }));
   fireEvent.change(within(editor).getByLabelText("皮肤名称"), { target: { value: "新建样例" } });
   fireEvent.click(within(editor).getByRole("button", { name: "确认保存" }));
   await within(editor).findByRole("button", { name: "应用已保存皮肤 新建样例" });
-  expect(mutate).toHaveBeenCalledWith(expect.objectContaining({ operation: "create", name: "新建样例" }));
-  expect(screen.getByRole("switch", { name: "屏幕键盘皮肤 我的皮肤" }).getAttribute("aria-checked")).toBe("true");
+  expect(mutate).toHaveBeenCalledWith(
+    expect.objectContaining({ operation: "create", name: "新建样例" }),
+  );
+  expect(
+    screen.getByRole("switch", { name: "屏幕键盘皮肤 我的皮肤" }).getAttribute("aria-checked"),
+  ).toBe("true");
 });
 
 test("Android named skin library reports duplicate names and concurrent twelve-item limits", async () => {
-  const mutate = vi.fn()
+  const mutate = vi
+    .fn()
     .mockRejectedValueOnce({ code: "custom_skin_duplicate_name" })
     .mockRejectedValueOnce({ code: "custom_skin_full" });
-  render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), customTouchKeyboardSkins: true,
-    customSkinLibrary: { load: async () => [], mutate } }} />);
+  render(
+    <SettingsPage
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        customTouchKeyboardSkins: true,
+        customSkinLibrary: { load: async () => [], mutate },
+      }}
+    />,
+  );
   fireEvent.click(await screen.findByRole("button", { name: "屏幕键盘" }));
   fireEvent.click(screen.getByRole("button", { name: "设计我的皮肤" }));
   const editor = screen.getByLabelText("自定义皮肤编辑器");
@@ -1739,47 +2831,107 @@ test("Android named skin library reports duplicate names and concurrent twelve-i
 
 test("Android AI skin draw prepares artwork, saves a proposal and continues editing", async () => {
   const aiSkins = {
-    generate: vi.fn().mockResolvedValue([1, 2, 3].map(index => ({
-      name: `AI 测试 ${index}`, description: "仅用于界面自动化的合成设计", artworkPrompt: "原创背景场景，角色位于边缘，柔和插画，中央安静留白",
-      design: savedSkinDesign({ keyShape: index === 1 ? "rounded" : index === 2 ? "capsule" : "ticket", keyMaterial: index === 1 ? "flat" : index === 2 ? "raised" : "paper" }),
-      artwork: { b64_json: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", mime_type: "image/png" as const, width: 1, height: 1 },
-    }))),
+    generate: vi.fn().mockResolvedValue(
+      [1, 2, 3].map((index) => ({
+        name: `AI 测试 ${index}`,
+        description: "仅用于界面自动化的合成设计",
+        artworkPrompt: "原创背景场景，角色位于边缘，柔和插画，中央安静留白",
+        design: savedSkinDesign({
+          keyShape: index === 1 ? "rounded" : index === 2 ? "capsule" : "ticket",
+          keyMaterial: index === 1 ? "flat" : index === 2 ? "raised" : "paper",
+        }),
+        artwork: {
+          b64_json:
+            "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+          mime_type: "image/png" as const,
+          width: 1,
+          height: 1,
+        },
+      })),
+    ),
     cancel: vi.fn().mockResolvedValue(undefined),
     onProgress: vi.fn().mockResolvedValue(() => {}),
   };
-  const mutate = vi.fn().mockImplementation(async (action: CustomSkinLibraryAction) => [{ id: "33333333-3333-4333-8333-333333333333", name: action.operation === "create" ? action.name : "AI 测试 1", design: savedSkinDesign() }]);
-  render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), customTouchKeyboardSkins: true, aiSkins, customSkinLibrary: { load: async () => [], mutate } }} />);
+  const mutate = vi.fn().mockImplementation(async (action: CustomSkinLibraryAction) => [
+    {
+      id: "33333333-3333-4333-8333-333333333333",
+      name: action.operation === "create" ? action.name : "AI 测试 1",
+      design: savedSkinDesign(),
+    },
+  ]);
+  render(
+    <SettingsPage
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        customTouchKeyboardSkins: true,
+        aiSkins,
+        customSkinLibrary: { load: async () => [], mutate },
+      }}
+    />,
+  );
   fireEvent.click(await screen.findByRole("button", { name: "屏幕键盘" }));
   fireEvent.click(screen.getByRole("button", { name: "设计我的皮肤" }));
   const editor = screen.getByLabelText("自定义皮肤编辑器");
-  await waitFor(() => expect((within(editor).getByRole("button", { name: "AI 皮肤抽卡" }) as HTMLButtonElement).disabled).toBe(false));
+  await waitFor(() =>
+    expect(
+      (within(editor).getByRole("button", { name: "AI 皮肤抽卡" }) as HTMLButtonElement).disabled,
+    ).toBe(false),
+  );
   fireEvent.click(within(editor).getByRole("button", { name: "AI 皮肤抽卡" }));
   fireEvent.click(screen.getByRole("button", { name: "抽三张皮肤" }));
   await screen.findByRole("heading", { name: "AI 测试 1" });
   fireEvent.click(screen.getAllByRole("button", { name: "保存到我的皮肤" })[0]);
   await screen.findByText("已保存到“我的皮肤”。");
   expect(aiSkins.generate).toHaveBeenCalledTimes(1);
-  expect(mutate).toHaveBeenCalledWith(expect.objectContaining({ operation: "create", name: "AI 测试 1", design: expect.objectContaining({ photo: expect.any(String), keyOpacity: .92 }) }));
+  expect(mutate).toHaveBeenCalledWith(
+    expect.objectContaining({
+      operation: "create",
+      name: "AI 测试 1",
+      design: expect.objectContaining({ photo: expect.any(String), keyOpacity: 0.92 }),
+    }),
+  );
   fireEvent.click(screen.getAllByRole("button", { name: "使用并继续编辑" })[0]);
   expect(screen.queryByRole("dialog", { name: "AI 皮肤抽卡" })).toBeNull();
 });
 
 test("toolbar theme loads, previews independently, saves and reloads", async () => {
-  let snapshot: Snapshot = { ...initial, preferences: { ...initial.preferences, theme: "dark", settings_theme: "dark", candidate_theme: "dark", toolbar_theme: "light" } };
+  let snapshot: Snapshot = {
+    ...initial,
+    preferences: {
+      ...initial.preferences,
+      theme: "dark",
+      settings_theme: "dark",
+      candidate_theme: "dark",
+      toolbar_theme: "light",
+    },
+  };
   const save = vi.fn().mockImplementation(async (_revision, preferences) => {
-    snapshot = { ...snapshot, revision: 8, preferences }; return snapshot;
+    snapshot = { ...snapshot, revision: 8, preferences };
+    return snapshot;
   });
   render(<SettingsPage client={{ load: async () => snapshot, save }} />);
-  const select = await screen.findByLabelText("工具栏主题") as HTMLSelectElement;
+  const select = (await screen.findByLabelText("工具栏主题")) as HTMLSelectElement;
   expect(select.value).toBe("light");
   fireEvent.click(screen.getByRole("button", { name: "悬浮工具栏" }));
-  const preview = screen.getByLabelText("悬浮工具栏预览").querySelector(".toolbar-settings-preview")!;
+  const preview = screen
+    .getByLabelText("悬浮工具栏预览")
+    .querySelector(".toolbar-settings-preview")!;
   expect(preview.getAttribute("data-preview-theme")).toBe("light");
   fireEvent.click(screen.getByRole("button", { name: "外观" }));
   fireEvent.change(select, { target: { value: "follow" } });
   expect(preview.getAttribute("data-preview-theme")).toBe("dark");
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
-  await waitFor(() => expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ toolbar_theme: "follow", candidate_theme: "dark", settings_theme: "dark" })));
+  await waitFor(() =>
+    expect(save).toHaveBeenCalledWith(
+      7,
+      expect.objectContaining({
+        toolbar_theme: "follow",
+        candidate_theme: "dark",
+        settings_theme: "dark",
+      }),
+    ),
+  );
   fireEvent.change(select, { target: { value: "dark" } });
   const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(true);
   fireEvent.click(screen.getByRole("button", { name: "重新读取" }));
@@ -1788,39 +2940,71 @@ test("toolbar theme loads, previews independently, saves and reloads", async () 
 });
 
 test("candidate text colour loads, previews, saves and resets to theme", async () => {
-  const saved = { ...initial, preferences: { ...initial.preferences, candidate_text_color: "#123456" } };
-  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...saved, revision: 8, preferences }));
+  const saved = {
+    ...initial,
+    preferences: { ...initial.preferences, candidate_text_color: "#123456" },
+  };
+  const save = vi
+    .fn()
+    .mockImplementation(async (_revision, preferences) => ({ ...saved, revision: 8, preferences }));
   render(<SettingsPage client={{ load: async () => saved, save }} />);
-  const color = await screen.findByLabelText("候选文字颜色") as HTMLInputElement;
+  const color = (await screen.findByLabelText("候选文字颜色")) as HTMLInputElement;
   expect(color.value).toBe("#123456");
-  expect(screen.getByRole("button", { name: "跟随主题" }).getAttribute("aria-pressed")).toBe("false");
-  const preview = screen.getByRole("region", { name: "候选窗口预览" }).querySelector<HTMLElement>(".appearance-candidate-preview")!;
+  expect(screen.getByRole("button", { name: "跟随主题" }).getAttribute("aria-pressed")).toBe(
+    "false",
+  );
+  const preview = screen
+    .getByRole("region", { name: "候选窗口预览" })
+    .querySelector<HTMLElement>(".appearance-candidate-preview")!;
   expect(preview.style.getPropertyValue("--cand-text")).toBe("#123456");
   fireEvent.change(color, { target: { value: "#abcdef" } });
   expect(preview.style.getPropertyValue("--cand-num")).toBe("#abcdef9d");
   expect(save).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(save).toHaveBeenLastCalledWith(7, { ...saved.preferences, candidate_text_color: "#abcdef" });
+  expect(save).toHaveBeenLastCalledWith(7, {
+    ...saved.preferences,
+    candidate_text_color: "#abcdef",
+  });
   fireEvent.click(screen.getByRole("button", { name: "跟随主题" }));
   expect(preview.style.getPropertyValue("--cand-text")).toBe("");
   expect(preview.style.getPropertyValue("--cand-num")).toBe("");
   expect(color.value).toBe("#e9e8e8");
-  expect(screen.getByRole("button", { name: "跟随主题" }).getAttribute("aria-pressed")).toBe("true");
+  expect(screen.getByRole("button", { name: "跟随主题" }).getAttribute("aria-pressed")).toBe(
+    "true",
+  );
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
-  await waitFor(() => expect(save).toHaveBeenLastCalledWith(8, { ...saved.preferences, candidate_text_color: null }));
+  await waitFor(() =>
+    expect(save).toHaveBeenLastCalledWith(8, { ...saved.preferences, candidate_text_color: null }),
+  );
 });
 
 test("complete candidate and preedit font sizes load, preview independently and save", async () => {
-  const saved = { ...initial, preferences: { ...initial.preferences, candidate_font_size: 19, candidate_preedit_font_size: 27 } };
-  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...saved, revision: 8, preferences }));
+  const saved = {
+    ...initial,
+    preferences: {
+      ...initial.preferences,
+      candidate_font_size: 19,
+      candidate_preedit_font_size: 27,
+    },
+  };
+  const save = vi
+    .fn()
+    .mockImplementation(async (_revision, preferences) => ({ ...saved, revision: 8, preferences }));
   render(<SettingsPage client={{ load: async () => saved, save }} />);
-  const size = await screen.findByLabelText("候选字号") as HTMLSelectElement;
+  const size = (await screen.findByLabelText("候选字号")) as HTMLSelectElement;
   const preedit = screen.getByLabelText("候选窗预编辑字号") as HTMLSelectElement;
-  expect(size.value).toBe("19"); expect(preedit.value).toBe("27");
-  expect([...size.options].map(option => option.value)).toEqual(Array.from({ length: 21 }, (_, index) => String(index + 12)));
-  expect([...preedit.options].map(option => option.value)).toEqual([...size.options].map(option => option.value));
-  const preview = screen.getByRole("region", { name: "候选窗口预览" }).querySelector<HTMLElement>(".appearance-candidate-preview")!;
+  expect(size.value).toBe("19");
+  expect(preedit.value).toBe("27");
+  expect([...size.options].map((option) => option.value)).toEqual(
+    Array.from({ length: 21 }, (_, index) => String(index + 12)),
+  );
+  expect([...preedit.options].map((option) => option.value)).toEqual(
+    [...size.options].map((option) => option.value),
+  );
+  const preview = screen
+    .getByRole("region", { name: "候选窗口预览" })
+    .querySelector<HTMLElement>(".appearance-candidate-preview")!;
   // Both ends and a middle value. Every selection runs the same two assignments, and the two
   // assertions above already pin the complete option list, so walking all 21 values only bought
   // 42 further full re-renders of the settings page -- enough to push this past the 20s timeout
@@ -1829,12 +3013,18 @@ test("complete candidate and preedit font sizes load, preview independently and 
     fireEvent.change(size, { target: { value: String(value) } });
     fireEvent.change(preedit, { target: { value: String(44 - value) } });
     expect(preview.style.getPropertyValue("--appearance-font-size")).toBe(`${value}px`);
-    expect(preview.style.getPropertyValue("--appearance-preedit-font-size")).toBe(`${44 - value}px`);
+    expect(preview.style.getPropertyValue("--appearance-preedit-font-size")).toBe(
+      `${44 - value}px`,
+    );
   }
   expect(save).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(save).toHaveBeenCalledWith(7, { ...saved.preferences, candidate_font_size: 32, candidate_preedit_font_size: 12 });
+  expect(save).toHaveBeenCalledWith(7, {
+    ...saved.preferences,
+    candidate_font_size: 32,
+    candidate_preedit_font_size: 12,
+  });
 });
 
 test("appearance preview follows drafts, skin selection and reload without saving", async () => {
@@ -1852,7 +3042,9 @@ test("appearance preview follows drafts, skin selection and reload without savin
   expect(preview.querySelector('[data-preview-layout="horizontal"]')).not.toBeNull();
   expect(preview.querySelector('[data-font-size="20"]')).not.toBeNull();
   expect(preview.querySelector<HTMLElement>(".pinyin")?.hidden).toBe(true);
-  expect(preview.querySelector(".container.preedit-hidden > .pinyin + .row-wrapper > .first")).not.toBeNull();
+  expect(
+    preview.querySelector(".container.preedit-hidden > .pinyin + .row-wrapper > .first"),
+  ).not.toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "皮肤" }));
   fireEvent.click(screen.getByRole("switch", { name: /微信绿/ }));
   fireEvent.click(screen.getByRole("button", { name: "外观" }));
@@ -1869,22 +3061,52 @@ test("appearance preview follows drafts, skin selection and reload without savin
 });
 
 test("appearance preview identifies external skins instead of showing a false built-in match", async () => {
-  render(<SettingsPage client={{ load: async () => ({ ...initial, preferences: { ...initial.preferences, candidate_skin: "external.sample" } }), save: vi.fn() }} />);
+  render(
+    <SettingsPage
+      client={{
+        load: async () => ({
+          ...initial,
+          preferences: { ...initial.preferences, candidate_skin: "external.sample" },
+        }),
+        save: vi.fn(),
+      }}
+    />,
+  );
   const preview = await screen.findByRole("region", { name: "候选窗口预览" });
   expect(preview.textContent).toContain("当前宿主不支持扫描外部皮肤");
   expect(preview.querySelector(".candidate")).toBeNull();
 });
 
-test.each(["quanpin", "shuangpin", "wubi", "japanese"] as const)("appearance preview honors helpcode visibility for %s", async scheme => {
-  render(<SettingsPage client={{ load: async () => ({ ...initial, preferences: { ...initial.preferences, scheme,
-    quanpin_helpcode: { enabled: false, schema: "ziranma" }, shuangpin_helpcode: { enabled: true, schema: "ziranma" },
-  } }), save: vi.fn() }} />);
-  const preview = await screen.findByRole("region", { name: "候选窗口预览" });
-  expect(preview.querySelectorAll(".cand-helpcode")).toHaveLength(scheme === "shuangpin" ? 5 : 0);
-});
+test.each(["quanpin", "shuangpin", "wubi", "japanese"] as const)(
+  "appearance preview honors helpcode visibility for %s",
+  async (scheme) => {
+    render(
+      <SettingsPage
+        client={{
+          load: async () => ({
+            ...initial,
+            preferences: {
+              ...initial.preferences,
+              scheme,
+              quanpin_helpcode: { enabled: false, schema: "ziranma" },
+              shuangpin_helpcode: { enabled: true, schema: "ziranma" },
+            },
+          }),
+          save: vi.fn(),
+        }}
+      />,
+    );
+    const preview = await screen.findByRole("region", { name: "候选窗口预览" });
+    expect(preview.querySelectorAll(".cand-helpcode")).toHaveLength(scheme === "shuangpin" ? 5 : 0);
+  },
+);
 
 test("touch keyboard geometry mirrors Apple defaults and persists height and spacing", async () => {
-  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 8,
+    preferences,
+  }));
   render(<SettingsPage client={{ load: async () => initial, save }} />);
   fireEvent.click(await screen.findByRole("button", { name: "屏幕键盘" }));
   const height = screen.getByRole("slider", { name: "键盘高度" }) as HTMLInputElement;
@@ -1913,13 +3135,43 @@ test("touch keyboard geometry mirrors Apple defaults and persists height and spa
   expect(preview.getAttribute("data-row-spacing")).toBe("9.5");
   expect(preview.getAttribute("data-keyboard-height")).toBe("424");
   const dragSurface = screen.getByLabelText("拖动预览调整键盘间距");
-  fireEvent.pointerDown(dragSurface, { pointerId: 1, pointerType: "touch", clientX: 100, clientY: 100 });
-  fireEvent.pointerMove(dragSurface, { pointerId: 1, pointerType: "touch", clientX: 136, clientY: 100 });
-  fireEvent.pointerUp(dragSurface, { pointerId: 1, pointerType: "touch", clientX: 136, clientY: 100 });
+  fireEvent.pointerDown(dragSurface, {
+    pointerId: 1,
+    pointerType: "touch",
+    clientX: 100,
+    clientY: 100,
+  });
+  fireEvent.pointerMove(dragSurface, {
+    pointerId: 1,
+    pointerType: "touch",
+    clientX: 136,
+    clientY: 100,
+  });
+  fireEvent.pointerUp(dragSurface, {
+    pointerId: 1,
+    pointerType: "touch",
+    clientX: 136,
+    clientY: 100,
+  });
   expect(preview.getAttribute("data-key-spacing")).toBe("5.5");
-  fireEvent.pointerDown(dragSurface, { pointerId: 2, pointerType: "touch", clientX: 100, clientY: 100 });
-  fireEvent.pointerMove(dragSurface, { pointerId: 2, pointerType: "touch", clientX: 100, clientY: 118 });
-  fireEvent.pointerUp(dragSurface, { pointerId: 2, pointerType: "touch", clientX: 100, clientY: 118 });
+  fireEvent.pointerDown(dragSurface, {
+    pointerId: 2,
+    pointerType: "touch",
+    clientX: 100,
+    clientY: 100,
+  });
+  fireEvent.pointerMove(dragSurface, {
+    pointerId: 2,
+    pointerType: "touch",
+    clientX: 100,
+    clientY: 118,
+  });
+  fireEvent.pointerUp(dragSurface, {
+    pointerId: 2,
+    pointerType: "touch",
+    clientX: 100,
+    clientY: 118,
+  });
   expect(preview.getAttribute("data-row-spacing")).toBe("10.0");
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
@@ -1933,19 +3185,31 @@ test("touch keyboard geometry mirrors Apple defaults and persists height and spa
 });
 
 test("skin preview switches are independent, reversible and do not change saved selection", async () => {
-  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 8,
+    preferences,
+  }));
   const mounted = render(<SettingsPage client={{ load: async () => initial, save }} />);
   await screen.findByRole("button", { name: "保存设置" });
   fireEvent.click(screen.getByRole("button", { name: "皮肤" }));
   const cards = screen.getAllByRole("article");
   expect(cards).toHaveLength(4);
   for (const card of cards) {
-    expect(card.querySelector(".skin-card-preview")?.getAttribute("data-preview-theme")).toBe("dark");
+    expect(card.querySelector(".skin-card-preview")?.getAttribute("data-preview-theme")).toBe(
+      "dark",
+    );
     fireEvent.click(within(card).getByRole("button", { name: "预览浅色" }));
-    expect(card.querySelector(".skin-card-preview")?.getAttribute("data-preview-theme")).toBe("light");
-    expect(screen.getByRole("switch", { name: /杨柳青/ }).getAttribute("aria-checked")).toBe("true");
-    for (const other of cards.filter(item => item !== card))
-      expect(other.querySelector(".skin-card-preview")?.getAttribute("data-preview-theme")).toBe("dark");
+    expect(card.querySelector(".skin-card-preview")?.getAttribute("data-preview-theme")).toBe(
+      "light",
+    );
+    expect(screen.getByRole("switch", { name: /杨柳青/ }).getAttribute("aria-checked")).toBe(
+      "true",
+    );
+    for (const other of cards.filter((item) => item !== card))
+      expect(other.querySelector(".skin-card-preview")?.getAttribute("data-preview-theme")).toBe(
+        "dark",
+      );
     fireEvent.click(within(card).getByRole("button", { name: "预览深色" }));
   }
   expect(save).not.toHaveBeenCalled();
@@ -1954,7 +3218,9 @@ test("skin preview switches are independent, reversible and do not change saved 
   fireEvent.click(within(wechat).getByRole("button", { name: "预览浅色" }));
   fireEvent.click(screen.getByRole("button", { name: "外观" }));
   fireEvent.click(screen.getByRole("button", { name: "皮肤" }));
-  expect(wechat.querySelector(".skin-card-preview")?.getAttribute("data-preview-theme")).toBe("light");
+  expect(wechat.querySelector(".skin-card-preview")?.getAttribute("data-preview-theme")).toBe(
+    "light",
+  );
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_skin: "wechat" });
@@ -1977,12 +3243,16 @@ test("each skin card includes both six-candidate previews without duplicate IDs"
       expect(preview.querySelector(".pinyin .text")?.textContent).toBe("ni'mf");
       expect(preview.querySelectorAll(".cand-helpcode")).toHaveLength(6);
       expect(preview.querySelector(".first .text")?.textContent).toBe("1你们(rR)");
-      expect(Array.from(preview.querySelectorAll(layout === "horizontal" ? ".num" : ".cand-no"), node => node.textContent))
-        .toEqual(["1", "2", "3", "4", "5", "6"]);
+      expect(
+        Array.from(
+          preview.querySelectorAll(layout === "horizontal" ? ".num" : ".cand-no"),
+          (node) => node.textContent,
+        ),
+      ).toEqual(["1", "2", "3", "4", "5", "6"]);
     }
   }
   expect(mounted.container.querySelectorAll("#realContainer")).toHaveLength(0);
-  const ids = Array.from(mounted.container.querySelectorAll("[id]"), element => element.id);
+  const ids = Array.from(mounted.container.querySelectorAll("[id]"), (element) => element.id);
   expect(new Set(ids).size).toBe(ids.length);
 });
 
@@ -2002,9 +3272,11 @@ test("skin header controls precede previews and always keep one selected skin", 
     fireEvent.click(control);
     fireEvent.click(control);
     expect(control.getAttribute("aria-checked")).toBe("true");
-    expect(screen.getAllByRole("switch").filter(item => item.getAttribute("aria-checked") === "true")).toHaveLength(1);
+    expect(
+      screen.getAllByRole("switch").filter((item) => item.getAttribute("aria-checked") === "true"),
+    ).toHaveLength(1);
     // Static samples cannot select a different skin by clicking their labels.
-    const other = cards.find(item => item !== card)!;
+    const other = cards.find((item) => item !== card)!;
     fireEvent.click(other.querySelector(".skin-card-preview")!);
     expect(control.getAttribute("aria-checked")).toBe("true");
   }
@@ -2012,17 +3284,32 @@ test("skin header controls precede previews and always keep one selected skin", 
 });
 
 test("floating toolbar settings use Windows defaults and persist independently", async () => {
-  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn().mockImplementation(async (_revision, preferences) => ({
+      ...initial,
+      revision: 8,
+      preferences,
+    })),
+  };
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "悬浮工具栏" }));
-  const enabled = await screen.findByRole("checkbox", { name: "在桌面显示悬浮工具栏" }) as HTMLInputElement;
+  const enabled = (await screen.findByRole("checkbox", {
+    name: "在桌面显示悬浮工具栏",
+  })) as HTMLInputElement;
   expect(enabled.checked).toBe(true);
   expect((screen.getByLabelText("工具栏缩放") as HTMLSelectElement).value).toBe("100");
   expect((screen.getByLabelText("图标尺寸") as HTMLSelectElement).value).toBe("24");
-  expect((screen.getByRole("checkbox", { name: "英文输入模式" }) as HTMLInputElement).checked).toBe(true);
-  expect((screen.getByRole("checkbox", { name: "全角 / 半角" }) as HTMLInputElement).checked).toBe(true);
-  expect((screen.getByRole("checkbox", { name: "屏幕键盘" }) as HTMLInputElement).checked).toBe(false);
+  expect((screen.getByRole("checkbox", { name: "英文输入模式" }) as HTMLInputElement).checked).toBe(
+    true,
+  );
+  expect((screen.getByRole("checkbox", { name: "全角 / 半角" }) as HTMLInputElement).checked).toBe(
+    true,
+  );
+  expect((screen.getByRole("checkbox", { name: "屏幕键盘" }) as HTMLInputElement).checked).toBe(
+    false,
+  );
   fireEvent.change(screen.getByLabelText("工具栏缩放"), { target: { value: "125" } });
   fireEvent.change(screen.getByLabelText("图标尺寸"), { target: { value: "28" } });
   fireEvent.click(screen.getByRole("checkbox", { name: "在桌面显示悬浮工具栏" }));
@@ -2031,16 +3318,32 @@ test("floating toolbar settings use Windows defaults and persist independently",
   fireEvent.click(screen.getByRole("checkbox", { name: "英文输入模式" }));
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, floating_toolbar: {
-    enabled: false, english_mode: false, fullwidth: false, punctuation: true, character_set: true, emoji: true,
-    screen_keyboard: true, settings: true, scale_percent: 125, font_size: 28,
-  } });
+  expect(client.save).toHaveBeenCalledWith(7, {
+    ...initial.preferences,
+    floating_toolbar: {
+      enabled: false,
+      english_mode: false,
+      fullwidth: false,
+      punctuation: true,
+      character_set: true,
+      emoji: true,
+      screen_keyboard: true,
+      settings: true,
+      scale_percent: 125,
+      font_size: 28,
+    },
+  });
 });
 
 test("help, about and feedback pages expose their Windows content and actions", async () => {
   const openExternalUrl = vi.fn().mockResolvedValue(undefined);
   const copyText = vi.fn().mockResolvedValue(undefined);
-  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn(), openExternalUrl, copyText };
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn(),
+    openExternalUrl,
+    copyText,
+  };
   render(<SettingsPage client={client} />);
   await settingsReady();
 
@@ -2053,20 +3356,28 @@ test("help, about and feedback pages expose their Windows content and actions", 
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
   expect(await screen.findByText("Metasequoia IME")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "开源许可协议" }));
-  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/msime/blob/develop/LICENSE"));
+  await waitFor(() =>
+    expect(openExternalUrl).toHaveBeenCalledWith(
+      "https://github.com/metasequoiaime/msime/blob/develop/LICENSE",
+    ),
+  );
 
   fireEvent.click(screen.getByRole("button", { name: "反馈" }));
   expect(await screen.findByText("GitHub Issues")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "复制群号" }));
   await waitFor(() => expect(copyText).toHaveBeenCalledWith("829919142"));
   fireEvent.click(screen.getByRole("button", { name: "查看 Issues" }));
-  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/msime/issues"));
+  await waitFor(() =>
+    expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/msime/issues"),
+  );
 });
 
 test("Android help and about pages use mobile instructions and project links", async () => {
   const openExternalUrl = vi.fn().mockResolvedValue(undefined);
   const client: SettingsClient = {
-    load: vi.fn().mockResolvedValue(initial), save: vi.fn(), openExternalUrl,
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn(),
+    openExternalUrl,
     host: { platform: "android", floating_toolbar: false } as never,
   };
   render(<SettingsPage client={client} />);
@@ -2083,7 +3394,11 @@ test("Android help and about pages use mobile instructions and project links", a
   expect(await screen.findByText(/Android 触屏输入体验/)).toBeDefined();
   expect(screen.queryByRole("button", { name: "悬浮工具栏" })).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "开源许可协议" }));
-  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/msime/blob/develop/LICENSE"));
+  await waitFor(() =>
+    expect(openExternalUrl).toHaveBeenCalledWith(
+      "https://github.com/metasequoiaime/msime/blob/develop/LICENSE",
+    ),
+  );
   fireEvent.click(screen.getByRole("button", { name: "隐私政策" }));
   await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://msime.app/privacy/"));
 
@@ -2096,15 +3411,23 @@ test("Android help and about pages use mobile instructions and project links", a
 
   fireEvent.click(screen.getByRole("button", { name: "反馈" }));
   fireEvent.click(screen.getByRole("button", { name: "查看 Issues" }));
-  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/msime/issues"));
+  await waitFor(() =>
+    expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/msime/issues"),
+  );
 });
 
 test("Linux about page exposes the shared privacy policy", async () => {
   const openExternalUrl = vi.fn().mockResolvedValue(undefined);
-  render(<SettingsPage client={{
-    load: vi.fn().mockResolvedValue(initial), save: vi.fn(), openExternalUrl,
-    host: { platform: "linux" } as HostCapabilities,
-  }} />);
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        openExternalUrl,
+        host: { platform: "linux" } as HostCapabilities,
+      }}
+    />,
+  );
 
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
   await screen.findByText("Metasequoia IME");
@@ -2116,11 +3439,18 @@ test("iOS help opens keyboard settings and feedback builds a visible report", as
   const openExternalUrl = vi.fn().mockResolvedValue(undefined);
   const openSystemKeyboardSettings = vi.fn().mockResolvedValue(undefined);
   const copyText = vi.fn().mockResolvedValue(undefined);
-  render(<SettingsPage client={{
-    load: vi.fn().mockResolvedValue(initial), save: vi.fn(), openExternalUrl,
-    openSystemKeyboardSettings, copyText,
-    host: { platform: "ios" } as HostCapabilities,
-  }} />);
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        openExternalUrl,
+        openSystemKeyboardSettings,
+        copyText,
+        host: { platform: "ios" } as HostCapabilities,
+      }}
+    />,
+  );
 
   fireEvent.click(screen.getByRole("button", { name: "帮助" }));
   expect(await screen.findByText("允许完全访问")).toBeDefined();
@@ -2128,49 +3458,84 @@ test("iOS help opens keyboard settings and feedback builds a visible report", as
   await waitFor(() => expect(openSystemKeyboardSettings).toHaveBeenCalledOnce());
 
   fireEvent.click(screen.getByRole("button", { name: "反馈" }));
-  fireEvent.change(screen.getByRole("combobox", { name: "反馈类型" }), { target: { value: "候选词不对" } });
-  fireEvent.change(screen.getByRole("textbox", { name: "反馈描述" }), { target: { value: "synthetic repro" } });
+  fireEvent.change(screen.getByRole("combobox", { name: "反馈类型" }), {
+    target: { value: "候选词不对" },
+  });
+  fireEvent.change(screen.getByRole("textbox", { name: "反馈描述" }), {
+    target: { value: "synthetic repro" },
+  });
   fireEvent.click(screen.getByRole("button", { name: "复制报告" }));
   await waitFor(() => expect(copyText).toHaveBeenCalledWith(expect.stringContaining("候选词不对")));
   fireEvent.click(screen.getByRole("button", { name: "在 GitHub 提交" }));
-  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith(expect.stringContaining("/issues/new?")));
-  expect(new URL(openExternalUrl.mock.calls.at(-1)?.[0] ?? "").searchParams.get("body")).toContain("synthetic repro");
+  await waitFor(() =>
+    expect(openExternalUrl).toHaveBeenCalledWith(expect.stringContaining("/issues/new?")),
+  );
+  expect(new URL(openExternalUrl.mock.calls.at(-1)?.[0] ?? "").searchParams.get("body")).toContain(
+    "synthetic repro",
+  );
 });
 
 test("macOS support pages use client project and privacy links", async () => {
   const openExternalUrl = vi.fn().mockResolvedValue(undefined);
   const openThirdPartyLicenses = vi.fn().mockResolvedValue(undefined);
   const copyText = vi.fn().mockResolvedValue(undefined);
-  render(<SettingsPage client={{
-    load: vi.fn().mockResolvedValue(initial), save: vi.fn(), openExternalUrl, openThirdPartyLicenses, copyText,
-    host: { platform: "macos" } as HostCapabilities,
-  }} />);
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        openExternalUrl,
+        openThirdPartyLicenses,
+        copyText,
+        host: { platform: "macos" } as HostCapabilities,
+      }}
+    />,
+  );
 
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
   await screen.findByText("Metasequoia IME");
   fireEvent.click(screen.getByRole("button", { name: "开源许可协议" }));
-  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/msime/blob/develop/LICENSE"));
+  await waitFor(() =>
+    expect(openExternalUrl).toHaveBeenCalledWith(
+      "https://github.com/metasequoiaime/msime/blob/develop/LICENSE",
+    ),
+  );
   fireEvent.click(screen.getByRole("button", { name: "隐私政策" }));
   await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://msime.app/privacy/"));
   fireEvent.click(screen.getByRole("button", { name: "查看许可全文" }));
   await waitFor(() => expect(openThirdPartyLicenses).toHaveBeenCalledOnce());
 
   fireEvent.click(screen.getByRole("button", { name: "反馈" }));
-  fireEvent.change(screen.getByRole("combobox", { name: "反馈类型" }), { target: { value: "候选词不对" } });
-  fireEvent.change(screen.getByRole("textbox", { name: "反馈描述" }), { target: { value: "synthetic macOS repro" } });
+  fireEvent.change(screen.getByRole("combobox", { name: "反馈类型" }), {
+    target: { value: "候选词不对" },
+  });
+  fireEvent.change(screen.getByRole("textbox", { name: "反馈描述" }), {
+    target: { value: "synthetic macOS repro" },
+  });
   fireEvent.click(screen.getByRole("button", { name: "复制报告" }));
-  await waitFor(() => expect(copyText).toHaveBeenCalledWith(expect.stringContaining("synthetic macOS repro")));
+  await waitFor(() =>
+    expect(copyText).toHaveBeenCalledWith(expect.stringContaining("synthetic macOS repro")),
+  );
   fireEvent.click(screen.getByRole("button", { name: "在 GitHub 提交" }));
-  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith(expect.stringContaining("/issues/new?")));
+  await waitFor(() =>
+    expect(openExternalUrl).toHaveBeenCalledWith(expect.stringContaining("/issues/new?")),
+  );
   fireEvent.click(screen.getByRole("button", { name: "查看 Issues" }));
-  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/msime/issues"));
+  await waitFor(() =>
+    expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/msime/issues"),
+  );
 });
 
 test("macOS and iOS help pages use their native host instructions", async () => {
-  const macos = render(<SettingsPage client={{
-    load: vi.fn().mockResolvedValue(initial), save: vi.fn(),
-    host: { platform: "macos" } as HostCapabilities,
-  }} />);
+  const macos = render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: { platform: "macos" } as HostCapabilities,
+      }}
+    />,
+  );
   fireEvent.click(screen.getByRole("button", { name: "帮助" }));
   expect(await screen.findByText(/macOS 平台的中文输入法/)).toBeDefined();
   expect(screen.getByText(/系统设置的键盘输入法/)).toBeDefined();
@@ -2183,10 +3548,15 @@ test("macOS and iOS help pages use their native host instructions", async () => 
   expect(await screen.findByText(/现代 macOS 桌面体验/)).toBeDefined();
   macos.unmount();
 
-  render(<SettingsPage client={{
-    load: vi.fn().mockResolvedValue(initial), save: vi.fn(),
-    host: { platform: "ios" } as HostCapabilities,
-  }} />);
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: { platform: "ios" } as HostCapabilities,
+      }}
+    />,
+  );
   fireEvent.click(screen.getByRole("button", { name: "帮助" }));
   expect(await screen.findByText(/iOS 平台的中文输入法/)).toBeDefined();
   expect(screen.getByText(/应用的输入源按钮/)).toBeDefined();
@@ -2197,78 +3567,119 @@ test("macOS and iOS help pages use their native host instructions", async () => 
 });
 
 test("about page validates a newer release before offering its URL", async () => {
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
-    ok: true,
-    json: async () => ({ version: "v1.2.0", releaseUrl: "https://github.com/metasequoiaime/msime/releases", signed: true }),
-  }));
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({
+        version: "v1.2.0",
+        releaseUrl: "https://github.com/metasequoiaime/msime/releases",
+        signed: true,
+      }),
+    }),
+  );
   const openExternalUrl = vi.fn().mockResolvedValue(undefined);
-  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn(), openExternalUrl };
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn(),
+    openExternalUrl,
+  };
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
   fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
   expect(await screen.findByText("发现新版本 v1.2.0")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "前往下载" }));
-  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/msime/releases"));
+  await waitFor(() =>
+    expect(openExternalUrl).toHaveBeenCalledWith(
+      "https://github.com/metasequoiaime/msime/releases",
+    ),
+  );
   vi.unstubAllGlobals();
 });
 
 test("Linux checks the client release feed and treats no release as a normal result", async () => {
   const fetch = vi.fn().mockResolvedValue({ ok: false, status: 404 });
   vi.stubGlobal("fetch", fetch);
-  render(<SettingsPage client={{
-    load: vi.fn().mockResolvedValue(initial), save: vi.fn(),
-    host: { platform: "linux" } as HostCapabilities,
-  }} />);
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: { platform: "linux" } as HostCapabilities,
+      }}
+    />,
+  );
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
   fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
   expect(await screen.findByText("暂无可用发行版")).toBeDefined();
   expect(fetch).toHaveBeenCalledWith(
-    expect.stringMatching(/^https:\/\/api\.github\.com\/repos\/metasequoiaime\/msime\/releases\/latest\?t=\d+$/),
+    expect.stringMatching(
+      /^https:\/\/api\.github\.com\/repos\/metasequoiaime\/msime\/releases\/latest\?t=\d+$/,
+    ),
     { cache: "no-store" },
   );
   vi.unstubAllGlobals();
 });
 
 test("Linux offers a validated newer client release", async () => {
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
-    ok: true,
-    status: 200,
-    json: async () => ({
-      tag_name: "v1.2.0",
-      html_url: "https://github.com/metasequoiaime/msime/releases/tag/v1.2.0",
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        tag_name: "v1.2.0",
+        html_url: "https://github.com/metasequoiaime/msime/releases/tag/v1.2.0",
+      }),
     }),
-  }));
+  );
   const openExternalUrl = vi.fn().mockResolvedValue(undefined);
-  render(<SettingsPage client={{
-    load: vi.fn().mockResolvedValue(initial), save: vi.fn(), openExternalUrl,
-    host: { platform: "linux" } as HostCapabilities,
-  }} />);
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        openExternalUrl,
+        host: { platform: "linux" } as HostCapabilities,
+      }}
+    />,
+  );
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
   fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
   expect(await screen.findByText("发现新版本 v1.2.0")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "前往下载" }));
-  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith(
-    "https://github.com/metasequoiaime/msime/releases/tag/v1.2.0",
-  ));
+  await waitFor(() =>
+    expect(openExternalUrl).toHaveBeenCalledWith(
+      "https://github.com/metasequoiaime/msime/releases/tag/v1.2.0",
+    ),
+  );
   expect(screen.queryByText(/SHA256/)).toBeNull();
   vi.unstubAllGlobals();
 });
 
 test("about page uses the packaged app version for display and update comparison", async () => {
-  vi.stubGlobal("fetch", vi.fn().mockResolvedValue({
-    ok: true,
-    status: 200,
-    json: async () => ({
-      tag_name: "v1.2.0",
-      html_url: "https://github.com/metasequoiaime/msime/releases/tag/v1.2.0",
+  vi.stubGlobal(
+    "fetch",
+    vi.fn().mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        tag_name: "v1.2.0",
+        html_url: "https://github.com/metasequoiaime/msime/releases/tag/v1.2.0",
+      }),
     }),
-  }));
-  render(<SettingsPage client={{
-    load: vi.fn().mockResolvedValue(initial), save: vi.fn(),
-    readAppVersion: vi.fn().mockResolvedValue("v1.2.0"),
-    host: { platform: "linux" } as HostCapabilities,
-  }} />);
+  );
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        readAppVersion: vi.fn().mockResolvedValue("v1.2.0"),
+        host: { platform: "linux" } as HostCapabilities,
+      }}
+    />,
+  );
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
   expect(await screen.findByText("v1.2.0")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "检查更新" }));
@@ -2278,16 +3689,26 @@ test("about page uses the packaged app version for display and update comparison
 });
 
 test("client release validation rejects a release URL outside the shared repository", () => {
-  expect(validateGitHubRelease({
-    tag_name: "v1.2.0",
-    html_url: "https://github.com/metasequoiaime/MSIME-Windows/releases/tag/v1.2.0",
-  }, "https://github.com/metasequoiaime/msime/releases")).toBeNull();
+  expect(
+    validateGitHubRelease(
+      {
+        tag_name: "v1.2.0",
+        html_url: "https://github.com/metasequoiaime/MSIME-Windows/releases/tag/v1.2.0",
+      },
+      "https://github.com/metasequoiaime/msime/releases",
+    ),
+  ).toBeNull();
 });
 
 test("screen keyboard and handwriting pages expose the native panel actions", async () => {
   const openScreenKeyboard = vi.fn().mockResolvedValue(undefined);
   const openHandwriting = vi.fn().mockResolvedValue(undefined);
-  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn(), openScreenKeyboard, openHandwriting };
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn(),
+    openScreenKeyboard,
+    openHandwriting,
+  };
   render(<SettingsPage client={client} />);
   await settingsReady();
 
@@ -2384,7 +3805,9 @@ test("voice panel requests recognition and submits the bounded result", async ()
   render(<VoicePanel client={{ close, recognizeVoice, sendText }} />);
   fireEvent.click(screen.getByRole("button", { name: "开始录音" }));
   await waitFor(() => expect(recognizeVoice).toHaveBeenCalledWith("zh-CN"));
-  expect((screen.getByRole("textbox", { name: "识别结果" }) as HTMLTextAreaElement).value).toBe("你好");
+  expect((screen.getByRole("textbox", { name: "识别结果" }) as HTMLTextAreaElement).value).toBe(
+    "你好",
+  );
   fireEvent.click(screen.getByRole("button", { name: "提交到当前窗口" }));
   await waitFor(() => expect(sendText).toHaveBeenCalledWith("你好"));
   fireEvent.click(screen.getByRole("button", { name: "关闭" }));
@@ -2395,7 +3818,8 @@ test("cloud clipboard panel lists, uploads, deletes and submits entries", async 
   const close = vi.fn().mockResolvedValue(undefined);
   const sendText = vi.fn().mockResolvedValue(undefined);
   const request = vi.fn().mockImplementation(async (action: { operation: string }) => {
-    if (action.operation === "list") return { items: [{ id: "entry-1", text: "云端内容" }], enabled: true };
+    if (action.operation === "list")
+      return { items: [{ id: "entry-1", text: "云端内容" }], enabled: true };
     if (action.operation === "set_enabled") return { enabled: true };
     return { items: [{ id: "entry-1", text: "云端内容" }], enabled: true };
   });
@@ -2403,9 +3827,13 @@ test("cloud clipboard panel lists, uploads, deletes and submits entries", async 
   expect(await screen.findByText("云端内容")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "云端内容" }));
   await waitFor(() => expect(sendText).toHaveBeenCalledWith("云端内容"));
-  fireEvent.change(screen.getByRole("textbox", { name: "待上传文本" }), { target: { value: "新的云端内容" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "待上传文本" }), {
+    target: { value: "新的云端内容" },
+  });
   fireEvent.click(screen.getByRole("button", { name: "上传明确选择的文本" }));
-  await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "add", text: "新的云端内容" }));
+  await waitFor(() =>
+    expect(request).toHaveBeenCalledWith({ operation: "add", text: "新的云端内容" }),
+  );
   fireEvent.click(screen.getByRole("button", { name: "删除 云端内容" }));
   await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "delete", id: "entry-1" }));
   fireEvent.click(screen.getByRole("button", { name: "关闭" }));
@@ -2416,8 +3844,15 @@ test("cloud clipboard panel lists, uploads, deletes and submits entries", async 
 test("cloud clipboard copy-only capability never submits to an unsupported host", async () => {
   const copyText = vi.fn().mockResolvedValue(undefined);
   const sendText = vi.fn().mockResolvedValue(undefined);
-  const request = vi.fn().mockResolvedValue({ enabled: true, items: [{ id: "synthetic", text: "Synthetic clipboard" }] });
-  render(<CloudClipboardPanel client={{ close: vi.fn(), request, copyText, sendText, canSendText: async () => false }} />);
+  const request = vi.fn().mockResolvedValue({
+    enabled: true,
+    items: [{ id: "synthetic", text: "Synthetic clipboard" }],
+  });
+  render(
+    <CloudClipboardPanel
+      client={{ close: vi.fn(), request, copyText, sendText, canSendText: async () => false }}
+    />,
+  );
   fireEvent.click(await screen.findByRole("button", { name: "Synthetic clipboard" }));
   await waitFor(() => expect(copyText).toHaveBeenCalledWith("Synthetic clipboard"));
   expect(sendText).not.toHaveBeenCalled();
@@ -2439,8 +3874,13 @@ test("cloud clipboard rejects blank and overlong uploads before contacting the p
 });
 
 test("cloud clipboard confirms destructive disable and clears history", async () => {
-  const request = vi.fn().mockImplementation(async (action: { operation: string }) => action.operation === "list"
-    ? { enabled: true, items: [{ id: "synthetic", text: "Synthetic clipboard" }] } : { enabled: false });
+  const request = vi
+    .fn()
+    .mockImplementation(async (action: { operation: string }) =>
+      action.operation === "list"
+        ? { enabled: true, items: [{ id: "synthetic", text: "Synthetic clipboard" }] }
+        : { enabled: false },
+    );
   render(<CloudClipboardPanel client={{ close: vi.fn(), request }} />);
   await screen.findByText("Synthetic clipboard");
   fireEvent.click(screen.getByRole("checkbox"));
@@ -2451,12 +3891,20 @@ test("cloud clipboard confirms destructive disable and clears history", async ()
   expect(request).toHaveBeenCalledTimes(1);
   fireEvent.click(screen.getByRole("checkbox"));
   fireEvent.click(screen.getByRole("button", { name: "确认关闭并删除历史" }));
-  await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "set_enabled", enabled: false }));
+  await waitFor(() =>
+    expect(request).toHaveBeenCalledWith({ operation: "set_enabled", enabled: false }),
+  );
   await waitFor(() => expect(screen.queryByText("Synthetic clipboard")).toBeNull());
 });
 
 test("cloud clipboard discards stale history after provider access fails", async () => {
-  const request = vi.fn().mockResolvedValueOnce({ enabled: true, items: [{ id: "synthetic", text: "Synthetic clipboard" }] }).mockRejectedValue(new Error("unavailable"));
+  const request = vi
+    .fn()
+    .mockResolvedValueOnce({
+      enabled: true,
+      items: [{ id: "synthetic", text: "Synthetic clipboard" }],
+    })
+    .mockRejectedValue(new Error("unavailable"));
   render(<CloudClipboardPanel client={{ close: vi.fn(), request }} />);
   await screen.findByText("Synthetic clipboard");
   fireEvent.click(screen.getByRole("button", { name: "刷新" }));
@@ -2465,7 +3913,23 @@ test("cloud clipboard discards stale history after provider access fails", async
 });
 
 test("cloud dictionary clears old account entries when refresh fails", async () => {
-  const request = vi.fn().mockResolvedValueOnce({ entries: [{ id: "a".repeat(64), kind: "pinyin", code: "he", word: "合成词条", weight: 1, revision: 17 }], has_more: true, offset: 0 }).mockRejectedValue(new Error("unavailable"));
+  const request = vi
+    .fn()
+    .mockResolvedValueOnce({
+      entries: [
+        {
+          id: "a".repeat(64),
+          kind: "pinyin",
+          code: "he",
+          word: "合成词条",
+          weight: 1,
+          revision: 17,
+        },
+      ],
+      has_more: true,
+      offset: 0,
+    })
+    .mockRejectedValue(new Error("unavailable"));
   render(<CloudDictionaryPanel client={{ close: vi.fn(), request }} />);
   await screen.findByText("合成词条");
   fireEvent.click(screen.getByRole("button", { name: "查询" }));
@@ -2480,25 +3944,63 @@ test("cloud dictionary exposes visible kind tabs for mobile layouts", async () =
   const tabs = screen.getByRole("tablist", { name: "云词库类型" });
   expect(tabs.querySelector("button[aria-selected='true']")?.textContent).toBe("拼音");
   fireEvent.click(screen.getByRole("tab", { name: "五笔" }));
-  await waitFor(() => expect(request).toHaveBeenLastCalledWith({ operation: "list", kind: "wubi", offset: 0, search: "" }));
+  await waitFor(() =>
+    expect(request).toHaveBeenLastCalledWith({
+      operation: "list",
+      kind: "wubi",
+      offset: 0,
+      search: "",
+    }),
+  );
   expect(tabs.querySelector("button[aria-selected='true']")?.textContent).toBe("五笔");
 });
 
 test("cloud dictionary panel supports paging and CRUD actions", async () => {
   const close = vi.fn().mockResolvedValue(undefined);
-  const request = vi.fn().mockImplementation(async (action: { operation: string; offset?: number }) => {
-    if (action.operation === "list") return { entries: [{ id: "a".repeat(64), kind: "pinyin", code: "ni", word: "你", weight: 100, revision: 2 }], has_more: true, offset: action.offset ?? 0 };
-    return {};
-  });
+  const request = vi
+    .fn()
+    .mockImplementation(async (action: { operation: string; offset?: number }) => {
+      if (action.operation === "list")
+        return {
+          entries: [
+            {
+              id: "a".repeat(64),
+              kind: "pinyin",
+              code: "ni",
+              word: "你",
+              weight: 100,
+              revision: 2,
+            },
+          ],
+          has_more: true,
+          offset: action.offset ?? 0,
+        };
+      return {};
+    });
   const panel = render(<CloudDictionaryPanel client={{ close, request }} />);
   expect(await screen.findByText("你")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "下一页" }));
-  await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "list", kind: "pinyin", offset: 100, search: "" }));
+  await waitFor(() =>
+    expect(request).toHaveBeenCalledWith({
+      operation: "list",
+      kind: "pinyin",
+      offset: 100,
+      search: "",
+    }),
+  );
   fireEvent.click(screen.getByRole("button", { name: "添加词条" }));
   fireEvent.change(screen.getByRole("textbox", { name: "编码" }), { target: { value: "hao" } });
   fireEvent.change(screen.getByRole("textbox", { name: "词条" }), { target: { value: "好" } });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
-  await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "add", kind: "pinyin", code: "hao", word: "好", weight: 100000 }));
+  await waitFor(() =>
+    expect(request).toHaveBeenCalledWith({
+      operation: "add",
+      kind: "pinyin",
+      code: "hao",
+      word: "好",
+      weight: 100000,
+    }),
+  );
   fireEvent.click(screen.getByRole("button", { name: "关闭" }));
   await waitFor(() => expect(close).toHaveBeenCalledTimes(1));
   panel.unmount();
@@ -2506,16 +4008,33 @@ test("cloud dictionary panel supports paging and CRUD actions", async () => {
 
 test("cloud dictionary files previews, confirms and preserves bounded import/export contracts", async () => {
   const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
-  const request = vi.fn().mockImplementation(async (action: { operation: string; kind?: string; format?: string }) => action.operation === "export" ? { text: "ni\t你\n", filename: "pinyin.tsv" } : {});
+  const request = vi
+    .fn()
+    .mockImplementation(async (action: { operation: string; kind?: string; format?: string }) =>
+      action.operation === "export" ? { text: "ni\t你\n", filename: "pinyin.tsv" } : {},
+    );
   render(<CloudDictionaryFilesPanel client={{ close: vi.fn(), request }} />);
   const file = new File(["ni\t你\n"], "words.tsv", { type: "text/tab-separated-values" });
   fireEvent.change(screen.getByLabelText("选择 UTF-8 文件"), { target: { files: [file] } });
   expect(await screen.findByText("words.tsv")).toBeDefined();
   expect(request).not.toHaveBeenCalledWith(expect.objectContaining({ operation: "import" }));
   fireEvent.click(screen.getByRole("button", { name: "确认上传到云端" }));
-  await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "import", kind: "pinyin", format: "standard", text: "ni\t你\n" }));
+  await waitFor(() =>
+    expect(request).toHaveBeenCalledWith({
+      operation: "import",
+      kind: "pinyin",
+      format: "standard",
+      text: "ni\t你\n",
+    }),
+  );
   fireEvent.click(screen.getByRole("button", { name: "导出当前类型" }));
-  await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "export", kind: "pinyin", format: "standard" }));
+  await waitFor(() =>
+    expect(request).toHaveBeenCalledWith({
+      operation: "export",
+      kind: "pinyin",
+      format: "standard",
+    }),
+  );
   const oversized = new File(["x".repeat(65537)], "large.tsv", { type: "text/plain" });
   fireEvent.change(screen.getByLabelText("选择 UTF-8 文件"), { target: { files: [oversized] } });
   expect(await screen.findByText("导入文件必须大于 0 且不超过 64 KiB")).toBeDefined();
@@ -2524,7 +4043,14 @@ test("cloud dictionary files previews, confirms and preserves bounded import/exp
 });
 
 test("cloud dictionary entries open their editor from the row on touch layouts", async () => {
-  const entry = { id: "a".repeat(64), kind: "pinyin" as const, code: "ni", word: "你", weight: 100, revision: 2 };
+  const entry = {
+    id: "a".repeat(64),
+    kind: "pinyin" as const,
+    code: "ni",
+    word: "你",
+    weight: 100,
+    revision: 2,
+  };
   const request = vi.fn().mockResolvedValue({ entries: [entry], has_more: false, offset: 0 });
   render(<CloudDictionaryPanel client={{ close: vi.fn(), request }} />);
   await screen.findByText("你");
@@ -2534,7 +4060,14 @@ test("cloud dictionary entries open their editor from the row on touch layouts",
 });
 
 test("cloud dictionary deletion asks for confirmation before changing the cloud entry", async () => {
-  const entry = { id: "a".repeat(64), kind: "pinyin" as const, code: "ni", word: "你", weight: 100, revision: 2 };
+  const entry = {
+    id: "a".repeat(64),
+    kind: "pinyin" as const,
+    code: "ni",
+    word: "你",
+    weight: 100,
+    revision: 2,
+  };
   const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
   const request = vi.fn().mockResolvedValue({ entries: [entry], has_more: false, offset: 0 });
   render(<CloudDictionaryPanel client={{ close: vi.fn(), request }} />);
@@ -2548,7 +4081,14 @@ test("cloud dictionary deletion asks for confirmation before changing the cloud 
 test("cloud dictionary panel can queue an entry for the local dictionary", async () => {
   const close = vi.fn().mockResolvedValue(undefined);
   const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
-  const entry = { id: "a".repeat(64), kind: "pinyin" as const, code: "ni", word: "你", weight: 100, revision: 2 };
+  const entry = {
+    id: "a".repeat(64),
+    kind: "pinyin" as const,
+    code: "ni",
+    word: "你",
+    weight: 100,
+    revision: 2,
+  };
   const downloadToLocal = vi.fn().mockResolvedValue(undefined);
   const request = vi.fn().mockResolvedValue({ entries: [entry], has_more: false, offset: 0 });
   const panel = render(<CloudDictionaryPanel client={{ close, request, downloadToLocal }} />);
@@ -2566,19 +4106,44 @@ test("cloud dictionary apply requires preview and explicit confirmation", async 
   const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   const request = vi.fn().mockImplementation(async (action: { operation: string }) => {
     if (action.operation === "snapshot_status") return { localVersion: "local-v1", request: null };
-    if (action.operation === "snapshot_preview") return {
-      previewToken: "snapshot-token",
-      snapshot: { cloudRevision: 42, sha256: "a".repeat(64), bytes: 2048, records: 12, entries: 4, overlays: 4, positions: 2, selections: 2 },
+    if (action.operation === "snapshot_preview")
+      return {
+        previewToken: "snapshot-token",
+        snapshot: {
+          cloudRevision: 42,
+          sha256: "a".repeat(64),
+          bytes: 2048,
+          records: 12,
+          entries: 4,
+          overlays: 4,
+          positions: 2,
+          selections: 2,
+        },
+      };
+    return {
+      request: {
+        id: "request",
+        cloudRevision: 42,
+        fileSha256: "a".repeat(64),
+        status: action.operation === "snapshot_cancel" ? "cancelled" : "queued",
+      },
     };
-    return { request: { id: "request", cloudRevision: 42, fileSha256: "a".repeat(64), status: action.operation === "snapshot_cancel" ? "cancelled" : "queued" } };
   });
   render(<CloudDictionaryApplyPanel client={{ close, request, snapshot: true }} />);
   await screen.findByText("已获取本机词库版本");
   fireEvent.click(screen.getByRole("button", { name: "下载云词库并预览" }));
   expect(await screen.findByText(/云端 revision 42/)).toBeDefined();
-  expect(request).not.toHaveBeenCalledWith({ operation: "snapshot_enqueue", token: "snapshot-token" });
+  expect(request).not.toHaveBeenCalledWith({
+    operation: "snapshot_enqueue",
+    token: "snapshot-token",
+  });
   fireEvent.click(screen.getByRole("button", { name: "替换本机词库" }));
-  await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "snapshot_enqueue", token: "snapshot-token" }));
+  await waitFor(() =>
+    expect(request).toHaveBeenCalledWith({
+      operation: "snapshot_enqueue",
+      token: "snapshot-token",
+    }),
+  );
   expect(confirm).toHaveBeenCalledWith(expect.stringContaining("确认用这份云端快照替换"));
   fireEvent.click(screen.getByRole("button", { name: "取消待应用快照" }));
   await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "snapshot_cancel" }));
@@ -2588,11 +4153,22 @@ test("cloud dictionary snapshot backup and restore stay behind validation and co
   const close = vi.fn().mockResolvedValue(undefined);
   const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   const request = vi.fn().mockImplementation(async (action: { operation: string }) => {
-    if (action.operation === "snapshot_export") return { text: "{\"type\":\"header\"}\n", filename: "snapshot.ndjson" };
-    if (action.operation === "snapshot_restore_preview") return {
-      snapshot: { cloudRevision: 7, sha256: "b".repeat(64), bytes: 20, records: 0, entries: 0, overlays: 0, positions: 0, selections: 0 },
-      expectedRevision: 12,
-    };
+    if (action.operation === "snapshot_export")
+      return { text: '{"type":"header"}\n', filename: "snapshot.ndjson" };
+    if (action.operation === "snapshot_restore_preview")
+      return {
+        snapshot: {
+          cloudRevision: 7,
+          sha256: "b".repeat(64),
+          bytes: 20,
+          records: 0,
+          entries: 0,
+          overlays: 0,
+          positions: 0,
+          selections: 0,
+        },
+        expectedRevision: 12,
+      };
     if (action.operation === "snapshot_restore") return { revision: 13, reset: true };
     return {};
   });
@@ -2601,12 +4177,22 @@ test("cloud dictionary snapshot backup and restore stay behind validation and co
   fireEvent.change(screen.getByLabelText("选择快照恢复到云端"), { target: { files: [file] } });
   expect(await screen.findByText(/云端 revision 7/)).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "确认恢复云端词库" }));
-  await waitFor(() => expect(request).toHaveBeenCalledWith({
-    operation: "snapshot_restore", text: "snapshot fixture", expected_sha256: "b".repeat(64), revision: 12,
-  }));
+  await waitFor(() =>
+    expect(request).toHaveBeenCalledWith({
+      operation: "snapshot_restore",
+      text: "snapshot fixture",
+      expected_sha256: "b".repeat(64),
+      revision: 12,
+    }),
+  );
   expect(confirm).toHaveBeenCalledWith("确认用此快照替换全部云端词库和排序记录？");
-  if (typeof URL.createObjectURL === "function") vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:fixture");
-  else Object.defineProperty(URL, "createObjectURL", { configurable: true, value: vi.fn(() => "blob:fixture") });
+  if (typeof URL.createObjectURL === "function")
+    vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:fixture");
+  else
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => "blob:fixture"),
+    });
   fireEvent.click(screen.getByRole("button", { name: "导出完整快照" }));
   await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "snapshot_export" }));
 });
@@ -2616,18 +4202,35 @@ test("cloud dictionary catalog panel queries and edits complete directory entrie
   const back = vi.fn().mockResolvedValue(undefined);
   const request = vi.fn().mockImplementation(async (action: { operation: string }) => {
     if (action.operation === "catalog") {
-      return { catalog_entries: [{ kind: "pinyin", code: "ni", word: "你", weight: 100, }], has_more: false, offset: 0, revision: 42, normalized: "ni" };
+      return {
+        catalog_entries: [{ kind: "pinyin", code: "ni", word: "你", weight: 100 }],
+        has_more: false,
+        offset: 0,
+        revision: 42,
+        normalized: "ni",
+      };
     }
     return { revision: 43, previous: null, replacement: null };
   });
   render(<CloudDictionaryCatalogPanel client={{ close, back, request }} />);
-  fireEvent.change(screen.getByRole("textbox", { name: "完整目录编码" }), { target: { value: "ni" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "完整目录编码" }), {
+    target: { value: "ni" },
+  });
   fireEvent.click(screen.getByRole("button", { name: "查询完整目录" }));
   expect(await screen.findByText("你")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "编辑" }));
   fireEvent.change(screen.getByRole("textbox", { name: "词条" }), { target: { value: "你们" } });
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
-  await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "edit_catalog", kind: "pinyin", code: "ni", word: "你", revision: 42, replacement: { code: "ni", word: "你们", weight: 100 } }));
+  await waitFor(() =>
+    expect(request).toHaveBeenCalledWith({
+      operation: "edit_catalog",
+      kind: "pinyin",
+      code: "ni",
+      word: "你",
+      revision: 42,
+      replacement: { code: "ni", word: "你们", weight: 100 },
+    }),
+  );
   fireEvent.click(screen.getByRole("button", { name: "返回云词典" }));
   await waitFor(() => expect(back).toHaveBeenCalledTimes(1));
   fireEvent.click(screen.getByRole("button", { name: "关闭" }));
@@ -2639,21 +4242,45 @@ test("cloud candidates panel uses canonical pinyin and manages ranking and fixed
   const back = vi.fn().mockResolvedValue(undefined);
   const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   const request = vi.fn().mockImplementation(async (action: { operation: string }) => {
-    if (action.operation === "candidates") return { candidates: [{ code: "nihc", canonical_pinyin: "ni'hao", word: "你好", weight: 10 }], context: "server:context", revision: 42 };
-    if (action.operation === "fixed_positions") return { positions: [{ context: "server:context", code: "ni'hao", word: "你好", position: 1 }], offset: 0, has_more: false };
+    if (action.operation === "candidates")
+      return {
+        candidates: [{ code: "nihc", canonical_pinyin: "ni'hao", word: "你好", weight: 10 }],
+        context: "server:context",
+        revision: 42,
+      };
+    if (action.operation === "fixed_positions")
+      return {
+        positions: [{ context: "server:context", code: "ni'hao", word: "你好", position: 1 }],
+        offset: 0,
+        has_more: false,
+      };
     if (action.operation === "rank") return { revision: 43, changed: true, selection_count: 0 };
     return { revision: 43 };
   });
   render(<CloudCandidatesPanel client={{ close, back, request }} />);
-  fireEvent.change(screen.getByRole("textbox", { name: "云端候选编码" }), { target: { value: "nihc" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "云端候选编码" }), {
+    target: { value: "nihc" },
+  });
   fireEvent.click(screen.getByRole("button", { name: "查询云端候选" }));
   expect(await screen.findByText("你好")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "调频" }));
-  await waitFor(() => expect(request).toHaveBeenCalledWith(expect.objectContaining({ operation: "rank", code: "ni'hao", revision: 42 })));
+  await waitFor(() =>
+    expect(request).toHaveBeenCalledWith(
+      expect.objectContaining({ operation: "rank", code: "ni'hao", revision: 42 }),
+    ),
+  );
   fireEvent.click(screen.getByRole("button", { name: "固定" }));
-  await waitFor(() => expect(request).toHaveBeenCalledWith(expect.objectContaining({ operation: "set_fixed_position", code: "ni'hao", position: 1 })));
+  await waitFor(() =>
+    expect(request).toHaveBeenCalledWith(
+      expect.objectContaining({ operation: "set_fixed_position", code: "ni'hao", position: 1 }),
+    ),
+  );
   fireEvent.click(screen.getByRole("button", { name: "取消固定" }));
-  await waitFor(() => expect(request).toHaveBeenCalledWith(expect.objectContaining({ operation: "set_fixed_position", position: null })));
+  await waitFor(() =>
+    expect(request).toHaveBeenCalledWith(
+      expect.objectContaining({ operation: "set_fixed_position", position: null }),
+    ),
+  );
   fireEvent.click(screen.getByRole("button", { name: "返回云词典" }));
   await waitFor(() => expect(back).toHaveBeenCalledTimes(1));
   fireEvent.click(screen.getByRole("button", { name: "关闭" }));
@@ -2665,23 +4292,37 @@ test("cloud candidate rows trigger ranking and keep secondary actions grouped", 
   const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   const candidate = { code: "nihc", canonical_pinyin: "ni'hao", word: "你好", weight: 10 };
   const request = vi.fn().mockImplementation(async (action: { operation: string }) => {
-    if (action.operation === "candidates") return { candidates: [candidate], context: "", revision: 42 };
+    if (action.operation === "candidates")
+      return { candidates: [candidate], context: "", revision: 42 };
     if (action.operation === "rank") return { changed: true, selection_count: 0 };
     return {};
   });
   render(<CloudCandidatesPanel client={{ close: vi.fn(), request }} />);
-  fireEvent.change(screen.getByRole("textbox", { name: "云端候选编码" }), { target: { value: "nihc" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "云端候选编码" }), {
+    target: { value: "nihc" },
+  });
   fireEvent.click(screen.getByRole("button", { name: "查询云端候选" }));
   await screen.findByText("你好");
   fireEvent.click(screen.getByRole("button", { name: "调频候选 你好" }));
-  await waitFor(() => expect(request).toHaveBeenCalledWith(expect.objectContaining({ operation: "rank", code: "ni'hao", word: "你好" })));
+  await waitFor(() =>
+    expect(request).toHaveBeenCalledWith(
+      expect.objectContaining({ operation: "rank", code: "ni'hao", word: "你好" }),
+    ),
+  );
   expect(document.querySelector(".cloud-dictionary-item-actions")).not.toBeNull();
   expect(confirm).toHaveBeenCalledWith("调整此云端候选的排序？");
   confirm.mockRestore();
 });
 
 test("saves a shuangpin profile and retains it when switching schemes", async () => {
-  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn().mockImplementation(async (_revision, preferences) => ({
+      ...initial,
+      revision: 8,
+      preferences,
+    })),
+  };
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
@@ -2692,15 +4333,30 @@ test("saves a shuangpin profile and retains it when switching schemes", async ()
   fireEvent.change(profile, { target: { value: "microsoft" } });
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, scheme: "shuangpin", last_chinese_scheme: "shuangpin", shuangpin_profile: "microsoft" });
+  expect(client.save).toHaveBeenCalledWith(7, {
+    ...initial.preferences,
+    scheme: "shuangpin",
+    last_chinese_scheme: "shuangpin",
+    shuangpin_profile: "microsoft",
+  });
   fireEvent.click(screen.getByRole("radio", { name: "全拼" }));
   expect(screen.getByRole("combobox", { name: "双拼方案" })).toBeDefined();
   expect(profile.textContent).toContain("微软双拼");
 });
 
-test.each([['quanpin', '全拼'], ['shuangpin', '双拼'], ['wubi', '五笔']] as const)("Japanese mode retains %s across save and reload", async (scheme, label) => {
+test.each([
+  ["quanpin", "全拼"],
+  ["shuangpin", "双拼"],
+  ["wubi", "五笔"],
+] as const)("Japanese mode retains %s across save and reload", async (scheme, label) => {
   let stored: Snapshot = { ...initial, preferences: { ...initial.preferences, scheme } };
-  const client: SettingsClient = { load: vi.fn(async () => stored), save: vi.fn(async (revision, preferences) => (stored = { ...stored, revision: revision + 1, preferences })) };
+  const client: SettingsClient = {
+    load: vi.fn(async () => stored),
+    save: vi.fn(
+      async (revision, preferences) =>
+        (stored = { ...stored, revision: revision + 1, preferences }),
+    ),
+  };
   const mounted = render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
@@ -2723,23 +4379,40 @@ test.each([['quanpin', '全拼'], ['shuangpin', '双拼'], ['wubi', '五笔']] a
 });
 
 test("saves edited preferences against the loaded revision", async () => {
-  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn().mockImplementation(async (_revision, preferences) => ({
+      ...initial,
+      revision: 8,
+      preferences,
+    })),
+  };
   render(<SettingsPage client={client} />);
   const size = await screen.findByRole("combobox", { name: "每页候选数量" });
   fireEvent.change(size, { target: { value: "9" } });
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_page_size: 9 });
-  expect((screen.getByRole("button", { name: "保存设置" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole("button", { name: "保存设置" }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
 });
 
 test("macOS candidate page sizes use the native 5/7/9 options and normalize legacy values", async () => {
   const preferences = { ...initial.preferences, candidate_page_size: 6 };
-  const save = vi.fn().mockImplementation(async (_revision, next) => ({ ...initial, revision: 8, preferences: next }));
-  const client: SettingsClient = { load: vi.fn().mockResolvedValue({ ...initial, preferences }), save, host: { platform: "macos" } as HostCapabilities };
+  const save = vi.fn().mockImplementation(async (_revision, next) => ({
+    ...initial,
+    revision: 8,
+    preferences: next,
+  }));
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue({ ...initial, preferences }),
+    save,
+    host: { platform: "macos" } as HostCapabilities,
+  };
   render(<SettingsPage client={client} />);
-  const size = await screen.findByRole("combobox", { name: "每页候选数量" }) as HTMLSelectElement;
-  expect(Array.from(size.options).map(option => option.value)).toEqual(["5", "7", "9"]);
+  const size = (await screen.findByRole("combobox", { name: "每页候选数量" })) as HTMLSelectElement;
+  expect(Array.from(size.options).map((option) => option.value)).toEqual(["5", "7", "9"]);
   expect(size.value).toBe("9");
   fireEvent.change(size, { target: { value: "7" } });
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
@@ -2750,7 +4423,11 @@ test("macOS candidate page sizes use the native 5/7/9 options and normalize lega
 test("macOS shuangpin keymap setting loads, toggles, and saves through the native preference bridge", async () => {
   const loadMacosShuangpinKeymap = vi.fn().mockResolvedValue(true);
   const saveMacosShuangpinKeymap = vi.fn().mockResolvedValue(undefined);
-  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...initial,
+    revision: 8,
+    preferences,
+  }));
   const client: SettingsClient = {
     load: vi.fn().mockResolvedValue(initial),
     save,
@@ -2762,18 +4439,27 @@ test("macOS shuangpin keymap setting loads, toggles, and saves through the nativ
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   fireEvent.click(await screen.findByRole("radio", { name: "双拼" }));
-  const keymap = await screen.findByRole("checkbox", { name: "输入时显示双拼键位提示" }) as HTMLInputElement;
+  const keymap = (await screen.findByRole("checkbox", {
+    name: "输入时显示双拼键位提示",
+  })) as HTMLInputElement;
   expect(loadMacosShuangpinKeymap).toHaveBeenCalledTimes(1);
   expect(keymap.checked).toBe(true);
   fireEvent.click(keymap);
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(save).toHaveBeenCalledWith(7, { ...initial.preferences, scheme: "shuangpin", last_chinese_scheme: "shuangpin" });
+  expect(save).toHaveBeenCalledWith(7, {
+    ...initial.preferences,
+    scheme: "shuangpin",
+    last_chinese_scheme: "shuangpin",
+  });
   expect(saveMacosShuangpinKeymap).toHaveBeenCalledWith(false);
 });
 
 test("conflicts preserve edits and require an explicit reload", async () => {
-  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockRejectedValue({ code: "conflict" }) };
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn().mockRejectedValue({ code: "conflict" }),
+  };
   render(<SettingsPage client={client} />);
   const size = await screen.findByRole("combobox", { name: "每页候选数量" });
   fireEvent.change(size, { target: { value: "9" } });
@@ -2787,30 +4473,48 @@ test("conflicts preserve edits and require an explicit reload", async () => {
   confirm.mockRestore();
 });
 
-test.each(["windows", "macos", "linux"])("%s applies external preference revisions when clean and preserves dirty edits", async platform => {
-  let changed: ((snapshot: Snapshot) => void) | undefined;
-  const client: SettingsClient = {
-    load: vi.fn().mockResolvedValue(initial),
-    save: vi.fn(),
-    onPreferencesChanged: vi.fn(async listener => {
-      changed = listener;
-      return () => { changed = undefined; };
-    }),
-    host: { platform } as never,
-  };
-  render(<SettingsPage client={client} />);
-  const size = await screen.findByRole("combobox", { name: "每页候选数量" }) as HTMLSelectElement;
-  await waitFor(() => expect(changed).toBeDefined());
-  changed?.({ ...initial, revision: 8, preferences: { ...initial.preferences, candidate_page_size: 9 } });
-  await waitFor(() => expect(size.value).toBe("9"));
-  fireEvent.change(size, { target: { value: "7" } });
-  changed?.({ ...initial, revision: 9, preferences: { ...initial.preferences, candidate_page_size: 5 } });
-  expect(size.value).toBe("7");
-  expect(await screen.findByText("设置已被其他窗口修改。请重新读取后再保存。")).toBeDefined();
-});
+test.each(["windows", "macos", "linux"])(
+  "%s applies external preference revisions when clean and preserves dirty edits",
+  async (platform) => {
+    let changed: ((snapshot: Snapshot) => void) | undefined;
+    const client: SettingsClient = {
+      load: vi.fn().mockResolvedValue(initial),
+      save: vi.fn(),
+      onPreferencesChanged: vi.fn(async (listener) => {
+        changed = listener;
+        return () => {
+          changed = undefined;
+        };
+      }),
+      host: { platform } as never,
+    };
+    render(<SettingsPage client={client} />);
+    const size = (await screen.findByRole("combobox", {
+      name: "每页候选数量",
+    })) as HTMLSelectElement;
+    await waitFor(() => expect(changed).toBeDefined());
+    changed?.({
+      ...initial,
+      revision: 8,
+      preferences: { ...initial.preferences, candidate_page_size: 9 },
+    });
+    await waitFor(() => expect(size.value).toBe("9"));
+    fireEvent.change(size, { target: { value: "7" } });
+    changed?.({
+      ...initial,
+      revision: 9,
+      preferences: { ...initial.preferences, candidate_page_size: 5 },
+    });
+    expect(size.value).toBe("7");
+    expect(await screen.findByText("设置已被其他窗口修改。请重新读取后再保存。")).toBeDefined();
+  },
+);
 
 test("failed initial load never enables saving fabricated defaults", async () => {
-  const client: SettingsClient = { load: vi.fn().mockRejectedValue({ code: "format" }), save: vi.fn() };
+  const client: SettingsClient = {
+    load: vi.fn().mockRejectedValue({ code: "format" }),
+    save: vi.fn(),
+  };
   render(<SettingsPage client={client} />);
   await screen.findByRole("alert");
   expect(screen.queryByRole("button", { name: "保存设置" })).toBeNull();
@@ -2818,13 +4522,22 @@ test("failed initial load never enables saving fabricated defaults", async () =>
 });
 
 test("legacy autocorrect stays ignored and granular corrections save independently", async () => {
-  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn().mockImplementation(async (_revision, preferences) => ({
+      ...initial,
+      revision: 8,
+      preferences,
+    })),
+  };
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   // The fixed Windows baseline retired the old single switch, so a snapshot
   // that only carries it leaves both granular corrections off.
-  const transposition = await screen.findByLabelText("全拼纠错：字母顺序错位") as HTMLInputElement;
+  const transposition = (await screen.findByLabelText(
+    "全拼纠错：字母顺序错位",
+  )) as HTMLInputElement;
   const neighbor = screen.getByLabelText("全拼纠错：相邻键误触") as HTMLInputElement;
   expect(transposition.checked).toBe(false);
   expect(neighbor.checked).toBe(false);
@@ -2840,7 +4553,14 @@ test("legacy autocorrect stays ignored and granular corrections save independent
 });
 
 test("category navigation preserves one draft and saves edits across pages", async () => {
-  const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn().mockImplementation(async (_revision, preferences) => ({
+      ...initial,
+      revision: 8,
+      preferences,
+    })),
+  };
   render(<SettingsPage client={client} />);
   const appearance = screen.getByRole("button", { name: "外观" });
   expect(appearance.getAttribute("aria-current")).toBe("page");
@@ -2854,38 +4574,71 @@ test("category navigation preserves one draft and saves edits across pages", asy
   expect(screen.getByRole("combobox", { name: "每页候选数量" }).textContent).toContain("9");
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_page_size: 9, quanpin_helpcode: { enabled: false, schema: "ziranma", show_in_candidate_window: false } });
+  expect(client.save).toHaveBeenCalledWith(7, {
+    ...initial.preferences,
+    candidate_page_size: 9,
+    quanpin_helpcode: { enabled: false, schema: "ziranma", show_in_candidate_window: false },
+  });
   expect(client.load).toHaveBeenCalledTimes(1);
 });
 
-
-test.each(["undo", "clear", "next stroke", "host replacement"])("handwriting ignores delayed recognition after %s", async action => {
-  let resolve!: (result: { candidates: string[] }) => void;
-  const recognizeHandwriting = vi.fn(() => new Promise<{ candidates: string[] }>(done => { resolve = done; }));
-  const client = { close: vi.fn().mockResolvedValue(undefined), recognizeHandwriting };
-  const panel = render(<HandwritingPanel client={client} />);
-  const canvas = screen.getByLabelText("手写画布");
-  fireEvent.pointerDown(canvas, { isPrimary: true, clientX: 20, clientY: 20, pointerId: 1 });
-  fireEvent.pointerMove(canvas, { clientX: 80, clientY: 80, pointerId: 1 });
-  fireEvent.pointerUp(canvas, { pointerId: 1 });
-  expect(recognizeHandwriting).toHaveBeenCalledTimes(1);
-  if (action === "undo") fireEvent.click(screen.getByRole("button", { name: /撤销/ }));
-  if (action === "clear") fireEvent.click(screen.getByRole("button", { name: /重写/ }));
-  if (action === "next stroke") fireEvent.pointerDown(canvas, { isPrimary: true, clientX: 30, clientY: 30, pointerId: 2 });
-  if (action === "host replacement") panel.rerender(<HandwritingPanel client={{ close: client.close }} />);
-  await act(async () => resolve({ candidates: ["fixture-stale"] }));
-  expect(screen.queryByRole("button", { name: "fixture-stale" })).toBeNull();
-  if (action === "next stroke") {
-    fireEvent.pointerMove(canvas, { clientX: 90, clientY: 90, pointerId: 2 });
-    fireEvent.pointerUp(canvas, { pointerId: 2 });
-    await act(async () => resolve({ candidates: ["fixture-current"] }));
-    expect(screen.getByRole("button", { name: "fixture-current" })).toBeDefined();
-  }
-});
+test.each(["undo", "clear", "next stroke", "host replacement"])(
+  "handwriting ignores delayed recognition after %s",
+  async (action) => {
+    let resolve!: (result: { candidates: string[] }) => void;
+    const recognizeHandwriting = vi.fn(
+      () =>
+        new Promise<{ candidates: string[] }>((done) => {
+          resolve = done;
+        }),
+    );
+    const client = { close: vi.fn().mockResolvedValue(undefined), recognizeHandwriting };
+    const panel = render(<HandwritingPanel client={client} />);
+    const canvas = screen.getByLabelText("手写画布");
+    fireEvent.pointerDown(canvas, { isPrimary: true, clientX: 20, clientY: 20, pointerId: 1 });
+    fireEvent.pointerMove(canvas, { clientX: 80, clientY: 80, pointerId: 1 });
+    fireEvent.pointerUp(canvas, { pointerId: 1 });
+    expect(recognizeHandwriting).toHaveBeenCalledTimes(1);
+    if (action === "undo") fireEvent.click(screen.getByRole("button", { name: /撤销/ }));
+    if (action === "clear") fireEvent.click(screen.getByRole("button", { name: /重写/ }));
+    if (action === "next stroke")
+      fireEvent.pointerDown(canvas, { isPrimary: true, clientX: 30, clientY: 30, pointerId: 2 });
+    if (action === "host replacement")
+      panel.rerender(<HandwritingPanel client={{ close: client.close }} />);
+    await act(async () => resolve({ candidates: ["fixture-stale"] }));
+    expect(screen.queryByRole("button", { name: "fixture-stale" })).toBeNull();
+    if (action === "next stroke") {
+      fireEvent.pointerMove(canvas, { clientX: 90, clientY: 90, pointerId: 2 });
+      fireEvent.pointerUp(canvas, { pointerId: 2 });
+      await act(async () => resolve({ candidates: ["fixture-current"] }));
+      expect(screen.getByRole("button", { name: "fixture-current" })).toBeDefined();
+    }
+  },
+);
 
 test("handwriting matches Windows candidate priority, uniqueness, and limit", async () => {
   const recognizeHandwriting = vi.fn().mockResolvedValue({
-    candidates: ["water", "水", "water", "永", "A", "木", "B", "本", "C", "未", "D", "末", "E", "术", "F", "札", "G", "正", "H"],
+    candidates: [
+      "water",
+      "水",
+      "water",
+      "永",
+      "A",
+      "木",
+      "B",
+      "本",
+      "C",
+      "未",
+      "D",
+      "末",
+      "E",
+      "术",
+      "F",
+      "札",
+      "G",
+      "正",
+      "H",
+    ],
   });
   const mounted = render(<HandwritingPanel client={{ close: vi.fn(), recognizeHandwriting }} />);
   const canvas = screen.getByLabelText("手写画布");
@@ -2893,9 +4646,11 @@ test("handwriting matches Windows candidate priority, uniqueness, and limit", as
   fireEvent.pointerMove(canvas, { clientX: 80, clientY: 80, pointerId: 1 });
   fireEvent.pointerUp(canvas, { clientX: 100, clientY: 100, pointerId: 1 });
   await screen.findByRole("button", { name: "水" });
-  expect(within(mounted.container.querySelector(".handwriting-candidate-grid") as HTMLElement)
-    .getAllByRole("button").map(button => button.textContent))
-    .toEqual(["水", "永", "木", "本", "未", "末", "术", "札", "正", "water", "A", "B"]);
+  expect(
+    within(mounted.container.querySelector(".handwriting-candidate-grid") as HTMLElement)
+      .getAllByRole("button")
+      .map((button) => button.textContent),
+  ).toEqual(["水", "永", "木", "本", "未", "末", "术", "札", "正", "water", "A", "B"]);
 });
 
 test("a host can open the settings window on the section its menu named", async () => {

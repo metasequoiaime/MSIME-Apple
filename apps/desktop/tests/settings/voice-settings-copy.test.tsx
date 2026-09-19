@@ -3,14 +3,27 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { SettingsPage, type Snapshot } from "@msime/ui";
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 const snapshot: Snapshot = {
-  format_version: 1, revision: 2,
+  format_version: 1,
+  revision: 2,
   preferences: {
-    scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 5,
-    learning: true, chinese_punctuation: true,
-    voice_input: { enabled: true, language: "zh-CN", asr_provider: "doubao", doubao_auth_mode: "legacy", asr_token: "secret-token" },
+    scheme: "quanpin",
+    shuangpin_profile: "xiaohe",
+    candidate_page_size: 5,
+    learning: true,
+    chinese_punctuation: true,
+    voice_input: {
+      enabled: true,
+      language: "zh-CN",
+      asr_provider: "doubao",
+      doubao_auth_mode: "legacy",
+      asr_token: "secret-token",
+    },
   },
 };
 
@@ -19,7 +32,9 @@ function host(platform: string) {
 }
 
 async function openVoice(platform: string) {
-  render(<SettingsPage client={{ load: async () => snapshot, save: vi.fn(), host: host(platform) }} />);
+  render(
+    <SettingsPage client={{ load: async () => snapshot, save: vi.fn(), host: host(platform) }} />,
+  );
   await screen.findByRole("button", { name: "保存设置" });
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
   // The token fields are hidden on Linux, where credentials belong to the
@@ -81,14 +96,27 @@ test("Linux keeps the wording that is accurate there", async () => {
 });
 
 test("Linux exposes Doubao auth mode without exposing provider credentials", async () => {
-  const linuxSnapshot: Snapshot = { ...snapshot, preferences: { ...snapshot.preferences,
-    voice_input: { enabled: true, language: "zh-CN", ...snapshot.preferences.voice_input, doubao_auth_mode: "api_key" },
-  } };
-  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...linuxSnapshot, revision: 3, preferences }));
+  const linuxSnapshot: Snapshot = {
+    ...snapshot,
+    preferences: {
+      ...snapshot.preferences,
+      voice_input: {
+        enabled: true,
+        language: "zh-CN",
+        ...snapshot.preferences.voice_input,
+        doubao_auth_mode: "api_key",
+      },
+    },
+  };
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
+    ...linuxSnapshot,
+    revision: 3,
+    preferences,
+  }));
   render(<SettingsPage client={{ load: async () => linuxSnapshot, save, host: host("linux") }} />);
   await screen.findByRole("button", { name: "保存设置" });
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
-  const mode = await screen.findByLabelText("豆包鉴权方式") as HTMLSelectElement;
+  const mode = (await screen.findByLabelText("豆包鉴权方式")) as HTMLSelectElement;
   expect(mode.value).toBe("api_key");
   expect(screen.queryByLabelText("Doubao API Key")).toBeNull();
   expect(screen.queryByLabelText("Doubao App Key")).toBeNull();
@@ -101,7 +129,11 @@ test("Linux exposes Doubao auth mode without exposing provider credentials", asy
 test("Android uses the system recognizer and hides desktop voice controls", async () => {
   await openVoice("android");
   expect(screen.getByText("Android 系统语音")).toBeTruthy();
-  expect(screen.getByText("从键盘工具栏的“语音”入口调用设备上的系统语音识别服务。识别结果会回到键盘，确认后才插入当前输入框。")).toBeTruthy();
+  expect(
+    screen.getByText(
+      "从键盘工具栏的“语音”入口调用设备上的系统语音识别服务。识别结果会回到键盘，确认后才插入当前输入框。",
+    ),
+  ).toBeTruthy();
   expect(screen.getByLabelText("识别语言")).toBeTruthy();
   expect(screen.queryByLabelText("识别服务")).toBeNull();
   expect(screen.queryByLabelText("识别 API Token")).toBeNull();
@@ -122,12 +154,17 @@ test("iOS keeps voice in the app flow and hides the desktop voice panel", async 
 
 test("iOS exposes the shared in-app voice action", async () => {
   const openVoice = vi.fn().mockResolvedValue(undefined);
-  render(<SettingsPage initialPage="voice" client={{
-    load: async () => snapshot,
-    save: vi.fn(),
-    host: host("ios"),
-    openVoice,
-  }} />);
+  render(
+    <SettingsPage
+      initialPage="voice"
+      client={{
+        load: async () => snapshot,
+        save: vi.fn(),
+        host: host("ios"),
+        openVoice,
+      }}
+    />,
+  );
   await screen.findByRole("button", { name: "保存设置" });
   fireEvent.click(screen.getByRole("button", { name: "开始 iOS 语音" }));
   expect(openVoice).toHaveBeenCalledOnce();
@@ -135,12 +172,17 @@ test("iOS exposes the shared in-app voice action", async () => {
 
 test("iOS handwriting points to the keyboard extension instead of a desktop panel", async () => {
   const openSystemKeyboardSettings = vi.fn().mockResolvedValue(undefined);
-  render(<SettingsPage initialPage="handwriting" client={{
-    load: async () => snapshot,
-    save: vi.fn(),
-    host: host("ios"),
-    openSystemKeyboardSettings,
-  }} />);
+  render(
+    <SettingsPage
+      initialPage="handwriting"
+      client={{
+        load: async () => snapshot,
+        save: vi.fn(),
+        host: host("ios"),
+        openSystemKeyboardSettings,
+      }}
+    />,
+  );
   await screen.findByRole("button", { name: "保存设置" });
   expect(screen.getByText("iOS 键盘手写")).toBeTruthy();
   expect(screen.getByText(/切换到“手写”输入方案/)).toBeTruthy();

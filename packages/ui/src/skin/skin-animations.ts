@@ -1,11 +1,16 @@
 import { animationVariables, type AnimationMode } from "./skin-animation-variables";
 // Names are decoded by the browser using the same grammar as @keyframes.
 // A sticky token scan keeps quoted/escaped commas inside their name.
-export function rewriteAnimationNames(value: string, names: ReadonlyMap<string, string>): { value: string; partial: boolean } {
-  const token = /"(?:[^"\\]|\\[\s\S])*"|'(?:[^'\\]|\\[\s\S])*'|(?:\\(?:[0-9a-f]{1,6}(?:\r\n|[ \t\r\n\f])?|[\s\S])|[^\s,'"()\\])+/giy;
+export function rewriteAnimationNames(
+  value: string,
+  names: ReadonlyMap<string, string>,
+): { value: string; partial: boolean } {
+  const token =
+    /"(?:[^"\\]|\\[\s\S])*"|'(?:[^'\\]|\\[\s\S])*'|(?:\\(?:[0-9a-f]{1,6}(?:\r\n|[ \t\r\n\f])?|[\s\S])|[^\s,'"()\\])+/giy;
   const output: string[] = [];
   const parser = new CSSStyleSheet();
-  let offset = 0, partial = false;
+  let offset = 0,
+    partial = false;
   while (offset < value.length) {
     while (/\s/.test(value[offset] ?? "")) offset++;
     token.lastIndex = offset;
@@ -16,7 +21,10 @@ export function rewriteAnimationNames(value: string, names: ReadonlyMap<string, 
     else {
       parser.replaceSync("@keyframes " + match[0] + " {}");
       const rule = parser.cssRules[0] as CSSKeyframesRule | undefined;
-      const replacement = parser.cssRules.length === 1 && rule?.type === CSSRule.KEYFRAMES_RULE ? names.get(rule.name) : undefined;
+      const replacement =
+        parser.cssRules.length === 1 && rule?.type === CSSRule.KEYFRAMES_RULE
+          ? names.get(rule.name)
+          : undefined;
       output.push(replacement ?? "none");
       if (!replacement) partial = true;
     }
@@ -34,21 +42,30 @@ export function isolateToolbarAnimations(sheet: CSSStyleSheet): boolean {
   function visit(rules: CSSRuleList, action: (rule: CSSRule) => void) {
     for (const rule of Array.from(rules)) {
       action(rule);
-      if (rule.type === CSSRule.STYLE_RULE || rule.type === CSSRule.MEDIA_RULE || rule.type === CSSRule.SUPPORTS_RULE || rule.type === CSSRule.KEYFRAMES_RULE) {
+      if (
+        rule.type === CSSRule.STYLE_RULE ||
+        rule.type === CSSRule.MEDIA_RULE ||
+        rule.type === CSSRule.SUPPORTS_RULE ||
+        rule.type === CSSRule.KEYFRAMES_RULE
+      ) {
         const nested = (rule as CSSGroupingRule).cssRules;
         if (nested) visit(nested, action);
       }
     }
   }
-  visit(sheet.cssRules, rule => {
+  visit(sheet.cssRules, (rule) => {
     if (rule.type !== CSSRule.KEYFRAMES_RULE) return;
     const frames = rule as CSSKeyframesRule;
     if (!names.has(frames.name)) names.set(frames.name, prefix + names.size);
     frames.name = names.get(frames.name)!;
   });
   const styles: CSSStyleDeclaration[] = [];
-  visit(sheet.cssRules, rule => {
-    if (rule.type === CSSRule.STYLE_RULE || rule.type === CSSRule.KEYFRAME_RULE || rule.constructor.name === "CSSNestedDeclarations")
+  visit(sheet.cssRules, (rule) => {
+    if (
+      rule.type === CSSRule.STYLE_RULE ||
+      rule.type === CSSRule.KEYFRAME_RULE ||
+      rule.constructor.name === "CSSNestedDeclarations"
+    )
       styles.push((rule as CSSStyleRule).style);
   });
   const parser = new CSSStyleSheet();
@@ -68,7 +85,11 @@ export function isolateToolbarAnimations(sheet: CSSStyleSheet): boolean {
     const mode = name ? "animation-name" : "animation";
     // Use the shorthand only for pending variable substitution. Static names
     // still change just the longhand, preserving independent timing overrides.
-    style.setProperty(mode, variables.rewrite(name || style.getPropertyValue("animation"), mode), style.getPropertyPriority(mode));
+    style.setProperty(
+      mode,
+      variables.rewrite(name || style.getPropertyValue("animation"), mode),
+      style.getPropertyPriority(mode),
+    );
   }
   return variables.install();
 }

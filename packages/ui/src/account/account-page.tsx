@@ -80,28 +80,56 @@ type Channel = "email" | "phone";
 type Confirmation = "logout-all" | "delete" | null;
 
 function isAccountCancellation(error: unknown): boolean {
-  if (typeof error === "object" && error !== null && "code" in error && error.code === "account_cancelled") return true;
-  if (typeof DOMException !== "undefined" && error instanceof DOMException && error.name === "AbortError") return true;
+  if (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "account_cancelled"
+  )
+    return true;
+  if (
+    typeof DOMException !== "undefined" &&
+    error instanceof DOMException &&
+    error.name === "AbortError"
+  )
+    return true;
   if (!(error instanceof Error)) return false;
   const message = error.message.trim().toLowerCase();
-  return error.name === "AbortError" || message === "cancelled" || message === "the operation was aborted.";
+  return (
+    error.name === "AbortError" ||
+    message === "cancelled" ||
+    message === "the operation was aborted."
+  );
 }
 
 function accountMessage(error: unknown): string {
   if (typeof error === "object" && error !== null && "code" in error) {
     switch (error.code) {
-      case "account_invalid": return "填写的内容无效，请检查后重试。";
-      case "account_unauthorized": return "登录已失效，请重新登录。";
-      case "account_conflict": return "云端设置已被其他设备更新，请刷新后重新确认。";
-      case "account_rate_limited": return "操作过于频繁，请稍后再试。";
-      case "account_storage": return "无法安全读取登录状态，请检查设备安全设置。";
-      case "account_cancelled": return "操作已取消，请重试。";
+      case "account_invalid":
+        return "填写的内容无效，请检查后重试。";
+      case "account_unauthorized":
+        return "登录已失效，请重新登录。";
+      case "account_conflict":
+        return "云端设置已被其他设备更新，请刷新后重新确认。";
+      case "account_rate_limited":
+        return "操作过于频繁，请稍后再试。";
+      case "account_storage":
+        return "无法安全读取登录状态，请检查设备安全设置。";
+      case "account_cancelled":
+        return "操作已取消，请重试。";
     }
   }
   return "账号服务暂不可用，请稍后再试。";
 }
 
-function MobileAccountProfilePage({ client, user, profile, onBack, onSignedOut, onProfileUpdated }: {
+function MobileAccountProfilePage({
+  client,
+  user,
+  profile,
+  onBack,
+  onSignedOut,
+  onProfileUpdated,
+}: {
   client: AccountClient;
   user: AccountUser;
   profile: AccountProfile | null;
@@ -113,37 +141,55 @@ function MobileAccountProfilePage({ client, user, profile, onBack, onSignedOut, 
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
-  const [confirmation, setConfirmation] = useState<"logout" | "logout-all" | "relogin" | "delete" | null>(null);
+  const [confirmation, setConfirmation] = useState<
+    "logout" | "logout-all" | "relogin" | "delete" | null
+  >(null);
   const [copied, setCopied] = useState(false);
   const normalizedName = name.trim();
-  const validName = Boolean(normalizedName) && [...normalizedName].length <= 64 && !/[\u0000-\u001f\u007f]/.test(normalizedName);
+  const validName =
+    Boolean(normalizedName) &&
+    [...normalizedName].length <= 64 &&
+    !/[\u0000-\u001f\u007f]/.test(normalizedName);
 
   const perform = async (operation: () => Promise<void>) => {
     if (busy) return;
-    setBusy(true); setError(""); setNotice("");
-    try { await operation(); } catch (cause) { if (!isAccountCancellation(cause)) setError(accountMessage(cause)); } finally { setBusy(false); }
+    setBusy(true);
+    setError("");
+    setNotice("");
+    try {
+      await operation();
+    } catch (cause) {
+      if (!isAccountCancellation(cause)) setError(accountMessage(cause));
+    } finally {
+      setBusy(false);
+    }
   };
-  const rename = () => void perform(async () => {
-    if (!validName) throw { code: "account_invalid" };
-    const updated = await client.rename(normalizedName);
-    onProfileUpdated(updated);
-    setName(updated.user.displayName);
-    setNotice("昵称已更新。");
-  });
-  const signOut = (all: boolean) => void perform(async () => {
-    await client.logout(all);
-    onSignedOut();
-  });
-  const clearExpired = () => void perform(async () => {
-    await client.clearExpired();
-    onSignedOut();
-  });
-  const deleteAccount = () => void perform(async () => {
-    await client.deleteAccount();
-    onSignedOut();
-  });
+  const rename = () =>
+    void perform(async () => {
+      if (!validName) throw { code: "account_invalid" };
+      const updated = await client.rename(normalizedName);
+      onProfileUpdated(updated);
+      setName(updated.user.displayName);
+      setNotice("昵称已更新。");
+    });
+  const signOut = (all: boolean) =>
+    void perform(async () => {
+      await client.logout(all);
+      onSignedOut();
+    });
+  const clearExpired = () =>
+    void perform(async () => {
+      await client.clearExpired();
+      onSignedOut();
+    });
+  const deleteAccount = () =>
+    void perform(async () => {
+      await client.deleteAccount();
+      onSignedOut();
+    });
   const confirmAction = () => {
-    const action = confirmation; setConfirmation(null);
+    const action = confirmation;
+    setConfirmation(null);
     if (action === "logout") signOut(false);
     else if (action === "logout-all") signOut(true);
     else if (action === "relogin") clearExpired();
@@ -151,52 +197,174 @@ function MobileAccountProfilePage({ client, user, profile, onBack, onSignedOut, 
   };
   const copyId = () => {
     if (!navigator.clipboard?.writeText) return;
-    void navigator.clipboard.writeText(user.id).then(() => {
-      setCopied(true); window.setTimeout(() => setCopied(false), 1800);
-    }).catch(() => setError("账号 ID 暂时无法复制，请稍后重试。"));
+    void navigator.clipboard
+      .writeText(user.id)
+      .then(() => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1800);
+      })
+      .catch(() => setError("账号 ID 暂时无法复制，请稍后重试。"));
   };
 
-  return <div className="account-page account-profile-page">
-    <div className="account-profile-page-header">
-      <button type="button" className="secondary" disabled={busy} onClick={onBack}>‹ 返回</button>
-      <h2>编辑资料</h2>
-    </div>
-    {error && <p role="alert" className="error">{error}</p>}
-    {notice && <p role="status" className="notice">{notice}</p>}
-    <section className="section account-profile-preview">
-      <div className="account-avatar" aria-hidden="true">{(normalizedName || "水杉用户").slice(0, 1)}</div>
-      <h2>{normalizedName || "你的昵称"}</h2>
-      <p className="account-muted">在水杉，留下你的名字</p>
-    </section>
-    <section className="section account-profile">
-      <h2>社区昵称</h2>
-      <label>社区昵称<input aria-label="编辑社区昵称" maxLength={64} value={name} disabled={busy} onChange={event => setName(event.target.value)} /></label>
-      <p className={`account-muted${!validName && normalizedName ? " error" : ""}`}>{normalizedName ? (validName ? "昵称会显示在社区作品中，已发布的作品也会同步更新。" : "昵称最多 64 个字符，请勿使用换行或控制字符。") : "取一个喜欢的名字，让大家记住你。"}</p>
-      <p className="account-muted">{[...normalizedName].length}/64</p>
-      <div className="account-inline-actions"><button type="button" className="account-primary" disabled={busy || !validName || normalizedName === user.displayName} onClick={rename}>保存昵称</button></div>
-    </section>
-    <section className="section account-profile">
-      <h2>账号信息</h2>
-      <dl className="account-details">
-        <div><dt>账号 ID</dt><dd><button type="button" className="account-copy-id" onClick={copyId}>{copied ? "已复制" : `#${user.id.slice(0, 6).toUpperCase()}`}</button></dd></div>
-        <div><dt>登录方式</dt><dd>{profile?.providers.map(providerName).join("、") || "正在读取"}</dd></div>
-        <div><dt>加入水杉</dt><dd>{new Date(user.createdAt).toLocaleDateString("zh-CN")}</dd></div>
-      </dl>
-    </section>
-    <section className="section account-actions">
-      <h2>账号操作</h2>
-      <div className="account-inline-actions">
-        <button type="button" className="secondary" disabled={busy} onClick={() => setConfirmation("logout")}>退出登录</button>
-        <button type="button" className="secondary" disabled={busy} onClick={() => setConfirmation("logout-all")}>退出所有设备</button>
-        <button type="button" className="secondary" disabled={busy} onClick={() => setConfirmation("relogin")}>重新登录</button>
-        <button type="button" className="danger-text" disabled={busy} onClick={() => setConfirmation("delete")}>注销账号</button>
+  return (
+    <div className="account-page account-profile-page">
+      <div className="account-profile-page-header">
+        <button type="button" className="secondary" disabled={busy} onClick={onBack}>
+          ‹ 返回
+        </button>
+        <h2>编辑资料</h2>
       </div>
-    </section>
-    {confirmation && <div className="account-confirmation" role="alertdialog" aria-label={confirmation === "delete" ? "确认注销账号" : confirmation === "logout-all" ? "确认退出所有设备" : confirmation === "relogin" ? "确认重新登录" : "确认退出登录"}>
-      <p>{confirmation === "delete" ? "注销账号将删除已发布皮肤、评分及其他云端账号数据，无法撤销。" : confirmation === "logout-all" ? "退出所有设备后，所有设备都需要重新登录。" : confirmation === "relogin" ? "清除本机登录状态后需要重新登录。" : "退出登录后，社区功能需要重新登录才能使用。"}</p>
-      <div><button type="button" className={confirmation === "delete" ? "danger-text" : "account-primary"} disabled={busy} onClick={confirmAction}>确认</button><button type="button" className="secondary" disabled={busy} onClick={() => setConfirmation(null)}>取消</button></div>
-    </div>}
-  </div>;
+      {error && (
+        <p role="alert" className="error">
+          {error}
+        </p>
+      )}
+      {notice && (
+        <p role="status" className="notice">
+          {notice}
+        </p>
+      )}
+      <section className="section account-profile-preview">
+        <div className="account-avatar" aria-hidden="true">
+          {(normalizedName || "水杉用户").slice(0, 1)}
+        </div>
+        <h2>{normalizedName || "你的昵称"}</h2>
+        <p className="account-muted">在水杉，留下你的名字</p>
+      </section>
+      <section className="section account-profile">
+        <h2>社区昵称</h2>
+        <label>
+          社区昵称
+          <input
+            aria-label="编辑社区昵称"
+            maxLength={64}
+            value={name}
+            disabled={busy}
+            onChange={(event) => setName(event.target.value)}
+          />
+        </label>
+        <p className={`account-muted${!validName && normalizedName ? " error" : ""}`}>
+          {normalizedName
+            ? validName
+              ? "昵称会显示在社区作品中，已发布的作品也会同步更新。"
+              : "昵称最多 64 个字符，请勿使用换行或控制字符。"
+            : "取一个喜欢的名字，让大家记住你。"}
+        </p>
+        <p className="account-muted">{[...normalizedName].length}/64</p>
+        <div className="account-inline-actions">
+          <button
+            type="button"
+            className="account-primary"
+            disabled={busy || !validName || normalizedName === user.displayName}
+            onClick={rename}
+          >
+            保存昵称
+          </button>
+        </div>
+      </section>
+      <section className="section account-profile">
+        <h2>账号信息</h2>
+        <dl className="account-details">
+          <div>
+            <dt>账号 ID</dt>
+            <dd>
+              <button type="button" className="account-copy-id" onClick={copyId}>
+                {copied ? "已复制" : `#${user.id.slice(0, 6).toUpperCase()}`}
+              </button>
+            </dd>
+          </div>
+          <div>
+            <dt>登录方式</dt>
+            <dd>{profile?.providers.map(providerName).join("、") || "正在读取"}</dd>
+          </div>
+          <div>
+            <dt>加入水杉</dt>
+            <dd>{new Date(user.createdAt).toLocaleDateString("zh-CN")}</dd>
+          </div>
+        </dl>
+      </section>
+      <section className="section account-actions">
+        <h2>账号操作</h2>
+        <div className="account-inline-actions">
+          <button
+            type="button"
+            className="secondary"
+            disabled={busy}
+            onClick={() => setConfirmation("logout")}
+          >
+            退出登录
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            disabled={busy}
+            onClick={() => setConfirmation("logout-all")}
+          >
+            退出所有设备
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            disabled={busy}
+            onClick={() => setConfirmation("relogin")}
+          >
+            重新登录
+          </button>
+          <button
+            type="button"
+            className="danger-text"
+            disabled={busy}
+            onClick={() => setConfirmation("delete")}
+          >
+            注销账号
+          </button>
+        </div>
+      </section>
+      {confirmation && (
+        <div
+          className="account-confirmation"
+          role="alertdialog"
+          aria-label={
+            confirmation === "delete"
+              ? "确认注销账号"
+              : confirmation === "logout-all"
+                ? "确认退出所有设备"
+                : confirmation === "relogin"
+                  ? "确认重新登录"
+                  : "确认退出登录"
+          }
+        >
+          <p>
+            {confirmation === "delete"
+              ? "注销账号将删除已发布皮肤、评分及其他云端账号数据，无法撤销。"
+              : confirmation === "logout-all"
+                ? "退出所有设备后，所有设备都需要重新登录。"
+                : confirmation === "relogin"
+                  ? "清除本机登录状态后需要重新登录。"
+                  : "退出登录后，社区功能需要重新登录才能使用。"}
+          </p>
+          <div>
+            <button
+              type="button"
+              className={confirmation === "delete" ? "danger-text" : "account-primary"}
+              disabled={busy}
+              onClick={confirmAction}
+            >
+              确认
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              disabled={busy}
+              onClick={() => setConfirmation(null)}
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
 }
 
 function preferredName(user: AccountUser): string {
@@ -219,7 +387,13 @@ const appIconOptions = [
   { id: "vermilion", title: "朱砂", detail: "朱红印记，纸上东方", color: "#b9473f" },
 ] as const;
 
-function AppIconSettingsCard({ client, platform }: { client: AppIconClient; platform?: "android" | "ios" }) {
+function AppIconSettingsCard({
+  client,
+  platform,
+}: {
+  client: AppIconClient;
+  platform?: "android" | "ios";
+}) {
   const [info, setInfo] = useState<AppIconInfo | null>(null);
   const [pending, setPending] = useState<string | null>(null);
   const [error, setError] = useState("");
@@ -228,12 +402,17 @@ function AppIconSettingsCard({ client, platform }: { client: AppIconClient; plat
     let active = true;
     setInfo(null);
     setError("");
-    void client.info().then(value => {
-      if (active) setInfo(value);
-    }).catch(() => {
-      if (active) setError("暂时无法读取 App 图标状态，请稍后重试。");
-    });
-    return () => { active = false; };
+    void client
+      .info()
+      .then((value) => {
+        if (active) setInfo(value);
+      })
+      .catch(() => {
+        if (active) setError("暂时无法读取 App 图标状态，请稍后重试。");
+      });
+    return () => {
+      active = false;
+    };
   }, [client]);
 
   const choose = async (style: string) => {
@@ -259,34 +438,63 @@ function AppIconSettingsCard({ client, platform }: { client: AppIconClient; plat
     }
   };
 
-  return <section className="section app-icon-settings">
-    <div>
-      <h2>App 图标</h2>
-      <p>给主屏幕上的水杉换个颜色。{platform === "android"
-        ? "Android 会使用系统启动器的图标别名保存选择。"
-        : platform === "ios"
-          ? "iOS 会使用系统备用图标接口保存选择。"
-          : "系统会使用平台提供的图标切换能力保存选择。"}</p>
-    </div>
-    {info === null && !error && <p role="status">正在读取图标状态…</p>}
-    {error && <p role="alert" className="error">{error}</p>}
-    {info && !info.supported && <p className="account-muted">当前设备暂不支持更换 App 图标。</p>}
-    {info && <div className="app-icon-grid">
-      {appIconOptions.map(option => {
-        const selected = info.selected === option.id;
-        const changing = pending === option.id;
-        return <button type="button" className={`app-icon-card${selected ? " selected" : ""}`}
-          key={option.id} disabled={!info.supported || pending !== null}
-          aria-label={`${option.title}，${option.detail}`} aria-pressed={selected}
-          onClick={() => void choose(option.id)}>
-          <span className="app-icon-preview" style={{ backgroundColor: option.color }} aria-hidden="true">杉</span>
-          <span className="app-icon-copy"><strong>{option.title}</strong><small>{option.detail}</small></span>
-          <span className="app-icon-state">{changing ? "更换中" : selected ? "使用中" : "使用此图标"}</span>
-        </button>;
-      })}
-    </div>}
-    <p className="account-muted">更换后，系统启动器可能需要片刻刷新。随时可以切回原版。</p>
-  </section>;
+  return (
+    <section className="section app-icon-settings">
+      <div>
+        <h2>App 图标</h2>
+        <p>
+          给主屏幕上的水杉换个颜色。
+          {platform === "android"
+            ? "Android 会使用系统启动器的图标别名保存选择。"
+            : platform === "ios"
+              ? "iOS 会使用系统备用图标接口保存选择。"
+              : "系统会使用平台提供的图标切换能力保存选择。"}
+        </p>
+      </div>
+      {info === null && !error && <p role="status">正在读取图标状态…</p>}
+      {error && (
+        <p role="alert" className="error">
+          {error}
+        </p>
+      )}
+      {info && !info.supported && <p className="account-muted">当前设备暂不支持更换 App 图标。</p>}
+      {info && (
+        <div className="app-icon-grid">
+          {appIconOptions.map((option) => {
+            const selected = info.selected === option.id;
+            const changing = pending === option.id;
+            return (
+              <button
+                type="button"
+                className={`app-icon-card${selected ? " selected" : ""}`}
+                key={option.id}
+                disabled={!info.supported || pending !== null}
+                aria-label={`${option.title}，${option.detail}`}
+                aria-pressed={selected}
+                onClick={() => void choose(option.id)}
+              >
+                <span
+                  className="app-icon-preview"
+                  style={{ backgroundColor: option.color }}
+                  aria-hidden="true"
+                >
+                  杉
+                </span>
+                <span className="app-icon-copy">
+                  <strong>{option.title}</strong>
+                  <small>{option.detail}</small>
+                </span>
+                <span className="app-icon-state">
+                  {changing ? "更换中" : selected ? "使用中" : "使用此图标"}
+                </span>
+              </button>
+            );
+          })}
+        </div>
+      )}
+      <p className="account-muted">更换后，系统启动器可能需要片刻刷新。随时可以切回原版。</p>
+    </section>
+  );
 }
 
 function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; userId: string }) {
@@ -317,16 +525,21 @@ function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; user
     setCloud(null);
     setMessage("");
     setBusy(true);
-    void Promise.all([client.schema(), client.load()]).then(([nextSchema, nextCloud]) => {
-      if (!active) return;
-      setSchema(nextSchema);
-      setCloud(nextCloud);
-    }).catch(error => {
-      if (active && !isAccountCancellation(error)) setMessage(accountMessage(error));
-    }).finally(() => {
-      if (active) setBusy(false);
-    });
-    return () => { active = false; };
+    void Promise.all([client.schema(), client.load()])
+      .then(([nextSchema, nextCloud]) => {
+        if (!active) return;
+        setSchema(nextSchema);
+        setCloud(nextCloud);
+      })
+      .catch((error) => {
+        if (active && !isAccountCancellation(error)) setMessage(accountMessage(error));
+      })
+      .finally(() => {
+        if (active) setBusy(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [client, userId]);
 
   const runConfirmed = async () => {
@@ -338,7 +551,11 @@ function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; user
     try {
       if (operation === "upload") setCloud(await client.upload());
       else await client.apply(userId, cloud);
-      setMessage(operation === "upload" ? "本机设置已上传。" : "已应用云端设置。请重新打开键盘使部分设置生效。");
+      setMessage(
+        operation === "upload"
+          ? "本机设置已上传。"
+          : "已应用云端设置。请重新打开键盘使部分设置生效。",
+      );
     } catch (error) {
       if (!isAccountCancellation(error)) setMessage(accountMessage(error));
     } finally {
@@ -347,30 +564,84 @@ function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; user
   };
 
   const hasCloudSettings = Boolean(cloud && Object.keys(cloud.settings).length > 0);
-  return <section className="section account-settings-sync">
-    <h2>设置同步</h2>
-    <p>同步输入方案、简繁体、键盘声音与触感、词库学习开关和皮肤。凭据、联网授权及输入内容不会随设置上传。</p>
-    {cloud && <p className="account-muted">云端版本：{cloud.revision}</p>}
-    <div className="account-inline-actions">
-      <button type="button" className="secondary" disabled={busy} onClick={() => void load()}>刷新云端设置</button>
-      <button type="button" className="account-primary" disabled={busy || !cloud || !schema} onClick={() => setConfirmation("upload")}>上传本机设置</button>
-      <button type="button" className="secondary" disabled={busy || !cloud || !schema || !hasCloudSettings} onClick={() => setConfirmation("apply")}>下载并应用云端设置</button>
-    </div>
-    {busy && <p role="status">正在处理…</p>}
-    {message && <p role="status">{message}</p>}
-    {confirmation && <div className="account-confirmation" role="alertdialog" aria-label={confirmation === "upload" ? "确认上传本机设置" : "确认应用云端设置"}>
-      <p>{confirmation === "upload"
-        ? "将更新云端对应设置，并保留其他平台专属设置。版本冲突时不会自动覆盖。"
-        : "将替换本机对应设置，不会下载词库或开启数据上传。"}</p>
-      <div>
-        <button type="button" className="account-primary" disabled={busy} onClick={() => void runConfirmed()}>{confirmation === "upload" ? "确认上传" : "确认应用"}</button>
-        <button type="button" className="secondary" disabled={busy} onClick={() => setConfirmation(null)}>取消</button>
+  return (
+    <section className="section account-settings-sync">
+      <h2>设置同步</h2>
+      <p>
+        同步输入方案、简繁体、键盘声音与触感、词库学习开关和皮肤。凭据、联网授权及输入内容不会随设置上传。
+      </p>
+      {cloud && <p className="account-muted">云端版本：{cloud.revision}</p>}
+      <div className="account-inline-actions">
+        <button type="button" className="secondary" disabled={busy} onClick={() => void load()}>
+          刷新云端设置
+        </button>
+        <button
+          type="button"
+          className="account-primary"
+          disabled={busy || !cloud || !schema}
+          onClick={() => setConfirmation("upload")}
+        >
+          上传本机设置
+        </button>
+        <button
+          type="button"
+          className="secondary"
+          disabled={busy || !cloud || !schema || !hasCloudSettings}
+          onClick={() => setConfirmation("apply")}
+        >
+          下载并应用云端设置
+        </button>
       </div>
-    </div>}
-  </section>;
+      {busy && <p role="status">正在处理…</p>}
+      {message && <p role="status">{message}</p>}
+      {confirmation && (
+        <div
+          className="account-confirmation"
+          role="alertdialog"
+          aria-label={confirmation === "upload" ? "确认上传本机设置" : "确认应用云端设置"}
+        >
+          <p>
+            {confirmation === "upload"
+              ? "将更新云端对应设置，并保留其他平台专属设置。版本冲突时不会自动覆盖。"
+              : "将替换本机对应设置，不会下载词库或开启数据上传。"}
+          </p>
+          <div>
+            <button
+              type="button"
+              className="account-primary"
+              disabled={busy}
+              onClick={() => void runConfirmed()}
+            >
+              {confirmation === "upload" ? "确认上传" : "确认应用"}
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              disabled={busy}
+              onClick={() => setConfirmation(null)}
+            >
+              取消
+            </button>
+          </div>
+        </div>
+      )}
+    </section>
+  );
 }
 
-export function AccountPage({ client, appIcon, platform, onOpenPublishedSkins, onOpenLocalDesigns, onOpenCommunity, onOpenCloudDictionary, onOpenCloudClipboard, onOpenAbout, onOpenDesktopDownload, onReplayOnboarding }: {
+export function AccountPage({
+  client,
+  appIcon,
+  platform,
+  onOpenPublishedSkins,
+  onOpenLocalDesigns,
+  onOpenCommunity,
+  onOpenCloudDictionary,
+  onOpenCloudClipboard,
+  onOpenAbout,
+  onOpenDesktopDownload,
+  onReplayOnboarding,
+}: {
   client?: AccountClient;
   appIcon?: AppIconClient;
   platform?: "android" | "ios";
@@ -385,26 +656,42 @@ export function AccountPage({ client, appIcon, platform, onOpenPublishedSkins, o
 }) {
   const resolvedAppIcon = appIcon ?? client?.appIcon;
   if (!client) {
-    return <div className="account-page">
-      {resolvedAppIcon && <AppIconSettingsCard client={resolvedAppIcon} platform={platform} />}
-    </div>;
+    return (
+      <div className="account-page">
+        {resolvedAppIcon && <AppIconSettingsCard client={resolvedAppIcon} platform={platform} />}
+      </div>
+    );
   }
-  return <AccountDetailsPage
-    client={client}
-    appIcon={resolvedAppIcon}
-    platform={platform}
-    onOpenPublishedSkins={onOpenPublishedSkins}
-    onOpenLocalDesigns={onOpenLocalDesigns}
-    onOpenCommunity={onOpenCommunity}
-    onOpenCloudDictionary={onOpenCloudDictionary}
-    onOpenCloudClipboard={onOpenCloudClipboard}
-    onOpenAbout={onOpenAbout}
-    onOpenDesktopDownload={onOpenDesktopDownload}
-    onReplayOnboarding={onReplayOnboarding}
-  />;
+  return (
+    <AccountDetailsPage
+      client={client}
+      appIcon={resolvedAppIcon}
+      platform={platform}
+      onOpenPublishedSkins={onOpenPublishedSkins}
+      onOpenLocalDesigns={onOpenLocalDesigns}
+      onOpenCommunity={onOpenCommunity}
+      onOpenCloudDictionary={onOpenCloudDictionary}
+      onOpenCloudClipboard={onOpenCloudClipboard}
+      onOpenAbout={onOpenAbout}
+      onOpenDesktopDownload={onOpenDesktopDownload}
+      onReplayOnboarding={onReplayOnboarding}
+    />
+  );
 }
 
-function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, onOpenLocalDesigns, onOpenCommunity, onOpenCloudDictionary, onOpenCloudClipboard, onOpenAbout, onOpenDesktopDownload, onReplayOnboarding }: {
+function AccountDetailsPage({
+  client,
+  appIcon,
+  platform,
+  onOpenPublishedSkins,
+  onOpenLocalDesigns,
+  onOpenCommunity,
+  onOpenCloudDictionary,
+  onOpenCloudClipboard,
+  onOpenAbout,
+  onOpenDesktopDownload,
+  onReplayOnboarding,
+}: {
   client: AccountClient;
   appIcon?: AppIconClient;
   platform?: "android" | "ios";
@@ -441,7 +728,9 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
   useEffect(() => {
     if (!mobile || typeof window === "undefined") return;
     const onPopState = (event: PopStateEvent) => {
-      setMobileProfilePage(event.state?.msimeSettings === true && event.state.accountSubpage === "profile");
+      setMobileProfilePage(
+        event.state?.msimeSettings === true && event.state.accountSubpage === "profile",
+      );
     };
     setMobileProfilePage(window.history.state?.accountSubpage === "profile");
     window.addEventListener("popstate", onPopState);
@@ -461,7 +750,7 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
 
   useEffect(() => {
     let active = true;
-    void Promise.allSettled([client.status(), client.providers()]).then(async results => {
+    void Promise.allSettled([client.status(), client.providers()]).then(async (results) => {
       if (!active) return;
       const [status, available] = results;
       if (available.status === "fulfilled") setProviders(available.value);
@@ -475,7 +764,8 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
             const value = await client.profile();
             if (active) applyProfile(value);
           } catch (profileError) {
-            if (active && !isAccountCancellation(profileError)) setError(accountMessage(profileError));
+            if (active && !isAccountCancellation(profileError))
+              setError(accountMessage(profileError));
           }
         }
       } else {
@@ -483,7 +773,9 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
       }
       if (active) setLoading(false);
     });
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [client]);
 
   useEffect(() => {
@@ -515,265 +807,688 @@ function AccountDetailsPage({ client, appIcon, platform, onOpenPublishedSkins, o
     setNotice("");
   };
 
-  const requestCode = () => void perform(async () => {
-    if (!channel) return;
-    const normalized = target.trim();
-    if (!normalized) throw { code: "account_invalid" };
-    const value = await client.requestCode(channel, normalized);
-    const timestamp = Date.now();
-    setNow(timestamp);
-    setChallenge(value);
-    setExpiresAt(timestamp + value.expiresIn * 1000);
-    setResendAt(timestamp + 60_000);
-    setCode("");
-    setNotice("验证码已发送，请查收。");
-  });
+  const requestCode = () =>
+    void perform(async () => {
+      if (!channel) return;
+      const normalized = target.trim();
+      if (!normalized) throw { code: "account_invalid" };
+      const value = await client.requestCode(channel, normalized);
+      const timestamp = Date.now();
+      setNow(timestamp);
+      setChallenge(value);
+      setExpiresAt(timestamp + value.expiresIn * 1000);
+      setResendAt(timestamp + 60_000);
+      setCode("");
+      setNotice("验证码已发送，请查收。");
+    });
 
-  const signIn = () => void perform(async () => {
-    if (!challenge || code.length !== 6 || !/^\d{6}$/.test(code) || expiresAt <= Date.now())
-      throw { code: "account_invalid" };
-    const result = await client.login(challenge.challengeId, code);
-    if (!result.user) throw { code: "account_unavailable" };
-    setUser(result.user);
-    setChannel(null);
-    setChallenge(null);
-    setCode("");
-    await loadProfile();
-    setNotice("登录成功。");
-  });
+  const signIn = () =>
+    void perform(async () => {
+      if (!challenge || code.length !== 6 || !/^\d{6}$/.test(code) || expiresAt <= Date.now())
+        throw { code: "account_invalid" };
+      const result = await client.login(challenge.challengeId, code);
+      if (!result.user) throw { code: "account_unavailable" };
+      setUser(result.user);
+      setChannel(null);
+      setChallenge(null);
+      setCode("");
+      await loadProfile();
+      setNotice("登录成功。");
+    });
 
-  const signOut = (all: boolean) => void perform(async () => {
-    await client.logout(all);
-    setUser(null);
-    setProfile(null);
-    setName("");
-    setConfirmation(null);
-    setNotice(all ? "已退出所有设备。" : "已退出登录。");
-  });
+  const signOut = (all: boolean) =>
+    void perform(async () => {
+      await client.logout(all);
+      setUser(null);
+      setProfile(null);
+      setName("");
+      setConfirmation(null);
+      setNotice(all ? "已退出所有设备。" : "已退出登录。");
+    });
 
-  const deleteAccount = () => void perform(async () => {
-    await client.deleteAccount();
-    setUser(null);
-    setProfile(null);
-    setName("");
-    setConfirmation(null);
-    setNotice("账号已注销。");
-  });
+  const deleteAccount = () =>
+    void perform(async () => {
+      await client.deleteAccount();
+      setUser(null);
+      setProfile(null);
+      setName("");
+      setConfirmation(null);
+      setNotice("账号已注销。");
+    });
 
-  const clearExpired = () => void perform(async () => {
-    await client.clearExpired();
-    setUser(null);
-    setProfile(null);
-    setName("");
-    setNotice("已清除失效登录状态。");
-  });
+  const clearExpired = () =>
+    void perform(async () => {
+      await client.clearExpired();
+      setUser(null);
+      setProfile(null);
+      setName("");
+      setNotice("已清除失效登录状态。");
+    });
 
-  const rename = () => void perform(async () => {
-    const normalized = name.trim();
-    if (!normalized || [...normalized].length > 64 || /[\u0000-\u001f\u007f]/.test(normalized))
-      throw { code: "account_invalid" };
-    applyProfile(await client.rename(normalized));
-    setNotice("昵称已更新。");
-  });
+  const rename = () =>
+    void perform(async () => {
+      const normalized = name.trim();
+      if (!normalized || [...normalized].length > 64 || /[\u0000-\u001f\u007f]/.test(normalized))
+        throw { code: "account_invalid" };
+      applyProfile(await client.rename(normalized));
+      setNotice("昵称已更新。");
+    });
 
   const copyAccountId = () => {
     if (!user || !navigator.clipboard?.writeText) return;
-    void navigator.clipboard.writeText(user.id).then(() => {
-      setCopiedAccountId(true);
-      window.setTimeout(() => setCopiedAccountId(false), 1800);
-    }).catch(() => setError("账号 ID 暂时无法复制，请稍后重试。"));
+    void navigator.clipboard
+      .writeText(user.id)
+      .then(() => {
+        setCopiedAccountId(true);
+        window.setTimeout(() => setCopiedAccountId(false), 1800);
+      })
+      .catch(() => setError("账号 ID 暂时无法复制，请稍后重试。"));
   };
 
   const openPublishedSkins = onOpenCommunity
     ? () => onOpenCommunity("published-skins")
     : onOpenPublishedSkins;
 
-  if (loading) return <div className="account-page"><p role="status">正在读取账号状态…</p></div>;
+  if (loading)
+    return (
+      <div className="account-page">
+        <p role="status">正在读取账号状态…</p>
+      </div>
+    );
 
-  if (mobileProfilePage && user) return <MobileAccountProfilePage
-    client={client}
-    user={user}
-    profile={profile}
-    onBack={() => { if (typeof window !== "undefined") window.history.back(); else setMobileProfilePage(false); }}
-    onSignedOut={() => { setMobileProfilePage(false); setUser(null); setProfile(null); setName(""); if (typeof window !== "undefined") window.history.back(); }}
-    onProfileUpdated={applyProfile}
-  />;
+  if (mobileProfilePage && user)
+    return (
+      <MobileAccountProfilePage
+        client={client}
+        user={user}
+        profile={profile}
+        onBack={() => {
+          if (typeof window !== "undefined") window.history.back();
+          else setMobileProfilePage(false);
+        }}
+        onSignedOut={() => {
+          setMobileProfilePage(false);
+          setUser(null);
+          setProfile(null);
+          setName("");
+          if (typeof window !== "undefined") window.history.back();
+        }}
+        onProfileUpdated={applyProfile}
+      />
+    );
 
   const resendSeconds = Math.max(0, Math.ceil((resendAt - now) / 1000));
   const expired = Boolean(challenge) && expiresAt <= now;
-  const enabledProviders = Number(providers.email) + Number(providers.phone) + Number(providers.apple === true);
+  const enabledProviders =
+    Number(providers.email) + Number(providers.phone) + Number(providers.apple === true);
 
-  const signInWithApple = () => void perform(async () => {
-    if (!client.appleLogin) throw { code: "account_unavailable" };
-    const result = await client.appleLogin();
-    if (!result.user) throw { code: "account_unavailable" };
-    setUser(result.user);
-    await loadProfile();
-    setNotice("登录成功。");
-  });
+  const signInWithApple = () =>
+    void perform(async () => {
+      if (!client.appleLogin) throw { code: "account_unavailable" };
+      const result = await client.appleLogin();
+      if (!result.user) throw { code: "account_unavailable" };
+      setUser(result.user);
+      await loadProfile();
+      setNotice("登录成功。");
+    });
 
-  return <div className="account-page">
-    {error && <p role="alert" className="error">{error}</p>}
-    {notice && <p role="status" className="notice">{notice}</p>}
-    <button type="button" className="section account-hero account-profile-card" disabled={!user || busy}
-      aria-label={user ? "编辑个人资料" : undefined} onClick={() => {
-        if (!user) return;
-        if (mobile && typeof window !== "undefined") {
-          const current = window.history.state;
-          window.history.pushState({ ...(current && typeof current === "object" ? current : {}), msimeSettings: true, page: "account", accountSubpage: "profile" }, "");
-          setMobileProfilePage(true);
-        } else setEditingProfile(true);
-      }}>
-      <div className="account-avatar" aria-hidden="true">{user ? preferredName(user).slice(0, 1) : "杉"}</div>
-      <div>
-        <h2>{user ? preferredName(user) : "欢迎来到水杉"}</h2>
-        <p>{user ? "水杉账号已登录" : "登录，分享你的键盘设计"}</p>
-      </div>
-      {user && <span className="account-profile-card-chevron" aria-hidden="true">›</span>}
-    </button>
-    {appIcon && <AppIconSettingsCard client={appIcon} platform={platform} />}
-    {onOpenLocalDesigns && <section className="section account-community-actions">
-      <div><h2>我的设计</h2><p>保存在本机的键盘皮肤，不会因登录账号而上传。</p></div>
-      <button type="button" className="secondary" disabled={busy} onClick={onOpenLocalDesigns}>打开设计器</button>
-    </section>}
-    {user ? <>
-      {!mobile && <section className="section account-profile">
+  return (
+    <div className="account-page">
+      {error && (
+        <p role="alert" className="error">
+          {error}
+        </p>
+      )}
+      {notice && (
+        <p role="status" className="notice">
+          {notice}
+        </p>
+      )}
+      <button
+        type="button"
+        className="section account-hero account-profile-card"
+        disabled={!user || busy}
+        aria-label={user ? "编辑个人资料" : undefined}
+        onClick={() => {
+          if (!user) return;
+          if (mobile && typeof window !== "undefined") {
+            const current = window.history.state;
+            window.history.pushState(
+              {
+                ...(current && typeof current === "object" ? current : {}),
+                msimeSettings: true,
+                page: "account",
+                accountSubpage: "profile",
+              },
+              "",
+            );
+            setMobileProfilePage(true);
+          } else setEditingProfile(true);
+        }}
+      >
+        <div className="account-avatar" aria-hidden="true">
+          {user ? preferredName(user).slice(0, 1) : "杉"}
+        </div>
         <div>
-          <h2>个人资料</h2>
-          <p>昵称会显示在社区作品中，已发布的作品也会同步更新。</p>
+          <h2>{user ? preferredName(user) : "欢迎来到水杉"}</h2>
+          <p>{user ? "水杉账号已登录" : "登录，分享你的键盘设计"}</p>
         </div>
-        <label>社区昵称
-          <input aria-label="社区昵称" maxLength={64} value={name}
-            onChange={event => setName(event.target.value)} disabled={busy} />
-        </label>
-        <div className="account-inline-actions">
-          <button type="button" className="account-primary" disabled={busy || name.trim() === user.displayName}
-            onClick={rename}>{busy ? "正在处理…" : "保存昵称"}</button>
-        </div>
-        <dl className="account-details">
-          <div><dt>账号 ID</dt><dd>#{user.id.slice(0, 6).toUpperCase()}</dd></div>
-          <div><dt>登录方式</dt><dd>{profile?.providers.map(providerName).join("、") || "正在读取"}</dd></div>
-        </dl>
-      </section>}
-      {!mobile && editingProfile && <div className="account-modal-backdrop" role="presentation" onMouseDown={event => {
-        if (event.target === event.currentTarget && !busy) setEditingProfile(false);
-      }}>
-        <section className="account-modal" role="dialog" aria-modal="true" aria-label="编辑个人资料">
-          <div className="account-modal-heading"><h2>编辑资料</h2><button type="button" className="secondary" disabled={busy} onClick={() => setEditingProfile(false)}>关闭</button></div>
-          <div className="account-profile-preview"><div className="account-avatar" aria-hidden="true">{preferredName(user).slice(0, 1)}</div><strong>{name.trim() || "你的昵称"}</strong></div>
-          <label>社区昵称
-            <input aria-label="编辑社区昵称" maxLength={64} value={name} disabled={busy} onChange={event => setName(event.target.value)} />
-          </label>
-          <p className="account-muted">昵称会显示在社区作品中，已发布的作品也会同步更新。</p>
-          <dl className="account-details">
-            <div><dt>账号 ID</dt><dd><button type="button" className="account-copy-id" onClick={copyAccountId}>{copiedAccountId ? "已复制" : `#${user.id.slice(0, 6).toUpperCase()}`}</button></dd></div>
-            <div><dt>登录方式</dt><dd>{profile?.providers.map(providerName).join("、") || "正在读取"}</dd></div>
-            <div><dt>加入水杉</dt><dd>{new Date(user.createdAt).toLocaleDateString("zh-CN")}</dd></div>
-          </dl>
-          <div className="account-inline-actions"><button type="button" className="account-primary" disabled={busy || name.trim() === user.displayName} onClick={() => {
-            rename();
-            setEditingProfile(false);
-          }}>保存修改</button><button type="button" className="secondary" disabled={busy} onClick={() => setEditingProfile(false)}>取消</button></div>
-        </section>
-      </div>}
-      {!mobile && <section className="section account-actions">
-        <h2>账号</h2>
-        <div>
-          <button type="button" className="secondary" disabled={busy} onClick={() => signOut(false)}>退出登录</button>
-          <button type="button" className="secondary" disabled={busy} onClick={() => setConfirmation("logout-all")}>退出所有设备</button>
-          <button type="button" className="danger-text" disabled={busy} onClick={() => setConfirmation("delete")}>注销账号</button>
-        </div>
-        {confirmation && <div className="account-confirmation" role="alertdialog" aria-label={confirmation === "delete" ? "确认注销账号" : "确认退出所有设备"}>
-          <p>{confirmation === "delete"
-            ? "注销账号将删除已发布皮肤、评分及其他云端账号数据，无法撤销。"
-            : "退出所有设备后，所有设备都需要重新登录。"}</p>
+        {user && (
+          <span className="account-profile-card-chevron" aria-hidden="true">
+            ›
+          </span>
+        )}
+      </button>
+      {appIcon && <AppIconSettingsCard client={appIcon} platform={platform} />}
+      {onOpenLocalDesigns && (
+        <section className="section account-community-actions">
           <div>
-            <button type="button" className={confirmation === "delete" ? "danger-text" : "account-primary"}
-              disabled={busy} onClick={() => confirmation === "delete" ? deleteAccount() : signOut(true)}>
-              {confirmation === "delete" ? "确认注销账号" : "确认退出所有设备"}
-            </button>
-            <button type="button" className="secondary" disabled={busy} onClick={() => setConfirmation(null)}>取消</button>
+            <h2>我的设计</h2>
+            <p>保存在本机的键盘皮肤，不会因登录账号而上传。</p>
           </div>
-        </div>}
-      </section>}
-      {client.settingsSync && <SettingsSyncCard client={client.settingsSync} userId={user.id} />}
-      {(onOpenCloudDictionary || onOpenCloudClipboard) && <section className="section account-community-actions">
-        <div><h2>云端</h2><p>访问账号中的云词库和云剪贴板。</p></div>
-        {onOpenCloudDictionary && <button type="button" className="secondary" disabled={busy} onClick={onOpenCloudDictionary}>云词库</button>}
-        {onOpenCloudClipboard && <button type="button" className="secondary" disabled={busy} onClick={onOpenCloudClipboard}>云剪贴板</button>}
-      </section>}
-      {(openPublishedSkins || onOpenCommunity) && (mobile ? <>
-        <section className="section account-community-actions account-community-group">
-          <div><h2>我发布的</h2><p>管理你公开发布的社区作品。</p></div>
-          {openPublishedSkins && <button type="button" className="secondary" aria-label="我发布的皮肤" disabled={busy} onClick={openPublishedSkins}>皮肤</button>}
-          {onOpenCommunity && <>
-            <button type="button" className="secondary" aria-label="我发布的词库" disabled={busy} onClick={() => onOpenCommunity("published-dictionary")}>词库</button>
-            <button type="button" className="secondary" aria-label="我发布的回复" disabled={busy} onClick={() => onOpenCommunity("published-reply")}>回复</button>
-          </>}
+          <button type="button" className="secondary" disabled={busy} onClick={onOpenLocalDesigns}>
+            打开设计器
+          </button>
         </section>
-        {onOpenCommunity && <section className="section account-community-actions account-community-group">
-          <div><h2>我收藏的</h2><p>管理你收藏的社区资源。</p></div>
-          <button type="button" className="secondary" aria-label="收藏的词库" disabled={busy} onClick={() => onOpenCommunity("saved-dictionary")}>词库</button>
-          <button type="button" className="secondary" aria-label="收藏的回复" disabled={busy} onClick={() => onOpenCommunity("saved-reply")}>回复</button>
-        </section>}
-      </> : <section className="section account-community-actions">
-        <div><h2>我的社区作品</h2><p>管理你公开发布或收藏的社区作品。</p></div>
-        {openPublishedSkins && <button type="button" className="secondary" disabled={busy} onClick={openPublishedSkins}>我发布的皮肤</button>}
-        {onOpenCommunity && <>
-          <button type="button" className="secondary" disabled={busy} onClick={() => onOpenCommunity("published-dictionary")}>我发布的词库</button>
-          <button type="button" className="secondary" disabled={busy} onClick={() => onOpenCommunity("published-reply")}>我发布的回复</button>
-          <button type="button" className="secondary" disabled={busy} onClick={() => onOpenCommunity("saved-dictionary")}>收藏的词库</button>
-          <button type="button" className="secondary" disabled={busy} onClick={() => onOpenCommunity("saved-reply")}>收藏的回复</button>
-        </>}
-      </section>)}
-    </> : <section className="section account-login">
-      <h2>{channel === "email" ? "邮箱登录" : channel === "phone" ? "手机号登录" : "登录方式"}</h2>
-      {!channel ? <>
-        <div className="account-provider-actions">
-          {providers.apple && client.appleLogin && <button type="button" className="account-primary" disabled={busy} onClick={signInWithApple}>使用 Apple 登录</button>}
-          {providers.email && <button type="button" className="account-primary" onClick={() => chooseChannel("email")}>邮箱登录</button>}
-          {providers.phone && <button type="button" className="account-primary" onClick={() => chooseChannel("phone")}>手机号登录</button>}
-        </div>
-        {enabledProviders === 0 && <p className="account-muted">当前没有可用的验证码登录方式，请稍后重试。</p>}
-        <button type="button" className="secondary" disabled={busy} onClick={() => void perform(async () => setProviders(await client.providers()))}>刷新登录方式</button>
-        <button type="button" className="secondary" disabled={busy} onClick={clearExpired}>清除失效登录状态</button>
-      </> : <>
-        <label>{channel === "email" ? "邮箱地址" : "手机号（含国家区号）"}
-          <input aria-label={channel === "email" ? "邮箱地址" : "手机号（含国家区号）"}
-            type={channel === "email" ? "email" : "tel"} autoComplete={channel === "email" ? "email" : "tel"}
-            maxLength={320} value={target} disabled={busy}
-            onChange={event => { setTarget(event.target.value); setChallenge(null); setCode(""); }} />
-        </label>
-        <div className="account-inline-actions">
-          <button type="button" className="account-primary" disabled={busy || !target.trim() || resendSeconds > 0}
-            onClick={requestCode}>{resendSeconds > 0 ? `${resendSeconds} 秒后可重新发送` : "获取验证码"}</button>
-          <button type="button" className="secondary" disabled={busy} onClick={() => setChannel(null)}>取消</button>
-        </div>
-        {challenge && <div className="account-code">
-          <label>6 位验证码
-            <input aria-label="6 位验证码" inputMode="numeric" autoComplete="one-time-code" maxLength={6}
-              value={code} disabled={busy}
-              onChange={event => setCode(event.target.value.replace(/\D/g, "").slice(0, 6))} />
-          </label>
-          <button type="button" className="account-primary" disabled={busy || expired || !/^\d{6}$/.test(code)}
-            onClick={signIn}>{expired ? "验证码已过期，请重新获取" : busy ? "正在登录…" : "登录"}</button>
-        </div>}
-        <p className="account-muted">验证码只用于本次登录，请勿向他人透露。</p>
-      </>}
-    </section>}
-    {(onOpenAbout || onOpenDesktopDownload) && <section className="section account-community-actions account-about-actions">
-      <div><h2>关于</h2><p>查看水杉版本信息、开源说明和其他平台下载指南。</p></div>
-      <div className="account-inline-actions">
-        {onOpenAbout && <button type="button" className="secondary" disabled={busy} onClick={onOpenAbout}>关于水杉</button>}
-        {onOpenDesktopDownload && <button type="button" className="secondary" disabled={busy} onClick={onOpenDesktopDownload}>电脑版下载</button>}
-      </div>
-    </section>}
-    {onReplayOnboarding && <section className="section account-about-actions">
-      <button type="button" className="secondary" disabled={busy} onClick={onReplayOnboarding}>重新查看新手引导</button>
-    </section>}
-    <section className="section account-privacy">
-      <h2>本地数据与云端作品</h2>
-      <p>皮肤设计和打字统计保存在本机。只有你主动发布的作品会分享至社区；账号登录不会自动上传本地设计或输入记录。</p>
-    </section>
-  </div>;
+      )}
+      {user ? (
+        <>
+          {!mobile && (
+            <section className="section account-profile">
+              <div>
+                <h2>个人资料</h2>
+                <p>昵称会显示在社区作品中，已发布的作品也会同步更新。</p>
+              </div>
+              <label>
+                社区昵称
+                <input
+                  aria-label="社区昵称"
+                  maxLength={64}
+                  value={name}
+                  onChange={(event) => setName(event.target.value)}
+                  disabled={busy}
+                />
+              </label>
+              <div className="account-inline-actions">
+                <button
+                  type="button"
+                  className="account-primary"
+                  disabled={busy || name.trim() === user.displayName}
+                  onClick={rename}
+                >
+                  {busy ? "正在处理…" : "保存昵称"}
+                </button>
+              </div>
+              <dl className="account-details">
+                <div>
+                  <dt>账号 ID</dt>
+                  <dd>#{user.id.slice(0, 6).toUpperCase()}</dd>
+                </div>
+                <div>
+                  <dt>登录方式</dt>
+                  <dd>{profile?.providers.map(providerName).join("、") || "正在读取"}</dd>
+                </div>
+              </dl>
+            </section>
+          )}
+          {!mobile && editingProfile && (
+            <div
+              className="account-modal-backdrop"
+              role="presentation"
+              onMouseDown={(event) => {
+                if (event.target === event.currentTarget && !busy) setEditingProfile(false);
+              }}
+            >
+              <section
+                className="account-modal"
+                role="dialog"
+                aria-modal="true"
+                aria-label="编辑个人资料"
+              >
+                <div className="account-modal-heading">
+                  <h2>编辑资料</h2>
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={busy}
+                    onClick={() => setEditingProfile(false)}
+                  >
+                    关闭
+                  </button>
+                </div>
+                <div className="account-profile-preview">
+                  <div className="account-avatar" aria-hidden="true">
+                    {preferredName(user).slice(0, 1)}
+                  </div>
+                  <strong>{name.trim() || "你的昵称"}</strong>
+                </div>
+                <label>
+                  社区昵称
+                  <input
+                    aria-label="编辑社区昵称"
+                    maxLength={64}
+                    value={name}
+                    disabled={busy}
+                    onChange={(event) => setName(event.target.value)}
+                  />
+                </label>
+                <p className="account-muted">昵称会显示在社区作品中，已发布的作品也会同步更新。</p>
+                <dl className="account-details">
+                  <div>
+                    <dt>账号 ID</dt>
+                    <dd>
+                      <button type="button" className="account-copy-id" onClick={copyAccountId}>
+                        {copiedAccountId ? "已复制" : `#${user.id.slice(0, 6).toUpperCase()}`}
+                      </button>
+                    </dd>
+                  </div>
+                  <div>
+                    <dt>登录方式</dt>
+                    <dd>{profile?.providers.map(providerName).join("、") || "正在读取"}</dd>
+                  </div>
+                  <div>
+                    <dt>加入水杉</dt>
+                    <dd>{new Date(user.createdAt).toLocaleDateString("zh-CN")}</dd>
+                  </div>
+                </dl>
+                <div className="account-inline-actions">
+                  <button
+                    type="button"
+                    className="account-primary"
+                    disabled={busy || name.trim() === user.displayName}
+                    onClick={() => {
+                      rename();
+                      setEditingProfile(false);
+                    }}
+                  >
+                    保存修改
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={busy}
+                    onClick={() => setEditingProfile(false)}
+                  >
+                    取消
+                  </button>
+                </div>
+              </section>
+            </div>
+          )}
+          {!mobile && (
+            <section className="section account-actions">
+              <h2>账号</h2>
+              <div>
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={busy}
+                  onClick={() => signOut(false)}
+                >
+                  退出登录
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={busy}
+                  onClick={() => setConfirmation("logout-all")}
+                >
+                  退出所有设备
+                </button>
+                <button
+                  type="button"
+                  className="danger-text"
+                  disabled={busy}
+                  onClick={() => setConfirmation("delete")}
+                >
+                  注销账号
+                </button>
+              </div>
+              {confirmation && (
+                <div
+                  className="account-confirmation"
+                  role="alertdialog"
+                  aria-label={confirmation === "delete" ? "确认注销账号" : "确认退出所有设备"}
+                >
+                  <p>
+                    {confirmation === "delete"
+                      ? "注销账号将删除已发布皮肤、评分及其他云端账号数据，无法撤销。"
+                      : "退出所有设备后，所有设备都需要重新登录。"}
+                  </p>
+                  <div>
+                    <button
+                      type="button"
+                      className={confirmation === "delete" ? "danger-text" : "account-primary"}
+                      disabled={busy}
+                      onClick={() => (confirmation === "delete" ? deleteAccount() : signOut(true))}
+                    >
+                      {confirmation === "delete" ? "确认注销账号" : "确认退出所有设备"}
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={busy}
+                      onClick={() => setConfirmation(null)}
+                    >
+                      取消
+                    </button>
+                  </div>
+                </div>
+              )}
+            </section>
+          )}
+          {client.settingsSync && (
+            <SettingsSyncCard client={client.settingsSync} userId={user.id} />
+          )}
+          {(onOpenCloudDictionary || onOpenCloudClipboard) && (
+            <section className="section account-community-actions">
+              <div>
+                <h2>云端</h2>
+                <p>访问账号中的云词库和云剪贴板。</p>
+              </div>
+              {onOpenCloudDictionary && (
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={busy}
+                  onClick={onOpenCloudDictionary}
+                >
+                  云词库
+                </button>
+              )}
+              {onOpenCloudClipboard && (
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={busy}
+                  onClick={onOpenCloudClipboard}
+                >
+                  云剪贴板
+                </button>
+              )}
+            </section>
+          )}
+          {(openPublishedSkins || onOpenCommunity) &&
+            (mobile ? (
+              <>
+                <section className="section account-community-actions account-community-group">
+                  <div>
+                    <h2>我发布的</h2>
+                    <p>管理你公开发布的社区作品。</p>
+                  </div>
+                  {openPublishedSkins && (
+                    <button
+                      type="button"
+                      className="secondary"
+                      aria-label="我发布的皮肤"
+                      disabled={busy}
+                      onClick={openPublishedSkins}
+                    >
+                      皮肤
+                    </button>
+                  )}
+                  {onOpenCommunity && (
+                    <>
+                      <button
+                        type="button"
+                        className="secondary"
+                        aria-label="我发布的词库"
+                        disabled={busy}
+                        onClick={() => onOpenCommunity("published-dictionary")}
+                      >
+                        词库
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary"
+                        aria-label="我发布的回复"
+                        disabled={busy}
+                        onClick={() => onOpenCommunity("published-reply")}
+                      >
+                        回复
+                      </button>
+                    </>
+                  )}
+                </section>
+                {onOpenCommunity && (
+                  <section className="section account-community-actions account-community-group">
+                    <div>
+                      <h2>我收藏的</h2>
+                      <p>管理你收藏的社区资源。</p>
+                    </div>
+                    <button
+                      type="button"
+                      className="secondary"
+                      aria-label="收藏的词库"
+                      disabled={busy}
+                      onClick={() => onOpenCommunity("saved-dictionary")}
+                    >
+                      词库
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary"
+                      aria-label="收藏的回复"
+                      disabled={busy}
+                      onClick={() => onOpenCommunity("saved-reply")}
+                    >
+                      回复
+                    </button>
+                  </section>
+                )}
+              </>
+            ) : (
+              <section className="section account-community-actions">
+                <div>
+                  <h2>我的社区作品</h2>
+                  <p>管理你公开发布或收藏的社区作品。</p>
+                </div>
+                {openPublishedSkins && (
+                  <button
+                    type="button"
+                    className="secondary"
+                    disabled={busy}
+                    onClick={openPublishedSkins}
+                  >
+                    我发布的皮肤
+                  </button>
+                )}
+                {onOpenCommunity && (
+                  <>
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={busy}
+                      onClick={() => onOpenCommunity("published-dictionary")}
+                    >
+                      我发布的词库
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={busy}
+                      onClick={() => onOpenCommunity("published-reply")}
+                    >
+                      我发布的回复
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={busy}
+                      onClick={() => onOpenCommunity("saved-dictionary")}
+                    >
+                      收藏的词库
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary"
+                      disabled={busy}
+                      onClick={() => onOpenCommunity("saved-reply")}
+                    >
+                      收藏的回复
+                    </button>
+                  </>
+                )}
+              </section>
+            ))}
+        </>
+      ) : (
+        <section className="section account-login">
+          <h2>
+            {channel === "email" ? "邮箱登录" : channel === "phone" ? "手机号登录" : "登录方式"}
+          </h2>
+          {!channel ? (
+            <>
+              <div className="account-provider-actions">
+                {providers.apple && client.appleLogin && (
+                  <button
+                    type="button"
+                    className="account-primary"
+                    disabled={busy}
+                    onClick={signInWithApple}
+                  >
+                    使用 Apple 登录
+                  </button>
+                )}
+                {providers.email && (
+                  <button
+                    type="button"
+                    className="account-primary"
+                    onClick={() => chooseChannel("email")}
+                  >
+                    邮箱登录
+                  </button>
+                )}
+                {providers.phone && (
+                  <button
+                    type="button"
+                    className="account-primary"
+                    onClick={() => chooseChannel("phone")}
+                  >
+                    手机号登录
+                  </button>
+                )}
+              </div>
+              {enabledProviders === 0 && (
+                <p className="account-muted">当前没有可用的验证码登录方式，请稍后重试。</p>
+              )}
+              <button
+                type="button"
+                className="secondary"
+                disabled={busy}
+                onClick={() => void perform(async () => setProviders(await client.providers()))}
+              >
+                刷新登录方式
+              </button>
+              <button type="button" className="secondary" disabled={busy} onClick={clearExpired}>
+                清除失效登录状态
+              </button>
+            </>
+          ) : (
+            <>
+              <label>
+                {channel === "email" ? "邮箱地址" : "手机号（含国家区号）"}
+                <input
+                  aria-label={channel === "email" ? "邮箱地址" : "手机号（含国家区号）"}
+                  type={channel === "email" ? "email" : "tel"}
+                  autoComplete={channel === "email" ? "email" : "tel"}
+                  maxLength={320}
+                  value={target}
+                  disabled={busy}
+                  onChange={(event) => {
+                    setTarget(event.target.value);
+                    setChallenge(null);
+                    setCode("");
+                  }}
+                />
+              </label>
+              <div className="account-inline-actions">
+                <button
+                  type="button"
+                  className="account-primary"
+                  disabled={busy || !target.trim() || resendSeconds > 0}
+                  onClick={requestCode}
+                >
+                  {resendSeconds > 0 ? `${resendSeconds} 秒后可重新发送` : "获取验证码"}
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  disabled={busy}
+                  onClick={() => setChannel(null)}
+                >
+                  取消
+                </button>
+              </div>
+              {challenge && (
+                <div className="account-code">
+                  <label>
+                    6 位验证码
+                    <input
+                      aria-label="6 位验证码"
+                      inputMode="numeric"
+                      autoComplete="one-time-code"
+                      maxLength={6}
+                      value={code}
+                      disabled={busy}
+                      onChange={(event) =>
+                        setCode(event.target.value.replace(/\D/g, "").slice(0, 6))
+                      }
+                    />
+                  </label>
+                  <button
+                    type="button"
+                    className="account-primary"
+                    disabled={busy || expired || !/^\d{6}$/.test(code)}
+                    onClick={signIn}
+                  >
+                    {expired ? "验证码已过期，请重新获取" : busy ? "正在登录…" : "登录"}
+                  </button>
+                </div>
+              )}
+              <p className="account-muted">验证码只用于本次登录，请勿向他人透露。</p>
+            </>
+          )}
+        </section>
+      )}
+      {(onOpenAbout || onOpenDesktopDownload) && (
+        <section className="section account-community-actions account-about-actions">
+          <div>
+            <h2>关于</h2>
+            <p>查看水杉版本信息、开源说明和其他平台下载指南。</p>
+          </div>
+          <div className="account-inline-actions">
+            {onOpenAbout && (
+              <button type="button" className="secondary" disabled={busy} onClick={onOpenAbout}>
+                关于水杉
+              </button>
+            )}
+            {onOpenDesktopDownload && (
+              <button
+                type="button"
+                className="secondary"
+                disabled={busy}
+                onClick={onOpenDesktopDownload}
+              >
+                电脑版下载
+              </button>
+            )}
+          </div>
+        </section>
+      )}
+      {onReplayOnboarding && (
+        <section className="section account-about-actions">
+          <button type="button" className="secondary" disabled={busy} onClick={onReplayOnboarding}>
+            重新查看新手引导
+          </button>
+        </section>
+      )}
+      <section className="section account-privacy">
+        <h2>本地数据与云端作品</h2>
+        <p>
+          皮肤设计和打字统计保存在本机。只有你主动发布的作品会分享至社区；账号登录不会自动上传本地设计或输入记录。
+        </p>
+      </section>
+    </div>
+  );
 }

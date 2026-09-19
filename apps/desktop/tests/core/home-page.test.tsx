@@ -33,7 +33,7 @@ test("home shortcuts expose a distinct visual tile for each function", () => {
   const { container } = render(<HomePage preferences={initial.preferences} onOpenPage={vi.fn()} />);
   const icons = [...container.querySelectorAll<HTMLElement>(".home-quick-icon")];
   expect(icons).toHaveLength(6);
-  expect(new Set(icons.map(icon => icon.className)).size).toBe(6);
+  expect(new Set(icons.map((icon) => icon.className)).size).toBe(6);
 });
 
 test("routes home shortcuts to the shared settings pages", () => {
@@ -46,13 +46,25 @@ test("routes home shortcuts to the shared settings pages", () => {
   fireEvent.click(screen.getByRole("button", { name: /键盘设置/ }));
   fireEvent.click(screen.getByRole("button", { name: /高情商回复/ }));
 
-  expect(onOpenPage.mock.calls).toEqual([["skin"], ["input"], ["screen-keyboard"], ["appearance"], ["input"]]);
+  expect(onOpenPage.mock.calls).toEqual([
+    ["skin"],
+    ["input"],
+    ["screen-keyboard"],
+    ["appearance"],
+    ["input"],
+  ]);
 });
 
 test("exposes Apple home shortcuts for dictionary, AI and system settings", () => {
   const onOpenPage = vi.fn();
   const openSystemKeyboardSettings = vi.fn().mockResolvedValue(undefined);
-  render(<HomePage preferences={initial.preferences} actions={{ openSystemKeyboardSettings }} onOpenPage={onOpenPage} />);
+  render(
+    <HomePage
+      preferences={initial.preferences}
+      actions={{ openSystemKeyboardSettings }}
+      onOpenPage={onOpenPage}
+    />,
+  );
 
   fireEvent.click(screen.getByRole("button", { name: "词库个人词与同步" }));
   fireEvent.click(screen.getByRole("button", { name: "AI回复与润色" }));
@@ -65,7 +77,9 @@ test("exposes Apple home shortcuts for dictionary, AI and system settings", () =
 test("routes the keyboard card to the shared tryout when a mobile host cannot open a window", () => {
   const onOpenPage = vi.fn();
   const onOpenChat = vi.fn();
-  render(<HomePage preferences={initial.preferences} onOpenPage={onOpenPage} onOpenChat={onOpenChat} />);
+  render(
+    <HomePage preferences={initial.preferences} onOpenPage={onOpenPage} onOpenChat={onOpenChat} />,
+  );
 
   fireEvent.click(screen.getByRole("button", { name: /试用键盘/ }));
 
@@ -94,7 +108,13 @@ test("iOS home keyboard card opens and focuses the shared keyboard tryout", asyn
 test("selects thoughtful reply from the home feature entry", () => {
   const onOpenPage = vi.fn();
   const onSelectScheme = vi.fn();
-  render(<HomePage preferences={initial.preferences} onOpenPage={onOpenPage} onSelectScheme={onSelectScheme} />);
+  render(
+    <HomePage
+      preferences={initial.preferences}
+      onOpenPage={onOpenPage}
+      onSelectScheme={onSelectScheme}
+    />,
+  );
 
   fireEvent.click(screen.getByRole("button", { name: /高情商回复/ }));
 
@@ -122,7 +142,13 @@ test("invokes Android keyboard and system input actions", () => {
 test("opens the Android emoji and clipboard tools inside the mobile shell", () => {
   const openEmojiPanel = vi.fn().mockResolvedValue(undefined);
   const openClipboardPanel = vi.fn().mockResolvedValue(undefined);
-  render(<HomePage preferences={initial.preferences} actions={{ openEmojiPanel, openClipboardPanel }} onOpenPage={vi.fn()} />);
+  render(
+    <HomePage
+      preferences={initial.preferences}
+      actions={{ openEmojiPanel, openClipboardPanel }}
+      onOpenPage={vi.fn()}
+    />,
+  );
 
   fireEvent.click(screen.getByRole("button", { name: "表情与符号" }));
   fireEvent.click(screen.getByRole("button", { name: "剪贴板历史" }));
@@ -132,9 +158,17 @@ test("opens the Android emoji and clipboard tools inside the mobile shell", () =
 });
 
 test("opens Android on home and preserves the appearance fallback without home capability", async () => {
-  render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), home: {
-    openKeyboard: vi.fn().mockResolvedValue(undefined),
-  } }} />);
+  render(
+    <SettingsPage
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        home: {
+          openKeyboard: vi.fn().mockResolvedValue(undefined),
+        },
+      }}
+    />,
+  );
   await screen.findByRole("region", { name: "首页" });
   expect(screen.getByRole("button", { name: "首页" }).getAttribute("aria-current")).toBe("page");
 
@@ -147,9 +181,17 @@ test("opens Android on home and preserves the appearance fallback without home c
 
 test("opens iOS system keyboard settings from the shared home", async () => {
   const openSystemKeyboardSettings = vi.fn().mockResolvedValue(undefined);
-  render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), home: {
-    openSystemKeyboardSettings,
-  } }} />);
+  render(
+    <SettingsPage
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        home: {
+          openSystemKeyboardSettings,
+        },
+      }}
+    />,
+  );
 
   await screen.findByRole("region", { name: "首页" });
   fireEvent.click(screen.getByRole("button", { name: "系统键盘设置" }));
@@ -158,12 +200,27 @@ test("opens iOS system keyboard settings from the shared home", async () => {
 });
 
 test("enables and selects thoughtful reply when opened from Android home", async () => {
-  render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), touchKeyboardSchemes: true, home: {
-    openKeyboard: vi.fn().mockResolvedValue(undefined),
-  } }} />);
+  render(
+    <SettingsPage
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        touchKeyboardSchemes: true,
+        home: {
+          openKeyboard: vi.fn().mockResolvedValue(undefined),
+        },
+      }}
+    />,
+  );
   await screen.findByRole("region", { name: "首页" });
   fireEvent.click(screen.getByRole("button", { name: /高情商回复/ }));
 
-  expect(screen.getByRole("button", { name: "设为当前输入方案 高情商回复" }).getAttribute("aria-pressed")).toBe("true");
-  expect((screen.getByRole("checkbox", { name: "显示输入方案 高情商回复" }) as HTMLInputElement).checked).toBe(true);
+  expect(
+    screen
+      .getByRole("button", { name: "设为当前输入方案 高情商回复" })
+      .getAttribute("aria-pressed"),
+  ).toBe("true");
+  expect(
+    (screen.getByRole("checkbox", { name: "显示输入方案 高情商回复" }) as HTMLInputElement).checked,
+  ).toBe(true);
 });

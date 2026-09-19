@@ -6,16 +6,28 @@ import { customPropertyNames, decodeCustomPropertyName } from "./css-custom-prop
 export function parseAnimationVariable(value: string): { name: string; fallback?: string } | null {
   value = value.trim();
   if (!/^var\(/i.test(value)) return null;
-  let depth = 1, comma = -1, quote = "";
+  let depth = 1,
+    comma = -1,
+    quote = "";
   for (let index = 4; index < value.length; index++) {
     const char = value[index];
-    if (char === "\\") { index++; continue; }
-    if (quote) { if (char === quote) quote = ""; continue; }
-    if (char === '"' || char === "'") { quote = char; continue; }
+    if (char === "\\") {
+      index++;
+      continue;
+    }
+    if (quote) {
+      if (char === quote) quote = "";
+      continue;
+    }
+    if (char === '"' || char === "'") {
+      quote = char;
+      continue;
+    }
     if (char === "/" && value[index + 1] === "*") {
       const end = value.indexOf("*/", index + 2);
       if (end < 0) return null;
-      index = end + 1; continue;
+      index = end + 1;
+      continue;
     }
     if (char === "(") depth++;
     else if (char === ")") {
@@ -33,15 +45,20 @@ export function parseAnimationVariable(value: string): { name: string; fallback?
 // Original values stay intact for content, layout and other non-animation uses.
 // Browser cascade/inheritance/cycle detection still resolves the alias graph.
 export function animationVariables<Mode extends string = AnimationMode>(
-  styles: CSSStyleDeclaration[], prefix: string,
+  styles: CSSStyleDeclaration[],
+  prefix: string,
   literal: (value: string, mode: Mode) => { value: string; partial: boolean },
 ) {
   const aliases = new Map<string, { source: string; mode: Mode; target: string }>();
-  const reserved = new Set(styles.flatMap(style => customPropertyNames(style.cssText)));
+  const reserved = new Set(styles.flatMap((style) => customPropertyNames(style.cssText)));
   let nextAlias = 0;
-  let partial = false, expanded = 0;
+  let partial = false,
+    expanded = 0;
   function rewrite(value: string, mode: Mode, depth = 0): string {
-    if (depth > 32) { partial = true; return "none"; }
+    if (depth > 32) {
+      partial = true;
+      return "none";
+    }
     const variable = parseAnimationVariable(value);
     if (!variable) {
       const result = literal(value, mode);
@@ -51,15 +68,26 @@ export function animationVariables<Mode extends string = AnimationMode>(
     const key = mode + ":" + variable.name;
     let alias = aliases.get(key);
     if (!alias) {
-      if (aliases.size >= 256) { partial = true; return "none"; }
+      if (aliases.size >= 256) {
+        partial = true;
+        return "none";
+      }
       let target: string;
       // Never reuse an author-provided variable or capture its references.
-      do { target = "--" + prefix + "var-" + nextAlias++; } while (reserved.has(target));
+      do {
+        target = "--" + prefix + "var-" + nextAlias++;
+      } while (reserved.has(target));
       alias = { source: variable.name, mode, target };
       aliases.set(key, alias);
     }
-    return "var(" + alias.target + (variable.fallback === undefined ? "" : ", " +
-      (variable.fallback === "" ? "" : rewrite(variable.fallback, mode, depth + 1))) + ")";
+    return (
+      "var(" +
+      alias.target +
+      (variable.fallback === undefined
+        ? ""
+        : ", " + (variable.fallback === "" ? "" : rewrite(variable.fallback, mode, depth + 1))) +
+      ")"
+    );
   }
   function install() {
     // Map iteration includes dependencies discovered while processing values;
@@ -68,11 +96,16 @@ export function animationVariables<Mode extends string = AnimationMode>(
       for (const style of styles) {
         if (!Array.from(style).includes(alias.source)) continue;
         const original = style.getPropertyValue(alias.source);
-        const value = /^(initial|inherit|unset|revert|revert-layer)$/i.test(original.trim()) ? original :
-          original.trim() === "" ? " " : rewrite(original, alias.mode);
+        const value = /^(initial|inherit|unset|revert|revert-layer)$/i.test(original.trim())
+          ? original
+          : original.trim() === ""
+            ? " "
+            : rewrite(original, alias.mode);
         expanded += value.length;
-        if (expanded > 16 * 1024 * 1024) { partial = true; style.setProperty(alias.target, "none"); }
-        else style.setProperty(alias.target, value, style.getPropertyPriority(alias.source));
+        if (expanded > 16 * 1024 * 1024) {
+          partial = true;
+          style.setProperty(alias.target, "none");
+        } else style.setProperty(alias.target, value, style.getPropertyPriority(alias.source));
       }
     }
     return partial;

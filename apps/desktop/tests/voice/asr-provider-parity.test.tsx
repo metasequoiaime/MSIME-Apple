@@ -3,7 +3,10 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { ASR_PROVIDER_DEFAULTS, SettingsPage, asrProviderUpdate, type Snapshot } from "@msime/ui";
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 // EveryAPI and Mistral are the transcription services the Apple client offers and the shared
 // client did not carry. Both speak the same OpenAI-compatible multipart API as the providers
@@ -50,24 +53,35 @@ test("a hand-written endpoint survives the switch", () => {
 });
 
 const snapshot: Snapshot = {
-  format_version: 1, revision: 2,
+  format_version: 1,
+  revision: 2,
   preferences: {
-    scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 5,
-    learning: true, chinese_punctuation: true,
+    scheme: "quanpin",
+    shuangpin_profile: "xiaohe",
+    candidate_page_size: 5,
+    learning: true,
+    chinese_punctuation: true,
     voice_input: { enabled: true, language: "zh-CN", asr_provider: "mistral" },
   },
 };
 
 test("iOS voice settings list the new services and their preset models", async () => {
-  render(<SettingsPage client={{ load: async () => snapshot, save: vi.fn(), host: { platform: "ios" } as never }} />);
+  render(
+    <SettingsPage
+      client={{ load: async () => snapshot, save: vi.fn(), host: { platform: "ios" } as never }}
+    />,
+  );
   await screen.findByRole("button", { name: "保存设置" });
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
 
   const select = screen.getByLabelText("识别服务") as HTMLSelectElement;
-  const values = [...select.options].map(option => option.value);
+  const values = [...select.options].map((option) => option.value);
   expect(values).toContain("everyapi");
   expect(values).toContain("mistral");
   expect(select.value).toBe("mistral");
-  expect([...(screen.getByLabelText("识别服务预置模型") as HTMLSelectElement).options].map(option => option.value))
-    .toEqual(["", "voxtral-mini-latest"]);
+  expect(
+    [...(screen.getByLabelText("识别服务预置模型") as HTMLSelectElement).options].map(
+      (option) => option.value,
+    ),
+  ).toEqual(["", "voxtral-mini-latest"]);
 });

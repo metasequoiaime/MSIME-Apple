@@ -3,11 +3,21 @@ import { afterEach, describe, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { SettingsPage, describeImportResult, type Snapshot } from "@msime/ui";
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 const snapshot: Snapshot = {
-  format_version: 1, revision: 2,
-  preferences: { scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 5, learning: true, chinese_punctuation: true },
+  format_version: 1,
+  revision: 2,
+  preferences: {
+    scheme: "quanpin",
+    shuangpin_profile: "xiaohe",
+    candidate_page_size: 5,
+    learning: true,
+    chinese_punctuation: true,
+  },
 };
 
 describe("describeImportResult", () => {
@@ -20,7 +30,12 @@ describe("describeImportResult", () => {
 
   test("skipped rows are counted and the first line numbers named", () => {
     const message = describeImportResult("全拼", {
-      applied: 8, failed: 3, first_failures: [{ line: 2, issue: "column_count" }, { line: 9, issue: "key_alphabet" }],
+      applied: 8,
+      failed: 3,
+      first_failures: [
+        { line: 2, issue: "column_count" },
+        { line: 9, issue: "key_alphabet" },
+      ],
     });
     expect(message).toContain("8");
     expect(message).toContain("跳过 3 行");
@@ -40,7 +55,11 @@ describe("describeImportResult", () => {
 });
 
 async function importFile(dictionary: Record<string, unknown>) {
-  render(<SettingsPage client={{ load: async () => snapshot, save: vi.fn(), dictionary: dictionary as never }} />);
+  render(
+    <SettingsPage
+      client={{ load: async () => snapshot, save: vi.fn(), dictionary: dictionary as never }}
+    />,
+  );
   await screen.findByRole("button", { name: "保存设置" });
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
   const input = document.querySelector('input[type="file"]') as HTMLInputElement;
@@ -53,7 +72,11 @@ test("an import that skipped rows reports them instead of looking clean", async 
   const dictionary = {
     list: vi.fn().mockResolvedValue({ entries: [], has_more: false }),
     edit: vi.fn(),
-    import: vi.fn().mockResolvedValue({ applied: 2, failed: 1, first_failures: [{ line: 2, issue: "column_count" }] }),
+    import: vi.fn().mockResolvedValue({
+      applied: 2,
+      failed: 1,
+      first_failures: [{ line: 2, issue: "column_count" }],
+    }),
   };
   await importFile(dictionary);
   await waitFor(() => expect(dictionary.import).toHaveBeenCalled());
@@ -77,8 +100,12 @@ test("an engine rejection is explained differently from a malformed line", () =>
   // These parse cleanly but the engine refuses them, so "check the text
   // format" would send the user looking in the wrong place.
   const message = describeImportResult("全拼", {
-    applied: 40, failed: 2,
-    first_failures: [{ line: 7, issue: "rejected" }, { line: 12, issue: "rejected" }],
+    applied: 40,
+    failed: 2,
+    first_failures: [
+      { line: 7, issue: "rejected" },
+      { line: 12, issue: "rejected" },
+    ],
   });
   expect(message).toContain("40");
   expect(message).toContain("跳过 2 行");
@@ -87,7 +114,9 @@ test("an engine rejection is explained differently from a malformed line", () =>
 
   // A purely malformed file keeps the original wording.
   const malformed = describeImportResult("全拼", {
-    applied: 3, failed: 1, first_failures: [{ line: 2, issue: "column_count" }],
+    applied: 3,
+    failed: 1,
+    first_failures: [{ line: 2, issue: "column_count" }],
   });
   expect(malformed).not.toContain("音节");
 });

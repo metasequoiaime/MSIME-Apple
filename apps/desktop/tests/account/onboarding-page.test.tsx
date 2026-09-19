@@ -15,7 +15,9 @@ function makeActions(overrides: Partial<OnboardingActions> = {}): OnboardingActi
 }
 
 test("starts on the welcome step", () => {
-  render(<WelcomeFlowPage actions={makeActions()} onComplete={vi.fn().mockResolvedValue(undefined)} />);
+  render(
+    <WelcomeFlowPage actions={makeActions()} onComplete={vi.fn().mockResolvedValue(undefined)} />,
+  );
 
   expect(screen.getByRole("heading", { name: "欢迎使用水杉" })).toBeTruthy();
   expect(screen.getByText("1 / 4")).toBeTruthy();
@@ -58,7 +60,13 @@ test("adapts the setup step for iOS keyboard settings", async () => {
 test("lets iOS users postpone onboarding without showing Android-only actions", async () => {
   const onSkip = vi.fn().mockResolvedValue(undefined);
   const actions = makeActions({ platform: "ios" });
-  render(<WelcomeFlowPage actions={actions} onComplete={vi.fn().mockResolvedValue(undefined)} onSkip={onSkip} />);
+  render(
+    <WelcomeFlowPage
+      actions={actions}
+      onComplete={vi.fn().mockResolvedValue(undefined)}
+      onSkip={onSkip}
+    />,
+  );
 
   fireEvent.click(screen.getByRole("button", { name: "稍后设置" }));
 
@@ -83,7 +91,9 @@ test("passes the nine-key choice when onboarding is completed", async () => {
 });
 
 test("reports a resource preparation failure", async () => {
-  const actions = makeActions({ prepareResources: vi.fn().mockRejectedValue(new Error("bootstrap")) });
+  const actions = makeActions({
+    prepareResources: vi.fn().mockRejectedValue(new Error("bootstrap")),
+  });
   render(<WelcomeFlowPage actions={actions} onComplete={vi.fn().mockResolvedValue(undefined)} />);
 
   fireEvent.click(screen.getByRole("button", { name: "开始设置" }));

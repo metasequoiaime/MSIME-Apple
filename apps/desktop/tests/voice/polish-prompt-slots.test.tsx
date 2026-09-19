@@ -10,16 +10,27 @@ import {
   type Snapshot,
 } from "@msime/ui";
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 const snapshot: Snapshot = {
-  format_version: 1, revision: 2,
+  format_version: 1,
+  revision: 2,
   preferences: {
-    scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 5,
-    learning: true, chinese_punctuation: true,
+    scheme: "quanpin",
+    shuangpin_profile: "xiaohe",
+    candidate_page_size: 5,
+    learning: true,
+    chinese_punctuation: true,
     voice_input: {
-      enabled: true, language: "zh-CN", asr_provider: "doubao",
-      polish_enabled: true, polish_prompt_id: "cleanup", polish_prompt: "",
+      enabled: true,
+      language: "zh-CN",
+      asr_provider: "doubao",
+      polish_enabled: true,
+      polish_prompt_id: "cleanup",
+      polish_prompt: "",
       polish_prompt_custom_2: "我自己的方案",
     },
   },
@@ -47,7 +58,11 @@ test("the legacy custom id maps onto the first slot", () => {
 });
 
 async function openVoice() {
-  render(<SettingsPage client={{ load: async () => snapshot, save: vi.fn(), host: { platform: "windows" } as never }} />);
+  render(
+    <SettingsPage
+      client={{ load: async () => snapshot, save: vi.fn(), host: { platform: "windows" } as never }}
+    />,
+  );
   await screen.findByRole("button", { name: "保存设置" });
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
   return await screen.findByLabelText("润色方案");
@@ -80,13 +95,21 @@ test("恢复默认 brings an edited preset back", async () => {
   // Nothing to restore until it is edited.
   expect((reset as HTMLButtonElement).disabled).toBe(true);
   fireEvent.change(screen.getByLabelText("润色提示词"), { target: { value: "改坏了" } });
-  expect((screen.getByRole("button", { name: "恢复默认" }) as HTMLButtonElement).disabled).toBe(false);
+  expect((screen.getByRole("button", { name: "恢复默认" }) as HTMLButtonElement).disabled).toBe(
+    false,
+  );
   fireEvent.click(screen.getByRole("button", { name: "恢复默认" }));
-  expect((screen.getByLabelText("润色提示词") as HTMLTextAreaElement).value).toBe(POLISH_PRESETS.faithful);
+  expect((screen.getByLabelText("润色提示词") as HTMLTextAreaElement).value).toBe(
+    POLISH_PRESETS.faithful,
+  );
 });
 
 test("the AI prompt slot selector is no longer Linux-only", async () => {
-  render(<SettingsPage client={{ load: async () => snapshot, save: vi.fn(), host: { platform: "windows" } as never }} />);
+  render(
+    <SettingsPage
+      client={{ load: async () => snapshot, save: vi.fn(), host: { platform: "windows" } as never }}
+    />,
+  );
   await screen.findByRole("button", { name: "保存设置" });
   fireEvent.click(screen.getByRole("button", { name: "AI 辅助" }));
   // Windows users could author three custom prompts but had no control that

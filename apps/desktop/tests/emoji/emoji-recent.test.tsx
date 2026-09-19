@@ -3,7 +3,10 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { EmojiPanel } from "@msime/ui";
 
-afterEach(() => { cleanup(); localStorage.clear(); });
+afterEach(() => {
+  cleanup();
+  localStorage.clear();
+});
 
 test("emoji panel restores persisted recent items", () => {
   localStorage.setItem("msime.emoji.recent", JSON.stringify([{ text: "⚙", keywords: "gear" }]));
@@ -18,8 +21,18 @@ test("emoji panel ignores malformed recent storage", () => {
 });
 
 test("emoji panel paginates catalog items and resets on search", async () => {
-  const items = Array.from({ length: 60 }, (_, index) => ({ text: `😀${index}`, keywords: `item${index}` }));
-  const client = { close: async () => {}, loadCatalog: async () => ({ emoji: [{ title: "All", icon: "😀", items }], kaomoji: [], symbols: [] }) };
+  const items = Array.from({ length: 60 }, (_, index) => ({
+    text: `😀${index}`,
+    keywords: `item${index}`,
+  }));
+  const client = {
+    close: async () => {},
+    loadCatalog: async () => ({
+      emoji: [{ title: "All", icon: "😀", items }],
+      kaomoji: [],
+      symbols: [],
+    }),
+  };
   render(<EmojiPanel client={client} />);
   fireEvent.click(await screen.findByRole("button", { name: "Emoji" }));
   await waitFor(() => expect(screen.getByText("第 1 / 2 页")).toBeDefined());
@@ -32,11 +45,15 @@ test("emoji panel paginates catalog items and resets on search", async () => {
 test("clipboard panel exposes host paste and keeps copy separate", async () => {
   const paste = vi.fn().mockResolvedValue(undefined);
   const copyText = vi.fn().mockResolvedValue(undefined);
-  render(<EmojiPanel client={{
-    close: async () => {},
-    copyText,
-    clipboard: { list: async () => ["synthetic clipboard entry"], paste },
-  }} />);
+  render(
+    <EmojiPanel
+      client={{
+        close: async () => {},
+        copyText,
+        clipboard: { list: async () => ["synthetic clipboard entry"], paste },
+      }}
+    />,
+  );
 
   fireEvent.click(screen.getByRole("button", { name: "剪贴板" }));
   expect(await screen.findByText("synthetic clipboard entry")).toBeDefined();

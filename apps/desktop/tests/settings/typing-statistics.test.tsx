@@ -1,14 +1,30 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { SettingsPage, type HostCapabilities, type SettingsClient, type Snapshot, type TypingStatistics, type TypingStatisticsStatus } from "@msime/ui";
+import {
+  SettingsPage,
+  type HostCapabilities,
+  type SettingsClient,
+  type Snapshot,
+  type TypingStatistics,
+  type TypingStatisticsStatus,
+} from "@msime/ui";
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 const preferences: Snapshot = {
   format_version: 1,
   revision: 1,
-  preferences: { scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 5, learning: true, chinese_punctuation: true },
+  preferences: {
+    scheme: "quanpin",
+    shuangpin_profile: "xiaohe",
+    candidate_page_size: 5,
+    learning: true,
+    chinese_punctuation: true,
+  },
 };
 
 function key(offset: number): string {
@@ -55,7 +71,11 @@ test("desktop settings omit typing statistics without the Android capability", a
 });
 
 test("statistics capability provides 7 day, 30 day, cumulative and selected-day scopes", async () => {
-  const typingStatistics = { load: vi.fn().mockResolvedValue(status()), setEnabled: vi.fn(), reset: vi.fn() };
+  const typingStatistics = {
+    load: vi.fn().mockResolvedValue(status()),
+    setEnabled: vi.fn(),
+    reset: vi.fn(),
+  };
   render(<SettingsPage client={{ ...baseClient(), typingStatistics }} />);
   fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
   expect((await screen.findByLabelText("当前范围输入字符数")).textContent).toBe("10");
@@ -77,8 +97,21 @@ test("statistics capability provides 7 day, 30 day, cumulative and selected-day 
 });
 
 test("mobile statistics follow Apple tabs and show the full retained trend", async () => {
-  const typingStatistics = { load: vi.fn().mockResolvedValue(status()), setEnabled: vi.fn(), reset: vi.fn() };
-  render(<SettingsPage client={{ ...baseClient(), host: { platform: "ios" } as HostCapabilities, home: { openKeyboard: vi.fn() }, typingStatistics }} />);
+  const typingStatistics = {
+    load: vi.fn().mockResolvedValue(status()),
+    setEnabled: vi.fn(),
+    reset: vi.fn(),
+  };
+  render(
+    <SettingsPage
+      client={{
+        ...baseClient(),
+        host: { platform: "ios" } as HostCapabilities,
+        home: { openKeyboard: vi.fn() },
+        typingStatistics,
+      }}
+    />,
+  );
   fireEvent.click(await screen.findByRole("button", { name: "统计" }));
   expect(await screen.findByRole("tab", { name: "趋势" })).toBeTruthy();
   expect(screen.getByRole("heading", { name: /每日趋势 · 近 30 天/ })).toBeTruthy();
@@ -91,8 +124,21 @@ test("mobile statistics follow Apple tabs and show the full retained trend", asy
 });
 
 test("mobile statistic tabs use Apple chart shapes", async () => {
-  const typingStatistics = { load: vi.fn().mockResolvedValue(status()), setEnabled: vi.fn(), reset: vi.fn() };
-  render(<SettingsPage client={{ ...baseClient(), host: { platform: "ios" } as HostCapabilities, home: { openKeyboard: vi.fn() }, typingStatistics }} />);
+  const typingStatistics = {
+    load: vi.fn().mockResolvedValue(status()),
+    setEnabled: vi.fn(),
+    reset: vi.fn(),
+  };
+  render(
+    <SettingsPage
+      client={{
+        ...baseClient(),
+        host: { platform: "ios" } as HostCapabilities,
+        home: { openKeyboard: vi.fn() },
+        typingStatistics,
+      }}
+    />,
+  );
   fireEvent.click(await screen.findByRole("button", { name: "统计" }));
   await screen.findByRole("heading", { name: /每日趋势/ });
   expect(screen.getByRole("img", { name: "每日输入趋势折线图" })).toBeTruthy();
@@ -105,8 +151,21 @@ test("mobile statistic tabs use Apple chart shapes", async () => {
 });
 
 test("mobile trend includes a calendar heatmap that selects a day", async () => {
-  const typingStatistics = { load: vi.fn().mockResolvedValue(status()), setEnabled: vi.fn(), reset: vi.fn() };
-  render(<SettingsPage client={{ ...baseClient(), host: { platform: "android" } as HostCapabilities, home: { openKeyboard: vi.fn() }, typingStatistics }} />);
+  const typingStatistics = {
+    load: vi.fn().mockResolvedValue(status()),
+    setEnabled: vi.fn(),
+    reset: vi.fn(),
+  };
+  render(
+    <SettingsPage
+      client={{
+        ...baseClient(),
+        host: { platform: "android" } as HostCapabilities,
+        home: { openKeyboard: vi.fn() },
+        typingStatistics,
+      }}
+    />,
+  );
   fireEvent.click(await screen.findByRole("button", { name: "统计" }));
   await screen.findByRole("heading", { name: /每日趋势/ });
   expect(screen.getByRole("group", { name: "每日输入热力图" })).toBeTruthy();
@@ -118,7 +177,16 @@ test("mobile trend includes a calendar heatmap that selects a day", async () => 
 test("mobile statistics refresh when the settings surface returns to the foreground", async () => {
   const load = vi.fn().mockResolvedValue(status());
   const typingStatistics = { load, setEnabled: vi.fn(), reset: vi.fn() };
-  render(<SettingsPage client={{ ...baseClient(), host: { platform: "ios" } as HostCapabilities, home: { openKeyboard: vi.fn() }, typingStatistics }} />);
+  render(
+    <SettingsPage
+      client={{
+        ...baseClient(),
+        host: { platform: "ios" } as HostCapabilities,
+        home: { openKeyboard: vi.fn() },
+        typingStatistics,
+      }}
+    />,
+  );
   fireEvent.click(await screen.findByRole("button", { name: "统计" }));
   await screen.findByRole("heading", { name: /每日趋势/ });
   load.mockClear();
@@ -128,7 +196,13 @@ test("mobile statistics refresh when the settings surface returns to the foregro
 
 test("statistics toggle refreshes immediately and reset requires confirmation without re-enabling", async () => {
   const disabled = { ...initialStatistics, enabled: false };
-  const cleared: TypingStatistics = { enabled: false, total: 0, days: {}, detail: { characters: {}, sources: {} }, dailyDetails: {} };
+  const cleared: TypingStatistics = {
+    enabled: false,
+    total: 0,
+    days: {},
+    detail: { characters: {}, sources: {} },
+    dailyDetails: {},
+  };
   const typingStatistics = {
     load: vi.fn().mockResolvedValue(status()),
     setEnabled: vi.fn().mockResolvedValue(status(disabled)),
@@ -152,7 +226,15 @@ test("statistics toggle refreshes immediately and reset requires confirmation wi
 
 test("never-written status explains the empty local-only data channel", async () => {
   const empty: TypingStatistics = { enabled: true, total: 0, days: {} };
-  const typingStatistics = { load: vi.fn().mockResolvedValue({ ...status(empty), availability: "neverWritten" as const, lastWrittenMs: null }), setEnabled: vi.fn(), reset: vi.fn() };
+  const typingStatistics = {
+    load: vi.fn().mockResolvedValue({
+      ...status(empty),
+      availability: "neverWritten" as const,
+      lastWrittenMs: null,
+    }),
+    setEnabled: vi.fn(),
+    reset: vi.fn(),
+  };
   render(<SettingsPage client={{ ...baseClient(), typingStatistics }} />);
   fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
   expect(await screen.findByText(/键盘从未写入过统计/)).not.toBeNull();
@@ -164,7 +246,11 @@ test("candidate positions show a first-candidate rate and keep rank order", asyn
     ...initialStatistics,
     selections: { ranks: [30, 6, 3, 0, 0, 0, 0, 0, 1], beyond: 10 },
   };
-  const typingStatistics = { load: vi.fn().mockResolvedValue(status(statistics)), setEnabled: vi.fn(), reset: vi.fn() };
+  const typingStatistics = {
+    load: vi.fn().mockResolvedValue(status(statistics)),
+    setEnabled: vi.fn(),
+    reset: vi.fn(),
+  };
   render(<SettingsPage client={{ ...baseClient(), typingStatistics }} />);
   fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
 
@@ -176,12 +262,26 @@ test("candidate positions show a first-candidate rate and keep rank order", asyn
 
   // Order is the position, never the size: the ninth row outranks every empty one before it.
   const rows = screen.getByLabelText("候选命中位置分布").querySelectorAll(".statistics-rank-row");
-  expect(Array.from(rows).map(row => row.querySelector("span")?.textContent))
-    .toEqual(["第 1 条", "第 2 条", "第 3 条", "第 4 条", "第 5 条", "第 6 条", "第 7 条", "第 8 条", "第 9 条", "第 10 条以后"]);
+  expect(Array.from(rows).map((row) => row.querySelector("span")?.textContent)).toEqual([
+    "第 1 条",
+    "第 2 条",
+    "第 3 条",
+    "第 4 条",
+    "第 5 条",
+    "第 6 条",
+    "第 7 条",
+    "第 8 条",
+    "第 9 条",
+    "第 10 条以后",
+  ]);
 });
 
 test("statistics written before candidate positions existed render an empty state", async () => {
-  const typingStatistics = { load: vi.fn().mockResolvedValue(status()), setEnabled: vi.fn(), reset: vi.fn() };
+  const typingStatistics = {
+    load: vi.fn().mockResolvedValue(status()),
+    setEnabled: vi.fn(),
+    reset: vi.fn(),
+  };
   render(<SettingsPage client={{ ...baseClient(), typingStatistics }} />);
   fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
   expect(await screen.findByText("暂无候选记录。用水杉键盘上屏几次后再回来查看。")).not.toBeNull();

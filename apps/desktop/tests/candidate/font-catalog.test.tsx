@@ -4,21 +4,35 @@ import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testi
 import { SettingsPage, type Snapshot } from "@msime/ui";
 import { normalizeFontCatalog } from "../../../../packages/ui/src/candidate/font-catalog";
 afterEach(cleanup);
-const initial: Snapshot = { format_version: 1, revision: 1, preferences: { scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 6, learning: true, chinese_punctuation: true } };
+const initial: Snapshot = {
+  format_version: 1,
+  revision: 1,
+  preferences: {
+    scheme: "quanpin",
+    shuangpin_profile: "xiaohe",
+    candidate_page_size: 6,
+    learning: true,
+    chinese_punctuation: true,
+  },
+};
 
 test("font catalogs are bounded, validated and deduplicated", () => {
   expect(normalizeFontCatalog(["Beta", "Alpha", "Alpha"])).toEqual(["Alpha", "Beta"]);
-  for (const value of [null, {}, [""], [12], ["字".repeat(43)], Array(16385).fill("Font")]) expect(() => normalizeFontCatalog(value)).toThrow("invalid font catalog");
+  for (const value of [null, {}, [""], [12], ["字".repeat(43)], Array(16385).fill("Font")])
+    expect(() => normalizeFontCatalog(value)).toThrow("invalid font catalog");
 });
 test("search loads once, selects with keyboard without saving, and filters duplicate fallbacks", async () => {
-  const listFontFamilies = vi.fn().mockResolvedValue(["Alpha", "Beta", "示例字体"]), save = vi.fn();
+  const listFontFamilies = vi.fn().mockResolvedValue(["Alpha", "Beta", "示例字体"]),
+    save = vi.fn();
   render(<SettingsPage client={{ load: async () => initial, save, listFontFamilies }} />);
   const primary = await screen.findByLabelText("候选窗主字体");
   expect(listFontFamilies).not.toHaveBeenCalled();
   fireEvent.focus(primary);
   await screen.findByRole("option", { name: "Alpha" });
   fireEvent.change(primary, { target: { value: "bet" } });
-  expect(within(screen.getByRole("listbox", { name: "候选窗主字体可用字体" })).getAllByRole("option")).toHaveLength(1);
+  expect(
+    within(screen.getByRole("listbox", { name: "候选窗主字体可用字体" })).getAllByRole("option"),
+  ).toHaveLength(1);
   fireEvent.keyDown(primary, { key: "ArrowDown" });
   fireEvent.keyDown(primary, { key: "Enter" });
   expect((primary as HTMLInputElement).value).toBe("Beta");
@@ -38,7 +52,10 @@ test("search loads once, selects with keyboard without saving, and filters dupli
 });
 test("late results from a replaced reader cannot reappear", async () => {
   let resolve!: (fonts: string[]) => void;
-  const old = () => new Promise<string[]>(done => { resolve = done; });
+  const old = () =>
+    new Promise<string[]>((done) => {
+      resolve = done;
+    });
   const client = { load: async () => initial, save: vi.fn() };
   const view = render(<SettingsPage client={{ ...client, listFontFamilies: old }} />);
   fireEvent.focus(await screen.findByLabelText("候选窗主字体"));
@@ -50,7 +67,10 @@ test("late results from a replaced reader cannot reappear", async () => {
   expect(screen.queryByRole("option", { name: "Stale font" })).toBeNull();
 });
 test("failed catalog retries while allowing manual font entry", async () => {
-  const listFontFamilies = vi.fn().mockRejectedValueOnce(Error("synthetic failure")).mockResolvedValue([]);
+  const listFontFamilies = vi
+    .fn()
+    .mockRejectedValueOnce(Error("synthetic failure"))
+    .mockResolvedValue([]);
   render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), listFontFamilies }} />);
   const input = await screen.findByLabelText("候选窗主字体");
   fireEvent.focus(input);
@@ -63,7 +83,15 @@ test("failed catalog retries while allowing manual font entry", async () => {
 });
 
 test("large catalogs bound visible options without losing searchable entries", async () => {
-  render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), listFontFamilies: async () => Array.from({ length: 101 }, (_, i) => `Font${i}`) }} />);
+  render(
+    <SettingsPage
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        listFontFamilies: async () => Array.from({ length: 101 }, (_, i) => `Font${i}`),
+      }}
+    />,
+  );
   const input = await screen.findByLabelText("候选窗主字体");
   fireEvent.focus(input);
   await screen.findByText("显示前 100 项，请输入名称缩小范围。");

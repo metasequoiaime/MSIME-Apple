@@ -14,22 +14,39 @@ export function preserveFontShorthands(css: string): { css: string; partial: boo
   return preserveShorthands(css, "font");
 }
 
-function preserveShorthands(css: string, shorthand: "animation" | "font"): { css: string; partial: boolean } {
+function preserveShorthands(
+  css: string,
+  shorthand: "animation" | "font",
+): { css: string; partial: boolean } {
   if (css.length > 16 * 1024 * 1024) return { css: "", partial: true };
-  if (!new RegExp(shorthand + "\\s*:", "i").test(css) || !/var\(/i.test(css)) return { css, partial: false };
+  if (!new RegExp(shorthand + "\\s*:", "i").test(css) || !/var\(/i.test(css))
+    return { css, partial: false };
   let root;
-  try { root = parse(css, { from: undefined, map: false }); }
-  catch { return { css, partial: true }; } // Keep browser recovery for malformed sheets.
+  try {
+    root = parse(css, { from: undefined, map: false });
+  } catch {
+    return { css, partial: true };
+  } // Keep browser recovery for malformed sheets.
   const declarations: Declaration[] = [];
-  root.walkDecls(declaration => { declarations.push(declaration); });
-  const shorthands = declarations.filter(declaration =>
-    (shorthand === "animation" ? /^(?:-webkit-)?animation$/i : /^font$/i).test(declaration.prop) && parseAnimationVariable(declaration.value));
+  root.walkDecls((declaration) => {
+    declarations.push(declaration);
+  });
+  const shorthands = declarations.filter(
+    (declaration) =>
+      (shorthand === "animation" ? /^(?:-webkit-)?animation$/i : /^font$/i).test(
+        declaration.prop,
+      ) && parseAnimationVariable(declaration.value),
+  );
   if (!shorthands.length) return { css, partial: false };
   const parsed = new CSSStyleSheet();
-  const styles = declarations.map(declaration => {
+  const styles = declarations.map((declaration) => {
     const index = parsed.insertRule(".source-declaration {}", parsed.cssRules.length);
     const style = (parsed.cssRules[index] as CSSStyleRule).style;
-    style.setProperty(decodeCustomPropertyName(declaration.prop) ?? declaration.prop, declaration.value, declaration.important ? "important" : "");
+    style.setProperty(
+      decodeCustomPropertyName(declaration.prop) ?? declaration.prop,
+      declaration.value,
+      declaration.important ? "important" : "",
+    );
     return style;
   });
   const parser = new CSSStyleSheet();
@@ -47,9 +64,11 @@ function preserveShorthands(css: string, shorthand: "animation" | "font"): { css
     return { value: projected || "msime-invalid-" + shorthand, partial: !projected };
   });
   for (const declaration of shorthands) {
-    for (const property of components) declaration.cloneBefore({
-      prop: property, value: variables.rewrite(declaration.value, property),
-    });
+    for (const property of components)
+      declaration.cloneBefore({
+        prop: property,
+        value: variables.rewrite(declaration.value, property),
+      });
     declaration.remove();
   }
   const partial = variables.install();
@@ -57,9 +76,16 @@ function preserveShorthands(css: string, shorthand: "animation" | "font"): { css
     if (!declaration.parent) return;
     const style = styles[index];
     for (const property of Array.from(style)) {
-      if (property === (decodeCustomPropertyName(declaration.prop) ?? declaration.prop) || !property.startsWith("--" + prefix)) continue;
-      declaration.cloneBefore({ prop: property, value: style.getPropertyValue(property),
-        important: style.getPropertyPriority(property) === "important" });
+      if (
+        property === (decodeCustomPropertyName(declaration.prop) ?? declaration.prop) ||
+        !property.startsWith("--" + prefix)
+      )
+        continue;
+      declaration.cloneBefore({
+        prop: property,
+        value: style.getPropertyValue(property),
+        important: style.getPropertyPriority(property) === "important",
+      });
     }
   });
   const output = root.toString();
