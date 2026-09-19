@@ -36,6 +36,7 @@
 #import "../candidate/CandidateTypography.h"
 #import "../candidate/CandidateTextMetrics.h"
 #include "../candidate/CandidateGlossLayout.h"
+#include "../candidate/CandidateRowFit.h"
 #include "../candidate/CandidateSkin.h"
 #include "../candidate/CandidateWheelRouting.h"
 #import "../core/ChineseTextConversion.h"
@@ -3446,6 +3447,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSFont *numberFont = MSIMECandidateNumberFont(font);
     NSFont *glossFont = [_appearance candidateFontOfSize:font.pointSize * 0.78 englishFirst:YES];
     CGFloat glossHeight = 0;
+    std::vector<msime::mac::CandidateRowItem> rowItems;
+    rowItems.reserve(candidates.count);
     for (NSDictionary *candidate in candidates) {
         NSString *number = [NSString stringWithFormat:@"%lu", (unsigned long)++index];
         NSString *display = CandidateDisplayWithWubiHint(candidate, traditional,
@@ -3455,6 +3458,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         CGFloat itemWidth = ceil([number sizeWithAttributes:@{NSFontAttributeName: numberFont}].width +
                                  MSIMECandidateNumberGap + [display sizeWithAttributes:@{NSFontAttributeName: font}].width +
                                  16 + (geometry.showSelectedBar ? 6 : 0));
+        const CGFloat textWidth = itemWidth;
         NSString *translation = CandidateTranslation(candidate);
         if (translation.length) {
             NSSize glossSize = MSIMETranslationTextSize(translation, glossFont);
@@ -3467,6 +3471,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             }
             if (vertical) rowHeight = MAX(rowHeight, glossSize.height + MSIMECandidateTextHeight(title, font) + 4);
         }
+        rowItems.push_back({textWidth, itemWidth});
         [widths addObject:@(itemWidth)];
         totalWidth += itemWidth;
         width = MAX(width, itemWidth + 2 * inset);
@@ -3477,10 +3482,16 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (!vertical) {
         const CGFloat available = MAX(80, visible.size.width - 32 - (paging ? 56 : 0));
         if (totalWidth > available) {
-            const CGFloat scale = available / totalWidth;
+            // A page holding a long sentence is worth more as one readable sentence than as nine equally
+            // shortened stubs, so the row keeps the leading candidates whole and takes the width it is short
+            // of from the glosses and from the tail. The floor leaves a squeezed item its number and a glyph.
+            const CGFloat minimumItemWidth = ceil([@"9" sizeWithAttributes:@{NSFontAttributeName: numberFont}].width +
+                                                  MSIMECandidateNumberGap + font.pointSize + 16 +
+                                                  (geometry.showSelectedBar ? 6 : 0));
+            const std::vector<double> fitted = msime::mac::FitCandidateRowWidths(rowItems, available, minimumItemWidth);
             totalWidth = 0;
             for (NSUInteger i = 0; i < widths.count; ++i) {
-                widths[i] = @(MAX(24, floor(widths[i].doubleValue * scale)));
+                widths[i] = @(MAX(24, floor(fitted[i])));
                 totalWidth += widths[i].doubleValue;
             }
         }
