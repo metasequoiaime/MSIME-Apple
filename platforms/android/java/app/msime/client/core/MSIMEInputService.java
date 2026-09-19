@@ -85,6 +85,12 @@ public final class MSIMEInputService extends InputMethodService {
     private static final String SPACE_CURSOR_DESCRIPTION =
         "空格；轻点输入空格或选词，左右滑动移动光标";
     private static final int CAPITALIZATION_CONTEXT_LIMIT = 128;
+    /**
+     * Shared host command 9, `Action::Finish`: commit the highlighted candidate and whatever the
+     * composition still holds. This is Apple's `finishComposition`, not `CommitRaw`, so a
+     * composition ended this way reaches the editor as 你好 rather than as the pinyin letters.
+     */
+    private static final int FINISH_COMPOSITION_COMMAND = 9;
     private long session;
     private InputConnection connection;
     private EditorBridge bridge = new EditorBridge();
@@ -1521,9 +1527,16 @@ public final class MSIMEInputService extends InputMethodService {
             return;
         }
         char output = letterCase.usesUppercase() ? Character.toUpperCase(key) : key;
-        boolean handled = SmartPunctuationContext.isAsciiPunctuation(output)
-            ? punctuation(output) : character(output);
-        if (!handled) commitText(fullWidthOutput(String.valueOf(output)));
+        boolean punctuationKey = SmartPunctuationContext.isAsciiPunctuation(output);
+        boolean handled = punctuationKey ? punctuation(output) : character(output);
+        if (!handled) {
+            // 引擎不收的标点是一次自动上屏，先把组合按首选结束掉。The preedit is a real composing
+            // region, so committing into it would replace the pinyin instead of following it.
+            if (DeclinedKeyPolicy.finishesComposition(punctuationKey, hasEngineComposition())) {
+                command(FINISH_COMPOSITION_COMMAND);
+            }
+            commitText(fullWidthOutput(String.valueOf(output)));
+        }
         if (letterCase.consumeLetter()) {
             rebuildKeyRows();
             render();

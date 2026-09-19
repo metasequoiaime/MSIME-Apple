@@ -13,8 +13,16 @@ if [[ ! -f "$android_jar" ]]; then
 fi
 output_dir=$(mktemp -d)
 trap 'rm -f "$output_dir/manifest.apk" "$output_dir/resources.zip"; find "$output_dir" -name "*.class" -delete; find "$output_dir" -depth -type d -empty -delete' EXIT
+# Command 9 was unmapped when this guard was added; it is now Action::Finish in
+# crates/host-api/src/ffi/input.rs, and the declined-punctuation path needs it.
+# What must not come back is the literal, which is how the unmapped call got in.
 if rg -n 'NativeClient\.command\([^,]+, 9\)' "$repo_root/platforms/android/java/app/msime/client/core/MSIMEInputService.java"; then
-  echo "Android input service must not use unmapped command 9" >&2
+  echo "Android input service must name command 9 (FINISH_COMPOSITION_COMMAND), not inline it" >&2
+  exit 1
+fi
+if ! rg -q 'msime_client_command' "$repo_root/crates/host-api/src/ffi/input.rs" \
+  || ! rg -q '^\s*9 => Action::Finish,' "$repo_root/crates/host-api/src/ffi/input.rs"; then
+  echo "Shared host command 9 is no longer Action::Finish; FINISH_COMPOSITION_COMMAND is stale" >&2
   exit 1
 fi
 client_sources=()
@@ -37,6 +45,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/keyboard/MicrosoftShuangpinKeyPolicySmoke.java" \
   "$repo_root/platforms/android/tests/dictionary/ChineseOutputPolicySmoke.java" \
   "$repo_root/platforms/android/tests/core/FullWidthInputPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/core/DeclinedKeyPolicySmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/KeyboardInputContextSmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/KeyboardGeometrySmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/KeyboardLayoutAdjustPolicySmoke.java" \
@@ -87,6 +96,7 @@ java -cp "$output_dir" app.msime.client.test.ChineseHelpcodePolicySmoke
 java -cp "$output_dir" MicrosoftShuangpinKeyPolicySmoke
 java -cp "$output_dir" ChineseOutputPolicySmoke
 java -cp "$output_dir" FullWidthInputPolicySmoke
+java -cp "$output_dir" DeclinedKeyPolicySmoke
 java -cp "$output_dir" KeyboardInputContextSmoke
 java -cp "$output_dir" KeyboardGeometrySmoke
 java -cp "$output_dir" KeyboardLayoutAdjustPolicySmoke
