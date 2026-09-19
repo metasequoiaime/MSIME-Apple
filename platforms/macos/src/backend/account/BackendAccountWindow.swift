@@ -340,7 +340,7 @@ final class BackendAccountWindow: NSWindowController, NSWindowDelegate {
 }
 
 @_cdecl("MSIMEShowBackendAccount")
-func showBackendAccount() {
+public func showBackendAccount() {
   Task { @MainActor in BackendAccountWindow.shared.showAccount() }
 }
 
@@ -360,13 +360,13 @@ private final class AccountPane {
 
 @_cdecl("MSIMEAccountPaneView")
 @MainActor
-func accountPaneView() -> NSView {
+public func accountPaneView() -> NSView {
   MainActor.assumeIsolated { AccountPane.shared.hosting }
 }
 
 @_cdecl("MSIMEAccountPaneAttach")
 @MainActor
-func accountPaneAttach(_ window: NSWindow?) {
+public func accountPaneAttach(_ window: NSWindow?) {
   MainActor.assumeIsolated {
     _ = window
     AccountPane.shared.model.load()
@@ -375,6 +375,6 @@ func accountPaneAttach(_ window: NSWindow?) {
 
 @_cdecl("MSIMEAccountPaneClose")
 @MainActor
-func accountPaneClose() {
+public func accountPaneClose() {
   MainActor.assumeIsolated { AccountPane.shared.model.close() }
 }

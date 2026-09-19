@@ -43,8 +43,8 @@ private enum BackendCandidateGloss {
 }
 
 @_cdecl("MSIMEFetchAccountCandidateGlosses")
-func msimeFetchAccountCandidateGlosses(_ wordsJSON: UnsafePointer<CChar>, _ primary: UnsafePointer<CChar>,
-                                       _ secondary: UnsafePointer<CChar>, _ generation: UInt64) {
+public func msimeFetchAccountCandidateGlosses(_ wordsJSON: UnsafePointer<CChar>, _ primary: UnsafePointer<CChar>,
+                                               _ secondary: UnsafePointer<CChar>, _ generation: UInt64) {
   guard let data = String(cString: wordsJSON).data(using: .utf8),
         let words = try? JSONDecoder().decode([String].self, from: data),
         words.count <= 32 else { return }

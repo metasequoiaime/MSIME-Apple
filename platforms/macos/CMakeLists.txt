@@ -95,6 +95,7 @@ add_custom_command(OUTPUT "${MSIME_SWIFT_BACKEND_OUTPUT}"
   DEPENDS ${MSIME_BACKEND_SWIFT} "${CMAKE_CURRENT_SOURCE_DIR}/scripts/build_backend_swift.sh")
 add_custom_target(macos-swift-backend DEPENDS "${MSIME_SWIFT_BACKEND_OUTPUT}")
 add_dependencies(MSIMEClientInputMethod macos-swift-backend)
+target_link_libraries(MSIMEClientInputMethod PRIVATE "${MSIME_SWIFT_BACKEND_OUTPUT}")
 target_include_directories(MSIMEClientInputMethod PRIVATE src ../../vendor/MSIME-Engine ../../vendor/MSIME-Engine/include)
 target_compile_options(MSIMEClientInputMethod PRIVATE -fobjc-arc -Wall -Wextra -Werror)
 target_link_libraries(MSIMEClientInputMethod PRIVATE apple-client msime-voice-providers "-framework AppKit" "-framework InputMethodKit" "-framework Carbon" "-framework AVFoundation" "-framework Speech")
