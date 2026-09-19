@@ -1,31 +1,31 @@
-## Summary
+## 摘要
 
-<!-- State the user-visible problem and resulting behavior. Keep the scope focused. -->
+<!-- 说明用户可见的问题和改动后的行为。保持范围聚焦。 -->
 
-## Affected areas
+## 影响范围
 
-- [ ] Shared Rust/client core
-- [ ] React/Tauri UI
+- [ ] 共享 Rust / client-core
+- [ ] React / Tauri 界面
 - [ ] Android
 - [ ] iOS
 - [ ] macOS
 - [ ] Linux
-- [ ] Windows TSF/Server
+- [ ] Windows TSF / Server
 - [ ] HarmonyOS
-- [ ] Documentation or build tooling
+- [ ] 文档或构建工具
 
-## Verification
+## 验证
 
-<!-- List the exact commands and platform checks. Separate source/build evidence from real device or system acceptance. -->
+<!-- 列出实际执行的命令和平台检查。把源码/构建证据与真机或系统验收分开写，级别见 ARCHITECTURE.md。 -->
 
 - [ ] `bash scripts/verify-local.sh --quick`
 - [ ] `git diff --check`
-- [ ] Relevant tests, type checks, fmt, clippy, and native checks listed below
+- [ ] 下面列出相关的测试、类型检查、fmt、clippy 和原生检查
 
-## Safety and release notes
+## 安全与发布
 
-- [ ] No real input, credentials, personal data, private paths, generated output, or signing material is included.
-- [ ] New upstream code, assets, models, and dependencies have source and license/notice information.
-- [ ] Any platform verification that was not run is stated explicitly.
+- [ ] 不包含真实输入、凭据、个人资料、私人路径、生成产物或签名材料。
+- [ ] 新引入的上游代码、资源、模型和依赖都附有来源与许可证/通知信息。
+- [ ] 未执行的平台验证已明确列出。
 
-<!-- Security vulnerabilities belong in the private security advisory flow, not a public PR. -->
+<!-- 安全漏洞请走私下的 security advisory 流程，不要开公开 PR。 -->
