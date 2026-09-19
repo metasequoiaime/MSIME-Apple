@@ -1204,3 +1204,11 @@ MSIME-Apple 的语音服务目录里有两个共享客户端一直没有的转�
 切换服务仍沿用既有规则：豆包的 websocket 默认地址会被改写成新服务的 HTTPS 地址，用户手填的地址和模型保留，API Key 留在被切走那个服务的槽位里。只有豆包携带请求头，两个新服务的请求头必须为空。HarmonyOS 继续按既有的「当前版本不可用」标注处理非豆包服务；macOS 旧原生语音设置窗口是迁移期的独立入口，未纳入本次改动。
 
 本地验证：`shared-voice-provider-routing` 以 `-Wall -Wextra -Werror` 编译并通过，覆盖两个新服务的默认地址、默认模型、非 websocket 判定、豆包地址改写和语言参数；`msime-client-core` 239 项、`msime-tauri-mobile-platform` 12 项 Rust 测试通过（含扩展后的凭据探测与 multipart 校验用例）；`cargo fmt --all --check` 与两个 crate 的 clippy `-D warnings` 通过；桌面 UI 套件 700 passed，失败项与 `scripts/known-failures.txt` 一致；新增 4 项 Vitest 覆盖默认值、地址改写、手填保留和 iOS 设置页选项；Linux provider 脚本的服务集合与默认值表一致性已断言。`apps/desktop/src-tauri` 的 iOS 语音配置用例已写入但未能执行：该 crate 的构建脚本要求先产出 macOS 预览 bundle，而 `cargo build -p msime-host-api` 在本机以 `can't find crate for zerofrom_derive` 失败——在未修改的 `origin/develop` 上同样失败，属既有环境债而非本次回归。未执行真实服务请求、iOS 真机或 Linux 图形桌面验收，CI 保持禁用。
+
+### 共享 apple-bridge 词库会话租约本地测试
+
+`shared/apple-bridge/DictionarySessionLease` 与 MSIME-Apple 的实现逐字节一致，但迁移时只带了实现、没带测试：Apple 仓库里三个词库桥接的 XCTest 在共享客户端一个都没有对应物。本次补上其中不依赖 Engine 的一个，并改写成仓库既有的 CMake/CTest 形态，这样它在没有 Xcode test host 的本机也能真正跑起来，而不是留一份永远不执行的用例。
+
+覆盖的正是这个类存在的理由：共享租约下第二个会话在场时两侧都不能发布；共享到独占的升级不是原子操作，所以发布失败必须把租约放回共享状态，失败本身则原样抛给调用方而不是退化成「租约忙」；恢复之后新建会话要能重新阻塞，最后一个会话退出后才允许发布。新增 `shared/apple-bridge/CMakeLists.txt` 只编译仅依赖 Foundation 的源文件；依赖 Engine 头文件的词库安装与快照激活桥接留给已经构建 Engine 的配置。`scripts/verify-local.sh` 增加自行 configure 的 apple bridge 编译与测试阶段（非 Apple 主机跳过），因为这些共享桥接同时被 iOS 键盘扩展和 macOS 宿主使用，坏掉会一次性打掉两端。
+
+本地验证：`apple-bridge-session-lease` 以 `-fobjc-arc -Wall -Wextra -Werror -UNDEBUG` 编译并通过；把实现里异常路径的 `Lock(sessions_, LOCK_SH)` 去掉后该测试转为超时失败，恢复后重新通过，确认它确实能挡住这类回归。`scripts/verify-local.sh` 完整运行报告「no failures outside the baseline」。未执行 iOS 真机、Xcode test host 或安装后验收，CI 保持禁用。
