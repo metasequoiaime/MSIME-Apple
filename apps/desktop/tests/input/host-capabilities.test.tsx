@@ -220,6 +220,23 @@ test("macOS candidate appearance exposes the shared English face control", async
   expect(screen.getByLabelText("候选窗主字体")).toBeTruthy();
 });
 
+test("Android candidate appearance exposes native font and color controls", async () => {
+  mount({ host: capabilities({
+    platform: "android",
+    system_fonts: false,
+    candidate_font_controls: true,
+    candidate_row_colors: true,
+    candidate_selection_appearance: true,
+  }) });
+  await screen.findByRole("button", { name: "保存设置" });
+  expect(screen.getByLabelText("候选窗英文字体")).toBeTruthy();
+  expect(screen.getByLabelText("候选窗主字体")).toBeTruthy();
+  expect(screen.getByLabelText("候选字号")).toBeTruthy();
+  expect(screen.getByLabelText("候选强调色")).toBeTruthy();
+  expect(screen.getByLabelText("候选悬停色")).toBeTruthy();
+  expect(screen.getByLabelText("候选边框色")).toBeTruthy();
+});
+
 test("a host that does not place its own card hides the follow-cursor choice", async () => {
   // IBus owns the candidate list's placement, so offering the toggle would be
   // a setting the host cannot honour.
