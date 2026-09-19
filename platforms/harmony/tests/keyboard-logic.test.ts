@@ -752,12 +752,16 @@ group('maps safe external toolbar CSS to ArkUI values', () => {
   const base = KeyboardSkin.from('forest', true);
   const toolbar = ToolbarSkinPolicy.fromCss(base, `
     .status-bar { background: #101820; border: 1px solid #223344; border-radius: 6px; }
+    .drag-handle { background-color: #556677; }
+    .divider { background: rgba(80, 90, 100, .5); }
     .icon { color: rgba(200, 210, 220, .9); font-family: "Noto Sans SC", sans-serif; }
     .icon:hover { background-color: #334455; }
     .english-candidate-label { font-family: "JetBrains Mono", monospace; }
   `);
   check(toolbar.backgroundColor === '#101820', 'toolbar background is mapped');
   check(toolbar.borderColor === '#223344', 'toolbar border is mapped');
+  check(toolbar.dragHandleColor === '#556677', 'toolbar drag handle color is mapped');
+  check(toolbar.dividerColor === 'rgba(80, 90, 100, .5)', 'toolbar divider color is mapped');
   check(toolbar.buttonColor === 'rgba(200, 210, 220, .9)', 'toolbar icon color is mapped');
   check(toolbar.buttonHoverColor === '#334455', 'toolbar hover color is mapped');
   check(toolbar.cornerRadiusVp === 6, 'toolbar radius is bounded and mapped');

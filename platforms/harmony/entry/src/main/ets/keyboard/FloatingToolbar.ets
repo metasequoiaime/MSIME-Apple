@@ -21,6 +21,7 @@ import { ToolbarSkin, ToolbarSkinPolicy } from './ToolbarSkinPolicy';
 struct FloatingToolbar {
   @State state: ToolbarState = FloatingToolbarLayout.idleState();
   @State buttons: ToolbarButton[] = [];
+  @State hoveredButton: ToolbarButton | undefined = undefined;
   @State fontSize: number = 24;
   @State scale: number = 1;
   // The same skin the keyboard wears, so a bar floating beside it does not look like another app's.
@@ -51,18 +52,39 @@ struct FloatingToolbar {
     const edgeInset: number = FloatingToolbarLayout.edgeInsetVp(scale);
     const toolbarHeight: number = FloatingToolbarLayout.heightVp(scale);
     const cornerRadius: number = this.toolbarSkin.cornerRadiusVp * scale;
+    const handleWidth: number = 2.5 * scale;
+    const handleHeight: number = 14 * scale;
+    const dividerWidth: number = 1.2 * scale;
+    const dividerHeight: number = Math.max(1, toolbarHeight - 2 * scale);
     // The colour goes on a container that fills the panel rather than on the row of buttons: a panel
     // is transparent where nothing is drawn, and a row only covers the buttons it holds.
     Column() {
       Row({ space: buttonGap }) {
-      ForEach(this.buttons, (button: ToolbarButton) => {
-        Text(FloatingToolbarLayout.face(button, this.state))
-          .fontSize((button === ToolbarButton.SETTINGS ? this.fontSize - 2 : this.fontSize) * scale)
-          .fontColor(this.toolbarSkin.buttonColor)
-          .fontFamily(this.toolbarSkin.fontFamily)
+        Column()
+          .width(handleWidth)
+          .height(handleHeight)
+          .backgroundColor(this.toolbarSkin.dragHandleColor)
+          .borderRadius(2 * scale)
+        Column()
+          .width(dividerWidth)
+          .height(dividerHeight)
+          .backgroundColor(this.toolbarSkin.dividerColor)
+        ForEach(this.buttons, (button: ToolbarButton) => {
+          Text(FloatingToolbarLayout.face(button, this.state))
+            .fontSize((button === ToolbarButton.SETTINGS ? this.fontSize - 2 : this.fontSize) * scale)
+          .fontColor(button === ToolbarButton.SETTINGS
+            ? this.toolbarSkin.settingsColor : this.toolbarSkin.buttonColor)
+          .fontFamily(button === ToolbarButton.INPUT_MODE && this.state.english
+            ? this.toolbarSkin.englishFontFamily : this.toolbarSkin.fontFamily)
           .textAlign(TextAlign.Center)
           .width(buttonWidth)
           .height(toolbarHeight - edgeInset)
+          .borderRadius(6 * scale)
+          .backgroundColor(this.hoveredButton === button
+            ? this.toolbarSkin.buttonHoverColor : '#00000000')
+          .onHover((isHover: boolean): void => {
+            this.hoveredButton = isHover ? button : undefined;
+          })
           .onClick(() => KeyboardSession.shared.runToolbarButton(button))
       }, (button: ToolbarButton) => `${button}:${FloatingToolbarLayout.face(button, this.state)}`)
       }

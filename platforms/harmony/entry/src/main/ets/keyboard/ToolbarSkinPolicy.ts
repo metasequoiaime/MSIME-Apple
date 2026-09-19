@@ -4,6 +4,8 @@ import { KeyboardSkin } from './skin/KeyboardSkin';
 export interface ToolbarSkin {
   backgroundColor: string;
   borderColor: string;
+  dragHandleColor: string;
+  dividerColor: string;
   buttonColor: string;
   buttonHoverColor: string;
   settingsColor: string;
@@ -87,6 +89,8 @@ export class ToolbarSkinPolicy {
     return {
       backgroundColor: skin.keyBackground,
       borderColor: skin.borderColor,
+      dragHandleColor: skin.accent,
+      dividerColor: skin.borderColor,
       buttonColor: skin.accent,
       buttonHoverColor: skin.tintedAccent(0.2),
       settingsColor: skin.keyForeground,
@@ -124,6 +128,16 @@ export class ToolbarSkinPolicy {
               const parsed: number | null = radius(value);
               if (parsed !== null) output.cornerRadiusVp = parsed;
             }
+          }
+          if (has(selector, 'drag-handle')
+              && (property === 'background' || property === 'background-color')) {
+            const parsed: string | null = declarationColor(value);
+            if (parsed !== null) output.dragHandleColor = parsed;
+          }
+          if (has(selector, 'divider')
+              && (property === 'background' || property === 'background-color')) {
+            const parsed: string | null = declarationColor(value);
+            if (parsed !== null) output.dividerColor = parsed;
           }
           if (has(selector, 'icon')) {
             if (property === 'color') {
