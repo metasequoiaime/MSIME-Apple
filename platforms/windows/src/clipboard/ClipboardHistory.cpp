@@ -106,18 +106,15 @@ size_t sequence_length(unsigned char lead) {
 }
 } // namespace
 std::string normalize_clipboard_text(std::string text) {
-  text.erase(std::remove(text.begin(), text.end(), '\0'), text.end());
+  // Match the shipped Windows history contract: only terminators introduced
+  // by CF_UNICODETEXT are removed.  Newlines (including CRLF) and whitespace
+  // are user content and must survive the round trip.
+  while (!text.empty() && (text.back() == '\0' || text.back() == '\r'))
+    text.pop_back();
   std::string normalized;
   normalized.reserve(text.size());
   size_t units = 0;
   for (size_t i = 0; i < text.size() && units < ClipboardHistory::max_chars;) {
-    if (text[i] == '\r') {
-      if (i + 1 < text.size() && text[i + 1] == '\n') ++i;
-      normalized.push_back('\n');
-      ++units;
-      ++i;
-      continue;
-    }
     const auto lead = static_cast<unsigned char>(text[i]);
     const size_t length = (std::min)(sequence_length(lead), text.size() - i);
     const size_t cost = utf16_units(lead);
@@ -127,7 +124,6 @@ std::string normalize_clipboard_text(std::string text) {
     units += cost;
     i += length;
   }
-  while (!normalized.empty() && (normalized.back() == '\n' || normalized.back() == ' ' || normalized.back() == '\t')) normalized.pop_back();
   return normalized;
 }
 ClipboardHistory::ClipboardHistory(std::filesystem::path store) : store_(std::move(store)) {}

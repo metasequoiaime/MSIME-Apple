@@ -50,11 +50,14 @@ int main() {
   try {
     const size_t cap = ClipboardHistory::max_chars;
 
-    // Line endings are normalised and trailing blanks trimmed.
-    require(normalize_clipboard_text("a\r\nb\r\n") == "a\nb");
-    require(normalize_clipboard_text("a\rb") == "a\nb");
-    require(normalize_clipboard_text("a\tb  \t\n") == "a\tb");
-    require(normalize_clipboard_text(std::string("a\0b", 3)) == "ab");
+    // Only the clipboard terminators are removed; line endings and whitespace
+    // are user content and remain byte-for-byte intact.
+    require(normalize_clipboard_text("a\r\nb\r\n") == "a\r\nb\r\n");
+    require(normalize_clipboard_text("a\rb") == "a\rb");
+    require(normalize_clipboard_text("a\tb  \t\n") == "a\tb  \t\n");
+    require(normalize_clipboard_text(std::string("a\0b", 3)) ==
+            std::string("a\0b", 3));
+    require(normalize_clipboard_text("a\r\0") == "a");
 
     // The cap counts UTF-16 units, not bytes. Chinese is three bytes per
     // character, so a byte cap cut this IME's primary case at about a third of
