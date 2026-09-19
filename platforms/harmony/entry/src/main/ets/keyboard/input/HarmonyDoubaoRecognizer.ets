@@ -5,6 +5,7 @@ import client, { DoubaoFrameResult } from 'libmsimeclient.so';
 import { KeyboardLog, describeError } from '../KeyboardLog';
 import { VoiceRecognitionPolicy } from './VoiceRecognitionPolicy';
 import { HarmonyVoiceCaptureDevices } from './HarmonyVoiceCaptureDevices';
+import { VoiceOutcome, VoiceResponsePolicy } from './VoiceResponsePolicy';
 import { VoiceInputConfiguration } from './VoiceInputConfiguration';
 
 const PCM_CHUNK_BYTES: number = 6400;
@@ -286,27 +287,20 @@ export class HarmonyDoubaoRecognizer {
       void this.fail('豆包返回了无效响应。', token);
       return;
     }
-    try {
-      const document: DoubaoResponseDocument = JSON.parse(decoded.payload) as DoubaoResponseDocument;
-      if ((document.code !== undefined && document.code !== 0)
-        || (document.error !== undefined && document.error !== null)) {
-        void this.fail('豆包语音识别返回错误。', token);
-        return;
+    const outcome: VoiceOutcome = VoiceResponsePolicy.streamingFrame(decoded.payload, decoded.last);
+    if (outcome.failure.length > 0) {
+      void this.fail(outcome.failure, token);
+      return;
+    }
+    if (outcome.text.length > 0 && this.resultHandler !== undefined) {
+      this.resultHandler(outcome.text, outcome.last);
+    }
+    if (outcome.last) {
+      // A final frame with no text still ends the recording; leaving it would keep listening.
+      if (outcome.text.length === 0 && this.resultHandler !== undefined) {
+        this.resultHandler('', true);
       }
-      if (document.payload_msg !== undefined
-        && document.payload_msg.code !== undefined && document.payload_msg.code !== 0) {
-        void this.fail('豆包语音识别返回错误。', token);
-        return;
-      }
-      const result: DoubaoResponseResult | undefined = document.result ?? document.payload_msg?.result;
-      const text: string = VoiceRecognitionPolicy.result(result?.text ?? '');
-      if (text.length > 0 && this.resultHandler !== undefined) this.resultHandler(text, decoded.last);
-      if (decoded.last) {
-        if (text.length === 0 && this.resultHandler !== undefined) this.resultHandler('', true);
-        void this.complete(token, socket);
-      }
-    } catch {
-      void this.fail('豆包返回了无效 JSON。', token);
+      void this.complete(token, socket);
     }
   }
 
