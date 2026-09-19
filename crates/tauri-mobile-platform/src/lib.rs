@@ -204,7 +204,12 @@ impl IosVoiceTranscriptionRequest {
         if !common {
             return false;
         }
-        if matches!(self.provider.as_str(), "openai" | "siliconflow" | "groq") {
+        // Every one of these is the same OpenAI-compatible multipart upload, so they share one
+        // shape check; Doubao below is the streaming websocket and validates separately.
+        if matches!(
+            self.provider.as_str(),
+            "openai" | "siliconflow" | "groq" | "everyapi" | "mistral"
+        ) {
             return self.endpoint.starts_with("https://")
                 && !self.model.trim().is_empty()
                 && self.headers.is_empty()
@@ -738,7 +743,7 @@ mod tests {
             boosting_table_id: String::new(),
         };
         assert!(request.is_valid());
-        for provider in ["openai", "siliconflow", "groq"] {
+        for provider in ["openai", "siliconflow", "groq", "everyapi", "mistral"] {
             assert!(IosVoiceTranscriptionRequest {
                 provider: provider.into(),
                 ..request.clone()

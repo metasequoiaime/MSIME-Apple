@@ -1320,7 +1320,15 @@ fn default_shuangpin_helpcode() -> HelpcodePreferences {
 
 /// Persisted recognition provider identifiers. Hosts expose only the providers
 /// they implement: `system` is the macOS Speech adapter, not a cloud profile.
-pub const ASR_PROVIDERS: [&str; 5] = ["doubao", "siliconflow", "openai", "groq", "system"];
+pub const ASR_PROVIDERS: [&str; 7] = [
+    "doubao",
+    "siliconflow",
+    "openai",
+    "groq",
+    "everyapi",
+    "mistral",
+    "system",
+];
 /// OpenAI-compatible AI services exposed by the Apple settings surface and
 /// shared by every host. Providers that need special request fields are still
 /// handled in `ai.rs`; the rest use the common Chat Completions shape.

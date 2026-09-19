@@ -54,6 +54,14 @@ pub(crate) fn ios_voice_provider_configuration(
             "https://api.groq.com/openai/v1/audio/transcriptions",
             "whisper-large-v3-turbo",
         ),
+        "everyapi" => (
+            "https://api.everyapi.ai/v1/audio/transcriptions",
+            "openai/whisper-large-v3-turbo",
+        ),
+        "mistral" => (
+            "https://api.mistral.ai/v1/audio/transcriptions",
+            "voxtral-mini-latest",
+        ),
         _ => {
             return Err(HostActionError {
                 code: "unsupported_voice",

@@ -32,6 +32,19 @@ int main() {
     assert(!voice_endpoint_is_websocket(default_asr_endpoint("legacy-unknown")));
     assert(default_asr_model("legacy-unknown") == "FunAudioLLM/SenseVoiceSmall");
     assert(default_asr_model("groq") == "whisper-large-v3-turbo");
+    // The two transcription services carried over from the Apple provider catalogue. Both are
+    // batch HTTPS, so a websocket default here would route them through the Doubao client.
+    assert(default_asr_endpoint("everyapi") == "https://api.everyapi.ai/v1/audio/transcriptions");
+    assert(default_asr_model("everyapi") == "openai/whisper-large-v3-turbo");
+    assert(default_asr_endpoint("mistral") == "https://api.mistral.ai/v1/audio/transcriptions");
+    assert(default_asr_model("mistral") == "voxtral-mini-latest");
+    for (const auto *provider : {"everyapi", "mistral"}) {
+        assert(!is_doubao_asr_provider(provider));
+        assert(!voice_endpoint_is_websocket(default_asr_endpoint(provider)));
+        assert(resolved_asr_endpoint(provider, default_asr_endpoint("doubao")) ==
+               default_asr_endpoint(provider));
+        assert(transcription_language(provider, "zh-CN") == "zh");
+    }
     assert(default_polish_model("openai") == "gpt-4o-mini");
     auto cancelled = std::make_shared<std::atomic_bool>(true);
     bool rejected = false;

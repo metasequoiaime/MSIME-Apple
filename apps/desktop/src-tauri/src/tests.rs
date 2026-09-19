@@ -236,6 +236,43 @@ fn ios_voice_batch_configuration_uses_current_preferences_and_safe_defaults() {
     assert!(configuration.headers.is_empty());
 }
 
+// EveryAPI and Mistral are the two transcription services the Apple client offers that the
+// shared client did not carry. They use the same multipart upload as the providers above, so
+// what has to be right is the endpoint and model each one resolves to on its own.
+#[test]
+fn ios_voice_batch_configuration_covers_everyapi_and_mistral() {
+    for (provider, endpoint, model) in [
+        (
+            "everyapi",
+            "https://api.everyapi.ai/v1/audio/transcriptions",
+            "openai/whisper-large-v3-turbo",
+        ),
+        (
+            "mistral",
+            "https://api.mistral.ai/v1/audio/transcriptions",
+            "voxtral-mini-latest",
+        ),
+    ] {
+        let mut preferences = msime_client_core::preferences::Preferences::default();
+        preferences.voice_input.asr_provider = provider.into();
+        preferences.voice_input.asr_endpoint.clear();
+        preferences.voice_input.asr_model.clear();
+        preferences
+            .voice_input
+            .asr_tokens
+            .insert(provider.into(), "synthetic-slot".into());
+        assert!(preferences.validate().is_ok());
+        let configuration = crate::voice::ios_voice_provider_configuration(&preferences).unwrap();
+        assert_eq!(configuration.provider, provider);
+        assert_eq!(configuration.endpoint, endpoint);
+        assert_eq!(configuration.model, model);
+        assert_eq!(configuration.token, "synthetic-slot");
+        // Only Doubao carries request headers; a batch provider that grew any would be
+        // sending something the multipart transport never validated.
+        assert!(configuration.headers.is_empty());
+    }
+}
+
 #[test]
 fn ios_keyboard_ai_preferences_resolve_origin_tokens_and_disable_incomplete_drafts() {
     let mut preferences = msime_client_core::preferences::Preferences::default();

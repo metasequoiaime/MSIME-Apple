@@ -21,9 +21,11 @@ async function openVoice() {
   return screen.getByLabelText("识别服务") as HTMLSelectElement;
 }
 
-// The Linux voice provider builds ASR_PROVIDERS = {openai, groq, siliconflow, doubao}.
-// Anything else makes select_profile return None and every recording fail with ok=false.
-const REACHABLE = ["doubao", "siliconflow", "openai", "groq"];
+// The Linux voice provider builds ASR_PROVIDERS = {openai, groq, siliconflow, everyapi,
+// mistral, doubao}. Anything else makes select_profile return None and every recording fail
+// with ok=false. Keep this list in step with that script, the shared C++ provider table and
+// the mobile transport's accepted set; an option no backend implements is a dead menu entry.
+const REACHABLE = ["doubao", "siliconflow", "openai", "groq", "everyapi", "mistral"];
 
 test("macOS system recognition is configurable without cloud ASR fields", async () => {
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...base, revision: 5, preferences }));
