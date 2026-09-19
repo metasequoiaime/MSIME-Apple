@@ -32,6 +32,8 @@ export enum ToolbarButton {
 /** What the keyboard is doing, which is what the faces below report. */
 export interface ToolbarState {
   readonly english: boolean;
+  /** Japanese is a distinct input scheme; English still takes precedence when dedicated mode is on. */
+  readonly japanese: boolean;
   readonly chinesePunctuation: boolean;
   readonly fullWidth: boolean;
   readonly traditional: boolean;
@@ -49,7 +51,9 @@ export interface ToolbarComponents {
 
 export class FloatingToolbarLayout {
   static idleState(): ToolbarState {
-    return { english: false, chinesePunctuation: true, fullWidth: false, traditional: false };
+    return {
+      english: false, japanese: false, chinesePunctuation: true, fullWidth: false, traditional: false
+    };
   }
 
   static allComponents(): ToolbarComponents {
@@ -93,7 +97,7 @@ export class FloatingToolbarLayout {
   static face(button: ToolbarButton, state: ToolbarState): string {
     switch (button) {
       case ToolbarButton.INPUT_MODE:
-        return state.english ? '英' : '中';
+        return state.english ? '英' : state.japanese ? '日' : '中';
       case ToolbarButton.PUNCTUATION:
         return state.chinesePunctuation ? '。' : '.';
       case ToolbarButton.FULL_WIDTH:

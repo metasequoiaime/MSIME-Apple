@@ -923,7 +923,9 @@ export class KeyboardSession {
       return;
     }
     const state: ToolbarState = {
-      english: this.englishMode, chinesePunctuation: this.chinesePunctuation,
+      english: this.englishMode,
+      japanese: !this.englishMode && this.schemeName === 'japanese',
+      chinesePunctuation: this.chinesePunctuation,
       fullWidth: this.fullWidth, traditional: this.traditional
     };
     this.onToolbar(state, FloatingToolbarLayout.buttons(this.toolbarComponents()),
@@ -1031,6 +1033,9 @@ export class KeyboardSession {
     if (profileName !== null) {
       this.profileName = profileName;
     }
+    // Scheme changes happen from the keyboard's own picker as well as the desktop toolbar. Keep
+    // the persistent toolbar's language face in sync before the next key or button action.
+    this.refreshToolbar();
   }
 
   setNineKey(enabled: boolean): void {

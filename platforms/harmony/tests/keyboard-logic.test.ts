@@ -74,7 +74,8 @@ import { CandidatePresentationPolicy } from '../entry/src/main/ets/keyboard/cand
 import { CandidateWheelPolicy } from '../entry/src/main/ets/keyboard/candidate/CandidateWheelPolicy';
 import { CandidateAnchorPolicy, CandidateAnchor }
   from '../entry/src/main/ets/inputmethodextability/CandidateAnchorPolicy';
-import { FloatingToolbarLayout } from '../entry/src/main/ets/keyboard/FloatingToolbarLayout';
+import { FloatingToolbarLayout, ToolbarButton }
+  from '../entry/src/main/ets/keyboard/FloatingToolbarLayout';
 import { FloatingToolbarDragPolicy } from '../entry/src/main/ets/keyboard/FloatingToolbarDragPolicy';
 
 function selectedBarVisible(value: boolean | null): boolean {
@@ -788,6 +789,21 @@ group('applies Windows toolbar scale and font-size bounds to Harmony geometry', 
   check(FloatingToolbarLayout.heightVp(0.75) === 33, 'toolbar height follows toolbar scale');
   check(FloatingToolbarLayout.widthVp(2) * 1.5 === 172.5,
     'host width arithmetic remains consistent with scaled content');
+});
+
+group('shows Japanese input mode in the Harmony toolbar', () => {
+  const japaneseState = {
+    english: false, japanese: true, chinesePunctuation: true, fullWidth: false, traditional: false
+  };
+  const englishState = {
+    english: true, japanese: true, chinesePunctuation: true, fullWidth: false, traditional: false
+  };
+  check(FloatingToolbarLayout.face(ToolbarButton.INPUT_MODE, japaneseState) === '日',
+    'Japanese mode has its own toolbar face');
+  check(FloatingToolbarLayout.face(ToolbarButton.INPUT_MODE, englishState) === '英',
+    'dedicated English mode takes precedence over the Japanese scheme');
+  check(FloatingToolbarLayout.face(ToolbarButton.INPUT_MODE, FloatingToolbarLayout.idleState()) === '中',
+    'the default Chinese mode remains unchanged');
 });
 
 group('keeps a dragged Harmony toolbar inside the display', () => {
