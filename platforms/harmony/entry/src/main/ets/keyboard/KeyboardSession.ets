@@ -47,7 +47,8 @@ interface Candidate {
   highlighted: boolean;
   /** Which part of the Engine produced it; the gloss lookup treats sources differently. */
   source: number;
-  fixed_position: boolean;
+  /** Zero when unpinned, otherwise the fixed candidate slot (1..5). */
+  fixed_position: number;
   /** The Engine input code that produced this candidate, used for scheme-specific hints. */
   code: string;
   /** An Engine-derived display suffix, never part of what gets committed. */
@@ -64,7 +65,7 @@ export interface CandidateEntry {
   /** Engine-selected candidate; selection is not necessarily the first row. */
   readonly highlighted: boolean;
   readonly badge: string;
-  readonly fixedPosition: boolean;
+  readonly fixedPosition: number;
 }
 
 interface EngineView {
@@ -2100,10 +2101,14 @@ export class KeyboardSession {
 
   /** Position 1 is the front of the list, which is what 固定到首位 means. */
   fixCandidateFirst(index: number): void {
+    this.fixCandidatePosition(index, 1);
+  }
+
+  fixCandidatePosition(index: number, position: number): void {
     if (this.handle === 0) {
       return;
     }
-    this.apply(client.fixCandidatePosition(this.handle, this.generation, index, 1));
+    this.apply(client.fixCandidatePosition(this.handle, this.generation, index, position));
   }
 
   clearCandidatePosition(index: number): void {

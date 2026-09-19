@@ -13,6 +13,8 @@ export interface ManagementAction {
   readonly announcement: string;
   readonly confirmationRequired: boolean;
   readonly menuItemId: number;
+  readonly position?: number;
+  readonly checked?: boolean;
 }
 
 function action(index: number, id: string, title: string, announcement: string,
@@ -36,6 +38,31 @@ export class CandidateManagementAction {
   static readonly FIX_FIRST: ManagementAction = ACTIONS[1];
   static readonly CLEAR_POSITION: ManagementAction = ACTIONS[2];
   static readonly REMOVE: ManagementAction = ACTIONS[3];
+
+  /** Windows exposes all five fixed slots and marks the currently held slot. */
+  static actionsForFixedPosition(fixedPosition: number): ManagementAction[] {
+    const actions: ManagementAction[] = [CandidateManagementAction.PROMOTE];
+    for (let position: number = 1; position <= 5; position++) {
+      actions.push({
+        id: `FIX_${position}`,
+        title: `第 ${position} 位`,
+        announcement: `已固定到第 ${position} 位`,
+        confirmationRequired: false,
+        menuItemId: MENU_ITEM_BASE + position,
+        position: position,
+        checked: fixedPosition === position
+      });
+    }
+    actions.push({
+      ...CandidateManagementAction.CLEAR_POSITION,
+      menuItemId: MENU_ITEM_BASE + 6
+    });
+    actions.push({
+      ...CandidateManagementAction.REMOVE,
+      menuItemId: MENU_ITEM_BASE + 7
+    });
+    return actions;
+  }
 
   static fromMenuItemId(itemId: number): ManagementAction {
     const index: number = itemId - MENU_ITEM_BASE;

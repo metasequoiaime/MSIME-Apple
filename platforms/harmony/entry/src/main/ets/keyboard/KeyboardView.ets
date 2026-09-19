@@ -1242,7 +1242,11 @@ struct KeyboardView {
         KeyboardSession.shared.clearCandidatePosition(index);
         break;
       default:
-        KeyboardSession.shared.removeCandidate(index);
+        if (action.id.startsWith('FIX_') && action.position !== undefined) {
+          KeyboardSession.shared.fixCandidatePosition(index, action.position);
+        } else {
+          KeyboardSession.shared.removeCandidate(index);
+        }
         break;
     }
     this.diagnostic = action.announcement;
@@ -2033,13 +2037,16 @@ struct KeyboardView {
               })
           }, (item: PunctuationEntry) => item.face + this.faceKey())
       } else {
-        ForEach(CandidateManagementAction.ACTIONS, (item: ManagementAction) => {
+        const fixedPosition: number = this.managing >= 0 && this.managing < this.candidates.length
+          ? this.candidates[this.managing].fixedPosition : 0;
+        ForEach(CandidateManagementAction.actionsForFixedPosition(fixedPosition),
+          (item: ManagementAction) => {
           Text(item.title)
             .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-            .fontColor(this.skin.accent)
+            .fontColor(item.checked === true ? this.skin.keyForeground : this.skin.accent)
             .padding({ left: 10, right: 10 })
             .onClick(() => this.manageCandidate(item, this.managing))
-        })
+        }, (item: ManagementAction) => `${item.id}:${item.menuItemId}`)
       }
       Blank()
       Text('×')

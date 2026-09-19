@@ -691,6 +691,15 @@ group('keeps candidate source badges bounded to known Engine sources', () => {
   check(CandidatePresentationPolicy.badge(0) === '', 'local candidates stay unbadged');
 });
 
+group('offers all fixed candidate slots and checks the active one', () => {
+  const actions = CandidateManagementAction.actionsForFixedPosition(3);
+  check(actions.length === 8, 'pin, five positions, clear and remove are exposed');
+  check(actions[3].id === 'FIX_3' && actions[3].checked === true,
+    'the current fixed slot is marked');
+  check(actions[1].position === 1 && actions[5].position === 5,
+    'positions keep their one-based slot numbers');
+});
+
 group('maps desktop candidate wheel movement to page commands', () => {
   check(CandidateWheelPolicy.previousPage(1), 'positive wheel movement pages up');
   check(!CandidateWheelPolicy.nextPage(1), 'positive movement does not page down');
