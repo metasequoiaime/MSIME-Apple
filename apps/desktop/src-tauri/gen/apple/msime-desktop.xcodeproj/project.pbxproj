@@ -79,6 +79,7 @@
 		AECBF679D203A95A446C6BB9 /* KeyboardSkinPickerView.swift in Sources */ = {isa = PBXBuildFile; fileRef = C2D92831E7E5A3A35C65170C /* KeyboardSkinPickerView.swift */; };
 		B43E075D6452A1FF8E8DD8ED /* EnglishCapitalizationPolicy.swift in Sources */ = {isa = PBXBuildFile; fileRef = 71DE8005E0CF470550E25B02 /* EnglishCapitalizationPolicy.swift */; };
 		B5DEFF42983539AF8DCF0047 /* BackendAccountClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = D8A07B8F2D4348845B5A6EF3 /* BackendAccountClient.swift */; };
+		B7ED9C9AA3A071164CF21256 /* KeyboardBrand.png in Resources */ = {isa = PBXBuildFile; fileRef = FF586848BA58AC03CBAB7B2F /* KeyboardBrand.png */; };
 		B87D98FED5FE01336F868C5D /* DictionarySnapshotBridge.swift in Sources */ = {isa = PBXBuildFile; fileRef = 40B7819183815CBA1EBFB383 /* DictionarySnapshotBridge.swift */; };
 		B8E90209A73C8C76539CF234 /* MetasequoiaTheme.swift in Sources */ = {isa = PBXBuildFile; fileRef = 2A414E8A5DC8DCF4B9C7251D /* MetasequoiaTheme.swift */; };
 		BB7C476BCD29C99DCC18F3DC /* KeyboardPanelButtonStyle.swift in Sources */ = {isa = PBXBuildFile; fileRef = 910298C10C6D797FB24CE91C /* KeyboardPanelButtonStyle.swift */; };
@@ -105,6 +106,7 @@
 		F660AA35500C0AA23B797598 /* EngineResources in Resources */ = {isa = PBXBuildFile; fileRef = E07F242557DABCAD24CC0987 /* EngineResources */; };
 		F6D26824BE82956B91762242 /* WubiCodeHintPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 25EAF522221CE8B71DFB02AA /* WubiCodeHintPreference.swift */; };
 		F9685A5C9D48EACC23928667 /* DictionarySnapshotWorker.swift in Sources */ = {isa = PBXBuildFile; fileRef = 7C8FE4225EED636F63E9197D /* DictionarySnapshotWorker.swift */; };
+		F982D840DBB10915477794BE /* KeyboardBrand.png in Resources */ = {isa = PBXBuildFile; fileRef = FF586848BA58AC03CBAB7B2F /* KeyboardBrand.png */; };
 		FBAB78514C4B308C1F88C2CA /* KeyboardAIService.swift in Sources */ = {isa = PBXBuildFile; fileRef = 787A09B7B2A58AA2014F2F36 /* KeyboardAIService.swift */; };
 		FBDFC1B867E44837A18A0FD2 /* MLKit-Dependencies.txt in Resources */ = {isa = PBXBuildFile; fileRef = 9697B5AE2CF9B75F3B87FA6B /* MLKit-Dependencies.txt */; };
 		FDF0B2C342D335743657AA2B /* JapaneseNineKeyView.swift in Sources */ = {isa = PBXBuildFile; fileRef = 6343FCA521B560345654BBBD /* JapaneseNineKeyView.swift */; };
@@ -270,6 +272,7 @@
 		FD173DF3C043F399B6DE3C2C /* libMSIMESwiftRsRuntimeExports.a */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = archive.ar; path = libMSIMESwiftRsRuntimeExports.a; sourceTree = BUILT_PRODUCTS_DIR; };
 		FD48652509E6979202445A45 /* lib.rs */ = {isa = PBXFileReference; path = lib.rs; sourceTree = "<group>"; };
 		FDD94B1336AC50F1DCA228CD /* HandwritingDownloadSession.m */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.objc; path = HandwritingDownloadSession.m; sourceTree = "<group>"; };
+		FF586848BA58AC03CBAB7B2F /* KeyboardBrand.png */ = {isa = PBXFileReference; lastKnownFileType = image.png; path = KeyboardBrand.png; sourceTree = "<group>"; };
 		FF697BB8EE9B515861EB57A1 /* voice_output.rs */ = {isa = PBXFileReference; path = voice_output.rs; sourceTree = "<group>"; };
 		FFCF05DD58451641A637E3A9 /* msime-desktop_iOS.app */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.application; path = "msime-desktop_iOS.app"; sourceTree = BUILT_PRODUCTS_DIR; };
 /* End PBXFileReference section */
@@ -736,6 +739,7 @@
 		EEC8ACA5B2F6ADD19E63B4B6 /* SharedResources */ = {
 			isa = PBXGroup;
 			children = (
+				FF586848BA58AC03CBAB7B2F /* KeyboardBrand.png */,
 				9697B5AE2CF9B75F3B87FA6B /* MLKit-Dependencies.txt */,
 				71AC7DF11C330F1B99B20D6E /* MLKit-NOTICES.txt */,
 				0E2AAE2A03F9BA363313DB19 /* PrivacyInfo.xcprivacy */,
@@ -880,6 +884,7 @@
 			files = (
 				D8414DAF30187A98DCD0CDC7 /* Assets.xcassets in Resources */,
 				F660AA35500C0AA23B797598 /* EngineResources in Resources */,
+				F982D840DBB10915477794BE /* KeyboardBrand.png in Resources */,
 				CAFEAD76DD5FE67C20ADFBA4 /* LaunchScreen.storyboard in Resources */,
 				FBDFC1B867E44837A18A0FD2 /* MLKit-Dependencies.txt in Resources */,
 				16B4C371EDD2C19F4E2C7EF3 /* MLKit-NOTICES.txt in Resources */,
@@ -893,6 +898,7 @@
 			buildActionMask = 2147483647;
 			files = (
 				5B0B7522FBAA213613F6EC70 /* EngineResources in Resources */,
+				B7ED9C9AA3A071164CF21256 /* KeyboardBrand.png in Resources */,
 				8EF9B63059B6AF23638D55E2 /* PrivacyInfo.xcprivacy in Resources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;

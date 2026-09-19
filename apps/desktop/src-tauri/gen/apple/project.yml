@@ -60,6 +60,8 @@ targets:
         buildPhase: resources
       - path: ../../../../../platforms/ios/SharedResources/MLKit-Dependencies.txt
         buildPhase: resources
+      - path: ../../../../../platforms/ios/SharedResources/KeyboardBrand.png
+        buildPhase: resources
       - path: ../../../../../platforms/ios/SharedResources/PrivacyInfo.xcprivacy
         buildPhase: resources
       - path: assets
@@ -165,6 +167,8 @@ targets:
       - path: ../../../../../target/ios/EngineResources
         buildPhase: resources
         type: folder
+      - path: ../../../../../platforms/ios/SharedResources/KeyboardBrand.png
+        buildPhase: resources
       - path: ../../../../../platforms/ios/SharedResources/PrivacyInfo.xcprivacy
         buildPhase: resources
     settings:
