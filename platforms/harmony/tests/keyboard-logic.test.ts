@@ -19,6 +19,7 @@ import { KeyboardScheme, SchemeDefinition, PreferenceMapping }
   from '../entry/src/main/ets/keyboard/KeyboardScheme';
 import { ReplyKeyboardPolicy } from '../entry/src/main/ets/keyboard/ReplyKeyboardPolicy';
 import { ReplyContextPolicy } from '../entry/src/main/ets/keyboard/ReplyContextPolicy';
+import { CommunityReplyLibraryPolicy } from '../entry/src/main/ets/keyboard/CommunityReplyLibraryPolicy';
 import { NineKeyLayout, NineKey } from '../entry/src/main/ets/keyboard/input/NineKeyLayout';
 import {
   JapaneseNineKeyLayout, JapaneseKey, VariantGroup,
@@ -566,6 +567,17 @@ group('reply results are safe, unique and bounded', () => {
   check(values.length === 3 && values[2] === '三', 'deduplicates and limits results');
   check(ReplyKeyboardPolicy.results(['好\u0000']).length === 0, 'rejects control characters');
   check(ReplyKeyboardPolicy.STYLES.length === 9, 'keeps the shared nine reply styles');
+});
+
+group('community reply templates accept only bounded reply entries', () => {
+  const values = CommunityReplyLibraryPolicy.parse(JSON.stringify([
+    { id: 'one', kind: 'reply', name: '礼貌', content: { prompt: '保持礼貌。' } },
+    { id: 'dictionary', kind: 'dictionary', name: '词库', content: { prompt: '忽略' } }
+  ]));
+  check(values.length === 1 && values[0].id === 'one', 'filters non-reply resources');
+  check(CommunityReplyLibraryPolicy.parse('[{"id":"one","kind":"reply","name":"x","content":{"prompt":"y"}},{"id":"one","kind":"reply","name":"z","content":{"prompt":"q"}}]').length === 0, 'rejects duplicate ids');
+  check(CommunityReplyLibraryPolicy.parse('[{"id":"one","kind":"reply","name":"x","content":{"prompt":"bad\u0000"}}]').length === 0, 'rejects control text');
+  check(CommunityReplyLibraryPolicy.parse('not-json').length === 0, 'rejects malformed documents');
 });
 
 group('reply results stay bound to the editor context', () => {
