@@ -4,8 +4,13 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
+# No `name`: it defaults to the package name, which is what the other eight
+# crates rely on. Setting it made this the one crate whose library and package
+# disagreed - `cargo -p msime-desktop` and `use msime_app` naming the same
+# thing. The mobile targets never depended on it: the Xcode project links a
+# fixed libapp.a that the Tauri CLI copies the staticlib into, and the Gradle
+# plugin reads the manifest at build time.
 [lib]
-name = "msime_app"
 crate-type = ["staticlib", "cdylib", "rlib"]
 
 [build-dependencies]
