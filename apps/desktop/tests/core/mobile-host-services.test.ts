@@ -53,10 +53,12 @@ test("platform-only mobile actions stay explicit", async () => {
   expect(android.home?.showInputMethodPicker).toBeDefined();
   expect(ios.account?.appleLogin).toBeDefined();
   expect(ios.openVoice).toBeDefined();
-  expect(ios.home).toBeUndefined();
+  expect(ios.home?.openKeyboard).toBeUndefined();
+  expect(ios.home?.openSystemKeyboardSettings).toBeDefined();
 
   await android.openSystemKeyboardSettings?.();
   await ios.openSystemKeyboardSettings?.();
+  await ios.home?.openSystemKeyboardSettings?.();
   await ios.account?.appleLogin?.();
   await ios.openVoice?.();
 
