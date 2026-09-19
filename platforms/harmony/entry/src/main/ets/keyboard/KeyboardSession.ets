@@ -3397,6 +3397,20 @@ export class KeyboardSession {
    * sources the Host API would refuse, and a chord that silently does nothing eight times is worse
    * than one that was never claimed — so the caller is told whether it was acted on.
    */
+  /**
+   * Throw away the Engine's candidate cache for this session.
+   *
+   * The other half of the Windows maintenance pair: the slot keys remove one candidate the
+   * dictionary got wrong, this one clears everything the Engine has cached when the whole list looks
+   * stale. Nothing the user typed is lost — the view is refreshed, not the composition.
+   */
+  resetCache(): void {
+    if (this.handle === 0) {
+      return;
+    }
+    this.applyView(client.resetCache(this.handle));
+  }
+
   removeManagedCandidate(index: number): boolean {
     const view: EngineView | undefined = this.lastView;
     if (this.handle === 0 || view === undefined || index < 0
