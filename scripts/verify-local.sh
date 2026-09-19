@@ -233,6 +233,13 @@ elif [ -n "$cross_vcpkg" ]; then
   cross_log="$(mktemp)"
   if MSIME_VCPKG_ROOT="$cross_vcpkg" bash platforms/windows/build-cross.sh x64 >"$cross_log" 2>&1; then
     echo "windows cross build (x64): links"
+  elif grep -q "Failed to take the filesystem lock" "$cross_log"; then
+    # vcpkg holds one lock per checkout, and this repository is worked in
+    # several worktrees at once that all resolve to the same tree. A second
+    # concurrent run has verified nothing, but reporting that as a failure is
+    # worse than saying so: a gate that goes red for reasons unrelated to the
+    # change is a gate people learn to pass with --no-verify.
+    echo "windows cross build: skipped (vcpkg busy in another run)"
   else
     grep -Ei "error:|Error [0-9]|No rule to make target" "$cross_log" | head -5
     fail "windows cross build"
@@ -279,16 +286,26 @@ elif [ "$windows_host" -eq 0 ] && command -v x86_64-w64-mingw32-g++ >/dev/null 2
   # library, no vcpkg. So the configuration the comment above calls "one
   # nobody runs" can actually be run nearly everywhere, rather than skipped
   # on every machine that is not Windows.
-  if cmake -S platforms/windows -B "${MSIME_PIPE_BUILD}-cross" -DMSIME_WINDOWS_PIPE_ONLY=ON \
-    -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ \
-    -DCMAKE_BUILD_TYPE=Debug >/dev/null 2>&1 &&
-    cmake --build "${MSIME_PIPE_BUILD}-cross" --parallel >/dev/null 2>&1; then
-    echo "pipe-only: cross-builds"
-  else
-    cmake --build "${MSIME_PIPE_BUILD}-cross" --parallel 2>&1 |
-      grep -Ei "error:|Error [0-9]" | head -5
-    fail "pipe-only cross build"
-  fi
+  # Both architectures the product ships a DLL for. 32-bit is not a formality
+  # here: windows_ipc.h pins its frame sizes and field offsets with
+  # static_assert, and those are exactly what a pointer-width change moves.
+  # The full cross build cannot cover i686 on this toolchain (x86 Rust GNU
+  # needs DWARF unwinding and Homebrew's i686 MinGW is SJLJ), but this
+  # configuration links no Rust at all, so the protocol still gets checked.
+  for cross_arch in x86_64 i686; do
+    command -v "$cross_arch-w64-mingw32-g++" >/dev/null 2>&1 || continue
+    cross_dir="${MSIME_PIPE_BUILD}-cross-$cross_arch"
+    if cmake -S platforms/windows -B "$cross_dir" -DMSIME_WINDOWS_PIPE_ONLY=ON \
+      -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_CXX_COMPILER="$cross_arch-w64-mingw32-g++" \
+      -DCMAKE_BUILD_TYPE=Debug >/dev/null 2>&1 &&
+      cmake --build "$cross_dir" --parallel >/dev/null 2>&1; then
+      echo "pipe-only: cross-builds ($cross_arch)"
+    else
+      cmake --build "$cross_dir" --parallel 2>&1 |
+        grep -Ei "error:|Error [0-9]" | head -5
+      fail "pipe-only cross build ($cross_arch)"
+    fi
+  done
 elif [ "$windows_host" -eq 0 ]; then
   # platforms/windows cannot configure off Windows without a cross compiler,
   # and this phase had no guard for that while every other native phase does.
