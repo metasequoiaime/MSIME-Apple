@@ -1694,6 +1694,7 @@ pub async fn account_preferences_upload(
         let local = store.load().map_err(|_| AccountError::Storage)?;
         let values = account_preferences::local_account_preferences(
             &native,
+            &local.preferences,
             &local.preferences.custom_touch_keyboard_skin,
         )?
         .into_iter()

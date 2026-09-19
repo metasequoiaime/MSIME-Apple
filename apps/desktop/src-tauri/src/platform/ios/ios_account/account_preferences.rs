@@ -2,8 +2,8 @@ use msime_client_core::account::{
     validate_account_preferences, AccountError, AccountPreferenceValue, AccountPreferences,
 };
 use msime_client_core::preferences::{
-    ChineseScheme, InputScheme, Preferences, ShuangpinProfile, TouchKeyboardLayout,
-    TouchKeyboardScheme, TouchKeyboardSkin, TouchKeyboardSkinDesign,
+    ChineseScheme, FrequencyMode, FrequencyPreferences, InputScheme, Preferences, ShuangpinProfile,
+    TouchKeyboardLayout, TouchKeyboardScheme, TouchKeyboardSkin, TouchKeyboardSkinDesign,
 };
 use msime_tauri_mobile_platform::IosKeyboardPreferences;
 use std::collections::BTreeMap;
@@ -19,6 +19,25 @@ fn insert_bool(settings: &mut BTreeMap<String, AccountPreferenceValue>, key: &st
     settings.insert(key.to_owned(), AccountPreferenceValue::Boolean(value));
 }
 
+fn frequency_account_preferences(
+    frequency: &FrequencyPreferences,
+) -> BTreeMap<String, AccountPreferenceValue> {
+    BTreeMap::from([
+        (
+            "input.frequency_mode".into(),
+            AccountPreferenceValue::String(frequency.mode.as_str().into()),
+        ),
+        (
+            "input.frequency_trigger_count".into(),
+            AccountPreferenceValue::Integer(i64::from(frequency.trigger_count)),
+        ),
+        (
+            "input.frequency_linear_step".into(),
+            AccountPreferenceValue::Integer(i64::from(frequency.linear_step)),
+        ),
+    ])
+}
+
 fn decoded_custom_skin(
     value: Option<&str>,
     fallback: &TouchKeyboardSkinDesign,
@@ -31,6 +50,7 @@ fn decoded_custom_skin(
 
 pub(crate) fn local_account_preferences(
     native: &IosKeyboardPreferences,
+    shared: &Preferences,
     fallback_custom_skin: &TouchKeyboardSkinDesign,
 ) -> Result<BTreeMap<String, AccountPreferenceValue>, AccountError> {
     if !native.is_valid() {
@@ -81,8 +101,9 @@ pub(crate) fn local_account_preferences(
     insert_bool(
         &mut settings,
         "platform.ios.dictionary_learning",
-        native.dictionary_learning,
+        shared.learning,
     );
+    settings.extend(frequency_account_preferences(&shared.frequency));
     insert_string(
         &mut settings,
         "platform.ios.keyboard_skin",
@@ -116,6 +137,22 @@ fn bool_setting(
     }
 }
 
+fn integer_setting(
+    settings: &BTreeMap<String, AccountPreferenceValue>,
+    key: &str,
+) -> Result<Option<i64>, AccountError> {
+    match settings.get(key) {
+        None => Ok(None),
+        Some(AccountPreferenceValue::Integer(value)) => Ok(Some(*value)),
+        Some(AccountPreferenceValue::Number(value))
+            if value.is_finite() && value.fract() == 0.0 =>
+        {
+            Ok(Some(*value as i64))
+        }
+        Some(_) => Err(AccountError::Invalid),
+    }
+}
+
 #[derive(Debug, PartialEq)]
 pub(crate) struct IosPreferencePlan {
     input_scheme: Option<String>,
@@ -124,6 +161,9 @@ pub(crate) struct IosPreferencePlan {
     haptics_enabled: Option<bool>,
     haptic_strength: Option<String>,
     dictionary_learning: Option<bool>,
+    frequency_mode: Option<FrequencyMode>,
+    frequency_trigger_count: Option<u8>,
+    frequency_linear_step: Option<u8>,
     keyboard_skin: Option<String>,
     custom_keyboard_skin: Option<TouchKeyboardSkinDesign>,
 }
@@ -212,6 +252,22 @@ impl IosPreferencePlan {
                     .map_err(|_| AccountError::Invalid)
             })
             .transpose()?;
+        let frequency_mode = string_setting(values, "input.frequency_mode")?
+            .map(|value| match value.as_str() {
+                "disabled" => Ok(FrequencyMode::Disabled),
+                "pin" => Ok(FrequencyMode::Pin),
+                "halve" => Ok(FrequencyMode::Halve),
+                "linear" => Ok(FrequencyMode::Linear),
+                "promote" => Ok(FrequencyMode::Promote),
+                _ => Err(AccountError::Invalid),
+            })
+            .transpose()?;
+        let frequency_trigger_count = integer_setting(values, "input.frequency_trigger_count")?
+            .map(|value| u8::try_from(value).map_err(|_| AccountError::Invalid))
+            .transpose()?;
+        let frequency_linear_step = integer_setting(values, "input.frequency_linear_step")?
+            .map(|value| u8::try_from(value).map_err(|_| AccountError::Invalid))
+            .transpose()?;
         Ok(Self {
             input_scheme,
             traditional_chinese_output,
@@ -219,6 +275,9 @@ impl IosPreferencePlan {
             haptics_enabled: bool_setting(values, "platform.ios.haptics_enabled")?,
             haptic_strength,
             dictionary_learning: bool_setting(values, "platform.ios.dictionary_learning")?,
+            frequency_mode,
+            frequency_trigger_count,
+            frequency_linear_step,
             keyboard_skin,
             custom_keyboard_skin,
         })
@@ -285,6 +344,15 @@ impl IosPreferencePlan {
         }
         if let Some(value) = &self.custom_keyboard_skin {
             preferences.custom_touch_keyboard_skin = value.clone();
+        }
+        if let Some(value) = self.frequency_mode {
+            preferences.frequency.mode = value;
+        }
+        if let Some(value) = self.frequency_trigger_count {
+            preferences.frequency.trigger_count = value;
+        }
+        if let Some(value) = self.frequency_linear_step {
+            preferences.frequency.linear_step = value;
         }
         preferences.validate().map_err(|_| AccountError::Invalid)
     }
@@ -416,7 +484,9 @@ mod tests {
 
     #[test]
     fn upload_maps_the_complete_apple_ios_preference_surface() {
-        let settings = local_account_preferences(&native(), &Default::default()).unwrap();
+        let settings =
+            local_account_preferences(&native(), &Preferences::default(), &Default::default())
+                .unwrap();
         assert_eq!(
             settings["input.schema"],
             AccountPreferenceValue::String("japanese".into())
@@ -436,6 +506,13 @@ mod tests {
             "platform.ios.dictionary_learning",
             "platform.ios.keyboard_skin",
             "platform.ios.custom_keyboard_skin",
+        ] {
+            assert!(settings.contains_key(key), "missing {key}");
+        }
+        for key in [
+            "input.frequency_mode",
+            "input.frequency_trigger_count",
+            "input.frequency_linear_step",
         ] {
             assert!(settings.contains_key(key), "missing {key}");
         }
@@ -507,6 +584,18 @@ mod tests {
                     "platform.ios.keyboard_skin".into(),
                     AccountPreferenceValue::String("ocean".into()),
                 ),
+                (
+                    "input.frequency_mode".into(),
+                    AccountPreferenceValue::String("linear".into()),
+                ),
+                (
+                    "input.frequency_trigger_count".into(),
+                    AccountPreferenceValue::Integer(7),
+                ),
+                (
+                    "input.frequency_linear_step".into(),
+                    AccountPreferenceValue::Integer(4),
+                ),
             ]),
         };
         let plan = IosPreferencePlan::from_cloud(&cloud).unwrap();
@@ -528,6 +617,9 @@ mod tests {
         assert!(preferences.traditional_chinese_output);
         assert!(!preferences.learning);
         assert_eq!(preferences.touch_keyboard_skin, TouchKeyboardSkin::Ocean);
+        assert_eq!(preferences.frequency.mode.as_str(), "linear");
+        assert_eq!(preferences.frequency.trigger_count, 7);
+        assert_eq!(preferences.frequency.linear_step, 4);
         assert!(preferences.clipboard_history);
 
         let cloud = AccountPreferences {
@@ -548,5 +640,24 @@ mod tests {
         plan.apply_shared(&native, &mut preferences).unwrap();
         assert_eq!(preferences.scheme, InputScheme::Shuangpin);
         assert_eq!(preferences.shuangpin_profile, ShuangpinProfile::Microsoft);
+    }
+
+    #[test]
+    fn download_rejects_frequency_values_outside_shared_bounds() {
+        for key in [
+            "input.frequency_trigger_count",
+            "input.frequency_linear_step",
+        ] {
+            let cloud = AccountPreferences {
+                revision: 10,
+                settings: BTreeMap::from([(key.into(), AccountPreferenceValue::Integer(0))]),
+            };
+            let plan = IosPreferencePlan::from_cloud(&cloud).unwrap();
+            let mut preferences = Preferences::default();
+            assert_eq!(
+                plan.apply_shared(&native(), &mut preferences),
+                Err(AccountError::Invalid)
+            );
+        }
     }
 }
