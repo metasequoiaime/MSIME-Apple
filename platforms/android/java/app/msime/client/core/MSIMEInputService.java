@@ -5246,42 +5246,25 @@ public final class MSIMEInputService extends InputMethodService {
     private void bindJapaneseFlick(Button button, JapaneseNineKeyLayout.Key key) {
         final float[] origin = new float[2];
         final int[] direction = new int[1];
-        final boolean[] longPressed = new boolean[1];
-        final Runnable[] longPressTask = new Runnable[1];
         button.setOnTouchListener((ignored, event) -> {
             switch (event.getActionMasked()) {
                 case MotionEvent.ACTION_DOWN -> {
                     origin[0] = event.getX();
                     origin[1] = event.getY();
                     direction[0] = 0;
-                    longPressed[0] = false;
                     button.setPressed(true);
-                    longPressTask[0] = () -> {
-                        if (!button.isPressed() || direction[0] != 0) return;
-                        longPressed[0] = true;
-                        hideJapaneseFlickPreview();
-                        showJapaneseKeyOptions(button, key);
-                    };
-                    main.postDelayed(longPressTask[0], ViewConfiguration.getLongPressTimeout());
                     showJapaneseFlickPreview(button, key, 0);
                     return true;
                 }
                 case MotionEvent.ACTION_MOVE -> {
                     direction[0] = JapaneseNineKeyLayout.direction(
                         event.getX() - origin[0], event.getY() - origin[1], pixels(12));
-                    if (direction[0] != 0 && longPressTask[0] != null) {
-                        main.removeCallbacks(longPressTask[0]);
-                        longPressTask[0] = null;
-                    }
                     showJapaneseFlickPreview(button, key, direction[0]);
                     return true;
                 }
                 case MotionEvent.ACTION_UP -> {
-                    if (longPressTask[0] != null) main.removeCallbacks(longPressTask[0]);
-                    longPressTask[0] = null;
                     button.setPressed(false);
                     hideJapaneseFlickPreview();
-                    if (longPressed[0]) return true;
                     if (direction[0] == 0) button.performClick();
                     else {
                         playFeedback(button);
@@ -5290,8 +5273,6 @@ public final class MSIMEInputService extends InputMethodService {
                     return true;
                 }
                 case MotionEvent.ACTION_CANCEL -> {
-                    if (longPressTask[0] != null) main.removeCallbacks(longPressTask[0]);
-                    longPressTask[0] = null;
                     button.setPressed(false);
                     hideJapaneseFlickPreview();
                     return true;
@@ -5303,27 +5284,13 @@ public final class MSIMEInputService extends InputMethodService {
         });
     }
 
-    private void showJapaneseKeyOptions(Button anchor, JapaneseNineKeyLayout.Key key) {
-        PopupMenu popup = new PopupMenu(this, anchor);
-        for (int index = 0; index < key.kana().size(); index++) {
-            if (key.kana().get(index).isEmpty()) continue;
-            int direction = index;
-            popup.getMenu().add(key.kana().get(index)).setOnMenuItemClickListener(ignored -> {
-                playFeedback(anchor);
-                selectJapaneseKey(key, direction);
-                return true;
-            });
-        }
-        popup.show();
-    }
-
     private Button japaneseKey(JapaneseNineKeyLayout.Key key) {
         String description = key.kana().stream().filter(label -> !label.isEmpty())
             .collect(java.util.stream.Collectors.joining("、"));
         Button button = keyboardKey(japaneseKeyLabel(key), description,
             () -> selectJapaneseKey(key, 0));
         button.setContentDescription("轻点输入" + key.kana().get(0)
-            + "；左、上、右、下滑动选择其他假名；长按显示全部选项");
+            + "；左、上、右、下滑动选择其他假名");
         bindJapaneseFlick(button, key);
         return button;
     }
