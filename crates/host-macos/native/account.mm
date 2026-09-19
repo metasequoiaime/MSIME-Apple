@@ -10,7 +10,11 @@ static NSDictionary *MSIMEAccountQuery(void) {
 }
 
 // Returns 1 when found, 0 when absent, and -1 for a keychain failure.
-int msime_macos_account_load(uint8_t *buffer, size_t capacity, size_t *length) {
+//
+// These three are the Rust side's extern "C" declarations. Compiled as Objective-C++ without the linkage
+// they exported C++-mangled names instead, which resolved nothing and left every binary that reaches the
+// account bridge - the Tauri settings app among them - unlinkable.
+extern "C" int msime_macos_account_load(uint8_t *buffer, size_t capacity, size_t *length) {
     if (!buffer || !length || capacity == 0) return -1;
     NSMutableDictionary *query = [MSIMEAccountQuery() mutableCopy];
     query[(__bridge id)kSecReturnData] = @YES;
@@ -33,7 +37,7 @@ int msime_macos_account_load(uint8_t *buffer, size_t capacity, size_t *length) {
     return 1;
 }
 
-bool msime_macos_account_save(const uint8_t *bytes, size_t length) {
+extern "C" bool msime_macos_account_save(const uint8_t *bytes, size_t length) {
     if (!bytes || length == 0 || length > 1024 * 1024) return false;
     NSData *data = [NSData dataWithBytes:bytes length:length];
     NSDictionary *attributes = @{
@@ -50,7 +54,7 @@ bool msime_macos_account_save(const uint8_t *bytes, size_t length) {
     return status == errSecSuccess;
 }
 
-bool msime_macos_account_clear(void) {
+extern "C" bool msime_macos_account_clear(void) {
     OSStatus status = SecItemDelete((__bridge CFDictionaryRef)MSIMEAccountQuery());
     return status == errSecSuccess || status == errSecItemNotFound;
 }

@@ -9,7 +9,9 @@ fn main() {
     println!("cargo:rerun-if-changed=native/uninstaller.mm");
     println!("cargo:rerun-if-changed=native/dictionary.mm");
     println!("cargo:rerun-if-changed=native/account.mm");
-    println!("cargo:rerun-if-changed=../../platforms/macos/src/VoiceCaptureDevice.h");
+    // voice_capture_devices.mm includes this; the path moved with `refactor(macos): organize tests by
+    // feature area` and the stale one meant an edit to the header rebuilt nothing.
+    println!("cargo:rerun-if-changed=../../platforms/macos/src/voice/VoiceCaptureDevice.h");
     cc::Build::new()
         .cpp(true)
         .file("native/keyboard.mm")
