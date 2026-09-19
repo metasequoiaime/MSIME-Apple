@@ -1636,16 +1636,37 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func applyLearningPreferences() {
-    let mode: MetasequoiaFrequencyAdjustmentMode
+    let nativeMode: MetasequoiaFrequencyAdjustmentMode
     switch FrequencyAdjustmentPreference.mode {
-    case .pin: mode = .pin
-    case .halve: mode = .halve
-    case .linear: mode = .linear
-    case .promote: mode = .promote
+    case .pin: nativeMode = .pin
+    case .halve: nativeMode = .halve
+    case .linear: nativeMode = .linear
+    case .promote: nativeMode = .promote
+    }
+    var mode = nativeMode
+    var triggerCount = FrequencyAdjustmentPreference.triggerCount
+    var linearStep = FrequencyAdjustmentPreference.linearStep
+    // The shared PreferencesStore is the canonical source for Tauri settings.
+    // Apple’s legacy controls only expose four modes and values 1...6, while
+    // the shared document also supports `disabled` and values up to 10.
+    if let frequency = session.sharedPreferences?["frequency"] as? [String: Any] {
+      switch frequency["mode"] as? String {
+      case "pin": mode = .pin
+      case "halve": mode = .halve
+      case "linear": mode = .linear
+      case "promote": mode = .promote
+      case "disabled": mode = .disabled
+      default: break
+      }
+      if let value = Self.sharedPreferenceInt(frequency["trigger_count"], range: 1...10) {
+        triggerCount = value
+      }
+      if let value = Self.sharedPreferenceInt(frequency["linear_step"], range: 1...10) {
+        linearStep = value
+      }
     }
     _ = session.setFrequencyAdjustmentMode(
-      mode, triggerCount: FrequencyAdjustmentPreference.triggerCount,
-      linearStep: FrequencyAdjustmentPreference.linearStep)
+      mode, triggerCount: triggerCount, linearStep: linearStep)
     _ = session.setLearningEnabled(DictionaryLearningPreference.enabled)
     let legacyFuzzyPreferenceExists = FuzzyPinyinPreference.defaults.object(
       forKey: FuzzyPinyinPreference.enabledKey) != nil
@@ -2025,9 +2046,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     renderCandidateStrip()
   }
 
-  private static func sharedPreferenceInt(_ value: Any?) -> Int? {
-    if let value = value as? Int { return value }
-    if let value = value as? NSNumber { return value.intValue }
+  private static func sharedPreferenceInt(_ value: Any?, range: ClosedRange<Int> = 1...6) -> Int? {
+    let integer: Int?
+    if let value = value as? Int {
+      integer = value
+    } else if let value = value as? NSNumber {
+      integer = value.intValue
+    } else {
+      integer = nil
+    }
+    if let integer, range.contains(integer) { return integer }
     return nil
   }
 

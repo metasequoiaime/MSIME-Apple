@@ -75,7 +75,7 @@ enum MetasequoiaCandidateAction: UInt8 {
 }
 
 enum MetasequoiaFrequencyAdjustmentMode: UInt8 {
-  case pin, halve, linear, promote
+  case pin, halve, linear, promote, disabled
 }
 
 struct MetasequoiaInputSnapshot: Equatable, Sendable {
@@ -474,7 +474,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
 
   @discardableResult func setFrequencyAdjustmentMode(_ mode: MetasequoiaFrequencyAdjustmentMode,
                                                       triggerCount: Int, linearStep: Int) -> Bool {
-    let names = ["pin", "halve", "linear", "promote"]
+    let names = ["pin", "halve", "linear", "promote", "disabled"]
     return updatePreferences { $0["frequency"] = ["mode": names[Int(mode.rawValue)],
                                                     "trigger_count": triggerCount,
                                                     "linear_step": linearStep] }
