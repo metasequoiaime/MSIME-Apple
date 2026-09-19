@@ -1759,6 +1759,14 @@ group('recent emoji are most-recent first, deduplicated and bounded', () => {
   check(EmojiCatalogModel.normalizeRecents(null).length === 0, 'nothing stored is no recents');
   check(EmojiCatalogModel.normalizeRecents(['', 'a', 'a']).join(',') === 'a',
     'empty and repeated entries are dropped without discarding the rest');
+  check(EmojiCatalogModel.parseRecents('["😀","😀","",42]').join(',') === '😀',
+    'persisted recents keep only bounded strings and remove duplicates');
+  check(EmojiCatalogModel.parseRecents('{"recent":[]}').length === 0,
+    'a recents document with the wrong shape is treated as empty');
+  check(EmojiCatalogModel.parseRecents('not json').length === 0,
+    'malformed recents do not break the keyboard');
+  check(JSON.parse(EmojiCatalogModel.serializeRecents(['b', 'a', 'b']))[0] === 'b',
+    'serialization writes the normalized newest-first list');
 });
 
 function clip(text: string, at: number, pinned = false): ClipboardHistoryItem {

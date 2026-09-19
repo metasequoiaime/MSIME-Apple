@@ -56,6 +56,9 @@ import {
   CommunityReplyLibraryPolicy, CommunityReplyTemplate
 } from './CommunityReplyLibraryPolicy';
 import {
+  EmojiCatalogModel, EMOJI_RECENTS_MAX_BYTES
+} from './emoji/EmojiCatalogModel';
+import {
   SmartPunctuationRepeatPolicy, SmartPunctuationRepeatSnapshot
 } from './input/SmartPunctuationRepeatPolicy';
 
@@ -2352,6 +2355,71 @@ export class KeyboardSession {
       return true;
     } catch (error) {
       KeyboardLog.error(`clipboard history not saved: ${describeError(error)}`);
+      return false;
+    }
+  }
+
+  private emojiRecentsFile(): string {
+    return `${this.stateDirectory}/emoji_recents.json`;
+  }
+
+  /** Recent emoji belong to this keyboard installation, not to the shared preference schema. */
+  emojiRecents(): string[] {
+    if (this.stateDirectory.length === 0) {
+      return [];
+    }
+    const file: string = this.emojiRecentsFile();
+    try {
+      if (!fs.accessSync(file) || fs.statSync(file).size > EMOJI_RECENTS_MAX_BYTES) {
+        return [];
+      }
+      return EmojiCatalogModel.parseRecents(fs.readTextSync(file));
+    } catch (error) {
+      KeyboardLog.error(`emoji recents unavailable: ${describeError(error)}`);
+      return [];
+    }
+  }
+
+  recordEmojiRecent(text: string): string[] {
+    let recents: string[];
+    try {
+      recents = EmojiCatalogModel.recordRecent(this.emojiRecents(), text);
+    } catch (error) {
+      KeyboardLog.error(`emoji recent rejected: ${describeError(error)}`);
+      return this.emojiRecents();
+    }
+    if (this.stateDirectory.length === 0) {
+      return recents;
+    }
+    try {
+      const handle = fs.openSync(this.emojiRecentsFile(),
+        fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+      try {
+        fs.writeSync(handle.fd, EmojiCatalogModel.serializeRecents(recents));
+      } finally {
+        fs.closeSync(handle);
+      }
+    } catch (error) {
+      KeyboardLog.error(`emoji recents not persisted: ${describeError(error)}`);
+    }
+    return recents;
+  }
+
+  clearEmojiRecents(): boolean {
+    if (this.stateDirectory.length === 0) {
+      return false;
+    }
+    try {
+      const handle = fs.openSync(this.emojiRecentsFile(),
+        fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+      try {
+        fs.writeSync(handle.fd, '[]');
+      } finally {
+        fs.closeSync(handle);
+      }
+      return true;
+    } catch (error) {
+      KeyboardLog.error(`emoji recents not cleared: ${describeError(error)}`);
       return false;
     }
   }

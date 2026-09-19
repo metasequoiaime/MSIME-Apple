@@ -197,6 +197,8 @@ struct KeyboardView {
   @State japanese: boolean = false;
   @State emojiGroup: string = EmojiCatalogModel.categories()[0].group;
   @State emojiItems: string[] = [];
+  @State emojiRecents: string[] = [];
+  @State emojiShowingRecents: boolean = false;
   /**
    * Which surface is covering the keys, if any.
    *
@@ -448,6 +450,7 @@ struct KeyboardView {
    */
   private loadEmoji(group: string): void {
     this.emojiGroup = group;
+    this.emojiShowingRecents = false;
     const collected: string[] = [];
     let offset: number = 0;
     for (let page: number = 0; page < EMOJI_MAX_PAGES; page++) {
@@ -477,6 +480,41 @@ struct KeyboardView {
       }
     }
     this.emojiItems = collected;
+  }
+
+  private showEmojiRecents(): void {
+    this.emojiShowingRecents = true;
+    this.emojiRecents = KeyboardSession.shared.emojiRecents();
+    this.emojiItems = this.emojiRecents.slice();
+  }
+
+  private selectEmoji(text: string): void {
+    KeyboardSession.shared.insert(text);
+    this.emojiRecents = KeyboardSession.shared.recordEmojiRecent(text);
+    if (this.emojiShowingRecents) {
+      this.emojiItems = this.emojiRecents.slice();
+    }
+  }
+
+  private clearEmojiRecents(): void {
+    if (KeyboardSession.shared.clearEmojiRecents()) {
+      this.emojiRecents = [];
+      if (this.emojiShowingRecents) {
+        this.emojiItems = [];
+      }
+    }
+  }
+
+  private openEmojiSurface(): void {
+    this.toggle(SURFACE_EMOJI);
+    if (this.surface === SURFACE_EMOJI) {
+      this.emojiRecents = KeyboardSession.shared.emojiRecents();
+      if (this.emojiRecents.length > 0) {
+        this.showEmojiRecents();
+      } else {
+        this.loadEmoji(this.emojiGroup);
+      }
+    }
   }
 
   private selectScheme(candidate: SchemeDefinition): void {
@@ -992,10 +1030,7 @@ struct KeyboardView {
         this.toggle(SURFACE_TOOLS);
       });
       this.shortcutIcon($r('app.media.tool_emoji'), this.surface === SURFACE_EMOJI, () => {
-        this.toggle(SURFACE_EMOJI);
-        if (this.surface === SURFACE_EMOJI && this.emojiItems.length === 0) {
-          this.loadEmoji(this.emojiGroup);
-        }
+        this.openEmojiSurface();
       });
       if (this.settings.voiceShortcut) {
         this.shortcutText('🎙', this.surface === SURFACE_VOICE, () => {
@@ -2425,10 +2460,7 @@ struct KeyboardView {
               GridItem() {
                 this.toolCard('表情', null, $r('app.media.tool_emoji'), false, true, () => {
                   this.show(SURFACE_NONE);
-                  this.show(SURFACE_EMOJI);
-                  if (this.emojiItems.length === 0) {
-                    this.loadEmoji(this.emojiGroup);
-                  }
+                  this.openEmojiSurface();
                 });
               }
               GridItem() {
@@ -2660,6 +2692,13 @@ struct KeyboardView {
         Text('表情')
           .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
           .fontColor(this.skin.keyForeground)
+        if (this.emojiShowingRecents && this.emojiRecents.length > 0) {
+          Text('清除最近')
+            .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+            .fontColor(this.skin.accent)
+            .padding({ left: 8, right: 8 })
+            .onClick(() => this.clearEmojiRecents())
+        }
         Blank()
         Column() {
           this.deleteKey(KeyboardMetrics.MODIFIER_WIDTH_VP)
@@ -2673,16 +2712,25 @@ struct KeyboardView {
 
       Scroll() {
         Row({ space: KeyboardMetrics.KEY_SPACING_VP }) {
+          if (this.emojiRecents.length > 0) {
+            Text('最近')
+              .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+              .fontColor(this.emojiShowingRecents ? this.skin.accent : this.skin.keyForeground)
+              .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
+                right: KeyboardMetrics.CANDIDATE_PADDING_VP })
+              .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 5)
+              .onClick(() => this.showEmojiRecents())
+          }
           ForEach(EmojiCatalogModel.categories(), (category: EmojiCategory) => {
             Text(category.title)
               .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-              .fontColor(category.group === this.emojiGroup
+              .fontColor(!this.emojiShowingRecents && category.group === this.emojiGroup
                 ? this.skin.accent : this.skin.keyForeground)
               .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
                 right: KeyboardMetrics.CANDIDATE_PADDING_VP })
               .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 5)
               .onClick(() => this.loadEmoji(category.group))
-          }, (category: EmojiCategory) => category.group + this.emojiGroup)
+          }, (category: EmojiCategory) => `${category.group}:${this.emojiGroup}:${this.emojiShowingRecents}`)
         }
       }
       .scrollable(ScrollDirection.Horizontal)
@@ -2698,7 +2746,7 @@ struct KeyboardView {
               .fontSize(KeyboardMetrics.CANDIDATE_FONT_SIZE + 4)
               .textAlign(TextAlign.Center)
               .width('100%')
-              .onClick(() => KeyboardSession.shared.insert(item))
+              .onClick(() => this.selectEmoji(item))
           }
         }, (item: string, index: number) => `${index}:${item}`)
       }
