@@ -20,6 +20,8 @@ import vibrator from '@ohos.vibrator';
 import i18n from '@ohos.i18n';
 import { InputDiagnosticPolicy } from './input/InputDiagnosticPolicy';
 import { InputModeHudPolicy } from './InputModeHudPolicy';
+import { EnglishCompletions, EnglishReplacement, EnglishSuggestionPolicy }
+  from './input/EnglishSuggestionPolicy';
 import { ImeModeScopePolicy } from './input/ImeModeScopePolicy';
 import { ModeBindings, DEFAULT_MODE_BINDINGS } from './InputModeRouting';
 import { FloatingToolbarLayout, ToolbarButton, ToolbarComponents, ToolbarState }
@@ -156,6 +158,12 @@ interface TypingStatisticsRecordRequest {
 
 // The local emoji catalog lives in others.db beside the dictionaries, so the query carries the
 // resource directory rather than going through a session.
+/** `{prefix,limit}` as the shared ABI reads it; the prefix is ASCII letters and the limit 1..32. */
+interface EnglishCompletionRequest {
+  prefix: string;
+  limit: number;
+}
+
 interface EmojiQuery {
   category: string;
   limit: number;
@@ -445,6 +453,8 @@ interface PreparedPreferences {
   wubi_code_hint?: boolean;
   /** Whether the mode badge is drawn after a Chinese/English switch. Defaults to on. */
   input_mode_hud?: boolean;
+  /** Read-only English word completions while typing directly in English. Defaults to on. */
+  english_suggestions?: boolean;
   shuangpin_profile: string;
   touch_keyboard_layout: string;
   touch_keyboard_skin: string;
@@ -668,6 +678,13 @@ export class KeyboardSession {
   private englishMode: boolean = false;
   // Which application the mode belongs to. Windows and macOS both keep this per application by
   // default; this host used to keep one mode for every editor it was ever attached to.
+  private englishSuggestionsEnabled: boolean = true;
+  // The completion list currently on the strip, the prefix it was asked for, and a counter that
+  // makes every earlier answer stale. A reply that arrives after the word moved on is discarded.
+  private englishSuggestions: string[] = [];
+  private englishSuggestionPrefix: string = '';
+  private englishSuggestionEpoch: number = 0;
+  private englishSuggestionRequested: string = '';
   private modeScope: ImeModeScopePolicy = new ImeModeScopePolicy();
   private modeScopeSetting: string = 'app';
   private defaultEnglish: boolean = false;
@@ -756,6 +773,8 @@ export class KeyboardSession {
   onChanged: ((state: KeyboardState) => void) | undefined = undefined;
   /** The view removes clipboard history immediately when the shared privacy switch is turned off. */
   onClipboardHistoryChanged: ((enabled: boolean) => void) | undefined = undefined;
+  /** Read-only English completions for the strip: the prefix they answer and the words offered. */
+  onEnglishSuggestions: ((prefix: string, items: string[]) => void) | undefined = undefined;
   /** The view removes the voice surface immediately when shared voice input is turned off. */
   onVoiceInputChanged: ((enabled: boolean) => void) | undefined = undefined;
   /** Lets a desktop panel resize when a vertical candidate page changes height. */
@@ -894,6 +913,7 @@ export class KeyboardSession {
       this.candidateEnglishGloss = CandidateAnnotationPreferencePolicy.englishGloss(
         preferences.candidate_english_gloss);
       this.modeBadge = InputModeHudPolicy.enabled(preferences.input_mode_hud);
+      this.englishSuggestionsEnabled = preferences.english_suggestions !== false;
       if (ClipboardHistoryPreferencePolicy.shouldClearHistory(this.clipboardHistoryEnabled)) {
         this.clearClipboardHistoryFile();
       }
@@ -1435,6 +1455,7 @@ export class KeyboardSession {
   detach(): void {
     this.editorGeneration++;
     this.modeScope.deactivate();
+    this.clearEnglishSuggestions();
     this.invalidateReplyContext();
     this.clearSmartPunctuationRepeat();
     this.cancelOnlineProviders();
@@ -1994,6 +2015,9 @@ export class KeyboardSession {
     // view is published, and native result application rechecks the exact generation.
     this.scheduleOnlineProviders();
     this.scheduleTranslations();
+    // Every typed letter and every backspace arrives here, which is the one place that sees the
+    // editor change in direct English as well as in a composition.
+    this.refreshEnglishSuggestions();
   }
 
   private publishCurrentCandidates(): void {
@@ -3000,6 +3024,118 @@ export class KeyboardSession {
       this.inputClient.insertText(output);
       this.recordTypingStatistics(output, this.typingSource());
     }
+  }
+
+  /**
+   * Offer completions for the English word being typed.
+   *
+   * Only in direct English with nothing composing: a pinyin composition already has a candidate
+   * strip of its own, and the two would be competing for it. The query is a packaged-dictionary
+   * lookup that creates no session, so it runs off the UI thread and its answer is checked against
+   * the word still in the editor before anything is drawn.
+   */
+  private refreshEnglishSuggestions(): void {
+    if (!this.englishSuggestionsEnabled || !this.englishMode || this.composing()
+        || this.inputClient === undefined || this.resourceDirectory.length === 0) {
+      this.clearEnglishSuggestions();
+      return;
+    }
+    const prefix: string = this.englishWordBeforeCursor();
+    if (!EnglishSuggestionPolicy.suggestible(prefix)) {
+      this.clearEnglishSuggestions();
+      return;
+    }
+    if (prefix === this.englishSuggestionRequested) {
+      return;
+    }
+    const epoch: number = ++this.englishSuggestionEpoch;
+    this.englishSuggestionRequested = prefix;
+    const request: EnglishCompletionRequest = { prefix: prefix, limit: EnglishSuggestionPolicy.LIMIT };
+    const resources: string = this.resourceDirectory;
+    // A promise rather than a direct call: the lookup opens a packaged dictionary, and the keyboard
+    // has to keep drawing while it happens.
+    Promise.resolve().then((): string =>
+      client.englishCompletions(JSON.stringify(request), resources)
+    ).then((raw: string): void => {
+      const completions: EnglishCompletions | null = EnglishSuggestionPolicy.decode(raw);
+      this.applyEnglishSuggestions(epoch, prefix, completions);
+    }).catch((error: Object): void => {
+      // Completions are optional display state; a failed lookup never blocks input.
+      KeyboardLog.error(`english completions unavailable: ${describeError(error)}`);
+    });
+  }
+
+  private applyEnglishSuggestions(epoch: number, prefix: string,
+                                  completions: EnglishCompletions | null): void {
+    if (epoch !== this.englishSuggestionEpoch || completions === null
+        || completions.prefix !== prefix || prefix !== this.englishWordBeforeCursor()) {
+      return;
+    }
+    this.englishSuggestions = completions.items;
+    this.englishSuggestionPrefix = prefix;
+    this.publishEnglishSuggestions();
+  }
+
+  private clearEnglishSuggestions(): void {
+    this.englishSuggestionEpoch++;
+    this.englishSuggestionRequested = '';
+    if (this.englishSuggestions.length === 0 && this.englishSuggestionPrefix.length === 0) {
+      return;
+    }
+    this.englishSuggestions = [];
+    this.englishSuggestionPrefix = '';
+    this.publishEnglishSuggestions();
+  }
+
+  private publishEnglishSuggestions(): void {
+    if (this.onEnglishSuggestions !== undefined) {
+      this.onEnglishSuggestions(this.englishSuggestionPrefix, this.englishSuggestions.slice());
+    }
+  }
+
+  /** What the editor says is immediately before the caret, as far back as a word can run. */
+  private englishWordBeforeCursor(): string {
+    if (this.inputClient === undefined) {
+      return '';
+    }
+    try {
+      return EnglishSuggestionPolicy.currentWord(this.inputClient.getForwardSync(64));
+    } catch (error) {
+      return '';
+    }
+  }
+
+  /**
+   * Accept a completion, replacing the letters it completes.
+   *
+   * The word is re-read rather than trusted: the list was drawn some keystrokes ago, and if the
+   * editor has moved on since then the deletion would eat text the completion was never about.
+   */
+  useEnglishSuggestion(index: number): void {
+    if (index < 0 || index >= this.englishSuggestions.length || this.inputClient === undefined) {
+      return;
+    }
+    const typed: string = this.englishWordBeforeCursor();
+    if (typed !== this.englishSuggestionPrefix) {
+      this.clearEnglishSuggestions();
+      return;
+    }
+    const replacement: EnglishReplacement | null = EnglishSuggestionPolicy.replacement(
+      typed, this.englishSuggestions[index],
+      EnglishSuggestionPolicy.startedCapitalized(typed));
+    if (replacement === null) {
+      this.clearEnglishSuggestions();
+      return;
+    }
+    try {
+      this.inputClient.deleteBackwardSync(replacement.deleteCount);
+    } catch (error) {
+      KeyboardLog.error(`english completion could not replace the word: ${describeError(error)}`);
+      this.clearEnglishSuggestions();
+      return;
+    }
+    this.insert(replacement.insert);
+    this.clearEnglishSuggestions();
   }
 
   /** Insert a platform-produced result and attribute it to its actual source. */

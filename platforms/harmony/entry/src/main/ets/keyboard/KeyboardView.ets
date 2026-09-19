@@ -205,6 +205,8 @@ struct KeyboardView {
   @State editing: string = '';
   @State spellings: string[] = [];
   @State engineScheme: number = 0;
+  /** Read-only English completions for the word being typed; empty whenever one is not. */
+  @State englishSuggestions: string[] = [];
   @State shuangpinProfile: string = 'xiaohe';
   @State localMode: string = 'none';
   @State diagnostic: string = '';
@@ -310,6 +312,9 @@ struct KeyboardView {
           this.show(SURFACE_NONE);
         }
       }
+    };
+    KeyboardSession.shared.onEnglishSuggestions = (prefix: string, items: string[]): void => {
+      this.englishSuggestions = items;
     };
     KeyboardSession.shared.onSurfaceChanged = (surface: DesktopSurface): void => {
       this.desktop = surface;
@@ -975,6 +980,10 @@ struct KeyboardView {
       // from the app on a machine that has room for it.
       if (this.candidates.length > 0) {
         this.candidateRow()
+      } else if (this.englishSuggestions.length > 0) {
+        // The same row the candidates use. Direct English has no composition, so the strip is idle
+        // and the completions are the only thing that would be on it.
+        this.englishSuggestionRow()
       } else if (!KeyboardFormFactor.isDesktop()) {
         this.shortcutBar()
       }
@@ -1000,6 +1009,31 @@ struct KeyboardView {
       }
     }
     .width('100%')
+  }
+
+  /** Read-only English completions, drawn where the candidates would be. */
+  @Builder
+  englishSuggestionRow() {
+    Scroll() {
+      Row() {
+        ForEach(this.englishSuggestions, (word: string, index: number) => {
+          Text(word)
+            .fontSize(this.settings.candidateFontSize)
+            .fontFamily(this.candidateFontFamily())
+            .fontColor(this.candidateTextColor())
+            .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
+              right: KeyboardMetrics.CANDIDATE_PADDING_VP })
+            .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP)
+            .onClick(() => KeyboardSession.shared.useEnglishSuggestion(index))
+        }, (word: string, index: number) => `${index}:${word}`)
+      }
+      .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP)
+    }
+    .scrollable(ScrollDirection.Horizontal)
+    .scrollBar(BarState.Off)
+    .width('100%')
+    .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP)
+    .align(Alignment.Start)
   }
 
   @Builder

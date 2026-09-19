@@ -205,6 +205,7 @@ TEXT_ENTRY(Create, msime_client_create)
 
 PAIR_ENTRY(EmojiCatalog, msime_client_emoji_catalog_request)
 PAIR_ENTRY(CandidateGlosses, msime_client_candidate_gloss_request)
+PAIR_ENTRY(EnglishCompletions, msime_client_english_completions_request)
 PAIR_ENTRY(TranslationGlossSave, msime_client_translation_gloss_save)
 TEXT_ENTRY(TranslationPlan, msime_client_custom_translation_plan)
 TEXT_ENTRY(TencentTranslationHttpRequest, msime_client_tencent_translation_http_request)
@@ -632,6 +633,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("typingStatistics", TypingStatistics),
         ENTRY("emojiCatalog", EmojiCatalog),
         ENTRY("candidateGlosses", CandidateGlosses),
+        ENTRY("englishCompletions", EnglishCompletions),
         ENTRY("translationGlossSave", TranslationGlossSave),
         ENTRY("translationPlan", TranslationPlan),
         ENTRY("tencentTranslationHttpRequest", TencentTranslationHttpRequest),

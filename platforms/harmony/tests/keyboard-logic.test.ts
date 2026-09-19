@@ -60,6 +60,8 @@ import { CandidateFontFamilyPolicy }
 import { CandidateAnnotationPreferencePolicy }
   from '../entry/src/main/ets/keyboard/candidate/CandidateAnnotationPreferencePolicy';
 import { InputModeHudPolicy } from '../entry/src/main/ets/keyboard/InputModeHudPolicy';
+import { EnglishCompletions, EnglishReplacement, EnglishSuggestionPolicy }
+  from '../entry/src/main/ets/keyboard/input/EnglishSuggestionPolicy';
 import { ImeModeScopePolicy } from '../entry/src/main/ets/keyboard/input/ImeModeScopePolicy';
 import { HARMONY_CAPTURE_BACKEND, VoiceCaptureDevice, VoiceCaptureDevicePolicy }
   from '../entry/src/main/ets/keyboard/input/VoiceCaptureDevicePolicy';
@@ -1607,6 +1609,65 @@ group('the Windows maintenance chord reaches candidate removal on a hardware key
   const logo: HardwareKey = { ...chord(2001), logoKey: true };
   check(HardwareKeyRouter.route(logo, true, true).action === HardwareKeyAction.RELEASE,
     'adding Super makes it a desktop shortcut, which belongs to the desktop');
+});
+
+group('the word being completed is read backwards from the caret', () => {
+  check(EnglishSuggestionPolicy.currentWord('type hel') === 'hel', 'letters run back to a boundary');
+  check(EnglishSuggestionPolicy.currentWord('hel') === 'hel', 'with nothing before it the word is all of it');
+  check(EnglishSuggestionPolicy.currentWord('hello ') === '', 'a space ends the word');
+  check(EnglishSuggestionPolicy.currentWord('say,hel') === 'hel', 'so does punctuation');
+  check(EnglishSuggestionPolicy.currentWord('\uff48\uff45\uff4c') === 'hel',
+    'full-width letters normalise for the ASCII dictionary, because that is still English being typed');
+  check(EnglishSuggestionPolicy.currentWord('\u4f60\u597dhel') === 'hel', 'Han is a boundary');
+  check(EnglishSuggestionPolicy.currentWord('') === '', 'an empty editor has no word');
+  check(EnglishSuggestionPolicy.currentWord(null) === '', 'nor has an unreadable one');
+  check(EnglishSuggestionPolicy.currentWord('a'.repeat(200)) === '',
+    'something longer than any word is refused rather than queried');
+});
+
+group('a prefix is only queried when it could mean something', () => {
+  check(EnglishSuggestionPolicy.suggestible('hel') === true, 'three letters is a word being typed');
+  check(EnglishSuggestionPolicy.suggestible('he') === true, 'two is the threshold');
+  check(EnglishSuggestionPolicy.suggestible('h') === false,
+    'one letter matches most of the dictionary and would cost a query per keystroke');
+  check(EnglishSuggestionPolicy.suggestible('') === false, 'and none matches nothing');
+  check(EnglishSuggestionPolicy.suggestible('he1') === false, 'a digit is not part of a word');
+});
+
+group('accepting a completion replaces exactly what was typed', () => {
+  const plain: EnglishReplacement | null =
+    EnglishSuggestionPolicy.replacement('hel', 'hello', false);
+  check(plain !== null && plain.deleteCount === 3 && plain.insert === 'hello',
+    'the typed letters go and the whole word arrives');
+  const capital: EnglishReplacement | null =
+    EnglishSuggestionPolicy.replacement('Hel', 'hello', true);
+  check(capital !== null && capital.insert === 'Hello',
+    'a capitalised prefix asks for a capitalised word');
+  check(EnglishSuggestionPolicy.replacement('hello', 'hello', false) === null,
+    'a word already typed in full is not a completion, and re-typing it would only move the caret');
+  check(EnglishSuggestionPolicy.replacement('hel', '', false) === null, 'an empty word is not one');
+  check(EnglishSuggestionPolicy.startedCapitalized('Hel') === true, 'capitalisation is read off the first letter');
+  check(EnglishSuggestionPolicy.startedCapitalized('hel') === false, 'and lower case asks for none');
+});
+
+group('a completion reply is bounded before it reaches the strip', () => {
+  const good: EnglishCompletions | null = EnglishSuggestionPolicy.decode(
+    '{"ok":true,"value":{"prefix":"hel","items":["hello","help"]}}');
+  check(good !== null && good.prefix === 'hel' && good.items.length === 2, 'a well-formed reply is read');
+  check(EnglishSuggestionPolicy.decode('{"ok":false,"error":"no"}') === null, 'a refusal offers nothing');
+  check(EnglishSuggestionPolicy.decode('not json') === null, 'nor does something that is not a reply');
+  check(EnglishSuggestionPolicy.decode(null) === null, 'nor an absent one');
+  check(EnglishSuggestionPolicy.decode(
+    '{"ok":true,"value":{"prefix":"hel","items":["hello",7]}}') === null,
+    'an item that is not a word rejects the whole reply rather than being skipped past');
+  const many: string[] = [];
+  for (let index: number = 0; index < 50; index++) many.push(`word${index}`);
+  const bounded: EnglishCompletions | null = EnglishSuggestionPolicy.decode(
+    JSON.stringify({ ok: true, value: { prefix: 'hel', items: many } }));
+  check(bounded !== null && bounded.items.length === 32, 'more items than the strip can hold are cut off');
+  check(EnglishSuggestionPolicy.decode(
+    JSON.stringify({ ok: true, value: { prefix: 'hel', items: ['x'.repeat(200)] } })) === null,
+    'an implausibly long word is refused');
 });
 
 group('the mode badge is built only when the shared preference allows it', () => {
