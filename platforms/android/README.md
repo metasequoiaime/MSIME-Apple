@@ -72,7 +72,7 @@ Android Tauri 设置仅在 Android WebView 注入统计能力，桌面设置不�
 
 中文候选在支持个人词典管理的方案中提供与固定 Apple 来源一致的长按菜单顺序：优先显示、固定到首位、取消固定和删除词条；删除操作要求 Android 确认对话框。固定位置通过共享 host API 限制为 1–5，本界面固定到首位时只传入位置 1。候选身份仍由 Engine 返回的 session/generation/index 传入 JNI，generation 或候选身份过期后不会修改当前会话；五笔、日语和本地输入模式不展示管理菜单。
 
-候选 UI 现在消费共享的 `candidate_layout`（兼容旧的 `candidate_orientation`）、`candidate_font_size` 和 `candidate_preedit_font_size`；偏好热更新成功后立即调整候选排列和字号，不重建 Engine 会话。字号只接受核心偏好允许的 12–32 范围，非法值回退到 16。
+候选 UI 现在消费共享的 `candidate_layout`（兼容旧的 `candidate_orientation`）、`candidate_font_size`、`candidate_preedit_font_size`、`candidate_skin`、`candidate_theme` 及候选颜色覆盖；Fluent、微信绿、石墨 Graphite 和杨柳青 Willow green 四套候选皮肤按明暗主题渲染到普通候选栏和展开面板，非法皮肤、主题和颜色安全回退，显式候选文字颜色还按共享规则派生半透明编号色。偏好热更新成功后立即调整候选排列、字号和调色板，不重建 Engine 会话。字号只接受核心偏好允许的 12–32 范围，非法值回退到 16；真实设备视觉和触摸验收仍待完成。
 
 “更多”工具页提供键盘内剪贴板历史面板。与 Apple 一致，只有用户点按“保存当前剪贴板”时才读取 Android 文本剪贴板，不后台监听；最多保存 50 条，支持去重、固定、删除、确认清空和点按插入。历史放在输入法私有偏好中，应用禁用备份且不记录内容；共享 `clipboard_history` 关闭时立即清空并禁用入口。非文本、空白或超过 10,000 UTF-16 单元/40,000 UTF-8 字节的内容不会保存。
 
