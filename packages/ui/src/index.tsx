@@ -2318,7 +2318,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
         </div>
         <div className="section panel-launch-card">
           <div className="section-header panel-launch-row"><span className="section-title">打开屏幕键盘<small>使用鼠标或触控方式输入文字与快捷按键</small></span><button type="button" className="secondary panel-open-button" disabled={!client.openScreenKeyboard} onClick={() => void openPanel(client.openScreenKeyboard)}>打开</button></div>
-          <div className="panel-preview screen-keyboard-preview" aria-label="屏幕键盘预览"><div className="panel-preview-label">预览</div><ScreenKeyboardPreview theme={keyboardPreviewTheme} skin={touchKeyboardSkin} customDesign={customTouchKeyboardSkin} /></div>
+          <div className="panel-preview screen-keyboard-preview" aria-label="屏幕键盘预览"><div className="panel-preview-label">预览</div><ScreenKeyboardPreview theme={keyboardPreviewTheme} skin={touchKeyboardSkin} customDesign={customTouchKeyboardSkin} keySpacingTenths={touchKeySpacingTenths} rowSpacingTenths={touchRowSpacingTenths} heightAdjustment={touchKeyboardHeightAdjustment} /></div>
         </div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "handwriting"} aria-label="手写识别板">
