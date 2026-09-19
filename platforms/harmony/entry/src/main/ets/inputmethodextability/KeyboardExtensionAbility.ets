@@ -437,6 +437,12 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       case HardwareKeyAction.SELECT:
         session.choose(decision.index);
         break;
+      case HardwareKeyAction.REMOVE_CANDIDATE:
+        // The slot may hold nothing, or a cloud or AI candidate the dictionary cannot forget. The
+        // key stays claimed either way: the chord was pressed deliberately, and letting a stray '1'
+        // through to the editor because the candidate was the wrong kind would be worse.
+        session.removeManagedCandidate(decision.index);
+        break;
       case HardwareKeyAction.WORD_CHARACTER_FIRST:
         session.selectEdge(CandidateTextEdge.FIRST);
         break;

@@ -27,6 +27,7 @@ import { FloatingToolbarLayout, ToolbarButton, ToolbarComponents, ToolbarState }
 import { ToolbarSkin, ToolbarSkinPolicy } from './ToolbarSkinPolicy';
 import { DesktopSurface } from './DesktopSurface';
 import { CandidateAnnotationPreferencePolicy } from './candidate/CandidateAnnotationPreferencePolicy';
+import { CandidateManagementAction } from './candidate/CandidateManagementAction';
 import { CandidateGlossPolicy } from './candidate/CandidateGlossPolicy';
 import { CandidatePresentationPolicy } from './candidate/CandidatePresentationPolicy';
 import {
@@ -536,6 +537,8 @@ interface PreparedFloatingToolbar {
   character_set: boolean;
   emoji: boolean;
   screen_keyboard: boolean;
+  /** Shared switch for the settings button; absent in older documents, where it was always shown. */
+  settings?: boolean;
   scale_percent: number;
   font_size: number;
 }
@@ -1161,7 +1164,8 @@ export class KeyboardSession {
     return {
       englishMode: this.toolbar.english_mode, punctuation: this.toolbar.punctuation,
       fullwidth: this.toolbar.fullwidth, characterSet: this.toolbar.character_set,
-      emoji: this.toolbar.emoji, screenKeyboard: this.toolbar.screen_keyboard
+      emoji: this.toolbar.emoji, screenKeyboard: this.toolbar.screen_keyboard,
+      settings: this.toolbar.settings !== false
     };
   }
 
@@ -3115,6 +3119,29 @@ export class KeyboardSession {
       return;
     }
     this.apply(client.removeCandidate(this.handle, this.generation, index));
+  }
+
+  /**
+   * The Windows maintenance chord's target, checked before it is acted on.
+   *
+   * The hardware key says which slot; whether that slot holds a candidate the user dictionary can
+   * be asked to forget is this side's business. Cloud, AI, Emoji and Japanese candidates come from
+   * sources the Host API would refuse, and a chord that silently does nothing eight times is worse
+   * than one that was never claimed — so the caller is told whether it was acted on.
+   */
+  removeManagedCandidate(index: number): boolean {
+    const view: EngineView | undefined = this.lastView;
+    if (this.handle === 0 || view === undefined || index < 0
+        || index >= view.candidates.length) {
+      return false;
+    }
+    const candidate: Candidate = view.candidates[index];
+    if (!CandidateManagementAction.candidateActionsAvailable(
+        KeyboardScheme.engineSchemeName(view.scheme), candidate.source)) {
+      return false;
+    }
+    this.apply(client.removeCandidate(this.handle, this.generation, index));
+    return true;
   }
 
   /** Select by position in the full list rather than in the page. */
