@@ -139,10 +139,27 @@ wine windows-installer-launch
 # editing_text "a". Dedicated English needs the packaged English dictionary and
 # the cross build stages none, so the Engine answers with nothing.
 wine windows-dedicated-english
-# windows-session-smoke fails at session_smoke.cpp:334, "Old focus configuration
-# changed Engine state" - NOT the line 191 Unicode failure the native entry
-# above records. That one is gone, as the input-runtime test predicted. This is
-# a different assertion about focus fencing and has never been run before, so it
-# is recorded here as observed rather than explained; it is the first thing to
-# look at now that these suites can be run at all.
+# windows-session-smoke fails at session_pump.cpp:334 - not session_smoke.cpp,
+# which is the other translation unit in the same executable. The line 191
+# Unicode failure the native entry above records is gone, as the input-runtime
+# test predicted.
+#
+# 334 is the Microsoft shuangpin ';' final: after 'b', pressing ';' must extend
+# the syllable to "b;" rather than commit punctuation. Measured, not guessed:
+#
+#   the Engine is right. Driven directly through engine-bridge with scheme
+#   shuangpin and profile 3, 'b' then ';' gives editing_text "b;"; with profile
+#   0 the ';' is refused. So the carve-out exists and works.
+#
+#   the Windows dispatch never reaches it. Instrumenting ReplyComposer's call
+#   into edit_kind prints, for the ';' packet:
+#     kind=0 mode="none" ms=1 editing="" caret=0 key=186
+#   The profile is live (ms=1) and the key is right (186 = VK_OEM_1), but the
+#   composition is empty, so edit_kind's (caret - start) % 2 == 1 test declines
+#   and the key falls through to candidate_punctuation, which commits the Chinese semicolon.
+#   The preceding 'b' was classified kind=1 (Character) and dispatched.
+#
+# So the open question is why the composition is empty one key later. The
+# harness calls configured_key per packet and never confirms the reply, which
+# would be worth ruling out before looking further into session state.
 wine windows-session-smoke
