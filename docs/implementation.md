@@ -22,6 +22,14 @@
 
 ## 当前证据
 
+### 移动端从键盘皮肤直达社区（2026-09-20）
+
+Apple 的「皮肤」页带一条 `discoverSkins()` 入口——「去社区发现皮肤」，把用户送到社区标签的皮肤分类。共享设置的屏幕键盘页只有内置皮肤和自定义编辑器，没有这条路：移动端的社区是并列标签，从皮肤页看完内置皮肤后没有任何地方能继续去看别人做的皮肤。
+
+现在移动宿主在内置皮肤网格下方提供同一条入口，复用页面已有的 `openCommunity` 跳转，其默认目的地正是浏览全部皮肤，与 Apple 的 `discoverSkins()` 一致。桌面侧栏本来就列着「社区」，不再重复一条路。宿主没有注入社区皮肤 client 时不显示该入口。`openCommunity` 的参数类型放宽到与其 state 相同的 `AccountCommunityDestination | "all"`，此前 state 允许 `"all"` 而函数不允许。
+
+新增 4 项回归覆盖 Android 点击后落在社区页、iOS 同样提供、缺少社区 client 时不显示、桌面保持侧栏单一入口。桌面 UI 全量 728 项 Vitest 中 721 项通过，TypeScript 检查与 Vite 生产构建通过。7 项失败里 6 项在 `scripts/known-failures.txt` 基线内；余下的 `external-skins.test.tsx > image read and decode failures…` 单独运行通过，且该文件正是基线说明中记为时序相关的那个，本次整轮运行时机器 load average 为 229（同机其他工作占用），不作为本切片的回归。未执行 Android/iOS 真机导航验收，CI 保持禁用。
+
 ### Android Tauri 应用重新可构建（2026-09-20）
 
 `msime-desktop` 已经无法为 `aarch64-linux-android` 编译，因此 Android 合包完全打不出来。原因是本地门禁的盲区：`scripts/verify-local.sh` 的 `cargo check --workspace` 只看宿主目标，`#[cfg(target_os = "android")]` 分支从来没有被编译过；`platforms/android/check-host.sh` 又以 API 35 的 `android.jar` 编译 Java，而 manifest 声明 minSdk 28。十个错误就这样积累下来，只有真正打包时才会暴露。

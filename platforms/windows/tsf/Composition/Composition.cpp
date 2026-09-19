@@ -8,6 +8,7 @@
 #include <string>
 #include "FanyDefines.h"
 #include "Ipc.h"
+#include "SmartPunctuationFingerprint.h"
 #include "../Utils/PerfTimer.h"
 
 namespace
@@ -160,9 +161,10 @@ WCHAR SmartPunctuationAsciiFor(WCHAR chinese)
 }
 } // namespace
 
-WCHAR CMetasequoiaIME::_GetPrecedingDocumentChar(TfEditCookie ec, _In_ ITfContext *pContext)
+int CMetasequoiaIME::_GetPrecedingDocumentChars(TfEditCookie ec, _In_ ITfContext *pContext,
+                                                _Out_writes_(count) WCHAR *buffer, int count)
 {
-    if (pContext == nullptr)
+    if (pContext == nullptr || buffer == nullptr || count <= 0)
     {
         return 0;
     }
@@ -192,7 +194,7 @@ WCHAR CMetasequoiaIME::_GetPrecedingDocumentChar(TfEditCookie ec, _In_ ITfContex
     }
 
     ITfRange *pClone = nullptr;
-    WCHAR preceding = 0;
+    int readCount = 0;
     HRESULT hr = pAnchor->Clone(&pClone);
     if (SUCCEEDED(hr) && pClone != nullptr)
     {
@@ -200,17 +202,17 @@ WCHAR CMetasequoiaIME::_GetPrecedingDocumentChar(TfEditCookie ec, _In_ ITfContex
         if (SUCCEEDED(hr))
         {
             LONG shifted = 0;
-            hr = SafeRangeShiftStart(pClone, ec, -1, &shifted);
-            if (SUCCEEDED(hr) && shifted == -1)
+            // A shift shorter than requested is the document start, which is
+            // still worth reading: the caller decides what a short read means.
+            hr = SafeRangeShiftStart(pClone, ec, -count, &shifted);
+            if (SUCCEEDED(hr) && shifted < 0)
             {
                 // Terminals and other shallow text stores accept the shift but
-                // expose no text, leaving preceding at 0.
-                WCHAR buffer[2] = {};
+                // expose no text, which reads back as 0 characters.
                 ULONG fetched = 0;
-                hr = SafeRangeGetText(pClone, ec, 0, buffer, 1, &fetched);
-                if (SUCCEEDED(hr) && fetched == 1)
+                if (SUCCEEDED(SafeRangeGetText(pClone, ec, 0, buffer, static_cast<ULONG>(count), &fetched)))
                 {
-                    preceding = buffer[0];
+                    readCount = static_cast<int>(fetched);
                 }
             }
         }
@@ -221,7 +223,26 @@ WCHAR CMetasequoiaIME::_GetPrecedingDocumentChar(TfEditCookie ec, _In_ ITfContex
     {
         pAnchor->Release();
     }
-    return preceding;
+    return readCount;
+}
+
+WCHAR CMetasequoiaIME::_GetPrecedingDocumentChar(TfEditCookie ec, _In_ ITfContext *pContext)
+{
+    WCHAR buffer[1] = {};
+    return _GetPrecedingDocumentChars(ec, pContext, buffer, 1) == 1 ? buffer[0] : 0;
+}
+
+bool CMetasequoiaIME::_SmartPunctuationFingerprintMatches(TfEditCookie ec, _In_ ITfContext *pContext, WCHAR beforeChar)
+{
+    if (beforeChar == 0)
+    {
+        return true;
+    }
+    // Two characters: the punctuation about to be rewritten, and before it the
+    // one recorded when the rewrite armed.
+    WCHAR buffer[2] = {};
+    const int readCount = _GetPrecedingDocumentChars(ec, pContext, buffer, 2);
+    return Global::SmartPunctuationFingerprintMatches(readCount, buffer[0], beforeChar);
 }
 
 WCHAR CMetasequoiaIME::_GetFollowingDocumentChar(TfEditCookie ec, _In_ ITfContext *pContext)
@@ -301,6 +322,7 @@ void CMetasequoiaIME::_ClearSmartPunctuationSpace()
 {
     _smartPunctuationSpaceArmed = false;
     _smartPunctuationSpaceChinese = 0;
+    _smartPunctuationSpaceBeforeChar = 0;
     _smartPunctuationSpaceFocusToken = 0;
     _smartPunctuationSpaceForegroundWindow = nullptr;
 }
@@ -310,12 +332,13 @@ void CMetasequoiaIME::_ClearSmartPunctuationRevert()
     _smartPunctuationRevertArmed = false;
     _smartPunctuationRevertAscii = 0;
     _smartPunctuationRevertChinese = 0;
+    _smartPunctuationRevertBeforeChar = 0;
     _smartPunctuationRevertFocusToken = 0;
     _smartPunctuationRevertForegroundWindow = nullptr;
     _smartPunctuationRevertDeadline = 0;
 }
 
-void CMetasequoiaIME::_ArmSmartPunctuationRevert(WCHAR ascii, WCHAR chinese)
+void CMetasequoiaIME::_ArmSmartPunctuationRevert(WCHAR ascii, WCHAR chinese, WCHAR beforeChar)
 {
     _ClearSmartPunctuationRevert();
     if (ascii == 0 || chinese == 0 ||
@@ -326,12 +349,13 @@ void CMetasequoiaIME::_ArmSmartPunctuationRevert(WCHAR ascii, WCHAR chinese)
     _smartPunctuationRevertArmed = true;
     _smartPunctuationRevertAscii = ascii;
     _smartPunctuationRevertChinese = chinese;
+    _smartPunctuationRevertBeforeChar = beforeChar;
     _smartPunctuationRevertFocusToken = _CaptureFocusSessionToken();
     _smartPunctuationRevertForegroundWindow = GetForegroundWindow();
     _smartPunctuationRevertDeadline = GetTickCount64() + SMART_PUNCTUATION_REPEAT_INTERVAL_MS;
 }
 
-void CMetasequoiaIME::_ArmSmartPunctuationSpace(WCHAR chinese, bool autoClosedPair)
+void CMetasequoiaIME::_ArmSmartPunctuationSpace(WCHAR chinese, bool autoClosedPair, WCHAR beforeChar)
 {
     _ClearSmartPunctuationSpace();
     _ClearSmartPunctuationRevert();
@@ -344,6 +368,7 @@ void CMetasequoiaIME::_ArmSmartPunctuationSpace(WCHAR chinese, bool autoClosedPa
     }
     _smartPunctuationSpaceArmed = true;
     _smartPunctuationSpaceChinese = chinese;
+    _smartPunctuationSpaceBeforeChar = beforeChar;
     _smartPunctuationSpaceFocusToken = _CaptureFocusSessionToken();
     _smartPunctuationSpaceForegroundWindow = GetForegroundWindow();
 }
@@ -351,6 +376,7 @@ void CMetasequoiaIME::_ArmSmartPunctuationSpace(WCHAR chinese, bool autoClosedPa
 HRESULT CMetasequoiaIME::_HandleSmartPunctuationConvert(TfEditCookie ec, _In_ ITfContext *pContext)
 {
     const WCHAR chinese = _smartPunctuationSpaceChinese;
+    const WCHAR beforeChar = _smartPunctuationSpaceBeforeChar;
     const WCHAR ascii = SmartPunctuationAsciiFor(chinese);
     _ClearSmartPunctuationSpace();
     if (ascii == 0)
@@ -361,7 +387,10 @@ HRESULT CMetasequoiaIME::_HandleSmartPunctuationConvert(TfEditCookie ec, _In_ IT
     }
 
     const WCHAR preceding = _GetPrecedingDocumentChar(ec, pContext);
-    if (preceding != 0 && preceding != chinese)
+    // The character before the caret being the expected punctuation is not on
+    // its own proof that it is the one that armed: the same punctuation is
+    // usually somewhere else in the document too.
+    if ((preceding != 0 && preceding != chinese) || !_SmartPunctuationFingerprintMatches(ec, pContext, beforeChar))
     {
         CStringRange space;
         space.Set(L" ", 1);
@@ -399,7 +428,9 @@ HRESULT CMetasequoiaIME::_HandleSmartPunctuationConvert(TfEditCookie ec, _In_ IT
         pContext->SetSelection(ec, 1, &selection);
         _smartPunctuationShadowChar = ascii;
         _smartPunctuationShadowValid = true;
-        _ArmSmartPunctuationRevert(ascii, chinese);
+        // The rewrite replaced the punctuation in place, so whatever sat before
+        // it still does; the fingerprint carries over to the revert window.
+        _ArmSmartPunctuationRevert(ascii, chinese, beforeChar);
     }
     selection.range->Release();
     if (FAILED(hr))
@@ -415,6 +446,7 @@ HRESULT CMetasequoiaIME::_HandleSmartPunctuationRevert(TfEditCookie ec, _In_ ITf
 {
     const WCHAR ascii = _smartPunctuationRevertAscii;
     const WCHAR chinese = _smartPunctuationRevertChinese;
+    const WCHAR beforeChar = _smartPunctuationRevertBeforeChar;
     _ClearSmartPunctuationRevert();
     const bool sameKey = wch == ascii || (ascii == L'/' && wch == L'\\');
     if (ascii == 0 || chinese == 0 || !sameKey)
@@ -423,7 +455,7 @@ HRESULT CMetasequoiaIME::_HandleSmartPunctuationRevert(TfEditCookie ec, _In_ ITf
     }
 
     const WCHAR preceding = _GetPrecedingDocumentChar(ec, pContext);
-    if (preceding != 0 && preceding != ascii)
+    if ((preceding != 0 && preceding != ascii) || !_SmartPunctuationFingerprintMatches(ec, pContext, beforeChar))
     {
         CStringRange fallback;
         fallback.Set(&chinese, 1);

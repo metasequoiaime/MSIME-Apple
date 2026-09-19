@@ -58,27 +58,43 @@ fn startup_panel_for_session(
     Some(panel)
 }
 
+fn voice_session_available(route: Option<SurfaceRoute>) -> bool {
+    if route != Some(SurfaceRoute::Voice) {
+        return true;
+    }
+    PanelState::from_environment()
+        .ok()
+        .is_some_and(|state| state.can_open_voice_panel())
+}
+
 pub(crate) fn startup_panel_for_launch(route: Option<SurfaceRoute>) -> Option<PanelSurface> {
-    let voice_session_available = if route == Some(SurfaceRoute::Voice) {
-        PanelState::from_environment()
-            .ok()
-            .is_some_and(|state| state.can_open_voice_panel())
-    } else {
-        true
-    };
-    startup_panel_for_session(route, voice_session_available)
+    startup_panel_for_session(route, voice_session_available(route))
+}
+
+/// Whether the settings window stays hidden, given a decision about the voice session.
+///
+/// Separate from `prepare_windows` because that one asks the environment, and a voice route hides the
+/// window only when a session is actually reachable - so a test that called it was really testing whether
+/// the machine it ran on had one.
+fn prepare_windows_for_session(
+    windows: &mut [tauri::utils::config::WindowConfig],
+    route: Option<SurfaceRoute>,
+    voice_session_available: bool,
+) {
+    if startup_panel_for_session(route, voice_session_available).is_none() {
+        return;
+    }
+    for window in windows.iter_mut().filter(|window| window.label == "main") {
+        window.visible = false;
+        window.focus = false;
+    }
 }
 
 pub(crate) fn prepare_windows(
     windows: &mut [tauri::utils::config::WindowConfig],
     route: Option<SurfaceRoute>,
 ) {
-    if startup_panel_for_launch(route).is_some() {
-        for window in windows.iter_mut().filter(|window| window.label == "main") {
-            window.visible = false;
-            window.focus = false;
-        }
-    }
+    prepare_windows_for_session(windows, route, voice_session_available(route));
 }
 
 struct SubmissionGuard(Arc<AtomicU8>);
@@ -310,14 +326,25 @@ mod tests {
     #[test]
     fn voice_startup_uses_shared_route_and_hides_only_settings() {
         let route = SurfaceRoute::parse("voice").ok();
-        let mut windows = vec![tauri::utils::config::WindowConfig {
-            label: "main".into(),
-            visible: true,
-            focus: true,
-            ..Default::default()
-        }];
-        prepare_windows(&mut windows, route);
+        let settings_window = || {
+            vec![tauri::utils::config::WindowConfig {
+                label: "main".into(),
+                visible: true,
+                focus: true,
+                ..Default::default()
+            }]
+        };
+
+        let mut windows = settings_window();
+        prepare_windows_for_session(&mut windows, route, true);
         assert!(!windows[0].visible && !windows[0].focus);
+
+        // Without a session the panel never opens, so hiding the settings window would leave the user
+        // looking at nothing: the voice route is the one launch that can decline to take over.
+        let mut windows = settings_window();
+        prepare_windows_for_session(&mut windows, route, false);
+        assert!(windows[0].visible && windows[0].focus);
+
         assert_eq!(startup_panel(route).unwrap().label, "voice-panel");
         assert!(super::super::macos_cloud_clipboard::startup_panel(route).is_none());
     }

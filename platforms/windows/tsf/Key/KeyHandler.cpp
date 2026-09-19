@@ -1597,11 +1597,17 @@ HRESULT CMetasequoiaIME::_HandleCompositionPunctuation(TfEditCookie ec, _In_ ITf
         }
     }
 
+    // Kept for the space-conversion fingerprint: after the commit this
+    // character sits directly before the punctuation, and reading it back then
+    // is what tells the armed punctuation apart from an identical one the
+    // caret may have been moved to since.
+    WCHAR smartPunctuationBeforeChar = 0;
     if (!hasPendingPunctuationCommitText && punctuationStr.empty() && code != VK_DECIMAL)
     {
         // Pure punctuation (no candidate prefix): choose ASCII vs Chinese from
         // the character immediately before the caret / composition.
         const WCHAR preceding = _GetPrecedingCharForSmartPunctuation(ec, pContext);
+        smartPunctuationBeforeChar = preceding;
         punctuationStr = _ResolveSmartPunctuation(wch, preceding);
     }
 
@@ -1675,7 +1681,7 @@ HRESULT CMetasequoiaIME::_HandleCompositionPunctuation(TfEditCookie ec, _In_ ITf
     // commits are deliberately left untouched so a following space cannot
     // rewrite half of a pair or historical candidate text.
     _ArmSmartPunctuationSpace(punctuationStr.size() == 1 ? punctuationStr.back() : 0,
-                              pairedClosing != 0 || punctuationStr.size() != 1);
+                              pairedClosing != 0 || punctuationStr.size() != 1, smartPunctuationBeforeChar);
     if (pairedClosing != 0)
     {
         _InvalidateSmartPunctuationShadow();

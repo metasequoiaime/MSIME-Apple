@@ -522,6 +522,8 @@ class CandidateList : public Visual
 
     struct Appearance
     {
+        std::wstring fontFamily;
+        std::vector<std::wstring> fallbackFontFamilies;
         float itemHeight = 28.0f;
         float itemGap = 2.0f;
         float fontSize = 16.0f;
@@ -540,8 +542,10 @@ class CandidateList : public Visual
         D2D1_COLOR_F rowFillSelected = D2D1::ColorF(0x3E3E3E, 0.725f);
         // Text/label colors for the selected (and pressed) row. Alpha 0 keeps
         // the normal textColor/labelColor; skins that fill the selected row
-        // with an opaque accent set these to the contrasting color. The text
-        // color also applies to the row's annotation and translation.
+        // with an opaque accent set these to the contrasting color (e.g. white
+        // on the WeChat green first row). rowTextSelected also drives the
+        // annotation (辅助码) and translation on that row, matching the CSS
+        // where both inherit the color of `.first .text`.
         D2D1_COLOR_F rowTextSelected = D2D1::ColorF(0, 0.0f);
         D2D1_COLOR_F rowLabelSelected = D2D1::ColorF(0, 0.0f);
         D2D1_COLOR_F selectedBarColor = D2D1::ColorF(0x6B69D6);
@@ -562,6 +566,8 @@ class CandidateList : public Visual
     void SetSelectedIndex(size_t index);
     size_t GetSelectedIndex() const;
     const Item *GetItem(size_t index) const;
+    // 候选项相对窗口的最终矩形（含铺满后的行宽），供命中测试与布局校验使用。
+    RectF GetItemBounds(size_t index) const;
     void SetOnSelectionChanged(SelectionChangedHandler handler);
     void SetOnItemActivated(ItemActivatedHandler handler);
     void SetOnContextMenu(ContextMenuHandler handler);
@@ -597,6 +603,18 @@ class CandidateList : public Visual
         Microsoft::WRL::ComPtr<IDWriteTextLayout> translationLayout;
     };
 
+    // 均使用逻辑单位：bounds 相对列表，文字矩形相对候选项；测量、绘制与命中测试共用。
+    struct ItemGeometry
+    {
+        RectF bounds;
+        RectF label;
+        RectF text;
+        RectF annotation;
+        RectF translation;
+    };
+
+    float MeasureTextHeight(const std::wstring &text, float fontSize, float width) const;
+    ItemGeometry MeasureItem(size_t index, float width) const;
     void InvalidateLayoutCache();
     size_t HitTestItem(const PointF &point) const;
     float EstimateTextWidth(const std::wstring &text, float fontSize) const;
@@ -604,10 +622,10 @@ class CandidateList : public Visual
 
     std::vector<Item> items_;
     std::vector<ItemLayoutCache> layoutCache_;
-    std::vector<float> itemWidths_;
+    std::vector<ItemGeometry> itemGeometry_;
+    float layoutWidth_ = 0.0f;
     Appearance appearance_{};
     Orientation orientation_ = Orientation::Vertical;
-    float itemHeight_ = 40.0f;
     bool focused_ = false;
     bool pressed_ = false;
     bool hoverEnabled_ = true;

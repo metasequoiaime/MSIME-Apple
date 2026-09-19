@@ -41,7 +41,7 @@ const DWORD WM_InsertText = WM_USER + 19;
 const DWORD WM_RefreshLanguageBarTheme = WM_USER + 20;
 const DWORD WM_PairedPunctuationCaretMove = WM_USER + 21;
 const DWORD WM_ReplaceRepeatedSmartPunctuation = WM_USER + 22;
-const DWORD WM_MinttyShiftRelease = WM_USER + 23;
+const DWORD WM_BareShiftRelease = WM_USER + 23;
 const DWORD WM_UpdateVoiceComposition = WM_USER + 24;
 const DWORD WM_CommitVoiceComposition = WM_USER + 25;
 const DWORD WM_CancelVoiceComposition = WM_USER + 26;
@@ -199,6 +199,13 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
                                           uint64_t requestId, const std::wstring &prefetchedText);
     // Character immediately before the caret / composition start (0 if unavailable).
     WCHAR _GetPrecedingDocumentChar(TfEditCookie ec, _In_ ITfContext *pContext);
+    // The `count` characters before the caret / composition start, in document
+    // order. Returns how many were actually read, which is fewer than asked for
+    // near the start of the document and 0 in a text store that exposes none.
+    int _GetPrecedingDocumentChars(TfEditCookie ec, _In_ ITfContext *pContext, _Out_writes_(count) WCHAR *buffer,
+                                   int count);
+    // Is the document still arranged the way it was when the rewrite armed?
+    bool _SmartPunctuationFingerprintMatches(TfEditCookie ec, _In_ ITfContext *pContext, WCHAR beforeChar);
     WCHAR _GetFollowingDocumentChar(TfEditCookie ec, _In_ ITfContext *pContext);
     // Shadow first, document read as the fallback. See _smartPunctuationShadowChar.
     WCHAR _GetPrecedingCharForSmartPunctuation(TfEditCookie ec, _In_ ITfContext *pContext);
@@ -220,9 +227,9 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     void _ResetSmartPunctuationHistory();
     bool _CanConvertSmartPunctuationSpace() const;
     bool _CanRevertSmartPunctuation(WCHAR wch) const;
-    void _ArmSmartPunctuationSpace(WCHAR chinese, bool autoClosedPair);
+    void _ArmSmartPunctuationSpace(WCHAR chinese, bool autoClosedPair, WCHAR beforeChar);
     void _ClearSmartPunctuationSpace();
-    void _ArmSmartPunctuationRevert(WCHAR ascii, WCHAR chinese);
+    void _ArmSmartPunctuationRevert(WCHAR ascii, WCHAR chinese, WCHAR beforeChar);
     void _ClearSmartPunctuationRevert();
     void _UpdateSmartPunctuationShadow(UINT code, WCHAR wch, bool isEaten);
     void _InvalidateSmartPunctuationShadow();
@@ -416,17 +423,24 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     bool _MatchModifierReleaseHotkey(WPARAM wParam, _Out_ GUID *hotkeyGuid);
     bool _QueueInputHotkey(_In_ ITfContext *pContext, REFGUID hotkeyGuid, _Out_ BOOL *pIsEaten);
 
-    // mintty exposes IME composition through the legacy IMM bridge and does not
-    // forward bare modifier key-up events to ITfKeyEventSink. Observe only
-    // this host thread and feed a missed bare-Shift release back into the
-    // normal deferred hotkey path; hosts with stale GetKeyState are handled in
-    // the sink through the arming latch.
-    void _InitMinttyKeyboardHook();
-    void _UninitMinttyKeyboardHook();
-    void _HandleMinttyShiftRelease(UINT sequence);
-    void _MarkMinttyShiftHandled();
-    static LRESULT CALLBACK _MinttyKeyboardHookProc(int code, WPARAM wParam, LPARAM lParam);
-    static thread_local CMetasequoiaIME *_minttyKeyboardHookOwner;
+    // Not every host completes a bare-Shift release through ITfKeyEventSink.
+    // mintty routes composition through the legacy IMM bridge and forwards no
+    // bare modifier key-up at all; Word delivers neither OnTestKeyUp nor
+    // OnKeyUp for one. Both lose the CN/EN toggle, so this hook is installed
+    // for every host rather than a named list of them - a list only ever grows
+    // one bug report at a time.
+    //
+    // It observes this host thread alone and feeds a missed bare-Shift release
+    // back into the normal deferred hotkey path. Hosts that do deliver the
+    // release are unaffected: _MarkBareShiftHandled() latches the sequence the
+    // key-event sink already toggled, so it never toggles twice. Hosts with a
+    // stale GetKeyState are handled in the sink through the arming latch.
+    void _InitBareShiftKeyboardHook();
+    void _UninitBareShiftKeyboardHook();
+    void _HandleHookedBareShiftRelease(UINT sequence);
+    void _MarkBareShiftHandled();
+    static LRESULT CALLBACK _BareShiftKeyboardHookProc(int code, WPARAM wParam, LPARAM lParam);
+    static thread_local CMetasequoiaIME *_bareShiftHookOwner;
 
     void _StartComposition(_In_ ITfContext *pContext);
     HRESULT _EndComposition(_In_opt_ ITfContext *pContext, _In_opt_ ITfComposition *expectedComposition = nullptr,
@@ -565,11 +579,17 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     // space. The edit-session conversion is local to TSF and never enters IPC.
     bool _smartPunctuationSpaceArmed = false;
     WCHAR _smartPunctuationSpaceChinese = 0;
+    // The character that sat before the punctuation at commit time. The focus
+    // token and foreground window cannot tell a caret that moved within the
+    // same document from one that never moved, so this is what distinguishes
+    // the punctuation that was armed from an identical one elsewhere.
+    WCHAR _smartPunctuationSpaceBeforeChar = 0;
     uint64_t _smartPunctuationSpaceFocusToken = 0;
     HWND _smartPunctuationSpaceForegroundWindow = nullptr;
     bool _smartPunctuationRevertArmed = false;
     WCHAR _smartPunctuationRevertAscii = 0;
     WCHAR _smartPunctuationRevertChinese = 0;
+    WCHAR _smartPunctuationRevertBeforeChar = 0;
     uint64_t _smartPunctuationRevertFocusToken = 0;
     HWND _smartPunctuationRevertForegroundWindow = nullptr;
     ULONGLONG _smartPunctuationRevertDeadline = 0;
@@ -672,13 +692,13 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     bool _ctrlHotkeyArmed;
     std::chrono::steady_clock::time_point _modifierHotkeyExpire;
 
-    HHOOK _minttyKeyboardHook;
-    BYTE _minttyShiftDownMask;
-    bool _minttyShiftArmed;
-    UINT _minttyShiftSequence;
-    UINT _minttyShiftHandledSequence;
-    uint64_t _minttyShiftFocusGeneration;
-    ULONGLONG _minttyShiftExpireTick;
+    HHOOK _bareShiftHook;
+    BYTE _bareShiftDownMask;
+    bool _bareShiftArmed;
+    UINT _bareShiftSequence;
+    UINT _bareShiftHandledSequence;
+    uint64_t _bareShiftFocusGeneration;
+    ULONGLONG _bareShiftExpireTick;
 
     LONG _refCount;
 

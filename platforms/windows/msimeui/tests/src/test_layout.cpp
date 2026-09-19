@@ -244,6 +244,81 @@ TEST_CASE(horizontal_candidate_translation_uses_a_second_line)
     REQUIRE_NEAR(list.MeasureInLayout({1000.0f, 1000.0f}).height, plain.height);
 }
 
+TEST_CASE(vertical_candidate_rows_fill_a_wider_arranged_width)
+{
+    // 竖排候选项的自然宽度较窄，但被分配到更宽的行宽时（如卡片最小宽度撑大），
+    // 每一行都应铺满该宽度，使选中高亮与命中区域覆盖整行。
+    CandidateList list(28.0f);
+    list.SetOrientation(CandidateList::Orientation::Vertical);
+    list.SetItems({{L"1", L"里", L"(aA)", L""}, {L"2", L"力", L"(gP)", L""}});
+
+    const SizeF natural = list.MeasureInLayout({1000.0f, 1000.0f});
+    REQUIRE(natural.width < 200.0f); // 自然宽度明显窄于目标行宽
+
+    // 被安排到远宽于自然宽度的插槽（模拟卡片最小宽度撑大后的分配）。
+    const float arrangedWidth = 200.0f;
+    list.ArrangeInLayout({0.0f, 0.0f, arrangedWidth, natural.height});
+
+    // 每一行的最终矩形都应铺满整个行宽，而不是停留在自然宽度。
+    REQUIRE_NEAR(list.GetItemBounds(0).width, arrangedWidth);
+    REQUIRE_NEAR(list.GetItemBounds(1).width, arrangedWidth);
+    // 左右起点一致，配合外层卡片内边距即可得到对称留白。
+    REQUIRE_NEAR(list.GetItemBounds(0).x, 0.0f);
+}
+
+TEST_CASE(vertical_candidate_rows_fill_min_width_card)
+{
+    // 复刻候选窗真实层级：Card(最小宽度) -> body(StackPanel) -> CandidateList。
+    // 短候选项时，卡片被最小宽度撑大，行高亮仍应铺满卡片内宽。
+    auto list = std::make_shared<CandidateList>(28.0f);
+    list->SetOrientation(CandidateList::Orientation::Vertical);
+    list->SetItems({{L"1", L"我", L"(pD)", L""}, {L"2", L"握", L"(fT)", L""}});
+
+    auto body = std::make_shared<StackPanel>(2.0f);
+    body->AddChild(list);
+
+    Brush brush;
+    auto card = std::make_shared<Card>(brush, 5.0f);
+    constexpr float kMinWidth = 160.0f;
+    card->SetMinWidth(kMinWidth);
+    card->AddChild(body);
+
+    const SizeF measured = card->MeasureInLayout({480.0f, 640.0f});
+    // 短候选项：卡片被最小宽度撑大，测得宽度即最小宽度。
+    REQUIRE_NEAR(measured.width, kMinWidth);
+
+    card->ArrangeInLayout({0.0f, 0.0f, measured.width, measured.height});
+
+    // 卡片内宽 = 最小宽度 - 两侧内边距。行矩形应铺满该内宽。
+    const float innerWidth = kMinWidth - 5.0f * 2.0f;
+    REQUIRE_NEAR(list->GetItemBounds(0).width, innerWidth);
+    REQUIRE_NEAR(list->GetItemBounds(1).width, innerWidth);
+}
+
+TEST_CASE(vertical_candidate_rows_stay_full_width_after_paint_remeasure)
+{
+    // 复刻真实渲染时序：ShowInternal 以大可用宽度测量、按卡片宽度排布；随后 Present 阶段
+    // 以窗口尺寸重新测量（可用宽度不同，会把每项宽度还原为自然宽度），再以相同矩形排布
+    // （可能命中排布缓存而跳过）。行矩形仍须铺满列表宽度。
+    CandidateList list(28.0f);
+    list.SetOrientation(CandidateList::Orientation::Vertical);
+    list.SetItems({{L"1", L"我", L"(pD)", L""}, {L"2", L"握", L"(fT)", L""}});
+
+    const float arrangedWidth = 200.0f;
+
+    // 第一次布局：自然宽度较窄，但被排布到更宽的行宽。
+    list.MeasureInLayout({480.0f, 640.0f});
+    list.ArrangeInLayout({0.0f, 0.0f, arrangedWidth, 200.0f});
+    REQUIRE_NEAR(list.GetItemBounds(0).width, arrangedWidth);
+
+    // Present 阶段以不同的可用宽度重新测量，再以相同矩形排布。
+    list.MeasureInLayout({arrangedWidth, 640.0f});
+    list.ArrangeInLayout({0.0f, 0.0f, arrangedWidth, 200.0f});
+
+    REQUIRE_NEAR(list.GetItemBounds(0).width, arrangedWidth);
+    REQUIRE_NEAR(list.GetItemBounds(1).width, arrangedWidth);
+}
+
 TEST_CASE(horizontal_candidate_translation_area_activates_the_candidate)
 {
     Window window(L"candidate-test", L"", 1000, 1000);
@@ -272,4 +347,97 @@ TEST_CASE(vertical_candidate_translation_stays_on_the_same_line)
     const SizeF vertical = list.MeasureInLayout({1000.0f, 1000.0f});
     REQUIRE_NEAR(vertical.height, 28.0f);
     REQUIRE(vertical.width > horizontal.width);
+}
+
+TEST_CASE(horizontal_candidates_wrap_and_keep_their_click_indices_at_each_dpi)
+{
+    Window window(L"candidate-wrap-test", L"", 1000, 1000);
+    CandidateList list(28.0f);
+    list.Attach(&window);
+    list.SetOrientation(CandidateList::Orientation::Horizontal);
+    list.SetItems({{L"1", L"候选文字", L"", L""}});
+    const float width = list.MeasureInLayout({1000.0f, 1000.0f}).width + 1.0f;
+    list.SetItems({{L"1", L"候选文字", L"", L""},
+                   {L"2", L"候选文字", L"", L""},
+                   {L"3", L"候选文字", L"", L""},
+                   {L"4", L"候选文字", L"", L""},
+                   {L"5", L"候选文字", L"", L""},
+                   {L"6", L"候选文字", L"", L""}});
+    const SizeF wrapped = list.MeasureInLayout({width, 1000.0f});
+    REQUIRE_NEAR(wrapped.height, 6.0f * 28.0f + 5.0f * 2.0f);
+    list.ArrangeInLayout({10.0f, 20.0f, width, wrapped.height});
+    size_t activated = 99;
+    list.SetOnItemActivated([&](size_t index) { activated = index; });
+    for (float dpi : {96.0f, 120.0f, 144.0f, 192.0f})
+    {
+        window.SetDpiOverride(dpi);
+        for (size_t i = 0; i < 6; ++i)
+        {
+            const POINT point{static_cast<LONG>(DipsToPixels(30.0f, dpi)),
+                              static_cast<LONG>(DipsToPixels(34.0f + i * 30.0f, dpi))};
+            REQUIRE(list.OnMouseDown(point, MK_LBUTTON));
+            REQUIRE(list.OnMouseUp(point, 0));
+            REQUIRE(activated == i);
+        }
+    }
+    // 可用宽度恢复后必须重新排成一行，不保留上一轮的换行高度。
+    REQUIRE_NEAR(list.MeasureInLayout({2000.0f, 1000.0f}).height, 28.0f);
+}
+
+TEST_CASE(long_candidate_text_wraps_and_the_following_candidate_remains_clickable)
+{
+    Window window(L"long-candidate-test", L"", 1000, 1000);
+    CandidateList list(28.0f);
+    list.Attach(&window);
+    for (auto orientation : {CandidateList::Orientation::Horizontal, CandidateList::Orientation::Vertical})
+    {
+        list.SetOrientation(orientation);
+        list.SetItems({{L"1", std::wstring(60, L'字'), L"(aux)", L"translation"}});
+        const SizeF first = list.MeasureInLayout({140.0f, 2000.0f});
+        REQUIRE(first.height > 56.0f);
+        REQUIRE(first.width <= 140.0f);
+        list.SetItems({{L"1", std::wstring(60, L'字'), L"(aux)", L"translation"}, {L"2", L"下一个", L"", L""}});
+        const SizeF all = list.MeasureInLayout({140.0f, 2000.0f});
+        REQUIRE(all.height >= first.height + 30.0f);
+        list.ArrangeInLayout({0.0f, 0.0f, all.width, all.height});
+        size_t activated = 99;
+        list.SetOnItemActivated([&](size_t index) { activated = index; });
+        const POINT point{20, static_cast<LONG>(all.height - 14.0f)};
+        REQUIRE(list.OnMouseDown(point, MK_LBUTTON));
+        REQUIRE(list.OnMouseUp(point, 0));
+        REQUIRE(activated == 1);
+    }
+}
+
+TEST_CASE(long_annotation_and_translation_increase_candidate_height)
+{
+    CandidateList list(28.0f);
+    for (auto orientation : {CandidateList::Orientation::Horizontal, CandidateList::Orientation::Vertical})
+    {
+        list.SetOrientation(orientation);
+        list.SetItems({{L"1", L"short", L"", L""}});
+        const SizeF plain = list.MeasureInLayout({140.0f, 2000.0f});
+        list.SetItems({{L"1", L"short", std::wstring(60, L'a'), std::wstring(100, L'b')}});
+        const SizeF annotated = list.MeasureInLayout({140.0f, 2000.0f});
+        REQUIRE(annotated.height > plain.height * 3.0f);
+        REQUIRE(annotated.width <= 140.0f);
+    }
+}
+
+TEST_CASE(candidate_arrangement_reflows_when_the_final_slot_is_narrower)
+{
+    Window window(L"candidate-arrange-test", L"", 1000, 1000);
+    CandidateList list(28.0f);
+    list.Attach(&window);
+    list.SetOrientation(CandidateList::Orientation::Horizontal);
+    list.SetItems({{L"1", L"candidate", L"", L""}});
+    const float width = list.MeasureInLayout({1000.0f, 1000.0f}).width + 1.0f;
+    list.SetItems({{L"1", L"candidate", L"", L""}, {L"2", L"candidate", L"", L""}});
+    list.MeasureInLayout({1000.0f, 1000.0f});
+    list.Arrange({0.0f, 0.0f, width, 58.0f});
+    size_t activated = 99;
+    list.SetOnItemActivated([&](size_t index) { activated = index; });
+    REQUIRE(list.OnMouseDown({20, 44}, MK_LBUTTON));
+    REQUIRE(list.OnMouseUp({20, 44}, 0));
+    REQUIRE(activated == 1);
 }

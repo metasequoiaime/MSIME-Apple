@@ -44,7 +44,35 @@ Harmony 设置页暴露共享的模糊拼音规则、触摸输入方案启用列
 
 共享设置中的“中英文状态范围”现在也由 Harmony 消费，并由 `HostCapabilities::ime_mode_scope` 能力而非平台名决定是否出现：编辑器属性自 API 14 起带 `bundleName`，键盘据此按应用记忆中英文状态，这也是共享默认值 `app`。此前无论哪个应用都共用一个模式。`global` 保持所有输入上下文同一状态。范围在编辑器激活时读取，不在组合中途改变。密码框、地址框这类要求拉丁字母的编辑器覆盖是编辑器的选择而非用户的，不写入记忆，否则在某个应用里填过一次密码就会让之后每次进入该应用都停在英文。该映射只存在于键盘进程生命周期内，不落盘：它是一份"用户在哪些应用里打字"的记录，偏好文件没有理由携带，而忘记它的代价只是重启后多按一次切换键。最多记住 64 个应用，超出时丢弃最久未使用的。
 
-`build-native.sh` 在本机已跑通（2026-09-20）：OpenHarmony NDK、Boost 与自行编译的 sqlite3 前缀齐备后，`arm64-v8a` 的 Rust/C++/NAPI 交叉构建成功，产出 `libmsimeclient.so`、`libmsime_host_api.so` 和 `libc++_shared.so`，`hvigorw assembleHap` 打出的 HAP 约 10 MB 且包含 `libs/arm64-v8a/`。`msime-client-core` 对 `aarch64-unknown-linux-ohos` 的 `cargo check` 亦通过。仍未在 HarmonyOS 真机或模拟器上运行，因此系统输入法注册、焦点与选区、生命周期、签名、麦克风授权流程和真实编辑器验收都没有证据；构建通过不等于平台接入完成。
+`build-native.sh` 在本机已跑通（2026-09-20）：`arm64-v8a`（真机）、`x86_64`（模拟器）和 `armeabi-v7a` 三个 ABI 的 Rust/C++/NAPI 交叉构建全部成功，各产出 `libmsimeclient.so`、`libmsime_host_api.so` 和 `libc++_shared.so`；`hvigorw assembleHap` 打出的 HAP 约 25 MB，包含全部三个 `libs/<abi>/`。`msime-client-core` 对 `aarch64-unknown-linux-ohos` 的 `cargo check` 亦通过。
+
+32 位的 `armeabi-v7a` 需要额外一步：Engine 的 `find_package(fmt CONFIG)` 和 `find_package(spdlog CONFIG)` 会拒绝 Homebrew 的 config，因为那两份 config 带 64 位断言。两者在这里都只作头文件使用（Engine 只链接 `fmt::fmt-header-only`，并从 `spdlog::spdlog_header_only` 读取头文件目录），所以自建两份不带位宽断言的最小 config 指过去即可，无需改 Engine：
+
+```sh
+deps=$PWD/target/ohos-deps/armeabi-v7a
+mkdir -p "$deps/cmake/fmt" "$deps/cmake/spdlog"
+cat > "$deps/cmake/fmt/fmt-config.cmake" <<EOF
+add_library(fmt::fmt-header-only INTERFACE IMPORTED)
+set_target_properties(fmt::fmt-header-only PROPERTIES
+  INTERFACE_INCLUDE_DIRECTORIES "$(brew --prefix fmt)/include"
+  INTERFACE_COMPILE_DEFINITIONS "FMT_HEADER_ONLY=1")
+EOF
+cat > "$deps/cmake/spdlog/spdlog-config.cmake" <<EOF
+add_library(spdlog::spdlog_header_only INTERFACE IMPORTED)
+set_target_properties(spdlog::spdlog_header_only PROPERTIES
+  INTERFACE_INCLUDE_DIRECTORIES "$(brew --prefix spdlog)/include"
+  INTERFACE_COMPILE_DEFINITIONS "SPDLOG_FMT_EXTERNAL=1"
+  INTERFACE_LINK_LIBRARIES fmt::fmt-header-only)
+EOF
+# 各自再放一个 <name>-config-version.cmake，只需把 PACKAGE_VERSION_COMPATIBLE 设为 TRUE
+MSIME_FMT_DIR="$deps/cmake/fmt" MSIME_SPDLOG_DIR="$deps/cmake/spdlog" \
+MSIME_OHOS_NDK=/absolute/openharmony/native MSIME_OHOS_DEPS="$deps" \
+  bash platforms/harmony/build-native.sh armeabi-v7a
+```
+
+`SPDLOG_FMT_EXTERNAL` 不能省：它让 spdlog 用上面那份 fmt 而不是自带副本，与 64 位构建的解析方式一致。
+
+仍未在 HarmonyOS 真机或模拟器上运行，因此系统输入法注册、焦点与选区、生命周期、签名、麦克风授权流程和真实编辑器验收都没有证据；构建通过不等于平台接入完成。
 
 按键音与振动现在也能从设置页调整，而不只是键盘内那张卡片：共享 `mobileKeyboardFeedback` 客户端读写键盘自己的 `key-feedback.json`，两个进程共用同一份文件（这项设置属于当前设备而非账号，所以不进共享偏好）。设置页是第二个写入者，改动在键盘下次启动时生效。强度预览直接振一下。共享 DTO 把最强一档叫 `strong`，键盘自己的枚举叫 `heavy`，两边由 `KeyboardFeedbackBridge` 转换——直接赋值会写入键盘不认识的值，`KeyboardFeedback.parse` 会静默回退，表现为"保存了但手感没变"。
 

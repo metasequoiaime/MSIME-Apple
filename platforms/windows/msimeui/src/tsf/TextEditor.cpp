@@ -300,7 +300,9 @@ std::wstring CTextEditor::GetSelectedText() const
 void CTextEditor::MoveSelectionNext()
 {
     UINT nTextLength = GetTextLength();
-    if (_nSelEnd < nTextLength)
+    // Right on a selection collapses it to its end; only a caret moves on.
+    // Advancing unconditionally skipped the character after the selection.
+    if (_nSelStart == _nSelEnd && _nSelEnd < nTextLength)
         _nSelEnd++;
 
     _nSelStart = _nSelEnd;
@@ -316,7 +318,8 @@ void CTextEditor::MoveSelectionNext()
 
 void CTextEditor::MoveSelectionPrev()
 {
-    if (_nSelStart > 0)
+    // The mirror of MoveSelectionNext: collapse to the selection's start.
+    if (_nSelStart == _nSelEnd && _nSelStart > 0)
         _nSelStart--;
 
     _nSelEnd = _nSelStart;

@@ -231,4 +231,31 @@ void ApplyUiFontFallback(IDWriteFactory *factory, IDWriteTextFormat *format)
         format1->SetFontFallback(cachedFallback.Get());
     }
 }
+
+void ApplyFontFallback(IDWriteFactory *factory, IDWriteTextFormat *format, const std::vector<std::wstring> &families)
+{
+    if (!factory || !format)
+        return;
+    ComPtr<IDWriteFactory2> factory2;
+    ComPtr<IDWriteTextFormat1> format1;
+    if (FAILED(factory->QueryInterface(IID_PPV_ARGS(&factory2))) ||
+        FAILED(format->QueryInterface(IID_PPV_ARGS(&format1))))
+        return;
+    ComPtr<IDWriteFontFallbackBuilder> builder;
+    if (FAILED(factory2->CreateFontFallbackBuilder(&builder)))
+        return;
+    std::vector<const wchar_t *> names;
+    for (const auto &family : families)
+        if (!family.empty())
+            names.push_back(family.c_str());
+    const DWRITE_UNICODE_RANGE range = {0, 0x10FFFF};
+    if (!names.empty() && FAILED(builder->AddMapping(&range, 1, names.data(), static_cast<UINT32>(names.size()))))
+        return;
+    ComPtr<IDWriteFontFallback> systemFallback;
+    if (SUCCEEDED(factory2->GetSystemFontFallback(&systemFallback)))
+        builder->AddMappings(systemFallback.Get());
+    ComPtr<IDWriteFontFallback> fallback;
+    if (SUCCEEDED(builder->CreateFontFallback(&fallback)))
+        format1->SetFontFallback(fallback.Get());
+}
 } // namespace msimeui
