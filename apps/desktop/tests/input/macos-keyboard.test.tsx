@@ -2,7 +2,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { KeyboardPanel, type HostCapabilities } from "@msime/ui";
-import { DesktopKeyboard } from "../../src/desktop-keyboard";
+import { DesktopKeyboard } from "../../src/input/desktop-keyboard";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 
 vi.mock("@tauri-apps/api/core", () => ({ isTauri: vi.fn(() => false), invoke: vi.fn() }));

@@ -1,5 +1,5 @@
 import { expect, test, vi } from "vitest";
-import { createVoiceRecognitionClient } from "../../src/voice-recognition-client";
+import { createVoiceRecognitionClient } from "../../src/voice/voice-recognition-client";
 
 test("voice requests and cancellation retain identity across a restart", async () => {
   const pending: { resolve: (value: { text: string }) => void }[] = [];

@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { cloudDictionaryCapabilities, isMobileHost } from "../../src/mobile-host-capabilities";
+import { cloudDictionaryCapabilities, isMobileHost } from "../../src/input/mobile-host-capabilities";
 
 test("mobile capability checks use the declared host platform", () => {
   expect(isMobileHost("android")).toBe(true);
