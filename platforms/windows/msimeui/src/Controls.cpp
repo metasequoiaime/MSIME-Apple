@@ -1132,18 +1132,24 @@ bool MenuFlyoutItem::OnMouseUp(const POINT &point, WPARAM keyState)
     InvalidateVisual();
     if (shouldClick && onClick_ && !hasSubmenu_)
     {
+        // A menu item's handler almost always closes the menu it lives in, which
+        // drops the last reference to this item and destroys onClick_ while its
+        // operator() is still on the stack. The handler body then reloads its
+        // captures from freed storage the teardown has already recycled. Copy the
+        // handler so the closure outlives the call; nothing below touches *this*.
+        ClickHandler handler = onClick_;
         if (showToggle_)
         {
             if (PointInRect(ToggleHitRect(), window_->ClientPixelsToDips(point)))
             {
                 toggleOn_ = !toggleOn_;
                 InvalidateVisual();
-                onClick_();
+                handler();
             }
         }
         else
         {
-            onClick_();
+            handler();
         }
     }
     return true;
@@ -1935,7 +1941,10 @@ void Button::OnClick()
 {
     if (onClick_)
     {
-        onClick_();
+        // Same reason as MenuFlyoutItem::OnMouseUp: a handler that tears down the
+        // panel holding this button destroys onClick_ mid-call.
+        ClickHandler handler = onClick_;
+        handler();
     }
 }
 
