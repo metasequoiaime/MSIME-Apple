@@ -20,6 +20,8 @@ import vibrator from '@ohos.vibrator';
 import i18n from '@ohos.i18n';
 import { InputDiagnosticPolicy } from './input/InputDiagnosticPolicy';
 import { InputModeHudPolicy } from './InputModeHudPolicy';
+import { DEFAULT_VOICE_HOTKEY_BINDINGS, VoiceHotkeyAction, VoiceHotkeyBindings, VoiceHotkeyPolicy,
+  VoiceKey } from './input/VoiceHotkeyPolicy';
 import { EnglishCompletions, EnglishReplacement, EnglishSuggestionPolicy }
   from './input/EnglishSuggestionPolicy';
 import { ImeModeScopePolicy } from './input/ImeModeScopePolicy';
@@ -685,6 +687,11 @@ export class KeyboardSession {
   private englishSuggestionPrefix: string = '';
   private englishSuggestionEpoch: number = 0;
   private englishSuggestionRequested: string = '';
+  // The Windows voice shortcuts, which only a machine with a hardware keyboard can press.
+  private voiceHotkeys: VoiceHotkeyPolicy = new VoiceHotkeyPolicy();
+  // Whether the recognizer is running. The view owns it and says so; the shortcuts need to know,
+  // because Space and Escape belong to a composition at every other moment.
+  private voiceRecording: boolean = false;
   private modeScope: ImeModeScopePolicy = new ImeModeScopePolicy();
   private modeScopeSetting: string = 'app';
   private defaultEnglish: boolean = false;
@@ -775,6 +782,8 @@ export class KeyboardSession {
   onClipboardHistoryChanged: ((enabled: boolean) => void) | undefined = undefined;
   /** Read-only English completions for the strip: the prefix they answer and the words offered. */
   onEnglishSuggestions: ((prefix: string, items: string[]) => void) | undefined = undefined;
+  /** What a voice shortcut asked for, for the view that owns the recognizer. */
+  onVoiceHotkey: ((action: VoiceHotkeyAction) => void) | undefined = undefined;
   /** The view removes the voice surface immediately when shared voice input is turned off. */
   onVoiceInputChanged: ((enabled: boolean) => void) | undefined = undefined;
   /** Lets a desktop panel resize when a vertical candidate page changes height. */
@@ -943,6 +952,7 @@ export class KeyboardSession {
         ? this.readCandidateSkinImage(stateRoot, preferences.candidate_skin, skinDecoration)
         : NO_CANDIDATE_SKIN_IMAGE;
       this.voiceInput = preferences.voice_input;
+      this.voiceHotkeys.use(KeyboardSession.hotkeyBindings(preferences.voice_input));
       this.customSkinDesign = CustomKeyboardSkin.from(preferences.custom_touch_keyboard_skin ?? null);
       if (this.onVoiceInputChanged !== undefined) {
         this.onVoiceInputChanged(this.voiceInputEnabled());
@@ -3184,6 +3194,55 @@ export class KeyboardSession {
     }
     this.insert(replacement.insert);
     this.clearEnglishSuggestions();
+  }
+
+  /** The five switches as the policy reads them; an older document keeps the shared defaults. */
+  private static hotkeyBindings(voice: VoiceInputConfiguration): VoiceHotkeyBindings {
+    return {
+      ralt: voice.hotkey_ralt ?? DEFAULT_VOICE_HOTKEY_BINDINGS.ralt,
+      ctrlWin: voice.hotkey_ctrl_win ?? DEFAULT_VOICE_HOTKEY_BINDINGS.ctrlWin,
+      rctrlRalt: voice.hotkey_rctrl_ralt ?? DEFAULT_VOICE_HOTKEY_BINDINGS.rctrlRalt,
+      holdSpaceLock: voice.hotkey_hold_space_lock ?? DEFAULT_VOICE_HOTKEY_BINDINGS.holdSpaceLock,
+      ctrlF9: voice.hotkey_ctrl_f9 ?? DEFAULT_VOICE_HOTKEY_BINDINGS.ctrlF9
+    };
+  }
+
+  /**
+   * Offer a hardware key to the voice shortcuts.
+   *
+   * Returns whether the key was claimed, so the caller knows not to hand it on.
+   */
+  routeVoiceHotkey(key: VoiceKey): boolean {
+    if (!this.voiceInputEnabled()) {
+      return false;
+    }
+    const action: VoiceHotkeyAction = this.voiceHotkeys.accept(key, this.voiceRecording);
+    if (action === VoiceHotkeyAction.NONE) {
+      return false;
+    }
+    if (this.onVoiceHotkey !== undefined) {
+      this.onVoiceHotkey(action);
+    }
+    return true;
+  }
+
+  /**
+   * The view says when the recognizer starts and stops.
+   *
+   * A recording that ended by itself — a final result, a provider failure — leaves no hold or lock
+   * behind, or the next press of the hold key would be read as the release of a recording that is
+   * no longer running.
+   */
+  setVoiceRecording(active: boolean): void {
+    this.voiceRecording = active;
+    if (!active) {
+      this.voiceHotkeys.reset();
+    }
+  }
+
+  /** Whether the current recording outlives its hold key, for the panel that says so. */
+  voiceHotkeyLocked(): boolean {
+    return this.voiceHotkeys.isLocked();
   }
 
   /** Insert a platform-produced result and attribute it to its actual source. */

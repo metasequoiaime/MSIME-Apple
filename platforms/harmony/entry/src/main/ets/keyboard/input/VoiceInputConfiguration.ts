@@ -14,6 +14,12 @@ export interface VoiceInputConfiguration {
   /** Which host's enumeration the device id belongs to; empty or `auto` means the system default. */
   capture_backend: string;
   capture_device: string;
+  /** The five Windows voice shortcuts; absent in older documents, where the defaults stand. */
+  hotkey_ralt?: boolean;
+  hotkey_ctrl_win?: boolean;
+  hotkey_rctrl_ralt?: boolean;
+  hotkey_hold_space_lock?: boolean;
+  hotkey_ctrl_f9?: boolean;
   asr_endpoint: string;
   asr_token: string;
   asr_app_key: string;
@@ -44,6 +50,11 @@ export const DEFAULT_VOICE_INPUT_CONFIGURATION: VoiceInputConfiguration = {
   language: 'zh-cn',
   capture_backend: '',
   capture_device: '',
+  hotkey_ralt: true,
+  hotkey_ctrl_win: false,
+  hotkey_rctrl_ralt: false,
+  hotkey_hold_space_lock: true,
+  hotkey_ctrl_f9: true,
   asr_endpoint: 'wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async',
   asr_token: '',
   asr_app_key: '',
