@@ -64,11 +64,11 @@ struct CustomSkinEditorView: View {
     Binding(get: { design[keyPath: path] }, set: { update(path, $0) })
   }
 
-  private var activeCategory: String { ["设计", "我的"].contains(section) ? "背景" : section }
+  private var activeCategory: String { section }
 
   private var categoryBar: some View {
     HStack(spacing: 0) {
-      ForEach([("背景", "rectangle.on.rectangle"), ("按键", "square.on.square"), ("文本", "textformat"), ("音效", "music.note")], id: \.0) { title, symbol in
+      ForEach([("设计", "square.grid.2x2"), ("背景", "rectangle.on.rectangle"), ("按键", "square.on.square"), ("文本", "textformat"), ("音效", "music.note"), ("我的", "square.stack")], id: \.0) { title, symbol in
         Button { section = title } label: {
           VStack(spacing: 5) {
             Group {
@@ -93,6 +93,10 @@ struct CustomSkinEditorView: View {
           guard let previous = undo.popLast() else { return }; redo.append(design); apply(previous, record: false)
         } label: { Image(systemName: "arrow.uturn.backward").frame(width: 36, height: 38) }
           .disabled(undo.isEmpty || sliderStart != nil).accessibilityLabel("撤销设计").accessibilityIdentifier("undoSkinDesign")
+        Button {
+          guard let next = redo.popLast() else { return }; undo.append(design); apply(next, record: false)
+        } label: { Image(systemName: "arrow.uturn.forward").frame(width: 36, height: 38) }
+          .disabled(redo.isEmpty || sliderStart != nil).accessibilityLabel("重做设计").accessibilityIdentifier("redoSkinDesign")
         Picker("预览布局", selection: $nineKey) {
           Text("26 键").tag(false); Text("9 键").tag(true)
         }.pickerStyle(.segmented).frame(width: 124).accessibilityIdentifier("skinEditorPreviewLayout")
