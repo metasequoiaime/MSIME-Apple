@@ -8,6 +8,7 @@
 - 不提交真实输入、账号资料、访问令牌、私钥、证书、签名配置或包含私人路径的运行时 JSON。测试使用合成值，并在日志和诊断中去除输入正文。
 - 上游 Engine 及其归档依赖由 `engine-lock.json` 固定提交和 SHA-256；`scripts/fetch_engine.py` 准备到忽略的 `vendor/MSIME-Engine/`，不会把相邻仓库的未提交内容带入本仓库。
 - 提交前检查 `git status --short`、`git diff --check`、冲突标记和敏感文件列表；只暂存明确路径。
+- 改动涉及出网路径时，同步核对[网络请求与数据流向](../PRIVACY.md)：新增或改变了发送内容、目的地、默认开关的，必须在那份文档里同时更新，并确认与 <https://msime.app/privacy/> 的隐私政策不冲突。
 
 ## 许可证与通知
 

@@ -4,6 +4,8 @@
 
 目前不能替代已发布的平台输入法。分层方式和不能打破的边界见 [架构说明](ARCHITECTURE.md)，当前公开变更见 [变更记录](CHANGELOG.md)，各阶段实现和验证记录见 [实施记录](docs/implementation.md)；平台目录、构建入口和已知缺口见各平台 README。
 
+**输入法能看到你输入的一切，所以这个问题应该有一个能逐条核对的答案：[哪些数据会离开设备](PRIVACY.md)。**简短版本：默认配置下只有云联想一个功能会把正在组的拼音发出去（发给 Google 输入工具，可关闭），其余联网功能都要你自己填凭据才会工作，仓库里没有任何遥测或统计 SDK。
+
 ## 模块边界
 
 - `crates/client-core`：已实现本地配置和固定资源分代安装；账号、同步等业务契约按模块迁入，不依赖 Tauri、UI 或平台宿主。
@@ -29,7 +31,7 @@
 
 ## 开发
 
-贡献代码前请阅读 [架构说明](ARCHITECTURE.md)、[贡献指南](CONTRIBUTING.md)、[安全策略](SECURITY.md) 和 [行为准则](CODE_OF_CONDUCT.md)。准备公开源代码或平台构建物时，再阅读 [开源发布清单](docs/open-source-release.md)；它列出第三方通知、资源许可、敏感文件检查和验证边界。仓库当前仍处于渐进迁移阶段；请以每个平台 README 和本地验证结果为准，不把未执行的原生宿主验收当作已完成。
+贡献代码前请阅读 [架构说明](ARCHITECTURE.md)、[贡献指南](CONTRIBUTING.md)、[安全策略](SECURITY.md)、[网络请求与数据流向](PRIVACY.md) 和 [行为准则](CODE_OF_CONDUCT.md)。准备公开源代码或平台构建物时，再阅读 [开源发布清单](docs/open-source-release.md)；它列出第三方通知、资源许可、敏感文件检查和验证边界。仓库当前仍处于渐进迁移阶段；请以每个平台 README 和本地验证结果为准，不把未执行的原生宿主验收当作已完成。
 
 ```sh
 cargo test -p msime-client-core --locked
