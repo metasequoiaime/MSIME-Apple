@@ -1261,7 +1261,7 @@ public final class MSIMEInputService extends InputMethodService {
         try {
             connection.beginBatchEdit();
             if (!connection.deleteSurroundingText(replacement.deleteCount(), 0)) return;
-            if (!commitText(replacement.insert())) return;
+            if (!commitText(fullWidthOutput(replacement.insert()))) return;
         } finally {
             connection.endBatchEdit();
         }
