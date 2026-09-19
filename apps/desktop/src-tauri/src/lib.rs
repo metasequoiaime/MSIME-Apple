@@ -61,7 +61,7 @@ use serde_json::Value;
 use std::collections::HashMap;
 #[cfg(not(target_os = "macos"))]
 use std::fs;
-#[cfg(any(target_os = "linux", target_os = "windows"))]
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "android"))]
 use std::io::Write;
 #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
 use std::os::unix::fs::FileTypeExt;
@@ -2593,24 +2593,7 @@ async fn send_voice_text(
                 .map_err(|_| HostActionError {
                     code: "unavailable",
                 })?;
-            let _ = (state, typing_statistics, store);
-            Ok(())
-        }
-        #[cfg(target_os = "android")]
-        {
-            let platform = app
-                .try_state::<AndroidVoicePlatform<tauri::Wry>>()
-                .ok_or(HostActionError {
-                    code: "unavailable",
-                })?
-                .inner()
-                .clone();
-            platform
-                .save_voice_text(&text)
-                .map_err(|_| HostActionError {
-                    code: "unavailable",
-                })?;
-            let _ = (state, typing_statistics, store);
+            let _ = (window, state, typing_statistics, store);
             Ok(())
         }
         #[cfg(not(any(target_os = "ios", target_os = "android")))]
@@ -3075,7 +3058,9 @@ pub fn run() {
                     });
                 }
             }
-            #[cfg(all(unix, not(target_os = "ios")))]
+            // Same condition as `shared::voice::voice_sessions`: the mobile hosts record through
+            // their own native plugins and never build this module.
+            #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
             app.manage(voice_sessions::VoiceSessions::default());
             // Native packaging/installer supplies this verified HostOptions JSON.
             // Webview input never controls resource or state paths.

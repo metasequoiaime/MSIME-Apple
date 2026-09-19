@@ -23,7 +23,9 @@ public final class CustomSkinLibrary {
         Path file = preferencesDirectory.resolve("CustomSkins").resolve("library.json");
         if (!Files.isRegularFile(file) || Files.size(file) > MAX_LIBRARY_BYTES)
             return List.of();
-        String document = Files.readString(file, StandardCharsets.UTF_8);
+        // Files.readString arrived in API 34; this host runs from API 28, and only the real
+        // APK build rejects it. Read the bytes and decode them, which every level has.
+        String document = new String(Files.readAllBytes(file), StandardCharsets.UTF_8);
         final JSONArray values;
         try {
             values = new JSONArray(document);

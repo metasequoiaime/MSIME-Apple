@@ -45,6 +45,15 @@ if [[ -n "$host_tag" && -x "$jni_compiler" ]]; then
 else
   echo "client_jni.cpp: skipped (pinned NDK 28.2.13676358 not installed)"
 fi
+# This script compiles against API 35 while the manifest declares minSdk 28, so a
+# newer java.nio API passes here and only fails in the real APK build. These two
+# arrived in API 34 and are the ones that actually got in; neither has a runtime
+# version guard anywhere in this host. This is a targeted guard, not a general
+# API-level check - Gradle lint is what covers the rest.
+if rg -n 'Files\.(readString|writeString)\(' "$repo_root/platforms/android/java" --glob '*.java'; then
+  echo "Files.readString/writeString need API 34; this host declares minSdk 28" >&2
+  exit 1
+fi
 client_sources=()
 while IFS= read -r source; do
   client_sources+=("$source")

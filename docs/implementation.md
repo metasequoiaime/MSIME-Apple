@@ -22,6 +22,16 @@
 
 ## 当前证据
 
+### Android Tauri 应用重新可构建（2026-09-20）
+
+`msime-desktop` 已经无法为 `aarch64-linux-android` 编译，因此 Android 合包完全打不出来。原因是本地门禁的盲区：`scripts/verify-local.sh` 的 `cargo check --workspace` 只看宿主目标，`#[cfg(target_os = "android")]` 分支从来没有被编译过；`platforms/android/check-host.sh` 又以 API 35 的 `android.jar` 编译 Java，而 manifest 声明 minSdk 28。十个错误就这样积累下来，只有真正打包时才会暴露。
+
+Rust 侧七处：`atomic_write` 在 android 上构建但 `use std::io::Write` 只为 linux/windows 开启；`voice_sessions` 的 `app.manage` 条件比模块自身的条件宽，把 mobile 也算了进去；语音文本提交的 Android 分支被整段粘贴了两次，于是第一段成了类型不符的语句；`clipboard_history` 使用 `android_account` 却没有导入；快照预览的 `token` 被移进 worker 后又在外面使用；`CloudDictionaryRequest::SnapshotRestoreNative` 缺少分支（按 iOS 的做法返回 `snapshot_unavailable`）；以及三个反馈请求类型是私有的，`generate_handler` 展开后无法命名。Java 侧三处：`Files.readString`/`writeString` 需要 API 34，改为 `readAllBytes` + 解码与 `Files.write`。
+
+同时补上两道门禁，使同类问题不再等到打包才暴露：`verify-local.sh` 新增 `compile: android target` 阶段，在固定 NDK、Rust `aarch64-linux-android` 目标和 vcpkg 依赖前缀齐备时执行 `cargo check -p msime-desktop --target aarch64-linux-android`，缺任一条件则明确跳过；`check-host.sh` 增加针对这两个 API 34 方法的定向检查，并在注释中写明它只覆盖这一类，其余仍由 Gradle lint 负责。
+
+验证走到了打包：固定 NDK 28.2.13676358、固定 vcpkg `ef7dbf94` 下 `build-client-apk.sh` 产出并签名了 136 MB 的 `target/android/msime-client-preview.apk`，`apksigner verify --print-certs` 通过，包内含 `libmsime_android.so`、`libmsime_host_api.so`、`libmsime_desktop.so`、`libdigitalink.so` 与 `libc++_shared.so`。两道新门禁都实测会拦截（分别改回 `Files.readString` 与指向不存在的 NDK 验证跳过分支）。`check-host.sh` 全部通过，`scripts/verify-local.sh --quick` 通过。未执行设备安装与真机输入验收，CI 保持禁用。
+
 ### Android 在线候选原生构建证据（2026-09-19）
 
 `feat(android): consume cloud and AI candidates` 与其后的 JNI 检查切片当时只有目标平台语法编译作为证据，原生构建缺口写在各自说明里。现已在本机补齐：按固定 NDK 28.2.13676358、固定 vcpkg `ef7dbf94` 和 `platforms/android/build-native.sh` 完成 arm64-v8a 与 x86_64 两个 ABI 的完整原生构建，两次都跑通 `verify-native.sh`——ELF 架构、16 KB LOAD 对齐、依赖白名单、Engine 手写识别器排除，以及扩充后的导出清单。

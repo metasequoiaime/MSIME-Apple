@@ -56,21 +56,21 @@ struct SaveRequest<'a> {
 
 #[derive(Deserialize, Serialize)]
 #[serde(rename_all = "camelCase")]
-struct FeedbackSettings {
-    sound_enabled: bool,
-    haptics_enabled: bool,
-    haptic_strength: String,
+pub(crate) struct FeedbackSettings {
+    pub(crate) sound_enabled: bool,
+    pub(crate) haptics_enabled: bool,
+    pub(crate) haptic_strength: String,
 }
 
 #[derive(Deserialize)]
 #[serde(rename_all = "camelCase")]
-struct MobileKeyboardFeedbackRequest {
-    settings: FeedbackSettings,
+pub(crate) struct MobileKeyboardFeedbackRequest {
+    pub(crate) settings: FeedbackSettings,
 }
 
 #[derive(Deserialize)]
-struct MobileKeyboardFeedbackPreviewRequest {
-    strength: String,
+pub(crate) struct MobileKeyboardFeedbackPreviewRequest {
+    pub(crate) strength: String,
 }
 
 #[derive(Serialize)]
@@ -809,6 +809,9 @@ async fn dictionary_snapshot_preview(
     let directory = state.snapshot_directory.clone();
     let previews = Arc::clone(&state.snapshot_previews);
     let token = Uuid::new_v4().to_string();
+    // The token names the staged file and is also returned to the caller, so the worker takes a
+    // copy rather than the value the pending entry below is keyed on.
+    let file_token = token.clone();
     let (account_id, path, metadata) = tauri::async_runtime::spawn_blocking(move || {
         fs::create_dir_all(&directory).map_err(|_| AccountError::Unavailable)?;
         if let Ok(files) = fs::read_dir(&directory) {
@@ -819,7 +822,7 @@ async fn dictionary_snapshot_preview(
             }
         }
         let profile = session.profile()?;
-        let path = directory.join(format!("download-{token}.ndjson"));
+        let path = directory.join(format!("download-{file_token}.ndjson"));
         let result = session
             .dictionary_snapshot_to_file(&path)
             .and_then(|_| inspect_snapshot(&path));
@@ -2026,6 +2029,10 @@ pub async fn cloud_dictionary_request(
             expected_sha256,
             revision,
         } => dictionary_snapshot_restore(state, text, expected_sha256, revision).await,
+        // Restoring from a host-held file is a macOS path; this host stages its own preview.
+        CloudDictionaryRequest::SnapshotRestoreNative { .. } => Err(crate::CommandError {
+            code: "snapshot_unavailable",
+        }),
         CloudDictionaryRequest::SnapshotEnqueue { token } => {
             dictionary_snapshot_enqueue(state, token).await
         }

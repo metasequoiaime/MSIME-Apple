@@ -143,6 +143,40 @@ else
   [ "${PIPESTATUS[0]}" -eq 0 ] || fail "cargo check"
 fi
 
+note "compile: android target"
+# cargo check --workspace above only ever sees the host target, so every
+# `#[cfg(target_os = "android")]` branch in msime-desktop is invisible to it.
+# Ten compile errors accumulated behind that and only surfaced when someone
+# tried to build the APK: a duplicated block, a moved value, a missing match
+# arm, three private types the generated command handler could not name, and
+# imports gated for the wrong targets. Checking the target here is what makes
+# the next one fail in a minute instead of at packaging time.
+#
+# Skipped rather than required: it needs the pinned NDK, the Rust Android
+# target and the vcpkg dependency prefix that platforms/android/build-native.sh
+# installs, the same way the native phases below skip when unconfigured.
+android_ndk=${MSIME_ANDROID_NDK:-${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}/ndk/28.2.13676358}
+case $(uname -s) in
+  Darwin) android_host_tag=darwin-x86_64 ;;
+  Linux) android_host_tag=linux-x86_64 ;;
+  *) android_host_tag="" ;;
+esac
+android_clang="$android_ndk/toolchains/llvm/prebuilt/$android_host_tag/bin/aarch64-linux-android28-clang"
+android_deps="$root/target/android-deps/arm64-v8a/arm64-msime-android"
+if [ -n "$android_host_tag" ] && [ -x "$android_clang" ] && [ -d "$android_deps" ] \
+  && rustup target list --installed 2>/dev/null | grep -q '^aarch64-linux-android$'; then
+  env "CC_aarch64_linux_android=$android_clang" \
+    "CXX_aarch64_linux_android=${android_clang}++" \
+    "AR_aarch64_linux_android=$android_ndk/toolchains/llvm/prebuilt/$android_host_tag/bin/llvm-ar" \
+    "CARGO_TARGET_AARCH64_LINUX_ANDROID_LINKER=$android_clang" \
+    "ANDROID_NDK_HOME=$android_ndk" "MSIME_ANDROID_NDK=$android_ndk" \
+    "MSIME_ANDROID_DEPS=$android_deps" \
+    cargo check -p msime-desktop --target aarch64-linux-android --lib --locked 2>&1 | tail -3
+  [ "${PIPESTATUS[0]}" -eq 0 ] || fail "cargo check --target aarch64-linux-android"
+else
+  echo "skipped: pinned NDK, aarch64-linux-android target or android-deps not present"
+fi
+
 note "compile: native host"
 if [ -d "$MSIME_NATIVE_BUILD" ]; then
   # The native tests link the Rust library, so it has to be current or they
