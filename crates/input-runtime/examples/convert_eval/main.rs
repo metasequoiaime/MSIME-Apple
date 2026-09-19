@@ -91,13 +91,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         if let Some(parent) = path.parent() {
             std::fs::create_dir_all(parent)?;
         }
-        std::fs::write(path, &json)?;
+        std::fs::write(path, format!("{json}\n"))?;
     }
     println!("{json}");
 
     if let Some(path) = baseline {
         if update {
-            std::fs::write(&path, &json)?;
+            // Trailing newline so the committed baselines are ordinary text files. The comparison
+            // below trims, so a baseline written by an older build still matches.
+            std::fs::write(&path, format!("{json}\n"))?;
             eprintln!("baseline written: {}", path.display());
         } else if path.exists() {
             let previous = std::fs::read_to_string(&path)?;
