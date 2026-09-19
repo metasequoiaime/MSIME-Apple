@@ -238,20 +238,27 @@ public final class KeyboardLayoutAdjustView extends FrameLayout {
         catch (IllegalArgumentException error) { return Color.WHITE; }
     }
 
+    /**
+     * A drag previews while it moves and saves when the finger lifts. An accessibility adjustment
+     * has no lift, so each step has to save on its own; previewing alone left the new height to be
+     * overwritten by the next preferences apply, and the value bounced straight back.
+     */
     @Override public boolean performAccessibilityAction(int action, Bundle arguments) {
         if (action == AccessibilityNodeInfo.ACTION_SCROLL_FORWARD) {
-            heightAdjustment = KeyboardGeometry.heightAdjustment(heightAdjustment + 2);
-            listener.height(heightAdjustment);
-            updateHint("键盘高度 " + KeyboardGeometry.displayHeight(heightAdjustment));
-            return true;
+            return adjustHeight(heightAdjustment + 2);
         }
         if (action == AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD) {
-            heightAdjustment = KeyboardGeometry.heightAdjustment(heightAdjustment - 2);
-            listener.height(heightAdjustment);
-            updateHint("键盘高度 " + KeyboardGeometry.displayHeight(heightAdjustment));
-            return true;
+            return adjustHeight(heightAdjustment - 2);
         }
         return super.performAccessibilityAction(action, arguments);
+    }
+
+    private boolean adjustHeight(int value) {
+        heightAdjustment = KeyboardGeometry.heightAdjustment(value);
+        listener.height(heightAdjustment);
+        updateHint("键盘高度 " + KeyboardGeometry.displayHeight(heightAdjustment));
+        listener.commit();
+        return true;
     }
 
     @SuppressWarnings("deprecation")

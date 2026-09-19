@@ -20,6 +20,7 @@ import { DesktopSurface } from '../keyboard/DesktopSurface';
 import type { KeyEvent as InputKeyEvent } from '@ohos.multimodalInput.keyEvent';
 import { Action as KeyAction } from '@ohos.multimodalInput.keyEvent';
 import { StagedResources } from '../keyboard/StagedResources';
+import { HardwareKeyDispatch } from '../keyboard/HardwareKeyDispatch';
 
 // The badge's own geometry, from platforms/macos/src/InputModeHUDPanel.mm: a capsule that carries
 // the logo and one character side by side, shown long enough to read and gone before the next word.
@@ -406,87 +407,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     if (event.action !== KeyAction.DOWN) {
       return true;
     }
-    switch (decision.action) {
-      case HardwareKeyAction.COMPOSE:
-        session.press(decision.character, key.shiftKey);
-        break;
-      case HardwareKeyAction.PUNCTUATION:
-        session.punctuation(decision.character);
-        break;
-      case HardwareKeyAction.BACKSPACE:
-        session.backspace();
-        break;
-      case HardwareKeyAction.CANCEL:
-        session.cancel();
-        break;
-      case HardwareKeyAction.MOVE_LEFT:
-        session.moveLeft();
-        break;
-      case HardwareKeyAction.MOVE_RIGHT:
-        session.moveRight();
-        break;
-      case HardwareKeyAction.MOVE_HOME:
-        session.moveHome();
-        break;
-      case HardwareKeyAction.MOVE_END:
-        session.moveEnd();
-        break;
-      case HardwareKeyAction.DELETE_FORWARD:
-        session.deleteForward();
-        break;
-      case HardwareKeyAction.BACKSPACE_SEGMENT:
-        session.backspaceSegment();
-        break;
-      case HardwareKeyAction.MOVE_LEFT_SEGMENT:
-        session.moveLeftSegment();
-        break;
-      case HardwareKeyAction.MOVE_RIGHT_SEGMENT:
-        session.moveRightSegment();
-        break;
-      case HardwareKeyAction.COMMIT:
-        session.commitHighlighted();
-        break;
-      case HardwareKeyAction.COMMIT_RAW:
-        session.commitRaw();
-        break;
-      case HardwareKeyAction.COMMIT_TRANSLATION:
-        session.commitTranslation();
-        break;
-      case HardwareKeyAction.SELECT:
-        session.choose(decision.index);
-        break;
-      case HardwareKeyAction.RESET_CACHE:
-        session.resetCache();
-        break;
-      case HardwareKeyAction.REMOVE_CANDIDATE:
-        // The slot may hold nothing, or a cloud or AI candidate the dictionary cannot forget. The
-        // key stays claimed either way: the chord was pressed deliberately, and letting a stray '1'
-        // through to the editor because the candidate was the wrong kind would be worse.
-        session.removeManagedCandidate(decision.index);
-        break;
-      case HardwareKeyAction.WORD_CHARACTER_FIRST:
-        session.selectEdge(CandidateTextEdge.FIRST);
-        break;
-      case HardwareKeyAction.WORD_CHARACTER_LAST:
-        session.selectEdge(CandidateTextEdge.LAST);
-        break;
-      case HardwareKeyAction.NEXT_PAGE:
-        session.nextPage();
-        break;
-      case HardwareKeyAction.PREVIOUS_PAGE:
-        session.previousPage();
-        break;
-      case HardwareKeyAction.NEXT_CANDIDATE:
-        session.nextCandidate();
-        break;
-      case HardwareKeyAction.PREVIOUS_CANDIDATE:
-        session.previousCandidate();
-        break;
-      case HardwareKeyAction.IGNORED:
-        break;
-      default:
-        return false;
-    }
+    HardwareKeyDispatch.apply(decision, key.shiftKey, session);
     return true;
   };
 

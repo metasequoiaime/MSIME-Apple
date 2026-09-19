@@ -22,6 +22,18 @@
 
 ## 当前证据
 
+### Android 键盘高度的无障碍增减现在会保存（2026-09-20）
+
+在模拟器上驱动键盘设置时发现：`KeyboardLayoutAdjustView` 的无障碍增减把高度调到新值后又弹回原值，反复 0 → 2 → 0 → 2。拖动路径在 `ACTION_UP` 调 `listener.commit()` 保存，而无障碍路径只调 `listener.height(...)` 预览，从不保存；预览值随后被下一次偏好应用覆盖回持久值。README 写的是“松手、无障碍增减及切换语音入口后通过共享 revision CAS 保存”，实现并未做到。无障碍增减没有“松手”这个时刻，因此每一步都要自己保存：两个方向现在共用一条 `adjustHeight`，预览后立即 commit。
+
+设备实测：修复后 `KeyboardHeightDeviceSmoke` 的 `increase keyboard height` 阶段通过，高度从 0 走到 +48，且 `preferences.json` 实际记录了 48（用例按 revision 递增核对）。
+
+同一套件的设备用例也按当前实现修正：`keyHeight` 原先找 `按键 n`，而字母键的描述是 `字母 N`——`按键` 是符号键的形式，且中文态字母画大写——改为按键本身匹配；键盘设置面板已从带 `键盘高度` SeekBar 的旧面板改成透明拖动层，旧 SeekBar 仍在树中但为 GONE，因此高度控件改为匹配拖动层（它以 SeekBar 形态上报高度 range），并用其仅有的 ±2 dp 滚动动作走到目标值，而不是它并不支持的 `ACTION_SET_PROGRESS`。设置面板只在键盘空闲时可达（组字时候选条占用快捷行），因此“组字中实时改尺寸”这一场景在 UI 上不可达，改为每次改完尺寸后组字再清除，验证新尺寸下输入仍然正常。
+
+顺带修复 develop 上阻断 Android 合包的 TypeScript 错误：`custom-translations.test.tsx` 的 `Snapshot` fixture 缺少 `Preferences` 的必填字段，`pnpm build` 的类型检查失败导致 APK 打不出来。
+
+该套件仍停在 `return from tall setting`：从设置返回后未能观察到可见的字母键，留作后续切片。其余五个设备套件保持通过。
+
 ### Android 共享偏好设备回归对齐实现（2026-09-20）
 
 `PreferencesDeviceSmoke` 在模拟器上停在两处，都是用例的判据与实现不符：

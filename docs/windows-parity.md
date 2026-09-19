@@ -99,6 +99,47 @@
 
 其余 15 个提交不移植，理由记下以免下次重新判断：`ccbaa3a6`（Google 解码器前把 ü 换成 nue/lue/ju 写法）、`80b1fc42` / `03a5b4fe` / `e2a5f5f9`（词格整句改用 kenlm 三元模型并重排优先级）、`01c5bca3` / `663f7230`（选中的整句候选落成用户词组）、`b4728fdb` 都在 Engine 及其 Server 消费侧。来源把 Engine 以 `engine/` 在树内维护，本仓库由 `engine-lock.json` 固定独立 `MSIME-Engine` 归档加本地 overlay 获取，两条路径不同：这些行为要进来只能是提 Engine 锁，而不是照抄 C++。本批没有提锁——提锁的影响面覆盖全部平台，且整句重排在本仓库正由 Rust 侧的 `chinese-ime-lm` 另行推进（见 #3088），两边同时动同一块行为会互相盖掉。`d30d2946` / `bc1a1c7a` 是给上述 Engine 产物打包（sc.lm、Google 解码器系统词典），随锁一起考虑。另外尝试用 engine-bridge 的真引擎直接判定 ü 拼写在本仓库是否同样出错，未能得出结论：该测试装置用的是空词库临时目录，`qu`、`xu` 这类无 ü 的音节同样出不了候选，要判定必须带真实系统词典，属于提锁时一并验证的范围。
 
+## HarmonyOS 逐条对照（2026-09-20）
+
+来源为本地 `MSIME-Windows` 检出 `997fdfd9` 的 `README.md`「功能简介」与「核心功能指南」，逐条列出目的地实现位置与验证方式。列这张表是为了让"覆盖完整"成为可核对的断言而不是结论：任何一行填不出目的地，就是一个缺口。
+
+| 来源功能 | Harmony 实现位置 | 验证 |
+| --- | --- | --- |
+| 全拼、四种双拼、86 五笔 | `keyboard/KeyboardScheme.ts`；Engine 经共享 `prepare_host_configuration` | 逻辑回归；设备上 Engine 会话建立 |
+| 日文罗马字、平假名/片假名、日语词库 | `input/JapaneseNineKeyLayout.ts`、`input/JapaneseVariantPolicy.ts` | 逻辑回归 |
+| 切日文保留中文方案 | `KeyboardScheme.mapping` + `KeyboardSession.schemeChanges` | 逻辑回归 |
+| 五种辅助码方案、单码/双码 | `input/ChineseHelpcodePolicy.ts`；Engine 侧 `quanpin_helpcode`/`shuangpin_helpcode` | 逻辑回归 |
+| 谷歌云候选、AI 联想（四提供方） | `candidate/OnlineCandidatePolicy.ts`；NAPI `onlineQuery`/`applyOnlineCandidates` | 逻辑回归 |
+| 候选中英互译、腾讯 TMT / NiuTrans / DeepLX | `candidate/TranslationPolicy.ts`、`CredentialCrypto.ets` | 逻辑回归 |
+| 自定义候选窗翻译（覆盖层） | 设置页写 `<state>/user/custom_translations.txt`；Engine `prepare_translation_sidecar` 读取 | 解析规则逐条对齐 C++ 并有测试 |
+| 候选调频（五种算法、触发次数、步长） | Engine 侧 `frequency`，设置页无平台门 | 共享偏好契约 |
+| preedit 显示、双拼原始预编辑 | `candidate_preedit_style`；`shuangpin_preedit` 能力位 | 逻辑回归 + 能力位测试 |
+| 中英混输、emoji/颜文字混输、独立英文候选 | Engine 侧 `mixed_input`；`dedicated_english` | 共享偏好契约 |
+| 直接英文补全 | `input/EnglishSuggestionPolicy.ts`；NAPI `englishCompletions` | 逻辑回归 |
+| 智能标点、重复转中文、成对补全、以词定字 | `input/SmartPunctuation*.ts`、`PairedPunctuationPolicy.ts`、`CandidateTextPolicy.ts` | 逻辑回归 |
+| 中英文状态按应用/全局记忆 | `input/ImeModeScopePolicy.ts` | 逻辑回归 |
+| 全半角、简繁 | `input/FullWidthInputPolicy.ts`、`input/ChineseOutputPolicy.ts` | 逻辑回归 |
+| 八个快捷模式 K/T/U/E/M/J/Y/R | Engine 侧 `local_modes`；`input/LocalInputMode.ts` | 共享偏好契约 |
+| 词库查询/增改删/导入导出、快捷短语 | `DictionaryMaintenancePolicy.ts`；共享 `dictionary_request` | 逻辑回归 |
+| 语音：豆包流式、三家批量、润色 | `input/Harmony*Recognizer.ets`、`HarmonyVoicePolisher.ets` | 构建；provider 未在设备上跑 |
+| 语音五个快捷键、空格锁定 | `input/VoiceHotkeyPolicy.ts` | 逻辑回归 |
+| 录音提示音、录音时静音其他音频 | `input/HarmonyVoiceRecordingBehaviour.ets` + `VoiceRecordingBehaviourPolicy.ts` | 逻辑回归；音频未在设备上听 |
+| 录音设备选择 | `input/VoiceCaptureDevicePolicy.ts`、`HarmonyVoiceCaptureDevices.ets` | 逻辑回归 |
+| 手写识别 | `input/HandwritingStrokePolicy.ts` + Core Vision Kit | 逻辑回归；AsyncCallback 缺陷已修，识别本身未在设备上跑 |
+| 屏幕键盘 | 本宿主自身即键盘；2in1 另有 `DesktopSurface.SCREEN_KEYBOARD` | 设备上面板创建成功 |
+| 悬浮工具栏、组件开关、缩放 | `FloatingToolbar.ets`、`FloatingToolbarLayout.ts` | 逻辑回归 |
+| Emoji、颜文字、符号、剪贴板历史 | `emoji/EmojiCatalogModel.ts`、`clipboard/*` | 逻辑回归 |
+| 四种皮肤、深浅色、字体 | `candidate/CandidateSkinPolicy.ts`、`candidate/CandidateFontFamilyPolicy.ts` | 逻辑回归 |
+| `Ctrl+Shift+E`、`Ctrl+Shift+Space`、`Ctrl+.` | `InputModeRouting.ts` | 逻辑回归；2in1 硬件键未在设备上按 |
+| `Ctrl+Shift+Alt+1–8`、`+C` | `HardwareKeyRouter.ts`、`KeyboardSession.resetCache` | 逻辑回归；同上 |
+| 更新、关于、帮助、反馈 | 共享设置页 | 共享 UI |
+| 服务守护、安装、卸载 | 不适用：扩展生命周期由系统管理 | — |
+| `Ctrl+Shift+Alt+R`/`+T`（重启/退出服务） | 不适用：本宿主没有独立服务进程 | — |
+
+两类条目没有目的地实现，都是平台差异而非缺口：Windows 的服务守护与服务重启/退出快捷键针对独立 Server 进程，HarmonyOS 的输入法扩展由系统拉起与回收。
+
+未取得设备证据的部分集中在三处：2in1 硬件按键经 Engine 组字（2in1 模拟器实例本机无法稳定启动）、语音 provider 实际识别、手写实际识别。前者是形态限制，后两者需要凭据与真实音频/笔迹。其余条目均有不依赖设备的回归覆盖，且输入法在设备上已完成安装、启用、切换、原生模块加载、Engine 会话建立、面板创建与接管真实编辑器。
+
 ## 下一批实施顺序
 
 增量记录（2026-09-20，HarmonyOS 首次设备运行）：目标 `21da4a315`。此前 HarmonyOS 一栏的全部结论都只有源码与构建证据，本次首次在模拟器上实际运行，证据等级随之改变。
