@@ -4,6 +4,7 @@
 #import "../candidate/SkinSettingsView.h"
 #import "../cloud/CloudAppearanceSettings.h"
 #import "RuntimeOptions.h"
+#import "../dictionary/DictionaryWindowController.h"
 
 extern "C" bool msime_macos_uninstall_input_source(const char *bundle_path,
                                                      const char *user_data_path,
@@ -523,6 +524,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     NSString *_translationPreferencesDirectory;
     MSIMETranslationSettingsWindow *_translationWindow;
     MSIMEAISettingsWindow *_aiWindow;
+    MSIMEDictionaryWindowController *_dictionaryWindow;
     NSButton *_inputModeShortcutButton;
     NSButton *_fullWidthButton;
     NSButton *_keymapButton;
@@ -2053,14 +2055,21 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     learningCard.accessibilityLabel = @"候选与学习卡片";
     NSButton *aiButton = [NSButton buttonWithTitle:@"配置 AI 联想…" target:self action:@selector(showAISettings:)];
     NSButton *translationButton = [NSButton buttonWithTitle:@"配置候选翻译…" target:self action:@selector(showTranslationSettings:)];
+    NSButton *dictionaryButton = [NSButton buttonWithTitle:@"打开词库管理…" target:self action:@selector(showDictionary:)];
+    dictionaryButton.accessibilityLabel = @"打开本机词库管理";
     NSBox *cloudCard = CardWithViews(@[
         _cloudCandidatesButton, _candidateTranslationsButton, _candidateEnglishGlossButton,
         PreferenceRow(@"AI 联想", aiButton),
         PreferenceRow(@"翻译服务与目标语言", translationButton),
     ], 9.0);
     cloudCard.accessibilityLabel = @"云端与智能候选卡片";
+    NSBox *dictionaryCard = CardWithViews(@[
+        PreferenceRow(@"本机用户词库", dictionaryButton),
+    ], 0.0);
+    dictionaryCard.accessibilityLabel = @"本机用户词库卡片";
     NSScrollView *dataPage = PreferencesPage(@"词库与数据", @"管理本机词库、用户词条与学习数据。", @[
-        SectionLabel(@"候选与学习"), learningCard, SectionLabel(@"云端与智能候选"), cloudCard,
+        SectionLabel(@"候选与学习"), learningCard, SectionLabel(@"本机词库"), dictionaryCard,
+        SectionLabel(@"云端与智能候选"), cloudCard,
     ]);
 
     // ---- 关于 -------------------------------------------------------------------------------
@@ -2420,6 +2429,26 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     MSIMEOpenDesktopSettings(MSIMEDesktopSettingsPage::Skin, [self desktopSettingsWorkspace], ^{
         MSIMEAppearancePreferences *strongSelf = weakSelf;
         if (strongSelf) [[strongSelf skinCatalogController] showWindow:sender];
+    });
+}
+- (void)showDictionary:(id)sender {
+    (void)sender;
+    __weak MSIMEAppearancePreferences *weakSelf = self;
+    MSIMEOpenDesktopRoute(@"settings:dictionary", NSWorkspace.sharedWorkspace, ^{
+        MSIMEAppearancePreferences *strongSelf = weakSelf;
+        if (!strongSelf) return;
+        NSDictionary *options = MSIMELoadRuntimeOptions();
+        if (![options isKindOfClass:NSDictionary.class]) {
+            NSAlert *alert = [NSAlert new];
+            alert.messageText = @"词库管理暂不可用";
+            alert.informativeText = @"请先激活输入法，再从输入法菜单打开词库管理。";
+            [alert addButtonWithTitle:@"好"];
+            [alert runModal];
+            return;
+        }
+        strongSelf->_dictionaryWindow = [[MSIMEDictionaryWindowController alloc] initWithOptions:options];
+        [strongSelf->_dictionaryWindow showWindow:nil];
+        [NSApp activateIgnoringOtherApps:YES];
     });
 }
 - (void)togglePreviewTheme:(id)sender { (void)sender; [_preview toggleForcedTheme]; }
