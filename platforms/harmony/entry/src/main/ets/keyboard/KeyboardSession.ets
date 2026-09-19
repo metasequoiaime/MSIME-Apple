@@ -423,6 +423,8 @@ interface PreparedPreferences {
   // 'follow', 'dark' or 'light' for the keyboard specifically; theme is the global one it falls
   // back to, and only if both defer does the system decide.
   screen_keyboard_theme: string;
+  /** 'follow', 'dark' or 'light' for the floating toolbar; it falls back to the global theme. */
+  toolbar_theme?: string;
   /** 'follow', 'dark' or 'light' for the voice panel; it falls back to the global theme. */
   voice_theme?: string;
   /** 'follow', 'dark' or 'light' for the emoji panel; it falls back to the global theme. */
@@ -510,6 +512,7 @@ export interface KeyboardPreferences {
   readonly candidateSelectedBar: boolean | null;
   readonly pairedPunctuation: boolean;
   readonly keyboardTheme: string;
+  readonly toolbarTheme: string;
   readonly voiceTheme: string;
   readonly emojiTheme: string;
   readonly handwritingTheme: string;
@@ -637,6 +640,7 @@ export class KeyboardSession {
     candidateSelectedBar: null,
     pairedPunctuation: true,
     keyboardTheme: 'follow',
+    toolbarTheme: 'follow',
     globalTheme: 'system',
     emojiTheme: 'follow',
     handwritingTheme: 'follow',
@@ -872,6 +876,7 @@ export class KeyboardSession {
         candidateSelectedBar: preferences.candidate_selected_bar ?? skinSelectedBar,
         pairedPunctuation: preferences.paired_punctuation !== false,
         keyboardTheme: preferences.screen_keyboard_theme,
+        toolbarTheme: preferences.toolbar_theme ?? 'follow',
         voiceTheme: preferences.voice_theme ?? 'follow',
         emojiTheme: preferences.emoji_theme ?? 'follow',
         handwritingTheme: preferences.handwriting_theme ?? 'follow',
@@ -923,7 +928,9 @@ export class KeyboardSession {
         thoughtfulReply: preferences.touch_keyboard_schemes?.selected === 'thoughtful_reply'
       };
       this.toolbarSkin = ToolbarSkinPolicy.fromCss(
-        this.skin(this.appearance.skinId, this.appearance.dark), skinToolbar);
+        this.skin(this.appearance.skinId,
+          KeyboardSkin.resolveDark(this.appearance.toolbarTheme, this.appearance.globalTheme,
+            systemDark)), skinToolbar);
       this.schemeName = preferences.scheme;
       this.profileName = preferences.shuangpin_profile;
       this.traditional = preferences.traditional_chinese_output;
