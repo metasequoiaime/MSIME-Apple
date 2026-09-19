@@ -1315,3 +1315,9 @@ MSIME-Apple 的语音服务目录里有两个共享客户端一直没有的转�
 - 发布时若 `expectedIdentifier` 与当前标记不符（准备期间别人已经发布），必须让给先到者而不是覆盖；身份一致时，未完成暂存的代次由就绪检查拦下。两条失败路径都不改变当前标记。
 
 本地验证：`dictionary-installation-test` 以 `-fobjc-arc -Wall -Wextra -Werror -UNDEBUG` 编译并通过；把实现里 `DiscardInactiveDictionarySnapshot` 的当前代次判断去掉后该测试转为失败，恢复后重新通过。未改动任何生产实现，未执行签名安装或设备验收，CI 保持禁用。
+
+### 共享个人词库导入文案不再写死 Android
+
+个人词库文件导入卡片对所有移动宿主显示（`importPersonal` 在 iOS 与 Android 上都接了），但说明文字写的是「确认后加入 Android 键盘同步队列」。iOS 用户读到的是一句不成立的话：那条队列是 App Group 里由本机键盘扩展消费的队列，和 Android 无关。改为按宿主平台命名，未知平台不提平台名，句子依然通顺。这是共享 UI 里唯一一处未按平台收敛的 Android 文案，其余 Android 字样要么在 `androidPlatform` 分支内、要么是代码注释。
+
+本地验证：新增 3 项 Vitest 覆盖 iOS、Android 与未知平台三种措辞；`tests/dictionary` 全部 61 项通过；桌面 TypeScript 检查与 `pnpm build` 通过。未改动导入行为本身，CI 保持禁用。

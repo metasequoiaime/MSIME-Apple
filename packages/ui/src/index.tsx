@@ -802,7 +802,10 @@ function personalDictionaryKindTitle(kind: PersonalDictionaryImportEntry["kind"]
   return kind === "pinyin" ? "拼音" : kind === "wubi" ? "五笔" : kind === "quickPhrase" ? "快捷短语" : "英文";
 }
 
-function PersonalDictionaryImportCard({ dictionary }: { dictionary: DictionaryClient }) {
+// The card is shown on every mobile host, so it must not name one of them. The queue it
+// feeds is the platform's own keyboard: on iOS the App Group queue the extension drains,
+// on Android the sync queue the input-method service drains.
+function PersonalDictionaryImportCard({ dictionary, platform }: { dictionary: DictionaryClient; platform?: string }) {
   const input = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState("");
   const [entries, setEntries] = useState<PersonalDictionaryImportEntry[] | null>(null);
@@ -859,7 +862,7 @@ function PersonalDictionaryImportCard({ dictionary }: { dictionary: DictionaryCl
     .map(kind => `${personalDictionaryKindTitle(kind)} ${entries.filter(entry => entry.kind === kind).length} 条`).join(" · ") : "";
 
   return <div className="section personal-dictionary-import" role="region" aria-label="个人词库文件导入">
-    <div className="section-header"><span className="section-title">个人词库文件<small>导入 Apple 兼容的 JSON 词条，确认后加入 Android 键盘同步队列；文件内容不会上传。</small></span><span>
+    <div className="section-header"><span className="section-title">个人词库文件<small>导入 Apple 兼容的 JSON 词条，确认后加入{platform === "ios" ? " iOS " : platform === "android" ? " Android " : ""}键盘同步队列；文件内容不会上传。</small></span><span>
       <button type="button" className="secondary" disabled={busy} onClick={() => input.current?.click()}>选择 JSON 文件</button>{" "}
       <button type="button" className="secondary" disabled={busy} onClick={saveExample}>保存示例文件</button>
       <input ref={input} hidden type="file" aria-label="选择个人词库 JSON 文件" accept=".json,application/json" onChange={event => { void chooseFile(event.currentTarget.files?.[0]); event.currentTarget.value = ""; }} />
@@ -2090,7 +2093,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
         </select></label></div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "dictionary"} aria-label="词库">
-        {client.dictionary?.importPersonal && <PersonalDictionaryImportCard dictionary={client.dictionary} />}
+        {client.dictionary?.importPersonal && <PersonalDictionaryImportCard dictionary={client.dictionary} platform={client.host?.platform} />}
         {client.dictionary && <div className="section quick-phrase-manager" role="region" aria-label="快捷短语管理">
           <div className="section-header"><span className="section-title">本地词库管理<small>查询、新增、编辑、导入、导出和删除 Engine 用户词库。导入支持标准、Windows TSV、Rime 和纯汉字自动注音。</small></span><span><button type="button" className="secondary" disabled={phraseBusy} onClick={() => void loadPhrases(dictionaryKind, 0)}>查询</button> <button type="button" className="secondary" disabled={phraseBusy} onClick={() => setPhraseForm({ key: "", value: "", weight: 100000, previous: null })}>新增词条</button> <button type="button" className="secondary" disabled={phraseBusy || dictionaryFormat === "hans"} onClick={() => void exportPhrases()}>导出当前类型</button> <button type="button" className="secondary" disabled={phraseBusy} onClick={() => void exportAllPhrases()}>导出全部</button><label className="secondary">导入<input hidden type="file" accept=".txt,.tsv,.yaml,.yml,text/plain" disabled={phraseBusy} onChange={event => { const file = event.target.files?.[0]; if (file) { const name = file.name.toLowerCase(); if (name.endsWith(".yaml") || name.endsWith(".yml")) setDictionaryFormat("rime"); void importPhrases(file); } event.currentTarget.value = ""; }} /></label></span></div>
           {dictionaryPendingCount > 0 && <p className="input-setting-description" role="status">{dictionaryPendingCount} 项等待键盘同步。打开水杉键盘后会在空闲时逐条生效。</p>}
