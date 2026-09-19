@@ -62,10 +62,13 @@ fn desktop_credential_command_routes_all_services_without_a_provider_socket() {
             json!({"provider":"groq"}),
             "请先填写有效的 API Key。",
         ),
+        // Doubao answers with its own message rather than the shared one: it needs a wss endpoint and a
+        // resource ID as well as a credential, and "fill in an API Key" would send the user looking for
+        // the wrong box.
         (
             "voice.asr",
             json!({"provider":"doubao"}),
-            "请先填写有效的 API Key。",
+            "请填写有效的 WSS 接口、资源 ID 及对应鉴权方式的凭据。",
         ),
     ] {
         assert_eq!(

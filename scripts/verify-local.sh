@@ -244,11 +244,21 @@ fi
 
 note "rust tests"
 : > "$collected.rust"
-for package in msime-client-core msime-host-api msime-input-runtime msime-host-windows; do
-  cargo test -p "$package" 2>&1 |
-    sed -n 's/^ *\([A-Za-z0-9_:]*\) *$/\1/p' > /dev/null || true
-  cargo test -p "$package" --no-fail-fast 2>&1 |
-    grep -E "^    [a-z_]+::" | sed "s/^ *//;s#^#$package #" >> "$collected.rust" || true
+# msime-host-macos and msime-desktop were missing from this list, and a crate nobody tests is not the
+# worst of it: the compile failure is swallowed by the `|| true` below, so a crate that does not build at
+# all collects no failing names and is reported as being at baseline. msime-desktop did not link on macOS
+# for that reason, and its 86 tests had never run.
+for package in msime-client-core msime-host-api msime-input-runtime msime-host-windows \
+  msime-host-macos msime-desktop; do
+  # A package that does not build produces no failing test names, which reads as "at baseline" - which is
+  # how msime-desktop went unbuildable on macOS without anything noticing. Say so instead.
+  cargo test -p "$package" --no-fail-fast > "$collected.$package" 2>&1 || true
+  if grep -qE "^error: (could not compile|linking with)" "$collected.$package"; then
+    grep -E "^error: (could not compile|linking with)" "$collected.$package" | head -1
+    fail "$package build"
+  fi
+  grep -E "^    [a-z_]+::" "$collected.$package" |
+    sed "s/^ *//;s#^#$package #" >> "$collected.rust" || true
 done
 compare "rust tests" "$collected.rust"
 
