@@ -41,7 +41,7 @@ const DWORD WM_InsertText = WM_USER + 19;
 const DWORD WM_RefreshLanguageBarTheme = WM_USER + 20;
 const DWORD WM_PairedPunctuationCaretMove = WM_USER + 21;
 const DWORD WM_ReplaceRepeatedSmartPunctuation = WM_USER + 22;
-const DWORD WM_MinttyShiftRelease = WM_USER + 23;
+const DWORD WM_BareShiftRelease = WM_USER + 23;
 const DWORD WM_UpdateVoiceComposition = WM_USER + 24;
 const DWORD WM_CommitVoiceComposition = WM_USER + 25;
 const DWORD WM_CancelVoiceComposition = WM_USER + 26;
@@ -416,17 +416,24 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     bool _MatchModifierReleaseHotkey(WPARAM wParam, _Out_ GUID *hotkeyGuid);
     bool _QueueInputHotkey(_In_ ITfContext *pContext, REFGUID hotkeyGuid, _Out_ BOOL *pIsEaten);
 
-    // mintty exposes IME composition through the legacy IMM bridge and does not
-    // forward bare modifier key-up events to ITfKeyEventSink. Observe only
-    // this host thread and feed a missed bare-Shift release back into the
-    // normal deferred hotkey path; hosts with stale GetKeyState are handled in
-    // the sink through the arming latch.
-    void _InitMinttyKeyboardHook();
-    void _UninitMinttyKeyboardHook();
-    void _HandleMinttyShiftRelease(UINT sequence);
-    void _MarkMinttyShiftHandled();
-    static LRESULT CALLBACK _MinttyKeyboardHookProc(int code, WPARAM wParam, LPARAM lParam);
-    static thread_local CMetasequoiaIME *_minttyKeyboardHookOwner;
+    // Not every host completes a bare-Shift release through ITfKeyEventSink.
+    // mintty routes composition through the legacy IMM bridge and forwards no
+    // bare modifier key-up at all; Word delivers neither OnTestKeyUp nor
+    // OnKeyUp for one. Both lose the CN/EN toggle, so this hook is installed
+    // for every host rather than a named list of them - a list only ever grows
+    // one bug report at a time.
+    //
+    // It observes this host thread alone and feeds a missed bare-Shift release
+    // back into the normal deferred hotkey path. Hosts that do deliver the
+    // release are unaffected: _MarkBareShiftHandled() latches the sequence the
+    // key-event sink already toggled, so it never toggles twice. Hosts with a
+    // stale GetKeyState are handled in the sink through the arming latch.
+    void _InitBareShiftKeyboardHook();
+    void _UninitBareShiftKeyboardHook();
+    void _HandleHookedBareShiftRelease(UINT sequence);
+    void _MarkBareShiftHandled();
+    static LRESULT CALLBACK _BareShiftKeyboardHookProc(int code, WPARAM wParam, LPARAM lParam);
+    static thread_local CMetasequoiaIME *_bareShiftHookOwner;
 
     void _StartComposition(_In_ ITfContext *pContext);
     HRESULT _EndComposition(_In_opt_ ITfContext *pContext, _In_opt_ ITfComposition *expectedComposition = nullptr,
@@ -672,13 +679,13 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     bool _ctrlHotkeyArmed;
     std::chrono::steady_clock::time_point _modifierHotkeyExpire;
 
-    HHOOK _minttyKeyboardHook;
-    BYTE _minttyShiftDownMask;
-    bool _minttyShiftArmed;
-    UINT _minttyShiftSequence;
-    UINT _minttyShiftHandledSequence;
-    uint64_t _minttyShiftFocusGeneration;
-    ULONGLONG _minttyShiftExpireTick;
+    HHOOK _bareShiftHook;
+    BYTE _bareShiftDownMask;
+    bool _bareShiftArmed;
+    UINT _bareShiftSequence;
+    UINT _bareShiftHandledSequence;
+    uint64_t _bareShiftFocusGeneration;
+    ULONGLONG _bareShiftExpireTick;
 
     LONG _refCount;
 
