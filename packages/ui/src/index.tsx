@@ -1586,6 +1586,13 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
     setDraft({ ...next, touch_keyboard_schemes: { enabled, selected: scheme } });
   };
   const localModes = draft?.local_modes ?? defaultLocalModes;
+  // The macOS preview bundle intentionally ships only msime.db and english.db.
+  // Keep the Tauri page honest about what its IMK host can actually run; the
+  // shared preference still retains the other platform modes for hosts that
+  // provide their catalog resources.
+  const visibleLocalModeRows = macosPlatform
+    ? localModeRows.filter(([key]) => !["emoji", "kaomoji", "temporary_japanese"].includes(key))
+    : localModeRows;
   const quanpinAutocorrect = {
     autocorrect_transposition: draft?.quanpin?.autocorrect_transposition ?? false,
     autocorrect_neighbor: draft?.quanpin?.autocorrect_neighbor ?? false,
@@ -2369,7 +2376,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
           </div>)}</div>}
           {macosPlatform ? <p className="panel-inline-note">云剪贴板和云词典需要当前输入法进程提供输入会话；请从输入法悬浮工具栏或输入法菜单打开对应面板。</p> : <>{client.openCloudClipboard && <button type="button" className="secondary" onClick={() => void openPanel(client.openCloudClipboard)}>打开云剪贴板</button>}{client.openCloudDictionary && <button type="button" className="secondary" onClick={() => void openPanel(client.openCloudDictionary)}>打开云词典</button>}</>}
         </div>
-        {localModeRows.map(([key, label, description]) => <div className="section" key={key}>
+        {visibleLocalModeRows.map(([key, label, description]) => <div className="section" key={key}>
           <label className="section-header"><span className="section-title">{label}<small>{description}</small></span><input className="toggle" type="checkbox" checked={localModes[key]} onChange={event => setDraft({ ...draft, local_modes: { ...localModes, [key]: event.target.checked } })} /></label>
         </div>)}
       </fieldset>
