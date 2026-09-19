@@ -62,6 +62,7 @@ windows_host=0
 case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) windows_host=1 ;; esac
 
 failed=0
+new_failures=""
 note() { printf '\n=== %s ===\n' "$1"; }
 fail() { echo "FAIL: $1"; failed=1; }
 
