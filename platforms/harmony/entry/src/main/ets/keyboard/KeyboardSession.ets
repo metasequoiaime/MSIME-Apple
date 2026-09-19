@@ -7,7 +7,7 @@ import { TypingStatisticsPolicy } from './TypingStatisticsPolicy';
 import { KeyboardSkin } from './skin/KeyboardSkin';
 import { CustomKeyboardSkin, CustomSkinDocument } from './skin/CustomKeyboardSkin';
 import { KeyboardFormFactor } from './KeyboardFormFactor';
-import { KeyboardScheme, SchemeDefinition } from './KeyboardScheme';
+import { KeyboardScheme, PreferenceMapping, SchemeDefinition } from './KeyboardScheme';
 import { EditorPolicy, EditorTraits } from './input/EditorPolicy';
 import { WubiCodeHintPolicy } from './input/WubiCodeHintPolicy';
 import { KeyboardGeometry } from './KeyboardGeometry';
@@ -2744,6 +2744,52 @@ export class KeyboardSession {
    * it cannot parse in full, and everything this keyboard does not understand travels across
    * untouched, so changing a skin here cannot quietly drop a setting made on another host.
    */
+  /**
+   * The four preference values one scheme choice decides, read against the document on disk.
+   *
+   * Picking Japanese has to leave a record of the Chinese scheme it replaced, or the shared settings
+   * page has nothing to restore when the user asks for 中文 again and falls back to quanpin — which
+   * on a typist who was on 五笔 looks like the keyboard forgot. The Engine's own scheme field cannot
+   * hold it, since it is the field being replaced.
+   *
+   * Read here rather than from the prepared record the view holds: the settings page is a second
+   * writer, and the value that matters is the one currently on disk. The write that follows does its
+   * own load and compares revisions, so a genuine conflict is still refused rather than overwritten.
+   */
+  schemeChanges(candidate: SchemeDefinition): Map<string, Object> {
+    const current: Record<string, Object> | undefined = this.loadPreferenceDocument();
+    const mapping: PreferenceMapping = KeyboardScheme.mapping(candidate,
+      current === undefined ? null : this.text(current['last_chinese_scheme']),
+      current === undefined ? null : this.text(current['shuangpin_profile']));
+    const changes: Map<string, Object> = new Map<string, Object>();
+    changes.set('scheme', mapping.scheme);
+    changes.set('last_chinese_scheme', mapping.lastChineseScheme);
+    changes.set('shuangpin_profile', mapping.shuangpinProfile);
+    changes.set('touch_keyboard_layout', mapping.touchKeyboardLayout);
+    return changes;
+  }
+
+  /** The stored document, or undefined when it cannot be read; the caller then uses the defaults. */
+  private loadPreferenceDocument(): Record<string, Object> | undefined {
+    try {
+      const loaded: SnapshotResponse =
+        JSON.parse(client.loadPreferences(this.stateDirectory)) as SnapshotResponse;
+      if (!loaded.ok) {
+        KeyboardLog.error(`preferences unreadable: ${loaded.error}`);
+        return undefined;
+      }
+      return loaded.value.preferences;
+    } catch (error) {
+      KeyboardLog.error(`preferences unreadable: ${describeError(error)}`);
+      return undefined;
+    }
+  }
+
+  /** A stored value only counts as a scheme name if it is actually a string. */
+  private text(value: Object | undefined): string | null {
+    return typeof value === 'string' ? value as string : null;
+  }
+
   changePreferences(changes: Map<string, Object>): boolean {
     if (this.handle === 0) {
       return false;

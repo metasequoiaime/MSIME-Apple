@@ -612,16 +612,13 @@ struct KeyboardView {
     // The composition belongs to the scheme that was current when it was typed; carrying it into a
     // different one would reinterpret letters that were never meant that way.
     KeyboardSession.shared.cancel();
-    const changes: Map<string, Object> = new Map<string, Object>();
-    changes.set('scheme', candidate.engineScheme);
-    changes.set('touch_keyboard_layout', candidate.touchKeyboardLayout);
+    // Every field one scheme decides moves together, including the record of the Chinese scheme a
+    // Japanese choice replaces; writing the Engine's scheme alone is what loses it.
+    const changes: Map<string, Object> = KeyboardSession.shared.schemeChanges(candidate);
     const schemes: TouchKeyboardSchemes = {
       enabled: this.settings.enabledSchemes, selected: candidate.preferenceId
     };
     changes.set('touch_keyboard_schemes', schemes);
-    if (candidate.shuangpinProfile !== null) {
-      changes.set('shuangpin_profile', candidate.shuangpinProfile);
-    }
     if (!KeyboardSession.shared.changePreferences(changes)) {
       return;
     }
@@ -651,9 +648,8 @@ struct KeyboardView {
   private selectEnglish(nineKey: boolean): void {
     KeyboardSession.shared.cancel();
     if (nineKey) {
-      const changes: Map<string, Object> = new Map<string, Object>();
-      changes.set('scheme', KeyboardScheme.QUANPIN_NINE_KEY.engineScheme);
-      changes.set('touch_keyboard_layout', KeyboardScheme.QUANPIN_NINE_KEY.touchKeyboardLayout);
+      const changes: Map<string, Object> =
+        KeyboardSession.shared.schemeChanges(KeyboardScheme.QUANPIN_NINE_KEY);
       if (!KeyboardSession.shared.changePreferences(changes)) {
         return;
       }
