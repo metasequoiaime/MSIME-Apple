@@ -20,6 +20,7 @@
 @property(nonatomic, strong) NSButton *removeButton;
 @property(nonatomic, strong) NSTextField *status;
 @property(nonatomic, copy) NSString *runtimeError;
+@property(nonatomic) NSUInteger refreshGeneration;
 @end
 @implementation MSIMEDictionaryWindowController
 - (instancetype)initWithOptions:(NSDictionary *)options {
@@ -40,6 +41,8 @@
         _kind.lastItem.representedObject = item[1];
     }
     _kind.translatesAutoresizingMaskIntoConstraints = NO;
+    _kind.target = self;
+    _kind.action = @selector(dictionaryKindChanged:);
     _format = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
     for (NSArray<NSString *> *item in @[@[@"标准 TSV", @"standard"], @[@"Windows TSV", @"windows"], @[@"Rime userdb / dict.yaml", @"rime"], @[@"汉字自动注音（仅导入）", @"hans"]]) {
         [_format addItemWithTitle:item[0]];
@@ -91,6 +94,11 @@
 - (void)showMessage:(NSString *)message {
     self.status.stringValue = message.length ? message : @"操作失败";
 }
+- (void)dictionaryKindChanged:(id)sender {
+    (void)sender;
+    self.offset = 0;
+    [self refresh:nil];
+}
 - (NSInteger)numberOfRowsInTableView:(NSTableView *)tableView {
     (void)tableView;
     return (NSInteger)self.entries.count;
@@ -112,8 +120,10 @@
 - (void)refresh:(id)sender {
     (void)sender;
     NSUInteger offset = self.offset;
+    NSUInteger generation = ++self.refreshGeneration;
+    NSString *kind = [[self selectedKind] copy];
     if (self.runtimeError) { [self showMessage:self.runtimeError]; self.entries = @[]; [self.table reloadData]; self.previous.enabled = NO; self.next.enabled = NO; return; }
-    NSDictionary *request = @{ @"options": self.options, @"action": @{ @"operation": @"list", @"offset": @(offset), @"limit": @100, @"kind": [self selectedKind] } };
+    NSDictionary *request = @{ @"options": self.options, @"action": @{ @"operation": @"list", @"offset": @(offset), @"limit": @100, @"kind": kind } };
     __weak MSIMEDictionaryWindowController *weakSelf = self;
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
         NSError *error = nil;
@@ -125,7 +135,16 @@
         else message = entries.count ? [NSString stringWithFormat:@"第 %lu 页，共显示 %lu 条%@", (unsigned long)(offset / 100 + 1), (unsigned long)entries.count, hasMore ? @"，还有更多" : @""] : @"暂无个人词条";
         dispatch_async(dispatch_get_main_queue(), ^{
             MSIMEDictionaryWindowController *controller = weakSelf;
-            if (controller) { controller.entries = entries; [controller.table reloadData]; [controller updateEditButtons]; [controller showMessage:message]; controller.previous.enabled = offset >= 100; controller.next.enabled = hasMore; controller.pageLabel.stringValue = [NSString stringWithFormat:@"第 %lu 页", (unsigned long)(offset / 100 + 1)]; }
+            if (controller && controller.refreshGeneration == generation && controller.offset == offset &&
+                [[controller selectedKind] isEqualToString:kind]) {
+                controller.entries = entries;
+                [controller.table reloadData];
+                [controller updateEditButtons];
+                [controller showMessage:message];
+                controller.previous.enabled = offset >= 100;
+                controller.next.enabled = hasMore;
+                controller.pageLabel.stringValue = [NSString stringWithFormat:@"第 %lu 页", (unsigned long)(offset / 100 + 1)];
+            }
         });
     });
 }
