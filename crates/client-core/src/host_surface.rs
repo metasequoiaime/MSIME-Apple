@@ -213,12 +213,15 @@ impl HostCapabilities {
                 HostPlatform::Linux | HostPlatform::Windows | HostPlatform::Macos
             ),
             // Native Windows/macOS candidate windows consume the shared font
-            // controls. Harmony's desktop candidate panel also applies the
-            // family chain and both candidate/preedit sizes in ArkUI; the
-            // touch-only hosts still use their fixed key typography.
+            // controls. Harmony's desktop candidate panel and Android's
+            // native candidate bar also apply the family chain and both
+            // candidate/preedit sizes; iOS remains touch-only here.
             candidate_font_controls: matches!(
                 platform,
-                HostPlatform::Windows | HostPlatform::Macos | HostPlatform::Harmony
+                HostPlatform::Windows
+                    | HostPlatform::Macos
+                    | HostPlatform::Harmony
+                    | HostPlatform::Android
             ),
             // IBus exposes candidate and label foreground/background RGB
             // attributes, but not native hover state or card borders.
@@ -228,10 +231,14 @@ impl HostCapabilities {
                     | HostPlatform::Macos
                     | HostPlatform::Linux
                     | HostPlatform::Harmony
+                    | HostPlatform::Android
             ),
             candidate_selection_appearance: matches!(
                 platform,
-                HostPlatform::Windows | HostPlatform::Macos | HostPlatform::Harmony
+                HostPlatform::Windows
+                    | HostPlatform::Macos
+                    | HostPlatform::Harmony
+                    | HostPlatform::Android
             ),
             // macOS CandidatePanel and the HarmonyOS candidate panel track the current insertion
             // rect themselves; expose the shared toggle on both hosts.
@@ -661,9 +668,9 @@ mod tests {
                 && !android.floating_toolbar_appearance
                 && !android.floating_toolbar_components
         );
-        assert!(!android.candidate_font_controls);
-        assert!(!android.candidate_row_colors);
-        assert!(!android.candidate_selection_appearance);
+        assert!(android.candidate_font_controls);
+        assert!(android.candidate_row_colors);
+        assert!(android.candidate_selection_appearance);
         let ios = HostCapabilities::for_platform(HostPlatform::Ios);
         assert!(ios.fuzzy_pinyin);
         assert!(ios.typing_statistics);
