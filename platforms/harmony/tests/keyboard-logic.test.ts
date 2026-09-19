@@ -75,6 +75,8 @@ import { TranslationSensePolicy } from
   '../entry/src/main/ets/keyboard/candidate/TranslationSensePolicy';
 import { HardwareKeyRouter, HardwareKeyAction, HardwareKey } from
   '../entry/src/main/ets/keyboard/HardwareKeyRouter';
+import { CandidateTextPolicy, CandidateTextEdge } from
+  '../entry/src/main/ets/keyboard/input/CandidateTextPolicy';
 import { CandidateSkinPolicy } from '../entry/src/main/ets/keyboard/candidate/CandidateSkinPolicy';
 import { CandidateSkinCatalogPolicy, CandidateSkinPackage } from
   '../entry/src/main/ets/keyboard/candidate/CandidateSkinCatalogPolicy';
@@ -979,6 +981,43 @@ group('maps hardware navigation according to the shared preferences', () => {
     HardwareKeyAction.IGNORED, 'disabled brackets are consumed without text input');
   check(HardwareKeyRouter.route({ ...key(2012), ctrlKey: true }, true, true, false, navigation).action ===
     HardwareKeyAction.RELEASE, 'modifier shortcuts remain with the editor');
+});
+
+group('maps Windows word-to-character bindings to highlighted candidate edges', () => {
+  const key = (keyCode: number, shiftKey: boolean = false): HardwareKey => ({
+    keyCode, unicodeChar: 0, ctrlKey: false, altKey: false, logoKey: false, shiftKey
+  });
+  check(HardwareKeyRouter.route(key(2059), true, true, false, undefined, false, false,
+    'brackets', true).action === HardwareKeyAction.WORD_CHARACTER_FIRST,
+  'left bracket selects the first Han character');
+  check(HardwareKeyRouter.route(key(2060), true, true, false, undefined, false, false,
+    'brackets', true).action === HardwareKeyAction.WORD_CHARACTER_LAST,
+  'right bracket selects the last Han character');
+  check(HardwareKeyRouter.route(key(2057), true, true, false, undefined, false, false,
+    'minus_equal', true).action === HardwareKeyAction.WORD_CHARACTER_FIRST,
+  'minus selects the first Han character');
+  check(HardwareKeyRouter.route(key(2058), true, true, false, undefined, false, false,
+    'minus_equal', true).action === HardwareKeyAction.WORD_CHARACTER_LAST,
+  'equals selects the last Han character');
+  check(HardwareKeyRouter.route(key(2059), true, true, false, undefined, false, false,
+    'brackets', false).action !== HardwareKeyAction.WORD_CHARACTER_FIRST,
+  'without a highlighted candidate the bracket remains navigation/editor input');
+  check(HardwareKeyRouter.route(key(2059, true), true, true, false, undefined, false, false,
+    'brackets', true).action !== HardwareKeyAction.WORD_CHARACTER_FIRST,
+  'shifted brackets stay with the editor');
+});
+
+group('extracts Han characters for word-to-character fallback', () => {
+  check(CandidateTextPolicy.extractHanCharacter('abc中b文', CandidateTextEdge.FIRST) === '中',
+    'first Han character is selected');
+  check(CandidateTextPolicy.extractHanCharacter('abc中b文', CandidateTextEdge.LAST) === '文',
+    'last Han character is selected');
+  check(CandidateTextPolicy.extractHanCharacter('𠀀a', CandidateTextEdge.FIRST) === '𠀀',
+    'supplementary Han character is preserved');
+  check(CandidateTextPolicy.extractHanCharacter('abc', CandidateTextEdge.FIRST) === null,
+    'non-Han candidate has no fallback');
+  check(CandidateTextPolicy.extractHanCharacter('', CandidateTextEdge.LAST) === null,
+    'empty candidate has no fallback');
 });
 
 group('maps hardware composition editing commands like Windows', () => {
