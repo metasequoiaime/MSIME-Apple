@@ -422,6 +422,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     NSButton *_toolbarSettingsButton;
     NSPopUpButton *_toolbarScaleButton;
     NSPopUpButton *_toolbarFontSizeButton;
+    NSNumber *_sharedInputModeShortcut;
     NSNumber *_sharedShiftTapShortcut;
     NSNumber *_sharedControlTapShortcut;
     NSButton *_shiftTapShortcutButton;
@@ -601,8 +602,16 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     NSMutableDictionary *merged = [snapshot mutableCopy];
     if ([_defaults objectForKey:DefaultImeModeKey] != nil) merged[@"default_ime_mode"] = self.defaultImeMode;
     if ([_defaults objectForKey:ImeModeScopeKey] != nil) merged[@"ime_mode_scope"] = self.imeModeScope;
-    for (NSArray *entry in @[@[ShiftTapShortcutKey, @"switch_language_shift", @(self.shiftTapShortcut)],
-                            @[ControlTapShortcutKey, @"switch_language_ctrl", @(self.controlTapShortcut)]]) {
+    // Apple exposes one switch for both a solitary Shift tap and Shift+Space.
+    // Keep the legacy native keys independent when no shared snapshot exists,
+    // but publish one shared value for both routes.
+    if ([_defaults objectForKey:InputModeShortcutKey] != nil || [_defaults objectForKey:ShiftTapShortcutKey] != nil) {
+        id existing = merged[@"keybindings"];
+        NSMutableDictionary *keys = [existing isKindOfClass:NSDictionary.class] ? [existing mutableCopy] : [NSMutableDictionary dictionary];
+        keys[@"switch_language_shift"] = @(([_defaults objectForKey:ShiftTapShortcutKey] != nil) ? self.shiftTapShortcut : self.inputModeShortcut);
+        merged[@"keybindings"] = keys;
+    }
+    for (NSArray *entry in @[@[ControlTapShortcutKey, @"switch_language_ctrl", @(self.controlTapShortcut)]]) {
         if ([_defaults objectForKey:entry[0]] == nil) continue;
         id existing = merged[@"keybindings"];
         NSMutableDictionary *keys = [existing isKindOfClass:NSDictionary.class] ? [existing mutableCopy] : [NSMutableDictionary dictionary];
@@ -1052,7 +1061,12 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     if ([@[@"app", @"global"] containsObject:scope]) _sharedImeModeScope = scope;
     id keys = preferences[@"keybindings"];
     if ([keys isKindOfClass:NSDictionary.class]) {
-        if (LocalModeBoolean(keys[@"switch_language_shift"])) _sharedShiftTapShortcut = keys[@"switch_language_shift"];
+        id shift = keys[@"switch_language_shift"];
+        if (LocalModeBoolean(shift)) {
+            // The shared Tauri setting reaches both native Shift routes.
+            _sharedInputModeShortcut = shift;
+            _sharedShiftTapShortcut = shift;
+        }
         if (LocalModeBoolean(keys[@"switch_language_ctrl"])) _sharedControlTapShortcut = keys[@"switch_language_ctrl"];
         id inputMode = keys[@"switch_language_ctrl_alt_space"];
         if (LocalModeBoolean(inputMode)) _sharedControlOptionSpaceShortcut = inputMode;
@@ -1283,6 +1297,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     [self preferencesChanged];
 }
 - (BOOL)inputModeShortcut {
+    if (_sharedInputModeShortcut) return _sharedInputModeShortcut.boolValue;
     return [_defaults objectForKey:InputModeShortcutKey] == nil || [_defaults boolForKey:InputModeShortcutKey];
 }
 - (BOOL)shiftTapShortcut {
@@ -1290,6 +1305,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     return [_defaults objectForKey:ShiftTapShortcutKey] == nil || [_defaults boolForKey:ShiftTapShortcutKey];
 }
 - (void)setShiftTapShortcut:(BOOL)value {
+    _sharedInputModeShortcut = nil;
     _sharedShiftTapShortcut = nil;
     [_defaults setBool:value forKey:ShiftTapShortcutKey];
     [self preferencesChanged];
@@ -1321,6 +1337,8 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     [self preferencesChanged];
 }
 - (void)setInputModeShortcut:(BOOL)value {
+    _sharedInputModeShortcut = nil;
+    _sharedShiftTapShortcut = nil;
     [_defaults setBool:value forKey:InputModeShortcutKey];
     [self preferencesChanged];
 }

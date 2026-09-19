@@ -1650,10 +1650,10 @@ static void TestModifierTaps() {
     assert(![prefs sharedPreferencesByMerging:@{}][@"keybindings"]);
     NSDictionary *keys = @{@"switch_language_shift":@NO, @"switch_language_ctrl":@YES, @"switch_language_ctrl_alt_space":@NO};
     [prefs applySharedInputPreferences:@{@"keybindings":keys}];
-    assert(!prefs.shiftTapShortcut && prefs.controlTapShortcut);
+    assert(!prefs.shiftTapShortcut && !prefs.inputModeShortcut && prefs.controlTapShortcut);
     assert([[prefs sharedPreferencesByMerging:@{@"keybindings":keys}][@"keybindings"] isEqual:keys]);
     [prefs applySharedInputPreferences:@{@"keybindings":@{@"switch_language_shift":@1, @"switch_language_ctrl":@"false"}}];
-    assert(!prefs.shiftTapShortcut && prefs.controlTapShortcut);
+    assert(!prefs.shiftTapShortcut && !prefs.inputModeShortcut && prefs.controlTapShortcut);
     NSButton *shift = (id)PreferenceControl(prefs, NSSelectorFromString(@"shiftTapShortcutChanged:"));
     NSButton *control = (id)PreferenceControl(prefs, NSSelectorFromString(@"controlTapShortcutChanged:"));
     assert(shift.state == NSControlStateValueOff && control.state == NSControlStateValueOn);
@@ -1944,11 +1944,21 @@ static void TestControlOptionSpace() {
 
 static void TestInputMode(NSUserDefaults *defaults, MSIMEAppearancePreferences *appearance) {
     assert(!appearance.englishMode && appearance.inputModeShortcut);
+    [appearance applySharedInputPreferences:@{@"keybindings":@{@"switch_language_shift":@NO}}];
+    assert(!appearance.inputModeShortcut && !appearance.shiftTapShortcut);
+    [appearance applySharedInputPreferences:@{@"keybindings":@{@"switch_language_shift":@YES}}];
+    assert(appearance.inputModeShortcut && appearance.shiftTapShortcut);
     NSButton *shortcut = (id)PreferenceControl(appearance, @selector(inputModeShortcutChanged:));
     shortcut.state = NSControlStateValueOff;
     [NSApp sendAction:shortcut.action to:shortcut.target from:shortcut];
     MSIMEAppearancePreferences *reloaded = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:appearance.skinsRoot];
     assert(!reloaded.inputModeShortcut);
+    assert(appearance.shiftTapShortcut);
+    [appearance applySharedInputPreferences:@{@"keybindings":@{@"switch_language_shift":@YES}}];
+    NSButton *shift = (id)PreferenceControl(appearance, @selector(shiftTapShortcutChanged:));
+    shift.state = NSControlStateValueOff;
+    [NSApp sendAction:shift.action to:shift.target from:shift];
+    assert(!appearance.inputModeShortcut && !appearance.shiftTapShortcut);
     appearance.inputModeShortcut = YES;
     ModeController *controller = [ModeController alloc];
     ShortcutClient *client = [ShortcutClient new];
