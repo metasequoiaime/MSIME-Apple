@@ -290,6 +290,9 @@ group('candidate window height follows the shared layout orientation', () => {
     KeyboardMetrics.candidateHeightVp('vertical', 1), 'an empty page keeps one row');
   check(KeyboardMetrics.candidateHeightVp('vertical', 99) === vertical,
     'vertical height is bounded to one candidate page');
+  check(KeyboardMetrics.candidateHeightVp('horizontal', 1, false)
+      === horizontal - KeyboardMetrics.COMPOSITION_ROW_HEIGHT_VP,
+    'hidden preedit removes the composition row from panel height');
 });
 
 group('invalid geometry is rejected rather than silently clamped', () => {

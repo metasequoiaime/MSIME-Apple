@@ -64,10 +64,11 @@ export class KeyboardMetrics {
    * No key rows and therefore none of the gaps between them: what is left is the composition line,
    * the candidate line and the padding that frames them.
    */
-  static candidateHeightVp(layout: string = 'horizontal', candidateCount: number = 0): number {
+  static candidateHeightVp(layout: string = 'horizontal', candidateCount: number = 0,
+                           showPreedit: boolean = true): number {
     const rows: number = layout === 'vertical'
       ? Math.max(1, Math.min(9, candidateCount)) : 1;
-    return KeyboardMetrics.COMPOSITION_ROW_HEIGHT_VP
+    return (showPreedit ? KeyboardMetrics.COMPOSITION_ROW_HEIGHT_VP : 0)
       + KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP * rows
       + KeyboardMetrics.ROOT_VERTICAL_PADDING_VP * 2;
   }

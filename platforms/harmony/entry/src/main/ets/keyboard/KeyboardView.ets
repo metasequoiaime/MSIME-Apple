@@ -806,7 +806,8 @@ struct KeyboardView {
         Blank()
       }
       .width('100%')
-      .height(KeyboardMetrics.COMPOSITION_ROW_HEIGHT_VP)
+      .height(KeyboardFormFactor.isDesktop() && !this.settings.candidateShowPreedit
+        ? 0 : KeyboardMetrics.COMPOSITION_ROW_HEIGHT_VP)
       .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
         right: KeyboardMetrics.CANDIDATE_PADDING_VP })
 

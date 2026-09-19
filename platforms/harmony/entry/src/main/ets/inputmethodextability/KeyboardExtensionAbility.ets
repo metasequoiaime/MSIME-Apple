@@ -138,7 +138,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     const tall: boolean = surface !== DesktopSurface.NONE;
     const heightVp: number = tall
       ? KeyboardMetrics.totalHeightVp(settings.rowSpacingTenths, settings.heightAdjustment)
-      : KeyboardMetrics.candidateHeightVp(settings.candidateLayout, this.candidateCount);
+      : KeyboardMetrics.candidateHeightVp(settings.candidateLayout, this.candidateCount,
+        settings.candidateShowPreedit);
     const widthVp: number = tall
       ? DESKTOP_SURFACE_WIDTH_VP : KeyboardMetrics.CANDIDATE_WINDOW_WIDTH_VP;
     await this.panel.resize(Math.round(widthVp * this.density),
@@ -254,7 +255,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     const width: number = KeyboardMetrics.CANDIDATE_WINDOW_WIDTH_VP * this.density;
     const settings: KeyboardPreferences = KeyboardSession.shared.preferences();
     const height: number = KeyboardMetrics.candidateHeightVp(settings.candidateLayout,
-      this.candidateCount) * this.density;
+      this.candidateCount, settings.candidateShowPreedit) * this.density;
     const gap: number = KeyboardMetrics.CANDIDATE_WINDOW_GAP_VP * this.density;
     const anchor: CandidateAnchor = CandidateAnchorPolicy.position(settings.candidateFollowCursor,
       this.candidateAnchor, this.caret);
@@ -510,7 +511,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       // The same numbers the view lays itself out with; a panel that disagrees clips its bottom row.
       const settings: KeyboardPreferences = KeyboardSession.shared.preferences();
       const heightVp: number = desktop
-        ? KeyboardMetrics.candidateHeightVp(settings.candidateLayout, 0)
+        ? KeyboardMetrics.candidateHeightVp(settings.candidateLayout, 0,
+          settings.candidateShowPreedit)
         : KeyboardMetrics.totalHeightVp(settings.rowSpacingTenths, settings.heightAdjustment);
       // A soft keyboard is as wide as the screen because it has to be; a candidate window is as wide
       // as its content, and covering the width of a desktop with one would hide the very text the
