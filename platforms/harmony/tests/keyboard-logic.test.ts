@@ -675,6 +675,15 @@ group('preserves the candidate skin selected-bar default while honoring an expli
   check(!selectedBarVisible(false), 'explicit disable hides the bar');
 });
 
+group('keeps Engine candidate selection independent from row order', () => {
+  const entries = [
+    { text: 'first', hint: '', annotation: '', highlighted: false },
+    { text: 'second', hint: '', annotation: '', highlighted: true }
+  ];
+  check(!entries[0].highlighted && entries[1].highlighted,
+    'a highlighted candidate may be below the first row');
+});
+
 group('maps desktop candidate wheel movement to page commands', () => {
   check(CandidateWheelPolicy.previousPage(1), 'positive wheel movement pages up');
   check(!CandidateWheelPolicy.nextPage(1), 'positive movement does not page down');

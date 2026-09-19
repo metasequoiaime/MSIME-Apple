@@ -837,7 +837,8 @@ struct KeyboardView {
       Column() {
         ForEach(this.candidates, (candidate: CandidateEntry, index: number) => {
           this.candidateCell(candidate, index)
-        }, (candidate: CandidateEntry, index: number) => `${index}:${candidate.text}`)
+        }, (candidate: CandidateEntry, index: number) =>
+          `${index}:${candidate.text}:${candidate.highlighted}`)
       }
       .width('100%')
       .onAxisEvent((event?: AxisEvent): void => {
@@ -857,7 +858,8 @@ struct KeyboardView {
         Row() {
           ForEach(this.candidates, (candidate: CandidateEntry, index: number) => {
             this.candidateCell(candidate, index)
-          }, (candidate: CandidateEntry, index: number) => `${index}:${candidate.text}`)
+          }, (candidate: CandidateEntry, index: number) =>
+            `${index}:${candidate.text}:${candidate.highlighted}`)
         }
         .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP)
       }
@@ -895,8 +897,9 @@ struct KeyboardView {
 
   @Builder
   candidateCell(candidate: CandidateEntry, index: number) {
+    const selected: boolean = candidate.highlighted;
     Row() {
-      if (index === 0 && (this.settings.candidateSelectedBar
+      if (selected && (this.settings.candidateSelectedBar
         ?? CandidateSkinPolicy.showSelectedBar(this.settings.candidateSkinId))) {
         Blank().width(3).height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP * 0.55)
           .backgroundColor(this.candidatePalette().accent).borderRadius(2)
@@ -904,7 +907,7 @@ struct KeyboardView {
       Text(`${index + 1}`).fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
         .fontColor(this.candidateNumberColor()).padding({ right: 4 })
       Text(candidate.text).fontSize(this.settings.candidateFontSize)
-        .fontColor(index === 0 ? this.candidateAccentColor() : this.candidateTextColor())
+        .fontColor(selected ? this.candidateAccentColor() : this.candidateTextColor())
       if (candidate.hint.length > 0) {
         Text(candidate.hint).fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
           .fontColor(this.candidateTextColor()).opacity(0.5).padding({ left: 2 })
@@ -917,7 +920,7 @@ struct KeyboardView {
       .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP, right: KeyboardMetrics.CANDIDATE_PADDING_VP })
       .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP).width('100%')
       .backgroundColor(index === this.hoveredCandidate ? this.candidateHoverColor()
-        : index === 0 ? (this.settings.candidateSelectedColor ?? '#00000000') : '#00000000')
+        : selected ? (this.settings.candidateSelectedColor ?? '#00000000') : '#00000000')
       .borderWidth(this.settings.candidateBorderColor === null ? 0 : 1)
       .borderColor(this.candidateBorderColor()).onClick(() => KeyboardSession.shared.choose(index))
       .onHover((isHover: boolean): void => { this.hoveredCandidate = isHover ? index : -1; })

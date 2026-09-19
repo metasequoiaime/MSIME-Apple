@@ -59,6 +59,8 @@ export interface CandidateEntry {
   readonly text: string;
   readonly hint: string;
   readonly annotation: string;
+  /** Engine-selected candidate; selection is not necessarily the first row. */
+  readonly highlighted: boolean;
 }
 
 interface EngineView {
@@ -1316,6 +1318,7 @@ export class KeyboardSession {
     for (const candidate of view.candidates) {
       entries.push({
         text: candidate.text,
+        highlighted: candidate.highlighted,
         // Only the part of the code still untyped, and only where that means something. The policy
         // decides; this just supplies what it reasons about.
         hint: WubiCodeHintPolicy.hint(candidate.code, view.preedit, true, view.scheme,
