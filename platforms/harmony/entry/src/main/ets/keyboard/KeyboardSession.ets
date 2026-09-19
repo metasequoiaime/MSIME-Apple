@@ -24,6 +24,7 @@ import { FloatingToolbarLayout, ToolbarButton, ToolbarComponents, ToolbarState }
   from './FloatingToolbarLayout';
 import { ToolbarSkin, ToolbarSkinPolicy } from './ToolbarSkinPolicy';
 import { DesktopSurface } from './DesktopSurface';
+import { CandidateAnnotationPreferencePolicy } from './candidate/CandidateAnnotationPreferencePolicy';
 import { CandidateGlossPolicy } from './candidate/CandidateGlossPolicy';
 import { CandidatePresentationPolicy } from './candidate/CandidatePresentationPolicy';
 import {
@@ -398,6 +399,8 @@ interface PrepareRequest {
 interface PreparedPreferences {
   default_ime_mode: string;
   scheme: string;
+  /** Optional in the shared document; absent means the Wubi remaining-code hint stays on. */
+  wubi_code_hint?: boolean;
   shuangpin_profile: string;
   touch_keyboard_layout: string;
   touch_keyboard_skin: string;
@@ -617,6 +620,10 @@ export class KeyboardSession {
   private schemeName: string = 'quanpin';
   private profileName: string = 'xiaohe';
   private clipboardHistoryEnabled: boolean = false;
+  // The two optional candidate annotations. Held here rather than in KeyboardPreferences because the
+  // session builds the candidate entries itself; the view only draws what it is handed.
+  private wubiCodeHint: boolean = true;
+  private candidateEnglishGloss: boolean = false;
   private resourceDirectory: string = '';
   private stateDirectory: string = '';
   private systemDark: boolean = false;
@@ -815,6 +822,10 @@ export class KeyboardSession {
       const preferences: PreparedPreferences = prepared.value.preferences;
       this.clipboardHistoryEnabled = ClipboardHistoryPreferencePolicy.enabled(
         preferences.clipboard_history);
+      this.wubiCodeHint = CandidateAnnotationPreferencePolicy.wubiCodeHint(
+        preferences.wubi_code_hint);
+      this.candidateEnglishGloss = CandidateAnnotationPreferencePolicy.englishGloss(
+        preferences.candidate_english_gloss);
       if (ClipboardHistoryPreferencePolicy.shouldClearHistory(this.clipboardHistoryEnabled)) {
         this.clearClipboardHistoryFile();
       }
@@ -1866,10 +1877,10 @@ export class KeyboardSession {
         translation: candidate.translation ?? null,
         // Only the part of the code still untyped, and only where that means something. The policy
         // decides; this just supplies what it reasons about.
-        hint: WubiCodeHintPolicy.hint(candidate.code, view.preedit, true, view.scheme,
+        hint: WubiCodeHintPolicy.hint(candidate.code, view.preedit, this.wubiCodeHint, view.scheme,
           view.local_mode, view.answered_by_pinyin_fallback),
         annotation: CandidateGlossPolicy.annotation(candidate.annotation,
-          candidate.translation ?? null, true)
+          candidate.translation ?? null, this.candidateEnglishGloss)
       });
     }
     if (this.onChanged !== undefined) {
@@ -1909,10 +1920,10 @@ export class KeyboardSession {
       badge: CandidatePresentationPolicy.badge(candidate.source),
       fixedPosition: candidate.fixed_position, source: candidate.source,
       translation: candidate.translation ?? null,
-      hint: WubiCodeHintPolicy.hint(candidate.code, view.preedit, true, view.scheme,
+      hint: WubiCodeHintPolicy.hint(candidate.code, view.preedit, this.wubiCodeHint, view.scheme,
         view.local_mode, view.answered_by_pinyin_fallback),
       annotation: CandidateGlossPolicy.annotation(candidate.annotation,
-        candidate.translation ?? null, true)
+        candidate.translation ?? null, this.candidateEnglishGloss)
     }));
     this.onChanged({
       candidates: entries, editing: view.editing_text, spellings: view.nine_key_spellings,
