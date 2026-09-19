@@ -710,6 +710,15 @@ add_test(
   COMMAND "${Python3_EXECUTABLE}"
           "${CMAKE_CURRENT_SOURCE_DIR}/tests/settings/support_window_links.py"
           "${CMAKE_CURRENT_SOURCE_DIR}/src/core/SupportWindowController.mm")
+# The template checks say what the build was told to produce; this one says what came out. A resource can
+# be declared and not staged, a localisation can exist in the tree and not be copied, and the on-device
+# recogniser can be compiled into a library the executable never links - each invisible until an install.
+add_test(
+  NAME bundle-contents
+  COMMAND "${Python3_EXECUTABLE}"
+          "${CMAKE_CURRENT_SOURCE_DIR}/tests/settings/bundle_contents.py"
+          "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>"
+          --languages zh-Hans,en)
 add_test(
   NAME info-plist-icons
   COMMAND "${Python3_EXECUTABLE}"
