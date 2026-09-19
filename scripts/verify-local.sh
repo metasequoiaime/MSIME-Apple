@@ -267,9 +267,13 @@ note "sentence conversion eval"
 # each set can and cannot measure. Skipped where no verified dictionary is present, like the native
 # phases - the directory is a 181 MB download this script must not require.
 if [ -n "${MSIME_EVAL_RESOURCES:-}" ] && [ -d "${MSIME_EVAL_RESOURCES:-}" ]; then
-  for set in sentences words; do
+  # `harvested` is the failure set: cases picked because the product gets them wrong, so its
+  # top-1 is near zero by construction and its top-5 is the number that means something. It is
+  # gated the same way regardless, because a regression moves it just as visibly.
+  for set in sentences harvested words; do
     case "$set" in
       sentences) args="--set resources/eval/sentences-v1.tsv" ;;
+      harvested) args="--set resources/eval/sentences-v2.tsv" ;;
       words) args="--set resources/eval/quanpin-words-v1.tsv --limit 3000" ;;
     esac
     # shellcheck disable=SC2086
