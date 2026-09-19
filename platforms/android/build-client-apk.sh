@@ -16,6 +16,21 @@ android_sdk=${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}
 [[ -f "$android_sdk/platforms/android-36/android.jar" && -x "$android_sdk/build-tools/35.0.0/apksigner" ]] || { echo "Android API 36 and build-tools 35 required" >&2; exit 1; }
 android_ndk=${MSIME_ANDROID_NDK:-$android_sdk/ndk/28.2.13676358}
 android_dependencies="$repo_root/target/android-deps/$abi/$dependency_triplet"
+tauri_android_dir=${TAURI_ANDROID_DIR:-}
+if [[ -z "$tauri_android_dir" ]]; then
+  tauri_manifest=$(cargo metadata --locked --format-version 1 | node -e '
+    let input = "";
+    process.stdin.setEncoding("utf8");
+    process.stdin.on("data", chunk => input += chunk);
+    process.stdin.on("end", () => {
+      const matches = JSON.parse(input).packages.filter(item => item.name === "tauri");
+      if (matches.length !== 1) process.exit(1);
+      process.stdout.write(matches[0].manifest_path);
+    });
+  ')
+  tauri_android_dir="$(dirname "$tauri_manifest")/mobile/android"
+fi
+[[ -f "$tauri_android_dir/build.gradle.kts" ]] || { echo "Locked Tauri Android sources required" >&2; exit 1; }
 artifacts=$(cargo run --quiet -p msime-client-core --example verify_resources --locked -- "$resource_dir")
 bash platforms/android/build-native.sh "$abi"
 tauri_jni="$repo_root/target/android/tauri-jniLibs/$abi"
@@ -31,7 +46,7 @@ mkdir -p "$assets/native-notices"
 cp -R target/android/notices/. "$assets/native-notices/"
 cp LICENSE "$assets/client-LICENSE.txt"
 ANDROID_HOME="$android_sdk" NDK_HOME="$android_ndk" MSIME_ANDROID_NDK="$android_ndk" \
-  MSIME_ANDROID_DEPS="$android_dependencies" \
+  MSIME_ANDROID_DEPS="$android_dependencies" TAURI_ANDROID_DIR="$tauri_android_dir" \
   pnpm --filter @msime/desktop tauri android build --apk --target "$tauri_target" --ci
 unsigned="$repo_root/apps/desktop/src-tauri/gen/android/app/build/outputs/apk/universal/release/app-universal-release-unsigned.apk"
 [[ -f "$unsigned" ]] || { echo "Expected Tauri APK not produced" >&2; exit 1; }
