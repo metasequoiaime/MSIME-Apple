@@ -8,7 +8,7 @@
 extern "C" bool msime_macos_uninstall_input_source(const char *bundle_path,
                                                      const char *user_data_path,
                                                      const char *preferences_domain,
-                                                     bool remove_user_data);
+                                                     bool remove_user_data) __attribute__((weak_import));
 #import "../cloud/TranslationSettingsWindow.h"
 #import "../core/DesktopSettingsLauncher.h"
 #import "../core/AISettingsWindow.h"
@@ -2093,6 +2093,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     _uninstallButton.bezelStyle = NSBezelStyleRounded;
     _uninstallButton.contentTintColor = NSColor.systemRedColor;
     _uninstallButton.accessibilityLabel = @"卸载水杉输入法";
+    _uninstallButton.enabled = msime_macos_uninstall_input_source != nullptr;
     NSBox *uninstallCard = CardWithViews(@[
         PreferenceRow(@"输入源", _uninstallButton), _removeUserDataButton,
     ], 0.0);
@@ -2480,6 +2481,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 }
 - (void)uninstallInputSource:(id)sender {
     (void)sender;
+    if (msime_macos_uninstall_input_source == nullptr) return;
     NSAlert *confirmation = [NSAlert new];
     confirmation.alertStyle = NSAlertStyleWarning;
     confirmation.messageText = @"确认卸载水杉输入法？";

@@ -4,7 +4,7 @@ import Foundation
 /// decide whether to offer sign-in. The access token itself never crosses this
 /// bridge.
 @_cdecl("MSIMEBackendAccountSignedIn")
-func msimeBackendAccountSignedIn() -> Bool {
+public func msimeBackendAccountSignedIn() -> Bool {
   if ((try? BackendKeychain().load()) ?? nil) != nil { return true }
   return ((try? BackendAnonymousAccount.sessionStorage().load()) ?? nil) != nil
 }
@@ -28,6 +28,6 @@ private actor AnonymousAccountBootstrap {
 }
 
 @_cdecl("MSIMEEnsureAnonymousAccount")
-func msimeEnsureAnonymousAccount() {
+public func msimeEnsureAnonymousAccount() {
   Task { await AnonymousAccountBootstrap.shared.runOnce() }
 }

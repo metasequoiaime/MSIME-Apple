@@ -66,8 +66,9 @@
 // Implemented by the Swift backend dylib loaded by input_method_main.mm. The account provider
 // keeps credentials and transport on the Swift side; this process receives only bounded glosses.
 extern "C" void MSIMEFetchAccountCandidateGlosses(const char *wordsJSON, const char *primaryCode,
-                                                    const char *secondaryCode, unsigned long long generation);
-extern "C" void MSIMEEnsureAnonymousAccount(void);
+                                                    const char *secondaryCode, unsigned long long generation)
+    __attribute__((weak_import));
+extern "C" void MSIMEEnsureAnonymousAccount(void) __attribute__((weak_import));
 
 static dispatch_queue_t MSIMETypingStatisticsQueue(void) {
     static dispatch_queue_t queue;

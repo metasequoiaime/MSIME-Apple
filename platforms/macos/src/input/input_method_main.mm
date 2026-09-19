@@ -32,8 +32,17 @@ int main(int argc, const char *argv[]) {
         if (swiftBackend.length > 0 && dlopen(swiftBackend.fileSystemRepresentation, RTLD_NOW | RTLD_GLOBAL) == nullptr) return 1;
         if (MSIMEShouldShowPreferences(argc, argv)) {
             [NSApp setActivationPolicy:NSApplicationActivationPolicyRegular];
-            [[MSIMEPreferencesWindowController sharedController] showAndActivate];
+            id closeObserver = [[NSNotificationCenter defaultCenter]
+                addObserverForName:MSIMEStandalonePreferencesDidCloseNotification
+                            object:nil
+                             queue:NSOperationQueue.mainQueue
+                        usingBlock:^(NSNotification *notification) {
+                            (void)notification;
+                            [NSApp terminate:nil];
+                        }];
+            [[MSIMEPreferencesWindowController sharedController] showAndActivateForStandaloneLaunch];
             [NSApp run];
+            [[NSNotificationCenter defaultCenter] removeObserver:closeObserver];
             return 0;
         }
         // Recover a prior crashed capture before accepting new IMK sessions.

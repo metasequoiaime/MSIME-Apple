@@ -1,15 +1,14 @@
 #!/bin/bash
 set -eu
-shopt -s globstar nullglob
 
 root=$(CDPATH= cd -- "$(dirname -- "$0")/../../.." && pwd)
 output=${1:-"$root/.build/macos/libMSIMEBackend.dylib"}
 module_dir=$(dirname "$output")
 mkdir -p "$module_dir"
 sources=()
-for source in "$root"/shared/backend/account/*.swift "$root"/shared/backend/clients/*.swift "$root"/shared/backend/content/*.swift "$root"/shared/backend/storage/*.swift "$root"/shared/backend-ui/**/*.swift "$root"/platforms/macos/src/backend/**/*.swift; do
+while IFS= read -r source; do
   if [[ ${source##*/} != Package.swift ]]; then sources+=("$source"); fi
-done
+done < <(find "$root/shared/backend/account" "$root/shared/backend/clients" "$root/shared/backend/content" "$root/shared/backend/storage" "$root/shared/backend-ui" "$root/platforms/macos/src/backend" -type f -name '*.swift' -print | sort)
 swift_target=${MSIME_SWIFT_TARGET:-$(uname -m)-apple-macosx${MACOSX_DEPLOYMENT_TARGET:-13.0}}
 
 exec xcrun swiftc -parse-as-library -emit-library -emit-module \
