@@ -178,14 +178,41 @@ struct CommunityPublishView: View {
   @State private var busy = false
   @State private var message: String?
   private var design: CustomKeyboardSkin? { library.first { $0.id == selected }?.design }
+
+  /// The library is stored in an App Group JSON file, so returning from the editor needs an explicit refresh.
+  private func refreshLibrary(preferring preferred: UUID? = nil) {
+    library = CustomSkinLibrary.designs
+    guard library.first(where: { $0.id == selected }) == nil else { return }
+    if let first = library.first(where: { $0.id == preferred }) ?? library.first {
+      selected = first.id
+      name = first.name
+      publicationID = UUID().uuidString.lowercased()
+    }
+  }
   var body: some View {
     NavigationView {
       Form {
-        Section("选择已保存的设计") {
-          if library.isEmpty { Text("请先在「设计我的皮肤」保存一款设计。") }
-          Picker("我的皮肤", selection: $selected) { ForEach(library) { Text($0.name).tag($0.id) } }
-            .onChange(of: selected) { id in name = library.first { $0.id == id }?.name ?? ""; publicationID = UUID().uuidString.lowercased() }
-          if let design { CommunityDesignPreview(design: design) }
+        Section {
+          if library.isEmpty {
+            Text("还没有保存的设计。先设计一款并命名保存，回到这里就能发布它。")
+              .foregroundStyle(.secondary)
+          } else {
+            Picker("我的皮肤", selection: $selected) { ForEach(library) { Text($0.name).tag($0.id) } }
+              .onChange(of: selected) { id in name = library.first { $0.id == id }?.name ?? ""; publicationID = UUID().uuidString.lowercased() }
+            if let design { CommunityDesignPreview(design: design) }
+          }
+          if selectedSkinID == nil {
+            NavigationLink {
+              CustomSkinEditorView(publishable: false).onDisappear { refreshLibrary() }
+            } label: {
+              SettingsRowLabel(title: library.isEmpty ? "去设计一款" : "继续编辑我的皮肤",
+                               detail: "在编辑器里调好，到「我的」命名保存",
+                               symbol: "paintbrush.pointed.fill", color: .pink)
+            }
+            .accessibilityIdentifier("designSkinFromPublish")
+          }
+        } header: {
+          Text("选择已保存的设计")
         }
         Section("发布信息") {
           TextField("皮肤名称（最多 32 字）", text: $name).onChange(of: name) { name = String($0.prefix(32)); publicationID = UUID().uuidString.lowercased() }
@@ -208,10 +235,7 @@ struct CommunityPublishView: View {
       }.disabled(busy)
         .navigationTitle("发布皮肤")
         .toolbar { ToolbarItem(placement: .cancellationAction) { Button("取消") { dismiss() }.disabled(busy) } }
-        .onAppear {
-          library = CustomSkinLibrary.designs
-          if let first = library.first(where: { $0.id == selectedSkinID }) ?? library.first { selected = first.id; name = first.name }
-        }
+        .onAppear { refreshLibrary(preferring: selectedSkinID) }
         .alert("发布失败", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) { Button("好", role: .cancel) {} } message: { Text(message ?? "") }
     }.interactiveDismissDisabled(busy)
   }
@@ -234,7 +258,7 @@ struct CommunityDesignPreview: View {
               HStack(spacing: 4) { ForEach(row, id: \.self) { key($0) } }
             }
           }
-          VStack(spacing: 4) { key("⌫"); key("重输"); key("0") }.frame(width: 36)
+          VStack(spacing: 4) { key("⌫"); key("."); key("0") }.frame(width: 36)
         }.frame(maxHeight: .infinity)
       } else {
         ForEach(["QWERTYUIOP", "ASDFGHJKL", "⇧ZXCVBNM⌫"], id: \.self) { row in

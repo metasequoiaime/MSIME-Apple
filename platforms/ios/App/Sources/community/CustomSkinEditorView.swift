@@ -5,6 +5,8 @@ import UniformTypeIdentifiers
 import ImageIO
 
 struct CustomSkinEditorView: View {
+  /// When opened from the publish flow, the editor should return to that flow instead of offering another publish entry.
+  var publishable = true
   @Environment(\.scenePhase) private var scenePhase
   @State private var design = CustomKeyboardSkinStore.current
   @State private var nineKey = InputSchemePreference.scheme == .nineKey
@@ -286,7 +288,7 @@ if section == "我的" {
         }.accessibilityIdentifier("savedSkin_" + item.name)
         Spacer()
         Menu {
-          Button("发布到社区") { publishingSkin = item }
+          if publishable { Button("发布到社区") { publishingSkin = item } }
           Button("用当前设计更新") { replacing = item }
           Button("重命名") { renaming = item.id; name = item.name; showSave = true }
           Button("删除", role: .destructive) { deleting = item }
