@@ -2368,6 +2368,7 @@ dependencies = [
  "msime-host-macos",
  "msime-host-windows",
  "msime-input-runtime",
+ "msime-ios-native-ffi",
  "msime-tauri-mobile-platform",
  "reqwest 0.12.28",
  "rustix",
@@ -2450,6 +2451,10 @@ dependencies = [
  "tempfile",
  "thiserror 2.0.20",
 ]
+
+[[package]]
+name = "msime-ios-native-ffi"
+version = "0.1.0"
 
 [[package]]
 name = "msime-tauri-mobile-platform"
