@@ -3512,6 +3512,7 @@ int main(int argc, char **argv) {
         [controller setValue:session forKey:@"session"];
         [controller setValue:client forKey:@"activeClient"];
         [controller setValue:appearance forKey:@"appearance"];
+        [NSUserDefaults.standardUserDefaults removeObjectForKey:@"MSIMEClientPinnedCandidates"];
         [controller syncPageSize];
         assert(session.requestedPageSize == 9);
         appearance.pageSize = 5;
@@ -3916,6 +3917,17 @@ int main(int argc, char **argv) {
         assert([candidateMenu itemAtIndex:2].keyEquivalentModifierMask == deleteModifiers);
         NSMenu *positionMenu = [candidateMenu itemAtIndex:1].submenu;
         assert(positionMenu.numberOfItems == 7 && [positionMenu itemAtIndex:5].separatorItem);
+        [NSUserDefaults.standardUserDefaults setObject:@{@"ce'shi": @[@"布局"]} forKey:@"MSIMEClientPinnedCandidates"];
+        [controller renderCandidates];
+        MSIMECandidateButton *pinnedCandidate = (id)PageButton(layoutPanel.contentView, 1);
+        assert(pinnedCandidate && [pinnedCandidate.title containsString:@"布局"]);
+        assert([pinnedCandidate.candidateID[@"index"] isEqual:@1]);
+        assert([[[pinnedCandidate menuForEvent:rightClick] itemAtIndex:0].title isEqual:@"取消置顶"]);
+        [NSUserDefaults.standardUserDefaults removeObjectForKey:@"MSIMEClientPinnedCandidates"];
+        [controller renderCandidates];
+        clickCandidate = (id)PageButton(layoutPanel.contentView, 1);
+        candidateMenu = clickCandidate.menu;
+        positionMenu = [candidateMenu itemAtIndex:1].submenu;
         NSMutableArray *operations = [NSMutableArray arrayWithObjects:[candidateMenu itemAtIndex:0], [candidateMenu itemAtIndex:2], nil];
         [operations addObjectsFromArray:[positionMenu.itemArray subarrayWithRange:NSMakeRange(0, 5)]];
         [operations addObject:[positionMenu itemAtIndex:6]];
@@ -4375,6 +4387,7 @@ int main(int argc, char **argv) {
         TestKeymap(defaults, appearance);
         method_setImplementation(fontMethod, originalMonospacedFont);
         assert(missingKeyFontCalls > 0);
+        [NSUserDefaults.standardUserDefaults removeObjectForKey:@"MSIMEClientPinnedCandidates"];
         MSIMERemoveTestPreferenceSuite(defaults, suite);
         if (previousVoiceHoldSpace) [standardDefaults setObject:previousVoiceHoldSpace forKey:@"MSIMEClientVoiceHotkeyHoldSpace"];
         else [standardDefaults removeObjectForKey:@"MSIMEClientVoiceHotkeyHoldSpace"];
