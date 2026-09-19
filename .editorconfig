@@ -1,0 +1,27 @@
+# Records the conventions the tree already follows rather than introducing new
+# ones. Eight languages across six platform hosts means an editor guessing from
+# the current file is right often enough to be trusted and wrong often enough to
+# produce a diff nobody intended.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.{rs,java,cpp,cc,h,hpp,mm,m,py,cs}]
+indent_size = 4
+
+[*.{ts,tsx,js,jsx,mjs,ets,kt,kts,swift,css,html}]
+indent_size = 2
+
+[*.{json,json5,yml,yaml,toml}]
+indent_size = 2
+
+[*.md]
+indent_size = 2
+# Markdown gives trailing spaces meaning, and the repository writes prose as one
+# long line per paragraph rather than hard-wrapping it.
+trim_trailing_whitespace = false
