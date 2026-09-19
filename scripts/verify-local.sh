@@ -333,6 +333,15 @@ if [ -d node_modules/vite-plus ]; then
   else
     fail "pnpm lint"
   fi
+  # Oxfmt 0.68.0 is not idempotent: one pass over this tree leaves nine files it
+  # would still change, and a second pass settles them. `pnpm format` therefore
+  # has to be run twice to reach the state this check wants. Reported rather
+  # than fixed here, because a gate that rewrites the tree is not a gate.
+  if pnpm format:check; then
+    echo "frontend: format clean"
+  else
+    fail "pnpm format:check (run pnpm format twice)"
+  fi
 else
   echo "vite-plus not installed; skipping (pnpm install)"
 fi

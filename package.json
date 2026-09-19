@@ -6,7 +6,9 @@
     "dev": "pnpm --filter @msime/desktop dev",
     "build": "pnpm --filter @msime/desktop build",
     "tauri": "pnpm --filter @msime/desktop tauri",
-    "lint": "vp lint packages/ui/src apps/desktop/src apps/desktop/tests apps/harmony/src"
+    "lint": "vp lint packages/ui/src apps/desktop/src apps/desktop/tests apps/harmony/src",
+    "format": "vp fmt vite.config.ts packages/ui/src apps/desktop/src apps/desktop/tests apps/harmony/src",
+    "format:check": "vp fmt --check vite.config.ts packages/ui/src apps/desktop/src apps/desktop/tests apps/harmony/src"
   },
   "devDependencies": {
     "vite-plus": "0.3.3"
