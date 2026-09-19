@@ -1399,3 +1399,20 @@ MSIME-Apple 的语音服务目录里有两个共享客户端一直没有的转�
 **候选气泡的行数限制从来没生效。** `updateCandidateButton` 在 `button.configuration = configuration` 之后紧接着写 `titleLabel?.numberOfLines`，而 UIKit 按自己的节奏应用配置并在过程中重建 title label，赋的值随即被丢弃——测试读回来是 0（不限行），候选词于是折到第二行，而候选条是横向滚动的，放不下的候选本该截断并留在滚动区后面。改为由 `KeyboardKeyButton.titleLineCount` 在每次 `layoutSubviews` 重新应用，展开候选面板里同样的写法一并改掉。修改后读回的是代码本来想要的值。
 
 本地验证：Xcode 27 / iOS 27.0 模拟器上，已 `simctl erase` 的干净设备，201 通过、10 失败，两次运行结果一致；失败名单记入 `platforms/ios/README.md`，集中在候选条与九键的布局测量和 Engine 候选断言，尚未逐条定位。该套件暂不接入 `scripts/verify-local.sh`：需要模拟器与已暂存词库资源，单次约十分钟。未执行真机验收，CI 保持禁用。
+
+### iOS Swift 套件的 10 项失败逐条定位
+
+上一切片把套件跑起来后留下 201 通过、10 失败。逐条查完，9 条有明确结论并已修复，剩 1 条如实记录：
+
+- `testKeyLayoutsKeepNineKeyHeight` 断言共享 return 键在每个方案下都保持九键高度，但假名九键面板自带 ⌫／空白／改行，底排 `actionRow` 按设计整条收起（两个仓库的实现和注释都写明了），那里的共享 return 键没有高度可言。按行为把该方案排除，与已排除的手写同理。
+- `testKeyPositionsStayFixedWhileComposingAndClearing` 与 `testShortcutsYieldToCandidatesWithoutMovingKeys` 去按一个 `nineKeyClear` 键——这个标识符只存在于本仓库的测试里，生产代码和 MSIME-Apple 都没有。改回 Apple 的做法：长按删除键越过重复阈值即清空整段组合，并把该辅助方法一并迁过来。
+- `testSpellingStripReusesItsButtonsBetweenKeystrokes` 找不到 `nineKeySpellingStrip`：Apple 在 `spellingScrollView` 上设了这个标识符，迁移时漏了。补回生产代码——它同时是无障碍和自动化定位这条拼写条的依据。
+- `testNineKeyInputAndLayoutSwitches` 断言切到数字层后九键网格隐藏，与本仓库的 `testNineKeyDigitLayerKeepsTheGridAndRestoresLetters` 以及 Apple 的同一处断言都相反：数字层保持三列网格、只换键面。两处断言在迁移中被写反，改回。
+- `testCandidateChipsNeverWrapToASecondLine`、`testShortcutsYieldToCandidatesWithoutMovingKeys` 与两份 `testKanaKeysFeedJapaneseEngineCandidates` 受默认开启的候选释义影响：释义会在候选标题下另起一行，把「是否折行」「标题有无序号和空白」「标题是否以某词结尾」三种断言都变成了在测释义排版。这些用例各自把释义偏好钉住并还原。
+- `testExpandedCandidateWidthDoesNotChangeWithGlossLength` 读到的宽度为 0：`updateAnnotations` 重建了整排格子却没请求布局，新格子还没有 frame。在产品代码里补 `setNeedsLayout()`，而不是在测试里补一次布局——任何调用方都该拿到已布局的格子。
+- `testCandidateLongPressOffersGlossInsertion` 的「开启释义」分支依赖离线英文释义，而固定词库发布里没有该来源（`translation-glosses.db` 是用户编辑后的覆盖层）。取不到释义时跳过并说明，「关闭释义则不出现该菜单项」的断言照常运行；有释义时自动恢复。
+- 仍失败的 `SmartPunctuationTests.testBridgeUsesSmartContextOnlyWhileEngineIsIdle`：紧跟 ASCII 字母的逗号本应保留 ASCII，实际被当成中文标点提交「，」。它在未改动的 `origin/develop` 上、单独运行、模拟器 `simctl erase` 过的干净容器里同样失败；此前整套运行中通过，是被前序用例留下的进程内状态掩盖。不属本次迁移引入，根因未定位，按名记录在 iOS README 中。
+
+顺带给测试里的按钮查找助手加上标识符名：原来只报「expected non-nil value of type UIButton」，在一个要找十几个键的用例里等于没说。
+
+本地验证：Xcode 27 / iOS 27.0 模拟器，使用仓库中提交的 Xcode 工程，完整套件 210 通过、1 跳过、1 失败（较上一切片的 201 通过、10 失败）。未执行真机验收，CI 保持禁用。

@@ -1029,6 +1029,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func makeSpellingStrip() -> UIView {
     spellingScrollView.showsVerticalScrollIndicator = false
+    // The strip is addressed by this identifier from accessibility and from the tests; it was
+    // dropped on the way over from the Apple client, where the same view carries it.
+    spellingScrollView.accessibilityIdentifier = "nineKeySpellingStrip"
     spellingScrollView.disableEdgeEffects()
     spellingStack.axis = .vertical
     spellingStack.spacing = 6

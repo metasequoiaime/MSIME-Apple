@@ -102,6 +102,9 @@ final class KeyboardCandidatePanelView: UIView {
     self.annotations = annotations
     guard laidOutWidth > 0 else { return }
     rebuildRows(within: laidOutWidth)
+    // The rows were just replaced, so the chips that came back have no frame yet. Ask for a
+    // layout pass rather than leaving them to whatever happens to dirty the panel next.
+    setNeedsLayout()
   }
 
   // Rows are packed against a known width, so they are built here rather than in init.
