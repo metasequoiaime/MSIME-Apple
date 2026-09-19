@@ -10,7 +10,7 @@ msime-client-core = { path = "../client-core" }
 rustix = { version = "1.1", features = ["process"] }
 # The model and its reference implementation live upstream, where other input methods
 # can use them too. Pinned by commit: this is a build input, not a moving target.
-chinese-ime-lm = { git = "https://github.com/metasequoiaime/chinese-ime-lm", rev = "b40f81cfd9ffa489287f0b63a2414c93a541c06e" }
+chinese-ime-lm = { git = "https://github.com/metasequoiaime/chinese-ime-lm", rev = "54463186b4db0fb3cb0d2007c69e4cecb464c4ff" }
 serde.workspace = true
 serde_json.workspace = true
 thiserror.workspace = true
