@@ -97,6 +97,8 @@ MSIME_OHOS_NDK=/absolute/openharmony/native MSIME_OHOS_DEPS="$deps" \
 - `build-native.sh`、`stage-resources.sh`：共享 Host API、NAPI 库和固定资源的构建/暂存入口。
 - `entry/src/main/resources/rawfile/settings/index.html`：设置页的单文件打包产物，由 `apps/harmony` 生成，见下方[设置页打包](#设置页打包)。
 
+Windows 文档里的“自定义候选窗翻译”在 Harmony 上改由设置页提供。Engine 本来就在每个宿主上读这份覆盖层——`prepare_translation_sidecar` 先看用户数据目录再看资源目录——所以缺的从来不是功能，而是投放途径：没人能把文件放进应用沙盒。设置页的“自定义候选释义”把同一份内容写到 Engine 已经在看的位置（`<state>/user/custom_translations.txt`），解析规则逐条对齐 `EnglishDictionary::load_custom_translations`（Tab 分隔、`#` 注释、首尾空白修剪、源词含非 ASCII 即中译英、同源词后者覆盖前者），页面因此能在保存前说清楚这份文件里到底有多少条、多少行读不出来。留空即删除该文件，而不是留下一份 Engine 每次都读成空集的文档。**不写进已暂存的资源目录**：那里按锁文件逐项精确校验，多一个文件就会让键盘拒绝启动。
+
 设置页的本地词库管理复用共享设置 UI 和 `msime_client_dictionary`：可分页查看、编辑、导入、导出和处理失败队列。ArkTS 设置桥只接受操作 JSON；引擎资源和状态目录始终由宿主从应用沙盒准备，WebView 不能提交路径。词库写操作需要 Engine 独占维护窗口：空闲时会短暂重建会话并恢复语言、九键和焦点状态；正在组合输入时会返回忙碌错误，不会替用户取消输入。读取操作可与活动会话并行。
 
 ## 设置页打包
@@ -174,7 +176,11 @@ MSIME: panel ready: phone, soft keyboard
 
 模拟器在本机的故障边界，已排查到具体原因而非笼统"需要设备"：手机实例的 sceneboard 反复卡死（faultlog 多条 `sysfreeze-com.ohos.sceneboard`），`aa start` 报成功但画面不刷新、注入触摸不落到图标；新建的干净实例部署完镜像后 qemu 始终不启动；2in1 实例 guest 内核与 hdc 正常，但显示不出帧、`uitest dumpLayout` 等待 UI 服务广播超时。三个实例三种失败，都在模拟器的显示/UI 层，guest 侧正常。因此无法让任一编辑器取得焦点，而输入法扩展要等编辑器请求才被系统拉起。
 
-仍未验证：焦点交给真实编辑器后输入并上屏。该模拟器实例的 sceneboard 反复卡死（faultlog 有多条 `sysfreeze-com.ohos.sceneboard`），`aa start` 报成功但画面不刷新、注入触摸不落到图标，没有编辑器能取得焦点，而输入法扩展要等编辑器请求才被拉起、焦点与选区、生命周期、真机签名与安装、麦克风授权流程。启用与面板创建不等于输入验收。
+已验证（2026-09-20）：输入法接管真实编辑器。验证办法是一个一次性探针应用——页面上一个 `TextInput` 加 `.defaultFocus(true)`，加载即自动取得焦点，因此不依赖显示层出帧、也不依赖触摸注入命中图标（这台机器上模拟器的显示栈正是这两处失效）。探针启动后本宿主日志出现 `attached to editor: pattern=-1 enter=6`，`ps` 显示 `app.msime.client:inputMethod` 进程在运行并为该输入框回报 `SetTextFieldAvoidInfo`。即系统把一个真实编辑器的输入路由给了本输入法，本输入法作出了响应。
+
+该验证同时暴露了两个缺陷，均已修复：OHOS 的 AsyncCallback 无论成败都会传入 `BusinessError`，成功时 `code` 为 0，因此 `if (error)` 恒为真——设置页每次加载成功都会记一条"加载失败"，真正的失败反而淹没其中；手写识别更严重，`componentSnapshot.get` 的回调同样这样判断，于是每一笔都在看快照之前就走了失败分支，手写从来没有识别成功过。
+
+仍未验证：手机形态下按键经由输入法组字。该形态刻意不接管硬件按键（`KeyboardExtensionAbility` 只在 `isDesktop()` 时注册 `keyEvent`，手机上的按键归应用），要验证组字需要 2in1 形态或在绘出的键盘上点按；本次 2in1 实例未能稳定启动。
 
 ## 验证边界
 

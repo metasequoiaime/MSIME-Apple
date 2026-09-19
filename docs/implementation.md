@@ -22,6 +22,18 @@
 
 ## 当前证据
 
+### Android 展开候选与表情设备回归对齐实现（2026-09-20）
+
+在专用 API 35 arm64 模拟器上继续推进设备验收，两个套件的期望落后于已落地的实现：
+
+`CandidatePanelDeviceSmoke` 断言展开候选 chip **不可长按**。长按菜单是 `fix(android): support expanded candidate long press` 明确加上的：候选管理与释义插入在展开面板同样可达，监听器始终挂着，功能关闭时返回 false。该断言改为要求可长按；真正区分展开 chip 与候选条 chip 的契约——面上不画序号、全局序号只存在于无障碍描述——保持不变并继续断言。
+
+`EmojiPickerDeviceSmoke` 先输入 `ni` 组字，再去快捷栏点「更多」。组字时候选条按 Apple 的做法占用快捷行（“The shortcut bar stands in for the candidates”），快捷栏整条不在，因此这一步在任何实现下都够不着。用例改为先用空格把组合上屏、等快捷栏回来再进「更多 → 表情」；后续断言本就是从字段动态取已上屏前缀，不受影响。原先那个空的 `composition finished before emoji` 阶段随之改名为实际发生的“先上屏再开表情”。
+
+设备实测：`DeviceSmoke`、`CandidatePanelDeviceSmoke`、`MoreToolsDeviceSmoke`、`EmojiPickerDeviceSmoke` 四个验收套件在模拟器上通过，覆盖组词上屏、繁体、退格、密码直接输入、完整候选面板与跨页上屏、两列工具面板、表情分类分页插入删除与最近项跨重启。Android host 检查通过。
+
+`smoke.sh` 继续跑到 `PreferencesDeviceSmoke` 的「baseline five candidates」停下，留作后续切片。
+
 ### Android 收起键盘按首选上屏，设备回归对齐当前快捷栏（2026-09-20）
 
 模拟器实测发现：组字中收起键盘，编辑器留下的是字面 `nihao` 而不是 `你好`。`finishInputViewPresentation`（注释写明对应 Apple 的 `viewWillDisappear` 边界）用的是 `command(2)`（CommitRaw）。macOS 的 `deactivateServer` 在同一个失焦边界用的是 `MSIME_FINISH_COMPOSITION`，即按首选候选结束组合；Android 当初写成 raw 只是因为命令 9 在当时的 FFI 里尚未映射，与语义无关。现在改用已命名的 `FINISH_COMPOSITION_COMMAND`，`check-host.sh` 已有的检查保证 9 仍是 `Action::Finish`。

@@ -26,8 +26,11 @@ public final class CandidatePanelDeviceSmoke extends DeviceSmoke {
         await(completeCount());
         stage = "candidate panel out-of-page entry";
         AccessibilityNodeInfo later = await(candidateTen());
+        // An expanded chip draws no number: the global index lives in the description only. It is
+        // long-pressable because candidate management and gloss insertion are reachable from the
+        // expanded panel as well as from the strip.
         if (later.getText() == null || later.getText().toString().startsWith("10. ")
-                || later.isLongClickable())
+                || !later.isLongClickable())
             throw new AssertionError("Expanded candidate chip contract mismatch");
         stage = "candidate panel out-of-page selection";
         tap(candidateTen());

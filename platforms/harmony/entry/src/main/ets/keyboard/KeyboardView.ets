@@ -3,6 +3,7 @@ import {
 } from './KeyboardSession';
 import { KeyboardScheme, SchemeDefinition } from './KeyboardScheme';
 import { VoiceHotkeyAction } from './input/VoiceHotkeyPolicy';
+import { BusinessErrorPolicy } from './BusinessErrorPolicy';
 import { VoiceRecordingBehaviourPolicy } from './input/VoiceRecordingBehaviourPolicy';
 import { KeyboardSkin } from './skin/KeyboardSkin';
 import { EnglishLetterCaseState, LetterCaseMode } from './input/EnglishLetterCaseState';
@@ -1756,8 +1757,10 @@ struct KeyboardView {
     const revision: number = ++this.handwritingRevision;
     this.handwritingBusy = true;
     this.handwritingNotice = '正在识别…';
-    componentSnapshot.get(HANDWRITING_CANVAS_ID, (error: Error, pixelMap: image.PixelMap): void => {
-      if (error) {
+    componentSnapshot.get(HANDWRITING_CANVAS_ID, (error: Object, pixelMap: image.PixelMap): void => {
+      // Testing the error object itself took this branch on every successful snapshot, so every
+      // stroke answered 无法读取手写画布 and nothing was ever recognised.
+      if (BusinessErrorPolicy.failed(error)) {
         this.handwritingBusy = false;
         this.handwritingNotice = '无法读取手写画布';
         return;
