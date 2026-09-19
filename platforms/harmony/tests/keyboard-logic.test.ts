@@ -89,6 +89,11 @@ import {
   HardwareKeyDispatch,
   type HardwareKeyTarget,
 } from "../entry/src/main/ets/keyboard/HardwareKeyDispatch";
+import {
+  AttachedKeyboardType,
+  HardwareKeyboardPolicy,
+  KeyRoutingTransition,
+} from "../entry/src/main/ets/keyboard/input/HardwareKeyboardPolicy";
 import { BusinessErrorPolicy } from "../entry/src/main/ets/keyboard/BusinessErrorPolicy";
 import {
   StagedArtifact,
@@ -4274,6 +4279,104 @@ group("account and cloud clipboard bridge keeps secrets native", () => {
         "dictionary offsets are bounded before transport",
       );
     });
+});
+
+group("a device's own buttons are not a keyboard", () => {
+  // Every phone enumerates a keyboard source for volume and power. Only the type separates them,
+  // which is the whole reason this decision is not `sources.includes("keyboard")`.
+  const phoneButtons = [{ deviceId: 1, keyboardType: AttachedKeyboardType.DIGITAL }];
+  check(
+    HardwareKeyboardPolicy.routes(false, phoneButtons) === false,
+    "a keypad does not make a phone route keys",
+  );
+  check(
+    HardwareKeyboardPolicy.routes(false, [
+      { deviceId: 2, keyboardType: AttachedKeyboardType.HANDWRITING_PEN },
+      { deviceId: 3, keyboardType: AttachedKeyboardType.REMOTE_CONTROL },
+      { deviceId: 4, keyboardType: AttachedKeyboardType.UNKNOWN },
+    ]) === false,
+    "a stylus, a remote and an unknown device cannot type pinyin",
+  );
+  check(
+    HardwareKeyboardPolicy.routes(false, [
+      ...phoneButtons,
+      { deviceId: 5, keyboardType: AttachedKeyboardType.ALPHABETIC },
+    ]) === true,
+    "one attached alphabetic keyboard is enough",
+  );
+});
+
+group("a desktop routes keys whatever the enumeration says", () => {
+  // A 2in1 draws no keys of its own, so an enumeration that fails or comes back empty must not be
+  // allowed to leave it inert: there would be no other way to reach the Engine.
+  check(HardwareKeyboardPolicy.routes(true, []) === true, "an empty list does not disarm a 2in1");
+  check(HardwareKeyboardPolicy.routes(true, null) === true, "nor does a failed query");
+  check(
+    HardwareKeyboardPolicy.routes(false, null) === false,
+    "a phone with no answer draws its own keys and routes none",
+  );
+});
+
+group("keyboards coming and going", () => {
+  const attached = HardwareKeyboardPolicy.applyChange([], {
+    type: "add",
+    deviceId: 7,
+    keyboardType: AttachedKeyboardType.ALPHABETIC,
+  });
+  check(HardwareKeyboardPolicy.routes(false, attached) === true, "plugging one in starts routing");
+  const again = HardwareKeyboardPolicy.applyChange(attached, {
+    type: "add",
+    deviceId: 7,
+    keyboardType: AttachedKeyboardType.ALPHABETIC,
+  });
+  check(again.length === 1, "the same device announced twice is still one device");
+  // A keyboard unplugged mid-composition is gone before its key-up arrives, so removal cannot ask
+  // the service what type it was.
+  const removed = HardwareKeyboardPolicy.applyChange(again, {
+    type: "remove",
+    deviceId: 7,
+    keyboardType: AttachedKeyboardType.NONE,
+  });
+  check(removed.length === 0, "removal matches on the id alone");
+  check(
+    HardwareKeyboardPolicy.routes(false, removed) === false,
+    "unplugging the last keyboard stops routing",
+  );
+});
+
+group("the subscription changes only when it has to", () => {
+  // A second on('keyEvent') is not idempotent: it would deliver one keystroke as two characters.
+  check(
+    HardwareKeyboardPolicy.transition(true, true) === null,
+    "an already-routing keyboard is not subscribed twice",
+  );
+  check(
+    HardwareKeyboardPolicy.transition(false, false) === null,
+    "nor is an idle one unsubscribed twice",
+  );
+  check(
+    HardwareKeyboardPolicy.transition(false, true) === KeyRoutingTransition.SUBSCRIBE,
+    "attaching subscribes",
+  );
+  check(
+    HardwareKeyboardPolicy.transition(true, false) === KeyRoutingTransition.UNSUBSCRIBE,
+    "detaching unsubscribes",
+  );
+});
+
+group("a malformed enumeration is not trusted", () => {
+  check(
+    HardwareKeyboardPolicy.alphabetic([
+      null as unknown as { deviceId: number; keyboardType: AttachedKeyboardType },
+      { deviceId: -1, keyboardType: AttachedKeyboardType.ALPHABETIC },
+      { deviceId: 1.5, keyboardType: AttachedKeyboardType.ALPHABETIC },
+    ]).length === 0,
+    "a null entry and unusable ids are skipped rather than routed",
+  );
+  check(
+    HardwareKeyboardPolicy.applyChange(null, null).length === 0,
+    "no devices and no change is no devices",
+  );
 });
 
 // The account bridge deliberately models the asynchronous device HTTP API. Give its immediate
