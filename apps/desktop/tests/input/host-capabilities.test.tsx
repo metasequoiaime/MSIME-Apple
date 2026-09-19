@@ -34,6 +34,7 @@ function capabilities(overrides: Partial<HostCapabilities> = {}): HostCapabiliti
     input_mode_hud: false,
     candidate_english_font: false,
     english_suggestions: false,
+    shuangpin_preedit: false,
     ...overrides,
   };
 }
@@ -258,6 +259,22 @@ test("a host that does not place its own card hides the follow-cursor choice", a
   mount({ host: capabilities({ platform: "linux", candidate_follow_cursor: false }) });
   await screen.findByRole("button", { name: "保存设置" });
   expect(screen.queryByLabelText("候选窗口跟随光标")).toBeNull();
+});
+
+test("the shuangpin preedit choice reaches every host that draws the composition", async () => {
+  // Every host's Engine honours the preference; the control belongs where the user can see the
+  // difference. The HarmonyOS keyboard draws the Engine's editing text on its composition row.
+  render(<SettingsPage initialPage="appearance" client={{
+    load: async () => initial, save: vi.fn(),
+    host: capabilities({ platform: "harmony", shuangpin_preedit: true }),
+  }} />);
+  expect(await screen.findByLabelText("双拼预编辑")).toBeTruthy();
+  cleanup();
+  render(<SettingsPage initialPage="appearance" client={{
+    load: async () => initial, save: vi.fn(), host: capabilities({ platform: "windows" }),
+  }} />);
+  await screen.findByRole("button", { name: "保存设置" });
+  expect(screen.queryByLabelText("双拼预编辑")).toBeNull();
 });
 
 test("the English completion switch follows the capability, and iOS keeps its own", async () => {
