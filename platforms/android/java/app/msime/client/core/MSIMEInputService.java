@@ -571,6 +571,35 @@ public final class MSIMEInputService extends InputMethodService {
         currentDocumentIdentifier = 0;
         super.onFinishInput();
     }
+
+    @Override public void onFinishInputView(boolean finishingInput) {
+        if (!finishingInput) finishInputViewPresentation();
+        super.onFinishInputView(finishingInput);
+    }
+
+    /** Match Apple's viewWillDisappear boundary while keeping the editor session alive. */
+    private void finishInputViewPresentation() {
+        cancelBackspaceRepeat();
+        resetSpaceCursor();
+        dismissNineKeyHoldOptions();
+        hideJapaneseFlickPreview();
+        closeCandidatePanel();
+        closeClipboardHistory();
+        closeSchemePicker();
+        closeSkinPicker();
+        closeLayoutSettings();
+        closeMoreTools();
+        closeEmojiPicker();
+        closeVoiceResult();
+        closeAiPolish();
+        closeReplyKeyboard();
+        closeSymbolPanel();
+        deactivateHandwriting();
+        clearDiagnostic();
+        if (session != 0 && connection != null && view != null
+                && !view.optString("editing_text", "").isEmpty()) command(2);
+    }
+
     @Override public void onConfigurationChanged(Configuration configuration) {
         super.onConfigurationChanged(configuration);
         JSONObject preferences = preferencesSnapshot == null ? null
