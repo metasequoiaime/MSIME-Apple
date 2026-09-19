@@ -8,7 +8,7 @@
 cargo run --release -p msime-input-runtime --example convert_eval -- \
   --resources <已校验的词库目录> \
   --set resources/eval/sentences-v1.tsv \
-  --baseline scripts/eval-baseline-sentences.json
+  --baseline resources/eval/baseline-sentences.json
 ```
 
 `--update-baseline` 接受当前结果。`--limit N` 取等距子集（不是前 N 条，否则全是短词）。

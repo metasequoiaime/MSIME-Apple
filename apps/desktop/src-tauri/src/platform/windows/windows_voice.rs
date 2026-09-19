@@ -1,12 +1,12 @@
-use super::{
-    voice_sessions::VoiceSessions, HostActionError, VoiceRecognitionRequest,
-    VoiceRecognitionResult, VoiceRecognitionUpdate,
+use crate::shared::voice::voice_sessions::VoiceSessions;
+use crate::{
+    HostActionError, VoiceRecognitionRequest, VoiceRecognitionResult, VoiceRecognitionUpdate,
 };
 use msime_client_core::voice_controller::{Error, Phase};
 use std::sync::atomic::Ordering;
 use tauri::{Emitter, Manager};
 
-pub(super) async fn recognize(
+pub(crate) async fn recognize(
     app: tauri::AppHandle,
     request: VoiceRecognitionRequest,
 ) -> Result<VoiceRecognitionResult, HostActionError> {

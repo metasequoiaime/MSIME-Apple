@@ -158,7 +158,7 @@ mod tests {
         let panel = startup_panel(Some(SurfaceRoute::Keyboard)).unwrap();
         assert_eq!(panel.label, "keyboard-panel");
         assert_eq!(panel.query, "keyboard");
-        assert!(!super::super::panel_accepts_focus(panel.label));
+        assert!(!crate::panel_accepts_focus(panel.label));
     }
 
     #[test]

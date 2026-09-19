@@ -2,7 +2,7 @@ import pathlib
 import unittest
 
 
-ROOT = pathlib.Path(__file__).resolve().parents[4]
+ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 
 class AndroidVoiceProjectConfigurationTests(unittest.TestCase):

@@ -67,7 +67,7 @@ mod tests {
     #[test]
     fn macos_bundle_declares_model_licenses_and_pinned_provenance() {
         let configuration: serde_json::Value =
-            serde_json::from_str(include_str!("../tauri.macos.conf.json")).unwrap();
+            serde_json::from_str(include_str!("../../../tauri.macos.conf.json")).unwrap();
         let resources = configuration["bundle"]["resources"].as_object().unwrap();
         for name in [
             "handwriting-zh_CN.model",

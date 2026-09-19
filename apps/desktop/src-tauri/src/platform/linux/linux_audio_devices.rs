@@ -59,7 +59,7 @@ fn sort_devices(devices: &mut [CaptureDevice]) {
 }
 
 fn output(program: &str, args: &[&str]) -> Option<String> {
-    crate::linux_process::read_text(program, args, 1024 * 1024, Duration::from_secs(2))
+    super::linux_process::read_text(program, args, 1024 * 1024, Duration::from_secs(2))
 }
 
 fn pipewire_value_id(value: &Value) -> Option<String> {

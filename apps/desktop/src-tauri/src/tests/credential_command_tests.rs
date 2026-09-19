@@ -1,5 +1,5 @@
 //! Exercise the registered command on the compiled desktop platform, not a UI mock.
-use super::{test_api_credential, RuntimeOptionsState};
+use crate::{test_api_credential, RuntimeOptionsState};
 use serde_json::{json, Value};
 use std::io::{Read, Write};
 use std::net::TcpListener;

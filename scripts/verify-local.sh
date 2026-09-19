@@ -104,7 +104,13 @@ note "compile: rust workspace"
 # a checkout that has not built the native host yet that is not a code error, so
 # it is skipped rather than reported as a broken workspace - the same treatment
 # the native phases below already get.
-desktop_resource="target/macos/MSIMEClientInputMethod.app"
+#
+# The name has to be the bundle tauri.macos.conf.json lists, not the CMake
+# target that produces it: platforms/macos names the target
+# MSIMEClientInputMethod and then sets OUTPUT_NAME to 水杉输入法（预览）, so the
+# guard below matched on no machine and the desktop crate was excluded from
+# every run anyone has made. Three compile errors reached develop behind that.
+desktop_resource="target/macos/水杉输入法（预览）.app"
 [ "$windows_host" -eq 1 ] && desktop_resource="target/win-full"
 if [ -e "$desktop_resource" ]; then
   cargo check --workspace --all-targets 2>&1 | tail -3
@@ -250,10 +256,10 @@ if [ -n "${MSIME_EVAL_RESOURCES:-}" ] && [ -d "${MSIME_EVAL_RESOURCES:-}" ]; the
     # shellcheck disable=SC2086
     if cargo run --release -q -p msime-input-runtime --example convert_eval --locked -- \
         --resources "$MSIME_EVAL_RESOURCES" $args \
-        --baseline "scripts/eval-baseline-$set.json" >/dev/null 2>&1; then
+        --baseline "resources/eval/baseline-$set.json" >/dev/null 2>&1; then
       echo "eval $set: at baseline"
     else
-      fail "eval $set differs from scripts/eval-baseline-$set.json"
+      fail "eval $set differs from resources/eval/baseline-$set.json"
       echo "  accept it with --update-baseline once you have read the diff"
     fi
   done

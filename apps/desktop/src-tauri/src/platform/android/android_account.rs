@@ -778,13 +778,13 @@ struct CancelSnapshotRequest {
     account_id: String,
 }
 
-fn snapshot_command_error() -> super::CommandError {
-    super::CommandError {
+fn snapshot_command_error() -> crate::CommandError {
+    crate::CommandError {
         code: "snapshot_unavailable",
     }
 }
 
-fn snapshot_response_without_account(mut value: Value) -> Result<Value, super::CommandError> {
+fn snapshot_response_without_account(mut value: Value) -> Result<Value, crate::CommandError> {
     let object = value.as_object_mut().ok_or_else(snapshot_command_error)?;
     if let Some(request) = object.get_mut("request").and_then(Value::as_object_mut) {
         request.remove("accountId");
@@ -803,7 +803,7 @@ fn clear_snapshot_previews(previews: &Arc<Mutex<HashMap<String, PendingSnapshot>
 
 async fn dictionary_snapshot_preview(
     state: State<'_, AccountState>,
-) -> Result<Value, super::CommandError> {
+) -> Result<Value, crate::CommandError> {
     let session = Arc::clone(&state.session);
     let directory = state.snapshot_directory.clone();
     let previews = Arc::clone(&state.snapshot_previews);
@@ -832,7 +832,7 @@ async fn dictionary_snapshot_preview(
     })
     .await
     .map_err(|_| snapshot_command_error())?
-    .map_err(|error| super::CommandError { code: error.code() })?;
+    .map_err(|error| crate::CommandError { code: error.code() })?;
     let old = {
         let mut pending = previews.lock().map_err(|_| snapshot_command_error())?;
         let old = pending
@@ -861,8 +861,8 @@ async fn dictionary_snapshot_preview(
 async fn dictionary_snapshot_enqueue(
     state: State<'_, AccountState>,
     token: String,
-) -> Result<Value, super::CommandError> {
-    let parsed = Uuid::parse_str(&token).map_err(|_| super::CommandError {
+) -> Result<Value, crate::CommandError> {
+    let parsed = Uuid::parse_str(&token).map_err(|_| crate::CommandError {
         code: "snapshot_invalid",
     })?;
     let pending = {
@@ -872,7 +872,7 @@ async fn dictionary_snapshot_enqueue(
             .map_err(|_| snapshot_command_error())?;
         previews
             .remove(&parsed.to_string())
-            .ok_or_else(|| super::CommandError {
+            .ok_or_else(|| crate::CommandError {
                 code: "snapshot_invalid",
             })?
     };
@@ -913,13 +913,13 @@ async fn dictionary_snapshot_enqueue(
     })
     .await
     .map_err(|_| snapshot_command_error())?
-    .map_err(|error| super::CommandError { code: error.code() })?;
+    .map_err(|error| crate::CommandError { code: error.code() })?;
     snapshot_response_without_account(result)
 }
 
 async fn dictionary_snapshot_export(
     state: State<'_, AccountState>,
-) -> Result<Value, super::CommandError> {
+) -> Result<Value, crate::CommandError> {
     let session = Arc::clone(&state.session);
     let directory = state.snapshot_directory.clone();
     let token = Uuid::new_v4().to_string();
@@ -942,13 +942,13 @@ async fn dictionary_snapshot_export(
     })
     .await
     .map_err(|_| snapshot_command_error())?
-    .map_err(|error| super::CommandError { code: error.code() })
+    .map_err(|error| crate::CommandError { code: error.code() })
 }
 
 async fn dictionary_snapshot_restore_preview(
     state: State<'_, AccountState>,
     text: String,
-) -> Result<Value, super::CommandError> {
+) -> Result<Value, crate::CommandError> {
     let session = Arc::clone(&state.session);
     let directory = state.snapshot_directory.clone();
     let token = Uuid::new_v4().to_string();
@@ -973,7 +973,7 @@ async fn dictionary_snapshot_restore_preview(
     })
     .await
     .map_err(|_| snapshot_command_error())?
-    .map_err(|error| super::CommandError { code: error.code() })
+    .map_err(|error| crate::CommandError { code: error.code() })
 }
 
 async fn dictionary_snapshot_restore(
@@ -981,7 +981,7 @@ async fn dictionary_snapshot_restore(
     text: String,
     expected_sha256: String,
     revision: i64,
-) -> Result<Value, super::CommandError> {
+) -> Result<Value, crate::CommandError> {
     let session = Arc::clone(&state.session);
     let directory = state.snapshot_directory.clone();
     let token = Uuid::new_v4().to_string();
@@ -1009,12 +1009,12 @@ async fn dictionary_snapshot_restore(
     })
     .await
     .map_err(|_| snapshot_command_error())?
-    .map_err(|error| super::CommandError { code: error.code() })
+    .map_err(|error| crate::CommandError { code: error.code() })
 }
 
 async fn dictionary_snapshot_status(
     state: State<'_, AccountState>,
-) -> Result<Value, super::CommandError> {
+) -> Result<Value, crate::CommandError> {
     let platform = state.platform.clone();
     let result = tauri::async_runtime::spawn_blocking(move || {
         platform
@@ -1028,7 +1028,7 @@ async fn dictionary_snapshot_status(
 
 async fn dictionary_snapshot_cancel(
     state: State<'_, AccountState>,
-) -> Result<Value, super::CommandError> {
+) -> Result<Value, crate::CommandError> {
     let session = Arc::clone(&state.session);
     let platform = state.platform.clone();
     let previews = Arc::clone(&state.snapshot_previews);
@@ -1037,7 +1037,7 @@ async fn dictionary_snapshot_cancel(
     })
     .await
     .map_err(|_| snapshot_command_error())?
-    .map_err(|error| super::CommandError { code: error.code() })?;
+    .map_err(|error| crate::CommandError { code: error.code() })?;
     let old = {
         let mut pending = previews.lock().map_err(|_| snapshot_command_error())?;
         pending
@@ -1190,7 +1190,7 @@ impl From<AccountProfile> for ProfileResponse {
     }
 }
 
-async fn call<T, F>(state: State<'_, AccountState>, operation: F) -> Result<T, super::CommandError>
+async fn call<T, F>(state: State<'_, AccountState>, operation: F) -> Result<T, crate::CommandError>
 where
     T: Send + 'static,
     F: FnOnce(&Session) -> Result<T, AccountError> + Send + 'static,
@@ -1198,14 +1198,14 @@ where
     let session = Arc::clone(&state.session);
     tauri::async_runtime::spawn_blocking(move || operation(&session))
         .await
-        .map_err(|_| super::CommandError {
+        .map_err(|_| crate::CommandError {
             code: "account_unavailable",
         })?
-        .map_err(|error| super::CommandError { code: error.code() })
+        .map_err(|error| crate::CommandError { code: error.code() })
 }
 
-fn community_error(error: AccountError) -> super::CommandError {
-    super::CommandError {
+fn community_error(error: AccountError) -> crate::CommandError {
+    crate::CommandError {
         code: match error {
             AccountError::Invalid => "community_invalid",
             AccountError::Unauthorized => "community_unauthorized",
@@ -1220,13 +1220,13 @@ fn community_error(error: AccountError) -> super::CommandError {
     }
 }
 
-fn ai_skin_error(error: AiSkinError) -> super::CommandError {
+fn ai_skin_error(error: AiSkinError) -> crate::CommandError {
     let code = match error {
         AiSkinError::Cancelled => "ai_skin_cancelled",
         AiSkinError::InvalidResponse => "ai_skin_invalid",
         AiSkinError::Account(error) => error.code(),
     };
-    super::CommandError { code }
+    crate::CommandError { code }
 }
 
 fn valid_ai_skin_request_id(value: &str) -> bool {
@@ -1249,9 +1249,9 @@ pub async fn ai_skin_generate(
     state: State<'_, AccountState>,
     request_id: String,
     prompt: String,
-) -> Result<Vec<AiSkinProposal>, super::CommandError> {
+) -> Result<Vec<AiSkinProposal>, crate::CommandError> {
     if !valid_ai_skin_request_id(&request_id) {
-        return Err(super::CommandError {
+        return Err(crate::CommandError {
             code: "ai_skin_invalid",
         });
     }
@@ -1260,14 +1260,14 @@ pub async fn ai_skin_generate(
         let mut requests = state
             .ai_skin_requests
             .lock()
-            .map_err(|_| super::CommandError {
+            .map_err(|_| crate::CommandError {
                 code: "ai_skin_unavailable",
             })?;
         if requests
             .insert(request_id.clone(), Arc::clone(&cancelled))
             .is_some()
         {
-            return Err(super::CommandError {
+            return Err(crate::CommandError {
                 code: "ai_skin_busy",
             });
         }
@@ -1287,7 +1287,7 @@ pub async fn ai_skin_generate(
         })
     })
     .await
-    .map_err(|_| super::CommandError {
+    .map_err(|_| crate::CommandError {
         code: "ai_skin_unavailable",
     })?
     .map_err(ai_skin_error);
@@ -1301,16 +1301,16 @@ pub async fn ai_skin_generate(
 pub async fn ai_skin_cancel(
     state: State<'_, AccountState>,
     request_id: String,
-) -> Result<(), super::CommandError> {
+) -> Result<(), crate::CommandError> {
     if !valid_ai_skin_request_id(&request_id) {
-        return Err(super::CommandError {
+        return Err(crate::CommandError {
             code: "ai_skin_invalid",
         });
     }
     let requests = state
         .ai_skin_requests
         .lock()
-        .map_err(|_| super::CommandError {
+        .map_err(|_| crate::CommandError {
             code: "ai_skin_unavailable",
         })?;
     if let Some(cancelled) = requests.get(&request_id) {
@@ -1322,7 +1322,7 @@ pub async fn ai_skin_cancel(
 async fn community_call<T, F>(
     state: State<'_, AccountState>,
     operation: F,
-) -> Result<T, super::CommandError>
+) -> Result<T, crate::CommandError>
 where
     T: Send + 'static,
     F: FnOnce(&CommunityService) -> Result<T, AccountError> + Send + 'static,
@@ -1330,14 +1330,14 @@ where
     let service = Arc::clone(&state.community);
     tauri::async_runtime::spawn_blocking(move || operation(&service))
         .await
-        .map_err(|_| super::CommandError {
+        .map_err(|_| crate::CommandError {
             code: "community_unavailable",
         })?
         .map_err(community_error)
 }
 
-fn custom_skin_error(error: CustomSkinLibraryError) -> super::CommandError {
-    super::CommandError {
+fn custom_skin_error(error: CustomSkinLibraryError) -> crate::CommandError {
+    crate::CommandError {
         code: match error {
             CustomSkinLibraryError::Full => "community_skin_library_full",
             CustomSkinLibraryError::InvalidName => "community_skin_invalid_name",
@@ -1351,8 +1351,8 @@ fn custom_skin_error(error: CustomSkinLibraryError) -> super::CommandError {
     }
 }
 
-fn trial_error(error: KeyboardSkinTrialError) -> super::CommandError {
-    super::CommandError {
+fn trial_error(error: KeyboardSkinTrialError) -> crate::CommandError {
+    crate::CommandError {
         code: match error {
             KeyboardSkinTrialError::Io(_) | KeyboardSkinTrialError::Preferences(_) => {
                 "community_storage"
@@ -1364,8 +1364,8 @@ fn trial_error(error: KeyboardSkinTrialError) -> super::CommandError {
     }
 }
 
-fn resource_library_error(error: CommunityResourceLibraryError) -> super::CommandError {
-    super::CommandError {
+fn resource_library_error(error: CommunityResourceLibraryError) -> crate::CommandError {
+    crate::CommandError {
         code: match error {
             CommunityResourceLibraryError::Io(_) => "community_storage",
             CommunityResourceLibraryError::Json(_) | CommunityResourceLibraryError::Invalid => {
@@ -1387,7 +1387,7 @@ pub async fn community_skin_list(
     state: State<'_, AccountState>,
     offset: usize,
     search: String,
-) -> Result<CommunitySkinPage, super::CommandError> {
+) -> Result<CommunitySkinPage, crate::CommandError> {
     community_call(state, move |service| service.list(offset, &search)).await
 }
 
@@ -1395,8 +1395,8 @@ pub async fn community_skin_list(
 pub async fn community_skin_detail(
     state: State<'_, AccountState>,
     id: String,
-) -> Result<CommunitySkin, super::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+) -> Result<CommunitySkin, crate::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
         code: "community_invalid",
     })?;
     community_call(state, move |service| service.detail(id)).await
@@ -1409,8 +1409,8 @@ pub async fn community_skin_download(
     trials: State<'_, KeyboardSkinTrialStore>,
     id: String,
     name: String,
-) -> Result<CommunitySkinDownloadResponse, super::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+) -> Result<CommunitySkinDownloadResponse, crate::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
         code: "community_invalid",
     })?;
     let service = Arc::clone(&state.community);
@@ -1429,7 +1429,7 @@ pub async fn community_skin_download(
         Ok(CommunitySkinDownloadResponse { skin, trial })
     })
     .await
-    .map_err(|_| super::CommandError {
+    .map_err(|_| crate::CommandError {
         code: "community_unavailable",
     })?
 }
@@ -1439,8 +1439,8 @@ pub async fn community_skin_rate(
     state: State<'_, AccountState>,
     id: String,
     stars: u8,
-) -> Result<(), super::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+) -> Result<(), crate::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
         code: "community_invalid",
     })?;
     community_call(state, move |service| service.rate(id, stars)).await
@@ -1453,8 +1453,8 @@ pub async fn community_skin_publish(
     name: String,
     description: String,
     design: TouchKeyboardSkinDesign,
-) -> Result<(), super::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+) -> Result<(), crate::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
         code: "community_invalid",
     })?;
     community_call(state, move |service| {
@@ -1467,8 +1467,8 @@ pub async fn community_skin_publish(
 pub async fn community_skin_unpublish(
     state: State<'_, AccountState>,
     id: String,
-) -> Result<(), super::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+) -> Result<(), crate::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
         code: "community_invalid",
     })?;
     community_call(state, move |service| service.unpublish(id)).await
@@ -1479,25 +1479,25 @@ pub async fn community_skin_finish_trial(
     trials: State<'_, KeyboardSkinTrialStore>,
     id: String,
     keep: bool,
-) -> Result<(), super::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+) -> Result<(), crate::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
         code: "community_invalid",
     })?;
     let trials = trials.inner().clone();
     tauri::async_runtime::spawn_blocking(move || trials.finish(id, keep).map(|_| ()))
         .await
-        .map_err(|_| super::CommandError {
+        .map_err(|_| crate::CommandError {
             code: "community_storage",
         })?
         .map_err(trial_error)
 }
 
-fn resource_scope(value: &str) -> Result<CommunityResourceScope, super::CommandError> {
+fn resource_scope(value: &str) -> Result<CommunityResourceScope, crate::CommandError> {
     match value {
         "" => Ok(CommunityResourceScope::All),
         "mine" => Ok(CommunityResourceScope::Mine),
         "saved" => Ok(CommunityResourceScope::Saved),
-        _ => Err(super::CommandError {
+        _ => Err(crate::CommandError {
             code: "community_invalid",
         }),
     }
@@ -1506,7 +1506,7 @@ fn resource_scope(value: &str) -> Result<CommunityResourceScope, super::CommandE
 async fn resource_call<T, F>(
     state: State<'_, AccountState>,
     operation: F,
-) -> Result<T, super::CommandError>
+) -> Result<T, crate::CommandError>
 where
     T: Send + 'static,
     F: FnOnce(&CommunityResourceService) -> Result<T, AccountError> + Send + 'static,
@@ -1514,7 +1514,7 @@ where
     let service = Arc::clone(&state.resources);
     tauri::async_runtime::spawn_blocking(move || operation(&service))
         .await
-        .map_err(|_| super::CommandError {
+        .map_err(|_| crate::CommandError {
             code: "community_unavailable",
         })?
         .map_err(community_error)
@@ -1527,7 +1527,7 @@ pub async fn community_resource_list(
     scope: String,
     search: String,
     offset: usize,
-) -> Result<CommunityResourcePage, super::CommandError> {
+) -> Result<CommunityResourcePage, crate::CommandError> {
     let scope = resource_scope(&scope)?;
     resource_call(state, move |service| {
         service.list(kind, scope, &search, offset)
@@ -1539,8 +1539,8 @@ pub async fn community_resource_list(
 pub async fn community_resource_detail(
     state: State<'_, AccountState>,
     id: String,
-) -> Result<CommunityResource, super::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+) -> Result<CommunityResource, crate::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
         code: "community_invalid",
     })?;
     resource_call(state, move |service| service.detail(id)).await
@@ -1555,8 +1555,8 @@ pub async fn community_resource_publish(
     description: String,
     content: CommunityResourceContent,
     revision: u32,
-) -> Result<CommunityResourcePublication, super::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+) -> Result<CommunityResourcePublication, crate::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
         code: "community_invalid",
     })?;
     resource_call(state, move |service| {
@@ -1570,8 +1570,8 @@ pub async fn community_resource_apply(
     state: State<'_, AccountState>,
     id: String,
     resource_revision: u32,
-) -> Result<CommunityResourceApplication, super::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+) -> Result<CommunityResourceApplication, crate::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
         code: "community_invalid",
     })?;
     resource_call(state, move |service| service.apply(id, resource_revision)).await
@@ -1582,8 +1582,8 @@ pub async fn community_resource_save(
     state: State<'_, AccountState>,
     id: String,
     saved: bool,
-) -> Result<(), super::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+) -> Result<(), crate::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
         code: "community_invalid",
     })?;
     resource_call(state, move |service| service.save(id, saved)).await
@@ -1594,8 +1594,8 @@ pub async fn community_resource_rate(
     state: State<'_, AccountState>,
     id: String,
     stars: u8,
-) -> Result<(), super::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+) -> Result<(), crate::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
         code: "community_invalid",
     })?;
     resource_call(state, move |service| service.rate(id, stars)).await
@@ -1605,8 +1605,8 @@ pub async fn community_resource_rate(
 pub async fn community_resource_unpublish(
     state: State<'_, AccountState>,
     id: String,
-) -> Result<(), super::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+) -> Result<(), crate::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
         code: "community_invalid",
     })?;
     resource_call(state, move |service| service.delete(id)).await
@@ -1616,11 +1616,11 @@ pub async fn community_resource_unpublish(
 pub async fn community_resource_store_reply(
     library: State<'_, CommunityResourceLibraryStore>,
     item: CommunityResource,
-) -> Result<(), super::CommandError> {
+) -> Result<(), crate::CommandError> {
     let library = library.inner().clone();
     tauri::async_runtime::spawn_blocking(move || library.save_reply(item))
         .await
-        .map_err(|_| super::CommandError {
+        .map_err(|_| crate::CommandError {
             code: "community_storage",
         })?
         .map_err(resource_library_error)
@@ -1630,14 +1630,14 @@ pub async fn community_resource_store_reply(
 pub async fn community_resource_remove_reply(
     library: State<'_, CommunityResourceLibraryStore>,
     id: String,
-) -> Result<(), super::CommandError> {
-    let id = uuid::Uuid::parse_str(&id).map_err(|_| super::CommandError {
+) -> Result<(), crate::CommandError> {
+    let id = uuid::Uuid::parse_str(&id).map_err(|_| crate::CommandError {
         code: "community_invalid",
     })?;
     let library = library.inner().clone();
     tauri::async_runtime::spawn_blocking(move || library.remove(id))
         .await
-        .map_err(|_| super::CommandError {
+        .map_err(|_| crate::CommandError {
             code: "community_storage",
         })?
         .map_err(resource_library_error)
@@ -1646,7 +1646,7 @@ pub async fn community_resource_remove_reply(
 #[tauri::command]
 pub async fn account_status(
     state: State<'_, AccountState>,
-) -> Result<StatusResponse, super::CommandError> {
+) -> Result<StatusResponse, crate::CommandError> {
     call(state, |session| {
         session.status().map(|user| StatusResponse {
             user: user.map(Into::into),
@@ -1658,17 +1658,17 @@ pub async fn account_status(
 #[tauri::command]
 pub async fn android_open_input_method_settings(
     state: State<'_, AccountState>,
-) -> Result<(), super::CommandError> {
+) -> Result<(), crate::CommandError> {
     let plugin = state.platform.clone();
     tauri::async_runtime::spawn_blocking(move || {
         plugin
             .run_mobile_plugin::<()>("openInputMethodSettings", ())
-            .map_err(|_| super::CommandError {
+            .map_err(|_| crate::CommandError {
                 code: "system_settings",
             })
     })
     .await
-    .map_err(|_| super::CommandError {
+    .map_err(|_| crate::CommandError {
         code: "system_settings",
     })?
 }
@@ -1676,17 +1676,17 @@ pub async fn android_open_input_method_settings(
 #[tauri::command]
 pub async fn android_show_input_method_picker(
     state: State<'_, AccountState>,
-) -> Result<(), super::CommandError> {
+) -> Result<(), crate::CommandError> {
     let plugin = state.platform.clone();
     tauri::async_runtime::spawn_blocking(move || {
         plugin
             .run_mobile_plugin::<()>("showInputMethodPicker", ())
-            .map_err(|_| super::CommandError {
+            .map_err(|_| crate::CommandError {
                 code: "input_method_picker",
             })
     })
     .await
-    .map_err(|_| super::CommandError {
+    .map_err(|_| crate::CommandError {
         code: "input_method_picker",
     })?
 }
@@ -1694,37 +1694,37 @@ pub async fn android_show_input_method_picker(
 #[tauri::command]
 pub async fn android_bootstrap_status(
     state: State<'_, AccountState>,
-) -> Result<bool, super::CommandError> {
+) -> Result<bool, crate::CommandError> {
     let plugin = state.platform.clone();
     tauri::async_runtime::spawn_blocking(move || {
         plugin
             .run_mobile_plugin::<Value>("bootstrapStatus", ())
-            .map_err(|_| super::CommandError { code: "bootstrap" })?
+            .map_err(|_| crate::CommandError { code: "bootstrap" })?
             .get("ready")
             .and_then(Value::as_bool)
-            .ok_or(super::CommandError { code: "bootstrap" })
+            .ok_or(crate::CommandError { code: "bootstrap" })
     })
     .await
-    .map_err(|_| super::CommandError { code: "bootstrap" })?
+    .map_err(|_| crate::CommandError { code: "bootstrap" })?
 }
 
 #[tauri::command]
 pub async fn android_prepare_bootstrap(
     state: State<'_, AccountState>,
-) -> Result<(), super::CommandError> {
+) -> Result<(), crate::CommandError> {
     let plugin = state.platform.clone();
     tauri::async_runtime::spawn_blocking(move || {
         plugin
             .run_mobile_plugin::<Value>("prepareBootstrap", ())
-            .map_err(|_| super::CommandError { code: "bootstrap" })?
+            .map_err(|_| crate::CommandError { code: "bootstrap" })?
             .get("ready")
             .and_then(Value::as_bool)
             .filter(|ready| *ready)
             .map(|_| ())
-            .ok_or(super::CommandError { code: "bootstrap" })
+            .ok_or(crate::CommandError { code: "bootstrap" })
     })
     .await
-    .map_err(|_| super::CommandError { code: "bootstrap" })?
+    .map_err(|_| crate::CommandError { code: "bootstrap" })?
 }
 
 #[tauri::command]
@@ -1732,7 +1732,7 @@ pub async fn ai_models(
     state: State<'_, AccountState>,
     endpoint: String,
     token: String,
-) -> Result<Vec<String>, super::CommandError> {
+) -> Result<Vec<String>, crate::CommandError> {
     let plugin = state.platform.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let response = plugin
@@ -1743,19 +1743,19 @@ pub async fn ai_models(
                     token: &token,
                 },
             )
-            .map_err(|_| super::CommandError {
+            .map_err(|_| crate::CommandError {
                 code: "ai_models_unavailable",
             })?;
         response
             .get("models")
             .cloned()
             .and_then(|value| serde_json::from_value(value).ok())
-            .ok_or(super::CommandError {
+            .ok_or(crate::CommandError {
                 code: "ai_models_invalid",
             })
     })
     .await
-    .map_err(|_| super::CommandError {
+    .map_err(|_| crate::CommandError {
         code: "ai_models_unavailable",
     })?
 }
@@ -1768,7 +1768,7 @@ pub async fn ai_test(
     prompt: String,
     token: String,
     text: String,
-) -> Result<String, super::CommandError> {
+) -> Result<String, crate::CommandError> {
     let plugin = state.platform.clone();
     tauri::async_runtime::spawn_blocking(move || {
         let response = plugin
@@ -1782,19 +1782,19 @@ pub async fn ai_test(
                     text: &text,
                 },
             )
-            .map_err(|_| super::CommandError {
+            .map_err(|_| crate::CommandError {
                 code: "ai_test_unavailable",
             })?;
         response
             .get("text")
             .and_then(Value::as_str)
             .map(str::to_owned)
-            .ok_or(super::CommandError {
+            .ok_or(crate::CommandError {
                 code: "ai_test_invalid",
             })
     })
     .await
-    .map_err(|_| super::CommandError {
+    .map_err(|_| crate::CommandError {
         code: "ai_test_unavailable",
     })?
 }
@@ -1802,7 +1802,7 @@ pub async fn ai_test(
 #[tauri::command]
 pub async fn account_providers(
     state: State<'_, AccountState>,
-) -> Result<ProvidersResponse, super::CommandError> {
+) -> Result<ProvidersResponse, crate::CommandError> {
     call(state, |session| {
         session.providers().map(|providers| ProvidersResponse {
             email: providers.get("email") == Some(&true),
@@ -1817,7 +1817,7 @@ pub async fn account_request_code(
     state: State<'_, AccountState>,
     provider: String,
     target: String,
-) -> Result<ChallengeResponse, super::CommandError> {
+) -> Result<ChallengeResponse, crate::CommandError> {
     call(state, move |session| {
         session
             .request_code(&provider, &target)
@@ -1831,7 +1831,7 @@ pub async fn account_login(
     state: State<'_, AccountState>,
     challenge_id: String,
     code: String,
-) -> Result<StatusResponse, super::CommandError> {
+) -> Result<StatusResponse, crate::CommandError> {
     call(state, move |session| {
         session
             .sign_in(&challenge_id, &code)
@@ -1845,7 +1845,7 @@ pub async fn account_login(
 #[tauri::command]
 pub async fn account_profile(
     state: State<'_, AccountState>,
-) -> Result<ProfileResponse, super::CommandError> {
+) -> Result<ProfileResponse, crate::CommandError> {
     call(state, |session| {
         session.profile().map(ProfileResponse::from)
     })
@@ -1855,7 +1855,7 @@ pub async fn account_profile(
 #[tauri::command]
 pub async fn account_chat_models(
     state: State<'_, AccountState>,
-) -> Result<ChatModelsResponse, super::CommandError> {
+) -> Result<ChatModelsResponse, crate::CommandError> {
     call(state, |session| session.chat_models().map(Into::into)).await
 }
 
@@ -1864,7 +1864,7 @@ pub async fn account_chat(
     state: State<'_, AccountState>,
     messages: Vec<AccountChatMessage>,
     model: String,
-) -> Result<ChatResponse, super::CommandError> {
+) -> Result<ChatResponse, crate::CommandError> {
     call(state, move |session| {
         session
             .chat(&messages, &model)
@@ -1877,7 +1877,7 @@ pub async fn account_chat(
 pub async fn account_rename(
     state: State<'_, AccountState>,
     display_name: String,
-) -> Result<ProfileResponse, super::CommandError> {
+) -> Result<ProfileResponse, crate::CommandError> {
     call(state, move |session| {
         session.rename(&display_name).map(ProfileResponse::from)
     })
@@ -1888,7 +1888,7 @@ pub async fn account_rename(
 pub async fn account_logout(
     state: State<'_, AccountState>,
     all: bool,
-) -> Result<(), super::CommandError> {
+) -> Result<(), crate::CommandError> {
     let previews = Arc::clone(&state.snapshot_previews);
     let result = call(state, move |session| session.logout(all)).await;
     if result.is_ok() {
@@ -1898,7 +1898,7 @@ pub async fn account_logout(
 }
 
 #[tauri::command]
-pub async fn account_delete(state: State<'_, AccountState>) -> Result<(), super::CommandError> {
+pub async fn account_delete(state: State<'_, AccountState>) -> Result<(), crate::CommandError> {
     let previews = Arc::clone(&state.snapshot_previews);
     let result = call(state, |session| session.delete_account()).await;
     if result.is_ok() {
@@ -1908,7 +1908,7 @@ pub async fn account_delete(state: State<'_, AccountState>) -> Result<(), super:
 }
 
 #[tauri::command]
-pub async fn account_forget(state: State<'_, AccountState>) -> Result<(), super::CommandError> {
+pub async fn account_forget(state: State<'_, AccountState>) -> Result<(), crate::CommandError> {
     let previews = Arc::clone(&state.snapshot_previews);
     let result = call(state, |session| session.forget()).await;
     if result.is_ok() {
@@ -1920,11 +1920,11 @@ pub async fn account_forget(state: State<'_, AccountState>) -> Result<(), super:
 pub async fn cloud_clipboard_request(
     state: State<'_, AccountState>,
     action: Value,
-) -> Result<Value, super::CommandError> {
+) -> Result<Value, crate::CommandError> {
     let operation = action
         .get("operation")
         .and_then(Value::as_str)
-        .ok_or(super::CommandError {
+        .ok_or(crate::CommandError {
             code: "invalid_cloud_clipboard",
         })?;
     match operation {
@@ -1946,7 +1946,7 @@ pub async fn cloud_clipboard_request(
                 action
                     .get("enabled")
                     .and_then(Value::as_bool)
-                    .ok_or(super::CommandError {
+                    .ok_or(crate::CommandError {
                         code: "invalid_cloud_clipboard",
                     })?;
             call(state, move |session| {
@@ -1960,7 +1960,7 @@ pub async fn cloud_clipboard_request(
             let text = action
                 .get("text")
                 .and_then(Value::as_str)
-                .ok_or(super::CommandError {
+                .ok_or(crate::CommandError {
                     code: "invalid_cloud_clipboard",
                 })?
                 .to_owned();
@@ -1975,7 +1975,7 @@ pub async fn cloud_clipboard_request(
             let id = action
                 .get("id")
                 .and_then(Value::as_str)
-                .ok_or(super::CommandError {
+                .ok_or(crate::CommandError {
                     code: "invalid_cloud_clipboard",
                 })?
                 .to_owned();
@@ -1986,19 +1986,19 @@ pub async fn cloud_clipboard_request(
             })
             .await
         }
-        _ => Err(super::CommandError {
+        _ => Err(crate::CommandError {
             code: "invalid_cloud_clipboard",
         }),
     }
 }
 
-fn dictionary_kind(value: &str) -> Result<DictionaryKind, super::CommandError> {
+fn dictionary_kind(value: &str) -> Result<DictionaryKind, crate::CommandError> {
     match value {
         "pinyin" => Ok(DictionaryKind::Pinyin),
         "wubi" => Ok(DictionaryKind::Wubi),
         "quick" => Ok(DictionaryKind::Quick),
         "english" => Ok(DictionaryKind::English),
-        _ => Err(super::CommandError {
+        _ => Err(crate::CommandError {
             code: "invalid_cloud_dictionary",
         }),
     }
@@ -2007,11 +2007,11 @@ fn dictionary_kind(value: &str) -> Result<DictionaryKind, super::CommandError> {
 pub async fn cloud_dictionary_request(
     state: State<'_, AccountState>,
     action: Value,
-) -> Result<Value, super::CommandError> {
+) -> Result<Value, crate::CommandError> {
     use msime_host_api::cloud_dictionary::CloudDictionaryRequest;
 
     let request: CloudDictionaryRequest =
-        serde_json::from_value(action).map_err(|_| super::CommandError {
+        serde_json::from_value(action).map_err(|_| crate::CommandError {
             code: "invalid_cloud_dictionary",
         })?;
     match request {
@@ -2286,27 +2286,27 @@ pub async fn cloud_dictionary_request(
 #[tauri::command]
 pub async fn app_icon_info(
     state: State<'_, AccountState>,
-) -> Result<AppIconResponse, super::CommandError> {
+) -> Result<AppIconResponse, crate::CommandError> {
     let plugin = state.platform.clone();
     tauri::async_runtime::spawn_blocking(move || {
         plugin
             .run_mobile_plugin::<AppIconResponse>("appIconInfo", ())
-            .map_err(|_| super::CommandError { code: "app_icon" })
+            .map_err(|_| crate::CommandError { code: "app_icon" })
     })
     .await
-    .map_err(|_| super::CommandError { code: "app_icon" })?
+    .map_err(|_| crate::CommandError { code: "app_icon" })?
 }
 
 #[tauri::command]
 pub async fn app_icon_set(
     state: State<'_, AccountState>,
     style: String,
-) -> Result<AppIconResponse, super::CommandError> {
+) -> Result<AppIconResponse, crate::CommandError> {
     if !matches!(
         style.as_str(),
         "classic" | "forest" | "sky" | "dusk" | "vermilion"
     ) {
-        return Err(super::CommandError {
+        return Err(crate::CommandError {
             code: "invalid_app_icon",
         });
     }
@@ -2314,10 +2314,10 @@ pub async fn app_icon_set(
     tauri::async_runtime::spawn_blocking(move || {
         plugin
             .run_mobile_plugin::<AppIconResponse>("setAppIcon", AppIconRequest { style: &style })
-            .map_err(|_| super::CommandError { code: "app_icon" })
+            .map_err(|_| crate::CommandError { code: "app_icon" })
     })
     .await
-    .map_err(|_| super::CommandError { code: "app_icon" })?
+    .map_err(|_| crate::CommandError { code: "app_icon" })?
 }
 
 fn insert_string(settings: &mut BTreeMap<String, AccountPreferenceValue>, key: &str, value: &str) {
@@ -2740,14 +2740,14 @@ fn apply_local_account_preferences(
 #[tauri::command]
 pub async fn account_preferences_schema(
     state: State<'_, AccountState>,
-) -> Result<PreferenceSchemaResponse, super::CommandError> {
+) -> Result<PreferenceSchemaResponse, crate::CommandError> {
     call(state, |session| session.preference_schema().map(Into::into)).await
 }
 
 #[tauri::command]
 pub async fn account_preferences_load(
     state: State<'_, AccountState>,
-) -> Result<AccountPreferences, super::CommandError> {
+) -> Result<AccountPreferences, crate::CommandError> {
     call(state, |session| session.preferences()).await
 }
 
@@ -2755,7 +2755,7 @@ pub async fn account_preferences_load(
 pub async fn account_preferences_upload(
     state: State<'_, AccountState>,
     store: State<'_, Arc<PreferencesStore>>,
-) -> Result<AccountPreferences, super::CommandError> {
+) -> Result<AccountPreferences, crate::CommandError> {
     let session = Arc::clone(&state.session);
     let feedback = state.feedback.clone();
     let store = store.inner().clone();
@@ -2774,10 +2774,10 @@ pub async fn account_preferences_upload(
         session.put_preferences(&merged)
     })
     .await
-    .map_err(|_| super::CommandError {
+    .map_err(|_| crate::CommandError {
         code: "account_unavailable",
     })?
-    .map_err(|error| super::CommandError { code: error.code() })
+    .map_err(|error| crate::CommandError { code: error.code() })
 }
 
 #[tauri::command]
@@ -2786,7 +2786,7 @@ pub async fn account_preferences_apply(
     store: State<'_, Arc<PreferencesStore>>,
     user_id: String,
     preferences: AccountPreferences,
-) -> Result<(), super::CommandError> {
+) -> Result<(), crate::CommandError> {
     let session = Arc::clone(&state.session);
     let feedback = state.feedback.clone();
     let store = store.inner().clone();
@@ -2801,26 +2801,26 @@ pub async fn account_preferences_apply(
         Ok::<(), AccountError>(())
     })
     .await
-    .map_err(|_| super::CommandError {
+    .map_err(|_| crate::CommandError {
         code: "account_unavailable",
     })?
-    .map_err(|error| super::CommandError { code: error.code() })
+    .map_err(|error| crate::CommandError { code: error.code() })
 }
 
 #[tauri::command]
 pub async fn mobile_keyboard_feedback_load(
     state: State<'_, AccountState>,
-) -> Result<FeedbackSettings, super::CommandError> {
+) -> Result<FeedbackSettings, crate::CommandError> {
     let feedback = state.feedback.clone();
     tauri::async_runtime::spawn_blocking(move || {
         feedback
             .run_mobile_plugin::<FeedbackSettings>("loadFeedback", ())
-            .map_err(|_| super::CommandError {
+            .map_err(|_| crate::CommandError {
                 code: "feedback_storage",
             })
     })
     .await
-    .map_err(|_| super::CommandError {
+    .map_err(|_| crate::CommandError {
         code: "feedback_storage",
     })?
 }
@@ -2829,12 +2829,12 @@ pub async fn mobile_keyboard_feedback_load(
 pub async fn mobile_keyboard_feedback_save(
     state: State<'_, AccountState>,
     request: MobileKeyboardFeedbackRequest,
-) -> Result<FeedbackSettings, super::CommandError> {
+) -> Result<FeedbackSettings, crate::CommandError> {
     if !matches!(
         request.settings.haptic_strength.as_str(),
         "light" | "medium" | "strong"
     ) {
-        return Err(super::CommandError {
+        return Err(crate::CommandError {
             code: "invalid_feedback",
         });
     }
@@ -2847,13 +2847,13 @@ pub async fn mobile_keyboard_feedback_save(
         });
         feedback
             .run_mobile_plugin::<()>("saveFeedback", payload)
-            .map_err(|_| super::CommandError {
+            .map_err(|_| crate::CommandError {
                 code: "feedback_storage",
             })?;
         Ok(request.settings)
     })
     .await
-    .map_err(|_| super::CommandError {
+    .map_err(|_| crate::CommandError {
         code: "feedback_storage",
     })?
 }
@@ -2862,9 +2862,9 @@ pub async fn mobile_keyboard_feedback_save(
 pub async fn mobile_keyboard_feedback_preview(
     state: State<'_, AccountState>,
     request: MobileKeyboardFeedbackPreviewRequest,
-) -> Result<(), super::CommandError> {
+) -> Result<(), crate::CommandError> {
     if !matches!(request.strength.as_str(), "light" | "medium" | "strong") {
-        return Err(super::CommandError {
+        return Err(crate::CommandError {
             code: "invalid_feedback",
         });
     }
@@ -2877,12 +2877,12 @@ pub async fn mobile_keyboard_feedback_preview(
                     "hapticStrength": request.strength,
                 }),
             )
-            .map_err(|_| super::CommandError {
+            .map_err(|_| crate::CommandError {
                 code: "feedback_preview",
             })
     })
     .await
-    .map_err(|_| super::CommandError {
+    .map_err(|_| crate::CommandError {
         code: "feedback_preview",
     })?
 }

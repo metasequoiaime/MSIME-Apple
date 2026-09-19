@@ -1,7 +1,6 @@
 //! Native output only; voice policy and recognition belong to the caller.
 
 use super::{InputTarget, MAX_TEXT_BYTES};
-#[path = "paste_policy.rs"]
 mod paste_policy;
 use windows_sys::Win32::Foundation::GlobalFree;
 use windows_sys::Win32::System::DataExchange::{

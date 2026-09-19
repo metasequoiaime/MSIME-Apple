@@ -87,7 +87,10 @@ fn install_bundle_at_with_registration<F>(
     source: &Path,
     input_methods: &Path,
     register: F,
-) -> Result<PathBuf, InstallError> {
+) -> Result<PathBuf, InstallError>
+where
+    F: FnOnce(&Path) -> Result<(), InstallError>,
+{
     validate_bundle(source)?;
     fs::create_dir_all(input_methods).map_err(|_| InstallError::Io)?;
     let target = input_methods.join(INPUT_SOURCE_BUNDLE_NAME);
