@@ -768,6 +768,8 @@ macOS 原生 CMake 构建及 `text-client`、`shortcut` 两项 CTest 通过，Sh
 
 共享 Preferences 新增候选字号（16/18/20）和横/竖布局，旧配置缺失时分别使用 18 点和竖排默认值；设置页与 macOS 候选面板消费同一份快照，每页数量继续由共享运行时控制。仅展示字段变化不会重建 Engine；需要重建的输入配置仍在组合期间延迟，读取失败保留旧显示和输入配置。
 
+Android 候选栏与展开候选面板现在也消费共享的 `candidate_skin`、`candidate_theme` 和文字、编号、强调、选中、悬停、表面、边框颜色覆盖。宿主内置 Fluent、微信绿、石墨 Graphite、杨柳青 Willow green 的明暗调色板，透明选中/边框色和显式文字色派生编号色均在 Android 安全解析；普通候选选择、展开候选的全代次身份、触摸反馈、无障碍描述和 Engine 分页边界保持不变。偏好热更新只替换候选渲染状态，不重建 Engine；本阶段未执行原生设备视觉验收。
+
 client-core、host-api、设置页测试以及 macOS 原生 CMake/CTest、全 workspace fmt/clippy 均通过。未执行系统输入源安装后的真实编辑器或逐像素验收，候选皮肤、完整设置窗口和其他 Apple 功能仍待迁移。
 
 ### macOS 内置候选皮肤

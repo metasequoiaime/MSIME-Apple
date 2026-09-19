@@ -6,12 +6,14 @@ import android.content.ClipDescription;
 import android.content.ClipboardManager;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
+import android.content.res.ColorStateList;
 import android.graphics.Color;
 import android.graphics.Canvas;
 import android.graphics.Paint;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.GradientDrawable;
+import android.graphics.drawable.StateListDrawable;
 import android.media.AudioManager;
 import android.os.Handler;
 import android.os.Looper;
@@ -157,6 +159,7 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean candidateHorizontal;
     private int candidateFontSize = 16;
     private int candidatePreeditFontSize = 16;
+    private CandidateAppearance.Palette candidateAppearance = CandidateAppearance.from(null, false);
     private int touchKeySpacingTenths = KeyboardGeometry.DEFAULT_KEY_SPACING_TENTHS;
     private int touchRowSpacingTenths = KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS;
     private int touchKeyboardHeightAdjustment = KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_DP;
@@ -841,6 +844,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void applyCandidateAppearance(JSONObject preferences) {
+        candidateAppearance = CandidateAppearance.from(preferences, systemDark());
         if (preferences == null) {
             candidateHorizontal = false;
             candidateFontSize = 16;
@@ -984,7 +988,8 @@ public final class MSIMEInputService extends InputMethodService {
 
     private String candidateAppearanceKey() {
         return (candidateHorizontal ? "horizontal" : "vertical") + ":"
-            + candidateFontSize + ":" + candidatePreeditFontSize;
+            + candidateFontSize + ":" + candidatePreeditFontSize + ":"
+            + candidateAppearance.key();
     }
 
     private String touchGeometryKey() {
@@ -1045,6 +1050,8 @@ public final class MSIMEInputService extends InputMethodService {
         if (nextLocalModes == null) nextLocalModes = new JSONObject();
         String nextLayout = preferences.optString("candidate_layout",
             preferences.optString("candidate_orientation", "vertical"));
+        CandidateAppearance.Palette nextCandidateAppearance = CandidateAppearance.from(
+            preferences, systemDark());
         boolean nextHorizontal = CandidateAppearance.isHorizontal(nextLayout);
         int nextFontSize = CandidateAppearance.fontSize(preferences.optInt("candidate_font_size", 16));
         int nextPreeditFontSize = CandidateAppearance.fontSize(
@@ -1081,6 +1088,7 @@ public final class MSIMEInputService extends InputMethodService {
             || touchRowSpacingTenths != nextRowSpacing
             || touchKeyboardHeightAdjustment != nextHeightAdjustment;
         skin = nextSkin;
+        candidateAppearance = nextCandidateAppearance;
         localModes = nextLocalModes;
         candidateHorizontal = nextHorizontal;
         candidateFontSize = nextFontSize;
@@ -2221,32 +2229,72 @@ public final class MSIMEInputService extends InputMethodService {
             ? pixels(Math.max(1, skin.shadowRadius() + skin.shadowOffset())) : 0);
     }
 
+    private GradientDrawable candidateDrawable(int color) {
+        GradientDrawable drawable = new GradientDrawable();
+        drawable.setColor(color);
+        drawable.setCornerRadius(pixels(6));
+        if (Color.alpha(candidateAppearance.border()) > 0)
+            drawable.setStroke(Math.max(1, pixels(1)), candidateAppearance.border());
+        return drawable;
+    }
+
+    private void styleCandidateButton(Button button) {
+        StateListDrawable states = new StateListDrawable();
+        states.addState(new int[] {android.R.attr.state_selected},
+            candidateDrawable(candidateAppearance.selected()));
+        states.addState(new int[] {android.R.attr.state_pressed},
+            candidateDrawable(candidateAppearance.hover()));
+        states.addState(new int[] {android.R.attr.state_focused},
+            candidateDrawable(candidateAppearance.hover()));
+        states.addState(new int[] {android.R.attr.state_hovered},
+            candidateDrawable(candidateAppearance.hover()));
+        states.addState(new int[0], candidateDrawable(candidateAppearance.surface()));
+        button.setBackground(states);
+        button.setTextColor(new ColorStateList(
+            new int[][] {{android.R.attr.state_selected}, {}},
+            new int[] {candidateAppearance.textFor(true), candidateAppearance.text()}));
+        button.setTypeface(Typeface.DEFAULT);
+        button.setElevation(0);
+    }
+
     private void applySkinToView(View node) {
+        applySkinToView(node, node == candidateViewport || node == expandedCandidates);
+    }
+
+    private void applySkinToView(View node, boolean candidateContext) {
+        CharSequence description = node.getContentDescription();
+        boolean candidate = candidateContext || node == candidateViewport || node == expandedCandidates
+            || (description != null && description.toString().startsWith("候选 "));
         if (node instanceof Button) {
-            CharSequence description = node.getContentDescription();
             boolean key = description != null && (description.toString().startsWith("按键 ")
                 || description.toString().startsWith("候选 ")
                 || description.toString().startsWith("输入方案卡片 "));
-            styleButton((Button) node, !key);
+            if (candidate) styleCandidateButton((Button) node);
+            else styleButton((Button) node, !key);
             if (description != null && "恢复默认".contentEquals(description))
                 ((Button) node).setTextColor(Color.RED);
         } else if (node instanceof TextView) {
             TextView text = (TextView) node;
-            text.setTextColor(Color.parseColor(skin.keyForeground()));
-            text.setTypeface(skin.monospaced() ? Typeface.MONOSPACE : Typeface.DEFAULT);
+            text.setTextColor(candidate ? candidateAppearance.text() : Color.parseColor(skin.keyForeground()));
+            text.setTypeface(candidate ? Typeface.DEFAULT
+                : skin.monospaced() ? Typeface.MONOSPACE : Typeface.DEFAULT);
         }
         if (node instanceof android.view.ViewGroup) {
             android.view.ViewGroup group = (android.view.ViewGroup) node;
             for (int index = 0; index < group.getChildCount(); index++)
-                applySkinToView(group.getChildAt(index));
+                applySkinToView(group.getChildAt(index), candidate);
         }
     }
 
     private void applySkin() {
         if (keyboardRoot == null) return;
         applySkinBackground(keyboardRoot);
+        if (candidateViewport != null)
+            candidateViewport.setBackgroundColor(candidateAppearance.surface());
+        if (candidatePaging != null)
+            candidatePaging.setBackgroundColor(candidateAppearance.surface());
         if (expandedCandidates != null)
-            applySkinBackground(expandedCandidates);
+            expandedCandidates.setBackgroundColor(candidateAppearance.surface());
         if (clipboardPanel != null)
             applySkinBackground(clipboardPanel);
         if (schemePanel != null)
@@ -2269,6 +2317,14 @@ public final class MSIMEInputService extends InputMethodService {
             applySkinBackground(replyKeyboard);
         if (handwritingCanvas != null) handwritingCanvas.applySkin(skin);
         applySkinToView(keyboardRoot);
+        if (preedit != null) preedit.setTextColor(candidateAppearance.text());
+        if (candidatePage != null) candidatePage.setTextColor(candidateAppearance.accent());
+        if (candidatePaging != null) {
+            for (int index = 0; index < candidatePaging.getChildCount(); index++) {
+                View child = candidatePaging.getChildAt(index);
+                if (child instanceof Button) styleCandidateButton((Button) child);
+            }
+        }
         if (layoutAdjustView != null) layoutAdjustView.updateSkin(skin);
     }
 
@@ -4508,14 +4564,18 @@ public final class MSIMEInputService extends InputMethodService {
 
     private CharSequence candidateLabel(String prefix, String text, String annotation,
                                         boolean highlighted) {
-        if (annotation.isEmpty()) return prefix + text;
+        if (annotation.isEmpty() && prefix.isEmpty()) return text;
         String primary = prefix + text;
         SpannableString label = new SpannableString(primary + " " + annotation);
+        if (!prefix.isEmpty()) {
+            label.setSpan(new ForegroundColorSpan(candidateAppearance.number()), 0, prefix.length(),
+                Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        }
+        if (annotation.isEmpty()) return label;
         int annotationStart = primary.length() + 1;
         label.setSpan(new RelativeSizeSpan(0.72f), annotationStart, label.length(),
             Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        int foreground = Color.parseColor(
-            highlighted ? skin.actionForeground() : skin.keyForeground());
+        int foreground = candidateAppearance.textFor(highlighted);
         int secondary = Color.argb(Math.round(Color.alpha(foreground) * 0.58f),
             Color.red(foreground), Color.green(foreground), Color.blue(foreground));
         label.setSpan(new ForegroundColorSpan(secondary), annotationStart, label.length(),
@@ -4592,12 +4652,12 @@ public final class MSIMEInputService extends InputMethodService {
         boolean highlighted = candidate.optBoolean("highlighted");
         String typed = view == null ? "" : view.optString("preedit", "");
         String annotation = candidateAnnotation(candidate, typed);
-        button.setText(candidateLabel("", text, annotation, highlighted));
+        button.setText(candidateLabel((slot + 1) + " ", text, annotation, highlighted));
         button.setMinLines(Math.max(1, 1 + Math.max(0, candidateGlossLineCount() - 1)));
         button.setMaxLines(Math.max(1, 1 + Math.max(0, candidateGlossLineCount() - 1)));
         button.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidateFontSize);
         button.setSelected(highlighted);
-        styleButton(button, false);
+        styleCandidateButton(button);
         String description = "候选 " + (slot + 1) + "：" + text
             + candidateAccessibilitySuffix(candidate, typed);
         JSONObject id = candidate.optJSONObject("id");
@@ -4621,8 +4681,8 @@ public final class MSIMEInputService extends InputMethodService {
         button.setMinLines(Math.max(1, 1 + Math.max(0, candidateGlossLineCount() - 1)));
         button.setMaxLines(Math.max(1, 1 + Math.max(0, candidateGlossLineCount() - 1)));
         button.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidateFontSize);
-        styleButton(button, false);
         button.setSelected(highlighted);
+        styleCandidateButton(button);
         long index = id == null ? -1 : id.optLong("index", -1);
         button.setContentDescription(index < 0 ? "候选" : "候选 " + (index + 1) + "："
             + text + candidateAccessibilitySuffix(candidate, typed));
