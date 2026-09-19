@@ -277,6 +277,7 @@ public:
     cloud_clipboard_items_.clear();
     cloud_clipboard_job_ = {};
     emoji_items_.clear();
+    ++emoji_generation_;
     emoji_job_ = {};
     emoji_job_query_.clear();
     emoji_search_mode_ = false;
@@ -1564,7 +1565,8 @@ public:
           emoji_groups_job_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
         auto result = emoji_groups_job_.get();
         emoji_groups_job_ = {};
-        if (result.is_object()) {
+        if (result.is_object() &&
+            result.value("_generation", uint64_t{}) == emoji_generation_) {
           emoji_groups_.clear();
           for (const auto &item : result.value("groups", Json::array()))
             if (item.is_string() && !item.get<std::string>().empty()) emoji_groups_.push_back(item.get<std::string>());
@@ -1577,7 +1579,8 @@ public:
         const auto requestQuery = emoji_job_query_;
         emoji_job_query_.clear();
         if (ic_.hasFocus() && !restricted() && !privateInput() &&
-            requestQuery == emoji_search_ && result.is_object()) {
+            requestQuery == emoji_search_ && result.is_object() &&
+            result.value("_generation", uint64_t{}) == emoji_generation_) {
           emoji_items_ = result.value("items", Json::array());
           emoji_next_offset_ = result.value("next_offset", emoji_offset_ + emoji_items_.size());
           emoji_complete_ = result.value("complete", true);
@@ -1595,15 +1598,18 @@ public:
     const auto category = emoji_category_;
     const auto group = emoji_group_;
     const auto search = emoji_search_;
+    const auto generation = emoji_generation_;
     emoji_offset_ = offset;
     emoji_job_query_ = search;
-    emoji_job_ = std::async(std::launch::async, [resources, category, group, search, offset] {
+    emoji_job_ = std::async(std::launch::async, [resources, category, group, search, offset, generation] {
       const auto query = Json{{"limit", 5}, {"offset", offset}, {"cursor", true},
                               {"category", category}, {"group", group}, {"search", search}}.dump();
       auto result = response(msime_client_emoji_catalog_request(
           reinterpret_cast<const uint8_t *>(query.data()), query.size(),
           reinterpret_cast<const uint8_t *>(resources.data()), resources.size()));
-      return result.is_object() ? result : Json::object();
+      if (!result.is_object()) return Json::object();
+      result["_generation"] = generation;
+      return result;
     }).share();
     return true;
   }
@@ -1676,12 +1682,15 @@ public:
       if (resources_.empty()) return false;
       const auto resources = resources_;
       const auto category = emoji_category_;
-      emoji_groups_job_ = std::async(std::launch::async, [resources, category] {
+      const auto generation = emoji_generation_;
+      emoji_groups_job_ = std::async(std::launch::async, [resources, category, generation] {
         const auto query = Json{{"limit", 1}, {"list_groups", true}, {"category", category}}.dump();
         auto result = response(msime_client_emoji_catalog_request(
             reinterpret_cast<const uint8_t *>(query.data()), query.size(),
             reinterpret_cast<const uint8_t *>(resources.data()), resources.size()));
-        return result.is_object() ? result : Json::object();
+        if (!result.is_object()) return Json::object();
+        result["_generation"] = generation;
+        return result;
       }).share();
       return false;
     }
@@ -2002,6 +2011,7 @@ public:
   std::string emoji_group_;
   std::vector<std::string> emoji_groups_;
   std::shared_future<Json> emoji_groups_job_;
+  uint64_t emoji_generation_ = 0;
   size_t emoji_group_index_ = 0;
   size_t emoji_offset_ = 0;
   size_t emoji_next_offset_ = 0;
