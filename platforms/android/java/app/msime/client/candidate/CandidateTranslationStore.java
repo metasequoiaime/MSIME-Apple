@@ -139,12 +139,31 @@ public final class CandidateTranslationStore {
         boolean arrived = false;
         for (int index = 0; index < words.size(); index++) {
             String value = values.get(index);
+            value = trimWhitespace(value);
             if (value == null || value.isEmpty() || value.equals(words.get(index))
                     || value.getBytes(StandardCharsets.UTF_8).length > 4096) continue;
             cache.put(key(target, words.get(index)), value);
             arrived = true;
         }
         if (arrived) listener.onArrival(generation);
+    }
+
+    /** Match Apple's whitespace/newline normalization before a gloss enters the cache. */
+    private static String trimWhitespace(String value) {
+        if (value == null || value.isEmpty()) return value;
+        int start = 0;
+        while (start < value.length()) {
+            int codePoint = value.codePointAt(start);
+            if (!Character.isWhitespace(codePoint) && !Character.isSpaceChar(codePoint)) break;
+            start += Character.charCount(codePoint);
+        }
+        int end = value.length();
+        while (end > start) {
+            int codePoint = value.codePointBefore(end);
+            if (!Character.isWhitespace(codePoint) && !Character.isSpaceChar(codePoint)) break;
+            end -= Character.charCount(codePoint);
+        }
+        return value.substring(start, end);
     }
 
     private static final class HandlerScheduler implements Scheduler {

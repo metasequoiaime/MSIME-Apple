@@ -38,6 +38,26 @@ public final class CandidateTranslationStoreSmoke {
             release.countDown();
             worker.shutdownNow();
         }
+
+        FakeScheduler normalizationScheduler = new FakeScheduler();
+        ExecutorService normalizationWorker = Executors.newSingleThreadExecutor();
+        AtomicInteger normalizationArrivals = new AtomicInteger();
+        CandidateTranslationStore normalizedStore = new CandidateTranslationStore(
+            (texts, target) -> List.of(" \u00a0hello world\n\t"), normalizationWorker,
+            normalizationScheduler, generation -> normalizationArrivals.incrementAndGet());
+        try {
+            normalizedStore.refresh(List.of("你好"), List.of("en"), 9);
+            normalizationScheduler.runDelayed();
+            normalizationWorker.shutdown();
+            check(normalizationWorker.awaitTermination(2, TimeUnit.SECONDS),
+                "normalization worker stopped");
+            normalizationScheduler.runPosted();
+            check("hello world".equals(normalizedStore.gloss("你好", "en")),
+                "translation whitespace was normalized");
+            check(normalizationArrivals.get() == 1, "normalized translation notified the host");
+        } finally {
+            normalizationWorker.shutdownNow();
+        }
         System.out.println("Android candidate translation store: stale request fencing passed");
     }
 
