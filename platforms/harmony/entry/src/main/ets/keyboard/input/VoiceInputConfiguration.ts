@@ -25,6 +25,8 @@ export interface VoiceInputConfiguration {
   start_sound?: boolean;
   end_sound?: boolean;
   mute_system_audio?: boolean;
+  /** Show partial recognizer output while recording; the shared default is off. */
+  stream_inline_preedit?: boolean;
   asr_endpoint: string;
   asr_token: string;
   asr_app_key: string;
@@ -64,6 +66,7 @@ export const DEFAULT_VOICE_INPUT_CONFIGURATION: VoiceInputConfiguration = {
   start_sound: true,
   end_sound: true,
   mute_system_audio: false,
+  stream_inline_preedit: false,
   asr_endpoint: 'wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async',
   asr_token: '',
   asr_app_key: '',

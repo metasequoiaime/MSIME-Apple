@@ -127,6 +127,12 @@ pub struct HostCapabilities {
     /// and positions the candidate list itself - cannot honour the choice, so
     /// it does not offer it.
     pub candidate_follow_cursor: bool,
+    /// The host has more than one way to put a recognized result into the
+    /// focused editor, so choosing between them is a real choice. A host with a
+    /// single commit path does not offer it: a control with one outcome reads
+    /// as a setting that is being ignored.
+    #[serde(default)]
+    pub voice_commit_mode: bool,
     /// The host renders the Engine's composition text itself, so the choice
     /// between the raw shuangpin keys and the expanded pinyin is visible there.
     /// Every host's Engine honours the preference; this says which of them draw
@@ -297,6 +303,13 @@ impl HostCapabilities {
             // macOS draws its own composition, and the HarmonyOS keyboard draws the Engine's
             // editing text on its composition row, so both show the difference. The other hosts
             // hand the text to the application or to the desktop, which decides how it looks.
+            // Windows chooses between TSF, SendInput and a paste; macOS between system events and
+            // its input session; Linux hands the choice to the user's provider service. A keyboard
+            // extension commits through its input client and has nothing to choose between.
+            voice_commit_mode: matches!(
+                platform,
+                HostPlatform::Windows | HostPlatform::Macos | HostPlatform::Linux
+            ),
             shuangpin_preedit: matches!(platform, HostPlatform::Macos | HostPlatform::Harmony),
             english_suggestions: matches!(platform, HostPlatform::Android | HostPlatform::Harmony),
             candidate_english_font: matches!(
@@ -811,6 +824,9 @@ mod tests {
         assert!(harmony.english_suggestions);
         // The composition row draws the Engine's editing text, so raw versus expanded is visible.
         assert!(harmony.shuangpin_preedit);
+        // One commit path, so there is nothing to choose between and no control for it.
+        assert!(!harmony.voice_commit_mode);
+        assert!(HostCapabilities::for_platform(HostPlatform::Windows).voice_commit_mode);
         assert!(HostCapabilities::for_platform(HostPlatform::Macos).shuangpin_preedit);
         assert!(!HostCapabilities::for_platform(HostPlatform::Windows).shuangpin_preedit);
         assert!(!HostCapabilities::for_platform(HostPlatform::Ios).english_suggestions);

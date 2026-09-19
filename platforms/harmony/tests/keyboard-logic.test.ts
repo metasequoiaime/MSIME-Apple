@@ -1893,6 +1893,18 @@ group('the recording tones follow their own switches under one master', () => {
     'an older document without the fields takes the shared default rather than falling silent');
 });
 
+group('partial recognizer output reaches the panel only when asked for', () => {
+  const base: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
+  check(VoiceRecordingBehaviourPolicy.showsInterimResults(base) === false,
+    'a stream of guesses rewriting itself is not the default');
+  check(VoiceRecordingBehaviourPolicy.showsInterimResults(
+    { ...base, stream_inline_preedit: true }) === true, 'and appears when the user asks to watch');
+  const legacy: VoiceInputConfiguration = { ...base };
+  legacy.stream_inline_preedit = undefined;
+  check(VoiceRecordingBehaviourPolicy.showsInterimResults(legacy) === false,
+    'an older document without the field stays quiet');
+});
+
 group('quietening other applications is off unless asked for', () => {
   const base: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
   check(VoiceRecordingBehaviourPolicy.quietensOthers(base) === false,
