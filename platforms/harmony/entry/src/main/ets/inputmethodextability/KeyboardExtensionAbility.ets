@@ -19,6 +19,7 @@ import { FloatingToolbarDragPolicy } from '../keyboard/FloatingToolbarDragPolicy
 import { DesktopSurface } from '../keyboard/DesktopSurface';
 import type { KeyEvent as InputKeyEvent } from '@ohos.multimodalInput.keyEvent';
 import { Action as KeyAction } from '@ohos.multimodalInput.keyEvent';
+import { StagedResources } from '../keyboard/StagedResources';
 
 // The badge's own geometry, from platforms/macos/src/InputModeHUDPanel.mm: a capsule that carries
 // the logo and one character side by side, shown long enough to read and gone before the next word.
@@ -502,23 +503,6 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
    * The marker sits beside the directory rather than inside it: prepare_host verifies the resource
    * directory against the pinned lock and rejects any file the lock does not name.
    */
-  private stageResources(packaged: string, destination: string, marker: string): void {
-    if (fs.accessSync(marker)) {
-      return;
-    }
-    // A partial copy left by a kill mid-staging must not be mistaken for a complete one; the marker
-    // is written last, so anything already there is suspect and goes.
-    if (fs.accessSync(destination)) {
-      fs.rmdirSync(destination);
-    }
-    fs.mkdirSync(destination, true);
-    for (const name of fs.listFileSync(packaged)) {
-      fs.copyFileSync(`${packaged}/${name}`, `${destination}/${name}`);
-    }
-    fs.writeSync(fs.openSync(marker, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY).fd, 'ready');
-    KeyboardLog.info(`staged ${destination}`);
-  }
-
   async onCreate(want: Want): Promise<void> {
     const files: string = this.context.filesDir;
     const resources: string = `${files}/engine`;
@@ -526,10 +510,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     if (!fs.accessSync(state)) {
       fs.mkdirSync(state, true);
     }
-    try {
-      this.stageResources(`${this.context.resourceDir}/engine`, resources, `${files}/engine.ready`);
-    } catch (error) {
-      KeyboardLog.error(`staging failed: ${describeError(error)}`);
+    if (!StagedResources.stage(`${this.context.resourceDir}/engine`, resources,
+        `${files}/engine.ready`)) {
       return;
     }
     // The extension context knows the system colour mode; the view has no context of its own to ask.

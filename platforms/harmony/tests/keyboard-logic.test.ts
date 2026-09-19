@@ -60,6 +60,8 @@ import { CandidateFontFamilyPolicy }
 import { CandidateAnnotationPreferencePolicy }
   from '../entry/src/main/ets/keyboard/candidate/CandidateAnnotationPreferencePolicy';
 import { InputModeHudPolicy } from '../entry/src/main/ets/keyboard/InputModeHudPolicy';
+import { StagedArtifact, StagedResourcePolicy }
+  from '../entry/src/main/ets/keyboard/StagedResourcePolicy';
 import { DEFAULT_VOICE_HOTKEY_BINDINGS, VoiceHotkeyAction, VoiceHotkeyBindings, VoiceHotkeyPolicy,
   VoiceKey } from '../entry/src/main/ets/keyboard/input/VoiceHotkeyPolicy';
 import { VoiceRecordingBehaviourPolicy }
@@ -1931,6 +1933,46 @@ group('quietening other applications is off unless asked for', () => {
   legacy.mute_system_audio = undefined;
   check(VoiceRecordingBehaviourPolicy.quietensOthers(legacy) === false,
     'an absent field is not consent');
+});
+
+group('a staged resource copy is trusted only while it matches the package', () => {
+  const set: StagedArtifact[] = [
+    { name: 'msime.db', size: 107552768 }, { name: 'dict_pinyin.dat', size: 1068442 }
+  ];
+  const token: string = StagedResourcePolicy.generationToken(set);
+  check(token.length > 0, 'a package can be described');
+  check(StagedResourcePolicy.needsStaging(token, token) === false,
+    'the same package is not copied out again');
+  // The defect this replaces: a marker saying only "staged" went on saying so after the package
+  // changed, and the shared verification then refused the directory outright.
+  const upgraded: StagedArtifact[] = [
+    { name: 'msime.db', size: 107552769 }, { name: 'dict_pinyin.dat', size: 1068442 }
+  ];
+  check(StagedResourcePolicy.needsStaging(token, StagedResourcePolicy.generationToken(upgraded))
+    === true, 'an artifact that changed size is a different generation');
+  const dropped: StagedArtifact[] = [{ name: 'msime.db', size: 107552768 }];
+  check(StagedResourcePolicy.needsStaging(token, StagedResourcePolicy.generationToken(dropped))
+    === true, 'so is a package with one fewer artifact');
+  const added: StagedArtifact[] = [...set, { name: 'wubi.db', size: 4096 }];
+  check(StagedResourcePolicy.needsStaging(token, StagedResourcePolicy.generationToken(added))
+    === true, 'and one with an extra, which is the case that fails verification');
+  check(StagedResourcePolicy.needsStaging(null, token) === true, 'no marker means never staged');
+});
+
+group('an undescribable package is staged rather than skipped', () => {
+  check(StagedResourcePolicy.generationToken([]) === '', 'an empty package describes nothing');
+  check(StagedResourcePolicy.needsStaging('anything', '') === true,
+    'copying twice costs a moment; skipping when it was needed costs a keyboard that will not start');
+  check(StagedResourcePolicy.generationToken([{ name: 'a:b', size: 1 }]) === '',
+    'a name carrying the separator would make two packages look alike');
+  check(StagedResourcePolicy.generationToken([{ name: 'a', size: -1 }]) === '',
+    'and a nonsense size describes nothing either');
+  const reordered: string = StagedResourcePolicy.generationToken(
+    [{ name: 'b', size: 2 }, { name: 'a', size: 1 }]);
+  const ordered: string = StagedResourcePolicy.generationToken(
+    [{ name: 'a', size: 1 }, { name: 'b', size: 2 }]);
+  check(reordered === ordered,
+    'the filesystem ordering is not guaranteed and must not change the token');
 });
 
 group('the mode badge is built only when the shared preference allows it', () => {
