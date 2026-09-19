@@ -40,6 +40,9 @@ import { QuickPunctuationPolicy, PunctuationEntry }
   from '../entry/src/main/ets/keyboard/input/QuickPunctuationPolicy';
 import { SmartPunctuationContext } from
   '../entry/src/main/ets/keyboard/input/SmartPunctuationContext';
+import {
+  SmartPunctuationRepeatPolicy, SmartPunctuationRepeatSnapshot
+} from '../entry/src/main/ets/keyboard/input/SmartPunctuationRepeatPolicy';
 import { PairedPunctuationPolicy } from
   '../entry/src/main/ets/keyboard/input/PairedPunctuationPolicy';
 import { ReturnKeyAction } from '../entry/src/main/ets/keyboard/input/ReturnKeyAction';
@@ -1158,6 +1161,30 @@ group('bounds Harmony smart punctuation editor context', () => {
     'supplementary context is reduced to one scalar');
   check(SmartPunctuationContext.precedingCodePoint('fixture\ud800') === 0,
     'unpaired surrogate context is rejected');
+});
+
+group('replaces a repeated smart ASCII mark only in the same short-lived editor state', () => {
+  const first: SmartPunctuationRepeatSnapshot | null = SmartPunctuationRepeatPolicy.snapshot(
+    0x2c, ',', 1000, 4);
+  check(first !== null, 'ASCII comma arms the repeat state');
+  check(SmartPunctuationRepeatPolicy.shouldReplace(first, 0x2c, 0x2c, 2999, 4,
+    true, true, false, 0), 'same mark and editor within two seconds replaces');
+  check(!SmartPunctuationRepeatPolicy.shouldReplace(first, 0x2c, 0x2c, 3001, 4,
+    true, true, false, 0), 'the repeat window expires');
+  check(!SmartPunctuationRepeatPolicy.shouldReplace(first, 0x2e, 0x2c, 1500, 4,
+    true, true, false, 0), 'a different mark does not replace');
+  check(!SmartPunctuationRepeatPolicy.shouldReplace(first, 0x2c, 0x2c, 1500, 5,
+    true, true, false, 0), 'a different editor does not replace');
+  check(!SmartPunctuationRepeatPolicy.shouldReplace(first, 0x2c, 0x2c, 1500, 4,
+    true, true, true, 0), 'composition blocks replacement');
+  check(!SmartPunctuationRepeatPolicy.shouldReplace(first, 0x2c, 0x2c, 1500, 4,
+    true, true, false, 1), 'candidates block replacement');
+  check(!SmartPunctuationRepeatPolicy.shouldReplace(first, 0x2c, 0x2c, 1500, 4,
+    false, true, false, 0), 'smart punctuation can disable replacement');
+  check(SmartPunctuationRepeatPolicy.chineseMark(0x2e) === '。', 'period maps to ideographic full stop');
+  check(SmartPunctuationRepeatPolicy.chineseMark(0x3a) === '：', 'colon maps to full-width colon');
+  check(SmartPunctuationRepeatPolicy.snapshot(0x2c, '，', 1000, 4) !== null,
+    'a full-width ASCII mark remains replaceable when full-width input is enabled');
 });
 
 group('completes Engine opening punctuation only when paired mode is enabled', () => {

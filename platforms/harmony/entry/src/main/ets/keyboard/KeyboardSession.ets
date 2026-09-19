@@ -49,6 +49,9 @@ import {
 import { SmartPunctuationContext } from './input/SmartPunctuationContext';
 import { PairedPunctuationPolicy, PairedPunctuationCompletion } from
   './input/PairedPunctuationPolicy';
+import {
+  SmartPunctuationRepeatPolicy, SmartPunctuationRepeatSnapshot
+} from './input/SmartPunctuationRepeatPolicy';
 
 // Shapes of the JSON the shared C ABI answers with. Only the fields this minimal surface reads are
 // declared; the responses carry considerably more.
@@ -380,7 +383,10 @@ interface PreparedPreferences {
   theme: string;
   traditional_chinese_output: boolean;
   chinese_punctuation: boolean;
+  smart_punctuation: boolean;
+  smart_punctuation_repeat: boolean;
   paired_punctuation: boolean;
+  punctuation_lock: string;
   floating_toolbar: PreparedFloatingToolbar;
   candidate_english_gloss: boolean;
   /** Tenths of a vp, which is the unit the shared settings store these in. */
@@ -815,6 +821,10 @@ export class KeyboardSession {
       this.profileName = preferences.shuangpin_profile;
       this.traditional = preferences.traditional_chinese_output;
       this.chinesePunctuation = preferences.chinese_punctuation;
+      this.smartPunctuation = preferences.smart_punctuation !== false;
+      this.smartPunctuationRepeat = preferences.smart_punctuation_repeat !== false;
+      this.punctuationLock = preferences.punctuation_lock;
+      this.clearSmartPunctuationRepeat();
       this.toolbar = preferences.floating_toolbar;
       this.nineKeyMode = preferences.touch_keyboard_layout === 'nine_key'
         && preferences.scheme === 'quanpin';
@@ -987,6 +997,7 @@ export class KeyboardSession {
         break;
       case ToolbarButton.PUNCTUATION:
         this.chinesePunctuation = !this.chinesePunctuation;
+        this.clearSmartPunctuationRepeat();
         this.writePreference('chinese_punctuation', this.chinesePunctuation);
         break;
       case ToolbarButton.FULL_WIDTH:
@@ -1157,6 +1168,7 @@ export class KeyboardSession {
   /** The framework hands over a fresh client on every inputStart. */
   attach(inputClient: inputMethodEngine.InputClient): void {
     const editorGeneration: number = ++this.editorGeneration;
+    this.clearSmartPunctuationRepeat();
     this.inputClient = inputClient;
     inputClient.getEditorAttribute().then((attribute: inputMethodEngine.EditorAttribute): void => {
       if (editorGeneration !== this.editorGeneration || this.inputClient !== inputClient) {
@@ -1187,6 +1199,7 @@ export class KeyboardSession {
 
   detach(): void {
     this.editorGeneration++;
+    this.clearSmartPunctuationRepeat();
     this.cancelOnlineProviders();
     if (this.handle !== 0) {
       this.apply(client.focus(this.handle, false));
@@ -1196,6 +1209,7 @@ export class KeyboardSession {
 
   stop(): void {
     this.editorGeneration++;
+    this.clearSmartPunctuationRepeat();
     this.cancelOnlineProviders();
     if (this.handle !== 0) {
       client.destroy(this.handle);
@@ -1319,6 +1333,7 @@ export class KeyboardSession {
   }
 
   press(ascii: number, shift: boolean): void {
+    this.clearSmartPunctuationRepeat();
     if (!this.composes()) {
       // Straight to the editor, with no composition and nothing learned. A password or a one-time
       // code is not something an input method should be holding, let alone remembering.
@@ -1346,10 +1361,34 @@ export class KeyboardSession {
       // Editor context is optional; zero deliberately falls back to Engine punctuation.
       KeyboardLog.error(`editor punctuation context unavailable: ${describeError(error)}`);
     }
+    const now: number = Date.now();
+    if (SmartPunctuationRepeatPolicy.shouldReplace(
+      this.smartPunctuationSnapshot, ascii, preceding, now, this.editorGeneration,
+      this.smartPunctuation, this.smartPunctuationRepeat, this.editing.length > 0,
+      this.currentCandidates.length)) {
+      const chinese: string | null = SmartPunctuationRepeatPolicy.chineseMark(ascii);
+      if (chinese !== null) {
+        try {
+          // deleteBackwardSync(1) removes the one scalar just before the caret. The preceding
+          // scalar was checked above, so a replacement cannot consume unrelated text.
+          this.inputClient.deleteBackwardSync(1);
+          this.inputClient.insertTextSync(chinese);
+          this.recordTypingStatistics(chinese, this.typingSource());
+          this.clearSmartPunctuationRepeat();
+          return;
+        } catch (error) {
+          KeyboardLog.error(`repeated punctuation replacement unavailable: ${describeError(error)}`);
+          this.clearSmartPunctuationRepeat();
+        }
+      }
+    }
+
     const raw: string = client.punctuationWithContext(this.handle, ascii, preceding);
     let completion: PairedPunctuationCompletion | null = null;
+    let committed: string | null | undefined = null;
     try {
       const response: Response = JSON.parse(raw) as Response;
+      if (response.ok) committed = response.value.commit;
       completion = response.ok
         ? PairedPunctuationPolicy.completion(response.value.commit,
           this.appearance.pairedPunctuation) : null;
@@ -1357,6 +1396,30 @@ export class KeyboardSession {
       KeyboardLog.error(`paired punctuation response unavailable: ${describeError(error)}`);
     }
     this.apply(raw);
+    // PunctuationAscii intentionally has no Engine commit while idle. In that route the host must
+    // write the literal mark itself; this is also the state from which a repeated smart mark can
+    // be replaced on the next press.
+    if ((committed === null || committed === undefined || committed.length === 0)
+        && this.inputClient !== undefined && this.editing.length === 0
+        && this.currentCandidates.length === 0) {
+      try {
+        const literal: string = FullWidthInputPolicy.output(String.fromCharCode(ascii), this.fullWidth)
+          ?? String.fromCharCode(ascii);
+        this.inputClient.insertTextSync(literal);
+        this.recordTypingStatistics(literal, this.typingSource());
+        if (this.canArmSmartPunctuationRepeat(ascii, preceding)) {
+          this.smartPunctuationSnapshot = SmartPunctuationRepeatPolicy.snapshot(
+            ascii, literal, now, this.editorGeneration);
+        } else {
+          this.clearSmartPunctuationRepeat();
+        }
+      } catch (error) {
+        KeyboardLog.error(`ASCII punctuation insertion unavailable: ${describeError(error)}`);
+        this.clearSmartPunctuationRepeat();
+      }
+    } else {
+      this.clearSmartPunctuationRepeat();
+    }
     if (completion === null || this.inputClient === undefined) return;
     try {
       this.inputClient.insertTextSync(completion.closing);
@@ -1557,6 +1620,10 @@ export class KeyboardSession {
   private vibratorFailed: boolean = false;
   private traditional: boolean = false;
   private chinesePunctuation: boolean = true;
+  private smartPunctuation: boolean = true;
+  private smartPunctuationRepeat: boolean = true;
+  private punctuationLock: string = 'follow';
+  private smartPunctuationSnapshot: SmartPunctuationRepeatSnapshot | null = null;
   private toolbar: PreparedFloatingToolbar = {
     enabled: true, english_mode: true, punctuation: true, fullwidth: true, character_set: true,
     emoji: true, screen_keyboard: false, scale_percent: 100, font_size: 20
@@ -2372,6 +2439,21 @@ export class KeyboardSession {
   private typingSource(): string {
     return TypingStatisticsPolicy.source(this.schemeName, this.profileName, this.englishMode,
       this.nineKeyMode, this.localMode);
+  }
+
+  private clearSmartPunctuationRepeat(): void {
+    this.smartPunctuationSnapshot = null;
+  }
+
+  private canArmSmartPunctuationRepeat(ascii: number, preceding: number): boolean {
+    const view: EngineView | undefined = this.lastView;
+    const dedicatedEnglish: boolean = view?.dedicated_english ?? this.englishMode;
+    return this.smartPunctuation && this.smartPunctuationRepeat
+      && this.chinesePunctuation && this.punctuationLock === 'follow'
+      && !dedicatedEnglish && this.localMode === 'none' && this.schemeName !== 'japanese'
+      && this.editing.length === 0 && this.currentCandidates.length === 0
+      && SmartPunctuationRepeatPolicy.chineseMark(ascii) !== null
+      && SmartPunctuationRepeatPolicy.isAsciiAlphanumeric(preceding);
   }
 
   private recordTypingStatistics(text: string, source: string): void {
