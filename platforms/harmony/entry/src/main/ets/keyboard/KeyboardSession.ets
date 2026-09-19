@@ -455,6 +455,8 @@ interface PreparedPreferences {
   candidate_font_size: number;
   candidate_preedit_font_size: number;
   candidate_font_family: string;
+  /** Named first so Latin comes from it and Han falls through; absent means one family answers. */
+  candidate_english_font?: string | null;
   candidate_fallback_fonts: string[];
   candidate_text_color: string | null;
   candidate_accent_color: string | null;
@@ -580,6 +582,7 @@ export interface KeyboardPreferences {
   readonly candidateFontSize: number;
   readonly candidatePreeditFontSize: number;
   readonly candidateFontFamily: string;
+  readonly candidateEnglishFont: string | null;
   readonly candidateFallbackFonts: string[];
   readonly candidateTextColor: string | null;
   readonly candidateAccentColor: string | null;
@@ -717,6 +720,7 @@ export class KeyboardSession {
     candidateFontSize: 18,
     candidatePreeditFontSize: 15,
     candidateFontFamily: 'Noto Sans SC',
+    candidateEnglishFont: null,
     candidateFallbackFonts: ['Noto Sans SC', 'Microsoft YaHei'],
     candidateTextColor: null,
     candidateAccentColor: null,
@@ -973,6 +977,7 @@ export class KeyboardSession {
           Math.max(12, Math.min(32, preferences.candidate_preedit_font_size)),
         candidateFontFamily: preferences.candidate_font_family.trim().length > 0
           ? preferences.candidate_font_family : 'Noto Sans SC',
+        candidateEnglishFont: preferences.candidate_english_font ?? null,
         candidateFallbackFonts: preferences.candidate_fallback_fonts.filter(
           (font: string): boolean => font.trim().length > 0),
         candidateTextColor: preferences.candidate_text_color ?? skinPalette?.text ?? null,

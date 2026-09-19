@@ -18,6 +18,7 @@ import {
 import { JapaneseNineKeyActions } from './input/JapaneseNineKeyActions';
 import { JapaneseVariantPolicy } from './input/JapaneseVariantPolicy';
 import { CandidateManagementAction, ManagementAction } from './candidate/CandidateManagementAction';
+import { CandidateFontFamilyPolicy } from './candidate/CandidateFontFamilyPolicy';
 import { CandidateSkinPolicy } from './candidate/CandidateSkinPolicy';
 import { CandidateWheelPolicy } from './candidate/CandidateWheelPolicy';
 import { KeyboardMetrics } from './KeyboardMetrics';
@@ -890,20 +891,10 @@ struct KeyboardView {
     };
   }
 
-  /**
-   * ArkUI accepts a CSS-style family list, so the shared primary family and
-   * fallback order can travel through one Text modifier. Keeping this at the
-   * view boundary also means malformed legacy entries cannot create an empty
-   * family declaration.
-   */
+  /** The shared English/primary/fallback order, as one CSS-style list for a Text modifier. */
   private candidateFontFamily(): string {
-    const families: string[] = [this.settings.candidateFontFamily];
-    for (const fallback of this.settings.candidateFallbackFonts) {
-      if (fallback.length > 0 && !families.includes(fallback)) {
-        families.push(fallback);
-      }
-    }
-    return families.join(', ');
+    return CandidateFontFamilyPolicy.families(this.settings.candidateFontFamily,
+      this.settings.candidateEnglishFont, this.settings.candidateFallbackFonts);
   }
 
   private candidateTextColor(): string {
