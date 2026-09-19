@@ -194,6 +194,8 @@ struct KeyboardView {
   @State feedback: FeedbackSettings = KeyboardFeedback.DEFAULTS;
   @State traditional: boolean = false;
   @State voiceSkin: KeyboardSkin = KeyboardSkin.from('forest', false);
+  @State emojiSkin: KeyboardSkin = KeyboardSkin.from('forest', false);
+  @State handwritingSkin: KeyboardSkin = KeyboardSkin.from('forest', false);
   @State english: boolean = false;
   /** Which surface the toolbar asked this window to carry, on a machine with no key faces. */
   @State desktop: DesktopSurface = DesktopSurface.NONE;
@@ -302,6 +304,12 @@ struct KeyboardView {
     this.skin = KeyboardSession.shared.skin(this.settings.skinId, this.settings.dark);
     this.voiceSkin = KeyboardSession.shared.skin(this.settings.skinId,
       KeyboardSkin.resolveDark(this.settings.voiceTheme, this.settings.globalTheme,
+        this.settings.dark));
+    this.emojiSkin = KeyboardSession.shared.skin(this.settings.skinId,
+      KeyboardSkin.resolveDark(this.settings.emojiTheme, this.settings.globalTheme,
+        this.settings.dark));
+    this.handwritingSkin = KeyboardSession.shared.skin(this.settings.skinId,
+      KeyboardSkin.resolveDark(this.settings.handwritingTheme, this.settings.globalTheme,
         this.settings.dark));
     this.candidateSkin = KeyboardSkin.from(
       CandidateSkinPolicy.harmonySkin(this.settings.candidateSkinId, this.settings.candidateSkinBase),
@@ -663,6 +671,12 @@ struct KeyboardView {
     this.skin = choice;
     this.voiceSkin = KeyboardSession.shared.skin(choice.id,
       KeyboardSkin.resolveDark(this.settings.voiceTheme, this.settings.globalTheme,
+        this.settings.dark));
+    this.emojiSkin = KeyboardSession.shared.skin(choice.id,
+      KeyboardSkin.resolveDark(this.settings.emojiTheme, this.settings.globalTheme,
+        this.settings.dark));
+    this.handwritingSkin = KeyboardSession.shared.skin(choice.id,
+      KeyboardSkin.resolveDark(this.settings.handwritingTheme, this.settings.globalTheme,
         this.settings.dark));
     this.show(SURFACE_NONE);
   }
@@ -1549,7 +1563,7 @@ struct KeyboardView {
   private redrawHandwriting(): void {
     const context: CanvasRenderingContext2D = this.handwritingContext;
     context.clearRect(0, 0, HANDWRITING_CANVAS_SIZE, HANDWRITING_CANVAS_SIZE);
-    context.strokeStyle = this.skin.keyForeground;
+    context.strokeStyle = this.handwritingSkin.keyForeground;
     context.lineWidth = 4;
     context.lineCap = 'round';
     context.lineJoin = 'round';
@@ -1885,20 +1899,20 @@ struct KeyboardView {
       Row() {
         Text('手写输入')
           .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
-          .fontColor(this.skin.keyForeground)
+          .fontColor(this.handwritingSkin.keyForeground)
           .layoutWeight(1)
         Text('撤销')
           .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-          .fontColor(this.skin.accent)
+          .fontColor(this.handwritingSkin.accent)
           .onClick(() => this.undoHandwriting())
         Text('重做')
           .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-          .fontColor(this.skin.accent)
+          .fontColor(this.handwritingSkin.accent)
           .padding({ left: 12 })
           .onClick(() => this.redoHandwriting())
         Text('清除')
           .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-          .fontColor(this.skin.accent)
+          .fontColor(this.handwritingSkin.accent)
           .padding({ left: 12 })
           .onClick(() => this.clearHandwriting())
       }
@@ -1911,10 +1925,10 @@ struct KeyboardView {
         .id(HANDWRITING_CANVAS_ID)
         .width('100%')
         .height(this.surfaceHeight() * 0.58)
-        .backgroundColor(this.skin.keyBackground)
+        .backgroundColor(this.handwritingSkin.keyBackground)
         .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
-        .borderWidth(this.skin.borderWidth)
-        .borderColor(this.skin.borderColor)
+        .borderWidth(this.handwritingSkin.borderWidth)
+        .borderColor(this.handwritingSkin.borderColor)
         .onReady(() => this.redrawHandwriting())
         .onTouch((event: TouchEvent): void => this.handwritingTouch(event))
 
@@ -1923,11 +1937,11 @@ struct KeyboardView {
           ForEach(this.handwritingCandidates, (candidate: string) => {
             Text(candidate)
               .fontSize(KeyboardMetrics.KEY_FONT_SIZE)
-              .fontColor(this.skin.keyForeground)
+              .fontColor(this.handwritingSkin.keyForeground)
               .textAlign(TextAlign.Center)
               .layoutWeight(1)
               .padding({ top: 8, bottom: 8 })
-              .backgroundColor(this.skin.keyBackground)
+              .backgroundColor(this.handwritingSkin.keyBackground)
               .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
               .onClick(() => this.chooseHandwriting(candidate));
           }, (candidate: string): string => candidate)
@@ -1937,13 +1951,14 @@ struct KeyboardView {
       if (this.handwritingNotice.length > 0) {
         Text(this.handwritingNotice)
           .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-          .fontColor(this.skin.keyForeground)
+          .fontColor(this.handwritingSkin.keyForeground)
           .opacity(0.72)
           .maxLines(1)
       }
     }
     .width('100%')
     .height(this.surfaceHeight())
+    .backgroundColor(this.handwritingSkin.background)
   }
 
   /**
@@ -2781,7 +2796,7 @@ struct KeyboardView {
       Row() {
         Text('\u2039')
           .fontSize(KeyboardMetrics.KEY_FONT_SIZE)
-          .fontColor(this.skin.accent)
+          .fontColor(this.emojiSkin.accent)
           .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP, right: 10 })
           .onClick(() => {
             this.show(SURFACE_NONE);
@@ -2789,11 +2804,11 @@ struct KeyboardView {
         Blank()
         Text('表情')
           .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
-          .fontColor(this.skin.keyForeground)
+          .fontColor(this.emojiSkin.keyForeground)
         if (this.emojiShowingRecents && this.emojiRecents.length > 0) {
           Text('清除最近')
             .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-            .fontColor(this.skin.accent)
+            .fontColor(this.emojiSkin.accent)
             .padding({ left: 8, right: 8 })
             .onClick(() => this.clearEmojiRecents())
         }
@@ -2818,7 +2833,7 @@ struct KeyboardView {
             Text(panel.title)
               .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
               .fontColor(this.emojiPanel === panel.id
-                ? this.skin.accent : this.skin.keyForeground)
+                ? this.emojiSkin.accent : this.emojiSkin.keyForeground)
               .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
                 right: KeyboardMetrics.CANDIDATE_PADDING_VP })
               .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 5)
@@ -2837,7 +2852,7 @@ struct KeyboardView {
           if (this.emojiPanel === EMOJI_PANEL && this.emojiRecents.length > 0) {
             Text('最近')
               .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-              .fontColor(this.emojiShowingRecents ? this.skin.accent : this.skin.keyForeground)
+              .fontColor(this.emojiShowingRecents ? this.emojiSkin.accent : this.emojiSkin.keyForeground)
               .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
                 right: KeyboardMetrics.CANDIDATE_PADDING_VP })
               .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 5)
@@ -2848,7 +2863,7 @@ struct KeyboardView {
               Text(category.title)
                 .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
                 .fontColor(!this.emojiShowingRecents && category.group === this.emojiGroup
-                  ? this.skin.accent : this.skin.keyForeground)
+                  ? this.emojiSkin.accent : this.emojiSkin.keyForeground)
                 .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
                   right: KeyboardMetrics.CANDIDATE_PADDING_VP })
                 .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 5)
@@ -2859,7 +2874,7 @@ struct KeyboardView {
               Text(group)
                 .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
                 .fontColor(group === this.emojiGroup
-                  ? this.skin.accent : this.skin.keyForeground)
+                  ? this.emojiSkin.accent : this.emojiSkin.keyForeground)
                 .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
                   right: KeyboardMetrics.CANDIDATE_PADDING_VP })
                 .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 5)
@@ -2870,7 +2885,7 @@ struct KeyboardView {
               Text(group.title)
                 .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
                 .fontColor(group.parent === this.emojiSymbolParent
-                  ? this.skin.accent : this.skin.keyForeground)
+                  ? this.emojiSkin.accent : this.emojiSkin.keyForeground)
                 .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
                   right: KeyboardMetrics.CANDIDATE_PADDING_VP })
                 .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 5)
@@ -2893,6 +2908,7 @@ struct KeyboardView {
           GridItem() {
             Text(item)
               .fontSize(KeyboardMetrics.CANDIDATE_FONT_SIZE + 4)
+              .fontColor(this.emojiSkin.keyForeground)
               .textAlign(TextAlign.Center)
               .width('100%')
               .onClick(() => this.selectEmoji(item))
@@ -2905,6 +2921,7 @@ struct KeyboardView {
     }
     .width('100%')
     .height(this.surfaceHeight())
+    .backgroundColor(this.emojiSkin.background)
   }
 
   @Builder

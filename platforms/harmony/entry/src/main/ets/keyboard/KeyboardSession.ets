@@ -425,6 +425,10 @@ interface PreparedPreferences {
   screen_keyboard_theme: string;
   /** 'follow', 'dark' or 'light' for the voice panel; it falls back to the global theme. */
   voice_theme?: string;
+  /** 'follow', 'dark' or 'light' for the emoji panel; it falls back to the global theme. */
+  emoji_theme?: string;
+  /** 'follow', 'dark' or 'light' for the handwriting panel; it falls back to the global theme. */
+  handwriting_theme?: string;
   theme: string;
   traditional_chinese_output: boolean;
   chinese_punctuation: boolean;
@@ -507,6 +511,8 @@ export interface KeyboardPreferences {
   readonly pairedPunctuation: boolean;
   readonly keyboardTheme: string;
   readonly voiceTheme: string;
+  readonly emojiTheme: string;
+  readonly handwritingTheme: string;
   readonly globalTheme: string;
   readonly scheme: string;
   readonly shuangpinProfile: string;
@@ -632,6 +638,8 @@ export class KeyboardSession {
     pairedPunctuation: true,
     keyboardTheme: 'follow',
     globalTheme: 'system',
+    emojiTheme: 'follow',
+    handwritingTheme: 'follow',
     scheme: 'quanpin',
     shuangpinProfile: 'xiaohe',
     layout: 'twenty_six_key',
@@ -865,6 +873,8 @@ export class KeyboardSession {
         pairedPunctuation: preferences.paired_punctuation !== false,
         keyboardTheme: preferences.screen_keyboard_theme,
         voiceTheme: preferences.voice_theme ?? 'follow',
+        emojiTheme: preferences.emoji_theme ?? 'follow',
+        handwritingTheme: preferences.handwriting_theme ?? 'follow',
         globalTheme: preferences.theme,
         scheme: preferences.scheme,
         shuangpinProfile: preferences.shuangpin_profile,
