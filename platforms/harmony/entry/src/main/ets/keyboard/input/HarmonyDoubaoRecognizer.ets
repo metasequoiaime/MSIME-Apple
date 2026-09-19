@@ -1,7 +1,7 @@
 import audio from '@ohos.multimedia.audio';
 import webSocket from '@ohos.net.webSocket';
 import util from '@ohos.util';
-import client from 'libmsimeclient.so';
+import client, { DoubaoFrameResult } from 'libmsimeclient.so';
 import { KeyboardLog, describeError } from '../KeyboardLog';
 import { VoiceRecognitionPolicy } from './VoiceRecognitionPolicy';
 import { HarmonyVoiceCaptureDevices } from './HarmonyVoiceCaptureDevices';
@@ -26,11 +26,6 @@ interface DoubaoResponseDocument {
   payload_msg?: DoubaoResponseBody;
   code?: number;
   error?: Object | null;
-}
-
-interface DoubaoFrameResult {
-  last: boolean;
-  payload: string;
 }
 
 interface DoubaoStartRequestBody {
@@ -286,7 +281,7 @@ export class HarmonyDoubaoRecognizer {
       if (typeof value === 'string') void this.fail('豆包返回了无效的二进制响应。', token);
       return;
     }
-    const decoded: DoubaoFrameResult | null = client.doubaoDecodeFrame(value) as DoubaoFrameResult | null;
+    const decoded: DoubaoFrameResult | null = client.doubaoDecodeFrame(value);
     if (decoded === null || decoded.payload.length > 1024 * 1024) {
       void this.fail('豆包返回了无效响应。', token);
       return;
