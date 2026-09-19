@@ -621,7 +621,7 @@ test("input parity controls persist cloud, translation and punctuation settings"
     cloud_candidates: false,
     candidate_translations: false,
     translation_target_language: "ja",
-    smart_punctuation: false,
+    smart_punctuation: true,
     punctuation_lock: "english",
   });
 });
@@ -1788,6 +1788,10 @@ test("touch keyboard geometry mirrors Apple defaults and persists height and spa
   expect(screen.getByText("0 dp")).toBeDefined();
   expect(screen.getByText("6.0 dp")).toBeDefined();
   expect(screen.getByText("7.0 dp")).toBeDefined();
+  const preview = screen.getByRole("img", { name: "屏幕键盘完整布局预览" });
+  expect(preview.getAttribute("data-key-spacing")).toBe("6.0");
+  expect(preview.getAttribute("data-row-spacing")).toBe("7.0");
+  expect(preview.getAttribute("data-keyboard-height")).toBe("400");
   const voice = screen.getByRole("checkbox", { name: "顶部语音入口" }) as HTMLInputElement;
   expect(voice.checked).toBe(false);
   fireEvent.change(height, { target: { value: "24" } });
@@ -1797,6 +1801,9 @@ test("touch keyboard geometry mirrors Apple defaults and persists height and spa
   expect(screen.getByText("+24 dp")).toBeDefined();
   expect(screen.getByText("3.5 dp")).toBeDefined();
   expect(screen.getByText("9.5 dp")).toBeDefined();
+  expect(preview.getAttribute("data-key-spacing")).toBe("3.5");
+  expect(preview.getAttribute("data-row-spacing")).toBe("9.5");
+  expect(preview.getAttribute("data-keyboard-height")).toBe("424");
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(save).toHaveBeenCalledWith(7, {

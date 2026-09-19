@@ -67,7 +67,7 @@ function keyPath(x: number, y: number, width: number, height: number, shape: str
   return `M${x + r} ${y}H${x + width - r}Q${x + width} ${y} ${x + width} ${y + r}V${y + height - r}Q${x + width} ${y + height} ${x + width - r} ${y + height}H${x + r}Q${x} ${y + height} ${x} ${y + height - r}V${y + r}Q${x} ${y} ${x + r} ${y}Z`;
 }
 
-export function ScreenKeyboardPreview({ theme, skin = "forest", compact = false, customDesign }: { theme: "dark" | "light"; skin?: TouchKeyboardSkin; compact?: boolean; customDesign?: TouchKeyboardSkinDesign }) {
+export function ScreenKeyboardPreview({ theme, skin = "forest", compact = false, customDesign, keySpacingTenths = 60, rowSpacingTenths = 70, heightAdjustment = 0 }: { theme: "dark" | "light"; skin?: TouchKeyboardSkin; compact?: boolean; customDesign?: TouchKeyboardSkinDesign; keySpacingTenths?: number; rowSpacingTenths?: number; heightAdjustment?: number }) {
   const custom = skin === "custom" && customDesign ? customDesign : undefined;
   const option = optionFor(skin === "custom" ? "forest" : skin);
   const palette = custom ? {
@@ -92,8 +92,15 @@ export function ScreenKeyboardPreview({ theme, skin = "forest", compact = false,
   const backgroundId = `touch-skin-background-${unique}`;
   const keyMaterialId = `touch-skin-key-material-${unique}`;
   const actionMaterialId = `touch-skin-action-material-${unique}`;
-  const height = (400 - 28 - 7 - 4 * 4) / 5;
-  return <svg className={`screen-keyboard-artwork${compact ? " compact" : ""}`} data-preview-theme={theme} data-preview-skin={skin} data-key-shape={keyShape} data-key-material={keyMaterial} viewBox="0 0 1100 400" role={compact ? undefined : "img"} aria-hidden={compact || undefined} aria-label={compact ? undefined : "屏幕键盘完整布局预览"} style={{ fontFamily: monospaced ? "ui-monospace, SFMono-Regular, Consolas, monospace" : undefined }}>
+  const keySpacing = Math.min(6, Math.max(3, keySpacingTenths / 10));
+  const rowSpacing = Math.min(10, Math.max(4, rowSpacingTenths / 10));
+  const canvasHeight = 400 + Math.min(48, Math.max(-12, heightAdjustment));
+  // Keep the default artwork byte-for-byte equivalent while making the
+  // non-default geometry visibly track the iOS keyboard settings sliders.
+  const keyGap = 4 + keySpacing - 6;
+  const rowGap = 4 + rowSpacing - 7;
+  const height = (canvasHeight - 28 - 7 - rowGap * 4) / 5;
+  return <svg className={`screen-keyboard-artwork${compact ? " compact" : ""}`} data-preview-theme={theme} data-preview-skin={skin} data-key-shape={keyShape} data-key-material={keyMaterial} data-key-spacing={keySpacing.toFixed(1)} data-row-spacing={rowSpacing.toFixed(1)} data-keyboard-height={canvasHeight} viewBox={`0 0 1100 ${canvasHeight}`} role={compact ? undefined : "img"} aria-hidden={compact || undefined} aria-label={compact ? undefined : "屏幕键盘完整布局预览"} style={{ fontFamily: monospaced ? "ui-monospace, SFMono-Regular, Consolas, monospace" : undefined }}>
     <defs>
       <Pattern id={patternId} pattern={pattern} accent={palette.accent} opacity={custom?.patternOpacity ?? .15} />
       {shadowOpacity > 0 && <filter id={shadowId} x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy={shadowOffset} stdDeviation={shadowRadius} floodOpacity={shadowOpacity} /></filter>}
@@ -103,20 +110,20 @@ export function ScreenKeyboardPreview({ theme, skin = "forest", compact = false,
         <linearGradient id={actionMaterialId} x2="0" y2="1"><stop stopColor="#fff" stopOpacity={keyMaterial === "glass" ? .24 : .13} /><stop offset=".48" stopColor={palette.action} /><stop offset="1" stopColor="#000" stopOpacity={keyMaterial === "glass" ? .03 : .1} /></linearGradient>
       </>}
     </defs>
-    <rect width="1100" height="400" rx="8" fill={custom?.gradientEnd === undefined ? palette.background : `url(#${backgroundId})`} />
-    {custom?.photo && <><image href={`data:image/jpeg;base64,${custom.photo}`} width="1100" height="400" preserveAspectRatio={`${(custom.photoPosition ?? .5) < .34 ? "xMinYMin" : (custom.photoPosition ?? .5) > .66 ? "xMaxYMax" : "xMidYMid"} slice`} /><rect width="1100" height="400" fill="#000" fillOpacity={custom.photoShade ?? .25} /></>}
-    {pattern !== 0 && <rect width="1100" height="400" rx="8" fill={`url(#${patternId})`} />}
+    <rect width="1100" height={canvasHeight} rx="8" fill={custom?.gradientEnd === undefined ? palette.background : `url(#${backgroundId})`} />
+    {custom?.photo && <><image href={`data:image/jpeg;base64,${custom.photo}`} width="1100" height={canvasHeight} preserveAspectRatio={`${(custom.photoPosition ?? .5) < .34 ? "xMinYMin" : (custom.photoPosition ?? .5) > .66 ? "xMaxYMax" : "xMidYMid"} slice`} /><rect width="1100" height={canvasHeight} fill="#000" fillOpacity={custom.photoShade ?? .25} /></>}
+    {pattern !== 0 && <rect width="1100" height={canvasHeight} rx="8" fill={`url(#${patternId})`} />}
     <text x="10" y="14" dominantBaseline="middle" fontSize="12" fill={palette.accent}>Touch keyboard</text>
     <path d="M1075 9l10 10m0-10l-10 10" fill="none" stroke={palette.foreground} strokeWidth="2" />
     {rows.map((row, rowIndex) => {
-      const available = 1100 - 14 - 4 * (row.length - 1);
+      const available = 1100 - 14 - keyGap * (row.length - 1);
       const total = row.reduce((sum, item) => sum + item.weight, 0);
       let x = 7;
-      const y = 28 + rowIndex * (height + 4);
+      const y = 28 + rowIndex * (height + rowGap);
       return <g data-keyboard-row={rowIndex} key={rowIndex}>{row.map((item, index) => {
         const width = available * item.weight / total;
         const left = x;
-        x += width + 4;
+        x += width + keyGap;
         const action = actionLabels.has(item.label);
         const path = keyPath(left, y, width, height - (keyMaterial === "raised" ? 3 : 0), keyShape, cornerRadius);
         const depthPath = keyPath(left, y + 3, width, height - 3, keyShape, cornerRadius);
