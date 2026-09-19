@@ -271,9 +271,11 @@ note "reranker keystroke latency"
 # convert_eval answers whether reranking ranks correctly. This answers what it costs, and the two
 # move independently: a model swap, a wider lattice or a larger candidate page all change the
 # number. The benchmark has existed since 418b4fb78 and nothing ever ran it, so the frame budget it
-# checks was never actually enforced - it fails today, and the entry in known-failures.txt records
-# by how much. The measurement is machine-dependent, which is why it is compared as a pass/fail
-# name against that baseline rather than as a committed millisecond figure. It needs the sentence
+# checks was never actually enforced, and it was over it when this stage was added: p95 20.64ms
+# against 16.00ms, 9.8% of keystrokes past a frame. Resuming candidate scoring across keystrokes in
+# chinese-ime-lm brought that to 8.39ms and no keystroke over the budget, so this now gates rather
+# than records. The measurement is machine-dependent, which is why it is compared as a pass/fail
+# name against known-failures.txt rather than as a committed millisecond figure. It needs the sentence
 # model, which the resource lock ships, so the eval's own guard covers it too.
 if [ -n "${MSIME_EVAL_RESOURCES:-}" ] && [ -d "${MSIME_EVAL_RESOURCES:-}" ]; then
   if [ -f "$MSIME_EVAL_RESOURCES/sentence-model.safetensors" ]; then
