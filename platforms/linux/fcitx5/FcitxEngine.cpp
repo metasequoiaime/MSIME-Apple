@@ -625,7 +625,13 @@ public:
     if (!session_) return false;
     const auto width = view_.value("character_width", std::string("Halfwidth"));
     const bool fullwidth = !(width == "Fullwidth" || width == "fullwidth");
+    auto snapshot = preferences_snapshot_;
+    if (!snapshot.is_object() || !snapshot.contains("revision") ||
+        !snapshot.contains("preferences")) return false;
+    snapshot["preferences"]["character_width"] = fullwidth ? "fullwidth" : "halfwidth";
+    if (!applyPreferenceSnapshot(std::move(snapshot))) return false;
     view_ = response(msime_client_set_character_width(session_, fullwidth));
+    saveStringPreference("character_width", fullwidth ? "fullwidth" : "halfwidth");
     render();
     return true;
   }
