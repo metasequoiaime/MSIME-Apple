@@ -5143,17 +5143,18 @@ public final class MSIMEInputService extends InputMethodService {
             applyKeyboardGeometry();
             return;
         }
-        if (keyboardLayer == KeyboardLayout.Layer.LETTERS) {
-            if (displayedTouchLayout(view) == HANDWRITING_LAYOUT) {
-                rebuildHandwritingRows();
-                applyKeyboardGeometry();
-                return;
-            }
-            if (displayedTouchLayout(view) == QUANPIN_NINE_KEY_LAYOUT) {
-                rebuildNineKeyRows();
-                applyKeyboardGeometry();
-                return;
-            }
+        // 九键切数字仍然是九键。The digit layer keeps the grid the user picked three columns for;
+        // only handwriting hands its panel over to the 26-key symbol rows.
+        if (displayedTouchLayout(view) == QUANPIN_NINE_KEY_LAYOUT) {
+            rebuildNineKeyRows();
+            applyKeyboardGeometry();
+            return;
+        }
+        if (keyboardLayer == KeyboardLayout.Layer.LETTERS
+            && displayedTouchLayout(view) == HANDWRITING_LAYOUT) {
+            rebuildHandwritingRows();
+            applyKeyboardGeometry();
+            return;
         }
         boolean chineseMode = !dedicatedEnglish;
         boolean localMode = view != null
@@ -5241,14 +5242,18 @@ public final class MSIMEInputService extends InputMethodService {
 
         LinearLayout grid = new LinearLayout(this);
         grid.setOrientation(LinearLayout.VERTICAL);
+        boolean digits = keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
         for (java.util.List<NineKeyLayout.Key> keys : NineKeyLayout.rows()) {
             LinearLayout row = new LinearLayout(this);
             for (NineKeyLayout.Key key : keys) {
-                Button keyButton = keyboardKey(key.label(), key.description(),
-                    () -> character(key.input()));
-                if (Character.isDigit(key.input()) && key.label().length() > 1) {
-                    keyButton.setContentDescription("按键 " + key.description()
-                        + "；长按输入数字或字母");
+                String description = NineKeyLayout.description(key, digits);
+                // On the digit layer the grid is a numeric keypad, so a tap commits the number
+                // instead of feeding it to the pinyin session.
+                Button keyButton = keyboardKey(NineKeyLayout.face(key, digits), description,
+                    digits ? () -> commitNineKeyLiteral(NineKeyLayout.digitInput(key))
+                        : () -> character(key.input()));
+                if (!digits && Character.isDigit(key.input()) && key.label().length() > 1) {
+                    keyButton.setContentDescription("按键 " + description + "；长按输入数字或字母");
                     keyButton.setOnLongClickListener(ignored -> {
                         showNineKeyHoldOptions(keyButton, key);
                         return true;
@@ -6305,8 +6310,14 @@ public final class MSIMEInputService extends InputMethodService {
         }
         updateReturnKey();
         if (shiftButton != null) {
-            shiftButton.setVisibility(displayedTouchLayout(view) != STANDARD_TOUCH_LAYOUT
-                && keyboardLayer == KeyboardLayout.Layer.LETTERS ? View.GONE : View.VISIBLE);
+            // 九键切数字仍然是九键，没有大小写可切。Shift only returns when the symbol layer actually
+            // hands over to the 26-key rows, which the nine-key grids never do.
+            int shiftLayout = displayedTouchLayout(view);
+            boolean keepsOwnGrid = shiftLayout == QUANPIN_NINE_KEY_LAYOUT
+                || shiftLayout == JAPANESE_NINE_KEY_LAYOUT;
+            shiftButton.setVisibility(shiftLayout != STANDARD_TOUCH_LAYOUT
+                && (keepsOwnGrid || keyboardLayer == KeyboardLayout.Layer.LETTERS)
+                ? View.GONE : View.VISIBLE);
             shiftButton.setText(letterCase.keyText());
             shiftButton.setSelected(letterCase.usesUppercase());
             shiftButton.setActivated(letterCase.mode() == EnglishLetterCaseState.Mode.CAPS_LOCK);
