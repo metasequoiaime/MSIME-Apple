@@ -308,6 +308,18 @@ impl<E: InputEngine> Runtime<E> {
         self.character_width = width;
     }
 
+    /// Put text into the committed context without typing it.
+    ///
+    /// The context a candidate is ranked against is whatever the user just committed, and it is
+    /// what lets the model tell 会议 from 回忆. An evaluation harness has to be able to establish
+    /// that context: replaying it as keystrokes would make each case depend on how well the
+    /// *previous* sentence converted, which is precisely the confound a per-case measurement is
+    /// supposed to remove. Bounded and focus-gated exactly as a real commit is, so a seeded
+    /// session is indistinguishable from one that typed its way there.
+    pub fn seed_context(&mut self, text: &str) {
+        self.remember_commit(text);
+    }
+
     /// Switch the Engine's digit interpretation only after the host finishes composition.
     pub fn set_nine_key_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
         if enabled && self.cached.scheme != 0 {

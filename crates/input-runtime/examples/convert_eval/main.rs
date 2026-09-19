@@ -27,6 +27,12 @@ struct Case {
     gold: String,
     syllables: usize,
     tags: Vec<String>,
+    /// Text the user committed just before this case, seeded into the session before typing.
+    ///
+    /// Empty for the hand-written sets, which predate the column. Ranking 会议 above 回忆 is a
+    /// judgement about what came before, so a set that carries none cannot ask for one; harvested
+    /// cases bring the preceding sentence from the corpus they came from.
+    context: String,
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -124,6 +130,7 @@ fn load(path: &Path) -> Result<Vec<Case>, Box<dyn std::error::Error>> {
             input: fields[1].to_string(),
             gold: fields[2].to_string(),
             syllables: fields[3].parse()?,
+            context: fields.get(5).unwrap_or(&"").to_string(),
             tags: fields
                 .get(4)
                 .map(|t| {
@@ -211,6 +218,7 @@ fn run(
 
     for case in cases {
         runtime.dispatch(Action::Command(Command::Cancel))?;
+        runtime.seed_context(&case.context);
         for byte in case.input.bytes() {
             runtime.dispatch(Action::Character {
                 value: byte,
@@ -231,7 +239,7 @@ fn run(
             dumped.push_str(
                 &serde_json::json!({
                     "id": case.id, "input": case.input, "gold": case.gold,
-                    "context": "", "candidates": rows,
+                    "context": case.context, "candidates": rows,
                 })
                 .to_string(),
             );
