@@ -243,17 +243,39 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     options["preferences"] as? [String: Any]
   }
 
-  /// Persist touch keyboard geometry in the canonical PreferencesStore snapshot.
+  /// Show touch keyboard geometry on the live session while it is being dragged.
   /// Native App Group keys remain a compatibility layer for older hosts, but the
   /// shared snapshot is the source that is reloaded when the extension appears.
   @discardableResult
   func setTouchKeyboardGeometry(keySpacing: Double, rowSpacing: Double,
                                 heightAdjustment: Double, voiceEnabled: Bool) -> Bool {
-    guard keySpacing.isFinite, rowSpacing.isFinite, heightAdjustment.isFinite else { return false }
+    guard let mapping = Self.geometryMapping(keySpacing: keySpacing, rowSpacing: rowSpacing,
+                                             heightAdjustment: heightAdjustment,
+                                             voiceEnabled: voiceEnabled) else { return false }
+    return updatePreferences(mapping)
+  }
+
+  /// Commit the geometry the drag has been previewing.
+  ///
+  /// The drag emits on every gesture frame, so only the live session follows it; the shared
+  /// document is written once, when the user lets go of the grip or flips the switch.
+  @discardableResult
+  func persistTouchKeyboardGeometry(keySpacing: Double, rowSpacing: Double,
+                                    heightAdjustment: Double, voiceEnabled: Bool) -> Bool {
+    guard let mapping = Self.geometryMapping(keySpacing: keySpacing, rowSpacing: rowSpacing,
+                                             heightAdjustment: heightAdjustment,
+                                             voiceEnabled: voiceEnabled) else { return false }
+    return updateAndPersist(mapping)
+  }
+
+  private static func geometryMapping(keySpacing: Double, rowSpacing: Double,
+                                      heightAdjustment: Double,
+                                      voiceEnabled: Bool) -> ((inout [String: Any]) -> Void)? {
+    guard keySpacing.isFinite, rowSpacing.isFinite, heightAdjustment.isFinite else { return nil }
     let keySpacingTenths = Int((min(6, max(3, keySpacing)) * 10).rounded())
     let rowSpacingTenths = Int((min(10, max(4, rowSpacing)) * 10).rounded())
     let clampedHeight = Int(min(48, max(-12, heightAdjustment)).rounded())
-    return updatePreferences { preferences in
+    return { preferences in
       preferences["touch_key_spacing_tenths"] = keySpacingTenths
       preferences["touch_row_spacing_tenths"] = rowSpacingTenths
       preferences["touch_keyboard_height_adjustment"] = clampedHeight
@@ -264,7 +286,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   /// Remove touch geometry overrides so canonical defaults are used again.
   @discardableResult
   func resetTouchKeyboardGeometry() -> Bool {
-    updatePreferences { preferences in
+    updateAndPersist { preferences in
       preferences.removeValue(forKey: "touch_key_spacing_tenths")
       preferences.removeValue(forKey: "touch_row_spacing_tenths")
       preferences.removeValue(forKey: "touch_keyboard_height_adjustment")
@@ -313,8 +335,18 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
         "selected": selectedID,
       ]
     }
-    guard updatePreferences(mapping) else { return false }
-    persistSharedPreferences(mapping)
+    return updateAndPersist(mapping)
+  }
+
+  /// Apply a selection the user made in this keyboard to both places it has to hold.
+  ///
+  /// The live session answers this keyboard; the shared document answers every session created
+  /// after it, including the ones this bridge rebuilds for dictionary maintenance. A selection
+  /// that reached only the first was forgotten the moment the session went away.
+  @discardableResult
+  private func updateAndPersist(_ mutate: (inout [String: Any]) -> Void) -> Bool {
+    guard updatePreferences(mutate) else { return false }
+    persistSharedPreferences(mutate)
     return true
   }
 
@@ -369,7 +401,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   /// The native App Group value remains a compatibility mirror for old hosts.
   @discardableResult
   func setTouchKeyboardSkin(_ skin: KeyboardSkin) -> Bool {
-    updatePreferences { preferences in
+    updateAndPersist { preferences in
       preferences["touch_keyboard_skin"] = skin.rawValue
     }
   }
@@ -377,7 +409,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   /// Persist the touch host's Chinese output mode in the canonical snapshot.
   @discardableResult
   func setTraditionalChineseOutput(_ enabled: Bool) -> Bool {
-    updatePreferences { preferences in
+    updateAndPersist { preferences in
       preferences["traditional_chinese_output"] = enabled
     }
   }

@@ -1472,6 +1472,35 @@ final class NineKeyKeyboardTests: XCTestCase {
                    "nine_key")
   }
 
+  // The scheme is not the only thing the keyboard itself can change. Every one of these used to
+  // live on the session alone, so reloading the settings app's document put its older value back
+  // over the choice the user had just made, and a new session never saw the choice at all.
+  func testKeyboardSideSelectionsReachTheSharedDocument() throws {
+    let state = FileManager.default.temporaryDirectory
+      .appendingPathComponent("msime-selection-persist-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: state) }
+    var first: MetasequoiaInputSessionBridge? = MetasequoiaInputSessionBridge(stateRoot: state)
+    let bridge = try XCTUnwrap(first)
+    XCTAssertTrue(bridge.setTouchKeyboardSkin(.midnight))
+    XCTAssertTrue(bridge.setTraditionalChineseOutput(true))
+    XCTAssertTrue(bridge.persistTouchKeyboardGeometry(
+      keySpacing: 5, rowSpacing: 9, heightAdjustment: 12, voiceEnabled: true))
+    // A drag reports on every gesture frame and only previews on the live session; taking a file
+    // lock that often is what the separate commit above is for.
+    XCTAssertTrue(bridge.setTouchKeyboardGeometry(
+      keySpacing: 3, rowSpacing: 4, heightAdjustment: -5, voiceEnabled: false))
+    first = nil
+
+    let next = MetasequoiaInputSessionBridge(stateRoot: state)
+    let preferences = try XCTUnwrap(next.sharedPreferences)
+    XCTAssertEqual(preferences["touch_keyboard_skin"] as? String, "midnight")
+    XCTAssertEqual(preferences["traditional_chinese_output"] as? Bool, true)
+    XCTAssertEqual(preferences["touch_key_spacing_tenths"] as? Int, 50)
+    XCTAssertEqual(preferences["touch_row_spacing_tenths"] as? Int, 90)
+    XCTAssertEqual(preferences["touch_keyboard_height_adjustment"] as? Int, 12)
+    XCTAssertEqual(preferences["touch_voice_shortcut"] as? Bool, true)
+  }
+
   // Reloading the settings app's document replaced the session's preferences wholesale, dropping
   // the two values this host sets for itself along with them.
   func testSharedPreferenceReloadKeepsTheHostSessionContract() throws {

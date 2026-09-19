@@ -3152,12 +3152,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         self?.updatePreferredKeyboardHeight()
         self?.persistTouchKeyboardGeometry()
       },
+      onCommit: { [weak self] in self?.commitTouchKeyboardGeometry() },
       // Only the shortcut bar changes shape with this setting, so it is refreshed on its own. Going
       // through updateKeyboardLayout would rebuild the keys and drop a composition in progress.
       onVoice: { [weak self] enabled in
         KeyboardLayoutPreference.voiceShortcutEnabled = enabled
         self?.updateShortcutButtons()
-        self?.persistTouchKeyboardGeometry()
+        self?.commitTouchKeyboardGeometry()
       },
       onReset: { [weak self] in
         guard let self else { return }
@@ -3190,6 +3191,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func persistTouchKeyboardGeometry() {
     _ = session.setTouchKeyboardGeometry(
+      keySpacing: KeyboardLayoutPreference.keySpacing,
+      rowSpacing: KeyboardLayoutPreference.rowSpacing,
+      heightAdjustment: KeyboardLayoutPreference.heightAdjustment,
+      voiceEnabled: KeyboardLayoutPreference.voiceShortcutEnabled)
+  }
+
+  // The drags report on every gesture frame; the shared document is written once the value has
+  // settled, so a single adjustment does not take a file lock a hundred times.
+  private func commitTouchKeyboardGeometry() {
+    _ = session.persistTouchKeyboardGeometry(
       keySpacing: KeyboardLayoutPreference.keySpacing,
       rowSpacing: KeyboardLayoutPreference.rowSpacing,
       heightAdjustment: KeyboardLayoutPreference.heightAdjustment,
