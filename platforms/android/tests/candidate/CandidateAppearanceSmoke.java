@@ -1,4 +1,5 @@
 import app.msime.client.CandidateAppearance;
+import java.util.List;
 
 public final class CandidateAppearanceSmoke {
     static void check(boolean condition) { if (!condition) throw new AssertionError(); }
@@ -43,6 +44,19 @@ public final class CandidateAppearanceSmoke {
         check((CandidateAppearance.fromValues(
             "graphite", "light", "system", false, "", "", "", "", "", "", "")
             .selected() >>> 24) == 0);
+        CandidateAppearance.Palette fonts = CandidateAppearance.fromValues(
+            "fluent", "light", "system", false, "", "", "", "", "", "", "",
+            "Noto Sans CJK", "Noto Sans Mono", List.of("Microsoft YaHei", "Noto Sans SC"));
+        check("Noto Sans CJK".equals(fonts.fontFamily()));
+        check("Noto Sans Mono".equals(fonts.englishFont()));
+        check("Noto Sans Mono".equals(fonts.preferredFont()));
+        check(fonts.fallbackFonts().equals(List.of("Microsoft YaHei", "Noto Sans SC")));
+        CandidateAppearance.Palette invalidFonts = CandidateAppearance.fromValues(
+            "fluent", "light", "system", false, "", "", "", "", "", "", "",
+            "", "bad\nfont", List.of("", "x".repeat(129)));
+        check("Noto Sans SC".equals(invalidFonts.fontFamily()));
+        check(invalidFonts.englishFont().isEmpty());
+        check(invalidFonts.fallbackFonts().equals(List.of("Noto Sans SC", "Microsoft YaHei")));
         System.out.println("Android candidate appearance: skins, themes, overrides, alpha and fallback passed");
     }
 }

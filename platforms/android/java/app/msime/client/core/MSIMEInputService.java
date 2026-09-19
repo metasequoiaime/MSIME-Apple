@@ -1290,6 +1290,7 @@ public final class MSIMEInputService extends InputMethodService {
             button.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidateFontSize);
             button.setContentDescription("英文建议 " + (slot + 1) + "：" + text);
             styleButton(button, false);
+            button.setTypeface(candidateTypeface());
             activeCandidates.addView(button, new LinearLayout.LayoutParams(
                 candidateHorizontal ? LinearLayout.LayoutParams.WRAP_CONTENT
                     : LinearLayout.LayoutParams.MATCH_PARENT,
@@ -2238,6 +2239,14 @@ public final class MSIMEInputService extends InputMethodService {
         return drawable;
     }
 
+    private Typeface candidateTypeface() {
+        try {
+            return Typeface.create(candidateAppearance.preferredFont(), Typeface.NORMAL);
+        } catch (RuntimeException ignored) {
+            return Typeface.DEFAULT;
+        }
+    }
+
     private void styleCandidateButton(Button button) {
         StateListDrawable states = new StateListDrawable();
         states.addState(new int[] {android.R.attr.state_selected},
@@ -2253,7 +2262,7 @@ public final class MSIMEInputService extends InputMethodService {
         button.setTextColor(new ColorStateList(
             new int[][] {{android.R.attr.state_selected}, {}},
             new int[] {candidateAppearance.textFor(true), candidateAppearance.text()}));
-        button.setTypeface(Typeface.DEFAULT);
+        button.setTypeface(candidateTypeface());
         button.setElevation(0);
     }
 
@@ -2276,7 +2285,7 @@ public final class MSIMEInputService extends InputMethodService {
         } else if (node instanceof TextView) {
             TextView text = (TextView) node;
             text.setTextColor(candidate ? candidateAppearance.text() : Color.parseColor(skin.keyForeground()));
-            text.setTypeface(candidate ? Typeface.DEFAULT
+            text.setTypeface(candidate ? candidateTypeface()
                 : skin.monospaced() ? Typeface.MONOSPACE : Typeface.DEFAULT);
         }
         if (node instanceof android.view.ViewGroup) {
@@ -2317,8 +2326,14 @@ public final class MSIMEInputService extends InputMethodService {
             applySkinBackground(replyKeyboard);
         if (handwritingCanvas != null) handwritingCanvas.applySkin(skin);
         applySkinToView(keyboardRoot);
-        if (preedit != null) preedit.setTextColor(candidateAppearance.text());
-        if (candidatePage != null) candidatePage.setTextColor(candidateAppearance.accent());
+        if (preedit != null) {
+            preedit.setTextColor(candidateAppearance.text());
+            preedit.setTypeface(candidateTypeface());
+        }
+        if (candidatePage != null) {
+            candidatePage.setTextColor(candidateAppearance.accent());
+            candidatePage.setTypeface(candidateTypeface());
+        }
         if (candidatePaging != null) {
             for (int index = 0; index < candidatePaging.getChildCount(); index++) {
                 View child = candidatePaging.getChildAt(index);

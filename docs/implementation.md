@@ -770,6 +770,8 @@ macOS 原生 CMake 构建及 `text-client`、`shortcut` 两项 CTest 通过，Sh
 
 Android 候选栏与展开候选面板现在也消费共享的 `candidate_skin`、`candidate_theme` 和文字、编号、强调、选中、悬停、表面、边框颜色覆盖。宿主内置 Fluent、微信绿、石墨 Graphite、杨柳青 Willow green 的明暗调色板，透明选中/边框色和显式文字色派生编号色均在 Android 安全解析；普通候选选择、展开候选的全代次身份、触摸反馈、无障碍描述和 Engine 分页边界保持不变。偏好热更新只替换候选渲染状态，不重建 Engine；本阶段未执行原生设备视觉验收。
 
+Android 候选呈现继续消费共享的 `candidate_font_family`、`candidate_english_font` 和最多 32 项 `candidate_fallback_fonts`。宿主对字体名称执行与共享设置相同的 UTF-8 长度和控制字符校验，候选按钮、预编辑、页码及英文建议使用英文字体优先的 Android `Typeface`，未提供或无效时回落到 `Noto Sans SC` 与系统字体链；字体变化只触发候选视图重绘，不触碰 Engine 组合状态。Android 不伪造桌面字体枚举或字体文件安装能力，本阶段未执行真机字体渲染验收。
+
 client-core、host-api、设置页测试以及 macOS 原生 CMake/CTest、全 workspace fmt/clippy 均通过。未执行系统输入源安装后的真实编辑器或逐像素验收，候选皮肤、完整设置窗口和其他 Apple 功能仍待迁移。
 
 ### macOS 内置候选皮肤
