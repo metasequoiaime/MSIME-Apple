@@ -228,3 +228,25 @@ export function polishProviderUpdate(
   if (model !== undefined) update.polish_model = model;
   return update;
 }
+
+/** The two Doubao streaming interfaces, which differ in what they return.
+ *
+ * Both are recognition endpoints for the same model, so the choice is only
+ * ever spelled as a URL in `asr_endpoint`. Nobody types one of these from
+ * memory, and the trade-off between them is not visible in the address:
+ * whole-sentence streaming uploads while you speak and answers once you stop,
+ * which is what the service documents as the more accurate option and
+ * recommends for input methods; bidirectional streaming answers incrementally,
+ * so an inline preedit updates far more often. */
+export const DOUBAO_STREAM_ENDPOINTS: readonly { id: string; endpoint: string; title: string }[] = [
+  {
+    id: "nostream",
+    endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_nostream",
+    title: "整句流式（准确率更高）",
+  },
+  {
+    id: "async",
+    endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async",
+    title: "双向流式（增量结果）",
+  },
+];
