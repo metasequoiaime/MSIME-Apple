@@ -258,17 +258,6 @@ public final class HandwritingDeviceSmoke extends DeviceSmoke {
         return null;
     }
 
-    private AccessibilityNodeInfo findAny(AccessibilityNodeInfo node,
-                                           Predicate<AccessibilityNodeInfo> match) {
-        if (node == null) return null;
-        if (match.test(node)) return node;
-        for (int index = 0; index < node.getChildCount(); index++) {
-            AccessibilityNodeInfo found = findAny(node.getChild(index), match);
-            if (found != null) return found;
-        }
-        return null;
-    }
-
     private AccessibilityNodeInfo findAny(Predicate<AccessibilityNodeInfo> match) {
         for (AccessibilityWindowInfo window : automation.getWindows()) {
             AccessibilityNodeInfo found = findAny(window.getRoot(), match);
