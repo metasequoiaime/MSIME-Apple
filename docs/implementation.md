@@ -22,6 +22,14 @@
 
 ## 当前证据
 
+### Android 剪贴板拒绝理由分开命名（2026-09-19）
+
+Apple `ClipboardHistoryStore.Failure` 对保存失败分四种命名，因为它们要求用户做不同的事。Android 把「空白」和「过长」合并成一句“剪贴板文本为空或过长”，而 50 条全部固定这种可操作的情况落进了通用的“无法保存当前剪贴板”，用户看不出该去取消固定。现在三种理由各自命名，过长和全固定分别带上 10,000 字与 50 条这两个实际界限；Android 没有 iOS 的粘贴授权提示，空白文案相应去掉该从句。
+
+全部固定改为独立的 `ClipboardHistory.FullException`，与读不出或写不回历史文件的普通 `IllegalStateException` 分开——两者都是 `IllegalStateException` 时，一次存储故障会被报成“请先取消固定”，把用户指向错误的动作。面板状态行同时补上 Apple 的插入与管理说明。
+
+`ClipboardHistoryPolicySmoke` 扩充覆盖三种理由的分类（含只超字节界限的短字符串）、文案必须互不相同并带上各自界限、`message(null)` 拒绝，以及全固定抛出的是新异常类型。Android host Java/API、manifest/resource 检查、全部 JVM smoke 和 `scripts/verify-local.sh --quick` 通过。未执行 Android 真机剪贴板与 Toast 验收，CI 保持禁用。
+
 ### Android JNI 目标编译与导出清单（2026-09-19）
 
 Java 里声明 `native` 的方法即使没有对应 C++ 实现也能通过 `javac`，而 `check-host.sh` 此前根本不读 `native/client_jni.cpp`——Java 声明与共享 FFI 签名唯一必须一致的地方没有任何检查，只有需要 vcpkg 和 Engine 的完整原生构建才会发现不一致。现在装有固定 NDK 28.2.13676358 的机器会用 `aarch64-linux-android28-clang++` 以 `-Wall -Werror` 对该翻译单元做目标平台语法编译，没有该 NDK 的机器跳过并明确说明，不引入新的硬性依赖。`verify-native.sh` 的导出清单补上了上一切片新增的 `msime_client_online_query`、`msime_client_cloud_request_url`、`msime_client_ai_request_for_query`、`msime_client_apply_cloud_response`、`msime_client_apply_online_candidates` 及对应的五个 JNI 方法。

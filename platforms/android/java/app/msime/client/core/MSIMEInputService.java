@@ -4383,16 +4383,23 @@ public final class MSIMEInputService extends InputMethodService {
                     || manager.getPrimaryClipDescription() == null
                     || !(manager.getPrimaryClipDescription().hasMimeType(ClipDescription.MIMETYPE_TEXT_PLAIN)
                         || manager.getPrimaryClipDescription().hasMimeType(ClipDescription.MIMETYPE_TEXT_HTML))) {
-                Toast.makeText(this, "剪贴板中没有可保存的文本", Toast.LENGTH_SHORT).show();
+                Toast.makeText(this, ClipboardHistoryPolicy.message(
+                    ClipboardHistoryPolicy.Rejection.EMPTY), Toast.LENGTH_SHORT).show();
                 return;
             }
             CharSequence value = manager.getPrimaryClip().getItemAt(0).getText();
-            if (value == null || !ClipboardHistoryPolicy.acceptable(value.toString())) {
-                Toast.makeText(this, "剪贴板文本为空或过长", Toast.LENGTH_SHORT).show();
+            ClipboardHistoryPolicy.Rejection rejection = ClipboardHistoryPolicy.rejection(
+                value == null ? null : value.toString());
+            if (rejection != null) {
+                Toast.makeText(this, ClipboardHistoryPolicy.message(rejection),
+                    Toast.LENGTH_SHORT).show();
                 return;
             }
             clipboardHistory.add(value.toString());
             renderClipboardHistory();
+        } catch (ClipboardHistory.FullException error) {
+            Toast.makeText(this, ClipboardHistoryPolicy.message(
+                ClipboardHistoryPolicy.Rejection.FULL), Toast.LENGTH_SHORT).show();
         } catch (IllegalArgumentException | IllegalStateException | SecurityException error) {
             Toast.makeText(this, "无法保存当前剪贴板", Toast.LENGTH_SHORT).show();
         }
@@ -4459,8 +4466,11 @@ public final class MSIMEInputService extends InputMethodService {
         try {
             java.util.List<ClipboardHistory.Item> items = clipboardHistory.load();
             TextView status = new TextView(this);
-            status.setText(items.isEmpty() ? "暂无历史 · 记录仅保存在本机"
-                : items.size() + "/" + ClipboardHistoryPolicy.LIMIT + " 条 · 点按插入");
+            // Apple names the affordance next to the count; on Android the pin and delete actions
+            // are behind the row's 管理 button, so that is what the hint points at.
+            status.setText(items.isEmpty() ? "暂无历史 · 保存后点按插入 · 记录仅保存在本机"
+                : items.size() + "/" + ClipboardHistoryPolicy.LIMIT
+                    + " 条 · 点按插入 · 管理可固定或删除");
             clipboardPanel.addView(status);
             for (ClipboardHistory.Item item : items) {
                 LinearLayout row = new LinearLayout(this);

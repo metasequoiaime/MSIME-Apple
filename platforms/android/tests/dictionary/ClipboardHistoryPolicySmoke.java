@@ -33,8 +33,30 @@ public final class ClipboardHistoryPolicySmoke {
         check(bounded.items().stream().noneMatch(item -> item.id().equals("id-49")));
         ClipboardHistory allPinned = new ClipboardHistory(full.stream()
             .map(item -> new ClipboardHistory.Item(item.id(), item.text(), item.timestamp(), true)).toList());
+        // An all-pinned history is its own refusal, so the host can tell the user to unpin one
+        // rather than reporting the same thing it would for an unreadable store.
         try { allPinned.add("overflow", "overflow", 100); throw new AssertionError(); }
-        catch (IllegalStateException expected) { /* Every entry is protected. */ }
+        catch (ClipboardHistory.FullException expected) { /* Every entry is protected. */ }
+
+        check(ClipboardHistoryPolicy.rejection(null) == ClipboardHistoryPolicy.Rejection.EMPTY);
+        check(ClipboardHistoryPolicy.rejection("   \n") == ClipboardHistoryPolicy.Rejection.EMPTY);
+        check(ClipboardHistoryPolicy.rejection("synthetic clipboard text") == null);
+        check(ClipboardHistoryPolicy.rejection("x".repeat(ClipboardHistoryPolicy.MAX_CHARS + 1))
+            == ClipboardHistoryPolicy.Rejection.TOO_LONG);
+        // A short string can still exceed the byte bound, and that is still "too long".
+        check(ClipboardHistoryPolicy.rejection("🌲".repeat(ClipboardHistoryPolicy.MAX_BYTES))
+            == ClipboardHistoryPolicy.Rejection.TOO_LONG);
+        for (ClipboardHistoryPolicy.Rejection rejection : ClipboardHistoryPolicy.Rejection.values())
+            check(!ClipboardHistoryPolicy.message(rejection).isEmpty());
+        // Each refusal names what would let the save succeed.
+        check(ClipboardHistoryPolicy.message(ClipboardHistoryPolicy.Rejection.TOO_LONG)
+            .contains(String.valueOf(ClipboardHistoryPolicy.MAX_CHARS)));
+        check(ClipboardHistoryPolicy.message(ClipboardHistoryPolicy.Rejection.FULL)
+            .contains(String.valueOf(ClipboardHistoryPolicy.LIMIT)));
+        check(!ClipboardHistoryPolicy.message(ClipboardHistoryPolicy.Rejection.EMPTY)
+            .equals(ClipboardHistoryPolicy.message(ClipboardHistoryPolicy.Rejection.TOO_LONG)));
+        try { ClipboardHistoryPolicy.message(null); throw new AssertionError(); }
+        catch (IllegalArgumentException expected) { /* There is no message for "accepted". */ }
         System.out.println("Android clipboard history: policy, dedupe, pinning, removal and bounds passed");
     }
 }
