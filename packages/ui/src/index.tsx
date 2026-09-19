@@ -1,5 +1,5 @@
 import { VoiceDevicePicker, type VoiceDeviceReader } from "./voice/voice-device-picker";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 import { HostActionButton } from "./keyboard/HostActionButton";
 import { DICTIONARY_PAGE_SIZE, dictionaryPageStatus, parsePersonalDictionaryImport, personalDictionaryExample, readDictionaryFile, type PersonalDictionaryImportEntry } from "./dictionary/dictionary-file";
 import { SkinCandidatePreview } from "./skin/skin-candidate-preview";
@@ -1023,6 +1023,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
   const [windowMaximized, setWindowMaximized] = useState(false);
   const [skinPreviewThemes, setSkinPreviewThemes] = useState<Partial<Record<NonNullable<Preferences["candidate_skin"]>, "light" | "dark">>>({});
   const [showTouchSkinEditor, setShowTouchSkinEditor] = useState(false);
+  const touchGeometryDrag = useRef<{ pointerId: number; x: number; y: number; key: number; row: number; axis: "key" | "row" | null } | null>(null);
   const [aiModels, setAiModels] = useState<string[] | null>(null);
   const [aiModelsStatus, setAiModelsStatus] = useState("");
   const [aiModelsBusy, setAiModelsBusy] = useState(false);
@@ -1237,6 +1238,43 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
     setDraft(next);
     setError("");
     setNotice("屏幕键盘设置已恢复默认，请点击保存设置。");
+  }
+
+  function beginTouchGeometryDrag(event: ReactPointerEvent<HTMLDivElement>) {
+    if (!draft || event.pointerType === "mouse" && event.button !== 0) return;
+    touchGeometryDrag.current = {
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+      key: draft.touch_key_spacing_tenths ?? 60,
+      row: draft.touch_row_spacing_tenths ?? 70,
+      axis: null,
+    };
+    event.currentTarget.setPointerCapture?.(event.pointerId);
+  }
+
+  function updateTouchGeometryDrag(event: ReactPointerEvent<HTMLDivElement>) {
+    const drag = touchGeometryDrag.current;
+    if (!drag || drag.pointerId !== event.pointerId || !draft) return;
+    const dx = event.clientX - drag.x;
+    const dy = event.clientY - drag.y;
+    if (!drag.axis && Math.abs(dx) + Math.abs(dy) < 4) return;
+    drag.axis ??= Math.abs(dy) >= Math.abs(dx) ? "row" : "key";
+    const delta = drag.axis === "row" ? dy : dx;
+    const value = Math.round((drag.axis === "row" ? drag.row : drag.key) + delta * 10 / 18);
+    setDraft(current => current ? {
+      ...current,
+      ...(drag.axis === "row"
+        ? { touch_row_spacing_tenths: Math.min(100, Math.max(40, value)) }
+        : { touch_key_spacing_tenths: Math.min(60, Math.max(30, value)) }),
+    } : current);
+  }
+
+  function endTouchGeometryDrag(event: ReactPointerEvent<HTMLDivElement>) {
+    const drag = touchGeometryDrag.current;
+    if (!drag || drag.pointerId !== event.pointerId) return;
+    touchGeometryDrag.current = null;
+    if (event.currentTarget.hasPointerCapture?.(event.pointerId)) event.currentTarget.releasePointerCapture(event.pointerId);
   }
 
   async function openExternalUrl(url: string) {
@@ -2368,7 +2406,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
         </div>
         {client.customTouchKeyboardSkins && showTouchSkinEditor && <div className="section"><TouchKeyboardSkinEditor design={customTouchKeyboardSkin} selected={touchKeyboardSkin === "custom"} theme={keyboardPreviewTheme} disabled={busy} library={client.customSkinLibrary} aiSkins={client.aiSkins} communitySkins={client.communitySkins} onChange={design => setDraft(current => current ? { ...current, custom_touch_keyboard_skin: design } : current)} onUse={() => setDraft(current => current ? { ...current, touch_keyboard_skin: "custom" } : current)} onClose={() => setShowTouchSkinEditor(false)} /></div>}
         <div className="section" role="group" aria-labelledby="touch-keyboard-geometry-title">
-          <div className="section-title" id="touch-keyboard-geometry-title">触屏键盘尺寸<small>与 Apple 键盘一致，只改变触屏键位外观，不改变输入方案或 Engine 组合状态</small></div>
+          <div className="section-title" id="touch-keyboard-geometry-title">触屏键盘尺寸<small>与 Apple 键盘一致，只改变触屏键位外观，不改变输入方案或 Engine 组合状态；也可以直接在下方预览上左右拖动调节键距、上下拖动调节行距。</small></div>
           <label className="section-header"><span className="section-title">键盘高度 <small>{touchKeyboardHeightAdjustment > 0 ? "+" : ""}{touchKeyboardHeightAdjustment} dp</small></span><input aria-label="键盘高度" type="range" min="-12" max="48" step="1" value={touchKeyboardHeightAdjustment} onChange={event => setDraft({ ...draft, touch_keyboard_height_adjustment: Number(event.target.value) })} /></label>
           <div className="input-option-divider" />
           <label className="section-header"><span className="section-title">按键间距 <small>{(touchKeySpacingTenths / 10).toFixed(1)} dp</small></span><input aria-label="按键间距" type="range" min="30" max="60" step="1" value={touchKeySpacingTenths} onChange={event => setDraft({ ...draft, touch_key_spacing_tenths: Number(event.target.value) })} /></label>
@@ -2380,7 +2418,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
         </div>
         <div className="section panel-launch-card">
           <div className="section-header panel-launch-row"><span className="section-title">打开屏幕键盘<small>使用鼠标或触控方式输入文字与快捷按键</small></span><button type="button" className="secondary panel-open-button" disabled={!client.openScreenKeyboard} onClick={() => void openPanel(client.openScreenKeyboard)}>打开</button></div>
-          <div className="panel-preview screen-keyboard-preview" aria-label="屏幕键盘预览"><div className="panel-preview-label">预览</div><ScreenKeyboardPreview theme={keyboardPreviewTheme} skin={touchKeyboardSkin} customDesign={customTouchKeyboardSkin} keySpacingTenths={touchKeySpacingTenths} rowSpacingTenths={touchRowSpacingTenths} heightAdjustment={touchKeyboardHeightAdjustment} /></div>
+          <div className="panel-preview screen-keyboard-preview" aria-label="屏幕键盘预览"><div className="panel-preview-label">预览</div><div className="touch-keyboard-geometry-drag-surface" aria-label="拖动预览调整键盘间距" onPointerDown={beginTouchGeometryDrag} onPointerMove={updateTouchGeometryDrag} onPointerUp={endTouchGeometryDrag} onPointerCancel={endTouchGeometryDrag} style={{ touchAction: "none" }}><ScreenKeyboardPreview theme={keyboardPreviewTheme} skin={touchKeyboardSkin} customDesign={customTouchKeyboardSkin} keySpacingTenths={touchKeySpacingTenths} rowSpacingTenths={touchRowSpacingTenths} heightAdjustment={touchKeyboardHeightAdjustment} /></div></div>
         </div>
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "handwriting"} aria-label="手写识别板">
