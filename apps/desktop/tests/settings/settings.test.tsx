@@ -171,6 +171,28 @@ test("iOS exposes the shared offline candidate gloss setting", async () => {
   expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ candidate_english_gloss: false }));
 });
 
+test("Android exposes handwriting model privacy and system settings", async () => {
+  const openExternalUrl = vi.fn().mockResolvedValue(undefined);
+  const openSystemKeyboardSettings = vi.fn().mockResolvedValue(undefined);
+  render(<SettingsPage client={{
+    load: async () => initial,
+    save: vi.fn(),
+    openExternalUrl,
+    openSystemKeyboardSettings,
+    host: { platform: "android" } as HostCapabilities,
+  }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  expect(screen.getByText(/Android 键盘中切换到手写时/)).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "手写 SDK 隐私说明" }));
+  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://developers.google.com/ml-kit/terms"));
+  fireEvent.click(screen.getByRole("button", { name: "手写识别板" }));
+  expect(screen.getByText("Android 键盘手写")).toBeDefined();
+  expect(screen.getByText(/Android 系统输入法设置中启用水杉键盘/)).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "打开系统输入法设置" }));
+  expect(openSystemKeyboardSettings).toHaveBeenCalledTimes(1);
+  expect(screen.queryByRole("button", { name: "打开手写识别板" })).toBeNull();
+});
+
 test("mobile input settings expose the keyboard AI entry", async () => {
   render(<SettingsPage client={{
     load: async () => initial, save: vi.fn(),
