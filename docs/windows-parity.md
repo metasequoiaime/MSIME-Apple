@@ -175,4 +175,6 @@ Fcitx5 候选 stale 栅栏增量（2026-09-19）：CandidateAction 的可见性�
 
 Fcitx5 剪贴板历史读取 stale 栅栏增量（2026-09-19）：异步本地剪贴板历史读取现在绑定请求路径与 clipboard generation；会话关闭、路径切换或禁用历史时会使旧结果失效，避免旧配置的条目污染新输入上下文。原生 Linux 桌面构建与交互验证仍待相应环境。
 
+Fcitx5 云剪贴板读取 stale 栅栏增量（2026-09-19）：异步云剪贴板 provider 读取现在绑定 provider socket 与 generation；会话关闭或 provider 配置切换时，旧 provider 响应不会写入当前输入上下文。原生 Linux 桌面构建与云 provider 交互验证仍待相应环境。
+
 Fcitx5 候选动作执行 stale 栅栏增量（2026-09-19）：CandidateAction 触发时重新枚举动作现在也校验当前焦点、输入启用状态、受限/私密上下文，避免菜单创建后状态变化仍执行旧候选管理操作；原生 Linux 桌面构建与交互验证仍待相应环境。

@@ -273,6 +273,7 @@ public:
     clipboard_job_ = {};
     clipboard_mutation_job_ = {};
     cloud_clipboard_socket_.clear();
+    ++cloud_clipboard_generation_;
     cloud_clipboard_items_.clear();
     cloud_clipboard_job_ = {};
     emoji_items_.clear();
@@ -1097,11 +1098,16 @@ public:
       clipboard_loading_ = false;
     }
     clipboard_path_ = std::move(clipboard_path);
-    cloud_clipboard_socket_ = options.value("cloud_clipboard_provider_socket", std::string());
-    if (cloud_clipboard_socket_.empty()) {
+    auto cloud_clipboard_socket = options.value("cloud_clipboard_provider_socket", std::string());
+    if (cloud_clipboard_socket.empty()) {
       if (const auto *socket = std::getenv("MSIME_CLOUD_CLIPBOARD_PROVIDER_SOCKET"))
-        cloud_clipboard_socket_ = socket;
+        cloud_clipboard_socket = socket;
     }
+    if (cloud_clipboard_socket != cloud_clipboard_socket_) {
+      ++cloud_clipboard_generation_;
+      cloud_clipboard_items_.clear();
+    }
+    cloud_clipboard_socket_ = std::move(cloud_clipboard_socket);
     voice_socket_ = options.value("voice_provider_socket", std::string());
     if (voice_socket_.empty()) {
       if (const auto *socket = std::getenv("MSIME_VOICE_PROVIDER_SOCKET")) voice_socket_ = socket;
@@ -1520,7 +1526,9 @@ public:
         if (cloud_clipboard_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return;
         auto result = cloud_clipboard_job_.get();
         cloud_clipboard_job_ = {};
-        if (ic_.hasFocus() && !restricted() && !privateInput() && result.is_object())
+        if (ic_.hasFocus() && !restricted() && !privateInput() && result.is_object() &&
+            result.value("_socket", std::string{}) == cloud_clipboard_socket_ &&
+            result.value("_generation", uint64_t{}) == cloud_clipboard_generation_)
           cloud_clipboard_items_ = result.value("entries", Json::array());
       }
     } catch (...) { cloud_clipboard_items_.clear(); }
@@ -1536,12 +1544,16 @@ public:
     if (index != 0) return false;
     if (cloud_clipboard_job_.valid()) return false;
     const auto socket = cloud_clipboard_socket_;
-    cloud_clipboard_job_ = std::async(std::launch::async, [socket] {
+    const auto generation = cloud_clipboard_generation_;
+    cloud_clipboard_job_ = std::async(std::launch::async, [socket, generation] {
       const auto request = Json{{"operation", "list"}, {"search", ""}}.dump();
       auto raw = response(msime_client_cloud_clipboard_provider_request(
           reinterpret_cast<const uint8_t *>(request.data()), request.size(),
           reinterpret_cast<const uint8_t *>(socket.data()), socket.size()));
-      return raw.is_object() ? raw : Json::object();
+      if (!raw.is_object()) return Json::object();
+      raw["_socket"] = socket;
+      raw["_generation"] = generation;
+      return raw;
     }).share();
     return false;
   }
@@ -1978,6 +1990,7 @@ public:
   std::shared_future<Json> clipboard_job_;
   std::shared_future<Json> clipboard_mutation_job_;
   std::string cloud_clipboard_socket_;
+  uint64_t cloud_clipboard_generation_ = 0;
   Json cloud_clipboard_items_ = Json::array();
   std::shared_future<Json> cloud_clipboard_job_;
   Json emoji_items_ = Json::array();
