@@ -309,7 +309,17 @@ public:
     voice_rctrl_ralt_held_ = false;
     voice_space_consumed_ = false;
     voice_space_locked_ = false;
-    voice_job_ = {};
+    if (voice_job_.valid()) {
+      if (voice_job_.wait_for(std::chrono::seconds(0)) == std::future_status::ready) {
+        try { voice_job_.get(); } catch (...) {}
+        voice_job_ = {};
+        voice_cancelled_ = false;
+      } else {
+        // Keep the async state alive; destroying an async future here would
+        // synchronously wait for a provider that is being cancelled.
+        voice_cancelled_ = true;
+      }
+    }
     voice_mailbox_.reset();
     voice_generation_ = 0;
     voice_partial_seen_ = false;
@@ -1689,9 +1699,15 @@ public:
       if (voice_job_.wait_for(std::chrono::seconds(0)) != std::future_status::ready) return false;
       auto result = voice_job_.get();
       voice_job_ = {};
+      const bool cancelled = voice_cancelled_;
+      voice_cancelled_ = false;
       voice_loading_ = false;
       voice_space_consumed_ = false;
       voice_space_locked_ = false;
+      if (cancelled) {
+        voice_mailbox_.reset();
+        return false;
+      }
       if (session_ && ic_.hasFocus() && !restricted() && !privateInput() && result.is_object()) {
         auto text = result.value("text", std::string{});
         if (mailbox) {
@@ -1713,9 +1729,13 @@ public:
   }
   bool requestVoice() {
     if (!voice_enabled_ || voice_socket_.empty() || restricted() || privateInput() || !ic_.hasFocus() || voice_loading_) return false;
-    if (refreshVoice()) return true;
+    if (voice_job_.valid()) {
+      if (refreshVoice()) return true;
+      if (voice_job_.valid()) return false;
+    }
     if (voice_loading_) return false;
     voice_loading_ = true;
+    voice_cancelled_ = false;
     const auto socket = voice_socket_;
     const auto generation = view_.value("generation", uint64_t{});
     const auto language = voice_language_;
@@ -1751,7 +1771,7 @@ public:
     if (!socket.empty() && generation != 0)
       msime_client_string_free(msime_client_voice_provider_cancel(
           reinterpret_cast<const uint8_t *>(socket.data()), socket.size(), generation));
-    voice_job_ = {};
+    voice_cancelled_ = true;
     voice_mailbox_.reset();
     voice_loading_ = false;
     voice_space_consumed_ = false;
@@ -1982,6 +2002,7 @@ public:
   bool voice_phase_seen_ = false;
   bool voice_level_seen_ = false;
   bool voice_loading_ = false;
+  bool voice_cancelled_ = false;
   bool word_character_enabled_ = true;
   bool word_character_minus_equal_ = false;
   bool translation_candidates_active_ = false;
