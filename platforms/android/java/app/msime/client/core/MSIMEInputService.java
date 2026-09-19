@@ -186,7 +186,6 @@ public final class MSIMEInputService extends InputMethodService {
         KeyboardScheme.enabledFromPreferenceIds(null);
     private boolean sharedSchemePreferences;
     private SharedPreferences schemeHostPreferences;
-    private SharedPreferences feedbackPreferences;
     private SharedPreferences keyboardLayoutPreferences;
     private boolean soundEnabled = true;
     private boolean hapticsEnabled;
@@ -596,6 +595,7 @@ public final class MSIMEInputService extends InputMethodService {
                 editorInputType = effectiveInfo.inputType;
                 allowLearning = EditorPolicy.allowLearning(effectiveInfo.imeOptions);
             }
+            loadFeedbackPreferences();
             refreshPreferencesOnInputView();
             updateAutomaticCapitalization();
             render();
@@ -2367,11 +2367,10 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void loadFeedbackPreferences() {
-        feedbackPreferences = getSharedPreferences("keyboard-feedback", MODE_PRIVATE);
-        soundEnabled = feedbackPreferences.getBoolean(KeyboardFeedbackPreferences.SOUND_KEY, true);
-        hapticsEnabled = feedbackPreferences.getBoolean(KeyboardFeedbackPreferences.HAPTICS_KEY, false);
-        hapticStrength = KeyboardFeedbackPreferences.strength(feedbackPreferences.getString(
-            KeyboardFeedbackPreferences.STRENGTH_KEY, "medium"));
+        KeyboardFeedbackStore.Settings settings = KeyboardFeedbackStore.load(this);
+        soundEnabled = settings.soundEnabled();
+        hapticsEnabled = settings.hapticsEnabled();
+        hapticStrength = settings.hapticStrength();
         vibrator = getSystemService(Vibrator.class);
     }
 
@@ -2393,12 +2392,12 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void saveFeedbackPreferences() {
-        if (feedbackPreferences == null) return;
-        feedbackPreferences.edit()
-            .putBoolean(KeyboardFeedbackPreferences.SOUND_KEY, soundEnabled)
-            .putBoolean(KeyboardFeedbackPreferences.HAPTICS_KEY, hapticsEnabled)
-            .putString(KeyboardFeedbackPreferences.STRENGTH_KEY, hapticStrength.id())
-            .apply();
+        try {
+            KeyboardFeedbackStore.save(this, new KeyboardFeedbackStore.Settings(
+                soundEnabled, hapticsEnabled, hapticStrength));
+        } catch (Exception ignored) {
+            // Keep the current in-memory feedback state; the next save retries the file.
+        }
     }
 
     private void playFeedback(View source) {
