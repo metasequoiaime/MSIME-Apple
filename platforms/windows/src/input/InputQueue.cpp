@@ -12,8 +12,8 @@ InputState::select_candidate(const FocusLease &lease, uint64_t expected_session,
                : std::nullopt;
 }
 std::optional<PendingReply> InputState::toggle_character_set(
-    const FocusLease &lease, const FanyImeNamedpipeData &packet,
-    bool enabled, const std::function<bool(bool)> &persist) {
+    const FocusLease &lease, const FanyImeNamedpipeData &packet, bool enabled,
+    const std::function<bool(bool)> &persist) {
   check_thread();
   auto *owner = session(lease.transport);
   if (!owner)
@@ -47,9 +47,12 @@ InputState::InputState(FocusGate &gate, size_t clients, std::string options)
   if (options_.empty() || options_.size() > 16384)
     throw std::invalid_argument("Invalid input queue configuration");
   const auto document = nlohmann::json::parse(options_);
-  navigation_ = preference_navigation(document.value("preferences", nlohmann::json::object()));
-  word_character_ = preference_word_character(document.value("preferences", nlohmann::json::object()));
-  tsf_preedit_style_ = preference_tsf_preedit_style(document.value("preferences", nlohmann::json::object()));
+  navigation_ = preference_navigation(
+      document.value("preferences", nlohmann::json::object()));
+  word_character_ = preference_word_character(
+      document.value("preferences", nlohmann::json::object()));
+  tsf_preedit_style_ = preference_tsf_preedit_style(
+      document.value("preferences", nlohmann::json::object()));
   character_set_shortcut_enabled_ =
       document.value("preferences", nlohmann::json::object())
           .value("keybindings", nlohmann::json::object())
@@ -105,8 +108,7 @@ size_t InputState::resume_dictionaries() {
     if (client.session)
       continue;
     try {
-      client.session =
-          std::make_unique<FocusedSession>(gate_, id, options_);
+      client.session = std::make_unique<FocusedSession>(gate_, id, options_);
       ++rebuilt;
     } catch (...) {
       // A client whose session cannot be rebuilt is left without one. It
@@ -126,8 +128,8 @@ bool InputState::deactivate_terminal(uint64_t client, uint64_t token) {
   // receive an OK: a delayed Aux request could otherwise acknowledge a newer
   // activation that reused the same client id.
   if (!terminal_deactivation_state_available(
-          found != clients_.end(), found != clients_.end() &&
-                                    found->second.session != nullptr))
+          found != clients_.end(),
+          found != clients_.end() && found->second.session != nullptr))
     return false;
   return found->second.session->cancel_focus_token(token);
 }
@@ -290,13 +292,12 @@ InputState::apply_cloud_response(const FocusLease &lease,
                                  const std::string &body) {
   check_thread();
   auto *owner = session(lease.transport);
-  return owner ? owner->apply_cloud_response(lease, query, body)
-               : std::nullopt;
+  return owner ? owner->apply_cloud_response(lease, query, body) : std::nullopt;
 }
 std::optional<nlohmann::json>
 InputState::apply_ai_candidates(const FocusLease &lease,
-                                 const std::string &query,
-                                 const std::string &candidates) {
+                                const std::string &query,
+                                const std::string &candidates) {
   check_thread();
   auto *owner = session(lease.transport);
   return owner ? owner->apply_ai_candidates(lease, query, candidates)
@@ -351,7 +352,8 @@ void InputState::publish_preferences(const PreferenceSnapshot &snapshot) {
                        (snapshot.revision() == preferences_->revision() &&
                         snapshot.serialized() != preferences_->serialized())))
     throw std::invalid_argument("Stale or conflicting published preferences");
-  const auto document = nlohmann::json::parse(snapshot.serialized()).at("preferences");
+  const auto document =
+      nlohmann::json::parse(snapshot.serialized()).at("preferences");
   const auto navigation = preference_navigation(document);
   const auto word = preference_word_character(document);
   const auto style = preference_tsf_preedit_style(document);
@@ -394,7 +396,7 @@ InputQueue::~InputQueue() { stop(); }
 std::optional<std::future<InputTaskStatus>> InputQueue::submit(Task task) {
   if (!task)
     return std::nullopt;
-  Job job{std::move(task), {}};
+  Job job{std::move(task), {}, std::chrono::steady_clock::now()};
   auto completion = job.completion.get_future();
   {
     std::lock_guard lock(mutex_);
@@ -428,7 +430,12 @@ InputQueueStats InputQueue::stats() const {
   result.queued = jobs_.size();
   return result;
 }
-bool InputQueue::on_worker_thread() const noexcept { return active_queue == this; }
+bool InputQueue::on_worker_thread() const noexcept {
+  return active_queue == this;
+}
+std::chrono::milliseconds InputQueue::current_task_wait() const noexcept {
+  return on_worker_thread() ? active_task_wait_ : std::chrono::milliseconds(0);
+}
 void InputQueue::run(FocusGate &gate, size_t clients, std::string options) {
   WorkerScope scope(this);
   try {
@@ -460,6 +467,8 @@ void InputQueue::run(FocusGate &gate, size_t clients, std::string options) {
         break;
       }
       auto status = InputTaskStatus::Completed;
+      active_task_wait_ = std::chrono::duration_cast<std::chrono::milliseconds>(
+          std::chrono::steady_clock::now() - job.enqueued_at);
       try {
         job.task(state);
       } catch (...) {
@@ -478,6 +487,7 @@ void InputQueue::run(FocusGate &gate, size_t clients, std::string options) {
           ++stats_.failed;
       }
       job.completion.set_value(status);
+      active_task_wait_ = std::chrono::milliseconds(0);
     }
   } catch (...) {
     std::deque<Job> cancelled;

@@ -2,6 +2,7 @@
 #include "FocusRouter.h"
 #include "FocusedSession.h"
 #include "PreferenceSnapshot.h"
+#include <chrono>
 #include <condition_variable>
 #include <deque>
 #include <functional>
@@ -39,7 +40,10 @@ public:
   // so the clients stay connected and get a session back on resume.
   size_t quiesce_dictionaries();
   size_t resume_dictionaries();
-  bool quiesced() const { check_thread(); return quiesced_; }
+  bool quiesced() const {
+    check_thread();
+    return quiesced_;
+  }
   FocusRoute failed(const FocusLease &lease);
   std::optional<PendingReply>
   key(const FocusLease &lease, const FanyImeNamedpipeData &packet,
@@ -47,16 +51,17 @@ public:
       std::optional<std::string> local_text = std::nullopt);
   bool delivered(const FocusLease &lease, uint64_t request);
   bool cancel_composition(const FocusLease &lease);
-  std::optional<nlohmann::json> dedicated_english(const FocusLease &lease, bool exit);
+  std::optional<nlohmann::json> dedicated_english(const FocusLease &lease,
+                                                  bool exit);
   std::optional<nlohmann::json>
   apply_ai_candidates(const FocusLease &lease, const std::string &query,
                       const std::string &candidates);
-  std::optional<nlohmann::json>
-  apply_cloud_response(const FocusLease &lease, const std::string &query,
-                       const std::string &body);
-  std::optional<nlohmann::json>
-  apply_ai_response(const FocusLease &lease, const std::string &query,
-                    const std::string &body);
+  std::optional<nlohmann::json> apply_cloud_response(const FocusLease &lease,
+                                                     const std::string &query,
+                                                     const std::string &body);
+  std::optional<nlohmann::json> apply_ai_response(const FocusLease &lease,
+                                                  const std::string &query,
+                                                  const std::string &body);
   std::optional<std::string> translation_query(const FocusLease &lease);
   std::optional<std::pair<FocusLease, std::string>>
   current_translation_request();
@@ -64,28 +69,34 @@ public:
   apply_translations(const FocusLease &lease, uint64_t generation,
                      const std::string &translations);
   std::optional<PendingReply> select_candidate(const FocusLease &lease,
-      uint64_t session, uint64_t generation, size_t index);
+                                               uint64_t session,
+                                               uint64_t generation,
+                                               size_t index);
   std::optional<nlohmann::json>
   candidate_action(const FocusLease &lease, uint64_t session,
                    uint64_t generation, size_t index, CandidateAction action,
                    uint8_t position = 0);
-  std::optional<nlohmann::json>
-  page_candidate(const FocusLease &lease, uint64_t session,
-                 uint64_t generation, bool previous, unsigned steps);
+  std::optional<nlohmann::json> page_candidate(const FocusLease &lease,
+                                               uint64_t session,
+                                               uint64_t generation,
+                                               bool previous, unsigned steps);
   bool ui_delivered(const FocusLease &lease, uint64_t generation);
   std::optional<PendingReply> configured_key(
       const FocusLease &lease, const FanyImeNamedpipeData &packet,
       TsfPreeditStyle style, const NavigationBindings &bindings,
       std::optional<std::string> local_text = std::nullopt,
       WordCharacterBinding word_binding = WordCharacterBinding::Disabled);
-  std::optional<PendingReply> toggle_character_set(
-      const FocusLease &lease, const FanyImeNamedpipeData &packet,
-      bool enabled, const std::function<bool(bool)> &persist = {});
-  std::optional<PendingReply> basic_key(const FocusLease &lease,
-      const FanyImeNamedpipeData &packet, TsfPreeditStyle style,
-      std::optional<std::string> local_text = std::nullopt);
+  std::optional<PendingReply>
+  toggle_character_set(const FocusLease &lease,
+                       const FanyImeNamedpipeData &packet, bool enabled,
+                       const std::function<bool(bool)> &persist = {});
+  std::optional<PendingReply>
+  basic_key(const FocusLease &lease, const FanyImeNamedpipeData &packet,
+            TsfPreeditStyle style,
+            std::optional<std::string> local_text = std::nullopt);
   std::optional<PendingReply> edit(const FocusLease &lease,
-      const FanyImeNamedpipeData &packet, TsfPreeditStyle style);
+                                   const FanyImeNamedpipeData &packet,
+                                   TsfPreeditStyle style);
   bool synchronize_input_mode(const FocusLease &lease,
                               const FanyImeNamedpipeData &packet);
   bool queue_preferences(const FocusLease &lease, const std::string &snapshot);
@@ -101,7 +112,10 @@ public:
     check_thread();
     return word_character_;
   }
-  TsfPreeditStyle tsf_preedit_style() const { check_thread(); return tsf_preedit_style_; }
+  TsfPreeditStyle tsf_preedit_style() const {
+    check_thread();
+    return tsf_preedit_style_;
+  }
   bool character_set_shortcut_enabled() const {
     check_thread();
     return character_set_shortcut_enabled_;
@@ -163,11 +177,15 @@ public:
   void stop();         // External control thread only; idempotent, joins.
   InputQueueStats stats() const;
   bool on_worker_thread() const noexcept;
+  // Valid only from a task running on this queue's worker. The value measures
+  // time spent waiting after admission, before the task began executing.
+  std::chrono::milliseconds current_task_wait() const noexcept;
 
 private:
   struct Job {
     Task task;
     std::promise<InputTaskStatus> completion;
+    std::chrono::steady_clock::time_point enqueued_at;
   };
   void run(FocusGate &gate, size_t clients, std::string options);
   size_t capacity_;
@@ -179,6 +197,7 @@ private:
   bool stopping_ = false;
   std::deque<Job> jobs_;
   InputQueueStats stats_;
+  std::chrono::milliseconds active_task_wait_{0};
   std::thread worker_;
 };
 } // namespace msime::windows

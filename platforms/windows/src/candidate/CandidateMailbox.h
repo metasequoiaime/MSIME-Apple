@@ -1,5 +1,6 @@
 #pragma once
 #include "CandidatePresentation.h"
+#include "ipc/InternalEventFlags.h"
 #include <chrono>
 #include <condition_variable>
 #include <functional>
@@ -115,12 +116,19 @@ public:
         break;
       [[fallthrough]];
     case FanyImePipeEventType::HideCandidateWnd:
-      // A hide can be delivered behind the next confirmed key when the host
-      // worker is congested. Keep the current frame briefly so that a queued
-      // show or delivery can cancel this stale hide instead of flashing an
-      // empty candidate window between words.
-      if (!pending_hide_)
-        pending_hide_ = std::chrono::steady_clock::now() + hide_grace;
+      // Only a hide delivered behind a congested input queue describes state
+      // already superseded by a later key. Normal commits and focus changes
+      // must disappear immediately, preserving the typing snap.
+      if ((packet.modifiers_down & internal_late_event) != 0) {
+        if (!pending_hide_)
+          pending_hide_ = std::chrono::steady_clock::now() + hide_grace;
+      } else {
+        pending_hide_.reset();
+        suppressed_ = true;
+        latest_->visible = false;
+        latest_->preedit.clear();
+        latest_->candidates.clear();
+      }
       break;
     case FanyImePipeEventType::ShowCandidateWnd:
       pending_hide_.reset();

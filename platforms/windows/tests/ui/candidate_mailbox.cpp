@@ -173,11 +173,14 @@ void candidate_mailbox_tests() {
                               [](const FocusLease &) { return false; }));
   }
   auto visual_event = [&](const FocusLease &lease, uint32_t type,
-                          uint32_t modifiers = 0, uint32_t keycode = 0) {
+                          uint32_t modifiers = 0, uint32_t keycode = 0,
+                          bool late = false) {
     FanyImeNamedpipeData packet{};
     packet.client_id = lease.transport.client;
     packet.event_type = type;
     packet.modifiers_down = modifiers;
+    if (late)
+      packet.modifiers_down |= internal_late_event;
     packet.keycode = keycode;
     packet.point[0] = -200;
     packet.point[1] = 300;
@@ -188,6 +191,11 @@ void candidate_mailbox_tests() {
     return mailbox.snapshot(gate);
   };
   require(visual_event(first, FanyImePipeEventType::HideCandidateWnd));
+  const auto immediate = mailbox.snapshot(gate);
+  require(immediate && !immediate->visible && immediate->preedit.empty());
+  require(publish(first, 1));
+  require(
+      visual_event(first, FanyImePipeEventType::HideCandidateWnd, 0, 0, true));
   const auto grace = mailbox.snapshot(gate);
   require(grace && grace->visible && !grace->preedit.empty());
   const auto suppressed = settled_hide();
@@ -228,11 +236,8 @@ void candidate_mailbox_tests() {
     require(!visual_event(stale, mode_event));
     require(mailbox.snapshot(gate)->visible);
     require(visual_event(first, mode_event));
-    const auto pending_hide = mailbox.snapshot(gate);
-    require(pending_hide && pending_hide->visible);
-    const auto hidden_after_grace = settled_hide();
-    require(hidden_after_grace && !hidden_after_grace->visible &&
-            hidden_after_grace->candidates.empty());
+    const auto hidden_now = mailbox.snapshot(gate);
+    require(hidden_now && !hidden_now->visible && hidden_now->preedit.empty());
     require(visual_event(first, mode_event, 0, 1));
     require(visual_event(first, FanyImePipeEventType::ShowCandidateWnd));
     require(!mailbox.snapshot(gate)->visible);

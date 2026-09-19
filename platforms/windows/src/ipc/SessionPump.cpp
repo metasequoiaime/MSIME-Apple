@@ -1,4 +1,5 @@
 #include "SessionPump.h"
+#include "InternalEventFlags.h"
 
 namespace msime::windows {
 SessionPump::SessionPump(MainTransport &transport, InputQueue &input,
@@ -78,9 +79,9 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
       if (packet->event_type == FanyImePipeEventType::ClientHello)
         continue;
       if (route.route && route.fence) {
-        const auto bytes = focus_ready_bytes(
-            route.route->transport.client, route.route->epoch,
-            route.route->token);
+        const auto bytes =
+            focus_ready_bytes(route.route->transport.client, route.route->epoch,
+                              route.route->token);
         if (!bytes)
           return PumpResult::DispatchFailed;
         bool sent = false;
@@ -123,17 +124,24 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
               if (route.route &&
                   (packet.event_type == FanyImePipeEventType::IMESwitch ||
                    packet.event_type == FanyImePipeEventType::PuncSwitch ||
-                   packet.event_type == FanyImePipeEventType::DoubleSingleByteSwitch ||
+                   packet.event_type ==
+                       FanyImePipeEventType::DoubleSingleByteSwitch ||
                    packet.event_type == FanyImePipeEventType::StatusSnapshot ||
                    packet.event_type == FanyImePipeEventType::FocusRestored) &&
                   !state.synchronize_input_mode(*route.route, packet))
                 return;
+              auto delivered_packet = packet;
+              if (delivered_packet.event_type ==
+                      FanyImePipeEventType::HideCandidateWnd &&
+                  input_.current_task_wait() >= std::chrono::milliseconds(24))
+                delivered_packet.modifiers_down |= internal_late_event;
               if (route.route)
-                eligible = focus_.with_active(
-                    *route.route, [&] { handled = event_(route, packet); });
+                eligible = focus_.with_active(*route.route, [&] {
+                  handled = event_(route, delivered_packet);
+                });
               else {
                 eligible = true;
-                handled = event_(route, packet);
+                handled = event_(route, delivered_packet);
               }
             }))
           return PumpResult::QueueUnavailable;
@@ -187,7 +195,7 @@ PumpResult SessionPump::run(const PipeTicket &ticket) {
               if (presentation_.delivered)
                 focus_.with_active(lease, [&] {
                   if (transport_.current(ticket))
-                  presentation_.delivered(lease, *reply, *packet);
+                    presentation_.delivered(lease, *reply, *packet);
                 });
               if (reply->online_query && presentation_.online)
                 presentation_.online(lease, *reply);
