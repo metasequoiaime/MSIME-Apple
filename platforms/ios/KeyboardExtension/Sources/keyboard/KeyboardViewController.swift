@@ -1313,7 +1313,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       render(session.handleCharacter(character))
     } else {
       let output = letterCaseState == .lowercase ? character : character.uppercased()
-      insertOwnText(output)
+      insertDirectText(output)
       refreshEnglishSuggestions()
       if letterCaseState == .shifted {
         letterCaseState = .lowercase
@@ -1359,7 +1359,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func handleSymbol(_ symbol: String) {
     playInputClick()
     if !isChineseMode {
-      insertOwnText(symbol)
+      insertDirectText(symbol)
       refreshEnglishSuggestions()
       return
     }
@@ -2476,7 +2476,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if !handwriting.isHidden && handwriting.hasInk { _ = handwriting.commitFirst(); return }
     playInputClick()
     if !isChineseMode {
-      insertOwnText(" ")
+      insertDirectText(" ")
       refreshEnglishSuggestions()
       return
     }
