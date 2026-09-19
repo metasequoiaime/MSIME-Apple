@@ -218,6 +218,7 @@ public final class MSIMEInputService extends InputMethodService {
     private Button spaceButton;
     private Button japaneseSpaceKey;
     private Button japaneseReturnKey;
+    private Button japaneseSymbolsKey;
     private Button japaneseVariantsButton;
     private Integer japaneseConversionIndex;
     private String japaneseConversionEditingText = "";
@@ -1778,6 +1779,12 @@ public final class MSIMEInputService extends InputMethodService {
             japaneseSpaceKey.setText(spaceKeyTitle());
             japaneseSpaceKey.setContentDescription(spaceKeyDescription());
         }
+        if (japaneseSymbolsKey != null) {
+            boolean symbols = keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
+            japaneseSymbolsKey.setText(symbols ? "あいう" : "123");
+            japaneseSymbolsKey.setContentDescription(symbols
+                ? "切换到假名" : "切换到数字和符号");
+        }
         if (japaneseVariantsButton != null) {
             boolean symbols = keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
             boolean enabled = symbols ? japaneseNineKeyActive() : JapaneseVariantPolicy.enabled(
@@ -1795,10 +1802,16 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void resetSpaceCursor() {
         cursorMovement.cancel();
-        if (spaceButton == null) return;
-        spaceButton.setPressed(false);
-        spaceButton.setText(spaceKeyTitle());
-        spaceButton.setContentDescription(spaceKeyDescription());
+        if (spaceButton != null) {
+            spaceButton.setPressed(false);
+            spaceButton.setText(spaceKeyTitle());
+            spaceButton.setContentDescription(spaceKeyDescription());
+        }
+        if (japaneseSpaceKey != null && japaneseSpaceKey != spaceButton) {
+            japaneseSpaceKey.setPressed(false);
+            japaneseSpaceKey.setText(spaceKeyTitle());
+            japaneseSpaceKey.setContentDescription(spaceKeyDescription());
+        }
     }
 
     private void moveEditorCursor(int offset) {
@@ -5053,6 +5066,7 @@ public final class MSIMEInputService extends InputMethodService {
         microsoftFinalKey = null;
         japaneseSpaceKey = null;
         japaneseReturnKey = null;
+        japaneseSymbolsKey = null;
         japaneseVariantsButton = null;
         keyRows.removeAllViews();
         if (displayedTouchLayout(view) == JAPANESE_NINE_KEY_LAYOUT) {
@@ -5377,12 +5391,37 @@ public final class MSIMEInputService extends InputMethodService {
         return variants;
     }
 
+    private void addJapaneseSideKey(LinearLayout column, Button button, float weight) {
+        column.addView(button, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT, 0, weight));
+    }
+
     private void rebuildJapaneseNineKeyRows() {
         LinearLayout container = new LinearLayout(this);
         container.setOrientation(LinearLayout.HORIZONTAL);
         adjustFixedHeight(container, KeyboardGeometry.NINE_KEY_HEIGHT_DP);
         keyRows.addView(container, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, pixels(180)));
+
+        LinearLayout modeColumn = new LinearLayout(this);
+        modeColumn.setOrientation(LinearLayout.VERTICAL);
+        japaneseSymbolsKey = keyboardKey("123", "切换到数字和符号", () -> {
+            keyboardLayer = keyboardLayer == KeyboardLayout.Layer.SYMBOLS
+                ? KeyboardLayout.Layer.LETTERS : KeyboardLayout.Layer.SYMBOLS;
+            rebuildKeyRows();
+            render();
+        });
+        addJapaneseSideKey(modeColumn, japaneseSymbolsKey, 1);
+        addJapaneseSideKey(modeColumn, keyboardKey("☺", "打开表情浏览", this::showEmojiPicker), 1);
+        Button language = keyboardKey("英", "切换到英文输入", this::toggleInputLanguage);
+        addJapaneseSideKey(modeColumn, language,
+            shouldOfferSwitchingToNextInputMethod() ? 1 : 2);
+        if (shouldOfferSwitchingToNextInputMethod()) {
+            addJapaneseSideKey(modeColumn, keyboardKey("切换", "切换到下一个输入法",
+                this::switchToNextInputMethodAfterCommit), 1);
+        }
+        container.addView(modeColumn, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.MATCH_PARENT, 0.17f));
 
         LinearLayout grid = new LinearLayout(this);
         grid.setOrientation(LinearLayout.VERTICAL);
@@ -5403,7 +5442,7 @@ public final class MSIMEInputService extends InputMethodService {
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
         }
         container.addView(grid, new LinearLayout.LayoutParams(0,
-            LinearLayout.LayoutParams.MATCH_PARENT, 0.81f));
+            LinearLayout.LayoutParams.MATCH_PARENT, 0.64f));
 
         LinearLayout side = new LinearLayout(this);
         side.setOrientation(LinearLayout.VERTICAL);
@@ -5412,9 +5451,15 @@ public final class MSIMEInputService extends InputMethodService {
         };
         Button delete = keyboardKey("⌫", "删除", deleteAction);
         bindBackspaceRepeat(delete, deleteAction);
-        addNineKey(side, delete);
+        addJapaneseSideKey(side, delete, 1);
+        japaneseSpaceKey = keyboardKey("空白", "空白；左右滑动移动光标", this::space);
+        bindSpaceCursor(japaneseSpaceKey);
+        addJapaneseSideKey(side, japaneseSpaceKey, 1);
+        japaneseReturnKey = keyboardKey("改行", "改行", this::enter);
+        addJapaneseSideKey(side, japaneseReturnKey, 2);
         container.addView(side, new LinearLayout.LayoutParams(0,
             LinearLayout.LayoutParams.MATCH_PARENT, 0.19f));
+        updateReturnKey();
     }
 
     /** Non-interactive overlay showing the five choices while a Japanese key is being flicked. */
@@ -6121,6 +6166,10 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (shortcutScroll != null)
             shortcutScroll.setVisibility(idle && !hasDiagnostic ? View.VISIBLE : View.GONE);
+        if (keyboardControls != null && (replyKeyboard == null
+                || replyKeyboard.getVisibility() != View.VISIBLE)) {
+            keyboardControls.setVisibility(japaneseNineKeyActive() ? View.GONE : View.VISIBLE);
+        }
         if (candidateViewport != null)
             candidateViewport.setVisibility(!idle && !hasDiagnostic ? View.VISIBLE : View.GONE);
         updateCandidateViewportHeight();
