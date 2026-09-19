@@ -608,6 +608,16 @@ add_executable(candidate-gloss-layout-test tests/candidate/CandidateGlossLayoutT
 target_compile_options(candidate-gloss-layout-test PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(candidate-gloss-layout-test PRIVATE "-framework CoreGraphics")
 add_test(NAME candidate-gloss-layout COMMAND candidate-gloss-layout-test)
+add_executable(candidate-row-fit-test tests/candidate/CandidateRowFitTest.cpp)
+target_compile_options(candidate-row-fit-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+add_test(NAME candidate-row-fit COMMAND candidate-row-fit-test)
+# The same controller shortcut-test imports, rendered on its own: the candidate layout assertions in that
+# suite sit behind an abort recorded in scripts/known-failures.txt and have reported nothing since.
+add_executable(candidate-row-layout-test tests/candidate/CandidateRowLayoutTest.mm ${MSIME_CONTROLLER_TEST_SOURCES} src/cloud/TranslationCache.mm src/cloud/TranslationSettingsWindow.mm src/core/AISettingsWindow.mm src/input/InputModeHUDPanel.mm)
+target_link_libraries(candidate-row-layout-test PRIVATE ${MSIME_CONTROLLER_TEST_LIBS})
+target_include_directories(candidate-row-layout-test PRIVATE ../../vendor/MSIME-Engine ../../vendor/MSIME-Engine/include)
+target_compile_options(candidate-row-layout-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG "-F${MSIME_SPARKLE_ROOT}")
+add_test(NAME candidate-row-layout COMMAND candidate-row-layout-test)
 add_executable(candidate-hover-test tests/candidate/CandidateHoverTest.mm)
 target_compile_options(candidate-hover-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(candidate-hover-test PRIVATE "-framework AppKit")
