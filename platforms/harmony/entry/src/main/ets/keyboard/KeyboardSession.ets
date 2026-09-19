@@ -1452,6 +1452,10 @@ export class KeyboardSession {
       }
       this.enterKey = attribute.enterKeyType;
       this.traits = KeyboardSession.traitsFor(attribute.inputPattern);
+      // Says the keyboard reached a real editor, which nothing else in the log does. Verifying that
+      // on a device meant reading the window manager's avoid-area traffic to infer it.
+      KeyboardLog.info(`attached to editor: pattern=${attribute.inputPattern} `
+        + `enter=${attribute.enterKeyType}`);
       // Which application this editor belongs to, so the mode can be the one last chosen there.
       // Resolved with the attribute rather than at attach: the bundle name arrives with it.
       this.modeScope.activate(attribute.bundleName ?? null, this.modeScopeSetting);
