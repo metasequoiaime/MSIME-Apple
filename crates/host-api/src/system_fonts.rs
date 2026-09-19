@@ -22,6 +22,8 @@ pub fn resolve_css_families(names: Vec<String>) -> Result<Vec<String>, &'static 
 }
 
 /// OpenHarmony reports `target_os = "linux"`, so every Linux gate in this file has to exclude it explicitly. It ships no fontconfig, and an extension ability cannot spawn `fc-list` from its sandbox, so claiming support here would offer the shared UI a font picker that only ever returns an error.
+/// The HarmonyOS settings page does list installed families, but through ArkUI's own
+/// `font.getSystemFontList()` rather than this module; alias resolution has no equivalent there.
 pub fn supported() -> bool {
     cfg!(any(
         target_os = "macos",
