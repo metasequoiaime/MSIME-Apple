@@ -1929,15 +1929,25 @@ public final class MSIMEInputService extends InputMethodService {
 
     @Override public void onUpdateSelection(int oldStart, int oldEnd, int newStart, int newEnd, int composingStart, int composingEnd) {
         super.onUpdateSelection(oldStart, oldEnd, newStart, newEnd, composingStart, composingEnd);
-        if (oldStart != newStart || oldEnd != newEnd) editorContextRevision++;
+        boolean selectionChanged = oldStart != newStart || oldEnd != newEnd;
+        if (selectionChanged) {
+            editorContextRevision++;
+            // Android reports this boundary after the host has moved the selection. Do not carry
+            // Apple service-panel or handwriting state into the new editor context.
+            clearHandwriting();
+            closeVoiceResult();
+            closeAiPolish();
+        }
         if (aiPolishContainer != null && aiPolishContainer.getVisibility() == View.VISIBLE
                 && aiTarget != null && !aiTargetMatches()) {
             cancelAiRequest();
             aiError = "输入位置已变化，请返回键盘后重新选择文字。";
             renderAiPolish();
         }
-        if (selectedScheme == KeyboardScheme.THOUGHTFUL_REPLY && replyTarget != null
-                && !replyTargetMatches()) {
+        boolean replyVisible = replyKeyboard != null
+            && replyKeyboard.getVisibility() == View.VISIBLE;
+        if (selectedScheme == KeyboardScheme.THOUGHTFUL_REPLY
+                && (replyTarget != null || (selectionChanged && replyVisible))) {
             invalidateReplyContext("输入位置已变化，请重新选择回复方式");
         }
         if (session != 0 && view != null && !view.optString("editing_text").isEmpty()
