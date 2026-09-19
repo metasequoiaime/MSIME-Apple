@@ -680,6 +680,10 @@ group('a negative uptime is rejected rather than treated as a fast tap', () => {
 console.log('Output and editor policies');
 
 group('maps shared candidate skins to native Harmony palettes', () => {
+  check(CandidateSkinPolicy.rowDetailColor(false, '#111111', '#ffffff') === '#111111',
+    'unselected candidate details use the normal text colour');
+  check(CandidateSkinPolicy.rowDetailColor(true, '#111111', '#ffffff') === '#ffffff',
+    'selected candidate details follow the selected text colour');
   check(CandidateSkinPolicy.harmonySkin('fluent') === 'porcelain', 'Fluent uses the clean palette');
   check(CandidateSkinPolicy.harmonySkin('wechat') === 'forest', 'WeChat uses the green palette');
   check(CandidateSkinPolicy.harmonySkin('graphite') === 'blueprint', 'Graphite uses the blue-gray palette');

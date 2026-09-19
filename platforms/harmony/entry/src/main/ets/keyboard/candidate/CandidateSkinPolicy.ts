@@ -4,6 +4,11 @@
  * palette while all explicit candidate colours still win over the palette below.
  */
 export class CandidateSkinPolicy {
+  /** Auxiliary code and translations inherit the selected row's text colour, like the Windows CSS. */
+  static rowDetailColor(highlighted: boolean, textColor: string, selectedTextColor: string): string {
+    return highlighted ? selectedTextColor : textColor;
+  }
+
   static harmonySkin(candidateSkin: string | null | undefined,
                      externalBase: string | null | undefined = null): string {
     switch (candidateSkin) {

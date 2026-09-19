@@ -913,6 +913,8 @@ struct KeyboardView {
   @Builder
   candidateCell(candidate: CandidateEntry, index: number) {
     const selected: boolean = candidate.highlighted;
+    const detailColor: string = CandidateSkinPolicy.rowDetailColor(selected,
+      this.candidateTextColor(), this.candidateAccentColor());
     Row() {
       if (selected && (this.settings.candidateSelectedBar
         ?? CandidateSkinPolicy.showSelectedBar(this.settings.candidateSkinId))) {
@@ -930,11 +932,11 @@ struct KeyboardView {
       }
       if (candidate.hint.length > 0) {
         Text(candidate.hint).fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
-          .fontColor(this.candidateTextColor()).opacity(0.5).padding({ left: 2 })
+          .fontColor(detailColor).opacity(0.5).padding({ left: 2 })
       }
       if (candidate.annotation.length > 0) {
         Text(candidate.annotation).fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
-          .fontColor(this.candidateAccentColor()).opacity(0.7).padding({ left: 4 })
+          .fontColor(detailColor).opacity(0.7).padding({ left: 4 })
       }
     }.alignItems(VerticalAlign.Center)
       .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP, right: KeyboardMetrics.CANDIDATE_PADDING_VP })
