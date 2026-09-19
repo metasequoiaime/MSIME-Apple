@@ -60,6 +60,8 @@ import { CandidateFontFamilyPolicy }
 import { CandidateAnnotationPreferencePolicy }
   from '../entry/src/main/ets/keyboard/candidate/CandidateAnnotationPreferencePolicy';
 import { InputModeHudPolicy } from '../entry/src/main/ets/keyboard/InputModeHudPolicy';
+import { DEFAULT_VOICE_HOTKEY_BINDINGS, VoiceHotkeyAction, VoiceHotkeyBindings, VoiceHotkeyPolicy,
+  VoiceKey } from '../entry/src/main/ets/keyboard/input/VoiceHotkeyPolicy';
 import { DEFAULT_MODE_BINDINGS, InputModeRouting, ModeBindings, ModeGesture, ModeKey }
   from '../entry/src/main/ets/keyboard/InputModeRouting';
 import { KeyboardFeedbackBridge, MobileKeyboardFeedback }
@@ -1784,6 +1786,90 @@ group('a solitary modifier is a tap only when nothing happened in between', () =
   ctrlOff.accept(modeKey(KEY_CTRL, true, 0));
   check(ctrlOff.accept(modeKey(KEY_CTRL, false, 50)) === ModeGesture.NONE,
     'the Ctrl tap is off by default and stays off');
+});
+
+const KEY_ALT_RIGHT: number = 2046;
+const KEY_ESCAPE: number = 2070;
+const KEY_CTRL_RIGHT: number = 2073;
+const KEY_META_LEFT: number = 2076;
+const KEY_F9: number = 2098;
+const KEY_VOICE_SPACE: number = 2050;
+
+function voiceKey(keyCode: number, down: boolean, modifiers: Partial<VoiceKey> = {}): VoiceKey {
+  return {
+    keyCode: keyCode, down: down, ctrlKey: modifiers.ctrlKey === true,
+    altKey: modifiers.altKey === true, shiftKey: modifiers.shiftKey === true,
+    logoKey: modifiers.logoKey === true
+  };
+}
+
+group('a held voice key records until it is released', () => {
+  const voice: VoiceHotkeyPolicy = new VoiceHotkeyPolicy();
+  voice.use(DEFAULT_VOICE_HOTKEY_BINDINGS);
+  check(voice.accept(voiceKey(KEY_ALT_RIGHT, true), false) === VoiceHotkeyAction.START,
+    'right Alt begins recording');
+  check(voice.accept(voiceKey(KEY_ALT_RIGHT, true), true) === VoiceHotkeyAction.NONE,
+    'the keyboard repeating the held key is not a second request');
+  check(voice.accept(voiceKey(KEY_ALT_RIGHT, false), true) === VoiceHotkeyAction.STOP,
+    'and releasing it recognizes what was said');
+  check(voice.accept(voiceKey(KEY_ALT_RIGHT, false), false) === VoiceHotkeyAction.NONE,
+    'a release with nothing held is nobody\u0027s');
+});
+
+group('Space locks a recording so the hold key can be let go', () => {
+  const voice: VoiceHotkeyPolicy = new VoiceHotkeyPolicy();
+  voice.use(DEFAULT_VOICE_HOTKEY_BINDINGS);
+  voice.accept(voiceKey(KEY_ALT_RIGHT, true), false);
+  check(voice.accept(voiceKey(KEY_VOICE_SPACE, true), true) === VoiceHotkeyAction.LOCK,
+    'Space while holding locks it');
+  check(voice.isLocked() === true, 'and the panel can say so');
+  check(voice.accept(voiceKey(KEY_ALT_RIGHT, false), true) === VoiceHotkeyAction.NONE,
+    'releasing the hold key no longer ends it');
+  check(voice.accept(voiceKey(KEY_F9, true, { ctrlKey: true }), true) === VoiceHotkeyAction.STOP,
+    'Ctrl+F9 ends a locked recording, which is the whole reason it is a toggle');
+  check(voice.isLocked() === false, 'and the lock is gone with it');
+});
+
+group('Space and Escape are only voice keys while recording', () => {
+  const voice: VoiceHotkeyPolicy = new VoiceHotkeyPolicy();
+  voice.use(DEFAULT_VOICE_HOTKEY_BINDINGS);
+  check(voice.accept(voiceKey(KEY_VOICE_SPACE, true), false) === VoiceHotkeyAction.NONE,
+    'Space with nothing recording belongs to the composition');
+  check(voice.accept(voiceKey(KEY_ESCAPE, true), false) === VoiceHotkeyAction.NONE,
+    'and so does Escape');
+  voice.accept(voiceKey(KEY_ALT_RIGHT, true), false);
+  check(voice.accept(voiceKey(KEY_ESCAPE, true), true) === VoiceHotkeyAction.CANCEL,
+    'while recording, Escape throws it away');
+  check(voice.accept(voiceKey(KEY_ALT_RIGHT, false), true) === VoiceHotkeyAction.NONE,
+    'and the hold it cancelled is no longer held');
+});
+
+group('each voice shortcut obeys its own switch', () => {
+  const off: VoiceHotkeyBindings = {
+    ralt: false, ctrlWin: false, rctrlRalt: false, holdSpaceLock: false, ctrlF9: false
+  };
+  const voice: VoiceHotkeyPolicy = new VoiceHotkeyPolicy();
+  voice.use(off);
+  check(voice.accept(voiceKey(KEY_ALT_RIGHT, true), false) === VoiceHotkeyAction.NONE,
+    'right Alt turned off does nothing');
+  check(voice.accept(voiceKey(KEY_F9, true, { ctrlKey: true }), false) === VoiceHotkeyAction.NONE,
+    'and neither does Ctrl+F9');
+  const chords: VoiceHotkeyBindings = {
+    ralt: false, ctrlWin: true, rctrlRalt: true, holdSpaceLock: true, ctrlF9: true
+  };
+  const chordVoice: VoiceHotkeyPolicy = new VoiceHotkeyPolicy();
+  chordVoice.use(chords);
+  check(chordVoice.accept(voiceKey(KEY_ALT_RIGHT, true, { ctrlKey: true }), false)
+    === VoiceHotkeyAction.START, 'Ctrl held with right Alt is the RCtrl+RAlt chord');
+  chordVoice.accept(voiceKey(KEY_ALT_RIGHT, false), true);
+  check(chordVoice.accept(voiceKey(KEY_META_LEFT, true, { ctrlKey: true }), false)
+    === VoiceHotkeyAction.START, 'Ctrl+Win is the other chord');
+  const bare: VoiceHotkeyPolicy = new VoiceHotkeyPolicy();
+  bare.use(chords);
+  check(bare.accept(voiceKey(KEY_ALT_RIGHT, true), false) === VoiceHotkeyAction.NONE,
+    'with only the chords on, a bare right Alt is not one of them');
+  check(bare.accept(voiceKey(KEY_CTRL_RIGHT, true), false) === VoiceHotkeyAction.NONE,
+    'and a right Control alone is half a chord, not a binding');
 });
 
 group('the mode badge is built only when the shared preference allows it', () => {

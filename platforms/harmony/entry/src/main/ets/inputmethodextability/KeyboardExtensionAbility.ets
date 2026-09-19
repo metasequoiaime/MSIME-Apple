@@ -12,6 +12,7 @@ import { KeyboardFormFactor } from '../keyboard/KeyboardFormFactor';
 import { HardwareKeyRouter, HardwareKey, HardwareKeyAction, HardwareKeyDecision }
   from '../keyboard/HardwareKeyRouter';
 import { InputModeRouting, ModeGesture, ModeKey } from '../keyboard/InputModeRouting';
+import { VoiceKey } from '../keyboard/input/VoiceHotkeyPolicy';
 import { CandidateTextEdge } from '../keyboard/input/CandidateTextPolicy';
 import { FloatingToolbarLayout } from '../keyboard/FloatingToolbarLayout';
 import { FloatingToolbarDragPolicy } from '../keyboard/FloatingToolbarDragPolicy';
@@ -360,6 +361,17 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       ctrlKey: event.ctrlKey, altKey: event.altKey, logoKey: event.logoKey,
       timestamp: Date.now()
     };
+    // The voice shortcuts come first and apply whether or not anything is being composed: Windows
+    // records into whatever has focus, and a hold key that only worked mid-composition would be a
+    // shortcut nobody could start. Escape and Space are claimed only while recording, so they go on
+    // meaning what they mean to a composition the rest of the time.
+    const voiceKey: VoiceKey = {
+      keyCode: event.key.code, down: event.action === KeyAction.DOWN, ctrlKey: event.ctrlKey,
+      altKey: event.altKey, shiftKey: event.shiftKey, logoKey: event.logoKey
+    };
+    if (session.routeVoiceHotkey(voiceKey)) {
+      return true;
+    }
     // Switching mode is the one thing worth claiming in an editor this keyboard will not compose
     // for: the mode outlives the field, and a password box is exactly where one notices being in the
     // wrong one. Checked before anything else, so a chord meant for the mode never reaches the

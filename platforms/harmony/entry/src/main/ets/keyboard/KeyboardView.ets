@@ -2,6 +2,7 @@ import {
   KeyboardSession, KeyboardPreferences, KeyboardState, CandidateEntry, EmojiPage, EmojiRow
 } from './KeyboardSession';
 import { KeyboardScheme, SchemeDefinition } from './KeyboardScheme';
+import { VoiceHotkeyAction } from './input/VoiceHotkeyPolicy';
 import { KeyboardSkin } from './skin/KeyboardSkin';
 import { EnglishLetterCaseState, LetterCaseMode } from './input/EnglishLetterCaseState';
 import { LetterKeyFacePolicy } from './input/LetterKeyFacePolicy';
@@ -316,6 +317,27 @@ struct KeyboardView {
     KeyboardSession.shared.onEnglishSuggestions = (prefix: string, items: string[]): void => {
       this.englishSuggestions = items;
     };
+    KeyboardSession.shared.onVoiceHotkey = (action: VoiceHotkeyAction): void => {
+      // The panel has to be on screen before recording starts, or the first thing the user sees of
+      // a shortcut they just pressed is nothing at all.
+      if (action === VoiceHotkeyAction.START) {
+        this.show(SURFACE_VOICE);
+        this.startVoice();
+        return;
+      }
+      if (action === VoiceHotkeyAction.STOP) {
+        this.stopVoice();
+        return;
+      }
+      if (action === VoiceHotkeyAction.CANCEL) {
+        this.cancelVoice();
+        this.show(SURFACE_NONE);
+        return;
+      }
+      if (action === VoiceHotkeyAction.LOCK) {
+        this.voiceNotice = '已锁定录音，松开按键不会结束。';
+      }
+    };
     KeyboardSession.shared.onSurfaceChanged = (surface: DesktopSurface): void => {
       this.desktop = surface;
       if (surface === DesktopSurface.EMOJI && this.emojiItems.length === 0) {
@@ -390,6 +412,7 @@ struct KeyboardView {
     this.voiceGeneration = 0;
     this.voiceBusy = false;
     this.voiceFinishing = false;
+    KeyboardSession.shared.setVoiceRecording(false);
   }
 
   /**
@@ -1792,6 +1815,7 @@ struct KeyboardView {
     this.voiceNotice = '正在聆听…';
     this.voiceBusy = true;
     this.voiceFinishing = false;
+    KeyboardSession.shared.setVoiceRecording(true);
     const voiceConfiguration = KeyboardSession.shared.voiceInputConfiguration();
     this.voiceRecognizer.start(voiceConfiguration.language || 'zh-CN', voiceConfiguration,
       (text: string, final: boolean): void => {
@@ -1807,6 +1831,7 @@ struct KeyboardView {
         }
         this.voiceFinishing = false;
         this.voiceBusy = false;
+        KeyboardSession.shared.setVoiceRecording(false);
         this.voiceNotice = accepted !== null ? '识别完成，可提交结果。' :
           (this.voiceText.length > 0 ? '已忽略过期的语音结果。' : '没有识别到语音。');
       }
@@ -1815,12 +1840,14 @@ struct KeyboardView {
       this.voiceGeneration = 0;
       this.voiceBusy = false;
       this.voiceFinishing = false;
+      KeyboardSession.shared.setVoiceRecording(false);
       this.voiceNotice = message;
       }).catch((error: Object): void => {
       KeyboardSession.shared.voiceCancel();
       this.voiceGeneration = 0;
       this.voiceBusy = false;
       this.voiceFinishing = false;
+      KeyboardSession.shared.setVoiceRecording(false);
       this.voiceNotice = error instanceof Error ? error.message : '语音识别不可用';
     });
   }
@@ -1836,6 +1863,7 @@ struct KeyboardView {
     } catch (error) {
       this.voiceBusy = false;
       this.voiceFinishing = false;
+      KeyboardSession.shared.setVoiceRecording(false);
       this.voiceNotice = '无法结束语音识别';
     }
   }
@@ -1848,6 +1876,7 @@ struct KeyboardView {
     }
     this.voiceBusy = false;
     this.voiceFinishing = false;
+    KeyboardSession.shared.setVoiceRecording(false);
     this.voiceText = '';
     this.voiceNotice = '已取消语音识别';
     KeyboardSession.shared.voiceCancel();
