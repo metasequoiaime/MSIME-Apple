@@ -96,6 +96,24 @@ test("mobile accounts keep profile editing and session actions on the pushed pro
   await waitFor(() => expect(client.clearExpired).toHaveBeenCalledTimes(1));
 });
 
+// Apple's account detail rows are 账号 ID, 登录方式 and 加入水杉, and the ID row is
+// itself the copy button. The desktop editor had a case for that; the mobile
+// page it pushes did not, so the parity was only true by inspection.
+test("the mobile profile page copies the account ID and shows the join date", async () => {
+  window.history.replaceState({ msimeSettings: true, page: "account" }, "");
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
+  const client = account({ status: vi.fn().mockResolvedValue({ user }) });
+  render(<AccountPage client={client} platform="android" />);
+  fireEvent.click(await screen.findByRole("button", { name: "编辑个人资料" }));
+  await screen.findByRole("heading", { name: "编辑资料" });
+
+  expect(screen.getByText("加入水杉")).not.toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "#FIXTUR" }));
+  await waitFor(() => expect(writeText).toHaveBeenCalledWith("fixture-user-id"));
+  expect(await screen.findByRole("button", { name: "已复制" })).not.toBeNull();
+});
+
 test("profile card opens the shared editor and copies the complete account ID", async () => {
   const writeText = vi.fn().mockResolvedValue(undefined);
   Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } });
