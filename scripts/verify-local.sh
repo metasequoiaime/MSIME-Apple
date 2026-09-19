@@ -151,6 +151,11 @@ python3 scripts/test-preferences-field-parity.py || fail "preferences field pari
 note "windows path encoding"
 python3 scripts/test-windows-path-encoding.py || fail "windows path encoding"
 
+# The prerequisite check lives in Inno Setup's Pascal Script, which nothing off
+# Windows can compile. This pins the parts a later edit could quietly drop.
+note "installer prerequisites"
+python3 scripts/test-installer-prerequisites.py || fail "installer prerequisites"
+
 note "compile: rust workspace"
 # The desktop app's Tauri config lists the platform IME bundle as a packaged
 # resource, and Tauri's build script fails when a listed resource is absent. On
