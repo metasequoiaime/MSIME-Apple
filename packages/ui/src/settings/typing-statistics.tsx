@@ -5,12 +5,21 @@ export type TypingBreakdown = {
   sources: Record<string, number>;
 };
 
+export type SelectionCounts = {
+  /** Commits from positions 1..9, index 0 being the first candidate. */
+  ranks?: number[];
+  /** Commits from further down the list than the first page. */
+  beyond?: number;
+};
+
 export type TypingStatistics = {
   enabled: boolean;
   total: number;
   days: Record<string, number>;
   detail?: Partial<TypingBreakdown>;
   dailyDetails?: Record<string, Partial<TypingBreakdown>>;
+  /** Absent in statistics written before candidate positions were counted. */
+  selections?: SelectionCounts;
 };
 
 export type TypingStatisticsStatus = {
@@ -217,6 +226,53 @@ function Distribution({ title, slices, footer, variant = "bar" }: { title: strin
   </section>;
 }
 
+
+/** Positions the first page holds; anything past it is counted together. */
+const RANK_SLOTS = 9;
+
+/**
+ * How often each candidate position was the one committed.
+ *
+ * One series, so one colour and no legend — the heading names it. The bars stay in position order
+ * and are never sorted by size: the whole point is the shape of the fall-off from the first
+ * candidate, and ranking the ranks would destroy it. The mark colour sits below 3:1 against the
+ * surface, so every row carries its count and share as text; the numbers are the relief, not
+ * decoration.
+ */
+function CandidateRanks({ selections }: { selections: SelectionCounts | undefined }) {
+  const ranks = Array.from({ length: RANK_SLOTS }, (_, index) => selections?.ranks?.[index] ?? 0);
+  const beyond = selections?.beyond ?? 0;
+  const total = ranks.reduce((sum, count) => sum + count, 0) + beyond;
+  const peak = Math.max(1, ...ranks, beyond);
+  const rows = [
+    ...ranks.map((count, index) => ({ id: `rank-${index + 1}`, label: `第 ${index + 1} 条`, count })),
+    { id: "beyond", label: "第 10 条以后", count: beyond },
+  ];
+  const share = (count: number) => (total === 0 ? "—" : `${(count / total * 100).toFixed(1)}%`);
+  return <section className="section statistics-distribution" aria-labelledby="statistics-candidate-ranks">
+    <h2 id="statistics-candidate-ranks">候选命中位置</h2>
+    <p className="statistics-hero">
+      <strong aria-label="首选命中率">{total === 0 ? "—" : `${(ranks[0] / total * 100).toFixed(1)}%`}</strong>
+      <span aria-hidden="true">首选命中率</span>
+      <small>{total === 0 ? "暂无记录" : `共 ${total.toLocaleString("zh-CN")} 次上屏`}</small>
+    </p>
+    {total === 0
+      ? <p className="statistics-empty">暂无候选记录。用水杉键盘上屏几次后再回来查看。</p>
+      : <div className="statistics-rank-chart statistics-candidate-ranks" role="img" aria-label="候选命中位置分布">
+          {rows.map(row => <div className="statistics-rank-row" key={row.id}
+            aria-label={`${row.label}：${row.count} 次，${share(row.count)}`}>
+            <span>{row.label}</span>
+            <div className="statistics-rank-track"><i style={{ width: `${row.count / peak * 100}%`, backgroundColor: palette[0] }} /></div>
+            <strong>{row.count.toLocaleString("zh-CN")}</strong>
+            <small>{share(row.count)}</small>
+          </div>)}
+        </div>}
+    <p className="statistics-footer-note">
+      每次上屏记录选中的是第几条候选，只记位置，不记任何文字。首选命中率越高，说明排序越贴合你的输入。
+    </p>
+  </section>;
+}
+
 export function TypingStatisticsPage({ client, mobile = false, platform, openSystemSettings }: {
   client: TypingStatisticsClient;
   mobile?: boolean;
@@ -227,7 +283,7 @@ export function TypingStatisticsPage({ client, mobile = false, platform, openSys
   const [status, setStatus] = useState<TypingStatisticsStatus>();
   const [period, setPeriod] = useState<Period>(7);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
-  const [mobileTab, setMobileTab] = useState<"trend" | "kind" | "mode" | "scheme">("trend");
+  const [mobileTab, setMobileTab] = useState<"trend" | "kind" | "mode" | "scheme" | "ranks">("trend");
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const mobileTrendDays = useMemo(() => recentDays(mobileTrendLength(status?.statistics.days ?? {})), [status?.statistics.days]);
@@ -307,7 +363,7 @@ export function TypingStatisticsPage({ client, mobile = false, platform, openSys
     </div>}
     <section className="section statistics-overview">
       {mobile ? <div className="statistics-mobile-tabs" role="tablist" aria-label="统计内容">
-        {([['trend', '趋势'], ['kind', '类型'], ['mode', '模式'], ['scheme', '方案']] as const).map(([value, label]) => <button type="button" role="tab" key={value}
+        {([['trend', '趋势'], ['kind', '类型'], ['mode', '模式'], ['scheme', '方案'], ['ranks', '候选']] as const).map(([value, label]) => <button type="button" role="tab" key={value}
           aria-selected={mobileTab === value} onClick={() => { setMobileTab(value); setSelectedDay(null); }}>{label}</button>)}
       </div> : <div className="statistics-period" role="group" aria-label="统计范围">
         {([[7, "7 天"], [30, "30 天"], [0, "累计"]] as const).map(([value, label]) => <button type="button" key={value} aria-pressed={period === value} onClick={() => { setPeriod(value); setSelectedDay(null); }}>{label}</button>)}
@@ -336,6 +392,7 @@ export function TypingStatisticsPage({ client, mobile = false, platform, openSys
     {(!mobile || mobileTab === "kind") && <Distribution title="字符类型" slices={characterSlices} variant={mobile ? "pie" : "bar"} />}
     {(!mobile || mobileTab === "mode") && <Distribution title="语言模式" slices={languageSlices} variant={mobile ? "donut" : "bar"} footer="按提交时使用的键盘模式统计，不推测文本语言；中文模式下输入的数字仍计入中文模式。AI 润色和语音输入单独按来源统计。" />}
     {(!mobile || mobileTab === "scheme") && <Distribution title="输入方案" slices={sourceSlices} variant={mobile ? "rank" : "bar"} footer="输入方案统计其上屏字符数，不计未上屏的拼音按键。旧版本总数保留为历史未分类，新输入开始记录细分。" />}
+    {(!mobile || mobileTab === "ranks") && <CandidateRanks selections={statistics.selections} />}
     {mobile ? <section className="section statistics-privacy-section">
       <p className="statistics-privacy">仅统计水杉键盘成功提交的字符，含标点及表情，不含空格、换行和未上屏拼音。组合表情计为一个字符，删除文字不扣减。仅在本机保存日期、分类和数量，不保存输入内容。每日明细保留最近 366 个有记录的日期，累计分类持续保留。</p>
     </section> : <section className="section statistics-controls">

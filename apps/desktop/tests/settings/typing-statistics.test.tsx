@@ -158,3 +158,32 @@ test("never-written status explains the empty local-only data channel", async ()
   expect(await screen.findByText(/键盘从未写入过统计/)).not.toBeNull();
   expect(screen.getByText(/不保存输入内容/)).not.toBeNull();
 });
+
+test("candidate positions show a first-candidate rate and keep rank order", async () => {
+  const statistics: TypingStatistics = {
+    ...initialStatistics,
+    selections: { ranks: [30, 6, 3, 0, 0, 0, 0, 0, 1], beyond: 10 },
+  };
+  const typingStatistics = { load: vi.fn().mockResolvedValue(status(statistics)), setEnabled: vi.fn(), reset: vi.fn() };
+  render(<SettingsPage client={{ ...baseClient(), typingStatistics }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
+
+  // 30 of 50 commits came from the first candidate.
+  expect((await screen.findByLabelText("首选命中率")).textContent).toBe("60.0%");
+  expect(screen.getByText("共 50 次上屏")).not.toBeNull();
+  expect(screen.getByLabelText("第 1 条：30 次，60.0%")).not.toBeNull();
+  expect(screen.getByLabelText("第 10 条以后：10 次，20.0%")).not.toBeNull();
+
+  // Order is the position, never the size: the ninth row outranks every empty one before it.
+  const rows = screen.getByLabelText("候选命中位置分布").querySelectorAll(".statistics-rank-row");
+  expect(Array.from(rows).map(row => row.querySelector("span")?.textContent))
+    .toEqual(["第 1 条", "第 2 条", "第 3 条", "第 4 条", "第 5 条", "第 6 条", "第 7 条", "第 8 条", "第 9 条", "第 10 条以后"]);
+});
+
+test("statistics written before candidate positions existed render an empty state", async () => {
+  const typingStatistics = { load: vi.fn().mockResolvedValue(status()), setEnabled: vi.fn(), reset: vi.fn() };
+  render(<SettingsPage client={{ ...baseClient(), typingStatistics }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "打字统计" }));
+  expect(await screen.findByText("暂无候选记录。用水杉键盘上屏几次后再回来查看。")).not.toBeNull();
+  expect(screen.queryByLabelText("候选命中位置分布")).toBeNull();
+});

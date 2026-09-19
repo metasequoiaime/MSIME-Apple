@@ -775,14 +775,54 @@ fn with_session(
 fn dispatch(handle: u64, action: Action) -> *mut c_char {
     response(|| {
         with_session(handle, |session| {
+            // Which row the user reached for, read before dispatching because the view it is
+            // relative to is gone afterwards. Every platform host routes candidate selection
+            // through here, so counting it here covers all of them without a line of platform
+            // code; doing it per host would have meant six chances to forget.
+            let position = selected_position(session, &action);
             let result = session
                 .runtime
                 .dispatch(action)
                 .map_err(|e| e.to_string())?;
+            if result.commit.is_some() {
+                if let Some(position) = position {
+                    record_selection(session, position);
+                }
+            }
             let result = session.complete_transition(result);
             serde_json::to_value(result).map_err(|e| e.to_string())
         })
     })
+}
+
+/// The one-based position of the candidate an action is about, or `None` when it is not about one.
+///
+/// `Select` indexes into the visible page, so the page it sits on has to be added back; a commit
+/// from row 2 of page 3 is the twentieth candidate, and counting it as the second would make the
+/// first-candidate rate look far better than it is. `SelectAnyCandidate` already carries an index
+/// into the whole list.
+fn selected_position(session: &HostSession, action: &Action) -> Option<usize> {
+    match action {
+        Action::Select(id) => {
+            let view = session.runtime.view();
+            Some(view.page * view.page_size + id.index + 1)
+        }
+        Action::SelectAnyCandidate(id) => Some(id.index + 1),
+        _ => None,
+    }
+}
+
+/// Count a commit against the position it came from, in the store the host already keeps.
+///
+/// Best effort on purpose: statistics must never be the reason a keystroke fails, so a locked or
+/// unwritable store is dropped rather than surfaced. The store honours the user's switch itself,
+/// so there is no second check here to fall out of step with it.
+fn record_selection(session: &HostSession, position: usize) {
+    let directory = std::path::Path::new(&session.options.user_data);
+    if !directory.is_absolute() {
+        return;
+    }
+    let _ = TypingStatisticsStore::new(directory).record_selection(position);
 }
 
 #[cfg(test)]
