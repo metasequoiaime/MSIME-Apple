@@ -22,6 +22,14 @@
 
 ## 当前证据
 
+### Android 云联想与 AI 联想接入（2026-09-19）
+
+Windows、macOS、Linux 和 HarmonyOS 都已消费共享的 `online_query` / `apply_cloud_response` / `apply_online_candidates`，Android 与 iOS 没有：Android 的 JNI 根本没有导出这三个入口，于是共享设置里的“云联想”开关和 AI 辅助配置在 Android 上是一个不起作用的开关。现在 Android 按 HarmonyOS 已验证的同一条边界接入：组字停下 `QUIET_INTERVAL_MILLIS` 后向共享 host 索取 query，单线程 worker 依次执行云候选 HTTPS GET 和 AI Chat Completions POST，URL 与请求描述符均由共享 host 构建，凭据留在 session 内，宿主只搬运字节并在主线程把结果交回 Engine。请求身份由 session、cache key、identity、云开关和启用状态下的 AI 配置组成，同一组合只问一次；epoch 保证上一段组合的迟到结果不会写入新会话；云结果推进 Engine 代次后，AI 请求重新读取 query 再发出。
+
+这项接入意味着开启云联想后，当前正在组的拼音会发送给云输入服务——与其他四个宿主的既有默认一致，共享设置中可关闭；AI 联想另外要求 AI 辅助已启用且配置完整。响应边界为云 256 KiB、AI 1 MiB、AI JSON 内容 64 KiB、单条候选 4096 字节，空白/控制字符/重复/超限候选被跳过而不影响同批其他候选。
+
+新增无 Android 依赖的 `OnlineCandidatePolicy` 与其 JVM 回归，覆盖请求身份、可用性、候选过滤与全部响应上限；`OnlineCandidateTransport` 只做有界 HTTPS 搬运，不解析凭据。Android host Java/API（`-Werror`）、manifest/resource 检查和全部 JVM smoke 通过，`scripts/verify-local.sh --quick` 通过；新增 JNI 以 JDK 21 的 `jni.h` 和真实 `crates/host-api/include/msime_client.h` 通过 C++20 语法检查，证明签名与共享 FFI 一致。未执行 NDK 原生构建、真机网络、真实云服务或 AI 服务验收，CI 保持禁用。
+
 ### Android 辅助码设置入口（2026-09-19）
 
 Android 键盘本来就在发辅助码：全拼或双拼组字中按 Shift，下一个字母作为辅码交给 Engine 缩小候选，而 Engine 的辅码方案和候选提示正是读共享设置里的 `quanpin_helpcode` / `shuangpin_helpcode`。共享移动端导航此前把辅助码页与桌面快捷键、悬浮工具栏一起按“移动端没有对应表面”隐藏，于是这个已经在用的功能没有任何地方可以选方案或关掉。现在辅助码按宿主而不是按形态划分：Android 的“更多设置”可进入该页，并说明 Shift 辅码的触发与不适用的方案；Apple 键盘扩展没有辅助码输入，iOS 继续隐藏，HarmonyOS 维持原样。触屏宿主没有候选窗口，该页的显示开关在移动端改称“在候选栏显示辅助码”。

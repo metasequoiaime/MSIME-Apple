@@ -70,6 +70,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/candidate/CandidateGlossModelSmoke.java" \
   "$repo_root/platforms/android/tests/candidate/CandidateTranslationPolicySmoke.java" \
   "$repo_root/platforms/android/tests/candidate/CandidateTranslationStoreSmoke.java" \
+  "$repo_root/platforms/android/tests/candidate/OnlineCandidatePolicySmoke.java" \
   "$repo_root/platforms/android/tests/dictionary/WubiCodeHintPolicySmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/ChineseSymbolFacesSmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/ShuangpinKeyHintPolicySmoke.java" \
@@ -121,6 +122,7 @@ java -cp "$output_dir" CandidateAppearanceSmoke
 java -cp "$output_dir" CandidateGlossModelSmoke
 java -cp "$output_dir" CandidateTranslationPolicySmoke
 java -cp "$output_dir" app.msime.client.CandidateTranslationStoreSmoke
+java -cp "$output_dir" OnlineCandidatePolicySmoke
 java -cp "$output_dir" WubiCodeHintPolicySmoke
 java -cp "$output_dir" ChineseSymbolFacesSmoke
 java -cp "$output_dir" ShuangpinKeyHintPolicySmoke
