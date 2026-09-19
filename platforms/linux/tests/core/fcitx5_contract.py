@@ -26,6 +26,7 @@ source = (root / "fcitx5/FcitxEngine.cpp").read_text()
 assert 'tsf_preedit_style' in source
 assert 'candidate_preedit_style' in source
 assert 'FcitxSchemeBooleanAction' in source
+assert '英文输入模式' in source
 assert 'msime-shuangpin-preedit' in source
 assert 'msime-wubi-code-hint' in source
 assert 'msime-shuangpin-profile' in source

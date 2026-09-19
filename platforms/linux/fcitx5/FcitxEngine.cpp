@@ -2135,7 +2135,7 @@ public:
   FcitxModeAction(fcitx::FactoryFor<FcitxState> *factory, Mode mode)
       : factory_(factory), mode_(mode) { setCheckable(true); }
   std::string shortText(fcitx::InputContext *) const override {
-    return mode_ == Mode::EnglishCandidates ? "英文候选" : "全角";
+    return mode_ == Mode::EnglishCandidates ? "英文输入模式" : "全角";
   }
   std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
   bool isChecked(fcitx::InputContext *ic) const override {
