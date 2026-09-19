@@ -6,15 +6,18 @@ sufficient: `resources/eval/README.md` excludes sentences whose pinyin has two e
 readings, because "评测集不能既诚实又有歧义" — a case whose gold is one of two defensible answers
 measures the grader, not the decoder. Deciding that is a judgement, not a filter.
 
-Two questions per case, asked together over the same state because neither needs the other's answer:
+Three questions per case, asked together over the same state because none needs another's answer:
 
-  intended   Choice over the readings the decoder actually produced. If this disagrees with the
-             original, the case is not usable: either the corpus sentence is odd, or the decoder's
-             answer is defensible and the "failure" is not one.
-  ambiguous  Noul on whether more than one reading is equally natural here. This is the README's
-             own exclusion rule, asked directly.
+  intended     Choice over the readings the decoder actually produced. If this disagrees with the
+               original, the case is not usable: either the corpus sentence is odd, or the decoder's
+               answer is defensible and the "failure" is not one.
+  well_formed  Noul on whether the chosen reading is connected Chinese someone would type, rather
+               than a page title, a run of keywords or a fragment. Web corpora are full of those
+               and they make poor evaluation cases whatever the decoder does with them.
+  ambiguous    Noul on whether more than one reading is equally natural here. This is the README's
+               own exclusion rule, asked directly. Recorded, but no longer a veto — see below.
 
-A case is proposed for the set when the choice lands on the original and ambiguity is unlikely.
+A case is proposed for the set when the choice lands on the original and the reading is a sentence.
 Everything else is written out with the reason attached, for a person to scan. The script proposes;
 it does not decide. Nothing here is a gate.
 
@@ -38,13 +41,21 @@ MODEL = "jev-latest"
 # Thresholds are starting points to evaluate on this data, not settled policy.
 #
 # The choice is the primary gate: it is the question with a checkable answer, and its confidence is
-# a distribution concentration rather than a guess about a guess. Ambiguity is a veto, and only a
-# strong one, because a Noul near 0.5 means the model puts similar probability on yes and no — not
-# that the case is moderately ambiguous. A first pass rejecting above 0.40 threw out 70 of 150
-# cases whose choice had landed on the original anyway, which is what a coin flip looks like when
-# you read it as a score.
+# a distribution concentration rather than a guess about a guess.
+#
+# Ambiguity was a veto and is no longer one. On 1200 cases harvested from C4 it rejected 436 whose
+# choice had landed on the original — every single one of them — and it spread its scores over
+# 0.65 to 0.87 with no visible relation to whether the case was actually ambiguous: 吃得白白胖胖
+# scored 0.72 although 吃的白白胖胖 is not a sentence at all. That is the same failure the 0.40
+# threshold had before it, one band higher. The number is still recorded in the flagged file, so a
+# person can look for a band where it means something; nothing decides on it.
+#
+# What those 436 cases actually needed is the question below. C4 is web text, so a large share of
+# what survives harvesting is page titles and keyword runs — 黄页三门峡分站, 南岗洗车店, 资江天气.
+# They are not ambiguous, they are not sentences, and a reranking evaluation built on them measures
+# how well a model ranks navigation furniture.
 MIN_CHOICE_CONFIDENCE = 0.60
-MAX_AMBIGUITY = 0.65
+MIN_WELL_FORMED = 0.50
 
 KEY = os.environ.get("TYPESAFE_API_KEY", "")
 if not KEY:
@@ -86,6 +97,21 @@ def ask(case):
                     "did the writer mean?"
                 ),
                 "criteria": {text: None for text in options},
+            },
+            "well_formed": {
+                "type": "noul",
+                "instructions": (
+                    "Is the option named by `intended` a self-contained, naturally written "
+                    "Chinese sentence or clause — the kind of thing a person types into a "
+                    "message or a document?"
+                ),
+                "criteria": {
+                    "true": "It reads as ordinary connected Chinese that someone would type.",
+                    "false": (
+                        "It is a web page title, a run of keywords, a site or product name, "
+                        "or a fragment cut out of the middle of a sentence."
+                    ),
+                },
             },
             "ambiguous": {
                 "type": "noul",
@@ -136,17 +162,19 @@ def ask(case):
 
     intended = answer["answers"]["intended"]
     ambiguous = answer["answers"]["ambiguous"]
+    well_formed = answer["answers"]["well_formed"]
     case["jev_choice"] = intended["choice"]
     case["jev_confidence"] = intended.get("confidence")
     case["jev_ambiguity"] = ambiguous.get("noul")
+    case["jev_well_formed"] = well_formed.get("noul")
     case["usage"] = answer.get("usage", {})
 
     if case["jev_choice"] != case["gold"]:
         case["verdict"] = "disagrees-with-original"
     elif (case["jev_confidence"] or 0) < MIN_CHOICE_CONFIDENCE:
         case["verdict"] = "low-confidence"
-    elif case["jev_ambiguity"] is not None and case["jev_ambiguity"] > MAX_AMBIGUITY:
-        case["verdict"] = "ambiguous"
+    elif (case["jev_well_formed"] or 0) < MIN_WELL_FORMED:
+        case["verdict"] = "not-a-sentence"
     else:
         case["verdict"] = "accept"
     return case
@@ -181,7 +209,9 @@ def main():
         for case in accepted:
             handle.write(row(case) + "\n")
     with open(f"{prefix}-flagged.tsv", "w") as handle:
-        handle.write("# 未通过，附理由。disagrees-with-original 往往说明引擎的答案也站得住。\n")
+        handle.write("# 未通过，附理由。disagrees-with-original 往往说明引擎的答案也站得住；\n")
+        handle.write("# not-a-sentence 多半是网页标题或关键词串，语料本身的问题，不是解码的。\n")
+        handle.write("# 列：判定 / id / 拼音 / 金标准 / 评审所选 / 歧义 / 成句 / 上文\n")
         for case in cases:
             if case["verdict"] == "accept":
                 continue
@@ -194,6 +224,7 @@ def main():
                         case["gold"],
                         case.get("jev_choice", ""),
                         f"{case.get('jev_ambiguity', -1):.2f}",
+                        f"{case.get('jev_well_formed', -1):.2f}",
                         case.get("context", ""),
                     ]
                 )
