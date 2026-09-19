@@ -88,6 +88,26 @@ final class KeyboardKeyButton: UIButton {
       if !isEnabled { updatePressFeedback() }
     }
   }
+
+  /// How many lines the title is allowed to take, or nil to leave UIKit's own choice alone.
+  ///
+  /// Assigning `titleLabel?.numberOfLines` right after a configuration does not hold: UIKit
+  /// applies the configuration on its own schedule and rebuilds the title label while doing it,
+  /// so the value is back to 0 by the time the button lays out. For a candidate chip that means
+  /// wrapping onto a second line the strip has no room for -- the chip grows downward instead of
+  /// truncating. Re-applying it on every layout pass is what makes the limit stick.
+  var titleLineCount: Int? {
+    didSet {
+      guard titleLineCount != oldValue else { return }
+      setNeedsLayout()
+    }
+  }
+
+  override func layoutSubviews() {
+    super.layoutSubviews()
+    guard let lines = titleLineCount else { return }
+    titleLabel?.numberOfLines = lines
+  }
 }
 
 /// Candidate chips highlight immediately, but a drag still belongs to the strip.
@@ -108,4 +128,5 @@ final class CandidateScrollView: UIScrollView {
     if view is KeyboardKeyButton { return true }
     return super.touchesShouldCancel(in: view)
   }
+
 }

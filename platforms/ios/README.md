@@ -87,6 +87,22 @@ xcrun simctl install booted "$app"
 
 签名后 App Group 查找成功，但 iOS 27 模拟器上进程仍会在启动时 SIGTRAP：`tauri-runtime-wry` 启动时调用 `wry::webview_version()` 探测 WebView，它走 `+[NSBundle bundleWithIdentifier:@"com.apple.WebKit"]`，在该系统版本的 CoreFoundation 内部以 `CFRelease` 空指针陷阱结束。这条路径在仓库代码之外，修复属于上游；在它解决之前，模拟器只能验证到构建、打包与安装，界面与键盘扩展的运行仍需真机。
 
+## 运行 iOS Swift 测试
+
+`KeyboardTests/`、`ServiceTests/` 与 `TransportTests/` 通过遗留 Xcode 工程的测试宿主在模拟器上运行。准备好 `target/ios/EngineResources` 与模拟器原生库之后：
+
+```sh
+xcodegen generate -s platforms/ios/project.yml -p platforms/ios
+xcodebuild test -project platforms/ios/MSIMEClient.xcodeproj -scheme MSIMEClientTests \
+  -destination 'platform=iOS Simulator,name=iPhone 18 Pro Max' \
+  -derivedDataPath target/ios/derived-tests \
+  CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=YES
+```
+
+必须允许签名。测试宿主带 App Group entitlement，被测键盘要靠它读共享偏好；用 `CODE_SIGNING_ALLOWED=NO` 构建会剥掉 entitlement，宿主在套件中途被杀，后面的用例全部不报告。模拟器上 `CODE_SIGN_IDENTITY=-` 即 ad-hoc 签名，不需要任何开发者证书。
+
+当前结果为 201 通过、10 失败（Xcode 27 / iOS 27.0 模拟器，已 `simctl erase` 的干净设备上复现一致）：`CandidateTranslationTests` 的 `testCandidateLongPressOffersGlossInsertion`、`testExpandedCandidateWidthDoesNotChangeWithGlossLength`；`JapaneseNineKeyTests.testKanaKeysFeedJapaneseEngineCandidates`（`MSIMEKeyboardTests` 与 `MSIMESharedTests` 各一次）；`NineKeyKeyboardTests` 的 `testCandidateChipsNeverWrapToASecondLine`、`testKeyLayoutsKeepNineKeyHeight`、`testKeyPositionsStayFixedWhileComposingAndClearing`、`testNineKeyInputAndLayoutSwitches`、`testShortcutsYieldToCandidatesWithoutMovingKeys`、`testSpellingStripReusesItsButtonsBetweenKeystrokes`。这些失败集中在候选条与九键的布局测量和 Engine 候选断言上，尚未逐条定位；在把它们查清之前，这条命令的结果应当与上面这份名单比对，而不是只看通过与否。该套件目前不接入 `scripts/verify-local.sh`：它需要模拟器和已暂存的词库资源，单次运行约十分钟。
+
 原生 SwiftUI 设置 App 只作为迁移期间的测试入口保留。需要重建它来运行旧版 UI 测试时，设置 `MSIME_IOS_LEGACY_APP=1`；默认构建不会再把 `MSIMEClientApp` 作为产品宿主。
 
 **上面那条 SIGTRAP 只挡 Tauri 宿主，不挡这个。** `MSIMEClientApp` 不加载 WebView，在 iOS 27 模拟器上界面能正常起来，键盘扩展也随它一起装进去，所以要在模拟器上看界面就走这条路：
