@@ -407,6 +407,7 @@ mod tests {
             sound_enabled: true,
             haptics_enabled: true,
             haptic_strength: "strong".into(),
+            english_suggestions: true,
             dictionary_learning: false,
             keyboard_skin: "custom".into(),
             custom_keyboard_skin: None,
