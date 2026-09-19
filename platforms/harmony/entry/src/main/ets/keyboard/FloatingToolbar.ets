@@ -23,7 +23,7 @@ struct FloatingToolbar {
   @State buttons: ToolbarButton[] = [];
   @State hoveredButton: ToolbarButton | undefined = undefined;
   @State fontSize: number = 24;
-  @State scale: number = 1;
+  @State toolbarScale: number = 1;
   // The same skin the keyboard wears, so a bar floating beside it does not look like another app's.
   @State skin: KeyboardSkin = KeyboardSkin.from('forest', false);
   @State toolbarSkin: ToolbarSkin = ToolbarSkinPolicy.base(KeyboardSkin.from('forest', false));
@@ -35,7 +35,7 @@ struct FloatingToolbar {
       this.state = state;
       this.buttons = buttons;
       this.fontSize = fontSize;
-      this.scale = scale;
+      this.toolbarScale = scale;
       this.skin = skin;
       this.toolbarSkin = toolbarSkin;
     };
@@ -46,7 +46,7 @@ struct FloatingToolbar {
   }
 
   build() {
-    const scale: number = FloatingToolbarLayout.scale(this.scale);
+    const scale: number = FloatingToolbarLayout.scale(this.toolbarScale);
     const buttonWidth: number = FloatingToolbarLayout.buttonWidthVp(scale);
     const buttonGap: number = FloatingToolbarLayout.buttonGapVp(scale);
     const edgeInset: number = FloatingToolbarLayout.edgeInsetVp(scale);
@@ -65,6 +65,15 @@ struct FloatingToolbar {
           .height(handleHeight)
           .backgroundColor(this.toolbarSkin.dragHandleColor)
           .borderRadius(2 * scale)
+          .gesture(
+            PanGesture({ direction: PanDirection.All, distance: 1 })
+              .onActionStart(() => {
+                KeyboardSession.shared.beginToolbarDrag();
+              })
+              .onActionUpdate((event: GestureEvent) => {
+                KeyboardSession.shared.dragToolbar(event.offsetX, event.offsetY);
+              })
+          )
         Column()
           .width(dividerWidth)
           .height(dividerHeight)

@@ -13,6 +13,7 @@ import { HardwareKeyRouter, HardwareKey, HardwareKeyAction, HardwareKeyDecision 
   from '../keyboard/HardwareKeyRouter';
 import { InputModeRouting, ModeGesture, ModeKey } from '../keyboard/InputModeRouting';
 import { FloatingToolbarLayout } from '../keyboard/FloatingToolbarLayout';
+import { FloatingToolbarDragPolicy } from '../keyboard/FloatingToolbarDragPolicy';
 import { DesktopSurface } from '../keyboard/DesktopSurface';
 import type { KeyEvent as InputKeyEvent } from '@ohos.multimodalInput.keyEvent';
 import { Action as KeyAction } from '@ohos.multimodalInput.keyEvent';
@@ -62,6 +63,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
   // The bar that says what mode the keyboard is in. Another window of its own, because it outlives
   // every composition and every editor: it is on screen whenever the keyboard is running at all.
   private toolbar: inputMethodEngine.Panel | undefined = undefined;
+  private toolbarPosition: [number, number] = [0, 0];
+  private toolbarDragOrigin: [number, number] = [0, 0];
   private screenWidth: number = 0;
   private screenHeight: number = 0;
   private candidateCount: number = 0;
@@ -96,6 +99,28 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     await this.toolbar.resize(
       Math.round(FloatingToolbarLayout.widthVp(count) * scale * density),
       Math.round(FloatingToolbarLayout.heightVp() * scale * density));
+  }
+
+  private beginToolbarDrag(): void {
+    this.toolbarDragOrigin = [this.toolbarPosition[0], this.toolbarPosition[1]];
+  }
+
+  private dragToolbar(offsetX: number, offsetY: number): void {
+    if (this.toolbar === undefined) {
+      return;
+    }
+    const session: KeyboardSession = KeyboardSession.shared;
+    const count: number = FloatingToolbarLayout.buttons(session.toolbarComponents()).length;
+    const scale: number = session.toolbarScale();
+    const width: number = FloatingToolbarLayout.widthVp(count) * scale * this.density;
+    const height: number = FloatingToolbarLayout.heightVp() * scale * this.density;
+    const position: [number, number] = FloatingToolbarDragPolicy.position(
+      this.toolbarDragOrigin, [offsetX, offsetY], this.density, this.screenWidth,
+      this.screenHeight, width, height);
+    this.toolbarPosition = position;
+    this.toolbar.moveTo(position[0], position[1]).catch((error: Object): void => {
+      KeyboardLog.error(`toolbar would not move: ${describeError(error)}`);
+    });
   }
 
   /**
@@ -554,7 +579,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
           }
           if (active) {
             this.candidateAnchor = KeyboardSession.shared.preferences().candidateFollowCursor
-              ? undefined : [...this.caret] as CandidateAnchor;
+              ? undefined : [this.caret[0], this.caret[1], this.caret[2]] as CandidateAnchor;
             this.resizeCandidateWindow(DesktopSurface.NONE);
             this.placeCandidateWindow();
             panel.show();
@@ -577,6 +602,12 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
           KeyboardSession.shared.onToolbarSettings = (): void => {
             this.openSettings();
           };
+          KeyboardSession.shared.onToolbarDragStart = (): void => {
+            this.beginToolbarDrag();
+          };
+          KeyboardSession.shared.onToolbarDrag = (offsetX: number, offsetY: number): void => {
+            this.dragToolbar(offsetX, offsetY);
+          };
           await this.resizeToolbar(screen.densityPixels);
           KeyboardSession.shared.refreshToolbar();
           // Lower right by default, clear of the dock, where a status bar is looked for and where it
@@ -587,8 +618,9 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
           const height: number = FloatingToolbarLayout.heightVp()
             * KeyboardSession.shared.toolbarScale() * screen.densityPixels;
           const margin: number = TOOLBAR_MARGIN_VP * screen.densityPixels;
-          await this.toolbar.moveTo(Math.round(screen.width - width - margin),
-            Math.round(screen.height - height - margin * 4));
+          this.toolbarPosition = [Math.round(screen.width - width - margin),
+            Math.round(screen.height - height - margin * 4)];
+          await this.toolbar.moveTo(this.toolbarPosition[0], this.toolbarPosition[1]);
           await this.toolbar.show();
         } catch (error) {
           KeyboardLog.error(`toolbar unavailable: ${describeError(error)}`);
@@ -656,6 +688,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       this.hud = undefined;
     }
     if (this.toolbar !== undefined) {
+      KeyboardSession.shared.onToolbarDragStart = undefined;
+      KeyboardSession.shared.onToolbarDrag = undefined;
       engine.destroyPanel(this.toolbar);
       this.toolbar = undefined;
     }

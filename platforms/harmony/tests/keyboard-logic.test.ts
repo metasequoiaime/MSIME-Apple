@@ -75,6 +75,7 @@ import { CandidateWheelPolicy } from '../entry/src/main/ets/keyboard/candidate/C
 import { CandidateAnchorPolicy, CandidateAnchor }
   from '../entry/src/main/ets/inputmethodextability/CandidateAnchorPolicy';
 import { FloatingToolbarLayout } from '../entry/src/main/ets/keyboard/FloatingToolbarLayout';
+import { FloatingToolbarDragPolicy } from '../entry/src/main/ets/keyboard/FloatingToolbarDragPolicy';
 
 function selectedBarVisible(value: boolean | null): boolean {
   return value !== false;
@@ -787,6 +788,17 @@ group('applies Windows toolbar scale and font-size bounds to Harmony geometry', 
   check(FloatingToolbarLayout.heightVp(0.75) === 33, 'toolbar height follows toolbar scale');
   check(FloatingToolbarLayout.widthVp(2) * 1.5 === 172.5,
     'host width arithmetic remains consistent with scaled content');
+});
+
+group('keeps a dragged Harmony toolbar inside the display', () => {
+  check(FloatingToolbarDragPolicy.position([100, 120], [20, -10], 2, 1000, 800, 200, 50)
+    .join(',') === '140,100', 'pan offsets convert from vp to px');
+  check(FloatingToolbarDragPolicy.position([100, 120], [1000, 1000], 2, 1000, 800, 200, 50)
+    .join(',') === '800,750', 'dragging beyond the display clamps to the lower-right edge');
+  check(FloatingToolbarDragPolicy.position([100, 120], [-1000, -1000], 2, 1000, 800, 200, 50)
+    .join(',') === '0,0', 'dragging beyond the upper-left edge clamps to zero');
+  check(FloatingToolbarDragPolicy.position([17, 19], [1, 1], 0, 1000, 800, 200, 50)
+    .join(',') === '17,19', 'invalid density preserves the last known position');
 });
 
 group('sizes desktop candidate windows from bounded display estimates', () => {

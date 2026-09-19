@@ -595,6 +595,9 @@ export class KeyboardSession {
   /** The toolbar's face, set by whichever window is currently drawing it. */
   onToolbar: ((state: ToolbarState, buttons: ToolbarButton[], fontSize: number, scale: number,
                skin: KeyboardSkin, toolbarSkin: ToolbarSkin) => void) | undefined = undefined;
+  /** The status-bar panel owns the window; the ArkUI handle only reports its pan gesture. */
+  onToolbarDragStart: (() => void) | undefined = undefined;
+  onToolbarDrag: ((offsetX: number, offsetY: number) => void) | undefined = undefined;
   /** The gear, which only the host can answer: it owns the window the settings open in. */
   onToolbarSettings: (() => void) | undefined = undefined;
   /**
@@ -926,6 +929,18 @@ export class KeyboardSession {
     this.onToolbar(state, FloatingToolbarLayout.buttons(this.toolbarComponents()),
       this.toolbarFontSize(), this.toolbarScale(),
       KeyboardSkin.from(this.appearance.skinId, this.appearance.dark), this.toolbarSkin);
+  }
+
+  beginToolbarDrag(): void {
+    if (this.onToolbarDragStart !== undefined) {
+      this.onToolbarDragStart();
+    }
+  }
+
+  dragToolbar(offsetX: number, offsetY: number): void {
+    if (this.onToolbarDrag !== undefined) {
+      this.onToolbarDrag(offsetX, offsetY);
+    }
   }
 
   /**
