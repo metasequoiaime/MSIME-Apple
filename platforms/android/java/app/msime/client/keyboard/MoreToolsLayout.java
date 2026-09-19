@@ -38,4 +38,22 @@ public final class MoreToolsLayout {
             case TOOLS, LOCAL_INPUT, LOCAL_INPUT_BACK -> "点击打开";
         };
     }
+
+    /** Short, text-rendered affordances for the native card surface. */
+    public static String icon(String title) {
+        if (title == null) return "⌘";
+        return switch (title) {
+            case "表情" -> "☺";
+            case "剪贴板历史" -> "▤";
+            case "AI 润色" -> "✦";
+            case "本地输入", "返回工具" -> "⌘";
+            case "语音结果" -> "◉";
+            case "繁体输出" -> "繁";
+            case "全角输入" -> "Ａ";
+            case "按键音" -> "♪";
+            case "按键振动" -> "◌";
+            case "振动强度" -> "↕";
+            default -> "⌨";
+        };
+    }
 }

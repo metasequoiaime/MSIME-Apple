@@ -16,6 +16,9 @@ public final class MoreToolsLayoutSmoke {
             "enabled setting state");
         check("已关闭".equals(MoreToolsLayout.state(MoreToolsLayout.Section.SETTINGS, false)),
             "disabled setting state");
+        check("☺".equals(MoreToolsLayout.icon("表情")), "emoji icon");
+        check("♪".equals(MoreToolsLayout.icon("按键音")), "sound icon");
+        check("⌨".equals(MoreToolsLayout.icon("未知工具")), "fallback icon");
         check(MoreToolsLayout.CARD_HEIGHT_DP == 48 && MoreToolsLayout.HEADER_HEIGHT_DP == 44,
             "Apple card and header dimensions");
         boolean rejected = false;
