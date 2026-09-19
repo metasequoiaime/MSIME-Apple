@@ -1,6 +1,11 @@
 package app.msime.client;
 
 import org.json.JSONObject;
+import org.json.JSONArray;
+import java.nio.charset.StandardCharsets;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.List;
 
 /** Validated candidate presentation values consumed by the Android host. */
 public final class CandidateAppearance {
@@ -21,6 +26,13 @@ public final class CandidateAppearance {
             : preferences.optString("theme", "system");
         String skin = preferences == null ? "willow_green"
             : preferences.optString("candidate_skin", "willow_green");
+        String fontFamily = preferences == null ? "Noto Sans SC"
+            : preferences.optString("candidate_font_family", "Noto Sans SC");
+        String englishFont = preferences == null ? ""
+            : preferences.optString("candidate_english_font", "");
+        JSONArray fallback = preferences == null ? null
+            : preferences.optJSONArray("candidate_fallback_fonts");
+        List<String> fallbackFonts = fallbackFonts(fallback);
         return fromValues(skin, theme, globalTheme, systemDark,
             preferences == null ? "" : preferences.optString("candidate_text_color", ""),
             preferences == null ? "" : preferences.optString("candidate_number_color", ""),
@@ -28,7 +40,8 @@ public final class CandidateAppearance {
             preferences == null ? "" : preferences.optString("candidate_selected_color", ""),
             preferences == null ? "" : preferences.optString("candidate_hover_color", ""),
             preferences == null ? "" : preferences.optString("candidate_surface_color", ""),
-            preferences == null ? "" : preferences.optString("candidate_border_color", ""));
+            preferences == null ? "" : preferences.optString("candidate_border_color", ""),
+            fontFamily, englishFont, fallbackFonts);
     }
 
     /** Value-only resolver used by host smoke tests without an Android JSON runtime. */
@@ -36,8 +49,21 @@ public final class CandidateAppearance {
                                      boolean systemDark, String textColor, String numberColor,
                                      String accentColor, String selectedColor, String hoverColor,
                                      String surfaceColor, String borderColor) {
+        return fromValues(skin, candidateTheme, globalTheme, systemDark, textColor, numberColor,
+            accentColor, selectedColor, hoverColor, surfaceColor, borderColor,
+            "Noto Sans SC", "", List.of("Noto Sans SC", "Microsoft YaHei"));
+    }
+
+    public static Palette fromValues(String skin, String candidateTheme, String globalTheme,
+                                     boolean systemDark, String textColor, String numberColor,
+                                     String accentColor, String selectedColor, String hoverColor,
+                                     String surfaceColor, String borderColor, String fontFamily,
+                                     String englishFont, List<String> fallbackFonts) {
         boolean dark = resolveDark(candidateTheme, globalTheme, systemDark);
         Palette palette = builtIn(skin, dark);
+        String primaryFont = safeFont(fontFamily, "Noto Sans SC");
+        String preferredEnglishFont = safeFont(englishFont, "");
+        List<String> safeFallbackFonts = safeFallbackFonts(fallbackFonts);
         int text = override(textColor, palette.text);
         int number = override(numberColor,
             hasColor(textColor) ? withAlpha(text, 0x9d) : palette.number);
@@ -47,7 +73,8 @@ public final class CandidateAppearance {
             override(selectedColor, palette.selected),
             override(hoverColor, palette.hover),
             override(surfaceColor, palette.surface),
-            override(borderColor, palette.border));
+            override(borderColor, palette.border), primaryFont, preferredEnglishFont,
+            safeFallbackFonts);
     }
 
     private static boolean resolveDark(String candidateTheme, String globalTheme,
@@ -110,6 +137,42 @@ public final class CandidateAppearance {
         return (alpha << 24) | (color & 0x00ffffff);
     }
 
+    private static List<String> fallbackFonts(JSONArray values) {
+        if (values == null) return List.of("Noto Sans SC", "Microsoft YaHei");
+        ArrayList<String> result = new ArrayList<>();
+        for (int index = 0; index < Math.min(values.length(), 32); index++) {
+            String value = values.optString(index, "");
+            if (validFont(value)) result.add(value);
+        }
+        return result;
+    }
+
+    private static List<String> safeFallbackFonts(List<String> values) {
+        ArrayList<String> result = new ArrayList<>();
+        if (values != null) {
+            for (String value : values) {
+                if (result.size() >= 32) break;
+                if (validFont(value)) result.add(value);
+            }
+        }
+        if (result.isEmpty()) return List.of("Noto Sans SC", "Microsoft YaHei");
+        return Collections.unmodifiableList(result);
+    }
+
+    private static String safeFont(String value, String fallback) {
+        return validFont(value) ? value : fallback;
+    }
+
+    private static boolean validFont(String value) {
+        if (value == null || value.isEmpty()
+                || value.getBytes(StandardCharsets.UTF_8).length > 128) return false;
+        for (int index = 0; index < value.length(); index++) {
+            char character = value.charAt(index);
+            if (character < 0x20 || (character >= 0x7f && character <= 0x9f)) return false;
+        }
+        return true;
+    }
+
     public static final class Palette {
         private final String id;
         private final int text;
@@ -119,9 +182,19 @@ public final class CandidateAppearance {
         private final int hover;
         private final int surface;
         private final int border;
+        private final String fontFamily;
+        private final String englishFont;
+        private final List<String> fallbackFonts;
 
         private Palette(String id, int text, int number, int accent, int selected,
                         int hover, int surface, int border) {
+            this(id, text, number, accent, selected, hover, surface, border,
+                "Noto Sans SC", "", List.of("Noto Sans SC", "Microsoft YaHei"));
+        }
+
+        private Palette(String id, int text, int number, int accent, int selected,
+                        int hover, int surface, int border, String fontFamily,
+                        String englishFont, List<String> fallbackFonts) {
             this.id = id;
             this.text = text;
             this.number = number;
@@ -130,11 +203,16 @@ public final class CandidateAppearance {
             this.hover = hover;
             this.surface = surface;
             this.border = border;
+            this.fontFamily = fontFamily;
+            this.englishFont = englishFont;
+            this.fallbackFonts = fallbackFonts;
         }
 
         private Palette with(int text, int number, int accent, int selected, int hover,
-                             int surface, int border) {
-            return new Palette(id, text, number, accent, selected, hover, surface, border);
+                             int surface, int border, String fontFamily, String englishFont,
+                             List<String> fallbackFonts) {
+            return new Palette(id, text, number, accent, selected, hover, surface, border,
+                fontFamily, englishFont, fallbackFonts);
         }
 
         public String id() { return id; }
@@ -145,6 +223,10 @@ public final class CandidateAppearance {
         public int hover() { return hover; }
         public int surface() { return surface; }
         public int border() { return border; }
+        public String fontFamily() { return fontFamily; }
+        public String englishFont() { return englishFont; }
+        public List<String> fallbackFonts() { return fallbackFonts; }
+        public String preferredFont() { return englishFont.isEmpty() ? fontFamily : englishFont; }
 
         public int textFor(boolean selected) {
             if (!selected || alpha(this.selected) == 0) return text;
@@ -155,7 +237,8 @@ public final class CandidateAppearance {
             return id + ":" + Integer.toHexString(text) + ":" + Integer.toHexString(number)
                 + ":" + Integer.toHexString(accent) + ":" + Integer.toHexString(selected)
                 + ":" + Integer.toHexString(hover) + ":" + Integer.toHexString(surface)
-                + ":" + Integer.toHexString(border);
+                + ":" + Integer.toHexString(border) + ":" + fontFamily + ":" + englishFont
+                + ":" + String.join(",", fallbackFonts);
         }
 
         private static int contrast(int color) {
