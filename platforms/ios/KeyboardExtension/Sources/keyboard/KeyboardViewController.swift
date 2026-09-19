@@ -1921,6 +1921,15 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if let translationsEnabled = preferences["candidate_translations"] as? Bool {
       CandidateTranslationPreference.onlineEnabled = translationsEnabled
     }
+    // The shared Tauri document is the source of truth for mobile settings. Keep the two Wubi
+    // switches in the App Group as well because candidate rendering and Engine fallback read
+    // these native preferences from the keyboard process.
+    if let mixedPinyin = preferences["wubi_mixed_pinyin"] as? Bool {
+      WubiMixedPinyinPreference.isEnabled = mixedPinyin
+    }
+    if let codeHint = preferences["wubi_code_hint"] as? Bool {
+      WubiCodeHintPreference.isEnabled = codeHint
+    }
     if let traditional = preferences["traditional_chinese_output"] as? Bool,
        traditional != ChineseOutputPreference.usesTraditional {
       ChineseOutputPreference.usesTraditional = traditional
