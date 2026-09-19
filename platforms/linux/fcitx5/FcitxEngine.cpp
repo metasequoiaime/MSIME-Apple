@@ -355,6 +355,7 @@ public:
     if (!view_.value("editing_text", std::string{}).empty())
       command(MSIME_FINISH_COMPOSITION);
     saveStringPreference("scheme", next);
+    waitForPreferenceSave();
     scheme_override_ = next;
     if (std::string(next) != "shuangpin") shuangpin_profile_override_.reset();
     close();
@@ -377,6 +378,7 @@ public:
     if (!view_.value("editing_text", std::string{}).empty())
       command(MSIME_FINISH_COMPOSITION);
     saveStringPreference("shuangpin_profile", next.value);
+    waitForPreferenceSave();
     scheme_override_ = "shuangpin";
     shuangpin_profile_override_ = next.value;
     close();
@@ -400,6 +402,7 @@ public:
     if (!view_.value("editing_text", std::string{}).empty())
       command(MSIME_FINISH_COMPOSITION);
     saveNestedStringPreference(section, "schema", next);
+    waitForPreferenceSave();
     helpcode_schema_override_ = next;
     close();
     if (!ensure()) return false;
@@ -934,6 +937,7 @@ public:
     if (!view_.value("editing_text", std::string{}).empty())
       command(MSIME_FINISH_COMPOSITION);
     saveStringPreference("candidate_skin", next);
+    waitForPreferenceSave();
     skin_override_ = next;
     close();
     if (!ensure()) return false;
