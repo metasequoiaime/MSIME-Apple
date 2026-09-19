@@ -772,7 +772,8 @@ struct KeyboardView {
    */
   @Builder
   candidateStrip() {
-    Column() {
+    Stack({ alignContent: Alignment.TopEnd }) {
+      Column() {
       // The composition line, reserved whether or not anything is being composed so that nothing
       // below it shifts when one starts. Idle it names the keyboard, the way the iOS strip does;
       // composing it shows the spelling; and a diagnostic takes it over while it lasts.
@@ -822,15 +823,27 @@ struct KeyboardView {
         this.shortcutBar()
       }
     }
+      .width('100%')
+      .margin({ top: this.settings.candidateDecorationTopVp })
+      .backgroundColor(this.settings.candidateSurfaceColor
+        ?? this.candidatePalette().translucentKeyBackground(STRIP_BACKGROUND_ALPHA))
+      .borderRadius(KeyboardMetrics.STRIP_CORNER_VP)
+      .borderWidth(this.settings.candidateBorderColor === null ? 0 : 1)
+      .borderColor(this.candidateBorderColor())
+      .onAreaChange((_old: Area, now: Area): void => {
+        this.availableWidth = Number(now.width);
+      })
+      if (this.settings.candidateDecorationImage !== null
+          && this.settings.candidateDecorationWidthVp > 0) {
+        Image(this.settings.candidateDecorationImage)
+          .width(this.settings.candidateDecorationWidthVp)
+          .height(Math.max(this.settings.candidateDecorationTopVp,
+            this.settings.candidateDecorationWidthVp
+              / Math.max(0.05, this.settings.candidateDecorationAspectRatio)))
+          .objectFit(ImageFit.Contain)
+      }
+    }
     .width('100%')
-    .backgroundColor(this.settings.candidateSurfaceColor
-      ?? this.candidatePalette().translucentKeyBackground(STRIP_BACKGROUND_ALPHA))
-    .borderRadius(KeyboardMetrics.STRIP_CORNER_VP)
-    .borderWidth(this.settings.candidateBorderColor === null ? 0 : 1)
-    .borderColor(this.candidateBorderColor())
-    .onAreaChange((_old: Area, now: Area): void => {
-      this.availableWidth = Number(now.width);
-    })
   }
 
   @Builder

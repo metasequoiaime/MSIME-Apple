@@ -296,6 +296,12 @@ group('candidate window height follows the shared layout orientation', () => {
   check(KeyboardMetrics.candidateHeightVp('horizontal', 1, false)
       === horizontal - KeyboardMetrics.COMPOSITION_ROW_HEIGHT_VP,
     'hidden preedit removes the composition row from panel height');
+  check(KeyboardMetrics.candidateHeightVp('vertical', 2, true, 24)
+      === KeyboardMetrics.candidateHeightVp('vertical', 2) + 24,
+    'candidate decoration reserves its top inset in the panel height');
+  check(KeyboardMetrics.candidateHeightVp('vertical', 2, true, 9999)
+      === KeyboardMetrics.candidateHeightVp('vertical', 2) + 512,
+    'candidate decoration height stays bounded');
 });
 
 group('invalid geometry is rejected rather than silently clamped', () => {
@@ -685,6 +691,7 @@ group('maps shared candidate skins to native Harmony palettes', () => {
 group('resolves external candidate skin tokens without trusting missing fields', () => {
   const sample: CandidateSkinPackage = {
     id: 'sample', base: 'wechat', layouts: ['vertical'], themes: ['dark'], minWidthDip: 360,
+    decorationTopDip: 24, decorationWidthDip: 180, preview: 'images/preview.svg',
     candidate: {
       dark: {
         accent: '#123456', selected: '#234567', hover: '#345678', surface: '#456789',
@@ -709,6 +716,19 @@ group('resolves external candidate skin tokens without trusting missing fields',
     'external minimum width is exposed to the native panel');
   check(CandidateSkinCatalogPolicy.showSelectedBar(packages, 'sample', true) === false,
     'external selected-bar override is retained');
+  const decoration = CandidateSkinCatalogPolicy.decoration(packages, 'sample');
+  check(decoration !== null && decoration.topVp === 24 && decoration.widthVp === 180,
+    'external decoration geometry is retained');
+  check(CandidateSkinCatalogPolicy.decoration(packages, 'missing') === null,
+    'unknown packages do not invent decoration geometry');
+  check(CandidateSkinCatalogPolicy.imageDataUrl('image/png', [0, 1, 2])
+    === 'data:image/png;base64,AAEC', 'image bytes become an image-only data URL');
+  check(CandidateSkinCatalogPolicy.imageDataUrl('text/css', [0, 1, 2]) === null,
+    'non-image resources cannot become decoration URLs');
+  check(CandidateSkinCatalogPolicy.imageAspectRatio('image/png', [
+    0x89, 0x50, 0x4e, 0x47, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
+    0, 0, 0, 0x02, 0, 0, 0, 0x01
+  ]) === 2, 'PNG dimensions preserve the decoration aspect ratio');
   check(CandidateSkinCatalogPolicy.palette(packages, 'missing', true) === null,
     'unknown package does not invent a palette');
   check(CandidateSkinCatalogPolicy.color('#123456') === '#123456',

@@ -5,6 +5,7 @@ import { KeyboardLog, describeError } from './KeyboardLog';
 import { DictionaryMaintenancePolicy } from './DictionaryMaintenancePolicy';
 import { TypingStatisticsPolicy } from './TypingStatisticsPolicy';
 import { KeyboardSkin } from './skin/KeyboardSkin';
+import { KeyboardFormFactor } from './KeyboardFormFactor';
 import { EditorPolicy, EditorTraits } from './input/EditorPolicy';
 import { WubiCodeHintPolicy } from './input/WubiCodeHintPolicy';
 import { KeyboardGeometry } from './KeyboardGeometry';
@@ -22,8 +23,9 @@ import { FloatingToolbarLayout, ToolbarButton, ToolbarComponents, ToolbarState }
 import { DesktopSurface } from './DesktopSurface';
 import { CandidateGlossPolicy } from './candidate/CandidateGlossPolicy';
 import { CandidatePresentationPolicy } from './candidate/CandidatePresentationPolicy';
-import { CandidateSkinCatalogPolicy, CandidateSkinPackage, CandidateSkinPaletteTokens }
-  from './candidate/CandidateSkinCatalogPolicy';
+import {
+  CandidateSkinCatalogPolicy, CandidateSkinPackage, CandidateSkinPaletteTokens, CandidateSkinDecoration
+} from './candidate/CandidateSkinCatalogPolicy';
 import { CandidateWidthPolicy } from './candidate/CandidateWidthPolicy';
 import { OnlineCandidatePolicy, OnlineQuery } from './candidate/OnlineCandidatePolicy';
 import {
@@ -315,6 +317,17 @@ interface SkinCatalogResponse {
   error: string;
 }
 
+interface SkinResourceValue {
+  contentType: string;
+  bytes: number[];
+}
+
+interface SkinResourceResponse {
+  ok: boolean;
+  value: SkinResourceValue;
+  error: string;
+}
+
 // ArkTS rejects untyped object literals, so the request prepareHost takes gets a shape too.
 interface PrepareRequest {
   resources: string;
@@ -407,6 +420,11 @@ export interface KeyboardPreferences {
   readonly candidateSkinBase: string;
   /** Manifest minimum width, clamped to the same bounds as the native estimate. */
   readonly candidateMinWidthVp: number;
+  /** Image-only data URL for a compatible external candidate decoration. */
+  readonly candidateDecorationImage: string | null;
+  readonly candidateDecorationTopVp: number;
+  readonly candidateDecorationWidthVp: number;
+  readonly candidateDecorationAspectRatio: number;
   readonly candidateDark: boolean;
   readonly candidateSelectedBar: boolean | null;
   readonly keyboardTheme: string;
@@ -515,6 +533,10 @@ export class KeyboardSession {
     candidateSkinId: 'willow_green',
     candidateSkinBase: 'willow_green',
     candidateMinWidthVp: CandidateWidthPolicy.MIN_WIDTH_VP,
+    candidateDecorationImage: null,
+    candidateDecorationTopVp: 0,
+    candidateDecorationWidthVp: 0,
+    candidateDecorationAspectRatio: 1,
     candidateDark: false,
     candidateSelectedBar: null,
     keyboardTheme: 'follow',
@@ -604,6 +626,33 @@ export class KeyboardSession {
     }
   }
 
+  private readCandidateSkinImage(stateRoot: string, id: string,
+                                 decoration: CandidateSkinDecoration | null): {
+    image: string | null;
+    aspectRatio: number;
+  } {
+    if (decoration === null) {
+      return { image: null, aspectRatio: 1 };
+    }
+    try {
+      const response: SkinResourceResponse = JSON.parse(client.skinResource(JSON.stringify({
+        directory: `${stateRoot}/skins`, id: id, relative: decoration.relative, kind: 'image'
+      }))) as SkinResourceResponse;
+      if (!response.ok || response.value === undefined) {
+        return { image: null, aspectRatio: 1 };
+      }
+      return {
+        image: CandidateSkinCatalogPolicy.imageDataUrl(response.value.contentType,
+          response.value.bytes),
+        aspectRatio: CandidateSkinCatalogPolicy.imageAspectRatio(response.value.contentType,
+          response.value.bytes)
+      };
+    } catch (error) {
+      KeyboardLog.error(`candidate skin decoration unavailable: ${describeError(error)}`);
+      return { image: null, aspectRatio: 1 };
+    }
+  }
+
   start(resources: string, stateRoot: string, systemDark: boolean): boolean {
     let abi: number;
     try {
@@ -645,6 +694,11 @@ export class KeyboardSession {
         skinSupported ? skinPackages : [], preferences.candidate_skin);
       const skinSelectedBar: boolean | null = CandidateSkinCatalogPolicy.showSelectedBar(
         skinSupported ? skinPackages : [], preferences.candidate_skin, candidateDark);
+      const skinDecoration: CandidateSkinDecoration | null = CandidateSkinCatalogPolicy.decoration(
+        skinSupported ? skinPackages : [], preferences.candidate_skin);
+      const skinImage: { image: string | null; aspectRatio: number } = KeyboardFormFactor.isDesktop()
+        ? this.readCandidateSkinImage(stateRoot, preferences.candidate_skin, skinDecoration)
+        : { image: null, aspectRatio: 1 };
       this.voiceInput = preferences.voice_input;
       this.englishMode = preferences.default_ime_mode === 'english';
       this.bindings = {
@@ -665,6 +719,10 @@ export class KeyboardSession {
           ? CandidateWidthPolicy.MIN_WIDTH_VP
           : Math.max(CandidateWidthPolicy.MIN_WIDTH_VP,
             Math.min(CandidateWidthPolicy.MAX_WIDTH_VP, skinMinWidth)),
+        candidateDecorationImage: skinImage.image,
+        candidateDecorationTopVp: skinImage.image === null ? 0 : (skinDecoration?.topVp ?? 0),
+        candidateDecorationWidthVp: skinImage.image === null ? 0 : (skinDecoration?.widthVp ?? 0),
+        candidateDecorationAspectRatio: skinImage.aspectRatio,
         candidateDark: candidateDark,
         candidateSelectedBar: preferences.candidate_selected_bar ?? skinSelectedBar,
         keyboardTheme: preferences.screen_keyboard_theme,

@@ -64,10 +64,13 @@ export class KeyboardMetrics {
    * the candidate line and the padding that frames them.
    */
   static candidateHeightVp(layout: string = 'horizontal', candidateCount: number = 0,
-                           showPreedit: boolean = true): number {
+                           showPreedit: boolean = true,
+                           decorationTopVp: number = 0): number {
     const rows: number = layout === 'vertical'
       ? Math.max(1, Math.min(9, candidateCount)) : 1;
-    return (showPreedit ? KeyboardMetrics.COMPOSITION_ROW_HEIGHT_VP : 0)
+    const decoration: number = Number.isFinite(decorationTopVp) && decorationTopVp > 0
+      ? Math.min(512, decorationTopVp) : 0;
+    return decoration + (showPreedit ? KeyboardMetrics.COMPOSITION_ROW_HEIGHT_VP : 0)
       + KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP * rows
       + KeyboardMetrics.ROOT_VERTICAL_PADDING_VP * 2;
   }
