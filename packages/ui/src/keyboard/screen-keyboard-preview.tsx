@@ -1,12 +1,30 @@
 import { useId } from "react";
-import { readableSkinText, skinColor, type TouchKeyboardSkinDesign } from "./touch-keyboard-skin-design";
+import {
+  readableSkinText,
+  skinColor,
+  type TouchKeyboardSkinDesign,
+} from "./touch-keyboard-skin-design";
 
 // Built-in visual source: MSIME-Apple@11c950a63ec57656cd78b3f75aa621c293bfe453,
 // platforms/ios/SharedUI/KeyboardSkinPreference.swift and KeyboardSkinBackgroundView.swift.
-export type TouchKeyboardSkin = "forest" | "ocean" | "rose" | "porcelain" |
-  "typewriter" | "candy" | "midnight" | "blueprint" | "custom";
+export type TouchKeyboardSkin =
+  | "forest"
+  | "ocean"
+  | "rose"
+  | "porcelain"
+  | "typewriter"
+  | "candy"
+  | "midnight"
+  | "blueprint"
+  | "custom";
 
-type Palette = { background: string; key: string; foreground: string; accent: string; action: string };
+type Palette = {
+  background: string;
+  key: string;
+  foreground: string;
+  accent: string;
+  action: string;
+};
 export type TouchKeyboardSkinOption = {
   id: TouchKeyboardSkin;
   title: string;
@@ -23,58 +41,331 @@ export type TouchKeyboardSkinOption = {
 };
 
 export const touchKeyboardSkinOptions: TouchKeyboardSkinOption[] = [
-  { id: "forest", title: "水杉绿", description: "清新留白 · 经典圆角", light: { background: "#e8f0eb", key: "#fff", foreground: "#000", accent: "#185c47", action: "#185c47" }, dark: { background: "#17211c", key: "#303d36", foreground: "#fff", accent: "#73cca6", action: "#1f614a" }, cornerRadius: 8, borderWidth: 0, shadowOpacity: 0, shadowRadius: 3, shadowOffset: 2, monospaced: false, pattern: 0 },
-  { id: "ocean", title: "海盐蓝", description: "海盐浅蓝 · 轻盈平面", light: { background: "#e6f0fa", key: "#fff", foreground: "#000", accent: "#1f5ca3", action: "#1f5ca3" }, dark: { background: "#171f2b", key: "#2e384a", foreground: "#fff", accent: "#80bdfa", action: "#295c9e" }, cornerRadius: 8, borderWidth: 0, shadowOpacity: 0, shadowRadius: 3, shadowOffset: 2, monospaced: false, pattern: 0 },
-  { id: "rose", title: "浅蔷薇", description: "柔和蔷薇 · 简洁圆角", light: { background: "#fae8f0", key: "#fff", foreground: "#000", accent: "#a14063", action: "#a14063" }, dark: { background: "#291a21", key: "#45303b", foreground: "#fff", accent: "#f59ebd", action: "#8f3b5c" }, cornerRadius: 8, borderWidth: 0, shadowOpacity: 0, shadowRadius: 3, shadowOffset: 2, monospaced: false, pattern: 0 },
-  { id: "porcelain", title: "素白瓷", description: "细线边框 · 克制直角", light: { background: "#ebedf0", key: "#fcfcfc", foreground: "#000", accent: "#333d47", action: "#333d47" }, dark: { background: "#1a1c21", key: "#33363b", foreground: "#fff", accent: "#ccd6e3", action: "#454f5c" }, cornerRadius: 3, borderWidth: .5, shadowOpacity: 0, shadowRadius: 3, shadowOffset: 2, monospaced: false, pattern: 0 },
-  { id: "typewriter", title: "纸上时光", description: "暖纸网点 · 复古键帽", light: { background: "#e3d6bd", key: "#fcf5e0", foreground: "#000", accent: "#5e4026", action: "#5e4026" }, dark: { background: "#26211a", key: "#40382b", foreground: "#fff", accent: "#deb882", action: "#66472e" }, cornerRadius: 5, borderWidth: 1, shadowOpacity: .3, shadowRadius: 0, shadowOffset: 3, monospaced: true, pattern: 1 },
-  { id: "candy", title: "奶油桃桃", description: "奶油波纹 · 饱满圆角", light: { background: "#fce0d1", key: "#fff7ed", foreground: "#000", accent: "#943852", action: "#943852" }, dark: { background: "#301f26", key: "#4d333d", foreground: "#fff", accent: "#ffa8ba", action: "#943852" }, cornerRadius: 18, borderWidth: 0, shadowOpacity: .16, shadowRadius: 3, shadowOffset: 2, monospaced: false, pattern: 3 },
-  { id: "midnight", title: "霓虹夜航", description: "紫色星点 · 霓虹描边", light: { background: "#130f24", key: "#291f40", foreground: "#fff", accent: "#c7b0ff", action: "#663bb3" }, dark: { background: "#130f24", key: "#291f40", foreground: "#fff", accent: "#c7b0ff", action: "#663bb3" }, cornerRadius: 10, borderWidth: 1, shadowOpacity: 0, shadowRadius: 3, shadowOffset: 2, monospaced: false, pattern: 1 },
-  { id: "blueprint", title: "工程蓝图", description: "蓝图网格 · 等宽字形", light: { background: "#0e2138", key: "#173352", foreground: "#fff", accent: "#8ad6ff", action: "#1f578a" }, dark: { background: "#0e2138", key: "#173352", foreground: "#fff", accent: "#8ad6ff", action: "#1f578a" }, cornerRadius: 3, borderWidth: 1, shadowOpacity: 0, shadowRadius: 3, shadowOffset: 2, monospaced: true, pattern: 2 },
+  {
+    id: "forest",
+    title: "水杉绿",
+    description: "清新留白 · 经典圆角",
+    light: {
+      background: "#e8f0eb",
+      key: "#fff",
+      foreground: "#000",
+      accent: "#185c47",
+      action: "#185c47",
+    },
+    dark: {
+      background: "#17211c",
+      key: "#303d36",
+      foreground: "#fff",
+      accent: "#73cca6",
+      action: "#1f614a",
+    },
+    cornerRadius: 8,
+    borderWidth: 0,
+    shadowOpacity: 0,
+    shadowRadius: 3,
+    shadowOffset: 2,
+    monospaced: false,
+    pattern: 0,
+  },
+  {
+    id: "ocean",
+    title: "海盐蓝",
+    description: "海盐浅蓝 · 轻盈平面",
+    light: {
+      background: "#e6f0fa",
+      key: "#fff",
+      foreground: "#000",
+      accent: "#1f5ca3",
+      action: "#1f5ca3",
+    },
+    dark: {
+      background: "#171f2b",
+      key: "#2e384a",
+      foreground: "#fff",
+      accent: "#80bdfa",
+      action: "#295c9e",
+    },
+    cornerRadius: 8,
+    borderWidth: 0,
+    shadowOpacity: 0,
+    shadowRadius: 3,
+    shadowOffset: 2,
+    monospaced: false,
+    pattern: 0,
+  },
+  {
+    id: "rose",
+    title: "浅蔷薇",
+    description: "柔和蔷薇 · 简洁圆角",
+    light: {
+      background: "#fae8f0",
+      key: "#fff",
+      foreground: "#000",
+      accent: "#a14063",
+      action: "#a14063",
+    },
+    dark: {
+      background: "#291a21",
+      key: "#45303b",
+      foreground: "#fff",
+      accent: "#f59ebd",
+      action: "#8f3b5c",
+    },
+    cornerRadius: 8,
+    borderWidth: 0,
+    shadowOpacity: 0,
+    shadowRadius: 3,
+    shadowOffset: 2,
+    monospaced: false,
+    pattern: 0,
+  },
+  {
+    id: "porcelain",
+    title: "素白瓷",
+    description: "细线边框 · 克制直角",
+    light: {
+      background: "#ebedf0",
+      key: "#fcfcfc",
+      foreground: "#000",
+      accent: "#333d47",
+      action: "#333d47",
+    },
+    dark: {
+      background: "#1a1c21",
+      key: "#33363b",
+      foreground: "#fff",
+      accent: "#ccd6e3",
+      action: "#454f5c",
+    },
+    cornerRadius: 3,
+    borderWidth: 0.5,
+    shadowOpacity: 0,
+    shadowRadius: 3,
+    shadowOffset: 2,
+    monospaced: false,
+    pattern: 0,
+  },
+  {
+    id: "typewriter",
+    title: "纸上时光",
+    description: "暖纸网点 · 复古键帽",
+    light: {
+      background: "#e3d6bd",
+      key: "#fcf5e0",
+      foreground: "#000",
+      accent: "#5e4026",
+      action: "#5e4026",
+    },
+    dark: {
+      background: "#26211a",
+      key: "#40382b",
+      foreground: "#fff",
+      accent: "#deb882",
+      action: "#66472e",
+    },
+    cornerRadius: 5,
+    borderWidth: 1,
+    shadowOpacity: 0.3,
+    shadowRadius: 0,
+    shadowOffset: 3,
+    monospaced: true,
+    pattern: 1,
+  },
+  {
+    id: "candy",
+    title: "奶油桃桃",
+    description: "奶油波纹 · 饱满圆角",
+    light: {
+      background: "#fce0d1",
+      key: "#fff7ed",
+      foreground: "#000",
+      accent: "#943852",
+      action: "#943852",
+    },
+    dark: {
+      background: "#301f26",
+      key: "#4d333d",
+      foreground: "#fff",
+      accent: "#ffa8ba",
+      action: "#943852",
+    },
+    cornerRadius: 18,
+    borderWidth: 0,
+    shadowOpacity: 0.16,
+    shadowRadius: 3,
+    shadowOffset: 2,
+    monospaced: false,
+    pattern: 3,
+  },
+  {
+    id: "midnight",
+    title: "霓虹夜航",
+    description: "紫色星点 · 霓虹描边",
+    light: {
+      background: "#130f24",
+      key: "#291f40",
+      foreground: "#fff",
+      accent: "#c7b0ff",
+      action: "#663bb3",
+    },
+    dark: {
+      background: "#130f24",
+      key: "#291f40",
+      foreground: "#fff",
+      accent: "#c7b0ff",
+      action: "#663bb3",
+    },
+    cornerRadius: 10,
+    borderWidth: 1,
+    shadowOpacity: 0,
+    shadowRadius: 3,
+    shadowOffset: 2,
+    monospaced: false,
+    pattern: 1,
+  },
+  {
+    id: "blueprint",
+    title: "工程蓝图",
+    description: "蓝图网格 · 等宽字形",
+    light: {
+      background: "#0e2138",
+      key: "#173352",
+      foreground: "#fff",
+      accent: "#8ad6ff",
+      action: "#1f578a",
+    },
+    dark: {
+      background: "#0e2138",
+      key: "#173352",
+      foreground: "#fff",
+      accent: "#8ad6ff",
+      action: "#1f578a",
+    },
+    cornerRadius: 3,
+    borderWidth: 1,
+    shadowOpacity: 0,
+    shadowRadius: 3,
+    shadowOffset: 2,
+    monospaced: true,
+    pattern: 2,
+  },
 ];
 
 // Layout source: MSIME-Windows@04a8df56f86312474a069f4335a1b58da7afaa9e,
 // server/src/keyboard-panel/KeyboardPanel.cpp (GPL-3.0). This preview has no input actions.
 const key = (label: string, weight = 1) => ({ label, weight });
-const letters = (text: string) => [...text].map(label => key(label));
+const letters = (text: string) => [...text].map((label) => key(label));
 const rows = [
   [...letters("`1234567890-="), key("Backspace", 1.9)],
   [key("Tab", 1.5), ...letters("qwertyuiop[]"), key("\\", 1.4)],
   [key("Caps Lock", 1.85), ...letters("asdfghjkl;'"), key("Enter", 2)],
   [key("Shift", 2.35), ...letters("zxcvbnm,./"), key("Shift", 2.15)],
-  [key("Ctrl", 1.25), key("Win", 1.25), key("Alt", 1.25), key("Space", 6.7), key("Alt", 1.25), key("Win", 1.25), key("Del", 1.25), key("Ctrl", 1.25)],
+  [
+    key("Ctrl", 1.25),
+    key("Win", 1.25),
+    key("Alt", 1.25),
+    key("Space", 6.7),
+    key("Alt", 1.25),
+    key("Win", 1.25),
+    key("Del", 1.25),
+    key("Ctrl", 1.25),
+  ],
 ];
 const actionLabels = new Set(["Backspace", "Enter", "Shift", "Del"]);
 
 function optionFor(id: Exclude<TouchKeyboardSkin, "custom">): TouchKeyboardSkinOption {
-  return touchKeyboardSkinOptions.find(option => option.id === id) ?? touchKeyboardSkinOptions[0];
+  return touchKeyboardSkinOptions.find((option) => option.id === id) ?? touchKeyboardSkinOptions[0];
 }
 
-function Pattern({ id, pattern, accent, opacity = .15 }: { id: string; pattern: number; accent: string; opacity?: number }) {
+function Pattern({
+  id,
+  pattern,
+  accent,
+  opacity = 0.15,
+}: {
+  id: string;
+  pattern: number;
+  accent: string;
+  opacity?: number;
+}) {
   if (pattern === 0) return null;
-  if (pattern === 1) return <pattern id={id} width="16" height="16" patternUnits="userSpaceOnUse"><circle cx="8.75" cy="8.75" r=".75" fill={accent} fillOpacity={opacity} /></pattern>;
-  if (pattern === 2) return <pattern id={id} width="20" height="20" patternUnits="userSpaceOnUse"><path d="M0 0H20M0 0V20" fill="none" stroke={accent} strokeOpacity={opacity} strokeWidth=".5" /></pattern>;
-  return <pattern id={id} width="48" height="48" patternUnits="userSpaceOnUse"><path d="M-12 42C4 0 27 65 60 1M-12 66C4 24 27 89 60 25" fill="none" stroke={accent} strokeOpacity={opacity} strokeWidth="2" /></pattern>;
+  if (pattern === 1)
+    return (
+      <pattern id={id} width="16" height="16" patternUnits="userSpaceOnUse">
+        <circle cx="8.75" cy="8.75" r=".75" fill={accent} fillOpacity={opacity} />
+      </pattern>
+    );
+  if (pattern === 2)
+    return (
+      <pattern id={id} width="20" height="20" patternUnits="userSpaceOnUse">
+        <path
+          d="M0 0H20M0 0V20"
+          fill="none"
+          stroke={accent}
+          strokeOpacity={opacity}
+          strokeWidth=".5"
+        />
+      </pattern>
+    );
+  return (
+    <pattern id={id} width="48" height="48" patternUnits="userSpaceOnUse">
+      <path
+        d="M-12 42C4 0 27 65 60 1M-12 66C4 24 27 89 60 25"
+        fill="none"
+        stroke={accent}
+        strokeOpacity={opacity}
+        strokeWidth="2"
+      />
+    </pattern>
+  );
 }
 
-function keyPath(x: number, y: number, width: number, height: number, shape: string, radius: number): string {
-  if (shape === "pebble") return `M${x + width * .35} ${y}C${x + width * .83} ${y} ${x + width} ${y + height * .04} ${x + width} ${y + height * .3}C${x + width} ${y + height * .85} ${x + width * .9} ${y + height} ${x + width * .68} ${y + height}C${x + width * .18} ${y + height} ${x} ${y + height * .97} ${x} ${y + height * .7}C${x} ${y + height * .2} ${x + width * .06} ${y} ${x + width * .35} ${y}Z`;
+function keyPath(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  shape: string,
+  radius: number,
+): string {
+  if (shape === "pebble")
+    return `M${x + width * 0.35} ${y}C${x + width * 0.83} ${y} ${x + width} ${y + height * 0.04} ${x + width} ${y + height * 0.3}C${x + width} ${y + height * 0.85} ${x + width * 0.9} ${y + height} ${x + width * 0.68} ${y + height}C${x + width * 0.18} ${y + height} ${x} ${y + height * 0.97} ${x} ${y + height * 0.7}C${x} ${y + height * 0.2} ${x + width * 0.06} ${y} ${x + width * 0.35} ${y}Z`;
   if (shape === "ticket") {
-    const r = Math.min(width, height) * .12;
+    const r = Math.min(width, height) * 0.12;
     return `M${x} ${y}H${x + width}V${y + height / 2 - r}A${r} ${r} 0 0 0 ${x + width} ${y + height / 2 + r}V${y + height}H${x}V${y + height / 2 + r}A${r} ${r} 0 0 0 ${x} ${y + height / 2 - r}Z`;
   }
   const r = shape === "capsule" ? height / 2 : Math.min(radius, height / 2, width / 2);
   return `M${x + r} ${y}H${x + width - r}Q${x + width} ${y} ${x + width} ${y + r}V${y + height - r}Q${x + width} ${y + height} ${x + width - r} ${y + height}H${x + r}Q${x} ${y + height} ${x} ${y + height - r}V${y + r}Q${x} ${y} ${x + r} ${y}Z`;
 }
 
-export function ScreenKeyboardPreview({ theme, skin = "forest", compact = false, customDesign, keySpacingTenths = 60, rowSpacingTenths = 70, heightAdjustment = 0 }: { theme: "dark" | "light"; skin?: TouchKeyboardSkin; compact?: boolean; customDesign?: TouchKeyboardSkinDesign; keySpacingTenths?: number; rowSpacingTenths?: number; heightAdjustment?: number }) {
+export function ScreenKeyboardPreview({
+  theme,
+  skin = "forest",
+  compact = false,
+  customDesign,
+  keySpacingTenths = 60,
+  rowSpacingTenths = 70,
+  heightAdjustment = 0,
+}: {
+  theme: "dark" | "light";
+  skin?: TouchKeyboardSkin;
+  compact?: boolean;
+  customDesign?: TouchKeyboardSkinDesign;
+  keySpacingTenths?: number;
+  rowSpacingTenths?: number;
+  heightAdjustment?: number;
+}) {
   const custom = skin === "custom" && customDesign ? customDesign : undefined;
   const option = optionFor(skin === "custom" ? "forest" : skin);
-  const palette = custom ? {
-    background: skinColor(custom.background), key: skinColor(custom.keyBackground),
-    foreground: skinColor(custom.keyForeground), accent: skinColor(custom.accent),
-    action: skinColor(custom.actionBackground),
-  } : option[theme];
+  const palette = custom
+    ? {
+        background: skinColor(custom.background),
+        key: skinColor(custom.keyBackground),
+        foreground: skinColor(custom.keyForeground),
+        accent: skinColor(custom.accent),
+        action: skinColor(custom.actionBackground),
+      }
+    : option[theme];
   const cornerRadius = custom?.cornerRadius ?? option.cornerRadius;
   const borderWidth = custom?.borderWidth ?? option.borderWidth;
   const shadowOpacity = custom?.shadow ?? option.shadowOpacity;
@@ -100,41 +391,182 @@ export function ScreenKeyboardPreview({ theme, skin = "forest", compact = false,
   const keyGap = 4 + keySpacing - 6;
   const rowGap = 4 + rowSpacing - 7;
   const height = (canvasHeight - 28 - 7 - rowGap * 4) / 5;
-  return <svg className={`screen-keyboard-artwork${compact ? " compact" : ""}`} data-preview-theme={theme} data-preview-skin={skin} data-key-shape={keyShape} data-key-material={keyMaterial} data-key-spacing={keySpacing.toFixed(1)} data-row-spacing={rowSpacing.toFixed(1)} data-keyboard-height={canvasHeight} viewBox={`0 0 1100 ${canvasHeight}`} role={compact ? undefined : "img"} aria-hidden={compact || undefined} aria-label={compact ? undefined : "屏幕键盘完整布局预览"} style={{ fontFamily: monospaced ? "ui-monospace, SFMono-Regular, Consolas, monospace" : undefined }}>
-    <defs>
-      <Pattern id={patternId} pattern={pattern} accent={palette.accent} opacity={custom?.patternOpacity ?? .15} />
-      {shadowOpacity > 0 && <filter id={shadowId} x="-20%" y="-20%" width="140%" height="150%"><feDropShadow dx="0" dy={shadowOffset} stdDeviation={shadowRadius} floodOpacity={shadowOpacity} /></filter>}
-      {custom?.gradientEnd !== undefined && <linearGradient id={backgroundId} x2={custom.gradientHorizontal ? "1" : "0"} y2={custom.gradientHorizontal ? "0" : "1"}><stop stopColor={palette.background} /><stop offset="1" stopColor={skinColor(custom.gradientEnd)} /></linearGradient>}
-      {(keyMaterial === "glass" || keyMaterial === "raised") && <>
-        <linearGradient id={keyMaterialId} x2="0" y2="1"><stop stopColor="#fff" stopOpacity={keyMaterial === "glass" ? .24 : .13} /><stop offset=".48" stopColor={palette.key} stopOpacity={keyOpacity} /><stop offset="1" stopColor="#000" stopOpacity={keyMaterial === "glass" ? .03 : .1} /></linearGradient>
-        <linearGradient id={actionMaterialId} x2="0" y2="1"><stop stopColor="#fff" stopOpacity={keyMaterial === "glass" ? .24 : .13} /><stop offset=".48" stopColor={palette.action} /><stop offset="1" stopColor="#000" stopOpacity={keyMaterial === "glass" ? .03 : .1} /></linearGradient>
-      </>}
-    </defs>
-    <rect width="1100" height={canvasHeight} rx="8" fill={custom?.gradientEnd === undefined ? palette.background : `url(#${backgroundId})`} />
-    {custom?.photo && <><image href={`data:image/jpeg;base64,${custom.photo}`} width="1100" height={canvasHeight} preserveAspectRatio={`${(custom.photoPosition ?? .5) < .34 ? "xMinYMin" : (custom.photoPosition ?? .5) > .66 ? "xMaxYMax" : "xMidYMid"} slice`} /><rect width="1100" height={canvasHeight} fill="#000" fillOpacity={custom.photoShade ?? .25} /></>}
-    {pattern !== 0 && <rect width="1100" height={canvasHeight} rx="8" fill={`url(#${patternId})`} />}
-    <text x="10" y="14" dominantBaseline="middle" fontSize="12" fill={palette.accent}>Touch keyboard</text>
-    <path d="M1075 9l10 10m0-10l-10 10" fill="none" stroke={palette.foreground} strokeWidth="2" />
-    {rows.map((row, rowIndex) => {
-      const available = 1100 - 14 - keyGap * (row.length - 1);
-      const total = row.reduce((sum, item) => sum + item.weight, 0);
-      let x = 7;
-      const y = 28 + rowIndex * (height + rowGap);
-      return <g data-keyboard-row={rowIndex} key={rowIndex}>{row.map((item, index) => {
-        const width = available * item.weight / total;
-        const left = x;
-        x += width + keyGap;
-        const action = actionLabels.has(item.label);
-        const path = keyPath(left, y, width, height - (keyMaterial === "raised" ? 3 : 0), keyShape, cornerRadius);
-        const depthPath = keyPath(left, y + 3, width, height - 3, keyShape, cornerRadius);
-        const fill = keyMaterial === "glass" || keyMaterial === "raised" ? `url(#${action ? actionMaterialId : keyMaterialId})` : action ? palette.action : palette.key;
-        return <g data-keyboard-key={item.label} key={index} filter={shadowOpacity > 0 ? `url(#${shadowId})` : undefined}>
-          {keyMaterial === "raised" && <path d={depthPath} fill={action ? palette.action : palette.key} opacity=".72" />}
-          <path d={path} fill={fill} fillOpacity={action ? 1 : keyOpacity} stroke={borderWidth ? (custom?.customBorderColor === undefined ? palette.accent : skinColor(custom.customBorderColor)) : "none"} strokeOpacity={custom ? 1 : skin === "midnight" ? .65 : .28} strokeWidth={borderWidth} />
-          {keyMaterial === "paper" && <path d={`${path}M${left + 3} ${y + 10}H${left + width - 3}M${left + 3} ${y + 18}H${left + width - 3}M${left + 3} ${y + 26}H${left + width - 3}`} fill="none" stroke="#000" strokeOpacity=".08" strokeWidth=".5" />}
-          <text x={left + width / 2} y={y + height / 2} textAnchor="middle" dominantBaseline="middle" fontSize={item.label.length === 1 ? 15 : 12} fill={action ? actionForeground : palette.foreground}>{item.label}</text>
-        </g>;
-      })}</g>;
-    })}
-  </svg>;
+  return (
+    <svg
+      className={`screen-keyboard-artwork${compact ? " compact" : ""}`}
+      data-preview-theme={theme}
+      data-preview-skin={skin}
+      data-key-shape={keyShape}
+      data-key-material={keyMaterial}
+      data-key-spacing={keySpacing.toFixed(1)}
+      data-row-spacing={rowSpacing.toFixed(1)}
+      data-keyboard-height={canvasHeight}
+      viewBox={`0 0 1100 ${canvasHeight}`}
+      role={compact ? undefined : "img"}
+      aria-hidden={compact || undefined}
+      aria-label={compact ? undefined : "屏幕键盘完整布局预览"}
+      style={{
+        fontFamily: monospaced ? "ui-monospace, SFMono-Regular, Consolas, monospace" : undefined,
+      }}
+    >
+      <defs>
+        <Pattern
+          id={patternId}
+          pattern={pattern}
+          accent={palette.accent}
+          opacity={custom?.patternOpacity ?? 0.15}
+        />
+        {shadowOpacity > 0 && (
+          <filter id={shadowId} x="-20%" y="-20%" width="140%" height="150%">
+            <feDropShadow
+              dx="0"
+              dy={shadowOffset}
+              stdDeviation={shadowRadius}
+              floodOpacity={shadowOpacity}
+            />
+          </filter>
+        )}
+        {custom?.gradientEnd !== undefined && (
+          <linearGradient
+            id={backgroundId}
+            x2={custom.gradientHorizontal ? "1" : "0"}
+            y2={custom.gradientHorizontal ? "0" : "1"}
+          >
+            <stop stopColor={palette.background} />
+            <stop offset="1" stopColor={skinColor(custom.gradientEnd)} />
+          </linearGradient>
+        )}
+        {(keyMaterial === "glass" || keyMaterial === "raised") && (
+          <>
+            <linearGradient id={keyMaterialId} x2="0" y2="1">
+              <stop stopColor="#fff" stopOpacity={keyMaterial === "glass" ? 0.24 : 0.13} />
+              <stop offset=".48" stopColor={palette.key} stopOpacity={keyOpacity} />
+              <stop
+                offset="1"
+                stopColor="#000"
+                stopOpacity={keyMaterial === "glass" ? 0.03 : 0.1}
+              />
+            </linearGradient>
+            <linearGradient id={actionMaterialId} x2="0" y2="1">
+              <stop stopColor="#fff" stopOpacity={keyMaterial === "glass" ? 0.24 : 0.13} />
+              <stop offset=".48" stopColor={palette.action} />
+              <stop
+                offset="1"
+                stopColor="#000"
+                stopOpacity={keyMaterial === "glass" ? 0.03 : 0.1}
+              />
+            </linearGradient>
+          </>
+        )}
+      </defs>
+      <rect
+        width="1100"
+        height={canvasHeight}
+        rx="8"
+        fill={custom?.gradientEnd === undefined ? palette.background : `url(#${backgroundId})`}
+      />
+      {custom?.photo && (
+        <>
+          <image
+            href={`data:image/jpeg;base64,${custom.photo}`}
+            width="1100"
+            height={canvasHeight}
+            preserveAspectRatio={`${(custom.photoPosition ?? 0.5) < 0.34 ? "xMinYMin" : (custom.photoPosition ?? 0.5) > 0.66 ? "xMaxYMax" : "xMidYMid"} slice`}
+          />
+          <rect
+            width="1100"
+            height={canvasHeight}
+            fill="#000"
+            fillOpacity={custom.photoShade ?? 0.25}
+          />
+        </>
+      )}
+      {pattern !== 0 && (
+        <rect width="1100" height={canvasHeight} rx="8" fill={`url(#${patternId})`} />
+      )}
+      <text x="10" y="14" dominantBaseline="middle" fontSize="12" fill={palette.accent}>
+        Touch keyboard
+      </text>
+      <path d="M1075 9l10 10m0-10l-10 10" fill="none" stroke={palette.foreground} strokeWidth="2" />
+      {rows.map((row, rowIndex) => {
+        const available = 1100 - 14 - keyGap * (row.length - 1);
+        const total = row.reduce((sum, item) => sum + item.weight, 0);
+        let x = 7;
+        const y = 28 + rowIndex * (height + rowGap);
+        return (
+          <g data-keyboard-row={rowIndex} key={rowIndex}>
+            {row.map((item, index) => {
+              const width = (available * item.weight) / total;
+              const left = x;
+              x += width + keyGap;
+              const action = actionLabels.has(item.label);
+              const path = keyPath(
+                left,
+                y,
+                width,
+                height - (keyMaterial === "raised" ? 3 : 0),
+                keyShape,
+                cornerRadius,
+              );
+              const depthPath = keyPath(left, y + 3, width, height - 3, keyShape, cornerRadius);
+              const fill =
+                keyMaterial === "glass" || keyMaterial === "raised"
+                  ? `url(#${action ? actionMaterialId : keyMaterialId})`
+                  : action
+                    ? palette.action
+                    : palette.key;
+              return (
+                <g
+                  data-keyboard-key={item.label}
+                  key={index}
+                  filter={shadowOpacity > 0 ? `url(#${shadowId})` : undefined}
+                >
+                  {keyMaterial === "raised" && (
+                    <path
+                      d={depthPath}
+                      fill={action ? palette.action : palette.key}
+                      opacity=".72"
+                    />
+                  )}
+                  <path
+                    d={path}
+                    fill={fill}
+                    fillOpacity={action ? 1 : keyOpacity}
+                    stroke={
+                      borderWidth
+                        ? custom?.customBorderColor === undefined
+                          ? palette.accent
+                          : skinColor(custom.customBorderColor)
+                        : "none"
+                    }
+                    strokeOpacity={custom ? 1 : skin === "midnight" ? 0.65 : 0.28}
+                    strokeWidth={borderWidth}
+                  />
+                  {keyMaterial === "paper" && (
+                    <path
+                      d={`${path}M${left + 3} ${y + 10}H${left + width - 3}M${left + 3} ${y + 18}H${left + width - 3}M${left + 3} ${y + 26}H${left + width - 3}`}
+                      fill="none"
+                      stroke="#000"
+                      strokeOpacity=".08"
+                      strokeWidth=".5"
+                    />
+                  )}
+                  <text
+                    x={left + width / 2}
+                    y={y + height / 2}
+                    textAnchor="middle"
+                    dominantBaseline="middle"
+                    fontSize={item.label.length === 1 ? 15 : 12}
+                    fill={action ? actionForeground : palette.foreground}
+                  >
+                    {item.label}
+                  </text>
+                </g>
+              );
+            })}
+          </g>
+        );
+      })}
+    </svg>
+  );
 }

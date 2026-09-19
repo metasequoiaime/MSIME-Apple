@@ -9,13 +9,21 @@ import {
   type Snapshot,
 } from "@msime/ui";
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 const snapshot: Snapshot = {
-  format_version: 1, revision: 2,
+  format_version: 1,
+  revision: 2,
   preferences: {
-    scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 5,
-    learning: true, chinese_punctuation: true, candidate_translations: true,
+    scheme: "quanpin",
+    shuangpin_profile: "xiaohe",
+    candidate_page_size: 5,
+    learning: true,
+    chinese_punctuation: true,
+    candidate_translations: true,
   },
 };
 
@@ -56,7 +64,10 @@ test("the credentials can be entered and are saved", async () => {
   await waitFor(() => expect(save).toHaveBeenCalled());
   const saved = save.mock.calls[0][1];
   expect(saved.tencent_tmt).toEqual({
-    enabled: true, secret_id: "AKIDexample", secret_key: "s3cret", region: "ap-shanghai",
+    enabled: true,
+    secret_id: "AKIDexample",
+    secret_key: "s3cret",
+    region: "ap-shanghai",
   });
 });
 
@@ -95,7 +106,11 @@ test("the copy no longer claims a Linux provider on every platform", async () =>
 });
 
 test("Linux delegates Tencent credentials to the user-managed provider", async () => {
-  render(<SettingsPage client={{ load: async () => snapshot, save: vi.fn(), host: { platform: "linux" } as never }} />);
+  render(
+    <SettingsPage
+      client={{ load: async () => snapshot, save: vi.fn(), host: { platform: "linux" } as never }}
+    />,
+  );
   await screen.findByRole("button", { name: "保存设置" });
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   const online = screen.getByRole("group", { name: "在线翻译服务" });
@@ -118,13 +133,20 @@ test("macOS exposes the native Tencent credential probe with current settings", 
       },
     },
   };
-  const testApiCredential = vi.fn().mockResolvedValue({ ok: true, message: "macOS fixture success" });
-  render(<SettingsPage initialPage="input" client={{
-    load: async () => macosSnapshot,
-    save: vi.fn(),
-    testApiCredential,
-    host: { platform: "macos" } as never,
-  }} />);
+  const testApiCredential = vi
+    .fn()
+    .mockResolvedValue({ ok: true, message: "macOS fixture success" });
+  render(
+    <SettingsPage
+      initialPage="input"
+      client={{
+        load: async () => macosSnapshot,
+        save: vi.fn(),
+        testApiCredential,
+        host: { platform: "macos" } as never,
+      }}
+    />,
+  );
 
   const button = await screen.findByRole("button", { name: "测试腾讯云翻译配置" });
   fireEvent.click(button);

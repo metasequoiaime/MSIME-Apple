@@ -24,7 +24,9 @@ test("a locked dictionary tells the user what to close, not to retry", () => {
 
 test("the remaining host reasons are distinguished too", () => {
   expect(dictionaryErrorMessage({ code: "dictionary_read_rejected" }, FALLBACK)).toContain("读取");
-  expect(dictionaryErrorMessage({ code: "dictionary_pinyin_unavailable" }, FALLBACK)).toContain("拼音表");
+  expect(dictionaryErrorMessage({ code: "dictionary_pinyin_unavailable" }, FALLBACK)).toContain(
+    "拼音表",
+  );
 });
 
 test("an unknown or absent code keeps the caller's sentence", () => {

@@ -5,28 +5,82 @@ import { AppearanceCandidatePreview } from "../../../../packages/ui/src/candidat
 import type { Preferences, SkinCatalog } from "@msime/ui";
 
 afterEach(cleanup);
-beforeEach(() => Object.defineProperty(document, "adoptedStyleSheets", { configurable: true, writable: true, value: [] }));
-const preferences: Preferences = { scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 4,
-  learning: true, chinese_punctuation: true, candidate_skin: "sample" };
-const catalog: SkinCatalog = { directory: "/synthetic/skins", issues: [], packages: [{ id: "sample", name: "Sample", version: "1",
-  base: "fluent", author: null, description: null, layouts: ["horizontal", "vertical"], themes: ["dark"],
-  minWidthDip: 100, decorationTopDip: 20, decorationWidthDip: 100, toolbarStylesheet: null, preview: "sample.svg",
-  candidate: { dark: { surface: "#123456" }, light: {} },
-}] };
-const image = { contentType: "image/svg+xml", bytes: [...new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"/>')] };
+beforeEach(() =>
+  Object.defineProperty(document, "adoptedStyleSheets", {
+    configurable: true,
+    writable: true,
+    value: [],
+  }),
+);
+const preferences: Preferences = {
+  scheme: "quanpin",
+  shuangpin_profile: "xiaohe",
+  candidate_page_size: 4,
+  learning: true,
+  chinese_punctuation: true,
+  candidate_skin: "sample",
+};
+const catalog: SkinCatalog = {
+  directory: "/synthetic/skins",
+  issues: [],
+  packages: [
+    {
+      id: "sample",
+      name: "Sample",
+      version: "1",
+      base: "fluent",
+      author: null,
+      description: null,
+      layouts: ["horizontal", "vertical"],
+      themes: ["dark"],
+      minWidthDip: 100,
+      decorationTopDip: 20,
+      decorationWidthDip: 100,
+      toolbarStylesheet: null,
+      preview: "sample.svg",
+      candidate: { dark: { surface: "#123456" }, light: {} },
+    },
+  ],
+};
+const image = {
+  contentType: "image/svg+xml",
+  bytes: [...new TextEncoder().encode('<svg xmlns="http://www.w3.org/2000/svg"/>')],
+};
 
 test("theme changes replace external palette without rescanning or reloading images", async () => {
-  const scan = vi.fn().mockResolvedValue({ ...catalog, packages: [{ ...catalog.packages[0], themes: ["dark", "light"],
-    candidate: { dark: { surface: "#123456" }, light: { surface: "#abcdef" } } }] });
+  const scan = vi.fn().mockResolvedValue({
+    ...catalog,
+    packages: [
+      {
+        ...catalog.packages[0],
+        themes: ["dark", "light"],
+        candidate: { dark: { surface: "#123456" }, light: { surface: "#abcdef" } },
+      },
+    ],
+  });
   const readImage = vi.fn().mockResolvedValue(image);
-  const view = render(<AppearanceCandidatePreview preferences={preferences} scan={scan} readImage={readImage} />);
+  const view = render(
+    <AppearanceCandidatePreview preferences={preferences} scan={scan} readImage={readImage} />,
+  );
   await waitFor(() => expect(view.container.querySelector("img")).not.toBeNull());
   for (const candidate_theme of ["light", "dark", "light"] as const) {
-    view.rerender(<AppearanceCandidatePreview preferences={{ ...preferences, candidate_theme }} scan={scan} readImage={readImage} />);
-    expect(view.container.querySelector(".appearance-candidate-preview")?.getAttribute("data-preview-theme")).toBe(candidate_theme);
+    view.rerender(
+      <AppearanceCandidatePreview
+        preferences={{ ...preferences, candidate_theme }}
+        scan={scan}
+        readImage={readImage}
+      />,
+    );
+    expect(
+      view.container
+        .querySelector(".appearance-candidate-preview")
+        ?.getAttribute("data-preview-theme"),
+    ).toBe(candidate_theme);
     expect(document.adoptedStyleSheets).toHaveLength(1);
     const rules = document.adoptedStyleSheets[0].cssRules;
-    expect(rules[rules.length - 1].cssText).toContain(candidate_theme === "light" ? "rgb(171, 205, 239)" : "rgb(18, 52, 86)");
+    expect(rules[rules.length - 1].cssText).toContain(
+      candidate_theme === "light" ? "rgb(171, 205, 239)" : "rgb(18, 52, 86)",
+    );
   }
   expect(scan).toHaveBeenCalledTimes(1);
   expect(readImage).toHaveBeenCalledTimes(1);
@@ -35,11 +89,30 @@ test("theme changes replace external palette without rescanning or reloading ima
 });
 
 test("sparse light appearance inherits base fields and drops overrides when returning to dark", async () => {
-  const scan = vi.fn().mockResolvedValue({ ...catalog, packages: [{ ...catalog.packages[0], themes: ["dark", "light"],
-    candidate: { dark: { surface: "#123456", border: "#112233", showSelectedBar: false }, light: { surface: "#abcdef" } } }] });
-  const view = render(<AppearanceCandidatePreview preferences={{ ...preferences, candidate_theme: "light" }} scan={scan} />);
+  const scan = vi.fn().mockResolvedValue({
+    ...catalog,
+    packages: [
+      {
+        ...catalog.packages[0],
+        themes: ["dark", "light"],
+        candidate: {
+          dark: { surface: "#123456", border: "#112233", showSelectedBar: false },
+          light: { surface: "#abcdef" },
+        },
+      },
+    ],
+  });
+  const view = render(
+    <AppearanceCandidatePreview
+      preferences={{ ...preferences, candidate_theme: "light" }}
+      scan={scan}
+    />,
+  );
   await waitFor(() => expect(document.adoptedStyleSheets).toHaveLength(1));
-  const css = () => Array.from(document.adoptedStyleSheets[0].cssRules).map(rule => rule.cssText).join(" ");
+  const css = () =>
+    Array.from(document.adoptedStyleSheets[0].cssRules)
+      .map((rule) => rule.cssText)
+      .join(" ");
   expect(css()).toContain("rgb(17, 34, 51)");
   expect(css()).toContain("display: none");
   expect(css().indexOf("rgb(171, 205, 239)")).toBeGreaterThan(css().indexOf("rgb(18, 52, 86)"));
@@ -55,7 +128,12 @@ test("unsupported light mode removes dark preview and recovers on switching back
   const scan = vi.fn().mockResolvedValue(catalog);
   const view = render(<AppearanceCandidatePreview preferences={preferences} scan={scan} />);
   await waitFor(() => expect(document.adoptedStyleSheets).toHaveLength(1));
-  view.rerender(<AppearanceCandidatePreview preferences={{ ...preferences, candidate_theme: "light" }} scan={scan} />);
+  view.rerender(
+    <AppearanceCandidatePreview
+      preferences={{ ...preferences, candidate_theme: "light" }}
+      scan={scan}
+    />,
+  );
   expect(screen.getByText(/不支持当前布局或浅色模式/)).not.toBeNull();
   expect(view.container.querySelector(".candidate")).toBeNull();
   expect(document.adoptedStyleSheets).toHaveLength(0);
@@ -65,15 +143,26 @@ test("unsupported light mode removes dark preview and recovers on switching back
 });
 
 test("external appearance loads palette/image, updates draft, refreshes and cleans up", async () => {
-  const scan = vi.fn().mockResolvedValue(catalog), readImage = vi.fn().mockResolvedValue(image);
-  const view = render(<AppearanceCandidatePreview preferences={preferences} scan={scan} readImage={readImage} />);
-  await waitFor(() => expect(view.container.querySelector("img.skin-decoration-image")).not.toBeNull());
+  const scan = vi.fn().mockResolvedValue(catalog),
+    readImage = vi.fn().mockResolvedValue(image);
+  const view = render(
+    <AppearanceCandidatePreview preferences={preferences} scan={scan} readImage={readImage} />,
+  );
+  await waitFor(() =>
+    expect(view.container.querySelector("img.skin-decoration-image")).not.toBeNull(),
+  );
   expect(scan).toHaveBeenCalledTimes(1);
   expect(readImage).toHaveBeenCalledExactlyOnceWith("sample", "sample.svg");
   expect(view.container.querySelectorAll(".cand")).toHaveLength(4);
   expect(document.adoptedStyleSheets).toHaveLength(1);
   expect(document.adoptedStyleSheets[0].cssRules[0].cssText).toContain("rgb(18, 52, 86)");
-  view.rerender(<AppearanceCandidatePreview preferences={{ ...preferences, candidate_layout: "horizontal", candidate_page_size: 9 }} scan={scan} readImage={readImage} />);
+  view.rerender(
+    <AppearanceCandidatePreview
+      preferences={{ ...preferences, candidate_layout: "horizontal", candidate_page_size: 9 }}
+      scan={scan}
+      readImage={readImage}
+    />,
+  );
   expect(view.container.querySelectorAll(".wnd-h .cand")).toHaveLength(9);
   expect(scan).toHaveBeenCalledTimes(1);
   fireEvent.click(screen.getByRole("button", { name: "刷新预览" }));
@@ -85,7 +174,10 @@ test("external appearance loads palette/image, updates draft, refreshes and clea
 
 test("late catalog from a replaced host cannot overwrite the current preview", async () => {
   let resolve!: (value: SkinCatalog) => void;
-  const scan = () => new Promise<SkinCatalog>(done => { resolve = done; });
+  const scan = () =>
+    new Promise<SkinCatalog>((done) => {
+      resolve = done;
+    });
   const view = render(<AppearanceCandidatePreview preferences={preferences} scan={scan} />);
   const replacement = vi.fn().mockResolvedValue({ ...catalog, packages: [] });
   view.rerender(<AppearanceCandidatePreview preferences={preferences} scan={replacement} />);
@@ -97,13 +189,33 @@ test("late catalog from a replaced host cannot overwrite the current preview", a
 
 test("hidden appearance does not scan and switching to a builtin discards pending results", async () => {
   let resolve!: (value: SkinCatalog) => void;
-  const scan = vi.fn(() => new Promise<SkinCatalog>(done => { resolve = done; }));
+  const scan = vi.fn(
+    () =>
+      new Promise<SkinCatalog>((done) => {
+        resolve = done;
+      }),
+  );
   const readImage = vi.fn();
-  const view = render(<AppearanceCandidatePreview preferences={preferences} scan={scan} readImage={readImage} active={false} />);
+  const view = render(
+    <AppearanceCandidatePreview
+      preferences={preferences}
+      scan={scan}
+      readImage={readImage}
+      active={false}
+    />,
+  );
   expect(scan).not.toHaveBeenCalled();
-  view.rerender(<AppearanceCandidatePreview preferences={preferences} scan={scan} readImage={readImage} />);
+  view.rerender(
+    <AppearanceCandidatePreview preferences={preferences} scan={scan} readImage={readImage} />,
+  );
   expect(scan).toHaveBeenCalledTimes(1);
-  view.rerender(<AppearanceCandidatePreview preferences={{ ...preferences, candidate_skin: "wechat" }} scan={scan} readImage={readImage} />);
+  view.rerender(
+    <AppearanceCandidatePreview
+      preferences={{ ...preferences, candidate_skin: "wechat" }}
+      scan={scan}
+      readImage={readImage}
+    />,
+  );
   await act(async () => resolve(catalog));
   expect(view.container.querySelector(".skin-wechat")).not.toBeNull();
   expect(readImage).not.toHaveBeenCalled();
@@ -111,9 +223,13 @@ test("hidden appearance does not scan and switching to a builtin discards pendin
 });
 
 test("scan failure can retry; incompatible layout never shows a misleading candidate", async () => {
-  const scan = vi.fn().mockRejectedValueOnce(Error("synthetic failure")).mockResolvedValue({ ...catalog,
-    packages: [{ ...catalog.packages[0], layouts: ["horizontal"] }],
-  });
+  const scan = vi
+    .fn()
+    .mockRejectedValueOnce(Error("synthetic failure"))
+    .mockResolvedValue({
+      ...catalog,
+      packages: [{ ...catalog.packages[0], layouts: ["horizontal"] }],
+    });
   const view = render(<AppearanceCandidatePreview preferences={preferences} scan={scan} />);
   await screen.findByText(/读取所选皮肤失败/);
   fireEvent.click(screen.getByRole("button", { name: "刷新预览" }));
@@ -123,7 +239,15 @@ test("scan failure can retry; incompatible layout never shows a misleading candi
 });
 
 test("image failures retain palette and report the limitation", async () => {
-  const view = render(<AppearanceCandidatePreview preferences={preferences} scan={async () => catalog} readImage={async () => { throw Error("synthetic failure"); }} />);
+  const view = render(
+    <AppearanceCandidatePreview
+      preferences={preferences}
+      scan={async () => catalog}
+      readImage={async () => {
+        throw Error("synthetic failure");
+      }}
+    />,
+  );
   await screen.findByText(/皮肤图片加载失败/);
   expect(view.container.querySelectorAll(".cand")).toHaveLength(4);
   expect(document.adoptedStyleSheets).toHaveLength(1);

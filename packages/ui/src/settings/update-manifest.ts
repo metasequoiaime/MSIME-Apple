@@ -43,22 +43,39 @@ function isHttpsUrl(value: string): boolean {
   return value.startsWith("https://") && !/[\s"'`<>\\|&]/.test(value);
 }
 
-export function validateManifest(manifest: UpdateManifest, releasesPageUrl: string): ValidatedUpdate | null {
+export function validateManifest(
+  manifest: UpdateManifest,
+  releasesPageUrl: string,
+): ValidatedUpdate | null {
   if (typeof manifest.version !== "string" || typeof manifest.releaseUrl !== "string") return null;
   if (!isHttpsUrl(releasesPageUrl) || !isHttpsUrl(manifest.releaseUrl)) return null;
-  if (manifest.releaseUrl !== releasesPageUrl && !manifest.releaseUrl.startsWith(`${releasesPageUrl}/`)) return null;
+  if (
+    manifest.releaseUrl !== releasesPageUrl &&
+    !manifest.releaseUrl.startsWith(`${releasesPageUrl}/`)
+  )
+    return null;
   const version = parseVersion(manifest.version);
   if (!version) return null;
   return {
     version,
     releaseUrl: manifest.releaseUrl,
-    installerName: typeof manifest.installerName === "string" && installerNamePattern.test(manifest.installerName) ? manifest.installerName : null,
-    installerSha256: typeof manifest.installerSha256 === "string" && sha256Pattern.test(manifest.installerSha256) ? manifest.installerSha256 : null,
+    installerName:
+      typeof manifest.installerName === "string" &&
+      installerNamePattern.test(manifest.installerName)
+        ? manifest.installerName
+        : null,
+    installerSha256:
+      typeof manifest.installerSha256 === "string" && sha256Pattern.test(manifest.installerSha256)
+        ? manifest.installerSha256
+        : null,
     signed: typeof manifest.signed === "boolean" ? manifest.signed : null,
   };
 }
 
-export function validateGitHubRelease(release: GitHubRelease, releasesPageUrl: string): ValidatedUpdate | null {
+export function validateGitHubRelease(
+  release: GitHubRelease,
+  releasesPageUrl: string,
+): ValidatedUpdate | null {
   if (typeof release.tag_name !== "string" || typeof release.html_url !== "string") return null;
   if (!isHttpsUrl(releasesPageUrl) || !isHttpsUrl(release.html_url)) return null;
   if (!release.html_url.startsWith(`${releasesPageUrl}/tag/`)) return null;
@@ -73,10 +90,15 @@ export function validateGitHubRelease(release: GitHubRelease, releasesPageUrl: s
   };
 }
 
-export function describeInstallerTrust(update: ValidatedUpdate): { warning: string | null; verify: { command: string; sha256: string } | null } {
+export function describeInstallerTrust(update: ValidatedUpdate): {
+  warning: string | null;
+  verify: { command: string; sha256: string } | null;
+} {
   const name = update.installerName ?? "MetasequoiaIME_Setup_v<版本>.exe";
   return {
     warning: update.signed === false ? "该版本未经代码签名，请务必核对下面的校验值。" : null,
-    verify: update.installerSha256 ? { command: `Get-FileHash .\\${name} -Algorithm SHA256`, sha256: update.installerSha256 } : null,
+    verify: update.installerSha256
+      ? { command: `Get-FileHash .\\${name} -Algorithm SHA256`, sha256: update.installerSha256 }
+      : null,
   };
 }

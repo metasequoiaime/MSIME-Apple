@@ -12,7 +12,12 @@ test("missing host capability disables the action", () => {
 
 test("copy waits for completion and suppresses duplicate requests", async () => {
   let finish!: () => void;
-  const action = vi.fn(() => new Promise<void>(resolve => { finish = resolve; }));
+  const action = vi.fn(
+    () =>
+      new Promise<void>((resolve) => {
+        finish = resolve;
+      }),
+  );
   render(<HostActionButton label="复制群号" success="已复制" action={action} />);
   const button = screen.getByRole("button");
   fireEvent.click(button);
@@ -26,7 +31,10 @@ test("copy waits for completion and suppresses duplicate requests", async () => 
 });
 
 test("host rejection is redacted and a subsequent attempt can succeed", async () => {
-  const action = vi.fn().mockRejectedValueOnce(new Error("synthetic-host-detail")).mockResolvedValue(undefined);
+  const action = vi
+    .fn()
+    .mockRejectedValueOnce(new Error("synthetic-host-detail"))
+    .mockResolvedValue(undefined);
   render(<HostActionButton label="打开" success="完成" action={action} />);
   fireEvent.click(screen.getByRole("button"));
   expect((await screen.findByRole("alert")).textContent).toBe("操作失败，请重试。");
@@ -38,7 +46,14 @@ test("host rejection is redacted and a subsequent attempt can succeed", async ()
 });
 
 test("synchronous host failure is handled too", async () => {
-  render(<HostActionButton label="打开" action={() => { throw new Error("synthetic-host-detail"); }} />);
+  render(
+    <HostActionButton
+      label="打开"
+      action={() => {
+        throw new Error("synthetic-host-detail");
+      }}
+    />,
+  );
   fireEvent.click(screen.getByRole("button"));
   await screen.findByRole("alert");
 });

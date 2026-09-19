@@ -3,22 +3,35 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { SettingsPage, type Snapshot } from "@msime/ui";
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 const initial: Snapshot = {
-  format_version: 1, revision: 3,
+  format_version: 1,
+  revision: 3,
   preferences: {
-    scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 5,
-    learning: true, chinese_punctuation: true,
+    scheme: "quanpin",
+    shuangpin_profile: "xiaohe",
+    candidate_page_size: 5,
+    learning: true,
+    chinese_punctuation: true,
   },
 };
 
 async function openAppearance(platform: string) {
-  render(<SettingsPage initialPage="appearance" client={{
-    load: vi.fn().mockResolvedValue(initial), save: vi.fn(),
-    host: { platform } as never,
-    home: { openKeyboard: vi.fn(), openSystemKeyboardSettings: vi.fn() },
-  }} />);
+  render(
+    <SettingsPage
+      initialPage="appearance"
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: { platform } as never,
+        home: { openKeyboard: vi.fn(), openSystemKeyboardSettings: vi.fn() },
+      }}
+    />,
+  );
   await screen.findByRole("heading", { name: "外观" });
 }
 

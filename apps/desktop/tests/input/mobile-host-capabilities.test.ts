@@ -1,5 +1,8 @@
 import { expect, test } from "vitest";
-import { cloudDictionaryCapabilities, isMobileHost } from "../../src/input/mobile-host-capabilities";
+import {
+  cloudDictionaryCapabilities,
+  isMobileHost,
+} from "../../src/input/mobile-host-capabilities";
 
 test("mobile capability checks use the declared host platform", () => {
   expect(isMobileHost("android")).toBe(true);
@@ -12,5 +15,8 @@ test("cloud dictionary snapshots distinguish mobile queue and macOS native paths
   expect(cloudDictionaryCapabilities("android")).toEqual({ snapshot: true, snapshotNative: false });
   expect(cloudDictionaryCapabilities("ios")).toEqual({ snapshot: true, snapshotNative: false });
   expect(cloudDictionaryCapabilities("macos")).toEqual({ snapshot: true, snapshotNative: true });
-  expect(cloudDictionaryCapabilities("windows")).toEqual({ snapshot: false, snapshotNative: false });
+  expect(cloudDictionaryCapabilities("windows")).toEqual({
+    snapshot: false,
+    snapshotNative: false,
+  });
 });

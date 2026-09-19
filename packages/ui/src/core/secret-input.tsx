@@ -1,7 +1,13 @@
 import { useId, useState } from "react";
 
 /** A credential field whose value can be revealed to check a pasted key. */
-export function SecretInput({ label, value, disabled, onChange, placeholder }: {
+export function SecretInput({
+  label,
+  value,
+  disabled,
+  onChange,
+  placeholder,
+}: {
   label: string;
   value: string;
   disabled?: boolean;
@@ -19,7 +25,7 @@ export function SecretInput({ label, value, disabled, onChange, placeholder }: {
         disabled={disabled}
         placeholder={placeholder}
         aria-describedby={describedBy}
-        onChange={event => onChange(event.target.value)}
+        onChange={(event) => onChange(event.target.value)}
       />
       <button
         type="button"
@@ -29,7 +35,7 @@ export function SecretInput({ label, value, disabled, onChange, placeholder }: {
         aria-label={revealed ? `隐藏${label}` : `显示${label}`}
         title={revealed ? "隐藏" : "显示"}
         disabled={disabled}
-        onClick={() => setRevealed(current => !current)}
+        onClick={() => setRevealed((current) => !current)}
       >
         {revealed ? "隐藏" : "显示"}
       </button>

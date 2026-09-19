@@ -1,16 +1,30 @@
 // @vitest-environment jsdom
 import { expect, test } from "vitest";
-import { animationVariables, parseAnimationVariable } from "../../../../packages/ui/src/skin/skin-animation-variables";
+import {
+  animationVariables,
+  parseAnimationVariable,
+} from "../../../../packages/ui/src/skin/skin-animation-variables";
 
 test.each([
   ["var(--name)", { name: "--name" }],
   ["var(--name,)", { name: "--name", fallback: "" }],
   ['var(--name, "a,b")', { name: "--name", fallback: '"a,b"' }],
-  ["var(--name, var(--other, pulse 1s steps(2, end)))", { name: "--name", fallback: "var(--other, pulse 1s steps(2, end))" }],
+  [
+    "var(--name, var(--other, pulse 1s steps(2, end)))",
+    { name: "--name", fallback: "var(--other, pulse 1s steps(2, end))" },
+  ],
 ])("parses whole variable references: %s", (value, expected) => {
   expect(parseAnimationVariable(value as string)).toEqual(expected);
 });
-test.each(["var(--a) pulse", "var(--a", "var(name)", "var(--)", "var(--a, 'bad)", "var(--a, /* bad)", "pulse"])("does not misparse %s", value => {
+test.each([
+  "var(--a) pulse",
+  "var(--a",
+  "var(name)",
+  "var(--)",
+  "var(--a, 'bad)",
+  "var(--a, /* bad)",
+  "pulse",
+])("does not misparse %s", (value) => {
   expect(parseAnimationVariable(value)).toBeNull();
 });
 function style(css: string) {
@@ -22,7 +36,9 @@ const literal = (value: string) => ({ value: "private-" + value, partial: false 
 test("aliases preserve original definitions, priorities and dependency cycles", () => {
   const declaration = style("--a: var(--b) !important; --b: var(--a); --label: pulse;");
   const variables = animationVariables([declaration], "test-", literal);
-  expect(variables.rewrite("var(--a, pulse)", "animation-name")).toBe("var(--test-var-0, private-pulse)");
+  expect(variables.rewrite("var(--a, pulse)", "animation-name")).toBe(
+    "var(--test-var-0, private-pulse)",
+  );
   expect(variables.install()).toBe(false);
   expect(declaration.getPropertyValue("--a")).toBe("var(--b)");
   expect(declaration.getPropertyValue("--test-var-0")).toBe("var(--test-var-1)");
@@ -44,7 +60,8 @@ test("caps recursive fallbacks and alias expansion", () => {
   variables.rewrite("var(--a,".repeat(40) + "pulse" + ")".repeat(40), "animation-name");
   expect(variables.install()).toBe(true);
   const bounded = animationVariables([], "bounded-", literal);
-  for (let index = 0; index < 256; index++) bounded.rewrite("var(--v" + index + ")", "animation-name");
+  for (let index = 0; index < 256; index++)
+    bounded.rewrite("var(--v" + index + ")", "animation-name");
   expect(bounded.rewrite("var(--overflow)", "animation-name")).toBe("none");
   expect(bounded.install()).toBe(true);
 });

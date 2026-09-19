@@ -3,24 +3,36 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { SettingsPage, type Snapshot } from "@msime/ui";
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 const initial: Snapshot = {
-  format_version: 1, revision: 7,
+  format_version: 1,
+  revision: 7,
   preferences: {
-    scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 5,
-    learning: true, chinese_punctuation: true,
+    scheme: "quanpin",
+    shuangpin_profile: "xiaohe",
+    candidate_page_size: 5,
+    learning: true,
+    chinese_punctuation: true,
     quanpin_helpcode: { enabled: true, schema: "ziranma", show_in_candidate_window: false },
     shuangpin_helpcode: { enabled: true, schema: "lantian", show_in_candidate_window: true },
   },
 };
 
 function renderSettings(platform: string, save = vi.fn().mockResolvedValue(undefined)) {
-  render(<SettingsPage client={{
-    load: vi.fn().mockResolvedValue(initial), save,
-    host: { platform } as never,
-    home: { openKeyboard: vi.fn(), openSystemKeyboardSettings: vi.fn() },
-  }} />);
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save,
+        host: { platform } as never,
+        home: { openKeyboard: vi.fn(), openSystemKeyboardSettings: vi.fn() },
+      }}
+    />,
+  );
   return save;
 }
 
@@ -37,7 +49,7 @@ test("Android reaches the helper-code page from 更多设置", async () => {
   renderSettings("android");
 
   const more = await moreSettings();
-  expect(Array.from(more.options).map(option => option.text)).toContain("辅助码");
+  expect(Array.from(more.options).map((option) => option.text)).toContain("辅助码");
 
   fireEvent.change(more, { target: { value: "helpcode" } });
   expect(screen.getByRole("heading", { name: "辅助码" })).toBeTruthy();
@@ -54,9 +66,14 @@ test("Android saves a helper-code schema into shared preferences", async () => {
   fireEvent.change(schema, { target: { value: "xiaohe" } });
 
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
-  await waitFor(() => expect(save).toHaveBeenCalledWith(7, expect.objectContaining({
-    quanpin_helpcode: expect.objectContaining({ schema: "xiaohe" }),
-  })));
+  await waitFor(() =>
+    expect(save).toHaveBeenCalledWith(
+      7,
+      expect.objectContaining({
+        quanpin_helpcode: expect.objectContaining({ schema: "xiaohe" }),
+      }),
+    ),
+  );
 });
 
 // A touch host has a candidate row, not a candidate window.
@@ -74,7 +91,7 @@ test("iOS keeps the helper-code page hidden", async () => {
   renderSettings("ios");
 
   const more = await moreSettings();
-  expect(Array.from(more.options).map(option => option.text)).not.toContain("辅助码");
+  expect(Array.from(more.options).map((option) => option.text)).not.toContain("辅助码");
 });
 
 test("the desktop sidebar keeps the helper-code page and its window wording", async () => {

@@ -22,10 +22,14 @@ type DisplayMessage = ChatMessage & { id: number };
 function chatError(error: unknown): string {
   if (typeof error === "object" && error !== null && "code" in error) {
     switch (error.code) {
-      case "account_unauthorized": return "登录后即可与 AI 对话。";
-      case "account_invalid": return "消息或模型无效，请检查后重试。";
-      case "account_rate_limited": return "操作过于频繁，请稍后再试。";
-      case "account_unavailable": return "聊天服务暂不可用，请稍后重试。";
+      case "account_unauthorized":
+        return "登录后即可与 AI 对话。";
+      case "account_invalid":
+        return "消息或模型无效，请检查后重试。";
+      case "account_rate_limited":
+        return "操作过于频繁，请稍后再试。";
+      case "account_unavailable":
+        return "聊天服务暂不可用，请稍后重试。";
     }
   }
   return "连接失败，请检查网络后重试。";
@@ -43,7 +47,15 @@ function boundedHistory(messages: DisplayMessage[]): ChatMessage[] {
   return result;
 }
 
-export function ChatPage({ client, onLogin, autoFocus = false }: { client: ChatClient; onLogin?: () => void; autoFocus?: boolean }) {
+export function ChatPage({
+  client,
+  onLogin,
+  autoFocus = false,
+}: {
+  client: ChatClient;
+  onLogin?: () => void;
+  autoFocus?: boolean;
+}) {
   const [catalog, setCatalog] = useState<ChatModels | null>(null);
   const [selectedModel, setSelectedModel] = useState("");
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
@@ -63,9 +75,15 @@ export function ChatPage({ client, onLogin, autoFocus = false }: { client: ChatC
     try {
       const value = await client.models();
       setCatalog(value);
-      setSelectedModel(current => value.data.some(model => model.id === current) ? current : value.defaultModel);
+      setSelectedModel((current) =>
+        value.data.some((model) => model.id === current) ? current : value.defaultModel,
+      );
     } catch (cause) {
-      const unauthorized = typeof cause === "object" && cause !== null && "code" in cause && cause.code === "account_unauthorized";
+      const unauthorized =
+        typeof cause === "object" &&
+        cause !== null &&
+        "code" in cause &&
+        cause.code === "account_unauthorized";
       setLoginNeeded(unauthorized);
       setError(chatError(cause));
     } finally {
@@ -75,7 +93,9 @@ export function ChatPage({ client, onLogin, autoFocus = false }: { client: ChatC
 
   useEffect(() => {
     void loadModels();
-    return () => { generation.current += 1; };
+    return () => {
+      generation.current += 1;
+    };
   }, [client]);
 
   useEffect(() => {
@@ -92,10 +112,17 @@ export function ChatPage({ client, onLogin, autoFocus = false }: { client: ChatC
     try {
       const reply = await client.complete(boundedHistory(history), selectedModel);
       if (generation.current !== version) return;
-      setMessages(current => [...current, { id: nextMessageId.current++, role: "assistant", content: reply }]);
+      setMessages((current) => [
+        ...current,
+        { id: nextMessageId.current++, role: "assistant", content: reply },
+      ]);
     } catch (cause) {
       if (generation.current !== version) return;
-      const unauthorized = typeof cause === "object" && cause !== null && "code" in cause && cause.code === "account_unauthorized";
+      const unauthorized =
+        typeof cause === "object" &&
+        cause !== null &&
+        "code" in cause &&
+        cause.code === "account_unauthorized";
       setLoginNeeded(unauthorized);
       setError(chatError(cause));
     } finally {
@@ -128,32 +155,121 @@ export function ChatPage({ client, onLogin, autoFocus = false }: { client: ChatC
     setError("");
   };
 
-  return <section className="chat-page" aria-label="AI 对话">
-    <div className="chat-toolbar">
-      <div><strong>边聊天，边试键盘</strong><small>使用共享账号与 EveryAPI 对话</small></div>
-      <div className="chat-model-controls">
-        {loadingModels ? <span role="status">正在加载模型…</span> : catalog && <select aria-label="聊天模型" value={selectedModel} disabled={sending} onChange={event => setSelectedModel(event.target.value)}>
-          {catalog.data.map(model => <option key={model.id} value={model.id}>{model.id}</option>)}
-        </select>}
-        <button type="button" className="secondary" disabled={loadingModels || sending} onClick={() => void loadModels()}>刷新模型</button>
+  return (
+    <section className="chat-page" aria-label="AI 对话">
+      <div className="chat-toolbar">
+        <div>
+          <strong>边聊天，边试键盘</strong>
+          <small>使用共享账号与 EveryAPI 对话</small>
+        </div>
+        <div className="chat-model-controls">
+          {loadingModels ? (
+            <span role="status">正在加载模型…</span>
+          ) : (
+            catalog && (
+              <select
+                aria-label="聊天模型"
+                value={selectedModel}
+                disabled={sending}
+                onChange={(event) => setSelectedModel(event.target.value)}
+              >
+                {catalog.data.map((model) => (
+                  <option key={model.id} value={model.id}>
+                    {model.id}
+                  </option>
+                ))}
+              </select>
+            )
+          )}
+          <button
+            type="button"
+            className="secondary"
+            disabled={loadingModels || sending}
+            onClick={() => void loadModels()}
+          >
+            刷新模型
+          </button>
+        </div>
       </div>
-    </div>
-    {loginNeeded && onLogin && <button type="button" className="primary chat-login" onClick={onLogin}>登录使用 AI</button>}
-    {error && <div className="chat-error" role="alert"><span>{error}</span>{!loginNeeded && messages.at(-1)?.role === "user" && <button type="button" className="secondary" disabled={sending} onClick={retry}>重试</button>}</div>}
-    <div className="chat-messages" aria-live="polite">
-      {messages.length === 0 && <div className="chat-empty"><strong>试试你的输入方案和键盘皮肤</strong><span>发一条消息，看看水杉键盘在不同编辑器中的表现。对话内容只用于本次请求，不会写入输入统计。</span></div>}
-      {messages.map(message => <div className={`chat-message chat-${message.role}`} key={message.id}><span>{message.content}</span></div>)}
-      {sending && <div className="chat-pending" role="status">正在回复…</div>}
-    </div>
-    <div className="chat-composer">
-      <textarea ref={composer} aria-label="聊天消息" value={draft} maxLength={16_384} disabled={sending || !selectedModel} placeholder="输入消息，试试键盘" onChange={event => setDraft(event.target.value)} onKeyDown={event => {
-        if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); send(); }
-      }} />
-      <div className="chat-actions">
-        <button type="button" className="secondary" disabled={!messages.length && !draft} onClick={() => { if (!messages.length || window.confirm("开始新对话？当前消息将被清空。")) clear(); }}>新对话</button>
-        {sending ? <button type="button" className="secondary" onClick={cancel}>取消</button> : <button type="button" className="primary" disabled={!draft.trim() || !selectedModel} onClick={send}>发送</button>}
+      {loginNeeded && onLogin && (
+        <button type="button" className="primary chat-login" onClick={onLogin}>
+          登录使用 AI
+        </button>
+      )}
+      {error && (
+        <div className="chat-error" role="alert">
+          <span>{error}</span>
+          {!loginNeeded && messages.at(-1)?.role === "user" && (
+            <button type="button" className="secondary" disabled={sending} onClick={retry}>
+              重试
+            </button>
+          )}
+        </div>
+      )}
+      <div className="chat-messages" aria-live="polite">
+        {messages.length === 0 && (
+          <div className="chat-empty">
+            <strong>试试你的输入方案和键盘皮肤</strong>
+            <span>
+              发一条消息，看看水杉键盘在不同编辑器中的表现。对话内容只用于本次请求，不会写入输入统计。
+            </span>
+          </div>
+        )}
+        {messages.map((message) => (
+          <div className={`chat-message chat-${message.role}`} key={message.id}>
+            <span>{message.content}</span>
+          </div>
+        ))}
+        {sending && (
+          <div className="chat-pending" role="status">
+            正在回复…
+          </div>
+        )}
       </div>
-      <small>Ctrl/⌘ + Enter 发送 · 最多保留最近 14 条消息</small>
-    </div>
-  </section>;
+      <div className="chat-composer">
+        <textarea
+          ref={composer}
+          aria-label="聊天消息"
+          value={draft}
+          maxLength={16_384}
+          disabled={sending || !selectedModel}
+          placeholder="输入消息，试试键盘"
+          onChange={(event) => setDraft(event.target.value)}
+          onKeyDown={(event) => {
+            if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+              event.preventDefault();
+              send();
+            }
+          }}
+        />
+        <div className="chat-actions">
+          <button
+            type="button"
+            className="secondary"
+            disabled={!messages.length && !draft}
+            onClick={() => {
+              if (!messages.length || window.confirm("开始新对话？当前消息将被清空。")) clear();
+            }}
+          >
+            新对话
+          </button>
+          {sending ? (
+            <button type="button" className="secondary" onClick={cancel}>
+              取消
+            </button>
+          ) : (
+            <button
+              type="button"
+              className="primary"
+              disabled={!draft.trim() || !selectedModel}
+              onClick={send}
+            >
+              发送
+            </button>
+          )}
+        </div>
+        <small>Ctrl/⌘ + Enter 发送 · 最多保留最近 14 条消息</small>
+      </div>
+    </section>
+  );
 }

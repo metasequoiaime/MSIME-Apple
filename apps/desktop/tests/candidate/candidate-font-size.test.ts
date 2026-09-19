@@ -1,5 +1,10 @@
 import { expect, test } from "vitest";
-import { candidateFontSize, candidateFontSizes, candidateFontStyle, candidatePreeditFontSize } from "../../../../packages/ui/src/candidate/candidate-font-size";
+import {
+  candidateFontSize,
+  candidateFontSizes,
+  candidateFontStyle,
+  candidatePreeditFontSize,
+} from "../../../../packages/ui/src/candidate/candidate-font-size";
 
 test("font controls expose every shared 12–32 integer", () => {
   expect(candidateFontSizes).toEqual(Array.from({ length: 21 }, (_, i) => i + 12));
@@ -10,6 +15,12 @@ test("invalid or missing sizes use Windows baseline defaults without emitting un
     expect(candidateFontSize(value)).toBe(18);
     expect(candidatePreeditFontSize(value)).toBe(15);
   }
-  expect(candidateFontStyle({})).toEqual({ "--appearance-font-size": "18px", "--appearance-preedit-font-size": "15px" });
-  expect(candidateFontStyle({ candidate_font_size: 12, candidate_preedit_font_size: 32 })).toEqual({ "--appearance-font-size": "12px", "--appearance-preedit-font-size": "32px" });
+  expect(candidateFontStyle({})).toEqual({
+    "--appearance-font-size": "18px",
+    "--appearance-preedit-font-size": "15px",
+  });
+  expect(candidateFontStyle({ candidate_font_size: 12, candidate_preedit_font_size: 32 })).toEqual({
+    "--appearance-font-size": "12px",
+    "--appearance-preedit-font-size": "32px",
+  });
 });

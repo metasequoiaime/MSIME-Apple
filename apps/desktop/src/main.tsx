@@ -5,7 +5,44 @@ import { getVersion } from "@tauri-apps/api/app";
 import { invoke, isTauri } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
-import { CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryApplyPanel, CloudDictionaryCatalogPanel, CloudDictionaryFilesPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, VoicePanel, SettingsPage, SettingsStartupPage, WelcomeFlowPage, useCandidatePreviewTheme, type AccountClient, type ApiCredentialTestResult, type ApiCredentialTestService, type ClipboardHistoryEntry, type CloudClipboardAction, type CloudClipboardPanelClient, type CloudDictionaryAction, type CloudDictionaryEntry, type CloudDictionaryPanelClient, type EmojiCatalogGroup, type EmojiPanelClient, type HostCapabilities, type TypingStatisticsClient, type PanelClient, type VoicePanelClient, type SettingsClient, type Snapshot, type DictionaryClient, type DictionaryEntry, type LocalDictionaryKind, type LocalDictionaryFormat, type OnboardingActions, type OnboardingInputScheme } from "@msime/ui";
+import {
+  CloudCandidatesPanel,
+  CloudClipboardPanel,
+  CloudDictionaryApplyPanel,
+  CloudDictionaryCatalogPanel,
+  CloudDictionaryFilesPanel,
+  CloudDictionaryPanel,
+  EmojiPanel,
+  HandwritingPanel,
+  VoicePanel,
+  SettingsPage,
+  SettingsStartupPage,
+  WelcomeFlowPage,
+  useCandidatePreviewTheme,
+  type AccountClient,
+  type ApiCredentialTestResult,
+  type ApiCredentialTestService,
+  type ClipboardHistoryEntry,
+  type CloudClipboardAction,
+  type CloudClipboardPanelClient,
+  type CloudDictionaryAction,
+  type CloudDictionaryEntry,
+  type CloudDictionaryPanelClient,
+  type EmojiCatalogGroup,
+  type EmojiPanelClient,
+  type HostCapabilities,
+  type TypingStatisticsClient,
+  type PanelClient,
+  type VoicePanelClient,
+  type SettingsClient,
+  type Snapshot,
+  type DictionaryClient,
+  type DictionaryEntry,
+  type LocalDictionaryKind,
+  type LocalDictionaryFormat,
+  type OnboardingActions,
+  type OnboardingInputScheme,
+} from "@msime/ui";
 import "@msime/ui/styles.css";
 import { subscribeWindowState } from "./input/window-state";
 import { discoverFontReader } from "./candidate/system-font-client";
@@ -18,26 +55,72 @@ import { createMobileHostServices } from "./core/mobile-host-services";
 const dictionary: DictionaryClient = {
   // kind and query are omitted when absent so an older host still sees the
   // request shape it knows.
-  list: (offset, limit, kind, query) => invoke("dictionary_request", {
-    action: { operation: "list", offset, limit, ...(kind ? { kind } : {}), ...(query ? { query } : {}) },
-  }),
-  edit: (previous: DictionaryEntry | null, replacement: DictionaryEntry | null, request_id: string) => invoke("dictionary_request", { action: { operation: "edit", previous, replacement, request_id } }).then(() => undefined),
-  import: (kind: LocalDictionaryKind, format: LocalDictionaryFormat, text: string, request_id: string) => invoke("dictionary_request", { action: { operation: "import", kind, format, text, request_id } }),
-  export: (kind: LocalDictionaryKind, format: Exclude<LocalDictionaryFormat, "rime" | "hans">, offset: number, limit: number) => invoke("dictionary_request", { action: { operation: "export", kind, format, offset, limit } }),
-  retry: request_id => invoke("dictionary_request", { action: { operation: "retry", request_id } }).then(() => undefined),
-  dismissFailure: request_id => invoke("dictionary_request", { action: { operation: "dismiss_failure", request_id } }).then(() => undefined),
+  list: (offset, limit, kind, query) =>
+    invoke("dictionary_request", {
+      action: {
+        operation: "list",
+        offset,
+        limit,
+        ...(kind ? { kind } : {}),
+        ...(query ? { query } : {}),
+      },
+    }),
+  edit: (
+    previous: DictionaryEntry | null,
+    replacement: DictionaryEntry | null,
+    request_id: string,
+  ) =>
+    invoke("dictionary_request", {
+      action: { operation: "edit", previous, replacement, request_id },
+    }).then(() => undefined),
+  import: (
+    kind: LocalDictionaryKind,
+    format: LocalDictionaryFormat,
+    text: string,
+    request_id: string,
+  ) =>
+    invoke("dictionary_request", {
+      action: { operation: "import", kind, format, text, request_id },
+    }),
+  export: (
+    kind: LocalDictionaryKind,
+    format: Exclude<LocalDictionaryFormat, "rime" | "hans">,
+    offset: number,
+    limit: number,
+  ) =>
+    invoke("dictionary_request", { action: { operation: "export", kind, format, offset, limit } }),
+  retry: (request_id) =>
+    invoke("dictionary_request", { action: { operation: "retry", request_id } }).then(
+      () => undefined,
+    ),
+  dismissFailure: (request_id) =>
+    invoke("dictionary_request", { action: { operation: "dismiss_failure", request_id } }).then(
+      () => undefined,
+    ),
 };
 const mobileDictionary: DictionaryClient = {
   ...dictionary,
-  importPersonal: (text: string, request_id: string) => invoke("dictionary_request", { action: { operation: "import_personal", text, request_id } }),
+  importPersonal: (text: string, request_id: string) =>
+    invoke("dictionary_request", { action: { operation: "import_personal", text, request_id } }),
 };
 
-async function downloadCloudEntryToLocal(entry: CloudDictionaryEntry, dictionaryClient: DictionaryClient): Promise<void> {
-  if (!dictionaryClient.importPersonal) throw new Error("personal dictionary import is unavailable");
+async function downloadCloudEntryToLocal(
+  entry: CloudDictionaryEntry,
+  dictionaryClient: DictionaryClient,
+): Promise<void> {
+  if (!dictionaryClient.importPersonal)
+    throw new Error("personal dictionary import is unavailable");
   const text = JSON.stringify({
     format: "msime-personal-dictionary",
     version: 1,
-    entries: [{ kind: entry.kind === "quick" ? "quickPhrase" : entry.kind, key: entry.code, value: entry.word, weight: entry.weight }],
+    entries: [
+      {
+        kind: entry.kind === "quick" ? "quickPhrase" : entry.kind,
+        key: entry.code,
+        value: entry.word,
+        weight: entry.weight,
+      },
+    ],
   });
   await dictionaryClient.importPersonal(text, `ui-cloud-download-${Date.now()}`);
 }
@@ -48,25 +131,29 @@ const typingStatistics: TypingStatisticsClient = {
 };
 const client: SettingsClient = {
   readAppVersion: getVersion,
-  resolveFontFamilies: names => invoke("resolve_font_families", { names }),
+  resolveFontFamilies: (names) => invoke("resolve_font_families", { names }),
   scanSkinCatalog: () => invoke("scan_skin_catalog"),
-  readSkinToolbarCss: id => invoke("read_skin_toolbar_stylesheet", { id }),
+  readSkinToolbarCss: (id) => invoke("read_skin_toolbar_stylesheet", { id }),
   readSkinImage: (id, relative) => invoke("read_skin_image", { id, relative }),
   readSkinFont: (id, relative) => invoke("read_skin_font", { id, relative }),
   openSkinDirectory: () => invoke("open_skin_directory"),
   load: () => {
-    if (!isTauri()) return Promise.reject(new Error("请通过客户端应用打开设置。浏览器预览不会写入本地配置。"));
+    if (!isTauri())
+      return Promise.reject(new Error("请通过客户端应用打开设置。浏览器预览不会写入本地配置。"));
     return invoke<Snapshot>("load_preferences");
   },
-  save: (expectedRevision, preferences) => invoke<Snapshot>("save_preferences", { expectedRevision, preferences }),
-  onPreferencesChanged: listener => listen<Snapshot>("preferences-changed", event => listener(event.payload)),
-  openExternalUrl: url => invoke("open_external_url", { url }),
+  save: (expectedRevision, preferences) =>
+    invoke<Snapshot>("save_preferences", { expectedRevision, preferences }),
+  onPreferencesChanged: (listener) =>
+    listen<Snapshot>("preferences-changed", (event) => listener(event.payload)),
+  openExternalUrl: (url) => invoke("open_external_url", { url }),
   openThirdPartyLicenses: () => invoke("open_third_party_licenses"),
   loadMacosShuangpinKeymap: () => invoke<boolean>("load_macos_shuangpin_keymap"),
-  saveMacosShuangpinKeymap: enabled => invoke("save_macos_shuangpin_keymap", { enabled }),
+  saveMacosShuangpinKeymap: (enabled) => invoke("save_macos_shuangpin_keymap", { enabled }),
   loadMacosWubiAutoCommitUnique: () => invoke<boolean>("load_macos_wubi_auto_commit_unique"),
-  saveMacosWubiAutoCommitUnique: enabled => invoke("save_macos_wubi_auto_commit_unique", { enabled }),
-  copyText: text => invoke("copy_text", { text }),
+  saveMacosWubiAutoCommitUnique: (enabled) =>
+    invoke("save_macos_wubi_auto_commit_unique", { enabled }),
+  copyText: (text) => invoke("copy_text", { text }),
   openScreenKeyboard: () => invoke("open_keyboard_panel"),
   openHandwriting: () => invoke("open_handwriting_panel"),
   listVoiceCaptureDevices: () => invoke("list_voice_capture_devices"),
@@ -75,8 +162,8 @@ const client: SettingsClient = {
   openCloudDictionary: () => invoke("open_cloud_dictionary_panel"),
   restartInputMethod: () => invoke("restart_input_method"),
   installInputSource: () => invoke("install_input_source"),
-  uninstallInputSource: removeUserData => invoke("uninstall_input_source", { removeUserData }),
-  windowControl: async action => {
+  uninstallInputSource: (removeUserData) => invoke("uninstall_input_source", { removeUserData }),
+  windowControl: async (action) => {
     const window = getCurrentWindow();
     if (action === "minimize") return window.minimize();
     if (action === "close") return window.close();
@@ -84,38 +171,57 @@ const client: SettingsClient = {
     return window.maximize();
   },
   beginWindowDrag: () => getCurrentWindow().startDragging(),
-  resizeWindow: edge => getCurrentWindow().startResizeDragging({
-    n: "North", s: "South", e: "East", w: "West",
-    ne: "NorthEast", nw: "NorthWest", se: "SouthEast", sw: "SouthWest",
-  }[edge] as Parameters<ReturnType<typeof getCurrentWindow>["startResizeDragging"]>[0]),
-  onWindowStateChanged: (listener, onError) => subscribeWindowState(getCurrentWindow(), listener, onError),
+  resizeWindow: (edge) =>
+    getCurrentWindow().startResizeDragging(
+      {
+        n: "North",
+        s: "South",
+        e: "East",
+        w: "West",
+        ne: "NorthEast",
+        nw: "NorthWest",
+        se: "SouthEast",
+        sw: "SouthWest",
+      }[edge] as Parameters<ReturnType<typeof getCurrentWindow>["startResizeDragging"]>[0],
+    ),
+  onWindowStateChanged: (listener, onError) =>
+    subscribeWindowState(getCurrentWindow(), listener, onError),
   clipboard: {
     clear: () => invoke("clear_clipboard_history"),
     list: () => invoke<ClipboardHistoryEntry[]>("list_clipboard_history"),
     sync: () => invoke<ClipboardHistoryEntry[]>("sync_clipboard_history"),
-    copy: text => invoke("copy_text", { text }),
-    remove: text => invoke("remove_clipboard_history", { text }),
+    copy: (text) => invoke("copy_text", { text }),
+    remove: (text) => invoke("remove_clipboard_history", { text }),
     setPinned: (text, pinned) => invoke("set_clipboard_history_pinned", { text, pinned }),
   },
   dictionary,
-  resetLearnedData: () => invoke("dictionary_request", { action: { operation: "reset" } }).then(() => undefined),
+  resetLearnedData: () =>
+    invoke("dictionary_request", { action: { operation: "reset" } }).then(() => undefined),
   /* mobile host services are injected after host_capabilities resolves */
 };
-const panelClients: { keyboard: PanelClient; handwriting: PanelClient; voice: VoicePanelClient; cloudClipboard: CloudClipboardPanelClient; cloudDictionary: CloudDictionaryPanelClient; emoji: EmojiPanelClient } = {
+const panelClients: {
+  keyboard: PanelClient;
+  handwriting: PanelClient;
+  voice: VoicePanelClient;
+  cloudClipboard: CloudClipboardPanelClient;
+  cloudDictionary: CloudDictionaryPanelClient;
+  emoji: EmojiPanelClient;
+} = {
   keyboard: {
     beginWindowDrag: () => getCurrentWindow().startDragging(),
     close: () => invoke("close_panel", { label: "keyboard-panel" }),
     openVoice: () => invoke("open_voice_panel"),
     rememberInputTarget: () => invoke("remember_input_target"),
-    sendKey: request => invoke("send_key", { request }),
+    sendKey: (request) => invoke("send_key", { request }),
   },
   handwriting: {
     beginWindowDrag: () => getCurrentWindow().startDragging(),
     close: () => invoke("close_panel", { label: "handwriting-panel" }),
     rememberInputTarget: () => invoke("remember_input_target"),
-    recognizeHandwriting: request => invoke("recognize_handwriting", { request }),
-    submitHandwritingCandidate: candidate => invoke("submit_handwriting_candidate", { candidate }),
-    copyHandwritingCandidate: text => invoke("copy_text", { text }),
+    recognizeHandwriting: (request) => invoke("recognize_handwriting", { request }),
+    submitHandwritingCandidate: (candidate) =>
+      invoke("submit_handwriting_candidate", { candidate }),
+    copyHandwritingCandidate: (text) => invoke("copy_text", { text }),
   },
   voice: {
     maxSubmitBytes: 4096,
@@ -123,50 +229,91 @@ const panelClients: { keyboard: PanelClient; handwriting: PanelClient; voice: Vo
     close: () => invoke("close_panel", { label: "voice-panel" }),
     rememberInputTarget: () => invoke("remember_input_target"),
     loadVoiceLanguage: () => invoke<string>("voice_input_language"),
-    ...createVoiceRecognitionClient(invoke, listener => listen<{ request_id: string; text: string; final: boolean; phase?: "recording" | "recognizing" | "polishing"; level?: number }>("voice-update", event => listener(event.payload))),
-    sendText: text => invoke("send_text", { text }),
-    sendVoiceText: text => invoke("send_voice_text", { text }),
-    copyText: text => invoke("copy_text", { text }),
+    ...createVoiceRecognitionClient(invoke, (listener) =>
+      listen<{
+        request_id: string;
+        text: string;
+        final: boolean;
+        phase?: "recording" | "recognizing" | "polishing";
+        level?: number;
+      }>("voice-update", (event) => listener(event.payload)),
+    ),
+    sendText: (text) => invoke("send_text", { text }),
+    sendVoiceText: (text) => invoke("send_voice_text", { text }),
+    copyText: (text) => invoke("copy_text", { text }),
   },
   cloudClipboard: {
     canSendText: () => invoke<boolean>("cloud_clipboard_can_send_text"),
     close: () => invoke("close_panel", { label: "cloud-clipboard-panel" }),
     rememberInputTarget: () => invoke("remember_input_target"),
-    sendText: text => invoke("send_text", { text }),
-    copyText: text => invoke("copy_text", { text }),
+    sendText: (text) => invoke("send_text", { text }),
+    copyText: (text) => invoke("copy_text", { text }),
     request: (action: CloudClipboardAction) => invoke("cloud_clipboard_request", { action }),
   },
   cloudDictionary: {
     close: () => invoke("close_panel", { label: "cloud-dictionary-panel" }),
     request: (action: CloudDictionaryAction) => invoke("cloud_dictionary_request", { action }),
   },
-  emoji: { close: () => invoke("close_panel", { label: "emoji-panel" }), rememberInputTarget: () => invoke("remember_input_target"), sendText: text => invoke("send_text", { text }), copyText: text => invoke("copy_text", { text }), loadCatalog: () => invoke<{ emoji: EmojiCatalogGroup[]; kaomoji: EmojiCatalogGroup[]; symbols: EmojiCatalogGroup[]; unavailable?: ("emoji" | "kaomoji" | "symbols")[] }>("load_emoji_catalog"), clipboard: {
-    list: () => invoke<ClipboardHistoryEntry[]>("list_clipboard_history").then(entries => entries.map(entry => entry.text)),
-    isEnabled: async () => (await client.load()).preferences.clipboard_history ?? false,
-    enable: async () => {
-      const snapshot = await client.load();
-      if (!snapshot.preferences.clipboard_history) {
-        await client.save(snapshot.revision, { ...snapshot.preferences, clipboard_history: true });
-      }
+  emoji: {
+    close: () => invoke("close_panel", { label: "emoji-panel" }),
+    rememberInputTarget: () => invoke("remember_input_target"),
+    sendText: (text) => invoke("send_text", { text }),
+    copyText: (text) => invoke("copy_text", { text }),
+    loadCatalog: () =>
+      invoke<{
+        emoji: EmojiCatalogGroup[];
+        kaomoji: EmojiCatalogGroup[];
+        symbols: EmojiCatalogGroup[];
+        unavailable?: ("emoji" | "kaomoji" | "symbols")[];
+      }>("load_emoji_catalog"),
+    clipboard: {
+      list: () =>
+        invoke<ClipboardHistoryEntry[]>("list_clipboard_history").then((entries) =>
+          entries.map((entry) => entry.text),
+        ),
+      isEnabled: async () => (await client.load()).preferences.clipboard_history ?? false,
+      enable: async () => {
+        const snapshot = await client.load();
+        if (!snapshot.preferences.clipboard_history) {
+          await client.save(snapshot.revision, {
+            ...snapshot.preferences,
+            clipboard_history: true,
+          });
+        }
+      },
+      onChanged: async (listener) => {
+        const stopHistory = await listen("clipboard-history-changed", () => listener());
+        try {
+          const stopPreferences = await listen("preferences-changed", () => listener());
+          return () => {
+            stopHistory();
+            stopPreferences();
+          };
+        } catch (error) {
+          stopHistory();
+          throw error;
+        }
+      },
+      remove: (text) => invoke("remove_clipboard_history", { text }),
+      clear: () => invoke("clear_clipboard_history"),
+      sync: () =>
+        invoke<ClipboardHistoryEntry[]>("sync_clipboard_history").then((entries) =>
+          entries.map((entry) => entry.text),
+        ),
+      copy: (text) => invoke("copy_text", { text }),
     },
-    onChanged: async listener => {
-      const stopHistory = await listen("clipboard-history-changed", () => listener());
-      try {
-        const stopPreferences = await listen("preferences-changed", () => listener());
-        return () => { stopHistory(); stopPreferences(); };
-      } catch (error) {
-        stopHistory();
-        throw error;
-      }
-    },
-    remove: text => invoke("remove_clipboard_history", { text }),
-    clear: () => invoke("clear_clipboard_history"),
-    sync: () => invoke<ClipboardHistoryEntry[]>("sync_clipboard_history").then(entries => entries.map(entry => entry.text)),
-    copy: text => invoke("copy_text", { text }),
-  } },
+  },
 };
 const panel = new URLSearchParams(window.location.search).get("panel");
-function DesktopPanelTheme({ preferences, surface, children }: { preferences: Pick<SettingsClient, "load" | "onPreferencesChanged">; surface: "handwriting" | "voice" | "emoji"; children: (theme: "dark" | "light") => ReactNode }) {
+function DesktopPanelTheme({
+  preferences,
+  surface,
+  children,
+}: {
+  preferences: Pick<SettingsClient, "load" | "onPreferencesChanged">;
+  surface: "handwriting" | "voice" | "emoji";
+  children: (theme: "dark" | "light") => ReactNode;
+}) {
   const [snapshot, setSnapshot] = useState<Snapshot | null>(null);
   useEffect(() => {
     let active = true;
@@ -180,17 +327,34 @@ function DesktopPanelTheme({ preferences, surface, children }: { preferences: Pi
     const start = async () => {
       try {
         const stop = await preferences.onPreferencesChanged?.(apply);
-        if (!active) { stop?.(); return; }
+        if (!active) {
+          stop?.();
+          return;
+        }
         unsubscribe = stop;
-      } catch { /* Initial loading still works when event subscription is unavailable. */ }
+      } catch {
+        /* Initial loading still works when event subscription is unavailable. */
+      }
       if (active) {
-        try { apply(await preferences.load()); } catch { /* Keep the dark panel default. */ }
+        try {
+          apply(await preferences.load());
+        } catch {
+          /* Keep the dark panel default. */
+        }
       }
     };
     void start();
-    return () => { active = false; unsubscribe?.(); };
+    return () => {
+      active = false;
+      unsubscribe?.();
+    };
   }, [preferences]);
-  const surfaceTheme = surface === "handwriting" ? snapshot?.preferences.handwriting_theme : surface === "voice" ? snapshot?.preferences.voice_theme : snapshot?.preferences.emoji_theme;
+  const surfaceTheme =
+    surface === "handwriting"
+      ? snapshot?.preferences.handwriting_theme
+      : surface === "voice"
+        ? snapshot?.preferences.voice_theme
+        : snapshot?.preferences.emoji_theme;
   return children(useCandidatePreviewTheme(snapshot?.preferences.theme, surfaceTheme));
 }
 // The host reports what it supports. Typing statistics were previously gated on
@@ -209,20 +373,41 @@ function DesktopSettings() {
   const [settingsClient, setSettingsClient] = useState<SettingsClient | null>(null);
   const [bootstrapRequired, setBootstrapRequired] = useState<boolean | null>(null);
   const [replayOnboarding, setReplayOnboarding] = useState(false);
-  const [mobilePanel, setMobilePanel] = useState<"voice" | "emoji" | "clipboard" | "cloud-clipboard" | "cloud-dictionary" | "cloud-dictionary-catalog" | "cloud-candidates" | "cloud-dictionary-files" | "cloud-dictionary-apply" | null>(null);
+  const [mobilePanel, setMobilePanel] = useState<
+    | "voice"
+    | "emoji"
+    | "clipboard"
+    | "cloud-clipboard"
+    | "cloud-dictionary"
+    | "cloud-dictionary-catalog"
+    | "cloud-candidates"
+    | "cloud-dictionary-files"
+    | "cloud-dictionary-apply"
+    | null
+  >(null);
   const mobilePanelRef = useRef(mobilePanel);
-  useEffect(() => { mobilePanelRef.current = mobilePanel; }, [mobilePanel]);
+  useEffect(() => {
+    mobilePanelRef.current = mobilePanel;
+  }, [mobilePanel]);
   const navigateMobilePanel = (next: NonNullable<typeof mobilePanel>, replace = false) => {
     if (typeof window !== "undefined") {
       const current = window.history.state;
-      const state = { ...(current && typeof current === "object" ? current : {}), msimeSettings: true, panel: next };
+      const state = {
+        ...(current && typeof current === "object" ? current : {}),
+        msimeSettings: true,
+        panel: next,
+      };
       if (replace) window.history.replaceState(state, "");
       else window.history.pushState(state, "");
     }
     setMobilePanel(next);
   };
   const closeMobilePanel = () => {
-    if (typeof window !== "undefined" && window.history.state?.msimeSettings === true && window.history.state?.panel) {
+    if (
+      typeof window !== "undefined" &&
+      window.history.state?.msimeSettings === true &&
+      window.history.state?.panel
+    ) {
       window.history.back();
     } else {
       setMobilePanel(null);
@@ -247,17 +432,23 @@ function DesktopSettings() {
     let active = true;
     let unsubscribe: (() => void) | undefined;
     if (isTauri()) {
-      void listen<string>("settings-route", event => {
+      void listen<string>("settings-route", (event) => {
         if (active) setInitialPage(event.payload || undefined);
-      }).then(stop => {
-        if (active) unsubscribe = stop;
-        else stop();
-      }).catch(() => {});
+      })
+        .then((stop) => {
+          if (active) unsubscribe = stop;
+          else stop();
+        })
+        .catch(() => {});
     }
     const requested = isTauri()
       ? invoke<string | null>("initial_settings_page").catch(() => null)
       : Promise.resolve(null);
-    void Promise.all([discoverFontReader(isTauri(), invoke), requested, discoverHostCapabilities()]).then(async ([reader, page, host]) => {
+    void Promise.all([
+      discoverFontReader(isTauri(), invoke),
+      requested,
+      discoverHostCapabilities(),
+    ]).then(async ([reader, page, host]) => {
       if (!active) return;
       const android = host?.platform === "android";
       const ios = host?.platform === "ios";
@@ -271,95 +462,128 @@ function DesktopSettings() {
       setInitialPage(page ?? undefined);
       const hosted: SettingsClient = host
         ? {
-          ...client,
-          host,
-          dictionary: isMobileHost(host.platform) ? mobileDictionary : dictionary,
-          // Windows and macOS resolve the offline gloss in their native
-          // candidate controllers, so the setting is real on both hosts.
-          candidateEnglishGloss: host.platform === "linux" ||
-            host.platform === "android" || host.platform === "windows" ||
-            host.platform === "macos" || host.platform === "ios",
-          ...(host.typing_statistics ? { typingStatistics } : {}),
-          ...(host.fuzzy_pinyin ? { fuzzyPinyin: true } : {}),
-          ...(host.platform === "ios" || host.platform === "android" ? createMobileHostServices(host.platform, {
-            invoke,
-            listen,
-            navigateVoice: () => navigateMobilePanel("voice"),
-          }) : {}),
-          ...(host.platform === "ios" || host.platform === "android" ? {
-            openSystemKeyboardSettings: () => invoke(
-              host.platform === "ios" ? "open_system_keyboard_settings" : "android_open_input_method_settings",
-            ),
-          } : {}),
-          ...(host.platform === "linux" ? {
-            customTouchKeyboardSkins: true,
-            customSkinLibrary: {
-              load: () => invoke("load_custom_skin_library"),
-              mutate: action => invoke("mutate_custom_skin_library", { action }),
-            },
-            testApiCredential: (service: ApiCredentialTestService, config: Record<string, unknown>) =>
-              invoke<ApiCredentialTestResult>("test_api_credential", { service, config }),
-          } : {}),
-          ...(host.platform === "windows" || host.platform === "macos" ? {
-            testApiCredential: testDesktopApiCredential,
-            aiAssistant: {
-              fetchModels: ({ endpoint, token }) => invoke<string[]>("ai_models", { endpoint, token }),
-              test: ({ endpoint, model, prompt, token, text }) => invoke<string>("ai_test", { endpoint, model, prompt, token, text }),
-            },
-          } : {}),
-          ...(host.platform === "windows" || host.platform === "macos" ? {
-            account: {
-              status: () => invoke("account_status"),
-              providers: () => invoke("account_providers"),
-              requestCode: (provider: string, target: string) => invoke("account_request_code", { provider, target }),
-              login: (challengeId: string, code: string) => invoke("account_login", { challengeId, code }),
-              profile: () => invoke("account_profile"),
-              rename: (displayName: string) => invoke("account_rename", { displayName }),
-              logout: (all: boolean) => invoke("account_logout", { all }),
-              deleteAccount: () => invoke("account_delete"),
-              clearExpired: () => invoke("account_forget"),
-            } satisfies AccountClient,
-          } : {}),
-          ...(host.platform === "ios" ? {
-            testApiCredential: (service: ApiCredentialTestService, config: Record<string, unknown>) =>
-              invoke<ApiCredentialTestResult>("test_api_credential", { service, config }),
-          } : {}),
-        }
-        : client;
-      const mobileHosted = host?.platform === "android"
-        ? {
-          ...hosted,
-          home: {
-            ...hosted.home,
-            openEmojiPanel: async () => navigateMobilePanel("emoji"),
-            openClipboardPanel: async () => navigateMobilePanel("clipboard"),
-          },
-          openCloudClipboard: async () => navigateMobilePanel("cloud-clipboard"),
-          openCloudDictionary: async () => navigateMobilePanel("cloud-dictionary"),
-        }
-        : host?.platform === "ios"
-          ? {
-            ...hosted,
-            openCloudClipboard: async () => navigateMobilePanel("cloud-clipboard"),
-            openCloudDictionary: async () => navigateMobilePanel("cloud-dictionary"),
+            ...client,
+            host,
+            dictionary: isMobileHost(host.platform) ? mobileDictionary : dictionary,
+            // Windows and macOS resolve the offline gloss in their native
+            // candidate controllers, so the setting is real on both hosts.
+            candidateEnglishGloss:
+              host.platform === "linux" ||
+              host.platform === "android" ||
+              host.platform === "windows" ||
+              host.platform === "macos" ||
+              host.platform === "ios",
+            ...(host.typing_statistics ? { typingStatistics } : {}),
+            ...(host.fuzzy_pinyin ? { fuzzyPinyin: true } : {}),
+            ...(host.platform === "ios" || host.platform === "android"
+              ? createMobileHostServices(host.platform, {
+                  invoke,
+                  listen,
+                  navigateVoice: () => navigateMobilePanel("voice"),
+                })
+              : {}),
+            ...(host.platform === "ios" || host.platform === "android"
+              ? {
+                  openSystemKeyboardSettings: () =>
+                    invoke(
+                      host.platform === "ios"
+                        ? "open_system_keyboard_settings"
+                        : "android_open_input_method_settings",
+                    ),
+                }
+              : {}),
+            ...(host.platform === "linux"
+              ? {
+                  customTouchKeyboardSkins: true,
+                  customSkinLibrary: {
+                    load: () => invoke("load_custom_skin_library"),
+                    mutate: (action) => invoke("mutate_custom_skin_library", { action }),
+                  },
+                  testApiCredential: (
+                    service: ApiCredentialTestService,
+                    config: Record<string, unknown>,
+                  ) => invoke<ApiCredentialTestResult>("test_api_credential", { service, config }),
+                }
+              : {}),
+            ...(host.platform === "windows" || host.platform === "macos"
+              ? {
+                  testApiCredential: testDesktopApiCredential,
+                  aiAssistant: {
+                    fetchModels: ({ endpoint, token }) =>
+                      invoke<string[]>("ai_models", { endpoint, token }),
+                    test: ({ endpoint, model, prompt, token, text }) =>
+                      invoke<string>("ai_test", { endpoint, model, prompt, token, text }),
+                  },
+                }
+              : {}),
+            ...(host.platform === "windows" || host.platform === "macos"
+              ? {
+                  account: {
+                    status: () => invoke("account_status"),
+                    providers: () => invoke("account_providers"),
+                    requestCode: (provider: string, target: string) =>
+                      invoke("account_request_code", { provider, target }),
+                    login: (challengeId: string, code: string) =>
+                      invoke("account_login", { challengeId, code }),
+                    profile: () => invoke("account_profile"),
+                    rename: (displayName: string) => invoke("account_rename", { displayName }),
+                    logout: (all: boolean) => invoke("account_logout", { all }),
+                    deleteAccount: () => invoke("account_delete"),
+                    clearExpired: () => invoke("account_forget"),
+                  } satisfies AccountClient,
+                }
+              : {}),
+            ...(host.platform === "ios"
+              ? {
+                  testApiCredential: (
+                    service: ApiCredentialTestService,
+                    config: Record<string, unknown>,
+                  ) => invoke<ApiCredentialTestResult>("test_api_credential", { service, config }),
+                }
+              : {}),
           }
-        : hosted;
+        : client;
+      const mobileHosted =
+        host?.platform === "android"
+          ? {
+              ...hosted,
+              home: {
+                ...hosted.home,
+                openEmojiPanel: async () => navigateMobilePanel("emoji"),
+                openClipboardPanel: async () => navigateMobilePanel("clipboard"),
+              },
+              openCloudClipboard: async () => navigateMobilePanel("cloud-clipboard"),
+              openCloudDictionary: async () => navigateMobilePanel("cloud-dictionary"),
+            }
+          : host?.platform === "ios"
+            ? {
+                ...hosted,
+                openCloudClipboard: async () => navigateMobilePanel("cloud-clipboard"),
+                openCloudDictionary: async () => navigateMobilePanel("cloud-dictionary"),
+              }
+            : hosted;
       setSettingsClient(reader ? { ...mobileHosted, listFontFamilies: reader } : mobileHosted);
     });
-    return () => { active = false; unsubscribe?.(); };
+    return () => {
+      active = false;
+      unsubscribe?.();
+    };
   }, []);
   const onboardingPlatform = settingsClient?.host?.platform;
   const onboardingActions: OnboardingActions = {
     platform: onboardingPlatform === "ios" ? "ios" : "android",
-    prepareResources: onboardingPlatform === "android" || !onboardingPlatform
-      ? () => invoke("android_prepare_bootstrap").then(() => undefined)
-      : async () => undefined,
-    openSystemKeyboardSettings: onboardingPlatform === "ios"
-      ? () => invoke("open_system_keyboard_settings").then(() => undefined)
-      : () => invoke("android_open_input_method_settings").then(() => undefined),
-    showInputMethodPicker: onboardingPlatform === "android" || !onboardingPlatform
-      ? () => invoke("android_show_input_method_picker").then(() => undefined)
-      : async () => undefined,
+    prepareResources:
+      onboardingPlatform === "android" || !onboardingPlatform
+        ? () => invoke("android_prepare_bootstrap").then(() => undefined)
+        : async () => undefined,
+    openSystemKeyboardSettings:
+      onboardingPlatform === "ios"
+        ? () => invoke("open_system_keyboard_settings").then(() => undefined)
+        : () => invoke("android_open_input_method_settings").then(() => undefined),
+    showInputMethodPicker:
+      onboardingPlatform === "android" || !onboardingPlatform
+        ? () => invoke("android_show_input_method_picker").then(() => undefined)
+        : async () => undefined,
   };
   const completeOnboarding = async (scheme: OnboardingInputScheme) => {
     const snapshot = await client.load();
@@ -386,102 +610,191 @@ function DesktopSettings() {
     setReplayOnboarding(false);
   };
   // Mount once after discovery: replacing the client later would reload draft preferences.
-  if (bootstrapRequired || replayOnboarding) return <WelcomeFlowPage actions={onboardingActions} onComplete={completeOnboarding} onSkip={onboardingPlatform === "ios" ? skipOnboarding : undefined} />;
-  if (!settingsClient) return <SettingsStartupPage onClose={isTauri() ? () => { void getCurrentWindow().close(); } : undefined} />;
+  if (bootstrapRequired || replayOnboarding)
+    return (
+      <WelcomeFlowPage
+        actions={onboardingActions}
+        onComplete={completeOnboarding}
+        onSkip={onboardingPlatform === "ios" ? skipOnboarding : undefined}
+      />
+    );
+  if (!settingsClient)
+    return (
+      <SettingsStartupPage
+        onClose={
+          isTauri()
+            ? () => {
+                void getCurrentWindow().close();
+              }
+            : undefined
+        }
+      />
+    );
   const cloudDictionary = {
     ...panelClients.cloudDictionary,
     ...cloudDictionaryCapabilities(settingsClient.host?.platform),
-    ...(isMobileHost(settingsClient.host?.platform) ? {
-      downloadToLocal: (entry: CloudDictionaryEntry) => downloadCloudEntryToLocal(entry, mobileDictionary),
-    } : {}),
+    ...(isMobileHost(settingsClient.host?.platform)
+      ? {
+          downloadToLocal: (entry: CloudDictionaryEntry) =>
+            downloadCloudEntryToLocal(entry, mobileDictionary),
+        }
+      : {}),
   };
   if (mobilePanel === "voice") {
     const ios = settingsClient.host?.platform === "ios";
-    return <VoicePanel client={{
-      ...panelClients.voice,
-      close: async () => closeMobilePanel(),
-      rememberInputTarget: undefined,
-      ...(ios ? {
-        description: "iOS App 负责录音和识别；识别结果不会直接写入键盘扩展，确认提交后会保存为待插入的语音结果。",
-        submitNotice: "已发送到本机键盘。返回目标 App，打开键盘“更多 → 语音结果”，确认后插入。",
-      } : {}),
-    }} theme="light" />;
+    return (
+      <VoicePanel
+        client={{
+          ...panelClients.voice,
+          close: async () => closeMobilePanel(),
+          rememberInputTarget: undefined,
+          ...(ios
+            ? {
+                description:
+                  "iOS App 负责录音和识别；识别结果不会直接写入键盘扩展，确认提交后会保存为待插入的语音结果。",
+                submitNotice:
+                  "已发送到本机键盘。返回目标 App，打开键盘“更多 → 语音结果”，确认后插入。",
+              }
+            : {}),
+        }}
+        theme="light"
+      />
+    );
   }
   if (mobilePanel === "emoji" || mobilePanel === "clipboard") {
-    return <DesktopPanelTheme preferences={settingsClient} surface="emoji">{theme => <DesktopEmojiPanel
-      theme={theme}
-      initialPage={mobilePanel === "clipboard" ? "clipboard" : "home"}
-      client={{ ...panelClients.emoji, close: async () => closeMobilePanel(), rememberInputTarget: undefined, sendText: undefined }}
-      close={async () => closeMobilePanel()}
-    />}</DesktopPanelTheme>;
+    return (
+      <DesktopPanelTheme preferences={settingsClient} surface="emoji">
+        {(theme) => (
+          <DesktopEmojiPanel
+            theme={theme}
+            initialPage={mobilePanel === "clipboard" ? "clipboard" : "home"}
+            client={{
+              ...panelClients.emoji,
+              close: async () => closeMobilePanel(),
+              rememberInputTarget: undefined,
+              sendText: undefined,
+            }}
+            close={async () => closeMobilePanel()}
+          />
+        )}
+      </DesktopPanelTheme>
+    );
   }
   if (mobilePanel === "cloud-clipboard") {
-    return <CloudClipboardPanel client={{
-      ...panelClients.cloudClipboard,
-      rememberInputTarget: undefined,
-      sendText: undefined,
-      close: async () => closeMobilePanel(),
-    }} />;
+    return (
+      <CloudClipboardPanel
+        client={{
+          ...panelClients.cloudClipboard,
+          rememberInputTarget: undefined,
+          sendText: undefined,
+          close: async () => closeMobilePanel(),
+        }}
+      />
+    );
   }
   if (mobilePanel === "cloud-dictionary") {
-    return <CloudDictionaryPanel client={{
-      ...cloudDictionary,
-      openCatalog: async () => navigateMobilePanel("cloud-dictionary-catalog"),
-      openCandidates: async () => navigateMobilePanel("cloud-candidates"),
-      openFiles: async () => navigateMobilePanel("cloud-dictionary-files"),
-      openApply: async () => navigateMobilePanel("cloud-dictionary-apply"),
-      close: async () => closeMobilePanel(),
-    }} />;
+    return (
+      <CloudDictionaryPanel
+        client={{
+          ...cloudDictionary,
+          openCatalog: async () => navigateMobilePanel("cloud-dictionary-catalog"),
+          openCandidates: async () => navigateMobilePanel("cloud-candidates"),
+          openFiles: async () => navigateMobilePanel("cloud-dictionary-files"),
+          openApply: async () => navigateMobilePanel("cloud-dictionary-apply"),
+          close: async () => closeMobilePanel(),
+        }}
+      />
+    );
   }
   if (mobilePanel === "cloud-dictionary-catalog") {
-    return <CloudDictionaryCatalogPanel client={{
-      ...cloudDictionary,
-      back: async () => navigateMobilePanel("cloud-dictionary", true),
-      close: async () => closeMobilePanel(),
-    }} />;
+    return (
+      <CloudDictionaryCatalogPanel
+        client={{
+          ...cloudDictionary,
+          back: async () => navigateMobilePanel("cloud-dictionary", true),
+          close: async () => closeMobilePanel(),
+        }}
+      />
+    );
   }
   if (mobilePanel === "cloud-candidates") {
-    return <CloudCandidatesPanel client={{
-      ...cloudDictionary,
-      back: async () => navigateMobilePanel("cloud-dictionary", true),
-      close: async () => closeMobilePanel(),
-    }} />;
+    return (
+      <CloudCandidatesPanel
+        client={{
+          ...cloudDictionary,
+          back: async () => navigateMobilePanel("cloud-dictionary", true),
+          close: async () => closeMobilePanel(),
+        }}
+      />
+    );
   }
   if (mobilePanel === "cloud-dictionary-files") {
-    return <CloudDictionaryFilesPanel client={{
-      ...cloudDictionary,
-      back: async () => navigateMobilePanel("cloud-dictionary", true),
-      close: async () => closeMobilePanel(),
-    }} />;
+    return (
+      <CloudDictionaryFilesPanel
+        client={{
+          ...cloudDictionary,
+          back: async () => navigateMobilePanel("cloud-dictionary", true),
+          close: async () => closeMobilePanel(),
+        }}
+      />
+    );
   }
   if (mobilePanel === "cloud-dictionary-apply") {
-    return <CloudDictionaryApplyPanel client={{
-      ...cloudDictionary,
-      back: async () => navigateMobilePanel("cloud-dictionary", true),
-      close: async () => closeMobilePanel(),
-    }} />;
+    return (
+      <CloudDictionaryApplyPanel
+        client={{
+          ...cloudDictionary,
+          back: async () => navigateMobilePanel("cloud-dictionary", true),
+          close: async () => closeMobilePanel(),
+        }}
+      />
+    );
   }
-  return <SettingsPage key={initialPage ?? "default"} client={settingsClient} initialPage={initialPage} onReplayOnboarding={() => setReplayOnboarding(true)} />
+  return (
+    <SettingsPage
+      key={initialPage ?? "default"}
+      client={settingsClient}
+      initialPage={initialPage}
+      onReplayOnboarding={() => setReplayOnboarding(true)}
+    />
+  );
 }
 function DesktopCloudDictionarySurface() {
   const [host, setHost] = useState<HostCapabilities | null | undefined>(undefined);
   useEffect(() => {
     let active = true;
-    void discoverHostCapabilities().then(value => { if (active) setHost(value); });
-    return () => { active = false; };
+    void discoverHostCapabilities().then((value) => {
+      if (active) setHost(value);
+    });
+    return () => {
+      active = false;
+    };
   }, []);
   if (host === undefined) return <p role="status">正在连接云词库…</p>;
   const capabilities = cloudDictionaryCapabilities(host?.platform);
   const cloudDictionary = {
     ...panelClients.cloudDictionary,
     ...capabilities,
-    ...(isMobileHost(host?.platform) ? {
-      downloadToLocal: (entry: CloudDictionaryEntry) => downloadCloudEntryToLocal(entry, mobileDictionary),
-    } : {}),
+    ...(isMobileHost(host?.platform)
+      ? {
+          downloadToLocal: (entry: CloudDictionaryEntry) =>
+            downloadCloudEntryToLocal(entry, mobileDictionary),
+        }
+      : {}),
   };
   return <DesktopCloudDictionary client={cloudDictionary} />;
 }
-function DesktopEmojiPanel({ theme, initialPage = "home", client: providedClient, close }: { theme: "dark" | "light"; initialPage?: "home" | "clipboard"; client?: EmojiPanelClient; close?: () => Promise<void> }) {
+function DesktopEmojiPanel({
+  theme,
+  initialPage = "home",
+  client: providedClient,
+  close,
+}: {
+  theme: "dark" | "light";
+  initialPage?: "home" | "clipboard";
+  client?: EmojiPanelClient;
+  close?: () => Promise<void>;
+}) {
   const [emojiClient, setEmojiClient] = useState<EmojiPanelClient | null>(null);
   const panelLabel = initialPage === "clipboard" ? "clipboard-panel" : "emoji-panel";
   useEffect(() => {
@@ -489,31 +802,60 @@ function DesktopEmojiPanel({ theme, initialPage = "home", client: providedClient
     const capability = isTauri()
       ? invoke<boolean>("supports_clipboard_paste").catch(() => false)
       : Promise.resolve(false);
-    void capability.then(supported => {
+    void capability.then((supported) => {
       if (!active) return;
       const baseClient = providedClient ?? panelClients.emoji;
       const closePanel = close ?? (() => invoke("close_panel", { label: panelLabel }));
-      setEmojiClient(supported ? {
-        ...baseClient,
-        close: closePanel,
-        clipboard: baseClient.clipboard ? {
-          ...baseClient.clipboard,
-          paste: text => invoke<void>("paste_clipboard_text", { text }),
-        } : undefined,
-      } : { ...baseClient, close: closePanel });
+      setEmojiClient(
+        supported
+          ? {
+              ...baseClient,
+              close: closePanel,
+              clipboard: baseClient.clipboard
+                ? {
+                    ...baseClient.clipboard,
+                    paste: (text) => invoke<void>("paste_clipboard_text", { text }),
+                  }
+                : undefined,
+            }
+          : { ...baseClient, close: closePanel },
+      );
     });
-    return () => { active = false; };
+    return () => {
+      active = false;
+    };
   }, [close, panelLabel, providedClient]);
-  return emojiClient ? <EmojiPanel client={emojiClient} theme={theme} initialPage={initialPage} />
-    : <p role="status">正在连接面板…</p>;
+  return emojiClient ? (
+    <EmojiPanel client={emojiClient} theme={theme} initialPage={initialPage} />
+  ) : (
+    <p role="status">正在连接面板…</p>
+  );
 }
 
-const content = panel === "keyboard" ? <DesktopKeyboard client={panelClients.keyboard} preferences={client} />
-  : panel === "handwriting" ? <DesktopPanelTheme preferences={client} surface="handwriting">{theme => <HandwritingPanel client={panelClients.handwriting} theme={theme} />}</DesktopPanelTheme>
-  : panel === "voice" ? <DesktopPanelTheme preferences={client} surface="voice">{theme => <VoicePanel client={panelClients.voice} theme={theme} />}</DesktopPanelTheme>
-  : panel === "cloud-clipboard" ? <CloudClipboardPanel client={panelClients.cloudClipboard} />
-  : panel === "cloud-dictionary" ? <DesktopCloudDictionarySurface />
-  : panel === "clipboard" ? <DesktopPanelTheme preferences={client} surface="emoji">{theme => <DesktopEmojiPanel theme={theme} initialPage="clipboard" />}</DesktopPanelTheme>
-  : panel === "emoji" ? <DesktopPanelTheme preferences={client} surface="emoji">{theme => <DesktopEmojiPanel theme={theme} />}</DesktopPanelTheme>
-  : <DesktopSettings />;
+const content =
+  panel === "keyboard" ? (
+    <DesktopKeyboard client={panelClients.keyboard} preferences={client} />
+  ) : panel === "handwriting" ? (
+    <DesktopPanelTheme preferences={client} surface="handwriting">
+      {(theme) => <HandwritingPanel client={panelClients.handwriting} theme={theme} />}
+    </DesktopPanelTheme>
+  ) : panel === "voice" ? (
+    <DesktopPanelTheme preferences={client} surface="voice">
+      {(theme) => <VoicePanel client={panelClients.voice} theme={theme} />}
+    </DesktopPanelTheme>
+  ) : panel === "cloud-clipboard" ? (
+    <CloudClipboardPanel client={panelClients.cloudClipboard} />
+  ) : panel === "cloud-dictionary" ? (
+    <DesktopCloudDictionarySurface />
+  ) : panel === "clipboard" ? (
+    <DesktopPanelTheme preferences={client} surface="emoji">
+      {(theme) => <DesktopEmojiPanel theme={theme} initialPage="clipboard" />}
+    </DesktopPanelTheme>
+  ) : panel === "emoji" ? (
+    <DesktopPanelTheme preferences={client} surface="emoji">
+      {(theme) => <DesktopEmojiPanel theme={theme} />}
+    </DesktopPanelTheme>
+  ) : (
+    <DesktopSettings />
+  );
 createRoot(document.getElementById("root")!).render(<StrictMode>{content}</StrictMode>);

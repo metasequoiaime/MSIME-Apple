@@ -4,8 +4,12 @@ import { preserveAnimationShorthands } from "./animation-shorthand-source";
 import { scopeRootSelector } from "./skin-root-selector";
 // Parse first, then insert rules into a browser-created scope. Concatenating an
 // untrusted stylesheet inside @scope would let an unmatched brace escape it.
-export function installToolbarCss(scope: string, css: string): { remove: () => void; partial: boolean } {
-  if (!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(scope) || !("adoptedStyleSheets" in document)) throw new Error("unsupported scope");
+export function installToolbarCss(
+  scope: string,
+  css: string,
+): { remove: () => void; partial: boolean } {
+  if (!/^[a-zA-Z][a-zA-Z0-9_-]*$/.test(scope) || !("adoptedStyleSheets" in document))
+    throw new Error("unsupported scope");
   const preserved = preserveAnimationShorthands(css);
   css = preserved.css;
   const parsed = new CSSStyleSheet();
@@ -21,17 +25,27 @@ export function installToolbarCss(scope: string, css: string): { remove: () => v
     for (let index = container.cssRules.length - 1; index >= 0; index--) {
       const rule = container.cssRules[index];
       const nestedDeclarations = rule.constructor.name === "CSSNestedDeclarations";
-      if (rule.type === CSSRule.STYLE_RULE || rule.type === CSSRule.KEYFRAME_RULE || nestedDeclarations) {
+      if (
+        rule.type === CSSRule.STYLE_RULE ||
+        rule.type === CSSRule.KEYFRAME_RULE ||
+        nestedDeclarations
+      ) {
         const styleRule = rule as CSSStyleRule;
-        if (rule.type === CSSRule.STYLE_RULE) styleRule.selectorText = scopeRootSelector(styleRule.selectorText);
+        if (rule.type === CSSRule.STYLE_RULE)
+          styleRule.selectorText = scopeRootSelector(styleRule.selectorText);
         // Only prepared image resources may reach the adopted sheet.
         for (const name of Array.from(styleRule.style)) {
           if (hasUnresolvedCssResource(styleRule.style.getPropertyValue(name))) {
-            styleRule.style.removeProperty(name); partial = true;
+            styleRule.style.removeProperty(name);
+            partial = true;
           }
         }
         if (!nestedDeclarations && styleRule.cssRules?.length) sanitize(styleRule);
-      } else if (rule.type === CSSRule.MEDIA_RULE || rule.type === CSSRule.SUPPORTS_RULE || rule.type === CSSRule.KEYFRAMES_RULE) {
+      } else if (
+        rule.type === CSSRule.MEDIA_RULE ||
+        rule.type === CSSRule.SUPPORTS_RULE ||
+        rule.type === CSSRule.KEYFRAMES_RULE
+      ) {
         sanitize(rule as CSSGroupingRule);
       } else {
         // Fonts and other globally named rules need their own
@@ -42,7 +56,15 @@ export function installToolbarCss(scope: string, css: string): { remove: () => v
     }
   }
   sanitize(parsed);
-  for (const rule of Array.from(parsed.cssRules)) target.insertRule(rule.cssText, target.cssRules.length);
+  for (const rule of Array.from(parsed.cssRules))
+    target.insertRule(rule.cssText, target.cssRules.length);
   document.adoptedStyleSheets = [...document.adoptedStyleSheets, sheet];
-  return { partial, remove: () => { document.adoptedStyleSheets = document.adoptedStyleSheets.filter(existing => existing !== sheet); } };
+  return {
+    partial,
+    remove: () => {
+      document.adoptedStyleSheets = document.adoptedStyleSheets.filter(
+        (existing) => existing !== sheet,
+      );
+    },
+  };
 }

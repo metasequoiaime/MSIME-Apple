@@ -3,7 +3,10 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { TypingStatisticsPage, type TypingStatisticsStatus } from "@msime/ui";
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 const neverWritten: TypingStatisticsStatus = {
   availability: "neverWritten",
@@ -23,7 +26,13 @@ function client(status: TypingStatisticsStatus) {
 // they type. The message has to name the prerequisite.
 test("iOS names Full Access and offers the settings entry", async () => {
   const openSystemSettings = vi.fn(async () => {});
-  render(<TypingStatisticsPage client={client(neverWritten)} platform="ios" openSystemSettings={openSystemSettings} />);
+  render(
+    <TypingStatisticsPage
+      client={client(neverWritten)}
+      platform="ios"
+      openSystemSettings={openSystemSettings}
+    />,
+  );
   await screen.findByText(/键盘从未写入过统计/);
 
   expect(screen.getByText(/允许完全访问/)).toBeTruthy();
@@ -32,7 +41,13 @@ test("iOS names Full Access and offers the settings entry", async () => {
 });
 
 test("other platforms keep the plain guidance and no settings entry", async () => {
-  render(<TypingStatisticsPage client={client(neverWritten)} platform="windows" openSystemSettings={vi.fn()} />);
+  render(
+    <TypingStatisticsPage
+      client={client(neverWritten)}
+      platform="windows"
+      openSystemSettings={vi.fn()}
+    />,
+  );
   await screen.findByText(/键盘从未写入过统计/);
 
   expect(screen.queryByText(/允许完全访问/)).toBeNull();
@@ -50,7 +65,9 @@ test("iOS without the settings capability still explains the requirement", async
 // Full Access is only the explanation for "never written". Once the file exists, a zero count
 // means something else, and pointing at Settings would send the user somewhere useless.
 test("an established statistics file does not blame Full Access", async () => {
-  render(<TypingStatisticsPage client={client(ready)} platform="ios" openSystemSettings={vi.fn()} />);
+  render(
+    <TypingStatisticsPage client={client(ready)} platform="ios" openSystemSettings={vi.fn()} />,
+  );
   await screen.findByText(/统计文件已建立/);
 
   expect(screen.queryByText(/允许完全访问/)).toBeNull();

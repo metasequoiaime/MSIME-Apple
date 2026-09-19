@@ -6,10 +6,21 @@ import { VoicePanel } from "@msime/ui";
 afterEach(cleanup);
 function setup(failure = false) {
   let resolve!: (value: { text: string }) => void;
-  const stopVoice = failure ? vi.fn().mockRejectedValue(new Error("fixture")) : vi.fn().mockResolvedValue(undefined);
+  const stopVoice = failure
+    ? vi.fn().mockRejectedValue(new Error("fixture"))
+    : vi.fn().mockResolvedValue(undefined);
   const cancelVoice = vi.fn().mockResolvedValue(undefined);
-  const recognizeVoice = vi.fn(() => new Promise<{ text: string }>(done => { resolve = done; }));
-  render(<VoicePanel client={{ close: async () => {}, recognizeVoice, stopVoice, cancelVoice, sendText: vi.fn() }} />);
+  const recognizeVoice = vi.fn(
+    () =>
+      new Promise<{ text: string }>((done) => {
+        resolve = done;
+      }),
+  );
+  render(
+    <VoicePanel
+      client={{ close: async () => {}, recognizeVoice, stopVoice, cancelVoice, sendText: vi.fn() }}
+    />,
+  );
   fireEvent.click(screen.getByRole("button", { name: "开始录音" }));
   return { stopVoice, cancelVoice, finish: (text: string) => resolve({ text }) };
 }
@@ -19,11 +30,19 @@ test("stop waits for final recognition and permits committing it", async () => {
   await act(async () => fireEvent.click(screen.getByRole("button", { name: "停止录音" })));
   expect(host.stopVoice).toHaveBeenCalledOnce();
   expect(host.cancelVoice).not.toHaveBeenCalled();
-  expect((screen.getByRole("button", { name: "正在完成识别…" }) as HTMLButtonElement).disabled).toBe(true);
-  expect((screen.getByRole("button", { name: "提交到当前窗口" }) as HTMLButtonElement).disabled).toBe(true);
+  expect(
+    (screen.getByRole("button", { name: "正在完成识别…" }) as HTMLButtonElement).disabled,
+  ).toBe(true);
+  expect(
+    (screen.getByRole("button", { name: "提交到当前窗口" }) as HTMLButtonElement).disabled,
+  ).toBe(true);
   await act(async () => host.finish("fixture-final"));
-  expect((screen.getByRole("textbox", { name: "识别结果" }) as HTMLTextAreaElement).value).toBe("fixture-final");
-  expect((screen.getByRole("button", { name: "提交到当前窗口" }) as HTMLButtonElement).disabled).toBe(false);
+  expect((screen.getByRole("textbox", { name: "识别结果" }) as HTMLTextAreaElement).value).toBe(
+    "fixture-final",
+  );
+  expect(
+    (screen.getByRole("button", { name: "提交到当前窗口" }) as HTMLButtonElement).disabled,
+  ).toBe(false);
   expect(screen.getByRole("button", { name: "开始录音" })).toBeDefined();
 });
 

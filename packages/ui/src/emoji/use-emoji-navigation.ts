@@ -15,18 +15,34 @@ export function useEmojiNavigation(onEscape: () => void, viewKey?: string) {
     // Keep native focus on search/category controls. If a retained item has
     // focus across a view change, reset item navigation to the new first row.
     const focused = panel.ownerDocument.activeElement;
-    if (focused instanceof HTMLElement && panel.contains(focused)
-      && focused.matches("[data-emoji-navigation-item]")) {
-      const first = panel.querySelector<HTMLButtonElement>("[data-emoji-navigation-item]:not(:disabled)");
+    if (
+      focused instanceof HTMLElement &&
+      panel.contains(focused) &&
+      focused.matches("[data-emoji-navigation-item]")
+    ) {
+      const first = panel.querySelector<HTMLButtonElement>(
+        "[data-emoji-navigation-item]:not(:disabled)",
+      );
       if (first) first.focus({ preventScroll: true });
-      else panel.querySelector<HTMLInputElement>(".emoji-panel-search input")?.focus({ preventScroll: true });
+      else
+        panel
+          .querySelector<HTMLInputElement>(".emoji-panel-search input")
+          ?.focus({ preventScroll: true });
     }
   }, [viewKey]);
 
   function onKeyDown(event: KeyboardEvent<HTMLElement>) {
     if (event.defaultPrevented || event.nativeEvent.isComposing || event.keyCode === 229) return;
-    if (event.ctrlKey && !event.altKey && !event.metaKey && !event.shiftKey && event.key.toLowerCase() === "f") {
-      const search = panelRef.current?.querySelector<HTMLInputElement>(".emoji-panel-search input:not(:disabled)");
+    if (
+      event.ctrlKey &&
+      !event.altKey &&
+      !event.metaKey &&
+      !event.shiftKey &&
+      event.key.toLowerCase() === "f"
+    ) {
+      const search = panelRef.current?.querySelector<HTMLInputElement>(
+        ".emoji-panel-search input:not(:disabled)",
+      );
       if (search) {
         event.preventDefault();
         search.focus({ preventScroll: true });
@@ -45,9 +61,22 @@ export function useEmojiNavigation(onEscape: () => void, viewKey?: string) {
     const fromSearch = target.matches(".emoji-panel-search input");
     const current = target.closest<HTMLButtonElement>("[data-emoji-navigation-item]");
     if ((!current && !fromSearch) || (fromSearch && event.key !== "ArrowDown")) return;
-    const keys = ["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End", "PageUp", "PageDown"];
+    const keys = [
+      "ArrowLeft",
+      "ArrowRight",
+      "ArrowUp",
+      "ArrowDown",
+      "Home",
+      "End",
+      "PageUp",
+      "PageDown",
+    ];
     if (!keys.includes(event.key)) return;
-    const items = Array.from(panelRef.current?.querySelectorAll<HTMLButtonElement>("[data-emoji-navigation-item]:not(:disabled)") ?? []);
+    const items = Array.from(
+      panelRef.current?.querySelectorAll<HTMLButtonElement>(
+        "[data-emoji-navigation-item]:not(:disabled)",
+      ) ?? [],
+    );
     if (!items.length) return;
     event.preventDefault();
     const index = current ? items.indexOf(current) : -1;
@@ -62,7 +91,8 @@ export function useEmojiNavigation(onEscape: () => void, viewKey?: string) {
       const direction = event.key === "ArrowUp" || event.key === "PageUp" ? -1 : 1;
       const pageStep = event.key === "PageUp" || event.key === "PageDown";
       const viewport = items[index].closest(".emoji-panel-content");
-      const destinationY = origin.top + (pageStep ? direction * (viewport?.clientHeight || origin.height) : 0);
+      const destinationY =
+        origin.top + (pageStep ? direction * (viewport?.clientHeight || origin.height) : 0);
       let bestVertical = Infinity;
       let bestHorizontal = Infinity;
       for (let candidate = 0; candidate < items.length; candidate++) {
@@ -70,7 +100,10 @@ export function useEmojiNavigation(onEscape: () => void, viewKey?: string) {
         if ((rect.top - origin.top) * direction <= 1) continue;
         const vertical = Math.abs(rect.top - destinationY);
         const horizontal = Math.abs(rect.left + rect.width / 2 - originX);
-        if (vertical < bestVertical - 1 || (Math.abs(vertical - bestVertical) <= 1 && horizontal < bestHorizontal)) {
+        if (
+          vertical < bestVertical - 1 ||
+          (Math.abs(vertical - bestVertical) <= 1 && horizontal < bestHorizontal)
+        ) {
           next = candidate;
           bestVertical = vertical;
           bestHorizontal = horizontal;

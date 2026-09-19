@@ -3,13 +3,20 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { SettingsPage, type Preferences, type Snapshot } from "@msime/ui";
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 const snapshot: Snapshot = {
-  format_version: 1, revision: 4,
+  format_version: 1,
+  revision: 4,
   preferences: {
-    scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 5,
-    learning: true, chinese_punctuation: true,
+    scheme: "quanpin",
+    shuangpin_profile: "xiaohe",
+    candidate_page_size: 5,
+    learning: true,
+    chinese_punctuation: true,
   },
 };
 
@@ -35,6 +42,6 @@ test("every surface override offers the same three choices", async () => {
   await screen.findByRole("button", { name: "保存设置" });
   fireEvent.click(screen.getByRole("button", { name: "外观" }));
   const select = await screen.findByLabelText("菜单主题");
-  const values = Array.from((select as HTMLSelectElement).options).map(option => option.value);
+  const values = Array.from((select as HTMLSelectElement).options).map((option) => option.value);
   expect(values).toEqual(["follow", "dark", "light"]);
 });
