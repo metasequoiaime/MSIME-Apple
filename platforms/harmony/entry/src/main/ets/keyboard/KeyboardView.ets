@@ -40,6 +40,7 @@ import {
 } from './input/HandwritingStrokePolicy';
 import { HarmonyVoiceRecognizer } from './input/HarmonyVoiceRecognizer';
 import { VoiceRecognitionPolicy } from './input/VoiceRecognitionPolicy';
+import { ReplyKeyboardPolicy, ReplyStyle } from './ReplyKeyboardPolicy';
 
 /**
  * The 26-key touch keyboard, laid out to the same metrics as the iOS extension in
@@ -116,6 +117,7 @@ const SURFACE_GEOMETRY: string = 'geometry';
 const SURFACE_EXPANDED: string = 'expanded';
 const SURFACE_VARIANTS: string = 'variants';
 const SURFACE_VOICE: string = 'voice';
+const SURFACE_REPLY: string = 'reply';
 
 const TOOL_ICON_VP: number = 18;
 // Third, which is where iOS puts the English card.
@@ -221,6 +223,11 @@ struct KeyboardView {
   @State voiceNotice: string = '';
   @State voiceBusy: boolean = false;
   @State voiceFinishing: boolean = false;
+  @State replySource: string = '';
+  @State replyStyle: string = '高情商';
+  @State replyResults: string[] = [];
+  @State replyNotice: string = '';
+  @State replyBusy: boolean = false;
   @State hoveredCandidate: number = -1;
 
   private readonly letterCase: EnglishLetterCaseState = new EnglishLetterCaseState();
@@ -239,6 +246,7 @@ struct KeyboardView {
     new CanvasRenderingContext2D(new RenderingContextSettings(true));
   private readonly voiceRecognizer: HarmonyVoiceRecognizer = new HarmonyVoiceRecognizer();
   private voiceGeneration: number = 0;
+  private replyGeneration: number = 0;
 
   aboutToAppear(): void {
     this.english = KeyboardSession.shared.isEnglish();
@@ -255,7 +263,8 @@ struct KeyboardView {
     this.candidateSkin = KeyboardSkin.from(
       CandidateSkinPolicy.harmonySkin(this.settings.candidateSkinId, this.settings.candidateSkinBase),
       this.settings.candidateDark);
-    this.scheme = this.resolveScheme(this.settings.layout);
+    this.scheme = this.settings.thoughtfulReply ? KeyboardScheme.THOUGHTFUL_REPLY
+      : this.resolveScheme(this.settings.layout);
     this.nineKey = this.scheme.touchKeyboardLayout === 'nine_key';
     this.japanese = this.scheme.engineScheme === 'japanese' && this.nineKey;
     KeyboardSession.shared.setNineKey(this.nineKey);
@@ -467,6 +476,10 @@ struct KeyboardView {
     const changes: Map<string, Object> = new Map<string, Object>();
     changes.set('scheme', candidate.engineScheme);
     changes.set('touch_keyboard_layout', candidate.touchKeyboardLayout);
+    changes.set('touch_keyboard_schemes', { enabled: [
+      'quanpin', 'nine_key', 'xiaohe', 'ziranma', 'microsoft', 'shoudao', 'wubi',
+      'japanese_nine_key', 'japanese', 'handwriting', 'thoughtful_reply'
+    ], selected: candidate.preferenceId });
     if (candidate.shuangpinProfile !== null) {
       changes.set('shuangpin_profile', candidate.shuangpinProfile);
     }
@@ -485,7 +498,7 @@ struct KeyboardView {
     this.japanese = candidate.engineScheme === 'japanese' && candidate.touchKeyboardLayout
       === 'nine_key';
     KeyboardSession.shared.setNineKey(this.nineKey);
-    this.show(SURFACE_NONE);
+    this.show(candidate === KeyboardScheme.THOUGHTFUL_REPLY ? SURFACE_REPLY : SURFACE_NONE);
   }
 
   /**
@@ -557,7 +570,6 @@ struct KeyboardView {
    */
   private offeredSchemes(): SchemeDefinition[] {
     return KeyboardScheme.SCHEMES.filter((candidate: SchemeDefinition): boolean =>
-      candidate.id !== 'THOUGHTFUL_REPLY'
       // A grid is a way of getting twenty-six letters out of nine keys, which is a problem only a
       // touch screen has. On a machine with a physical keyboard every letter already has a key.
       && !(KeyboardFormFactor.isDesktop() && candidate.touchKeyboardLayout === 'nine_key'));
@@ -591,6 +603,10 @@ struct KeyboardView {
 
   /** Shows one surface, which closes whatever was showing. */
   private show(surface: string): void {
+    if (surface !== SURFACE_REPLY) {
+      this.replyGeneration += 1;
+      this.replyBusy = false;
+    }
     this.surface = surface;
     if (surface !== SURFACE_EXPANDED) {
       this.expanded = [];
@@ -1208,6 +1224,74 @@ struct KeyboardView {
       }
       this.storeClipboardText();
     });
+  }
+
+  private loadReplySource(): void {
+    const generation: number = ++this.replyGeneration;
+    KeyboardSession.shared.systemClipboardText().then((text: string): void => {
+      if (generation !== this.replyGeneration) return;
+      this.replySource = text;
+      this.replyResults = [];
+      this.replyNotice = text.trim().length === 0 ? '剪贴板里没有文字' : '选择风格生成回复';
+    });
+  }
+
+  private generateReply(style: string): void {
+    if (this.replyBusy) return;
+    this.replyStyle = style;
+    const generation: number = ++this.replyGeneration;
+    this.replyBusy = true;
+    this.replyResults = [];
+    this.replyNotice = '正在生成…';
+    KeyboardSession.shared.thoughtfulReplies(this.replySource, style).then((results: string[]): void => {
+      if (generation !== this.replyGeneration) return;
+      this.replyBusy = false;
+      this.replyResults = results;
+      this.replyNotice = results.length === 0 ? '生成失败，请检查 AI 设置或重试' : '点选回复插入输入框';
+    });
+  }
+
+  @Builder
+  replyFace() {
+    Column({ space: this.rowSpacing() }) {
+      Row() {
+        Text('高情商回复').fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+          .fontColor(this.skin.keyForeground).layoutWeight(1)
+        Text('完成').fontColor(this.skin.accent).onClick(() => this.show(SURFACE_NONE))
+      }.width('100%').height(28)
+      Row({ space: this.keySpacing() }) {
+        Text(this.replySource.length === 0 ? '点击读取剪贴板中的对方文字' : this.replySource)
+          .fontSize(14).fontColor(this.skin.keyForeground).maxLines(2).layoutWeight(1)
+        Button('粘贴').enabled(!this.replyBusy).onClick(() => this.loadReplySource())
+      }.width('100%').padding(8).backgroundColor(this.skin.keyBackground)
+      if (this.replyResults.length === 0) {
+        Grid() {
+          ForEach(ReplyKeyboardPolicy.STYLES, (style: ReplyStyle) => {
+            GridItem() {
+              Button(style.title).enabled(!this.replyBusy)
+                .onClick(() => this.generateReply(style.id))
+                .width('100%').height(42).backgroundColor(this.skin.keyBackground)
+                .fontColor(this.skin.keyForeground)
+            }
+          }, (style: ReplyStyle) => style.id)
+        }.columnsTemplate('1fr 1fr 1fr').width('100%').layoutWeight(1)
+      } else {
+        Scroll() {
+          Column({ space: this.keySpacing() }) {
+            ForEach(this.replyResults, (reply: string) => {
+              Button(reply).width('100%').height(48).fontColor(this.skin.keyForeground)
+                .backgroundColor(this.skin.keyBackground)
+                .onClick(() => {
+                  KeyboardSession.shared.insertWithSource(reply, 'reply');
+                  this.replyResults = [];
+                  this.replyNotice = '已插入，请确认发送';
+                })
+            }, (reply: string) => reply)
+          }.width('100%')
+        }.layoutWeight(1)
+      }
+      Text(this.replyNotice).fontSize(12).fontColor(this.skin.keyForeground).opacity(0.72)
+    }.width('100%').height(this.surfaceHeight())
   }
 
   private storeClipboardText(): void {
@@ -2673,6 +2757,8 @@ struct KeyboardView {
         this.expandedFace()
       } else if (this.surface === SURFACE_CLIPBOARD) {
         this.clipboardFace()
+      } else if (this.surface === SURFACE_REPLY) {
+        this.replyFace()
       } else if (this.surface === SURFACE_VOICE) {
         this.voiceFace()
       } else if (this.isPicker()) {
