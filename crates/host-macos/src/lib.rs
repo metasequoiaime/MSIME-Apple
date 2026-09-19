@@ -522,4 +522,19 @@ mod tests {
             assert!(keyboard_stroke(&request(key)).is_none());
         }
     }
+
+    /// Name every account entry point without calling one: the keychain belongs to the user, and what is
+    /// worth checking here is the linkage. Compiled as Objective-C++ without `extern "C"`, the bridge
+    /// exported C++-mangled names that resolved nothing, and every binary reaching it - the Tauri settings
+    /// app among them - failed to link. A test that merely references them fails the same way.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn the_account_bridge_exports_c_symbols() {
+        let load: fn() -> Result<Option<Vec<u8>>, &'static str> = account_load;
+        let save: fn(&[u8]) -> Result<(), &'static str> = account_save;
+        let clear: fn() -> Result<(), &'static str> = account_clear;
+        // Linking is the assertion. black_box keeps the three references from being optimised away
+        // without letting anything run.
+        std::hint::black_box((load, save, clear));
+    }
 }
