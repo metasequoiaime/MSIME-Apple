@@ -532,6 +532,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     // The extension context knows the system colour mode; the view has no context of its own to ask.
     const systemDark: boolean =
       this.context.config.colorMode === ConfigurationConstant.ColorMode.COLOR_MODE_DARK;
+    // The packaged recording tones are read through this context, which the session has none of.
+    KeyboardSession.shared.useVoiceContext(this.context);
     const started: boolean = KeyboardSession.shared.start(resources, state, systemDark);
     if (!started) {
       // Without a session there is nothing to show. Leaving the panel uncreated keeps the framework

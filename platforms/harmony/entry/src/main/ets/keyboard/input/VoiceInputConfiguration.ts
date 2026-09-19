@@ -20,6 +20,11 @@ export interface VoiceInputConfiguration {
   hotkey_rctrl_ralt?: boolean;
   hotkey_hold_space_lock?: boolean;
   hotkey_ctrl_f9?: boolean;
+  /** What happens around a recording rather than in it; absent means the shared defaults. */
+  sound_enabled?: boolean;
+  start_sound?: boolean;
+  end_sound?: boolean;
+  mute_system_audio?: boolean;
   asr_endpoint: string;
   asr_token: string;
   asr_app_key: string;
@@ -55,6 +60,10 @@ export const DEFAULT_VOICE_INPUT_CONFIGURATION: VoiceInputConfiguration = {
   hotkey_rctrl_ralt: false,
   hotkey_hold_space_lock: true,
   hotkey_ctrl_f9: true,
+  sound_enabled: true,
+  start_sound: true,
+  end_sound: true,
+  mute_system_audio: false,
   asr_endpoint: 'wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async',
   asr_token: '',
   asr_app_key: '',
