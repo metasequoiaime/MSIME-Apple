@@ -149,8 +149,26 @@ DeviceResources &Window::GetDeviceResources()
     return deviceResources_;
 }
 
+void Window::SetDpiOverride(FLOAT dpi)
+{
+    const FLOAT normalized = dpi > 0.0f ? dpi : 0.0f;
+    if (normalized == dpiOverride_)
+    {
+        return;
+    }
+    dpiOverride_ = normalized;
+    // The presenter usually drives its own DeviceResources for composition,
+    // but the HwndRenderTarget path (OnPaint) must not keep rendering at the
+    // stale system DPI.
+    deviceResources_.SetDpiOverride(dpi);
+}
+
 float Window::GetDpi() const
 {
+    if (dpiOverride_ > 0.0f)
+    {
+        return dpiOverride_;
+    }
     return hwnd_ ? static_cast<float>(GetDpiForWindow(hwnd_)) : 96.0f;
 }
 

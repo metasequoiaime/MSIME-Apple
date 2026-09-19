@@ -1,7 +1,12 @@
 set(TEST_EXECUTABLE_NAME "msimeui-tests")
 
 add_executable(${TEST_EXECUTABLE_NAME}
-    ../../../../../src/system/server_main.cpp
+    # The suite's own runner, not the server's entry point. Two renames in a row
+    # rewrote this line as if it named platforms/windows/src/system/main.cpp,
+    # leaving a path outside the repository that CMake cannot resolve - so the
+    # whole msimeui suite stopped configuring, and therefore stopped reporting.
+    src/main.cpp
+    src/test_device_resources.cpp
     src/test_fonts.cpp
     src/test_layout.cpp
     includes/test_framework.h

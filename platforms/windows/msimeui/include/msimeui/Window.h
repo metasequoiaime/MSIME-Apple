@@ -30,6 +30,12 @@ class Window
     HINSTANCE GetInstance() const;
     Scene *GetScene() const;
     DeviceResources &GetDeviceResources();
+    /// DPI override, mirrored into the window's own DeviceResources. Only for
+    /// cases where the system window DPI diverges from the content's real
+    /// scale (RDP client-scaling sync); see DeviceResources::SetDpiOverride.
+    /// GetDpi() and every pixels<->DIPs conversion (hit testing, drag region,
+    /// layout) honor it while set.
+    void SetDpiOverride(FLOAT dpi);
     float GetDpi() const;
     PointF ClientPixelsToDips(const POINT &point) const;
     SizeF ClientPixelsToDips(const SIZE &size) const;
@@ -64,6 +70,7 @@ class Window
     int height_ = 0;
     HINSTANCE instance_ = nullptr;
     HWND hwnd_ = nullptr;
+    FLOAT dpiOverride_ = 0.0f;
     DeviceResources deviceResources_;
     std::unique_ptr<Scene> scene_;
     Visual *focusedVisual_ = nullptr;
