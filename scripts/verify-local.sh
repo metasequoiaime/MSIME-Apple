@@ -54,12 +54,19 @@ done
 # prepared engine state, so a machine without them skips this the way it already
 # skips the Windows phases.
 : "${MSIME_MACOS_BUILD:=target/macos-isolated}"
+# The Foundation-only part of shared/apple-bridge. It costs two translation units and no
+# dependency at all, so unlike the phase above it configures itself: the bridges shared with
+# the Apple client are the ones a broken merge silently takes out of both the iOS keyboard
+# and the macOS host at once.
+: "${MSIME_APPLE_BRIDGE_BUILD:=target/apple-bridge}"
 export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
 export CMAKE_PREFIX_PATH="$MSIME_VCPKG_PREFIX"
 export CXXFLAGS="-I$MSIME_VCPKG_PREFIX/include"
 
 windows_host=0
 case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) windows_host=1 ;; esac
+apple_host=0
+case "$(uname -s 2>/dev/null)" in Darwin) apple_host=1 ;; esac
 
 failed=0
 new_failures=""
@@ -142,6 +149,18 @@ if [ -d "$MSIME_MACOS_BUILD" ]; then
   cmake --build "$MSIME_MACOS_BUILD" --parallel >/dev/null 2>&1 || fail "macos build"
 else
   echo "skipped: $MSIME_MACOS_BUILD not configured"
+fi
+
+note "compile: shared apple bridge"
+if [ "$apple_host" -eq 0 ]; then
+  echo "apple bridge: skipped (needs an Apple host)"
+elif cmake -S shared/apple-bridge -B "$MSIME_APPLE_BRIDGE_BUILD" >/dev/null 2>&1 &&
+  cmake --build "$MSIME_APPLE_BRIDGE_BUILD" --parallel >/dev/null 2>&1; then
+  echo "apple bridge: builds"
+else
+  fail "apple bridge build"
+  cmake --build "$MSIME_APPLE_BRIDGE_BUILD" --parallel 2>&1 |
+    grep -E "error:|symbol\(s\) not found" | head -5
 fi
 
 note "compile: pipe-only configuration"
@@ -314,6 +333,17 @@ if [ -d "$MSIME_MACOS_BUILD" ]; then
   compare "macos tests" "$collected.macos"
 else
   echo "skipped: $MSIME_MACOS_BUILD not configured"
+fi
+
+note "shared apple bridge tests"
+if [ -d "$MSIME_APPLE_BRIDGE_BUILD" ]; then
+  ctest --test-dir "$MSIME_APPLE_BRIDGE_BUILD" 2>&1 |
+    grep -E "\*\*\*(Failed|Not Run|Timeout)" |
+    sed 's/.*Test *#[0-9]*: *//' | sed 's/[. ]*\*\*\*.*//' |
+    sed 's#^#apple-bridge #' > "$collected.apple_bridge" || true
+  compare "shared apple bridge tests" "$collected.apple_bridge"
+else
+  echo "skipped: $MSIME_APPLE_BRIDGE_BUILD not configured"
 fi
 
 note "pipe-only tests"
