@@ -156,3 +156,5 @@ Linux 在线 provider 的 AI 凭据测试与 Windows 终态契约对齐：只有
 Fcitx5 全角/半角动作增量（2026-09-19）：状态动作现在同时更新 Engine 运行时、有效偏好快照和持久化的 `character_width`（`fullwidth` / `halfwidth`），并覆盖原生 fixture 的即时生效与保存回读。此项不代表 Linux 原生桌面构建或交互验证已完成。
 
 Fcitx5 繁体输出动作增量（2026-09-19）：状态动作现在同步 `traditional_chinese_output` 的当前上下文内存快照、revision 快照和持久化字段，避免后续偏好动作用旧快照覆盖当前繁体状态；原生 Linux 桌面构建与交互验证仍待相应环境。
+
+Fcitx5 英文模式标签增量（2026-09-19）：状态栏中切换 Engine dedicated-English 模式的动作改为显示“英文输入模式”，与 IBus/Windows 语义区分于“英文候选”混输开关；动作 ID 与现有键绑定保持兼容。
