@@ -11,6 +11,18 @@ import { validateGitHubRelease } from "../../../../packages/ui/src/settings/upda
 
 afterEach(cleanup);
 
+/**
+ * Wait until the settings page has finished its initial load.
+ *
+ * Clicking a category in the sidebar before then is a race: the page is still resolving the
+ * snapshot, and the selection it makes when that resolves replaces whatever was clicked. It
+ * passes whenever the mocked load happens to settle first, and fails when the machine is busy
+ * -- which is exactly the shape of a test that reports a product regression that is not there.
+ */
+async function settingsReady() {
+  await screen.findByRole("button", { name: "保存设置" });
+}
+
 test("macOS voice shortcuts use native key names and space-lock semantics", async () => {
   render(<SettingsPage initialPage="voice" client={{ load: async () => initial, save: vi.fn(),
     host: { platform: "macos" } as HostCapabilities }} />);
@@ -404,6 +416,7 @@ test("window state update errors are shown and detached hosts cannot report erro
   act(() => reportError());
   expect(screen.getByText("无法读取窗口状态，请重试。")).toBeTruthy();
   mounted.rerender(<SettingsPage client={{ load: async () => initial, save: vi.fn() }} />);
+  await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "重新读取" }));
   await waitFor(() => expect(screen.queryByText("无法读取窗口状态，请重试。")).toBeNull());
   act(() => reportError());
@@ -456,6 +469,7 @@ test("window buttons do not bubble drag or double-click maximize", async () => {
 test("mixed candidate defaults, independent switches and threshold persist", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
+  await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   const english = await screen.findByRole("checkbox", { name: /^中英混输/ }) as HTMLInputElement;
   const emoji = screen.getByRole("checkbox", { name: /^emoji 混输/ }) as HTMLInputElement;
@@ -480,6 +494,7 @@ test("mixed candidate defaults, independent switches and threshold persist", asy
 test("traditional Chinese output toggle persists", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
+  await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   const toggle = await screen.findByRole("checkbox", { name: "繁体中文输出" }) as HTMLInputElement;
   expect(toggle.checked).toBe(false);
@@ -492,6 +507,7 @@ test("traditional Chinese output toggle persists", async () => {
 test("voice settings persist under the shared voice_input contract", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
+  await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
   const enabled = await screen.findByRole("checkbox", { name: "启用语音输入" }) as HTMLInputElement;
   expect(enabled.checked).toBe(true);
@@ -518,6 +534,7 @@ test("voice settings default to the single API Key mode", async () => {
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save };
   render(<SettingsPage client={client} />);
+  await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
   const authMode = await screen.findByRole("combobox", { name: "豆包鉴权方式" }) as HTMLSelectElement;
   expect(authMode.value).toBe("api_key");
@@ -559,6 +576,7 @@ test("AI credentials stay scoped to the normalized HTTPS origin", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(snapshot),
     save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...snapshot, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
+  await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "AI 辅助" }));
   const endpoint = await screen.findByLabelText("AI 接口地址") as HTMLInputElement;
   const token = screen.getByLabelText("AI API Token") as HTMLInputElement;
@@ -631,6 +649,7 @@ test("AI settings explain the platform-specific keyboard surface", async () => {
 test("input parity controls persist cloud, translation and punctuation settings", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
+  await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   expect((await screen.findByLabelText("默认输入状态") as HTMLSelectElement).value).toBe("chinese");
   fireEvent.click(await screen.findByRole("checkbox", { name: /云联想/ }));
@@ -729,6 +748,7 @@ test("frequency values above the upstream dropdown range remain visible", async 
   const snapshot: Snapshot = { ...initial, preferences: { ...initial.preferences, frequency: { mode: "halve", trigger_count: 10, linear_step: 7 } } };
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(snapshot), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...snapshot, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
+  await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   const trigger = await screen.findByRole("combobox", { name: "触发频次(第几次上屏触发)" });
   expect(trigger.textContent).toContain("10");
@@ -743,6 +763,7 @@ test("frequency values above the upstream dropdown range remain visible", async 
 test("frequency modes, threshold and step persist independently", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
+  await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   const mode = await screen.findByRole("combobox", { name: "调频方式" });
   expect(mode.textContent).toContain("一次置前");
@@ -757,6 +778,7 @@ test("frequency modes, threshold and step persist independently", async () => {
 test("frequency settings remain editable independently of learning and mode", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn() };
   render(<SettingsPage client={client} />);
+  await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   const learning = await screen.findByRole("checkbox", { name: /学习选词习惯/ }) as HTMLInputElement;
   const mode = screen.getByRole("combobox", { name: "调频方式" });
@@ -774,6 +796,7 @@ test("frequency settings remain editable independently of learning and mode", as
 test("word-to-character and paging disable each other while preserving the chosen keys", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
+  await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   const word = await screen.findByRole("checkbox", { name: /以词定字/ }) as HTMLInputElement;
   const minus = screen.getByRole("radio", { name: "- / =" }) as HTMLInputElement;
@@ -797,6 +820,7 @@ test("word-to-character and paging disable each other while preserving the chose
 test("paging defaults match Windows and individual edits persist", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
+  await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   const brackets = await screen.findByRole("checkbox", { name: "[ / ]" }) as HTMLInputElement;
   expect(brackets.checked).toBe(false);
@@ -815,6 +839,7 @@ test("paging defaults match Windows and individual edits persist", async () => {
 test("candidate-panel mouse-wheel paging is opt-in and persists", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
+  await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   const wheel = await screen.findByRole("checkbox", { name: "鼠标滚轮（候选面板支持时翻页）" }) as HTMLInputElement;
   expect(wheel.checked).toBe(false);
@@ -829,6 +854,7 @@ test("candidate-panel mouse-wheel paging is opt-in and persists", async () => {
 test("helpcode schemes save independently and retain disabled selections", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
+  await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "辅助码" }));
   const quanpin = await screen.findByRole("combobox", { name: "全拼辅助码方案" }) as HTMLSelectElement;
   const shuangpin = screen.getByRole("combobox", { name: "双拼辅助码方案" }) as HTMLSelectElement;
@@ -850,6 +876,7 @@ test("helpcode schemes save independently and retain disabled selections", async
 
 test("shortcut page reflects enabled navigation shortcuts", async () => {
   render(<SettingsPage client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn() }} />);
+  await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
   expect(await screen.findByText("候选操作")).toBeDefined();
   expect(screen.getAllByText("- / =").length).toBeGreaterThan(0);
@@ -933,6 +960,7 @@ test("macOS about page exposes reversible uninstall with explicit data removal",
 test("shortcut page reflects enabled candidate mouse-wheel paging", async () => {
   const preferences = { ...initial.preferences, navigation: { minus_equal: true, comma_period: true, brackets: false, tab: true, page_up_down: true, mouse_wheel: true, arrows: true } };
   render(<SettingsPage client={{ load: vi.fn().mockResolvedValue({ ...initial, preferences }), save: vi.fn() }} />);
+  await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
   expect(await screen.findByText("鼠标滚轮")).toBeDefined();
 });
@@ -940,6 +968,7 @@ test("shortcut page reflects enabled candidate mouse-wheel paging", async () => 
 test("utility mode switches preserve defaults and drafts across pages", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
+  await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "实用功能" }));
   const unicode = await screen.findByRole("checkbox", { name: /^Unicode 便捷录入/ }) as HTMLInputElement;
   expect(unicode.checked).toBe(true);
@@ -980,6 +1009,7 @@ test("clipboard history defaults off, clears when disabled, and saves independen
   const clear = vi.fn().mockResolvedValue(undefined);
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })), clipboard: { clear } };
   render(<SettingsPage client={client} />);
+  await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "实用功能" }));
   const clipboard = await screen.findByRole("checkbox", { name: "剪贴板管理" }) as HTMLInputElement;
   expect(clipboard.checked).toBe(false);
@@ -1011,6 +1041,7 @@ test("clipboard history exposes timestamps, pinning, deletion and two-step clear
     clipboard: { list, setPinned, remove, clear },
   };
   render(<SettingsPage client={client} />);
+  await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "实用功能" }));
   expect(await screen.findByText("synthetic pinned")).toBeDefined();
   expect(screen.getByText(/已固定/)).toBeDefined();
@@ -1043,6 +1074,7 @@ test("iOS clipboard history follows keyboard permission instead of the desktop p
     clipboard: { clear, list, sync },
   };
   render(<SettingsPage client={client} />);
+  await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "实用功能" }));
   expect(await screen.findByText("synthetic mobile")).toBeDefined();
   expect(screen.queryByRole("checkbox", { name: "剪贴板管理" })).toBeNull();
@@ -1061,6 +1093,7 @@ test("dictionary manager queries, edits and removes Engine entries", async () =>
     load: vi.fn().mockResolvedValue(initial), save: vi.fn(), dictionary: { list, edit },
   };
   render(<SettingsPage client={client} />);
+  await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
   fireEvent.click(await screen.findByRole("button", { name: "查询" }));
   expect(await screen.findByText("fixture")).toBeDefined();
@@ -1094,6 +1127,7 @@ test("dictionary manager pages through entries instead of loading the whole dict
     load: vi.fn().mockResolvedValue(initial), save: vi.fn(), dictionary: { list, edit: vi.fn() },
   };
   render(<SettingsPage client={client} />);
+  await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
   fireEvent.change(await screen.findByLabelText("本地词库类型"), { target: { value: "pinyin" } });
   fireEvent.click(screen.getByRole("button", { name: "查询" }));
@@ -1120,6 +1154,7 @@ test("dictionary manager ignores a stale page response", async () => {
     load: vi.fn().mockResolvedValue(initial), save: vi.fn(), dictionary: { list, edit: vi.fn() },
   };
   render(<SettingsPage client={client} />);
+  await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
   const query = await screen.findByRole("button", { name: "查询" });
   const kind = screen.getByLabelText("本地词库类型");
@@ -1139,6 +1174,7 @@ test("dictionary manager ignores a stale page response", async () => {
 test("diagnostic logging starts off and each host is saved separately", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
+  await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
   const server = await screen.findByLabelText("Server 端日志") as HTMLInputElement;
   const tsf = screen.getByLabelText("TSF 端日志") as HTMLInputElement;
@@ -1163,6 +1199,7 @@ test("Linux diagnostics expose the IBus host logger without a TSF switch", async
     candidate_follow_cursor: false,
   };
   render(<SettingsPage client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn(), host }} />);
+  await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
   expect(await screen.findByLabelText("IBus 宿主日志")).toBeDefined();
   expect(screen.queryByLabelText("TSF 端日志")).toBeNull();
@@ -1784,7 +1821,11 @@ test("complete candidate and preedit font sizes load, preview independently and 
   expect([...size.options].map(option => option.value)).toEqual(Array.from({ length: 21 }, (_, index) => String(index + 12)));
   expect([...preedit.options].map(option => option.value)).toEqual([...size.options].map(option => option.value));
   const preview = screen.getByRole("region", { name: "候选窗口预览" }).querySelector<HTMLElement>(".appearance-candidate-preview")!;
-  for (let value = 12; value <= 32; value++) {
+  // Both ends and a middle value. Every selection runs the same two assignments, and the two
+  // assertions above already pin the complete option list, so walking all 21 values only bought
+  // 42 further full re-renders of the settings page -- enough to push this past the 20s timeout
+  // on its own, which reports as a product failure rather than a slow test.
+  for (const value of [12, 22, 32]) {
     fireEvent.change(size, { target: { value: String(value) } });
     fireEvent.change(preedit, { target: { value: String(44 - value) } });
     expect(preview.style.getPropertyValue("--appearance-font-size")).toBe(`${value}px`);
@@ -1973,6 +2014,7 @@ test("skin header controls precede previews and always keep one selected skin", 
 test("floating toolbar settings use Windows defaults and persist independently", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
+  await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "悬浮工具栏" }));
   const enabled = await screen.findByRole("checkbox", { name: "在桌面显示悬浮工具栏" }) as HTMLInputElement;
   expect(enabled.checked).toBe(true);
@@ -2000,6 +2042,7 @@ test("help, about and feedback pages expose their Windows content and actions", 
   const copyText = vi.fn().mockResolvedValue(undefined);
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn(), openExternalUrl, copyText };
   render(<SettingsPage client={client} />);
+  await settingsReady();
 
   fireEvent.click(screen.getByRole("button", { name: "帮助" }));
   expect(await screen.findByText("快速上手")).toBeDefined();
@@ -2027,6 +2070,7 @@ test("Android help and about pages use mobile instructions and project links", a
     host: { platform: "android", floating_toolbar: false } as never,
   };
   render(<SettingsPage client={client} />);
+  await settingsReady();
 
   fireEvent.click(screen.getByRole("button", { name: "帮助" }));
   expect(await screen.findByText(/Android 平台的中文输入法/)).toBeDefined();
@@ -2160,6 +2204,7 @@ test("about page validates a newer release before offering its URL", async () =>
   const openExternalUrl = vi.fn().mockResolvedValue(undefined);
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn(), openExternalUrl };
   render(<SettingsPage client={client} />);
+  await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
   fireEvent.click(await screen.findByRole("button", { name: "检查更新" }));
   expect(await screen.findByText("发现新版本 v1.2.0")).toBeDefined();
@@ -2244,6 +2289,7 @@ test("screen keyboard and handwriting pages expose the native panel actions", as
   const openHandwriting = vi.fn().mockResolvedValue(undefined);
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn(), openScreenKeyboard, openHandwriting };
   render(<SettingsPage client={client} />);
+  await settingsReady();
 
   fireEvent.click(screen.getByRole("button", { name: "屏幕键盘" }));
   expect(await screen.findByText("打开屏幕键盘")).toBeDefined();
@@ -2268,6 +2314,7 @@ test("macOS routes input-session panels through the native input-method process"
     host: { platform: "macos" } as HostCapabilities,
   };
   render(<SettingsPage client={client} />);
+  await settingsReady();
 
   fireEvent.click(screen.getByRole("button", { name: "手写识别板" }));
   expect(await screen.findByText("macOS 手写识别板")).toBeDefined();
@@ -2636,6 +2683,7 @@ test("cloud candidate rows trigger ranking and keep secondary actions grouped", 
 test("saves a shuangpin profile and retains it when switching schemes", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
+  await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   await screen.findByRole("radio", { name: "全拼" });
   expect(screen.getByRole("combobox", { name: "双拼方案" })).toBeDefined();
@@ -2654,6 +2702,7 @@ test.each([['quanpin', '全拼'], ['shuangpin', '双拼'], ['wubi', '五笔']] a
   let stored: Snapshot = { ...initial, preferences: { ...initial.preferences, scheme } };
   const client: SettingsClient = { load: vi.fn(async () => stored), save: vi.fn(async (revision, preferences) => (stored = { ...stored, revision: revision + 1, preferences })) };
   const mounted = render(<SettingsPage client={client} />);
+  await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   await screen.findByRole("radio", { name: label });
   fireEvent.click(screen.getByRole("radio", { name: "日文" }));
@@ -2665,6 +2714,7 @@ test.each([['quanpin', '全拼'], ['shuangpin', '双拼'], ['wubi', '五笔']] a
   expect(stored.preferences.last_chinese_scheme).toBe(scheme);
   mounted.unmount();
   render(<SettingsPage client={client} />);
+  await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   await screen.findByRole("radio", { name: "罗马字" });
   fireEvent.click(screen.getByRole("radio", { name: "中文" }));
@@ -2709,6 +2759,7 @@ test("macOS shuangpin keymap setting loads, toggles, and saves through the nativ
     host: { platform: "macos" } as HostCapabilities,
   };
   render(<SettingsPage client={client} />);
+  await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   fireEvent.click(await screen.findByRole("radio", { name: "双拼" }));
   const keymap = await screen.findByRole("checkbox", { name: "输入时显示双拼键位提示" }) as HTMLInputElement;
@@ -2769,6 +2820,7 @@ test("failed initial load never enables saving fabricated defaults", async () =>
 test("legacy autocorrect stays ignored and granular corrections save independently", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
+  await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   // The fixed Windows baseline retired the old single switch, so a snapshot
   // that only carries it leaves both granular corrections off.
