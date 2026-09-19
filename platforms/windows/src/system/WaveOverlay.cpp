@@ -1,5 +1,6 @@
 #include "WaveOverlay.h"
 #include "CursorResource.h"
+#include "WaveOverlayScale.h"
 #include "WaveOverlayUtils.h"
 
 #include <d2d1.h>
@@ -112,19 +113,29 @@ bool WaveOverlay::init(HINSTANCE instance, std::function<void(Action)> action_ha
         return false;
     }
 
-    hwnd_ = CreateWindowExW(                                                 //
-        WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_NOACTIVATE, //
-        kClassName,                                                          //
-        L"",                                                                 //
-        WS_POPUP,                                                            //
-        120,                                                                 //
-        120,                                                                 //
-        kCompactWidth,                                                       //
-        kCompactHeight,                                                      //
-        nullptr,                                                             //
-        nullptr,                                                             //
-        instance_,                                                           //
-        this);
+    // A window inherits the thread's awareness for its whole life. Create it
+    // per-monitor aware, like the candidate window and the tray menu, so the
+    // sizes computed from the monitor DPI below are taken literally instead of
+    // being stretched by the compositor, and so WM_DPICHANGED is delivered at
+    // all - a DPI-unaware window never receives it.
+    HWND created = nullptr;
+    {
+        const msime::windows::WaveOverlayDpiScope dpi_scope;
+        created = CreateWindowExW(                                               //
+            WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_LAYERED | WS_EX_NOACTIVATE, //
+            kClassName,                                                          //
+            L"",                                                                 //
+            WS_POPUP,                                                            //
+            120,                                                                 //
+            120,                                                                 //
+            kCompactWidth,                                                       //
+            kCompactHeight,                                                      //
+            nullptr,                                                             //
+            nullptr,                                                             //
+            instance_,                                                           //
+            this);
+    }
+    hwnd_ = created;
 
     if (!hwnd_)
     {
@@ -501,6 +512,22 @@ bool WaveOverlay::ensure_text_layout(const std::wstring &transcript, float width
     return true;
 }
 
+void WaveOverlay::apply_dpi(UINT dpi)
+{
+    dpi_ = msime::windows::wave_overlay_dpi(dpi, 0);
+    scale_x_ = msime::windows::wave_overlay_scale(dpi_);
+    scale_y_ = scale_x_;
+
+    // The render target's DPI is what turns the logical coordinates draw() works
+    // in into pixels. CreateHwndRenderTarget fixes it once at creation, so a
+    // monitor or resolution change would otherwise keep mapping against the old
+    // one. Push the new value the way the candidate window does.
+    if (render_target_)
+    {
+        render_target_->SetDpi(static_cast<FLOAT>(dpi_), static_cast<FLOAT>(dpi_));
+    }
+}
+
 void WaveOverlay::update_dpi_scale()
 {
     if (!hwnd_)
@@ -508,15 +535,30 @@ void WaveOverlay::update_dpi_scale()
         return;
     }
 
-    dpi_ = GetDpiForWindow(hwnd_);
-    scale_x_ = static_cast<float>(dpi_) / 96.0f;
-    scale_y_ = static_cast<float>(dpi_) / 96.0f;
+    // Read the DPI of the monitor the bar is placed on, not of this window.
+    // GetDpiForWindow answers for wherever the window currently sits, which is
+    // the previous monitor until the move has happened, and can still report a
+    // stale value across a resolution switch.
+    msime::windows::WaveOverlayMonitorMetrics metrics;
+    if (!msime::windows::wave_overlay_monitor_metrics(&metrics))
+    {
+        return;
+    }
+    apply_dpi(metrics.dpi);
 }
 
 void WaveOverlay::update_window_bounds()
 {
     if (!hwnd_)
         return;
+    // One snapshot of one monitor for both the scale and the rectangle: a
+    // second lookup could resolve a different monitor and size the bar for one
+    // screen while placing it on another.
+    const msime::windows::WaveOverlayDpiScope dpi_scope;
+    msime::windows::WaveOverlayMonitorMetrics metrics;
+    if (!msime::windows::wave_overlay_monitor_metrics(&metrics))
+        return;
+    apply_dpi(metrics.dpi);
     bool has_transcript = false;
     if (show_transcript_.load())
     {
@@ -533,9 +575,6 @@ void WaveOverlay::update_window_bounds()
                     : (has_compact_status ? kProcessingHeight : (has_transcript ? kTranscriptHeight : kCompactHeight));
     const int width = static_cast<int>(std::lround(logical_width * scale_x_));
     const int height = static_cast<int>(std::lround(logical_height * scale_y_));
-    msime::windows::WaveOverlayMonitorMetrics metrics;
-    if (!msime::windows::wave_overlay_monitor_metrics(&metrics))
-        return;
     // Keep the bar horizontally centered on the physical monitor even when a
     // taskbar is docked left/right; vertically use the work area to avoid the
     // taskbar on any edge.

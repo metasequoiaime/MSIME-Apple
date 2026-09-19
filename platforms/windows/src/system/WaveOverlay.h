@@ -54,6 +54,9 @@ class WaveOverlay
     void release_text_layout();
     void update_wave_levels();
     void draw();
+    // Adopt a monitor's DPI for the window size, the hit tests and the render
+    // target, all of which must agree on one value.
+    void apply_dpi(UINT dpi);
     void update_dpi_scale();
     void update_window_bounds();
     bool hit_test_action(float x, float y, Action &action) const;
