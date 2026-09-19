@@ -1,3 +1,11 @@
+#[cfg(any(
+    target_os = "macos",
+    target_os = "windows",
+    all(test, not(target_os = "android"))
+))]
+mod ai;
+mod clipboard_history;
+mod panel_window;
 mod platform;
 mod shared;
 
@@ -17,7 +25,7 @@ use platform::macos::{
 #[cfg(windows)]
 use platform::windows::{windows_account, windows_voice};
 
-use msime_client_core::clipboard::{ClipboardHistoryEntry, ClipboardHistoryStore};
+use msime_client_core::clipboard::ClipboardHistoryStore;
 use msime_client_core::host_surface::{HostCapabilities, HostPlatform, SurfaceRoute};
 use msime_client_core::panels::{
     HandwritingRecognitionRequest, HandwritingRecognitionResult, KeyboardInputRequest,
@@ -44,12 +52,6 @@ use msime_tauri_mobile_platform::{IosKeyboardAiPreferences, IosVoiceTranscriptio
 #[cfg(all(unix, not(any(target_os = "ios", target_os = "android"))))]
 use msime_input_runtime::UnixSocketProvider;
 use msime_input_runtime::{HandwritingPoint, HandwritingQuery};
-#[cfg(any(
-    target_os = "macos",
-    target_os = "windows",
-    all(test, not(target_os = "android"))
-))]
-use reqwest::Url;
 use serde_json::Value;
 use std::collections::HashMap;
 #[cfg(not(target_os = "macos"))]
@@ -66,8 +68,6 @@ use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use tauri::Emitter;
 use tauri::Manager;
-#[cfg(not(mobile))]
-use tauri::{WebviewUrl, WebviewWindowBuilder};
 
 use msime_host_api::system_fonts;
 use shared::skin_directory;
@@ -87,7 +87,7 @@ fn supports_font_catalog() -> bool {
 /// The platform this shell is running on. The shared UI previously inferred this
 /// from `navigator.userAgent`, which hid working controls on every host the
 /// regex did not name.
-fn host_platform() -> HostPlatform {
+pub(crate) fn host_platform() -> HostPlatform {
     if cfg!(target_os = "windows") {
         HostPlatform::Windows
     } else if cfg!(target_os = "macos") {
@@ -101,7 +101,7 @@ fn host_platform() -> HostPlatform {
     }
 }
 
-fn clipboard_history_uses_preference(platform: HostPlatform) -> bool {
+pub(crate) fn clipboard_history_uses_preference(platform: HostPlatform) -> bool {
     !matches!(platform, HostPlatform::Ios)
 }
 
@@ -179,216 +179,6 @@ async fn resolve_font_families(names: Vec<String>) -> Result<Vec<String>, Comman
             code: "font_family",
         })?
         .map_err(|code| CommandError { code })
-}
-
-#[cfg(any(
-    target_os = "macos",
-    target_os = "windows",
-    all(test, not(target_os = "android"))
-))]
-fn validate_ai_endpoint(value: &str) -> Result<Url, CommandError> {
-    if value.len() > 2048 || value.chars().any(char::is_control) {
-        return Err(CommandError { code: "ai_invalid" });
-    }
-    let url = Url::parse(value).map_err(|_| CommandError { code: "ai_invalid" })?;
-    if !matches!(url.scheme(), "http" | "https")
-        || url.host_str().is_none()
-        || !url.username().is_empty()
-        || url.password().is_some()
-        || url.fragment().is_some()
-    {
-        return Err(CommandError { code: "ai_invalid" });
-    }
-    Ok(url)
-}
-
-#[cfg(any(
-    target_os = "macos",
-    target_os = "windows",
-    all(test, not(target_os = "android"))
-))]
-fn validate_ai_token(token: &str) -> Result<(), CommandError> {
-    if token.is_empty() || token.len() > 16 * 1024 || token.chars().any(char::is_control) {
-        return Err(CommandError { code: "ai_invalid" });
-    }
-    Ok(())
-}
-
-#[cfg(any(
-    target_os = "macos",
-    target_os = "windows",
-    all(test, not(target_os = "android"))
-))]
-fn ai_text_is_valid(value: &str, allow_empty: bool) -> bool {
-    (allow_empty || !value.is_empty())
-        && value.len() <= 16 * 1024
-        && !value.chars().any(|character| {
-            character == '\0'
-                || (character.is_control() && !matches!(character, '\n' | '\r' | '\t'))
-        })
-}
-
-#[cfg(any(
-    target_os = "macos",
-    target_os = "windows",
-    all(test, not(target_os = "android"))
-))]
-fn ai_models_url(endpoint: &Url) -> Url {
-    let mut url = endpoint.clone();
-    let path = endpoint.path();
-    let base = path.find("/v1/").map(|index| &path[..index]).unwrap_or("");
-    url.set_path(&format!("{base}/v1/models"));
-    url.set_query(None);
-    url
-}
-
-#[cfg(any(
-    target_os = "macos",
-    target_os = "windows",
-    all(test, not(target_os = "android"))
-))]
-fn ai_models_request(endpoint: &str, token: &str) -> Result<Vec<String>, CommandError> {
-    let endpoint = validate_ai_endpoint(endpoint)?;
-    validate_ai_token(token)?;
-    let client = reqwest::blocking::Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(5))
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|_| CommandError {
-            code: "ai_models_unavailable",
-        })?;
-    let response = client
-        .get(ai_models_url(&endpoint))
-        .bearer_auth(token)
-        .send()
-        .map_err(|_| CommandError {
-            code: "ai_models_unavailable",
-        })?
-        .error_for_status()
-        .map_err(|_| CommandError {
-            code: "ai_models_unavailable",
-        })?;
-    let document: Value = response.json().map_err(|_| CommandError {
-        code: "ai_models_invalid",
-    })?;
-    let models = document
-        .get("data")
-        .and_then(Value::as_array)
-        .ok_or(CommandError {
-            code: "ai_models_invalid",
-        })?
-        .iter()
-        .filter_map(|item| item.get("id").and_then(Value::as_str))
-        .filter(|id| !id.is_empty() && id.len() <= 256 && !id.chars().any(char::is_control))
-        .take(128)
-        .map(str::to_owned)
-        .collect::<Vec<_>>();
-    if models.is_empty() {
-        return Err(CommandError {
-            code: "ai_models_invalid",
-        });
-    }
-    Ok(models)
-}
-
-#[cfg(any(
-    target_os = "macos",
-    target_os = "windows",
-    all(test, not(target_os = "android"))
-))]
-fn ai_test_request(
-    endpoint: &str,
-    model: &str,
-    prompt: &str,
-    token: &str,
-    text: &str,
-) -> Result<String, CommandError> {
-    let endpoint = validate_ai_endpoint(endpoint)?;
-    validate_ai_token(token)?;
-    if model.is_empty()
-        || model.len() > 256
-        || model.chars().any(char::is_control)
-        || !ai_text_is_valid(prompt, true)
-        || !ai_text_is_valid(text, false)
-    {
-        return Err(CommandError { code: "ai_invalid" });
-    }
-    let body = serde_json::json!({
-        "model": model,
-        "stream": false,
-        "temperature": 0.2,
-        "messages": [
-            {"role": "system", "content": prompt},
-            {"role": "user", "content": text}
-        ]
-    });
-    let client = reqwest::blocking::Client::builder()
-        .connect_timeout(std::time::Duration::from_secs(5))
-        .timeout(std::time::Duration::from_secs(15))
-        .build()
-        .map_err(|_| CommandError {
-            code: "ai_test_unavailable",
-        })?;
-    let response = client
-        .post(endpoint)
-        .bearer_auth(token)
-        .json(&body)
-        .send()
-        .map_err(|_| CommandError {
-            code: "ai_test_unavailable",
-        })?
-        .error_for_status()
-        .map_err(|_| CommandError {
-            code: "ai_test_unavailable",
-        })?;
-    let document: Value = response.json().map_err(|_| CommandError {
-        code: "ai_test_invalid",
-    })?;
-    let output = document
-        .pointer("/choices/0/message/content")
-        .and_then(Value::as_str)
-        .map(str::trim)
-        .filter(|value| !value.is_empty() && value.len() <= 16 * 1024)
-        .ok_or(CommandError {
-            code: "ai_test_invalid",
-        })?;
-    Ok(output.to_owned())
-}
-
-#[tauri::command]
-#[cfg(any(
-    target_os = "macos",
-    target_os = "windows",
-    all(test, not(target_os = "android"))
-))]
-async fn ai_models(endpoint: String, token: String) -> Result<Vec<String>, CommandError> {
-    tauri::async_runtime::spawn_blocking(move || ai_models_request(&endpoint, &token))
-        .await
-        .map_err(|_| CommandError {
-            code: "ai_models_unavailable",
-        })?
-}
-
-#[tauri::command]
-#[cfg(any(
-    target_os = "macos",
-    target_os = "windows",
-    all(test, not(target_os = "android"))
-))]
-async fn ai_test(
-    endpoint: String,
-    model: String,
-    prompt: String,
-    token: String,
-    text: String,
-) -> Result<String, CommandError> {
-    tauri::async_runtime::spawn_blocking(move || {
-        ai_test_request(&endpoint, &model, &prompt, &token, &text)
-    })
-    .await
-    .map_err(|_| CommandError {
-        code: "ai_test_unavailable",
-    })?
 }
 
 #[tauri::command]
@@ -2036,7 +1826,7 @@ fn parse_xdotool_geometry(value: &str) -> Option<(f64, f64, f64, f64)> {
 }
 
 #[cfg(target_os = "linux")]
-fn panel_position(
+pub(crate) fn panel_position(
     state: &PanelInputState,
     label: &str,
     width: f64,
@@ -4334,925 +4124,6 @@ fn open_external_url(url: String) -> Result<(), HostActionError> {
     }
 }
 
-fn panel_accepts_focus(label: &str) -> bool {
-    label != "keyboard-panel"
-}
-
-#[cfg(target_os = "linux")]
-fn visible_panel_position(
-    window: &tauri::WebviewWindow,
-    position: tauri::Position,
-    width: f64,
-    height: f64,
-) -> tauri::Position {
-    // X11 geometry is physical. Do not reinterpret Sway's logical coordinates
-    // using a monitor scale factor from a different coordinate space.
-    let tauri::Position::Physical(point) = position else {
-        return position;
-    };
-    let Ok(monitors) = window.available_monitors() else {
-        return position;
-    };
-    let x = f64::from(point.x);
-    let y = f64::from(point.y);
-    // panel_position used the logical requested width. Recover the editor's
-    // physical center before choosing a monitor and applying its scale.
-    let center_x = x + width / 2.0;
-    let distance = |monitor: &tauri::Monitor| {
-        let area = monitor.work_area();
-        let left = f64::from(area.position.x);
-        let top = f64::from(area.position.y);
-        let dx = center_x - center_x.clamp(left, left + f64::from(area.size.width));
-        let dy = y - y.clamp(top, top + f64::from(area.size.height));
-        dx * dx + dy * dy
-    };
-    let Some(monitor) = monitors
-        .iter()
-        .filter(|monitor| monitor.work_area().size.width > 0 && monitor.work_area().size.height > 0)
-        .min_by(|left, right| distance(left).total_cmp(&distance(right)))
-    else {
-        return position;
-    };
-    let scale = monitor.scale_factor();
-    if !scale.is_finite() || scale <= 0.0 {
-        return position;
-    }
-    let x = center_x - width * scale / 2.0;
-    let area = monitor.work_area();
-    let left = f64::from(area.position.x);
-    let top = f64::from(area.position.y);
-    let right = left + (f64::from(area.size.width) - width * scale).max(0.0);
-    let bottom = top + (f64::from(area.size.height) - height * scale).max(0.0);
-    tauri::Position::Physical(tauri::PhysicalPosition::new(
-        x.clamp(left, right).round() as i32,
-        y.clamp(top, bottom).round() as i32,
-    ))
-}
-
-fn open_panel_window(
-    app: &tauri::AppHandle,
-    label: &'static str,
-    route: &'static str,
-    title: &'static str,
-    width: f64,
-    height: f64,
-    position: Option<tauri::Position>,
-) -> Result<(), HostActionError> {
-    #[cfg(mobile)]
-    {
-        let _ = (app, label, route, title, width, height, position);
-        Err(HostActionError {
-            code: "unavailable",
-        })
-    }
-    #[cfg(not(mobile))]
-    {
-        let accepts_focus = panel_accepts_focus(label);
-        if let Some(window) = app.get_webview_window(label) {
-            #[cfg(target_os = "macos")]
-            if label == "keyboard-panel" {
-                return macos_keyboard::show(&window).map_err(|_| HostActionError {
-                    code: "unavailable",
-                });
-            }
-            #[cfg(any(target_os = "linux", target_os = "windows"))]
-            if let Some(position) = position {
-                #[cfg(target_os = "linux")]
-                let position = visible_panel_position(&window, position, width, height);
-                let _ = window.set_position(position);
-            }
-            window
-                .show()
-                .and_then(|_| {
-                    if accepts_focus {
-                        window.set_focus()
-                    } else {
-                        Ok(())
-                    }
-                })
-                .map_err(|_| HostActionError {
-                    code: "unavailable",
-                })?;
-            return Ok(());
-        }
-        let builder = WebviewWindowBuilder::new(
-            app,
-            label,
-            WebviewUrl::App(format!("index.html?panel={route}").into()),
-        )
-        .title(title);
-        let window = builder
-            .inner_size(width, height)
-            .visible(false)
-            .focused(false)
-            .focusable(accepts_focus)
-            .min_inner_size(width, height)
-            .resizable(false)
-            .decorations(false)
-            .always_on_top(true)
-            .skip_taskbar(true)
-            .build()
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?;
-        if let Some(position) = position {
-            #[cfg(target_os = "linux")]
-            let position = visible_panel_position(&window, position, width, height);
-            let _ = window.set_position(position);
-        }
-        #[cfg(target_os = "macos")]
-        if label == "keyboard-panel" {
-            return macos_keyboard::show(&window).map_err(|_| HostActionError {
-                code: "unavailable",
-            });
-        }
-        window
-            .show()
-            .and_then(|_| {
-                if accepts_focus {
-                    window.set_focus()
-                } else {
-                    Ok(())
-                }
-            })
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })
-    }
-}
-
-#[tauri::command]
-fn open_keyboard_panel(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, PanelInputState>,
-) -> Result<(), HostActionError> {
-    {
-        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-        let _ = &state;
-        #[cfg(target_os = "linux")]
-        let position = {
-            let _ = remember_panel_input_target(&state, "keyboard-panel", true);
-            panel_position(&state, "keyboard-panel", 1100.0, 400.0)
-        };
-        // The panel never activates, so the window that owns the caret now is
-        // the one synthetic input has to reach later.
-        #[cfg(target_os = "windows")]
-        let position = {
-            let _ = remember_panel_input_target(&state);
-            windows_panel_position(1100.0, 400.0)
-        };
-        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-        let position = None;
-        open_panel_window(
-            &app,
-            "keyboard-panel",
-            "keyboard",
-            "水杉屏幕键盘",
-            1100.0,
-            400.0,
-            position,
-        )
-    }
-}
-
-#[tauri::command]
-fn open_handwriting_panel(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, PanelInputState>,
-) -> Result<(), HostActionError> {
-    {
-        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-        let _ = &state;
-        #[cfg(target_os = "linux")]
-        let position = {
-            let _ = remember_panel_input_target(&state, "handwriting-panel", true);
-            panel_position(&state, "handwriting-panel", 980.0, 650.0)
-        };
-        // The panel never activates, so the window that owns the caret now is
-        // the one synthetic input has to reach later.
-        #[cfg(target_os = "windows")]
-        let position = {
-            let _ = remember_panel_input_target(&state);
-            windows_panel_position(980.0, 650.0)
-        };
-        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-        let position = None;
-        open_panel_window(
-            &app,
-            "handwriting-panel",
-            "handwriting",
-            "水杉手写识别板",
-            980.0,
-            650.0,
-            position,
-        )
-    }
-}
-
-#[tauri::command]
-fn open_emoji_panel(
-    app: tauri::AppHandle,
-    options: tauri::State<'_, DictionaryHostOptions>,
-    input: tauri::State<'_, PanelInputState>,
-) -> Result<(), HostActionError> {
-    {
-        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-        let _ = (&options, &input);
-        #[cfg(target_os = "linux")]
-        let position = {
-            let _ = &options;
-            let _ = remember_panel_input_target(&input, "emoji-panel", true);
-            panel_position(&input, "emoji-panel", 720.0, 720.0)
-        };
-        #[cfg(target_os = "windows")]
-        let position = {
-            let _ = &options;
-            let _ = remember_panel_input_target(&input);
-            windows_panel_position(720.0, 720.0)
-        };
-        #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-        let position = None;
-        open_panel_window(
-            &app,
-            "emoji-panel",
-            "emoji",
-            "Emoji and more",
-            720.0,
-            720.0,
-            position,
-        )
-    }
-}
-
-#[tauri::command]
-fn open_voice_panel(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, PanelInputState>,
-) -> Result<(), HostActionError> {
-    #[cfg(target_os = "macos")]
-    if !app
-        .state::<macos_panel_session::PanelState>()
-        .can_open_voice_panel()
-    {
-        // A standalone Tauri keyboard has no authenticated IMK target. Do not
-        // open a panel which could recognize text but can never submit it.
-        return Err(HostActionError {
-            code: "unavailable",
-        });
-    }
-    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-    let _ = &state;
-    #[cfg(target_os = "linux")]
-    let position = {
-        let _ = remember_panel_input_target(&state, "voice-panel", true);
-        panel_position(&state, "voice-panel", 620.0, 520.0)
-    };
-    #[cfg(target_os = "windows")]
-    let position = {
-        let _ = remember_panel_input_target(&state);
-        windows_panel_position(620.0, 520.0)
-    };
-    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
-    let position = None;
-    open_panel_window(
-        &app,
-        "voice-panel",
-        "voice",
-        "水杉语音输入",
-        620.0,
-        520.0,
-        position,
-    )
-}
-
-#[tauri::command]
-fn open_cloud_clipboard_panel(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, PanelInputState>,
-) -> Result<(), HostActionError> {
-    #[cfg(target_os = "windows")]
-    {
-        let _ = remember_panel_input_target(&state);
-        let position = windows_panel_position(560.0, 560.0);
-        open_panel_window(
-            &app,
-            "cloud-clipboard-panel",
-            "cloud-clipboard",
-            "水杉云剪贴板",
-            560.0,
-            560.0,
-            position,
-        )
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        #[cfg(not(target_os = "linux"))]
-        let _ = &state;
-        #[cfg(target_os = "linux")]
-        let position = {
-            let _ = remember_panel_input_target(&state, "cloud-clipboard-panel", true);
-            panel_position(&state, "cloud-clipboard-panel", 560.0, 560.0)
-        };
-        #[cfg(not(target_os = "linux"))]
-        let position = None;
-        open_panel_window(
-            &app,
-            "cloud-clipboard-panel",
-            "cloud-clipboard",
-            "水杉云剪贴板",
-            560.0,
-            560.0,
-            position,
-        )
-    }
-}
-
-#[tauri::command]
-fn open_cloud_dictionary_panel(
-    app: tauri::AppHandle,
-    state: tauri::State<'_, PanelInputState>,
-) -> Result<(), HostActionError> {
-    #[cfg(target_os = "windows")]
-    {
-        let _ = remember_panel_input_target(&state);
-        let position = windows_panel_position(760.0, 700.0);
-        open_panel_window(
-            &app,
-            "cloud-dictionary-panel",
-            "cloud-dictionary",
-            "水杉云词库",
-            760.0,
-            700.0,
-            position,
-        )
-    }
-    #[cfg(not(target_os = "windows"))]
-    {
-        #[cfg(not(target_os = "linux"))]
-        let _ = &state;
-        #[cfg(target_os = "linux")]
-        let position = {
-            let _ = remember_panel_input_target(&state, "cloud-dictionary-panel", true);
-            panel_position(&state, "cloud-dictionary-panel", 760.0, 700.0)
-        };
-        #[cfg(not(target_os = "linux"))]
-        let position = None;
-        open_panel_window(
-            &app,
-            "cloud-dictionary-panel",
-            "cloud-dictionary",
-            "水杉云词典",
-            760.0,
-            700.0,
-            position,
-        )
-    }
-}
-
-#[tauri::command]
-fn close_panel(
-    app: tauri::AppHandle,
-    label: String,
-    state: tauri::State<'_, PanelInputState>,
-) -> Result<(), HostActionError> {
-    if !matches!(
-        label.as_str(),
-        "keyboard-panel"
-            | "handwriting-panel"
-            | "emoji-panel"
-            | "clipboard-panel"
-            | "voice-panel"
-            | "cloud-clipboard-panel"
-            | "cloud-dictionary-panel"
-    ) {
-        return Err(HostActionError {
-            code: "invalid_panel",
-        });
-    }
-    if label == "voice-panel" {
-        let _ = cancel_voice(app.clone(), None);
-    }
-    #[cfg(target_os = "macos")]
-    if matches!(label.as_str(), "emoji-panel" | "handwriting-panel") {
-        let window = app.get_webview_window(&label).ok_or(HostActionError {
-            code: "unavailable",
-        })?;
-        return macos_panel_session::close(&app, window);
-    }
-    #[cfg(target_os = "macos")]
-    if label == "keyboard-panel" {
-        let window = app.get_webview_window(&label).ok_or(HostActionError {
-            code: "unavailable",
-        })?;
-        return macos_keyboard::close(&window).map_err(|_| HostActionError {
-            code: "unavailable",
-        });
-    }
-    let result = app
-        .get_webview_window(&label)
-        .ok_or(HostActionError {
-            code: "unavailable",
-        })?
-        .close()
-        .map_err(|_| HostActionError {
-            code: "unavailable",
-        });
-    if result.is_ok()
-        && matches!(
-            label.as_str(),
-            "keyboard-panel"
-                | "handwriting-panel"
-                | "emoji-panel"
-                | "clipboard-panel"
-                | "voice-panel"
-                | "cloud-clipboard-panel"
-                | "cloud-dictionary-panel"
-        )
-    {
-        if let Ok(mut target) = state.0.lock() {
-            #[cfg(target_os = "linux")]
-            {
-                target.remove(&label);
-            }
-            #[cfg(not(target_os = "linux"))]
-            {
-                *target = None;
-            }
-        }
-    }
-    result
-}
-
-fn clipboard_enabled(store: &std::sync::Arc<PreferencesStore>) -> Result<bool, HostActionError> {
-    store
-        .load()
-        .map(|snapshot| snapshot.preferences.clipboard_history)
-        .map_err(|_| HostActionError {
-            code: "unavailable",
-        })
-}
-
-#[cfg(target_os = "linux")]
-fn linux_clipboard_text() -> Result<String, HostActionError> {
-    let mut commands: Vec<(&str, &[&str])> = Vec::new();
-    if std::env::var_os("WAYLAND_DISPLAY").is_some_and(|value| !value.is_empty()) {
-        commands.push(("wl-paste", &["--no-newline", "--type", "text"]));
-    }
-    if std::env::var_os("DISPLAY").is_some_and(|value| !value.is_empty()) {
-        commands.push(("xclip", &["-selection", "clipboard", "-o"]));
-        commands.push(("xsel", &["--clipboard", "--output"]));
-    }
-    // Preserve source line endings; wl-paste suppresses its own separator.
-    commands
-        .into_iter()
-        .find_map(|(program, arguments)| linux_clipboard::read_text(program, arguments))
-        .ok_or(HostActionError {
-            code: "unavailable",
-        })
-}
-
-#[cfg(target_os = "linux")]
-fn write_linux_clipboard(text: &str) -> bool {
-    if std::env::var_os("WAYLAND_DISPLAY").is_some_and(|value| !value.is_empty())
-        && linux_clipboard::write_text("wl-copy", &["--type", "text/plain;charset=utf-8"], text)
-    {
-        return true;
-    }
-    if std::env::var_os("DISPLAY").is_some_and(|value| !value.is_empty()) {
-        return linux_clipboard::write_text("xclip", &["-selection", "clipboard"], text)
-            || linux_clipboard::write_text("xsel", &["--clipboard", "--input"], text);
-    }
-    false
-}
-
-#[cfg(target_os = "linux")]
-fn start_linux_clipboard_monitor(
-    history: Arc<Mutex<ClipboardHistoryStore>>,
-    preferences: Arc<PreferencesStore>,
-) {
-    let _ = std::thread::Builder::new()
-        .name("msime-clipboard-monitor".to_owned())
-        .spawn(move || {
-            let mut last_text = None;
-            loop {
-                let enabled = preferences
-                    .load()
-                    .map(|snapshot| snapshot.preferences.clipboard_history)
-                    .unwrap_or(false);
-                if !enabled {
-                    last_text = None;
-                } else if let Ok(text) = linux_clipboard_text() {
-                    if last_text.as_deref() != Some(text.as_str()) {
-                        match preferences.capture_clipboard_text(text.clone()) {
-                            Ok(true) => {
-                                if let Ok(mut store) = history.lock() {
-                                    let _ = store.load();
-                                }
-                                last_text = Some(text);
-                            }
-                            Ok(false) => last_text = None,
-                            Err(_) => {}
-                        }
-                    }
-                }
-                std::thread::sleep(std::time::Duration::from_millis(750));
-            }
-        });
-}
-
-#[tauri::command]
-async fn list_clipboard_history(
-    state: tauri::State<'_, ClipboardHistoryState>,
-    store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
-) -> Result<Vec<ClipboardHistoryEntry>, HostActionError> {
-    let state = state.inner().clone();
-    let store = store.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || list_clipboard_history_blocking(&state, &store))
-        .await
-        .map_err(|_| HostActionError {
-            code: "unavailable",
-        })?
-}
-
-fn list_clipboard_history_blocking(
-    state: &ClipboardHistoryState,
-    store: &Arc<PreferencesStore>,
-) -> Result<Vec<ClipboardHistoryEntry>, HostActionError> {
-    if clipboard_history_uses_preference(host_platform()) && !clipboard_enabled(store)? {
-        return Ok(Vec::new());
-    }
-    let mut history = state.0.lock().map_err(|_| HostActionError {
-        code: "unavailable",
-    })?;
-    history.load().map_err(|_| HostActionError {
-        code: "unavailable",
-    })?;
-    Ok(history.entries().to_vec())
-}
-
-#[tauri::command]
-async fn remove_clipboard_history(
-    text: String,
-    state: tauri::State<'_, ClipboardHistoryState>,
-) -> Result<(), HostActionError> {
-    let state = state.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        state
-            .0
-            .lock()
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?
-            .remove(&text)
-            .map(|_| ())
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })
-    })
-    .await
-    .map_err(|_| HostActionError {
-        code: "unavailable",
-    })?
-}
-
-#[tauri::command]
-async fn set_clipboard_history_pinned(
-    text: String,
-    pinned: bool,
-    state: tauri::State<'_, ClipboardHistoryState>,
-) -> Result<(), HostActionError> {
-    let state = state.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || {
-        state
-            .0
-            .lock()
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?
-            .set_pinned(&text, pinned)
-            .map(|_| ())
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })
-    })
-    .await
-    .map_err(|_| HostActionError {
-        code: "unavailable",
-    })?
-}
-
-#[tauri::command]
-async fn clear_clipboard_history(
-    state: tauri::State<'_, ClipboardHistoryState>,
-) -> Result<(), HostActionError> {
-    let state = state.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || clear_clipboard_history_blocking(&state))
-        .await
-        .map_err(|_| HostActionError {
-            code: "unavailable",
-        })?
-}
-
-fn clear_clipboard_history_blocking(state: &ClipboardHistoryState) -> Result<(), HostActionError> {
-    #[cfg(target_os = "ios")]
-    {
-        let state_root = std::env::var_os("MSIME_CLIENT_STATE_DIR")
-            .map(PathBuf::from)
-            .filter(|path| path.is_absolute())
-            .ok_or(HostActionError {
-                code: "unavailable",
-            })?;
-        let root = state_root.parent().ok_or(HostActionError {
-            code: "unavailable",
-        })?;
-        let _ = state;
-        return msime_host_api::clear_mobile_clipboard_history(root).map_err(|_| HostActionError {
-            code: "unavailable",
-        });
-    }
-    #[cfg(not(target_os = "ios"))]
-    state
-        .0
-        .lock()
-        .map_err(|_| HostActionError {
-            code: "unavailable",
-        })?
-        .clear()
-        .map_err(|_| HostActionError {
-            code: "unavailable",
-        })
-}
-
-#[tauri::command]
-async fn sync_clipboard_history(
-    state: tauri::State<'_, ClipboardHistoryState>,
-    store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
-) -> Result<Vec<ClipboardHistoryEntry>, HostActionError> {
-    let state = state.inner().clone();
-    let store = store.inner().clone();
-    tauri::async_runtime::spawn_blocking(move || sync_clipboard_history_blocking(&state, &store))
-        .await
-        .map_err(|_| HostActionError {
-            code: "unavailable",
-        })?
-}
-
-fn sync_clipboard_history_blocking(
-    state: &ClipboardHistoryState,
-    store: &Arc<PreferencesStore>,
-) -> Result<Vec<ClipboardHistoryEntry>, HostActionError> {
-    if !clipboard_enabled(store)? {
-        return Err(HostActionError { code: "disabled" });
-    }
-    #[cfg(target_os = "macos")]
-    let output = std::process::Command::new("pbpaste").output();
-    #[cfg(target_os = "linux")]
-    let output = linux_clipboard_text();
-    #[cfg(target_os = "windows")]
-    let text = msime_host_windows::read_clipboard_text()
-        .map_err(|_| HostActionError {
-            code: "unavailable",
-        })?
-        .trim_end_matches(['\r', '\n'])
-        .to_owned();
-    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-    let output: Result<std::process::Output, std::io::Error> =
-        Err(std::io::Error::other("unsupported"));
-    #[cfg(target_os = "linux")]
-    let text = output?;
-    #[cfg(all(not(target_os = "linux"), not(target_os = "windows")))]
-    let text = {
-        let output = output.map_err(|_| HostActionError {
-            code: "unavailable",
-        })?;
-        if !output.status.success() {
-            return Err(HostActionError {
-                code: "unavailable",
-            });
-        }
-        String::from_utf8(output.stdout)
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?
-            .trim_end_matches(['\r', '\n'])
-            .to_owned()
-    };
-    store
-        .capture_clipboard_text(text)
-        .map_err(|_| HostActionError {
-            code: "unavailable",
-        })?;
-    let mut history = state.0.lock().map_err(|_| HostActionError {
-        code: "unavailable",
-    })?;
-    history.load().map_err(|_| HostActionError {
-        code: "unavailable",
-    })?;
-    Ok(history.entries().to_vec())
-}
-
-async fn copy_text_impl(
-    text: String,
-    state: tauri::State<'_, ClipboardHistoryState>,
-    store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
-    #[cfg(target_os = "android")] account: tauri::State<'_, android_account::AccountState>,
-    #[cfg(target_os = "ios")] platform: tauri::State<'_, MobilePlatform<tauri::Wry>>,
-) -> Result<(), HostActionError> {
-    // Clipboard writes are shared by Emoji, handwriting and voice panels. Keep
-    // the same bounded text contract as paste/submit so a panel cannot make an
-    // unbounded system-clipboard or history update on any desktop host.
-    if !clipboard_text_is_valid(&text) {
-        return Err(HostActionError {
-            code: "invalid_text",
-        });
-    }
-    let state = state.inner().clone();
-    let store = store.inner().clone();
-    #[cfg(target_os = "android")]
-    {
-        if text.is_empty() || text.encode_utf16().count() > 4000 || text.contains('\0') {
-            return Err(HostActionError {
-                code: "invalid_text",
-            });
-        }
-        let plugin = account.platform.clone();
-        let clipboard_text = text.clone();
-        tauri::async_runtime::spawn_blocking(move || {
-            plugin
-                .run_mobile_plugin::<()>("copyText", serde_json::json!({ "text": clipboard_text }))
-                .map_err(|_| HostActionError {
-                    code: "unavailable",
-                })
-        })
-        .await
-        .map_err(|_| HostActionError {
-            code: "unavailable",
-        })??;
-        if clipboard_enabled(&store)? {
-            store
-                .capture_clipboard_text(text)
-                .map_err(|_| HostActionError {
-                    code: "unavailable",
-                })?;
-            state
-                .0
-                .lock()
-                .map_err(|_| HostActionError {
-                    code: "unavailable",
-                })?
-                .load()
-                .map_err(|_| HostActionError {
-                    code: "unavailable",
-                })?;
-        }
-        return Ok(());
-    }
-    #[cfg(target_os = "ios")]
-    {
-        let platform = platform.inner().clone();
-        let clipboard_text = text.clone();
-        tauri::async_runtime::spawn_blocking(move || {
-            platform
-                .copy_text(&clipboard_text)
-                .map_err(|_| HostActionError {
-                    code: "unavailable",
-                })
-        })
-        .await
-        .map_err(|_| HostActionError {
-            code: "unavailable",
-        })??;
-        if clipboard_enabled(&store)? {
-            store
-                .capture_clipboard_text(text)
-                .map_err(|_| HostActionError {
-                    code: "unavailable",
-                })?;
-            state
-                .0
-                .lock()
-                .map_err(|_| HostActionError {
-                    code: "unavailable",
-                })?
-                .load()
-                .map_err(|_| HostActionError {
-                    code: "unavailable",
-                })?;
-        }
-        return Ok(());
-    }
-    #[cfg(not(any(target_os = "android", target_os = "ios")))]
-    {
-        tauri::async_runtime::spawn_blocking(move || copy_text_blocking(text, &state, &store))
-            .await
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?
-    }
-}
-
-fn clipboard_text_is_valid(text: &str) -> bool {
-    !text.is_empty()
-        && text.len() <= msime_client_core::clipboard::MAX_TEXT_BYTES
-        && !text.contains('\0')
-}
-
-#[cfg(target_os = "android")]
-#[tauri::command]
-async fn copy_text(
-    text: String,
-    state: tauri::State<'_, ClipboardHistoryState>,
-    store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
-    account: tauri::State<'_, android_account::AccountState>,
-) -> Result<(), HostActionError> {
-    copy_text_impl(text, state, store, account).await
-}
-
-#[cfg(target_os = "ios")]
-#[tauri::command]
-async fn copy_text(
-    text: String,
-    state: tauri::State<'_, ClipboardHistoryState>,
-    store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
-    platform: tauri::State<'_, MobilePlatform<tauri::Wry>>,
-) -> Result<(), HostActionError> {
-    copy_text_impl(text, state, store, platform).await
-}
-
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
-#[tauri::command]
-async fn copy_text(
-    text: String,
-    state: tauri::State<'_, ClipboardHistoryState>,
-    store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
-) -> Result<(), HostActionError> {
-    copy_text_impl(text, state, store).await
-}
-
-#[cfg(not(any(target_os = "android", target_os = "ios")))]
-fn copy_text_blocking(
-    text: String,
-    state: &ClipboardHistoryState,
-    store: &Arc<PreferencesStore>,
-) -> Result<(), HostActionError> {
-    let enabled = clipboard_enabled(store)?;
-    #[cfg(target_os = "macos")]
-    let result = {
-        use std::io::Write;
-        let mut child = std::process::Command::new("pbcopy")
-            .stdin(std::process::Stdio::piped())
-            .spawn()
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?;
-        child
-            .stdin
-            .take()
-            .ok_or(HostActionError {
-                code: "unavailable",
-            })?
-            .write_all(text.as_bytes())
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?;
-        child
-            .wait()
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?
-            .success()
-    };
-    #[cfg(target_os = "linux")]
-    let result = write_linux_clipboard(&text);
-    #[cfg(target_os = "windows")]
-    let result = msime_host_windows::write_clipboard_text(&text);
-    #[cfg(not(any(target_os = "macos", target_os = "linux", target_os = "windows")))]
-    let result = false;
-    if !result {
-        return Err(HostActionError {
-            code: "unavailable",
-        });
-    }
-    if enabled {
-        store
-            .capture_clipboard_text(text)
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?;
-        state
-            .0
-            .lock()
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?
-            .load()
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?;
-    }
-    Ok(())
-}
-
 #[cfg(target_os = "linux")]
 fn linux_runtime_state_directory() -> Result<Option<PathBuf>, String> {
     let Some(options_path) = std::env::var_os("MSIME_CLIENT_HOST_OPTIONS")
@@ -5687,7 +4558,7 @@ pub fn run() {
                 .or_else(|| macos_panel_session::startup_panel_for_launch(requested_surface_route()))
                 .or_else(|| macos_cloud_clipboard::startup_panel(requested_surface_route()))
                 .or_else(|| macos_cloud_dictionary::startup_panel(requested_surface_route())) {
-                open_panel_window(
+                panel_window::open_panel_window(
                     app.handle(), surface.label, surface.query, surface.title,
                     f64::from(surface.width), f64::from(surface.height), None,
                 ).map_err(|_| "Cannot open requested native panel".to_string())?;
@@ -5725,7 +4596,7 @@ pub fn run() {
                     if let Some(window) = app.get_webview_window("main") {
                         let _ = window.hide();
                     }
-                    open_panel_window(
+                    panel_window::open_panel_window(
                         app.handle(), label, route, title, width, height, position,
                     )
                     .map_err(|_| "Cannot open requested panel".to_string())?;
@@ -5746,13 +4617,13 @@ pub fn run() {
                 target_os = "windows",
                 all(test, not(target_os = "android"))
             ))]
-            ai_models,
+            ai::ai_models,
             #[cfg(any(
                 target_os = "macos",
                 target_os = "windows",
                 all(test, not(target_os = "android"))
             ))]
-            ai_test,
+            ai::ai_test,
             load_preferences,
             load_custom_skin_library,
             mutate_custom_skin_library,
@@ -5766,12 +4637,12 @@ pub fn run() {
             open_skin_directory,
             test_api_credential,
             save_preferences,
-            list_clipboard_history,
-            clear_clipboard_history,
-            remove_clipboard_history,
-            set_clipboard_history_pinned,
-            sync_clipboard_history,
-            copy_text,
+            clipboard_history::list_clipboard_history,
+            clipboard_history::clear_clipboard_history,
+            clipboard_history::remove_clipboard_history,
+            clipboard_history::set_clipboard_history_pinned,
+            clipboard_history::sync_clipboard_history,
+            clipboard_history::copy_text,
             remember_input_target,
             send_key,
             send_text,
@@ -5785,13 +4656,13 @@ pub fn run() {
             stop_voice,
             submit_handwriting_candidate,
             open_external_url,
-            open_keyboard_panel,
-            open_handwriting_panel,
-            open_emoji_panel,
-            open_voice_panel,
-            open_cloud_clipboard_panel,
-            open_cloud_dictionary_panel,
-            close_panel,
+            panel_window::open_keyboard_panel,
+            panel_window::open_handwriting_panel,
+            panel_window::open_emoji_panel,
+            panel_window::open_voice_panel,
+            panel_window::open_cloud_clipboard_panel,
+            panel_window::open_cloud_dictionary_panel,
+            panel_window::close_panel,
             dictionary_request,
             cloud_clipboard_request,
             cloud_clipboard_can_send_text,

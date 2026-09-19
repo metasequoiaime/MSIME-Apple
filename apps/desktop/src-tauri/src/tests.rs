@@ -12,7 +12,7 @@ fn ai_endpoint_validation_accepts_http_api_urls_and_rejects_unsafe_urls() {
         "https://api.example.test/v1/chat/completions",
         "http://127.0.0.1:8080/v1/chat/completions?tenant=fixture",
     ] {
-        assert!(super::validate_ai_endpoint(endpoint).is_ok());
+        assert!(crate::ai::validate_ai_endpoint(endpoint).is_ok());
     }
     for endpoint in [
         "file:///tmp/models",
@@ -20,26 +20,26 @@ fn ai_endpoint_validation_accepts_http_api_urls_and_rejects_unsafe_urls() {
         "https://example.test/v1/chat/completions#fragment",
         "https://example.test/v1/chat/\ncompletions",
     ] {
-        assert!(super::validate_ai_endpoint(endpoint).is_err());
+        assert!(crate::ai::validate_ai_endpoint(endpoint).is_err());
     }
 }
 
 #[cfg(not(target_os = "android"))]
 #[test]
 fn ai_models_url_reuses_the_api_prefix() {
-    let endpoint = super::validate_ai_endpoint(
+    let endpoint = crate::ai::validate_ai_endpoint(
         "https://api.example.test/openai/v1/chat/completions?tenant=fixture",
     )
     .unwrap_or_else(|_| panic!("fixture endpoint should be valid"));
     assert_eq!(
-        super::ai_models_url(&endpoint).as_str(),
+        crate::ai::ai_models_url(&endpoint).as_str(),
         "https://api.example.test/openai/v1/models"
     );
 
-    let endpoint = super::validate_ai_endpoint("https://api.example.test/chat/completions")
+    let endpoint = crate::ai::validate_ai_endpoint("https://api.example.test/chat/completions")
         .unwrap_or_else(|_| panic!("fixture endpoint should be valid"));
     assert_eq!(
-        super::ai_models_url(&endpoint).as_str(),
+        crate::ai::ai_models_url(&endpoint).as_str(),
         "https://api.example.test/v1/models"
     );
 }
@@ -47,26 +47,28 @@ fn ai_models_url_reuses_the_api_prefix() {
 #[cfg(not(target_os = "android"))]
 #[test]
 fn ai_credentials_and_text_reject_empty_or_unsafe_values() {
-    assert!(super::validate_ai_token("fixture-token").is_ok());
-    assert!(super::validate_ai_token("").is_err());
-    assert!(super::validate_ai_token("fixture\n-token").is_err());
-    assert!(super::ai_text_is_valid("多行\nfixture text\t", false));
-    assert!(super::ai_text_is_valid("", true));
-    assert!(!super::ai_text_is_valid("", false));
-    assert!(!super::ai_text_is_valid("fixture\0text", false));
+    assert!(crate::ai::validate_ai_token("fixture-token").is_ok());
+    assert!(crate::ai::validate_ai_token("").is_err());
+    assert!(crate::ai::validate_ai_token("fixture\n-token").is_err());
+    assert!(crate::ai::ai_text_is_valid("多行\nfixture text\t", false));
+    assert!(crate::ai::ai_text_is_valid("", true));
+    assert!(!crate::ai::ai_text_is_valid("", false));
+    assert!(!crate::ai::ai_text_is_valid("fixture\0text", false));
 }
 
 #[test]
 fn clipboard_text_validation_enforces_nonempty_nul_free_byte_limit() {
-    assert!(!super::clipboard_text_is_valid(""));
-    assert!(!super::clipboard_text_is_valid("a\0b"));
+    assert!(!crate::clipboard_history::clipboard_text_is_valid(""));
+    assert!(!crate::clipboard_history::clipboard_text_is_valid("a\0b"));
 
     let at_limit = "x".repeat(msime_client_core::clipboard::MAX_TEXT_BYTES);
-    assert!(super::clipboard_text_is_valid(&at_limit));
+    assert!(crate::clipboard_history::clipboard_text_is_valid(&at_limit));
 
     let over_limit = format!("{at_limit}x");
-    assert!(!super::clipboard_text_is_valid(&over_limit));
-    assert!(super::clipboard_text_is_valid(
+    assert!(!crate::clipboard_history::clipboard_text_is_valid(
+        &over_limit
+    ));
+    assert!(crate::clipboard_history::clipboard_text_is_valid(
         "第一行\nsecond line\n第三行"
     ));
 }
@@ -571,7 +573,7 @@ fn panel_input_targets_are_isolated_by_surface() {
 #[cfg(not(target_os = "windows"))]
 #[test]
 fn keyboard_does_not_accept_focus_but_editable_panels_do() {
-    assert!(!super::panel_accepts_focus("keyboard-panel"));
+    assert!(!crate::panel_window::panel_accepts_focus("keyboard-panel"));
     for label in [
         "handwriting-panel",
         "voice-panel",
@@ -579,7 +581,7 @@ fn keyboard_does_not_accept_focus_but_editable_panels_do() {
         "cloud-clipboard-panel",
         "cloud-dictionary-panel",
     ] {
-        assert!(super::panel_accepts_focus(label));
+        assert!(crate::panel_window::panel_accepts_focus(label));
     }
 }
 #[test]
