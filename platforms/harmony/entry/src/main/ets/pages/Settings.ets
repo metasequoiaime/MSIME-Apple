@@ -1,6 +1,6 @@
 import web_webview from '@ohos.web.webview';
 import common from '@ohos.app.ability.common';
-import client from 'libmsimeclient.so';
+import client, { DoubaoFrameResult } from 'libmsimeclient.so';
 import pasteboard from '@ohos.pasteboard';
 import Want from '@ohos.app.ability.Want';
 import bundleManager from '@ohos.bundle.bundleManager';
@@ -261,11 +261,6 @@ interface CredentialHeaders {
   Accept: string;
   'Content-Type': string;
   Authorization?: string;
-}
-
-interface DoubaoFrameResult {
-  last: boolean;
-  payload: string;
 }
 
 interface DoubaoResponseDocument {
