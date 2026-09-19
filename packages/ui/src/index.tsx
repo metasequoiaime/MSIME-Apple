@@ -197,6 +197,7 @@ export interface HostCapabilities {
   input_mode_hud?: boolean;
   candidate_english_font?: boolean;
   english_suggestions?: boolean;
+  shuangpin_preedit?: boolean;
 }
 
 /** Superseded by the host-provided capabilities; used only when a host predates them. */
@@ -943,6 +944,9 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
     ?? (windowsPlatform || macosPlatform || androidPlatform);
   // iOS shows its own switch for the same surface, from the native store, so it is not here.
   const showEnglishSuggestions = host?.english_suggestions ?? androidPlatform;
+  // Every host's Engine honours the preference; this is about which of them draw the composition
+  // themselves, and so show the user a difference between the raw keys and the expanded pinyin.
+  const showShuangpinPreedit = host?.shuangpin_preedit ?? macosPlatform;
   const showCandidateRowColors = host ? host.candidate_row_colors : true;
   const showCandidateSelectionAppearance = host ? host.candidate_selection_appearance : true;
   const showCandidateFollowCursor = host ? host.candidate_follow_cursor : false;
@@ -2039,7 +2043,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
         <div className="section"><label className="section-header"><span className="section-title">候选布局</span><select aria-label="候选布局" value={draft.candidate_layout ?? "vertical"} onChange={event => setDraft({ ...draft, candidate_layout: event.target.value as Preferences["candidate_layout"] })}>
           <option value="vertical">竖排</option><option value="horizontal">横排</option>
         </select></label></div>
-        {macosPlatform && <div className="section"><label className="section-header"><span className="section-title">双拼预编辑<small>仅在双拼方案下生效；选择保留原始双拼按键，或显示展开后的拼音分词。</small></span><select aria-label="双拼预编辑" value={draft.shuangpin_preedit_uses_raw === false ? "pinyin" : "raw"} onChange={event => setDraft({ ...draft, shuangpin_preedit_uses_raw: event.target.value === "raw" })}><option value="raw">原始按键</option><option value="pinyin">拼音分词</option></select></label></div>}
+        {showShuangpinPreedit && <div className="section"><label className="section-header"><span className="section-title">双拼预编辑<small>仅在双拼方案下生效；选择保留原始双拼按键，或显示展开后的拼音分词。</small></span><select aria-label="双拼预编辑" value={draft.shuangpin_preedit_uses_raw === false ? "pinyin" : "raw"} onChange={event => setDraft({ ...draft, shuangpin_preedit_uses_raw: event.target.value === "raw" })}><option value="raw">原始按键</option><option value="pinyin">拼音分词</option></select></label></div>}
         {showCandidateFontControls && <div className="section"><label className="section-header"><span className="section-title">候选字号</span><select aria-label="候选字号" value={candidateFontSize(draft.candidate_font_size)} onChange={event => setDraft({ ...draft, candidate_font_size: Number(event.target.value) })}>
           {candidateFontSizes.map(size => <option key={size} value={size}>{size}</option>)}
         </select></label></div>}
@@ -2152,6 +2156,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "input"} aria-label="输入">
         {iosPlatform && <div className="section input-handwriting-info"><div className="section-title">手写输入</div><p>首次在键盘中使用手写时下载中文模型，需要完全访问权限。下载后可离线识别，笔迹和识别结果不会上传。Google ML Kit 会发送性能及使用统计。</p>{client.openExternalUrl && <button type="button" className="secondary" onClick={() => void openExternalUrl(handwritingSdkPrivacyUrl)}>手写 SDK 隐私说明</button>}</div>}
+        {harmonyPlatform && <div className="section input-handwriting-info"><div className="section-title">手写输入</div><p>手写使用系统的文字识别能力，笔迹留在本机、不上传。设备未提供该能力时手写方案会明确提示，不会改用其他识别方式。</p></div>}
         {androidPlatform && <div className="section input-handwriting-info"><div className="section-title">Android 手写输入</div><p>首次在 Android 键盘中切换到手写时，可能需要下载 Google ML Kit 中文手写模型。模型下载完成后可离线识别；笔迹和识别结果只用于当前输入，不会上传。Google ML Kit 可能发送性能及使用统计。</p>{client.openExternalUrl && <button type="button" className="secondary" onClick={() => void openExternalUrl(handwritingSdkPrivacyUrl)}>手写 SDK 隐私说明</button>}</div>}
         {mobilePlatform && <div className="section input-ai-info"><div className="section-title">高情商回复</div><p>复制对方的话，切换到高情商回复键盘，点“粘贴”后选择回复风格。支持帮你回、帮润色和换一句，点选回复插入聊天输入框。</p><button type="button" className="secondary" onClick={() => selectPage("ai")}>配置键盘 AI</button></div>}
         <div className="section"><label className="section-header"><span className="section-title">默认输入状态<small>新焦点会话开始时使用的中文或英文状态</small></span><select aria-label="默认输入状态" value={draft.default_ime_mode ?? "chinese"} onChange={event => setDraft({ ...draft, default_ime_mode: event.target.value as Preferences["default_ime_mode"] })}><option value="chinese">中文</option><option value="english">英文</option></select></label></div>

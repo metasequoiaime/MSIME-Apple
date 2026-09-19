@@ -32,6 +32,8 @@ Harmony 设置页暴露共享的模糊拼音规则、触摸输入方案启用列
 
 2in1 硬件键盘补齐 Windows 的维护快捷键 `Ctrl+Shift+Alt+1–8`：删除候选栏对应位置的候选词。触屏上这个动作走长按菜单，而硬件键盘没有长按这个手势，该和弦是它唯一的入口。按下后由会话校验该位置是否存在候选、以及其来源是否允许词库删除——云候选、AI、Emoji 和日语候选来自 Host API 会拒绝的来源，此时不执行；但按键仍然被占用，否则一个游离的 `1` 会落进编辑器。
 
+共享设置中的“双拼预编辑”（`shuangpin_preedit_uses_raw`）现在也出现在 Harmony 的设置页。该偏好一直由 Engine 消费，但控件此前只给 macOS；Harmony 的组合行直接绘制 Engine 的 `editing_text`，原始双拼按键与展开拼音的区别在这里是看得见的，所以由 `HostCapabilities::shuangpin_preedit` 决定而不是平台名。设置页也补上了手写说明：手写走系统文字识别，笔迹不离开本机；设备不提供该能力时手写方案会明确提示，不回退到其他识别方式。
+
 共享设置中的“中英文状态范围”现在也由 Harmony 消费，并由 `HostCapabilities::ime_mode_scope` 能力而非平台名决定是否出现：编辑器属性自 API 14 起带 `bundleName`，键盘据此按应用记忆中英文状态，这也是共享默认值 `app`。此前无论哪个应用都共用一个模式。`global` 保持所有输入上下文同一状态。范围在编辑器激活时读取，不在组合中途改变。密码框、地址框这类要求拉丁字母的编辑器覆盖是编辑器的选择而非用户的，不写入记忆，否则在某个应用里填过一次密码就会让之后每次进入该应用都停在英文。该映射只存在于键盘进程生命周期内，不落盘：它是一份"用户在哪些应用里打字"的记录，偏好文件没有理由携带，而忘记它的代价只是重启后多按一次切换键。最多记住 64 个应用，超出时丢弃最久未使用的。
 
 `build-native.sh` 在本机的实际边界（2026-09-19 核实）：OpenHarmony NDK 与 Boost 具备，`msime-client-core` 对 `aarch64-unknown-linux-ohos` 的 `cargo check` 通过；但 `msime-engine-bridge` 的 build.rs 要求 `MSIME_OHOS_DEPS` 指向一个为设备编译的 sqlite3 前缀，仓库不携带 sqlite3 amalgamation，也没有获取它的固定来源。因此本机能证明的是 ArkTS 编译与 HAP 打包（`hvigorw assembleHap`）和共享 Rust 层的交叉检查，**不包括** NAPI 动态库本身。当前 HAP 不含 `entry/libs/<abi>/`，在真机上是空壳；补齐需要先按脚本提示为目标 ABI 准备 sqlite3。

@@ -127,6 +127,12 @@ pub struct HostCapabilities {
     /// and positions the candidate list itself - cannot honour the choice, so
     /// it does not offer it.
     pub candidate_follow_cursor: bool,
+    /// The host renders the Engine's composition text itself, so the choice
+    /// between the raw shuangpin keys and the expanded pinyin is visible there.
+    /// Every host's Engine honours the preference; this says which of them draw
+    /// the result where a user would see the difference.
+    #[serde(default)]
+    pub shuangpin_preedit: bool,
     /// The host shows read-only English word completions while typing directly
     /// in English, governed by the shared `english_suggestions` preference. iOS
     /// offers the same surface but keeps its switch in the native App Group
@@ -288,6 +294,10 @@ impl HostCapabilities {
             // Windows draws Latin from its own family, macOS and Android name it ahead of the
             // primary one, and ArkUI resolves a family list per glyph, so HarmonyOS reaches the
             // same result the same way. Linux leaves the panel's typeface to the desktop.
+            // macOS draws its own composition, and the HarmonyOS keyboard draws the Engine's
+            // editing text on its composition row, so both show the difference. The other hosts
+            // hand the text to the application or to the desktop, which decides how it looks.
+            shuangpin_preedit: matches!(platform, HostPlatform::Macos | HostPlatform::Harmony),
             english_suggestions: matches!(platform, HostPlatform::Android | HostPlatform::Harmony),
             candidate_english_font: matches!(
                 platform,
@@ -799,6 +809,10 @@ mod tests {
         // The completions are drawn from the packaged dictionary on the candidate strip, and the
         // switch that governs them is the shared preference rather than a native store.
         assert!(harmony.english_suggestions);
+        // The composition row draws the Engine's editing text, so raw versus expanded is visible.
+        assert!(harmony.shuangpin_preedit);
+        assert!(HostCapabilities::for_platform(HostPlatform::Macos).shuangpin_preedit);
+        assert!(!HostCapabilities::for_platform(HostPlatform::Windows).shuangpin_preedit);
         assert!(!HostCapabilities::for_platform(HostPlatform::Ios).english_suggestions);
         assert!(!HostCapabilities::for_platform(HostPlatform::Windows).english_suggestions);
         assert!(!HostCapabilities::for_platform(HostPlatform::Linux).candidate_english_font);
