@@ -104,11 +104,14 @@ public final class VoiceRecognitionActivity extends Activity {
             recognizer.destroy();
             recognizer = null;
         }
-        if (active.get() == this) active = new WeakReference<>(null);
-        if (!isChangingConfigurations() && !isFinishing()) {
-            clearRequest(getIntent().getStringExtra(EXTRA_REQUEST_ID));
-        } else if (isFinishing()) {
-            clearRequest(getIntent().getStringExtra(EXTRA_REQUEST_ID));
+        if (active.get() == this) {
+            active = new WeakReference<>(null);
+            // A configuration change recreates the activity for the same request.
+            // Keep the request visible while the replacement activity registers
+            // itself; otherwise the Tauri-side poller settles the job as cancelled.
+            if (!isChangingConfigurations()) {
+                clearRequest(getIntent().getStringExtra(EXTRA_REQUEST_ID));
+            }
         }
         super.onDestroy();
     }
