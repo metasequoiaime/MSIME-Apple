@@ -11,6 +11,7 @@ struct CloudClipboardView: View {
   @State private var text = ""
   @State private var busy = false
   @State private var message: String?
+  @State private var confirmsClear = false
   @State private var pending: Task<Void, Never>?
 
   private var canUpload: Bool {
@@ -69,11 +70,9 @@ struct CloudClipboardView: View {
           }
           if items.isEmpty {
             Text(search.isEmpty ? "还没有保存任何内容" : "没有匹配「\(search)」的内容").foregroundStyle(.secondary)
-          }
-          if !items.isEmpty {
-            SettingsActionRow(title: "清空历史", symbol: "trash.fill", destructive: true) {
-              run { token in try await client.deleteClipboard(token: token) }
-            }
+        }
+        if !items.isEmpty {
+          SettingsActionRow(title: "清空历史", symbol: "trash.fill", destructive: true) { confirmsClear = true }
           }
         } header: {
           Text("云端历史")
@@ -94,6 +93,12 @@ struct CloudClipboardView: View {
     .navigationTitle("云剪贴板")
     .task { run { _ in } }
     .onDisappear { pending?.cancel(); items = []; text = "" }
+    .confirmationDialog("清空云剪贴板？", isPresented: $confirmsClear, titleVisibility: .visible) {
+      Button("确认清空", role: .destructive) {
+        run { token in try await client.deleteClipboard(token: token) }
+      }
+      Button("取消", role: .cancel) { }
+    }
   }
   @MainActor private func run(_ action: @escaping (String) async throws -> Void) {
     guard !busy else { return }
