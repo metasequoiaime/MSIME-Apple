@@ -1,4 +1,4 @@
-#include "PublicSessionTestOptions.h"
+#include "../core/PublicSessionTestOptions.h"
 // Idle Shift+letter opens a local mode. During a composition the same capital is helpcode input,
 // and the engine still refuses to open a mode on top of one. These tests pin which capitals open a
 // mode, that the rest stay unhandled so the application still inserts them, and that a disabled

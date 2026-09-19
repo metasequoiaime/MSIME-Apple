@@ -1,6 +1,6 @@
-#import "../src/core/DesktopCloudClipboard.h"
-#import "../src/core/DesktopInputSession.h"
-#import "../src/core/ToolTextReturn.h"
+#import "../../src/core/DesktopCloudClipboard.h"
+#import "../../src/core/DesktopInputSession.h"
+#import "../../src/core/ToolTextReturn.h"
 #include <cassert>
 #include <sys/stat.h>
 

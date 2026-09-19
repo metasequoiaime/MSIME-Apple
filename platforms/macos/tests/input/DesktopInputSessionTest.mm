@@ -1,4 +1,4 @@
-#import "../src/core/DesktopInputSession.h"
+#import "../../src/core/DesktopInputSession.h"
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <sys/stat.h>

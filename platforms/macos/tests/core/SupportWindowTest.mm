@@ -1,4 +1,4 @@
-#import "../src/core/SupportWindowController.h"
+#import "../../src/core/SupportWindowController.h"
 
 #include <cassert>
 

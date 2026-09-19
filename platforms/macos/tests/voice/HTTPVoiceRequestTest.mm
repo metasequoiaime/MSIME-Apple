@@ -1,4 +1,4 @@
-#import "../src/voice/HTTPVoiceRequest.h"
+#import "../../src/voice/HTTPVoiceRequest.h"
 #include <cassert>
 
 static void Wait(BOOL (^done)(void)) {

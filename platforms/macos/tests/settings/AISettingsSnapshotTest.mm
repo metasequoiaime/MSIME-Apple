@@ -1,4 +1,4 @@
-#import "../src/core/AISettingsSnapshot.h"
+#import "../../src/core/AISettingsSnapshot.h"
 #include <cassert>
 
 int main() {

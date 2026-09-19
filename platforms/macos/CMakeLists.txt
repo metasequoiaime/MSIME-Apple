@@ -548,7 +548,7 @@ add_executable(voice-session-delivery-test tests/voice/VoiceSessionDeliveryTest.
 target_compile_options(voice-session-delivery-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(voice-session-delivery-test PRIVATE apple-client "-framework AVFoundation" "-framework Speech" "-framework CoreAudio" "-framework AudioToolbox")
 add_test(NAME voice-session-delivery COMMAND voice-session-delivery-test)
-add_executable(shortcut-test tests/input/ShortcutTest.mm src/core/DiagnosticLog.cpp src/settings/AppearancePreferences.mm src/candidate/CandidateSkin.cpp src/candidate/CandidateSkinPreviewView.mm src/candidate/SkinSettingsView.mm src/core/ChineseTextConversion.mm src/settings/ShuangpinKeymapPanel.mm src/input/InputSourceRegistration.mm src/core/FloatingToolbarPanel.mm src/core/UpdateController.mm src/dictionary/DictionaryWindowController.mm src/core/ClientDictionaryRuntime.mm)
+add_executable(shortcut-test tests/input/ShortcutTest.mm src/core/DiagnosticLog.cpp src/core/UpdateController.mm src/settings/AppearancePreferences.mm src/candidate/CandidateSkin.cpp src/candidate/CandidateSkinPreviewView.mm src/candidate/SkinSettingsView.mm src/core/ChineseTextConversion.mm src/settings/ShuangpinKeymapPanel.mm src/input/InputSourceRegistration.mm src/core/FloatingToolbarPanel.mm src/dictionary/DictionaryWindowController.mm src/core/ClientDictionaryRuntime.mm)
 target_include_directories(shortcut-test PRIVATE ../../vendor/MSIME-Engine ../../vendor/MSIME-Engine/include)
 target_compile_options(shortcut-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(shortcut-test PRIVATE apple-client "-framework AppKit" "-framework InputMethodKit" "-framework Carbon")
@@ -657,7 +657,7 @@ add_test(
   NAME support-window-links
   COMMAND "${Python3_EXECUTABLE}"
           "${CMAKE_CURRENT_SOURCE_DIR}/tests/settings/support_window_links.py"
-          "${CMAKE_CURRENT_SOURCE_DIR}/SupportWindowController.mm")
+          "${CMAKE_CURRENT_SOURCE_DIR}/src/core/SupportWindowController.mm")
 add_executable(input-source-registration-test tests/input/InputSourceRegistrationTests.mm src/input/InputSourceRegistration.mm)
 target_compile_options(input-source-registration-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(input-source-registration-test PRIVATE "-framework AppKit" "-framework Carbon" "-framework Foundation")
@@ -709,3 +709,33 @@ add_executable(paired-punctuation-test tests/input/PairedPunctuationTest.cpp)
 target_compile_features(paired-punctuation-test PRIVATE cxx_std_17)
 target_compile_options(paired-punctuation-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 add_test(NAME paired-punctuation COMMAND paired-punctuation-test)
+
+# AppearancePreferences.mm and InputController.mm reach the Swift account pane and the native uninstaller through weak_import: the input method binds them from MSIMEBackend.dylib and from uninstaller.mm, and a process that has neither checks for null before calling. Test targets are that process, so the linker has to be told those names may stay undefined - one name at a time, so every other missing symbol is still an error.
+#
+# The settings window's dictionary controller is the counter-example and the reason this loop exists rather than a hand-kept list: `feat(macos): open dictionary manager from settings` added the reference and the source file to shortcut-test only, and the other five targets compiling the same file did not link again until now.
+set(MSIME_OPTIONAL_BACKEND_SYMBOLS
+  _MSIMEAccountPaneView _MSIMEAccountPaneAttach _MSIMEAccountPaneClose
+  _MSIMEEnsureAnonymousAccount _MSIMEFetchAccountCandidateGlosses
+  _msime_macos_uninstall_input_source)
+get_property(MSIME_DIRECTORY_TARGETS DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+foreach(msime_target IN LISTS MSIME_DIRECTORY_TARGETS)
+  if(msime_target STREQUAL "MSIMEClientInputMethod")
+    continue()
+  endif()
+  get_target_property(msime_target_sources ${msime_target} SOURCES)
+  if(NOT msime_target_sources)
+    continue()
+  endif()
+  if(NOT "src/settings/AppearancePreferences.mm" IN_LIST msime_target_sources
+     AND NOT "src/input/InputController.mm" IN_LIST msime_target_sources)
+    continue()
+  endif()
+  if(NOT "src/dictionary/DictionaryWindowController.mm" IN_LIST msime_target_sources)
+    target_sources(${msime_target} PRIVATE
+      src/dictionary/DictionaryWindowController.mm src/core/ClientDictionaryRuntime.mm)
+    target_link_libraries(${msime_target} PRIVATE apple-client "-framework UniformTypeIdentifiers")
+  endif()
+  foreach(msime_optional_symbol IN LISTS MSIME_OPTIONAL_BACKEND_SYMBOLS)
+    target_link_options(${msime_target} PRIVATE "LINKER:-U,${msime_optional_symbol}")
+  endforeach()
+endforeach()

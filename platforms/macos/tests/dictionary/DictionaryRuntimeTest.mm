@@ -1,5 +1,5 @@
-#import "../src/core/ClientDictionaryRuntime.h"
-#import "../../../shared/apple/MSIMEClientSession.h"
+#import "../../src/core/ClientDictionaryRuntime.h"
+#import "../../../../shared/apple/MSIMEClientSession.h"
 #include <cassert>
 
 int main() {

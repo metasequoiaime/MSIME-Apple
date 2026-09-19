@@ -1,5 +1,5 @@
 #include <cassert>
-#include "../src/core/PairedPunctuation.h"
+#include "../../src/core/PairedPunctuation.h"
 
 int main() {
   msime::mac::PairedPunctuationTracker tracker;

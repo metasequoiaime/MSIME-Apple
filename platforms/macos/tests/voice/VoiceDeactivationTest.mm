@@ -1,4 +1,4 @@
-#import "../src/voice/VoiceDeactivation.h"
+#import "../../src/voice/VoiceDeactivation.h"
 #include <cassert>
 
 @interface VoiceFixture : NSObject

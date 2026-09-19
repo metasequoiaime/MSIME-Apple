@@ -1,4 +1,4 @@
-#import "../src/settings/ShuangpinKeymapPanel.h"
+#import "../../src/settings/ShuangpinKeymapPanel.h"
 #include <cassert>
 int main() {
     @autoreleasepool {

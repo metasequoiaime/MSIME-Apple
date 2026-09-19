@@ -1,12 +1,12 @@
-#import "../src/settings/AppearancePreferences.h"
-#import "../src/candidate/CandidateSkinPreviewView.h"
-#import "../src/cloud/CloudAppearanceSettings.h"
-#import "../src/settings/PreferenceSnapshotMerge.h"
+#import "../../src/settings/AppearancePreferences.h"
+#import "../../src/candidate/CandidateSkinPreviewView.h"
+#import "../../src/cloud/CloudAppearanceSettings.h"
+#import "../../src/settings/PreferenceSnapshotMerge.h"
 #import <CoreText/CoreText.h>
 #include <cassert>
 #include <fstream>
-#import "TestPreferenceSuite.h"
-#import "PreferenceViewLookup.h"
+#import "../settings/TestPreferenceSuite.h"
+#import "../settings/PreferenceViewLookup.h"
 
 static NSView *FindControl(NSView *root, NSString *label) {
     if ([root.accessibilityLabel isEqual:label]) return root;

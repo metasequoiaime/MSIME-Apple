@@ -1,5 +1,5 @@
-#import "../src/settings/PreferencesWindowController.h"
-#import "../src/settings/AppearancePreferences.h"
+#import "../../src/settings/PreferencesWindowController.h"
+#import "../../src/settings/AppearancePreferences.h"
 #import "PreferenceViewLookup.h"
 #include <cassert>
 

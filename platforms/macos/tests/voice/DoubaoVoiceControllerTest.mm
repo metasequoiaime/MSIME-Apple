@@ -1,5 +1,6 @@
-#import "../src/input/InputController.mm"
+#import "../../src/input/InputController.mm"
 #import "VoiceCueFixture.h"
+#import "VoiceClientFixture.h"
 #import "VoiceMeterFixture.h"
 #include <cassert>
 
@@ -45,6 +46,8 @@
 @end
 
 @interface DoubaoPresentationFixture : NSObject
+// The controller picks the overlay screen from the caret on every failure; model the real overlay property so the assignment lands somewhere.
+@property(nonatomic, weak) NSScreen *preferredScreen;
 @property float lastLevel;
 @property NSUInteger levelUpdates;
 @property(copy) void (^actionHandler)(BOOL);
@@ -76,6 +79,10 @@
 @property NSMutableArray *commits;
 @end
 @implementation DoubaoTextFixture
+// The controller asks the client for the caret whenever it repositions the overlay; an empty rectangle reads as "no usable position".
+- (NSDictionary *)attributesForCharacterIndex:(NSUInteger)index lineHeightRectangle:(NSRect *)rectangle {
+    (void)index; if (rectangle) *rectangle = NSZeroRect; return @{};
+}
 - (void)insertText:(id)text replacementRange:(NSRange)range {
     (void)range; if (!self.commits) self.commits = [NSMutableArray array]; [self.commits addObject:text]; self.marked = @"";
 }
@@ -205,7 +212,7 @@ int main() {
         for (NSString *field in @[@"activeClient", @"session", @"voiceGeneration"]) {
             assert(Start(controller, capture, session, YES));
             id original = [controller valueForKey:field];
-            [controller setValue:[field isEqual:@"voiceGeneration"] ? @99999 : [NSObject new] forKey:field];
+            [controller setValue:[field isEqual:@"voiceGeneration"] ? @99999 : [MSIMEVoiceClientFixture new] forKey:field];
             controller.fixture.result(@"stale focus", YES, nil);
             [controller setValue:original forKey:field];
             assert(client.commits.count == 1);

@@ -1,5 +1,5 @@
 #import <Foundation/Foundation.h>
-#import "../../../shared/apple/ClipboardPreferences.h"
+#import "../../../../shared/apple/ClipboardPreferences.h"
 #include <cassert>
 
 int main() {

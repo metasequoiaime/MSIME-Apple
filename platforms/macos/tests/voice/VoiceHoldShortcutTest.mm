@@ -1,4 +1,4 @@
-#import "../src/voice/VoiceHoldShortcut.h"
+#import "../../src/voice/VoiceHoldShortcut.h"
 #include <cassert>
 
 static NSEvent *Event(unsigned short key, NSEventModifierFlags flags, NSEventType type = NSEventTypeFlagsChanged) {

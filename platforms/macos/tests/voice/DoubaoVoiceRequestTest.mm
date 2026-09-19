@@ -1,4 +1,4 @@
-#import "../src/voice/DoubaoVoiceRequest.h"
+#import "../../src/voice/DoubaoVoiceRequest.h"
 #include <cassert>
 #include <limits>
 #include <vector>

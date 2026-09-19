@@ -1,4 +1,4 @@
-#import "../src/core/DesktopInputSession.h"
+#import "../../src/core/DesktopInputSession.h"
 #include <cassert>
 
 int main(int argc, const char *argv[]) {
