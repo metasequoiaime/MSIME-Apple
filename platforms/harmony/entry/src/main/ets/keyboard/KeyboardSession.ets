@@ -5,6 +5,7 @@ import { KeyboardLog, describeError } from './KeyboardLog';
 import { DictionaryMaintenancePolicy } from './DictionaryMaintenancePolicy';
 import { TypingStatisticsPolicy } from './TypingStatisticsPolicy';
 import { KeyboardSkin } from './skin/KeyboardSkin';
+import { CustomKeyboardSkin, CustomSkinDocument } from './skin/CustomKeyboardSkin';
 import { KeyboardFormFactor } from './KeyboardFormFactor';
 import { EditorPolicy, EditorTraits } from './input/EditorPolicy';
 import { WubiCodeHintPolicy } from './input/WubiCodeHintPolicy';
@@ -442,6 +443,8 @@ interface PreparedPreferences {
   touch_voice_shortcut: boolean;
   /** Shared privacy switch for the private clipboard history file and keyboard entry point. */
   clipboard_history: boolean;
+  /** Shared custom touch-keyboard design; nested fields use the shared camelCase JSON shape. */
+  custom_touch_keyboard_skin?: CustomSkinDocument;
   voice_input: VoiceInputConfiguration;
   ai_assistant: PreparedAiAssistant;
   touch_keyboard_schemes: { selected: string | null };
@@ -826,6 +829,7 @@ export class KeyboardSession {
         ? this.readCandidateSkinImage(stateRoot, preferences.candidate_skin, skinDecoration)
         : { image: null, aspectRatio: 1 };
       this.voiceInput = preferences.voice_input;
+      this.customSkinDesign = CustomKeyboardSkin.from(preferences.custom_touch_keyboard_skin ?? null);
       if (this.onVoiceInputChanged !== undefined) {
         this.onVoiceInputChanged(this.voiceInputEnabled());
       }
@@ -902,7 +906,7 @@ export class KeyboardSession {
         thoughtfulReply: preferences.touch_keyboard_schemes?.selected === 'thoughtful_reply'
       };
       this.toolbarSkin = ToolbarSkinPolicy.fromCss(
-        KeyboardSkin.from(this.appearance.skinId, this.appearance.dark), skinToolbar);
+        this.skin(this.appearance.skinId, this.appearance.dark), skinToolbar);
       this.schemeName = preferences.scheme;
       this.profileName = preferences.shuangpin_profile;
       this.traditional = preferences.traditional_chinese_output;
@@ -945,6 +949,16 @@ export class KeyboardSession {
   /** What the user chose for the keyboard's appearance and scheme. */
   preferences(): KeyboardPreferences {
     return this.appearance;
+  }
+
+  /** Resolve a touch-keyboard skin with the shared custom design when selected. */
+  skin(id: string, dark: boolean): KeyboardSkin {
+    return KeyboardSkin.from(id, dark, id === 'custom' ? this.customSkinDesign : null);
+  }
+
+  /** The built-ins plus the current shared custom design for the native picker. */
+  keyboardSkins(dark: boolean): KeyboardSkin[] {
+    return KeyboardSkin.choices(dark, this.customSkinDesign);
   }
 
   /** Whether the shared privacy preference permits this host's private history file. */
@@ -1058,7 +1072,7 @@ export class KeyboardSession {
     };
     this.onToolbar(state, FloatingToolbarLayout.buttons(this.toolbarComponents()),
       this.toolbarFontSize(), this.toolbarScale(),
-      KeyboardSkin.from(this.appearance.skinId, this.appearance.dark), this.toolbarSkin);
+      this.skin(this.appearance.skinId, this.appearance.dark), this.toolbarSkin);
   }
 
   beginToolbarDrag(): void {
@@ -1765,6 +1779,7 @@ export class KeyboardSession {
   private fullWidth: boolean = false;
   private bindings: ModeBindings = DEFAULT_MODE_BINDINGS;
   private feedbackSettings: FeedbackSettings = KeyboardFeedback.DEFAULTS;
+  private customSkinDesign: CustomKeyboardSkin = CustomKeyboardSkin.defaults();
   private vibratorFailed: boolean = false;
   private traditional: boolean = false;
   private chinesePunctuation: boolean = true;

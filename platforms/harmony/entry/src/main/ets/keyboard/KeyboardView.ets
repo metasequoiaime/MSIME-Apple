@@ -299,8 +299,8 @@ struct KeyboardView {
     this.settings = KeyboardSession.shared.preferences();
     this.feedback = KeyboardSession.shared.feedback();
     this.traditional = KeyboardSession.shared.usesTraditional();
-    this.skin = KeyboardSkin.from(this.settings.skinId, this.settings.dark);
-    this.voiceSkin = KeyboardSkin.from(this.settings.skinId,
+    this.skin = KeyboardSession.shared.skin(this.settings.skinId, this.settings.dark);
+    this.voiceSkin = KeyboardSession.shared.skin(this.settings.skinId,
       KeyboardSkin.resolveDark(this.settings.voiceTheme, this.settings.globalTheme,
         this.settings.dark));
     this.candidateSkin = KeyboardSkin.from(
@@ -459,9 +459,10 @@ struct KeyboardView {
     .layoutWeight(1)
     .height('100%')
     .backgroundColor($$.emphasized ? this.skin.actionBackground : this.skin.keyBackground)
-    .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
+    .borderRadius(this.skin.cornerRadius)
     .borderWidth(this.skin.borderWidth)
     .borderColor(this.skin.borderColor)
+    .opacity(this.skin.keyOpacity)
     .onClick($$.action)
   }
 
@@ -474,9 +475,10 @@ struct KeyboardView {
     .width($$.width)
     .height('100%')
     .backgroundColor($$.emphasized ? this.skin.actionBackground : this.skin.keyBackground)
-    .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
+    .borderRadius(this.skin.cornerRadius)
     .borderWidth(this.skin.borderWidth)
     .borderColor(this.skin.borderColor)
+    .opacity(this.skin.keyOpacity)
     .onClick($$.action)
   }
 
@@ -660,7 +662,7 @@ struct KeyboardView {
       return;
     }
     this.skin = choice;
-    this.voiceSkin = KeyboardSkin.from(choice.id,
+    this.voiceSkin = KeyboardSession.shared.skin(choice.id,
       KeyboardSkin.resolveDark(this.settings.voiceTheme, this.settings.globalTheme,
         this.settings.dark));
     this.show(SURFACE_NONE);
@@ -2000,7 +2002,7 @@ struct KeyboardView {
           // Two to a row, each a miniature of the keyboard in that skin: the colours are the whole
           // choice, so a name beside a swatch says less than showing the thing.
           Grid() {
-            ForEach(KeyboardSkin.builtIns(this.settings.dark), (choice: KeyboardSkin) => {
+            ForEach(KeyboardSession.shared.keyboardSkins(this.settings.dark), (choice: KeyboardSkin) => {
               GridItem() {
                 this.skinCard(choice);
               }
