@@ -67,6 +67,14 @@ Json response(char *raw) {
   return value.at("value");
 }
 
+std::string panelPreview(const std::string &text) {
+  const auto length = fcitx::utf8::lengthValidated(text);
+  if (length == fcitx::utf8::INVALID_LENGTH) return "…";
+  if (length <= 40) return text;
+  const auto end = fcitx::utf8::nextNChar(text.begin(), 40);
+  return std::string(text.begin(), end) + "…";
+}
+
 struct FcitxVoiceMailbox {
   std::mutex mutex;
   std::string partial;
@@ -3216,8 +3224,7 @@ public:
         const auto &item = state->clipboard_items_.at(index_);
         const auto text = item.is_string() ? item.get<std::string>() : item.value("text", std::string{});
         if (!text.empty()) {
-          const auto clipped = text.substr(0, 40);
-          return clipped + (text.size() > clipped.size() ? "…" : "");
+          return panelPreview(text);
         }
       }
     }
@@ -3288,8 +3295,7 @@ public:
       const auto &item = ic->propertyFor(factory_)->cloud_clipboard_items_.at(index_);
       const auto text = item.is_string() ? item.get<std::string>() : item.value("text", std::string{});
       if (!text.empty()) {
-        const auto clipped = text.substr(0, 40);
-        return clipped + (text.size() > clipped.size() ? "…" : "");
+        return panelPreview(text);
       }
     }
     return "云剪贴板 " + std::to_string(index_ + 1);
