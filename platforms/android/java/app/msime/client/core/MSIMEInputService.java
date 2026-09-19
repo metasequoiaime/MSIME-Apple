@@ -3807,7 +3807,7 @@ public final class MSIMEInputService extends InputMethodService {
                 if (index == englishIndex) {
                     Button card = new KeyboardPressButton(this);
                     card.setAllCaps(false);
-                    card.setText("EN 26\n英文 26 键");
+                    card.setText(schemeCardText("EN", "26", "英文 26 键", schemeTint(null)));
                     card.setOnClickListener(ignored -> {
                         playFeedback(card);
                         selectEnglishScheme();
@@ -3827,7 +3827,8 @@ public final class MSIMEInputService extends InputMethodService {
                 // the Android-specific scheme persistence and selection guards in the callback.
                 Button card = new KeyboardPressButton(this);
                 card.setAllCaps(false);
-                card.setText(scheme.glyph() + " " + scheme.badge() + "\n" + scheme.title());
+                card.setText(schemeCardText(scheme.glyph(), scheme.badge(), scheme.title(),
+                    schemeTint(scheme)));
                 card.setOnClickListener(ignored -> {
                     playFeedback(card);
                     selectKeyboardScheme(scheme);
@@ -3865,6 +3866,31 @@ public final class MSIMEInputService extends InputMethodService {
         schemeSurface.setBackground(new KeyboardSkinKeyDrawable(skin,
             Color.parseColor(skin.keyBackground()), false,
             getResources().getDisplayMetrics().density));
+    }
+
+    /** Keep the scheme family's visual cue on the glyph while the skin owns the card surface. */
+    private CharSequence schemeCardText(String glyph, String badge, String title, int tint) {
+        String firstLine = glyph + " " + badge;
+        SpannableString label = new SpannableString(firstLine + "\n" + title);
+        label.setSpan(new ForegroundColorSpan(tint), 0, firstLine.length(),
+            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return label;
+    }
+
+    private int schemeTint(KeyboardScheme scheme) {
+        if (scheme == null) return schemeColor(0x5B5BD6, 0xA7A7FF); // English text mode.
+        return switch (scheme) {
+            case QUANPIN, QUANPIN_NINE_KEY -> Color.parseColor(skin.accent());
+            case XIAOHE, ZIRANMA, MICROSOFT, SHOUDAO -> schemeColor(0x3F7DE0, 0x8AB4FF);
+            case WUBI -> schemeColor(0x9A6A3A, 0xD5A66A);
+            case JAPANESE_NINE_KEY, JAPANESE -> schemeColor(0xD65A88, 0xFF8CB2);
+            case HANDWRITING -> schemeColor(0x159A9C, 0x56D7D6);
+            case THOUGHTFUL_REPLY -> schemeColor(0xE68A2E, 0xFFB35C);
+        };
+    }
+
+    private int schemeColor(int light, int dark) {
+        return skin.dark() ? dark : light;
     }
 
     private void selectEnglishScheme() {
