@@ -526,23 +526,6 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     }
   }
 
-  /// Edit a candidate identified directly by the generation and global index from an all-candidates
-  /// snapshot. The expanded panel lists the complete engine answer, not only the visible strip.
-  func editCandidate(generation: UInt64, globalIndex: UInt64,
-                     action: MetasequoiaCandidateAction) -> MetasequoiaInputSnapshot {
-    guard let indexValue = UInt(exactly: globalIndex) else { return diagnostic("候选已失效") }
-    switch action {
-    case .promote:
-      return dispatch { msimeClientPinCandidate(handle, generation, indexValue) }
-    case .remove:
-      return dispatch { msimeClientRemoveCandidate(handle, generation, indexValue) }
-    case .fixFirst:
-      return dispatch { msimeClientFixCandidatePosition(handle, generation, indexValue, 1) }
-    case .clearPosition:
-      return dispatch { msimeClientClearCandidatePosition(handle, generation, indexValue) }
-    }
-  }
-
   func openLocalMode(_ trigger: String) -> MetasequoiaInputSnapshot {
     guard let byte = Self.ascii(trigger) else { return diagnostic("本地输入模式无效") }
     return dispatch { pointer(for: String(UnicodeScalar(byte)), shift: true) }
