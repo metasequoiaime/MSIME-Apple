@@ -1,6 +1,7 @@
 #pragma once
 #import <AppKit/AppKit.h>
 #import "CandidateTypography.h"
+#include "CandidateGlossLayout.h"
 // Drawing adapted from MSIME-Apple b637828e15eafcb5e459edd270a962dd14517285.
 static const CGFloat MSIMECandidateTranslationOpacity = 0.62;
 
@@ -127,6 +128,7 @@ static const CGFloat MSIMECandidateTranslationOpacity = 0.62;
         options:NSStringDrawingUsesLineFragmentOrigin | NSStringDrawingTruncatesLastVisibleLine
         attributes:glossAttributes];
     NSSize glossSize = NSMakeSize(ceil(glossBounds.size.width), ceil(glossBounds.size.height));
+    const CGFloat drawnGlossWidth = msime::mac::CandidateGlossDrawnWidth(glossSize.width, availableGlossWidth);
     CGFloat extraHeight = self.translationBelow ? self.translationRowHeight : 0;
     const CGFloat contentHeight = self.bounds.size.height - extraHeight;
     const CGFloat numberY = extraHeight + (contentHeight - numberSize.height) / 2;
@@ -150,7 +152,7 @@ static const CGFloat MSIMECandidateTranslationOpacity = 0.62;
                                   range:NSMakeRange(location, parts[selected].length)];
             }
         }
-        [glossText drawInRect:NSMakeRect(glossX, glossY, MAX(0, self.bounds.size.width - glossX - 8), drawHeight)];
+        [glossText drawInRect:NSMakeRect(glossX, glossY, drawnGlossWidth, drawHeight)];
     }
 }
 @end
