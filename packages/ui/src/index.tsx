@@ -543,6 +543,8 @@ export function dictionaryErrorMessage(error: unknown, fallback: string): string
       return "词库拒绝了这次读取，请稍后重试。";
     case "dictionary_pinyin_unavailable":
       return "拼音表不可用，无法校验这条词的读音。";
+    case "dictionary_reset_rejected":
+      return "清除学习数据失败，请关闭正在使用输入法的程序后重试。";
     case "dictionary_unavailable":
       return "无法打开用户词库，请检查输入法是否正在运行。";
     default:
@@ -699,6 +701,8 @@ export interface SettingsClient {
   save(revision: number, preferences: Preferences): Promise<Snapshot>;
   onPreferencesChanged?(listener: (snapshot: Snapshot) => void): Promise<() => void>;
   dictionary?: DictionaryClient;
+  /** macOS can atomically restore packaged dictionaries and clear all learning state. */
+  resetLearnedData?: () => Promise<void>;
   readAppVersion?: () => Promise<string>;
   openExternalUrl?: (url: string) => Promise<void>;
   copyText?: (text: string) => Promise<void>;
@@ -1481,6 +1485,23 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
     finally { setPhraseBusy(false); }
   }
 
+  async function resetLearnedData() {
+    if (!client.resetLearnedData || phraseBusy) return;
+    if (typeof window !== "undefined" && !window.confirm("清除所有学习数据？候选词频、用户词典和拼音学习记录将永久删除。此操作无法撤销，输入方案等设置不会改变。")) return;
+    setPhraseBusy(true); setPhraseError(""); setPhraseNotice("");
+    try {
+      await client.resetLearnedData();
+      setPhrases([]);
+      setPhrasePage({ offset: 0, hasMore: false, status: "已清除学习数据" });
+      setDictionaryPendingCount(0);
+      setDictionaryFailures([]);
+      setDictionarySnapshotError("");
+      setPhraseNotice("已清除所有学习数据；输入方案和设置保持不变。");
+    } catch (error) {
+      setPhraseError(dictionaryErrorMessage(error, "清除学习数据失败，请关闭正在使用输入法的程序后重试。"));
+    } finally { setPhraseBusy(false); }
+  }
+
   const dirty = !!draft && !!snapshot && JSON.stringify(draft) !== JSON.stringify(snapshot.preferences);
   const ai = draft?.ai_assistant ?? defaultAiAssistant;
   const aiOrigin = aiCredentialOrigin(ai.endpoint);
@@ -1946,6 +1967,9 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
             <span aria-live="polite">{phrasePage.status}</span>
             <button type="button" className="secondary" disabled={phraseBusy || !phrasePage.hasMore} onClick={() => void loadPhrases(dictionaryKind, phrasePage.offset + DICTIONARY_PAGE_SIZE)}>下一页</button>
           </div>
+        </div>}
+        {macosPlatform && client.resetLearnedData && <div className="section" role="region" aria-label="学习数据">
+          <div className="section-header"><span className="section-title">学习数据<small>清除候选词频、用户词典和拼音学习记录；输入方案与其他设置不会改变。</small></span><button type="button" className="secondary danger-button" disabled={phraseBusy} onClick={() => void resetLearnedData()}>清除全部学习数据</button></div>
         </div>}
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "skin"} aria-label="皮肤">

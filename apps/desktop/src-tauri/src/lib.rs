@@ -1304,6 +1304,7 @@ fn dictionary_error_code(reason: &str) -> &'static str {
         "dictionary read rejected" => "dictionary_read_rejected",
         "dictionary pinyin unavailable" => "dictionary_pinyin_unavailable",
         "dictionary access unavailable" => "dictionary_unavailable",
+        "learned-data reset rejected" => "dictionary_reset_rejected",
         _ => "storage",
     }
 }
@@ -1311,7 +1312,7 @@ fn dictionary_error_code(reason: &str) -> &'static str {
 fn dictionary_action_requires_quiesce(action: &Value) -> bool {
     matches!(
         action.get("operation").and_then(Value::as_str),
-        Some("edit" | "import")
+        Some("edit" | "import" | "reset")
     )
 }
 
@@ -6461,6 +6462,9 @@ mod tests {
         ));
         assert!(super::dictionary_action_requires_quiesce(
             &serde_json::json!({"operation": "import"})
+        ));
+        assert!(super::dictionary_action_requires_quiesce(
+            &serde_json::json!({"operation": "reset"})
         ));
         assert!(!super::dictionary_action_requires_quiesce(
             &serde_json::json!({"operation": "list"})

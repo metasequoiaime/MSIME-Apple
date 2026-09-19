@@ -106,6 +106,7 @@ enum Operation {
         text: String,
         request_id: String,
     },
+    Reset,
     Export {
         kind: Kind,
         format: String,
@@ -384,6 +385,17 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
         Operation::ImportPersonal { .. } => {
             Err("personal dictionary import requires the Android queue".into())
         }
+        Operation::Reset => {
+            let _access = DictionaryAccess::try_maintenance(
+                Path::new(&options.user_data),
+                Path::new(&options.dictionaries),
+            )
+            .map_err(|_| "dictionary access unavailable")?
+            .ok_or("dictionary maintenance busy")?;
+            msime_engine_bridge::reset_learned_data(&options)
+                .map_err(|_| "learned-data reset rejected")?;
+            Ok(json!({ "reset": true }))
+        }
         Operation::Export {
             kind,
             format,
@@ -576,6 +588,7 @@ pub fn personal_dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Valu
             let state = store.read().map_err(personal_dictionary_error)?;
             Ok(json!({ "queued": true, "pending_count": state.pending_count() }))
         }
+        Operation::Reset => Err("learned-data reset is unavailable on mobile".into()),
         Operation::Export {
             kind,
             format,
