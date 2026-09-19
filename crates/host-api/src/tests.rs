@@ -2836,11 +2836,11 @@ fn complete_candidate_abi_keeps_view_paged_and_selects_a_later_entry() {
 #[test]
 #[cfg(unix)]
 fn emoji_catalog_pagination_preserves_legacy_defaults() {
-    let legacy: EmojiCatalogQuery = serde_json::from_str("{}").unwrap();
+    let legacy: crate::ffi::EmojiCatalogQuery = serde_json::from_str("{}").unwrap();
     assert!(!legacy.cursor);
     assert_eq!(legacy.offset, 0);
     assert_eq!(legacy.panel.limit, 48);
-    let page: EmojiCatalogQuery = serde_json::from_str(
+    let page: crate::ffi::EmojiCatalogQuery = serde_json::from_str(
         r#"{"search":"synthetic","category":"symbols","offset":510,"limit":255}"#,
     )
     .unwrap();
@@ -2848,7 +2848,7 @@ fn emoji_catalog_pagination_preserves_legacy_defaults() {
     assert_eq!(page.panel.search, "synthetic");
     assert_eq!(page.panel.category, "symbols");
     assert_eq!(page.panel.limit, 255);
-    assert!(serde_json::from_str::<EmojiCatalogQuery>(r#"{"offset":-1}"#).is_err());
+    assert!(serde_json::from_str::<crate::ffi::EmojiCatalogQuery>(r#"{"offset":-1}"#).is_err());
 }
 
 #[test]
