@@ -184,7 +184,7 @@ MSIME: panel ready: phone, soft keyboard
 
 该验证同时暴露了两个缺陷，均已修复：OHOS 的 AsyncCallback 无论成败都会传入 `BusinessError`，成功时 `code` 为 0，因此 `if (error)` 恒为真——设置页每次加载成功都会记一条"加载失败"，真正的失败反而淹没其中；手写识别更严重，`componentSnapshot.get` 的回调同样这样判断，于是每一笔都在看快照之前就走了失败分支，手写从来没有识别成功过。
 
-仍未验证：手机形态下按键经由输入法组字。该形态刻意不接管硬件按键（`KeyboardExtensionAbility` 只在 `isDesktop()` 时注册 `keyEvent`，手机上的按键归应用），要验证组字需要 2in1 形态或在绘出的键盘上点按；本次 2in1 实例未能稳定启动。
+仍未验证：按键经由输入法组字。此处此前写作"手机形态刻意不接管硬件按键"，那是读错了代码的结论。`KeyboardExtensionAbility` 确实只在 `isDesktop()` 时注册 `keyEvent`，但那段注释论证的是「2in1 上这是唯一通路」——它说明桌面需要注册，并没有说明手机不该注册。区别不是文字游戏：手机或平板接上蓝牙/USB 键盘时，不注册意味着框架把按键直接交给编辑器，物理键打出原文字母而完全不组字，这是功能缺口。现已改为形态决定画不画键、枚举决定路不路由键（`HardwareKeyboardPolicy`），判据是 `ALPHABETIC_KEYBOARD` 而非 `sources` 含 `keyboard`——后者在每台手机上都因音量与电源键成立。因此这一项的设备验证不再需要一台 2in1，任何接得上键盘的设备都可以。
 
 ## 验证边界
 

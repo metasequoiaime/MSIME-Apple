@@ -130,15 +130,18 @@
 | 悬浮工具栏、组件开关、缩放 | `FloatingToolbar.ets`、`FloatingToolbarLayout.ts` | 逻辑回归 |
 | Emoji、颜文字、符号、剪贴板历史 | `emoji/EmojiCatalogModel.ts`、`clipboard/*` | 逻辑回归 |
 | 四种皮肤、深浅色、字体 | `candidate/CandidateSkinPolicy.ts`、`candidate/CandidateFontFamilyPolicy.ts` | 逻辑回归 |
-| `Ctrl+Shift+E`、`Ctrl+Shift+Space`、`Ctrl+.` | `InputModeRouting.ts` | 逻辑回归；2in1 硬件键未在设备上按 |
+| `Ctrl+Shift+E`、`Ctrl+Shift+Space`、`Ctrl+.` | `InputModeRouting.ts` | 逻辑回归；硬件键未在设备上按 |
 | `Ctrl+Shift+Alt+1–8`、`+C` | `HardwareKeyRouter.ts`、`KeyboardSession.resetCache` | 逻辑回归；同上 |
+| 外接键盘（手机/平板接蓝牙或 USB 键盘） | `input/HardwareKeyboardPolicy.ts`、`input/HarmonyHardwareKeyboards.ets` | 逻辑回归；热插拔未在设备上插拔 |
 | 更新、关于、帮助、反馈 | 共享设置页 | 共享 UI |
 | 服务守护、安装、卸载 | 不适用：扩展生命周期由系统管理 | — |
 | `Ctrl+Shift+Alt+R`/`+T`（重启/退出服务） | 不适用：本宿主没有独立服务进程 | — |
 
 两类条目没有目的地实现，都是平台差异而非缺口：Windows 的服务守护与服务重启/退出快捷键针对独立 Server 进程，HarmonyOS 的输入法扩展由系统拉起与回收。
 
-未取得设备证据的部分集中在三处：2in1 硬件按键经 Engine 组字（2in1 模拟器实例本机无法稳定启动）、语音 provider 实际识别、手写实际识别。前者是形态限制，后两者需要凭据与真实音频/笔迹。其余条目均有不依赖设备的回归覆盖，且输入法在设备上已完成安装、启用、切换、原生模块加载、Engine 会话建立、面板创建与接管真实编辑器。
+未取得设备证据的部分集中在三处：硬件按键经 Engine 组字、语音 provider 实际识别、手写实际识别。后两者需要凭据与真实音频/笔迹。其余条目均有不依赖设备的回归覆盖，且输入法在设备上已完成安装、启用、切换、原生模块加载、Engine 会话建立、面板创建与接管真实编辑器。
+
+硬件按键一项此前被记为「2in1 形态限制」，该结论是错的，已随本批纠正。`KeyboardExtensionAbility` 只在 `KeyboardFormFactor.isDesktop()` 时订阅 `keyEvent`，而那段注释论证的是「2in1 上这是唯一通路」——它说明桌面需要订阅，不说明手机不能订阅。真实后果不止于验证不到：手机或平板接上蓝牙/USB 键盘时扩展根本不订阅，框架把按键直接交给编辑器，物理键打出原文字母而完全不组字，这是功能缺口而非形态差异。现已按「形态决定画不画键、枚举决定路不路由键」拆开，判据是 `ALPHABETIC_KEYBOARD` 而非 `sources` 含 `keyboard`（后者在每台手机上都为音量与电源键成立）。因此该项的设备证据不再依赖一台能启动的 2in1，任何接得上键盘的 HarmonyOS 设备都能验证。
 
 增量记录（2026-09-20，Windows 第六批：把三项「留待决定」逐个落定）：上一批把三件事记为需要用户决定，这一批逐个查清并处理，不再挂着。
 
