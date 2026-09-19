@@ -71,6 +71,8 @@ assert 'result.value("_generation", uint64_t{}) == cloud_clipboard_generation_' 
 assert 'emoji_generation_' in source
 assert 'result.value("_generation", uint64_t{}) == emoji_generation_' in source
 assert 'result["_generation"] = generation' in source
+assert 'item.value("source", 255u) == source' in source
+assert 'Json candidates = Json::array();' in source
 assert 'std::string panelPreview(const std::string &text)' in source
 assert 'fcitx::utf8::nextNChar(text.begin(), 40)' in source
 assert 'text.substr(0, 40)' not in source
