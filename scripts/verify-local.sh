@@ -234,22 +234,40 @@ elif [ -n "$cross_vcpkg" ]; then
   # worktree on this machine shares one rather than each rebuilding curl and
   # boost before it can compile anything of ours.
   cross_deps="$(dirname "$cross_vcpkg")/windows-native-deps"
-  cross_log="$(mktemp)"
-  if MSIME_VCPKG_ROOT="$cross_vcpkg" MSIME_WINDOWS_DEPS_ROOT="$cross_deps" \
-    bash platforms/windows/build-cross.sh x64 >"$cross_log" 2>&1; then
-    echo "windows cross build (x64): links"
-  elif grep -q "Failed to take the filesystem lock" "$cross_log"; then
-    # vcpkg holds one lock per checkout, and this repository is worked in
-    # several worktrees at once that all resolve to the same tree. A second
-    # concurrent run has verified nothing, but reporting that as a failure is
-    # worse than saying so: a gate that goes red for reasons unrelated to the
-    # change is a gate people learn to pass with --no-verify.
-    echo "windows cross build: skipped (vcpkg busy in another run)"
+  # One cross build per machine at a time. The vcpkg checkout and the built
+  # dependencies are both shared, and this repository is worked in several
+  # worktrees at once, so two runs otherwise overlap: one reinstalls the
+  # manifest into the prefix the other is already compiling against, and the
+  # second fails on a header that is present before and after. A gate that goes
+  # red for reasons unrelated to the change is a gate people learn to pass with
+  # --no-verify, so a run that cannot take the lock reports what it did - which
+  # is nothing - rather than a failure.
+  #
+  # mkdir is the test-and-set: it is atomic on every filesystem this runs on,
+  # unlike "test -e then create". The trap covers an interrupted run; a lock
+  # left by a killed process is cleared by removing the directory it names,
+  # which the message points at.
+  cross_lock="$cross_deps/.verify-cross-build.lock"
+  mkdir -p "$cross_deps" 2>/dev/null
+  if ! mkdir "$cross_lock" 2>/dev/null; then
+    echo "windows cross build: skipped (another run holds $cross_lock)"
   else
-    grep -Ei "error:|Error [0-9]|No rule to make target" "$cross_log" | head -5
-    fail "windows cross build"
+    trap 'rmdir "$cross_lock" 2>/dev/null' EXIT
+    cross_log="$(mktemp)"
+    if MSIME_VCPKG_ROOT="$cross_vcpkg" MSIME_WINDOWS_DEPS_ROOT="$cross_deps" \
+      bash platforms/windows/build-cross.sh x64 >"$cross_log" 2>&1; then
+      echo "windows cross build (x64): links"
+    elif grep -q "Failed to take the filesystem lock" "$cross_log"; then
+      # vcpkg's own lock, taken by something that is not this gate.
+      echo "windows cross build: skipped (vcpkg busy in another run)"
+    else
+      grep -Ei "error:|Error [0-9]|No rule to make target" "$cross_log" | head -5
+      fail "windows cross build"
+    fi
+    rm -f "$cross_log"
+    rmdir "$cross_lock" 2>/dev/null
+    trap - EXIT
   fi
-  rm -f "$cross_log"
 else
   echo "skipped: $MSIME_NATIVE_BUILD not configured, and no MinGW cross toolchain"
   echo "  run platforms/windows/build-cross.sh x64 once to enable this gate here"
