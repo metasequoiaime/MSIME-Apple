@@ -1,3 +1,5 @@
+import { utf8Length } from '../Utf8';
+
 /**
  * Paging and recent-selection policy for the Engine-owned emoji catalog, ported from
  * platforms/android/java/app/msime/client/EmojiCatalogModel.java.
@@ -8,6 +10,7 @@
 export const EMOJI_COLUMNS: number = 8;
 export const EMOJI_PAGE_SIZE: number = 64;
 export const EMOJI_RECENTS_LIMIT: number = 24;
+export const EMOJI_RECENTS_MAX_BYTES: number = 16 * 1024;
 export const MAX_TEXT_CODE_POINTS: number = 32;
 export const MAX_ANNOTATION_CODE_POINTS: number = 1024;
 
@@ -97,6 +100,39 @@ export class EmojiCatalogModel {
       }
     }
     return unique;
+  }
+
+  /**
+   * Reads the small app-private recents document without trusting its shape.
+   *
+   * Recents are convenience state rather than a reason to make the keyboard fail: a malformed or
+   * over-sized file is treated as empty, while every value that survives still goes through the
+   * same code-point and duplicate bounds as values selected in this process.
+   */
+  static parseRecents(document: string | null): string[] {
+    if (document === null || document.length === 0
+        || utf8Length(document) > EMOJI_RECENTS_MAX_BYTES) {
+      return [];
+    }
+    try {
+      const decoded: unknown = JSON.parse(document);
+      if (!Array.isArray(decoded)) {
+        return [];
+      }
+      const values: string[] = [];
+      for (const value of decoded) {
+        if (typeof value === 'string') {
+          values.push(value);
+        }
+      }
+      return EmojiCatalogModel.normalizeRecents(values);
+    } catch {
+      return [];
+    }
+  }
+
+  static serializeRecents(stored: string[] | null): string {
+    return JSON.stringify(EmojiCatalogModel.normalizeRecents(stored));
   }
 
   static recordRecent(stored: string[] | null, selected: string): string[] {
