@@ -56,7 +56,10 @@ fn silent_wav() -> Vec<u8> {
 
 pub fn test(config: &Value, transport: &impl Transport) -> ProbeResult {
     let get = |key| config.get(key).and_then(Value::as_str).unwrap_or("").trim();
-    if !matches!(get("provider"), "openai" | "siliconflow" | "groq") {
+    if !matches!(
+        get("provider"),
+        "openai" | "siliconflow" | "groq" | "everyapi" | "mistral"
+    ) {
         return ProbeResult {
             ok: false,
             message: "此识别服务的凭据测试尚未接入。".into(),
@@ -140,7 +143,7 @@ mod tests {
     }
     #[test]
     fn asr_probe_status_and_provider_routing() {
-        for provider in ["openai", "siliconflow", "groq"] {
+        for provider in ["openai", "siliconflow", "groq", "everyapi", "mistral"] {
             assert!(test(&config(provider), &Fake(Some(200))).ok);
             for status in [None, Some(301), Some(401), Some(403), Some(429), Some(500)] {
                 let result = test(&config(provider), &Fake(status));

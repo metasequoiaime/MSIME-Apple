@@ -84,7 +84,10 @@ std::string Polish(std::string text, NSDictionary *options, const std::shared_pt
     if (recognitionRequired) {
         const auto provider = msime::voice::normalize_voice_provider(String(snapshot, @"asr_provider"));
         const auto endpoint = msime::voice::resolved_asr_endpoint(provider, String(snapshot, @"asr_endpoint"));
-        if ((provider != "openai" && provider != "groq" && provider != "siliconflow") ||
+        // The batch multipart providers. Doubao is the streaming websocket and never reaches
+        // this request; anything else is stale configuration rather than a provider choice.
+        if ((provider != "openai" && provider != "groq" && provider != "siliconflow" &&
+             provider != "everyapi" && provider != "mistral") ||
             !Endpoint(endpoint) || ![snapshot[@"asr_token"] length]) {
             if (error) *error = Failure(); return nil;
         }

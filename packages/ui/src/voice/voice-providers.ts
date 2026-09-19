@@ -41,6 +41,16 @@ export const ASR_PROVIDER_DEFAULTS: Record<string, ProviderDefaults> = {
     models: ["whisper-large-v3-turbo", "whisper-large-v3"],
     documentation: "https://console.groq.com/docs/speech-to-text",
   },
+  everyapi: {
+    endpoint: "https://api.everyapi.ai/v1/audio/transcriptions", model: "openai/whisper-large-v3-turbo",
+    models: ["openai/whisper-large-v3-turbo", "volc.seedasr.sauc.duration"],
+    documentation: "https://everyapi.ai/models",
+  },
+  mistral: {
+    endpoint: "https://api.mistral.ai/v1/audio/transcriptions", model: "voxtral-mini-latest",
+    models: ["voxtral-mini-latest"],
+    documentation: "https://docs.mistral.ai/studio/audio/speech_to_text/offline_transcription",
+  },
 };
 
 export const POLISH_PROVIDER_DEFAULTS: Record<string, ProviderDefaults> = {

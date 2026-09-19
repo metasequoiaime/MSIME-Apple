@@ -54,6 +54,10 @@ std::string default_asr_endpoint(std::string_view provider) {
     return "https://api.groq.com/openai/v1/audio/transcriptions";
   if (id == "siliconflow")
     return "https://api.siliconflow.cn/v1/audio/transcriptions";
+  if (id == "everyapi")
+    return "https://api.everyapi.ai/v1/audio/transcriptions";
+  if (id == "mistral")
+    return "https://api.mistral.ai/v1/audio/transcriptions";
   if (id == "doubao")
     return "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async";
   // Keep unknown legacy values on the HTTP provider fallback used by the
@@ -69,6 +73,10 @@ std::string default_asr_model(std::string_view provider) {
     return "whisper-large-v3-turbo";
   if (id == "siliconflow")
     return "FunAudioLLM/SenseVoiceSmall";
+  if (id == "everyapi")
+    return "openai/whisper-large-v3-turbo";
+  if (id == "mistral")
+    return "voxtral-mini-latest";
   if (id == "doubao")
     return {};
   return "FunAudioLLM/SenseVoiceSmall";
