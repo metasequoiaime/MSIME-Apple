@@ -7,7 +7,7 @@ import { SettingsPage, type DictionaryClient, type DictionaryEntry, type Diction
   CloudClipboardPanel, CloudDictionaryPanel, CloudDictionaryCatalogPanel, CloudDictionaryFilesPanel, CloudDictionaryApplyPanel,
   CloudCandidatesPanel, type AccountClient, type CloudClipboardPanelClient,
   type CloudDictionaryAction, type CloudDictionaryPanelClient, type SettingsClient, type Snapshot, type TypingStatisticsClient, type TypingStatisticsStatus } from "@msime/ui";
-import type { AiAssistantClient, ApiCredentialTestResult, ApiCredentialTestService, VoiceCaptureDevice } from "@msime/ui";
+import type { AiAssistantClient, ApiCredentialTestResult, ApiCredentialTestService, MobileKeyboardFeedback, VoiceCaptureDevice } from "@msime/ui";
 import "@msime/ui/styles.css";
 
 /**
@@ -49,6 +49,8 @@ interface NativeBridge {
   listVoiceCaptureDevices(): string;
   /** `{"ok":true,"value":["Family",...]}`; a refusal is reported so the page can say so. */
   listFontFamilies(): string;
+  /** `{operation:"load"|"save"|"preview",...}`; the reply carries the settings now in force. */
+  keyboardFeedback(request: string): string;
 }
 
 declare global {
@@ -212,6 +214,16 @@ function makeClient(native: NativeBridge, openCloudClipboard: () => void, openCl
     openSystemKeyboardSettings: async () => native.openSystemKeyboardSettings(),
     listVoiceCaptureDevices: async () => unwrap<VoiceCaptureDevice[]>(native.listVoiceCaptureDevices()),
     listFontFamilies: async () => unwrap<string[]>(native.listFontFamilies()),
+    mobileKeyboardFeedback: {
+      load: async () => unwrap<MobileKeyboardFeedback>(
+        native.keyboardFeedback(JSON.stringify({ operation: "load" }))),
+      save: async settings => unwrap<MobileKeyboardFeedback>(
+        native.keyboardFeedback(JSON.stringify({ operation: "save", settings }))),
+      preview: async strength => {
+        unwrap<MobileKeyboardFeedback>(
+          native.keyboardFeedback(JSON.stringify({ operation: "preview", strength })));
+      },
+    },
     dictionary,
     typingStatistics,
     aiAssistant,

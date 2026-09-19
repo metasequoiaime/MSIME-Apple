@@ -60,6 +60,9 @@ import { CandidateFontFamilyPolicy }
 import { CandidateAnnotationPreferencePolicy }
   from '../entry/src/main/ets/keyboard/candidate/CandidateAnnotationPreferencePolicy';
 import { InputModeHudPolicy } from '../entry/src/main/ets/keyboard/InputModeHudPolicy';
+import { KeyboardFeedbackBridge, MobileKeyboardFeedback }
+  from '../entry/src/main/ets/keyboard/KeyboardFeedbackBridge';
+import { HapticStrength } from '../entry/src/main/ets/keyboard/KeyboardFeedback';
 import { EnglishCompletions, EnglishReplacement, EnglishSuggestionPolicy }
   from '../entry/src/main/ets/keyboard/input/EnglishSuggestionPolicy';
 import { ImeModeScopePolicy } from '../entry/src/main/ets/keyboard/input/ImeModeScopePolicy';
@@ -1668,6 +1671,41 @@ group('a completion reply is bounded before it reaches the strip', () => {
   check(EnglishSuggestionPolicy.decode(
     JSON.stringify({ ok: true, value: { prefix: 'hel', items: ['x'.repeat(200)] } })) === null,
     'an implausibly long word is refused');
+});
+
+group('the settings page and the keyboard agree on what the loudest haptic is called', () => {
+  // The shared DTO says 'strong' and the keyboard's own enum says 'heavy'. Assigned directly, a
+  // save from the page would store a value KeyboardFeedback.parse falls back from, so the setting
+  // would appear to save and the keys would go on feeling the same.
+  const heavy: MobileKeyboardFeedback = KeyboardFeedbackBridge.toShared(
+    { sound: true, haptics: true, strength: HapticStrength.HEAVY });
+  check(heavy.hapticStrength === 'strong', 'the keyboard\u0027s heavy reaches the page as strong');
+  check(heavy.soundEnabled === true && heavy.hapticsEnabled === true, 'the two switches travel as they are');
+  check(KeyboardFeedbackBridge.fromShared(
+    { soundEnabled: false, hapticsEnabled: true, hapticStrength: 'strong' }).strength
+    === HapticStrength.HEAVY, 'and the page\u0027s strong comes back as heavy');
+  check(KeyboardFeedbackBridge.fromShared(
+    { soundEnabled: false, hapticsEnabled: true, hapticStrength: 'heavy' }).strength
+    === HapticStrength.HEAVY, 'a document already carrying the keyboard spelling still reads');
+  check(KeyboardFeedbackBridge.toShared(
+    { sound: false, haptics: false, strength: HapticStrength.LIGHT }).hapticStrength === 'light',
+    'the other two names are the same on both sides');
+});
+
+group('an unfamiliar feedback value falls back by field rather than wholesale', () => {
+  const partial = KeyboardFeedbackBridge.fromShared(
+    { soundEnabled: true, hapticsEnabled: true, hapticStrength: 'thunderous' });
+  check(partial.strength === HapticStrength.MEDIUM, 'a strength nobody knows becomes the default one');
+  check(partial.sound === true && partial.haptics === true,
+    'and the two switches beside it are kept, which discarding the record whole would have lost');
+  const missing = KeyboardFeedbackBridge.fromShared(null);
+  check(missing.sound === false && missing.haptics === false, 'no record at all is the defaults');
+  check(KeyboardFeedbackBridge.previewDuration('strong')
+    > KeyboardFeedbackBridge.previewDuration('light'),
+    'the preview buzzes longer for the stronger setting');
+  check(KeyboardFeedbackBridge.previewDuration('thunderous')
+    === KeyboardFeedbackBridge.previewDuration('medium'),
+    'and an unknown one previews the default rather than nothing');
 });
 
 group('the mode badge is built only when the shared preference allows it', () => {

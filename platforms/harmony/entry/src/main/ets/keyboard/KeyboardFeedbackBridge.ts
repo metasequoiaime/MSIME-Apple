@@ -1,0 +1,66 @@
+/**
+ * The shared settings page's view of key feedback, and this host's.
+ *
+ * The two disagree about one word. The shared DTO names the loudest haptic `strong`, matching what
+ * the page shows; the keyboard's own enum calls it `heavy`, matching the Apple naming the touch
+ * keyboard's cycling card was ported from. Left to a direct assignment the page would save a
+ * strength the keyboard does not recognise, which `KeyboardFeedback.parse` would silently fall back
+ * from — the setting would appear to save and the keys would go on feeling the same.
+ *
+ * Everything here is a translation between two records. The file both processes read is the
+ * keyboard's; the settings page is simply a second writer of it.
+ */
+import { FeedbackSettings, HapticStrength, KeyboardFeedback } from './KeyboardFeedback';
+
+/** The shared shape, as the page sends and expects it. */
+export interface MobileKeyboardFeedback {
+  soundEnabled: boolean;
+  hapticsEnabled: boolean;
+  hapticStrength: string;
+}
+
+export class KeyboardFeedbackBridge {
+  static readonly STRONG: string = 'strong';
+
+  static toShared(settings: FeedbackSettings): MobileKeyboardFeedback {
+    return {
+      soundEnabled: settings.sound,
+      hapticsEnabled: settings.haptics,
+      hapticStrength: settings.strength === HapticStrength.HEAVY
+        ? KeyboardFeedbackBridge.STRONG : settings.strength as string
+    };
+  }
+
+  /**
+   * Read what the page sent, falling back per field rather than as a whole: a page from a newer
+   * build may name a strength this one has never heard of, and that is not a reason to discard the
+   * two switches beside it.
+   */
+  static fromShared(value: MobileKeyboardFeedback | null): FeedbackSettings {
+    if (value === null) {
+      return KeyboardFeedback.DEFAULTS;
+    }
+    return {
+      sound: typeof value.soundEnabled === 'boolean'
+        ? value.soundEnabled : KeyboardFeedback.DEFAULTS.sound,
+      haptics: typeof value.hapticsEnabled === 'boolean'
+        ? value.hapticsEnabled : KeyboardFeedback.DEFAULTS.haptics,
+      strength: KeyboardFeedbackBridge.strength(value.hapticStrength)
+    };
+  }
+
+  /** The vibration length the page's preview asks for, in the keyboard's own terms. */
+  static previewDuration(strength: string): number {
+    return KeyboardFeedback.duration(KeyboardFeedbackBridge.strength(strength));
+  }
+
+  private static strength(value: string): HapticStrength {
+    if (value === KeyboardFeedbackBridge.STRONG || value === HapticStrength.HEAVY) {
+      return HapticStrength.HEAVY;
+    }
+    if (value === HapticStrength.LIGHT) {
+      return HapticStrength.LIGHT;
+    }
+    return HapticStrength.MEDIUM;
+  }
+}

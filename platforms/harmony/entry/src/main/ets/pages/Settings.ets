@@ -5,6 +5,7 @@ import pasteboard from '@ohos.pasteboard';
 import Want from '@ohos.app.ability.Want';
 import bundleManager from '@ohos.bundle.bundleManager';
 import font from '@ohos.font';
+import vibrator from '@ohos.vibrator';
 import http from '@ohos.net.http';
 import webSocket from '@ohos.net.webSocket';
 import util from '@ohos.util';
@@ -15,7 +16,22 @@ import { HarmonyAccountCloudBridge } from '../account/HarmonyAccountCloudBridge'
 import { utf8Length } from '../keyboard/Utf8';
 import { niutransAuth, tencentAuthorization } from '../keyboard/CredentialCrypto';
 import { HarmonyVoiceCaptureDevices } from '../keyboard/input/HarmonyVoiceCaptureDevices';
+import { KeyboardFeedbackBridge, MobileKeyboardFeedback } from '../keyboard/KeyboardFeedbackBridge';
+import { FeedbackSettings } from '../keyboard/KeyboardFeedback';
 import { VoiceCaptureDevice } from '../keyboard/input/VoiceCaptureDevicePolicy';
+
+/** One key-feedback operation from the page: load, save or preview. */
+interface KeyboardFeedbackAction {
+  operation: string;
+  settings?: MobileKeyboardFeedback;
+  strength?: string;
+}
+
+interface KeyboardFeedbackReply {
+  ok: boolean;
+  value: MobileKeyboardFeedback;
+  error: string;
+}
 
 /** The installed family names, or a refusal the page can report rather than an empty list. */
 interface FontFamilyReply {
@@ -315,7 +331,8 @@ struct Settings {
             'scanSkinCatalog', 'readSkinImage', 'readSkinFont', 'readSkinToolbarCss',
             'dictionary', 'account', 'cloudDictionary', 'cloudDictionaryDownload', 'cloudDictionarySnapshot',
             'typingStatistics', 'aiModels', 'aiTest', 'testApiCredential', 'openExternalUrl', 'copyText',
-            'openSystemKeyboardSettings', 'listVoiceCaptureDevices', 'listFontFamilies'],
+            'openSystemKeyboardSettings', 'listVoiceCaptureDevices', 'listFontFamilies',
+            'keyboardFeedback'],
           controller: this.controller
         })
         .width('100%')
@@ -1164,6 +1181,53 @@ class SettingsBridge {
     pasteboard.getSystemPasteboard().setData(data).catch((error: Object): void => {
       KeyboardLog.error(`copy failed: ${describeError(error)}`);
     });
+  }
+
+  /**
+   * Key sound and haptics, which the keyboard stores beside its own state rather than in the shared
+   * preferences: how a key feels belongs to the device being typed on, not to the account.
+   *
+   * The settings page is a second writer of the same file the keyboard reads at startup, which is
+   * why a change here reaches the keyboard the next time it starts rather than mid-session.
+   */
+  keyboardFeedback(request: string): string {
+    let action: KeyboardFeedbackAction;
+    try {
+      action = JSON.parse(request) as KeyboardFeedbackAction;
+    } catch (error) {
+      return JSON.stringify({ ok: false, value: KeyboardFeedbackBridge.toShared(
+        KeyboardSession.feedbackIn(this.stateDirectory)), error: 'invalid feedback action' } as KeyboardFeedbackReply);
+    }
+    if (action.operation === 'preview') {
+      this.previewFeedback(action.strength ?? 'medium');
+      return JSON.stringify({ ok: true, value: KeyboardFeedbackBridge.toShared(
+        KeyboardSession.feedbackIn(this.stateDirectory)), error: '' } as KeyboardFeedbackReply);
+    }
+    if (action.operation === 'save') {
+      const settings: FeedbackSettings =
+        KeyboardFeedbackBridge.fromShared(action.settings ?? null);
+      if (!KeyboardSession.saveFeedbackIn(this.stateDirectory, settings)) {
+        return JSON.stringify({ ok: false, value: KeyboardFeedbackBridge.toShared(
+          KeyboardSession.feedbackIn(this.stateDirectory)), error: '按键反馈未能保存' } as KeyboardFeedbackReply);
+      }
+      return JSON.stringify({ ok: true, value: KeyboardFeedbackBridge.toShared(settings),
+        error: '' } as KeyboardFeedbackReply);
+    }
+    return JSON.stringify({ ok: true, value: KeyboardFeedbackBridge.toShared(
+      KeyboardSession.feedbackIn(this.stateDirectory)), error: '' } as KeyboardFeedbackReply);
+  }
+
+  /** One buzz at the strength being previewed. A device without a vibrator simply does nothing. */
+  private previewFeedback(strength: string): void {
+    try {
+      vibrator.startVibration(
+        { type: 'time', duration: KeyboardFeedbackBridge.previewDuration(strength) },
+        { usage: 'physicalFeedback' }).catch((error: Object): void => {
+          KeyboardLog.error(`feedback preview unavailable: ${describeError(error)}`);
+        });
+    } catch (error) {
+      KeyboardLog.error(`feedback preview unavailable: ${describeError(error)}`);
+    }
   }
 
   /**
