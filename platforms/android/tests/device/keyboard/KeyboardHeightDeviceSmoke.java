@@ -39,15 +39,15 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
             openEditor();
             stage = "baseline keyboard height";
             int standard = keyHeight("n");
-            stage = "composition before live resize";
-            tap(key("n"));
-            await(field("msime-test-plain").and(node -> equalsText("n", node.getText())));
 
+            // 设置 lives in the shortcut bar, and the candidate strip takes that row while a
+            // composition is open, so the panel is only reachable from an idle keyboard. Each
+            // resize is therefore checked by composing after it and clearing before the next one.
             stage = "open keyboard settings";
             tap(key("设置"));
-            AccessibilityNodeInfo slider = await(heightSlider());
+            await(heightSlider());
             stage = "increase keyboard height";
-            setProgress(slider, 48);
+            setHeight(48);
             long tallRevision = awaitHeightPreference(preferences, 48, revision + 2);
             stage = "return from tall setting";
             tap(description("返回键盘"));
@@ -57,18 +57,18 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
             if (tall < standard + minimumDelta)
                 throw new AssertionError("Positive adjustment did not enlarge key faces: "
                     + standard + " -> " + tall + ", expected delta " + minimumDelta);
-            await(field("msime-test-plain").and(node -> equalsText("n", node.getText())));
+            composeAndClear();
 
             stage = "decrease keyboard height";
             tap(key("设置"));
-            setProgress(await(heightSlider()), -12);
+            setHeight(-12);
             long shortRevision = awaitHeightPreference(preferences, -12, tallRevision + 1);
             tap(description("返回键盘"));
             int shortHeight = keyHeight("n");
             if (shortHeight >= standard)
                 throw new AssertionError("Negative adjustment did not shrink key faces: "
                     + standard + " -> " + shortHeight);
-            await(field("msime-test-plain").and(node -> equalsText("n", node.getText())));
+            composeAndClear();
 
             stage = "restore keyboard settings defaults";
             tap(key("设置"));
@@ -77,7 +77,7 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
             long resetRevision = awaitResetPreference(preferences, shortRevision + 1);
             if (resetRevision <= shortRevision)
                 throw new AssertionError("Keyboard settings reset did not advance revision");
-            if (await(description("键盘高度")).getRangeInfo().getCurrent() != 0f
+            if (await(heightSlider()).getRangeInfo().getCurrent() != 0f
                     || await(description("顶部语音入口")).isChecked())
                 throw new AssertionError("Keyboard settings controls did not return to defaults");
             tap(description("返回键盘"));
@@ -112,15 +112,32 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
         SystemClock.sleep(1000);
     }
 
+    /** The resized keyboard still composes, and is idle again for the next settings visit. */
+    private void composeAndClear() throws java.util.concurrent.TimeoutException {
+        tap(key("n"));
+        await(field("msime-test-plain").and(node -> equalsText("n", node.getText())));
+        tap(key("⌫"));
+        await(field("msime-test-plain").and(node -> node.getText() == null
+            || node.getText().length() == 0));
+    }
+
     private int keyHeight(String label) {
-        AccessibilityNodeInfo node = await(description("按键 " + label));
+        // A letter key is described 字母 N, not 按键 n: 按键 is the symbol-key form, and the letter
+        // is drawn in caps in Chinese mode. Match the key itself and leave both to their policies.
+        AccessibilityNodeInfo node = await(key(label));
         Rect bounds = new Rect();
         node.getBoundsInScreen(bounds);
         return bounds.height();
     }
 
+    /**
+     * The transparent adjust layer, which reports itself as a SeekBar with the height range.
+     *
+     * <p>The old settings panel had a labelled 键盘高度 SeekBar; it is still in the tree but GONE
+     * since the panel became the drag layer, so matching that label found an invisible view.
+     */
     private java.util.function.Predicate<AccessibilityNodeInfo> heightSlider() {
-        return description("键盘高度").and(node -> node.getRangeInfo() != null);
+        return describedPrefix("键盘布局调整").and(node -> node.getRangeInfo() != null);
     }
 
     private java.util.function.Predicate<AccessibilityNodeInfo> description(String value) {
@@ -128,12 +145,26 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
             && equalsText(value, node.getContentDescription());
     }
 
-    private void setProgress(AccessibilityNodeInfo slider, float value) {
-        Bundle arguments = new Bundle();
-        arguments.putFloat(AccessibilityNodeInfo.ACTION_ARGUMENT_PROGRESS_VALUE, value);
-        if (!slider.performAction(
-                AccessibilityNodeInfo.AccessibilityAction.ACTION_SET_PROGRESS.getId(), arguments))
-            throw new AssertionError("Height accessibility action failed");
+    /**
+     * Walk the height to `target`.
+     *
+     * <p>The adjust layer exposes only the scroll actions, two device-independent pixels apiece,
+     * so there is no progress to set; the range it reports is what says where the walk has got to.
+     */
+    private void setHeight(int target) {
+        for (int guard = 0; guard < 64; guard++) {
+            AccessibilityNodeInfo slider = await(heightSlider());
+            // The framework hands back cached node info; without this the range never moves.
+            slider.refresh();
+            int current = Math.round(slider.getRangeInfo().getCurrent());
+            if (current == target) return;
+            int action = current < target
+                ? AccessibilityNodeInfo.ACTION_SCROLL_FORWARD
+                : AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD;
+            if (!slider.performAction(action))
+                throw new AssertionError("Height accessibility action failed at " + current);
+        }
+        throw new AssertionError("Height adjustment never reached " + target);
     }
 
     private long awaitHeightPreference(File file, int expected, long minimumRevision)
