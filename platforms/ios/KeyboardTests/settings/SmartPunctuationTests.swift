@@ -26,9 +26,12 @@ final class SmartPunctuationTests: XCTestCase {
     defer { try? FileManager.default.removeItem(at: state) }
     let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
 
-    let ascii = bridge.handlePunctuationWithContext(",", preceding: UInt32(ascii: "a"))
-    XCTAssertFalse(ascii.isHandled)
-    XCTAssertNil(ascii.commitText)
+    // Keeping ASCII after a letter is the shared rule's `smart_punctuation_direct_letter`
+    // branch, and that preference ships disabled -- `punctuation.rs` covers the branch itself
+    // with the toggle on. What the bridge owes is the context: the preceding scalar reaches the
+    // shared layer, and with the shipped defaults both of these follow Chinese punctuation.
+    let afterLetter = bridge.handlePunctuationWithContext(",", preceding: UInt32(ascii: "a"))
+    XCTAssertEqual(afterLetter.commitText, "，")
     XCTAssertEqual(bridge.handlePunctuationWithContext(",", preceding: 0x4e2d).commitText, "，")
 
     _ = bridge.handleCharacter("n")

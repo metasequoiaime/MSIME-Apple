@@ -1416,3 +1416,11 @@ MSIME-Apple 的语音服务目录里有两个共享客户端一直没有的转�
 顺带给测试里的按钮查找助手加上标识符名：原来只报「expected non-nil value of type UIButton」，在一个要找十几个键的用例里等于没说。
 
 本地验证：Xcode 27 / iOS 27.0 模拟器，使用仓库中提交的 Xcode 工程，完整套件 210 通过、1 跳过、1 失败（较上一切片的 201 通过、10 失败）。未执行真机验收，CI 保持禁用。
+
+### iOS 智能标点测试与文档对齐实际路由
+
+上一切片留下的最后一项失败已定位。`SmartPunctuationTests` 断言紧跟 ASCII 字母的逗号保留 ASCII，而共享路由 `client_core::punctuation::route` 要求 `smart_punctuation_direct_letter` 为真才走这条分支，该偏好默认关闭（`smart_punctuation` 本身在非 Windows 上默认开启，两个「直接」开关默认关闭）。规则本身已由 `crates/client-core/src/punctuation.rs` 的单元测试在开关打开的前提下覆盖；iOS 这条用例要验的是桥接把前一个字符送到共享层，因此改为按出厂默认断言：字母后和汉字后都跟随中文标点，组字进行中仍交给 Engine。
+
+`platforms/ios/README.md` 里「紧跟 ASCII 字母/数字会保留 ASCII」的说法漏了这个前提，读起来像是默认行为，一并补上两个开关的名字和默认值。
+
+本地验证：完整 iOS Swift 套件 210 通过、1 跳过、0 失败（此前为 210 通过、1 跳过、1 失败）。未改动任何路由实现或偏好默认值，CI 保持禁用。
