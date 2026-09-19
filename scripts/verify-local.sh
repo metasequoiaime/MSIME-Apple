@@ -66,6 +66,17 @@ export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
 
 windows_host=0
 case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) windows_host=1 ;; esac
+
+# The Windows compile gate can also run off a Windows host, through the MinGW
+# cross build. It needs the compilers and a vcpkg already bootstrapped at the
+# manifest baseline; bootstrapping one is a long download, so this only adopts
+# a tree that is already there rather than creating one mid-verification.
+cross_vcpkg=""
+if [ "$windows_host" -eq 0 ] && command -v x86_64-w64-mingw32-g++ >/dev/null 2>&1; then
+  for candidate in "${MSIME_VCPKG_ROOT:-}" "$root/target/tooling/vcpkg"; do
+    [ -n "$candidate" ] && [ -x "$candidate/vcpkg" ] && cross_vcpkg="$candidate" && break
+  done
+fi
 apple_host=0
 case "$(uname -s 2>/dev/null)" in Darwin) apple_host=1 ;; esac
 
@@ -201,8 +212,28 @@ if [ -d "$MSIME_NATIVE_BUILD" ]; then
   done
   cmake --build "$MSIME_NATIVE_BUILD" --config Debug 2>&1 | grep -Ei "error C[0-9]|error LNK" | head -5
   cmake --build "$MSIME_NATIVE_BUILD" --config Debug >/dev/null 2>&1 || fail "native build"
+elif [ -n "$cross_vcpkg" ]; then
+  # Not a Windows host, but the MinGW toolchain and a bootstrapped vcpkg are
+  # both here, so the Windows compile gate can run anyway.
+  #
+  # It is worth the minutes. This phase said "skipped" on every machine anyone
+  # ran it on, and behind that the native build had been broken six separate
+  # ways at once - a signature whose callers were never updated, a resource
+  # header CMake pointed at a path that does not exist, twelve tests left a
+  # directory level short by a move. None of it was subtle; nothing was looking.
+  # Once, into a log: unlike the CMake phases above this one costs minutes even
+  # incrementally, so it is not run twice to get both the message and the code.
+  cross_log="$(mktemp)"
+  if MSIME_VCPKG_ROOT="$cross_vcpkg" bash platforms/windows/build-cross.sh x64 >"$cross_log" 2>&1; then
+    echo "windows cross build (x64): links"
+  else
+    grep -Ei "error:|Error [0-9]|No rule to make target" "$cross_log" | head -5
+    fail "windows cross build"
+  fi
+  rm -f "$cross_log"
 else
-  echo "skipped: $MSIME_NATIVE_BUILD not configured"
+  echo "skipped: $MSIME_NATIVE_BUILD not configured, and no MinGW cross toolchain"
+  echo "  run platforms/windows/build-cross.sh x64 once to enable this gate here"
 fi
 
 note "compile: macos"
