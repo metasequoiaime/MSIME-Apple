@@ -184,15 +184,23 @@ interface EmojiResponse {
   error: string;
 }
 
+interface EmojiGroups {
+  groups: string[];
+}
+
 interface EmojiGroupsResponse {
   ok: boolean;
-  value: { groups: string[] };
+  value: EmojiGroups;
   error: string;
+}
+
+interface EmojiSymbolGroups {
+  symbol_groups: EmojiSymbolGroup[];
 }
 
 interface EmojiSymbolGroupsResponse {
   ok: boolean;
-  value: { symbol_groups: EmojiSymbolGroup[] };
+  value: EmojiSymbolGroups;
   error: string;
 }
 
@@ -211,6 +219,18 @@ interface NativeReply<T> {
   ok: boolean;
   value: T;
   error: string;
+}
+
+/** What the shared ABI is asked to turn into a provider request. */
+interface AiHttpRequestInput {
+  segmented_pinyin: string[];
+  context: string;
+  candidate_limit: number;
+}
+
+interface AiHttpRequest {
+  config: PreparedAiAssistant;
+  input: AiHttpRequestInput;
 }
 
 interface AiHttpDescriptor {
@@ -372,10 +392,27 @@ interface SkinCatalogResponse {
   error: string;
 }
 
+/** One file inside an external skin package, named the way the shared ABI names it. */
+interface SkinResourceRequest {
+  directory: string;
+  id: string;
+  relative: string;
+  kind: string;
+}
+
 interface SkinResourceValue {
   contentType: string;
   bytes: number[];
 }
+
+/** A candidate decoration image, already encoded for the component that draws it. */
+interface CandidateSkinImage {
+  image: string | null;
+  aspectRatio: number;
+}
+
+/** What every path that has no decoration to draw returns, rather than a fresh literal each time. */
+const NO_CANDIDATE_SKIN_IMAGE: CandidateSkinImage = { image: null, aspectRatio: 1 };
 
 interface SkinResourceResponse {
   ok: boolean;
@@ -460,8 +497,14 @@ interface PreparedPreferences {
   custom_touch_keyboard_skin?: CustomSkinDocument;
   voice_input: VoiceInputConfiguration;
   ai_assistant: PreparedAiAssistant;
-  touch_keyboard_schemes: { enabled?: string[]; selected: string | null };
+  touch_keyboard_schemes: PreparedTouchKeyboardSchemes;
   keybindings: PreparedKeybindings;
+}
+
+/** The shared touch-scheme record: which schemes the picker offers, and which one is current. */
+interface PreparedTouchKeyboardSchemes {
+  enabled?: string[];
+  selected: string | null;
 }
 
 interface PreparedNavigationPreferences {
@@ -656,6 +699,10 @@ export class KeyboardSession {
     globalTheme: 'system',
     emojiTheme: 'follow',
     handwritingTheme: 'follow',
+    voiceTheme: 'follow',
+    // Everything, which is what an absent shared list means; the prepared record narrows it.
+    enabledSchemes: KeyboardScheme.SCHEMES.map(
+      (candidate: SchemeDefinition): string => candidate.preferenceId),
     scheme: 'quanpin',
     shuangpinProfile: 'xiaohe',
     layout: 'twenty_six_key',
@@ -757,29 +804,29 @@ export class KeyboardSession {
   }
 
   private readCandidateSkinImage(stateRoot: string, id: string,
-                                 decoration: CandidateSkinDecoration | null): {
-    image: string | null;
-    aspectRatio: number;
-  } {
+                                 decoration: CandidateSkinDecoration | null): CandidateSkinImage {
     if (decoration === null) {
-      return { image: null, aspectRatio: 1 };
+      return NO_CANDIDATE_SKIN_IMAGE;
     }
     try {
-      const response: SkinResourceResponse = JSON.parse(client.skinResource(JSON.stringify({
+      const request: SkinResourceRequest = {
         directory: `${stateRoot}/skins`, id: id, relative: decoration.relative, kind: 'image'
-      }))) as SkinResourceResponse;
+      };
+      const response: SkinResourceResponse =
+        JSON.parse(client.skinResource(JSON.stringify(request))) as SkinResourceResponse;
       if (!response.ok || response.value === undefined) {
-        return { image: null, aspectRatio: 1 };
+        return NO_CANDIDATE_SKIN_IMAGE;
       }
-      return {
+      const image: CandidateSkinImage = {
         image: CandidateSkinCatalogPolicy.imageDataUrl(response.value.contentType,
           response.value.bytes),
         aspectRatio: CandidateSkinCatalogPolicy.imageAspectRatio(response.value.contentType,
           response.value.bytes)
       };
+      return image;
     } catch (error) {
       KeyboardLog.error(`candidate skin decoration unavailable: ${describeError(error)}`);
-      return { image: null, aspectRatio: 1 };
+      return NO_CANDIDATE_SKIN_IMAGE;
     }
   }
 
@@ -857,9 +904,9 @@ export class KeyboardSession {
       const skinToolbar: string | null = this.readCandidateSkinToolbar(stateRoot,
         preferences.candidate_skin, CandidateSkinCatalogPolicy.toolbarStylesheet(
           skinSupported ? skinPackages : [], preferences.candidate_skin));
-      const skinImage: { image: string | null; aspectRatio: number } = KeyboardFormFactor.isDesktop()
+      const skinImage: CandidateSkinImage = KeyboardFormFactor.isDesktop()
         ? this.readCandidateSkinImage(stateRoot, preferences.candidate_skin, skinDecoration)
-        : { image: null, aspectRatio: 1 };
+        : NO_CANDIDATE_SKIN_IMAGE;
       this.voiceInput = preferences.voice_input;
       this.customSkinDesign = CustomKeyboardSkin.from(preferences.custom_touch_keyboard_skin ?? null);
       if (this.onVoiceInputChanged !== undefined) {
@@ -2629,8 +2676,11 @@ export class KeyboardSession {
       prompt: request.prompt, prompt_custom_1: this.aiAssistant.prompt_custom_1,
       prompt_custom_2: this.aiAssistant.prompt_custom_2, prompt_custom_3: this.aiAssistant.prompt_custom_3
     };
-    const document: string = JSON.stringify({ config: config,
-      input: { segmented_pinyin: ['reply'], context: request.source, candidate_limit: 3 } });
+    const input: AiHttpRequestInput = {
+      segmented_pinyin: ['reply'], context: request.source, candidate_limit: 3
+    };
+    const payload: AiHttpRequest = { config: config, input: input };
+    const document: string = JSON.stringify(payload);
     let descriptor: AiHttpDescriptor | null;
     try {
       const raw: NativeReply<AiHttpDescriptor | null> = JSON.parse(
@@ -2731,7 +2781,7 @@ export class KeyboardSession {
       }
       this.clipboardHistoryEnabled = nextClipboardHistory;
       if (changes.has('voice_input')) {
-        this.voiceInput = snapshot.preferences.voice_input;
+        this.voiceInput = snapshot.preferences.voice_input as VoiceInputConfiguration;
         if (this.onVoiceInputChanged !== undefined) {
           this.onVoiceInputChanged(this.voiceInputEnabled());
         }
@@ -2800,9 +2850,8 @@ export class KeyboardSession {
       search: ''
     };
     try {
-      const response: EmojiGroupsResponse =
-        JSON.parse(client.emojiCatalog(JSON.stringify(query), this.resourceDirectory))
-          as EmojiGroupsResponse;
+      const raw: string = client.emojiCatalog(JSON.stringify(query), this.resourceDirectory);
+      const response: EmojiGroupsResponse = JSON.parse(raw) as EmojiGroupsResponse;
       if (!response.ok || !Array.isArray(response.value.groups)) {
         return [];
       }
@@ -2826,9 +2875,8 @@ export class KeyboardSession {
       search: ''
     };
     try {
-      const response: EmojiSymbolGroupsResponse =
-        JSON.parse(client.emojiCatalog(JSON.stringify(query), this.resourceDirectory))
-          as EmojiSymbolGroupsResponse;
+      const raw: string = client.emojiCatalog(JSON.stringify(query), this.resourceDirectory);
+      const response: EmojiSymbolGroupsResponse = JSON.parse(raw) as EmojiSymbolGroupsResponse;
       if (!response.ok || !Array.isArray(response.value.symbol_groups)) {
         return [];
       }

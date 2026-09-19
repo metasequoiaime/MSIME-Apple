@@ -55,6 +55,8 @@ hvigorw assembleHap
 
 ## 验证边界
 
+`hvigorw assembleHap` 是必须跑的一道门，不是可选项。ArkTS 的几条限制——`@Builder`/`build` 体内不能声明局部变量、修饰符不能挂在 `if/else` 上、对象字面量必须对应已声明的接口——都不会被 `tests/run.sh` 或任何 TypeScript 检查发现，因为那些只编译 `.ts`，不编译 `.ets`。曾经有 33 个这样的错误一路进到 develop，HAP 整段时间根本打不出来。改过 `.ets` 就跑一次打包。
+
 不依赖设备的逻辑回归：
 
 ```sh
