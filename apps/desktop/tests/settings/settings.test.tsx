@@ -34,6 +34,30 @@ test("macOS exposes the non-activating input-mode HUD preference", async () => {
   expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ input_mode_hud: false }));
 });
 
+test("macOS persists Wubi unique-candidate auto-commit outside shared preferences", async () => {
+  const wubiInitial = { ...initial, preferences: { ...initial.preferences, scheme: "wubi" as const } };
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...wubiInitial, revision: 8, preferences }));
+  const loadWubiAutoCommit = vi.fn().mockResolvedValue(false);
+  const saveWubiAutoCommit = vi.fn().mockResolvedValue(undefined);
+  render(<SettingsPage client={{
+    load: async () => wubiInitial,
+    save,
+    host: { platform: "macos" } as HostCapabilities,
+    loadMacosWubiAutoCommitUnique: loadWubiAutoCommit,
+    saveMacosWubiAutoCommitUnique: saveWubiAutoCommit,
+  }} />);
+  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
+  const toggle = await screen.findByRole("checkbox", { name: "五笔四码唯一候选自动上屏" }) as HTMLInputElement;
+  expect(toggle.checked).toBe(false);
+  fireEvent.click(toggle);
+  expect((screen.getByRole("button", { name: "保存设置" }) as HTMLButtonElement).disabled).toBe(false);
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(save).toHaveBeenCalledWith(7, wubiInitial.preferences);
+  expect(loadWubiAutoCommit).toHaveBeenCalled();
+  expect(saveWubiAutoCommit).toHaveBeenCalledWith(true);
+});
+
 test("titlebar sits above the shared sidebar and content body", async () => {
   const mounted = render(<SettingsPage client={{ load: async () => initial, save: vi.fn(),
     windowControl: vi.fn().mockResolvedValue(undefined) }} />);

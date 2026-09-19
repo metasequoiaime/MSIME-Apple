@@ -714,6 +714,9 @@ export interface SettingsClient {
   /** macOS keeps the native shuangpin keymap panel preference outside shared Engine preferences. */
   loadMacosShuangpinKeymap?: () => Promise<boolean>;
   saveMacosShuangpinKeymap?: (enabled: boolean) => Promise<void>;
+  /** macOS keeps Wubi unique-candidate auto-commit in the native input-method defaults domain. */
+  loadMacosWubiAutoCommitUnique?: () => Promise<boolean>;
+  saveMacosWubiAutoCommitUnique?: (enabled: boolean) => Promise<void>;
   copyText?: (text: string) => Promise<void>;
   /** Mobile hosts can open the platform keyboard/input-method settings. */
   openSystemKeyboardSettings?: () => Promise<void>;
@@ -1021,6 +1024,8 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
   const [mobileKeyboardFeedback, setMobileKeyboardFeedback] = useState<MobileKeyboardFeedback>();
   const [mobileKeyboardFeedbackBusy, setMobileKeyboardFeedbackBusy] = useState(false);
   const [macosShuangpinKeymap, setMacosShuangpinKeymap] = useState<boolean>();
+  const [macosWubiAutoCommitUnique, setMacosWubiAutoCommitUnique] = useState<boolean>();
+  const [savedMacosWubiAutoCommitUnique, setSavedMacosWubiAutoCommitUnique] = useState<boolean>();
   const [phrases, setPhrases] = useState<DictionaryEntry[]>([]);
   const [phrasePage, setPhrasePage] = useState({ offset: 0, hasMore: false, status: "" });
   const [phraseBusy, setPhraseBusy] = useState(false);
@@ -1125,6 +1130,22 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
     });
     return () => { active = false; };
   }, [client, macosPlatform]);
+  useEffect(() => {
+    if (!macosPlatform || !client.loadMacosWubiAutoCommitUnique) {
+      setMacosWubiAutoCommitUnique(undefined);
+      setSavedMacosWubiAutoCommitUnique(undefined);
+      return;
+    }
+    let active = true;
+    void client.loadMacosWubiAutoCommitUnique().then(value => {
+      if (!active) return;
+      setMacosWubiAutoCommitUnique(value);
+      setSavedMacosWubiAutoCommitUnique(value);
+    }).catch(() => {
+      if (active) setError("无法读取五笔自动上屏设置，请重试。");
+    });
+    return () => { active = false; };
+  }, [client, macosPlatform]);
   const snapshotRef = useRef(snapshot);
   const draftRef = useRef(draft);
 
@@ -1211,6 +1232,10 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
       const value = await client.save(snapshot.revision, preferences);
       if (macosPlatform && client.saveMacosShuangpinKeymap && macosShuangpinKeymap !== undefined) {
         await client.saveMacosShuangpinKeymap(macosShuangpinKeymap);
+      }
+      if (macosPlatform && client.saveMacosWubiAutoCommitUnique && macosWubiAutoCommitUnique !== undefined) {
+        await client.saveMacosWubiAutoCommitUnique(macosWubiAutoCommitUnique);
+        setSavedMacosWubiAutoCommitUnique(macosWubiAutoCommitUnique);
       }
       setSnapshot(value); setDraft(value.preferences); setNotice("设置已保存。");
     } catch (reason) { setError(message(reason)); }
@@ -1529,7 +1554,8 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
     } finally { setPhraseBusy(false); }
   }
 
-  const dirty = !!draft && !!snapshot && JSON.stringify(draft) !== JSON.stringify(snapshot.preferences);
+  const dirty = (!!draft && !!snapshot && JSON.stringify(draft) !== JSON.stringify(snapshot.preferences))
+    || (macosWubiAutoCommitUnique !== undefined && macosWubiAutoCommitUnique !== savedMacosWubiAutoCommitUnique);
   const ai = draft?.ai_assistant ?? defaultAiAssistant;
   const aiOrigin = aiCredentialOrigin(ai.endpoint);
   const aiToken = aiOrigin ? ai.tokens?.[aiOrigin] ?? "" : "";
@@ -2109,6 +2135,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
         {((client.touchKeyboardSchemes && touchKeyboardSchemes.enabled.includes("wubi")) || draft.scheme === "wubi") && <div className="section" role="group" aria-label="五笔">
           <label className="section-header"><span className="section-title">编码打不出时用拼音候选<small>五笔词库无法回答当前编码时，用同一串字母查询全拼；词库能回答时不影响。</small></span><input aria-label="编码打不出时用拼音候选" className="toggle" type="checkbox" checked={draft.wubi_mixed_pinyin ?? false} onChange={event => setDraft({ ...draft, wubi_mixed_pinyin: event.target.checked })} /></label>
           <label className="section-header"><span className="section-title">候选显示剩余编码<small>在候选后面标出还要再打哪几个字母才能单独打出它。已经打完整码的候选不标。</small></span><input aria-label="候选显示剩余编码" className="toggle" type="checkbox" checked={draft.wubi_code_hint ?? true} onChange={event => setDraft({ ...draft, wubi_code_hint: event.target.checked })} /></label>
+          {macosPlatform && macosWubiAutoCommitUnique !== undefined && <label className="section-header"><span className="section-title">五笔四码唯一候选自动上屏<small>五笔输入达到四码且只有一个候选时，自动提交该候选。</small></span><input aria-label="五笔四码唯一候选自动上屏" className="toggle" type="checkbox" checked={macosWubiAutoCommitUnique} onChange={event => setMacosWubiAutoCommitUnique(event.target.checked)} /></label>}
         </div>}
         <div className="section" role="group" aria-labelledby="japanese-scheme-title" hidden={client.touchKeyboardSchemes || draft.scheme !== "japanese"}>
           <div className="section-title" id="japanese-scheme-title">日语方案</div>
