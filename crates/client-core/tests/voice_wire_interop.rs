@@ -1,8 +1,12 @@
 //! Real Rust client against the portable C++ peer; no device or native pipe.
-#[path = "../../../crates/client-core/src/voice_controller.rs"]
-mod controller;
+//!
+//! Build the peer and run this with `platforms/windows/tests/tools/voice-wire-interop.sh`,
+//! which compiles voice_wire_peer.cpp and puts its path in `MSIME_VOICE_WIRE_PEER`.
+//! Without that variable there is nothing to talk to, so both tests report why
+//! they did nothing and return rather than failing an ordinary `cargo test`.
 
-use controller::{Error, Phase, Transport};
+use msime_client_core::voice_controller as controller;
+use msime_client_core::voice_controller::{Error, Phase, Transport};
 use std::io::{Read, Write};
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -18,8 +22,8 @@ struct Peer {
     operations: Vec<u32>,
 }
 impl Peer {
-    fn new(mode: &str) -> Self {
-        let mut child = Command::new(std::env::var_os("MSIME_VOICE_WIRE_PEER").unwrap())
+    fn new(peer: &std::ffi::OsStr, mode: &str) -> Self {
+        let mut child = Command::new(peer)
             .arg(mode)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
@@ -74,9 +78,28 @@ impl Drop for Peer {
     }
 }
 
+/// The C++ peer is built by a separate script, so its absence is "not run
+/// here", not a failure. Returning the path keeps the check and the use of it
+/// in one place.
+fn peer_binary() -> Option<std::ffi::OsString> {
+    match std::env::var_os("MSIME_VOICE_WIRE_PEER") {
+        Some(path) => Some(path),
+        None => {
+            eprintln!(
+                "skipped: set MSIME_VOICE_WIRE_PEER to the compiled peer, or run \
+                 platforms/windows/tests/tools/voice-wire-interop.sh"
+            );
+            None
+        }
+    }
+}
+
 #[test]
 fn cpp_dispatcher_returns_reviewed_unicode_without_commit() {
-    let mut peer = Peer::new("ok");
+    let Some(peer_path) = peer_binary() else {
+        return;
+    };
+    let mut peer = Peer::new(&peer_path, "ok");
     let stopped = AtomicBool::new(false);
     let mut phases = Vec::new();
     let text = controller::recognize(
@@ -104,6 +127,9 @@ fn cpp_dispatcher_returns_reviewed_unicode_without_commit() {
 
 #[test]
 fn cpp_terminal_errors_and_identity_mismatch_never_deliver_final_text() {
+    let Some(peer_path) = peer_binary() else {
+        return;
+    };
     for (mode, expected) in [
         ("wrong-id", Error::Invalid),
         ("wrong-session", Error::Stale),
@@ -111,7 +137,7 @@ fn cpp_terminal_errors_and_identity_mismatch_never_deliver_final_text() {
         ("failed", Error::Unavailable),
         ("disconnect", Error::Unavailable),
     ] {
-        let mut peer = Peer::new(mode);
+        let mut peer = Peer::new(&peer_path, mode);
         let mut complete = false;
         let result = controller::recognize(
             &mut peer,
