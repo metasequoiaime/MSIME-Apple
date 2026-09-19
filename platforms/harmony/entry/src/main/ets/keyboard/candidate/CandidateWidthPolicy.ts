@@ -49,8 +49,10 @@ export class CandidateWidthPolicy {
         + CandidateWidthPolicy.textWidthVp(suffix, Math.max(12, candidateFontSize - 8));
       contentWidth = Math.max(contentWidth, candidateWidth);
     }
+    const boundedMinimum: number = Math.max(CandidateWidthPolicy.MIN_WIDTH_VP,
+      Math.min(maxWidthVp, minWidthVp));
     return Math.min(maxWidthVp,
-      Math.max(minWidthVp, Math.ceil(contentWidth + CandidateWidthPolicy.EXTRA_WIDTH_VP)));
+      Math.max(boundedMinimum, Math.ceil(contentWidth + CandidateWidthPolicy.EXTRA_WIDTH_VP)));
   }
 
   private static isWide(codePoint: number): boolean {

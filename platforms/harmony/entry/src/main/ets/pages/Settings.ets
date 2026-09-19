@@ -295,6 +295,7 @@ struct Settings {
           object: this.bridge,
           name: BRIDGE_NAME,
           methodList: ['loadPreferences', 'savePreferences', 'hostCapabilities', 'appVersion',
+            'scanSkinCatalog',
             'dictionary', 'account', 'cloudDictionary', 'cloudDictionaryDownload', 'cloudDictionarySnapshot',
             'typingStatistics', 'aiModels', 'aiTest', 'testApiCredential', 'openExternalUrl', 'copyText',
             'openSystemKeyboardSettings'],
@@ -345,6 +346,23 @@ class SettingsBridge {
 
   loadPreferences(): string {
     return client.loadPreferences(this.stateDirectory);
+  }
+
+  /** The shared settings page uses the same validated catalog as desktop presenters. */
+  scanSkinCatalog(): string {
+    const directory: string = `${this.stateDirectory}/skins`;
+    const raw: string = client.skinCatalog(directory);
+    try {
+      const response: Object = JSON.parse(raw) as Object;
+      if ((response as Record<string, Object>)['ok'] === true) {
+        const value: Record<string, Object> =
+          (response as Record<string, Object>)['value'] as Record<string, Object>;
+        value['directory'] = directory;
+      }
+      return JSON.stringify(response);
+    } catch {
+      return raw;
+    }
   }
 
   /**

@@ -66,6 +66,8 @@ import { TranslationPolicy, TranslationQuery, TranslationEntry } from
 import { HardwareKeyRouter, HardwareKeyAction, HardwareKey } from
   '../entry/src/main/ets/keyboard/HardwareKeyRouter';
 import { CandidateSkinPolicy } from '../entry/src/main/ets/keyboard/candidate/CandidateSkinPolicy';
+import { CandidateSkinCatalogPolicy, CandidateSkinPackage } from
+  '../entry/src/main/ets/keyboard/candidate/CandidateSkinCatalogPolicy';
 import { CandidateWidthPolicy } from '../entry/src/main/ets/keyboard/candidate/CandidateWidthPolicy';
 import { CandidatePresentationPolicy } from '../entry/src/main/ets/keyboard/candidate/CandidatePresentationPolicy';
 import { CandidateWheelPolicy } from '../entry/src/main/ets/keyboard/candidate/CandidateWheelPolicy';
@@ -674,6 +676,51 @@ group('maps shared candidate skins to native Harmony palettes', () => {
   check(CandidateSkinPolicy.showSelectedBar('fluent'), 'Fluent shows its selected bar');
   check(!CandidateSkinPolicy.showSelectedBar('wechat'), 'WeChat skin omits its selected bar');
   check(!CandidateSkinPolicy.showSelectedBar('graphite'), 'Graphite skin omits its selected bar');
+  check(CandidateSkinPolicy.harmonySkin('sample', 'wechat') === 'forest',
+    'external skins inherit the WeChat Harmony palette');
+  check(CandidateSkinPolicy.harmonySkin('sample', 'graphite') === 'blueprint',
+    'external skins inherit the Graphite Harmony palette');
+});
+
+group('resolves external candidate skin tokens without trusting missing fields', () => {
+  const sample: CandidateSkinPackage = {
+    id: 'sample', base: 'wechat', layouts: ['vertical'], themes: ['dark'], minWidthDip: 360,
+    candidate: {
+      dark: {
+        accent: '#123456', selected: '#234567', hover: '#345678', surface: '#456789',
+        border: '#56789A', text: '#6789AB', number: '#789ABC', showSelectedBar: false
+      },
+      light: {
+        accent: null, selected: null, hover: null, surface: null, border: null,
+        text: null, number: null, showSelectedBar: null
+      }
+    }
+  };
+  const packages: CandidateSkinPackage[] = [sample];
+  const palette = CandidateSkinCatalogPolicy.palette(packages, 'sample', true);
+  check(palette !== null && palette.accent === '#123456', 'external accent is selected by theme');
+  check(CandidateSkinCatalogPolicy.base(packages, 'sample') === 'wechat',
+    'external base skin is retained');
+  check(CandidateSkinCatalogPolicy.supports(packages, 'sample', 'vertical', 'dark'),
+    'manifest compatibility accepts a declared layout and theme');
+  check(!CandidateSkinCatalogPolicy.supports(packages, 'sample', 'horizontal', 'dark'),
+    'manifest compatibility rejects an undeclared layout');
+  check(CandidateSkinCatalogPolicy.minWidthVp(packages, 'sample') === 360,
+    'external minimum width is exposed to the native panel');
+  check(CandidateSkinCatalogPolicy.showSelectedBar(packages, 'sample', true) === false,
+    'external selected-bar override is retained');
+  check(CandidateSkinCatalogPolicy.palette(packages, 'missing', true) === null,
+    'unknown package does not invent a palette');
+  check(CandidateSkinCatalogPolicy.color('#123456') === '#123456',
+    'hex colors remain available to ArkUI');
+  check(CandidateSkinCatalogPolicy.color('rgba(1, 2, 3, 0.5)') === 'rgba(1, 2, 3, 0.5)',
+    'rgba colors remain available to ArkUI');
+  check(CandidateSkinCatalogPolicy.color('red;} .poison {') === null,
+    'declaration-like color tokens are rejected');
+  check(CandidateSkinCatalogPolicy.color('rgb(256, 0, 0)') === null,
+    'out-of-range rgb channels are rejected');
+  check(CandidateSkinPolicy.showSelectedBar('sample', false) === false,
+    'explicit external selected-bar value wins over the base default');
 });
 
 group('sizes desktop candidate windows from bounded display estimates', () => {

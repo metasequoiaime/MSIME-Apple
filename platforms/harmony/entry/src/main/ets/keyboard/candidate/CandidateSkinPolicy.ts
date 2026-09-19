@@ -4,7 +4,8 @@
  * palette while all explicit candidate colours still win over the palette below.
  */
 export class CandidateSkinPolicy {
-  static harmonySkin(candidateSkin: string | null | undefined): string {
+  static harmonySkin(candidateSkin: string | null | undefined,
+                     externalBase: string | null | undefined = null): string {
     switch (candidateSkin) {
       case 'fluent':
         return 'porcelain';
@@ -15,11 +16,18 @@ export class CandidateSkinPolicy {
       case 'willow_green':
         return 'forest';
       default:
+        if (externalBase !== null && externalBase !== undefined && externalBase !== candidateSkin) {
+          return CandidateSkinPolicy.harmonySkin(externalBase, null);
+        }
         return 'forest';
     }
   }
 
-  static showSelectedBar(candidateSkin: string | null | undefined): boolean {
+  static showSelectedBar(candidateSkin: string | null | undefined,
+                         externalValue: boolean | null | undefined = null): boolean {
+    if (externalValue !== null && externalValue !== undefined) {
+      return externalValue;
+    }
     return candidateSkin !== 'wechat' && candidateSkin !== 'graphite';
   }
 }

@@ -253,7 +253,8 @@ struct KeyboardView {
     this.traditional = KeyboardSession.shared.usesTraditional();
     this.skin = KeyboardSkin.from(this.settings.skinId, this.settings.dark);
     this.candidateSkin = KeyboardSkin.from(
-      CandidateSkinPolicy.harmonySkin(this.settings.candidateSkinId), this.settings.candidateDark);
+      CandidateSkinPolicy.harmonySkin(this.settings.candidateSkinId, this.settings.candidateSkinBase),
+      this.settings.candidateDark);
     this.scheme = this.resolveScheme(this.settings.layout);
     this.nineKey = this.scheme.touchKeyboardLayout === 'nine_key';
     this.japanese = this.scheme.engineScheme === 'japanese' && this.nineKey;

@@ -22,6 +22,8 @@ import { FloatingToolbarLayout, ToolbarButton, ToolbarComponents, ToolbarState }
 import { DesktopSurface } from './DesktopSurface';
 import { CandidateGlossPolicy } from './candidate/CandidateGlossPolicy';
 import { CandidatePresentationPolicy } from './candidate/CandidatePresentationPolicy';
+import { CandidateSkinCatalogPolicy, CandidateSkinPackage, CandidateSkinPaletteTokens }
+  from './candidate/CandidateSkinCatalogPolicy';
 import { CandidateWidthPolicy } from './candidate/CandidateWidthPolicy';
 import { OnlineCandidatePolicy, OnlineQuery } from './candidate/OnlineCandidatePolicy';
 import {
@@ -303,6 +305,16 @@ interface VoiceTextResponse {
   error: string;
 }
 
+interface SkinCatalogValue {
+  packages: CandidateSkinPackage[];
+}
+
+interface SkinCatalogResponse {
+  ok: boolean;
+  value: SkinCatalogValue;
+  error: string;
+}
+
 // ArkTS rejects untyped object literals, so the request prepareHost takes gets a shape too.
 interface PrepareRequest {
   resources: string;
@@ -391,6 +403,10 @@ export interface KeyboardPreferences {
   readonly dark: boolean;
   readonly skinId: string;
   readonly candidateSkinId: string;
+  /** Base palette used by an external candidate skin, when its manifest is available. */
+  readonly candidateSkinBase: string;
+  /** Manifest minimum width, clamped to the same bounds as the native estimate. */
+  readonly candidateMinWidthVp: number;
   readonly candidateDark: boolean;
   readonly candidateSelectedBar: boolean | null;
   readonly keyboardTheme: string;
@@ -497,6 +513,8 @@ export class KeyboardSession {
     dark: false,
     skinId: 'forest',
     candidateSkinId: 'willow_green',
+    candidateSkinBase: 'willow_green',
+    candidateMinWidthVp: CandidateWidthPolicy.MIN_WIDTH_VP,
     candidateDark: false,
     candidateSelectedBar: null,
     keyboardTheme: 'follow',
@@ -572,6 +590,20 @@ export class KeyboardSession {
    * lock, lays out the derived state under the state root, and returns the document create expects;
    * a hand-written one would drift from the lock the moment the dictionary is republished.
    */
+  private readCandidateSkinCatalog(stateRoot: string): CandidateSkinPackage[] {
+    try {
+      const response: SkinCatalogResponse =
+        JSON.parse(client.skinCatalog(`${stateRoot}/skins`)) as SkinCatalogResponse;
+      if (!response.ok || response.value === undefined || !Array.isArray(response.value.packages)) {
+        return [];
+      }
+      return response.value.packages;
+    } catch (error) {
+      KeyboardLog.error(`candidate skin catalog unavailable: ${describeError(error)}`);
+      return [];
+    }
+  }
+
   start(resources: string, stateRoot: string, systemDark: boolean): boolean {
     let abi: number;
     try {
@@ -599,6 +631,20 @@ export class KeyboardSession {
       }
       options = JSON.stringify(prepared.value);
       const preferences: PreparedPreferences = prepared.value.preferences;
+      const skinPackages: CandidateSkinPackage[] = this.readCandidateSkinCatalog(stateRoot);
+      const candidateDark: boolean = KeyboardSkin.resolveDark(preferences.candidate_theme,
+        preferences.theme, systemDark);
+      const candidateTheme: string = candidateDark ? 'dark' : 'light';
+      const skinSupported: boolean = CandidateSkinCatalogPolicy.supports(
+        skinPackages, preferences.candidate_skin, preferences.candidate_layout, candidateTheme);
+      const skinPalette: CandidateSkinPaletteTokens | null = CandidateSkinCatalogPolicy.palette(
+        skinSupported ? skinPackages : [], preferences.candidate_skin, candidateDark);
+      const skinBase: string | null = CandidateSkinCatalogPolicy.base(
+        skinSupported ? skinPackages : [], preferences.candidate_skin);
+      const skinMinWidth: number | null = CandidateSkinCatalogPolicy.minWidthVp(
+        skinSupported ? skinPackages : [], preferences.candidate_skin);
+      const skinSelectedBar: boolean | null = CandidateSkinCatalogPolicy.showSelectedBar(
+        skinSupported ? skinPackages : [], preferences.candidate_skin, candidateDark);
       this.voiceInput = preferences.voice_input;
       this.englishMode = preferences.default_ime_mode === 'english';
       this.bindings = {
@@ -614,9 +660,13 @@ export class KeyboardSession {
           systemDark),
         skinId: preferences.touch_keyboard_skin,
         candidateSkinId: preferences.candidate_skin,
-        candidateDark: KeyboardSkin.resolveDark(preferences.candidate_theme, preferences.theme,
-          systemDark),
-        candidateSelectedBar: preferences.candidate_selected_bar ?? null,
+        candidateSkinBase: skinBase ?? preferences.candidate_skin,
+        candidateMinWidthVp: skinMinWidth === null
+          ? CandidateWidthPolicy.MIN_WIDTH_VP
+          : Math.max(CandidateWidthPolicy.MIN_WIDTH_VP,
+            Math.min(CandidateWidthPolicy.MAX_WIDTH_VP, skinMinWidth)),
+        candidateDark: candidateDark,
+        candidateSelectedBar: preferences.candidate_selected_bar ?? skinSelectedBar,
         keyboardTheme: preferences.screen_keyboard_theme,
         globalTheme: preferences.theme,
         scheme: preferences.scheme,
@@ -645,13 +695,13 @@ export class KeyboardSession {
           ? preferences.candidate_font_family : 'Noto Sans SC',
         candidateFallbackFonts: preferences.candidate_fallback_fonts.filter(
           (font: string): boolean => font.trim().length > 0),
-        candidateTextColor: preferences.candidate_text_color,
-        candidateAccentColor: preferences.candidate_accent_color,
-        candidateNumberColor: preferences.candidate_number_color,
-        candidateSelectedColor: preferences.candidate_selected_color,
-        candidateHoverColor: preferences.candidate_hover_color,
-        candidateSurfaceColor: preferences.candidate_surface_color,
-        candidateBorderColor: preferences.candidate_border_color,
+        candidateTextColor: preferences.candidate_text_color ?? skinPalette?.text ?? null,
+        candidateAccentColor: preferences.candidate_accent_color ?? skinPalette?.accent ?? null,
+        candidateNumberColor: preferences.candidate_number_color ?? skinPalette?.number ?? null,
+        candidateSelectedColor: preferences.candidate_selected_color ?? skinPalette?.selected ?? null,
+        candidateHoverColor: preferences.candidate_hover_color ?? skinPalette?.hover ?? null,
+        candidateSurfaceColor: preferences.candidate_surface_color ?? skinPalette?.surface ?? null,
+        candidateBorderColor: preferences.candidate_border_color ?? skinPalette?.border ?? null,
         // Clamped rather than trusted: the store validates, but an older document or a host that
         // never learned the bounds would otherwise draw a keyboard nobody can hit.
         keySpacingTenths: KeyboardGeometry.keySpacing(preferences.touch_key_spacing_tenths),
@@ -1353,7 +1403,8 @@ export class KeyboardSession {
     }
     if (this.onCandidateWidth !== undefined) {
       this.onCandidateWidth(CandidateWidthPolicy.widthVp(entries, view.editing_text,
-        this.preferences().candidateFontSize, this.preferences().candidatePreeditFontSize));
+        this.preferences().candidateFontSize, this.preferences().candidatePreeditFontSize,
+        this.preferences().candidateMinWidthVp));
     }
     if (this.onCandidateCount !== undefined) {
       this.onCandidateCount(entries.length);

@@ -13,6 +13,7 @@ export const abiVersion: () => number;
 export const hostCapabilities: (platform: string) => string;
 
 export const loadPreferences: (directory: string) => string;
+export const skinCatalog: (directory: string) => string;
 export const savePreferences: (directory: string, expectedRevision: number, snapshot: string) => string;
 export const dictionary: (request: string) => string;
 export const updatePreferences: (handle: number, snapshot: string) => string;
