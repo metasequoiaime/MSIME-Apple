@@ -869,10 +869,17 @@ test("macOS service page exposes reversible uninstall with explicit data removal
   const remove = screen.getByRole("checkbox", { name: /同时删除词库/ }) as HTMLInputElement;
   expect(remove.checked).toBe(false);
   fireEvent.click(screen.getByRole("button", { name: "卸载…" }));
+  expect(uninstallInputSource).not.toHaveBeenCalled();
+  expect(await screen.findByRole("alertdialog", { name: "确认卸载水杉输入法" })).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "取消" }));
+  expect(uninstallInputSource).not.toHaveBeenCalled();
+  fireEvent.click(screen.getByRole("button", { name: "卸载…" }));
+  fireEvent.click(screen.getByRole("button", { name: "确认卸载" }));
   await waitFor(() => expect(uninstallInputSource).toHaveBeenCalledWith(false));
   expect(await screen.findByText("输入法已移到废纸篓。")).toBeDefined();
   fireEvent.click(remove);
   fireEvent.click(screen.getByRole("button", { name: "卸载…" }));
+  fireEvent.click(screen.getByRole("button", { name: "确认卸载" }));
   await waitFor(() => expect(uninstallInputSource).toHaveBeenCalledWith(true));
 });
 
