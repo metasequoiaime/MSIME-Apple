@@ -1,4 +1,9 @@
 //! Isolated real-resource preference replacement probe, not a system latency benchmark.
+
+// Integration tests and examples are their own crates, so the exemption the
+// library root carries does not reach them. Same boundary, same reason: this
+// target drives the C ABI directly.
+#![allow(unsafe_code)]
 use msime_host_api::*;
 use serde_json::{json, Value};
 use std::ffi::{c_char, CString};

@@ -4,10 +4,9 @@ version.workspace = true
 edition.workspace = true
 license.workspace = true
 
-# The only unsafe code in this crate is the small, reviewed boundary to Swift
-# @_cdecl exports. Keep it out of the Tauri command crate, which inherits the
-# workspace-wide unsafe_code = "forbid" policy.
+# The only unsafe code here is the small, reviewed boundary to Swift's @_cdecl
+# exports. It is a separate crate so the Tauri command crate never has to carry
+# that exemption; the exemption itself is a documented allow at the crate root.
 
 [lints]
-[lints.rust]
-unsafe_code = "allow"
+workspace = true

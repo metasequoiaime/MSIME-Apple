@@ -1,6 +1,13 @@
 //! Versioned, thread-confined C interface for native IME hosts.
 //! A handle registry rejects stale and wrong-thread handles without dereferencing them.
 
+// The workspace denies unsafe code; this crate is the C ABI native hosts link against, so every handle,
+// pointer and string it accepts crosses a boundary the compiler cannot check.
+// The exemption is stated here rather than left implicit by opting out of
+// the workspace lint table, which would also silently drop every other lint
+// the workspace adds later.
+#![allow(unsafe_code)]
+
 use msime_client_core::ai::AiSuggestionRequest;
 use msime_client_core::dictionary_access::DictionaryAccess;
 use msime_client_core::host_surface::{HostCapabilities, HostPlatform, SurfaceRoute};

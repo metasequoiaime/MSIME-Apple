@@ -1,6 +1,13 @@
 //! Owning CXX bridge to the pinned C++ Session. No Tauri or native UI dependency.
 //! Sessions remain thread-confined; no unsafe Send/Sync implementation is provided.
 
+// The workspace denies unsafe code; the cxx bridge declares the pinned C++ Session's methods in an
+// `unsafe extern "C++"` block; there is no safe spelling for a foreign vtable.
+// The exemption is stated here rather than left implicit by opting out of
+// the workspace lint table, which would also silently drop every other lint
+// the workspace adds later.
+#![allow(unsafe_code)]
+
 mod dictionary_revision;
 pub use dictionary_revision::dictionary_state_revision;
 use dictionary_revision::DictionaryRevision;
