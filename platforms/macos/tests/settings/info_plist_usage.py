@@ -60,6 +60,18 @@ def main() -> int:
         if not value.strip():
             failures.append(f"{key} is declared with an empty purpose string")
 
+    # TCC shows the purpose string in the system's language, taking it from InfoPlist.strings when one is
+    # there and from the plist otherwise. A key localised in no .lproj puts the author's language in front
+    # of every other user, which is how the plist's Chinese would have reached an English prompt.
+    for strings in sorted(source_root.parent.glob("resources/*.lproj/InfoPlist.strings")):
+        localised = set(re.findall(r'"(NS\w*UsageDescription)"\s*=\s*"([^"]*)"', strings.read_text(encoding="utf-8")))
+        for key, _ in sorted(declared):
+            value = next((value for name, value in localised if name == key), None)
+            if value is None:
+                failures.append(f"{key} is not localised in {strings.parent.name}")
+            elif not value.strip():
+                failures.append(f"{key} is localised as an empty string in {strings.parent.name}")
+
     if failures:
         for failure in failures:
             print(failure, file=sys.stderr)
