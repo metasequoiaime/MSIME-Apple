@@ -31,13 +31,26 @@
 | `msime.db` | 107.6 MB | Engine 发布的工作词库 |
 | `english.db` | 8.4 MB | Engine 发布的英文词库 |
 | `others.db` | 1.5 MB | Engine 发布的表情等数据 |
-| `dict_japanese.dat` | 66.5 MB | 日文词库，随附 `mozc_dictionary_oss_README.txt`，即 Mozc 的 OSS 词典说明 |
-| `mozc_dictionary_oss_README.txt` | 5.8 KB | 上述日文词库的授权与来源说明，随资源一同分发 |
+| `dict_japanese.dat` | 66.5 MB | Mozc 的开源版日文词库，构成见[下一节](#日文词库的分发义务) |
+| `mozc_dictionary_oss_README.txt` | 5.8 KB | 上述词库的许可证全文。**分发时必须一同携带**，理由见下节 |
 | `dictionary-manifest.json` | 1.9 KB | 资源清单 |
 | `dict_pinyin.dat` | 1.1 MB | 拼音数据 |
 | `sentence-model.safetensors` | 4.5 MB | 整句重排模型；**仓库内未记载其训练来源与许可证** |
 
 `Artifact` 结构体带 `#[serde(deny_unknown_fields)]`，所以在锁文件里直接加 `license` 字段会让解析失败；要记录许可证需要同时修改 `crates/client-core/src/resources.rs`。在那之前，新增或更换随包资源时请把来源与授权写进本文件。
+
+### 日文词库的分发义务
+
+`dict_japanese.dat` 是 Mozc 的开源版词典，不是 Google 日本語入力所用的那一份。按随附 `mozc_dictionary_oss_README.txt` 的说明，它由四部分构成：
+
+- **IPAdic**（`mecab-ipadic-2.7.0-20070801`），奈良先端科学技術大学院大学 2000–2003 年版权。允许使用、复制和分发，但要求任何副本——无论原样还是修改过——都必须同时包含其版权声明和紧随其后的两段免责声明。
+- **ICOT Free Software**，词条中很大一部分源于此。其条款要求 `NO WARRANTY` 一节**始终**出现在随程序分发的材料中，或附加于其上。
+- **冲绳辞書**（[o-dic](http://sourceforge.jp/projects/o-dic/)），明示为 Public Domain，使用、修改、分发均无限制。
+- Google 手工增补的形容词／动词、片假名词和复合词，适用 Mozc 自身的条款；该 README 未复述这部分，GitHub 对 `google/mozc` 的许可证识别结果是 `NOASSERTION`，因此本文件不替它断定 SPDX 标识。
+
+**实际后果：分发这份词库时必须一并携带 `mozc_dictionary_oss_README.txt`**，IPAdic 和 ICOT 两条都把"许可证文本随附"写成了硬性条件。锁文件把这个 5.8 KB 的文本和词库本身一起固定并校验，正是为此——它是许可证义务，不是文档习惯，重新打包资源时不要因为"只是个 README"而丢掉它。
+
+开源版不含日本邮政编码词典；README 给出了自行生成的步骤，本仓库没有执行。
 
 ## 各平台引入的第三方 SDK
 
