@@ -33,9 +33,11 @@ class SaveVoiceTextArgs {
  */
 @TauriPlugin
 class VoicePlugin(activity: Activity) : Plugin(activity) {
+    private data class VoiceJob(val requestId: String, val invoke: Invoke, val startedAt: Long)
+
     private val hostActivity = activity
     private val worker = Executors.newSingleThreadExecutor()
-    private val activeRequest = AtomicReference<String?>(null)
+    private val activeJob = AtomicReference<VoiceJob?>(null)
 
     private fun store(): VoiceResultStore {
         val files = hostActivity.filesDir ?: throw IllegalStateException("private files unavailable")
@@ -54,62 +56,59 @@ class VoicePlugin(activity: Activity) : Plugin(activity) {
             invoke.reject("invalid_voice", "invalid_voice")
             return
         }
-        if (!activeRequest.compareAndSet(null, args.requestId)) {
+        val job = VoiceJob(args.requestId, invoke, System.currentTimeMillis())
+        if (!activeJob.compareAndSet(null, job)) {
             invoke.reject("busy", "busy")
             return
         }
         if (!VoiceRecognitionActivity.available(hostActivity)) {
-            activeRequest.compareAndSet(args.requestId, null)
+            activeJob.compareAndSet(job, null)
             invoke.reject("unavailable", "unavailable")
             return
         }
-        val startedAt = System.currentTimeMillis()
         try {
             VoiceRecognitionActivity.markLaunched(args.requestId)
             VoiceRecognitionActivity.launch(hostActivity, args.requestId, args.language)
         } catch (_: RuntimeException) {
             VoiceRecognitionActivity.clearRequest(args.requestId)
-            activeRequest.compareAndSet(args.requestId, null)
+            activeJob.compareAndSet(job, null)
             invoke.reject("unavailable", "unavailable")
             return
         }
-        worker.execute { pollResult(invoke, args.requestId, startedAt) }
+        worker.execute { pollResult(job) }
     }
 
-    private fun pollResult(invoke: Invoke, requestId: String, startedAt: Long) {
-        val deadline = startedAt + 2 * 60 * 1000L
+    private fun pollResult(job: VoiceJob) {
+        val deadline = job.startedAt + 2 * 60 * 1000L
         try {
-            while (activeRequest.get() == requestId && System.currentTimeMillis() < deadline) {
+            while (activeJob.get() === job && System.currentTimeMillis() < deadline) {
                 val entry = try {
                     store().read(System.currentTimeMillis())
                 } catch (error: VoiceResultStore.Failure) {
                     if (error.reason() == VoiceResultStore.Reason.BUSY) null else throw error
                 }
-                if (entry != null && entry.createdAtMillis() >= startedAt) {
-                    activeRequest.compareAndSet(requestId, null)
-                    invoke.resolve(JSObject().put("text", entry.text()))
+                if (entry != null && entry.createdAtMillis() >= job.startedAt) {
+                    if (!activeJob.compareAndSet(job, null)) return
+                    job.invoke.resolve(JSObject().put("text", entry.text()))
                     return
                 }
                 // The recognizer may finish with BACK, a missing service, or a
                 // system cancellation without producing a result file. Treat
                 // the Activity lifecycle as authoritative instead of waiting
                 // for the two-minute polling deadline.
-                if (!VoiceRecognitionActivity.isRequestActive(requestId)) {
-                    activeRequest.compareAndSet(requestId, null)
-                    invoke.reject("cancelled", "cancelled")
+                if (!VoiceRecognitionActivity.isRequestActive(job.requestId)) {
+                    if (!activeJob.compareAndSet(job, null)) return
+                    job.invoke.reject("cancelled", "cancelled")
                     return
                 }
                 Thread.sleep(200L)
             }
-            activeRequest.compareAndSet(requestId, null)
-            invoke.reject("cancelled", "cancelled")
+            if (activeJob.compareAndSet(job, null)) job.invoke.reject("cancelled", "cancelled")
         } catch (_: InterruptedException) {
             Thread.currentThread().interrupt()
-            activeRequest.compareAndSet(requestId, null)
-            invoke.reject("cancelled", "cancelled")
+            if (activeJob.compareAndSet(job, null)) job.invoke.reject("cancelled", "cancelled")
         } catch (_: VoiceResultStore.Failure) {
-            activeRequest.compareAndSet(requestId, null)
-            invoke.reject("unavailable", "unavailable")
+            if (activeJob.compareAndSet(job, null)) job.invoke.reject("unavailable", "unavailable")
         }
     }
 
@@ -120,8 +119,8 @@ class VoicePlugin(activity: Activity) : Plugin(activity) {
         } catch (_: Exception) {
             null
         }
-        val current = activeRequest.get()
-        if (current == null || requestId == null || requestId == current) {
+        val current = activeJob.get()
+        if (current == null || requestId == null || requestId == current.requestId) {
             VoiceRecognitionActivity.stopActive()
         }
         invoke.resolve()
@@ -136,9 +135,11 @@ class VoicePlugin(activity: Activity) : Plugin(activity) {
         } catch (_: Exception) {
             null
         }
-        val current = activeRequest.get()
-        if (current == null || requestId == null || requestId == current) {
-            if (current != null) activeRequest.compareAndSet(current, null)
+        val current = activeJob.get()
+        if (current == null || requestId == null || requestId == current.requestId) {
+            if (current != null && activeJob.compareAndSet(current, null)) {
+                current.invoke.reject("cancelled", "cancelled")
+            }
             VoiceRecognitionActivity.cancelActive()
         }
         invoke.resolve()
