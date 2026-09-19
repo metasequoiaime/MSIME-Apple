@@ -2024,17 +2024,19 @@ public:
           (candidate.contains("translation") && candidate.at("translation").is_string()
               ? "  " + candidate.at("translation").get<std::string>() : ""))), factory_(factory),
         session_(candidate.at("id").at("session")), generation_(candidate.at("id").at("generation")),
-        index_(candidate.at("id").at("index")) {}
+        index_(candidate.at("id").at("index")), source_(candidate.value("source", 0u)) {}
   void select(fcitx::InputContext *ic) const override {
     try { ic->propertyFor(factory_)->select(session_, generation_, index_); } catch (...) {}
   }
   uint64_t session() const { return session_; }
   uint64_t generation() const { return generation_; }
   size_t index() const { return index_; }
+  uint64_t source() const { return source_; }
 private:
   fcitx::FactoryFor<FcitxState> *factory_;
   uint64_t session_, generation_;
   size_t index_;
+  uint64_t source_;
 };
 
 // The runtime already pages candidates. Never page its current page a second time.
@@ -2074,8 +2076,10 @@ public:
   void next() override { move(MSIME_NEXT_PAGE); }
 #ifdef MSIME_FCITX_ACTIONS
   bool hasAction(const fcitx::CandidateWord &candidate) const override {
-    return !state_.translationCandidatesActive() &&
-           dynamic_cast<const FcitxCandidate *>(&candidate) != nullptr;
+    const auto *item = dynamic_cast<const FcitxCandidate *>(&candidate);
+    if (state_.translationCandidatesActive() || !item) return false;
+    return state_.view_.value("scheme", 0u) != 3 &&
+           (item->source() == 0 || item->source() == 1 || item->source() == 4);
   }
   std::vector<fcitx::CandidateAction>
   candidateActions(const fcitx::CandidateWord &candidate) const override {
@@ -2085,6 +2089,9 @@ public:
     if (!item) return actions;
     if (state_.session_ != item->session() ||
         state_.view_.value("generation", uint64_t{}) != item->generation()) return actions;
+    const auto scheme = state_.view_.value("scheme", 0u);
+    if (scheme == 3 || (item->source() != 0 && item->source() != 1 && item->source() != 4))
+      return actions;
     const auto make = [](int id, const char *text) {
       fcitx::CandidateAction action;
       action.setId(id);
@@ -2102,7 +2109,7 @@ public:
     const auto source = candidateJson.value("source", 0u);
     const auto fixedPosition = candidateJson.value("fixed_position", 0u);
     if (msime::linux_host::candidate_dictionary_removal_available(
-            state_.view_.value("scheme", 0u), source,
+            scheme, source,
             candidateJson.value("text", std::string{})))
       actions.push_back(make(2, "删除候选"));
     for (int slot = 1; slot <= 5; ++slot)
