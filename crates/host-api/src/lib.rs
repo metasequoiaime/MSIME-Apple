@@ -475,7 +475,11 @@ pub fn prepare_host_configuration(
             .ok_or("non-UTF-8 cache path")?,
         &specification.generation()?,
     )?;
-    let preferences = PreferencesStore::new(&state_root).load()?.preferences;
+    let preference_store = PreferencesStore::new(&state_root);
+    let snapshot = preference_store.load()?;
+    #[cfg(windows)]
+    let snapshot = migrate_windows_legacy_mixed_input(&preference_store, &state_root, snapshot)?;
+    let preferences = snapshot.preferences;
     Ok(serde_json::to_string_pretty(&HostOptions {
         api_version: 1,
         resources: prepared.resources,
@@ -499,6 +503,76 @@ pub fn prepare_host_configuration(
         // places one beside the dictionaries needs no configuration.
         sentence_model: None,
     })?)
+}
+
+/// Import the mixed-input controls from the Windows installer's legacy TOML
+/// once, before the shared JSON preference file exists. The installer still
+/// carries this file for the TSF compatibility surface, and existing users
+/// must not lose those choices when the shared Tauri/Engine store is created.
+/// A present JSON store always wins; malformed or out-of-range legacy values
+/// are ignored individually so a damaged optional config cannot block startup.
+#[cfg(windows)]
+fn migrate_windows_legacy_mixed_input(
+    store: &PreferencesStore,
+    state_root: &Path,
+    snapshot: PreferencesSnapshot,
+) -> Result<PreferencesSnapshot, Box<dyn std::error::Error>> {
+    if state_root.join("preferences.json").try_exists()? {
+        return Ok(snapshot);
+    }
+    let path = state_root.join("config.toml");
+    let Ok(document) = std::fs::read_to_string(path) else {
+        return Ok(snapshot);
+    };
+    let mut preferences = snapshot.preferences.clone();
+    if !apply_windows_legacy_mixed_input(&document, &mut preferences) {
+        return Ok(snapshot);
+    }
+    Ok(store.save(snapshot.revision, preferences)?)
+}
+
+fn apply_windows_legacy_mixed_input(document: &str, preferences: &mut Preferences) -> bool {
+    let document = match document.parse::<toml::Table>() {
+        Ok(document) => document,
+        Err(_) => {
+            return false;
+        }
+    };
+    let Some(general) = document.get("general").and_then(toml::Value::as_table) else {
+        return false;
+    };
+    let mut changed = false;
+    if let Some(value) = general
+        .get("cn_en_mixed_input")
+        .and_then(toml::Value::as_bool)
+    {
+        preferences.mixed_input.english = value;
+        changed = true;
+    }
+    if let Some(value) = general
+        .get("cn_en_mixed_input_min_chars")
+        .and_then(toml::Value::as_integer)
+        .and_then(|value| u8::try_from(value).ok())
+        .filter(|value| (1..=8).contains(value))
+    {
+        preferences.mixed_input.minimum_prefix = value;
+        changed = true;
+    }
+    if let Some(value) = general
+        .get("emoji_mixed_input")
+        .and_then(toml::Value::as_bool)
+    {
+        preferences.mixed_input.emoji = value;
+        changed = true;
+    }
+    if let Some(value) = general
+        .get("kaomoji_mixed_input")
+        .and_then(toml::Value::as_bool)
+    {
+        preferences.mixed_input.kaomoji = value;
+        changed = true;
+    }
+    changed
 }
 
 /// Edit only after every participating host has destroyed its sessions.
@@ -3640,6 +3714,35 @@ pub unsafe extern "C" fn msime_client_string_free(value: *mut c_char) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn windows_legacy_mixed_input_is_imported_without_leaking_other_config() {
+        let mut preferences = Preferences::default();
+        assert!(apply_windows_legacy_mixed_input(
+            "[general]\ncn_en_mixed_input = false\ncn_en_mixed_input_min_chars = 5\nemoji_mixed_input = true\nkaomoji_mixed_input = true\ndiagnostic_log = true\n",
+            &mut preferences,
+        ));
+        assert!(!preferences.mixed_input.english);
+        assert_eq!(preferences.mixed_input.minimum_prefix, 5);
+        assert!(preferences.mixed_input.emoji);
+        assert!(preferences.mixed_input.kaomoji);
+        assert!(!preferences.diagnostic_log.server);
+        assert!(!preferences.diagnostic_log.tsf);
+    }
+
+    #[test]
+    fn windows_legacy_mixed_input_ignores_invalid_values_and_documents() {
+        let mut preferences = Preferences::default();
+        assert!(!apply_windows_legacy_mixed_input(
+            "[general]\ncn_en_mixed_input_min_chars = 9\n",
+            &mut preferences,
+        ));
+        assert_eq!(preferences.mixed_input.minimum_prefix, 2);
+        assert!(!apply_windows_legacy_mixed_input(
+            "not toml",
+            &mut preferences
+        ));
+    }
 
     #[test]
     fn local_mode_resource_gates_preserve_unrelated_modes() {
