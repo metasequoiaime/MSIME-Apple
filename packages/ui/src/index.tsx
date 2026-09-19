@@ -662,6 +662,8 @@ export type MobileKeyboardFeedback = {
   soundEnabled: boolean;
   hapticsEnabled: boolean;
   hapticStrength: "light" | "medium" | "strong";
+  /** iOS keeps this Apple keyboard preference in the native App Group store. */
+  englishSuggestions?: boolean;
 };
 export type MobileKeyboardFeedbackClient = {
   load(): Promise<MobileKeyboardFeedback>;
@@ -2213,6 +2215,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
           <div className="input-option-divider" />
           <label className="section-header"><span className="section-title">按键振动<small>振动效果取决于设备与系统支持</small></span><input aria-label="按键振动" className="toggle" type="checkbox" disabled={mobileKeyboardFeedbackBusy} checked={mobileKeyboardFeedback.hapticsEnabled} onChange={event => void saveMobileKeyboardFeedback({ ...mobileKeyboardFeedback, hapticsEnabled: event.target.checked })} /></label>
           {mobileKeyboardFeedback.hapticsEnabled && <><div className="input-option-divider" /><label className="section-header"><span className="section-title">振动强度</span><select aria-label="振动强度" disabled={mobileKeyboardFeedbackBusy} value={mobileKeyboardFeedback.hapticStrength} onChange={event => void saveMobileKeyboardFeedback({ ...mobileKeyboardFeedback, hapticStrength: event.target.value as MobileKeyboardFeedback["hapticStrength"] })}><option value="light">轻</option><option value="medium">中</option><option value="strong">强</option></select></label>{client.mobileKeyboardFeedback?.preview && <button type="button" className="secondary" disabled={mobileKeyboardFeedbackBusy} onClick={() => void previewMobileKeyboardHaptics()}>试一下振动</button>}</>}
+          {iosPlatform && <><div className="input-option-divider" /><label className="section-header"><span className="section-title">英文建议<small>英文 26 键直接输入时，在候选栏显示当前单词的补全建议；关闭后仍可正常输入英文。</small></span><input aria-label="英文建议" className="toggle" type="checkbox" disabled={mobileKeyboardFeedbackBusy} checked={mobileKeyboardFeedback.englishSuggestions !== false} onChange={event => void saveMobileKeyboardFeedback({ ...mobileKeyboardFeedback, englishSuggestions: event.target.checked })} /></label></>}
         </div>}
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "helpcode"} aria-label="辅助码">

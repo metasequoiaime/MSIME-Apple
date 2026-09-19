@@ -1168,7 +1168,7 @@ test("mobile hosts use Apple-style primary navigation and retain secondary setti
 });
 
 test("mobile input settings expose native keyboard sound and haptic feedback", async () => {
-  const load = vi.fn().mockResolvedValue({ soundEnabled: true, hapticsEnabled: false, hapticStrength: "medium" });
+  const load = vi.fn().mockResolvedValue({ soundEnabled: true, hapticsEnabled: false, hapticStrength: "medium", englishSuggestions: true });
   const save = vi.fn().mockImplementation(async settings => settings);
   const preview = vi.fn().mockResolvedValue(undefined);
   render(<SettingsPage initialPage="input" client={{
@@ -1184,6 +1184,8 @@ test("mobile input settings expose native keyboard sound and haptic feedback", a
   expect(within(feedback).getByLabelText("振动强度")).toBeTruthy();
   fireEvent.click(within(feedback).getByRole("button", { name: "试一下振动" }));
   await waitFor(() => expect(preview).toHaveBeenCalledWith("medium"));
+  fireEvent.click(within(feedback).getByLabelText("英文建议"));
+  await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({ englishSuggestions: false })));
 });
 
 test("mobile settings pages follow the WebView back stack", async () => {
