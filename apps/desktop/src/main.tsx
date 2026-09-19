@@ -61,6 +61,7 @@ const client: SettingsClient = {
   save: (expectedRevision, preferences) => invoke<Snapshot>("save_preferences", { expectedRevision, preferences }),
   onPreferencesChanged: listener => listen<Snapshot>("preferences-changed", event => listener(event.payload)),
   openExternalUrl: url => invoke("open_external_url", { url }),
+  openThirdPartyLicenses: () => invoke("open_third_party_licenses"),
   copyText: text => invoke("copy_text", { text }),
   openScreenKeyboard: () => invoke("open_keyboard_panel"),
   openHandwriting: () => invoke("open_handwriting_panel"),

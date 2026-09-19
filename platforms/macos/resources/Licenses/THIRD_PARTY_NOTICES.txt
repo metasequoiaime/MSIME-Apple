@@ -1,0 +1,23 @@
+MSIME Client for macOS — bundled third-party notices
+=====================================================
+
+This application embeds MSIME-Engine at the locked revision recorded by
+engine-lock.json. The complete project license is GPL-3.0.txt. The Engine
+notice, dictionary and helpcode notices, and the component license texts are
+included beside this file in the Licenses directory.
+
+Components included by the macOS client include:
+
+* MSIME-Engine and its dictionary/helpcode data — GPL-3.0 and the notices
+  supplied by the Engine distribution.
+* googlepinyinime-rev — Apache License 2.0.
+* utfcpp — Boost Software License 1.0.
+* miniaudio — MIT or public domain (upstream dual-license text included).
+* whisper.cpp / ggml — MIT License.
+* zinnia and the bundled handwriting model — the notices supplied with the
+  Engine resources.
+
+The source tree retains each upstream notice. This collection is not a
+license-completeness or redistribution-authorization assessment; nested
+archives and distribution-specific dependencies must retain their own terms.
+The exact Engine revision and resource hashes are verified before packaging.

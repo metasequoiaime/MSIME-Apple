@@ -10,7 +10,18 @@
       "../../../vendor/MSIME-Engine/handwriting/models/handwriting-zh_CN.model": "handwriting/handwriting-zh_CN.model",
       "../../../vendor/MSIME-Engine/handwriting/models/HandwritingModel-LICENSE.txt": "handwriting/HandwritingModel-LICENSE.txt",
       "../../../vendor/MSIME-Engine/handwriting/third_party/zinnia/Zinnia-LICENSE.txt": "handwriting/Zinnia-LICENSE.txt",
-      "../../../vendor/MSIME-Engine/handwriting/provenance.json": "handwriting/provenance.json"
+      "../../../vendor/MSIME-Engine/handwriting/provenance.json": "handwriting/provenance.json",
+      "../../../platforms/macos/resources/Licenses/THIRD_PARTY_NOTICES.txt": "Licenses/THIRD_PARTY_NOTICES.txt",
+      "../../../LICENSE": "Licenses/GPL-3.0.txt",
+      "../../../vendor/MSIME-Engine/LICENSE": "Licenses/MSIME-Engine-GPL-3.0.txt",
+      "../../../vendor/MSIME-Engine/NOTICE.md": "Licenses/MSIME-Engine-NOTICE.md",
+      "../../../vendor/MSIME-Engine/dictionary/NOTICE.md": "Licenses/MSIME-Engine-dictionary-NOTICE.md",
+      "../../../vendor/MSIME-Engine/helpcode/NOTICE.md": "Licenses/MSIME-Engine-helpcode-NOTICE.md",
+      "../../../vendor/MSIME-Engine/voice/LICENSE": "Licenses/MSIME-Engine-voice-LICENSE.txt",
+      "../../../vendor/MSIME-Engine/googlepinyinime-rev/LICENSE": "Licenses/Apache-2.0-googlepinyinime.txt",
+      "../../../vendor/MSIME-Engine/utfcpp/LICENSE": "Licenses/Boost-1.0-utfcpp.txt",
+      "../../../vendor/MSIME-Engine/voice/third_party/miniaudio/LICENSE": "Licenses/miniaudio-LICENSE.txt",
+      "../../../vendor/MSIME-Engine/voice/third_party/whisper.cpp/LICENSE": "Licenses/MIT-whisper.txt"
     }
   }
 }
