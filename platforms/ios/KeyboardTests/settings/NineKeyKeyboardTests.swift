@@ -400,8 +400,11 @@ final class NineKeyKeyboardTests: XCTestCase {
         }
       }
       let candidate = try button("candidate-1", in: controller)
-      XCTAssertEqual(candidate.menu?.children.map(\.title), ["优先显示", "固定到首位", "取消固定", "删除词条…"])
-      XCTAssertEqual((candidate.menu?.children.last as? UIMenu)?.children.first?.title, "确认删除此词条")
+      XCTAssertTrue(candidate.menu?.children.first is UIDeferredMenuElement)
+      XCTAssertEqual(controller.candidateMenuElements(at: 0).map(\.title),
+                     ["优先显示", "固定到首位", "取消固定", "删除词条…"])
+      XCTAssertEqual((controller.candidateMenuElements(at: 0).last as? UIMenu)?.children.first?.title,
+                     "确认删除此词条")
     }
   }
 
@@ -1605,6 +1608,32 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
+  func testCandidateChipsReuseTheirSlotsBetweenKeystrokes() throws {
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    InputSchemePreference.scheme = .nineKey
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390,
+                                   height: 260 + KeyboardViewController.stripExtraHeight)
+    controller.viewWillAppear(false)
+
+    for digit in "64426" {
+      try button("nineKey\(digit)", in: controller).sendActions(for: .primaryActionTriggered)
+    }
+    let first = descendants(controller.view).compactMap { $0 as? UIButton }
+      .filter { ($0.accessibilityIdentifier ?? "").hasPrefix("candidate-") && !$0.isHidden }
+    XCTAssertFalse(first.isEmpty)
+
+    try button("nineKey6", in: controller).sendActions(for: .primaryActionTriggered)
+    let second = descendants(controller.view).compactMap { $0 as? UIButton }
+      .filter { ($0.accessibilityIdentifier ?? "").hasPrefix("candidate-") && !$0.isHidden }
+    XCTAssertFalse(second.isEmpty)
+    for (before, after) in zip(first, second) {
+      XCTAssertTrue(before === after)
+    }
+  }
+
   func testKeyPositionsStayFixedWhileComposingAndClearing() throws {
     let previous = InputSchemePreference.scheme
     InputSchemePreference.scheme = .nineKey
@@ -1640,7 +1669,9 @@ final class NineKeyKeyboardTests: XCTestCase {
           XCTAssertTrue(try XCTUnwrap(button("candidate-1", in: controller).configuration?.title).contains("你好"))
         } else if phase == "cleared" {
           try button("nineKeyClear", in: controller).sendActions(for: .primaryActionTriggered)
-          XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "candidate-1" })
+          XCTAssertTrue(descendants(controller.view).allSatisfy {
+            $0.accessibilityIdentifier?.hasPrefix("candidate-") != true || $0.isHidden
+          })
         }
         controller.view.layoutIfNeeded()
         for (key, expected) in zip(keys, frames) {

@@ -2,6 +2,51 @@ import UIKit
 
 /// Animate the key itself without changing the stack view's layout or input timing.
 final class KeyboardKeyButton: UIButton {
+  static let glossColumns: CGFloat = 3
+
+  static func glossColumnWidth(
+    visible: CGFloat, spacing: CGFloat, insets: NSDirectionalEdgeInsets
+  ) -> CGFloat {
+    guard visible > 0 else { return 0 }
+    return (visible - spacing * (glossColumns - 1)) / glossColumns
+      - insets.leading - insets.trailing
+  }
+
+  static func chipContentWidth(titleLine: CGFloat, glossLines: Int, column: CGFloat) -> CGFloat {
+    glossLines > 0 ? max(titleLine, column) : titleLine
+  }
+
+  static func chipWidth(
+    titleLine: CGFloat, glossLines: Int, column: CGFloat, insets: NSDirectionalEdgeInsets
+  ) -> CGFloat {
+    ceil(chipContentWidth(titleLine: titleLine, glossLines: glossLines, column: column)
+      + insets.leading + insets.trailing)
+  }
+
+  static let minimumGlossFontSize: CGFloat = 9
+
+  static func fittedGloss(_ text: String, font: UIFont, width: CGFloat) -> (text: String, font: UIFont) {
+    func measure(_ value: String, _ candidateFont: UIFont) -> CGFloat {
+      (value as NSString).size(withAttributes: [.font: candidateFont]).width
+    }
+    guard width > 0, !text.isEmpty else { return (text, font) }
+    if measure(text, font) <= width { return (text, font) }
+    var size = font.pointSize
+    while size > minimumGlossFontSize {
+      size = max(size - 0.5, minimumGlossFontSize)
+      let smaller = font.withSize(size)
+      if measure(text, smaller) <= width { return (text, smaller) }
+    }
+    let floorFont = font.withSize(minimumGlossFontSize)
+    var characters = Array(text)
+    while !characters.isEmpty {
+      characters.removeLast()
+      let shortened = String(characters) + "…"
+      if measure(shortened, floorFont) <= width { return (shortened, floorFont) }
+    }
+    return ("", floorFont)
+  }
+
   override var isHighlighted: Bool {
     didSet {
       guard isHighlighted != oldValue else { return }

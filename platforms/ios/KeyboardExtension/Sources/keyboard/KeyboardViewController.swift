@@ -162,6 +162,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var visibleCandidateCodes: [String] = []
   private var visibleCandidateGlosses: [String] = []
   private var visibleCandidatePageCount = 0
+  private var appliedCandidateColumnWidth: CGFloat = 0
   private var visibleCandidatesAnsweredByPinyinFallback = false
   private var visibleDiagnostic: String?
   private var diagnosticDismissTimer: Timer?
@@ -2576,17 +2577,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     shortcutBar.isHidden = showsCandidates
     candidateContent?.isHidden = !showsCandidates
     updatePreeditButton()
-    for view in candidateStack.arrangedSubviews {
-      candidateStack.removeArrangedSubview(view)
-      view.removeFromSuperview()
+    let page = Array(visibleCandidates.prefix(Self.candidatePageSize))
+    while candidateStack.arrangedSubviews.count < page.count {
+      let index = candidateStack.arrangedSubviews.count
+      candidateStack.addArrangedSubview(makeCandidateButton(index: index))
     }
-
-    let page = visibleCandidates.prefix(Self.candidatePageSize)
-    for (offset, candidate) in page.enumerated() {
-      candidateStack.addArrangedSubview(
-        makeCandidateButton(
-          candidate: candidate, number: offset + 1, index: offset,
-          converting: japaneseConversionIndex == offset))
+    for (offset, view) in candidateStack.arrangedSubviews.enumerated() {
+      guard let chip = view as? KeyboardKeyButton else { continue }
+      chip.isHidden = offset >= page.count
+      guard offset < page.count else { continue }
+      updateCandidateButton(
+        chip, candidate: page[offset], hint: candidateAnnotation(at: offset).text,
+        glosses: candidateGlosses(at: offset), number: offset + 1,
+        converting: japaneseConversionIndex == offset)
     }
     updateExpandControl()
 
@@ -2606,8 +2609,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func candidateGlosses(at index: Int) -> [String] {
     guard CandidateGlossPreference.enabled, visibleCandidates.indices.contains(index) else { return [] }
-    return glosses(word: visibleCandidates[index], offline: visibleCandidateGlosses.indices.contains(index) ? visibleCandidateGlosses[index] : "")
+    let word = visibleCandidates[index]
+    var languages = [CandidateTranslationPreference.primary]
+    if let secondary = CandidateTranslationPreference.secondary { languages.append(secondary) }
+    return languages
+      .filter { Self.canFillGloss($0, fullAccess: hasFullAccess) }
+      .map {
+        gloss(word: word, language: $0,
+              offline: visibleCandidateGlosses.indices.contains(index) ? visibleCandidateGlosses[index] : "")
+          ?? Self.pendingGlossPlaceholder
+      }
   }
+
+  static let pendingGlossPlaceholder = " "
 
   private func glosses(word: String, offline: String) -> [String] {
     var lines: [String] = []
@@ -2746,43 +2760,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   // A touch keyboard has no number row to answer with, so the ordinal is spoken rather than drawn;
   // the index is the engine position the chip selects. The expand panel already showed bare text.
-  private func makeCandidateButton(candidate: String, number: Int, index: Int,
-                                   converting: Bool = false) -> UIButton {
-    let display = chineseOutput(candidate)
-    let annotation = candidateAnnotation(at: index)
-    let glosses = candidateGlosses(at: index)
+  private func makeCandidateButton(index: Int) -> KeyboardKeyButton {
     var configuration = UIButton.Configuration.plain()
-    configuration.title = display
-    if !annotation.text.isEmpty || !glosses.isEmpty {
-      let paragraph = NSMutableParagraphStyle()
-      paragraph.lineBreakMode = .byTruncatingTail
-      var title = AttributedString(display, attributes: AttributeContainer([
-        .font: UIFont.preferredFont(forTextStyle: .body), .paragraphStyle: paragraph,
-      ]))
-      if !annotation.text.isEmpty {
-        title += AttributedString(" " + annotation.text, attributes: AttributeContainer([
-          .font: UIFont.preferredFont(forTextStyle: .caption1), .paragraphStyle: paragraph,
-          .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
-        ]))
-      }
-      for gloss in glosses {
-        title += AttributedString("\n" + gloss, attributes: AttributeContainer([
-          .font: UIFont.preferredFont(forTextStyle: .caption2), .paragraphStyle: paragraph,
-          .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
-        ]))
-      }
-      configuration.attributedTitle = title
-    }
-    // Candidate chips live in a horizontal scroll view. Keep each title on a
-    // single line and let the row scroll to wider candidates instead of
-    // compressing a chip into a second line.
     configuration.titleLineBreakMode = .byTruncatingTail
     configuration.baseForegroundColor = KeyboardSkinPreference.selected.keyForeground
     configuration.contentInsets = NSDirectionalEdgeInsets(
       top: 4, leading: 9, bottom: 4, trailing: 9)
-    configuration.background.backgroundColor = converting
-      ? KeyboardSkinPreference.selected.accent.withAlphaComponent(0.22)
-      : KeyboardSkinPreference.selected.keyBackground
+    configuration.background.backgroundColor = KeyboardSkinPreference.selected.keyBackground
     configuration.background.strokeColor = KeyboardSkinPreference.selected.accent.withAlphaComponent(0.22)
     configuration.background.strokeWidth = 1
     configuration.background.cornerRadius = 9
@@ -2792,32 +2776,117 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       primaryAction: UIAction { [weak self] _ in
         guard let self else { return }
         self.playInputClick()
-        // Handwriting candidates are not Engine candidates, so their visible index must route back
-        // through the handwriting panel rather than through session.selectCandidate.
-        if self.inputScheme == .handwriting, !self.handwritingResults.isEmpty {
-          if self.handwriting.use(at: index) { self.handwritingResults = [] }
-          return
-        }
-        if !self.isChineseMode {
-          self.useEnglishSuggestion(at: index)
-          return
-        }
-        self.render(self.session.selectCandidate(at: UInt(index)))
+        self.selectCandidate(at: index)
       })
-    button.titleLabel?.numberOfLines = 1 + glosses.count
     button.setContentCompressionResistancePriority(.required, for: .horizontal)
-    button.accessibilityLabel = annotation.accessibilityDescription.isEmpty
-      ? "候选词 \(number)：\(display)"
-      : "候选词 \(number)：\(display)，\(annotation.accessibilityDescription)"
-    if !glosses.isEmpty { button.accessibilityLabel? += "，释义 " + glosses.joined(separator: "，") }
-    button.accessibilityIdentifier = "candidate-\(number)"
-    let elements = candidateMenuElements(at: index)
-    if !elements.isEmpty {
-      button.menu = UIMenu(title: display, children: elements)
-      button.accessibilityHint = "轻点输入，长按管理词条"
-    }
+    button.accessibilityIdentifier = "candidate-\(index + 1)"
+    button.menu = UIMenu(children: [
+      UIDeferredMenuElement.uncached { [weak self] completion in
+        completion(self?.candidateMenuElements(at: index) ?? [])
+      }
+    ])
     decorateKey(button)
     return button
+  }
+
+  private func selectCandidate(at index: Int) {
+    guard visibleCandidates.indices.contains(index) else { return }
+    if inputScheme == .handwriting, !handwritingResults.isEmpty {
+      if handwriting.use(at: index) { handwritingResults = [] }
+      return
+    }
+    if !isChineseMode {
+      useEnglishSuggestion(at: index)
+      return
+    }
+    render(session.selectCandidate(at: UInt(index)))
+  }
+
+  private func candidateColumnWidth() -> CGFloat {
+    KeyboardKeyButton.glossColumnWidth(
+      visible: candidateScrollView.bounds.width, spacing: candidateStack.spacing,
+      insets: NSDirectionalEdgeInsets(top: 4, leading: 9, bottom: 4, trailing: 9))
+  }
+
+  private func pinCandidateWidth(
+    of button: KeyboardKeyButton, firstLine title: AttributedString?, glossLines: Int
+  ) {
+    let existing = button.constraints.first { $0.identifier == "candidateChipWidth" }
+    guard glossLines > 0, let title else {
+      existing?.isActive = false
+      return
+    }
+    let text = NSAttributedString(title)
+    let separator = (text.string as NSString).range(of: "\n")
+    let head = separator.location == NSNotFound
+      ? NSRange(location: 0, length: text.length)
+      : NSRange(location: 0, length: separator.location)
+    let width = KeyboardKeyButton.chipWidth(
+      titleLine: text.attributedSubstring(from: head).size().width,
+      glossLines: glossLines, column: candidateColumnWidth(),
+      insets: button.configuration?.contentInsets ?? .zero)
+    if let existing {
+      existing.constant = width
+      existing.isActive = true
+    } else {
+      let constraint = button.widthAnchor.constraint(equalToConstant: width)
+      constraint.identifier = "candidateChipWidth"
+      constraint.isActive = true
+    }
+  }
+
+  private func updateCandidateButton(
+    _ button: KeyboardKeyButton, candidate: String, hint: String, glosses: [String], number: Int,
+    converting: Bool
+  ) {
+    let display = chineseOutput(candidate)
+    guard var configuration = button.configuration else { return }
+    configuration.background.backgroundColor = converting
+      ? KeyboardSkinPreference.selected.accent.withAlphaComponent(0.22)
+      : KeyboardSkinPreference.selected.keyBackground
+    let annotation = hint
+    if annotation.isEmpty && glosses.isEmpty {
+      configuration.titleLineBreakMode = .byTruncatingTail
+      configuration.attributedTitle = nil
+      configuration.title = display
+    } else {
+      configuration.titleLineBreakMode = .byWordWrapping
+      let paragraph = NSMutableParagraphStyle()
+      paragraph.alignment = .natural
+      paragraph.lineBreakMode = .byTruncatingTail
+      var title = AttributedString(display, attributes: AttributeContainer([
+        .font: UIFont.preferredFont(forTextStyle: .body), .paragraphStyle: paragraph,
+      ]))
+      if !annotation.isEmpty {
+        title += AttributedString(" " + annotation, attributes: AttributeContainer([
+          .font: UIFont.preferredFont(forTextStyle: .caption1), .paragraphStyle: paragraph,
+          .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
+        ]))
+      }
+      let content = KeyboardKeyButton.chipContentWidth(
+        titleLine: NSAttributedString(title).size().width, glossLines: glosses.count,
+        column: candidateColumnWidth())
+      let caption = UIFont.preferredFont(forTextStyle: .caption2)
+      for gloss in glosses {
+        let fitted = KeyboardKeyButton.fittedGloss(gloss, font: caption, width: content)
+        title += AttributedString("\n" + fitted.text, attributes: AttributeContainer([
+          .font: fitted.font, .paragraphStyle: paragraph,
+          .foregroundColor: KeyboardSkinPreference.selected.keyForeground.withAlphaComponent(0.55),
+        ]))
+      }
+      configuration.attributedTitle = title
+    }
+    button.configuration = configuration
+    button.titleLabel?.numberOfLines = 1 + glosses.count
+    pinCandidateWidth(of: button, firstLine: configuration.attributedTitle, glossLines: glosses.count)
+    button.accessibilityLabel = annotation.isEmpty
+      ? "候选词 \(number)：\(display)"
+      : "候选词 \(number)：\(display)，还需输入 \(annotation)"
+    let spoken = glosses.filter { !$0.trimmingCharacters(in: .whitespaces).isEmpty }
+    if !spoken.isEmpty {
+      button.accessibilityLabel? += "，释义 " + spoken.joined(separator: "，")
+    }
+    button.accessibilityHint = spoken.isEmpty ? nil : "轻点输入，长按可输入释义"
   }
 
   /// What a long press on a candidate's gloss offers. The action is deferred until the menu opens,
@@ -3000,6 +3069,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   override func viewDidLayoutSubviews() {
     super.viewDidLayoutSubviews()
+    let column = candidateColumnWidth()
+    if abs(column - appliedCandidateColumnWidth) > 0.5 {
+      appliedCandidateColumnWidth = column
+      if !visibleCandidates.isEmpty { renderCandidateStrip() }
+    }
     updateLetterRowInsets()
     if let globe = actionGlobeButton, globe.isHidden != !needsInputModeSwitchKey {
       updateKeyboardLayout()
