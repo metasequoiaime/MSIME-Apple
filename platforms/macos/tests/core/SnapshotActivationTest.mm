@@ -30,12 +30,13 @@ int main(int argc, const char *argv[]) {
             uint64_t oldSession = [[session viewWithError:&error][@"session"] unsignedLongLongValue];
             NSString *version = [MSIMEClientSession snapshotVersionForOptions:options error:&error];
             assert(version && !error);
+            NSString *activationID = @"00112233-4455-6677-8899-aabbccddeeff";
             NSDictionary *record = @{@"type":@"overlay", @"deleted":@NO,
                 @"data":@{@"kind":@"english", @"code":@"msimesnapshotfixture", @"word":@"msimesnapshotfixture", @"weight":@10000, @"user_inserted":@YES}};
             __block NSDictionary *prepared = nil;
             dispatch_sync(dispatch_get_global_queue(QOS_CLASS_UTILITY, 0), ^{
                 __block BOOL sent = NO;
-                prepared = [MSIMEClientSession prepareSnapshotRequest:@{@"options":options, @"staging_root":staging, @"expected_version":version, @"records":@1}
+                prepared = [MSIMEClientSession prepareSnapshotRequest:@{@"options":options, @"staging_root":staging, @"expected_version":version, @"records":@1, @"activation_id":activationID}
                     nextRecord:^NSDictionary *(NSError **readerError) {
                         (void)readerError;
                         if (sent) return nil;
@@ -65,6 +66,7 @@ int main(int argc, const char *argv[]) {
             if (!activated) NSLog(@"Synthetic snapshot activation failed: %@", error.localizedDescription);
             assert(activated);
             assert(!error && notifications == 1);
+            assert([[MSIMEClientSession snapshotVersion:options][@"generation"] isEqual:activationID]);
             [NSNotificationCenter.defaultCenter removeObserver:observer];
             NSDictionary *view = [session viewWithError:&error];
             assert([view[@"session"] unsignedLongLongValue] != oldSession && [view[@"editing_text"] length] == 0);

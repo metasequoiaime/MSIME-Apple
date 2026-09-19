@@ -29,7 +29,8 @@ final class MacPreparedLocalSnapshot: @unchecked Sendable {
     try FileManager.default.createDirectory(at: root, withIntermediateDirectories: false)
     stagingRoot = root
     let request: NSDictionary = ["options": context, "staging_root": root.path,
-      "expected_version": version, "records": snapshot.envelope.records]
+      "expected_version": version, "records": snapshot.envelope.records,
+      "activation_id": identifier]
     let result = try Self.invoke("prepareSnapshot:", ["request": request, "nextRecord": next])
     guard let number = result["handle"] as? NSNumber else { throw BackendAccountClient.Failure(status: 500) }
     prepared = number.uint64Value
