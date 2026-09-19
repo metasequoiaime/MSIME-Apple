@@ -7,6 +7,7 @@ import { TypingStatisticsPolicy } from './TypingStatisticsPolicy';
 import { KeyboardSkin } from './skin/KeyboardSkin';
 import { CustomKeyboardSkin, CustomSkinDocument } from './skin/CustomKeyboardSkin';
 import { KeyboardFormFactor } from './KeyboardFormFactor';
+import { KeyboardScheme, SchemeDefinition } from './KeyboardScheme';
 import { EditorPolicy, EditorTraits } from './input/EditorPolicy';
 import { WubiCodeHintPolicy } from './input/WubiCodeHintPolicy';
 import { KeyboardGeometry } from './KeyboardGeometry';
@@ -447,7 +448,7 @@ interface PreparedPreferences {
   custom_touch_keyboard_skin?: CustomSkinDocument;
   voice_input: VoiceInputConfiguration;
   ai_assistant: PreparedAiAssistant;
-  touch_keyboard_schemes: { selected: string | null };
+  touch_keyboard_schemes: { enabled?: string[]; selected: string | null };
   keybindings: PreparedKeybindings;
 }
 
@@ -510,6 +511,8 @@ export interface KeyboardPreferences {
   readonly scheme: string;
   readonly shuangpinProfile: string;
   readonly layout: string;
+  /** Shared touch-scheme ids enabled in the native picker, in shared declaration order. */
+  readonly enabledSchemes: string[];
   readonly candidateFollowCursor: boolean;
   readonly numberRowSelection: boolean;
   readonly navigation: HardwareNavigationPreferences;
@@ -866,6 +869,10 @@ export class KeyboardSession {
         scheme: preferences.scheme,
         shuangpinProfile: preferences.shuangpin_profile,
         layout: preferences.touch_keyboard_layout,
+        enabledSchemes: preferences.touch_keyboard_schemes?.enabled === undefined
+          ? KeyboardScheme.SCHEMES.map((candidate: SchemeDefinition): string => candidate.preferenceId)
+          : KeyboardScheme.enabledFromPreferenceIds(preferences.touch_keyboard_schemes.enabled)
+            .map((candidate: SchemeDefinition): string => candidate.preferenceId),
         candidateFollowCursor: preferences.candidate_follow_cursor,
         numberRowSelection: preferences.number_row_selection,
         candidateShowPreedit: preferences.candidate_preedit_style !== 'empty',
