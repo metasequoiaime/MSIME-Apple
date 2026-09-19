@@ -1,13 +1,13 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
-import minimizeIcon from "../../../packages/ui/src/assets/minimize.svg";
-import maximizeIcon from "../../../packages/ui/src/assets/maximize.svg";
-import restoreIcon from "../../../packages/ui/src/assets/restore.svg";
-import closeIcon from "../../../packages/ui/src/assets/close.svg";
-import keyboardCapability from "../src-tauri/capabilities/keyboard.json";
+import minimizeIcon from "../../../../packages/ui/src/assets/minimize.svg";
+import maximizeIcon from "../../../../packages/ui/src/assets/maximize.svg";
+import restoreIcon from "../../../../packages/ui/src/assets/restore.svg";
+import closeIcon from "../../../../packages/ui/src/assets/close.svg";
+import keyboardCapability from "../../src-tauri/capabilities/keyboard.json";
 import { AI_PROVIDER_OPTIONS, CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryApplyPanel, CloudDictionaryCatalogPanel, CloudDictionaryFilesPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, aiCredentialOrigin, aiProviderUpdate, type AiAssistantPreferences, type CustomSkinLibraryAction, type HostCapabilities, type SavedTouchKeyboardSkin, type SettingsClient, type Snapshot, type TouchKeyboardSkinDesign } from "@msime/ui";
-import { validateGitHubRelease } from "../../../packages/ui/src/settings/update-manifest";
+import { validateGitHubRelease } from "../../../../packages/ui/src/settings/update-manifest";
 
 afterEach(cleanup);
 

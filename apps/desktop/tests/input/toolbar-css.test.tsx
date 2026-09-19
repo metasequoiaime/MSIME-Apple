@@ -1,18 +1,18 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, render, waitFor } from "@testing-library/react";
-import { useToolbarCss } from "../../../packages/ui/src/skin/use-toolbar-css";
-import { installToolbarCss } from "../../../packages/ui/src/skin/skin-toolbar-css";
-import { prepareToolbarImages } from "../../../packages/ui/src/skin/toolbar-images";
-import type { SkinImageReader } from "../../../packages/ui/src/skin/skin-image";
-import type { SkinFontReader } from "../../../packages/ui/src/skin/skin-font";
-import { prepareToolbarFonts } from "../../../packages/ui/src/skin/toolbar-fonts";
+import { useToolbarCss } from "../../../../packages/ui/src/skin/use-toolbar-css";
+import { installToolbarCss } from "../../../../packages/ui/src/skin/skin-toolbar-css";
+import { prepareToolbarImages } from "../../../../packages/ui/src/skin/toolbar-images";
+import type { SkinImageReader } from "../../../../packages/ui/src/skin/skin-image";
+import type { SkinFontReader } from "../../../../packages/ui/src/skin/skin-font";
+import { prepareToolbarFonts } from "../../../../packages/ui/src/skin/toolbar-fonts";
 
 // jsdom does not implement CSSScopeRule. The real helper is exercised by the
 // Chromium regression; these tests exercise asynchronous React ownership.
-vi.mock("../../../packages/ui/src/skin/skin-toolbar-css", () => ({ installToolbarCss: vi.fn() }));
-vi.mock("../../../packages/ui/src/skin/toolbar-images", () => ({ prepareToolbarImages: vi.fn() }));
-vi.mock("../../../packages/ui/src/skin/toolbar-fonts", () => ({ prepareToolbarFonts: vi.fn() }));
+vi.mock("../../../../packages/ui/src/skin/skin-toolbar-css", () => ({ installToolbarCss: vi.fn() }));
+vi.mock("../../../../packages/ui/src/skin/toolbar-images", () => ({ prepareToolbarImages: vi.fn() }));
+vi.mock("../../../../packages/ui/src/skin/toolbar-fonts", () => ({ prepareToolbarFonts: vi.fn() }));
 afterEach(() => { cleanup(); vi.resetAllMocks(); });
 function Probe({ read, revision = 0, filename = "toolbar.css", readImage, readFont }: { read?: (id: string) => Promise<string | null>; revision?: number; filename?: string | null; readImage?: SkinImageReader; readFont?: SkinFontReader }) {
   return <span>{useToolbarCss(read, "sample", filename, revision, "scope", readImage, readFont)}</span>;

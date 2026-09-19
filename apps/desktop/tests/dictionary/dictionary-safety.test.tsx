@@ -3,7 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { SettingsPage, type DictionaryEntry, type Snapshot } from "@msime/ui";
 // Not re-exported from the package root; take it from the module that owns it.
-import { DICTIONARY_PAGE_SIZE, parsePersonalDictionaryImport } from "../../../packages/ui/src/dictionary/dictionary-file";
+import { DICTIONARY_PAGE_SIZE, parsePersonalDictionaryImport } from "../../../../packages/ui/src/dictionary/dictionary-file";
 
 afterEach(() => { cleanup(); vi.restoreAllMocks(); });
 

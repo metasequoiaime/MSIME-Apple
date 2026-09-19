@@ -1,9 +1,9 @@
 // @vitest-environment jsdom
 import { cleanup, fireEvent, render, renderHook, waitFor } from "@testing-library/react";
 import { afterEach, expect, test, vi } from "vitest";
-import { CandidateFontControls } from "../../../packages/ui/src/candidate/candidate-font-controls";
-import { candidateFamilyStyle, validCandidateFonts } from "../../../packages/ui/src/candidate/candidate-font-family";
-import { useResolvedCandidateFonts } from "../../../packages/ui/src/candidate/resolved-candidate-fonts";
+import { CandidateFontControls } from "../../../../packages/ui/src/candidate/candidate-font-controls";
+import { candidateFamilyStyle, validCandidateFonts } from "../../../../packages/ui/src/candidate/candidate-font-family";
+import { useResolvedCandidateFonts } from "../../../../packages/ui/src/candidate/resolved-candidate-fonts";
 afterEach(cleanup);
 
 test("Windows exposes an independent English face with a platform default", () => {

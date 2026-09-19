@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { preserveAnimationShorthands } from "../../../packages/ui/src/skin/animation-shorthand-source";
+import { preserveAnimationShorthands } from "../../../../packages/ui/src/skin/animation-shorthand-source";
 
 // Positive expansion needs browser shorthand CSSOM support; the Chromium
 // regression verifies actual timing, ordering, priority and image preparation.

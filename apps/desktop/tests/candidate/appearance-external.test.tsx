@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
-import { AppearanceCandidatePreview } from "../../../packages/ui/src/candidate/appearance-candidate-preview";
+import { AppearanceCandidatePreview } from "../../../../packages/ui/src/candidate/appearance-candidate-preview";
 import type { Preferences, SkinCatalog } from "@msime/ui";
 
 afterEach(cleanup);

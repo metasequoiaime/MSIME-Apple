@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
 import { act, cleanup, render } from "@testing-library/react";
-import { AppearanceCandidatePreview } from "../../../packages/ui/src/candidate/appearance-candidate-preview";
+import { AppearanceCandidatePreview } from "../../../../packages/ui/src/candidate/appearance-candidate-preview";
 import type { Preferences } from "@msime/ui";
 
 afterEach(() => { cleanup(); vi.unstubAllGlobals(); });

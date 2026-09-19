@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { expect, test } from "vitest";
-import styles from "../../../packages/ui/src/styles.css?raw";
-import variables from "../../../packages/ui/src/upstream/variables.css?raw";
+import styles from "../../../../packages/ui/src/styles.css?raw";
+import variables from "../../../../packages/ui/src/upstream/variables.css?raw";
 
 // Inspect parsed CSS declarations: jsdom does not resolve custom properties or
 // simulate native WebView hover/layout. These are stylesheet contract tests.

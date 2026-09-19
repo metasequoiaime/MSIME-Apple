@@ -2,7 +2,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { HandwritingPanel, VoicePanel } from "@msime/ui";
-import capability from "../src-tauri/capabilities/input-panel-drag.json";
+import capability from "../../src-tauri/capabilities/input-panel-drag.json";
 
 afterEach(cleanup);
 function pointer(target: Element, type: string, x: number, extra = {}) {

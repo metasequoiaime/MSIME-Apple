@@ -1,5 +1,5 @@
 import { expect, test, vi } from "vitest";
-import { hasUnresolvedCssResource, rewriteCssImages } from "../../../packages/ui/src/skin/css-image-value";
+import { hasUnresolvedCssResource, rewriteCssImages } from "../../../../packages/ui/src/skin/css-image-value";
 const data = "data:image/png;base64,AAH/";
 
 test.each([
