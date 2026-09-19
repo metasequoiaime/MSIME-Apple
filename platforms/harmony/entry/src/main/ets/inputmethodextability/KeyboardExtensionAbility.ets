@@ -389,6 +389,9 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       case HardwareKeyAction.COMPOSE:
         session.press(decision.character, key.shiftKey);
         break;
+      case HardwareKeyAction.PUNCTUATION:
+        session.punctuation(decision.character);
+        break;
       case HardwareKeyAction.BACKSPACE:
         session.backspace();
         break;

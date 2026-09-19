@@ -1022,6 +1022,30 @@ group('maps hardware composition editing commands like Windows', () => {
     HardwareKeyAction.RELEASE, 'Shift+minus stays ordinary editor punctuation in Japanese');
 });
 
+group('routes Chinese hardware punctuation without stealing editor navigation', () => {
+  const key = (unicodeChar: number, keyCode: number = 0, modifiers: Partial<HardwareKey> = {}): HardwareKey => ({
+    keyCode,
+    unicodeChar,
+    ctrlKey: false,
+    altKey: false,
+    logoKey: false,
+    shiftKey: false,
+    ...modifiers
+  });
+  check(HardwareKeyRouter.route(key(0x2c), false, true).action === HardwareKeyAction.PUNCTUATION,
+    'Chinese hardware comma uses the shared punctuation route');
+  check(HardwareKeyRouter.route(key(0x3f), false, true).character === 0x3f,
+    'hardware punctuation preserves the ASCII key');
+  check(HardwareKeyRouter.route(key(0x2c), false, false).action === HardwareKeyAction.RELEASE,
+    'English punctuation remains application-owned');
+  check(HardwareKeyRouter.route(key(0x2c), false, true, false, undefined, false, true).action ===
+    HardwareKeyAction.RELEASE, 'Japanese punctuation remains application-owned');
+  check(HardwareKeyRouter.route(key(0x2c, 2043), true, true).action === HardwareKeyAction.PREVIOUS_PAGE,
+    'comma keeps candidate paging while composing');
+  check(HardwareKeyRouter.route(key(0x2c, 2043, { ctrlKey: true }), false, true).action ===
+    HardwareKeyAction.RELEASE, 'modified punctuation is left to the application');
+});
+
 group('splits candidate translation senses for Ctrl+Enter', () => {
   check(TranslationSensePolicy.split('你好；您好；喂').join('|') === '你好|您好|喂',
     'fullwidth semicolons become separate translation choices');

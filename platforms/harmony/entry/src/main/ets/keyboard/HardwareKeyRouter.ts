@@ -30,6 +30,8 @@ export enum HardwareKeyAction {
   RELEASE,
   /** A letter or digit for the Engine to spell with. */
   COMPOSE,
+  /** An ASCII punctuation mark to resolve with the editor-context policy. */
+  PUNCTUATION,
   /** Take back the last letter of the composition. */
   BACKSPACE,
   /** Throw the composition away. */
@@ -106,6 +108,13 @@ const RELEASE: HardwareKeyDecision = {
 function decision(action: HardwareKeyAction, character: number = 0,
                   index: number = 0): HardwareKeyDecision {
   return { action: action, character: character, index: index };
+}
+
+function isAsciiPunctuation(value: number): boolean {
+  return value >= 0x21 && value <= 0x2f
+    || value >= 0x3a && value <= 0x40
+    || value >= 0x5b && value <= 0x60
+    || value >= 0x7b && value <= 0x7e;
 }
 
 export class HardwareKeyRouter {
@@ -199,6 +208,12 @@ export class HardwareKeyRouter {
     const letter: boolean = (key.unicodeChar >= 0x61 && key.unicodeChar <= 0x7a)
       || (key.unicodeChar >= 0x41 && key.unicodeChar <= 0x5a);
     if (!letter) {
+      // A Chinese hardware keyboard owns punctuation when no composition is open, just as the
+      // touch keyboard does. Navigation punctuation has already been consumed above while a
+      // composition is active; modifiers and Japanese punctuation remain application-owned.
+      if (!composing && chinese && !japanese && isAsciiPunctuation(key.unicodeChar)) {
+        return decision(HardwareKeyAction.PUNCTUATION, key.unicodeChar);
+      }
       return RELEASE;
     }
     // English mode spells nothing the application could not spell itself, so its letters are left
