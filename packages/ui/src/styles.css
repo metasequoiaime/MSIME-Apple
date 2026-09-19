@@ -237,6 +237,15 @@ button.statistics-heatmap-cell { cursor: pointer; }
 .statistics-rank-row > span { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .statistics-rank-track { height: 11px; overflow: hidden; border-radius: 999px; background: var(--surface-subtle); }
 .statistics-rank-track i { display: block; height: 100%; border-radius: inherit; }
+/* 候选命中位置：单序列，所以只有一种颜色、没有图例——标题就是图例。标记色对底色的对比低于
+   3:1，因此每行必须带可见的次数与占比，那两列是无障碍兜底而不是装饰。 */
+/* 第一列至少容得下最长的那个标签「第 10 条以后」，否则 .statistics-rank-row > span 的 ellipsis 会把它截掉。 */
+.statistics-candidate-ranks .statistics-rank-row { grid-template-columns: minmax(88px, 1fr) minmax(80px, 2fr) auto auto; }
+.statistics-candidate-ranks .statistics-rank-row small { min-width: 44px; color: var(--text-muted); text-align: right; font-variant-numeric: tabular-nums; }
+.statistics-hero { display: flex; align-items: baseline; gap: 8px; margin: 14px 0 4px; }
+.statistics-hero strong { font-size: 30px; line-height: 1.1; font-variant-numeric: tabular-nums; }
+.statistics-hero span { color: var(--text-secondary); font-size: 13px; }
+.statistics-hero small { margin-left: auto; color: var(--text-muted); font-size: 12px; }
 .statistics-rank-row strong { min-width: 36px; color: var(--text-secondary); text-align: right; font-variant-numeric: tabular-nums; }
 .statistics-empty { margin: 2px 0 14px; color: var(--text-muted); text-align: center; }
 .statistics-legend { display: flex; flex-direction: column; gap: 11px; }
