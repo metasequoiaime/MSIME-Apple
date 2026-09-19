@@ -5,7 +5,7 @@ import unittest
 from pathlib import Path
 
 
-TAURI_ROOT = Path(__file__).resolve().parents[1]
+TAURI_ROOT = Path(__file__).resolve().parents[1] / "apps/desktop/src-tauri"
 APPLE_ROOT = TAURI_ROOT / "gen/apple"
 
 
@@ -245,7 +245,7 @@ class IOSProjectConfigTests(unittest.TestCase):
         desktop_entry = (TAURI_ROOT.parent / "src/main.tsx").read_text()
         mobile_services = (TAURI_ROOT.parent / "src/mobile-host-services.ts").read_text()
 
-        self.assertIn('mod ios_account;', rust_entry)
+        self.assertIn('use platform::ios::ios_account;', rust_entry)
         self.assertIn('ios_account::setup(app.handle())?', rust_entry)
         for command in [
             "account_status",
@@ -279,7 +279,7 @@ class IOSProjectConfigTests(unittest.TestCase):
         rust = (plugin / "src/lib.rs").read_text()
         swift = (plugin / "ios/Sources/MobilePlatformPlugin.swift").read_text()
         account = (TAURI_ROOT / "src/platform/ios/ios_account.rs").read_text()
-        mapping = (TAURI_ROOT / "src/platform/ios/ios_account_preferences.rs").read_text()
+        mapping = (TAURI_ROOT / "src/platform/ios/ios_account/account_preferences.rs").read_text()
         desktop_entry = (TAURI_ROOT.parent / "src/main.tsx").read_text()
         mobile_services = (TAURI_ROOT.parent / "src/mobile-host-services.ts").read_text()
 
