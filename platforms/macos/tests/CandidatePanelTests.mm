@@ -217,6 +217,52 @@ int main()
                     "A vertical gloss took its own line instead of sharing the row.");
         }
 
+        // 一行放不下这一页时,整行等比压缩会把排在最前的长句和末尾的单字候选砍掉同样的比例 —— 用户看到的
+        // 是第一条句子被省略号吃掉一截。完整显示比凑满一页更重要:显示出来的候选都是完整的,放不下的就不显示。
+        {
+            panel.panelType = kIMKSingleRowSteppingCandidatePanel;
+            [panel setCandidateData:@[ MetasequoiaIndexedCandidateString(@"候选", 0) ]];
+            NSFont *rowFont = CandidateButtonFont(panel);
+            const CGFloat glyph = [@"水" sizeWithAttributes:@{NSFontAttributeName : rowFont}].width;
+            Require(glyph > 0.0, "The candidate font measured an empty glyph.");
+            const CGFloat available = MAX(80.0, NSScreen.mainScreen.visibleFrame.size.width - 20.0);
+            NSString *sentence = [@"" stringByPaddingToLength:(NSUInteger)MAX(4.0, floor(available * 0.4 / glyph))
+                                                   withString:@"水杉输入法" startingAtIndex:0];
+            NSString *shortWord = [@"" stringByPaddingToLength:(NSUInteger)MAX(2.0, floor(available * 0.12 / glyph))
+                                                    withString:@"候选" startingAtIndex:0];
+            NSMutableArray *overflowing =
+                [NSMutableArray arrayWithObject:MetasequoiaIndexedCandidateString(sentence, 0)];
+            while (overflowing.count < 9)
+                [overflowing addObject:MetasequoiaIndexedCandidateString(shortWord, overflowing.count)];
+            [panel setCandidateData:overflowing];
+            NSButton *sentenceButton = nil;
+            NSUInteger rendered = 0;
+            for (NSView *view in panel.window.contentView.subviews)
+            {
+                if (![view isKindOfClass:NSButton.class] || view.tag < 0)
+                    continue;
+                ++rendered;
+                if (view.tag == 0)
+                    sentenceButton = (NSButton *)view;
+            }
+            Require(sentenceButton != nil, "An overflowing row dropped the candidate at its head.");
+            Require(sentenceButton.frame.size.width >=
+                        [sentence sizeWithAttributes:@{NSFontAttributeName : rowFont}].width,
+                    "An overflowing row truncated the sentence at its head.");
+            Require(rendered < overflowing.count,
+                    "An overflowing row kept every candidate instead of showing fewer whole ones.");
+            Require(panel.candidateFrame.size.width <= NSScreen.mainScreen.visibleFrame.size.width,
+                    "The fitted row pushed the window past the screen.");
+            // 排在前面、能放下的候选都保持原宽度,不因为后面放不下而被压缩。
+            for (NSView *view in panel.window.contentView.subviews)
+            {
+                if (![view isKindOfClass:NSButton.class] || view.tag <= 0)
+                    continue;
+                Require(view.frame.size.width >= [shortWord sizeWithAttributes:@{NSFontAttributeName : rowFont}].width,
+                        "A candidate the row did show was still squeezed.");
+            }
+        }
+
         for (const CGFloat measured : {0.0, 40.0, 208.0, 292.0, 1000.0})
             Require(metasequoia::mac::CandidateGlossDrawnWidth(measured, 10000.0) +
                             2.0 * metasequoia::mac::kCandidateGlossGap <=
