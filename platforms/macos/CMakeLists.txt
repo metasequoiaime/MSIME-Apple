@@ -596,6 +596,14 @@ target_compile_options(live-voice-controller-test PRIVATE -fobjc-arc -Wall -Wext
 add_test(NAME live-voice-controller COMMAND live-voice-controller-test)
 add_test(NAME live-voice-socket-route COMMAND live-voice-controller-test --socket)
 set_tests_properties(live-voice-socket-route PROPERTIES ENVIRONMENT "MSIME_VOICE_PROVIDER_SOCKET=/tmp/synthetic-live.sock")
+# The window's implementation is linked in so the test can ask the runtime what properties the class
+# actually declares; nothing here opens it, reads a keychain item or writes a default.
+add_executable(voice-provider-settings-keys-test tests/voice/VoiceProviderSettingsKeysTest.mm
+  src/voice/VoiceProviderSettings.mm)
+target_compile_options(voice-provider-settings-keys-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(voice-provider-settings-keys-test PRIVATE "-framework AppKit" "-framework Security"
+  "-framework CoreAudio" "-framework AudioToolbox")
+add_test(NAME voice-provider-settings-keys COMMAND voice-provider-settings-keys-test)
 add_executable(voice-polish-request-test tests/voice/VoicePolishRequestTest.mm src/voice/HTTPVoiceRequest.mm)
 target_compile_options(voice-polish-request-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(voice-polish-request-test PRIVATE msime-voice-providers "-framework Foundation")

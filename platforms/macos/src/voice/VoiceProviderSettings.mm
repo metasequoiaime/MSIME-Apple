@@ -1,4 +1,5 @@
 #import "VoiceProviderSettings.h"
+#import "VoiceProviderSettingsKeys.h"
 #import "VoiceCaptureDevice.h"
 NSNotificationName const MSIMEVoiceProviderSettingsDidChangeNotification = @"MSIMEClientVoiceProviderSettingsDidChange";
 #import <Security/Security.h>
@@ -112,16 +113,11 @@ static NSString *StringSetting(NSDictionary *saved, NSString *key, NSString *fal
     return [value isKindOfClass:[NSString class]] ? (NSString *)value : fallback;
 }
 
-// The runtime reads the MSIMEClientVoice* defaults; this window used to read and write only its own
-// "voiceInput" dictionary, which nothing else has ever looked at, so every choice made here was stored
-// and then ignored. Prefer the shared key and fall back to the private one, so a configuration written
-// by the Tauri settings page shows up here and an older private one is not lost on first open.
-static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *sharedKey, NSString *fallback)
+static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fallback)
 {
-    id shared = [NSUserDefaults.standardUserDefaults objectForKey:sharedKey];
-    if ([shared isKindOfClass:[NSString class]] && [(NSString *)shared length])
-        return (NSString *)shared;
-    return StringSetting(saved, key, fallback);
+    NSString *sharedKey = MSIMEVoiceProviderSharedKeys()[key];
+    return MSIMEVoiceProviderSharedSetting(
+        saved, key, sharedKey ? [NSUserDefaults.standardUserDefaults objectForKey:sharedKey] : nil, fallback);
 }
 
 + (instancetype)loadSettings
@@ -131,15 +127,15 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *sha
     if (!saved)
         saved = @{};
     NSString *rawProvider =
-        SharedSetting(saved, @"provider", @"MSIMEClientVoiceASRProvider", @"doubao").lowercaseString;
+        SharedSetting(saved, @"provider", @"doubao").lowercaseString;
     // Keep legacy cloud settings readable while matching the Windows provider contract.
     if ([rawProvider isEqualToString:@"cloud"])
         rawProvider = @"siliconflow";
     if (rawProvider.length == 0)
         rawProvider = @"doubao";
     value.provider = rawProvider;
-    value.endpoint = SharedSetting(saved, @"endpoint", @"MSIMEClientVoiceASREndpoint", @"");
-    value.model = SharedSetting(saved, @"model", @"MSIMEClientVoiceASRModel", @"");
+    value.endpoint = SharedSetting(saved, @"endpoint", @"");
+    value.model = SharedSetting(saved, @"model", @"");
     if (value.endpoint.length == 0)
     {
         if ([rawProvider isEqualToString:@"openai"])
@@ -158,15 +154,14 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *sha
         else if ([rawProvider isEqualToString:@"siliconflow"])
             value.model = @"FunAudioLLM/SenseVoiceSmall";
     }
-    value.modelPath = SharedSetting(saved, @"modelPath", @"MSIMEClientVoiceASRModelPath", @"");
+    value.modelPath = SharedSetting(saved, @"modelPath", @"");
     id polishEnabled = saved[@"polishEnabled"];
     value.polishEnabled =
         [polishEnabled isKindOfClass:[NSNumber class]] || [polishEnabled isKindOfClass:[NSString class]]
             ? [polishEnabled boolValue]
             : NO;
-    value.polishEndpoint = SharedSetting(saved, @"polishEndpoint", @"MSIMEClientVoicePolishEndpoint",
-                                         @"https://api.siliconflow.cn/v1/chat/completions");
-    value.polishModel = SharedSetting(saved, @"polishModel", @"MSIMEClientVoicePolishModel", @"Qwen/Qwen3-8B");
+    value.polishEndpoint = SharedSetting(saved, @"polishEndpoint", @"https://api.siliconflow.cn/v1/chat/completions");
+    value.polishModel = SharedSetting(saved, @"polishModel", @"Qwen/Qwen3-8B");
     id sharedCaptureDevice = [NSUserDefaults.standardUserDefaults objectForKey:@"MSIMEClientVoiceCaptureDevice"];
     value.captureDevice = [sharedCaptureDevice isKindOfClass:NSString.class]
         ? sharedCaptureDevice : StringSetting(saved, @"captureDevice", @"");
@@ -217,21 +212,22 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *sha
         @"captureDevice" : self.captureDevice ?: @""
     }
                                               forKey:@"voiceInput"];
-    [[NSUserDefaults standardUserDefaults] setObject:self.captureDevice ?: @""
-                                              forKey:@"MSIMEClientVoiceCaptureDevice"];
-    // What the input method actually reads on the next recording.
-    NSDictionary *shared = @{
-        @"MSIMEClientVoiceASRProvider" : self.provider,
-        @"MSIMEClientVoiceASREndpoint" : self.endpoint,
-        @"MSIMEClientVoiceASRModel" : self.model,
-        @"MSIMEClientVoiceASRModelPath" : self.modelPath,
-        @"MSIMEClientVoiceASRToken" : self.token,
-        @"MSIMEClientVoicePolishEndpoint" : self.polishEndpoint,
-        @"MSIMEClientVoicePolishModel" : self.polishModel,
-        @"MSIMEClientVoicePolishToken" : self.polishToken
+    // What the input method actually reads on the next recording. Driven by the shared key table so a
+    // field added to this window cannot be saved into the private dictionary alone.
+    NSDictionary *values = @{
+        @"provider" : self.provider,
+        @"endpoint" : self.endpoint,
+        @"model" : self.model,
+        @"modelPath" : self.modelPath,
+        @"token" : self.token,
+        @"polishEndpoint" : self.polishEndpoint,
+        @"polishModel" : self.polishModel,
+        @"polishToken" : self.polishToken,
+        @"captureDevice" : self.captureDevice ?: @""
     };
-    for (NSString *key in shared)
-        [[NSUserDefaults standardUserDefaults] setObject:shared[key] forKey:key];
+    NSDictionary<NSString *, NSString *> *sharedKeys = MSIMEVoiceProviderSharedKeys();
+    for (NSString *field in values)
+        [[NSUserDefaults standardUserDefaults] setObject:values[field] forKey:sharedKeys[field]];
     [[NSUserDefaults standardUserDefaults] setBool:self.polishEnabled forKey:@"MSIMEClientVoicePolish"];
     [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEVoiceProviderSettingsDidChangeNotification object:self];
     return YES;
