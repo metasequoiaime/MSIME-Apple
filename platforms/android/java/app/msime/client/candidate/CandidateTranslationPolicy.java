@@ -1,5 +1,6 @@
 package app.msime.client;
 
+import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -25,6 +26,21 @@ public final class CandidateTranslationPolicy {
     public static String joinGlosses(List<String> glosses) {
         if (glosses == null || glosses.isEmpty()) return "";
         return String.join("\n", glosses);
+    }
+
+    /** Return the bounded, user-visible gloss rows that a long press may insert. */
+    public static List<String> insertionGlosses(String translation) {
+        if (translation == null || translation.isEmpty()) return List.of();
+        ArrayList<String> result = new ArrayList<>(2);
+        for (String value : translation.split("\\R", -1)) {
+            String gloss = value.trim();
+            if (gloss.isEmpty() || result.contains(gloss)
+                    || gloss.getBytes(StandardCharsets.UTF_8).length > 4096
+                    || gloss.codePoints().anyMatch(Character::isISOControl)) continue;
+            result.add(gloss);
+            if (result.size() == 2) break;
+        }
+        return List.copyOf(result);
     }
 
     /** Count rows that can actually be filled by the enabled offline/online paths. */

@@ -4255,14 +4255,51 @@ public final class MSIMEInputService extends InputMethodService {
             .show();
     }
 
-    private void showCandidateMenu(Button button, JSONObject id, String text) {
-        if (!candidateManagementEnabled()) return;
+    private boolean candidateIsCurrent(int slot, JSONObject id, String text) {
+        JSONObject current = visibleCandidate(slot);
+        JSONObject currentId = current == null ? null : current.optJSONObject("id");
+        return current != null && currentId != null && id != null
+            && currentId.optLong("session") == id.optLong("session")
+            && currentId.optLong("generation") == id.optLong("generation")
+            && currentId.optLong("index") == id.optLong("index")
+            && text.equals(chineseOutput(current.optString("text"), view));
+    }
+
+    private boolean candidateGlossInsertionEnabled() {
+        if (view == null || !"none".equals(view.optString("local_mode", "none"))) return false;
+        return view.optInt("scheme", 0) != 3;
+    }
+
+    private void insertCandidateGloss(int slot, JSONObject id, String text, String gloss) {
+        if (!candidateIsCurrent(slot, id, text) || connection == null) return;
+        if (!commitText(gloss, TypingSource.LOCAL)) return;
+        if (session != 0) command(3);
+    }
+
+    private boolean showCandidateMenu(Button button, int slot, JSONObject id, String text) {
+        if (!candidateGlossInsertionEnabled() && !candidateManagementEnabled()) return false;
         PopupMenu popup = new PopupMenu(this, button);
-        for (CandidateManagementAction action : CandidateManagementAction.values()) {
-            popup.getMenu().add(Menu.NONE, action.menuItemId(), action.ordinal(), action.title());
+        JSONObject current = visibleCandidate(slot);
+        String translation = current == null || current.isNull("translation")
+            ? "" : current.optString("translation", "");
+        java.util.List<String> glosses = candidateGlossInsertionEnabled()
+            ? CandidateTranslationPolicy.insertionGlosses(translation) : java.util.List.of();
+        for (int index = 0; index < glosses.size(); index++)
+            popup.getMenu().add(Menu.NONE, 2000 + index, Menu.NONE, glosses.get(index));
+        boolean management = candidateManagementEnabled();
+        if (glosses.isEmpty() && !management) return false;
+        if (management) {
+            for (CandidateManagementAction action : CandidateManagementAction.values()) {
+                popup.getMenu().add(Menu.NONE, action.menuItemId(), action.ordinal(), action.title());
+            }
         }
         popup.setOnMenuItemClickListener(item -> {
             playFeedback(button);
+            int glossIndex = item.getItemId() - 2000;
+            if (glossIndex >= 0 && glossIndex < glosses.size()) {
+                insertCandidateGloss(slot, id, text, glosses.get(glossIndex));
+                return true;
+            }
             CandidateManagementAction action;
             try {
                 action = CandidateManagementAction.fromMenuItemId(item.getItemId());
@@ -4277,6 +4314,7 @@ public final class MSIMEInputService extends InputMethodService {
             return true;
         });
         popup.show();
+        return true;
     }
 
     private CharSequence candidateLabel(String prefix, String text, String annotation,
@@ -4335,10 +4373,9 @@ public final class MSIMEInputService extends InputMethodService {
         button.setOnLongClickListener(ignored -> {
             JSONObject current = visibleCandidate(slot);
             JSONObject id = current == null ? null : current.optJSONObject("id");
-            if (id == null || !candidateManagementEnabled()) return false;
+            if (id == null || (!candidateManagementEnabled() && !candidateGlossInsertionEnabled())) return false;
             String text = chineseOutput(current.optString("text"), view);
-            showCandidateMenu(button, id, text);
-            return true;
+            return showCandidateMenu(button, slot, id, text);
         });
         return button;
     }

@@ -13,6 +13,11 @@ public final class CandidateTranslationPolicySmoke {
             "missing secondary preserves legacy behavior");
         check(CandidateTranslationPolicy.joinGlosses(List.of("hello", "こんにちは"))
                 .equals("hello\nこんにちは"), "two glosses stay on separate rows");
+        check(CandidateTranslationPolicy.insertionGlosses(" hello \nこんにちは\nhello")
+                .equals(List.of("hello", "こんにちは")),
+            "long press keeps distinct bounded gloss rows");
+        check(CandidateTranslationPolicy.insertionGlosses("safe\n" + "x".repeat(4097))
+                .equals(List.of("safe")), "oversized gloss rows are not insertable");
         check(CandidateTranslationPolicy.glossLines(List.of("en"), true, false) == 1,
             "offline English keeps its row when online translation is off");
         check(CandidateTranslationPolicy.glossLines(List.of("ja"), true, false) == 0,
