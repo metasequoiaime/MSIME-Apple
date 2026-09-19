@@ -969,6 +969,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
   const [phraseForm, setPhraseForm] = useState<{ key: string; value: string; weight: number; previous: DictionaryEntry | null } | null>(null);
   const [dictionaryKind, setDictionaryKind] = useState<LocalDictionaryKind>("quick_phrase");
   const [dictionaryFormat, setDictionaryFormat] = useState<LocalDictionaryFormat>("standard");
+  const phraseRequestGeneration = useRef(0);
   const [windowMaximized, setWindowMaximized] = useState(false);
   const [skinPreviewThemes, setSkinPreviewThemes] = useState<Partial<Record<NonNullable<Preferences["candidate_skin"]>, "light" | "dark">>>({});
   const [showTouchSkinEditor, setShowTouchSkinEditor] = useState(false);
@@ -1244,6 +1245,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
   // page before showing anything.
   async function loadPhrases(kind: LocalDictionaryKind = dictionaryKind, offset = 0) {
     if (!client.dictionary) return;
+    const generation = ++phraseRequestGeneration.current;
     setPhraseBusy(true); setPhraseError(""); setPhraseNotice("");
     setPhrasePage(current => ({ ...current, status: "查询中…" }));
     try {
@@ -1252,6 +1254,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
       // saw an empty list when they picked another dictionary, and the status
       // line counted the filtered rows against the unfiltered page.
       const page = await client.dictionary.list(offset, DICTIONARY_PAGE_SIZE, kind, phraseSearch.trim());
+      if (generation !== phraseRequestGeneration.current) return;
       // Older hosts ignore the extra arguments, so keep filtering defensively.
       const entries = page.entries.filter(entry => entry.kind === kind);
       setPhrases(entries);
@@ -1264,10 +1267,11 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
         status: dictionaryPageStatus(offset, entries.length, page.has_more),
       });
     } catch {
+      if (generation !== phraseRequestGeneration.current) return;
       setPhraseError("无法读取词库。");
       setPhrasePage(current => ({ ...current, status: "查询失败，请重试" }));
     } finally {
-      setPhraseBusy(false);
+      if (generation === phraseRequestGeneration.current) setPhraseBusy(false);
     }
   }
   async function removePhrase(entry: DictionaryEntry) {

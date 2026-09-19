@@ -1061,6 +1061,32 @@ test("dictionary manager pages through entries instead of loading the whole dict
   expect(screen.getByRole("button", { name: "上一页" })).toHaveProperty("disabled", false);
 });
 
+test("dictionary manager ignores a stale page response", async () => {
+  let resolveFirst: ((value: { entries: never[]; has_more: boolean }) => void) | undefined;
+  let resolveSecond: ((value: { entries: { kind: "pinyin"; key: string; value: string; weight: number }[]; has_more: boolean }) => void) | undefined;
+  const list = vi.fn()
+    .mockImplementationOnce(() => new Promise(resolve => { resolveFirst = resolve as typeof resolveFirst; }))
+    .mockImplementationOnce(() => new Promise(resolve => { resolveSecond = resolve as typeof resolveSecond; }));
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial), save: vi.fn(), dictionary: { list, edit: vi.fn() },
+  };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  const query = await screen.findByRole("button", { name: "查询" });
+  const kind = screen.getByLabelText("本地词库类型");
+  act(() => {
+    fireEvent.click(query);
+    fireEvent.change(kind, { target: { value: "pinyin" } });
+  });
+  expect(list).toHaveBeenCalledTimes(2);
+  resolveSecond?.({ entries: [{ kind: "pinyin", key: "new", value: "新结果", weight: 100 }], has_more: false });
+  await screen.findByText("新结果");
+  resolveFirst?.({ entries: [], has_more: false });
+  await act(async () => { await Promise.resolve(); });
+  expect(screen.getByText("新结果")).toBeDefined();
+  expect(screen.queryByText("查询失败，请重试")).toBeNull();
+});
+
 test("diagnostic logging starts off and each host is saved separately", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })) };
   render(<SettingsPage client={client} />);
