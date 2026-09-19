@@ -1343,3 +1343,13 @@ MSIME-Apple 的语音服务目录里有两个共享客户端一直没有的转�
 个人词库文件导入卡片对所有移动宿主显示（`importPersonal` 在 iOS 与 Android 上都接了），但说明文字写的是「确认后加入 Android 键盘同步队列」。iOS 用户读到的是一句不成立的话：那条队列是 App Group 里由本机键盘扩展消费的队列，和 Android 无关。改为按宿主平台命名，未知平台不提平台名，句子依然通顺。这是共享 UI 里唯一一处未按平台收敛的 Android 文案，其余 Android 字样要么在 `androidPlatform` 分支内、要么是代码注释。
 
 本地验证：新增 3 项 Vitest 覆盖 iOS、Android 与未知平台三种措辞；`tests/dictionary` 全部 61 项通过；桌面 TypeScript 检查与 `pnpm build` 通过。未改动导入行为本身，CI 保持禁用。
+
+### iOS Swift 测试套件恢复可运行
+
+`platforms/ios` 的 229 个 Swift 用例迁移过来之后，仓库里没有任何地方说明怎么跑，也没有任何记录显示它跑过。本次把它接通并记录结果，同时修掉两处让它跑不完或测错对象的问题：
+
+**测试宿主漏了 App Group entitlement。** MSIME-Apple 的 `MetasequoiaKeyboardTestHost` 声明了 `CODE_SIGN_ENTITLEMENTS`，迁移过来的 `MSIMEKeyboardTestHost` 没有。被测键盘要靠这个容器读共享偏好；没有它，宿主会在套件中途以 `Test crashed with signal kill before establishing connection` 被杀，后面的用例全部不报告（实测只跑到 88 项）。补上后整套 211 项全部执行完毕。相应地，构建测试时必须允许签名——模拟器用 `CODE_SIGN_IDENTITY=-` 做 ad-hoc 签名即可，不需要开发者证书；`CODE_SIGNING_ALLOWED=NO` 会把 entitlement 一并剥掉。
+
+**候选气泡的行数限制从来没生效。** `updateCandidateButton` 在 `button.configuration = configuration` 之后紧接着写 `titleLabel?.numberOfLines`，而 UIKit 按自己的节奏应用配置并在过程中重建 title label，赋的值随即被丢弃——测试读回来是 0（不限行），候选词于是折到第二行，而候选条是横向滚动的，放不下的候选本该截断并留在滚动区后面。改为由 `KeyboardKeyButton.titleLineCount` 在每次 `layoutSubviews` 重新应用，展开候选面板里同样的写法一并改掉。修改后读回的是代码本来想要的值。
+
+本地验证：Xcode 27 / iOS 27.0 模拟器上，已 `simctl erase` 的干净设备，201 通过、10 失败，两次运行结果一致；失败名单记入 `platforms/ios/README.md`，集中在候选条与九键的布局测量和 Engine 候选断言，尚未逐条定位。该套件暂不接入 `scripts/verify-local.sh`：需要模拟器与已暂存词库资源，单次约十分钟。未执行真机验收，CI 保持禁用。

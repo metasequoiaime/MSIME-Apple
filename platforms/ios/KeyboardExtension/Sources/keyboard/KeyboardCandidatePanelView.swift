@@ -195,7 +195,7 @@ final class KeyboardCandidatePanelView: UIView {
     let chip = KeyboardKeyButton(
       configuration: configuration,
       primaryAction: UIAction { [weak self] _ in self?.onSelect(index) })
-    chip.titleLabel?.numberOfLines = 1 + annotation.text.split(separator: "\n", omittingEmptySubsequences: false).count
+    chip.titleLineCount = 1 + annotation.text.split(separator: "\n", omittingEmptySubsequences: false).count
     chip.accessibilityIdentifier = "panelCandidate-\(number)"
     chip.accessibilityLabel = annotation.accessibilityDescription.isEmpty
       ? "候选词 \(number)：\(text)"

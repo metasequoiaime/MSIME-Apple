@@ -156,6 +156,11 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios.keyboard-test-host
         PRODUCT_NAME: MSIMEKeyboardTestHost
+        # The keyboard under test reads its preferences from the App Group container, so the host
+        # that loads it needs the same entitlement the extension ships with -- as the Apple
+        # client's test host does. Without it the container is refused and the host is killed
+        # partway through the suite, leaving most of it unreported.
+        CODE_SIGN_ENTITLEMENTS: KeyboardExtension/Resources/MSIMEKeyboardExtension.entitlements
         ARCHS: arm64
         GENERATE_INFOPLIST_FILE: YES
         INFOPLIST_FILE: ""
