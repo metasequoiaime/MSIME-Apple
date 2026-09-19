@@ -120,6 +120,12 @@ fi
 note "default config contracts"
 python3 scripts/test-default-config-parity.py || fail "default config contracts"
 
+# A settings-page key the Rust document has no field for does not get dropped:
+# deny_unknown_fields fails the whole save. Cheap enough to run in --quick,
+# and it is the pre-merge gate that would have caught it.
+note "preferences field parity"
+python3 scripts/test-preferences-field-parity.py || fail "preferences field parity"
+
 note "compile: rust workspace"
 # The desktop app's Tauri config lists the platform IME bundle as a packaged
 # resource, and Tauri's build script fails when a listed resource is absent. On
