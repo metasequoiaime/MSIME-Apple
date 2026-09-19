@@ -4,16 +4,27 @@ package app.msime.client.keyboard;
 public final class EnglishSuggestionPolicy {
     private EnglishSuggestionPolicy() {}
 
+    /** Read Latin letters backwards, normalizing full-width forms for the ASCII dictionary. */
     public static String currentWord(CharSequence beforeCursor) {
         if (beforeCursor == null || beforeCursor.length() == 0) return "";
         StringBuilder result = new StringBuilder();
         for (int offset = beforeCursor.length(); offset > 0;) {
             int codePoint = Character.codePointBefore(beforeCursor, offset);
-            if (!isAsciiLetter(codePoint)) break;
-            result.appendCodePoint(codePoint);
+            int normalized = normalizeLetter(codePoint);
+            if (normalized < 0) break;
+            result.appendCodePoint(normalized);
             offset -= Character.charCount(codePoint);
         }
         return result.reverse().toString();
+    }
+
+    private static int normalizeLetter(int codePoint) {
+        if (isAsciiLetter(codePoint)) return codePoint;
+        if ((codePoint >= 0xff21 && codePoint <= 0xff3a)
+                || (codePoint >= 0xff41 && codePoint <= 0xff5a)) {
+            return codePoint - 0xfee0;
+        }
+        return -1;
     }
 
     private static boolean isAsciiLetter(int codePoint) {
