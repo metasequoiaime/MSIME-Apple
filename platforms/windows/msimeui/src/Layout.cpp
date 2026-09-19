@@ -204,7 +204,7 @@ bool IsSameRect(const RectF &lhs, const RectF &rhs)
     return lhs.x == rhs.x && lhs.y == rhs.y && lhs.width == rhs.width && lhs.height == rhs.height;
 }
 
-void DrawLayeredMistShadow(ID2D1RenderTarget *target, const RectF &bounds, float radius, float scale)
+void DrawLayeredMistShadow(ID2D1RenderTarget *target, const RectF &bounds, float radius, float scale, float opacity)
 {
     const float s = std::max(scale, 0.15f);
     for (int i = 1; i <= 20; ++i)
@@ -212,7 +212,7 @@ void DrawLayeredMistShadow(ID2D1RenderTarget *target, const RectF &bounds, float
         const float t = static_cast<float>(i) / 20.0f;
         const float spread = 1.15f * static_cast<float>(i) * s;
         const float offsetY = 0.4f * static_cast<float>(i) * s;
-        const float alpha = 0.14f * (1.0f - t) * (1.0f - t);
+        const float alpha = 0.14f * (1.0f - t) * (1.0f - t) * opacity;
         ComPtr<ID2D1SolidColorBrush> brush;
         if (FAILED(target->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0, alpha), brush.GetAddressOf())))
         {
@@ -226,82 +226,113 @@ void DrawLayeredMistShadow(ID2D1RenderTarget *target, const RectF &bounds, float
     }
 }
 
-bool DrawGaussianMistShadow(ID2D1RenderTarget *target, const RectF &bounds, float radius, float scale)
+// One gaussian-blurred rounded-rect pass shared by the built-in and explicit-pass card
+// shadows; stdDeviation/alpha/offset are already-scaled absolute values.
+bool DrawGaussianShadowPass(ID2D1RenderTarget *target, ID2D1DeviceContext *dc, const RectF &bounds, float radius,
+                            float stdDeviation, float alpha, float offsetX, float offsetY)
 {
-    ComPtr<ID2D1DeviceContext> dc;
-    if (FAILED(target->QueryInterface(IID_PPV_ARGS(dc.GetAddressOf()))))
+    const float pad = stdDeviation * 3.0f + 4.0f;
+    const D2D1_SIZE_F bitmapSize = {bounds.width + pad * 2.0f, bounds.height + pad * 2.0f};
+    if (bitmapSize.width < 2.0f || bitmapSize.height < 2.0f)
     {
         return false;
     }
 
-    const float s = std::max(scale, 0.15f);
-    auto drawPass = [&](float stdDeviation, float alpha, float offsetY) -> bool {
-        const float pad = stdDeviation * 3.0f + 4.0f;
-        const D2D1_SIZE_F bitmapSize = {bounds.width + pad * 2.0f, bounds.height + pad * 2.0f};
-        if (bitmapSize.width < 2.0f || bitmapSize.height < 2.0f)
-        {
-            return false;
-        }
+    ComPtr<ID2D1BitmapRenderTarget> compatible;
+    if (FAILED(target->CreateCompatibleRenderTarget(bitmapSize, compatible.GetAddressOf())))
+    {
+        return false;
+    }
 
-        ComPtr<ID2D1BitmapRenderTarget> compatible;
-        if (FAILED(target->CreateCompatibleRenderTarget(bitmapSize, compatible.GetAddressOf())))
-        {
-            return false;
-        }
+    compatible->BeginDraw();
+    compatible->Clear(D2D1::ColorF(0, 0.0f));
+    ComPtr<ID2D1SolidColorBrush> fill;
+    if (FAILED(compatible->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0, alpha), fill.GetAddressOf())))
+    {
+        compatible->EndDraw();
+        return false;
+    }
+    const auto shape =
+        D2D1::RoundedRect(D2D1::RectF(pad, pad, pad + bounds.width, pad + bounds.height), radius, radius);
+    compatible->FillRoundedRectangle(shape, fill.Get());
+    if (FAILED(compatible->EndDraw()))
+    {
+        return false;
+    }
 
-        compatible->BeginDraw();
-        compatible->Clear(D2D1::ColorF(0, 0.0f));
-        ComPtr<ID2D1SolidColorBrush> fill;
-        if (FAILED(compatible->CreateSolidColorBrush(D2D1::ColorF(0, 0, 0, alpha), fill.GetAddressOf())))
-        {
-            compatible->EndDraw();
-            return false;
-        }
-        const auto shape =
-            D2D1::RoundedRect(D2D1::RectF(pad, pad, pad + bounds.width, pad + bounds.height), radius, radius);
-        compatible->FillRoundedRectangle(shape, fill.Get());
-        if (FAILED(compatible->EndDraw()))
-        {
-            return false;
-        }
+    ComPtr<ID2D1Bitmap> bitmap;
+    if (FAILED(compatible->GetBitmap(bitmap.GetAddressOf())))
+    {
+        return false;
+    }
 
-        ComPtr<ID2D1Bitmap> bitmap;
-        if (FAILED(compatible->GetBitmap(bitmap.GetAddressOf())))
-        {
-            return false;
-        }
-
-        ComPtr<ID2D1Effect> blur;
-        if (FAILED(dc->CreateEffect(CLSID_D2D1GaussianBlur, blur.GetAddressOf())))
-        {
-            return false;
-        }
-        blur->SetInput(0, bitmap.Get());
-        blur->SetValue(D2D1_GAUSSIANBLUR_PROP_STANDARD_DEVIATION, stdDeviation);
-        blur->SetValue(D2D1_GAUSSIANBLUR_PROP_BORDER_MODE, D2D1_BORDER_MODE_SOFT);
-        // MinGW's Direct2D headers omit the named quality enumerator even
-        // though the Windows ABI value is stable and accepted by the effect.
-        blur->SetValue(D2D1_GAUSSIANBLUR_PROP_OPTIMIZATION, static_cast<UINT32>(2));
-        dc->DrawImage(blur.Get(), D2D1::Point2F(bounds.x - pad, bounds.y - pad + offsetY));
-        blur->SetInput(0, nullptr);
-        return true;
-    };
-
-    const bool ambient = drawPass(11.0f * s, 0.42f, 3.0f * s);
-    const bool mid = drawPass(6.0f * s, 0.30f, 4.0f * s);
-    const bool contact = drawPass(2.8f * s, 0.48f, 3.0f * s);
-    return ambient || mid || contact;
+    ComPtr<ID2D1Effect> blur;
+    if (FAILED(dc->CreateEffect(CLSID_D2D1GaussianBlur, blur.GetAddressOf())))
+    {
+        return false;
+    }
+    blur->SetInput(0, bitmap.Get());
+    blur->SetValue(D2D1_GAUSSIANBLUR_PROP_STANDARD_DEVIATION, stdDeviation);
+    blur->SetValue(D2D1_GAUSSIANBLUR_PROP_BORDER_MODE, D2D1_BORDER_MODE_SOFT);
+    // MinGW's Direct2D headers omit the named quality enumerator even though
+    // the Windows ABI value is stable and accepted by the effect.
+    blur->SetValue(D2D1_GAUSSIANBLUR_PROP_OPTIMIZATION, static_cast<UINT32>(2));
+    dc->DrawImage(blur.Get(), D2D1::Point2F(bounds.x - pad + offsetX, bounds.y - pad + offsetY));
+    blur->SetInput(0, nullptr);
+    return true;
 }
 
-void DrawWin11WindowShadow(ID2D1RenderTarget *target, const RectF &bounds, float radius, float scale)
+// Built-in Win11-style diffuse shadow: ambient/mid/contact gaussian passes. Kept here so
+// the default path and the explicit-pass path share one rendering routine.
+constexpr ShadowPass kMistShadowPasses[] = {
+    {11.0f, 0.42f, 0.0f, 3.0f},
+    {6.0f, 0.30f, 0.0f, 4.0f},
+    {2.8f, 0.48f, 0.0f, 3.0f},
+};
+
+// Draws each pass through DrawGaussianShadowPass. scale only shrinks the shadow geometry,
+// opacity dims every alpha uniformly. Returns true when the caller's shadow is fully
+// handled; false means nothing was drawn and the caller may fall back to the layered
+// approximation.
+bool DrawGaussianPasses(ID2D1RenderTarget *target, const RectF &bounds, float radius, const ShadowPass *passes,
+                        size_t count, float scale, float opacity)
+{
+    if (!target || bounds.width <= 0.0f || bounds.height <= 0.0f)
+    {
+        return false;
+    }
+
+    ComPtr<ID2D1DeviceContext> dc;
+    if (FAILED(target->QueryInterface(IID_PPV_ARGS(dc.GetAddressOf()))))
+    {
+        // No device context: degrade to the layered approximation. It does not
+        // reproduce the individual passes, only the overall soft-shadow look.
+        DrawLayeredMistShadow(target, bounds, radius, scale, opacity);
+        return true;
+    }
+
+    const float s = std::max(scale, 0.15f);
+    bool drew = false;
+    for (size_t i = 0; i < count; ++i)
+    {
+        if (DrawGaussianShadowPass(target, dc.Get(), bounds, radius, passes[i].sigma * s, passes[i].alpha * opacity,
+                                   passes[i].offsetX * s, passes[i].offsetY * s))
+        {
+            drew = true;
+        }
+    }
+    return drew;
+}
+
+void DrawWin11WindowShadow(ID2D1RenderTarget *target, const RectF &bounds, float radius, float scale, float opacity)
 {
     if (!target || bounds.width <= 0.0f || bounds.height <= 0.0f)
     {
         return;
     }
-    if (!DrawGaussianMistShadow(target, bounds, radius, scale))
+    if (!DrawGaussianPasses(target, bounds, radius, kMistShadowPasses, std::size(kMistShadowPasses), scale, opacity))
     {
-        DrawLayeredMistShadow(target, bounds, radius, scale);
+        DrawLayeredMistShadow(target, bounds, radius, scale, opacity);
     }
 }
 } // namespace
@@ -1803,6 +1834,37 @@ void Card::SetShadowScale(float scale)
     InvalidateVisual();
 }
 
+void Card::SetShadowOpacity(float opacity)
+{
+    const float clamped = std::clamp(opacity, 0.0f, 1.0f);
+    if (shadowOpacity_ == clamped)
+    {
+        return;
+    }
+    shadowOpacity_ = clamped;
+    InvalidateVisual();
+}
+
+void Card::SetShadowPasses(const std::vector<ShadowPass> &passes)
+{
+    if (shadowPasses_ == passes)
+    {
+        return;
+    }
+    shadowPasses_ = passes;
+    InvalidateVisual();
+}
+
+void Card::SetShadowEnabled(bool enabled)
+{
+    if (shadowEnabled_ == enabled)
+    {
+        return;
+    }
+    shadowEnabled_ = enabled;
+    InvalidateVisual();
+}
+
 SizeF Card::Measure(const SizeF &availableSize)
 {
     const SizeF inner = {std::max(availableSize.width - padding_ * 2.0f, 0.0f),
@@ -1849,7 +1911,18 @@ void Card::Render(DeviceResources &deviceResources)
         return;
     }
 
-    DrawWin11WindowShadow(target, bounds_, brush_.radiusX, shadowScale_);
+    if (shadowEnabled_)
+    {
+        if (shadowPasses_.empty())
+        {
+            DrawWin11WindowShadow(target, bounds_, brush_.radiusX, shadowScale_, shadowOpacity_);
+        }
+        else
+        {
+            DrawGaussianPasses(target, bounds_, brush_.radiusX, shadowPasses_.data(), shadowPasses_.size(),
+                               shadowScale_, shadowOpacity_);
+        }
+    }
 
     const auto roundedRect =
         D2D1::RoundedRect(D2D1::RectF(bounds_.x, bounds_.y, bounds_.x + bounds_.width, bounds_.y + bounds_.height),
@@ -1921,6 +1994,16 @@ void TextBlock::InvalidateTextLayoutCache()
     cachedTextLayout_.Reset();
     cachedFontFamily_.clear();
     cachedLayoutWidth_ = -1.0f;
+}
+
+void TextBlock::SetFallbackFontFamilies(std::vector<std::wstring> families)
+{
+    if (hasCustomFontFallback_ && fallbackFontFamilies_ == families)
+        return;
+    hasCustomFontFallback_ = true;
+    fallbackFontFamilies_ = std::move(families);
+    InvalidateTextLayoutCache();
+    InvalidateMeasure();
 }
 
 void TextBlock::SetTextLayoutPadding(Thickness padding)
@@ -2000,7 +2083,10 @@ SizeF TextBlock::Measure(const SizeF &availableSize)
 
         format->SetWordWrapping(DWRITE_WORD_WRAPPING_WRAP);
         format->SetTextAlignment(textAlignment_);
-        ApplyUiFontFallback(dwriteFactory, format.Get());
+        if (hasCustomFontFallback_)
+            ApplyFontFallback(dwriteFactory, format.Get(), fallbackFontFamilies_);
+        else
+            ApplyUiFontFallback(dwriteFactory, format.Get());
 
         const UINT32 caretPos = static_cast<UINT32>((std::min)(caretIndex_, text_.size()));
         const bool insertSlot = showCaret_ && caretPos < text_.size();

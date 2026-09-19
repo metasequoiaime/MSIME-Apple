@@ -1,6 +1,8 @@
 #pragma once
 
 #include <dwrite.h>
+#include <string>
+#include <vector>
 
 namespace msimeui
 {
@@ -22,4 +24,7 @@ struct IconGlyph
 // (Windows 10). `mdl2Codepoint` overrides the codepoint used when probing
 // Segoe MDL2 Assets; pass 0 when both fonts share the same codepoint.
 IconGlyph ResolveIconGlyph(wchar_t fluentCodepoint, wchar_t mdl2Codepoint = 0);
+
+// Ordered, per-format fallback for missing glyphs, followed by the system mappings.
+void ApplyFontFallback(IDWriteFactory *factory, IDWriteTextFormat *format, const std::vector<std::wstring> &families);
 } // namespace msimeui
