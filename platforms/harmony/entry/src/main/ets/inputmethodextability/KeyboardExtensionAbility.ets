@@ -352,6 +352,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       altKey: event.altKey, logoKey: event.logoKey, shiftKey: event.shiftKey
     };
     const session: KeyboardSession = KeyboardSession.shared;
+    session.setCapsLock(event.capsLock);
     const mode: ModeKey = {
       keyCode: event.key.code, down: event.action === KeyAction.DOWN, shiftKey: event.shiftKey,
       ctrlKey: event.ctrlKey, altKey: event.altKey, logoKey: event.logoKey,

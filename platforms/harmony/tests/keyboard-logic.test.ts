@@ -793,10 +793,12 @@ group('applies Windows toolbar scale and font-size bounds to Harmony geometry', 
 
 group('shows Japanese input mode in the Harmony toolbar', () => {
   const japaneseState = {
-    english: false, japanese: true, chinesePunctuation: true, fullWidth: false, traditional: false
+    english: false, japanese: true, capsLock: false,
+    chinesePunctuation: true, fullWidth: false, traditional: false
   };
   const englishState = {
-    english: true, japanese: true, chinesePunctuation: true, fullWidth: false, traditional: false
+    english: true, japanese: true, capsLock: false,
+    chinesePunctuation: true, fullWidth: false, traditional: false
   };
   check(FloatingToolbarLayout.face(ToolbarButton.INPUT_MODE, japaneseState) === '日',
     'Japanese mode has its own toolbar face');
@@ -804,6 +806,10 @@ group('shows Japanese input mode in the Harmony toolbar', () => {
     'dedicated English mode takes precedence over the Japanese scheme');
   check(FloatingToolbarLayout.face(ToolbarButton.INPUT_MODE, FloatingToolbarLayout.idleState()) === '中',
     'the default Chinese mode remains unchanged');
+  check(FloatingToolbarLayout.face(ToolbarButton.INPUT_MODE, {
+    english: false, japanese: true, capsLock: true, chinesePunctuation: true,
+    fullWidth: false, traditional: false
+  }) === 'A', 'Caps Lock takes precedence over the language mode face');
 });
 
 group('keeps a dragged Harmony toolbar inside the display', () => {

@@ -520,6 +520,9 @@ export class KeyboardSession {
   // The Engine opens a session in whichever mode the preferences name, and the shared default is
   // English. Remembered here so every focus reasserts it rather than inheriting the previous editor.
   private englishMode: boolean = false;
+  // Hardware events report this independently of the Engine's dedicated-English mode. The
+  // floating toolbar uses it as the same high-priority status shown by the Windows presenter.
+  private capsLock: boolean = false;
   // The grid is the Engine's business too: it decides what a 2 means, and it only reads them as
   // nine-key spellings once it has been told the grid is up.
   private nineKeyMode: boolean = false;
@@ -925,6 +928,7 @@ export class KeyboardSession {
     const state: ToolbarState = {
       english: this.englishMode,
       japanese: !this.englishMode && this.schemeName === 'japanese',
+      capsLock: this.capsLock,
       chinesePunctuation: this.chinesePunctuation,
       fullWidth: this.fullWidth, traditional: this.traditional
     };
@@ -937,6 +941,14 @@ export class KeyboardSession {
     if (this.onToolbarDragStart !== undefined) {
       this.onToolbarDragStart();
     }
+  }
+
+  setCapsLock(enabled: boolean): void {
+    if (this.capsLock === enabled) {
+      return;
+    }
+    this.capsLock = enabled;
+    this.refreshToolbar();
   }
 
   dragToolbar(offsetX: number, offsetY: number): void {
