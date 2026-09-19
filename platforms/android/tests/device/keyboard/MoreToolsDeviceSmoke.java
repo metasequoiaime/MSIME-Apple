@@ -19,7 +19,10 @@ public final class MoreToolsDeviceSmoke extends DeviceSmoke {
         tap(field("msime-test-plain"));
         stage = "keyboard shortcut bar";
         await(shortcutBar());
-        for (String label : new String[] {"方案", "皮肤", "设置", "收起"})
+        // The scheme entry shows the scheme in use in both its face and its description, so only
+        // the prefix identifies it; the rest keep fixed faces.
+        await(describedPrefix("输入方案"));
+        for (String label : new String[] {"皮肤", "设置", "收起"})
             await(key(label));
         stage = "more tools open";
         tap(key("更多"));
@@ -99,22 +102,9 @@ public final class MoreToolsDeviceSmoke extends DeviceSmoke {
             || text.toString().contains("中") || text.toString().contains("强"));
     }
 
-    private Predicate<AccessibilityNodeInfo> toolPanel() {
-        return node -> equalsText("app.msime.client.preview", node.getPackageName())
-            && equalsText("更多工具", node.getContentDescription());
-    }
-
     private Predicate<AccessibilityNodeInfo> shortcutBar() {
         return node -> equalsText("app.msime.client.preview", node.getPackageName())
             && equalsText("键盘快捷栏", node.getContentDescription());
     }
 
-    private Predicate<AccessibilityNodeInfo> tool(String description) {
-        return node -> equalsText("app.msime.client.preview", node.getPackageName())
-            && equalsText(description, node.getContentDescription());
-    }
-
-    private Predicate<AccessibilityNodeInfo> toolWithState(String description, String state) {
-        return tool(description).and(node -> equalsText(state, node.getStateDescription()));
-    }
 }
