@@ -107,17 +107,12 @@ pub struct AppIconInfo {
 const MAX_IOS_CUSTOM_KEYBOARD_SKIN_BYTES: usize = 800_000;
 #[cfg(any(target_os = "ios", test))]
 const MAX_IOS_CLIPBOARD_TEXT_UTF16_UNITS: usize = 4_000;
-#[cfg(any(target_os = "ios", test))]
 const MAX_IOS_VOICE_ENDPOINT_BYTES: usize = 2_048;
-#[cfg(any(target_os = "ios", test))]
 const MAX_IOS_VOICE_MODEL_BYTES: usize = 512;
-#[cfg(any(target_os = "ios", test))]
 const MAX_IOS_VOICE_TOKEN_BYTES: usize = 16 * 1024;
 #[cfg(any(target_os = "ios", test))]
 const MAX_IOS_VOICE_TEXT_CHARS: usize = 10_000;
-#[cfg(any(target_os = "ios", test))]
 const MAX_IOS_VOICE_HEADER_BYTES: usize = 8_192;
-#[cfg(any(target_os = "ios", test))]
 const MAX_IOS_VOICE_BOOSTING_TABLE_BYTES: usize = 4_096;
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
@@ -137,7 +132,6 @@ pub struct IosKeyboardPreferences {
 /// and the keyboard extension. The extension deliberately receives only the
 /// already-resolved token for the configured endpoint; the complete Rust
 /// preferences document never crosses the plugin boundary.
-#[cfg(any(target_os = "ios", test))]
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct IosKeyboardAiPreferences {
@@ -149,7 +143,6 @@ pub struct IosKeyboardAiPreferences {
     pub token: String,
 }
 
-#[cfg(any(target_os = "ios", test))]
 impl IosKeyboardAiPreferences {
     pub fn is_valid(&self) -> bool {
         let bounded = |value: &str, limit: usize| {
@@ -176,7 +169,6 @@ pub struct IosVoiceRequestHeader {
     pub value: String,
 }
 
-#[cfg(any(target_os = "ios", test))]
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "camelCase")]
 pub struct IosVoiceTranscriptionRequest {
@@ -192,7 +184,6 @@ pub struct IosVoiceTranscriptionRequest {
     pub boosting_table_id: String,
 }
 
-#[cfg(any(target_os = "ios", test))]
 impl IosVoiceTranscriptionRequest {
     pub fn is_valid(&self) -> bool {
         let common = !self.request_id.is_empty()
@@ -226,7 +217,6 @@ impl IosVoiceTranscriptionRequest {
     }
 }
 
-#[cfg(any(target_os = "ios", test))]
 fn valid_doubao_headers(headers: &[IosVoiceRequestHeader]) -> bool {
     if !(3..=4).contains(&headers.len())
         || headers.iter().any(|header| {
