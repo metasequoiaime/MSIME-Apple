@@ -103,6 +103,7 @@ fi
 
 failed=0
 new_failures=""
+observed_wine="$(mktemp)"
 note() { printf '\n=== %s ===\n' "$1"; }
 fail() { echo "FAIL: $1"; failed=1; }
 
@@ -284,6 +285,23 @@ elif [ -n "$cross_vcpkg" ]; then
 else
   echo "skipped: $MSIME_NATIVE_BUILD not configured, and no MinGW cross toolchain"
   echo "  run platforms/windows/build-cross.sh x64 once to enable this gate here"
+fi
+
+# Not in --quick: it emulates x86_64 on an arm64 host, so it costs minutes.
+# It is the only thing here that runs the Windows suites rather than building
+# them, which is why it is in the full run rather than nowhere.
+if [ "$quick" -eq 0 ]; then
+  note "windows suites under wine"
+  wine_log="$(mktemp)"
+  bash platforms/windows/run-tests-wine.sh x64 >"$wine_log" 2>&1
+  if grep -q "^skipped:" "$wine_log"; then
+    sed -n '1,2p' "$wine_log"
+  else
+    grep "^FAIL " "$wine_log" | sed 's/^FAIL /wine /' > "$observed_wine"
+    echo "wine: $(grep -c '^PASS' "$wine_log") passed, $(grep -c '^FAIL ' "$wine_log") failed"
+    compare "windows suites under wine" "$observed_wine"
+  fi
+  rm -f "$wine_log"
 fi
 
 note "compile: macos"
