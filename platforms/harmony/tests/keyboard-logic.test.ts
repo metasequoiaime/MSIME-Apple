@@ -17,6 +17,7 @@ import {
 import { CandidateWrapPolicy } from '../entry/src/main/ets/keyboard/candidate/CandidateWrapPolicy';
 import { KeyboardScheme, SchemeDefinition, PreferenceMapping }
   from '../entry/src/main/ets/keyboard/KeyboardScheme';
+import { ReplyKeyboardPolicy } from '../entry/src/main/ets/keyboard/ReplyKeyboardPolicy';
 import { NineKeyLayout, NineKey } from '../entry/src/main/ets/keyboard/input/NineKeyLayout';
 import {
   JapaneseNineKeyLayout, JapaneseKey, VariantGroup,
@@ -548,6 +549,23 @@ group('side keys say what the next press will do', () => {
 });
 
 console.log('Input policies');
+
+console.log('ReplyKeyboardPolicy');
+
+group('reply source and request bounds are explicit', () => {
+  check(ReplyKeyboardPolicy.source('  对方的话  ') === '对方的话', 'trims source text');
+  check(ReplyKeyboardPolicy.source('   ') === null, 'rejects empty source');
+  check(ReplyKeyboardPolicy.source('含\n换行') === null, 'rejects control characters');
+  const request = ReplyKeyboardPolicy.request('对方的话', '高情商');
+  check(request !== null && request.prompt.includes('高情商'), 'builds style prompt');
+});
+
+group('reply results are safe, unique and bounded', () => {
+  const values: string[] = ReplyKeyboardPolicy.results(['一', '一', '二', '三', '四']);
+  check(values.length === 3 && values[2] === '三', 'deduplicates and limits results');
+  check(ReplyKeyboardPolicy.results(['好\u0000']).length === 0, 'rejects control characters');
+  check(ReplyKeyboardPolicy.STYLES.length === 9, 'keeps the shared nine reply styles');
+});
 
 group('helpcode needs a composition, a pinyin scheme and no local mode', () => {
   check(ChineseHelpcodePolicy.entersHelpcode(false, true, 'ni', 0, 'none'),

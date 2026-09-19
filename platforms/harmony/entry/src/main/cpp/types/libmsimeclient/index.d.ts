@@ -36,6 +36,8 @@ export const translationQuery: (handle: number) => string;
 export const onlineQuery: (handle: number) => string;
 export const cloudRequestUrl: (query: string) => string;
 export const aiRequestForQuery: (handle: number, query: string) => string;
+export const aiHttpRequest: (request: string) => string;
+export const parseAiResponse: (body: string, limit: number) => string;
 export const applyCloudResponse: (handle: number, query: string, body: string) => string;
 export const applyOnlineCandidates: (handle: number, query: string, candidates: string,
   source: number) => string;

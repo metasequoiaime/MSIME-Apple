@@ -246,6 +246,28 @@ static napi_value AiRequestForQuery(napi_env env, napi_callback_info info) {
         handle, reinterpret_cast<const uint8_t *>(query.data()), query.size()));
 }
 
+static napi_value AiHttpRequest(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    std::string request;
+    if (!arguments(env, info, 1, argv) || !argumentText(env, argv[0], request)) {
+        return response(env, msime_client_ai_http_request(nullptr, 0));
+    }
+    return response(env, msime_client_ai_http_request(
+        reinterpret_cast<const uint8_t *>(request.data()), request.size()));
+}
+
+static napi_value ParseAiResponse(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    std::string body;
+    size_t limit = 0;
+    if (!arguments(env, info, 2, argv) || !argumentText(env, argv[0], body)
+            || !argumentIndex(env, argv[1], limit) || limit > 255) {
+        return response(env, msime_client_parse_ai_response(nullptr, 0, 0));
+    }
+    return response(env, msime_client_parse_ai_response(
+        reinterpret_cast<const uint8_t *>(body.data()), body.size(), static_cast<uint8_t>(limit)));
+}
+
 static napi_value ApplyCloudResponse(napi_env env, napi_callback_info info) {
     std::vector<napi_value> argv;
     uint64_t handle = 0;
@@ -621,6 +643,8 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("onlineQuery", OnlineQuery),
         ENTRY("cloudRequestUrl", CloudRequestUrl),
         ENTRY("aiRequestForQuery", AiRequestForQuery),
+        ENTRY("aiHttpRequest", AiHttpRequest),
+        ENTRY("parseAiResponse", ParseAiResponse),
         ENTRY("applyCloudResponse", ApplyCloudResponse),
         ENTRY("applyOnlineCandidates", ApplyOnlineCandidates),
         ENTRY("personalDictionarySync", PersonalDictionarySync),

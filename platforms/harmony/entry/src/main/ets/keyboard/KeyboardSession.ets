@@ -50,6 +50,7 @@ import { SmartPunctuationContext } from './input/SmartPunctuationContext';
 import { PairedPunctuationPolicy, PairedPunctuationCompletion } from
   './input/PairedPunctuationPolicy';
 import { CandidateTextPolicy, CandidateTextEdge } from './input/CandidateTextPolicy';
+import { ReplyKeyboardPolicy, ReplyRequest } from './ReplyKeyboardPolicy';
 import {
   SmartPunctuationRepeatPolicy, SmartPunctuationRepeatSnapshot
 } from './input/SmartPunctuationRepeatPolicy';
@@ -192,6 +193,21 @@ interface AiHttpDescriptor {
   timeout_ms: number;
   connect_timeout_ms: number;
   max_response_bytes: number;
+}
+
+interface PreparedAiAssistant {
+  enabled: boolean;
+  provider: string;
+  model: string;
+  token: string;
+  tokens: Record<string, string>;
+  endpoint: string;
+  candidate_limit: number;
+  prompt_id: string;
+  prompt: string;
+  prompt_custom_1: string;
+  prompt_custom_2: string;
+  prompt_custom_3: string;
 }
 
 interface TranslationHttpDescriptor {
@@ -399,6 +415,8 @@ interface PreparedPreferences {
   /** Show the native Harmony voice entry in the top touch-keyboard shortcut bar. */
   touch_voice_shortcut: boolean;
   voice_input: VoiceInputConfiguration;
+  ai_assistant: PreparedAiAssistant;
+  touch_keyboard_schemes: { selected: string | null };
   keybindings: PreparedKeybindings;
 }
 
@@ -481,6 +499,7 @@ export interface KeyboardPreferences {
   readonly rowSpacingTenths: number;
   readonly heightAdjustment: number;
   readonly voiceShortcut: boolean;
+  readonly thoughtfulReply: boolean;
 }
 
 interface PreparedOptions {
@@ -598,9 +617,15 @@ export class KeyboardSession {
     keySpacingTenths: KeyboardGeometry.DEFAULT_KEY_SPACING_TENTHS,
     rowSpacingTenths: KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS,
     heightAdjustment: KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_VP,
-    voiceShortcut: false
+    voiceShortcut: false,
+    thoughtfulReply: false
   };
   private voiceInput: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
+  private aiAssistant: PreparedAiAssistant = {
+    enabled: false, provider: 'deepseek', model: '', token: '', tokens: {}, endpoint: '',
+    candidate_limit: 3, prompt_id: 'custom_1', prompt: '', prompt_custom_1: '',
+    prompt_custom_2: '', prompt_custom_3: ''
+  };
 
   onChanged: ((state: KeyboardState) => void) | undefined = undefined;
   /** Lets a desktop panel resize when a vertical candidate page changes height. */
@@ -753,6 +778,7 @@ export class KeyboardSession {
         ? this.readCandidateSkinImage(stateRoot, preferences.candidate_skin, skinDecoration)
         : { image: null, aspectRatio: 1 };
       this.voiceInput = preferences.voice_input;
+      this.aiAssistant = preferences.ai_assistant;
       this.englishMode = preferences.default_ime_mode === 'english';
       this.bindings = {
         switchLanguageShift: preferences.keybindings.switch_language_shift,
@@ -820,7 +846,8 @@ export class KeyboardSession {
         rowSpacingTenths: KeyboardGeometry.rowSpacing(preferences.touch_row_spacing_tenths),
         heightAdjustment:
           KeyboardGeometry.heightAdjustment(preferences.touch_keyboard_height_adjustment),
-        voiceShortcut: preferences.touch_voice_shortcut
+        voiceShortcut: preferences.touch_voice_shortcut,
+        thoughtfulReply: preferences.touch_keyboard_schemes?.selected === 'thoughtful_reply'
       };
       this.toolbarSkin = ToolbarSkinPolicy.fromCss(
         KeyboardSkin.from(this.appearance.skinId, this.appearance.dark), skinToolbar);
@@ -2347,6 +2374,53 @@ export class KeyboardSession {
       // A clipboard the user has not granted, or one holding something that is not text.
       KeyboardLog.error(`clipboard unavailable: ${describeError(error)}`);
       return '';
+    }
+  }
+
+  /** Generates bounded reply candidates through the shared AI ABI without involving Engine state. */
+  async thoughtfulReplies(source: string, style: string): Promise<string[]> {
+    const request: ReplyRequest | null = ReplyKeyboardPolicy.request(source, style);
+    if (request === null || !this.aiAssistant.enabled || this.aiAssistant.endpoint.length === 0) {
+      return [];
+    }
+    const config: PreparedAiAssistant = {
+      enabled: this.aiAssistant.enabled, provider: this.aiAssistant.provider,
+      model: this.aiAssistant.model, token: this.aiAssistant.token, tokens: this.aiAssistant.tokens,
+      endpoint: this.aiAssistant.endpoint, candidate_limit: 3, prompt_id: this.aiAssistant.prompt_id,
+      prompt: request.prompt, prompt_custom_1: this.aiAssistant.prompt_custom_1,
+      prompt_custom_2: this.aiAssistant.prompt_custom_2, prompt_custom_3: this.aiAssistant.prompt_custom_3
+    };
+    const document: string = JSON.stringify({ config: config,
+      input: { segmented_pinyin: ['reply'], context: request.source, candidate_limit: 3 } });
+    let descriptor: AiHttpDescriptor | null;
+    try {
+      const raw: NativeReply<AiHttpDescriptor | null> = JSON.parse(
+        client.aiHttpRequest(document)) as NativeReply<AiHttpDescriptor | null>;
+      if (!raw.ok || raw.value === null) return [];
+      descriptor = raw.value;
+    } catch (error) {
+      KeyboardLog.error(`thoughtful reply request unavailable: ${describeError(error)}`);
+      return [];
+    }
+    const requestHttp = http.createHttp();
+    try {
+      const response: http.HttpResponse = await requestHttp.request(descriptor.url, {
+        method: http.RequestMethod.POST, header: descriptor.headers,
+        connectTimeout: Math.min(8000, Math.max(1000, descriptor.connect_timeout_ms)),
+        readTimeout: Math.min(10000, Math.max(1000, descriptor.timeout_ms)),
+        extraData: JSON.stringify(descriptor.body)
+      });
+      if (response.responseCode < 200 || response.responseCode >= 300
+        || typeof response.result !== 'string'
+        || utf8Length(response.result) > descriptor.max_response_bytes) return [];
+      const parsed: NativeReply<string[] | null> = JSON.parse(client.parseAiResponse(
+        response.result, 3)) as NativeReply<string[] | null>;
+      return parsed.ok ? ReplyKeyboardPolicy.results(parsed.value) : [];
+    } catch (error) {
+      KeyboardLog.error(`thoughtful reply unavailable: ${describeError(error)}`);
+      return [];
+    } finally {
+      requestHttp.destroy();
     }
   }
 
