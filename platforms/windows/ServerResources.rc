@@ -4,6 +4,6 @@
 // The icon is the same file the TIP registers as the IME's icon, so the mark
 // at the left of the floating toolbar and the one Windows shows in the input
 // switcher are the same image rather than two drifting copies.
-#include "src/ServerResources.h"
+#include "src/ipc/ServerResources.h"
 
 IDI_MSIME_LOGO ICON "installer/assets/icons/msime.ico"

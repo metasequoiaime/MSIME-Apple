@@ -6,7 +6,7 @@
 #include "ReplyComposer.h"
 #include "PipeMetadata.h"
 #include "ServerSession.h"
-#include "TestHostOptions.h"
+#include "../core/TestHostOptions.h"
 #include "ipc_negotiation.h"
 #include <chrono>
 #include <filesystem>

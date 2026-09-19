@@ -733,7 +733,7 @@ if(WIN32)
   target_sources(msime-client-server PRIVATE ServerResources.rc)
   target_include_directories(msime-client-server PRIVATE "${CMAKE_CURRENT_LIST_DIR}")
   set_property(SOURCE ServerResources.rc APPEND PROPERTY OBJECT_DEPENDS
-    "${CMAKE_CURRENT_LIST_DIR}/ServerResources.h"
+    "${CMAKE_CURRENT_LIST_DIR}/src/ipc/ServerResources.h"
     "${CMAKE_CURRENT_LIST_DIR}/installer/assets/icons/msime.ico")
   include(ServerManifest.cmake)
   add_executable(msime-client-prepare src/system/prepare_host_main.cpp)

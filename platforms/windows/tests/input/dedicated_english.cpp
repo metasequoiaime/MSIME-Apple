@@ -1,5 +1,5 @@
 #include "../../src/input/InputQueue.h"
-#include "TestHostOptions.h"
+#include "../core/TestHostOptions.h"
 #include <cassert>
 #include <chrono>
 using namespace msime::windows;

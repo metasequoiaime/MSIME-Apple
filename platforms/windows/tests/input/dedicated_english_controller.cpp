@@ -1,6 +1,6 @@
 #include "../../src/ipc/SessionController.h"
 #include "../../src/system/DedicatedEnglishMailbox.h"
-#include "TestHostOptions.h"
+#include "../core/TestHostOptions.h"
 #include <cassert>
 using namespace msime::windows;
 class ModeTransport final : public MainTransport {

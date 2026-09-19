@@ -5,7 +5,7 @@
 #include "FloatingToolbarWindow.h"
 #include "PreviewDispatcher.h"
 #include "StateRootLease.h"
-#include "TestHostOptions.h"
+#include "../core/TestHostOptions.h"
 #include "TrayMenuWindow.h"
 #include "WaveOverlay.h"
 #include "WindowsServer.h"
@@ -267,7 +267,9 @@ int main() {
                std::pair<UINT, WPARAM>{WM_POWERBROADCAST,
                                        PBT_APMRESUMEAUTOMATIC},
            }) {
-        require(flyout.open(100, 100, 2));
+        // A writable two-character candidate that is not pinned: this case is
+        // about the device-edge messages below, so every menu row is live.
+        require(flyout.open(100, 100, 2, true, 0));
         UpdateWindow(flyout.handle());
         require(flyout.visible());
         require(GetCapture() == flyout.handle());
