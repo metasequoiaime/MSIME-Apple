@@ -1911,6 +1911,30 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// while composing so a settings reload cannot interrupt Engine state.
   private func synchronizeSharedTouchPreferences() {
     guard let preferences = session.sharedPreferences else { return }
+    // The Tauri host stores learning and frequency settings in the canonical
+    // PreferencesStore. Keep the legacy App Group values in sync because the
+    // keyboard's native settings and compatibility paths still read them.
+    if let learning = preferences["learning"] as? Bool,
+       learning != DictionaryLearningPreference.enabled {
+      KeyboardFeedbackPreference.defaults.set(learning, forKey: DictionaryLearningPreference.key)
+    }
+    if let frequency = preferences["frequency"] as? [String: Any] {
+      if let rawMode = frequency["mode"] as? String,
+         let mode = FrequencyAdjustmentMode(rawValue: rawMode) {
+        FrequencyAdjustmentPreference.mode = mode
+      }
+      // Apple exposes 1...6, while the shared document accepts a wider
+      // cross-platform range. Ignore values outside the native range rather
+      // than replacing a valid native setting with a clamped surprise value.
+      if let triggerCount = Self.sharedPreferenceInt(frequency["trigger_count"]),
+         (1...6).contains(triggerCount) {
+        FrequencyAdjustmentPreference.triggerCount = triggerCount
+      }
+      if let linearStep = Self.sharedPreferenceInt(frequency["linear_step"]),
+         (1...6).contains(linearStep) {
+        FrequencyAdjustmentPreference.linearStep = linearStep
+      }
+    }
     if let glossEnabled = preferences["candidate_english_gloss"] as? Bool,
        glossEnabled != CandidateGlossPreference.enabled {
       CandidateGlossPreference.enabled = glossEnabled
@@ -1999,6 +2023,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updatePreferredKeyboardHeight()
     scheduleCandidateGlosses()
     renderCandidateStrip()
+  }
+
+  private static func sharedPreferenceInt(_ value: Any?) -> Int? {
+    if let value = value as? Int { return value }
+    if let value = value as? NSNumber { return value.intValue }
+    return nil
   }
 
   // The output script may change in the host app while the keyboard is loaded, so it is re-read on
