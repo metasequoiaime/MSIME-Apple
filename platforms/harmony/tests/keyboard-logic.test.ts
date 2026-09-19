@@ -58,6 +58,8 @@ import { CandidateManagementAction, ManagementAction }
 import { CandidateAnnotationPreferencePolicy }
   from '../entry/src/main/ets/keyboard/candidate/CandidateAnnotationPreferencePolicy';
 import { InputModeHudPolicy } from '../entry/src/main/ets/keyboard/InputModeHudPolicy';
+import { HARMONY_CAPTURE_BACKEND, VoiceCaptureDevice, VoiceCaptureDevicePolicy }
+  from '../entry/src/main/ets/keyboard/input/VoiceCaptureDevicePolicy';
 import { CandidateGlossPolicy, GlossToken }
   from '../entry/src/main/ets/keyboard/candidate/CandidateGlossPolicy';
 import { ShuangpinKeyHintPolicy } from '../entry/src/main/ets/keyboard/input/ShuangpinKeyHintPolicy';
@@ -1454,6 +1456,52 @@ group('the two candidate annotations read their own shared preferences', () => {
     'an absent gloss preference stays off, matching the shared default');
   check(CandidateAnnotationPreferencePolicy.englishGloss('true') === false,
     'a malformed gloss value is not read as consent');
+});
+
+group('a capture device choice is only read when it names this host', () => {
+  check(VoiceCaptureDevicePolicy.selects('') === true, 'no choice leaves the system default');
+  check(VoiceCaptureDevicePolicy.selects('auto') === true, 'auto leaves the system default');
+  check(VoiceCaptureDevicePolicy.selects(null) === true, 'an absent backend is no choice');
+  check(VoiceCaptureDevicePolicy.selects('harmony') === true, 'this host reads its own enumeration');
+  check(VoiceCaptureDevicePolicy.selects('windows') === false,
+    'a windows endpoint id is not reinterpreted as a harmony device');
+  check(VoiceCaptureDevicePolicy.selects('pulse') === false, 'nor is a pulse source name');
+});
+
+group('a capture device id survives a restart', () => {
+  check(VoiceCaptureDevicePolicy.stableId(15, '') === '15:',
+    'the built-in microphone has no address, and that is itself stable');
+  check(VoiceCaptureDevicePolicy.stableId(8, '00:11:22:33:44:55') === '8:00:11:22:33:44:55',
+    'a bluetooth headset is named by its address');
+  check(VoiceCaptureDevicePolicy.stableId(8, 'a\u0000b') === '8:ab',
+    'a control character never reaches the preference file');
+  check(VoiceCaptureDevicePolicy.stableId(-1, '') === '', 'a nonsense device type produces no id');
+  check(VoiceCaptureDevicePolicy.stableId(8, 'x'.repeat(300)) === '',
+    'an implausibly long address is refused rather than stored');
+});
+
+group('a capture device shows the most specific name it has', () => {
+  check(VoiceCaptureDevicePolicy.label('USB 麦克风', 'usb-mic', 8) === 'USB 麦克风',
+    'the display name wins');
+  check(VoiceCaptureDevicePolicy.label('', 'usb-mic', 8) === 'usb-mic', 'then the device name');
+  check(VoiceCaptureDevicePolicy.label(null, null, 15) === '录音设备 15',
+    'and with neither the type still says which device it is');
+  check(VoiceCaptureDevicePolicy.label('a'.repeat(200), '', 8).length === 128,
+    'an implausibly long name is bounded rather than rendered whole');
+});
+
+group('an absent capture device falls back rather than failing the recording', () => {
+  const devices: VoiceCaptureDevice[] = [
+    { backend: HARMONY_CAPTURE_BACKEND, id: '15:', label: '内置麦克风' },
+    { backend: HARMONY_CAPTURE_BACKEND, id: '8:aa', label: '蓝牙耳机' }
+  ];
+  const chosen = VoiceCaptureDevicePolicy.match(devices, 'harmony', '8:aa');
+  check(chosen !== null && chosen.label === '蓝牙耳机', 'the stored choice is found');
+  check(VoiceCaptureDevicePolicy.match(devices, 'harmony', '8:bb') === null,
+    'a headset that was unplugged leaves the system default rather than refusing to record');
+  check(VoiceCaptureDevicePolicy.match(devices, 'windows', '15:') === null,
+    'another host\u0027s backend is not matched against this enumeration');
+  check(VoiceCaptureDevicePolicy.match(devices, '', '') === null, 'no choice is the system default');
 });
 
 group('the mode badge is built only when the shared preference allows it', () => {

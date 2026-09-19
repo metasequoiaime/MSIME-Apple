@@ -49,6 +49,7 @@ export { emojiDisplayName } from "./keyboard/panels";
 export type { TouchKeyboardSkin } from "./keyboard/screen-keyboard-preview";
 export { CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryApplyPanel, CloudDictionaryCatalogPanel, CloudDictionaryFilesPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, type CloudCandidate, type CloudCandidateKind, type CloudClipboardAction, type CloudClipboardPanelClient, type CloudDictionaryAction, type CloudDictionaryCatalogEntry, type CloudDictionaryEntry, type CloudDictionaryFileFormat, type CloudDictionaryKind, type CloudDictionaryPanelClient, type CloudDictionarySnapshotMetadata, type CloudDictionarySnapshotRequest, type CloudFixedPosition, type CloudRankingMode, type EmojiPanelClient, type PanelClient, type VoicePanelClient } from "./keyboard/panels";
 export type { EmojiCatalogGroup } from "./emoji/emoji-catalog";
+export type { VoiceCaptureDevice, VoiceDeviceReader } from "./voice/voice-device-picker";
 
 export type HelpcodeSchema = "lantian" | "ziranma" | "shouyou2_0" | "shouyouplus" | "xiaohe";
 export type HelpcodePreferences = { enabled: boolean; schema: HelpcodeSchema; show_in_candidate_window?: boolean };
@@ -329,7 +330,7 @@ export type ApiCredentialTestResult = { ok: boolean; message: string };
 export type VoiceInputPreferences = {
   enabled: boolean;
   language: string;
-  capture_backend?: "" | "auto" | "pulse" | "pipewire" | "alsa" | "windows" | "macos";
+  capture_backend?: "" | "auto" | "pulse" | "pipewire" | "alsa" | "windows" | "macos" | "harmony";
   capture_device?: string;
   asr_provider?: string;
   asr_endpoint?: string;
@@ -952,6 +953,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
     ...(linuxPlatform ? [["pulse", "PulseAudio"], ["pipewire", "PipeWire"], ["alsa", "ALSA"]] as const : []),
     ...(macosPlatform ? [["macos", "CoreAudio"]] as const : []),
     ...(windowsPlatform ? [["windows", "Windows Audio"]] as const : []),
+    ...(harmonyPlatform ? [["harmony", "HarmonyOS 音频"]] as const : []),
   ];
   const platformHelpIntro = androidPlatform
     ? "水杉输入法是一款 Android 平台的中文输入法，通过系统输入法服务接入应用。"
@@ -2634,7 +2636,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
         {showVoiceCaptureDevices && <div className="section"><div className="section-title">录音设备<small>保存后从下一次录音生效，不打断当前录音</small></div>
           <label className="section-header"><span className="section-title">录音后端</span><select aria-label="录音后端" value={voiceInput.capture_backend ?? ""} onChange={event => updateVoice({ capture_backend: event.target.value as VoiceInputPreferences["capture_backend"], capture_device: "" })}><option value="">{windowsPlatform ? "系统默认" : "沿用服务设置"}</option>{captureBackendOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}{voiceInput.capture_backend && !captureBackendOptions.some(([value]) => value === voiceInput.capture_backend) && <option value={voiceInput.capture_backend} disabled>{voiceInput.capture_backend}（此平台不可用）</option>}</select></label>
           {client.listVoiceCaptureDevices && <VoiceDevicePicker read={client.listVoiceCaptureDevices} backend={voiceInput.capture_backend ?? ""} device={voiceInput.capture_device ?? ""} choose={(capture_backend, capture_device) => updateVoice({ capture_backend, capture_device })} />}
-          <label className="section-header"><span className="section-title">麦克风设备<small>{windowsPlatform ? "刷新列表并选择麦克风，保存其端点标识而非设备序号。留空使用系统默认设备；已选设备不可用时录音失败，不切换到其他麦克风。旧的数字序号需重新选择。" : "填写 PulseAudio source、PipeWire 节点名称或序号、ALSA PCM 名称。选择后端后留空使用系统默认设备；沿用服务设置时留空使用服务设备。"}</small></span><input aria-label="麦克风设备" maxLength={windowsPlatform ? 1024 : 128} value={voiceInput.capture_device ?? ""} onChange={event => updateVoice({ capture_device: event.target.value })} /></label>
+          <label className="section-header"><span className="section-title">麦克风设备<small>{windowsPlatform ? "刷新列表并选择麦克风，保存其端点标识而非设备序号。留空使用系统默认设备；已选设备不可用时录音失败，不切换到其他麦克风。旧的数字序号需重新选择。" : harmonyPlatform ? "刷新列表并选择麦克风，保存的是设备类型与地址，重启后仍然有效。留空使用系统默认设备；已选设备拔掉后回到系统默认，不会中断录音。系统语音识别由服务自行取音，不受此项影响。" : "填写 PulseAudio source、PipeWire 节点名称或序号、ALSA PCM 名称。选择后端后留空使用系统默认设备；沿用服务设置时留空使用服务设备。"}</small></span><input aria-label="麦克风设备" maxLength={windowsPlatform ? 1024 : 128} value={voiceInput.capture_device ?? ""} onChange={event => updateVoice({ capture_device: event.target.value })} /></label>
         </div>}
         {!androidPlatform && <div className="section"><div className="section-title">{linuxPlatform ? "Linux provider 行为" : "录音行为"}<small>{linuxPlatform ? "这些选项会随请求传给用户管理的语音服务，不包含凭据" : "录音期间的提示音与静音由输入法在本机处理"}</small></div>
           {([[

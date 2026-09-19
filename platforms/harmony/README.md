@@ -22,6 +22,8 @@ Harmony 设置页也暴露共享的模糊拼音规则。设置保存到同一个
 
 共享设置中的触摸输入方案启用列表也由 Harmony 消费：输入方案选择器只展示启用的方案，切换当前方案时保留其余启用/禁用状态，不会因为一次选择把用户隐藏的方案重新打开。
 
+共享设置中的录音设备选择现在也由 Harmony 提供：设置页通过 `AudioRoutingManager` 列出输入设备，保存的是设备类型加地址组成的稳定标识，而不是每次会话重新分配的 `id`。HTTP ASR 与豆包两条路径各自创建 `AudioCapturer`，因此在建流前用 `AudioSessionManager.selectMediaInputDevice` 指定所选设备；路由属于音频会话而非单条流，所以每次录音都重新指定一次。所选设备被拔掉、路由被系统拒绝、或保存的 backend 属于别的平台时，都回到系统默认设备继续录音，不中断，也不把 Windows 端点标识或 PulseAudio source 名当成 Harmony 设备重新解释。系统语音识别（Core Speech Kit）由服务自行取音，不受该选择影响。
+
 键盘自己的输入方案选择器现在和共享设置页写同一组字段：选中日语时把被替换的中文方案记进 `last_chinese_scheme`，`scheme`、`shuangpin_profile`、`touch_keyboard_layout` 一起更新。此前只写 `scheme`，于是从键盘切到日语后，设置页的「中文」单选只能退回 quanpin，五笔或双拼用户会看到方案被忘掉。当前值按磁盘上的文档读取，设置页是第二个写入者；随后的写入仍做 revision 比对，真正的冲突照样被拒绝。
 
 共享设置中的“中英文切换提示”现在也由 Harmony 消费，并改由 `input_mode_hud` 宿主能力而非平台名决定是否出现在设置页。2in1 上模式徽标只在该偏好开启且没有悬浮工具栏时创建；关闭后不再占用那一个 STATUS_BAR 面板名额。手机形态本来就在键面上显示模式，不声明该能力。

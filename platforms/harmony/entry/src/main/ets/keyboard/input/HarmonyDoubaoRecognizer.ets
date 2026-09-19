@@ -4,6 +4,7 @@ import util from '@ohos.util';
 import client from 'libmsimeclient.so';
 import { KeyboardLog, describeError } from '../KeyboardLog';
 import { VoiceRecognitionPolicy } from './VoiceRecognitionPolicy';
+import { HarmonyVoiceCaptureDevices } from './HarmonyVoiceCaptureDevices';
 import { VoiceInputConfiguration } from './VoiceInputConfiguration';
 
 const PCM_CHUNK_BYTES: number = 6400;
@@ -145,7 +146,7 @@ export class HarmonyDoubaoRecognizer {
       const payload: ArrayBuffer = encoder.encode(JSON.stringify(start)).buffer as ArrayBuffer;
       const frame: ArrayBuffer = client.doubaoEncodeFrame(1, 1, 1, payload);
       if (!await socket.send(frame)) throw new Error('start frame rejected');
-      await this.startCapturer(token, socket);
+      await this.startCapturer(config, token, socket);
     } catch (error) {
       if (!this.isCurrent(token, socket)) return;
       await this.fail(`豆包语音启动失败：${describeError(error)}`, token);
@@ -178,7 +179,14 @@ export class HarmonyDoubaoRecognizer {
     this.cancel();
   }
 
-  private async startCapturer(token: number, socket: webSocket.WebSocket): Promise<void> {
+  private async startCapturer(config: VoiceInputConfiguration, token: number,
+                              socket: webSocket.WebSocket): Promise<void> {
+    // Before the capturer exists, because the routing choice is process-wide rather than a property
+    // of one stream. A device that has gone away leaves the system default in place.
+    await HarmonyVoiceCaptureDevices.select(config.capture_backend, config.capture_device);
+    if (!this.isCurrent(token, socket) || this.settled) {
+      return;
+    }
     const options: audio.AudioCapturerOptions = {
       streamInfo: {
         samplingRate: audio.AudioSamplingRate.SAMPLE_RATE_16000,

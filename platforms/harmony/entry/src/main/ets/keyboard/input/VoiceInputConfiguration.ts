@@ -11,6 +11,9 @@ export interface VoiceInputConfiguration {
   enabled: boolean;
   asr_provider: string;
   language: string;
+  /** Which host's enumeration the device id belongs to; empty or `auto` means the system default. */
+  capture_backend: string;
+  capture_device: string;
   asr_endpoint: string;
   asr_token: string;
   asr_app_key: string;
@@ -39,6 +42,8 @@ export const DEFAULT_VOICE_INPUT_CONFIGURATION: VoiceInputConfiguration = {
   enabled: true,
   asr_provider: 'doubao',
   language: 'zh-cn',
+  capture_backend: '',
+  capture_device: '',
   asr_endpoint: 'wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async',
   asr_token: '',
   asr_app_key: '',
