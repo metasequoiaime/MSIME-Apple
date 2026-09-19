@@ -1804,13 +1804,22 @@ test("touch keyboard geometry mirrors Apple defaults and persists height and spa
   expect(preview.getAttribute("data-key-spacing")).toBe("3.5");
   expect(preview.getAttribute("data-row-spacing")).toBe("9.5");
   expect(preview.getAttribute("data-keyboard-height")).toBe("424");
+  const dragSurface = screen.getByLabelText("拖动预览调整键盘间距");
+  fireEvent.pointerDown(dragSurface, { pointerId: 1, pointerType: "touch", clientX: 100, clientY: 100 });
+  fireEvent.pointerMove(dragSurface, { pointerId: 1, pointerType: "touch", clientX: 136, clientY: 100 });
+  fireEvent.pointerUp(dragSurface, { pointerId: 1, pointerType: "touch", clientX: 136, clientY: 100 });
+  expect(preview.getAttribute("data-key-spacing")).toBe("5.5");
+  fireEvent.pointerDown(dragSurface, { pointerId: 2, pointerType: "touch", clientX: 100, clientY: 100 });
+  fireEvent.pointerMove(dragSurface, { pointerId: 2, pointerType: "touch", clientX: 100, clientY: 118 });
+  fireEvent.pointerUp(dragSurface, { pointerId: 2, pointerType: "touch", clientX: 100, clientY: 118 });
+  expect(preview.getAttribute("data-row-spacing")).toBe("10.0");
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(save).toHaveBeenCalledWith(7, {
     ...initial.preferences,
     touch_keyboard_height_adjustment: 24,
-    touch_key_spacing_tenths: 35,
-    touch_row_spacing_tenths: 95,
+    touch_key_spacing_tenths: 55,
+    touch_row_spacing_tenths: 100,
     touch_voice_shortcut: true,
   });
 });
