@@ -373,6 +373,11 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       session.toggleCharacterWidth();
       return true;
     }
+    if (gesture === ModeGesture.TOGGLE_PUNCTUATION) {
+      session.togglePunctuation();
+      KeyboardSession.shared.refreshToolbar();
+      return true;
+    }
     if (!session.composes()) {
       return false;
     }

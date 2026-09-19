@@ -60,6 +60,8 @@ import { CandidateFontFamilyPolicy }
 import { CandidateAnnotationPreferencePolicy }
   from '../entry/src/main/ets/keyboard/candidate/CandidateAnnotationPreferencePolicy';
 import { InputModeHudPolicy } from '../entry/src/main/ets/keyboard/InputModeHudPolicy';
+import { DEFAULT_MODE_BINDINGS, InputModeRouting, ModeBindings, ModeGesture, ModeKey }
+  from '../entry/src/main/ets/keyboard/InputModeRouting';
 import { KeyboardFeedbackBridge, MobileKeyboardFeedback }
   from '../entry/src/main/ets/keyboard/KeyboardFeedbackBridge';
 import { HapticStrength } from '../entry/src/main/ets/keyboard/KeyboardFeedback';
@@ -1706,6 +1708,82 @@ group('an unfamiliar feedback value falls back by field rather than wholesale', 
   check(KeyboardFeedbackBridge.previewDuration('thunderous')
     === KeyboardFeedbackBridge.previewDuration('medium'),
     'and an unknown one previews the default rather than nothing');
+});
+
+const KEY_SHIFT: number = 2047;
+const KEY_CTRL: number = 2072;
+const KEY_SPACE: number = 2050;
+const KEY_E: number = 2021;
+const KEY_F: number = 2022;
+const KEY_PERIOD: number = 2044;
+const KEY_A: number = 2017;
+
+function modeKey(keyCode: number, down: boolean, timestamp: number,
+                 modifiers: Partial<ModeKey> = {}): ModeKey {
+  return {
+    keyCode: keyCode, down: down, timestamp: timestamp,
+    shiftKey: modifiers.shiftKey === true, ctrlKey: modifiers.ctrlKey === true,
+    altKey: modifiers.altKey === true, logoKey: modifiers.logoKey === true
+  };
+}
+
+group('the Windows mode chords are answered on a hardware keyboard', () => {
+  const routing: InputModeRouting = new InputModeRouting();
+  routing.use(DEFAULT_MODE_BINDINGS);
+  check(routing.accept(modeKey(KEY_E, true, 0, { ctrlKey: true, shiftKey: true }))
+    === ModeGesture.SWITCH_LANGUAGE, 'Ctrl+Shift+E switches the composing language');
+  check(routing.accept(modeKey(KEY_SPACE, true, 0, { ctrlKey: true, shiftKey: true }))
+    === ModeGesture.TOGGLE_CHARACTER_SET, 'Ctrl+Shift+Space switches halfwidth and fullwidth');
+  check(routing.accept(modeKey(KEY_PERIOD, true, 0, { ctrlKey: true }))
+    === ModeGesture.TOGGLE_PUNCTUATION, 'Ctrl+. switches the punctuation set');
+  check(routing.accept(modeKey(KEY_PERIOD, true, 0, { ctrlKey: true, shiftKey: true }))
+    === ModeGesture.NONE, 'Ctrl+Shift+. is a different chord and is not one of ours');
+  check(routing.accept(modeKey(KEY_E, true, 0, { ctrlKey: true, shiftKey: true, logoKey: true }))
+    === ModeGesture.NONE, 'adding Super makes it a desktop shortcut');
+  check(routing.accept(modeKey(KEY_E, false, 0, { ctrlKey: true, shiftKey: true }))
+    === ModeGesture.NONE, 'the release does nothing a second time');
+});
+
+group('the Windows chords are fixed rather than following the four optional bindings', () => {
+  const off: ModeBindings = {
+    switchLanguageShift: false, switchLanguageCtrl: false,
+    switchLanguageCtrlAltSpace: false, toggleCharacterSetCtrlShiftF: false
+  };
+  const routing: InputModeRouting = new InputModeRouting();
+  routing.use(off);
+  // Turning off the Shift tap says nothing about Ctrl+Shift+E, and Windows binds these fixed.
+  check(routing.accept(modeKey(KEY_E, true, 0, { ctrlKey: true, shiftKey: true }))
+    === ModeGesture.SWITCH_LANGUAGE, 'Ctrl+Shift+E still answers');
+  check(routing.accept(modeKey(KEY_PERIOD, true, 0, { ctrlKey: true }))
+    === ModeGesture.TOGGLE_PUNCTUATION, 'and so does Ctrl+.');
+  check(routing.accept(modeKey(KEY_F, true, 0, { ctrlKey: true, shiftKey: true }))
+    === ModeGesture.NONE, 'while the optional Ctrl+Shift+F obeys the document');
+  check(routing.accept(modeKey(KEY_SPACE, true, 0, { ctrlKey: true, altKey: true }))
+    === ModeGesture.NONE, 'as does the optional Ctrl+Alt+Space');
+});
+
+group('a solitary modifier is a tap only when nothing happened in between', () => {
+  const routing: InputModeRouting = new InputModeRouting();
+  routing.use(DEFAULT_MODE_BINDINGS);
+  routing.accept(modeKey(KEY_SHIFT, true, 0));
+  check(routing.accept(modeKey(KEY_SHIFT, false, 100)) === ModeGesture.SWITCH_LANGUAGE,
+    'press and release with nothing between them is a tap');
+  routing.accept(modeKey(KEY_SHIFT, true, 0));
+  check(routing.accept(modeKey(KEY_SHIFT, false, 900)) === ModeGesture.NONE,
+    'held too long it was doing something else, such as holding a capital');
+  routing.accept(modeKey(KEY_SHIFT, true, 0));
+  routing.accept(modeKey(KEY_A, true, 10, { shiftKey: true }));
+  check(routing.accept(modeKey(KEY_SHIFT, false, 20)) === ModeGesture.NONE,
+    'a key in between means the modifier was modifying it');
+  routing.accept(modeKey(KEY_SHIFT, true, 0));
+  routing.accept(modeKey(KEY_CTRL, true, 5));
+  check(routing.accept(modeKey(KEY_SHIFT, false, 10)) === ModeGesture.NONE,
+    'and a competing modifier means it is a chord');
+  const ctrlOff: InputModeRouting = new InputModeRouting();
+  ctrlOff.use(DEFAULT_MODE_BINDINGS);
+  ctrlOff.accept(modeKey(KEY_CTRL, true, 0));
+  check(ctrlOff.accept(modeKey(KEY_CTRL, false, 50)) === ModeGesture.NONE,
+    'the Ctrl tap is off by default and stays off');
 });
 
 group('the mode badge is built only when the shared preference allows it', () => {

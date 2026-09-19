@@ -5,6 +5,10 @@
  * one switches between halfwidth and fullwidth; which of them are live is the document's business,
  * not this file's, so the settings page and the keyboard cannot disagree about what is bound.
  *
+ * Three more come from the Windows baseline and are fixed there, so they are fixed here: Ctrl+Shift+E
+ * for the Chinese/English state, Ctrl+Shift+Space for halfwidth/fullwidth and Ctrl+. for the
+ * punctuation set. Turning off the Shift tap says nothing about any of them.
+ *
  * Two of them are a modifier pressed and released with nothing in between, which no single event can
  * decide: Shift+A begins exactly the same way as a solitary Shift. The press only arms it and the
  * release fires it, and any key or competing modifier arriving in between disarms it. A modifier
@@ -16,7 +20,9 @@
  */
 
 const KEYCODE_SPACE: number = 2050;
+const KEYCODE_E: number = 2021;
 const KEYCODE_F: number = 2022;
+const KEYCODE_PERIOD: number = 2044;
 const KEYCODE_SHIFT_LEFT: number = 2047;
 const KEYCODE_SHIFT_RIGHT: number = 2048;
 const KEYCODE_CTRL_LEFT: number = 2072;
@@ -54,7 +60,9 @@ export enum ModeGesture {
   /** Chinese becomes English and back. */
   SWITCH_LANGUAGE,
   /** Halfwidth ASCII becomes its fullwidth twin and back. */
-  TOGGLE_CHARACTER_SET
+  TOGGLE_CHARACTER_SET,
+  /** Chinese punctuation becomes ASCII and back; the Windows Ctrl+. binding. */
+  TOGGLE_PUNCTUATION
 }
 
 function isShift(keyCode: number): boolean {
@@ -100,6 +108,24 @@ export class InputModeRouting {
         && key.keyCode === KEYCODE_F && key.ctrlKey && key.shiftKey && !key.altKey && !key.logoKey) {
       this.disarm();
       return ModeGesture.TOGGLE_CHARACTER_SET;
+    }
+    // Three chords from the Windows baseline, which the Linux host also answers. None of them is
+    // one of the four the settings page can turn off: Windows binds them fixed, and a user who
+    // turned Shift off has said nothing about Ctrl+Shift+E.
+    if (key.down && key.keyCode === KEYCODE_E
+        && key.ctrlKey && key.shiftKey && !key.altKey && !key.logoKey) {
+      this.disarm();
+      return ModeGesture.SWITCH_LANGUAGE;
+    }
+    if (key.down && key.keyCode === KEYCODE_SPACE
+        && key.ctrlKey && key.shiftKey && !key.altKey && !key.logoKey) {
+      this.disarm();
+      return ModeGesture.TOGGLE_CHARACTER_SET;
+    }
+    if (key.down && key.keyCode === KEYCODE_PERIOD
+        && key.ctrlKey && !key.shiftKey && !key.altKey && !key.logoKey) {
+      this.disarm();
+      return ModeGesture.TOGGLE_PUNCTUATION;
     }
     if (isShift(key.keyCode)) {
       return this.solitary(key, true);

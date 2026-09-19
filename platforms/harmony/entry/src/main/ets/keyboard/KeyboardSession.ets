@@ -1153,6 +1153,20 @@ export class KeyboardSession {
     return this.wordCharacter;
   }
 
+  /**
+   * Chinese punctuation or ASCII, which the toolbar button and the Windows Ctrl+. binding share.
+   *
+   * Written as a preference rather than as a live session mode because that is how this host has
+   * always changed it: the same value drives the toolbar face and the settings page, and two
+   * mechanisms for one switch is how they come to disagree.
+   */
+  togglePunctuation(): boolean {
+    this.chinesePunctuation = !this.chinesePunctuation;
+    this.clearSmartPunctuationRepeat();
+    this.writePreference('chinese_punctuation', this.chinesePunctuation);
+    return this.chinesePunctuation;
+  }
+
   /** Halfwidth ASCII or its fullwidth twin, which Ctrl+Shift+F toggles. */
   toggleCharacterWidth(): boolean {
     if (this.handle === 0) {
@@ -1240,9 +1254,7 @@ export class KeyboardSession {
         this.toggleLanguage();
         break;
       case ToolbarButton.PUNCTUATION:
-        this.chinesePunctuation = !this.chinesePunctuation;
-        this.clearSmartPunctuationRepeat();
-        this.writePreference('chinese_punctuation', this.chinesePunctuation);
+        this.togglePunctuation();
         break;
       case ToolbarButton.FULL_WIDTH:
         this.toggleCharacterWidth();
