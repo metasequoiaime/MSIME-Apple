@@ -294,7 +294,7 @@ function DesktopSettings() {
               test: ({ endpoint, model, prompt, token, text }) => invoke<string>("ai_test", { endpoint, model, prompt, token, text }),
             },
           } : {}),
-          ...(host.platform === "windows" ? {
+          ...(host.platform === "windows" || host.platform === "macos" ? {
             account: {
               status: () => invoke("account_status"),
               providers: () => invoke("account_providers"),
