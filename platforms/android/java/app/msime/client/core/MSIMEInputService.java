@@ -177,6 +177,9 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean voiceInputEnabled = true;
     private String voiceLanguage = "zh-CN";
     private KeyboardSkin skin = KeyboardSkin.from("forest", false);
+    /** 表情面板有自己的明暗设置，跟随时才继承键盘皮肤解析出的明暗。 */
+    private KeyboardSkin emojiSkin = KeyboardSkin.from("forest", false);
+    private KeyboardSkin handwritingSkin = KeyboardSkin.from("forest", false);
     private JSONObject localModes = new JSONObject();
     private Button moreButton;
     private Button schemeButton;
@@ -559,6 +562,8 @@ public final class MSIMEInputService extends InputMethodService {
                 selectedScheme = schemeConfiguration.selected();
                 sharedSchemePreferences = schemeConfiguration.shared();
                 skin = keyboardSkin(preferences);
+                emojiSkin = surfaceSkin(preferences, "emoji_theme");
+                handwritingSkin = surfaceSkin(preferences, "handwriting_theme");
                 localModes = preferences == null ? new JSONObject()
                     : preferences.optJSONObject("local_modes");
                 if (localModes == null) localModes = new JSONObject();
@@ -2418,33 +2423,36 @@ public final class MSIMEInputService extends InputMethodService {
         view.setTag(new KeyboardHeightRole(baseHeight, 1, 0, false));
     }
 
-    private void styleButton(Button button, boolean action) {
+    private void styleButton(Button button, boolean action) { styleButton(button, action, skin); }
+
+    /** `target` is the surface's own skin: the emoji and handwriting panels carry their own theme. */
+    private void styleButton(Button button, boolean action, KeyboardSkin target) {
         boolean selected = button.isSelected();
-        String background = selected ? skin.accent() : action ? skin.actionBackground() : skin.keyBackground();
-        String foreground = selected ? skin.actionForeground() : action ? skin.actionForeground() : skin.keyForeground();
-        if ("custom".equals(skin.id())) {
-            button.setBackground(new KeyboardSkinKeyDrawable(skin,
+        String background = selected ? target.accent() : action ? target.actionBackground() : target.keyBackground();
+        String foreground = selected ? target.actionForeground() : action ? target.actionForeground() : target.keyForeground();
+        if ("custom".equals(target.id())) {
+            button.setBackground(new KeyboardSkinKeyDrawable(target,
                 Color.parseColor(background), selected || action,
                 getResources().getDisplayMetrics().density));
         } else {
             GradientDrawable drawable = new GradientDrawable();
             drawable.setColor(Color.parseColor(background));
-            drawable.setCornerRadius(pixels(skin.cornerRadius()));
-            int borderWidth = pixels(skin.borderWidth());
+            drawable.setCornerRadius(pixels(target.cornerRadius()));
+            int borderWidth = pixels(target.borderWidth());
             if (borderWidth > 0)
-                drawable.setStroke(borderWidth, Color.parseColor(skin.borderColor()));
+                drawable.setStroke(borderWidth, Color.parseColor(target.borderColor()));
             button.setBackground(drawable);
         }
         button.setTextColor(Color.parseColor(foreground));
         if (button instanceof ShuangpinHintButton hintButton)
-            hintButton.setHintColor(Color.parseColor(skin.accent()));
-        button.setTypeface(skin.monospaced() ? Typeface.MONOSPACE : Typeface.DEFAULT);
-        int shadowAlpha = (int) Math.round(255 * skin.shadowOpacity());
+            hintButton.setHintColor(Color.parseColor(target.accent()));
+        button.setTypeface(target.monospaced() ? Typeface.MONOSPACE : Typeface.DEFAULT);
+        int shadowAlpha = (int) Math.round(255 * target.shadowOpacity());
         int shadowColor = Color.argb(shadowAlpha, 0, 0, 0);
         button.setOutlineAmbientShadowColor(shadowColor);
         button.setOutlineSpotShadowColor(shadowColor);
-        button.setElevation(skin.shadowOpacity() > 0
-            ? pixels(Math.max(1, skin.shadowRadius() + skin.shadowOffset())) : 0);
+        button.setElevation(target.shadowOpacity() > 0
+            ? pixels(Math.max(1, target.shadowRadius() + target.shadowOffset())) : 0);
     }
 
     private GradientDrawable candidateDrawable(int color) {
@@ -2484,10 +2492,15 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void applySkinToView(View node) {
-        applySkinToView(node, node == candidateViewport || node == expandedCandidates);
+        applySkinToView(node, node == candidateViewport || node == expandedCandidates, skin);
     }
 
-    private void applySkinToView(View node, boolean candidateContext) {
+    /** Re-walk one subtree with its own surface skin after the keyboard-wide pass. */
+    private void applySkinToView(View node, KeyboardSkin target) {
+        applySkinToView(node, false, target);
+    }
+
+    private void applySkinToView(View node, boolean candidateContext, KeyboardSkin target) {
         CharSequence description = node.getContentDescription();
         boolean candidate = candidateContext || node == candidateViewport || node == expandedCandidates
             || (description != null && description.toString().startsWith("候选 "));
@@ -2496,19 +2509,19 @@ public final class MSIMEInputService extends InputMethodService {
                 || description.toString().startsWith("候选 ")
                 || description.toString().startsWith("输入方案卡片 "));
             if (candidate) styleCandidateButton((Button) node);
-            else styleButton((Button) node, !key);
+            else styleButton((Button) node, !key, target);
             if (description != null && "恢复默认".contentEquals(description))
                 ((Button) node).setTextColor(Color.RED);
         } else if (node instanceof TextView) {
             TextView text = (TextView) node;
-            text.setTextColor(candidate ? candidateAppearance.text() : Color.parseColor(skin.keyForeground()));
+            text.setTextColor(candidate ? candidateAppearance.text() : Color.parseColor(target.keyForeground()));
             text.setTypeface(candidate ? candidateTypeface()
-                : skin.monospaced() ? Typeface.MONOSPACE : Typeface.DEFAULT);
+                : target.monospaced() ? Typeface.MONOSPACE : Typeface.DEFAULT);
         }
         if (node instanceof android.view.ViewGroup) {
             android.view.ViewGroup group = (android.view.ViewGroup) node;
             for (int index = 0; index < group.getChildCount(); index++)
-                applySkinToView(group.getChildAt(index), candidate);
+                applySkinToView(group.getChildAt(index), candidate, target);
         }
     }
 
@@ -2532,7 +2545,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (moreToolsPanel != null)
             applySkinBackground(moreToolsPanel);
         if (emojiPanel != null)
-            applySkinBackground(emojiPanel);
+            applySkinBackground(emojiPanel, emojiSkin);
         if (voiceResultPanel != null)
             applySkinBackground(voiceResultPanel);
         if (aiPolishPanel != null)
@@ -2541,8 +2554,12 @@ public final class MSIMEInputService extends InputMethodService {
             applySkinBackground(aiPolishContainer);
         if (replyKeyboard != null)
             applySkinBackground(replyKeyboard);
-        if (handwritingCanvas != null) handwritingCanvas.applySkin(skin);
+        if (handwritingCanvas != null) handwritingCanvas.applySkin(handwritingSkin);
         applySkinToView(keyboardRoot);
+        // The keyboard-wide pass already styled these subtrees; re-walk the two that carry their
+        // own light/dark setting so only their faces change.
+        if (emojiPanel != null) applySkinToView(emojiPanel, emojiSkin);
+        if (handwritingActive() && keyRows != null) applySkinToView(keyRows, handwritingSkin);
         if (preedit != null) {
             preedit.setTextColor(candidateAppearance.text());
             preedit.setTypeface(candidateTypeface());
@@ -2560,9 +2577,11 @@ public final class MSIMEInputService extends InputMethodService {
         if (layoutAdjustView != null) layoutAdjustView.updateSkin(skin);
     }
 
-    private void applySkinBackground(View node) {
+    private void applySkinBackground(View node) { applySkinBackground(node, skin); }
+
+    private void applySkinBackground(View node, KeyboardSkin target) {
         node.setBackground(new KeyboardSkinBackgroundDrawable(
-            skin, getResources().getDisplayMetrics().density));
+            target, getResources().getDisplayMetrics().density));
     }
 
     private boolean systemDark() {
@@ -2576,6 +2595,25 @@ public final class MSIMEInputService extends InputMethodService {
         String globalTheme = preferences == null ? "system"
             : preferences.optString("theme", "system");
         boolean dark = KeyboardSkin.resolveDark(keyboardTheme, globalTheme, systemDark());
+        String identifier = preferences == null ? "forest"
+            : preferences.optString("touch_keyboard_skin", "forest");
+        JSONObject customDesign = preferences == null ? null
+            : preferences.optJSONObject("custom_touch_keyboard_skin");
+        return KeyboardSkin.from(identifier, dark, customDesign);
+    }
+
+    /**
+     * The same keyboard skin resolved for one panel's own light/dark setting.
+     *
+     * <p>An explicit `dark` or `light` on the surface wins; `follow` inherits the global theme, and
+     * a global `system` follows the Android night mode. A missing or unknown value is `follow`, so
+     * an older snapshot keeps the keyboard's appearance rather than jumping to light.
+     */
+    private KeyboardSkin surfaceSkin(JSONObject preferences, String key) {
+        String surfaceTheme = preferences == null ? "follow" : preferences.optString(key, "follow");
+        String globalTheme = preferences == null ? "system"
+            : preferences.optString("theme", "system");
+        boolean dark = KeyboardSkin.resolveDark(surfaceTheme, globalTheme, systemDark());
         String identifier = preferences == null ? "forest"
             : preferences.optString("touch_keyboard_skin", "forest");
         JSONObject customDesign = preferences == null ? null
@@ -3312,6 +3350,8 @@ public final class MSIMEInputService extends InputMethodService {
             JSONObject accepted = preferencesSnapshot == null ? null
                 : preferencesSnapshot.optJSONObject("preferences");
             skin = keyboardSkin(accepted);
+            emojiSkin = surfaceSkin(accepted, "emoji_theme");
+            handwritingSkin = surfaceSkin(accepted, "handwriting_theme");
             showKeyboardSkinStatus("皮肤切换失败，已恢复原皮肤");
         }
         applySkin();

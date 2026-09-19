@@ -22,6 +22,14 @@
 
 ## 当前证据
 
+### Android 表情与手写面板主题（2026-09-19）
+
+macOS 的 `next42`/`next43` 和 HarmonyOS 已分别消费共享的 `emoji_theme` 与 `handwriting_theme`，Android 没有：这两项在 Android 的外观设置里可选，键盘却始终按 `screen_keyboard_theme` 解析出的明暗着色，等于两个不起作用的下拉框。现在 Android 用同一条规则单独解析这两块表面——显式 `dark`/`light` 覆盖全局 `theme`，`follow` 继承全局，全局 `system` 跟随 Android 夜间模式，缺失或无法识别的值按 `follow` 处理——并在键盘整体着色之后重走表情面板和手写按键区两棵子树，只改这两块的面板底色与按键配色。皮肤标识和自定义设计仍与键盘共用，候选栏继续由 `candidate_theme` 决定，偏好热更新不重建 Engine 会话或手写笔迹。
+
+`menu_theme` 只有 macOS/Windows 的原生菜单在消费，Android、iOS 和 HarmonyOS 都没有对应表面，共享设置因此不再在移动端显示“菜单主题”。
+
+`KeyboardSkinSmoke` 扩充覆盖未知与空表面值必须读作“跟随全局”；新增 3 项共享 UI 回归覆盖 Android 仍提供表情/手写主题、移动端不再显示菜单主题、桌面保持不变。Android host Java/API、manifest/resource 检查和全部 JVM smoke 通过，TypeScript 类型检查与 Vite 生产构建通过。`settings.test.tsx` 中的剪贴板历史用例在本机是间歇性失败（同一文件单独重跑可通过，改动前后都复现过），属于该基线文件说明的时序类用例，不作为本切片的回归。未执行 Android 真机视觉验收，CI 保持禁用。
+
 ### Android 云联想与 AI 联想接入（2026-09-19）
 
 Windows、macOS、Linux 和 HarmonyOS 都已消费共享的 `online_query` / `apply_cloud_response` / `apply_online_candidates`，Android 与 iOS 没有：Android 的 JNI 根本没有导出这三个入口，于是共享设置里的“云联想”开关和 AI 辅助配置在 Android 上是一个不起作用的开关。现在 Android 按 HarmonyOS 已验证的同一条边界接入：组字停下 `QUIET_INTERVAL_MILLIS` 后向共享 host 索取 query，单线程 worker 依次执行云候选 HTTPS GET 和 AI Chat Completions POST，URL 与请求描述符均由共享 host 构建，凭据留在 session 内，宿主只搬运字节并在主线程把结果交回 Engine。请求身份由 session、cache key、identity、云开关和启用状态下的 AI 配置组成，同一组合只问一次；epoch 保证上一段组合的迟到结果不会写入新会话；云结果推进 Engine 代次后，AI 请求重新读取 query 再发出。
