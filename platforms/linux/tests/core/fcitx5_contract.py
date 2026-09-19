@@ -44,6 +44,8 @@ assert 'applyContextOverrides' in source
 assert 'effectiveContextSnapshot' in source
 assert 'msime_client_update_preferences' in source
 assert 'applyPreferenceSnapshot' in source
+assert 'saveStringPreference("character_width"' in source
+assert 'snapshot["preferences"]["character_width"]' in source
 assert 'msime-helpcode-schema' in source
 assert 'cycleHelpcodeSchema' in source
 assert 'toggleLocalMode' in source

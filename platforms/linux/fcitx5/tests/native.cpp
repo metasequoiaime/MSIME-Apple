@@ -479,8 +479,24 @@ int main(int argc, char **argv) {
     require(!engine.english_action_.isChecked(&ic), "status action disables English candidates");
     engine.width_action_.activate(&ic);
     require(engine.width_action_.isChecked(&ic), "status action enables fullwidth");
+    require(state->preferences_.value("character_width", std::string{}) == "fullwidth",
+            "status action updates the live width preference snapshot");
+    const auto widthSaveDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    Json savedWidth;
+    while (std::chrono::steady_clock::now() < widthSaveDeadline) {
+      savedWidth = response(msime_client_load_preferences(
+          reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size()));
+      if (savedWidth.value("preferences", Json::object()).value("character_width", std::string{}) ==
+          "fullwidth") break;
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    require(savedWidth.value("preferences", Json::object()).value("character_width", std::string{}) ==
+                "fullwidth",
+            "status action persists fullwidth preference");
     engine.width_action_.activate(&ic);
     require(!engine.width_action_.isChecked(&ic), "status action restores halfwidth");
+    require(state->preferences_.value("character_width", std::string{}) == "halfwidth",
+            "status action updates the live snapshot back to halfwidth");
     engine.input_mode_action_.activate(&ic);
     require(!state->input_enabled_, "input mode action disables Chinese input");
     fcitx::KeyEvent passthrough(&ic, fcitx::Key(FcitxKey_n));
