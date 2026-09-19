@@ -170,3 +170,42 @@ print(
     "Windows fuzzy-pinyin factory keys match the shared disabled default: "
     f"{len(shared_fuzzy_rule_ids)} rules"
 )
+
+# Smart punctuation rewrites a character the user already saw land, so the
+# Windows baseline ships all five switches off. The installed TOML is only a
+# template — the running Server reads the shared preferences document — so the
+# two have to be checked against each other rather than assumed to agree.
+smart_punctuation_default = re.search(
+    r"fn smart_punctuation_default\(\) -> bool \{\s*(.+?)\s*\}",
+    core_source,
+    re.DOTALL,
+)
+assert smart_punctuation_default, "smart_punctuation_default was not found"
+assert smart_punctuation_default.group(1) == "!cfg!(windows)", (
+    "the shared first-run default for smart punctuation must be off on Windows "
+    f"and unchanged elsewhere, not: {smart_punctuation_default.group(1)}"
+)
+
+windows_smart_punctuation = {
+    key: value
+    for key, value in windows_defaults["input"].items()
+    if key.startswith("smart_punctuation")
+}
+assert len(windows_smart_punctuation) == 5, (
+    "the Windows template must ship all five smart-punctuation switches: "
+    f"{sorted(windows_smart_punctuation)}"
+)
+assert not any(windows_smart_punctuation.values()), (
+    "Windows smart-punctuation switches must default to off: "
+    f"{sorted(key for key, value in windows_smart_punctuation.items() if value)}"
+)
+for field in ("smart_punctuation_space_convert", "smart_punctuation_direct_digit",
+              "smart_punctuation_direct_letter"):
+    assert re.search(rf"#\[serde\(default\)\]\s*pub {field}: bool", core_source), (
+        f"{field} must default to off on every host, matching the template"
+    )
+
+print(
+    "Windows smart punctuation is off on a fresh profile, as its template ships: "
+    f"{len(windows_smart_punctuation)} switches"
+)

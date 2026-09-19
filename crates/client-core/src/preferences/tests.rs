@@ -1863,3 +1863,39 @@ fn smart_punctuation_sub_switches_survive_a_save() {
         assert_eq!(store.load().unwrap(), saved);
     }
 }
+
+// The Windows installer ships every smart-punctuation switch disabled, and the
+// running Server reads this document rather than that template. A fresh
+// Windows profile must therefore start with the family off; every other host
+// keeps what it has shipped. A stored value is never reinterpreted either way.
+#[test]
+fn smart_punctuation_first_run_follows_the_windows_baseline() {
+    let expected = !cfg!(windows);
+    let defaults = Preferences::default();
+    assert_eq!(defaults.smart_punctuation, expected);
+    assert_eq!(defaults.smart_punctuation_repeat, expected);
+    // The three sub-switches are off everywhere, which is also the baseline.
+    assert!(!defaults.smart_punctuation_space_convert);
+    assert!(!defaults.smart_punctuation_direct_digit);
+    assert!(!defaults.smart_punctuation_direct_letter);
+
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    let preferences = legacy["preferences"].as_object_mut().unwrap();
+    preferences.remove("smart_punctuation").unwrap();
+    preferences.remove("smart_punctuation_repeat").unwrap();
+    fs::write(store.path(), serde_json::to_vec(&legacy).unwrap()).unwrap();
+    let loaded = store.load().unwrap().preferences;
+    assert_eq!(loaded.smart_punctuation, expected);
+    assert_eq!(loaded.smart_punctuation_repeat, expected);
+
+    // A document that states the opposite keeps stating it.
+    let mut stored = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    stored["preferences"]["smart_punctuation"] = (!expected).into();
+    stored["preferences"]["smart_punctuation_repeat"] = (!expected).into();
+    fs::write(store.path(), serde_json::to_vec(&stored).unwrap()).unwrap();
+    let loaded = store.load().unwrap().preferences;
+    assert_eq!(loaded.smart_punctuation, !expected);
+    assert_eq!(loaded.smart_punctuation_repeat, !expected);
+}
