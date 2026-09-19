@@ -1106,6 +1106,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.metasequoiaime.client;
 				PRODUCT_NAME = "水杉输入法";
+				SWIFT_VERSION = 5.0;
 				VALID_ARCHS = arm64;
 			};
 			name = release;
@@ -1147,7 +1148,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.metasequoiaime.client.keyboard;
 				PRODUCT_NAME = MSIMEKeyboardExtension;
 				SKIP_INSTALL = YES;
-				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/../../../../../platforms/ios/KeyboardExtension/Sources/MetasequoiaKeyboard-Bridging-Header.h";
+				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/../../../../../platforms/ios/KeyboardExtension/Sources/core/MetasequoiaKeyboard-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 			};
 			name = debug;
@@ -1199,6 +1200,7 @@
 				);
 				PRODUCT_BUNDLE_IDENTIFIER = com.metasequoiaime.client;
 				PRODUCT_NAME = "水杉输入法";
+				SWIFT_VERSION = 5.0;
 				VALID_ARCHS = arm64;
 			};
 			name = debug;
@@ -1227,7 +1229,7 @@
 				PRODUCT_BUNDLE_IDENTIFIER = com.metasequoiaime.client.keyboard;
 				PRODUCT_NAME = MSIMEKeyboardExtension;
 				SKIP_INSTALL = YES;
-				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/../../../../../platforms/ios/KeyboardExtension/Sources/MetasequoiaKeyboard-Bridging-Header.h";
+				SWIFT_OBJC_BRIDGING_HEADER = "$(SRCROOT)/../../../../../platforms/ios/KeyboardExtension/Sources/core/MetasequoiaKeyboard-Bridging-Header.h";
 				SWIFT_VERSION = 5.0;
 			};
 			name = release;

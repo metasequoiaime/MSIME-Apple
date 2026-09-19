@@ -74,6 +74,17 @@ MSIME_IOS_DEPS=/absolute/ios/dependency-prefix \
 
 真机产物把最后一个参数改为 `device`。真机构建会在 `apps/desktop/src-tauri/gen/apple` 执行锁定的 CocoaPods 安装，再调用 Tauri CLI；模拟器使用 `aarch64-sim` 并保留手写 fallback。无签名构建只验证源码、链接和 bundle 内容，不代表键盘扩展已经安装、授权或完成真机宿主验证。
 
+模拟器 bundle 默认不带签名，因此没有 App Group 授权：进程一启动就会在共享容器查找上拿到 `client is not entitled`。要在模拟器里真正安装并观察它，用 ad-hoc 签名把既有 entitlements 附上去（模拟器不校验 provisioning，这一步不需要任何开发者证书，也不改变真机的签名边界）：
+
+```sh
+app="apps/desktop/src-tauri/gen/apple/build/arm64-sim/水杉输入法.app"
+codesign -f -s - --entitlements platforms/ios/KeyboardExtension/Resources/MSIMEKeyboardExtension.entitlements "$app/PlugIns/MSIMEKeyboardExtension.appex"
+codesign -f -s - --entitlements apps/desktop/src-tauri/gen/apple/msime-desktop_iOS/msime-desktop_iOS.entitlements "$app"
+xcrun simctl install booted "$app"
+```
+
+签名后 App Group 查找成功，但 iOS 27 模拟器上进程仍会在启动时 SIGTRAP：`tauri-runtime-wry` 启动时调用 `wry::webview_version()` 探测 WebView，它走 `+[NSBundle bundleWithIdentifier:@"com.apple.WebKit"]`，在该系统版本的 CoreFoundation 内部以 `CFRelease` 空指针陷阱结束。这条路径在仓库代码之外，修复属于上游；在它解决之前，模拟器只能验证到构建、打包与安装，界面与键盘扩展的运行仍需真机。
+
 原生 SwiftUI 设置 App 只作为迁移期间的测试入口保留。需要重建它来运行旧版 UI 测试时，设置 `MSIME_IOS_LEGACY_APP=1`；默认构建不会再把 `MSIMEClientApp` 作为产品宿主。
 
 共享 Tauri iOS 工程的 CocoaPods workspace 与 `Pods` 目录只为真机 ML Kit 构建生成，不提交到仓库；模拟器从干净的 XcodeGen 工程直接构建 fallback。真机目标需要先安装锁定的 CocoaPods 依赖，然后从 Tauri CLI 启动构建；CLI 会为 Xcode 中的 Rust 构建脚本建立本地控制通道，因此不要直接用独立的 `xcodebuild` 命令代替：
