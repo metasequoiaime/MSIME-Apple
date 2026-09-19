@@ -1546,6 +1546,15 @@ group('an unknown skin id falls back to forest rather than failing', () => {
   check(KeyboardSkin.builtIns(false).length === 8, 'eight built-in skins');
   check(KeyboardSkin.choices(false, null).length === 9, 'plus the custom one');
   check(KeyboardSkin.choices(false, null)[8].id === 'custom', 'custom comes last');
+  const design = CustomKeyboardSkin.from({
+    background: 0x102030, keyBackground: 0x203040, accent: 0x80c0ff,
+    cornerRadius: 14, borderWidth: 1, keyOpacity: 0.8
+  });
+  const choices = KeyboardSkin.choices(false, design);
+  check(choices[8].id === 'custom' && choices[8].background === '#102030',
+    'the custom picker entry uses the shared design');
+  check(choices[8].cornerRadius === 14 && choices[8].keyOpacity === 0.8,
+    'custom geometry and opacity cross the native skin boundary');
 });
 
 group('colours are formatted the way the Java formats them', () => {
