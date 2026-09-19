@@ -1806,3 +1806,60 @@ fn custom_translation_defaults_and_validation_are_stable() {
         Err(PreferencesError::InvalidCustomTranslation)
     ));
 }
+
+// The settings page has five smart-punctuation toggles, and the Windows server
+// reads all five out of the saved document. Three of them had no field here,
+// and `deny_unknown_fields` means an unknown key does not get dropped - the
+// whole save is rejected. Turning any one of them on therefore stopped the
+// settings window saving anything at all.
+#[test]
+fn smart_punctuation_sub_switches_survive_a_save() {
+    let dir = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(dir.path());
+    let keys = [
+        "smart_punctuation_space_convert",
+        "smart_punctuation_direct_digit",
+        "smart_punctuation_direct_letter",
+    ];
+
+    // Absent from a document that predates them, and off by default: the
+    // Windows baseline ships the whole family disabled.
+    let defaults = serde_json::to_value(Preferences::default()).unwrap();
+    for key in keys {
+        assert_eq!(defaults[key], serde_json::Value::Bool(false), "{key}");
+    }
+    let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
+    for key in keys {
+        legacy["preferences"]
+            .as_object_mut()
+            .unwrap()
+            .remove(key)
+            .unwrap();
+    }
+    fs::write(store.path(), serde_json::to_vec(&legacy).unwrap()).unwrap();
+    let loaded = store.load().unwrap().preferences;
+    assert!(!loaded.smart_punctuation_space_convert);
+    assert!(!loaded.smart_punctuation_direct_digit);
+    assert!(!loaded.smart_punctuation_direct_letter);
+
+    for (revision, key) in keys.iter().enumerate() {
+        let mut value = serde_json::to_value(Preferences::default()).unwrap();
+        value[*key] = true.into();
+        let saved = store
+            .save(revision as u64, serde_json::from_value(value).unwrap())
+            .unwrap();
+        assert_eq!(
+            saved.preferences.smart_punctuation_space_convert,
+            *key == keys[0]
+        );
+        assert_eq!(
+            saved.preferences.smart_punctuation_direct_digit,
+            *key == keys[1]
+        );
+        assert_eq!(
+            saved.preferences.smart_punctuation_direct_letter,
+            *key == keys[2]
+        );
+        assert_eq!(store.load().unwrap(), saved);
+    }
+}
