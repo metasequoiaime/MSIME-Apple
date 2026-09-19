@@ -621,6 +621,25 @@ int main(int argc, char **argv) {
     state->voice_ralt_held_ = false;
     state->voice_space_consumed_ = false;
     state->voice_space_locked_ = false;
+    const auto committedBeforeCancel = ic.committed;
+    state->voice_job_ = std::async(std::launch::async, [] {
+      std::this_thread::sleep_for(std::chrono::milliseconds(250));
+      return Json{{"text", "已取消语音"}};
+    }).share();
+    state->voice_loading_ = true;
+    state->voice_socket_.clear();
+    state->voice_generation_ = 0;
+    const auto cancelStarted = std::chrono::steady_clock::now();
+    require(state->cancelVoice(), "voice cancellation accepts an active delayed provider");
+    require(std::chrono::steady_clock::now() - cancelStarted < std::chrono::milliseconds(100),
+            "voice cancellation does not wait for the provider future");
+    const auto cancelDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    while (state->voice_job_.valid() && std::chrono::steady_clock::now() < cancelDeadline) {
+      state->refreshVoice();
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    require(!state->voice_job_.valid(), "cancelled voice future is reclaimed asynchronously");
+    require(ic.committed == committedBeforeCancel, "cancelled voice result is not committed");
     if (ai) {
       require(onlineQuery.value("ai_eligible", false), "AI query eligible");
       require(onlineQuery.at("ai_assistant").value("enabled", false), "AI provider enabled");
