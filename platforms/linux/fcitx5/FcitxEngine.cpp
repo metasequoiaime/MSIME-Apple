@@ -635,8 +635,14 @@ public:
     render();
     return true;
   }
+  void waitForPreferenceSave() {
+    if (!preferences_save_job_.valid()) return;
+    try { preferences_save_job_.get(); } catch (...) {}
+    preferences_save_job_ = {};
+  }
   void saveBooleanPreference(const char *key, bool enabled) {
     if (!key || !*key || options_path_.empty() || private_) return;
+    waitForPreferenceSave();
     const auto directory = options_path_;
     const std::string preference(key);
     preferences_save_job_ = std::async(std::launch::async, [directory, preference, enabled] {
@@ -655,6 +661,7 @@ public:
   }
   void saveStringPreference(const char *key, const std::string &value) {
     if (!key || !*key || options_path_.empty() || private_) return;
+    waitForPreferenceSave();
     const auto directory = options_path_;
     const std::string preference(key);
     preferences_save_job_ = std::async(std::launch::async, [directory, preference, value] {
@@ -673,6 +680,7 @@ public:
   }
   void saveNumberPreference(const char *key, uint8_t value) {
     if (!key || !*key || options_path_.empty() || private_) return;
+    waitForPreferenceSave();
     const auto directory = options_path_;
     const std::string preference(key);
     preferences_save_job_ = std::async(std::launch::async, [directory, preference, value] {
@@ -691,6 +699,7 @@ public:
   }
   void saveNestedBooleanPreference(const char *object, const char *key, bool enabled) {
     if (!object || !*object || !key || !*key || options_path_.empty() || private_) return;
+    waitForPreferenceSave();
     const auto directory = options_path_;
     const std::string section(object), preference(key);
     preferences_save_job_ = std::async(std::launch::async,
@@ -711,6 +720,7 @@ public:
   void saveNestedStringPreference(const char *object, const char *key,
                                  const std::string &value) {
     if (!object || !*object || !key || !*key || options_path_.empty() || private_) return;
+    waitForPreferenceSave();
     const auto directory = options_path_;
     const std::string section(object), preference(key);
     preferences_save_job_ = std::async(std::launch::async,
@@ -730,6 +740,7 @@ public:
   }
   void saveNestedNumberPreference(const char *object, const char *key, uint8_t value) {
     if (!object || !*object || !key || !*key || options_path_.empty() || private_) return;
+    waitForPreferenceSave();
     const auto directory = options_path_;
     const std::string section(object), preference(key);
     preferences_save_job_ = std::async(std::launch::async,
