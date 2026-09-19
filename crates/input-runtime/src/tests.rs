@@ -1238,3 +1238,92 @@ fn only_the_lattice_source_is_treated_as_alternative_readings() {
         assert_ne!(crate::LATTICE_SOURCE, plural);
     }
 }
+
+// The real Engine, not the fixture. Unicode mode is the one place where a bare
+// digit is input rather than a candidate index, and the two layers decide that
+// separately: the Engine reports the digit as handled, and the runtime only
+// falls through to selection for a digit the Engine refused. A regression in
+// either one silently turns "U4e2d" into a candidate pick, and the Windows and
+// macOS suites that would notice both need their own host to run.
+fn real_engine_options(root: &std::path::Path) -> msime_engine_bridge::EngineOptions {
+    let path = |name: &str| {
+        let path = root.join(name);
+        std::fs::create_dir_all(&path).unwrap();
+        path.to_str().unwrap().to_owned()
+    };
+    msime_engine_bridge::EngineOptions {
+        resources: path("resources"),
+        user_data: path("user"),
+        cache: path("cache"),
+        dictionaries: path("dictionaries"),
+        scheme: 0,
+        shuangpin_profile: 0,
+        shuangpin_preedit_uses_raw: true,
+        learning: false,
+        autocorrect_transposition: true,
+        autocorrect_neighbor: true,
+        fuzzy_pinyin_rules: 0,
+        wubi_mixed_pinyin: false,
+        helpcode: false,
+        show_helpcode: true,
+        helpcode_schema: "ziranma".into(),
+        chinese_punctuation: true,
+        paired_punctuation: true,
+        punctuation_lock: 0,
+        frequency_mode: "promote".into(),
+        frequency_trigger_count: 1,
+        frequency_linear_step: 1,
+        mixed_english: true,
+        english_minimum_prefix: 2,
+        mixed_emoji: false,
+        mixed_kaomoji: false,
+        local_unicode: true,
+        local_date_time: true,
+        local_quick_phrase: true,
+        local_emoji: true,
+        local_kaomoji: true,
+        local_super_jianpin: true,
+        local_temporary_english: true,
+        local_temporary_japanese: true,
+        sentence_alternatives: true,
+    }
+}
+
+#[test]
+fn unicode_mode_digits_compose_a_code_point_rather_than_picking_a_candidate() {
+    let directory = tempfile::tempdir().unwrap();
+    let session =
+        msime_engine_bridge::Session::new(&real_engine_options(directory.path())).unwrap();
+    let mut runtime = Runtime::new(session, 5).unwrap();
+    runtime.focus(true).unwrap();
+
+    let shift_u = runtime
+        .dispatch(Action::Character {
+            value: b'U',
+            shift: true,
+        })
+        .unwrap();
+    assert_eq!(shift_u.view.local_mode, "unicode");
+
+    for value in *b"4e2d" {
+        let transition = runtime
+            .dispatch(Action::Character {
+                value,
+                shift: false,
+            })
+            .unwrap();
+        // A digit read as a candidate index would commit here and leave the mode.
+        assert!(
+            transition.commit.is_none(),
+            "{} committed instead of extending the code point",
+            value as char
+        );
+        assert_eq!(transition.view.local_mode, "unicode");
+    }
+    assert_eq!(runtime.view().editing_text, "U4e2d");
+    assert!(runtime
+        .view()
+        .candidates
+        .iter()
+        .any(|candidate| candidate.text == "中"));
+}
