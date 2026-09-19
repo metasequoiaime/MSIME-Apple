@@ -14,6 +14,10 @@ const EDGE_INSET_VP: number = 10;
 const TOOLBAR_HEIGHT_VP: number = 44;
 /** Every component the shared record names, plus the gear that is never hidden. */
 const MAXIMUM_BUTTONS: number = 7;
+const TOOLBAR_SCALE_VALUES: number[] = [0.75, 1, 1.25, 1.5];
+const TOOLBAR_FONT_SIZE_MIN: number = 16;
+const TOOLBAR_FONT_SIZE_MAX: number = 28;
+const TOOLBAR_FONT_SIZE_DEFAULT: number = 24;
 
 export enum ToolbarButton {
   INPUT_MODE,
@@ -112,7 +116,45 @@ export class FloatingToolbarLayout {
     return Math.round(2 * EDGE_INSET_VP + count * BUTTON_WIDTH_VP + (count - 1) * BUTTON_GAP_VP);
   }
 
-  static heightVp(): number {
-    return TOOLBAR_HEIGHT_VP;
+  /** Match the Windows toolbar's four supported scale steps. */
+  static scale(value: number): number {
+    if (!Number.isFinite(value) || value < TOOLBAR_SCALE_VALUES[0]
+        || value > TOOLBAR_SCALE_VALUES[TOOLBAR_SCALE_VALUES.length - 1]) {
+      return 1;
+    }
+    let nearest: number = 1;
+    let distance: number = Math.abs(value - nearest);
+    for (const candidate of TOOLBAR_SCALE_VALUES) {
+      const candidateDistance: number = Math.abs(value - candidate);
+      if (candidateDistance < distance) {
+        nearest = candidate;
+        distance = candidateDistance;
+      }
+    }
+    return nearest;
+  }
+
+  /** Keep a stale or hand-written preference from producing an unreadable toolbar. */
+  static fontSize(value: number): number {
+    if (!Number.isInteger(value) || value < TOOLBAR_FONT_SIZE_MIN || value > TOOLBAR_FONT_SIZE_MAX) {
+      return TOOLBAR_FONT_SIZE_DEFAULT;
+    }
+    return value;
+  }
+
+  static buttonWidthVp(scale: number = 1): number {
+    return BUTTON_WIDTH_VP * FloatingToolbarLayout.scale(scale);
+  }
+
+  static buttonGapVp(scale: number = 1): number {
+    return BUTTON_GAP_VP * FloatingToolbarLayout.scale(scale);
+  }
+
+  static edgeInsetVp(scale: number = 1): number {
+    return EDGE_INSET_VP * FloatingToolbarLayout.scale(scale);
+  }
+
+  static heightVp(scale: number = 1): number {
+    return TOOLBAR_HEIGHT_VP * FloatingToolbarLayout.scale(scale);
   }
 }

@@ -593,7 +593,7 @@ export class KeyboardSession {
   /** The mode badge's face, set by whichever window is currently drawing it. */
   onModeBadge: ((english: boolean, dark: boolean) => void) | undefined = undefined;
   /** The toolbar's face, set by whichever window is currently drawing it. */
-  onToolbar: ((state: ToolbarState, buttons: ToolbarButton[], fontSize: number,
+  onToolbar: ((state: ToolbarState, buttons: ToolbarButton[], fontSize: number, scale: number,
                skin: KeyboardSkin, toolbarSkin: ToolbarSkin) => void) | undefined = undefined;
   /** The gear, which only the host can answer: it owns the window the settings open in. */
   onToolbarSettings: (() => void) | undefined = undefined;
@@ -899,11 +899,11 @@ export class KeyboardSession {
   }
 
   toolbarScale(): number {
-    return this.toolbar.scale_percent / 100;
+    return FloatingToolbarLayout.scale(this.toolbar.scale_percent / 100);
   }
 
   toolbarFontSize(): number {
-    return this.toolbar.font_size;
+    return FloatingToolbarLayout.fontSize(this.toolbar.font_size);
   }
 
   toolbarComponents(): ToolbarComponents {
@@ -924,8 +924,8 @@ export class KeyboardSession {
       fullWidth: this.fullWidth, traditional: this.traditional
     };
     this.onToolbar(state, FloatingToolbarLayout.buttons(this.toolbarComponents()),
-      this.toolbar.font_size, KeyboardSkin.from(this.appearance.skinId, this.appearance.dark),
-      this.toolbarSkin);
+      this.toolbarFontSize(), this.toolbarScale(),
+      KeyboardSkin.from(this.appearance.skinId, this.appearance.dark), this.toolbarSkin);
   }
 
   /**

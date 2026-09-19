@@ -16,29 +16,25 @@ import { ToolbarSkin, ToolbarSkinPolicy } from './ToolbarSkinPolicy';
  * turning off the last of the others still has to leave a way back out.
  */
 
-const TOOLBAR_HEIGHT_VP: number = 44;
-const BUTTON_WIDTH_VP: number = 42;
-const BUTTON_GAP_VP: number = 10.5;
-const EDGE_INSET_VP: number = 10;
-const CORNER_RADIUS_VP: number = 10;
-
 @Entry
 @Component
 struct FloatingToolbar {
   @State state: ToolbarState = FloatingToolbarLayout.idleState();
   @State buttons: ToolbarButton[] = [];
-  @State fontSize: number = 20;
+  @State fontSize: number = 24;
+  @State scale: number = 1;
   // The same skin the keyboard wears, so a bar floating beside it does not look like another app's.
   @State skin: KeyboardSkin = KeyboardSkin.from('forest', false);
   @State toolbarSkin: ToolbarSkin = ToolbarSkinPolicy.base(KeyboardSkin.from('forest', false));
 
   aboutToAppear(): void {
     KeyboardSession.shared.onToolbar = (state: ToolbarState, buttons: ToolbarButton[],
-                                        fontSize: number, skin: KeyboardSkin,
+                                        fontSize: number, scale: number, skin: KeyboardSkin,
                                         toolbarSkin: ToolbarSkin): void => {
       this.state = state;
       this.buttons = buttons;
       this.fontSize = fontSize;
+      this.scale = scale;
       this.skin = skin;
       this.toolbarSkin = toolbarSkin;
     };
@@ -49,18 +45,24 @@ struct FloatingToolbar {
   }
 
   build() {
+    const scale: number = FloatingToolbarLayout.scale(this.scale);
+    const buttonWidth: number = FloatingToolbarLayout.buttonWidthVp(scale);
+    const buttonGap: number = FloatingToolbarLayout.buttonGapVp(scale);
+    const edgeInset: number = FloatingToolbarLayout.edgeInsetVp(scale);
+    const toolbarHeight: number = FloatingToolbarLayout.heightVp(scale);
+    const cornerRadius: number = this.toolbarSkin.cornerRadiusVp * scale;
     // The colour goes on a container that fills the panel rather than on the row of buttons: a panel
     // is transparent where nothing is drawn, and a row only covers the buttons it holds.
     Column() {
-      Row({ space: BUTTON_GAP_VP }) {
+      Row({ space: buttonGap }) {
       ForEach(this.buttons, (button: ToolbarButton) => {
         Text(FloatingToolbarLayout.face(button, this.state))
-          .fontSize(button === ToolbarButton.SETTINGS ? this.fontSize - 2 : this.fontSize)
+          .fontSize((button === ToolbarButton.SETTINGS ? this.fontSize - 2 : this.fontSize) * scale)
           .fontColor(this.toolbarSkin.buttonColor)
           .fontFamily(this.toolbarSkin.fontFamily)
           .textAlign(TextAlign.Center)
-          .width(BUTTON_WIDTH_VP)
-          .height(TOOLBAR_HEIGHT_VP - EDGE_INSET_VP)
+          .width(buttonWidth)
+          .height(toolbarHeight - edgeInset)
           .onClick(() => KeyboardSession.shared.runToolbarButton(button))
       }, (button: ToolbarButton) => `${button}:${FloatingToolbarLayout.face(button, this.state)}`)
       }
@@ -71,7 +73,7 @@ struct FloatingToolbar {
     .width('100%')
     .height('100%')
     .backgroundColor(this.toolbarSkin.backgroundColor)
-    .borderRadius(this.toolbarSkin.cornerRadiusVp)
+    .borderRadius(cornerRadius)
     // A bar with nothing behind it needs its own edge: it floats over whatever the desktop happens
     // to be, and on a pale one a pale surface with no border is a row of letters in mid-air.
     .borderWidth(1)

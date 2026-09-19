@@ -74,6 +74,7 @@ import { CandidatePresentationPolicy } from '../entry/src/main/ets/keyboard/cand
 import { CandidateWheelPolicy } from '../entry/src/main/ets/keyboard/candidate/CandidateWheelPolicy';
 import { CandidateAnchorPolicy, CandidateAnchor }
   from '../entry/src/main/ets/inputmethodextability/CandidateAnchorPolicy';
+import { FloatingToolbarLayout } from '../entry/src/main/ets/keyboard/FloatingToolbarLayout';
 
 function selectedBarVisible(value: boolean | null): boolean {
   return value !== false;
@@ -767,6 +768,21 @@ group('maps safe external toolbar CSS to ArkUI values', () => {
     '.status-bar { background: url(https://example.invalid/x); } .icon { color: red; }');
   check(unsafe.backgroundColor === base.keyBackground, 'resource URLs are ignored');
   check(unsafe.buttonColor === base.accent, 'unsupported colour syntax is ignored');
+});
+
+group('applies Windows toolbar scale and font-size bounds to Harmony geometry', () => {
+  check(FloatingToolbarLayout.scale(0.75) === 0.75, 'minimum toolbar scale is retained');
+  check(FloatingToolbarLayout.scale(1.12) === 1, 'scale snaps to the nearest Windows step');
+  check(FloatingToolbarLayout.scale(1.4) === 1.5, 'upper scale snaps to the nearest step');
+  check(FloatingToolbarLayout.scale(2) === 1, 'out-of-range scale uses the Windows default');
+  check(FloatingToolbarLayout.scale(Number.NaN) === 1, 'invalid scale falls back to one');
+  check(FloatingToolbarLayout.fontSize(16) === 16, 'minimum toolbar font size is retained');
+  check(FloatingToolbarLayout.fontSize(40) === 24, 'out-of-range toolbar font size uses the Windows default');
+  check(FloatingToolbarLayout.fontSize(Number.NaN) === 24, 'invalid font size uses Windows default');
+  check(FloatingToolbarLayout.buttonWidthVp(1.5) === 63, 'button width follows toolbar scale');
+  check(FloatingToolbarLayout.heightVp(0.75) === 33, 'toolbar height follows toolbar scale');
+  check(FloatingToolbarLayout.widthVp(2) * 1.5 === 172.5,
+    'host width arithmetic remains consistent with scaled content');
 });
 
 group('sizes desktop candidate windows from bounded display estimates', () => {
