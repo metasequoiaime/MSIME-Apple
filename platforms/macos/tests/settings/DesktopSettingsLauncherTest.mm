@@ -1,4 +1,4 @@
-#import "../src/core/DesktopSettingsLauncher.h"
+#import "../../src/core/DesktopSettingsLauncher.h"
 #include <cassert>
 
 @interface TestWorkspace : NSWorkspace

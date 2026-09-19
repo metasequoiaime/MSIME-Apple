@@ -1,7 +1,7 @@
-#import "../src/core/SharedVoicePreferences.h"
-#import "../src/voice/VoiceProviderOptions.h"
+#import "../../src/core/SharedVoicePreferences.h"
+#import "../../src/voice/VoiceProviderOptions.h"
 #include <cassert>
-#import "TestPreferenceSuite.h"
+#import "../settings/TestPreferenceSuite.h"
 
 int main() {
     @autoreleasepool {

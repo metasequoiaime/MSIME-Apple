@@ -1,4 +1,4 @@
-#import "../src/voice/VoiceInputService.h"
+#import "../../src/voice/VoiceInputService.h"
 #include <cassert>
 
 static void Pump(BOOL *done) {

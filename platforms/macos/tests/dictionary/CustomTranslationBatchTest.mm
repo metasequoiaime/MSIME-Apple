@@ -1,5 +1,5 @@
-#import "../src/core/CustomTranslationBatch.h"
-#import "../src/cloud/CloudCandidateRequest.h"
+#import "../../src/core/CustomTranslationBatch.h"
+#import "../../src/cloud/CloudCandidateRequest.h"
 #include <cassert>
 
 @interface MSIMECustomTranslationBatch (TestSeams)

@@ -2,6 +2,29 @@
 
 #import <Sparkle/Sparkle.h>
 
+// Sparkle needs an application bundle: a feed URL, a version, a code signature. Started anywhere else it reports the misconfiguration with a modal alert, which in an input method process means the user's typing stops behind a dialog they never asked for. Answer "no updates available from here" instead.
+@interface MetasequoiaUnavailableUpdateDriver : NSObject <MetasequoiaUpdateDriver>
+@end
+
+@implementation MetasequoiaUnavailableUpdateDriver
+
+- (BOOL)canCheckForUpdates
+{
+    return NO;
+}
+
+- (BOOL)automaticallyChecksForUpdates
+{
+    return NO;
+}
+
+- (void)checkForUpdates:(id)sender
+{
+    (void)sender;
+}
+
+@end
+
 @interface MetasequoiaSparkleUpdateDriver : NSObject <MetasequoiaUpdateDriver>
 @property(nonatomic, readonly) SPUStandardUpdaterController *updaterController;
 @end
@@ -49,7 +72,11 @@
     static MetasequoiaUpdateController *controller = nil;
     static dispatch_once_t onceToken;
     dispatch_once(&onceToken, ^{
-      MetasequoiaSparkleUpdateDriver *driver = [[MetasequoiaSparkleUpdateDriver alloc] init];
+      NSBundle *host = NSBundle.mainBundle;
+      id<MetasequoiaUpdateDriver> driver =
+          host.bundleIdentifier.length && [host.bundlePath.pathExtension isEqualToString:@"app"]
+              ? (id<MetasequoiaUpdateDriver>)[[MetasequoiaSparkleUpdateDriver alloc] init]
+              : (id<MetasequoiaUpdateDriver>)[[MetasequoiaUnavailableUpdateDriver alloc] init];
       controller =
           [[MetasequoiaUpdateController alloc] initWithDriver:driver
                                             activationHandler:^{

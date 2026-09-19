@@ -1,10 +1,10 @@
-#import "../src/settings/AppearancePreferences.h"
-#import "../src/candidate/SkinSettingsView.h"
-#import "../src/candidate/CandidateSkinPreviewView.h"
+#import "../../src/settings/AppearancePreferences.h"
+#import "../../src/candidate/SkinSettingsView.h"
+#import "../../src/candidate/CandidateSkinPreviewView.h"
 #include <cassert>
 #include <fstream>
-#import "TestPreferenceSuite.h"
-#import "PreferenceViewLookup.h"
+#import "../settings/TestPreferenceSuite.h"
+#import "../settings/PreferenceViewLookup.h"
 
 static void WritePackage(const std::filesystem::path &root) {
     std::filesystem::create_directories(root / "synthetic");

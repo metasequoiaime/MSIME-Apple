@@ -1,12 +1,12 @@
-#import "../src/input/InputController.mm"
-#import "../src/input/InputSourceRegistration.h"
-#import "../src/candidate/SkinSettingsView.h"
+#import "../../src/input/InputController.mm"
+#import "../../src/input/InputSourceRegistration.h"
+#import "../../src/candidate/SkinSettingsView.h"
 #include <cassert>
 #include <fstream>
 #include <sqlite3.h>
 #import <objc/runtime.h>
-#import "TestPreferenceSuite.h"
-#import "PreferenceViewLookup.h"
+#import "../settings/TestPreferenceSuite.h"
+#import "../settings/PreferenceViewLookup.h"
 
 static NSUInteger missingKeyFontCalls;
 static IMP originalMonospacedFont;
@@ -2768,9 +2768,13 @@ static void WaitForGloss(CustomTranslationController *controller) {
 static void TestLearnedGlossRuntime() {
     [[MSIMETranslationCache sharedCache] clear];
     NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    // The glossary store writes into an existing preferences directory; it does not create one.
+    assert([NSFileManager.defaultManager createDirectoryAtPath:root withIntermediateDirectories:YES attributes:nil error:nil]);
     CustomTranslationController *writer = [CustomTranslationController alloc]; writer.batches = [NSMutableArray array];
     CustomTranslationSession *session = [CustomTranslationSession new];
     session.enabled = YES; session.generation = 1; session.targetLanguage = @"en"; session.tencent = TencentConfig();
+    // Only the English row is written to the glossary, so the request has to carry it: the fixture does not derive target_languages from targetLanguage the way the preference plan does.
+    session.targetLanguages = @[@"en"];
     session.page = @[@{@"text":@"Hello", @"source":@4}, @{@"text":@"测试", @"source":@0}];
     [writer setValue:session forKey:@"session"]; [writer setValue:[ShortcutClient new] forKey:@"activeClient"];
     [writer setValue:root forKey:@"preferencesDirectory"];
@@ -2778,6 +2782,8 @@ static void TestLearnedGlossRuntime() {
     [writer synchronizeCustomTranslations];
     assert(writer.batches.count == 1);
     writer.batches[0].reply(@[@{@"text":@"Hello", @"translation":@"学习释义"}, @{@"text":@"测试", @"translation":@"test"}]);
+    // Fetching a gloss does not remember it; committing the candidate does. Persisting everything the panel ever displayed would fill the glossary with words the user rejected.
+    for (NSString *committed in @[@"Hello", @"测试"]) [writer persistCommittedCandidateTranslation:committed];
     dispatch_sync([MSIMEInputController learnedTranslationQueue], ^{});
     [writer cancelCandidateTranslations]; [[MSIMETranslationCache sharedCache] clear];
     // A new controller with both providers absent reuses the persisted glosses.
@@ -2797,10 +2803,10 @@ static void TestLearnedGlossRuntime() {
     [reader synchronizeCandidateGloss]; WaitForGloss(reader);
     assert(session.delivered.count == 0); // User directories cannot share learned words.
     [reader cancelCandidateTranslations]; [reader setValue:root forKey:@"preferencesDirectory"];
-    session.targetLanguage = @"fr";
+    session.targetLanguage = @"fr"; session.targetLanguages = @[@"fr"];
     assert(![reader currentGlossRequest]);
     // A stale online completion must not persist text, even if it is otherwise valid.
-    session.targetLanguage = @"en"; session.tencent = TencentConfig();
+    session.targetLanguage = @"en"; session.targetLanguages = @[@"en"]; session.tencent = TencentConfig();
     session.page = @[@{@"text":@"stale", @"source":@4}];
     [writer synchronizeCandidateGloss]; WaitForGloss(writer); [writer synchronizeCustomTranslations];
     ControlledTranslationBatch *pending = writer.batches.lastObject;
@@ -3059,16 +3065,17 @@ static void TestSecondaryTranslationScheduling() {
     session.enabled = YES; session.generation = 1; session.targetLanguage = @"fr";
     session.targetLanguages = @[@"fr", @"ja"];
     session.custom = @{@"enabled":@YES, @"endpoint":@"https://secondary.invalid/api", @"api_key":@""};
-    session.page = @[@{@"text":@"Hello", @"source":@4}];
+    // A Chinese candidate is the one the target language applies to. An English candidate is always glossed into Chinese no matter which languages are selected, so it cannot tell the two rows apart.
+    session.page = @[@{@"text":@"你好", @"source":@0}];
     [controller setValue:session forKey:@"session"];
     [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
     [controller synchronizeCustomTranslations];
     assert(controller.batches.count == 2 && controller.batches[0].items.count == 1 && controller.batches[1].items.count == 1);
     assert([controller.batches[0].items[0][@"request"][@"body"][@"target_lang"] isEqual:@"FR"]);
     assert([controller.batches[1].items[0][@"request"][@"body"][@"target_lang"] isEqual:@"JA"]);
-    controller.batches[0].reply(@[@{@"text":@"Hello", @"translation":@"bonjour"}]);
-    controller.batches[1].reply(@[@{@"text":@"Hello", @"translation":@"こんにちは"}]);
-    assert(([session.delivered isEqual:@[@{@"text":@"Hello", @"translation":@"bonjour\nこんにちは"}]]));
+    controller.batches[0].reply(@[@{@"text":@"你好", @"translation":@"bonjour"}]);
+    controller.batches[1].reply(@[@{@"text":@"你好", @"translation":@"こんにちは"}]);
+    assert(([session.delivered isEqual:@[@{@"text":@"你好", @"translation":@"bonjour\nこんにちは"}]]));
     session.generation++;
     [controller synchronizeCustomTranslations];
     assert(controller.batches.count == 2 && [session.delivered[0][@"translation"] isEqual:@"bonjour\nこんにちは"]);
@@ -3085,7 +3092,7 @@ static void TestSecondaryTranslationScheduling() {
     assert(controller.batches.count == 4);
     ControlledTranslationBatch *stale = controller.batches.lastObject;
     session.generation++;
-    stale.reply(@[@{@"text":@"Hello", @"translation":@"stale"}]);
+    stale.reply(@[@{@"text":@"你好", @"translation":@"stale"}]);
     assert(![session.delivered[0][@"translation"] isEqual:@"stale"]);
     [controller cancelCandidateTranslations];
     [[MSIMETranslationCache sharedCache] clear];

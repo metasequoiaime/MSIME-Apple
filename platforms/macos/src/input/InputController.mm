@@ -1245,7 +1245,12 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             break;
         }
     if (!match) return;
-    NSArray *items = [self learnedTranslationItems:@[@{ @"text": text }] results:@[match]];
+    // The plan rejects a candidate without its Engine source, so reuse the one the query was built from rather than synthesising a bare {text:}. A synthesised candidate parses as invalid, the plan comes back empty, and nothing is ever written to the glossary.
+    NSDictionary *committed = nil;
+    for (NSDictionary *candidate in query[@"candidates"])
+        if ([candidate[@"text"] isEqual:text]) { committed = candidate; break; }
+    if (!committed) return;
+    NSArray *items = [self learnedTranslationItems:@[committed] results:@[match]];
     if (!items.count) return;
     NSDictionary *request = @{ @"directory":[directory copy], @"generation":query[@"generation"] ?: @0,
         @"target_language":@"en", @"action":@"remember", @"items":items};

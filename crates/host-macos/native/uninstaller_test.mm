@@ -32,7 +32,8 @@ int main() {
                                                    domain.UTF8String, true));
         assert(![[NSFileManager defaultManager] fileExistsAtPath:bundle2.path]);
         assert(![[NSFileManager defaultManager] fileExistsAtPath:data2.path]);
-        assert([[NSUserDefaults standardUserDefaults] persistentDomainForName:domain] == nil);
+        // removePersistentDomainForName: empties the domain; it does not unregister it. Foundation answers an empty dictionary afterwards, not nil, so ask what the uninstall is actually for: that nothing the user stored survives.
+        assert([[NSUserDefaults standardUserDefaults] persistentDomainForName:domain].count == 0);
         [[NSFileManager defaultManager] removeItemAtURL:sandbox error:nil];
     }
     std::puts("macOS uninstaller boundary passed.");

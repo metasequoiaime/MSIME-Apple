@@ -1,4 +1,4 @@
-#import "../src/settings/PreferenceSnapshotMerge.h"
+#import "../../src/settings/PreferenceSnapshotMerge.h"
 #include <cassert>
 
 int main() {

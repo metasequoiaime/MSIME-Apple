@@ -1,4 +1,4 @@
-#import "../src/core/DesktopCloudClipboard.h"
+#import "../../src/core/DesktopCloudClipboard.h"
 #include <sys/socket.h>
 #include <sys/un.h>
 #include <arpa/inet.h>

@@ -1,5 +1,6 @@
-#import "../src/input/InputController.mm"
+#import "../../src/input/InputController.mm"
 #import "VoiceCueFixture.h"
+#import "VoiceClientFixture.h"
 #import "VoiceMeterFixture.h"
 #include <cassert>
 
@@ -37,6 +38,10 @@
 @property NSMutableArray *commits;
 @end
 @implementation LiveTextFixture
+// The controller asks the client for the caret whenever it repositions the overlay; an empty rectangle reads as "no usable position".
+- (NSDictionary *)attributesForCharacterIndex:(NSUInteger)index lineHeightRectangle:(NSRect *)rectangle {
+    (void)index; if (rectangle) *rectangle = NSZeroRect; return @{};
+}
 - (void)insertText:(id)text replacementRange:(NSRange)range {
     (void)range; if (!self.commits) self.commits = [NSMutableArray array]; [self.commits addObject:text]; self.marked = @"";
 }
@@ -45,6 +50,8 @@
 }
 @end
 @interface LivePresentationFixture : NSObject
+// The controller picks the overlay screen from the caret on every failure; model the real overlay property so the assignment lands somewhere.
+@property(nonatomic, weak) NSScreen *preferredScreen;
 @property float lastLevel;
 @property NSUInteger levelUpdates;
 @property(copy) void (^actionHandler)(BOOL);
@@ -99,6 +106,13 @@
     self.polishOptions = options; self.polishFixture = [LivePolishFixture new]; return (id)self.polishFixture;
 }
 @end
+// The socket route only engages when the configured path exists on disk, so the test has to create the file rather than hope one is lying around - without it the controller quietly falls back to native Speech and every provider assertion below fails for a reason that has nothing to do with the code.
+static NSString *MSIMESyntheticVoiceSocket(void)
+{
+    NSString *path = NSProcessInfo.processInfo.environment[@"MSIME_VOICE_PROVIDER_SOCKET"];
+    return path.isAbsolutePath ? path : @"/tmp/synthetic-live.sock";
+}
+
 @interface LiveHostFixture : MSIMEClientSession
 @property(atomic) NSUInteger providerStops;
 @property(atomic) NSUInteger providerCancels;
@@ -110,7 +124,7 @@
 @implementation LiveHostFixture
 - (BOOL)voiceProviderStream:(NSDictionary *)query socket:(NSString *)socket update:(MSIMEVoiceProviderUpdate)update phase:(MSIMEVoiceProviderPhase)phase error:(NSError **)error {
     (void)error;
-    assert([socket isEqual:@"/tmp/synthetic-live.sock"] && [query[@"generation"] unsignedLongLongValue]);
+    assert([socket isEqual:MSIMESyntheticVoiceSocket()] && [query[@"generation"] unsignedLongLongValue]);
     self.providerUpdate = update; self.providerPhase = phase;
     phase(0); phase(0); // Duplicate recording notifications must not replay cues.
     self.providerStarted = YES;
@@ -118,10 +132,10 @@
     return YES;
 }
 - (BOOL)voiceProviderStopSocket:(NSString *)socket generation:(uint64_t)generation error:(NSError **)error {
-    (void)error; assert([socket isEqual:@"/tmp/synthetic-live.sock"] && generation); self.providerStops += 1; return YES;
+    (void)error; assert([socket isEqual:MSIMESyntheticVoiceSocket()] && generation); self.providerStops += 1; return YES;
 }
 - (BOOL)voiceProviderCancelSocket:(NSString *)socket generation:(uint64_t)generation error:(NSError **)error {
-    (void)error; assert([socket isEqual:@"/tmp/synthetic-live.sock"] && generation); self.providerCancels += 1;
+    (void)error; assert([socket isEqual:MSIMESyntheticVoiceSocket()] && generation); self.providerCancels += 1;
     if (self.providerDone) dispatch_semaphore_signal(self.providerDone);
     return YES;
 }
@@ -155,6 +169,9 @@ int main(int argc, char **) {
         voiceArguments[@"MSIMEClientVoicePolishToken"] = @"";
         [defaults setVolatileDomain:voiceArguments forName:NSArgumentDomain];
         if (argc == 2) {
+            NSString *socketPath = MSIMESyntheticVoiceSocket();
+            if (![NSFileManager.defaultManager fileExistsAtPath:socketPath])
+                assert([NSFileManager.defaultManager createFileAtPath:socketPath contents:NSData.data attributes:nil]);
             controller.usePolishFixture = YES;
             session.providerDone = dispatch_semaphore_create(0);
             [controller toggleVoiceInput:nil];
@@ -200,6 +217,7 @@ int main(int argc, char **) {
             assert(!capture.active && presentation.failure == MSIMEVoiceFailureProvider);
             assert(!presentation.preview.length);
             [defaults setVolatileDomain:old forName:NSArgumentDomain];
+            [NSFileManager.defaultManager removeItemAtPath:socketPath error:nil];
             assert([session closeWithError:nil]); assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
             return 0;
         }
@@ -253,7 +271,7 @@ int main(int argc, char **) {
         uint64_t generation = 0;
         assert([capture startWithSession:session generation:&generation error:nil]);
         [controller setValue:@(generation) forKey:@"voiceGeneration"];
-        id token = [controller beginLiveVoiceWithOptions:@{@"stream": @NO} socket:@"/tmp/synthetic-live.sock"];
+        id token = [controller beginLiveVoiceWithOptions:@{@"stream": @NO} socket:MSIMESyntheticVoiceSocket()];
         [controller applyLiveVoiceText:@"hidden partial" final:NO token:token]; assert(!client.marked.length);
         assert([presentation.preview isEqual:@"hidden partial"]);
         [controller applyLiveVoiceText:[@"x" stringByPaddingToLength:65537 withString:@"x" startingAtIndex:0] final:NO token:token];
@@ -419,7 +437,7 @@ int main(int argc, char **) {
             [controller toggleVoiceInput:nil]; polish = controller.polishFixture;
             capture.transcript(@"synthetic stale focus", YES);
             id original = [controller valueForKey:field];
-            [controller setValue:[field isEqual:@"voiceGeneration"] ? @999999 : [NSObject new] forKey:field];
+            [controller setValue:[field isEqual:@"voiceGeneration"] ? @999999 : [MSIMEVoiceClientFixture new] forKey:field];
             polish.completion(@"wrong owner", nil);
             [controller setValue:original forKey:field];
             assert(!capture.active && client.commits.count == beforeStale);
@@ -473,7 +491,7 @@ int main(int argc, char **) {
             capture.needsMicrophonePermission = YES;
             [controller toggleVoiceInput:nil]; microphonePermission = capture.permission;
             id original = [controller valueForKey:field];
-            [controller setValue:[field isEqual:@"voiceGeneration"] ? @999999 : [NSObject new] forKey:field];
+            [controller setValue:[field isEqual:@"voiceGeneration"] ? @999999 : [MSIMEVoiceClientFixture new] forKey:field];
             capture.needsMicrophonePermission = NO;
             microphonePermission(YES);
             [controller setValue:original forKey:field];

@@ -1,4 +1,4 @@
-#import "../src/input/InputModeHUDPanel.h"
+#import "../../src/input/InputModeHUDPanel.h"
 #import <AppKit/AppKit.h>
 #include <cmath>
 #include <cstdio>

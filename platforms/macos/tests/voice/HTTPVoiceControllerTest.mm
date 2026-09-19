@@ -1,5 +1,6 @@
-#import "../src/input/InputController.mm"
+#import "../../src/input/InputController.mm"
 #import "VoiceCueFixture.h"
+#import "VoiceClientFixture.h"
 #import "VoiceMeterFixture.h"
 #include <cassert>
 
@@ -68,6 +69,8 @@
 @end
 
 @interface HTTPOverlayFixture : NSObject
+// The controller picks the overlay screen from the caret on every failure; model the real overlay property so the assignment lands somewhere.
+@property(nonatomic, weak) NSScreen *preferredScreen;
 @property float lastLevel;
 @property NSUInteger levelUpdates;
 @property(copy) void (^actionHandler)(BOOL);
@@ -98,7 +101,7 @@ int main() {
         HTTPCaptureFixture *capture = [HTTPCaptureFixture new];
         capture.capturedSeconds = 0.25;
         HTTPHostFixture *session = [HTTPHostFixture new];
-        NSObject *client = [NSObject new];
+        NSObject *client = [MSIMEVoiceClientFixture new];
         [controller setValue:capture forKey:@"voiceService"];
         [controller setValue:session forKey:@"session"];
         [controller setValue:client forKey:@"activeClient"];
@@ -110,7 +113,7 @@ int main() {
         assert(overlay.lastLevel > 0.5f && overlay.lastLevel < 0.7f && overlay.levelUpdates == 1);
         for (NSString *field in @[@"activeClient", @"session", @"voiceGeneration"]) {
             id original = [controller valueForKey:field];
-            [controller setValue:[field isEqual:@"voiceGeneration"] ? @43 : [NSObject new] forKey:field];
+            [controller setValue:[field isEqual:@"voiceGeneration"] ? @43 : [MSIMEVoiceClientFixture new] forKey:field];
             oldMeter(MSIMEVoiceMeterFixtureBuffer()); MSIMEVoiceMeterFixturePump();
             assert(overlay.levelUpdates == 1);
             [controller setValue:original forKey:field];
@@ -134,7 +137,7 @@ int main() {
             assert([controller startHTTPVoiceInputWithOptions:@{}]);
             [controller finishHTTPVoiceInput];
             id original = [controller valueForKey:field];
-            [controller setValue:[field isEqual:@"voiceGeneration"] ? @43 : [NSObject new] forKey:field];
+            [controller setValue:[field isEqual:@"voiceGeneration"] ? @43 : [MSIMEVoiceClientFixture new] forKey:field];
             capture.bufferHandler(MSIMEVoiceMeterFixtureBuffer()); MSIMEVoiceMeterFixturePump();
             assert(overlay.levelUpdates == 1);
             controller.requestFixture.polishingHandler();
@@ -186,7 +189,7 @@ int main() {
         assert(overlay.failure == MSIMEVoiceFailureNoSpeech && !capture.active);
         assert([controller startHTTPVoiceInputWithOptions:@{}]);
         [controller finishHTTPVoiceInput];
-        [controller setValue:[NSObject new] forKey:@"activeClient"];
+        [controller setValue:[MSIMEVoiceClientFixture new] forKey:@"activeClient"];
         const NSUInteger beforeStale = overlay.failures;
         controller.requestFixture.completion(nil, [NSError errorWithDomain:@"synthetic" code:1 userInfo:nil]);
         assert(overlay.failures == beforeStale && !capture.active);
@@ -207,7 +210,7 @@ int main() {
         // Focus, session and generation mismatches make both buttons inert.
         for (NSString *field in @[@"activeClient", @"session", @"voiceGeneration"]) {
             id original = [controller valueForKey:field];
-            [controller setValue:[field isEqual:@"voiceGeneration"] ? @43 : [NSObject new] forKey:field];
+            [controller setValue:[field isEqual:@"voiceGeneration"] ? @43 : [MSIMEVoiceClientFixture new] forKey:field];
             overlay.actionHandler(YES); overlay.actionHandler(NO);
             assert(capture.active && !controller.requestFixture.submitted);
             [controller setValue:original forKey:field];
@@ -252,7 +255,7 @@ int main() {
             HTTPRequestFixture *departing = controller.requestFixture;
             MSIMEVoiceAudioBuffer oldBuffer = capture.bufferHandler;
             if (processing.boolValue) [controller finishHTTPVoiceInput];
-            NSObject *successor = [NSObject new];
+            NSObject *successor = [MSIMEVoiceClientFixture new];
             NSEvent *event = [NSEvent keyEventWithType:NSEventTypeFlagsChanged location:NSZeroPoint modifierFlags:0 timestamp:1 windowNumber:0 context:nil characters:@"" charactersIgnoringModifiers:@"" isARepeat:NO keyCode:56];
             const NSUInteger submissions = session.submissions;
             assert(![controller handleEvent:event client:successor]);

@@ -1,4 +1,4 @@
-#import "../src/cloud/TranslationSettingsWindow.h"
+#import "../../src/cloud/TranslationSettingsWindow.h"
 #import "MSIMEClientSession.h"
 #include <cassert>
 
