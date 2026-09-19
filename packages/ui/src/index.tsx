@@ -1919,7 +1919,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
     selectPage("appearance");
     setShowTouchSkinEditor(true);
   };
-  const openCommunity = (destination: AccountCommunityDestination) => {
+  const openCommunity = (destination: AccountCommunityDestination | "all") => {
     selectPage("community");
     setCommunityDestination(destination);
   };
@@ -2591,6 +2591,9 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
           </div>
           {client.customTouchKeyboardSkins && <button type="button" className="secondary touch-skin-editor-open" aria-expanded={showTouchSkinEditor} onClick={() => setShowTouchSkinEditor(value => !value)}>{showTouchSkinEditor ? "收起自定义编辑器" : "设计我的皮肤"}</button>}
         </div>
+        {mobilePlatform && client.communitySkins && <div className="section touch-skin-community-entry">
+          <div className="section-header"><span className="section-title">社区皮肤<small>看看别人做的键盘皮肤，可以直接试用或保存</small></span><button type="button" className="secondary" onClick={() => openCommunity("all")}>去社区发现皮肤</button></div>
+        </div>}
         {client.customTouchKeyboardSkins && showTouchSkinEditor && <div className="section"><TouchKeyboardSkinEditor design={customTouchKeyboardSkin} selected={touchKeyboardSkin === "custom"} theme={keyboardPreviewTheme} disabled={busy} library={client.customSkinLibrary} aiSkins={client.aiSkins} communitySkins={client.communitySkins} onChange={design => setDraft(current => current ? { ...current, custom_touch_keyboard_skin: design } : current)} onUse={() => setDraft(current => current ? { ...current, touch_keyboard_skin: "custom" } : current)} onClose={() => setShowTouchSkinEditor(false)} /></div>}
         <div className="section" role="group" aria-labelledby="touch-keyboard-geometry-title">
           <div className="section-title" id="touch-keyboard-geometry-title">触屏键盘尺寸<small>与 Apple 键盘一致，只改变触屏键位外观，不改变输入方案或 Engine 组合状态；也可以直接在下方预览上左右拖动调节键距、上下拖动调节行距。</small></div>
