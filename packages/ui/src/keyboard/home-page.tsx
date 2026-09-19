@@ -4,6 +4,8 @@ import type { Preferences, TouchKeyboardScheme } from "../index";
 
 export interface HomePageActions {
   openKeyboard?: () => Promise<void>;
+  openEmojiPanel?: () => Promise<void>;
+  openClipboardPanel?: () => Promise<void>;
   openSystemKeyboardSettings?: () => Promise<void>;
   showInputMethodPicker?: () => Promise<void>;
 }
@@ -91,6 +93,8 @@ export function HomePage({ preferences, actions, onOpenPage, onSelectScheme, onO
       <span aria-hidden="true">⚙</span><span><strong>键盘设置</strong><small>输入偏好、词库、AI 与语音</small></span><span aria-hidden="true">›</span>
     </button>
     <div className="home-system-actions">
+      {actions?.openEmojiPanel && <button type="button" className="secondary" onClick={() => invokeAction(actions.openEmojiPanel)}>表情与符号</button>}
+      {actions?.openClipboardPanel && <button type="button" className="secondary" onClick={() => invokeAction(actions.openClipboardPanel)}>剪贴板历史</button>}
       {actions?.openSystemKeyboardSettings && <button type="button" className="secondary" onClick={() => invokeAction(actions.openSystemKeyboardSettings)}>系统键盘设置</button>}
       {actions?.showInputMethodPicker && <button type="button" className="secondary" onClick={() => invokeAction(actions.showInputMethodPicker)}>选择输入法</button>}
     </div>

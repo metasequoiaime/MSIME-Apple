@@ -1237,6 +1237,7 @@ int wmain(int argc, wchar_t **argv) {
       }
       if (stopping.load())
         break;
+      voice_hotkeys.refresh();
       voice_controller_dispatch.maintain();
       if (auto request = voice_controller_mailbox.take())
         request->complete(voice_controller_dispatch.dispatch(request->channel,

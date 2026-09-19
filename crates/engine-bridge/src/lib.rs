@@ -194,6 +194,7 @@ mod ffi {
             offset: usize,
             limit: usize,
         ) -> Result<DictionaryPage>;
+        fn english_completions(resources: &str, prefix: &str, limit: usize) -> Result<Vec<String>>;
         fn dictionary_validate(entry: &DictionaryEntry) -> Result<DictionaryEntry>;
         fn dictionary_edit(
             options: &EngineOptions,
@@ -344,6 +345,15 @@ pub fn dictionary_entries(
     ffi::dictionary_entries(options, offset, limit)
 }
 
+/// Query the packaged English dictionary without creating or mutating an input session.
+pub fn english_completions(
+    resources: &str,
+    prefix: &str,
+    limit: usize,
+) -> Result<Vec<String>, cxx::Exception> {
+    ffi::english_completions(resources, prefix, limit)
+}
+
 /// Validate and normalize one personal-dictionary entry through the Engine.
 pub fn dictionary_validate(entry: &DictionaryEntry) -> Result<DictionaryEntry, cxx::Exception> {
     ffi::dictionary_validate(entry)
@@ -482,6 +492,7 @@ pub fn emoji_catalog_groups(
     ffi::emoji_catalog_groups(resources, category)
 }
 
+/// Query the packaged English dictionary without creating or mutating an input session.
 /// Look up display-only candidate glosses in the packaged Engine dictionary.
 /// The result is parallel to `candidates`; an ineligible candidate has an empty gloss.
 pub fn candidate_glosses(
@@ -985,6 +996,23 @@ mod tests {
             assert_eq!(session.snapshot().unwrap().segment_raw_boundaries, expected);
         }
     }
+
+    #[test]
+    fn xiaohe_profile_accepts_yo_as_a_complete_syllable() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut options = options(dir.path());
+        options.scheme = 1;
+        options.shuangpin_profile = 0; // Xiaohe.
+        let mut session = Session::new(&options).unwrap();
+        for character in b"yo" {
+            assert!(session.character(*character, false).unwrap().handled);
+        }
+        assert_eq!(
+            session.snapshot().unwrap().segment_raw_boundaries,
+            vec![0, 2]
+        );
+    }
+
     #[test]
     fn real_engine_handles_unicode_mode_without_a_dictionary_bundle() {
         let dir = tempfile::tempdir().unwrap();

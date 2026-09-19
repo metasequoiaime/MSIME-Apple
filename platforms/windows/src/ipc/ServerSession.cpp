@@ -166,6 +166,20 @@ KeyResult ServerSession::key(const FanyImeNamedpipeData &packet,
           action.kind != KeyKind::LocalReset && action.kind != KeyKind::Ignore,
           std::move(result)};
 }
+KeyResult ServerSession::restore_raw(uint64_t epoch, uint64_t request,
+                                     const std::string &raw) {
+  check_active(epoch);
+  if (!request || request == FANY_IME_NO_REQUEST_ID || raw.empty() ||
+      raw.size() > 127 || raw.find('\0') != std::string::npos)
+    throw std::invalid_argument("Invalid Windows segment restoration");
+  nlohmann::json result;
+  for (const unsigned char value : raw) {
+    if (value < 0x21 || value > 0x7e)
+      throw std::invalid_argument("Invalid Windows segment restoration text");
+    result = response(msime_client_character(session_, value, false));
+  }
+  return {client_, epoch_, request, true, std::move(result)};
+}
 std::optional<NavigationResult>
 ServerSession::navigate(const FanyImeNamedpipeData &packet, uint64_t epoch,
                         const NavigationBindings &bindings) {

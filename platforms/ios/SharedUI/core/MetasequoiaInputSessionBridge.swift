@@ -44,6 +44,10 @@ private func msimeClientLoadPreferences(_ directory: UnsafePointer<MSIMEByte>?, 
 private func msimeClientView(_ session: UInt64) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_all_candidates")
 private func msimeClientAllCandidates(_ session: UInt64) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_english_completions")
+private func msimeClientEnglishCompletions(
+  _ session: UInt64, _ prefix: UnsafePointer<MSIMEByte>?, _ prefixLength: UInt, _ limit: UInt
+) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_candidate_gloss_request")
 private func msimeClientCandidateGlossRequest(
   _ request: UnsafePointer<MSIMEByte>?, _ requestLength: UInt,
@@ -78,6 +82,7 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
   let isHandled: Bool
   let commitText: String?
   let preedit: String
+  let reading: String
   let candidates: [String]
   let candidateCodes: [String]
   let candidateGlosses: [String]
@@ -85,13 +90,14 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
   let answeredByPinyinFallback: Bool
   let diagnosticText: String?
 
-  init(isHandled: Bool = false, commitText: String? = nil, preedit: String = "",
+  init(isHandled: Bool = false, commitText: String? = nil, preedit: String = "", reading: String = "",
        candidates: [String] = [], candidateCodes: [String] = [], candidateGlosses: [String] = [],
        candidatePageCount: Int = 0, answeredByPinyinFallback: Bool = false,
        diagnosticText: String? = nil) {
     self.isHandled = isHandled
     self.commitText = commitText
     self.preedit = preedit
+    self.reading = reading
     self.candidates = candidates
     self.candidateCodes = candidateCodes
     self.candidateGlosses = candidateGlosses
@@ -348,6 +354,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func cancel() -> MetasequoiaInputSnapshot { command(3) }
   func finishComposition() -> MetasequoiaInputSnapshot { command(9) }
   func cycleKanaVariant() -> MetasequoiaInputSnapshot { command(10) }
+  func commitReading() -> MetasequoiaInputSnapshot { command(11) }
 
   func selectCandidate(at index: UInt) -> MetasequoiaInputSnapshot {
     guard let rows = try? currentCandidates(), rows.indices.contains(Int(index)),
@@ -365,6 +372,27 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
 
   func allCandidates() throws -> [String: Any] {
     try Self.callHandle(msimeClientAllCandidates, handle)
+  }
+
+  /// Read-only English completion lookup for the word immediately before the cursor.
+  /// The caller owns the document-context parsing; the Engine session remains untouched.
+  func englishCompletions(forPrefix prefix: String, limit: Int) -> [String] {
+    guard handle != 0, (1...32).contains(limit),
+          !prefix.isEmpty, prefix.utf8.count <= 64,
+          prefix.utf8.allSatisfy({ ($0 >= 65 && $0 <= 90) || ($0 >= 97 && $0 <= 122) })
+    else { return [] }
+    let bytes = Array(prefix.utf8)
+    do {
+      let response: Any = try bytes.withUnsafeBufferPointer { buffer in
+        try Self.decode(msimeClientEnglishCompletions(
+          handle, buffer.baseAddress, UInt(buffer.count), UInt(limit)))
+      }
+      guard let value = response as? [String: Any],
+            let completions = value["completions"] as? [String] else { return [] }
+      return completions
+    } catch {
+      return []
+    }
   }
 
   func candidateGlossResources() -> String? {
@@ -759,6 +787,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     let rows = view["candidates"] as? [[String: Any]] ?? []
     return MetasequoiaInputSnapshot(isHandled: value["handled"] as? Bool ?? false,
       commitText: value["commit"] as? String, preedit: view["preedit"] as? String ?? "",
+      reading: view["reading"] as? String ?? "",
       candidates: rows.compactMap { $0["text"] as? String },
       candidateCodes: rows.map { $0["code"] as? String ?? "" },
       candidateGlosses: rows.map { $0["translation"] as? String ?? "" },

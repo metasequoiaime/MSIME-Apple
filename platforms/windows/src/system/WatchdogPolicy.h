@@ -1,4 +1,5 @@
 #pragma once
+#include "WatchdogProtocol.h"
 #include <algorithm>
 #include <cstdint>
 #include <stdexcept>
@@ -10,8 +11,8 @@ namespace msime::windows {
 namespace watchdog {
 // The Server reports why it stopped through its exit code. Anything else is an
 // unclean exit: a crash, or the user ending the process.
-inline constexpr uint32_t stop_exit_code = 0x4D530001u;
-inline constexpr uint32_t restart_exit_code = 0x4D530002u;
+inline constexpr uint32_t stop_exit_code = watchdog_protocol::stop_exit_code;
+inline constexpr uint32_t restart_exit_code = watchdog_protocol::restart_exit_code;
 inline constexpr uint32_t healthy_run_milliseconds = 30'000u;
 inline constexpr uint32_t maximum_restart_delay_milliseconds = 30'000u;
 // A requested restart comes back quickly; an unclean exit after a healthy run

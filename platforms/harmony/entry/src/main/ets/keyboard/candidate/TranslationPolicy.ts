@@ -1,0 +1,155 @@
+import { utf8Length } from '../Utf8';
+
+export interface TranslationCandidate {
+  text: string;
+}
+
+export interface TranslationProviderConfig {
+  enabled: boolean;
+  endpoint: string;
+  api_key: string;
+}
+
+export interface TencentTranslationConfig {
+  enabled: boolean;
+  secret_id: string;
+  secret_key: string;
+  region: string;
+}
+
+export interface NiuTransTranslationConfig {
+  enabled: boolean;
+  app_id: string;
+  apikey: string;
+}
+
+export interface TranslationQuery {
+  generation: number;
+  target_language: string;
+  target_languages?: string[];
+  candidates: TranslationCandidate[];
+  custom_translation?: TranslationProviderConfig | null;
+  tencent_tmt?: TencentTranslationConfig | null;
+  niutrans?: NiuTransTranslationConfig | null;
+  english_gloss: boolean;
+  resources?: string;
+  user_data?: string;
+}
+
+export interface TranslationPlanItem {
+  text: string;
+  key: string;
+  source_language: string;
+  target_language: string;
+}
+
+export interface TranslationEntry {
+  text: string;
+  translation: string;
+}
+
+/** Shared bounds and provider precedence for Harmony candidate translations. */
+export class TranslationPolicy {
+  static readonly QUIET_INTERVAL_MS: number = 500;
+  static readonly MAX_QUERY_BYTES: number = 64 * 1024;
+  static readonly MAX_RESPONSE_BYTES: number = 1024 * 1024;
+  static readonly MAX_TRANSLATION_BYTES: number = 4096;
+  static readonly NEGATIVE_CACHE_MS: number = 8 * 60 * 1000;
+
+  static targets(query: TranslationQuery): string[] {
+    const result: string[] = [];
+    const values: string[] = [query.target_language];
+    if (query.target_languages !== undefined) {
+      for (const value of query.target_languages) values.push(value);
+    }
+    for (const value of values) {
+      if (typeof value !== 'string' || value.length === 0 || result.includes(value)) continue;
+      result.push(value);
+    }
+    return result;
+  }
+
+  static provider(query: TranslationQuery): string {
+    if (query.niutrans?.enabled === true) return 'niutrans';
+    if (query.custom_translation?.enabled === true) return 'custom';
+    if (query.tencent_tmt?.enabled === true) return 'tencent';
+    return '';
+  }
+
+  /** Signature excludes credentials while still invalidating work on account/provider changes. */
+  static signature(query: TranslationQuery): string {
+    const custom: TranslationProviderConfig | null = query.custom_translation ?? null;
+    const niutrans: NiuTransTranslationConfig | null = query.niutrans ?? null;
+    const tencent: TencentTranslationConfig | null = query.tencent_tmt ?? null;
+    return JSON.stringify({
+      generation: query.generation,
+      target_languages: TranslationPolicy.targets(query),
+      candidates: query.candidates.map((candidate: TranslationCandidate): string => candidate.text),
+      english_gloss: query.english_gloss,
+      provider: TranslationPolicy.provider(query),
+      endpoint: custom?.endpoint ?? '',
+      app_id: niutrans?.app_id ?? '',
+      region: tencent?.region ?? ''
+    });
+  }
+
+  static providerScope(query: TranslationQuery): string {
+    const provider: string = TranslationPolicy.provider(query);
+    if (provider === 'custom') return `custom:${query.custom_translation?.endpoint ?? ''}`;
+    if (provider === 'niutrans') return `niutrans:${query.niutrans?.app_id ?? ''}`;
+    return provider;
+  }
+
+  static cacheKey(query: TranslationQuery, target: string, item: TranslationPlanItem): string {
+    return JSON.stringify({
+      provider: TranslationPolicy.providerScope(query),
+      target: target,
+      key: item.key,
+      direction: `${item.source_language}>${item.target_language}`,
+      source: item.source_language,
+      itemTarget: item.target_language
+    });
+  }
+
+  static planRequest(target: string, candidates: TranslationCandidate[]): string {
+    return JSON.stringify({
+      target_language: target,
+      candidates: candidates.map((candidate: TranslationCandidate): Object => ({
+        text: candidate.text,
+        source: 0
+      }))
+    });
+  }
+
+  static append(entries: TranslationEntry[], text: string, translation: string): void {
+    const value: string = TranslationPolicy.normalise(translation);
+    if (value.length === 0) return;
+    const existing: TranslationEntry | undefined = entries.find(
+      (entry: TranslationEntry): boolean => entry.text === text);
+    if (existing === undefined) {
+      entries.push({ text: text, translation: value });
+      return;
+    }
+    if (existing.translation === value || existing.translation.includes(` / ${value}`)) return;
+    const combined: string = `${existing.translation} / ${value}`;
+    if (utf8Length(combined) <= TranslationPolicy.MAX_TRANSLATION_BYTES) {
+      existing.translation = combined;
+    }
+  }
+
+  static normalise(value: string): string {
+    if (typeof value !== 'string') return '';
+    const trimmed: string = value.trim();
+    if (trimmed.length === 0 || utf8Length(trimmed) > TranslationPolicy.MAX_TRANSLATION_BYTES
+      || TranslationPolicy.hasControl(trimmed)) return '';
+    return trimmed;
+  }
+
+  private static hasControl(value: string): boolean {
+    for (const character of value) {
+      const code: number = character.codePointAt(0) ?? 0;
+      if (code <= 0x1f || (code >= 0x7f && code <= 0x9f)) return true;
+    }
+    return false;
+  }
+}

@@ -19,6 +19,11 @@ public:
   VoiceHotkeyController(const VoiceHotkeyController &) = delete;
   VoiceHotkeyController &operator=(const VoiceHotkeyController &) = delete;
 
+  // Apply hotkey enable/shortcut changes published while the Server stays
+  // alive. This mirrors the native service's RefreshKeyboardHook path and is
+  // called from the Server control loop, never from the low-level hook.
+  void refresh();
+
 private:
   enum class HoldShortcut { None, RAlt, CtrlWin, RCtrlRAlt };
   static LRESULT CALLBACK window_proc(HWND, UINT, WPARAM, LPARAM);
@@ -46,6 +51,13 @@ private:
   std::atomic<bool> suppress_ralt_until_up_{false};
   std::atomic<bool> suppress_win_until_up_{false};
   std::atomic<HoldShortcut> active_hold_{HoldShortcut::None};
+  bool observed_config_ = false;
+  bool observed_enabled_ = true;
+  bool observed_hotkey_ralt_ = true;
+  bool observed_hotkey_ctrl_f9_ = true;
+  bool observed_hotkey_ctrl_win_ = false;
+  bool observed_hotkey_rctrl_ralt_ = false;
+  bool observed_hotkey_hold_space_lock_ = true;
   static VoiceHotkeyController *instance_;
 };
 } // namespace msime::windows

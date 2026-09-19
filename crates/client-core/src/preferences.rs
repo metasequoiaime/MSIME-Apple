@@ -523,6 +523,10 @@ pub struct Preferences {
     /// Show bounded offline English glosses from the packaged Engine dictionary.
     #[serde(default)]
     pub candidate_english_gloss: bool,
+    /// Show read-only English word completions in direct English touch input.
+    /// Hosts without a direct English suggestion surface preserve this value.
+    #[serde(default = "enabled_by_default")]
+    pub english_suggestions: bool,
     #[serde(default)]
     pub translation_target_language: TranslationTargetLanguage,
     /// Optional second language for mobile candidate glosses. `None` preserves the
@@ -1149,6 +1153,7 @@ impl Default for Preferences {
             cloud_candidates: true,
             candidate_translations: true,
             candidate_english_gloss: false,
+            english_suggestions: true,
             translation_target_language: TranslationTargetLanguage::default(),
             translation_secondary_language: None,
         }
@@ -1989,6 +1994,29 @@ mod tests {
             serde_json::from_str::<Preferences>(&serde_json::to_string(&enabled).unwrap())
                 .unwrap()
                 .candidate_english_gloss
+        );
+    }
+
+    #[test]
+    fn english_suggestions_default_on_and_legacy_documents_preserve_it() {
+        let defaults = Preferences::default();
+        assert!(defaults.english_suggestions);
+        let mut legacy = serde_json::to_value(&defaults).unwrap();
+        legacy
+            .as_object_mut()
+            .unwrap()
+            .remove("english_suggestions");
+        assert!(
+            serde_json::from_value::<Preferences>(legacy)
+                .unwrap()
+                .english_suggestions
+        );
+        let mut disabled = defaults;
+        disabled.english_suggestions = false;
+        assert!(
+            !serde_json::from_str::<Preferences>(&serde_json::to_string(&disabled).unwrap())
+                .unwrap()
+                .english_suggestions
         );
     }
 

@@ -99,6 +99,18 @@ test("invokes Android keyboard and system input actions", () => {
   expect(actions.showInputMethodPicker).toHaveBeenCalledOnce();
 });
 
+test("opens the Android emoji and clipboard tools inside the mobile shell", () => {
+  const openEmojiPanel = vi.fn().mockResolvedValue(undefined);
+  const openClipboardPanel = vi.fn().mockResolvedValue(undefined);
+  render(<HomePage preferences={initial.preferences} actions={{ openEmojiPanel, openClipboardPanel }} onOpenPage={vi.fn()} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "表情与符号" }));
+  fireEvent.click(screen.getByRole("button", { name: "剪贴板历史" }));
+
+  expect(openEmojiPanel).toHaveBeenCalledOnce();
+  expect(openClipboardPanel).toHaveBeenCalledOnce();
+});
+
 test("opens Android on home and preserves the appearance fallback without home capability", async () => {
   render(<SettingsPage client={{ load: async () => initial, save: vi.fn(), home: {
     openKeyboard: vi.fn().mockResolvedValue(undefined),

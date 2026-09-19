@@ -10,6 +10,9 @@
       "replace": "{\"chua\", \"den\", \"fiao\", \"jve\", \"lo\", \"lue\", \"nou\", \"nue\", \"nun\", \"qve\", \"xve\", \"yve\", \"zhei\"}"
     }
   ],
+  "overlay_scripts": [
+    "scripts/apply_engine_double_helpcode_cache.py"
+  ],
   "dependencies": [
     {
       "path": "googlepinyinime-rev",

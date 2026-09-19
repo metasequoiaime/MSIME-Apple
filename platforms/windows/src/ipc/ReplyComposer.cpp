@@ -2,6 +2,8 @@
 #include "CandidateTranslationPolicy.h"
 #include "ChineseTextConversion.h"
 #include "PunctuationPolicy.h"
+#include <algorithm>
+#include <limits>
 #include <stdexcept>
 
 namespace msime::windows {
@@ -189,6 +191,7 @@ const PendingReply &ReplyComposer::dispatch(
   const bool candidate_enter =
       path == ReplyPath::Selection && action.kind == KeyKind::Command &&
       action.value == MSIME_COMMIT_RAW;
+  std::string selected_raw_before;
   KeyResult result;
   if (path == ReplyPath::Punctuation) {
     result = session.punctuation(packet, epoch);
@@ -198,6 +201,7 @@ const PendingReply &ReplyComposer::dispatch(
         packet.pinyin_length < 0 || packet.pinyin_length >= 128)
       throw std::invalid_argument("Invalid Windows candidate Enter request");
     const auto current = session.view();
+    selected_raw_before = current.at("editing_text").get<std::string>();
     std::optional<std::pair<uint64_t, size_t>> highlighted;
     for (const auto &candidate : current.at("candidates")) {
       if (!candidate.at("highlighted").get<bool>())
@@ -218,7 +222,18 @@ const PendingReply &ReplyComposer::dispatch(
   if (!session.input_enabled())
     path = result.reply_expected ? ReplyPath::IgnoredNavigation
                                  : ReplyPath::NoReply;
-  return stage(result, path, uiless, std::move(local_text));
+  const auto &pending = stage(result, path, uiless, std::move(local_text));
+  if (candidate_enter && !selected_raw_before.empty()) {
+    const auto after = result.transition.at("view").at("editing_text").get<std::string>();
+    if (after.size() < selected_raw_before.size() &&
+        selected_raw_before.compare(selected_raw_before.size() - after.size(),
+                                    after.size(), after) == 0) {
+      pending_->segment_restore = PendingReply::SegmentRestore{
+          selected_raw_before.substr(0, selected_raw_before.size() - after.size()),
+          prefix_};
+    }
+  }
+  return pending;
 }
 std::optional<PendingReply> ReplyComposer::basic_key(
     ServerSession &session, const FanyImeNamedpipeData &packet, uint64_t epoch,
@@ -229,6 +244,12 @@ std::optional<PendingReply> ReplyComposer::basic_key(
   if (style != TsfPreeditStyle::Local && style != TsfPreeditStyle::Pinyin &&
       style != TsfPreeditStyle::Empty)
     throw std::invalid_argument("Invalid TSF preedit style");
+  if (auto restored = restore_segment(session, packet, epoch))
+    return restored;
+  if (translation_page_active_) {
+    if (auto translation = translation_page_key(session, packet, epoch))
+      return translation;
+  }
   const auto action = translate_key(packet);
   const bool uiless = (packet.modifiers_down & FanyImePipeFlags::UiLess) != 0;
   if (action.kind == KeyKind::LocalReset)
@@ -371,6 +392,15 @@ void ReplyComposer::confirm_delivery(uint64_t client, uint64_t epoch,
   if (current.encoded && !*current.encoded)
     throw std::logic_error("Unencodable reply cannot be acknowledged");
   prefix_ = current.next_prefix;
+  if (current.segment_restore) {
+    if (current.restoring_segment && !segment_restore_history_.empty() &&
+        segment_restore_history_.back().raw == current.segment_restore->raw &&
+        segment_restore_history_.back().previous_prefix ==
+            current.segment_restore->previous_prefix)
+      segment_restore_history_.pop_back();
+    else if (!current.restoring_segment)
+      segment_restore_history_.push_back(*current.segment_restore);
+  }
   pending_.reset();
 }
 std::optional<PendingReply> ReplyComposer::select_candidate(ServerSession &session,
@@ -382,6 +412,28 @@ std::optional<PendingReply> ReplyComposer::select_candidate(ServerSession &sessi
       (session_ && session_ != expected_session) ||
       view.at("generation") != generation || !view.at("focused").get<bool>())
     return std::nullopt;
+  const auto raw_before = view.at("editing_text").get<std::string>();
+  if (translation_page_active_) {
+    if (index >= translation_page_items_.size())
+      return std::nullopt;
+    const auto text = simplified_to_traditional(translation_page_items_[index],
+                                                traditional_output_);
+    session.cancel_composition(epoch_);
+    auto transition = session.view();
+    transition["commit"] = nullptr;
+    PendingReply next;
+    next.source = {client_, epoch_, 0, true, std::move(transition)};
+    next.next_prefix.clear();
+    next.traditional_output = traditional_output_;
+    next.ui_selection = ui_complete_selection(prefix_ + text);
+    if (!next.ui_selection)
+      throw std::runtime_error("Unencodable translation selection");
+    translation_page_active_ = false;
+    translation_page_items_.clear();
+    session_ = expected_session;
+    pending_ = std::move(next);
+    return pending_;
+  }
   bool found = false;
   for (const auto &candidate : view.at("candidates")) {
     const auto &id = candidate.at("id");
@@ -410,6 +462,13 @@ std::optional<PendingReply> ReplyComposer::select_candidate(ServerSession &sessi
     next.next_prefix.clear();
   } else {
     next.next_prefix = prefix_ + output_delta;
+    const auto &raw_after = next.source.transition.at("view").at("editing_text").get<std::string>();
+    if (raw_after.size() < raw_before.size() &&
+        raw_before.compare(raw_before.size() - raw_after.size(),
+                          raw_after.size(), raw_after) == 0) {
+      next.segment_restore = PendingReply::SegmentRestore{
+          raw_before.substr(0, raw_before.size() - raw_after.size()), prefix_};
+    }
     next.ui_selection = ui_partial_selection(
         raw, next.next_prefix,
         next.next_prefix +
@@ -447,13 +506,31 @@ std::optional<PendingReply> ReplyComposer::commit_candidate_translation(
       continue;
     }
     index = candidate.at("id").at("index").get<size_t>();
-    translation = first_translation_sense(
-        candidate.value("translation", std::string{}));
+    translation = candidate.value("translation", std::string{});
     found = true;
     break;
   }
   if (!found || translation.empty())
     return std::nullopt;
+  const auto senses = translation_senses(translation);
+  if (senses.size() > 1) {
+    nlohmann::json page = {{"commit", nullptr}, {"view", view}};
+    page["view"]["candidates"] = nlohmann::json::array();
+    const auto count = std::min<size_t>(senses.size(), 9);
+    for (size_t item = 0; item < count; ++item) {
+      page["view"]["candidates"].push_back({
+          {"id", {{"session", expected_session}, {"generation", generation},
+                   {"index", item}}},
+          {"text", senses[item]}, {"highlighted", item == 0},
+          {"annotation", ""}, {"source", 0}, {"fixed_position", false},
+          {"translation", ""}});
+    }
+    translation_page_items_.assign(senses.begin(), senses.begin() + count);
+    translation_page_view_ = page;
+    translation_page_active_ = true;
+    return translation_page_reply(packet, epoch, page);
+  }
+  translation = first_translation_sense(translation);
   auto transition = session.select(epoch, generation, index);
   const auto raw = transition.at("view").at("editing_text").get<std::string>();
   const auto output = simplified_to_traditional(translation, traditional_output_);
@@ -477,6 +554,109 @@ std::optional<PendingReply> ReplyComposer::commit_candidate_translation(
   return pending_;
 }
 
+PendingReply ReplyComposer::translation_page_reply(
+    const FanyImeNamedpipeData &packet, uint64_t epoch,
+    const nlohmann::json &transition) {
+  PendingReply next;
+  next.source = {client_, epoch, packet.request_id, true, transition};
+  next.encoded = navigation_reply(packet.request_id, NavigationReply::Ignored);
+  next.next_prefix = prefix_;
+  next.traditional_output = traditional_output_;
+  session_ = transition.at("view").at("session").get<uint64_t>();
+  pending_ = std::move(next);
+  return *pending_;
+}
+
+std::optional<PendingReply> ReplyComposer::restore_segment(
+    ServerSession &session, const FanyImeNamedpipeData &packet,
+    uint64_t epoch) {
+  if (packet.keycode != 0x08 ||
+      PipeMetadata::key_modifiers(packet.modifiers_down) != 2u ||
+      (packet.modifiers_down & PipeMetadata::CandidateActive) != 0 ||
+      prefix_.empty() || segment_restore_history_.empty())
+    return std::nullopt;
+  const auto current = session.view();
+  if (!current.at("focused").get<bool>() ||
+      !current.at("editing_text").get<std::string>().empty())
+    return std::nullopt;
+  const auto &entry = segment_restore_history_.back();
+  auto result = session.restore_raw(epoch, packet.request_id, entry.raw);
+  const auto &view = result.transition.at("view");
+  const auto raw = view.at("editing_text").get<std::string>();
+  const auto display = view.at("preedit").get<std::string>();
+  PendingReply next;
+  next.source = std::move(result);
+  next.next_prefix = entry.previous_prefix;
+  next.traditional_output = traditional_output_;
+  next.segment_restore = entry;
+  next.restoring_segment = true;
+  if (!raw.empty() && !entry.previous_prefix.empty())
+    next.encoded = partial_selection(packet.request_id, raw,
+                                     entry.previous_prefix,
+                                     entry.previous_prefix + display);
+  else if (!raw.empty())
+    next.encoded = preedit_reply(packet.request_id, display);
+  else
+    next.encoded = ignored_reply(packet.request_id);
+  if (!next.encoded || !*next.encoded)
+    throw std::runtime_error("Unencodable segment restoration");
+  pending_ = std::move(next);
+  return pending_;
+}
+
+std::optional<PendingReply> ReplyComposer::translation_page_key(
+    ServerSession &session, const FanyImeNamedpipeData &packet,
+    uint64_t epoch) {
+  if (!translation_page_active_)
+    return std::nullopt;
+  if (packet.event_type != FanyImePipeEventType::KeyEvent ||
+      (packet.modifiers_down & PipeMetadata::CandidateActive) == 0 ||
+      PipeMetadata::key_modifiers(packet.modifiers_down) != 0)
+    return std::nullopt;
+  const auto key = normalize_digit_key(packet.keycode);
+  const bool navigation = packet.keycode == 0x21 || packet.keycode == 0x22 ||
+                          packet.keycode == 0x23 || packet.keycode == 0x24 ||
+                          packet.keycode == 0x26 || packet.keycode == 0x28;
+  if (navigation) {
+    if (PipeMetadata::key_modifiers(packet.modifiers_down) == 0) {
+      return translation_page_reply(packet, epoch, translation_page_view_);
+    }
+    translation_page_active_ = false;
+    translation_page_items_.clear();
+    translation_page_view_ = {};
+    return std::nullopt;
+  }
+  size_t index = std::numeric_limits<size_t>::max();
+  if (packet.keycode == 0x20)
+    index = 0;
+  else {
+    if (key >= '1' && key <= '9')
+      index = static_cast<size_t>(key - '1');
+  }
+  if (index == std::numeric_limits<size_t>::max()) {
+    translation_page_active_ = false;
+    translation_page_items_.clear();
+    return std::nullopt;
+  }
+  if (index >= translation_page_items_.size())
+    return translation_page_reply(packet, epoch, translation_page_view_);
+  const auto text = simplified_to_traditional(translation_page_items_[index],
+                                              traditional_output_);
+  session.cancel_composition(epoch);
+  auto transition = session.view();
+  transition["commit"] = nullptr;
+  PendingReply next;
+  next.source = {client_, epoch, packet.request_id, true, transition};
+  next.encoded = exact_commit(packet.request_id, prefix_ + text);
+  next.next_prefix.clear();
+  next.traditional_output = traditional_output_;
+  translation_page_active_ = false;
+  translation_page_items_.clear();
+  translation_page_view_ = {};
+  pending_ = std::move(next);
+  return *pending_;
+}
+
 void ReplyComposer::confirm_ui_delivery(uint64_t client, uint64_t epoch,
                                         uint64_t generation) {
   const auto &current = pending();
@@ -484,11 +664,24 @@ void ReplyComposer::confirm_ui_delivery(uint64_t client, uint64_t epoch,
       current.source.transition.at("view").at("generation") != generation)
     throw std::logic_error("Expired UI delivery acknowledgement");
   prefix_ = current.next_prefix;
+  if (current.segment_restore) {
+    if (current.restoring_segment && !segment_restore_history_.empty() &&
+        segment_restore_history_.back().raw == current.segment_restore->raw &&
+        segment_restore_history_.back().previous_prefix ==
+            current.segment_restore->previous_prefix)
+      segment_restore_history_.pop_back();
+    else if (!current.restoring_segment)
+      segment_restore_history_.push_back(*current.segment_restore);
+  }
   pending_.reset();
 }
 void ReplyComposer::cancel() {
   pending_.reset();
   prefix_.clear();
+  segment_restore_history_.clear();
+  translation_page_active_ = false;
+  translation_page_items_.clear();
+  translation_page_view_ = {};
 }
 std::optional<PendingReply> ReplyComposer::configured_key(
     ServerSession &session, const FanyImeNamedpipeData &packet, uint64_t epoch,

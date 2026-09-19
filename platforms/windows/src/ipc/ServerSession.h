@@ -52,6 +52,11 @@ public:
     return input_enabled_;
   }
   KeyResult key(const FanyImeNamedpipeData &packet, uint64_t epoch);
+  // Rebuild a deleted creating-word segment through Engine's ordinary
+  // character path. This is the Windows Ctrl+Backspace restoration boundary;
+  // the host composer owns the selected-prefix history.
+  KeyResult restore_raw(uint64_t epoch, uint64_t request,
+                        const std::string &raw);
   KeyResult punctuation(const FanyImeNamedpipeData &packet, uint64_t epoch);
   std::optional<WordCharacterResult>
   word_character(const FanyImeNamedpipeData &packet, uint64_t epoch,

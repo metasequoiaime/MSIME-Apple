@@ -225,6 +225,14 @@ char *msime_client_apply_translations(uint64_t session, uint64_t generation,
  * This function owns no session handle and may run on a worker thread. */
 char *msime_client_candidate_gloss_request(const uint8_t *request, size_t request_length,
                                            const uint8_t *resources, size_t resources_length);
+/* Query the packaged English dictionary without creating a session.
+ * JSON request: {prefix,limit}; prefix is an ASCII-letter word fragment and
+ * limit is 1..32. The response echoes prefix and returns {items:[...]}.
+ * Resources must be an absolute generation directory. */
+char *msime_client_english_completions_request(const uint8_t *request,
+                                               size_t request_length,
+                                               const uint8_t *resources,
+                                               size_t resources_length);
 // Live per-session mode, not a persisted preference. Preserves composition and
 // candidate generation; remains authoritative across preference replacement.
 char *msime_client_set_chinese_punctuation(uint64_t session, bool enabled);
@@ -292,6 +300,9 @@ char *msime_client_select_edge(uint64_t session, uint64_t generation, size_t ind
 /* On-demand {session,generation,preedit,candidates:[Candidate...]}. Unlike View,
  * candidates contains the complete cached Engine generation with global IDs. */
 char *msime_client_all_candidates(uint64_t session);
+/* Return read-only English completions for a bounded ASCII prefix. */
+char *msime_client_english_completions(uint64_t session, const uint8_t *prefix,
+                                       size_t prefix_length, size_t limit);
 /* View.local_mode is the Engine-owned mode, not a preedit-prefix heuristic:
  * View.microsoft_shuangpin reports the applied Engine configuration, never a
  * newer deferred preference. Hosts use it with mode, editing text and caret.

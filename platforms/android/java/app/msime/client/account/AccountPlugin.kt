@@ -47,6 +47,11 @@ class CopyTextArgs {
 }
 
 @InvokeArg
+class OpenExternalUrlArgs {
+    lateinit var url: String
+}
+
+@InvokeArg
 class EnqueueSnapshotArgs {
     lateinit var source: String
     lateinit var accountId: String
@@ -303,6 +308,31 @@ class AccountPlugin(activity: Activity) : Plugin(activity) {
             invoke.reject("invalid_text", "invalid_text")
         } catch (_: Exception) {
             invoke.reject("clipboard", "clipboard")
+        }
+    }
+
+    @Command
+    fun openExternalUrl(invoke: Invoke) {
+        try {
+            val url = invoke.parseArgs(OpenExternalUrlArgs::class.java).url
+            if (url.length > 4096 || !url.startsWith("https://") ||
+                url.any { it.isWhitespace() || it == '\u0000' || it.isISOControl() }) {
+                invoke.reject("invalid_url", "invalid_url")
+                return
+            }
+            val parsed = Intent.parseUri(url, Intent.URI_INTENT_SCHEME).data
+                ?: throw IllegalArgumentException("missing URL")
+            if (parsed.scheme != "https" || parsed.host.isNullOrEmpty()) {
+                invoke.reject("invalid_url", "invalid_url")
+                return
+            }
+            val intent = Intent(Intent.ACTION_VIEW, parsed).addCategory(Intent.CATEGORY_BROWSABLE)
+            hostActivity.startActivity(intent)
+            invoke.resolve()
+        } catch (_: IllegalArgumentException) {
+            invoke.reject("invalid_url", "invalid_url")
+        } catch (_: Exception) {
+            invoke.reject("external_url", "external_url")
         }
     }
 

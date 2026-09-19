@@ -10,45 +10,67 @@ import { KeyboardGeometry } from '../entry/src/main/ets/keyboard/KeyboardGeometr
 import { KeyboardMetrics } from '../entry/src/main/ets/keyboard/KeyboardMetrics';
 import {
   ClipboardHistoryStore, ClipboardHistoryItem, ClipboardHistoryError, ClipboardFailure
-} from '../entry/src/main/ets/keyboard/ClipboardHistoryStore';
+} from '../entry/src/main/ets/keyboard/clipboard/ClipboardHistoryStore';
 import {
   EmojiCatalogModel, EmojiItem, EMOJI_PAGE_SIZE, EMOJI_RECENTS_LIMIT, MAX_TEXT_CODE_POINTS
-} from '../entry/src/main/ets/keyboard/EmojiCatalogModel';
-import { CandidateWrapPolicy } from '../entry/src/main/ets/keyboard/CandidateWrapPolicy';
+} from '../entry/src/main/ets/keyboard/emoji/EmojiCatalogModel';
+import { CandidateWrapPolicy } from '../entry/src/main/ets/keyboard/candidate/CandidateWrapPolicy';
 import { KeyboardScheme, SchemeDefinition, PreferenceMapping }
   from '../entry/src/main/ets/keyboard/KeyboardScheme';
-import { NineKeyLayout, NineKey } from '../entry/src/main/ets/keyboard/NineKeyLayout';
+import { NineKeyLayout, NineKey } from '../entry/src/main/ets/keyboard/input/NineKeyLayout';
 import {
   JapaneseNineKeyLayout, JapaneseKey, VariantGroup,
   DIRECTION_CENTRE, DIRECTION_LEFT, DIRECTION_UP, DIRECTION_RIGHT, DIRECTION_DOWN
-} from '../entry/src/main/ets/keyboard/JapaneseNineKeyLayout';
-import { JapaneseNineKeyActions } from '../entry/src/main/ets/keyboard/JapaneseNineKeyActions';
-import { ChineseHelpcodePolicy } from '../entry/src/main/ets/keyboard/ChineseHelpcodePolicy';
-import { WubiCodeHintPolicy } from '../entry/src/main/ets/keyboard/WubiCodeHintPolicy';
-import { LetterKeyFacePolicy } from '../entry/src/main/ets/keyboard/LetterKeyFacePolicy';
+} from '../entry/src/main/ets/keyboard/input/JapaneseNineKeyLayout';
+import { JapaneseNineKeyActions } from '../entry/src/main/ets/keyboard/input/JapaneseNineKeyActions';
+import { ChineseHelpcodePolicy } from '../entry/src/main/ets/keyboard/input/ChineseHelpcodePolicy';
+import { WubiCodeHintPolicy } from '../entry/src/main/ets/keyboard/input/WubiCodeHintPolicy';
+import { LetterKeyFacePolicy } from '../entry/src/main/ets/keyboard/input/LetterKeyFacePolicy';
 import { EnglishCapitalizationPolicy, CapitalizationMode }
-  from '../entry/src/main/ets/keyboard/EnglishCapitalizationPolicy';
+  from '../entry/src/main/ets/keyboard/input/EnglishCapitalizationPolicy';
 import { EnglishLetterCaseState, LetterCaseMode }
-  from '../entry/src/main/ets/keyboard/EnglishLetterCaseState';
-import { JapaneseVariantPolicy } from '../entry/src/main/ets/keyboard/JapaneseVariantPolicy';
-import { ClipboardHistoryPolicy } from '../entry/src/main/ets/keyboard/ClipboardHistoryPolicy';
-import { FullWidthInputPolicy } from '../entry/src/main/ets/keyboard/FullWidthInputPolicy';
-import { InputDiagnosticPolicy } from '../entry/src/main/ets/keyboard/InputDiagnosticPolicy';
-import { ChineseOutputPolicy } from '../entry/src/main/ets/keyboard/ChineseOutputPolicy';
-import { LocalInputMode } from '../entry/src/main/ets/keyboard/LocalInputMode';
+  from '../entry/src/main/ets/keyboard/input/EnglishLetterCaseState';
+import { JapaneseVariantPolicy } from '../entry/src/main/ets/keyboard/input/JapaneseVariantPolicy';
+import { ClipboardHistoryPolicy } from '../entry/src/main/ets/keyboard/clipboard/ClipboardHistoryPolicy';
+import { FullWidthInputPolicy } from '../entry/src/main/ets/keyboard/input/FullWidthInputPolicy';
+import { InputDiagnosticPolicy } from '../entry/src/main/ets/keyboard/input/InputDiagnosticPolicy';
+import { ChineseOutputPolicy } from '../entry/src/main/ets/keyboard/input/ChineseOutputPolicy';
+import { LocalInputMode } from '../entry/src/main/ets/keyboard/input/LocalInputMode';
 import { QuickPunctuationPolicy, PunctuationEntry }
-  from '../entry/src/main/ets/keyboard/QuickPunctuationPolicy';
-import { ReturnKeyAction } from '../entry/src/main/ets/keyboard/ReturnKeyAction';
-import { SpaceCursorMovement } from '../entry/src/main/ets/keyboard/SpaceCursorMovement';
+  from '../entry/src/main/ets/keyboard/input/QuickPunctuationPolicy';
+import { ReturnKeyAction } from '../entry/src/main/ets/keyboard/input/ReturnKeyAction';
+import { SpaceCursorMovement } from '../entry/src/main/ets/keyboard/input/SpaceCursorMovement';
 import { CandidateManagementAction, ManagementAction }
-  from '../entry/src/main/ets/keyboard/CandidateManagementAction';
+  from '../entry/src/main/ets/keyboard/candidate/CandidateManagementAction';
 import { CandidateGlossPolicy, GlossToken }
-  from '../entry/src/main/ets/keyboard/CandidateGlossPolicy';
-import { ShuangpinKeyHintPolicy } from '../entry/src/main/ets/keyboard/ShuangpinKeyHintPolicy';
-import { EditorPolicy, EditorTraits } from '../entry/src/main/ets/keyboard/EditorPolicy';
-import { KeyboardSkin } from '../entry/src/main/ets/keyboard/KeyboardSkin';
+  from '../entry/src/main/ets/keyboard/candidate/CandidateGlossPolicy';
+import { ShuangpinKeyHintPolicy } from '../entry/src/main/ets/keyboard/input/ShuangpinKeyHintPolicy';
+import { EditorPolicy, EditorTraits } from '../entry/src/main/ets/keyboard/input/EditorPolicy';
+import { KeyboardSkin } from '../entry/src/main/ets/keyboard/skin/KeyboardSkin';
 import { CustomKeyboardSkin, CustomSkinDocument, supportedPhoto }
-  from '../entry/src/main/ets/keyboard/CustomKeyboardSkin';
+  from '../entry/src/main/ets/keyboard/skin/CustomKeyboardSkin';
+import { DictionaryMaintenancePolicy }
+  from '../entry/src/main/ets/keyboard/DictionaryMaintenancePolicy';
+import {
+  HandwritingStrokePolicy, HANDWRITING_CANVAS_SIZE, HANDWRITING_MAX_CANDIDATES,
+} from '../entry/src/main/ets/keyboard/input/HandwritingStrokePolicy';
+import { VoiceRecognitionPolicy, VOICE_MAX_TEXT } from
+  '../entry/src/main/ets/keyboard/input/VoiceRecognitionPolicy';
+import { AccountCloudBridge, AccountSessionStore, AccountTransport } from
+  '../entry/src/main/ets/account/AccountCloudBridge';
+import { TypingStatisticsPolicy } from '../entry/src/main/ets/keyboard/TypingStatisticsPolicy';
+import { OnlineCandidatePolicy } from
+  '../entry/src/main/ets/keyboard/candidate/OnlineCandidatePolicy';
+import { TranslationPolicy, TranslationQuery, TranslationEntry } from
+  '../entry/src/main/ets/keyboard/candidate/TranslationPolicy';
+import { HardwareKeyRouter, HardwareKeyAction, HardwareKey } from
+  '../entry/src/main/ets/keyboard/HardwareKeyRouter';
+import { CandidateSkinPolicy } from '../entry/src/main/ets/keyboard/candidate/CandidateSkinPolicy';
+import { CandidateWheelPolicy } from '../entry/src/main/ets/keyboard/candidate/CandidateWheelPolicy';
+
+function selectedBarVisible(value: boolean | null): boolean {
+  return value !== false;
+}
 
 let failures = 0;
 let checks = 0;
@@ -91,6 +113,131 @@ function check(condition: boolean, message: string): void {
 
 console.log('KeyboardGeometry');
 
+console.log('DictionaryMaintenancePolicy');
+
+console.log('HandwritingStrokePolicy');
+
+console.log('VoiceRecognitionPolicy');
+
+group('maps Harmony commits to shared typing-statistics sources', () => {
+  check(TypingStatisticsPolicy.source('quanpin', 'xiaohe', false, false, 'none') === 'quanpin',
+    'quanpin uses the shared source id');
+  check(TypingStatisticsPolicy.source('quanpin', 'xiaohe', false, true, 'none') === 'nineKey',
+    'nine-key quanpin has its own source id');
+  check(TypingStatisticsPolicy.source('shuangpin', 'microsoft', false, false, 'none') === 'microsoft',
+    'shuangpin profile is retained');
+  check(TypingStatisticsPolicy.source('wubi', 'xiaohe', false, false, 'none') === 'wubi',
+    'wubi uses the shared source id');
+  check(TypingStatisticsPolicy.source('quanpin', 'xiaohe', true, false, 'none') === 'english',
+    'dedicated English takes precedence');
+  check(TypingStatisticsPolicy.source('quanpin', 'xiaohe', false, false, 'emoji') === 'local',
+    'local modes are attributed as local input');
+  check(TypingStatisticsPolicy.source('quanpin', 'xiaohe', false, false,
+    'temporary_japanese') === 'japanese', 'temporary Japanese retains its language source');
+  check(TypingStatisticsPolicy.day(new Date(2026, 8, 19)) === '2026-09-19',
+    'day keys use the native local calendar date');
+});
+
+group('bounds and deduplicates asynchronous online AI candidates', () => {
+  const response = JSON.stringify({ choices: [{ message: { content: JSON.stringify({
+    candidates: [{ text: '你好' }, { text: '你好' }, { text: '世界' }, { text: 'bad\ntext' }]
+  }) } }] });
+  const values = OnlineCandidatePolicy.aiCandidates(response, 3);
+  check(values !== null && values.length === 2 && values[0] === '你好' && values[1] === '世界',
+    'AI response keeps provider order and removes duplicates or controls');
+  check(OnlineCandidatePolicy.aiCandidates(JSON.stringify({ error: { code: 'bad' } }), 3) === null,
+    'AI error envelope is rejected');
+  check(OnlineCandidatePolicy.aiCandidates(response, 0) === null,
+    'AI candidate limit stays within shared bounds');
+  check(OnlineCandidatePolicy.aiCandidates('x'.repeat(1024 * 1024 + 1), 3) === null,
+    'oversized AI response is rejected before parsing');
+});
+
+group('keeps translation provider policy bounded and credential-free in signatures', () => {
+  const query: TranslationQuery = {
+    generation: 12,
+    target_language: 'en',
+    target_languages: ['en', 'ja'],
+    candidates: [{ text: '你好' }, { text: '你好' }],
+    custom_translation: null,
+    tencent_tmt: null,
+    niutrans: { enabled: true, app_id: 'account', apikey: 'secret' },
+    english_gloss: true,
+    resources: '/data/resources',
+    user_data: '/data/state'
+  };
+  check(TranslationPolicy.provider(query) === 'niutrans', 'NiuTrans has provider precedence');
+  check(TranslationPolicy.targets(query).join(',') === 'en,ja', 'targets are deduplicated');
+  check(!TranslationPolicy.signature(query).includes('secret'),
+    'provider signatures never contain credentials');
+  check(TranslationPolicy.cacheKey(query, 'en', {
+    text: '你好', key: '你好', source_language: 'zh', target_language: 'en'
+  }).includes('niutrans:account'), 'cache scope identifies the provider account');
+});
+
+group('merges translation rows without unbounded display growth', () => {
+  const entries: TranslationEntry[] = [];
+  TranslationPolicy.append(entries, '你好', 'hello');
+  TranslationPolicy.append(entries, '你好', 'hello');
+  TranslationPolicy.append(entries, '你好', 'greeting');
+  TranslationPolicy.append(entries, '世界', '\u0000bad');
+  check(entries.length === 1 && entries[0].translation === 'hello / greeting',
+    'rows deduplicate and join in provider order');
+  TranslationPolicy.append(entries, '你好', 'x'.repeat(5000));
+  check(entries[0].translation === 'hello / greeting', 'oversized glosses are ignored');
+});
+
+group('bounds native speech language, session and result text', () => {
+  check(VoiceRecognitionPolicy.language('  ') === 'zh-CN', 'voice defaults to Chinese');
+  check(VoiceRecognitionPolicy.language('x'.repeat(100)).length <= 32,
+    'voice language is bounded');
+  check(VoiceRecognitionPolicy.sessionId(12) === 'msime-voice-12',
+    'voice session ids are deterministic');
+  check(VoiceRecognitionPolicy.result(' 水\n水\u0000 ') === '水\n水',
+    'voice result removes control bytes and trims');
+  check(VoiceRecognitionPolicy.result('x'.repeat(VOICE_MAX_TEXT + 20)).length === VOICE_MAX_TEXT,
+    'voice result is bounded');
+});
+
+group('bounds handwriting points and rejects empty recognition requests', () => {
+  const point = HandwritingStrokePolicy.point(999, -4);
+  check(point.x === HANDWRITING_CANVAS_SIZE && point.y === 0,
+    'handwriting points stay inside the canvas');
+  check(!HandwritingStrokePolicy.canRecognize([]), 'empty ink does not trigger OCR');
+  check(HandwritingStrokePolicy.canRecognize([{ points: [point] }]),
+    'a bounded stroke is recognisable');
+});
+
+group('normalizes OCR candidates without leaking control text or duplicates', () => {
+  const candidates = HandwritingStrokePolicy.candidates(' 水\n水\u0000永木未未 ');
+  check(candidates.join('') === '水永木未', 'OCR candidates are unique and trimmed');
+  check(HandwritingStrokePolicy.candidates('甲乙丙丁戊己庚辛').length === HANDWRITING_MAX_CANDIDATES,
+    'OCR candidates are bounded');
+});
+
+group('allows reads during composition without restarting the session', () => {
+  const decision = DictionaryMaintenancePolicy.decide('list', true);
+  check(decision.allowed, 'dictionary reads remain available while composing');
+  check(!decision.maintenance, 'dictionary reads do not request maintenance');
+});
+
+group('opens an exclusive window for idle mutations', () => {
+  for (const operation of ['edit', 'import', 'retry', 'dismiss_failure']) {
+    const decision = DictionaryMaintenancePolicy.decide(operation, false);
+    check(decision.allowed, `${operation} is allowed while idle`);
+    check(decision.maintenance, `${operation} is marked as maintenance`);
+  }
+});
+
+group('refuses every mutation while composition is active', () => {
+  for (const operation of ['edit', 'import', 'retry', 'dismiss_failure']) {
+    const decision = DictionaryMaintenancePolicy.decide(operation, true);
+    check(!decision.allowed, `${operation} is refused while composing`);
+    check(decision.maintenance, `${operation} remains classified as maintenance`);
+    check(decision.error === 'dictionary maintenance busy', `${operation} reports the busy state`);
+  }
+});
+
 group('spacing clamps to its range and falls back on a negative', () => {
   check(KeyboardGeometry.keySpacing(-1) === KeyboardGeometry.DEFAULT_KEY_SPACING_TENTHS,
     'a negative key spacing takes the default rather than the minimum');
@@ -128,6 +275,18 @@ group('row heights spend the whole adjustment without losing a pixel', () => {
         `rows must sum to ${expected} for adjustment ${adjustment} across ${rowCount} rows, got ${sum}`);
     }
   }
+});
+
+group('candidate window height follows the shared layout orientation', () => {
+  const horizontal = KeyboardMetrics.candidateHeightVp('horizontal', 9);
+  const vertical = KeyboardMetrics.candidateHeightVp('vertical', 9);
+  check(horizontal === KeyboardMetrics.candidateHeightVp('horizontal', 1),
+    'horizontal candidates stay a single row');
+  check(vertical > horizontal, 'vertical candidates get room for their page');
+  check(KeyboardMetrics.candidateHeightVp('vertical', 0) ===
+    KeyboardMetrics.candidateHeightVp('vertical', 1), 'an empty page keeps one row');
+  check(KeyboardMetrics.candidateHeightVp('vertical', 99) === vertical,
+    'vertical height is bounded to one candidate page');
 });
 
 group('invalid geometry is rejected rather than silently clamped', () => {
@@ -498,6 +657,95 @@ group('a negative uptime is rejected rather than treated as a fast tap', () => {
 });
 
 console.log('Output and editor policies');
+
+group('maps shared candidate skins to native Harmony palettes', () => {
+  check(CandidateSkinPolicy.harmonySkin('fluent') === 'porcelain', 'Fluent uses the clean palette');
+  check(CandidateSkinPolicy.harmonySkin('wechat') === 'forest', 'WeChat uses the green palette');
+  check(CandidateSkinPolicy.harmonySkin('graphite') === 'blueprint', 'Graphite uses the blue-gray palette');
+  check(CandidateSkinPolicy.harmonySkin('willow_green') === 'forest', 'Willow green uses the green palette');
+  check(CandidateSkinPolicy.harmonySkin('unknown') === 'forest', 'unknown ids fall back safely');
+  check(CandidateSkinPolicy.showSelectedBar('fluent'), 'Fluent shows its selected bar');
+  check(!CandidateSkinPolicy.showSelectedBar('wechat'), 'WeChat skin omits its selected bar');
+  check(!CandidateSkinPolicy.showSelectedBar('graphite'), 'Graphite skin omits its selected bar');
+});
+
+group('preserves the candidate skin selected-bar default while honoring an explicit disable', () => {
+  check(selectedBarVisible(null), 'absent preference keeps the skin default');
+  check(selectedBarVisible(true), 'explicit enable keeps the bar');
+  check(!selectedBarVisible(false), 'explicit disable hides the bar');
+});
+
+group('maps desktop candidate wheel movement to page commands', () => {
+  check(CandidateWheelPolicy.previousPage(1), 'positive wheel movement pages up');
+  check(!CandidateWheelPolicy.nextPage(1), 'positive movement does not page down');
+  check(CandidateWheelPolicy.nextPage(-1), 'negative wheel movement pages down');
+  check(!CandidateWheelPolicy.previousPage(-1), 'negative movement does not page up');
+  check(!CandidateWheelPolicy.previousPage(0) && !CandidateWheelPolicy.nextPage(0),
+    'zero movement is ignored');
+});
+
+group('releases the candidate number row when the shared preference asks', () => {
+  const key: HardwareKey = {
+    keyCode: 0, unicodeChar: '2'.charCodeAt(0), ctrlKey: false,
+    altKey: false, logoKey: false, shiftKey: false
+  };
+  check(HardwareKeyRouter.route(key, true, true).action === HardwareKeyAction.SELECT,
+    'the default hardware route selects a candidate');
+  check(HardwareKeyRouter.route(key, true, true, true).action === HardwareKeyAction.RELEASE,
+    'the preference releases the digit to the focused editor');
+});
+
+group('maps hardware navigation according to the shared preferences', () => {
+  const navigation = {
+    minusEqual: true, commaPeriod: true, brackets: false,
+    tab: true, pageUpDown: true, mouseWheel: false, arrows: true
+  };
+  const key = (keyCode: number, shiftKey: boolean = false): HardwareKey => ({
+    keyCode, unicodeChar: 0, ctrlKey: false, altKey: false, logoKey: false, shiftKey
+  });
+  check(HardwareKeyRouter.route(key(2068), true, true, false, navigation).action ===
+    HardwareKeyAction.PREVIOUS_PAGE, 'PageUp goes to the previous page');
+  check(HardwareKeyRouter.route(key(2069), true, true, false, navigation).action ===
+    HardwareKeyAction.NEXT_PAGE, 'PageDown goes to the next page');
+  check(HardwareKeyRouter.route(key(2012), true, true, false, navigation).action ===
+    HardwareKeyAction.PREVIOUS_CANDIDATE, 'Up goes to the previous candidate');
+  check(HardwareKeyRouter.route(key(2013), true, true, false, navigation).action ===
+    HardwareKeyAction.NEXT_CANDIDATE, 'Down goes to the next candidate');
+  check(HardwareKeyRouter.route(key(2049, true), true, true, false, navigation).action ===
+    HardwareKeyAction.PREVIOUS_PAGE, 'Shift+Tab goes to the previous page');
+  check(HardwareKeyRouter.route(key(2049), true, true, false, navigation).action ===
+    HardwareKeyAction.NEXT_PAGE, 'Tab goes to the next page');
+  check(HardwareKeyRouter.route(key(2057), true, true, false, navigation).action ===
+    HardwareKeyAction.PREVIOUS_PAGE, 'minus goes to the previous page');
+  check(HardwareKeyRouter.route(key(2059), true, true, false, navigation).action ===
+    HardwareKeyAction.IGNORED, 'disabled brackets are consumed without text input');
+  check(HardwareKeyRouter.route({ ...key(2012), ctrlKey: true }, true, true, false, navigation).action ===
+    HardwareKeyAction.RELEASE, 'modifier shortcuts remain with the editor');
+});
+
+group('maps hardware composition editing commands like Windows', () => {
+  const key = (keyCode: number, ctrlKey: boolean = false, shiftKey: boolean = false): HardwareKey => ({
+    keyCode, unicodeChar: 0, ctrlKey, altKey: false, logoKey: false, shiftKey
+  });
+  check(HardwareKeyRouter.route(key(2014), true, true).action === HardwareKeyAction.MOVE_LEFT,
+    'left moves within the composition');
+  check(HardwareKeyRouter.route(key(2015), true, true).action === HardwareKeyAction.MOVE_RIGHT,
+    'right moves within the composition');
+  check(HardwareKeyRouter.route(key(2081), true, true).action === HardwareKeyAction.MOVE_HOME,
+    'Home moves to the start');
+  check(HardwareKeyRouter.route(key(2082), true, true).action === HardwareKeyAction.MOVE_END,
+    'End moves to the end');
+  check(HardwareKeyRouter.route(key(2071), true, true).action === HardwareKeyAction.DELETE_FORWARD,
+    'Delete removes the next unit');
+  check(HardwareKeyRouter.route(key(2055, true), true, true).action ===
+    HardwareKeyAction.BACKSPACE_SEGMENT, 'Ctrl+Backspace removes one segment');
+  check(HardwareKeyRouter.route(key(2014, true), true, true).action ===
+    HardwareKeyAction.MOVE_LEFT_SEGMENT, 'Ctrl+Left moves one segment left');
+  check(HardwareKeyRouter.route(key(2015, true), true, true).action ===
+    HardwareKeyAction.MOVE_RIGHT_SEGMENT, 'Ctrl+Right moves one segment right');
+  check(HardwareKeyRouter.route(key(2055, true, true), true, true).action ===
+    HardwareKeyAction.RELEASE, 'Shift+Ctrl remains an editor shortcut');
+});
 
 group('fullwidth conversion maps space to the ideographic form', () => {
   check(FullWidthInputPolicy.output('a', true) === 'ａ', 'a printable ASCII letter shifts by 0xfee0');
@@ -1152,8 +1400,60 @@ group('pinning and removing', () => {
     'removing something absent changes nothing');
 });
 
-console.log('');
-if (failures > 0) {
-  throw new Error(`${failures} group(s) failed`);
-}
-console.log(`all groups passed (${checks} assertions)`);
+group('account and cloud clipboard bridge keeps secrets native', () => {
+  let stored: string | null = null;
+  const store: AccountSessionStore = {
+    load: () => stored,
+    save: value => { stored = value; },
+    clear: () => { stored = null; },
+  };
+  const calls: { method: string; path: string; token?: string; body?: Record<string, unknown> }[] = [];
+  const transport: AccountTransport = {
+    request: async (method, path, token, body) => {
+      calls.push({ method, path, token, body });
+      if (path === '/v1/auth/providers') return { status: 200, body: '{"providers":{"email":true,"phone":false}}' };
+      if (path === '/v1/auth/challenges') return { status: 200, body: '{"challenge_id":"challenge","expires_in":60}' };
+      if (path === '/v1/auth/login') return { status: 200, body: JSON.stringify({
+        access_token: 'a'.repeat(64), refresh_token: 'b'.repeat(64), token_type: 'Bearer', expires_in: 3600,
+        user: { id: 'u1', display_name: 'Test', created_at: '2026-01-01' }
+      }) };
+      if (path.includes('/dictionaries/pinyin')) return { status: 200, body: '{"entries":[],"has_more":false,"offset":0}' };
+      if (path.includes('/clipboard')) return { status: 200, body: path.endsWith('/clipboard')
+        ? '{"enabled":true,"items":[{"id":"1","text":"hello"}]}' : '{}' };
+      return { status: 200, body: '{"user":{"id":"u1","display_name":"Test","created_at":"2026-01-01"},"identities":[]}' };
+    },
+  };
+  const bridge = new AccountCloudBridge(transport, store);
+  void bridge.handle('{"operation":"request_code","provider":"email","target":"user@example.com"}').then(result => {
+    check(JSON.parse(result).ok === true, 'challenge response is structured');
+  });
+  void bridge.handle('{"operation":"login","challenge_id":"challenge","credential":"123456"}').then(result => {
+    check(JSON.parse(result).ok === true && stored !== null, 'login stores a native session');
+  });
+  void bridge.handle('{"operation":"unknown"}').then(result => {
+    check(JSON.parse(result).ok === false, 'unknown clipboard shape is rejected');
+  });
+  void bridge.handle(JSON.stringify({ operation: 'clipboard', clipboard_operation: 'add', text: '\u0000' })).then(result => {
+    check(JSON.parse(result).error === 'account_invalid', 'control characters never reach transport');
+  });
+  void bridge.handle('{"operation":"profile"}').then(result => {
+    check(JSON.parse(result).error === 'account_unauthorized', 'requests before login return unauthorized');
+    check(calls.every(call => call.token === undefined), 'invalid requests do not carry a token');
+  });
+  void bridge.handle(JSON.stringify({ operation: 'dictionary', dictionary_operation: 'list', kind: 'pinyin', offset: 0, search: 'ni hao' })).then(result => {
+    check(JSON.parse(result).error === 'account_unauthorized', 'dictionary requests require the native session');
+  });
+  void bridge.handle(JSON.stringify({ operation: 'dictionary', dictionary_operation: 'list', kind: 'pinyin', offset: -1, search: '' })).then(result => {
+    check(JSON.parse(result).error === 'account_invalid', 'dictionary offsets are bounded before transport');
+  });
+});
+
+// The account bridge deliberately models the asynchronous device HTTP API. Give its immediate
+// mock responses one microtask turn before reporting the suite result.
+setTimeout(() => {
+  console.log('');
+  if (failures > 0) {
+    throw new Error(`${failures} group(s) failed`);
+  }
+  console.log(`all groups passed (${checks} assertions)`);
+}, 0);

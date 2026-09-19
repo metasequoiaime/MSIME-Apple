@@ -62,12 +62,17 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
   private toolbar: inputMethodEngine.Panel | undefined = undefined;
   private screenWidth: number = 0;
   private screenHeight: number = 0;
+  private candidateCount: number = 0;
 
   /** The editor moved its caret; the candidate window goes with it if it is up. */
   private readonly caretMoved: (x: number, y: number, height: number) => void =
     (x: number, y: number, height: number): void => {
       this.caret = [x, y, height];
-      if (KeyboardSession.shared.composing()) {
+      // When follow-cursor is disabled, the first composition position is the anchor for the
+      // whole candidate window lifetime. Keep recording the latest caret while idle so the next
+      // composition still starts beside the newly focused text.
+      if (KeyboardSession.shared.composing()
+        && KeyboardSession.shared.preferences().candidateFollowCursor) {
         this.placeCandidateWindow();
       }
     };
@@ -131,7 +136,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     const tall: boolean = surface !== DesktopSurface.NONE;
     const heightVp: number = tall
       ? KeyboardMetrics.totalHeightVp(settings.rowSpacingTenths, settings.heightAdjustment)
-      : KeyboardMetrics.candidateHeightVp();
+      : KeyboardMetrics.candidateHeightVp(settings.candidateLayout, this.candidateCount);
     const widthVp: number = tall
       ? DESKTOP_SURFACE_WIDTH_VP : KeyboardMetrics.CANDIDATE_WINDOW_WIDTH_VP;
     await this.panel.resize(Math.round(widthVp * this.density),
@@ -245,7 +250,9 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       return;
     }
     const width: number = KeyboardMetrics.CANDIDATE_WINDOW_WIDTH_VP * this.density;
-    const height: number = KeyboardMetrics.candidateHeightVp() * this.density;
+    const settings: KeyboardPreferences = KeyboardSession.shared.preferences();
+    const height: number = KeyboardMetrics.candidateHeightVp(settings.candidateLayout,
+      this.candidateCount) * this.density;
     const gap: number = KeyboardMetrics.CANDIDATE_WINDOW_GAP_VP * this.density;
     // A caret of no height is one that was never reported: a web view mid-layout, a client that
     // answers with zeroes, or simply an editor that has not sent one yet. Believing it puts the
@@ -336,7 +343,9 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       return false;
     }
     const decision: HardwareKeyDecision =
-      HardwareKeyRouter.route(key, session.composing(), !session.isEnglish());
+      HardwareKeyRouter.route(key, session.composing(), !session.isEnglish(),
+        KeyboardSession.shared.preferences().numberRowSelection,
+        KeyboardSession.shared.preferences().navigation);
     if (decision.action === HardwareKeyAction.RELEASE) {
       return false;
     }
@@ -353,6 +362,30 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       case HardwareKeyAction.CANCEL:
         session.cancel();
         break;
+      case HardwareKeyAction.MOVE_LEFT:
+        session.moveLeft();
+        break;
+      case HardwareKeyAction.MOVE_RIGHT:
+        session.moveRight();
+        break;
+      case HardwareKeyAction.MOVE_HOME:
+        session.moveHome();
+        break;
+      case HardwareKeyAction.MOVE_END:
+        session.moveEnd();
+        break;
+      case HardwareKeyAction.DELETE_FORWARD:
+        session.deleteForward();
+        break;
+      case HardwareKeyAction.BACKSPACE_SEGMENT:
+        session.backspaceSegment();
+        break;
+      case HardwareKeyAction.MOVE_LEFT_SEGMENT:
+        session.moveLeftSegment();
+        break;
+      case HardwareKeyAction.MOVE_RIGHT_SEGMENT:
+        session.moveRightSegment();
+        break;
       case HardwareKeyAction.COMMIT:
         session.commitHighlighted();
         break;
@@ -361,6 +394,20 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         break;
       case HardwareKeyAction.SELECT:
         session.choose(decision.index);
+        break;
+      case HardwareKeyAction.NEXT_PAGE:
+        session.nextPage();
+        break;
+      case HardwareKeyAction.PREVIOUS_PAGE:
+        session.previousPage();
+        break;
+      case HardwareKeyAction.NEXT_CANDIDATE:
+        session.nextCandidate();
+        break;
+      case HardwareKeyAction.PREVIOUS_CANDIDATE:
+        session.previousCandidate();
+        break;
+      case HardwareKeyAction.IGNORED:
         break;
       default:
         return false;
@@ -458,7 +505,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       const screen: display.Display = display.getDefaultDisplaySync();
       // The same numbers the view lays itself out with; a panel that disagrees clips its bottom row.
       const settings: KeyboardPreferences = KeyboardSession.shared.preferences();
-      const heightVp: number = desktop ? KeyboardMetrics.candidateHeightVp()
+      const heightVp: number = desktop
+        ? KeyboardMetrics.candidateHeightVp(settings.candidateLayout, 0)
         : KeyboardMetrics.totalHeightVp(settings.rowSpacingTenths, settings.heightAdjustment);
       // A soft keyboard is as wide as the screen because it has to be; a candidate window is as wide
       // as its content, and covering the width of a desktop with one would hide the very text the
@@ -476,6 +524,17 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         panel.hide();
       };
       if (desktop) {
+        KeyboardSession.shared.onCandidateCount = (count: number): void => {
+          this.candidateCount = count;
+          if (KeyboardSession.shared.composing()
+            && KeyboardSession.shared.openSurface() === DesktopSurface.NONE) {
+            this.resizeCandidateWindow(DesktopSurface.NONE).then((): void => {
+              this.placeCandidateWindow();
+            }).catch((error: Object): void => {
+              KeyboardLog.error(`candidate window would not resize: ${describeError(error)}`);
+            });
+          }
+        };
         KeyboardSession.shared.onComposition = (active: boolean): void => {
           // A surface the toolbar opened stays open across a composition; it was asked for, and a
           // window that shut itself the moment a word was typed would be useless for picking an

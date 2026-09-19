@@ -162,6 +162,7 @@ impl HostCapabilities {
                     | HostPlatform::Macos
                     | HostPlatform::Android
                     | HostPlatform::Ios
+                    | HostPlatform::Harmony
             ),
             system_fonts: platform.is_desktop(),
             window_chrome: platform.is_desktop(),
@@ -203,32 +204,40 @@ impl HostCapabilities {
                 platform,
                 HostPlatform::Linux | HostPlatform::Windows | HostPlatform::Macos
             ),
-            number_row_selection: platform == HostPlatform::Linux,
+            // Harmony 2-in-1 hardware keyboards use the same candidate number
+            // row as Windows; the ArkTS router releases digits when this
+            // preference is enabled, so the focused editor can consume them.
+            number_row_selection: matches!(platform, HostPlatform::Linux | HostPlatform::Harmony),
             voice_capture_devices: matches!(
                 platform,
                 HostPlatform::Linux | HostPlatform::Windows | HostPlatform::Macos
             ),
             // Native Windows/macOS candidate windows consume the shared font
-            // controls; IBus lookup tables and mobile hosts do not expose them.
+            // controls. Harmony's desktop candidate panel also applies the
+            // family chain and both candidate/preedit sizes in ArkUI; the
+            // touch-only hosts still use their fixed key typography.
             candidate_font_controls: matches!(
                 platform,
-                HostPlatform::Windows | HostPlatform::Macos
+                HostPlatform::Windows | HostPlatform::Macos | HostPlatform::Harmony
             ),
             // IBus exposes candidate and label foreground/background RGB
             // attributes, but not native hover state or card borders.
             candidate_row_colors: matches!(
                 platform,
-                HostPlatform::Windows | HostPlatform::Macos | HostPlatform::Linux
+                HostPlatform::Windows
+                    | HostPlatform::Macos
+                    | HostPlatform::Linux
+                    | HostPlatform::Harmony
             ),
             candidate_selection_appearance: matches!(
                 platform,
-                HostPlatform::Windows | HostPlatform::Macos
+                HostPlatform::Windows | HostPlatform::Macos | HostPlatform::Harmony
             ),
-            // macOS CandidatePanel tracks the current insertion rect just like
-            // the Windows candidate window; expose the shared toggle there.
+            // macOS CandidatePanel and the HarmonyOS candidate panel track the current insertion
+            // rect themselves; expose the shared toggle on both hosts.
             candidate_follow_cursor: matches!(
                 platform,
-                HostPlatform::Windows | HostPlatform::Macos
+                HostPlatform::Windows | HostPlatform::Macos | HostPlatform::Harmony
             ),
         }
     }
@@ -730,16 +739,18 @@ mod tests {
         );
         assert!(!harmony.restart_input_method);
         assert!(!harmony.ime_mode_scope);
-        assert!(!harmony.fuzzy_pinyin);
+        // Harmony's Engine consumes the shared fuzzy-pinyin rules on every prepared session, so
+        // the settings page may expose the same rule picker as the other mobile hosts.
+        assert!(harmony.fuzzy_pinyin);
         // Consumed: the hardware key router reads all four bindings, so the page may offer them.
         assert!(harmony.mode_switch_shortcuts);
         assert!(!harmony.panel_shortcuts);
-        assert!(!harmony.number_row_selection);
+        assert!(harmony.number_row_selection);
         assert!(!harmony.voice_capture_devices);
-        assert!(!harmony.candidate_font_controls);
-        assert!(!harmony.candidate_row_colors);
-        assert!(!harmony.candidate_selection_appearance);
-        assert!(!harmony.candidate_follow_cursor);
+        assert!(harmony.candidate_font_controls);
+        assert!(harmony.candidate_row_colors);
+        assert!(harmony.candidate_selection_appearance);
+        assert!(harmony.candidate_follow_cursor);
         // Typing statistics are unconditional across every host.
         assert!(harmony.typing_statistics);
     }

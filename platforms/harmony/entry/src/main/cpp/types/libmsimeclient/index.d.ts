@@ -14,10 +14,26 @@ export const hostCapabilities: (platform: string) => string;
 
 export const loadPreferences: (directory: string) => string;
 export const savePreferences: (directory: string, expectedRevision: number, snapshot: string) => string;
+export const dictionary: (request: string) => string;
 export const updatePreferences: (handle: number, snapshot: string) => string;
 export const typingStatistics: (request: string) => string;
 export const emojiCatalog: (query: string, resources: string) => string;
 export const candidateGlosses: (request: string, resources: string) => string;
+export const translationGlossSave: (request: string, userData: string) => string;
+export const translationPlan: (request: string) => string;
+export const tencentTranslationHttpRequest: (request: string) => string;
+export const niuTransTranslationHttpRequest: (request: string) => string;
+export const customTranslationHttpRequest: (request: string) => string;
+export const parseTencentTranslationResponse: (body: string, expected: number) => string;
+export const parseNiuTransTranslationResponse: (body: string) => string;
+export const parseCustomTranslationResponse: (body: string) => string;
+export const translationQuery: (handle: number) => string;
+export const onlineQuery: (handle: number) => string;
+export const cloudRequestUrl: (query: string) => string;
+export const aiRequestForQuery: (handle: number, query: string) => string;
+export const applyCloudResponse: (handle: number, query: string, body: string) => string;
+export const applyOnlineCandidates: (handle: number, query: string, candidates: string,
+  source: number) => string;
 export const personalDictionarySync: (options: string) => string;
 export const prepareHost: (options: string) => string;
 
@@ -49,3 +65,17 @@ export const chooseNineKeySpelling: (handle: number, generation: number, index: 
 export const view: (handle: number) => string;
 export const allCandidates: (handle: number) => string;
 export const applyTranslations: (handle: number, generation: number, translations: string) => string;
+/** Start/cancel the shared voice generation used to reject stale asynchronous recognition. */
+export const voiceStart: (handle: number) => string;
+export const voiceCancel: (handle: number) => string;
+export const voiceApply: (handle: number, generation: number, text: string) => string;
+
+export interface DoubaoFrameResult {
+  last: boolean;
+  payload: string;
+}
+
+/** Native gzip framing keeps the ArkTS WebSocket adapter free of credential or transcript logging. */
+export const doubaoEncodeFrame: (messageType: number, flags: number, sequence: number,
+  payload: ArrayBuffer) => ArrayBuffer;
+export const doubaoDecodeFrame: (frame: ArrayBuffer) => DoubaoFrameResult | null;

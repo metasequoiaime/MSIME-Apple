@@ -4,7 +4,15 @@ import client from 'libmsimeclient.so';
 import pasteboard from '@ohos.pasteboard';
 import Want from '@ohos.app.ability.Want';
 import bundleManager from '@ohos.bundle.bundleManager';
+import http from '@ohos.net.http';
+import webSocket from '@ohos.net.webSocket';
+import util from '@ohos.util';
+import fs from '@ohos.file.fs';
 import { KeyboardLog, describeError } from '../keyboard/KeyboardLog';
+import { KeyboardSession } from '../keyboard/KeyboardSession';
+import { HarmonyAccountCloudBridge } from '../account/HarmonyAccountCloudBridge';
+import { utf8Length } from '../keyboard/Utf8';
+import { niutransAuth, tencentAuthorization } from '../keyboard/CredentialCrypto';
 
 /**
  * The settings window, which is the shared settings UI rather than a second one written here.
@@ -22,6 +30,248 @@ import { KeyboardLog, describeError } from '../keyboard/KeyboardLog';
 
 const BRIDGE_NAME: string = 'msimeHarmony';
 const PLATFORM: string = 'harmony';
+
+interface CloudDownloadEntry {
+  kind: string;
+  code: string;
+  word: string;
+  weight: number;
+}
+
+interface LocalDictionaryEntry {
+  kind: string;
+  key: string;
+  value: string;
+  weight: number;
+}
+
+interface LocalDictionaryEditRequest {
+  operation: string;
+  previous: LocalDictionaryEntry | null;
+  replacement: LocalDictionaryEntry;
+  request_id: string;
+}
+
+interface TypingStatisticsAction {
+  operation: string;
+  enabled?: boolean;
+}
+
+interface TypingStatisticsDocument {
+  enabled: boolean;
+  total: number;
+  days: Record<string, number>;
+  detail: Object;
+  dailyDetails: Record<string, Object>;
+}
+
+interface TypingStatisticsReply {
+  ok: boolean;
+  value: TypingStatisticsDocument;
+  error: string;
+}
+
+interface TypingStatisticsStatusValue {
+  statistics: TypingStatisticsDocument;
+  availability: string;
+  lastWrittenMs: number | null;
+}
+
+interface TypingStatisticsStatusReply {
+  ok: boolean;
+  value: TypingStatisticsStatusValue;
+}
+
+interface AiModelsRequest {
+  endpoint: string;
+  token: string;
+}
+
+interface AiTestRequest {
+  endpoint: string;
+  model: string;
+  prompt: string;
+  token: string;
+  text: string;
+}
+
+interface ApiCredentialRequest {
+  service: string;
+  config: ApiCredentialConfig;
+}
+
+interface ApiCredentialConfig {
+  endpoint?: string;
+  model?: string;
+  token?: string;
+  provider?: string;
+  api_key?: string;
+  secret_id?: string;
+  secret_key?: string;
+  region?: string;
+  app_id?: string;
+  apikey?: string;
+  auth_mode?: string;
+  app_key?: string;
+  resource_id?: string;
+  doubao_enable_itn?: boolean;
+  doubao_enable_punc?: boolean;
+  doubao_enable_ddc?: boolean;
+  doubao_boosting_table_id?: string;
+}
+
+interface AiModelRow {
+  id?: string;
+}
+
+interface AiModelsDocument {
+  data?: AiModelRow[];
+}
+
+interface AiMessage {
+  content?: string;
+}
+
+interface AiChoice {
+  message?: AiMessage;
+}
+
+interface AiCompletionDocument {
+  choices?: AiChoice[];
+}
+
+interface AiMessageRequest {
+  role: string;
+  content: string;
+}
+
+interface AiTestBody {
+  model: string;
+  stream: boolean;
+  temperature: number;
+  messages: AiMessageRequest[];
+}
+
+interface AiReply<T> {
+  ok: boolean;
+  value: T;
+  error: string;
+}
+
+interface ApiCredentialResult {
+  ok: boolean;
+  message: string;
+}
+
+interface ApiCredentialReply {
+  ok: boolean;
+  value: ApiCredentialResult;
+}
+
+interface TranslationBody {
+  text: string;
+  source_lang: string;
+  target_lang: string;
+}
+
+interface TranslationValue {
+  text?: string;
+  translation?: string;
+  data?: string;
+}
+
+interface TranslationDocument {
+  code?: number | string;
+  error?: Object;
+  data?: string | TranslationValue | TranslationValue[];
+  translation?: string | TranslationValue | TranslationValue[];
+  result?: string | TranslationValue | TranslationValue[];
+  translations?: TranslationValue[];
+}
+
+interface ChatCredentialBody {
+  model: string;
+  stream: boolean;
+  max_tokens: number;
+  messages: AiMessageRequest[];
+  thinking?: ThinkingOptions;
+  enable_thinking?: boolean;
+}
+
+interface TencentTranslationBody {
+  Source: string;
+  Target: string;
+  ProjectId: number;
+  SourceTextList: string[];
+}
+
+interface TencentTranslationDocument {
+  Response?: TencentTranslationResponse;
+}
+
+interface TencentTranslationResponse {
+  TargetTextList?: string[];
+  Error?: Object;
+}
+
+interface NiuTransDocument {
+  tgtText?: string;
+  errorCode?: string | number;
+  errorMsg?: string;
+}
+
+interface ThinkingOptions {
+  type: string;
+}
+
+interface CredentialHeaders {
+  Accept: string;
+  'Content-Type': string;
+  Authorization?: string;
+}
+
+interface DoubaoFrameResult {
+  last: boolean;
+  payload: string;
+}
+
+interface DoubaoResponseDocument {
+  error?: Object | null;
+  code?: number;
+  payload_msg?: DoubaoResponseDocument;
+}
+
+interface DoubaoStartRequestBody {
+  model_name: string;
+  enable_itn: boolean;
+  enable_punc: boolean;
+  enable_ddc: boolean;
+  show_utterances: boolean;
+  result_type: string;
+  corpus?: DoubaoCorpus;
+}
+
+interface DoubaoCorpus {
+  boosting_table_id: string;
+}
+
+interface DoubaoUser {
+  uid: string;
+}
+
+interface DoubaoAudio {
+  format: string;
+  codec: string;
+  rate: number;
+  bits: number;
+  channel: number;
+}
+
+interface DoubaoStartRequest {
+  user: DoubaoUser;
+  audio: DoubaoAudio;
+  request: DoubaoStartRequestBody;
+}
 
 @Entry
 @Component
@@ -45,7 +295,9 @@ struct Settings {
           object: this.bridge,
           name: BRIDGE_NAME,
           methodList: ['loadPreferences', 'savePreferences', 'hostCapabilities', 'appVersion',
-            'openExternalUrl', 'copyText', 'openSystemKeyboardSettings'],
+            'dictionary', 'account', 'cloudDictionary', 'cloudDictionaryDownload', 'cloudDictionarySnapshot',
+            'typingStatistics', 'aiModels', 'aiTest', 'testApiCredential', 'openExternalUrl', 'copyText',
+            'openSystemKeyboardSettings'],
           controller: this.controller
         })
         .width('100%')
@@ -65,10 +317,30 @@ struct Settings {
 class SettingsBridge {
   private stateDirectory: string = '';
   private context: common.UIAbilityContext | undefined = undefined;
+  private accountBridge: HarmonyAccountCloudBridge | undefined = undefined;
+  private cloudDownloadRequest: number = 0;
 
   attach(context: common.UIAbilityContext): void {
     this.context = context;
     this.stateDirectory = `${context.filesDir}/state`;
+    this.accountBridge = new HarmonyAccountCloudBridge(context);
+    this.stageResources(`${context.resourceDir}/engine`, `${context.filesDir}/engine`);
+  }
+
+  private stageResources(packaged: string, destination: string): void {
+    try {
+      if (!fs.accessSync(packaged)) {
+        return;
+      }
+      if (!fs.accessSync(destination)) {
+        fs.mkdirSync(destination, true);
+      }
+      for (const name of fs.listFileSync(packaged)) {
+        fs.copyFileSync(`${packaged}/${name}`, `${destination}/${name}`);
+      }
+    } catch (error) {
+      KeyboardLog.error(`settings resources unavailable: ${describeError(error)}`);
+    }
   }
 
   loadPreferences(): string {
@@ -86,6 +358,723 @@ class SettingsBridge {
 
   hostCapabilities(): string {
     return client.hostCapabilities(PLATFORM);
+  }
+
+  dictionary(action: string): string {
+    if (this.context === undefined) {
+      return JSON.stringify({ ok: false, error: 'settings context unavailable' });
+    }
+    return KeyboardSession.shared.dictionary(action, `${this.context.filesDir}/engine`,
+      this.stateDirectory);
+  }
+
+  /** Account and cloud clipboard requests stay native; the WebView sees only safe JSON DTOs. */
+  account(action: string): Promise<string> {
+    if (this.accountBridge === undefined) {
+      return Promise.resolve(JSON.stringify({ ok: false, error: 'account_unavailable' }));
+    }
+    return this.accountBridge.request(action);
+  }
+
+  cloudDictionary(action: string): Promise<string> {
+    if (this.accountBridge === undefined) {
+      return Promise.resolve(JSON.stringify({ ok: false, error: 'account_unavailable' }));
+    }
+    return this.accountBridge.request(action);
+  }
+
+  /** Add one explicitly selected cloud entry through the Engine's existing maintenance boundary. */
+  cloudDictionaryDownload(entryDocument: string): string {
+    if (this.context === undefined) {
+      return JSON.stringify({ ok: false, error: 'settings context unavailable' });
+    }
+    try {
+      const entry: CloudDownloadEntry = JSON.parse(entryDocument) as CloudDownloadEntry;
+      const kind: string = entry.kind;
+      const code: string = entry.code;
+      const word: string = entry.word;
+      const weight: number = entry.weight;
+      if (typeof kind !== 'string' || !['pinyin', 'wubi', 'quick', 'english'].includes(kind)
+        || typeof code !== 'string' || code.length === 0 || code.length > 256
+        || typeof word !== 'string' || word.length === 0 || word.length > 1024
+        || typeof weight !== 'number' || !Number.isInteger(weight) || weight < 0) {
+        return JSON.stringify({ ok: false, error: 'account_invalid' });
+      }
+      const replacement: LocalDictionaryEntry = {
+        kind: kind === 'quick' ? 'quick_phrase' : kind,
+        key: code,
+        value: word,
+        weight: weight
+      };
+      this.cloudDownloadRequest += 1;
+      const request: LocalDictionaryEditRequest = {
+        operation: 'edit',
+        previous: null,
+        replacement: replacement,
+        request_id: `cloud-download-${this.cloudDownloadRequest}`
+      };
+      return KeyboardSession.shared.dictionary(JSON.stringify(request), `${this.context.filesDir}/engine`,
+        this.stateDirectory);
+    } catch {
+      return JSON.stringify({ ok: false, error: 'account_invalid' });
+    }
+  }
+
+  cloudDictionarySnapshot(action: string): Promise<string> {
+    if (this.accountBridge === undefined || this.context === undefined) {
+      return Promise.resolve(JSON.stringify({ ok: false, error: 'snapshot_unavailable' }));
+    }
+    return this.accountBridge.snapshot(action, `${this.context.filesDir}/engine`, this.stateDirectory);
+  }
+
+  typingStatistics(actionDocument: string): string {
+    if (actionDocument.length === 0 || actionDocument.length > 4096) {
+      return JSON.stringify({ ok: false, error: 'invalid typing statistics request' });
+    }
+    try {
+      const action: TypingStatisticsAction = JSON.parse(actionDocument) as TypingStatisticsAction;
+      if (!['load', 'set_enabled', 'reset'].includes(action.operation)
+        || (action.operation === 'set_enabled' && typeof action.enabled !== 'boolean')) {
+        return JSON.stringify({ ok: false, error: 'invalid typing statistics request' });
+      }
+      const raw: string = client.typingStatistics(JSON.stringify({
+        directory: this.stateDirectory, action: action
+      }));
+      const reply: TypingStatisticsReply = JSON.parse(raw) as TypingStatisticsReply;
+      if (!reply.ok) return raw;
+      let lastWrittenMs: number | null = null;
+      let available: boolean = false;
+      const file: string = `${this.stateDirectory}/typing-statistics.json`;
+      try {
+        if (fs.accessSync(file)) {
+          available = true;
+          lastWrittenMs = fs.statSync(file).mtime;
+        }
+      } catch {
+        available = false;
+      }
+      const status: TypingStatisticsStatusValue = {
+        statistics: reply.value,
+        availability: available ? 'ready' : 'neverWritten',
+        lastWrittenMs: lastWrittenMs
+      };
+      const result: TypingStatisticsStatusReply = { ok: true, value: status };
+      return JSON.stringify(result);
+    } catch {
+      return JSON.stringify({ ok: false, error: 'invalid typing statistics request' });
+    }
+  }
+
+  async aiModels(requestDocument: string): Promise<string> {
+    let request: AiModelsRequest;
+    try {
+      request = JSON.parse(requestDocument) as AiModelsRequest;
+      if (typeof request.endpoint !== 'string' || typeof request.token !== 'string') {
+        return JSON.stringify({ ok: false, error: 'ai_models_invalid' });
+      }
+    } catch {
+      return JSON.stringify({ ok: false, error: 'ai_models_invalid' });
+    }
+    const endpoint: string | null = this.validAiEndpoint(request.endpoint);
+    const token: string = request.token.trim();
+    if (endpoint === null || token.length === 0 || utf8Length(token) > 16 * 1024
+      || this.hasControl(token)) {
+      return JSON.stringify({ ok: false, error: 'ai_invalid' });
+    }
+    const modelsUrl: string = this.aiModelsUrl(endpoint);
+    const httpRequest = http.createHttp();
+    try {
+      const response: http.HttpResponse = await httpRequest.request(modelsUrl, {
+        method: http.RequestMethod.GET,
+        header: { Accept: 'application/json', Authorization: `Bearer ${token}` },
+        connectTimeout: 5000,
+        readTimeout: 15000
+      });
+      if (response.responseCode < 200 || response.responseCode >= 300
+        || typeof response.result !== 'string' || utf8Length(response.result) > 1024 * 1024) {
+        return JSON.stringify({ ok: false, error: 'ai_models_unavailable' });
+      }
+      const document: AiModelsDocument = JSON.parse(response.result) as AiModelsDocument;
+      if (!Array.isArray(document.data)) {
+        return JSON.stringify({ ok: false, error: 'ai_models_invalid' });
+      }
+      const models: string[] = [];
+      for (const row of document.data) {
+        const id: string | undefined = row.id;
+        if (id === undefined || id.length === 0 || utf8Length(id) > 256 || this.hasControl(id)
+          || models.includes(id)) continue;
+        models.push(id);
+        if (models.length === 128) break;
+      }
+      if (models.length === 0) return JSON.stringify({ ok: false, error: 'ai_models_invalid' });
+      return JSON.stringify({ ok: true, value: models });
+    } catch (error) {
+      KeyboardLog.error(`AI model list unavailable: ${describeError(error)}`);
+      return JSON.stringify({ ok: false, error: 'ai_models_unavailable' });
+    } finally {
+      httpRequest.destroy();
+    }
+  }
+
+  async aiTest(requestDocument: string): Promise<string> {
+    let request: AiTestRequest;
+    try {
+      request = JSON.parse(requestDocument) as AiTestRequest;
+      if (typeof request.endpoint !== 'string' || typeof request.model !== 'string'
+        || typeof request.prompt !== 'string' || typeof request.token !== 'string'
+        || typeof request.text !== 'string') {
+        return JSON.stringify({ ok: false, error: 'ai_invalid' });
+      }
+    } catch {
+      return JSON.stringify({ ok: false, error: 'ai_invalid' });
+    }
+    const endpoint: string | null = this.validAiEndpoint(request.endpoint);
+    const token: string = request.token.trim();
+    const model: string = request.model.trim();
+    if (endpoint === null || token.length === 0 || utf8Length(token) > 16 * 1024
+      || this.hasControl(token) || model.length === 0 || utf8Length(model) > 256
+      || this.hasControl(model) || !this.validAiText(request.prompt, true)
+      || !this.validAiText(request.text, false)) {
+      return JSON.stringify({ ok: false, error: 'ai_invalid' });
+    }
+    const body: AiTestBody = {
+      model: model,
+      stream: false,
+      temperature: 0.2,
+      messages: [
+        { role: 'system', content: request.prompt },
+        { role: 'user', content: request.text }
+      ]
+    };
+    const httpRequest = http.createHttp();
+    try {
+      const response: http.HttpResponse = await httpRequest.request(endpoint, {
+        method: http.RequestMethod.POST,
+        header: { Accept: 'application/json', 'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}` },
+        connectTimeout: 5000,
+        readTimeout: 15000,
+        extraData: JSON.stringify(body)
+      });
+      if (response.responseCode < 200 || response.responseCode >= 300
+        || typeof response.result !== 'string' || utf8Length(response.result) > 1024 * 1024) {
+        return JSON.stringify({ ok: false, error: 'ai_test_unavailable' });
+      }
+      const document: AiCompletionDocument = JSON.parse(response.result) as AiCompletionDocument;
+      const content: string | undefined = document.choices?.[0]?.message?.content;
+      if (content === undefined || !this.validAiText(content, false)) {
+        return JSON.stringify({ ok: false, error: 'ai_test_invalid' });
+      }
+      return JSON.stringify({ ok: true, value: content.trim() });
+    } catch (error) {
+      KeyboardLog.error(`AI test unavailable: ${describeError(error)}`);
+      return JSON.stringify({ ok: false, error: 'ai_test_unavailable' });
+    } finally {
+      httpRequest.destroy();
+    }
+  }
+
+  async testApiCredential(requestDocument: string): Promise<string> {
+    let request: ApiCredentialRequest;
+    try {
+      request = JSON.parse(requestDocument) as ApiCredentialRequest;
+    } catch {
+      return this.credentialReply(false, '配置格式无效。');
+    }
+    if (request.config === undefined || typeof request.service !== 'string') {
+      return this.credentialReply(false, 'Harmony 当前只支持 AI 配置测试。');
+    }
+    if (request.service === 'ai.assistant') {
+      const endpoint: string = request.config.endpoint ?? '';
+      const token: string = request.config.token ?? '';
+      const modelReply: string = await this.aiModels(JSON.stringify({ endpoint, token }));
+      const result: AiReply<string[]> = JSON.parse(modelReply) as AiReply<string[]>;
+      if (!result.ok) {
+        return this.credentialReply(false, '无法连接 AI 服务，请检查接口地址和 Token。');
+      }
+      return this.credentialReply(true, `连接成功，可用模型 ${result.value.length} 个。`);
+    }
+    if (request.service === 'translation.custom') {
+      return this.translationCredential(request.config);
+    }
+    if (request.service === 'translation.tencent') {
+      return this.tencentCredential(request.config);
+    }
+    if (request.service === 'translation.niutrans') {
+      return this.niutransCredential(request.config);
+    }
+    if (request.service === 'voice.polish') {
+      return this.chatCredential(request.config);
+    }
+    if (request.service === 'voice.asr') {
+      if ((request.config.provider ?? '').trim() === 'doubao') {
+        return this.doubaoCredential(request.config);
+      }
+      return this.asrCredential(request.config);
+    }
+    return this.credentialReply(false, 'Harmony 不支持此配置测试类型。');
+  }
+
+  private credentialReply(ok: boolean, message: string): string {
+    const value: ApiCredentialResult = { ok, message };
+    const reply: ApiCredentialReply = { ok: true, value };
+    return JSON.stringify(reply);
+  }
+
+  private async translationCredential(config: ApiCredentialConfig): Promise<string> {
+    const endpoint: string | null = this.validCredentialEndpoint(config.endpoint ?? '', true);
+    const apiKey: string = (config.api_key ?? '').trim();
+    if (endpoint === null || (apiKey.length > 0 && !this.validCredentialSecret(apiKey, 4096))) {
+      return this.credentialReply(false, '请填写有效的翻译接口地址和 API Key。');
+    }
+    const body: TranslationBody = { text: '测试', source_lang: 'ZH', target_lang: 'EN' };
+    const headers: CredentialHeaders = {
+      Accept: 'application/json', 'Content-Type': 'application/json'
+    };
+    if (apiKey.length > 0) headers.Authorization = `Bearer ${apiKey}`;
+    const request = http.createHttp();
+    try {
+      const response: http.HttpResponse = await request.request(endpoint, {
+        method: http.RequestMethod.POST,
+        header: headers,
+        connectTimeout: 5000,
+        readTimeout: 15000,
+        extraData: JSON.stringify(body)
+      });
+      if (response.responseCode < 200 || response.responseCode >= 300
+        || typeof response.result !== 'string' || utf8Length(response.result) > 256 * 1024) {
+        return this.credentialReply(false, '测试失败：翻译服务未返回有效译文。');
+      }
+      const document: TranslationDocument = JSON.parse(response.result) as TranslationDocument;
+      const translated: string | null = this.translationText(document);
+      return translated === null
+        ? this.credentialReply(false, '测试失败：翻译服务未返回有效译文。')
+        : this.credentialReply(true, '连接成功，翻译服务配置有效。');
+    } catch (error) {
+      KeyboardLog.error(`translation credential unavailable: ${describeError(error)}`);
+      return this.credentialReply(false, '连接失败，请检查翻译接口地址、API Key 和网络。');
+    } finally {
+      request.destroy();
+    }
+  }
+
+  private async tencentCredential(config: ApiCredentialConfig): Promise<string> {
+    const secretId: string = (config.secret_id ?? '').trim();
+    const secretKey: string = (config.secret_key ?? '').trim();
+    const region: string = (config.region ?? '').trim();
+    if (!this.validCredentialSecret(secretId, 4096) || !this.validCredentialSecret(secretKey, 4096)
+      || region.length > 64 || Array.from(region).some((character: string): boolean => {
+        return !(/[A-Za-z0-9-]/.test(character));
+      })) {
+      return this.credentialReply(false, '请填写有效的腾讯云 SecretId、SecretKey 和地域。');
+    }
+    const milliseconds: number = Date.now();
+    const timestamp: number = Math.floor(milliseconds / 1000);
+    const date: string = new Date(milliseconds).toISOString().substring(0, 10);
+    const body: TencentTranslationBody = {
+      Source: 'zh', Target: 'en', ProjectId: 0, SourceTextList: ['测试']
+    };
+    const bodyDocument: string = JSON.stringify(body);
+    const authorization: string = await tencentAuthorization(
+      secretId, secretKey, timestamp, date, bodyDocument);
+    const request = http.createHttp();
+    try {
+      const response: http.HttpResponse = await request.request('https://tmt.tencentcloudapi.com', {
+        method: http.RequestMethod.POST,
+        header: {
+          Accept: 'application/json', 'Content-Type': 'application/json; charset=utf-8',
+          Host: 'tmt.tencentcloudapi.com', 'X-TC-Action': 'TextTranslateBatch',
+          'X-TC-Timestamp': String(timestamp), 'X-TC-Version': '2018-03-21',
+          'X-TC-Region': region.length > 0 ? region : 'ap-guangzhou', Authorization: authorization
+        },
+        connectTimeout: 5000,
+        readTimeout: 15000,
+        extraData: bodyDocument
+      });
+      if (response.responseCode < 200 || response.responseCode >= 300
+        || typeof response.result !== 'string' || utf8Length(response.result) > 256 * 1024) {
+        return this.credentialReply(false, '测试失败：腾讯云未返回有效译文。');
+      }
+      const document: TencentTranslationDocument = JSON.parse(response.result) as TencentTranslationDocument;
+      const translated: string[] | undefined = document.Response?.TargetTextList;
+      if (document.Response?.Error !== undefined || translated === undefined
+        || translated.length !== 1 || translated[0].trim().length === 0) {
+        return this.credentialReply(false, '测试失败：腾讯云未返回有效译文。');
+      }
+      return this.credentialReply(true, '连接成功，翻译服务配置有效。');
+    } catch (error) {
+      KeyboardLog.error(`Tencent translation credential unavailable: ${describeError(error)}`);
+      return this.credentialReply(false, '连接失败，请检查腾讯云凭据、地域和网络。');
+    } finally {
+      request.destroy();
+    }
+  }
+
+  private async niutransCredential(config: ApiCredentialConfig): Promise<string> {
+    const appId: string = (config.app_id ?? '').trim();
+    const apiKey: string = (config.apikey ?? '').trim();
+    if (!this.validCredentialSecret(appId, 4096) || !this.validCredentialSecret(apiKey, 4096)) {
+      return this.credentialReply(false, '请填写有效的小牛翻译 App ID 和 API Key。');
+    }
+    const timestamp: string = String(Date.now());
+    const authStr: string = await niutransAuth(appId, apiKey, timestamp, '测试');
+    const form: string = [
+      `from=${encodeURIComponent('zh')}`,
+      `to=${encodeURIComponent('en')}`,
+      `appId=${encodeURIComponent(appId)}`,
+      `timestamp=${encodeURIComponent(timestamp)}`,
+      `srcText=${encodeURIComponent('测试')}`,
+      `authStr=${encodeURIComponent(authStr)}`
+    ].join('&');
+    const request = http.createHttp();
+    try {
+      const response: http.HttpResponse = await request.request(
+        'https://api.niutrans.com/v2/text/translate', {
+          method: http.RequestMethod.POST,
+          header: { Accept: 'application/json', 'Content-Type': 'application/x-www-form-urlencoded; charset=utf-8' },
+          connectTimeout: 5000,
+          readTimeout: 15000,
+          extraData: form
+        });
+      if (response.responseCode < 200 || response.responseCode >= 300
+        || typeof response.result !== 'string' || utf8Length(response.result) > 256 * 1024) {
+        return this.credentialReply(false, '测试失败：小牛翻译未返回有效译文。');
+      }
+      const document: NiuTransDocument = JSON.parse(response.result) as NiuTransDocument;
+      if (document.errorCode !== undefined || document.errorMsg !== undefined
+        || document.tgtText === undefined || document.tgtText.trim().length === 0) {
+        return this.credentialReply(false, '测试失败：小牛翻译未返回有效译文。');
+      }
+      return this.credentialReply(true, '连接成功，翻译服务配置有效。');
+    } catch (error) {
+      KeyboardLog.error(`NiuTrans credential unavailable: ${describeError(error)}`);
+      return this.credentialReply(false, '连接失败，请检查小牛翻译凭据和网络。');
+    } finally {
+      request.destroy();
+    }
+  }
+
+  private async chatCredential(config: ApiCredentialConfig): Promise<string> {
+    const endpoint: string | null = this.validCredentialEndpoint(config.endpoint ?? '', false);
+    const token: string = (config.token ?? '').trim();
+    const model: string = (config.model ?? '').trim();
+    const provider: string = (config.provider ?? '').trim();
+    if (endpoint === null || !this.validCredentialSecret(token, 8192) || model.length === 0
+      || utf8Length(model) > 256 || this.hasControl(model)
+      || !['openai', 'siliconflow', 'deepseek', 'groq'].includes(provider)) {
+      return this.credentialReply(false, '请填写有效的 HTTPS 接口地址、API Key 和模型名。');
+    }
+    const body: ChatCredentialBody = {
+      model: model,
+      stream: false,
+      max_tokens: 1,
+      messages: [{ role: 'user', content: 'Reply OK' }]
+    };
+    if (provider === 'deepseek') body.thinking = { type: 'disabled' };
+    if (provider === 'siliconflow') body.enable_thinking = false;
+    const request = http.createHttp();
+    try {
+      const response: http.HttpResponse = await request.request(endpoint, {
+        method: http.RequestMethod.POST,
+        header: { Accept: 'application/json', 'Content-Type': 'application/json',
+          Authorization: `Bearer ${token}` },
+        connectTimeout: 5000,
+        readTimeout: 15000,
+        extraData: JSON.stringify(body)
+      });
+      if (response.responseCode >= 200 && response.responseCode < 300) {
+        return this.credentialReply(true, '连接成功，API Key 和模型配置有效。');
+      }
+      if (response.responseCode === 401 || response.responseCode === 403) {
+        return this.credentialReply(false, '认证失败，请检查 API Key 和访问权限。');
+      }
+      if (response.responseCode === 429) {
+        return this.credentialReply(false, '服务限流或额度不足，请稍后重试。');
+      }
+      return this.credentialReply(false, '服务拒绝请求，请检查接口地址和模型配置。');
+    } catch (error) {
+      KeyboardLog.error(`chat credential unavailable: ${describeError(error)}`);
+      return this.credentialReply(false, '连接失败，请检查接口地址、模型、API Key 和网络。');
+    } finally {
+      request.destroy();
+    }
+  }
+
+  private async asrCredential(config: ApiCredentialConfig): Promise<string> {
+    const provider: string = (config.provider ?? '').trim();
+    const endpoint: string | null = this.validCredentialEndpoint(config.endpoint ?? '', false);
+    const token: string = (config.token ?? '').trim();
+    const model: string = (config.model ?? '').trim();
+    if (!['openai', 'siliconflow', 'groq'].includes(provider) || endpoint === null
+      || !this.validCredentialSecret(token, 8192) || model.length === 0
+      || utf8Length(model) > 256 || this.hasControl(model)) {
+      return this.credentialReply(false, '请填写有效的 HTTPS 转写接口地址、API Key 和模型名。');
+    }
+    const boundary: string = '----MSIMEHarmonyCredentialProbe';
+    const body: ArrayBuffer = this.silentMultipart(boundary, model);
+    const request = http.createHttp();
+    try {
+      const response: http.HttpResponse = await request.request(endpoint, {
+        method: http.RequestMethod.POST,
+        header: { Accept: 'application/json', Authorization: `Bearer ${token}`,
+          'Content-Type': `multipart/form-data; boundary=${boundary}` },
+        connectTimeout: 5000,
+        readTimeout: 15000,
+        extraData: body
+      });
+      if (response.responseCode >= 200 && response.responseCode < 300) {
+        return this.credentialReply(true, '连接成功，API Key 和模型配置有效。');
+      }
+      if (response.responseCode === 401 || response.responseCode === 403) {
+        return this.credentialReply(false, '认证失败，请检查 API Key 和访问权限。');
+      }
+      if (response.responseCode === 429) {
+        return this.credentialReply(false, '服务限流或额度不足，请稍后重试。');
+      }
+      return this.credentialReply(false, '转写测试未成功，请检查接口地址、模型和服务配置。');
+    } catch (error) {
+      KeyboardLog.error(`ASR credential unavailable: ${describeError(error)}`);
+      return this.credentialReply(false, '连接失败，请检查转写接口、模型、API Key 和网络。');
+    } finally {
+      request.destroy();
+    }
+  }
+
+  private async doubaoCredential(config: ApiCredentialConfig): Promise<string> {
+    const endpoint: string | null = this.validDoubaoEndpoint(config.endpoint ?? '');
+    const authMode: string = (config.auth_mode ?? '').trim();
+    const appId: string = (config.app_id ?? '').trim();
+    const token: string = (config.token ?? '').trim();
+    const resourceId: string = (config.resource_id ?? '').trim();
+    const boostingTableId: string = (config.doubao_boosting_table_id ?? '').trim();
+    if (endpoint === null || !['api_key', 'legacy'].includes(authMode)
+      || !this.validCredentialSecret(token, 8192)
+      || (authMode === 'legacy' && !this.validCredentialSecret(appId, 8192))
+      || !this.validCredentialSecret(resourceId, 256)
+      || utf8Length(boostingTableId) > 256 || this.hasControl(boostingTableId)) {
+      return this.credentialReply(false, '请填写有效的 WSS 接口、资源 ID 及对应鉴权方式的凭据。');
+    }
+    const requestId: string = util.generateRandomUUID(false);
+    const connectionOptions: webSocket.WebSocketRequestOptions = authMode === 'legacy'
+      ? { header: { 'x-api-resource-id': resourceId, 'x-api-request-id': requestId,
+          'x-api-app-key': appId, 'x-api-access-key': token } }
+      : { header: { 'x-api-resource-id': resourceId, 'x-api-request-id': requestId,
+          'x-api-key': token } };
+    const socket: webSocket.WebSocket = webSocket.createWebSocket();
+    let settled: boolean = false;
+    let connectTimer: number | undefined = undefined;
+    let totalTimer: number | undefined = undefined;
+    const finish = (ok: boolean): void => {
+      if (settled) return;
+      settled = true;
+      if (connectTimer !== undefined) clearTimeout(connectTimer);
+      if (totalTimer !== undefined) clearTimeout(totalTimer);
+      socket.close().catch((): void => undefined);
+    };
+    const result: Promise<boolean> = new Promise((resolve: (value: boolean) => void): void => {
+      const complete = (ok: boolean): void => {
+        if (settled) return;
+        finish(ok);
+        resolve(ok);
+      };
+      socket.on('error', (): void => complete(false));
+      socket.on('close', (_error: Object, _result: webSocket.CloseResult): void => complete(false));
+      socket.on('message', (_error: Object, value: string | ArrayBuffer): void => {
+        if (settled || typeof value === 'string') {
+          if (typeof value === 'string') complete(false);
+          return;
+        }
+        const decoded: DoubaoFrameResult | null = client.doubaoDecodeFrame(value);
+        if (decoded === null || utf8Length(decoded.payload) > 1024 * 1024) {
+          complete(false);
+          return;
+        }
+        try {
+          const document: DoubaoResponseDocument = JSON.parse(decoded.payload) as DoubaoResponseDocument;
+          if (document === null || Array.isArray(document)
+            || document.error !== undefined && document.error !== null) {
+            complete(false);
+            return;
+          }
+          if (document.code !== undefined && document.code !== 0) {
+            complete(false);
+            return;
+          }
+          if (document.payload_msg !== undefined && document.payload_msg.code !== undefined
+            && document.payload_msg.code !== 0) {
+            complete(false);
+            return;
+          }
+          if (decoded.last) complete(true);
+        } catch {
+          complete(false);
+        }
+      });
+      connectTimer = setTimeout((): void => complete(false), 5000);
+      totalTimer = setTimeout((): void => complete(false), 15000);
+      socket.connect(endpoint, connectionOptions).then((connected: boolean): void => {
+        if (settled) return;
+        if (!connected) {
+          complete(false);
+          return;
+        }
+        if (connectTimer !== undefined) clearTimeout(connectTimer);
+        const start: DoubaoStartRequest = {
+          user: { uid: 'metasequoia-ime' },
+          audio: { format: 'pcm', codec: 'raw', rate: 16000, bits: 16, channel: 1 },
+          request: {
+            model_name: 'bigmodel',
+            enable_itn: config.doubao_enable_itn !== false,
+            enable_punc: config.doubao_enable_punc !== false,
+            enable_ddc: config.doubao_enable_ddc === true,
+            show_utterances: false,
+            result_type: 'full'
+          }
+        };
+        if (boostingTableId.length > 0) {
+          start.request.corpus = { boosting_table_id: boostingTableId } as DoubaoCorpus;
+        }
+        const encoder: util.TextEncoder = util.TextEncoder.create('utf-8');
+        const startPayload: ArrayBuffer = encoder.encode(JSON.stringify(start)).buffer as ArrayBuffer;
+        const audioPayload: ArrayBuffer = new Uint8Array(32000).buffer as ArrayBuffer;
+        const startFrame: ArrayBuffer = client.doubaoEncodeFrame(1, 1, 1, startPayload);
+        const finalFrame: ArrayBuffer = client.doubaoEncodeFrame(2, 3, -2, audioPayload);
+        socket.send(startFrame).then((first: boolean): Promise<boolean> => {
+          return first ? socket.send(finalFrame) : Promise.resolve(false);
+        }).then((second: boolean): void => {
+          if (!second) complete(false);
+        }).catch((): void => complete(false));
+      }).catch((): void => complete(false));
+    });
+    const ok: boolean = await result;
+    return this.credentialReply(ok, ok
+      ? '连接成功，豆包语音识别凭据有效。'
+      : '豆包测试未成功或超时，请检查凭据、资源权限、接口地址和网络。');
+  }
+
+  private silentMultipart(boundary: string, model: string): ArrayBuffer {
+    const encoder: util.TextEncoder = util.TextEncoder.create('utf-8');
+    const wav: Uint8Array = new Uint8Array(44 + 32000);
+    this.writeAscii(wav, 0, 'RIFF');
+    this.writeU32(wav, 4, 32036);
+    this.writeAscii(wav, 8, 'WAVEfmt ');
+    this.writeU32(wav, 16, 16);
+    this.writeU16(wav, 20, 1);
+    this.writeU16(wav, 22, 1);
+    this.writeU32(wav, 24, 16000);
+    this.writeU32(wav, 28, 32000);
+    this.writeU16(wav, 32, 2);
+    this.writeU16(wav, 34, 16);
+    this.writeAscii(wav, 36, 'data');
+    this.writeU32(wav, 40, 32000);
+    const prefix: Uint8Array = encoder.encode(`--${boundary}\r\nContent-Disposition: form-data; name="file"; filename="credential-test.wav"\r\nContent-Type: audio/wav\r\n\r\n`);
+    const modelPart: Uint8Array = encoder.encode(`\r\n--${boundary}\r\nContent-Disposition: form-data; name="model"\r\n\r\n${model}\r\n--${boundary}--\r\n`);
+    const output: ArrayBuffer = new ArrayBuffer(prefix.length + wav.length + modelPart.length);
+    const bytes: Uint8Array = new Uint8Array(output);
+    bytes.set(prefix, 0);
+    bytes.set(wav, prefix.length);
+    bytes.set(modelPart, prefix.length + wav.length);
+    return output;
+  }
+
+  private writeAscii(bytes: Uint8Array, offset: number, value: string): void {
+    const encoder: util.TextEncoder = util.TextEncoder.create('utf-8');
+    bytes.set(encoder.encode(value), offset);
+  }
+
+  private writeU16(bytes: Uint8Array, offset: number, value: number): void {
+    bytes[offset] = value & 0xff;
+    bytes[offset + 1] = (value >>> 8) & 0xff;
+  }
+
+  private writeU32(bytes: Uint8Array, offset: number, value: number): void {
+    bytes[offset] = value & 0xff;
+    bytes[offset + 1] = (value >>> 8) & 0xff;
+    bytes[offset + 2] = (value >>> 16) & 0xff;
+    bytes[offset + 3] = (value >>> 24) & 0xff;
+  }
+
+  private translationText(document: TranslationDocument): string | null {
+    if (document.error !== undefined) return null;
+    if (document.code !== undefined && document.code !== 200 && document.code !== '200') return null;
+    const values: Array<string | TranslationValue | TranslationValue[]> = [];
+    if (document.data !== undefined) values.push(document.data);
+    if (document.translation !== undefined) values.push(document.translation);
+    if (document.result !== undefined) values.push(document.result);
+    if (document.translations !== undefined) values.push(document.translations);
+    for (const value of values) {
+      if (typeof value === 'string' && value.trim().length > 0) return value.trim();
+      if (Array.isArray(value) && value.length > 0) {
+        const first: TranslationValue = value[0];
+        const text: string | undefined = first.text ?? first.translation ?? first.data;
+        if (text !== undefined && text.trim().length > 0) return text.trim();
+      } else if (typeof value === 'object' && value !== null) {
+        const objectValue: TranslationValue = value as TranslationValue;
+        const text: string | undefined = objectValue.text ?? objectValue.translation ?? objectValue.data;
+        if (text !== undefined && text.trim().length > 0) return text.trim();
+      }
+    }
+    return null;
+  }
+
+  private validCredentialEndpoint(value: string, allowHttp: boolean): string | null {
+    const endpoint: string = value.trim();
+    if (endpoint.length === 0 || utf8Length(endpoint) > 2048 || this.hasControl(endpoint)
+      || (!endpoint.startsWith('https://') && !(allowHttp && endpoint.startsWith('http://')))
+      || endpoint.includes('@') || endpoint.includes('#')) return null;
+    const authority: string = endpoint.substring(endpoint.indexOf('://') + 3).split('/')[0]
+      .split('?')[0];
+    return authority.length === 0 ? null : endpoint;
+  }
+
+  private validDoubaoEndpoint(value: string): string | null {
+    const endpoint: string = value.trim();
+    if (endpoint.length === 0 || utf8Length(endpoint) > 2048 || this.hasControl(endpoint)
+      || !endpoint.startsWith('wss://') || endpoint.includes('@') || endpoint.includes('#')) {
+      return null;
+    }
+    const authority: string = endpoint.substring(6).split('/')[0].split('?')[0];
+    return authority.length === 0 ? null : endpoint;
+  }
+
+  private validCredentialSecret(value: string, maxBytes: number): boolean {
+    return value.length > 0 && utf8Length(value) <= maxBytes && !this.hasControl(value)
+      && !value.startsWith('<') && !value.startsWith('FAKESECRET_')
+      && !Array.from(value).every((character: string): boolean => character === '*');
+  }
+
+  private validAiEndpoint(value: string): string | null {
+    const endpoint: string = value.trim();
+    if (endpoint.length === 0 || utf8Length(endpoint) > 2048 || this.hasControl(endpoint)
+      || (!endpoint.startsWith('http://') && !endpoint.startsWith('https://'))
+      || endpoint.includes('@') || endpoint.includes('#')) return null;
+    const authority: string = endpoint.substring(endpoint.indexOf('://') + 3).split('/')[0]
+      .split('?')[0];
+    return authority.length === 0 ? null : endpoint;
+  }
+
+  private aiModelsUrl(endpoint: string): string {
+    const query: number = endpoint.indexOf('?');
+    const clean: string = query >= 0 ? endpoint.substring(0, query) : endpoint;
+    const marker: string = '/v1/';
+    const index: number = clean.indexOf(marker);
+    const base: string = index >= 0 ? clean.substring(0, index) : clean.substring(0, clean.indexOf('/', 8) >= 0 ? clean.indexOf('/', 8) : clean.length);
+    return `${base}/v1/models`;
+  }
+
+  private validAiText(value: string, allowEmpty: boolean): boolean {
+    return (allowEmpty || value.trim().length > 0) && utf8Length(value) <= 16 * 1024
+      && !value.includes('\u0000') && !Array.from(value).some((character: string): boolean => {
+        const code: number = character.codePointAt(0) ?? 0;
+        return code < 0x20 && code !== 0x09 && code !== 0x0a && code !== 0x0d;
+      });
+  }
+
+  private hasControl(value: string): boolean {
+    return Array.from(value).some((character: string): boolean => {
+      const code: number = character.codePointAt(0) ?? 0;
+      return code <= 0x1f || (code >= 0x7f && code <= 0x9f);
+    });
   }
 
   appVersion(): string {

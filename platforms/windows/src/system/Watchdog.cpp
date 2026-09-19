@@ -3,6 +3,7 @@
 // from the shipped watchdog; the restart rules live in WatchdogPolicy.h.
 #define NOMINMAX
 #include "WatchdogPolicy.h"
+#include "WatchdogProtocol.h"
 #include <msctf.h>
 #include <shellapi.h>
 #include <string>
@@ -13,7 +14,6 @@
 namespace {
 constexpr wchar_t server_file_name[] = L"MetasequoiaImeServer.exe";
 constexpr wchar_t watchdog_mutex[] = L"Local\\MSIMEClientWatchdog.SingleInstance";
-constexpr wchar_t managed_argument[] = L"--watchdog-managed";
 constexpr DWORD profile_ready_timeout_milliseconds = 30'000;
 constexpr DWORD profile_ready_retry_milliseconds = 1'000;
 // Kept in sync with platforms/windows/tsf/Global/Globals.cpp.
@@ -129,7 +129,7 @@ HANDLE start_server(const std::wstring &server_path,
   execute.fMask = SEE_MASK_NOCLOSEPROCESS | SEE_MASK_FLAG_NO_UI;
   execute.lpVerb = L"open";
   execute.lpFile = server_path.c_str();
-  execute.lpParameters = managed_argument;
+  execute.lpParameters = watchdog_protocol::managed_argument;
   execute.lpDirectory = working_directory.c_str();
   execute.nShow = SW_SHOWNOACTIVATE;
   if (!ShellExecuteExW(&execute) || !execute.hProcess)

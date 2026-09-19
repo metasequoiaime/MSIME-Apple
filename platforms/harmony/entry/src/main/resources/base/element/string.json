@@ -13,12 +13,20 @@
       "value": "MSIME"
     },
     {
+      "name": "internet_permission_reason",
+      "value": "账号和云剪贴板功能需要访问水杉服务"
+    },
+    {
       "name": "clipboard_permission_reason",
       "value": "保存剪贴板历史需要读取剪贴板"
     },
     {
       "name": "vibrate_permission_reason",
       "value": "按键振动需要振动权限"
+    },
+    {
+      "name": "microphone_permission_reason",
+      "value": "语音输入需要使用麦克风"
     },
     {
       "name": "entry_ability_desc",

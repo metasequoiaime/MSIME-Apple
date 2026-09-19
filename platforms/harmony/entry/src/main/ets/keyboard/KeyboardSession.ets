@@ -1,6 +1,9 @@
 import inputMethodEngine from '@ohos.inputMethodEngine';
 import client from 'libmsimeclient.so';
+import { utf8Length } from './Utf8';
 import { KeyboardLog, describeError } from './KeyboardLog';
+import { DictionaryMaintenancePolicy } from './DictionaryMaintenancePolicy';
+import { TypingStatisticsPolicy } from './TypingStatisticsPolicy';
 import { KeyboardSkin } from './skin/KeyboardSkin';
 import { EditorPolicy, EditorTraits } from './input/EditorPolicy';
 import { WubiCodeHintPolicy } from './input/WubiCodeHintPolicy';
@@ -9,6 +12,7 @@ import { FullWidthInputPolicy } from './input/FullWidthInputPolicy';
 import { ChineseHelpcodePolicy } from './input/ChineseHelpcodePolicy';
 import { ChineseOutputPolicy } from './input/ChineseOutputPolicy';
 import { KeyboardFeedback, FeedbackSettings, HapticStrength } from './KeyboardFeedback';
+import { HardwareNavigationPreferences } from './HardwareKeyRouter';
 import vibrator from '@ohos.vibrator';
 import i18n from '@ohos.i18n';
 import { InputDiagnosticPolicy } from './input/InputDiagnosticPolicy';
@@ -16,35 +20,27 @@ import { ModeBindings, DEFAULT_MODE_BINDINGS } from './InputModeRouting';
 import { FloatingToolbarLayout, ToolbarButton, ToolbarComponents, ToolbarState }
   from './FloatingToolbarLayout';
 import { DesktopSurface } from './DesktopSurface';
-import { CandidateGlossPolicy, GlossToken } from './candidate/CandidateGlossPolicy';
+import { CandidateGlossPolicy } from './candidate/CandidateGlossPolicy';
+import { OnlineCandidatePolicy, OnlineQuery } from './candidate/OnlineCandidatePolicy';
+import {
+  TranslationPolicy, TranslationQuery, TranslationPlanItem, TranslationEntry,
+  TranslationProviderConfig, TencentTranslationConfig, NiuTransTranslationConfig, TranslationCandidate
+} from './candidate/TranslationPolicy';
 import fs from '@ohos.file.fs';
 import pasteboard from '@ohos.pasteboard';
 import abilityAccessCtrl from '@ohos.abilityAccessCtrl';
 import bundleManager from '@ohos.bundle.bundleManager';
+import http from '@ohos.net.http';
 import {
   ClipboardHistoryStore, ClipboardHistoryItem, ClipboardHistoryError, ClipboardFailure,
   MAX_FILE_BYTES
 } from './clipboard/ClipboardHistoryStore';
+import {
+  DEFAULT_VOICE_INPUT_CONFIGURATION, VoiceInputConfiguration
+} from './input/VoiceInputConfiguration';
 
 // Shapes of the JSON the shared C ABI answers with. Only the fields this minimal surface reads are
 // declared; the responses carry considerably more.
-interface GlossRequestCandidate {
-  text: string;
-  source: number;
-}
-
-interface GlossRequest {
-  generation: number;
-  user_data: string;
-  candidates: GlossRequestCandidate[];
-}
-
-interface GlossResponse {
-  ok: boolean;
-  value: string[];
-  error: string;
-}
-
 interface Candidate {
   text: string;
   highlighted: boolean;
@@ -54,6 +50,8 @@ interface Candidate {
   code: string;
   /** An Engine-derived display suffix, never part of what gets committed. */
   annotation: string;
+  /** Optional translation attached by the shared Engine for this generation. */
+  translation?: string | null;
 }
 
 /** A candidate as the view draws it: the text, and whatever is printed beside it. */
@@ -104,6 +102,18 @@ interface SnapshotResponse {
   error: string;
 }
 
+interface TypingStatisticsRecordAction {
+  operation: string;
+  text: string;
+  source: string;
+  day: string;
+}
+
+interface TypingStatisticsRecordRequest {
+  directory: string;
+  action: TypingStatisticsRecordAction;
+}
+
 // The local emoji catalog lives in others.db beside the dictionaries, so the query carries the
 // resource directory rather than going through a session.
 interface EmojiQuery {
@@ -142,6 +152,87 @@ interface SnapshotCandidates {
   ok: boolean;
   value: CandidateSnapshot;
   error: string;
+}
+
+interface NativeReply<T> {
+  ok: boolean;
+  value: T;
+  error: string;
+}
+
+interface AiHttpDescriptor {
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  body: Object;
+  timeout_ms: number;
+  connect_timeout_ms: number;
+  max_response_bytes: number;
+}
+
+interface TranslationHttpDescriptor {
+  url: string;
+  method: string;
+  headers: Record<string, string>;
+  body?: Object;
+  body_utf8?: string;
+  timeout_ms: number;
+  max_response_bytes: number;
+  expected_count?: number;
+}
+
+interface TranslationResponseValue {
+  generation: number;
+  translations: TranslationEntry[];
+}
+
+interface GlossRequestCandidate {
+  text: string;
+  source: number;
+}
+
+interface GlossRequestDocument {
+  generation: number;
+  user_data: string;
+  candidates: GlossRequestCandidate[];
+}
+
+interface TranslationPlanDocument {
+  target_language: string;
+  candidates: GlossRequestCandidate[];
+}
+
+interface TencentTranslationRequest {
+  config: TencentTranslationConfig;
+  texts: string[];
+  source_language: string;
+  target_language: string;
+  timestamp: number;
+}
+
+interface NiuTransTranslationRequest {
+  config: NiuTransTranslationConfig;
+  text: string;
+  source_language: string;
+  target_language: string;
+  timestamp: string;
+}
+
+interface CustomTranslationRequest {
+  config: TranslationProviderConfig;
+  text: string;
+  source_language: string;
+  target_language: string;
+}
+
+interface TranslationGlossSaveRequest {
+  target_language: string;
+  translations: TranslationEntry[];
+}
+
+interface OnlineApplyValue {
+  applied: boolean;
+  view: EngineView;
 }
 
 /** What the view draws. Grouped so a new field does not change every signature on the way there. */
@@ -191,6 +282,18 @@ interface CreateResponse {
   error: string;
 }
 
+interface VoiceGenerationResponse {
+  ok: boolean;
+  value: number;
+  error: string;
+}
+
+interface VoiceTextResponse {
+  ok: boolean;
+  value: string | null;
+  error: string;
+}
+
 // ArkTS rejects untyped object literals, so the request prepareHost takes gets a shape too.
 interface PrepareRequest {
   resources: string;
@@ -205,6 +308,25 @@ interface PreparedPreferences {
   shuangpin_profile: string;
   touch_keyboard_layout: string;
   touch_keyboard_skin: string;
+  candidate_skin: string;
+  candidate_theme: string;
+  candidate_selected_bar: boolean | null;
+  candidate_follow_cursor: boolean;
+  number_row_selection: boolean;
+  navigation: PreparedNavigationPreferences;
+  candidate_layout: string;
+  candidate_preedit_style: string;
+  candidate_font_size: number;
+  candidate_preedit_font_size: number;
+  candidate_font_family: string;
+  candidate_fallback_fonts: string[];
+  candidate_text_color: string | null;
+  candidate_accent_color: string | null;
+  candidate_number_color: string | null;
+  candidate_selected_color: string | null;
+  candidate_hover_color: string | null;
+  candidate_surface_color: string | null;
+  candidate_border_color: string | null;
   // 'follow', 'dark' or 'light' for the keyboard specifically; theme is the global one it falls
   // back to, and only if both defer does the system decide.
   screen_keyboard_theme: string;
@@ -218,7 +340,20 @@ interface PreparedPreferences {
   touch_row_spacing_tenths: number;
   /** Added to the total height of the key rows, between -12 and 48 vp. */
   touch_keyboard_height_adjustment: number;
+  /** Show the native Harmony voice entry in the top touch-keyboard shortcut bar. */
+  touch_voice_shortcut: boolean;
+  voice_input: VoiceInputConfiguration;
   keybindings: PreparedKeybindings;
+}
+
+interface PreparedNavigationPreferences {
+  minus_equal: boolean;
+  comma_period: boolean;
+  brackets: boolean;
+  tab: boolean;
+  page_up_down: boolean;
+  mouse_wheel: boolean;
+  arrows: boolean;
 }
 
 /** The shared floating toolbar record. Only what a HarmonyOS toolbar can honour is read from it. */
@@ -246,14 +381,35 @@ interface PreparedKeybindings {
 export interface KeyboardPreferences {
   readonly dark: boolean;
   readonly skinId: string;
+  readonly candidateSkinId: string;
+  readonly candidateDark: boolean;
+  readonly candidateSelectedBar: boolean | null;
   readonly keyboardTheme: string;
   readonly globalTheme: string;
   readonly scheme: string;
   readonly shuangpinProfile: string;
   readonly layout: string;
+  readonly candidateFollowCursor: boolean;
+  readonly numberRowSelection: boolean;
+  readonly navigation: HardwareNavigationPreferences;
+  /** Whether the desktop candidate panel shows the spelling above its candidates. */
+  readonly candidateShowPreedit: boolean;
+  readonly candidateLayout: string;
+  readonly candidateFontSize: number;
+  readonly candidatePreeditFontSize: number;
+  readonly candidateFontFamily: string;
+  readonly candidateFallbackFonts: string[];
+  readonly candidateTextColor: string | null;
+  readonly candidateAccentColor: string | null;
+  readonly candidateNumberColor: string | null;
+  readonly candidateSelectedColor: string | null;
+  readonly candidateHoverColor: string | null;
+  readonly candidateSurfaceColor: string | null;
+  readonly candidateBorderColor: string | null;
   readonly keySpacingTenths: number;
   readonly rowSpacingTenths: number;
   readonly heightAdjustment: number;
+  readonly voiceShortcut: boolean;
 }
 
 interface PreparedOptions {
@@ -264,6 +420,15 @@ interface PrepareResponse {
   ok: boolean;
   value: PreparedOptions;
   error: string;
+}
+
+interface DictionaryAction {
+  operation: string;
+}
+
+interface DictionaryRequest {
+  options: PreparedOptions;
+  action: DictionaryAction;
 }
 
 /**
@@ -277,8 +442,16 @@ enum InputCommand {
   CANCEL = 3,
   MOVE_LEFT = 4,
   MOVE_RIGHT = 5,
+  MOVE_HOME = 6,
+  MOVE_END = 7,
+  DELETE_FORWARD = 8,
+  BACKSPACE_SEGMENT = 12,
+  MOVE_LEFT_SEGMENT = 13,
+  MOVE_RIGHT_SEGMENT = 14,
   NEXT_PAGE = 100,
-  PREVIOUS_PAGE = 101
+  PREVIOUS_PAGE = 101,
+  NEXT_CANDIDATE = 102,
+  PREVIOUS_CANDIDATE = 103
 }
 
 /**
@@ -292,6 +465,7 @@ export class KeyboardSession {
 
   private handle: number = 0;
   private inputClient: inputMethodEngine.InputClient | undefined = undefined;
+  private editorGeneration: number = 0;
   private generation: number = 0;
   // The Engine opens a session in whichever mode the preferences name, and the shared default is
   // English. Remembered here so every focus reasserts it rather than inheriting the previous editor.
@@ -300,8 +474,10 @@ export class KeyboardSession {
   // nine-key spellings once it has been told the grid is up.
   private nineKeyMode: boolean = false;
   private schemeName: string = 'quanpin';
+  private profileName: string = 'xiaohe';
   private resourceDirectory: string = '';
   private stateDirectory: string = '';
+  private systemDark: boolean = false;
   // What the editor wants its return key to do. Sending this rather than a newline is what makes the
   // key search in a search field and send in a message field, which is the whole point of having it.
   private enterKey: number = inputMethodEngine.ENTER_KEY_TYPE_UNSPECIFIED;
@@ -311,17 +487,43 @@ export class KeyboardSession {
   private appearance: KeyboardPreferences = {
     dark: false,
     skinId: 'forest',
+    candidateSkinId: 'willow_green',
+    candidateDark: false,
+    candidateSelectedBar: null,
     keyboardTheme: 'follow',
     globalTheme: 'system',
     scheme: 'quanpin',
     shuangpinProfile: 'xiaohe',
     layout: 'twenty_six_key',
+    candidateFollowCursor: true,
+    numberRowSelection: false,
+    candidateShowPreedit: true,
+    candidateLayout: 'vertical',
+    navigation: {
+      minusEqual: true, commaPeriod: true, brackets: false,
+      tab: true, pageUpDown: true, mouseWheel: false, arrows: true
+    },
+    candidateFontSize: 18,
+    candidatePreeditFontSize: 15,
+    candidateFontFamily: 'Noto Sans SC',
+    candidateFallbackFonts: ['Noto Sans SC', 'Microsoft YaHei'],
+    candidateTextColor: null,
+    candidateAccentColor: null,
+    candidateNumberColor: null,
+    candidateSelectedColor: null,
+    candidateHoverColor: null,
+    candidateSurfaceColor: null,
+    candidateBorderColor: null,
     keySpacingTenths: KeyboardGeometry.DEFAULT_KEY_SPACING_TENTHS,
     rowSpacingTenths: KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS,
-    heightAdjustment: KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_VP
+    heightAdjustment: KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_VP,
+    voiceShortcut: false
   };
+  private voiceInput: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
 
   onChanged: ((state: KeyboardState) => void) | undefined = undefined;
+  /** Lets a desktop panel resize when a vertical candidate page changes height. */
+  onCandidateCount: ((count: number) => void) | undefined = undefined;
   /**
    * Whether a composition is open, for the host that owns the panel.
    *
@@ -373,6 +575,7 @@ export class KeyboardSession {
     }
     this.resourceDirectory = resources;
     this.stateDirectory = stateRoot;
+    this.systemDark = systemDark;
     this.feedbackSettings = this.feedback();
     const request: PrepareRequest = { resources: resources, state_root: stateRoot };
     let options: string;
@@ -385,6 +588,7 @@ export class KeyboardSession {
       }
       options = JSON.stringify(prepared.value);
       const preferences: PreparedPreferences = prepared.value.preferences;
+      this.voiceInput = preferences.voice_input;
       this.englishMode = preferences.default_ime_mode === 'english';
       this.bindings = {
         switchLanguageShift: preferences.keybindings.switch_language_shift,
@@ -398,23 +602,58 @@ export class KeyboardSession {
         dark: KeyboardSkin.resolveDark(preferences.screen_keyboard_theme, preferences.theme,
           systemDark),
         skinId: preferences.touch_keyboard_skin,
+        candidateSkinId: preferences.candidate_skin,
+        candidateDark: KeyboardSkin.resolveDark(preferences.candidate_theme, preferences.theme,
+          systemDark),
+        candidateSelectedBar: preferences.candidate_selected_bar ?? null,
         keyboardTheme: preferences.screen_keyboard_theme,
         globalTheme: preferences.theme,
         scheme: preferences.scheme,
         shuangpinProfile: preferences.shuangpin_profile,
         layout: preferences.touch_keyboard_layout,
+        candidateFollowCursor: preferences.candidate_follow_cursor,
+        numberRowSelection: preferences.number_row_selection,
+        candidateShowPreedit: preferences.candidate_preedit_style !== 'empty',
+        candidateLayout: preferences.candidate_layout === 'horizontal' ? 'horizontal' : 'vertical',
+        navigation: {
+          minusEqual: preferences.navigation?.minus_equal ?? true,
+          commaPeriod: preferences.navigation?.comma_period ?? true,
+          brackets: preferences.navigation?.brackets ?? false,
+          tab: preferences.navigation?.tab ?? true,
+          pageUpDown: preferences.navigation?.page_up_down ?? true,
+          mouseWheel: preferences.navigation?.mouse_wheel ?? false,
+          arrows: preferences.navigation?.arrows ?? true
+        },
+        // The shared store validates these to 12..32 and strips control
+        // characters from family names. Clamp again at the host boundary so
+        // an older staged document cannot produce an unusable panel.
+        candidateFontSize: Math.max(12, Math.min(32, preferences.candidate_font_size)),
+        candidatePreeditFontSize:
+          Math.max(12, Math.min(32, preferences.candidate_preedit_font_size)),
+        candidateFontFamily: preferences.candidate_font_family.trim().length > 0
+          ? preferences.candidate_font_family : 'Noto Sans SC',
+        candidateFallbackFonts: preferences.candidate_fallback_fonts.filter(
+          (font: string): boolean => font.trim().length > 0),
+        candidateTextColor: preferences.candidate_text_color,
+        candidateAccentColor: preferences.candidate_accent_color,
+        candidateNumberColor: preferences.candidate_number_color,
+        candidateSelectedColor: preferences.candidate_selected_color,
+        candidateHoverColor: preferences.candidate_hover_color,
+        candidateSurfaceColor: preferences.candidate_surface_color,
+        candidateBorderColor: preferences.candidate_border_color,
         // Clamped rather than trusted: the store validates, but an older document or a host that
         // never learned the bounds would otherwise draw a keyboard nobody can hit.
         keySpacingTenths: KeyboardGeometry.keySpacing(preferences.touch_key_spacing_tenths),
         rowSpacingTenths: KeyboardGeometry.rowSpacing(preferences.touch_row_spacing_tenths),
         heightAdjustment:
-          KeyboardGeometry.heightAdjustment(preferences.touch_keyboard_height_adjustment)
+          KeyboardGeometry.heightAdjustment(preferences.touch_keyboard_height_adjustment),
+        voiceShortcut: preferences.touch_voice_shortcut
       };
       this.schemeName = preferences.scheme;
+      this.profileName = preferences.shuangpin_profile;
       this.traditional = preferences.traditional_chinese_output;
       this.chinesePunctuation = preferences.chinese_punctuation;
       this.toolbar = preferences.floating_toolbar;
-      this.glosses = preferences.candidate_english_gloss;
       this.nineKeyMode = preferences.touch_keyboard_layout === 'nine_key'
         && preferences.scheme === 'quanpin';
     } catch (error) {
@@ -625,8 +864,11 @@ export class KeyboardSession {
 
   /** Tells the Engine which grid the user is typing on, so a 2 means ABC rather than a digit. */
   /** The scheme now in force, which decides whether the nine-key flag means anything. */
-  useScheme(name: string): void {
+  useScheme(name: string, profileName: string | null = null): void {
     this.schemeName = name;
+    if (profileName !== null) {
+      this.profileName = profileName;
+    }
   }
 
   setNineKey(enabled: boolean): void {
@@ -673,10 +915,58 @@ export class KeyboardSession {
     }
   }
 
+  /** Begin one host-independent voice generation, so late platform callbacks can be rejected. */
+  voiceStart(): number {
+    if (this.handle === 0) {
+      return 0;
+    }
+    try {
+      const response: VoiceGenerationResponse = JSON.parse(client.voiceStart(this.handle)) as VoiceGenerationResponse;
+      return response.ok && Number.isSafeInteger(response.value) && response.value > 0
+        ? response.value : 0;
+    } catch (error) {
+      KeyboardLog.error(`voice session unavailable: ${describeError(error)}`);
+      return 0;
+    }
+  }
+
+  voiceInputConfiguration(): VoiceInputConfiguration {
+    return this.voiceInput;
+  }
+
+  voiceCancel(): void {
+    if (this.handle === 0) {
+      return;
+    }
+    try {
+      client.voiceCancel(this.handle);
+    } catch (error) {
+      KeyboardLog.error(`voice cancellation unavailable: ${describeError(error)}`);
+    }
+  }
+
+  /** Accept only the active generation and never log the recognized text. */
+  voiceApply(generation: number, text: string): string | null {
+    if (this.handle === 0 || generation <= 0 || text.length === 0) {
+      return null;
+    }
+    try {
+      const response: VoiceTextResponse = JSON.parse(client.voiceApply(this.handle, generation, text)) as VoiceTextResponse;
+      return response.ok ? response.value : null;
+    } catch (error) {
+      KeyboardLog.error(`voice result unavailable: ${describeError(error)}`);
+      return null;
+    }
+  }
+
   /** The framework hands over a fresh client on every inputStart. */
   attach(inputClient: inputMethodEngine.InputClient): void {
+    const editorGeneration: number = ++this.editorGeneration;
     this.inputClient = inputClient;
     inputClient.getEditorAttribute().then((attribute: inputMethodEngine.EditorAttribute): void => {
+      if (editorGeneration !== this.editorGeneration || this.inputClient !== inputClient) {
+        return;
+      }
       this.enterKey = attribute.enterKeyType;
       this.traits = KeyboardSession.traitsFor(attribute.inputPattern);
       // A password field must never see a composition buffer, and a field that asked for no
@@ -701,6 +991,8 @@ export class KeyboardSession {
   }
 
   detach(): void {
+    this.editorGeneration++;
+    this.cancelOnlineProviders();
     if (this.handle !== 0) {
       this.apply(client.focus(this.handle, false));
     }
@@ -708,10 +1000,127 @@ export class KeyboardSession {
   }
 
   stop(): void {
+    this.editorGeneration++;
+    this.cancelOnlineProviders();
     if (this.handle !== 0) {
       client.destroy(this.handle);
       this.handle = 0;
     }
+  }
+
+  /** Invalidate host-side network work before the focused editor changes or the session dies. */
+  private cancelOnlineProviders(): void {
+    this.onlineEpoch++;
+    this.onlineSignature = '';
+    if (this.onlineTimer >= 0) {
+      clearTimeout(this.onlineTimer);
+      this.onlineTimer = -1;
+    }
+    this.translationEpoch++;
+    this.translationSignature = '';
+    if (this.translationTimer >= 0) {
+      clearTimeout(this.translationTimer);
+      this.translationTimer = -1;
+    }
+  }
+
+  /** Activate a prepared dictionary snapshot only at an idle boundary. */
+  snapshotActivate(handle: number, expectedVersion: string): string {
+    if (handle <= 0 || !/^[0-9a-f]{64}$/.test(expectedVersion) || this.composing()) {
+      return JSON.stringify({ ok: false, error: 'snapshot access busy' });
+    }
+    const hadSession: boolean = this.handle !== 0;
+    const english: boolean = this.englishMode;
+    const nineKey: boolean = this.nineKeyMode;
+    if (hadSession) this.stop();
+    let result: string;
+    try {
+      result = client.snapshotActivate(handle, expectedVersion);
+    } catch (error) {
+      KeyboardLog.error(`snapshot activation unavailable: ${describeError(error)}`);
+      result = JSON.stringify({ ok: false, error: 'snapshot activation failed' });
+    }
+    try {
+      const parsed: SnapshotResponse = JSON.parse(result) as SnapshotResponse;
+      if (!parsed.ok) {
+        KeyboardLog.error(`snapshot activation refused: ${parsed.error}`);
+      }
+    } catch {
+      // Preserve the native response for the caller; a malformed response is already an error.
+    }
+    // Stopping the live session is part of the maintenance boundary. Always recreate it, even
+    // when the native activation refused, so a transient conflict cannot leave the keyboard dead.
+    if (hadSession && this.start(this.resourceDirectory, this.stateDirectory, this.systemDark)) {
+      this.englishMode = english;
+      this.nineKeyMode = nineKey;
+      if (this.inputClient !== undefined) {
+        this.apply(client.focus(this.handle, true));
+        this.applyView(client.setEnglishMode(this.handle, english));
+        this.applyView(client.setNineKeyMode(this.handle, nineKey));
+      }
+    } else if (hadSession) {
+      KeyboardLog.error('snapshot activation left the session unavailable');
+    }
+    return result;
+  }
+
+  /**
+   * Run one shared dictionary-management action without violating the Engine maintenance lock.
+   *
+   * Reads can coexist with the live session. A write briefly recreates an idle session so the
+   * Engine has exclusive dictionary access, but never cancels a composition to obtain it.
+   */
+  dictionary(actionDocument: string, resources: string, stateRoot: string): string {
+    let action: DictionaryAction;
+    try {
+      const decoded: DictionaryAction | null = JSON.parse(actionDocument) as DictionaryAction | null;
+      if (decoded === null || typeof decoded.operation !== 'string') {
+        return JSON.stringify({ ok: false, error: 'invalid dictionary action' });
+      }
+      action = decoded;
+    } catch (error) {
+      return JSON.stringify({ ok: false, error: 'invalid dictionary action' });
+    }
+    const decision = DictionaryMaintenancePolicy.decide(action.operation, this.composing());
+    if (!decision.allowed) {
+      return JSON.stringify({ ok: false, error: decision.error });
+    }
+    const maintenance: boolean = decision.maintenance;
+    const hadSession: boolean = this.handle !== 0;
+    const english: boolean = this.englishMode;
+    const nineKey: boolean = this.nineKeyMode;
+    if (maintenance && hadSession) {
+      this.stop();
+    }
+    let result: string;
+    try {
+      const bootstrap: PrepareRequest = { resources: resources, state_root: stateRoot };
+      const prepared: PrepareResponse =
+        JSON.parse(client.prepareHost(JSON.stringify(bootstrap))) as PrepareResponse;
+      if (!prepared.ok) {
+        return JSON.stringify(prepared);
+      }
+      const request: DictionaryRequest = { options: prepared.value, action: action };
+      result = client.dictionary(JSON.stringify(request));
+    } catch (error) {
+      KeyboardLog.error(`dictionary request unavailable: ${describeError(error)}`);
+      result = JSON.stringify({ ok: false, error: 'dictionary request failed' });
+    } finally {
+      if (maintenance && hadSession) {
+        if (this.start(resources, stateRoot, this.systemDark)) {
+          this.englishMode = english;
+          this.nineKeyMode = nineKey;
+          if (this.inputClient !== undefined) {
+            this.apply(client.focus(this.handle, true));
+            this.applyView(client.setEnglishMode(this.handle, english));
+            this.applyView(client.setNineKeyMode(this.handle, nineKey));
+          }
+        } else {
+          KeyboardLog.error('dictionary maintenance left the session unavailable');
+        }
+      }
+    }
+    return result;
   }
 
   press(ascii: number, shift: boolean): void {
@@ -764,12 +1173,44 @@ export class KeyboardSession {
     this.command(InputCommand.MOVE_RIGHT);
   }
 
+  moveHome(): void {
+    this.command(InputCommand.MOVE_HOME);
+  }
+
+  moveEnd(): void {
+    this.command(InputCommand.MOVE_END);
+  }
+
+  deleteForward(): void {
+    this.command(InputCommand.DELETE_FORWARD);
+  }
+
+  backspaceSegment(): void {
+    this.command(InputCommand.BACKSPACE_SEGMENT);
+  }
+
+  moveLeftSegment(): void {
+    this.command(InputCommand.MOVE_LEFT_SEGMENT);
+  }
+
+  moveRightSegment(): void {
+    this.command(InputCommand.MOVE_RIGHT_SEGMENT);
+  }
+
   nextPage(): void {
     this.command(InputCommand.NEXT_PAGE);
   }
 
   previousPage(): void {
     this.command(InputCommand.PREVIOUS_PAGE);
+  }
+
+  nextCandidate(): void {
+    this.command(InputCommand.NEXT_CANDIDATE);
+  }
+
+  previousCandidate(): void {
+    this.command(InputCommand.PREVIOUS_CANDIDATE);
   }
 
   choose(index: number): void {
@@ -807,7 +1248,9 @@ export class KeyboardSession {
         && this.inputClient !== undefined) {
       // The Engine commits simplified; whether the user wanted traditional is a host decision, the
       // same boundary the Apple and Android hosts draw.
-      this.inputClient.insertText(this.asTraditional(commit));
+      const output: string = this.asTraditional(commit);
+      this.inputClient.insertText(output);
+      this.recordTypingStatistics(output, this.typingSource());
     }
     this.render(value.view);
   }
@@ -839,11 +1282,14 @@ export class KeyboardSession {
     enabled: true, english_mode: true, punctuation: true, fullwidth: true, character_set: true,
     emoji: true, screen_keyboard: false, scale_percent: 100, font_size: 20
   };
-  private glosses: boolean = false;
-  // Which view a pending gloss lookup belongs to. A gloss arrives after the keystroke that asked for
-  // it, and by then the composition may have moved on; anything stale is dropped rather than painted
-  // onto whatever is on screen now.
-  private glossEpoch: number = 0;
+  private onlineTimer: number = -1;
+  private onlineEpoch: number = 0;
+  private onlineSignature: string = '';
+  private translationTimer: number = -1;
+  private translationEpoch: number = 0;
+  private translationSignature: string = '';
+  private readonly translationCache: Map<string, string> = new Map<string, string>();
+  private readonly translationNegativeCache: Map<string, number> = new Map<string, number>();
   // ICU's Simplified-Traditional, which is the same transliteration Android reaches through its own
   // ICU and Apple through its host boundary. Built once: constructing one per commit would pay for
   // the table on every keystroke.
@@ -851,58 +1297,6 @@ export class KeyboardSession {
   private editing: string = '';
   private scheme: number = 0;
   private localMode: string = 'none';
-
-  /**
-   * Asks the packaged dictionary for English glosses and reports them when they arrive.
-   *
-   * Opt-in, offline, and bounded by the policy: an entry too long to be a gloss is not one. The
-   * Engine's own annotation wins the shared slot, so a Wubi code is never displaced by a
-   * translation.
-   */
-  private requestGlosses(view: EngineView, entries: CandidateEntry[]): void {
-    if (!this.glosses || this.handle === 0 || view.candidates.length === 0) {
-      return;
-    }
-    const token: GlossToken = CandidateGlossPolicy.token(this.handle, view.generation,
-      ++this.glossEpoch);
-    const candidates: GlossRequestCandidate[] = [];
-    for (const candidate of view.candidates) {
-      candidates.push({ text: candidate.text, source: candidate.source });
-    }
-    const request: GlossRequest = {
-      generation: view.generation, user_data: '', candidates: candidates
-    };
-    try {
-      const response: GlossResponse = JSON.parse(
-        client.candidateGlosses(JSON.stringify(request), this.resourceDirectory)) as GlossResponse;
-      if (!response.ok) {
-        KeyboardLog.error(`candidate glosses refused: ${response.error}`);
-        return;
-      }
-      if (!CandidateGlossPolicy.isCurrent(token, this.handle, this.generation, this.glossEpoch)) {
-        return;
-      }
-      const glossed: CandidateEntry[] = [];
-      for (let index: number = 0; index < entries.length; index++) {
-        glossed.push({
-          text: entries[index].text,
-          hint: entries[index].hint,
-          annotation: CandidateGlossPolicy.annotation(entries[index].annotation,
-            index < response.value.length ? response.value[index] : null, true)
-        });
-      }
-      if (this.onChanged !== undefined) {
-        this.onChanged({
-          candidates: glossed, editing: view.editing_text, spellings: view.nine_key_spellings,
-          scheme: view.scheme, shuangpinProfile: view.shuangpin_profile,
-          localMode: view.local_mode, english: view.dedicated_english,
-          diagnostic: this.diagnostic
-        });
-      }
-    } catch (error) {
-      KeyboardLog.error(`candidate glosses unreadable: ${describeError(error)}`);
-    }
-  }
 
   private render(view: EngineView): void {
     this.generation = view.generation;
@@ -926,7 +1320,8 @@ export class KeyboardSession {
         // decides; this just supplies what it reasons about.
         hint: WubiCodeHintPolicy.hint(candidate.code, view.preedit, true, view.scheme,
           view.local_mode, view.answered_by_pinyin_fallback),
-        annotation: candidate.annotation
+        annotation: CandidateGlossPolicy.annotation(candidate.annotation,
+          candidate.translation ?? null, true)
       });
     }
     if (this.onChanged !== undefined) {
@@ -941,6 +1336,420 @@ export class KeyboardSession {
         diagnostic: this.diagnostic
       });
     }
+    if (this.onCandidateCount !== undefined) {
+      this.onCandidateCount(entries.length);
+    }
+    // Candidate annotations and online providers are display-only work. Both run after the Engine
+    // view is published, and native result application rechecks the exact generation.
+    this.scheduleOnlineProviders();
+    this.scheduleTranslations();
+  }
+
+  private scheduleOnlineProviders(): void {
+    if (this.handle === 0) return;
+    let reply: NativeReply<OnlineQuery | null>;
+    try {
+      reply = JSON.parse(client.onlineQuery(this.handle)) as NativeReply<OnlineQuery | null>;
+    } catch (error) {
+      KeyboardLog.error(`online query unavailable: ${describeError(error)}`);
+      return;
+    }
+    if (!reply.ok || reply.value === null) {
+      this.onlineSignature = '';
+      return;
+    }
+    const query: OnlineQuery = reply.value;
+    const signature: string = OnlineCandidatePolicy.signature(query);
+    if (signature === this.onlineSignature) return;
+    this.onlineSignature = signature;
+    if (this.onlineTimer >= 0) clearTimeout(this.onlineTimer);
+    const epoch: number = ++this.onlineEpoch;
+    const handle: number = this.handle;
+    this.onlineTimer = setTimeout((): void => {
+      this.onlineTimer = -1;
+      void this.fetchOnline(handle, JSON.stringify(query), query, epoch);
+    }, OnlineCandidatePolicy.QUIET_INTERVAL_MS);
+  }
+
+  private async fetchOnline(handle: number, queryDocument: string, query: OnlineQuery,
+    epoch: number): Promise<void> {
+    if (epoch !== this.onlineEpoch || handle !== this.handle) return;
+    let aiQuery: OnlineQuery = query;
+    let aiDocument: string = queryDocument;
+    if (query.cloud_candidates && query.cloud_eligible) {
+      const applied: boolean = await this.fetchCloud(handle, queryDocument, epoch);
+      // Applying a cloud result advances Engine's generation. Re-read the exact query before
+      // sending AI so both optional providers can contribute without one becoming stale.
+      if (applied && handle === this.handle && epoch === this.onlineEpoch) {
+        try {
+          const current: NativeReply<OnlineQuery | null> = JSON.parse(
+            client.onlineQuery(handle)) as NativeReply<OnlineQuery | null>;
+          if (current.ok && current.value !== null) {
+            aiQuery = current.value;
+            aiDocument = JSON.stringify(current.value);
+          }
+        } catch {
+          return;
+        }
+      }
+    }
+    const assistant = aiQuery.ai_assistant;
+    if (assistant?.enabled === true && aiQuery.ai_eligible) {
+      await this.fetchAi(handle, aiDocument, assistant.candidate_limit, epoch);
+    }
+  }
+
+  private async fetchCloud(handle: number, queryDocument: string, epoch: number): Promise<boolean> {
+    let url: string;
+    try {
+      const reply: NativeReply<string> = JSON.parse(
+        client.cloudRequestUrl(queryDocument)) as NativeReply<string>;
+      if (!reply.ok || typeof reply.value !== 'string') return false;
+      url = reply.value;
+    } catch (error) {
+      KeyboardLog.error(`cloud query unavailable: ${describeError(error)}`);
+      return false;
+    }
+    const request = http.createHttp();
+    try {
+      const response: http.HttpResponse = await request.request(url, {
+        method: http.RequestMethod.GET,
+        header: { Accept: 'application/json' },
+        connectTimeout: 2500,
+        readTimeout: 8000
+      });
+      if (epoch !== this.onlineEpoch || handle !== this.handle || response.responseCode < 200
+        || response.responseCode >= 300 || typeof response.result !== 'string'
+        || OnlineCandidatePolicy.MAX_CLOUD_RESPONSE_BYTES < response.result.length) return false;
+      const applied: NativeReply<OnlineApplyValue> = JSON.parse(client.applyCloudResponse(
+        handle, queryDocument, response.result)) as NativeReply<OnlineApplyValue>;
+      if (applied.ok && applied.value.applied) this.render(applied.value.view);
+      return applied.ok && applied.value.applied;
+    } catch (error) {
+      KeyboardLog.error(`cloud candidate unavailable: ${describeError(error)}`);
+      return false;
+    } finally {
+      request.destroy();
+    }
+  }
+
+  private async fetchAi(handle: number, queryDocument: string, limit: number,
+    epoch: number): Promise<void> {
+    let descriptor: AiHttpDescriptor | null;
+    try {
+      const reply: NativeReply<AiHttpDescriptor | null> = JSON.parse(
+        client.aiRequestForQuery(handle, queryDocument)) as NativeReply<AiHttpDescriptor | null>;
+      if (!reply.ok || reply.value === null) return;
+      descriptor = reply.value;
+    } catch (error) {
+      KeyboardLog.error(`AI query unavailable: ${describeError(error)}`);
+      return;
+    }
+    const request = http.createHttp();
+    try {
+      const response: http.HttpResponse = await request.request(descriptor.url, {
+        method: http.RequestMethod.POST,
+        header: descriptor.headers,
+        connectTimeout: Math.min(8000, Math.max(1000, descriptor.connect_timeout_ms)),
+        readTimeout: Math.min(10000, Math.max(1000, descriptor.timeout_ms)),
+        extraData: JSON.stringify(descriptor.body)
+      });
+      if (epoch !== this.onlineEpoch || handle !== this.handle || response.responseCode < 200
+        || response.responseCode >= 300 || typeof response.result !== 'string') return;
+      const candidates: string[] | null = OnlineCandidatePolicy.aiCandidates(response.result, limit);
+      if (candidates === null || candidates.length === 0) return;
+      const applied: NativeReply<OnlineApplyValue> = JSON.parse(client.applyOnlineCandidates(
+        handle, queryDocument, JSON.stringify(candidates), 1)) as NativeReply<OnlineApplyValue>;
+      if (applied.ok && applied.value.applied) this.render(applied.value.view);
+    } catch (error) {
+      KeyboardLog.error(`AI candidate unavailable: ${describeError(error)}`);
+    } finally {
+      request.destroy();
+    }
+  }
+
+  private scheduleTranslations(): void {
+    if (this.handle === 0) return;
+    let reply: NativeReply<TranslationQuery | null>;
+    try {
+      reply = JSON.parse(client.translationQuery(this.handle)) as NativeReply<TranslationQuery | null>;
+    } catch (error) {
+      KeyboardLog.error(`translation query unavailable: ${describeError(error)}`);
+      return;
+    }
+    if (!reply.ok || reply.value === null) {
+      this.translationSignature = '';
+      return;
+    }
+    const query: TranslationQuery = reply.value;
+    const signature: string = TranslationPolicy.signature(query);
+    if (signature === this.translationSignature) return;
+    this.translationSignature = signature;
+    if (this.translationTimer >= 0) clearTimeout(this.translationTimer);
+    const epoch: number = ++this.translationEpoch;
+    const handle: number = this.handle;
+    this.translationTimer = setTimeout((): void => {
+      this.translationTimer = -1;
+      void this.fetchTranslations(handle, JSON.stringify(query), query, epoch);
+    }, TranslationPolicy.QUIET_INTERVAL_MS);
+  }
+
+  private async fetchTranslations(handle: number, queryDocument: string,
+    query: TranslationQuery, epoch: number): Promise<void> {
+    if (!this.translationCurrent(handle, epoch)) return;
+    const entries: TranslationEntry[] = [];
+    if (query.english_gloss && typeof query.resources === 'string' && query.resources.length > 0) {
+      this.appendOfflineGloss(query, entries);
+    }
+    const deadline: number = Date.now() + 6000;
+    const provider: string = TranslationPolicy.provider(query);
+    for (const target of TranslationPolicy.targets(query)) {
+      if (!this.translationCurrent(handle, epoch) || Date.now() >= deadline) return;
+      let plan: TranslationPlanItem[] = [];
+      try {
+        const planDocument: string = TranslationPolicy.planRequest(target, query.candidates);
+        const planReply: NativeReply<TranslationPlanItem[]> =
+          JSON.parse(client.translationPlan(planDocument)) as NativeReply<TranslationPlanItem[]>;
+        if (planReply.ok && Array.isArray(planReply.value)) plan = planReply.value;
+      } catch (error) {
+        KeyboardLog.error(`translation plan unavailable: ${describeError(error)}`);
+      }
+      if (plan.length === 0 || provider.length === 0) continue;
+      const pending: TranslationPlanItem[] = [];
+      for (const item of plan) {
+        if (target === 'en' && query.english_gloss
+          && entries.some((entry: TranslationEntry): boolean => entry.text === item.text)) {
+          continue;
+        }
+        const key: string = TranslationPolicy.cacheKey(query, target, item);
+        const cached: string | undefined = this.translationCache.get(key);
+        if (cached !== undefined) {
+          TranslationPolicy.append(entries, item.text, cached);
+          continue;
+        }
+        const negativeUntil: number | undefined = this.translationNegativeCache.get(key);
+        if (negativeUntil !== undefined) {
+          if (negativeUntil > Date.now()) continue;
+          this.translationNegativeCache.delete(key);
+        }
+        pending.push(item);
+      }
+      if (pending.length === 0) continue;
+      if (provider === 'tencent' && query.tencent_tmt !== null
+        && query.tencent_tmt !== undefined) {
+        await this.fetchTencentTranslations(query, pending, entries, epoch, handle, deadline);
+      } else {
+        for (const item of pending) {
+          if (!this.translationCurrent(handle, epoch) || Date.now() >= deadline) return;
+          let value: string | null = null;
+          if (provider === 'niutrans' && query.niutrans !== null
+            && query.niutrans !== undefined) {
+            value = await this.fetchNiuTranslation(query.niutrans, item, epoch, handle);
+          } else if (provider === 'custom' && query.custom_translation !== null
+            && query.custom_translation !== undefined) {
+            value = await this.fetchCustomTranslation(query.custom_translation, item, epoch, handle);
+          }
+          this.recordTranslation(query, target, item, value, entries);
+        }
+      }
+    }
+    if (!this.translationCurrent(handle, epoch) || entries.length === 0) return;
+    let appliedCurrent: boolean = false;
+    try {
+      const applied: NativeReply<OnlineApplyValue> = JSON.parse(client.applyTranslations(
+        handle, query.generation, JSON.stringify(entries))) as NativeReply<OnlineApplyValue>;
+      if (applied.ok && applied.value !== undefined && applied.value.view !== undefined
+        && applied.value.applied !== false) {
+        appliedCurrent = applied.value.applied;
+        this.render(applied.value.view);
+      }
+      if (appliedCurrent && query.user_data !== undefined && query.user_data.length > 0
+        && TranslationPolicy.targets(query).includes('en')) {
+        const saveRequest: TranslationGlossSaveRequest = {
+          target_language: 'en', translations: entries
+        };
+        client.translationGlossSave(JSON.stringify(saveRequest), query.user_data);
+      }
+    } catch (error) {
+      KeyboardLog.error(`candidate translations unavailable: ${describeError(error)}`);
+    }
+  }
+
+  private appendOfflineGloss(query: TranslationQuery, entries: TranslationEntry[]): void {
+    try {
+      const request: GlossRequestDocument = {
+        generation: query.generation,
+        user_data: query.user_data ?? '',
+        candidates: query.candidates.map((candidate: TranslationCandidate): GlossRequestCandidate => ({
+          text: candidate.text, source: 0
+        }))
+      };
+      const glossResponse: string = client.candidateGlosses(
+        JSON.stringify(request), query.resources ?? '');
+      const reply: NativeReply<TranslationResponseValue> =
+        JSON.parse(glossResponse) as NativeReply<TranslationResponseValue>;
+      if (!reply.ok || reply.value === undefined || reply.value.generation !== query.generation
+        || !Array.isArray(reply.value.translations)) return;
+      for (const entry of reply.value.translations) {
+        TranslationPolicy.append(entries, entry.text, entry.translation);
+      }
+    } catch (error) {
+      KeyboardLog.error(`offline candidate glosses unavailable: ${describeError(error)}`);
+    }
+  }
+
+  private async fetchTencentTranslations(query: TranslationQuery, items: TranslationPlanItem[],
+    entries: TranslationEntry[], epoch: number, handle: number, deadline: number): Promise<void> {
+    const groups: Map<string, TranslationPlanItem[]> = new Map<string, TranslationPlanItem[]>();
+    for (const item of items) {
+      const group: string = `${item.source_language}\n${item.target_language}`;
+      const values: TranslationPlanItem[] = groups.get(group) ?? [];
+      values.push(item);
+      groups.set(group, values);
+    }
+    for (const group of groups.values()) {
+      if (!this.translationCurrent(handle, epoch) || Date.now() >= deadline) return;
+      const config: TencentTranslationConfig | null | undefined = query.tencent_tmt;
+      if (config === null || config === undefined) return;
+      const request: TencentTranslationRequest = {
+        config: config,
+        texts: group.map((item: TranslationPlanItem): string => item.key),
+        source_language: group[0].source_language,
+        target_language: group[0].target_language,
+        timestamp: Math.floor(Date.now() / 1000)
+      };
+      let descriptor: TranslationHttpDescriptor | null = null;
+      try {
+        const descriptorResponse: string = client.tencentTranslationHttpRequest(
+          JSON.stringify(request));
+        const reply: NativeReply<TranslationHttpDescriptor | null> =
+          JSON.parse(descriptorResponse) as NativeReply<TranslationHttpDescriptor | null>;
+        if (reply.ok) descriptor = reply.value;
+      } catch (error) {
+        KeyboardLog.error(`Tencent translation descriptor unavailable: ${describeError(error)}`);
+      }
+      if (descriptor === null) continue;
+      const body: string | null = await this.translationHttp(descriptor, false, epoch, handle);
+      if (body === null) continue;
+      try {
+        const parsed: NativeReply<string[] | null> = JSON.parse(client.parseTencentTranslationResponse(
+          body, group.length)) as NativeReply<string[] | null>;
+        if (!parsed.ok || parsed.value === null || parsed.value.length !== group.length) continue;
+        for (let index: number = 0; index < group.length; index++) {
+          this.recordTranslation(query, group[0].target_language, group[index], parsed.value[index],
+            entries);
+        }
+      } catch (error) {
+        KeyboardLog.error(`Tencent translation response unavailable: ${describeError(error)}`);
+      }
+    }
+  }
+
+  private async fetchNiuTranslation(config: NiuTransTranslationConfig, item: TranslationPlanItem,
+    epoch: number, handle: number): Promise<string | null> {
+    const request: NiuTransTranslationRequest = {
+        config: config,
+        text: item.key,
+        source_language: item.source_language,
+        target_language: item.target_language,
+        timestamp: String(Date.now())
+    };
+    const descriptor: TranslationHttpDescriptor | null = this.translationDescriptor(
+      client.niuTransTranslationHttpRequest(JSON.stringify(request)));
+    if (descriptor === null) return null;
+    const body: string | null = await this.translationHttp(descriptor, false, epoch, handle);
+    if (body === null) return null;
+    try {
+      const reply: NativeReply<string | null> = JSON.parse(
+        client.parseNiuTransTranslationResponse(body)) as NativeReply<string | null>;
+      return reply.ok && reply.value !== null ? reply.value : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async fetchCustomTranslation(config: TranslationProviderConfig, item: TranslationPlanItem,
+    epoch: number, handle: number): Promise<string | null> {
+    const request: CustomTranslationRequest = {
+        config: config,
+        text: item.key,
+        source_language: item.source_language,
+        target_language: item.target_language
+    };
+    const descriptor: TranslationHttpDescriptor | null = this.translationDescriptor(
+      client.customTranslationHttpRequest(JSON.stringify(request)));
+    if (descriptor === null) return null;
+    const body: string | null = await this.translationHttp(descriptor, true, epoch, handle);
+    if (body === null) return null;
+    try {
+      const reply: NativeReply<string | null> = JSON.parse(
+        client.parseCustomTranslationResponse(body)) as NativeReply<string | null>;
+      return reply.ok && reply.value !== null ? reply.value : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private recordTranslation(query: TranslationQuery, target: string, item: TranslationPlanItem,
+    value: string | null, entries: TranslationEntry[]): void {
+    if (value === null) {
+      this.translationNegativeCache.set(TranslationPolicy.cacheKey(query, target, item),
+        Date.now() + TranslationPolicy.NEGATIVE_CACHE_MS);
+      return;
+    }
+    const normalised: string = TranslationPolicy.normalise(value);
+    if (normalised.length === 0) {
+      this.translationNegativeCache.set(TranslationPolicy.cacheKey(query, target, item),
+        Date.now() + TranslationPolicy.NEGATIVE_CACHE_MS);
+      return;
+    }
+    this.translationCache.set(TranslationPolicy.cacheKey(query, target, item), normalised);
+    this.translationNegativeCache.delete(TranslationPolicy.cacheKey(query, target, item));
+    TranslationPolicy.append(entries, item.text, normalised);
+  }
+
+  private translationDescriptor(raw: string): TranslationHttpDescriptor | null {
+    try {
+      const reply: NativeReply<TranslationHttpDescriptor | null> =
+        JSON.parse(raw) as NativeReply<TranslationHttpDescriptor | null>;
+      return reply.ok && reply.value !== null ? reply.value : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private async translationHttp(descriptor: TranslationHttpDescriptor, allowHttp: boolean,
+    epoch: number, handle: number): Promise<string | null> {
+    if (!this.translationCurrent(handle, epoch) || typeof descriptor.url !== 'string'
+      || descriptor.url.length > 2048 || descriptor.url.includes('\n')
+      || descriptor.url.includes('\r')
+      || (!descriptor.url.startsWith('https://')
+        && !(allowHttp && descriptor.url.startsWith('http://')))) return null;
+    if (descriptor.max_response_bytes > TranslationPolicy.MAX_RESPONSE_BYTES) return null;
+    const request = http.createHttp();
+    try {
+      const response: http.HttpResponse = await request.request(descriptor.url, {
+        method: http.RequestMethod.POST,
+        header: descriptor.headers,
+        connectTimeout: Math.min(3000, Math.max(1000, descriptor.timeout_ms)),
+        readTimeout: Math.min(8000, Math.max(1000, descriptor.timeout_ms)),
+        extraData: descriptor.body_utf8 !== undefined
+          ? descriptor.body_utf8 : JSON.stringify(descriptor.body ?? {})
+      });
+      if (!this.translationCurrent(handle, epoch) || response.responseCode < 200
+        || response.responseCode >= 300 || typeof response.result !== 'string'
+        || utf8Length(response.result) > TranslationPolicy.MAX_RESPONSE_BYTES) return null;
+      return response.result;
+    } catch (error) {
+      KeyboardLog.error(`candidate translation request unavailable: ${describeError(error)}`);
+      return null;
+    } finally {
+      request.destroy();
+    }
+  }
+
+  private translationCurrent(handle: number, epoch: number): boolean {
+    return handle !== 0 && handle === this.handle && epoch === this.translationEpoch;
   }
 
   private feedbackFile(): string {
@@ -1196,8 +2005,45 @@ export class KeyboardSession {
   insert(text: string): void {
     if (this.inputClient !== undefined) {
       const widened: string | null = FullWidthInputPolicy.output(text, this.fullWidth);
-      this.inputClient.insertText(this.asTraditional(widened === null ? text : widened));
+      const output: string = this.asTraditional(widened === null ? text : widened);
+      this.inputClient.insertText(output);
+      this.recordTypingStatistics(output, this.typingSource());
     }
+  }
+
+  /** Insert a platform-produced result and attribute it to its actual source. */
+  insertWithSource(text: string, source: string): void {
+    if (this.inputClient === undefined || text.length === 0) return;
+    const output: string = this.asTraditional(text);
+    this.inputClient.insertText(output);
+    this.recordTypingStatistics(output, source);
+  }
+
+  private typingSource(): string {
+    return TypingStatisticsPolicy.source(this.schemeName, this.profileName, this.englishMode,
+      this.nineKeyMode, this.localMode);
+  }
+
+  private recordTypingStatistics(text: string, source: string): void {
+    if (text.length === 0 || this.stateDirectory.length === 0) return;
+    const action: TypingStatisticsRecordAction = {
+      operation: 'record', text: text, source: source, day: TypingStatisticsPolicy.day(new Date())
+    };
+    const requestDocument: TypingStatisticsRecordRequest = {
+      directory: this.stateDirectory, action: action
+    };
+    const request: string = JSON.stringify(requestDocument);
+    // Native storage takes a file lock. Defer it off the key event so a slow filesystem never
+    // changes the latency of the next key, while retaining the same bounded text and source.
+    setTimeout((): void => {
+      try {
+        const response: string = client.typingStatistics(request);
+        const value: Record<string, Object> = JSON.parse(response) as Record<string, Object>;
+        if (value.ok !== true) KeyboardLog.error('typing statistics write refused');
+      } catch (error) {
+        KeyboardLog.error(`typing statistics unavailable: ${describeError(error)}`);
+      }
+    }, 0);
   }
 
   /**

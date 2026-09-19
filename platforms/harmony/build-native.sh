@@ -75,7 +75,7 @@ cp "$repo_root/target/ohos-cargo/$rust_target/release/libmsime_host_api.so" "$ou
 "${compiler}++" -std=c++17 -shared -fPIC -Wall -Wextra -Werror \
   -Wl,--no-undefined -Wl,-soname,libmsimeclient.so \
   platforms/harmony/native/client_napi.cpp -Icrates/host-api/include \
-  -L"$output" -lmsime_host_api -lace_napi.z -o "$output/libmsimeclient.so"
+  -L"$output" -lmsime_host_api -lace_napi.z -lz -o "$output/libmsimeclient.so"
 "$ndk/llvm/bin/llvm-nm" -D --defined-only "$output/libmsimeclient.so" | grep -q RegisterClientModule
 # The C++ runtime has to travel with the module. OpenHarmony does not expose a system libc++_shared.so
 # to applications, so leaving it out makes the NAPI import fail on the device with "Error loading

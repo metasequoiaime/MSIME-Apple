@@ -89,6 +89,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var candidatePanelGeneration: UInt64?
   private var emojiPicker: KeyboardEmojiPickerView?
   private var symbolPanel: KeyboardSymbolPanelView?
+  private var nineKeyHoldPopup: UIView?
+  private struct NineKeyGridKey {
+    let button: UIButton
+    let digit: Int
+    let letters: String?
+    let numberHint: UILabel?
+  }
+  private var nineKeyGridKeys: [NineKeyGridKey] = []
   private enum MoreToolsPage { case root, localInput, keyboardSettings }
   private var moreTools: [KeyboardToolSection] = []
   private var moreToolsPage: MoreToolsPage = .root
@@ -107,6 +115,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var backspaceRepeatTimer: Timer?
   private var didRepeatBackspace = false
   private var hasComposition = false
+  /// Japanese conversion keeps the selected candidate in the strip until Return commits it.
+  private var japaneseConversionIndex: Int?
   private var isChineseMode = true
   private var inputContext = KeyboardInputContext()
   private var inputScheme: ChineseInputScheme = .quanpin
@@ -128,10 +138,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var globeWidthConstraint: NSLayoutConstraint?
   private var japaneseKeys: JapaneseNineKeyView!
   private weak var japaneseGlobeButton: UIButton?
+  private weak var japaneseSpaceButton: UIButton?
+  private weak var japaneseReturnButton: UIButton?
   private var japaneseHeight: NSLayoutConstraint!
   private var nineKeyHeight: NSLayoutConstraint!
   private var nineKeySymbolsButton: UIButton!
-  private var symbolPanel: KeyboardSymbolPanelView?
   private let punctuationStack = UIStackView()
   private var quickPunctuationButton: UIButton!
   private var quickPunctuationWidth: NSLayoutConstraint?
@@ -271,6 +282,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     keyboardHeightConstraint = height
     updatePreferredKeyboardHeight()
     updateReturnKey()
+    updateSpaceKeyTitle()
     // installKeyboard builds the candidate strip before the letter rows exist, so the hints the
     // scheme button gathered there have not reached any key yet.
     updateLetterCaseControls()
@@ -435,7 +447,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     japaneseGlobe.accessibilityIdentifier = "japaneseGlobe"
     japaneseGlobe.addTarget(
       self, action: #selector(handleInputModeButton(_:event:)), for: .allTouchEvents)
-    let japaneseSpace = makeKey(title: "空格", accessibilityLabel: "空格") { [weak self] in
+    let japaneseSpace = makeKey(title: "空白", accessibilityLabel: "空白") { [weak self] in
       self?.handleSpace()
     }
     japaneseSpace.accessibilityIdentifier = "japaneseSpace"
@@ -443,6 +455,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       self?.handleReturn()
     }
     japaneseReturn.accessibilityIdentifier = "japaneseReturn"
+    japaneseSpaceButton = japaneseSpace
+    japaneseReturnButton = japaneseReturn
     japaneseKeys = JapaneseNineKeyView(makeKey: { [unowned self] title, label, action in
       makeKey(title: title, accessibilityLabel: label, action: action)
     }, makeDelete: { [unowned self] in makeDeleteKey() },
@@ -535,17 +549,21 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     nineKeyGrid.spacing = 7
     nineKeyGrid.distribution = .fillEqually
     nineKeyContainer.addArrangedSubview(nineKeyGrid)
-    let groups = [["1", "ABC", "DEF"], ["GHI", "JKL", "MNO"], ["PQRS", "TUV", "WXYZ"]]
-    for (rowIndex, lettersInRow) in groups.enumerated() {
+    // Keys 2-9 share their legends with the hold menu below. Key 1 remains the pinyin
+    // separator and has no direct English/digit hold option.
+    for rowIndex in 0..<3 {
       let row = makeRow()
-      for (column, letters) in lettersInRow.enumerated() {
+      for column in 0..<3 {
         let digit = rowIndex * 3 + column + 1
+        let letters = Self.nineKeyLetters[digit]
         let button = makeKey(
-          title: digit == 1 ? "分词" : letters,
-          accessibilityLabel: digit == 1 ? "拼音分词" : "\(digit) \(letters)"
+          title: letters ?? "分词",
+          accessibilityLabel: letters.map { "\(digit) \($0)" } ?? "拼音分词"
         ) { [weak self] in
-          if digit == 1 { self?.handleCharacter("'") }
-          else { self?.handleCharacter(String(digit)) }
+          guard let self else { return }
+          if self.showsSymbols { self.handleSymbol(String(digit)) }
+          else if letters == nil { self.handleCharacter("'") }
+          else { self.handleCharacter(String(digit)) }
         }
         button.accessibilityIdentifier = "nineKey\(digit)"
         if var configuration = button.configuration {
@@ -560,8 +578,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         }
         button.titleLabel?.adjustsFontSizeToFitWidth = true
         button.titleLabel?.minimumScaleFactor = 0.7
-        if digit != 1 {
+        var numberHint: UILabel?
+        if let letters {
           let number = UILabel()
+          numberHint = number
           number.text = String(digit)
           number.font = .systemFont(ofSize: 10)
           number.textColor = KeyboardSkinPreference.selected.accent
@@ -573,7 +593,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
             number.topAnchor.constraint(equalTo: button.topAnchor, constant: 3),
             number.centerXAnchor.constraint(equalTo: button.centerXAnchor),
           ])
+          button.tag = digit
+          let hold = UILongPressGestureRecognizer(target: self, action: #selector(handleNineKeyHold(_:)))
+          hold.minimumPressDuration = 0.3
+          button.addGestureRecognizer(hold)
+          button.accessibilityHint = "长按输入 \(digit) 或 \(letters)"
         }
+        nineKeyGridKeys.append(
+          NineKeyGridKey(button: button, digit: digit, letters: letters, numberHint: numberHint))
         row.addArrangedSubview(button)
       }
       nineKeyGrid.addArrangedSubview(row)
@@ -587,14 +614,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let delete = makeDeleteKey()
     delete.accessibilityIdentifier = "nineKeyDelete"
     controls.addArrangedSubview(delete)
-    let clear = makeKey(title: "重输", accessibilityLabel: "清空当前拼音重新输入") { [weak self] in
-      guard let self else { return }
-      self.playInputClick()
-      self.render(self.session.cancel())
+    let period = makeKey(title: ".", accessibilityLabel: "句点") { [weak self] in
+      self?.handleSymbol(".")
     }
-    clear.configuration?.contentInsets = .zero
-    clear.accessibilityIdentifier = "nineKeyClear"
-    controls.addArrangedSubview(clear)
+    period.configuration?.contentInsets = .zero
+    period.accessibilityIdentifier = "nineKeyPeriod"
+    controls.addArrangedSubview(period)
     let zero = makeKey(title: "0", accessibilityLabel: "数字 0") { [weak self] in
       self?.handleSymbol("0")
     }
@@ -602,6 +627,96 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     nineKeyContainer.addArrangedSubview(controls)
     controls.widthAnchor.constraint(equalTo: sidebar.widthAnchor).isActive = true
     return nineKeyContainer
+  }
+
+  private func applyNineKeyDigitLayer(_ digits: Bool) {
+    for key in nineKeyGridKeys {
+      key.button.configuration?.title = digits ? String(key.digit) : (key.letters ?? "分词")
+      key.button.accessibilityLabel = digits
+        ? "数字 \(key.digit)"
+        : (key.letters.map { "\(key.digit) \($0)" } ?? "拼音分词")
+      key.numberHint?.isHidden = digits
+      key.button.accessibilityHint = digits ? nil : key.letters.map { "长按输入 \(key.digit) 或 \($0)" }
+    }
+  }
+
+  private static let nineKeyLetters: [Int: String] = [
+    2: "ABC", 3: "DEF", 4: "GHI", 5: "JKL", 6: "MNO", 7: "PQRS", 8: "TUV", 9: "WXYZ",
+  ]
+
+  @objc private func handleNineKeyHold(_ gesture: UILongPressGestureRecognizer) {
+    guard gesture.state == .began, let key = gesture.view as? UIButton,
+      let letters = Self.nineKeyLetters[key.tag] else { return }
+    showNineKeyHoldOptions(from: key, digit: key.tag, letters: letters)
+  }
+
+  private func showNineKeyHoldOptions(from key: UIButton, digit: Int, letters: String) {
+    dismissNineKeyHoldOptions()
+    playInputClick()
+    let skin = KeyboardSkinPreference.selected
+    let backdrop = UIView()
+    backdrop.accessibilityIdentifier = "nineKeyHoldBackdrop"
+    backdrop.backgroundColor = .clear
+    backdrop.translatesAutoresizingMaskIntoConstraints = false
+    backdrop.addGestureRecognizer(
+      UITapGestureRecognizer(target: self, action: #selector(dismissNineKeyHoldOptionsGesture)))
+
+    let options = UIStackView()
+    options.axis = .horizontal
+    options.spacing = 4
+    options.distribution = .fillEqually
+    options.accessibilityIdentifier = "nineKeyHoldOptions"
+    options.backgroundColor = skin.background
+    options.layer.cornerRadius = 10
+    options.layer.borderWidth = 1
+    options.layer.borderColor = skin.accent.withAlphaComponent(0.3).cgColor
+    options.isLayoutMarginsRelativeArrangement = true
+    options.layoutMargins = UIEdgeInsets(top: 5, left: 5, bottom: 5, right: 5)
+    options.translatesAutoresizingMaskIntoConstraints = false
+
+    for option in [String(digit)] + letters.lowercased().map(String.init) {
+      let item = makeKey(title: option, accessibilityLabel: "输入 \(option)") { [weak self] in
+        self?.commitNineKeyHoldOption(option)
+      }
+      item.configuration?.contentInsets = .zero
+      item.accessibilityIdentifier = "nineKeyHoldOption-\(option)"
+      item.widthAnchor.constraint(equalToConstant: 36).isActive = true
+      item.heightAnchor.constraint(equalToConstant: 38).isActive = true
+      options.addArrangedSubview(item)
+    }
+
+    view.addSubview(backdrop)
+    backdrop.addSubview(options)
+    let centred = options.centerXAnchor.constraint(equalTo: key.centerXAnchor)
+    centred.priority = .defaultHigh
+    NSLayoutConstraint.activate([
+      backdrop.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      backdrop.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      backdrop.topAnchor.constraint(equalTo: view.topAnchor),
+      backdrop.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+      options.bottomAnchor.constraint(equalTo: key.topAnchor, constant: -6),
+      centred,
+      options.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 6),
+      options.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -6),
+    ])
+    nineKeyHoldPopup = backdrop
+    UIAccessibility.post(notification: .layoutChanged, argument: options)
+  }
+
+  private func commitNineKeyHoldOption(_ text: String) {
+    playInputClick()
+    render(session.finishComposition())
+    insertOwnText(text)
+    dismissNineKeyHoldOptions()
+  }
+
+  @objc private func dismissNineKeyHoldOptionsGesture() {
+    dismissNineKeyHoldOptions()
+  }
+
+  private func dismissNineKeyHoldOptions() {
+    nineKeyHoldPopup?.removeFromSuperview()
+    nineKeyHoldPopup = nil
   }
 
   private func makeCandidateStrip() -> UIView {
@@ -1186,7 +1301,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       render(session.handleCharacter(character))
     } else {
       let output = letterCaseState == .lowercase ? character : character.uppercased()
-      insertDirectText(output)
+      insertOwnText(output)
+      refreshEnglishSuggestions()
       if letterCaseState == .shifted {
         letterCaseState = .lowercase
         lastShiftTapTime = nil
@@ -1195,10 +1311,44 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
   }
 
+  /// Read the current word from the host document instead of maintaining a shadow
+  /// buffer; autocorrect, cursor movement and external edits then stay truthful.
+  private var englishWordBeforeCursor: String {
+    guard !isChineseMode, EnglishSuggestionsPreference.isEnabled else { return "" }
+    let before = textDocumentProxy.documentContextBeforeInput ?? ""
+    return EnglishSuggestionPolicy.currentWord(before: before)
+  }
+
+  private func refreshEnglishSuggestions() {
+    let prefix = englishWordBeforeCursor
+    guard prefix.count >= 2 else {
+      updateCandidateStrip(preedit: "", candidates: [])
+      return
+    }
+    updateCandidateStrip(
+      preedit: "", candidates: session.englishCompletions(forPrefix: prefix, limit: 12))
+  }
+
+  private func useEnglishSuggestion(at index: Int) {
+    guard visibleCandidates.indices.contains(index) else { return }
+    let typed = englishWordBeforeCursor
+    let startedCapitalized = typed.first?.isUppercase ?? false
+    guard let replacement = EnglishSuggestionPolicy.replacement(
+      typed: typed, candidate: visibleCandidates[index], startedCapitalized: startedCapitalized)
+    else {
+      updateCandidateStrip(preedit: "", candidates: [])
+      return
+    }
+    for _ in 0..<replacement.deleteCount { deleteOwnBackward() }
+    insertOwnText(replacement.insert)
+    updateCandidateStrip(preedit: "", candidates: [])
+  }
+
   private func handleSymbol(_ symbol: String) {
     playInputClick()
     if !isChineseMode {
-      insertDirectText(symbol)
+      insertOwnText(symbol)
+      refreshEnglishSuggestions()
       return
     }
 
@@ -1411,6 +1561,25 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateKeyboardLayout()
   }
 
+  /// Japanese names its space key by the action it performs: 空白 while idle and 変換 while
+  /// choosing a candidate. Other schemes keep the shared 空格 label.
+  private func updateSpaceKeyTitle() {
+    let title = inputScheme.isJapanese ? (hasComposition ? "変換" : "空白") : "空格"
+    if var configuration = japaneseSpaceButton?.configuration,
+       configuration.title != title {
+      configuration.title = title
+      japaneseSpaceButton?.configuration = configuration
+      japaneseSpaceButton?.accessibilityLabel = title
+    }
+    if var configuration = spaceButton?.configuration,
+       configuration.title != title {
+      configuration.title = title
+      spaceButton?.configuration = configuration
+      spaceButton?.accessibilityLabel = title
+    }
+    japaneseKeys?.setComposing(hasComposition)
+  }
+
   private func updateReturnKey() {
     let title: String
     switch textDocumentProxy.returnKeyType ?? .default {
@@ -1438,11 +1607,20 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       title = "换行"
     }
 
+    let shownTitle = inputScheme.isJapanese && hasComposition ? "確定" : title
+    if var configuration = japaneseReturnButton?.configuration {
+      let japaneseTitle = hasComposition ? "確定" : "改行"
+      if configuration.title != japaneseTitle {
+        configuration.title = japaneseTitle
+        japaneseReturnButton?.configuration = configuration
+        japaneseReturnButton?.accessibilityLabel = japaneseTitle
+      }
+    }
     if var configuration = enterButton?.configuration {
-      configuration.title = title
+      configuration.title = shownTitle
       enterButton?.configuration = configuration
     }
-    enterButton?.accessibilityLabel = title
+    enterButton?.accessibilityLabel = shownTitle
   }
 
   private func applyLearningPreferences() {
@@ -1846,7 +2024,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         display: { [weak self] in self?.chineseOutput($0) ?? $0 },
         menuElements: { [weak self] index in
           guard let self, indexes.indices.contains(index) else { return [] }
-          return candidateMenuElements(generation: generation, globalIndex: indexes[index])
+          let entry = snapshot.entries[index]
+          return candidateMenuElements(
+            generation: generation, globalIndex: indexes[index], candidate: entry.text,
+            offlineGloss: entry.translation)
         },
         onSelect: { [weak self] index in
           guard let self, indexes.indices.contains(index) else { return }
@@ -2032,13 +2213,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if writes { handwriting.activate() }
     handwritingActionHeight?.isActive = writes
     letterRowViews.forEach { $0.isHidden = showsSymbols || nineKey || writes || kana }
-    nineKeyContainer.isHidden = showsSymbols || !nineKey
-    nineKeyRows.forEach { $0.isHidden = showsSymbols || !nineKey }
+    // The nine-key digit layer keeps the three-column grid and only changes its legends. This
+    // avoids replacing it with the ten-across symbol rows and preserves the user's chosen layout.
+    let nineKeyDigits = nineKey && showsSymbols
+    nineKeyContainer.isHidden = !nineKey
+    nineKeyRows.forEach { $0.isHidden = !nineKey }
+    applyNineKeyDigitLayer(nineKeyDigits)
     let hasSpellings = !session.nineKeySpellings().isEmpty
     spellingScrollView.isHidden = !hasSpellings
     punctuationStack.isHidden = hasSpellings
     if actionRow != nil {
-      let usesNineKeyLayout = nineKey && !showsSymbols
+      let usesNineKeyLayout = nineKey
       nineKeyHeight.isActive = usesNineKeyLayout
       let globeIndex = usesNineKeyLayout ? 5 : 2
       if actionRow.arrangedSubviews.firstIndex(of: actionGlobeButton) != globeIndex {
@@ -2072,7 +2257,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       symbolDeleteWidth?.isActive = showsSymbols && !kana
       NSLayoutConstraint.activate(usesNineKeyLayout ? nineKeyActionWidths : standardActionWidths)
     }
-    symbolRowViews.forEach { $0.isHidden = !showsSymbols || kana }
+    symbolRowViews.forEach { $0.isHidden = !showsSymbols || kana || nineKey }
     // Chinese punctuation only appears in Chinese mode. Local utilities and dedicated English
     // input send the literal ASCII key value, so their labels must follow their insertion path.
     let sendsChinesePunctuation = isChineseMode && !session.isInLocalMode
@@ -2107,6 +2292,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func handleBackspace() {
     if !handwriting.isHidden && handwriting.hasInk { handwriting.canvas.undo(); return }
     playInputClick()
+    if !isChineseMode {
+      deleteOwnBackward()
+      refreshEnglishSuggestions()
+      return
+    }
     let snapshot = session.handleBackspace()
     if !snapshot.isHandled {
       deleteOwnBackward()
@@ -2144,6 +2334,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   @objc private func repeatBackspace() {
+    if !didRepeatBackspace && hasComposition {
+      backspaceRepeatTimer?.invalidate()
+      backspaceRepeatTimer = nil
+      didRepeatBackspace = true
+      playInputClick()
+      render(session.cancel())
+      return
+    }
     didRepeatBackspace = true
     handleBackspace()
   }
@@ -2173,7 +2371,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   @objc private func handleSpacePan(_ pan: UIPanGestureRecognizer) {
     guard let document = KeyboardHostContext.documentIdentifier(for: textDocumentProxy) else {
       cursorMovement.cancel()
-      spaceButton?.configuration?.title = "空格"
+      updateSpaceKeyTitle()
       return
     }
     switch pan.state {
@@ -2187,10 +2385,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     case .changed:
       moveCursor(by: cursorMovement.advance(to: pan.translation(in: view).x,
                                            document: document))
-      if !cursorMovement.isActive { spaceButton?.configuration?.title = "空格" }
+      if !cursorMovement.isActive { updateSpaceKeyTitle() }
     case .ended, .cancelled, .failed:
       cursorMovement.cancel()
-      spaceButton?.configuration?.title = "空格"
+      updateSpaceKeyTitle()
     default: break
     }
   }
@@ -2198,6 +2396,19 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func handleSpace() {
     if !handwriting.isHidden && handwriting.hasInk { _ = handwriting.commitFirst(); return }
     playInputClick()
+    if !isChineseMode {
+      insertOwnText(" ")
+      refreshEnglishSuggestions()
+      return
+    }
+    if inputScheme.isJapanese && hasComposition && !visibleCandidates.isEmpty {
+      let next = (japaneseConversionIndex.map { $0 + 1 } ?? 0) % visibleCandidates.count
+      japaneseConversionIndex = next
+      renderCandidateStrip()
+      updateSpaceKeyTitle()
+      updateReturnKey()
+      return
+    }
     let snapshot = commitVisibleCandidate()
     if !snapshot.isHandled {
       insertDirectText(" ")
@@ -2212,6 +2423,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func handleReturn() {
     if !handwriting.isHidden && handwriting.hasInk { _ = handwriting.commitFirst(); return }
     playInputClick()
+    if inputScheme.isJapanese && hasComposition {
+      let index = japaneseConversionIndex
+      japaneseConversionIndex = nil
+      render(index.map { session.selectCandidate(at: UInt($0)) } ?? session.commitReading())
+      return
+    }
     let snapshot = session.finishComposition()
     if !snapshot.isHandled {
       insertOwnText("\n")
@@ -2221,7 +2438,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   @objc private func handleInputModeButton(_ sender: UIButton, event: UIEvent) {
     if event.allTouches?.contains(where: { touch in touch.phase == .began }) == true {
-      render(session.commitRaw())
+      render(inputScheme.isJapanese ? session.finishComposition() : session.commitRaw())
     }
     handleInputModeList(from: sender, with: event)
   }
@@ -2279,10 +2496,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       insertOwnText(source == .japanese ? commitText : chineseOutput(commitText), source: source)
     }
     hasComposition = !snapshot.preedit.isEmpty
-    japaneseKeys?.setComposing(hasComposition)
+    if !hasComposition || snapshot.commitText != nil { japaneseConversionIndex = nil }
+    if inputScheme.isJapanese {
+      updateSpaceKeyTitle()
+      updateReturnKey()
+    }
     if !hasComposition { applyLearningPreferences() }
     showDiagnostic(snapshot.diagnosticText)
-    updateCandidateStrip(preedit: snapshot.preedit, candidates: snapshot.candidates,
+    updateCandidateStrip(
+                         preedit: inputScheme.isJapanese && !snapshot.reading.isEmpty
+                           ? snapshot.reading : snapshot.preedit,
+                         candidates: snapshot.candidates,
                          candidateCodes: snapshot.candidateCodes,
                          candidateGlosses: snapshot.candidateGlosses,
                          candidatePageCount: snapshot.candidatePageCount,
@@ -2350,7 +2574,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     for (offset, candidate) in page.enumerated() {
       candidateStack.addArrangedSubview(
         makeCandidateButton(
-          candidate: candidate, number: offset + 1, index: offset))
+          candidate: candidate, number: offset + 1, index: offset,
+          converting: japaneseConversionIndex == offset))
     }
     updateExpandControl()
 
@@ -2510,7 +2735,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   // A touch keyboard has no number row to answer with, so the ordinal is spoken rather than drawn;
   // the index is the engine position the chip selects. The expand panel already showed bare text.
-  private func makeCandidateButton(candidate: String, number: Int, index: Int) -> UIButton {
+  private func makeCandidateButton(candidate: String, number: Int, index: Int,
+                                   converting: Bool = false) -> UIButton {
     let display = chineseOutput(candidate)
     let annotation = candidateAnnotation(at: index)
     let glosses = candidateGlosses(at: index)
@@ -2543,7 +2769,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     configuration.baseForegroundColor = KeyboardSkinPreference.selected.keyForeground
     configuration.contentInsets = NSDirectionalEdgeInsets(
       top: 4, leading: 9, bottom: 4, trailing: 9)
-    configuration.background.backgroundColor = KeyboardSkinPreference.selected.keyBackground
+    configuration.background.backgroundColor = converting
+      ? KeyboardSkinPreference.selected.accent.withAlphaComponent(0.22)
+      : KeyboardSkinPreference.selected.keyBackground
     configuration.background.strokeColor = KeyboardSkinPreference.selected.accent.withAlphaComponent(0.22)
     configuration.background.strokeWidth = 1
     configuration.background.cornerRadius = 9
@@ -2557,6 +2785,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         // through the handwriting panel rather than through session.selectCandidate.
         if self.inputScheme == .handwriting, !self.handwritingResults.isEmpty {
           if self.handwriting.use(at: index) { self.handwritingResults = [] }
+          return
+        }
+        if !self.isChineseMode {
+          self.useEnglishSuggestion(at: index)
           return
         }
         self.render(self.session.selectCandidate(at: UInt(index)))
@@ -2577,6 +2809,38 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return button
   }
 
+  /// What a long press on a candidate's gloss offers. The action is deferred until the menu opens,
+  /// so a chip reused for another composition cannot insert a stale translation.
+  private func glossMenuElements(
+    _ glosses: [String], isCurrent: @escaping () -> Bool
+  ) -> [UIMenuElement] {
+    glosses
+      .map { $0.trimmingCharacters(in: .whitespacesAndNewlines) }
+      .filter { !$0.isEmpty }
+      .map { gloss in
+        UIAction(title: gloss, image: UIImage(systemName: "character.bubble")) { [weak self] _ in
+          guard let self, isCurrent() else { return }
+          playInputClick()
+          insertOwnText(gloss, source: .local)
+          render(session.cancel())
+          UIAccessibility.post(notification: .announcement, argument: "已输入 \(gloss)")
+        }
+      }
+  }
+
+  private func glossMenuElements(at index: Int) -> [UIMenuElement] {
+    guard visibleCandidates.indices.contains(index) else { return [] }
+    let candidate = visibleCandidates[index]
+    let revision = candidateRevision
+    return glossMenuElements(candidateGlosses(at: index)) { [weak self] in
+      guard let self, candidateRevision == revision,
+            visibleCandidates.indices.contains(index), visibleCandidates[index] == candidate else {
+        return false
+      }
+      return true
+    }
+  }
+
   /// What a long press on a strip candidate offers.
   ///
   /// The expanded panel shares this menu through the overload below. It built its own chips and
@@ -2587,11 +2851,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
           visibleCandidates.indices.contains(index) else { return [] }
     let candidate = visibleCandidates[index]
     let revision = candidateRevision
-    return candidateMenuElements { [weak self] operation in
+    let glosses = glossMenuElements(at: index)
+    let management = candidateMenuElements { [weak self] operation in
       guard let self, candidateRevision == revision,
             visibleCandidates.indices.contains(index), visibleCandidates[index] == candidate else { return nil }
       return session.editCandidate(at: UInt(index), expectedWord: candidate, action: operation)
     }
+    return glosses + management
   }
 
   /// The same menu for a candidate identified the way the expanded panel holds it. Panel positions
@@ -2601,6 +2867,26 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     return candidateMenuElements { [weak self] operation in
       self?.session.editCandidate(generation: generation, globalIndex: globalIndex, action: operation)
     }
+  }
+
+  private func candidateMenuElements(
+    generation: UInt64, globalIndex: UInt64, candidate: String, offlineGloss: String
+  ) -> [UIMenuElement] {
+    guard isChineseMode, !inputScheme.isJapanese, !session.isInLocalMode else { return [] }
+    let glosses = glossMenuElements(glosses(word: candidate, offline: offlineGloss)) { [weak self] in
+      guard let self else { return false }
+      guard let snapshot = try? session.allCandidates(),
+            let current = try? CandidatePanelSnapshot.decode(snapshot),
+            current.generation == generation,
+            current.entries.contains(where: { $0.index == globalIndex && $0.text == candidate }) else {
+        return false
+      }
+      return true
+    }
+    let management = candidateMenuElements { [weak self] operation in
+      self?.session.editCandidate(generation: generation, globalIndex: globalIndex, action: operation)
+    }
+    return glosses + management
   }
 
   private func candidateMenuElements(
@@ -2954,6 +3240,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func closeKeyboardPicker() {
+    dismissNineKeyHoldOptions()
     if let panel = candidatePanel {
       panel.removeFromSuperview()
       candidatePanel = nil

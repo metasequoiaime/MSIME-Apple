@@ -233,6 +233,7 @@ export type Preferences = {
   cloud_candidates?: boolean;
   candidate_translations?: boolean;
   candidate_english_gloss?: boolean;
+  english_suggestions?: boolean;
   translation_target_language?: "en" | "fr" | "ja" | "es" | "ru" | "de" | "ko";
   /** Optional second candidate-translation language; null/absent keeps one gloss row. */
   translation_secondary_language?: "en" | "fr" | "ja" | "es" | "ru" | "de" | "ko" | null;
@@ -837,6 +838,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
   // explaining where to change it.
   const windowsPlatform = client.host?.platform === "windows";
   const macosPlatform = client.host?.platform === "macos";
+  const nativeVoicePlatform = macosPlatform || harmonyPlatform;
   const candidatePageSizes = macosPlatform ? [5, 7, 9] : Array.from({ length: 9 }, (_, index) => index + 1);
   // Functional controls follow what the host declares it can do. Only the prose
   // below still varies by platform name. A host that predates the contract keeps
@@ -877,6 +879,8 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
       ? "水杉输入法是一款 Linux 桌面环境下的中文输入法，通过 IBus 接入 GTK、Qt 等应用。"
       : macosPlatform
         ? "水杉输入法是一款 macOS 平台的中文输入法，通过系统输入法组件接入应用。"
+        : harmonyPlatform
+          ? "水杉输入法是一款 HarmonyOS 平台的中文输入法，通过系统输入法服务接入应用。"
         : iosPlatform
           ? "水杉输入法是一款 iOS 平台的中文输入法，通过键盘扩展接入应用。"
           : "水杉输入法是一款 Windows 平台的中文输入法。目前支持 Windows 11/Windows 10 平台。";
@@ -886,6 +890,8 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
       ? "安装并启动 IBus 宿主后，在系统设置的输入法列表中添加水杉输入法，再使用桌面环境提供的输入法切换快捷键切换。默认是全拼输入法。"
       : macosPlatform
         ? "在系统设置的键盘输入法中启用水杉输入法，再使用系统配置的输入法切换快捷键。默认是全拼输入法。"
+        : harmonyPlatform
+          ? "在系统设置中启用并选择水杉输入法，再从输入法键盘使用语音和触屏输入。默认是全拼输入法。"
         : iosPlatform
           ? "在系统设置中启用水杉键盘，再从应用的输入源按钮切换使用。默认是全拼输入法。"
           : "安装输入法后，可以使用 Win + Space 快捷键切换到水杉输入法。默认是全拼输入法。";
@@ -895,6 +901,8 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
       ? "语音识别和云联想由用户自行管理的 provider 提供，设置页只保存行为选项，不保存或转发 provider 的凭据。"
       : macosPlatform
         ? "语音识别、候选翻译和 AI 功能仅在用户配置并启用对应服务时联网；日常拼音输入无需联网。"
+        : harmonyPlatform
+          ? "豆包语音识别仅在用户配置并启用时联网；也可使用 HarmonyOS 系统语音识别。原始音频只在本次识别期间处理。"
         : iosPlatform
           ? "键盘扩展的日常拼音输入无需联网；账号、云同步、AI 和语音功能仅在用户启用时联网。"
           : "语音识别和 AI 联想需要自行填入 API 和 token。云联想目前支持谷歌的云接口，请注意网络问题。";
@@ -904,10 +912,12 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
       ? "为 Linux 桌面输入体验打造的开放中文输入法。"
       : macosPlatform
         ? "为现代 macOS 桌面体验打造的开放中文输入法。"
+        : harmonyPlatform
+          ? "为 HarmonyOS 触屏输入体验打造的开放中文输入法。"
         : iosPlatform
           ? "为 iPhone 与 iPad 触屏输入体验打造的开放中文输入法。"
           : "为现代 Windows 桌面体验打造的开放中文输入法。";
-  const mobilePlatform = iosPlatform || androidPlatform;
+  const mobilePlatform = iosPlatform || androidPlatform || harmonyPlatform;
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [draft, setDraft] = useState<Preferences>();
   const [busy, setBusy] = useState(true);
@@ -1452,6 +1462,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
   const cloudCandidates = draft?.cloud_candidates ?? true;
   const candidateTranslations = draft?.candidate_translations ?? true;
   const candidateEnglishGloss = draft?.candidate_english_gloss ?? true;
+  const englishSuggestions = draft?.english_suggestions ?? true;
   const candidateGlossLanguagesEnabled = candidateTranslations
     || Boolean(client.candidateEnglishGloss && candidateEnglishGloss);
   const translationTargetLanguage = draft?.translation_target_language ?? "en";
@@ -1468,7 +1479,8 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
     visibleTranslationLanguages.push(["ru", "俄语（已保存）"]);
   }
   const voiceInput = { ...defaultVoiceInput, ...(draft?.voice_input ?? {}) };
-  const systemVoice = macosPlatform && voiceInput.asr_provider === "system";
+  const systemVoice = nativeVoicePlatform && voiceInput.asr_provider === "system";
+  const harmonyUnsupportedAsr = harmonyPlatform && !["doubao", "system"].includes(String(voiceInput.asr_provider));
   const doubaoAuthMode = voiceInput.doubao_auth_mode || (voiceInput.asr_app_key && !voiceInput.asr_app_key.startsWith("<") ? "legacy" : "api_key");
   const updateVoice = (patch: Partial<VoiceInputPreferences>) => {
     if (draft) setDraft({ ...draft, voice_input: { ...voiceInput, ...patch } });
@@ -1564,9 +1576,12 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
   const mobilePrimaryPageIds: readonly SettingsPageId[] = ["home", "community", "typing-statistics", "account"];
   const mobilePrimaryPages = availablePages.filter(item => mobilePrimaryPageIds.includes(item.id));
   // Physical-keyboard shortcuts, helper-code switches, and a desktop floating
-  // toolbar have no mobile surface in the Apple/Android hosts. Keep them in the
-  // desktop sidebar while preventing dead-end entries in the mobile picker.
-  const mobileHiddenPageIds: readonly SettingsPageId[] = ["helpcode", "shortcuts", "floating-toolbar"];
+  // toolbar have no mobile surface in the Apple/Android hosts. HarmonyOS keeps
+  // its hardware shortcuts and keyboard toolbar in the input-method panel, so
+  // only the helper-code page stays hidden there.
+  const mobileHiddenPageIds: readonly SettingsPageId[] = harmonyPlatform
+    ? ["helpcode"]
+    : ["helpcode", "shortcuts", "floating-toolbar"];
   const mobileSecondaryPages = availablePages.filter(item =>
     !mobilePrimaryPageIds.includes(item.id) && !mobileHiddenPageIds.includes(item.id));
   const selectPage = (next: SettingsPageId) => {
@@ -1990,6 +2005,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
         <div className="section"><label className="section-header"><span className="section-title">繁体中文输出<small>将提交的简体中文转换为繁体中文</small></span><input aria-label="繁体中文输出" className="toggle" type="checkbox" checked={draft.traditional_chinese_output ?? false} onChange={event => setDraft({ ...draft, traditional_chinese_output: event.target.checked })} /></label></div>
         {macosPlatform && <div className="section"><label className="section-header"><span className="section-title">中英文切换提示<small>切换输入模式后，在光标附近短暂显示“中”或“英”，不会抢占焦点。</small></span><input aria-label="中英文切换提示" className="toggle" type="checkbox" checked={inputModeHUD} onChange={event => setDraft({ ...draft, input_mode_hud: event.target.checked })} /></label></div>}
         {client.candidateEnglishGloss && <div className="section"><label className="section-header"><span className="section-title">显示英文释义<small>在候选词后面标出它的英文意思，中文候选给英文、英文候选给中文。释义来自随键盘打包的离线词库，不联网。</small></span><input aria-label="显示英文释义" className="toggle" type="checkbox" checked={candidateEnglishGloss} onChange={event => setDraft({ ...draft, candidate_english_gloss: event.target.checked })} /></label></div>}
+        {androidPlatform && <div className="section"><label className="section-header"><span className="section-title">英文建议<small>英文 26 键直接输入时，在候选栏显示当前单词的补全建议；关闭后仍可正常输入英文。</small></span><input aria-label="英文建议" className="toggle" type="checkbox" checked={englishSuggestions} onChange={event => setDraft({ ...draft, english_suggestions: event.target.checked })} /></label></div>}
         <div className="section"><label className="section-header"><span className="section-title">云联想<small>向在线服务请求额外候选</small></span><input className="toggle" type="checkbox" checked={cloudCandidates} onChange={event => setDraft({ ...draft, cloud_candidates: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">候选翻译<small>为当前候选请求翻译结果并显示在候选行</small></span><input className="toggle" type="checkbox" checked={candidateTranslations} onChange={event => setDraft({ ...draft, candidate_translations: event.target.checked })} /></label>
           <div className="input-option-divider" />
@@ -2281,10 +2297,10 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
         </div>}
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "voice"} aria-label="语音输入">
-        {systemVoice ? <div className="section panel-launch-card"><div className="section-title">macOS 系统语音</div><p className="panel-inline-note">保存设置后，在目标应用中启用水杉输入法，使用下方语音快捷键录音。不需要识别 API Key；首次使用需授予麦克风和语音识别权限。服务可用性及是否联网由 macOS 决定，可选文本润色仍使用你配置的云服务。</p></div> : androidPlatform ? <div className="section panel-launch-card"><div className="section-title">Android 系统语音</div><p className="panel-inline-note">从键盘工具栏的“语音”入口调用设备上的系统语音识别服务。识别结果会回到键盘，确认后才插入当前输入框。</p></div> : iosPlatform ? <div className="section panel-launch-card"><div className="section-title">iOS 应用语音</div><p className="panel-inline-note">iOS 的录音、识别和文本提交在当前共享设置与应用语音服务中完成。保存设置后，从应用内的语音入口开始；识别结果会回到当前页面，再由你确认使用。不打开无法提交到键盘扩展输入会话的 Tauri 语音面板。</p>{client.openVoice && <button type="button" className="secondary" onClick={() => void openPanel(client.openVoice)}>开始 iOS 语音</button>}</div> : macosPlatform ? <div className="section panel-launch-card"><div className="section-title">macOS 输入法语音</div><p className="panel-inline-note">macOS 的语音录音、云端识别和文本提交由当前输入法进程负责；保存设置后，请在目标应用中使用下方语音快捷键或输入法悬浮工具栏开始。不打开无法提交到当前输入法会话的 Tauri 面板。</p></div> : <div className="section panel-launch-card"><div className="section-header panel-launch-row"><span className="section-title">打开语音输入<small>{linuxPlatform ? "录音和识别由已配置的 provider 服务完成" : "录音和识别在本机完成"}</small></span><button type="button" className="secondary panel-open-button" disabled={!client.openVoice} onClick={() => void openPanel(client.openVoice)}>打开</button></div>{linuxPlatform && <p className="panel-inline-note">没有 provider 时可继续使用 IBus 属性中的入口；服务负责录音、模型和凭据。</p>}</div>}
+        {systemVoice ? <div className="section panel-launch-card"><div className="section-title">{harmonyPlatform ? "HarmonyOS" : "macOS"} 系统语音</div><p className="panel-inline-note">保存设置后，在目标应用中启用水杉输入法，使用键盘内的语音入口录音。不需要识别 API Key；首次使用需授予麦克风和语音识别权限。服务可用性及是否联网由系统决定，可选文本润色仍使用你配置的云服务。</p></div> : androidPlatform ? <div className="section panel-launch-card"><div className="section-title">Android 系统语音</div><p className="panel-inline-note">从键盘工具栏的“语音”入口调用设备上的系统语音识别服务。识别结果会回到键盘，确认后才插入当前输入框。</p></div> : iosPlatform ? <div className="section panel-launch-card"><div className="section-title">iOS 应用语音</div><p className="panel-inline-note">iOS 的录音、识别和文本提交在当前共享设置与应用语音服务中完成。保存设置后，从应用内的语音入口开始；识别结果会回到当前页面，再由你确认使用。不打开无法提交到键盘扩展输入会话的 Tauri 语音面板。</p>{client.openVoice && <button type="button" className="secondary" onClick={() => void openPanel(client.openVoice)}>开始 iOS 语音</button>}</div> : macosPlatform ? <div className="section panel-launch-card"><div className="section-title">macOS 输入法语音</div><p className="panel-inline-note">macOS 的语音录音、云端识别和文本提交由当前输入法进程负责；保存设置后，请在目标应用中使用下方语音快捷键或输入法悬浮工具栏开始。不打开无法提交到当前输入法会话的 Tauri 面板。</p></div> : harmonyPlatform ? <div className="section panel-launch-card"><div className="section-title">HarmonyOS 输入法语音</div><p className="panel-inline-note">豆包配置有效时，键盘直接采集 16 kHz 麦克风音频并进行实时识别；选择系统识别时由 HarmonyOS CoreSpeechKit 处理。识别结果会回到键盘，确认后才插入当前输入框。</p></div> : <div className="section panel-launch-card"><div className="section-header panel-launch-row"><span className="section-title">打开语音输入<small>{linuxPlatform ? "录音和识别由已配置的 provider 服务完成" : "录音和识别在本机完成"}</small></span><button type="button" className="secondary panel-open-button" disabled={!client.openVoice} onClick={() => void openPanel(client.openVoice)}>打开</button></div>{linuxPlatform && <p className="panel-inline-note">没有 provider 时可继续使用 IBus 属性中的入口；服务负责录音、模型和凭据。</p>}</div>}
         <div className="section"><label className="section-header"><span className="section-title">语音输入<small>使用语音识别将录音转换为文字</small></span><input aria-label="启用语音输入" className="toggle" type="checkbox" checked={voiceInput.enabled} onChange={event => updateVoice({ enabled: event.target.checked })} /></label></div>
-        {!androidPlatform && <div className="section"><label className="section-header"><span className="section-title">识别服务</span><select aria-label="识别服务" value={String(voiceInput.asr_provider)} onChange={event => updateVoice({ ...asrProviderUpdate(event.target.value, voiceInput), ...(event.target.value === "system" && voiceInput.language === "auto" ? { language: "zh-CN" } : {}), ...(linuxPlatform ? { asr_resource_id: "", doubao_boosting_table_id: "" } : {}) })}><option value="doubao">豆包</option><option value="siliconflow">SiliconFlow</option><option value="openai">OpenAI</option><option value="groq">Groq</option>{macosPlatform && <option value="system">macOS 系统识别</option>}{!macosPlatform && voiceInput.asr_provider === "system" && <option value="system" disabled>macOS 系统识别（当前平台不可用）</option>}</select></label></div>}
-        <div className="section"><label className="section-header"><span className="section-title">识别语言{systemVoice && <small>选择明确的语言代码，例如 zh-CN、en-US；可用语言由 macOS 决定</small>}</span><input aria-label="识别语言" maxLength={64} list="settings-voice-language-options" value={voiceInput.language} onChange={event => updateVoice({ language: event.target.value })} /><datalist id="settings-voice-language-options"><option value={systemVoice ? "zh-CN" : "zh-cn"}>中文（普通话）</option><option value={systemVoice ? "en-US" : "en"}>English</option><option value={systemVoice ? "ja-JP" : "ja"}>日本語</option>{!systemVoice && <option value="auto">自动识别</option>}</datalist></label></div>
+        {!androidPlatform && <div className="section"><label className="section-header"><span className="section-title">识别服务</span><select aria-label="识别服务" value={String(voiceInput.asr_provider)} onChange={event => updateVoice({ ...asrProviderUpdate(event.target.value, voiceInput), ...(event.target.value === "system" && voiceInput.language === "auto" ? { language: "zh-CN" } : {}), ...(linuxPlatform ? { asr_resource_id: "", doubao_boosting_table_id: "" } : {}) })}><option value="doubao">豆包</option><option value="siliconflow">SiliconFlow</option><option value="openai">OpenAI</option><option value="groq">Groq</option>{macosPlatform && <option value="system">macOS 系统识别</option>}{harmonyPlatform && <option value="system">HarmonyOS 系统识别</option>}{!nativeVoicePlatform && voiceInput.asr_provider === "system" && <option value="system" disabled>系统识别（当前平台不可用）</option>}{harmonyUnsupportedAsr && <option value={String(voiceInput.asr_provider)} disabled>{String(voiceInput.asr_provider)}（当前 HarmonyOS 版本不可用）</option>}</select></label></div>}
+        <div className="section"><label className="section-header"><span className="section-title">识别语言{systemVoice && <small>选择明确的语言代码，例如 zh-CN、en-US；可用语言由系统决定</small>}</span><input aria-label="识别语言" maxLength={64} list="settings-voice-language-options" value={voiceInput.language} onChange={event => updateVoice({ language: event.target.value })} /><datalist id="settings-voice-language-options"><option value={systemVoice ? "zh-CN" : "zh-cn"}>中文（普通话）</option><option value={systemVoice ? "en-US" : "en"}>English</option><option value={systemVoice ? "ja-JP" : "ja"}>日本語</option>{!systemVoice && <option value="auto">自动识别</option>}</datalist></label></div>
         {!androidPlatform && !systemVoice && <div className="section"><label className="section-header"><span className="section-title">识别模型<small>由 provider 服务选择对应模型</small></span><input aria-label="识别模型" value={voiceInput.asr_model ?? ""} onChange={event => updateVoice({ asr_model: event.target.value })} /></label></div>}
         {!androidPlatform && voiceInput.asr_provider === "doubao" && <div className="section"><label className="section-header"><span className="section-title">豆包鉴权方式<small>{linuxPlatform ? "provider 服务必须与此模式匹配" : "新版控制台使用单 API Key；旧版使用 App ID + Access Token"}</small></span><select aria-label="豆包鉴权方式" value={doubaoAuthMode} onChange={event => updateVoice({ doubao_auth_mode: event.target.value === "legacy" ? "legacy" : "api_key" })}><option value="api_key">新版 API Key</option><option value="legacy">旧版 App ID + Access Token</option></select></label></div>}
         {!androidPlatform && !linuxPlatform && !systemVoice && <>
@@ -2300,7 +2316,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
           doubao_enable_punc: voiceInput.doubao_enable_punc !== false,
           doubao_enable_ddc: voiceInput.doubao_enable_ddc === true,
         })}
-        {(windowsPlatform || macosPlatform) && ["doubao", "openai", "siliconflow", "groq"].includes(voiceInput.asr_provider ?? "") && <>
+        {(windowsPlatform || macosPlatform || harmonyPlatform) && (["openai", "siliconflow", "groq"].includes(voiceInput.asr_provider ?? "") || (harmonyPlatform && voiceInput.asr_provider === "doubao")) && <>
           <p className="panel-inline-note">测试会向当前服务发送一秒合成静音，不使用麦克风；服务可能计入 API 用量。</p>
           {credentialTestControl("voice.asr", voiceInput.asr_provider === "doubao" ? "测试豆包识别配置" : "测试语音识别配置", {
             provider: voiceInput.asr_provider,
@@ -2311,6 +2327,10 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
               auth_mode: doubaoAuthMode,
               app_id: doubaoAuthMode === "legacy" ? voiceInput.asr_app_key ?? "" : "",
               resource_id: voiceInput.asr_resource_id ?? "volc.seedasr.sauc.duration",
+              doubao_enable_itn: voiceInput.doubao_enable_itn !== false,
+              doubao_enable_punc: voiceInput.doubao_enable_punc !== false,
+              doubao_enable_ddc: voiceInput.doubao_enable_ddc === true,
+              doubao_boosting_table_id: voiceInput.doubao_boosting_table_id ?? "",
             } : {}),
           }, !voiceInput.asr_token?.trim() || (voiceInput.asr_provider === "doubao" && doubaoAuthMode === "legacy" && !voiceInput.asr_app_key?.trim()))}
         </>}
@@ -2350,7 +2370,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
           {linuxPlatform && credentialTestControl("voice.polish", "测试语音润色配置", {
             polish_provider: voiceInput.polish_provider ?? "siliconflow", polish_model: voiceInput.polish_model ?? "",
           }, !(voiceInput.polish_text === true || voiceInput.polish_enabled === true))}
-          {(windowsPlatform || macosPlatform || iosPlatform) && credentialTestControl("voice.polish", "测试语音润色配置", {
+          {(windowsPlatform || macosPlatform || iosPlatform || harmonyPlatform) && credentialTestControl("voice.polish", "测试语音润色配置", {
             provider: voiceInput.polish_provider ?? "siliconflow",
             endpoint: voiceInput.polish_endpoint?.trim() || POLISH_PROVIDER_DEFAULTS[voiceInput.polish_provider ?? "siliconflow"]?.endpoint || "",
             model: voiceInput.polish_model?.trim() || POLISH_PROVIDER_DEFAULTS[voiceInput.polish_provider ?? "siliconflow"]?.model || "",

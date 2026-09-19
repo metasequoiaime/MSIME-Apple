@@ -2076,6 +2076,62 @@ pub unsafe extern "C" fn msime_client_candidate_gloss_request(
     })
 }
 
+/// Query copied prefixes against the packaged English dictionary. This does not
+/// create or mutate an Engine session and is suitable for a host worker thread.
+///
+/// # Safety
+/// The request and resources pointers must point to readable buffers of the supplied lengths.
+/// Neither buffer is retained after the call returns.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_english_completions_request(
+    request: *const u8,
+    request_length: usize,
+    resources: *const u8,
+    resources_length: usize,
+) -> *mut c_char {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Request {
+        prefix: String,
+        limit: u8,
+    }
+    response(|| {
+        if request.is_null()
+            || resources.is_null()
+            || request_length > 16_384
+            || resources_length > 4_096
+        {
+            return Err("invalid English completion buffer".into());
+        }
+        let request: Request =
+            serde_json::from_slice(unsafe { std::slice::from_raw_parts(request, request_length) })
+                .map_err(|_| "invalid English completion request")?;
+        if !(1..=32).contains(&request.limit)
+            || request.prefix.is_empty()
+            || request.prefix.len() > 128
+            || !request
+                .prefix
+                .bytes()
+                .all(|byte| byte.is_ascii_alphabetic())
+        {
+            return Err("invalid English completion prefix".into());
+        }
+        let resources =
+            std::str::from_utf8(unsafe { std::slice::from_raw_parts(resources, resources_length) })
+                .map_err(|_| "resources path is not UTF-8")?;
+        if !Path::new(resources).is_absolute() {
+            return Err("resources path must be absolute".into());
+        }
+        let items = msime_engine_bridge::english_completions(
+            resources,
+            &request.prefix,
+            usize::from(request.limit),
+        )
+        .map_err(|_| "English completion dictionary unavailable")?;
+        Ok(json!({"prefix": request.prefix, "items": items}))
+    })
+}
+
 /// Native presentation override; changes wait for the current composition to end.
 #[no_mangle]
 pub extern "C" fn msime_client_set_candidate_page_size(handle: u64, size: u8) -> *mut c_char {
@@ -2437,6 +2493,39 @@ pub extern "C" fn msime_client_all_candidates(handle: u64) -> *mut c_char {
     response(|| {
         with_session(handle, |session| {
             serde_json::to_value(session.runtime.all_candidates()).map_err(|e| e.to_string())
+        })
+    })
+}
+
+/// Return bounded, lower-case English completions for the word immediately before the cursor.
+/// This query is read-only and does not touch the Engine session's composition state.
+///
+/// # Safety
+/// `prefix` must point to `prefix_length` readable UTF-8 bytes. The buffer is not retained.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_english_completions(
+    handle: u64,
+    prefix: *const u8,
+    prefix_length: usize,
+    limit: usize,
+) -> *mut c_char {
+    response(|| {
+        if prefix.is_null() || !(1..=64).contains(&prefix_length) || !(1..=32).contains(&limit) {
+            return Err("invalid English completion buffer".into());
+        }
+        let bytes = unsafe { std::slice::from_raw_parts(prefix, prefix_length) };
+        let prefix = std::str::from_utf8(bytes).map_err(|_| "invalid English completion prefix")?;
+        if !prefix.bytes().all(|value| value.is_ascii_alphabetic()) {
+            return Err("invalid English completion prefix".into());
+        }
+        with_session(handle, |session| {
+            let words = msime_engine_bridge::english_completions(
+                &session.options.dictionaries,
+                prefix,
+                limit,
+            )
+            .map_err(|error| error.to_string())?;
+            Ok(json!({"completions": words}))
         })
     })
 }
@@ -4326,6 +4415,35 @@ mod tests {
             assert_eq!(session.options.helpcode_schema, "lantian");
             assert!(session.options.show_helpcode);
         });
+        read(msime_client_destroy(handle));
+    }
+
+    #[test]
+    fn english_completion_boundary_is_read_only_and_case_insensitive() {
+        let dir = tempfile::tempdir().unwrap();
+        let dictionaries = dir.path().join("dictionaries");
+        std::fs::create_dir_all(&dictionaries).unwrap();
+        let db = rusqlite::Connection::open(dictionaries.join("english.db")).unwrap();
+        db.execute_batch(
+            "CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER);
+             INSERT INTO english_words VALUES('hello','hello',1000);
+             INSERT INTO english_words VALUES('help','help',900);
+             INSERT INTO english_words VALUES('helium','helium',800);",
+        )
+        .unwrap();
+        drop(db);
+        let handle = test_host(dir.path());
+        let before = read(msime_client_view(handle))["value"].clone();
+        let prefix = b"He";
+        let result = read(unsafe {
+            msime_client_english_completions(handle, prefix.as_ptr(), prefix.len(), 2)
+        });
+        assert_eq!(result["ok"], true, "{result}");
+        assert_eq!(result["value"]["completions"], json!(["hello", "help"]));
+        assert_eq!(read(msime_client_view(handle))["value"], before);
+        let invalid =
+            read(unsafe { msime_client_english_completions(handle, b"he!".as_ptr(), 3, 2) });
+        assert_eq!(invalid["ok"], false);
         read(msime_client_destroy(handle));
     }
 
@@ -6844,5 +6962,53 @@ mod tests {
             json!({"ok":false,"error":"candidate gloss dictionary unavailable"})
         );
         assert!(!missing.path().join("english.db").exists());
+    }
+
+    #[test]
+    fn english_completion_request_queries_dictionary_and_rejects_invalid_input() {
+        let directory = tempfile::tempdir().unwrap();
+        let database = rusqlite::Connection::open(directory.path().join("english.db")).unwrap();
+        database
+            .execute_batch(
+                "CREATE TABLE english_words(word TEXT COLLATE BINARY NOT NULL,display TEXT NOT NULL,weight INTEGER NOT NULL DEFAULT 0,PRIMARY KEY(word,display)) WITHOUT ROWID;
+                 INSERT INTO english_words VALUES ('hello','Hello',10),('help','help',5),('hero','hero',1);",
+            )
+            .unwrap();
+        let resources = directory.path().to_str().unwrap().as_bytes();
+        let call = |request: Value, resources: &[u8]| {
+            let request = serde_json::to_vec(&request).unwrap();
+            read(unsafe {
+                msime_client_english_completions_request(
+                    request.as_ptr(),
+                    request.len(),
+                    resources.as_ptr(),
+                    resources.len(),
+                )
+            })
+        };
+
+        assert_eq!(
+            call(json!({"prefix":"he","limit":3}), resources),
+            json!({"ok":true,"value":{"prefix":"he","items":["Hello","help","hero"]}})
+        );
+        assert_eq!(
+            call(json!({"prefix":"he","limit":1}), resources)["value"]["items"],
+            json!(["Hello"])
+        );
+
+        for request in [
+            json!({"prefix":"","limit":1}),
+            json!({"prefix":"he1","limit":1}),
+            json!({"prefix":format!("he{}", '\u{1}'),"limit":1}),
+            json!({"prefix":"he","limit":0}),
+            json!({"prefix":"he","limit":33}),
+        ] {
+            assert_eq!(call(request, resources)["ok"], false);
+        }
+        assert_eq!(
+            call(json!({"prefix":"he","limit":1}), b"relative")["error"],
+            "resources path must be absolute"
+        );
+        assert!(!directory.path().join("english.db-journal").exists());
     }
 }

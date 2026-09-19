@@ -17,7 +17,9 @@ final class JapaneseNineKeyView: UIStackView {
     Key(kana: ["ま", "み", "む", "め", "も"], strokes: ["ma", "mi", "mu", "me", "mo"]),
     Key(kana: ["や", "「", "ゆ", "」", "よ"], strokes: ["ya", "", "yu", "", "yo"]),
     Key(kana: ["ら", "り", "る", "れ", "ろ"], strokes: ["ra", "ri", "ru", "re", "ro"]),
-    Key(kana: ["わ", "を", "ん", "ー", "〜"], strokes: ["wa", "wo", "n'", "", ""]),
+    // Long vowel mark is a real romaji stroke. Sending it as a direct symbol commits the
+    // composition and produces a detached dash in words such as ラーメン.
+    Key(kana: ["わ", "を", "ん", "ー", "〜"], strokes: ["wa", "wo", "n'", "-", ""]),
     Key(kana: ["、", "。", "？", "！", "…"], strokes: ["", "", "", "", ""]),
   ]
   /// The Japanese nine-key keeps its grid when switching away from kana. Empty strokes are
@@ -122,6 +124,7 @@ final class JapaneseNineKeyView: UIStackView {
 
     let side = UIStackView()
     side.axis = .vertical; side.distribution = .fillEqually; side.spacing = 7
+    side.accessibilityIdentifier = "japaneseSideColumn"
     rows.append(side)
     addArrangedSubview(side)
     side.widthAnchor.constraint(equalTo: widthAnchor, multiplier: 0.19).isActive = true
