@@ -81,6 +81,7 @@ import {
 import { CandidateFontFamilyPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateFontFamilyPolicy";
 import { CandidateAnnotationPreferencePolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateAnnotationPreferencePolicy";
 import { InputModeHudPolicy } from "../entry/src/main/ets/keyboard/InputModeHudPolicy";
+import { BusinessErrorPolicy } from "../entry/src/main/ets/keyboard/BusinessErrorPolicy";
 import {
   StagedArtifact,
   StagedResourcePolicy,
@@ -3219,6 +3220,43 @@ group("an undescribable package is staged rather than skipped", () => {
     reordered === ordered,
     "the filesystem ordering is not guaranteed and must not change the token",
   );
+});
+
+group("an AsyncCallback reports failure only when it actually failed", () => {
+  // OHOS hands every AsyncCallback a BusinessError, on success too, carrying code 0. Testing the
+  // object itself is always true, which is how the settings page logged "would not load" on every
+  // successful load and handwriting reported a canvas failure before it looked at the snapshot.
+  check(BusinessErrorPolicy.failed({ code: 0 }) === false, "code 0 is the success every host sees");
+  check(
+    BusinessErrorPolicy.failed({ code: 0, message: "" }) === false,
+    "with an empty message beside it, which is what made this look like a real error",
+  );
+  check(
+    BusinessErrorPolicy.failed({ code: 401, message: "denied" }) === true,
+    "a non-zero code is a failure",
+  );
+  check(BusinessErrorPolicy.failed(null) === false, "no error is no failure");
+  check(BusinessErrorPolicy.failed(undefined) === false, "nor is an absent one");
+  check(
+    BusinessErrorPolicy.failed(new Error("thrown")) === true,
+    "a plain Error has no code and is still a failure",
+  );
+});
+
+group("an AsyncCallback failure is described without inventing a code", () => {
+  check(
+    BusinessErrorPolicy.describe({ code: 401, message: "denied" }) === "code 401: denied",
+    "the code and the message travel together",
+  );
+  check(
+    BusinessErrorPolicy.describe({ code: 401 }) === "code 401",
+    "a code with no message says the code",
+  );
+  check(
+    BusinessErrorPolicy.describe(new Error("thrown")) === "thrown",
+    "and something with no code says what it does have rather than claiming one",
+  );
+  check(BusinessErrorPolicy.describe(null) === "unknown error", "nothing at all says so plainly");
 });
 
 group("the mode badge is built only when the shared preference allows it", () => {
