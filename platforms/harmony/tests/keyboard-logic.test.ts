@@ -12,7 +12,8 @@ import {
   ClipboardHistoryStore, ClipboardHistoryItem, ClipboardHistoryError, ClipboardFailure
 } from '../entry/src/main/ets/keyboard/clipboard/ClipboardHistoryStore';
 import {
-  EmojiCatalogModel, EmojiItem, EMOJI_PAGE_SIZE, EMOJI_RECENTS_LIMIT, MAX_TEXT_CODE_POINTS
+  EmojiCatalogModel, EmojiItem, EMOJI_PAGE_SIZE, EMOJI_RECENTS_LIMIT, MAX_TEXT_CODE_POINTS,
+  normalizeGroups, normalizeSymbolGroups
 } from '../entry/src/main/ets/keyboard/emoji/EmojiCatalogModel';
 import { CandidateWrapPolicy } from '../entry/src/main/ets/keyboard/candidate/CandidateWrapPolicy';
 import { KeyboardScheme, SchemeDefinition, PreferenceMapping }
@@ -1767,6 +1768,33 @@ group('recent emoji are most-recent first, deduplicated and bounded', () => {
     'malformed recents do not break the keyboard');
   check(JSON.parse(EmojiCatalogModel.serializeRecents(['b', 'a', 'b']))[0] === 'b',
     'serialization writes the normalized newest-first list');
+});
+
+group('engine catalog groups are bounded before reaching the touch panel', () => {
+  const groups = normalizeGroups(['happy', '', 'happy', '  ', 42, 'sad']);
+  check(groups.join(',') === 'happy,sad', 'kaomoji groups drop invalid and repeated values');
+  check(normalizeGroups(['x'.repeat(129)]).length === 0,
+    'an oversized group name is ignored');
+  check(normalizeGroups(Array.from({ length: 65 }, (_unused, index) => `g${index}`)).length === 0,
+    'an oversized group list is rejected as empty');
+  check(normalizeGroups(null).length === 0, 'a malformed group response is empty');
+
+  const symbols = normalizeSymbolGroups([
+    { parent: 'math', title: '数学' },
+    { parent: 'math', title: '数学' },
+    { parent: 'math', title: '' },
+    { parent: '  ', title: '空白' },
+    { parent: 'arrows', title: '箭头' },
+    'not an object'
+  ]);
+  check(symbols.length === 2 && symbols[1].parent === 'arrows',
+    'symbol groups validate fields and remove duplicate pairs');
+  check(normalizeSymbolGroups([{ parent: 'x'.repeat(129), title: '太长' }]).length === 0,
+    'an oversized symbol parent is ignored');
+  check(normalizeSymbolGroups(Array.from({ length: 65 }, (_unused, index) =>
+    ({ parent: `p${index}`, title: `t${index}` }))).length === 0,
+  'an oversized symbol list is rejected as empty');
+  check(normalizeSymbolGroups(undefined).length === 0, 'a malformed symbol response is empty');
 });
 
 function clip(text: string, at: number, pinned = false): ClipboardHistoryItem {

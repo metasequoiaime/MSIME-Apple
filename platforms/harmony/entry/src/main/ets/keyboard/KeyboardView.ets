@@ -24,7 +24,9 @@ import { KeyboardMetrics } from './KeyboardMetrics';
 import { KeyboardGeometry } from './KeyboardGeometry';
 import { NineKeyLayout, NineKey } from './input/NineKeyLayout';
 import { SpaceCursorMovement } from './input/SpaceCursorMovement';
-import { EmojiCatalogModel, EmojiCategory, EmojiItem, EMOJI_PAGE_SIZE } from './emoji/EmojiCatalogModel';
+import {
+  EmojiCatalogModel, EmojiCategory, EmojiItem, EmojiSymbolGroup, EMOJI_PAGE_SIZE
+} from './emoji/EmojiCatalogModel';
 import { KeyboardLog, describeError } from './KeyboardLog';
 import { KeyboardFormFactor } from './KeyboardFormFactor';
 import { DesktopSurface } from './DesktopSurface';
@@ -162,6 +164,9 @@ const JAPANESE_SCHEME: number = 3;
 // reports itself complete from spinning here forever.
 const EMOJI_MAX_PAGES: number = 16;
 const EMOJI_COLUMNS: number = 8;
+const EMOJI_PANEL: string = 'emoji';
+const KAOMOJI_PANEL: string = 'kaomoji';
+const SYMBOLS_PANEL: string = 'symbols';
 
 // Said plainly rather than as an error, because nothing is broken: the platform reserves clipboard
 // reads for system applications and this is not one.
@@ -199,6 +204,11 @@ struct KeyboardView {
   @State emojiItems: string[] = [];
   @State emojiRecents: string[] = [];
   @State emojiShowingRecents: boolean = false;
+  @State emojiPanel: string = EMOJI_PANEL;
+  @State emojiUnicodeGroup: string = EmojiCatalogModel.categories()[0].group;
+  @State emojiKaomojiGroups: string[] = [];
+  @State emojiSymbolGroups: EmojiSymbolGroup[] = [];
+  @State emojiSymbolParent: string = '';
   /**
    * Which surface is covering the keys, if any.
    *
@@ -449,13 +459,19 @@ struct KeyboardView {
    * to be incomplete does not loop this forever.
    */
   private loadEmoji(group: string): void {
+    this.emojiPanel = EMOJI_PANEL;
+    this.emojiUnicodeGroup = group;
+    this.loadEmojiCatalog(EMOJI_PANEL, group);
+  }
+
+  private loadEmojiCatalog(category: string, group: string, parent: string = ''): void {
     this.emojiGroup = group;
     this.emojiShowingRecents = false;
     const collected: string[] = [];
     let offset: number = 0;
     for (let page: number = 0; page < EMOJI_MAX_PAGES; page++) {
       const result: EmojiPage | null =
-        KeyboardSession.shared.emojiPage(group, offset, EMOJI_PAGE_SIZE);
+        KeyboardSession.shared.emojiCatalogPage(category, group, offset, EMOJI_PAGE_SIZE, parent);
       if (result === null) {
         break;
       }
@@ -480,6 +496,28 @@ struct KeyboardView {
       }
     }
     this.emojiItems = collected;
+  }
+
+  private showEmojiPanel(panel: string): void {
+    this.emojiPanel = panel;
+    if (panel === EMOJI_PANEL) {
+      this.emojiRecents = KeyboardSession.shared.emojiRecents();
+      if (this.emojiRecents.length > 0) {
+        this.showEmojiRecents();
+      } else {
+        this.loadEmoji(this.emojiUnicodeGroup);
+      }
+      return;
+    }
+    if (panel === KAOMOJI_PANEL) {
+      this.emojiKaomojiGroups = KeyboardSession.shared.emojiGroups(KAOMOJI_PANEL);
+      const group: string = this.emojiKaomojiGroups[0] ?? '';
+      this.loadEmojiCatalog(KAOMOJI_PANEL, group);
+      return;
+    }
+    this.emojiSymbolGroups = KeyboardSession.shared.emojiSymbolGroups();
+    this.emojiSymbolParent = this.emojiSymbolGroups[0]?.parent ?? '';
+    this.loadEmojiCatalog(SYMBOLS_PANEL, '', this.emojiSymbolParent);
   }
 
   private showEmojiRecents(): void {
@@ -508,12 +546,7 @@ struct KeyboardView {
   private openEmojiSurface(): void {
     this.toggle(SURFACE_EMOJI);
     if (this.surface === SURFACE_EMOJI) {
-      this.emojiRecents = KeyboardSession.shared.emojiRecents();
-      if (this.emojiRecents.length > 0) {
-        this.showEmojiRecents();
-      } else {
-        this.loadEmoji(this.emojiGroup);
-      }
+      this.showEmojiPanel(this.emojiPanel);
     }
   }
 
@@ -2712,7 +2745,31 @@ struct KeyboardView {
 
       Scroll() {
         Row({ space: KeyboardMetrics.KEY_SPACING_VP }) {
-          if (this.emojiRecents.length > 0) {
+          ForEach([
+            { id: EMOJI_PANEL, title: '表情' },
+            { id: KAOMOJI_PANEL, title: '颜文字' },
+            { id: SYMBOLS_PANEL, title: '符号' }
+          ], (panel: { id: string; title: string }) => {
+            Text(panel.title)
+              .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+              .fontColor(this.emojiPanel === panel.id
+                ? this.skin.accent : this.skin.keyForeground)
+              .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
+                right: KeyboardMetrics.CANDIDATE_PADDING_VP })
+              .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 5)
+              .onClick(() => this.showEmojiPanel(panel.id))
+          }, (panel: { id: string; title: string }) => panel.id)
+        }
+      }
+      .scrollable(ScrollDirection.Horizontal)
+      .scrollBar(BarState.Off)
+      .width('100%')
+      .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 5)
+      .align(Alignment.Start)
+
+      Scroll() {
+        Row({ space: KeyboardMetrics.KEY_SPACING_VP }) {
+          if (this.emojiPanel === EMOJI_PANEL && this.emojiRecents.length > 0) {
             Text('最近')
               .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
               .fontColor(this.emojiShowingRecents ? this.skin.accent : this.skin.keyForeground)
@@ -2721,16 +2778,43 @@ struct KeyboardView {
               .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 5)
               .onClick(() => this.showEmojiRecents())
           }
-          ForEach(EmojiCatalogModel.categories(), (category: EmojiCategory) => {
-            Text(category.title)
-              .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-              .fontColor(!this.emojiShowingRecents && category.group === this.emojiGroup
-                ? this.skin.accent : this.skin.keyForeground)
-              .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
-                right: KeyboardMetrics.CANDIDATE_PADDING_VP })
-              .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 5)
-              .onClick(() => this.loadEmoji(category.group))
-          }, (category: EmojiCategory) => `${category.group}:${this.emojiGroup}:${this.emojiShowingRecents}`)
+          if (this.emojiPanel === EMOJI_PANEL) {
+            ForEach(EmojiCatalogModel.categories(), (category: EmojiCategory) => {
+              Text(category.title)
+                .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+                .fontColor(!this.emojiShowingRecents && category.group === this.emojiGroup
+                  ? this.skin.accent : this.skin.keyForeground)
+                .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
+                  right: KeyboardMetrics.CANDIDATE_PADDING_VP })
+                .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 5)
+                .onClick(() => this.loadEmoji(category.group))
+            }, (category: EmojiCategory) => `${category.group}:${this.emojiGroup}:${this.emojiShowingRecents}`)
+          } else if (this.emojiPanel === KAOMOJI_PANEL) {
+            ForEach(this.emojiKaomojiGroups, (group: string) => {
+              Text(group)
+                .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+                .fontColor(group === this.emojiGroup
+                  ? this.skin.accent : this.skin.keyForeground)
+                .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
+                  right: KeyboardMetrics.CANDIDATE_PADDING_VP })
+                .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 5)
+                .onClick(() => this.loadEmojiCatalog(KAOMOJI_PANEL, group))
+            }, (group: string) => `${group}:${this.emojiGroup}`)
+          } else {
+            ForEach(this.emojiSymbolGroups, (group: EmojiSymbolGroup) => {
+              Text(group.title)
+                .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+                .fontColor(group.parent === this.emojiSymbolParent
+                  ? this.skin.accent : this.skin.keyForeground)
+                .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
+                  right: KeyboardMetrics.CANDIDATE_PADDING_VP })
+                .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 5)
+                .onClick(() => {
+                  this.emojiSymbolParent = group.parent;
+                  this.loadEmojiCatalog(SYMBOLS_PANEL, '', group.parent);
+                })
+            }, (group: EmojiSymbolGroup) => `${group.parent}:${this.emojiSymbolParent}`)
+          }
         }
       }
       .scrollable(ScrollDirection.Horizontal)
