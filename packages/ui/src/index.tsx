@@ -195,6 +195,7 @@ export interface HostCapabilities {
   candidate_selection_appearance: boolean;
   candidate_follow_cursor: boolean;
   input_mode_hud?: boolean;
+  candidate_english_font?: boolean;
 }
 
 /** Superseded by the host-provided capabilities; used only when a host predates them. */
@@ -933,6 +934,10 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
   const showToolbarAppearance = host ? host.floating_toolbar_appearance : true;
   const showToolbarComponents = host ? host.floating_toolbar_components : true;
   const showCandidateFontControls = host ? host.candidate_font_controls : true;
+  // Was a list of platform names, which is how HarmonyOS came to consume the preference without
+  // anyone being able to set it. A host that predates the capability keeps the old reading.
+  const showCandidateEnglishFont = host?.candidate_english_font
+    ?? (windowsPlatform || macosPlatform || androidPlatform);
   const showCandidateRowColors = host ? host.candidate_row_colors : true;
   const showCandidateSelectionAppearance = host ? host.candidate_selection_appearance : true;
   const showCandidateFollowCursor = host ? host.candidate_follow_cursor : false;
@@ -2019,7 +2024,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
         {!androidPlatform && <div className="section"><label className="section-header"><span className="section-title">语音面板主题<small>覆盖语音输入面板的明暗外观</small></span><select aria-label="语音面板主题" value={draft.voice_theme ?? "follow"} onChange={event => setDraft({ ...draft, voice_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>}
         <div className="section"><label className="section-header"><span className="section-title">Emoji 面板主题<small>覆盖 Emoji、颜文字和符号面板的明暗外观</small></span><select aria-label="Emoji 面板主题" value={draft.emoji_theme ?? "follow"} onChange={event => setDraft({ ...draft, emoji_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
         {!mobilePlatform && <div className="section"><label className="section-header"><span className="section-title">菜单主题<small>覆盖托盘菜单与候选右键菜单的明暗外观</small></span><select aria-label="菜单主题" value={draft.menu_theme ?? "follow"} onChange={event => setDraft({ ...draft, menu_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>}
-        {showCandidateFontControls ? <CandidateFontControls value={draft} onChange={patch => setDraft({ ...draft, ...patch })} readFonts={client.listFontFamilies} windows={host?.platform === "windows"} englishFont={host?.platform === "windows" || host?.platform === "macos" || host?.platform === "android"} /> : <div className="section"><small>当前宿主的候选面板不支持自定义字体或字号。</small></div>}
+        {showCandidateFontControls ? <CandidateFontControls value={draft} onChange={patch => setDraft({ ...draft, ...patch })} readFonts={client.listFontFamilies} windows={host?.platform === "windows"} englishFont={showCandidateEnglishFont} /> : <div className="section"><small>当前宿主的候选面板不支持自定义字体或字号。</small></div>}
         <div className="section"><label className="section-header"><span className="section-title">全局主题<small>设置窗口和各界面的默认明暗模式</small></span><select aria-label="全局主题" value={themeMode} onChange={event => setDraft({ ...draft, theme: event.target.value as ThemeMode })}><option value="dark">深色</option><option value="light">浅色</option><option value="system">跟随系统</option></select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">设置窗口主题<small>覆盖全局主题，仅影响当前设置窗口</small></span><select aria-label="设置窗口主题" value={settingsTheme} onChange={event => setDraft({ ...draft, settings_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随全局</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>
         <div className="section"><label className="section-header"><span className="section-title">候选窗主题<small>预览跟随全局主题；Linux IBus panel 支持时使用，跟随时由桌面主题决定</small></span><select aria-label="候选窗主题" value={draft.candidate_theme ?? "follow"} onChange={event => setDraft({ ...draft, candidate_theme: event.target.value as SurfaceTheme })}><option value="follow">跟随</option><option value="dark">深色</option><option value="light">浅色</option></select></label></div>

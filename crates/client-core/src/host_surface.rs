@@ -127,6 +127,12 @@ pub struct HostCapabilities {
     /// and positions the candidate list itself - cannot honour the choice, so
     /// it does not offer it.
     pub candidate_follow_cursor: bool,
+    /// The host applies a separate family for Latin text in the candidate panel.
+    /// A host whose renderer resolves one family list per glyph, or which draws
+    /// Latin from its own font, can honour this; one with a single typeface for
+    /// the whole row cannot, and does not offer the choice.
+    #[serde(default)]
+    pub candidate_english_font: bool,
     /// The host draws a short, non-activating badge near the caret after the
     /// Chinese/English mode changes. A host with no way to put a window beside
     /// the caret, or one whose keyboard already shows the mode on its own key
@@ -177,7 +183,9 @@ impl HostCapabilities {
                     | HostPlatform::Ios
                     | HostPlatform::Harmony
             ),
-            system_fonts: platform.is_desktop(),
+            // ArkUI hands the installed family names straight to the settings page, so the font
+            // inputs can offer a list there rather than asking for an exact name to be typed.
+            system_fonts: platform.is_desktop() || platform == HostPlatform::Harmony,
             window_chrome: platform.is_desktop(),
             // A 2in1 draws one from the input method's own status-bar panel, which needs none of
             // the window permissions a desktop floating window would. A HarmonyOS phone has no use
@@ -271,6 +279,16 @@ impl HostCapabilities {
             // therefore the one where nothing else on screen says the mode changed; its phone
             // keyboard says so on its own key faces and needs no badge.
             input_mode_hud: matches!(platform, HostPlatform::Macos | HostPlatform::Harmony),
+            // Windows draws Latin from its own family, macOS and Android name it ahead of the
+            // primary one, and ArkUI resolves a family list per glyph, so HarmonyOS reaches the
+            // same result the same way. Linux leaves the panel's typeface to the desktop.
+            candidate_english_font: matches!(
+                platform,
+                HostPlatform::Windows
+                    | HostPlatform::Macos
+                    | HostPlatform::Android
+                    | HostPlatform::Harmony
+            ),
         }
     }
 }
@@ -767,7 +785,11 @@ mod tests {
         let harmony = HostCapabilities::for_platform(HostPlatform::Harmony);
         assert!(!harmony.panel_windows);
         assert!(!harmony.window_chrome);
-        assert!(!harmony.system_fonts);
+        // ArkUI enumerates the installed families, so the page can offer them.
+        assert!(harmony.system_fonts);
+        // ArkUI resolves a family list per glyph, which is how a separate Latin family is honoured.
+        assert!(harmony.candidate_english_font);
+        assert!(!HostCapabilities::for_platform(HostPlatform::Linux).candidate_english_font);
         // Drawn from the input method's status-bar panel, which scales itself by the shared
         // scale and font size, hides the buttons the user turned off, and opens the emoji panel
         // and the screen keyboard in the window its candidates otherwise occupy.

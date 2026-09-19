@@ -47,6 +47,8 @@ interface NativeBridge {
   openSystemKeyboardSettings(): void;
   /** `{"ok":true,"value":[{backend,id,label},...]}`; a refusal is reported, not an empty list. */
   listVoiceCaptureDevices(): string;
+  /** `{"ok":true,"value":["Family",...]}`; a refusal is reported so the page can say so. */
+  listFontFamilies(): string;
 }
 
 declare global {
@@ -209,6 +211,7 @@ function makeClient(native: NativeBridge, openCloudClipboard: () => void, openCl
     copyText: async (text: string) => native.copyText(text),
     openSystemKeyboardSettings: async () => native.openSystemKeyboardSettings(),
     listVoiceCaptureDevices: async () => unwrap<VoiceCaptureDevice[]>(native.listVoiceCaptureDevices()),
+    listFontFamilies: async () => unwrap<string[]>(native.listFontFamilies()),
     dictionary,
     typingStatistics,
     aiAssistant,

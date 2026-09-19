@@ -32,6 +32,7 @@ function capabilities(overrides: Partial<HostCapabilities> = {}): HostCapabiliti
     candidate_selection_appearance: true,
     candidate_follow_cursor: true,
     input_mode_hud: false,
+    candidate_english_font: false,
     ...overrides,
   };
 }
@@ -226,7 +227,7 @@ test("Windows candidate appearance keeps native controls", async () => {
 });
 
 test("macOS candidate appearance exposes the shared English face control", async () => {
-  mount({ host: capabilities({ platform: "macos", candidate_font_controls: true }) });
+  mount({ host: capabilities({ platform: "macos", candidate_font_controls: true, candidate_english_font: true }) });
   await screen.findByRole("button", { name: "保存设置" });
   expect(screen.getByLabelText("候选窗英文字体")).toBeTruthy();
   expect(screen.getByLabelText("候选窗主字体")).toBeTruthy();
@@ -237,6 +238,7 @@ test("Android candidate appearance exposes native font and color controls", asyn
     platform: "android",
     system_fonts: false,
     candidate_font_controls: true,
+    candidate_english_font: true,
     candidate_row_colors: true,
     candidate_selection_appearance: true,
   }) });
@@ -255,6 +257,21 @@ test("a host that does not place its own card hides the follow-cursor choice", a
   mount({ host: capabilities({ platform: "linux", candidate_follow_cursor: false }) });
   await screen.findByRole("button", { name: "保存设置" });
   expect(screen.queryByLabelText("候选窗口跟随光标")).toBeNull();
+});
+
+test("the candidate English font follows the capability rather than a list of platform names", async () => {
+  // HarmonyOS consumes candidate_english_font, and the control used to be gated on a platform list
+  // that did not include it — the preference was honoured and nobody could set it.
+  const appearance = (candidate_english_font: boolean) => render(<SettingsPage initialPage="appearance" client={{
+    load: async () => initial, save: vi.fn(),
+    host: capabilities({ platform: "harmony", candidate_font_controls: true, candidate_english_font }),
+  }} />);
+  appearance(true);
+  expect(await screen.findByLabelText("候选窗英文字体")).toBeTruthy();
+  cleanup();
+  appearance(false);
+  await screen.findByLabelText("候选窗主字体");
+  expect(screen.queryByLabelText("候选窗英文字体")).toBeNull();
 });
 
 test("a host that can enumerate microphones gets the picker, whatever it is called", async () => {
