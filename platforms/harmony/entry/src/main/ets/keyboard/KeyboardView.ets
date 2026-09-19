@@ -237,6 +237,7 @@ struct KeyboardView {
   @State voiceNotice: string = '';
   @State voiceBusy: boolean = false;
   @State voiceFinishing: boolean = false;
+  @State voiceEnabled: boolean = KeyboardSession.shared.voiceInputEnabled();
   @State replySource: string = '';
   @State replyStyle: string = '高情商';
   @State replyResults: string[] = [];
@@ -274,6 +275,16 @@ struct KeyboardView {
         this.confirmingClear = false;
         this.clipboardNotice = '剪贴板历史已关闭，历史记录已清空';
         if (this.surface === SURFACE_CLIPBOARD) {
+          this.show(SURFACE_NONE);
+        }
+      }
+    };
+    this.voiceEnabled = KeyboardSession.shared.voiceInputEnabled();
+    KeyboardSession.shared.onVoiceInputChanged = (enabled: boolean): void => {
+      this.voiceEnabled = enabled;
+      if (!enabled) {
+        this.cancelVoice();
+        if (this.surface === SURFACE_VOICE) {
           this.show(SURFACE_NONE);
         }
       }
@@ -335,6 +346,7 @@ struct KeyboardView {
   aboutToDisappear(): void {
     KeyboardSession.shared.onChanged = undefined;
     KeyboardSession.shared.onClipboardHistoryChanged = undefined;
+    KeyboardSession.shared.onVoiceInputChanged = undefined;
     KeyboardSession.shared.onEditorChanged = undefined;
     this.stopBackspace();
     this.voiceRecognizer.shutdown();
@@ -1079,7 +1091,7 @@ struct KeyboardView {
       this.shortcutIcon($r('app.media.tool_emoji'), this.surface === SURFACE_EMOJI, () => {
         this.openEmojiSurface();
       });
-      if (this.settings.voiceShortcut) {
+      if (this.settings.voiceShortcut && this.voiceEnabled) {
         this.shortcutText('🎙', this.surface === SURFACE_VOICE, () => {
           this.show(SURFACE_VOICE);
           if (!this.voiceBusy && this.voiceText.length === 0) {
@@ -1692,6 +1704,11 @@ struct KeyboardView {
 
   private startVoice(): void {
     if (this.voiceBusy) {
+      return;
+    }
+    if (!KeyboardSession.shared.voiceInputEnabled()) {
+      this.voiceEnabled = false;
+      this.voiceNotice = '语音输入已在设置中关闭';
       return;
     }
     this.voiceGeneration = KeyboardSession.shared.voiceStart();
@@ -2543,7 +2560,10 @@ struct KeyboardView {
                 });
               }
               GridItem() {
-                this.toolCard('语音输入', '🎙', null, this.voiceBusy, true, () => {
+                this.toolCard('语音输入', '🎙', null, this.voiceBusy, this.voiceEnabled, () => {
+                  if (!this.voiceEnabled) {
+                    return;
+                  }
                   this.show(SURFACE_VOICE);
                 });
               }
