@@ -75,6 +75,7 @@ rust::Vec<rust::String> english_completions(rust::Str resources, rust::Str prefi
 DictionaryEntry dictionary_validate(const DictionaryEntry& entry);
 void dictionary_edit(const EngineOptions& options, rust::Slice<const DictionaryEntry> previous,
                      rust::Slice<const DictionaryEntry> replacement, rust::Str request_id);
+void reset_learned_data(const EngineOptions& options);
 DictionaryReplaySummary replay_user_dictionary(rust::Str user_db_path, rust::Str main_db_path,
                                                 rust::Str english_db_path);
 rust::Vec<EmojiCatalogItem> emoji_catalog(rust::Str resources, rust::Str search,

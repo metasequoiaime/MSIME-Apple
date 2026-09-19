@@ -526,6 +526,93 @@ void dictionary_edit(const EngineOptions& options, rust::Slice<const DictionaryE
     auto result = metasequoia::edit_personal_dictionary(paths_for(options), before, after, std::string(request_id));
     if (!result.success) throw std::runtime_error(result.error);
 }
+void reset_learned_data(const EngineOptions& options) {
+    const auto paths = paths_for(options);
+    paths.validate();
+    const auto resources = std::filesystem::weakly_canonical(paths.resources);
+    const auto dictionaries = std::filesystem::weakly_canonical(paths.dictionaries);
+    if (resources == dictionaries)
+        throw std::invalid_argument("Cannot reset packaged dictionaries in place");
+    const auto main_source = paths.resources / metasequoia::assets::main_dictionary;
+    const auto english_source = paths.resources / metasequoia::assets::english_dictionary;
+    const auto main_target = paths.dictionaries / metasequoia::assets::main_dictionary;
+    const auto english_target = paths.dictionaries / metasequoia::assets::english_dictionary;
+    for (const auto &source : {main_source, english_source})
+        if (!std::filesystem::is_regular_file(source))
+            throw std::runtime_error("Packaged dictionary is unavailable");
+    std::filesystem::create_directories(paths.user_data);
+    std::filesystem::create_directories(paths.dictionaries);
+    user_dictionary::close_default_user_database();
+
+    const auto stamp = std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
+    const auto temporary = [&](const std::filesystem::path &target) {
+        return target.parent_path() / ("." + target.filename().string() + ".reset." + stamp);
+    };
+    const auto backup = [&](const std::filesystem::path &target) {
+        return target.parent_path() / ("." + target.filename().string() + ".backup." + stamp);
+    };
+    const auto journal = paths.user_data / metasequoia::assets::user_journal;
+    const auto journal_temporary = temporary(journal);
+    const auto journal_backup = backup(journal);
+    if (!user_dictionary::ensure_user_database(journal_temporary.u8string()))
+        throw std::runtime_error("Cannot prepare empty learning journal");
+
+    struct Replacement {
+        std::filesystem::path target;
+        std::filesystem::path temporary;
+        std::filesystem::path backup;
+        bool had_original = false;
+        bool published = false;
+    };
+    std::vector<Replacement> replacements;
+    replacements.push_back({main_target, temporary(main_target), backup(main_target)});
+    replacements.push_back({english_target, temporary(english_target), backup(english_target)});
+    replacements.push_back({journal, journal_temporary, journal_backup});
+    const auto fail_cleanup = [&] {
+        for (auto it = replacements.rbegin(); it != replacements.rend(); ++it) {
+            std::error_code ignored;
+            if (it->published) std::filesystem::remove(it->target, ignored);
+            if (it->had_original && std::filesystem::exists(it->backup))
+                std::filesystem::rename(it->backup, it->target, ignored);
+            std::filesystem::remove(it->temporary, ignored);
+        }
+    };
+    try {
+        if (!std::filesystem::copy_file(main_source, replacements[0].temporary,
+                                        std::filesystem::copy_options::none) ||
+            !std::filesystem::copy_file(english_source, replacements[1].temporary,
+                                        std::filesystem::copy_options::none))
+            throw std::runtime_error("Cannot stage fresh dictionaries");
+        for (auto &replacement : replacements) {
+            std::error_code error;
+            replacement.had_original = std::filesystem::exists(replacement.target);
+            if (replacement.had_original && std::filesystem::exists(replacement.backup))
+                std::filesystem::remove_all(replacement.backup, error);
+            if (replacement.had_original) {
+                std::filesystem::rename(replacement.target, replacement.backup, error);
+                if (error)
+                    throw std::runtime_error("Cannot stage learned-data reset");
+                // The original is safely held aside until every replacement is published.
+            }
+            error.clear();
+            std::filesystem::rename(replacement.temporary, replacement.target, error);
+            if (!error) {
+                replacement.published = true;
+            } else {
+                throw std::runtime_error("Cannot publish learned-data reset");
+            }
+        }
+        for (const auto &suffix : {"-wal", "-shm", "-journal"})
+            std::filesystem::remove(journal.string() + suffix);
+        for (const auto &replacement : replacements) {
+            std::error_code ignored;
+            std::filesystem::remove_all(replacement.backup, ignored);
+        }
+    } catch (...) {
+        fail_cleanup();
+        throw;
+    }
+}
 DictionaryReplaySummary replay_user_dictionary(rust::Str user_db_path, rust::Str main_db_path,
                                                 rust::Str english_db_path) {
     const auto result = user_dictionary::replay(std::string(user_db_path), std::string(main_db_path),

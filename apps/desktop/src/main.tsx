@@ -93,6 +93,7 @@ const client: SettingsClient = {
     setPinned: (text, pinned) => invoke("set_clipboard_history_pinned", { text, pinned }),
   },
   dictionary,
+  resetLearnedData: () => invoke("dictionary_request", { action: { operation: "reset" } }).then(() => undefined),
   /* mobile host services are injected after host_capabilities resolves */
 };
 const panelClients: { keyboard: PanelClient; handwriting: PanelClient; voice: VoicePanelClient; cloudClipboard: CloudClipboardPanelClient; cloudDictionary: CloudDictionaryPanelClient; emoji: EmojiPanelClient } = {

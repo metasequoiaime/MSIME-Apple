@@ -178,6 +178,7 @@ mod ffi {
             maximum_records: usize,
             stream: &mut DictionaryRecordStream,
         ) -> Result<EngineOptions>;
+        fn reset_learned_data(options: &EngineOptions) -> Result<()>;
         fn hash_dictionary_state(
             options: &EngineOptions,
             sink: &mut DictionaryRevision,
@@ -402,6 +403,12 @@ pub fn dictionary_edit(
         replacement.map_or(&[], std::slice::from_ref),
         request_id,
     )
+}
+
+/// Replace mutable dictionaries and the Engine journal with fresh copies of
+/// the packaged state. The caller must quiesce every session using these paths.
+pub fn reset_learned_data(options: &EngineOptions) -> Result<(), cxx::Exception> {
+    ffi::reset_learned_data(options)
 }
 
 /// Delegate working-dictionary preparation and learning replay to the Engine.
@@ -891,6 +898,82 @@ mod tests {
             local_temporary_japanese: true,
             sentence_alternatives: true,
         }
+    }
+
+    #[test]
+    fn reset_learned_data_restores_packaged_dictionaries_and_clears_journal() {
+        let root = tempfile::tempdir().unwrap();
+        let value = options(root.path());
+        let resources = std::path::Path::new(&value.resources);
+        let dictionaries = std::path::Path::new(&value.dictionaries);
+        let main_fixture = "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
+                            INSERT INTO tbl_2_n VALUES('ni''hao','nh','你好',100);\
+                            CREATE TABLE wubi86(key TEXT,value TEXT,weight INTEGER);\
+                            CREATE TABLE quick_parases(key TEXT,value TEXT,weight INTEGER);";
+        rusqlite::Connection::open(resources.join("msime.db"))
+            .unwrap()
+            .execute_batch(main_fixture)
+            .unwrap();
+        rusqlite::Connection::open(resources.join("english.db"))
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER);\
+                 CREATE TABLE en_zh_glosses(english TEXT PRIMARY KEY,chinese_gloss TEXT);\
+                 CREATE TABLE zh_en_glosses(chinese TEXT PRIMARY KEY,english TEXT);\
+                 INSERT INTO english_words VALUES('word','word',100);",
+            )
+            .unwrap();
+        std::fs::copy(resources.join("msime.db"), dictionaries.join("msime.db")).unwrap();
+        std::fs::copy(
+            resources.join("english.db"),
+            dictionaries.join("english.db"),
+        )
+        .unwrap();
+        let journal = std::path::Path::new(&value.user_data).join("msime_user.db");
+        rusqlite::Connection::open(&journal)
+            .unwrap()
+            .execute_batch(
+                "CREATE TABLE user_dictionary_operations(dictionary TEXT,key TEXT,value TEXT,operation TEXT,weight INTEGER,display TEXT,user_inserted INTEGER);\
+                 CREATE TABLE personal_dictionary_receipts(request_id TEXT PRIMARY KEY,payload TEXT);\
+                 CREATE TABLE candidate_selection_state(context_key TEXT,entry_key TEXT,value TEXT,selection_count INTEGER);\
+                 CREATE TABLE fixed_candidate_positions(context_key TEXT,entry_key TEXT,value TEXT,position INTEGER);\
+                 INSERT INTO user_dictionary_operations VALUES('pinyin','ni''hao','你好','upsert',1,'',1);\
+                 INSERT INTO candidate_selection_state VALUES('ni''hao','ni''hao','你好',7);",
+            )
+            .unwrap();
+        rusqlite::Connection::open(dictionaries.join("msime.db"))
+            .unwrap()
+            .execute("UPDATE tbl_2_n SET weight=1", [])
+            .unwrap();
+
+        reset_learned_data(&value).unwrap();
+
+        let database = rusqlite::Connection::open(dictionaries.join("msime.db")).unwrap();
+        let weight: i64 = database
+            .query_row(
+                "SELECT weight FROM tbl_2_n WHERE key='ni''hao'",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(weight, 100);
+        let journal = rusqlite::Connection::open(journal).unwrap();
+        let operations: i64 = journal
+            .query_row(
+                "SELECT count(*) FROM user_dictionary_operations",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        let selections: i64 = journal
+            .query_row(
+                "SELECT count(*) FROM candidate_selection_state",
+                [],
+                |row| row.get(0),
+            )
+            .unwrap();
+        assert_eq!(operations, 0);
+        assert_eq!(selections, 0);
     }
 
     #[test]
