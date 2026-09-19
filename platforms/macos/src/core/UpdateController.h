@@ -12,6 +12,15 @@ NS_ASSUME_NONNULL_BEGIN
 
 typedef void (^MetasequoiaUpdateActivationHandler)(void);
 
+// Whether Sparkle can be started in this process at all. It needs an application bundle - a feed URL, a
+// version, a code signature - and started anywhere else it reports the misconfiguration with a modal
+// alert, which in an input method means the user's typing stops behind a dialog they never asked for.
+// A pure function so the decision can be tested without starting an updater.
+static inline BOOL MSIMEUpdateHostIsApplicationBundle(NSString *_Nullable identifier, NSString *_Nullable path)
+{
+    return identifier.length > 0 && [path.pathExtension isEqualToString:@"app"];
+}
+
 @interface MetasequoiaUpdateController : NSObject
 + (instancetype)sharedController;
 - (instancetype)initWithDriver:(id<MetasequoiaUpdateDriver>)driver
