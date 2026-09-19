@@ -1,6 +1,7 @@
 import { KeyboardSession } from './KeyboardSession';
 import { ToolbarState, ToolbarButton, FloatingToolbarLayout } from './FloatingToolbarLayout';
 import { KeyboardSkin } from './skin/KeyboardSkin';
+import { ToolbarSkin, ToolbarSkinPolicy } from './ToolbarSkinPolicy';
 
 /**
  * The bar that says what mode the keyboard is in and lets it be changed, ported from
@@ -29,14 +30,17 @@ struct FloatingToolbar {
   @State fontSize: number = 20;
   // The same skin the keyboard wears, so a bar floating beside it does not look like another app's.
   @State skin: KeyboardSkin = KeyboardSkin.from('forest', false);
+  @State toolbarSkin: ToolbarSkin = ToolbarSkinPolicy.base(KeyboardSkin.from('forest', false));
 
   aboutToAppear(): void {
     KeyboardSession.shared.onToolbar = (state: ToolbarState, buttons: ToolbarButton[],
-                                        fontSize: number, skin: KeyboardSkin): void => {
+                                        fontSize: number, skin: KeyboardSkin,
+                                        toolbarSkin: ToolbarSkin): void => {
       this.state = state;
       this.buttons = buttons;
       this.fontSize = fontSize;
       this.skin = skin;
+      this.toolbarSkin = toolbarSkin;
     };
   }
 
@@ -52,8 +56,8 @@ struct FloatingToolbar {
       ForEach(this.buttons, (button: ToolbarButton) => {
         Text(FloatingToolbarLayout.face(button, this.state))
           .fontSize(button === ToolbarButton.SETTINGS ? this.fontSize - 2 : this.fontSize)
-          .fontColor(button === ToolbarButton.SETTINGS
-            ? this.skin.keyForeground : this.skin.accent)
+          .fontColor(this.toolbarSkin.buttonColor)
+          .fontFamily(this.toolbarSkin.fontFamily)
           .textAlign(TextAlign.Center)
           .width(BUTTON_WIDTH_VP)
           .height(TOOLBAR_HEIGHT_VP - EDGE_INSET_VP)
@@ -66,12 +70,12 @@ struct FloatingToolbar {
     }
     .width('100%')
     .height('100%')
-    .backgroundColor(this.skin.keyBackground)
-    .borderRadius(CORNER_RADIUS_VP)
+    .backgroundColor(this.toolbarSkin.backgroundColor)
+    .borderRadius(this.toolbarSkin.cornerRadiusVp)
     // A bar with nothing behind it needs its own edge: it floats over whatever the desktop happens
     // to be, and on a pale one a pale surface with no border is a row of letters in mid-air.
     .borderWidth(1)
-    .borderColor(this.skin.borderColor)
+    .borderColor(this.toolbarSkin.borderColor)
     .shadow({ radius: 12, color: '#33000000', offsetY: 2 })
   }
 }

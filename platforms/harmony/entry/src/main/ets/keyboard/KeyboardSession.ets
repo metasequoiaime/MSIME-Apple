@@ -20,6 +20,7 @@ import { InputDiagnosticPolicy } from './input/InputDiagnosticPolicy';
 import { ModeBindings, DEFAULT_MODE_BINDINGS } from './InputModeRouting';
 import { FloatingToolbarLayout, ToolbarButton, ToolbarComponents, ToolbarState }
   from './FloatingToolbarLayout';
+import { ToolbarSkin, ToolbarSkinPolicy } from './ToolbarSkinPolicy';
 import { DesktopSurface } from './DesktopSurface';
 import { CandidateGlossPolicy } from './candidate/CandidateGlossPolicy';
 import { CandidatePresentationPolicy } from './candidate/CandidatePresentationPolicy';
@@ -328,6 +329,12 @@ interface SkinResourceResponse {
   error: string;
 }
 
+interface SkinToolbarStylesheetResponse {
+  ok: boolean;
+  value: string | null;
+  error: string;
+}
+
 // ArkTS rejects untyped object literals, so the request prepareHost takes gets a shape too.
 interface PrepareRequest {
   resources: string;
@@ -587,7 +594,7 @@ export class KeyboardSession {
   onModeBadge: ((english: boolean, dark: boolean) => void) | undefined = undefined;
   /** The toolbar's face, set by whichever window is currently drawing it. */
   onToolbar: ((state: ToolbarState, buttons: ToolbarButton[], fontSize: number,
-               skin: KeyboardSkin) => void) | undefined = undefined;
+               skin: KeyboardSkin, toolbarSkin: ToolbarSkin) => void) | undefined = undefined;
   /** The gear, which only the host can answer: it owns the window the settings open in. */
   onToolbarSettings: (() => void) | undefined = undefined;
   /**
@@ -653,6 +660,21 @@ export class KeyboardSession {
     }
   }
 
+  private readCandidateSkinToolbar(stateRoot: string, id: string,
+                                    stylesheet: string | null): string | null {
+    if (stylesheet === null || !KeyboardFormFactor.isDesktop()) {
+      return null;
+    }
+    try {
+      const response: SkinToolbarStylesheetResponse = JSON.parse(client.skinToolbarStylesheet(
+        JSON.stringify({ directory: `${stateRoot}/skins`, id: id }))) as SkinToolbarStylesheetResponse;
+      return response.ok && typeof response.value === 'string' ? response.value : null;
+    } catch (error) {
+      KeyboardLog.error(`candidate skin toolbar unavailable: ${describeError(error)}`);
+      return null;
+    }
+  }
+
   start(resources: string, stateRoot: string, systemDark: boolean): boolean {
     let abi: number;
     try {
@@ -696,6 +718,9 @@ export class KeyboardSession {
         skinSupported ? skinPackages : [], preferences.candidate_skin, candidateDark);
       const skinDecoration: CandidateSkinDecoration | null = CandidateSkinCatalogPolicy.decoration(
         skinSupported ? skinPackages : [], preferences.candidate_skin);
+      const skinToolbar: string | null = this.readCandidateSkinToolbar(stateRoot,
+        preferences.candidate_skin, CandidateSkinCatalogPolicy.toolbarStylesheet(
+          skinSupported ? skinPackages : [], preferences.candidate_skin));
       const skinImage: { image: string | null; aspectRatio: number } = KeyboardFormFactor.isDesktop()
         ? this.readCandidateSkinImage(stateRoot, preferences.candidate_skin, skinDecoration)
         : { image: null, aspectRatio: 1 };
@@ -768,6 +793,8 @@ export class KeyboardSession {
           KeyboardGeometry.heightAdjustment(preferences.touch_keyboard_height_adjustment),
         voiceShortcut: preferences.touch_voice_shortcut
       };
+      this.toolbarSkin = ToolbarSkinPolicy.fromCss(
+        KeyboardSkin.from(this.appearance.skinId, this.appearance.dark), skinToolbar);
       this.schemeName = preferences.scheme;
       this.profileName = preferences.shuangpin_profile;
       this.traditional = preferences.traditional_chinese_output;
@@ -897,7 +924,8 @@ export class KeyboardSession {
       fullWidth: this.fullWidth, traditional: this.traditional
     };
     this.onToolbar(state, FloatingToolbarLayout.buttons(this.toolbarComponents()),
-      this.toolbar.font_size, KeyboardSkin.from(this.appearance.skinId, this.appearance.dark));
+      this.toolbar.font_size, KeyboardSkin.from(this.appearance.skinId, this.appearance.dark),
+      this.toolbarSkin);
   }
 
   /**
@@ -1401,6 +1429,7 @@ export class KeyboardSession {
     enabled: true, english_mode: true, punctuation: true, fullwidth: true, character_set: true,
     emoji: true, screen_keyboard: false, scale_percent: 100, font_size: 20
   };
+  private toolbarSkin: ToolbarSkin = ToolbarSkinPolicy.base(KeyboardSkin.from('forest', false));
   private onlineTimer: number = -1;
   private onlineEpoch: number = 0;
   private onlineSignature: string = '';

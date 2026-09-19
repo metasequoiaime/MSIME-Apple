@@ -18,6 +18,7 @@ export interface CandidateSkinPackage {
   readonly minWidthDip: number;
   readonly decorationTopDip: number;
   readonly decorationWidthDip: number;
+  readonly toolbarStylesheet?: string | null;
   readonly preview: string | null;
   readonly candidate: {
     readonly dark: CandidateSkinPaletteTokens;
@@ -124,6 +125,15 @@ export class CandidateSkinCatalogPolicy {
     const palette: CandidateSkinPaletteTokens | null = CandidateSkinCatalogPolicy.palette(
       packages, id, dark);
     return palette === null ? null : palette.showSelectedBar ?? null;
+  }
+
+  static toolbarStylesheet(packages: CandidateSkinPackage[], id: string): string | null {
+    const candidate: CandidateSkinPackage | null = CandidateSkinCatalogPolicy.package(packages, id);
+    if (candidate === null || candidate.toolbarStylesheet === undefined
+        || candidate.toolbarStylesheet === null || candidate.toolbarStylesheet.length === 0) {
+      return null;
+    }
+    return candidate.toolbarStylesheet;
   }
 
   /** Resolve only a bounded decoration declaration; the image bytes are loaded separately. */

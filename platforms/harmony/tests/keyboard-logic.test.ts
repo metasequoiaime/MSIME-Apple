@@ -47,6 +47,7 @@ import { CandidateGlossPolicy, GlossToken }
 import { ShuangpinKeyHintPolicy } from '../entry/src/main/ets/keyboard/input/ShuangpinKeyHintPolicy';
 import { EditorPolicy, EditorTraits } from '../entry/src/main/ets/keyboard/input/EditorPolicy';
 import { KeyboardSkin } from '../entry/src/main/ets/keyboard/skin/KeyboardSkin';
+import { ToolbarSkinPolicy } from '../entry/src/main/ets/keyboard/ToolbarSkinPolicy';
 import { CustomKeyboardSkin, CustomSkinDocument, supportedPhoto }
   from '../entry/src/main/ets/keyboard/skin/CustomKeyboardSkin';
 import { DictionaryMaintenancePolicy }
@@ -691,7 +692,8 @@ group('maps shared candidate skins to native Harmony palettes', () => {
 group('resolves external candidate skin tokens without trusting missing fields', () => {
   const sample: CandidateSkinPackage = {
     id: 'sample', base: 'wechat', layouts: ['vertical'], themes: ['dark'], minWidthDip: 360,
-    decorationTopDip: 24, decorationWidthDip: 180, preview: 'images/preview.svg',
+    decorationTopDip: 24, decorationWidthDip: 180, toolbarStylesheet: 'toolbar.css',
+    preview: 'images/preview.svg',
     candidate: {
       dark: {
         accent: '#123456', selected: '#234567', hover: '#345678', surface: '#456789',
@@ -716,6 +718,8 @@ group('resolves external candidate skin tokens without trusting missing fields',
     'external minimum width is exposed to the native panel');
   check(CandidateSkinCatalogPolicy.showSelectedBar(packages, 'sample', true) === false,
     'external selected-bar override is retained');
+  check(CandidateSkinCatalogPolicy.toolbarStylesheet(packages, 'sample') === 'toolbar.css',
+    'external toolbar stylesheet is retained');
   const decoration = CandidateSkinCatalogPolicy.decoration(packages, 'sample');
   check(decoration !== null && decoration.topVp === 24 && decoration.widthVp === 180,
     'external decoration geometry is retained');
@@ -741,6 +745,28 @@ group('resolves external candidate skin tokens without trusting missing fields',
     'out-of-range rgb channels are rejected');
   check(CandidateSkinPolicy.showSelectedBar('sample', false) === false,
     'explicit external selected-bar value wins over the base default');
+});
+
+group('maps safe external toolbar CSS to ArkUI values', () => {
+  const base = KeyboardSkin.from('forest', true);
+  const toolbar = ToolbarSkinPolicy.fromCss(base, `
+    .status-bar { background: #101820; border: 1px solid #223344; border-radius: 6px; }
+    .icon { color: rgba(200, 210, 220, .9); font-family: "Noto Sans SC", sans-serif; }
+    .icon:hover { background-color: #334455; }
+    .english-candidate-label { font-family: "JetBrains Mono", monospace; }
+  `);
+  check(toolbar.backgroundColor === '#101820', 'toolbar background is mapped');
+  check(toolbar.borderColor === '#223344', 'toolbar border is mapped');
+  check(toolbar.buttonColor === 'rgba(200, 210, 220, .9)', 'toolbar icon color is mapped');
+  check(toolbar.buttonHoverColor === '#334455', 'toolbar hover color is mapped');
+  check(toolbar.cornerRadiusVp === 6, 'toolbar radius is bounded and mapped');
+  check(toolbar.fontFamily === '"Noto Sans SC", sans-serif', 'toolbar font family is mapped');
+  check(toolbar.englishFontFamily === '"JetBrains Mono", monospace',
+    'English toolbar font family is mapped');
+  const unsafe = ToolbarSkinPolicy.fromCss(base,
+    '.status-bar { background: url(https://example.invalid/x); } .icon { color: red; }');
+  check(unsafe.backgroundColor === base.keyBackground, 'resource URLs are ignored');
+  check(unsafe.buttonColor === base.accent, 'unsupported colour syntax is ignored');
 });
 
 group('sizes desktop candidate windows from bounded display estimates', () => {
