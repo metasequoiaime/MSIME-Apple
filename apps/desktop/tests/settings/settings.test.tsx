@@ -1299,6 +1299,22 @@ test("candidate appearance settings persist and use Windows baseline defaults", 
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, candidate_layout: "horizontal", candidate_font_size: 20, candidate_skin: "wechat" });
 });
 
+test("macOS exposes the shuangpin preedit presentation and persists the expanded pinyin choice", async () => {
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save,
+    host: { platform: "macos" } as HostCapabilities,
+  };
+  render(<SettingsPage client={client} />);
+  const preedit = await screen.findByRole("combobox", { name: "双拼预编辑" }) as HTMLSelectElement;
+  expect(preedit.value).toBe("raw");
+  fireEvent.change(preedit, { target: { value: "pinyin" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(save).toHaveBeenCalledWith(7, { ...initial.preferences, shuangpin_preedit_uses_raw: false });
+});
+
 test("font family controls preserve order, validate drafts and save Unicode", async () => {
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
   const mounted = render(<SettingsPage client={{ load: async () => initial, save }} />);
