@@ -1,28 +1,28 @@
-name: Feature request
-description: Propose a scoped change to the shared client or a platform host.
+name: 功能建议
+description: 对共享客户端或某个平台宿主提出范围明确的改动。
 title: "[Feature]: "
 labels: [enhancement]
 body:
   - type: markdown
     attributes:
       value: |
-        Describe the user-facing behavior and the platform boundary. Do not attach private input, credentials, or proprietary upstream files.
+        请描述用户可见的行为以及涉及的平台边界。不要附带私人输入、凭据或有版权限制的上游文件。
   - type: textarea
     id: problem
     attributes:
-      label: Problem and use case
+      label: 问题与使用场景
     validations:
       required: true
   - type: textarea
     id: proposal
     attributes:
-      label: Proposed behavior
+      label: 期望的行为
     validations:
       required: true
   - type: textarea
     id: platforms
     attributes:
-      label: Affected platforms and verification plan
-      description: Explain which shared layer or platform host changes and how the result can be verified.
+      label: 涉及平台与验证方案
+      description: 说明改动落在共享层还是某个平台宿主，以及结果可以怎样验证。
     validations:
       required: true

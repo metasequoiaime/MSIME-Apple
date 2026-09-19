@@ -1,35 +1,35 @@
-name: Bug report
-description: Report a reproducible problem without including private input or credentials.
+name: 缺陷报告
+description: 报告一个可复现的问题，不要附带私人输入或凭据。
 title: "[Bug]: "
 labels: [bug]
 body:
   - type: markdown
     attributes:
       value: |
-        Do not include passwords, tokens, real typed text, personal data, private paths, or security-sensitive details. Use the private security report link for vulnerabilities.
+        请不要包含密码、访问令牌、真实输入文本、个人资料、私人路径或涉及安全的细节。安全漏洞请走私下报告入口。
   - type: input
     id: platform
     attributes:
-      label: Platform and version
-      description: Include the OS, architecture, and the 水杉输入法 commit or package version.
-      placeholder: e.g. Linux arm64 container, commit abc1234
+      label: 平台与版本
+      description: 写明操作系统、架构，以及水杉输入法的提交或安装包版本。
+      placeholder: 例如 Linux arm64 容器，commit abc1234
     validations:
       required: true
   - type: textarea
     id: reproduce
     attributes:
-      label: Reproduction steps
-      description: Use synthetic input and a minimal sequence of steps.
+      label: 复现步骤
+      description: 使用合成输入，给出最小的操作序列。
     validations:
       required: true
   - type: textarea
     id: expected
     attributes:
-      label: Expected and actual behavior
+      label: 预期行为与实际行为
     validations:
       required: true
   - type: textarea
     id: checks
     attributes:
-      label: Checks already run
-      description: List local commands or platform tests and their results. Do not paste secrets or raw input.
+      label: 已经执行过的检查
+      description: 列出本地命令或平台测试及其结果。不要粘贴密钥或原始输入内容。

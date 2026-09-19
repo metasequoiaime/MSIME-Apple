@@ -61,8 +61,19 @@ Harmony 设置页暴露共享的模糊拼音规则、触摸输入方案启用列
 - `tests/`：不依赖设备的 TypeScript 键盘逻辑测试。
 - `AppScope/`、`entry/src/main/resources/`：应用元数据和资源。
 - `build-native.sh`、`stage-resources.sh`：共享 Host API、NAPI 库和固定资源的构建/暂存入口。
+- `entry/src/main/resources/rawfile/settings/index.html`：设置页的单文件打包产物，由 `apps/harmony` 生成，见下方[设置页打包](#设置页打包)。
 
 设置页的本地词库管理复用共享设置 UI 和 `msime_client_dictionary`：可分页查看、编辑、导入、导出和处理失败队列。ArkTS 设置桥只接受操作 JSON；引擎资源和状态目录始终由宿主从应用沙盒准备，WebView 不能提交路径。词库写操作需要 Engine 独占维护窗口：空闲时会短暂重建会话并恢复语言、九键和焦点状态；正在组合输入时会返回忙碌错误，不会替用户取消输入。读取操作可与活动会话并行。
+
+## 设置页打包
+
+`entry/src/main/resources/rawfile/settings/index.html` 是提交进仓库的构建产物，不要手工编辑。它由 `apps/harmony` 生成：
+
+```sh
+pnpm --filter @msime/harmony build
+```
+
+之所以提交而不是在打包时生成，是因为 `hvigorw assembleHap` 不会调用 Node 工具链；HAP 打包时这个文件必须已经在 rawfile 里。它也必须是**单文件**：`resource://` 文档的 origin 为 null，WebView 会拒绝跨 origin 拉取模块脚本和样式表，所以脚本、样式和资源全部内联进 HTML，因此体积在 1 MB 以上。改动共享设置 UI（`packages/ui`）后需要重新生成并连同源码一起提交，否则 HarmonyOS 上看到的还是旧界面。
 
 ## 本地构建
 
