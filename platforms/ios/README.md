@@ -89,6 +89,19 @@ xcrun simctl install booted "$app"
 
 原生 SwiftUI 设置 App 只作为迁移期间的测试入口保留。需要重建它来运行旧版 UI 测试时，设置 `MSIME_IOS_LEGACY_APP=1`；默认构建不会再把 `MSIMEClientApp` 作为产品宿主。
 
+**上面那条 SIGTRAP 只挡 Tauri 宿主，不挡这个。** `MSIMEClientApp` 不加载 WebView，在 iOS 27 模拟器上界面能正常起来，键盘扩展也随它一起装进去，所以要在模拟器上看界面就走这条路：
+
+```sh
+MSIME_IOS_DEPS=/absolute/ios/dependency-prefix platforms/ios/build-native.sh simulator
+xcodebuild -project platforms/ios/MSIMEClient.xcodeproj -scheme MSIMEClientApp \
+  -destination 'platform=iOS Simulator,name=<设备名>' \
+  -derivedDataPath target/ios/derived-sim CODE_SIGNING_ALLOWED=NO build
+xcrun simctl install booted target/ios/derived-sim/Build/Products/Debug-iphonesimulator/MSIMEClientApp.app
+xcrun simctl launch booted app.msime.ios
+```
+
+需要 `target/ios/EngineResources` 已按上面的暂存步骤就位，否则运行时找不到词库。
+
 共享 Tauri iOS 工程的 CocoaPods workspace 与 `Pods` 目录只为真机 ML Kit 构建生成，不提交到仓库；模拟器从干净的 XcodeGen 工程直接构建 fallback。真机目标需要先安装锁定的 CocoaPods 依赖，然后从 Tauri CLI 启动构建；CLI 会为 Xcode 中的 Rust 构建脚本建立本地控制通道，因此不要直接用独立的 `xcodebuild` 命令代替：
 
 ```sh
