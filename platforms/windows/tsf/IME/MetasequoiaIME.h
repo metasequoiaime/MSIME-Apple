@@ -56,6 +56,12 @@ constexpr bool IsSelfGeneratedSendInputExtraInfo(ULONG_PTR extraInfo)
     return extraInfo == SMART_PUNCTUATION_SENDINPUT_EXTRA_INFO || extraInfo == PAIRED_PUNCTUATION_SENDINPUT_EXTRA_INFO;
 }
 constexpr ULONGLONG SMART_PUNCTUATION_REPEAT_INTERVAL_MS = 2000;
+// How long a queued rewrite stays valid. Unlike the interval above this is not
+// a window the user types in: the message is posted from inside the edit
+// session and handled on the next turn of the same message loop, so anything
+// slower than this means the loop was blocked and the caret is no longer where
+// the rewrite assumed. Backspacing blindly at that point edits the wrong text.
+constexpr ULONGLONG SMART_PUNCTUATION_REWRITE_DEADLINE_MS = 500;
 constexpr UINT_PTR TIMER_CONNECT_ALL_NAMEDPIPE = 1;
 constexpr UINT_PTR TIMER_CONNECT_TO_TSF_NAMEDPIPE = 2;
 constexpr UINT_PTR TIMER_REFRESH_LANG_BAR_THEME = 3;
@@ -222,6 +228,12 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     // Smart punctuation: backspacing the ASCII punctuation we just committed
     // means that form was unwanted, so the spot stays on Chinese punctuation.
     std::wstring _ResolveSmartPunctuation(WCHAR wch, WCHAR precedingChar);
+    // Replace the character before the caret through the input queue rather
+    // than the document. Hosts whose TSF context is a proxy over a terminal
+    // keep no committed text: they accept an in-place rewrite and report
+    // success without changing anything. SendInput goes through the system
+    // queue, which is why it works regardless of how the host is built.
+    bool _QueueSmartPunctuationRewrite(WCHAR replacement);
     bool _QueueRepeatedSmartPunctuationReplacement(WCHAR wch);
     void _NoteKeyForSmartPunctuation(UINT code, WCHAR wch, bool isEaten);
     void _ResetSmartPunctuationHistory();
