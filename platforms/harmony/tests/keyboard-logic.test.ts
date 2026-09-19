@@ -82,6 +82,10 @@ import { CandidateFontFamilyPolicy } from "../entry/src/main/ets/keyboard/candid
 import { CandidateAnnotationPreferencePolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateAnnotationPreferencePolicy";
 import { InputModeHudPolicy } from "../entry/src/main/ets/keyboard/InputModeHudPolicy";
 import {
+  VoiceResponsePolicy,
+  type VoiceOutcome,
+} from "../entry/src/main/ets/keyboard/input/VoiceResponsePolicy";
+import {
   HardwareKeyDispatch,
   type HardwareKeyTarget,
 } from "../entry/src/main/ets/keyboard/HardwareKeyDispatch";
@@ -3389,6 +3393,86 @@ group("a key that was claimed without an effect does nothing at all", () => {
   check(
     dispatched(HardwareKeyAction.RELEASE).length === 0,
     "and a released key never reaches here, but would still do nothing if it did",
+  );
+});
+
+group("a batch transcription reply is judged before it is parsed", () => {
+  const ok: VoiceOutcome = VoiceResponsePolicy.batchResult(200, JSON.stringify({ text: "你好" }));
+  check(ok.text === "你好" && ok.failure === "", "a 2xx reply carrying text is the result");
+  check(
+    VoiceResponsePolicy.batchResult(500, JSON.stringify({ text: "你好" })).failure.length > 0,
+    "a server error is a failure however well formed its body",
+  );
+  check(VoiceResponsePolicy.batchResult(200, null).failure.length > 0, "so is a missing body");
+  check(
+    VoiceResponsePolicy.batchResult(200, "not json").failure.length > 0,
+    "and a body that is not a reply at all",
+  );
+  check(
+    VoiceResponsePolicy.batchResult(200, JSON.stringify({ text: "" })).failure.length > 0,
+    "an empty transcription says so rather than committing nothing",
+  );
+  // Judged on the raw body: a provider answering with a megabyte is not one to parse first.
+  const huge: string = JSON.stringify({ text: "x".repeat(2 * 1024 * 1024) });
+  check(
+    VoiceResponsePolicy.batchResult(200, huge).failure.length > 0,
+    "an implausibly large body is refused before it reaches a parser",
+  );
+});
+
+group("a streaming frame is read at whichever level answered", () => {
+  const top: VoiceOutcome = VoiceResponsePolicy.streamingFrame(
+    JSON.stringify({ result: { text: "你好" } }),
+    false,
+  );
+  check(top.text === "你好" && !top.last, "text at the top level is the result");
+  const nested: VoiceOutcome = VoiceResponsePolicy.streamingFrame(
+    JSON.stringify({ payload_msg: { result: { text: "你好" } } }),
+    false,
+  );
+  check(nested.text === "你好", "and so is text nested under payload_msg");
+  check(
+    VoiceResponsePolicy.streamingFrame(JSON.stringify({ code: 1002 }), false).failure.length > 0,
+    "a non-zero code at the top level is a refusal",
+  );
+  check(
+    VoiceResponsePolicy.streamingFrame(JSON.stringify({ payload_msg: { code: 1002 } }), false)
+      .failure.length > 0,
+    "and so is one nested, which is the level that is easy to forget to check",
+  );
+  check(
+    VoiceResponsePolicy.streamingFrame(JSON.stringify({ error: "denied" }), false).failure.length >
+      0,
+    "an error member is a refusal whatever the code says",
+  );
+  check(
+    VoiceResponsePolicy.streamingFrame(JSON.stringify({ code: 0, result: { text: "hi" } }), false)
+      .failure === "",
+    "code 0 is success rather than a refusal",
+  );
+  check(
+    VoiceResponsePolicy.streamingFrame("not json", false).failure.length > 0,
+    "a frame that is not JSON is a refusal rather than an empty result",
+  );
+});
+
+group("a final frame ends the recording even when it carries no text", () => {
+  const last: VoiceOutcome = VoiceResponsePolicy.streamingFrame(JSON.stringify({}), true);
+  check(
+    last.last === true && last.text === "" && last.failure === "",
+    "an empty last frame is still the last frame; treating it as nothing would keep listening",
+  );
+  const lastWithText: VoiceOutcome = VoiceResponsePolicy.streamingFrame(
+    JSON.stringify({ result: { text: "你好" } }),
+    true,
+  );
+  check(
+    lastWithText.last === true && lastWithText.text === "你好",
+    "and a last frame with text carries both",
+  );
+  check(
+    VoiceResponsePolicy.streamingFrame(JSON.stringify({ code: 7 }), true).last === true,
+    "a refusal on the last frame is still the last frame",
   );
 });
 

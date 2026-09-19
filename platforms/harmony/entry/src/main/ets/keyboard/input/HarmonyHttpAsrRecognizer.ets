@@ -5,6 +5,7 @@ import { KeyboardLog, describeError } from '../KeyboardLog';
 import { utf8Length } from '../Utf8';
 import { VoiceRecognitionPolicy } from './VoiceRecognitionPolicy';
 import { HarmonyVoiceCaptureDevices } from './HarmonyVoiceCaptureDevices';
+import { VoiceOutcome, VoiceResponsePolicy } from './VoiceResponsePolicy';
 import { VoiceInputConfiguration } from './VoiceInputConfiguration';
 
 const SAMPLE_RATE: number = 16000;
@@ -191,18 +192,13 @@ export class HarmonyHttpAsrRecognizer {
         extraData: body
       });
       if (token !== this.sessionToken || this.settled) return;
-      if (response.responseCode < 200 || response.responseCode >= 300
-        || typeof response.result !== 'string' || utf8Length(response.result) > MAX_RESPONSE_BYTES) {
-        await this.fail('语音服务未返回有效识别结果。', token);
+      const outcome: VoiceOutcome = VoiceResponsePolicy.batchResult(response.responseCode,
+        typeof response.result === 'string' ? response.result as string : null);
+      if (outcome.failure.length > 0) {
+        await this.fail(outcome.failure, token);
         return;
       }
-      const document: AsrResponse = JSON.parse(response.result) as AsrResponse;
-      const text: string = VoiceRecognitionPolicy.result(document.text ?? '');
-      if (text.length === 0) {
-        await this.fail('语音服务未识别到文字。', token);
-        return;
-      }
-      await this.complete(text, token);
+      await this.complete(outcome.text, token);
     } catch (error) {
       if (token === this.sessionToken && !this.settled) {
         await this.fail(`语音服务请求失败：${describeError(error)}`, token);
