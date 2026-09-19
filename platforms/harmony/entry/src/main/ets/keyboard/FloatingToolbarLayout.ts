@@ -32,6 +32,8 @@ export enum ToolbarButton {
 /** What the keyboard is doing, which is what the faces below report. */
 export interface ToolbarState {
   readonly english: boolean;
+  /** Temporary English candidate input keeps the Chinese IME active and is shown as En. */
+  readonly temporaryEnglish: boolean;
   /** Japanese is a distinct input scheme; English still takes precedence when dedicated mode is on. */
   readonly japanese: boolean;
   /** Hardware Caps Lock takes precedence over the language face on desktop keyboards. */
@@ -54,7 +56,7 @@ export interface ToolbarComponents {
 export class FloatingToolbarLayout {
   static idleState(): ToolbarState {
     return {
-      english: false, japanese: false, capsLock: false, chinesePunctuation: true,
+      english: false, temporaryEnglish: false, japanese: false, capsLock: false, chinesePunctuation: true,
       fullWidth: false, traditional: false
     };
   }
@@ -100,7 +102,8 @@ export class FloatingToolbarLayout {
   static face(button: ToolbarButton, state: ToolbarState): string {
     switch (button) {
       case ToolbarButton.INPUT_MODE:
-        return state.capsLock ? 'A' : state.english ? '英' : state.japanese ? '日' : '中';
+        return state.capsLock ? 'A' : state.temporaryEnglish ? 'En'
+          : state.english ? '英' : state.japanese ? '日' : '中';
       case ToolbarButton.PUNCTUATION:
         return state.chinesePunctuation ? '。' : '.';
       case ToolbarButton.FULL_WIDTH:

@@ -83,8 +83,11 @@ struct FloatingToolbar {
             .fontSize((button === ToolbarButton.SETTINGS ? this.fontSize - 2 : this.fontSize) * scale)
           .fontColor(button === ToolbarButton.SETTINGS
             ? this.toolbarSkin.settingsColor : this.toolbarSkin.buttonColor)
-          .fontFamily(button === ToolbarButton.INPUT_MODE && this.state.english
+          .fontFamily(button === ToolbarButton.INPUT_MODE
+            && (this.state.english || this.state.temporaryEnglish)
             ? this.toolbarSkin.englishFontFamily : this.toolbarSkin.fontFamily)
+          .borderWidth({ bottom: button === ToolbarButton.INPUT_MODE && this.state.temporaryEnglish ? 1 : 0 })
+          .borderColor(this.toolbarSkin.buttonColor)
           .textAlign(TextAlign.Center)
           .width(buttonWidth)
           .height(toolbarHeight - edgeInset)

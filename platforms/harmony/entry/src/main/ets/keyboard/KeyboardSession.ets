@@ -927,6 +927,7 @@ export class KeyboardSession {
     }
     const state: ToolbarState = {
       english: this.englishMode,
+      temporaryEnglish: this.localMode === 'temporary_english',
       japanese: !this.englishMode && this.schemeName === 'japanese',
       capsLock: this.capsLock,
       chinesePunctuation: this.chinesePunctuation,
@@ -1419,7 +1420,6 @@ export class KeyboardSession {
     // stack trace into a keyboard four rows tall.
     this.editing = value.view.editing_text;
     this.scheme = value.view.scheme;
-    this.localMode = value.view.local_mode;
     this.diagnostic = InputDiagnosticPolicy.normalize(
       value.diagnostic === undefined ? null : value.diagnostic);
     const commit: string | null | undefined = value.commit;
@@ -1480,6 +1480,8 @@ export class KeyboardSession {
 
   private render(view: EngineView): void {
     this.generation = view.generation;
+    const localModeChanged: boolean = this.localMode !== view.local_mode;
+    this.localMode = view.local_mode;
     // Here rather than in apply(), because both paths end up here and only one of them went through
     // apply(): a reply that is a bare view — which is what every mode switch answers with — left
     // this behind, so the toolbar's 半 never became 全 and the next tap asked for the same thing
@@ -1527,6 +1529,9 @@ export class KeyboardSession {
     }
     if (this.onCandidateCount !== undefined) {
       this.onCandidateCount(entries.length);
+    }
+    if (localModeChanged) {
+      this.refreshToolbar();
     }
     // Candidate annotations and online providers are display-only work. Both run after the Engine
     // view is published, and native result application rechecks the exact generation.

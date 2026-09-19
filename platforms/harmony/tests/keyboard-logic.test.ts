@@ -793,11 +793,11 @@ group('applies Windows toolbar scale and font-size bounds to Harmony geometry', 
 
 group('shows Japanese input mode in the Harmony toolbar', () => {
   const japaneseState = {
-    english: false, japanese: true, capsLock: false,
+    english: false, temporaryEnglish: false, japanese: true, capsLock: false,
     chinesePunctuation: true, fullWidth: false, traditional: false
   };
   const englishState = {
-    english: true, japanese: true, capsLock: false,
+    english: true, temporaryEnglish: false, japanese: true, capsLock: false,
     chinesePunctuation: true, fullWidth: false, traditional: false
   };
   check(FloatingToolbarLayout.face(ToolbarButton.INPUT_MODE, japaneseState) === '日',
@@ -807,9 +807,17 @@ group('shows Japanese input mode in the Harmony toolbar', () => {
   check(FloatingToolbarLayout.face(ToolbarButton.INPUT_MODE, FloatingToolbarLayout.idleState()) === '中',
     'the default Chinese mode remains unchanged');
   check(FloatingToolbarLayout.face(ToolbarButton.INPUT_MODE, {
-    english: false, japanese: true, capsLock: true, chinesePunctuation: true,
+    english: false, temporaryEnglish: false, japanese: true, capsLock: true, chinesePunctuation: true,
     fullWidth: false, traditional: false
   }) === 'A', 'Caps Lock takes precedence over the language mode face');
+  check(FloatingToolbarLayout.face(ToolbarButton.INPUT_MODE, {
+    english: false, temporaryEnglish: true, japanese: false, capsLock: false,
+    chinesePunctuation: true, fullWidth: false, traditional: false
+  }) === 'En', 'temporary English mode uses the Windows En toolbar face');
+  check(FloatingToolbarLayout.face(ToolbarButton.INPUT_MODE, {
+    english: true, temporaryEnglish: true, japanese: true, capsLock: false,
+    chinesePunctuation: true, fullWidth: false, traditional: false
+  }) === 'En', 'temporary English takes precedence over dedicated language faces');
 });
 
 group('keeps a dragged Harmony toolbar inside the display', () => {
