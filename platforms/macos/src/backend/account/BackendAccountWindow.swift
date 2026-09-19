@@ -1,15 +1,13 @@
 import AppKit
-import AuthenticationServices
 import SwiftUI
 
 @MainActor
-final class MacAccountModel: NSObject, ObservableObject, ASAuthorizationControllerDelegate, ASAuthorizationControllerPresentationContextProviding {
+final class MacAccountModel: NSObject, ObservableObject {
   @Published var user: BackendAccountClient.User?
   @Published var anonymous = false
   @Published var providers: [String: Bool] = [:]
   @Published var message: String?
   @Published var busy = false
-  @Published var authorizing = false
   @Published var name = ""
   @Published var target = ""
   @Published var code = ""
@@ -17,15 +15,12 @@ final class MacAccountModel: NSObject, ObservableObject, ASAuthorizationControll
   @Published var challenge: BackendAccountClient.Challenge?
   @Published var expiresAt = Date.distantPast
   @Published var resendAt = Date.distantPast
-  weak var window: NSWindow?
   private let client: BackendAccountClient
   private let account: BackendAccountSession
   private let anonymousAccount: BackendAccountSession
   private let closeAccountWindows: @MainActor () -> Void
   private let discardAnonymous: () -> Void
   private var pending: Task<Void, Never>?
-  private var appleController: ASAuthorizationController?
-  private var appleChallenge: String?
 
   init(client: BackendAccountClient = BackendAccountClient(), account: BackendAccountSession = .shared,
        anonymousAccount: BackendAccountSession = BackendAccountSession(storage: BackendAnonymousAccount.sessionStorage()),
@@ -90,43 +85,6 @@ final class MacAccountModel: NSObject, ObservableObject, ASAuthorizationControll
       self.challenge = nil; self.code = ""; self.target = ""
     }
   }
-  func appleLogin() {
-    perform {
-      guard self.window != nil, self.providers["apple"] == true else { throw BackendAccountClient.Failure(status: 503) }
-      let challenge = try await self.client.challenge(provider: "apple")
-      try Task.checkCancellation()
-      guard let nonce = challenge.nonce else { throw BackendAccountClient.Failure(status: 503) }
-      let request = ASAuthorizationAppleIDProvider().createRequest()
-      request.nonce = nonce
-      let controller = ASAuthorizationController(authorizationRequests: [request])
-      controller.delegate = self; controller.presentationContextProvider = self
-      self.appleChallenge = challenge.challenge_id; self.appleController = controller; self.authorizing = true
-      controller.performRequests()
-    }
-  }
-  func presentationAnchor(for controller: ASAuthorizationController) -> ASPresentationAnchor { window! }
-  func authorizationController(controller: ASAuthorizationController, didCompleteWithAuthorization authorization: ASAuthorization) {
-    guard controller === appleController else { return }
-    defer { appleController = nil; appleChallenge = nil; authorizing = false }
-    guard let challenge = appleChallenge, let credential = authorization.credential as? ASAuthorizationAppleIDCredential,
-          let data = credential.identityToken, let token = String(data: data, encoding: .utf8) else { return }
-    perform {
-      let replacingAnonymous = self.anonymous
-      try await self.account.signIn(challenge: challenge, credential: token)
-      if replacingAnonymous {
-        try await self.anonymousAccount.forget()
-        self.discardAnonymous()
-      }
-      let user = try await self.account.user()
-      try Task.checkCancellation()
-      self.user = user; self.name = self.user?.preferredDisplayName ?? ""; self.anonymous = false
-    }
-  }
-  func authorizationController(controller: ASAuthorizationController, didCompleteWithError error: Error) {
-    guard controller === appleController else { return }
-    appleController = nil; appleChallenge = nil; authorizing = false
-    if (error as? ASAuthorizationError)?.code != .canceled { message = "Apple 登录未完成，请重试。" }
-  }
   func rename() {
     let value = name.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !value.isEmpty, value.unicodeScalars.count <= 64,
@@ -160,7 +118,7 @@ final class MacAccountModel: NSObject, ObservableObject, ASAuthorizationControll
       self.user = nil; self.name = ""; self.anonymous = false
     }
   }
-  func close() { pending?.cancel(); if #available(macOS 13.0, *) { appleController?.cancel() }; authorizing = false; appleController = nil; appleChallenge = nil; code = ""; target = ""; challenge = nil }
+  func close() { pending?.cancel(); code = ""; target = ""; challenge = nil }
 }
 
 private struct SettingsCard<Content: View>: View {
@@ -250,7 +208,7 @@ private struct MacAccountView: View {
       .padding(.vertical, 4)
       .frame(maxWidth: .infinity, alignment: .leading)
     }
-    .padding(.horizontal, 24).frame(width: 560, height: 680).disabled(model.busy || model.authorizing)
+    .padding(.horizontal, 24).frame(width: 560, height: 680).disabled(model.busy)
     .sheet(isPresented: $resources) {
       if let user = model.user { BackendCommunityResourcesView(accountID: user.id).frame(width: 650, height: 650) }
     }
@@ -312,8 +270,6 @@ private struct MacAccountView: View {
 
   private var signInCard: some View {
     SettingsCard(title: "登录") {
-      Button("使用 Apple 登录") { model.appleLogin() }.disabled(model.providers["apple"] != true)
-      CardDivider()
       Picker("验证码登录", selection: $model.channel) {
         Text("邮箱").tag("email"); Text("手机号").tag("phone")
       }.onChange(of: model.channel) { _ in model.challenge = nil; model.code = "" }
@@ -368,7 +324,7 @@ final class BackendAccountWindow: NSWindowController, NSWindowDelegate {
     let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 560, height: 680), styleMask: [.titled, .closable], backing: .buffered, defer: false)
     super.init(window: window)
     window.title = "水杉账号"; window.isReleasedWhenClosed = false; window.delegate = self
-    window.contentView = NSHostingView(rootView: MacAccountView(model: model)); model.window = window
+    window.contentView = NSHostingView(rootView: MacAccountView(model: model))
     window.center()
   }
   required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
@@ -412,7 +368,7 @@ func accountPaneView() -> NSView {
 @MainActor
 func accountPaneAttach(_ window: NSWindow?) {
   MainActor.assumeIsolated {
-    AccountPane.shared.model.window = window
+    _ = window
     AccountPane.shared.model.load()
   }
 }
