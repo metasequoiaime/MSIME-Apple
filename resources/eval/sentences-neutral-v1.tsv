@@ -1,4 +1,4 @@
-# Whole-sentence cases harvested from a corpus, not written by hand.
+# Whole-sentence cases harvested from a corpus against the engine alone — no reranking model.
 #
 # Gold is the corpus sentence itself. Each one was converted to pinyin with the Engine's own table
 # and typed back in; these are the ones where the top candidate came back as something else, so the
