@@ -464,6 +464,19 @@ group('mapping keeps the last Chinese scheme across a Japanese switch', () => {
   check(fallback.lastChineseScheme === 'quanpin', 'an unknown last Chinese scheme normalises to quanpin');
 });
 
+group('the engine scheme id names the scheme the policies compare against', () => {
+  // The view is handed a number and the policies are written against the preference names. The two
+  // used to be passed to each other directly, so CandidateManagementAction never saw 'japanese' and
+  // offered dictionary actions on candidates that cannot take them.
+  check(KeyboardScheme.engineSchemeName(0) === 'quanpin', 'zero is quanpin');
+  check(KeyboardScheme.engineSchemeName(1) === 'shuangpin', 'one is shuangpin');
+  check(KeyboardScheme.engineSchemeName(2) === 'wubi', 'two is wubi, as the wubi hint policy reads it');
+  check(KeyboardScheme.engineSchemeName(3) === 'japanese', 'three is japanese');
+  check(KeyboardScheme.engineSchemeName(99) === 'quanpin', 'an unknown id falls back rather than throwing');
+  check(!CandidateManagementAction.candidateActionsAvailable(KeyboardScheme.engineSchemeName(3), 0),
+    'a japanese candidate offers no dictionary actions once the name reaches the policy');
+});
+
 group('a runtime selection that changes nothing produces no update', () => {
   check(KeyboardScheme.mappingForRuntimeSelection(KeyboardScheme.QUANPIN, KeyboardScheme.QUANPIN,
     'quanpin', 'xiaohe') === null, 'selecting the applied scheme is not a change');

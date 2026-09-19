@@ -45,26 +45,38 @@ struct FloatingToolbar {
     KeyboardSession.shared.onToolbar = undefined;
   }
 
+  /**
+   * Every measurement the bar is drawn from, as methods rather than locals.
+   *
+   * A build method holds the UI description and nothing else, so the values it needs have to be
+   * named outside it. They all come from the one scale the shared preference sets.
+   */
+  private scaleFactor(): number {
+    return FloatingToolbarLayout.scale(this.toolbarScale);
+  }
+
+  private toolbarHeight(): number {
+    return FloatingToolbarLayout.heightVp(this.scaleFactor());
+  }
+
+  private handleHeight(): number {
+    return 14 * this.scaleFactor();
+  }
+
+  private dividerHeight(): number {
+    return Math.max(1, this.toolbarHeight() - 2 * this.scaleFactor());
+  }
+
   build() {
-    const scale: number = FloatingToolbarLayout.scale(this.toolbarScale);
-    const buttonWidth: number = FloatingToolbarLayout.buttonWidthVp(scale);
-    const buttonGap: number = FloatingToolbarLayout.buttonGapVp(scale);
-    const edgeInset: number = FloatingToolbarLayout.edgeInsetVp(scale);
-    const toolbarHeight: number = FloatingToolbarLayout.heightVp(scale);
-    const cornerRadius: number = this.toolbarSkin.cornerRadiusVp * scale;
-    const handleWidth: number = 2.5 * scale;
-    const handleHeight: number = 14 * scale;
-    const dividerWidth: number = 1.2 * scale;
-    const dividerHeight: number = Math.max(1, toolbarHeight - 2 * scale);
     // The colour goes on a container that fills the panel rather than on the row of buttons: a panel
     // is transparent where nothing is drawn, and a row only covers the buttons it holds.
     Column() {
-      Row({ space: buttonGap }) {
+      Row({ space: FloatingToolbarLayout.buttonGapVp(this.scaleFactor()) }) {
         Column()
-          .width(handleWidth)
-          .height(handleHeight)
+          .width(2.5 * this.scaleFactor())
+          .height(this.handleHeight())
           .backgroundColor(this.toolbarSkin.dragHandleColor)
-          .borderRadius(2 * scale)
+          .borderRadius(2 * this.scaleFactor())
           .gesture(
             PanGesture({ direction: PanDirection.All, distance: 1 })
               .onActionStart(() => {
@@ -75,12 +87,12 @@ struct FloatingToolbar {
               })
           )
         Column()
-          .width(dividerWidth)
-          .height(dividerHeight)
+          .width(1.2 * this.scaleFactor())
+          .height(this.dividerHeight())
           .backgroundColor(this.toolbarSkin.dividerColor)
         ForEach(this.buttons, (button: ToolbarButton) => {
           Text(FloatingToolbarLayout.face(button, this.state))
-            .fontSize((button === ToolbarButton.SETTINGS ? this.fontSize - 2 : this.fontSize) * scale)
+            .fontSize((button === ToolbarButton.SETTINGS ? this.fontSize - 2 : this.fontSize) * this.scaleFactor())
           .fontColor(button === ToolbarButton.SETTINGS
             ? this.toolbarSkin.settingsColor : this.toolbarSkin.buttonColor)
           .fontFamily(button === ToolbarButton.INPUT_MODE
@@ -89,9 +101,9 @@ struct FloatingToolbar {
           .borderWidth({ bottom: button === ToolbarButton.INPUT_MODE && this.state.temporaryEnglish ? 1 : 0 })
           .borderColor(this.toolbarSkin.buttonColor)
           .textAlign(TextAlign.Center)
-          .width(buttonWidth)
-          .height(toolbarHeight - edgeInset)
-          .borderRadius(6 * scale)
+          .width(FloatingToolbarLayout.buttonWidthVp(this.scaleFactor()))
+          .height(this.toolbarHeight() - FloatingToolbarLayout.edgeInsetVp(this.scaleFactor()))
+          .borderRadius(6 * this.scaleFactor())
           .backgroundColor(this.hoveredButton === button
             ? this.toolbarSkin.buttonHoverColor : '#00000000')
           .onHover((isHover: boolean): void => {
@@ -107,7 +119,7 @@ struct FloatingToolbar {
     .width('100%')
     .height('100%')
     .backgroundColor(this.toolbarSkin.backgroundColor)
-    .borderRadius(cornerRadius)
+    .borderRadius(this.toolbarSkin.cornerRadiusVp * this.scaleFactor())
     // A bar with nothing behind it needs its own edge: it floats over whatever the desktop happens
     // to be, and on a pale one a pale surface with no border is a row of letters in mid-air.
     .borderWidth(1)

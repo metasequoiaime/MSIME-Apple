@@ -168,6 +168,24 @@ const EMOJI_PANEL: string = 'emoji';
 const KAOMOJI_PANEL: string = 'kaomoji';
 const SYMBOLS_PANEL: string = 'symbols';
 
+/** The shared touch-scheme record this view writes when the picker changes scheme. */
+interface TouchKeyboardSchemes {
+  enabled: string[];
+  selected: string;
+}
+
+/** One tab across the top of the emoji surface, in the order they are drawn. */
+interface EmojiPanelTab {
+  id: string;
+  title: string;
+}
+
+const EMOJI_PANEL_TABS: EmojiPanelTab[] = [
+  { id: EMOJI_PANEL, title: '表情' },
+  { id: KAOMOJI_PANEL, title: '颜文字' },
+  { id: SYMBOLS_PANEL, title: '符号' }
+];
+
 // Said plainly rather than as an error, because nothing is broken: the platform reserves clipboard
 // reads for system applications and this is not one.
 const CLIPBOARD_NOT_PERMITTED: string =
@@ -597,9 +615,10 @@ struct KeyboardView {
     const changes: Map<string, Object> = new Map<string, Object>();
     changes.set('scheme', candidate.engineScheme);
     changes.set('touch_keyboard_layout', candidate.touchKeyboardLayout);
-    changes.set('touch_keyboard_schemes', {
+    const schemes: TouchKeyboardSchemes = {
       enabled: this.settings.enabledSchemes, selected: candidate.preferenceId
-    });
+    };
+    changes.set('touch_keyboard_schemes', schemes);
     if (candidate.shuangpinProfile !== null) {
       changes.set('shuangpin_profile', candidate.shuangpinProfile);
     }
@@ -1006,6 +1025,11 @@ struct KeyboardView {
           `${index}:${candidate.text}:${candidate.highlighted}`)
       }
       .width('100%')
+      // One row per candidate here and exactly one there. The two used to share a ternary applied to
+      // the if/else as a whole, which ArkUI cannot do: modifiers belong to a component, and a branch
+      // is not one. Each branch states its own height, and the condition already decided which.
+      .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP
+        * Math.max(1, Math.min(9, this.candidates.length)))
       .onAxisEvent((event?: AxisEvent): void => {
         if (!this.settings.navigation.mouseWheel || event === undefined) {
           return;
@@ -1041,6 +1065,8 @@ struct KeyboardView {
           this.expanded = KeyboardSession.shared.allCandidates();
         })
       }
+      .width('100%')
+      .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP)
       .onAxisEvent((event?: AxisEvent): void => {
         if (!KeyboardFormFactor.isDesktop() || !this.settings.navigation.mouseWheel
             || event === undefined) {
@@ -1054,19 +1080,21 @@ struct KeyboardView {
         }
       })
     }
-    .width('100%')
-    .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP
-      * (KeyboardFormFactor.isDesktop() && this.settings.candidateLayout === 'vertical'
-        ? Math.max(1, Math.min(9, this.candidates.length)) : 1))
+  }
+
+  /**
+   * A @Builder body may hold only the UI description, so the two values this row is drawn from are
+   * named here instead of declared inside it.
+   */
+  private candidateDetailColor(candidate: CandidateEntry): string {
+    return CandidateSkinPolicy.rowDetailColor(candidate.highlighted,
+      this.candidateTextColor(), this.candidateAccentColor());
   }
 
   @Builder
   candidateCell(candidate: CandidateEntry, index: number) {
-    const selected: boolean = candidate.highlighted;
-    const detailColor: string = CandidateSkinPolicy.rowDetailColor(selected,
-      this.candidateTextColor(), this.candidateAccentColor());
     Row() {
-      if (selected && (this.settings.candidateSelectedBar
+      if (candidate.highlighted && (this.settings.candidateSelectedBar
         ?? CandidateSkinPolicy.showSelectedBar(this.settings.candidateSkinId))) {
         Blank().width(3).height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP * 0.55)
           .backgroundColor(this.candidatePalette().accent).borderRadius(2)
@@ -1074,7 +1102,7 @@ struct KeyboardView {
       Text(`${index + 1}`).fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
         .fontColor(this.candidateNumberColor()).padding({ right: 4 })
       Text(candidate.text).fontSize(this.settings.candidateFontSize)
-        .fontColor(selected || candidate.fixedPosition ? this.candidateAccentColor()
+        .fontColor(candidate.highlighted || candidate.fixedPosition ? this.candidateAccentColor()
           : this.candidateTextColor())
       if (candidate.badge.length > 0) {
         Text(candidate.badge).fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
@@ -1082,17 +1110,17 @@ struct KeyboardView {
       }
       if (candidate.hint.length > 0) {
         Text(candidate.hint).fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
-          .fontColor(detailColor).opacity(0.5).padding({ left: 2 })
+          .fontColor(this.candidateDetailColor(candidate)).opacity(0.5).padding({ left: 2 })
       }
       if (candidate.annotation.length > 0) {
         Text(candidate.annotation).fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
-          .fontColor(detailColor).opacity(0.7).padding({ left: 4 })
+          .fontColor(this.candidateDetailColor(candidate)).opacity(0.7).padding({ left: 4 })
       }
     }.alignItems(VerticalAlign.Center)
       .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP, right: KeyboardMetrics.CANDIDATE_PADDING_VP })
       .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP).width('100%')
       .backgroundColor(index === this.hoveredCandidate ? this.candidateHoverColor()
-        : selected ? (this.settings.candidateSelectedColor ?? '#00000000') : '#00000000')
+        : candidate.highlighted ? (this.settings.candidateSelectedColor ?? '#00000000') : '#00000000')
       .borderWidth(this.settings.candidateBorderColor === null ? 0 : 1)
       .borderColor(this.candidateBorderColor()).onClick(() => KeyboardSession.shared.choose(index))
       .onHover((isHover: boolean): void => { this.hoveredCandidate = isHover ? index : -1; })
@@ -2296,6 +2324,25 @@ struct KeyboardView {
    * so these follow the same pattern as the pickers: a strip that takes the space above the keys,
    * which is a surface this window certainly owns.
    */
+  /**
+   * What the long-press strip offers for the candidate being managed.
+   *
+   * Resolved here because a @Builder body may hold only the UI description. The scheme reaches the
+   * policy as the name it compares against rather than the Engine's runtime id: the two never
+   * matched, so the rule that withholds dictionary actions from Japanese candidates never fired.
+   */
+  private managementActions(): ManagementAction[] {
+    const managed: CandidateEntry | null =
+      this.managing >= 0 && this.managing < this.candidates.length
+        ? this.candidates[this.managing] : null;
+    const source: number = managed === null ? 0 : managed.source;
+    return CandidateManagementAction.actionsForFixedPosition(
+      managed === null ? 0 : managed.fixedPosition,
+      CandidateManagementAction.candidateActionsAvailable(
+        KeyboardScheme.engineSchemeName(this.engineScheme), source),
+      CandidateManagementAction.hasMultipleCodePoints(managed === null ? '' : managed.text));
+  }
+
   @Builder
   overlayStrip(title: string) {
     Row() {
@@ -2319,17 +2366,7 @@ struct KeyboardView {
               })
           }, (item: PunctuationEntry) => item.face + this.faceKey())
       } else {
-        const fixedPosition: number = this.managing >= 0 && this.managing < this.candidates.length
-          ? this.candidates[this.managing].fixedPosition : 0;
-        const source: number = this.managing >= 0 && this.managing < this.candidates.length
-          ? this.candidates[this.managing].source : 0;
-        const text: string = this.managing >= 0 && this.managing < this.candidates.length
-          ? this.candidates[this.managing].text : '';
-        const actionable: boolean = CandidateManagementAction.candidateActionsAvailable(
-          this.engineScheme, source);
-        ForEach(CandidateManagementAction.actionsForFixedPosition(fixedPosition, actionable,
-          CandidateManagementAction.hasMultipleCodePoints(text)),
-          (item: ManagementAction) => {
+        ForEach(this.managementActions(), (item: ManagementAction) => {
           Text(item.title)
             .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
             .fontColor(item.available === false ? this.skin.keyForeground :
@@ -2825,11 +2862,7 @@ struct KeyboardView {
 
       Scroll() {
         Row({ space: KeyboardMetrics.KEY_SPACING_VP }) {
-          ForEach([
-            { id: EMOJI_PANEL, title: '表情' },
-            { id: KAOMOJI_PANEL, title: '颜文字' },
-            { id: SYMBOLS_PANEL, title: '符号' }
-          ], (panel: { id: string; title: string }) => {
+          ForEach(EMOJI_PANEL_TABS, (panel: EmojiPanelTab) => {
             Text(panel.title)
               .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
               .fontColor(this.emojiPanel === panel.id
@@ -2838,7 +2871,7 @@ struct KeyboardView {
                 right: KeyboardMetrics.CANDIDATE_PADDING_VP })
               .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 5)
               .onClick(() => this.showEmojiPanel(panel.id))
-          }, (panel: { id: string; title: string }) => panel.id)
+          }, (panel: EmojiPanelTab) => panel.id)
         }
       }
       .scrollable(ScrollDirection.Horizontal)

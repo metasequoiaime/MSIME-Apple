@@ -195,6 +195,22 @@ export class KeyboardScheme {
     };
   }
 
+  /**
+   * The Engine's runtime scheme id as the name the shared policies compare against.
+   *
+   * The view is handed a number by the Engine view and the policies are written in terms of the
+   * scheme names the preference document uses; without this the two silently fail to match, and a
+   * policy that refuses something for Japanese never refuses it at all.
+   */
+  static engineSchemeName(id: number): string {
+    switch (id) {
+      case 1: return 'shuangpin';
+      case 2: return 'wubi';
+      case 3: return 'japanese';
+      default: return 'quanpin';
+    }
+  }
+
   private static isChineseScheme(value: string | null): boolean {
     return value === 'quanpin' || value === 'shuangpin' || value === 'wubi';
   }
