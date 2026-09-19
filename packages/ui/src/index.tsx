@@ -260,6 +260,8 @@ export type Preferences = {
   ime_mode_scope?: "app" | "global";
   last_chinese_scheme?: "quanpin" | "shuangpin" | "wubi" | null;
   shuangpin_profile: "xiaohe" | "ziranma" | "shoudao" | "microsoft";
+  /** macOS exposes the native shuangpin preedit presentation in the appearance page. */
+  shuangpin_preedit_uses_raw?: boolean;
   wubi_mixed_pinyin?: boolean;
   candidate_page_size: number;
   number_row_selection?: boolean;
@@ -1941,6 +1943,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
         <div className="section"><label className="section-header"><span className="section-title">候选布局</span><select aria-label="候选布局" value={draft.candidate_layout ?? "vertical"} onChange={event => setDraft({ ...draft, candidate_layout: event.target.value as Preferences["candidate_layout"] })}>
           <option value="vertical">竖排</option><option value="horizontal">横排</option>
         </select></label></div>
+        {macosPlatform && <div className="section"><label className="section-header"><span className="section-title">双拼预编辑<small>仅在双拼方案下生效；选择保留原始双拼按键，或显示展开后的拼音分词。</small></span><select aria-label="双拼预编辑" value={draft.shuangpin_preedit_uses_raw === false ? "pinyin" : "raw"} onChange={event => setDraft({ ...draft, shuangpin_preedit_uses_raw: event.target.value === "raw" })}><option value="raw">原始按键</option><option value="pinyin">拼音分词</option></select></label></div>}
         {showCandidateFontControls && <div className="section"><label className="section-header"><span className="section-title">候选字号</span><select aria-label="候选字号" value={candidateFontSize(draft.candidate_font_size)} onChange={event => setDraft({ ...draft, candidate_font_size: Number(event.target.value) })}>
           {candidateFontSizes.map(size => <option key={size} value={size}>{size}</option>)}
         </select></label></div>}
