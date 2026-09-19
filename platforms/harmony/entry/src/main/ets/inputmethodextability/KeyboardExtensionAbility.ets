@@ -2,6 +2,7 @@ import InputMethodExtensionAbility from '@ohos.InputMethodExtensionAbility';
 import inputMethodEngine from '@ohos.inputMethodEngine';
 import Want from '@ohos.app.ability.Want';
 import { KeyboardSession, KeyboardPreferences } from '../keyboard/KeyboardSession';
+import { CandidateAnchor, CandidateAnchorPolicy } from './CandidateAnchorPolicy';
 import { KeyboardLog, describeError } from '../keyboard/KeyboardLog';
 import fs from '@ohos.file.fs';
 import display from '@ohos.display';
@@ -51,6 +52,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
   // Where the caret last was, in px, so the candidate window can be put under it. Kept here because
   // the panel is here: the view has no handle on the window it is drawn into.
   private caret: [number, number, number] = [0, 0, 0];
+  private candidateAnchor: CandidateAnchor | undefined = undefined;
   private density: number = 1;
   // The badge that says which mode a switch landed in. Its own window, because it has to be able to
   // appear when the candidate window is not up: a mode is switched between words, not during one.
@@ -254,11 +256,13 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     const height: number = KeyboardMetrics.candidateHeightVp(settings.candidateLayout,
       this.candidateCount) * this.density;
     const gap: number = KeyboardMetrics.CANDIDATE_WINDOW_GAP_VP * this.density;
+    const anchor: CandidateAnchor = CandidateAnchorPolicy.position(settings.candidateFollowCursor,
+      this.candidateAnchor, this.caret);
     // A caret of no height is one that was never reported: a web view mid-layout, a client that
     // answers with zeroes, or simply an editor that has not sent one yet. Believing it puts the
     // window in the top-left corner of the screen, which is where this went. Low and centred is
     // where a desktop input method puts a candidate list it cannot place precisely.
-    if (this.caret[2] <= 0) {
+    if (anchor[2] <= 0) {
       this.panel.moveTo(Math.round(Math.max(0, (this.screenWidth - width) / 2)),
         Math.round(Math.max(0, this.screenHeight * 2 / 3)))
         .catch((error: Object): void => {
@@ -266,13 +270,13 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         });
       return;
     }
-    let x: number = this.caret[0];
+    let x: number = anchor[0];
     if (this.screenWidth > 0 && x + width > this.screenWidth) {
       x = this.screenWidth - width;
     }
-    let y: number = this.caret[1] + this.caret[2] + gap;
+    let y: number = anchor[1] + anchor[2] + gap;
     if (this.screenHeight > 0 && y + height > this.screenHeight) {
-      y = this.caret[1] - height - gap;
+      y = anchor[1] - height - gap;
     }
     this.panel.moveTo(Math.round(Math.max(0, x)), Math.round(Math.max(0, y)))
       .catch((error: Object): void => {
@@ -543,10 +547,13 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
             return;
           }
           if (active) {
+            this.candidateAnchor = KeyboardSession.shared.preferences().candidateFollowCursor
+              ? undefined : [...this.caret] as CandidateAnchor;
             this.resizeCandidateWindow(DesktopSurface.NONE);
             this.placeCandidateWindow();
             panel.show();
           } else {
+            this.candidateAnchor = undefined;
             panel.hide();
           }
         };

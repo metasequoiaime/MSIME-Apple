@@ -68,6 +68,8 @@ import { HardwareKeyRouter, HardwareKeyAction, HardwareKey } from
 import { CandidateSkinPolicy } from '../entry/src/main/ets/keyboard/candidate/CandidateSkinPolicy';
 import { CandidatePresentationPolicy } from '../entry/src/main/ets/keyboard/candidate/CandidatePresentationPolicy';
 import { CandidateWheelPolicy } from '../entry/src/main/ets/keyboard/candidate/CandidateWheelPolicy';
+import { CandidateAnchorPolicy, CandidateAnchor }
+  from '../entry/src/main/ets/inputmethodextability/CandidateAnchorPolicy';
 
 function selectedBarVisible(value: boolean | null): boolean {
   return value !== false;
@@ -723,6 +725,17 @@ group('omits deletion for single-code-point candidates', () => {
     'multi-code-point words keep the deletion action');
   check(CandidateManagementAction.actionsForFixedPosition(0, true, false).length === 7,
     'the delete row is omitted rather than merely disabled');
+});
+
+group('keeps the candidate panel anchor when follow-cursor is disabled', () => {
+  const anchor: CandidateAnchor = [100, 200, 20];
+  const current: CandidateAnchor = [400, 500, 20];
+  check(CandidateAnchorPolicy.position(false, anchor, current)[0] === 100,
+    'disabled follow uses the composition anchor');
+  check(CandidateAnchorPolicy.position(true, anchor, current)[0] === 400,
+    'enabled follow uses the latest caret');
+  check(CandidateAnchorPolicy.position(false, undefined, current)[1] === 500,
+    'missing anchor falls back to the current caret');
 });
 
 group('maps desktop candidate wheel movement to page commands', () => {
