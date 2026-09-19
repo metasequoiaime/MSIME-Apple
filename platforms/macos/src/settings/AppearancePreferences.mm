@@ -3,6 +3,12 @@
 #import "../candidate/CandidateSkinPreviewView.h"
 #import "../candidate/SkinSettingsView.h"
 #import "../cloud/CloudAppearanceSettings.h"
+#import "RuntimeOptions.h"
+
+extern "C" bool msime_macos_uninstall_input_source(const char *bundle_path,
+                                                     const char *user_data_path,
+                                                     const char *preferences_domain,
+                                                     bool remove_user_data);
 #import "../cloud/TranslationSettingsWindow.h"
 #import "../core/DesktopSettingsLauncher.h"
 #import "../core/AISettingsWindow.h"
@@ -403,6 +409,8 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     NSTextField *_versionLabel;
     NSTextField *_automaticUpdateLabel;
     NSButton *_updatePageButton;
+    NSButton *_uninstallButton;
+    NSButton *_removeUserDataButton;
     MSIMEUpdateController *_updateController;
     NSString *_sharedDefaultImeMode;
     NSString *_sharedImeModeScope;
@@ -2077,10 +2085,23 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     updateCard.accessibilityLabel = @"软件更新卡片";
     NSButton *websiteButton = [NSButton buttonWithTitle:@"访问 msime.app" target:self action:@selector(openProductWebsite:)];
     LinkifyButton(websiteButton, @"访问水杉官网");
+    _removeUserDataButton = [NSButton checkboxWithTitle:@"同时删除词库、学习记录、偏好与语音密钥"
+                                                   target:nil
+                                                   action:nil];
+    _removeUserDataButton.accessibilityLabel = @"卸载时删除本机数据";
+    _uninstallButton = [NSButton buttonWithTitle:@"卸载…" target:self action:@selector(uninstallInputSource:)];
+    _uninstallButton.bezelStyle = NSBezelStyleRounded;
+    _uninstallButton.contentTintColor = NSColor.systemRedColor;
+    _uninstallButton.accessibilityLabel = @"卸载水杉输入法";
+    NSBox *uninstallCard = CardWithViews(@[
+        PreferenceRow(@"输入源", _uninstallButton), _removeUserDataButton,
+    ], 0.0);
+    uninstallCard.accessibilityLabel = @"卸载输入源卡片";
     NSBox *aboutCard = CardWithViews(@[PreferenceRow(@"产品主页", websiteButton)], 0.0);
     aboutCard.accessibilityLabel = @"关于卡片";
     NSScrollView *aboutPage = PreferencesPage(@"关于", @"版本与更新，以及水杉输入法的产品主页。", @[
         SectionLabel(@"软件更新"), updateCard, SectionLabel(@"产品信息"), aboutCard,
+        SectionLabel(@"卸载"), uninstallCard,
     ]);
 
     // ---- 五笔设置（输入页的子页，不在侧边栏里） ------------------------------------------------
@@ -2456,6 +2477,50 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 - (void)openProductWebsite:(id)sender {
     (void)sender;
     [NSWorkspace.sharedWorkspace openURL:[NSURL URLWithString:@"https://msime.app"]];
+}
+- (void)uninstallInputSource:(id)sender {
+    (void)sender;
+    NSAlert *confirmation = [NSAlert new];
+    confirmation.alertStyle = NSAlertStyleWarning;
+    confirmation.messageText = @"确认卸载水杉输入法？";
+    confirmation.informativeText = _removeUserDataButton.state == NSControlStateValueOn
+        ? @"输入法会移到废纸篓，并删除本机词库、学习记录、偏好与语音密钥。"
+        : @"输入法会移到废纸篓；本机词库、学习记录和偏好会保留。";
+    [confirmation addButtonWithTitle:@"确认卸载"];
+    [confirmation addButtonWithTitle:@"取消"];
+    if ([confirmation runModal] != NSAlertFirstButtonReturn) return;
+
+    NSFileManager *fileManager = NSFileManager.defaultManager;
+    NSURL *library = [fileManager URLForDirectory:NSLibraryDirectory
+                                          inDomain:NSUserDomainMask
+                                 appropriateForURL:nil
+                                            create:NO
+                                             error:nil];
+    NSURL *inputMethods = [library URLByAppendingPathComponent:@"Input Methods" isDirectory:YES];
+    NSURL *bundle = [inputMethods URLByAppendingPathComponent:@"水杉输入法（预览）.app" isDirectory:YES];
+    NSDictionary *runtime = MSIMELoadRuntimeOptions();
+    NSString *configuredState = [runtime[ @"preferences_directory"] isKindOfClass:NSString.class]
+        && [runtime[@"preferences_directory"] isAbsolutePath] ? runtime[@"preferences_directory"] : nil;
+    NSURL *support = [fileManager URLForDirectory:NSApplicationSupportDirectory
+                                           inDomain:NSUserDomainMask
+                                  appropriateForURL:nil
+                                             create:NO
+                                              error:nil];
+    NSURL *defaultState = [support URLByAppendingPathComponent:@"app.msime.client.preview" isDirectory:YES];
+    NSString *userData = configuredState ?: defaultState.path;
+    BOOL ok = msime_macos_uninstall_input_source(bundle.path.fileSystemRepresentation,
+                                                  userData.fileSystemRepresentation,
+                                                  "app.msime.client.preview.inputmethod",
+                                                  _removeUserDataButton.state == NSControlStateValueOn);
+    if (!ok) {
+        NSAlert *failure = [NSAlert new];
+        failure.alertStyle = NSAlertStyleCritical;
+        failure.messageText = @"卸载未能完成";
+        failure.informativeText = @"输入法没有移到废纸篓；本机数据未被删除。";
+        [failure runModal];
+        return;
+    }
+    [NSApp terminate:nil];
 }
 - (void)checkForUpdates:(id)sender { [_updateController checkForUpdates:sender]; }
 - (void)refreshUpdateControls {
