@@ -1000,6 +1000,20 @@ group('maps hardware composition editing commands like Windows', () => {
     HardwareKeyAction.COMMIT_TRANSLATION, 'Ctrl+Enter commits a highlighted candidate translation');
   check(HardwareKeyRouter.route(key(2054, true), true, true, false, navigation, false).action ===
     HardwareKeyAction.RELEASE, 'Ctrl+Enter remains with the editor without a translation');
+  const japaneseMinus: HardwareKey = {
+    keyCode: 2057, unicodeChar: '-'.charCodeAt(0), ctrlKey: false,
+    altKey: false, logoKey: false, shiftKey: false
+  };
+  check(HardwareKeyRouter.route(japaneseMinus, false, true, false, navigation, false, true).action ===
+    HardwareKeyAction.COMPOSE, 'Japanese minus starts a long-vowel composition');
+  check(HardwareKeyRouter.route(japaneseMinus, false, true, false, navigation, false, true).character ===
+    '-'.charCodeAt(0), 'Japanese minus reaches the Engine as a hyphen');
+  check(HardwareKeyRouter.route(japaneseMinus, true, true, false, navigation, false, true).action ===
+    HardwareKeyAction.COMPOSE, 'Japanese minus remains a long-vowel composition key');
+  check(HardwareKeyRouter.route(key(2058), true, true, false, navigation, false, true).action ===
+    HardwareKeyAction.RELEASE, 'Japanese equals stays ordinary editor punctuation');
+  check(HardwareKeyRouter.route(key(2057, false, true), true, true, false, navigation, false, true).action ===
+    HardwareKeyAction.RELEASE, 'Shift+minus stays ordinary editor punctuation in Japanese');
 });
 
 group('splits candidate translation senses for Ctrl+Enter', () => {

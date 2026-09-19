@@ -888,6 +888,11 @@ export class KeyboardSession {
     return this.englishMode;
   }
 
+  /** Japanese romaji owns the unmodified hardware minus key; temporary R mode does not. */
+  isJapanese(): boolean {
+    return !this.englishMode && this.schemeName === 'japanese';
+  }
+
   /** Which mode-switch gestures the user left bound, as the shared document has them. */
   modeBindings(): ModeBindings {
     return this.bindings;

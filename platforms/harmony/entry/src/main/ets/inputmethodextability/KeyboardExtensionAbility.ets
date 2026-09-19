@@ -378,7 +378,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       HardwareKeyRouter.route(key, session.composing(), !session.isEnglish(),
         KeyboardSession.shared.preferences().numberRowSelection,
         KeyboardSession.shared.preferences().navigation,
-        session.hasHighlightedTranslation());
+        session.hasHighlightedTranslation(), session.isJapanese());
     if (decision.action === HardwareKeyAction.RELEASE) {
       return false;
     }

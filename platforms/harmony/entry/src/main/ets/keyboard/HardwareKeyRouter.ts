@@ -118,7 +118,18 @@ export class HardwareKeyRouter {
                navigation: HardwareNavigationPreferences = {
                  minusEqual: true, commaPeriod: true, brackets: false,
                  tab: true, pageUpDown: true, mouseWheel: false, arrows: true
-               }, hasHighlightedTranslation: boolean = false): HardwareKeyDecision {
+               }, hasHighlightedTranslation: boolean = false,
+               japanese: boolean = false): HardwareKeyDecision {
+    // Japanese romaji reserves an unmodified minus for the long-vowel mark. It is a composition
+    // key even before the first kana exists; '=' and shifted '-' remain ordinary editor input.
+    if (japanese && !key.ctrlKey && !key.altKey && !key.logoKey
+        && key.keyCode === KEYCODE_MINUS && !key.shiftKey && key.unicodeChar === 0x2d) {
+      return decision(HardwareKeyAction.COMPOSE, 0x2d);
+    }
+    if (japanese && composing && !key.ctrlKey && !key.altKey && !key.logoKey
+        && (key.keyCode === KEYCODE_MINUS || key.keyCode === KEYCODE_EQUALS)) {
+      return RELEASE;
+    }
     // Windows reserves Ctrl+Backspace/Left/Right for editing one Engine segment at a time. Other
     // modifier chords belong to the application, even in the middle of a composition.
     if (composing && key.ctrlKey && !key.altKey && !key.logoKey && !key.shiftKey) {
