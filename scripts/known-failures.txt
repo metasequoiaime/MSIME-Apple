@@ -120,3 +120,29 @@ desktop tests/candidate/external-skins.test.tsx > external selection enters the 
 # defect. It was missing from this baseline, which made the desktop suite look
 # red for an unrecorded reason.
 desktop tests/candidate/external-skins.test.tsx > settings synchronize all cards and reset local overrides on candidate theme changes
+
+# The Windows suites, run under Wine by platforms/windows/run-tests-wine.sh.
+# 72 of 77 pass; these five do not, and each was read rather than assumed.
+#
+# windows-server-smoke: "XDG_RUNTIME_DIR is invalid or not set" then "Candidate
+# window unavailable". The same reason the native entry above records - there is
+# no compositor - now observed directly instead of inferred.
+wine windows-server-smoke
+# windows-fullscreen-foreground fails at line 41: it compares a window rectangle
+# against its monitor, and the container has neither.
+wine windows-fullscreen-foreground
+# windows-installer-launch: "Expected installer script path". It resolves the
+# installer script relative to the repository, which is not mounted into the
+# container - a property of this runner, not of the test.
+wine windows-installer-launch
+# windows-dedicated-english aborts at dedicated_english.cpp:58 expecting
+# editing_text "a". Dedicated English needs the packaged English dictionary and
+# the cross build stages none, so the Engine answers with nothing.
+wine windows-dedicated-english
+# windows-session-smoke fails at session_smoke.cpp:334, "Old focus configuration
+# changed Engine state" - NOT the line 191 Unicode failure the native entry
+# above records. That one is gone, as the input-runtime test predicted. This is
+# a different assertion about focus fencing and has never been run before, so it
+# is recorded here as observed rather than explained; it is the first thing to
+# look at now that these suites can be run at all.
+wine windows-session-smoke
