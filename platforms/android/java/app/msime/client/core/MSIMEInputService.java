@@ -4051,6 +4051,10 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void showClipboardHistory() {
         if (!clipboardHistoryEnabled || clipboardScroll == null) return;
+        // Clipboard entries are independent editor text. Finish the active composition when the
+        // panel opens, matching the symbol and emoji panels instead of leaving stale preedit behind
+        // while the user browses history.
+        command(2);
         closeEmojiPicker();
         closeSymbolPanel();
         closeCandidatePanel();
