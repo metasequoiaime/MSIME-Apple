@@ -4,6 +4,7 @@ import client from 'libmsimeclient.so';
 import pasteboard from '@ohos.pasteboard';
 import Want from '@ohos.app.ability.Want';
 import bundleManager from '@ohos.bundle.bundleManager';
+import font from '@ohos.font';
 import http from '@ohos.net.http';
 import webSocket from '@ohos.net.webSocket';
 import util from '@ohos.util';
@@ -15,6 +16,13 @@ import { utf8Length } from '../keyboard/Utf8';
 import { niutransAuth, tencentAuthorization } from '../keyboard/CredentialCrypto';
 import { HarmonyVoiceCaptureDevices } from '../keyboard/input/HarmonyVoiceCaptureDevices';
 import { VoiceCaptureDevice } from '../keyboard/input/VoiceCaptureDevicePolicy';
+
+/** The installed family names, or a refusal the page can report rather than an empty list. */
+interface FontFamilyReply {
+  ok: boolean;
+  value: string[];
+  error: string;
+}
 
 /** The envelope every bridge reply uses, so a refusal is distinguishable from an empty result. */
 interface VoiceCaptureDeviceReply {
@@ -307,7 +315,7 @@ struct Settings {
             'scanSkinCatalog', 'readSkinImage', 'readSkinFont', 'readSkinToolbarCss',
             'dictionary', 'account', 'cloudDictionary', 'cloudDictionaryDownload', 'cloudDictionarySnapshot',
             'typingStatistics', 'aiModels', 'aiTest', 'testApiCredential', 'openExternalUrl', 'copyText',
-            'openSystemKeyboardSettings', 'listVoiceCaptureDevices'],
+            'openSystemKeyboardSettings', 'listVoiceCaptureDevices', 'listFontFamilies'],
           controller: this.controller
         })
         .width('100%')
@@ -1156,6 +1164,24 @@ class SettingsBridge {
     pasteboard.getSystemPasteboard().setData(data).catch((error: Object): void => {
       KeyboardLog.error(`copy failed: ${describeError(error)}`);
     });
+  }
+
+  /**
+   * The installed font families, for the candidate font inputs.
+   *
+   * The shared page validates and sorts what it gets; the only thing done here is to refuse names
+   * carrying a control character, which have no business in a preference file or a family list.
+   * Deduplication and ordering are the page's, so every host presents the same list.
+   */
+  listFontFamilies(): string {
+    try {
+      const families: string[] = font.getSystemFontList().filter((name: string): boolean =>
+        name.length > 0 && name.length <= 128 && !/[\u0000-\u001f\u007f]/.test(name));
+      return JSON.stringify({ ok: true, value: families, error: '' } as FontFamilyReply);
+    } catch (error) {
+      KeyboardLog.error(`system fonts unavailable: ${describeError(error)}`);
+      return JSON.stringify({ ok: false, value: [], error: '无法读取系统字体列表' } as FontFamilyReply);
+    }
   }
 
   /**
