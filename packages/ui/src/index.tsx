@@ -2341,20 +2341,6 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
             <span>安装或更新水杉输入源<small>将当前应用随附的 IMK bundle 安装到本机输入法目录，然后注册到系统。</small></span>
             <HostActionButton action={client.installInputSource} label="安装 / 更新" success="输入源已安装并注册。" error="输入源安装或注册失败，请重试。" />
           </div>}
-          {macosPlatform && client.uninstallInputSource && <div className="service-action-row service-action-row-danger">
-            <span>卸载水杉输入法<small>输入源会移到废纸篓；默认保留词库、学习记录和偏好，重新安装后可继续使用。</small>
-              <label><input type="checkbox" checked={removeUserDataOnUninstall} onChange={event => setRemoveUserDataOnUninstall(event.target.checked)} /> 同时删除词库、偏好与语音密钥</label>
-            </span>
-            <div>
-              <button type="button" className="secondary" disabled={uninstallBusy} aria-label="卸载…" aria-busy={uninstallBusy} onClick={() => { setUninstallResult(null); setUninstallConfirmation(true); }}>{uninstallBusy ? "处理中…" : "卸载…"}</button>
-              {uninstallResult === "success" && <span role="status">输入法已移到废纸篓。</span>}
-              {uninstallResult === "error" && <span role="alert">卸载未能完成，请稍后重试。</span>}
-            </div>
-            {uninstallConfirmation && <div className="service-confirmation" role="alertdialog" aria-modal="true" aria-label="确认卸载水杉输入法">
-              <p>输入法会被移到废纸篓，放错了可以从那里放回原处。{removeUserDataOnUninstall ? "已选择同时删除词库、偏好与语音密钥。" : "词库、学习记录和偏好会保留，重新安装后可以继续使用。"} 卸载后请重新登录系统，让它从输入源列表中消失。</p>
-              <div><button type="button" className="danger" disabled={uninstallBusy} onClick={() => void uninstallInputSource()}>确认卸载</button><button type="button" className="secondary" disabled={uninstallBusy} onClick={() => setUninstallConfirmation(false)}>取消</button></div>
-            </div>}
-          </div>}
         </div>}
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "tools"} aria-label="实用功能">
@@ -2419,6 +2405,23 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
           <button type="button" className="about-link-row about-document-link" onClick={() => void openExternalUrl(platformLicenseUrl)}><span className="about-link-title">开源许可协议</span><span aria-hidden="true">↗</span></button>
         <button type="button" className="about-link-row about-document-link" onClick={() => void openExternalUrl(clientHostedPlatform ? androidPrivacyUrl : privacyUrl)}><span className="about-link-title">隐私政策</span><span aria-hidden="true">↗</span></button>
         </div>
+        {macosPlatform && <div className="section about-legal" role="group" aria-label="许可与卸载">
+          <div className="section-header"><span className="section-title">许可与版权<small>水杉 IME 以 GPL-3.0 发布；第三方组件许可随应用资源提供。</small></span><span className="about-copyright" aria-label="版权">© 2026 Metasequoia IME</span></div>
+          {client.uninstallInputSource && <div className="service-action-row service-action-row-danger">
+            <span>卸载水杉输入法<small>输入源会移到废纸篓；默认保留词库、学习记录和偏好，重新安装后可继续使用。</small>
+              <label><input type="checkbox" checked={removeUserDataOnUninstall} onChange={event => setRemoveUserDataOnUninstall(event.target.checked)} /> 同时删除词库、偏好与语音密钥</label>
+            </span>
+            <div>
+              <button type="button" className="secondary" disabled={uninstallBusy} aria-label="卸载…" aria-busy={uninstallBusy} onClick={() => { setUninstallResult(null); setUninstallConfirmation(true); }}>{uninstallBusy ? "处理中…" : "卸载…"}</button>
+              {uninstallResult === "success" && <span role="status">输入法已移到废纸篓。</span>}
+              {uninstallResult === "error" && <span role="alert">卸载未能完成，请稍后重试。</span>}
+            </div>
+            {uninstallConfirmation && <div className="service-confirmation" role="alertdialog" aria-modal="true" aria-label="确认卸载水杉输入法">
+              <p>输入法会被移到废纸篓，放错了可以从那里放回原处。{removeUserDataOnUninstall ? "已选择同时删除词库、偏好与语音密钥。" : "词库、学习记录和偏好会保留，重新安装后可以继续使用。"} 卸载后请重新登录系统，让它从输入源列表中消失。</p>
+              <div><button type="button" className="danger" disabled={uninstallBusy} onClick={() => void uninstallInputSource()}>确认卸载</button><button type="button" className="secondary" disabled={uninstallBusy} onClick={() => setUninstallConfirmation(false)}>取消</button></div>
+            </div>}
+          </div>}
+        </div>}
         {mobilePlatform && <div className="section about-guides" aria-label="帮助与反馈">
           <button type="button" className="about-link-row" onClick={() => selectPage("help")}><span className="about-link-title">使用帮助</span><span aria-hidden="true">›</span></button>
           <button type="button" className="about-link-row" onClick={() => selectPage("feedback")}><span className="about-link-title">反馈问题与建议</span><span aria-hidden="true">›</span></button>
