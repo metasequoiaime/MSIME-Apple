@@ -154,3 +154,30 @@ extension SkinCommunityTests {
     } catch is BackendAccountClient.Failure { }
   }
 }
+
+/// A keychain the process cannot read. `BackendKeychain` hits this on an unsigned simulator build,
+/// where SecItemCopyMatching answers -34018 (errSecMissingEntitlement), and on a locked device.
+private struct UnreadableCredentials: BackendSessionStorage {
+  func load() throws -> BackendSavedSession? { throw BackendAccountClient.Failure(status: 0) }
+  func save(_ session: BackendSavedSession) throws {}
+  func clear() throws {}
+}
+
+final class SkinCommunityFailureConversionTests: XCTestCase {
+  /// Reading the session used to sit outside the block that converts backend failures into
+  /// something this screen can say, so an unreadable keychain surfaced the account layer's own
+  /// status-0 fallback — 请求未完成 — on a screen the user had opened to browse skins.
+  func testUnreadableSessionSurfacesACommunityMessage() async {
+    let api = SkinCommunityAPI(account: BackendAccountSession(storage: UnreadableCredentials()))
+    do {
+      _ = try await api.list()
+      XCTFail("expected the unreadable session to fail the request")
+    } catch let failure as CommunityFailure {
+      XCTAssertEqual(failure.message, "社区暂时不可用，请稍后重试。")
+    } catch let failure as BackendAccountClient.Failure {
+      XCTFail("account failure reached the caller unconverted: status \(failure.status)")
+    } catch {
+      XCTFail("unexpected error: \(error)")
+    }
+  }
+}

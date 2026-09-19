@@ -31,20 +31,23 @@ actor SkinCommunityAPI {
   func currentUser() async throws -> CommunityUser? { try await account.user() }
   func signedIn() async throws -> Bool { try await account.user() != nil }
   private func request<T: Decodable>(_ path: String, method: String = "GET", body: Data? = nil, authenticated: Bool = false, maximumResponseBytes: Int = 1024 * 1024) async throws -> T {
+    // Reading the session throws the same type a request does, so it has to sit inside the same
+    // conversion. Outside it, an unreadable keychain surfaced BackendAccountClient's status-0
+    // fallback — 请求未完成 — in place of anything this screen could say about the community.
     var identity: (userID: String, token: String)?
-    if try await account.user() != nil { identity = try await account.credentials() }
-    let token = identity?.token
-    if authenticated && token == nil { throw CommunityFailure(message: "请先使用 Apple 登录。") }
     let data: Data
     do {
+      if try await account.user() != nil { identity = try await account.credentials() }
+      let token = identity?.token
+      if authenticated && token == nil { throw CommunityFailure(message: "请先使用 Apple 登录。") }
       do { data = try await client.request(method, path, token: token, body: body, maximumResponseBytes: maximumResponseBytes) }
       catch let error as BackendAccountClient.Failure where error.status == 401 && token != nil {
         guard let identity else { throw CancellationError() }
         let fresh = try await account.credentials(retrying: token, matchingUserID: identity.userID)
         data = try await client.request(method, path, token: fresh.token, body: body, maximumResponseBytes: maximumResponseBytes)
       }
+      guard try await account.user()?.id == identity?.userID else { throw CancellationError() }
     } catch let error as BackendAccountClient.Failure { throw Self.failure(Data(), status: error.status) }
-    guard try await account.user()?.id == identity?.userID else { throw CancellationError() }
     try Task.checkCancellation()
     return try JSONDecoder().decode(T.self, from: data.isEmpty ? Data("{}".utf8) : data)
   }
