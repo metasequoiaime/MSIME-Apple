@@ -1270,3 +1270,11 @@ MSIME-Apple 的语音服务目录里有两个共享客户端一直没有的转�
 改为分别下发：`CFLAGS`、`CXXFLAGS` 给 C 与 C++ 目标，`CMAKE_OSX_DEPLOYMENT_TARGET` 给 Engine 的 CMake 构建。C/C++/Engine 目标文件仍是 `minos 13.0`，链接零版本告警；Rust 目标文件按 rustc 默认的 11.0 产出，低于 13.0 下限，不抬高最终 bundle 的最低系统版本。`platforms/macos/scripts/*.sh` 里的 `${MACOSX_DEPLOYMENT_TARGET:-13.0}` 保持不变，两种写法下都取 13.0。
 
 本地验证：在干净产物目录下按新写法构建 `msime-host-api` 成功，旧写法在同样条件下复现失败；隔离测试配置随后完成构建，`cmake --build` 的「built for newer 'macOS' version」告警从 1623 条降到 0 条。`ctest --test-dir target/macos-isolated` 首次跑通 108 项，104 passed；失败的 `local-mode-preferences`、`text-client`、`shortcut` 与 `scripts/known-failures.txt` 一致，另有 `shortcut-translations` 只在一次完整并行运行中失败、单独跑和第二次完整运行均通过，按该文件「基线取多次运行的并集」的约定作为偶发项补入。未执行签名安装、系统输入源切换或编辑器验收，CI 保持禁用。
+
+### iOS 打字统计空数据提示指向完全访问
+
+共享设置页在统计从未写入时提示「请用水杉键盘成功输入几个字符，再返回此页刷新」。这条建议在 iOS 上执行不下去：键盘扩展没有「允许完全访问」就够不到 App Group 共享容器，无论输入多少，计数都停在零。iOS 下改为直接说明前提——在系统设置 → 通用 → 键盘 → 键盘 → 水杉输入法中开启「允许完全访问」，并说明未开启时打字本身不受影响，只是不记录统计；同时复用既有的 `openSystemKeyboardSettings` 能力给出入口，宿主没有该能力时不渲染按钮。其他平台文案不变。
+
+前提只对「从未写入」成立：统计文件已建立后计数为零是另一回事，此时不提完全访问也不给入口，避免把用户指到没有用的地方。
+
+本地验证：新增 4 项 Vitest 覆盖 iOS 文案与入口、其他平台维持原文案、宿主缺少能力时不出现死按钮、以及文件已建立时不归因于完全访问；桌面 TypeScript 检查与 `pnpm build` 通过。完整桌面套件 713 passed，失败项均为既有项——其中 `settings.test.tsx` 的若干条在未改动的 `origin/develop` 上同样以基线外失败出现，与本切片无关。未执行 iOS 真机验收，CI 保持禁用。

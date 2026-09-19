@@ -217,7 +217,13 @@ function Distribution({ title, slices, footer, variant = "bar" }: { title: strin
   </section>;
 }
 
-export function TypingStatisticsPage({ client, mobile = false }: { client: TypingStatisticsClient; mobile?: boolean }) {
+export function TypingStatisticsPage({ client, mobile = false, platform, openSystemSettings }: {
+  client: TypingStatisticsClient;
+  mobile?: boolean;
+  platform?: string;
+  /** iOS only: opens this app's page in Settings, from which Full Access is reachable. */
+  openSystemSettings?: () => Promise<void>;
+}) {
   const [status, setStatus] = useState<TypingStatisticsStatus>();
   const [period, setPeriod] = useState<Period>(7);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
@@ -270,8 +276,16 @@ export function TypingStatisticsPage({ client, mobile = false }: { client: Typin
     { id: "voice", title: "语音输入", count: breakdown.sources.voice ?? 0, color: palette[2], symbol: "♪" },
     { id: "unknown", title: "历史未分类", count: breakdown.sources.unknown ?? 0, color: palette[7], symbol: "?" },
   ];
+  // On iOS the keyboard extension cannot reach the shared App Group container without Full
+  // Access, so "type a few more characters" is advice that cannot work: the count stays at
+  // zero however much is typed. Name the actual prerequisite instead.
+  const iosPlatform = platform === "ios";
   let availabilityMessage = "";
-  if (status.availability === "neverWritten") availabilityMessage = "键盘从未写入过统计。请用水杉键盘成功输入几个字符，再返回此页刷新。";
+  if (status.availability === "neverWritten") {
+    availabilityMessage = iosPlatform
+      ? "键盘从未写入过统计。请在系统设置 → 通用 → 键盘 → 键盘 → 水杉输入法中开启“允许完全访问”，然后用水杉键盘输入几个字再回来刷新。未开启时仍可正常打字，只是不记录统计。"
+      : "键盘从未写入过统计。请用水杉键盘成功输入几个字符，再返回此页刷新。";
+  }
   else if (statistics.total === 0 && status.lastWrittenMs) availabilityMessage = `统计最后写入于 ${new Date(status.lastWrittenMs).toLocaleString("zh-CN")}，当前计数为零；如果刚刚清空过统计，这是正常的。`;
   else if (statistics.total === 0) availabilityMessage = "统计文件已建立，但当前还没有输入记录。";
   const resetStatistics = () => {
@@ -332,6 +346,9 @@ export function TypingStatisticsPage({ client, mobile = false }: { client: Typin
       </div>
       <p className="statistics-privacy">仅统计水杉键盘成功提交的字符，含标点及表情，不含空格、换行和未上屏拼音。组合表情计为一个字符，删除文字不扣减。仅在本机保存日期、分类和数量，不保存输入内容。每日明细保留最近 366 个有记录的日期，累计分类持续保留。</p>
     </section>}
-    {availabilityMessage && <section className="section statistics-availability"><h2>统计没有数据</h2><p>{availabilityMessage}</p></section>}
+    {availabilityMessage && <section className="section statistics-availability"><h2>统计没有数据</h2><p>{availabilityMessage}</p>
+      {iosPlatform && status.availability === "neverWritten" && openSystemSettings
+        && <button type="button" className="secondary" onClick={() => void openSystemSettings()}>打开系统键盘设置</button>}
+    </section>}
   </div>;
 }
