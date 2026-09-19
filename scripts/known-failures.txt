@@ -93,4 +93,7 @@ desktop tests/input/windows-doubao-probe.test.tsx > macos Doubao legacy tests cu
 desktop tests/input/windows-doubao-probe.test.tsx > windows Doubao api_key tests current edited credentials
 desktop tests/input/windows-doubao-probe.test.tsx > windows Doubao legacy tests current edited credentials
 desktop tests/settings/settings.test.tsx > input parity controls persist cloud, translation and punctuation settings
+# Also timing-dependent: 1 of 3 consecutive runs of settings.test.tsx alone on an
+# unmodified develop, and the same 1-in-3 with a change that does not touch it.
+desktop tests/settings/settings.test.tsx > clipboard history exposes timestamps, pinning, deletion and two-step clearing
 desktop tests/candidate/external-skins.test.tsx > external selection enters the revisioned draft; preview toggles never save or select

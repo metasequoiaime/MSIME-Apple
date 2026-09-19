@@ -62,6 +62,12 @@ public final class KeyboardSkinSmoke {
         check(!KeyboardSkin.resolveDark("follow", "light", true));
         check(KeyboardSkin.resolveDark("follow", "system", true));
         check(!KeyboardSkin.resolveDark("follow", "system", false));
+        // The emoji and handwriting panels resolve their own surface setting through the same
+        // rule. An unknown or missing value has to read as 跟随全局, not as an explicit light:
+        // an older snapshot would otherwise flip those two panels while the keyboard stayed dark.
+        check(KeyboardSkin.resolveDark("midnight", "dark", false));
+        check(KeyboardSkin.resolveDark("", "system", true));
+        check(!KeyboardSkin.resolveDark("", "light", true));
         CustomKeyboardSkin design = CustomKeyboardSkin.fixture(0x151022, 0x291E40, 0xFFFFFF,
             0xD4BBFF, 0xFFFFFF, 17, 1.5, .25, 3, true, "pebble", "glass", .45,
             0x30224A, true, .2, 0xA987E8,
