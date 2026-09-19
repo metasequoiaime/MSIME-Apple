@@ -1918,9 +1918,12 @@ mod tests {
             ("email".into(), true),
             ("sms".into(), true),
         ]));
+        // "sms" is the backend's name for the phone provider, and apple is reported even when absent so
+        // the client can tell "this account has no Apple identity" from "this build does not know about
+        // the provider".
         assert_eq!(
             serde_json::to_value(providers).unwrap(),
-            json!({"email":true,"phone":true})
+            json!({"email":true,"phone":true,"apple":false})
         );
 
         let profile = ProfileResponse::from(AccountProfile {
