@@ -13,6 +13,9 @@ final class KeyboardLayoutPickerView: UIView {
   private let onKeySpacing: (Double) -> Void
   private let onRowSpacing: (Double) -> Void
   private let onHeight: (Double) -> Void
+  /// Called when a drag ends, so the value it settled on can be written somewhere slower than the
+  /// live keyboard. The drags themselves report on every gesture frame.
+  private let onCommit: () -> Void
   private var keySpacing: Double
   private var rowSpacing: Double
   private var height: Double
@@ -25,6 +28,7 @@ final class KeyboardLayoutPickerView: UIView {
        onKeySpacing: @escaping (Double) -> Void,
        onRowSpacing: @escaping (Double) -> Void,
        onHeight: @escaping (Double) -> Void,
+       onCommit: @escaping () -> Void,
        onVoice: @escaping (Bool) -> Void,
        onReset: @escaping () -> Void,
        onClose: @escaping () -> Void) {
@@ -34,6 +38,7 @@ final class KeyboardLayoutPickerView: UIView {
     self.onKeySpacing = onKeySpacing
     self.onRowSpacing = onRowSpacing
     self.onHeight = onHeight
+    self.onCommit = onCommit
     super.init(frame: .zero)
     accessibilityIdentifier = "keyboardLayoutPicker"
     let skin = KeyboardSkinPreference.selected
@@ -141,6 +146,7 @@ final class KeyboardLayoutPickerView: UIView {
   private func adjustHeight(by delta: Double) {
     height = Self.clamp(height + delta, -12, 48)
     onHeight(height)
+    onCommit()
     updateHint()
   }
 
@@ -154,6 +160,7 @@ final class KeyboardLayoutPickerView: UIView {
       updateHint("键盘高度 \(height > 0 ? "+" : "")\(Int(height))")
     default:
       axis = nil
+      onCommit()
       updateHint()
     }
   }
@@ -179,6 +186,7 @@ final class KeyboardLayoutPickerView: UIView {
       }
     default:
       axis = nil
+      onCommit()
       updateHint()
     }
   }

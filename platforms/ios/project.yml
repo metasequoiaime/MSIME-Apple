@@ -112,7 +112,7 @@ targets:
     sources:
       - path: KeyboardExtension/Sources
         excludes:
-          - KeyboardServiceFallback.swift
+          - keyboard/KeyboardServiceFallback.swift
       - path: SharedUI
       - path: ../../shared/backend/account/BackendAccountClient.swift
       - path: ../../shared/backend/clients/BackendChatClient.swift
@@ -181,7 +181,7 @@ targets:
           - .build/**
       - path: KeyboardExtension/Sources
         excludes:
-          - HandwritingInputView.swift
+          - handwriting/HandwritingInputView.swift
       - path: SharedUI
     settings:
       base:
@@ -242,10 +242,10 @@ targets:
     sources:
       - path: tests
         excludes:
-          - ChineseTextConversionTests.swift
-          - EnglishCapitalizationPolicyTests.swift
-          - FrequencyAdjustmentPreferenceTests.swift
-          - HandwritingTests.swift
+          - dictionary/ChineseTextConversionTests.swift
+          - input/EnglishCapitalizationPolicyTests.swift
+          - settings/FrequencyAdjustmentPreferenceTests.swift
+          - input/HandwritingTests.swift
           - build-native.sh
           - tools/**
       - path: KeyboardTests/input/InputSchemeTestSupport.swift
@@ -261,8 +261,8 @@ targets:
           - .build/**
       - path: KeyboardExtension/Sources
         excludes:
-          - HandwritingInputView.swift
-          - KeyboardServiceFallback.swift
+          - handwriting/HandwritingInputView.swift
+          - keyboard/KeyboardServiceFallback.swift
       - path: SharedUI
     settings:
       base:
