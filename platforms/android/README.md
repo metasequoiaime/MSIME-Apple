@@ -6,6 +6,8 @@ Java/Kotlin 宿主按 `java/app/msime/client/<feature>/` 分为 `account`、`can
 
 API 35 arm64 专用模拟器已经覆盖原生输入、Tauri/IME 合包、共享设置和部分统计/手写流程；x86_64 目前只有交叉构建证据。源码检查、JVM 测试和 APK 签名/对齐不等于真机、旋转、系统回收、权限或长期生命周期验收，发布说明必须分别列出这些缺口。
 
+`check-host.sh` 在装有固定 NDK 28.2.13676358 的机器上额外用 `aarch64-linux-android28-clang++` 以 `-Wall -Werror` 对 `native/client_jni.cpp` 做目标平台编译：Java 里声明 `native` 的方法在没有 C++ 实现时照样能编过，而这是 Java 声明与共享 FFI 签名唯一必须一致的地方；完整原生构建需要 vcpkg 和 Engine，这一步不需要。没有固定 NDK 的机器会跳过并明确说明。`verify-native.sh` 的导出清单同时覆盖 online query、云 URL、AI 请求描述符和两个在线候选写回入口。
+
 `NativeClient` 提供 Java/Kotlin 到共享运行时的 JNI 传输。UTF-8 字节数组保留非 BMP 字符，避免 JNI modified UTF-8 损坏候选或资源路径。JNI 负责释放 C API 响应；上层解析 ok/value，负责会话线程和生命周期。
 
 `MSIMEInputService` 提供实际 InputMethodService 源码、系统 manifest 和输入法元数据；最小 Android 28，编译目标 35。软键盘、硬件 ASCII 键、候选点击和翻页调用同一 JNI；Engine 提交与剩余编辑串通过 `EditorBridge` 按顺序映射到 InputConnection。宿主不实现输入算法或分页规则。密码、非文本和无建议字段直接输入，不创建 Engine；IME_FLAG_NO_PERSONALIZED_LEARNING 关闭当前会话学习。宿主不记录输入；网络权限只供用户明确启用并确认发送的 AI 请求使用。

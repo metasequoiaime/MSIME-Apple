@@ -25,6 +25,26 @@ if ! rg -q 'msime_client_command' "$repo_root/crates/host-api/src/ffi/input.rs" 
   echo "Shared host command 9 is no longer Action::Finish; FINISH_COMPOSITION_COMMAND is stale" >&2
   exit 1
 fi
+# The JNI translation unit is the one place a Java declaration and a shared FFI
+# signature have to agree, and nothing else in this script reads it: a method
+# declared native in Java compiles whether or not the C++ side exists. Compiling
+# it for the real target catches that without the full native build, which needs
+# vcpkg and the Engine. A machine without the pinned NDK skips it and says so.
+ndk=${MSIME_ANDROID_NDK:-${android_sdk}/ndk/28.2.13676358}
+case $(uname -s) in
+  Darwin) host_tag=darwin-x86_64 ;;
+  Linux) host_tag=linux-x86_64 ;;
+  *) host_tag="" ;;
+esac
+jni_compiler="$ndk/toolchains/llvm/prebuilt/$host_tag/bin/aarch64-linux-android28-clang++"
+if [[ -n "$host_tag" && -x "$jni_compiler" ]]; then
+  "$jni_compiler" -std=c++20 -fsyntax-only -Wall -Werror \
+    -I"$repo_root/crates/host-api/include" \
+    "$repo_root/platforms/android/native/client_jni.cpp"
+  echo "client_jni.cpp: aarch64-linux-android compile against the shared header passed"
+else
+  echo "client_jni.cpp: skipped (pinned NDK 28.2.13676358 not installed)"
+fi
 client_sources=()
 while IFS= read -r source; do
   client_sources+=("$source")

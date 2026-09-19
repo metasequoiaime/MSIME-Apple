@@ -22,6 +22,12 @@
 
 ## 当前证据
 
+### Android JNI 目标编译与导出清单（2026-09-19）
+
+Java 里声明 `native` 的方法即使没有对应 C++ 实现也能通过 `javac`，而 `check-host.sh` 此前根本不读 `native/client_jni.cpp`——Java 声明与共享 FFI 签名唯一必须一致的地方没有任何检查，只有需要 vcpkg 和 Engine 的完整原生构建才会发现不一致。现在装有固定 NDK 28.2.13676358 的机器会用 `aarch64-linux-android28-clang++` 以 `-Wall -Werror` 对该翻译单元做目标平台语法编译，没有该 NDK 的机器跳过并明确说明，不引入新的硬性依赖。`verify-native.sh` 的导出清单补上了上一切片新增的 `msime_client_online_query`、`msime_client_cloud_request_url`、`msime_client_ai_request_for_query`、`msime_client_apply_cloud_response`、`msime_client_apply_online_candidates` 及对应的五个 JNI 方法。
+
+该检查确实会拦截：故意把 `msime_client_online_query` 多传一个实参后，`check-host.sh` 以 `no matching function for call` 失败；恢复后通过。跳过分支也已用不存在的 `MSIME_ANDROID_NDK` 实测。完整 Android host 检查通过，未执行需要 vcpkg 的原生构建、`verify-native.sh` 本身或真机验收，CI 保持禁用。
+
 ### Android 表情与手写面板主题（2026-09-19）
 
 macOS 的 `next42`/`next43` 和 HarmonyOS 已分别消费共享的 `emoji_theme` 与 `handwriting_theme`，Android 没有：这两项在 Android 的外观设置里可选，键盘却始终按 `screen_keyboard_theme` 解析出的明暗着色，等于两个不起作用的下拉框。现在 Android 用同一条规则单独解析这两块表面——显式 `dark`/`light` 覆盖全局 `theme`，`follow` 继承全局，全局 `system` 跟随 Android 夜间模式，缺失或无法识别的值按 `follow` 处理——并在键盘整体着色之后重走表情面板和手写按键区两棵子树，只改这两块的面板底色与按键配色。皮肤标识和自定义设计仍与键盘共用，候选栏继续由 `candidate_theme` 决定，偏好热更新不重建 Engine 会话或手写笔迹。
