@@ -333,6 +333,20 @@ class Border : public Container
     Brush brush_;
 };
 
+// One gaussian-blurred rounded-rect layer of a card drop shadow.
+struct ShadowPass
+{
+    float sigma;   // blur standard deviation, DIP
+    float alpha;   // layer opacity 0..1
+    float offsetX; // DIP, positive = right
+    float offsetY; // DIP, positive = down
+
+    bool operator==(const ShadowPass &other) const
+    {
+        return sigma == other.sigma && alpha == other.alpha && offsetX == other.offsetX && offsetY == other.offsetY;
+    }
+};
+
 class Card : public Panel
 {
   public:
@@ -341,6 +355,13 @@ class Card : public Panel
     void SetBrush(Brush brush);
     void SetPadding(float padding);
     void SetShadowScale(float scale);
+    // Multiplies every shadow pass alpha; 1.0 keeps the built-in intensity.
+    void SetShadowOpacity(float opacity);
+    // Replaces the built-in diffuse shadow with explicit gaussian passes (e.g. to match
+    // a themed drop shadow). An empty list (the default) keeps the built-in shadow.
+    void SetShadowPasses(const std::vector<ShadowPass> &passes);
+    // Turns the drop shadow off entirely; enabled by default.
+    void SetShadowEnabled(bool enabled);
 
     SizeF Measure(const SizeF &availableSize) override;
     void Arrange(const RectF &finalRect) override;
@@ -350,6 +371,9 @@ class Card : public Panel
     Brush brush_;
     float padding_ = 0.0f;
     float shadowScale_ = 1.0f;
+    float shadowOpacity_ = 1.0f;
+    std::vector<ShadowPass> shadowPasses_;
+    bool shadowEnabled_ = true;
     SizeF childSize_ = {};
 };
 
@@ -362,6 +386,7 @@ class TextBlock : public Visual
     void SetFontSize(float fontSize);
     void SetTextAlignment(DWRITE_TEXT_ALIGNMENT alignment);
     void SetFontFamily(std::wstring fontFamily);
+    void SetFallbackFontFamilies(std::vector<std::wstring> families);
     void SetTextLayoutPadding(Thickness padding);
     void SetLetterSpacing(float dips);
     void SetCaretIndex(size_t index);
@@ -382,6 +407,8 @@ class TextBlock : public Visual
     bool bold_ = false;
     DWRITE_TEXT_ALIGNMENT textAlignment_ = DWRITE_TEXT_ALIGNMENT_LEADING;
     std::wstring fontFamilyOverride_;
+    std::vector<std::wstring> fallbackFontFamilies_;
+    bool hasCustomFontFallback_ = false;
     Thickness textLayoutPadding_ = {0.0f, 3.0f, 0.0f, 3.0f};
     float letterSpacing_ = 0.0f;
     bool showCaret_ = false;

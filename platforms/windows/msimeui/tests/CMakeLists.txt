@@ -7,6 +7,7 @@ add_executable(${TEST_EXECUTABLE_NAME}
     # whole msimeui suite stopped configuring, and therefore stopped reporting.
     src/main.cpp
     src/test_device_resources.cpp
+    src/test_font_fallback.cpp
     src/test_fonts.cpp
     src/test_layout.cpp
     includes/test_framework.h
