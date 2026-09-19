@@ -31,7 +31,7 @@
       /* background: url("https://appassets/background.jpg"); */
       padding: 2px;
       border-radius: 6px;
-      box-shadow: 4px 4px 12px rgba(0, 0, 0, 0.12);
+      box-shadow: 8px 10px 24px rgba(0, 0, 0, 0.18), 2px 3px 8px rgba(0, 0, 0, 0.10);
       min-width: 7em;
       width: min(fit-content, var(--msime-max-width-dip));
       max-width: var(--msime-max-width-dip);
@@ -148,7 +148,7 @@
       background: #ffffff;
       border: 1px solid rgba(0, 0, 0, 0.12);
       border-radius: 6px;
-      box-shadow: 4px 4px 12px rgba(0, 0, 0, 0.12);
+      box-shadow: 8px 10px 24px rgba(0, 0, 0, 0.18), 2px 3px 8px rgba(0, 0, 0, 0.10);
       padding: 1px 0;
       /* min-width: 80px; */
       z-index: 1000;
@@ -181,7 +181,7 @@
     body { border-radius: 9px; }
     .containerParent {
       border-radius: 9px;
-      box-shadow: 0 7px 18px rgba(42, 55, 47, .16);
+      box-shadow: 8px 10px 24px rgba(42, 55, 47, .18), 2px 3px 8px rgba(42, 55, 47, .10);
     }
     .container {
       --wg-surface: #f4f5f3;
