@@ -1452,6 +1452,50 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(snapshot.candidates.contains("你好"), "the rebuilt session forgot nine-key mode")
   }
 
+  // A session is created from the shared document, so a scheme picked in an earlier session has to
+  // reach it. Nothing on iOS ever wrote the touch layout there, so a cold keyboard created its
+  // session on 26 keys no matter what the user had picked, and only the live session knew better.
+  func testTouchSchemeReachesTheDocumentTheNextSessionIsCreatedFrom() throws {
+    let state = FileManager.default.temporaryDirectory
+      .appendingPathComponent("msime-scheme-persist-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: state) }
+    var first: MetasequoiaInputSessionBridge? = MetasequoiaInputSessionBridge(stateRoot: state)
+    XCTAssertTrue(try XCTUnwrap(first).setTouchKeyboardScheme(
+      .nineKey, enabledSchemes: [.quanpin, .nineKey]))
+    first = nil
+
+    let next = MetasequoiaInputSessionBridge(stateRoot: state)
+    var snapshot = next.cancel()
+    for digit in "64426" { snapshot = next.handleCharacter(String(digit)) }
+    XCTAssertTrue(snapshot.candidates.contains("你好"), "the new session did not start on nine-key")
+    XCTAssertEqual(try XCTUnwrap(next.sharedPreferences)["touch_keyboard_layout"] as? String,
+                   "nine_key")
+  }
+
+  // Reloading the settings app's document replaced the session's preferences wholesale, dropping
+  // the two values this host sets for itself along with them.
+  func testSharedPreferenceReloadKeepsTheHostSessionContract() throws {
+    let state = FileManager.default.temporaryDirectory
+      .appendingPathComponent("msime-reload-overrides-\(UUID().uuidString)", isDirectory: true)
+    defer { try? FileManager.default.removeItem(at: state) }
+    let bridge = MetasequoiaInputSessionBridge(stateRoot: state)
+    XCTAssertTrue(bridge.setTouchKeyboardScheme(.nineKey, enabledSchemes: [.quanpin, .nineKey]))
+    let reloaded = expectation(description: "shared preferences reloaded")
+    bridge.reloadSharedPreferences { accepted in
+      XCTAssertTrue(accepted)
+      reloaded.fulfill()
+    }
+    wait(for: [reloaded], timeout: 10)
+
+    let preferences = try XCTUnwrap(bridge.sharedPreferences)
+    XCTAssertEqual(preferences["candidate_page_size"] as? Int, 9)
+    XCTAssertEqual(preferences["default_ime_mode"] as? String, "chinese")
+    XCTAssertEqual(preferences["touch_keyboard_layout"] as? String, "nine_key")
+    var snapshot = bridge.cancel()
+    for digit in "64426" { snapshot = bridge.handleCharacter(String(digit)) }
+    XCTAssertTrue(snapshot.candidates.contains("你好"), "the reloaded document lost nine-key")
+  }
+
   func testAdditionalShuangpinProfilesAndKeyHints() throws {
     let bridge = MetasequoiaInputSessionBridge()
     for (profile, input) in [("ziranma", "nihk"), ("microsoft", "nihk"), ("shoudao", "nihd"), ("xiaohe", "nihc")] {

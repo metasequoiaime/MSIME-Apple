@@ -40,6 +40,11 @@ private func msimeClientSetNineKeyMode(_ session: UInt64, _ enabled: Bool) -> Un
 private func msimeClientUpdatePreferences(_ session: UInt64, _ snapshot: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_load_preferences")
 private func msimeClientLoadPreferences(_ directory: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_save_preferences")
+private func msimeClientSavePreferences(
+  _ directory: UnsafePointer<MSIMEByte>?, _ directoryLength: UInt, _ expectedRevision: UInt64,
+  _ snapshot: UnsafePointer<MSIMEByte>?, _ snapshotLength: UInt
+) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_view")
 private func msimeClientView(_ session: UInt64) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_all_candidates")
@@ -150,13 +155,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
                                      bootstrap)
       self.stateRoot = options["preferences_directory"] as? String
         ?? bootstrap["state_root"] as? String
-      var preferences = options["preferences"] as? [String: Any] ?? [:]
-      preferences["candidate_page_size"] = 9
-      // The shared preference default is English, and iOS has no setting that overrides it: the
-      // 中/英 key switches modes instead. Without this the engine answers pinyin with English
-      // completions while the keyboard is showing Chinese mode. macOS compensates the same way.
-      preferences["default_ime_mode"] = "chinese"
-      options["preferences"] = preferences
+      options["preferences"] = Self.hostOverrides(
+        applyingTo: options["preferences"] as? [String: Any] ?? [:])
     } catch {
       initializationDiagnostic = "输入运行时准备失败。"
       return
@@ -210,7 +210,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
         // visible; applyLearningPreferences will update only the fuzzy-pinyin
         // contract below. This avoids changing the selected scheme underneath
         // UIKit while a Tauri settings write is being observed.
-        self.options["preferences"] = preferences
+        self.options["preferences"] = Self.hostOverrides(applyingTo: preferences)
         self.revision = max(self.revision, revision.uint64Value)
         completion(true)
       }
@@ -294,8 +294,12 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     case .handwriting: layout = "handwriting"
     default: layout = "twenty_six_key"
     }
-    let selectedID = selected == .shuangpin ? "xiaohe" : selected.rawValue
-    return updatePreferences { preferences in
+    // Spelled the way the shared schema spells them. The Swift raw values stay camel case for the
+    // App Group mirror, and a document that carries those instead is rejected outright - which
+    // silently failed every scheme change the keyboard made, so the selection never left the live
+    // session and every new session started on the layout the document still held.
+    let selectedID = selected.sharedIdentifier
+    let mapping: (inout [String: Any]) -> Void = { preferences in
       preferences["scheme"] = engineScheme
       if engineScheme != "japanese" {
         preferences["last_chinese_scheme"] = engineScheme
@@ -305,10 +309,60 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       }
       preferences["touch_keyboard_layout"] = layout
       preferences["touch_keyboard_schemes"] = [
-        "enabled": enabled.map { $0 == .shuangpin ? "xiaohe" : $0.rawValue },
+        "enabled": enabled.map(\.sharedIdentifier),
         "selected": selectedID,
       ]
     }
+    guard updatePreferences(mapping) else { return false }
+    persistSharedPreferences(mapping)
+    return true
+  }
+
+  /// Record a host-owned selection in the document the next session is created from.
+  ///
+  /// The live session keeps the selection until it is destroyed, but a rebuilt one is created from
+  /// this file, and iOS had never written the touch layout to it: a cold keyboard created its
+  /// session on 26 keys whatever the user had picked, and every reload of this document put the
+  /// stale layout back. Only the fields the mapping touches are written - the rest of the document,
+  /// including the values this host overrides for its own session, is left as the settings app
+  /// wrote it. A lost compare-and-swap leaves the live session alone; the next selection retries.
+  @discardableResult
+  private func persistSharedPreferences(_ mutate: (inout [String: Any]) -> Void) -> Bool {
+    guard let stateRoot else { return false }
+    let directory = Data(stateRoot.utf8)
+    guard !directory.isEmpty, directory.count <= 16_384 else { return false }
+    guard let stored = try? Self.callDirectory(msimeClientLoadPreferences, directory),
+          let storedRevision = stored["revision"] as? NSNumber,
+          let previous = stored["preferences"] as? [String: Any] else { return false }
+    var preferences = previous
+    mutate(&preferences)
+    guard !NSDictionary(dictionary: preferences).isEqual(to: previous) else { return true }
+    let document: [String: Any] = ["format_version": 1, "revision": storedRevision,
+                                   "preferences": preferences]
+    guard JSONSerialization.isValidJSONObject(document),
+          let snapshot = try? JSONSerialization.data(withJSONObject: document),
+          snapshot.count <= 16_384 else { return false }
+    let saved: [String: Any]
+    do {
+      saved = try directory.withUnsafeBytes { directoryBytes -> [String: Any] in
+        try snapshot.withUnsafeBytes { snapshotBytes -> [String: Any] in
+          let value = try Self.decode(msimeClientSavePreferences(
+            directoryBytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(directory.count),
+            storedRevision.uint64Value,
+            snapshotBytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(snapshot.count)))
+          guard let dictionary = value as? [String: Any] else {
+            throw InputBridgeFailure.invalidResponse
+          }
+          return dictionary
+        }
+      }
+    } catch {
+      return false
+    }
+    if let revision = saved["revision"] as? NSNumber {
+      self.revision = max(self.revision, revision.uint64Value)
+    }
+    return true
   }
 
   /// Persist a built-in touch-keyboard skin in the canonical PreferencesStore.
@@ -754,6 +808,22 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     }
   }
 
+  /// The keyboard host's own contract, laid over whatever the shared document holds.
+  ///
+  /// Neither field is a user setting, and both have to hold for every session this host creates -
+  /// including the ones created after the shared document replaces the session's preferences. A
+  /// reload used to drop them, which left the engine answering pinyin with English completions
+  /// while the keyboard was showing Chinese mode, and paging candidates by a count the candidate
+  /// strip was never laid out for.
+  private static func hostOverrides(applyingTo preferences: [String: Any]) -> [String: Any] {
+    var preferences = preferences
+    preferences["candidate_page_size"] = 9
+    // The shared preference default is English, and iOS has no setting that overrides it: the
+    // 中/英 key switches modes instead. macOS compensates the same way.
+    preferences["default_ime_mode"] = "chinese"
+    return preferences
+  }
+
   private static func bootstrapOptions(resources resourceOverride: URL?, stateRoot stateOverride: URL?) -> [String: Any] {
     let fm = FileManager.default
     let group = fm.containerURL(forSecurityApplicationGroupIdentifier: "group.app.msime.ios")
@@ -822,6 +892,17 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     let data = try JSONSerialization.data(withJSONObject: object)
     return try data.withUnsafeBytes { bytes in
       let value = try decode(function(bytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(data.count)))
+      guard let dictionary = value as? [String: Any] else { throw InputBridgeFailure.invalidResponse }
+      return dictionary
+    }
+  }
+
+  /// Call a function that takes a raw UTF-8 path rather than a JSON document.
+  private static func callDirectory(_ function: (UnsafePointer<MSIMEByte>?, UInt) -> UnsafeMutablePointer<CChar>?,
+                                    _ directory: Data) throws -> [String: Any] {
+    try directory.withUnsafeBytes { bytes in
+      let value = try decode(function(bytes.bindMemory(to: MSIMEByte.self).baseAddress,
+                                      UInt(directory.count)))
       guard let dictionary = value as? [String: Any] else { throw InputBridgeFailure.invalidResponse }
       return dictionary
     }
