@@ -64,6 +64,8 @@ import { OnlineCandidatePolicy } from
   '../entry/src/main/ets/keyboard/candidate/OnlineCandidatePolicy';
 import { TranslationPolicy, TranslationQuery, TranslationEntry } from
   '../entry/src/main/ets/keyboard/candidate/TranslationPolicy';
+import { TranslationSensePolicy } from
+  '../entry/src/main/ets/keyboard/candidate/TranslationSensePolicy';
 import { HardwareKeyRouter, HardwareKeyAction, HardwareKey } from
   '../entry/src/main/ets/keyboard/HardwareKeyRouter';
 import { CandidateSkinPolicy } from '../entry/src/main/ets/keyboard/candidate/CandidateSkinPolicy';
@@ -969,6 +971,10 @@ group('maps hardware navigation according to the shared preferences', () => {
 });
 
 group('maps hardware composition editing commands like Windows', () => {
+  const navigation = {
+    minusEqual: true, commaPeriod: true, brackets: false,
+    tab: true, pageUpDown: true, mouseWheel: false, arrows: true
+  };
   const key = (keyCode: number, ctrlKey: boolean = false, shiftKey: boolean = false): HardwareKey => ({
     keyCode, unicodeChar: 0, ctrlKey, altKey: false, logoKey: false, shiftKey
   });
@@ -990,6 +996,19 @@ group('maps hardware composition editing commands like Windows', () => {
     HardwareKeyAction.MOVE_RIGHT_SEGMENT, 'Ctrl+Right moves one segment right');
   check(HardwareKeyRouter.route(key(2055, true, true), true, true).action ===
     HardwareKeyAction.RELEASE, 'Shift+Ctrl remains an editor shortcut');
+  check(HardwareKeyRouter.route(key(2054, true), true, true, false, navigation, true).action ===
+    HardwareKeyAction.COMMIT_TRANSLATION, 'Ctrl+Enter commits a highlighted candidate translation');
+  check(HardwareKeyRouter.route(key(2054, true), true, true, false, navigation, false).action ===
+    HardwareKeyAction.RELEASE, 'Ctrl+Enter remains with the editor without a translation');
+});
+
+group('splits candidate translation senses for Ctrl+Enter', () => {
+  check(TranslationSensePolicy.split('你好；您好；喂').join('|') === '你好|您好|喂',
+    'fullwidth semicolons become separate translation choices');
+  check(TranslationSensePolicy.split('hello; greeting ; hello').join('|') === 'hello|greeting',
+    'ASCII senses are trimmed and deduplicated');
+  check(TranslationSensePolicy.split('； ; ').length === 0,
+    'empty translation senses are ignored');
 });
 
 group('fullwidth conversion maps space to the ideographic form', () => {

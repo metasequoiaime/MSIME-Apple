@@ -33,6 +33,7 @@ import {
   TranslationPolicy, TranslationQuery, TranslationPlanItem, TranslationEntry,
   TranslationProviderConfig, TencentTranslationConfig, NiuTransTranslationConfig, TranslationCandidate
 } from './candidate/TranslationPolicy';
+import { TranslationSensePolicy } from './candidate/TranslationSensePolicy';
 import fs from '@ohos.file.fs';
 import pasteboard from '@ohos.pasteboard';
 import abilityAccessCtrl from '@ohos.abilityAccessCtrl';
@@ -73,6 +74,8 @@ export interface CandidateEntry {
   readonly badge: string;
   readonly fixedPosition: number;
   readonly source: number;
+  /** Translation attached to this exact Engine candidate, when one has been resolved. */
+  readonly translation: string | null;
 }
 
 interface EngineView {
@@ -1328,7 +1331,39 @@ export class KeyboardSession {
   }
 
   commitHighlighted(): void {
+    if (this.translationPage !== null) {
+      this.choose(0);
+      return;
+    }
     this.command(InputCommand.SELECT_HIGHLIGHTED);
+  }
+
+  hasHighlightedTranslation(): boolean {
+    if (this.translationPage !== null) return false;
+    return this.currentCandidates.some((candidate: Candidate): boolean =>
+      candidate.highlighted && typeof candidate.translation === 'string'
+      && candidate.translation.length > 0);
+  }
+
+  /** Ctrl+Enter commits the resolved translation without changing the user's composition text. */
+  commitTranslation(): void {
+    if (this.translationPage !== null) return;
+    const candidate: Candidate | undefined = this.currentCandidates.find(
+      (entry: Candidate): boolean => entry.highlighted && typeof entry.translation === 'string'
+        && entry.translation.length > 0);
+    if (candidate === undefined || candidate.translation === undefined
+        || candidate.translation === null) {
+      return;
+    }
+    const translations: string[] = TranslationSensePolicy.split(candidate.translation);
+    if (translations.length === 0) return;
+    if (translations.length > 1) {
+      this.translationPage = translations;
+      this.publishTranslationPage();
+      return;
+    }
+    this.cancel();
+    this.insertWithSource(translations[0], 'translation');
   }
 
   backspace(): void {
@@ -1337,6 +1372,11 @@ export class KeyboardSession {
 
   /** Throw the composition away without committing it, which is what 重输 means. */
   cancel(): void {
+    if (this.translationPage !== null) {
+      this.translationPage = null;
+      this.publishCurrentCandidates();
+      return;
+    }
     this.command(InputCommand.CANCEL);
   }
 
@@ -1394,6 +1434,14 @@ export class KeyboardSession {
   }
 
   choose(index: number): void {
+    if (this.translationPage !== null) {
+      const translation: string | undefined = this.translationPage[index];
+      if (translation === undefined) return;
+      this.translationPage = null;
+      this.command(InputCommand.CANCEL);
+      this.insertWithSource(translation, 'translation');
+      return;
+    }
     if (this.handle === 0) {
       return;
     }
@@ -1475,11 +1523,17 @@ export class KeyboardSession {
   // the table on every keystroke.
   private converter: i18n.Transliterator | undefined = undefined;
   private editing: string = '';
+  private currentCandidates: Candidate[] = [];
+  private translationPage: string[] | null = null;
+  private lastView: EngineView | undefined = undefined;
   private scheme: number = 0;
   private localMode: string = 'none';
 
   private render(view: EngineView): void {
     this.generation = view.generation;
+    this.currentCandidates = view.candidates.slice();
+    this.lastView = view;
+    if (this.translationPage !== null) return;
     const localModeChanged: boolean = this.localMode !== view.local_mode;
     this.localMode = view.local_mode;
     // Here rather than in apply(), because both paths end up here and only one of them went through
@@ -1502,6 +1556,7 @@ export class KeyboardSession {
         badge: CandidatePresentationPolicy.badge(candidate.source),
         fixedPosition: candidate.fixed_position,
         source: candidate.source,
+        translation: candidate.translation ?? null,
         // Only the part of the code still untyped, and only where that means something. The policy
         // decides; this just supplies what it reasons about.
         hint: WubiCodeHintPolicy.hint(candidate.code, view.preedit, true, view.scheme,
@@ -1537,6 +1592,55 @@ export class KeyboardSession {
     // view is published, and native result application rechecks the exact generation.
     this.scheduleOnlineProviders();
     this.scheduleTranslations();
+  }
+
+  private publishCurrentCandidates(): void {
+    const view: EngineView | undefined = this.lastView;
+    if (view === undefined || this.onChanged === undefined) return;
+    const entries: CandidateEntry[] = view.candidates.map((candidate: Candidate): CandidateEntry => ({
+      text: candidate.text, highlighted: candidate.highlighted,
+      badge: CandidatePresentationPolicy.badge(candidate.source),
+      fixedPosition: candidate.fixed_position, source: candidate.source,
+      translation: candidate.translation ?? null,
+      hint: WubiCodeHintPolicy.hint(candidate.code, view.preedit, true, view.scheme,
+        view.local_mode, view.answered_by_pinyin_fallback),
+      annotation: CandidateGlossPolicy.annotation(candidate.annotation,
+        candidate.translation ?? null, true)
+    }));
+    this.onChanged({
+      candidates: entries, editing: view.editing_text, spellings: view.nine_key_spellings,
+      scheme: view.scheme, shuangpinProfile: view.shuangpin_profile, localMode: view.local_mode,
+      english: view.dedicated_english, diagnostic: this.diagnostic
+    });
+    if (this.onCandidateWidth !== undefined) {
+      this.onCandidateWidth(CandidateWidthPolicy.widthVp(entries, view.editing_text,
+        this.preferences().candidateFontSize, this.preferences().candidatePreeditFontSize,
+        this.preferences().candidateMinWidthVp));
+    }
+    if (this.onCandidateCount !== undefined) this.onCandidateCount(entries.length);
+  }
+
+  private publishTranslationPage(): void {
+    const translations: string[] | null = this.translationPage;
+    if (translations === null || this.onChanged === undefined) return;
+    const view: EngineView | undefined = this.lastView;
+    const entries: CandidateEntry[] = translations.map((text: string, index: number): CandidateEntry => ({
+      text: text, hint: '', annotation: '', highlighted: index === 0, badge: '',
+      fixedPosition: 0, source: 0, translation: null
+    }));
+    this.onChanged({
+      candidates: entries,
+      editing: view?.editing_text ?? this.editing, spellings: [],
+      scheme: view?.scheme ?? this.scheme, shuangpinProfile: view?.shuangpin_profile ?? this.profileName,
+      localMode: view?.local_mode ?? this.localMode,
+      english: view?.dedicated_english ?? this.englishMode, diagnostic: this.diagnostic
+    });
+    if (this.onCandidateWidth !== undefined) {
+      this.onCandidateWidth(CandidateWidthPolicy.widthVp(entries, view?.editing_text ?? this.editing,
+        this.preferences().candidateFontSize, this.preferences().candidatePreeditFontSize,
+        this.preferences().candidateMinWidthVp));
+    }
+    if (this.onCandidateCount !== undefined) this.onCandidateCount(translations.length);
   }
 
   private scheduleOnlineProviders(): void {

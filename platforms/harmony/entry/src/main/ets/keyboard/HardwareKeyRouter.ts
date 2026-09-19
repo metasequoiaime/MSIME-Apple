@@ -38,6 +38,8 @@ export enum HardwareKeyAction {
   COMMIT,
   /** Commit the letters as typed, without choosing a candidate. */
   COMMIT_RAW,
+  /** Commit the highlighted candidate's translation when Ctrl+Enter requests it. */
+  COMMIT_TRANSLATION,
   /** Choose the candidate at `index`. */
   SELECT,
   /** Consume a disabled navigation binding without turning it into text. */
@@ -116,10 +118,13 @@ export class HardwareKeyRouter {
                navigation: HardwareNavigationPreferences = {
                  minusEqual: true, commaPeriod: true, brackets: false,
                  tab: true, pageUpDown: true, mouseWheel: false, arrows: true
-               }): HardwareKeyDecision {
+               }, hasHighlightedTranslation: boolean = false): HardwareKeyDecision {
     // Windows reserves Ctrl+Backspace/Left/Right for editing one Engine segment at a time. Other
     // modifier chords belong to the application, even in the middle of a composition.
     if (composing && key.ctrlKey && !key.altKey && !key.logoKey && !key.shiftKey) {
+      if (key.keyCode === KEYCODE_ENTER && hasHighlightedTranslation) {
+        return decision(HardwareKeyAction.COMMIT_TRANSLATION);
+      }
       if (key.keyCode === KEYCODE_DEL) {
         return decision(HardwareKeyAction.BACKSPACE_SEGMENT);
       }
