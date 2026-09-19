@@ -3,18 +3,22 @@ import UIKit
 
 struct SkinSettingsView: View {
   @EnvironmentObject private var navigation: AppNavigation
+  @Environment(\.scenePhase) private var scenePhase
   @AppStorage(CustomKeyboardSkinStore.key, store: KeyboardFeedbackPreference.defaults)
   private var customSkinData = Data()
   @AppStorage(KeyboardSkinPreference.key, store: KeyboardFeedbackPreference.defaults)
   private var skin = KeyboardSkin.forest.rawValue
   @State private var previewsNineKey = InputSchemePreference.scheme == .nineKey
   @State private var previewsDark = false
+  @State private var savedDesigns = CustomSkinLibrary.designs.count
 
   var body: some View {
     Form {
       Section {
         NavigationLink(destination: CustomSkinEditorView()) {
-          Label("设计我的皮肤", systemImage: "slider.horizontal.3")
+          SettingsRowLabel(title: "设计我的皮肤",
+                           detail: savedDesigns == 0 ? "还没有命名保存的方案" : "本机保存了 \(savedDesigns) 套方案",
+                           symbol: "paintbrush.pointed.fill", color: .pink)
         }.accessibilityIdentifier("customSkinEditorLink")
       }
       Section {
@@ -62,6 +66,8 @@ struct SkinSettingsView: View {
     }
     .navigationTitle("皮肤")
     .navigationBarTitleDisplayMode(.inline)
+    .onAppear { savedDesigns = CustomSkinLibrary.designs.count }
+    .onChange(of: scenePhase) { if $0 == .active { savedDesigns = CustomSkinLibrary.designs.count } }
   }
 }
 
