@@ -61,6 +61,14 @@
 
 ## 下一批实施顺序
 
+增量记录（2026-09-20，HarmonyOS 首次设备运行）：目标 `21da4a315`。此前 HarmonyOS 一栏的全部结论都只有源码与构建证据，本次首次在模拟器上实际运行，证据等级随之改变。
+
+环境为 DevEco 自带的 HarmonyOS 6.0.1(21) phone 镜像，与项目 `compileSdkVersion` 一致；`bm install` 接受未签名 HAP。干净安装后启用输入法，本宿主日志域输出为：`module loaded` → `staged .../files/engine` → `session 1 created` → `panel ready: phone, soft keyboard`，系统侧返回 `Succeeded in enabling IME. status:FULL_EXPERIENCE_MODE`。即 ArkTS → NAPI → Rust → C++ Engine 整条链在设备上可用，Engine 会话与软键盘面板均真实创建。三个 ABI 的原生库均已构建，HAP 含全部 `libs/<abi>/`。
+
+该次运行同时暴露并修复了一个只有在设备上才会出现的缺陷：暂存标记只记录"已暂存"而不记录暂存的是哪一代资源，因此包内资源更新后永不重新拷出，而共享校验对暂存目录做逐项精确比对，陈旧副本不是"旧"而是被直接拒绝（`existing resource generation has unexpected files`），键盘因此拒绝启动。设置页与键盘扩展此前各有一套规则写同一目录，也会留下已从资源集中移除的文件。现统一为一份按包内清单计算代次的实现。
+
+仍未取得证据：切换到该输入法后在真实编辑器中输入并上屏（`ime -s` 在锁屏下被系统拒绝，随后本机可用磁盘降至个位数 GB、模拟器无法重启）、焦点与选区、生命周期、真机签名与安装、麦克风授权流程。被系统启用并绘出面板不等于输入验收，这一栏不据此宣称平台接入完成。
+
 增量记录（2026-09-20，HarmonyOS 第二批）：目标 `a09527a29`。来源对象为本地 `MSIME-Windows` 检出 `997fdfd9cb27ebbf3a8f998cdefae3274eb5deb9` 的 `README.md`「功能简介」「核心功能指南」，以及目标仓库内 `platforms/linux/src/core/ClientEngine.cpp` 与 `platforms/android/java/` 中已实现的同源行为；来源远端默认分支当前为 `1e4c331d5a7d62b1f219fcc0979a89dd5ead7309`，本批未读取该提交的新增内容，因此不把其后的任何变化计入。
 
 本批补齐的来源功能：(1) 2in1 硬件键盘的五个语音快捷键（右 Alt 长按、Ctrl+Win、Ctrl+右 Alt、空格锁定、Ctrl+F9 开停、Esc 取消），共享设置页一直显示这五个 `voice_input.hotkey_*` 开关而本宿主一个都不消费；空格与 Esc 只在录音期间占用。(2) `Ctrl+Shift+E`、`Ctrl+Shift+Space`、`Ctrl+.` 三个模式快捷键，与 Linux 宿主同源，且和来源一样不受设置页那四项可关闭绑定的影响。(3) 直接英文输入的只读英文补全，走共享 `msime_client_english_completions_request`（此前 NAPI 未导出），全角字母归一为 ASCII，少于两字母不查询。(4) 录音设备选择：HTTP ASR 与豆包各自建流，故可用 `AudioSessionManager.selectMediaInputDevice` 路由；标识为设备类型加地址，缺失时回落系统默认，不把别的平台 backend 重解释为本平台设备。(5) 按应用记忆中英文状态（编辑器属性自 API 14 带 `bundleName`），映射不落盘、上限 64 个应用。(6) 切换到日语时写入 `last_chinese_scheme`。(7) 工具栏设置按钮可关闭；`Ctrl+Shift+Alt+1–8` 删除候选，来源不允许删除的候选来源仍拒绝执行但按键保持被占用。
