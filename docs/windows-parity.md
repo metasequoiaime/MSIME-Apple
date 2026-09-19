@@ -68,6 +68,23 @@
 
 另核对确认无缺口：候选右键菜单（置顶 / 固定排位 1–5 / 取消固定 / 删除）与来源逐项一致；托盘菜单目标为超集（多手写识别板）；悬浮工具栏与菜单模板除目标特意调整的脚本位置外与来源一致；Windows Server 从共享偏好读取的 23 个键在 Rust 结构体中全部存在；Windows 侧 C++ 的宽窄转换全部走 `CP_UTF8`，文件打开一律传 `std::filesystem::path`。
 
+增量记录（2026-09-20，Windows 第三批：把 Windows 编译门禁真正跑起来）：目标起点 `6caddd999e38b8fb973009f0b972f7f273bac454`。本批的起因是一个方法问题——此前每一批的验证都写着「按文件交叉语法检查加 quick」，而 `verify-local.sh` 的 native host 阶段只认 Windows 主机上的 `target/win-full`，于是它在每一台真正跑过本地验证的机器上都只打印 skipped。把 `platforms/windows/build-cross.sh x64` 跑起来之后，发现原生构建同时坏了六处：
+
+- `tests/runtime/tsf_config_frames.cpp` 引 `windows_ipc.h` 的相对路径解析不到（它链接的 `msime-windows-replies` 本就把契约目录作为 PUBLIC include 暴露）；
+- `ee02012d4` 把测试按职责分到子目录时，12 个 TSF 测试的相对 include 少了一级，这些目标全都配置不出来；
+- `Watchdog.cpp` 在匿名命名空间里用未限定的 `watchdog_protocol::managed_argument`；
+- `tests/ui/candidate_initialization.cpp` 的四层嵌套初始化器少两个右括号；
+- 四个测试把 `tests/core/TestHostOptions.h` 当同目录头文件引；
+- `server_smoke.cpp` 还在按三参数调用早已加了 `actions_available` / `fixed_position` 的 `CandidateFlyoutWindow::open`，`ServerResources.rc` 与 CMake `OBJECT_DEPENDS` 各指着一个不存在的 `ServerResources.h`（真头文件在 `src/ipc/`），后者直接让 make 报 "No rule to make target"。
+
+修完之后（#3072）整套构建通过：host DLL、TSF DLL、Server、msimeui 与全部原生测试可执行文件都链接成功。
+
+随后把这条路径接进门禁，免得再烂一次：宿主不是 Windows、但 MinGW 与已引导到清单基线的 vcpkg 都在时，native host 阶段走交叉构建（#3074）；vcpkg 的查找顺序补上主工作区，这样在本仓库惯用的短生命周期 worktree 里也能生效，引导一次整台机器就位（#3079）；pipe-only 配置同样改为交叉构建——它的注释写着「一个没人跑的配置就是会烂掉的配置」，而它自己也在每台非 Windows 机器上跳过，其实它连 vcpkg 都不需要（#3082）。三处都做了反向验证：故意插入失败的 `static_assert` 后阶段确实报错并失败。
+
+顺带修掉一处候选窗绘制缺陷（#3076）：候选卡片宽度被工作区上限夹住，行文字用 `NO_WRAP` 且 `DrawText` 没传 `CLIP`，于是超过上限的候选（AI 联想、云候选，或候选后面再接 `"  · " + 译文`）会画过卡片右边缘、落在为阴影留的透明边距上，看起来像浮在窗口旁边的一段文字，而且点不到——命中测试用的正是同一个行矩形。传上 CLIP 让它截在行矩形处。上游对应路径是换行，但那要求行高可变，而这个渲染器的行高来自固定的 `candidate_row` 度量，属于另一回事。
+
+本批限制：x86 在本机构建不了——这台的 MinGW 用 SJLJ 展开而 x86 Rust GNU 需要 DWARF，`build-cross.sh` 自己就会拒绝；32 位宿主进程要加载的 TSF DLL 因此仍未被任何门禁覆盖。测试是链接了但没有执行，本机没有 Windows，也没有装 Wine（那是对用户机器的系统级改动，且这些测试要建窗口、用 TSF COM 与 D2D，在 Wine 下本就不可信）。#3076 的实际绘制结果同样没有看到。
+
 ## 下一批实施顺序
 
 增量记录（2026-09-20，HarmonyOS 首次设备运行）：目标 `21da4a315`。此前 HarmonyOS 一栏的全部结论都只有源码与构建证据，本次首次在模拟器上实际运行，证据等级随之改变。
