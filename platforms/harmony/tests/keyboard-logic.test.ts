@@ -81,6 +81,10 @@ import {
 import { CandidateFontFamilyPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateFontFamilyPolicy";
 import { CandidateAnnotationPreferencePolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateAnnotationPreferencePolicy";
 import { InputModeHudPolicy } from "../entry/src/main/ets/keyboard/InputModeHudPolicy";
+import {
+  HardwareKeyDispatch,
+  type HardwareKeyTarget,
+} from "../entry/src/main/ets/keyboard/HardwareKeyDispatch";
 import { BusinessErrorPolicy } from "../entry/src/main/ets/keyboard/BusinessErrorPolicy";
 import {
   StagedArtifact,
@@ -3257,6 +3261,135 @@ group("an AsyncCallback failure is described without inventing a code", () => {
     "and something with no code says what it does have rather than claiming one",
   );
   check(BusinessErrorPolicy.describe(null) === "unknown error", "nothing at all says so plainly");
+});
+
+function recordingTarget(log: string[]): HardwareKeyTarget {
+  return {
+    press: (character: number, shifted: boolean) => log.push(`press ${character} ${shifted}`),
+    punctuation: (character: number) => log.push(`punctuation ${character}`),
+    backspace: () => log.push("backspace"),
+    cancel: () => log.push("cancel"),
+    moveLeft: () => log.push("moveLeft"),
+    moveRight: () => log.push("moveRight"),
+    moveHome: () => log.push("moveHome"),
+    moveEnd: () => log.push("moveEnd"),
+    deleteForward: () => log.push("deleteForward"),
+    backspaceSegment: () => log.push("backspaceSegment"),
+    moveLeftSegment: () => log.push("moveLeftSegment"),
+    moveRightSegment: () => log.push("moveRightSegment"),
+    commitHighlighted: () => log.push("commitHighlighted"),
+    commitRaw: () => log.push("commitRaw"),
+    commitTranslation: () => log.push("commitTranslation"),
+    choose: (index: number) => log.push(`choose ${index}`),
+    resetCache: () => log.push("resetCache"),
+    removeManagedCandidate: (index: number) => {
+      log.push(`removeManagedCandidate ${index}`);
+      return true;
+    },
+    selectEdge: (edge: number) => log.push(`selectEdge ${edge}`),
+    nextPage: () => log.push("nextPage"),
+    previousPage: () => log.push("previousPage"),
+    nextCandidate: () => log.push("nextCandidate"),
+    previousCandidate: () => log.push("previousCandidate"),
+  };
+}
+
+function dispatched(
+  action: HardwareKeyAction,
+  character: number = 0,
+  index: number = 0,
+  shifted: boolean = false,
+): string[] {
+  const log: string[] = [];
+  HardwareKeyDispatch.apply(
+    { action: action, character: character, index: index },
+    shifted,
+    recordingTarget(log),
+  );
+  return log;
+}
+
+group("every routed hardware key reaches the method that means it", () => {
+  // This mapping lived as a switch inside the extension ability where no test could reach it, while
+  // both ends of it were covered. A left arrow wired to moveRight would have looked like working
+  // code until someone typed on a 2in1.
+  check(
+    dispatched(HardwareKeyAction.COMPOSE, 0x61, 0, true)[0] === "press 97 true",
+    "a letter composes, and carries whether shift was down for helpcode",
+  );
+  check(
+    dispatched(HardwareKeyAction.PUNCTUATION, 0x2c)[0] === "punctuation 44",
+    "a punctuation mark goes to the punctuation path with its character",
+  );
+  check(dispatched(HardwareKeyAction.BACKSPACE)[0] === "backspace", "backspace deletes a letter");
+  check(dispatched(HardwareKeyAction.CANCEL)[0] === "cancel", "escape throws the composition away");
+  check(dispatched(HardwareKeyAction.MOVE_LEFT)[0] === "moveLeft", "left goes left");
+  check(dispatched(HardwareKeyAction.MOVE_RIGHT)[0] === "moveRight", "and right goes right");
+  check(dispatched(HardwareKeyAction.MOVE_HOME)[0] === "moveHome", "home goes to the start");
+  check(dispatched(HardwareKeyAction.MOVE_END)[0] === "moveEnd", "and end to the end");
+  check(
+    dispatched(HardwareKeyAction.DELETE_FORWARD)[0] === "deleteForward",
+    "delete removes ahead",
+  );
+  check(
+    dispatched(HardwareKeyAction.BACKSPACE_SEGMENT)[0] === "backspaceSegment",
+    "the segment chords are their own methods, not the plain ones",
+  );
+  check(
+    dispatched(HardwareKeyAction.MOVE_LEFT_SEGMENT)[0] === "moveLeftSegment",
+    "left by segment",
+  );
+  check(
+    dispatched(HardwareKeyAction.MOVE_RIGHT_SEGMENT)[0] === "moveRightSegment",
+    "right by segment",
+  );
+  check(
+    dispatched(HardwareKeyAction.COMMIT)[0] === "commitHighlighted",
+    "space takes the highlight",
+  );
+  check(
+    dispatched(HardwareKeyAction.COMMIT_RAW)[0] === "commitRaw",
+    "enter takes the letters typed",
+  );
+  check(
+    dispatched(HardwareKeyAction.COMMIT_TRANSLATION)[0] === "commitTranslation",
+    "Ctrl+Enter takes the translation rather than the candidate",
+  );
+  check(dispatched(HardwareKeyAction.SELECT, 0, 4)[0] === "choose 4", "a digit picks its slot");
+  check(dispatched(HardwareKeyAction.RESET_CACHE)[0] === "resetCache", "the cache chord clears it");
+  check(
+    dispatched(HardwareKeyAction.REMOVE_CANDIDATE, 0, 7)[0] === "removeManagedCandidate 7",
+    "the slot chord removes that slot rather than choosing it",
+  );
+  check(dispatched(HardwareKeyAction.NEXT_PAGE)[0] === "nextPage", "paging pages");
+  check(dispatched(HardwareKeyAction.PREVIOUS_PAGE)[0] === "previousPage", "both ways");
+  check(
+    dispatched(HardwareKeyAction.NEXT_CANDIDATE)[0] === "nextCandidate",
+    "and moving the highlight is not paging",
+  );
+  check(dispatched(HardwareKeyAction.PREVIOUS_CANDIDATE)[0] === "previousCandidate", "both ways");
+});
+
+group("word-character keys take the end of the candidate they name", () => {
+  check(
+    dispatched(HardwareKeyAction.WORD_CHARACTER_FIRST)[0] === "selectEdge 0",
+    "the opening bracket takes the first character",
+  );
+  check(
+    dispatched(HardwareKeyAction.WORD_CHARACTER_LAST)[0] === "selectEdge 1",
+    "and the closing one the last, which swapping would make silently wrong",
+  );
+});
+
+group("a key that was claimed without an effect does nothing at all", () => {
+  check(
+    dispatched(HardwareKeyAction.IGNORED).length === 0,
+    "a disabled navigation binding is consumed rather than turned into text",
+  );
+  check(
+    dispatched(HardwareKeyAction.RELEASE).length === 0,
+    "and a released key never reaches here, but would still do nothing if it did",
+  );
 });
 
 group("the mode badge is built only when the shared preference allows it", () => {
