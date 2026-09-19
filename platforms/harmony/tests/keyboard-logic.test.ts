@@ -1531,6 +1531,12 @@ group('the theme resolves keyboard first, then global, then the system', () => {
   check(KeyboardSkin.resolveDark('system', 'light', true) === false, 'in both directions');
   check(KeyboardSkin.resolveDark('system', 'system', true) === true, 'then the system');
   check(KeyboardSkin.resolveDark('system', 'system', false) === false, 'in both directions');
+  check(KeyboardSkin.resolveDark('dark', 'light', false) === true,
+    'voice dark overrides the global light theme');
+  check(KeyboardSkin.resolveDark('light', 'dark', true) === false,
+    'voice light overrides the global dark theme');
+  check(KeyboardSkin.resolveDark('follow', 'dark', false) === true,
+    'voice follow inherits the global theme');
 });
 
 group('an unknown skin id falls back to forest rather than failing', () => {

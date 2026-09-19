@@ -193,6 +193,7 @@ struct KeyboardView {
   @State managing: number = -1;
   @State feedback: FeedbackSettings = KeyboardFeedback.DEFAULTS;
   @State traditional: boolean = false;
+  @State voiceSkin: KeyboardSkin = KeyboardSkin.from('forest', false);
   @State english: boolean = false;
   /** Which surface the toolbar asked this window to carry, on a machine with no key faces. */
   @State desktop: DesktopSurface = DesktopSurface.NONE;
@@ -299,6 +300,9 @@ struct KeyboardView {
     this.feedback = KeyboardSession.shared.feedback();
     this.traditional = KeyboardSession.shared.usesTraditional();
     this.skin = KeyboardSkin.from(this.settings.skinId, this.settings.dark);
+    this.voiceSkin = KeyboardSkin.from(this.settings.skinId,
+      KeyboardSkin.resolveDark(this.settings.voiceTheme, this.settings.globalTheme,
+        this.settings.dark));
     this.candidateSkin = KeyboardSkin.from(
       CandidateSkinPolicy.harmonySkin(this.settings.candidateSkinId, this.settings.candidateSkinBase),
       this.settings.candidateDark);
@@ -656,6 +660,9 @@ struct KeyboardView {
       return;
     }
     this.skin = choice;
+    this.voiceSkin = KeyboardSkin.from(choice.id,
+      KeyboardSkin.resolveDark(this.settings.voiceTheme, this.settings.globalTheme,
+        this.settings.dark));
     this.show(SURFACE_NONE);
   }
 
@@ -1805,11 +1812,11 @@ struct KeyboardView {
       Row() {
         Text('语音输入')
           .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
-          .fontColor(this.skin.keyForeground)
+          .fontColor(this.voiceSkin.keyForeground)
           .layoutWeight(1)
         Text('返回')
           .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-          .fontColor(this.skin.accent)
+          .fontColor(this.voiceSkin.accent)
           .onClick(() => this.show(SURFACE_NONE))
       }
       .width('100%')
@@ -1819,7 +1826,7 @@ struct KeyboardView {
 
       Text(this.voiceNotice.length > 0 ? this.voiceNotice : this.voiceDescription())
         .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-        .fontColor(this.skin.keyForeground)
+        .fontColor(this.voiceSkin.keyForeground)
         .opacity(0.72)
         .maxLines(2)
         .width('100%')
@@ -1830,8 +1837,8 @@ struct KeyboardView {
         .width('100%')
         .height(this.surfaceHeight() * 0.35)
         .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-        .fontColor(this.skin.keyForeground)
-        .backgroundColor(this.skin.keyBackground)
+        .fontColor(this.voiceSkin.keyForeground)
+        .backgroundColor(this.voiceSkin.keyBackground)
         .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
         .onChange((value: string): void => {
           this.voiceText = VoiceRecognitionPolicy.result(value);
@@ -1840,25 +1847,25 @@ struct KeyboardView {
       Row({ space: KeyboardMetrics.KEY_SPACING_VP }) {
         Text(this.voiceFinishing ? '正在完成…' : this.voiceBusy ? '停止录音' : '开始录音')
           .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-          .fontColor(this.skin.actionForeground)
+          .fontColor(this.voiceSkin.actionForeground)
           .layoutWeight(1)
           .textAlign(TextAlign.Center)
           .padding({ top: 10, bottom: 10 })
-          .backgroundColor(this.skin.actionBackground)
+          .backgroundColor(this.voiceSkin.actionBackground)
           .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
           .onClick(() => this.voiceBusy ? this.stopVoice() : this.startVoice())
         Text('取消')
           .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-          .fontColor(this.skin.keyForeground)
+          .fontColor(this.voiceSkin.keyForeground)
           .padding({ left: 16, right: 16, top: 10, bottom: 10 })
-          .backgroundColor(this.skin.keyBackground)
+          .backgroundColor(this.voiceSkin.keyBackground)
           .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
           .onClick(() => this.cancelVoice())
         Text('提交')
           .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-          .fontColor(this.skin.keyForeground)
+          .fontColor(this.voiceSkin.keyForeground)
           .padding({ left: 16, right: 16, top: 10, bottom: 10 })
-          .backgroundColor(this.skin.keyBackground)
+          .backgroundColor(this.voiceSkin.keyBackground)
           .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
           .opacity(this.voiceText.length > 0 && !this.voiceBusy ? 1 : 0.4)
           .onClick(() => this.submitVoice())
@@ -1867,6 +1874,7 @@ struct KeyboardView {
     }
     .width('100%')
     .height(this.surfaceHeight())
+    .backgroundColor(this.voiceSkin.background)
   }
 
   @Builder
