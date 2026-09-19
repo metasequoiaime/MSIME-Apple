@@ -22,6 +22,12 @@
 
 ## 当前证据
 
+### Android 引擎拒收标点的自动上屏（2026-09-19）
+
+Apple `handleSymbol` 对引擎不接受的标点执行 finish_composition——按首选候选结束组合，再插入该标点，所以「nihao」后按 `@` 得到「你好@」。Android 此前直接 `commitText`，而预编辑是真正的 Android composing region：这次提交会替换掉正在组的拼音，结果只剩 `@`，正在组的内容无声丢失。现在组字中被拒绝的标点先走共享宿主命令 9（`Action::Finish`），再由宿主按既有全角与打字统计边界上屏。没有组合时行为不变；被拒绝的数字仍是当前页没有对应候选的候选键，不进入这条自动上屏路径。边界由无 Android 依赖的 `DeclinedKeyPolicy` 提供。
+
+`check-host.sh` 中禁止命令 9 的检查写于该命令尚未在 FFI 映射时，现已改为两道：宿主不得内联字面量 9，且 `crates/host-api/src/ffi/input.rs` 中 9 必须仍是 `Action::Finish`，否则常量视为过期。新增 `DeclinedKeyPolicy` 回归；Android host Java/API、manifest/resource 检查、全部 JVM smoke 和 `scripts/verify-local.sh --quick` 通过。未执行 Android 设备编辑器上屏验收，CI 保持禁用。
+
 ### 共享设置的服务商预置模型与接入说明（2026-09-19）
 
 依据 Apple `AIProviderPreset` / `VoiceProviderPreset` 和 `FeatureSettingsViews` 的服务商分组，共享 Tauri 设置为 AI 辅助、语音识别和文本润色补齐两项内容：服务商已知支持的模型以“预置模型”下拉提供，选中后写入既有模型字段，不在列表中的模型显示为“自定义模型…”且不被覆盖；服务商自己的接入与 API Key 说明页通过宿主注入的外链能力打开，没有外链能力或选择“自定义”时不显示。两者都只是展示数据，请求仍然发送偏好中保存的接口地址和模型，凭据探测的载荷不变。Android 与 iOS 因此和 Apple 一样，可以在没有凭据时先知道该填哪个模型、去哪里申请 Key。
