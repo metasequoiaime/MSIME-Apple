@@ -24,8 +24,9 @@ use msime_client_core::keyboard_skin_trial::{
     KeyboardSkinTrial, KeyboardSkinTrialError, KeyboardSkinTrialStore,
 };
 use msime_client_core::preferences::{
-    InputScheme, Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinProfile, ThemeMode,
-    TouchKeyboardLayout, TouchKeyboardSkin, TouchKeyboardSkinDesign,
+    FrequencyMode, FrequencyPreferences, InputScheme, Preferences, PreferencesSnapshot,
+    PreferencesStore, ShuangpinProfile, ThemeMode, TouchKeyboardLayout, TouchKeyboardSkin,
+    TouchKeyboardSkinDesign,
 };
 use serde::de::{DeserializeSeed, MapAccess, Visitor};
 use serde::{Deserialize, Serialize};
@@ -2335,6 +2336,25 @@ fn insert_integer(settings: &mut BTreeMap<String, AccountPreferenceValue>, key: 
     settings.insert(key.to_owned(), AccountPreferenceValue::Integer(value));
 }
 
+fn frequency_account_preferences(
+    frequency: &FrequencyPreferences,
+) -> BTreeMap<String, AccountPreferenceValue> {
+    BTreeMap::from([
+        (
+            "input.frequency_mode".into(),
+            AccountPreferenceValue::String(frequency.mode.as_str().into()),
+        ),
+        (
+            "input.frequency_trigger_count".into(),
+            AccountPreferenceValue::Integer(i64::from(frequency.trigger_count)),
+        ),
+        (
+            "input.frequency_linear_step".into(),
+            AccountPreferenceValue::Integer(i64::from(frequency.linear_step)),
+        ),
+    ])
+}
+
 fn local_account_preferences(
     snapshot: &PreferencesSnapshot,
     feedback: &PluginHandle<Wry>,
@@ -2371,6 +2391,7 @@ fn local_account_preferences(
         },
     );
     insert_bool(&mut settings, "input.learning", preferences.learning);
+    settings.extend(frequency_account_preferences(&preferences.frequency));
     insert_bool(
         &mut settings,
         "input.chinese_punctuation",
@@ -2518,6 +2539,51 @@ fn integer_setting(
     }
 }
 
+fn apply_frequency_preferences(
+    preferences: &mut Preferences,
+    values: &BTreeMap<String, AccountPreferenceValue>,
+    schema: &AccountPreferenceSchema,
+) -> Result<(), AccountError> {
+    let supports = |key: &str, expected: &str| -> Result<bool, AccountError> {
+        match schema.fields.get(key) {
+            None => Ok(false),
+            Some(field)
+                if field.value_type == expected
+                    || ((expected == "number" || expected == "integer")
+                        && matches!(field.value_type.as_str(), "integer" | "number")) =>
+            {
+                Ok(true)
+            }
+            Some(_) => Err(AccountError::Invalid),
+        }
+    };
+    if let Some(value) = string_setting(values, "input.frequency_mode")? {
+        if supports("input.frequency_mode", "string")? {
+            preferences.frequency.mode = match value.as_str() {
+                "disabled" => FrequencyMode::Disabled,
+                "pin" => FrequencyMode::Pin,
+                "halve" => FrequencyMode::Halve,
+                "linear" => FrequencyMode::Linear,
+                "promote" => FrequencyMode::Promote,
+                _ => return Err(AccountError::Invalid),
+            };
+        }
+    }
+    if let Some(value) = integer_setting(values, "input.frequency_trigger_count")? {
+        if supports("input.frequency_trigger_count", "integer")? {
+            preferences.frequency.trigger_count =
+                u8::try_from(value).map_err(|_| AccountError::Invalid)?;
+        }
+    }
+    if let Some(value) = integer_setting(values, "input.frequency_linear_step")? {
+        if supports("input.frequency_linear_step", "integer")? {
+            preferences.frequency.linear_step =
+                u8::try_from(value).map_err(|_| AccountError::Invalid)?;
+        }
+    }
+    Ok(())
+}
+
 fn apply_local_account_preferences(
     snapshot: &PreferencesSnapshot,
     cloud: &AccountPreferences,
@@ -2585,6 +2651,7 @@ fn apply_local_account_preferences(
             preferences.learning = value;
         }
     }
+    apply_frequency_preferences(&mut preferences, values, schema)?;
     if let Some(value) = bool_setting(values, "input.chinese_punctuation")? {
         if supports("input.chinese_punctuation", "boolean")? {
             preferences.chinese_punctuation = value;
@@ -2885,4 +2952,87 @@ pub async fn mobile_keyboard_feedback_preview(
     .map_err(|_| crate::CommandError {
         code: "feedback_preview",
     })?
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        apply_frequency_preferences, frequency_account_preferences, AccountPreferenceSchema,
+        AccountPreferenceValue, FrequencyMode, FrequencyPreferences, Preferences,
+    };
+    use msime_client_core::account::AccountPreferenceField;
+    use std::collections::BTreeMap;
+
+    fn frequency_schema() -> AccountPreferenceSchema {
+        AccountPreferenceSchema {
+            fields: BTreeMap::from([
+                (
+                    "input.frequency_mode".into(),
+                    AccountPreferenceField {
+                        value_type: "string".into(),
+                    },
+                ),
+                (
+                    "input.frequency_trigger_count".into(),
+                    AccountPreferenceField {
+                        value_type: "integer".into(),
+                    },
+                ),
+                (
+                    "input.frequency_linear_step".into(),
+                    AccountPreferenceField {
+                        value_type: "integer".into(),
+                    },
+                ),
+            ]),
+            maximum_bytes: 65_536,
+            update_mode: "replace".into(),
+            revision_required: true,
+        }
+    }
+
+    #[test]
+    fn frequency_preferences_round_trip_through_account_fields() {
+        let expected = FrequencyPreferences {
+            mode: FrequencyMode::Linear,
+            trigger_count: 7,
+            linear_step: 4,
+        };
+        let values = frequency_account_preferences(&expected);
+        assert_eq!(
+            values["input.frequency_mode"],
+            AccountPreferenceValue::String("linear".into())
+        );
+        let mut preferences = Preferences::default();
+        apply_frequency_preferences(&mut preferences, &values, &frequency_schema()).unwrap();
+        assert_eq!(preferences.frequency, expected);
+    }
+
+    #[test]
+    fn unsupported_frequency_fields_are_ignored_but_invalid_modes_are_rejected() {
+        let expected = FrequencyPreferences {
+            mode: FrequencyMode::Linear,
+            trigger_count: 7,
+            linear_step: 4,
+        };
+        let values = frequency_account_preferences(&expected);
+        let mut preferences = Preferences::default();
+        let empty_schema = AccountPreferenceSchema {
+            fields: BTreeMap::new(),
+            maximum_bytes: 65_536,
+            update_mode: "replace".into(),
+            revision_required: true,
+        };
+        apply_frequency_preferences(&mut preferences, &values, &empty_schema).unwrap();
+        assert_eq!(preferences.frequency, FrequencyPreferences::default());
+
+        let mut invalid = values;
+        invalid.insert(
+            "input.frequency_mode".into(),
+            AccountPreferenceValue::String("unknown".into()),
+        );
+        assert!(
+            apply_frequency_preferences(&mut preferences, &invalid, &frequency_schema()).is_err()
+        );
+    }
 }
