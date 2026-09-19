@@ -245,6 +245,8 @@ export type Preferences = {
   navigation?: NavigationPreferences;
   keybindings?: KeybindingPreferences;
   scheme: "quanpin" | "shuangpin" | "wubi" | "japanese";
+  /** Width used when desktop hosts commit printable ASCII characters. */
+  character_width?: "halfwidth" | "fullwidth";
   wubi_code_hint?: boolean;
   touch_keyboard_layout?: "twenty_six_key" | "nine_key" | "handwriting";
   touch_keyboard_skin?: TouchKeyboardSkin;
@@ -662,6 +664,8 @@ export interface SettingsClient {
   restartInputMethod?: () => Promise<void>;
   /** macOS installs/updates the separate InputMethodKit bundle before registering it. */
   installInputSource?: () => Promise<void>;
+  /** macOS moves the installed input source to Trash; data removal is explicit. */
+  uninstallInputSource?: (removeUserData: boolean) => Promise<void>;
   windowControl?: (action: "minimize" | "maximize" | "restore" | "close") => Promise<void>;
   beginWindowDrag?: () => Promise<void>;
   resizeWindow?: (edge: "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw") => Promise<void>;
@@ -919,6 +923,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
   const [notice, setNotice] = useState("");
+  const [removeUserDataOnUninstall, setRemoveUserDataOnUninstall] = useState(false);
   const [page, setPage] = useState<SettingsPageId>(() => requestedPage(initialPage ?? (client.home ? "home" : undefined)));
   // Mobile hosts use the WebView history stack for the system back gesture. The
   // native activity can therefore dismiss a nested page without the shared UI
@@ -1989,6 +1994,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
         </div>}
         <div className="section"><label className="section-header"><span className="section-title">学习选词习惯<small>根据选词调整候选顺序</small></span><input className="toggle" type="checkbox" checked={draft.learning} onChange={event => setDraft({ ...draft, learning: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">中文标点<small>默认使用中文标点符号</small></span><input className="toggle" type="checkbox" checked={draft.chinese_punctuation} onChange={event => setDraft({ ...draft, chinese_punctuation: event.target.checked })} /></label></div>
+        {!mobilePlatform && <div className="section"><label className="section-header"><span className="section-title">全角输入<small>将英文字符和空格提交为全角形式，可用工具栏或快捷键临时切换</small></span><input aria-label="全角输入" className="toggle" type="checkbox" checked={(draft.character_width ?? "halfwidth") === "fullwidth"} onChange={event => setDraft({ ...draft, character_width: event.target.checked ? "fullwidth" : "halfwidth" })} /></label></div>}
         <div className="section"><label className="section-header"><span className="section-title">智能标点<small>根据输入上下文选择中文或英文标点形式</small></span><input className="toggle" type="checkbox" checked={smartPunctuation} onChange={event => setDraft({ ...draft, smart_punctuation: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">重复标点转中文<small>短时间重复输入 ASCII 标点时转换为中文标点</small></span><input className="toggle" type="checkbox" checked={smartPunctuationRepeat} onChange={event => setDraft({ ...draft, smart_punctuation_repeat: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">中文标点后按空格转换<small>刚输入中文标点后按空格，转换为对应英文标点</small></span><input className="toggle" type="checkbox" checked={smartPunctuationSpaceConvert} onChange={event => setDraft({ ...draft, smart_punctuation_space_convert: event.target.checked })} /></label></div>
@@ -2177,6 +2183,12 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
           {showInstallInputSource && <div className="service-action-row">
             <span>安装或更新水杉输入源<small>将当前应用随附的 IMK bundle 安装到本机输入法目录，然后注册到系统。</small></span>
             <HostActionButton action={client.installInputSource} label="安装 / 更新" success="输入源已安装并注册。" error="输入源安装或注册失败，请重试。" />
+          </div>}
+          {macosPlatform && client.uninstallInputSource && <div className="service-action-row service-action-row-danger">
+            <span>卸载水杉输入法<small>输入源会移到废纸篓；默认保留词库、学习记录和偏好，重新安装后可继续使用。</small>
+              <label><input type="checkbox" checked={removeUserDataOnUninstall} onChange={event => setRemoveUserDataOnUninstall(event.target.checked)} /> 同时删除词库、偏好与语音密钥</label>
+            </span>
+            <HostActionButton action={() => client.uninstallInputSource!(removeUserDataOnUninstall)} label="卸载…" success="输入法已移到废纸篓。" error="卸载未能完成，请稍后重试。" />
           </div>}
         </div>}
       </fieldset>

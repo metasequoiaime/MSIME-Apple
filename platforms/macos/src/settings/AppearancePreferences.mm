@@ -1,4 +1,5 @@
 #import "AppearancePreferences.h"
+#import "../backend/account/BackendAccountEntry.h"
 #import "../candidate/CandidateSkinPreviewView.h"
 #import "../candidate/SkinSettingsView.h"
 #import "../cloud/CloudAppearanceSettings.h"
@@ -7,11 +8,14 @@
 #import "../core/AISettingsWindow.h"
 #import "../core/SharedVoicePreferences.h"
 #import "../core/UpdateController.h"
-#import "../backend/BackendAccountEntry.h"
 #import "../core/SupportWindowController.h"
 #import "../voice/VoiceSettings.h"
 #include "ShuangpinProfileNames.h"
 #include "../candidate/CandidatePageSize.h"
+
+extern "C" NSView *MSIMEAccountPaneView(void) __attribute__((weak_import));
+extern "C" void MSIMEAccountPaneAttach(NSWindow *window) __attribute__((weak_import));
+extern "C" void MSIMEAccountPaneClose(void) __attribute__((weak_import));
 
 NSNotificationName const MSIMEAppearanceDidChangeNotification = @"MSIMEClientAppearanceDidChange";
 NSNotificationName const MSIMETranslationPreferencesDidSaveNotification = @"MSIMEClientTranslationPreferencesDidSave";
@@ -442,6 +446,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     NSButton *_mixedEmojiButton;
     NSButton *_mixedKaomojiButton;
     NSNumber *_sharedTraditionalOutput;
+    NSNumber *_sharedFullWidthInput;
     NSNumber *_sharedAutocorrect;
     NSNumber *_sharedCloudCandidates;
     NSButton *_cloudCandidatesButton;
@@ -612,6 +617,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     }
     if ([_defaults objectForKey:TraditionalKey] != nil)
         merged[@"traditional_chinese_output"] = @(self.traditionalOutput);
+    merged[@"character_width"] = self.fullWidthInput ? @"fullwidth" : @"halfwidth";
     if ([_defaults objectForKey:CloudCandidatesKey] != nil)
         merged[@"cloud_candidates"] = @(self.cloudCandidates);
     if ([_defaults objectForKey:CandidateTranslationsKey] != nil)
@@ -780,6 +786,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     _sharedSmartPunctuation = nil;
     _sharedSmartPunctuationRepeatToChinese = nil;
     _sharedTraditionalOutput = nil;
+    _sharedFullWidthInput = nil;
     _sharedAutocorrect = nil;
     _sharedToolbarEnabled = nil;
     _sharedCandidateLearning = nil;
@@ -1073,6 +1080,9 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     }
     id traditional = preferences[@"traditional_chinese_output"];
     if (LocalModeBoolean(traditional)) _sharedTraditionalOutput = traditional;
+    id characterWidth = preferences[@"character_width"];
+    if ([characterWidth isEqual:@"fullwidth"] || [characterWidth isEqual:@"halfwidth"])
+        _sharedFullWidthInput = @([characterWidth isEqual:@"fullwidth"]);
     id cloud = preferences[@"cloud_candidates"];
     if (LocalModeBoolean(cloud)) _sharedCloudCandidates = cloud;
     id translations = preferences[@"candidate_translations"];
@@ -1130,7 +1140,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 - (void)lockActiveInputMode { [self rememberActiveInputMode:self.englishMode]; }
 - (void)resetGlobalInputMode { _globalInputMode = nil; }
 - (BOOL)traditionalOutput { return _sharedTraditionalOutput ? _sharedTraditionalOutput.boolValue : [_defaults boolForKey:TraditionalKey]; }
-- (BOOL)fullWidthInput { return [_defaults boolForKey:FullWidthKey]; }
+- (BOOL)fullWidthInput { return _sharedFullWidthInput ? _sharedFullWidthInput.boolValue : [_defaults boolForKey:FullWidthKey]; }
 - (BOOL)chinesePunctuation { if (_sharedChinesePunctuation) return _sharedChinesePunctuation.boolValue; return [_defaults objectForKey:ChinesePunctuationKey] == nil ? YES : [_defaults boolForKey:ChinesePunctuationKey]; }
 - (BOOL)smartPunctuation { return _sharedSmartPunctuation ? _sharedSmartPunctuation.boolValue : ([_defaults objectForKey:SmartPunctuationKey] == nil ? YES : [_defaults boolForKey:SmartPunctuationKey]); }
 - (void)setSmartPunctuation:(BOOL)value { _sharedSmartPunctuation = nil; [_defaults setBool:value forKey:SmartPunctuationKey]; [self preferencesChanged]; }
@@ -1209,6 +1219,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     [self preferencesChanged];
 }
 - (void)setFullWidthInput:(BOOL)value {
+    _sharedFullWidthInput = nil;
     [_defaults setBool:value forKey:FullWidthKey];
     [self preferencesChanged];
 }
@@ -2126,12 +2137,19 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     ]);
 
     // ---- 账号 -------------------------------------------------------------------------------
-    NSButton *accountButton = [NSButton buttonWithTitle:@"管理水杉账号…" target:self action:@selector(showBackendAccount:)];
-    accountButton.accessibilityIdentifier = @"MSIMEClientBackendAccount";
-    NSBox *accountCard = CardWithViews(@[PreferenceRow(@"登录与账号管理", accountButton)], 0.0);
-    accountCard.accessibilityLabel = @"水杉账号卡片";
+    NSView *accountPaneView = nil;
+    if (MSIMEAccountPaneView != nullptr) {
+        accountPaneView = MSIMEAccountPaneView();
+        [accountPaneView.heightAnchor constraintGreaterThanOrEqualToConstant:520.0].active = YES;
+    } else {
+        NSButton *accountButton = [NSButton buttonWithTitle:@"管理水杉账号…" target:self action:@selector(showBackendAccount:)];
+        accountButton.accessibilityIdentifier = @"MSIMEClientBackendAccount";
+        NSBox *accountCard = CardWithViews(@[PreferenceRow(@"登录与账号管理", accountButton)], 0.0);
+        accountCard.accessibilityLabel = @"水杉账号卡片";
+        accountPaneView = CardWithViews(@[SectionLabel(@"水杉账号"), accountCard], 0.0);
+    }
     NSScrollView *accountPage = PreferencesPage(@"账号", @"登录水杉账号后，候选词翻译、云同步等需要账号的功能才会生效。", @[
-        SectionLabel(@"水杉账号"), accountCard,
+        accountPaneView,
     ]);
 
     // ---- 帮助 / 反馈 -------------------------------------------------------------------------
@@ -2376,6 +2394,10 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         _preferencePages[index].hidden = index != pageIndex;
     for (NSButton *button in _sidebarButtons)
         button.state = button.tag == navigationIndex ? NSControlStateValueOn : NSControlStateValueOff;
+    if (pageIndex == 9 && MSIMEAccountPaneAttach != nullptr)
+        MSIMEAccountPaneAttach(self.window);
+    else if (MSIMEAccountPaneClose != nullptr)
+        MSIMEAccountPaneClose();
 }
 // 五笔设置是「输入」页的子页,靠页内按钮进出,所以侧边栏保持停在「输入」上。
 - (void)showWubiSettings:(id)sender {
@@ -2392,7 +2414,12 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 }
 - (void)showBackendAccount:(id)sender {
     (void)sender;
-    MSIMEOpenBackendAccount(NSClassFromString(@"MSIMEBackendAccountWindow"));
+    if (MSIMEAccountPaneAttach != nullptr) {
+        [self showPreferencesPageAtIndex:9 navigationIndex:9];
+        MSIMEAccountPaneAttach(self.window);
+    } else {
+        MSIMEOpenBackendAccount(NSClassFromString(@"MSIMEBackendAccountWindow"));
+    }
 }
 - (void)showSupport:(id)sender {
     (void)sender;
@@ -2439,6 +2466,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 }
 - (void)closePreferences:(id)sender {
     (void)sender;
+    if (MSIMEAccountPaneClose != nullptr) MSIMEAccountPaneClose();
     [self.window performClose:nil];
 }
 - (void)skinChanged:(NSPopUpButton *)sender {

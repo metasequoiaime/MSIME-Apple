@@ -70,6 +70,7 @@ const client: SettingsClient = {
   openCloudDictionary: () => invoke("open_cloud_dictionary_panel"),
   restartInputMethod: () => invoke("restart_input_method"),
   installInputSource: () => invoke("install_input_source"),
+  uninstallInputSource: removeUserData => invoke("uninstall_input_source", { removeUserData }),
   windowControl: async action => {
     const window = getCurrentWindow();
     if (action === "minimize") return window.minimize();
@@ -293,7 +294,7 @@ function DesktopSettings() {
               test: ({ endpoint, model, prompt, token, text }) => invoke<string>("ai_test", { endpoint, model, prompt, token, text }),
             },
           } : {}),
-          ...(host.platform === "windows" ? {
+          ...(host.platform === "windows" || host.platform === "macos" ? {
             account: {
               status: () => invoke("account_status"),
               providers: () => invoke("account_providers"),

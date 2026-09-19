@@ -11,7 +11,7 @@ use std::io;
 use std::path::{Path, PathBuf};
 
 pub(crate) const INPUT_SOURCE_BUNDLE_ID: &str = "app.msime.client.preview.inputmethod";
-const INPUT_SOURCE_BUNDLE_NAME: &str = "水杉输入法（预览）.app";
+pub(crate) const INPUT_SOURCE_BUNDLE_NAME: &str = "水杉输入法（预览）.app";
 const INPUT_SOURCE_EXECUTABLE: &str = "水杉输入法（预览）";
 
 #[derive(Debug)]
@@ -157,6 +157,10 @@ fn home_input_methods() -> Result<PathBuf, InstallError> {
         return Err(InstallError::HomeUnavailable);
     }
     Ok(home.join("Library/Input Methods"))
+}
+
+pub(crate) fn installed_bundle_path() -> Result<PathBuf, InstallError> {
+    Ok(home_input_methods()?.join(INPUT_SOURCE_BUNDLE_NAME))
 }
 
 fn register_installed_bundle(bundle: &Path) -> Result<(), InstallError> {

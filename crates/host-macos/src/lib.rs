@@ -152,6 +152,124 @@ pub fn voice_capture_devices() -> Vec<(String, String)> {
     devices
 }
 
+#[cfg(target_os = "macos")]
+pub fn uninstall_input_source(
+    bundle: &std::path::Path,
+    user_data: &std::path::Path,
+    remove_user_data: bool,
+) -> Result<(), &'static str> {
+    use std::ffi::CString;
+    let home = std::env::var_os("HOME").ok_or("home unavailable")?;
+    if !std::path::PathBuf::from(&home).is_absolute()
+        || !bundle.is_absolute()
+        || !user_data.is_absolute()
+    {
+        return Err("invalid uninstall path");
+    }
+    let bundle =
+        CString::new(bundle.to_string_lossy().as_bytes()).map_err(|_| "invalid uninstall path")?;
+    let user_data = CString::new(user_data.to_string_lossy().as_bytes())
+        .map_err(|_| "invalid uninstall path")?;
+    let domain = CString::new("app.msime.client.preview.inputmethod").unwrap();
+    unsafe extern "C" {
+        fn msime_macos_uninstall_input_source(
+            bundle: *const std::ffi::c_char,
+            user_data: *const std::ffi::c_char,
+            preferences_domain: *const std::ffi::c_char,
+            remove_user_data: bool,
+        ) -> bool;
+    }
+    let ok = unsafe {
+        msime_macos_uninstall_input_source(
+            bundle.as_ptr(),
+            user_data.as_ptr(),
+            domain.as_ptr(),
+            remove_user_data,
+        )
+    };
+    ok.then_some(()).ok_or("uninstall failed")
+}
+
+/// Ask the separate IMK process to release active dictionary sessions before a
+/// settings process takes the exclusive maintenance lock.  The notification
+/// carries no input, credentials, or paths.
+#[cfg(target_os = "macos")]
+pub fn quiesce_input_sessions() {
+    unsafe extern "C" {
+        fn msime_macos_quiesce_input_sessions();
+    }
+    // SAFETY: the native function has no arguments and retains no state.
+    unsafe { msime_macos_quiesce_input_sessions() };
+}
+
+/// Read the account session shared with the Swift backend Keychain store.
+#[cfg(target_os = "macos")]
+pub fn account_load() -> Result<Option<Vec<u8>>, &'static str> {
+    let mut bytes = vec![0_u8; 1024 * 1024];
+    let mut length = 0_usize;
+    unsafe extern "C" {
+        fn msime_macos_account_load(buffer: *mut u8, capacity: usize, length: *mut usize) -> i32;
+    }
+    let status = unsafe { msime_macos_account_load(bytes.as_mut_ptr(), bytes.len(), &mut length) };
+    if status < 0 || length > bytes.len() {
+        return Err("account keychain unavailable");
+    }
+    Ok((status == 1).then(|| {
+        bytes.truncate(length);
+        bytes
+    }))
+}
+
+#[cfg(target_os = "macos")]
+pub fn account_save(bytes: &[u8]) -> Result<(), &'static str> {
+    if bytes.is_empty() || bytes.len() > 1024 * 1024 {
+        return Err("account session too large");
+    }
+    unsafe extern "C" {
+        fn msime_macos_account_save(bytes: *const u8, length: usize) -> bool;
+    }
+    unsafe { msime_macos_account_save(bytes.as_ptr(), bytes.len()) }
+        .then_some(())
+        .ok_or("account keychain unavailable")
+}
+
+#[cfg(target_os = "macos")]
+pub fn account_clear() -> Result<(), &'static str> {
+    unsafe extern "C" {
+        fn msime_macos_account_clear() -> bool;
+    }
+    unsafe { msime_macos_account_clear() }
+        .then_some(())
+        .ok_or("account keychain unavailable")
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn account_load() -> Result<Option<Vec<u8>>, &'static str> {
+    Ok(None)
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn account_save(_: &[u8]) -> Result<(), &'static str> {
+    Err("account unavailable")
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn account_clear() -> Result<(), &'static str> {
+    Err("account unavailable")
+}
+
+#[cfg(not(target_os = "macos"))]
+pub fn quiesce_input_sessions() {}
+
+#[cfg(not(target_os = "macos"))]
+pub fn uninstall_input_source(
+    _: &std::path::Path,
+    _: &std::path::Path,
+    _: bool,
+) -> Result<(), &'static str> {
+    Err("uninstall unavailable")
+}
+
 #[cfg(not(target_os = "macos"))]
 pub fn voice_capture_devices() -> Vec<(String, String)> {
     Vec::new()

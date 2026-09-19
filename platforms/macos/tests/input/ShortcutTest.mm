@@ -454,6 +454,32 @@ static void TestSharedTraditionalOutput() {
     assert([NSFileManager.defaultManager removeItemAtPath:root error:&error] && !error);
 }
 
+static void TestSharedCharacterWidth() {
+    NSString *suite = [@"msime.character-width." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *preferences = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert(!preferences.fullWidthInput);
+    assert([[preferences sharedPreferencesByMerging:@{}][@"character_width"] isEqual:@"halfwidth"]);
+
+    [preferences applySharedInputPreferences:@{@"character_width": @"fullwidth"}];
+    assert(preferences.fullWidthInput);
+    assert([[preferences sharedPreferencesByMerging:@{}][@"character_width"] isEqual:@"fullwidth"]);
+    assert([defaults objectForKey:@"MSIMEClientFullWidthInput"] == nil);
+
+    [preferences applySharedInputPreferences:@{@"character_width": @"halfwidth"}];
+    assert(!preferences.fullWidthInput);
+    for (id invalid in @[@YES, @1, @"wide", NSNull.null]) {
+        [preferences applySharedInputPreferences:@{@"character_width": invalid}];
+        assert(!preferences.fullWidthInput);
+    }
+
+    preferences.fullWidthInput = YES;
+    assert(preferences.fullWidthInput);
+    assert([[preferences sharedPreferencesByMerging:@{}][@"character_width"] isEqual:@"fullwidth"]);
+    assert([defaults boolForKey:@"MSIMEClientFullWidthInput"]);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 static void TestIndependentAssistancePreferences() {
     NSString *suite = [@"msime.assistance." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
@@ -4332,6 +4358,7 @@ int main(int argc, char **argv) {
         TestKeypadDecimal(appearance);
         TestKeypadOperators(appearance);
         TestSmartPunctuationPreferences();
+        TestSharedCharacterWidth();
         TestScreenKeyboardShortcut(appearance);
         TestMaintenanceShortcuts(appearance);
         TestPunctuation(defaults, appearance);

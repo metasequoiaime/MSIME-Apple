@@ -12,6 +12,7 @@ private final class MemoryCredentials: BackendSessionStorage, @unchecked Sendabl
 }
 private final class AccountFixture: URLProtocol, @unchecked Sendable {
   static var failLogout = false
+  static var allowDelete = false
   static var omittedPreferenceKey: String?
   private static var preferenceRevision = 1
   private static var preferences: [String: Any] = ["platform.macos.candidate_font_size": 18, "platform.macos.candidate_learning": true, "platform.ios.nine_key": true]
@@ -61,7 +62,9 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     case (_, "/v1/auth/logout"): body = ""; status = Self.failLogout ? 503 : 204
     case ("PATCH", "/v1/users/me"): body = ""; status = 204
     case ("GET", "/v1/users/me"): body = #"{"user":{"id":"synthetic-user","display_name":"新昵称","created_at":"2026-09-08"},"identities":[]}"#
-    case ("DELETE", "/v1/users/me"): body = #"{"error":{"code":"recent_login_required"}}"#; status = 403
+    case ("DELETE", "/v1/users/me"):
+      body = Self.allowDelete ? "" : #"{"error":{"code":"recent_login_required"}}"#
+      status = Self.allowDelete ? 204 : 403
     default: body = "{}"; status = 404
     }
     client?.urlProtocol(self, didReceive: HTTPURLResponse(url: request.url!, statusCode: status, httpVersion: nil, headerFields: ["Content-Type":"application/json"])!, cacheStoragePolicy: .notAllowed)
@@ -115,9 +118,40 @@ private final class AccountFixture: URLProtocol, @unchecked Sendable {
     try require(try Data(contentsOf: destination) == replacement)
     try require(try Set(FileManager.default.contentsOfDirectory(atPath: directory.path)) == ["backup.ndjson", "saved.ndjson"])
   }
+  @MainActor static func anonymousAccountFallback() async throws {
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.protocolClasses = [AccountFixture.self]
+    let client = BackendAccountClient(configuration: configuration)
+    let realStorage = MemoryCredentials()
+    let anonymousStorage = MemoryCredentials()
+    let anonymousSession = BackendAccountSession(api: client, storage: anonymousStorage)
+    try await anonymousSession.signIn(challenge: "synthetic", credential: "123456")
+    var discarded = 0
+    let model = MacAccountModel(client: client, account: BackendAccountSession(api: client, storage: realStorage),
+                                anonymousAccount: anonymousSession,
+                                closeAccountWindows: {}, discardAnonymous: { discarded += 1 })
+    model.load(); try await finished(model)
+    try require(model.user?.id == "synthetic-user" && model.anonymous)
+    model.name = "匿名昵称"; model.rename(); try await finished(model)
+    try require(model.user?.display_name == "新昵称" && anonymousStorage.load()?.tokens.user.display_name == "新昵称")
+    model.name = "有效\n中文"; model.rename(); try await finished(model)
+    let storedName = try anonymousStorage.load()?.tokens.user.display_name
+    try require(model.message != nil && storedName == "新昵称")
+    let realSession = BackendAccountSession(api: client, storage: realStorage)
+    try await realSession.signIn(challenge: "synthetic", credential: "123456")
+    let priorityModel = MacAccountModel(client: client, account: realSession, anonymousAccount: anonymousSession)
+    priorityModel.load(); try await finished(priorityModel)
+    try require(priorityModel.user?.id == "synthetic-user" && !priorityModel.anonymous)
+    try await realSession.forget()
+    AccountFixture.allowDelete = true
+    defer { AccountFixture.allowDelete = false }
+    model.logout(delete: true); try await finished(model)
+    try require(model.user == nil && !model.anonymous && discarded == 1 && anonymousStorage.load() == nil)
+  }
   @MainActor static func main() async throws {
     try windowAccountIsolation()
     try await fileTransfer()
+    try await anonymousAccountFallback()
     let configuration = URLSessionConfiguration.ephemeral
     configuration.protocolClasses = [AccountFixture.self]
     let client = BackendAccountClient(configuration: configuration)

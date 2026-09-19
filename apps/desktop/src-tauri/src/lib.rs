@@ -17,6 +17,9 @@ mod linux_clipboard;
 #[path = "platform/linux/linux_process.rs"]
 mod linux_process;
 #[cfg(target_os = "macos")]
+#[path = "platform/macos/macos_account.rs"]
+mod macos_account;
+#[cfg(target_os = "macos")]
 #[path = "platform/macos/macos_cloud_clipboard.rs"]
 mod macos_cloud_clipboard;
 #[cfg(target_os = "macos")]
@@ -1340,6 +1343,13 @@ fn dictionary_error_code(reason: &str) -> &'static str {
     }
 }
 
+fn dictionary_action_requires_quiesce(action: &Value) -> bool {
+    matches!(
+        action.get("operation").and_then(Value::as_str),
+        Some("edit" | "import")
+    )
+}
+
 #[cfg(any(target_os = "ios", test))]
 fn ios_personal_dictionary_action(action: &Value) -> bool {
     matches!(
@@ -1402,6 +1412,13 @@ async fn dictionary_request(
     let options = state.inner().clone();
     tauri::async_runtime::spawn_blocking(move || {
         let options = options.snapshot()?;
+        let requires_quiesce = dictionary_action_requires_quiesce(&action);
+        #[cfg(not(target_os = "macos"))]
+        let _ = requires_quiesce;
+        #[cfg(target_os = "macos")]
+        if requires_quiesce {
+            msime_host_macos::quiesce_input_sessions();
+        }
         let request = serde_json::json!({ "options": options, "action": action });
         #[cfg(target_os = "ios")]
         if ios_personal_dictionary_action(&request["action"]) {
@@ -1419,6 +1436,23 @@ async fn dictionary_request(
         #[cfg(not(target_os = "android"))]
         {
             let first = msime_host_api::dictionary_request_json(&bytes);
+            #[cfg(target_os = "macos")]
+            if requires_quiesce {
+                // Distributed notifications are delivered asynchronously to
+                // the IMK process.  Retry only the lock-acquisition failure;
+                // a completed write is never replayed.
+                let mut result = first;
+                for _ in 0..20 {
+                    if !matches!(&result, Err(reason) if reason == "dictionary maintenance busy") {
+                        break;
+                    }
+                    std::thread::sleep(std::time::Duration::from_millis(25));
+                    result = msime_host_api::dictionary_request_json(&bytes);
+                }
+                return result.map_err(|reason| CommandError {
+                    code: dictionary_error_code(&reason),
+                });
+            }
             // Only the lock is worth a handshake. Every other failure is about
             // the request itself and would fail again with sessions released.
             #[cfg(target_os = "windows")]
@@ -1910,6 +1944,46 @@ async fn install_input_source(app: tauri::AppHandle) -> Result<(), HostActionErr
     .map_err(|_| HostActionError {
         code: "unavailable",
     })?
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+async fn uninstall_input_source(
+    remove_user_data: bool,
+    app: tauri::AppHandle,
+    runtime: tauri::State<'_, RuntimeOptionsState>,
+) -> Result<(), HostActionError> {
+    let document = runtime.snapshot().map_err(|_| HostActionError {
+        code: "unavailable",
+    })?;
+    let state = document
+        .get("preferences_directory")
+        .and_then(Value::as_str)
+        .filter(|path| std::path::Path::new(path).is_absolute())
+        .map(PathBuf::from)
+        .ok_or(HostActionError {
+            code: "unavailable",
+        })?;
+    let home = std::env::var_os("HOME").ok_or(HostActionError {
+        code: "unavailable",
+    })?;
+    let bundle = PathBuf::from(home).join("Library/Input Methods/水杉输入法（预览）.app");
+    tauri::async_runtime::spawn_blocking(move || {
+        msime_host_macos::uninstall_input_source(&bundle, &state, remove_user_data).map_err(|_| {
+            HostActionError {
+                code: "unavailable",
+            }
+        })
+    })
+    .await
+    .map_err(|_| HostActionError {
+        code: "unavailable",
+    })?;
+    // The installed bundle is gone after a successful operation. Exit the
+    // settings shell too, matching the native Apple flow and avoiding a UI
+    // process that can no longer repair the removed installation.
+    app.exit(0);
+    Ok(())
 }
 
 fn windows_restart_payload() -> Vec<u8> {
@@ -4250,25 +4324,32 @@ fn external_url_is_safe(url: &str) -> bool {
         })
 }
 
+#[cfg(target_os = "android")]
 #[tauri::command]
 fn open_external_url(
     url: String,
-    #[cfg(target_os = "android")] account: tauri::State<'_, android_account::AccountState>,
+    account: tauri::State<'_, android_account::AccountState>,
 ) -> Result<(), HostActionError> {
     if !external_url_is_safe(&url) {
         return Err(HostActionError {
             code: "invalid_url",
         });
     }
-    #[cfg(target_os = "android")]
-    {
-        account
-            .platform
-            .run_mobile_plugin::<()>("openExternalUrl", serde_json::json!({ "url": url }))
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?;
-        return Ok(());
+    account
+        .platform
+        .run_mobile_plugin::<()>("openExternalUrl", serde_json::json!({ "url": url }))
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn open_external_url(url: String) -> Result<(), HostActionError> {
+    if !external_url_is_safe(&url) {
+        return Err(HostActionError {
+            code: "invalid_url",
+        });
     }
     #[cfg(target_os = "macos")]
     let result = std::process::Command::new("open").arg(&url).status();
@@ -5363,6 +5444,8 @@ pub fn run() {
     let builder = builder.plugin(msime_tauri_mobile_platform::init());
     builder
         .setup(|app| {
+            #[cfg(target_os = "macos")]
+            macos_account::setup(app.handle())?;
             #[cfg(target_os = "windows")]
             windows_account::setup(app.handle())?;
             #[cfg(target_os = "ios")]
@@ -5741,10 +5824,14 @@ pub fn run() {
             restart_input_method,
             #[cfg(target_os = "macos")]
             install_input_source,
+            #[cfg(target_os = "macos")]
+            uninstall_input_source,
             #[cfg(target_os = "android")]
             android_account::account_status,
             #[cfg(target_os = "windows")]
             windows_account::account_status,
+            #[cfg(target_os = "macos")]
+            macos_account::account_status,
             #[cfg(target_os = "android")]
             android_account::android_open_input_method_settings,
             #[cfg(target_os = "android")]
@@ -5761,18 +5848,26 @@ pub fn run() {
             android_account::account_providers,
             #[cfg(target_os = "windows")]
             windows_account::account_providers,
+            #[cfg(target_os = "macos")]
+            macos_account::account_providers,
             #[cfg(target_os = "android")]
             android_account::account_request_code,
             #[cfg(target_os = "windows")]
             windows_account::account_request_code,
+            #[cfg(target_os = "macos")]
+            macos_account::account_request_code,
             #[cfg(target_os = "android")]
             android_account::account_login,
             #[cfg(target_os = "windows")]
             windows_account::account_login,
+            #[cfg(target_os = "macos")]
+            macos_account::account_login,
             #[cfg(target_os = "android")]
             android_account::account_profile,
             #[cfg(target_os = "windows")]
             windows_account::account_profile,
+            #[cfg(target_os = "macos")]
+            macos_account::account_profile,
             #[cfg(target_os = "android")]
             android_account::account_chat_models,
             #[cfg(target_os = "android")]
@@ -5781,18 +5876,26 @@ pub fn run() {
             android_account::account_rename,
             #[cfg(target_os = "windows")]
             windows_account::account_rename,
+            #[cfg(target_os = "macos")]
+            macos_account::account_rename,
             #[cfg(target_os = "android")]
             android_account::account_logout,
             #[cfg(target_os = "windows")]
             windows_account::account_logout,
+            #[cfg(target_os = "macos")]
+            macos_account::account_logout,
             #[cfg(target_os = "android")]
             android_account::account_delete,
             #[cfg(target_os = "windows")]
             windows_account::account_delete,
+            #[cfg(target_os = "macos")]
+            macos_account::account_delete,
             #[cfg(target_os = "android")]
             android_account::account_forget,
             #[cfg(target_os = "windows")]
             windows_account::account_forget,
+            #[cfg(target_os = "macos")]
+            macos_account::account_forget,
             #[cfg(target_os = "android")]
             android_account::app_icon_info,
             #[cfg(target_os = "android")]
@@ -6371,6 +6474,22 @@ mod tests {
             None
         );
         assert_eq!(super::launch_route_from_args(&["--other".into()]), None);
+    }
+
+    #[test]
+    fn dictionary_mutations_quiesce_but_reads_do_not() {
+        assert!(super::dictionary_action_requires_quiesce(
+            &serde_json::json!({"operation": "edit"})
+        ));
+        assert!(super::dictionary_action_requires_quiesce(
+            &serde_json::json!({"operation": "import"})
+        ));
+        assert!(!super::dictionary_action_requires_quiesce(
+            &serde_json::json!({"operation": "list"})
+        ));
+        assert!(!super::dictionary_action_requires_quiesce(
+            &serde_json::json!({"operation": "export"})
+        ));
     }
 
     #[test]
