@@ -40,9 +40,12 @@ for argument in "$@"; do
 done
 
 # vcpkg supplies SQLite and the other native dependencies the Engine bridge
-# links. Override when your toolchain lives elsewhere; without it the bridge
-# build fails in a way that looks like a code error but is not.
-: "${MSIME_VCPKG_PREFIX:=E:/msime-runner/vcpkg-tool/installed/x64-windows-static-md}"
+# links on Windows. Derived from VCPKG_ROOT when that is set; export
+# MSIME_VCPKG_PREFIX directly for an installed tree somewhere else. Without one
+# of the two the bridge build fails in a way that looks like a code error but is
+# not, so the Windows branch below says so out loud rather than leaving it to be
+# guessed from a compiler message.
+: "${MSIME_VCPKG_PREFIX:=${VCPKG_ROOT:+$VCPKG_ROOT/installed/x64-windows-static-md}}"
 : "${MSIME_NATIVE_BUILD:=target/win-full}"
 # The pipe-only configuration builds the protocol tests without the Rust host
 # library. It is a separate CMake configuration, so nothing in the ordinary
@@ -60,13 +63,25 @@ done
 # and the macOS host at once.
 : "${MSIME_APPLE_BRIDGE_BUILD:=target/apple-bridge}"
 export MSYS_NO_PATHCONV=1 MSYS2_ARG_CONV_EXCL='*'
-export CMAKE_PREFIX_PATH="$MSIME_VCPKG_PREFIX"
-export CXXFLAGS="-I$MSIME_VCPKG_PREFIX/include"
 
 windows_host=0
 case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) windows_host=1 ;; esac
 apple_host=0
 case "$(uname -s 2>/dev/null)" in Darwin) apple_host=1 ;; esac
+
+# Only the Windows host gets its CMake search path from vcpkg. This used to be
+# exported unconditionally from a hardcoded prefix, which meant a macOS run
+# overwrote the CMAKE_PREFIX_PATH the README asks for - `$(brew --prefix)`, the
+# one thing that lets CMake find Boost, fmt and spdlog there - with a path that
+# does not exist on the machine.
+if [ "$windows_host" -eq 1 ]; then
+  if [ -n "$MSIME_VCPKG_PREFIX" ]; then
+    export CMAKE_PREFIX_PATH="$MSIME_VCPKG_PREFIX"
+    export CXXFLAGS="-I$MSIME_VCPKG_PREFIX/include"
+  else
+    echo "note: neither MSIME_VCPKG_PREFIX nor VCPKG_ROOT is set; the Engine bridge will not find its vcpkg dependencies"
+  fi
+fi
 
 failed=0
 new_failures=""
