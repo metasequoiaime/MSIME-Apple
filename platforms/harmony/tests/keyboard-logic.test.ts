@@ -55,6 +55,8 @@ import { ReturnKeyAction } from '../entry/src/main/ets/keyboard/input/ReturnKeyA
 import { SpaceCursorMovement } from '../entry/src/main/ets/keyboard/input/SpaceCursorMovement';
 import { CandidateManagementAction, ManagementAction }
   from '../entry/src/main/ets/keyboard/candidate/CandidateManagementAction';
+import { CandidateFontFamilyPolicy }
+  from '../entry/src/main/ets/keyboard/candidate/CandidateFontFamilyPolicy';
 import { CandidateAnnotationPreferencePolicy }
   from '../entry/src/main/ets/keyboard/candidate/CandidateAnnotationPreferencePolicy';
 import { InputModeHudPolicy } from '../entry/src/main/ets/keyboard/InputModeHudPolicy';
@@ -1439,6 +1441,23 @@ group('an engine annotation outranks a gloss in the shared hint slot', () => {
     'and calls a gloss a definition');
   check(CandidateGlossPolicy.accessibilitySuffix(null, null, true) === '',
     'with neither there is nothing to announce');
+});
+
+group('the candidate family list names the English font ahead of the Chinese one', () => {
+  // ArkUI resolves the list per glyph, so the order is the whole mechanism: Latin comes from the
+  // first family that has it, Han falls through to the one behind.
+  check(CandidateFontFamilyPolicy.families('Noto Sans SC', 'Segoe UI', ['Microsoft YaHei'])
+    === 'Segoe UI, Noto Sans SC, Microsoft YaHei', 'English first, then Chinese, then fallbacks');
+  check(CandidateFontFamilyPolicy.families('Noto Sans SC', null, ['Microsoft YaHei'])
+    === 'Noto Sans SC, Microsoft YaHei', 'with no English font one family answers for everything');
+  check(CandidateFontFamilyPolicy.families('Noto Sans SC', '  ', ['Microsoft YaHei'])
+    === 'Noto Sans SC, Microsoft YaHei', 'and a blank one is the same as none');
+  check(CandidateFontFamilyPolicy.families('Noto Sans SC', 'Noto Sans SC', [])
+    === 'Noto Sans SC', 'naming the same family twice does not repeat it');
+  check(CandidateFontFamilyPolicy.families('Noto Sans SC', 'A, B', [])
+    === 'Noto Sans SC', 'a name carrying a comma is refused rather than split into two families');
+  check(CandidateFontFamilyPolicy.families('Noto Sans SC', null, ['', ' ', 'Microsoft YaHei'])
+    === 'Noto Sans SC, Microsoft YaHei', 'empty fallback entries never reach the renderer');
 });
 
 group('the two candidate annotations read their own shared preferences', () => {
