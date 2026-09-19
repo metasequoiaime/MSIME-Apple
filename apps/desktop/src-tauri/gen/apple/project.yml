@@ -37,17 +37,17 @@ targets:
       # native App Group queue implementation. Keep these files in the Tauri
       # app target so WebView dictionary edits never touch Engine files while
       # the extension is active.
-      - path: ../../../../../platforms/ios/SharedUI/PersonalDictionaryBridge.swift
-      - path: ../../../../../platforms/ios/SharedUI/PersonalDictionaryImport.swift
-      - path: ../../../../../platforms/ios/SharedUI/PersonalDictionaryStore.swift
-      - path: ../../../../../platforms/ios/SharedUI/PersonalWordBridge.swift
-      - path: ../../../../../platforms/ios/App/Sources/TauriPersonalDictionaryBridge.swift
+      - path: ../../../../../platforms/ios/SharedUI/dictionary/PersonalDictionaryBridge.swift
+      - path: ../../../../../platforms/ios/SharedUI/dictionary/PersonalDictionaryImport.swift
+      - path: ../../../../../platforms/ios/SharedUI/dictionary/PersonalDictionaryStore.swift
+      - path: ../../../../../platforms/ios/SharedUI/dictionary/PersonalWordBridge.swift
+      - path: ../../../../../platforms/ios/App/Sources/dictionary/TauriPersonalDictionaryBridge.swift
       # Tauri cloud-dictionary snapshots use the same validated wire format
       # and App Group queue as the native iOS keyboard worker.
-      - path: ../../../../../platforms/ios/SharedUI/DictionarySnapshotQueue.swift
+      - path: ../../../../../platforms/ios/SharedUI/dictionary/DictionarySnapshotQueue.swift
       - path: ../../../../../shared/backend/account/BackendAccountClient.swift
       - path: ../../../../../shared/backend/clients/BackendSnapshotClient.swift
-      - path: ../../../../../platforms/ios/App/Sources/TauriDictionarySnapshotBridge.swift
+      - path: ../../../../../platforms/ios/App/Sources/dictionary/TauriDictionarySnapshotBridge.swift
       - path: Assets.xcassets
       - path: Externals
         excludes:
@@ -161,7 +161,7 @@ targets:
       - path: ../../../../../shared/backend/storage/BackendLocalStore.swift
       - path: ../../../../../shared/backend/clients/BackendSnapshotClient.swift
       - path: ../../../../../platforms/ios/App/Services/KeyboardAIService.swift
-      - path: ../../../../../platforms/ios/KeyboardExtension/Sources/KeyboardServiceFallback.swift
+      - path: ../../../../../platforms/ios/KeyboardExtension/Sources/keyboard/KeyboardServiceFallback.swift
       - path: ../../../../../target/ios/EngineResources
         buildPhase: resources
         type: folder

@@ -892,7 +892,7 @@ iOS 升级兼容会在共享输入会话创建前检查固定 Apple 来源遗留
 
 ### iOS 共享 Tauri 设置宿主
 
-新增 Tauri 2 iOS 工程和平台配置，复用 Android/桌面的 React 设置页面与同一 Rust command 入口。iOS 原生 main 只通过系统 App Group API取得 `group.app.msime.ios/MSIME`，以环境边界交给 Rust；首次没有 `runtime-options.json` 时构造只含 bundle 资源与共享状态根的受控 HostOptions，已有文件完整解析，损坏文件拒绝启动资源命令而不覆盖。平台配置使用 `com.metasequoiaime.client` 和 iOS 16，生成工程静态链接共享 mobile entry、系统 SQLite，并把固定词库作为 `EngineResources` 嵌入 App。
+新增 Tauri 2 iOS 工程和平台配置，复用 Android/桌面的 React 设置页面与同一 Rust command 入口。iOS 原生 main 只通过系统 App Group API取得 `group.app.msime.ios/MSIME`，以环境边界交给 Rust；首次没有 `runtime-options.json` 时构造只含 bundle 资源与共享状态根的受控 HostOptions，已有文件完整解析，损坏文件拒绝启动资源命令而不覆盖。平台配置使用 `com.metasequoiaime.client` 和 iOS 17，生成工程静态链接共享 mobile entry、系统 SQLite，并把固定词库作为 `EngineResources` 嵌入 App。
 
 此切片不把 Tauri 宿主冒充已完成替换：键盘扩展、ML Kit CocoaPods 和现有 Swift 原生服务仍在 `platforms/ios/MSIMEClient.xcodeproj`。下一步需要把 extension 嵌入 Tauri App 并逐项把可共享页面/业务移出 SwiftUI，平台权限和输入扩展生命周期继续保留原生。
 
