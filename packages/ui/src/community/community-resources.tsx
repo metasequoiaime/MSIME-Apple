@@ -86,7 +86,7 @@ function ResourceEditor({ client, kind, existing, close, onPublished }: {
   close: () => void;
   onPublished: () => Promise<void>;
 }) {
-  const [id, setId] = useState(existing?.id ?? publicationId);
+  const [id] = useState(existing?.id ?? publicationId);
   const [name, setName] = useState(existing?.name ?? "");
   const [description, setDescription] = useState(existing?.description ?? "");
   const [prompt, setPrompt] = useState(existing?.content.prompt ?? "");

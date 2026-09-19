@@ -318,6 +318,25 @@ else
   echo "first-party crates: clippy clean at -D warnings"
 fi
 
+note "frontend lint"
+# The counterpart to the clippy gate above: until this existed, TypeScript had
+# `tsc --noEmit` and nothing else, so an unused import or an unsafe optional
+# chain reached develop unremarked. A hard gate with no baseline - the tree is
+# clean today, and the handful of rules that do not apply to this codebase are
+# turned off in vite.config.ts with the reason written beside each one.
+#
+# Skipped without node_modules, the same way the typescript phase is: on a
+# checkout without them an empty result would otherwise look like a pass.
+if [ -d node_modules/vite-plus ]; then
+  if pnpm lint; then
+    echo "frontend: lint clean"
+  else
+    fail "pnpm lint"
+  fi
+else
+  echo "vite-plus not installed; skipping (pnpm install)"
+fi
+
 note "dependency advisories"
 # Lockfile-only, so it runs without building anything. A vulnerability is fatal;
 # unmaintained and unsound advisories are accepted one at a time in
