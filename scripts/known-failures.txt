@@ -82,10 +82,15 @@ macos shortcut
 # Delete this line when p95 comes back under budget.
 rerank-latency sentences
 
-# Desktop frontend, recorded the first time the phase actually ran.
+# Desktop frontend, recorded the first time the phase actually ran. This is the
+# union of several runs, as the header asks: the settings and external-skins
+# entries did not reproduce on two consecutive full runs afterwards, so they
+# are timing-dependent rather than always-failing. keyboard-repeat and the
+# four windows-doubao-probe cases fail every time.
 desktop tests/input/keyboard-repeat.test.tsx > Caps Lock and Shift invert letters while commit keys drop sticky modifiers
 desktop tests/input/windows-doubao-probe.test.tsx > macos Doubao api_key tests current edited credentials
 desktop tests/input/windows-doubao-probe.test.tsx > macos Doubao legacy tests current edited credentials
 desktop tests/input/windows-doubao-probe.test.tsx > windows Doubao api_key tests current edited credentials
 desktop tests/input/windows-doubao-probe.test.tsx > windows Doubao legacy tests current edited credentials
 desktop tests/settings/settings.test.tsx > input parity controls persist cloud, translation and punctuation settings
+desktop tests/candidate/external-skins.test.tsx > external selection enters the revisioned draft; preview toggles never save or select
