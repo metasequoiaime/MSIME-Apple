@@ -2782,12 +2782,12 @@ public:
     try {
       if (state->ensure()) {
         const bool enabled = !state->preferences_.value("learning", true);
-        state->preferences_["learning"] = enabled;
+        auto snapshot = state->preferences_snapshot_;
+        if (!snapshot.is_object() || !snapshot.contains("preferences") ||
+            !snapshot.contains("revision")) return;
+        snapshot["preferences"]["learning"] = enabled;
+        if (!state->applyPreferenceSnapshot(std::move(snapshot))) return;
         state->saveBooleanPreference("learning", enabled);
-        if (state->preferences_save_job_.valid()) {
-          try { state->preferences_save_job_.get(); } catch (...) {}
-          state->preferences_save_job_ = {};
-        }
         state->render();
         update(ic);
       }
