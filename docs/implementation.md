@@ -22,6 +22,12 @@
 
 ## 当前证据
 
+### Android 辅助码设置入口（2026-09-19）
+
+Android 键盘本来就在发辅助码：全拼或双拼组字中按 Shift，下一个字母作为辅码交给 Engine 缩小候选，而 Engine 的辅码方案和候选提示正是读共享设置里的 `quanpin_helpcode` / `shuangpin_helpcode`。共享移动端导航此前把辅助码页与桌面快捷键、悬浮工具栏一起按“移动端没有对应表面”隐藏，于是这个已经在用的功能没有任何地方可以选方案或关掉。现在辅助码按宿主而不是按形态划分：Android 的“更多设置”可进入该页，并说明 Shift 辅码的触发与不适用的方案；Apple 键盘扩展没有辅助码输入，iOS 继续隐藏，HarmonyOS 维持原样。触屏宿主没有候选窗口，该页的显示开关在移动端改称“在候选栏显示辅助码”。
+
+新增 5 项回归覆盖 Android 可达与保存方案、移动端文案、iOS 仍隐藏和桌面侧栏不变。桌面 UI 全量 706 项 Vitest（5 项失败全部在 `scripts/known-failures.txt` 基线内）、TypeScript 类型检查、Vite 生产构建和 `scripts/verify-local.sh --quick` 通过。未执行 Android 真机导航和实际辅码输入验收，CI 保持禁用。
+
 ### Android 引擎拒收标点的自动上屏（2026-09-19）
 
 Apple `handleSymbol` 对引擎不接受的标点执行 finish_composition——按首选候选结束组合，再插入该标点，所以「nihao」后按 `@` 得到「你好@」。Android 此前直接 `commitText`，而预编辑是真正的 Android composing region：这次提交会替换掉正在组的拼音，结果只剩 `@`，正在组的内容无声丢失。现在组字中被拒绝的标点先走共享宿主命令 9（`Action::Finish`），再由宿主按既有全角与打字统计边界上屏。没有组合时行为不变；被拒绝的数字仍是当前页没有对应候选的候选键，不进入这条自动上屏路径。边界由无 Android 依赖的 `DeclinedKeyPolicy` 提供。
