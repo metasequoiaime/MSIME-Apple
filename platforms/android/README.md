@@ -4,7 +4,7 @@
 
 Java/Kotlin 宿主按 `java/app/msime/client/<feature>/` 分为 `account`、`candidate`、`clipboard`、`core`、`dictionary`、`handwriting`、`keyboard`、`policy` 和 `voice`；JNI/C++ 适配位于 `native/`，资源位于 `res/`，按职责组织的回归位于 `tests/<feature>/`，设备脚本位于 `tests/device/`。Tauri/React 设置仍复用 `packages/ui` 和 `apps/desktop/src-tauri/src/platform/android/`，不会在 Android 复制一套页面或 Rust 业务。
 
-API 35 arm64 专用模拟器已经覆盖原生输入、Tauri/IME 合包、共享设置和部分统计/手写流程；x86_64 目前只有交叉构建证据。源码检查、JVM 测试和 APK 签名/对齐不等于真机、旋转、系统回收、权限或长期生命周期验收，发布说明必须分别列出这些缺口。
+API 35 arm64 专用模拟器已经覆盖原生输入、Tauri/IME 合包、共享设置和部分统计/手写流程。arm64-v8a 与 x86_64 两个 ABI 均已按固定 NDK 与 vcpkg 完成原生构建并通过 `verify-native.sh`，包括在线候选的五个 host 导出与五个 JNI 方法；x86_64 仍只有构建证据，没有设备运行证据。源码检查、JVM 测试和 APK 签名/对齐不等于真机、旋转、系统回收、权限或长期生命周期验收，发布说明必须分别列出这些缺口。
 
 `check-host.sh` 在装有固定 NDK 28.2.13676358 的机器上额外用 `aarch64-linux-android28-clang++` 以 `-Wall -Werror` 对 `native/client_jni.cpp` 做目标平台编译：Java 里声明 `native` 的方法在没有 C++ 实现时照样能编过，而这是 Java 声明与共享 FFI 签名唯一必须一致的地方；完整原生构建需要 vcpkg 和 Engine，这一步不需要。没有固定 NDK 的机器会跳过并明确说明。`verify-native.sh` 的导出清单同时覆盖 online query、云 URL、AI 请求描述符和两个在线候选写回入口。
 
