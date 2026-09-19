@@ -38,6 +38,8 @@ import { ChineseOutputPolicy } from '../entry/src/main/ets/keyboard/input/Chines
 import { LocalInputMode } from '../entry/src/main/ets/keyboard/input/LocalInputMode';
 import { QuickPunctuationPolicy, PunctuationEntry }
   from '../entry/src/main/ets/keyboard/input/QuickPunctuationPolicy';
+import { SmartPunctuationContext } from
+  '../entry/src/main/ets/keyboard/input/SmartPunctuationContext';
 import { ReturnKeyAction } from '../entry/src/main/ets/keyboard/input/ReturnKeyAction';
 import { SpaceCursorMovement } from '../entry/src/main/ets/keyboard/input/SpaceCursorMovement';
 import { CandidateManagementAction, ManagementAction }
@@ -1118,6 +1120,18 @@ group('quick punctuation prints one glyph and sends another', () => {
   check(ascii[0].face === ',' && ascii[0].input === ',', 'dedicated English sends what it draws');
   check(QuickPunctuationPolicy.entries(false, 0, 'emoji')[0].face === ',',
     'a local mode falls back to ASCII');
+});
+
+group('bounds Harmony smart punctuation editor context', () => {
+  check(SmartPunctuationContext.precedingCodePoint(null) === 0, 'missing context is unavailable');
+  check(SmartPunctuationContext.precedingCodePoint('fixture7') === '7'.charCodeAt(0),
+    'ASCII digit context is preserved');
+  check(SmartPunctuationContext.precedingCodePoint('fixture中') === 0x4e2d,
+    'CJK context is preserved for the shared policy');
+  check(SmartPunctuationContext.precedingCodePoint('fixture🌲') === 0x1f332,
+    'supplementary context is reduced to one scalar');
+  check(SmartPunctuationContext.precedingCodePoint('fixture\ud800') === 0,
+    'unpaired surrogate context is rejected');
 });
 
 group('return performs an editor action only when nothing else claimed it', () => {

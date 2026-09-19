@@ -46,6 +46,7 @@ import {
 import {
   DEFAULT_VOICE_INPUT_CONFIGURATION, VoiceInputConfiguration
 } from './input/VoiceInputConfiguration';
+import { SmartPunctuationContext } from './input/SmartPunctuationContext';
 
 // Shapes of the JSON the shared C ABI answers with. Only the fields this minimal surface reads are
 // declared; the responses carry considerably more.
@@ -1326,6 +1327,20 @@ export class KeyboardSession {
     }
     this.tapFeedback();
     this.apply(client.character(this.handle, ascii, shift));
+  }
+
+  /** Route an ASCII punctuation key through the shared editor-context policy. */
+  punctuation(ascii: number): void {
+    if (this.handle === 0 || this.inputClient === undefined) return;
+    let preceding: number = 0;
+    try {
+      // Harmony's getForwardSync returns the bounded text immediately before the cursor.
+      preceding = SmartPunctuationContext.precedingCodePoint(this.inputClient.getForwardSync(2));
+    } catch (error) {
+      // Editor context is optional; zero deliberately falls back to Engine punctuation.
+      KeyboardLog.error(`editor punctuation context unavailable: ${describeError(error)}`);
+    }
+    this.apply(client.punctuationWithContext(this.handle, ascii, preceding));
   }
 
   private command(command: InputCommand): void {

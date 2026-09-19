@@ -641,7 +641,7 @@ struct KeyboardView {
       size: KeyboardMetrics.KEY_FONT_SIZE,
       emphasized: false,
       width: 0,
-      action: () => KeyboardSession.shared.press(symbol.charCodeAt(0), false)
+      action: () => KeyboardSession.shared.punctuation(symbol.charCodeAt(0))
     };
   }
 
@@ -1062,7 +1062,7 @@ struct KeyboardView {
             .layoutWeight(1)
             .justifyContent(FlexAlign.Center)
             .width('100%')
-            .onClick(() => KeyboardSession.shared.press(symbol.charCodeAt(0), false))
+            .onClick(() => KeyboardSession.shared.punctuation(symbol.charCodeAt(0)))
           }, (symbol: string) => symbol + this.faceKey())
         }
       }
@@ -2052,7 +2052,7 @@ struct KeyboardView {
                 right: KeyboardMetrics.CANDIDATE_PADDING_VP })
               .onClick(() => {
                 // The face is what the Engine will print; the key is what it is told.
-                KeyboardSession.shared.press(item.input.charCodeAt(0), false);
+                KeyboardSession.shared.punctuation(item.input.charCodeAt(0));
                 this.punctuation = false;
               })
           }, (item: PunctuationEntry) => item.face + this.faceKey())
@@ -2746,7 +2746,7 @@ struct KeyboardView {
               size: KeyboardMetrics.KEY_FONT_SIZE,
               emphasized: false,
               width: KeyboardMetrics.MODIFIER_WIDTH_VP,
-              action: () => KeyboardSession.shared.press(0x2c, false)
+              action: () => KeyboardSession.shared.punctuation(0x2c)
             });
           }
           .width(KeyboardMetrics.MODIFIER_WIDTH_VP)
