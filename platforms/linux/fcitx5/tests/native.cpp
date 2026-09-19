@@ -48,6 +48,10 @@ int main(int argc, char **argv) {
     options["preferences"]["ai_assistant"]["endpoint"] = "https://synthetic.invalid/v1/chat/completions";
     options["preferences"]["ai_assistant"]["model"] = "synthetic";
     options["preferences"]["ai_assistant"]["token"] = "synthetic-token";
+    options["candidate_skin_catalog"] = Json{{"packages", Json::array({
+        Json{{"id", "solarized"}, {"title", "Solarized"}},
+        Json{{"id", "unsafe/id"}, {"title", "Ignored"}},
+    })}};
     const auto socketPath = std::string(directory) + "/online.sock";
     const int providerServer = socket(AF_UNIX, SOCK_STREAM, 0);
     require(providerServer >= 0, "online provider socket");
@@ -195,7 +199,7 @@ int main(int argc, char **argv) {
     }
     require(!state->preferences_.value("number_row_selection", true),
             "runtime preferences reload in active Fcitx session");
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 38,
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 39,
             "native status actions attached");
     require(engine.learning_action_.isChecked(&ic),
             "learning status action reflects reloaded preference");
@@ -213,6 +217,26 @@ int main(int argc, char **argv) {
     engine.candidate_layout_action_.activate(&ic);
     require(state->preferences_.value("candidate_layout", std::string{}) == "horizontal",
             "candidate layout action cycles back to horizontal");
+    require(engine.candidate_theme_action_.shortText(&ic) == "主题：跟随系统",
+            "candidate theme action reads the preference snapshot");
+    engine.candidate_theme_action_.activate(&ic);
+    require(state->preferences_.value("candidate_theme", std::string{}) == "light",
+            "candidate theme action updates the active session");
+    require(engine.candidate_skin_action_.shortText(&ic) == "候选皮肤：杨柳青",
+            "candidate skin action starts at the built-in preference");
+    for (int i = 0; i < 5; ++i) engine.candidate_skin_action_.activate(&ic);
+    require(state->preferences_.value("candidate_skin", std::string{}) == "solarized",
+            "candidate skin action cycles into the configured catalog");
+    require(engine.candidate_skin_action_.shortText(&ic) == "候选皮肤：Solarized",
+            "candidate skin action labels catalog entries");
+    options["candidate_skin_catalog"]["packages"][0]["title"] = "Solarized 更新";
+    std::ofstream(path) << options.dump();
+    state->refreshProviderSockets();
+    require(engine.candidate_skin_action_.shortText(&ic) == "候选皮肤：Solarized 更新",
+            "candidate skin catalog refreshes with runtime options");
+    engine.candidate_skin_action_.activate(&ic);
+    require(state->preferences_.value("candidate_skin", std::string{}) == "fluent",
+            "candidate skin action wraps to the built-in catalog");
     require(engine.mode_scope_action_.shortText(&ic) == "模式：应用",
             "mode scope action starts at application scope");
     engine.mode_scope_action_.activate(&ic);
@@ -234,7 +258,7 @@ int main(int argc, char **argv) {
       require(!engine.cloud_candidates_action_.isChecked(&ic),
               "cloud candidates status action reflects disabled preference");
     }
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 38,
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 39,
             "AI status action attached");
     require(engine.emoji_category_action_.shortText(&ic) == "表情：Emoji",
             "emoji category starts in the default catalog");
@@ -434,6 +458,11 @@ int main(int argc, char **argv) {
     require(msime_linux_simplified_to_traditional("汉语") == "漢語", "traditional conversion available");
     engine.traditional_action_.activate(&ic);
     require(state->traditional_, "traditional status action enables conversion");
+    require(state->preferences_.value("traditional_chinese_output", false),
+            "traditional action updates the live preference snapshot");
+    require(state->preferences_snapshot_.value("preferences", Json::object())
+                .value("traditional_chinese_output", false),
+            "traditional action updates the revision snapshot");
     const auto traditionalSaveDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
     Json savedTraditional;
     while (std::chrono::steady_clock::now() < traditionalSaveDeadline) {
@@ -449,14 +478,37 @@ int main(int argc, char **argv) {
             "traditional status action persists preference");
     engine.traditional_action_.activate(&ic);
     require(!state->traditional_, "traditional status action disables conversion");
+    require(!state->preferences_.value("traditional_chinese_output", true),
+            "traditional action clears the live preference snapshot");
     engine.english_action_.activate(&ic);
     require(engine.english_action_.isChecked(&ic), "status action enables English candidates");
     engine.english_action_.activate(&ic);
     require(!engine.english_action_.isChecked(&ic), "status action disables English candidates");
     engine.width_action_.activate(&ic);
     require(engine.width_action_.isChecked(&ic), "status action enables fullwidth");
+    require(state->preferences_.value("character_width", std::string{}) == "fullwidth",
+            "status action updates the live width preference snapshot");
+    const auto widthSaveDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    Json savedWidth;
+    while (std::chrono::steady_clock::now() < widthSaveDeadline) {
+      savedWidth = response(msime_client_load_preferences(
+          reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size()));
+      if (savedWidth.value("preferences", Json::object()).value("character_width", std::string{}) ==
+          "fullwidth") break;
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
+    require(savedWidth.value("preferences", Json::object()).value("character_width", std::string{}) ==
+                "fullwidth",
+            "status action persists fullwidth preference");
     engine.width_action_.activate(&ic);
     require(!engine.width_action_.isChecked(&ic), "status action restores halfwidth");
+    require(state->preferences_.value("character_width", std::string{}) == "halfwidth",
+            "status action updates the live snapshot back to halfwidth");
+    const auto finalWidth = response(msime_client_load_preferences(
+        reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size()));
+    require(finalWidth.value("preferences", Json::object()).value("character_width", std::string{}) ==
+                "halfwidth",
+            "serialized preference saves retain the latest width toggle");
     engine.input_mode_action_.activate(&ic);
     require(!state->input_enabled_, "input mode action disables Chinese input");
     fcitx::KeyEvent passthrough(&ic, fcitx::Key(FcitxKey_n));

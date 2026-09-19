@@ -3,13 +3,7 @@
   "commit": "0531d4211ab17d3ba43dc8ef86c05ec574b02fa8",
   "archive": "https://github.com/metasequoiaime/MSIME-Engine/archive/0531d4211ab17d3ba43dc8ef86c05ec574b02fa8.tar.gz",
   "sha256": "819ea3175d5f37c7c164c3423bb313140aa25887c5e421b309adaeffca839b72",
-  "patches": [
-    {
-      "path": "shuangpin/shuangpin_utils.cpp",
-      "find": "{\"chua\", \"den\", \"fiao\", \"jve\", \"lo\", \"lue\", \"nou\", \"nue\", \"nun\", \"qve\", \"xve\", \"yo\", \"yve\", \"zhei\"}",
-      "replace": "{\"chua\", \"den\", \"fiao\", \"jve\", \"lo\", \"lue\", \"nou\", \"nue\", \"nun\", \"qve\", \"xve\", \"yve\", \"zhei\"}"
-    }
-  ],
+  "patches": [],
   "overlay_scripts": [
     "scripts/apply_engine_double_helpcode_cache.py"
   ],

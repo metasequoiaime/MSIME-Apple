@@ -745,6 +745,18 @@ int main(int argc, char **argv) {
                   seen.candidates.front().find("synthetic gloss [1]") !=
                       std::string::npos,
               "Initial translation provider result did not render");
+      seen.committed.clear();
+      auto translation_commit = call(
+          client, destination, "ProcessKeyEvent",
+          g_variant_new("(uuu)", IBUS_Return, 0, IBUS_CONTROL_MASK));
+      gboolean translation_handled = FALSE;
+      g_variant_get(translation_commit, "(b)", &translation_handled);
+      g_variant_unref(translation_commit);
+      require(translation_handled &&
+                  seen.committed.find("synthetic gloss [1]") != std::string::npos &&
+                  !seen.preedit_visible && !seen.lookup_visible,
+              "Ctrl+Enter did not commit the rendered candidate translation");
+      invoke("Reset");
       provider.hold_responses = true;
       translated["preferences"]["niutrans"] = {
           {"enabled", true}, {"app_id", "synthetic-app"},
@@ -782,6 +794,47 @@ int main(int argc, char **argv) {
                   seen.candidates.front().find("synthetic gloss [2]") !=
                       std::string::npos,
               "Updated translation provider result did not replace the cleared gloss");
+      ibus_object_destroy(IBUS_OBJECT(engine));
+      g_object_unref(engine);
+    }
+    {
+      const auto socket = (root / "translation-multi-sense.sock").string();
+      TranslationProviderFixture provider(socket);
+      provider.multi_sense = true;
+      auto translated = options;
+      translated.erase("preferences_directory");
+      translated["translation_provider_socket"] = socket;
+      translated["preferences"]["candidate_translations"] = true;
+      translated["preferences"]["candidate_page_size"] = 2;
+      msime_preview_configure(translated.dump());
+      engine = create_engine();
+      seen = Observation{};
+      invoke("FocusIn");
+      phrase();
+      const auto deadline = g_get_monotonic_time() + 3000000;
+      while ((seen.candidates.empty() ||
+              seen.candidates.front().find("first sense") == std::string::npos) &&
+             g_get_monotonic_time() < deadline) {
+        while (g_main_context_iteration(nullptr, FALSE)) {}
+        g_usleep(1000);
+      }
+      require(provider.requests == 1 && !seen.candidates.empty(),
+              "Multi-sense translation did not render");
+      seen.committed.clear();
+      auto translation_commit = call(
+          client, destination, "ProcessKeyEvent",
+          g_variant_new("(uuu)", IBUS_Return, 0, IBUS_CONTROL_MASK));
+      gboolean translation_handled = FALSE;
+      g_variant_get(translation_commit, "(b)", &translation_handled);
+      g_variant_unref(translation_commit);
+      require(translation_handled && seen.candidates.size() == 2 &&
+                  seen.candidates[0] == "first sense" &&
+                  seen.candidates[1] == "second sense" && seen.committed.empty(),
+              "Ctrl+Enter did not open the multi-sense translation page");
+      invoke("CandidateClicked", g_variant_new("(uuu)", 1, 1, 0));
+      require(seen.committed == "second sense" && !seen.preedit_visible &&
+                  !seen.lookup_visible,
+              "Selecting a translated sense did not commit and close the page");
       ibus_object_destroy(IBUS_OBJECT(engine));
       g_object_unref(engine);
     }
@@ -1506,6 +1559,17 @@ int main(int argc, char **argv) {
               "Enter selected an incremental candidate instead of raw spelling");
       seen.committed.clear();
     }
+    // Ctrl-only segment editing follows the Windows composition behavior:
+    // arrows cross one pinyin unit and Backspace removes the unit to the left.
+    phrase();
+    require(key(IBUS_Left, IBUS_CONTROL_MASK) && seen.preedit_cursor == 2,
+            "Ctrl+Left did not move to the preceding pinyin segment");
+    require(key(IBUS_Right, IBUS_CONTROL_MASK) && seen.preedit_cursor == 5,
+            "Ctrl+Right did not move to the following pinyin segment");
+    require(key(IBUS_BackSpace, IBUS_CONTROL_MASK) && seen.preedit == "ni" &&
+                seen.preedit_cursor == 2,
+            "Ctrl+Backspace did not remove one pinyin segment");
+    invoke("Reset");
     for (guint idle_key : {IBUS_BackSpace, IBUS_Delete, IBUS_KP_Delete,
                            IBUS_Return, IBUS_KP_Enter})
       require(!key(idle_key) && seen.committed.empty(),
@@ -1572,6 +1636,16 @@ int main(int argc, char **argv) {
     phrase();
     require(key(IBUS_End), "End did not move to the page edge");
     require(key(IBUS_Home), "Home did not move to the page edge");
+    const auto property_first_page = seen.candidates;
+    IBUS_ENGINE_GET_CLASS(engine)->property_activate(
+        IBUS_ENGINE(engine), "CandidateNextPage", PROP_STATE_UNCHECKED);
+    require(seen.lookup_visible && !seen.candidates.empty() &&
+                seen.candidates != property_first_page,
+            "Candidate panel next-page action did not use shared paging");
+    IBUS_ENGINE_GET_CLASS(engine)->property_activate(
+        IBUS_ENGINE(engine), "CandidatePreviousPage", PROP_STATE_UNCHECKED);
+    require(seen.candidates == property_first_page,
+            "Candidate panel previous-page action did not restore the shared page");
     invoke("PageDown");
     require(seen.lookup_visible && !seen.candidates.empty(),
             "Shared next page missing");

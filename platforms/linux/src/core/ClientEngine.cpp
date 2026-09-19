@@ -13,6 +13,7 @@
 #include "../overlay/WaveOverlaySurfaceFactory.h"
 #include "../candidates/CandidatePalette.h"
 #include "../candidates/CandidateActionPolicy.h"
+#include "../candidates/CandidateTranslationPolicy.h"
 #include "../candidates/PairedPunctuation.h"
 #include "../candidates/ShuangpinProfileNames.h"
 #include "ClientInputModeMemory.h"
@@ -100,6 +101,7 @@ Json skin_display_preferences(Json preferences) {
 }
 std::optional<bool> global_input_enabled;
 void register_properties(IBusEngine *engine);
+void page(IBusEngine *engine, uint32_t command);
 Json response(char *raw) {
   std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
       raw, msime_client_string_free);
@@ -173,6 +175,13 @@ struct State {
   // asynchronous Engine refresh cannot make that index resolve against a
   // different page.
   Json rendered_candidates = Json::array();
+  // Ctrl+Enter can expose multiple senses as a short-lived Linux-native
+  // candidate page. Keep the Engine view immutable while that page is shown.
+  bool translation_candidates_active = false;
+  Json translation_saved_view;
+  std::vector<std::string> translation_options;
+  size_t translation_page = 0;
+  size_t translation_cursor = 0;
   int rendered_scheme = 255;
   uint64_t rendered_session = 0;
   bool focused = false;
@@ -1598,6 +1607,8 @@ struct TranslationTask {
 bool apply(IBusEngine *engine, char *raw,
            PunctuationPairMode pair_mode = PunctuationPairMode::None);
 void render(IBusEngine *engine, const Json &view);
+void exit_translation_candidates(IBusEngine *engine);
+void render_translation_candidates(IBusEngine *engine);
 void apply_live_preferences(IBusEngine *engine, Json snapshot);
 void sync_translation_preferences(IBusEngine *engine) {
   auto &s = state(engine);
@@ -2152,6 +2163,34 @@ IBusProperty *candidate_actions(IBusEngine *engine) {
         actions_available && fixed_position > 0, TRUE,
         PROP_STATE_UNCHECKED, nullptr));
   }
+  const auto page = s.rendered_view.is_object()
+                        ? s.rendered_view.value("page", size_t{0})
+                        : size_t{0};
+  const auto page_count = s.rendered_view.is_object()
+                              ? s.rendered_view.value("page_count", size_t{0})
+                              : size_t{0};
+  const bool paging_available = actions_available && !candidates.empty() &&
+                                page_count > 1;
+  auto paging = ibus_prop_list_new();
+  ibus_prop_list_append(
+      paging, ibus_property_new(
+                  "CandidatePreviousPage", PROP_TYPE_NORMAL,
+                  ibus_text_new_from_static_string("上一页"), "",
+                  ibus_text_new_from_static_string("显示上一页候选"),
+                  paging_available && page > 0, TRUE, PROP_STATE_UNCHECKED, nullptr));
+  ibus_prop_list_append(
+      paging, ibus_property_new(
+                  "CandidateNextPage", PROP_TYPE_NORMAL,
+                  ibus_text_new_from_static_string("下一页"), "",
+                  ibus_text_new_from_static_string("显示下一页候选"),
+                  paging_available && page + 1 < page_count, TRUE,
+                  PROP_STATE_UNCHECKED, nullptr));
+  ibus_prop_list_append(
+      items, ibus_property_new(
+                 "CandidatePaging", PROP_TYPE_MENU,
+                 ibus_text_new_from_static_string("候选翻页"), "",
+                 ibus_text_new_from_static_string("切换候选页"), paging_available,
+                 TRUE, PROP_STATE_UNCHECKED, paging));
   return ibus_property_new("CandidateActions", PROP_TYPE_MENU,
       ibus_text_new_from_static_string("候选操作"), "",
       ibus_text_new_from_static_string("固定或删除当前页候选"),
@@ -2941,12 +2980,19 @@ void schedule_candidate_hide(IBusEngine *engine) {
 
 void clear(IBusEngine *engine) {
   cancel_candidate_hide(engine);
+  auto &s = state(engine);
+  if (s.translation_candidates_active && s.translation_saved_view.is_object())
+    s.view = std::move(s.translation_saved_view);
+  s.translation_candidates_active = false;
+  s.translation_saved_view = nullptr;
+  s.translation_options.clear();
+  s.translation_page = 0;
+  s.translation_cursor = 0;
   ibus_engine_update_preedit_text_with_mode(
       engine, ibus_text_new_from_static_string(""), 0, FALSE,
       IBUS_ENGINE_PREEDIT_CLEAR);
   ibus_engine_hide_lookup_table(engine);
   ibus_engine_hide_auxiliary_text(engine);
-  auto &s = state(engine);
   s.rendered_view = nullptr;
   s.rendered_candidates = Json::array();
   s.rendered_scheme = 255;
@@ -3199,6 +3245,61 @@ void render(IBusEngine *engine, const Json &view) {
   s.rendered_session = s.session;
   ibus_engine_update_property(engine, candidate_actions(engine));
   ibus_engine_update_property(engine, nine_key_spellings(engine));
+}
+void render_translation_candidates(IBusEngine *engine) {
+  auto &s = state(engine);
+  if (!s.translation_candidates_active || !s.translation_saved_view.is_object() ||
+      s.translation_options.empty())
+    return;
+  const auto saved_page_size = s.translation_saved_view.value("page_size", size_t{9});
+  const auto page_size = std::clamp(saved_page_size, size_t{1}, size_t{9});
+  const auto page_count = (s.translation_options.size() + page_size - 1) / page_size;
+  s.translation_page = std::min(s.translation_page, page_count - 1);
+  const auto start = s.translation_page * page_size;
+  s.translation_cursor = std::min(s.translation_cursor,
+                                  s.translation_options.size() - start - 1);
+  auto overlay = s.translation_saved_view;
+  overlay["page"] = s.translation_page;
+  overlay["page_size"] = page_size;
+  overlay["page_count"] = page_count;
+  overlay["candidates"] = Json::array();
+  const auto end = std::min(start + page_size, s.translation_options.size());
+  for (size_t index = start; index < end; ++index) {
+    Json candidate = Json::object();
+    candidate["text"] = s.translation_options.at(index);
+    candidate["highlighted"] = index - start == s.translation_cursor;
+    candidate["source"] = 5;
+    candidate["fixed_position"] = 0;
+    candidate["annotation"] = "";
+    candidate["id"] = {{"session", s.session},
+                        {"generation", overlay.value("generation", uint64_t{0})},
+                        {"index", index}};
+    overlay["candidates"].push_back(std::move(candidate));
+  }
+  s.view = std::move(overlay);
+  render(engine, s.view);
+}
+void exit_translation_candidates(IBusEngine *engine) {
+  auto &s = state(engine);
+  if (!s.translation_candidates_active)
+    return;
+  s.translation_candidates_active = false;
+  if (s.translation_saved_view.is_object())
+    s.view = std::move(s.translation_saved_view);
+  s.translation_options.clear();
+  s.translation_page = 0;
+  s.translation_cursor = 0;
+  render(engine, s.view);
+}
+bool commit_translation_candidate(IBusEngine *engine, size_t index) {
+  auto &s = state(engine);
+  if (!s.translation_candidates_active || index >= s.translation_options.size())
+    return false;
+  const auto text = s.translation_options.at(index);
+  exit_translation_candidates(engine);
+  commit_text(engine, text);
+  (void)apply(engine, msime_client_command(s.session, MSIME_CANCEL));
+  return true;
 }
 bool apply(IBusEngine *engine, char *raw, PunctuationPairMode pair_mode) {
   auto result = response(raw);
@@ -3788,6 +3889,15 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     const char *target = candidate_name == "InputEnabled" ? "InputMode"
         : candidate_name == "ChinesePunctuation" ? "Punctuation" : "CharacterMode";
     property_activate(engine, target, value);
+    return;
+  }
+  if (candidate_name == "CandidatePreviousPage" ||
+      candidate_name == "CandidateNextPage") {
+    if (value != PROP_STATE_UNCHECKED && value != PROP_STATE_CHECKED)
+      return;
+    page(engine, candidate_name == "CandidatePreviousPage"
+                   ? MSIME_PREVIOUS_PAGE
+                   : MSIME_NEXT_PAGE);
     return;
   }
   if (candidate_name.rfind("CandidatePin", 0) == 0 ||
@@ -5313,6 +5423,67 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
   };
   guarded(engine, "process_key", [&] {
     s.open();
+    if (s.translation_candidates_active) {
+      const auto page_size = std::clamp(
+          s.translation_saved_view.value("page_size", size_t{9}), size_t{1},
+          size_t{9});
+      const auto page_count = (s.translation_options.size() + page_size - 1) /
+                              page_size;
+      const auto no_modifiers = modifiers == 0;
+      if (modifiers == IBUS_CONTROL_MASK &&
+          (key == IBUS_Return || key == IBUS_KP_Enter)) {
+        handled = true;
+        return;
+      }
+      if (no_modifiers && (key == IBUS_space ||
+                          (key >= '1' && key <= '9') ||
+                          (key >= IBUS_KP_1 && key <= IBUS_KP_9))) {
+        const auto slot = key == IBUS_space
+                              ? s.translation_cursor
+                              : static_cast<size_t>(
+                                    key >= IBUS_KP_1
+                                        ? key - IBUS_KP_1
+                                        : key - '1');
+        const auto index = s.translation_page * page_size + slot;
+        if (index < s.translation_options.size())
+          handled = commit_translation_candidate(engine, index);
+        else
+          handled = true;
+        return;
+      }
+      if (no_modifiers && (key == IBUS_Up || key == IBUS_KP_Up ||
+                           key == IBUS_Down || key == IBUS_KP_Down)) {
+        const auto page_start = s.translation_page * page_size;
+        const auto page_end = std::min(page_start + page_size,
+                                       s.translation_options.size());
+        if (key == IBUS_Up || key == IBUS_KP_Up)
+          s.translation_cursor = s.translation_cursor == 0
+                                    ? s.translation_cursor
+                                    : s.translation_cursor - 1;
+        else if (s.translation_cursor + 1 < page_end - page_start)
+          ++s.translation_cursor;
+        render_translation_candidates(engine);
+        handled = true;
+        return;
+      }
+      if (no_modifiers && (key == IBUS_Page_Up || key == IBUS_KP_Page_Up ||
+                           key == IBUS_Page_Down || key == IBUS_KP_Page_Down)) {
+        if (key == IBUS_Page_Up || key == IBUS_KP_Page_Up)
+          s.translation_page = s.translation_page == 0
+                                   ? 0
+                                   : s.translation_page - 1;
+        else if (s.translation_page + 1 < page_count)
+          ++s.translation_page;
+        s.translation_cursor = 0;
+        render_translation_candidates(engine);
+        handled = true;
+        return;
+      }
+      // Escape and every other key leave the temporary page first, then use
+      // the normal Engine path so composition cancellation/editing semantics
+      // stay identical to an ordinary candidate page.
+      exit_translation_candidates(engine);
+    }
     const auto active_scheme = s.scheme_override.value_or(
         configured.at("preferences").value("scheme", "quanpin"));
     // Match the configured Windows Japanese mode, not temporary R mode: the
@@ -5468,6 +5639,66 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
           return;
         handled = apply(engine, msime_client_command(
                                    s.session, *touch_navigation));
+        return;
+      }
+    }
+    // Match the Windows composition editor for the three Ctrl-only segment
+    // edits. The shared runtime owns the segment boundaries (and falls back
+    // to one raw character for local modes), so the Linux host only has to
+    // preserve the editor's modifier boundary and route the action. With no
+    // active composition these remain ordinary application shortcuts.
+    const bool ctrl_only = modifiers == IBUS_CONTROL_MASK &&
+                           !(flags & IBUS_RELEASE_MASK);
+    const bool segment_edit_key = key == IBUS_BackSpace ||
+                                  key == IBUS_Left || key == IBUS_KP_Left ||
+                                  key == IBUS_Right || key == IBUS_KP_Right;
+    const auto active_editing = s.view.value("editing_text", std::string{});
+    const auto active_candidates = s.view.value("candidates", Json::array());
+    if (ctrl_only && segment_edit_key &&
+        (!active_editing.empty() ||
+         (active_candidates.is_array() && !active_candidates.empty()))) {
+      const uint32_t segment_command =
+          key == IBUS_BackSpace
+              ? MSIME_BACKSPACE_SEGMENT
+              : (key == IBUS_Left || key == IBUS_KP_Left
+                     ? MSIME_MOVE_LEFT_SEGMENT
+                     : MSIME_MOVE_RIGHT_SEGMENT);
+      handled = apply(engine,
+                      msime_client_command(s.session, segment_command));
+      return;
+    }
+    // Windows uses Ctrl+Enter to commit the highlighted candidate's
+    // translation. A single gloss commits directly; multiple senses become a
+    // temporary IBus-native candidate page backed by the saved Engine view.
+    // The rendered identity fence prevents a delayed translation from being
+    // committed for a newer page than the user saw.
+    if (ctrl_only && (key == IBUS_Return || key == IBUS_KP_Enter) &&
+        s.candidate_translations && s.rendered_session == s.session &&
+        s.rendered_candidates.is_array() && !s.rendered_candidates.empty() &&
+        s.rendered_view.value("generation", uint64_t{0}) ==
+            s.view.value("generation", uint64_t{0})) {
+      for (const auto &candidate : s.rendered_candidates) {
+        if (!candidate.is_object() || !candidate.value("highlighted", false))
+          continue;
+        const auto translation = candidate.value("translation", std::string{});
+        if (translation.empty() || translation.size() > 4096)
+          break;
+        const auto senses = msime::linux_host::split_translation_gloss(translation);
+        if (senses.empty())
+          break;
+        if (senses.size() == 1) {
+          commit_text(engine, senses.front());
+          (void)apply(engine, msime_client_command(s.session, MSIME_CANCEL));
+          handled = true;
+          return;
+        }
+        s.translation_saved_view = s.view;
+        s.translation_options = senses;
+        s.translation_candidates_active = true;
+        s.translation_page = 0;
+        s.translation_cursor = 0;
+        render_translation_candidates(engine);
+        handled = true;
         return;
       }
     }
@@ -5881,6 +6112,26 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
       state(engine).blocked || !state(engine).input_enabled) return;
   guarded(engine, "candidate_clicked", [&] {
     auto &s = state(engine);
+    if (s.translation_candidates_active) {
+      const auto page_size = std::clamp(
+          s.translation_saved_view.value("page_size", size_t{9}), size_t{1},
+          size_t{9});
+      const auto page_count = (s.translation_options.size() + page_size - 1) /
+                              page_size;
+      if (button >= 4) {
+        if (button == 4 && s.translation_page > 0)
+          --s.translation_page;
+        else if (button == 5 && s.translation_page + 1 < page_count)
+          ++s.translation_page;
+        s.translation_cursor = 0;
+        render_translation_candidates(engine);
+      } else {
+        const auto global = s.translation_page * page_size + index;
+        if (button == 1 && global < s.translation_options.size())
+          (void)commit_translation_candidate(engine, global);
+      }
+      return;
+    }
     if (button >= 4) {
       // Mouse-wheel events can arrive after IBus has hidden the lookup table.
       // Do not let a late page command mutate a live session without the
@@ -5916,6 +6167,22 @@ void candidate_clicked(IBusEngine *engine, guint index, guint button,
 void page(IBusEngine *engine, uint32_t command) {
   guarded(engine, "page", [&] {
     auto &s = state(engine);
+    if (s.translation_candidates_active) {
+      const auto page_size = std::clamp(
+          s.translation_saved_view.value("page_size", size_t{9}), size_t{1},
+          size_t{9});
+      const auto page_count = (s.translation_options.size() + page_size - 1) /
+                              page_size;
+      if (command == MSIME_PREVIOUS_PAGE && s.translation_page > 0)
+        --s.translation_page;
+      else if (command == MSIME_NEXT_PAGE && s.translation_page + 1 < page_count)
+        ++s.translation_page;
+      else
+        return;
+      s.translation_cursor = 0;
+      render_translation_candidates(engine);
+      return;
+    }
     // IBus page/cursor callbacks carry no generation. Fence them to the
     // candidate page currently owned by the panel so a delayed callback
     // cannot page a newer Engine view that has not been rendered yet.

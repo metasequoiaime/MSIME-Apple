@@ -43,7 +43,7 @@ Fcitx5 候选操作通过原生候选 Action（新版本）和输入上下文 st
 
 本目录只处理 IBus 系统入口，使用同一个 `msime-host-api` 动态库；不直接创建 C++ Engine、不复制候选分页、数字选词或配置持久化逻辑，不依赖 Tauri 常驻。按键与焦点在 GLib 主线程调用线程绑定会话，系统候选点击取当前共享视图中的代次和全局索引。预编辑采用 Engine 的 ASCII editing_text，避免把字节光标用于中文显示串。失焦、禁用和 reset 清除组合；修饰键与 key-up 透传，快捷键取消组合后透传。密码、PIN、数字与电话字段不处理输入，private/no-spellcheck 文本会话关闭学习。
 
-共享运行时只返回当前候选页；IBus lookup table 显示该页，auxiliary text 标示共享页码。宿主读取共享 navigation 设置，支持减号/等号、逗号/句号、方括号、Tab/Shift+Tab、PageUp/Down 翻页及上下候选移动，也支持小键盘导航键。启用“鼠标滚轮”后，候选面板转发的 X11 按钮 4/5 会分别映射为上一页/下一页；标准 IBus GTK 面板常把滚轮映射为候选移动，因此不把该设置宣称为所有桌面都支持。设置通过验证后立即更新按键分派，不等待 Engine 组合结束；按键路径不读文件。按当前键盘布局的字符映射，Shift 符号不当作未按 Shift 的物理键，保留 Unicode `U+`。关闭的标点绑定交回 Engine，关闭的 Tab/Page/上下键先完成组合再交还编辑器；空闲时透传。Panel 翻页按钮独立于键盘绑定；不把当前页伪装成完整候选集自行分页。
+共享运行时只返回当前候选页；IBus lookup table 显示该页，auxiliary text 标示共享页码。宿主读取共享 navigation 设置，支持减号/等号、逗号/句号、方括号、Tab/Shift+Tab、PageUp/Down 翻页及上下候选移动，也支持小键盘导航键。启用“鼠标滚轮”后，候选面板转发的 X11 按钮 4/5 会分别映射为上一页/下一页；标准 IBus GTK 面板常把滚轮映射为候选移动，因此不把该设置宣称为所有桌面都支持。设置通过验证后立即更新按键分派，不等待 Engine 组合结束；按键路径不读文件。按当前键盘布局的字符映射，Shift 符号不当作未按 Shift 的物理键，保留 Unicode `U+`。关闭的标点绑定交回 Engine，关闭的 Tab/Page/上下键先完成组合再交还编辑器；空闲时透传。IBus“候选操作”菜单在候选页存在时提供上一页/下一页，动作仍调用共享分页命令并受已渲染 session/generation 栅栏保护；不把当前页伪装成完整候选集自行分页。
 
 智能标点使用 IBus 提供的 surrounding text：逗号、句号和冒号前若是 ASCII 字母或数字，则保留 ASCII；否则交由 Engine 的中文标点表转换。正在组合时优先使用当前高亮候选的末字符，候选提交和标点在同一运行时转换中完成。重复输入的 ASCII 标点在短时间内可按设置替换为中文标点；失焦、删除或其他编辑动作会使该状态失效。无法取得有效 surrounding text 时按中文标点处理，不读取或记录完整编辑器内容。
 
@@ -300,7 +300,7 @@ msime-client-online-provider "$XDG_RUNTIME_DIR/msime-client/online.sock"
 
 IBus 宿主在后台通过共享 Host API 查询随包 `english.db`。目标语言为英语且启用 `preferences.candidate_english_gloss` 时，先显示离线中英双向释义，再把未命中的候选发送给在线 provider；关闭 `preferences.candidate_translations` 也不会关闭这项独立的离线释义。未配置在线服务也能使用离线命中。其他目标语言直接使用在线 provider。日语方案和临时日语模式不请求候选翻译。离线与在线结果均校验会话、候选代次和配置代次，释义只用于显示，不进入选词提交文本。
 
-英语目标的在线短释义还会通过 Engine 写入用户数据目录的 `translation-glosses.db`，后续离线查询先查用户释义，再查发布词库。 两个词库独立检查可用性：发布词库缺失或损坏时仍可读取用户释义；用户词库不可用时回退发布词库；两者均不可用时返回错误。保存沿用 Windows 的规则：仅中英候选、源文本不超过 40 字符、格式化后译文不超过 32 字符且不与原文 ASCII 大小写等价；其他目标语言不保存。读写在后台线程进行，不修改发布资源。重建 IBus 宿主且关闭在线 socket 后仍可读取已保存的释义；候选显示继续检查会话和代次。共享 C API `msime_client_translation_gloss_save` 接受 `{target_language,translations:[{text,translation}]}`，离线候选查询可传入 `user_data` 读取相同用户词库。
+英语目标的在线短释义还会通过 Engine 写入用户数据目录的 `translation-glosses.db`，后续离线查询先查用户释义，再查发布词库。 两个词库独立检查可用性：发布词库缺失或损坏时仍可读取用户释义；用户词库不可用时回退发布词库；两者均不可用时返回错误。保存沿用 Windows 的规则：仅中英候选、源文本不超过 40 字符、格式化后译文不超过 32 字符且不与原文 ASCII 大小写等价；其他目标语言不保存。读写在后台线程进行，不修改发布资源。重建 IBus 宿主且关闭在线 socket 后仍可读取已保存的释义；候选显示继续检查会话和代次。共享 C API `msime_client_translation_gloss_save` 接受 `{target_language,translations:[{text,translation}]}`，离线候选查询可传入 `user_data` 读取相同用户词库。IBus 在 Ctrl+Enter 遇到多个以分号分隔的译义时显示临时副候选页，空格、数字键、上下键、PageUp/PageDown 和鼠标点击只作用于译义，选择后直接上屏并恢复原 Engine 候选；单译义仍直接提交，译义页不会写入词库。
 
 同一服务接受 `kind:"translation"`，沿用 Windows 默认腾讯 TMT、自定义 DeepLX 的选择顺序。默认翻译增加 `--tencent-config /absolute/private-tencent.json`，配置文件必须是当前用户所有、其他用户无权限的普通文件，包含 `secret_id`、`secret_key`，以及可选 `region`（默认 `ap-guangzhou`）。凭据只在 provider 中读取，TC3 签名请求固定发送到腾讯 TMT HTTPS 地址，不接受请求覆盖地址。未提供腾讯配置时仍可使用云候选、AI 和自定义翻译。腾讯私有配置在每次腾讯翻译请求开始时重新读取，无需重启服务；建议通过原子替换更新文件。读取使用非阻塞文件描述符，只接受不超过 16 KiB 的 UTF-8 普通文件，并核对读取前后的文件信息。文件删除、权限变宽或内容无效时跳过腾讯翻译，恢复有效配置后下次请求重新使用；自定义翻译不会读取腾讯配置。每批请求使用同一份凭据和区域快照，缓存按该快照摘要隔离。 腾讯凭据与 Windows 一致，先清除首尾 ASCII 空格、制表符和换行，再进行校验和签名；仅空白、占位符及含内部空白或控制字符的凭据仍会被拒绝。仅首尾空白变化不会使缓存失效。
 

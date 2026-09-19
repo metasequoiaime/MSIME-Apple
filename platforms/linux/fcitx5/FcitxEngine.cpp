@@ -19,6 +19,9 @@
 #include <fcitx/surroundingtext.h>
 #include <fcitx/userinterface.h>
 #include "../src/candidates/CandidateActionPolicy.h"
+#include "../src/candidates/CandidatePalette.h"
+#include "../src/candidates/ShuangpinProfileNames.h"
+#include "../src/candidates/CandidateTranslationPolicy.h"
 #include "../src/system/TypingStatistics.h"
 #include <nlohmann/json.hpp>
 #include <algorithm>
@@ -132,6 +135,31 @@ Json readOptions() {
   if (file.bad() || file.gcount() <= 0 || file.gcount() >= static_cast<std::streamsize>(data.size()))
     throw std::runtime_error("MSIME configuration unavailable");
   return Json::parse(data.data(), data.data() + file.gcount());
+}
+
+using CandidateSkinCatalog = std::vector<std::pair<std::string, std::string>>;
+
+CandidateSkinCatalog parseCandidateSkinCatalog(const Json &options) {
+  CandidateSkinCatalog result;
+  const auto catalog = options.find("candidate_skin_catalog");
+  if (catalog == options.end() || !catalog->is_object()) return result;
+  const auto packages = catalog->find("packages");
+  if (packages == catalog->end() || !packages->is_array()) return result;
+  for (const auto &package : *packages) {
+    if (!package.is_object()) continue;
+    const auto id = package.value("id", std::string{});
+    const auto title = package.value("title", id);
+    if (id.empty() || id.size() > 64 || title.empty() || title.size() > 128) continue;
+    if (!std::all_of(id.begin(), id.end(), [](unsigned char c) {
+          return std::isalnum(c) || c == '_' || c == '-' || c == '.';
+        })) continue;
+    if (id == "fluent" || id == "wechat" || id == "graphite" || id == "willow_green") continue;
+    if (std::find_if(result.begin(), result.end(), [&](const auto &item) {
+          return item.first == id;
+        }) == result.end())
+      result.emplace_back(id, title);
+  }
+  return result;
 }
 
 std::string onlineSocket(const Json &options) {
@@ -290,6 +318,11 @@ public:
     voice_loading_ = false;
     chinese_punctuation_ = true;
     paired_punctuation_ = true;
+    translation_candidates_active_ = false;
+    translation_saved_view_ = Json::object();
+    translation_options_.clear();
+    translation_page_ = 0;
+    translation_cursor_ = 0;
   }
   void clearPanel() {
     ic_.inputPanel().reset();
@@ -313,10 +346,78 @@ public:
     render();
     return true;
   }
+  bool cycleScheme() {
+    if (!session_ || restricted() || privateInput()) return false;
+    static constexpr std::array<const char *, 4> schemes = {
+        "quanpin", "shuangpin", "wubi", "japanese"};
+    const auto current = view_.value("scheme", 0u);
+    const auto next = schemes[(current + 1) % schemes.size()];
+    if (!view_.value("editing_text", std::string{}).empty())
+      command(MSIME_FINISH_COMPOSITION);
+    saveStringPreference("scheme", next);
+    waitForPreferenceSave();
+    scheme_override_ = next;
+    if (std::string(next) != "shuangpin") shuangpin_profile_override_.reset();
+    close();
+    if (!ensure()) return false;
+    view_ = response(msime_client_focus(session_, true)).at("view");
+    render();
+    return true;
+  }
+  bool cycleShuangpinProfile() {
+    if (!session_ || view_.value("scheme", 0u) != 1 || restricted() || privateInput())
+      return false;
+    const auto current = preferences_.value("shuangpin_profile", std::string("xiaohe"));
+    auto it = std::find_if(msime::linux_host::kShuangpinProfileNames.begin(),
+                           msime::linux_host::kShuangpinProfileNames.end(),
+                           [&](const auto &profile) { return current == profile.value; });
+    const auto next = it == msime::linux_host::kShuangpinProfileNames.end() ||
+                              std::next(it) == msime::linux_host::kShuangpinProfileNames.end()
+                          ? msime::linux_host::kShuangpinProfileNames.front()
+                          : *std::next(it);
+    if (!view_.value("editing_text", std::string{}).empty())
+      command(MSIME_FINISH_COMPOSITION);
+    saveStringPreference("shuangpin_profile", next.value);
+    waitForPreferenceSave();
+    scheme_override_ = "shuangpin";
+    shuangpin_profile_override_ = next.value;
+    close();
+    if (!ensure()) return false;
+    view_ = response(msime_client_focus(session_, true)).at("view");
+    render();
+    return true;
+  }
+  bool cycleHelpcodeSchema() {
+    const auto scheme = view_.value("scheme", 0u);
+    if (!session_ || (scheme != 0 && scheme != 1) || restricted() || privateInput())
+      return false;
+    static constexpr std::array<const char *, 5> schemas = {
+        "lantian", "ziranma", "shouyou2_0", "shouyouplus", "xiaohe"};
+    const auto section = scheme == 1 ? "shuangpin_helpcode" : "quanpin_helpcode";
+    const auto current = preferences_.value(section, Json::object()).value(
+        "schema", scheme == 1 ? std::string("lantian") : std::string("ziranma"));
+    const auto it = std::find(schemas.begin(), schemas.end(), current);
+    const auto next = it == schemas.end() || std::next(it) == schemas.end()
+        ? schemas.front() : *std::next(it);
+    if (!view_.value("editing_text", std::string{}).empty())
+      command(MSIME_FINISH_COMPOSITION);
+    saveNestedStringPreference(section, "schema", next);
+    waitForPreferenceSave();
+    helpcode_schema_override_ = next;
+    close();
+    if (!ensure()) return false;
+    view_ = response(msime_client_focus(session_, true)).at("view");
+    render();
+    return true;
+  }
   bool toggleNineKey() {
     if (!session_ || view_.value("scheme", 0u) != 0) return false;
     const bool enabled = !view_.value("nine_key", false);
     view_ = response(msime_client_set_nine_key_mode(session_, enabled));
+    preferences_["touch_keyboard_layout"] = enabled ? "nine_key" : "twenty_six_key";
+    if (preferences_snapshot_.is_object() && preferences_snapshot_.contains("preferences"))
+      preferences_snapshot_["preferences"]["touch_keyboard_layout"] =
+          enabled ? "nine_key" : "twenty_six_key";
     saveStringPreference("touch_keyboard_layout", enabled ? "nine_key" : "twenty_six_key");
     render();
     return true;
@@ -326,6 +427,8 @@ public:
     if (view_.value("page_size", size_t{}) == size) return true;
     view_ = response(msime_client_set_candidate_page_size(session_, size)).at("view");
     preferences_["candidate_page_size"] = size;
+    if (preferences_snapshot_.is_object() && preferences_snapshot_.contains("preferences"))
+      preferences_snapshot_["preferences"]["candidate_page_size"] = size;
     saveNumberPreference("candidate_page_size", size);
     render();
     return true;
@@ -350,10 +453,11 @@ public:
     if (!snapshot.is_object() || !snapshot.contains("revision") ||
         !snapshot.contains("preferences")) return false;
     snapshot["preferences"][section]["enabled"] = enabled;
-    const auto encoded = snapshot.dump();
+    const auto encoded = effectiveContextSnapshot(snapshot).dump();
     view_ = response(msime_client_update_preferences(
         session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
     preferences_ = snapshot.at("preferences");
+    applyContextOverrides(preferences_);
     preferences_snapshot_ = std::move(snapshot);
     saveNestedBooleanPreference(section.c_str(), "enabled", enabled);
     render();
@@ -366,10 +470,11 @@ public:
     if (!snapshot.is_object() || !snapshot.contains("revision") ||
         !snapshot.contains("preferences")) return false;
     snapshot["preferences"]["quanpin"][key] = enabled;
-    const auto encoded = snapshot.dump();
+    const auto encoded = effectiveContextSnapshot(snapshot).dump();
     view_ = response(msime_client_update_preferences(
         session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
     preferences_ = snapshot.at("preferences");
+    applyContextOverrides(preferences_);
     preferences_snapshot_ = std::move(snapshot);
     saveNestedBooleanPreference("quanpin", key, enabled);
     render();
@@ -382,10 +487,11 @@ public:
     if (!snapshot.is_object() || !snapshot.contains("revision") ||
         !snapshot.contains("preferences")) return false;
     snapshot["preferences"]["mixed_input"]["english"] = enabled;
-    const auto encoded = snapshot.dump();
+    const auto encoded = effectiveContextSnapshot(snapshot).dump();
     view_ = response(msime_client_update_preferences(
         session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
     preferences_ = snapshot.at("preferences");
+    applyContextOverrides(preferences_);
     preferences_snapshot_ = std::move(snapshot);
     saveNestedBooleanPreference("mixed_input", "english", enabled);
     render();
@@ -398,12 +504,34 @@ public:
     if (!snapshot.is_object() || !snapshot.contains("revision") ||
         !snapshot.contains("preferences")) return false;
     snapshot["preferences"]["mixed_input"][key] = enabled;
-    const auto encoded = snapshot.dump();
+    const auto encoded = effectiveContextSnapshot(snapshot).dump();
     view_ = response(msime_client_update_preferences(
         session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
     preferences_ = snapshot.at("preferences");
+    applyContextOverrides(preferences_);
     preferences_snapshot_ = std::move(snapshot);
     saveNestedBooleanPreference("mixed_input", key, enabled);
+    render();
+    return true;
+  }
+  bool toggleLocalMode(const char *key) {
+    if (!session_ || !key || !*key || restricted() || privateInput()) return false;
+    static constexpr std::array<const char *, 8> allowed = {
+        "unicode", "date_time", "quick_phrase", "emoji", "kaomoji",
+        "super_jianpin", "temporary_english", "temporary_japanese"};
+    if (std::find(allowed.begin(), allowed.end(), key) == allowed.end()) return false;
+    const bool enabled = !preferences_.value("local_modes", Json::object()).value(key, true);
+    auto snapshot = preferences_snapshot_;
+    if (!snapshot.is_object() || !snapshot.contains("revision") ||
+        !snapshot.contains("preferences")) return false;
+    snapshot["preferences"]["local_modes"][key] = enabled;
+    const auto encoded = effectiveContextSnapshot(snapshot).dump();
+    view_ = response(msime_client_update_preferences(
+        session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
+    preferences_ = snapshot.at("preferences");
+    applyContextOverrides(preferences_);
+    preferences_snapshot_ = std::move(snapshot);
+    saveNestedBooleanPreference("local_modes", key, enabled);
     render();
     return true;
   }
@@ -414,10 +542,11 @@ public:
     if (!snapshot.is_object() || !snapshot.contains("revision") ||
         !snapshot.contains("preferences")) return false;
     snapshot["preferences"]["candidate_english_gloss"] = enabled;
-    const auto encoded = snapshot.dump();
+    const auto encoded = effectiveContextSnapshot(snapshot).dump();
     view_ = response(msime_client_update_preferences(
         session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
     preferences_ = snapshot.at("preferences");
+    applyContextOverrides(preferences_);
     preferences_snapshot_ = std::move(snapshot);
     saveBooleanPreference("candidate_english_gloss", enabled);
     translation_query_.clear();
@@ -437,6 +566,7 @@ public:
           if (latest.is_object() && latest.contains("revision") && latest.contains("preferences")) {
             preferences_snapshot_ = latest;
             preferences_ = latest.at("preferences");
+            applyContextOverrides(preferences_);
           }
         } catch (...) {}
       }
@@ -446,10 +576,11 @@ public:
     if (!snapshot.is_object() || !snapshot.contains("revision") ||
         !snapshot.contains("preferences")) return false;
     snapshot["preferences"][key] = enabled;
-    const auto encoded = snapshot.dump();
+    const auto encoded = effectiveContextSnapshot(snapshot).dump();
     view_ = response(msime_client_update_preferences(
         session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
     preferences_ = snapshot.at("preferences");
+    applyContextOverrides(preferences_);
     preferences_snapshot_ = std::move(snapshot);
     saveBooleanPreference(key, enabled);
     render();
@@ -483,10 +614,11 @@ public:
     if (!snapshot.is_object() || !snapshot.contains("revision") ||
         !snapshot.contains("preferences")) return false;
     snapshot["preferences"]["word_character"]["enabled"] = enabled;
-    const auto encoded = snapshot.dump();
+    const auto encoded = effectiveContextSnapshot(snapshot).dump();
     view_ = response(msime_client_update_preferences(
         session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
     preferences_ = snapshot.at("preferences");
+    applyContextOverrides(preferences_);
     preferences_snapshot_ = std::move(snapshot);
     saveNestedBooleanPreference("word_character", "enabled", enabled);
     render();
@@ -496,12 +628,24 @@ public:
     if (!session_) return false;
     const auto width = view_.value("character_width", std::string("Halfwidth"));
     const bool fullwidth = !(width == "Fullwidth" || width == "fullwidth");
+    auto snapshot = preferences_snapshot_;
+    if (!snapshot.is_object() || !snapshot.contains("revision") ||
+        !snapshot.contains("preferences")) return false;
+    snapshot["preferences"]["character_width"] = fullwidth ? "fullwidth" : "halfwidth";
+    if (!applyPreferenceSnapshot(std::move(snapshot))) return false;
     view_ = response(msime_client_set_character_width(session_, fullwidth));
+    saveStringPreference("character_width", fullwidth ? "fullwidth" : "halfwidth");
     render();
     return true;
   }
+  void waitForPreferenceSave() {
+    if (!preferences_save_job_.valid()) return;
+    try { preferences_save_job_.get(); } catch (...) {}
+    preferences_save_job_ = {};
+  }
   void saveBooleanPreference(const char *key, bool enabled) {
     if (!key || !*key || options_path_.empty() || private_) return;
+    waitForPreferenceSave();
     const auto directory = options_path_;
     const std::string preference(key);
     preferences_save_job_ = std::async(std::launch::async, [directory, preference, enabled] {
@@ -520,6 +664,7 @@ public:
   }
   void saveStringPreference(const char *key, const std::string &value) {
     if (!key || !*key || options_path_.empty() || private_) return;
+    waitForPreferenceSave();
     const auto directory = options_path_;
     const std::string preference(key);
     preferences_save_job_ = std::async(std::launch::async, [directory, preference, value] {
@@ -538,6 +683,7 @@ public:
   }
   void saveNumberPreference(const char *key, uint8_t value) {
     if (!key || !*key || options_path_.empty() || private_) return;
+    waitForPreferenceSave();
     const auto directory = options_path_;
     const std::string preference(key);
     preferences_save_job_ = std::async(std::launch::async, [directory, preference, value] {
@@ -556,6 +702,7 @@ public:
   }
   void saveNestedBooleanPreference(const char *object, const char *key, bool enabled) {
     if (!object || !*object || !key || !*key || options_path_.empty() || private_) return;
+    waitForPreferenceSave();
     const auto directory = options_path_;
     const std::string section(object), preference(key);
     preferences_save_job_ = std::async(std::launch::async,
@@ -573,10 +720,98 @@ public:
           reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
     }).share();
   }
+  void saveNestedStringPreference(const char *object, const char *key,
+                                 const std::string &value) {
+    if (!object || !*object || !key || !*key || options_path_.empty() || private_) return;
+    waitForPreferenceSave();
+    const auto directory = options_path_;
+    const std::string section(object), preference(key);
+    preferences_save_job_ = std::async(std::launch::async,
+        [directory, section, preference, value] {
+      auto snapshot = response(msime_client_load_preferences(
+          reinterpret_cast<const uint8_t *>(directory.data()), directory.size()));
+      if (!snapshot.is_object() || !snapshot.contains("revision") ||
+          !snapshot.contains("preferences") || !snapshot.at("preferences").is_object())
+        return Json::object();
+      snapshot["preferences"][section][preference] = value;
+      const auto encoded = snapshot.dump();
+      return response(msime_client_save_preferences(
+          reinterpret_cast<const uint8_t *>(directory.data()), directory.size(),
+          snapshot.at("revision").get<uint64_t>(),
+          reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
+    }).share();
+  }
+  void saveNestedNumberPreference(const char *object, const char *key, uint8_t value) {
+    if (!object || !*object || !key || !*key || options_path_.empty() || private_) return;
+    waitForPreferenceSave();
+    const auto directory = options_path_;
+    const std::string section(object), preference(key);
+    preferences_save_job_ = std::async(std::launch::async,
+        [directory, section, preference, value] {
+      auto snapshot = response(msime_client_load_preferences(
+          reinterpret_cast<const uint8_t *>(directory.data()), directory.size()));
+      if (!snapshot.is_object() || !snapshot.contains("revision") ||
+          !snapshot.contains("preferences") || !snapshot.at("preferences").is_object())
+        return Json::object();
+      snapshot["preferences"][section][preference] = value;
+      const auto encoded = snapshot.dump();
+      return response(msime_client_save_preferences(
+          reinterpret_cast<const uint8_t *>(directory.data()), directory.size(),
+          snapshot.at("revision").get<uint64_t>(),
+          reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
+    }).share();
+  }
+  bool setFrequencyNumber(const char *key, uint8_t value) {
+    if (!session_ || restricted() || privateInput() || value < 1 || value > 10)
+      return false;
+    auto snapshot = preferences_snapshot_;
+    if (!snapshot.is_object() || !snapshot.contains("revision") ||
+        !snapshot.contains("preferences")) return false;
+    snapshot["preferences"]["frequency"][key] = value;
+    const auto encoded = effectiveContextSnapshot(snapshot).dump();
+    view_ = response(msime_client_update_preferences(
+        session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
+    preferences_ = snapshot.at("preferences");
+    applyContextOverrides(preferences_);
+    preferences_snapshot_ = std::move(snapshot);
+    saveNestedNumberPreference("frequency", key, value);
+    render();
+    return true;
+  }
+  bool cycleFrequencyNumber(const char *key) {
+    const auto current = preferences_.value("frequency", Json::object()).value(key, 1u);
+    return setFrequencyNumber(key, static_cast<uint8_t>(current >= 10 ? 1 : current + 1));
+  }
+  bool cycleFrequencyMode() {
+    if (!session_ || restricted() || privateInput()) return false;
+    static constexpr std::array<const char *, 5> modes = {
+        "disabled", "pin", "halve", "linear", "promote"};
+    const auto current = preferences_.value("frequency", Json::object())
+                             .value("mode", std::string("promote"));
+    const auto it = std::find(modes.begin(), modes.end(), current);
+    const auto next = it == modes.end() || std::next(it) == modes.end()
+        ? modes.front() : *std::next(it);
+    auto snapshot = preferences_snapshot_;
+    if (!snapshot.is_object() || !snapshot.contains("revision") ||
+        !snapshot.contains("preferences")) return false;
+    snapshot["preferences"]["frequency"]["mode"] = next;
+    const auto encoded = effectiveContextSnapshot(snapshot).dump();
+    view_ = response(msime_client_update_preferences(
+        session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
+    preferences_ = snapshot.at("preferences");
+    applyContextOverrides(preferences_);
+    preferences_snapshot_ = std::move(snapshot);
+    saveNestedStringPreference("frequency", "mode", next);
+    render();
+    return true;
+  }
   bool toggleChinesePunctuation() {
     if (!session_) return false;
     chinese_punctuation_ = !chinese_punctuation_;
     view_ = response(msime_client_set_chinese_punctuation(session_, chinese_punctuation_));
+    preferences_["chinese_punctuation"] = chinese_punctuation_;
+    if (preferences_snapshot_.is_object() && preferences_snapshot_.contains("preferences"))
+      preferences_snapshot_["preferences"]["chinese_punctuation"] = chinese_punctuation_;
     saveBooleanPreference("chinese_punctuation", chinese_punctuation_);
     render();
     return true;
@@ -585,6 +820,9 @@ public:
     if (!session_) return false;
     paired_punctuation_ = !paired_punctuation_;
     view_ = response(msime_client_set_paired_punctuation(session_, paired_punctuation_));
+    preferences_["paired_punctuation"] = paired_punctuation_;
+    if (preferences_snapshot_.is_object() && preferences_snapshot_.contains("preferences"))
+      preferences_snapshot_["preferences"]["paired_punctuation"] = paired_punctuation_;
     saveBooleanPreference("paired_punctuation", paired_punctuation_);
     render();
     return true;
@@ -592,7 +830,10 @@ public:
   bool toggleCandidateTranslations() {
     if (!session_) return false;
     const bool enabled = !preferences_.value("candidate_translations", false);
-    preferences_["candidate_translations"] = enabled;
+    auto snapshot = preferences_snapshot_;
+    if (!snapshot.is_object() || !snapshot.contains("preferences")) return false;
+    snapshot["preferences"]["candidate_translations"] = enabled;
+    if (!applyPreferenceSnapshot(std::move(snapshot))) return false;
     if (!enabled && view_.contains("generation")) {
       const auto empty = std::string("[]");
       view_ = response(msime_client_apply_translations(
@@ -609,6 +850,10 @@ public:
     if (!session_) return false;
     punctuation_lock_ = static_cast<uint8_t>((punctuation_lock_ + 1) % 3);
     view_ = response(msime_client_set_punctuation_lock(session_, punctuation_lock_));
+    const auto lock = punctuation_lock_ == 1 ? "chinese" : punctuation_lock_ == 2 ? "english" : "follow";
+    preferences_["punctuation_lock"] = lock;
+    if (preferences_snapshot_.is_object() && preferences_snapshot_.contains("preferences"))
+      preferences_snapshot_["preferences"]["punctuation_lock"] = lock;
     saveStringPreference("punctuation_lock", punctuation_lock_ == 1 ? "chinese" :
                                                      punctuation_lock_ == 2 ? "english" : "follow");
     render();
@@ -622,7 +867,10 @@ public:
     auto it = std::find(languages.begin(), languages.end(), current);
     const auto next = it == languages.end() || std::next(it) == languages.end()
         ? languages.front() : *std::next(it);
-    preferences_["translation_target_language"] = next;
+    auto snapshot = preferences_snapshot_;
+    if (!snapshot.is_object() || !snapshot.contains("preferences")) return false;
+    snapshot["preferences"]["translation_target_language"] = next;
+    if (!applyPreferenceSnapshot(std::move(snapshot))) return false;
     const auto empty = std::string("[]");
     view_ = response(msime_client_apply_translations(
         session_, view_.at("generation"),
@@ -637,46 +885,91 @@ public:
     if (!session_) return false;
     const auto current = preferences_.value("candidate_layout", std::string("vertical"));
     const std::string next = current == "horizontal" ? "vertical" : "horizontal";
-    preferences_["candidate_layout"] = next;
+    auto snapshot = preferences_snapshot_;
+    if (!snapshot.is_object() || !snapshot.contains("revision") ||
+        !snapshot.contains("preferences")) return false;
+    snapshot["preferences"]["candidate_layout"] = next;
+    const auto encoded = effectiveContextSnapshot(snapshot).dump();
+    view_ = response(msime_client_update_preferences(
+        session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
+    preferences_ = snapshot.at("preferences");
+    applyContextOverrides(preferences_);
+    preferences_snapshot_ = std::move(snapshot);
     saveStringPreference("candidate_layout", next);
-    if (preferences_save_job_.valid()) {
-      try { preferences_save_job_.get(); } catch (...) {}
-      preferences_save_job_ = {};
+    render();
+    return true;
+  }
+  bool cycleCandidateTheme() {
+    if (!session_ || restricted() || privateInput()) return false;
+    static constexpr std::array<const char *, 3> themes = {"follow", "light", "dark"};
+    const auto current = preferences_.value("candidate_theme", std::string("follow"));
+    const auto it = std::find(themes.begin(), themes.end(), current);
+    const auto next = it == themes.end() || std::next(it) == themes.end()
+        ? themes.front() : *std::next(it);
+    auto snapshot = preferences_snapshot_;
+    if (!snapshot.is_object() || !snapshot.contains("revision") ||
+        !snapshot.contains("preferences")) return false;
+    snapshot["preferences"]["candidate_theme"] = next;
+    const auto encoded = effectiveContextSnapshot(snapshot).dump();
+    view_ = response(msime_client_update_preferences(
+        session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
+    preferences_ = snapshot.at("preferences");
+    applyContextOverrides(preferences_);
+    preferences_snapshot_ = std::move(snapshot);
+    saveStringPreference("candidate_theme", next);
+    render();
+    return true;
+  }
+  bool cycleCandidateSkin() {
+    if (!session_ || restricted() || privateInput()) return false;
+    static constexpr std::array<const char *, 4> builtinSkins = {
+        "fluent", "wechat", "graphite", "willow_green"};
+    std::vector<std::string> skins;
+    skins.reserve(builtinSkins.size() + candidate_skin_catalog_.size());
+    for (const auto *skin : builtinSkins) skins.emplace_back(skin);
+    for (const auto &[id, title] : candidate_skin_catalog_) {
+      (void)title;
+      if (std::find(skins.begin(), skins.end(), id) == skins.end()) skins.push_back(id);
     }
-    if (!options_path_.empty()) {
-      try {
-        auto latest = response(msime_client_load_preferences(
-            reinterpret_cast<const uint8_t *>(options_path_.data()), options_path_.size()));
-        if (latest.is_object() && latest.contains("revision") && latest.contains("preferences"))
-          preferences_snapshot_ = std::move(latest);
-      } catch (...) {}
-    }
+    const auto current = preferences_.value("candidate_skin", std::string("willow_green"));
+    const auto it = std::find(skins.begin(), skins.end(), current);
+    const auto next = it == skins.end() || std::next(it) == skins.end() ? skins.front() : *std::next(it);
+    if (!view_.value("editing_text", std::string{}).empty())
+      command(MSIME_FINISH_COMPOSITION);
+    saveStringPreference("candidate_skin", next);
+    waitForPreferenceSave();
+    skin_override_ = next;
+    close();
+    if (!ensure()) return false;
+    view_ = response(msime_client_focus(session_, true)).at("view");
+    render();
     return true;
   }
   bool cycleModeScope() {
     if (!session_) return false;
     const auto current = preferences_.value("ime_mode_scope", std::string("app"));
     const std::string next = current == "global" ? "app" : "global";
-    preferences_["ime_mode_scope"] = next;
+    auto snapshot = preferences_snapshot_;
+    if (!snapshot.is_object() || !snapshot.contains("revision") ||
+        !snapshot.contains("preferences")) return false;
+    snapshot["preferences"]["ime_mode_scope"] = next;
+    const auto encoded = effectiveContextSnapshot(snapshot).dump();
+    view_ = response(msime_client_update_preferences(
+        session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
+    preferences_ = snapshot.at("preferences");
+    applyContextOverrides(preferences_);
+    preferences_snapshot_ = std::move(snapshot);
     saveStringPreference("ime_mode_scope", next);
-    if (preferences_save_job_.valid()) {
-      try { preferences_save_job_.get(); } catch (...) {}
-      preferences_save_job_ = {};
-    }
-    if (!options_path_.empty()) {
-      try {
-        auto latest = response(msime_client_load_preferences(
-            reinterpret_cast<const uint8_t *>(options_path_.data()), options_path_.size()));
-        if (latest.is_object() && latest.contains("revision") && latest.contains("preferences"))
-          preferences_snapshot_ = std::move(latest);
-      } catch (...) {}
-    }
+    render();
     return true;
   }
   bool toggleCloudCandidates() {
     if (!session_) return false;
     const bool enabled = !preferences_.value("cloud_candidates", true);
-    preferences_["cloud_candidates"] = enabled;
+    auto snapshot = preferences_snapshot_;
+    if (!snapshot.is_object() || !snapshot.contains("preferences")) return false;
+    snapshot["preferences"]["cloud_candidates"] = enabled;
+    if (!applyPreferenceSnapshot(std::move(snapshot))) return false;
     if (!enabled && !online_query_.empty()) {
       const auto empty = std::string("[]");
       view_ = response(msime_client_apply_online_candidates(
@@ -693,9 +986,12 @@ public:
   }
   bool toggleAiCandidates() {
     if (!session_) return false;
-    auto &assistant = preferences_["ai_assistant"];
+    auto snapshot = preferences_snapshot_;
+    if (!snapshot.is_object() || !snapshot.contains("preferences")) return false;
+    auto &assistant = snapshot["preferences"]["ai_assistant"];
     const bool enabled = !assistant.value("enabled", false);
     assistant["enabled"] = enabled;
+    if (!applyPreferenceSnapshot(std::move(snapshot))) return false;
     if (!enabled && !online_query_.empty()) {
       const auto empty = std::string("[]");
       view_ = response(msime_client_apply_online_candidates(
@@ -721,13 +1017,44 @@ public:
     return false;
   }
   void maintenance(int operation);
+  void applyContextOverrides(Json &preferences) const {
+    if (scheme_override_) preferences["scheme"] = *scheme_override_;
+    if (shuangpin_profile_override_) preferences["shuangpin_profile"] = *shuangpin_profile_override_;
+    if (helpcode_schema_override_) {
+      const auto section = preferences.value("scheme", std::string("quanpin")) == "shuangpin"
+          ? "shuangpin_helpcode" : "quanpin_helpcode";
+      preferences[section]["schema"] = *helpcode_schema_override_;
+    }
+    if (skin_override_) preferences["candidate_skin"] = *skin_override_;
+  }
+  Json effectiveContextSnapshot(Json snapshot) const {
+    if (snapshot.is_object() && snapshot.contains("preferences")) {
+      auto preferences = snapshot.at("preferences");
+      applyContextOverrides(preferences);
+      snapshot["preferences"] = std::move(preferences);
+    }
+    return snapshot;
+  }
+  bool applyPreferenceSnapshot(Json snapshot) {
+    if (!snapshot.is_object() || !snapshot.contains("revision") ||
+        !snapshot.contains("preferences")) return false;
+    const auto encoded = effectiveContextSnapshot(snapshot).dump();
+    view_ = response(msime_client_update_preferences(
+        session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
+    preferences_ = snapshot.at("preferences");
+    applyContextOverrides(preferences_);
+    preferences_snapshot_ = std::move(snapshot);
+    return true;
+  }
   bool ensure() {
     if (!ic_.hasFocus() || restricted()) { close(); clearPanel(); return false; }
     if (session_ && private_ != privateInput()) { close(); clearPanel(); }
     if (session_) return true;
     auto options = readOptions();
+    candidate_skin_catalog_ = parseCandidateSkinCatalog(options);
     private_ = privateInput();
     preferences_ = options.value("preferences", Json::object());
+    applyContextOverrides(preferences_);
     traditional_ = preferences_.value("traditional_chinese_output", false);
     chinese_punctuation_ = preferences_.value("chinese_punctuation", true);
     paired_punctuation_ = preferences_.value("paired_punctuation", true);
@@ -738,6 +1065,17 @@ public:
     word_character_enabled_ = wordCharacter.value("enabled", true);
     word_character_minus_equal_ = wordCharacter.value("keys", std::string("brackets")) == "minus_equal";
     options_path_ = options.value("preferences_directory", std::string());
+    if (!options_path_.empty()) {
+      try {
+        auto snapshot = response(msime_client_load_preferences(
+            reinterpret_cast<const uint8_t *>(options_path_.data()), options_path_.size()));
+        if (snapshot.is_object() && snapshot.contains("revision") && snapshot.contains("preferences"))
+          preferences_snapshot_ = std::move(snapshot);
+      } catch (...) {
+        // The prepared options remain usable for composition; preference actions will retry
+        // through the normal save/reload path when the store becomes available.
+      }
+    }
     resources_ = options.value("resources", std::string());
     clipboard_path_ = options.value("preferences_directory", std::string());
     if (clipboard_path_.empty()) clipboard_path_ = options.value("clipboard_history_path", std::string());
@@ -796,10 +1134,14 @@ public:
             snapshot["preferences"]["ai_assistant"]["enabled"] = false;
           }
           if (snapshot != preferences_snapshot_) {
-            const auto encoded = snapshot.dump();
+            auto effective = snapshot;
+            auto effectivePreferences = snapshot.at("preferences");
+            applyContextOverrides(effectivePreferences);
+            effective["preferences"] = effectivePreferences;
+            const auto encoded = effective.dump();
             view_ = response(msime_client_update_preferences(session_,
                 reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
-            preferences_ = snapshot.at("preferences");
+            preferences_ = std::move(effectivePreferences);
             traditional_ = preferences_.value("traditional_chinese_output", traditional_);
             chinese_punctuation_ = preferences_.value("chinese_punctuation", chinese_punctuation_);
             paired_punctuation_ = preferences_.value("paired_punctuation", paired_punctuation_);
@@ -838,6 +1180,7 @@ public:
     try {
       if (!session_ || !ic_.hasFocus() || restricted()) return;
       const auto options = readOptions();
+      candidate_skin_catalog_ = parseCandidateSkinCatalog(options);
       auto nextVoice = options.value("voice_provider_socket", std::string{});
       if (nextVoice.empty()) {
         if (const auto *socket = std::getenv("MSIME_VOICE_PROVIDER_SOCKET")) nextVoice = socket;
@@ -1448,8 +1791,86 @@ public:
     return apply(msime_client_punctuation_with_context(session_, value, preceding));
   }
   void select(uint64_t session, uint64_t generation, size_t index) {
+    if (translation_candidates_active_) {
+      if (session_ == session && view_.value("generation", uint64_t{}) == generation)
+        commitTranslationCandidate(index);
+      return;
+    }
     if (!ensure() || session_ != session || view_.value("generation", uint64_t{}) != generation) return;
     apply(msime_client_select(session_, generation, index));
+  }
+  bool translationCandidatesActive() const { return translation_candidates_active_; }
+  void translationPage(uint32_t command) {
+    if (!translation_candidates_active_) return;
+    const auto pageSize = std::clamp(
+        translation_saved_view_.value("page_size", size_t{9}), size_t{1}, size_t{9});
+    const auto pageCount = (translation_options_.size() + pageSize - 1) / pageSize;
+    if (command == MSIME_PREVIOUS_PAGE && translation_page_ > 0)
+      --translation_page_;
+    else if (command == MSIME_NEXT_PAGE && translation_page_ + 1 < pageCount)
+      ++translation_page_;
+    else
+      return;
+    translation_cursor_ = 0;
+    renderTranslationCandidates();
+  }
+  bool enterTranslationCandidates(const std::string &gloss) {
+    const auto senses = msime::linux_host::split_translation_gloss(gloss);
+    if (senses.size() <= 1) return false;
+    translation_saved_view_ = view_;
+    translation_options_ = senses;
+    translation_candidates_active_ = true;
+    translation_page_ = 0;
+    translation_cursor_ = 0;
+    renderTranslationCandidates();
+    return true;
+  }
+  void exitTranslationCandidates() {
+    if (!translation_candidates_active_) return;
+    translation_candidates_active_ = false;
+    if (translation_saved_view_.is_object()) view_ = std::move(translation_saved_view_);
+    translation_saved_view_ = Json::object();
+    translation_options_.clear();
+    translation_page_ = 0;
+    translation_cursor_ = 0;
+    render();
+  }
+  void renderTranslationCandidates() {
+    if (!translation_candidates_active_ || !translation_saved_view_.is_object() ||
+        translation_options_.empty()) return;
+    const auto pageSize = std::clamp(
+        translation_saved_view_.value("page_size", size_t{9}), size_t{1}, size_t{9});
+    const auto pageCount = (translation_options_.size() + pageSize - 1) / pageSize;
+    translation_page_ = std::min(translation_page_, pageCount - 1);
+    const auto start = translation_page_ * pageSize;
+    translation_cursor_ = std::min(translation_cursor_, translation_options_.size() - start - 1);
+    auto overlay = translation_saved_view_;
+    overlay["page"] = translation_page_;
+    overlay["page_size"] = pageSize;
+    overlay["page_count"] = pageCount;
+    overlay["candidates"] = Json::array();
+    const auto end = std::min(start + pageSize, translation_options_.size());
+    for (size_t index = start; index < end; ++index) {
+      Json candidate = Json::object();
+      candidate["text"] = translation_options_.at(index);
+      candidate["highlighted"] = index - start == translation_cursor_;
+      candidate["source"] = 5;
+      candidate["fixed_position"] = 0;
+      candidate["annotation"] = "";
+      candidate["id"] = {{"session", session_},
+                          {"generation", overlay.value("generation", uint64_t{})},
+                          {"index", index}};
+      overlay["candidates"].push_back(std::move(candidate));
+    }
+    view_ = std::move(overlay);
+    render();
+  }
+  void commitTranslationCandidate(size_t index) {
+    if (!translation_candidates_active_ || index >= translation_options_.size()) return;
+    const auto text = translation_options_.at(index);
+    exitTranslationCandidates();
+    commitText(text, msime::linux_host::TypingSource::Reply);
+    command(MSIME_CANCEL);
   }
   void render();
   bool removeCandidateSlot(size_t slot) {
@@ -1472,22 +1893,10 @@ public:
   bool toggleTraditional() {
     if (!session_ || view_.value("scheme", 0u) == 3) return false;
     traditional_ = !traditional_;
-    if (!options_path_.empty() && !private_) {
-      const auto directory = options_path_;
-      const auto enabled = traditional_;
-      preferences_save_job_ = std::async(std::launch::async, [directory, enabled] {
-        auto snapshot = response(msime_client_load_preferences(
-            reinterpret_cast<const uint8_t *>(directory.data()), directory.size()));
-        if (!snapshot.is_object() || !snapshot.contains("revision") ||
-            !snapshot.contains("preferences")) return Json::object();
-        snapshot["preferences"]["traditional_chinese_output"] = enabled;
-        const auto encoded = snapshot.dump();
-        return response(msime_client_save_preferences(
-            reinterpret_cast<const uint8_t *>(directory.data()), directory.size(),
-            snapshot.at("revision").get<uint64_t>(),
-            reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
-      }).share();
-    }
+    preferences_["traditional_chinese_output"] = traditional_;
+    if (preferences_snapshot_.is_object() && preferences_snapshot_.contains("preferences"))
+      preferences_snapshot_["preferences"]["traditional_chinese_output"] = traditional_;
+    saveBooleanPreference("traditional_chinese_output", traditional_);
     render();
     return true;
   }
@@ -1498,6 +1907,11 @@ public:
   Json navigation_ = Json::object();
   std::string options_path_;
   std::string resources_;
+  std::optional<std::string> scheme_override_;
+  std::optional<std::string> shuangpin_profile_override_;
+  std::optional<std::string> helpcode_schema_override_;
+  std::optional<std::string> skin_override_;
+  CandidateSkinCatalog candidate_skin_catalog_;
   Json preferences_snapshot_;
   uint64_t preferences_job_session_ = 0;
   std::shared_future<Json> preferences_job_;
@@ -1570,6 +1984,11 @@ public:
   bool voice_loading_ = false;
   bool word_character_enabled_ = true;
   bool word_character_minus_equal_ = false;
+  bool translation_candidates_active_ = false;
+  Json translation_saved_view_ = Json::object();
+  std::vector<std::string> translation_options_;
+  size_t translation_page_ = 0;
+  size_t translation_cursor_ = 0;
 };
 
 class FcitxCandidate : public fcitx::CandidateWord {
@@ -1634,11 +2053,13 @@ public:
   void next() override { move(MSIME_NEXT_PAGE); }
 #ifdef MSIME_FCITX_ACTIONS
   bool hasAction(const fcitx::CandidateWord &candidate) const override {
-    return dynamic_cast<const FcitxCandidate *>(&candidate) != nullptr;
+    return !state_.translationCandidatesActive() &&
+           dynamic_cast<const FcitxCandidate *>(&candidate) != nullptr;
   }
   std::vector<fcitx::CandidateAction>
   candidateActions(const fcitx::CandidateWord &candidate) const override {
     std::vector<fcitx::CandidateAction> actions;
+    if (state_.translationCandidatesActive()) return actions;
     const auto *item = dynamic_cast<const FcitxCandidate *>(&candidate);
     if (!item) return actions;
     if (state_.session_ != item->session() ||
@@ -1658,13 +2079,14 @@ public:
     if (candidateIt == candidates.end()) return actions;
     const auto &candidateJson = *candidateIt;
     const auto source = candidateJson.value("source", 0u);
+    const auto fixedPosition = candidateJson.value("fixed_position", 0u);
     if (msime::linux_host::candidate_dictionary_removal_available(
             state_.view_.value("scheme", 0u), source,
             candidateJson.value("text", std::string{})))
       actions.push_back(make(2, "删除候选"));
     for (int slot = 1; slot <= 5; ++slot)
       actions.push_back(make(10 + slot, ("固定到 " + std::to_string(slot)).c_str()));
-    actions.push_back(make(20, "取消固定"));
+    if (fixedPosition > 0) actions.push_back(make(20, "取消固定"));
     return actions;
   }
   void triggerAction(const fcitx::CandidateWord &candidate, int action) override {
@@ -1695,6 +2117,16 @@ private:
   void move(uint32_t command) {
     // render() replaces this list. Do not access members after dispatch.
     auto *state = &state_;
+    if (state->translationCandidatesActive()) {
+      // A stale Fcitx candidate list must not page a newer translation overlay.
+      // Rendering replaces this list, but Fcitx may still dispatch an already
+      // queued pageable callback after the replacement.
+      if (state->session_ != session_ ||
+          state->view_.value("generation", uint64_t{}) != generation_)
+        return;
+      state->translationPage(command);
+      return;
+    }
     const auto session = session_;
     const auto generation = generation_;
     try {
@@ -1719,7 +2151,7 @@ public:
   FcitxModeAction(fcitx::FactoryFor<FcitxState> *factory, Mode mode)
       : factory_(factory), mode_(mode) { setCheckable(true); }
   std::string shortText(fcitx::InputContext *) const override {
-    return mode_ == Mode::EnglishCandidates ? "英文候选" : "全角";
+    return mode_ == Mode::EnglishCandidates ? "英文输入模式" : "全角";
   }
   std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
   bool isChecked(fcitx::InputContext *ic) const override {
@@ -1767,6 +2199,61 @@ public:
       auto *state = ic->propertyFor(factory_);
       if (state->ensure() && state->toggleInputMode()) update(ic);
     } catch (...) {}
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
+class FcitxSchemeAction : public fcitx::SimpleAction {
+public:
+  explicit FcitxSchemeAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {}
+  std::string shortText(fcitx::InputContext *ic) const override {
+    if (!ic) return "输入方案";
+    const auto scheme = ic->propertyFor(factory_)->view_.value("scheme", 0u);
+    switch (scheme) {
+    case 1: return "输入方案：双拼";
+    case 2: return "输入方案：五笔";
+    case 3: return "输入方案：日文";
+    default: return "输入方案：全拼";
+    }
+  }
+  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try {
+      auto *state = ic->propertyFor(factory_);
+      if (state->cycleScheme()) update(ic);
+    } catch (...) {
+      ic->propertyFor(factory_)->close();
+      ic->propertyFor(factory_)->clearPanel();
+    }
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
+class FcitxShuangpinProfileAction : public fcitx::SimpleAction {
+public:
+  explicit FcitxShuangpinProfileAction(fcitx::FactoryFor<FcitxState> *factory)
+      : factory_(factory) {}
+  std::string shortText(fcitx::InputContext *ic) const override {
+    if (!ic) return "双拼方案";
+    const auto *state = ic->propertyFor(factory_);
+    const auto current = state->preferences_.value("shuangpin_profile", std::string("xiaohe"));
+    for (const auto &profile : msime::linux_host::kShuangpinProfileNames)
+      if (current == profile.value) return std::string("双拼方案：") + profile.label;
+    return "双拼方案";
+  }
+  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try {
+      auto *state = ic->propertyFor(factory_);
+      if (state->cycleShuangpinProfile()) update(ic);
+    } catch (...) {
+      ic->propertyFor(factory_)->close();
+      ic->propertyFor(factory_)->clearPanel();
+    }
   }
 private:
   fcitx::FactoryFor<FcitxState> *factory_;
@@ -1857,6 +2344,75 @@ private:
   fcitx::FactoryFor<FcitxState> *factory_;
 };
 
+class FcitxSchemeBooleanAction : public fcitx::Action {
+public:
+  enum class Kind { ShuangpinPreedit, WubiCodeHint };
+  FcitxSchemeBooleanAction(fcitx::FactoryFor<FcitxState> *factory, Kind kind)
+      : factory_(factory), kind_(kind) { setCheckable(true); }
+  std::string shortText(fcitx::InputContext *) const override {
+    return kind_ == Kind::ShuangpinPreedit ? "双拼原始预编辑" : "五笔剩余编码";
+  }
+  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  bool isChecked(fcitx::InputContext *ic) const override {
+    if (!ic) return false;
+    const auto *state = ic->propertyFor(factory_);
+    const auto scheme = state->view_.value("scheme", 0u);
+    if (kind_ == Kind::ShuangpinPreedit && scheme != 1) return false;
+    if (kind_ == Kind::WubiCodeHint && scheme != 2) return false;
+    const auto key = kind_ == Kind::ShuangpinPreedit
+        ? "shuangpin_preedit_uses_raw" : "wubi_code_hint";
+    return state->preferences_.value(key, true);
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    auto *state = ic->propertyFor(factory_);
+    const auto scheme = state->view_.value("scheme", 0u);
+    if ((kind_ == Kind::ShuangpinPreedit && scheme != 1) ||
+        (kind_ == Kind::WubiCodeHint && scheme != 2) ||
+        state->restricted() || state->privateInput()) return;
+    const auto key = kind_ == Kind::ShuangpinPreedit
+        ? "shuangpin_preedit_uses_raw" : "wubi_code_hint";
+    try {
+      if (state->toggleTopLevelBoolean(key, true)) update(ic);
+    } catch (...) {
+      state->close();
+      state->clearPanel();
+    }
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+  Kind kind_;
+};
+
+class FcitxHelpcodeSchemaAction : public fcitx::SimpleAction {
+public:
+  explicit FcitxHelpcodeSchemaAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {}
+  std::string shortText(fcitx::InputContext *ic) const override {
+    if (!ic) return "辅助码方案";
+    const auto *state = ic->propertyFor(factory_);
+    const auto scheme = state->view_.value("scheme", 0u);
+    const auto section = scheme == 1 ? "shuangpin_helpcode" : "quanpin_helpcode";
+    const auto value = state->preferences_.value(section, Json::object())
+        .value("schema", scheme == 1 ? std::string("lantian") : std::string("ziranma"));
+    const auto label = value == "lantian" ? "蓝天" : value == "ziranma" ? "自然码" :
+        value == "shouyou2_0" ? "搜狗 2.0" : value == "shouyouplus" ? "搜狗 Plus" : "小鹤";
+    return std::string("辅助码：") + label;
+  }
+  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try {
+      auto *state = ic->propertyFor(factory_);
+      if (state->cycleHelpcodeSchema()) update(ic);
+    } catch (...) {
+      ic->propertyFor(factory_)->close();
+      ic->propertyFor(factory_)->clearPanel();
+    }
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
 class FcitxAutocorrectAction : public fcitx::Action {
 public:
   enum class Mode { Transposition, Neighbor };
@@ -1940,6 +2496,35 @@ public:
     } catch (...) {
       state->close();
       state->clearPanel();
+    }
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+  const char *key_;
+  const char *label_;
+};
+
+class FcitxLocalModeAction : public fcitx::Action {
+public:
+  FcitxLocalModeAction(fcitx::FactoryFor<FcitxState> *factory, const char *key,
+                       const char *label)
+      : factory_(factory), key_(key), label_(label) { setCheckable(true); }
+  std::string shortText(fcitx::InputContext *) const override { return label_; }
+  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  bool isChecked(fcitx::InputContext *ic) const override {
+    if (!ic) return false;
+    const auto *state = ic->propertyFor(factory_);
+    return state->session_ && state->preferences_.value("local_modes", Json::object())
+        .value(key_, true);
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try {
+      auto *state = ic->propertyFor(factory_);
+      if (state->toggleLocalMode(key_)) update(ic);
+    } catch (...) {
+      ic->propertyFor(factory_)->close();
+      ic->propertyFor(factory_)->clearPanel();
     }
   }
 private:
@@ -2123,6 +2708,56 @@ private:
   fcitx::FactoryFor<FcitxState> *factory_;
 };
 
+class FcitxCandidateThemeAction : public fcitx::SimpleAction {
+public:
+  explicit FcitxCandidateThemeAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {}
+  std::string shortText(fcitx::InputContext *ic) const override {
+    if (!ic) return "候选主题";
+    const auto theme = ic->propertyFor(factory_)->preferences_.value("candidate_theme", std::string("follow"));
+    return theme == "light" ? "候选主题：浅色" : theme == "dark" ? "候选主题：深色" : "候选主题：跟随系统";
+  }
+  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try {
+      auto *state = ic->propertyFor(factory_);
+      if (state->cycleCandidateTheme()) update(ic);
+    } catch (...) {
+      ic->propertyFor(factory_)->close();
+      ic->propertyFor(factory_)->clearPanel();
+    }
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
+class FcitxCandidateSkinAction : public fcitx::SimpleAction {
+public:
+  explicit FcitxCandidateSkinAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {}
+  std::string shortText(fcitx::InputContext *ic) const override {
+    if (!ic) return "候选皮肤";
+    const auto *state = ic->propertyFor(factory_);
+    const auto skin = state->preferences_.value("candidate_skin", std::string("willow_green"));
+    for (const auto &[id, title] : state->candidate_skin_catalog_)
+      if (skin == id) return "候选皮肤：" + title;
+    return skin == "fluent" ? "候选皮肤：Fluent" : skin == "wechat" ? "候选皮肤：微信绿" :
+        skin == "graphite" ? "候选皮肤：石墨" : "候选皮肤：杨柳青";
+  }
+  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try {
+      auto *state = ic->propertyFor(factory_);
+      if (state->cycleCandidateSkin()) update(ic);
+    } catch (...) {
+      ic->propertyFor(factory_)->close();
+      ic->propertyFor(factory_)->clearPanel();
+    }
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
 class FcitxCandidatePageSizeItemAction : public fcitx::SimpleAction {
 public:
   FcitxCandidatePageSizeItemAction(fcitx::FactoryFor<FcitxState> *factory, uint8_t size)
@@ -2173,12 +2808,12 @@ public:
     try {
       if (state->ensure()) {
         const bool enabled = !state->preferences_.value("learning", true);
-        state->preferences_["learning"] = enabled;
+        auto snapshot = state->preferences_snapshot_;
+        if (!snapshot.is_object() || !snapshot.contains("preferences") ||
+            !snapshot.contains("revision")) return;
+        snapshot["preferences"]["learning"] = enabled;
+        if (!state->applyPreferenceSnapshot(std::move(snapshot))) return;
         state->saveBooleanPreference("learning", enabled);
-        if (state->preferences_save_job_.valid()) {
-          try { state->preferences_save_job_.get(); } catch (...) {}
-          state->preferences_save_job_ = {};
-        }
         state->render();
         update(ic);
       }
@@ -2189,6 +2824,59 @@ public:
   }
 private:
   fcitx::FactoryFor<FcitxState> *factory_;
+};
+
+class FcitxFrequencyAction : public fcitx::SimpleAction {
+public:
+  explicit FcitxFrequencyAction(fcitx::FactoryFor<FcitxState> *factory) : factory_(factory) {}
+  std::string shortText(fcitx::InputContext *ic) const override {
+    if (!ic) return "词频调节";
+    const auto mode = ic->propertyFor(factory_)->preferences_
+        .value("frequency", Json::object()).value("mode", std::string("promote"));
+    const auto label = mode == "disabled" ? "禁用" : mode == "pin" ? "固定" :
+        mode == "halve" ? "减半" : mode == "linear" ? "线性" : "提升";
+    return std::string("词频：") + label;
+  }
+  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try {
+      auto *state = ic->propertyFor(factory_);
+      if (state->cycleFrequencyMode()) update(ic);
+    } catch (...) {
+      ic->propertyFor(factory_)->close();
+      ic->propertyFor(factory_)->clearPanel();
+    }
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
+class FcitxFrequencyNumberAction : public fcitx::SimpleAction {
+public:
+  FcitxFrequencyNumberAction(fcitx::FactoryFor<FcitxState> *factory, const char *key,
+                             const char *label)
+      : factory_(factory), key_(key), label_(label) {}
+  std::string shortText(fcitx::InputContext *ic) const override {
+    const auto value = ic ? ic->propertyFor(factory_)->preferences_
+        .value("frequency", Json::object()).value(key_, 1u) : 1u;
+    return std::string(label_) + "：" + std::to_string(value);
+  }
+  std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try {
+      auto *state = ic->propertyFor(factory_);
+      if (state->cycleFrequencyNumber(key_)) update(ic);
+    } catch (...) {
+      ic->propertyFor(factory_)->close();
+      ic->propertyFor(factory_)->clearPanel();
+    }
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+  const char *key_;
+  const char *label_;
 };
 
 class FcitxModeScopeAction : public fcitx::SimpleAction {
@@ -2731,6 +3419,8 @@ public:
     instance->inputContextManager().registerProperty("msimeState", &factory_);
     english_action_.registerAction("msime-english-candidates", &instance->userInterfaceManager());
     input_mode_action_.registerAction("msime-input-mode", &instance->userInterfaceManager());
+    scheme_action_.registerAction("msime-scheme", &instance->userInterfaceManager());
+    shuangpin_profile_action_.registerAction("msime-shuangpin-profile", &instance->userInterfaceManager());
     width_action_.registerAction("msime-fullwidth", &instance->userInterfaceManager());
     nine_key_action_.registerAction("msime-nine-key", &instance->userInterfaceManager());
     nine_key_action_.setMenu(&nine_key_menu_);
@@ -2749,9 +3439,20 @@ public:
     mixed_english_action_.registerAction("msime-mixed-english", &instance->userInterfaceManager());
     mixed_emoji_action_.registerAction("msime-mixed-emoji", &instance->userInterfaceManager());
     mixed_kaomoji_action_.registerAction("msime-mixed-kaomoji", &instance->userInterfaceManager());
+    local_unicode_action_.registerAction("msime-local-unicode", &instance->userInterfaceManager());
+    local_date_time_action_.registerAction("msime-local-date-time", &instance->userInterfaceManager());
+    local_quick_phrase_action_.registerAction("msime-local-quick-phrase", &instance->userInterfaceManager());
+    local_emoji_action_.registerAction("msime-local-emoji", &instance->userInterfaceManager());
+    local_kaomoji_action_.registerAction("msime-local-kaomoji", &instance->userInterfaceManager());
+    local_super_jianpin_action_.registerAction("msime-local-super-jianpin", &instance->userInterfaceManager());
+    local_temporary_english_action_.registerAction("msime-local-temporary-english", &instance->userInterfaceManager());
+    local_temporary_japanese_action_.registerAction("msime-local-temporary-japanese", &instance->userInterfaceManager());
     english_gloss_action_.registerAction("msime-english-gloss", &instance->userInterfaceManager());
     word_character_action_.registerAction("msime-word-character", &instance->userInterfaceManager());
     number_row_action_.registerAction("msime-number-row", &instance->userInterfaceManager());
+    shuangpin_preedit_action_.registerAction("msime-shuangpin-preedit", &instance->userInterfaceManager());
+    wubi_code_hint_action_.registerAction("msime-wubi-code-hint", &instance->userInterfaceManager());
+    helpcode_schema_action_.registerAction("msime-helpcode-schema", &instance->userInterfaceManager());
     maintenance_action_.registerAction("msime-candidate-tools", &instance->userInterfaceManager());
     clipboard_action_.registerAction("msime-clipboard", &instance->userInterfaceManager());
     clipboard_history_action_.registerAction("msime-clipboard-history", &instance->userInterfaceManager());
@@ -2769,6 +3470,8 @@ public:
     smart_punctuation_action_.registerAction("msime-smart-punctuation", &instance->userInterfaceManager());
     smart_punctuation_repeat_action_.registerAction("msime-smart-punctuation-repeat", &instance->userInterfaceManager());
     candidate_layout_action_.registerAction("msime-candidate-layout", &instance->userInterfaceManager());
+    candidate_theme_action_.registerAction("msime-candidate-theme", &instance->userInterfaceManager());
+    candidate_skin_action_.registerAction("msime-candidate-skin", &instance->userInterfaceManager());
     candidate_page_size_action_.registerAction("msime-candidate-page-size", &instance->userInterfaceManager());
     candidate_page_size_action_.setMenu(&candidate_page_size_menu_);
     candidate_page_size_menu_.addAction(&candidate_page_size1_);
@@ -2781,6 +3484,9 @@ public:
     candidate_page_size_menu_.addAction(&candidate_page_size8_);
     candidate_page_size_menu_.addAction(&candidate_page_size9_);
     learning_action_.registerAction("msime-learning", &instance->userInterfaceManager());
+    frequency_action_.registerAction("msime-frequency", &instance->userInterfaceManager());
+    frequency_trigger_action_.registerAction("msime-frequency-trigger", &instance->userInterfaceManager());
+    frequency_step_action_.registerAction("msime-frequency-step", &instance->userInterfaceManager());
     mode_scope_action_.registerAction("msime-mode-scope", &instance->userInterfaceManager());
     candidate_translation_action_.registerAction("msime-candidate-translations", &instance->userInterfaceManager());
     punctuation_lock_action_.registerAction("msime-punctuation-lock", &instance->userInterfaceManager());
@@ -2861,6 +3567,8 @@ public:
     auto *state = event.inputContext()->propertyFor(&factory_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &english_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &input_mode_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &scheme_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &shuangpin_profile_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &width_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &nine_key_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &helpcode_action_);
@@ -2869,9 +3577,20 @@ public:
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &mixed_english_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &mixed_emoji_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &mixed_kaomoji_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &local_unicode_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &local_date_time_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &local_quick_phrase_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &local_emoji_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &local_kaomoji_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &local_super_jianpin_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &local_temporary_english_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &local_temporary_japanese_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &english_gloss_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &word_character_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &number_row_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &shuangpin_preedit_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &wubi_code_hint_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &helpcode_schema_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &maintenance_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &clipboard_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &clipboard_history_action_);
@@ -2889,8 +3608,13 @@ public:
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &smart_punctuation_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &smart_punctuation_repeat_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &candidate_layout_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &candidate_theme_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &candidate_skin_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &candidate_page_size_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &learning_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &frequency_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &frequency_trigger_action_);
+    event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &frequency_step_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &mode_scope_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &candidate_translation_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &punctuation_lock_action_);
@@ -2903,6 +3627,8 @@ public:
     auto *state = event.inputContext()->propertyFor(&factory_);
     event.inputContext()->statusArea().removeAction(&english_action_);
     event.inputContext()->statusArea().removeAction(&input_mode_action_);
+    event.inputContext()->statusArea().removeAction(&scheme_action_);
+    event.inputContext()->statusArea().removeAction(&shuangpin_profile_action_);
     event.inputContext()->statusArea().removeAction(&width_action_);
     event.inputContext()->statusArea().removeAction(&nine_key_action_);
     event.inputContext()->statusArea().removeAction(&helpcode_action_);
@@ -2911,9 +3637,20 @@ public:
     event.inputContext()->statusArea().removeAction(&mixed_english_action_);
     event.inputContext()->statusArea().removeAction(&mixed_emoji_action_);
     event.inputContext()->statusArea().removeAction(&mixed_kaomoji_action_);
+    event.inputContext()->statusArea().removeAction(&local_unicode_action_);
+    event.inputContext()->statusArea().removeAction(&local_date_time_action_);
+    event.inputContext()->statusArea().removeAction(&local_quick_phrase_action_);
+    event.inputContext()->statusArea().removeAction(&local_emoji_action_);
+    event.inputContext()->statusArea().removeAction(&local_kaomoji_action_);
+    event.inputContext()->statusArea().removeAction(&local_super_jianpin_action_);
+    event.inputContext()->statusArea().removeAction(&local_temporary_english_action_);
+    event.inputContext()->statusArea().removeAction(&local_temporary_japanese_action_);
     event.inputContext()->statusArea().removeAction(&english_gloss_action_);
     event.inputContext()->statusArea().removeAction(&word_character_action_);
     event.inputContext()->statusArea().removeAction(&number_row_action_);
+    event.inputContext()->statusArea().removeAction(&shuangpin_preedit_action_);
+    event.inputContext()->statusArea().removeAction(&wubi_code_hint_action_);
+    event.inputContext()->statusArea().removeAction(&helpcode_schema_action_);
     event.inputContext()->statusArea().removeAction(&maintenance_action_);
     event.inputContext()->statusArea().removeAction(&clipboard_action_);
     event.inputContext()->statusArea().removeAction(&clipboard_history_action_);
@@ -2931,8 +3668,13 @@ public:
     event.inputContext()->statusArea().removeAction(&smart_punctuation_action_);
     event.inputContext()->statusArea().removeAction(&smart_punctuation_repeat_action_);
     event.inputContext()->statusArea().removeAction(&candidate_layout_action_);
+    event.inputContext()->statusArea().removeAction(&candidate_theme_action_);
+    event.inputContext()->statusArea().removeAction(&candidate_skin_action_);
     event.inputContext()->statusArea().removeAction(&candidate_page_size_action_);
     event.inputContext()->statusArea().removeAction(&learning_action_);
+    event.inputContext()->statusArea().removeAction(&frequency_action_);
+    event.inputContext()->statusArea().removeAction(&frequency_trigger_action_);
+    event.inputContext()->statusArea().removeAction(&frequency_step_action_);
     event.inputContext()->statusArea().removeAction(&mode_scope_action_);
     event.inputContext()->statusArea().removeAction(&candidate_translation_action_);
     event.inputContext()->statusArea().removeAction(&punctuation_lock_action_);
@@ -2964,6 +3706,8 @@ public:
   std::unique_ptr<fcitx::HandlerTableEntry<fcitx::EventHandler>> focus_watch_;
   FcitxModeAction english_action_{&factory_, FcitxModeAction::Mode::EnglishCandidates};
   FcitxInputModeAction input_mode_action_{&factory_};
+  FcitxSchemeAction scheme_action_{&factory_};
+  FcitxShuangpinProfileAction shuangpin_profile_action_{&factory_};
   FcitxModeAction width_action_{&factory_, FcitxModeAction::Mode::Fullwidth};
   fcitx::Menu nine_key_menu_;
   FcitxNineKeyAction nine_key_action_{&factory_};
@@ -2982,9 +3726,20 @@ public:
   FcitxMixedEnglishAction mixed_english_action_{&factory_};
   FcitxMixedCandidateAction mixed_emoji_action_{&factory_, "emoji", "混合 Emoji"};
   FcitxMixedCandidateAction mixed_kaomoji_action_{&factory_, "kaomoji", "混合颜文字"};
+  FcitxLocalModeAction local_unicode_action_{&factory_, "unicode", "Unicode（U 模式）"};
+  FcitxLocalModeAction local_date_time_action_{&factory_, "date_time", "日期时间（T 模式）"};
+  FcitxLocalModeAction local_quick_phrase_action_{&factory_, "quick_phrase", "快捷短语（K 模式）"};
+  FcitxLocalModeAction local_emoji_action_{&factory_, "emoji", "Emoji（E 模式）"};
+  FcitxLocalModeAction local_kaomoji_action_{&factory_, "kaomoji", "颜文字（M 模式）"};
+  FcitxLocalModeAction local_super_jianpin_action_{&factory_, "super_jianpin", "超级简拼（J 模式）"};
+  FcitxLocalModeAction local_temporary_english_action_{&factory_, "temporary_english", "临时英文（Y 模式）"};
+  FcitxLocalModeAction local_temporary_japanese_action_{&factory_, "temporary_japanese", "临时日文（R 模式）"};
   FcitxEnglishGlossAction english_gloss_action_{&factory_};
   FcitxWordCharacterAction word_character_action_{&factory_};
   FcitxNumberRowAction number_row_action_{&factory_};
+  FcitxSchemeBooleanAction shuangpin_preedit_action_{&factory_, FcitxSchemeBooleanAction::Kind::ShuangpinPreedit};
+  FcitxSchemeBooleanAction wubi_code_hint_action_{&factory_, FcitxSchemeBooleanAction::Kind::WubiCodeHint};
+  FcitxHelpcodeSchemaAction helpcode_schema_action_{&factory_};
   fcitx::Menu maintenance_menu_;
   FcitxMaintenanceAction maintenance_action_{&factory_, 0, "候选维护"};
   FcitxClipboardAction clipboard_action_{&factory_};
@@ -3003,6 +3758,8 @@ public:
   FcitxSmartPunctuationAction smart_punctuation_action_{&factory_, FcitxSmartPunctuationAction::Mode::Smart};
   FcitxSmartPunctuationAction smart_punctuation_repeat_action_{&factory_, FcitxSmartPunctuationAction::Mode::Repeat};
   FcitxCandidateLayoutAction candidate_layout_action_{&factory_};
+  FcitxCandidateThemeAction candidate_theme_action_{&factory_};
+  FcitxCandidateSkinAction candidate_skin_action_{&factory_};
   fcitx::Menu candidate_page_size_menu_;
   FcitxCandidatePageSizeAction candidate_page_size_action_;
   FcitxCandidatePageSizeItemAction candidate_page_size1_{&factory_, 1};
@@ -3015,6 +3772,9 @@ public:
   FcitxCandidatePageSizeItemAction candidate_page_size8_{&factory_, 8};
   FcitxCandidatePageSizeItemAction candidate_page_size9_{&factory_, 9};
   FcitxLearningAction learning_action_{&factory_};
+  FcitxFrequencyAction frequency_action_{&factory_};
+  FcitxFrequencyNumberAction frequency_trigger_action_{&factory_, "trigger_count", "词频触发次数"};
+  FcitxFrequencyNumberAction frequency_step_action_{&factory_, "linear_step", "线性调整步长"};
   FcitxModeScopeAction mode_scope_action_{&factory_};
   FcitxCandidateTranslationAction candidate_translation_action_{&factory_};
   FcitxPunctuationLockAction punctuation_lock_action_{&factory_};
@@ -3074,11 +3834,16 @@ void FcitxState::render() {
   }
   ic_.inputPanel().reset();
   const auto editing = view_.value("editing_text", std::string());
-  fcitx::Text preedit(editing, fcitx::TextFormatFlag::Underline);
-  preedit.setCursor(std::min(editing.size(), view_.value("caret_position", size_t{})));
-  if (ic_.capabilityFlags().test(fcitx::CapabilityFlag::Preedit))
-    ic_.inputPanel().setClientPreedit(preedit);
-  else ic_.inputPanel().setPreedit(preedit);
+  const auto style = preferences_.value("tsf_preedit_style", std::string("raw"));
+  if (style != "empty") {
+    const auto text = style == "pinyin" ? view_.value("preedit", editing) : editing;
+    fcitx::Text preedit(text, fcitx::TextFormatFlag::Underline);
+    if (text == editing)
+      preedit.setCursor(std::min(editing.size(), view_.value("caret_position", size_t{})));
+    if (ic_.capabilityFlags().test(fcitx::CapabilityFlag::Preedit))
+      ic_.inputPanel().setClientPreedit(preedit);
+    else ic_.inputPanel().setPreedit(preedit);
+  }
   if (!view_.at("candidates").empty()) {
     // Look up the registered factory via the owning engine for stable candidate callbacks.
     if (engine_) ic_.inputPanel().setCandidateList(std::make_unique<FcitxPage>(*this, &engine_->factory_));
@@ -3090,6 +3855,15 @@ void FcitxState::render() {
         mode == "kaomoji" ? "颜文字" : mode == "abbreviation" ? "简拼" :
         mode == "english" ? "EN" : mode == "japanese" ? "日文" : "";
     if (*modeLabel) aux += " · " + std::string(modeLabel);
+    if (preferences_.value("candidate_preedit_style", std::string("pinyin")) == "pinyin") {
+      const auto candidatePreedit = view_.value("preedit", std::string{});
+      if (!candidatePreedit.empty()) {
+        const auto caret = std::min(editing.size(), view_.value("caret_position", editing.size()));
+        const auto displayed = msime::linux_host::candidate_preedit_with_caret(
+            candidatePreedit, editing, caret);
+        if (!displayed.empty()) aux += " · " + displayed;
+      }
+    }
     ic_.inputPanel().setAuxDown(fcitx::Text(aux));
   }
   if (emoji_search_mode_)
@@ -3288,6 +4062,86 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   if (sym == FcitxKey_space && ctrl && shift && !alt) {
     if (composing) command(MSIME_COMMIT_RAW);
     return toggleWidth();
+  }
+  if (translation_candidates_active_) {
+    if (ctrl && !alt && !shift &&
+        (sym == FcitxKey_Return || sym == FcitxKey_KP_Enter))
+      return true;
+    if (sym == FcitxKey_Escape) {
+      exitTranslationCandidates();
+      return command(MSIME_CANCEL);
+    }
+    const auto pageSize = std::clamp(
+        translation_saved_view_.value("page_size", size_t{9}), size_t{1}, size_t{9});
+    const auto pageStart = translation_page_ * pageSize;
+    const auto pageEnd = std::min(pageStart + pageSize, translation_options_.size());
+    if (!ctrl && !alt && !shift && (sym == FcitxKey_space ||
+                                    (sym >= FcitxKey_1 && sym <= FcitxKey_9) ||
+                                    (sym >= FcitxKey_KP_1 && sym <= FcitxKey_KP_9))) {
+      const auto slot = sym == FcitxKey_space
+                            ? translation_cursor_
+                            : static_cast<size_t>(sym >= FcitxKey_KP_1
+                                                      ? sym - FcitxKey_KP_1
+                                                      : sym - FcitxKey_1);
+      const auto index = pageStart + slot;
+      if (index < translation_options_.size()) commitTranslationCandidate(index);
+      return true;
+    }
+    if (!ctrl && !alt && !shift &&
+        (sym == FcitxKey_Up || sym == FcitxKey_KP_Up ||
+         sym == FcitxKey_Down || sym == FcitxKey_KP_Down)) {
+      if (sym == FcitxKey_Up || sym == FcitxKey_KP_Up)
+        translation_cursor_ = translation_cursor_ == 0 ? 0 : translation_cursor_ - 1;
+      else if (translation_cursor_ + 1 < pageEnd - pageStart)
+        ++translation_cursor_;
+      renderTranslationCandidates();
+      return true;
+    }
+    if (!ctrl && !alt && !shift &&
+        (sym == FcitxKey_Page_Up || sym == FcitxKey_KP_Page_Up ||
+         sym == FcitxKey_Page_Down || sym == FcitxKey_KP_Page_Down)) {
+      translationPage(sym == FcitxKey_Page_Up || sym == FcitxKey_KP_Page_Up
+                          ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE);
+      return true;
+    }
+    // Other editing keys first restore the Engine-owned candidate page below.
+    exitTranslationCandidates();
+  }
+  // Match the Windows candidate-translation shortcut. Fcitx owns the
+  // candidate panel, so commit the currently highlighted rendered gloss
+  // directly for one sense, or expose a temporary native candidate page for
+  // multiple senses; without a valid gloss the chord remains an application shortcut.
+  if (ctrl && !alt && !shift &&
+      (sym == FcitxKey_Return || sym == FcitxKey_KP_Enter) && composing &&
+      preferences_.value("candidate_translations", false)) {
+    const auto candidates = view_.value("candidates", Json::array());
+    if (candidates.is_array()) {
+      for (const auto &candidate : candidates) {
+        if (!candidate.is_object() || !candidate.value("highlighted", false))
+          continue;
+        const auto translation = candidate.value("translation", std::string{});
+        if (!translation.empty() && translation.size() <= 4096) {
+          if (enterTranslationCandidates(translation)) return true;
+          const auto senses = msime::linux_host::split_translation_gloss(translation);
+          if (!senses.empty()) {
+            commitText(senses.front(), msime::linux_host::TypingSource::Reply);
+            command(MSIME_CANCEL);
+            return true;
+          }
+        }
+        break;
+      }
+    }
+  }
+  // Keep Ctrl-only segment editing consistent with IBus and the Windows
+  // composition editor. The shared runtime resolves the actual segment
+  // boundaries and falls back safely for local modes.
+  if (ctrl && !alt && !shift && composing) {
+    if (sym == FcitxKey_BackSpace) return command(MSIME_BACKSPACE_SEGMENT);
+    if (sym == FcitxKey_Left || sym == FcitxKey_KP_Left)
+      return command(MSIME_MOVE_LEFT_SEGMENT);
+    if (sym == FcitxKey_Right || sym == FcitxKey_KP_Right)
+      return command(MSIME_MOVE_RIGHT_SEGMENT);
   }
   if (states.testAny(fcitx::KeyStates{fcitx::KeyState::Ctrl, fcitx::KeyState::Alt,
                                       fcitx::KeyState::Super, fcitx::KeyState::Hyper})) {
