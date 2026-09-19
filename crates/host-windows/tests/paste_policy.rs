@@ -1,5 +1,5 @@
 // Exercise the production guard on every host without accessing a clipboard.
-#[path = "../src/paste_policy.rs"]
+#[path = "../src/voice_output/paste_policy.rs"]
 mod paste_policy;
 
 use msime_client_core::clipboard::{normalize_text, MAX_TEXT_BYTES, MAX_TEXT_UTF16_UNITS};
