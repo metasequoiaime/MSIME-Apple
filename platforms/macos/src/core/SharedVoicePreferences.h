@@ -85,6 +85,7 @@ static inline NSDictionary *MSIMEVoicePreferencesFromDefaults(NSUserDefaults *de
         @"asr_provider": @"MSIMEClientVoiceASRProvider",
         @"asr_endpoint": @"MSIMEClientVoiceASREndpoint",
         @"asr_model": @"MSIMEClientVoiceASRModel",
+        @"asr_model_path": @"MSIMEClientVoiceASRModelPath",
         @"asr_token": @"MSIMEClientVoiceASRToken",
         @"capture_backend": @"MSIMEClientVoiceCaptureBackend",
         @"capture_device": @"MSIMEClientVoiceCaptureDevice",

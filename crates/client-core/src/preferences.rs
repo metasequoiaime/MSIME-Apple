@@ -578,6 +578,10 @@ pub struct VoiceInputPreferences {
     pub asr_endpoint: String,
     #[serde(default)]
     pub asr_model: String,
+    /// Absolute path to a local Whisper model file. Only the `local` provider
+    /// reads it; nothing is uploaded and no endpoint or token applies.
+    #[serde(default)]
+    pub asr_model_path: String,
     #[serde(default)]
     pub asr_resource_id: String,
     #[serde(default)]
@@ -647,6 +651,7 @@ impl Default for VoiceInputPreferences {
             asr_tokens: BTreeMap::new(),
             asr_endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async".into(),
             asr_model: String::new(),
+            asr_model_path: String::new(),
             asr_resource_id: "volc.seedasr.sauc.duration".into(),
             polish_enabled: false,
             polish_text: false,
@@ -1319,8 +1324,10 @@ fn default_shuangpin_helpcode() -> HelpcodePreferences {
 }
 
 /// Persisted recognition provider identifiers. Hosts expose only the providers
-/// they implement: `system` is the macOS Speech adapter, not a cloud profile.
-pub const ASR_PROVIDERS: [&str; 7] = [
+/// they implement: `system` is the macOS Speech adapter, not a cloud profile,
+/// and `local` is on-device Whisper, which needs `asr_model_path` and a host
+/// built with the recognizer behind it.
+pub const ASR_PROVIDERS: [&str; 8] = [
     "doubao",
     "siliconflow",
     "openai",
@@ -1328,6 +1335,7 @@ pub const ASR_PROVIDERS: [&str; 7] = [
     "everyapi",
     "mistral",
     "system",
+    "local",
 ];
 /// OpenAI-compatible AI services exposed by the Apple settings surface and
 /// shared by every host. Providers that need special request fields are still
@@ -1430,8 +1438,12 @@ impl Preferences {
         {
             return Err(PreferencesError::InvalidAiAssistant);
         }
+        let model_path = &self.voice_input.asr_model_path;
         if !ASR_PROVIDERS.contains(&self.voice_input.asr_provider.as_str())
             || !POLISH_PROVIDERS.contains(&self.voice_input.polish_provider.as_str())
+            || model_path.len() > 4096
+            || model_path.chars().any(char::is_control)
+            || (!model_path.is_empty() && !model_path.starts_with('/'))
         {
             return Err(PreferencesError::InvalidVoiceInput);
         }

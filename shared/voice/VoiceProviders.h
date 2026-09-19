@@ -31,6 +31,13 @@ std::string polish_cloud_text(
     std::string_view text, std::string_view provider, std::string_view endpoint,
     std::string_view model, std::string_view token, std::string_view prompt,
     const std::shared_ptr<std::atomic_bool> &cancelled);
+// Whether this build carries the on-device Whisper provider. Hosts offer the "local" provider only when it answers true; without it the recognizer below always throws, and a host that advertised the option anyway would fall back to the platform recognizer without saying so.
+bool local_asr_available();
+// Transcribe on this machine with the model file at `model_path`. Nothing leaves the process. `language` is the host's language tag; "auto" asks Whisper to detect. Throws VoiceError when the build has no Whisper, the model cannot be loaded, or the request was cancelled.
+std::string recognize_local_asr(
+    const std::vector<float> &samples, std::string_view model_path,
+    std::string_view language,
+    const std::shared_ptr<std::atomic_bool> &cancelled);
 }
 namespace msime::voice {
 using windows::transcription_language;
@@ -44,4 +51,6 @@ using windows::voice_endpoint_is_websocket;
 using windows::resolved_asr_endpoint;
 using windows::recognize_cloud_asr;
 using windows::polish_cloud_text;
+using windows::local_asr_available;
+using windows::recognize_local_asr;
 }

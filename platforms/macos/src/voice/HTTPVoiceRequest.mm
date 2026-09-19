@@ -60,7 +60,7 @@ std::string Polish(std::string text, NSDictionary *options, const std::shared_pt
     _recognitionRequired = recognitionRequired;
     if (![options isKindOfClass:NSDictionary.class]) { if (error) *error = Failure(); return nil; }
     NSMutableDictionary *snapshot = [NSMutableDictionary dictionary];
-    for (NSString *key in @[@"asr_provider", @"asr_endpoint", @"asr_model", @"asr_token", @"language",
+    for (NSString *key in @[@"asr_provider", @"asr_endpoint", @"asr_model", @"asr_model_path", @"asr_token", @"language",
         @"polish_provider", @"polish_endpoint", @"polish_model", @"polish_token", @"polish_prompt_id",
         @"polish_prompt", @"polish_prompt_custom_1", @"polish_prompt_custom_2", @"polish_prompt_custom_3"]) {
         id value = options[key];
@@ -83,6 +83,18 @@ std::string Polish(std::string text, NSDictionary *options, const std::shared_pt
     }
     if (recognitionRequired) {
         const auto provider = msime::voice::normalize_voice_provider(String(snapshot, @"asr_provider"));
+        if (provider == "local") {
+            // Nothing leaves the process, so there is no endpoint or token to check. What has to hold is that this build carries the recognizer and that the model is a readable file rather than a directory or a path the user has since moved.
+            NSString *model = snapshot[@"asr_model_path"];
+            BOOL directory = NO;
+            if (!msime::voice::local_asr_available() || !model.isAbsolutePath ||
+                ![NSFileManager.defaultManager fileExistsAtPath:model isDirectory:&directory] || directory) {
+                if (error) *error = Failure(); return nil;
+            }
+            snapshot[@"asr_provider"] = @"local";
+            _options = [snapshot copy];
+            return self;
+        }
         const auto endpoint = msime::voice::resolved_asr_endpoint(provider, String(snapshot, @"asr_endpoint"));
         // The batch multipart providers. Doubao is the streaming websocket and never reaches
         // this request; anything else is stale configuration rather than a provider choice.
@@ -120,8 +132,10 @@ std::string Polish(std::string text, NSDictionary *options, const std::shared_pt
                 auto language = String(options, @"language");
                 if (language == "en-US" || language == "en-us") language = "en";
                 if (language == "zh-CN") language = "zh-cn";
-                auto text = msime::voice::recognize_cloud_asr(samples, String(options, @"asr_provider"),
-                    String(options, @"asr_endpoint"), String(options, @"asr_model"), String(options, @"asr_token"), language, cancelled);
+                auto text = String(options, @"asr_provider") == "local"
+                    ? msime::voice::recognize_local_asr(samples, String(options, @"asr_model_path"), language, cancelled)
+                    : msime::voice::recognize_cloud_asr(samples, String(options, @"asr_provider"),
+                        String(options, @"asr_endpoint"), String(options, @"asr_model"), String(options, @"asr_token"), language, cancelled);
                 text = Polish(std::move(text), options, cancelled, polishing);
                 result = [[NSString alloc] initWithBytes:text.data() length:text.size() encoding:NSUTF8StringEncoding];
                 if (!result.length) failure = Failure();

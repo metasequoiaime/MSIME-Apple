@@ -22,6 +22,8 @@ set(MSIME_PANEL_SESSION_PROBE "" CACHE FILEPATH "Optional Cargo panel_session_pr
 if(MSIME_PANEL_SESSION_PROBE)
   add_test(NAME desktop-input-interop COMMAND desktop-input-interop-test "${MSIME_PANEL_SESSION_PROBE}")
 endif()
+# The voice settings window offers 本地 Whisper and validates a model file, so this host has to carry the recognizer behind that option. Without it the choice is accepted, stored, and then silently served by the platform recognizer instead.
+set(MSIME_SHARED_VOICE_LOCAL_WHISPER ON CACHE BOOL "" FORCE)
 add_subdirectory(../../shared/voice shared-voice)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_OBJCXX_STANDARD 17)

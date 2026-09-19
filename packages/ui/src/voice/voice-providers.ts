@@ -22,6 +22,11 @@ export type ProviderDefaults = {
 
 export const ASR_PROVIDER_DEFAULTS: Record<string, ProviderDefaults> = {
   system: { endpoint: "", model: "" },
+  // On-device Whisper. The model is a file the user points at, not a name a service resolves, so it lives in `asr_model_path` and there is no endpoint, token or model list to offer here.
+  local: {
+    endpoint: "", model: "",
+    documentation: "https://huggingface.co/ggerganov/whisper.cpp/tree/main",
+  },
   doubao: {
     endpoint: "wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async", model: "",
     documentation: "https://www.volcengine.com/docs/6561/1354869",
@@ -125,9 +130,10 @@ export function asrProviderUpdate(
     asr_token: swapped.token,
     asr_tokens: swapped.tokens,
   };
-  if (provider === "system") {
+  // Neither of these sends anything to a service, so neither keeps a credential slot.
+  if (provider === "system" || provider === "local") {
     update.asr_token = "";
-    delete update.asr_tokens.system;
+    delete update.asr_tokens[provider];
   }
   if (!defaults) return update;
   const endpoint = fillIfDefault(current.asr_endpoint, defaults.endpoint, known(ASR_PROVIDER_DEFAULTS, "endpoint"));

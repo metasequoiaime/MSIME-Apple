@@ -139,6 +139,36 @@ fn every_reachable_voice_provider_validates_and_others_are_rejected_on_save() {
 }
 
 #[test]
+fn local_recognition_stores_an_absolute_model_path_and_refuses_anything_else() {
+    let with_path = |path: &str| Preferences {
+        voice_input: VoiceInputPreferences {
+            asr_provider: "local".into(),
+            asr_model_path: path.into(),
+            ..Preferences::default().voice_input
+        },
+        ..Preferences::default()
+    };
+    for accepted in ["", "/Users/someone/models/ggml-large-v3-turbo.bin"] {
+        assert!(
+            with_path(accepted).validate().is_ok(),
+            "{accepted:?} should be accepted"
+        );
+    }
+    // A relative path resolves against whichever process happens to read it, and a control character
+    // reaches the recognizer as a filename it cannot open. Both fail while the user holds the shortcut.
+    for rejected in ["models/ggml.bin", "~/models/ggml.bin", "/models/gg\nml.bin"] {
+        assert!(
+            matches!(
+                with_path(rejected).validate(),
+                Err(PreferencesError::InvalidVoiceInput)
+            ),
+            "{rejected:?} should be rejected"
+        );
+    }
+    assert!(with_path(&"/".repeat(4097)).validate().is_err());
+}
+
+#[test]
 fn the_shipped_defaults_are_themselves_reachable() {
     let defaults = Preferences::default();
     assert!(ASR_PROVIDERS.contains(&defaults.voice_input.asr_provider.as_str()));
