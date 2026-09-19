@@ -72,6 +72,7 @@ public final class MSIMEInputService extends InputMethodService {
     private static final long BACKSPACE_REPEAT_DELAY_MILLIS = 400;
     private static final long BACKSPACE_REPEAT_INTERVAL_MILLIS = 75;
     private static final long PERSONAL_DICTIONARY_SYNC_DELAY_MILLIS = 500;
+    private static final long INPUT_VIEW_REFRESH_DELAY_MILLIS = 32;
     private static final String SCHEME_HOST_PREFERENCES = "android-keyboard-schemes";
     private static final String SELECTED_HOST_SCHEME = "selected-scheme";
     private static final String THOUGHTFUL_REPLY_ENABLED = "thoughtful-reply-enabled";
@@ -310,6 +311,7 @@ public final class MSIMEInputService extends InputMethodService {
     private long personalDictionarySyncGeneration;
     private Runnable personalDictionarySyncTask;
     private long engineStartGeneration;
+    private Runnable inputViewRefreshTask;
     private final ExecutorService preferencesWorker = Executors.newSingleThreadExecutor();
     private final ExecutorService typingStatisticsWorker = new ThreadPoolExecutor(
         1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(32),
@@ -484,8 +486,14 @@ public final class MSIMEInputService extends InputMethodService {
 
     private boolean commitText(String text) { return commitText(text, typingSource()); }
 
+    private void cancelInputViewRefresh() {
+        if (inputViewRefreshTask != null) main.removeCallbacks(inputViewRefreshTask);
+        inputViewRefreshTask = null;
+    }
+
     @Override public void onStartInput(EditorInfo info, boolean restarting) {
         super.onStartInput(info, restarting);
+        cancelInputViewRefresh();
         long startGeneration = ++engineStartGeneration;
         cancelPersonalDictionarySynchronization();
         if (!restarting || currentDocumentIdentifier == 0) {
@@ -560,8 +568,33 @@ public final class MSIMEInputService extends InputMethodService {
         synchronizeReplyKeyboard();
     }
 
+    @Override public void onStartInputView(EditorInfo info, boolean restarting) {
+        super.onStartInputView(info, restarting);
+        cancelInputViewRefresh();
+        final long expectedGeneration = engineStartGeneration;
+        final InputConnection expectedConnection = connection;
+        inputViewRefreshTask = () -> {
+            inputViewRefreshTask = null;
+            InputConnection currentConnection = getCurrentInputConnection();
+            boolean viewValid = keyboardRoot != null && keyboardRoot.getWindowToken() != null;
+            if (!InputViewRefreshPolicy.shouldRefresh(
+                    expectedGeneration, engineStartGeneration, expectedConnection,
+                    currentConnection, viewValid, hasEngineComposition())) return;
+            EditorInfo currentInfo = getCurrentInputEditorInfo();
+            EditorInfo effectiveInfo = currentInfo == null ? info : currentInfo;
+            if (effectiveInfo != null) {
+                editorInputType = effectiveInfo.inputType;
+                allowLearning = EditorPolicy.allowLearning(effectiveInfo.imeOptions);
+            }
+            updateAutomaticCapitalization();
+            render();
+        };
+        main.postDelayed(inputViewRefreshTask, INPUT_VIEW_REFRESH_DELAY_MILLIS);
+    }
+
     @Override public void onFinishInput() {
         cancelBackspaceRepeat();
+        cancelInputViewRefresh();
         engineStartGeneration++;
         resetSpaceCursor();
         stop(true);
@@ -573,6 +606,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public void onFinishInputView(boolean finishingInput) {
+        cancelInputViewRefresh();
         if (!finishingInput) finishInputViewPresentation();
         super.onFinishInputView(finishingInput);
     }
@@ -580,6 +614,8 @@ public final class MSIMEInputService extends InputMethodService {
     /** Match Apple's viewWillDisappear boundary while keeping the editor session alive. */
     private void finishInputViewPresentation() {
         cancelBackspaceRepeat();
+        cancelInputViewRefresh();
+        engineStartGeneration++;
         resetSpaceCursor();
         dismissNineKeyHoldOptions();
         hideJapaneseFlickPreview();
@@ -621,6 +657,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
     @Override public void onDestroy() {
         cancelBackspaceRepeat();
+        cancelInputViewRefresh();
         engineStartGeneration++;
         cancelPersonalDictionarySynchronization();
         stop(false);
@@ -5459,6 +5496,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     @Override public View onCreateInputView() {
+        cancelInputViewRefresh();
         deactivateHandwriting();
         candidateButtons.clear();
         englishSuggestionButtons.clear();
