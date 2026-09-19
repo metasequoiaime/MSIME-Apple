@@ -1,9 +1,5 @@
 # CLAUDE.md
 
-All instructions for this repository live in **[AGENTS.md](AGENTS.md)**. Read it fully before making changes.
+本仓库面向编码代理的约定全部在 **[AGENTS.md](AGENTS.md)**，架构与工程约束在 **[ARCHITECTURE.md](ARCHITECTURE.md)**，贡献流程在 **[CONTRIBUTING.md](CONTRIBUTING.md)**。动手前请完整读过。
 
-This file is a pointer, not a second rulebook. Two files meant two sets of rules: the architecture and
-safety constraints — the Engine owning the input algorithm, platform libraries not depending on the
-desktop app, the TSF process boundary, CI being off — were only ever in AGENTS.md, so whichever agent
-happened to read this one instead never saw them. The worktree section that used to be here is now in
-AGENTS.md as well. Put changes there; leave this file alone.
+这个文件只是一个指针。规则集中在一处，改动请提交到上面那几份文件，不要在这里另起一套。
