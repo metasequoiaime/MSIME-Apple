@@ -4324,25 +4324,32 @@ fn external_url_is_safe(url: &str) -> bool {
         })
 }
 
+#[cfg(target_os = "android")]
 #[tauri::command]
 fn open_external_url(
     url: String,
-    #[cfg(target_os = "android")] account: tauri::State<'_, android_account::AccountState>,
+    account: tauri::State<'_, android_account::AccountState>,
 ) -> Result<(), HostActionError> {
     if !external_url_is_safe(&url) {
         return Err(HostActionError {
             code: "invalid_url",
         });
     }
-    #[cfg(target_os = "android")]
-    {
-        account
-            .platform
-            .run_mobile_plugin::<()>("openExternalUrl", serde_json::json!({ "url": url }))
-            .map_err(|_| HostActionError {
-                code: "unavailable",
-            })?;
-        return Ok(());
+    account
+        .platform
+        .run_mobile_plugin::<()>("openExternalUrl", serde_json::json!({ "url": url }))
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })
+}
+
+#[cfg(not(target_os = "android"))]
+#[tauri::command]
+fn open_external_url(url: String) -> Result<(), HostActionError> {
+    if !external_url_is_safe(&url) {
+        return Err(HostActionError {
+            code: "invalid_url",
+        });
     }
     #[cfg(target_os = "macos")]
     let result = std::process::Command::new("open").arg(&url).status();
