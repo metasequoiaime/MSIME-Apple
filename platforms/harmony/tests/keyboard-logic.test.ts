@@ -66,6 +66,7 @@ import { TranslationPolicy, TranslationQuery, TranslationEntry } from
 import { HardwareKeyRouter, HardwareKeyAction, HardwareKey } from
   '../entry/src/main/ets/keyboard/HardwareKeyRouter';
 import { CandidateSkinPolicy } from '../entry/src/main/ets/keyboard/candidate/CandidateSkinPolicy';
+import { CandidatePresentationPolicy } from '../entry/src/main/ets/keyboard/candidate/CandidatePresentationPolicy';
 import { CandidateWheelPolicy } from '../entry/src/main/ets/keyboard/candidate/CandidateWheelPolicy';
 
 function selectedBarVisible(value: boolean | null): boolean {
@@ -682,6 +683,12 @@ group('keeps Engine candidate selection independent from row order', () => {
   ];
   check(!entries[0].highlighted && entries[1].highlighted,
     'a highlighted candidate may be below the first row');
+});
+
+group('keeps candidate source badges bounded to known Engine sources', () => {
+  check(CandidatePresentationPolicy.badge(2) === ' ☁️', 'cloud candidates get a cloud badge');
+  check(CandidatePresentationPolicy.badge(3) === ' 🤖', 'AI candidates get a robot badge');
+  check(CandidatePresentationPolicy.badge(0) === '', 'local candidates stay unbadged');
 });
 
 group('maps desktop candidate wheel movement to page commands', () => {

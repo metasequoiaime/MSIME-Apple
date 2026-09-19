@@ -907,7 +907,12 @@ struct KeyboardView {
       Text(`${index + 1}`).fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
         .fontColor(this.candidateNumberColor()).padding({ right: 4 })
       Text(candidate.text).fontSize(this.settings.candidateFontSize)
-        .fontColor(selected ? this.candidateAccentColor() : this.candidateTextColor())
+        .fontColor(selected || candidate.fixedPosition ? this.candidateAccentColor()
+          : this.candidateTextColor())
+      if (candidate.badge.length > 0) {
+        Text(candidate.badge).fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
+          .fontColor(this.candidateAccentColor()).opacity(0.8).padding({ left: 2 })
+      }
       if (candidate.hint.length > 0) {
         Text(candidate.hint).fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
           .fontColor(this.candidateTextColor()).opacity(0.5).padding({ left: 2 })

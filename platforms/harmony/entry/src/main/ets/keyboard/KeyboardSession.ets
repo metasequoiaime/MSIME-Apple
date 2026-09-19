@@ -21,6 +21,7 @@ import { FloatingToolbarLayout, ToolbarButton, ToolbarComponents, ToolbarState }
   from './FloatingToolbarLayout';
 import { DesktopSurface } from './DesktopSurface';
 import { CandidateGlossPolicy } from './candidate/CandidateGlossPolicy';
+import { CandidatePresentationPolicy } from './candidate/CandidatePresentationPolicy';
 import { OnlineCandidatePolicy, OnlineQuery } from './candidate/OnlineCandidatePolicy';
 import {
   TranslationPolicy, TranslationQuery, TranslationPlanItem, TranslationEntry,
@@ -46,6 +47,7 @@ interface Candidate {
   highlighted: boolean;
   /** Which part of the Engine produced it; the gloss lookup treats sources differently. */
   source: number;
+  fixed_position: boolean;
   /** The Engine input code that produced this candidate, used for scheme-specific hints. */
   code: string;
   /** An Engine-derived display suffix, never part of what gets committed. */
@@ -61,6 +63,8 @@ export interface CandidateEntry {
   readonly annotation: string;
   /** Engine-selected candidate; selection is not necessarily the first row. */
   readonly highlighted: boolean;
+  readonly badge: string;
+  readonly fixedPosition: boolean;
 }
 
 interface EngineView {
@@ -1319,6 +1323,8 @@ export class KeyboardSession {
       entries.push({
         text: candidate.text,
         highlighted: candidate.highlighted,
+        badge: CandidatePresentationPolicy.badge(candidate.source),
+        fixedPosition: candidate.fixed_position,
         // Only the part of the code still untyped, and only where that means something. The policy
         // decides; this just supplies what it reasons about.
         hint: WubiCodeHintPolicy.hint(candidate.code, view.preedit, true, view.scheme,
