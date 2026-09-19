@@ -2393,6 +2393,19 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
             <p>{platformNetworkDescription}</p>
             <p>更多功能欢迎自由探索～</p>
           </div>
+          {macosPlatform && <>
+            <div className="document-subsection"><div className="section-title">候选词释义</div>
+              <p>常见词优先使用随输入法打包的本机词典，不联网也不会等待；词典没有收录的词才会请求在线服务，生僻字和多字词可能需要等待片刻。在线释义需要水杉账号，安装时会自动创建本机账号。</p>
+              <p>可以在“输入”页开启候选翻译并设置目标语言和第二语言。候选旁没有释义时，先确认候选翻译已开启；离线时只显示本机词典已有的释义。</p>
+            </div>
+            <div className="document-subsection"><div className="section-title">候选操作</div>
+              <p>候选窗口显示释义时，按 Tab 在候选词、目标语言释义和第二语言释义之间切换要上屏的列，Shift+Tab 反向；当前列会加下划线，数字键、空格和点击上屏都会使用该列。</p>
+              <p>不切换当前列时，也可以按 Option+数字直接上屏目标语言释义，或按 Control+数字直接上屏第二语言释义。</p>
+            </div>
+            <div className="document-subsection"><div className="section-title">遇到问题</div>
+              <p>输入法菜单里没有水杉输入法时，请到“系统设置 › 键盘 › 文字输入 › 输入法”中添加；刚安装或更新后，可以先切换到其他输入法，再切回水杉输入法。</p>
+            </div>
+          </>}
           {client.openExternalUrl && <div className="document-subsection"><div className="section-title">更多</div>
             <button type="button" className="secondary" onClick={() => void openExternalUrl(documentationUrl)}>完整文档（网页）</button>
           </div>}
