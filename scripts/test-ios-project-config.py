@@ -124,6 +124,18 @@ class IOSProjectConfigTests(unittest.TestCase):
         self.assertIn("../../../../../target/ios/EngineResources", project)
         self.assertIn('          - "-lsqlite3"', project)
 
+    def test_keyboard_brand_asset_is_packaged_for_app_and_extension(self):
+        project = (APPLE_ROOT / "project.yml").read_text()
+        generated = (APPLE_ROOT / "msime-desktop.xcodeproj/project.pbxproj").read_text()
+        asset = TAURI_ROOT / "../../../platforms/ios/SharedResources/KeyboardBrand.png"
+
+        self.assertTrue(asset.resolve().is_file())
+        self.assertEqual(
+            project.count("../../../../../platforms/ios/SharedResources/KeyboardBrand.png"), 2
+        )
+        self.assertIn("KeyboardBrand.png in Resources", generated)
+        self.assertGreaterEqual(generated.count("KeyboardBrand.png in Resources"), 2)
+
     def test_tauri_app_embeds_the_native_keyboard_extension(self):
         project = (APPLE_ROOT / "project.yml").read_text()
         self.assertIn("  MSIMEKeyboardExtension:\n    type: app-extension", project)
