@@ -55,8 +55,7 @@ int main() {
     require(normalize_clipboard_text("a\r\nb\r\n") == "a\r\nb\r\n");
     require(normalize_clipboard_text("a\rb") == "a\rb");
     require(normalize_clipboard_text("a\tb  \t\n") == "a\tb  \t\n");
-    require(normalize_clipboard_text(std::string("a\0b", 3)) ==
-            std::string("a\0b", 3));
+    require(normalize_clipboard_text(std::string("a\0b", 3)) == "a");
     require(normalize_clipboard_text("a\r\0") == "a");
 
     // The cap counts UTF-16 units, not bytes. Chinese is three bytes per

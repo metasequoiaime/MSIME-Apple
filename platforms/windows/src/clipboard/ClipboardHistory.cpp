@@ -109,7 +109,11 @@ std::string normalize_clipboard_text(std::string text) {
   // Match the shipped Windows history contract: only terminators introduced
   // by CF_UNICODETEXT are removed.  Newlines (including CRLF) and whitespace
   // are user content and must survive the round trip.
-  while (!text.empty() && (text.back() == '\0' || text.back() == '\r'))
+  // CF_UNICODETEXT is NUL-terminated.  The source constructs a wide string
+  // from that pointer, so an embedded NUL ends the captured clipboard value.
+  if (const auto terminator = text.find('\0'); terminator != std::string::npos)
+    text.resize(terminator);
+  while (!text.empty() && text.back() == '\r')
     text.pop_back();
   std::string normalized;
   normalized.reserve(text.size());
