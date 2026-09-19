@@ -6,6 +6,18 @@ import java.util.List;
 
 /** Platform-independent clipboard history ordering and mutation rules. */
 public final class ClipboardHistory {
+    /**
+     * Every entry is pinned, so nothing can be evicted to make room.
+     *
+     * <p>Its own type because it is the one refusal the user can act on. A store that cannot read
+     * or encode its file raises a plain {@link IllegalStateException}, and telling someone to
+     * unpin an entry in that case would send them after the wrong thing.
+     */
+    public static final class FullException extends IllegalStateException {
+        private static final long serialVersionUID = 1L;
+        public FullException() { super("All clipboard entries are pinned"); }
+    }
+
     public static final class Item {
         private final String id;
         private final String text;
@@ -52,7 +64,7 @@ public final class ClipboardHistory {
             for (int index = items.size() - 1; index >= 0; index--) {
                 if (!items.get(index).pinned()) { removable = index; break; }
             }
-            if (removable < 0) throw new IllegalStateException("All clipboard entries are pinned");
+            if (removable < 0) throw new FullException();
             items.remove(removable);
         }
         items.add(new Item(id, text, now, false));
