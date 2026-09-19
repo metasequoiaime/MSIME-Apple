@@ -4162,13 +4162,13 @@ public final class MSIMEInputService extends InputMethodService {
         Button card = new KeyboardPressButton(this);
         card.setAllCaps(false);
         String state = enabled ? MoreToolsLayout.state(section, active) : "不可用";
+        String label = MoreToolsLayout.icon(title) + "  " + title;
         boolean navigates = section == MoreToolsLayout.Section.TOOLS
             || section == MoreToolsLayout.Section.LOCAL_INPUT_BACK;
-        if (navigates) card.setText(title + "  ›");
+        if (navigates) card.setText(label + "  ›");
         else if (section == MoreToolsLayout.Section.SETTINGS) {
-            card.setText(title + "\n" + (caption == null ? state : caption));
-        }
-        else card.setText(title);
+            card.setText(label + "\n" + (caption == null ? state : caption));
+        } else card.setText(label);
         card.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
         card.setGravity(navigates
             ? Gravity.CENTER_VERTICAL | Gravity.START : Gravity.CENTER);
