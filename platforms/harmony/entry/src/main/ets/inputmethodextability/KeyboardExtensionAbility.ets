@@ -454,6 +454,9 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       case HardwareKeyAction.SELECT:
         session.choose(decision.index);
         break;
+      case HardwareKeyAction.RESET_CACHE:
+        session.resetCache();
+        break;
       case HardwareKeyAction.REMOVE_CANDIDATE:
         // The slot may hold nothing, or a cloud or AI candidate the dictionary cannot forget. The
         // key stays claimed either way: the chord was pressed deliberately, and letting a stray '1'

@@ -26,6 +26,8 @@ export const emojiCatalog: (query: string, resources: string) => string;
 export const candidateGlosses: (request: string, resources: string) => string;
 /** `{prefix,limit}` against the packaged English dictionary; no session, safe off the UI thread. */
 export const englishCompletions: (request: string, resources: string) => string;
+/** Clear the session's Engine candidate cache and refresh its view. */
+export const resetCache: (handle: number) => string;
 export const translationGlossSave: (request: string, userData: string) => string;
 export const translationPlan: (request: string) => string;
 export const tencentTranslationHttpRequest: (request: string) => string;
