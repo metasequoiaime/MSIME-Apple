@@ -79,10 +79,12 @@ macOS 原生候选翻译回退窗口与共享 Tauri 设置保持一致：可直�
 
 并行开发时使用独立产物目录，避免其他平台构建覆盖最低系统版本设置：
 
+最低系统版本用 `CFLAGS` / `CXXFLAGS` / `CMAKE_OSX_DEPLOYMENT_TARGET` 分别交给 C、C++ 与 Engine 的 CMake 构建，**不要**改回一个全局的 `MACOSX_DEPLOYMENT_TARGET`。rustc 会把该变量一并应用到为宿主编译的 proc-macro 动态库上，而它随后加载不了自己产出的这个库，于是冷缓存构建以 `can't find crate for zerofrom_derive` 失败；cargo 不把这个变量算进指纹，坏掉的 proc-macro 会留在产物目录里，之后即使不再设置该变量也继续复用，失败因此看起来时有时无。上面的写法只影响真正需要最低版本的 C/C++/CMake 目标，链接时没有版本不匹配告警；Rust 目标文件按 rustc 默认的 11.0 产出，低于 13.0 下限，不会抬高最终 bundle 的最低系统版本。
+
 原生更新控制器依赖固定的 [Sparkle 2.9.6](https://github.com/sparkle-project/Sparkle/releases/tag/2.9.6)，不可省略。下载该发布的 `Sparkle-2.9.6.tar.xz`，用 `shasum -a 256` 校验为 `52bf9e88cdd972fc0c81501377a880e90d47031bd8ca5462488f843e2609e192` 后解压到独立依赖目录。下列 `MSIME_SPARKLE_ROOT` 必须指向包含 `Sparkle.framework` 的目录，不是框架内部；请替换示例绝对路径。CMake 校验框架版本，并将其复制到应用的 `Contents/Frameworks`。构建不会自动下载框架，也不应从其他已安装应用复制依赖。
 
 ```sh
-MACOSX_DEPLOYMENT_TARGET=13.0 CMAKE_PREFIX_PATH="$(brew --prefix)" CARGO_TARGET_DIR=target/macos-cargo cargo build -p msime-host-api --locked
+CFLAGS="-mmacosx-version-min=13.0" CXXFLAGS="-mmacosx-version-min=13.0" CMAKE_OSX_DEPLOYMENT_TARGET=13.0 CMAKE_PREFIX_PATH="$(brew --prefix)" CARGO_TARGET_DIR=target/macos-cargo cargo build -p msime-host-api --locked
 cmake -S platforms/macos -B target/macos-isolated -DMSIME_HOST_LIBRARY="$PWD/target/macos-cargo/debug/libmsime_host_api.a" -DMSIME_SPARKLE_ROOT="/absolute/path/to/Sparkle-2.9.6"
 cmake --build target/macos-isolated --parallel
 ctest --test-dir target/macos-isolated --output-on-failure
@@ -161,8 +163,8 @@ Home/End 在候选可见时通过共享运行时移到当前页首/末候选，�
 先下载锁定词库，然后在隔离的开发状态目录中准备工作词库；该步骤要求相关会话已停止，不用于对现有输入法在线升级：
 
 ```sh
-MACOSX_DEPLOYMENT_TARGET=13.0 CMAKE_PREFIX_PATH="$(brew --prefix)" cargo run -p msime-host-api --example prepare_host -- <已校验资源目录> target/macos-state
-MACOSX_DEPLOYMENT_TARGET=13.0 CMAKE_PREFIX_PATH="$(brew --prefix)" cargo build -p msime-host-api --locked
+CFLAGS="-mmacosx-version-min=13.0" CXXFLAGS="-mmacosx-version-min=13.0" CMAKE_OSX_DEPLOYMENT_TARGET=13.0 CMAKE_PREFIX_PATH="$(brew --prefix)" cargo run -p msime-host-api --example prepare_host -- <已校验资源目录> target/macos-state
+CFLAGS="-mmacosx-version-min=13.0" CXXFLAGS="-mmacosx-version-min=13.0" CMAKE_OSX_DEPLOYMENT_TARGET=13.0 CMAKE_PREFIX_PATH="$(brew --prefix)" cargo build -p msime-host-api --locked
 cmake -S platforms/macos -B target/macos -DMSIME_OPTIONS_FILE="$PWD/target/macos-state/runtime-options.json"
 cmake --build target/macos --parallel
 ctest --test-dir target/macos --output-on-failure
