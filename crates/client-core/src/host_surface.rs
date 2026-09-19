@@ -127,6 +127,12 @@ pub struct HostCapabilities {
     /// and positions the candidate list itself - cannot honour the choice, so
     /// it does not offer it.
     pub candidate_follow_cursor: bool,
+    /// The host shows read-only English word completions while typing directly
+    /// in English, governed by the shared `english_suggestions` preference. iOS
+    /// offers the same surface but keeps its switch in the native App Group
+    /// store, so it reads this as false and shows its own control.
+    #[serde(default)]
+    pub english_suggestions: bool,
     /// The host applies a separate family for Latin text in the candidate panel.
     /// A host whose renderer resolves one family list per glyph, or which draws
     /// Latin from its own font, can honour this; one with a single typeface for
@@ -282,6 +288,7 @@ impl HostCapabilities {
             // Windows draws Latin from its own family, macOS and Android name it ahead of the
             // primary one, and ArkUI resolves a family list per glyph, so HarmonyOS reaches the
             // same result the same way. Linux leaves the panel's typeface to the desktop.
+            english_suggestions: matches!(platform, HostPlatform::Android | HostPlatform::Harmony),
             candidate_english_font: matches!(
                 platform,
                 HostPlatform::Windows
@@ -789,6 +796,11 @@ mod tests {
         assert!(harmony.system_fonts);
         // ArkUI resolves a family list per glyph, which is how a separate Latin family is honoured.
         assert!(harmony.candidate_english_font);
+        // The completions are drawn from the packaged dictionary on the candidate strip, and the
+        // switch that governs them is the shared preference rather than a native store.
+        assert!(harmony.english_suggestions);
+        assert!(!HostCapabilities::for_platform(HostPlatform::Ios).english_suggestions);
+        assert!(!HostCapabilities::for_platform(HostPlatform::Windows).english_suggestions);
         assert!(!HostCapabilities::for_platform(HostPlatform::Linux).candidate_english_font);
         // Drawn from the input method's status-bar panel, which scales itself by the shared
         // scale and font size, hides the buttons the user turned off, and opens the emoji panel

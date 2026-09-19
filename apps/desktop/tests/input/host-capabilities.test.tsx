@@ -33,6 +33,7 @@ function capabilities(overrides: Partial<HostCapabilities> = {}): HostCapabiliti
     candidate_follow_cursor: true,
     input_mode_hud: false,
     candidate_english_font: false,
+    english_suggestions: false,
     ...overrides,
   };
 }
@@ -257,6 +258,24 @@ test("a host that does not place its own card hides the follow-cursor choice", a
   mount({ host: capabilities({ platform: "linux", candidate_follow_cursor: false }) });
   await screen.findByRole("button", { name: "保存设置" });
   expect(screen.queryByLabelText("候选窗口跟随光标")).toBeNull();
+});
+
+test("the English completion switch follows the capability, and iOS keeps its own", async () => {
+  // Harmony draws the completions from the packaged dictionary and reads the shared preference, so
+  // the shared control belongs there. iOS offers the same surface from its native store and has a
+  // separate switch, which is why it does not claim this one.
+  render(<SettingsPage initialPage="input" client={{
+    load: async () => initial, save: vi.fn(),
+    host: capabilities({ platform: "harmony", english_suggestions: true }),
+  }} />);
+  expect(await screen.findByLabelText("英文建议")).toBeTruthy();
+  cleanup();
+  render(<SettingsPage initialPage="input" client={{
+    load: async () => initial, save: vi.fn(),
+    host: capabilities({ platform: "ios", english_suggestions: false }),
+  }} />);
+  await screen.findByRole("button", { name: "保存设置" });
+  expect(screen.queryByLabelText("英文建议")).toBeNull();
 });
 
 test("a host opts into the surfaces whose preferences its keyboard reads", async () => {

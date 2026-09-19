@@ -196,6 +196,7 @@ export interface HostCapabilities {
   candidate_follow_cursor: boolean;
   input_mode_hud?: boolean;
   candidate_english_font?: boolean;
+  english_suggestions?: boolean;
 }
 
 /** Superseded by the host-provided capabilities; used only when a host predates them. */
@@ -938,6 +939,8 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
   // anyone being able to set it. A host that predates the capability keeps the old reading.
   const showCandidateEnglishFont = host?.candidate_english_font
     ?? (windowsPlatform || macosPlatform || androidPlatform);
+  // iOS shows its own switch for the same surface, from the native store, so it is not here.
+  const showEnglishSuggestions = host?.english_suggestions ?? androidPlatform;
   const showCandidateRowColors = host ? host.candidate_row_colors : true;
   const showCandidateSelectionAppearance = host ? host.candidate_selection_appearance : true;
   const showCandidateFollowCursor = host ? host.candidate_follow_cursor : false;
@@ -2279,7 +2282,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
         <div className="section"><label className="section-header"><span className="section-title">繁体中文输出<small>将提交的简体中文转换为繁体中文</small></span><input aria-label="繁体中文输出" className="toggle" type="checkbox" checked={draft.traditional_chinese_output ?? false} onChange={event => setDraft({ ...draft, traditional_chinese_output: event.target.checked })} /></label></div>
         {showInputModeHUD && <div className="section"><label className="section-header"><span className="section-title">中英文切换提示<small>切换输入模式后，在光标附近短暂显示“中”或“英”，不会抢占焦点。</small></span><input aria-label="中英文切换提示" className="toggle" type="checkbox" checked={inputModeHUD} onChange={event => setDraft({ ...draft, input_mode_hud: event.target.checked })} /></label></div>}
         {client.candidateEnglishGloss && <div className="section"><label className="section-header"><span className="section-title">显示英文释义<small>在候选词后面标出它的英文意思，中文候选给英文、英文候选给中文。释义来自随键盘打包的离线词库，不联网。</small></span><input aria-label="显示英文释义" className="toggle" type="checkbox" checked={candidateEnglishGloss} onChange={event => setDraft({ ...draft, candidate_english_gloss: event.target.checked })} /></label></div>}
-        {androidPlatform && <div className="section"><label className="section-header"><span className="section-title">英文建议<small>英文 26 键直接输入时，在候选栏显示当前单词的补全建议；关闭后仍可正常输入英文。</small></span><input aria-label="英文建议" className="toggle" type="checkbox" checked={englishSuggestions} onChange={event => setDraft({ ...draft, english_suggestions: event.target.checked })} /></label></div>}
+        {showEnglishSuggestions && <div className="section"><label className="section-header"><span className="section-title">英文建议<small>英文 26 键直接输入时，在候选栏显示当前单词的补全建议；关闭后仍可正常输入英文。</small></span><input aria-label="英文建议" className="toggle" type="checkbox" checked={englishSuggestions} onChange={event => setDraft({ ...draft, english_suggestions: event.target.checked })} /></label></div>}
         <div className="section"><label className="section-header"><span className="section-title">云联想<small>向在线服务请求额外候选</small></span><input className="toggle" type="checkbox" checked={cloudCandidates} onChange={event => setDraft({ ...draft, cloud_candidates: event.target.checked })} /></label></div>
         <div className="section"><label className="section-header"><span className="section-title">候选翻译<small>为当前候选请求翻译结果并显示在候选行</small></span><input className="toggle" type="checkbox" checked={candidateTranslations} onChange={event => setDraft({ ...draft, candidate_translations: event.target.checked })} /></label>
           <div className="input-option-divider" />
