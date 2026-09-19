@@ -1694,6 +1694,72 @@ async fn install_input_source(app: tauri::AppHandle) -> Result<(), HostActionErr
 }
 
 #[cfg(target_os = "macos")]
+const MACOS_INPUT_METHOD_DEFAULTS_DOMAIN: &str = "app.msime.client.preview.inputmethod";
+
+#[cfg(target_os = "macos")]
+const MACOS_SHUANGPIN_KEYMAP_DEFAULTS_KEY: &str = "MSIMEClientShuangpinKeymap";
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+async fn load_macos_shuangpin_keymap() -> Result<bool, HostActionError> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let output = std::process::Command::new("defaults")
+            .args([
+                "read",
+                MACOS_INPUT_METHOD_DEFAULTS_DOMAIN,
+                MACOS_SHUANGPIN_KEYMAP_DEFAULTS_KEY,
+            ])
+            .output()
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?;
+        if !output.status.success() {
+            // An unset NSUserDefaults boolean has the same false value as
+            // boolForKey:, which is what the native input controller uses.
+            return Ok(false);
+        }
+        let value = String::from_utf8_lossy(&output.stdout);
+        match value.trim() {
+            "1" | "true" | "TRUE" => Ok(true),
+            "0" | "false" | "FALSE" => Ok(false),
+            _ => Err(HostActionError {
+                code: "unavailable",
+            }),
+        }
+    })
+    .await
+    .map_err(|_| HostActionError {
+        code: "unavailable",
+    })?
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+async fn save_macos_shuangpin_keymap(enabled: bool) -> Result<(), HostActionError> {
+    tauri::async_runtime::spawn_blocking(move || {
+        let status = std::process::Command::new("defaults")
+            .args([
+                "write",
+                MACOS_INPUT_METHOD_DEFAULTS_DOMAIN,
+                MACOS_SHUANGPIN_KEYMAP_DEFAULTS_KEY,
+                "-bool",
+                if enabled { "true" } else { "false" },
+            ])
+            .status()
+            .map_err(|_| HostActionError {
+                code: "unavailable",
+            })?;
+        status.success().then_some(()).ok_or(HostActionError {
+            code: "unavailable",
+        })
+    })
+    .await
+    .map_err(|_| HostActionError {
+        code: "unavailable",
+    })?
+}
+
+#[cfg(target_os = "macos")]
 #[tauri::command]
 async fn uninstall_input_source(
     remove_user_data: bool,
@@ -3164,6 +3230,10 @@ pub fn run() {
             restart_input_method,
             #[cfg(target_os = "macos")]
             install_input_source,
+            #[cfg(target_os = "macos")]
+            load_macos_shuangpin_keymap,
+            #[cfg(target_os = "macos")]
+            save_macos_shuangpin_keymap,
             #[cfg(target_os = "macos")]
             uninstall_input_source,
             #[cfg(target_os = "android")]

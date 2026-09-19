@@ -2657,6 +2657,30 @@ test("macOS candidate page sizes use the native 5/7/9 options and normalize lega
   expect(save).toHaveBeenCalledWith(7, { ...preferences, candidate_page_size: 7 });
 });
 
+test("macOS shuangpin keymap setting loads, toggles, and saves through the native preference bridge", async () => {
+  const loadMacosShuangpinKeymap = vi.fn().mockResolvedValue(true);
+  const saveMacosShuangpinKeymap = vi.fn().mockResolvedValue(undefined);
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save,
+    loadMacosShuangpinKeymap,
+    saveMacosShuangpinKeymap,
+    host: { platform: "macos" } as HostCapabilities,
+  };
+  render(<SettingsPage client={client} />);
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  fireEvent.click(await screen.findByRole("radio", { name: "双拼" }));
+  const keymap = await screen.findByRole("checkbox", { name: "输入时显示双拼键位提示" }) as HTMLInputElement;
+  expect(loadMacosShuangpinKeymap).toHaveBeenCalledTimes(1);
+  expect(keymap.checked).toBe(true);
+  fireEvent.click(keymap);
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(save).toHaveBeenCalledWith(7, { ...initial.preferences, scheme: "shuangpin", last_chinese_scheme: "shuangpin" });
+  expect(saveMacosShuangpinKeymap).toHaveBeenCalledWith(false);
+});
+
 test("conflicts preserve edits and require an explicit reload", async () => {
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockRejectedValue({ code: "conflict" }) };
   render(<SettingsPage client={client} />);
