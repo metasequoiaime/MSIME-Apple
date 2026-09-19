@@ -101,7 +101,9 @@ xcodebuild test -project platforms/ios/MSIMEClient.xcodeproj -scheme MSIMEClient
 
 必须允许签名。测试宿主带 App Group entitlement，被测键盘要靠它读共享偏好；用 `CODE_SIGNING_ALLOWED=NO` 构建会剥掉 entitlement，宿主在套件中途被杀，后面的用例全部不报告。模拟器上 `CODE_SIGN_IDENTITY=-` 即 ad-hoc 签名，不需要任何开发者证书。
 
-当前结果为 201 通过、10 失败（Xcode 27 / iOS 27.0 模拟器，已 `simctl erase` 的干净设备上复现一致）：`CandidateTranslationTests` 的 `testCandidateLongPressOffersGlossInsertion`、`testExpandedCandidateWidthDoesNotChangeWithGlossLength`；`JapaneseNineKeyTests.testKanaKeysFeedJapaneseEngineCandidates`（`MSIMEKeyboardTests` 与 `MSIMESharedTests` 各一次）；`NineKeyKeyboardTests` 的 `testCandidateChipsNeverWrapToASecondLine`、`testKeyLayoutsKeepNineKeyHeight`、`testKeyPositionsStayFixedWhileComposingAndClearing`、`testNineKeyInputAndLayoutSwitches`、`testShortcutsYieldToCandidatesWithoutMovingKeys`、`testSpellingStripReusesItsButtonsBetweenKeystrokes`。这些失败集中在候选条与九键的布局测量和 Engine 候选断言上，尚未逐条定位；在把它们查清之前，这条命令的结果应当与上面这份名单比对，而不是只看通过与否。该套件目前不接入 `scripts/verify-local.sh`：它需要模拟器和已暂存的词库资源，单次运行约十分钟。
+当前结果为 210 通过、1 跳过、1 失败（Xcode 27 / iOS 27.0 模拟器）。跳过的是 `CandidateTranslationTests.testCandidateLongPressOffersGlossInsertion` 的「开启释义」分支：固定词库发布里没有该候选的英文释义来源（`translation-glosses.db` 是用户编辑后的覆盖层），取不到释义时跳过而不是报成产品失败，一旦有释义就自动恢复断言。失败的是 `SmartPunctuationTests.testBridgeUsesSmartContextOnlyWhileEngineIsIdle`：紧跟 ASCII 字母的逗号本应保留 ASCII，实际被 Engine 当成中文标点提交「，」。它在未改动的 `origin/develop` 上、单独运行、且模拟器 `simctl erase` 过的干净容器里同样失败，此前在整套运行中通过是被前序用例留下的进程内状态掩盖了；根因尚未定位。
+
+该套件目前不接入 `scripts/verify-local.sh`：它需要模拟器和已暂存的词库资源，单次运行约十分钟。
 
 原生 SwiftUI 设置 App 只作为迁移期间的测试入口保留。需要重建它来运行旧版 UI 测试时，设置 `MSIME_IOS_LEGACY_APP=1`；默认构建不会再把 `MSIMEClientApp` 作为产品宿主。
 
