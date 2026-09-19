@@ -143,6 +143,35 @@ cp sqlite-amalgamation-3530400/sqlite3.h "$deps/include/"
 
 支持 `arm64-v8a`、`armeabi-v7a` 和 `x86_64`。原生库暂存到 `entry/libs/<abi>/`，这些目录是构建产物，不提交到仓库。资源准备仍使用根目录固定的 `resources/desktop-dictionary.lock.json`，不得把本机路径、凭据或用户输入放入 HAP。
 
+## 模拟器验证（2026-09-20）
+
+首次在 HarmonyOS 模拟器上跑起来，记录可复现路径与结果。镜像为 DevEco 自带的 HarmonyOS 6.0.1(21) phone，与项目 `compileSdkVersion` 一致：
+
+```sh
+emu=/Applications/DevEco-Studio.app/Contents/tools/emulator/Emulator
+"$emu" -license accept && "$emu" -list        # 实例名
+"$emu" -start "<实例名>"                       # 首次约需 6–8 分钟才向 hdc 注册
+export PATH="<command-line-tools>/sdk/default/openharmony/toolchains:$PATH"
+hdc list targets -v                            # 等到 Connected
+hdc file send <hap> /data/local/tmp/msime.hap
+hdc shell bm install -p /data/local/tmp/msime.hap
+hdc shell ime -e app.msime.client -f           # 启用输入法
+hdc shell hilog -x | grep A00051/MSIME         # 本宿主的日志域
+```
+
+干净安装后的实际输出：
+
+```
+MSIME: module loaded
+MSIME: staged /data/storage/el2/base/haps/entry/files/engine
+MSIME: session 1 created
+MSIME: panel ready: phone, soft keyboard
+```
+
+即：系统接受了该输入法（`Succeeded in enabling IME. status:FULL_EXPERIENCE_MODE`），NAPI 模块加载、资源暂存、Engine 会话建立、软键盘面板创建，整条 ArkTS → NAPI → Rust → C++ Engine 链在设备上通。`bm install` 接受未签名 HAP（模拟器）。
+
+仍未验证：切换到该输入法后在真实编辑器中输入并上屏（`ime -s` 在锁屏状态被系统拒绝，随后模拟器因本机磁盘不足未能重启）、焦点与选区、生命周期、真机签名与安装、麦克风授权流程。启用与面板创建不等于输入验收。
+
 ## 验证边界
 
 **先 `ohpm install`，再 `hvigorw assembleHap`，两步缺一不可。** `ohpm install` 在 `entry/oh_modules/` 建出指向 `src/main/cpp/types/libmsimeclient` 的链接，`import client from 'libmsimeclient.so'` 才解析得到那份 `.d.ts`。没有这一步，ArkTS 把整个 NAPI 边界当作无类型处理并照样打包成功——一个全新的 worktree 默认就是这种状态，于是"构建通过"实际上没有检查过任何一处原生调用。本仓的 `Settings.ets` 里就藏着一处这样的错误，直到装上模块才暴露出来。

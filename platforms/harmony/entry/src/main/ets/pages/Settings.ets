@@ -12,6 +12,7 @@ import util from '@ohos.util';
 import fs from '@ohos.file.fs';
 import { KeyboardLog, describeError } from '../keyboard/KeyboardLog';
 import { KeyboardSession } from '../keyboard/KeyboardSession';
+import { StagedResources } from '../keyboard/StagedResources';
 import { HarmonyAccountCloudBridge } from '../account/HarmonyAccountCloudBridge';
 import { utf8Length } from '../keyboard/Utf8';
 import { niutransAuth, tencentAuthorization } from '../keyboard/CredentialCrypto';
@@ -354,24 +355,12 @@ class SettingsBridge {
     this.context = context;
     this.stateDirectory = `${context.filesDir}/state`;
     this.accountBridge = new HarmonyAccountCloudBridge(context);
-    this.stageResources(`${context.resourceDir}/engine`, `${context.filesDir}/engine`);
+    // The same copy the keyboard makes, by the same rule. The page reaches the dictionary through
+    // it too, and two staging rules for one directory is how it came to hold a set matching neither.
+    StagedResources.stage(`${context.resourceDir}/engine`, `${context.filesDir}/engine`,
+      `${context.filesDir}/engine.ready`);
   }
 
-  private stageResources(packaged: string, destination: string): void {
-    try {
-      if (!fs.accessSync(packaged)) {
-        return;
-      }
-      if (!fs.accessSync(destination)) {
-        fs.mkdirSync(destination, true);
-      }
-      for (const name of fs.listFileSync(packaged)) {
-        fs.copyFileSync(`${packaged}/${name}`, `${destination}/${name}`);
-      }
-    } catch (error) {
-      KeyboardLog.error(`settings resources unavailable: ${describeError(error)}`);
-    }
-  }
 
   loadPreferences(): string {
     return client.loadPreferences(this.stateDirectory);
