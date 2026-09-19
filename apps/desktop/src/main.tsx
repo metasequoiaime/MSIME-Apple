@@ -254,9 +254,14 @@ function DesktopSettings() {
     void Promise.all([discoverFontReader(isTauri(), invoke), requested, discoverHostCapabilities()]).then(async ([reader, page, host]) => {
       if (!active) return;
       const android = host?.platform === "android";
-      const ready = !android || await invoke<boolean>("android_bootstrap_status").catch(() => false);
+      const ios = host?.platform === "ios";
+      const ready = android
+        ? await invoke<boolean>("android_bootstrap_status").catch(() => false)
+        : ios
+          ? await invoke<boolean>("ios_onboarding_status").catch(() => false)
+          : true;
       if (!active) return;
-      setBootstrapRequired(android && !ready);
+      setBootstrapRequired((android || ios) && !ready);
       setInitialPage(page ?? undefined);
       const hosted: SettingsClient = host
         ? {
@@ -368,11 +373,17 @@ function DesktopSettings() {
         selected: scheme,
       },
     });
+    if (onboardingPlatform === "ios") await invoke("ios_onboarding_complete");
+    setBootstrapRequired(false);
+    setReplayOnboarding(false);
+  };
+  const skipOnboarding = async () => {
+    if (onboardingPlatform === "ios") await invoke("ios_onboarding_complete");
     setBootstrapRequired(false);
     setReplayOnboarding(false);
   };
   // Mount once after discovery: replacing the client later would reload draft preferences.
-  if (bootstrapRequired || replayOnboarding) return <WelcomeFlowPage actions={onboardingActions} onComplete={completeOnboarding} />;
+  if (bootstrapRequired || replayOnboarding) return <WelcomeFlowPage actions={onboardingActions} onComplete={completeOnboarding} onSkip={onboardingPlatform === "ios" ? skipOnboarding : undefined} />;
   if (!settingsClient) return <SettingsStartupPage onClose={isTauri() ? () => { void getCurrentWindow().close(); } : undefined} />;
   const cloudDictionary = {
     ...panelClients.cloudDictionary,

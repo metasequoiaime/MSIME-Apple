@@ -98,6 +98,23 @@ class IOSProjectConfigTests(unittest.TestCase):
             ["group.app.msime.ios"],
         )
 
+    def test_tauri_ios_onboarding_reuses_the_legacy_app_marker(self):
+        plugin = TAURI_ROOT / "../../../crates/tauri-mobile-platform"
+        rust = (plugin / "src/lib.rs").read_text()
+        swift = (plugin / "ios/Sources/MobilePlatformPlugin.swift").read_text()
+        entry = (TAURI_ROOT / "src/lib.rs").read_text()
+        desktop = (TAURI_ROOT.parent / "src/main.tsx").read_text()
+        onboarding = (TAURI_ROOT.parent / "../../packages/ui/src/account/onboarding-page.tsx").read_text()
+
+        self.assertIn('"onboardingStatus"', rust)
+        self.assertIn('"completeOnboarding"', rust)
+        self.assertIn('"hasCompletedOnboarding"', swift)
+        self.assertIn("ios_onboarding_status", entry)
+        self.assertIn("ios_onboarding_complete", entry)
+        self.assertIn('invoke<boolean>("ios_onboarding_status")', desktop)
+        self.assertIn('invoke("ios_onboarding_complete")', desktop)
+        self.assertIn('className="onboarding-skip"', onboarding)
+
     def test_generated_project_builds_the_shared_rust_mobile_entry(self):
         project = (APPLE_ROOT / "project.yml").read_text()
         self.assertIn("PRODUCT_BUNDLE_IDENTIFIER: com.metasequoiaime.client", project)

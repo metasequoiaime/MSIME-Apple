@@ -323,6 +323,12 @@ struct AccountSessionResponse {
 }
 
 #[cfg(target_os = "ios")]
+#[derive(Deserialize)]
+struct IosOnboardingStatusResponse {
+    completed: bool,
+}
+
+#[cfg(target_os = "ios")]
 #[derive(Serialize)]
 struct AccountSessionRequest<'a> {
     value: &'a str,
@@ -461,6 +467,19 @@ impl<R: Runtime> MobilePlatform<R> {
     pub fn open_system_keyboard_settings(&self) -> Result<(), ()> {
         self.0
             .run_mobile_plugin("openSystemKeyboardSettings", ())
+            .map_err(|_| ())
+    }
+
+    pub fn onboarding_completed(&self) -> Result<bool, ()> {
+        self.0
+            .run_mobile_plugin::<IosOnboardingStatusResponse>("onboardingStatus", ())
+            .map(|response| response.completed)
+            .map_err(|_| ())
+    }
+
+    pub fn complete_onboarding(&self) -> Result<(), ()> {
+        self.0
+            .run_mobile_plugin("completeOnboarding", ())
             .map_err(|_| ())
     }
 

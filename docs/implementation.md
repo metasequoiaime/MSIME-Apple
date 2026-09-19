@@ -908,6 +908,10 @@ iOS 升级兼容会在共享输入会话创建前检查固定 Apple 来源遗留
 
 此切片不把 Tauri 宿主冒充已完成替换：键盘扩展、ML Kit CocoaPods 和现有 Swift 原生服务仍在 `platforms/ios/MSIMEClient.xcodeproj`。下一步需要把 extension 嵌入 Tauri App 并逐项把可共享页面/业务移出 SwiftUI，平台权限和输入扩展生命周期继续保留原生。
 
+### iOS Tauri 首次设置状态
+
+Tauri iOS 设置宿主现在复用 Apple 原版的 `hasCompletedOnboarding` UserDefaults 标记，首次启动时展示共享 React 四步欢迎流程；“稍后设置”和完成流程都会通过 `MobilePlatform` 原生插件写回同一标记。这样从旧 SwiftUI 应用迁移到 Tauri 不会重复打扰已经完成设置的用户，系统键盘设置跳转仍由 iOS 原生能力执行，输入方案选择和共享偏好保存仍由 Tauri/Rust 编排。Android 的资源 bootstrap 状态和输入法选择流程保持独立，不共享 iOS 标记。
+
 ### iOS 打字统计共享状态接通
 
 iOS 键盘统计改用共享 Tauri 宿主已固定的 App Group `MSIME` 状态目录，使扩展写入、React 统计页读取/启停/清空和旧 Swift 统计页访问同一份 `typing-statistics.json` 与锁文件。升级时只在共享目标尚不存在时读取 App Group 根目录的旧聚合文件，双端加锁并验证后原子移动到新目录；不迁移、记录或输出真实输入内容。

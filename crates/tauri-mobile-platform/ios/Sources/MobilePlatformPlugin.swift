@@ -830,6 +830,7 @@ private final class AppleSignInCoordinator: NSObject, ASAuthorizationControllerD
 }
 
 final class MobilePlatformPlugin: Plugin {
+  private static let onboardingKey = "hasCompletedOnboarding"
   private let accountSession = AccountSessionKeychain()
   private let keyboardPreferences = IOSKeyboardPreferenceStore()
   private let keyboardAI = IOSKeyboardAIStore()
@@ -890,6 +891,15 @@ final class MobilePlatformPlugin: Plugin {
         }
       }
     }
+  }
+
+  @objc public func onboardingStatus(_ invoke: Invoke) {
+    invoke.resolve(["completed": UserDefaults.standard.bool(forKey: Self.onboardingKey)])
+  }
+
+  @objc public func completeOnboarding(_ invoke: Invoke) {
+    UserDefaults.standard.set(true, forKey: Self.onboardingKey)
+    invoke.resolve()
   }
 
   @objc public func appIconInfo(_ invoke: Invoke) {

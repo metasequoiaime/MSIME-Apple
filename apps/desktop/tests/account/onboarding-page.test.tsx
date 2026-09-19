@@ -55,6 +55,17 @@ test("adapts the setup step for iOS keyboard settings", async () => {
   expect(screen.queryByRole("button", { name: "选择输入法" })).toBeNull();
 });
 
+test("lets iOS users postpone onboarding without showing Android-only actions", async () => {
+  const onSkip = vi.fn().mockResolvedValue(undefined);
+  const actions = makeActions({ platform: "ios" });
+  render(<WelcomeFlowPage actions={actions} onComplete={vi.fn().mockResolvedValue(undefined)} onSkip={onSkip} />);
+
+  fireEvent.click(screen.getByRole("button", { name: "稍后设置" }));
+
+  await waitFor(() => expect(onSkip).toHaveBeenCalledOnce());
+  expect(screen.queryByRole("button", { name: "选择输入法" })).toBeNull();
+});
+
 test("passes the nine-key choice when onboarding is completed", async () => {
   const onComplete = vi.fn().mockResolvedValue(undefined);
   render(<WelcomeFlowPage actions={makeActions()} onComplete={onComplete} />);
