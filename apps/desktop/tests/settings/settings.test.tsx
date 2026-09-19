@@ -2030,8 +2030,9 @@ test("iOS help opens keyboard settings and feedback builds a visible report", as
 
 test("macOS support pages use client project and privacy links", async () => {
   const openExternalUrl = vi.fn().mockResolvedValue(undefined);
+  const copyText = vi.fn().mockResolvedValue(undefined);
   render(<SettingsPage client={{
-    load: vi.fn().mockResolvedValue(initial), save: vi.fn(), openExternalUrl,
+    load: vi.fn().mockResolvedValue(initial), save: vi.fn(), openExternalUrl, copyText,
     host: { platform: "macos" } as HostCapabilities,
   }} />);
 
@@ -2043,6 +2044,12 @@ test("macOS support pages use client project and privacy links", async () => {
   await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://msime.app/privacy/"));
 
   fireEvent.click(screen.getByRole("button", { name: "反馈" }));
+  fireEvent.change(screen.getByRole("combobox", { name: "反馈类型" }), { target: { value: "候选词不对" } });
+  fireEvent.change(screen.getByRole("textbox", { name: "反馈描述" }), { target: { value: "synthetic macOS repro" } });
+  fireEvent.click(screen.getByRole("button", { name: "复制报告" }));
+  await waitFor(() => expect(copyText).toHaveBeenCalledWith(expect.stringContaining("synthetic macOS repro")));
+  fireEvent.click(screen.getByRole("button", { name: "在 GitHub 提交" }));
+  await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith(expect.stringContaining("/issues/new?")));
   fireEvent.click(screen.getByRole("button", { name: "查看 Issues" }));
   await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/msime/issues"));
 });

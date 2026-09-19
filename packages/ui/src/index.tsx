@@ -2579,7 +2579,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "feedback"} aria-label="反馈">
         <div className="section document-hero"><div className="document-eyebrow">反馈与交流</div><div className="document-hero-title">告诉我们你的想法</div><p>遇到问题或有功能建议时，可以通过以下渠道提交和交流。</p></div>
-        {mobilePlatform && <div className="section feedback-report" aria-label="问题报告">
+        <div className="section feedback-report" aria-label="问题报告">
           <div className="section-title">提交可复现的问题<small>报告只在你点击按钮时生成，不会读取或上传输入历史。</small></div>
           <label className="section-header"><span className="section-title">类型</span><select aria-label="反馈类型" value={feedbackKind} onChange={event => setFeedbackKind(event.target.value)}><option>功能异常</option><option>候选词不对</option><option>功能建议</option><option>其他</option></select></label>
           <label className="section-title">描述<textarea aria-label="反馈描述" maxLength={4000} value={feedbackDetail} onChange={event => setFeedbackDetail(event.target.value)} placeholder="发生了什么？如果和打字有关，写出输入方案、编码和期望结果。" rows={6} /></label>
@@ -2589,7 +2589,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
             {client.openExternalUrl && <button type="button" className="secondary" onClick={submitFeedback}>在 GitHub 提交</button>}
           </div>
           <small>提交会打开 GitHub 并预填报告；网址长度有限，过长描述会被截断，完整内容请先复制。</small>
-        </div>}
+        </div>
         <div className="feedback-list">
           <div className="section feedback-card"><div className="feedback-icon">GH</div><div className="feedback-body"><div className="feedback-title">GitHub Issues</div><p>适合提交可复现的问题、功能建议和开发讨论。</p><code>{platformIssuesUrl.replace("https://", "")}</code></div><button type="button" className="secondary" onClick={() => void openExternalUrl(platformIssuesUrl)}>查看 Issues</button></div>
           <div className="section feedback-card"><div className="feedback-icon">QQ</div><div className="feedback-body"><div className="feedback-title">QQ 交流群</div><p>适合中文用户进行日常交流、测试反馈和使用讨论。</p><code>群号：829919142</code></div><button type="button" className="secondary" onClick={() => { if (!client.copyText) return; void client.copyText("829919142").then(() => { setFeedbackCopied(true); window.setTimeout(() => setFeedbackCopied(false), 1600); }); }}>{feedbackCopied ? "已复制" : "复制群号"}</button></div>
