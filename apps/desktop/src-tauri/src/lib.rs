@@ -2588,6 +2588,33 @@ fn open_external_url(url: String) -> Result<(), HostActionError> {
     }
 }
 
+#[cfg(target_os = "macos")]
+#[tauri::command]
+fn open_third_party_licenses(app: tauri::AppHandle) -> Result<(), HostActionError> {
+    let notices = app
+        .path()
+        .resource_dir()
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?
+        .join("Licenses")
+        .join("THIRD_PARTY_NOTICES.txt");
+    if !notices.is_file() {
+        return Err(HostActionError {
+            code: "unavailable",
+        });
+    }
+    let status = std::process::Command::new("open")
+        .arg(notices)
+        .status()
+        .map_err(|_| HostActionError {
+            code: "unavailable",
+        })?;
+    status.success().then_some(()).ok_or(HostActionError {
+        code: "unavailable",
+    })
+}
+
 #[cfg(target_os = "linux")]
 fn linux_runtime_state_directory() -> Result<Option<PathBuf>, String> {
     let Some(options_path) = std::env::var_os("MSIME_CLIENT_HOST_OPTIONS")
@@ -3120,6 +3147,8 @@ pub fn run() {
             voice::stop_voice,
             submit_handwriting_candidate,
             open_external_url,
+            #[cfg(target_os = "macos")]
+            open_third_party_licenses,
             panel_window::open_keyboard_panel,
             panel_window::open_handwriting_panel,
             panel_window::open_emoji_panel,

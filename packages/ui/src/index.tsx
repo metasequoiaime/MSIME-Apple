@@ -707,6 +707,8 @@ export interface SettingsClient {
   resetLearnedData?: () => Promise<void>;
   readAppVersion?: () => Promise<string>;
   openExternalUrl?: (url: string) => Promise<void>;
+  /** macOS opens the versioned third-party notices shipped with the app bundle. */
+  openThirdPartyLicenses?: () => Promise<void>;
   copyText?: (text: string) => Promise<void>;
   /** Mobile hosts can open the platform keyboard/input-method settings. */
   openSystemKeyboardSettings?: () => Promise<void>;
@@ -2407,6 +2409,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
         </div>
         {macosPlatform && <div className="section about-legal" role="group" aria-label="许可与卸载">
           <div className="section-header"><span className="section-title">许可与版权<small>水杉 IME 以 GPL-3.0 发布；第三方组件许可随应用资源提供。</small></span><span className="about-copyright" aria-label="版权">© 2026 Metasequoia IME</span></div>
+          {client.openThirdPartyLicenses && <button type="button" className="secondary" onClick={() => void client.openThirdPartyLicenses!()}>查看许可全文</button>}
           {client.uninstallInputSource && <div className="service-action-row service-action-row-danger">
             <span>卸载水杉输入法<small>输入源会移到废纸篓；默认保留词库、学习记录和偏好，重新安装后可继续使用。</small>
               <label><input type="checkbox" checked={removeUserDataOnUninstall} onChange={event => setRemoveUserDataOnUninstall(event.target.checked)} /> 同时删除词库、偏好与语音密钥</label>

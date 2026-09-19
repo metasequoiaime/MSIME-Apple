@@ -2055,9 +2055,10 @@ test("iOS help opens keyboard settings and feedback builds a visible report", as
 
 test("macOS support pages use client project and privacy links", async () => {
   const openExternalUrl = vi.fn().mockResolvedValue(undefined);
+  const openThirdPartyLicenses = vi.fn().mockResolvedValue(undefined);
   const copyText = vi.fn().mockResolvedValue(undefined);
   render(<SettingsPage client={{
-    load: vi.fn().mockResolvedValue(initial), save: vi.fn(), openExternalUrl, copyText,
+    load: vi.fn().mockResolvedValue(initial), save: vi.fn(), openExternalUrl, openThirdPartyLicenses, copyText,
     host: { platform: "macos" } as HostCapabilities,
   }} />);
 
@@ -2067,6 +2068,8 @@ test("macOS support pages use client project and privacy links", async () => {
   await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://github.com/metasequoiaime/msime/blob/develop/LICENSE"));
   fireEvent.click(screen.getByRole("button", { name: "隐私政策" }));
   await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://msime.app/privacy/"));
+  fireEvent.click(screen.getByRole("button", { name: "查看许可全文" }));
+  await waitFor(() => expect(openThirdPartyLicenses).toHaveBeenCalledOnce());
 
   fireEvent.click(screen.getByRole("button", { name: "反馈" }));
   fireEvent.change(screen.getByRole("combobox", { name: "反馈类型" }), { target: { value: "候选词不对" } });
