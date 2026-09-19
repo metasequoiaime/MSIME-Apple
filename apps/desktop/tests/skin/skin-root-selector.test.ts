@@ -1,5 +1,5 @@
 import { expect, test } from "vitest";
-import { scopeRootSelector } from "../../../packages/ui/src/skin/skin-root-selector";
+import { scopeRootSelector } from "../../../../packages/ui/src/skin/skin-root-selector";
 
 test.each([
   [":root", ":scope"],

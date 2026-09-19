@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { expect, test } from "vitest";
-import { rewriteAnimationNames } from "../../../packages/ui/src/skin/skin-animations";
+import { rewriteAnimationNames } from "../../../../packages/ui/src/skin/skin-animations";
 
 // Full CSSOM serialization/escaping and playback use the Chromium regression.
 const names = new Map([["pulse", "private-pulse"], ["spin", "private-spin"]]);

@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { normalizeImageSets } from "../../../packages/ui/src/skin/css-image-set";
+import { normalizeImageSets } from "../../../../packages/ui/src/skin/css-image-set";
 
 afterEach(() => vi.unstubAllGlobals());
 test("ordinary values and quoted image-set text are unchanged without a parser", () => {

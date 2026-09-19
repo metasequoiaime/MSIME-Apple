@@ -1,7 +1,7 @@
 import { expect, test } from "vitest";
 
 interface Capability { windows: string[]; permissions: string[]; }
-const capabilities = Object.values(import.meta.glob<Capability>("../src-tauri/capabilities/*.json", { eager: true, import: "default" }));
+const capabilities = Object.values(import.meta.glob<Capability>("../../src-tauri/capabilities/*.json", { eager: true, import: "default" }));
 function permissionsFor(window: string) {
   return new Set(capabilities.filter(capability => capability.windows.includes(window)).flatMap(capability => capability.permissions));
 }

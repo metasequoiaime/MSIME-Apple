@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test } from "vitest";
 import { cleanup, render } from "@testing-library/react";
-import { SkinCandidatePreview } from "../../../packages/ui/src/skin/skin-candidate-preview";
-import decorations from "../../../packages/ui/src/skin/skin-candidate-decorations.css?raw";
+import { SkinCandidatePreview } from "../../../../packages/ui/src/skin/skin-candidate-preview";
+import decorations from "../../../../packages/ui/src/skin/skin-candidate-decorations.css?raw";
 
 afterEach(cleanup);
 

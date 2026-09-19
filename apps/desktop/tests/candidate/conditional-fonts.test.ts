@@ -1,5 +1,5 @@
 import { afterEach, expect, test, vi } from "vitest";
-import { installConditionalFonts } from "../../../packages/ui/src/skin/conditional-fonts";
+import { installConditionalFonts } from "../../../../packages/ui/src/skin/conditional-fonts";
 
 afterEach(() => vi.unstubAllGlobals());
 function query(matches: boolean) {
