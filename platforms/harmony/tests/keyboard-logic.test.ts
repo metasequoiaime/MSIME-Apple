@@ -18,6 +18,7 @@ import { CandidateWrapPolicy } from '../entry/src/main/ets/keyboard/candidate/Ca
 import { KeyboardScheme, SchemeDefinition, PreferenceMapping }
   from '../entry/src/main/ets/keyboard/KeyboardScheme';
 import { ReplyKeyboardPolicy } from '../entry/src/main/ets/keyboard/ReplyKeyboardPolicy';
+import { ReplyContextPolicy } from '../entry/src/main/ets/keyboard/ReplyContextPolicy';
 import { NineKeyLayout, NineKey } from '../entry/src/main/ets/keyboard/input/NineKeyLayout';
 import {
   JapaneseNineKeyLayout, JapaneseKey, VariantGroup,
@@ -565,6 +566,13 @@ group('reply results are safe, unique and bounded', () => {
   check(values.length === 3 && values[2] === '三', 'deduplicates and limits results');
   check(ReplyKeyboardPolicy.results(['好\u0000']).length === 0, 'rejects control characters');
   check(ReplyKeyboardPolicy.STYLES.length === 9, 'keeps the shared nine reply styles');
+});
+
+group('reply results stay bound to the editor context', () => {
+  check(ReplyContextPolicy.matches(3, 3, 7, 7), 'accepts the same editor generations');
+  check(!ReplyContextPolicy.matches(3, 4, 7, 7), 'rejects a changed editor');
+  check(!ReplyContextPolicy.matches(3, 3, 7, 8), 'rejects a changed cursor context');
+  check(!ReplyContextPolicy.matches(-1, -1, 0, 0), 'rejects invalid generations');
 });
 
 group('helpcode needs a composition, a pinyin scheme and no local mode', () => {

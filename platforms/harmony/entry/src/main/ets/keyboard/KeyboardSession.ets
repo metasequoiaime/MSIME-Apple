@@ -51,6 +51,7 @@ import { PairedPunctuationPolicy, PairedPunctuationCompletion } from
   './input/PairedPunctuationPolicy';
 import { CandidateTextPolicy, CandidateTextEdge } from './input/CandidateTextPolicy';
 import { ReplyKeyboardPolicy, ReplyRequest } from './ReplyKeyboardPolicy';
+import { ReplyContextPolicy } from './ReplyContextPolicy';
 import {
   SmartPunctuationRepeatPolicy, SmartPunctuationRepeatSnapshot
 } from './input/SmartPunctuationRepeatPolicy';
@@ -556,6 +557,10 @@ export class KeyboardSession {
   private handle: number = 0;
   private inputClient: inputMethodEngine.InputClient | undefined = undefined;
   private editorGeneration: number = 0;
+  private replyContextGeneration: number = 0;
+  private replyResultEditorGeneration: number = -1;
+  private replyResultContextGeneration: number = -1;
+  private replyResultTexts: string[] = [];
   private generation: number = 0;
   // The Engine opens a session in whichever mode the preferences name, and the shared default is
   // English. Remembered here so every focus reasserts it rather than inheriting the previous editor.
@@ -662,6 +667,8 @@ export class KeyboardSession {
   private composedLast: boolean = false;
   /** The editor's traits arrive after inputStart, so the view is told when they do. */
   onEditorChanged: (() => void) | undefined = undefined;
+  /** Clears reply results when the focused editor or its cursor context changes. */
+  onReplyContextChanged: (() => void) | undefined = undefined;
   /** Putting the keyboard away belongs to the panel, which the view has no handle on. */
   onDismiss: (() => void) | undefined = undefined;
 
@@ -1209,6 +1216,7 @@ export class KeyboardSession {
   /** The framework hands over a fresh client on every inputStart. */
   attach(inputClient: inputMethodEngine.InputClient): void {
     const editorGeneration: number = ++this.editorGeneration;
+    this.invalidateReplyContext();
     this.clearSmartPunctuationRepeat();
     this.inputClient = inputClient;
     inputClient.getEditorAttribute().then((attribute: inputMethodEngine.EditorAttribute): void => {
@@ -1240,6 +1248,7 @@ export class KeyboardSession {
 
   detach(): void {
     this.editorGeneration++;
+    this.invalidateReplyContext();
     this.clearSmartPunctuationRepeat();
     this.cancelOnlineProviders();
     if (this.handle !== 0) {
@@ -1250,6 +1259,7 @@ export class KeyboardSession {
 
   stop(): void {
     this.editorGeneration++;
+    this.invalidateReplyContext();
     this.clearSmartPunctuationRepeat();
     this.cancelOnlineProviders();
     if (this.handle !== 0) {
@@ -1271,6 +1281,17 @@ export class KeyboardSession {
     if (this.translationTimer >= 0) {
       clearTimeout(this.translationTimer);
       this.translationTimer = -1;
+    }
+  }
+
+  /** Invalidate asynchronous reply work without logging or retaining editor text. */
+  invalidateReplyContext(): void {
+    this.replyContextGeneration++;
+    this.replyResultEditorGeneration = -1;
+    this.replyResultContextGeneration = -1;
+    this.replyResultTexts = [];
+    if (this.onReplyContextChanged !== undefined) {
+      this.onReplyContextChanged();
     }
   }
 
@@ -2383,6 +2404,8 @@ export class KeyboardSession {
     if (request === null || !this.aiAssistant.enabled || this.aiAssistant.endpoint.length === 0) {
       return [];
     }
+    const editorGeneration: number = this.editorGeneration;
+    const contextGeneration: number = this.replyContextGeneration;
     const config: PreparedAiAssistant = {
       enabled: this.aiAssistant.enabled, provider: this.aiAssistant.provider,
       model: this.aiAssistant.model, token: this.aiAssistant.token, tokens: this.aiAssistant.tokens,
@@ -2410,18 +2433,37 @@ export class KeyboardSession {
         readTimeout: Math.min(10000, Math.max(1000, descriptor.timeout_ms)),
         extraData: JSON.stringify(descriptor.body)
       });
-      if (response.responseCode < 200 || response.responseCode >= 300
+      if (!ReplyContextPolicy.matches(editorGeneration, this.editorGeneration,
+        contextGeneration, this.replyContextGeneration)
+        || this.inputClient === undefined
+        || response.responseCode < 200 || response.responseCode >= 300
         || typeof response.result !== 'string'
         || utf8Length(response.result) > descriptor.max_response_bytes) return [];
       const parsed: NativeReply<string[] | null> = JSON.parse(client.parseAiResponse(
         response.result, 3)) as NativeReply<string[] | null>;
-      return parsed.ok ? ReplyKeyboardPolicy.results(parsed.value) : [];
+      const results: string[] = parsed.ok ? ReplyKeyboardPolicy.results(parsed.value) : [];
+      if (!ReplyContextPolicy.matches(editorGeneration, this.editorGeneration,
+        contextGeneration, this.replyContextGeneration) || results.length === 0) return [];
+      this.replyResultEditorGeneration = editorGeneration;
+      this.replyResultContextGeneration = contextGeneration;
+      this.replyResultTexts = results;
+      return results;
     } catch (error) {
       KeyboardLog.error(`thoughtful reply unavailable: ${describeError(error)}`);
       return [];
     } finally {
       requestHttp.destroy();
     }
+  }
+
+  /** Insert a reply only if it was generated for the still-current editor context. */
+  insertReply(text: string): boolean {
+    if (!ReplyContextPolicy.matches(this.replyResultEditorGeneration, this.editorGeneration,
+      this.replyResultContextGeneration, this.replyContextGeneration)
+      || !this.replyResultTexts.includes(text)) return false;
+    this.insertWithSource(text, 'reply');
+    this.invalidateReplyContext();
+    return true;
   }
 
   /**

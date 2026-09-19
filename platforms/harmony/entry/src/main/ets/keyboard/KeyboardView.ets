@@ -273,6 +273,13 @@ struct KeyboardView {
       // follow or it would claim a language the Engine is not composing in.
       this.english = KeyboardSession.shared.isEnglish();
     };
+    KeyboardSession.shared.onReplyContextChanged = (): void => {
+      this.replyResults = [];
+      this.replyBusy = false;
+      if (this.surface === SURFACE_REPLY) {
+        this.replyNotice = '输入位置已变化，请重新选择回复方式';
+      }
+    };
     KeyboardSession.shared.onChanged = (state: KeyboardState): void => {
       this.candidates = state.candidates;
       this.editing = state.editing;
@@ -1282,9 +1289,12 @@ struct KeyboardView {
               Button(reply).width('100%').height(48).fontColor(this.skin.keyForeground)
                 .backgroundColor(this.skin.keyBackground)
                 .onClick(() => {
-                  KeyboardSession.shared.insertWithSource(reply, 'reply');
-                  this.replyResults = [];
-                  this.replyNotice = '已插入，请确认发送';
+                  if (KeyboardSession.shared.insertReply(reply)) {
+                    this.replyResults = [];
+                    this.replyNotice = '已插入，请确认发送';
+                  } else {
+                    this.replyNotice = '输入位置已变化，请重新生成';
+                  }
                 })
             }, (reply: string) => reply)
           }.width('100%')
