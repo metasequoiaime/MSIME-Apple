@@ -43,7 +43,7 @@ function boundedHistory(messages: DisplayMessage[]): ChatMessage[] {
   return result;
 }
 
-export function ChatPage({ client, onLogin }: { client: ChatClient; onLogin?: () => void }) {
+export function ChatPage({ client, onLogin, autoFocus = false }: { client: ChatClient; onLogin?: () => void; autoFocus?: boolean }) {
   const [catalog, setCatalog] = useState<ChatModels | null>(null);
   const [selectedModel, setSelectedModel] = useState("");
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
@@ -54,6 +54,7 @@ export function ChatPage({ client, onLogin }: { client: ChatClient; onLogin?: ()
   const [loginNeeded, setLoginNeeded] = useState(false);
   const generation = useRef(0);
   const nextMessageId = useRef(1);
+  const composer = useRef<HTMLTextAreaElement>(null);
 
   const loadModels = async () => {
     setLoadingModels(true);
@@ -76,6 +77,12 @@ export function ChatPage({ client, onLogin }: { client: ChatClient; onLogin?: ()
     void loadModels();
     return () => { generation.current += 1; };
   }, [client]);
+
+  useEffect(() => {
+    if (!autoFocus) return;
+    const timer = window.setTimeout(() => composer.current?.focus(), 0);
+    return () => window.clearTimeout(timer);
+  }, [autoFocus]);
 
   const requestReply = async (history: DisplayMessage[]) => {
     if (sending || !selectedModel) return;
@@ -139,7 +146,7 @@ export function ChatPage({ client, onLogin }: { client: ChatClient; onLogin?: ()
       {sending && <div className="chat-pending" role="status">正在回复…</div>}
     </div>
     <div className="chat-composer">
-      <textarea aria-label="聊天消息" value={draft} maxLength={16_384} disabled={sending || !selectedModel} placeholder="输入消息，试试键盘" onChange={event => setDraft(event.target.value)} onKeyDown={event => {
+      <textarea ref={composer} aria-label="聊天消息" value={draft} maxLength={16_384} disabled={sending || !selectedModel} placeholder="输入消息，试试键盘" onChange={event => setDraft(event.target.value)} onKeyDown={event => {
         if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); send(); }
       }} />
       <div className="chat-actions">

@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { HomePage, SettingsPage, type Snapshot } from "@msime/ui";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { HomePage, SettingsPage, type HostCapabilities, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
 
@@ -62,13 +62,33 @@ test("exposes Apple home shortcuts for dictionary, AI and system settings", () =
   expect(openSystemKeyboardSettings).toHaveBeenCalledOnce();
 });
 
-test("routes the keyboard card to shared settings when a mobile host cannot open a window", () => {
+test("routes the keyboard card to the shared tryout when a mobile host cannot open a window", () => {
   const onOpenPage = vi.fn();
-  render(<HomePage preferences={initial.preferences} onOpenPage={onOpenPage} />);
+  const onOpenChat = vi.fn();
+  render(<HomePage preferences={initial.preferences} onOpenPage={onOpenPage} onOpenChat={onOpenChat} />);
 
   fireEvent.click(screen.getByRole("button", { name: /试用键盘/ }));
 
-  expect(onOpenPage).toHaveBeenCalledWith("screen-keyboard");
+  expect(onOpenChat).toHaveBeenCalledOnce();
+  expect(onOpenPage).not.toHaveBeenCalled();
+});
+
+test("iOS home keyboard card opens and focuses the shared keyboard tryout", async () => {
+  const client = {
+    load: async () => initial,
+    save: vi.fn(),
+    host: { platform: "ios" } as HostCapabilities,
+    home: { openSystemKeyboardSettings: vi.fn() },
+    chat: {
+      models: async () => ({ data: [{ id: "fixture-chat" }], defaultModel: "fixture-chat" }),
+      complete: async () => "fixture reply",
+    },
+  };
+  render(<SettingsPage client={client} />);
+  await screen.findByRole("region", { name: "首页" });
+  fireEvent.click(screen.getByRole("button", { name: /试用键盘/ }));
+  const composer = await screen.findByRole("textbox", { name: "聊天消息" });
+  await waitFor(() => expect(document.activeElement).toBe(composer));
 });
 
 test("selects thoughtful reply from the home feature entry", () => {

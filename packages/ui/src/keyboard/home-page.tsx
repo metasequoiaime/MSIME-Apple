@@ -52,10 +52,16 @@ export function HomePage({ preferences, actions, onOpenPage, onSelectScheme, onO
   const invokeAction = (action?: () => Promise<void>) => { if (action) void action(); };
   const openKeyboard = () => {
     if (!actions?.openKeyboard) {
+      // iOS has no separate desktop-style panel. Its Apple home card opens a
+      // real text field so the system keyboard extension can be tried in place.
+      if (onOpenChat) { onOpenChat(); return; }
       onOpenPage("screen-keyboard");
       return;
     }
-    void actions.openKeyboard().catch(() => onOpenPage("screen-keyboard"));
+    void actions.openKeyboard().catch(() => {
+      if (onOpenChat) onOpenChat();
+      else onOpenPage("screen-keyboard");
+    });
   };
 
   return <section className="home-page" aria-label="首页">

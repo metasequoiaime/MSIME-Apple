@@ -70,3 +70,9 @@ test("prompts for login when the account backend rejects model loading", async (
   fireEvent.click(screen.getByRole("button", { name: "登录使用 AI" }));
   expect(onLogin).toHaveBeenCalledOnce();
 });
+
+test("can autofocus the composer for the mobile keyboard tryout", async () => {
+  render(<ChatPage client={client()} autoFocus />);
+  const composer = await screen.findByRole("textbox", { name: "聊天消息" });
+  await waitFor(() => expect(document.activeElement).toBe(composer));
+});

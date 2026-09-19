@@ -1768,7 +1768,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
       onOpenDesktopDownload={mobilePlatform && client.openExternalUrl ? () => { void openExternalUrl(desktopDownloadUrl); } : undefined}
       onReplayOnboarding={mobilePlatform ? onReplayOnboarding : undefined}
     />}
-    {client.chat && page === "chat" && <ChatPage client={client.chat} onLogin={() => selectPage("account")} />}
+    {client.chat && page === "chat" && <ChatPage client={client.chat} autoFocus={iosPlatform} onLogin={() => selectPage("account")} />}
     {client.communitySkins && client.communityResources && page === "community" && <CommunityHomePage key={communityDestination} skins={client.communitySkins} resources={client.communityResources} theme={keyboardPreviewTheme} initialMine={communityDestination === "published-skins"} initialCategory={initialCommunityCategory} initialScope={initialCommunityScope} localDictionary={client.dictionary} mobile={mobilePlatform} />}
     {client.communitySkins && !client.communityResources && page === "community" && <CommunitySkinsPage key={communityDestination} client={client.communitySkins} theme={keyboardPreviewTheme} localSkinLibrary={client.customSkinLibrary} initialMine={communityDestination === "published-skins"} />}
     {!client.communitySkins && client.communityResources && page === "community" && <CommunityResourcesPage client={client.communityResources} kind={initialCommunityCategory === "reply" ? "reply" : "dictionary"} initialScope={initialCommunityScope} mobile={mobilePlatform} />}
