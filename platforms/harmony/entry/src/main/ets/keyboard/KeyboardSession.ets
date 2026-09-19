@@ -21,6 +21,7 @@ import common from '@ohos.app.ability.common';
 import i18n from '@ohos.i18n';
 import { InputDiagnosticPolicy } from './input/InputDiagnosticPolicy';
 import { InputModeHudPolicy } from './InputModeHudPolicy';
+import { HardwareKeyTarget } from './HardwareKeyDispatch';
 import { DEFAULT_VOICE_HOTKEY_BINDINGS, VoiceHotkeyAction, VoiceHotkeyBindings, VoiceHotkeyPolicy,
   VoiceKey } from './input/VoiceHotkeyPolicy';
 import { HarmonyVoiceRecordingBehaviour } from './input/HarmonyVoiceRecordingBehaviour';
@@ -666,7 +667,7 @@ enum InputCommand {
  *
  * Deliberately thin: the Engine decides what a key means, this only forwards and applies the result.
  */
-export class KeyboardSession {
+export class KeyboardSession implements HardwareKeyTarget {
   static readonly shared: KeyboardSession = new KeyboardSession();
 
   private handle: number = 0;
