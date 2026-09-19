@@ -115,6 +115,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var backspaceRepeatTimer: Timer?
   private var didRepeatBackspace = false
   private var hasComposition = false
+  /// Japanese conversion keeps the selected candidate in the strip until Return commits it.
+  private var japaneseConversionIndex: Int?
   private var isChineseMode = true
   private var inputContext = KeyboardInputContext()
   private var inputScheme: ChineseInputScheme = .quanpin
@@ -136,6 +138,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var globeWidthConstraint: NSLayoutConstraint?
   private var japaneseKeys: JapaneseNineKeyView!
   private weak var japaneseGlobeButton: UIButton?
+  private weak var japaneseSpaceButton: UIButton?
+  private weak var japaneseReturnButton: UIButton?
   private var japaneseHeight: NSLayoutConstraint!
   private var nineKeyHeight: NSLayoutConstraint!
   private var nineKeySymbolsButton: UIButton!
@@ -278,6 +282,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     keyboardHeightConstraint = height
     updatePreferredKeyboardHeight()
     updateReturnKey()
+    updateSpaceKeyTitle()
     // installKeyboard builds the candidate strip before the letter rows exist, so the hints the
     // scheme button gathered there have not reached any key yet.
     updateLetterCaseControls()
@@ -442,7 +447,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     japaneseGlobe.accessibilityIdentifier = "japaneseGlobe"
     japaneseGlobe.addTarget(
       self, action: #selector(handleInputModeButton(_:event:)), for: .allTouchEvents)
-    let japaneseSpace = makeKey(title: "空格", accessibilityLabel: "空格") { [weak self] in
+    let japaneseSpace = makeKey(title: "空白", accessibilityLabel: "空白") { [weak self] in
       self?.handleSpace()
     }
     japaneseSpace.accessibilityIdentifier = "japaneseSpace"
@@ -450,6 +455,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       self?.handleReturn()
     }
     japaneseReturn.accessibilityIdentifier = "japaneseReturn"
+    japaneseSpaceButton = japaneseSpace
+    japaneseReturnButton = japaneseReturn
     japaneseKeys = JapaneseNineKeyView(makeKey: { [unowned self] title, label, action in
       makeKey(title: title, accessibilityLabel: label, action: action)
     }, makeDelete: { [unowned self] in makeDeleteKey() },
@@ -1554,6 +1561,25 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateKeyboardLayout()
   }
 
+  /// Japanese names its space key by the action it performs: 空白 while idle and 変換 while
+  /// choosing a candidate. Other schemes keep the shared 空格 label.
+  private func updateSpaceKeyTitle() {
+    let title = inputScheme.isJapanese ? (hasComposition ? "変換" : "空白") : "空格"
+    if var configuration = japaneseSpaceButton?.configuration,
+       configuration.title != title {
+      configuration.title = title
+      japaneseSpaceButton?.configuration = configuration
+      japaneseSpaceButton?.accessibilityLabel = title
+    }
+    if var configuration = spaceButton?.configuration,
+       configuration.title != title {
+      configuration.title = title
+      spaceButton?.configuration = configuration
+      spaceButton?.accessibilityLabel = title
+    }
+    japaneseKeys?.setComposing(hasComposition)
+  }
+
   private func updateReturnKey() {
     let title: String
     switch textDocumentProxy.returnKeyType ?? .default {
@@ -1581,11 +1607,20 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       title = "换行"
     }
 
+    let shownTitle = inputScheme.isJapanese && hasComposition ? "確定" : title
+    if var configuration = japaneseReturnButton?.configuration {
+      let japaneseTitle = hasComposition ? "確定" : "改行"
+      if configuration.title != japaneseTitle {
+        configuration.title = japaneseTitle
+        japaneseReturnButton?.configuration = configuration
+        japaneseReturnButton?.accessibilityLabel = japaneseTitle
+      }
+    }
     if var configuration = enterButton?.configuration {
-      configuration.title = title
+      configuration.title = shownTitle
       enterButton?.configuration = configuration
     }
-    enterButton?.accessibilityLabel = title
+    enterButton?.accessibilityLabel = shownTitle
   }
 
   private func applyLearningPreferences() {
@@ -2336,7 +2371,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   @objc private func handleSpacePan(_ pan: UIPanGestureRecognizer) {
     guard let document = KeyboardHostContext.documentIdentifier(for: textDocumentProxy) else {
       cursorMovement.cancel()
-      spaceButton?.configuration?.title = "空格"
+      updateSpaceKeyTitle()
       return
     }
     switch pan.state {
@@ -2350,10 +2385,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     case .changed:
       moveCursor(by: cursorMovement.advance(to: pan.translation(in: view).x,
                                            document: document))
-      if !cursorMovement.isActive { spaceButton?.configuration?.title = "空格" }
+      if !cursorMovement.isActive { updateSpaceKeyTitle() }
     case .ended, .cancelled, .failed:
       cursorMovement.cancel()
-      spaceButton?.configuration?.title = "空格"
+      updateSpaceKeyTitle()
     default: break
     }
   }
@@ -2364,6 +2399,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     if !isChineseMode {
       insertOwnText(" ")
       refreshEnglishSuggestions()
+      return
+    }
+    if inputScheme.isJapanese && hasComposition && !visibleCandidates.isEmpty {
+      let next = (japaneseConversionIndex.map { $0 + 1 } ?? 0) % visibleCandidates.count
+      japaneseConversionIndex = next
+      renderCandidateStrip()
+      updateSpaceKeyTitle()
+      updateReturnKey()
       return
     }
     let snapshot = commitVisibleCandidate()
@@ -2380,6 +2423,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func handleReturn() {
     if !handwriting.isHidden && handwriting.hasInk { _ = handwriting.commitFirst(); return }
     playInputClick()
+    if inputScheme.isJapanese && hasComposition {
+      let index = japaneseConversionIndex
+      japaneseConversionIndex = nil
+      render(index.map { session.selectCandidate(at: UInt($0)) } ?? session.commitReading())
+      return
+    }
     let snapshot = session.finishComposition()
     if !snapshot.isHandled {
       insertOwnText("\n")
@@ -2389,7 +2438,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   @objc private func handleInputModeButton(_ sender: UIButton, event: UIEvent) {
     if event.allTouches?.contains(where: { touch in touch.phase == .began }) == true {
-      render(session.commitRaw())
+      render(inputScheme.isJapanese ? session.finishComposition() : session.commitRaw())
     }
     handleInputModeList(from: sender, with: event)
   }
@@ -2447,10 +2496,17 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       insertOwnText(source == .japanese ? commitText : chineseOutput(commitText), source: source)
     }
     hasComposition = !snapshot.preedit.isEmpty
-    japaneseKeys?.setComposing(hasComposition)
+    if !hasComposition || snapshot.commitText != nil { japaneseConversionIndex = nil }
+    if inputScheme.isJapanese {
+      updateSpaceKeyTitle()
+      updateReturnKey()
+    }
     if !hasComposition { applyLearningPreferences() }
     showDiagnostic(snapshot.diagnosticText)
-    updateCandidateStrip(preedit: snapshot.preedit, candidates: snapshot.candidates,
+    updateCandidateStrip(
+                         preedit: inputScheme.isJapanese && !snapshot.reading.isEmpty
+                           ? snapshot.reading : snapshot.preedit,
+                         candidates: snapshot.candidates,
                          candidateCodes: snapshot.candidateCodes,
                          candidateGlosses: snapshot.candidateGlosses,
                          candidatePageCount: snapshot.candidatePageCount,
@@ -2518,7 +2574,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     for (offset, candidate) in page.enumerated() {
       candidateStack.addArrangedSubview(
         makeCandidateButton(
-          candidate: candidate, number: offset + 1, index: offset))
+          candidate: candidate, number: offset + 1, index: offset,
+          converting: japaneseConversionIndex == offset))
     }
     updateExpandControl()
 
@@ -2678,7 +2735,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   // A touch keyboard has no number row to answer with, so the ordinal is spoken rather than drawn;
   // the index is the engine position the chip selects. The expand panel already showed bare text.
-  private func makeCandidateButton(candidate: String, number: Int, index: Int) -> UIButton {
+  private func makeCandidateButton(candidate: String, number: Int, index: Int,
+                                   converting: Bool = false) -> UIButton {
     let display = chineseOutput(candidate)
     let annotation = candidateAnnotation(at: index)
     let glosses = candidateGlosses(at: index)
@@ -2711,7 +2769,9 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     configuration.baseForegroundColor = KeyboardSkinPreference.selected.keyForeground
     configuration.contentInsets = NSDirectionalEdgeInsets(
       top: 4, leading: 9, bottom: 4, trailing: 9)
-    configuration.background.backgroundColor = KeyboardSkinPreference.selected.keyBackground
+    configuration.background.backgroundColor = converting
+      ? KeyboardSkinPreference.selected.accent.withAlphaComponent(0.22)
+      : KeyboardSkinPreference.selected.keyBackground
     configuration.background.strokeColor = KeyboardSkinPreference.selected.accent.withAlphaComponent(0.22)
     configuration.background.strokeWidth = 1
     configuration.background.cornerRadius = 9

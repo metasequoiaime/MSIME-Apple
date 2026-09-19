@@ -82,6 +82,7 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
   let isHandled: Bool
   let commitText: String?
   let preedit: String
+  let reading: String
   let candidates: [String]
   let candidateCodes: [String]
   let candidateGlosses: [String]
@@ -89,13 +90,14 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
   let answeredByPinyinFallback: Bool
   let diagnosticText: String?
 
-  init(isHandled: Bool = false, commitText: String? = nil, preedit: String = "",
+  init(isHandled: Bool = false, commitText: String? = nil, preedit: String = "", reading: String = "",
        candidates: [String] = [], candidateCodes: [String] = [], candidateGlosses: [String] = [],
        candidatePageCount: Int = 0, answeredByPinyinFallback: Bool = false,
        diagnosticText: String? = nil) {
     self.isHandled = isHandled
     self.commitText = commitText
     self.preedit = preedit
+    self.reading = reading
     self.candidates = candidates
     self.candidateCodes = candidateCodes
     self.candidateGlosses = candidateGlosses
@@ -352,6 +354,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func cancel() -> MetasequoiaInputSnapshot { command(3) }
   func finishComposition() -> MetasequoiaInputSnapshot { command(9) }
   func cycleKanaVariant() -> MetasequoiaInputSnapshot { command(10) }
+  func commitReading() -> MetasequoiaInputSnapshot { command(11) }
 
   func selectCandidate(at index: UInt) -> MetasequoiaInputSnapshot {
     guard let rows = try? currentCandidates(), rows.indices.contains(Int(index)),
@@ -784,6 +787,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     let rows = view["candidates"] as? [[String: Any]] ?? []
     return MetasequoiaInputSnapshot(isHandled: value["handled"] as? Bool ?? false,
       commitText: value["commit"] as? String, preedit: view["preedit"] as? String ?? "",
+      reading: view["reading"] as? String ?? "",
       candidates: rows.compactMap { $0["text"] as? String },
       candidateCodes: rows.map { $0["code"] as? String ?? "" },
       candidateGlosses: rows.map { $0["translation"] as? String ?? "" },
