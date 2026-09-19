@@ -60,6 +60,7 @@ import { CandidateFontFamilyPolicy }
 import { CandidateAnnotationPreferencePolicy }
   from '../entry/src/main/ets/keyboard/candidate/CandidateAnnotationPreferencePolicy';
 import { InputModeHudPolicy } from '../entry/src/main/ets/keyboard/InputModeHudPolicy';
+import { ImeModeScopePolicy } from '../entry/src/main/ets/keyboard/input/ImeModeScopePolicy';
 import { HARMONY_CAPTURE_BACKEND, VoiceCaptureDevice, VoiceCaptureDevicePolicy }
   from '../entry/src/main/ets/keyboard/input/VoiceCaptureDevicePolicy';
 import { CandidateGlossPolicy, GlossToken }
@@ -1521,6 +1522,52 @@ group('an absent capture device falls back rather than failing the recording', (
   check(VoiceCaptureDevicePolicy.match(devices, 'windows', '15:') === null,
     'another host\u0027s backend is not matched against this enumeration');
   check(VoiceCaptureDevicePolicy.match(devices, '', '') === null, 'no choice is the system default');
+});
+
+group('the input mode is remembered per application', () => {
+  const scope: ImeModeScopePolicy = new ImeModeScopePolicy();
+  scope.activate('com.example.chat', 'app');
+  check(scope.mode(false) === false, 'an application nobody has typed in yet opens at the default');
+  scope.remember(true);
+  scope.activate('com.example.mail', 'app');
+  check(scope.mode(false) === false, 'another application is unaffected by that choice');
+  scope.remember(false);
+  scope.activate('com.example.chat', 'app');
+  check(scope.mode(false) === true, 'and coming back finds the mode this one was left in');
+  scope.activate(null, 'app');
+  check(scope.mode(true) === true, 'an editor with no bundle name falls back to the default');
+  scope.remember(false);
+  scope.activate(null, 'app');
+  check(scope.mode(true) === true, 'and nothing was recorded against it');
+});
+
+group('the global scope shares one mode across applications', () => {
+  const scope: ImeModeScopePolicy = new ImeModeScopePolicy();
+  scope.activate('com.example.chat', 'global');
+  scope.remember(true);
+  scope.activate('com.example.mail', 'global');
+  check(scope.mode(false) === true, 'the mode follows the user rather than the application');
+  scope.activate('com.example.mail', 'app');
+  check(scope.mode(false) === false,
+    'switching the setting does not turn the shared mode into a per-application one');
+});
+
+group('the remembered applications are bounded', () => {
+  const scope: ImeModeScopePolicy = new ImeModeScopePolicy();
+  for (let index: number = 0; index < 80; index++) {
+    scope.activate(`com.example.app${index}`, 'app');
+    scope.remember(index % 2 === 0);
+  }
+  check(scope.size() === 64, 'the map does not grow without limit');
+  scope.activate('com.example.app79', 'app');
+  check(scope.mode(false) === false, 'the most recent application is still remembered');
+  scope.activate('com.example.app0', 'app');
+  check(scope.mode(false) === false,
+    'the one that has gone longest without being typed in is the one dropped');
+  const long: ImeModeScopePolicy = new ImeModeScopePolicy();
+  long.activate('x'.repeat(300), 'app');
+  long.remember(true);
+  check(long.size() === 0, 'an implausible bundle name is not an identity to remember');
 });
 
 group('the mode badge is built only when the shared preference allows it', () => {

@@ -20,6 +20,7 @@ import vibrator from '@ohos.vibrator';
 import i18n from '@ohos.i18n';
 import { InputDiagnosticPolicy } from './input/InputDiagnosticPolicy';
 import { InputModeHudPolicy } from './InputModeHudPolicy';
+import { ImeModeScopePolicy } from './input/ImeModeScopePolicy';
 import { ModeBindings, DEFAULT_MODE_BINDINGS } from './InputModeRouting';
 import { FloatingToolbarLayout, ToolbarButton, ToolbarComponents, ToolbarState }
   from './FloatingToolbarLayout';
@@ -436,6 +437,8 @@ interface PrepareRequest {
 // untouched, so naming it here would only invite the two shapes to drift apart.
 interface PreparedPreferences {
   default_ime_mode: string;
+  /** `app` remembers the mode per application; `global` shares one across all of them. */
+  ime_mode_scope?: string;
   scheme: string;
   /** Optional in the shared document; absent means the Wubi remaining-code hint stays on. */
   wubi_code_hint?: boolean;
@@ -660,6 +663,11 @@ export class KeyboardSession {
   // The Engine opens a session in whichever mode the preferences name, and the shared default is
   // English. Remembered here so every focus reasserts it rather than inheriting the previous editor.
   private englishMode: boolean = false;
+  // Which application the mode belongs to. Windows and macOS both keep this per application by
+  // default; this host used to keep one mode for every editor it was ever attached to.
+  private modeScope: ImeModeScopePolicy = new ImeModeScopePolicy();
+  private modeScopeSetting: string = 'app';
+  private defaultEnglish: boolean = false;
   // Hardware events report this independently of the Engine's dedicated-English mode. The
   // floating toolbar uses it as the same high-priority status shown by the Windows presenter.
   private capsLock: boolean = false;
@@ -917,7 +925,9 @@ export class KeyboardSession {
         this.onVoiceInputChanged(this.voiceInputEnabled());
       }
       this.aiAssistant = preferences.ai_assistant;
-      this.englishMode = preferences.default_ime_mode === 'english';
+      this.defaultEnglish = preferences.default_ime_mode === 'english';
+      this.modeScopeSetting = preferences.ime_mode_scope === 'global' ? 'global' : 'app';
+      this.englishMode = this.defaultEnglish;
       this.bindings = {
         switchLanguageShift: preferences.keybindings.switch_language_shift,
         switchLanguageCtrl: preferences.keybindings.switch_language_ctrl,
@@ -1305,6 +1315,8 @@ export class KeyboardSession {
       return this.englishMode;
     }
     this.englishMode = !this.englishMode;
+    // The user asked for this one, so it is the choice this application is remembered by.
+    this.modeScope.remember(this.englishMode);
     this.applyView(client.setEnglishMode(this.handle, this.englishMode));
     return this.englishMode;
   }
@@ -1391,10 +1403,14 @@ export class KeyboardSession {
       }
       this.enterKey = attribute.enterKeyType;
       this.traits = KeyboardSession.traitsFor(attribute.inputPattern);
+      // Which application this editor belongs to, so the mode can be the one last chosen there.
+      // Resolved with the attribute rather than at attach: the bundle name arrives with it.
+      this.modeScope.activate(attribute.bundleName ?? null, this.modeScopeSetting);
       // A password field must never see a composition buffer, and a field that asked for no
       // suggestions has said it does not want one. Latin for an address, where Chinese would only
-      // be in the way.
-      const english: boolean = this.englishMode || EditorPolicy.prefersLatin(this.traits);
+      // be in the way. That override is the editor's, not the user's, so it is never remembered.
+      const english: boolean =
+        this.modeScope.mode(this.defaultEnglish) || EditorPolicy.prefersLatin(this.traits);
       if (this.handle !== 0 && english !== this.englishMode) {
         this.englishMode = english;
         this.applyView(client.setEnglishMode(this.handle, english));
@@ -1414,6 +1430,7 @@ export class KeyboardSession {
 
   detach(): void {
     this.editorGeneration++;
+    this.modeScope.deactivate();
     this.invalidateReplyContext();
     this.clearSmartPunctuationRepeat();
     this.cancelOnlineProviders();

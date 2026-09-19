@@ -55,6 +55,17 @@ test("a macOS host receives its native mode scope control", async () => {
   expect(screen.getByLabelText("中英文状态范围")).toBeTruthy();
 });
 
+test("a touch host that can name the editor's application gets the mode scope control", async () => {
+  // HarmonyOS reads the bundle name off the editor attribute, so a per-application map is real
+  // there; the gate stays the capability rather than a list of desktop platform names.
+  mount({ host: capabilities({ platform: "harmony", ime_mode_scope: true }) });
+  await screen.findByLabelText("中英文状态范围");
+  cleanup();
+  mount({ host: capabilities({ platform: "android", ime_mode_scope: false }) });
+  await screen.findByLabelText("输入模式");
+  expect(screen.queryByLabelText("中英文状态范围")).toBeNull();
+});
+
 test("a host without mode scope support does not receive the control", async () => {
   mount({ host: capabilities({ platform: "windows" }) });
   await screen.findByRole("button", { name: "保存设置" });
