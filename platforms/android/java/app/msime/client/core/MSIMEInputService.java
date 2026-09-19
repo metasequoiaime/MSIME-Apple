@@ -4389,12 +4389,38 @@ public final class MSIMEInputService extends InputMethodService {
         if (session != 0) command(3);
     }
 
+    private void insertExpandedCandidateGloss(JSONObject candidate, JSONObject id,
+                                              String text, String gloss) {
+        if (!expandedCandidateIsCurrent(candidate, id, text) || connection == null) return;
+        if (!commitText(gloss, TypingSource.LOCAL)) return;
+        if (session != 0) command(3);
+    }
+
+    private boolean expandedCandidateIsCurrent(JSONObject candidate, JSONObject id, String text) {
+        if (!candidatePanelOpen || candidatePanelSnapshot == null || view == null || candidate == null
+                || id == null || candidatePanelSnapshot.optLong("session") != session
+                || candidatePanelSnapshot.optLong("session") != view.optLong("session")
+                || candidatePanelSnapshot.optLong("generation") != view.optLong("generation"))
+            return false;
+        JSONObject candidateId = candidate.optJSONObject("id");
+        return candidateId != null
+            && candidateId.optLong("session") == id.optLong("session")
+            && candidateId.optLong("generation") == id.optLong("generation")
+            && candidateId.optLong("index") == id.optLong("index")
+            && text.equals(chineseOutput(candidate.optString("text"), view));
+    }
+
     private boolean showCandidateMenu(Button button, int slot, JSONObject id, String text) {
         if (!candidateGlossInsertionEnabled() && !candidateManagementEnabled()) return false;
+        return showCandidateMenu(button, slot, id, text, visibleCandidate(slot), false);
+    }
+
+    private boolean showCandidateMenu(Button button, int slot, JSONObject id, String text,
+                                      JSONObject candidate, boolean expanded) {
+        if (!candidateGlossInsertionEnabled() && !candidateManagementEnabled()) return false;
         PopupMenu popup = new PopupMenu(this, button);
-        JSONObject current = visibleCandidate(slot);
-        String translation = current == null || current.isNull("translation")
-            ? "" : current.optString("translation", "");
+        String translation = candidate == null || candidate.isNull("translation")
+            ? "" : candidate.optString("translation", "");
         java.util.List<String> glosses = candidateGlossInsertionEnabled()
             ? CandidateTranslationPolicy.insertionGlosses(translation) : java.util.List.of();
         for (int index = 0; index < glosses.size(); index++)
@@ -4410,7 +4436,8 @@ public final class MSIMEInputService extends InputMethodService {
             playFeedback(button);
             int glossIndex = item.getItemId() - 2000;
             if (glossIndex >= 0 && glossIndex < glosses.size()) {
-                insertCandidateGloss(slot, id, text, glosses.get(glossIndex));
+                if (expanded) insertExpandedCandidateGloss(candidate, id, text, glosses.get(glossIndex));
+                else insertCandidateGloss(slot, id, text, glosses.get(glossIndex));
                 return true;
             }
             CandidateManagementAction action;
@@ -4564,6 +4591,10 @@ public final class MSIMEInputService extends InputMethodService {
                     apply(NativeClient.selectAnyCandidate(
                         session, id.getLong("generation"), id.getLong("index")));
                 } catch (JSONException | LinkageError error) { fail(); }
+            });
+            button.setOnLongClickListener(ignored -> {
+                if (!candidateManagementEnabled() && !candidateGlossInsertionEnabled()) return false;
+                return showCandidateMenu(button, -1, id, text, candidate, true);
             });
         }
         return button;

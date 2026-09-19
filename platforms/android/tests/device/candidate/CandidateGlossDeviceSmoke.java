@@ -15,7 +15,7 @@ import org.json.JSONObject;
 /** Device acceptance for default-on offline candidate gloss presentation and selection identity. */
 public final class CandidateGlossDeviceSmoke extends DeviceSmoke {
     @Override protected String successDescription() {
-        return "offline candidate gloss strip, expanded panel, selection and opt-out";
+        return "offline candidate gloss strip, expanded long press, selection and opt-out";
     }
 
     @Override protected void runChecks() throws Exception {
@@ -47,7 +47,14 @@ public final class CandidateGlossDeviceSmoke extends DeviceSmoke {
 
             stage = "expanded candidate offline gloss";
             tap(key("展开").and(AccessibilityNodeInfo::isEnabled));
-            await(expandedGlossCandidate());
+            AccessibilityNodeInfo expanded = await(expandedGlossCandidate());
+            stage = "expanded candidate long press menu";
+            if (!expanded.isLongClickable()
+                    || !expanded.performAction(AccessibilityNodeInfo.ACTION_LONG_CLICK))
+                throw new AssertionError("Expanded candidate did not expose long press");
+            await(glossMenuItem());
+            if (!automation.performGlobalAction(android.accessibilityservice.AccessibilityService.GLOBAL_ACTION_BACK))
+                throw new AssertionError("Candidate gloss menu did not close");
             tap(candidatePanelClose());
 
             stage = "glossed candidate selection identity";
@@ -93,6 +100,10 @@ public final class CandidateGlossDeviceSmoke extends DeviceSmoke {
             && node.getText().toString().contains("hello")
             && node.getContentDescription() != null
             && node.getContentDescription().toString().startsWith("候选 1：你好");
+    }
+
+    private Predicate<AccessibilityNodeInfo> glossMenuItem() {
+        return node -> preview(node) && equalsText("hello", node.getText()) && node.isClickable();
     }
 
     private Predicate<AccessibilityNodeInfo> plainCandidate() {
