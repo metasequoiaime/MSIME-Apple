@@ -31,7 +31,7 @@
       /* background: url("https://appassets/background.jpg"); */
       padding: 2px;
       border-radius: 6px;
-      box-shadow: 5px 5px 10px rgba(0, 0, 0, 0.5);
+      box-shadow: 8px 10px 24px rgba(0, 0, 0, 0.34), 2px 3px 8px rgba(0, 0, 0, 0.22);
       min-width: 7em;
       width: min(fit-content, var(--msime-max-width-dip));
       max-width: var(--msime-max-width-dip);
@@ -148,7 +148,7 @@
       background: #2d2d2d;
       border: 1px solid #9b9b9b2e;
       border-radius: 6px;
-      box-shadow: 5px 5px 10px rgba(0, 0, 0, 0.5);
+      box-shadow: 8px 10px 24px rgba(0, 0, 0, 0.34), 2px 3px 8px rgba(0, 0, 0, 0.22);
       padding: 1px 0;
       /* min-width: 80px; */
       z-index: 1000;
@@ -185,7 +185,7 @@
       padding: 3px 5px;
       border: 1px solid #30353b;
       border-radius: 3px;
-      box-shadow: 0 2px 8px rgba(0, 0, 0, .28);
+      box-shadow: 8px 10px 24px rgba(0, 0, 0, .34), 2px 3px 8px rgba(0, 0, 0, .22);
     }
     .cand { border-radius: 2px; }
     .cursor { background: #8993a0; }

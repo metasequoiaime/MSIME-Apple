@@ -31,7 +31,7 @@
       /* background: url("https://appassets/background.jpg"); */
       padding: 2px 1px;
       border-radius: 6px;
-      box-shadow: 5px 5px 10px rgba(0, 0, 0, 0.5);
+      box-shadow: 8px 10px 24px rgba(0, 0, 0, 0.34), 2px 3px 8px rgba(0, 0, 0, 0.22);
       min-width: 7em;
       /* Wrap only when content reaches the host (injected) max width. */
       width: min(max-content, var(--msime-max-width-dip));
