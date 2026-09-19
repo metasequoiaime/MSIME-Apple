@@ -15,6 +15,13 @@ use crate::*;
 /// The file name the reranking model is published under inside the resource set.
 pub(crate) const SENTENCE_MODEL_FILE: &str = "sentence-model.safetensors";
 
+/// The larger model, published beside the first, run only once typing settles.
+///
+/// A separate file rather than a preset flag inside one, because the two are wanted at once: the
+/// small one on every keystroke and this one when the user pauses. Installations that ship only
+/// the small one keep today's behaviour exactly.
+pub(crate) const SETTLED_MODEL_FILE: &str = "sentence-model-desktop.safetensors";
+
 /// The candidate reranking model, loaded once per path and shared by every session using it.
 ///
 /// The path is separate from the dictionaries because the two artifacts change on entirely
@@ -25,6 +32,18 @@ pub(crate) const SENTENCE_MODEL_FILE: &str = "sentence-model.safetensors";
 ///
 /// Absence is the normal case for an installation that ships no model, so it is not an error and
 /// leaves behaviour exactly as it was.
+/// The settled model for a resource directory, or `None` when the set does not ship one.
+///
+/// Shares `sentence_model`'s cache by going through it, so two sessions on the same resources load
+/// the twenty five megabytes once between them rather than once each.
+pub(crate) fn sentence_model_settled(dictionaries: &str) -> Option<Arc<SentenceModel>> {
+    let path = Path::new(dictionaries).join(SETTLED_MODEL_FILE);
+    if !path.is_file() {
+        return None;
+    }
+    sentence_model(dictionaries, path.to_str())
+}
+
 pub(crate) fn sentence_model(
     dictionaries: &str,
     configured: Option<&str>,
