@@ -2087,6 +2087,9 @@ test("macOS and iOS help pages use their native host instructions", async () => 
   expect(await screen.findByText(/macOS 平台的中文输入法/)).toBeDefined();
   expect(screen.getByText(/系统设置的键盘输入法/)).toBeDefined();
   expect(screen.getByText(/候选翻译和 AI 功能仅在用户配置并启用/)).toBeDefined();
+  expect(screen.getByText(/按 Tab 在候选词、目标语言释义和第二语言释义之间切换/)).toBeDefined();
+  expect(screen.getByText(/Option\+数字直接上屏目标语言释义/)).toBeDefined();
+  expect(screen.getByText(/输入法菜单里没有水杉输入法时/)).toBeDefined();
   expect(screen.queryByText(/Win \+ Space/)).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
   expect(await screen.findByText(/现代 macOS 桌面体验/)).toBeDefined();
