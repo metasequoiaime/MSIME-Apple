@@ -83,7 +83,7 @@ struct AccountSettingsView: View {
     }
     // Upstream leaves this blank because its tab shows the title elsewhere; this app names the tab
     // 我的 and the page with it.
-    .navigationTitle("我的").navigationBarTitleDisplayMode(.inline)
+    .navigationTitle("").navigationBarTitleDisplayMode(.inline)
     .background(MetasequoiaTheme.canvas)
     .sheet(isPresented: $replayOnboarding) {
       NavigationView { WelcomeFlowView(onFinish: { replayOnboarding = false }) }.navigationViewStyle(.stack)
