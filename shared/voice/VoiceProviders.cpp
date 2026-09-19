@@ -4,6 +4,9 @@
 #include <msime/voice/provider_protocol.h>
 #include <msime/voice/stt_service.h>
 #include <msime/voice/wav_writer.h>
+#ifdef MSIME_VOICE_LOCAL_WHISPER
+#include <msime/voice/whisper_worker.h>
+#endif
 #include <curl/curl.h>
 #include <nlohmann/json.hpp>
 
@@ -23,6 +26,22 @@ std::string lower(std::string_view value) {
       ch = static_cast<char>(ch - 'A' + 'a');
   return result;
 }
+
+#ifdef MSIME_VOICE_LOCAL_WHISPER
+// Whisper takes a bare language code or "auto"; hosts carry regional tags such as "zh-CN". Drop the region rather than reject the tag, and let anything unrecognised fall through to detection.
+std::string whisper_language(std::string_view language) {
+  auto tag = lower(language);
+  const auto separator = tag.find('-');
+  if (separator != std::string::npos)
+    tag.erase(separator);
+  if (tag.empty() || tag == "auto")
+    return "auto";
+  for (char ch : tag)
+    if (ch < 'a' || ch > 'z')
+      return "auto";
+  return tag;
+}
+#endif
 } // namespace
 
 std::string normalize_voice_provider(std::string_view provider) {
@@ -343,4 +362,50 @@ std::string polish_cloud_text(
   }
   throw metasequoia::voice::VoiceError("Missing polished text");
 }
+
+#ifdef MSIME_VOICE_LOCAL_WHISPER
+bool local_asr_available() { return true; }
+
+std::string recognize_local_asr(
+    const std::vector<float> &samples, std::string_view model_path,
+    std::string_view language,
+    const std::shared_ptr<std::atomic_bool> &cancelled) {
+  if (samples.empty())
+    return {};
+  if (model_path.empty())
+    throw metasequoia::voice::VoiceError("Whisper model path is required");
+  if (cancelled && cancelled->load())
+    throw metasequoia::voice::VoiceError("Voice request cancelled");
+  const auto model = std::string(model_path);
+  const auto tag = whisper_language(language);
+  // Keep the loaded model between utterances. A Whisper model is hundreds of megabytes and takes seconds to read; paying that on every dictation would make the offline provider slower than the cloud one it exists to replace. The worker is dropped as soon as the user points at a different model or language, so switching costs one load and no more.
+  static std::mutex worker_mutex;
+  static std::string worker_model;
+  static std::string worker_language;
+  static std::unique_ptr<metasequoia::voice::WhisperWorker> worker;
+  std::lock_guard<std::mutex> lock(worker_mutex);
+  if (!worker || worker_model != model || worker_language != tag) {
+    worker.reset();
+    worker = std::make_unique<metasequoia::voice::WhisperWorker>(model.c_str(), tag);
+    worker_model = model;
+    worker_language = tag;
+  }
+  if (cancelled && cancelled->load())
+    throw metasequoia::voice::VoiceError("Voice request cancelled");
+  return worker->recognize(samples);
+}
+#else
+bool local_asr_available() { return false; }
+
+std::string recognize_local_asr(
+    const std::vector<float> &samples, std::string_view model_path,
+    std::string_view language,
+    const std::shared_ptr<std::atomic_bool> &cancelled) {
+  (void)samples;
+  (void)model_path;
+  (void)language;
+  (void)cancelled;
+  throw metasequoia::voice::VoiceError("This build has no local speech recognizer");
+}
+#endif
 } // namespace msime::windows

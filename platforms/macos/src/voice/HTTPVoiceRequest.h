@@ -1,8 +1,7 @@
 #pragma once
 #import <Foundation/Foundation.h>
 
-// One request owns a frozen configuration and cancellation token. Completion is
-// delivered on the main queue; cancellation suppresses delivery. No audio capture.
+// One batch recognition request: a frozen configuration and a cancellation token, taking the whole recording at once and delivering on the main queue; cancellation suppresses delivery. No audio capture. Most providers are reached over HTTP, which is where the name comes from - the on-device Whisper provider shares everything here except the transport, so it shares the class rather than duplicating it.
 @interface MSIMEHTTPVoiceRequest : NSObject
 // Optional main-queue phase notification, snapshotted at request start.
 @property(copy) void (^polishingHandler)(void);

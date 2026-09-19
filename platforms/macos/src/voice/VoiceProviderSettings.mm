@@ -112,21 +112,34 @@ static NSString *StringSetting(NSDictionary *saved, NSString *key, NSString *fal
     return [value isKindOfClass:[NSString class]] ? (NSString *)value : fallback;
 }
 
+// The runtime reads the MSIMEClientVoice* defaults; this window used to read and write only its own
+// "voiceInput" dictionary, which nothing else has ever looked at, so every choice made here was stored
+// and then ignored. Prefer the shared key and fall back to the private one, so a configuration written
+// by the Tauri settings page shows up here and an older private one is not lost on first open.
+static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *sharedKey, NSString *fallback)
+{
+    id shared = [NSUserDefaults.standardUserDefaults objectForKey:sharedKey];
+    if ([shared isKindOfClass:[NSString class]] && [(NSString *)shared length])
+        return (NSString *)shared;
+    return StringSetting(saved, key, fallback);
+}
+
 + (instancetype)loadSettings
 {
     MetasequoiaVoiceProviderSettings *value = [self new];
     NSDictionary *saved = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"voiceInput"];
     if (!saved)
         saved = @{};
-    NSString *rawProvider = StringSetting(saved, @"provider", @"doubao").lowercaseString;
+    NSString *rawProvider =
+        SharedSetting(saved, @"provider", @"MSIMEClientVoiceASRProvider", @"doubao").lowercaseString;
     // Keep legacy cloud settings readable while matching the Windows provider contract.
     if ([rawProvider isEqualToString:@"cloud"])
         rawProvider = @"siliconflow";
     if (rawProvider.length == 0)
         rawProvider = @"doubao";
     value.provider = rawProvider;
-    value.endpoint = StringSetting(saved, @"endpoint", @"");
-    value.model = StringSetting(saved, @"model", @"");
+    value.endpoint = SharedSetting(saved, @"endpoint", @"MSIMEClientVoiceASREndpoint", @"");
+    value.model = SharedSetting(saved, @"model", @"MSIMEClientVoiceASRModel", @"");
     if (value.endpoint.length == 0)
     {
         if ([rawProvider isEqualToString:@"openai"])
@@ -145,14 +158,15 @@ static NSString *StringSetting(NSDictionary *saved, NSString *key, NSString *fal
         else if ([rawProvider isEqualToString:@"siliconflow"])
             value.model = @"FunAudioLLM/SenseVoiceSmall";
     }
-    value.modelPath = StringSetting(saved, @"modelPath", @"");
+    value.modelPath = SharedSetting(saved, @"modelPath", @"MSIMEClientVoiceASRModelPath", @"");
     id polishEnabled = saved[@"polishEnabled"];
     value.polishEnabled =
         [polishEnabled isKindOfClass:[NSNumber class]] || [polishEnabled isKindOfClass:[NSString class]]
             ? [polishEnabled boolValue]
             : NO;
-    value.polishEndpoint = StringSetting(saved, @"polishEndpoint", @"https://api.siliconflow.cn/v1/chat/completions");
-    value.polishModel = StringSetting(saved, @"polishModel", @"Qwen/Qwen3-8B");
+    value.polishEndpoint = SharedSetting(saved, @"polishEndpoint", @"MSIMEClientVoicePolishEndpoint",
+                                         @"https://api.siliconflow.cn/v1/chat/completions");
+    value.polishModel = SharedSetting(saved, @"polishModel", @"MSIMEClientVoicePolishModel", @"Qwen/Qwen3-8B");
     id sharedCaptureDevice = [NSUserDefaults.standardUserDefaults objectForKey:@"MSIMEClientVoiceCaptureDevice"];
     value.captureDevice = [sharedCaptureDevice isKindOfClass:NSString.class]
         ? sharedCaptureDevice : StringSetting(saved, @"captureDevice", @"");
@@ -205,6 +219,20 @@ static NSString *StringSetting(NSDictionary *saved, NSString *key, NSString *fal
                                               forKey:@"voiceInput"];
     [[NSUserDefaults standardUserDefaults] setObject:self.captureDevice ?: @""
                                               forKey:@"MSIMEClientVoiceCaptureDevice"];
+    // What the input method actually reads on the next recording.
+    NSDictionary *shared = @{
+        @"MSIMEClientVoiceASRProvider" : self.provider,
+        @"MSIMEClientVoiceASREndpoint" : self.endpoint,
+        @"MSIMEClientVoiceASRModel" : self.model,
+        @"MSIMEClientVoiceASRModelPath" : self.modelPath,
+        @"MSIMEClientVoiceASRToken" : self.token,
+        @"MSIMEClientVoicePolishEndpoint" : self.polishEndpoint,
+        @"MSIMEClientVoicePolishModel" : self.polishModel,
+        @"MSIMEClientVoicePolishToken" : self.polishToken
+    };
+    for (NSString *key in shared)
+        [[NSUserDefaults standardUserDefaults] setObject:shared[key] forKey:key];
+    [[NSUserDefaults standardUserDefaults] setBool:self.polishEnabled forKey:@"MSIMEClientVoicePolish"];
     [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEVoiceProviderSettingsDidChangeNotification object:self];
     return YES;
 }

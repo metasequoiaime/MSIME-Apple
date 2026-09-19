@@ -1,4 +1,5 @@
 #import "../../src/voice/HTTPVoiceRequest.h"
+#include "../../../../shared/voice/VoiceProviders.h"
 #include <cassert>
 
 static void Wait(BOOL (^done)(void)) {
@@ -65,5 +66,25 @@ int main(int argc, char **argv) {
         assert(![[MSIMEHTTPVoiceRequest alloc] initWithOptions:options error:nil]);
         options[@"asr_token"] = @"fixture-token"; options[@"asr_provider"] = @"doubao";
         assert(![[MSIMEHTTPVoiceRequest alloc] initWithOptions:options error:nil]);
+
+        // The on-device provider is accepted on its model file alone: no endpoint, no token. What it must
+        // not accept is a model that is missing, a directory, or a relative path, because each of those
+        // fails only once the user is holding the shortcut and waiting for text.
+        NSMutableDictionary *local = [@{@"asr_provider": @"local", @"language": @"zh-cn"} mutableCopy];
+        NSString *directory = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+        assert([NSFileManager.defaultManager createDirectoryAtPath:directory withIntermediateDirectories:YES
+                                                        attributes:nil error:nil]);
+        NSString *file = [directory stringByAppendingPathComponent:@"ggml-model.bin"];
+        assert([NSFileManager.defaultManager createFileAtPath:file contents:NSData.data attributes:nil]);
+        for (NSString *rejected in @[@"", @"ggml-model.bin", directory,
+                                     [directory stringByAppendingPathComponent:@"absent.bin"]]) {
+            local[@"asr_model_path"] = rejected;
+            assert(![[MSIMEHTTPVoiceRequest alloc] initWithOptions:local error:nil]);
+        }
+        local[@"asr_model_path"] = file;
+        MSIMEHTTPVoiceRequest *localRequest = [[MSIMEHTTPVoiceRequest alloc] initWithOptions:local error:nil];
+        // A build without the recognizer must refuse the provider rather than quietly recognising elsewhere.
+        assert((localRequest != nil) == msime::voice::local_asr_available());
+        assert([NSFileManager.defaultManager removeItemAtPath:directory error:nil]);
     }
 }
