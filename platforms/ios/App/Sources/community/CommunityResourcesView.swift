@@ -72,6 +72,11 @@ struct CommunityResourcesView: View {
   @State private var busy = false
   @State private var message: String?
   @State private var requestID = UUID()
+  @State private var publishing = false
+  @State private var signedIn = false
+  @State private var showAccount = false
+  /// The community home already owns the publish button; only the account-scoped list needs one.
+  private var offersPublishing: Bool { !initialScope.isEmpty && initialScope != "saved" }
   var body: some View {
     ScrollView {
       VStack(alignment: .leading, spacing: 16) {
@@ -86,7 +91,7 @@ struct CommunityResourcesView: View {
           VStack(spacing: 12) {
             Image(systemName: kind.icon).font(.largeTitle).foregroundStyle(MetasequoiaTheme.forest)
             Text(scope == "" ? "期待第一份\(kind == .dictionary ? "词库" : "回复模板")" : "这里还没有作品")
-            Text("点右上角 + 发布，或去发现页收藏喜欢的作品。")
+            Text(scope == "saved" ? "去社区逛逛，收藏喜欢的作品。" : "点右上角 + 发布你的第一份作品。")
               .font(.caption).foregroundStyle(.secondary)
           }.frame(maxWidth: .infinity).padding(.vertical, 35)
         }
@@ -103,7 +108,30 @@ struct CommunityResourcesView: View {
     }
     .navigationTitle(initialScope.isEmpty ? "社区" : "\(initialScope == "saved" ? "收藏的" : "我发布的")\(kind.title)")
     .navigationBarTitleDisplayMode(.inline)
-    .task { await load() }
+    .toolbar {
+      if offersPublishing {
+        ToolbarItem(placement: .navigationBarTrailing) {
+          Button { if signedIn { publishing = true } else { showAccount = true } } label: {
+            Label("发布", systemImage: "plus")
+          }
+          .accessibilityLabel("发布\(kind.title)")
+          .accessibilityIdentifier("publishCommunityResource")
+        }
+      }
+    }
+    .sheet(isPresented: $publishing) {
+      CommunityResourceEditor(kind: kind, onPublished: { Task { await load() } })
+    }
+    .sheet(isPresented: $showAccount, onDismiss: {
+      Task {
+        signedIn = (try? await SkinCommunityAPI.shared.signedIn()) ?? false
+        if signedIn { publishing = true }
+      }
+    }) { AccountLoginSheet() }
+    .task {
+      signedIn = (try? await SkinCommunityAPI.shared.signedIn()) ?? false
+      await load()
+    }
     .refreshable { await load() }
     .alert("社区", isPresented: Binding(get: { message != nil }, set: { if !$0 { message = nil } })) {
       Button("好", role: .cancel) {}
