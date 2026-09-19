@@ -444,7 +444,7 @@ public:
     if (!snapshot.is_object() || !snapshot.contains("revision") ||
         !snapshot.contains("preferences")) return false;
     snapshot["preferences"][section]["enabled"] = enabled;
-    const auto encoded = snapshot.dump();
+    const auto encoded = effectiveContextSnapshot(snapshot).dump();
     view_ = response(msime_client_update_preferences(
         session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
     preferences_ = snapshot.at("preferences");
@@ -461,7 +461,7 @@ public:
     if (!snapshot.is_object() || !snapshot.contains("revision") ||
         !snapshot.contains("preferences")) return false;
     snapshot["preferences"]["quanpin"][key] = enabled;
-    const auto encoded = snapshot.dump();
+    const auto encoded = effectiveContextSnapshot(snapshot).dump();
     view_ = response(msime_client_update_preferences(
         session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
     preferences_ = snapshot.at("preferences");
@@ -478,7 +478,7 @@ public:
     if (!snapshot.is_object() || !snapshot.contains("revision") ||
         !snapshot.contains("preferences")) return false;
     snapshot["preferences"]["mixed_input"]["english"] = enabled;
-    const auto encoded = snapshot.dump();
+    const auto encoded = effectiveContextSnapshot(snapshot).dump();
     view_ = response(msime_client_update_preferences(
         session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
     preferences_ = snapshot.at("preferences");
@@ -495,7 +495,7 @@ public:
     if (!snapshot.is_object() || !snapshot.contains("revision") ||
         !snapshot.contains("preferences")) return false;
     snapshot["preferences"]["mixed_input"][key] = enabled;
-    const auto encoded = snapshot.dump();
+    const auto encoded = effectiveContextSnapshot(snapshot).dump();
     view_ = response(msime_client_update_preferences(
         session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
     preferences_ = snapshot.at("preferences");
@@ -516,7 +516,7 @@ public:
     if (!snapshot.is_object() || !snapshot.contains("revision") ||
         !snapshot.contains("preferences")) return false;
     snapshot["preferences"]["local_modes"][key] = enabled;
-    const auto encoded = snapshot.dump();
+    const auto encoded = effectiveContextSnapshot(snapshot).dump();
     view_ = response(msime_client_update_preferences(
         session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
     preferences_ = snapshot.at("preferences");
@@ -533,7 +533,7 @@ public:
     if (!snapshot.is_object() || !snapshot.contains("revision") ||
         !snapshot.contains("preferences")) return false;
     snapshot["preferences"]["candidate_english_gloss"] = enabled;
-    const auto encoded = snapshot.dump();
+    const auto encoded = effectiveContextSnapshot(snapshot).dump();
     view_ = response(msime_client_update_preferences(
         session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
     preferences_ = snapshot.at("preferences");
@@ -567,7 +567,7 @@ public:
     if (!snapshot.is_object() || !snapshot.contains("revision") ||
         !snapshot.contains("preferences")) return false;
     snapshot["preferences"][key] = enabled;
-    const auto encoded = snapshot.dump();
+    const auto encoded = effectiveContextSnapshot(snapshot).dump();
     view_ = response(msime_client_update_preferences(
         session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
     preferences_ = snapshot.at("preferences");
@@ -605,7 +605,7 @@ public:
     if (!snapshot.is_object() || !snapshot.contains("revision") ||
         !snapshot.contains("preferences")) return false;
     snapshot["preferences"]["word_character"]["enabled"] = enabled;
-    const auto encoded = snapshot.dump();
+    const auto encoded = effectiveContextSnapshot(snapshot).dump();
     view_ = response(msime_client_update_preferences(
         session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
     preferences_ = snapshot.at("preferences");
@@ -742,7 +742,7 @@ public:
     if (!snapshot.is_object() || !snapshot.contains("revision") ||
         !snapshot.contains("preferences")) return false;
     snapshot["preferences"]["frequency"][key] = value;
-    const auto encoded = snapshot.dump();
+    const auto encoded = effectiveContextSnapshot(snapshot).dump();
     view_ = response(msime_client_update_preferences(
         session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
     preferences_ = snapshot.at("preferences");
@@ -769,7 +769,7 @@ public:
     if (!snapshot.is_object() || !snapshot.contains("revision") ||
         !snapshot.contains("preferences")) return false;
     snapshot["preferences"]["frequency"]["mode"] = next;
-    const auto encoded = snapshot.dump();
+    const auto encoded = effectiveContextSnapshot(snapshot).dump();
     view_ = response(msime_client_update_preferences(
         session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
     preferences_ = snapshot.at("preferences");
@@ -870,7 +870,7 @@ public:
     if (!snapshot.is_object() || !snapshot.contains("revision") ||
         !snapshot.contains("preferences")) return false;
     snapshot["preferences"]["candidate_theme"] = next;
-    const auto encoded = snapshot.dump();
+    const auto encoded = effectiveContextSnapshot(snapshot).dump();
     view_ = response(msime_client_update_preferences(
         session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
     preferences_ = snapshot.at("preferences");
@@ -981,6 +981,14 @@ public:
       preferences[section]["schema"] = *helpcode_schema_override_;
     }
     if (skin_override_) preferences["candidate_skin"] = *skin_override_;
+  }
+  Json effectiveContextSnapshot(Json snapshot) const {
+    if (snapshot.is_object() && snapshot.contains("preferences")) {
+      auto preferences = snapshot.at("preferences");
+      applyContextOverrides(preferences);
+      snapshot["preferences"] = std::move(preferences);
+    }
+    return snapshot;
   }
   bool ensure() {
     if (!ic_.hasFocus() || restricted()) { close(); clearPanel(); return false; }
