@@ -1975,6 +1975,21 @@ public final class MSIMEInputService extends InputMethodService {
         return button;
     }
 
+    private Button shortcutButton(LinearLayout row, String label,
+            KeyboardShortcutIconPolicy.Icon icon, Runnable action) {
+        KeyboardShortcutButton button = new KeyboardShortcutButton(this, icon);
+        button.setAllCaps(false);
+        button.setText(label);
+        styleButton(button, true);
+        button.setOnClickListener(ignored -> {
+            playFeedback(button);
+            action.run();
+        });
+        row.addView(button, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        return button;
+    }
+
     private Button brandButton(LinearLayout row, Runnable action) {
         KeyboardBrandButton button = new KeyboardBrandButton(this,
             () -> Color.parseColor(skin.accent()));
@@ -5593,13 +5608,16 @@ public final class MSIMEInputService extends InputMethodService {
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT));
         scriptShortcutButton = button(shortcutBar, "简", this::toggleChineseOutput);
         scriptShortcutButton.setContentDescription("切换到繁体");
-        emojiShortcutButton = button(shortcutBar, "☺", this::showEmojiPicker);
+        emojiShortcutButton = shortcutButton(shortcutBar, "☺",
+            KeyboardShortcutIconPolicy.Icon.EMOJI, this::showEmojiPicker);
         emojiShortcutButton.setContentDescription("打开表情浏览");
-        voiceShortcutButton = button(shortcutBar, "语音", this::showVoiceResult);
+        voiceShortcutButton = shortcutButton(shortcutBar, "语音",
+            KeyboardShortcutIconPolicy.Icon.VOICE, this::showVoiceResult);
         voiceShortcutButton.setContentDescription("打开语音结果");
         aiPolishShortcutButton = button(shortcutBar, "AI", this::showAiPolish);
         aiPolishShortcutButton.setContentDescription("打开 AI 润色");
-        replyShortcutButton = button(shortcutBar, "回复", this::showReplyKeyboard);
+        replyShortcutButton = shortcutButton(shortcutBar, "回复",
+            KeyboardShortcutIconPolicy.Icon.REPLY, this::showReplyKeyboard);
         replyShortcutButton.setContentDescription("生成高情商回复");
         expandCandidates = new Button(this);
         expandCandidates.setAllCaps(false);
@@ -5721,13 +5739,16 @@ public final class MSIMEInputService extends InputMethodService {
         button(controls, "切换", this::switchToNextInputMethodAfterCommit);
         schemeButton = borderlessButton(controls, "方案", this::showSchemePicker);
         schemeButton.setContentDescription("选择输入方案");
-        skinButton = button(controls, "皮肤", () -> showSkinMenu(skinButton));
+        skinButton = shortcutButton(controls, "皮肤",
+            KeyboardShortcutIconPolicy.Icon.SKIN, () -> showSkinMenu(skinButton));
         skinButton.setContentDescription("切换键盘皮肤");
-        layoutSettingsButton = button(controls, "设置", this::showLayoutSettings);
+        layoutSettingsButton = shortcutButton(controls, "设置",
+            KeyboardShortcutIconPolicy.Icon.SETTINGS, this::showLayoutSettings);
         layoutSettingsButton.setContentDescription("键盘设置");
         moreButton = brandButton(controls, this::showFeedbackMenu);
         moreButton.setContentDescription("更多快捷设置");
-        Button dismissButton = button(controls, "收起", () -> requestHideSelf(0));
+        Button dismissButton = shortcutButton(controls, "收起",
+            KeyboardShortcutIconPolicy.Icon.DISMISS, () -> requestHideSelf(0));
         dismissButton.setContentDescription("收起键盘");
         for (int index = 0; index < controls.getChildCount(); index++) {
             View child = controls.getChildAt(index);
