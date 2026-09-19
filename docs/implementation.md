@@ -22,6 +22,12 @@
 
 ## 当前证据
 
+### Android Tauri 可移植 Gradle 配置（2026-09-20）
+
+Android 合包不再要求某个旧 worktree 先留下被忽略的 `tauri.settings.gradle` 与 `tauri.build.gradle.kts`。受版本控制的 Gradle 工程从 `TAURI_ANDROID_DIR` 或当前 Cargo registry 发现 Tauri Android module，`build-client-apk.sh` 则通过锁定 Cargo metadata 注入精确 crate 路径；共享 React 首页同时将 Apple 的按压缩放与透明度反馈覆盖到键盘、快捷、功能和设置卡片，并尊重 reduced-motion。
+
+新建 worktree 中直接执行 Gradle `tasks` 已完成 Android/Tauri module 配置，首页 11 项定向 Vitest、TypeScript 检查和 production build 通过。直接绕过 Tauri CLI 编译 app 会缺少按设计忽略的 Kotlin codegen，因此完整 APK 仍使用 `build-client-apk.sh`；本切片未执行设备安装或真机触控验收，CI 保持禁用。
+
 ### iOS 日语九宫格模式列布局（2026-09-17）
 
 依据 Apple `2de09eb`，日语九宫格左侧模式列改为从自身列高推导按键高度：系统托管地球键时 ABC 键跨两行，扩展自行显示地球键时四个模式键各占一行。控制器在布局更新时同步 `needsInputModeSwitchKey`，避免跨两个堆栈的约束把假名网格拉伸到整块面板。新增行为测试覆盖两种地球键状态；iOS 项目配置测试 11/11 通过。当前 worktree 的 Xcode 原生编译仍受缺失 `target/ios/EngineResources` 阻断，本切片不宣称真机或完整原生宿主接入完成。

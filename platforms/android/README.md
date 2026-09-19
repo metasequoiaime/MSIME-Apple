@@ -92,7 +92,7 @@ Android 账号设置中的云词典现通过同一认证会话访问 HTTPS API�
 
 推荐本地构建入口：`ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/build-client-apk.sh <已锁定词库目录> [arm64-v8a|x86_64]`。默认 arm64-v8a，产物仍为 target/android/msime-client-preview.apk；需要先完成根目录 pnpm install --frozen-lockfile，准备 JDK 21、Android API 36、build-tools 35、固定 NDK/vcpkg 与 Rust Android target。Gradle 8.14.3 使用官方分发摘要固定，AGP/Kotlin 版本由项目固定。参数 --ci 仅用于 Tauri CLI 的非交互模式，不运行 GitHub CI。
 
-apps/desktop/src-tauri/src/lib.rs 是桌面与移动共用的 Tauri commands/入口，Android 调用同一个 client-core PreferencesStore，指向应用私有 files/bootstrap/state，与 bootstrap 和 IME 监控目录一致。packages/ui 的 React 页没有 Android 副本。生成的 Android 工程已纳入源码，Gradle 直接引用 platforms/android/java、共享图标与暂存的锁定资源；不把原生宿主代码复制到 gen。不要重复执行 tauri android init 覆盖本仓定制。gen 中的本机路径、生成 Kotlin 绑定、native symlink、构建输出和本机配置仍忽略。
+apps/desktop/src-tauri/src/lib.rs 是桌面与移动共用的 Tauri commands/入口，Android 调用同一个 client-core PreferencesStore，指向应用私有 files/bootstrap/state，与 bootstrap 和 IME 监控目录一致。packages/ui 的 React 页没有 Android 副本。生成的 Android 工程已纳入源码，Gradle 直接引用 platforms/android/java、共享图标与暂存的锁定资源；不把原生宿主代码复制到 gen。不要重复执行 tauri android init 覆盖本仓定制。受版本控制的 Gradle 设置会从 `TAURI_ANDROID_DIR` 或 Cargo registry 定位锁定 Tauri Android 工程，合包脚本通过 `cargo metadata --locked` 注入精确路径；生成 Kotlin 绑定、native symlink、构建输出和本机配置仍忽略。
 
 Android“我的”页通过 Rust account session 访问固定的 https://api.msime.app 账号服务。邮箱和手机号验证码、刷新、资料更新、退出及注销请求都在原生宿主内完成，WebView 只接收不含凭据的用户和 provider DTO。会话 JSON 由包私有 Android Keystore AES-GCM 密钥加密后写入 SharedPreferences，密钥和密文不跨应用包共享；请求不跟随重定向，普通 JSON 请求和响应均限制为 1 MiB。日常输入不需要登录，账号登录不会上传本地输入或统计。页面同时提供 Apple 对齐的五种 App 图标选择；Android 通过 launcher `activity-alias` 持久化系统选择，切换只启用目标入口并保留原版回退，不进入设置同步或账号云端数据。
 
