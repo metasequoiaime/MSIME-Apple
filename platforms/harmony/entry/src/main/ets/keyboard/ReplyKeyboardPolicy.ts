@@ -20,12 +20,15 @@ export class ReplyKeyboardPolicy {
       || ReplyKeyboardPolicy.hasControl(trimmed)) return null;
     return trimmed;
   }
-  static request(source: string, style: string): ReplyRequest | null {
+  static request(source: string, style: string, extraPrompt: string = ''): ReplyRequest | null {
     const normalized: string | null = ReplyKeyboardPolicy.source(source);
     const selected: string = style.trim();
     if (normalized === null || selected.length === 0 || ReplyKeyboardPolicy.hasControl(selected)) return null;
+    const prompt: string = extraPrompt.trim();
+    if (prompt.length > 0 && (utf8Length(prompt) > 64 * 1024
+      || ReplyKeyboardPolicy.hasControl(prompt))) return null;
     return { source: normalized, style: selected,
-      prompt: `对方发来以下内容，请拟写一条${selected}风格的高情商回复。尊重对方且有边界，不编造事实、关系或承诺。只输出一条简短自然、可以直接发送的回复，不加标题、解释或引号。` };
+      prompt: `${prompt.length > 0 ? prompt + '\n' : ''}对方发来以下内容，请拟写一条${selected}风格的高情商回复。尊重对方且有边界，不编造事实、关系或承诺。只输出一条简短自然、可以直接发送的回复，不加标题、解释或引号。` };
   }
   static results(values: string[] | null): string[] {
     if (values === null) return [];

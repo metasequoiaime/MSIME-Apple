@@ -53,6 +53,9 @@ import { CandidateTextPolicy, CandidateTextEdge } from './input/CandidateTextPol
 import { ReplyKeyboardPolicy, ReplyRequest } from './ReplyKeyboardPolicy';
 import { ReplyContextPolicy } from './ReplyContextPolicy';
 import {
+  CommunityReplyLibraryPolicy, CommunityReplyTemplate
+} from './CommunityReplyLibraryPolicy';
+import {
   SmartPunctuationRepeatPolicy, SmartPunctuationRepeatSnapshot
 } from './input/SmartPunctuationRepeatPolicy';
 
@@ -2398,9 +2401,25 @@ export class KeyboardSession {
     }
   }
 
+  /** Reads only the bounded, app-private reply templates explicitly shared by the settings app. */
+  communityReplyTemplates(): CommunityReplyTemplate[] {
+    // KeyboardExtensionAbility passes files/state as stateDirectory; the settings process shares
+    // its explicit library one level above, at files/CommunityLibrary.json.
+    const file: string = `${this.stateDirectory}/../CommunityLibrary.json`;
+    try {
+      if (!fs.accessSync(file) || fs.statSync(file).size > CommunityReplyLibraryPolicy.MAX_BYTES) {
+        return [];
+      }
+      return CommunityReplyLibraryPolicy.parse(fs.readTextSync(file));
+    } catch (error) {
+      KeyboardLog.error(`community reply library unavailable: ${describeError(error)}`);
+      return [];
+    }
+  }
+
   /** Generates bounded reply candidates through the shared AI ABI without involving Engine state. */
-  async thoughtfulReplies(source: string, style: string): Promise<string[]> {
-    const request: ReplyRequest | null = ReplyKeyboardPolicy.request(source, style);
+  async thoughtfulReplies(source: string, style: string, extraPrompt: string = ''): Promise<string[]> {
+    const request: ReplyRequest | null = ReplyKeyboardPolicy.request(source, style, extraPrompt);
     if (request === null || !this.aiAssistant.enabled || this.aiAssistant.endpoint.length === 0) {
       return [];
     }

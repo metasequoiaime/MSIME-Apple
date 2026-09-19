@@ -41,6 +41,7 @@ import {
 import { HarmonyVoiceRecognizer } from './input/HarmonyVoiceRecognizer';
 import { VoiceRecognitionPolicy } from './input/VoiceRecognitionPolicy';
 import { ReplyKeyboardPolicy, ReplyStyle } from './ReplyKeyboardPolicy';
+import { CommunityReplyTemplate } from './CommunityReplyLibraryPolicy';
 
 /**
  * The 26-key touch keyboard, laid out to the same metrics as the iOS extension in
@@ -228,6 +229,8 @@ struct KeyboardView {
   @State replyResults: string[] = [];
   @State replyNotice: string = '';
   @State replyBusy: boolean = false;
+  @State replyTemplates: CommunityReplyTemplate[] = [];
+  @State replyTemplateMenu: boolean = false;
   @State hoveredCandidate: number = -1;
 
   private readonly letterCase: EnglishLetterCaseState = new EnglishLetterCaseState();
@@ -615,6 +618,10 @@ struct KeyboardView {
       this.replyBusy = false;
     }
     this.surface = surface;
+    if (surface === SURFACE_REPLY) {
+      this.replyTemplates = KeyboardSession.shared.communityReplyTemplates();
+      this.replyTemplateMenu = false;
+    }
     if (surface !== SURFACE_EXPANDED) {
       this.expanded = [];
     }
@@ -1243,14 +1250,14 @@ struct KeyboardView {
     });
   }
 
-  private generateReply(style: string): void {
+  private generateReply(style: string, extraPrompt: string = ''): void {
     if (this.replyBusy) return;
     this.replyStyle = style;
     const generation: number = ++this.replyGeneration;
     this.replyBusy = true;
     this.replyResults = [];
     this.replyNotice = '正在生成…';
-    KeyboardSession.shared.thoughtfulReplies(this.replySource, style).then((results: string[]): void => {
+    KeyboardSession.shared.thoughtfulReplies(this.replySource, style, extraPrompt).then((results: string[]): void => {
       if (generation !== this.replyGeneration) return;
       this.replyBusy = false;
       this.replyResults = results;
@@ -1264,6 +1271,10 @@ struct KeyboardView {
       Row() {
         Text('高情商回复').fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
           .fontColor(this.skin.keyForeground).layoutWeight(1)
+        if (this.replyTemplates.length > 0) {
+          Text(this.replyTemplateMenu ? '风格' : '模板').fontColor(this.skin.accent)
+            .onClick(() => this.replyTemplateMenu = !this.replyTemplateMenu)
+        }
         Text('完成').fontColor(this.skin.accent).onClick(() => this.show(SURFACE_NONE))
       }.width('100%').height(28)
       Row({ space: this.keySpacing() }) {
@@ -1271,7 +1282,21 @@ struct KeyboardView {
           .fontSize(14).fontColor(this.skin.keyForeground).maxLines(2).layoutWeight(1)
         Button('粘贴').enabled(!this.replyBusy).onClick(() => this.loadReplySource())
       }.width('100%').padding(8).backgroundColor(this.skin.keyBackground)
-      if (this.replyResults.length === 0) {
+      if (this.replyResults.length === 0 && this.replyTemplateMenu) {
+        Scroll() {
+          Column({ space: this.keySpacing() }) {
+            ForEach(this.replyTemplates, (template: CommunityReplyTemplate) => {
+              Button(template.name).enabled(!this.replyBusy)
+                .onClick(() => {
+                  this.replyTemplateMenu = false;
+                  this.generateReply('自定义模板', template.prompt);
+                })
+                .width('100%').height(44).backgroundColor(this.skin.keyBackground)
+                .fontColor(this.skin.keyForeground)
+            }, (template: CommunityReplyTemplate) => template.id)
+          }.width('100%')
+        }.layoutWeight(1)
+      } else if (this.replyResults.length === 0) {
         Grid() {
           ForEach(ReplyKeyboardPolicy.STYLES, (style: ReplyStyle) => {
             GridItem() {
