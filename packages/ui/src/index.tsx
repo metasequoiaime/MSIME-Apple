@@ -1824,13 +1824,22 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
     && (item.id !== "floating-toolbar" || (host ? host.floating_toolbar : true)));
   const mobilePrimaryPageIds: readonly SettingsPageId[] = ["home", "community", "typing-statistics", "account"];
   const mobilePrimaryPages = availablePages.filter(item => mobilePrimaryPageIds.includes(item.id));
-  // Physical-keyboard shortcuts, helper-code switches, and a desktop floating
-  // toolbar have no mobile surface in the Apple/Android hosts. HarmonyOS keeps
-  // its hardware shortcuts and keyboard toolbar in the input-method panel, so
-  // only the helper-code page stays hidden there.
+  // Physical-keyboard shortcuts and a desktop floating toolbar have no mobile
+  // surface. HarmonyOS keeps its hardware shortcuts and keyboard toolbar in the
+  // input-method panel, so neither is hidden there.
+  //
+  // Helper codes are per-host rather than per-form-factor. The Android keyboard
+  // sends them: Shift during a quanpin or shuangpin composition passes the next
+  // letter to the Engine as a helper code, and the Engine reads the schema and
+  // the candidate-row hint from these very preferences. Hiding the page left
+  // that shipping feature with no way to pick a schema or turn it off. The
+  // Apple keyboard extension has no helper-code input at all, so iOS keeps the
+  // page hidden.
   const mobileHiddenPageIds: readonly SettingsPageId[] = harmonyPlatform
     ? ["helpcode"]
-    : ["helpcode", "shortcuts", "floating-toolbar"];
+    : androidPlatform
+      ? ["shortcuts", "floating-toolbar"]
+      : ["helpcode", "shortcuts", "floating-toolbar"];
   const mobileSecondaryPages = availablePages.filter(item =>
     !mobilePrimaryPageIds.includes(item.id) && !mobileHiddenPageIds.includes(item.id));
   const selectPage = (next: SettingsPageId) => {
@@ -2352,6 +2361,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
         </div>}
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "helpcode"} aria-label="辅助码">
+        {androidPlatform && <div className="section input-setting-description"><p>全拼或双拼组字时，按 Shift 再输入的字母作为辅助码交给输入引擎，用于缩小候选。五笔、日语和本地输入模式不使用辅助码。</p></div>}
         {([['shuangpin_helpcode', '双拼'], ['quanpin_helpcode', '全拼']] as const).map(([key, label]) => {
           const value = { ...defaultHelpcode[key], ...(draft[key] ?? {}) } as Required<HelpcodePreferences>;
           return <div className="section" key={key}>
@@ -2359,7 +2369,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
             <label className="section-header helpcode-schema"><span className="section-title">{label}辅助码方案</span><select disabled={!value.enabled} value={value.schema} onChange={event => setDraft({ ...draft, [key]: { ...value, schema: event.target.value as HelpcodeSchema } })}>
               {helpcodeSchemas.map(([schema, name]) => <option key={schema} value={schema}>{name}</option>)}
             </select></label>
-            <label className="section-header"><span className="section-title">在候选窗口显示辅助码</span><input className="toggle" type="checkbox" checked={value.show_in_candidate_window} onChange={event => setDraft({ ...draft, [key]: { ...value, show_in_candidate_window: event.target.checked } })} /></label>
+            <label className="section-header"><span className="section-title">{mobilePlatform ? "在候选栏显示辅助码" : "在候选窗口显示辅助码"}</span><input aria-label={mobilePlatform ? "在候选栏显示辅助码" : "在候选窗口显示辅助码"} className="toggle" type="checkbox" checked={value.show_in_candidate_window} onChange={event => setDraft({ ...draft, [key]: { ...value, show_in_candidate_window: event.target.checked } })} /></label>
           </div>;
         })}
       </fieldset>
