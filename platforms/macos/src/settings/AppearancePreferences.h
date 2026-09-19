@@ -66,6 +66,9 @@ FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNot
 @property(nonatomic) BOOL chinesePunctuation;
 @property(nonatomic) BOOL smartPunctuation;
 @property(nonatomic) BOOL smartPunctuationRepeatToChinese;
+/// A space after a just-committed Chinese mark rewrites it as ASCII. Off by default, like the rest of the
+/// family on the Windows baseline: it changes a character the user already saw land.
+@property(nonatomic) BOOL smartPunctuationSpaceConvert;
 @property(nonatomic) BOOL pairedPunctuation;
 @property(nonatomic, copy) NSString *punctuationLock;
 @property(nonatomic) BOOL mixedEnglishInput;

@@ -100,8 +100,21 @@ public class DeviceSmoke extends Instrumentation {
     protected Predicate<AccessibilityNodeInfo> field(String description) {
         return node -> equalsText("app.msime.client.test", node.getPackageName()) && equalsText(description, node.getContentDescription());
     }
+    /**
+     * The key that types `text`, whatever case it is drawn in.
+     *
+     * <p>A Chinese keyboard draws its 26 letter keys in caps while still sending the lowercase
+     * letter, so a letter key is identified by the letter and not by its face. Which case is drawn
+     * is `LetterKeyFacePolicy`'s contract and has its own host coverage; asserting it again from
+     * here only made these cases fail the moment the faces became correct. Every other key -- 空格,
+     * 简, 繁, ⌫ -- still matches exactly.
+     */
     protected Predicate<AccessibilityNodeInfo> key(String text) {
-        return node -> equalsText("app.msime.client.preview", node.getPackageName()) && equalsText(text, node.getText());
+        boolean letter = text.length() == 1 && Character.isLetter(text.charAt(0))
+            && text.charAt(0) < 128;
+        return node -> equalsText("app.msime.client.preview", node.getPackageName())
+            && (letter ? node.getText() != null && text.equalsIgnoreCase(node.getText().toString())
+                : equalsText(text, node.getText()));
     }
     protected Predicate<AccessibilityNodeInfo> scriptState() {
         return node -> equalsText("app.msime.client.preview", node.getPackageName())

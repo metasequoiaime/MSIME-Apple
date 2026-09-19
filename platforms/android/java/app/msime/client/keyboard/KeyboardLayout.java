@@ -33,11 +33,17 @@ public final class KeyboardLayout {
         return STANDARD_TOUCH_LAYOUT;
     }
 
-    public static List<List<String>> rows(Layer layer, boolean shifted) {
-        List<List<String>> source = layer == Layer.SYMBOLS ? SYMBOL_ROWS : LETTER_ROWS;
-        if (!shifted || layer == Layer.SYMBOLS) return source;
-        return source.stream().map(row -> row.stream()
-            .map(key -> key.toUpperCase(java.util.Locale.ROOT))
-            .toList()).toList();
+    /**
+     * The keys a layer sends, always in their canonical form.
+     *
+     * <p>Letters stay lowercase here because this is what reaches the input engine, and the engine
+     * only starts a pinyin composition from a lowercase letter. What the user sees is a separate
+     * question answered by {@link LetterKeyFacePolicy}: a Chinese keyboard draws its 26 keys in
+     * caps without any of them being a capital letter. This returned uppercase alongside the face
+     * once, which sent `N` to the engine, got it declined, and committed the letter literally --
+     * Chinese input produced `NIHAO` instead of 你好.
+     */
+    public static List<List<String>> rows(Layer layer) {
+        return layer == Layer.SYMBOLS ? SYMBOL_ROWS : LETTER_ROWS;
     }
 }
