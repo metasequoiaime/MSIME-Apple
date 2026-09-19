@@ -575,9 +575,18 @@ public final class MSIMEInputService extends InputMethodService {
         JSONObject preferences = preferencesSnapshot == null ? null
             : preferencesSnapshot.optJSONObject("preferences");
         KeyboardSkin next = keyboardSkin(preferences);
-        if (skin.key().equals(next.key())) return;
+        boolean skinChanged = !skin.key().equals(next.key());
         skin = next;
-        applySkin();
+        // The input service can survive rotation and window/inset changes. Reapply the
+        // geometry even when the palette is unchanged; otherwise the existing key tree keeps
+        // margins and height adjustments calculated with the previous configuration. A held
+        // nine-key popup is anchored to the old tree, so it must not outlive the reflow.
+        dismissNineKeyHoldOptions();
+        hideJapaneseFlickPreview();
+        if (keyboardRoot == null) return;
+        if (skinChanged) applySkin();
+        applyKeyboardGeometry();
+        renderLayoutSettingsState();
         render();
     }
     @Override public void onDestroy() {
