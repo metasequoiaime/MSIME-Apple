@@ -2024,7 +2024,9 @@ public:
           (candidate.contains("translation") && candidate.at("translation").is_string()
               ? "  " + candidate.at("translation").get<std::string>() : ""))), factory_(factory),
         session_(candidate.at("id").at("session")), generation_(candidate.at("id").at("generation")),
-        index_(candidate.at("id").at("index")), source_(candidate.value("source", 0u)) {}
+        index_(candidate.at("id").at("index")), source_(candidate.value("source", 0u)),
+        text_(candidate.at("text").get<std::string>()),
+        fixed_position_(candidate.value("fixed_position", 0u)) {}
   void select(fcitx::InputContext *ic) const override {
     try { ic->propertyFor(factory_)->select(session_, generation_, index_); } catch (...) {}
   }
@@ -2032,11 +2034,15 @@ public:
   uint64_t generation() const { return generation_; }
   size_t index() const { return index_; }
   uint64_t source() const { return source_; }
+  const std::string &text() const { return text_; }
+  uint8_t fixedPosition() const { return fixed_position_; }
 private:
   fcitx::FactoryFor<FcitxState> *factory_;
   uint64_t session_, generation_;
   size_t index_;
   uint64_t source_;
+  std::string text_;
+  uint8_t fixed_position_;
 };
 
 // The runtime already pages candidates. Never page its current page a second time.
@@ -2103,18 +2109,11 @@ public:
       return action;
     };
     actions.push_back(make(1, "固定候选"));
-    const auto candidates = state_.view_.value("candidates", Json::array());
-    const auto candidateIt = std::find_if(candidates.begin(), candidates.end(),
-        [&](const Json &candidate) {
-          return candidate.value("id", Json::object()).value("index", size_t(-1)) == item->index();
-        });
-    if (candidateIt == candidates.end()) return actions;
-    const auto &candidateJson = *candidateIt;
-    const auto source = candidateJson.value("source", 0u);
-    const auto fixedPosition = candidateJson.value("fixed_position", 0u);
+    const auto source = item->source();
+    const auto fixedPosition = item->fixedPosition();
     if (msime::linux_host::candidate_dictionary_removal_available(
             scheme, source,
-            candidateJson.value("text", std::string{})))
+            item->text()))
       actions.push_back(make(2, "删除候选"));
     for (int slot = 1; slot <= 5; ++slot)
       actions.push_back(make(10 + slot, ("固定到 " + std::to_string(slot)).c_str()));

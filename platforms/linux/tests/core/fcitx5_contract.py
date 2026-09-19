@@ -53,6 +53,10 @@ assert 'waitForPreferenceSave' in source
 assert 'if (fixedPosition > 0) actions.push_back(make(20, "取消固定"));' in source
 assert 'item->source() == 0 || item->source() == 1 || item->source() == 4' in source
 assert 'source_(candidate.value("source", 0u))' in source
+assert 'text_(candidate.at("text").get<std::string>())' in source
+assert 'fixed_position_(candidate.value("fixed_position", 0u))' in source
+assert 'item->text()))' in source
+assert 'item->fixedPosition()' in source
 assert 'state_.session_ != item->session()' in source
 assert '!state_.ic_.hasFocus() || !state_.input_enabled_' in source
 assert 'voice_cancelled_' in source
