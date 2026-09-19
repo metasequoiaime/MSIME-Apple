@@ -273,12 +273,29 @@ if cmake -S platforms/windows -B "$MSIME_PIPE_BUILD" -DMSIME_WINDOWS_PIPE_ONLY=O
     cmake --build "$MSIME_PIPE_BUILD" --config Debug 2>&1 |
       grep -Ei "error C[0-9]|error LNK" | head -5
   fi
+elif [ "$windows_host" -eq 0 ] && command -v x86_64-w64-mingw32-g++ >/dev/null 2>&1; then
+  # It cannot configure against the *host* compiler off Windows, but it can
+  # cross-configure, and this one needs nothing but the compiler - no Rust
+  # library, no vcpkg. So the configuration the comment above calls "one
+  # nobody runs" can actually be run nearly everywhere, rather than skipped
+  # on every machine that is not Windows.
+  if cmake -S platforms/windows -B "${MSIME_PIPE_BUILD}-cross" -DMSIME_WINDOWS_PIPE_ONLY=ON \
+    -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_CXX_COMPILER=x86_64-w64-mingw32-g++ \
+    -DCMAKE_BUILD_TYPE=Debug >/dev/null 2>&1 &&
+    cmake --build "${MSIME_PIPE_BUILD}-cross" --parallel >/dev/null 2>&1; then
+    echo "pipe-only: cross-builds"
+  else
+    cmake --build "${MSIME_PIPE_BUILD}-cross" --parallel 2>&1 |
+      grep -Ei "error:|Error [0-9]" | head -5
+    fail "pipe-only cross build"
+  fi
 elif [ "$windows_host" -eq 0 ]; then
-  # platforms/windows cannot configure off Windows, and this phase had no guard
-  # for that while every other native phase does. --quick is documented as the
-  # pre-merge gate, so an unconditional failure here made that gate permanently
-  # red on macOS and Linux - which is a good way to teach everyone to skip it.
-  echo "pipe-only: skipped (needs a Windows host)"
+  # platforms/windows cannot configure off Windows without a cross compiler,
+  # and this phase had no guard for that while every other native phase does.
+  # --quick is documented as the pre-merge gate, so an unconditional failure
+  # here made that gate permanently red on macOS and Linux - which is a good
+  # way to teach everyone to skip it.
+  echo "pipe-only: skipped (needs a Windows host or a MinGW cross compiler)"
 else
   fail "pipe-only configure"
 fi
