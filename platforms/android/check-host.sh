@@ -17,7 +17,10 @@ if rg -n 'NativeClient\.command\([^,]+, 9\)' "$repo_root/platforms/android/java/
   echo "Android input service must not use unmapped command 9" >&2
   exit 1
 fi
-mapfile -t client_sources < <(find "$repo_root/platforms/android/java/app/msime/client" -name "*.java" -print)
+client_sources=()
+while IFS= read -r source; do
+  client_sources+=("$source")
+done < <(find "$repo_root/platforms/android/java/app/msime/client" -name "*.java" -print)
 javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "${client_sources[@]}" \
   "$repo_root/platforms/android/tests/core/EditorSmoke.java" \

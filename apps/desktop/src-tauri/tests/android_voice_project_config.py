@@ -10,6 +10,9 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
         plugin_rust = (ROOT / "crates/tauri-mobile-platform/src/lib.rs").read_text()
         app_rust = (ROOT / "apps/desktop/src-tauri/src/lib.rs").read_text()
         manifest = (ROOT / "apps/desktop/src-tauri/Cargo.toml").read_text()
+        generated_manifest = (
+            ROOT / "apps/desktop/src-tauri/gen/android/app/src/main/AndroidManifest.xml"
+        ).read_text()
         gradle = (ROOT / "apps/desktop/src-tauri/gen/android/app/build.gradle.kts").read_text()
         plugin = (ROOT / "platforms/android/java/app/msime/client/voice/VoicePlugin.kt").read_text()
         activity = (
@@ -35,10 +38,16 @@ class AndroidVoiceProjectConfigurationTests(unittest.TestCase):
         self.assertIn("VoiceResultStore", plugin)
         self.assertIn("VoiceRecognitionActivity.markLaunched(args.requestId)", plugin)
         self.assertIn("VoiceRecognitionActivity.isRequestActive(requestId)", plugin)
+        self.assertIn("VoiceRecognitionActivity.stopActive()", plugin)
         self.assertIn("public static void markLaunched(String requestId)", activity)
         self.assertIn("public static boolean isRequestActive(String requestId)", activity)
         self.assertIn("EXTRA_REQUEST_ID", activity)
         self.assertIn("markLaunched(requestId)", activity)
+        self.assertIn("SpeechRecognizer", activity)
+        self.assertIn("stopListening()", activity)
+        self.assertIn("cancel()", activity)
+        self.assertIn("android.permission.RECORD_AUDIO", (ROOT / "platforms/android/AndroidManifest.xml").read_text())
+        self.assertIn("android.permission.RECORD_AUDIO", generated_manifest)
         self.assertIn('String requestId = "ime-"', (ROOT / "platforms/android/java/app/msime/client/core/MSIMEInputService.java").read_text())
         self.assertIn("public static void cancelActive()", activity)
 

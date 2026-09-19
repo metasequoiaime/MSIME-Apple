@@ -114,7 +114,18 @@ class VoicePlugin(activity: Activity) : Plugin(activity) {
     }
 
     @Command
-    fun stopVoice(invoke: Invoke) = cancel(invoke)
+    fun stopVoice(invoke: Invoke) {
+        val requestId = try {
+            invoke.parseArgs(VoiceControlArgs::class.java).requestId
+        } catch (_: Exception) {
+            null
+        }
+        val current = activeRequest.get()
+        if (current == null || requestId == null || requestId == current) {
+            VoiceRecognitionActivity.stopActive()
+        }
+        invoke.resolve()
+    }
 
     @Command
     fun cancelVoice(invoke: Invoke) = cancel(invoke)

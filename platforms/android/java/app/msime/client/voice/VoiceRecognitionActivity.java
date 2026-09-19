@@ -1,32 +1,35 @@
 package app.msime.client;
 
 import android.app.Activity;
-import android.content.ActivityNotFoundException;
 import android.content.Context;
 import android.content.Intent;
+import android.content.pm.PackageManager;
 import android.os.Bundle;
+import android.speech.RecognitionListener;
 import android.speech.RecognizerIntent;
+import android.speech.SpeechRecognizer;
 import android.widget.Toast;
 import java.io.File;
 import java.lang.ref.WeakReference;
 import java.util.ArrayList;
 import java.util.Locale;
 
-/** Platform-owned voice capture. The selected recognizer owns audio; this activity
- * persists only its bounded text result for the isolated IME process.
+/** Platform-owned voice capture. Android's SpeechRecognizer owns the microphone;
+ * this activity persists only its bounded text result for the isolated IME process.
  */
-@SuppressWarnings("deprecation")
 public final class VoiceRecognitionActivity extends Activity {
-    private static final int REQUEST_RECOGNITION = 1;
+    private static final int REQUEST_RECORD_AUDIO = 1;
     private static final String EXTRA_LANGUAGE = "app.msime.client.voice.LANGUAGE";
     private static final String EXTRA_REQUEST_ID = "app.msime.client.voice.REQUEST_ID";
-    private static final String STATE_LAUNCHED = "recognizer_launched";
     private static volatile WeakReference<VoiceRecognitionActivity> active =
         new WeakReference<>(null);
     private static volatile String activeRequestId;
+    private SpeechRecognizer recognizer;
+    private boolean stopping;
+    private boolean finished;
 
     public static boolean available(Context context) {
-        return recognitionIntent("").resolveActivity(context.getPackageManager()) != null;
+        return SpeechRecognizer.isRecognitionAvailable(context);
     }
 
     public static void markLaunched(String requestId) {
@@ -55,49 +58,114 @@ public final class VoiceRecognitionActivity extends Activity {
         active = new WeakReference<>(this);
         String requestId = getIntent().getStringExtra(EXTRA_REQUEST_ID);
         if (requestId != null) activeRequestId = requestId;
-        if (state != null && state.getBoolean(STATE_LAUNCHED, false)) return;
-        Intent recognition = recognitionIntent(getIntent().getStringExtra(EXTRA_LANGUAGE));
-        if (recognition.resolveActivity(getPackageManager()) == null) {
-            Toast.makeText(this, "设备没有可用的系统语音识别服务", Toast.LENGTH_SHORT).show();
+        if (!available(this)) {
+            fail("设备没有可用的系统语音识别服务");
             finish();
             return;
         }
-        try { startActivityForResult(recognition, REQUEST_RECOGNITION); }
-        catch (ActivityNotFoundException | SecurityException error) {
-            Toast.makeText(this, "系统语音识别服务无法启动", Toast.LENGTH_SHORT).show();
-            finish();
+        if (checkSelfPermission(android.Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED) {
+            requestPermissions(new String[] {android.Manifest.permission.RECORD_AUDIO},
+                REQUEST_RECORD_AUDIO);
+            return;
+        }
+        startRecognition();
+    }
+
+    @Override public void onRequestPermissionsResult(int requestCode, String[] permissions,
+            int[] grantResults) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults);
+        if (requestCode != REQUEST_RECORD_AUDIO || finished) return;
+        if (grantResults.length == 1 && grantResults[0] == PackageManager.PERMISSION_GRANTED) {
+            startRecognition();
+        } else {
+            fail("语音识别需要麦克风权限");
+            finishRequest();
         }
     }
 
-    @Override protected void onSaveInstanceState(Bundle state) {
-        state.putBoolean(STATE_LAUNCHED, true);
-        super.onSaveInstanceState(state);
-    }
-
-    @Override protected void onActivityResult(int requestCode, int resultCode, Intent data) {
-        super.onActivityResult(requestCode, resultCode, data);
-        if (requestCode == REQUEST_RECOGNITION && resultCode == RESULT_OK && data != null) {
-            ArrayList<String> results = data.getStringArrayListExtra(RecognizerIntent.EXTRA_RESULTS);
-            if (results != null && !results.isEmpty()) saveResult(results.get(0));
+    /** Requests that the recognizer finish the current utterance and deliver final results. */
+    public static void stopActive() {
+        VoiceRecognitionActivity activity = active.get();
+        if (activity != null) {
+            activity.runOnUiThread(activity::stopRecognition);
         }
-        if (requestCode == REQUEST_RECOGNITION) {
-            clearRequest(getIntent().getStringExtra(EXTRA_REQUEST_ID));
-        }
-        finish();
     }
 
     /** Stops the platform recognizer launched for the shared Tauri voice panel. */
     public static void cancelActive() {
         VoiceRecognitionActivity activity = active.get();
-        if (activity != null) activity.runOnUiThread(activity::finish);
+        if (activity != null) activity.runOnUiThread(activity::cancelRecognition);
     }
 
     @Override protected void onDestroy() {
+        finished = true;
+        if (recognizer != null) {
+            recognizer.destroy();
+            recognizer = null;
+        }
         if (active.get() == this) active = new WeakReference<>(null);
-        if (!isChangingConfigurations()) {
+        if (!isChangingConfigurations() && !isFinishing()) {
+            clearRequest(getIntent().getStringExtra(EXTRA_REQUEST_ID));
+        } else if (isFinishing()) {
             clearRequest(getIntent().getStringExtra(EXTRA_REQUEST_ID));
         }
         super.onDestroy();
+    }
+
+    private void startRecognition() {
+        if (finished || recognizer != null) return;
+        recognizer = SpeechRecognizer.createSpeechRecognizer(this);
+        recognizer.setRecognitionListener(new RecognitionListener() {
+            @Override public void onReadyForSpeech(Bundle params) { }
+            @Override public void onBeginningOfSpeech() { }
+            @Override public void onRmsChanged(float rmsdB) { }
+            @Override public void onBufferReceived(byte[] buffer) { }
+            @Override public void onEndOfSpeech() { }
+            @Override public void onError(int error) {
+                if (!finished) {
+                    if (!stopping) fail("语音识别未返回结果");
+                    finishRequest();
+                }
+            }
+            @Override public void onResults(Bundle results) {
+                if (finished) return;
+                ArrayList<String> values = results == null
+                    ? null : results.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION);
+                if (values != null && !values.isEmpty()) saveResult(values.get(0));
+                finishRequest();
+            }
+            @Override public void onPartialResults(Bundle partialResults) { }
+            @Override public void onEvent(int eventType, Bundle params) { }
+        });
+        recognizer.startListening(recognitionIntent(
+            getIntent().getStringExtra(EXTRA_LANGUAGE)));
+    }
+
+    private void stopRecognition() {
+        if (finished || recognizer == null) return;
+        stopping = true;
+        recognizer.stopListening();
+    }
+
+    private void cancelRecognition() {
+        if (finished) return;
+        finished = true;
+        if (recognizer != null) recognizer.cancel();
+        clearRequest(getIntent().getStringExtra(EXTRA_REQUEST_ID));
+        finish();
+    }
+
+    private void finishRequest() {
+        if (finished) return;
+        finished = true;
+        if (recognizer != null) recognizer.stopListening();
+        clearRequest(getIntent().getStringExtra(EXTRA_REQUEST_ID));
+        finish();
+    }
+
+    private void fail(String message) {
+        Toast.makeText(this, message, Toast.LENGTH_SHORT).show();
     }
 
     private void saveResult(String text) {
