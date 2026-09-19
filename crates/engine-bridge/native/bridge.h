@@ -71,6 +71,7 @@ EngineOptions prepare_options(rust::Str resources, rust::Str user_data, rust::St
 rust::String hanzi_to_pinyin(const EngineOptions& options, rust::Str text);
 rust::String normalize_full_pinyin(rust::Str input, std::size_t expected_syllables);
 DictionaryPage dictionary_entries(const EngineOptions& options, std::size_t offset, std::size_t limit);
+rust::Vec<rust::String> english_completions(rust::Str resources, rust::Str prefix, std::size_t limit);
 DictionaryEntry dictionary_validate(const DictionaryEntry& entry);
 void dictionary_edit(const EngineOptions& options, rust::Slice<const DictionaryEntry> previous,
                      rust::Slice<const DictionaryEntry> replacement, rust::Str request_id);
@@ -87,8 +88,6 @@ EmojiCatalogSlice emoji_catalog_slice(rust::Str resources, rust::Str search,
     rust::Str category, rust::Str group, std::size_t offset, std::uint16_t limit, rust::Str parent);
 rust::Vec<EmojiSymbolGroup> emoji_symbol_groups(rust::Str resources);
 rust::Vec<rust::String> emoji_catalog_groups(rust::Str resources, rust::Str category);
-rust::Vec<rust::String> english_completions(rust::Str resources, rust::Str prefix,
-                                            std::uint16_t limit);
 rust::Vec<rust::String> candidate_glosses(
     rust::Str resources, rust::Slice<const CandidateGlossInput> candidates);
 rust::Vec<rust::String> candidate_glosses_with_user(

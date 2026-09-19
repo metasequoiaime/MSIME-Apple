@@ -60,6 +60,40 @@ final class JapaneseNineKeyTests: XCTestCase {
     XCTAssertFalse(panel.isHidden)
   }
 
+  func testJapaneseCommitReadingKeepsTheTypedKana() {
+    let bridge = MetasequoiaInputSessionBridge()
+    _ = bridge.switchToJapanese()
+    let typed = bridge.handleCharacter("a")
+    XCTAssertEqual(typed.reading, "あ")
+    let committed = bridge.commitReading()
+    XCTAssertEqual(committed.commitText, "あ")
+    XCTAssertTrue(committed.reading.isEmpty)
+  }
+
+  func testJapaneseConversionUsesSpaceToSelectAndReturnToCommit() throws {
+    let previous = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previous }
+    InputSchemePreference.scheme = .japaneseNineKey
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 414,
+                                   height: 260 + KeyboardViewController.stripExtraHeight)
+    controller.view.layoutIfNeeded()
+    let panel = try XCTUnwrap(nodes(controller.view).compactMap { $0 as? JapaneseNineKeyView }.first)
+    let space = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "japaneseSpace" } as? UIButton)
+    let enter = try XCTUnwrap(nodes(controller.view).first { $0.accessibilityIdentifier == "japaneseReturn" } as? UIButton)
+
+    panel.select(0, direction: 0)
+    XCTAssertEqual(space.configuration?.title, "変換")
+    XCTAssertEqual(enter.configuration?.title, "確定")
+    space.sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(space.configuration?.title, "変換")
+    XCTAssertEqual(enter.configuration?.title, "確定")
+    enter.sendActions(for: .primaryActionTriggered)
+    XCTAssertEqual(space.configuration?.title, "空白")
+    XCTAssertEqual(enter.configuration?.title, "改行")
+  }
+
   func testExistingJapaneseEnablesBothLayoutsOnlyOnce() throws {
     let name = "japanese-scheme-test-" + UUID().uuidString
     let store = try XCTUnwrap(UserDefaults(suiteName: name))

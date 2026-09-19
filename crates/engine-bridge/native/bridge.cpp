@@ -493,6 +493,24 @@ DictionaryPage dictionary_entries(const EngineOptions& options, std::size_t offs
     for (const auto& entry : page.entries) result.entries.push_back(entry_for(entry));
     return result;
 }
+rust::Vec<rust::String> english_completions(rust::Str resources, rust::Str prefix, std::size_t limit) {
+    if (limit == 0 || limit > 32) throw std::invalid_argument("Invalid English completion limit");
+    std::string lowered(prefix);
+    for (char &character : lowered) {
+        const auto value = static_cast<unsigned char>(character);
+        if (value >= 'A' && value <= 'Z') character = static_cast<char>(value + ('a' - 'A'));
+        else if (value < 'a' || value > 'z') throw std::invalid_argument("Invalid English completion prefix");
+    }
+    if (lowered.empty()) return {};
+    const auto path = std::filesystem::u8path(std::string(resources)) /
+                      metasequoia::assets::english_dictionary;
+    EnglishDictionary dictionary(path.u8string(), false);
+    if (!dictionary.ready()) throw std::runtime_error("English dictionary unavailable");
+    rust::Vec<rust::String> result;
+    for (const auto &item : dictionary.query_prefix(lowered, limit))
+        result.push_back(rust::String(item.word));
+    return result;
+}
 DictionaryEntry dictionary_validate(const DictionaryEntry& entry) {
     const auto validation = metasequoia::validate_personal_dictionary_entry(entry_for(entry));
     if (!validation.entry) throw std::invalid_argument(validation.error);
@@ -869,30 +887,6 @@ rust::Vec<rust::String> emoji_catalog_groups(rust::Str resources, rust::Str cate
     }
     if (status != SQLITE_DONE) throw std::runtime_error("Emoji catalog read failed");
     return groups;
-}
-rust::Vec<rust::String> english_completions(rust::Str resources, rust::Str prefix,
-                                            std::uint16_t limit) {
-    rust::Vec<rust::String> result;
-    if (limit == 0 || limit > 64 || resources.empty() || prefix.empty() || prefix.size() > 128)
-        return result;
-    std::string lowered(prefix);
-    for (char &value : lowered) {
-        const auto byte = static_cast<unsigned char>(value);
-        if (byte < 'A' || byte > 'Z') {
-            if (byte < 'a' || byte > 'z') return result;
-        } else {
-            value = static_cast<char>(byte - 'A' + 'a');
-        }
-    }
-    const auto path = std::filesystem::u8path(std::string(resources)) /
-                      metasequoia::assets::english_dictionary;
-    std::error_code error;
-    if (!std::filesystem::is_regular_file(path, error)) return result;
-    EnglishDictionary dictionary(path.u8string(), false);
-    if (!dictionary.ready()) return result;
-    for (const auto &item : dictionary.query_prefix(lowered, limit))
-        result.push_back(rust::String(item.word));
-    return result;
 }
 rust::Vec<rust::String> candidate_glosses(
     rust::Str resources, rust::Slice<const CandidateGlossInput> candidates) {

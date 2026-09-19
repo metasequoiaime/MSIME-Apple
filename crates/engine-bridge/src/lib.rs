@@ -194,6 +194,7 @@ mod ffi {
             offset: usize,
             limit: usize,
         ) -> Result<DictionaryPage>;
+        fn english_completions(resources: &str, prefix: &str, limit: usize) -> Result<Vec<String>>;
         fn dictionary_validate(entry: &DictionaryEntry) -> Result<DictionaryEntry>;
         fn dictionary_edit(
             options: &EngineOptions,
@@ -263,7 +264,6 @@ mod ffi {
         fn emoji_symbol_groups(resources: &str) -> Result<Vec<EmojiSymbolGroup>>;
         fn handwriting_order_candidates(candidates: &[String]) -> Result<Vec<String>>;
         fn emoji_catalog_groups(resources: &str, category: &str) -> Result<Vec<String>>;
-        fn english_completions(resources: &str, prefix: &str, limit: u16) -> Result<Vec<String>>;
         fn candidate_glosses(
             resources: &str,
             candidates: &[CandidateGlossInput],
@@ -343,6 +343,15 @@ pub fn dictionary_entries(
     limit: usize,
 ) -> Result<DictionaryPage, cxx::Exception> {
     ffi::dictionary_entries(options, offset, limit)
+}
+
+/// Query the packaged English dictionary without creating or mutating an input session.
+pub fn english_completions(
+    resources: &str,
+    prefix: &str,
+    limit: usize,
+) -> Result<Vec<String>, cxx::Exception> {
+    ffi::english_completions(resources, prefix, limit)
 }
 
 /// Validate and normalize one personal-dictionary entry through the Engine.
@@ -484,14 +493,6 @@ pub fn emoji_catalog_groups(
 }
 
 /// Query the packaged English dictionary without creating or mutating an input session.
-pub fn english_completions(
-    resources: &str,
-    prefix: &str,
-    limit: u16,
-) -> Result<Vec<String>, cxx::Exception> {
-    ffi::english_completions(resources, prefix, limit)
-}
-
 /// Look up display-only candidate glosses in the packaged Engine dictionary.
 /// The result is parallel to `candidates`; an ineligible candidate has an empty gloss.
 pub fn candidate_glosses(
