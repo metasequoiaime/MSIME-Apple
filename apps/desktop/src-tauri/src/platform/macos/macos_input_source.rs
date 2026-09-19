@@ -80,10 +80,13 @@ fn remove_staging(path: &Path) -> Result<(), InstallError> {
 }
 
 /// Install a validated bundle below `input_methods`, replacing an existing
-/// directory only after the complete copy has succeeded.
-pub(crate) fn install_bundle_at(
+/// directory only after the complete copy has succeeded and registration has
+/// accepted the staged replacement. A failed registration restores the old
+/// bundle before returning the error.
+fn install_bundle_at_with_registration<F>(
     source: &Path,
     input_methods: &Path,
+    register: F,
 ) -> Result<PathBuf, InstallError> {
     validate_bundle(source)?;
     fs::create_dir_all(input_methods).map_err(|_| InstallError::Io)?;
@@ -114,10 +117,28 @@ pub(crate) fn install_bundle_at(
         }
         return Err(InstallError::Io);
     }
+    if let Err(error) = register(&target) {
+        if fs::remove_dir_all(&target).is_err() {
+            return Err(InstallError::Io);
+        }
+        if had_previous && fs::rename(&backup, &target).is_err() {
+            return Err(InstallError::Io);
+        }
+        return Err(error);
+    }
     if had_previous {
         fs::remove_dir_all(&backup).map_err(|_| InstallError::Io)?;
     }
     Ok(target)
+}
+
+/// Install a validated bundle below `input_methods`, replacing an existing
+/// directory only after the complete copy has succeeded.
+pub(crate) fn install_bundle_at(
+    source: &Path,
+    input_methods: &Path,
+) -> Result<PathBuf, InstallError> {
+    install_bundle_at_with_registration(source, input_methods, |_| Ok(()))
 }
 
 fn source_candidates(resource_directory: Option<&Path>, current_directory: &Path) -> Vec<PathBuf> {
@@ -182,8 +203,8 @@ pub(crate) fn install(resource_directory: Option<&Path>) -> Result<(), InstallEr
         &std::env::current_dir().map_err(|_| InstallError::SourceUnavailable)?,
     )?;
     let input_methods = home_input_methods()?;
-    let installed = install_bundle_at(&source, &input_methods)?;
-    register_installed_bundle(&installed)
+    install_bundle_at_with_registration(&source, &input_methods, register_installed_bundle)
+        .map(|_| ())
 }
 
 #[cfg(test)]
@@ -278,5 +299,36 @@ mod tests {
             validate_bundle(&source),
             Err(InstallError::InvalidBundle)
         ));
+    }
+
+    #[test]
+    fn registration_failure_restores_previous_install() {
+        let old_root = tempdir().unwrap();
+        let new_root = tempdir().unwrap();
+        let destination_root = tempdir().unwrap();
+        let old_source = fixture(old_root.path(), INPUT_SOURCE_BUNDLE_ID, b"old");
+        let new_source = fixture(new_root.path(), INPUT_SOURCE_BUNDLE_ID, b"new");
+        let destination = destination_root.path().join("Library/Input Methods");
+        install_bundle_at(&old_source, &destination).unwrap();
+
+        let result = install_bundle_at_with_registration(&new_source, &destination, |_| {
+            Err(InstallError::Registration)
+        });
+        assert!(matches!(result, Err(InstallError::Registration)));
+        assert_eq!(
+            fs::read(
+                destination
+                    .join(INPUT_SOURCE_BUNDLE_NAME)
+                    .join(format!("Contents/MacOS/{INPUT_SOURCE_EXECUTABLE}"))
+            )
+            .unwrap(),
+            b"old"
+        );
+        assert!(!destination
+            .join(format!(
+                ".{INPUT_SOURCE_BUNDLE_NAME}.previous-{}",
+                std::process::id()
+            ))
+            .exists());
     }
 }
