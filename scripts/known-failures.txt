@@ -36,6 +36,13 @@ native windows-server
 # the test passed before it. It cannot be bisected from here: the bridge now
 # uses contracts only the newer Engine has, so the old commit no longer builds.
 # Fixing it belongs in the Engine repository.
+#
+# 2026-09-20: the Engine behaviour this blames is gone at the locked commit.
+# input-runtime's unicode_mode_digits_compose_a_code_point_rather_than_picking_a_candidate
+# drives the real Engine through the same layers session_smoke.cpp uses and
+# types U4e2d without losing a digit. The line stays because nobody has run the
+# Windows suite since; whoever next does should find out whether it can go, and
+# if it still fails it is for some other reason than this one.
 native windows-session
 # platforms/macos had never been gated by anything, and it had stopped compiling:
 # a misspelled selector plus two targets missing the file defining a symbol they
@@ -56,6 +63,12 @@ native windows-session
 # dictionary.
 #
 # Fixing them belongs in the Engine, as the windows-session entry says.
+#
+# 2026-09-20: same note as windows-session. The Engine at the locked commit now
+# enters Unicode mode on shift+U and keeps its digits - the new input-runtime
+# test proves it through the real Engine - so local-mode-preferences may already
+# pass. It needs the configured macOS build to find out, which the run that
+# recorded this did not have.
 macos local-mode-preferences
 macos text-client
 macos shortcut
