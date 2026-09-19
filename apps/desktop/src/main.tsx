@@ -278,6 +278,11 @@ function DesktopSettings() {
           ...(host.platform === "ios" ? {
             home: { openSystemKeyboardSettings: () => invoke("open_system_keyboard_settings") },
           } : {}),
+          ...(host.platform === "ios" || host.platform === "android" ? {
+            openSystemKeyboardSettings: () => invoke(
+              host.platform === "ios" ? "open_system_keyboard_settings" : "android_open_input_method_settings",
+            ),
+          } : {}),
           ...(host.platform === "linux" ? {
             customTouchKeyboardSkins: true,
             customSkinLibrary: {

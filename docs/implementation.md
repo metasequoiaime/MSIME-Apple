@@ -28,6 +28,12 @@ Android 合包不再要求某个旧 worktree 先留下被忽略的 `tauri.settin
 
 新建 worktree 中直接执行 Gradle `tasks` 已完成 Android/Tauri module 配置，首页 11 项定向 Vitest、TypeScript 检查和 production build 通过。直接绕过 Tauri CLI 编译 app 会缺少按设计忽略的 Kotlin codegen，因此完整 APK 仍使用 `build-client-apk.sh`；本切片未执行设备安装或真机触控验收，CI 保持禁用。
 
+### Android 手写模型说明与系统入口（2026-09-21）
+
+Android 原生键盘已经通过 ML Kit 负责中文手写模型下载和离线识别，但共享 Tauri 设置此前只显示 iOS 的模型/隐私说明，并把“手写识别板”保留为桌面入口。现在 Android 输入设置明确说明按需下载 Google ML Kit 中文模型、模型就绪后的离线识别、笔迹/识别结果不上传及 SDK 统计边界；手写页面改为引导用户从 Android 系统输入法设置启用水杉并切换到手写方案，提供同一 SDK 隐私说明链接。Tauri host 注入 `android_open_input_method_settings`，不调用桌面手写 panel command。
+
+新增 Android 设置回归覆盖说明、隐私链接、系统设置入口和不显示桌面手写 panel；新增定向回归通过，TypeScript 检查、Vite 构建和 Android host 源码/API/manifest/resource 检查通过。未执行 Android 设备系统设置跳转或 ML Kit 真机模型下载验收。
+
 ### iOS 日语九宫格模式列布局（2026-09-17）
 
 依据 Apple `2de09eb`，日语九宫格左侧模式列改为从自身列高推导按键高度：系统托管地球键时 ABC 键跨两行，扩展自行显示地球键时四个模式键各占一行。控制器在布局更新时同步 `needsInputModeSwitchKey`，避免跨两个堆栈的约束把假名网格拉伸到整块面板。新增行为测试覆盖两种地球键状态；iOS 项目配置测试 11/11 通过。当前 worktree 的 Xcode 原生编译仍受缺失 `target/ios/EngineResources` 阻断，本切片不宣称真机或完整原生宿主接入完成。
