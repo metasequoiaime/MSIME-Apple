@@ -504,6 +504,11 @@ int main(int argc, char **argv) {
     require(!engine.width_action_.isChecked(&ic), "status action restores halfwidth");
     require(state->preferences_.value("character_width", std::string{}) == "halfwidth",
             "status action updates the live snapshot back to halfwidth");
+    const auto finalWidth = response(msime_client_load_preferences(
+        reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size()));
+    require(finalWidth.value("preferences", Json::object()).value("character_width", std::string{}) ==
+                "halfwidth",
+            "serialized preference saves retain the latest width toggle");
     engine.input_mode_action_.activate(&ic);
     require(!state->input_enabled_, "input mode action disables Chinese input");
     fcitx::KeyEvent passthrough(&ic, fcitx::Key(FcitxKey_n));
