@@ -462,16 +462,16 @@ CMetasequoiaIME::CMetasequoiaIME()
     _shiftHotkeyArmed = false;
     _ctrlHotkeyArmed = false;
     _modifierHotkeyExpire = {};
-    _minttyKeyboardHook = nullptr;
-    _minttyShiftDownMask = 0;
-    _minttyShiftArmed = false;
-    _minttyShiftSequence = 0;
-    _minttyShiftHandledSequence = 0;
-    _minttyShiftFocusGeneration = 0;
-    _minttyShiftExpireTick = 0;
+    _bareShiftHook = nullptr;
+    _bareShiftDownMask = 0;
+    _bareShiftArmed = false;
+    _bareShiftSequence = 0;
+    _bareShiftHandledSequence = 0;
+    _bareShiftFocusGeneration = 0;
+    _bareShiftExpireTick = 0;
 }
 
-thread_local CMetasequoiaIME *CMetasequoiaIME::_minttyKeyboardHookOwner = nullptr;
+thread_local CMetasequoiaIME *CMetasequoiaIME::_bareShiftHookOwner = nullptr;
 
 //+---------------------------------------------------------------------------
 //
@@ -481,7 +481,7 @@ thread_local CMetasequoiaIME *CMetasequoiaIME::_minttyKeyboardHookOwner = nullpt
 
 CMetasequoiaIME::~CMetasequoiaIME()
 {
-    _UninitMinttyKeyboardHook();
+    _UninitBareShiftKeyboardHook();
     _ClearDeferredKeyDowns();
     // Deactivate normally owns the unbind.  Keep this owner-aware fallback for
     // partial activation failures without allowing a delayed old service
@@ -1439,7 +1439,7 @@ STDAPI CMetasequoiaIME::ActivateEx(ITfThreadMgr *pThreadMgr, TfClientId tfClient
             if (document) document->Release();
         }
     }
-    _InitMinttyKeyboardHook();
+    _InitBareShiftKeyboardHook();
 
     // The first connect timer can run before the engine exists. Re-arm after
     // compartment initialization so an already-focused activation always
@@ -1469,7 +1469,7 @@ ExitError:
 STDAPI CMetasequoiaIME::Deactivate()
 {
     _SyncHostContextFocus(nullptr);
-    _UninitMinttyKeyboardHook();
+    _UninitBareShiftKeyboardHook();
     Global::HostUiLessMode = false;
     Global::CandidateUiLessMode = false;
     // Send this synchronously before destroying the message window. OnKill can
@@ -2215,8 +2215,8 @@ LRESULT CALLBACK CMetasequoiaIME_WindowProc(HWND hWnd, UINT message, WPARAM wPar
             pIME->_RequestKeyboardCancellation(request.focusToken, request.compositionEpoch);
         break;
     }
-    case WM_MinttyShiftRelease:
-        pIME->_HandleMinttyShiftRelease(static_cast<UINT>(wParam));
+    case WM_BareShiftRelease:
+        pIME->_HandleHookedBareShiftRelease(static_cast<UINT>(wParam));
         return 0;
 
     case WM_CheckGlobalCompartment: {
