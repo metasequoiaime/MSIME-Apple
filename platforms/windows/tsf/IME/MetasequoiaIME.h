@@ -199,6 +199,13 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
                                           uint64_t requestId, const std::wstring &prefetchedText);
     // Character immediately before the caret / composition start (0 if unavailable).
     WCHAR _GetPrecedingDocumentChar(TfEditCookie ec, _In_ ITfContext *pContext);
+    // The `count` characters before the caret / composition start, in document
+    // order. Returns how many were actually read, which is fewer than asked for
+    // near the start of the document and 0 in a text store that exposes none.
+    int _GetPrecedingDocumentChars(TfEditCookie ec, _In_ ITfContext *pContext, _Out_writes_(count) WCHAR *buffer,
+                                   int count);
+    // Is the document still arranged the way it was when the rewrite armed?
+    bool _SmartPunctuationFingerprintMatches(TfEditCookie ec, _In_ ITfContext *pContext, WCHAR beforeChar);
     WCHAR _GetFollowingDocumentChar(TfEditCookie ec, _In_ ITfContext *pContext);
     // Shadow first, document read as the fallback. See _smartPunctuationShadowChar.
     WCHAR _GetPrecedingCharForSmartPunctuation(TfEditCookie ec, _In_ ITfContext *pContext);
@@ -220,9 +227,9 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     void _ResetSmartPunctuationHistory();
     bool _CanConvertSmartPunctuationSpace() const;
     bool _CanRevertSmartPunctuation(WCHAR wch) const;
-    void _ArmSmartPunctuationSpace(WCHAR chinese, bool autoClosedPair);
+    void _ArmSmartPunctuationSpace(WCHAR chinese, bool autoClosedPair, WCHAR beforeChar);
     void _ClearSmartPunctuationSpace();
-    void _ArmSmartPunctuationRevert(WCHAR ascii, WCHAR chinese);
+    void _ArmSmartPunctuationRevert(WCHAR ascii, WCHAR chinese, WCHAR beforeChar);
     void _ClearSmartPunctuationRevert();
     void _UpdateSmartPunctuationShadow(UINT code, WCHAR wch, bool isEaten);
     void _InvalidateSmartPunctuationShadow();
@@ -572,11 +579,17 @@ class CMetasequoiaIME : public ITfTextInputProcessorEx,
     // space. The edit-session conversion is local to TSF and never enters IPC.
     bool _smartPunctuationSpaceArmed = false;
     WCHAR _smartPunctuationSpaceChinese = 0;
+    // The character that sat before the punctuation at commit time. The focus
+    // token and foreground window cannot tell a caret that moved within the
+    // same document from one that never moved, so this is what distinguishes
+    // the punctuation that was armed from an identical one elsewhere.
+    WCHAR _smartPunctuationSpaceBeforeChar = 0;
     uint64_t _smartPunctuationSpaceFocusToken = 0;
     HWND _smartPunctuationSpaceForegroundWindow = nullptr;
     bool _smartPunctuationRevertArmed = false;
     WCHAR _smartPunctuationRevertAscii = 0;
     WCHAR _smartPunctuationRevertChinese = 0;
+    WCHAR _smartPunctuationRevertBeforeChar = 0;
     uint64_t _smartPunctuationRevertFocusToken = 0;
     HWND _smartPunctuationRevertForegroundWindow = nullptr;
     ULONGLONG _smartPunctuationRevertDeadline = 0;
