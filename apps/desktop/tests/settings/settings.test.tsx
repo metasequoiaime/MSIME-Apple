@@ -128,19 +128,19 @@ test("Android touch schemes follow Apple order and stay absent on hosts without 
   expect(screen.queryByRole("checkbox", { name: "显示输入方案 全拼 26 键" })).toBeNull();
 });
 
-test("offline candidate gloss is host-enabled, defaults on and persists", async () => {
+test("offline candidate gloss is host-enabled, defaults off and persists", async () => {
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
   const enabled = render(<SettingsPage client={{ load: async () => initial, save, candidateEnglishGloss: true }} />);
   fireEvent.click(await screen.findByRole("button", { name: "输入" }));
   const toggle = screen.getByRole("checkbox", { name: "显示英文释义" }) as HTMLInputElement;
-  expect(toggle.checked).toBe(true);
+  expect(toggle.checked).toBe(false);
   expect(screen.getByText(/释义来自随键盘打包的离线词库，不联网/)).toBeDefined();
   fireEvent.click(toggle);
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(save).toHaveBeenCalledWith(7, {
     ...initial.preferences,
-    candidate_english_gloss: false,
+    candidate_english_gloss: true,
   });
   enabled.unmount();
   render(<SettingsPage client={{ load: async () => initial, save: vi.fn() }} />);
@@ -188,11 +188,11 @@ test("iOS exposes the shared offline candidate gloss setting", async () => {
   fireEvent.click(screen.getByRole("button", { name: "手写 SDK 隐私说明" }));
   await waitFor(() => expect(openExternalUrl).toHaveBeenCalledWith("https://developers.google.com/ml-kit/terms"));
   const toggle = screen.getByRole("checkbox", { name: "显示英文释义" }) as HTMLInputElement;
-  expect(toggle.checked).toBe(true);
+  expect(toggle.checked).toBe(false);
   fireEvent.click(toggle);
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ candidate_english_gloss: false }));
+  expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ candidate_english_gloss: true }));
 });
 
 test("Android exposes handwriting model privacy and system settings", async () => {

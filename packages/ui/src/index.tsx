@@ -1664,7 +1664,9 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
   const diagnosticLog = { server: draft?.diagnostic_log?.server ?? false, tsf: draft?.diagnostic_log?.tsf ?? false };
   const cloudCandidates = draft?.cloud_candidates ?? true;
   const candidateTranslations = draft?.candidate_translations ?? true;
-  const candidateEnglishGloss = draft?.candidate_english_gloss ?? true;
+  // Offline glosses are opt-in in client-core and in every native host. Keep
+  // the settings view aligned when older snapshots omit the optional field.
+  const candidateEnglishGloss = draft?.candidate_english_gloss ?? false;
   const englishSuggestions = draft?.english_suggestions ?? true;
   const candidateGlossLanguagesEnabled = candidateTranslations
     || Boolean(client.candidateEnglishGloss && candidateEnglishGloss);
