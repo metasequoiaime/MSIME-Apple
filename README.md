@@ -19,7 +19,7 @@
 | 平台 | 入口目录 | 当前可复现证据 | 尚未完成 |
 | --- | --- | --- | --- |
 | [Android](platforms/android/README.md) | `platforms/android/` | API 35 arm64 专用模拟器、Tauri/IME 合包和共享设置 | 真机、x86_64 合包、完整生命周期 |
-| [iOS](platforms/ios/README.md) | `platforms/ios/` | Swift/配置测试和模拟器构建脚本 | Xcode target 签名、真机键盘扩展 |
+| [iOS](platforms/ios/README.md) | `platforms/ios/` | Swift/配置测试；模拟器 App 与真机 `.ipa` 的未签名构建，两者都内嵌键盘扩展和固定词库 | 签名、设备安装与键盘扩展启用验收 |
 | [macOS](platforms/macos/README.md) | `platforms/macos/` | IMK 预览 bundle、Rust/C++/CTest 和离屏 UI 测试 | 安装输入源、真实编辑器和权限验收 |
 | [Linux](platforms/linux/README.md) | `platforms/linux/` | arm64 容器中的 IBus daemon、Fcitx5 构建和隔离测试 | 图形桌面、安装包和 Wayland/X11 端到端 |
 | [Windows](platforms/windows/README.md) | `platforms/windows/`、`platforms/windows/tsf/` | x86/x64 交叉编译、管道/Server 边界测试 | Windows 原生运行、TSF 注册和编辑器验收 |
