@@ -16,41 +16,59 @@ struct CloudDictionaryApplyView: View {
 
   var body: some View {
     List {
-      Section("准备本地词库") {
-        Text("请启用水杉键盘的完全访问权限，并在下方打开水杉键盘，让键盘提供当前词库版本。测试区内容不会上传。")
-          .font(.footnote).foregroundStyle(.secondary)
+      // 说明、试打框、状态、动作原来是四个平铺的列表行,说明排在最前面,而它讲的是整组要做的事。
+      Section {
+        SettingsFactRow(title: state.localVersion == nil ? "尚未获取键盘词库版本" : "已获取本地词库版本",
+                        detail: state.localVersion == nil ? "在下面的输入框里打开水杉键盘" : nil,
+                        symbol: state.localVersion == nil ? "questionmark.circle.fill" : "checkmark.circle.fill",
+                        color: state.localVersion == nil ? .orange : MetasequoiaTheme.accent)
         TextField("点此打开水杉键盘", text: $probe)
           .textInputAutocapitalization(.never).autocorrectionDisabled()
-        Text(state.localVersion == nil ? "尚未获取键盘词库版本。" : "已获取本地词库版本。")
-        Button("下载云词库并预览") { download() }
-          .disabled(busy || state.localVersion == nil || state.request?.status.active == true)
+        SettingsActionRow(title: "下载云词库并预览", detail: "先看清楚要替换成什么，再决定",
+                          symbol: "icloud.and.arrow.down.fill", color: .blue,
+                          enabled: !busy && state.localVersion != nil && state.request?.status.active != true) { download() }
+      } header: {
+        Text("准备本地词库")
+      } footer: {
+        Text("请启用水杉键盘的完全访问权限，并在上方打开水杉键盘，让键盘提供当前词库版本。测试区内容不会上传。")
       }
       if let preview {
-        Section("确认应用") {
-          Text("云端版本 \(preview.envelope.revision)")
-          Text("\(preview.envelope.entries) 个个人词条，\(preview.envelope.overlays) 条覆盖记录，\(preview.envelope.positions) 个固定位置。")
-          Text("应用会替换本机个人词库、学习、删除和排序记录。下载期间本机状态发生变化时，键盘会拒绝本次应用。")
-            .font(.footnote).foregroundStyle(.secondary)
-          Button("替换本机词库", role: .destructive) { confirming = true }.disabled(busy)
-          Button("丢弃预览") { self.preview = nil; expectedVersion = nil }.disabled(busy)
+        Section {
+          SettingsFactRow(title: "云端版本 \(preview.envelope.revision)",
+                          detail: "\(preview.envelope.entries) 个词条 · \(preview.envelope.overlays) 条覆盖 · \(preview.envelope.positions) 个固定位置",
+                          symbol: "icloud.fill", color: .teal)
+          SettingsActionRow(title: "替换本机词库", detail: "覆盖本机个人词库、学习、删除和排序记录",
+                            symbol: "arrow.left.arrow.right", destructive: true, enabled: !busy) { confirming = true }
+          SettingsActionRow(title: "丢弃预览", symbol: "xmark.circle.fill", color: .gray, enabled: !busy) {
+            self.preview = nil; expectedVersion = nil
+          }
+        } header: {
+          Text("确认应用")
+        } footer: {
+          Text("下载期间本机状态发生变化时，键盘会拒绝本次应用。")
         }
       }
       if let request = state.request, request.accountID == accountID {
-        Section("处理结果") {
-          Text(status(request.status))
+        Section {
+          SettingsFactRow(title: status(request.status),
+                          symbol: request.status.active ? "clock.arrow.circlepath" : "checkmark.circle.fill",
+                          color: request.status.active ? .orange : MetasequoiaTheme.accent)
           if request.status.active {
-            Text("保持水杉键盘开启，等待准备完成；结束当前输入后会尝试应用。")
-              .font(.footnote).foregroundStyle(.secondary)
-            Button("取消待应用快照", role: .destructive) {
+            SettingsActionRow(title: "取消待应用快照", symbol: "xmark.circle.fill", destructive: true) {
               do { try queue.cancel(accountID: accountID); refresh() }
               catch { message = error.localizedDescription }
             }
           }
+        } header: {
+          Text("处理结果")
+        } footer: {
+          if request.status.active {
+            Text("保持水杉键盘开启，等待准备完成；结束当前输入后会尝试应用。")
+          }
         }
       }
-      if busy { ProgressView("正在准备…") }
-      if let message { Text(message).foregroundStyle(.secondary) }
     }
+    .settingsStatus(busy: busy, busyTitle: "正在准备…", message: message)
     .navigationTitle("应用云词库")
     .task {
       while !Task.isCancelled {
