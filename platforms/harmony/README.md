@@ -170,7 +170,9 @@ MSIME: panel ready: phone, soft keyboard
 
 即：系统接受了该输入法（`Succeeded in enabling IME. status:FULL_EXPERIENCE_MODE`），NAPI 模块加载、资源暂存、Engine 会话建立、软键盘面板创建，整条 ArkTS → NAPI → Rust → C++ Engine 链在设备上通。`bm install` 接受未签名 HAP（模拟器）。
 
-仍未验证：切换到该输入法后在真实编辑器中输入并上屏（`ime -s` 在锁屏状态被系统拒绝，随后模拟器因本机磁盘不足未能重启）、焦点与选区、生命周期、真机签名与安装、麦克风授权流程。启用与面板创建不等于输入验收。
+切换本身已验证：解锁屏幕后 `ime -s app.msime.client` 成功，`ime -g` 返回 `status: FULL_EXPERIENCE_MODE`。
+
+仍未验证：焦点交给真实编辑器后输入并上屏。该模拟器实例的 sceneboard 反复卡死（faultlog 有多条 `sysfreeze-com.ohos.sceneboard`），`aa start` 报成功但画面不刷新、注入触摸不落到图标，没有编辑器能取得焦点，而输入法扩展要等编辑器请求才被拉起、焦点与选区、生命周期、真机签名与安装、麦克风授权流程。启用与面板创建不等于输入验收。
 
 ## 验证边界
 
