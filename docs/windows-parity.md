@@ -48,6 +48,17 @@
 
 共享账号、社区、统计、云词库等已有成果继续保留；不能用它们抵消上表来源功能缺口。是否属于固定 Windows 基线及字段级等价，须另外找来源运行时证据，不能只根据目标页面名称推断。
 
+增量记录（2026-09-20，Windows 本批六项）：来源固定为 `MSIME-Windows` 的 `e1d53dd8f01fd351633f08374f189157f5cb47e9`，目标起点 `origin/develop` `5097a1558f3fd9cdbf4345ffcb01b8318749edb7`。本批全部以 x86_64/i686 MinGW 交叉语法检查加 `scripts/verify-local.sh --quick` 验证，没有 Windows 主机，因此没有任何一项声称完成原生安装、TSF 注册或真实编辑器交互。
+
+1. 语音条按它出现的那块显示器取 DPI（#3036）。`WaveOverlay` 按前台窗口所在显示器定位，却用自身窗口的 `GetDpiForWindow` 取缩放，而该窗口创建时没有 per-monitor 上下文——于是 DPI 恒为 96、收不到 `WM_DPICHANGED`，在缩放或副显示器上由合成器拉伸而非按真实尺寸绘制。现在 `wave_overlay_monitor_metrics` 在 per-monitor 线程上下文里一并返回该显示器的有效 DPI（`GetDpiForMonitor`，回退系统 DPI 再回退 96，不让 0 参与尺寸运算），定位与缩放取自同一份快照，并把新 DPI 推进渲染目标；覆盖 `WaveOverlayScale.h` 的纯回退测试。
+2. msimeui 复用渲染目标时刷新 DPI（#3038）。`EnsureForWindow` / `EnsureForComposition` 的早退路径都不设 DPI，合成路径只要交换链够大就一直复用，旧缩放可以无限存活。同时补上上游的 `SetDpiOverride`（RDP 客户端缩放同步）。另修复 msimeui 测试套件：两次重命名把它的 runner 写成了服务端的 `main.cpp`，留下仓库之外的路径，CMake 无法解析，整套测试自 `046e0ead8` 起没有生成过目标、也就没有报告过。
+3. 候选行改为逐项测量（#3039）。迁移来的 `CandidateList` 是定高行模型：超宽候选被裁剪而非换行，其后候选拿到被裁剪的矩形因而点击落点错误，长辅助码与译文无处安放，横排在 `Arrange` 收窄时无法回流，竖排在被最小宽度撑大的卡片里保持自然宽度，于是选中高亮与命中区域够不到行右缘。换成上游的测量几何，并带入其依赖的按外观字体与回退字体（`ApplyFontFallback`）以及 `Card` 的显式阴影 pass。补齐上游 7 个候选布局用例与 `test_font_fallback.cpp`。
+4. 方向键折叠选区而不是跨过它（#3040）。msimeui 的 TSF 文本编辑器无条件推进光标，`ABCDE` 中选中 `BCD` 按右方向键落到 `E` 之后，比 Windows 其他文本框多走一个字符。补 `test_text_selection.cpp`。
+5. 裸 Shift 中英切换在吞掉释放的宿主里恢复（#3045，来源 `08386814`）。裸 Shift 键盘钩子只在 `mintty.exe` 安装，而 Word 既不给 `OnTestKeyUp` 也不给 `OnKeyUp`，两条能排队切换的回调都不走，Shift 在 Word 里不切换中英文。改为对所有宿主安装：会送达释放的宿主不受影响，`_MarkBareShiftHandled()` 会闩住 key-event sink 已经切过的序号。成员随之改掉 mintty 专名，三条释放路径补 `[issue47]` 日志。
+6. 重写标点前先核对它跟在什么后面（#3048）。空格转换与两秒内的撤回都只校验焦点会话、前台窗口和「光标前就是那个标点」，而同一个标点在文档里通常不止一处，窗口内移动光标又不是焦点变化：输入 `你好，世界，` 后点回前一个 `，` 再按空格，改的是错的那个。arm 时记下标点前面的字符，重写前回读两个字符核对指纹；文本存储读不出内容（终端与代理存储）和 arm 时没有记录（标点开在文档首）都判为匹配，否则会在这些宿主里直接废掉该功能。指纹判定是纯函数并带单测。
+
+另核对两项不需要移植：来源 `f05507ad`（升级时配置解析失败被出厂模板覆盖、凭证清零）的根因在目标不存在——共享偏好用原子写入，解析失败返回错误而不是回落默认值后再写回；来源 `windows_ipc.h` 的 22/24/25 智能标点子开关 opcode 在目标由一帧打包的标点配置携带，是已记录的适配而非缺口。
+
 ## 下一批实施顺序
 
 增量记录（2026-09-20，HarmonyOS 第二批）：目标 `a09527a29`。来源对象为本地 `MSIME-Windows` 检出 `997fdfd9cb27ebbf3a8f998cdefae3274eb5deb9` 的 `README.md`「功能简介」「核心功能指南」，以及目标仓库内 `platforms/linux/src/core/ClientEngine.cpp` 与 `platforms/android/java/` 中已实现的同源行为；来源远端默认分支当前为 `1e4c331d5a7d62b1f219fcc0979a89dd5ead7309`，本批未读取该提交的新增内容，因此不把其后的任何变化计入。
