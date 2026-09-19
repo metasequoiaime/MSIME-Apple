@@ -22,6 +22,12 @@
 
 ## 当前证据
 
+### Android 中文九键数字键面（2026-09-19）
+
+依据 Apple `KeyboardViewController.applyNineKeyDigitLayer`，Android 全拼九键在“符号”层不再切换到 26 键符号页，而是像 Apple 一样保留自己的三列网格并改印数字。九个键显示自身数字（含只向 Engine 发送分词符的 1 键），无障碍描述改为“数字 N”，点击以本地输入来源直接提交数字而不进入拼音会话，长按弹出仅在拼音键面保留；标点列、删除、句点和 0 键在两层保持不变。两套九键都自带数字键面，快捷条的 Shift 因此在它们的数字键面一并隐藏。键面、描述和字面输入由无 Android 依赖的 `NineKeyLayout` 提供，宿主只负责 View 与触摸反馈。
+
+`NineKeyLayout` 回归扩展覆盖数字键面的键面、描述、字面输入和空参数边界；Android host Java/API、manifest/resource 检查和全部 JVM smoke 通过，`scripts/verify-local.sh --quick` 通过。未执行 Android 设备触控、旋转或系统输入法产品验收，CI 保持禁用。
+
 ### Android 语音结果配置重建保护（2026-09-19）
 
 Android 语音识别 Activity 在屏幕旋转或其他配置变更时会被重建；旧实例销毁不得清除仍属于同一请求的全局 request ID，否则共享 Tauri 面板的轮询会把仍在重建中的语音 job 误判为取消。现在配置变更保留 request 状态，正常完成、取消和失败销毁仍清理状态；仅由当前 Activity 实例执行清理，避免旧实例覆盖替代实例的登记。
