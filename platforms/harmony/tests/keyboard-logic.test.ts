@@ -66,6 +66,7 @@ import { TranslationPolicy, TranslationQuery, TranslationEntry } from
 import { HardwareKeyRouter, HardwareKeyAction, HardwareKey } from
   '../entry/src/main/ets/keyboard/HardwareKeyRouter';
 import { CandidateSkinPolicy } from '../entry/src/main/ets/keyboard/candidate/CandidateSkinPolicy';
+import { CandidateWidthPolicy } from '../entry/src/main/ets/keyboard/candidate/CandidateWidthPolicy';
 import { CandidatePresentationPolicy } from '../entry/src/main/ets/keyboard/candidate/CandidatePresentationPolicy';
 import { CandidateWheelPolicy } from '../entry/src/main/ets/keyboard/candidate/CandidateWheelPolicy';
 import { CandidateAnchorPolicy, CandidateAnchor }
@@ -673,6 +674,29 @@ group('maps shared candidate skins to native Harmony palettes', () => {
   check(CandidateSkinPolicy.showSelectedBar('fluent'), 'Fluent shows its selected bar');
   check(!CandidateSkinPolicy.showSelectedBar('wechat'), 'WeChat skin omits its selected bar');
   check(!CandidateSkinPolicy.showSelectedBar('graphite'), 'Graphite skin omits its selected bar');
+});
+
+group('sizes desktop candidate windows from bounded display estimates', () => {
+  const short = CandidateWidthPolicy.widthVp([], 'ni', 18, 15);
+  const wide = CandidateWidthPolicy.widthVp([
+    { text: '这是一个足够长的候选词条用于展示', badge: '', hint: '', annotation: '' }
+  ], '', 18, 15);
+  const annotated = CandidateWidthPolicy.widthVp([
+    { text: '候选', badge: '云', hint: 'houxuan', annotation: 'candidate'.repeat(10) }
+  ], '', 18, 15);
+  const plain = CandidateWidthPolicy.widthVp([
+    { text: '候选', badge: '', hint: '', annotation: '' }
+  ], '', 18, 15);
+  check(short === CandidateWidthPolicy.MIN_WIDTH_VP, 'short candidates use the compact minimum');
+  check(wide > short, 'wide CJK candidates receive more card width');
+  check(annotated > plain, 'badges and annotations contribute to width');
+  check(CandidateWidthPolicy.widthVp([
+    { text: 'x'.repeat(200), badge: '', hint: '', annotation: '' }
+  ], '', 18, 15) === CandidateWidthPolicy.MAX_WIDTH_VP,
+  'provider text cannot grow the panel beyond the desktop bound');
+  check(CandidateWidthPolicy.textWidthVp('😀', 18) === 18, 'emoji surrogate pairs count as one wide glyph');
+  assertThrows(() => CandidateWidthPolicy.textWidthVp('x', 0), /font size/,
+    'rejects invalid font sizes');
 });
 
 group('preserves the candidate skin selected-bar default while honoring an explicit disable', () => {

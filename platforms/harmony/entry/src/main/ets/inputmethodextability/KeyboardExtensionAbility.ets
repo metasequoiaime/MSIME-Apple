@@ -65,6 +65,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
   private screenWidth: number = 0;
   private screenHeight: number = 0;
   private candidateCount: number = 0;
+  private candidateWidthVp: number = KeyboardMetrics.CANDIDATE_WINDOW_WIDTH_VP;
 
   /** The editor moved its caret; the candidate window goes with it if it is up. */
   private readonly caretMoved: (x: number, y: number, height: number) => void =
@@ -140,8 +141,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       ? KeyboardMetrics.totalHeightVp(settings.rowSpacingTenths, settings.heightAdjustment)
       : KeyboardMetrics.candidateHeightVp(settings.candidateLayout, this.candidateCount,
         settings.candidateShowPreedit);
-    const widthVp: number = tall
-      ? DESKTOP_SURFACE_WIDTH_VP : KeyboardMetrics.CANDIDATE_WINDOW_WIDTH_VP;
+    const widthVp: number = tall ? DESKTOP_SURFACE_WIDTH_VP : this.candidateWidthVp;
     await this.panel.resize(Math.round(widthVp * this.density),
       Math.round(heightVp * this.density));
   }
@@ -252,7 +252,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     if (this.panel === undefined) {
       return;
     }
-    const width: number = KeyboardMetrics.CANDIDATE_WINDOW_WIDTH_VP * this.density;
+    const width: number = this.candidateWidthVp * this.density;
     const settings: KeyboardPreferences = KeyboardSession.shared.preferences();
     const height: number = KeyboardMetrics.candidateHeightVp(settings.candidateLayout,
       this.candidateCount, settings.candidateShowPreedit) * this.density;
@@ -530,6 +530,9 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         panel.hide();
       };
       if (desktop) {
+        KeyboardSession.shared.onCandidateWidth = (widthVp: number): void => {
+          this.candidateWidthVp = widthVp;
+        };
         KeyboardSession.shared.onCandidateCount = (count: number): void => {
           this.candidateCount = count;
           if (KeyboardSession.shared.composing()
@@ -556,6 +559,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
             panel.show();
           } else {
             this.candidateAnchor = undefined;
+            this.candidateWidthVp = KeyboardMetrics.CANDIDATE_WINDOW_WIDTH_VP;
             panel.hide();
           }
         };

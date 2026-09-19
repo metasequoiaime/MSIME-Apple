@@ -22,6 +22,7 @@ import { FloatingToolbarLayout, ToolbarButton, ToolbarComponents, ToolbarState }
 import { DesktopSurface } from './DesktopSurface';
 import { CandidateGlossPolicy } from './candidate/CandidateGlossPolicy';
 import { CandidatePresentationPolicy } from './candidate/CandidatePresentationPolicy';
+import { CandidateWidthPolicy } from './candidate/CandidateWidthPolicy';
 import { OnlineCandidatePolicy, OnlineQuery } from './candidate/OnlineCandidatePolicy';
 import {
   TranslationPolicy, TranslationQuery, TranslationPlanItem, TranslationEntry,
@@ -532,6 +533,8 @@ export class KeyboardSession {
   onChanged: ((state: KeyboardState) => void) | undefined = undefined;
   /** Lets a desktop panel resize when a vertical candidate page changes height. */
   onCandidateCount: ((count: number) => void) | undefined = undefined;
+  /** Lets a desktop panel follow the widest current candidate without measuring ArkUI nodes. */
+  onCandidateWidth: ((widthVp: number) => void) | undefined = undefined;
   /**
    * Whether a composition is open, for the host that owns the panel.
    *
@@ -1347,6 +1350,10 @@ export class KeyboardSession {
         english: view.dedicated_english,
         diagnostic: this.diagnostic
       });
+    }
+    if (this.onCandidateWidth !== undefined) {
+      this.onCandidateWidth(CandidateWidthPolicy.widthVp(entries, view.editing_text,
+        this.preferences().candidateFontSize, this.preferences().candidatePreeditFontSize));
     }
     if (this.onCandidateCount !== undefined) {
       this.onCandidateCount(entries.length);

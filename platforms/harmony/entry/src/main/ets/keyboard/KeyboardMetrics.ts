@@ -50,9 +50,8 @@ export class KeyboardMetrics {
   /**
    * How wide a candidate window is, where the panel is not the width of the screen.
    *
-   * Wide enough for a spelling and the candidates it produces, narrow enough to sit beside the
-   * caret without covering what is being written. Fixed rather than measured: a window that resized
-   * itself on every keystroke would jitter under the cursor it is trying to stay next to.
+   * Fallback width before the first Engine view arrives. The host replaces it with the bounded
+   * CandidateWidthPolicy estimate once candidates are available.
    */
   static readonly CANDIDATE_WINDOW_WIDTH_VP: number = 420;
   /** Clear of the caret's own line, so the window sits under the text rather than on it. */
