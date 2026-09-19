@@ -37,7 +37,14 @@ git -C "$vcpkg_root" diff --quiet HEAD -- || { echo "vcpkg has tracked changes" 
 # Separate manifest install roots: vcpkg removes other target triplets when a
 # manifest is reinstalled in the same root. Do not run this script concurrently
 # against the same vcpkg checkout (it holds a filesystem lock).
-deps_root="$repo_root/target/windows-native-deps/$arch"
+#
+# MSIME_WINDOWS_DEPS_ROOT shares the built dependencies across checkouts. This
+# repository is worked in one short-lived worktree per task, and each would
+# otherwise rebuild curl and boost from source before it could compile a line
+# of this project - minutes of work per worktree, for an identical answer every
+# time. The manifest is the same file in every worktree, so one tree per
+# architecture serves all of them; the per-arch split above is unchanged.
+deps_root="${MSIME_WINDOWS_DEPS_ROOT:-$repo_root/target/windows-native-deps}/$arch"
 prefix="$deps_root/$arch-mingw-static"
 VCPKG_DISABLE_METRICS=1 "$vcpkg_root/vcpkg" install \
   --triplet "$arch-mingw-static" --host-triplet "$host_triplet" \
