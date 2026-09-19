@@ -452,6 +452,56 @@ export interface DictionaryClient {
   retry?(request_id: string): Promise<void>;
   dismissFailure?(request_id: string): Promise<void>;
 }
+const personalDictionaryExportKinds: [LocalDictionaryKind, string][] = [
+  ["pinyin", "拼音"],
+  ["wubi", "五笔"],
+  ["quick_phrase", "快捷短语"],
+  ["english", "英文"],
+];
+
+/** The encoding rules shown beside the Apple personal-dictionary editor. */
+export function dictionaryKindKeyHint(kind: LocalDictionaryKind): string {
+  switch (kind) {
+    case "wubi": return "1–4 个字母";
+    case "quick_phrase": return "1–32 个字母或数字";
+    case "english": return "1–64 个字母";
+    case "pinyin": return "完整音节，用 ' 分隔，如 ni'hao";
+  }
+}
+
+/** The single-file name and layout used by the macOS personal dictionary. */
+export function personalDictionaryExportName(): string {
+  return "水杉用户词库.txt";
+}
+
+export function personalDictionaryExportPayload(entries: DictionaryEntry[]): { body: string; rows: number } {
+  const rows = personalDictionaryExportKinds.flatMap(([kind, label]) => entries
+    .filter(entry => entry.kind === kind)
+    .map(entry => `${label}\t${entry.key}\t${entry.value}\t${entry.weight}`));
+  return {
+    body: `# 类别\t编码\t词条\t权重\n${rows.length ? `${rows.join("\n")}\n` : ""}`,
+    rows: rows.length,
+  };
+}
+
+/** Read every dictionary kind in bounded pages, preserving host ordering. */
+export async function loadAllPersonalDictionaryEntries(dictionary: Pick<DictionaryClient, "list">): Promise<DictionaryEntry[]> {
+  const entries: DictionaryEntry[] = [];
+  for (const [kind] of personalDictionaryExportKinds) {
+    let offset = 0;
+    let hasMore = true;
+    while (hasMore && offset <= 1_000_000) {
+      const page = await dictionary.list(offset, DICTIONARY_PAGE_SIZE, kind, "");
+      const pageEntries = page.entries.filter(entry => entry.kind === kind);
+      entries.push(...pageEntries);
+      if (!page.entries.length) break;
+      offset += page.entries.length;
+      hasMore = page.has_more;
+    }
+    if (hasMore) throw new Error("dictionary_export_limit");
+  }
+  return entries;
+}
 export type LocalModePreferences = { unicode: boolean; date_time: boolean; quick_phrase: boolean; emoji: boolean; kaomoji: boolean; super_jianpin: boolean; temporary_english: boolean; temporary_japanese: boolean };
 const defaultLocalModes: LocalModePreferences = { unicode: true, date_time: true, quick_phrase: true, emoji: true, kaomoji: true, super_jianpin: true, temporary_english: true, temporary_japanese: true };
 const localModeRows = [
@@ -1380,6 +1430,18 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
     } catch (error) { setPhraseError(dictionaryErrorMessage(error, "词库导出失败，请稍后重试。")); }
     finally { setPhraseBusy(false); }
   }
+  async function exportAllPhrases() {
+    if (!client.dictionary) return;
+    setPhraseBusy(true); setPhraseError(""); setPhraseNotice("正在读取全部用户词库…");
+    try {
+      const payload = personalDictionaryExportPayload(await loadAllPersonalDictionaryEntries(client.dictionary));
+      if (!payload.rows) { setPhraseNotice("当前没有可导出的用户词条。"); return; }
+      const url = URL.createObjectURL(new Blob([payload.body], { type: "text/plain;charset=utf-8" }));
+      const anchor = document.createElement("a"); anchor.href = url; anchor.download = personalDictionaryExportName(); anchor.click(); URL.revokeObjectURL(url);
+      setPhraseNotice(`已导出全部 ${payload.rows} 条用户词条。`);
+    } catch (error) { setPhraseError(dictionaryErrorMessage(error, "全部词库导出失败，请稍后重试。")); }
+    finally { setPhraseBusy(false); }
+  }
 
   const dirty = !!draft && !!snapshot && JSON.stringify(draft) !== JSON.stringify(snapshot.preferences);
   const ai = draft?.ai_assistant ?? defaultAiAssistant;
@@ -1832,14 +1894,14 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
       <fieldset disabled={busy} hidden={page !== "dictionary"} aria-label="词库">
         {client.dictionary?.importPersonal && <PersonalDictionaryImportCard dictionary={client.dictionary} />}
         {client.dictionary && <div className="section quick-phrase-manager" role="region" aria-label="快捷短语管理">
-          <div className="section-header"><span className="section-title">本地词库管理<small>查询、新增、编辑、导入、导出和删除 Engine 用户词库。导入支持标准、Windows TSV、Rime 和纯汉字自动注音。</small></span><span><button type="button" className="secondary" disabled={phraseBusy} onClick={() => void loadPhrases(dictionaryKind, 0)}>查询</button> <button type="button" className="secondary" disabled={phraseBusy} onClick={() => setPhraseForm({ key: "", value: "", weight: 100000, previous: null })}>新增词条</button> <button type="button" className="secondary" disabled={phraseBusy || dictionaryFormat === "hans"} onClick={() => void exportPhrases()}>导出</button><label className="secondary">导入<input hidden type="file" accept=".txt,.tsv,.yaml,.yml,text/plain" disabled={phraseBusy} onChange={event => { const file = event.target.files?.[0]; if (file) { const name = file.name.toLowerCase(); if (name.endsWith(".yaml") || name.endsWith(".yml")) setDictionaryFormat("rime"); void importPhrases(file); } event.currentTarget.value = ""; }} /></label></span></div>
+          <div className="section-header"><span className="section-title">本地词库管理<small>查询、新增、编辑、导入、导出和删除 Engine 用户词库。导入支持标准、Windows TSV、Rime 和纯汉字自动注音。</small></span><span><button type="button" className="secondary" disabled={phraseBusy} onClick={() => void loadPhrases(dictionaryKind, 0)}>查询</button> <button type="button" className="secondary" disabled={phraseBusy} onClick={() => setPhraseForm({ key: "", value: "", weight: 100000, previous: null })}>新增词条</button> <button type="button" className="secondary" disabled={phraseBusy || dictionaryFormat === "hans"} onClick={() => void exportPhrases()}>导出当前类型</button> <button type="button" className="secondary" disabled={phraseBusy} onClick={() => void exportAllPhrases()}>导出全部</button><label className="secondary">导入<input hidden type="file" accept=".txt,.tsv,.yaml,.yml,text/plain" disabled={phraseBusy} onChange={event => { const file = event.target.files?.[0]; if (file) { const name = file.name.toLowerCase(); if (name.endsWith(".yaml") || name.endsWith(".yml")) setDictionaryFormat("rime"); void importPhrases(file); } event.currentTarget.value = ""; }} /></label></span></div>
           {dictionaryPendingCount > 0 && <p className="input-setting-description" role="status">{dictionaryPendingCount} 项等待键盘同步。打开水杉键盘后会在空闲时逐条生效。</p>}
           {dictionarySnapshotError && <p role="alert" className="error">{dictionarySnapshotError}</p>}
           {dictionaryFailures.length > 0 && <div className="dictionary-failures" role="alert"><p>有 {dictionaryFailures.length} 项词库请求同步失败，可以重试或移除失败记录。</p><ul>{dictionaryFailures.map(failure => <li key={failure.request_id}><span><strong>{failure.label}</strong><small>{failure.error}</small></span><span><button type="button" className="secondary" disabled={phraseBusy || !client.dictionary?.retry} onClick={() => void retryDictionaryFailure(failure.request_id)}>重试</button> <button type="button" className="secondary" disabled={phraseBusy || !client.dictionary?.dismissFailure} onClick={() => void dismissDictionaryFailure(failure.request_id)}>移除记录</button></span></li>)}</ul></div>}
           <div className="dictionary-manager-controls"><label>词库 <select aria-label="本地词库类型" value={dictionaryKind} disabled={phraseBusy} onChange={event => { const kind = event.target.value as LocalDictionaryKind; setDictionaryKind(kind); if (kind !== "pinyin" && dictionaryFormat === "hans") setDictionaryFormat("standard"); setPhrases([]); void loadPhrases(kind); }}>{localDictionaryKinds.map(([kind, label]) => <option key={kind} value={kind}>{label}</option>)}</select></label><label>文件格式 <select aria-label="本地词库文件格式" value={dictionaryFormat} disabled={phraseBusy} onChange={event => setDictionaryFormat(event.target.value as LocalDictionaryFormat)}><option value="standard">标准 TSV</option><option value="windows">Windows TSV</option><option value="rime">Rime userdb / dict.yaml</option>{dictionaryKind === "pinyin" && <option value="hans">汉字自动注音（仅导入）</option>}</select></label><label>编码前缀 <input value={phraseSearch} placeholder="留空查看全部" onChange={event => setPhraseSearch(event.target.value)} /></label></div>
           {phraseError && <p role="alert" className="error">{phraseError}</p>}
           {phraseNotice && <p role="status" className="dict-notice">{phraseNotice}</p>}
-          {phraseForm && <div className="quick-phrase-form"><label>编码 <input value={phraseForm.key} onChange={event => setPhraseForm({ ...phraseForm, key: event.target.value })} /></label><label>{dictionaryKind === "quick_phrase" ? "短语" : "词条"} <input value={phraseForm.value} onChange={event => setPhraseForm({ ...phraseForm, value: event.target.value })} /></label><label>权重 <input type="number" value={phraseForm.weight} onChange={event => setPhraseForm({ ...phraseForm, weight: Number(event.target.value) })} /></label><button type="button" disabled={phraseBusy} onClick={() => void savePhrase()}>保存</button><button type="button" className="secondary" disabled={phraseBusy} onClick={() => setPhraseForm(null)}>取消</button></div>}
+          {phraseForm && <div className="quick-phrase-form"><label>编码 <input value={phraseForm.key} onChange={event => setPhraseForm({ ...phraseForm, key: event.target.value })} /><small className="dictionary-key-hint">{dictionaryKindKeyHint(dictionaryKind)}</small></label><label>{dictionaryKind === "quick_phrase" ? "短语" : "词条"} <input value={phraseForm.value} onChange={event => setPhraseForm({ ...phraseForm, value: event.target.value })} /></label><label>权重 <input type="number" value={phraseForm.weight} onChange={event => setPhraseForm({ ...phraseForm, weight: Number(event.target.value) })} /></label><button type="button" disabled={phraseBusy} onClick={() => void savePhrase()}>保存</button><button type="button" className="secondary" disabled={phraseBusy} onClick={() => setPhraseForm(null)}>取消</button></div>}
           {phrases.length === 0 ? <p className="dict-empty">点击查询后查看{localDictionaryKinds.find(([kind]) => kind === dictionaryKind)?.[1] ?? "词库"}词条</p> : <ul className="quick-phrase-list">{phrases.filter(entry => entry.key.startsWith(phraseSearch)).map((entry, index) => <li key={`${entry.key}-${entry.value}-${index}`}><span><code>{entry.key}</code>　{entry.value}　<small>{entry.weight}</small></span><span><button type="button" className="secondary" disabled={phraseBusy} onClick={() => setPhraseForm({ key: entry.key, value: entry.value, weight: entry.weight, previous: entry })}>编辑</button> <button type="button" className="secondary" disabled={phraseBusy} onClick={() => void removePhrase(entry)}>删除</button></span></li>)}</ul>}
           <div className="dictionary-pagination">
             <button type="button" className="secondary" disabled={phraseBusy || phrasePage.offset === 0} onClick={() => void loadPhrases(dictionaryKind, Math.max(0, phrasePage.offset - DICTIONARY_PAGE_SIZE))}>上一页</button>
