@@ -267,6 +267,7 @@ public:
     translation_pending_.clear();
     translation_socket_.clear();
     clipboard_path_.clear();
+    ++clipboard_generation_;
     clipboard_items_.clear();
     clipboard_loading_ = false;
     clipboard_job_ = {};
@@ -601,6 +602,7 @@ public:
     const bool enabled = !preferences_.value("clipboard_history", false);
     if (!toggleTopLevelBoolean("clipboard_history", false)) return false;
     if (!enabled) {
+      ++clipboard_generation_;
       clipboard_items_.clear();
       clipboard_loading_ = false;
     }
@@ -1087,8 +1089,14 @@ public:
       }
     }
     resources_ = options.value("resources", std::string());
-    clipboard_path_ = options.value("preferences_directory", std::string());
-    if (clipboard_path_.empty()) clipboard_path_ = options.value("clipboard_history_path", std::string());
+    auto clipboard_path = options.value("preferences_directory", std::string());
+    if (clipboard_path.empty()) clipboard_path = options.value("clipboard_history_path", std::string());
+    if (clipboard_path != clipboard_path_) {
+      ++clipboard_generation_;
+      clipboard_items_.clear();
+      clipboard_loading_ = false;
+    }
+    clipboard_path_ = std::move(clipboard_path);
     cloud_clipboard_socket_ = options.value("cloud_clipboard_provider_socket", std::string());
     if (cloud_clipboard_socket_.empty()) {
       if (const auto *socket = std::getenv("MSIME_CLOUD_CLIPBOARD_PROVIDER_SOCKET"))
@@ -1400,16 +1408,22 @@ public:
         auto result = clipboard_job_.get();
         clipboard_job_ = {};
         clipboard_loading_ = false;
-        if (session_ && ic_.hasFocus() && !restricted() && !privateInput() && result.is_object())
+        if (session_ && ic_.hasFocus() && !restricted() && !privateInput() && result.is_object() &&
+            result.value("_path", std::string{}) == clipboard_path_ &&
+            result.value("_generation", uint64_t{}) == clipboard_generation_)
           clipboard_items_ = result.value("entries", Json::array());
       }
       if (clipboard_loading_ || clipboard_path_.empty() || restricted() || privateInput() || !ic_.hasFocus()) return;
       clipboard_loading_ = true;
       const auto path = clipboard_path_;
-      clipboard_job_ = std::async(std::launch::async, [path] {
+      const auto generation = clipboard_generation_;
+      clipboard_job_ = std::async(std::launch::async, [path, generation] {
         auto raw = response(msime_client_load_clipboard_history(
             reinterpret_cast<const uint8_t *>(path.data()), path.size()));
-        return raw.is_object() ? raw : Json::object();
+        if (!raw.is_object()) return Json::object();
+        raw["_path"] = path;
+        raw["_generation"] = generation;
+        return raw;
       }).share();
     } catch (...) { clipboard_loading_ = false; clipboard_items_.clear(); }
   }
@@ -1959,6 +1973,7 @@ public:
   std::shared_future<Json> translation_job_;
   std::string clipboard_path_;
   Json clipboard_items_ = Json::array();
+  uint64_t clipboard_generation_ = 0;
   bool clipboard_loading_ = false;
   std::shared_future<Json> clipboard_job_;
   std::shared_future<Json> clipboard_mutation_job_;
