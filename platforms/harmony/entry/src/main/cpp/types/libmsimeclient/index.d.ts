@@ -14,6 +14,10 @@ export const hostCapabilities: (platform: string) => string;
 
 export const loadPreferences: (directory: string) => string;
 export const skinCatalog: (directory: string) => string;
+/** JSON resource request; returns a structured response containing contentType and byte values. */
+export const skinResource: (request: string) => string;
+/** JSON stylesheet request; returns a nullable stylesheet in the structured response. */
+export const skinToolbarStylesheet: (request: string) => string;
 export const savePreferences: (directory: string, expectedRevision: number, snapshot: string) => string;
 export const dictionary: (request: string) => string;
 export const updatePreferences: (handle: number, snapshot: string) => string;

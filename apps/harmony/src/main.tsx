@@ -3,7 +3,7 @@ import { type ReactNode, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { SettingsPage, type DictionaryClient, type DictionaryEntry, type DictionaryImportResult,
   type HostCapabilities, type LocalDictionaryFormat, type LocalDictionaryKind, type Preferences,
-  type SkinCatalog,
+  type SkinCatalog, type SkinFont, type SkinImage,
   CloudClipboardPanel, CloudDictionaryPanel, CloudDictionaryCatalogPanel, CloudDictionaryFilesPanel, CloudDictionaryApplyPanel,
   CloudCandidatesPanel, type AccountClient, type CloudClipboardPanelClient,
   type CloudDictionaryAction, type CloudDictionaryPanelClient, type SettingsClient, type Snapshot, type TypingStatisticsClient, type TypingStatisticsStatus } from "@msime/ui";
@@ -29,6 +29,9 @@ interface NativeBridge {
   /** The capability record for this host, as client-core writes it. */
   hostCapabilities(): string;
   scanSkinCatalog(): string;
+  readSkinImage(id: string, relative: string): string;
+  readSkinFont(id: string, relative: string): string;
+  readSkinToolbarCss(id: string): string;
   appVersion(): string;
   dictionary(action: string): string;
   account(action: string): Promise<string>;
@@ -194,6 +197,12 @@ function makeClient(native: NativeBridge, openCloudClipboard: () => void, openCl
     },
     readAppVersion: async () => native.appVersion(),
     scanSkinCatalog: async () => unwrap<SkinCatalog>(native.scanSkinCatalog()),
+    readSkinImage: async (id: string, relative: string) =>
+      unwrap<SkinImage>(native.readSkinImage(id, relative)),
+    readSkinFont: async (id: string, relative: string) =>
+      unwrap<SkinFont>(native.readSkinFont(id, relative)),
+    readSkinToolbarCss: async (id: string) =>
+      unwrap<string | null>(native.readSkinToolbarCss(id)),
     openExternalUrl: async (url: string) => native.openExternalUrl(url),
     copyText: async (text: string) => native.copyText(text),
     openSystemKeyboardSettings: async () => native.openSystemKeyboardSettings(),

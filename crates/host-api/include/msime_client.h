@@ -137,6 +137,13 @@ char *msime_client_typing_statistics(const uint8_t *request, size_t length);
  * package supports the layout and theme before adopting its colors.
  * Keys are camelCase, the same document the settings page consumes. */
 char *msime_client_skin_catalog(const uint8_t *directory, size_t length);
+/* JSON {directory:absolute path,id:skin id,relative:package asset,kind:"image"|"font"}.
+ * Returns {contentType,bytes}; the manifest and package containment are
+ * revalidated for every call and the requested kind must match the asset. */
+char *msime_client_skin_resource(const uint8_t *request, size_t length);
+/* JSON {directory:absolute path,id:skin id}; returns a nullable stylesheet
+ * string from the manifest, after revalidating the package and path. */
+char *msime_client_skin_toolbar_stylesheet(const uint8_t *request, size_t length);
 /* Read saved history only; disabled preferences return an empty entries array. */
 char *msime_client_load_clipboard_history(const uint8_t *directory, size_t length);
 /* JSON {directory,text}; removes exact saved entry, not the system clipboard. */

@@ -1003,6 +1003,106 @@ pub unsafe extern "C" fn msime_client_skin_catalog(
     })
 }
 
+#[derive(Debug, Deserialize)]
+struct SkinResourceRequest {
+    directory: String,
+    id: String,
+    relative: String,
+    kind: String,
+}
+
+#[derive(Debug, Deserialize)]
+struct SkinStylesheetRequest {
+    directory: String,
+    id: String,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+struct SkinResourceResponse {
+    content_type: &'static str,
+    bytes: Vec<u8>,
+}
+
+/// Read one validated image or font from an external skin package.
+///
+/// The request keeps the root directory explicit because Harmony's settings
+/// bridge and the input-method ability share the same C ABI but have different
+/// lifetimes. The package manifest is revalidated by `read_resource` on every
+/// call, so a stale catalog cannot turn this endpoint into an arbitrary file
+/// reader. `kind` is deliberately checked here as well: a WebView image reader
+/// must never receive CSS or a font by mistake.
+/// # Safety
+/// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_skin_resource(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if request.is_null() || length == 0 || length > 65_536 {
+            return Err("invalid skin resource request".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let request: SkinResourceRequest =
+            serde_json::from_slice(bytes).map_err(|_| "invalid skin resource request")?;
+        if request.kind != "image" && request.kind != "font" {
+            return Err("unsupported skin resource kind".into());
+        }
+        if !Path::new(&request.directory).is_absolute() {
+            return Err("skin directory must be absolute".into());
+        }
+        let resource = msime_client_core::skin_catalog::read_resource(
+            &request.directory,
+            &request.id,
+            &request.relative,
+        )
+        .map_err(|_| "skin resource unavailable")?;
+        let expected = if request.kind == "image" {
+            "image/"
+        } else {
+            "font/"
+        };
+        if !resource.content_type.starts_with(expected) {
+            return Err("skin resource type mismatch".into());
+        }
+        serde_json::to_value(SkinResourceResponse {
+            content_type: resource.content_type,
+            bytes: resource.bytes,
+        })
+        .map_err(|_| "skin resource response failed".into())
+    })
+}
+
+/// Read the stylesheet declared by an external skin package.
+/// # Safety
+/// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_skin_toolbar_stylesheet(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if request.is_null() || length == 0 || length > 65_536 {
+            return Err("invalid skin stylesheet request".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let request: SkinStylesheetRequest =
+            serde_json::from_slice(bytes).map_err(|_| "invalid skin stylesheet request")?;
+        if !Path::new(&request.directory).is_absolute() {
+            return Err("skin directory must be absolute".into());
+        }
+        let stylesheet = msime_client_core::skin_catalog::read_toolbar_stylesheet(
+            &request.directory,
+            &request.id,
+        )
+        .map_err(|_| "skin stylesheet unavailable")?;
+        serde_json::to_value(stylesheet).map_err(|_| "skin stylesheet response failed".into())
+    })
+}
+
 /// Read saved clipboard history without observing or modifying the system clipboard.
 /// # Safety
 /// `directory` points to `length` readable UTF-8 bytes. Null is rejected.
@@ -4674,6 +4774,80 @@ mod tests {
             read(unsafe { msime_client_skin_catalog(std::ptr::null(), 0) })["ok"],
             false
         );
+    }
+
+    #[test]
+    #[cfg(not(target_os = "android"))]
+    fn skin_resource_bridge_revalidates_kind_and_package_containment() {
+        let directory = tempfile::tempdir().unwrap();
+        let root = directory.path().join("skins");
+        let skin = root.join("sample");
+        std::fs::create_dir_all(skin.join("images")).unwrap();
+        std::fs::write(
+            skin.join("skin.toml"),
+            "schema_version = 1\nid = 'sample'\nname = 'Sample'\nversion = '1.0'\n\
+             base = 'fluent'\ntoolbar_stylesheet = 'toolbar.css'\npreview = 'images/preview.png'\n\
+             [supports]\nlayouts = ['vertical']\nthemes = ['dark']\n\
+             [candidate_window]\nmin_width_dip = 10\n\
+             [candidate_window.decoration]\ntop_inset_dip = 1\nwidth_dip = 10\n",
+        )
+        .unwrap();
+        std::fs::write(skin.join("images/preview.png"), [1_u8, 2, 3]).unwrap();
+        std::fs::write(skin.join("font.woff2"), [4_u8, 5, 6]).unwrap();
+        std::fs::write(skin.join("toolbar.css"), ".sample { color: red; }").unwrap();
+        let directory = root.to_str().unwrap().to_owned();
+        let call = |request: Value| {
+            let document = request.to_string();
+            read(unsafe { msime_client_skin_resource(document.as_ptr(), document.len()) })
+        };
+        let image = call(json!({
+            "directory": directory,
+            "id": "sample",
+            "relative": "images/preview.png",
+            "kind": "image"
+        }));
+        assert_eq!(image["ok"], true);
+        assert_eq!(image["value"]["contentType"], "image/png");
+        assert_eq!(image["value"]["bytes"], json!([1, 2, 3]));
+        let font = call(json!({
+            "directory": root.to_str().unwrap(),
+            "id": "sample",
+            "relative": "font.woff2",
+            "kind": "font"
+        }));
+        assert_eq!(font["ok"], true);
+        assert_eq!(font["value"]["contentType"], "font/woff2");
+        let mismatch = call(json!({
+            "directory": root.to_str().unwrap(),
+            "id": "sample",
+            "relative": "toolbar.css",
+            "kind": "image"
+        }));
+        assert_eq!(mismatch["ok"], false);
+        let escaped = call(json!({
+            "directory": root.to_str().unwrap(),
+            "id": "sample",
+            "relative": "../toolbar.css",
+            "kind": "image"
+        }));
+        assert_eq!(escaped["ok"], false);
+        let stylesheet_request = json!({
+            "directory": root.to_str().unwrap(),
+            "id": "sample"
+        });
+        let stylesheet_document = stylesheet_request.to_string();
+        let stylesheet = read(unsafe {
+            msime_client_skin_toolbar_stylesheet(
+                stylesheet_document.as_ptr(),
+                stylesheet_document.len(),
+            )
+        });
+        assert_eq!(
+            stylesheet,
+            json!({"ok": true, "value": ".sample { color: red; }"})
+        );
+        let invalid = read(unsafe { msime_client_skin_resource(std::ptr::null(), 0) });
+        assert_eq!(invalid["ok"], false);
     }
     #[test]
     #[cfg(not(target_os = "android"))]

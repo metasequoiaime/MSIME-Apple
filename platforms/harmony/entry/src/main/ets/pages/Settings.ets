@@ -295,7 +295,7 @@ struct Settings {
           object: this.bridge,
           name: BRIDGE_NAME,
           methodList: ['loadPreferences', 'savePreferences', 'hostCapabilities', 'appVersion',
-            'scanSkinCatalog',
+            'scanSkinCatalog', 'readSkinImage', 'readSkinFont', 'readSkinToolbarCss',
             'dictionary', 'account', 'cloudDictionary', 'cloudDictionaryDownload', 'cloudDictionarySnapshot',
             'typingStatistics', 'aiModels', 'aiTest', 'testApiCredential', 'openExternalUrl', 'copyText',
             'openSystemKeyboardSettings'],
@@ -363,6 +363,27 @@ class SettingsBridge {
     } catch {
       return raw;
     }
+  }
+
+  /** Read only an image declared by a validated external skin manifest. */
+  readSkinImage(id: string, relative: string): string {
+    return client.skinResource(JSON.stringify({
+      directory: `${this.stateDirectory}/skins`, id: id, relative: relative, kind: 'image'
+    }));
+  }
+
+  /** Read only a font declared by a validated external skin manifest. */
+  readSkinFont(id: string, relative: string): string {
+    return client.skinResource(JSON.stringify({
+      directory: `${this.stateDirectory}/skins`, id: id, relative: relative, kind: 'font'
+    }));
+  }
+
+  /** Read the package-declared toolbar stylesheet without exposing a filesystem path. */
+  readSkinToolbarCss(id: string): string {
+    return client.skinToolbarStylesheet(JSON.stringify({
+      directory: `${this.stateDirectory}/skins`, id: id
+    }));
   }
 
   /**
