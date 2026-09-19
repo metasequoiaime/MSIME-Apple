@@ -1,5 +1,11 @@
 import { VoiceDevicePicker, type VoiceDeviceReader } from "./voice/voice-device-picker";
-import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
+import {
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  type PointerEvent as ReactPointerEvent,
+} from "react";
 import { HostActionButton } from "./keyboard/HostActionButton";
 import {
   DICTIONARY_PAGE_SIZE,
@@ -207,6 +213,18 @@ export {
   type VoicePanelClient,
 } from "./keyboard/panels";
 export type { EmojiCatalogGroup } from "./emoji/emoji-catalog";
+import {
+  customTranslationsExample,
+  customTranslationsWithinBounds,
+  parseCustomTranslations,
+} from "./dictionary/custom-translations";
+export {
+  customTranslationsExample,
+  customTranslationsWithinBounds,
+  parseCustomTranslations,
+  type CustomTranslationEntry,
+  type CustomTranslationReport,
+} from "./dictionary/custom-translations";
 export type { VoiceCaptureDevice, VoiceDeviceReader } from "./voice/voice-device-picker";
 
 export type HelpcodeSchema = "lantian" | "ziranma" | "shouyou2_0" | "shouyouplus" | "xiaohe";
@@ -1285,6 +1303,11 @@ export interface SettingsClient {
   /** Android community commands expose dictionaries and reply templates. */
   communityResources?: CommunityResourceClient;
   listVoiceCaptureDevices?: VoiceDeviceReader;
+  /**
+   * The user's own candidate glosses. Windows delivers these as a file dropped in the profile
+   * directory; a host whose user data lives in an app sandbox has to offer a way in instead.
+   */
+  customTranslations?: { load(): Promise<string>; save(text: string): Promise<void> };
   listFontFamilies?: FontCatalogReader;
   resolveFontFamilies?: (names: string[]) => Promise<string[]>;
   scanSkinCatalog?: () => Promise<SkinCatalog>;
@@ -1765,6 +1788,17 @@ export function SettingsPage({
   const [feedbackReportCopied, setFeedbackReportCopied] = useState(false);
   const [mobileKeyboardFeedback, setMobileKeyboardFeedback] = useState<MobileKeyboardFeedback>();
   const [mobileKeyboardFeedbackBusy, setMobileKeyboardFeedbackBusy] = useState(false);
+  const [customTranslationsText, setCustomTranslationsText] = useState("");
+  const [customTranslationsNotice, setCustomTranslationsNotice] = useState("");
+  const [customTranslationsBusy, setCustomTranslationsBusy] = useState(false);
+  const customTranslationsReport = useMemo(
+    () => parseCustomTranslations(customTranslationsText),
+    [customTranslationsText],
+  );
+  const customTranslationsSummary = customTranslationsText.trim()
+    ? `${customTranslationsReport.entries.length} 条释义` +
+      (customTranslationsReport.skipped ? `，${customTranslationsReport.skipped} 行无法识别` : "")
+    : "还没有自定义释义。";
   const [macosShuangpinKeymap, setMacosShuangpinKeymap] = useState<boolean>();
   const [macosWubiAutoCommitUnique, setMacosWubiAutoCommitUnique] = useState<boolean>();
   const [savedMacosWubiAutoCommitUnique, setSavedMacosWubiAutoCommitUnique] = useState<boolean>();
@@ -1893,6 +1927,44 @@ export function SettingsPage({
       active = false;
     };
   }, [client]);
+
+  useEffect(() => {
+    const custom = client.customTranslations;
+    if (!custom) return;
+    let active = true;
+    void custom
+      .load()
+      .then((text) => {
+        if (active) setCustomTranslationsText(text);
+      })
+      .catch(() => {
+        // An unreadable overlay is not an error worth a dialog: the field stays empty and saving
+        // it would simply write a new one.
+      });
+    return () => {
+      active = false;
+    };
+  }, [client.customTranslations]);
+
+  async function saveCustomTranslations() {
+    const custom = client.customTranslations;
+    if (!custom || customTranslationsBusy) return;
+    if (!customTranslationsWithinBounds(customTranslationsText)) {
+      setCustomTranslationsNotice("自定义释义过大，请精简后再保存。");
+      return;
+    }
+    setCustomTranslationsBusy(true);
+    try {
+      await custom.save(customTranslationsText);
+      setCustomTranslationsNotice(
+        `已保存 ${customTranslationsReport.entries.length} 条释义，重新启动输入法后生效。`,
+      );
+    } catch (error) {
+      setCustomTranslationsNotice(message(error));
+    } finally {
+      setCustomTranslationsBusy(false);
+    }
+  }
 
   useEffect(() => {
     if (!mobilePlatform || !client.mobileKeyboardFeedback) {
@@ -5677,6 +5749,39 @@ export function SettingsPage({
                             </>
                           )}
                         </div>
+                        {client.customTranslations && (
+                          <div className="section" role="group" aria-label="自定义候选释义设置">
+                            <div className="section-title">
+                              自定义候选释义
+                              <small>
+                                候选窗的中英互译来自内置词库；覆盖不全或译得不准时，可以自己加一层，不改内置词库。每行一条，用
+                                Tab 分隔源词和译文；以 #
+                                开头的行是注释。源词含汉字即为中译英，全是英文则为英译中。同一个源词写多次时以最后一次为准。保存后重新启动输入法生效。
+                              </small>
+                            </div>
+                            <textarea
+                              aria-label="自定义候选释义"
+                              rows={8}
+                              value={customTranslationsText}
+                              placeholder={customTranslationsExample}
+                              onChange={(event) => {
+                                setCustomTranslationsText(event.target.value);
+                                setCustomTranslationsNotice("");
+                              }}
+                            />
+                            <p role="status">
+                              {customTranslationsNotice || customTranslationsSummary}
+                            </p>
+                            <button
+                              type="button"
+                              className="secondary"
+                              disabled={customTranslationsBusy}
+                              onClick={() => void saveCustomTranslations()}
+                            >
+                              {customTranslationsBusy ? "保存中…" : "保存自定义释义"}
+                            </button>
+                          </div>
+                        )}
                         <div className="section" role="group" aria-label="自定义翻译服务">
                           <label className="section-header">
                             <span className="section-title">
