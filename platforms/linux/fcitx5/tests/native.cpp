@@ -458,6 +458,11 @@ int main(int argc, char **argv) {
     require(msime_linux_simplified_to_traditional("汉语") == "漢語", "traditional conversion available");
     engine.traditional_action_.activate(&ic);
     require(state->traditional_, "traditional status action enables conversion");
+    require(state->preferences_.value("traditional_chinese_output", false),
+            "traditional action updates the live preference snapshot");
+    require(state->preferences_snapshot_.value("preferences", Json::object())
+                .value("traditional_chinese_output", false),
+            "traditional action updates the revision snapshot");
     const auto traditionalSaveDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
     Json savedTraditional;
     while (std::chrono::steady_clock::now() < traditionalSaveDeadline) {
@@ -473,6 +478,8 @@ int main(int argc, char **argv) {
             "traditional status action persists preference");
     engine.traditional_action_.activate(&ic);
     require(!state->traditional_, "traditional status action disables conversion");
+    require(!state->preferences_.value("traditional_chinese_output", true),
+            "traditional action clears the live preference snapshot");
     engine.english_action_.activate(&ic);
     require(engine.english_action_.isChecked(&ic), "status action enables English candidates");
     engine.english_action_.activate(&ic);
