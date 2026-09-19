@@ -45,6 +45,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/candidate/ReplyKeyboardSmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/KeyboardSkinSmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/KeyboardFeedbackSmoke.java" \
+  "$repo_root/platforms/android/tests/keyboard/KeyboardFeedbackStoreSmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/KeyboardShortcutIconPolicySmoke.java" \
   "$repo_root/platforms/android/tests/voice/TypingSourceSmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/EmojiCatalogModelSmoke.java" \
@@ -94,6 +95,7 @@ java -cp "$output_dir" AiPolishClientSmoke
 java -cp "$output_dir" ReplyKeyboardSmoke
 java -cp "$output_dir" app.msime.client.KeyboardSkinSmoke
 java -cp "$output_dir" KeyboardFeedbackSmoke
+java -cp "$output_dir" app.msime.client.KeyboardFeedbackStoreSmoke
 java -cp "$output_dir" KeyboardShortcutIconPolicySmoke
 java -cp "$output_dir" TypingSourceSmoke
 java -cp "$output_dir" EmojiCatalogModelSmoke

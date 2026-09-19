@@ -209,12 +209,11 @@ class AccountPlugin(activity: Activity) : Plugin(activity) {
     @Command
     fun loadFeedback(invoke: Invoke) {
         try {
+            val settings = KeyboardFeedbackStore.load(hostActivity)
             val response = JSObject()
-            response.put("soundEnabled", feedback.getBoolean(KeyboardFeedbackPreferences.SOUND_KEY, true))
-            response.put("hapticsEnabled", feedback.getBoolean(KeyboardFeedbackPreferences.HAPTICS_KEY, false))
-            response.put("hapticStrength", KeyboardFeedbackPreferences.strength(
-                feedback.getString(KeyboardFeedbackPreferences.STRENGTH_KEY, "medium") ?: "medium"
-            ).id())
+            response.put("soundEnabled", settings.soundEnabled())
+            response.put("hapticsEnabled", settings.hapticsEnabled())
+            response.put("hapticStrength", settings.hapticStrength().id())
             invoke.resolve(response)
         } catch (_: Exception) {
             invoke.reject("feedback_storage", "feedback_storage")
@@ -229,11 +228,14 @@ class AccountPlugin(activity: Activity) : Plugin(activity) {
                 invoke.reject("invalid_feedback", "invalid_feedback")
                 return
             }
-            feedback.edit()
-                .putBoolean(KeyboardFeedbackPreferences.SOUND_KEY, args.soundEnabled)
-                .putBoolean(KeyboardFeedbackPreferences.HAPTICS_KEY, args.hapticsEnabled)
-                .putString(KeyboardFeedbackPreferences.STRENGTH_KEY, args.hapticStrength)
-                .apply()
+            KeyboardFeedbackStore.save(
+                hostActivity,
+                KeyboardFeedbackStore.Settings(
+                    args.soundEnabled,
+                    args.hapticsEnabled,
+                    KeyboardFeedbackPreferences.strength(args.hapticStrength),
+                ),
+            )
             invoke.resolve()
         } catch (_: Exception) {
             invoke.reject("feedback_storage", "feedback_storage")
