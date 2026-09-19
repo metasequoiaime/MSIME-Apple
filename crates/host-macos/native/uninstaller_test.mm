@@ -24,6 +24,15 @@ int main() {
                                                    "app.msime.test", false));
         assert(![[NSFileManager defaultManager] fileExistsAtPath:bundle.path]);
         assert([[NSFileManager defaultManager] fileExistsAtPath:data.path]);
+        NSURL *bundle2 = Directory(sandbox, @"Input2.app");
+        NSURL *data2 = Directory(sandbox, @"state2");
+        NSString *domain = @"app.msime.uninstaller-test";
+        [[NSUserDefaults standardUserDefaults] setPersistentDomain:@{@"fixture": @YES} forName:domain];
+        assert(msime_macos_uninstall_input_source(bundle2.path.fileSystemRepresentation, data2.path.fileSystemRepresentation,
+                                                   domain.UTF8String, true));
+        assert(![[NSFileManager defaultManager] fileExistsAtPath:bundle2.path]);
+        assert(![[NSFileManager defaultManager] fileExistsAtPath:data2.path]);
+        assert([[NSUserDefaults standardUserDefaults] persistentDomainForName:domain] == nil);
         [[NSFileManager defaultManager] removeItemAtURL:sandbox error:nil];
     }
     std::puts("macOS uninstaller boundary passed.");
