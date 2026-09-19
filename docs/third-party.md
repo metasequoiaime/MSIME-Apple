@@ -24,7 +24,7 @@
 
 ## 随包资源（`resources/desktop-dictionary.lock.json`）
 
-锁文件固定八个产物的 URL、长度和 SHA-256，从 `metasequoiaime/MSIME-Engine` 的 `dict-v1.0.0` 发布匿名下载。**锁文件本身不记录许可证字段**，目前的来源信息分散在别处：
+锁文件固定八个产物的 URL、长度和 SHA-256，全部可匿名下载。其中七个来自 `metasequoiaime/MSIME-Engine` 的 `dict-v1.0.0` 发布，`sentence-model.safetensors` 来自 `metasequoiaime/chinese-ime-lm` 的 `model-v1`——两者是不同的仓库和不同的发布，以锁文件里各自的 `url` 为准。**锁文件本身不记录许可证字段**，来源信息分散在别处：
 
 | 产物 | 大小 | 已知来源 |
 | --- | --- | --- |
@@ -35,7 +35,7 @@
 | `mozc_dictionary_oss_README.txt` | 5.8 KB | 上述词库的许可证全文。**分发时必须一同携带**，理由见下节 |
 | `dictionary-manifest.json` | 1.9 KB | 资源清单 |
 | `dict_pinyin.dat` | 1.1 MB | 拼音数据 |
-| `sentence-model.safetensors` | 4.5 MB | 整句重排模型；**仓库内未记载其训练来源与许可证** |
+| `sentence-model.safetensors` | 4.5 MB | 整句重排模型，权重为 Apache-2.0；训练语料与分发要求见[下下节](#整句重排模型的署名要求) |
 
 `Artifact` 结构体带 `#[serde(deny_unknown_fields)]`，所以在锁文件里直接加 `license` 字段会让解析失败；要记录许可证需要同时修改 `crates/client-core/src/resources.rs`。在那之前，新增或更换随包资源时请把来源与授权写进本文件。
 
@@ -51,6 +51,31 @@
 **实际后果：分发这份词库时必须一并携带 `mozc_dictionary_oss_README.txt`**，IPAdic 和 ICOT 两条都把"许可证文本随附"写成了硬性条件。锁文件把这个 5.8 KB 的文本和词库本身一起固定并校验，正是为此——它是许可证义务，不是文档习惯，重新打包资源时不要因为"只是个 README"而丢掉它。
 
 开源版不含日本邮政编码词典；README 给出了自行生成的步骤，本仓库没有执行。
+
+### 整句重排模型的署名要求
+
+`sentence-model.safetensors` 来自 [`metasequoiaime/chinese-ime-lm`](https://github.com/metasequoiaime/chinese-ime-lm) 的 `model-v1` 发布。它的许可信息不在任何外部文档里，而是嵌在权重文件自身的 safetensors `__metadata__` 头中——上游这样做正是为了让署名无法与权重分离。以下内容读自本仓库锁定的那一份（SHA-256 与 `desktop-dictionary.lock.json` 逐位一致）：
+
+| 字段 | 值 |
+| --- | --- |
+| `license` | `Apache-2.0` |
+| `attribution` | Trained on the Chinese portion of C4 (ODC-BY) and LCCC (MIT) |
+| `precision` | `int8` |
+| `version` | `1` |
+
+两份训练语料的许可都要求署名随衍生成果传播：[C4 中文部分](https://huggingface.co/datasets/allenai/c4)为 ODC-BY，[LCCC](https://github.com/thu-coai/CDial-GPT)为 MIT。**再分发权重时必须保留 `__metadata__` 中的 `attribution` 字段**；任何重新导出、量化或转换权重的流程，如果丢掉 safetensors 的元数据头，就切断了这条署名链。
+
+可以随时自行核对：
+
+```sh
+python3 -c '
+import json,struct,sys
+f=open(sys.argv[1],"rb"); n=struct.unpack("<Q",f.read(8))[0]
+print(json.loads(f.read(n))["__metadata__"]["attribution"])
+' <资源目录>/sentence-model.safetensors
+```
+
+上游仓库还说明，`corpus/fetch.py` 支持的中文维基百科、MDN、Kubernetes 文档等来源带有 share-alike 义务，**本仓库分发的这份权重不使用它们**。
 
 ## 各平台引入的第三方 SDK
 
