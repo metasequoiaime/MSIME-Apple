@@ -1254,15 +1254,14 @@ public:
         if (session_ && session_ == online_job_session_ && slot.epoch == online_epoch_ &&
             !privateInput() && ic_.hasFocus() && result.is_object() &&
             result.value("query", "") == slot.query) {
-          Json candidates[2] = {Json::array(), Json::array()};
+          Json candidates = Json::array();
           for (const auto &item : result.value("candidates", Json::array())) {
             if (!item.is_object() || item.value("text", std::string{}).empty()) continue;
-            const auto source = item.value("source", 255u);
-            if (source < 2) candidates[source].push_back(item.at("text"));
+            if (item.value("source", 255u) == source)
+              candidates.push_back(item.at("text"));
           }
-          for (uint8_t source = 0; source < 2; ++source) {
-            if (candidates[source].empty()) continue;
-            const auto encoded = candidates[source].dump();
+          if (!candidates.empty()) {
+            const auto encoded = candidates.dump();
             view_ = response(msime_client_apply_online_candidates(
                 session_, reinterpret_cast<const uint8_t *>(slot.query.data()), slot.query.size(),
                 reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size(), source)).at("view");
