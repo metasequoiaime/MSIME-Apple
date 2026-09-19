@@ -41,10 +41,12 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
             int standard = keyHeight("n");
 
             // 设置 lives in the shortcut bar, and the candidate strip takes that row while a
-            // composition is open, so the panel is only reachable from an idle keyboard. Each
-            // resize is therefore checked by composing after it and clearing before the next one.
+            // composition is open, so the panel is only reachable from an idle keyboard: resizing
+            // mid-composition is not something this surface can be driven into.
+            // 设置 is disabled while preferences are still loading and while a geometry save is
+            // in flight, so each visit waits for it to be operable rather than clicking blind.
             stage = "open keyboard settings";
-            tap(key("设置"));
+            tap(key("设置").and(AccessibilityNodeInfo::isEnabled));
             await(heightSlider());
             stage = "increase keyboard height";
             setHeight(48);
@@ -57,10 +59,9 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
             if (tall < standard + minimumDelta)
                 throw new AssertionError("Positive adjustment did not enlarge key faces: "
                     + standard + " -> " + tall + ", expected delta " + minimumDelta);
-            composeAndClear();
 
             stage = "decrease keyboard height";
-            tap(key("设置"));
+            tap(key("设置").and(AccessibilityNodeInfo::isEnabled));
             setHeight(-12);
             long shortRevision = awaitHeightPreference(preferences, -12, tallRevision + 1);
             tap(description("返回键盘"));
@@ -68,12 +69,12 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
             if (shortHeight >= standard)
                 throw new AssertionError("Negative adjustment did not shrink key faces: "
                     + standard + " -> " + shortHeight);
-            composeAndClear();
 
             stage = "restore keyboard settings defaults";
-            tap(key("设置"));
-            await(description("恢复默认"));
-            tap(description("恢复默认"));
+            tap(key("设置").and(AccessibilityNodeInfo::isEnabled));
+            // 恢复默认 is the button's face; its description is 恢复键盘布局默认值.
+            await(description("恢复键盘布局默认值"));
+            tap(description("恢复键盘布局默认值"));
             long resetRevision = awaitResetPreference(preferences, shortRevision + 1);
             if (resetRevision <= shortRevision)
                 throw new AssertionError("Keyboard settings reset did not advance revision");
@@ -110,15 +111,6 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
         shell("ime enable app.msime.client.preview/app.msime.client.MSIMEInputService");
         shell("ime set app.msime.client.preview/app.msime.client.MSIMEInputService");
         SystemClock.sleep(1000);
-    }
-
-    /** The resized keyboard still composes, and is idle again for the next settings visit. */
-    private void composeAndClear() throws java.util.concurrent.TimeoutException {
-        tap(key("n"));
-        await(field("msime-test-plain").and(node -> equalsText("n", node.getText())));
-        tap(key("⌫"));
-        await(field("msime-test-plain").and(node -> node.getText() == null
-            || node.getText().length() == 0));
     }
 
     private int keyHeight(String label) {

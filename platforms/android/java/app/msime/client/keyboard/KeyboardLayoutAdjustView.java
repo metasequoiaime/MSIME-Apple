@@ -29,6 +29,8 @@ public final class KeyboardLayoutAdjustView extends FrameLayout {
         void close();
     }
 
+    /** Long enough for a run of accessibility steps to settle, short enough to feel immediate. */
+    private static final long COMMIT_DELAY_MILLIS = 250;
     private static final int BAR_HEIGHT_DP = 52;
     private static final int SPACING_MARGIN_DP = 8;
     private final Listener listener;
@@ -41,6 +43,7 @@ public final class KeyboardLayoutAdjustView extends FrameLayout {
     private int heightAdjustment;
     private boolean trackingHeight;
     private boolean adjustmentsEnabled = true;
+    private final Runnable commitAdjustment = this::commitAdjustment;
     private float downX;
     private float downY;
     private int baseKeySpacing;
@@ -257,8 +260,19 @@ public final class KeyboardLayoutAdjustView extends FrameLayout {
         heightAdjustment = KeyboardGeometry.heightAdjustment(value);
         listener.height(heightAdjustment);
         updateHint("键盘高度 " + KeyboardGeometry.displayHeight(heightAdjustment));
-        listener.commit();
+        // Repeated steps coalesce into one save, the way a drag saves once when the finger lifts.
+        // Saving on every step loses saves instead: a save already in flight makes the next
+        // request a no-op, so the last steps -- and a reset tapped straight afterwards -- vanish.
+        removeCallbacks(commitAdjustment);
+        postDelayed(commitAdjustment, COMMIT_DELAY_MILLIS);
         return true;
+    }
+
+    private void commitAdjustment() { listener.commit(); }
+
+    @Override protected void onDetachedFromWindow() {
+        removeCallbacks(commitAdjustment);
+        super.onDetachedFromWindow();
     }
 
     @SuppressWarnings("deprecation")
