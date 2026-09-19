@@ -85,7 +85,7 @@ class IOSProjectConfigTests(unittest.TestCase):
         config = json.loads((TAURI_ROOT / "tauri.ios.conf.json").read_text())
         self.assertEqual(config["identifier"], "com.metasequoiaime.client")
         self.assertEqual(config["productName"], "水杉输入法")
-        self.assertEqual(config["bundle"]["iOS"]["minimumSystemVersion"], "16.0")
+        self.assertEqual(config["bundle"]["iOS"]["minimumSystemVersion"], "17.0")
 
     def test_native_entry_and_entitlement_share_keyboard_state_without_private_data(self):
         entry = (APPLE_ROOT / "Sources/msime-desktop/main.mm").read_text()
@@ -101,7 +101,7 @@ class IOSProjectConfigTests(unittest.TestCase):
     def test_generated_project_builds_the_shared_rust_mobile_entry(self):
         project = (APPLE_ROOT / "project.yml").read_text()
         self.assertIn("PRODUCT_BUNDLE_IDENTIFIER: com.metasequoiaime.client", project)
-        self.assertIn("iOS: 16.0", project)
+        self.assertIn("iOS: 17.0", project)
         self.assertIn("pnpm tauri ios xcode-script", project)
         self.assertIn("framework: libapp.a", project)
         self.assertIn("../../../../../target/ios/EngineResources", project)
@@ -224,8 +224,9 @@ class IOSProjectConfigTests(unittest.TestCase):
 
     def test_ios_registers_shared_account_commands_and_ui(self):
         rust_entry = (TAURI_ROOT / "src/lib.rs").read_text()
-        account = (TAURI_ROOT / "src/ios_account.rs").read_text()
+        account = (TAURI_ROOT / "src/platform/ios/ios_account.rs").read_text()
         desktop_entry = (TAURI_ROOT.parent / "src/main.tsx").read_text()
+        mobile_services = (TAURI_ROOT.parent / "src/mobile-host-services.ts").read_text()
 
         self.assertIn('mod ios_account;', rust_entry)
         self.assertIn('ios_account::setup(app.handle())?', rust_entry)
@@ -250,18 +251,20 @@ class IOSProjectConfigTests(unittest.TestCase):
             self.assertIn(f"pub async fn {command}", account)
         self.assertIn("BackendAccountSession::new", account)
         self.assertIn("IosAccountStorage(platform.clone())", account)
-        self.assertIn("accountSettingsSync", desktop_entry)
-        self.assertIn("account: { ...basicAccount", desktop_entry)
-        self.assertIn('invoke("account_chat_models")', desktop_entry)
-        self.assertIn('invoke<{ content: string }>("account_chat", { messages, model })', desktop_entry)
+        self.assertIn("createMobileHostServices", desktop_entry)
+        self.assertIn("accountSettingsSync", mobile_services)
+        self.assertIn("...baseAccount", mobile_services)
+        self.assertIn('invoke("account_chat_models")', mobile_services)
+        self.assertIn('invoke<{ content: string }>("account_chat", { messages, model })', mobile_services)
 
     def test_ios_account_settings_sync_bridges_app_group_keyboard_preferences(self):
         plugin = TAURI_ROOT / "../../../crates/tauri-mobile-platform"
         rust = (plugin / "src/lib.rs").read_text()
         swift = (plugin / "ios/Sources/MobilePlatformPlugin.swift").read_text()
-        account = (TAURI_ROOT / "src/ios_account.rs").read_text()
-        mapping = (TAURI_ROOT / "src/ios_account_preferences.rs").read_text()
+        account = (TAURI_ROOT / "src/platform/ios/ios_account.rs").read_text()
+        mapping = (TAURI_ROOT / "src/platform/ios/ios_account_preferences.rs").read_text()
         desktop_entry = (TAURI_ROOT.parent / "src/main.tsx").read_text()
+        mobile_services = (TAURI_ROOT.parent / "src/mobile-host-services.ts").read_text()
 
         self.assertIn('run_mobile_plugin::<IosKeyboardPreferences>("loadKeyboardPreferences", ())', rust)
         self.assertIn('run_mobile_plugin::<IosKeyboardPreferences>("saveKeyboardPreferences", preferences)', rust)
@@ -281,14 +284,15 @@ class IOSProjectConfigTests(unittest.TestCase):
         self.assertIn("platform.save_keyboard_preferences(&previous_native)", account)
         self.assertIn('"platform.ios.nine_key"', mapping)
         self.assertIn('"platform.ios.custom_keyboard_skin"', mapping)
-        self.assertIn("settingsSync: accountSettingsSync", desktop_entry)
+        self.assertIn("createMobileHostServices", desktop_entry)
+        self.assertIn("settingsSync: accountSettingsSync", mobile_services)
 
     def test_ios_cloud_clipboard_uses_the_shared_account_and_native_copy_boundaries(self):
         plugin = TAURI_ROOT / "../../../crates/tauri-mobile-platform"
         plugin_rust = (plugin / "src/lib.rs").read_text()
         swift = (plugin / "ios/Sources/MobilePlatformPlugin.swift").read_text()
         rust_entry = (TAURI_ROOT / "src/lib.rs").read_text()
-        account = (TAURI_ROOT / "src/ios_account.rs").read_text()
+        account = (TAURI_ROOT / "src/platform/ios/ios_account.rs").read_text()
         desktop_entry = (TAURI_ROOT.parent / "src/main.tsx").read_text()
 
         self.assertIn("ios_account::cloud_clipboard_request(state, action).await", rust_entry)
@@ -311,9 +315,9 @@ class IOSProjectConfigTests(unittest.TestCase):
         project = (APPLE_ROOT / "project.yml").read_text()
         generated = (APPLE_ROOT / "msime-desktop.xcodeproj/project.pbxproj").read_text()
         rust_entry = (TAURI_ROOT / "src/lib.rs").read_text()
-        account = (TAURI_ROOT / "src/ios_account.rs").read_text()
+        account = (TAURI_ROOT / "src/platform/ios/ios_account.rs").read_text()
         desktop_entry = (TAURI_ROOT.parent / "src/main.tsx").read_text()
-        bridge = (TAURI_ROOT / "../../../platforms/ios/App/Sources/TauriDictionarySnapshotBridge.swift").read_text()
+        bridge = (TAURI_ROOT / "../../../platforms/ios/App/Sources/dictionary/TauriDictionarySnapshotBridge.swift").read_text()
 
         self.assertIn("ios_account::cloud_dictionary_request(state, action).await", rust_entry)
         self.assertIn("pub async fn cloud_dictionary_request", account)
@@ -344,9 +348,9 @@ class IOSProjectConfigTests(unittest.TestCase):
         ]:
             self.assertIn(operation, account)
         for path in [
-            "../../../../../platforms/ios/SharedUI/DictionarySnapshotQueue.swift",
+            "../../../../../platforms/ios/SharedUI/dictionary/DictionarySnapshotQueue.swift",
             "../../../../../shared/backend/clients/BackendSnapshotClient.swift",
-            "../../../../../platforms/ios/App/Sources/TauriDictionarySnapshotBridge.swift",
+            "../../../../../platforms/ios/App/Sources/dictionary/TauriDictionarySnapshotBridge.swift",
         ]:
             self.assertIn(path, project)
         for source in [
@@ -358,13 +362,15 @@ class IOSProjectConfigTests(unittest.TestCase):
         self.assertIn("DictionarySnapshotQueue()", bridge)
         self.assertIn("BackendPreparedSnapshot(copying: url)", bridge)
         self.assertIn('@_cdecl("msime_ios_dictionary_snapshot_request")', bridge)
-        self.assertIn("snapshot: /\\b(Android|iPhone|iPad)\\b/i", desktop_entry)
-        self.assertIn("snapshotNative: /\\bMacintosh\\b/i", desktop_entry)
+        capabilities = (TAURI_ROOT.parent / "src/mobile-host-capabilities.ts").read_text()
+        self.assertIn("snapshot: isMobileHost(platform) || platform === \"macos\"", capabilities)
+        self.assertIn("snapshotNative: platform === \"macos\"", capabilities)
 
     def test_ios_community_services_use_shared_backend_and_tauri_ui(self):
         rust_entry = (TAURI_ROOT / "src/lib.rs").read_text()
-        account = (TAURI_ROOT / "src/ios_account.rs").read_text()
+        account = (TAURI_ROOT / "src/platform/ios/ios_account.rs").read_text()
         desktop_entry = (TAURI_ROOT.parent / "src/main.tsx").read_text()
+        mobile_services = (TAURI_ROOT.parent / "src/mobile-host-services.ts").read_text()
 
         for symbol in [
             "ios_account::community_skin_list",
@@ -384,9 +390,10 @@ class IOSProjectConfigTests(unittest.TestCase):
             "CommunityResourceLibraryStore",
         ]:
             self.assertIn(symbol, account)
-        self.assertIn("communitySkins:", desktop_entry)
-        self.assertIn("communityResources:", desktop_entry)
-        self.assertIn("aiSkins:", desktop_entry)
+        self.assertIn("createMobileHostServices", desktop_entry)
+        self.assertIn("communitySkins:", mobile_services)
+        self.assertIn("communityResources:", mobile_services)
+        self.assertIn("aiSkins:", mobile_services)
 
     def test_xcode27_runtime_exports_are_built_before_the_rust_mobile_library(self):
         project = (APPLE_ROOT / "project.yml").read_text()
@@ -401,14 +408,14 @@ class IOSProjectConfigTests(unittest.TestCase):
         project = (APPLE_ROOT / "project.yml").read_text()
         generated = (APPLE_ROOT / "msime-desktop.xcodeproj/project.pbxproj").read_text()
         rust_entry = (TAURI_ROOT / "src/lib.rs").read_text()
-        store = (TAURI_ROOT / "../../../platforms/ios/SharedUI/PersonalDictionaryStore.swift").read_text()
-        bridge = (TAURI_ROOT / "../../../platforms/ios/App/Sources/TauriPersonalDictionaryBridge.swift").read_text()
+        store = (TAURI_ROOT / "../../../platforms/ios/SharedUI/dictionary/PersonalDictionaryStore.swift").read_text()
+        bridge = (TAURI_ROOT / "../../../platforms/ios/App/Sources/dictionary/TauriPersonalDictionaryBridge.swift").read_text()
 
         for path in [
-            "../../../../../platforms/ios/SharedUI/PersonalDictionaryStore.swift",
-            "../../../../../platforms/ios/SharedUI/PersonalDictionaryImport.swift",
-            "../../../../../platforms/ios/SharedUI/PersonalWordBridge.swift",
-            "../../../../../platforms/ios/App/Sources/TauriPersonalDictionaryBridge.swift",
+            "../../../../../platforms/ios/SharedUI/dictionary/PersonalDictionaryStore.swift",
+            "../../../../../platforms/ios/SharedUI/dictionary/PersonalDictionaryImport.swift",
+            "../../../../../platforms/ios/SharedUI/dictionary/PersonalWordBridge.swift",
+            "../../../../../platforms/ios/App/Sources/dictionary/TauriPersonalDictionaryBridge.swift",
         ]:
             self.assertIn(path, project)
         target = re.search(
@@ -434,7 +441,7 @@ class IOSProjectConfigTests(unittest.TestCase):
         ]:
             self.assertIn(f"{source} in Sources", phase.group(1))
         self.assertIn("ios_personal_dictionary_action", rust_entry)
-        self.assertIn("msime_ios_personal_dictionary_request", rust_entry)
+        self.assertIn("msime_ios_native_ffi::personal_dictionary_request", rust_entry)
         self.assertIn('case "import_personal":', bridge)
         self.assertIn('case "edit":', bridge)
         self.assertIn("requestID: requestID", bridge)

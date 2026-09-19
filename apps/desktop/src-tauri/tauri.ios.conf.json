@@ -4,7 +4,7 @@
   "identifier": "com.metasequoiaime.client",
   "bundle": {
     "iOS": {
-      "minimumSystemVersion": "16.0"
+      "minimumSystemVersion": "17.0"
     }
   }
 }
