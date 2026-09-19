@@ -43,6 +43,7 @@ import {
   ClipboardHistoryStore, ClipboardHistoryItem, ClipboardHistoryError, ClipboardFailure,
   MAX_FILE_BYTES
 } from './clipboard/ClipboardHistoryStore';
+import { ClipboardHistoryPreferencePolicy } from './clipboard/ClipboardHistoryPreferencePolicy';
 import {
   DEFAULT_VOICE_INPUT_CONFIGURATION, VoiceInputConfiguration
 } from './input/VoiceInputConfiguration';
@@ -437,6 +438,8 @@ interface PreparedPreferences {
   touch_keyboard_height_adjustment: number;
   /** Show the native Harmony voice entry in the top touch-keyboard shortcut bar. */
   touch_voice_shortcut: boolean;
+  /** Shared privacy switch for the private clipboard history file and keyboard entry point. */
+  clipboard_history: boolean;
   voice_input: VoiceInputConfiguration;
   ai_assistant: PreparedAiAssistant;
   touch_keyboard_schemes: { selected: string | null };
@@ -595,6 +598,7 @@ export class KeyboardSession {
   private nineKeyMode: boolean = false;
   private schemeName: string = 'quanpin';
   private profileName: string = 'xiaohe';
+  private clipboardHistoryEnabled: boolean = false;
   private resourceDirectory: string = '';
   private stateDirectory: string = '';
   private systemDark: boolean = false;
@@ -655,6 +659,8 @@ export class KeyboardSession {
   };
 
   onChanged: ((state: KeyboardState) => void) | undefined = undefined;
+  /** The view removes clipboard history immediately when the shared privacy switch is turned off. */
+  onClipboardHistoryChanged: ((enabled: boolean) => void) | undefined = undefined;
   /** Lets a desktop panel resize when a vertical candidate page changes height. */
   onCandidateCount: ((count: number) => void) | undefined = undefined;
   /** Lets a desktop panel follow the widest current candidate without measuring ArkUI nodes. */
@@ -784,6 +790,14 @@ export class KeyboardSession {
       }
       options = JSON.stringify(prepared.value);
       const preferences: PreparedPreferences = prepared.value.preferences;
+      this.clipboardHistoryEnabled = ClipboardHistoryPreferencePolicy.enabled(
+        preferences.clipboard_history);
+      if (ClipboardHistoryPreferencePolicy.shouldClearHistory(this.clipboardHistoryEnabled)) {
+        this.clearClipboardHistoryFile();
+      }
+      if (this.onClipboardHistoryChanged !== undefined) {
+        this.onClipboardHistoryChanged(this.clipboardHistoryEnabled);
+      }
       const skinPackages: CandidateSkinPackage[] = this.readCandidateSkinCatalog(stateRoot);
       const candidateDark: boolean = KeyboardSkin.resolveDark(preferences.candidate_theme,
         preferences.theme, systemDark);
@@ -922,6 +936,11 @@ export class KeyboardSession {
   /** What the user chose for the keyboard's appearance and scheme. */
   preferences(): KeyboardPreferences {
     return this.appearance;
+  }
+
+  /** Whether the shared privacy preference permits this host's private history file. */
+  clipboardHistoryAllowed(): boolean {
+    return ClipboardHistoryPreferencePolicy.canReadOrWrite(this.clipboardHistoryEnabled);
   }
 
   /**
@@ -2342,6 +2361,20 @@ export class KeyboardSession {
     return `${this.stateDirectory}/clipboard-history.json`;
   }
 
+  private clearClipboardHistoryFile(): void {
+    if (this.stateDirectory.length === 0) {
+      return;
+    }
+    try {
+      const handle = fs.openSync(this.clipboardFile(),
+        fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+      fs.writeSync(handle.fd, '[]');
+      fs.closeSync(handle);
+    } catch (error) {
+      KeyboardLog.error(`clipboard history not cleared: ${describeError(error)}`);
+    }
+  }
+
   /**
    * The saved clipboard history.
    *
@@ -2349,6 +2382,9 @@ export class KeyboardSession {
    * so that a wrong or corrupted path cannot turn into an unbounded read.
    */
   clipboardHistory(): ClipboardHistoryItem[] {
+    if (!this.clipboardHistoryAllowed()) {
+      return [];
+    }
     const file: string = this.clipboardFile();
     try {
       if (!fs.accessSync(file) || fs.statSync(file).size > MAX_FILE_BYTES) {
@@ -2362,6 +2398,9 @@ export class KeyboardSession {
   }
 
   saveClipboardHistory(items: ClipboardHistoryItem[]): boolean {
+    if (!this.clipboardHistoryAllowed()) {
+      return false;
+    }
     try {
       const document: string = ClipboardHistoryStore.serialize(items);
       const handle = fs.openSync(this.clipboardFile(),
@@ -2598,6 +2637,8 @@ export class KeyboardSession {
       changes.forEach((value: Object, key: string): void => {
         snapshot.preferences[key] = value;
       });
+      const nextClipboardHistory: boolean = ClipboardHistoryPreferencePolicy.enabled(
+        snapshot.preferences['clipboard_history']);
       snapshot.revision = expected + 1;
       const document: string = JSON.stringify(snapshot);
       const applied: PrepareResponse =
@@ -2613,6 +2654,13 @@ export class KeyboardSession {
         // The session already has them; only the write failed. Say so rather than pretending the
         // change did not happen, because on screen it plainly did.
         KeyboardLog.error(`preferences not persisted: ${saved.error}`);
+      }
+      this.clipboardHistoryEnabled = nextClipboardHistory;
+      if (ClipboardHistoryPreferencePolicy.shouldClearHistory(nextClipboardHistory)) {
+        this.clearClipboardHistoryFile();
+      }
+      if (this.onClipboardHistoryChanged !== undefined) {
+        this.onClipboardHistoryChanged(nextClipboardHistory);
       }
       return true;
     } catch (error) {

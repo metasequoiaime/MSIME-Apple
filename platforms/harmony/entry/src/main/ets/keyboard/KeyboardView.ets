@@ -218,6 +218,7 @@ struct KeyboardView {
    * were open at once. A single value cannot be in two states.
    */
   @State surface: string = SURFACE_NONE;
+  @State clipboardEnabled: boolean = KeyboardSession.shared.clipboardHistoryAllowed();
   @State clips: ClipboardHistoryItem[] = [];
   @State clipboardNotice: string = '';
   @State confirmingClear: boolean = false;
@@ -265,6 +266,18 @@ struct KeyboardView {
 
   aboutToAppear(): void {
     this.english = KeyboardSession.shared.isEnglish();
+    this.clipboardEnabled = KeyboardSession.shared.clipboardHistoryAllowed();
+    KeyboardSession.shared.onClipboardHistoryChanged = (enabled: boolean): void => {
+      this.clipboardEnabled = enabled;
+      if (!enabled) {
+        this.clips = [];
+        this.confirmingClear = false;
+        this.clipboardNotice = '剪贴板历史已关闭，历史记录已清空';
+        if (this.surface === SURFACE_CLIPBOARD) {
+          this.show(SURFACE_NONE);
+        }
+      }
+    };
     KeyboardSession.shared.onSurfaceChanged = (surface: DesktopSurface): void => {
       this.desktop = surface;
       if (surface === DesktopSurface.EMOJI && this.emojiItems.length === 0) {
@@ -321,6 +334,7 @@ struct KeyboardView {
 
   aboutToDisappear(): void {
     KeyboardSession.shared.onChanged = undefined;
+    KeyboardSession.shared.onClipboardHistoryChanged = undefined;
     KeyboardSession.shared.onEditorChanged = undefined;
     this.stopBackspace();
     this.voiceRecognizer.shutdown();
@@ -1286,6 +1300,11 @@ struct KeyboardView {
   }
 
   private openClipboard(): void {
+    if (!this.clipboardEnabled) {
+      this.clipboardNotice = '剪贴板历史已在设置中关闭';
+      this.show(SURFACE_NONE);
+      return;
+    }
     this.show(SURFACE_CLIPBOARD);
     this.clips = KeyboardSession.shared.clipboardHistory();
     this.clipboardNotice = '';
@@ -1299,6 +1318,10 @@ struct KeyboardView {
    * collecting the user's text without being asked, so this happens only when the button is pressed.
    */
   private captureClipboard(): void {
+    if (!this.clipboardEnabled) {
+      this.clipboardNotice = '剪贴板历史已在设置中关闭';
+      return;
+    }
     KeyboardSession.shared.canReadClipboard().then((allowed: boolean): void => {
       if (!allowed) {
         this.clipboardNotice = CLIPBOARD_NOT_PERMITTED;
@@ -1398,6 +1421,10 @@ struct KeyboardView {
   }
 
   private storeClipboardText(): void {
+    if (!this.clipboardEnabled) {
+      this.clipboardNotice = '剪贴板历史已在设置中关闭';
+      return;
+    }
     KeyboardSession.shared.systemClipboardText().then((text: string): void => {
       try {
         const updated: ClipboardHistoryItem[] =
@@ -1487,6 +1514,12 @@ struct KeyboardView {
   }
 
   private updateClips(updated: ClipboardHistoryItem[]): void {
+    if (!this.clipboardEnabled) {
+      this.clips = [];
+      this.clipboardNotice = '剪贴板历史已在设置中关闭';
+      this.show(SURFACE_NONE);
+      return;
+    }
     if (KeyboardSession.shared.saveClipboardHistory(updated)) {
       this.clips = updated;
     }
@@ -2496,11 +2529,13 @@ struct KeyboardView {
                   this.openEmojiSurface();
                 });
               }
-              GridItem() {
-                this.toolCard('剪贴板历史', null, $r('app.media.tool_clipboard'), false, true, () => {
-                  this.show(SURFACE_NONE);
-                  this.openClipboard();
-                });
+              if (this.clipboardEnabled) {
+                GridItem() {
+                  this.toolCard('剪贴板历史', null, $r('app.media.tool_clipboard'), false, true, () => {
+                    this.show(SURFACE_NONE);
+                    this.openClipboard();
+                  });
+                }
               }
               GridItem() {
                 this.toolCard('本地输入', '123', null, false, true, () => {

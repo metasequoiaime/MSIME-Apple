@@ -36,6 +36,8 @@ import { EnglishLetterCaseState, LetterCaseMode }
   from '../entry/src/main/ets/keyboard/input/EnglishLetterCaseState';
 import { JapaneseVariantPolicy } from '../entry/src/main/ets/keyboard/input/JapaneseVariantPolicy';
 import { ClipboardHistoryPolicy } from '../entry/src/main/ets/keyboard/clipboard/ClipboardHistoryPolicy';
+import { ClipboardHistoryPreferencePolicy } from
+  '../entry/src/main/ets/keyboard/clipboard/ClipboardHistoryPreferencePolicy';
 import { FullWidthInputPolicy } from '../entry/src/main/ets/keyboard/input/FullWidthInputPolicy';
 import { InputDiagnosticPolicy } from '../entry/src/main/ets/keyboard/input/InputDiagnosticPolicy';
 import { ChineseOutputPolicy } from '../entry/src/main/ets/keyboard/input/ChineseOutputPolicy';
@@ -1817,6 +1819,23 @@ group('clipboard history is ordered pinned first, then most recent', () => {
   check(items[0].text === 'kept', 'a pinned entry sorts above an unpinned one however old it is');
   check(items[1].text === 'new' && items[2].text === 'old',
     'the rest are most recent first');
+});
+
+group('clipboard history preference is a privacy gate', () => {
+  check(!ClipboardHistoryPreferencePolicy.enabled(undefined),
+    'a missing shared preference defaults to disabled');
+  check(!ClipboardHistoryPreferencePolicy.enabled(false),
+    'an explicit false preference disables history');
+  check(ClipboardHistoryPreferencePolicy.enabled(true),
+    'an explicit true preference enables history');
+  check(!ClipboardHistoryPreferencePolicy.canReadOrWrite(false),
+    'disabled history cannot read or write the private file');
+  check(ClipboardHistoryPreferencePolicy.canReadOrWrite(true),
+    'enabled history can read and write the private file');
+  check(ClipboardHistoryPreferencePolicy.shouldClearHistory(false),
+    'disabled history requires immediate cleanup');
+  check(!ClipboardHistoryPreferencePolicy.shouldClearHistory(true),
+    'enabled history does not clear existing entries');
 });
 
 group('adding to the clipboard history', () => {
