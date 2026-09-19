@@ -491,6 +491,12 @@ public final class MSIMEInputService extends InputMethodService {
         inputViewRefreshTask = null;
     }
 
+    /** Re-read host settings at the appearance boundary, matching Apple's viewWillAppear path. */
+    private void refreshPreferencesOnInputView() {
+        if (session == 0 || preferencesDirectory.isEmpty() || hasEngineComposition()) return;
+        preferencesReloader.start(preferencesDirectory, this::reloadPreferences);
+    }
+
     @Override public void onStartInput(EditorInfo info, boolean restarting) {
         super.onStartInput(info, restarting);
         cancelInputViewRefresh();
@@ -586,6 +592,7 @@ public final class MSIMEInputService extends InputMethodService {
                 editorInputType = effectiveInfo.inputType;
                 allowLearning = EditorPolicy.allowLearning(effectiveInfo.imeOptions);
             }
+            refreshPreferencesOnInputView();
             updateAutomaticCapitalization();
             render();
         };
