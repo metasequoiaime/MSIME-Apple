@@ -17,11 +17,13 @@ import { ChineseOutputPolicy } from './input/ChineseOutputPolicy';
 import { KeyboardFeedback, FeedbackSettings, HapticStrength } from './KeyboardFeedback';
 import { HardwareNavigationPreferences } from './HardwareKeyRouter';
 import vibrator from '@ohos.vibrator';
+import common from '@ohos.app.ability.common';
 import i18n from '@ohos.i18n';
 import { InputDiagnosticPolicy } from './input/InputDiagnosticPolicy';
 import { InputModeHudPolicy } from './InputModeHudPolicy';
 import { DEFAULT_VOICE_HOTKEY_BINDINGS, VoiceHotkeyAction, VoiceHotkeyBindings, VoiceHotkeyPolicy,
   VoiceKey } from './input/VoiceHotkeyPolicy';
+import { HarmonyVoiceRecordingBehaviour } from './input/HarmonyVoiceRecordingBehaviour';
 import { EnglishCompletions, EnglishReplacement, EnglishSuggestionPolicy }
   from './input/EnglishSuggestionPolicy';
 import { ImeModeScopePolicy } from './input/ImeModeScopePolicy';
@@ -692,6 +694,7 @@ export class KeyboardSession {
   // Whether the recognizer is running. The view owns it and says so; the shortcuts need to know,
   // because Space and Escape belong to a composition at every other moment.
   private voiceRecording: boolean = false;
+  private voiceBehaviour: HarmonyVoiceRecordingBehaviour = new HarmonyVoiceRecordingBehaviour();
   private modeScope: ImeModeScopePolicy = new ImeModeScopePolicy();
   private modeScopeSetting: string = 'app';
   private defaultEnglish: boolean = false;
@@ -3233,11 +3236,33 @@ export class KeyboardSession {
    * behind, or the next press of the hold key would be read as the release of a recording that is
    * no longer running.
    */
-  setVoiceRecording(active: boolean): void {
+  setVoiceRecording(active: boolean, cancelled: boolean = false): void {
+    const changed: boolean = this.voiceRecording !== active;
     this.voiceRecording = active;
     if (!active) {
       this.voiceHotkeys.reset();
     }
+    if (!changed) {
+      return;
+    }
+    // Tones and quiet are display-only work around the recording, never in its way: a failure here
+    // is logged inside the behaviour and the recording carries on regardless.
+    if (active) {
+      this.voiceBehaviour.starting(this.voiceInput).catch((error: Object): void => {
+        KeyboardLog.error(`voice start behaviour failed: ${describeError(error)}`);
+      });
+      return;
+    }
+    const done: Promise<void> = cancelled
+      ? this.voiceBehaviour.cancelled() : this.voiceBehaviour.finished(this.voiceInput);
+    done.catch((error: Object): void => {
+      KeyboardLog.error(`voice end behaviour failed: ${describeError(error)}`);
+    });
+  }
+
+  /** The extension's context, which is what turns a packaged tone into something playable. */
+  useVoiceContext(context: common.Context): void {
+    this.voiceBehaviour.use(context);
   }
 
   /** Whether the current recording outlives its hold key, for the panel that says so. */

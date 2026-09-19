@@ -62,6 +62,8 @@ import { CandidateAnnotationPreferencePolicy }
 import { InputModeHudPolicy } from '../entry/src/main/ets/keyboard/InputModeHudPolicy';
 import { DEFAULT_VOICE_HOTKEY_BINDINGS, VoiceHotkeyAction, VoiceHotkeyBindings, VoiceHotkeyPolicy,
   VoiceKey } from '../entry/src/main/ets/keyboard/input/VoiceHotkeyPolicy';
+import { VoiceRecordingBehaviourPolicy }
+  from '../entry/src/main/ets/keyboard/input/VoiceRecordingBehaviourPolicy';
 import { DEFAULT_MODE_BINDINGS, InputModeRouting, ModeBindings, ModeGesture, ModeKey }
   from '../entry/src/main/ets/keyboard/InputModeRouting';
 import { KeyboardFeedbackBridge, MobileKeyboardFeedback }
@@ -87,7 +89,8 @@ import {
 } from '../entry/src/main/ets/keyboard/input/HandwritingStrokePolicy';
 import { VoiceRecognitionPolicy, VOICE_MAX_TEXT } from
   '../entry/src/main/ets/keyboard/input/VoiceRecognitionPolicy';
-import { DEFAULT_VOICE_INPUT_CONFIGURATION, VoiceInputConfigurationPolicy } from
+import { DEFAULT_VOICE_INPUT_CONFIGURATION, VoiceInputConfiguration,
+  VoiceInputConfigurationPolicy } from
   '../entry/src/main/ets/keyboard/input/VoiceInputConfiguration';
 import { AccountCloudBridge, AccountSessionStore, AccountTransport } from
   '../entry/src/main/ets/account/AccountCloudBridge';
@@ -1870,6 +1873,36 @@ group('each voice shortcut obeys its own switch', () => {
     'with only the chords on, a bare right Alt is not one of them');
   check(bare.accept(voiceKey(KEY_CTRL_RIGHT, true), false) === VoiceHotkeyAction.NONE,
     'and a right Control alone is half a chord, not a binding');
+});
+
+group('the recording tones follow their own switches under one master', () => {
+  const base: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
+  check(VoiceRecordingBehaviourPolicy.playsStartTone(base) === true, 'both tones are on by default');
+  check(VoiceRecordingBehaviourPolicy.playsEndTone(base) === true, 'including the closing one');
+  const noStart: VoiceInputConfiguration = { ...base, start_sound: false };
+  check(VoiceRecordingBehaviourPolicy.playsStartTone(noStart) === false, 'one can be turned off');
+  check(VoiceRecordingBehaviourPolicy.playsEndTone(noStart) === true, 'without taking the other');
+  const silent: VoiceInputConfiguration = { ...base, sound_enabled: false };
+  check(VoiceRecordingBehaviourPolicy.playsStartTone(silent) === false,
+    'the master silences both regardless of what they say');
+  check(VoiceRecordingBehaviourPolicy.playsEndTone(silent) === false, 'both of them');
+  const legacy: VoiceInputConfiguration = { ...base };
+  legacy.sound_enabled = undefined;
+  legacy.start_sound = undefined;
+  check(VoiceRecordingBehaviourPolicy.playsStartTone(legacy) === true,
+    'an older document without the fields takes the shared default rather than falling silent');
+});
+
+group('quietening other applications is off unless asked for', () => {
+  const base: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
+  check(VoiceRecordingBehaviourPolicy.quietensOthers(base) === false,
+    'taking the audio session from whatever is playing is intrusive and is not the default');
+  check(VoiceRecordingBehaviourPolicy.quietensOthers({ ...base, mute_system_audio: true }) === true,
+    'and happens when the user asks');
+  const legacy: VoiceInputConfiguration = { ...base };
+  legacy.mute_system_audio = undefined;
+  check(VoiceRecordingBehaviourPolicy.quietensOthers(legacy) === false,
+    'an absent field is not consent');
 });
 
 group('the mode badge is built only when the shared preference allows it', () => {

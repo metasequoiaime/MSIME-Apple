@@ -412,7 +412,7 @@ struct KeyboardView {
     this.voiceGeneration = 0;
     this.voiceBusy = false;
     this.voiceFinishing = false;
-    KeyboardSession.shared.setVoiceRecording(false);
+    KeyboardSession.shared.setVoiceRecording(false, true);
   }
 
   /**
@@ -1876,7 +1876,8 @@ struct KeyboardView {
     }
     this.voiceBusy = false;
     this.voiceFinishing = false;
-    KeyboardSession.shared.setVoiceRecording(false);
+    // Cancelled rather than finished: nothing was recognised, so there is nothing to announce.
+    KeyboardSession.shared.setVoiceRecording(false, true);
     this.voiceText = '';
     this.voiceNotice = '已取消语音识别';
     KeyboardSession.shared.voiceCancel();
