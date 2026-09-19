@@ -61,6 +61,10 @@ assert 'state_.session_ != item->session()' in source
 assert '!state_.ic_.hasFocus() || !state_.input_enabled_' in source
 assert 'state_.privateInput() || state_.session_ != item->session()' in source
 assert 'voice_cancelled_' in source
+assert 'clipboard_generation_' in source
+assert 'result.value("_path", std::string{}) == clipboard_path_' in source
+assert 'result.value("_generation", uint64_t{}) == clipboard_generation_' in source
+assert 'const auto generation = clipboard_generation_' in source
 assert 'if (voice_job_.valid()) {' in source
 assert 'voice cancellation does not wait for the provider future' in (root / 'fcitx5/tests/native.cpp').read_text()
 assert 'msime-helpcode-schema' in source
