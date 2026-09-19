@@ -199,6 +199,68 @@ static NSString *CandidateTranslation(NSDictionary *candidate) {
     return [text isKindOfClass:NSString.class] ? text : @"";
 }
 
+// Candidate pinning is a macOS presentation preference. The Engine's ranking is
+// shared by every host, while a user who always wants one word first expects that
+// choice to stay local to this input method. Keep an ordered list per code so
+// multiple pinned words retain the order in which they were pinned.
+static NSString *const MSIMEPinnedCandidatesPreferenceKey = @"MSIMEClientPinnedCandidates";
+
+static NSString *MSIMECandidatePinCode(NSDictionary *view) {
+    NSString *code = [view[@"preedit"] isKindOfClass:NSString.class] ? view[@"preedit"] : nil;
+    if (code.length == 0 && [view[@"editing_text"] isKindOfClass:NSString.class]) code = view[@"editing_text"];
+    return code.length > 0 ? code : @"";
+}
+
+static NSArray<NSString *> *MSIMEPinnedWords(NSString *code) {
+    if (code.length == 0) return @[];
+    NSDictionary *all = [NSUserDefaults.standardUserDefaults dictionaryForKey:MSIMEPinnedCandidatesPreferenceKey];
+    NSArray *words = [all[code] isKindOfClass:NSArray.class] ? all[code] : @[];
+    NSMutableArray<NSString *> *valid = [NSMutableArray arrayWithCapacity:words.count];
+    for (id word in words) {
+        if (![word isKindOfClass:NSString.class]) continue;
+        NSString *string = (NSString *)word;
+        if (string.length > 0 && ![valid containsObject:string]) [valid addObject:string];
+    }
+    return valid;
+}
+
+static BOOL MSIMECandidateIsPinned(NSString *code, NSString *word) {
+    return code.length > 0 && word.length > 0 && [MSIMEPinnedWords(code) containsObject:word];
+}
+
+static void MSIMETogglePinnedCandidate(NSString *code, NSString *word) {
+    if (code.length == 0 || word.length == 0) return;
+    NSDictionary *stored = [NSUserDefaults.standardUserDefaults dictionaryForKey:MSIMEPinnedCandidatesPreferenceKey];
+    NSMutableDictionary *all = [stored isKindOfClass:NSDictionary.class] ? [stored mutableCopy] : [NSMutableDictionary dictionary];
+    NSMutableArray<NSString *> *words = [MSIMEPinnedWords(code) mutableCopy] ?: [NSMutableArray array];
+    NSUInteger existing = [words indexOfObject:word];
+    if (existing != NSNotFound) [words removeObjectAtIndex:existing];
+    else [words insertObject:word atIndex:0];
+    if (words.count > 0) all[code] = words;
+    else [all removeObjectForKey:code];
+    [NSUserDefaults.standardUserDefaults setObject:all forKey:MSIMEPinnedCandidatesPreferenceKey];
+}
+
+static NSArray<NSDictionary *> *MSIMEReorderedPinnedCandidates(NSArray *candidates, NSString *code) {
+    if (![candidates isKindOfClass:NSArray.class] || candidates.count == 0 || code.length == 0) return candidates ?: @[];
+    NSArray<NSString *> *pinned = MSIMEPinnedWords(code);
+    if (pinned.count == 0) return candidates;
+    NSMutableArray<NSDictionary *> *remaining = [candidates mutableCopy];
+    NSMutableArray<NSDictionary *> *ordered = [NSMutableArray arrayWithCapacity:candidates.count];
+    for (NSString *word in pinned) {
+        for (NSInteger index = (NSInteger)remaining.count - 1; index >= 0; --index) {
+            NSDictionary *candidate = remaining[(NSUInteger)index];
+            if ([candidate isKindOfClass:NSDictionary.class] && [candidate[@"text"] isEqual:word]) {
+                [ordered addObject:candidate];
+                [remaining removeObjectAtIndex:(NSUInteger)index];
+                break;
+            }
+        }
+    }
+    [ordered addObjectsFromArray:remaining];
+    return ordered;
+}
+
 static NSString *MSIMECandidateTranslationColumn(NSDictionary *candidate, NSInteger column) {
     if (column <= 0) return @"";
     NSArray<NSString *> *parts = [CandidateTranslation(candidate) componentsSeparatedByString:@"\n"];
@@ -688,7 +750,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 
 - (NSDictionary *)highlightedCandidateForGloss {
-    NSArray *candidates = _view[@"candidates"];
+    NSArray *candidates = MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view));
     if (![candidates isKindOfClass:NSArray.class]) return nil;
     for (NSDictionary *candidate in candidates)
         if ([candidate isKindOfClass:NSDictionary.class] && [candidate[@"highlighted"] boolValue]) return candidate;
@@ -3292,7 +3354,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     [_keymapPanel updateHighlightedKey:MSIMEShuangpinKeymapHighlightedKey(_view)];
     CGFloat clearance = _appearance.fontSize + 42.0;
     if (_appearance.vertical) clearance = (_appearance.fontSize + 10.0) * MIN([_view[@"candidates"] count], _appearance.pageSize) + 24.0;
-    NSArray *candidates = _view[@"candidates"];
+    NSArray *candidates = MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view));
     if ([candidates isKindOfClass:NSArray.class] && candidates.count) {
         NSFont *font = [_appearance candidateFontOfSize:_appearance.fontSize englishFirst:YES];
         CGFloat rowHeight = MSIMECandidateTextHeight(@"", font) + 12;
@@ -3323,7 +3385,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     _candidateMenuToken = [NSObject new];
     [self updateKeymapPanel];
     if (_appearance.englishMode) { [self resetCandidateAnchor]; [_panel orderOut:nil]; return; }
-    NSArray *candidates = _view[@"candidates"];
+    NSArray *candidates = MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view));
     if (![candidates isKindOfClass:NSArray.class] || candidates.count == 0) {
         _armedGlossColumn = 0;
         [self resetCandidateAnchor];
@@ -3553,7 +3615,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 - (NSMenu *)menuForCandidate:(NSDictionary *)candidate {
     NSDictionary *identifier = candidate[@"id"];
     if (!MSIMECurrentCandidateIdentity(identifier, _view) || !_candidateMenuToken) return nil;
-    NSDictionary *context = @{@"id":[identifier copy], @"render":_candidateMenuToken};
+    NSString *text = [candidate[@"text"] isKindOfClass:NSString.class] ? candidate[@"text"] : @"";
+    NSDictionary *context = @{@"id":[identifier copy], @"text":text, @"render":_candidateMenuToken};
     NSMenuItem *(^item)(NSString *, NSInteger) = ^NSMenuItem *(NSString *title, NSInteger tag) {
         NSMenuItem *entry = [[NSMenuItem alloc] initWithTitle:title action:@selector(candidateMenuAction:) keyEquivalent:@""];
         entry.target = self;
@@ -3564,7 +3627,8 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSMenu *menu = [[NSMenu alloc] initWithTitle:@"候选操作"];
     menu.autoenablesItems = NO;
     ApplyMetasequoiaMenuTheme(menu, _menuThemePreferences ?: @{});
-    [menu addItem:item(@"置顶", 0)];
+    NSString *pinTitle = MSIMECandidateIsPinned(MSIMECandidatePinCode(_view), text) ? @"取消置顶" : @"置顶";
+    [menu addItem:item(pinTitle, 0)];
     NSMenuItem *fixed = [[NSMenuItem alloc] initWithTitle:@"固定排位" action:nil keyEquivalent:@""];
     NSMenu *positions = [[NSMenu alloc] initWithTitle:@"固定排位"];
     positions.autoenablesItems = NO;
@@ -3575,11 +3639,10 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     [positions addItem:item(@"取消固定", 2)];
     fixed.submenu = positions;
     [menu addItem:fixed];
-    NSString *text = candidate[@"text"];
     // Windows hides deletion for one Unicode scalar, including supplementary Han.
     if ([text isKindOfClass:NSString.class] && [text lengthOfBytesUsingEncoding:NSUTF32LittleEndianStringEncoding] / 4 > 1) {
         NSMenuItem *remove = item(@"删除", 1);
-        NSArray *candidates = _view[@"candidates"];
+        NSArray *candidates = MSIMEReorderedPinnedCandidates(_view[@"candidates"], MSIMECandidatePinCode(_view));
         NSUInteger slot = [candidates isKindOfClass:NSArray.class] ? [candidates indexOfObjectIdenticalTo:candidate] : NSNotFound;
         if (slot < 8) {
             remove.keyEquivalent = [NSString stringWithFormat:@"%lu", (unsigned long)slot + 1];
@@ -3601,7 +3664,14 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSError *error = nil;
     NSDictionary *result = nil;
     switch (item.tag) {
-        case 0: result = [_session pinGeneration:generation index:index error:&error]; break;
+        case 0:
+            result = [_session pinGeneration:generation index:index error:&error];
+            // Older test/session doubles report a successful maintenance action
+            // with a nil transition. An explicit error is the only failure
+            // signal, so keep the local pin in sync in both forms.
+            if (!error && [context[@"text"] isKindOfClass:NSString.class])
+                MSIMETogglePinnedCandidate(MSIMECandidatePinCode(_view), context[@"text"]);
+            break;
         case 1: result = [_session removeGeneration:generation index:index error:&error]; break;
         case 2: result = [_session clearPositionGeneration:generation index:index error:&error]; break;
         default:
