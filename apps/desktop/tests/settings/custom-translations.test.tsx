@@ -10,7 +10,17 @@ import {
 
 afterEach(cleanup);
 
-const initial: Snapshot = { format_version: 1, revision: 3, preferences: {} };
+const initial: Snapshot = {
+  format_version: 1,
+  revision: 3,
+  preferences: {
+    scheme: "quanpin",
+    shuangpin_profile: "xiaohe",
+    candidate_page_size: 5,
+    learning: true,
+    chinese_punctuation: true,
+  },
+};
 
 // Every rule here is EnglishDictionary::load_custom_translations. A line this accepts and the
 // Engine drops is a line the page promised to apply and did not.
