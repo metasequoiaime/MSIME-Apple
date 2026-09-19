@@ -8,15 +8,26 @@ int main() {
   reply.source.client_id = 42;
   reply.source.activation_epoch = 1;
   reply.source.request_id = 7;
-  reply.source.transition = {{"view", {
-      {"session", 2}, {"generation", 3}, {"focused", true},
-      {"editing_text", "synthetic"}, {"preedit", "synthetic"},
-      {"scheme", 0},
-      {"candidates", nlohmann::json::array({
-          {{"id", {{"session", 2}, {"generation", 3}, {"index", 0}}},
-           {"text", "cloud"}, {"source", 2}, {"highlighted", true}},
-          {{"id", {{"session", 2}, {"generation", 3}, {"index", 1}}},
-           {"text", "local"}, {"source", 0}, {"highlighted", false}}})}};
+  // Built in named pieces rather than one nested initializer: the nesting is
+  // four deep, and a brace miscounted in the middle of it does not read as an
+  // error anywhere near where it was written.
+  const nlohmann::json candidates = nlohmann::json::array(
+      {{{"id", {{"session", 2}, {"generation", 3}, {"index", 0}}},
+        {"text", "cloud"},
+        {"source", 2},
+        {"highlighted", true}},
+       {{"id", {{"session", 2}, {"generation", 3}, {"index", 1}}},
+        {"text", "local"},
+        {"source", 0},
+        {"highlighted", false}}});
+  const nlohmann::json view = {{"session", 2},
+                               {"generation", 3},
+                               {"focused", true},
+                               {"editing_text", "synthetic"},
+                               {"preedit", "synthetic"},
+                               {"scheme", 0},
+                               {"candidates", candidates}};
+  reply.source.transition = {{"view", view}};
   FanyImeNamedpipeData packet{};
   packet.client_id = 42;
   packet.request_id = 7;

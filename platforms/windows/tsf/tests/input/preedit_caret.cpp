@@ -1,4 +1,4 @@
-#include "../Composition/PreeditCaret.h"
+#include "../../Composition/PreeditCaret.h"
 #include <cstdlib>
 #include <limits>
 using msime::tsf::MapPreeditCaret;
