@@ -228,6 +228,13 @@ function makeClient(native: NativeBridge, openCloudClipboard: () => void, openCl
     typingStatistics,
     aiAssistant,
     testApiCredential,
+    // Four surfaces the keyboard already honours. Each writes shared preferences and nothing else,
+    // so opting in is all that was ever needed; without it the page saved nothing and the keyboard
+    // went on reading defaults the user had no way to change.
+    fuzzyPinyin: true,
+    touchKeyboardSchemes: true,
+    customTouchKeyboardSkins: true,
+    candidateEnglishGloss: true,
     account: accountClient(native),
     openCloudClipboard: async () => openCloudClipboard(),
     openCloudDictionary: async () => openCloudDictionary(),

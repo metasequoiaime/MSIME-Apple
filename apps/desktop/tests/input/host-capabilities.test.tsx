@@ -259,6 +259,26 @@ test("a host that does not place its own card hides the follow-cursor choice", a
   expect(screen.queryByLabelText("候选窗口跟随光标")).toBeNull();
 });
 
+test("a host opts into the surfaces whose preferences its keyboard reads", async () => {
+  // Four sections that write shared preferences and nothing else. Harmony's keyboard consumes all
+  // four; without the opt-in the page offered no way to change what it was reading.
+  render(<SettingsPage initialPage="input" client={{
+    load: async () => initial, save: vi.fn(),
+    host: capabilities({ platform: "harmony" }),
+    fuzzyPinyin: true, touchKeyboardSchemes: true, candidateEnglishGloss: true,
+  }} />);
+  expect(await screen.findByLabelText("启用模糊音")).toBeTruthy();
+  expect(screen.getByRole("group", { name: "输入方案" })).toBeTruthy();
+  expect(screen.getByLabelText("显示英文释义")).toBeTruthy();
+  cleanup();
+  render(<SettingsPage initialPage="input" client={{
+    load: async () => initial, save: vi.fn(), host: capabilities({ platform: "harmony" }),
+  }} />);
+  await screen.findByRole("button", { name: "保存设置" });
+  expect(screen.queryByLabelText("启用模糊音")).toBeNull();
+  expect(screen.queryByLabelText("显示英文释义")).toBeNull();
+});
+
 test("the candidate English font follows the capability rather than a list of platform names", async () => {
   // HarmonyOS consumes candidate_english_font, and the control used to be gated on a platform list
   // that did not include it — the preference was honoured and nobody could set it.
