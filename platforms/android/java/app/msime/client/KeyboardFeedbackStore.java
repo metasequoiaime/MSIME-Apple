@@ -48,7 +48,8 @@ public final class KeyboardFeedbackStore {
             if (Files.isRegularFile(file, LinkOption.NOFOLLOW_LINKS)) {
                 long bytes = Files.size(file);
                 if (bytes > 0 && bytes <= MAX_BYTES) {
-                    return decode(Files.readString(file, StandardCharsets.UTF_8));
+                    // Files.readString/writeString need API 34; this host starts at 28.
+                    return decode(new String(Files.readAllBytes(file), StandardCharsets.UTF_8));
                 }
                 return legacy;
             }
@@ -75,7 +76,7 @@ public final class KeyboardFeedbackStore {
             } catch (JSONException error) {
                 throw new IOException("feedback encoding failed", error);
             }
-            Files.writeString(temporary, encoded, StandardCharsets.UTF_8,
+            Files.write(temporary, encoded.getBytes(StandardCharsets.UTF_8),
                 StandardOpenOption.TRUNCATE_EXISTING);
             try {
                 Files.move(temporary, file, StandardCopyOption.ATOMIC_MOVE,

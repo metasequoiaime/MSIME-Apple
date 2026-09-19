@@ -4,6 +4,8 @@
 //! The store is only ever consulted when the user has the feature switched on,
 //! so a disabled history never touches the clipboard at all.
 
+#[cfg(target_os = "android")]
+use crate::platform::android::android_account;
 use crate::{
     clipboard_history_uses_preference, host_platform, ClipboardHistoryState, HostActionError,
 };
