@@ -74,6 +74,8 @@ MSIME_IOS_DEPS=/absolute/ios/dependency-prefix \
 
 真机产物把最后一个参数改为 `device`。真机构建会在 `apps/desktop/src-tauri/gen/apple` 执行锁定的 CocoaPods 安装，再调用 Tauri CLI；模拟器使用 `aarch64-sim` 并保留手写 fallback。无签名构建只验证源码、链接和 bundle 内容，不代表键盘扩展已经安装、授权或完成真机宿主验证。
 
+真机目标当前产出 `apps/desktop/src-tauri/gen/apple/build/arm64/水杉输入法.ipa`：arm64 单架构，`Payload/水杉输入法.app` 内嵌 `PlugIns/MSIMEKeyboardExtension.appex`，扩展侧带锁定 ML Kit Digital Ink 的资源包，App 与扩展各自打包同一份已校验 EngineResources。这只说明真机目标能完整编译和打包；签名、安装、键盘启用与真实编辑器验收仍未执行。
+
 模拟器 bundle 默认不带签名，因此没有 App Group 授权：进程一启动就会在共享容器查找上拿到 `client is not entitled`。要在模拟器里真正安装并观察它，用 ad-hoc 签名把既有 entitlements 附上去（模拟器不校验 provisioning，这一步不需要任何开发者证书，也不改变真机的签名边界）：
 
 ```sh

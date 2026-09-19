@@ -1238,3 +1238,11 @@ MSIME-Apple 的语音服务目录里有两个共享客户端一直没有的转�
 修复后模拟器构建产出 `水杉输入法.app`，内含 `PlugIns/MSIMEKeyboardExtension.appex`（4.7 MB 二进制）与固定词库发布的八个 EngineResources 文件。
 
 本地验证：`platforms/ios/build-native.sh simulator` 与 `platforms/ios/build-app.sh … simulator` 均完成；bundle 内容已逐项列出确认。App 在 iOS 27 模拟器上可安装：默认无签名 bundle 因缺少 entitlements 在 App Group 查找上报 `client is not entitled`，按 README 新增的 ad-hoc 签名步骤补上 entitlements 后查找成功。启动仍以 SIGTRAP 结束，崩溃栈落在 `tauri-runtime-wry` 启动探测调用的 `wry::webview_version()` → `+[NSBundle bundleWithIdentifier:@"com.apple.WebKit"]`，在该系统版本的 CoreFoundation 内部 `CFRelease` 空指针陷阱；该路径不在仓库代码内，未改动 vendored crate。因此本次只声称构建、打包与安装可复现，界面与键盘扩展运行仍待真机验收，CI 保持禁用。
+
+### iOS 真机目标构建复现
+
+在模拟器链路修好之后，真机目标不需要额外改动即可跑通：`platforms/ios/build-native.sh device` 产出 `target/ios/device/libmsime_host_api.a`，`platforms/ios/build-app.sh … device` 先在 `apps/desktop/src-tauri/gen/apple` 执行锁定的 CocoaPods 安装，再由 Tauri CLI 完成未签名归档，产出 `水杉输入法.ipa`。解包确认为 arm64 单架构，`Payload/水杉输入法.app` 内嵌 `PlugIns/MSIMEKeyboardExtension.appex`，扩展侧带锁定 ML Kit Digital Ink 的资源包，App 与扩展各自打包同一份已校验 EngineResources。据此把根 README 与 iOS README 里「模拟器构建脚本」「真机键盘扩展」的状态改为实测结果。
+
+顺带记录一个副作用：真机路径里的 `pod install --deployment` 会改写被跟踪的 `gen/apple/msime-desktop.xcodeproj/project.pbxproj`，往里加 Pods framework 引用。README 已说明 CocoaPods workspace 与 `Pods` 目录不入库，但没提这份工程文件也会被改；跑完真机构建后需要把它还原，否则工作区会带着构建产物。本次提交不包含该改动。
+
+本地验证：上述两条命令均完成，ipa 内容逐项解包确认。签名、设备安装、键盘启用和真实编辑器验收仍未执行，未改动任何构建以外的源码，CI 保持禁用。
