@@ -51,6 +51,7 @@ export interface ToolbarComponents {
   readonly characterSet: boolean;
   readonly emoji: boolean;
   readonly screenKeyboard: boolean;
+  readonly settings: boolean;
 }
 
 export class FloatingToolbarLayout {
@@ -64,11 +65,11 @@ export class FloatingToolbarLayout {
   static allComponents(): ToolbarComponents {
     return {
       englishMode: true, punctuation: true, fullwidth: true, characterSet: true,
-      emoji: true, screenKeyboard: true
+      emoji: true, screenKeyboard: true, settings: true
     };
   }
 
-  /** In the order the Apple toolbar puts them, with the gear last because it is always there. */
+  /** In the order the Apple toolbar puts them, with the gear last when it is shown at all. */
   static buttons(components: ToolbarComponents): ToolbarButton[] {
     const chosen: ToolbarButton[] = [];
     if (components.englishMode) {
@@ -89,7 +90,11 @@ export class FloatingToolbarLayout {
     if (components.screenKeyboard) {
       chosen.push(ToolbarButton.SCREEN_KEYBOARD);
     }
-    chosen.push(ToolbarButton.SETTINGS);
+    // Optional like the rest of them. It used to be the one button nobody could turn off, which
+    // made the shared 设置 switch a control with no outcome on this host.
+    if (components.settings) {
+      chosen.push(ToolbarButton.SETTINGS);
+    }
     return chosen;
   }
 

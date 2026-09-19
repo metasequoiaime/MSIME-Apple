@@ -61,7 +61,9 @@ export enum HardwareKeyAction {
   DELETE_FORWARD,
   BACKSPACE_SEGMENT,
   MOVE_LEFT_SEGMENT,
-  MOVE_RIGHT_SEGMENT
+  MOVE_RIGHT_SEGMENT,
+  /** Delete the candidate at `index` from the user dictionary, the Windows maintenance chord. */
+  REMOVE_CANDIDATE
 }
 
 export interface HardwareKeyDecision {
@@ -104,6 +106,10 @@ const KEYCODE_PAGE_DOWN: number = 2069;
 const KEYCODE_FORWARD_DEL: number = 2071;
 const KEYCODE_MOVE_HOME: number = 2081;
 const KEYCODE_MOVE_END: number = 2082;
+// The number row. Matched by key rather than by the resolved character: with Ctrl+Shift+Alt held
+// the system resolves nothing useful, and Shift alone would already have turned 1 into '!'.
+const KEYCODE_1: number = 2001;
+const KEYCODE_8: number = 2008;
 
 const RELEASE: HardwareKeyDecision = {
   action: HardwareKeyAction.RELEASE, character: 0, index: 0
@@ -144,6 +150,15 @@ export class HardwareKeyRouter {
     if (japanese && composing && !key.ctrlKey && !key.altKey && !key.logoKey
         && (key.keyCode === KEYCODE_MINUS || key.keyCode === KEYCODE_EQUALS)) {
       return RELEASE;
+    }
+    // The Windows maintenance chord: Ctrl+Shift+Alt+1..8 deletes the candidate in that slot from
+    // the user dictionary. On a 2in1 it is the only way to reach that action, the long press the
+    // touch keyboard uses being a gesture a hardware keyboard has no equivalent for. Whether the
+    // slot exists and whether its candidate may be deleted at all are the caller's to check; this
+    // only says which key was pressed.
+    if (composing && key.ctrlKey && key.shiftKey && key.altKey && !key.logoKey
+        && key.keyCode >= KEYCODE_1 && key.keyCode <= KEYCODE_8) {
+      return decision(HardwareKeyAction.REMOVE_CANDIDATE, 0, key.keyCode - KEYCODE_1);
     }
     // Windows reserves Ctrl+Backspace/Left/Right for editing one Engine segment at a time. Other
     // modifier chords belong to the application, even in the middle of a composition.

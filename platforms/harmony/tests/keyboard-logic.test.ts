@@ -101,7 +101,7 @@ import { CandidatePresentationPolicy } from '../entry/src/main/ets/keyboard/cand
 import { CandidateWheelPolicy } from '../entry/src/main/ets/keyboard/candidate/CandidateWheelPolicy';
 import { CandidateAnchorPolicy, CandidateAnchor }
   from '../entry/src/main/ets/inputmethodextability/CandidateAnchorPolicy';
-import { FloatingToolbarLayout, ToolbarButton }
+import { FloatingToolbarLayout, ToolbarButton, ToolbarComponents }
   from '../entry/src/main/ets/keyboard/FloatingToolbarLayout';
 import { FloatingToolbarDragPolicy } from '../entry/src/main/ets/keyboard/FloatingToolbarDragPolicy';
 
@@ -1568,6 +1568,45 @@ group('the remembered applications are bounded', () => {
   long.activate('x'.repeat(300), 'app');
   long.remember(true);
   check(long.size() === 0, 'an implausible bundle name is not an identity to remember');
+});
+
+group('every toolbar button is optional, the settings gear included', () => {
+  const all: ToolbarComponents = FloatingToolbarLayout.allComponents();
+  check(FloatingToolbarLayout.buttons(all).includes(ToolbarButton.SETTINGS),
+    'the gear is there when the shared switch is on');
+  const hidden: ToolbarComponents = { ...all, settings: false };
+  check(!FloatingToolbarLayout.buttons(hidden).includes(ToolbarButton.SETTINGS),
+    'and gone when it is off, which the switch previously could not achieve');
+  check(FloatingToolbarLayout.buttons(hidden).length
+    === FloatingToolbarLayout.buttons(all).length - 1,
+    'hiding it narrows the bar rather than leaving a gap');
+  const none: ToolbarComponents = {
+    englishMode: false, punctuation: false, fullwidth: false, characterSet: false,
+    emoji: false, screenKeyboard: false, settings: false
+  };
+  check(FloatingToolbarLayout.buttons(none).length === 0, 'turning everything off leaves nothing');
+});
+
+group('the Windows maintenance chord reaches candidate removal on a hardware keyboard', () => {
+  const chord = (keyCode: number): HardwareKey => ({
+    keyCode: keyCode, unicodeChar: 0, ctrlKey: true, altKey: true, logoKey: false, shiftKey: true
+  });
+  const first = HardwareKeyRouter.route(chord(2001), true, true);
+  check(first.action === HardwareKeyAction.REMOVE_CANDIDATE && first.index === 0,
+    'Ctrl+Shift+Alt+1 names the first slot');
+  const eighth = HardwareKeyRouter.route(chord(2008), true, true);
+  check(eighth.action === HardwareKeyAction.REMOVE_CANDIDATE && eighth.index === 7,
+    'and Ctrl+Shift+Alt+8 the eighth, matching the Windows baseline');
+  check(HardwareKeyRouter.route(chord(2009), true, true).action === HardwareKeyAction.RELEASE,
+    'a ninth slot is not part of the chord and stays the application\u0027s');
+  check(HardwareKeyRouter.route(chord(2001), false, true).action === HardwareKeyAction.RELEASE,
+    'with nothing being spelled there is no candidate to delete');
+  const noAlt: HardwareKey = { ...chord(2001), altKey: false };
+  check(HardwareKeyRouter.route(noAlt, true, true).action !== HardwareKeyAction.REMOVE_CANDIDATE,
+    'Ctrl+Shift+1 is not the chord');
+  const logo: HardwareKey = { ...chord(2001), logoKey: true };
+  check(HardwareKeyRouter.route(logo, true, true).action === HardwareKeyAction.RELEASE,
+    'adding Super makes it a desktop shortcut, which belongs to the desktop');
 });
 
 group('the mode badge is built only when the shared preference allows it', () => {
