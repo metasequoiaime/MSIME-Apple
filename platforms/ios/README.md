@@ -85,7 +85,7 @@ codesign -f -s - --entitlements apps/desktop/src-tauri/gen/apple/msime-desktop_i
 xcrun simctl install booted "$app"
 ```
 
-签名后 App Group 查找成功，但 iOS 27 模拟器上进程仍会在启动时 SIGTRAP：`tauri-runtime-wry` 启动时调用 `wry::webview_version()` 探测 WebView，它走 `+[NSBundle bundleWithIdentifier:@"com.apple.WebKit"]`，在该系统版本的 CoreFoundation 内部以 `CFRelease` 空指针陷阱结束。这条路径在仓库代码之外，修复属于上游；在它解决之前，模拟器只能验证到构建、打包与安装，界面与键盘扩展的运行仍需真机。
+签名后 App Group 查找成功（日志里 `container_create_or_lookup…: success`），但 iOS 27 模拟器上进程仍会在启动时 SIGTRAP，release 与 debug 构建一致，`simctl erase` 后的干净设备上同样复现。崩溃报告里实测到的调用链是 `+[NSBundle bundleWithIdentifier:]` → `_CFBundleGetBundleWithIdentifier` → `_CFBundleEnsureBundleExistsForImagePath` → `__CFBundleCopyFrameworkURLForExecutablePath` → `CFRelease` 的空指针陷阱；应用侧的调用者帧未符号化。据此推断调用方为 `wry::platform_webview_version`：它是依赖树里唯一调用 `bundleWithIdentifier` 的位置，`tauri-runtime-wry` 在 `Wry::init` 中无条件执行 `wry::webview_version().is_ok()`，且 `com.apple.WebKit` 与该函数的错误字符串都能在产物二进制里找到；wry 0.57 的同一函数未改动。结论是这条路径在仓库代码之外，未修改任何 vendored crate；在它解决之前，模拟器只能验证到构建、打包与安装，界面与键盘扩展的运行仍需真机。
 
 ## 运行 iOS Swift 测试
 
