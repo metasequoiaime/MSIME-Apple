@@ -211,7 +211,7 @@ fn ios_voice_batch_configuration_uses_current_preferences_and_safe_defaults() {
         .voice_input
         .asr_tokens
         .insert("openai".into(), "synthetic-stale".into());
-    let configuration = super::ios_voice_provider_configuration(&preferences).unwrap();
+    let configuration = crate::voice::ios_voice_provider_configuration(&preferences).unwrap();
     assert_eq!(configuration.provider, "openai");
     assert_eq!(
         configuration.endpoint,
@@ -229,7 +229,7 @@ fn ios_voice_batch_configuration_uses_current_preferences_and_safe_defaults() {
         .voice_input
         .asr_tokens
         .insert("groq".into(), "synthetic-slot".into());
-    let configuration = super::ios_voice_provider_configuration(&preferences).unwrap();
+    let configuration = crate::voice::ios_voice_provider_configuration(&preferences).unwrap();
     assert_eq!(configuration.endpoint, "https://fixture.invalid/transcribe");
     assert_eq!(configuration.model, "fixture-model");
     assert_eq!(configuration.token, "synthetic-slot");
@@ -265,7 +265,7 @@ fn ios_voice_doubao_configuration_uses_shared_auth_and_current_preferences() {
     preferences.voice_input.asr_app_key = "stale-app".into();
     preferences.voice_input.doubao_auth_mode = "api_key".into();
     preferences.voice_input.doubao_boosting_table_id = "fixture-table".into();
-    let configuration = super::ios_voice_provider_configuration(&preferences).unwrap();
+    let configuration = crate::voice::ios_voice_provider_configuration(&preferences).unwrap();
     assert_eq!(configuration.provider, "doubao");
     assert_eq!(
         configuration.endpoint,
@@ -288,7 +288,7 @@ fn ios_voice_doubao_configuration_uses_shared_auth_and_current_preferences() {
 
     preferences.voice_input.doubao_auth_mode = "legacy".into();
     preferences.voice_input.asr_app_key = "synthetic-app".into();
-    let configuration = super::ios_voice_provider_configuration(&preferences).unwrap();
+    let configuration = crate::voice::ios_voice_provider_configuration(&preferences).unwrap();
     assert!(configuration
         .headers
         .iter()
@@ -309,7 +309,7 @@ fn voice_provider_options_only_forwards_known_doubao_auth_modes() {
             "asr_token": "private-token"
         }}
     });
-    let result = super::voice_provider_options(&document);
+    let result = crate::voice::voice_provider_options(&document);
     assert!(result.is_ok());
     let options = result.ok().expect("voice options should be valid");
     assert_eq!(
@@ -322,7 +322,7 @@ fn voice_provider_options_only_forwards_known_doubao_auth_modes() {
     let document = serde_json::json!({
         "preferences": {"voice_input": {"doubao_auth_mode": "unknown"}}
     });
-    let result = super::voice_provider_options(&document);
+    let result = crate::voice::voice_provider_options(&document);
     assert!(result.is_ok());
     let options = result.ok().expect("voice options should be valid");
     assert!(options.get("doubao_auth_mode").is_none());
@@ -338,7 +338,7 @@ fn voice_provider_options_bound_strings_by_utf8_bytes() {
             "capture_device": "x".repeat(600)
         }}
     });
-    let options = super::voice_provider_options(&document).unwrap();
+    let options = crate::voice::voice_provider_options(&document).unwrap();
     let model = options
         .get("asr_model")
         .and_then(|value| value.as_str())
@@ -366,7 +366,7 @@ fn voice_preferences_refresh_keeps_transport_and_reads_latest_store_snapshot() {
         "voice_provider_socket": "/fixture/voice.sock",
         "preferences": {"voice_input": {"asr_provider": "stale"}}
     });
-    let refreshed = super::refresh_voice_preferences(document, &store).unwrap();
+    let refreshed = crate::voice::refresh_voice_preferences(document, &store).unwrap();
     assert_eq!(
         refreshed["preferences"]["voice_input"]["asr_provider"],
         "openai"

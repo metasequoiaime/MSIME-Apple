@@ -10,7 +10,8 @@ use crate::panel_position;
 use crate::platform::macos::macos_keyboard;
 #[cfg(target_os = "macos")]
 use crate::platform::macos::macos_panel_session;
-use crate::{cancel_voice, DictionaryHostOptions, HostActionError, PanelInputState};
+use crate::voice::cancel_voice;
+use crate::{DictionaryHostOptions, HostActionError, PanelInputState};
 use tauri::{Manager, WebviewUrl, WebviewWindowBuilder};
 
 pub(crate) fn panel_accepts_focus(label: &str) -> bool {
