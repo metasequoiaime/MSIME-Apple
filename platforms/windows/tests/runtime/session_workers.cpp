@@ -351,12 +351,35 @@ void session_worker_tests(const std::string &options) {
     transport.wait_started(8);
     const auto disabled = controller.candidate_view();
     const auto disabled_mode = controller.mode_view();
-    require(disabled_mode && disabled_mode->chinese == false);
-    require(disabled && !disabled->visible && disabled->preedit.empty() &&
-            disabled->candidates.empty());
-    require(controller.request_selection(before->lease, candidate.session,
-                candidate.generation, candidate.index) ==
-            SelectionRequestResult::Rejected);
+    require(disabled_mode.has_value() && disabled.has_value());
+    // Full/half-width is the one notification here that carries no CN/EN
+    // state. InputState::synchronize_input_mode returns early for it without
+    // touching input-enabled, and ModeMailbox sets only `fullwidth` - both say
+    // so in their own comments, and ModePresentation's optionals exist exactly
+    // so "unknown" is not reported as "off". Asserting chinese == false for it
+    // contradicts all three, and toggling 全角 mid-composition dismissing the
+    // candidate window would be a bug rather than the behaviour to pin.
+    const bool carries_input_state =
+        notification != FanyImePipeEventType::DoubleSingleByteSwitch;
+    if (carries_input_state) {
+      require(disabled_mode->chinese == false);
+      require(!disabled->visible && disabled->preedit.empty() &&
+              disabled->candidates.empty());
+      require(controller.request_selection(before->lease, candidate.session,
+                  candidate.generation, candidate.index) ==
+              SelectionRequestResult::Rejected);
+    } else {
+      require(!disabled_mode->chinese.has_value());
+      require(disabled_mode->fullwidth == false);
+      // The composition is untouched, so everything below - which checks what
+      // survives a teardown and how typing restarts after one - is about a
+      // different event than this one.
+      require(disabled->visible && disabled->preedit == before->preedit);
+      require(transport.current(ticket) &&
+              controller.failure() == ControllerFailure::None);
+      controller.stop();
+      continue;
+    }
     packet.event_type = FanyImePipeEventType::ShowCandidateWnd;
     transport.push(packet);
     transport.wait_started(9);
