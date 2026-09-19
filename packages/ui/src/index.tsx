@@ -198,6 +198,7 @@ export interface HostCapabilities {
   candidate_english_font?: boolean;
   english_suggestions?: boolean;
   shuangpin_preedit?: boolean;
+  voice_commit_mode?: boolean;
 }
 
 /** Superseded by the host-provided capabilities; used only when a host predates them. */
@@ -947,6 +948,9 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
   // Every host's Engine honours the preference; this is about which of them draw the composition
   // themselves, and so show the user a difference between the raw keys and the expanded pinyin.
   const showShuangpinPreedit = host?.shuangpin_preedit ?? macosPlatform;
+  // A host with one way to commit a recognized result has nothing to choose between, and a select
+  // with one outcome reads as a setting being ignored.
+  const showVoiceCommitMode = host?.voice_commit_mode ?? !androidPlatform;
   const showCandidateRowColors = host ? host.candidate_row_colors : true;
   const showCandidateSelectionAppearance = host ? host.candidate_selection_appearance : true;
   const showCandidateFollowCursor = host ? host.candidate_follow_cursor : false;
@@ -2651,7 +2655,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
           }, !voiceInput.asr_token?.trim() || (voiceInput.asr_provider === "doubao" && doubaoAuthMode === "legacy" && !voiceInput.asr_app_key?.trim()))}
         </>}
         {!androidPlatform && <div className="section"><label className="section-header"><span className="section-title">流式预编辑<small>provider 支持时显示实时识别片段</small></span><input aria-label="流式预编辑" className="toggle" type="checkbox" checked={voiceInput.stream_inline_preedit === true} onChange={event => updateVoice({ stream_inline_preedit: event.target.checked })} /></label></div>}
-        {!androidPlatform && <div className="section"><label className="section-header"><span className="section-title">结果提交策略<small>{macosPlatform ? "系统按键和 Command-V 粘贴需要系统事件权限；不可用时回退到输入法会话，粘贴会替换剪贴板内容" : "由当前桌面宿主决定如何把识别结果交给前台窗口"}</small></span><select aria-label="结果提交策略" value={voiceInput.commit_mode ?? "tsf"} onChange={event => updateVoice({ commit_mode: event.target.value as VoiceInputPreferences["commit_mode"] })}><option value="tsf">输入法会话</option><option value="sendinput">系统按键</option><option value="ctrl_v">剪贴板粘贴</option></select></label></div>}
+        {showVoiceCommitMode && <div className="section"><label className="section-header"><span className="section-title">结果提交策略<small>{macosPlatform ? "系统按键和 Command-V 粘贴需要系统事件权限；不可用时回退到输入法会话，粘贴会替换剪贴板内容" : "由当前桌面宿主决定如何把识别结果交给前台窗口"}</small></span><select aria-label="结果提交策略" value={voiceInput.commit_mode ?? "tsf"} onChange={event => updateVoice({ commit_mode: event.target.value as VoiceInputPreferences["commit_mode"] })}><option value="tsf">输入法会话</option><option value="sendinput">系统按键</option><option value="ctrl_v">剪贴板粘贴</option></select></label></div>}
         {showVoiceCaptureDevices && <div className="section"><div className="section-title">录音设备<small>保存后从下一次录音生效，不打断当前录音</small></div>
           <label className="section-header"><span className="section-title">录音后端</span><select aria-label="录音后端" value={voiceInput.capture_backend ?? ""} onChange={event => updateVoice({ capture_backend: event.target.value as VoiceInputPreferences["capture_backend"], capture_device: "" })}><option value="">{windowsPlatform ? "系统默认" : "沿用服务设置"}</option>{captureBackendOptions.map(([value, label]) => <option key={value} value={value}>{label}</option>)}{voiceInput.capture_backend && !captureBackendOptions.some(([value]) => value === voiceInput.capture_backend) && <option value={voiceInput.capture_backend} disabled>{voiceInput.capture_backend}（此平台不可用）</option>}</select></label>
           {client.listVoiceCaptureDevices && <VoiceDevicePicker read={client.listVoiceCaptureDevices} backend={voiceInput.capture_backend ?? ""} device={voiceInput.capture_device ?? ""} choose={(capture_backend, capture_device) => updateVoice({ capture_backend, capture_device })} />}

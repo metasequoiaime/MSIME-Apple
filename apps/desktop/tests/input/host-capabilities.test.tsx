@@ -35,6 +35,7 @@ function capabilities(overrides: Partial<HostCapabilities> = {}): HostCapabiliti
     candidate_english_font: false,
     english_suggestions: false,
     shuangpin_preedit: false,
+    voice_commit_mode: false,
     ...overrides,
   };
 }
@@ -259,6 +260,21 @@ test("a host that does not place its own card hides the follow-cursor choice", a
   mount({ host: capabilities({ platform: "linux", candidate_follow_cursor: false }) });
   await screen.findByRole("button", { name: "保存设置" });
   expect(screen.queryByLabelText("候选窗口跟随光标")).toBeNull();
+});
+
+test("a host with one commit path is not offered a choice between three", async () => {
+  render(<SettingsPage initialPage="voice" client={{
+    load: async () => initial, save: vi.fn(),
+    host: capabilities({ platform: "harmony" }),
+  }} />);
+  await screen.findByText("录音行为");
+  expect(screen.queryByLabelText("结果提交策略")).toBeNull();
+  cleanup();
+  render(<SettingsPage initialPage="voice" client={{
+    load: async () => initial, save: vi.fn(),
+    host: capabilities({ platform: "windows", voice_commit_mode: true }),
+  }} />);
+  expect(await screen.findByLabelText("结果提交策略")).toBeTruthy();
 });
 
 test("the shuangpin preedit choice reaches every host that draws the composition", async () => {

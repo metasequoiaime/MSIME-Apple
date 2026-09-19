@@ -3,6 +3,7 @@ import {
 } from './KeyboardSession';
 import { KeyboardScheme, SchemeDefinition } from './KeyboardScheme';
 import { VoiceHotkeyAction } from './input/VoiceHotkeyPolicy';
+import { VoiceRecordingBehaviourPolicy } from './input/VoiceRecordingBehaviourPolicy';
 import { KeyboardSkin } from './skin/KeyboardSkin';
 import { EnglishLetterCaseState, LetterCaseMode } from './input/EnglishLetterCaseState';
 import { LetterKeyFacePolicy } from './input/LetterKeyFacePolicy';
@@ -1819,7 +1820,10 @@ struct KeyboardView {
     const voiceConfiguration = KeyboardSession.shared.voiceInputConfiguration();
     this.voiceRecognizer.start(voiceConfiguration.language || 'zh-CN', voiceConfiguration,
       (text: string, final: boolean): void => {
-      if (text.length > 0) {
+      // A partial result only reaches the panel when the user asked to watch the recognizer work.
+      // The final one always does: it is the result.
+      if (text.length > 0
+          && (final || VoiceRecordingBehaviourPolicy.showsInterimResults(voiceConfiguration))) {
         this.voiceText = VoiceRecognitionPolicy.result(text);
       }
       if (final && this.voiceGeneration > 0) {
