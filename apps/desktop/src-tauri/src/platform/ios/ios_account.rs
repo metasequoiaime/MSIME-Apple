@@ -16,33 +16,33 @@ use msime_client_core::account::{
     SavedAccountSession,
 };
 #[cfg(target_os = "ios")]
-use msime_client_core::ai_skin::{AiSkinError, AiSkinProposal, BackendAiSkinService};
+use msime_client_core::cloud::dictionary::DictionaryKind;
 #[cfg(target_os = "ios")]
-use msime_client_core::cloud_dictionary::DictionaryKind;
-#[cfg(target_os = "ios")]
-use msime_client_core::community_resource::{
+use msime_client_core::community::resource::{
     BackendCommunityResourceService, CommunityResource, CommunityResourceApplication,
     CommunityResourceContent, CommunityResourceKind, CommunityResourcePage,
     CommunityResourcePublication, CommunityResourceScope,
 };
 #[cfg(target_os = "ios")]
-use msime_client_core::community_resource_library::{
+use msime_client_core::community::resource_library::{
     CommunityResourceLibraryError, CommunityResourceLibraryStore,
 };
 #[cfg(target_os = "ios")]
-use msime_client_core::community_skin::{
+use msime_client_core::preferences::PreferencesStore;
+#[cfg(target_os = "ios")]
+use msime_client_core::skin::ai::{AiSkinError, AiSkinProposal, BackendAiSkinService};
+#[cfg(target_os = "ios")]
+use msime_client_core::skin::community::{
     BackendCommunitySkinService, CommunitySkin, CommunitySkinPage,
 };
 #[cfg(target_os = "ios")]
-use msime_client_core::custom_skin_library::{
+use msime_client_core::skin::custom_library::{
     CustomSkinLibraryError, CustomSkinLibraryStore, SavedTouchKeyboardSkin,
 };
 #[cfg(target_os = "ios")]
-use msime_client_core::keyboard_skin_trial::{
+use msime_client_core::skin::keyboard_trial::{
     KeyboardSkinTrial, KeyboardSkinTrialError, KeyboardSkinTrialStore,
 };
-#[cfg(target_os = "ios")]
-use msime_client_core::preferences::PreferencesStore;
 #[cfg(target_os = "ios")]
 use msime_tauri_mobile_platform::{IosKeyboardPreferences, MobilePlatform};
 #[cfg(target_os = "ios")]

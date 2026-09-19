@@ -9,14 +9,11 @@
 #![allow(unsafe_code)]
 
 use msime_client_core::ai::AiSuggestionRequest;
-use msime_client_core::dictionary_access::DictionaryAccess;
+use msime_client_core::dictionary::access::DictionaryAccess;
 use msime_client_core::host_surface::{HostCapabilities, HostPlatform, SurfaceRoute};
 pub mod cloud_clipboard;
 pub mod cloud_dictionary;
 pub mod system_fonts;
-use msime_client_core::doubao_frame::{
-    audio_frame, decode_error_code, decode_json_frame, start_frame,
-};
 use msime_client_core::preferences::{
     InputScheme, Preferences, PreferencesSnapshot, PreferencesStore, ShuangpinProfile,
     TouchKeyboardLayout,
@@ -26,6 +23,9 @@ use msime_client_core::punctuation::{
 };
 use msime_client_core::resources::{ResourceSet, ResourceStore};
 use msime_client_core::typing_statistics::{TypingSource, TypingStatisticsStore};
+use msime_client_core::voice::doubao_frame::{
+    audio_frame, decode_error_code, decode_json_frame, start_frame,
+};
 use msime_client_core::voice::VoiceSessionState;
 use msime_engine_bridge::{CandidateEdge, Command, EngineOptions, Session};
 use msime_input_runtime::HandwritingQuery;
@@ -1006,7 +1006,7 @@ pub unsafe extern "C" fn msime_client_skin_catalog(
         if !std::path::Path::new(directory).is_absolute() {
             return Err("skin directory must be absolute".into());
         }
-        serde_json::to_value(msime_client_core::skin_catalog::scan(directory))
+        serde_json::to_value(msime_client_core::skin::catalog::scan(directory))
             .map_err(|e| e.to_string())
     })
 }
@@ -1061,7 +1061,7 @@ pub unsafe extern "C" fn msime_client_skin_resource(
         if !Path::new(&request.directory).is_absolute() {
             return Err("skin directory must be absolute".into());
         }
-        let resource = msime_client_core::skin_catalog::read_resource(
+        let resource = msime_client_core::skin::catalog::read_resource(
             &request.directory,
             &request.id,
             &request.relative,
@@ -1102,7 +1102,7 @@ pub unsafe extern "C" fn msime_client_skin_toolbar_stylesheet(
         if !Path::new(&request.directory).is_absolute() {
             return Err("skin directory must be absolute".into());
         }
-        let stylesheet = msime_client_core::skin_catalog::read_toolbar_stylesheet(
+        let stylesheet = msime_client_core::skin::catalog::read_toolbar_stylesheet(
             &request.directory,
             &request.id,
         )
@@ -3956,7 +3956,7 @@ mod tests {
 
     #[test]
     fn doubao_frame_codec_is_available_through_c_abi() {
-        let request = msime_client_core::doubao_frame::encode_json_frame(
+        let request = msime_client_core::voice::doubao_frame::encode_json_frame(
             9,
             0,
             1,
@@ -4774,7 +4774,7 @@ mod tests {
         assert_eq!(catalog["value"]["issues"][0]["folder"], "broken");
         assert_eq!(
             catalog["value"],
-            serde_json::to_value(msime_client_core::skin_catalog::scan(&root)).unwrap()
+            serde_json::to_value(msime_client_core::skin::catalog::scan(&root)).unwrap()
         );
         let relative = "skins";
         assert_eq!(scan(relative)["ok"], false);

@@ -18,17 +18,17 @@ use platform::macos::{
 use platform::windows::{windows_account, windows_voice};
 
 use msime_client_core::clipboard::{ClipboardHistoryEntry, ClipboardHistoryStore};
-use msime_client_core::custom_skin_library::{
-    CustomSkinLibraryAction, CustomSkinLibraryError, CustomSkinLibraryStore, SavedTouchKeyboardSkin,
-};
 use msime_client_core::host_surface::{HostCapabilities, HostPlatform, SurfaceRoute};
-use msime_client_core::keyboard_skin_trial::KeyboardSkinTrialStore;
 use msime_client_core::panels::{
     HandwritingRecognitionRequest, HandwritingRecognitionResult, KeyboardInputRequest,
 };
 use msime_client_core::preferences::{
     Preferences, PreferencesError, PreferencesSnapshot, PreferencesStore,
 };
+use msime_client_core::skin::custom_library::{
+    CustomSkinLibraryAction, CustomSkinLibraryError, CustomSkinLibraryStore, SavedTouchKeyboardSkin,
+};
+use msime_client_core::skin::keyboard_trial::KeyboardSkinTrialStore;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 use msime_client_core::typing_statistics::TypingSource;
 use msime_client_core::typing_statistics::{TypingStatistics, TypingStatisticsStore};
@@ -573,7 +573,7 @@ fn read_skin_toolbar_stylesheet_at(
     root: PathBuf,
     id: &str,
 ) -> Result<Option<String>, CommandError> {
-    msime_client_core::skin_catalog::read_toolbar_stylesheet(root, id)
+    msime_client_core::skin::catalog::read_toolbar_stylesheet(root, id)
         .map_err(|_| CommandError { code: "storage" })
 }
 
@@ -600,7 +600,7 @@ fn read_skin_image_at(
     id: &str,
     relative: &str,
 ) -> Result<SkinImageResponse, CommandError> {
-    let resource = msime_client_core::skin_catalog::read_resource(root, id, relative)
+    let resource = msime_client_core::skin::catalog::read_resource(root, id, relative)
         .map_err(|_| CommandError { code: "storage" })?;
     if !resource.content_type.starts_with("image/") {
         return Err(CommandError {
@@ -637,7 +637,7 @@ fn read_skin_font_at(
     id: &str,
     relative: &str,
 ) -> Result<SkinFontResponse, CommandError> {
-    let resource = msime_client_core::skin_catalog::read_resource(root, id, relative)
+    let resource = msime_client_core::skin::catalog::read_resource(root, id, relative)
         .map_err(|_| CommandError { code: "storage" })?;
     if !resource.content_type.starts_with("font/") {
         return Err(CommandError {
@@ -677,13 +677,13 @@ async fn open_skin_directory(
 struct SkinCatalogResponse {
     directory: String,
     #[serde(flatten)]
-    catalog: msime_client_core::skin_catalog::SkinCatalog,
+    catalog: msime_client_core::skin::catalog::SkinCatalog,
 }
 
 fn read_skin_catalog(root: PathBuf) -> SkinCatalogResponse {
     SkinCatalogResponse {
         directory: root.to_string_lossy().into_owned(),
-        catalog: msime_client_core::skin_catalog::scan(root),
+        catalog: msime_client_core::skin::catalog::scan(root),
     }
 }
 
@@ -1048,14 +1048,14 @@ async fn test_api_credential(
         let result = tauri::async_runtime::spawn_blocking(move || {
             if service == "voice.asr" {
                 if config.get("provider").and_then(Value::as_str) == Some("doubao") {
-                    return msime_client_core::credential_doubao::test(
+                    return msime_client_core::credential::doubao::test(
                         &config,
-                        &msime_client_core::credential_doubao::WebSocketTransport,
+                        &msime_client_core::credential::doubao::WebSocketTransport,
                     );
                 }
-                return msime_client_core::credential_asr::test(
+                return msime_client_core::credential::asr::test(
                     &config,
-                    &msime_client_core::credential_asr::HttpTransport,
+                    &msime_client_core::credential::asr::HttpTransport,
                 );
             }
             if service.starts_with("translation.") {
@@ -1063,17 +1063,17 @@ async fn test_api_credential(
                     .duration_since(std::time::UNIX_EPOCH)
                     .map(|duration| duration.as_millis().min(u64::MAX as u128) as u64)
                     .unwrap_or(0);
-                return msime_client_core::credential_translation::test(
+                return msime_client_core::credential::translation::test(
                     &service,
                     &config,
                     milliseconds,
-                    &msime_client_core::credential_translation::HttpTransport,
+                    &msime_client_core::credential::translation::HttpTransport,
                 );
             }
-            msime_client_core::credential_test::test_chat(
+            msime_client_core::credential::probe::test_chat(
                 &service,
                 &config,
-                &msime_client_core::credential_test::HttpsProbeTransport,
+                &msime_client_core::credential::probe::HttpsProbeTransport,
             )
         })
         .await
@@ -1089,10 +1089,10 @@ async fn test_api_credential(
     {
         let _ = runtime;
         let result = tauri::async_runtime::spawn_blocking(move || {
-            let result = msime_client_core::credential_test::test_chat(
+            let result = msime_client_core::credential::probe::test_chat(
                 &service,
                 &config,
-                &msime_client_core::credential_test::HttpsProbeTransport,
+                &msime_client_core::credential::probe::HttpsProbeTransport,
             );
             msime_input_runtime::CredentialTestResult {
                 ok: result.ok,
@@ -3421,7 +3421,7 @@ fn ios_voice_provider_configuration(
             "" => "volc.seedasr.sauc.duration",
             value => value,
         };
-        msime_client_core::doubao_auth::headers(
+        msime_client_core::credential::doubao_auth::headers(
             &voice.doubao_auth_mode,
             &voice.asr_app_key,
             token,
@@ -5506,7 +5506,7 @@ pub fn run() {
             let community_resource_library_path =
                 ios_community_resource_library_path(&directory);
             #[cfg(any(target_os = "android", target_os = "ios"))]
-            app.manage(msime_client_core::community_resource_library::CommunityResourceLibraryStore::new(
+            app.manage(msime_client_core::community::resource_library::CommunityResourceLibraryStore::new(
                 community_resource_library_path,
             ));
             app.manage(keyboard_skin_trials);
@@ -6203,7 +6203,7 @@ mod tests {
             super::ios_custom_skin_library_root(std::path::Path::new("/fixture/app-group/MSIME"));
         assert_eq!(root, std::path::Path::new("/fixture/app-group"));
         assert_eq!(
-            msime_client_core::custom_skin_library::CustomSkinLibraryStore::new(root).path(),
+            msime_client_core::skin::custom_library::CustomSkinLibraryStore::new(root).path(),
             std::path::Path::new("/fixture/app-group/CustomSkins/library.json")
         );
     }

@@ -1,8 +1,8 @@
 //! Native management requests. The native caller owns and authorizes all paths.
 
 use super::{edit_personal_dictionary, response, DictionaryAccess, HostOptions};
-use msime_client_core::dictionary_import::{dictionary_row_matches, PageSelector};
-use msime_client_core::personal_dictionary::{
+use msime_client_core::dictionary::import::{dictionary_row_matches, PageSelector};
+use msime_client_core::dictionary::personal::{
     PersonalDictionaryError, PersonalDictionaryStore, PersonalWord, PersonalWordKind,
     PersonalWordRequestStatus,
 };
@@ -367,12 +367,13 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
             if applied == 0 && !rejected_lines.is_empty() {
                 return Err("dictionary import rejected".into());
             }
-            let mut report = report.unwrap_or(msime_client_core::dictionary_import::ImportReport {
-                entries: Vec::new(),
-                failed: 0,
-                first_failures: Vec::new(),
-                truncated: false,
-            });
+            let mut report =
+                report.unwrap_or(msime_client_core::dictionary::import::ImportReport {
+                    entries: Vec::new(),
+                    failed: 0,
+                    first_failures: Vec::new(),
+                    truncated: false,
+                });
             report.record_rejected(&rejected_lines);
             let mut result = json!({ "applied": applied });
             // Tell the caller what was skipped instead of reporting a clean import.
@@ -686,7 +687,7 @@ pub fn personal_dictionary_sync_json(bytes: &[u8]) -> Result<serde_json::Value, 
             |offset| {
                 let page = msime_engine_bridge::dictionary_entries(&options, offset, 100)
                     .map_err(|_| "dictionary read rejected".to_owned())?;
-                Ok(msime_client_core::personal_dictionary::PersonalWordPage {
+                Ok(msime_client_core::dictionary::personal::PersonalWordPage {
                     entries: page
                         .entries
                         .into_iter()
@@ -817,9 +818,9 @@ fn validate_entry(entry: &Entry) -> Result<(), String> {
     Ok(())
 }
 
-impl From<&Kind> for msime_client_core::dictionary_import::ImportKind {
+impl From<&Kind> for msime_client_core::dictionary::import::ImportKind {
     fn from(kind: &Kind) -> Self {
-        use msime_client_core::dictionary_import::ImportKind;
+        use msime_client_core::dictionary::import::ImportKind;
         match kind {
             Kind::Pinyin => ImportKind::Pinyin,
             Kind::Wubi => ImportKind::Wubi,
@@ -832,7 +833,7 @@ impl From<&Kind> for msime_client_core::dictionary_import::ImportKind {
 /// Entries ready for the Engine, plus what the shared parser skipped.
 type ParsedImport = (
     Vec<DictionaryEntry>,
-    msime_client_core::dictionary_import::ImportReport,
+    msime_client_core::dictionary::import::ImportReport,
 );
 
 /// Parse a submitted dictionary file through the shared parser. Unusable rows
@@ -844,11 +845,11 @@ fn parse_import(
     text: &str,
     engine_options: Option<&msime_engine_bridge::EngineOptions>,
 ) -> Result<ParsedImport, String> {
-    let mut report = msime_client_core::dictionary_import::parse(
+    let mut report = msime_client_core::dictionary::import::parse(
         kind.into(),
         format,
         text,
-        msime_client_core::cloud_dictionary::MAX_IMPORT_BYTES,
+        msime_client_core::cloud::dictionary::MAX_IMPORT_BYTES,
     )
     .map_err(|error| error.to_string())?;
     if matches!(kind, Kind::Pinyin) && engine_options.is_some() {
@@ -868,9 +869,9 @@ fn parse_import(
                 report.failed += 1;
                 if report.first_failures.len() < 5 {
                     report.first_failures.push(
-                        msime_client_core::dictionary_import::ImportFailure {
+                        msime_client_core::dictionary::import::ImportFailure {
                             line: entry.line,
-                            issue: msime_client_core::dictionary_import::ImportIssue::Pinyin,
+                            issue: msime_client_core::dictionary::import::ImportIssue::Pinyin,
                         },
                     );
                 }
@@ -901,7 +902,7 @@ fn parse_hans_import(
 ) -> Result<Vec<DictionaryEntry>, String> {
     if !matches!(kind, Kind::Pinyin)
         || text.is_empty()
-        || text.len() > msime_client_core::cloud_dictionary::MAX_IMPORT_BYTES
+        || text.len() > msime_client_core::cloud::dictionary::MAX_IMPORT_BYTES
         || text.contains('\0')
         || text
             .chars()
@@ -1053,7 +1054,7 @@ mod tests {
         assert_eq!(report.first_failures[0].line, 2);
         assert_eq!(
             report.first_failures[0].issue,
-            msime_client_core::dictionary_import::ImportIssue::Pinyin
+            msime_client_core::dictionary::import::ImportIssue::Pinyin
         );
 
         let (wubi, _) =

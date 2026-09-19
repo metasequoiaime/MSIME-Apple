@@ -404,7 +404,7 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
             if valid_kind(kind)
                 && valid_format(kind, format)
                 && !text.is_empty()
-                && text.len() <= msime_client_core::cloud_dictionary::MAX_IMPORT_BYTES
+                && text.len() <= msime_client_core::cloud::dictionary::MAX_IMPORT_BYTES
                 && !text.contains('\0')
                 && text.chars().all(|character| {
                     !character.is_control() || matches!(character, '\n' | '\r' | '\t')

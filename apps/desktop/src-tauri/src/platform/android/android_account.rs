@@ -4,29 +4,29 @@ use msime_client_core::account::{
     AccountPreferenceValue, AccountPreferences, AccountProfile, AccountSessionStorage, AccountUser,
     BackendAccountClient, BackendAccountSession, SavedAccountSession,
 };
-use msime_client_core::ai_skin::{AiSkinError, AiSkinProposal, BackendAiSkinService};
-use msime_client_core::cloud_dictionary::DictionaryKind;
-use msime_client_core::community_resource::{
+use msime_client_core::cloud::dictionary::DictionaryKind;
+use msime_client_core::community::resource::{
     BackendCommunityResourceService, CommunityResource, CommunityResourceApplication,
     CommunityResourceContent, CommunityResourceKind, CommunityResourcePage,
     CommunityResourcePublication, CommunityResourceScope,
 };
-use msime_client_core::community_resource_library::{
+use msime_client_core::community::resource_library::{
     CommunityResourceLibraryError, CommunityResourceLibraryStore,
-};
-use msime_client_core::community_skin::{
-    BackendCommunitySkinService, CommunitySkin, CommunitySkinPage,
-};
-use msime_client_core::custom_skin_library::{
-    CustomSkinLibraryError, CustomSkinLibraryStore, SavedTouchKeyboardSkin,
-};
-use msime_client_core::keyboard_skin_trial::{
-    KeyboardSkinTrial, KeyboardSkinTrialError, KeyboardSkinTrialStore,
 };
 use msime_client_core::preferences::{
     FrequencyMode, FrequencyPreferences, InputScheme, Preferences, PreferencesSnapshot,
     PreferencesStore, ShuangpinProfile, ThemeMode, TouchKeyboardLayout, TouchKeyboardSkin,
     TouchKeyboardSkinDesign,
+};
+use msime_client_core::skin::ai::{AiSkinError, AiSkinProposal, BackendAiSkinService};
+use msime_client_core::skin::community::{
+    BackendCommunitySkinService, CommunitySkin, CommunitySkinPage,
+};
+use msime_client_core::skin::custom_library::{
+    CustomSkinLibraryError, CustomSkinLibraryStore, SavedTouchKeyboardSkin,
+};
+use msime_client_core::skin::keyboard_trial::{
+    KeyboardSkinTrial, KeyboardSkinTrialError, KeyboardSkinTrialStore,
 };
 use serde::de::{DeserializeSeed, MapAccess, Visitor};
 use serde::{Deserialize, Serialize};

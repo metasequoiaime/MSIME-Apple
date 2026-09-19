@@ -1,5 +1,5 @@
 //! Batch ASR probes use synthetic silence, never microphone or user audio.
-use crate::credential_test::ProbeResult;
+use crate::credential::probe::ProbeResult;
 use serde_json::Value;
 use std::{io::Read, time::Duration};
 

@@ -1,6 +1,6 @@
 //! Account protocol and session state independent of UI and platform hosts.
 
-use crate::cloud_dictionary::DictionaryKind;
+use crate::cloud::dictionary::DictionaryKind;
 use reqwest::blocking::{Client, Response};
 use reqwest::{Method, StatusCode, Url};
 use serde::de::DeserializeOwned;

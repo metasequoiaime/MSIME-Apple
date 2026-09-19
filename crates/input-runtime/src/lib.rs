@@ -546,7 +546,7 @@ pub fn cloud_request_url(query: &OnlineQuery) -> Option<String> {
     if !query.cloud_eligible || !query.cloud_candidates {
         return None;
     }
-    msime_client_core::cloud::build_google_url(&query.query_text, query.scheme == 3)
+    msime_client_core::cloud::candidates::build_google_url(&query.query_text, query.scheme == 3)
 }
 
 /// Convert a host-fetched Google response into a bounded online result.
@@ -557,7 +557,7 @@ pub fn cloud_candidate_from_response(
     if !query.cloud_eligible || !query.cloud_candidates {
         return None;
     }
-    let text = msime_client_core::cloud::parse_google_response(response)?;
+    let text = msime_client_core::cloud::candidates::parse_google_response(response)?;
     Some(OnlineCandidate {
         query,
         text,

@@ -1,10 +1,10 @@
 //! Bounded worker-thread operations on the private learned-gloss store.
+use msime_client_core::translation::store::{
+    GlossDirection, GlossStoreError, TranslationGlossStore,
+};
 use msime_client_core::translation::{
     format_translation_gloss, is_cloud_translatable_chinese, is_cloud_translatable_english,
     should_persist_translation,
-};
-use msime_client_core::translation_store::{
-    GlossDirection, GlossStoreError, TranslationGlossStore,
 };
 use serde::Deserialize;
 use serde_json::{json, Value};

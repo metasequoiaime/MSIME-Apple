@@ -1,5 +1,6 @@
 //! Translation configuration probes. No user input or provider errors leave this boundary.
-use crate::{credential_test::ProbeResult, translation};
+use crate::credential::probe::ProbeResult;
+use crate::translation;
 use serde_json::{json, Value};
 use std::{io::Read, time::Duration};
 

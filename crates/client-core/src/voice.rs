@@ -1,4 +1,10 @@
 //! Host-independent voice session lifecycle. Audio and ASR transports are injected.
+//!
+//! [`controller`] drives one recognition session over an injected transport;
+//! [`doubao_frame`] is the bounded decoder for one provider's wire format.
+
+pub mod controller;
+pub mod doubao_frame;
 
 /// Platform-injected streaming voice transport.
 pub trait VoiceTransport {

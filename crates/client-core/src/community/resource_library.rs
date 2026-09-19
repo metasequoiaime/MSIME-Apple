@@ -1,6 +1,6 @@
 //! The explicit, bounded local library shared with the Android IME process.
 
-use crate::community_resource::{CommunityResource, CommunityResourceKind};
+use crate::community::resource::{CommunityResource, CommunityResourceKind};
 use crate::file_lock;
 use serde_json::from_slice;
 use std::fs::{self, File, OpenOptions};
@@ -142,7 +142,7 @@ impl CommunityResourceLibraryStore {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::community_resource::{CommunityResourceContent, SharedWord};
+    use crate::community::resource::{CommunityResourceContent, SharedWord};
 
     fn reply() -> CommunityResource {
         CommunityResource {
@@ -182,7 +182,7 @@ mod tests {
             .save_reply(CommunityResource {
                 content: CommunityResourceContent {
                     entries: vec![SharedWord {
-                        kind: crate::cloud_dictionary::DictionaryKind::Quick,
+                        kind: crate::cloud::dictionary::DictionaryKind::Quick,
                         code: "x".into(),
                         word: "y".into(),
                         weight: 1
