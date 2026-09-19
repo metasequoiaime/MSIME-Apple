@@ -214,9 +214,16 @@ impl HostCapabilities {
             // row as Windows; the ArkTS router releases digits when this
             // preference is enabled, so the focused editor can consume them.
             number_row_selection: matches!(platform, HostPlatform::Linux | HostPlatform::Harmony),
+            // HarmonyOS records through its own AudioCapturer for the HTTP and Doubao providers, so
+            // the routing manager's input devices are both enumerable and selectable there. The
+            // system speech recognizer keeps its audio inside the service and is unaffected either
+            // way; nothing else on this host owns a microphone.
             voice_capture_devices: matches!(
                 platform,
-                HostPlatform::Linux | HostPlatform::Windows | HostPlatform::Macos
+                HostPlatform::Linux
+                    | HostPlatform::Windows
+                    | HostPlatform::Macos
+                    | HostPlatform::Harmony
             ),
             // Native Windows/macOS candidate windows consume the shared font
             // controls. Harmony's desktop candidate panel and Android's
@@ -771,7 +778,8 @@ mod tests {
         assert!(harmony.mode_switch_shortcuts);
         assert!(!harmony.panel_shortcuts);
         assert!(harmony.number_row_selection);
-        assert!(!harmony.voice_capture_devices);
+        // The two network providers create their own capturer, so a chosen microphone is routable.
+        assert!(harmony.voice_capture_devices);
         assert!(harmony.candidate_font_controls);
         assert!(harmony.candidate_row_colors);
         assert!(harmony.candidate_selection_appearance);

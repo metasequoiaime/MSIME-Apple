@@ -7,7 +7,7 @@ import { SettingsPage, type DictionaryClient, type DictionaryEntry, type Diction
   CloudClipboardPanel, CloudDictionaryPanel, CloudDictionaryCatalogPanel, CloudDictionaryFilesPanel, CloudDictionaryApplyPanel,
   CloudCandidatesPanel, type AccountClient, type CloudClipboardPanelClient,
   type CloudDictionaryAction, type CloudDictionaryPanelClient, type SettingsClient, type Snapshot, type TypingStatisticsClient, type TypingStatisticsStatus } from "@msime/ui";
-import type { AiAssistantClient, ApiCredentialTestResult, ApiCredentialTestService } from "@msime/ui";
+import type { AiAssistantClient, ApiCredentialTestResult, ApiCredentialTestService, VoiceCaptureDevice } from "@msime/ui";
 import "@msime/ui/styles.css";
 
 /**
@@ -45,6 +45,8 @@ interface NativeBridge {
   openExternalUrl(url: string): void;
   copyText(text: string): void;
   openSystemKeyboardSettings(): void;
+  /** `{"ok":true,"value":[{backend,id,label},...]}`; a refusal is reported, not an empty list. */
+  listVoiceCaptureDevices(): string;
 }
 
 declare global {
@@ -206,6 +208,7 @@ function makeClient(native: NativeBridge, openCloudClipboard: () => void, openCl
     openExternalUrl: async (url: string) => native.openExternalUrl(url),
     copyText: async (text: string) => native.copyText(text),
     openSystemKeyboardSettings: async () => native.openSystemKeyboardSettings(),
+    listVoiceCaptureDevices: async () => unwrap<VoiceCaptureDevice[]>(native.listVoiceCaptureDevices()),
     dictionary,
     typingStatistics,
     aiAssistant,

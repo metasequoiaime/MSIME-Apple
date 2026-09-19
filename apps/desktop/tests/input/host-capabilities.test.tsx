@@ -246,6 +246,22 @@ test("a host that does not place its own card hides the follow-cursor choice", a
   expect(screen.queryByLabelText("候选窗口跟随光标")).toBeNull();
 });
 
+test("a host that can enumerate microphones gets the picker, whatever it is called", async () => {
+  // HarmonyOS records through its own capturer for the two network providers, so the choice is
+  // routable there; the gate is the capability and the reader, not the platform name.
+  const read = vi.fn().mockResolvedValue([{ backend: "harmony", id: "15:", label: "内置麦克风" }]);
+  const voice = (voice_capture_devices: boolean) => render(<SettingsPage initialPage="voice" client={{
+    load: async () => initial, save: vi.fn(), listVoiceCaptureDevices: read,
+    host: capabilities({ platform: "harmony", voice_capture_devices }),
+  }} />);
+  voice(true);
+  expect(await screen.findByLabelText("可用录音设备")).toBeTruthy();
+  cleanup();
+  voice(false);
+  await screen.findByText("录音行为");
+  expect(screen.queryByLabelText("可用录音设备")).toBeNull();
+});
+
 test("the mode badge switch follows the capability rather than the macOS platform name", async () => {
   // HarmonyOS draws the same badge from a 2in1 status-bar panel, so the control has to reach a host
   // that is not macOS. A host that draws no badge still must not be offered a switch for one.

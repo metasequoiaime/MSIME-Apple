@@ -13,6 +13,15 @@ import { KeyboardSession } from '../keyboard/KeyboardSession';
 import { HarmonyAccountCloudBridge } from '../account/HarmonyAccountCloudBridge';
 import { utf8Length } from '../keyboard/Utf8';
 import { niutransAuth, tencentAuthorization } from '../keyboard/CredentialCrypto';
+import { HarmonyVoiceCaptureDevices } from '../keyboard/input/HarmonyVoiceCaptureDevices';
+import { VoiceCaptureDevice } from '../keyboard/input/VoiceCaptureDevicePolicy';
+
+/** The envelope every bridge reply uses, so a refusal is distinguishable from an empty result. */
+interface VoiceCaptureDeviceReply {
+  ok: boolean;
+  value: VoiceCaptureDevice[];
+  error: string;
+}
 
 /**
  * The settings window, which is the shared settings UI rather than a second one written here.
@@ -298,7 +307,7 @@ struct Settings {
             'scanSkinCatalog', 'readSkinImage', 'readSkinFont', 'readSkinToolbarCss',
             'dictionary', 'account', 'cloudDictionary', 'cloudDictionaryDownload', 'cloudDictionarySnapshot',
             'typingStatistics', 'aiModels', 'aiTest', 'testApiCredential', 'openExternalUrl', 'copyText',
-            'openSystemKeyboardSettings'],
+            'openSystemKeyboardSettings', 'listVoiceCaptureDevices'],
           controller: this.controller
         })
         .width('100%')
@@ -1147,6 +1156,20 @@ class SettingsBridge {
     pasteboard.getSystemPasteboard().setData(data).catch((error: Object): void => {
       KeyboardLog.error(`copy failed: ${describeError(error)}`);
     });
+  }
+
+  /**
+   * The microphones the page can offer, in the shared settings shape.
+   *
+   * Wrapped like every other reply so an unreadable routing manager arrives as a refusal the picker
+   * can report rather than an empty list that reads as "this device has no microphone".
+   */
+  listVoiceCaptureDevices(): string {
+    const devices: VoiceCaptureDevice[] | null = HarmonyVoiceCaptureDevices.list();
+    if (devices === null) {
+      return JSON.stringify({ ok: false, value: [], error: '无法读取录音设备列表' } as VoiceCaptureDeviceReply);
+    }
+    return JSON.stringify({ ok: true, value: devices, error: '' } as VoiceCaptureDeviceReply);
   }
 
   /** Where the user turns the keyboard on, which is a system screen rather than one of ours. */

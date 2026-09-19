@@ -4,6 +4,7 @@ import util from '@ohos.util';
 import { KeyboardLog, describeError } from '../KeyboardLog';
 import { utf8Length } from '../Utf8';
 import { VoiceRecognitionPolicy } from './VoiceRecognitionPolicy';
+import { HarmonyVoiceCaptureDevices } from './HarmonyVoiceCaptureDevices';
 import { VoiceInputConfiguration } from './VoiceInputConfiguration';
 
 const SAMPLE_RATE: number = 16000;
@@ -64,7 +65,7 @@ export class HarmonyHttpAsrRecognizer {
       if (token === this.sessionToken) void this.fail('语音识别超时。', token);
     }, MAX_DURATION_MS);
     try {
-      await this.startCapturer(token);
+      await this.startCapturer(config, token);
     } catch (error) {
       if (token !== this.sessionToken) return;
       await this.fail(`语音采集启动失败：${describeError(error)}`, token);
@@ -97,7 +98,13 @@ export class HarmonyHttpAsrRecognizer {
     this.cancel();
   }
 
-  private async startCapturer(token: number): Promise<void> {
+  private async startCapturer(config: VoiceInputConfiguration, token: number): Promise<void> {
+    // Before the capturer exists, because the routing choice is process-wide rather than a property
+    // of one stream. A device that has gone away leaves the system default in place.
+    await HarmonyVoiceCaptureDevices.select(config.capture_backend, config.capture_device);
+    if (token !== this.sessionToken || this.settled) {
+      return;
+    }
     const options: audio.AudioCapturerOptions = {
       streamInfo: {
         samplingRate: audio.AudioSamplingRate.SAMPLE_RATE_16000,
