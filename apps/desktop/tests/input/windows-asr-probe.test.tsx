@@ -21,8 +21,13 @@ test.each(["openai", "siliconflow", "groq"].flatMap(provider =>
   expect(screen.getByText(/一秒合成静音/)).toBeTruthy();
   fireEvent.click(button);
   await screen.findByText("fixture complete");
+  // Only the fields a request needs: the preset also carries the provider's
+  // model catalogue and integration page, which are for the settings page.
   expect(probe).toHaveBeenCalledWith("voice.asr", {
-    provider, ...ASR_PROVIDER_DEFAULTS[provider], token: "synthetic-key",
+    provider,
+    endpoint: ASR_PROVIDER_DEFAULTS[provider].endpoint,
+    model: ASR_PROVIDER_DEFAULTS[provider].model,
+    token: "synthetic-key",
   });
   // Switching to a streaming provider must not send its credentials through
   // the multipart batch probe; Linux has its separate provider-based control.

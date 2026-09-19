@@ -22,6 +22,12 @@
 
 ## 当前证据
 
+### 共享设置的服务商预置模型与接入说明（2026-09-19）
+
+依据 Apple `AIProviderPreset` / `VoiceProviderPreset` 和 `FeatureSettingsViews` 的服务商分组，共享 Tauri 设置为 AI 辅助、语音识别和文本润色补齐两项内容：服务商已知支持的模型以“预置模型”下拉提供，选中后写入既有模型字段，不在列表中的模型显示为“自定义模型…”且不被覆盖；服务商自己的接入与 API Key 说明页通过宿主注入的外链能力打开，没有外链能力或选择“自定义”时不显示。两者都只是展示数据，请求仍然发送偏好中保存的接口地址和模型，凭据探测的载荷不变。Android 与 iOS 因此和 Apple 一样，可以在没有凭据时先知道该填哪个模型、去哪里申请 Key。
+
+新增 8 项定向回归覆盖三处调用点、自定义模型保留、缺少外链能力和无模型目录的服务商；同时修正语音识别探测回归——它此前把整个 provider 预设展开成期望载荷，预设新增展示字段后会误报。桌面 UI 全量 700 项 Vitest（5 项失败全部在 `scripts/known-failures.txt` 基线内）、TypeScript 类型检查、Vite 生产构建和 `scripts/verify-local.sh --quick` 通过，构建仍只有既有 chunk size warning。未执行 Android/iOS 真机导航、系统外链策略验收，CI 保持禁用。
+
 ### Android 中文九键数字键面（2026-09-19）
 
 依据 Apple `KeyboardViewController.applyNineKeyDigitLayer`，Android 全拼九键在“符号”层不再切换到 26 键符号页，而是像 Apple 一样保留自己的三列网格并改印数字。九个键显示自身数字（含只向 Engine 发送分词符的 1 键），无障碍描述改为“数字 N”，点击以本地输入来源直接提交数字而不进入拼音会话，长按弹出仅在拼音键面保留；标点列、删除、句点和 0 键在两层保持不变。两套九键都自带数字键面，快捷条的 Shift 因此在它们的数字键面一并隐藏。键面、描述和字面输入由无 Android 依赖的 `NineKeyLayout` 提供，宿主只负责 View 与触摸反馈。
