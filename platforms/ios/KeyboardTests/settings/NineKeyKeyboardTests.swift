@@ -1434,6 +1434,24 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(snapshot.candidates.contains("你好"), "the rebuilt session forgot nine-key mode")
   }
 
+  // A dismissal is not the only rebuild. Reading the personal dictionary hands the shared
+  // dictionary lease back the same way, and the keyboard refreshes that list on every appearance:
+  // the nine-key layout the host kept drawing was sitting on a 26-key engine from the first
+  // refresh onwards, which is why typing only started working after a trip through 26 keys.
+  func testNineKeySurvivesTheSessionRebuiltForDictionaryMaintenance() throws {
+    let bridge = MetasequoiaInputSessionBridge()
+    _ = bridge.switchToNineKey()
+    var snapshot = bridge.cancel()
+    for digit in "64426" { snapshot = bridge.handleCharacter(String(digit)) }
+    XCTAssertTrue(snapshot.candidates.contains("你好"), "nine-key never reached the engine")
+    _ = bridge.cancel()
+    _ = try bridge.personalEntries(atOffset: 0)
+    snapshot = bridge.cancel()
+    for digit in "64426" { snapshot = bridge.handleCharacter(String(digit)) }
+    XCTAssertFalse(snapshot.preedit.isEmpty, "the rebuilt session ignored the digits entirely")
+    XCTAssertTrue(snapshot.candidates.contains("你好"), "the rebuilt session forgot nine-key mode")
+  }
+
   func testAdditionalShuangpinProfilesAndKeyHints() throws {
     let bridge = MetasequoiaInputSessionBridge()
     for (profile, input) in [("ziranma", "nihk"), ("microsoft", "nihk"), ("shoudao", "nihd"), ("xiaohe", "nihc")] {

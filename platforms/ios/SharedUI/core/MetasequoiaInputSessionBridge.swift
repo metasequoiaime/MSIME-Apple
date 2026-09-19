@@ -162,7 +162,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       return
     }
     do {
-      handle = try Self.callCreateFocused(options)
+      try createFocusedSession()
     } catch {
       initializationDiagnostic = "输入运行时创建或激活失败。"
     }
@@ -563,9 +563,19 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   func resumeDictionarySession() throws {
     guard suspended else { return }
     guard !options.isEmpty else { throw InputBridgeFailure.unavailable }
+    try createFocusedSession()
+    suspended = false
+  }
+
+  /// Create and focus a session, then restore the state the prepared options do not carry.
+  ///
+  /// Nine-key lives on the session, so every path that destroys and rebuilds one has to set it
+  /// again. Dictionary maintenance and snapshot activation rebuild as often as resuming does:
+  /// leaving the replay to the caller left the host drawing the nine-key layout over a 26-key
+  /// engine after the first personal-dictionary refresh of a keyboard appearance.
+  private func createFocusedSession() throws {
     handle = try Self.callCreateFocused(options)
     if nineKeyEnabled { _ = dispatch { msimeClientSetNineKeyMode(handle, true) } }
-    suspended = false
   }
 
   func localDictionaryStateVersion() throws -> String {
@@ -607,11 +617,11 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
                                                      UInt(expected.count)))
       }
       _ = response
-      handle = try Self.callCreateFocused(options)
+      try createFocusedSession()
       DictionarySnapshotBridge.forget(snapshot.identifier)
       snapshot.markConsumed()
     } catch {
-      handle = try Self.callCreateFocused(options)
+      try createFocusedSession()
       throw error
     }
   }
@@ -645,7 +655,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     handle = 0
     let result = Result { try operation() }
     do {
-      handle = try Self.callCreateFocused(options)
+      try createFocusedSession()
       initializationDiagnostic = nil
     } catch {
       initializationDiagnostic = "词库维护后输入运行时恢复失败。"
