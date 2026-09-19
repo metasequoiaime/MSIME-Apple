@@ -66,6 +66,7 @@ import { TranslationPolicy, TranslationQuery, TranslationEntry } from
 import { HardwareKeyRouter, HardwareKeyAction, HardwareKey } from
   '../entry/src/main/ets/keyboard/HardwareKeyRouter';
 import { CandidateSkinPolicy } from '../entry/src/main/ets/keyboard/candidate/CandidateSkinPolicy';
+import { CandidateWheelPolicy } from '../entry/src/main/ets/keyboard/candidate/CandidateWheelPolicy';
 
 function selectedBarVisible(value: boolean | null): boolean {
   return value !== false;
@@ -674,6 +675,15 @@ group('preserves the candidate skin selected-bar default while honoring an expli
   check(!selectedBarVisible(false), 'explicit disable hides the bar');
 });
 
+group('maps desktop candidate wheel movement to page commands', () => {
+  check(CandidateWheelPolicy.previousPage(1), 'positive wheel movement pages up');
+  check(!CandidateWheelPolicy.nextPage(1), 'positive movement does not page down');
+  check(CandidateWheelPolicy.nextPage(-1), 'negative wheel movement pages down');
+  check(!CandidateWheelPolicy.previousPage(-1), 'negative movement does not page up');
+  check(!CandidateWheelPolicy.previousPage(0) && !CandidateWheelPolicy.nextPage(0),
+    'zero movement is ignored');
+});
+
 group('releases the candidate number row when the shared preference asks', () => {
   const key: HardwareKey = {
     keyCode: 0, unicodeChar: '2'.charCodeAt(0), ctrlKey: false,
@@ -688,7 +698,7 @@ group('releases the candidate number row when the shared preference asks', () =>
 group('maps hardware navigation according to the shared preferences', () => {
   const navigation = {
     minusEqual: true, commaPeriod: true, brackets: false,
-    tab: true, pageUpDown: true, arrows: true
+    tab: true, pageUpDown: true, mouseWheel: false, arrows: true
   };
   const key = (keyCode: number, shiftKey: boolean = false): HardwareKey => ({
     keyCode, unicodeChar: 0, ctrlKey: false, altKey: false, logoKey: false, shiftKey

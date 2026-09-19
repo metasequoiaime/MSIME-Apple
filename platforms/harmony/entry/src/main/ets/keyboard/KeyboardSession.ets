@@ -501,7 +501,7 @@ export class KeyboardSession {
     candidateLayout: 'vertical',
     navigation: {
       minusEqual: true, commaPeriod: true, brackets: false,
-      tab: true, pageUpDown: true, arrows: true
+      tab: true, pageUpDown: true, mouseWheel: false, arrows: true
     },
     candidateFontSize: 18,
     candidatePreeditFontSize: 15,
@@ -621,6 +621,7 @@ export class KeyboardSession {
           brackets: preferences.navigation?.brackets ?? false,
           tab: preferences.navigation?.tab ?? true,
           pageUpDown: preferences.navigation?.page_up_down ?? true,
+          mouseWheel: preferences.navigation?.mouse_wheel ?? false,
           arrows: preferences.navigation?.arrows ?? true
         },
         // The shared store validates these to 12..32 and strips control

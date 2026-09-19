@@ -71,6 +71,7 @@ export interface HardwareNavigationPreferences {
   readonly brackets: boolean;
   readonly tab: boolean;
   readonly pageUpDown: boolean;
+  readonly mouseWheel: boolean;
   readonly arrows: boolean;
 }
 
@@ -114,7 +115,7 @@ export class HardwareKeyRouter {
                releaseNumberRow: boolean = false,
                navigation: HardwareNavigationPreferences = {
                  minusEqual: true, commaPeriod: true, brackets: false,
-                 tab: true, pageUpDown: true, arrows: true
+                 tab: true, pageUpDown: true, mouseWheel: false, arrows: true
                }): HardwareKeyDecision {
     // Windows reserves Ctrl+Backspace/Left/Right for editing one Engine segment at a time. Other
     // modifier chords belong to the application, even in the middle of a composition.

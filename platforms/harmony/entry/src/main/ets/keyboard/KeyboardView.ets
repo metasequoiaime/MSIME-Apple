@@ -19,6 +19,7 @@ import { JapaneseNineKeyActions } from './input/JapaneseNineKeyActions';
 import { JapaneseVariantPolicy } from './input/JapaneseVariantPolicy';
 import { CandidateManagementAction, ManagementAction } from './candidate/CandidateManagementAction';
 import { CandidateSkinPolicy } from './candidate/CandidateSkinPolicy';
+import { CandidateWheelPolicy } from './candidate/CandidateWheelPolicy';
 import { KeyboardMetrics } from './KeyboardMetrics';
 import { KeyboardGeometry } from './KeyboardGeometry';
 import { NineKeyLayout, NineKey } from './input/NineKeyLayout';
@@ -839,6 +840,17 @@ struct KeyboardView {
         }, (candidate: CandidateEntry, index: number) => `${index}:${candidate.text}`)
       }
       .width('100%')
+      .onAxisEvent((event?: AxisEvent): void => {
+        if (!this.settings.navigation.mouseWheel || event === undefined) {
+          return;
+        }
+        const delta: number = event.getVerticalAxisValue();
+        if (CandidateWheelPolicy.previousPage(delta)) {
+          KeyboardSession.shared.previousPage();
+        } else if (CandidateWheelPolicy.nextPage(delta)) {
+          KeyboardSession.shared.nextPage();
+        }
+      })
     } else {
       Row() {
       Scroll() {
@@ -862,6 +874,18 @@ struct KeyboardView {
           this.expanded = KeyboardSession.shared.allCandidates();
         })
       }
+      .onAxisEvent((event?: AxisEvent): void => {
+        if (!KeyboardFormFactor.isDesktop() || !this.settings.navigation.mouseWheel
+            || event === undefined) {
+          return;
+        }
+        const delta: number = event.getVerticalAxisValue();
+        if (CandidateWheelPolicy.previousPage(delta)) {
+          KeyboardSession.shared.previousPage();
+        } else if (CandidateWheelPolicy.nextPage(delta)) {
+          KeyboardSession.shared.nextPage();
+        }
+      })
     }
     .width('100%')
     .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP
