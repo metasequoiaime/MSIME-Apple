@@ -3,7 +3,6 @@ import SwiftUI
 @MainActor
 struct BackendCommunityResourcesView: View {
   let accountID: String
-  @Environment(\.dismiss) private var dismiss
   @State private var kind: BackendAccountClient.ResourceKind = .dictionary
   @State private var scope: BackendAccountClient.ResourceScope = .all
   @State private var search = ""
@@ -16,39 +15,79 @@ struct BackendCommunityResourcesView: View {
   @State private var selected: BackendAccountClient.CommunityResource?
   @State private var creating = false
   private let client = BackendAccountClient()
+  private var scopeTitle: String {
+    switch scope {
+    case .mine: return "我发布的"
+    case .saved: return "我收藏的"
+    default: return "全部"
+    }
+  }
   private func authorize() async throws -> String {
     let value = try await BackendAccountSession.shared.credentials(matchingUserID: accountID)
     try Task.checkCancellation(); return value.token
   }
   var body: some View {
-    VStack {
-      HStack { Text("词包与回复模板").font(.title2); Spacer(); Button("完成") { dismiss() } }.padding()
-      List {
-        Section {
-          Picker("资源", selection: $kind) { ForEach(BackendAccountClient.ResourceKind.allCases) { Text($0.title).tag($0) } }
-          Picker("范围", selection: $scope) { Text("全部").tag(BackendAccountClient.ResourceScope.all); Text("我发布的").tag(BackendAccountClient.ResourceScope.mine); Text("我收藏的").tag(BackendAccountClient.ResourceScope.saved) }
-          TextField("搜索名称", text: $search)
-          Button("查询") { load() }
-          Button("分享\(kind.title)") { creating = true }
-        }.disabled(busy)
-        if let message { Text(message).foregroundStyle(.secondary) }
-        if busy { ProgressView() }
+    List {
+      Section {
+        Picker("资源", selection: $kind) { ForEach(BackendAccountClient.ResourceKind.allCases) { Text($0.title).tag($0) } }
+          .pickerStyle(.segmented).labelsHidden()
+      }
+      .disabled(busy)
+      .listRowInsets(EdgeInsets(top: 10, leading: 16, bottom: 10, trailing: 16))
+
+      Section {
         ForEach(items) { item in
           Button { selected = item } label: {
-            VStack(alignment: .leading) {
-              Text(item.name)
-              Text("\(item.author) · 版本 \(item.revision) · \(item.saves) 人收藏").font(.caption).foregroundStyle(.secondary)
-            }
+            SettingsRowLabel(title: item.name,
+                             detail: "\(item.author) · 版本 \(item.revision) · \(item.saves) 人收藏",
+                             symbol: kind == .dictionary ? "character.book.closed.fill" : "text.bubble.fill",
+                             color: kind == .dictionary ? .brown : .indigo)
+          }.buttonStyle(.plain)
+        }
+        if !busy && items.isEmpty {
+          Text(search.isEmpty ? "这里还没有作品" : "没有匹配「\(search)」的作品").foregroundStyle(.secondary)
+        }
+        if more {
+          SettingsActionRow(title: "加载更多", symbol: "arrow.down.circle.fill", color: .gray, enabled: !busy) {
+            load(append: true)
           }
         }
-        if !busy && items.isEmpty { Text("没有匹配的资源。").foregroundStyle(.secondary) }
-        if more { Button("加载更多") { load(append: true) }.disabled(busy) }
+      } header: {
+        Text(scopeTitle)
+      } footer: {
+        Text("点一份作品查看详情，可以导入到自己的云端词库，或收藏起来以后再用。")
+      }
+    }
+    .searchable(text: $search, prompt: "搜索名称")
+    .onSubmit(of: .search) { load() }
+    .settingsStatus(busy: busy, message: message)
+    .navigationTitle("词包与回复模板")
+    .inlineNavigationTitle()
+    .toolbar {
+      ToolbarItem(placement: .primaryAction) {
+        Menu {
+          Picker("范围", selection: $scope) {
+            Text("全部").tag(BackendAccountClient.ResourceScope.all)
+            Text("我发布的").tag(BackendAccountClient.ResourceScope.mine)
+            Text("我收藏的").tag(BackendAccountClient.ResourceScope.saved)
+          }
+        } label: {
+          Label(scopeTitle, systemImage: "line.3.horizontal.decrease.circle")
+        }
+        .disabled(busy)
+        .accessibilityLabel("筛选范围")
+        .accessibilityIdentifier("filterCommunityResourceScope")
+      }
+      ToolbarItem(placement: .primaryAction) {
+        Button { creating = true } label: { Label("分享\(kind.title)", systemImage: "plus") }
+          .disabled(busy)
+          .accessibilityLabel("分享\(kind.title)")
+          .accessibilityIdentifier("shareCommunityResource")
       }
     }
     .task { load() }
     .onChange(of: kind) { _ in load() }
     .onChange(of: scope) { _ in load() }
-    .onChange(of: search) { _ in items = []; more = false; nextOffset = 0 }
     .onDisappear { pending?.cancel(); items = []; selected = nil; search = "" }
     .sheet(item: $selected, onDismiss: { load() }) { item in
       CommunityResourceDetailView(initial: item, authorize: authorize).communitySheetSize()
@@ -332,4 +371,3 @@ struct CommunityCloudImportButton: View {
     }
   }
 }
-
