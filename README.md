@@ -80,7 +80,7 @@ Engine 由 `engine-lock.json` 固定：锁文件同时记录 Engine 及其第三
 
 ## 固定词库资源
 
-`resources/desktop-dictionary.lock.json` 固定已发布 `dict-v1.0.0` 的来源、长度和 SHA-256，保留日语授权文件。首次下载约 184 MB。开发准备命令：
+`resources/desktop-dictionary.lock.json` 固定已发布 `dict-v1.0.0` 的来源、长度和 SHA-256。其中 `mozc_dictionary_oss_README.txt` 是日文词库的许可证全文，IPAdic 与 ICOT 的条款都要求它随词库一同分发，重新打包时不可省略；详见[第三方组件清单](docs/third-party.md#日文词库的分发义务)。首次下载约 184 MB。开发准备命令：
 
 ```sh
 cargo run -p msime-client-core --example install_resources -- target/resources

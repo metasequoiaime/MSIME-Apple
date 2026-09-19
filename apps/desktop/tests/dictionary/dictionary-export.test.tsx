@@ -1,6 +1,13 @@
 // @vitest-environment jsdom
 import { expect, test, vi } from "vitest";
-import { dictionaryExportName, dictionaryExportPayload, dictionaryKindKeyHint, loadAllPersonalDictionaryEntries, personalDictionaryExportName, personalDictionaryExportPayload } from "@msime/ui";
+import {
+  dictionaryExportName,
+  dictionaryExportPayload,
+  dictionaryKindKeyHint,
+  loadAllPersonalDictionaryEntries,
+  personalDictionaryExportName,
+  personalDictionaryExportPayload,
+} from "@msime/ui";
 
 test("each dictionary kind exports under its own shipped name", () => {
   expect(dictionaryExportName("pinyin")).toBe("水杉IME-拼音用户词库.txt");
@@ -8,7 +15,11 @@ test("each dictionary kind exports under its own shipped name", () => {
   expect(dictionaryExportName("english")).toBe("水杉IME-英文用户词库.txt");
   expect(dictionaryExportName("quick_phrase")).toBe("水杉IME-快捷短语用户词库.txt");
   // The old single generic name said nothing about which book it held.
-  expect(new Set(["pinyin", "wubi", "english", "quick_phrase"].map(k => dictionaryExportName(k as never))).size).toBe(4);
+  expect(
+    new Set(
+      ["pinyin", "wubi", "english", "quick_phrase"].map((k) => dictionaryExportName(k as never)),
+    ).size,
+  ).toBe(4);
 });
 
 test("the payload starts with a UTF-8 BOM", () => {
@@ -26,7 +37,12 @@ test("single-character pinyin rows are dropped as learning artefacts", () => {
   expect(body).toContain("你好");
   expect(body).toContain("世界");
   expect(body).not.toContain("\t de");
-  expect(body.split("\n").filter(Boolean).some(l => l.startsWith("的"))).toBe(false);
+  expect(
+    body
+      .split("\n")
+      .filter(Boolean)
+      .some((l) => l.startsWith("的")),
+  ).toBe(false);
 });
 
 test("the word column follows the format, so windows exports are not misread", () => {
@@ -71,12 +87,28 @@ test("the complete personal dictionary export follows Apple's kind order and env
 });
 
 test("complete personal dictionary reads every kind page with an empty query", async () => {
-  const list = vi.fn()
-    .mockResolvedValueOnce({ entries: [{ kind: "pinyin" as const, key: "a", value: "甲", weight: 1 }], has_more: true })
-    .mockResolvedValueOnce({ entries: [{ kind: "pinyin" as const, key: "b", value: "乙", weight: 2 }], has_more: false })
-    .mockResolvedValueOnce({ entries: [{ kind: "wubi" as const, key: "wq", value: "你", weight: 3 }], has_more: false })
-    .mockResolvedValueOnce({ entries: [{ kind: "quick_phrase" as const, key: "q", value: "快捷", weight: 4 }], has_more: false })
-    .mockResolvedValueOnce({ entries: [{ kind: "english" as const, key: "hi", value: "Hi", weight: 5 }], has_more: false });
+  const list = vi
+    .fn()
+    .mockResolvedValueOnce({
+      entries: [{ kind: "pinyin" as const, key: "a", value: "甲", weight: 1 }],
+      has_more: true,
+    })
+    .mockResolvedValueOnce({
+      entries: [{ kind: "pinyin" as const, key: "b", value: "乙", weight: 2 }],
+      has_more: false,
+    })
+    .mockResolvedValueOnce({
+      entries: [{ kind: "wubi" as const, key: "wq", value: "你", weight: 3 }],
+      has_more: false,
+    })
+    .mockResolvedValueOnce({
+      entries: [{ kind: "quick_phrase" as const, key: "q", value: "快捷", weight: 4 }],
+      has_more: false,
+    })
+    .mockResolvedValueOnce({
+      entries: [{ kind: "english" as const, key: "hi", value: "Hi", weight: 5 }],
+      has_more: false,
+    });
   await expect(loadAllPersonalDictionaryEntries({ list })).resolves.toHaveLength(5);
   expect(list).toHaveBeenNthCalledWith(1, 0, 100, "pinyin", "");
   expect(list).toHaveBeenNthCalledWith(2, 1, 100, "pinyin", "");

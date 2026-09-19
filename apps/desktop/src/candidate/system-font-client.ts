@@ -4,7 +4,7 @@ type Invoke = <T>(command: string) => Promise<T>;
 export async function discoverFontReader(native: boolean, invoke: Invoke) {
   if (!native) return undefined;
   try {
-    if (await invoke<boolean>("supports_font_catalog") !== true) return undefined;
+    if ((await invoke<boolean>("supports_font_catalog")) !== true) return undefined;
     return () => invoke<string[]>("list_font_families");
   } catch {
     // Older/unsupported hosts retain manual entry.

@@ -25,4 +25,10 @@ export default defineConfig({
       "apps/desktop/src-tauri/gen/**",
     ],
   },
+  fmt: {
+    // Oxfmt keeps its own ignore list rather than inheriting the one above, and
+    // a first run proved it: it reformatted the vendored upstream HTML before
+    // these patterns were added here.
+    ignorePatterns: ["packages/ui/src/upstream/**", "apps/desktop/src-tauri/gen/**"],
+  },
 });

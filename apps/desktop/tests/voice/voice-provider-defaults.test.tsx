@@ -11,8 +11,11 @@ const doubaoEndpoint = ASR_PROVIDER_DEFAULTS.doubao.endpoint;
 
 test("system recognition clears the active cloud credential and restores it on return", () => {
   const system = asrProviderUpdate("system", {
-    asr_provider: "openai", asr_endpoint: ASR_PROVIDER_DEFAULTS.openai.endpoint,
-    asr_model: "whisper-1", asr_token: "synthetic-openai", asr_tokens: { system: "unused-synthetic" },
+    asr_provider: "openai",
+    asr_endpoint: ASR_PROVIDER_DEFAULTS.openai.endpoint,
+    asr_model: "whisper-1",
+    asr_token: "synthetic-openai",
+    asr_tokens: { system: "unused-synthetic" },
   });
   expect(system.asr_endpoint).toBe("");
   expect(system.asr_model).toBe("");
@@ -22,7 +25,10 @@ test("system recognition clears the active cloud credential and restores it on r
   expect(restored.asr_token).toBe("synthetic-openai");
   expect(restored.asr_endpoint).toBe(ASR_PROVIDER_DEFAULTS.openai.endpoint);
   expect(restored.asr_model).toBe("whisper-1");
-  const custom = asrProviderUpdate("system", { asr_endpoint: "https://example.invalid/custom", asr_model: "synthetic-model" });
+  const custom = asrProviderUpdate("system", {
+    asr_endpoint: "https://example.invalid/custom",
+    asr_model: "synthetic-model",
+  });
   expect(custom.asr_endpoint).toBeUndefined();
   expect(custom.asr_model).toBeUndefined();
 });
@@ -78,7 +84,10 @@ test("Doubao takes no model, so switching to it clears one", () => {
 });
 
 test("an unknown provider leaves endpoint and model alone", () => {
-  const update = asrProviderUpdate("nonsense", { asr_endpoint: doubaoEndpoint, asr_model: "whisper-1" });
+  const update = asrProviderUpdate("nonsense", {
+    asr_endpoint: doubaoEndpoint,
+    asr_model: "whisper-1",
+  });
   // Nothing is known about it, so its endpoint and model are not invented.
   expect(update.asr_endpoint).toBeUndefined();
   expect(update.asr_model).toBeUndefined();
@@ -93,7 +102,9 @@ test("the polish provider follows the same rules", () => {
   expect(update.polish_endpoint).toBe(POLISH_PROVIDER_DEFAULTS.deepseek.endpoint);
   expect(update.polish_model).toBe(POLISH_PROVIDER_DEFAULTS.deepseek.model);
 
-  const custom = polishProviderUpdate("openai", { polish_endpoint: "https://llm.internal.example/v1/chat" });
+  const custom = polishProviderUpdate("openai", {
+    polish_endpoint: "https://llm.internal.example/v1/chat",
+  });
   expect(custom.polish_endpoint).toBeUndefined();
 });
 
@@ -101,14 +112,18 @@ test("switching provider stashes the old key and restores the new one", () => {
   // A single flat token meant the previous provider's key stayed in the box and
   // was sent to the new endpoint until the user noticed.
   const first = asrProviderUpdate("openai", {
-    asr_provider: "doubao", asr_token: "doubao-key", asr_tokens: {},
+    asr_provider: "doubao",
+    asr_token: "doubao-key",
+    asr_tokens: {},
   });
   expect(first.asr_tokens).toEqual({ doubao: "doubao-key" });
   expect(first.asr_token).toBe("");
 
   // Coming back restores it rather than leaving the box empty.
   const back = asrProviderUpdate("doubao", {
-    asr_provider: "openai", asr_token: "openai-key", asr_tokens: first.asr_tokens,
+    asr_provider: "openai",
+    asr_token: "openai-key",
+    asr_tokens: first.asr_tokens,
   });
   expect(back.asr_token).toBe("doubao-key");
   expect(back.asr_tokens).toEqual({ doubao: "doubao-key", openai: "openai-key" });
@@ -116,7 +131,9 @@ test("switching provider stashes the old key and restores the new one", () => {
 
 test("clearing the box forgets that provider's slot", () => {
   const update = asrProviderUpdate("groq", {
-    asr_provider: "openai", asr_token: "  ".trim(), asr_tokens: { openai: "old", groq: "g" },
+    asr_provider: "openai",
+    asr_token: "  ".trim(),
+    asr_tokens: { openai: "old", groq: "g" },
   });
   // An emptied box is a deliberate removal, not something to preserve.
   expect(update.asr_tokens.openai).toBeUndefined();
@@ -125,7 +142,9 @@ test("clearing the box forgets that provider's slot", () => {
 
 test("the polish provider keeps its own slots", () => {
   const update = polishProviderUpdate("deepseek", {
-    polish_provider: "siliconflow", polish_token: "sf-key", polish_tokens: { deepseek: "ds-key" },
+    polish_provider: "siliconflow",
+    polish_token: "sf-key",
+    polish_tokens: { deepseek: "ds-key" },
   });
   expect(update.polish_token).toBe("ds-key");
   expect(update.polish_tokens).toEqual({ siliconflow: "sf-key", deepseek: "ds-key" });
@@ -135,7 +154,9 @@ test("an unknown provider still swaps the token slot", () => {
   // Endpoint and model are left alone for an unknown id, but the credential
   // must not follow the user to it.
   const update = asrProviderUpdate("nonsense", {
-    asr_provider: "openai", asr_token: "openai-key", asr_tokens: {},
+    asr_provider: "openai",
+    asr_token: "openai-key",
+    asr_tokens: {},
   });
   expect(update.asr_token).toBe("");
   expect(update.asr_tokens).toEqual({ openai: "openai-key" });

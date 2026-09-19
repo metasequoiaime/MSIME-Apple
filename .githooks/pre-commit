@@ -33,4 +33,21 @@ if [ -n "$staged_rs" ] && command -v rustfmt >/dev/null 2>&1; then
   fi
 fi
 
+# The same check for the frontend, on staged files only and for the same reason.
+# Oxfmt is fast enough for a commit hook - the whole tree checks in well under a
+# second - so the cost here is the handful of files actually being committed.
+staged_ts="$(git diff --cached --name-only --diff-filter=ACM -- '*.ts' '*.tsx' '*.css' \
+  ':!packages/ui/src/upstream/**' ':!apps/desktop/src-tauri/gen/**')"
+if [ -n "$staged_ts" ] && [ -x node_modules/.bin/vp ]; then
+  existing=""
+  for file in $staged_ts; do
+    [ -f "$file" ] && existing="$existing $file"
+  done
+  if [ -n "$existing" ] && ! node_modules/.bin/vp fmt --check $existing >/dev/null 2>&1; then
+    echo "not oxfmt-clean (run pnpm format, twice - 0.68.0 needs two passes):" >&2
+    node_modules/.bin/vp fmt --list-different $existing 2>/dev/null | sed 's/^/  /' >&2
+    status=1
+  fi
+fi
+
 exit "$status"

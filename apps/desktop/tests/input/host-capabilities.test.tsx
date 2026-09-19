@@ -8,7 +8,13 @@ afterEach(cleanup);
 const initial: Snapshot = {
   format_version: 1,
   revision: 7,
-  preferences: { scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 5, learning: true, chinese_punctuation: true },
+  preferences: {
+    scheme: "quanpin",
+    shuangpin_profile: "xiaohe",
+    candidate_page_size: 5,
+    learning: true,
+    chinese_punctuation: true,
+  },
 };
 
 function capabilities(overrides: Partial<HostCapabilities> = {}): HostCapabilities {
@@ -164,13 +170,18 @@ test("Linux number-row selection follows its capability and saves through shared
 });
 
 test("the restart action needs both the capability and an injected handler", async () => {
-  const withoutHandler = mount({ host: capabilities({ platform: "linux", restart_input_method: true }) });
+  const withoutHandler = mount({
+    host: capabilities({ platform: "linux", restart_input_method: true }),
+  });
   await screen.findByRole("button", { name: "保存设置" });
   fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
   expect(screen.queryByRole("button", { name: "重启" })).toBeNull();
   withoutHandler.unmount();
 
-  mount({ host: capabilities({ platform: "linux", restart_input_method: true }), restartInputMethod: vi.fn() });
+  mount({
+    host: capabilities({ platform: "linux", restart_input_method: true }),
+    restartInputMethod: vi.fn(),
+  });
   await screen.findByRole("button", { name: "保存设置" });
   fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
   expect(screen.getByRole("button", { name: "重启" })).toBeTruthy();
@@ -179,7 +190,13 @@ test("the restart action needs both the capability and an injected handler", asy
 test("toolbar scale is hidden while Linux component choices remain available", async () => {
   // The Linux host stands the toolbar up as an IBus property menu: the enable
   // switch and component visibility work, but scale and icon size have no surface.
-  const menuOnly = mount({ host: capabilities({ platform: "linux", floating_toolbar_appearance: false, floating_toolbar_components: true }) });
+  const menuOnly = mount({
+    host: capabilities({
+      platform: "linux",
+      floating_toolbar_appearance: false,
+      floating_toolbar_components: true,
+    }),
+  });
   await screen.findByRole("button", { name: "保存设置" });
   fireEvent.click(screen.getByRole("button", { name: "悬浮工具栏" }));
   expect(screen.getByLabelText("在桌面显示悬浮工具栏")).toBeTruthy();
@@ -197,13 +214,26 @@ test("toolbar scale is hidden while Linux component choices remain available", a
 });
 
 test("the floating-toolbar settings page is hidden when the host has no toolbar", async () => {
-  mount({ host: capabilities({ platform: "android", floating_toolbar: false, floating_toolbar_appearance: false }) });
+  mount({
+    host: capabilities({
+      platform: "android",
+      floating_toolbar: false,
+      floating_toolbar_appearance: false,
+    }),
+  });
   await screen.findByRole("button", { name: "保存设置" });
   expect(screen.queryByRole("button", { name: "悬浮工具栏" })).toBeNull();
 });
 
 test("candidate appearance follows host capabilities", async () => {
-  mount({ host: capabilities({ platform: "linux", candidate_font_controls: false, candidate_row_colors: true, candidate_selection_appearance: false }) });
+  mount({
+    host: capabilities({
+      platform: "linux",
+      candidate_font_controls: false,
+      candidate_row_colors: true,
+      candidate_selection_appearance: false,
+    }),
+  });
   await screen.findByRole("button", { name: "保存设置" });
   expect(screen.queryByLabelText("候选窗主字体")).toBeNull();
   expect(screen.queryByLabelText("候选字号")).toBeNull();
@@ -220,7 +250,13 @@ test("candidate appearance follows host capabilities", async () => {
 });
 
 test("Windows candidate appearance keeps native controls", async () => {
-  mount({ host: capabilities({ platform: "windows", candidate_font_controls: true, candidate_selection_appearance: true }) });
+  mount({
+    host: capabilities({
+      platform: "windows",
+      candidate_font_controls: true,
+      candidate_selection_appearance: true,
+    }),
+  });
   await screen.findByRole("button", { name: "保存设置" });
   expect(screen.getByLabelText("候选字号")).toBeTruthy();
   expect(screen.getByLabelText("候选强调色")).toBeTruthy();
@@ -230,21 +266,29 @@ test("Windows candidate appearance keeps native controls", async () => {
 });
 
 test("macOS candidate appearance exposes the shared English face control", async () => {
-  mount({ host: capabilities({ platform: "macos", candidate_font_controls: true, candidate_english_font: true }) });
+  mount({
+    host: capabilities({
+      platform: "macos",
+      candidate_font_controls: true,
+      candidate_english_font: true,
+    }),
+  });
   await screen.findByRole("button", { name: "保存设置" });
   expect(screen.getByLabelText("候选窗英文字体")).toBeTruthy();
   expect(screen.getByLabelText("候选窗主字体")).toBeTruthy();
 });
 
 test("Android candidate appearance exposes native font and color controls", async () => {
-  mount({ host: capabilities({
-    platform: "android",
-    system_fonts: false,
-    candidate_font_controls: true,
-    candidate_english_font: true,
-    candidate_row_colors: true,
-    candidate_selection_appearance: true,
-  }) });
+  mount({
+    host: capabilities({
+      platform: "android",
+      system_fonts: false,
+      candidate_font_controls: true,
+      candidate_english_font: true,
+      candidate_row_colors: true,
+      candidate_selection_appearance: true,
+    }),
+  });
   await screen.findByRole("button", { name: "保存设置" });
   expect(screen.getByLabelText("候选窗英文字体")).toBeTruthy();
   expect(screen.getByLabelText("候选窗主字体")).toBeTruthy();
@@ -263,32 +307,57 @@ test("a host that does not place its own card hides the follow-cursor choice", a
 });
 
 test("a host with one commit path is not offered a choice between three", async () => {
-  render(<SettingsPage initialPage="voice" client={{
-    load: async () => initial, save: vi.fn(),
-    host: capabilities({ platform: "harmony" }),
-  }} />);
+  render(
+    <SettingsPage
+      initialPage="voice"
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        host: capabilities({ platform: "harmony" }),
+      }}
+    />,
+  );
   await screen.findByText("录音行为");
   expect(screen.queryByLabelText("结果提交策略")).toBeNull();
   cleanup();
-  render(<SettingsPage initialPage="voice" client={{
-    load: async () => initial, save: vi.fn(),
-    host: capabilities({ platform: "windows", voice_commit_mode: true }),
-  }} />);
+  render(
+    <SettingsPage
+      initialPage="voice"
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        host: capabilities({ platform: "windows", voice_commit_mode: true }),
+      }}
+    />,
+  );
   expect(await screen.findByLabelText("结果提交策略")).toBeTruthy();
 });
 
 test("the shuangpin preedit choice reaches every host that draws the composition", async () => {
   // Every host's Engine honours the preference; the control belongs where the user can see the
   // difference. The HarmonyOS keyboard draws the Engine's editing text on its composition row.
-  render(<SettingsPage initialPage="appearance" client={{
-    load: async () => initial, save: vi.fn(),
-    host: capabilities({ platform: "harmony", shuangpin_preedit: true }),
-  }} />);
+  render(
+    <SettingsPage
+      initialPage="appearance"
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        host: capabilities({ platform: "harmony", shuangpin_preedit: true }),
+      }}
+    />,
+  );
   expect(await screen.findByLabelText("双拼预编辑")).toBeTruthy();
   cleanup();
-  render(<SettingsPage initialPage="appearance" client={{
-    load: async () => initial, save: vi.fn(), host: capabilities({ platform: "windows" }),
-  }} />);
+  render(
+    <SettingsPage
+      initialPage="appearance"
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        host: capabilities({ platform: "windows" }),
+      }}
+    />,
+  );
   await screen.findByRole("button", { name: "保存设置" });
   expect(screen.queryByLabelText("双拼预编辑")).toBeNull();
 });
@@ -297,16 +366,28 @@ test("the English completion switch follows the capability, and iOS keeps its ow
   // Harmony draws the completions from the packaged dictionary and reads the shared preference, so
   // the shared control belongs there. iOS offers the same surface from its native store and has a
   // separate switch, which is why it does not claim this one.
-  render(<SettingsPage initialPage="input" client={{
-    load: async () => initial, save: vi.fn(),
-    host: capabilities({ platform: "harmony", english_suggestions: true }),
-  }} />);
+  render(
+    <SettingsPage
+      initialPage="input"
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        host: capabilities({ platform: "harmony", english_suggestions: true }),
+      }}
+    />,
+  );
   expect(await screen.findByLabelText("英文建议")).toBeTruthy();
   cleanup();
-  render(<SettingsPage initialPage="input" client={{
-    load: async () => initial, save: vi.fn(),
-    host: capabilities({ platform: "ios", english_suggestions: false }),
-  }} />);
+  render(
+    <SettingsPage
+      initialPage="input"
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        host: capabilities({ platform: "ios", english_suggestions: false }),
+      }}
+    />,
+  );
   await screen.findByRole("button", { name: "保存设置" });
   expect(screen.queryByLabelText("英文建议")).toBeNull();
 });
@@ -314,18 +395,33 @@ test("the English completion switch follows the capability, and iOS keeps its ow
 test("a host opts into the surfaces whose preferences its keyboard reads", async () => {
   // Four sections that write shared preferences and nothing else. Harmony's keyboard consumes all
   // four; without the opt-in the page offered no way to change what it was reading.
-  render(<SettingsPage initialPage="input" client={{
-    load: async () => initial, save: vi.fn(),
-    host: capabilities({ platform: "harmony" }),
-    fuzzyPinyin: true, touchKeyboardSchemes: true, candidateEnglishGloss: true,
-  }} />);
+  render(
+    <SettingsPage
+      initialPage="input"
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        host: capabilities({ platform: "harmony" }),
+        fuzzyPinyin: true,
+        touchKeyboardSchemes: true,
+        candidateEnglishGloss: true,
+      }}
+    />,
+  );
   expect(await screen.findByLabelText("启用模糊音")).toBeTruthy();
   expect(screen.getByRole("group", { name: "输入方案" })).toBeTruthy();
   expect(screen.getByLabelText("显示英文释义")).toBeTruthy();
   cleanup();
-  render(<SettingsPage initialPage="input" client={{
-    load: async () => initial, save: vi.fn(), host: capabilities({ platform: "harmony" }),
-  }} />);
+  render(
+    <SettingsPage
+      initialPage="input"
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        host: capabilities({ platform: "harmony" }),
+      }}
+    />,
+  );
   await screen.findByRole("button", { name: "保存设置" });
   expect(screen.queryByLabelText("启用模糊音")).toBeNull();
   expect(screen.queryByLabelText("显示英文释义")).toBeNull();
@@ -334,10 +430,21 @@ test("a host opts into the surfaces whose preferences its keyboard reads", async
 test("the candidate English font follows the capability rather than a list of platform names", async () => {
   // HarmonyOS consumes candidate_english_font, and the control used to be gated on a platform list
   // that did not include it — the preference was honoured and nobody could set it.
-  const appearance = (candidate_english_font: boolean) => render(<SettingsPage initialPage="appearance" client={{
-    load: async () => initial, save: vi.fn(),
-    host: capabilities({ platform: "harmony", candidate_font_controls: true, candidate_english_font }),
-  }} />);
+  const appearance = (candidate_english_font: boolean) =>
+    render(
+      <SettingsPage
+        initialPage="appearance"
+        client={{
+          load: async () => initial,
+          save: vi.fn(),
+          host: capabilities({
+            platform: "harmony",
+            candidate_font_controls: true,
+            candidate_english_font,
+          }),
+        }}
+      />,
+    );
   appearance(true);
   expect(await screen.findByLabelText("候选窗英文字体")).toBeTruthy();
   cleanup();
@@ -350,10 +457,18 @@ test("a host that can enumerate microphones gets the picker, whatever it is call
   // HarmonyOS records through its own capturer for the two network providers, so the choice is
   // routable there; the gate is the capability and the reader, not the platform name.
   const read = vi.fn().mockResolvedValue([{ backend: "harmony", id: "15:", label: "内置麦克风" }]);
-  const voice = (voice_capture_devices: boolean) => render(<SettingsPage initialPage="voice" client={{
-    load: async () => initial, save: vi.fn(), listVoiceCaptureDevices: read,
-    host: capabilities({ platform: "harmony", voice_capture_devices }),
-  }} />);
+  const voice = (voice_capture_devices: boolean) =>
+    render(
+      <SettingsPage
+        initialPage="voice"
+        client={{
+          load: async () => initial,
+          save: vi.fn(),
+          listVoiceCaptureDevices: read,
+          host: capabilities({ platform: "harmony", voice_capture_devices }),
+        }}
+      />,
+    );
   voice(true);
   expect(await screen.findByLabelText("可用录音设备")).toBeTruthy();
   cleanup();

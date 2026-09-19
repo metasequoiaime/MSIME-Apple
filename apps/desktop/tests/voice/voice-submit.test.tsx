@@ -7,7 +7,13 @@ afterEach(cleanup);
 function setup() {
   let resolve!: () => void;
   let reject!: (error: Error) => void;
-  const sendVoiceText = vi.fn(() => new Promise<void>((done, fail) => { resolve = done; reject = fail; }));
+  const sendVoiceText = vi.fn(
+    () =>
+      new Promise<void>((done, fail) => {
+        resolve = done;
+        reject = fail;
+      }),
+  );
   const client = { close: vi.fn().mockResolvedValue(undefined), sendVoiceText };
   const view = render(<VoicePanel client={client} />);
   const input = screen.getByRole("textbox", { name: "识别结果" }) as HTMLTextAreaElement;
@@ -22,15 +28,25 @@ test("voice submission runs once and clears the submitted text after success", a
   expect(button.disabled).toBe(true);
   fireEvent.click(button);
   expect(host.client.sendVoiceText).toHaveBeenCalledExactlyOnceWith("fixture-original");
-  expect((screen.getByRole("button", { name: "开始录音" }) as HTMLButtonElement).disabled).toBe(true);
+  expect((screen.getByRole("button", { name: "开始录音" }) as HTMLButtonElement).disabled).toBe(
+    true,
+  );
   await act(async () => host.finish());
   expect(host.input.value).toBe("");
 });
 
 test("voice hosts can explain a cross-surface handoff after submission", async () => {
   const sendVoiceText = vi.fn().mockResolvedValue(undefined);
-  render(<VoicePanel client={{ close: vi.fn().mockResolvedValue(undefined), sendVoiceText,
-    description: "iOS App 负责录音和识别。", submitNotice: "已发送到本机键盘。" }} />);
+  render(
+    <VoicePanel
+      client={{
+        close: vi.fn().mockResolvedValue(undefined),
+        sendVoiceText,
+        description: "iOS App 负责录音和识别。",
+        submitNotice: "已发送到本机键盘。",
+      }}
+    />,
+  );
   expect(screen.getByText("iOS App 负责录音和识别。")).toBeTruthy();
   const input = screen.getByRole("textbox", { name: "识别结果" });
   fireEvent.change(input, { target: { value: "fixture-result" } });
@@ -44,7 +60,9 @@ test("a completed voice submission preserves a newer edit", async () => {
   fireEvent.change(host.input, { target: { value: "fixture-new" } });
   await act(async () => host.finish());
   expect(host.input.value).toBe("fixture-new");
-  expect((screen.getByRole("button", { name: "提交到当前窗口" }) as HTMLButtonElement).disabled).toBe(false);
+  expect(
+    (screen.getByRole("button", { name: "提交到当前窗口" }) as HTMLButtonElement).disabled,
+  ).toBe(false);
 });
 
 test("failed submission keeps text and permits retry", async () => {

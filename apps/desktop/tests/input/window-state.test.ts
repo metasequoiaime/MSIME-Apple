@@ -4,7 +4,10 @@ import { subscribeWindowState, type WindowStateSource } from "../../src/input/wi
 function deferred<T>() {
   let resolve!: (value: T) => void;
   let reject!: (reason: Error) => void;
-  const promise = new Promise<T>((yes, no) => { resolve = yes; reject = no; });
+  const promise = new Promise<T>((yes, no) => {
+    resolve = yes;
+    reject = no;
+  });
   return { promise, resolve, reject };
 }
 
@@ -13,7 +16,7 @@ function host() {
   const unlisten = vi.fn();
   const source = {
     isMaximized: vi.fn<WindowStateSource["isMaximized"]>().mockResolvedValue(false),
-    onResized: vi.fn<WindowStateSource["onResized"]>().mockImplementation(async listener => {
+    onResized: vi.fn<WindowStateSource["onResized"]>().mockImplementation(async (listener) => {
       resize = listener;
       return unlisten;
     }),
@@ -30,7 +33,8 @@ test("registers before reading and cleans up exactly once", async () => {
   });
   const dispose = await subscribeWindowState(source, listener);
   expect(listener).toHaveBeenCalledExactlyOnceWith(true);
-  dispose(); dispose();
+  dispose();
+  dispose();
   expect(unlisten).toHaveBeenCalledTimes(1);
 });
 
@@ -57,7 +61,8 @@ test("out-of-order resize reads cannot overwrite newer state", async () => {
   const first = deferred<boolean>();
   const second = deferred<boolean>();
   source.isMaximized.mockReturnValueOnce(first.promise).mockReturnValueOnce(second.promise);
-  resize(); resize();
+  resize();
+  resize();
   second.resolve(false);
   await Promise.resolve();
   first.resolve(true);
@@ -122,7 +127,8 @@ test("obsolete read failures do not report errors for a newer successful state",
   const dispose = await subscribeWindowState(source, listener, onError);
   const pending = deferred<boolean>();
   source.isMaximized.mockReturnValueOnce(pending.promise).mockResolvedValueOnce(true);
-  resize(); resize();
+  resize();
+  resize();
   await Promise.resolve();
   pending.reject(new Error("obsolete"));
   await Promise.resolve();

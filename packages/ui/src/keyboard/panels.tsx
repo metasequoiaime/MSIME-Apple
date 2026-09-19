@@ -1,9 +1,26 @@
 import { usePanelDrag } from "./use-panel-drag";
 import { useEmojiNavigation } from "../emoji/use-emoji-navigation";
-import { useEffect, useLayoutEffect, useRef, useState, type CSSProperties, type PointerEvent } from "react";
-import { fallbackEmojiGroups, fallbackKaomojiGroups, fallbackSymbolGroups, type EmojiCatalogGroup, type EmojiCatalogItem } from "../emoji/emoji-catalog";
+import {
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+  type CSSProperties,
+  type PointerEvent,
+} from "react";
+import {
+  fallbackEmojiGroups,
+  fallbackKaomojiGroups,
+  fallbackSymbolGroups,
+  type EmojiCatalogGroup,
+  type EmojiCatalogItem,
+} from "../emoji/emoji-catalog";
 import { touchKeyboardSkinOptions, type TouchKeyboardSkin } from "./screen-keyboard-preview";
-import { skinColor, skinLuminance, type TouchKeyboardSkinDesign } from "./touch-keyboard-skin-design";
+import {
+  skinColor,
+  skinLuminance,
+  type TouchKeyboardSkinDesign,
+} from "./touch-keyboard-skin-design";
 
 export interface KeyboardInputRequest {
   virtual_key: number;
@@ -12,10 +29,20 @@ export interface KeyboardInputRequest {
   include_sticky_modifiers: boolean;
 }
 
-export interface InkPoint { x: number; y: number; }
-export interface InkStroke { points: InkPoint[]; }
-export interface HandwritingRecognitionRequest { language: string; strokes: InkStroke[]; }
-export interface HandwritingRecognitionResult { candidates: string[]; }
+export interface InkPoint {
+  x: number;
+  y: number;
+}
+export interface InkStroke {
+  points: InkPoint[];
+}
+export interface HandwritingRecognitionRequest {
+  language: string;
+  strokes: InkStroke[];
+}
+export interface HandwritingRecognitionResult {
+  candidates: string[];
+}
 
 export interface PanelClient {
   close(): Promise<void>;
@@ -24,7 +51,9 @@ export interface PanelClient {
   rememberInputTarget?(): Promise<void>;
   sendKey?(request: KeyboardInputRequest): Promise<void>;
   sendText?(text: string): Promise<void>;
-  recognizeHandwriting?(request: HandwritingRecognitionRequest): Promise<HandwritingRecognitionResult>;
+  recognizeHandwriting?(
+    request: HandwritingRecognitionRequest,
+  ): Promise<HandwritingRecognitionResult>;
   submitHandwritingCandidate?(candidate: string): Promise<void>;
   copyHandwritingCandidate?(candidate: string): Promise<void>;
 }
@@ -37,7 +66,14 @@ export interface VoicePanelClient extends PanelClient {
   submitNotice?: string;
   loadVoiceLanguage?(): Promise<string>;
   recognizeVoice?(language: string): Promise<{ text: string }>;
-  onVoiceUpdate?(listener: (update: { text: string; final: boolean; phase?: "recording" | "recognizing" | "polishing"; level?: number }) => void): Promise<() => void>;
+  onVoiceUpdate?(
+    listener: (update: {
+      text: string;
+      final: boolean;
+      phase?: "recording" | "recognizing" | "polishing";
+      level?: number;
+    }) => void,
+  ): Promise<() => void>;
   cancelVoice?(): Promise<void>;
   stopVoice?(): Promise<void>;
   sendVoiceText?(text: string): Promise<void>;
@@ -45,10 +81,14 @@ export interface VoicePanelClient extends PanelClient {
 }
 
 function validVoiceLanguage(value: string) {
-  return value.length > 0 && value.length <= 64 && !Array.from(value).some(character => {
-    const code = character.codePointAt(0) ?? 0;
-    return code <= 0x1f || code === 0x7f;
-  });
+  return (
+    value.length > 0 &&
+    value.length <= 64 &&
+    !Array.from(value).some((character) => {
+      const code = character.codePointAt(0) ?? 0;
+      return code <= 0x1f || code === 0x7f;
+    })
+  );
 }
 
 export type CloudClipboardAction =
@@ -60,7 +100,9 @@ export type CloudClipboardItem = { id: string; text: string };
 export interface CloudClipboardPanelClient extends PanelClient {
   canSendText?(): Promise<boolean>;
   copyText?(text: string): Promise<void>;
-  request(action: CloudClipboardAction): Promise<{ items?: CloudClipboardItem[]; enabled?: boolean }>;
+  request(
+    action: CloudClipboardAction,
+  ): Promise<{ items?: CloudClipboardItem[]; enabled?: boolean }>;
 }
 
 export type CloudDictionaryKind = "pinyin" | "wubi" | "quick" | "english";
@@ -77,25 +119,147 @@ export type CloudDictionaryAction =
   | { operation: "snapshot_status" }
   | { operation: "snapshot_cancel" }
   | { operation: "list"; kind: CloudDictionaryKind; offset: number; search: string }
-  | { operation: "catalog"; kind: CloudDictionaryKind; code: string; offset: number; scheme: string; profile: string }
+  | {
+      operation: "catalog";
+      kind: CloudDictionaryKind;
+      code: string;
+      offset: number;
+      scheme: string;
+      profile: string;
+    }
   | { operation: "add"; kind: CloudDictionaryKind; code: string; word: string; weight: number }
-  | { operation: "update"; kind: CloudDictionaryKind; id: string; code: string; word: string; weight: number; revision: number }
-  | { operation: "edit_catalog"; kind: CloudDictionaryKind; code: string; word: string; revision: number; replacement: { code: string; word: string; weight: number } | null }
-  | { operation: "candidates"; text: string; kind: CloudCandidateKind; scheme: string; profile: string; limit: number }
-  | { operation: "rank"; text: string; kind: CloudCandidateKind; scheme: string; profile: string; limit: number; code: string; word: string; revision: number; mode: CloudRankingMode; linear_step: number; trigger_count: number; force_top: boolean }
-  | { operation: "remove_candidate"; text: string; kind: CloudCandidateKind; scheme: string; profile: string; limit: number; code: string; word: string; revision: number }
+  | {
+      operation: "update";
+      kind: CloudDictionaryKind;
+      id: string;
+      code: string;
+      word: string;
+      weight: number;
+      revision: number;
+    }
+  | {
+      operation: "edit_catalog";
+      kind: CloudDictionaryKind;
+      code: string;
+      word: string;
+      revision: number;
+      replacement: { code: string; word: string; weight: number } | null;
+    }
+  | {
+      operation: "candidates";
+      text: string;
+      kind: CloudCandidateKind;
+      scheme: string;
+      profile: string;
+      limit: number;
+    }
+  | {
+      operation: "rank";
+      text: string;
+      kind: CloudCandidateKind;
+      scheme: string;
+      profile: string;
+      limit: number;
+      code: string;
+      word: string;
+      revision: number;
+      mode: CloudRankingMode;
+      linear_step: number;
+      trigger_count: number;
+      force_top: boolean;
+    }
+  | {
+      operation: "remove_candidate";
+      text: string;
+      kind: CloudCandidateKind;
+      scheme: string;
+      profile: string;
+      limit: number;
+      code: string;
+      word: string;
+      revision: number;
+    }
   | { operation: "fixed_positions"; context: string; offset: number }
-  | { operation: "set_fixed_position"; context: string; code: string; word: string; position: number | null; revision: number }
+  | {
+      operation: "set_fixed_position";
+      context: string;
+      code: string;
+      word: string;
+      position: number | null;
+      revision: number;
+    }
   | { operation: "delete"; kind: CloudDictionaryKind; id: string; revision: number }
-  | { operation: "import"; kind: CloudDictionaryKind; format: CloudDictionaryFileFormat; text: string }
-  | { operation: "export"; kind: CloudDictionaryKind; format: Exclude<CloudDictionaryFileFormat, "hans"> };
-export type CloudDictionaryEntry = { id: string; kind: CloudDictionaryKind; code: string; word: string; weight: number; revision: number };
-export type CloudDictionaryCatalogEntry = { kind: CloudDictionaryKind; code: string; word: string; weight: number };
-export type CloudCandidate = { code: string; word: string; weight: number; canonical_pinyin?: string | null };
+  | {
+      operation: "import";
+      kind: CloudDictionaryKind;
+      format: CloudDictionaryFileFormat;
+      text: string;
+    }
+  | {
+      operation: "export";
+      kind: CloudDictionaryKind;
+      format: Exclude<CloudDictionaryFileFormat, "hans">;
+    };
+export type CloudDictionaryEntry = {
+  id: string;
+  kind: CloudDictionaryKind;
+  code: string;
+  word: string;
+  weight: number;
+  revision: number;
+};
+export type CloudDictionaryCatalogEntry = {
+  kind: CloudDictionaryKind;
+  code: string;
+  word: string;
+  weight: number;
+};
+export type CloudCandidate = {
+  code: string;
+  word: string;
+  weight: number;
+  canonical_pinyin?: string | null;
+};
 export type CloudFixedPosition = { context: string; code: string; word: string; position: number };
-export type CloudDictionarySnapshotMetadata = { cloudRevision: number; sha256: string; bytes: number; records: number; entries: number; overlays: number; positions: number; selections: number };
-export type CloudDictionarySnapshotRequest = { id: string; cloudRevision: number; expectedLocalVersion?: string; fileSha256: string; status: "queued" | "preparing" | "applied" | "conflict" | "failed" | "cancelled" };
-export type CloudDictionaryResponse = { saved?: boolean; previewToken?: string; snapshot?: CloudDictionarySnapshotMetadata; expectedRevision?: number; localVersion?: string; request?: CloudDictionarySnapshotRequest; entries?: CloudDictionaryEntry[]; catalog_entries?: CloudDictionaryCatalogEntry[]; candidates?: CloudCandidate[]; positions?: CloudFixedPosition[]; has_more?: boolean; offset?: number; revision?: number; context?: string; normalized?: string; changed?: boolean; selection_count?: number; text?: string; content?: string; filename?: string };
+export type CloudDictionarySnapshotMetadata = {
+  cloudRevision: number;
+  sha256: string;
+  bytes: number;
+  records: number;
+  entries: number;
+  overlays: number;
+  positions: number;
+  selections: number;
+};
+export type CloudDictionarySnapshotRequest = {
+  id: string;
+  cloudRevision: number;
+  expectedLocalVersion?: string;
+  fileSha256: string;
+  status: "queued" | "preparing" | "applied" | "conflict" | "failed" | "cancelled";
+};
+export type CloudDictionaryResponse = {
+  saved?: boolean;
+  previewToken?: string;
+  snapshot?: CloudDictionarySnapshotMetadata;
+  expectedRevision?: number;
+  localVersion?: string;
+  request?: CloudDictionarySnapshotRequest;
+  entries?: CloudDictionaryEntry[];
+  catalog_entries?: CloudDictionaryCatalogEntry[];
+  candidates?: CloudCandidate[];
+  positions?: CloudFixedPosition[];
+  has_more?: boolean;
+  offset?: number;
+  revision?: number;
+  context?: string;
+  normalized?: string;
+  changed?: boolean;
+  selection_count?: number;
+  text?: string;
+  content?: string;
+  filename?: string;
+};
 export interface CloudDictionaryPanelClient extends PanelClient {
   request(action: CloudDictionaryAction): Promise<CloudDictionaryResponse>;
   snapshot?: boolean;
@@ -130,17 +294,105 @@ export interface EmojiPanelClient extends PanelClient {
 }
 
 type Modifier = "Shift" | "Caps Lock" | "Ctrl" | "Alt" | "Win";
-type KeyboardKey = { label: string; shifted?: string; virtualKey: number; modifier?: Modifier; };
-const key = (label: string, virtualKey: number, shifted?: string): KeyboardKey => ({ label, virtualKey, shifted });
-const modifier = (label: Modifier, virtualKey: number): KeyboardKey => ({ label, virtualKey, modifier: label });
+type KeyboardKey = { label: string; shifted?: string; virtualKey: number; modifier?: Modifier };
+const key = (label: string, virtualKey: number, shifted?: string): KeyboardKey => ({
+  label,
+  virtualKey,
+  shifted,
+});
+const modifier = (label: Modifier, virtualKey: number): KeyboardKey => ({
+  label,
+  virtualKey,
+  modifier: label,
+});
 const keyboardRows: KeyboardKey[][] = [
-  [key("Num Lock", 0x90), key("Num 0", 0x60), key("Num 1", 0x61), key("Num 2", 0x62), key("Num 3", 0x63), key("Num 4", 0x64), key("Num 5", 0x65), key("Num 6", 0x66), key("Num 7", 0x67), key("Num 8", 0x68), key("Num 9", 0x69), key("Num *", 0x6a), key("Num +", 0x6b), key("Num -", 0x6d), key("Num /", 0x6f), key("Num .", 0x6e)],
-  [key("Esc", 0x1b), key("F1", 0x70), key("F2", 0x71), key("F3", 0x72), key("F4", 0x73), key("F5", 0x74), key("F6", 0x75), key("F7", 0x76), key("F8", 0x77), key("F9", 0x78), key("F10", 0x79), key("F11", 0x7a), key("F12", 0x7b), key("PrtSc", 0x2c), key("Scroll", 0x91), key("Pause", 0x13), key("Ins", 0x2d), key("Home", 0x24), key("End", 0x23), key("PgUp", 0x21), key("PgDn", 0x22)],
-  [key("`", 0xc0, "~"), ...[..."1234567890"].map((label, index) => key(label, label.charCodeAt(0), ["!", "@", "#", "$", "%", "^", "&", "*", "(", ")"][index])), key("-", 0xbd, "_"), key("=", 0xbb, "+"), key("Backspace", 0x08)],
-  [key("Tab", 0x09), ...[..."QWERTYUIOP"].map(label => key(label.toLowerCase(), label.charCodeAt(0))), key("[", 0xdb, "{"), key("]", 0xdd, "}"), key("\\", 0xdc, "|")],
-  [modifier("Caps Lock", 0x14), ...[..."ASDFGHJKL"].map(label => key(label.toLowerCase(), label.charCodeAt(0))), key(";", 0xba, ":"), key("'", 0xde, '"'), key("Enter", 0x0d)],
-  [modifier("Shift", 0x10), ...[..."ZXCVBNM"].map(label => key(label.toLowerCase(), label.charCodeAt(0))), key(",", 0xbc, "<"), key(".", 0xbe, ">"), key("/", 0xbf, "?"), modifier("Shift", 0x10)],
-  [modifier("Ctrl", 0x11), modifier("Win", 0x5b), modifier("Alt", 0x12), key("Space", 0x20, " "), modifier("Alt", 0x12), modifier("Win", 0x5b), key("Menu", 0x5d), key("Del", 0x2e), key("←", 0x25), key("↑", 0x26), key("↓", 0x28), key("→", 0x27), modifier("Ctrl", 0x11)],
+  [
+    key("Num Lock", 0x90),
+    key("Num 0", 0x60),
+    key("Num 1", 0x61),
+    key("Num 2", 0x62),
+    key("Num 3", 0x63),
+    key("Num 4", 0x64),
+    key("Num 5", 0x65),
+    key("Num 6", 0x66),
+    key("Num 7", 0x67),
+    key("Num 8", 0x68),
+    key("Num 9", 0x69),
+    key("Num *", 0x6a),
+    key("Num +", 0x6b),
+    key("Num -", 0x6d),
+    key("Num /", 0x6f),
+    key("Num .", 0x6e),
+  ],
+  [
+    key("Esc", 0x1b),
+    key("F1", 0x70),
+    key("F2", 0x71),
+    key("F3", 0x72),
+    key("F4", 0x73),
+    key("F5", 0x74),
+    key("F6", 0x75),
+    key("F7", 0x76),
+    key("F8", 0x77),
+    key("F9", 0x78),
+    key("F10", 0x79),
+    key("F11", 0x7a),
+    key("F12", 0x7b),
+    key("PrtSc", 0x2c),
+    key("Scroll", 0x91),
+    key("Pause", 0x13),
+    key("Ins", 0x2d),
+    key("Home", 0x24),
+    key("End", 0x23),
+    key("PgUp", 0x21),
+    key("PgDn", 0x22),
+  ],
+  [
+    key("`", 0xc0, "~"),
+    ...[..."1234567890"].map((label, index) =>
+      key(label, label.charCodeAt(0), ["!", "@", "#", "$", "%", "^", "&", "*", "(", ")"][index]),
+    ),
+    key("-", 0xbd, "_"),
+    key("=", 0xbb, "+"),
+    key("Backspace", 0x08),
+  ],
+  [
+    key("Tab", 0x09),
+    ...[..."QWERTYUIOP"].map((label) => key(label.toLowerCase(), label.charCodeAt(0))),
+    key("[", 0xdb, "{"),
+    key("]", 0xdd, "}"),
+    key("\\", 0xdc, "|"),
+  ],
+  [
+    modifier("Caps Lock", 0x14),
+    ...[..."ASDFGHJKL"].map((label) => key(label.toLowerCase(), label.charCodeAt(0))),
+    key(";", 0xba, ":"),
+    key("'", 0xde, '"'),
+    key("Enter", 0x0d),
+  ],
+  [
+    modifier("Shift", 0x10),
+    ...[..."ZXCVBNM"].map((label) => key(label.toLowerCase(), label.charCodeAt(0))),
+    key(",", 0xbc, "<"),
+    key(".", 0xbe, ">"),
+    key("/", 0xbf, "?"),
+    modifier("Shift", 0x10),
+  ],
+  [
+    modifier("Ctrl", 0x11),
+    modifier("Win", 0x5b),
+    modifier("Alt", 0x12),
+    key("Space", 0x20, " "),
+    modifier("Alt", 0x12),
+    modifier("Win", 0x5b),
+    key("Menu", 0x5d),
+    key("Del", 0x2e),
+    key("←", 0x25),
+    key("↑", 0x26),
+    key("↓", 0x28),
+    key("→", 0x27),
+    modifier("Ctrl", 0x11),
+  ],
 ];
 const nineKeyRows: KeyboardKey[][] = [
   [key("1", 0x31), key("2", 0x32), key("3", 0x33)],
@@ -151,7 +403,9 @@ const nineKeyRows: KeyboardKey[][] = [
 ];
 
 function modifierPrefix(modifiers: Set<Modifier>) {
-  return ["Ctrl", "Alt", "Win", "Shift"].filter(value => modifiers.has(value as Modifier)).join("+");
+  return ["Ctrl", "Alt", "Win", "Shift"]
+    .filter((value) => modifiers.has(value as Modifier))
+    .join("+");
 }
 // Width ratios from Windows KeyboardPanel.cpp at 7fa6fb1a7862c5ca1541b9cb839d9bea3a06e2c6.
 // Identify the space row by its content: Linux adds function and numpad rows.
@@ -166,20 +420,26 @@ function keyboardKeyWeight(label: string, index: number, spaceRow: boolean) {
   return 1;
 }
 function isImeCommitKey(virtualKey: number) {
-  return [0x20, 0x0d, 0x09, 0x08, 0x2e, 0x6a, 0x6b, 0x6d, 0x6e, 0x6f].includes(virtualKey) || (virtualKey >= 0x30 && virtualKey <= 0x39) || (virtualKey >= 0x60 && virtualKey <= 0x69);
+  return (
+    [0x20, 0x0d, 0x09, 0x08, 0x2e, 0x6a, 0x6b, 0x6d, 0x6e, 0x6f].includes(virtualKey) ||
+    (virtualKey >= 0x30 && virtualKey <= 0x39) ||
+    (virtualKey >= 0x60 && virtualKey <= 0x69)
+  );
 }
 
 function mixKeyboardColor(first: string, second: string, amount: number) {
   const parse = (value: string) => Number.parseInt(value.replace(/^#/, ""), 16);
-  const a = parse(first), b = parse(second);
+  const a = parse(first),
+    b = parse(second);
   if (!Number.isFinite(a) || !Number.isFinite(b)) return first;
-  const channel = (shift: number) => Math.round(((a >> shift) & 0xff) * (1 - amount) + ((b >> shift) & 0xff) * amount);
+  const channel = (shift: number) =>
+    Math.round(((a >> shift) & 0xff) * (1 - amount) + ((b >> shift) & 0xff) * amount);
   return `#${((channel(16) << 16) | (channel(8) << 8) | channel(0)).toString(16).padStart(6, "0")}`;
 }
 
 function readableKeyboardText(value: string) {
   const parsed = Number.parseInt(value.replace(/^#/, ""), 16);
-  return Number.isFinite(parsed) && skinLuminance(parsed) > .179 ? "#000000" : "#ffffff";
+  return Number.isFinite(parsed) && skinLuminance(parsed) > 0.179 ? "#000000" : "#ffffff";
 }
 
 function keyboardRgba(value: string, opacity: number) {
@@ -189,11 +449,17 @@ function keyboardRgba(value: string, opacity: number) {
   return `rgba(${channel(16)}, ${channel(8)}, ${channel(0)}, ${Math.max(0, Math.min(1, opacity))})`;
 }
 
-function keyboardBackgroundStyle(skin: TouchKeyboardSkin, customDesign: TouchKeyboardSkinDesign | undefined, palette: { background: string; accent: string }): CSSProperties {
+function keyboardBackgroundStyle(
+  skin: TouchKeyboardSkin,
+  customDesign: TouchKeyboardSkinDesign | undefined,
+  palette: { background: string; accent: string },
+): CSSProperties {
   const custom = skin === "custom" && customDesign ? customDesign : undefined;
-  const option = touchKeyboardSkinOptions.find(item => item.id === (skin === "custom" ? "forest" : skin)) ?? touchKeyboardSkinOptions[0];
+  const option =
+    touchKeyboardSkinOptions.find((item) => item.id === (skin === "custom" ? "forest" : skin)) ??
+    touchKeyboardSkinOptions[0];
   const pattern = custom?.pattern ?? option.pattern;
-  const patternOpacity = custom?.patternOpacity ?? .15;
+  const patternOpacity = custom?.patternOpacity ?? 0.15;
   const images: string[] = [];
   const sizes: string[] = [];
   const positions: string[] = [];
@@ -204,34 +470,64 @@ function keyboardBackgroundStyle(skin: TouchKeyboardSkin, customDesign: TouchKey
   };
   const accent = keyboardRgba(palette.accent, patternOpacity);
   if (pattern === 1) add(`radial-gradient(circle, ${accent} 1px, transparent 1.5px)`, "16px 16px");
-  else if (pattern === 2) add(`linear-gradient(${accent} 1px, transparent 1px), linear-gradient(90deg, ${accent} 1px, transparent 1px)`, "20px 20px");
-  else if (pattern === 3) add(`repeating-linear-gradient(155deg, transparent 0 18px, ${accent} 18px 20px, transparent 20px 38px)`, "48px 48px");
+  else if (pattern === 2)
+    add(
+      `linear-gradient(${accent} 1px, transparent 1px), linear-gradient(90deg, ${accent} 1px, transparent 1px)`,
+      "20px 20px",
+    );
+  else if (pattern === 3)
+    add(
+      `repeating-linear-gradient(155deg, transparent 0 18px, ${accent} 18px 20px, transparent 20px 38px)`,
+      "48px 48px",
+    );
   if (custom?.gradientEnd !== undefined) {
     const direction = custom.gradientHorizontal ? "90deg" : "180deg";
-    add(`linear-gradient(${direction}, ${palette.background}, ${skinColor(custom.gradientEnd)})`, "cover");
+    add(
+      `linear-gradient(${direction}, ${palette.background}, ${skinColor(custom.gradientEnd)})`,
+      "cover",
+    );
   }
-  const photo = typeof custom?.photo === "string" && /^[A-Za-z0-9+/=]+$/.test(custom.photo) && custom.photo.length <= 682668 ? custom.photo : undefined;
+  const photo =
+    typeof custom?.photo === "string" &&
+    /^[A-Za-z0-9+/=]+$/.test(custom.photo) &&
+    custom.photo.length <= 682668
+      ? custom.photo
+      : undefined;
   if (photo) {
-    const shade = Math.max(0, Math.min(.8, custom?.photoShade ?? .25));
-    const position = Math.max(0, Math.min(1, custom?.photoPosition ?? .5)) * 100;
+    const shade = Math.max(0, Math.min(0.8, custom?.photoShade ?? 0.25));
+    const position = Math.max(0, Math.min(1, custom?.photoPosition ?? 0.5)) * 100;
     // Keep the image and its shade above the color/pattern layers while
     // retaining the bounded data URL produced by the skin editor.
     add(`url("data:image/jpeg;base64,${photo}")`, "cover", `${position}% ${position}%`);
     add(`linear-gradient(rgba(0, 0, 0, ${shade}), rgba(0, 0, 0, ${shade}))`, "cover");
   }
-  return images.length ? { backgroundImage: images.reverse().join(", "), backgroundSize: sizes.reverse().join(", "), backgroundPosition: positions.reverse().join(", ") } : {};
+  return images.length
+    ? {
+        backgroundImage: images.reverse().join(", "),
+        backgroundSize: sizes.reverse().join(", "),
+        backgroundPosition: positions.reverse().join(", "),
+      }
+    : {};
 }
 
-function keyboardSkinStyles(theme: "dark" | "light", skin: TouchKeyboardSkin, customDesign?: TouchKeyboardSkinDesign): CSSProperties {
+function keyboardSkinStyles(
+  theme: "dark" | "light",
+  skin: TouchKeyboardSkin,
+  customDesign?: TouchKeyboardSkinDesign,
+): CSSProperties {
   const custom = skin === "custom" && customDesign ? customDesign : undefined;
-  const option = touchKeyboardSkinOptions.find(item => item.id === (skin === "custom" ? "forest" : skin)) ?? touchKeyboardSkinOptions[0];
-  const palette = custom ? {
-    background: skinColor(custom.background),
-    key: skinColor(custom.keyBackground),
-    foreground: skinColor(custom.keyForeground),
-    accent: skinColor(custom.accent),
-    action: skinColor(custom.actionBackground),
-  } : option[theme];
+  const option =
+    touchKeyboardSkinOptions.find((item) => item.id === (skin === "custom" ? "forest" : skin)) ??
+    touchKeyboardSkinOptions[0];
+  const palette = custom
+    ? {
+        background: skinColor(custom.background),
+        key: skinColor(custom.keyBackground),
+        foreground: skinColor(custom.keyForeground),
+        accent: skinColor(custom.accent),
+        action: skinColor(custom.actionBackground),
+      }
+    : option[theme];
   const radius = custom?.cornerRadius ?? option.cornerRadius;
   const borderWidth = custom?.borderWidth ?? option.borderWidth;
   const shadowOpacity = custom?.shadow ?? option.shadowOpacity;
@@ -240,14 +536,18 @@ function keyboardSkinStyles(theme: "dark" | "light", skin: TouchKeyboardSkin, cu
   const keyOpacity = custom?.keyOpacity ?? 1;
   const keyShape = custom?.keyShape ?? "rounded";
   const keyMaterial = custom?.keyMaterial ?? "flat";
-  const keyRadius = keyShape === "capsule"
-    ? "999px"
-    : keyShape === "pebble"
-      ? "42% 58% 48% 52% / 52% 44% 56% 48%"
-      : keyShape === "ticket" ? `${Math.min(4, Math.max(0, radius))}px` : `${Math.max(0, Math.min(20, radius))}px`;
-  const fontFamily = (custom?.monospaced ?? option.monospaced)
-    ? "ui-monospace, SFMono-Regular, Consolas, monospace"
-    : "inherit";
+  const keyRadius =
+    keyShape === "capsule"
+      ? "999px"
+      : keyShape === "pebble"
+        ? "42% 58% 48% 52% / 52% 44% 56% 48%"
+        : keyShape === "ticket"
+          ? `${Math.min(4, Math.max(0, radius))}px`
+          : `${Math.max(0, Math.min(20, radius))}px`;
+  const fontFamily =
+    (custom?.monospaced ?? option.monospaced)
+      ? "ui-monospace, SFMono-Regular, Consolas, monospace"
+      : "inherit";
   return {
     ...keyboardBackgroundStyle(skin, customDesign, palette),
     "--kb-background": palette.background,
@@ -258,14 +558,17 @@ function keyboardSkinStyles(theme: "dark" | "light", skin: TouchKeyboardSkin, cu
     "--kb-action": palette.action,
     "--kb-action-fill": keyboardRgba(palette.action, 1),
     "--kb-action-text": readableKeyboardText(palette.action),
-    "--kb-paper-line": keyboardRgba(palette.accent, .08),
-    "--kb-hover": mixKeyboardColor(palette.key, palette.accent, .18),
-    "--kb-active": mixKeyboardColor(palette.key, palette.accent, .3),
-    "--kb-pressed": mixKeyboardColor(palette.key, palette.accent, .42),
+    "--kb-paper-line": keyboardRgba(palette.accent, 0.08),
+    "--kb-hover": mixKeyboardColor(palette.key, palette.accent, 0.18),
+    "--kb-active": mixKeyboardColor(palette.key, palette.accent, 0.3),
+    "--kb-pressed": mixKeyboardColor(palette.key, palette.accent, 0.42),
     "--kb-key-radius": keyRadius,
     "--kb-border-width": `${Math.max(0, Math.min(2, borderWidth))}px`,
     "--kb-border-color": palette.accent,
-    "--kb-shadow": shadowOpacity > 0 ? `0 ${shadowOffset}px ${shadowRadius}px rgba(0, 0, 0, ${shadowOpacity})` : "none",
+    "--kb-shadow":
+      shadowOpacity > 0
+        ? `0 ${shadowOffset}px ${shadowRadius}px rgba(0, 0, 0, ${shadowOpacity})`
+        : "none",
     "--kb-font-family": fontFamily,
     "--kb-key-material": keyMaterial,
   } as CSSProperties;
@@ -277,18 +580,60 @@ function keyboardSkinStyles(theme: "dark" | "light", skin: TouchKeyboardSkin, cu
 // deleting it here would conflict with every one of them. Remove it once they
 // have landed.
 // oxlint-disable-next-line no-unused-vars
-const keyboardActionLabels = new Set(["Backspace", "Enter", "Shift", "Tab", "Esc", "Caps Lock", "Ctrl", "Alt", "Win", "Del", "Menu", "Num Lock"]);
+const keyboardActionLabels = new Set([
+  "Backspace",
+  "Enter",
+  "Shift",
+  "Tab",
+  "Esc",
+  "Caps Lock",
+  "Ctrl",
+  "Alt",
+  "Win",
+  "Del",
+  "Menu",
+  "Num Lock",
+]);
 
-export function KeyboardPanel({ client, platform, theme = "dark", layout = "twenty_six_key", keySpacingTenths = 60, rowSpacingTenths = 70, voiceShortcut = false, skin = "forest", customDesign }: { client: PanelClient; platform?: string; theme?: "dark" | "light"; layout?: "twenty_six_key" | "nine_key"; keySpacingTenths?: number; rowSpacingTenths?: number; voiceShortcut?: boolean; skin?: TouchKeyboardSkin; customDesign?: TouchKeyboardSkinDesign }) {
+export function KeyboardPanel({
+  client,
+  platform,
+  theme = "dark",
+  layout = "twenty_six_key",
+  keySpacingTenths = 60,
+  rowSpacingTenths = 70,
+  voiceShortcut = false,
+  skin = "forest",
+  customDesign,
+}: {
+  client: PanelClient;
+  platform?: string;
+  theme?: "dark" | "light";
+  layout?: "twenty_six_key" | "nine_key";
+  keySpacingTenths?: number;
+  rowSpacingTenths?: number;
+  voiceShortcut?: boolean;
+  skin?: TouchKeyboardSkin;
+  customDesign?: TouchKeyboardSkinDesign;
+}) {
   const [activeLayout, setActiveLayout] = useState<"twenty_six_key" | "nine_key">(() => {
     let saved: string | null = null;
-    try { saved = typeof window !== "undefined" ? window.localStorage.getItem("msime.keyboard.layout") : null; } catch { /* restricted webviews may deny storage */ }
+    try {
+      saved =
+        typeof window !== "undefined" ? window.localStorage.getItem("msime.keyboard.layout") : null;
+    } catch {
+      /* restricted webviews may deny storage */
+    }
     return saved === "nine_key" || saved === "twenty_six_key" ? saved : layout;
   });
   function switchLayout() {
     const next = activeLayout === "nine_key" ? "twenty_six_key" : "nine_key";
     setActiveLayout(next);
-    try { window.localStorage.setItem("msime.keyboard.layout", next); } catch { /* preference is optional */ }
+    try {
+      window.localStorage.setItem("msime.keyboard.layout", next);
+    } catch {
+      /* preference is optional */
+    }
   }
   const previousHostLayout = useRef(layout);
   useEffect(() => {
@@ -298,20 +643,40 @@ export function KeyboardPanel({ client, platform, theme = "dark", layout = "twen
     setActiveLayout(layout);
   }, [layout]);
   const sourceRows = activeLayout === "nine_key" ? nineKeyRows : keyboardRows;
-  const rows = platform === "macos" ? sourceRows.map(row => row
-    // macOS has no PC application/Menu key. The native panel omits it and
-    // host-macos deliberately rejects the Windows VK_MENU (0x5d) contract
-    // value rather than guessing at a Command/Option equivalent. Keep the
-    // shared layout's other keypad/navigation keys because CoreGraphics has
-    // stable ANSI mappings for those values.
-    .filter(item => ![0x2c, 0x91, 0x13, 0x2d, 0x5d].includes(item.virtualKey))
-    .map(item => ({ ...item, label: item.label === "Win" ? "Command" : item.label === "Alt" ? "Option" : item.label === "Num Lock" ? "Clear" : item.label }))) : sourceRows;
+  const rows =
+    platform === "macos"
+      ? sourceRows.map((row) =>
+          row
+            // macOS has no PC application/Menu key. The native panel omits it and
+            // host-macos deliberately rejects the Windows VK_MENU (0x5d) contract
+            // value rather than guessing at a Command/Option equivalent. Keep the
+            // shared layout's other keypad/navigation keys because CoreGraphics has
+            // stable ANSI mappings for those values.
+            .filter((item) => ![0x2c, 0x91, 0x13, 0x2d, 0x5d].includes(item.virtualKey))
+            .map((item) => ({
+              ...item,
+              label:
+                item.label === "Win"
+                  ? "Command"
+                  : item.label === "Alt"
+                    ? "Option"
+                    : item.label === "Num Lock"
+                      ? "Clear"
+                      : item.label,
+            })),
+        )
+      : sourceRows;
   const [, setActiveModifiers] = useState<Set<Modifier>>(new Set());
   const modifiersRef = useRef<Set<Modifier>>(new Set());
   const [notice, setNotice] = useState("Touch keyboard");
   const [openingVoice, setOpeningVoice] = useState(false);
   type QueuedKey = { request: KeyboardInputRequest; description: string };
-  const inputQueue = useRef<{ active: boolean; running: boolean; openingVoice: boolean; pending: QueuedKey[] }>({ active: true, running: false, openingVoice: false, pending: [] });
+  const inputQueue = useRef<{
+    active: boolean;
+    running: boolean;
+    openingVoice: boolean;
+    pending: QueuedKey[];
+  }>({ active: true, running: false, openingVoice: false, pending: [] });
   const keyRepeat = useRef<{ delay?: number; interval?: number }>({});
   const drag = usePanelDrag(client, () => setNotice("无法移动窗口，请重试。"));
   function stopKeyRepeat() {
@@ -325,9 +690,10 @@ export function KeyboardPanel({ client, platform, theme = "dark", layout = "twen
     inputQueue.current = queue;
     modifiersRef.current = new Set();
     setActiveModifiers(new Set());
-    if (client.rememberInputTarget) void client.rememberInputTarget().catch(() => {
-      if (queue.active) setNotice("未能记录前台输入窗口");
-    });
+    if (client.rememberInputTarget)
+      void client.rememberInputTarget().catch(() => {
+        if (queue.active) setNotice("未能记录前台输入窗口");
+      });
     const stopForBlur = () => stopKeyRepeat();
     window.addEventListener("blur", stopForBlur);
     return () => {
@@ -339,7 +705,8 @@ export function KeyboardPanel({ client, platform, theme = "dark", layout = "twen
   }, [client]);
   function toggleModifier(keyToToggle: Modifier) {
     const next = new Set(modifiersRef.current);
-    if (next.has(keyToToggle)) next.delete(keyToToggle); else next.add(keyToToggle);
+    if (next.has(keyToToggle)) next.delete(keyToToggle);
+    else next.add(keyToToggle);
     modifiersRef.current = next;
     setActiveModifiers(next);
     syncKeyboardFaces(next);
@@ -355,8 +722,11 @@ export function KeyboardPanel({ client, platform, theme = "dark", layout = "twen
       if (!button) return;
       const letter = item.label.length === 1 && /[a-z]/i.test(item.label);
       const shifted = modifiers.has("Shift") && item.label.length === 1;
-      button.textContent = shifted ? (item.shifted || (letter ? item.label.toUpperCase() : item.label)) : item.label;
-      if (item.modifier) button.setAttribute("aria-pressed", modifiers.has(item.modifier) ? "true" : "false");
+      button.textContent = shifted
+        ? item.shifted || (letter ? item.label.toUpperCase() : item.label)
+        : item.label;
+      if (item.modifier)
+        button.setAttribute("aria-pressed", modifiers.has(item.modifier) ? "true" : "false");
     });
   }
   async function drainKeys() {
@@ -375,8 +745,7 @@ export function KeyboardPanel({ client, platform, theme = "dark", layout = "twen
           // earlier key is delivered.
           if (client.rememberInputTarget) await client.rememberInputTarget();
           await client.sendKey(next.request);
-        }
-        catch {
+        } catch {
           // Delivery may have partially succeeded; never replay a failed key.
           queue.pending = [];
           stopKeyRepeat();
@@ -385,7 +754,9 @@ export function KeyboardPanel({ client, platform, theme = "dark", layout = "twen
         }
         if (queue.active) setNotice(`已发送：${next.description}`);
       }
-    } finally { queue.running = false; }
+    } finally {
+      queue.running = false;
+    }
   }
   async function openVoiceKeyboard() {
     const queue = inputQueue.current;
@@ -422,8 +793,14 @@ export function KeyboardPanel({ client, platform, theme = "dark", layout = "twen
   function pressKey(keyToPress: KeyboardKey) {
     const queue = inputQueue.current;
     if (!queue.active || queue.openingVoice) return;
-    if (keyToPress.modifier) { toggleModifier(keyToPress.modifier); return; }
-    if (queue.pending.length >= 64) { setNotice("按键正在发送，请稍候再继续输入"); return; }
+    if (keyToPress.modifier) {
+      toggleModifier(keyToPress.modifier);
+      return;
+    }
+    if (queue.pending.length >= 64) {
+      setNotice("按键正在发送，请稍候再继续输入");
+      return;
+    }
     const activeModifiers = modifiersRef.current;
     const shift = activeModifiers.has("Shift");
     const caps = activeModifiers.has("Caps Lock");
@@ -431,13 +808,26 @@ export function KeyboardPanel({ client, platform, theme = "dark", layout = "twen
     // Caps Lock and Shift invert one another for letters, just like the
     // Windows keyboard panel. Punctuation still follows Shift alone.
     const withShift = letter ? caps !== shift : shift;
-    const modifiers = { ctrl: activeModifiers.has("Ctrl"), alt: activeModifiers.has("Alt"), win: activeModifiers.has("Win") };
+    const modifiers = {
+      ctrl: activeModifiers.has("Ctrl"),
+      alt: activeModifiers.has("Alt"),
+      win: activeModifiers.has("Win"),
+    };
     const includeStickyModifiers = !isImeCommitKey(keyToPress.virtualKey);
     const prefix = modifierPrefix(activeModifiers);
-    const displayedLabel = withShift ? (keyToPress.shifted || (letter ? keyToPress.label.toUpperCase() : keyToPress.label)) : keyToPress.label;
+    const displayedLabel = withShift
+      ? keyToPress.shifted || (letter ? keyToPress.label.toUpperCase() : keyToPress.label)
+      : keyToPress.label;
     const description = `${prefix}${prefix ? "+" : ""}${displayedLabel}`;
-    const request: KeyboardInputRequest = { virtual_key: keyToPress.virtualKey, shift: withShift && includeStickyModifiers, modifiers, include_sticky_modifiers: includeStickyModifiers };
-    setNotice(client.sendKey ? `正在发送：${description}` : `已准备：${description}（等待宿主注入能力）`);
+    const request: KeyboardInputRequest = {
+      virtual_key: keyToPress.virtualKey,
+      shift: withShift && includeStickyModifiers,
+      modifiers,
+      include_sticky_modifiers: includeStickyModifiers,
+    };
+    setNotice(
+      client.sendKey ? `正在发送：${description}` : `已准备：${description}（等待宿主注入能力）`,
+    );
     if (client.sendKey) {
       // The native reference sends each complete SendInput sequence
       // synchronously. Tauri commands are asynchronous, so preserve that
@@ -457,7 +847,14 @@ export function KeyboardPanel({ client, platform, theme = "dark", layout = "twen
   function beginPointerKey(event: PointerEvent<HTMLButtonElement>, keyToPress: KeyboardKey) {
     // Num Lock is a lock key in the Linux extended layout, so a held pointer
     // must not toggle it repeatedly like an ordinary keypad key.
-    if (!event.isPrimary || event.button !== 0 || keyToPress.modifier || keyToPress.virtualKey === 0x90 || openingVoice) return;
+    if (
+      !event.isPrimary ||
+      event.button !== 0 ||
+      keyToPress.modifier ||
+      keyToPress.virtualKey === 0x90 ||
+      openingVoice
+    )
+      return;
     stopKeyRepeat();
     pressKey(resolveRenderedKey(keyToPress, event.currentTarget.textContent ?? ""));
     keyRepeat.current.delay = window.setTimeout(() => {
@@ -467,36 +864,116 @@ export function KeyboardPanel({ client, platform, theme = "dark", layout = "twen
   }
   function resolveRenderedKey(fallback: KeyboardKey, displayed: string) {
     if (!modifiersRef.current.has("Shift")) return fallback;
-    const match = rows.flat().find(item => item.shifted === displayed || (item.shifted == null && item.label.length === 1 && item.label.toUpperCase() === displayed));
+    const match = rows
+      .flat()
+      .find(
+        (item) =>
+          item.shifted === displayed ||
+          (item.shifted == null &&
+            item.label.length === 1 &&
+            item.label.toUpperCase() === displayed),
+      );
     return match ?? fallback;
   }
   const keyGap = Math.max(3, Math.min(6, keySpacingTenths / 10));
   const rowGap = Math.max(4, Math.min(10, rowSpacingTenths / 10));
-  const keyboardStyle = { "--keyboard-key-gap": `${keyGap}px`, "--keyboard-row-gap": `${rowGap}px` } as CSSProperties;
+  const keyboardStyle = {
+    "--keyboard-key-gap": `${keyGap}px`,
+    "--keyboard-row-gap": `${rowGap}px`,
+  } as CSSProperties;
   const skinStyle = keyboardSkinStyles(theme, skin, customDesign);
   const renderedModifiers = modifiersRef.current;
-  const keyMaterial = skin === "custom" ? customDesign?.keyMaterial ?? "flat" : "flat";
+  const keyMaterial = skin === "custom" ? (customDesign?.keyMaterial ?? "flat") : "flat";
   const materialClass = keyMaterial === "flat" ? "" : ` material-${keyMaterial}`;
-  return <main className="native-panel keyboard-panel" style={skinStyle} data-keyboard-theme={theme} data-keyboard-skin={skin} data-keyboard-material={keyMaterial} data-keyboard-layout={activeLayout} aria-label="屏幕键盘">
-    <header className="native-panel-header" {...drag}>
-      <span className="keyboard-panel-notice" role="status" title={notice}>{notice}</span><button type="button" aria-label="切换键盘布局" onClick={switchLayout}>{activeLayout === "nine_key" ? "全键" : "九宫格"}</button>{voiceShortcut && client.openVoice && <button type="button" aria-label="打开语音输入" disabled={openingVoice} onClick={() => void openVoiceKeyboard()}>语音</button>}<button type="button" aria-label="关闭" disabled={openingVoice} onClick={closeKeyboard}>×</button></header>
-    <div className="keyboard-panel-body">
-      <div className="keyboard-layout" style={keyboardStyle}>
-        {rows.map((row, rowIndex) => <div className="keyboard-row" key={rowIndex}>{row.map((keyToRender, keyIndex) => {
-          const letter = keyToRender.label.length === 1 && /[a-z]/i.test(keyToRender.label);
-          const shifted = renderedModifiers.has("Shift") && keyToRender.label.length === 1;
-          const label = shifted ? (keyToRender.shifted || (letter ? keyToRender.label.toUpperCase() : keyToRender.label)) : keyToRender.label;
-          return <button type="button" disabled={openingVoice} key={`${keyToRender.label}-${keyIndex}`} style={{ flexGrow: activeLayout === "nine_key" ? 1 : keyboardKeyWeight(keyToRender.label, keyIndex, row.some(item => item.virtualKey === 0x20)) }} aria-pressed={keyToRender.modifier ? renderedModifiers.has(keyToRender.modifier) : undefined} className={`keyboard-key${materialClass}${keyToRender.modifier ? " modifier" : ""}${keyToRender.label === "Space" ? " space" : ""}${keyToRender.label.length > 1 ? " wide" : ""}${keyToRender.modifier && renderedModifiers.has(keyToRender.modifier) ? " active" : ""}`} onPointerDown={event => beginPointerKey(event, keyToRender)} onPointerUp={stopKeyRepeat} onPointerCancel={stopKeyRepeat} onPointerLeave={stopKeyRepeat} onClick={event => {
-            // Pointer activation is delivered on pointerdown for immediate
-            // response and repeat. A detail-zero click comes from keyboard or
-            // assistive activation and still sends exactly one key.
-            if (keyToRender.modifier || keyToRender.virtualKey === 0x90 || event.detail === 0)
-              pressKey(resolveRenderedKey(keyToRender, event.currentTarget.textContent ?? ""));
-          }}>{label}</button>;
-        })}</div>)}
+  return (
+    <main
+      className="native-panel keyboard-panel"
+      style={skinStyle}
+      data-keyboard-theme={theme}
+      data-keyboard-skin={skin}
+      data-keyboard-material={keyMaterial}
+      data-keyboard-layout={activeLayout}
+      aria-label="屏幕键盘"
+    >
+      <header className="native-panel-header" {...drag}>
+        <span className="keyboard-panel-notice" role="status" title={notice}>
+          {notice}
+        </span>
+        <button type="button" aria-label="切换键盘布局" onClick={switchLayout}>
+          {activeLayout === "nine_key" ? "全键" : "九宫格"}
+        </button>
+        {voiceShortcut && client.openVoice && (
+          <button
+            type="button"
+            aria-label="打开语音输入"
+            disabled={openingVoice}
+            onClick={() => void openVoiceKeyboard()}
+          >
+            语音
+          </button>
+        )}
+        <button type="button" aria-label="关闭" disabled={openingVoice} onClick={closeKeyboard}>
+          ×
+        </button>
+      </header>
+      <div className="keyboard-panel-body">
+        <div className="keyboard-layout" style={keyboardStyle}>
+          {rows.map((row, rowIndex) => (
+            <div className="keyboard-row" key={rowIndex}>
+              {row.map((keyToRender, keyIndex) => {
+                const letter = keyToRender.label.length === 1 && /[a-z]/i.test(keyToRender.label);
+                const shifted = renderedModifiers.has("Shift") && keyToRender.label.length === 1;
+                const label = shifted
+                  ? keyToRender.shifted ||
+                    (letter ? keyToRender.label.toUpperCase() : keyToRender.label)
+                  : keyToRender.label;
+                return (
+                  <button
+                    type="button"
+                    disabled={openingVoice}
+                    key={`${keyToRender.label}-${keyIndex}`}
+                    style={{
+                      flexGrow:
+                        activeLayout === "nine_key"
+                          ? 1
+                          : keyboardKeyWeight(
+                              keyToRender.label,
+                              keyIndex,
+                              row.some((item) => item.virtualKey === 0x20),
+                            ),
+                    }}
+                    aria-pressed={
+                      keyToRender.modifier ? renderedModifiers.has(keyToRender.modifier) : undefined
+                    }
+                    className={`keyboard-key${materialClass}${keyToRender.modifier ? " modifier" : ""}${keyToRender.label === "Space" ? " space" : ""}${keyToRender.label.length > 1 ? " wide" : ""}${keyToRender.modifier && renderedModifiers.has(keyToRender.modifier) ? " active" : ""}`}
+                    onPointerDown={(event) => beginPointerKey(event, keyToRender)}
+                    onPointerUp={stopKeyRepeat}
+                    onPointerCancel={stopKeyRepeat}
+                    onPointerLeave={stopKeyRepeat}
+                    onClick={(event) => {
+                      // Pointer activation is delivered on pointerdown for immediate
+                      // response and repeat. A detail-zero click comes from keyboard or
+                      // assistive activation and still sends exactly one key.
+                      if (
+                        keyToRender.modifier ||
+                        keyToRender.virtualKey === 0x90 ||
+                        event.detail === 0
+                      )
+                        pressKey(
+                          resolveRenderedKey(keyToRender, event.currentTarget.textContent ?? ""),
+                        );
+                    }}
+                  >
+                    {label}
+                  </button>
+                );
+              })}
+            </div>
+          ))}
+        </div>
       </div>
-    </div>
-  </main>;
+    </main>
+  );
 }
 
 type Point = InkPoint;
@@ -506,11 +983,13 @@ const MAX_HANDWRITING_STROKES = 32;
 const MAX_HANDWRITING_CANDIDATES = 12;
 
 function hasBmpCjk(text: string) {
-  return Array.from(text).some(character => {
+  return Array.from(text).some((character) => {
     const code = character.codePointAt(0) ?? 0;
-    return (code >= 0x3400 && code <= 0x4dbf)
-      || (code >= 0x4e00 && code <= 0x9fff)
-      || (code >= 0xf900 && code <= 0xfaff);
+    return (
+      (code >= 0x3400 && code <= 0x4dbf) ||
+      (code >= 0x4e00 && code <= 0x9fff) ||
+      (code >= 0xf900 && code <= 0xfaff)
+    );
   });
 }
 
@@ -533,13 +1012,17 @@ function appendInkPoint(points: Point[], point: Point, endpoint = false): Point[
   if (last?.x === next.x && last?.y === next.y) return points;
   // Match the Windows panel's half-unit movement threshold while keeping the
   // final pen position and Linux touch/stylus dots available to recognition.
-  if (last && !endpoint && Math.abs(last.x - next.x) + Math.abs(last.y - next.y) < 0.5) return points;
+  if (last && !endpoint && Math.abs(last.x - next.x) + Math.abs(last.y - next.y) < 0.5)
+    return points;
   if (points.length < MAX_CAPTURED_POINTS) return [...points, next];
   // Thin older samples while retaining both the original start and latest end.
   return [...points.filter((_, index) => index % 2 === 0), last, next];
 }
 
-function pointFromCoordinates(canvas: SVGSVGElement, event: { clientX: number; clientY: number }): Point {
+function pointFromCoordinates(
+  canvas: SVGSVGElement,
+  event: { clientX: number; clientY: number },
+): Point {
   // The SVG matrix accounts for borders, viewBox letterboxing, window zoom
   // and CSS transforms; the bounding rectangle alone cannot represent these.
   const matrix = canvas.getScreenCTM?.();
@@ -552,15 +1035,24 @@ function pointFromCoordinates(canvas: SVGSVGElement, event: { clientX: number; c
       if (Number.isFinite(local.x) && Number.isFinite(local.y)) {
         return { x: Math.max(0, Math.min(420, local.x)), y: Math.max(0, Math.min(420, local.y)) };
       }
-    } catch { /* A detached or non-invertible canvas uses the bounded fallback. */ }
+    } catch {
+      /* A detached or non-invertible canvas uses the bounded fallback. */
+    }
   }
   const rect = canvas.getBoundingClientRect();
   const width = rect.width || 420;
   const height = rect.height || 420;
-  return { x: Math.max(0, Math.min(420, ((event.clientX - rect.left) / width) * 420)), y: Math.max(0, Math.min(420, ((event.clientY - rect.top) / height) * 420)) };
+  return {
+    x: Math.max(0, Math.min(420, ((event.clientX - rect.left) / width) * 420)),
+    y: Math.max(0, Math.min(420, ((event.clientY - rect.top) / height) * 420)),
+  };
 }
 
-function appendPointerSamples(points: Point[], event: PointerEvent<SVGSVGElement>, endpoint = false): Point[] {
+function appendPointerSamples(
+  points: Point[],
+  event: PointerEvent<SVGSVGElement>,
+  endpoint = false,
+): Point[] {
   let next = points;
   for (const sample of event.nativeEvent.getCoalescedEvents?.() ?? []) {
     if (sample.pointerId === event.pointerId) {
@@ -570,8 +1062,18 @@ function appendPointerSamples(points: Point[], event: PointerEvent<SVGSVGElement
   return appendInkPoint(next, pointFromCoordinates(event.currentTarget, event), endpoint);
 }
 
-function HandwritingCandidateButton({ candidate, copy, disabled, onChoose, onCopy }: {
-  candidate: string; copy: boolean; disabled: boolean; onChoose: () => void; onCopy?: () => void;
+function HandwritingCandidateButton({
+  candidate,
+  copy,
+  disabled,
+  onChoose,
+  onCopy,
+}: {
+  candidate: string;
+  copy: boolean;
+  disabled: boolean;
+  onChoose: () => void;
+  onCopy?: () => void;
 }) {
   const button = useRef<HTMLButtonElement>(null);
   const [width, setWidth] = useState(64);
@@ -592,28 +1094,69 @@ function HandwritingCandidateButton({ candidate, copy, disabled, onChoose, onCop
   const length = Math.max(1, Array.from(candidate).length);
   const fontSize = Math.max(13, Math.min(34, width * 0.52, (width - 12) / length));
   function copyShortcut(event: import("react").KeyboardEvent<HTMLButtonElement>) {
-    if (!onCopy || disabled || event.defaultPrevented || event.nativeEvent.isComposing || event.keyCode === 229 ||
-        !event.ctrlKey || event.metaKey || event.altKey || event.shiftKey || event.key.toLowerCase() !== "c") return;
+    if (
+      !onCopy ||
+      disabled ||
+      event.defaultPrevented ||
+      event.nativeEvent.isComposing ||
+      event.keyCode === 229 ||
+      !event.ctrlKey ||
+      event.metaKey ||
+      event.altKey ||
+      event.shiftKey ||
+      event.key.toLowerCase() !== "c"
+    )
+      return;
     event.preventDefault();
     if (!event.repeat) onCopy();
   }
-  return <button ref={button} type="button" className="handwriting-candidate-submit"
-    style={{ fontSize }} title={`${copy ? "复制" : "输入"}：${candidate}`}
-    aria-keyshortcuts={onCopy ? "Control+c" : undefined}
-    disabled={disabled} onClick={onChoose} onKeyDown={copyShortcut}>{candidate}</button>;
+  return (
+    <button
+      ref={button}
+      type="button"
+      className="handwriting-candidate-submit"
+      style={{ fontSize }}
+      title={`${copy ? "复制" : "输入"}：${candidate}`}
+      aria-keyshortcuts={onCopy ? "Control+c" : undefined}
+      disabled={disabled}
+      onClick={onChoose}
+      onKeyDown={copyShortcut}
+    >
+      {candidate}
+    </button>
+  );
 }
 
-export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClient; theme?: "dark" | "light" }) {
+export function HandwritingPanel({
+  client,
+  theme = "dark",
+}: {
+  client: PanelClient;
+  theme?: "dark" | "light";
+}) {
   const [activationMode, setActivationMode] = useState<"copy" | "input">(() => {
-    try { return window.localStorage.getItem("msime.handwriting.activation") === "input" ? "input" : "copy"; }
-    catch { return "copy"; }
+    try {
+      return window.localStorage.getItem("msime.handwriting.activation") === "input"
+        ? "input"
+        : "copy";
+    } catch {
+      return "copy";
+    }
   });
-  const effectiveMode = activationMode === "copy" && !client.copyHandwritingCandidate
-    ? "input" : activationMode === "input" && !client.submitHandwritingCandidate ? "copy" : activationMode;
+  const effectiveMode =
+    activationMode === "copy" && !client.copyHandwritingCandidate
+      ? "input"
+      : activationMode === "input" && !client.submitHandwritingCandidate
+        ? "copy"
+        : activationMode;
   function selectActivation(mode: "copy" | "input") {
     if (!recognitionQueue.current.active || closingRef.current) return;
     setActivationMode(mode);
-    try { window.localStorage.setItem("msime.handwriting.activation", mode); } catch { /* optional preference */ }
+    try {
+      window.localStorage.setItem("msime.handwriting.activation", mode);
+    } catch {
+      /* optional preference */
+    }
   }
   const [strokes, setStrokes] = useState<InkStroke[]>([]);
   const [redoStrokes, setRedoStrokes] = useState<InkStroke[]>([]);
@@ -623,20 +1166,31 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
   const drag = usePanelDrag(client, () => setNotice("无法移动窗口，请重试。"));
   const recognitionRevision = useRef(0);
   const [recognizing, setRecognizing] = useState(false);
-  const recognitionQueue = useRef<{ active: boolean; running: boolean; pending: { revision: number; strokes: InkStroke[] } | null }>({ active: true, running: false, pending: null });
+  const recognitionQueue = useRef<{
+    active: boolean;
+    running: boolean;
+    pending: { revision: number; strokes: InkStroke[] } | null;
+  }>({ active: true, running: false, pending: null });
   const submissionRevision = useRef(0);
   const closingRef = useRef(false);
   const [closing, setClosing] = useState(false);
   const submittingRef = useRef(false);
   const [submitting, setSubmitting] = useState(false);
-  const activeStroke = useRef<{ pointerId: number; canvas: SVGSVGElement; points: Point[] } | null>(null);
+  const activeStroke = useRef<{ pointerId: number; canvas: SVGSVGElement; points: Point[] } | null>(
+    null,
+  );
   function releaseStroke() {
     const active = activeStroke.current;
     activeStroke.current = null;
-    if (active?.canvas.hasPointerCapture?.(active.pointerId)) active.canvas.releasePointerCapture(active.pointerId);
+    if (active?.canvas.hasPointerCapture?.(active.pointerId))
+      active.canvas.releasePointerCapture(active.pointerId);
   }
   useEffect(() => {
-    const queue = { active: true, running: false, pending: null } as typeof recognitionQueue.current;
+    const queue = {
+      active: true,
+      running: false,
+      pending: null,
+    } as typeof recognitionQueue.current;
     recognitionQueue.current = queue;
     setRecognizing(false);
     closingRef.current = false;
@@ -687,7 +1241,10 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
     setCandidates([]);
     setNotice("正在识别…");
     const recognizeInk = client.recognizeHandwriting;
-    if (!recognizeInk) { setNotice("识别结果需由宿主提供"); return; }
+    if (!recognizeInk) {
+      setNotice("识别结果需由宿主提供");
+      return;
+    }
     const queue = recognitionQueue.current;
     queue.pending = { revision, strokes: nextStrokes };
     setRecognizing(true);
@@ -704,7 +1261,11 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
             if (request.revision !== recognitionRevision.current) continue;
             const nextCandidates = normalizeHandwritingCandidates(result.candidates);
             setCandidates(nextCandidates);
-            setNotice(nextCandidates.length ? "选择候选可复制或输入" : "未识别到内容，请确认已安装中文手写包");
+            setNotice(
+              nextCandidates.length
+                ? "选择候选可复制或输入"
+                : "未识别到内容，请确认已安装中文手写包",
+            );
           } catch {
             if (request.revision === recognitionRevision.current) {
               setCandidates([]);
@@ -720,11 +1281,24 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
   }
   function retryRecognition() {
     if (!recognitionQueue.current.active || closingRef.current) return;
-    if (!strokes.length || activeStroke.current || recognitionQueue.current.running || submittingRef.current) return;
+    if (
+      !strokes.length ||
+      activeStroke.current ||
+      recognitionQueue.current.running ||
+      submittingRef.current
+    )
+      return;
     recognize(strokes);
   }
   function start(event: PointerEvent<SVGSVGElement>) {
-    if (!recognitionQueue.current.active || closingRef.current || activeStroke.current || event.isPrimary === false || (event.button !== undefined && event.button !== 0)) return;
+    if (
+      !recognitionQueue.current.active ||
+      closingRef.current ||
+      activeStroke.current ||
+      event.isPrimary === false ||
+      (event.button !== undefined && event.button !== 0)
+    )
+      return;
     if (strokes.length >= MAX_HANDWRITING_STROKES) {
       setNotice("笔画已达上限，请选择候选、撤销或重写");
       return;
@@ -756,7 +1330,8 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
     active.points = appendPointerSamples(active.points, event, true);
     // Match the Windows handwriting panel: a click without movement is not an
     // ink stroke and must not trigger a recognition request.
-    const nextStrokes = active.points.length >= 2 ? [...strokes, { points: active.points }] : strokes;
+    const nextStrokes =
+      active.points.length >= 2 ? [...strokes, { points: active.points }] : strokes;
     releaseStroke();
     setStrokes(nextStrokes);
     if (active.points.length >= 2) setRedoStrokes([]);
@@ -783,17 +1358,18 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
       return;
     }
     if (!strokes.length) return;
-    setRedoStrokes(current => [...current, strokes[strokes.length - 1]]);
+    setRedoStrokes((current) => [...current, strokes[strokes.length - 1]]);
     const nextStrokes = strokes.slice(0, -1);
     setStrokes(nextStrokes);
     recognizeRemaining(nextStrokes);
   }
   function redo() {
     if (!recognitionQueue.current.active || closingRef.current) return;
-    if (activeStroke.current || !redoStrokes.length || strokes.length >= MAX_HANDWRITING_STROKES) return;
+    if (activeStroke.current || !redoStrokes.length || strokes.length >= MAX_HANDWRITING_STROKES)
+      return;
     recognitionRevision.current++;
     const nextStrokes = [...strokes, redoStrokes[redoStrokes.length - 1]];
-    setRedoStrokes(current => current.slice(0, -1));
+    setRedoStrokes((current) => current.slice(0, -1));
     setStrokes(nextStrokes);
     recognizeRemaining(nextStrokes);
   }
@@ -809,40 +1385,79 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
     setNotice("请在左侧书写，松开鼠标后自动识别");
   }
   function editInk(event: import("react").KeyboardEvent<HTMLElement>) {
-    if (event.defaultPrevented || event.nativeEvent.isComposing || event.keyCode === 229 || event.altKey) return;
+    if (
+      event.defaultPrevented ||
+      event.nativeEvent.isComposing ||
+      event.keyCode === 229 ||
+      event.altKey
+    )
+      return;
     const target = event.target as HTMLElement;
     if (target.closest("input, textarea, select, [contenteditable=true]")) return;
     const key = event.key.toLowerCase();
     if ((event.ctrlKey || event.metaKey) && (key === "z" || key === "y")) {
       event.preventDefault();
-      if (key === "y" || event.shiftKey) redo(); else undo();
+      if (key === "y" || event.shiftKey) redo();
+      else undo();
     } else if (event.key === "Escape" && activeStroke.current) {
       event.preventDefault();
       undo();
     }
   }
   function navigateCandidates(event: import("react").KeyboardEvent<HTMLDivElement>) {
-    if (event.defaultPrevented || event.nativeEvent.isComposing || event.keyCode === 229 ||
-        event.ctrlKey || event.metaKey || event.altKey || event.shiftKey ||
-        closingRef.current || submittingRef.current) return;
-    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key)) return;
-    const buttons = Array.from(event.currentTarget.querySelectorAll<HTMLButtonElement>(
-      ".handwriting-candidate-submit:not(:disabled)"));
+    if (
+      event.defaultPrevented ||
+      event.nativeEvent.isComposing ||
+      event.keyCode === 229 ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.altKey ||
+      event.shiftKey ||
+      closingRef.current ||
+      submittingRef.current
+    )
+      return;
+    if (!["ArrowLeft", "ArrowRight", "ArrowUp", "ArrowDown", "Home", "End"].includes(event.key))
+      return;
+    const buttons = Array.from(
+      event.currentTarget.querySelectorAll<HTMLButtonElement>(
+        ".handwriting-candidate-submit:not(:disabled)",
+      ),
+    );
     const index = buttons.indexOf(event.target as HTMLButtonElement);
     if (index < 0) return;
     // The candidate grid has four columns; keep a partial final row reachable.
-    const next = event.key === "Home" ? 0 : event.key === "End" ? buttons.length - 1
-      : index + (event.key === "ArrowLeft" ? -1 : event.key === "ArrowRight" ? 1
-        : event.key === "ArrowUp" ? -4 : 4);
+    const next =
+      event.key === "Home"
+        ? 0
+        : event.key === "End"
+          ? buttons.length - 1
+          : index +
+            (event.key === "ArrowLeft"
+              ? -1
+              : event.key === "ArrowRight"
+                ? 1
+                : event.key === "ArrowUp"
+                  ? -4
+                  : 4);
     event.preventDefault();
     const target = buttons[Math.max(0, Math.min(buttons.length - 1, next))];
     target.focus({ preventScroll: true });
     target.scrollIntoView({ block: "nearest", inline: "nearest" });
   }
   async function chooseCandidate(candidate: string, copyOnly = false) {
-    if (!recognitionQueue.current.active || closingRef.current || submittingRef.current || !candidates.includes(candidate)) return;
+    if (
+      !recognitionQueue.current.active ||
+      closingRef.current ||
+      submittingRef.current ||
+      !candidates.includes(candidate)
+    )
+      return;
     const action = copyOnly ? client.copyHandwritingCandidate : client.submitHandwritingCandidate;
-    if (!action) { setNotice(`已选择：${candidate}（等待宿主提交能力）`); return; }
+    if (!action) {
+      setNotice(`已选择：${candidate}（等待宿主提交能力）`);
+      return;
+    }
     const revision = ++submissionRevision.current;
     const inkRevision = recognitionRevision.current;
     submittingRef.current = true;
@@ -855,7 +1470,11 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
       }
     } catch {
       if (revision === submissionRevision.current && inkRevision === recognitionRevision.current) {
-        setNotice(copyOnly ? "复制失败，候选和笔画已保留，请重试" : "提交失败，可复制候选后手动粘贴，或重试");
+        setNotice(
+          copyOnly
+            ? "复制失败，候选和笔画已保留，请重试"
+            : "提交失败，可复制候选后手动粘贴，或重试",
+        );
       }
     } finally {
       if (revision === submissionRevision.current) {
@@ -866,34 +1485,179 @@ export function HandwritingPanel({ client, theme = "dark" }: { client: PanelClie
   }
 
   const renderStrokes = [...strokes, ...(drawing.length ? [{ points: drawing }] : [])];
-  return <main className="native-panel handwriting-panel" onKeyDown={editInk} data-panel-theme={theme} aria-label="手写识别板">
-    <header className="native-panel-header" {...drag}><span>水杉手写识别板</span><button type="button" aria-label="关闭" disabled={closing} onClick={() => void closeHandwriting()}>×</button></header>
-    <div className="handwriting-panel-body">
-      <section className="ink-canvas-section"><svg className="ink-canvas" data-drawing={drawing.length > 0} tabIndex={0} viewBox="0 0 420 420" onPointerDown={start} onPointerMove={move} onPointerUp={end} onPointerCancel={cancel} onLostPointerCapture={cancel} aria-label="手写画布" aria-disabled={closing}>{renderStrokes.map((stroke, index) => stroke.points.length === 1 ? <circle key={index} cx={stroke.points[0].x} cy={stroke.points[0].y} r={2} /> : <polyline key={index} points={stroke.points.map(({ x, y }) => `${x},${y}`).join(" ")} />)}{!renderStrokes.length && <text x="210" y="215" textAnchor="middle">请在这里书写</text>}</svg><div className="handwriting-actions"><button type="button" onClick={undo} disabled={closing || (!strokes.length && !drawing.length)} aria-keyshortcuts="Control+z Meta+z">↶ 撤销</button><button type="button" onClick={redo} disabled={closing || !redoStrokes.length || drawing.length > 0} aria-keyshortcuts="Control+Shift+z Meta+Shift+z Control+y">↷ 重做</button><button type="button" onClick={clear} disabled={closing || (!strokes.length && !drawing.length && !redoStrokes.length)}>× 重写</button>{client.recognizeHandwriting && <button type="button" onClick={retryRecognition} disabled={closing || !strokes.length || drawing.length > 0 || recognizing || submitting}>{recognizing ? "识别中…" : "重新识别"}</button>}</div></section>
-      <section className="recognition-section"><h2>识别结果</h2>
-        <div className="handwriting-actions" role="group" aria-label="点击手写候选的操作">
-          <span>点击候选：</span>
-          <button type="button" aria-pressed={effectiveMode === "copy"} disabled={closing || submitting || !client.copyHandwritingCandidate} onClick={() => selectActivation("copy")}>复制</button>
-          <button type="button" aria-pressed={effectiveMode === "input"} disabled={closing || submitting || !client.submitHandwritingCandidate} onClick={() => selectActivation("input")}>输入</button>
-        </div>
-        <div className="handwriting-candidate-grid" onKeyDown={navigateCandidates}>{candidates.map(candidate => <div className="handwriting-candidate" key={candidate}>
-          <HandwritingCandidateButton candidate={candidate} copy={effectiveMode === "copy"} disabled={closing || submitting} onChoose={() => void chooseCandidate(candidate, effectiveMode === "copy")} onCopy={client.copyHandwritingCandidate ? () => void chooseCandidate(candidate, true) : undefined} />
-          {effectiveMode === "copy" && client.submitHandwritingCandidate
-            ? <button type="button" className="handwriting-candidate-copy" aria-label={`输入候选 ${candidate}`} disabled={closing || submitting} onClick={() => void chooseCandidate(candidate)}>输入</button>
-            : effectiveMode === "input" && client.copyHandwritingCandidate && <button type="button" className="handwriting-candidate-copy" aria-label={`复制候选 ${candidate}`} disabled={closing || submitting} onClick={() => void chooseCandidate(candidate, true)}>复制</button>}
-        </div>)}</div><p role="status">{notice}</p></section>
-    </div>
-  </main>;
+  return (
+    <main
+      className="native-panel handwriting-panel"
+      onKeyDown={editInk}
+      data-panel-theme={theme}
+      aria-label="手写识别板"
+    >
+      <header className="native-panel-header" {...drag}>
+        <span>水杉手写识别板</span>
+        <button
+          type="button"
+          aria-label="关闭"
+          disabled={closing}
+          onClick={() => void closeHandwriting()}
+        >
+          ×
+        </button>
+      </header>
+      <div className="handwriting-panel-body">
+        <section className="ink-canvas-section">
+          <svg
+            className="ink-canvas"
+            data-drawing={drawing.length > 0}
+            tabIndex={0}
+            viewBox="0 0 420 420"
+            onPointerDown={start}
+            onPointerMove={move}
+            onPointerUp={end}
+            onPointerCancel={cancel}
+            onLostPointerCapture={cancel}
+            aria-label="手写画布"
+            aria-disabled={closing}
+          >
+            {renderStrokes.map((stroke, index) =>
+              stroke.points.length === 1 ? (
+                <circle key={index} cx={stroke.points[0].x} cy={stroke.points[0].y} r={2} />
+              ) : (
+                <polyline
+                  key={index}
+                  points={stroke.points.map(({ x, y }) => `${x},${y}`).join(" ")}
+                />
+              ),
+            )}
+            {!renderStrokes.length && (
+              <text x="210" y="215" textAnchor="middle">
+                请在这里书写
+              </text>
+            )}
+          </svg>
+          <div className="handwriting-actions">
+            <button
+              type="button"
+              onClick={undo}
+              disabled={closing || (!strokes.length && !drawing.length)}
+              aria-keyshortcuts="Control+z Meta+z"
+            >
+              ↶ 撤销
+            </button>
+            <button
+              type="button"
+              onClick={redo}
+              disabled={closing || !redoStrokes.length || drawing.length > 0}
+              aria-keyshortcuts="Control+Shift+z Meta+Shift+z Control+y"
+            >
+              ↷ 重做
+            </button>
+            <button
+              type="button"
+              onClick={clear}
+              disabled={closing || (!strokes.length && !drawing.length && !redoStrokes.length)}
+            >
+              × 重写
+            </button>
+            {client.recognizeHandwriting && (
+              <button
+                type="button"
+                onClick={retryRecognition}
+                disabled={
+                  closing || !strokes.length || drawing.length > 0 || recognizing || submitting
+                }
+              >
+                {recognizing ? "识别中…" : "重新识别"}
+              </button>
+            )}
+          </div>
+        </section>
+        <section className="recognition-section">
+          <h2>识别结果</h2>
+          <div className="handwriting-actions" role="group" aria-label="点击手写候选的操作">
+            <span>点击候选：</span>
+            <button
+              type="button"
+              aria-pressed={effectiveMode === "copy"}
+              disabled={closing || submitting || !client.copyHandwritingCandidate}
+              onClick={() => selectActivation("copy")}
+            >
+              复制
+            </button>
+            <button
+              type="button"
+              aria-pressed={effectiveMode === "input"}
+              disabled={closing || submitting || !client.submitHandwritingCandidate}
+              onClick={() => selectActivation("input")}
+            >
+              输入
+            </button>
+          </div>
+          <div className="handwriting-candidate-grid" onKeyDown={navigateCandidates}>
+            {candidates.map((candidate) => (
+              <div className="handwriting-candidate" key={candidate}>
+                <HandwritingCandidateButton
+                  candidate={candidate}
+                  copy={effectiveMode === "copy"}
+                  disabled={closing || submitting}
+                  onChoose={() => void chooseCandidate(candidate, effectiveMode === "copy")}
+                  onCopy={
+                    client.copyHandwritingCandidate
+                      ? () => void chooseCandidate(candidate, true)
+                      : undefined
+                  }
+                />
+                {effectiveMode === "copy" && client.submitHandwritingCandidate ? (
+                  <button
+                    type="button"
+                    className="handwriting-candidate-copy"
+                    aria-label={`输入候选 ${candidate}`}
+                    disabled={closing || submitting}
+                    onClick={() => void chooseCandidate(candidate)}
+                  >
+                    输入
+                  </button>
+                ) : (
+                  effectiveMode === "input" &&
+                  client.copyHandwritingCandidate && (
+                    <button
+                      type="button"
+                      className="handwriting-candidate-copy"
+                      aria-label={`复制候选 ${candidate}`}
+                      disabled={closing || submitting}
+                      onClick={() => void chooseCandidate(candidate, true)}
+                    >
+                      复制
+                    </button>
+                  )
+                )}
+              </div>
+            ))}
+          </div>
+          <p role="status">{notice}</p>
+        </section>
+      </div>
+    </main>
+  );
 }
 
-export function VoicePanel({ client, theme = "dark" }: { client: VoicePanelClient; theme?: "dark" | "light" }) {
+export function VoicePanel({
+  client,
+  theme = "dark",
+}: {
+  client: VoicePanelClient;
+  theme?: "dark" | "light";
+}) {
   const [inputLevel, setInputLevel] = useState<number | undefined>();
   const [language, setLanguage] = useState("zh-CN");
   const [text, setText] = useState("");
-  const exceedsSubmitLimit = client.maxSubmitBytes !== undefined
-    && new TextEncoder().encode(text).length > client.maxSubmitBytes;
+  const exceedsSubmitLimit =
+    client.maxSubmitBytes !== undefined &&
+    new TextEncoder().encode(text).length > client.maxSubmitBytes;
   const textRevision = useRef(0);
-  function updateText(value: string) { textRevision.current++; setText(value); }
+  function updateText(value: string) {
+    textRevision.current++;
+    setText(value);
+  }
   const [submitting, setSubmitting] = useState(false);
   const [copying, setCopying] = useState(false);
   const submittingRef = useRef(false);
@@ -908,9 +1672,12 @@ export function VoicePanel({ client, theme = "dark" }: { client: VoicePanelClien
 
   useEffect(() => {
     if (!client.loadVoiceLanguage) return;
-    void client.loadVoiceLanguage().then(next => {
-      if (validVoiceLanguage(next)) setLanguage(next);
-    }).catch(() => undefined);
+    void client
+      .loadVoiceLanguage()
+      .then((next) => {
+        if (validVoiceLanguage(next)) setLanguage(next);
+      })
+      .catch(() => undefined);
   }, [client]);
 
   useEffect(() => {
@@ -939,29 +1706,49 @@ export function VoicePanel({ client, theme = "dark" }: { client: VoicePanelClien
     if (!client.onVoiceUpdate) return;
     let active = true;
     let unlisten: (() => void) | undefined;
-    void client.onVoiceUpdate(update => {
-      if (!active || !busyRef.current) return;
-      if (update.level !== undefined) {
-        if (!stoppingRef.current && Number.isFinite(update.level) && update.level >= 0 && update.level <= 1) {
-          setInputLevel(update.level);
+    void client
+      .onVoiceUpdate((update) => {
+        if (!active || !busyRef.current) return;
+        if (update.level !== undefined) {
+          if (
+            !stoppingRef.current &&
+            Number.isFinite(update.level) &&
+            update.level >= 0 &&
+            update.level <= 1
+          ) {
+            setInputLevel(update.level);
+          }
+          return;
         }
-        return;
-      }
-      if (update.phase) {
-        const labels = { recording: "正在录音…", recognizing: "正在识别…", polishing: "正在润色…" };
-        setNotice(labels[update.phase]);
-        if (update.phase !== "recording") {
-          stoppingRef.current = true;
-          setStopping(true);
+        if (update.phase) {
+          const labels = {
+            recording: "正在录音…",
+            recognizing: "正在识别…",
+            polishing: "正在润色…",
+          };
+          setNotice(labels[update.phase]);
+          if (update.phase !== "recording") {
+            stoppingRef.current = true;
+            setStopping(true);
+          }
+          return;
         }
-        return;
-      }
-      updateText(update.text);
-      setNotice(update.final ? (update.text ? "识别完成，点击提交即可输入" : "没有识别到内容") : stoppingRef.current ? "正在识别…" : "正在录音并识别…");
-    }).then(stop => {
-      if (active) unlisten = stop;
-      else stop();
-    }).catch(() => undefined);
+        updateText(update.text);
+        setNotice(
+          update.final
+            ? update.text
+              ? "识别完成，点击提交即可输入"
+              : "没有识别到内容"
+            : stoppingRef.current
+              ? "正在识别…"
+              : "正在录音并识别…",
+        );
+      })
+      .then((stop) => {
+        if (active) unlisten = stop;
+        else stop();
+      })
+      .catch(() => undefined);
     return () => {
       active = false;
       unlisten?.();
@@ -1002,7 +1789,7 @@ export function VoicePanel({ client, theme = "dark" }: { client: VoicePanelClien
   }
 
   async function submit(copyOnly = false) {
-    const send = copyOnly ? client.copyText : client.sendVoiceText ?? client.sendText;
+    const send = copyOnly ? client.copyText : (client.sendVoiceText ?? client.sendText);
     if (!text || !send || busyRef.current || submittingRef.current) return;
     if (!copyOnly && exceedsSubmitLimit) {
       setNotice("内容超过单次提交长度，请精简或复制结果后手动粘贴");
@@ -1018,7 +1805,9 @@ export function VoicePanel({ client, theme = "dark" }: { client: VoicePanelClien
       await send(text);
       if (revision !== submissionRevision.current) return;
       if (submittedTextRevision !== textRevision.current) {
-        setNotice(copyOnly ? "上一版内容已复制，当前内容已保留" : "上一版内容已提交，当前内容已保留");
+        setNotice(
+          copyOnly ? "上一版内容已复制，当前内容已保留" : "上一版内容已提交，当前内容已保留",
+        );
         return;
       }
       if (copyOnly) {
@@ -1028,7 +1817,8 @@ export function VoicePanel({ client, theme = "dark" }: { client: VoicePanelClien
         updateText("");
       }
     } catch {
-      if (revision === submissionRevision.current) setNotice(copyOnly ? "复制失败，识别结果已保留" : "提交失败，前台输入窗口可能已关闭");
+      if (revision === submissionRevision.current)
+        setNotice(copyOnly ? "复制失败，识别结果已保留" : "提交失败，前台输入窗口可能已关闭");
     } finally {
       if (revision === submissionRevision.current) {
         submittingRef.current = false;
@@ -1039,14 +1829,18 @@ export function VoicePanel({ client, theme = "dark" }: { client: VoicePanelClien
   }
 
   async function stop() {
-    if (!client.stopVoice) { await cancel(); return; }
+    if (!client.stopVoice) {
+      await cancel();
+      return;
+    }
     if (!busyRef.current || stoppingRef.current) return;
     const revision = recognitionRevision.current;
     stoppingRef.current = true;
     setStopping(true);
     setNotice("正在完成识别…");
-    try { await client.stopVoice(); }
-    catch {
+    try {
+      await client.stopVoice();
+    } catch {
       if (revision === recognitionRevision.current && busyRef.current) {
         stoppingRef.current = false;
         setStopping(false);
@@ -1063,13 +1857,26 @@ export function VoicePanel({ client, theme = "dark" }: { client: VoicePanelClien
     stoppingRef.current = false;
     setStopping(false);
     setNotice("录音已停止");
-    try { await client.cancelVoice?.(); } catch { /* provider may already have stopped */ }
+    try {
+      await client.cancelVoice?.();
+    } catch {
+      /* provider may already have stopped */
+    }
   }
 
   useEffect(() => {
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key !== "Escape" || event.isComposing || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey
-        || !busyRef.current || !client.cancelVoice) return;
+      if (
+        event.key !== "Escape" ||
+        event.isComposing ||
+        event.ctrlKey ||
+        event.altKey ||
+        event.metaKey ||
+        event.shiftKey ||
+        !busyRef.current ||
+        !client.cancelVoice
+      )
+        return;
       event.preventDefault();
       event.stopPropagation();
       void cancel();
@@ -1087,40 +1894,135 @@ export function VoicePanel({ client, theme = "dark" }: { client: VoicePanelClien
     stoppingRef.current = false;
     setStopping(false);
     if (wasBusy && client.cancelVoice) {
-      try { await client.cancelVoice(); } catch { /* close even if provider is gone */ }
+      try {
+        await client.cancelVoice();
+      } catch {
+        /* close even if provider is gone */
+      }
     }
     await client.close();
   }
 
-  return <main className="native-panel voice-panel" data-panel-theme={theme} aria-label="语音输入">
-    <header className="native-panel-header" {...drag}><span>水杉语音输入</span><button type="button" aria-label="关闭" onClick={() => void close()}>×</button></header>
-    <div className="voice-panel-body">
-      <div className="voice-panel-icon" aria-hidden="true">🎙</div>
-      <h1>语音输入</h1>
-      {busy && !stopping && inputLevel !== undefined && <label>麦克风音量 <meter aria-label="麦克风音量" min={0} max={1} value={inputLevel} /></label>}
-      <p className="voice-panel-description">{client.description ?? "录音和识别由已配置的 Linux provider 服务完成，输入法不会保存原始音频。"}</p>
-      <label className="voice-panel-language">识别语言<input value={language} maxLength={64} list="voice-language-options" onChange={event => setLanguage(event.target.value)} disabled={busy} /><datalist id="voice-language-options"><option value="zh-cn">中文（普通话）</option><option value="en">English</option><option value="ja">日本語</option><option value="auto">自动识别</option></datalist></label>
-      <button type="button" className="voice-panel-record" onClick={() => void (busy ? stop() : recognize())} disabled={submitting || stopping || (busy && !(client.stopVoice ?? client.cancelVoice))}>{stopping ? "正在完成识别…" : busy ? "停止录音" : "开始录音"}</button>
-      {busy && client.stopVoice && client.cancelVoice && <button type="button" aria-keyshortcuts="Escape" onClick={() => void cancel()}>取消录音</button>}
-      <textarea aria-label="识别结果" aria-describedby={exceedsSubmitLimit ? "voice-result-limit" : undefined} aria-invalid={exceedsSubmitLimit || undefined} value={text} maxLength={4096} onChange={event => updateText(event.target.value)} placeholder="识别结果会显示在这里" rows={4} />
-      {exceedsSubmitLimit && <p id="voice-result-limit" className="voice-panel-description" role="status">内容超过单次提交长度，请精简或复制结果后手动粘贴。</p>}
-      <button type="button" className="voice-panel-submit" onClick={() => void submit()} disabled={!text || exceedsSubmitLimit || !(client.sendVoiceText ?? client.sendText) || busy || submitting}>{submitting && !copying ? "正在提交…" : "提交到当前窗口"}</button>
-      {client.copyText && <button type="button" onClick={() => void submit(true)} disabled={!text || busy || submitting}>{copying ? "正在复制…" : "复制结果"}</button>}
-      <button type="button" onClick={() => { updateText(""); setNotice("识别结果已清空"); }} disabled={!text || busy}>清空结果</button>
-      {busy && client.cancelVoice && <p className="voice-panel-description">按 Esc 取消录音</p>}
-      <p className="voice-panel-notice" role="status">{notice}</p>
-    </div>
-  </main>;
+  return (
+    <main className="native-panel voice-panel" data-panel-theme={theme} aria-label="语音输入">
+      <header className="native-panel-header" {...drag}>
+        <span>水杉语音输入</span>
+        <button type="button" aria-label="关闭" onClick={() => void close()}>
+          ×
+        </button>
+      </header>
+      <div className="voice-panel-body">
+        <div className="voice-panel-icon" aria-hidden="true">
+          🎙
+        </div>
+        <h1>语音输入</h1>
+        {busy && !stopping && inputLevel !== undefined && (
+          <label>
+            麦克风音量 <meter aria-label="麦克风音量" min={0} max={1} value={inputLevel} />
+          </label>
+        )}
+        <p className="voice-panel-description">
+          {client.description ??
+            "录音和识别由已配置的 Linux provider 服务完成，输入法不会保存原始音频。"}
+        </p>
+        <label className="voice-panel-language">
+          识别语言
+          <input
+            value={language}
+            maxLength={64}
+            list="voice-language-options"
+            onChange={(event) => setLanguage(event.target.value)}
+            disabled={busy}
+          />
+          <datalist id="voice-language-options">
+            <option value="zh-cn">中文（普通话）</option>
+            <option value="en">English</option>
+            <option value="ja">日本語</option>
+            <option value="auto">自动识别</option>
+          </datalist>
+        </label>
+        <button
+          type="button"
+          className="voice-panel-record"
+          onClick={() => void (busy ? stop() : recognize())}
+          disabled={submitting || stopping || (busy && !(client.stopVoice ?? client.cancelVoice))}
+        >
+          {stopping ? "正在完成识别…" : busy ? "停止录音" : "开始录音"}
+        </button>
+        {busy && client.stopVoice && client.cancelVoice && (
+          <button type="button" aria-keyshortcuts="Escape" onClick={() => void cancel()}>
+            取消录音
+          </button>
+        )}
+        <textarea
+          aria-label="识别结果"
+          aria-describedby={exceedsSubmitLimit ? "voice-result-limit" : undefined}
+          aria-invalid={exceedsSubmitLimit || undefined}
+          value={text}
+          maxLength={4096}
+          onChange={(event) => updateText(event.target.value)}
+          placeholder="识别结果会显示在这里"
+          rows={4}
+        />
+        {exceedsSubmitLimit && (
+          <p id="voice-result-limit" className="voice-panel-description" role="status">
+            内容超过单次提交长度，请精简或复制结果后手动粘贴。
+          </p>
+        )}
+        <button
+          type="button"
+          className="voice-panel-submit"
+          onClick={() => void submit()}
+          disabled={
+            !text ||
+            exceedsSubmitLimit ||
+            !(client.sendVoiceText ?? client.sendText) ||
+            busy ||
+            submitting
+          }
+        >
+          {submitting && !copying ? "正在提交…" : "提交到当前窗口"}
+        </button>
+        {client.copyText && (
+          <button
+            type="button"
+            onClick={() => void submit(true)}
+            disabled={!text || busy || submitting}
+          >
+            {copying ? "正在复制…" : "复制结果"}
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={() => {
+            updateText("");
+            setNotice("识别结果已清空");
+          }}
+          disabled={!text || busy}
+        >
+          清空结果
+        </button>
+        {busy && client.cancelVoice && <p className="voice-panel-description">按 Esc 取消录音</p>}
+        <p className="voice-panel-notice" role="status">
+          {notice}
+        </p>
+      </div>
+    </main>
+  );
 }
 
 function cloudClipboardItems(value: { items?: CloudClipboardItem[] }) {
   return Array.isArray(value.items)
-    ? value.items.filter(item => item && typeof item.id === "string" && typeof item.text === "string")
+    ? value.items.filter(
+        (item) => item && typeof item.id === "string" && typeof item.text === "string",
+      )
     : [];
 }
 
 export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelClient }) {
-  const [inputAvailable, setInputAvailable] = useState(Boolean(client.sendText && !client.canSendText));
+  const [inputAvailable, setInputAvailable] = useState(
+    Boolean(client.sendText && !client.canSendText),
+  );
   const [confirmDisable, setConfirmDisable] = useState(false);
   const [loaded, setLoaded] = useState(false);
   const [search, setSearch] = useState("");
@@ -1139,9 +2041,11 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
     const revision = ++refreshRevision.current;
     busyRef.current = true;
     setBusy(true);
-    try { await action(revision); }
-    catch { if (revision === refreshRevision.current) setNotice(failure); }
-    finally {
+    try {
+      await action(revision);
+    } catch {
+      if (revision === refreshRevision.current) setNotice(failure);
+    } finally {
       if (revision === refreshRevision.current) {
         busyRef.current = false;
         setBusy(false);
@@ -1151,9 +2055,14 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
 
   async function load(revision: number, nextSearch: string) {
     let result;
-    try { result = await client.request({ operation: "list", search: nextSearch }); }
-    catch (error) {
-      if (revision === refreshRevision.current) { setItems([]); setLoaded(false); setConfirmDisable(false); }
+    try {
+      result = await client.request({ operation: "list", search: nextSearch });
+    } catch (error) {
+      if (revision === refreshRevision.current) {
+        setItems([]);
+        setLoaded(false);
+        setConfirmDisable(false);
+      }
       throw error;
     }
     if (revision !== refreshRevision.current) return;
@@ -1164,7 +2073,7 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
   }
 
   function refresh(nextSearch = searchRef.current) {
-    return run(revision => load(revision, nextSearch), "无法访问云剪贴板服务");
+    return run((revision) => load(revision, nextSearch), "无法访问云剪贴板服务");
   }
 
   useEffect(() => {
@@ -1173,14 +2082,25 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
     setItems([]);
     setLoaded(false);
     setInputAvailable(Boolean(client.sendText && !client.canSendText));
-    if (client.canSendText) void client.canSendText().then(available => {
-      if (active) setInputAvailable(available && Boolean(client.sendText));
-    }).catch(() => { if (active) setInputAvailable(false); });
-    if (client.rememberInputTarget) void client.rememberInputTarget().catch(() => {
-      if (active) setNotice("未能记录前台输入窗口");
-    });
+    if (client.canSendText)
+      void client
+        .canSendText()
+        .then((available) => {
+          if (active) setInputAvailable(available && Boolean(client.sendText));
+        })
+        .catch(() => {
+          if (active) setInputAvailable(false);
+        });
+    if (client.rememberInputTarget)
+      void client.rememberInputTarget().catch(() => {
+        if (active) setNotice("未能记录前台输入窗口");
+      });
     void refresh(searchRef.current);
-    return () => { active = false; refreshRevision.current++; busyRef.current = false; };
+    return () => {
+      active = false;
+      refreshRevision.current++;
+      busyRef.current = false;
+    };
   }, [client]);
 
   function add() {
@@ -1190,29 +2110,38 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
       return;
     }
     const uploadedRevision = draftRevision.current;
-    return run(async revision => {
+    return run(async (revision) => {
       await client.request({ operation: "add", text: draft });
       if (revision !== refreshRevision.current) return;
       if (uploadedRevision === draftRevision.current) setDraft("");
-      try { await load(revision, searchRef.current); }
-      catch { if (revision === refreshRevision.current) setNotice("已上传，但历史刷新失败，请点击刷新"); }
+      try {
+        await load(revision, searchRef.current);
+      } catch {
+        if (revision === refreshRevision.current) setNotice("已上传，但历史刷新失败，请点击刷新");
+      }
     }, "上传失败，请确认账户 provider 已连接");
   }
 
   function remove(id: string) {
-    return run(async revision => {
+    return run(async (revision) => {
       await client.request({ operation: "delete", id });
       if (revision !== refreshRevision.current) return;
-      try { await load(revision, searchRef.current); }
-      catch { if (revision === refreshRevision.current) setNotice("已删除，但历史刷新失败，请点击刷新"); }
+      try {
+        await load(revision, searchRef.current);
+      } catch {
+        if (revision === refreshRevision.current) setNotice("已删除，但历史刷新失败，请点击刷新");
+      }
     }, "删除失败");
   }
 
   function toggle(confirmed = false) {
-    if (enabled && !confirmed) { setConfirmDisable(true); return; }
+    if (enabled && !confirmed) {
+      setConfirmDisable(true);
+      return;
+    }
     setConfirmDisable(false);
     const next = !enabled;
-    return run(async revision => {
+    return run(async (revision) => {
       const result = await client.request({ operation: "set_enabled", enabled: next });
       if (revision !== refreshRevision.current) return;
       const effective = typeof result.enabled === "boolean" ? result.enabled : next;
@@ -1225,34 +2154,151 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
   function choose(item: CloudClipboardItem, copyOnly = false) {
     copyOnly = copyOnly || !inputAvailable;
     const send = copyOnly ? client.copyText : client.sendText;
-    if (!send) { setNotice("当前宿主未提供此操作"); return; }
-    return run(async revision => {
-      await send(item.text);
-      if (revision === refreshRevision.current) setNotice(copyOnly ? "已复制到本机剪贴板" : `已输入：${item.text}`);
-    }, copyOnly ? "复制失败，请重试" : "提交失败，可复制后手动粘贴");
+    if (!send) {
+      setNotice("当前宿主未提供此操作");
+      return;
+    }
+    return run(
+      async (revision) => {
+        await send(item.text);
+        if (revision === refreshRevision.current)
+          setNotice(copyOnly ? "已复制到本机剪贴板" : `已输入：${item.text}`);
+      },
+      copyOnly ? "复制失败，请重试" : "提交失败，可复制后手动粘贴",
+    );
   }
 
-  return <main className="native-panel cloud-clipboard-panel" aria-label="云剪贴板">
-    <header className="native-panel-header"><span>水杉云剪贴板</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
-    <div className="cloud-clipboard-body">
-      <p className="cloud-clipboard-description">只上传你明确选择的文本，不自动读取本地剪贴板。</p>
-      <label className="cloud-clipboard-toggle"><span>启用云剪贴板</span><input type="checkbox" checked={enabled} onChange={() => void toggle()} disabled={busy || !loaded} /></label>
-      {confirmDisable && <div role="alertdialog" aria-label="关闭云剪贴板" aria-modal="true"><p>关闭云剪贴板会删除云端历史，是否继续？</p><button type="button" disabled={busy} onClick={() => void toggle(true)}>确认关闭并删除历史</button><button type="button" onClick={() => setConfirmDisable(false)}>取消</button></div>}
-      <div className="cloud-clipboard-search"><input aria-label="搜索云端历史" value={search} onChange={event => { searchRef.current = event.target.value; setSearch(event.target.value); }} onKeyDown={event => { if (event.key === "Enter") void refresh(); }} placeholder="搜索云端历史" /><button type="button" onClick={() => void refresh()} disabled={busy}>刷新</button></div>
-      <div className="cloud-clipboard-add"><textarea aria-label="待上传文本" value={draft} onChange={event => { draftRevision.current++; setDraft(event.target.value); }} placeholder="输入要上传的文本" rows={3} /><small className={draft.length > 4000 ? "cloud-clipboard-length invalid" : "cloud-clipboard-length"}>{draft.length} / 4000</small><button type="button" onClick={() => void add()} disabled={!enabled || draft.trim().length === 0 || draft.length > 4000 || busy}>上传明确选择的文本</button></div>
-      <div className="cloud-clipboard-list" aria-label="云端历史">{items.length ? items.map(item => <article className="cloud-clipboard-item" key={item.id}><button type="button" disabled={busy} onClick={() => void choose(item)}>{item.text}</button>{client.copyText && <button type="button" disabled={busy} aria-label="复制此条云端记录" onClick={() => void choose(item, true)}>复制</button>}<button type="button" className="cloud-clipboard-delete" aria-label={`删除 ${item.text}`} onClick={() => void remove(item.id)} disabled={busy}>删除</button></article>) : <p className="cloud-clipboard-empty">暂无云端历史</p>}</div>
-      <p className="cloud-clipboard-notice" role="status">{notice}</p>
-    </div>
-  </main>;
+  return (
+    <main className="native-panel cloud-clipboard-panel" aria-label="云剪贴板">
+      <header className="native-panel-header">
+        <span>水杉云剪贴板</span>
+        <button type="button" aria-label="关闭" onClick={() => void client.close()}>
+          ×
+        </button>
+      </header>
+      <div className="cloud-clipboard-body">
+        <p className="cloud-clipboard-description">
+          只上传你明确选择的文本，不自动读取本地剪贴板。
+        </p>
+        <label className="cloud-clipboard-toggle">
+          <span>启用云剪贴板</span>
+          <input
+            type="checkbox"
+            checked={enabled}
+            onChange={() => void toggle()}
+            disabled={busy || !loaded}
+          />
+        </label>
+        {confirmDisable && (
+          <div role="alertdialog" aria-label="关闭云剪贴板" aria-modal="true">
+            <p>关闭云剪贴板会删除云端历史，是否继续？</p>
+            <button type="button" disabled={busy} onClick={() => void toggle(true)}>
+              确认关闭并删除历史
+            </button>
+            <button type="button" onClick={() => setConfirmDisable(false)}>
+              取消
+            </button>
+          </div>
+        )}
+        <div className="cloud-clipboard-search">
+          <input
+            aria-label="搜索云端历史"
+            value={search}
+            onChange={(event) => {
+              searchRef.current = event.target.value;
+              setSearch(event.target.value);
+            }}
+            onKeyDown={(event) => {
+              if (event.key === "Enter") void refresh();
+            }}
+            placeholder="搜索云端历史"
+          />
+          <button type="button" onClick={() => void refresh()} disabled={busy}>
+            刷新
+          </button>
+        </div>
+        <div className="cloud-clipboard-add">
+          <textarea
+            aria-label="待上传文本"
+            value={draft}
+            onChange={(event) => {
+              draftRevision.current++;
+              setDraft(event.target.value);
+            }}
+            placeholder="输入要上传的文本"
+            rows={3}
+          />
+          <small
+            className={
+              draft.length > 4000 ? "cloud-clipboard-length invalid" : "cloud-clipboard-length"
+            }
+          >
+            {draft.length} / 4000
+          </small>
+          <button
+            type="button"
+            onClick={() => void add()}
+            disabled={!enabled || draft.trim().length === 0 || draft.length > 4000 || busy}
+          >
+            上传明确选择的文本
+          </button>
+        </div>
+        <div className="cloud-clipboard-list" aria-label="云端历史">
+          {items.length ? (
+            items.map((item) => (
+              <article className="cloud-clipboard-item" key={item.id}>
+                <button type="button" disabled={busy} onClick={() => void choose(item)}>
+                  {item.text}
+                </button>
+                {client.copyText && (
+                  <button
+                    type="button"
+                    disabled={busy}
+                    aria-label="复制此条云端记录"
+                    onClick={() => void choose(item, true)}
+                  >
+                    复制
+                  </button>
+                )}
+                <button
+                  type="button"
+                  className="cloud-clipboard-delete"
+                  aria-label={`删除 ${item.text}`}
+                  onClick={() => void remove(item.id)}
+                  disabled={busy}
+                >
+                  删除
+                </button>
+              </article>
+            ))
+          ) : (
+            <p className="cloud-clipboard-empty">暂无云端历史</p>
+          )}
+        </div>
+        <p className="cloud-clipboard-notice" role="status">
+          {notice}
+        </p>
+      </div>
+    </main>
+  );
 }
 
 const cloudDictionaryKinds: [CloudDictionaryKind, string][] = [
-  ["pinyin", "拼音"], ["wubi", "五笔"], ["quick", "快捷短语"], ["english", "英文"],
+  ["pinyin", "拼音"],
+  ["wubi", "五笔"],
+  ["quick", "快捷短语"],
+  ["english", "英文"],
 ];
 
 function cloudDictionaryEntries(value: CloudDictionaryResponse) {
   return Array.isArray(value.entries)
-    ? value.entries.filter(entry => entry && typeof entry.id === "string" && typeof entry.code === "string" && typeof entry.word === "string")
+    ? value.entries.filter(
+        (entry) =>
+          entry &&
+          typeof entry.id === "string" &&
+          typeof entry.code === "string" &&
+          typeof entry.word === "string",
+      )
     : [];
 }
 
@@ -1262,7 +2308,12 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
   const [offset, setOffset] = useState(0);
   const [entries, setEntries] = useState<CloudDictionaryEntry[]>([]);
   const [hasMore, setHasMore] = useState(false);
-  const [form, setForm] = useState<{ entry: CloudDictionaryEntry | null; code: string; word: string; weight: number } | null>(null);
+  const [form, setForm] = useState<{
+    entry: CloudDictionaryEntry | null;
+    code: string;
+    word: string;
+    weight: number;
+  } | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("管理当前账号的云端词条");
   const refreshRevision = useRef(0);
@@ -1274,9 +2325,11 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
     const revision = ++refreshRevision.current;
     busyRef.current = true;
     setBusy(true);
-    try { await action(revision); }
-    catch { if (revision === refreshRevision.current) setNotice(failure); }
-    finally {
+    try {
+      await action(revision);
+    } catch {
+      if (revision === refreshRevision.current) setNotice(failure);
+    } finally {
       if (revision === refreshRevision.current) {
         busyRef.current = false;
         setBusy(false);
@@ -1284,11 +2337,26 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
     }
   }
 
-  async function load(revision: number, nextOffset: number, nextSearch: string, nextKind: CloudDictionaryKind) {
+  async function load(
+    revision: number,
+    nextOffset: number,
+    nextSearch: string,
+    nextKind: CloudDictionaryKind,
+  ) {
     let result;
-    try { result = await client.request({ operation: "list", kind: nextKind, offset: nextOffset, search: nextSearch }); }
-    catch (error) {
-      if (revision === refreshRevision.current) { setEntries([]); setHasMore(false); setForm(null); }
+    try {
+      result = await client.request({
+        operation: "list",
+        kind: nextKind,
+        offset: nextOffset,
+        search: nextSearch,
+      });
+    } catch (error) {
+      if (revision === refreshRevision.current) {
+        setEntries([]);
+        setHasMore(false);
+        setForm(null);
+      }
       throw error;
     }
     if (revision !== refreshRevision.current) return;
@@ -1298,7 +2366,7 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
   }
 
   function refresh(nextOffset = 0, nextSearch = searchRef.current, nextKind = kind) {
-    return run(async revision => {
+    return run(async (revision) => {
       await load(revision, nextOffset, nextSearch, nextKind);
       if (revision === refreshRevision.current) setNotice("云词典已刷新");
     }, "无法访问云词典服务，请确认 provider 已连接");
@@ -1311,14 +2379,17 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
     setHasMore(false);
     setForm(null);
     void refresh(0);
-    return () => { refreshRevision.current++; };
+    return () => {
+      refreshRevision.current++;
+    };
   }, [client]);
 
   function beginAdd() {
     if (!busyRef.current) setForm({ entry: null, code: "", word: "", weight: 100000 });
   }
   function beginEdit(entry: CloudDictionaryEntry) {
-    if (!busyRef.current) setForm({ entry, code: entry.code, word: entry.word, weight: entry.weight });
+    if (!busyRef.current)
+      setForm({ entry, code: entry.code, word: entry.word, weight: entry.weight });
   }
 
   async function reloadAfterMutation(revision: number, success: string) {
@@ -1338,12 +2409,23 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
 
   function save() {
     if (busyRef.current) return;
-    if (!form || !form.code.trim() || !form.word.trim()) { setNotice("编码和词条不能为空"); return; }
-    return run(async revision => {
+    if (!form || !form.code.trim() || !form.word.trim()) {
+      setNotice("编码和词条不能为空");
+      return;
+    }
+    return run(async (revision) => {
       const code = form.code.trim();
       const word = form.word;
       if (form.entry) {
-        await client.request({ operation: "update", kind, id: form.entry.id, code, word, weight: form.weight, revision: form.entry.revision });
+        await client.request({
+          operation: "update",
+          kind,
+          id: form.entry.id,
+          code,
+          word,
+          weight: form.weight,
+          revision: form.entry.revision,
+        });
       } else {
         await client.request({ operation: "add", kind, code, word, weight: form.weight });
       }
@@ -1354,23 +2436,32 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
   }
 
   function remove(entry: CloudDictionaryEntry) {
-    return run(async revision => {
+    return run(async (revision) => {
       await client.request({ operation: "delete", kind, id: entry.id, revision: entry.revision });
       if (revision !== refreshRevision.current) return;
-      setForm(current => current?.entry?.id === entry.id ? null : current);
+      setForm((current) => (current?.entry?.id === entry.id ? null : current));
       await reloadAfterMutation(revision, "云词条已删除");
     }, "云词条删除失败，请刷新后重试");
   }
 
   function confirmRemove(entry: CloudDictionaryEntry) {
-    if (busyRef.current || !window.confirm(`确认删除云词条“${entry.word}”？仅删除云端版本，本机词库不会改变。`)) return;
+    if (
+      busyRef.current ||
+      !window.confirm(`确认删除云词条“${entry.word}”？仅删除云端版本，本机词库不会改变。`)
+    )
+      return;
     void remove(entry);
   }
 
   function downloadToLocal(entry: CloudDictionaryEntry) {
-    if (busyRef.current || !client.downloadToLocal || !window.confirm(`确认将云词条“${entry.word}”加入本机个人词典？`)) return;
+    if (
+      busyRef.current ||
+      !client.downloadToLocal ||
+      !window.confirm(`确认将云词条“${entry.word}”加入本机个人词典？`)
+    )
+      return;
     const download = client.downloadToLocal;
-    return run(async revision => {
+    return run(async (revision) => {
       await download(entry);
       if (revision === refreshRevision.current) setNotice("云词条已加入本机词典队列");
     }, "加入本机词典失败，请重试");
@@ -1385,19 +2476,211 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
     setHasMore(false);
     void refresh(0, searchRef.current, next);
   }
-  return <main className="native-panel cloud-dictionary-panel" aria-label="云词典">
-    <header className="native-panel-header"><span>水杉云词典</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
-    <div className="cloud-dictionary-body">
-      <p className="cloud-dictionary-description">管理当前账号的云端词条。修改需要 provider 提供登录态和同步服务。</p>
-      <div className="cloud-dictionary-kind-tabs" role="tablist" aria-label="云词库类型">{cloudDictionaryKinds.map(([value, label]) => <button key={value} type="button" role="tab" aria-selected={kind === value} className={kind === value ? "active" : ""} onClick={() => changeKind(value)} disabled={busy}>{label}</button>)}</div>
-      <div className="cloud-dictionary-toolbar"><label>词库<select aria-label="词库类型" value={kind} onChange={event => changeKind(event.target.value as CloudDictionaryKind)} disabled={busy}>{cloudDictionaryKinds.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className="cloud-dictionary-search">搜索<input aria-label="搜索云词条" value={search} onChange={event => { searchRef.current = event.target.value; setSearch(event.target.value); }} onKeyDown={event => { if (event.key === "Enter") void refresh(0); }} placeholder="词条或编码" /></label><button type="button" onClick={() => void refresh(0)} disabled={busy}>查询</button><button type="button" onClick={beginAdd} disabled={busy}>添加词条</button>{client.openCatalog && <button type="button" onClick={() => void client.openCatalog?.()} disabled={busy}>完整目录</button>}{client.openCandidates && <button type="button" onClick={() => void client.openCandidates?.()} disabled={busy}>云端候选排序</button>}{client.openFiles && <button type="button" onClick={() => void client.openFiles?.()} disabled={busy}>导入与导出</button>}{client.openApply && client.snapshot && <button type="button" onClick={() => void client.openApply?.()} disabled={busy}>应用到本机</button>}</div>
-      {form && <div className="cloud-dictionary-form"><label>编码<input disabled={busy} value={form.code} onChange={event => setForm({ ...form, code: event.target.value })} /></label><label className="cloud-dictionary-word">词条<input disabled={busy} value={form.word} onChange={event => setForm({ ...form, word: event.target.value })} /></label><label>权重<input disabled={busy} type="number" min="0" value={form.weight} onChange={event => setForm({ ...form, weight: Number(event.target.value) })} /></label><button type="button" onClick={() => void save()} disabled={busy}>保存</button><button type="button" className="secondary" onClick={() => setForm(null)} disabled={busy}>取消</button></div>}
-      {entries.length > 0 && <p className="cloud-dictionary-mobile-hint">点按词条可编辑；窄屏下的下载和删除操作会分组显示。</p>}
-      <div className="cloud-dictionary-list" aria-label="云词条">{entries.length ? entries.map(entry => <article className="cloud-dictionary-item" key={entry.id}><button type="button" className="cloud-dictionary-item-main" aria-label={`编辑云词条 ${entry.word}`} onClick={() => beginEdit(entry)} disabled={busy}><strong>{entry.word}</strong><small>{entry.code} · 权重 {entry.weight}</small></button><div className="cloud-dictionary-item-actions">{client.downloadToLocal && <button type="button" className="secondary" aria-label={`下载到本机 ${entry.word}`} onClick={() => void downloadToLocal(entry)} disabled={busy}>下载到本机</button>}<button type="button" className="secondary" onClick={() => beginEdit(entry)} disabled={busy}>编辑</button><button type="button" className="secondary" onClick={() => confirmRemove(entry)} disabled={busy}>删除</button></div></article>) : <p className="cloud-dictionary-empty">暂无词条</p>}</div>
-      <div className="cloud-dictionary-pagination"><button type="button" onClick={() => void refresh(Math.max(0, offset - 100))} disabled={busy || offset === 0}>上一页</button><span>第 {Math.floor(offset / 100) + 1} 页</span><button type="button" onClick={() => void refresh(offset + 100)} disabled={busy || !hasMore}>下一页</button></div>
-      <p className="cloud-dictionary-notice" role="status">{notice}</p>
-    </div>
-  </main>;
+  return (
+    <main className="native-panel cloud-dictionary-panel" aria-label="云词典">
+      <header className="native-panel-header">
+        <span>水杉云词典</span>
+        <button type="button" aria-label="关闭" onClick={() => void client.close()}>
+          ×
+        </button>
+      </header>
+      <div className="cloud-dictionary-body">
+        <p className="cloud-dictionary-description">
+          管理当前账号的云端词条。修改需要 provider 提供登录态和同步服务。
+        </p>
+        <div className="cloud-dictionary-kind-tabs" role="tablist" aria-label="云词库类型">
+          {cloudDictionaryKinds.map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              role="tab"
+              aria-selected={kind === value}
+              className={kind === value ? "active" : ""}
+              onClick={() => changeKind(value)}
+              disabled={busy}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="cloud-dictionary-toolbar">
+          <label>
+            词库
+            <select
+              aria-label="词库类型"
+              value={kind}
+              onChange={(event) => changeKind(event.target.value as CloudDictionaryKind)}
+              disabled={busy}
+            >
+              {cloudDictionaryKinds.map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="cloud-dictionary-search">
+            搜索
+            <input
+              aria-label="搜索云词条"
+              value={search}
+              onChange={(event) => {
+                searchRef.current = event.target.value;
+                setSearch(event.target.value);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void refresh(0);
+              }}
+              placeholder="词条或编码"
+            />
+          </label>
+          <button type="button" onClick={() => void refresh(0)} disabled={busy}>
+            查询
+          </button>
+          <button type="button" onClick={beginAdd} disabled={busy}>
+            添加词条
+          </button>
+          {client.openCatalog && (
+            <button type="button" onClick={() => void client.openCatalog?.()} disabled={busy}>
+              完整目录
+            </button>
+          )}
+          {client.openCandidates && (
+            <button type="button" onClick={() => void client.openCandidates?.()} disabled={busy}>
+              云端候选排序
+            </button>
+          )}
+          {client.openFiles && (
+            <button type="button" onClick={() => void client.openFiles?.()} disabled={busy}>
+              导入与导出
+            </button>
+          )}
+          {client.openApply && client.snapshot && (
+            <button type="button" onClick={() => void client.openApply?.()} disabled={busy}>
+              应用到本机
+            </button>
+          )}
+        </div>
+        {form && (
+          <div className="cloud-dictionary-form">
+            <label>
+              编码
+              <input
+                disabled={busy}
+                value={form.code}
+                onChange={(event) => setForm({ ...form, code: event.target.value })}
+              />
+            </label>
+            <label className="cloud-dictionary-word">
+              词条
+              <input
+                disabled={busy}
+                value={form.word}
+                onChange={(event) => setForm({ ...form, word: event.target.value })}
+              />
+            </label>
+            <label>
+              权重
+              <input
+                disabled={busy}
+                type="number"
+                min="0"
+                value={form.weight}
+                onChange={(event) => setForm({ ...form, weight: Number(event.target.value) })}
+              />
+            </label>
+            <button type="button" onClick={() => void save()} disabled={busy}>
+              保存
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => setForm(null)}
+              disabled={busy}
+            >
+              取消
+            </button>
+          </div>
+        )}
+        {entries.length > 0 && (
+          <p className="cloud-dictionary-mobile-hint">
+            点按词条可编辑；窄屏下的下载和删除操作会分组显示。
+          </p>
+        )}
+        <div className="cloud-dictionary-list" aria-label="云词条">
+          {entries.length ? (
+            entries.map((entry) => (
+              <article className="cloud-dictionary-item" key={entry.id}>
+                <button
+                  type="button"
+                  className="cloud-dictionary-item-main"
+                  aria-label={`编辑云词条 ${entry.word}`}
+                  onClick={() => beginEdit(entry)}
+                  disabled={busy}
+                >
+                  <strong>{entry.word}</strong>
+                  <small>
+                    {entry.code} · 权重 {entry.weight}
+                  </small>
+                </button>
+                <div className="cloud-dictionary-item-actions">
+                  {client.downloadToLocal && (
+                    <button
+                      type="button"
+                      className="secondary"
+                      aria-label={`下载到本机 ${entry.word}`}
+                      onClick={() => void downloadToLocal(entry)}
+                      disabled={busy}
+                    >
+                      下载到本机
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => beginEdit(entry)}
+                    disabled={busy}
+                  >
+                    编辑
+                  </button>
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => confirmRemove(entry)}
+                    disabled={busy}
+                  >
+                    删除
+                  </button>
+                </div>
+              </article>
+            ))
+          ) : (
+            <p className="cloud-dictionary-empty">暂无词条</p>
+          )}
+        </div>
+        <div className="cloud-dictionary-pagination">
+          <button
+            type="button"
+            onClick={() => void refresh(Math.max(0, offset - 100))}
+            disabled={busy || offset === 0}
+          >
+            上一页
+          </button>
+          <span>第 {Math.floor(offset / 100) + 1} 页</span>
+          <button
+            type="button"
+            onClick={() => void refresh(offset + 100)}
+            disabled={busy || !hasMore}
+          >
+            下一页
+          </button>
+        </div>
+        <p className="cloud-dictionary-notice" role="status">
+          {notice}
+        </p>
+      </div>
+    </main>
+  );
 }
 
 /** File transfer lives on its own page so the dictionary list stays focused on entries. */
@@ -1408,7 +2691,11 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("选择 UTF-8 TSV 文件后确认上传；导出不会改变云端内容");
   const [snapshotBusy, setSnapshotBusy] = useState(false);
-  const [restorePreview, setRestorePreview] = useState<{ text: string; snapshot: CloudDictionarySnapshotMetadata; expectedRevision: number } | null>(null);
+  const [restorePreview, setRestorePreview] = useState<{
+    text: string;
+    snapshot: CloudDictionarySnapshotMetadata;
+    expectedRevision: number;
+  } | null>(null);
   const requestRevision = useRef(0);
   const busyRef = useRef(false);
 
@@ -1417,9 +2704,11 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
     const revision = ++requestRevision.current;
     busyRef.current = true;
     setBusy(true);
-    try { await action(revision); }
-    catch { if (revision === requestRevision.current) setNotice(failure); }
-    finally {
+    try {
+      await action(revision);
+    } catch {
+      if (revision === requestRevision.current) setNotice(failure);
+    } finally {
       if (revision === requestRevision.current) {
         busyRef.current = false;
         setBusy(false);
@@ -1441,7 +2730,7 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
       setNotice("导入文件必须大于 0 且不超过 64 KiB");
       return;
     }
-    void run(async revision => {
+    void run(async (revision) => {
       let text: string;
       try {
         text = await selected.text();
@@ -1458,8 +2747,13 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
   function importFile() {
     const prepared = file;
     if (!prepared || busyRef.current) return;
-    if (!window.confirm(`确认按“${format === "hans" ? "汉字自动注音" : format === "windows" ? "Windows TSV" : "标准 TSV"}”导入 ${kind === "pinyin" ? "拼音" : kind === "wubi" ? "五笔" : kind === "quick" ? "快捷短语" : "英文"}词库？`)) return;
-    void run(async revision => {
+    if (
+      !window.confirm(
+        `确认按“${format === "hans" ? "汉字自动注音" : format === "windows" ? "Windows TSV" : "标准 TSV"}”导入 ${kind === "pinyin" ? "拼音" : kind === "wubi" ? "五笔" : kind === "quick" ? "快捷短语" : "英文"}词库？`,
+      )
+    )
+      return;
+    void run(async (revision) => {
       await client.request({ operation: "import", kind, format, text: prepared.text });
       if (revision !== requestRevision.current) return;
       setFile(null);
@@ -1469,7 +2763,7 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
 
   function exportDictionary() {
     if (format === "hans") return;
-    void run(async revision => {
+    void run(async (revision) => {
       const result = await client.request({ operation: "export", kind, format });
       if (revision !== requestRevision.current) return;
       const text = typeof result.text === "string" ? result.text : result.content;
@@ -1479,8 +2773,10 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
       anchor.href = url;
       anchor.download = result.filename || `msime-${kind}-dictionary.tsv`;
       document.body.appendChild(anchor);
-      try { anchor.click(); setNotice("云词库已导出"); }
-      finally {
+      try {
+        anchor.click();
+        setNotice("云词库已导出");
+      } finally {
         anchor.remove();
         window.setTimeout(() => URL.revokeObjectURL(url), 1000);
       }
@@ -1491,18 +2787,31 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
     setSnapshotBusy(true);
     try {
       const result = await client.request({ operation: "snapshot_export" });
-      if (client.snapshotNative && result.saved === true) { setNotice("完整云词库快照已保存"); return; }
+      if (client.snapshotNative && result.saved === true) {
+        setNotice("完整云词库快照已保存");
+        return;
+      }
       const text = typeof result.text === "string" ? result.text : result.content;
       if (typeof text !== "string" || !text) throw new Error("provider returned no snapshot");
       const anchor = document.createElement("a");
-      const url = URL.createObjectURL(new Blob([text], { type: "application/x-ndjson;charset=utf-8" }));
+      const url = URL.createObjectURL(
+        new Blob([text], { type: "application/x-ndjson;charset=utf-8" }),
+      );
       anchor.href = url;
       anchor.download = result.filename || "msime-dictionary-snapshot.ndjson";
       document.body.appendChild(anchor);
-      try { anchor.click(); setNotice("完整云词库快照已导出"); }
-      finally { anchor.remove(); window.setTimeout(() => URL.revokeObjectURL(url), 1000); }
-    } catch { setNotice("导出完整云词库快照失败"); }
-    finally { setSnapshotBusy(false); }
+      try {
+        anchor.click();
+        setNotice("完整云词库快照已导出");
+      } finally {
+        anchor.remove();
+        window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+    } catch {
+      setNotice("导出完整云词库快照失败");
+    } finally {
+      setSnapshotBusy(false);
+    }
   }
 
   async function chooseRestoreSnapshot(selected: File) {
@@ -1514,13 +2823,22 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
     try {
       const text = client.snapshotNative ? "" : await selected.text();
       const result = await client.request({ operation: "snapshot_restore_preview", text });
-      if (!result.snapshot || typeof result.expectedRevision !== "number") throw new Error("invalid snapshot preview");
-      if (client.snapshotNative && typeof result.previewToken !== "string") throw new Error("invalid native snapshot preview");
+      if (!result.snapshot || typeof result.expectedRevision !== "number")
+        throw new Error("invalid snapshot preview");
+      if (client.snapshotNative && typeof result.previewToken !== "string")
+        throw new Error("invalid native snapshot preview");
       const preparedText = client.snapshotNative ? result.previewToken! : text;
-      setRestorePreview({ text: preparedText, snapshot: result.snapshot, expectedRevision: result.expectedRevision });
+      setRestorePreview({
+        text: preparedText,
+        snapshot: result.snapshot,
+        expectedRevision: result.expectedRevision,
+      });
       setNotice("快照已校验，请确认后替换云端词库");
-    } catch { setNotice("无法校验快照，云端词库未改变"); }
-    finally { setSnapshotBusy(false); }
+    } catch {
+      setNotice("无法校验快照，云端词库未改变");
+    } finally {
+      setSnapshotBusy(false);
+    }
   }
 
   async function restoreSnapshot() {
@@ -1528,29 +2846,198 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
     if (!prepared || !window.confirm("确认用此快照替换全部云端词库和排序记录？")) return;
     setSnapshotBusy(true);
     try {
-      const result = await client.request(client.snapshotNative
-        ? { operation: "snapshot_restore_native", token: prepared.text }
-        : { operation: "snapshot_restore", text: prepared.text, expected_sha256: prepared.snapshot.sha256, revision: prepared.expectedRevision });
+      const result = await client.request(
+        client.snapshotNative
+          ? { operation: "snapshot_restore_native", token: prepared.text }
+          : {
+              operation: "snapshot_restore",
+              text: prepared.text,
+              expected_sha256: prepared.snapshot.sha256,
+              revision: prepared.expectedRevision,
+            },
+      );
       setRestorePreview(null);
       setNotice(`云端词库已恢复到新版本 ${result.revision ?? ""}`.trim());
-    } catch { setNotice("恢复失败，可能是云端版本已变化；云端词库未改变"); }
-    finally { setSnapshotBusy(false); }
+    } catch {
+      setNotice("恢复失败，可能是云端版本已变化；云端词库未改变");
+    } finally {
+      setSnapshotBusy(false);
+    }
   }
 
-  useEffect(() => () => { requestRevision.current++; setRestorePreview(null); }, []);
+  useEffect(
+    () => () => {
+      requestRevision.current++;
+      setRestorePreview(null);
+    },
+    [],
+  );
 
-  return <main className="native-panel cloud-dictionary-panel" aria-label="云词库文件">
-    <header className="native-panel-header"><button type="button" aria-label="返回云词典" onClick={() => void (client.back ? client.back() : client.close())}>‹</button><span>导入与导出</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
-    <div className="cloud-dictionary-body">
-      <div className="cloud-dictionary-kind-tabs" role="tablist" aria-label="云词库类型">{cloudDictionaryKinds.map(([value, label]) => <button key={value} type="button" role="tab" aria-selected={kind === value} className={kind === value ? "active" : ""} onClick={() => changeKind(value)} disabled={busy}>{label}</button>)}</div>
-      <div className="cloud-dictionary-toolbar"><label>词库<select aria-label="词库类型" value={kind} onChange={event => changeKind(event.target.value as CloudDictionaryKind)} disabled={busy}>{cloudDictionaryKinds.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>文件格式<select aria-label="文件格式" value={format} onChange={event => setFormat(event.target.value as CloudDictionaryFileFormat)} disabled={busy}><option value="standard">标准 TSV</option><option value="windows">Windows TSV</option>{kind === "pinyin" && <option value="hans">汉字自动注音（仅导入）</option>}</select></label></div>
-      <p className="cloud-dictionary-description">导入只处理你明确选择的本地文件，读取和上传均有 64 KiB 边界；导出所选类型的云端个人词条。</p>
-      <section className="cloud-dictionary-file-section" aria-label="导入云词库"><h2>导入云词库</h2><label className="secondary">选择 UTF-8 文件<input hidden type="file" accept=".txt,.tsv,text/plain" disabled={busy} onChange={event => { const selected = event.target.files?.[0]; if (selected) chooseFile(selected); event.currentTarget.value = ""; }} /></label>{file && <div className="cloud-dictionary-file-preview"><strong>{file.name}</strong><small>{file.bytes} 字节</small><pre>{file.text.slice(0, 2000)}</pre><button type="button" onClick={importFile} disabled={busy}>确认上传到云端</button><button type="button" className="secondary" onClick={() => setFile(null)} disabled={busy}>取消</button></div>}</section>
-      <section className="cloud-dictionary-file-section" aria-label="导出云词库"><h2>导出云词库</h2><p className="cloud-dictionary-description">文件会下载到当前设备，不会修改云端词条。</p><button type="button" onClick={exportDictionary} disabled={busy || format === "hans"}>导出当前类型</button></section>
-      {client.snapshot && <section className="cloud-dictionary-file-section" aria-label="完整云词库备份"><h2>完整云词库备份</h2><p className="cloud-dictionary-description">包含四类词库和排序记录；恢复只写云端，不会自动改动本机词库。</p><button type="button" onClick={() => void exportSnapshot()} disabled={busy || snapshotBusy}>导出完整快照</button><label className="secondary">选择快照恢复到云端<input hidden type="file" accept=".ndjson,application/x-ndjson" disabled={busy || snapshotBusy} onChange={event => { const selected = event.target.files?.[0]; if (selected) void chooseRestoreSnapshot(selected); event.currentTarget.value = ""; }} /></label>{restorePreview && <div className="cloud-dictionary-file-preview"><strong>已校验快照</strong><small>云端 revision {restorePreview.snapshot.cloudRevision} · {restorePreview.snapshot.records} 条记录 · {restorePreview.snapshot.bytes} 字节</small><button type="button" onClick={() => void restoreSnapshot()} disabled={busy || snapshotBusy}>确认恢复云端词库</button><button type="button" className="secondary" onClick={() => setRestorePreview(null)} disabled={busy || snapshotBusy}>放弃恢复</button></div>}</section>}
-      <p className="cloud-dictionary-notice" role="status">{notice}</p>
-    </div>
-  </main>;
+  return (
+    <main className="native-panel cloud-dictionary-panel" aria-label="云词库文件">
+      <header className="native-panel-header">
+        <button
+          type="button"
+          aria-label="返回云词典"
+          onClick={() => void (client.back ? client.back() : client.close())}
+        >
+          ‹
+        </button>
+        <span>导入与导出</span>
+        <button type="button" aria-label="关闭" onClick={() => void client.close()}>
+          ×
+        </button>
+      </header>
+      <div className="cloud-dictionary-body">
+        <div className="cloud-dictionary-kind-tabs" role="tablist" aria-label="云词库类型">
+          {cloudDictionaryKinds.map(([value, label]) => (
+            <button
+              key={value}
+              type="button"
+              role="tab"
+              aria-selected={kind === value}
+              className={kind === value ? "active" : ""}
+              onClick={() => changeKind(value)}
+              disabled={busy}
+            >
+              {label}
+            </button>
+          ))}
+        </div>
+        <div className="cloud-dictionary-toolbar">
+          <label>
+            词库
+            <select
+              aria-label="词库类型"
+              value={kind}
+              onChange={(event) => changeKind(event.target.value as CloudDictionaryKind)}
+              disabled={busy}
+            >
+              {cloudDictionaryKinds.map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label>
+            文件格式
+            <select
+              aria-label="文件格式"
+              value={format}
+              onChange={(event) => setFormat(event.target.value as CloudDictionaryFileFormat)}
+              disabled={busy}
+            >
+              <option value="standard">标准 TSV</option>
+              <option value="windows">Windows TSV</option>
+              {kind === "pinyin" && <option value="hans">汉字自动注音（仅导入）</option>}
+            </select>
+          </label>
+        </div>
+        <p className="cloud-dictionary-description">
+          导入只处理你明确选择的本地文件，读取和上传均有 64 KiB 边界；导出所选类型的云端个人词条。
+        </p>
+        <section className="cloud-dictionary-file-section" aria-label="导入云词库">
+          <h2>导入云词库</h2>
+          <label className="secondary">
+            选择 UTF-8 文件
+            <input
+              hidden
+              type="file"
+              accept=".txt,.tsv,text/plain"
+              disabled={busy}
+              onChange={(event) => {
+                const selected = event.target.files?.[0];
+                if (selected) chooseFile(selected);
+                event.currentTarget.value = "";
+              }}
+            />
+          </label>
+          {file && (
+            <div className="cloud-dictionary-file-preview">
+              <strong>{file.name}</strong>
+              <small>{file.bytes} 字节</small>
+              <pre>{file.text.slice(0, 2000)}</pre>
+              <button type="button" onClick={importFile} disabled={busy}>
+                确认上传到云端
+              </button>
+              <button
+                type="button"
+                className="secondary"
+                onClick={() => setFile(null)}
+                disabled={busy}
+              >
+                取消
+              </button>
+            </div>
+          )}
+        </section>
+        <section className="cloud-dictionary-file-section" aria-label="导出云词库">
+          <h2>导出云词库</h2>
+          <p className="cloud-dictionary-description">文件会下载到当前设备，不会修改云端词条。</p>
+          <button type="button" onClick={exportDictionary} disabled={busy || format === "hans"}>
+            导出当前类型
+          </button>
+        </section>
+        {client.snapshot && (
+          <section className="cloud-dictionary-file-section" aria-label="完整云词库备份">
+            <h2>完整云词库备份</h2>
+            <p className="cloud-dictionary-description">
+              包含四类词库和排序记录；恢复只写云端，不会自动改动本机词库。
+            </p>
+            <button
+              type="button"
+              onClick={() => void exportSnapshot()}
+              disabled={busy || snapshotBusy}
+            >
+              导出完整快照
+            </button>
+            <label className="secondary">
+              选择快照恢复到云端
+              <input
+                hidden
+                type="file"
+                accept=".ndjson,application/x-ndjson"
+                disabled={busy || snapshotBusy}
+                onChange={(event) => {
+                  const selected = event.target.files?.[0];
+                  if (selected) void chooseRestoreSnapshot(selected);
+                  event.currentTarget.value = "";
+                }}
+              />
+            </label>
+            {restorePreview && (
+              <div className="cloud-dictionary-file-preview">
+                <strong>已校验快照</strong>
+                <small>
+                  云端 revision {restorePreview.snapshot.cloudRevision} ·{" "}
+                  {restorePreview.snapshot.records} 条记录 · {restorePreview.snapshot.bytes} 字节
+                </small>
+                <button
+                  type="button"
+                  onClick={() => void restoreSnapshot()}
+                  disabled={busy || snapshotBusy}
+                >
+                  确认恢复云端词库
+                </button>
+                <button
+                  type="button"
+                  className="secondary"
+                  onClick={() => setRestorePreview(null)}
+                  disabled={busy || snapshotBusy}
+                >
+                  放弃恢复
+                </button>
+              </div>
+            )}
+          </section>
+        )}
+        <p className="cloud-dictionary-notice" role="status">
+          {notice}
+        </p>
+      </div>
+    </main>
+  );
 }
 
 /** Apply the complete cloud snapshot through the platform's idle-boundary queue. */
@@ -1567,7 +3054,9 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
     try {
       const result = await client.request({ operation: "snapshot_status" });
       setLocalVersion(typeof result.localVersion === "string" ? result.localVersion : null);
-      setRequest(result.request && typeof result.request.status === "string" ? result.request : null);
+      setRequest(
+        result.request && typeof result.request.status === "string" ? result.request : null,
+      );
     } catch {
       setNotice("无法读取本机词库状态，请确认键盘已启用");
     }
@@ -1577,9 +3066,14 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
     if (busyRef.current) return;
     busyRef.current = true;
     setBusy(true);
-    try { await action(); }
-    catch { setNotice(failure); }
-    finally { busyRef.current = false; setBusy(false); }
+    try {
+      await action();
+    } catch {
+      setNotice(failure);
+    } finally {
+      busyRef.current = false;
+      setBusy(false);
+    }
   }
 
   function download() {
@@ -1589,7 +3083,8 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
     }
     void run(async () => {
       const result = await client.request({ operation: "snapshot_preview" });
-      if (!result.snapshot || typeof result.previewToken !== "string") throw new Error("invalid preview");
+      if (!result.snapshot || typeof result.previewToken !== "string")
+        throw new Error("invalid preview");
       setPreview(result.snapshot);
       setPreviewToken(result.previewToken);
       setNotice("云端快照已校验，请确认后替换本机词库");
@@ -1598,12 +3093,22 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
 
   function enqueue() {
     const token = previewToken;
-    if (!token || !preview || busyRef.current || !window.confirm("确认用这份云端快照替换本机个人词库和学习记录？输入法会在下一次空闲边界应用。")) return;
+    if (
+      !token ||
+      !preview ||
+      busyRef.current ||
+      !window.confirm(
+        "确认用这份云端快照替换本机个人词库和学习记录？输入法会在下一次空闲边界应用。",
+      )
+    )
+      return;
     void run(async () => {
       const result = await client.request({ operation: "snapshot_enqueue", token });
       setPreview(null);
       setPreviewToken(null);
-      setRequest(result.request && typeof result.request.status === "string" ? result.request : null);
+      setRequest(
+        result.request && typeof result.request.status === "string" ? result.request : null,
+      );
       setNotice("快照已入列，将在输入法空闲时应用");
     }, "快照入列失败，本机词库未改变");
   }
@@ -1612,31 +3117,130 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
     if (busyRef.current || !window.confirm("确认取消待应用的云词库快照？")) return;
     void run(async () => {
       const result = await client.request({ operation: "snapshot_cancel" });
-      setRequest(result.request && typeof result.request.status === "string" ? result.request : null);
+      setRequest(
+        result.request && typeof result.request.status === "string" ? result.request : null,
+      );
       setNotice("已取消待应用快照");
     }, "取消快照失败");
   }
 
   useEffect(() => {
     void refreshStatus();
-    const timer = window.setInterval(() => { void refreshStatus(); }, 2000);
+    const timer = window.setInterval(() => {
+      void refreshStatus();
+    }, 2000);
     return () => window.clearInterval(timer);
   }, [client]);
 
-  return <main className="native-panel cloud-dictionary-panel" aria-label="应用云词库">
-    <header className="native-panel-header"><button type="button" aria-label="返回云词典" onClick={() => void (client.back ? client.back() : client.close())}>‹</button><span>应用到本机</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
-    <div className="cloud-dictionary-body">
-      <section className="cloud-dictionary-file-section" aria-label="准备本机词库"><h2>准备本机词库</h2><p className="cloud-dictionary-description">请启用水杉键盘并打开一次，让宿主提供当前本机词库版本。测试区或编辑器内容不会上传。</p><div className="cloud-dictionary-snapshot-fact">{localVersion ? <><strong>已获取本机词库版本</strong><small>{localVersion}</small></> : <strong>尚未获取本机词库版本</strong>}</div><button type="button" onClick={download} disabled={busy || !localVersion || request?.status === "queued" || request?.status === "preparing"}>下载云词库并预览</button><button type="button" className="secondary" onClick={() => void refreshStatus()} disabled={busy}>刷新状态</button></section>
-      {preview && <section className="cloud-dictionary-file-section" aria-label="确认应用"><h2>确认应用</h2><p className="cloud-dictionary-description">云端 revision {preview.cloudRevision} · {preview.records} 条记录 · {preview.bytes} 字节</p><p className="cloud-dictionary-description">词条 {preview.entries} · 覆盖 {preview.overlays} · 固定 {preview.positions} · 选择 {preview.selections}</p><button type="button" onClick={enqueue} disabled={busy || !previewToken}>替换本机词库</button><button type="button" className="secondary" onClick={() => { setPreview(null); setPreviewToken(null); }} disabled={busy}>丢弃预览</button></section>}
-      {request && <section className="cloud-dictionary-file-section" aria-label="处理结果"><h2>处理结果</h2><p className="cloud-dictionary-description">状态：{request.status} · 云端 revision {request.cloudRevision}</p>{(request.status === "queued" || request.status === "preparing") && <button type="button" className="secondary" onClick={cancel} disabled={busy}>取消待应用快照</button>}</section>}
-      <p className="cloud-dictionary-notice" role="status">{notice}</p>
-    </div>
-  </main>;
+  return (
+    <main className="native-panel cloud-dictionary-panel" aria-label="应用云词库">
+      <header className="native-panel-header">
+        <button
+          type="button"
+          aria-label="返回云词典"
+          onClick={() => void (client.back ? client.back() : client.close())}
+        >
+          ‹
+        </button>
+        <span>应用到本机</span>
+        <button type="button" aria-label="关闭" onClick={() => void client.close()}>
+          ×
+        </button>
+      </header>
+      <div className="cloud-dictionary-body">
+        <section className="cloud-dictionary-file-section" aria-label="准备本机词库">
+          <h2>准备本机词库</h2>
+          <p className="cloud-dictionary-description">
+            请启用水杉键盘并打开一次，让宿主提供当前本机词库版本。测试区或编辑器内容不会上传。
+          </p>
+          <div className="cloud-dictionary-snapshot-fact">
+            {localVersion ? (
+              <>
+                <strong>已获取本机词库版本</strong>
+                <small>{localVersion}</small>
+              </>
+            ) : (
+              <strong>尚未获取本机词库版本</strong>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={download}
+            disabled={
+              busy ||
+              !localVersion ||
+              request?.status === "queued" ||
+              request?.status === "preparing"
+            }
+          >
+            下载云词库并预览
+          </button>
+          <button
+            type="button"
+            className="secondary"
+            onClick={() => void refreshStatus()}
+            disabled={busy}
+          >
+            刷新状态
+          </button>
+        </section>
+        {preview && (
+          <section className="cloud-dictionary-file-section" aria-label="确认应用">
+            <h2>确认应用</h2>
+            <p className="cloud-dictionary-description">
+              云端 revision {preview.cloudRevision} · {preview.records} 条记录 · {preview.bytes}{" "}
+              字节
+            </p>
+            <p className="cloud-dictionary-description">
+              词条 {preview.entries} · 覆盖 {preview.overlays} · 固定 {preview.positions} · 选择{" "}
+              {preview.selections}
+            </p>
+            <button type="button" onClick={enqueue} disabled={busy || !previewToken}>
+              替换本机词库
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => {
+                setPreview(null);
+                setPreviewToken(null);
+              }}
+              disabled={busy}
+            >
+              丢弃预览
+            </button>
+          </section>
+        )}
+        {request && (
+          <section className="cloud-dictionary-file-section" aria-label="处理结果">
+            <h2>处理结果</h2>
+            <p className="cloud-dictionary-description">
+              状态：{request.status} · 云端 revision {request.cloudRevision}
+            </p>
+            {(request.status === "queued" || request.status === "preparing") && (
+              <button type="button" className="secondary" onClick={cancel} disabled={busy}>
+                取消待应用快照
+              </button>
+            )}
+          </section>
+        )}
+        <p className="cloud-dictionary-notice" role="status">
+          {notice}
+        </p>
+      </div>
+    </main>
+  );
 }
 
 function cloudDictionaryCatalogEntries(value: CloudDictionaryResponse) {
   return Array.isArray(value.catalog_entries)
-    ? value.catalog_entries.filter(entry => entry && typeof entry.kind === "string" && typeof entry.code === "string" && typeof entry.word === "string")
+    ? value.catalog_entries.filter(
+        (entry) =>
+          entry &&
+          typeof entry.kind === "string" &&
+          typeof entry.code === "string" &&
+          typeof entry.word === "string",
+      )
     : [];
 }
 
@@ -1645,13 +3249,23 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
   const [code, setCode] = useState("");
   const [scheme, setScheme] = useState("pinyin");
   const [profile, setProfile] = useState("xiaohe");
-  const [confirmed, setConfirmed] = useState<{ code: string; scheme: string; profile: string } | null>(null);
+  const [confirmed, setConfirmed] = useState<{
+    code: string;
+    scheme: string;
+    profile: string;
+  } | null>(null);
   const [entries, setEntries] = useState<CloudDictionaryCatalogEntry[]>([]);
   const [offset, setOffset] = useState(0);
   const [hasMore, setHasMore] = useState(false);
   const [revision, setRevision] = useState(0);
   const [normalized, setNormalized] = useState("");
-  const [form, setForm] = useState<{ entry: CloudDictionaryCatalogEntry; replacement: boolean; code: string; word: string; weight: number } | null>(null);
+  const [form, setForm] = useState<{
+    entry: CloudDictionaryCatalogEntry;
+    replacement: boolean;
+    code: string;
+    word: string;
+    weight: number;
+  } | null>(null);
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState("查询基础词库与当前账号的完整目录");
   const requestRevision = useRef(0);
@@ -1662,9 +3276,11 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
     const current = ++requestRevision.current;
     busyRef.current = true;
     setBusy(true);
-    try { await action(current); }
-    catch { if (current === requestRevision.current) setNotice(failure); }
-    finally {
+    try {
+      await action(current);
+    } catch {
+      if (current === requestRevision.current) setNotice(failure);
+    } finally {
       if (current === requestRevision.current) {
         busyRef.current = false;
         setBusy(false);
@@ -1672,12 +3288,30 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
     }
   }
 
-  async function load(current: number, nextOffset: number, query: { code: string; scheme: string; profile: string }) {
+  async function load(
+    current: number,
+    nextOffset: number,
+    query: { code: string; scheme: string; profile: string },
+  ) {
     let result;
-    try { result = await client.request({ operation: "catalog", kind, code: query.code, offset: nextOffset, scheme: query.scheme, profile: query.profile }); }
-    catch (error) {
+    try {
+      result = await client.request({
+        operation: "catalog",
+        kind,
+        code: query.code,
+        offset: nextOffset,
+        scheme: query.scheme,
+        profile: query.profile,
+      });
+    } catch (error) {
       if (current === requestRevision.current) {
-        setEntries([]); setForm(null); setConfirmed(null); setHasMore(false); setOffset(0); setRevision(0); setNormalized("");
+        setEntries([]);
+        setForm(null);
+        setConfirmed(null);
+        setHasMore(false);
+        setOffset(0);
+        setRevision(0);
+        setNormalized("");
       }
       throw error;
     }
@@ -1690,20 +3324,30 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
     setConfirmed(query);
   }
 
-  function queryCatalog(nextOffset = 0, queryOverride?: { code: string; scheme: string; profile: string }) {
+  function queryCatalog(
+    nextOffset = 0,
+    queryOverride?: { code: string; scheme: string; profile: string },
+  ) {
     const query = queryOverride ?? { code: code.trim(), scheme, profile };
     if (kind !== "quick" && !query.code) {
       setNotice("请输入查询编码");
       return;
     }
-    return run(async current => {
+    return run(async (current) => {
       await load(current, nextOffset, query);
       if (current === requestRevision.current) setNotice("完整目录已刷新");
     }, "无法访问完整云词库目录，请确认账号已登录");
   }
 
   function beginEdit(entry: CloudDictionaryCatalogEntry) {
-    if (!busyRef.current) setForm({ entry, replacement: true, code: entry.code, word: entry.word, weight: entry.weight });
+    if (!busyRef.current)
+      setForm({
+        entry,
+        replacement: true,
+        code: entry.code,
+        word: entry.word,
+        weight: entry.weight,
+      });
   }
 
   async function reload(current: number, message: string) {
@@ -1718,9 +3362,21 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
 
   function save() {
     if (!form) return;
-    if (!form.code.trim() || !form.word.trim()) { setNotice("编码和词条不能为空"); return; }
-    return run(async current => {
-      await client.request({ operation: "edit_catalog", kind, code: form.entry.code, word: form.entry.word, revision, replacement: form.replacement ? { code: form.code.trim(), word: form.word, weight: form.weight } : null });
+    if (!form.code.trim() || !form.word.trim()) {
+      setNotice("编码和词条不能为空");
+      return;
+    }
+    return run(async (current) => {
+      await client.request({
+        operation: "edit_catalog",
+        kind,
+        code: form.entry.code,
+        word: form.entry.word,
+        revision,
+        replacement: form.replacement
+          ? { code: form.code.trim(), word: form.word, weight: form.weight }
+          : null,
+      });
       if (current !== requestRevision.current) return;
       setForm(null);
       await reload(current, "完整目录已保存");
@@ -1728,16 +3384,31 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
   }
 
   function remove(entry: CloudDictionaryCatalogEntry) {
-    return run(async current => {
-      await client.request({ operation: "edit_catalog", kind, code: entry.code, word: entry.word, revision, replacement: null });
+    return run(async (current) => {
+      await client.request({
+        operation: "edit_catalog",
+        kind,
+        code: entry.code,
+        word: entry.word,
+        revision,
+        replacement: null,
+      });
       if (current !== requestRevision.current) return;
-      setForm(currentForm => currentForm?.entry.code === entry.code && currentForm.entry.word === entry.word ? null : currentForm);
+      setForm((currentForm) =>
+        currentForm?.entry.code === entry.code && currentForm.entry.word === entry.word
+          ? null
+          : currentForm,
+      );
       await reload(current, "目录词条已删除");
     }, "目录删除失败，请刷新后重试");
   }
 
   function confirmRemove(entry: CloudDictionaryCatalogEntry) {
-    if (busyRef.current || !window.confirm(`确认删除完整目录词条“${entry.word}”？仅删除云端版本，本机词库不会改变。`)) return;
+    if (
+      busyRef.current ||
+      !window.confirm(`确认删除完整目录词条“${entry.word}”？仅删除云端版本，本机词库不会改变。`)
+    )
+      return;
     void remove(entry);
   }
 
@@ -1751,27 +3422,226 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
     setHasMore(false);
   }
 
-  return <main className="native-panel cloud-dictionary-panel" aria-label="完整云词库目录">
-    <header className="native-panel-header"><button type="button" aria-label="返回云词典" onClick={() => void (client.back ? client.back() : client.close())}>‹</button><span>完整云词库目录</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
-    <div className="cloud-dictionary-body">
-      <div className="cloud-dictionary-toolbar"><label>词库<select aria-label="词库类型" value={kind} onChange={event => changeKind(event.target.value as CloudDictionaryKind)} disabled={busy}>{cloudDictionaryKinds.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className="cloud-dictionary-search">编码<input aria-label="完整目录编码" value={code} onChange={event => setCode(event.target.value)} onKeyDown={event => { if (event.key === "Enter") void queryCatalog(); }} placeholder={kind === "quick" ? "可留空" : "例如 shi、a 或 hello"} /></label><button type="button" onClick={() => void queryCatalog()} disabled={busy || (kind !== "quick" && !code.trim())}>查询完整目录</button></div>
-      {kind === "pinyin" && <div className="cloud-dictionary-actions"><label>编码方案<select aria-label="编码方案" value={scheme} onChange={event => setScheme(event.target.value)} disabled={busy}><option value="pinyin">全拼</option><option value="shuangpin">双拼</option></select></label>{scheme === "shuangpin" && <label>双拼方案<select aria-label="双拼方案" value={profile} onChange={event => setProfile(event.target.value)} disabled={busy}><option value="xiaohe">小鹤</option><option value="ziranma">自然码</option><option value="microsoft">微软</option><option value="shoudao">首道</option></select></label>}</div>}
-      <p className="cloud-dictionary-description">包含基础词库与当前账号修改。编辑和删除只影响云端目录，不会自动修改本机词库。</p>
-      {confirmed && entries.length > 0 && <p className="cloud-dictionary-mobile-hint">点按词条可编辑；窄屏下的删除操作会分组显示。</p>}
-      {confirmed && <div className="cloud-dictionary-list" aria-label="完整目录结果"><p>查询编码：{normalized} · 云端版本 {revision}</p>{entries.length ? entries.map(entry => <article className="cloud-dictionary-item" key={`${entry.kind}:${entry.code}:${entry.word}`}><button type="button" className="cloud-dictionary-item-main" aria-label={`编辑完整目录词条 ${entry.word}`} onClick={() => beginEdit(entry)} disabled={busy}><strong>{entry.word}</strong><small>{entry.code} · 权重 {entry.weight}</small></button><div className="cloud-dictionary-item-actions"><button type="button" className="secondary" onClick={() => beginEdit(entry)} disabled={busy}>编辑</button><button type="button" className="secondary" onClick={() => confirmRemove(entry)} disabled={busy}>删除</button></div></article>) : <p className="cloud-dictionary-empty">没有匹配的词条</p>}</div>}
-      {form && <div className="cloud-dictionary-form"><label>编码<input disabled={busy} value={form.code} onChange={event => setForm({ ...form, code: event.target.value })} /></label><label className="cloud-dictionary-word">词条<input disabled={busy} value={form.word} onChange={event => setForm({ ...form, word: event.target.value })} /></label><label>权重<input disabled={busy} type="number" min="0" value={form.weight} onChange={event => setForm({ ...form, weight: Number(event.target.value) })} /></label><button type="button" onClick={() => void save()} disabled={busy}>保存</button><button type="button" className="secondary" onClick={() => setForm(null)} disabled={busy}>取消</button></div>}
-      {confirmed && <div className="cloud-dictionary-pagination"><button type="button" onClick={() => void queryCatalog(Math.max(0, offset - 100), confirmed)} disabled={busy || offset === 0}>上一页</button><span>第 {Math.floor(offset / 100) + 1} 页</span><button type="button" onClick={() => void queryCatalog(offset + 100, confirmed)} disabled={busy || !hasMore}>下一页</button></div>}
-      <p className="cloud-dictionary-notice" role="status">{notice}</p>
-    </div>
-  </main>;
+  return (
+    <main className="native-panel cloud-dictionary-panel" aria-label="完整云词库目录">
+      <header className="native-panel-header">
+        <button
+          type="button"
+          aria-label="返回云词典"
+          onClick={() => void (client.back ? client.back() : client.close())}
+        >
+          ‹
+        </button>
+        <span>完整云词库目录</span>
+        <button type="button" aria-label="关闭" onClick={() => void client.close()}>
+          ×
+        </button>
+      </header>
+      <div className="cloud-dictionary-body">
+        <div className="cloud-dictionary-toolbar">
+          <label>
+            词库
+            <select
+              aria-label="词库类型"
+              value={kind}
+              onChange={(event) => changeKind(event.target.value as CloudDictionaryKind)}
+              disabled={busy}
+            >
+              {cloudDictionaryKinds.map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="cloud-dictionary-search">
+            编码
+            <input
+              aria-label="完整目录编码"
+              value={code}
+              onChange={(event) => setCode(event.target.value)}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void queryCatalog();
+              }}
+              placeholder={kind === "quick" ? "可留空" : "例如 shi、a 或 hello"}
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => void queryCatalog()}
+            disabled={busy || (kind !== "quick" && !code.trim())}
+          >
+            查询完整目录
+          </button>
+        </div>
+        {kind === "pinyin" && (
+          <div className="cloud-dictionary-actions">
+            <label>
+              编码方案
+              <select
+                aria-label="编码方案"
+                value={scheme}
+                onChange={(event) => setScheme(event.target.value)}
+                disabled={busy}
+              >
+                <option value="pinyin">全拼</option>
+                <option value="shuangpin">双拼</option>
+              </select>
+            </label>
+            {scheme === "shuangpin" && (
+              <label>
+                双拼方案
+                <select
+                  aria-label="双拼方案"
+                  value={profile}
+                  onChange={(event) => setProfile(event.target.value)}
+                  disabled={busy}
+                >
+                  <option value="xiaohe">小鹤</option>
+                  <option value="ziranma">自然码</option>
+                  <option value="microsoft">微软</option>
+                  <option value="shoudao">首道</option>
+                </select>
+              </label>
+            )}
+          </div>
+        )}
+        <p className="cloud-dictionary-description">
+          包含基础词库与当前账号修改。编辑和删除只影响云端目录，不会自动修改本机词库。
+        </p>
+        {confirmed && entries.length > 0 && (
+          <p className="cloud-dictionary-mobile-hint">
+            点按词条可编辑；窄屏下的删除操作会分组显示。
+          </p>
+        )}
+        {confirmed && (
+          <div className="cloud-dictionary-list" aria-label="完整目录结果">
+            <p>
+              查询编码：{normalized} · 云端版本 {revision}
+            </p>
+            {entries.length ? (
+              entries.map((entry) => (
+                <article
+                  className="cloud-dictionary-item"
+                  key={`${entry.kind}:${entry.code}:${entry.word}`}
+                >
+                  <button
+                    type="button"
+                    className="cloud-dictionary-item-main"
+                    aria-label={`编辑完整目录词条 ${entry.word}`}
+                    onClick={() => beginEdit(entry)}
+                    disabled={busy}
+                  >
+                    <strong>{entry.word}</strong>
+                    <small>
+                      {entry.code} · 权重 {entry.weight}
+                    </small>
+                  </button>
+                  <div className="cloud-dictionary-item-actions">
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => beginEdit(entry)}
+                      disabled={busy}
+                    >
+                      编辑
+                    </button>
+                    <button
+                      type="button"
+                      className="secondary"
+                      onClick={() => confirmRemove(entry)}
+                      disabled={busy}
+                    >
+                      删除
+                    </button>
+                  </div>
+                </article>
+              ))
+            ) : (
+              <p className="cloud-dictionary-empty">没有匹配的词条</p>
+            )}
+          </div>
+        )}
+        {form && (
+          <div className="cloud-dictionary-form">
+            <label>
+              编码
+              <input
+                disabled={busy}
+                value={form.code}
+                onChange={(event) => setForm({ ...form, code: event.target.value })}
+              />
+            </label>
+            <label className="cloud-dictionary-word">
+              词条
+              <input
+                disabled={busy}
+                value={form.word}
+                onChange={(event) => setForm({ ...form, word: event.target.value })}
+              />
+            </label>
+            <label>
+              权重
+              <input
+                disabled={busy}
+                type="number"
+                min="0"
+                value={form.weight}
+                onChange={(event) => setForm({ ...form, weight: Number(event.target.value) })}
+              />
+            </label>
+            <button type="button" onClick={() => void save()} disabled={busy}>
+              保存
+            </button>
+            <button
+              type="button"
+              className="secondary"
+              onClick={() => setForm(null)}
+              disabled={busy}
+            >
+              取消
+            </button>
+          </div>
+        )}
+        {confirmed && (
+          <div className="cloud-dictionary-pagination">
+            <button
+              type="button"
+              onClick={() => void queryCatalog(Math.max(0, offset - 100), confirmed)}
+              disabled={busy || offset === 0}
+            >
+              上一页
+            </button>
+            <span>第 {Math.floor(offset / 100) + 1} 页</span>
+            <button
+              type="button"
+              onClick={() => void queryCatalog(offset + 100, confirmed)}
+              disabled={busy || !hasMore}
+            >
+              下一页
+            </button>
+          </div>
+        )}
+        <p className="cloud-dictionary-notice" role="status">
+          {notice}
+        </p>
+      </div>
+    </main>
+  );
 }
 
 const cloudRankingModes: [CloudRankingMode, string][] = [
-  ["disabled", "不调频"], ["pin", "置顶调频"], ["halve", "折半调频"], ["linear", "线性调频"], ["promote", "一次置前"],
+  ["disabled", "不调频"],
+  ["pin", "置顶调频"],
+  ["halve", "折半调频"],
+  ["linear", "线性调频"],
+  ["promote", "一次置前"],
 ];
 
 function candidateMutationCode(candidate: CloudCandidate) {
-  return candidate.canonical_pinyin && candidate.canonical_pinyin.length > 0 ? candidate.canonical_pinyin : candidate.code;
+  return candidate.canonical_pinyin && candidate.canonical_pinyin.length > 0
+    ? candidate.canonical_pinyin
+    : candidate.code;
 }
 
 export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelClient }) {
@@ -1785,7 +3655,13 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
   const [trigger, setTrigger] = useState(1);
   const [forceTop, setForceTop] = useState(false);
   const [position, setPosition] = useState(1);
-  const [query, setQuery] = useState<{ text: string; kind: CloudCandidateKind; scheme: string; profile: string; limit: number } | null>(null);
+  const [query, setQuery] = useState<{
+    text: string;
+    kind: CloudCandidateKind;
+    scheme: string;
+    profile: string;
+    limit: number;
+  } | null>(null);
   const [candidates, setCandidates] = useState<CloudCandidate[]>([]);
   const [positions, setPositions] = useState<CloudFixedPosition[]>([]);
   const [context, setContext] = useState("");
@@ -1801,9 +3677,11 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
     const current = ++requestRevision.current;
     busyRef.current = true;
     setBusy(true);
-    try { await action(current); }
-    catch { if (current === requestRevision.current) setNotice(failure); }
-    finally {
+    try {
+      await action(current);
+    } catch {
+      if (current === requestRevision.current) setNotice(failure);
+    } finally {
       if (current === requestRevision.current) {
         busyRef.current = false;
         setBusy(false);
@@ -1811,18 +3689,35 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
     }
   }
 
-  async function load(current: number, nextQuery: { text: string; kind: CloudCandidateKind; scheme: string; profile: string; limit: number }) {
+  async function load(
+    current: number,
+    nextQuery: {
+      text: string;
+      kind: CloudCandidateKind;
+      scheme: string;
+      profile: string;
+      limit: number;
+    },
+  ) {
     let result;
-    try { result = await client.request({ operation: "candidates", ...nextQuery }); }
-    catch (error) {
+    try {
+      result = await client.request({ operation: "candidates", ...nextQuery });
+    } catch (error) {
       if (current === requestRevision.current) {
-        setCandidates([]); setPositions([]); setQuery(null); setContext(""); setRevision(0);
+        setCandidates([]);
+        setPositions([]);
+        setQuery(null);
+        setContext("");
+        setRevision(0);
       }
       throw error;
     }
     if (current !== requestRevision.current) return;
     const nextCandidates = Array.isArray(result.candidates)
-      ? result.candidates.filter(candidate => candidate && typeof candidate.code === "string" && typeof candidate.word === "string")
+      ? result.candidates.filter(
+          (candidate) =>
+            candidate && typeof candidate.code === "string" && typeof candidate.word === "string",
+        )
       : [];
     // Publish the candidate page as soon as it arrives. Loading fixed
     // positions is a secondary request and must not delay the visible result
@@ -1833,10 +3728,16 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
     setPositions([]);
     setQuery(nextQuery);
     if (nextQuery.kind !== "quick" && typeof result.context === "string" && result.context) {
-      const fixed = await client.request({ operation: "fixed_positions", context: result.context, offset: 0 });
+      const fixed = await client.request({
+        operation: "fixed_positions",
+        context: result.context,
+        offset: 0,
+      });
       if (current !== requestRevision.current) return;
       const nextPositions = Array.isArray(fixed.positions)
-        ? fixed.positions.filter(item => item && typeof item.code === "string" && typeof item.word === "string")
+        ? fixed.positions.filter(
+            (item) => item && typeof item.code === "string" && typeof item.word === "string",
+          )
         : [];
       setPositions(nextPositions);
     }
@@ -1844,9 +3745,18 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
 
   function queryCandidates() {
     const value = textRef.current.trim();
-    if (!value) { setNotice("请输入编码"); return; }
-    const nextQuery = { text: value, kind: jianpin && kind === "pinyin" ? "jianpin" as const : kind, scheme, profile, limit: 100 };
-    return run(async current => {
+    if (!value) {
+      setNotice("请输入编码");
+      return;
+    }
+    const nextQuery = {
+      text: value,
+      kind: jianpin && kind === "pinyin" ? ("jianpin" as const) : kind,
+      scheme,
+      profile,
+      limit: 100,
+    };
+    return run(async (current) => {
       await load(current, nextQuery);
       if (current === requestRevision.current) setNotice("云端候选已刷新");
     }, "无法查询云端候选，请确认账号已登录");
@@ -1868,32 +3778,79 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
 
   function rank(candidate: CloudCandidate) {
     if (!query || !confirmAction("调整此云端候选的排序？")) return;
-    return run(async current => {
-      const result = await client.request({ operation: "rank", ...query, code: candidateMutationCode(candidate), word: candidate.word, revision, mode, linear_step: step, trigger_count: trigger, force_top: forceTop });
-      await reload(current, result.changed === true ? "云端排序已更新" : `已记录本次选择，本次未调整排序；累计 ${result.selection_count ?? 0} 次`);
+    return run(async (current) => {
+      const result = await client.request({
+        operation: "rank",
+        ...query,
+        code: candidateMutationCode(candidate),
+        word: candidate.word,
+        revision,
+        mode,
+        linear_step: step,
+        trigger_count: trigger,
+        force_top: forceTop,
+      });
+      await reload(
+        current,
+        result.changed === true
+          ? "云端排序已更新"
+          : `已记录本次选择，本次未调整排序；累计 ${result.selection_count ?? 0} 次`,
+      );
     }, "云端调频失败，请刷新后重试");
   }
 
   function remove(candidate: CloudCandidate) {
-    if (!query || (kind !== "english" && Array.from(candidate.word).length <= 1) || !confirmAction("删除此云端候选？")) return;
-    return run(async current => {
-      await client.request({ operation: "remove_candidate", ...query, code: candidateMutationCode(candidate), word: candidate.word, revision });
+    if (
+      !query ||
+      (kind !== "english" && Array.from(candidate.word).length <= 1) ||
+      !confirmAction("删除此云端候选？")
+    )
+      return;
+    return run(async (current) => {
+      await client.request({
+        operation: "remove_candidate",
+        ...query,
+        code: candidateMutationCode(candidate),
+        word: candidate.word,
+        revision,
+      });
       await reload(current, "云端候选已删除");
     }, "删除云端候选失败，请刷新后重试");
   }
 
   function setFixed(candidate: CloudCandidate, nextPosition: number | null) {
-    if (!query || !context || !confirmAction(nextPosition === null ? "取消此候选的固定位置？" : `固定到第 ${nextPosition} 位？`)) return;
-    return run(async current => {
-      await client.request({ operation: "set_fixed_position", context, code: candidateMutationCode(candidate), word: candidate.word, position: nextPosition, revision });
+    if (
+      !query ||
+      !context ||
+      !confirmAction(
+        nextPosition === null ? "取消此候选的固定位置？" : `固定到第 ${nextPosition} 位？`,
+      )
+    )
+      return;
+    return run(async (current) => {
+      await client.request({
+        operation: "set_fixed_position",
+        context,
+        code: candidateMutationCode(candidate),
+        word: candidate.word,
+        position: nextPosition,
+        revision,
+      });
       await reload(current, nextPosition === null ? "固定位置已取消" : "固定位置已更新");
     }, "固定位置更新失败，请刷新后重试");
   }
 
   function unfix(item: CloudFixedPosition) {
     if (!query || !confirmAction("取消此固定位置？")) return;
-    return run(async current => {
-      await client.request({ operation: "set_fixed_position", context: item.context, code: item.code, word: item.word, position: null, revision });
+    return run(async (current) => {
+      await client.request({
+        operation: "set_fixed_position",
+        context: item.context,
+        code: item.code,
+        word: item.word,
+        position: null,
+        revision,
+      });
       await reload(current, "固定位置已取消");
     }, "固定位置更新失败，请刷新后重试");
   }
@@ -1908,19 +3865,276 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
     setContext("");
   }
 
-  return <main className="native-panel cloud-dictionary-panel" aria-label="云端候选排序">
-    <header className="native-panel-header"><button type="button" aria-label="返回云词典" onClick={() => void (client.back ? client.back() : client.close())}>‹</button><span>云端候选排序</span><button type="button" aria-label="关闭" onClick={() => void client.close()}>×</button></header>
-    <div className="cloud-dictionary-body">
-      <div className="cloud-dictionary-toolbar"><label>词库<select aria-label="词库类型" value={kind} onChange={event => changeKind(event.target.value as CloudDictionaryKind)} disabled={busy}>{cloudDictionaryKinds.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label className="cloud-dictionary-search">编码<input aria-label="云端候选编码" value={text} onChange={event => { textRef.current = event.target.value; setText(event.target.value); }} onKeyDown={event => { if (event.key === "Enter") void queryCandidates(); }} /></label><button type="button" onClick={() => void queryCandidates()} disabled={busy || !text.trim()}>查询云端候选</button></div>
-      {kind === "pinyin" && <div className="cloud-dictionary-actions"><label><input type="checkbox" checked={jianpin} onChange={event => setJianpin(event.target.checked)} disabled={busy} />简拼候选</label><label>编码方案<select aria-label="候选编码方案" value={scheme} onChange={event => setScheme(event.target.value)} disabled={busy}><option value="pinyin">全拼</option><option value="shuangpin">双拼</option></select></label>{scheme === "shuangpin" && <label>双拼方案<select aria-label="候选双拼方案" value={profile} onChange={event => setProfile(event.target.value)} disabled={busy}><option value="xiaohe">小鹤</option><option value="ziranma">自然码</option><option value="microsoft">微软</option><option value="shoudao">首道</option></select></label>}</div>}
-      {kind !== "quick" && <div className="cloud-dictionary-actions"><label>调频方式<select aria-label="调频方式" value={mode} onChange={event => setMode(event.target.value as CloudRankingMode)} disabled={busy}>{cloudRankingModes.map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></label><label>线性步长<input aria-label="线性步长" type="number" min="1" max="100" value={step} onChange={event => setStep(Math.max(1, Math.min(100, Number(event.target.value) || 1)))} disabled={busy || mode !== "linear"} /></label><label>触发次数<input aria-label="触发次数" type="number" min="1" max="10" value={trigger} onChange={event => setTrigger(Math.max(1, Math.min(10, Number(event.target.value) || 1)))} disabled={busy} /></label><label><input type="checkbox" checked={forceTop} onChange={event => setForceTop(event.target.checked)} disabled={busy} />强制置顶</label><label>固定位置<select aria-label="固定位置" value={position} onChange={event => setPosition(Number(event.target.value))} disabled={busy}>{[1, 2, 3, 4, 5].map(value => <option key={value} value={value}>{value}</option>)}</select></label></div>}
-      <p className="cloud-dictionary-description">排序、固定位置和删除只保存到当前账号；本机键盘需要后续同步才会采用云端状态。</p>
-      {query && <div className="cloud-dictionary-list" aria-label="云端候选结果"><p>查询编码：{query.text} · 云端版本 {revision}</p>{candidates.length ? candidates.map((candidate, index) => <article className="cloud-dictionary-item" key={`${candidateMutationCode(candidate)}:${candidate.word}`}><button type="button" className="cloud-dictionary-item-main" aria-label={`调频候选 ${candidate.word}`} onClick={() => void rank(candidate)} disabled={busy || kind === "quick"}><strong>{index + 1}. <span className="cloud-candidate-word">{candidate.word}</span></strong><small>{candidate.code} · 权重 {candidate.weight}</small></button>{kind !== "quick" && <div className="cloud-dictionary-item-actions"><button type="button" className="secondary" onClick={() => void rank(candidate)} disabled={busy}>调频</button><button type="button" className="secondary" onClick={() => void setFixed(candidate, position)} disabled={busy}>固定</button><button type="button" className="secondary" onClick={() => void remove(candidate)} disabled={busy || (kind !== "english" && Array.from(candidate.word).length <= 1)}>删除</button></div>}</article>) : <p className="cloud-dictionary-empty">没有匹配的候选</p>}</div>}
-      {query && candidates.length > 0 && <p className="cloud-dictionary-mobile-hint">点按候选可调频；窄屏下的固定和删除操作会分组显示。</p>}
-      {positions.length > 0 && <div className="cloud-dictionary-list" aria-label="固定位置"><p>此查询的固定位置</p>{positions.map(item => <article className="cloud-dictionary-item" key={`${item.context}:${item.code}:${item.word}`}><div className="cloud-dictionary-item-main cloud-dictionary-item-static"><strong>第 {item.position} 位 · {item.word}</strong><small>{item.code}</small></div><div className="cloud-dictionary-item-actions"><button type="button" className="secondary" onClick={() => void unfix(item)} disabled={busy}>取消固定</button></div></article>)}</div>}
-      <p className="cloud-dictionary-notice" role="status">{notice}</p>
-    </div>
-  </main>;
+  return (
+    <main className="native-panel cloud-dictionary-panel" aria-label="云端候选排序">
+      <header className="native-panel-header">
+        <button
+          type="button"
+          aria-label="返回云词典"
+          onClick={() => void (client.back ? client.back() : client.close())}
+        >
+          ‹
+        </button>
+        <span>云端候选排序</span>
+        <button type="button" aria-label="关闭" onClick={() => void client.close()}>
+          ×
+        </button>
+      </header>
+      <div className="cloud-dictionary-body">
+        <div className="cloud-dictionary-toolbar">
+          <label>
+            词库
+            <select
+              aria-label="词库类型"
+              value={kind}
+              onChange={(event) => changeKind(event.target.value as CloudDictionaryKind)}
+              disabled={busy}
+            >
+              {cloudDictionaryKinds.map(([value, label]) => (
+                <option key={value} value={value}>
+                  {label}
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="cloud-dictionary-search">
+            编码
+            <input
+              aria-label="云端候选编码"
+              value={text}
+              onChange={(event) => {
+                textRef.current = event.target.value;
+                setText(event.target.value);
+              }}
+              onKeyDown={(event) => {
+                if (event.key === "Enter") void queryCandidates();
+              }}
+            />
+          </label>
+          <button
+            type="button"
+            onClick={() => void queryCandidates()}
+            disabled={busy || !text.trim()}
+          >
+            查询云端候选
+          </button>
+        </div>
+        {kind === "pinyin" && (
+          <div className="cloud-dictionary-actions">
+            <label>
+              <input
+                type="checkbox"
+                checked={jianpin}
+                onChange={(event) => setJianpin(event.target.checked)}
+                disabled={busy}
+              />
+              简拼候选
+            </label>
+            <label>
+              编码方案
+              <select
+                aria-label="候选编码方案"
+                value={scheme}
+                onChange={(event) => setScheme(event.target.value)}
+                disabled={busy}
+              >
+                <option value="pinyin">全拼</option>
+                <option value="shuangpin">双拼</option>
+              </select>
+            </label>
+            {scheme === "shuangpin" && (
+              <label>
+                双拼方案
+                <select
+                  aria-label="候选双拼方案"
+                  value={profile}
+                  onChange={(event) => setProfile(event.target.value)}
+                  disabled={busy}
+                >
+                  <option value="xiaohe">小鹤</option>
+                  <option value="ziranma">自然码</option>
+                  <option value="microsoft">微软</option>
+                  <option value="shoudao">首道</option>
+                </select>
+              </label>
+            )}
+          </div>
+        )}
+        {kind !== "quick" && (
+          <div className="cloud-dictionary-actions">
+            <label>
+              调频方式
+              <select
+                aria-label="调频方式"
+                value={mode}
+                onChange={(event) => setMode(event.target.value as CloudRankingMode)}
+                disabled={busy}
+              >
+                {cloudRankingModes.map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+            <label>
+              线性步长
+              <input
+                aria-label="线性步长"
+                type="number"
+                min="1"
+                max="100"
+                value={step}
+                onChange={(event) =>
+                  setStep(Math.max(1, Math.min(100, Number(event.target.value) || 1)))
+                }
+                disabled={busy || mode !== "linear"}
+              />
+            </label>
+            <label>
+              触发次数
+              <input
+                aria-label="触发次数"
+                type="number"
+                min="1"
+                max="10"
+                value={trigger}
+                onChange={(event) =>
+                  setTrigger(Math.max(1, Math.min(10, Number(event.target.value) || 1)))
+                }
+                disabled={busy}
+              />
+            </label>
+            <label>
+              <input
+                type="checkbox"
+                checked={forceTop}
+                onChange={(event) => setForceTop(event.target.checked)}
+                disabled={busy}
+              />
+              强制置顶
+            </label>
+            <label>
+              固定位置
+              <select
+                aria-label="固定位置"
+                value={position}
+                onChange={(event) => setPosition(Number(event.target.value))}
+                disabled={busy}
+              >
+                {[1, 2, 3, 4, 5].map((value) => (
+                  <option key={value} value={value}>
+                    {value}
+                  </option>
+                ))}
+              </select>
+            </label>
+          </div>
+        )}
+        <p className="cloud-dictionary-description">
+          排序、固定位置和删除只保存到当前账号；本机键盘需要后续同步才会采用云端状态。
+        </p>
+        {query && (
+          <div className="cloud-dictionary-list" aria-label="云端候选结果">
+            <p>
+              查询编码：{query.text} · 云端版本 {revision}
+            </p>
+            {candidates.length ? (
+              candidates.map((candidate, index) => (
+                <article
+                  className="cloud-dictionary-item"
+                  key={`${candidateMutationCode(candidate)}:${candidate.word}`}
+                >
+                  <button
+                    type="button"
+                    className="cloud-dictionary-item-main"
+                    aria-label={`调频候选 ${candidate.word}`}
+                    onClick={() => void rank(candidate)}
+                    disabled={busy || kind === "quick"}
+                  >
+                    <strong>
+                      {index + 1}. <span className="cloud-candidate-word">{candidate.word}</span>
+                    </strong>
+                    <small>
+                      {candidate.code} · 权重 {candidate.weight}
+                    </small>
+                  </button>
+                  {kind !== "quick" && (
+                    <div className="cloud-dictionary-item-actions">
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() => void rank(candidate)}
+                        disabled={busy}
+                      >
+                        调频
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() => void setFixed(candidate, position)}
+                        disabled={busy}
+                      >
+                        固定
+                      </button>
+                      <button
+                        type="button"
+                        className="secondary"
+                        onClick={() => void remove(candidate)}
+                        disabled={
+                          busy || (kind !== "english" && Array.from(candidate.word).length <= 1)
+                        }
+                      >
+                        删除
+                      </button>
+                    </div>
+                  )}
+                </article>
+              ))
+            ) : (
+              <p className="cloud-dictionary-empty">没有匹配的候选</p>
+            )}
+          </div>
+        )}
+        {query && candidates.length > 0 && (
+          <p className="cloud-dictionary-mobile-hint">
+            点按候选可调频；窄屏下的固定和删除操作会分组显示。
+          </p>
+        )}
+        {positions.length > 0 && (
+          <div className="cloud-dictionary-list" aria-label="固定位置">
+            <p>此查询的固定位置</p>
+            {positions.map((item) => (
+              <article
+                className="cloud-dictionary-item"
+                key={`${item.context}:${item.code}:${item.word}`}
+              >
+                <div className="cloud-dictionary-item-main cloud-dictionary-item-static">
+                  <strong>
+                    第 {item.position} 位 · {item.word}
+                  </strong>
+                  <small>{item.code}</small>
+                </div>
+                <div className="cloud-dictionary-item-actions">
+                  <button
+                    type="button"
+                    className="secondary"
+                    onClick={() => void unfix(item)}
+                    disabled={busy}
+                  >
+                    取消固定
+                  </button>
+                </div>
+              </article>
+            ))}
+          </div>
+        )}
+        <p className="cloud-dictionary-notice" role="status">
+          {notice}
+        </p>
+      </div>
+    </main>
+  );
 }
 
 type EmojiPage = "home" | "emoji" | "sticker" | "gif" | "kaomoji" | "symbols" | "clipboard";
@@ -1937,7 +4151,11 @@ const emojiPages: { id: EmojiPage; label: string; icon: string }[] = [
 
 function matchesEmojiItem(item: EmojiCatalogItem, query: string) {
   const normalizedQuery = query.toLocaleLowerCase();
-  return !query || item.text.includes(query) || item.keywords.toLocaleLowerCase().includes(normalizedQuery);
+  return (
+    !query ||
+    item.text.includes(query) ||
+    item.keywords.toLocaleLowerCase().includes(normalizedQuery)
+  );
 }
 
 function clipboardTooltip(text: string) {
@@ -1957,15 +4175,23 @@ function clipboardTooltip(text: string) {
 export function emojiDisplayName(keywords: string | undefined, fallback = ""): string {
   const tokens = (keywords ?? "").split(/\s+/).filter(Boolean);
   if (!tokens.length) return fallback;
-  const cjk = tokens.find(token => /[\u3400-\u9fff\uf900-\ufaff]/.test(token));
+  const cjk = tokens.find((token) => /[\u3400-\u9fff\uf900-\ufaff]/.test(token));
   return cjk ?? tokens[0];
 }
 
 function flattenGroups(groups: EmojiCatalogGroup[]) {
-  return groups.flatMap(group => group.items);
+  return groups.flatMap((group) => group.items);
 }
 
-export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { client: EmojiPanelClient; theme?: "dark" | "light"; initialPage?: "home" | "clipboard" }) {
+export function EmojiPanel({
+  client,
+  theme = "dark",
+  initialPage = "home",
+}: {
+  client: EmojiPanelClient;
+  theme?: "dark" | "light";
+  initialPage?: "home" | "clipboard";
+}) {
   const [page, setPage] = useState<EmojiPage>(initialPage);
   const [itemPage, setItemPage] = useState(0);
   const itemsPerPage = 48;
@@ -1973,9 +4199,20 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
   const [categories, setCategories] = useState({ emoji: "all", symbols: "all" });
   const [recent, setRecent] = useState<EmojiCatalogItem[]>(() => {
     try {
-      const value: unknown = typeof window === "undefined" ? null : JSON.parse(window.localStorage.getItem("msime.emoji.recent") ?? "null");
-      return Array.isArray(value) ? value.filter(item => item && typeof item.text === "string" && typeof item.keywords === "string").slice(0, 28) as EmojiCatalogItem[] : [];
-    } catch { return []; }
+      const value: unknown =
+        typeof window === "undefined"
+          ? null
+          : JSON.parse(window.localStorage.getItem("msime.emoji.recent") ?? "null");
+      return Array.isArray(value)
+        ? (value
+            .filter(
+              (item) => item && typeof item.text === "string" && typeof item.keywords === "string",
+            )
+            .slice(0, 28) as EmojiCatalogItem[])
+        : [];
+    } catch {
+      return [];
+    }
   });
   const [clipboard, setClipboard] = useState<string[]>([]);
   const [clipboardBusy, setClipboardBusy] = useState(false);
@@ -1986,11 +4223,19 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
   const [clipboardEnabled, setClipboardEnabled] = useState<boolean | null>(null);
   const clipboardMutation = useRef(false);
   const clipboardGeneration = useRef(0);
-  const deletedRowFocus = useRef<{ element: HTMLElement; index: number; query: string } | null>(null);
+  const deletedRowFocus = useRef<{ element: HTMLElement; index: number; query: string } | null>(
+    null,
+  );
   const [notice, setNoticeText] = useState("");
   const noticeTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const [catalog, setCatalog] = useState({ emoji: fallbackEmojiGroups, kaomoji: fallbackKaomojiGroups, symbols: fallbackSymbolGroups });
-  const [catalogUnavailable, setCatalogUnavailable] = useState<("emoji" | "kaomoji" | "symbols")[]>([]);
+  const [catalog, setCatalog] = useState({
+    emoji: fallbackEmojiGroups,
+    kaomoji: fallbackKaomojiGroups,
+    symbols: fallbackSymbolGroups,
+  });
+  const [catalogUnavailable, setCatalogUnavailable] = useState<("emoji" | "kaomoji" | "symbols")[]>(
+    [],
+  );
   const [catalogLoading, setCatalogLoading] = useState(false);
   const [catalogRetry, setCatalogRetry] = useState(0);
 
@@ -2023,9 +4268,11 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
     const revision = ++operationRevision.current;
     clipboardMutation.current = true;
     setClipboardBusy(true);
-    try { await action(revision); }
-    catch { if (revision === operationRevision.current) setNotice(failure); }
-    finally {
+    try {
+      await action(revision);
+    } catch {
+      if (revision === operationRevision.current) setNotice(failure);
+    } finally {
       if (revision === operationRevision.current) {
         clipboardMutation.current = false;
         setClipboardBusy(false);
@@ -2034,7 +4281,11 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
   }
 
   useEffect(() => {
-    try { window.localStorage.setItem("msime.emoji.recent", JSON.stringify(recent.slice(0, 28))); } catch { /* preference is optional */ }
+    try {
+      window.localStorage.setItem("msime.emoji.recent", JSON.stringify(recent.slice(0, 28)));
+    } catch {
+      /* preference is optional */
+    }
   }, [recent]);
 
   useEffect(() => {
@@ -2043,31 +4294,49 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
   }, [client]);
 
   useEffect(() => {
-    setCatalog({ emoji: fallbackEmojiGroups, kaomoji: fallbackKaomojiGroups, symbols: fallbackSymbolGroups });
+    setCatalog({
+      emoji: fallbackEmojiGroups,
+      kaomoji: fallbackKaomojiGroups,
+      symbols: fallbackSymbolGroups,
+    });
     setCatalogUnavailable([]);
   }, [client]);
 
   useEffect(() => {
-    if (!client.loadCatalog) { setCatalogLoading(false); return; }
+    if (!client.loadCatalog) {
+      setCatalogLoading(false);
+      return;
+    }
     let active = true;
     setCatalogLoading(true);
-    void Promise.resolve().then(() => client.loadCatalog!()).then(next => {
-      if (!active) return;
-      const unavailable = next.unavailable ?? [];
-      setCatalog(current => ({
-        emoji: unavailable.includes("emoji") ? current.emoji : next.emoji,
-        kaomoji: unavailable.includes("kaomoji") ? current.kaomoji : next.kaomoji,
-        symbols: unavailable.includes("symbols") ? current.symbols : next.symbols,
-      }));
-      setCatalogUnavailable(unavailable);
-    }).catch(() => {
-      if (active) setCatalogUnavailable(["emoji", "kaomoji", "symbols"]);
-    }).finally(() => { if (active) setCatalogLoading(false); });
-    return () => { active = false; };
+    void Promise.resolve()
+      .then(() => client.loadCatalog!())
+      .then((next) => {
+        if (!active) return;
+        const unavailable = next.unavailable ?? [];
+        setCatalog((current) => ({
+          emoji: unavailable.includes("emoji") ? current.emoji : next.emoji,
+          kaomoji: unavailable.includes("kaomoji") ? current.kaomoji : next.kaomoji,
+          symbols: unavailable.includes("symbols") ? current.symbols : next.symbols,
+        }));
+        setCatalogUnavailable(unavailable);
+      })
+      .catch(() => {
+        if (active) setCatalogUnavailable(["emoji", "kaomoji", "symbols"]);
+      })
+      .finally(() => {
+        if (active) setCatalogLoading(false);
+      });
+    return () => {
+      active = false;
+    };
   }, [client, catalogRetry]);
 
   useEffect(() => {
-    if (!client.clipboard?.list) { setClipboardLoadFailed(false); return; }
+    if (!client.clipboard?.list) {
+      setClipboardLoadFailed(false);
+      return;
+    }
     let active = true;
     let unsubscribe: (() => void) | undefined;
     let poll: ReturnType<typeof setInterval> | undefined;
@@ -2084,36 +4353,55 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
       }
       inFlight++;
       const request = ++clipboardGeneration.current;
-      void Promise.resolve().then(() => Promise.all([client.clipboard!.list!(), client.clipboard?.isEnabled?.() ?? Promise.resolve(true)])).then(([value, enabled]) => {
-        if (active && request === clipboardGeneration.current) {
-          setClipboard(enabled ? value : []);
-          setClipboardEnabled(enabled);
-          setClipboardLoadFailed(false);
-        }
-      }).catch(() => {
-        if (active && request === clipboardGeneration.current) {
-          setClipboard([]);
-          setClipboardEnabled(null);
-          setClipboardLoadFailed(true);
-        }
-      }).finally(() => {
-        inFlight--;
-        if (active && refreshPending) {
-          refreshPending = false;
-          refresh();
-        }
-      });
+      void Promise.resolve()
+        .then(() =>
+          Promise.all([
+            client.clipboard!.list!(),
+            client.clipboard?.isEnabled?.() ?? Promise.resolve(true),
+          ]),
+        )
+        .then(([value, enabled]) => {
+          if (active && request === clipboardGeneration.current) {
+            setClipboard(enabled ? value : []);
+            setClipboardEnabled(enabled);
+            setClipboardLoadFailed(false);
+          }
+        })
+        .catch(() => {
+          if (active && request === clipboardGeneration.current) {
+            setClipboard([]);
+            setClipboardEnabled(null);
+            setClipboardLoadFailed(true);
+          }
+        })
+        .finally(() => {
+          inFlight--;
+          if (active && refreshPending) {
+            refreshPending = false;
+            refresh();
+          }
+        });
     };
     const pollVisible = () => {
-      if (active && document.visibilityState === "visible" &&
-          !clipboardMutation.current && inFlight === 0) refresh();
+      if (
+        active &&
+        document.visibilityState === "visible" &&
+        !clipboardMutation.current &&
+        inFlight === 0
+      )
+        refresh();
     };
     const start = async () => {
       try {
         const stop = await client.clipboard?.onChanged?.(refresh);
-        if (!active) { stop?.(); return; }
+        if (!active) {
+          stop?.();
+          return;
+        }
         unsubscribe = stop;
-      } catch { /* Keep polling if host notification registration fails. */ }
+      } catch {
+        /* Keep polling if host notification registration fails. */
+      }
       if (!active) return;
       // Close the gap between the initial snapshot and subscription setup.
       refresh();
@@ -2142,60 +4430,127 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
   }, [client, page, clipboardRefresh]);
 
   type DisplayGroup = EmojiCatalogGroup & { moreTarget?: EmojiPage; flow?: boolean };
-  const groups = page === "emoji" ? catalog.emoji : page === "kaomoji" ? catalog.kaomoji : catalog.symbols;
+  const groups =
+    page === "emoji" ? catalog.emoji : page === "kaomoji" ? catalog.kaomoji : catalog.symbols;
   const categoryPage = page === "emoji" || page === "symbols" ? page : null;
-  const categoryKey = (group: EmojiCatalogGroup) => page === "symbols" && group.parent
-    ? `parent:${group.parent}` : `group:${group.title}`;
+  const categoryKey = (group: EmojiCatalogGroup) =>
+    page === "symbols" && group.parent ? `parent:${group.parent}` : `group:${group.title}`;
   const categoryTabs: { id: string; title: string; icon: string }[] = [];
   for (const group of groups) {
     const id = categoryKey(group);
-    if (!categoryTabs.some(tab => tab.id === id)) {
-      categoryTabs.push({ id, title: page === "symbols" ? group.parent || group.title : group.title, icon: group.icon });
+    if (!categoryTabs.some((tab) => tab.id === id)) {
+      categoryTabs.push({
+        id,
+        title: page === "symbols" ? group.parent || group.title : group.title,
+        icon: group.icon,
+      });
     }
   }
   const selectedCategory = categoryPage ? categories[categoryPage] : "all";
-  const activeCategory = selectedCategory === "recent" || categoryTabs.some(tab => tab.id === selectedCategory) ? selectedCategory : "all";
+  const activeCategory =
+    selectedCategory === "recent" || categoryTabs.some((tab) => tab.id === selectedCategory)
+      ? selectedCategory
+      : "all";
   const recentGroup = { title: "最近使用", icon: "◷", items: recent };
-  const selectedGroups = categoryPage && (page === "emoji" || !query)
-    ? activeCategory === "recent" ? [recentGroup] : activeCategory === "all" ? groups : groups.filter(group => categoryKey(group) === activeCategory)
-    : groups;
-  const filteredGroups: DisplayGroup[] = selectedGroups.map(group => ({ ...group, flow: page === "kaomoji", items: group.items.filter(item => matchesEmojiItem(item, query)) })).filter(group => group.items.length);
+  const selectedGroups =
+    categoryPage && (page === "emoji" || !query)
+      ? activeCategory === "recent"
+        ? [recentGroup]
+        : activeCategory === "all"
+          ? groups
+          : groups.filter((group) => categoryKey(group) === activeCategory)
+      : groups;
+  const filteredGroups: DisplayGroup[] = selectedGroups
+    .map((group) => ({
+      ...group,
+      flow: page === "kaomoji",
+      items: group.items.filter((item) => matchesEmojiItem(item, query)),
+    }))
+    .filter((group) => group.items.length);
   const symbolPreview = query
-    ? flattenGroups(catalog.symbols).filter(item => matchesEmojiItem(item, query)).slice(0, 18)
-    : catalog.symbols.flatMap(group => group.items.map((item, index) => ({ item, index }))).sort((left, right) => left.index - right.index).slice(0, 18).map(({ item }) => item);
+    ? flattenGroups(catalog.symbols)
+        .filter((item) => matchesEmojiItem(item, query))
+        .slice(0, 18)
+    : catalog.symbols
+        .flatMap((group) => group.items.map((item, index) => ({ item, index })))
+        .sort((left, right) => left.index - right.index)
+        .slice(0, 18)
+        .map(({ item }) => item);
   const homeGroups: DisplayGroup[] = [
-    { ...recentGroup, items: recent.filter(item => matchesEmojiItem(item, query)) },
-    { title: "Emoji", icon: catalog.emoji[0]?.icon ?? "😀", moreTarget: "emoji", items: flattenGroups(catalog.emoji).filter(item => matchesEmojiItem(item, query)).slice(0, 18) },
-    { title: "Kaomoji", icon: catalog.kaomoji[0]?.icon ?? "ヾ", moreTarget: "kaomoji", flow: true, items: flattenGroups(catalog.kaomoji).filter(item => matchesEmojiItem(item, query)).slice(0, 15) },
-    { title: "Symbols", icon: catalog.symbols[0]?.icon ?? "★", moreTarget: "symbols", items: symbolPreview },
+    { ...recentGroup, items: recent.filter((item) => matchesEmojiItem(item, query)) },
+    {
+      title: "Emoji",
+      icon: catalog.emoji[0]?.icon ?? "😀",
+      moreTarget: "emoji",
+      items: flattenGroups(catalog.emoji)
+        .filter((item) => matchesEmojiItem(item, query))
+        .slice(0, 18),
+    },
+    {
+      title: "Kaomoji",
+      icon: catalog.kaomoji[0]?.icon ?? "ヾ",
+      moreTarget: "kaomoji",
+      flow: true,
+      items: flattenGroups(catalog.kaomoji)
+        .filter((item) => matchesEmojiItem(item, query))
+        .slice(0, 15),
+    },
+    {
+      title: "Symbols",
+      icon: catalog.symbols[0]?.icon ?? "★",
+      moreTarget: "symbols",
+      items: symbolPreview,
+    },
   ];
 
   function selectCategory(next: string) {
     if (!categoryPage) return;
-    setCategories(current => ({ ...current, [categoryPage]: next }));
+    setCategories((current) => ({ ...current, [categoryPage]: next }));
     setItemPage(0);
   }
 
-  const visibleClipboard = clipboard.filter(item => item.toLocaleLowerCase().includes(query.toLocaleLowerCase()));
+  const visibleClipboard = clipboard.filter((item) =>
+    item.toLocaleLowerCase().includes(query.toLocaleLowerCase()),
+  );
   const canCopy = Boolean(client.copyText ?? client.clipboard?.copy);
   const effectiveMode = !client.sendText ? "copy" : !canCopy ? "input" : activationMode;
 
   function copy(text: string, isClipboardItem = false, keywords = text) {
     const input = !isClipboardItem && effectiveMode === "input";
-    const action = input ? client.sendText : isClipboardItem ? client.clipboard?.copy ?? client.copyText : client.copyText ?? client.clipboard?.copy;
-    if (!action) { setNotice("当前宿主未提供此操作"); return; }
+    const action = input
+      ? client.sendText
+      : isClipboardItem
+        ? (client.clipboard?.copy ?? client.copyText)
+        : (client.copyText ?? client.clipboard?.copy);
+    if (!action) {
+      setNotice("当前宿主未提供此操作");
+      return;
+    }
     const revision = ++operationRevision.current;
-    void action(text).then(() => {
-      if (revision !== operationRevision.current) return;
-      setNotice(input ? "已输入到原应用" : isClipboardItem ? "已复制到剪贴板" : `已复制：${text}`, true);
-      if (!isClipboardItem) setRecent(current => [{ text, keywords }, ...current.filter(item => item.text !== text)].slice(0, 28));
-    }).catch(() => {
-      if (revision === operationRevision.current) setNotice(input ? "输入失败，可切换复制后手动粘贴" : "无法访问剪贴板");
-    });
+    void action(text)
+      .then(() => {
+        if (revision !== operationRevision.current) return;
+        setNotice(
+          input ? "已输入到原应用" : isClipboardItem ? "已复制到剪贴板" : `已复制：${text}`,
+          true,
+        );
+        if (!isClipboardItem)
+          setRecent((current) =>
+            [{ text, keywords }, ...current.filter((item) => item.text !== text)].slice(0, 28),
+          );
+      })
+      .catch(() => {
+        if (revision === operationRevision.current)
+          setNotice(input ? "输入失败，可切换复制后手动粘贴" : "无法访问剪贴板");
+      });
   }
 
-  function changeClipboard(action: () => Promise<string[] | void>, fallback: () => string[], message: string) {
-    return runOperation(async revision => {
+  function changeClipboard(
+    action: () => Promise<string[] | void>,
+    fallback: () => string[],
+    message: string,
+  ) {
+    return runOperation(async (revision) => {
       ++clipboardGeneration.current;
       const result = await action();
       if (revision !== operationRevision.current) return;
@@ -2213,23 +4568,26 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
         }
         setNotice(message, true);
       } catch {
-        if (revision === operationRevision.current) setNotice(`${message}，但列表刷新失败，请重新打开剪贴板页`);
+        if (revision === operationRevision.current)
+          setNotice(`${message}，但列表刷新失败，请重新打开剪贴板页`);
       }
     }, "无法更新剪贴板历史");
   }
 
   function enableClipboard() {
-    if (client.clipboard?.enable) return changeClipboard(client.clipboard.enable, () => [], "剪贴板历史已开启");
+    if (client.clipboard?.enable)
+      return changeClipboard(client.clipboard.enable, () => [], "剪贴板历史已开启");
   }
 
   function syncClipboard() {
-    if (client.clipboard?.sync) return changeClipboard(client.clipboard.sync, () => clipboard, "剪贴板已同步");
+    if (client.clipboard?.sync)
+      return changeClipboard(client.clipboard.sync, () => clipboard, "剪贴板已同步");
   }
 
   function pasteClipboard(text: string) {
     const paste = client.clipboard?.paste;
     if (!paste) return;
-    return runOperation(async revision => {
+    return runOperation(async (revision) => {
       await paste(text);
       if (revision === operationRevision.current) setNotice("已粘贴到原应用", true);
     }, "无法粘贴，请使用复制后手动粘贴");
@@ -2240,15 +4598,27 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
     const panel = navigation.ref.current;
     const focused = panel?.ownerDocument.activeElement;
     const rows = Array.from(panel?.querySelectorAll<HTMLElement>(".clipboard-panel-row") ?? []);
-    const index = rows.findIndex(row => focused != null && row.contains(focused));
+    const index = rows.findIndex((row) => focused != null && row.contains(focused));
     if (focused instanceof HTMLElement && index >= 0)
       deletedRowFocus.current = { element: focused, index, query };
-    return changeClipboard(() => client.clipboard!.remove!(text), () => clipboard.filter(item => item !== text), "记录已删除");
+    return changeClipboard(
+      () => client.clipboard!.remove!(text),
+      () => clipboard.filter((item) => item !== text),
+      "记录已删除",
+    );
   }
 
   function clipboardItemKey(event: import("react").KeyboardEvent<HTMLButtonElement>, text: string) {
-    if (event.defaultPrevented || event.nativeEvent.isComposing || event.keyCode === 229 ||
-        event.altKey || event.metaKey || event.shiftKey || clipboardMutation.current) return;
+    if (
+      event.defaultPrevented ||
+      event.nativeEvent.isComposing ||
+      event.keyCode === 229 ||
+      event.altKey ||
+      event.metaKey ||
+      event.shiftKey ||
+      clipboardMutation.current
+    )
+      return;
     const copyKey = event.ctrlKey && event.key.toLowerCase() === "c" && canCopy;
     const deleteKey = !event.ctrlKey && event.key === "Delete" && !!client.clipboard?.remove;
     if (!copyKey && !deleteKey) return;
@@ -2258,46 +4628,69 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
     else void copy(text, true);
   }
   function clearClipboard() {
-    if (client.clipboard?.clear) return changeClipboard(client.clipboard.clear, () => [], "剪贴板历史已清空");
+    if (client.clipboard?.clear)
+      return changeClipboard(client.clipboard.clear, () => [], "剪贴板历史已清空");
   }
 
   function selectPage(next: EmojiPage) {
     setPage(next);
     setItemPage(0);
     setQuery("");
-    setNotice(next === "clipboard" || effectiveMode === "copy" ? "点击项目即可复制" : "点击项目即可输入到原应用");
+    setNotice(
+      next === "clipboard" || effectiveMode === "copy"
+        ? "点击项目即可复制"
+        : "点击项目即可输入到原应用",
+    );
   }
 
   const isDetail = page !== "home";
-  const sourceGroups = page === "home" ? homeGroups.filter(group => group.items.length) : filteredGroups;
+  const sourceGroups =
+    page === "home" ? homeGroups.filter((group) => group.items.length) : filteredGroups;
   const seenDisplayItems = new Set<string>();
-  const displayGroups = sourceGroups.map(group => ({
-    ...group,
-    items: group.items
-      .filter(item => {
-        if (seenDisplayItems.has(item.text)) return false;
-        seenDisplayItems.add(item.text);
-        return true;
-      })
-      .slice(itemPage * itemsPerPage, (itemPage + 1) * itemsPerPage),
-  })).filter(group => group.items.length);
-  const itemPageCount = Math.max(1, Math.max(...(page === "home" ? homeGroups : filteredGroups).map(group => Math.ceil(group.items.length / itemsPerPage)), 1));
+  const displayGroups = sourceGroups
+    .map((group) => ({
+      ...group,
+      items: group.items
+        .filter((item) => {
+          if (seenDisplayItems.has(item.text)) return false;
+          seenDisplayItems.add(item.text);
+          return true;
+        })
+        .slice(itemPage * itemsPerPage, (itemPage + 1) * itemsPerPage),
+    }))
+    .filter((group) => group.items.length);
+  const itemPageCount = Math.max(
+    1,
+    Math.max(
+      ...(page === "home" ? homeGroups : filteredGroups).map((group) =>
+        Math.ceil(group.items.length / itemsPerPage),
+      ),
+      1,
+    ),
+  );
   function clearRecent() {
     if (clipboardMutation.current) return;
     setRecent([]);
     setNotice("最近使用已清除", true);
   }
   function closeEmoji() {
-    return runOperation(async () => { await client.close(); }, "无法关闭面板，请重试");
+    return runOperation(async () => {
+      await client.close();
+    }, "无法关闭面板，请重试");
   }
-  const navigation = useEmojiNavigation(() => {
-    if (page !== "home") {
-      selectPage("home");
-      navigation.ref.current?.querySelector<HTMLInputElement>(".emoji-panel-search input")?.focus();
-    } else {
-      void closeEmoji();
-    }
-  }, JSON.stringify([page, query, activeCategory]));
+  const navigation = useEmojiNavigation(
+    () => {
+      if (page !== "home") {
+        selectPage("home");
+        navigation.ref.current
+          ?.querySelector<HTMLInputElement>(".emoji-panel-search input")
+          ?.focus();
+      } else {
+        void closeEmoji();
+      }
+    },
+    JSON.stringify([page, query, activeCategory]),
+  );
   useLayoutEffect(() => {
     const pending = deletedRowFocus.current;
     if (!pending) return;
@@ -2311,41 +4704,374 @@ export function EmojiPanel({ client, theme = "dark", initialPage = "home" }: { c
     if (!panel || pending.element.isConnected) return;
     const focused = panel.ownerDocument.activeElement;
     if (focused && focused !== panel.ownerDocument.body && focused !== pending.element) return;
-    const items = Array.from(panel.querySelectorAll<HTMLButtonElement>(".clipboard-panel-item:not(:disabled)"));
-    const target = items[Math.min(pending.index, items.length - 1)]
-      ?? panel.querySelector<HTMLInputElement>(".emoji-panel-search input");
+    const items = Array.from(
+      panel.querySelectorAll<HTMLButtonElement>(".clipboard-panel-item:not(:disabled)"),
+    );
+    const target =
+      items[Math.min(pending.index, items.length - 1)] ??
+      panel.querySelector<HTMLInputElement>(".emoji-panel-search input");
     target?.focus({ preventScroll: true });
     target?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [clipboard, clipboardBusy, page, query]);
-  return <main {...navigation} className="native-panel emoji-panel" data-panel-theme={theme} aria-label="表情与符号">
-    <header className="native-panel-header"><span>Emoji and more</span><button type="button" aria-label="关闭" disabled={clipboardBusy} onClick={() => void closeEmoji()}>×</button></header>
-    <div className="emoji-panel-search"><span aria-hidden="true">⌕</span><input aria-label="搜索" aria-keyshortcuts="Control+f" value={query} onChange={event => { setQuery(event.target.value); setItemPage(0); setNotice(""); }} placeholder={page === "clipboard" ? "搜索剪贴板" : page === "emoji" ? "Search emojis" : page === "kaomoji" ? "Search kaomoji" : page === "symbols" ? "Search symbols" : page === "home" ? "Search emoji, kaomoji, and symbols" : "Search"} /></div>
-    <nav className="emoji-panel-tabs" aria-label="面板分类">
-      {emojiPages.map(item => <button type="button" key={item.id} className={page === item.id ? "active" : ""} aria-label={item.label} aria-pressed={page === item.id} onClick={() => selectPage(item.id)}><span aria-hidden="true">{item.icon}</span><small>{item.label}</small></button>)}
-    </nav>
-    {isDetail && <div className="emoji-panel-back"><button type="button" aria-label="返回" onClick={() => selectPage("home")}>‹ 返回</button></div>}
-    {page !== "clipboard" && page !== "sticker" && page !== "gif" && catalogUnavailable.length > 0 && <div className="emoji-panel-toolbar emoji-panel-catalog-status" role="status" aria-busy={catalogLoading}>
-      <span>{catalogUnavailable.map(kind => ({ emoji: "Emoji", kaomoji: "颜文字", symbols: "符号" })[kind]).join("、")}目录加载失败，暂用已有目录</span>
-      <button type="button" disabled={catalogLoading || clipboardBusy} onClick={() => { setCatalogLoading(true); setCatalogRetry(value => value + 1); }}>{catalogLoading ? "正在加载…" : "重新加载"}</button>
-    </div>}
-    {page !== "clipboard" && page !== "sticker" && page !== "gif" && canCopy && client.sendText && <div className="emoji-panel-activation" role="group" aria-label="点击项目时的操作">
-      <span>点击项目：</span><button type="button" aria-pressed={effectiveMode === "copy"} disabled={clipboardBusy} onClick={() => { setActivationMode("copy"); setNotice("点击项目即可复制"); }}>复制</button><button type="button" aria-pressed={effectiveMode === "input"} disabled={clipboardBusy} onClick={() => { setActivationMode("input"); setNotice("点击项目即可输入到原应用"); }}>输入到原应用</button>
-    </div>}
-    {categoryPage && <nav className="emoji-panel-categories" aria-label={page === "emoji" ? "Emoji 子分类" : "符号子分类"}>
-      <button type="button" aria-pressed={activeCategory === "all"} onClick={() => selectCategory("all")}>全部</button>
-      {page === "emoji" && <button type="button" aria-pressed={activeCategory === "recent"} onClick={() => selectCategory("recent")}>◷ 最近使用</button>}
-      {categoryTabs.map(tab => <button type="button" key={tab.id} aria-pressed={activeCategory === tab.id} onClick={() => selectCategory(tab.id)}><span aria-hidden="true">{tab.icon}</span> {tab.title}</button>)}
-    </nav>}
-    {page === "clipboard" ? <section className="emoji-panel-content clipboard-panel-content" aria-label="剪贴板历史">
-      <div className="emoji-panel-toolbar"><h2>剪贴板</h2><div className="clipboard-panel-actions">{client.clipboard?.list && <button type="button" disabled={clipboardBusy} onClick={() => { if (!clipboardMutation.current) setClipboardRefresh(value => value + 1); }}>刷新列表</button>}{client.clipboard?.sync && <button type="button" disabled={clipboardBusy || clipboardEnabled === false} onClick={() => void syncClipboard()}>同步</button>}{client.clipboard?.clear && <button type="button" disabled={clipboardBusy || !clipboard.length} onClick={() => void clearClipboard()}>清空历史</button>}</div></div>
-      {clipboardLoadFailed ? <p className="emoji-panel-empty" role="status">无法读取剪贴板历史，请点击“刷新列表”重试</p> : clipboardEnabled === false ? <div className="emoji-panel-empty"><p>剪贴板历史已关闭</p><p>开启后保存复制过的文本；关闭会清空历史。</p>{client.clipboard?.enable && <button type="button" disabled={clipboardBusy} onClick={() => void enableClipboard()}>开启剪贴板历史</button>}</div> : visibleClipboard.length ? <div className="clipboard-panel-list">{visibleClipboard.map(item => <div className="clipboard-panel-row" key={item}><button type="button" className="clipboard-panel-item" data-emoji-navigation-item aria-keyshortcuts={[canCopy ? "Control+c" : "", client.clipboard?.remove ? "Delete" : ""].filter(Boolean).join(" ") || undefined} onKeyDown={event => clipboardItemKey(event, item)} disabled={clipboardBusy} title={clipboardTooltip(item)} onClick={() => void copy(item, true)}>{item.replace(/[\r\n\t]/g, " ")}</button>{client.clipboard?.paste && <button type="button" className="clipboard-panel-delete" disabled={clipboardBusy} aria-label="粘贴此条记录到原应用" onClick={() => void pasteClipboard(item)}>粘贴</button>}{client.clipboard?.remove && <button type="button" className="clipboard-panel-delete" disabled={clipboardBusy} aria-label="删除此条记录" onClick={() => void removeClipboard(item)}>删除</button>}</div>)}</div> : <p className="emoji-panel-empty" role="status">{query ? "没有匹配的剪贴板记录" : "暂无剪贴板记录"}</p>}
-    </section> : page === "sticker" || page === "gif" ? <p className="emoji-panel-empty">{page === "sticker" ? "贴纸来源可在这里接入" : "GIF 来源可在这里接入"}</p> : <section className="emoji-panel-content" aria-label={page === "home" ? "最近使用与目录" : page === "emoji" ? "Emoji 目录" : page === "kaomoji" ? "颜文字目录" : "符号目录"}>
-      {(page === "home" || (page === "emoji" && activeCategory === "recent")) && recent.length > 0 && <div className="emoji-panel-toolbar"><span>最近使用</span><button type="button" onClick={clearRecent} disabled={clipboardBusy}>清除最近使用</button></div>}
-      {displayGroups.map(group => <div className="emoji-panel-group" key={JSON.stringify([group.parent, group.title])}><div className="emoji-panel-group-title"><span>{group.icon}</span><h2>{group.title}</h2>{group.moreTarget && <button type="button" onClick={() => { setCategories(current => ({ ...current, emoji: "all", symbols: "all" })); selectPage(group.moreTarget!); }}>更多</button>}</div><div className={`emoji-panel-grid${group.flow ? " emoji-panel-flow" : ""}`}>{group.items.map((item, index) => <button type="button" className="emoji-panel-item" data-emoji-navigation-item disabled={clipboardBusy} key={`${index}-${item.text}`} title={emojiDisplayName(item.keywords, item.text)} onClick={() => void copy(item.text, false, item.keywords)}>{item.text}</button>)}</div></div>)}
-      {catalogLoading && <p className="emoji-panel-empty emoji-panel-loading" role="status" aria-live="polite">正在加载表情库…</p>}
-      {!displayGroups.length && !catalogLoading && <p className="emoji-panel-empty">{query ? "No results" : "暂无可显示内容"}</p>}
-      {itemPageCount > 1 && <div className="emoji-panel-toolbar" role="navigation" aria-label="Emoji 分页"><button type="button" disabled={itemPage === 0} onClick={() => setItemPage(value => Math.max(0, value - 1))}>上一页</button><span>第 {itemPage + 1} / {itemPageCount} 页</span><button type="button" disabled={itemPage + 1 >= itemPageCount} onClick={() => setItemPage(value => Math.min(itemPageCount - 1, value + 1))}>下一页</button></div>}
-    </section>}
-    <p className="emoji-panel-notice" role="status">{notice || (page === "clipboard" || effectiveMode === "copy" ? "点击项目即可复制" : "点击项目即可输入到原应用")}</p>
-  </main>;
+  return (
+    <main
+      {...navigation}
+      className="native-panel emoji-panel"
+      data-panel-theme={theme}
+      aria-label="表情与符号"
+    >
+      <header className="native-panel-header">
+        <span>Emoji and more</span>
+        <button
+          type="button"
+          aria-label="关闭"
+          disabled={clipboardBusy}
+          onClick={() => void closeEmoji()}
+        >
+          ×
+        </button>
+      </header>
+      <div className="emoji-panel-search">
+        <span aria-hidden="true">⌕</span>
+        <input
+          aria-label="搜索"
+          aria-keyshortcuts="Control+f"
+          value={query}
+          onChange={(event) => {
+            setQuery(event.target.value);
+            setItemPage(0);
+            setNotice("");
+          }}
+          placeholder={
+            page === "clipboard"
+              ? "搜索剪贴板"
+              : page === "emoji"
+                ? "Search emojis"
+                : page === "kaomoji"
+                  ? "Search kaomoji"
+                  : page === "symbols"
+                    ? "Search symbols"
+                    : page === "home"
+                      ? "Search emoji, kaomoji, and symbols"
+                      : "Search"
+          }
+        />
+      </div>
+      <nav className="emoji-panel-tabs" aria-label="面板分类">
+        {emojiPages.map((item) => (
+          <button
+            type="button"
+            key={item.id}
+            className={page === item.id ? "active" : ""}
+            aria-label={item.label}
+            aria-pressed={page === item.id}
+            onClick={() => selectPage(item.id)}
+          >
+            <span aria-hidden="true">{item.icon}</span>
+            <small>{item.label}</small>
+          </button>
+        ))}
+      </nav>
+      {isDetail && (
+        <div className="emoji-panel-back">
+          <button type="button" aria-label="返回" onClick={() => selectPage("home")}>
+            ‹ 返回
+          </button>
+        </div>
+      )}
+      {page !== "clipboard" &&
+        page !== "sticker" &&
+        page !== "gif" &&
+        catalogUnavailable.length > 0 && (
+          <div
+            className="emoji-panel-toolbar emoji-panel-catalog-status"
+            role="status"
+            aria-busy={catalogLoading}
+          >
+            <span>
+              {catalogUnavailable
+                .map((kind) => ({ emoji: "Emoji", kaomoji: "颜文字", symbols: "符号" })[kind])
+                .join("、")}
+              目录加载失败，暂用已有目录
+            </span>
+            <button
+              type="button"
+              disabled={catalogLoading || clipboardBusy}
+              onClick={() => {
+                setCatalogLoading(true);
+                setCatalogRetry((value) => value + 1);
+              }}
+            >
+              {catalogLoading ? "正在加载…" : "重新加载"}
+            </button>
+          </div>
+        )}
+      {page !== "clipboard" &&
+        page !== "sticker" &&
+        page !== "gif" &&
+        canCopy &&
+        client.sendText && (
+          <div className="emoji-panel-activation" role="group" aria-label="点击项目时的操作">
+            <span>点击项目：</span>
+            <button
+              type="button"
+              aria-pressed={effectiveMode === "copy"}
+              disabled={clipboardBusy}
+              onClick={() => {
+                setActivationMode("copy");
+                setNotice("点击项目即可复制");
+              }}
+            >
+              复制
+            </button>
+            <button
+              type="button"
+              aria-pressed={effectiveMode === "input"}
+              disabled={clipboardBusy}
+              onClick={() => {
+                setActivationMode("input");
+                setNotice("点击项目即可输入到原应用");
+              }}
+            >
+              输入到原应用
+            </button>
+          </div>
+        )}
+      {categoryPage && (
+        <nav
+          className="emoji-panel-categories"
+          aria-label={page === "emoji" ? "Emoji 子分类" : "符号子分类"}
+        >
+          <button
+            type="button"
+            aria-pressed={activeCategory === "all"}
+            onClick={() => selectCategory("all")}
+          >
+            全部
+          </button>
+          {page === "emoji" && (
+            <button
+              type="button"
+              aria-pressed={activeCategory === "recent"}
+              onClick={() => selectCategory("recent")}
+            >
+              ◷ 最近使用
+            </button>
+          )}
+          {categoryTabs.map((tab) => (
+            <button
+              type="button"
+              key={tab.id}
+              aria-pressed={activeCategory === tab.id}
+              onClick={() => selectCategory(tab.id)}
+            >
+              <span aria-hidden="true">{tab.icon}</span> {tab.title}
+            </button>
+          ))}
+        </nav>
+      )}
+      {page === "clipboard" ? (
+        <section className="emoji-panel-content clipboard-panel-content" aria-label="剪贴板历史">
+          <div className="emoji-panel-toolbar">
+            <h2>剪贴板</h2>
+            <div className="clipboard-panel-actions">
+              {client.clipboard?.list && (
+                <button
+                  type="button"
+                  disabled={clipboardBusy}
+                  onClick={() => {
+                    if (!clipboardMutation.current) setClipboardRefresh((value) => value + 1);
+                  }}
+                >
+                  刷新列表
+                </button>
+              )}
+              {client.clipboard?.sync && (
+                <button
+                  type="button"
+                  disabled={clipboardBusy || clipboardEnabled === false}
+                  onClick={() => void syncClipboard()}
+                >
+                  同步
+                </button>
+              )}
+              {client.clipboard?.clear && (
+                <button
+                  type="button"
+                  disabled={clipboardBusy || !clipboard.length}
+                  onClick={() => void clearClipboard()}
+                >
+                  清空历史
+                </button>
+              )}
+            </div>
+          </div>
+          {clipboardLoadFailed ? (
+            <p className="emoji-panel-empty" role="status">
+              无法读取剪贴板历史，请点击“刷新列表”重试
+            </p>
+          ) : clipboardEnabled === false ? (
+            <div className="emoji-panel-empty">
+              <p>剪贴板历史已关闭</p>
+              <p>开启后保存复制过的文本；关闭会清空历史。</p>
+              {client.clipboard?.enable && (
+                <button
+                  type="button"
+                  disabled={clipboardBusy}
+                  onClick={() => void enableClipboard()}
+                >
+                  开启剪贴板历史
+                </button>
+              )}
+            </div>
+          ) : visibleClipboard.length ? (
+            <div className="clipboard-panel-list">
+              {visibleClipboard.map((item) => (
+                <div className="clipboard-panel-row" key={item}>
+                  <button
+                    type="button"
+                    className="clipboard-panel-item"
+                    data-emoji-navigation-item
+                    aria-keyshortcuts={
+                      [canCopy ? "Control+c" : "", client.clipboard?.remove ? "Delete" : ""]
+                        .filter(Boolean)
+                        .join(" ") || undefined
+                    }
+                    onKeyDown={(event) => clipboardItemKey(event, item)}
+                    disabled={clipboardBusy}
+                    title={clipboardTooltip(item)}
+                    onClick={() => void copy(item, true)}
+                  >
+                    {item.replace(/[\r\n\t]/g, " ")}
+                  </button>
+                  {client.clipboard?.paste && (
+                    <button
+                      type="button"
+                      className="clipboard-panel-delete"
+                      disabled={clipboardBusy}
+                      aria-label="粘贴此条记录到原应用"
+                      onClick={() => void pasteClipboard(item)}
+                    >
+                      粘贴
+                    </button>
+                  )}
+                  {client.clipboard?.remove && (
+                    <button
+                      type="button"
+                      className="clipboard-panel-delete"
+                      disabled={clipboardBusy}
+                      aria-label="删除此条记录"
+                      onClick={() => void removeClipboard(item)}
+                    >
+                      删除
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+          ) : (
+            <p className="emoji-panel-empty" role="status">
+              {query ? "没有匹配的剪贴板记录" : "暂无剪贴板记录"}
+            </p>
+          )}
+        </section>
+      ) : page === "sticker" || page === "gif" ? (
+        <p className="emoji-panel-empty">
+          {page === "sticker" ? "贴纸来源可在这里接入" : "GIF 来源可在这里接入"}
+        </p>
+      ) : (
+        <section
+          className="emoji-panel-content"
+          aria-label={
+            page === "home"
+              ? "最近使用与目录"
+              : page === "emoji"
+                ? "Emoji 目录"
+                : page === "kaomoji"
+                  ? "颜文字目录"
+                  : "符号目录"
+          }
+        >
+          {(page === "home" || (page === "emoji" && activeCategory === "recent")) &&
+            recent.length > 0 && (
+              <div className="emoji-panel-toolbar">
+                <span>最近使用</span>
+                <button type="button" onClick={clearRecent} disabled={clipboardBusy}>
+                  清除最近使用
+                </button>
+              </div>
+            )}
+          {displayGroups.map((group) => (
+            <div className="emoji-panel-group" key={JSON.stringify([group.parent, group.title])}>
+              <div className="emoji-panel-group-title">
+                <span>{group.icon}</span>
+                <h2>{group.title}</h2>
+                {group.moreTarget && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setCategories((current) => ({ ...current, emoji: "all", symbols: "all" }));
+                      selectPage(group.moreTarget!);
+                    }}
+                  >
+                    更多
+                  </button>
+                )}
+              </div>
+              <div className={`emoji-panel-grid${group.flow ? " emoji-panel-flow" : ""}`}>
+                {group.items.map((item, index) => (
+                  <button
+                    type="button"
+                    className="emoji-panel-item"
+                    data-emoji-navigation-item
+                    disabled={clipboardBusy}
+                    key={`${index}-${item.text}`}
+                    title={emojiDisplayName(item.keywords, item.text)}
+                    onClick={() => void copy(item.text, false, item.keywords)}
+                  >
+                    {item.text}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+          {catalogLoading && (
+            <p className="emoji-panel-empty emoji-panel-loading" role="status" aria-live="polite">
+              正在加载表情库…
+            </p>
+          )}
+          {!displayGroups.length && !catalogLoading && (
+            <p className="emoji-panel-empty">{query ? "No results" : "暂无可显示内容"}</p>
+          )}
+          {itemPageCount > 1 && (
+            <div className="emoji-panel-toolbar" role="navigation" aria-label="Emoji 分页">
+              <button
+                type="button"
+                disabled={itemPage === 0}
+                onClick={() => setItemPage((value) => Math.max(0, value - 1))}
+              >
+                上一页
+              </button>
+              <span>
+                第 {itemPage + 1} / {itemPageCount} 页
+              </span>
+              <button
+                type="button"
+                disabled={itemPage + 1 >= itemPageCount}
+                onClick={() => setItemPage((value) => Math.min(itemPageCount - 1, value + 1))}
+              >
+                下一页
+              </button>
+            </div>
+          )}
+        </section>
+      )}
+      <p className="emoji-panel-notice" role="status">
+        {notice ||
+          (page === "clipboard" || effectiveMode === "copy"
+            ? "点击项目即可复制"
+            : "点击项目即可输入到原应用")}
+      </p>
+    </main>
+  );
 }

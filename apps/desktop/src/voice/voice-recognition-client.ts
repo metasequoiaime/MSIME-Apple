@@ -1,7 +1,16 @@
-interface VoiceUpdate { request_id: string; text: string; final: boolean; phase?: "recording" | "recognizing" | "polishing"; level?: number; }
+interface VoiceUpdate {
+  request_id: string;
+  text: string;
+  final: boolean;
+  phase?: "recording" | "recognizing" | "polishing";
+  level?: number;
+}
 type Invoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
 
-export function createVoiceRecognitionClient(invoke: Invoke, subscribe: (listener: (update: VoiceUpdate) => void) => Promise<() => void>) {
+export function createVoiceRecognitionClient(
+  invoke: Invoke,
+  subscribe: (listener: (update: VoiceUpdate) => void) => Promise<() => void>,
+) {
   let activeRequest: string | undefined;
   return {
     async recognizeVoice(language: string): Promise<{ text: string }> {
@@ -22,8 +31,15 @@ export function createVoiceRecognitionClient(invoke: Invoke, subscribe: (listene
       activeRequest = undefined;
       if (requestId) await invoke("cancel_voice", { requestId });
     },
-    onVoiceUpdate(listener: (update: { text: string; final: boolean; phase?: "recording" | "recognizing" | "polishing"; level?: number }) => void) {
-      return subscribe(update => {
+    onVoiceUpdate(
+      listener: (update: {
+        text: string;
+        final: boolean;
+        phase?: "recording" | "recognizing" | "polishing";
+        level?: number;
+      }) => void,
+    ) {
+      return subscribe((update) => {
         if (activeRequest && update.request_id === activeRequest) listener(update);
       });
     },

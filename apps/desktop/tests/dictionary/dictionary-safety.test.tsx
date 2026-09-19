@@ -3,32 +3,54 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { SettingsPage, type DictionaryEntry, type Snapshot } from "@msime/ui";
 // Not re-exported from the package root; take it from the module that owns it.
-import { DICTIONARY_PAGE_SIZE, parsePersonalDictionaryImport } from "../../../../packages/ui/src/dictionary/dictionary-file";
+import {
+  DICTIONARY_PAGE_SIZE,
+  parsePersonalDictionaryImport,
+} from "../../../../packages/ui/src/dictionary/dictionary-file";
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); });
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+});
 
 const snapshot: Snapshot = {
-  format_version: 1, revision: 3,
-  preferences: { scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 5, learning: true, chinese_punctuation: true },
+  format_version: 1,
+  revision: 3,
+  preferences: {
+    scheme: "quanpin",
+    shuangpin_profile: "xiaohe",
+    candidate_page_size: 5,
+    learning: true,
+    chinese_punctuation: true,
+  },
 };
 
 function entries(count: number): DictionaryEntry[] {
   return Array.from({ length: count }, (_, index) => ({
-    kind: "quick_phrase" as const, key: `k${index}`, value: `短语${index}`, weight: 100,
+    kind: "quick_phrase" as const,
+    key: `k${index}`,
+    value: `短语${index}`,
+    weight: 100,
   }));
 }
 
 /** A dictionary client whose pages always fill, so 下一页 stays enabled. */
 function dictionaryClient(overrides: Record<string, unknown> = {}) {
   return {
-    list: vi.fn().mockImplementation(async () => ({ entries: entries(DICTIONARY_PAGE_SIZE), has_more: true })),
+    list: vi
+      .fn()
+      .mockImplementation(async () => ({ entries: entries(DICTIONARY_PAGE_SIZE), has_more: true })),
     edit: vi.fn().mockResolvedValue(undefined),
     ...overrides,
   };
 }
 
 async function openDictionary(dictionary: ReturnType<typeof dictionaryClient>) {
-  render(<SettingsPage client={{ load: async () => snapshot, save: vi.fn(), dictionary: dictionary as never }} />);
+  render(
+    <SettingsPage
+      client={{ load: async () => snapshot, save: vi.fn(), dictionary: dictionary as never }}
+    />,
+  );
   await screen.findByRole("button", { name: "保存设置" });
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
   // The page lists on demand rather than on open.
@@ -66,11 +88,13 @@ test("a confirmed delete reloads the page the user was reading", async () => {
 test("deleting the only row on a later page steps back instead of showing nothing", async () => {
   vi.spyOn(window, "confirm").mockReturnValue(true);
   const dictionary = dictionaryClient({
-    list: vi.fn().mockImplementation(async (offset: number) => (
-      offset === 0
-        ? { entries: entries(DICTIONARY_PAGE_SIZE), has_more: true }
-        : { entries: entries(1), has_more: false }
-    )),
+    list: vi
+      .fn()
+      .mockImplementation(async (offset: number) =>
+        offset === 0
+          ? { entries: entries(DICTIONARY_PAGE_SIZE), has_more: true }
+          : { entries: entries(1), has_more: false },
+      ),
   });
   await openDictionary(dictionary);
   fireEvent.click(screen.getByRole("button", { name: "下一页" }));
@@ -84,35 +108,61 @@ test("deleting the only row on a later page steps back instead of showing nothin
 test("Android personal dictionary JSON import previews and queues only after confirmation", async () => {
   const importPersonal = vi.fn().mockResolvedValue({ queued: true, pending_count: 2 });
   const dictionary = dictionaryClient({ importPersonal });
-  render(<SettingsPage client={{ load: async () => snapshot, save: vi.fn(), dictionary: dictionary as never }} />);
+  render(
+    <SettingsPage
+      client={{ load: async () => snapshot, save: vi.fn(), dictionary: dictionary as never }}
+    />,
+  );
   await screen.findByRole("button", { name: "保存设置" });
   fireEvent.click(screen.getByRole("button", { name: "词库" }));
 
-  const file = new File([JSON.stringify({
-    format: "msime-personal-dictionary", version: 1,
-    entries: [
-      { kind: "pinyin", key: "ni hao", value: "你好", weight: 100000 },
-      { kind: "quickPhrase", key: "hello1", value: "你好！", weight: 3 },
+  const file = new File(
+    [
+      JSON.stringify({
+        format: "msime-personal-dictionary",
+        version: 1,
+        entries: [
+          { kind: "pinyin", key: "ni hao", value: "你好", weight: 100000 },
+          { kind: "quickPhrase", key: "hello1", value: "你好！", weight: 3 },
+        ],
+      }),
     ],
-  })], "personal.json", { type: "application/json" });
+    "personal.json",
+    { type: "application/json" },
+  );
   fireEvent.change(screen.getByLabelText("选择个人词库 JSON 文件"), { target: { files: [file] } });
   expect(importPersonal).not.toHaveBeenCalled();
   expect(await screen.findByText(/已校验 2 条（/)).not.toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "确认导入" }));
-  await waitFor(() => expect(importPersonal).toHaveBeenCalledWith(expect.stringContaining("msime-personal-dictionary"), expect.stringMatching(/^ui-personal-import-/)));
+  await waitFor(() =>
+    expect(importPersonal).toHaveBeenCalledWith(
+      expect.stringContaining("msime-personal-dictionary"),
+      expect.stringMatching(/^ui-personal-import-/),
+    ),
+  );
   expect(await screen.findByText(/已加入本机同步队列/)).not.toBeNull();
 });
 
 test("personal dictionary JSON validation keeps malformed and duplicate entries out of the preview", () => {
-  expect(() => parsePersonalDictionaryImport(JSON.stringify({
-    format: "msime-personal-dictionary", version: 1,
-    entries: [
-      { kind: "pinyin", key: "ni hao", value: "你好", weight: 1 },
-      { kind: "pinyin", key: "ni hao", value: "你好", weight: 2 },
-    ],
-  }))).toThrow("重复");
-  expect(() => parsePersonalDictionaryImport(JSON.stringify({
-    format: "msime-personal-dictionary", version: 1,
-    entries: [{ kind: "pinyin", key: "NI", value: "坏", weight: 1 }],
-  }))).toThrow("输入引擎规则");
+  expect(() =>
+    parsePersonalDictionaryImport(
+      JSON.stringify({
+        format: "msime-personal-dictionary",
+        version: 1,
+        entries: [
+          { kind: "pinyin", key: "ni hao", value: "你好", weight: 1 },
+          { kind: "pinyin", key: "ni hao", value: "你好", weight: 2 },
+        ],
+      }),
+    ),
+  ).toThrow("重复");
+  expect(() =>
+    parsePersonalDictionaryImport(
+      JSON.stringify({
+        format: "msime-personal-dictionary",
+        version: 1,
+        entries: [{ kind: "pinyin", key: "NI", value: "坏", weight: 1 }],
+      }),
+    ),
+  ).toThrow("输入引擎规则");
 });

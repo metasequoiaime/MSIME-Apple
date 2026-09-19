@@ -49,7 +49,12 @@ export type AiSkinProposal = {
   description: string;
   design: TouchKeyboardSkinDesign;
   artworkPrompt: string;
-  artwork: { b64_json: string; mime_type: "image/png" | "image/jpeg"; width: number; height: number };
+  artwork: {
+    b64_json: string;
+    mime_type: "image/png" | "image/jpeg";
+    width: number;
+    height: number;
+  };
 };
 
 export type AiSkinProgress = { requestId: string; completed: number };
@@ -61,11 +66,11 @@ export type AiSkinClient = {
 };
 
 export const defaultTouchKeyboardSkinDesign: TouchKeyboardSkinDesign = {
-  background: 0xE8F0EB,
-  keyBackground: 0xFFFFFF,
-  keyForeground: 0x17251D,
-  accent: 0x185C47,
-  actionBackground: 0x185C47,
+  background: 0xe8f0eb,
+  keyBackground: 0xffffff,
+  keyForeground: 0x17251d,
+  accent: 0x185c47,
+  actionBackground: 0x185c47,
   cornerRadius: 8,
   borderWidth: 0,
   shadow: 0,
@@ -79,74 +84,299 @@ const skin = (patch: Partial<TouchKeyboardSkinDesign>): TouchKeyboardSkinDesign 
 });
 
 export const touchKeyboardSkinTemplates: { title: string; design: TouchKeyboardSkinDesign }[] = [
-  { title: "苔庭晨雾", design: skin({ background: 0xE0E9DF, keyBackground: 0xF7FAF3, keyForeground: 0x243F32, accent: 0x214D3A, actionBackground: 0x2F6047, cornerRadius: 12, borderWidth: .5, shadow: .1, pattern: 3, gradientEnd: 0xC6D9CA, gradientHorizontal: true, patternOpacity: .035, customBorderColor: 0xB8CDBE }) },
-  { title: "竹影青瓷", design: skin({ background: 0xD9E8E2, keyBackground: 0xF5F8EE, keyForeground: 0x243F38, accent: 0x265443, actionBackground: 0x265443, cornerRadius: 4, borderWidth: 1, shadow: .04, gradientEnd: 0xEBF2E7, gradientHorizontal: true, patternOpacity: 0, customBorderColor: 0x94B4A3 }) },
-  { title: "月下银砂", design: skin({ background: 0x181F2B, keyBackground: 0x303E4F, keyForeground: 0xEFF5FC, accent: 0xCEE0F3, actionBackground: 0xCADBEC, cornerRadius: 10, borderWidth: .5, shadow: .08, pattern: 1, gradientEnd: 0x283645, gradientHorizontal: true, patternOpacity: .07, customBorderColor: 0x6F8399 }) },
-  { title: "黑金刻度", design: skin({ background: 0x191B19, keyBackground: 0x292D29, keyForeground: 0xEFE9D5, accent: 0xE1CC91, actionBackground: 0xDAC486, cornerRadius: 3, borderWidth: .75, pattern: 2, monospaced: true, gradientEnd: 0x202720, gradientHorizontal: true, patternOpacity: .04, customBorderColor: 0x8D8058 }) },
-  { title: "樱雪糯米", design: skin({ background: 0xF4DFE5, keyBackground: 0xFFF8F6, keyForeground: 0x503449, accent: 0x733E58, actionBackground: 0x904D69, cornerRadius: 18, shadow: .14, pattern: 3, gradientEnd: 0xE7E2F2, gradientHorizontal: true, patternOpacity: .04, customBorderColor: 0xDFBBC9 }) },
-  { title: "落日陶土", design: skin({ background: 0xEAD4C4, keyBackground: 0xFFF4DF, keyForeground: 0x56382C, accent: 0x733F2B, actionBackground: 0x9A4E32, cornerRadius: 7, borderWidth: .75, shadow: .18, pattern: 1, gradientEnd: 0xF3E4D1, gradientHorizontal: true, patternOpacity: .05, customBorderColor: 0xCBA78D }) },
-  { title: "冰川薄荷", design: skin({ background: 0xD9EBEA, keyBackground: 0xF5FFFF, keyForeground: 0x203E4B, accent: 0x275360, actionBackground: 0x34717C, cornerRadius: 14, borderWidth: .5, shadow: .06, pattern: 3, gradientEnd: 0xDDE7F4, gradientHorizontal: true, patternOpacity: .035, customBorderColor: 0xC0DCDB }) },
-  { title: "奶咖手账", design: skin({ background: 0xD9CFC0, keyBackground: 0xF6EFE2, keyForeground: 0x453B31, accent: 0x5A4630, actionBackground: 0x65523B, cornerRadius: 5, borderWidth: 1, shadow: .2, pattern: 2, monospaced: true, gradientEnd: 0xE8DFD0, gradientHorizontal: true, patternOpacity: .06, customBorderColor: 0xB09B83 }) },
+  {
+    title: "苔庭晨雾",
+    design: skin({
+      background: 0xe0e9df,
+      keyBackground: 0xf7faf3,
+      keyForeground: 0x243f32,
+      accent: 0x214d3a,
+      actionBackground: 0x2f6047,
+      cornerRadius: 12,
+      borderWidth: 0.5,
+      shadow: 0.1,
+      pattern: 3,
+      gradientEnd: 0xc6d9ca,
+      gradientHorizontal: true,
+      patternOpacity: 0.035,
+      customBorderColor: 0xb8cdbe,
+    }),
+  },
+  {
+    title: "竹影青瓷",
+    design: skin({
+      background: 0xd9e8e2,
+      keyBackground: 0xf5f8ee,
+      keyForeground: 0x243f38,
+      accent: 0x265443,
+      actionBackground: 0x265443,
+      cornerRadius: 4,
+      borderWidth: 1,
+      shadow: 0.04,
+      gradientEnd: 0xebf2e7,
+      gradientHorizontal: true,
+      patternOpacity: 0,
+      customBorderColor: 0x94b4a3,
+    }),
+  },
+  {
+    title: "月下银砂",
+    design: skin({
+      background: 0x181f2b,
+      keyBackground: 0x303e4f,
+      keyForeground: 0xeff5fc,
+      accent: 0xcee0f3,
+      actionBackground: 0xcadbec,
+      cornerRadius: 10,
+      borderWidth: 0.5,
+      shadow: 0.08,
+      pattern: 1,
+      gradientEnd: 0x283645,
+      gradientHorizontal: true,
+      patternOpacity: 0.07,
+      customBorderColor: 0x6f8399,
+    }),
+  },
+  {
+    title: "黑金刻度",
+    design: skin({
+      background: 0x191b19,
+      keyBackground: 0x292d29,
+      keyForeground: 0xefe9d5,
+      accent: 0xe1cc91,
+      actionBackground: 0xdac486,
+      cornerRadius: 3,
+      borderWidth: 0.75,
+      pattern: 2,
+      monospaced: true,
+      gradientEnd: 0x202720,
+      gradientHorizontal: true,
+      patternOpacity: 0.04,
+      customBorderColor: 0x8d8058,
+    }),
+  },
+  {
+    title: "樱雪糯米",
+    design: skin({
+      background: 0xf4dfe5,
+      keyBackground: 0xfff8f6,
+      keyForeground: 0x503449,
+      accent: 0x733e58,
+      actionBackground: 0x904d69,
+      cornerRadius: 18,
+      shadow: 0.14,
+      pattern: 3,
+      gradientEnd: 0xe7e2f2,
+      gradientHorizontal: true,
+      patternOpacity: 0.04,
+      customBorderColor: 0xdfbbc9,
+    }),
+  },
+  {
+    title: "落日陶土",
+    design: skin({
+      background: 0xead4c4,
+      keyBackground: 0xfff4df,
+      keyForeground: 0x56382c,
+      accent: 0x733f2b,
+      actionBackground: 0x9a4e32,
+      cornerRadius: 7,
+      borderWidth: 0.75,
+      shadow: 0.18,
+      pattern: 1,
+      gradientEnd: 0xf3e4d1,
+      gradientHorizontal: true,
+      patternOpacity: 0.05,
+      customBorderColor: 0xcba78d,
+    }),
+  },
+  {
+    title: "冰川薄荷",
+    design: skin({
+      background: 0xd9ebea,
+      keyBackground: 0xf5ffff,
+      keyForeground: 0x203e4b,
+      accent: 0x275360,
+      actionBackground: 0x34717c,
+      cornerRadius: 14,
+      borderWidth: 0.5,
+      shadow: 0.06,
+      pattern: 3,
+      gradientEnd: 0xdde7f4,
+      gradientHorizontal: true,
+      patternOpacity: 0.035,
+      customBorderColor: 0xc0dcdb,
+    }),
+  },
+  {
+    title: "奶咖手账",
+    design: skin({
+      background: 0xd9cfc0,
+      keyBackground: 0xf6efe2,
+      keyForeground: 0x453b31,
+      accent: 0x5a4630,
+      actionBackground: 0x65523b,
+      cornerRadius: 5,
+      borderWidth: 1,
+      shadow: 0.2,
+      pattern: 2,
+      monospaced: true,
+      gradientEnd: 0xe8dfd0,
+      gradientHorizontal: true,
+      patternOpacity: 0.06,
+      customBorderColor: 0xb09b83,
+    }),
+  },
   { title: "水杉留白", design: skin({}) },
-  { title: "复古纸感", design: skin({ background: 0xE3D6BD, keyBackground: 0xFFF5DF, keyForeground: 0x382A1C, accent: 0x53391F, actionBackground: 0x53391F, cornerRadius: 4, borderWidth: 1, shadow: .3, monospaced: true, pattern: 1, keyShape: "ticket", keyMaterial: "paper" }) },
-  { title: "紫夜星光", design: skin({ background: 0x151022, gradientEnd: 0x30224A, keyBackground: 0x291E40, keyForeground: 0xFFFFFF, accent: 0xD4BBFF, actionBackground: 0x69469B, borderWidth: 1, customBorderColor: 0xA987E8, pattern: 1, keyShape: "rounded", keyMaterial: "glass" }) },
-  { title: "奶油桃桃", design: skin({ background: 0xFFE0D0, gradientEnd: 0xF9D6E5, keyBackground: 0xFFF8EE, keyForeground: 0x51283A, accent: 0x84334F, actionBackground: 0x84334F, cornerRadius: 18, shadow: .15, pattern: 3, keyShape: "pebble", keyMaterial: "raised" }) },
-  { title: "海盐渐变", design: skin({ background: 0xDCEAF8, gradientEnd: 0xDDEFE9, gradientHorizontal: true, accent: 0x224E75, actionBackground: 0x224E75, borderWidth: .5 }) },
-  { title: "工程蓝图", design: skin({ background: 0x102438, keyBackground: 0x17354F, accent: 0xA2D8FA, actionBackground: 0x285D84, cornerRadius: 2, borderWidth: 1, monospaced: true, pattern: 2, customBorderColor: 0x548CAA, keyForeground: 0xFFFFFF, keyShape: "rounded", keyMaterial: "glass" }) },
+  {
+    title: "复古纸感",
+    design: skin({
+      background: 0xe3d6bd,
+      keyBackground: 0xfff5df,
+      keyForeground: 0x382a1c,
+      accent: 0x53391f,
+      actionBackground: 0x53391f,
+      cornerRadius: 4,
+      borderWidth: 1,
+      shadow: 0.3,
+      monospaced: true,
+      pattern: 1,
+      keyShape: "ticket",
+      keyMaterial: "paper",
+    }),
+  },
+  {
+    title: "紫夜星光",
+    design: skin({
+      background: 0x151022,
+      gradientEnd: 0x30224a,
+      keyBackground: 0x291e40,
+      keyForeground: 0xffffff,
+      accent: 0xd4bbff,
+      actionBackground: 0x69469b,
+      borderWidth: 1,
+      customBorderColor: 0xa987e8,
+      pattern: 1,
+      keyShape: "rounded",
+      keyMaterial: "glass",
+    }),
+  },
+  {
+    title: "奶油桃桃",
+    design: skin({
+      background: 0xffe0d0,
+      gradientEnd: 0xf9d6e5,
+      keyBackground: 0xfff8ee,
+      keyForeground: 0x51283a,
+      accent: 0x84334f,
+      actionBackground: 0x84334f,
+      cornerRadius: 18,
+      shadow: 0.15,
+      pattern: 3,
+      keyShape: "pebble",
+      keyMaterial: "raised",
+    }),
+  },
+  {
+    title: "海盐渐变",
+    design: skin({
+      background: 0xdceaf8,
+      gradientEnd: 0xddefe9,
+      gradientHorizontal: true,
+      accent: 0x224e75,
+      actionBackground: 0x224e75,
+      borderWidth: 0.5,
+    }),
+  },
+  {
+    title: "工程蓝图",
+    design: skin({
+      background: 0x102438,
+      keyBackground: 0x17354f,
+      accent: 0xa2d8fa,
+      actionBackground: 0x285d84,
+      cornerRadius: 2,
+      borderWidth: 1,
+      monospaced: true,
+      pattern: 2,
+      customBorderColor: 0x548caa,
+      keyForeground: 0xffffff,
+      keyShape: "rounded",
+      keyMaterial: "glass",
+    }),
+  },
 ];
 
 export const touchKeyboardBackgroundPresets: { start: number; end?: number; title: string }[] = [
-  { start: 0xFFFFFF, title: "纯白" }, { start: 0xDFE2EB, title: "雾灰" },
-  { start: 0x171717, title: "曜黑" }, { start: 0xFFD5DB, title: "樱粉" },
-  { start: 0xAEE3F3, title: "晴空" }, { start: 0xC6E9A7, title: "嫩绿" },
-  { start: 0x160A3F, end: 0xA747DF, title: "紫夜渐变" },
-  { start: 0xC5F5FF, end: 0xFAD8F6, title: "极光渐变" },
-  { start: 0x185C47, end: 0x80BFA8, title: "森林渐变" },
+  { start: 0xffffff, title: "纯白" },
+  { start: 0xdfe2eb, title: "雾灰" },
+  { start: 0x171717, title: "曜黑" },
+  { start: 0xffd5db, title: "樱粉" },
+  { start: 0xaee3f3, title: "晴空" },
+  { start: 0xc6e9a7, title: "嫩绿" },
+  { start: 0x160a3f, end: 0xa747df, title: "紫夜渐变" },
+  { start: 0xc5f5ff, end: 0xfad8f6, title: "极光渐变" },
+  { start: 0x185c47, end: 0x80bfa8, title: "森林渐变" },
 ];
 
 export function skinColor(value: number): string {
-  return `#${Math.max(0, Math.min(0xFFFFFF, Math.round(value))).toString(16).padStart(6, "0")}`;
+  return `#${Math.max(0, Math.min(0xffffff, Math.round(value)))
+    .toString(16)
+    .padStart(6, "0")}`;
 }
 
 export function skinLuminance(rgb: number): number {
   const channel = (shift: number) => {
     const value = ((rgb >> shift) & 255) / 255;
-    return value <= .04045 ? value / 12.92 : ((value + .055) / 1.055) ** 2.4;
+    return value <= 0.04045 ? value / 12.92 : ((value + 0.055) / 1.055) ** 2.4;
   };
-  return .2126 * channel(16) + .7152 * channel(8) + .0722 * channel(0);
+  return 0.2126 * channel(16) + 0.7152 * channel(8) + 0.0722 * channel(0);
 }
 
 export function skinContrast(first: number, second: number): number {
-  const a = skinLuminance(first), b = skinLuminance(second);
-  return (Math.max(a, b) + .05) / (Math.min(a, b) + .05);
+  const a = skinLuminance(first),
+    b = skinLuminance(second);
+  return (Math.max(a, b) + 0.05) / (Math.min(a, b) + 0.05);
 }
 
 export function readableSkinText(background: number): number {
-  return skinLuminance(background) > .179 ? 0 : 0xFFFFFF;
+  return skinLuminance(background) > 0.179 ? 0 : 0xffffff;
 }
 
 export function hasReadableSkinText(design: TouchKeyboardSkinDesign): boolean {
-  return skinContrast(design.keyForeground, design.keyBackground) >= 4.5
-    && skinContrast(design.accent, design.background) >= 4.5
-    && skinContrast(design.accent, design.keyBackground) >= 4.5
-    && (design.gradientEnd === undefined || skinContrast(design.accent, design.gradientEnd) >= 4.5);
+  return (
+    skinContrast(design.keyForeground, design.keyBackground) >= 4.5 &&
+    skinContrast(design.accent, design.background) >= 4.5 &&
+    skinContrast(design.accent, design.keyBackground) >= 4.5 &&
+    (design.gradientEnd === undefined || skinContrast(design.accent, design.gradientEnd) >= 4.5)
+  );
 }
 
-export function normalizeTouchKeyboardSkinDesign(value: TouchKeyboardSkinDesign): TouchKeyboardSkinDesign {
-  const color = (entry: number) => Math.round(entry) & 0xFFFFFF;
-  const clamp = (entry: number, min: number, max: number, fallback: number) => Number.isFinite(entry) ? Math.min(max, Math.max(min, entry)) : fallback;
+export function normalizeTouchKeyboardSkinDesign(
+  value: TouchKeyboardSkinDesign,
+): TouchKeyboardSkinDesign {
+  const color = (entry: number) => Math.round(entry) & 0xffffff;
+  const clamp = (entry: number, min: number, max: number, fallback: number) =>
+    Number.isFinite(entry) ? Math.min(max, Math.max(min, entry)) : fallback;
   return {
     ...value,
-    background: color(value.background), keyBackground: color(value.keyBackground),
-    keyForeground: color(value.keyForeground), accent: color(value.accent),
+    background: color(value.background),
+    keyBackground: color(value.keyBackground),
+    keyForeground: color(value.keyForeground),
+    accent: color(value.accent),
     actionBackground: color(value.actionBackground),
-    cornerRadius: clamp(value.cornerRadius, 0, 20, 8), borderWidth: clamp(value.borderWidth, 0, 2, 0),
-    shadow: clamp(value.shadow, 0, .4, 0), pattern: value.pattern >= 0 && value.pattern <= 3 ? value.pattern : 0,
-    keyOpacity: value.keyOpacity === undefined ? undefined : clamp(value.keyOpacity, .25, 1, 1),
+    cornerRadius: clamp(value.cornerRadius, 0, 20, 8),
+    borderWidth: clamp(value.borderWidth, 0, 2, 0),
+    shadow: clamp(value.shadow, 0, 0.4, 0),
+    pattern: value.pattern >= 0 && value.pattern <= 3 ? value.pattern : 0,
+    keyOpacity: value.keyOpacity === undefined ? undefined : clamp(value.keyOpacity, 0.25, 1, 1),
     gradientEnd: value.gradientEnd === undefined ? undefined : color(value.gradientEnd),
-    patternOpacity: value.patternOpacity === undefined ? undefined : clamp(value.patternOpacity, 0, .5, .15),
-    customBorderColor: value.customBorderColor === undefined ? undefined : color(value.customBorderColor),
-    photoShade: value.photoShade === undefined ? undefined : clamp(value.photoShade, 0, .8, .25),
-    photoPosition: value.photoPosition === undefined ? undefined : clamp(value.photoPosition, 0, 1, .5),
+    patternOpacity:
+      value.patternOpacity === undefined ? undefined : clamp(value.patternOpacity, 0, 0.5, 0.15),
+    customBorderColor:
+      value.customBorderColor === undefined ? undefined : color(value.customBorderColor),
+    photoShade: value.photoShade === undefined ? undefined : clamp(value.photoShade, 0, 0.8, 0.25),
+    photoPosition:
+      value.photoPosition === undefined ? undefined : clamp(value.photoPosition, 0, 1, 0.5),
   };
 }

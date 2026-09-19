@@ -7,7 +7,12 @@ afterEach(cleanup);
 
 test("late recognition result is ignored after closing the panel", async () => {
   let resolve!: (value: { text: string }) => void;
-  const recognizeVoice = vi.fn(() => new Promise<{ text: string }>(done => { resolve = done; }));
+  const recognizeVoice = vi.fn(
+    () =>
+      new Promise<{ text: string }>((done) => {
+        resolve = done;
+      }),
+  );
   const close = vi.fn(async () => {});
   const view = render(<VoicePanel client={{ close, recognizeVoice }} />);
   fireEvent.click(screen.getByRole("button", { name: "开始录音" }));

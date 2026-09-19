@@ -4,12 +4,30 @@ import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import type { Snapshot } from "@msime/ui";
 import { DesktopKeyboard } from "../../src/input/desktop-keyboard";
 
-afterEach(() => { cleanup(); vi.unstubAllGlobals(); });
-const snapshot = (revision: number, theme: "light" | "dark" | "system", surface: "follow" | "light" | "dark" = "follow"): Snapshot => ({
-  format_version: 1, revision, preferences: { scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 6, learning: true, chinese_punctuation: true, theme, screen_keyboard_theme: surface },
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
+const snapshot = (
+  revision: number,
+  theme: "light" | "dark" | "system",
+  surface: "follow" | "light" | "dark" = "follow",
+): Snapshot => ({
+  format_version: 1,
+  revision,
+  preferences: {
+    scheme: "quanpin",
+    shuangpin_profile: "xiaohe",
+    candidate_page_size: 6,
+    learning: true,
+    chinese_punctuation: true,
+    theme,
+    screen_keyboard_theme: surface,
+  },
 });
 const panel = { close: async () => {} };
-const theme = () => screen.getByRole("main", { name: "屏幕键盘" }).getAttribute("data-keyboard-theme");
+const theme = () =>
+  screen.getByRole("main", { name: "屏幕键盘" }).getAttribute("data-keyboard-theme");
 
 test("keyboard subscribes before load and rejects stale snapshots without remounting", async () => {
   let emit!: (value: Snapshot) => void;
@@ -18,10 +36,21 @@ test("keyboard subscribes before load and rejects stale snapshots without remoun
   const order: string[] = [];
   const rememberInputTarget = vi.fn().mockResolvedValue(undefined);
   const preferences = {
-    onPreferencesChanged: async (listener: typeof emit) => { order.push("subscribe"); emit = listener; return stop; },
-    load: () => { order.push("load"); return new Promise<Snapshot>(done => { resolve = done; }); },
+    onPreferencesChanged: async (listener: typeof emit) => {
+      order.push("subscribe");
+      emit = listener;
+      return stop;
+    },
+    load: () => {
+      order.push("load");
+      return new Promise<Snapshot>((done) => {
+        resolve = done;
+      });
+    },
   };
-  const view = render(<DesktopKeyboard client={{ ...panel, rememberInputTarget }} preferences={preferences} />);
+  const view = render(
+    <DesktopKeyboard client={{ ...panel, rememberInputTarget }} preferences={preferences} />,
+  );
   await waitFor(() => expect(order).toEqual(["subscribe", "load"]));
   act(() => emit(snapshot(3, "dark", "light")));
   expect(theme()).toBe("light");
@@ -39,7 +68,18 @@ test("keyboard subscribes before load and rejects stale snapshots without remoun
 test("late subscription is cleaned up and never loads after unmount", async () => {
   let finish!: (stop: () => void) => void;
   const load = vi.fn();
-  const view = render(<DesktopKeyboard client={panel} preferences={{ load, onPreferencesChanged: () => new Promise(done => { finish = done; }) }} />);
+  const view = render(
+    <DesktopKeyboard
+      client={panel}
+      preferences={{
+        load,
+        onPreferencesChanged: () =>
+          new Promise((done) => {
+            finish = done;
+          }),
+      }}
+    />,
+  );
   view.unmount();
   const stop = vi.fn();
   await act(async () => finish(stop));
@@ -49,11 +89,30 @@ test("late subscription is cleaned up and never loads after unmount", async () =
 
 test("keyboard follows system changes and loads despite subscription failure", async () => {
   let change!: () => void;
-  const media = { matches: true, addEventListener: vi.fn((_name, listener) => { change = listener; }), removeEventListener: vi.fn() };
+  const media = {
+    matches: true,
+    addEventListener: vi.fn((_name, listener) => {
+      change = listener;
+    }),
+    removeEventListener: vi.fn(),
+  };
   vi.stubGlobal("matchMedia", () => media);
-  const view = render(<DesktopKeyboard client={panel} preferences={{ load: async () => snapshot(1, "system"), onPreferencesChanged: async () => { throw new Error("synthetic"); } }} />);
+  const view = render(
+    <DesktopKeyboard
+      client={panel}
+      preferences={{
+        load: async () => snapshot(1, "system"),
+        onPreferencesChanged: async () => {
+          throw new Error("synthetic");
+        },
+      }}
+    />,
+  );
   await waitFor(() => expect(theme()).toBe("light"));
-  act(() => { media.matches = false; change(); });
+  act(() => {
+    media.matches = false;
+    change();
+  });
   expect(theme()).toBe("dark");
   view.unmount();
   expect(media.removeEventListener).toHaveBeenCalledWith("change", change);
@@ -68,23 +127,56 @@ test("failed initial load retains default dark theme", async () => {
 test("keyboard applies selected built-in and custom skin preferences", async () => {
   let emit!: (value: Snapshot) => void;
   const custom = {
-    background: 0x102438, keyBackground: 0x17354f, keyForeground: 0xffffff,
-    accent: 0xa2d8fa, actionBackground: 0x285d84, cornerRadius: 2,
-    borderWidth: 1, shadow: 0, pattern: 2 as const, patternOpacity: .1, keyShape: "pebble" as const, keyMaterial: "raised" as const, keyOpacity: .45,
-    gradientEnd: 0x203040, gradientHorizontal: true, photo: "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=", photoShade: .2, photoPosition: .75, monospaced: true,
+    background: 0x102438,
+    keyBackground: 0x17354f,
+    keyForeground: 0xffffff,
+    accent: 0xa2d8fa,
+    actionBackground: 0x285d84,
+    cornerRadius: 2,
+    borderWidth: 1,
+    shadow: 0,
+    pattern: 2 as const,
+    patternOpacity: 0.1,
+    keyShape: "pebble" as const,
+    keyMaterial: "raised" as const,
+    keyOpacity: 0.45,
+    gradientEnd: 0x203040,
+    gradientHorizontal: true,
+    photo:
+      "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+A8AAQUBAScY42YAAAAASUVORK5CYII=",
+    photoShade: 0.2,
+    photoPosition: 0.75,
+    monospaced: true,
   };
   const first = snapshot(1, "dark");
   first.preferences.touch_keyboard_skin = "blueprint";
   const preferences = {
     load: async () => first,
-    onPreferencesChanged: async (listener: (value: Snapshot) => void) => { emit = listener; return () => {}; },
+    onPreferencesChanged: async (listener: (value: Snapshot) => void) => {
+      emit = listener;
+      return () => {};
+    },
   };
   render(<DesktopKeyboard client={panel} preferences={preferences} />);
-  await waitFor(() => expect(screen.getByRole("main", { name: "屏幕键盘" }).getAttribute("data-keyboard-skin")).toBe("blueprint"));
+  await waitFor(() =>
+    expect(screen.getByRole("main", { name: "屏幕键盘" }).getAttribute("data-keyboard-skin")).toBe(
+      "blueprint",
+    ),
+  );
   const main = screen.getByRole("main", { name: "屏幕键盘" });
   expect(main.style.getPropertyValue("--kb-background")).toBe("#0e2138");
   expect(main.style.getPropertyValue("--kb-font-family")).toContain("ui-monospace");
-  act(() => emit({ ...first, revision: 2, preferences: { ...first.preferences, touch_keyboard_skin: "custom", custom_touch_keyboard_skin: custom } }));
+  act(() =>
+    emit({
+      ...first,
+      revision: 2,
+      preferences: {
+        ...first.preferences,
+        touch_keyboard_skin: "custom",
+        custom_touch_keyboard_skin: custom,
+      },
+    }),
+  );
   await waitFor(() => expect(main.getAttribute("data-keyboard-skin")).toBe("custom"));
   expect(main.style.getPropertyValue("--kb-background")).toBe("#102438");
   expect(main.style.getPropertyValue("--kb-key-radius")).toContain("42%");
@@ -102,10 +194,15 @@ test("keyboard applies selected built-in and custom skin preferences", async () 
 test("macOS standalone keyboard does not expose an unauthenticated voice panel", async () => {
   const value = snapshot(1, "dark");
   value.preferences.touch_voice_shortcut = true;
-  render(<DesktopKeyboard client={{ ...panel, openVoice: vi.fn() }} preferences={{
-    host: { platform: "macos" } as never,
-    load: async () => value,
-  }} />);
+  render(
+    <DesktopKeyboard
+      client={{ ...panel, openVoice: vi.fn() }}
+      preferences={{
+        host: { platform: "macos" } as never,
+        load: async () => value,
+      }}
+    />,
+  );
   await waitFor(() => expect(screen.getByRole("main", { name: "屏幕键盘" })).toBeTruthy());
   expect(screen.queryByRole("button", { name: "打开语音输入" })).toBeNull();
 });

@@ -71,24 +71,31 @@ test("Caps Lock and Shift invert letters while commit keys drop sticky modifiers
   fireEvent.click(screen.getByRole("button", { name: "Caps Lock" }));
   const upper = screen.getByRole("button", { name: "A" });
   fireEvent.click(upper);
-  expect(sendKey).toHaveBeenLastCalledWith(expect.objectContaining({ virtual_key: 0x41, shift: true }));
+  expect(sendKey).toHaveBeenLastCalledWith(
+    expect.objectContaining({ virtual_key: 0x41, shift: true }),
+  );
 
   fireEvent.click(screen.getAllByRole("button", { name: "Shift" })[0]);
   const lower = screen.getByRole("button", { name: "a" });
   fireEvent.click(lower);
-  expect(sendKey).toHaveBeenLastCalledWith(expect.objectContaining({ virtual_key: 0x41, shift: false }));
+  expect(sendKey).toHaveBeenLastCalledWith(
+    expect.objectContaining({ virtual_key: 0x41, shift: false }),
+  );
 
   fireEvent.click(screen.getByRole("button", { name: "Ctrl" }));
   fireEvent.click(screen.getByRole("button", { name: "Enter" }));
-  expect(sendKey).toHaveBeenLastCalledWith(expect.objectContaining({
-    virtual_key: 0x0d,
-    include_sticky_modifiers: false,
-  }));
+  expect(sendKey).toHaveBeenLastCalledWith(
+    expect.objectContaining({
+      virtual_key: 0x0d,
+      include_sticky_modifiers: false,
+    }),
+  );
 });
 
 test("Linux stops held-key retries after delivery failure and does not repeat Num Lock", async () => {
   vi.useFakeTimers();
-  const sendKey = vi.fn()
+  const sendKey = vi
+    .fn()
     .mockResolvedValueOnce(undefined)
     .mockRejectedValueOnce(new Error("synthetic"));
   render(<KeyboardPanel client={{ close: async () => {}, sendKey }} platform="linux" />);

@@ -14,16 +14,19 @@ test("voice requests and cancellation retain identity across a restart", async (
   const requests: string[] = [];
   const cancelled: string[] = [];
   let publish!: (update: { request_id: string; text: string; final: boolean }) => void;
-  const invoke = async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
+  const invoke = async <T>(command: string, args?: Record<string, unknown>): Promise<T> => {
     if (command === "cancel_voice") {
       cancelled.push(args?.requestId as string);
       return undefined as T;
     }
     requests.push(voiceRequest(args).request_id);
-    return new Promise<{ text: string }>(resolve => pending.push({ resolve })) as Promise<T>;
+    return new Promise<{ text: string }>((resolve) => pending.push({ resolve })) as Promise<T>;
   };
   const stop = vi.fn();
-  const client = createVoiceRecognitionClient(invoke, async listener => { publish = listener; return stop; });
+  const client = createVoiceRecognitionClient(invoke, async (listener) => {
+    publish = listener;
+    return stop;
+  });
   const receive = vi.fn();
   expect(await client.onVoiceUpdate(receive)).toBe(stop);
   const first = client.recognizeVoice("zh-CN");
@@ -52,12 +55,20 @@ test("stop retains the request identity for final streaming events", async () =>
   let requestId = "";
   let publish!: (update: { request_id: string; text: string; final: boolean }) => void;
   const stops: unknown[] = [];
-  const invoke = async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
-    if (command === "stop_voice") { stops.push(args?.requestId); return undefined as T; }
+  const invoke = async <T>(command: string, args?: Record<string, unknown>): Promise<T> => {
+    if (command === "stop_voice") {
+      stops.push(args?.requestId);
+      return undefined as T;
+    }
     requestId = voiceRequest(args).request_id;
-    return new Promise<{ text: string }>(done => { resolve = done; }) as Promise<T>;
+    return new Promise<{ text: string }>((done) => {
+      resolve = done;
+    }) as Promise<T>;
   };
-  const client = createVoiceRecognitionClient(invoke, async listener => { publish = listener; return () => {}; });
+  const client = createVoiceRecognitionClient(invoke, async (listener) => {
+    publish = listener;
+    return () => {};
+  });
   const receive = vi.fn();
   await client.onVoiceUpdate(receive);
   const recording = client.recognizeVoice("zh-CN");

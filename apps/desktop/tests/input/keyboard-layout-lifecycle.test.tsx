@@ -6,13 +6,22 @@ import { KeyboardPanel } from "@msime/ui";
 
 const storageKey = "msime.keyboard.layout";
 const client = { close: async () => {} };
-const currentLayout = () => screen.getByRole("main", { name: "屏幕键盘" }).getAttribute("data-keyboard-layout");
+const currentLayout = () =>
+  screen.getByRole("main", { name: "屏幕键盘" }).getAttribute("data-keyboard-layout");
 const toggle = () => fireEvent.click(screen.getByRole("button", { name: "切换键盘布局" }));
-afterEach(() => { cleanup(); vi.restoreAllMocks(); localStorage.clear(); });
+afterEach(() => {
+  cleanup();
+  vi.restoreAllMocks();
+  localStorage.clear();
+});
 
 test("saved layout survives initial effects and StrictMode replay", () => {
   localStorage.setItem(storageKey, "nine_key");
-  render(<StrictMode><KeyboardPanel client={client} /></StrictMode>);
+  render(
+    <StrictMode>
+      <KeyboardPanel client={client} />
+    </StrictMode>,
+  );
   expect(currentLayout()).toBe("nine_key");
   expect(screen.queryByRole("button", { name: /^q$/ })).toBeNull();
 });
@@ -41,8 +50,12 @@ test("host layout changes apply without overriding later user toggles on unrelat
 });
 
 test("unavailable storage does not prevent layout switching", () => {
-  vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("synthetic"); });
-  vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("synthetic"); });
+  vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => {
+    throw new Error("synthetic");
+  });
+  vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => {
+    throw new Error("synthetic");
+  });
   render(<KeyboardPanel client={client} />);
   toggle();
   expect(currentLayout()).toBe("nine_key");

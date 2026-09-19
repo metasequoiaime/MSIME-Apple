@@ -249,7 +249,8 @@ std::string candidate_gloss_display(const std::string& text) {
     }
     return output;
 }
-std::unordered_map<std::string, std::string> single_hanzi_map(sqlite3* database) {
+using HanziReadings = std::unordered_map<std::string, std::string>;
+HanziReadings single_hanzi_map(sqlite3* database) {
     std::unordered_map<std::string, std::string> result;
     for (char initial = 'a'; initial <= 'z'; ++initial) {
         const auto table = std::string("tbl_1_") + initial;
@@ -266,6 +267,34 @@ std::unordered_map<std::string, std::string> single_hanzi_map(sqlite3* database)
         sqlite3_finalize(statement);
     }
     return result;
+}
+/// `single_hanzi_map` for a dictionary file, built once instead of once per call.
+///
+/// The scan behind it walks all 26 single-character tables — 19,637 rows on the shipped dictionary
+/// — sorts each by weight with no index to sort by, and builds a map of every reading, which the
+/// caller then copies. Paying that per call is why `hanzi_to_pinyin` costs milliseconds, and
+/// `msime_client_dictionary_validate` calls it in a loop over as many as a thousand words.
+///
+/// Caching is safe because the file cannot change under a running process: the dictionary is
+/// read-only, its bytes are pinned by sha256 in `desktop-dictionary.lock.json`, and an update is
+/// installed by quiescing the Server first. Keyed by path, because two sessions may legitimately
+/// be pointed at different dictionaries and one cache serving the other's readings would be
+/// silently wrong rather than slow.
+///
+/// Built outside the lock: two threads arriving together may both build it, and the first to
+/// finish wins, which costs one redundant scan at worst and never blocks a keystroke behind one.
+std::shared_ptr<const HanziReadings> cached_single_hanzi_map(sqlite3* database,
+                                                             const std::string& path) {
+    static std::mutex guard;
+    static std::unordered_map<std::string, std::shared_ptr<const HanziReadings>> cache;
+    {
+        const std::lock_guard<std::mutex> lock(guard);
+        const auto found = cache.find(path);
+        if (found != cache.end()) return found->second;
+    }
+    auto built = std::make_shared<const HanziReadings>(single_hanzi_map(database));
+    const std::lock_guard<std::mutex> lock(guard);
+    return cache.emplace(path, std::move(built)).first->second;
 }
 std::string exact_hanzi_pinyin(sqlite3* database, const std::string& word, std::size_t length) {
     for (char initial = 'a'; initial <= 'z'; ++initial) {
@@ -693,7 +722,7 @@ rust::String hanzi_to_pinyin(const EngineOptions& options, rust::Str text) {
     }
     std::string result = exact_hanzi_pinyin(database, word, length);
     if (result.empty()) {
-        const auto singles = single_hanzi_map(database);
+        const auto singles = cached_single_hanzi_map(database, database_path.u8string());
         offset = 0;
         while (offset < word.size()) {
             std::string character;
@@ -702,8 +731,8 @@ rust::String hanzi_to_pinyin(const EngineOptions& options, rust::Str text) {
                 result.clear();
                 break;
             }
-            const auto found = singles.find(character);
-            if (found == singles.end()) {
+            const auto found = singles->find(character);
+            if (found == singles->end()) {
                 result.clear();
                 break;
             }

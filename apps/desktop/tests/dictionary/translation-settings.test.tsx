@@ -9,9 +9,17 @@ const base: Snapshot = {
   format_version: 1,
   revision: 11,
   preferences: {
-    scheme: "quanpin", shuangpin_profile: "xiaohe", candidate_page_size: 5, learning: true, chinese_punctuation: true,
+    scheme: "quanpin",
+    shuangpin_profile: "xiaohe",
+    candidate_page_size: 5,
+    learning: true,
+    chinese_punctuation: true,
     candidate_translations: true,
-    custom_translation: { enabled: true, endpoint: "https://example.com/translate", api_key: "secret-value" },
+    custom_translation: {
+      enabled: true,
+      endpoint: "https://example.com/translate",
+      api_key: "secret-value",
+    },
   },
 };
 
@@ -57,7 +65,9 @@ test("translation credentials are disabled while candidate translation is off", 
   expect(endpointField().disabled).toBe(true);
   expect((screen.getByLabelText("自定义翻译 API Key") as HTMLInputElement).disabled).toBe(true);
   // The group and its switch share the label, so select the switch by role.
-  expect((screen.getByRole("checkbox", { name: "自定义翻译服务" }) as HTMLInputElement).disabled).toBe(true);
+  expect(
+    (screen.getByRole("checkbox", { name: "自定义翻译服务" }) as HTMLInputElement).disabled,
+  ).toBe(true);
   // A disabled field must not shout about its contents.
   expect(screen.queryByRole("status")).toBeNull();
 });
@@ -70,13 +80,17 @@ test("the API key can be revealed to check a pasted value", async () => {
   expect(reveal.getAttribute("aria-pressed")).toBe("false");
   fireEvent.click(reveal);
   expect((screen.getByLabelText("自定义翻译 API Key") as HTMLInputElement).type).toBe("text");
-  expect(screen.getByRole("button", { name: "隐藏自定义翻译 API Key" }).getAttribute("aria-pressed")).toBe("true");
+  expect(
+    screen.getByRole("button", { name: "隐藏自定义翻译 API Key" }).getAttribute("aria-pressed"),
+  ).toBe("true");
 });
 
 test("NiuTrans provider is mutually exclusive and exposes synthetic credential fields", async () => {
   await mount();
   fireEvent.click(screen.getByRole("checkbox", { name: "小牛翻译（NiuTrans）" }));
-  expect((screen.getByRole("checkbox", { name: "自定义翻译服务" }) as HTMLInputElement).checked).toBe(false);
+  expect(
+    (screen.getByRole("checkbox", { name: "自定义翻译服务" }) as HTMLInputElement).checked,
+  ).toBe(false);
   const appId = screen.getByLabelText("NiuTrans App ID") as HTMLInputElement;
   const apiKey = screen.getByLabelText("NiuTrans API Key") as HTMLInputElement;
   expect(appId.disabled).toBe(false);

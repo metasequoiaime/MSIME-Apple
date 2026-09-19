@@ -37,8 +37,14 @@ test("Android and iOS share Tauri account, community, AI and skin services", asy
 
   await android.communitySkins?.list(0, "杉");
   await ios.communitySkins?.list(0, "杉");
-  expect(androidDependencies.invokeMock).toHaveBeenCalledWith("community_skin_list", { offset: 0, search: "杉" });
-  expect(iosDependencies.invokeMock).toHaveBeenCalledWith("community_skin_list", { offset: 0, search: "杉" });
+  expect(androidDependencies.invokeMock).toHaveBeenCalledWith("community_skin_list", {
+    offset: 0,
+    search: "杉",
+  });
+  expect(iosDependencies.invokeMock).toHaveBeenCalledWith("community_skin_list", {
+    offset: 0,
+    search: "杉",
+  });
 });
 
 test("platform-only mobile actions stay explicit", async () => {

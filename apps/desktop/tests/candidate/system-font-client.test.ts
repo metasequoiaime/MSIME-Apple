@@ -9,7 +9,9 @@ test("browser does not probe the host", async () => {
 
 test("unsupported and older hosts retain manual entry", async () => {
   expect(await discoverFontReader(true, vi.fn().mockResolvedValue(false))).toBeUndefined();
-  expect(await discoverFontReader(true, vi.fn().mockRejectedValue(new Error("unavailable")))).toBeUndefined();
+  expect(
+    await discoverFontReader(true, vi.fn().mockRejectedValue(new Error("unavailable"))),
+  ).toBeUndefined();
 });
 
 test("supported host enumerates lazily and refreshes on every read", async () => {
