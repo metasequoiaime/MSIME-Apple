@@ -1,5 +1,6 @@
 #import "../src/settings/PreferencesWindowController.h"
 #import "../src/settings/AppearancePreferences.h"
+#import "PreferenceViewLookup.h"
 #include <cassert>
 
 // Deliver AppKit close notifications to the real window delegate without presenting a window.
@@ -31,6 +32,8 @@ int main() {
         [controller showAndActivate];
         assert(controller.window == MSIMEAppearancePreferences.sharedPreferences.window);
         assert(controller.window.delegate == controller);
+        NSControl *uninstall = MSIMEFindPreferenceControl(controller.window.contentView, @selector(uninstallInputSource:));
+        assert(uninstall && uninstall.accessibilityLabel.length > 0);
         [NSNotificationCenter.defaultCenter postNotificationName:NSWindowWillCloseNotification object:controller.window];
         DrainMainQueue();
         assert(closes == 0); // In-process settings must not terminate the input method.
