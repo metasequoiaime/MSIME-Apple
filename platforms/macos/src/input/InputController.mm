@@ -598,6 +598,10 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     __weak id _smartPunctuationClient;
     unichar _rejectedSmartPunctuation;
     BOOL _smartPunctuationRejected;
+    // The ASCII key whose Chinese form the Engine has just committed, and the client it landed in. A space
+    // arriving next rewrites that mark as ASCII; anything else disarms.
+    unichar _spaceConvertMark;
+    __weak id _spaceConvertClient;
     msime::mac::PairedPunctuationTracker _pairedPunctuation;
     NSNumber *_typingSourceOverride;
     MSIMEModifierTap _modifierTap;
@@ -645,6 +649,42 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     _smartPunctuationClient = nil;
     _rejectedSmartPunctuation = 0;
     _smartPunctuationRejected = NO;
+}
+
+- (void)clearSmartPunctuationSpaceConversion {
+    _spaceConvertMark = 0;
+    _spaceConvertClient = nil;
+}
+
+// A space right after a Chinese mark the user did not want takes the mark back to ASCII. It is the mirror of
+// repeat-to-Chinese and shares its caution: the preceding character is read back and has to still be the mark
+// that was committed, in the same client, with nothing composing - otherwise a character the user already saw
+// land would be rewritten out from under them.
+- (BOOL)convertSmartPunctuationSpace:(NSEvent *)event client:(id<MSIMETextClient>)client {
+    if (!_spaceConvertMark) return NO;
+    if (event.characters.length != 1 || [event.characters characterAtIndex:0] != ' ' ||
+        (event.modifierFlags & (NSEventModifierFlagShift | NSEventModifierFlagControl | NSEventModifierFlagOption |
+                                NSEventModifierFlagCommand))) {
+        [self clearSmartPunctuationSpaceConversion];
+        return NO;
+    }
+    const unichar mark = _spaceConvertMark;
+    id armed = _spaceConvertClient;
+    [self clearSmartPunctuationSpaceConversion];
+    if (!_appearance.smartPunctuation || !_appearance.smartPunctuationSpaceConvert || armed != client) return NO;
+    if ([_view[@"editing_text"] length] ||
+        ([_view[@"candidates"] isKindOfClass:NSArray.class] && [_view[@"candidates"] count]))
+        return NO;
+    NSString *chinese = MSIMEChinesePunctuationForSmart(mark);
+    const uint32_t preceding = MSIMETextClientPrecedingUnicodeScalar(client);
+    if (chinese.length != 1 || !preceding || [chinese characterAtIndex:0] != (unichar)preceding) return NO;
+    const NSRange selected =
+        [client respondsToSelector:@selector(selectedRange)] ? [client selectedRange] : NSMakeRange(NSNotFound, 0);
+    if (selected.location == NSNotFound || selected.location < chinese.length) return NO;
+    [client insertText:MSIMEFullWidthSmartMark(mark, _appearance.fullWidthInput)
+      replacementRange:NSMakeRange(selected.location - chinese.length, chinese.length)];
+    // The space itself is not ours; let it reach the Engine and the editor as it always would.
+    return NO;
 }
 
 - (BOOL)handleSmartPunctuation:(NSEvent *)event client:(id<MSIMETextClient>)client {
@@ -725,6 +765,12 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         return YES;
     }
     if (rejected) [self resetSmartPunctuationState];
+    // Falling through means the Engine takes the key and commits the Chinese mark. Note it so a space
+    // arriving next can take it back; the conversion re-reads the document before touching anything.
+    if (_appearance.smartPunctuationSpaceConvert && !hasComposition) {
+        _spaceConvertMark = character;
+        _spaceConvertClient = client;
+    }
     return NO;
 }
 
@@ -3089,6 +3135,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         // as the main-row '-'/'=' candidate navigation shortcut.
         return [transition[@"handled"] boolValue];
     }
+    if ([self convertSmartPunctuationSpace:event client:(id<MSIMETextClient>)sender]) return YES;
     if ([self handleSmartPunctuation:event client:(id<MSIMETextClient>)sender]) return YES;
     if (event.modifierFlags & (NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption)) {
         [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];

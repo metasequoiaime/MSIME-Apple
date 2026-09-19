@@ -101,6 +101,7 @@ static NSString *const FullWidthKey = @"MSIMEClientFullWidthInput";
 static NSString *const ChinesePunctuationKey = @"MSIMEClientChinesePunctuation";
 static NSString *const SmartPunctuationKey = @"MSIMEClientSmartPunctuation";
 static NSString *const SmartPunctuationRepeatToChineseKey = @"MSIMEClientSmartPunctuationRepeatToChinese";
+static NSString *const SmartPunctuationSpaceConvertKey = @"MSIMEClientSmartPunctuationSpaceConvert";
 static NSString *const PairedPunctuationKey = @"MSIMEClientPairedPunctuation";
 static NSString *const PunctuationLockKey = @"MSIMEClientPunctuationLock";
 static NSString *const MixedInputKey = @"MSIMEClientMixedInput";
@@ -446,6 +447,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     NSNumber *_sharedChinesePunctuation;
     NSNumber *_sharedSmartPunctuation;
     NSNumber *_sharedSmartPunctuationRepeatToChinese;
+    NSNumber *_sharedSmartPunctuationSpaceConvert;
     NSNumber *_sharedPairedPunctuation;
     NSString *_sharedPunctuationLock;
     NSButton *_pairedPunctuationButton;
@@ -689,6 +691,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     merged[@"chinese_punctuation"] = @(self.chinesePunctuation);
     merged[@"smart_punctuation"] = @(self.smartPunctuation);
     merged[@"smart_punctuation_repeat"] = @(self.smartPunctuationRepeatToChinese);
+    merged[@"smart_punctuation_space_convert"] = @(self.smartPunctuationSpaceConvert);
     merged[@"paired_punctuation"] = @(self.pairedPunctuation);
     merged[@"punctuation_lock"] = self.punctuationLock;
     merged[@"mixed_input"] = @{
@@ -804,6 +807,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     _sharedChinesePunctuation = nil;
     _sharedSmartPunctuation = nil;
     _sharedSmartPunctuationRepeatToChinese = nil;
+    _sharedSmartPunctuationSpaceConvert = nil;
     _sharedTraditionalOutput = nil;
     _sharedFullWidthInput = nil;
     _sharedAutocorrect = nil;
@@ -1089,6 +1093,8 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     if (LocalModeBoolean(smart)) _sharedSmartPunctuation = smart;
     id smartRepeat = preferences[@"smart_punctuation_repeat"];
     if (LocalModeBoolean(smartRepeat)) _sharedSmartPunctuationRepeatToChinese = smartRepeat;
+    id smartSpace = preferences[@"smart_punctuation_space_convert"];
+    if (LocalModeBoolean(smartSpace)) _sharedSmartPunctuationSpaceConvert = smartSpace;
     id paired = preferences[@"paired_punctuation"];
     if (LocalModeBoolean(paired)) _sharedPairedPunctuation = paired;
     id punctuationLock = preferences[@"punctuation_lock"];
@@ -1170,6 +1176,9 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 - (void)setSmartPunctuation:(BOOL)value { _sharedSmartPunctuation = nil; [_defaults setBool:value forKey:SmartPunctuationKey]; [self preferencesChanged]; }
 - (BOOL)smartPunctuationRepeatToChinese { return _sharedSmartPunctuationRepeatToChinese ? _sharedSmartPunctuationRepeatToChinese.boolValue : ([_defaults objectForKey:SmartPunctuationRepeatToChineseKey] == nil ? YES : [_defaults boolForKey:SmartPunctuationRepeatToChineseKey]); }
 - (void)setSmartPunctuationRepeatToChinese:(BOOL)value { _sharedSmartPunctuationRepeatToChinese = nil; [_defaults setBool:value forKey:SmartPunctuationRepeatToChineseKey]; [self preferencesChanged]; }
+// Off unless asked for, matching the Windows baseline and the shared default.
+- (BOOL)smartPunctuationSpaceConvert { return _sharedSmartPunctuationSpaceConvert ? _sharedSmartPunctuationSpaceConvert.boolValue : [_defaults boolForKey:SmartPunctuationSpaceConvertKey]; }
+- (void)setSmartPunctuationSpaceConvert:(BOOL)value { _sharedSmartPunctuationSpaceConvert = nil; [_defaults setBool:value forKey:SmartPunctuationSpaceConvertKey]; [self preferencesChanged]; }
 - (BOOL)shuangpinKeymap { return [_defaults boolForKey:KeymapKey]; }
 - (BOOL)wubiAutoCommitUnique { return [_defaults boolForKey:WubiKey]; }
 - (BOOL)floatingToolbarEnabled { return _sharedToolbarEnabled ? _sharedToolbarEnabled.boolValue : ([_defaults objectForKey:FloatingToolbarKey] == nil ? YES : [_defaults boolForKey:FloatingToolbarKey]); }

@@ -607,6 +607,16 @@ add_test(NAME live-voice-socket-route COMMAND live-voice-controller-test --socke
 set_tests_properties(live-voice-socket-route PROPERTIES ENVIRONMENT "MSIME_VOICE_PROVIDER_SOCKET=/tmp/synthetic-live.sock")
 # The window's implementation is linked in so the test can ask the runtime what properties the class
 # actually declares; nothing here opens it, reads a keychain item or writes a default.
+# Built from the controller's own sources, like the voice controller tests, so it runs whatever happens to
+# the larger shortcut suite.
+add_executable(smart-punctuation-space-test tests/input/SmartPunctuationSpaceTest.mm ${MSIME_CONTROLLER_TEST_SOURCES}
+  src/cloud/TranslationCache.mm src/cloud/TranslationSettingsWindow.mm src/core/AISettingsWindow.mm
+  src/input/InputModeHUDPanel.mm)
+target_link_libraries(smart-punctuation-space-test PRIVATE ${MSIME_CONTROLLER_TEST_LIBS})
+target_include_directories(smart-punctuation-space-test PRIVATE ../../vendor/MSIME-Engine ../../vendor/MSIME-Engine/include)
+target_compile_options(smart-punctuation-space-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG "-F${MSIME_SPARKLE_ROOT}")
+add_test(NAME smart-punctuation-space COMMAND smart-punctuation-space-test)
+set_tests_properties(smart-punctuation-space PROPERTIES TIMEOUT 30)
 add_executable(voice-provider-settings-keys-test tests/voice/VoiceProviderSettingsKeysTest.mm
   src/voice/VoiceProviderSettings.mm)
 target_compile_options(voice-provider-settings-keys-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
