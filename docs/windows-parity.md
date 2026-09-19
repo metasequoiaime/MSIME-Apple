@@ -177,4 +177,6 @@ Fcitx5 剪贴板历史读取 stale 栅栏增量（2026-09-19）：异步本地�
 
 Fcitx5 云剪贴板读取 stale 栅栏增量（2026-09-19）：异步云剪贴板 provider 读取现在绑定 provider socket 与 generation；会话关闭或 provider 配置切换时，旧 provider 响应不会写入当前输入上下文。原生 Linux 桌面构建与云 provider 交互验证仍待相应环境。
 
+Fcitx5 Emoji 目录读取 stale 栅栏增量（2026-09-19）：Emoji 条目与分组异步查询现在绑定当前会话 generation；会话关闭后，即使旧搜索词相同，旧目录结果也不会重新填充当前缓存。原生 Linux 桌面构建与 Emoji 交互验证仍待相应环境。
+
 Fcitx5 候选动作执行 stale 栅栏增量（2026-09-19）：CandidateAction 触发时重新枚举动作现在也校验当前焦点、输入启用状态、受限/私密上下文，避免菜单创建后状态变化仍执行旧候选管理操作；原生 Linux 桌面构建与交互验证仍待相应环境。
