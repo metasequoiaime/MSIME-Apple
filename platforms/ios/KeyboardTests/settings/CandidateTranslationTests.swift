@@ -127,6 +127,27 @@ final class CandidateTranslationTests: XCTestCase {
     XCTAssertFalse(disabledTitles.contains { $0.lowercased().contains("hello") })
   }
 
+  func testExpandedCandidateWidthDoesNotChangeWithGlossLength() throws {
+    let panel = KeyboardCandidatePanelView(
+      candidates: ["您好"], preedit: "nhao",
+      annotations: [KeyboardCandidateAnnotation(text: "hi", accessibilityDescription: "")],
+      display: { $0 }, onSelect: { _ in }, onClose: {})
+    panel.frame = CGRect(x: 0, y: 0, width: 390, height: 240)
+    panel.layoutIfNeeded()
+    let chip = try XCTUnwrap(
+      descendants(panel).first { $0.accessibilityIdentifier == "panelCandidate-1" } as? UIButton)
+    let short = chip.bounds.width
+
+    panel.updateAnnotations([
+      KeyboardCandidateAnnotation(
+        text: "hello; how do you do; greetings to you", accessibilityDescription: "")
+    ])
+    panel.layoutIfNeeded()
+    let longChip = try XCTUnwrap(
+      descendants(panel).first { $0.accessibilityIdentifier == "panelCandidate-1" } as? UIButton)
+    XCTAssertEqual(longChip.bounds.width, short, accuracy: 0.5)
+  }
+
   private func descendants(_ view: UIView) -> [UIView] {
     [view] + view.subviews.flatMap { descendants($0) }
   }

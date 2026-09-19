@@ -13,6 +13,8 @@ struct KeyboardCandidateAnnotation: Equatable {
 // candidates -- `yi` does -- put the tail thirty-nine taps away. Nobody reaches it, which reads as
 // the word not being in the dictionary. This shows the whole list at once instead.
 final class KeyboardCandidatePanelView: UIView {
+  private static let annotatedColumns: CGFloat = 3
+  private static let rowSpacing: CGFloat = 6
   private let candidates: [String]
   private var annotations: [KeyboardCandidateAnnotation]
   private let display: (String) -> String
@@ -116,12 +118,12 @@ final class KeyboardCandidatePanelView: UIView {
       rows.removeArrangedSubview(row)
       row.removeFromSuperview()
     }
-    let spacing: CGFloat = 6
+    let spacing = Self.rowSpacing
     var row = makeRow(spacing: spacing)
     var used: CGFloat = 0
     for (offset, candidate) in candidates.enumerated() {
       let chip = makeChip(candidate: candidate, number: offset + 1)
-      let width = min(naturalWidth(of: chip), available)
+      let width = min(naturalWidth(of: chip, available: available), available)
       chip.widthAnchor.constraint(equalToConstant: width).isActive = true
       if used > 0, used + spacing + width > available {
         rows.addArrangedSubview(row)
@@ -134,18 +136,25 @@ final class KeyboardCandidatePanelView: UIView {
     if !row.arrangedSubviews.isEmpty { rows.addArrangedSubview(row) }
   }
 
-  private func naturalWidth(of chip: UIButton) -> CGFloat {
+  private func naturalWidth(of chip: UIButton, available: CGFloat) -> CGFloat {
     guard let title = chip.configuration?.attributedTitle.map({ NSAttributedString($0) }) else {
       return chip.intrinsicContentSize.width
     }
     let text = title.string as NSString
-    var widest: CGFloat = 0
+    var lineWidths: [CGFloat] = []
     text.enumerateSubstrings(in: NSRange(location: 0, length: text.length),
                              options: [.byLines, .substringNotRequired]) { _, range, _, _ in
-      widest = max(widest, title.attributedSubstring(from: range).size().width)
+      lineWidths.append(title.attributedSubstring(from: range).size().width)
     }
     let insets = chip.configuration?.contentInsets ?? .zero
-    return ceil(widest + insets.leading + insets.trailing)
+    let titleWidth = ceil((lineWidths.first ?? 0) + insets.leading + insets.trailing)
+    guard lineWidths.count > 1 else { return titleWidth }
+
+    // A translation arrives asynchronously. Reserve a stable three-column width for annotated
+    // candidates so a long answer cannot resize this page and shift every later candidate.
+    let column = max(0, (available - Self.rowSpacing * (Self.annotatedColumns - 1))
+      / Self.annotatedColumns)
+    return max(titleWidth, ceil(column))
   }
 
   private func makeRow(spacing: CGFloat) -> UIStackView {
