@@ -250,10 +250,10 @@ if [ -n "${MSIME_EVAL_RESOURCES:-}" ] && [ -d "${MSIME_EVAL_RESOURCES:-}" ]; the
     # shellcheck disable=SC2086
     if cargo run --release -q -p msime-input-runtime --example convert_eval --locked -- \
         --resources "$MSIME_EVAL_RESOURCES" $args \
-        --baseline "scripts/eval-baseline-$set.json" >/dev/null 2>&1; then
+        --baseline "resources/eval/baseline-$set.json" >/dev/null 2>&1; then
       echo "eval $set: at baseline"
     else
-      fail "eval $set differs from scripts/eval-baseline-$set.json"
+      fail "eval $set differs from resources/eval/baseline-$set.json"
       echo "  accept it with --update-baseline once you have read the diff"
     fi
   done
