@@ -545,12 +545,21 @@ void reset_learned_data(const EngineOptions& options) {
     user_dictionary::close_default_user_database();
 
     const auto stamp = std::to_string(std::chrono::steady_clock::now().time_since_epoch().count());
-    const auto temporary = [&](const std::filesystem::path &target) {
-        return target.parent_path() / ("." + target.filename().string() + ".reset." + stamp);
+    // Derive the sibling names by concatenating onto the path's own native
+    // string. path::string() converts through the system narrow encoding, which
+    // on Windows is the ANSI code page: under a profile such as
+    // C:\Users\陆傲天 it either produces different bytes or throws outright, and
+    // throwing here would abort a reset that has already published files.
+    // Everything added below is ASCII, the one thing every code page agrees on.
+    const auto affixed = [&](const std::filesystem::path &target, const char *infix) {
+        std::filesystem::path name(".");
+        name += target.filename();
+        name += infix;
+        name += stamp;
+        return target.parent_path() / name;
     };
-    const auto backup = [&](const std::filesystem::path &target) {
-        return target.parent_path() / ("." + target.filename().string() + ".backup." + stamp);
-    };
+    const auto temporary = [&](const std::filesystem::path &target) { return affixed(target, ".reset."); };
+    const auto backup = [&](const std::filesystem::path &target) { return affixed(target, ".backup."); };
     const auto journal = paths.user_data / metasequoia::assets::user_journal;
     const auto journal_temporary = temporary(journal);
     const auto journal_backup = backup(journal);
@@ -602,8 +611,15 @@ void reset_learned_data(const EngineOptions& options) {
                 throw std::runtime_error("Cannot publish learned-data reset");
             }
         }
-        for (const auto &suffix : {"-wal", "-shm", "-journal"})
-            std::filesystem::remove(journal.string() + suffix);
+        for (const auto &suffix : {"-wal", "-shm", "-journal"}) {
+            // Same reason as `affixed` above: the journal path carries the user
+            // profile, so it is the one most likely to hold non-ASCII. Leaving
+            // a -wal behind would let the learned data the user just erased
+            // come back on the next open.
+            std::filesystem::path sidecar = journal;
+            sidecar += suffix;
+            std::filesystem::remove(sidecar);
+        }
         for (const auto &replacement : replacements) {
             std::error_code ignored;
             std::filesystem::remove_all(replacement.backup, ignored);

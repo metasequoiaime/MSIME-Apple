@@ -126,6 +126,13 @@ python3 scripts/test-default-config-parity.py || fail "default config contracts"
 note "preferences field parity"
 python3 scripts/test-preferences-field-parity.py || fail "preferences field parity"
 
+# path::string() converts through the ANSI code page on Windows, so a profile
+# with Chinese characters in it mangles or throws. Nothing about that shows up
+# on a host whose system encoding is UTF-8, which is every host that runs this
+# script - hence a static check rather than a test.
+note "windows path encoding"
+python3 scripts/test-windows-path-encoding.py || fail "windows path encoding"
+
 note "compile: rust workspace"
 # The desktop app's Tauri config lists the platform IME bundle as a packaged
 # resource, and Tauri's build script fails when a listed resource is absent. On
