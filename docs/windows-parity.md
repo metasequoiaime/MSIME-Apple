@@ -59,6 +59,15 @@
 
 另核对两项不需要移植：来源 `f05507ad`（升级时配置解析失败被出厂模板覆盖、凭证清零）的根因在目标不存在——共享偏好用原子写入，解析失败返回错误而不是回落默认值后再写回；来源 `windows_ipc.h` 的 22/24/25 智能标点子开关 opcode 在目标由一帧打包的标点配置携带，是已记录的适配而非缺口。
 
+增量记录（2026-09-20，Windows 第二批）：来源仍固定为 `e1d53dd8f01fd351633f08374f189157f5cb47e9`，目标起点 `414cdfbaf24bf3be8f22c581ca56c565a655e28f`。本批四项同样只有交叉编译与本地 quick 验证，没有 Windows 主机。
+
+1. 候选皮肤预览阴影与原生候选窗对齐（#3051）。四套内置皮肤的 16 份候选窗 CSS 停在单层阴影，来源早已换成环境层加接触层两层，而目标原生 D2D 的透明留白（`CandidateShadow.h` 的 32/20/32/40）本来就是按两层算的——设置页预览里的阴影和用户真正看到的候选窗不是一个东西。按来源同步这 16 份 CSS；差异只有 box-shadow 与末行换行，候选窗 HTML 模板不动，目标在其中的脚本位置调整保留。
+2. Unicode 模式数字键的真引擎回归（#3053）。打码位是数字键唯一「是输入而不是选词序号」的场合，判断分在两层：引擎报 handled，运行时只对引擎拒绝的数字才落到选词。input-runtime 的既有用例全用 fixture 引擎（对数字答 not handled），这个组合从来没被覆盖过，而会发现它的 windows-session 与 macOS local-mode-preferences 各自需要自己的主机。新用例用真引擎跑通 shift+U 再 4e2d，在锁定的 Engine 上通过——这与 `known-failures.txt` 里把两套失败都归因于该行为的记录相矛盾。两行都没有删：本机跑不了这两套，凭推断删基线会让基线失去意义；改为在两条记录上注明该引擎行为已不存在，下次在 Windows 或已配置的 macOS 上跑的人该去确认能不能删，而不是照抄重录。
+3. 智能标点三个子开关补进共享偏好（#3054）。设置页有五个智能标点开关，Windows Server 也读全部五个，但 `Preferences` 只有前两个字段。结构体带 `deny_unknown_fields`，Tauri 的 `save_preferences` 又把前端对象直接反序列化成它，所以未知键不是被丢掉而是让整次保存失败——用户打开「中文标点后按空格转换」「数字后直出」「字母后直出」任一个，设置窗口就再也存不下任何东西。补齐三个字段，缺省为关（与 Windows 基线 `config.default.toml` 和来源把整族默认关掉一致）。顺带加 `scripts/test-preferences-field-parity.py` 并挂进 `--quick`（#3056），按名字配对 TS 类型与 Rust 结构体逐个比字段集，两个方向都查，Rust 独有的需在 `RUST_ONLY` 写明理由（当前只有 `ui_backend`）。另记一处本批未动的分歧：`smart_punctuation` 与 `smart_punctuation_repeat` 共享默认为开，而 Windows 基线两个都是关，来源也已改成整族默认关；Windows 运行时读的是共享偏好而非那份 TOML，所以实际默认与记录在案的基线相反。改这两个会同时影响 macOS、Linux 和移动端首次运行，留待单独决定。
+4. 用户名带中文时清除学习数据不再走 ANSI 路径转换（#3059）。仓库窄字符串都是 UTF-8，`path::string()` 却按系统窄编码转换——Windows 上就是 ANSI 代码页，`C:\Users\陆傲天` 这类 profile 要么转错要么直接抛。`reset_learned_data` 有三处这样用，其中拼 SQLite `-wal` / `-shm` / `-journal` 那处在 try 块里且发生在新文件已就位之后：抛出会触发回滚并把已经成功的清除报成失败，转错则把 `-wal` 留在原地，用户刚清掉的学习数据下次打开又回来。改为在 path 自身 native 字符串上拼接，完全不过窄转换。既有用例现在在 ASCII 与 `陆傲天` 两种根目录下各跑一遍；另加 `scripts/test-windows-path-encoding.py` 挂进 `--quick`，禁止 Windows 会编译到的 C++ 出现 `path::string()`——这类问题在系统编码为 UTF-8 的机器上一点痕迹都没有，而跑该脚本的机器全都是，只能静态拦。
+
+另核对确认无缺口：候选右键菜单（置顶 / 固定排位 1–5 / 取消固定 / 删除）与来源逐项一致；托盘菜单目标为超集（多手写识别板）；悬浮工具栏与菜单模板除目标特意调整的脚本位置外与来源一致；Windows Server 从共享偏好读取的 23 个键在 Rust 结构体中全部存在；Windows 侧 C++ 的宽窄转换全部走 `CP_UTF8`，文件打开一律传 `std::filesystem::path`。
+
 ## 下一批实施顺序
 
 增量记录（2026-09-20，HarmonyOS 第二批）：目标 `a09527a29`。来源对象为本地 `MSIME-Windows` 检出 `997fdfd9cb27ebbf3a8f998cdefae3274eb5deb9` 的 `README.md`「功能简介」「核心功能指南」，以及目标仓库内 `platforms/linux/src/core/ClientEngine.cpp` 与 `platforms/android/java/` 中已实现的同源行为；来源远端默认分支当前为 `1e4c331d5a7d62b1f219fcc0979a89dd5ead7309`，本批未读取该提交的新增内容，因此不把其后的任何变化计入。
