@@ -1212,3 +1212,15 @@ MSIME-Apple 的语音服务目录里有两个共享客户端一直没有的转�
 覆盖的正是这个类存在的理由：共享租约下第二个会话在场时两侧都不能发布；共享到独占的升级不是原子操作，所以发布失败必须把租约放回共享状态，失败本身则原样抛给调用方而不是退化成「租约忙」；恢复之后新建会话要能重新阻塞，最后一个会话退出后才允许发布。新增 `shared/apple-bridge/CMakeLists.txt` 只编译仅依赖 Foundation 的源文件；依赖 Engine 头文件的词库安装与快照激活桥接留给已经构建 Engine 的配置。`scripts/verify-local.sh` 增加自行 configure 的 apple bridge 编译与测试阶段（非 Apple 主机跳过），因为这些共享桥接同时被 iOS 键盘扩展和 macOS 宿主使用，坏掉会一次性打掉两端。
 
 本地验证：`apple-bridge-session-lease` 以 `-fobjc-arc -Wall -Wextra -Werror -UNDEBUG` 编译并通过；把实现里异常路径的 `Lock(sessions_, LOCK_SH)` 去掉后该测试转为超时失败，恢复后重新通过，确认它确实能挡住这类回归。`scripts/verify-local.sh` 完整运行报告「no failures outside the baseline」。未执行 iOS 真机、Xcode test host 或安装后验收，CI 保持禁用。
+
+### iOS 模拟器构建链路修复
+
+文档里的 `platforms/ios/build-app.sh … simulator` 在 Xcode 27 上连第一步都过不去，三处依次拦住它，修完才第一次产出完整 bundle：
+
+1. Tauri 生成工程只给键盘扩展和 SwiftRs 导出 target 声明了 `SWIFT_VERSION`，App target 没有。Xcode 以前会补默认值，Xcode 27 直接以 `SWIFT_VERSION '' is unsupported` 拒绝归档——而该 target 本来就编译共享的个人词库与快照桥接 Swift 文件。补上与另外两个 target 相同的 5.0。
+2. 键盘扩展源码按功能重组后，`SWIFT_OBJC_BRIDGING_HEADER` 仍指向重组前的 `KeyboardExtension/Sources/MetasequoiaKeyboard-Bridging-Header.h`。原生 Xcode 工程当时跟着改了，Tauri 生成工程没有，于是扩展的 Swift 编译整批失败。
+3. iOS 产物实际使用的是 Tauri 拷进 `libapp.a` 的 staticlib，但 `cargo build --lib` 同时会产出 cdylib，而 cdylib 必须自己链接完整。其中四个符号是 App target 里由 Xcode 编译的 Swift `@_cdecl` 导出（个人词库与快照桥接），cargo 链接时还不存在。新增 `.cargo/config.toml`，只对 `aarch64-apple-ios` 与 `aarch64-apple-ios-sim` 两个目标延后这些符号的解析；不做工作区级放宽，否则会在其他平台掩盖真正缺失的符号。
+
+修复后模拟器构建产出 `水杉输入法.app`，内含 `PlugIns/MSIMEKeyboardExtension.appex`（4.7 MB 二进制）与固定词库发布的八个 EngineResources 文件。
+
+本地验证：`platforms/ios/build-native.sh simulator` 与 `platforms/ios/build-app.sh … simulator` 均完成；bundle 内容已逐项列出确认。App 在 iOS 27 模拟器上可安装：默认无签名 bundle 因缺少 entitlements 在 App Group 查找上报 `client is not entitled`，按 README 新增的 ad-hoc 签名步骤补上 entitlements 后查找成功。启动仍以 SIGTRAP 结束，崩溃栈落在 `tauri-runtime-wry` 启动探测调用的 `wry::webview_version()` → `+[NSBundle bundleWithIdentifier:@"com.apple.WebKit"]`，在该系统版本的 CoreFoundation 内部 `CFRelease` 空指针陷阱；该路径不在仓库代码内，未改动 vendored crate。因此本次只声称构建、打包与安装可复现，界面与键盘扩展运行仍待真机验收，CI 保持禁用。
