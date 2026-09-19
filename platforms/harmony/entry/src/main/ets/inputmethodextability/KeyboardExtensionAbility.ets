@@ -649,7 +649,9 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       // keyboard is in all the time rather than for three quarters of a second after it changed. The
       // badge is what a desktop falls back to when the toolbar is turned off, which is exactly when
       // nothing else on screen would say the mode had changed at all.
-      if (desktop && this.toolbar === undefined) {
+      // The badge is also the one piece of feedback the user can turn off from the shared settings,
+      // and a panel that would never be shown is not worth the one STATUS_BAR grant to hold open.
+      if (desktop && this.toolbar === undefined && KeyboardSession.shared.modeBadgeEnabled()) {
         try {
           this.hud = await engine.createPanel(this.context, {
             type: inputMethodEngine.PanelType.STATUS_BAR

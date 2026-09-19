@@ -19,6 +19,7 @@ import { HardwareNavigationPreferences } from './HardwareKeyRouter';
 import vibrator from '@ohos.vibrator';
 import i18n from '@ohos.i18n';
 import { InputDiagnosticPolicy } from './input/InputDiagnosticPolicy';
+import { InputModeHudPolicy } from './InputModeHudPolicy';
 import { ModeBindings, DEFAULT_MODE_BINDINGS } from './InputModeRouting';
 import { FloatingToolbarLayout, ToolbarButton, ToolbarComponents, ToolbarState }
   from './FloatingToolbarLayout';
@@ -401,6 +402,8 @@ interface PreparedPreferences {
   scheme: string;
   /** Optional in the shared document; absent means the Wubi remaining-code hint stays on. */
   wubi_code_hint?: boolean;
+  /** Whether the mode badge is drawn after a Chinese/English switch. Defaults to on. */
+  input_mode_hud?: boolean;
   shuangpin_profile: string;
   touch_keyboard_layout: string;
   touch_keyboard_skin: string;
@@ -624,6 +627,8 @@ export class KeyboardSession {
   // session builds the candidate entries itself; the view only draws what it is handed.
   private wubiCodeHint: boolean = true;
   private candidateEnglishGloss: boolean = false;
+  // Read before the panels are built, so a badge the user turned off is never created at all.
+  private modeBadge: boolean = true;
   private resourceDirectory: string = '';
   private stateDirectory: string = '';
   private systemDark: boolean = false;
@@ -826,6 +831,7 @@ export class KeyboardSession {
         preferences.wubi_code_hint);
       this.candidateEnglishGloss = CandidateAnnotationPreferencePolicy.englishGloss(
         preferences.candidate_english_gloss);
+      this.modeBadge = InputModeHudPolicy.enabled(preferences.input_mode_hud);
       if (ClipboardHistoryPreferencePolicy.shouldClearHistory(this.clipboardHistoryEnabled)) {
         this.clearClipboardHistoryFile();
       }
@@ -1082,6 +1088,11 @@ export class KeyboardSession {
 
   toolbarFontSize(): number {
     return FloatingToolbarLayout.fontSize(this.toolbar.font_size);
+  }
+
+  /** Whether the shared preference permits the badge shown after a Chinese/English switch. */
+  modeBadgeEnabled(): boolean {
+    return this.modeBadge;
   }
 
   toolbarComponents(): ToolbarComponents {
