@@ -530,6 +530,15 @@ target_link_libraries(translation-settings-test PRIVATE apple-client "-framework
 add_test(NAME translation-settings COMMAND translation-settings-test)
 # Run explicitly with the directory matching desktop-dictionary.lock.json.
 # This resource-dependent integration test does not enable or trigger CI.
+# The shared dictionary installation bridge decides which generation a running keyboard reads.
+# These cases need no Engine session or dictionary release, so they run in the ordinary suite.
+add_executable(dictionary-installation-test
+  tests/dictionary/DictionaryInstallationTest.mm ../../shared/apple-bridge/DictionaryInstallation.mm)
+target_compile_options(dictionary-installation-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_include_directories(dictionary-installation-test
+  PRIVATE ../../shared/apple-bridge ../../vendor/MSIME-Engine ../../vendor/MSIME-Engine/include)
+target_link_libraries(dictionary-installation-test PRIVATE apple-client)
+add_test(NAME dictionary-installation COMMAND dictionary-installation-test)
 add_executable(snapshot-activation-test tests/core/SnapshotActivationTest.mm)
 target_compile_options(snapshot-activation-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(snapshot-activation-test PRIVATE apple-client)
