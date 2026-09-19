@@ -24,13 +24,11 @@ struct HelpView: View {
         HelpItem(term: "1. 打开键盘设置", detail: "前往“设置 → 通用 → 键盘 → 键盘”。")
         HelpItem(term: "2. 添加水杉输入法", detail: "选择“添加新键盘”，再选择水杉输入法。")
         HelpItem(term: "3. 切换并开始输入", detail: "在输入框长按地球键，选择水杉输入法。")
-        Button {
+        SettingsActionRow(title: "打开系统键盘设置", detail: "直接跳到“设置”里对应的位置",
+                          symbol: "gearshape.fill", color: .gray) {
           guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
           UIApplication.shared.open(url)
-        } label: {
-          Label("打开系统键盘设置", systemImage: "gearshape")
-        }
-        .accessibilityIdentifier("helpOpenKeyboardSettings")
+        }.accessibilityIdentifier("helpOpenKeyboardSettings")
       }
       Section("打字") {
         HelpItem(term: "选择候选词", detail: "点候选栏里的词上屏。候选多于一行时，点右端的箭头展开整页。")
@@ -48,7 +46,8 @@ struct HelpView: View {
       }
       Section("更多") {
         Link(destination: URL(string: "https://msime.app/docs/")!) {
-          Label("完整文档（网页）", systemImage: "book")
+          SettingsRowLabel(title: "完整文档", detail: "msime.app，在浏览器里打开",
+                           symbol: "book.fill", color: .teal)
         }
       }
     }
@@ -85,13 +84,14 @@ struct FeedbackView: View {
         .pickerStyle(.menu)
         .accessibilityIdentifier("feedbackKindPicker")
       }
-      Section("描述") {
+      Section {
         TextEditor(text: $detail)
           .frame(minHeight: 120)
           .accessibilityIdentifier("feedbackDetailEditor")
+      } header: {
+        Text("描述")
+      } footer: {
         Text("发生了什么？如果和打字有关，写出你输入的编码和期望的结果最有用。")
-          .font(.footnote)
-          .foregroundStyle(.secondary)
       }
       Section("会一起附上的信息") {
         Text(diagnostics)
@@ -100,19 +100,15 @@ struct FeedbackView: View {
           .accessibilityIdentifier("feedbackDiagnostics")
       }
       Section {
-        Button {
+        SettingsActionRow(title: copied ? "已复制报告" : "复制报告", detail: "完整内容，贴到任何地方",
+                          symbol: copied ? "checkmark.circle.fill" : "doc.on.doc.fill",
+                          color: copied ? MetasequoiaTheme.accent : .brown) {
           UIPasteboard.general.string = report
           copied = true
-        } label: {
-          Label(copied ? "已复制报告" : "复制报告", systemImage: copied ? "checkmark" : "doc.on.doc")
-        }
-        .accessibilityIdentifier("feedbackCopyButton")
-        Button {
-          submit()
-        } label: {
-          Label("在 GitHub 提交", systemImage: "arrow.up.forward.square")
-        }
-        .accessibilityIdentifier("feedbackSubmitButton")
+        }.accessibilityIdentifier("feedbackCopyButton")
+        SettingsActionRow(title: "在 GitHub 提交", detail: "打开浏览器并预填这份报告",
+                          symbol: "arrow.up.forward.square.fill", color: .indigo) { submit() }
+          .accessibilityIdentifier("feedbackSubmitButton")
       } footer: {
         Text("提交会打开 GitHub 并预填这份报告。网址长度有限，过长的描述会被截断，完整内容请用“复制报告”。")
       }
