@@ -127,6 +127,12 @@ pub struct HostCapabilities {
     /// and positions the candidate list itself - cannot honour the choice, so
     /// it does not offer it.
     pub candidate_follow_cursor: bool,
+    /// The host draws a short, non-activating badge near the caret after the
+    /// Chinese/English mode changes. A host with no way to put a window beside
+    /// the caret, or one whose keyboard already shows the mode on its own key
+    /// faces, has nothing to switch on and does not offer the choice.
+    #[serde(default)]
+    pub input_mode_hud: bool,
 }
 
 impl HostCapabilities {
@@ -246,6 +252,11 @@ impl HostCapabilities {
                 platform,
                 HostPlatform::Windows | HostPlatform::Macos | HostPlatform::Harmony
             ),
+            // macOS shows it from a non-activating panel. Harmony shows the same badge from a
+            // status-bar panel on a 2in1, which is the one form factor with a hardware keyboard and
+            // therefore the one where nothing else on screen says the mode changed; its phone
+            // keyboard says so on its own key faces and needs no badge.
+            input_mode_hud: matches!(platform, HostPlatform::Macos | HostPlatform::Harmony),
         }
     }
 }
@@ -661,6 +672,13 @@ mod tests {
         assert!(macos.candidate_selection_appearance);
         assert!(macos.candidate_follow_cursor);
         assert!(macos.panel_shortcuts);
+        // Only the two hosts that can put a badge beside the caret claim it; a touch keyboard says
+        // the mode on its own key faces, and Windows/Linux draw nothing of the kind.
+        assert!(macos.input_mode_hud);
+        assert!(!windows.input_mode_hud);
+        assert!(!linux.input_mode_hud);
+        assert!(!HostCapabilities::for_platform(HostPlatform::Android).input_mode_hud);
+        assert!(!HostCapabilities::for_platform(HostPlatform::Ios).input_mode_hud);
         // Mobile hosts draw no toolbar at all.
         let android = HostCapabilities::for_platform(HostPlatform::Android);
         assert!(
@@ -758,6 +776,9 @@ mod tests {
         assert!(harmony.candidate_row_colors);
         assert!(harmony.candidate_selection_appearance);
         assert!(harmony.candidate_follow_cursor);
+        // The 2in1 status-bar badge is the only mode readout a machine with a hardware keyboard
+        // gets when the toolbar is off, so the switch that governs it belongs on this host too.
+        assert!(harmony.input_mode_hud);
         // Typing statistics are unconditional across every host.
         assert!(harmony.typing_statistics);
     }

@@ -31,6 +31,7 @@ function capabilities(overrides: Partial<HostCapabilities> = {}): HostCapabiliti
     candidate_row_colors: true,
     candidate_selection_appearance: true,
     candidate_follow_cursor: true,
+    input_mode_hud: false,
     ...overrides,
   };
 }
@@ -243,4 +244,16 @@ test("a host that does not place its own card hides the follow-cursor choice", a
   mount({ host: capabilities({ platform: "linux", candidate_follow_cursor: false }) });
   await screen.findByRole("button", { name: "保存设置" });
   expect(screen.queryByLabelText("候选窗口跟随光标")).toBeNull();
+});
+
+test("the mode badge switch follows the capability rather than the macOS platform name", async () => {
+  // HarmonyOS draws the same badge from a 2in1 status-bar panel, so the control has to reach a host
+  // that is not macOS. A host that draws no badge still must not be offered a switch for one.
+  mount({ host: capabilities({ platform: "harmony", input_mode_hud: true }) });
+  await screen.findByRole("button", { name: "保存设置" });
+  expect(screen.getByLabelText("中英文切换提示")).toBeTruthy();
+  cleanup();
+  mount({ host: capabilities({ platform: "macos", input_mode_hud: false }) });
+  await screen.findByRole("button", { name: "保存设置" });
+  expect(screen.queryByLabelText("中英文切换提示")).toBeNull();
 });

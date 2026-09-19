@@ -57,6 +57,7 @@ import { CandidateManagementAction, ManagementAction }
   from '../entry/src/main/ets/keyboard/candidate/CandidateManagementAction';
 import { CandidateAnnotationPreferencePolicy }
   from '../entry/src/main/ets/keyboard/candidate/CandidateAnnotationPreferencePolicy';
+import { InputModeHudPolicy } from '../entry/src/main/ets/keyboard/InputModeHudPolicy';
 import { CandidateGlossPolicy, GlossToken }
   from '../entry/src/main/ets/keyboard/candidate/CandidateGlossPolicy';
 import { ShuangpinKeyHintPolicy } from '../entry/src/main/ets/keyboard/input/ShuangpinKeyHintPolicy';
@@ -1440,6 +1441,15 @@ group('the two candidate annotations read their own shared preferences', () => {
     'an absent gloss preference stays off, matching the shared default');
   check(CandidateAnnotationPreferencePolicy.englishGloss('true') === false,
     'a malformed gloss value is not read as consent');
+});
+
+group('the mode badge is built only when the shared preference allows it', () => {
+  check(InputModeHudPolicy.enabled(true) === true, 'an explicit yes shows the badge');
+  check(InputModeHudPolicy.enabled(false) === false, 'an explicit no hides it');
+  check(InputModeHudPolicy.enabled(undefined) === true,
+    'a document written before the field existed keeps the shared default-on behaviour');
+  check(InputModeHudPolicy.enabled('false') === true,
+    'a malformed value is not read as a request to hide it');
 });
 
 console.log('ShuangpinKeyHintPolicy');
