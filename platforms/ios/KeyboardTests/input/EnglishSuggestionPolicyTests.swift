@@ -9,6 +9,11 @@ final class EnglishSuggestionPolicyTests: XCTestCase {
     XCTAssertEqual(EnglishSuggestionPolicy.currentWord(before: "version2be"), "be")
   }
 
+  func testWordNormalizesFullWidthLatinLetters() {
+    XCTAssertEqual(EnglishSuggestionPolicy.currentWord(before: "中文ｉｐｈ"), "iph")
+    XCTAssertEqual(EnglishSuggestionPolicy.currentWord(before: "中文Ｈｅ"), "He")
+  }
+
   func testReplacesTypedPrefixAndRestoresInitialCapital() {
     XCTAssertEqual(
       EnglishSuggestionPolicy.replacement(typed: "He", candidate: "hello", startedCapitalized: true),
@@ -23,5 +28,12 @@ final class EnglishSuggestionPolicyTests: XCTestCase {
     XCTAssertEqual(
       EnglishSuggestionPolicy.replacement(typed: "he", candidate: "hello", startedCapitalized: false),
       .init(deleteCount: 2, insert: "hello"))
+  }
+
+  func testFullWidthPrefixKeepsInitialCapitalSemanticsAndCharacterCount() {
+    let typed = EnglishSuggestionPolicy.currentWord(before: "中文Ｈｅ")
+    XCTAssertEqual(
+      EnglishSuggestionPolicy.replacement(typed: typed, candidate: "hello", startedCapitalized: typed.first?.isUppercase ?? false),
+      .init(deleteCount: 2, insert: "Hello"))
   }
 }

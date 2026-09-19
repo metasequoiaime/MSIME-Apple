@@ -1352,7 +1352,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       return
     }
     for _ in 0..<replacement.deleteCount { deleteOwnBackward() }
-    insertOwnText(replacement.insert)
+    insertDirectText(replacement.insert)
     updateCandidateStrip(preedit: "", candidates: [])
   }
 
