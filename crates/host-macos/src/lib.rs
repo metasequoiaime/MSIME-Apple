@@ -1,4 +1,11 @@
 //! macOS platform operations for shared clients; no desktop or Engine dependency.
+
+// The workspace denies unsafe code; the AppKit and Objective-C entry points this wraps are C functions.
+// The exemption is stated here rather than left implicit by opting out of
+// the workspace lint table, which would also silently drop every other lint
+// the workspace adds later.
+#![allow(unsafe_code)]
+
 use msime_client_core::panels::KeyboardInputRequest;
 #[cfg(target_os = "macos")]
 pub mod cloud_clipboard;

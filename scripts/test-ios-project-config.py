@@ -62,7 +62,7 @@ class IOSProjectConfigTests(unittest.TestCase):
         self.assertIn("private static let pcmChunkBytes = 6_400", doubao)
         self.assertIn("willPerformHTTPRedirection", doubao)
         self.assertIn("IosVoiceRequestHeader", rust_entry)
-        self.assertIn("msime_client_core::doubao_auth::headers(", rust_entry)
+        self.assertIn("msime_client_core::credential::doubao_auth::headers(", rust_entry)
         self.assertIn('#[cfg(all(unix, not(target_os = "ios")))]', rust_entry)
         self.assertIn("ios_voice_provider_configuration(&snapshot.preferences)", rust_entry)
         self.assertIn('phase: Some("recording".into())', rust_entry)

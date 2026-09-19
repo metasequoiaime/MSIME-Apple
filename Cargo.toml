@@ -1,6 +1,18 @@
 [workspace]
 members = ["crates/client-core", "crates/engine-bridge", "crates/input-runtime", "crates/host-api", "crates/host-windows", "crates/host-macos", "crates/tauri-mobile-platform", "crates/ios-native-ffi", "apps/desktop/src-tauri"]
-default-members = ["crates/client-core"]
+# Everything except the desktop app: a bare `cargo test` should cover the
+# libraries, and msime-desktop needs a built frontend and a packaged platform
+# bundle before its build script will run.
+default-members = [
+    "crates/client-core",
+    "crates/engine-bridge",
+    "crates/input-runtime",
+    "crates/host-api",
+    "crates/host-windows",
+    "crates/host-macos",
+    "crates/tauri-mobile-platform",
+    "crates/ios-native-ffi",
+]
 resolver = "2"
 
 [workspace.package]
@@ -19,8 +31,14 @@ tempfile = "3"
 unicode-general-category = "1.1"
 unicode-segmentation = "1.13"
 
+# Inherited by every member through `[lints] workspace = true`. `deny` rather
+# than `forbid` on purpose: the five FFI crates cannot honour an unoverridable
+# ban, and under `forbid` their only option was to inherit nothing at all - so
+# the policy covered four of nine members and every future lint added here
+# would have missed the same five. Each exemption is now a documented
+# `#![allow(unsafe_code)]` at the crate root instead of an absence.
 [workspace.lints.rust]
-unsafe_code = "forbid"
+unsafe_code = "deny"
 
 [profile.dev]
 debug = 0

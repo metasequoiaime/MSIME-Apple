@@ -1,6 +1,8 @@
 //! Network transport boundary for account-backed dictionary operations.
 
-use crate::cloud_dictionary::{DictionaryChange, DictionaryEntry, DictionaryKind, DictionaryValue};
+use crate::cloud::dictionary::{
+    DictionaryChange, DictionaryEntry, DictionaryKind, DictionaryValue,
+};
 use std::future::Future;
 
 pub struct DictionaryPage {

@@ -1,3 +1,7 @@
+// Integration tests and examples are their own crates, so the exemption the
+// library root carries does not reach them. Same boundary, same reason: this
+// target drives the C ABI directly.
+#![allow(unsafe_code)]
 use msime_host_api::{msime_client_resolve_font_families, msime_client_string_free};
 use std::ffi::{c_char, CStr};
 

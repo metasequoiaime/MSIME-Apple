@@ -4,6 +4,12 @@
 //! crate must not carry raw pointers or `unsafe extern` declarations, so this
 //! package owns the narrow boundary and returns an owned byte buffer.
 
+// The workspace denies unsafe code; Swift's @_cdecl exports arrive as raw function pointers.
+// The exemption is stated here rather than left implicit by opting out of
+// the workspace lint table, which would also silently drop every other lint
+// the workspace adds later.
+#![allow(unsafe_code)]
+
 #[cfg(target_os = "ios")]
 use std::ffi::{c_char, CStr};
 

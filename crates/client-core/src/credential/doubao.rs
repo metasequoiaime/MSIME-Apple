@@ -1,5 +1,6 @@
 //! Doubao credential probe: synthetic PCM only, no recording or transcript output.
-use crate::{credential_test::ProbeResult, doubao_frame};
+use crate::credential::probe::ProbeResult;
+use crate::voice::doubao_frame;
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
 use std::time::Duration;
@@ -145,7 +146,7 @@ fn response_state(frame: &[u8]) -> Option<bool> {
 
 pub fn test(config: &Value, transport: &impl Transport) -> ProbeResult {
     let get = |key| config.get(key).and_then(Value::as_str).unwrap_or("").trim();
-    let headers = crate::doubao_auth::headers(
+    let headers = crate::credential::doubao_auth::headers(
         get("auth_mode"),
         get("app_id"),
         get("token"),

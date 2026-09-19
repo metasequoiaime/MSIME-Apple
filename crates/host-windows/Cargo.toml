@@ -40,3 +40,6 @@ windows = { version = "0.61", features = [
 # The 0.61 projection takes these from their own crates.
 windows-numerics = "0.2"
 windows-collections = "0.2"
+
+[lints]
+workspace = true

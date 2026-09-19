@@ -1,0 +1,475 @@
+//! Safe discovery and validation of external candidate-skin manifests.
+//!
+//! `read_resource` supplies bytes for host resource delivery analogous to the
+//! Windows `candidate-skins` virtual-folder mapping (settings_app.cpp at
+//! 04a8df56f86312474a069f4335a1b58da7afaa9e). It does not register a protocol,
+//! authorize a webview origin, sanitize CSS/SVG, or execute resource content.
+
+use serde::{Deserialize, Serialize};
+use std::fs;
+use std::io::Read;
+use std::path::Path;
+use toml::Value;
+
+/// Manifest values, not trusted CSS. Renderers must validate color syntax before
+/// inserting these strings into styles; scanning does not authorize CSS execution.
+#[derive(Debug, Default, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default)]
+pub struct CandidatePalette {
+    pub accent: Option<String>,
+    pub selected: Option<String>,
+    pub hover: Option<String>,
+    pub surface: Option<String>,
+    pub border: Option<String>,
+    pub text: Option<String>,
+    pub number: Option<String>,
+    #[serde(rename(serialize = "showSelectedBar", deserialize = "show_selected_bar"))]
+    pub show_selected_bar: Option<bool>,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Eq, Deserialize, Serialize)]
+#[serde(default)]
+pub struct CandidateColors {
+    pub dark: CandidatePalette,
+    pub light: CandidatePalette,
+}
+
+fn read_colors(table: &toml::map::Map<String, Value>) -> Result<CandidateColors, String> {
+    let Some(value) = table.get("candidate") else {
+        return Ok(CandidateColors::default());
+    };
+    let candidate = value.as_table().ok_or("invalid candidate colors")?;
+    for theme in ["dark", "light"] {
+        if candidate
+            .get(theme)
+            .is_some_and(|palette| !palette.is_table())
+        {
+            return Err("invalid candidate colors".into());
+        }
+    }
+    let colors: CandidateColors = value
+        .clone()
+        .try_into()
+        .map_err(|_| "invalid candidate colors")?;
+    for palette in [&colors.dark, &colors.light] {
+        for color in [
+            &palette.accent,
+            &palette.selected,
+            &palette.hover,
+            &palette.surface,
+            &palette.border,
+            &palette.text,
+            &palette.number,
+        ]
+        .into_iter()
+        .flatten()
+        {
+            if color.len() > 80 {
+                return Err("candidate color exceeds 80 bytes".into());
+            }
+        }
+    }
+    Ok(colors)
+}
+
+#[derive(Debug, Clone, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SkinSummary {
+    pub id: String,
+    pub name: String,
+    pub version: String,
+    pub base: String,
+    pub author: Option<String>,
+    pub description: Option<String>,
+    pub layouts: Vec<String>,
+    pub themes: Vec<String>,
+    pub min_width_dip: f64,
+    pub decoration_top_dip: f64,
+    pub decoration_width_dip: f64,
+    pub toolbar_stylesheet: Option<String>,
+    pub preview: Option<String>,
+    pub candidate: CandidateColors,
+}
+
+impl SkinSummary {
+    /// Compatibility comes from the manifest, not the base skin's capabilities.
+    pub fn supports(&self, layout: &str, theme: &str) -> bool {
+        self.layouts.iter().any(|value| value == layout)
+            && self.themes.iter().any(|value| value == theme)
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct SkinIssue {
+    pub folder: String,
+    pub reason: String,
+}
+
+#[derive(Debug, Default, Clone, PartialEq, Serialize)]
+pub struct SkinCatalog {
+    pub packages: Vec<SkinSummary>,
+    pub issues: Vec<SkinIssue>,
+}
+
+fn safe_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 64
+        && id.as_bytes()[0].is_ascii_alphanumeric()
+        && id.bytes().all(|b| {
+            b.is_ascii_lowercase() || b.is_ascii_digit() || matches!(b, b'.' | b'_' | b'-')
+        })
+}
+
+fn contained(root: &Path, child: &Path) -> bool {
+    root.canonicalize()
+        .ok()
+        .and_then(|r| child.canonicalize().ok().map(|c| c.starts_with(r)))
+        .unwrap_or(false)
+}
+
+fn required_string(
+    table: &toml::map::Map<String, Value>,
+    key: &str,
+    max: usize,
+) -> Result<String, String> {
+    let value = table
+        .get(key)
+        .and_then(Value::as_str)
+        .ok_or_else(|| format!("{key} must be a string"))?;
+    if value.is_empty() || value.len() > max {
+        return Err(format!("{key} has invalid length"));
+    }
+    Ok(value.to_owned())
+}
+
+fn optional_string(
+    table: &toml::map::Map<String, Value>,
+    key: &str,
+    max: usize,
+) -> Result<Option<String>, String> {
+    let Some(value) = table.get(key) else {
+        return Ok(None);
+    };
+    let value = value
+        .as_str()
+        .ok_or_else(|| format!("{key} must be a string"))?;
+    if value.is_empty() || value.len() > max {
+        return Err(format!("{key} has invalid length"));
+    }
+    Ok(Some(value.to_owned()))
+}
+
+fn safe_resource(value: &str, max: usize) -> bool {
+    !value.is_empty()
+        && value.len() <= max
+        && !value.starts_with('/')
+        && !value.starts_with('\\')
+        && !value.contains('\\')
+        && value.split('/').all(|part| {
+            !part.is_empty()
+                && part != "."
+                && part != ".."
+                && part
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || matches!(b, b'.' | b'_' | b'-'))
+        })
+}
+
+fn enum_array(
+    table: &toml::map::Map<String, Value>,
+    key: &str,
+    allowed: &[&str],
+) -> Option<Vec<String>> {
+    let items = table.get(key)?.as_array()?;
+    if items.is_empty() {
+        return None;
+    }
+    let mut values = Vec::new();
+    for item in items {
+        let value = item.as_str()?;
+        if !allowed.contains(&value) || values.iter().any(|existing| existing == value) {
+            return None;
+        }
+        values.push(value.to_owned());
+    }
+    Some(values)
+}
+
+fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
+    if !safe_id(folder) || matches!(folder, "fluent" | "wechat" | "graphite" | "willow_green") {
+        return Err("invalid skin id".into());
+    }
+    let dir = root.join(folder);
+    let manifest = dir.join("skin.toml");
+    if !contained(root, &dir) || !contained(&dir, &manifest) {
+        return Err("manifest escapes skin directory".into());
+    }
+    let input = fs::File::open(&manifest).map_err(|_| "missing skin.toml".to_owned())?;
+    if !input
+        .metadata()
+        .map_err(|_| "unreadable skin.toml")?
+        .is_file()
+    {
+        return Err("skin.toml is not a regular file".into());
+    }
+    let mut bytes = Vec::new();
+    input
+        .take(65_537)
+        .read_to_end(&mut bytes)
+        .map_err(|_| "unreadable skin.toml")?;
+    if bytes.len() > 65_536 {
+        return Err("skin.toml is too large".into());
+    }
+    let value: Value =
+        toml::from_str(std::str::from_utf8(&bytes).map_err(|_| "skin.toml is not UTF-8")?)
+            .map_err(|_| "invalid TOML")?;
+    let table = value.as_table().ok_or("manifest must be a table")?;
+    if table.get("schema_version").and_then(Value::as_integer) != Some(1) {
+        return Err("unsupported schema_version".into());
+    }
+    let id = required_string(table, "id", 64)?;
+    if id != folder || !safe_id(&id) {
+        return Err("manifest id does not match folder".into());
+    }
+    let name = required_string(table, "name", 80)?;
+    let version = required_string(table, "version", 32)?;
+    let base = required_string(table, "base", 32)?;
+    let author = optional_string(table, "author", 120)?;
+    let description = optional_string(table, "description", 500)?;
+    if !matches!(
+        base.as_str(),
+        "fluent" | "wechat" | "graphite" | "willow_green"
+    ) {
+        return Err("unsupported base skin".into());
+    }
+    let supports = table
+        .get("supports")
+        .and_then(Value::as_table)
+        .ok_or("missing supports")?;
+    let layouts =
+        enum_array(supports, "layouts", &["horizontal", "vertical"]).ok_or("invalid supports")?;
+    let themes = enum_array(supports, "themes", &["dark", "light"]).ok_or("invalid supports")?;
+    let window = table
+        .get("candidate_window")
+        .and_then(Value::as_table)
+        .ok_or("missing candidate_window")?;
+    let number = |value: Option<&Value>| match value {
+        None => 0.0,
+        Some(value) => value
+            .as_float()
+            .or_else(|| value.as_integer().map(|n| n as f64))
+            .unwrap_or(f64::NAN),
+    };
+    let min_width = number(window.get("min_width_dip"));
+    if !min_width.is_finite() || !(0.0..=1000.0).contains(&min_width) {
+        return Err("invalid min_width_dip".into());
+    }
+    let decoration = window
+        .get("decoration")
+        .and_then(Value::as_table)
+        .ok_or("missing decoration")?;
+    let top = number(decoration.get("top_inset_dip"));
+    let width = number(decoration.get("width_dip"));
+    if !top.is_finite()
+        || !width.is_finite()
+        || !(0.0..=500.0).contains(&top)
+        || !(0.0..=1000.0).contains(&width)
+        || (top == 0.0) != (width == 0.0)
+    {
+        return Err("invalid decoration".into());
+    }
+    let toolbar_stylesheet = optional_string(table, "toolbar_stylesheet", 128)?;
+    if let Some(stylesheet) = &toolbar_stylesheet {
+        if !safe_resource(stylesheet, 128)
+            || stylesheet.contains('/')
+            || stylesheet.len() <= 4
+            || !stylesheet.ends_with(".css")
+            || !contained(&dir, &dir.join(stylesheet))
+            || !dir.join(stylesheet).is_file()
+        {
+            return Err("invalid toolbar_stylesheet".into());
+        }
+    }
+    let preview = optional_string(table, "preview", 256)?;
+    if let Some(preview) = &preview {
+        if !safe_resource(preview, 256) || !contained(&dir, &dir.join(preview)) {
+            return Err("invalid preview".into());
+        }
+    }
+    let candidate = read_colors(table)?;
+    Ok(SkinSummary {
+        id,
+        name,
+        version,
+        base,
+        author,
+        description,
+        layouts,
+        themes,
+        min_width_dip: min_width,
+        decoration_top_dip: top,
+        decoration_width_dip: width,
+        toolbar_stylesheet,
+        preview,
+        candidate,
+    })
+}
+
+/// Maximum bytes returned for one skin asset, including stylesheets and fonts.
+pub const MAX_RESOURCE_BYTES: usize = 8 * 1024 * 1024;
+
+#[derive(Debug, PartialEq, Eq)]
+pub enum ResourceError {
+    InvalidPath,
+    InvalidPackage,
+    UnsupportedType,
+    Unavailable,
+    TooLarge,
+    InvalidEncoding,
+}
+
+/// Read only the toolbar stylesheet declared by the current manifest. The
+/// caller chooses a package, not a filesystem path. None means inheritance of
+/// the built-in toolbar; an empty stylesheet is Some(""). Returned CSS is
+/// untrusted and must be parsed/scoped by the host before applying it.
+pub fn read_toolbar_stylesheet(
+    root: impl AsRef<Path>,
+    id: &str,
+) -> Result<Option<String>, ResourceError> {
+    if !safe_id(id) {
+        return Err(ResourceError::InvalidPath);
+    }
+    let root = root.as_ref();
+    let directory = root.join(id);
+    if !fs::symlink_metadata(directory)
+        .map(|metadata| metadata.file_type().is_dir())
+        .unwrap_or(false)
+    {
+        return Err(ResourceError::InvalidPackage);
+    }
+    let package = load(root, id).map_err(|_| ResourceError::InvalidPackage)?;
+    let Some(relative) = package.toolbar_stylesheet else {
+        return Ok(None);
+    };
+    let resource = read_resource(root, id, &relative)?;
+    let text = String::from_utf8(resource.bytes).map_err(|_| ResourceError::InvalidEncoding)?;
+    // A UTF-8 BOM is an encoding marker, not part of the first selector.
+    Ok(Some(
+        text.strip_prefix('\u{feff}').unwrap_or(&text).to_owned(),
+    ))
+}
+
+/// Untrusted resource data. Hosts must set the content type, disable MIME
+/// sniffing, and isolate styles/SVG rather than inserting them as page markup.
+#[derive(Debug, PartialEq, Eq)]
+pub struct SkinResource {
+    pub content_type: &'static str,
+    pub bytes: Vec<u8>,
+}
+
+/// Read an asset from a currently valid package under a host-selected root.
+/// Paths are decoded relative names, never URLs. Canonical containment rejects
+/// symlink escapes, but is not a sandbox against concurrent hostile filesystem
+/// mutation; hosts must not use this API to expose attacker-writable trees
+/// across a privilege boundary.
+pub fn read_resource(
+    root: impl AsRef<Path>,
+    id: &str,
+    relative: &str,
+) -> Result<SkinResource, ResourceError> {
+    if !safe_id(id) || !safe_resource(relative, 256) {
+        return Err(ResourceError::InvalidPath);
+    }
+    let content_type = match relative
+        .rsplit('.')
+        .next()
+        .unwrap_or("")
+        .to_ascii_lowercase()
+        .as_str()
+    {
+        "css" => "text/css; charset=utf-8",
+        "png" => "image/png",
+        "jpg" | "jpeg" => "image/jpeg",
+        "gif" => "image/gif",
+        "webp" => "image/webp",
+        "svg" => "image/svg+xml",
+        "ico" => "image/x-icon",
+        "bmp" => "image/bmp",
+        "avif" => "image/avif",
+        "woff" => "font/woff",
+        "woff2" => "font/woff2",
+        "ttf" => "font/ttf",
+        "otf" => "font/otf",
+        _ => return Err(ResourceError::UnsupportedType),
+    };
+    let root = root.as_ref();
+    let directory = root.join(id);
+    // Match scan(): symlinked package directories are not catalog entries.
+    if !fs::symlink_metadata(&directory)
+        .map(|metadata| metadata.file_type().is_dir())
+        .unwrap_or(false)
+        || load(root, id).is_err()
+    {
+        return Err(ResourceError::InvalidPackage);
+    }
+    let directory = directory
+        .canonicalize()
+        .map_err(|_| ResourceError::Unavailable)?;
+    let target = directory
+        .join(relative)
+        .canonicalize()
+        .map_err(|_| ResourceError::Unavailable)?;
+    if !target.starts_with(&directory) {
+        return Err(ResourceError::InvalidPath);
+    }
+    if !target.is_file() {
+        return Err(ResourceError::Unavailable);
+    }
+    let input = fs::File::open(&target).map_err(|_| ResourceError::Unavailable)?;
+    let metadata = input.metadata().map_err(|_| ResourceError::Unavailable)?;
+    if !metadata.is_file() {
+        return Err(ResourceError::Unavailable);
+    }
+    if metadata.len() > MAX_RESOURCE_BYTES as u64 {
+        return Err(ResourceError::TooLarge);
+    }
+    let mut bytes = Vec::new();
+    input
+        .take(MAX_RESOURCE_BYTES as u64 + 1)
+        .read_to_end(&mut bytes)
+        .map_err(|_| ResourceError::Unavailable)?;
+    if bytes.len() > MAX_RESOURCE_BYTES {
+        return Err(ResourceError::TooLarge);
+    }
+    Ok(SkinResource {
+        content_type,
+        bytes,
+    })
+}
+
+pub fn scan(root: impl AsRef<Path>) -> SkinCatalog {
+    let root = root.as_ref();
+    let mut out = SkinCatalog::default();
+    let Ok(entries) = fs::read_dir(root) else {
+        return out;
+    };
+    for entry in entries.flatten() {
+        let Ok(kind) = entry.file_type() else {
+            continue;
+        };
+        if !kind.is_dir() {
+            continue;
+        }
+        let folder = entry.file_name().to_string_lossy().into_owned();
+        match load(root, &folder) {
+            Ok(package) => out.packages.push(package),
+            Err(reason) => out.issues.push(SkinIssue { folder, reason }),
+        }
+    }
+    out.packages.sort_by(|a, b| a.name.cmp(&b.name));
+    out.issues.sort_by(|a, b| a.folder.cmp(&b.folder));
+    out
+}
+
+#[cfg(test)]
+mod tests;

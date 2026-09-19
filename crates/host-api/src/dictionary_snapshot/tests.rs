@@ -20,7 +20,7 @@ fn activation_rejects_live_session_before_swapping() {
 #[test]
 fn discard_does_not_require_maintenance_lock_for_live_paths() {
     use super::*;
-    use msime_client_core::dictionary_access::DictionaryAccess;
+    use msime_client_core::dictionary::access::DictionaryAccess;
     use msime_engine_bridge::EngineOptions;
     use std::fs;
 
@@ -88,7 +88,7 @@ fn discard_does_not_require_maintenance_lock_for_live_paths() {
 
 fn activation_case(nested_dictionaries: bool, hold_session: bool, handle: u64) {
     use super::*;
-    use msime_client_core::dictionary_access::DictionaryAccess;
+    use msime_client_core::dictionary::access::DictionaryAccess;
     use msime_engine_bridge::EngineOptions;
     use std::fs;
     use std::path::Path;

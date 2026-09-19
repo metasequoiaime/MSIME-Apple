@@ -1,4 +1,4 @@
-import { createVoiceRecognitionClient } from "./voice-recognition-client";
+import { createVoiceRecognitionClient } from "./voice/voice-recognition-client";
 import { StrictMode, useEffect, useRef, useState, type ReactNode } from "react";
 import { createRoot } from "react-dom/client";
 import { getVersion } from "@tauri-apps/api/app";
@@ -7,13 +7,13 @@ import { listen } from "@tauri-apps/api/event";
 import { getCurrentWindow } from "@tauri-apps/api/window";
 import { CloudCandidatesPanel, CloudClipboardPanel, CloudDictionaryApplyPanel, CloudDictionaryCatalogPanel, CloudDictionaryFilesPanel, CloudDictionaryPanel, EmojiPanel, HandwritingPanel, KeyboardPanel, VoicePanel, SettingsPage, SettingsStartupPage, WelcomeFlowPage, useCandidatePreviewTheme, type AccountClient, type AiSkinProposal, type ApiCredentialTestResult, type ApiCredentialTestService, type ChatClient, type ClipboardHistoryEntry, type CloudClipboardAction, type CloudClipboardPanelClient, type CloudDictionaryAction, type CloudDictionaryEntry, type CloudDictionaryPanelClient, type CommunitySkin, type CommunitySkinDownload, type CommunitySkinPage, type CommunityResource, type CommunityResourceApplication, type CommunityResourcePage, type EmojiCatalogGroup, type EmojiPanelClient, type HostCapabilities, type MobileKeyboardFeedback, type TypingStatisticsClient, type PanelClient, type VoicePanelClient, type SettingsClient, type SettingsSyncClient, type Snapshot, type DictionaryClient, type DictionaryEntry, type LocalDictionaryKind, type LocalDictionaryFormat, type OnboardingActions, type OnboardingInputScheme } from "@msime/ui";
 import "@msime/ui/styles.css";
-import { subscribeWindowState } from "./window-state";
-import { discoverFontReader } from "./system-font-client";
-import { DesktopKeyboard } from "./desktop-keyboard";
-import { DesktopCloudDictionary } from "./desktop-cloud-dictionary";
-import { testDesktopApiCredential } from "./credential-test-client";
-import { cloudDictionaryCapabilities, isMobileHost } from "./mobile-host-capabilities";
-import { createMobileHostServices } from "./mobile-host-services";
+import { subscribeWindowState } from "./input/window-state";
+import { discoverFontReader } from "./candidate/system-font-client";
+import { DesktopKeyboard } from "./input/desktop-keyboard";
+import { DesktopCloudDictionary } from "./dictionary/desktop-cloud-dictionary";
+import { testDesktopApiCredential } from "./account/credential-test-client";
+import { cloudDictionaryCapabilities, isMobileHost } from "./input/mobile-host-capabilities";
+import { createMobileHostServices } from "./core/mobile-host-services";
 
 const dictionary: DictionaryClient = {
   // kind and query are omitted when absent so an older host still sees the

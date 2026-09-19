@@ -1,0 +1,12 @@
+# Pinned so the six platform builds and the local verification gate all run the
+# same compiler. AGENTS.md turns CI off, which makes "works on my machine" the
+# only signal there is; an unpinned toolchain turns a colleague's rustup update
+# into a build break nobody can reproduce.
+#
+# `rust-version` in Cargo.toml is the minimum this code claims to support and is
+# checked against, not the version anyone actually builds with. The two move
+# independently: raise this when a newer compiler is wanted, raise that only
+# when the code genuinely stops building on the old floor.
+[toolchain]
+channel = "1.97.1"
+components = ["rustfmt", "clippy"]

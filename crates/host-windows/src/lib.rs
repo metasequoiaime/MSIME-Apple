@@ -8,6 +8,12 @@
 //! Input wrappers receive panel-owned text. The voice controller reads bounded
 //! recognition results from the authenticated Server; it never logs them.
 
+// The workspace denies unsafe code; the Win32 clipboard, input and window calls behind these wrappers
+// are C functions.
+// The exemption is stated here rather than left implicit by opting out of
+// the workspace lint table, which would also silently drop every other lint
+// the workspace adds later.
+#![allow(unsafe_code)]
 #![cfg(windows)]
 
 pub mod ink;

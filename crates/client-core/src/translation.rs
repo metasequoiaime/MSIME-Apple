@@ -1,4 +1,9 @@
 //! Parsing and validation helpers for DeepLX-compatible custom translation services.
+//!
+//! The learned-translation store lives in [`store`]; this module is the
+//! translation request contract itself.
+
+pub mod store;
 
 use hmac::{Hmac, Mac};
 use md5::Md5;
@@ -289,7 +294,7 @@ pub fn translate_batch(
     source: &str,
     target: &str,
 ) -> Vec<Option<String>> {
-    let mut cache = crate::cloud::TranslationCache::new(Duration::from_secs(480));
+    let mut cache = crate::cloud::candidates::TranslationCache::new(Duration::from_secs(480));
     translate_batch_cached(config, texts, source, target, &mut cache)
 }
 
@@ -298,7 +303,7 @@ pub fn translate_batch_cached(
     texts: &[String],
     source: &str,
     target: &str,
-    cache: &mut crate::cloud::TranslationCache,
+    cache: &mut crate::cloud::candidates::TranslationCache,
 ) -> Vec<Option<String>> {
     let mut results = vec![None; texts.len()];
     if texts.is_empty()
@@ -642,7 +647,7 @@ mod tests {
                 Err(error) => panic!("translation fixture failed: {error}"),
             }
         });
-        let mut cache = crate::cloud::TranslationCache::new(Duration::from_secs(1));
+        let mut cache = crate::cloud::candidates::TranslationCache::new(Duration::from_secs(1));
         let config = TranslationConfig {
             endpoint: format!("http://{address}"),
             api_key: String::new(),

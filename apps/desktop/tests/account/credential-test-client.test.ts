@@ -1,6 +1,6 @@
 import { expect, test, vi } from "vitest";
 import { invoke } from "@tauri-apps/api/core";
-import { testDesktopApiCredential } from "../../src/credential-test-client";
+import { testDesktopApiCredential } from "../../src/account/credential-test-client";
 
 vi.mock("@tauri-apps/api/core", () => ({ invoke: vi.fn() }));
 
