@@ -909,8 +909,21 @@ mod tests {
 
     #[test]
     fn reset_learned_data_restores_packaged_dictionaries_and_clears_journal() {
-        let root = tempfile::tempdir().unwrap();
-        let value = options(root.path());
+        // Both an ASCII root and one carrying Chinese characters. On Windows a
+        // narrow conversion of the second either mangles it or throws, and the
+        // reset derives temporary, backup and SQLite sidecar names from these
+        // paths - a throw would abort it after it had already published files.
+        for component in ["ascii", "陆傲天"] {
+            reset_learned_data_under_root(component);
+        }
+    }
+
+    fn reset_learned_data_under_root(component: &str) {
+        let temporary = tempfile::tempdir().unwrap();
+        let root = temporary.path().join(component);
+        std::fs::create_dir_all(&root).unwrap();
+        let root = root.as_path();
+        let value = options(root);
         let resources = std::path::Path::new(&value.resources);
         let dictionaries = std::path::Path::new(&value.dictionaries);
         let main_fixture = "CREATE TABLE tbl_2_n(key TEXT,jp TEXT,value TEXT,weight INTEGER);\
