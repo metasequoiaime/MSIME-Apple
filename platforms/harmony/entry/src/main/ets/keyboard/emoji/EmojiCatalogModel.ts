@@ -13,6 +13,8 @@ export const EMOJI_RECENTS_LIMIT: number = 24;
 export const EMOJI_RECENTS_MAX_BYTES: number = 16 * 1024;
 export const MAX_TEXT_CODE_POINTS: number = 32;
 export const MAX_ANNOTATION_CODE_POINTS: number = 1024;
+export const MAX_CATALOG_GROUPS: number = 64;
+export const MAX_GROUP_CODE_UNITS: number = 128;
 
 export interface EmojiCategory {
   readonly group: string;
@@ -23,6 +25,11 @@ export interface EmojiItem {
   readonly text: string;
   readonly annotation: string;
   readonly group: string;
+}
+
+export interface EmojiSymbolGroup {
+  readonly parent: string;
+  readonly title: string;
 }
 
 export interface EmojiPage {
@@ -37,6 +44,49 @@ function codePointCount(text: string): number {
     count++;
   }
   return count;
+}
+
+function isUsableGroupText(value: unknown): value is string {
+  return typeof value === 'string' && value.length > 0 && value.length <= MAX_GROUP_CODE_UNITS
+    && value.trim().length > 0;
+}
+
+/** Bounds and de-duplicates Engine-provided kaomoji group names before they reach ArkUI. */
+export function normalizeGroups(values: unknown): string[] {
+  if (!Array.isArray(values) || values.length > MAX_CATALOG_GROUPS) {
+    return [];
+  }
+  const groups: string[] = [];
+  for (const value of values) {
+    if (!isUsableGroupText(value) || groups.includes(value)) {
+      continue;
+    }
+    groups.push(value);
+  }
+  return groups;
+}
+
+/** Bounds, validates, and de-duplicates Engine-provided symbol parent/title pairs. */
+export function normalizeSymbolGroups(values: unknown): EmojiSymbolGroup[] {
+  if (!Array.isArray(values) || values.length > MAX_CATALOG_GROUPS) {
+    return [];
+  }
+  const groups: EmojiSymbolGroup[] = [];
+  for (const value of values) {
+    if (value === null || typeof value !== 'object') {
+      continue;
+    }
+    const candidate = value as { parent?: unknown; title?: unknown };
+    if (!isUsableGroupText(candidate.parent) || !isUsableGroupText(candidate.title)) {
+      continue;
+    }
+    if (groups.some((group: EmojiSymbolGroup): boolean =>
+      group.parent === candidate.parent && group.title === candidate.title)) {
+      continue;
+    }
+    groups.push({ parent: candidate.parent, title: candidate.title });
+  }
+  return groups;
 }
 
 // Unicode group order; the database row sort order interleaves Symbols and Flags.

@@ -56,7 +56,8 @@ import {
   CommunityReplyLibraryPolicy, CommunityReplyTemplate
 } from './CommunityReplyLibraryPolicy';
 import {
-  EmojiCatalogModel, EMOJI_RECENTS_MAX_BYTES
+  EmojiCatalogModel, EMOJI_RECENTS_MAX_BYTES, EmojiSymbolGroup,
+  normalizeGroups, normalizeSymbolGroups
 } from './emoji/EmojiCatalogModel';
 import {
   SmartPunctuationRepeatPolicy, SmartPunctuationRepeatSnapshot
@@ -155,6 +156,9 @@ interface EmojiQuery {
   group: string;
   cursor: boolean;
   list_groups: boolean;
+  list_symbol_groups: boolean;
+  parent: string;
+  search: string;
 }
 
 export interface EmojiRow {
@@ -172,6 +176,18 @@ export interface EmojiPage {
 interface EmojiResponse {
   ok: boolean;
   value: EmojiPage;
+  error: string;
+}
+
+interface EmojiGroupsResponse {
+  ok: boolean;
+  value: { groups: string[] };
+  error: string;
+}
+
+interface EmojiSymbolGroupsResponse {
+  ok: boolean;
+  value: { symbol_groups: EmojiSymbolGroup[] };
   error: string;
 }
 
@@ -2612,13 +2628,21 @@ export class KeyboardSession {
    * installed dictionary, not of what is being typed, and nothing about it changes with focus.
    */
   emojiPage(group: string, offset: number, limit: number): EmojiPage | null {
+    return this.emojiCatalogPage('emoji', group, offset, limit);
+  }
+
+  emojiCatalogPage(category: string, group: string, offset: number, limit: number,
+                  parent: string = '', search: string = ''): EmojiPage | null {
     const query: EmojiQuery = {
-      category: 'emoji',
+      category: category,
       limit: limit,
       offset: offset,
       group: group,
       cursor: true,
-      list_groups: false
+      list_groups: false,
+      list_symbol_groups: false,
+      parent: parent,
+      search: search
     };
     try {
       const response: EmojiResponse =
@@ -2632,6 +2656,58 @@ export class KeyboardSession {
     } catch (error) {
       KeyboardLog.error(`emoji catalog unreadable: ${describeError(error)}`);
       return null;
+    }
+  }
+
+  emojiGroups(category: string): string[] {
+    const query: EmojiQuery = {
+      category: category,
+      limit: 1,
+      offset: 0,
+      group: '',
+      cursor: false,
+      list_groups: true,
+      list_symbol_groups: false,
+      parent: '',
+      search: ''
+    };
+    try {
+      const response: EmojiGroupsResponse =
+        JSON.parse(client.emojiCatalog(JSON.stringify(query), this.resourceDirectory))
+          as EmojiGroupsResponse;
+      if (!response.ok || !Array.isArray(response.value.groups)) {
+        return [];
+      }
+      return normalizeGroups(response.value.groups);
+    } catch (error) {
+      KeyboardLog.error(`emoji groups unavailable: ${describeError(error)}`);
+      return [];
+    }
+  }
+
+  emojiSymbolGroups(): EmojiSymbolGroup[] {
+    const query: EmojiQuery = {
+      category: 'symbols',
+      limit: 1,
+      offset: 0,
+      group: '',
+      cursor: false,
+      list_groups: false,
+      list_symbol_groups: true,
+      parent: '',
+      search: ''
+    };
+    try {
+      const response: EmojiSymbolGroupsResponse =
+        JSON.parse(client.emojiCatalog(JSON.stringify(query), this.resourceDirectory))
+          as EmojiSymbolGroupsResponse;
+      if (!response.ok || !Array.isArray(response.value.symbol_groups)) {
+        return [];
+      }
+      return normalizeSymbolGroups(response.value.symbol_groups);
+    } catch (error) {
+      KeyboardLog.error(`emoji symbol groups unavailable: ${describeError(error)}`);
+      return [];
     }
   }
 
