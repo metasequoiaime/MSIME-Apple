@@ -2097,7 +2097,8 @@ public:
     if (state_.translationCandidatesActive()) return actions;
     const auto *item = dynamic_cast<const FcitxCandidate *>(&candidate);
     if (!item) return actions;
-    if (state_.session_ != item->session() ||
+    if (!state_.ic_.hasFocus() || !state_.input_enabled_ || state_.restricted() ||
+        state_.privateInput() || state_.session_ != item->session() ||
         state_.view_.value("generation", uint64_t{}) != item->generation()) return actions;
     const auto scheme = state_.view_.value("scheme", 0u);
     if (scheme == 3 || (item->source() != 0 && item->source() != 1 && item->source() != 4))

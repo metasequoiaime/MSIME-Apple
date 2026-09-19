@@ -59,6 +59,7 @@ assert 'item->text()))' in source
 assert 'item->fixedPosition()' in source
 assert 'state_.session_ != item->session()' in source
 assert '!state_.ic_.hasFocus() || !state_.input_enabled_' in source
+assert 'state_.privateInput() || state_.session_ != item->session()' in source
 assert 'voice_cancelled_' in source
 assert 'if (voice_job_.valid()) {' in source
 assert 'voice cancellation does not wait for the provider future' in (root / 'fcitx5/tests/native.cpp').read_text()
