@@ -51,6 +51,8 @@ assert 'saveBooleanPreference("traditional_chinese_output"' in source
 assert 'preferences_["traditional_chinese_output"]' in source
 assert 'waitForPreferenceSave' in source
 assert 'if (fixedPosition > 0) actions.push_back(make(20, "取消固定"));' in source
+assert 'item->source() == 0 || item->source() == 1 || item->source() == 4' in source
+assert 'source_(candidate.value("source", 0u))' in source
 assert 'voice_cancelled_' in source
 assert 'if (voice_job_.valid()) {' in source
 assert 'voice cancellation does not wait for the provider future' in (root / 'fcitx5/tests/native.cpp').read_text()
