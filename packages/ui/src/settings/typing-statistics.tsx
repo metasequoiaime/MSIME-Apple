@@ -90,8 +90,8 @@ function sum(values: Record<string, number>, keys: readonly string[]): number {
 }
 
 function withUnknown(value: Partial<TypingBreakdown> | undefined, total: number): TypingBreakdown {
-  const characters = { ...(value?.characters ?? {}) };
-  const sourceCounts = { ...(value?.sources ?? {}) };
+  const characters = { ...value?.characters };
+  const sourceCounts = { ...value?.sources };
   characters.unknown = (characters.unknown ?? 0) + Math.max(0, total - Object.values(characters).reduce((a, b) => a + b, 0));
   sourceCounts.unknown = (sourceCounts.unknown ?? 0) + Math.max(0, total - Object.values(sourceCounts).reduce((a, b) => a + b, 0));
   return { characters, sources: sourceCounts };

@@ -24,7 +24,6 @@ import { TypingStatisticsPage, type TypingStatisticsClient } from "./settings/ty
 import { AccountPage, type AccountClient, type AccountCommunityDestination, type AppIconClient } from "./account/account-page";
 import { ChatPage, type ChatClient } from "./chat/chat-page";
 import { HomePage, type HomePageActions } from "./keyboard/home-page";
-import { WelcomeFlowPage } from "./account/onboarding-page";
 import { CommunitySkinsPage, type CommunitySkinClient } from "./community/community-skins";
 import { CommunityHomePage, CommunityResourcesPage, type CommunityResourceClient } from "./community/community-resources";
 export { TypingStatisticsPage, type TypingBreakdown, type TypingStatistics, type TypingStatisticsClient, type TypingStatisticsStatus } from "./settings/typing-statistics";
@@ -1608,7 +1607,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
     setAiTestBusy(false);
     setAiTestOutput("");
     setAiTestStatus("");
-    if (aiOrigin) updateAi({ token: "", tokens: { ...(ai.tokens ?? {}), [aiOrigin]: value } });
+    if (aiOrigin) updateAi({ token: "", tokens: { ...ai.tokens, [aiOrigin]: value } });
   };
   const fetchAiModels = async () => {
     if (!client.aiAssistant) return;
@@ -1710,14 +1709,14 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
     ? [...mobileTranslationLanguages]
     : translationLanguages;
   const visibleSecondaryLanguages = mobilePlatform
-    ? ([...[ ["", "不显示第二种语言"] as ["", string], ...mobileTranslationLanguages],
+    ? ([ ["", "不显示第二种语言"] as ["", string], ...mobileTranslationLanguages,
       ...(translationSecondaryLanguage === "ru" ? [["ru", "俄语（已保存）"] as ["ru", string]] : [])])
     : translationSecondaryLanguages;
   if (mobilePlatform && translationTargetLanguage === "ru" &&
       !visibleTranslationLanguages.some(([value]) => value === "ru")) {
     visibleTranslationLanguages.push(["ru", "俄语（已保存）"]);
   }
-  const voiceInput = { ...defaultVoiceInput, ...(draft?.voice_input ?? {}) };
+  const voiceInput = { ...defaultVoiceInput, ...draft?.voice_input };
   const systemVoice = nativeVoicePlatform && voiceInput.asr_provider === "system";
   // On-device Whisper. Like the system recognizer it has no service behind it, so it hides the same endpoint, token and model rows - but unlike it, the user has to say which model file to load.
   const localVoice = macosPlatform && voiceInput.asr_provider === "local";
@@ -1822,7 +1821,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
   const pairedPunctuation = draft?.paired_punctuation ?? true;
   const inputModeHUD = draft?.input_mode_hud ?? true;
   const punctuationLock = draft?.punctuation_lock ?? "follow";
-  const floatingToolbar = { ...defaultFloatingToolbar, ...(draft?.floating_toolbar ?? {}) };
+  const floatingToolbar = { ...defaultFloatingToolbar, ...draft?.floating_toolbar };
   const themeMode = draft?.theme ?? "system";
   const settingsTheme = draft?.settings_theme ?? "follow";
   const candidatePreviewTheme = useCandidatePreviewTheme(themeMode, draft?.candidate_theme);
@@ -1844,7 +1843,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
     && (item.id !== "account" || Boolean(client.account || client.appIcon))
     && (item.id !== "chat" || Boolean(client.chat))
     && (item.id !== "community" || Boolean(client.communitySkins || client.communityResources))
-    && (item.id !== "floating-toolbar" || (host ? host.floating_toolbar : true)));
+    && (item.id !== "floating-toolbar" || showFloatingToolbar));
   const mobilePrimaryPageIds: readonly SettingsPageId[] = ["home", "community", "typing-statistics", "account"];
   const mobilePrimaryPages = availablePages.filter(item => mobilePrimaryPageIds.includes(item.id));
   // Physical-keyboard shortcuts and a desktop floating toolbar have no mobile
@@ -2247,9 +2246,9 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
         </div>
         <div className="section" role="group" aria-label="全拼纠错">
           <div className="section-title">全拼纠错<small>分别控制字母错位和邻键误触的拼音纠错</small></div>
-          <label className="section-header"><span className="section-title">字母顺序错位<small>例如把 shang 输入为 sahng</small></span><input aria-label="全拼纠错：字母顺序错位" className="toggle" type="checkbox" checked={quanpinAutocorrect.autocorrect_transposition} onChange={event => setDraft({ ...draft, quanpin: { ...(draft.quanpin ?? {}), ...quanpinAutocorrect, autocorrect_transposition: event.target.checked } })} /></label>
+          <label className="section-header"><span className="section-title">字母顺序错位<small>例如把 shang 输入为 sahng</small></span><input aria-label="全拼纠错：字母顺序错位" className="toggle" type="checkbox" checked={quanpinAutocorrect.autocorrect_transposition} onChange={event => setDraft({ ...draft, quanpin: { ...draft.quanpin, ...quanpinAutocorrect, autocorrect_transposition: event.target.checked } })} /></label>
           <div className="input-option-divider" />
-          <label className="section-header"><span className="section-title">相邻键误触<small>例如把 shang 输入为 shabg</small></span><input aria-label="全拼纠错：相邻键误触" className="toggle" type="checkbox" checked={quanpinAutocorrect.autocorrect_neighbor} onChange={event => setDraft({ ...draft, quanpin: { ...(draft.quanpin ?? {}), ...quanpinAutocorrect, autocorrect_neighbor: event.target.checked } })} /></label>
+          <label className="section-header"><span className="section-title">相邻键误触<small>例如把 shang 输入为 shabg</small></span><input aria-label="全拼纠错：相邻键误触" className="toggle" type="checkbox" checked={quanpinAutocorrect.autocorrect_neighbor} onChange={event => setDraft({ ...draft, quanpin: { ...draft.quanpin, ...quanpinAutocorrect, autocorrect_neighbor: event.target.checked } })} /></label>
         </div>
         {client.fuzzyPinyin && <div className="section" role="group" aria-label="模糊音">
           <label className="section-header"><span className="section-title">模糊音<small>全拼、九键与双拼均支持；更改会在当前输入结束后生效</small></span>
@@ -2387,7 +2386,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
       <fieldset disabled={busy} hidden={page !== "helpcode"} aria-label="辅助码">
         {androidPlatform && <div className="section input-setting-description"><p>全拼或双拼组字时，按 Shift 再输入的字母作为辅助码交给输入引擎，用于缩小候选。五笔、日语和本地输入模式不使用辅助码。</p></div>}
         {([['shuangpin_helpcode', '双拼'], ['quanpin_helpcode', '全拼']] as const).map(([key, label]) => {
-          const value = { ...defaultHelpcode[key], ...(draft[key] ?? {}) } as Required<HelpcodePreferences>;
+          const value = { ...defaultHelpcode[key], ...draft[key] } as Required<HelpcodePreferences>;
           return <div className="section" key={key}>
             <label className="section-header"><span className="section-title">{label}辅助码</span><input className="toggle" type="checkbox" checked={value.enabled} onChange={event => setDraft({ ...draft, [key]: { ...value, enabled: event.target.checked } })} /></label>
             <label className="section-header helpcode-schema"><span className="section-title">{label}辅助码方案</span><select disabled={!value.enabled} value={value.schema} onChange={event => setDraft({ ...draft, [key]: { ...value, schema: event.target.value as HelpcodeSchema } })}>
@@ -2712,7 +2711,7 @@ export function SettingsPage({ client, initialPage, onReplayOnboarding }: { clie
             "hotkey_ctrl_win", macosPlatform ? "按住 Control+Command 录音" : "Ctrl+Win 切换语音",
           ], [
             "hotkey_hold_space_lock", "空格锁定语音",
-          ]] as const).map(([key, label]) => <label className="section-header" key={key}><span className="section-title">{label}</span><input aria-label={label} className="toggle" type="checkbox" checked={draft.voice_input?.[key] !== false} onChange={event => setDraft({ ...draft, voice_input: { ...(draft.voice_input ?? {}), enabled: draft.voice_input?.enabled ?? true, language: draft.voice_input?.language ?? "zh-CN", [key]: event.target.checked } })} /></label>)}
+          ]] as const).map(([key, label]) => <label className="section-header" key={key}><span className="section-title">{label}</span><input aria-label={label} className="toggle" type="checkbox" checked={draft.voice_input?.[key] !== false} onChange={event => setDraft({ ...draft, voice_input: { ...draft.voice_input, enabled: draft.voice_input?.enabled ?? true, language: draft.voice_input?.language ?? "zh-CN", [key]: event.target.checked } })} /></label>)}
         </div>}
       </fieldset>
       <fieldset disabled={busy} hidden={page !== "ai"} aria-label="AI 辅助">

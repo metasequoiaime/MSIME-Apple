@@ -2381,7 +2381,7 @@ test("voice panel requests recognition and submits the bounded result", async ()
   const close = vi.fn().mockResolvedValue(undefined);
   const recognizeVoice = vi.fn().mockResolvedValue({ text: "你好" });
   const sendText = vi.fn().mockResolvedValue(undefined);
-  const panel = render(<VoicePanel client={{ close, recognizeVoice, sendText }} />);
+  render(<VoicePanel client={{ close, recognizeVoice, sendText }} />);
   fireEvent.click(screen.getByRole("button", { name: "开始录音" }));
   await waitFor(() => expect(recognizeVoice).toHaveBeenCalledWith("zh-CN"));
   expect((screen.getByRole("textbox", { name: "识别结果" }) as HTMLTextAreaElement).value).toBe("你好");

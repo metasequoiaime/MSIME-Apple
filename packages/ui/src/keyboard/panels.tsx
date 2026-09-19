@@ -271,6 +271,12 @@ function keyboardSkinStyles(theme: "dark" | "light", skin: TouchKeyboardSkin, cu
   } as CSSProperties;
 }
 
+// Orphaned: d203862fc removed its only reader while resolving a merge conflict,
+// and that reader was itself already unused, so nothing observable changed. It
+// stays because roughly twenty branches in flight still carry the reader, and
+// deleting it here would conflict with every one of them. Remove it once they
+// have landed.
+// oxlint-disable-next-line no-unused-vars
 const keyboardActionLabels = new Set(["Backspace", "Enter", "Shift", "Tab", "Esc", "Caps Lock", "Ctrl", "Alt", "Win", "Del", "Menu", "Num Lock"]);
 
 export function KeyboardPanel({ client, platform, theme = "dark", layout = "twenty_six_key", keySpacingTenths = 60, rowSpacingTenths = 70, voiceShortcut = false, skin = "forest", customDesign }: { client: PanelClient; platform?: string; theme?: "dark" | "light"; layout?: "twenty_six_key" | "nine_key"; keySpacingTenths?: number; rowSpacingTenths?: number; voiceShortcut?: boolean; skin?: TouchKeyboardSkin; customDesign?: TouchKeyboardSkinDesign }) {
@@ -300,7 +306,7 @@ export function KeyboardPanel({ client, platform, theme = "dark", layout = "twen
     // stable ANSI mappings for those values.
     .filter(item => ![0x2c, 0x91, 0x13, 0x2d, 0x5d].includes(item.virtualKey))
     .map(item => ({ ...item, label: item.label === "Win" ? "Command" : item.label === "Alt" ? "Option" : item.label === "Num Lock" ? "Clear" : item.label }))) : sourceRows;
-  const [activeModifiers, setActiveModifiers] = useState<Set<Modifier>>(new Set());
+  const [, setActiveModifiers] = useState<Set<Modifier>>(new Set());
   const modifiersRef = useRef<Set<Modifier>>(new Set());
   const [notice, setNotice] = useState("Touch keyboard");
   const [openingVoice, setOpeningVoice] = useState(false);

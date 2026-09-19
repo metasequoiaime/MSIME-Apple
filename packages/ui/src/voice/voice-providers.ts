@@ -109,7 +109,7 @@ type TokenMap = Record<string, string>;
  * the old key was gone the moment they retyped.
  */
 function swapTokenSlot(from: string, to: string, box: string, slots: TokenMap | undefined) {
-  const next: TokenMap = { ...(slots ?? {}) };
+  const next: TokenMap = { ...slots };
   // Stash whatever is in the box under the provider being left.
   if (from) {
     if (box) next[from] = box;

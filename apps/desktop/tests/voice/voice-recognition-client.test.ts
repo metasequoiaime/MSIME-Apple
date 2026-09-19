@@ -1,6 +1,14 @@
 import { expect, test, vi } from "vitest";
 import { createVoiceRecognitionClient } from "../../src/voice/voice-recognition-client";
 
+// The client under test always supplies a request. Asserting it here turns a
+// missing one into a named failure instead of a TypeError on undefined.
+const voiceRequest = (args?: Record<string, unknown>) => {
+  const request = args?.request as { request_id: string } | undefined;
+  if (!request) throw new Error("invoke was called without a request");
+  return request;
+};
+
 test("voice requests and cancellation retain identity across a restart", async () => {
   const pending: { resolve: (value: { text: string }) => void }[] = [];
   const requests: string[] = [];
@@ -11,7 +19,7 @@ test("voice requests and cancellation retain identity across a restart", async (
       cancelled.push(args?.requestId as string);
       return undefined as T;
     }
-    requests.push((args?.request as { request_id: string }).request_id);
+    requests.push(voiceRequest(args).request_id);
     return new Promise<{ text: string }>(resolve => pending.push({ resolve })) as Promise<T>;
   };
   const stop = vi.fn();
@@ -46,7 +54,7 @@ test("stop retains the request identity for final streaming events", async () =>
   const stops: unknown[] = [];
   const invoke = async <T,>(command: string, args?: Record<string, unknown>): Promise<T> => {
     if (command === "stop_voice") { stops.push(args?.requestId); return undefined as T; }
-    requestId = (args?.request as { request_id: string }).request_id;
+    requestId = voiceRequest(args).request_id;
     return new Promise<{ text: string }>(done => { resolve = done; }) as Promise<T>;
   };
   const client = createVoiceRecognitionClient(invoke, async listener => { publish = listener; return () => {}; });

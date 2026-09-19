@@ -7,6 +7,10 @@ function query(matches: boolean) {
   const value = { matches, addEventListener: vi.fn((_: string, fn: () => void) => listeners.add(fn)),
     removeEventListener: vi.fn((_: string, fn: () => void) => listeners.delete(fn)) };
   return { media: value as unknown as MediaQueryList, listeners,
+    // The copy is the point: installConditionalFonts removes listeners from
+    // this Set while the change is being dispatched, and iterating the live Set
+    // would then skip the ones a previous callback removed.
+    // oxlint-disable-next-line unicorn/no-useless-spread
     change(next: boolean) { value.matches = next; for (const fn of [...listeners]) fn(); } };
 }
 test("nested conditions preserve source order, share listeners and clean up only owned fonts", () => {
