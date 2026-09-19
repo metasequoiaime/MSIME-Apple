@@ -1878,22 +1878,10 @@ public:
   bool toggleTraditional() {
     if (!session_ || view_.value("scheme", 0u) == 3) return false;
     traditional_ = !traditional_;
-    if (!options_path_.empty() && !private_) {
-      const auto directory = options_path_;
-      const auto enabled = traditional_;
-      preferences_save_job_ = std::async(std::launch::async, [directory, enabled] {
-        auto snapshot = response(msime_client_load_preferences(
-            reinterpret_cast<const uint8_t *>(directory.data()), directory.size()));
-        if (!snapshot.is_object() || !snapshot.contains("revision") ||
-            !snapshot.contains("preferences")) return Json::object();
-        snapshot["preferences"]["traditional_chinese_output"] = enabled;
-        const auto encoded = snapshot.dump();
-        return response(msime_client_save_preferences(
-            reinterpret_cast<const uint8_t *>(directory.data()), directory.size(),
-            snapshot.at("revision").get<uint64_t>(),
-            reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size()));
-      }).share();
-    }
+    preferences_["traditional_chinese_output"] = traditional_;
+    if (preferences_snapshot_.is_object() && preferences_snapshot_.contains("preferences"))
+      preferences_snapshot_["preferences"]["traditional_chinese_output"] = traditional_;
+    saveBooleanPreference("traditional_chinese_output", traditional_);
     render();
     return true;
   }
