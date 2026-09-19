@@ -84,6 +84,10 @@ int main() {
       frame.preedit = "U4e2d";
       frame.candidates.push_back({1, 1, 0, "中", true, {}, {}, false, {}});
       value = frame;
+      value->y = invalid_candidate_anchor_y;
+      window.refresh();
+      require(!IsWindowVisible(window.handle()) && !window.failed());
+      value->y = frame.y;
       const auto foreground = GetForegroundWindow();
       window.refresh();
       UpdateWindow(window.handle());
