@@ -714,6 +714,17 @@ group('limits candidate dictionary mutations to supported sources', () => {
     'unsupported candidates expose disabled actions');
 });
 
+group('omits deletion for single-code-point candidates', () => {
+  check(!CandidateManagementAction.hasMultipleCodePoints('你'),
+    'one CJK code point cannot be deleted from the dictionary menu');
+  check(!CandidateManagementAction.hasMultipleCodePoints('😀'),
+    'one supplementary code point is counted as one');
+  check(CandidateManagementAction.hasMultipleCodePoints('你好'),
+    'multi-code-point words keep the deletion action');
+  check(CandidateManagementAction.actionsForFixedPosition(0, true, false).length === 7,
+    'the delete row is omitted rather than merely disabled');
+});
+
 group('maps desktop candidate wheel movement to page commands', () => {
   check(CandidateWheelPolicy.previousPage(1), 'positive wheel movement pages up');
   check(!CandidateWheelPolicy.nextPage(1), 'positive movement does not page down');

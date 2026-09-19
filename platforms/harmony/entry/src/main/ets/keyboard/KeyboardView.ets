@@ -2044,9 +2044,12 @@ struct KeyboardView {
           ? this.candidates[this.managing].fixedPosition : 0;
         const source: number = this.managing >= 0 && this.managing < this.candidates.length
           ? this.candidates[this.managing].source : 0;
+        const text: string = this.managing >= 0 && this.managing < this.candidates.length
+          ? this.candidates[this.managing].text : '';
         const actionable: boolean = CandidateManagementAction.candidateActionsAvailable(
           this.engineScheme, source);
-        ForEach(CandidateManagementAction.actionsForFixedPosition(fixedPosition, actionable),
+        ForEach(CandidateManagementAction.actionsForFixedPosition(fixedPosition, actionable,
+          CandidateManagementAction.hasMultipleCodePoints(text)),
           (item: ManagementAction) => {
           Text(item.title)
             .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)

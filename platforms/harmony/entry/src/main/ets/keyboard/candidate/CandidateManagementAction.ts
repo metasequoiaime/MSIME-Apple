@@ -41,7 +41,8 @@ export class CandidateManagementAction {
   static readonly REMOVE: ManagementAction = ACTIONS[3];
 
   /** Windows exposes all five fixed slots and marks the currently held slot. */
-  static actionsForFixedPosition(fixedPosition: number, available: boolean = true): ManagementAction[] {
+  static actionsForFixedPosition(fixedPosition: number, available: boolean = true,
+                                  includeRemove: boolean = true): ManagementAction[] {
     const actions: ManagementAction[] = [{ ...CandidateManagementAction.PROMOTE, available: available }];
     for (let position: number = 1; position <= 5; position++) {
       actions.push({
@@ -60,12 +61,19 @@ export class CandidateManagementAction {
       menuItemId: MENU_ITEM_BASE + 6,
       available: available && fixedPosition > 0
     });
-    actions.push({
-      ...CandidateManagementAction.REMOVE,
-      menuItemId: MENU_ITEM_BASE + 7,
-      available: available
-    });
+    if (includeRemove) {
+      actions.push({
+        ...CandidateManagementAction.REMOVE,
+        menuItemId: MENU_ITEM_BASE + 7,
+        available: available
+      });
+    }
     return actions;
+  }
+
+  /** Windows omits deletion for a single Unicode code point. */
+  static hasMultipleCodePoints(text: string): boolean {
+    return Array.from(text).length !== 1;
   }
 
   /** Dictionary mutations are only valid for local/user-dictionary candidates. */
