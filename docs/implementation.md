@@ -1262,3 +1262,11 @@ MSIME-Apple 的语音服务目录里有两个共享客户端一直没有的转�
 顺带记录一个副作用：真机路径里的 `pod install --deployment` 会改写被跟踪的 `gen/apple/msime-desktop.xcodeproj/project.pbxproj`，往里加 Pods framework 引用。README 已说明 CocoaPods workspace 与 `Pods` 目录不入库，但没提这份工程文件也会被改；跑完真机构建后需要把它还原，否则工作区会带着构建产物。本次提交不包含该改动。
 
 本地验证：上述两条命令均完成，ipa 内容逐项解包确认。签名、设备安装、键盘启用和真实编辑器验收仍未执行，未改动任何构建以外的源码，CI 保持禁用。
+
+### macOS 构建的最低系统版本改为按目标语言下发
+
+`platforms/macos/README.md` 里三条命令都以 `MACOSX_DEPLOYMENT_TARGET=13.0` 统一设置最低系统版本。在当前 rustc 1.97.1 上，这个变量会一并作用到为宿主编译的 proc-macro 动态库：rustc 产出带 `minos 13.0` 的 `libzerofrom_derive.dylib` 之后就加载不了它，冷缓存构建以 `can't find crate for zerofrom_derive` 失败。cargo 不把该变量算进指纹，所以一旦某个产物目录里留下这份 proc-macro，后续即使不设该变量也会继续复用——失败因此看起来时有时无，也正是 `target/macos-isolated` 长期无法配置、其后 108 项原生测试从未报告过的原因。
+
+改为分别下发：`CFLAGS`、`CXXFLAGS` 给 C 与 C++ 目标，`CMAKE_OSX_DEPLOYMENT_TARGET` 给 Engine 的 CMake 构建。C/C++/Engine 目标文件仍是 `minos 13.0`，链接零版本告警；Rust 目标文件按 rustc 默认的 11.0 产出，低于 13.0 下限，不抬高最终 bundle 的最低系统版本。`platforms/macos/scripts/*.sh` 里的 `${MACOSX_DEPLOYMENT_TARGET:-13.0}` 保持不变，两种写法下都取 13.0。
+
+本地验证：在干净产物目录下按新写法构建 `msime-host-api` 成功，旧写法在同样条件下复现失败；隔离测试配置随后完成构建，`cmake --build` 的「built for newer 'macOS' version」告警从 1623 条降到 0 条。`ctest --test-dir target/macos-isolated` 首次跑通 108 项，104 passed；失败的 `local-mode-preferences`、`text-client`、`shortcut` 与 `scripts/known-failures.txt` 一致，另有 `shortcut-translations` 只在一次完整并行运行中失败、单独跑和第二次完整运行均通过，按该文件「基线取多次运行的并集」的约定作为偶发项补入。未执行签名安装、系统输入源切换或编辑器验收，CI 保持禁用。
