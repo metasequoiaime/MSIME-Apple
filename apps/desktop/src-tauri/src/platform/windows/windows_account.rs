@@ -124,7 +124,7 @@ pub fn setup(app: &tauri::AppHandle) -> Result<(), Box<dyn std::error::Error>> {
 async fn call<T, F>(
     state: tauri::State<'_, AccountState>,
     operation: F,
-) -> Result<T, super::CommandError>
+) -> Result<T, crate::CommandError>
 where
     T: Send + 'static,
     F: FnOnce(&Session) -> Result<T, AccountError> + Send + 'static,
@@ -132,16 +132,16 @@ where
     let session = Arc::clone(&state.session);
     tauri::async_runtime::spawn_blocking(move || operation(&session))
         .await
-        .map_err(|_| super::CommandError {
+        .map_err(|_| crate::CommandError {
             code: "account_unavailable",
         })?
-        .map_err(|error| super::CommandError { code: error.code() })
+        .map_err(|error| crate::CommandError { code: error.code() })
 }
 
 #[tauri::command]
 pub async fn account_status(
     state: tauri::State<'_, AccountState>,
-) -> Result<StatusResponse, super::CommandError> {
+) -> Result<StatusResponse, crate::CommandError> {
     call(state, |session| {
         session.status().map(|user| StatusResponse {
             user: user.map(Into::into),
@@ -153,7 +153,7 @@ pub async fn account_status(
 #[tauri::command]
 pub async fn account_providers(
     state: tauri::State<'_, AccountState>,
-) -> Result<ProvidersResponse, super::CommandError> {
+) -> Result<ProvidersResponse, crate::CommandError> {
     call(state, |session| session.providers().map(providers_response)).await
 }
 
@@ -162,7 +162,7 @@ pub async fn account_request_code(
     state: tauri::State<'_, AccountState>,
     provider: String,
     target: String,
-) -> Result<ChallengeResponse, super::CommandError> {
+) -> Result<ChallengeResponse, crate::CommandError> {
     call(state, move |session| {
         session.request_code(&provider, &target).map(Into::into)
     })
@@ -174,7 +174,7 @@ pub async fn account_login(
     state: tauri::State<'_, AccountState>,
     challenge_id: String,
     code: String,
-) -> Result<StatusResponse, super::CommandError> {
+) -> Result<StatusResponse, crate::CommandError> {
     call(state, move |session| {
         session
             .sign_in(&challenge_id, &code)
@@ -188,7 +188,7 @@ pub async fn account_login(
 #[tauri::command]
 pub async fn account_profile(
     state: tauri::State<'_, AccountState>,
-) -> Result<ProfileResponse, super::CommandError> {
+) -> Result<ProfileResponse, crate::CommandError> {
     call(state, |session| session.profile().map(Into::into)).await
 }
 
@@ -196,7 +196,7 @@ pub async fn account_profile(
 pub async fn account_rename(
     state: tauri::State<'_, AccountState>,
     display_name: String,
-) -> Result<ProfileResponse, super::CommandError> {
+) -> Result<ProfileResponse, crate::CommandError> {
     call(state, move |session| {
         session.rename(&display_name).map(Into::into)
     })
@@ -207,20 +207,20 @@ pub async fn account_rename(
 pub async fn account_logout(
     state: tauri::State<'_, AccountState>,
     all: bool,
-) -> Result<(), super::CommandError> {
+) -> Result<(), crate::CommandError> {
     call(state, move |session| session.logout(all)).await
 }
 
 #[tauri::command]
 pub async fn account_delete(
     state: tauri::State<'_, AccountState>,
-) -> Result<(), super::CommandError> {
+) -> Result<(), crate::CommandError> {
     call(state, |session| session.delete_account()).await
 }
 
 #[tauri::command]
 pub async fn account_forget(
     state: tauri::State<'_, AccountState>,
-) -> Result<(), super::CommandError> {
+) -> Result<(), crate::CommandError> {
     call(state, |session| session.forget()).await
 }

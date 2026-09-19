@@ -1,4 +1,4 @@
-use super::HostActionError;
+use crate::HostActionError;
 use msime_client_core::host_surface::{PanelSurface, SurfaceRoute};
 use msime_host_macos::panel_session::{PanelSession, SessionError};
 use std::sync::{
@@ -110,7 +110,7 @@ async fn submit_with_mode(
     text: String,
     clipboard: bool,
 ) -> Result<(), HostActionError> {
-    if !owns_input_panel(super::requested_surface_route(), window.label()) {
+    if !owns_input_panel(crate::requested_surface_route(), window.label()) {
         return Err(error(SessionError::Unavailable));
     }
     let state = app.state::<PanelState>();
@@ -170,7 +170,7 @@ pub(crate) fn close(
     app: &tauri::AppHandle,
     window: tauri::WebviewWindow,
 ) -> Result<(), HostActionError> {
-    if !owns_input_panel(super::requested_surface_route(), window.label()) {
+    if !owns_input_panel(crate::requested_surface_route(), window.label()) {
         return window
             .destroy()
             .map_err(|_| error(SessionError::Unavailable));
@@ -229,8 +229,8 @@ fn validate_submission(
 
 pub(crate) fn can_submit_clipboard(app: &tauri::AppHandle, label: &str) -> bool {
     let state = app.state::<PanelState>();
-    super::requested_surface_route() == Some(SurfaceRoute::CloudClipboard)
-        && owns_input_panel(super::requested_surface_route(), label)
+    crate::requested_surface_route() == Some(SurfaceRoute::CloudClipboard)
+        && owns_input_panel(crate::requested_surface_route(), label)
         && state.lifecycle.load(Ordering::Acquire) == 0
         && state
             .session

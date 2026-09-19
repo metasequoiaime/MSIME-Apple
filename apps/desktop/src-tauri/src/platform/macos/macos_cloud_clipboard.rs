@@ -17,16 +17,16 @@ impl CloudState {
         &self,
         label: &str,
         action: &Value,
-    ) -> Option<Result<Value, super::CommandError>> {
+    ) -> Option<Result<Value, crate::CommandError>> {
         self.0.as_ref().map(|session| {
             if label != "cloud-clipboard-panel" {
-                return Err(super::CommandError {
+                return Err(crate::CommandError {
                     code: "unavailable",
                 });
             }
             session
                 .request(action)
-                .map_err(|error| super::CommandError {
+                .map_err(|error| crate::CommandError {
                     code: match error {
                         CloudClipboardError::Invalid => "invalid",
                         CloudClipboardError::Unavailable => "unavailable",

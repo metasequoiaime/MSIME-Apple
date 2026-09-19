@@ -1,48 +1,21 @@
+mod platform;
+mod shared;
+
 #[cfg(target_os = "android")]
-#[path = "platform/android/android_account.rs"]
-mod android_account;
-#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos", test))]
-#[path = "platform/desktop/desktop_preferences_monitor.rs"]
-mod desktop_preferences_monitor;
-#[cfg(any(target_os = "ios", test))]
-#[path = "platform/ios/ios_account.rs"]
-mod ios_account;
+use platform::android::android_account;
+#[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
+use platform::desktop::desktop_preferences_monitor;
+#[cfg(target_os = "ios")]
+use platform::ios::ios_account;
 #[cfg(target_os = "linux")]
-#[path = "platform/linux/linux_audio_devices.rs"]
-mod linux_audio_devices;
-#[cfg(target_os = "linux")]
-#[path = "platform/linux/linux_clipboard.rs"]
-mod linux_clipboard;
-#[cfg(target_os = "linux")]
-#[path = "platform/linux/linux_process.rs"]
-mod linux_process;
+use platform::linux::{linux_audio_devices, linux_clipboard, linux_process};
 #[cfg(target_os = "macos")]
-#[path = "platform/macos/macos_account.rs"]
-mod macos_account;
-#[cfg(target_os = "macos")]
-#[path = "platform/macos/macos_cloud_clipboard.rs"]
-mod macos_cloud_clipboard;
-#[cfg(target_os = "macos")]
-#[path = "platform/macos/macos_cloud_dictionary.rs"]
-mod macos_cloud_dictionary;
-#[cfg(any(target_os = "macos", test))]
-#[path = "platform/macos/macos_handwriting.rs"]
-mod macos_handwriting;
-#[cfg(any(target_os = "macos", test))]
-#[path = "platform/macos/macos_input_source.rs"]
-mod macos_input_source;
-#[cfg(any(target_os = "macos", test))]
-#[path = "platform/macos/macos_keyboard.rs"]
-mod macos_keyboard;
-#[cfg(any(target_os = "macos", test))]
-#[path = "platform/macos/macos_launch.rs"]
-mod macos_launch;
-#[cfg(target_os = "macos")]
-#[path = "platform/macos/macos_panel_session.rs"]
-mod macos_panel_session;
-#[cfg(target_os = "windows")]
-#[path = "platform/windows/windows_account.rs"]
-mod windows_account;
+use platform::macos::{
+    macos_account, macos_cloud_clipboard, macos_cloud_dictionary, macos_handwriting,
+    macos_input_source, macos_keyboard, macos_launch, macos_panel_session,
+};
+#[cfg(windows)]
+use platform::windows::{windows_account, windows_voice};
 
 use msime_client_core::clipboard::{ClipboardHistoryEntry, ClipboardHistoryStore};
 use msime_client_core::custom_skin_library::{
@@ -96,23 +69,15 @@ use tauri::Manager;
 #[cfg(not(mobile))]
 use tauri::{WebviewUrl, WebviewWindowBuilder};
 
-#[path = "shared/mobile_ai.rs"]
-mod mobile_ai;
-#[path = "shared/skin_directory.rs"]
-mod skin_directory;
-#[cfg(any(target_os = "linux", target_os = "windows", test))]
-#[path = "shared/voice/voice_output.rs"]
-mod voice_output;
+use msime_host_api::system_fonts;
+use shared::skin_directory;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+use shared::voice::voice_output;
 #[cfg(any(
     all(unix, not(any(target_os = "ios", target_os = "android"))),
     target_os = "windows"
 ))]
-#[path = "shared/voice/voice_sessions.rs"]
-mod voice_sessions;
-#[cfg(windows)]
-#[path = "platform/windows/windows_voice.rs"]
-mod windows_voice;
-use msime_host_api::system_fonts;
+use shared::voice::voice_sessions;
 
 #[tauri::command]
 fn supports_font_catalog() -> bool {
@@ -6073,12 +6038,11 @@ pub fn run() {
         });
 }
 
-#[cfg(all(test, any(target_os = "macos", target_os = "windows")))]
-#[path = "tests/credential_command_tests.rs"]
-mod credential_command_tests;
-
 #[cfg(test)]
 mod tests {
+    #[cfg(any(target_os = "macos", target_os = "windows"))]
+    mod credential_command_tests;
+
     #[cfg(not(target_os = "android"))]
     #[test]
     fn ai_endpoint_validation_accepts_http_api_urls_and_rejects_unsafe_urls() {
