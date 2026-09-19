@@ -22,6 +22,12 @@
 
 ## 当前证据
 
+### Android 候选在线译义会话失效保护（2026-09-22）
+
+Android 候选在线译义的后台请求现在绑定到 `CandidateTranslationStore` 的请求 epoch。刷新偏好、切换候选代次或结束输入会使旧请求失效；迟到的翻译结果不会写入新会话缓存，也不会触发候选重绘。该边界只保护可选的显示数据，不复制翻译算法、不改变候选身份或输入上屏。
+
+新增可控调度器回归，覆盖后台请求已开始后清空 store 的竞态；旧结果被丢弃且不通知宿主。Android host Java/API、manifest/resource 和全部现有 JVM smoke 通过；未执行真实翻译服务、设备网络或系统输入法产品验收，CI 保持禁用。
+
 ### Android Tauri 可移植 Gradle 配置（2026-09-20）
 
 Android 合包不再要求某个旧 worktree 先留下被忽略的 `tauri.settings.gradle` 与 `tauri.build.gradle.kts`。受版本控制的 Gradle 工程从 `TAURI_ANDROID_DIR` 或当前 Cargo registry 发现 Tauri Android module，`build-client-apk.sh` 则通过锁定 Cargo metadata 注入精确 crate 路径；共享 React 首页同时将 Apple 的按压缩放与透明度反馈覆盖到键盘、快捷、功能和设置卡片，并尊重 reduced-motion。

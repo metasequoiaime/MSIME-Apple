@@ -11,6 +11,12 @@ import java.util.concurrent.ExecutorService;
 
 /** Debounced, display-only online candidate translation cache. All callbacks run on main. */
 public final class CandidateTranslationStore {
+    interface Scheduler {
+        void post(Runnable action);
+        void postDelayed(Runnable action, long delayMillis);
+        void removeCallbacks(Runnable action);
+    }
+
     public interface Service {
         List<String> translate(List<String> texts, String target) throws Exception;
     }
@@ -20,11 +26,12 @@ public final class CandidateTranslationStore {
     public static final long QUIET_INTERVAL_MILLIS = 350;
     private final Service service;
     private final ExecutorService worker;
-    private final Handler main;
+    private final Scheduler scheduler;
     private final Listener listener;
     private final Map<String, String> cache = new LinkedHashMap<>();
     private Runnable pending;
     private String signature;
+    private long requestEpoch;
 
     public CandidateTranslationStore(Context context, ExecutorService worker, Handler main,
                                      Listener listener) {
@@ -33,9 +40,14 @@ public final class CandidateTranslationStore {
 
     public CandidateTranslationStore(Service service, ExecutorService worker, Handler main,
                                      Listener listener) {
+        this(service, worker, new HandlerScheduler(main), listener);
+    }
+
+    CandidateTranslationStore(Service service, ExecutorService worker, Scheduler scheduler,
+                               Listener listener) {
         this.service = service;
         this.worker = worker;
-        this.main = main;
+        this.scheduler = scheduler;
         this.listener = listener;
     }
 
@@ -70,12 +82,14 @@ public final class CandidateTranslationStore {
             if (translatable(word) && !wanted.contains(word)) wanted.add(word);
         }
         if (wanted.isEmpty()) return;
-        pending = () -> send(wanted, requestedTargets, generation);
-        main.postDelayed(pending, QUIET_INTERVAL_MILLIS);
+        long epoch = requestEpoch;
+        pending = () -> send(wanted, requestedTargets, generation, epoch);
+        scheduler.postDelayed(pending, QUIET_INTERVAL_MILLIS);
     }
 
     public void cancel() {
-        if (pending != null) main.removeCallbacks(pending);
+        requestEpoch = requestEpoch == Long.MAX_VALUE ? 0 : requestEpoch + 1;
+        if (pending != null) scheduler.removeCallbacks(pending);
         pending = null;
     }
 
@@ -85,8 +99,9 @@ public final class CandidateTranslationStore {
         signature = null;
     }
 
-    private void send(List<String> words, List<String> targets, long generation) {
+    private void send(List<String> words, List<String> targets, long generation, long epoch) {
         pending = null;
+        if (epoch != requestEpoch) return;
         String stamp = String.join(",", targets) + "|" + generation + "|" + String.join("|", words);
         if (stamp.equals(signature)) return;
         Map<String, ArrayList<String>> requests = new LinkedHashMap<>();
@@ -106,7 +121,7 @@ public final class CandidateTranslationStore {
                     ArrayList<String> missing = request.getValue();
                     try {
                         List<String> values = service.translate(missing, target);
-                        main.post(() -> absorb(target, generation, missing, values));
+                        scheduler.post(() -> absorb(epoch, target, generation, missing, values));
                     } catch (Exception ignored) {
                         // Optional display data must never disturb input or expose response text.
                     }
@@ -117,7 +132,9 @@ public final class CandidateTranslationStore {
         }
     }
 
-    private void absorb(String target, long generation, List<String> words, List<String> values) {
+    private void absorb(long epoch, String target, long generation,
+                        List<String> words, List<String> values) {
+        if (epoch != requestEpoch) return;
         if (values == null || words.size() != values.size()) return;
         boolean arrived = false;
         for (int index = 0; index < words.size(); index++) {
@@ -128,6 +145,18 @@ public final class CandidateTranslationStore {
             arrived = true;
         }
         if (arrived) listener.onArrival(generation);
+    }
+
+    private static final class HandlerScheduler implements Scheduler {
+        private final Handler handler;
+
+        HandlerScheduler(Handler handler) { this.handler = handler; }
+
+        @Override public void post(Runnable action) { handler.post(action); }
+        @Override public void postDelayed(Runnable action, long delayMillis) {
+            handler.postDelayed(action, delayMillis);
+        }
+        @Override public void removeCallbacks(Runnable action) { handler.removeCallbacks(action); }
     }
 
     private static String key(String target, String word) { return target + "|" + word; }
