@@ -32,7 +32,7 @@ struct CloudCandidatesView: View {
 
   var body: some View {
     List {
-      Section(kind.title) {
+      Section {
         TextField("输入编码", text: $text).backendCodeInput()
         if kind == .pinyin {
           Toggle("简拼候选", isOn: $jianpin)
@@ -44,11 +44,13 @@ struct CloudCandidatesView: View {
             }
           }
         }
-        Button("查询云端候选") {
+        SettingsActionRow(title: "查询云端候选", symbol: "magnifyingglass", color: .blue, enabled: !text.isEmpty) {
           run { try await load(.init(text: text, kind: jianpin && kind == .pinyin ? "jianpin" : kind.rawValue, scheme: scheme, profile: profile, limit: 100)) }
-        }.disabled(text.isEmpty)
+        }
+      } header: {
+        Text(kind.title)
+      } footer: {
         Text("仅在点击查询时发送这里输入的编码。排序和固定位置由服务器输入引擎计算，修改保存到当前账号；本机键盘尚需完整同步才能采用云端状态。")
-          .font(.footnote).foregroundStyle(.secondary)
       }
       if kind != .quick {
         Section("调频方式") {
@@ -60,38 +62,47 @@ struct CloudCandidatesView: View {
         }
       }
       if let page {
-        Section("当前查询候选 · 版本 \(page.revision)") {
+        Section {
           if page.candidates.isEmpty { Text("没有匹配的候选。").foregroundStyle(.secondary) }
+
           ForEach(Array(page.candidates.enumerated()), id: \.element.id) { index, candidate in
-            VStack(alignment: .leading, spacing: 6) {
+            VStack(alignment: .leading, spacing: 3) {
               Text("\(index + 1). \(candidate.word)")
               Text("\(candidate.code) · 权重 \(candidate.weight)").font(.caption).foregroundStyle(.secondary)
+            }
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .contentShape(Rectangle())
+            .onTapGesture { if kind != .quick { action = .rank(candidate) } }
+            .swipeActions(edge: .trailing) {
               if kind != .quick {
-                HStack {
-                  Button("调频") { action = .rank(candidate) }
-                  Button("固定") { action = .fix(candidate) }
-                  Button("删除", role: .destructive) { action = .remove(candidate) }
-                    .disabled(kind != .english && candidate.word.unicodeScalars.count <= 1)
-                }.buttonStyle(.borderless)
+                Button("删除", role: .destructive) { action = .remove(candidate) }
+                  .disabled(kind != .english && candidate.word.unicodeScalars.count <= 1)
+                Button("固定") { action = .fix(candidate) }.tint(.blue)
               }
             }
           }
+        } header: {
+          Text("当前查询候选 · 版本 \(page.revision)")
+        } footer: {
+          if kind != .quick { Text("点一条调频，左滑固定到指定位置或删除。") }
         }
         if !positions.isEmpty {
-          Section("此查询的固定位置") {
+          Section {
             ForEach(positions) { item in
-              HStack {
-                Text("第 \(item.position) 位 · \(item.word)")
-                Spacer()
-                Button("取消固定") { action = .unfix(item) }.buttonStyle(.borderless)
-              }
+              Text("第 \(item.position) 位 · \(item.word)")
+                .swipeActions(edge: .trailing) {
+                  Button("取消固定", role: .destructive) { action = .unfix(item) }
+                }
             }
+          } header: {
+            Text("此查询的固定位置")
+          } footer: {
+            Text("左滑取消固定。")
           }
         }
       }
-      if busy { ProgressView("正在处理…") }
-      if let message { Text(message).foregroundStyle(.secondary) }
     }
+    .settingsStatus(busy: busy, message: message)
     .navigationTitle("云端候选排序")
     .disabled(busy)
     .onDisappear { pending?.cancel(); page = nil; positions = [] }
@@ -142,4 +153,3 @@ struct CloudCandidatesView: View {
     }
   }
 }
-
