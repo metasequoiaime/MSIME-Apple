@@ -15,6 +15,7 @@
 - 增加[网络请求与数据流向](PRIVACY.md)，逐项记录每个联网功能的发送内容、目的地、默认开关和对应代码位置，并指向 <https://msime.app/privacy/> 的隐私政策。云联想默认开启且会把正在组的拼音发给 Google 输入工具这一既有行为，此前只写在 Android 平台 README 里。
 - 增加 `.editorconfig`，记录仓库既有的缩进与换行约定。
 - 增加[第三方组件清单](docs/third-party.md)，汇总固定上游、随包资源、各平台 SDK 的许可证与通知文件位置，并标出尚未记录来源的部分。README 现在也明确声明本项目为 GPL-3.0-only。
+- 前端接入 Vite+ 的 Oxlint 与 Oxfmt，补齐与 Rust 侧 clippy／rustfmt 对应的门禁：`pnpm lint` 与 `pnpm format:check` 进入本地完整验证，暂存文件的格式检查进入 `pre-commit` 钩子。一次性按 Oxfmt 重排了全部前端源码；`packages/ui/src/upstream` 与 `apps/desktop/src-tauri/gen` 保持原样。Oxfmt 0.68.0 不幂等，`pnpm format` 需连跑两次才会收敛。
 
 ### 验证范围
 
