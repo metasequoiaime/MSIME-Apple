@@ -1360,7 +1360,6 @@ fn ios_personal_dictionary_action(action: &Value) -> bool {
 
 #[cfg(target_os = "ios")]
 fn ios_personal_dictionary_request(request: &Value) -> Result<Value, CommandError> {
-    use std::ffi::CStr;
     let bytes = serde_json::to_vec(
         request
             .get("action")
@@ -1370,12 +1369,8 @@ fn ios_personal_dictionary_request(request: &Value) -> Result<Value, CommandErro
     if bytes.len() > 1_200_000 {
         return Err(CommandError { code: "storage" });
     }
-    let pointer = unsafe { msime_ios_personal_dictionary_request(bytes.as_ptr(), bytes.len()) };
-    if pointer.is_null() {
-        return Err(CommandError { code: "storage" });
-    }
-    let response = unsafe { CStr::from_ptr(pointer) }.to_bytes().to_vec();
-    unsafe { msime_ios_personal_dictionary_string_free(pointer) };
+    let response = msime_ios_native_ffi::personal_dictionary_request(&bytes)
+        .ok_or(CommandError { code: "storage" })?;
     let envelope: Value =
         serde_json::from_slice(&response).map_err(|_| CommandError { code: "storage" })?;
     if envelope.get("ok") == Some(&Value::Bool(true)) {
@@ -1393,15 +1388,6 @@ fn ios_personal_dictionary_request(request: &Value) -> Result<Value, CommandErro
         _ => "storage",
     };
     Err(CommandError { code })
-}
-
-#[cfg(target_os = "ios")]
-unsafe extern "C" {
-    fn msime_ios_personal_dictionary_request(
-        request: *const u8,
-        length: usize,
-    ) -> *mut std::ffi::c_char;
-    fn msime_ios_personal_dictionary_string_free(value: *mut std::ffi::c_char);
 }
 
 #[tauri::command]

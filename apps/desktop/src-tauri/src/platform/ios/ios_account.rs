@@ -778,7 +778,6 @@ pub async fn community_skin_download(
 
 #[cfg(target_os = "ios")]
 fn snapshot_bridge(action: Value) -> Result<Value, super::CommandError> {
-    use std::ffi::CStr;
     let bytes = serde_json::to_vec(&action).map_err(|_| super::CommandError {
         code: "snapshot_invalid",
     })?;
@@ -787,14 +786,10 @@ fn snapshot_bridge(action: Value) -> Result<Value, super::CommandError> {
             code: "snapshot_invalid",
         });
     }
-    let pointer = unsafe { msime_ios_dictionary_snapshot_request(bytes.as_ptr(), bytes.len()) };
-    if pointer.is_null() {
-        return Err(super::CommandError {
+    let response =
+        msime_ios_native_ffi::dictionary_snapshot_request(&bytes).ok_or(super::CommandError {
             code: "snapshot_unavailable",
-        });
-    }
-    let response = unsafe { CStr::from_ptr(pointer) }.to_bytes().to_vec();
-    unsafe { msime_ios_dictionary_snapshot_string_free(pointer) };
+        })?;
     let envelope: Value = serde_json::from_slice(&response).map_err(|_| super::CommandError {
         code: "snapshot_unavailable",
     })?;
@@ -810,15 +805,6 @@ fn snapshot_bridge(action: Value) -> Result<Value, super::CommandError> {
         _ => "snapshot_unavailable",
     };
     Err(super::CommandError { code })
-}
-
-#[cfg(target_os = "ios")]
-unsafe extern "C" {
-    fn msime_ios_dictionary_snapshot_request(
-        request: *const u8,
-        length: usize,
-    ) -> *mut std::ffi::c_char;
-    fn msime_ios_dictionary_snapshot_string_free(value: *mut std::ffi::c_char);
 }
 
 #[cfg(target_os = "ios")]
