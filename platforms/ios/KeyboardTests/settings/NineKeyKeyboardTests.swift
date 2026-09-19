@@ -1497,6 +1497,38 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
+  func testSpellingStripReusesItsButtonsBetweenKeystrokes() throws {
+    let previousScheme = InputSchemePreference.scheme
+    let previousEnabled = InputSchemePreference.enabledSchemes
+    defer {
+      InputSchemePreference.enabledSchemes = previousEnabled
+      InputSchemePreference.scheme = previousScheme
+    }
+    InputSchemePreference.enabledSchemes = [.quanpin, .nineKey]
+    InputSchemePreference.scheme = .nineKey
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 292)
+    controller.viewWillAppear(false)
+    controller.view.layoutIfNeeded()
+
+    try button("nineKey6", in: controller).sendActions(for: .primaryActionTriggered)
+    try button("nineKey4", in: controller).sendActions(for: .primaryActionTriggered)
+    let strip = try XCTUnwrap(descendants(controller.view).first {
+      $0.accessibilityIdentifier == "nineKeySpellingStrip"
+    } as? UIScrollView)
+    let first = descendants(strip).compactMap { $0 as? UIButton }.filter { !$0.isHidden }
+    XCTAssertFalse(first.isEmpty)
+
+    try button("nineKey6", in: controller).sendActions(for: .primaryActionTriggered)
+    let second = descendants(strip).compactMap { $0 as? UIButton }.filter { !$0.isHidden }
+    XCTAssertFalse(second.isEmpty)
+    for (before, after) in zip(first, second) {
+      XCTAssertTrue(before === after)
+    }
+    XCTAssertTrue(second.contains { ($0.accessibilityIdentifier ?? "").hasPrefix("nineKeySpelling_") })
+  }
+
   func testNineKeyInputAndLayoutSwitches() throws {
     let previous = InputSchemePreference.scheme
     InputSchemePreference.scheme = .nineKey

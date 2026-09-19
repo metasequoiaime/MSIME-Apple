@@ -152,6 +152,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private let nineKeyContainer = UIStackView()
   private let spellingScrollView = UIScrollView()
   private let spellingStack = UIStackView()
+  private var spellingButtons: [UIButton] = []
   private var usesTraditionalOutput = false
   private var replyPanelSuppressed = false
   private var reportedStatisticsFailure = false
@@ -1044,9 +1045,23 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func updateSpellingStrip() {
-    spellingStack.arrangedSubviews.forEach { $0.removeFromSuperview() }
-    for (index, spelling) in session.nineKeySpellings().enumerated() {
+    let spellings = session.nineKeySpellings()
+    while spellingButtons.count < spellings.count {
       let button = UIButton(type: .system)
+      button.addAction(UIAction { [weak self, weak button] _ in
+        guard let self, let button else { return }
+        self.playInputClick()
+        self.render(self.session.chooseNineKeySpelling(at: UInt(button.tag)))
+      }, for: .primaryActionTriggered)
+      spellingButtons.append(button)
+      spellingStack.addArrangedSubview(button)
+    }
+    for (index, button) in spellingButtons.enumerated() {
+      guard spellings.indices.contains(index) else {
+        button.isHidden = true
+        continue
+      }
+      let spelling = spellings[index]
       var configuration = UIButton.Configuration.tinted()
       configuration.title = spelling
       configuration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 2, bottom: 6, trailing: 2)
@@ -1057,14 +1072,10 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       }
       configuration.baseForegroundColor = KeyboardSkinPreference.selected.accent
       button.configuration = configuration
+      button.tag = index
+      button.isHidden = false
       button.accessibilityLabel = "选择拼音 \(spelling)"
       button.accessibilityIdentifier = "nineKeySpelling_\(spelling)"
-      button.addAction(UIAction { [weak self] _ in
-        guard let self else { return }
-        self.playInputClick()
-        self.render(self.session.chooseNineKeySpelling(at: UInt(index)))
-      }, for: .primaryActionTriggered)
-      spellingStack.addArrangedSubview(button)
     }
     spellingScrollView.setContentOffset(.zero, animated: false)
     updateKeyboardLayout()
