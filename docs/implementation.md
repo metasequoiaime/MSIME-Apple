@@ -1424,3 +1424,11 @@ MSIME-Apple 的语音服务目录里有两个共享客户端一直没有的转�
 `platforms/ios/README.md` 里「紧跟 ASCII 字母/数字会保留 ASCII」的说法漏了这个前提，读起来像是默认行为，一并补上两个开关的名字和默认值。
 
 本地验证：完整 iOS Swift 套件 210 通过、1 跳过、0 失败（此前为 210 通过、1 跳过、1 失败）。未改动任何路由实现或偏好默认值，CI 保持禁用。
+
+### iOS 模拟器启动崩溃的证据边界校准
+
+此前把启动崩溃直接写成「崩溃栈落在 `wry::webview_version()`」，实际能实测到的只到 `+[NSBundle bundleWithIdentifier:]` 以下的 CoreFoundation 帧——应用侧的调用者帧在 release 产物里未符号化。补做的 debug 构建同样复现崩溃，但在本机反复抹除/重启后模拟器的 launch 服务进入坏状态（`ipc/mig server died`），没能拿到符号化调用栈。
+
+因此把 README 的说法拆成两层：实测部分列出崩溃报告里的完整 CoreFoundation 调用链；调用方为 wry 是推断，并写明推断依据——依赖树里只有 `wry::platform_webview_version` 调用 `bundleWithIdentifier`，`tauri-runtime-wry` 在 `Wry::init` 中无条件执行该探测，产物二进制里能找到 `com.apple.WebKit` 与该函数的错误字符串，且 wry 0.57 的同一函数未改动。结论不变（不在仓库代码内、未改 vendored crate），但读者能看出哪一部分是观测、哪一部分是推断。
+
+本地验证：debug 构建、ad-hoc 签名安装、干净设备复现各一次；未改动代码，CI 保持禁用。
