@@ -21,7 +21,7 @@ it does not decide. Nothing here is a gate.
 Input is convert_eval's `--dump` JSONL, which carries the real candidate list, the gold and the
 context. Text sent to the API is licensed corpus, never user input.
 
-usage: TYPESAFE_API_KEY=... review_harvest.py <dump.jsonl> <out-prefix>
+usage: TYPESAFE_API_KEY=... scripts/review-harvested-cases.py <dump.jsonl> <out-prefix>
 """
 
 import json

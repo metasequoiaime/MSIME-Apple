@@ -51,6 +51,59 @@ cargo run --release -p msime-input-runtime --example rerank_latency -- \
 
 标签分布：`function-word` 10、`seg-ambiguity` 12、`homophone` 12、`number-measure` 6、`name-place` 6、`long-sentence` 8、`short-phrase` 6。人名一律是常见姓 + 通用名，不含真实个人信息。
 
+## 往整句集里加用例
+
+手写不是唯一来源。真实行文自己就是金标准：把句子用 Engine 自己的拼音表转成拼音，再把拼音打回去，首选不是原句的就是一个带已知正确答案、并且带着真实上文的失败用例。三步，最后一步是人。
+
+上文那一列是第 6 列，`sentences-v1.tsv` 的手写行没有它，读作空串，两个既有基线因此逐字节不变。它存在的理由和 `sentences-v1.tsv` 那节说的是同一件事：把 会议 排在 回忆 前面是关于前文的判断，一个没有前文的集合问不出这个问题。**上文是 seed 进已提交历史的，不是当按键重放的**——重放会让每条用例的成绩取决于上一句转得好不好，而那正是逐例测量要排除的混淆。
+
+### 一、收割
+
+```sh
+cargo run --release -p msime-input-runtime --example harvest_eval_set -- \
+  --resources <已校验的词库目录> \
+  --corpus <一行一篇的纯文本> \
+  --out target/harvest.tsv \
+  --attribution "语料来源与授权"
+```
+
+`--limit N` 限收录条数，`--min-chars` / `--max-chars` 限句长。署名写进输出文件头：C4 中文部分是 ODC-BY，LCCC 是 MIT，两者都要求署名跟着文本走，而一份收割出来的句子就是那些文本。
+
+**语料必须一行一篇、保留标点、句序不变。** 上文取自前一句，所以标点被剥掉或句子被打乱的语料只能永远产出空上文。`chinese-ime-lm` 的 `corpus/fetch.py` 输出不合格：它的 `segment()` 只保留汉字串并按固定宽度切断，那对训练字模型是对的，对这里是错的。解压与 JSON 拆包在这个 example 之外做——它只读纯文本，这是它不依赖任何语料格式的原因。
+
+**资源目录里必须有 `sentence-model.safetensors`。** 没有模型时它打印 `no model at ...` 并去挖引擎单独会错的用例，而产品是带重排发货的：第一批这样挖到的 108 条，重排自己就修好了 80.6%，几乎整批都是产品不需要做的工。挂上模型后同一份语料 2578 句只留下 100 条失败，失败率从 8.5% 降到 3.9%。
+
+输出 8 列，比评测集多「当前首选」和「金标准排名」供评审时看。它**不是评测集**：它只证明「解码器没还原出原文」，没有判断过原文是不是该拼音串唯一自然的写法。
+
+### 二、机器初筛
+
+评审要看真实候选，所以先让 `convert_eval` 把收割文件跑一遍并导出。它读第 6 列作上文，多出来的两列忽略：
+
+```sh
+cargo run --release -p msime-input-runtime --example convert_eval -- \
+  --resources <已校验的词库目录> \
+  --set target/harvest.tsv \
+  --dump target/harvest.jsonl
+
+TYPESAFE_API_KEY=... scripts/review-harvested-cases.py target/harvest.jsonl target/harvest
+```
+
+脚本对每条问两个互不依赖的问题：在解码器实际产出的那些写法之间做选择，以及「这串拼音是不是有不止一种同样自然的写法」——后者就是上面那条排除规则本身，直接问出来。选择落在原文、且歧义没有强烈否决的，写进 `target/harvest-accepted.tsv`，列与 `sentences-v1.tsv` 一致、可直接粘；其余连同理由写进 `target/harvest-flagged.tsv`。150 条一轮约 9 万 input token，$0.004。
+
+**选择是主判据，歧义只作强否决。** 第一版在歧义 >0.40 就否决，砍掉 150 条里的 70 条，而这 70 条的选择全都落在原文上——0.5 附近意味着模型对「是」和「否」给出相近概率，不是「中等歧义」，那个阈值是在抛硬币的区间里下判断。改成 >0.65 才否决后通过 108 条。阈值是在这批数据上的起点，不是定论。
+
+**它只提议，不决定，也不是门禁。**
+
+### 三、人工确认，这一步才产生评测集
+
+逐行读 `harvest-accepted.tsv`，只问一件事：这串拼音是不是只有原文这一种自然写法？是就把该行粘进 `sentences-v1.tsv`，拿不准就丢。少一条没关系，多一条两可的句子会让之后每一次比较都测不准。
+
+`flagged` 里 `disagrees-with-original` 那一档通常直接丢：语料自带错别字——LCCC 里有 我说连累我**阿**（该是 啊）、没什么**拉**（该是 啦），这时「金标准」本身就是错的，150 条里有 23 条属于这一档。聊天记录对这件事是嘈杂的来源，带标点的连续行文才是这套流程想要的语料。
+
+并入后重跑 `convert_eval` 并 `--update-baseline`，基线 JSON 才对得上新的集合。
+
+**对话语料的「上文」不是这个意义上的上文。** LCCC 是对话轮次，前一句是对方说的话，而模型把上文当作「我刚提交的内容」。150 条带上文重跑，top-1 从 0.687 掉到 0.667——3 条，噪声内，方向还不对。这说明机制通了，不说明有收益；要上文真正起作用，语料得是保留标点的连续行文。
+
 ## 为什么报告要分 source
 
 候选带 `source`，对应 `vendor/MSIME-Engine/core/word_item.h` 的 `CandidateSource`。3 音节以上时 Engine 加入词图路径（`sentence_alternatives` 打开时是多条，关闭时一条），随后**在 Google-Pinyin 回退产出了整句的前提下**把那条回退搬到 index 0（`quanpin/quanpin_dictionary.cpp`，注释原文：「The lattice is a secondary source」）。
