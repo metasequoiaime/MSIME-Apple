@@ -36,6 +36,23 @@ void only_the_fix_row_carries_a_submenu() {
   assert(submenus == 1);
 }
 
+// Display-only candidates keep the same menu shape, but every dictionary
+// action must be inert; the Server remains a second validation boundary.
+void display_only_candidates_are_inert() {
+  const auto items = candidate_menu_items(2, false);
+  for (const auto &item : items)
+    assert(!item.available);
+  const auto metrics = CandidateMenuMetrics{};
+  for (size_t i = 0; i < items.size(); ++i) {
+    const auto row = candidate_menu_row(i, items, metrics);
+    assert(!candidate_menu_hit(metrics.width / 2.0, row.top + 1.0, items,
+                               metrics));
+  }
+  const auto submenu = candidate_menu_submenu_items(false, 3);
+  for (const auto &item : submenu)
+    assert(!item.available);
+}
+
 // The submenu offers exactly the five positions the protocol accepts, each
 // distinct, plus 取消固定 under a separator.
 void submenu_offers_five_positions_and_a_clear() {
@@ -216,6 +233,7 @@ void invalid_placement_is_refused() {
 int main() {
   delete_is_offered_only_for_words();
   only_the_fix_row_carries_a_submenu();
+  display_only_candidates_are_inert();
   submenu_offers_five_positions_and_a_clear();
   rows_tile_the_card_without_gaps();
   separators_are_never_hit();

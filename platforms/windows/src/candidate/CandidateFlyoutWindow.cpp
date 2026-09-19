@@ -124,7 +124,8 @@ void CandidateFlyoutWindow::close_submenu() noexcept {
 }
 
 bool CandidateFlyoutWindow::open(int pointer_x, int pointer_y,
-                                 size_t code_points) noexcept {
+                                 size_t code_points, bool actions_available,
+                                 int fixed_position) noexcept {
   try {
     if (failed_)
       return false;
@@ -136,7 +137,9 @@ bool CandidateFlyoutWindow::open(int pointer_x, int pointer_y,
                                           MONITOR_DEFAULTTONEAREST),
                          &monitor))
       throw std::runtime_error("Candidate menu monitor unavailable");
-    auto items = candidate_menu_items(code_points);
+    actions_available_ = actions_available;
+    fixed_position_ = fixed_position;
+    auto items = candidate_menu_items(code_points, actions_available_);
     menu_.dpi = GetDpiForWindow(menu_.window);
     const auto &work = monitor.rcWork;
     const auto bounds = candidate_menu_bounds(
@@ -197,7 +200,7 @@ void CandidateFlyoutWindow::open_submenu() {
   if (!GetMonitorInfoW(MonitorFromWindow(menu_.window, MONITOR_DEFAULTTONEAREST),
                        &monitor))
     return;
-  auto items = candidate_menu_submenu_items();
+  auto items = candidate_menu_submenu_items(actions_available_, fixed_position_);
   submenu_.dpi = menu_.dpi;
   const double scale = static_cast<double>(menu_.dpi) / 96.0;
   const auto row = candidate_menu_row(menu_.hovered, menu_.items, metrics_);
@@ -228,7 +231,8 @@ void CandidateFlyoutWindow::track(Panel &panel, int x, int y) {
 }
 
 void CandidateFlyoutWindow::choose(const Panel &panel, size_t index) {
-  if (index >= panel.items.size() || panel.items[index].separator)
+  if (index >= panel.items.size() || panel.items[index].separator ||
+      !panel.items[index].available)
     return;
   const auto &item = panel.items[index];
   // A submenu row is not a command; it only opens the list beside it.
@@ -301,7 +305,10 @@ void CandidateFlyoutWindow::paint(Panel &panel) {
       target->FillRoundedRectangle(
           {rect, palette_.item_radius, palette_.item_radius},
           brush(palette_.menu_hover));
-    auto *row_brush = brush(palette_.menu_text);
+    auto text_color = palette_.menu_text;
+    if (!panel.items[index].available)
+      text_color.a *= 0.5f;
+    auto *row_brush = brush(text_color);
     const auto label = wide(panel.items[index].label);
     target->DrawText(label.c_str(), static_cast<UINT32>(label.size()),
                      label_format,

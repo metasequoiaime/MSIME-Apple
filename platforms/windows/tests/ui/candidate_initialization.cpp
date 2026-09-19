@@ -11,7 +11,12 @@ int main() {
   reply.source.transition = {{"view", {
       {"session", 2}, {"generation", 3}, {"focused", true},
       {"editing_text", "synthetic"}, {"preedit", "synthetic"},
-      {"candidates", nlohmann::json::array()}}}};
+      {"scheme", 0},
+      {"candidates", nlohmann::json::array({
+          {{"id", {{"session", 2}, {"generation", 3}, {"index", 0}}},
+           {"text", "cloud"}, {"source", 2}, {"highlighted", true}},
+          {{"id", {{"session", 2}, {"generation", 3}, {"index", 1}}},
+           {"text", "local"}, {"source", 0}, {"highlighted", false}}})}};
   FanyImeNamedpipeData packet{};
   packet.client_id = 42;
   packet.request_id = 7;
@@ -23,7 +28,9 @@ int main() {
   assert(visible.session == 2 && visible.generation == 3);
   assert(visible.x == 12 && visible.y == 34);
   assert(visible.preedit_caret == std::string::npos);
-  assert(visible.candidates.empty() && !visible.traditional_output);
+  assert(visible.candidates.size() == 2 &&
+         !visible.candidates[0].actions_available &&
+         visible.candidates[1].actions_available && !visible.traditional_output);
   packet.modifiers_down = FanyImePipeFlags::UiLess;
   const auto hidden = candidate_presentation(lease, reply, packet);
   assert(!hidden.visible && hidden.preedit.empty());

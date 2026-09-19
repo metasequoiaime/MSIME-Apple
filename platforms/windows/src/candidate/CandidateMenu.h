@@ -6,6 +6,7 @@
 #include <string>
 #include <stdexcept>
 #include <vector>
+#include "CandidateActionAvailability.h"
 
 namespace msime::windows {
 // The candidate right-click menu, mirroring the rows the IBus host already
@@ -28,16 +29,6 @@ struct CandidateMenuItem {
 
 // Slots the Engine accepts for a fixed candidate.
 inline constexpr uint8_t candidate_fix_slots = 5;
-
-// Japanese input has no persistable user-dictionary entry, and only these
-// candidate sources can be written back. Same rule the IBus host applies
-// before calling the shared entry points (ClientEngine.cpp:3142-3145).
-inline constexpr int candidate_scheme_japanese = 3;
-inline bool candidate_actions_available(int scheme, int source) {
-  if (scheme == candidate_scheme_japanese)
-    return false;
-  return source == 0 || source == 1 || source == 4;
-}
 
 // Count Unicode code points, pairing surrogates, the way the reference does
 // before deciding whether 删除 applies (candidate_presenter.cpp:665-673).

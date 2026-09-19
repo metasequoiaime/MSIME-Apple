@@ -783,7 +783,8 @@ void CandidateWindow::show_context_menu(const CandidateClick &click,
   POINT screen = client_point;
   if (!ClientToScreen(window_, &screen))
     throw std::runtime_error("Candidate context menu position unavailable");
-  flyout_->open(screen.x, screen.y, code_points);
+  flyout_->open(screen.x, screen.y, code_points, candidate->actions_available,
+                candidate->fixed_position);
 }
 LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
                                             WPARAM wparam,

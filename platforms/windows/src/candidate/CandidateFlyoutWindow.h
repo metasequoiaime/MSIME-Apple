@@ -43,10 +43,11 @@ public:
   CandidateFlyoutWindow &operator=(const CandidateFlyoutWindow &) = delete;
   // Share the candidate card's resolved tokens so one theme covers both.
   void set_palette(CandidatePalette palette);
-  // Open at the pointer for a candidate of `code_points` characters. Returns
-  // false when the menu could not be shown; opening it must never take the
-  // Server down, so the caller simply gets no menu that time.
-  bool open(int pointer_x, int pointer_y, size_t code_points) noexcept;
+  // Open at the pointer for a candidate of `code_points` characters. The
+  // Engine may expose a candidate that is display-only; keep its dictionary
+  // rows visible but inert instead of waiting for a rejected IPC action.
+  bool open(int pointer_x, int pointer_y, size_t code_points,
+            bool actions_available, int fixed_position) noexcept;
   bool visible() const noexcept;
   void hide() noexcept;
   HWND handle() const noexcept { return menu_.window; }
@@ -87,5 +88,7 @@ private:
   // throwing on every right click.
   bool failed_ = false;
   bool capturing_ = false;
+  bool actions_available_ = true;
+  int fixed_position_ = 0;
 };
 } // namespace msime::windows

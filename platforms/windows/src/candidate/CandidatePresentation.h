@@ -1,4 +1,5 @@
 #pragma once
+#include "CandidateActionAvailability.h"
 #include "ChineseTextConversion.h"
 #include "FocusGate.h"
 #include "ReplyComposer.h"
@@ -16,8 +17,9 @@ struct PresentationCandidate {
   bool highlighted;
   std::string annotation;
   std::string badge;
-  bool fixed_position = false;
+  uint8_t fixed_position = 0;
   std::string translation;
+  bool actions_available = true;
 };
 struct CandidatePresentation {
   FocusLease lease;
@@ -74,6 +76,7 @@ candidate_presentation_from_view(const FocusLease &lease,
   size_t highlighted = 0;
   for (const auto &candidate : view.at("candidates")) {
     const auto &id = candidate.at("id");
+    const auto source = candidate.value("source", uint8_t{});
     PresentationCandidate item{
         id.at("session").get<uint64_t>(), id.at("generation").get<uint64_t>(),
         id.at("index").get<size_t>(),
@@ -81,10 +84,10 @@ candidate_presentation_from_view(const FocusLease &lease,
                                   traditional_output),
         candidate.at("highlighted").get<bool>(),
         candidate.value("annotation", std::string{}),
-        candidate.value("source", uint8_t{}) == 2 ? " ☁️" :
-            candidate.value("source", uint8_t{}) == 3 ? " 🤖" : "",
-        candidate.value("fixed_position", uint8_t{}) != 0,
-        candidate.value("translation", std::string{})};
+        source == 2 ? " ☁️" : source == 3 ? " 🤖" : "",
+        candidate.value("fixed_position", uint8_t{}),
+        candidate.value("translation", std::string{}),
+        candidate_actions_available(view.value("scheme", 0u), source)};
     if (item.session != output.session ||
         item.generation != output.generation || item.text.size() > 4096 ||
         item.annotation.size() > 4096 || item.badge.size() > 4096 ||
@@ -131,6 +134,7 @@ candidate_presentation(const FocusLease &lease, const PendingReply &reply,
   size_t highlighted = 0;
   for (const auto &candidate : view.at("candidates")) {
     const auto &id = candidate.at("id");
+    const auto source = candidate.value("source", uint8_t{});
     PresentationCandidate item{
         id.at("session").get<uint64_t>(), id.at("generation").get<uint64_t>(),
         id.at("index").get<size_t>(),
@@ -138,10 +142,10 @@ candidate_presentation(const FocusLease &lease, const PendingReply &reply,
                                   reply.traditional_output),
         candidate.at("highlighted").get<bool>(),
         candidate.value("annotation", std::string{}),
-        candidate.value("source", uint8_t{}) == 2 ? " ☁️" :
-            candidate.value("source", uint8_t{}) == 3 ? " 🤖" : "",
-        candidate.value("fixed_position", uint8_t{}) != 0,
-        candidate.value("translation", std::string{})};
+        source == 2 ? " ☁️" : source == 3 ? " 🤖" : "",
+        candidate.value("fixed_position", uint8_t{}),
+        candidate.value("translation", std::string{}),
+        candidate_actions_available(view.value("scheme", 0u), source)};
     if (item.session != output.session ||
         item.generation != output.generation || item.text.size() > 4096 ||
         item.annotation.size() > 4096 || item.badge.size() > 4096 ||

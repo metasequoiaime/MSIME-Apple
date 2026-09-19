@@ -30,6 +30,8 @@ struct CandidateMenuItem {
   bool submenu = false;
   // A separator is drawn as a line and can never be hit.
   bool separator = false;
+  // Dictionary actions are shown but inert for cloud/AI/Japanese candidates.
+  bool available = true;
   // 1-5 for FixAtPosition, otherwise 0.
   unsigned position = 0;
 };
@@ -39,25 +41,30 @@ struct CandidateMenuItem {
 // 删除 is offered only for multi-character words. Removing a single character
 // from the dictionary would leave the user unable to type it at all, which is
 // why the shipped menu hides the row rather than disabling it.
-inline std::vector<CandidateMenuItem> candidate_menu_items(size_t code_points) {
+inline std::vector<CandidateMenuItem>
+candidate_menu_items(size_t code_points, bool actionable = true) {
   std::vector<CandidateMenuItem> items{
-      {CandidateMenuCommand::PinToTop, "置顶"},
-      {CandidateMenuCommand::FixPosition, "固定排位", true},
+      {CandidateMenuCommand::PinToTop, "置顶", false, false, actionable},
+      {CandidateMenuCommand::FixPosition, "固定排位", true, false, actionable},
   };
   if (code_points != 1)
-    items.push_back({CandidateMenuCommand::Remove, "删除"});
+    items.push_back({CandidateMenuCommand::Remove, "删除", false, false,
+                     actionable});
   return items;
 }
 
 // The 固定排位 submenu: the five positions, then 取消固定 below a separator.
-inline std::vector<CandidateMenuItem> candidate_menu_submenu_items() {
+inline std::vector<CandidateMenuItem>
+candidate_menu_submenu_items(bool actionable = true, int fixed_position = 0) {
   std::vector<CandidateMenuItem> items;
   for (unsigned position = 1; position <= 5; ++position)
     items.push_back({CandidateMenuCommand::FixAtPosition,
                      "第 " + std::to_string(position) + " 位", false, false,
-                     position});
-  items.push_back({CandidateMenuCommand::ClearFixedPosition, "", false, true});
-  items.push_back({CandidateMenuCommand::ClearFixedPosition, "取消固定"});
+                     actionable, position});
+  items.push_back({CandidateMenuCommand::ClearFixedPosition, "", false, true,
+                   actionable && fixed_position > 0});
+  items.push_back({CandidateMenuCommand::ClearFixedPosition, "取消固定", false,
+                   false, actionable && fixed_position > 0});
   return items;
 }
 
@@ -118,7 +125,7 @@ candidate_menu_hit(double x, double y,
   for (size_t index = 0; index < items.size(); ++index) {
     const auto row = candidate_menu_row(index, items, metrics);
     if (y >= row.top && y < row.bottom)
-      return items[index].separator ? std::nullopt
+      return items[index].separator || !items[index].available ? std::nullopt
                                     : std::optional<size_t>(index);
   }
   return std::nullopt;
