@@ -73,6 +73,49 @@ final class NineKeyKeyboardTests: XCTestCase {
     }
   }
 
+  func testNineKeysCarryTheirLettersAndAHoldGesture() throws {
+    let previousScheme = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previousScheme }
+    InputSchemePreference.scheme = .nineKey
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 292)
+
+    let expected = [2: "ABC", 3: "DEF", 4: "GHI", 5: "JKL", 6: "MNO", 7: "PQRS", 8: "TUV", 9: "WXYZ"]
+    for (digit, letters) in expected {
+      let key = try button("nineKey\(digit)", in: controller)
+      XCTAssertEqual(key.configuration?.title, letters)
+      XCTAssertEqual(key.tag, digit)
+      XCTAssertEqual(
+        (key.gestureRecognizers ?? []).compactMap { $0 as? UILongPressGestureRecognizer }.count, 1)
+    }
+    let split = try button("nineKey1", in: controller)
+    XCTAssertEqual(split.configuration?.title, "分词")
+    XCTAssertTrue((split.gestureRecognizers ?? []).compactMap { $0 as? UILongPressGestureRecognizer }.isEmpty)
+  }
+
+  func testNineKeyDigitLayerKeepsTheGridAndRestoresLetters() throws {
+    let previousScheme = InputSchemePreference.scheme
+    defer { InputSchemePreference.scheme = previousScheme }
+    InputSchemePreference.scheme = .nineKey
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 292)
+
+    XCTAssertEqual(try button("nineKey2", in: controller).configuration?.title, "ABC")
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    for digit in 1...9 {
+      XCTAssertEqual(try button("nineKey\(digit)", in: controller).configuration?.title, String(digit))
+    }
+    XCTAssertTrue(descendants(controller.view).filter {
+      $0.accessibilityLabel == "符号 1" && !($0.superview?.isHidden ?? true)
+    }.isEmpty)
+    try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
+    controller.view.layoutIfNeeded()
+    XCTAssertEqual(try button("nineKey2", in: controller).configuration?.title, "ABC")
+  }
+
   func testLayoutPreferencePreservesActiveComposition() throws {
     let previousLayout = KeyboardLayoutPreference.selected
     let previousScheme = InputSchemePreference.scheme
