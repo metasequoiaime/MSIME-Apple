@@ -261,6 +261,31 @@ else
   echo "skipped: set MSIME_EVAL_RESOURCES to a verified dictionary directory to run the eval"
 fi
 
+note "reranker keystroke latency"
+# convert_eval answers whether reranking ranks correctly. This answers what it costs, and the two
+# move independently: a model swap, a wider lattice or a larger candidate page all change the
+# number. The benchmark has existed since 418b4fb78 and nothing ever ran it, so the frame budget it
+# checks was never actually enforced - it fails today, and the entry in known-failures.txt records
+# by how much. The measurement is machine-dependent, which is why it is compared as a pass/fail
+# name against that baseline rather than as a committed millisecond figure. It needs the sentence
+# model, which the resource lock ships, so the eval's own guard covers it too.
+if [ -n "${MSIME_EVAL_RESOURCES:-}" ] && [ -d "${MSIME_EVAL_RESOURCES:-}" ]; then
+  if [ -f "$MSIME_EVAL_RESOURCES/sentence-model.safetensors" ]; then
+    : > "$collected".latency
+    if ! cargo run --release -q -p msime-input-runtime --example rerank_latency --locked -- \
+        --resources "$MSIME_EVAL_RESOURCES" --set resources/eval/sentences-v1.tsv \
+        > "$collected".latency.log 2>&1; then
+      echo "rerank-latency sentences" > "$collected".latency
+    fi
+    grep -E "with model|over the .*budget:" "$collected".latency.log | sed 's#^ *#  #'
+    compare "reranker latency" "$collected".latency
+  else
+    echo "skipped: no sentence-model.safetensors in $MSIME_EVAL_RESOURCES"
+  fi
+else
+  echo "skipped: set MSIME_EVAL_RESOURCES to a verified dictionary directory to run the latency gate"
+fi
+
 note "native tests"
 if [ -d "$MSIME_NATIVE_BUILD" ]; then
   (cd "$MSIME_NATIVE_BUILD" && ctest -C Debug 2>&1) |

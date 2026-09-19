@@ -55,3 +55,25 @@ native windows-session
 macos local-mode-preferences
 macos text-client
 macos shortcut
+
+# rerank-latency sentences breaches the frame budget the benchmark checks: p95
+# with the model is 20.64ms against 16.00ms, 129 of 1320 keystrokes (9.8%) cost
+# more than one frame, and the slowest is 40.76ms. Measured on the locked
+# resource set, 60 sentence cases, paired arms. A second run on the same
+# machine gave p95 19.29ms and 8.9%, so read these as the scale of the
+# overshoot rather than an exact figure - which is also why the gate records
+# a name here instead of a committed millisecond threshold.
+#
+# This is pre-existing debt, not a regression. The benchmark landed in 418b4fb78
+# and nothing ever invoked it, so a budget that fails has been failing unseen
+# ever since; wiring it into this script without recording the current state
+# would turn the whole run red on a cost this change did not create.
+#
+# The overshoot is not spread evenly. Reranking cost grows with the length of
+# the sentence being scored, so it concentrates in the longest inputs - s-053
+# 40.8ms, s-052 34.7ms, s-051 31.5ms - which are also where the model's own
+# accuracy is weakest. The median keystroke pays 0.36ms, because most keystrokes
+# never reach the model at all.
+#
+# Delete this line when p95 comes back under budget.
+rerank-latency sentences

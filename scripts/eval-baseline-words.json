@@ -12,27 +12,27 @@
     "3": {
       "cases": 365,
       "found": 0.995,
-      "mrr": 0.951,
-      "top1": 0.926,
-      "top1_char_prefix": 0.954,
+      "mrr": 0.956,
+      "top1": 0.937,
+      "top1_char_prefix": 0.961,
       "top5": 0.989,
       "top9": 0.992
     },
     "4": {
       "cases": 556,
       "found": 0.968,
-      "mrr": 0.93,
-      "top1": 0.905,
-      "top1_char_prefix": 0.938,
+      "mrr": 0.928,
+      "top1": 0.906,
+      "top1_char_prefix": 0.943,
       "top5": 0.968,
       "top9": 0.968
     },
     "5": {
       "cases": 10,
       "found": 0.7,
-      "mrr": 0.417,
+      "mrr": 0.35,
       "top1": 0.2,
-      "top1_char_prefix": 0.56,
+      "top1_char_prefix": 0.6,
       "top5": 0.7,
       "top9": 0.7
     }
@@ -45,9 +45,9 @@
   "overall": {
     "cases": 2791,
     "found": 0.991,
-    "mrr": 0.845,
-    "top1": 0.766,
-    "top1_char_prefix": 0.809,
+    "mrr": 0.844,
+    "top1": 0.768,
+    "top1_char_prefix": 0.811,
     "top5": 0.945,
     "top9": 0.97
   },
@@ -100,13 +100,6 @@
       "input": "baodi",
       "rank": 4,
       "top1": "宝地"
-    },
-    {
-      "gold": "保护国",
-      "id": "w-00460",
-      "input": "baohuguo",
-      "rank": 3,
-      "top1": "保护过"
     },
     {
       "gold": "褒义",
@@ -331,11 +324,18 @@
       "input": "changde",
       "rank": null,
       "top1": "长的"
+    },
+    {
+      "gold": "昌吉",
+      "id": "w-01990",
+      "input": "changji",
+      "rank": null,
+      "top1": "昌吉市"
     }
   ],
   "top1_source": {
-    "database": 2730,
-    "fallback": 58,
-    "generated": 3
+    "database": 2734,
+    "fallback": 21,
+    "generated": 36
   }
 }

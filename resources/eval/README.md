@@ -13,6 +13,8 @@ cargo run --release -p msime-input-runtime --example convert_eval -- \
 
 `--update-baseline` 接受当前结果。`--limit N` 取等距子集（不是前 N 条，否则全是短词）。
 
+**基线是带重排的数字。** `sentence-model.safetensors` 已经在 `desktop-dictionary.lock.json` 里，所以按锁文件取到的资源目录一定带它，而 `convert_eval` 见到模型就会挂上重排器。想量引擎单独的表现，把模型从资源目录里拿掉再跑——它会打印 `no model at ...`，那一行是判断当前测的是哪个臂的唯一依据。
+
 ## 延迟基准
 
 同一批输入还用来量重排的代价。`convert_eval` 回答「排得对不对」，`rerank_latency` 回答「一次按键为此多花多少毫秒」：
