@@ -21,6 +21,19 @@ public final class KeyboardLayoutSmoke {
         check(symbols.get(2).equals(List.of("(", ")", "[", "]", "<", ">", "\\", "-", "_", "=")));
         check(KeyboardLayout.rows(KeyboardLayout.Layer.SYMBOLS, true).equals(symbols));
 
+        check(KeyboardLayout.resolveTouchLayout(false, false, 0, "twenty_six_key")
+            == KeyboardLayout.STANDARD_TOUCH_LAYOUT);
+        check(KeyboardLayout.resolveTouchLayout(false, true, 0, "nine_key")
+            == KeyboardLayout.QUANPIN_NINE_KEY_LAYOUT);
+        check(KeyboardLayout.resolveTouchLayout(false, true, 3, "nine_key")
+            == KeyboardLayout.JAPANESE_NINE_KEY_LAYOUT);
+        check(KeyboardLayout.resolveTouchLayout(false, false, 3, "nine_key")
+            == KeyboardLayout.JAPANESE_NINE_KEY_LAYOUT);
+        check(KeyboardLayout.resolveTouchLayout(true, true, 0, "handwriting")
+            == KeyboardLayout.HANDWRITING_LAYOUT);
+        check(KeyboardLayout.resolveTouchLayout(false, false, 3, "twenty_six_key")
+            == KeyboardLayout.STANDARD_TOUCH_LAYOUT);
+
         System.out.println("Android keyboard layers: letter, shift and symbol layouts passed");
     }
 }

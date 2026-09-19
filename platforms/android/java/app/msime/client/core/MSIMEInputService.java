@@ -1728,15 +1728,10 @@ public final class MSIMEInputService extends InputMethodService {
 
     private static int touchLayout(JSONObject value) {
         if (value == null) return STANDARD_TOUCH_LAYOUT;
-        if ("handwriting".equals(value.optString("touch_keyboard_layout"))) {
-            return HANDWRITING_LAYOUT;
-        }
-        if (value.optBoolean("nine_key", false)) return QUANPIN_NINE_KEY_LAYOUT;
-        if (value.optInt("scheme", -1) == 3
-                && "nine_key".equals(value.optString("touch_keyboard_layout"))) {
-            return JAPANESE_NINE_KEY_LAYOUT;
-        }
-        return STANDARD_TOUCH_LAYOUT;
+        return KeyboardLayout.resolveTouchLayout(
+            "handwriting".equals(value.optString("touch_keyboard_layout")),
+            value.optBoolean("nine_key", false), value.optInt("scheme", -1),
+            value.optString("touch_keyboard_layout"));
     }
 
     private void enter() {
