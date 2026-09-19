@@ -21,6 +21,8 @@ public final class NativeClient {
     private static final int GLOSS_REQUEST_LIMIT = 262_144;
     private static final int GLOSS_RESOURCES_LIMIT = 4_096;
     private static final int GLOSS_RESPONSE_LIMIT = 1_048_576;
+    /** The shared provider FFI rejects an online query document larger than this. */
+    private static final int ONLINE_QUERY_LIMIT = 16_384;
     private static final int ENGLISH_COMPLETION_RESPONSE_LIMIT = 262_144;
     static { System.loadLibrary("msime_android"); }
     private NativeClient() {}
@@ -165,6 +167,38 @@ public final class NativeClient {
             throw new IllegalArgumentException("Candidate translations are too large");
         return text(applyTranslationsRaw(session, generation, payload));
     }
+    /** What the optional cloud and AI providers should be asked for, or null when neither applies. */
+    public static String onlineQuery(long session) { return text(onlineQueryRaw(session)); }
+    /** The cloud candidate URL for a copied online query. Credentials never leave the session. */
+    public static String cloudRequestUrl(String query) {
+        return text(cloudRequestUrlRaw(boundedQuery(query)));
+    }
+    /** A validated AI HTTPS descriptor for a copied online query, or null when it no longer applies. */
+    public static String aiRequestForQuery(long session, String query) {
+        return text(aiRequestForQueryRaw(session, boundedQuery(query)));
+    }
+    public static String applyCloudResponse(long session, String query, String body) {
+        byte[] payload = body.getBytes(StandardCharsets.UTF_8);
+        if (payload.length > OnlineCandidatePolicy.MAX_CLOUD_RESPONSE_BYTES)
+            throw new IllegalArgumentException("Cloud response is too large");
+        return text(applyCloudResponseRaw(session, boundedQuery(query), payload));
+    }
+    /** Source 0 is the cloud provider and source 1 is the AI assistant. */
+    public static String applyOnlineCandidates(long session, String query, String candidates,
+            int source) {
+        if (source != 0 && source != 1)
+            throw new IllegalArgumentException("Unknown online candidate source");
+        byte[] payload = candidates.getBytes(StandardCharsets.UTF_8);
+        if (payload.length > ONLINE_QUERY_LIMIT)
+            throw new IllegalArgumentException("Online candidates are too large");
+        return text(applyOnlineCandidatesRaw(session, boundedQuery(query), payload, source));
+    }
+    private static byte[] boundedQuery(String query) {
+        byte[] payload = query.getBytes(StandardCharsets.UTF_8);
+        if (payload.length > ONLINE_QUERY_LIMIT)
+            throw new IllegalArgumentException("Online query is too large");
+        return payload;
+    }
     public static String view(long session) { return text(viewRaw(session)); }
     public static String updatePreferences(long session, String snapshot) { return text(updatePreferencesRaw(session, snapshot.getBytes(StandardCharsets.UTF_8))); }
     public static String destroy(long session) { return text(destroyRaw(session)); }
@@ -199,6 +233,12 @@ public final class NativeClient {
     private static native byte[] allCandidatesRaw(long session);
     private static native byte[] applyTranslationsRaw(long session, long generation,
         byte[] translations);
+    private static native byte[] onlineQueryRaw(long session);
+    private static native byte[] cloudRequestUrlRaw(byte[] query);
+    private static native byte[] aiRequestForQueryRaw(long session, byte[] query);
+    private static native byte[] applyCloudResponseRaw(long session, byte[] query, byte[] body);
+    private static native byte[] applyOnlineCandidatesRaw(long session, byte[] query,
+        byte[] candidates, int source);
     private static native byte[] viewRaw(long session);
     private static native byte[] updatePreferencesRaw(long session, byte[] snapshot);
     private static native byte[] destroyRaw(long session);

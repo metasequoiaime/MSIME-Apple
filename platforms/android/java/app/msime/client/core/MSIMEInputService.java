@@ -154,6 +154,10 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean wubiCodeHint = true;
     private boolean wubiMixedPinyin;
     private String candidateGlossResources = "";
+    private String onlineSignature = "";
+    /** Read from the online worker as an early-out, so it must not tear across threads. */
+    private volatile long onlineEpoch;
+    private Runnable onlineTask;
     private long candidateGlossEpoch;
     private long candidateGlossRequestedSession;
     private long candidateGlossRequestedGeneration = -1;
@@ -333,6 +337,9 @@ public final class MSIMEInputService extends InputMethodService {
         1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(1),
         new ThreadPoolExecutor.DiscardOldestPolicy());
     private final ExecutorService englishSuggestionWorker = new ThreadPoolExecutor(
+        1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(1),
+        new ThreadPoolExecutor.DiscardOldestPolicy());
+    private final ExecutorService onlineCandidateWorker = new ThreadPoolExecutor(
         1, 1, 0, TimeUnit.MILLISECONDS, new ArrayBlockingQueue<>(1),
         new ThreadPoolExecutor.DiscardOldestPolicy());
     private final AiPolishClient aiPolishClient = new AiPolishClient(new AiPolishHttpTransport());
@@ -685,6 +692,7 @@ public final class MSIMEInputService extends InputMethodService {
         candidateGlossWorker.shutdownNow();
         candidateTranslationWorker.shutdownNow();
         englishSuggestionWorker.shutdownNow();
+        onlineCandidateWorker.shutdownNow();
         aiPolishClient.close();
         connection = null;
         super.onDestroy();
@@ -1424,6 +1432,202 @@ public final class MSIMEInputService extends InputMethodService {
         } catch (JSONException | RuntimeException | LinkageError ignored) {
             // Online translations are optional display state.
         }
+    }
+
+    /**
+     * The current online query, or null when there is nothing either provider could answer.
+     *
+     * <p>A session with no eligible composition reports a null value rather than an error, so this
+     * cannot use {@link #value} — that helper requires an object and treats its absence as a
+     * failure. Every failure here is the same answer: do not ask a provider.
+     */
+    private JSONObject onlineQuery(long targetSession) {
+        try {
+            JSONObject envelope = new JSONObject(NativeClient.onlineQuery(targetSession));
+            return envelope.optBoolean("ok", false) ? envelope.optJSONObject("value") : null;
+        } catch (JSONException | RuntimeException | LinkageError error) {
+            return null;
+        }
+    }
+
+    private boolean requestsCloud(JSONObject query) {
+        return OnlineCandidatePolicy.requestsCloud(query.optBoolean("cloud_candidates", false),
+            query.optBoolean("cloud_eligible", false));
+    }
+
+    private boolean requestsAi(JSONObject query) {
+        JSONObject assistant = query.optJSONObject("ai_assistant");
+        return OnlineCandidatePolicy.requestsAi(query.optBoolean("ai_eligible", false),
+            assistant != null && assistant.optBoolean("enabled", false));
+    }
+
+    /**
+     * The candidate texts inside a Chat Completions reply, in provider order.
+     *
+     * <p>An empty list means the reply supplies nothing, whether it was rejected or simply had no
+     * candidates; either way nothing reaches Engine. Bounds and the per-entry rules belong to
+     * {@link OnlineCandidatePolicy}, so only the envelope shape is read here.
+     */
+    private java.util.List<String> aiCandidateTexts(String body) {
+        java.util.List<String> texts = new java.util.ArrayList<>();
+        if (!OnlineCandidatePolicy.acceptsAiBody(body)) return texts;
+        try {
+            JSONObject envelope = new JSONObject(body);
+            if (!envelope.isNull("error")) return texts;
+            JSONArray choices = envelope.optJSONArray("choices");
+            if (choices == null || choices.length() == 0) return texts;
+            JSONObject message = choices.getJSONObject(0).optJSONObject("message");
+            if (message == null) return texts;
+            String content = message.optString("content", "");
+            if (!OnlineCandidatePolicy.acceptsAiContent(content)) return texts;
+            JSONArray entries = new JSONObject(content).optJSONArray("candidates");
+            if (entries == null) return texts;
+            for (int index = 0; index < entries.length(); index++) {
+                JSONObject entry = entries.optJSONObject(index);
+                if (entry != null) texts.add(entry.optString("text", ""));
+            }
+            return texts;
+        } catch (JSONException | RuntimeException error) {
+            texts.clear();
+            return texts;
+        }
+    }
+
+    /** The cloud service URL the shared host built for this query, or empty when unavailable. */
+    private String cloudRequestUrl(String document) {
+        try {
+            JSONObject envelope = new JSONObject(NativeClient.cloudRequestUrl(document));
+            return envelope.optBoolean("ok", false) ? envelope.optString("value", "") : "";
+        } catch (JSONException | RuntimeException | LinkageError error) {
+            return "";
+        }
+    }
+
+    /** The AI HTTPS descriptor for this query, or null when it no longer matches the settings. */
+    private JSONObject aiRequestDescriptor(long targetSession, String document) {
+        try {
+            JSONObject envelope = new JSONObject(
+                NativeClient.aiRequestForQuery(targetSession, document));
+            return envelope.optBoolean("ok", false) ? envelope.optJSONObject("value") : null;
+        } catch (JSONException | RuntimeException | LinkageError error) {
+            return null;
+        }
+    }
+
+    /**
+     * 云联想和 AI 联想：组字停下来之后再问，不是每敲一个键都问。
+     *
+     * <p>Both providers answer a query Engine has usually moved past by the time the network
+     * replies, so the request carries the query document it was built from and the shared host
+     * discards anything that no longer matches. The signature is what stops a second request for a
+     * state already asked about; the epoch is what stops a late reply from a previous composition.
+     */
+    private void scheduleOnlineProviders() {
+        if (session == 0) return;
+        JSONObject query = onlineQuery(session);
+        if (query == null || (!requestsCloud(query) && !requestsAi(query))) {
+            onlineSignature = "";
+            return;
+        }
+        JSONObject assistant = query.optJSONObject("ai_assistant");
+        String signature = OnlineCandidatePolicy.signature(query.optLong("session_id", 0),
+            query.optString("cache_key", ""), query.optString("identity", ""),
+            query.optBoolean("cloud_candidates", false),
+            assistant != null && assistant.optBoolean("enabled", false) ? assistant.toString() : "");
+        if (signature.equals(onlineSignature)) return;
+        onlineSignature = signature;
+        if (onlineTask != null) main.removeCallbacks(onlineTask);
+        onlineEpoch = onlineEpoch == Long.MAX_VALUE ? 0 : onlineEpoch + 1;
+        final long epoch = onlineEpoch;
+        final long targetSession = session;
+        final String document = query.toString();
+        onlineTask = () -> {
+            onlineTask = null;
+            if (epoch != onlineEpoch || targetSession != session) return;
+            try {
+                onlineCandidateWorker.execute(() -> fetchOnlineCandidates(
+                    targetSession, document, epoch));
+            } catch (RuntimeException ignored) {
+                // A stopped or saturated host must not affect input.
+            }
+        };
+        main.postDelayed(onlineTask, OnlineCandidatePolicy.QUIET_INTERVAL_MILLIS);
+    }
+
+    /** Runs on the online worker. Nothing here touches Engine or the editor directly. */
+    private void fetchOnlineCandidates(long targetSession, String document, long epoch) {
+        JSONObject query;
+        try { query = new JSONObject(document); }
+        catch (JSONException error) { return; }
+        String aiDocument = document;
+        if (requestsCloud(query)) {
+            String url = cloudRequestUrl(document);
+            if (!url.isEmpty()) {
+                String body = OnlineCandidateTransport.cloud(url);
+                if (OnlineCandidatePolicy.acceptsCloudBody(body)) {
+                    // Applying a cloud result advances Engine's generation, so the AI request has
+                    // to be built from the query as it stands afterwards or it arrives stale.
+                    String refreshed = applyOnlineResult(targetSession, epoch,
+                        () -> NativeClient.applyCloudResponse(targetSession, document, body));
+                    if (refreshed != null) aiDocument = refreshed;
+                }
+            }
+        }
+        if (epoch != onlineEpoch) return;
+        JSONObject aiQuery;
+        try { aiQuery = new JSONObject(aiDocument); }
+        catch (JSONException error) { return; }
+        JSONObject aiAssistant = aiQuery.optJSONObject("ai_assistant");
+        int limit = OnlineCandidatePolicy.aiCandidateLimit(
+            aiAssistant == null ? 0 : aiAssistant.optInt("candidate_limit", 0));
+        if (!requestsAi(aiQuery) || limit == 0) return;
+        JSONObject descriptor = aiRequestDescriptor(targetSession, aiDocument);
+        if (descriptor == null) return;
+        java.util.List<String> candidates = OnlineCandidatePolicy.aiCandidates(
+            aiCandidateTexts(OnlineCandidateTransport.ai(descriptor)), limit);
+        if (candidates.isEmpty()) return;
+        JSONArray payload = new JSONArray();
+        for (String candidate : candidates) payload.put(candidate);
+        final String finalDocument = aiDocument;
+        applyOnlineResult(targetSession, epoch, () -> NativeClient.applyOnlineCandidates(
+            targetSession, finalDocument, payload.toString(), 1));
+    }
+
+    /**
+     * Hand one provider's result back to Engine on the session thread.
+     *
+     * <p>Returns the query document as it stands after a result was applied, so the next provider
+     * can use it, or null when nothing was applied.
+     */
+    private String applyOnlineResult(long targetSession, long epoch,
+            java.util.function.Supplier<String> call) {
+        final java.util.concurrent.atomic.AtomicReference<String> refreshed =
+            new java.util.concurrent.atomic.AtomicReference<>();
+        final java.util.concurrent.CountDownLatch done = new java.util.concurrent.CountDownLatch(1);
+        main.post(() -> {
+            try {
+                if (epoch != onlineEpoch || targetSession != session) return;
+                JSONObject applied = value(call.get());
+                if (!applied.optBoolean("applied", false)) return;
+                JSONObject next = applied.getJSONObject("view");
+                if (next.optLong("session") != targetSession) return;
+                view = next;
+                render();
+                JSONObject current = onlineQuery(targetSession);
+                if (current != null) refreshed.set(current.toString());
+            } catch (JSONException | RuntimeException | LinkageError error) {
+                // Online candidates are optional; keep the current Engine view.
+            } finally {
+                done.countDown();
+            }
+        });
+        try {
+            if (!done.await(2, TimeUnit.SECONDS)) return null;
+        } catch (InterruptedException error) {
+            Thread.currentThread().interrupt();
+            return null;
+        }
+        return refreshed.get();
     }
 
     private int candidateGlossLineCount() {
@@ -6379,6 +6583,7 @@ public final class MSIMEInputService extends InputMethodService {
             nineKeySpellingScroll.setVisibility(View.GONE);
         scheduleCandidateGlosses();
         scheduleCandidateTranslations();
+        scheduleOnlineProviders();
         if (candidates == null) {
             applySkin();
             return;
