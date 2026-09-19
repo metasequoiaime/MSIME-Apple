@@ -104,6 +104,60 @@ impl TypingBreakdown {
     }
 }
 
+/// Where in the candidate list a commit came from, counted and nothing else.
+///
+/// This is the field counterpart of the evaluation sets' top-1: `ranks[0]` over the total is how
+/// often the first candidate was the one wanted, measured on what the user actually types rather
+/// than on 60 hand-written sentences. No text, no pinyin and no context are involved, which is
+/// what makes it safe to keep — the same rule the rest of this module follows.
+///
+/// A candidate page holds nine, so ranks past that are counted together: beyond the first page the
+/// distinction between the eleventh and the twelfth says nothing anyone would act on.
+#[derive(Clone, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+pub struct SelectionCounts {
+    /// Commits from positions 1 through `RANKS`, `ranks[0]` being the first candidate.
+    #[serde(default)]
+    pub ranks: Vec<u64>,
+    /// Commits from further down the list than `RANKS`.
+    #[serde(default)]
+    pub beyond: u64,
+}
+
+/// One candidate page. Positions past this are counted in `beyond`.
+pub const RANKS: usize = 9;
+
+impl SelectionCounts {
+    fn add(&mut self, position: usize) -> Result<(), TypingStatisticsError> {
+        if position == 0 {
+            return Err(TypingStatisticsError::InvalidPosition);
+        }
+        if position > RANKS {
+            self.beyond = self
+                .beyond
+                .checked_add(1)
+                .filter(|count| *count <= MAX_COUNT)
+                .ok_or(TypingStatisticsError::CountExhausted)?;
+            return Ok(());
+        }
+        if self.ranks.len() < RANKS {
+            self.ranks.resize(RANKS, 0);
+        }
+        let slot = &mut self.ranks[position - 1];
+        *slot = slot
+            .checked_add(1)
+            .filter(|count| *count <= MAX_COUNT)
+            .ok_or(TypingStatisticsError::CountExhausted)?;
+        Ok(())
+    }
+
+    /// Commits counted here, which is the denominator for any rate drawn from `ranks`.
+    pub fn total(&self) -> u64 {
+        self.ranks
+            .iter()
+            .fold(self.beyond, |sum, count| sum.saturating_add(*count))
+    }
+}
+
 #[derive(Clone, Debug, Deserialize, Eq, PartialEq, Serialize)]
 #[serde(rename_all = "camelCase")]
 pub struct TypingStatistics {
@@ -117,6 +171,18 @@ pub struct TypingStatistics {
     pub detail: TypingBreakdown,
     #[serde(default)]
     pub daily_details: BTreeMap<String, TypingBreakdown>,
+    /// Absent from files written before this existed, which `default` turns into an empty
+    /// histogram rather than a parse failure.
+    ///
+    /// Aggregate only, with no per-day axis, and that is a decision rather than an omission. A
+    /// day here would have to be the user's day to sit beside `daily_details`, and the host is
+    /// the only thing that knows which day that is — `record` takes one as an argument for
+    /// exactly that reason. Candidate selection reaches this crate through a call that carries no
+    /// day and would need six platform signatures changed to carry one, and a UTC day quietly
+    /// disagreeing with the local day next to it is worse than no axis at all. The rate this
+    /// exists to give — how often the first candidate was the right one — does not need one.
+    #[serde(default)]
+    pub selections: SelectionCounts,
 }
 
 impl Default for TypingStatistics {
@@ -127,6 +193,7 @@ impl Default for TypingStatistics {
             days: BTreeMap::new(),
             detail: TypingBreakdown::default(),
             daily_details: BTreeMap::new(),
+            selections: SelectionCounts::default(),
         }
     }
 }
@@ -189,6 +256,8 @@ pub enum TypingStatisticsError {
     InvalidDocument,
     #[error("typing statistics count exhausted")]
     CountExhausted,
+    #[error("candidate position is not one-based")]
+    InvalidPosition,
 }
 
 #[derive(Clone, Debug)]
@@ -334,6 +403,23 @@ impl TypingStatisticsStore {
         Ok(count)
     }
 
+    /// Count one commit by the one-based position it was chosen from.
+    ///
+    /// Separate from `record` because the two count different things: `record` counts characters,
+    /// this counts commits, and dividing one by the other would mean nothing. The enable flag and
+    /// the lock are shared, so turning statistics off turns this off with them and no second
+    /// switch appears in settings for a user to misread.
+    pub fn record_selection(&self, position: usize) -> Result<(), TypingStatisticsError> {
+        let _lock = self.lock()?;
+        let mut value = self.read_locked()?;
+        if !value.enabled {
+            return Ok(());
+        }
+        value.selections.add(position)?;
+        self.write_locked(&value)?;
+        Ok(())
+    }
+
     pub fn set_enabled(&self, enabled: bool) -> Result<TypingStatistics, TypingStatisticsError> {
         let _lock = self.lock()?;
         let mut value = self.read_locked()?;
@@ -349,6 +435,9 @@ impl TypingStatisticsStore {
         value.days.clear();
         value.detail = TypingBreakdown::default();
         value.daily_details.clear();
+        // Reset means reset. Leaving the selection histogram behind would keep counting after a
+        // user asked for it to stop existing, which is the one thing this module must not do.
+        value.selections = SelectionCounts::default();
         self.write_locked(&value)?;
         Ok(value)
     }
@@ -468,6 +557,68 @@ fn is_emoji(grapheme: &str) -> bool {
             || code == 0x20e3
             || code == 0xfe0f
     })
+}
+
+#[cfg(test)]
+mod selection_tests {
+    use super::*;
+
+    fn store() -> (tempfile::TempDir, TypingStatisticsStore) {
+        let directory = tempfile::tempdir().expect("tempdir");
+        let store = TypingStatisticsStore::new(directory.path());
+        (directory, store)
+    }
+
+    #[test]
+    fn counts_by_position_and_folds_the_tail() {
+        let (_directory, store) = store();
+        for position in [1, 1, 1, 2, 9, 10, 40] {
+            store.record_selection(position).expect("record");
+        }
+        let value = store.load().expect("load");
+        assert_eq!(value.selections.ranks[0], 3);
+        assert_eq!(value.selections.ranks[1], 1);
+        assert_eq!(value.selections.ranks[8], 1);
+        // Tenth and fortieth are both past a page and are not told apart.
+        assert_eq!(value.selections.beyond, 2);
+        assert_eq!(value.selections.total(), 7);
+    }
+
+    #[test]
+    fn rejects_a_zero_position() {
+        let (_directory, store) = store();
+        assert!(matches!(
+            store.record_selection(0),
+            Err(TypingStatisticsError::InvalidPosition)
+        ));
+    }
+
+    #[test]
+    fn the_shared_switch_and_reset_cover_it() {
+        let (_directory, store) = store();
+        store.record_selection(1).expect("record");
+        store.set_enabled(false).expect("disable");
+        store.record_selection(1).expect("record while off");
+        assert_eq!(store.load().expect("load").selections.total(), 1);
+
+        store.set_enabled(true).expect("enable");
+        store.record_selection(3).expect("record");
+        let value = store.reset().expect("reset");
+        assert_eq!(value.selections.total(), 0);
+    }
+
+    #[test]
+    fn a_file_written_before_this_existed_still_loads() {
+        let (directory, store) = store();
+        std::fs::write(
+            directory.path().join("typing-statistics.json"),
+            br#"{"enabled":true,"total":5,"days":{},"detail":{},"dailyDetails":{}}"#,
+        )
+        .expect("write");
+        let value = store.load().expect("load");
+        assert_eq!(value.total, 5);
+        assert_eq!(value.selections.total(), 0);
+    }
 }
 
 #[cfg(test)]
