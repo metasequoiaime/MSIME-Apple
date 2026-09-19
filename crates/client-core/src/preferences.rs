@@ -497,6 +497,18 @@ pub struct Preferences {
     pub smart_punctuation: bool,
     #[serde(default = "enabled_by_default")]
     pub smart_punctuation_repeat: bool,
+    /// Space after a just-committed Chinese punctuation rewrites it as ASCII.
+    /// Off by default, like the rest of the family on the Windows baseline:
+    /// it changes a character the user already saw land.
+    #[serde(default)]
+    pub smart_punctuation_space_convert: bool,
+    /// Keep `,` `.` `:` as ASCII when they follow a digit.
+    #[serde(default)]
+    pub smart_punctuation_direct_digit: bool,
+    /// The same after a letter. Two switches rather than one, because a
+    /// version number and an English sentence want different answers.
+    #[serde(default)]
+    pub smart_punctuation_direct_letter: bool,
     #[serde(default = "enabled_by_default")]
     pub paired_punctuation: bool,
     #[serde(default)]
@@ -1146,6 +1158,9 @@ impl Default for Preferences {
             chinese_punctuation: true,
             smart_punctuation: true,
             smart_punctuation_repeat: true,
+            smart_punctuation_space_convert: false,
+            smart_punctuation_direct_digit: false,
+            smart_punctuation_direct_letter: false,
             paired_punctuation: true,
             punctuation_lock: PunctuationLock::Follow,
             navigation: NavigationPreferences::default(),
