@@ -117,6 +117,7 @@ public final class MSIMEInputService extends InputMethodService {
     private LinearLayout skinPanel;
     private ScrollView layoutSettingsScroll;
     private LinearLayout layoutSettingsPanel;
+    private KeyboardLayoutAdjustView layoutAdjustView;
     private ScrollView moreToolsScroll;
     private LinearLayout moreToolsPanel;
     private boolean localInputToolsOpen;
@@ -2162,6 +2163,7 @@ public final class MSIMEInputService extends InputMethodService {
             applySkinBackground(replyKeyboard);
         if (handwritingCanvas != null) handwritingCanvas.applySkin(skin);
         applySkinToView(keyboardRoot);
+        if (layoutAdjustView != null) layoutAdjustView.updateSkin(skin);
     }
 
     private void applySkinBackground(View node) {
@@ -2282,6 +2284,7 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void closeLayoutSettings() {
         if (layoutSettingsScroll != null) layoutSettingsScroll.setVisibility(View.GONE);
+        if (layoutAdjustView != null) layoutAdjustView.setVisibility(View.GONE);
     }
 
     private void closeMoreTools() {
@@ -3445,22 +3448,30 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private void renderLayoutSettingsState() {
-        if (keySpacingSlider == null || rowSpacingSlider == null || keyboardHeightSlider == null
-                || keySpacingValue == null || rowSpacingValue == null || keyboardHeightValue == null
-                || voiceShortcutSwitch == null || resetLayoutSettingsButton == null) return;
-        keySpacingSlider.setProgress(touchKeySpacingTenths);
-        rowSpacingSlider.setProgress(touchRowSpacingTenths);
-        keyboardHeightSlider.setProgress(touchKeyboardHeightAdjustment);
-        keySpacingSlider.setEnabled(!touchGeometrySaving && !traditionalOutputSaving);
-        rowSpacingSlider.setEnabled(!touchGeometrySaving && !traditionalOutputSaving);
-        keyboardHeightSlider.setEnabled(!touchGeometrySaving && !traditionalOutputSaving);
-        voiceShortcutSwitch.setChecked(touchVoiceShortcutEnabled);
-        voiceShortcutSwitch.setEnabled(!touchGeometrySaving && !traditionalOutputSaving);
-        resetLayoutSettingsButton.setEnabled(!touchGeometrySaving && !traditionalOutputSaving);
-        keySpacingValue.setText(KeyboardGeometry.display(touchKeySpacingTenths) + " dp");
-        rowSpacingValue.setText(KeyboardGeometry.display(touchRowSpacingTenths) + " dp");
-        keyboardHeightValue.setText(KeyboardGeometry.displayHeight(
-            touchKeyboardHeightAdjustment) + " dp");
+        if (keySpacingSlider != null && rowSpacingSlider != null && keyboardHeightSlider != null
+                && keySpacingValue != null && rowSpacingValue != null && keyboardHeightValue != null
+                && voiceShortcutSwitch != null && resetLayoutSettingsButton != null) {
+            keySpacingSlider.setProgress(touchKeySpacingTenths);
+            rowSpacingSlider.setProgress(touchRowSpacingTenths);
+            keyboardHeightSlider.setProgress(touchKeyboardHeightAdjustment);
+            keySpacingSlider.setEnabled(!touchGeometrySaving && !traditionalOutputSaving);
+            rowSpacingSlider.setEnabled(!touchGeometrySaving && !traditionalOutputSaving);
+            keyboardHeightSlider.setEnabled(!touchGeometrySaving && !traditionalOutputSaving);
+            voiceShortcutSwitch.setChecked(touchVoiceShortcutEnabled);
+            voiceShortcutSwitch.setEnabled(!touchGeometrySaving && !traditionalOutputSaving);
+            resetLayoutSettingsButton.setEnabled(!touchGeometrySaving && !traditionalOutputSaving);
+            keySpacingValue.setText(KeyboardGeometry.display(touchKeySpacingTenths) + " dp");
+            rowSpacingValue.setText(KeyboardGeometry.display(touchRowSpacingTenths) + " dp");
+            keyboardHeightValue.setText(KeyboardGeometry.displayHeight(
+                touchKeyboardHeightAdjustment) + " dp");
+        }
+        if (layoutAdjustView != null) {
+            layoutAdjustView.update(touchKeySpacingTenths, touchRowSpacingTenths,
+                touchKeyboardHeightAdjustment, touchVoiceShortcutEnabled);
+            layoutAdjustView.setAdjustmentsEnabled(
+                !touchGeometrySaving && !traditionalOutputSaving);
+            layoutAdjustView.updateSkin(skin);
+        }
     }
 
     private void previewTouchGeometry(boolean keySpacing, int value) {
@@ -3525,7 +3536,13 @@ public final class MSIMEInputService extends InputMethodService {
         closeVoiceResult();
         closeAiPolish();
         renderLayoutSettingsState();
-        layoutSettingsScroll.setVisibility(View.VISIBLE);
+        if (layoutAdjustView != null) {
+            layoutSettingsScroll.setVisibility(View.GONE);
+            layoutAdjustView.setVisibility(View.VISIBLE);
+            layoutAdjustView.requestFocus();
+        } else {
+            layoutSettingsScroll.setVisibility(View.VISIBLE);
+        }
     }
 
     private void saveTouchGeometry() {
@@ -5724,6 +5741,38 @@ public final class MSIMEInputService extends InputMethodService {
         layoutSettingsScroll.addView(layoutSettingsPanel);
         layoutSettingsScroll.setVisibility(View.GONE);
         keyboardRoot.addView(layoutSettingsScroll, new FrameLayout.LayoutParams(
+            FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
+        layoutAdjustView = new KeyboardLayoutAdjustView(this,
+            new KeyboardLayoutAdjustView.Listener() {
+                @Override public void keySpacing(int tenths) {
+                    previewTouchGeometry(true, tenths);
+                }
+
+                @Override public void rowSpacing(int tenths) {
+                    previewTouchGeometry(false, tenths);
+                }
+
+                @Override public void height(int adjustment) {
+                    previewTouchHeight(adjustment);
+                }
+
+                @Override public void voiceShortcut(boolean enabled) {
+                    if (enabled == touchVoiceShortcutEnabled
+                            || touchGeometrySaving || traditionalOutputSaving) return;
+                    touchVoiceShortcutEnabled = enabled;
+                    renderLayoutSettingsState();
+                    render();
+                    saveTouchGeometry();
+                }
+
+                @Override public void commit() { saveTouchGeometry(); }
+
+                @Override public void reset() { resetTouchGeometry(); }
+
+                @Override public void close() { closeLayoutSettings(); }
+            });
+        layoutAdjustView.setVisibility(View.GONE);
+        keyboardRoot.addView(layoutAdjustView, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         voiceResultPanel = new LinearLayout(this);
         voiceResultPanel.setOrientation(LinearLayout.VERTICAL);
