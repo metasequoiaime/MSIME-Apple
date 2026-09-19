@@ -128,6 +128,12 @@ set_target_properties(MSIMEClientInputMethod PROPERTIES OUTPUT_NAME "水杉输�
 target_sources(MSIMEClientInputMethod PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethod.icns")
 set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethod.icns"
   PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+# The input menu's own icon, which is a template TIFF rather than the application icon: see the comment
+# beside tsInputMethodIconFileKey in Info.plist.in for why the two cannot be the same file.
+target_sources(MSIMEClientInputMethod
+  PRIVATE "${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethodMenuIcon.tiff")
+set_source_files_properties("${CMAKE_CURRENT_SOURCE_DIR}/resources/MSIMEClientInputMethodMenuIcon.tiff"
+  PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
 # LaunchServices takes the Dock and menu bar name from a localized InfoPlist.strings, not from the
 # CFBundleDisplayName in the plist; without these the Dock falls back to the executable's filename.
 # The TIS identifier keys name the entry in the system input menu.
@@ -660,6 +666,12 @@ add_test(
   COMMAND "${Python3_EXECUTABLE}"
           "${CMAKE_CURRENT_SOURCE_DIR}/tests/settings/support_window_links.py"
           "${CMAKE_CURRENT_SOURCE_DIR}/src/core/SupportWindowController.mm")
+add_test(
+  NAME info-plist-icons
+  COMMAND "${Python3_EXECUTABLE}"
+          "${CMAKE_CURRENT_SOURCE_DIR}/tests/settings/info_plist_icons.py"
+          "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"
+          "${CMAKE_CURRENT_SOURCE_DIR}/resources")
 add_test(
   NAME info-plist-usage
   COMMAND "${Python3_EXECUTABLE}"

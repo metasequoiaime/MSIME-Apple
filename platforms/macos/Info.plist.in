@@ -28,6 +28,14 @@
 <key>TISIntendedLanguage</key><string>zh-Hans</string>
 <key>TISInputSourceLanguages</key><array><string>zh-Hans</string></array>
 <key>TISInputSourceID</key><string>app.msime.client.preview.inputmethod</string>
+<!-- The input menu draws its icon through HIToolbox, which reads the file's pages rather than one page's
+     DPI. A 256-point application icon in this slot is scaled into a 16-point menu slot as artwork rather
+     than as a template, so it cannot tint for dark mode or for the highlighted menu row. The TIFF carries
+     16x16 at 72 dpi and 32x32 at 144 dpi, which is the pairing Apple's own input methods ship, and is a
+     black shape carried entirely by its alpha channel. Regenerate it with scripts/render_menu_icon.swift
+     after editing the SVG beside it; info-plist-icons checks the pages. CFBundleIconFile stays the .icns:
+     that one is the Dock icon for the preferences window and wants the full-colour artwork. -->
+<key>tsInputMethodIconFileKey</key><string>MSIMEClientInputMethodMenuIcon.tiff</string>
 <!-- macOS offers an input method through its visible input modes, not through the bundle itself.
      Without this dictionary TISRegisterInputSource still returns noErr, but the source never
      appears in TISCreateInputSourceList and never reaches the picker in System Settings, so the
@@ -44,8 +52,8 @@
       <key>tsInputModeCharacterRepertoireKey</key><array><string>Hans</string></array>
       <key>tsInputModeDefaultStateKey</key><true/>
       <key>tsInputModeIsVisibleKey</key><true/>
-      <key>tsInputModeMenuIconFileKey</key><string>MSIMEClientInputMethod.icns</string>
-      <key>tsInputModePaletteIconFileKey</key><string>MSIMEClientInputMethod.icns</string>
+      <key>tsInputModeMenuIconFileKey</key><string>MSIMEClientInputMethodMenuIcon.tiff</string>
+      <key>tsInputModePaletteIconFileKey</key><string>MSIMEClientInputMethodMenuIcon.tiff</string>
       <key>tsInputModePrimaryInScriptKey</key><true/>
       <key>tsInputModeScriptKey</key><string>smSimpChinese</string>
     </dict>
