@@ -5359,6 +5359,30 @@ async fn open_system_keyboard_settings(
 
 #[cfg(target_os = "ios")]
 #[tauri::command]
+async fn ios_onboarding_status(
+    state: tauri::State<'_, msime_tauri_mobile_platform::MobilePlatform<tauri::Wry>>,
+) -> Result<bool, CommandError> {
+    let platform = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || platform.onboarding_completed())
+        .await
+        .map_err(|_| CommandError { code: "onboarding" })?
+        .map_err(|_| CommandError { code: "onboarding" })
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
+async fn ios_onboarding_complete(
+    state: tauri::State<'_, msime_tauri_mobile_platform::MobilePlatform<tauri::Wry>>,
+) -> Result<(), CommandError> {
+    let platform = state.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || platform.complete_onboarding())
+        .await
+        .map_err(|_| CommandError { code: "onboarding" })?
+        .map_err(|_| CommandError { code: "onboarding" })
+}
+
+#[cfg(target_os = "ios")]
+#[tauri::command]
 async fn app_icon_info(
     state: tauri::State<'_, msime_tauri_mobile_platform::MobilePlatform<tauri::Wry>>,
 ) -> Result<msime_tauri_mobile_platform::AppIconInfo, CommandError> {
@@ -5894,6 +5918,10 @@ pub fn run() {
             android_account::mobile_keyboard_feedback_preview,
             #[cfg(target_os = "ios")]
             open_system_keyboard_settings,
+            #[cfg(target_os = "ios")]
+            ios_onboarding_status,
+            #[cfg(target_os = "ios")]
+            ios_onboarding_complete,
             #[cfg(target_os = "ios")]
             app_icon_info,
             #[cfg(target_os = "ios")]

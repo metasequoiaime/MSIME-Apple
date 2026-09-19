@@ -24,9 +24,10 @@ function SetupStep({ number, title, children, last }: { number: number; title: s
   </div>;
 }
 
-export function WelcomeFlowPage({ actions, onComplete }: {
+export function WelcomeFlowPage({ actions, onComplete, onSkip }: {
   actions: OnboardingActions;
   onComplete: (scheme: OnboardingInputScheme) => Promise<void>;
+  onSkip?: () => Promise<void>;
 }) {
   const [page, setPage] = useState(0);
   const [scheme, setScheme] = useState<OnboardingInputScheme>("quanpin");
@@ -58,6 +59,7 @@ export function WelcomeFlowPage({ actions, onComplete }: {
     <header className="onboarding-header">
       <img src={new URL("./assets/msime.svg", import.meta.url).href} alt="" />
       <div><p className="onboarding-progress">{page + 1} / 4</p><h1>{["欢迎使用水杉", "启用键盘", "选择输入方式", "让表达更轻松"][page]}</h1></div>
+      {onSkip && <button type="button" className="onboarding-skip" disabled={busy} onClick={() => void run(onSkip)}>稍后设置</button>}
     </header>
     <div className="onboarding-body">
       {page === 0 && <section className="onboarding-section">
