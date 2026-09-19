@@ -2079,13 +2079,14 @@ public:
     if (candidateIt == candidates.end()) return actions;
     const auto &candidateJson = *candidateIt;
     const auto source = candidateJson.value("source", 0u);
+    const auto fixedPosition = candidateJson.value("fixed_position", 0u);
     if (msime::linux_host::candidate_dictionary_removal_available(
             state_.view_.value("scheme", 0u), source,
             candidateJson.value("text", std::string{})))
       actions.push_back(make(2, "删除候选"));
     for (int slot = 1; slot <= 5; ++slot)
       actions.push_back(make(10 + slot, ("固定到 " + std::to_string(slot)).c_str()));
-    actions.push_back(make(20, "取消固定"));
+    if (fixedPosition > 0) actions.push_back(make(20, "取消固定"));
     return actions;
   }
   void triggerAction(const fcitx::CandidateWord &candidate, int action) override {

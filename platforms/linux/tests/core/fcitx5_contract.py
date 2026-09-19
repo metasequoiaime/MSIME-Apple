@@ -50,6 +50,7 @@ assert 'snapshot["preferences"]["character_width"]' in source
 assert 'saveBooleanPreference("traditional_chinese_output"' in source
 assert 'preferences_["traditional_chinese_output"]' in source
 assert 'waitForPreferenceSave' in source
+assert 'if (fixedPosition > 0) actions.push_back(make(20, "取消固定"));' in source
 assert 'msime-helpcode-schema' in source
 assert 'cycleHelpcodeSchema' in source
 assert 'toggleLocalMode' in source
