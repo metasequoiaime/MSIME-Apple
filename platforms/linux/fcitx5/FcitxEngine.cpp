@@ -2078,6 +2078,10 @@ public:
   bool hasAction(const fcitx::CandidateWord &candidate) const override {
     const auto *item = dynamic_cast<const FcitxCandidate *>(&candidate);
     if (state_.translationCandidatesActive() || !item) return false;
+    if (!state_.ic_.hasFocus() || !state_.input_enabled_ || state_.restricted() ||
+        state_.privateInput() || state_.session_ != item->session() ||
+        state_.view_.value("generation", uint64_t{}) != item->generation())
+      return false;
     return state_.view_.value("scheme", 0u) != 3 &&
            (item->source() == 0 || item->source() == 1 || item->source() == 4);
   }
