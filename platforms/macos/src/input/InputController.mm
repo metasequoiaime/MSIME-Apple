@@ -35,6 +35,7 @@
 #import "../candidate/CandidateChrome.h"
 #import "../candidate/CandidateTypography.h"
 #import "../candidate/CandidateTextMetrics.h"
+#include "../candidate/CandidateGlossLayout.h"
 #include "../candidate/CandidateSkin.h"
 #include "../candidate/CandidateWheelRouting.h"
 #import "../core/ChineseTextConversion.h"
@@ -3448,8 +3449,13 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         NSString *translation = CandidateTranslation(candidate);
         if (translation.length) {
             NSSize glossSize = MSIMETranslationTextSize(translation, glossFont);
-            if (vertical) itemWidth += font.pointSize * 0.65 + ceil(glossSize.width);
-            else { itemWidth = MAX(itemWidth, ceil(glossSize.width) + 40 + (geometry.showSelectedBar ? 6 : 0)); glossHeight = MAX(glossHeight, glossSize.height + 4); }
+            if (vertical) itemWidth += msime::mac::CandidateGlossReservedWidth(glossSize.width);
+            else {
+                const CGFloat glossWidth = std::min<CGFloat>(std::max<CGFloat>(glossSize.width, 0.0),
+                                                              msime::mac::kCandidateGlossMaxWidth);
+                itemWidth = MAX(itemWidth, ceil(glossWidth) + 40 + (geometry.showSelectedBar ? 6 : 0));
+                glossHeight = MAX(glossHeight, glossSize.height + 4);
+            }
             if (vertical) rowHeight = MAX(rowHeight, glossSize.height + MSIMECandidateTextHeight(title, font) + 4);
         }
         [widths addObject:@(itemWidth)];
