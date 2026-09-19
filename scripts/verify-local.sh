@@ -230,8 +230,13 @@ elif [ -n "$cross_vcpkg" ]; then
   # directory level short by a move. None of it was subtle; nothing was looking.
   # Once, into a log: unlike the CMake phases above this one costs minutes even
   # incrementally, so it is not run twice to get both the message and the code.
+  # Built dependencies live beside the vcpkg tree that produced them, so every
+  # worktree on this machine shares one rather than each rebuilding curl and
+  # boost before it can compile anything of ours.
+  cross_deps="$(dirname "$cross_vcpkg")/windows-native-deps"
   cross_log="$(mktemp)"
-  if MSIME_VCPKG_ROOT="$cross_vcpkg" bash platforms/windows/build-cross.sh x64 >"$cross_log" 2>&1; then
+  if MSIME_VCPKG_ROOT="$cross_vcpkg" MSIME_WINDOWS_DEPS_ROOT="$cross_deps" \
+    bash platforms/windows/build-cross.sh x64 >"$cross_log" 2>&1; then
     echo "windows cross build (x64): links"
   elif grep -q "Failed to take the filesystem lock" "$cross_log"; then
     # vcpkg holds one lock per checkout, and this repository is worked in
