@@ -14,6 +14,7 @@
 #include <future>
 #include <iostream>
 #include <memory>
+#include <cstdio>
 #include <stdexcept>
 #ifdef _WIN32
 #include <windows.h>
@@ -542,8 +543,21 @@ int main(int argc, char **argv) {
       using namespace msime::windows;
       FocusGate gate;
       InputQueue queue(gate, 1, 8, options.dump());
+      // A require() inside a queued task throws on the worker thread, where the
+      // queue turns it into a status and the message is lost - every failure in
+      // here then reported as "Preference retry task failed" whatever actually
+      // went wrong. Say what it was before letting the status speak.
       auto run = [&](InputQueue::Task task) {
-        auto result = queue.submit(std::move(task));
+        InputQueue::Task reported =
+            [task = std::move(task)](InputState &state) mutable {
+              try {
+                task(state);
+              } catch (const std::exception &error) {
+                std::fprintf(stderr, "queued task failed: %s\n", error.what());
+                throw;
+              }
+            };
+        auto result = queue.submit(std::move(reported));
         require(result && result->get() == InputTaskStatus::Completed,
                 "Preference retry task failed");
       };

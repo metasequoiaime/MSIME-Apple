@@ -135,19 +135,23 @@ wine windows-fullscreen-foreground
 # installer script relative to the repository, which is not mounted into the
 # container - a property of this runner, not of the test.
 wine windows-installer-launch
-# windows-session-smoke now fails at "Preference retry task failed", further
-# again. Each assertion in this suite is reached for the first time as the one
-# before it is resolved, and they have gone two ways so far.
+# windows-session-smoke stops at "Active candidate translation was not
+# re-dispatched", which is an input the suite documents rather than a defect:
+# it takes an optional absolute resource directory as argv[1], and without one
+# its dictionaries are empty temp directories, so typing "ni" produces no
+# candidate to translate. The outer "Preference retry task failed" used to hide
+# this - a require() inside a queued task throws on the worker thread and the
+# queue turns it into a status - which the harness now prints.
 #
-# A product defect: ServerSession::key claimed every unmodified key for
-# candidate selection, so 'b' (VK 66, slot 17) was swallowed and never reached
-# the Engine. Fixed by requiring a digit.
+# Staging the artefacts from resources/desktop-dictionary.lock.json and passing
+# them through MSIME_WINE_RESOURCES does not finish it either: preparation then
+# fails under Wine at "Locked dictionary preparation failed", while the same
+# msime_client_prepare_host call against the same directory returns ok:true
+# natively. So that last step is a Wine limit, not a product one.
 #
-# A wrong expectation: the mode-notification loop asserted the same teardown
-# for all four event types, but a full/half-width switch carries no CN/EN state
-# - synchronize_input_mode returns early for it, ModeMailbox sets only
-# `fullwidth`, and ModePresentation's optionals exist so "unknown" is not
-# reported as "off". Corrected to assert what that event actually means.
-#
-# "Preference retry task failed" is not investigated yet.
+# Two earlier entries here were wrong about the cause and are worth remembering:
+# session_pump.cpp:334 looked like punctuation routing and was ServerSession::key
+# swallowing every unmodified letter (#3116, a real defect); the mode-notification
+# loop looked like a product bug and was a wrong expectation about full/half-width
+# (#3117).
 wine windows-session-smoke

@@ -58,15 +58,32 @@ fi
 docker build --platform linux/amd64 -t "$image" "$root/platforms/windows/wine" >/dev/null 2>&1 || {
   echo "skipped: could not build the Wine image"; exit 0; }
 
+# windows-session-smoke takes an optional resource directory and needs one to
+# get past its candidate-translation checks - the dictionaries are release
+# artefacts the cross build does not stage. Point MSIME_WINE_RESOURCES at a
+# directory holding what resources/desktop-dictionary.lock.json lists and it is
+# passed through; without it the suite runs as far as it can.
+# bash 3.2 treats an empty array as unset under `set -u`, so every expansion
+# of it has to be guarded rather than written plainly.
+resources_mount=()
+resources_argument=""
+if [ -n "${MSIME_WINE_RESOURCES:-}" ] && [ -d "${MSIME_WINE_RESOURCES}" ]; then
+  resources_mount=(-v "${MSIME_WINE_RESOURCES}":/res:ro)
+  resources_argument='Z:\\res'
+fi
+
 docker run --rm --platform linux/amd64 \
-  -v "$build":/bin-win:ro -v "$runtime":/rt:ro "$image" sh -c '
+  -v "$build":/bin-win:ro -v "$runtime":/rt:ro ${resources_mount[@]+"${resources_mount[@]}"} \
+  -e "MSIME_RESOURCES=$resources_argument" "$image" sh -c '
 mkdir -p /run/t && cp /rt/*.dll /run/t/ && cp /bin-win/*.dll /run/t/ 2>/dev/null
 cd /run/t
 for exe in /bin-win/windows-*.exe /bin-win/msime-tsf-*.exe /bin-win/msimeui-tests.exe; do
   [ -f "$exe" ] || continue
   name=$(basename "$exe" .exe)
   cp "$exe" /run/t/ 2>/dev/null || continue
-  if timeout 120 wine "/run/t/$name.exe" >/dev/null 2>&1; then
+  argument=""
+  [ "$name" = windows-session-smoke ] && argument="$MSIME_RESOURCES"
+  if timeout 120 wine "/run/t/$name.exe" $argument >/dev/null 2>&1; then
     echo "PASS $name"
   else
     echo "FAIL $name"
