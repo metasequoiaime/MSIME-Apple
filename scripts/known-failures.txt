@@ -100,3 +100,10 @@ desktop tests/settings/settings.test.tsx > input parity controls persist cloud, 
 # unmodified develop, and the same 1-in-3 with a change that does not touch it.
 desktop tests/settings/settings.test.tsx > clipboard history exposes timestamps, pinning, deletion and two-step clearing
 desktop tests/candidate/external-skins.test.tsx > external selection enters the revisioned draft; preview toggles never save or select
+# Pre-existing, and recorded here only after it was shown to be: it failed on
+# three consecutive full runs, one of which was an unmodified checkout of this
+# branch's base with every change reverted. It passes when its file is run on
+# its own, so it is load-dependent like the entries above rather than a fixed
+# defect. It was missing from this baseline, which made the desktop suite look
+# red for an unrecorded reason.
+desktop tests/candidate/external-skins.test.tsx > settings synchronize all cards and reset local overrides on candidate theme changes
