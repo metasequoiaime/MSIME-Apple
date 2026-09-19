@@ -710,10 +710,10 @@ struct KeyboardView {
   /**
    * The schemes this host can actually deliver.
    *
-   * Handwriting needs a platform recognizer to be injected, as Android injects one, and HarmonyOS
-   * has no equivalent — the engine is built without it here. The thoughtful reply surface is not
-   * implemented on this host either. Offering a scheme that cannot compose would be worse than not
-   * offering it: the keyboard would simply stop responding to keys with no explanation.
+   * Handwriting and the thoughtful reply surface were both absent when this was written and both
+   * exist now — handwriting through Core Vision Kit rather than an injected recognizer, and the
+   * reply keyboard with its own surface — so the only thing filtered here is what the user turned
+   * off, plus the grids a machine with real keys has no use for.
    *
    * Filtered here rather than in KeyboardScheme, whose declaration order is the fixed order every
    * host's pickers render in.
