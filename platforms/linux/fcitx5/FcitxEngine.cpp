@@ -411,6 +411,10 @@ public:
     if (!session_ || view_.value("scheme", 0u) != 0) return false;
     const bool enabled = !view_.value("nine_key", false);
     view_ = response(msime_client_set_nine_key_mode(session_, enabled));
+    preferences_["touch_keyboard_layout"] = enabled ? "nine_key" : "twenty_six_key";
+    if (preferences_snapshot_.is_object() && preferences_snapshot_.contains("preferences"))
+      preferences_snapshot_["preferences"]["touch_keyboard_layout"] =
+          enabled ? "nine_key" : "twenty_six_key";
     saveStringPreference("touch_keyboard_layout", enabled ? "nine_key" : "twenty_six_key");
     render();
     return true;
@@ -420,6 +424,8 @@ public:
     if (view_.value("page_size", size_t{}) == size) return true;
     view_ = response(msime_client_set_candidate_page_size(session_, size)).at("view");
     preferences_["candidate_page_size"] = size;
+    if (preferences_snapshot_.is_object() && preferences_snapshot_.contains("preferences"))
+      preferences_snapshot_["preferences"]["candidate_page_size"] = size;
     saveNumberPreference("candidate_page_size", size);
     render();
     return true;
@@ -783,6 +789,9 @@ public:
     if (!session_) return false;
     chinese_punctuation_ = !chinese_punctuation_;
     view_ = response(msime_client_set_chinese_punctuation(session_, chinese_punctuation_));
+    preferences_["chinese_punctuation"] = chinese_punctuation_;
+    if (preferences_snapshot_.is_object() && preferences_snapshot_.contains("preferences"))
+      preferences_snapshot_["preferences"]["chinese_punctuation"] = chinese_punctuation_;
     saveBooleanPreference("chinese_punctuation", chinese_punctuation_);
     render();
     return true;
@@ -791,6 +800,9 @@ public:
     if (!session_) return false;
     paired_punctuation_ = !paired_punctuation_;
     view_ = response(msime_client_set_paired_punctuation(session_, paired_punctuation_));
+    preferences_["paired_punctuation"] = paired_punctuation_;
+    if (preferences_snapshot_.is_object() && preferences_snapshot_.contains("preferences"))
+      preferences_snapshot_["preferences"]["paired_punctuation"] = paired_punctuation_;
     saveBooleanPreference("paired_punctuation", paired_punctuation_);
     render();
     return true;
@@ -818,6 +830,10 @@ public:
     if (!session_) return false;
     punctuation_lock_ = static_cast<uint8_t>((punctuation_lock_ + 1) % 3);
     view_ = response(msime_client_set_punctuation_lock(session_, punctuation_lock_));
+    const auto lock = punctuation_lock_ == 1 ? "chinese" : punctuation_lock_ == 2 ? "english" : "follow";
+    preferences_["punctuation_lock"] = lock;
+    if (preferences_snapshot_.is_object() && preferences_snapshot_.contains("preferences"))
+      preferences_snapshot_["preferences"]["punctuation_lock"] = lock;
     saveStringPreference("punctuation_lock", punctuation_lock_ == 1 ? "chinese" :
                                                      punctuation_lock_ == 2 ? "english" : "follow");
     render();
