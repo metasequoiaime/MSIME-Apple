@@ -421,6 +421,8 @@ interface PreparedPreferences {
   // 'follow', 'dark' or 'light' for the keyboard specifically; theme is the global one it falls
   // back to, and only if both defer does the system decide.
   screen_keyboard_theme: string;
+  /** 'follow', 'dark' or 'light' for the voice panel; it falls back to the global theme. */
+  voice_theme?: string;
   theme: string;
   traditional_chinese_output: boolean;
   chinese_punctuation: boolean;
@@ -500,6 +502,7 @@ export interface KeyboardPreferences {
   readonly candidateSelectedBar: boolean | null;
   readonly pairedPunctuation: boolean;
   readonly keyboardTheme: string;
+  readonly voiceTheme: string;
   readonly globalTheme: string;
   readonly scheme: string;
   readonly shuangpinProfile: string;
@@ -854,6 +857,7 @@ export class KeyboardSession {
         candidateSelectedBar: preferences.candidate_selected_bar ?? skinSelectedBar,
         pairedPunctuation: preferences.paired_punctuation !== false,
         keyboardTheme: preferences.screen_keyboard_theme,
+        voiceTheme: preferences.voice_theme ?? 'follow',
         globalTheme: preferences.theme,
         scheme: preferences.scheme,
         shuangpinProfile: preferences.shuangpin_profile,
