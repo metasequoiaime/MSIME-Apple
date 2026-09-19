@@ -700,6 +700,20 @@ group('offers all fixed candidate slots and checks the active one', () => {
     'positions keep their one-based slot numbers');
 });
 
+group('limits candidate dictionary mutations to supported sources', () => {
+  check(CandidateManagementAction.candidateActionsAvailable('quanpin', 0),
+    'local candidates are actionable');
+  check(CandidateManagementAction.candidateActionsAvailable('quanpin', 1),
+    'user dictionary candidates are actionable');
+  check(!CandidateManagementAction.candidateActionsAvailable('quanpin', 2),
+    'cloud candidates are read-only');
+  check(!CandidateManagementAction.candidateActionsAvailable('japanese', 0),
+    'Japanese candidates are read-only');
+  const disabled = CandidateManagementAction.actionsForFixedPosition(2, false);
+  check(disabled.every((action: ManagementAction) => action.available === false),
+    'unsupported candidates expose disabled actions');
+});
+
 group('maps desktop candidate wheel movement to page commands', () => {
   check(CandidateWheelPolicy.previousPage(1), 'positive wheel movement pages up');
   check(!CandidateWheelPolicy.nextPage(1), 'positive movement does not page down');

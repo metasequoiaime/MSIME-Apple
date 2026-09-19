@@ -15,6 +15,7 @@ export interface ManagementAction {
   readonly menuItemId: number;
   readonly position?: number;
   readonly checked?: boolean;
+  readonly available?: boolean;
 }
 
 function action(index: number, id: string, title: string, announcement: string,
@@ -40,8 +41,8 @@ export class CandidateManagementAction {
   static readonly REMOVE: ManagementAction = ACTIONS[3];
 
   /** Windows exposes all five fixed slots and marks the currently held slot. */
-  static actionsForFixedPosition(fixedPosition: number): ManagementAction[] {
-    const actions: ManagementAction[] = [CandidateManagementAction.PROMOTE];
+  static actionsForFixedPosition(fixedPosition: number, available: boolean = true): ManagementAction[] {
+    const actions: ManagementAction[] = [{ ...CandidateManagementAction.PROMOTE, available: available }];
     for (let position: number = 1; position <= 5; position++) {
       actions.push({
         id: `FIX_${position}`,
@@ -50,18 +51,29 @@ export class CandidateManagementAction {
         confirmationRequired: false,
         menuItemId: MENU_ITEM_BASE + position,
         position: position,
-        checked: fixedPosition === position
+        checked: fixedPosition === position,
+        available: available
       });
     }
     actions.push({
       ...CandidateManagementAction.CLEAR_POSITION,
-      menuItemId: MENU_ITEM_BASE + 6
+      menuItemId: MENU_ITEM_BASE + 6,
+      available: available && fixedPosition > 0
     });
     actions.push({
       ...CandidateManagementAction.REMOVE,
-      menuItemId: MENU_ITEM_BASE + 7
+      menuItemId: MENU_ITEM_BASE + 7,
+      available: available
     });
     return actions;
+  }
+
+  /** Dictionary mutations are only valid for local/user-dictionary candidates. */
+  static candidateActionsAvailable(scheme: string, source: number): boolean {
+    if (scheme === 'japanese') {
+      return false;
+    }
+    return source === 0 || source === 1 || source === 4;
   }
 
   static fromMenuItemId(itemId: number): ManagementAction {

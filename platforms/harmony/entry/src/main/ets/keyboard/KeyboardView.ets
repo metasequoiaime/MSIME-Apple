@@ -1222,6 +1222,9 @@ struct KeyboardView {
   }
 
   private manageCandidate(action: ManagementAction, index: number): void {
+    if (action.available === false) {
+      return;
+    }
     if (action.confirmationRequired && this.pendingRemoval !== index) {
       // Deleting a dictionary entry is not undoable from here, so the first press only arms it.
       this.pendingRemoval = index;
@@ -2039,11 +2042,17 @@ struct KeyboardView {
       } else {
         const fixedPosition: number = this.managing >= 0 && this.managing < this.candidates.length
           ? this.candidates[this.managing].fixedPosition : 0;
-        ForEach(CandidateManagementAction.actionsForFixedPosition(fixedPosition),
+        const source: number = this.managing >= 0 && this.managing < this.candidates.length
+          ? this.candidates[this.managing].source : 0;
+        const actionable: boolean = CandidateManagementAction.candidateActionsAvailable(
+          this.engineScheme, source);
+        ForEach(CandidateManagementAction.actionsForFixedPosition(fixedPosition, actionable),
           (item: ManagementAction) => {
           Text(item.title)
             .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-            .fontColor(item.checked === true ? this.skin.keyForeground : this.skin.accent)
+            .fontColor(item.available === false ? this.skin.keyForeground :
+              item.checked === true ? this.skin.keyForeground : this.skin.accent)
+            .opacity(item.available === false ? 0.35 : 1)
             .padding({ left: 10, right: 10 })
             .onClick(() => this.manageCandidate(item, this.managing))
         }, (item: ManagementAction) => `${item.id}:${item.menuItemId}`)

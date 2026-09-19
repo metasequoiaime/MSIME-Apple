@@ -66,6 +66,7 @@ export interface CandidateEntry {
   readonly highlighted: boolean;
   readonly badge: string;
   readonly fixedPosition: number;
+  readonly source: number;
 }
 
 interface EngineView {
@@ -1326,6 +1327,7 @@ export class KeyboardSession {
         highlighted: candidate.highlighted,
         badge: CandidatePresentationPolicy.badge(candidate.source),
         fixedPosition: candidate.fixed_position,
+        source: candidate.source,
         // Only the part of the code still untyped, and only where that means something. The policy
         // decides; this just supplies what it reasons about.
         hint: WubiCodeHintPolicy.hint(candidate.code, view.preedit, true, view.scheme,
