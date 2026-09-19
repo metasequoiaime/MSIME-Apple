@@ -2944,7 +2944,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       configuration.attributedTitle = title
     }
     button.configuration = configuration
-    button.titleLabel?.numberOfLines = 1 + glosses.count
+    button.titleLineCount = 1 + glosses.count
     pinCandidateWidth(of: button, firstLine: configuration.attributedTitle, glossLines: glosses.count)
     button.accessibilityLabel = annotation.isEmpty
       ? "候选词 \(number)：\(display)"

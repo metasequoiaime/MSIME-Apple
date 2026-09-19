@@ -36,6 +36,8 @@ API 35 arm64 专用模拟器已经覆盖原生输入、Tauri/IME 合包、共享
 
 引擎不接受的标点按 Apple `handleSymbol` 的边界处理：组字中时先用共享宿主命令 9（`Action::Finish`）按首选候选结束组合，再由宿主把该标点上屏。Android 的预编辑是真正的 composing region，直接 `commitText` 会替换掉正在组的拼音，于是「nihao」后按 `@` 只剩 `@`；现在得到「你好@」，与 Apple 和 macOS 的 finish_composition 一致。没有组合时照旧直接上屏，被拒绝的数字仍是当前页没有对应候选的候选键，不走这条自动上屏。边界由无 Android 依赖的 `DeclinedKeyPolicy` 提供。
 
+收起键盘或输入视图结束时，若仍在组字，按首选候选结束组合后上屏，与 macOS 失焦边界的 `MSIME_FINISH_COMPOSITION` 一致；编辑器因此留下 `你好` 而不是字面 `nihao`。
+
 回车键按当前 Android `EditorInfo` 显示并执行前往、搜索、发送、下一项、完成或上一项动作；无明确动作、未知动作或编辑器设置 `IME_FLAG_NO_ENTER_ACTION` 时显示“换行”并提交换行符。执行前先通过共享 Engine 完成当前组合；若组合已被处理，回车到此为止，不再误触发编辑器动作或追加换行。日语九键侧栏同步显示“改行/確定”，底部全局回车仍保留 Android 的 `EditorInfo` 标签和 dispatch 适配，条件由同一个纯 Java 契约提供。
 
 工具栏“空格”支持轻点选词或插入空格，也可左右滑动向编辑器发送有界方向键事件以移动光标。滑动开始时先完成 Engine 组合，距离累积器绑定当前 `InputConnection` 身份；输入目标变化、手势取消、非有限坐标或异常跳变都会终止移动，不读取或持久化编辑器文本。

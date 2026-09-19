@@ -661,8 +661,13 @@ public final class MSIMEInputService extends InputMethodService {
         closeSymbolPanel();
         deactivateHandwriting();
         clearDiagnostic();
+        // macOS resolves the same focus-loss boundary with finish_composition, so a keyboard put
+        // away mid-composition leaves 你好 behind rather than the letters `nihao`. This was
+        // CommitRaw only because command 9 was unmapped in the FFI when the path was written.
         if (session != 0 && connection != null && view != null
-                && !view.optString("editing_text", "").isEmpty()) command(2);
+                && !view.optString("editing_text", "").isEmpty()) {
+            command(FINISH_COMPOSITION_COMMAND);
+        }
     }
 
     @Override public void onConfigurationChanged(Configuration configuration) {

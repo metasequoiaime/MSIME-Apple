@@ -22,6 +22,16 @@
 
 ## 当前证据
 
+### Android 收起键盘按首选上屏，设备回归对齐当前快捷栏（2026-09-20）
+
+模拟器实测发现：组字中收起键盘，编辑器留下的是字面 `nihao` 而不是 `你好`。`finishInputViewPresentation`（注释写明对应 Apple 的 `viewWillDisappear` 边界）用的是 `command(2)`（CommitRaw）。macOS 的 `deactivateServer` 在同一个失焦边界用的是 `MSIME_FINISH_COMPOSITION`，即按首选候选结束组合；Android 当初写成 raw 只是因为命令 9 在当时的 FFI 里尚未映射，与语义无关。现在改用已命名的 `FINISH_COMPOSITION_COMMAND`，`check-host.sh` 已有的检查保证 9 仍是 `Action::Finish`。
+
+同时把设备回归对齐到已经落地的快捷栏。`MoreToolsDeviceSmoke` 期望「方案」文字按钮，而 `render()` 会把该键的文字和无障碍描述都改成当前方案（`拼26` / `输入方案：全拼 26 键`），因此新增按描述前缀匹配的 `describedPrefix`，其余固定文字的键不变。`DeviceSmoke` 的简繁用例仍在快捷栏找该键，但它已按 Apple 移入「更多」；改为打开「更多」操作「繁体输出」设置卡并返回键盘，`tool` / `toolWithState` / `toolPanel` 三个匹配器从 `MoreToolsDeviceSmoke` 提到基类共用。最后一个阶段断言编辑器内容恰为 `nihao`，但此时字段里已有前面阶段留下的 `你輸入法`，且 `getText()` 包含组合区，实际应为 `你輸入法nihao`。
+
+设备实测：`DeviceSmoke` 与 `MoreToolsDeviceSmoke` 两个验收套件在专用 API 35 arm64 模拟器上通过，覆盖组词上屏、繁体显示与上屏、退格、密码字段直接输入，以及两列工具/设置面板、本地输入子面板和返回键盘。Android host 检查与 `scripts/verify-local.sh --quick` 通过。
+
+`smoke.sh` 继续跑到 `CandidatePanelDeviceSmoke` 的「candidate panel out-of-page entry」停下，报展开候选 chip 契约不符；该套件同属落后于当前实现的一批，留作后续切片。
+
 ### Android 26 键中文拼音输入修复（2026-09-20）
 
 在专用 API 35 arm64 模拟器上实测发现：26 键中文态逐键输入 `nihao` 得到的是字面 `NIHAO`，完全不组字。原因是 `KeyboardLayout.rows(layer, shifted)` 在 `shifted` 为真时把**键值本身**大写，而 `rebuildKeyRows` 传入的正是 `LetterKeyFacePolicy.displaysUppercase(...)`——中文键面按 Apple 一律大写，于是键值也变成 `N`。Engine 不能用大写字母起拼音组合，返回未处理，宿主按既有边界把它当字面上屏。中文 26 键输入因此整体失效，而本地检查全部通过：JVM smoke 只单独验证 `rows()` 和 `LetterKeyFacePolicy`，没有一条覆盖“键面大写时键值必须保持小写”这个它们之间的契约。
@@ -1333,3 +1343,13 @@ MSIME-Apple 的语音服务目录里有两个共享客户端一直没有的转�
 个人词库文件导入卡片对所有移动宿主显示（`importPersonal` 在 iOS 与 Android 上都接了），但说明文字写的是「确认后加入 Android 键盘同步队列」。iOS 用户读到的是一句不成立的话：那条队列是 App Group 里由本机键盘扩展消费的队列，和 Android 无关。改为按宿主平台命名，未知平台不提平台名，句子依然通顺。这是共享 UI 里唯一一处未按平台收敛的 Android 文案，其余 Android 字样要么在 `androidPlatform` 分支内、要么是代码注释。
 
 本地验证：新增 3 项 Vitest 覆盖 iOS、Android 与未知平台三种措辞；`tests/dictionary` 全部 61 项通过；桌面 TypeScript 检查与 `pnpm build` 通过。未改动导入行为本身，CI 保持禁用。
+
+### iOS Swift 测试套件恢复可运行
+
+`platforms/ios` 的 229 个 Swift 用例迁移过来之后，仓库里没有任何地方说明怎么跑，也没有任何记录显示它跑过。本次把它接通并记录结果，同时修掉两处让它跑不完或测错对象的问题：
+
+**测试宿主漏了 App Group entitlement。** MSIME-Apple 的 `MetasequoiaKeyboardTestHost` 声明了 `CODE_SIGN_ENTITLEMENTS`，迁移过来的 `MSIMEKeyboardTestHost` 没有。被测键盘要靠这个容器读共享偏好；没有它，宿主会在套件中途以 `Test crashed with signal kill before establishing connection` 被杀，后面的用例全部不报告（实测只跑到 88 项）。补上后整套 211 项全部执行完毕。相应地，构建测试时必须允许签名——模拟器用 `CODE_SIGN_IDENTITY=-` 做 ad-hoc 签名即可，不需要开发者证书；`CODE_SIGNING_ALLOWED=NO` 会把 entitlement 一并剥掉。
+
+**候选气泡的行数限制从来没生效。** `updateCandidateButton` 在 `button.configuration = configuration` 之后紧接着写 `titleLabel?.numberOfLines`，而 UIKit 按自己的节奏应用配置并在过程中重建 title label，赋的值随即被丢弃——测试读回来是 0（不限行），候选词于是折到第二行，而候选条是横向滚动的，放不下的候选本该截断并留在滚动区后面。改为由 `KeyboardKeyButton.titleLineCount` 在每次 `layoutSubviews` 重新应用，展开候选面板里同样的写法一并改掉。修改后读回的是代码本来想要的值。
+
+本地验证：Xcode 27 / iOS 27.0 模拟器上，已 `simctl erase` 的干净设备，201 通过、10 失败，两次运行结果一致；失败名单记入 `platforms/ios/README.md`，集中在候选条与九键的布局测量和 Engine 候选断言，尚未逐条定位。该套件暂不接入 `scripts/verify-local.sh`：需要模拟器与已暂存词库资源，单次约十分钟。未执行真机验收，CI 保持禁用。
