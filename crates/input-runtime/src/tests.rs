@@ -2,6 +2,7 @@
 //! is large enough that mixing them with the implementation obscured both.
 //! Same `mod tests` as before, so `use super::*` still names the parent.
 
+use super::runtime::empty_result;
 use super::*;
 
 #[cfg(unix)]
