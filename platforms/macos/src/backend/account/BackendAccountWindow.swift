@@ -387,3 +387,38 @@ final class BackendAccountWindow: NSWindowController, NSWindowDelegate {
 func showBackendAccount() {
   Task { @MainActor in BackendAccountWindow.shared.showAccount() }
 }
+
+// The native preferences window can host the same SwiftUI surface inline. This
+// keeps the login and account actions in one place while giving Apple users a
+// platform-appropriate page instead of stacking a second window over settings.
+@MainActor
+private final class AccountPane {
+  static let shared = AccountPane()
+  let model = MacAccountModel()
+  lazy var hosting: NSHostingView<MacAccountView> = {
+    let view = NSHostingView(rootView: MacAccountView(model: model))
+    view.translatesAutoresizingMaskIntoConstraints = false
+    return view
+  }()
+}
+
+@_cdecl("MSIMEAccountPaneView")
+@MainActor
+func accountPaneView() -> NSView {
+  MainActor.assumeIsolated { AccountPane.shared.hosting }
+}
+
+@_cdecl("MSIMEAccountPaneAttach")
+@MainActor
+func accountPaneAttach(_ window: NSWindow?) {
+  MainActor.assumeIsolated {
+    AccountPane.shared.model.window = window
+    AccountPane.shared.model.load()
+  }
+}
+
+@_cdecl("MSIMEAccountPaneClose")
+@MainActor
+func accountPaneClose() {
+  MainActor.assumeIsolated { AccountPane.shared.model.close() }
+}
