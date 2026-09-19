@@ -927,6 +927,30 @@ test("utility mode switches preserve defaults and drafts across pages", async ()
   expect(client.save).toHaveBeenCalledWith(7, { ...initial.preferences, local_modes: { unicode: false, date_time: true, quick_phrase: true, emoji: true, kaomoji: true, super_jianpin: true, temporary_english: true, temporary_japanese: true } });
 });
 
+test("macOS utility modes match the resources shipped in the IMK bundle", async () => {
+  const save = vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences }));
+  render(<SettingsPage client={{
+    load: vi.fn().mockResolvedValue(initial), save,
+    host: { platform: "macos" } as HostCapabilities,
+  }} />);
+  fireEvent.click(screen.getByRole("button", { name: "实用功能" }));
+  expect(await screen.findByRole("checkbox", { name: /^快捷短语/ })).toBeDefined();
+  expect(screen.getByRole("checkbox", { name: /^日期与时间/ })).toBeDefined();
+  expect(screen.getByRole("checkbox", { name: /^Unicode/ })).toBeDefined();
+  expect(screen.getByRole("checkbox", { name: /^超级简拼/ })).toBeDefined();
+  expect(screen.getByRole("checkbox", { name: /^临时英文/ })).toBeDefined();
+  expect(screen.queryByRole("checkbox", { name: /^Emoji/ })).toBeNull();
+  expect(screen.queryByRole("checkbox", { name: /^颜文字/ })).toBeNull();
+  expect(screen.queryByRole("checkbox", { name: /^临时日语/ })).toBeNull();
+  fireEvent.click(screen.getByRole("checkbox", { name: /^Unicode/ }));
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(save).toHaveBeenCalledWith(7, { ...initial.preferences, local_modes: {
+    unicode: false, date_time: true, quick_phrase: true, emoji: true, kaomoji: true,
+    super_jianpin: true, temporary_english: true, temporary_japanese: true,
+  } });
+});
+
 test("clipboard history defaults off, clears when disabled, and saves independently", async () => {
   const clear = vi.fn().mockResolvedValue(undefined);
   const client: SettingsClient = { load: vi.fn().mockResolvedValue(initial), save: vi.fn().mockImplementation(async (_revision, preferences) => ({ ...initial, revision: 8, preferences })), clipboard: { clear } };
