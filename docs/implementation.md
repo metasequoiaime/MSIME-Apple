@@ -22,6 +22,16 @@
 
 ## 当前证据
 
+### Android 收起键盘按首选上屏，设备回归对齐当前快捷栏（2026-09-20）
+
+模拟器实测发现：组字中收起键盘，编辑器留下的是字面 `nihao` 而不是 `你好`。`finishInputViewPresentation`（注释写明对应 Apple 的 `viewWillDisappear` 边界）用的是 `command(2)`（CommitRaw）。macOS 的 `deactivateServer` 在同一个失焦边界用的是 `MSIME_FINISH_COMPOSITION`，即按首选候选结束组合；Android 当初写成 raw 只是因为命令 9 在当时的 FFI 里尚未映射，与语义无关。现在改用已命名的 `FINISH_COMPOSITION_COMMAND`，`check-host.sh` 已有的检查保证 9 仍是 `Action::Finish`。
+
+同时把设备回归对齐到已经落地的快捷栏。`MoreToolsDeviceSmoke` 期望「方案」文字按钮，而 `render()` 会把该键的文字和无障碍描述都改成当前方案（`拼26` / `输入方案：全拼 26 键`），因此新增按描述前缀匹配的 `describedPrefix`，其余固定文字的键不变。`DeviceSmoke` 的简繁用例仍在快捷栏找该键，但它已按 Apple 移入「更多」；改为打开「更多」操作「繁体输出」设置卡并返回键盘，`tool` / `toolWithState` / `toolPanel` 三个匹配器从 `MoreToolsDeviceSmoke` 提到基类共用。最后一个阶段断言编辑器内容恰为 `nihao`，但此时字段里已有前面阶段留下的 `你輸入法`，且 `getText()` 包含组合区，实际应为 `你輸入法nihao`。
+
+设备实测：`DeviceSmoke` 与 `MoreToolsDeviceSmoke` 两个验收套件在专用 API 35 arm64 模拟器上通过，覆盖组词上屏、繁体显示与上屏、退格、密码字段直接输入，以及两列工具/设置面板、本地输入子面板和返回键盘。Android host 检查与 `scripts/verify-local.sh --quick` 通过。
+
+`smoke.sh` 继续跑到 `CandidatePanelDeviceSmoke` 的「candidate panel out-of-page entry」停下，报展开候选 chip 契约不符；该套件同属落后于当前实现的一批，留作后续切片。
+
 ### Android 26 键中文拼音输入修复（2026-09-20）
 
 在专用 API 35 arm64 模拟器上实测发现：26 键中文态逐键输入 `nihao` 得到的是字面 `NIHAO`，完全不组字。原因是 `KeyboardLayout.rows(layer, shifted)` 在 `shifted` 为真时把**键值本身**大写，而 `rebuildKeyRows` 传入的正是 `LetterKeyFacePolicy.displaysUppercase(...)`——中文键面按 Apple 一律大写，于是键值也变成 `N`。Engine 不能用大写字母起拼音组合，返回未处理，宿主按既有边界把它当字面上屏。中文 26 键输入因此整体失效，而本地检查全部通过：JVM smoke 只单独验证 `rows()` 和 `LetterKeyFacePolicy`，没有一条覆盖“键面大写时键值必须保持小写”这个它们之间的契约。
