@@ -1,8 +1,11 @@
 [package]
 name = "msime-input-runtime"
+description = "Session orchestration for input hosts: focus, candidate paging and generational selection."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
 
 [dependencies]
 msime-engine-bridge = { path = "../engine-bridge" }

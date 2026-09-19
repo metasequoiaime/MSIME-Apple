@@ -1,8 +1,11 @@
 [package]
 name = "msime-desktop"
+description = "Tauri entry library and commands shared by the desktop, Android and iOS settings shells."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
 
 # No `name`: it defaults to the package name, which is what the other eight
 # crates rely on. Setting it made this the one crate whose library and package

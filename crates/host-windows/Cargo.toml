@@ -1,8 +1,11 @@
 [package]
 name = "msime-host-windows"
+description = "Windows TSF/Server host support for the shared client."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
+repository.workspace = true
+rust-version.workspace = true
 
 [dev-dependencies]
 msime-client-core = { path = "../client-core" }

@@ -1,5 +1,6 @@
 [package]
 name = "msime-client-core"
+description = "Host-agnostic client core: local preferences and generational installation of pinned resources."
 version.workspace = true
 edition.workspace = true
 license.workspace = true
