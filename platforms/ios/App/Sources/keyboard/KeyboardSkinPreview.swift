@@ -5,6 +5,7 @@ struct KeyboardSkinPreview: View {
   let skin: KeyboardSkin
   let nineKey: Bool
   var layout: KeyboardGeometry = KeyboardLayoutPreference.geometry
+  var heightAdjustment: Double = 0
   @Environment(\.colorScheme) private var colorScheme
 
   private func color(_ value: UIColor) -> Color {
@@ -12,7 +13,7 @@ struct KeyboardSkinPreview: View {
   }
 
   var body: some View {
-    KeyboardPreviewCanvas { keyboard }
+    KeyboardPreviewCanvas(referenceHeight: 260 + heightAdjustment) { keyboard }
       .accessibilityElement(children: .ignore)
       .accessibilityLabel("\(skin.title)，\(nineKey ? "9 键" : "26 键")完整键盘预览")
       .accessibilityIdentifier("fullKeyboardSkinPreview")
@@ -44,7 +45,7 @@ struct KeyboardSkinPreview: View {
           }
           VStack(spacing: layout.rowSpacing) {
             key("⌫")
-            key("重输")
+            key(".")
             key("0")
           }.frame(width: nineKeySidebarWidth)
         }.frame(maxHeight: .infinity)
