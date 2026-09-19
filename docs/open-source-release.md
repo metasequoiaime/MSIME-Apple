@@ -14,6 +14,8 @@
 
 根目录 `LICENSE` 是 GPL-3.0-only。Rust workspace、Linux 元数据和共享客户端默认使用同一许可证，但上游代码、Gradle、ML Kit、Engine 资源、词库、模型和系统 SDK 仍以各自许可证和通知为准。
 
+用了谁、各自什么许可、通知文件在哪，汇总在[第三方组件清单](third-party.md)；下面几条是它没有覆盖的发布动作。
+
 - Android Gradle 模板的 Apache-2.0 文本在 `apps/desktop/src-tauri/gen/android/gradle/LICENSE-2.0.txt`，来源说明在同目录 `NOTICE.md`。
 - iOS ML Kit 依赖通知在 `platforms/ios/SharedResources/MLKit-NOTICES.txt` 和 `MLKit-Dependencies.txt`。
 - Windows 依赖通知由 `platforms/windows/Collect-Notices.ps1` 生成；使用说明和限制见 `platforms/windows/Notices.md`。生成器不是完整许可证审计，不能用空通知文件代替上游材料。

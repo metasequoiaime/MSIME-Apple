@@ -14,6 +14,7 @@
 - 行为准则改用 Contributor Covenant 2.1，并提供举报联系方式。
 - 增加[网络请求与数据流向](PRIVACY.md)，逐项记录每个联网功能的发送内容、目的地、默认开关和对应代码位置，并指向 <https://msime.app/privacy/> 的隐私政策。云联想默认开启且会把正在组的拼音发给 Google 输入工具这一既有行为，此前只写在 Android 平台 README 里。
 - 增加 `.editorconfig`，记录仓库既有的缩进与换行约定。
+- 增加[第三方组件清单](docs/third-party.md)，汇总固定上游、随包资源、各平台 SDK 的许可证与通知文件位置，并标出尚未记录来源的部分。README 现在也明确声明本项目为 GPL-3.0-only。
 
 ### 验证范围
 
