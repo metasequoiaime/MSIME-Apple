@@ -7,6 +7,8 @@ export interface VoicePolishTokens {
 }
 
 export interface VoiceInputConfiguration {
+  /** Shared privacy/availability switch; omitted by older prepared preference documents. */
+  enabled: boolean;
   asr_provider: string;
   language: string;
   asr_endpoint: string;
@@ -34,6 +36,7 @@ export interface VoiceInputConfiguration {
 }
 
 export const DEFAULT_VOICE_INPUT_CONFIGURATION: VoiceInputConfiguration = {
+  enabled: true,
   asr_provider: 'doubao',
   language: 'zh-cn',
   asr_endpoint: 'wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async',
@@ -59,3 +62,10 @@ export const DEFAULT_VOICE_INPUT_CONFIGURATION: VoiceInputConfiguration = {
   doubao_enable_ddc: false,
   doubao_boosting_table_id: ''
 };
+
+/** Keeps legacy prepared documents enabled unless they explicitly opt out. */
+export class VoiceInputConfigurationPolicy {
+  static enabled(value: boolean | undefined): boolean {
+    return value !== false;
+  }
+}

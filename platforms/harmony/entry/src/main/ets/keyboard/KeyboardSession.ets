@@ -45,7 +45,7 @@ import {
 } from './clipboard/ClipboardHistoryStore';
 import { ClipboardHistoryPreferencePolicy } from './clipboard/ClipboardHistoryPreferencePolicy';
 import {
-  DEFAULT_VOICE_INPUT_CONFIGURATION, VoiceInputConfiguration
+  DEFAULT_VOICE_INPUT_CONFIGURATION, VoiceInputConfiguration, VoiceInputConfigurationPolicy
 } from './input/VoiceInputConfiguration';
 import { SmartPunctuationContext } from './input/SmartPunctuationContext';
 import { PairedPunctuationPolicy, PairedPunctuationCompletion } from
@@ -661,6 +661,8 @@ export class KeyboardSession {
   onChanged: ((state: KeyboardState) => void) | undefined = undefined;
   /** The view removes clipboard history immediately when the shared privacy switch is turned off. */
   onClipboardHistoryChanged: ((enabled: boolean) => void) | undefined = undefined;
+  /** The view removes the voice surface immediately when shared voice input is turned off. */
+  onVoiceInputChanged: ((enabled: boolean) => void) | undefined = undefined;
   /** Lets a desktop panel resize when a vertical candidate page changes height. */
   onCandidateCount: ((count: number) => void) | undefined = undefined;
   /** Lets a desktop panel follow the widest current candidate without measuring ArkUI nodes. */
@@ -821,6 +823,9 @@ export class KeyboardSession {
         ? this.readCandidateSkinImage(stateRoot, preferences.candidate_skin, skinDecoration)
         : { image: null, aspectRatio: 1 };
       this.voiceInput = preferences.voice_input;
+      if (this.onVoiceInputChanged !== undefined) {
+        this.onVoiceInputChanged(this.voiceInputEnabled());
+      }
       this.aiAssistant = preferences.ai_assistant;
       this.englishMode = preferences.default_ime_mode === 'english';
       this.bindings = {
@@ -1212,7 +1217,7 @@ export class KeyboardSession {
 
   /** Begin one host-independent voice generation, so late platform callbacks can be rejected. */
   voiceStart(): number {
-    if (this.handle === 0) {
+    if (this.handle === 0 || !this.voiceInputEnabled()) {
       return 0;
     }
     try {
@@ -1227,6 +1232,10 @@ export class KeyboardSession {
 
   voiceInputConfiguration(): VoiceInputConfiguration {
     return this.voiceInput;
+  }
+
+  voiceInputEnabled(): boolean {
+    return VoiceInputConfigurationPolicy.enabled(this.voiceInput.enabled);
   }
 
   voiceCancel(): void {
@@ -2656,6 +2665,12 @@ export class KeyboardSession {
         KeyboardLog.error(`preferences not persisted: ${saved.error}`);
       }
       this.clipboardHistoryEnabled = nextClipboardHistory;
+      if (changes.has('voice_input')) {
+        this.voiceInput = snapshot.preferences.voice_input;
+        if (this.onVoiceInputChanged !== undefined) {
+          this.onVoiceInputChanged(this.voiceInputEnabled());
+        }
+      }
       if (ClipboardHistoryPreferencePolicy.shouldClearHistory(nextClipboardHistory)) {
         this.clearClipboardHistoryFile();
       }

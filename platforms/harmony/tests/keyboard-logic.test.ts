@@ -70,6 +70,8 @@ import {
 } from '../entry/src/main/ets/keyboard/input/HandwritingStrokePolicy';
 import { VoiceRecognitionPolicy, VOICE_MAX_TEXT } from
   '../entry/src/main/ets/keyboard/input/VoiceRecognitionPolicy';
+import { DEFAULT_VOICE_INPUT_CONFIGURATION, VoiceInputConfigurationPolicy } from
+  '../entry/src/main/ets/keyboard/input/VoiceInputConfiguration';
 import { AccountCloudBridge, AccountSessionStore, AccountTransport } from
   '../entry/src/main/ets/account/AccountCloudBridge';
 import { TypingStatisticsPolicy } from '../entry/src/main/ets/keyboard/TypingStatisticsPolicy';
@@ -224,6 +226,17 @@ group('bounds native speech language, session and result text', () => {
     'voice result removes control bytes and trims');
   check(VoiceRecognitionPolicy.result('x'.repeat(VOICE_MAX_TEXT + 20)).length === VOICE_MAX_TEXT,
     'voice result is bounded');
+});
+
+group('voice input preference gates every Harmony entry point', () => {
+  check(DEFAULT_VOICE_INPUT_CONFIGURATION.enabled,
+    'voice input is enabled by default');
+  check(VoiceInputConfigurationPolicy.enabled(undefined),
+    'legacy documents without the field remain enabled');
+  check(!VoiceInputConfigurationPolicy.enabled(false),
+    'an explicit false disables voice input');
+  check(VoiceInputConfigurationPolicy.enabled(true),
+    'an explicit true enables voice input');
 });
 
 group('bounds handwriting points and rejects empty recognition requests', () => {
