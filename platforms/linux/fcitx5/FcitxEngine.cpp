@@ -798,7 +798,10 @@ public:
   bool toggleCandidateTranslations() {
     if (!session_) return false;
     const bool enabled = !preferences_.value("candidate_translations", false);
-    preferences_["candidate_translations"] = enabled;
+    auto snapshot = preferences_snapshot_;
+    if (!snapshot.is_object() || !snapshot.contains("preferences")) return false;
+    snapshot["preferences"]["candidate_translations"] = enabled;
+    if (!applyPreferenceSnapshot(std::move(snapshot))) return false;
     if (!enabled && view_.contains("generation")) {
       const auto empty = std::string("[]");
       view_ = response(msime_client_apply_translations(
@@ -828,7 +831,10 @@ public:
     auto it = std::find(languages.begin(), languages.end(), current);
     const auto next = it == languages.end() || std::next(it) == languages.end()
         ? languages.front() : *std::next(it);
-    preferences_["translation_target_language"] = next;
+    auto snapshot = preferences_snapshot_;
+    if (!snapshot.is_object() || !snapshot.contains("preferences")) return false;
+    snapshot["preferences"]["translation_target_language"] = next;
+    if (!applyPreferenceSnapshot(std::move(snapshot))) return false;
     const auto empty = std::string("[]");
     view_ = response(msime_client_apply_translations(
         session_, view_.at("generation"),
@@ -923,7 +929,10 @@ public:
   bool toggleCloudCandidates() {
     if (!session_) return false;
     const bool enabled = !preferences_.value("cloud_candidates", true);
-    preferences_["cloud_candidates"] = enabled;
+    auto snapshot = preferences_snapshot_;
+    if (!snapshot.is_object() || !snapshot.contains("preferences")) return false;
+    snapshot["preferences"]["cloud_candidates"] = enabled;
+    if (!applyPreferenceSnapshot(std::move(snapshot))) return false;
     if (!enabled && !online_query_.empty()) {
       const auto empty = std::string("[]");
       view_ = response(msime_client_apply_online_candidates(
@@ -940,9 +949,12 @@ public:
   }
   bool toggleAiCandidates() {
     if (!session_) return false;
-    auto &assistant = preferences_["ai_assistant"];
+    auto snapshot = preferences_snapshot_;
+    if (!snapshot.is_object() || !snapshot.contains("preferences")) return false;
+    auto &assistant = snapshot["preferences"]["ai_assistant"];
     const bool enabled = !assistant.value("enabled", false);
     assistant["enabled"] = enabled;
+    if (!applyPreferenceSnapshot(std::move(snapshot))) return false;
     if (!enabled && !online_query_.empty()) {
       const auto empty = std::string("[]");
       view_ = response(msime_client_apply_online_candidates(
@@ -985,6 +997,17 @@ public:
       snapshot["preferences"] = std::move(preferences);
     }
     return snapshot;
+  }
+  bool applyPreferenceSnapshot(Json snapshot) {
+    if (!snapshot.is_object() || !snapshot.contains("revision") ||
+        !snapshot.contains("preferences")) return false;
+    const auto encoded = effectiveContextSnapshot(snapshot).dump();
+    view_ = response(msime_client_update_preferences(
+        session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
+    preferences_ = snapshot.at("preferences");
+    applyContextOverrides(preferences_);
+    preferences_snapshot_ = std::move(snapshot);
+    return true;
   }
   bool ensure() {
     if (!ic_.hasFocus() || restricted()) { close(); clearPanel(); return false; }
