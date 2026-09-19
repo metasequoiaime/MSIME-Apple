@@ -19,7 +19,7 @@ struct CloudDictionaryCatalogView: View {
 
   var body: some View {
     List {
-      Section(kind.title) {
+      Section {
         TextField(kind == .quick ? "快捷编码，可留空" : "输入编码，例如 shi、a 或 hello", text: $code)
           .backendCodeInput()
         if kind == .pinyin {
@@ -31,37 +31,53 @@ struct CloudDictionaryCatalogView: View {
             }
           }
         }
-        Button("查询完整目录") { run { try await load(query: .init(code: code, scheme: scheme, profile: profile), offset: 0) } }
-          .disabled(kind != .quick && code.isEmpty)
+        SettingsActionRow(title: "查询完整目录", symbol: "magnifyingglass", color: .blue,
+                          enabled: kind == .quick || !code.isEmpty) {
+          run { try await load(query: .init(code: code, scheme: scheme, profile: profile), offset: 0) }
+        }
+      } header: {
+        Text(kind.title)
+      } footer: {
         Text("包含基础词库与当前账号的修改。编辑和删除仅影响当前账号的云端词库；不会立即修改本机词库。按编码查询，拼音使用全拼或所选双拼方案。")
-          .font(.footnote).foregroundStyle(.secondary)
       }
       if let page {
-        Section("目录结果 · 云端版本 \(page.revision)") {
+        Section {
           if page.entries.isEmpty { Text("没有匹配的词条。").foregroundStyle(.secondary) }
-          Text("查询编码：\(page.normalized)").font(.caption).foregroundStyle(.secondary)
+          // 每条原本挂着「编辑」「删除」两个行内按钮。点一条即编辑,删除交给侧滑。
           ForEach(page.entries) { entry in
-            VStack(alignment: .leading, spacing: 6) {
-              Text(entry.word)
-              Text("\(entry.code) · 权重 \(entry.weight)").font(.caption).foregroundStyle(.secondary)
-              HStack {
-                Button("编辑") { editing = Edit(entry: entry, revision: page.revision) }
-                Button("删除", role: .destructive) { deleting = Edit(entry: entry, revision: page.revision) }
-              }.buttonStyle(.borderless)
+            Button { editing = Edit(entry: entry, revision: page.revision) } label: {
+              VStack(alignment: .leading, spacing: 3) {
+                Text(entry.word).foregroundStyle(.primary)
+                Text("\(entry.code) · 权重 \(entry.weight)").font(.caption).foregroundStyle(.secondary)
+              }
+              .frame(maxWidth: .infinity, alignment: .leading)
+              .contentShape(Rectangle())
+            }
+            .buttonStyle(.plain)
+            .swipeActions(edge: .trailing) {
+              Button("删除", role: .destructive) { deleting = Edit(entry: entry, revision: page.revision) }
             }
           }
-          HStack {
-            Button("上一页") { run { try await reload(offset: max(0, page.offset - 100)) } }.disabled(page.offset == 0)
-            Spacer()
-            Text("第 \(page.offset / 100 + 1) 页").font(.caption)
-            Spacer()
-            Button("下一页") { run { try await reload(offset: page.offset + 100) } }.disabled(!page.has_more)
-          }.buttonStyle(.borderless)
+        } header: {
+          Text("目录结果 · 云端版本 \(page.revision)")
+        } footer: {
+          Text("查询编码：\(page.normalized)。点一条编辑，左滑删除。")
+        }
+        if page.offset > 0 || page.has_more {
+          Section {
+            SettingsActionRow(title: "上一页", symbol: "chevron.left", enabled: page.offset > 0) {
+              run { try await reload(offset: max(0, page.offset - 100)) }
+            }
+            SettingsActionRow(title: "下一页", symbol: "chevron.right", enabled: page.has_more) {
+              run { try await reload(offset: page.offset + 100) }
+            }
+          } footer: {
+            Text("第 \(page.offset / 100 + 1) 页")
+          }
         }
       }
-      if busy { ProgressView("正在查询或保存…") }
-      if let message { Text(message).foregroundStyle(.secondary) }
     }
+    .settingsStatus(busy: busy, busyTitle: "正在查询或保存…", message: message)
     .navigationTitle("完整词库目录")
     .disabled(busy)
     .onDisappear { pending?.cancel(); page = nil }
@@ -107,4 +123,3 @@ struct CloudDictionaryCatalogView: View {
     }
   }
 }
-
