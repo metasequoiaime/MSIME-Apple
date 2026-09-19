@@ -22,6 +22,14 @@
 
 ## 当前证据
 
+### Android 在线候选原生构建证据（2026-09-19）
+
+`feat(android): consume cloud and AI candidates` 与其后的 JNI 检查切片当时只有目标平台语法编译作为证据，原生构建缺口写在各自说明里。现已在本机补齐：按固定 NDK 28.2.13676358、固定 vcpkg `ef7dbf94` 和 `platforms/android/build-native.sh` 完成 arm64-v8a 与 x86_64 两个 ABI 的完整原生构建，两次都跑通 `verify-native.sh`——ELF 架构、16 KB LOAD 对齐、依赖白名单、Engine 手写识别器排除，以及扩充后的导出清单。
+
+两个 ABI 的 `libmsime_host_api.so` 均导出 `msime_client_online_query`、`msime_client_cloud_request_url`、`msime_client_ai_request_for_query`、`msime_client_apply_cloud_response`、`msime_client_apply_online_candidates`，`libmsime_android.so` 均导出对应的五个 `Java_app_msime_client_NativeClient_*` 方法（各 5/5，以 `llvm-readelf --dyn-syms` 直接核对）。在线候选路径因此不再只是语法一致，而是真实链接并导出。
+
+x86_64 此前只有交叉构建说明，现在与 arm64 同样通过 `verify-native.sh`。仍未执行的是设备验收：专用 AVD 需要 `system-images;android-35;default;arm64-v8a`，本机尚未安装，而仓库脚本按既定策略不自动接受 SDK 许可，因此不代劳安装；APK 打包与真机输入验收继续待办，CI 保持禁用。
+
 ### Android 剪贴板拒绝理由分开命名（2026-09-19）
 
 Apple `ClipboardHistoryStore.Failure` 对保存失败分四种命名，因为它们要求用户做不同的事。Android 把「空白」和「过长」合并成一句“剪贴板文本为空或过长”，而 50 条全部固定这种可操作的情况落进了通用的“无法保存当前剪贴板”，用户看不出该去取消固定。现在三种理由各自命名，过长和全固定分别带上 10,000 字与 50 条这两个实际界限；Android 没有 iOS 的粘贴授权提示，空白文案相应去掉该从句。
