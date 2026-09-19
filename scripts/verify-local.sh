@@ -71,9 +71,16 @@ case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) windows_host=1 ;; esac
 # cross build. It needs the compilers and a vcpkg already bootstrapped at the
 # manifest baseline; bootstrapping one is a long download, so this only adopts
 # a tree that is already there rather than creating one mid-verification.
+#
+# The main worktree's tree counts too. This repository is developed in many
+# short-lived worktrees, each with its own target/, so looking only beside this
+# checkout would leave the gate skipping in every one of them - which is the
+# failure this gate exists to stop, one directory removed.
 cross_vcpkg=""
 if [ "$windows_host" -eq 0 ] && command -v x86_64-w64-mingw32-g++ >/dev/null 2>&1; then
-  for candidate in "${MSIME_VCPKG_ROOT:-}" "$root/target/tooling/vcpkg"; do
+  main_worktree="$(dirname "$(git rev-parse --git-common-dir 2>/dev/null || echo .)")"
+  for candidate in "${MSIME_VCPKG_ROOT:-}" "$root/target/tooling/vcpkg" \
+    "$main_worktree/target/tooling/vcpkg"; do
     [ -n "$candidate" ] && [ -x "$candidate/vcpkg" ] && cross_vcpkg="$candidate" && break
   done
 fi
