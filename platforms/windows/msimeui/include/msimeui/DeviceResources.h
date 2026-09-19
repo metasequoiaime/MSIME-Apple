@@ -23,6 +23,15 @@ class DeviceResources
     void DiscardTarget();
     HRESULT Present();
 
+    /// Rendering DPI override for windows whose system DPI diverges from the
+    /// content's true scale (e.g. an RDP session syncs the client's display
+    /// scaling into the session's DPI metadata while the focused application
+    /// still renders at 96 DPI). Pass 0 (or any non-positive value) to clear
+    /// the override and fall back to GetDpiForWindow(hwnd). While set, the
+    /// override is the single DPI source so window sizing and rendering stay
+    /// on the same scale; a live render target is re-DPI'd immediately
+    /// because target recreation can be skipped for same-size compositions.
+    void SetDpiOverride(FLOAT dpi);
     ID2D1RenderTarget *GetRenderTarget() const;
     ID2D1DeviceContext *GetDeviceContext() const;
     IDWriteFactory *GetDWriteFactory() const;
@@ -68,6 +77,8 @@ class DeviceResources
     static bool IsSameColor(const D2D1_COLOR_F &lhs, const D2D1_COLOR_F &rhs);
     bool BindCompositionSurface();
     FLOAT DpiForHwnd() const;
+
+    FLOAT dpiOverride_ = 0.0f;
 
     HWND hwnd_ = nullptr;
     UINT pixelWidth_ = 1;

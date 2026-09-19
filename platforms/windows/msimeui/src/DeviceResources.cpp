@@ -24,12 +24,42 @@ bool DeviceResources::IsSameColor(const D2D1_COLOR_F &lhs, const D2D1_COLOR_F &r
 
 FLOAT DeviceResources::DpiForHwnd() const
 {
+    // The override wins over the system window DPI: window sizing and
+    // rendering must share one scale even when GetDpiForWindow disagrees
+    // with the content's real scale (RDP client-scaling sync).
+    if (dpiOverride_ > 0.0f)
+    {
+        return dpiOverride_;
+    }
     if (!hwnd_)
     {
         return 96.0f;
     }
     const UINT dpi = GetDpiForWindow(hwnd_);
     return dpi > 0 ? static_cast<FLOAT>(dpi) : 96.0f;
+}
+
+void DeviceResources::SetDpiOverride(FLOAT dpi)
+{
+    const FLOAT normalized = dpi > 0.0f ? dpi : 0.0f;
+    if (normalized == dpiOverride_)
+    {
+        return;
+    }
+    dpiOverride_ = normalized;
+    // EnsureForComposition early-returns when the existing swap chain already
+    // covers the requested size, so a live target would keep the stale DPI.
+    // Push the new DPI into live targets right away; freshly created targets
+    // read it through DpiForHwnd() instead.
+    const FLOAT effective = DpiForHwnd();
+    if (hwndRenderTarget_)
+    {
+        hwndRenderTarget_->SetDpi(effective, effective);
+    }
+    if (deviceContext_)
+    {
+        deviceContext_->SetDpi(effective, effective);
+    }
 }
 
 bool DeviceResources::EnsureFactories()
@@ -78,6 +108,11 @@ bool DeviceResources::EnsureForWindow(HWND hwnd)
     }
     if (hwndRenderTarget_)
     {
+        // The target is retained across monitor and resolution changes, and it
+        // keeps whatever DPI it was created with. Refresh it here or every
+        // later frame maps its logical coordinates against the old scale.
+        const FLOAT dpi = DpiForHwnd();
+        hwndRenderTarget_->SetDpi(dpi, dpi);
         return true;
     }
 
@@ -143,6 +178,12 @@ bool DeviceResources::EnsureForComposition(HWND hwnd)
 
     if (composition_ && deviceContext_ && swapChain_ && pixelWidth_ >= width && pixelHeight_ >= height)
     {
+        // Reusing the swap chain skips BindCompositionSurface, which is the
+        // only other place the context's DPI is set. A window that moved to a
+        // differently scaled monitor would otherwise keep drawing at the old
+        // scale for as long as the surface stays big enough.
+        const FLOAT dpi = DpiForHwnd();
+        deviceContext_->SetDpi(dpi, dpi);
         return true;
     }
 
