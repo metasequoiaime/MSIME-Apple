@@ -41,8 +41,11 @@ public final class PreferencesDeviceSmoke extends DeviceSmoke {
             stage = "baseline typing";
             typePhrase();
             stage = "baseline five candidates";
-            await(candidateAt(5));
-            assertNoVisible(candidateAt(6));
+            // Page size is about how many candidates the page renders, not how many happen to fit
+            // on screen: the strip scrolls horizontally, so a wide candidate pushes later slots out
+            // of view without changing the page.
+            awaitAny(candidateAt(5));
+            assertNoRendered(candidateAt(6));
             stage = "active composition defers preferences";
             snapshot.put("revision", revision + 2);
             snapshot.getJSONObject("preferences").put("candidate_page_size", 2).put("chinese_punctuation", false);
@@ -58,8 +61,8 @@ public final class PreferencesDeviceSmoke extends DeviceSmoke {
             await(field("msime-test-plain").and(node -> equalsText("你好,", node.getText())));
             stage = "updated page size";
             typePhrase();
-            await(candidateAt(2));
-            assertNoVisible(candidateAt(3));
+            awaitAny(candidateAt(2));
+            assertNoRendered(candidateAt(3));
             stage = "updated second candidate selection";
             tap(candidateAt(2));
             await(field("msime-test-plain").and(node -> node.getText() != null && !node.getText().toString().contains("nihao")));
@@ -100,11 +103,11 @@ public final class PreferencesDeviceSmoke extends DeviceSmoke {
             && node.isClickable();
     }
 
-    private void assertNoVisible(
+    private void assertNoRendered(
             java.util.function.Predicate<android.view.accessibility.AccessibilityNodeInfo> match) {
         for (var window : automation.getWindows()) {
-            if (find(window.getRoot(), match) != null)
-                throw new AssertionError("Unexpected visible candidate slot");
+            if (findAny(window.getRoot(), match) != null)
+                throw new AssertionError("Unexpected rendered candidate slot");
         }
     }
     private void shell(String command) throws Exception {

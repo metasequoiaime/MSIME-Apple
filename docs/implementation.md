@@ -22,6 +22,18 @@
 
 ## 当前证据
 
+### Android 共享偏好设备回归对齐实现（2026-09-20）
+
+`PreferencesDeviceSmoke` 在模拟器上停在两处，都是用例的判据与实现不符：
+
+一、页大小用“屏幕上看得见第 5 个候选、看不见第 6 个”来判断。候选条是横向滚动的，候选越宽越早滚出可视区——实测 `nihao` 的第 5 项 `你好呀` 确实渲染且可点，只是不在可视范围内，而 `await` 只认 `isVisibleToUser()`。页大小说的是这一页渲染几个候选，与可视宽度无关，因此改用不限可视区的查找断言“渲染出第 5 个、没有第 6 个”；原来的“看不见第 6 个”反而是个弱判据，越界候选滚出屏幕也会通过。`findAny` 与 `awaitAny` 相应提升为 protected，`HandwritingDeviceSmoke` 里同名的私有副本删除（现在会变成非法覆盖）。
+
+二、关掉中文标点后，用例去找一个面上写 `,` 的键。符号键的**键面**跟随中英模式，不跟随标点设置——Apple 的注释同样写的是“随中英模式换脸”——而实际插入的字符由 Engine 的标点表决定。所以设置关闭后键面仍是 `，`，插入的才是 `,`。`tapSymbol` 改为接受两种键面中的任意一种，并直接复用产品的 `ChineseSymbolFaces.face(symbol, true)` 而不是在测试里重抄一份映射；该类因此加入设备测试的编译清单。用例断言的仍然是插入结果 `你好,`。
+
+设备实测：`DeviceSmoke`、`CandidatePanelDeviceSmoke`、`MoreToolsDeviceSmoke`、`EmojiPickerDeviceSmoke`、`PreferencesDeviceSmoke` 五个验收套件在专用 API 35 arm64 模拟器上通过，其中共享偏好一项覆盖组字中延迟应用、提交后生效、页大小、标点、坏文件保留与恢复。Android host 检查通过。
+
+`smoke.sh` 继续跑到 `KeyboardHeightDeviceSmoke` 的「baseline keyboard height」停下，留作后续切片。
+
 ### Android 展开候选与表情设备回归对齐实现（2026-09-20）
 
 在专用 API 35 arm64 模拟器上继续推进设备验收，两个套件的期望落后于已落地的实现：

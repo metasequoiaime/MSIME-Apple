@@ -186,7 +186,8 @@ public class DeviceSmoke extends Instrumentation {
         }
         return null;
     }
-    private AccessibilityNodeInfo findAny(AccessibilityNodeInfo node,
+    /** Matches anywhere in the tree, including nodes scrolled outside the visible area. */
+    protected AccessibilityNodeInfo findAny(AccessibilityNodeInfo node,
                                            Predicate<AccessibilityNodeInfo> match) {
         if (node == null) return null;
         if (match.test(node)) return node;
@@ -207,7 +208,7 @@ public class DeviceSmoke extends Instrumentation {
         } while (SystemClock.uptimeMillis() < deadline);
         throw new AssertionError("Expected synthetic UI state was not observed");
     }
-    private AccessibilityNodeInfo awaitAny(Predicate<AccessibilityNodeInfo> match) {
+    protected AccessibilityNodeInfo awaitAny(Predicate<AccessibilityNodeInfo> match) {
         long deadline = SystemClock.uptimeMillis() + 15000;
         do {
             for (AccessibilityWindowInfo window : automation.getWindows()) {
@@ -248,7 +249,11 @@ public class DeviceSmoke extends Instrumentation {
     }
     protected void tapSymbol(String symbol) throws java.util.concurrent.TimeoutException {
         tap(key("符号"));
-        tap(key(symbol));
+        // A symbol key in Chinese mode wears its Chinese face whatever the engine is configured to
+        // insert -- the face follows the mode, the inserted mark follows the punctuation setting,
+        // exactly as on Apple. Accept either face and let the caller assert what was inserted.
+        String chinese = app.msime.client.ChineseSymbolFaces.face(symbol, true);
+        tap(key(symbol).or(key(chinese)));
         tap(key("字母"));
     }
 }
