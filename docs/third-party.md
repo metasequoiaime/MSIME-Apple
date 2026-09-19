@@ -1,0 +1,79 @@
+# 第三方组件清单
+
+这份清单回答「这个项目用了谁的代码和数据、各自什么许可」。它是仓库级的索引；各平台打包时实际生成的通知文件另有位置，见末尾的[通知文件在哪](#通知文件在哪)。
+
+清单不替代许可证审计。它记录已知的来源与条款，并明确标出尚未记录的部分——后者同样重要，因为一份看起来完整、实则有空白的清单比承认空白更危险。
+
+## 本项目
+
+源码为 **GPL-3.0-only**，全文在根目录 [LICENSE](../LICENSE)。Rust workspace 的 `license` 字段、Linux 打包元数据和共享客户端都声明同一许可证。
+
+## 固定上游（`engine-lock.json`）
+
+锁文件记录每个归档的 commit 与 SHA-256，`scripts/fetch_engine.py` 校验后展开到被忽略的 `vendor/MSIME-Engine/`。下列 SPDX 标识取自各仓库在 GitHub 上的许可证声明，于 2026-09-20 核对：
+
+| 组件 | 许可证 | 说明 |
+| --- | --- | --- |
+| `metasequoiaime/MSIME-Engine` | GPL-3.0 | 输入算法与组合状态 |
+| `metasequoiaime/Google-PinyinIME-Rev` | Apache-2.0 | Google Pinyin IME 的修订分支 |
+| `nemtrif/utfcpp` | BSL-1.0 | UTF-8 处理 |
+| `mackron/miniaudio` | 上游为公有领域 / MIT-0 双许可 | 音频采集；GitHub 分类器未给出单一标识，以归档内许可证文本为准 |
+| `ggml-org/whisper.cpp` | MIT | 本地语音识别 |
+
+五个归档均可匿名下载，不需要凭据，`fetch_engine.py` 使用 `urllib.request` 直接取回。
+
+## 随包资源（`resources/desktop-dictionary.lock.json`）
+
+锁文件固定八个产物的 URL、长度和 SHA-256，从 `metasequoiaime/MSIME-Engine` 的 `dict-v1.0.0` 发布匿名下载。**锁文件本身不记录许可证字段**，目前的来源信息分散在别处：
+
+| 产物 | 大小 | 已知来源 |
+| --- | --- | --- |
+| `msime.db` | 107.6 MB | Engine 发布的工作词库 |
+| `english.db` | 8.4 MB | Engine 发布的英文词库 |
+| `others.db` | 1.5 MB | Engine 发布的表情等数据 |
+| `dict_japanese.dat` | 66.5 MB | 日文词库，随附 `mozc_dictionary_oss_README.txt`，即 Mozc 的 OSS 词典说明 |
+| `mozc_dictionary_oss_README.txt` | 5.8 KB | 上述日文词库的授权与来源说明，随资源一同分发 |
+| `dictionary-manifest.json` | 1.9 KB | 资源清单 |
+| `dict_pinyin.dat` | 1.1 MB | 拼音数据 |
+| `sentence-model.safetensors` | 4.5 MB | 整句重排模型；**仓库内未记载其训练来源与许可证** |
+
+`Artifact` 结构体带 `#[serde(deny_unknown_fields)]`，所以在锁文件里直接加 `license` 字段会让解析失败；要记录许可证需要同时修改 `crates/client-core/src/resources.rs`。在那之前，新增或更换随包资源时请把来源与授权写进本文件。
+
+## 各平台引入的第三方 SDK
+
+| 平台 | 组件 | 许可 |
+| --- | --- | --- |
+| Android | `com.google.mlkit:digital-ink-recognition:19.0.0` | **Google 的 ML Kit 服务条款，不是开源许可证** |
+| Android | AndroidX、`com.google.android.material` | Apache-2.0 |
+| iOS | `MLKitDigitalInkRecognition` 8.0.0（CocoaPods，链接进键盘扩展 target） | **Google 的 ML Kit 服务条款，不是开源许可证** |
+| macOS | Sparkle 2.9.6 | 以上游发布附带的许可证为准；框架不随仓库分发，由构建者按 `platforms/macos/README.md` 记录的 SHA-256 自行取得 |
+| Windows | vcpkg 提供的 Boost、fmt、spdlog、SQLite3 | 各自上游许可证；通知由 `platforms/windows/Collect-Notices.ps1` 收集 |
+| Linux | IBus / Fcitx5 与 GTK 栈 | 各自上游许可证，按发行版依赖引入 |
+| 桌面 | Tauri、React、Vite 等 | 见 `pnpm-lock.yaml` 与各自上游 |
+
+两个移动平台的 ML Kit 是识别手写笔迹用的。桌面与 Linux 不使用它，改用 Engine 随附的离线 Zinnia 识别器和模型；Android 的原生构建明确把 Zinnia 及其模型路径排除在外（`platforms/android/verify-native.sh`）。
+
+仓库不捆绑任何字体文件；界面使用系统字体，`Noto Sans SC` 与 `Microsoft YaHei` 只是回退字体名。
+
+## 语言生态依赖
+
+逐个列出会立刻过时，以锁文件为准：
+
+- Rust：`Cargo.lock`，559 个依赖。`cargo audit` 是 `scripts/verify-local.sh` 完整版的一个阶段，漏洞视为失败；被接受的 `unmaintained` / `unsound` 公告逐条记在 [`.cargo/audit.toml`](../.cargo/audit.toml) 里，每条都写明引入链和接受理由。
+- Node：`pnpm-lock.yaml`。
+- iOS：`platforms/ios/Podfile.lock`。
+
+## 通知文件在哪
+
+| 位置 | 覆盖范围 |
+| --- | --- |
+| `platforms/macos/resources/Licenses/THIRD_PARTY_NOTICES.txt` | macOS 客户端内嵌组件的完整通知 |
+| `platforms/ios/SharedResources/MLKit-NOTICES.txt`、`MLKit-Dependencies.txt` | iOS 的 ML Kit 依赖通知 |
+| `apps/desktop/src-tauri/gen/android/gradle/LICENSE-2.0.txt`、同目录 `NOTICE.md` | Android Gradle 模板的 Apache-2.0 文本与来源说明 |
+| `platforms/windows/Notices.md` | Windows 通知生成器的用法与限制；产物由 `Collect-Notices.ps1` 生成 |
+
+这些生成器和收集器都在各自文档里写明「不是完整性或再分发授权的评估」。发布二进制前的逐平台要求见[开源发布清单](open-source-release.md)。
+
+## 新增依赖时
+
+引入新的上游代码、字体、图标、模型或服务 SDK 时，同时提交来源提交、许可证文本、通知位置和分发限制，并在本文件登记——不要只在 README 留一个链接。资源锁文件只校验内容，不授予任何分发权利。

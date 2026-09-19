@@ -31,7 +31,7 @@
 
 ## 开发
 
-贡献代码前请阅读 [架构说明](ARCHITECTURE.md)、[贡献指南](CONTRIBUTING.md)、[安全策略](SECURITY.md)、[网络请求与数据流向](PRIVACY.md) 和 [行为准则](CODE_OF_CONDUCT.md)。准备公开源代码或平台构建物时，再阅读 [开源发布清单](docs/open-source-release.md)；它列出第三方通知、资源许可、敏感文件检查和验证边界。仓库当前仍处于渐进迁移阶段；请以每个平台 README 和本地验证结果为准，不把未执行的原生宿主验收当作已完成。
+贡献代码前请阅读 [架构说明](ARCHITECTURE.md)、[贡献指南](CONTRIBUTING.md)、[安全策略](SECURITY.md)、[网络请求与数据流向](PRIVACY.md) 和 [行为准则](CODE_OF_CONDUCT.md)。准备公开源代码或平台构建物时，再阅读 [开源发布清单](docs/open-source-release.md) 和[第三方组件清单](docs/third-party.md)；它们列出第三方通知、资源许可、敏感文件检查和验证边界。仓库当前仍处于渐进迁移阶段；请以每个平台 README 和本地验证结果为准，不把未执行的原生宿主验收当作已完成。
 
 ```sh
 cargo test -p msime-client-core --locked
@@ -95,3 +95,9 @@ cargo run -p msime-engine-bridge --example query_dictionary -- <上一步返回�
 ```
 
 macOS 原生 IMK bundle 的开发构建、隔离状态目录与验证边界见 [macOS 宿主](platforms/macos/README.md)。目前不提供自动安装，也未完成系统输入源切换后的编辑器验收。
+
+## 许可证
+
+源码为 **GPL-3.0-only**，全文见 [LICENSE](LICENSE)。
+
+上游代码、词库、模型和各平台 SDK 以各自许可证和通知为准，其中 Android 与 iOS 的手写识别使用 Google ML Kit，按其服务条款授权而非开源许可证。完整对照见[第三方组件清单](docs/third-party.md)。
