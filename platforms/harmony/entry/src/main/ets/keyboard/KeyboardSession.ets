@@ -2477,7 +2477,43 @@ export class KeyboardSession {
   }
 
   private feedbackFile(): string {
-    return `${this.stateDirectory}/key-feedback.json`;
+    return KeyboardSession.feedbackFileIn(this.stateDirectory);
+  }
+
+  private static feedbackFileIn(stateRoot: string): string {
+    return `${stateRoot}/key-feedback.json`;
+  }
+
+  /**
+   * The same file, named by a caller that has no live session.
+   *
+   * The settings page runs in the application rather than in the keyboard extension, so it has a
+   * state directory but no session to ask. Both processes read and write the one file.
+   */
+  static feedbackIn(stateRoot: string): FeedbackSettings {
+    try {
+      const path: string = KeyboardSession.feedbackFileIn(stateRoot);
+      if (!fs.accessSync(path)) {
+        return KeyboardFeedback.DEFAULTS;
+      }
+      return KeyboardFeedback.parse(fs.readTextSync(path));
+    } catch (error) {
+      KeyboardLog.error(`key feedback unreadable: ${describeError(error)}`);
+      return KeyboardFeedback.DEFAULTS;
+    }
+  }
+
+  static saveFeedbackIn(stateRoot: string, settings: FeedbackSettings): boolean {
+    try {
+      const handle = fs.openSync(KeyboardSession.feedbackFileIn(stateRoot),
+        fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+      fs.writeSync(handle.fd, KeyboardFeedback.serialize(settings));
+      fs.closeSync(handle);
+      return true;
+    } catch (error) {
+      KeyboardLog.error(`key feedback not saved: ${describeError(error)}`);
+      return false;
+    }
   }
 
   /** How keys should feel on this device, which is not something the shared preferences carry. */
