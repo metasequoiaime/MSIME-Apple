@@ -1,6 +1,7 @@
 package app.msime.client.test;
 
 import android.accessibilityservice.AccessibilityServiceInfo;
+import android.accessibilityservice.AccessibilityService;
 import android.app.Activity;
 import android.app.Instrumentation;
 import android.app.UiAutomation;
@@ -83,6 +84,18 @@ public class DeviceSmoke extends Instrumentation {
             stage = "password direct input";
             tap(key("n"));
             await(field("msime-test-password").and(node -> node.getText() != null && node.getText().length() == 1));
+
+            stage = "view-hide composition";
+            tap(field("msime-test-plain"));
+            for (String key : new String[] {"n", "i", "h", "a", "o"}) tap(key(key));
+            await(field("msime-test-plain").and(node -> equalsText("nihao", node.getText())));
+            if (!automation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK))
+                throw new AssertionError("Keyboard hide action failed");
+            SystemClock.sleep(500);
+            tap(field("msime-test-plain"));
+            await(field("msime-test-plain").and(node -> equalsText("你輸入法你好", node.getText())));
+            if (findAnyVisibleImeNode(imeText("nihao")) != null)
+                throw new AssertionError("Hidden keyboard retained composition");
     }
     protected Predicate<AccessibilityNodeInfo> field(String description) {
         return node -> equalsText("app.msime.client.test", node.getPackageName()) && equalsText(description, node.getContentDescription());
@@ -97,6 +110,17 @@ public class DeviceSmoke extends Instrumentation {
     protected Predicate<AccessibilityNodeInfo> imeTextContains(String text) {
         return node -> equalsText("app.msime.client.preview", node.getPackageName())
             && node.getText() != null && node.getText().toString().contains(text);
+    }
+    private Predicate<AccessibilityNodeInfo> imeText(String text) {
+        return node -> equalsText("app.msime.client.preview", node.getPackageName())
+            && equalsText(text, node.getText());
+    }
+    private AccessibilityNodeInfo findAnyVisibleImeNode(Predicate<AccessibilityNodeInfo> match) {
+        for (AccessibilityWindowInfo window : automation.getWindows()) {
+            AccessibilityNodeInfo found = find(window.getRoot(), match);
+            if (found != null) return found;
+        }
+        return null;
     }
     protected static boolean equalsText(String expected, CharSequence actual) { return actual != null && expected.contentEquals(actual); }
     protected AccessibilityNodeInfo find(AccessibilityNodeInfo node, Predicate<AccessibilityNodeInfo> match) {
