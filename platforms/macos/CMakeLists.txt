@@ -660,6 +660,12 @@ add_test(
   COMMAND "${Python3_EXECUTABLE}"
           "${CMAKE_CURRENT_SOURCE_DIR}/tests/settings/support_window_links.py"
           "${CMAKE_CURRENT_SOURCE_DIR}/src/core/SupportWindowController.mm")
+add_test(
+  NAME info-plist-usage
+  COMMAND "${Python3_EXECUTABLE}"
+          "${CMAKE_CURRENT_SOURCE_DIR}/tests/settings/info_plist_usage.py"
+          "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"
+          "${CMAKE_CURRENT_SOURCE_DIR}/src")
 add_executable(input-source-registration-test tests/input/InputSourceRegistrationTests.mm src/input/InputSourceRegistration.mm)
 target_compile_options(input-source-registration-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(input-source-registration-test PRIVATE "-framework AppKit" "-framework Carbon" "-framework Foundation")
