@@ -153,9 +153,16 @@ impl HostCapabilities {
             // IBus keeps a session-wide mode. Windows keeps a cross-application
             // CN/EN authority, while macOS switches between its per-application
             // map and a process-wide authority when a client activates.
+            // The HarmonyOS keyboard learns which application an editor belongs to from the
+            // editor attribute's bundle name, so it can keep the same per-application map the
+            // desktop hosts do. A touch host that cannot name the editor's application has nothing
+            // to key one on and keeps a single mode.
             ime_mode_scope: matches!(
                 platform,
-                HostPlatform::Linux | HostPlatform::Windows | HostPlatform::Macos
+                HostPlatform::Linux
+                    | HostPlatform::Windows
+                    | HostPlatform::Macos
+                    | HostPlatform::Harmony
             ),
             typing_statistics: true,
             // Every input host consumes the shared fuzzy-pinyin options. The
@@ -770,7 +777,8 @@ mod tests {
                 && harmony.floating_toolbar_components
         );
         assert!(!harmony.restart_input_method);
-        assert!(!harmony.ime_mode_scope);
+        // The editor attribute carries the client's bundle name, so a per-application map is real.
+        assert!(harmony.ime_mode_scope);
         // Harmony's Engine consumes the shared fuzzy-pinyin rules on every prepared session, so
         // the settings page may expose the same rule picker as the other mobile hosts.
         assert!(harmony.fuzzy_pinyin);
