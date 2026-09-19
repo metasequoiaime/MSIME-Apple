@@ -22,6 +22,18 @@
 
 ## 当前证据
 
+### Android 26 键中文拼音输入修复（2026-09-20）
+
+在专用 API 35 arm64 模拟器上实测发现：26 键中文态逐键输入 `nihao` 得到的是字面 `NIHAO`，完全不组字。原因是 `KeyboardLayout.rows(layer, shifted)` 在 `shifted` 为真时把**键值本身**大写，而 `rebuildKeyRows` 传入的正是 `LetterKeyFacePolicy.displaysUppercase(...)`——中文键面按 Apple 一律大写，于是键值也变成 `N`。Engine 不能用大写字母起拼音组合，返回未处理，宿主按既有边界把它当字面上屏。中文 26 键输入因此整体失效，而本地检查全部通过：JVM smoke 只单独验证 `rows()` 和 `LetterKeyFacePolicy`，没有一条覆盖“键面大写时键值必须保持小写”这个它们之间的契约。
+
+`rows()` 去掉 `shifted` 参数，只返回键值的规范形式（字母恒为小写）；键面继续由 `LetterKeyFacePolicy` 单独决定。`KeyboardLayoutSmoke` 相应改写，并新增对该契约的断言：字母键值必须是小写，且同一个键在中文态的 face 必须是大写、英文态非 shift 时必须是小写。
+
+设备回归 `DeviceSmoke.key()` 此前按键面文本精确匹配字母键，因而在键面正确变为大写后永远匹配不上。字母键改为按字母本身匹配（忽略大小写），键面大小写由 `LetterKeyFacePolicy` 的宿主回归负责；空格、简、繁、⌫ 等仍按原文精确匹配。
+
+设备实测证据：修复后在模拟器上逐键点 `n i h a o`，预编辑显示 `nihao`、候选栏显示 `1 你好` 且分页为 `1/13`，点候选后编辑器收到 `你好`；`DeviceSmoke` 也从原先卡在 typing 推进到通过 typing、组词、空格上屏、退格四个阶段。Android host Java/API、manifest/resource、全部 JVM smoke 与 `scripts/verify-local.sh --quick` 通过。
+
+`DeviceSmoke` 之后停在简繁切换：该快捷键已按 Apple 从快捷栏移入“更多”，而设备用例仍在快捷栏找它；`MoreToolsDeviceSmoke` 同样停在快捷栏，因为它期望「方案/皮肤/设置/收起」文字按钮，而快捷栏现在是图标加无障碍描述。这一批设备用例整体落后于已对齐 Apple 的快捷栏，留作后续切片，不在本次修复范围内。
+
 ### 移动端从键盘皮肤直达社区（2026-09-20）
 
 Apple 的「皮肤」页带一条 `discoverSkins()` 入口——「去社区发现皮肤」，把用户送到社区标签的皮肤分类。共享设置的屏幕键盘页只有内置皮肤和自定义编辑器，没有这条路：移动端的社区是并列标签，从皮肤页看完内置皮肤后没有任何地方能继续去看别人做的皮肤。

@@ -14,6 +14,8 @@ API 35 arm64 专用模拟器已经覆盖原生输入、Tauri/IME 合包、共享
 
 `MSIMEInputService` 提供实际 InputMethodService 源码、系统 manifest 和输入法元数据；最小 Android 28，编译目标 35。软键盘、硬件 ASCII 键、候选点击和翻页调用同一 JNI；Engine 提交与剩余编辑串通过 `EditorBridge` 按顺序映射到 InputConnection。宿主不实现输入算法或分页规则。密码、非文本和无建议字段直接输入，不创建 Engine；IME_FLAG_NO_PERSONALIZED_LEARNING 关闭当前会话学习。宿主不记录输入；网络权限只供用户明确启用并确认发送的 AI 请求使用。
 
+键值与键面是两件事：`KeyboardLayout.rows(layer)` 只给键值，字母恒为小写，因为这是交给 Engine 的形式，Engine 只能用小写字母起拼音组合；键面由 `LetterKeyFacePolicy` 单独决定，中文 26 键按 Apple 一律画大写。两者曾被合并处理，导致中文态把 `N` 发给 Engine、被拒后当字面上屏，26 键中文输入整体失效。
+
 软键盘的主按键区按 Apple 键盘的基础层次拆成字母层和符号层；字母层支持可见的 Shift 状态，符号层保留标点、括号和数字，两个层次均通过无障碍描述暴露当前按键。层次排列由无 Android 依赖的 `KeyboardLayout` 提供，便于在主机测试中验证布局不被宿主生命周期改变。
 
 “符”入口按 Apple 的整屏符号面板适配为 Android 原生面板：常用、中文、英文、数字、网络五类使用左侧分类和右侧五列滚动网格，底部提供返回、删除和锁定连续输入。打开前先由 Engine 完成组合；符号通过普通 `InputConnection` 以本地输入来源上屏，未锁定时插入一个后回到键盘，锁定时可连续输入。分类、网格数量和锁定行为由无 Android 依赖的 `SymbolPanelModel` 验证，宿主只负责 View 与触摸反馈。
