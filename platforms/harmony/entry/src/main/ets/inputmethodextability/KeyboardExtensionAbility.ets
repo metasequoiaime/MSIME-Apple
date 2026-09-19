@@ -12,6 +12,7 @@ import { KeyboardFormFactor } from '../keyboard/KeyboardFormFactor';
 import { HardwareKeyRouter, HardwareKey, HardwareKeyAction, HardwareKeyDecision }
   from '../keyboard/HardwareKeyRouter';
 import { InputModeRouting, ModeGesture, ModeKey } from '../keyboard/InputModeRouting';
+import { CandidateTextEdge } from '../keyboard/input/CandidateTextPolicy';
 import { FloatingToolbarLayout } from '../keyboard/FloatingToolbarLayout';
 import { FloatingToolbarDragPolicy } from '../keyboard/FloatingToolbarDragPolicy';
 import { DesktopSurface } from '../keyboard/DesktopSurface';
@@ -377,8 +378,9 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     const decision: HardwareKeyDecision =
       HardwareKeyRouter.route(key, session.composing(), !session.isEnglish(),
         KeyboardSession.shared.preferences().numberRowSelection,
-        KeyboardSession.shared.preferences().navigation,
-        session.hasHighlightedTranslation(), session.isJapanese());
+      KeyboardSession.shared.preferences().navigation,
+        session.hasHighlightedTranslation(), session.isJapanese(),
+        session.wordCharacterBinding(), session.hasHighlightedCandidate());
     if (decision.action === HardwareKeyAction.RELEASE) {
       return false;
     }
@@ -433,6 +435,12 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         break;
       case HardwareKeyAction.SELECT:
         session.choose(decision.index);
+        break;
+      case HardwareKeyAction.WORD_CHARACTER_FIRST:
+        session.selectEdge(CandidateTextEdge.FIRST);
+        break;
+      case HardwareKeyAction.WORD_CHARACTER_LAST:
+        session.selectEdge(CandidateTextEdge.LAST);
         break;
       case HardwareKeyAction.NEXT_PAGE:
         session.nextPage();

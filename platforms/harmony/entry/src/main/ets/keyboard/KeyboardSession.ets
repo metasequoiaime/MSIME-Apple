@@ -49,6 +49,7 @@ import {
 import { SmartPunctuationContext } from './input/SmartPunctuationContext';
 import { PairedPunctuationPolicy, PairedPunctuationCompletion } from
   './input/PairedPunctuationPolicy';
+import { CandidateTextPolicy, CandidateTextEdge } from './input/CandidateTextPolicy';
 import {
   SmartPunctuationRepeatPolicy, SmartPunctuationRepeatSnapshot
 } from './input/SmartPunctuationRepeatPolicy';
@@ -387,6 +388,7 @@ interface PreparedPreferences {
   smart_punctuation_repeat: boolean;
   paired_punctuation: boolean;
   punctuation_lock: string;
+  word_character: PreparedWordCharacterPreferences;
   floating_toolbar: PreparedFloatingToolbar;
   candidate_english_gloss: boolean;
   /** Tenths of a vp, which is the unit the shared settings store these in. */
@@ -408,6 +410,11 @@ interface PreparedNavigationPreferences {
   page_up_down: boolean;
   mouse_wheel: boolean;
   arrows: boolean;
+}
+
+interface PreparedWordCharacterPreferences {
+  enabled: boolean;
+  keys: string;
 }
 
 /** The shared floating toolbar record. Only what a HarmonyOS toolbar can honour is read from it. */
@@ -824,6 +831,8 @@ export class KeyboardSession {
       this.smartPunctuation = preferences.smart_punctuation !== false;
       this.smartPunctuationRepeat = preferences.smart_punctuation_repeat !== false;
       this.punctuationLock = preferences.punctuation_lock;
+      this.wordCharacter = preferences.word_character.enabled
+        ? preferences.word_character.keys : 'disabled';
       this.clearSmartPunctuationRepeat();
       this.toolbar = preferences.floating_toolbar;
       this.nineKeyMode = preferences.touch_keyboard_layout === 'nine_key'
@@ -913,6 +922,11 @@ export class KeyboardSession {
   /** Which mode-switch gestures the user left bound, as the shared document has them. */
   modeBindings(): ModeBindings {
     return this.bindings;
+  }
+
+  /** Which unmodified hardware pair selects the first/last Han character. */
+  wordCharacterBinding(): string {
+    return this.wordCharacter;
   }
 
   /** Halfwidth ASCII or its fullwidth twin, which Ctrl+Shift+F toggles. */
@@ -1460,6 +1474,10 @@ export class KeyboardSession {
       && candidate.translation.length > 0);
   }
 
+  hasHighlightedCandidate(): boolean {
+    return this.currentCandidates.some((candidate: Candidate): boolean => candidate.highlighted);
+  }
+
   /** Ctrl+Enter commits the resolved translation without changing the user's composition text. */
   commitTranslation(): void {
     if (this.translationPage !== null) return;
@@ -1563,6 +1581,34 @@ export class KeyboardSession {
     this.apply(client.select(this.handle, this.generation, index));
   }
 
+  /** Commit the first or last Han scalar of the highlighted candidate. */
+  selectEdge(edge: CandidateTextEdge): void {
+    if (this.handle === 0) return;
+    const candidate: Candidate | undefined = this.currentCandidates.find(
+      (entry: Candidate): boolean => entry.highlighted);
+    if (candidate === undefined) return;
+    const raw: string = client.selectEdge(this.handle, this.generation,
+      this.currentCandidates.indexOf(candidate), edge === CandidateTextEdge.FIRST ? 0 : 1);
+    let response: Response;
+    try {
+      response = JSON.parse(raw) as Response;
+    } catch (error) {
+      KeyboardLog.error(`candidate edge response unavailable: ${describeError(error)}`);
+      return;
+    }
+    if (!response.ok) {
+      KeyboardLog.error(`candidate edge refused: ${response.error}`);
+      return;
+    }
+    const commit: string | null | undefined = response.value.commit;
+    this.apply(raw);
+    if (commit !== null && commit !== undefined && commit.length > 0) return;
+    const fallback: string | null = CandidateTextPolicy.extractHanCharacter(candidate.text, edge);
+    if (fallback === null) return;
+    this.apply(client.command(this.handle, InputCommand.CANCEL));
+    this.insertWithSource(fallback, this.typingSource());
+  }
+
   private apply(raw: string): void {
     let response: Response;
     try {
@@ -1623,6 +1669,7 @@ export class KeyboardSession {
   private smartPunctuation: boolean = true;
   private smartPunctuationRepeat: boolean = true;
   private punctuationLock: string = 'follow';
+  private wordCharacter: string = 'disabled';
   private smartPunctuationSnapshot: SmartPunctuationRepeatSnapshot | null = null;
   private toolbar: PreparedFloatingToolbar = {
     enabled: true, english_mode: true, punctuation: true, fullwidth: true, character_set: true,

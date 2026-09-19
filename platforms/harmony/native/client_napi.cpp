@@ -329,6 +329,23 @@ FLAG_ENTRY(SetCharacterWidth, msime_client_set_character_width)
     }
 
 CANDIDATE_ENTRY(Select, msime_client_select, "Invalid candidate index")
+
+static napi_value SelectEdge(napi_env env, napi_callback_info info) {
+    std::vector<napi_value> argv;
+    uint64_t handle = 0;
+    uint64_t generation = 0;
+    size_t index = 0;
+    int32_t edge = 0;
+    if (!arguments(env, info, 4, argv) || !argumentHandle(env, argv[0], handle)
+            || !argumentHandle(env, argv[1], generation) || !argumentIndex(env, argv[2], index)
+            || napi_get_value_int32(env, argv[3], &edge) != napi_ok) {
+        return invalid(env, "Invalid candidate edge");
+    }
+    if (edge < 0 || edge > 1) return invalid(env, "Invalid candidate edge");
+    return response(env, msime_client_select_edge(
+        handle, generation, index, static_cast<uint8_t>(edge)));
+}
+
 CANDIDATE_ENTRY(SelectAnyCandidate, msime_client_select_any_candidate, "Invalid candidate index")
 CANDIDATE_ENTRY(PinCandidate, msime_client_pin_candidate, "Invalid candidate index")
 CANDIDATE_ENTRY(ClearCandidatePosition, msime_client_clear_candidate_position,
@@ -623,6 +640,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("balancePairedPunctuationAfterAutoClose", BalancePairedPunctuationAfterAutoClose),
         ENTRY("command", Command),
         ENTRY("select", Select),
+        ENTRY("selectEdge", SelectEdge),
         ENTRY("selectAnyCandidate", SelectAnyCandidate),
         ENTRY("pinCandidate", PinCandidate),
         ENTRY("fixCandidatePosition", FixCandidatePosition),

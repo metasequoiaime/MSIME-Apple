@@ -61,6 +61,7 @@ export const balancePairedPunctuationAfterAutoClose: (handle: number, opening: n
 export const command: (handle: number, command: number) => string;
 
 export const select: (handle: number, generation: number, index: number) => string;
+export const selectEdge: (handle: number, generation: number, index: number, edge: number) => string;
 export const selectAnyCandidate: (handle: number, generation: number, index: number) => string;
 export const pinCandidate: (handle: number, generation: number, index: number) => string;
 export const fixCandidatePosition: (handle: number, generation: number, index: number, position: number) => string;

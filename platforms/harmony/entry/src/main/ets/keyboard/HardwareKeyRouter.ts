@@ -44,6 +44,10 @@ export enum HardwareKeyAction {
   COMMIT_TRANSLATION,
   /** Choose the candidate at `index`. */
   SELECT,
+  /** Commit the first Han character from the highlighted candidate. */
+  WORD_CHARACTER_FIRST,
+  /** Commit the last Han character from the highlighted candidate. */
+  WORD_CHARACTER_LAST,
   /** Consume a disabled navigation binding without turning it into text. */
   IGNORED,
   NEXT_PAGE,
@@ -128,7 +132,9 @@ export class HardwareKeyRouter {
                  minusEqual: true, commaPeriod: true, brackets: false,
                  tab: true, pageUpDown: true, mouseWheel: false, arrows: true
                }, hasHighlightedTranslation: boolean = false,
-               japanese: boolean = false): HardwareKeyDecision {
+               japanese: boolean = false,
+               wordCharacter: string = 'disabled',
+               hasHighlightedCandidate: boolean = false): HardwareKeyDecision {
     // Japanese romaji reserves an unmodified minus for the long-vowel mark. It is a composition
     // key even before the first kana exists; '=' and shifted '-' remain ordinary editor input.
     if (japanese && !key.ctrlKey && !key.altKey && !key.logoKey
@@ -179,6 +185,22 @@ export class HardwareKeyRouter {
       }
       if (key.keyCode === KEYCODE_ESCAPE) {
         return decision(HardwareKeyAction.CANCEL);
+      }
+      if (hasHighlightedCandidate && !key.shiftKey && wordCharacter === 'brackets') {
+        if (key.keyCode === KEYCODE_LEFT_BRACKET) {
+          return decision(HardwareKeyAction.WORD_CHARACTER_FIRST);
+        }
+        if (key.keyCode === KEYCODE_RIGHT_BRACKET) {
+          return decision(HardwareKeyAction.WORD_CHARACTER_LAST);
+        }
+      }
+      if (hasHighlightedCandidate && !key.shiftKey && wordCharacter === 'minus_equal') {
+        if (key.keyCode === KEYCODE_MINUS) {
+          return decision(HardwareKeyAction.WORD_CHARACTER_FIRST);
+        }
+        if (key.keyCode === KEYCODE_EQUALS) {
+          return decision(HardwareKeyAction.WORD_CHARACTER_LAST);
+        }
       }
       if (key.keyCode === KEYCODE_SPACE) {
         return decision(HardwareKeyAction.COMMIT);
