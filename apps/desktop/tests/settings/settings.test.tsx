@@ -877,7 +877,7 @@ test("macOS service page exposes installation separately from re-registration", 
   expect(await screen.findByText("输入源已安装并注册。")).toBeDefined();
 });
 
-test("macOS service page exposes reversible uninstall with explicit data removal", async () => {
+test("macOS about page exposes reversible uninstall with explicit data removal", async () => {
   const uninstallInputSource = vi.fn().mockResolvedValue(undefined);
   render(<SettingsPage client={{
     load: vi.fn().mockResolvedValue(initial),
@@ -886,8 +886,9 @@ test("macOS service page exposes reversible uninstall with explicit data removal
     uninstallInputSource,
     host: { platform: "macos", restart_input_method: true, panel_windows: true } as never,
   }} />);
-  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
   expect(await screen.findByText("卸载水杉输入法")).toBeDefined();
+  expect(screen.getByText("© 2026 Metasequoia IME")).toBeDefined();
   const remove = screen.getByRole("checkbox", { name: /同时删除词库/ }) as HTMLInputElement;
   expect(remove.checked).toBe(false);
   fireEvent.click(screen.getByRole("button", { name: "卸载…" }));
