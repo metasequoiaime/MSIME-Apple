@@ -531,6 +531,7 @@ fn migrate_windows_legacy_mixed_input(
     Ok(store.save(snapshot.revision, preferences)?)
 }
 
+#[cfg_attr(not(windows), allow(dead_code))]
 fn apply_windows_legacy_mixed_input(document: &str, preferences: &mut Preferences) -> bool {
     let document = match document.parse::<toml::Table>() {
         Ok(document) => document,
