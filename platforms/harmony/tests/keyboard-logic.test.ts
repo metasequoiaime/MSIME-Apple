@@ -55,6 +55,8 @@ import { ReturnKeyAction } from '../entry/src/main/ets/keyboard/input/ReturnKeyA
 import { SpaceCursorMovement } from '../entry/src/main/ets/keyboard/input/SpaceCursorMovement';
 import { CandidateManagementAction, ManagementAction }
   from '../entry/src/main/ets/keyboard/candidate/CandidateManagementAction';
+import { CandidateAnnotationPreferencePolicy }
+  from '../entry/src/main/ets/keyboard/candidate/CandidateAnnotationPreferencePolicy';
 import { CandidateGlossPolicy, GlossToken }
   from '../entry/src/main/ets/keyboard/candidate/CandidateGlossPolicy';
 import { ShuangpinKeyHintPolicy } from '../entry/src/main/ets/keyboard/input/ShuangpinKeyHintPolicy';
@@ -1421,6 +1423,23 @@ group('an engine annotation outranks a gloss in the shared hint slot', () => {
     'and calls a gloss a definition');
   check(CandidateGlossPolicy.accessibilitySuffix(null, null, true) === '',
     'with neither there is nothing to announce');
+});
+
+group('the two candidate annotations read their own shared preferences', () => {
+  check(CandidateAnnotationPreferencePolicy.wubiCodeHint(undefined) === true,
+    'an omitted wubi hint keeps the shared default-on behaviour');
+  check(CandidateAnnotationPreferencePolicy.wubiCodeHint(null) === true,
+    'a null wubi hint is the same omission');
+  check(CandidateAnnotationPreferencePolicy.wubiCodeHint(true) === true, 'an explicit yes is on');
+  check(CandidateAnnotationPreferencePolicy.wubiCodeHint(false) === false,
+    'only an explicit no turns the wubi hint off');
+  check(CandidateAnnotationPreferencePolicy.englishGloss(true) === true,
+    'the gloss shows when the document says so');
+  check(CandidateAnnotationPreferencePolicy.englishGloss(false) === false, 'and hides when it does not');
+  check(CandidateAnnotationPreferencePolicy.englishGloss(undefined) === false,
+    'an absent gloss preference stays off, matching the shared default');
+  check(CandidateAnnotationPreferencePolicy.englishGloss('true') === false,
+    'a malformed gloss value is not read as consent');
 });
 
 console.log('ShuangpinKeyHintPolicy');
