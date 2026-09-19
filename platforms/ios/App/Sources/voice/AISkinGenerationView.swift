@@ -83,7 +83,7 @@ struct AISkinGenerationView: View {
         let values: [AISkinProposal]
         #if DEBUG && targetEnvironment(simulator)
         if ProcessInfo.processInfo.arguments.contains("-aiSkinPreview") {
-          try await Task.sleep(nanoseconds: ProcessInfo.processInfo.arguments.contains("-skinGenerationSlowFixture") ? 5_000_000_000 : 100_000_000)
+          try await Task.sleep(nanoseconds: ProcessInfo.processInfo.arguments.contains("-skinGenerationSlowFixture") ? 3_600_000_000_000 : 100_000_000)
           values = CustomKeyboardSkin.templates.prefix(3).enumerated().map {
             AISkinProposal(name: "AI 测试 \($0.offset + 1)", description: "仅用于界面自动化的合成设计", design: $0.element.1)
           }
