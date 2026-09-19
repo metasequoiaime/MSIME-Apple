@@ -9,6 +9,10 @@
 - 日志、测试和提交中不得包含真实输入、凭据或私人资料，测试数据使用合成值。
 - 不启用、手动触发或新增自动 CI。CI 由仓库所有者停用以控制费用，恢复需要所有者明确要求。
 
+## 工具链
+
+- **Xcode 27 的模拟器界面是 `/Applications/Xcode.app/Contents/Applications/DeviceHub.app`，`Simulator.app` 已经不存在了。** `open -a Simulator` 和 `open -b com.apple.iphonesimulator` 都会失败，而 `xcrun simctl` 的 boot、install、launch、screenshot 全都照常工作——于是很容易把「窗口没出现」误判成「模拟器没起来」。设备真实状态以 `xcrun simctl list devices` 为准，要看画面才需要开 DeviceHub。
+
 ## 提交
 
 - 格式为 `type(scope): 摘要`，遵循 Conventional Commits。
