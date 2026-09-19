@@ -9,7 +9,14 @@ export default defineConfig({ plugins: [react()], server: { port: 1420, strictPo
     // for the machine while doing it. At the 5 s default, five tests failed on
     // timing alone while passing individually, which reads as a broken suite
     // rather than a slow one.
-    testTimeout: 20000,
-    hookTimeout: 20000,
+    //
+    // 20 s was not enough either. On a machine also running a build, the suite
+    // fails a different handful every run - eight one time, two the next, each
+    // of them a timeout and each passing alone - and a gate that names a
+    // different culprit every run teaches people to ignore it. The tests are
+    // not near this budget when the machine is idle; the number exists for when
+    // it is not.
+    testTimeout: 60000,
+    hookTimeout: 60000,
   },
 });
