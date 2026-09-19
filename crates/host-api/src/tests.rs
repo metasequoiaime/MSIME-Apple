@@ -1842,7 +1842,14 @@ fn explicit_punctuation_finishes_unicode_and_rejects_invalid_bytes() {
 #[test]
 fn contextual_punctuation_respects_editor_context_preferences_and_composition() {
     let dir = tempfile::tempdir().unwrap();
-    let handle = test_host(dir.path());
+    let handle = test_host_preferences(
+        dir.path(),
+        Preferences {
+            smart_punctuation_direct_digit: true,
+            smart_punctuation_direct_letter: true,
+            ..chinese_preferences()
+        },
+    );
     assert_eq!(read(msime_client_focus(handle, true))["ok"], true);
 
     for preceding in [u32::from('0'), u32::from('a'), u32::from('Z')] {
@@ -1870,6 +1877,19 @@ fn contextual_punctuation_respects_editor_context_preferences_and_composition() 
         ))["value"]["commit"],
         "？"
     );
+
+    // Both switches are off on the Windows baseline and in the shipped defaults, and a host that read
+    // neither converted for users who had asked for none of it.
+    let plain = test_host(dir.path());
+    assert_eq!(read(msime_client_focus(plain, true))["ok"], true);
+    for preceding in [u32::from('0'), u32::from('a')] {
+        assert_eq!(
+            read(msime_client_punctuation_with_context(
+                plain, b',', preceding
+            ))["value"]["commit"],
+            "，"
+        );
+    }
 
     read(msime_client_set_punctuation_lock(handle, 1));
     assert_eq!(
