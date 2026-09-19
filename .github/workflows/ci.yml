@@ -1,3 +1,10 @@
+# GitHub Actions is switched off for this repository to control cost, so nothing
+# here runs and pull requests report no checks. That is the repository owner's
+# standing policy rather than a broken setup, and it is why the merge gate is
+# `bash scripts/verify-local.sh --quick` on a contributor's own machine - see
+# ARCHITECTURE.md. The definitions are kept current so the checks are ready to
+# run if that policy ever changes; treat them as the authoritative list of what
+# a change is expected to pass.
 name: CI
 on:
   push:
