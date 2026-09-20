@@ -170,26 +170,27 @@ endforeach()
 add_custom_command(TARGET MSIMEClientInputMethod POST_BUILD
   COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks"
   COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${MSIME_SWIFT_BACKEND_OUTPUT}" "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks/MSIMEBackend.dylib")
-# The recognizer this host is forced to carry, and the four ggml libraries behind it.
+# The recognizer this host carries is linked in, not staged beside it.
 #
-# `MSIME_SHARED_VOICE_LOCAL_WHISPER` is set ON and FORCE above, so the input method links
-# @rpath/libwhisper.1.dylib and three libggml-*.0.dylib whether or not anyone wanted them. Only
-# MSIMEBackend and Sparkle were ever copied into Frameworks, so an installed bundle aborted at
-# launch with `Library not loaded: @rpath/libwhisper.1.dylib` — the build and the signature both
-# succeed, and the failure only appears when the app is asked to start.
+# `MSIME_SHARED_VOICE_LOCAL_WHISPER` is set ON and FORCE above, so the input method always carries
+# whisper and the four ggml libraries. They used to arrive as dylibs and be copied here, because a
+# first configure of a fresh build directory produced shared libraries - see the cache entry in
+# shared/voice/CMakeLists.txt for why that happened and why it no longer does. Without the copies an
+# installed bundle aborted at launch with `Library not loaded: @rpath/libwhisper.1.dylib`, which the
+# build and the signature both let through.
 #
-# Copied as targets rather than by file name: the versioned names carry whisper's and ggml's own
-# version numbers, and a bump would silently leave the bundle pointing at a library that is no
-# longer built.
+# Static archives cannot fail that way: there is nothing to find at runtime. The guard stays, and
+# fails the configure rather than silently shipping a bundle that will not start, if the Engine's
+# voice dependencies ever come out shared again.
 foreach(MSIME_BUNDLED_LIBRARY whisper ggml ggml-base ggml-cpu ggml-metal)
   if(TARGET ${MSIME_BUNDLED_LIBRARY})
-    add_custom_command(TARGET MSIMEClientInputMethod POST_BUILD
-      COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-              "$<TARGET_FILE:${MSIME_BUNDLED_LIBRARY}>"
-              "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks/$<TARGET_FILE_NAME:${MSIME_BUNDLED_LIBRARY}>"
-      COMMAND "${CMAKE_COMMAND}" -E create_symlink
-              "$<TARGET_FILE_NAME:${MSIME_BUNDLED_LIBRARY}>"
-              "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks/$<TARGET_SONAME_FILE_NAME:${MSIME_BUNDLED_LIBRARY}>")
+    get_target_property(MSIME_BUNDLED_LIBRARY_TYPE ${MSIME_BUNDLED_LIBRARY} TYPE)
+    if(MSIME_BUNDLED_LIBRARY_TYPE STREQUAL "SHARED_LIBRARY")
+      message(FATAL_ERROR
+        "${MSIME_BUNDLED_LIBRARY} came out shared; this bundle links the Engine's voice dependencies "
+        "statically and stages no dylib for them, so it would abort at launch on @rpath. "
+        "See shared/voice/CMakeLists.txt.")
+    endif()
   endif()
 endforeach()
 set(MSIME_OPTIONS_FILE "" CACHE FILEPATH "Optional development runtime configuration; never distribute this file")
@@ -690,6 +691,15 @@ add_test(NAME voice-polish-request COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURR
 add_executable(shared-polish-prompt-test ../../shared/voice/tests/polish_prompt.cpp)
 target_compile_options(shared-polish-prompt-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 add_test(NAME shared-polish-prompt COMMAND shared-polish-prompt-test)
+# Which compute backends the linked-in recognizer registers. shared/voice registers this itself where its
+# own BUILD_TESTING is on; this host adds the Engine's voice tree without it, and this host is the one that
+# links those libraries statically, so the check has to exist here too. A backend the registry never hears
+# about costs nothing visible: whisper still answers, on the CPU.
+if(TARGET ggml AND NOT TARGET shared-voice-backend-registry)
+  add_executable(shared-voice-backend-registry ../../shared/voice/tests/backend_registry.cpp)
+  target_link_libraries(shared-voice-backend-registry PRIVATE ggml)
+  add_test(NAME shared-voice-backend-registry COMMAND shared-voice-backend-registry)
+endif()
 target_sources(shortcut-test PRIVATE src/cloud/TranslationCache.mm src/input/InputModeHUDPanel.mm)
 add_executable(shuangpin-keymap-input-test tests/input/ShuangpinKeymapInputTest.mm src/settings/ShuangpinKeymapPanel.mm)
 target_include_directories(shuangpin-keymap-input-test PRIVATE src ../../vendor/MSIME-Engine ../../vendor/MSIME-Engine/include)
