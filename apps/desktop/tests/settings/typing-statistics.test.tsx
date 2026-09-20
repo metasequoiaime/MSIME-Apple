@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import {
   SettingsPage,
   type HostCapabilities,
@@ -121,6 +121,32 @@ test("mobile statistics follow Apple tabs and show the full retained trend", asy
   expect(screen.queryByRole("heading", { name: /每日趋势/ })).toBeNull();
   fireEvent.click(screen.getByRole("tab", { name: "方案" }));
   expect(screen.getByRole("heading", { name: "输入方案" })).toBeTruthy();
+});
+
+// The tab strip was laid out for the four tabs it had when it was written, and a fifth was added
+// later without widening it: 候选 wrapped onto a second row at a quarter of the width. The column
+// count now comes from the number of tabs, and this pins the two together.
+test("the phone tab strip has a column for every tab", async () => {
+  render(
+    <SettingsPage
+      client={{
+        ...baseClient(),
+        host: { platform: "ios" } as HostCapabilities,
+        home: { openKeyboard: vi.fn() },
+        typingStatistics: {
+          load: vi.fn().mockResolvedValue(status()),
+          setEnabled: vi.fn(),
+          reset: vi.fn(),
+        },
+      }}
+    />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "统计" }));
+
+  const strip = await screen.findByRole("tablist", { name: "统计内容" });
+  const tabs = within(strip).getAllByRole("tab");
+  expect(tabs.map((tab) => tab.textContent)).toEqual(["趋势", "类型", "模式", "方案", "候选"]);
+  expect(strip.className).toContain(`grid-cols-${tabs.length}`);
 });
 
 test("mobile statistic tabs use Apple chart shapes", async () => {
