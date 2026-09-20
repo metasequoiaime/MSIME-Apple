@@ -2,10 +2,10 @@
 """Static contract checks for desktop settings panel aliases."""
 from pathlib import Path
 
-root = Path(__file__).resolve().parents[1]
-launcher = (root / "msime-client-settings.in").read_text()
+root = Path(__file__).resolve().parents[2]
+launcher = (root / "data/msime-client-settings.in").read_text()
 desktop = (root / "data/msime-client.desktop.in").read_text()
-engine = (root / "ClientEngine.cpp").read_text()
+engine = (root / "src/core/ClientEngine.cpp").read_text()
 assert "settings|about|dictionary|" in launcher
 assert 'MSIME_CLIENT_PANEL:-}" = "dictionary"' in launcher
 assert "Desktop Action Dictionary" in desktop
@@ -16,7 +16,11 @@ assert '"MSIME_CLIENT_ROUTE"' in engine
 # would fall back to its default page.
 assert 'MSIME_CLIENT_ROUTE=settings:$MSIME_CLIENT_SETTINGS_PAGE' in launcher
 assert '"--route=$MSIME_CLIENT_ROUTE"' in launcher
-assert '"settings:about"' in engine
+# The host builds the route rather than spelling each one out, so the literal to
+# look for is the prefix it prepends. The assertion here named a whole route
+# ("settings:about") that no version of this file has ever contained - and with
+# the test unable to resolve its own paths, nothing ever said so.
+assert 'std::string("settings:")' in engine
 assert 'MSIME_CLIENT_ROUTE=${MSIME_CLIENT_SETTINGS_PAGE:-$MSIME_CLIENT_PANEL}' not in launcher
 for property_name in ("Learning", "FrequencyMode", "FrequencyTriggerCount", "FrequencyLinearStep"):
     assert f'"{property_name}"' in engine

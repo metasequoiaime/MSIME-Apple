@@ -116,6 +116,11 @@ char *msime_client_snapshot_prepare(const uint8_t *request, size_t length,
                                      msime_client_snapshot_next next, void *context);
 char *msime_client_snapshot_discard(uint64_t handle);
 char *msime_client_snapshot_activate(uint64_t handle, const uint8_t *expected_version, size_t length);
+/* The shared preference defaults as a JSON document. A host patching one key of
+ * a nested preference object needs that object's other fields: the object itself
+ * is optional, its members are not.
+ */
+char *msime_client_default_preferences(void);
 /* Load PreferencesStore from an absolute UTF-8 directory, without a session.
  * May block on disk/file lock: use a worker thread. Returns PreferencesSnapshot.
  * Missing file returns shared defaults; malformed/future files return errors.

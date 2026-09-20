@@ -3571,3 +3571,53 @@ fn the_c_header_and_the_rust_exports_agree() {
         "exported from Rust, absent from include/msime_client.h: {undeclared:?}"
     );
 }
+
+#[test]
+fn published_defaults_complete_every_nested_preference_object() {
+    // A platform host patches one key of a nested preference object and needs the
+    // rest of that object's members, because only the object as a whole is
+    // optional. This is the document it fills them from, so it has to carry every
+    // member of every nested object - and what it produces has to be accepted back
+    // by the same parser the host's session creation uses.
+    let document = read(msime_client_default_preferences());
+    assert!(document["ok"].as_bool() == Some(true));
+    let defaults = &document["value"];
+    let parsed: msime_client_core::preferences::Preferences =
+        serde_json::from_value(defaults.clone()).expect("published defaults parse as Preferences");
+    assert_eq!(
+        parsed,
+        msime_client_core::preferences::Preferences::default()
+    );
+
+    // The two objects the Linux host patches, spelled out: a partial one of these
+    // is what stopped a session being created at all.
+    for (object, members) in [
+        (
+            "mixed_input",
+            vec!["english", "minimum_prefix", "emoji", "kaomoji"],
+        ),
+        (
+            "local_modes",
+            vec![
+                "unicode",
+                "date_time",
+                "quick_phrase",
+                "emoji",
+                "kaomoji",
+                "super_jianpin",
+                "temporary_english",
+                "temporary_japanese",
+            ],
+        ),
+    ] {
+        let value = defaults
+            .get(object)
+            .unwrap_or_else(|| panic!("{object} missing from the published defaults"));
+        for member in members {
+            assert!(
+                value.get(member).is_some(),
+                "{object}.{member} missing from the published defaults"
+            );
+        }
+    }
+}

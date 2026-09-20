@@ -11,7 +11,7 @@ import tempfile
 import time
 import unittest
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 WATCHER = Path(sys.argv.pop(1)).resolve()
 
 
@@ -45,7 +45,7 @@ class ClipboardEvents(unittest.TestCase):
         with tempfile.TemporaryDirectory(prefix="msime-x11-clipboard-") as directory:
             root = Path(directory)
             monitor = root / "msime-client-clipboard-monitor"
-            shutil.copyfile(ROOT / monitor.name, monitor)
+            shutil.copyfile(ROOT / "scripts" / monitor.name, monitor)
             (root / "msime-client-clipboard-watch-x11").symlink_to(WATCHER)
             log = root / "captures"
             def executable(name, source):

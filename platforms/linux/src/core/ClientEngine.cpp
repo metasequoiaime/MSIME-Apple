@@ -101,6 +101,41 @@ Json skin_display_preferences(Json preferences) {
   return preferences;
 }
 std::optional<bool> global_input_enabled;
+// The shared preference defaults, read once from the Host API rather than
+// restated here. A nested preference object is optional as a whole but requires
+// every one of its members, so patching a single key into an object the
+// runtime-options document happens to omit produces a partial object the API
+// rejects - and the host then cannot create a session at all.
+const Json &shared_preference_defaults() {
+  static const Json defaults = [] {
+    std::unique_ptr<char, decltype(&msime_client_string_free)> owned(
+        msime_client_default_preferences(), msime_client_string_free);
+    if (!owned)
+      return Json::object();
+    auto document = Json::parse(owned.get(), nullptr, false);
+    if (document.is_discarded() || !document.is_object() ||
+        !document.value("ok", false))
+      return Json::object();
+    auto value = document.at("value");
+    return value.is_object() ? value : Json::object();
+  }();
+  return defaults;
+}
+// Patch `overrides` into the named nested preference object, completing any
+// member the document omits from the shared defaults.
+void patch_preference_object(Json &preferences, const char *name,
+                             const Json &overrides) {
+  auto &target = preferences[name];
+  if (!target.is_object())
+    target = Json::object();
+  const auto &defaults = shared_preference_defaults().value(name, Json::object());
+  if (defaults.is_object())
+    for (const auto &[key, value] : defaults.items())
+      if (!target.contains(key))
+        target[key] = value;
+  for (const auto &[key, value] : overrides.items())
+    target[key] = value;
+}
 void register_properties(IBusEngine *engine);
 void page(IBusEngine *engine, uint32_t command);
 Json response(char *raw) {
@@ -573,15 +608,16 @@ struct State {
     candidate_english_gloss = preferences.value("candidate_english_gloss", false);
     translation_target_language = translation_target_language_override.value_or(
         preferences.value("translation_target_language", "en"));
-    if (english_override)
-      options["preferences"]["mixed_input"]["english"] = *english_override;
-    if (emoji_override)
-      options["preferences"]["mixed_input"]["emoji"] = *emoji_override;
-    if (kaomoji_override)
-      options["preferences"]["mixed_input"]["kaomoji"] = *kaomoji_override;
-    auto &local_modes = options["preferences"]["local_modes"];
-    for (const auto &[key, value] : local_mode_overrides.items())
-      local_modes[key] = value;
+    if (english_override || emoji_override || kaomoji_override) {
+      Json mixed = Json::object();
+      if (english_override) mixed["english"] = *english_override;
+      if (emoji_override) mixed["emoji"] = *emoji_override;
+      if (kaomoji_override) mixed["kaomoji"] = *kaomoji_override;
+      patch_preference_object(options["preferences"], "mixed_input", mixed);
+    }
+    if (!local_mode_overrides.empty())
+      patch_preference_object(options["preferences"], "local_modes",
+                              local_mode_overrides);
     if (private_input)
       options["preferences"]["learning"] = false;
     options.erase("candidate_skin_catalog");

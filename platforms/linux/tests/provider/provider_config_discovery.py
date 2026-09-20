@@ -13,7 +13,7 @@ import time
 import unittest
 from unittest import mock
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 HARNESS = r'''
 import importlib.machinery, importlib.util, json, sys
 path = sys.argv.pop(1)
@@ -39,7 +39,9 @@ class ConfigDiscovery(unittest.TestCase):
         self.root = Path(self.directory.name)
         self.config = self.root / "config"
         self.address = self.root / "provider.sock"
-        self.env = {**os.environ, "PYTHONPATH": str(ROOT)}
+        # msime_provider_runtime is installed beside the provider scripts, so that is
+# the directory the launched provider has to import from.
+        self.env = {**os.environ, "PYTHONPATH": str(ROOT / "scripts")}
 
     def start(self, *args):
         process = subprocess.Popen(

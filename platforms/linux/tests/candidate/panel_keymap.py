@@ -10,8 +10,10 @@ import re
 import subprocess
 import tempfile
 
-root = Path(__file__).resolve().parents[3]
-source = (root / 'apps/desktop/src-tauri/src/lib.rs').read_text()
+root = Path(__file__).resolve().parents[4]
+# The two key tables moved out of the crate root with the rest of the panel
+# delivery code; this read the old location.
+source = (root / 'apps/desktop/src-tauri/src/panel_input.rs').read_text()
 header = Path('/usr/include/linux/input-event-codes.h').read_text()
 constants = dict(re.findall(r'^#define\s+(KEY_\w+)\s+(\d+)\s*$', header, re.M))
 

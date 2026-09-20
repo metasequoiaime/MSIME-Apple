@@ -32,7 +32,7 @@ def decode(pointer):
 def native(name, document):
     encoded = json.dumps(document).encode()
     result = decode(getattr(host, name)(encoded, len(encoded)))
-    assert result["ok"], "Native fixture setup failed"
+    assert result["ok"], f"Native fixture setup failed: {result.get('error')}"
     return result["value"]
 
 

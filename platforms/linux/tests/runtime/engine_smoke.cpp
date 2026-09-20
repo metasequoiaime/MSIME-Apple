@@ -303,6 +303,13 @@ int main(int argc, char **argv) {
     auto missing_emoji_options = options;
     missing_emoji_options["preferences"].erase("mixed_input");
     missing_emoji_options["preferences"].erase("candidate_skin");
+    // What this case is about is the absent mixed_input object: the default it
+    // falls back to, and the menu still being able to flip it. With a shared
+    // preferences directory configured the menu flips it by saving a revision in
+    // the background instead, so the assertions below would be racing a write
+    // rather than reading a decision. Other cases in this fixture drop the
+    // directory for the same reason.
+    missing_emoji_options.erase("preferences_directory");
     msime_preview_configure(missing_emoji_options.dump());
     auto engine = create_engine();
     const char *destination = g_dbus_connection_get_unique_name(server);
@@ -333,6 +340,14 @@ int main(int argc, char **argv) {
             "Missing candidate skin preference did not use Windows default");
     IBUS_ENGINE_GET_CLASS(engine)->property_activate(
         IBUS_ENGINE(engine), "EmojiCandidates", PROP_STATE_CHECKED);
+    // property_activate is a direct call, so unlike invoke() it makes no round
+    // trip that would deliver the property signal this observation comes from.
+    // Wait for the observation rather than for a duration: draining only what
+    // happens to be pending reads a value that may not have arrived yet, which is
+    // how this passed under one timing and failed under another.
+    const auto emoji_deadline = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
+    while (!seen.emoji_candidates && g_get_monotonic_time() < emoji_deadline)
+      g_main_context_iteration(nullptr, FALSE) || (g_usleep(1000), false);
     require(seen.emoji_candidates,
             "Missing mixed input object could not activate Emoji candidates");
     invoke("FocusOut");

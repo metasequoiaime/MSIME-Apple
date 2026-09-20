@@ -7,7 +7,7 @@ import tempfile
 import unittest
 
 
-ROOT = pathlib.Path(__file__).resolve().parents[1]
+ROOT = pathlib.Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 loader = SourceFileLoader("msime_voice_provider", str(ROOT / "scripts" / "msime-client-voice-provider"))
 spec = importlib.util.spec_from_loader(loader.name, loader)
