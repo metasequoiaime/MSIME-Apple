@@ -95,6 +95,9 @@ def main() -> int:
 
     # A localisation that exists in the tree but was not copied leaves the user reading the plist's language.
     usage = {key: value for key, value in plist.items() if key.endswith("UsageDescription")}
+    # The input menu names a source by looking its identifier up in the staged InfoPlist.strings, and prints the identifier itself when the lookup misses. info_plist_names.py pairs the two in the tree; this says the pairing survived into the bundle.
+    identifiers = {value for value in (plist.get("CFBundleIdentifier"), plist.get("TISInputSourceID")) if value}
+    identifiers |= set(plist.get("ComponentInputModeDict", {}).get("tsInputModeListKey", {}) or {})
     lprojs = sorted(resources.glob("*.lproj"))
     expected = [name for name in arguments.languages.split(",") if name]
     for name in expected:
@@ -116,6 +119,9 @@ def main() -> int:
         for key in usage:
             if not localised.get(key, "").strip():
                 failures.append(f"{key} is not localised in {lproj.name}")
+        for identifier in sorted(identifiers):
+            if not localised.get(identifier, "").strip():
+                failures.append(f"{identifier} has no name in {lproj.name}; the input menu shows the identifier there")
 
     # A macOS framework is mostly symlinks - Headers, Resources and the binary all point into
     # Versions/Current. A copy that follows them produces a directory codesign calls ambiguous and refuses
@@ -145,8 +151,8 @@ def main() -> int:
         for failure in failures:
             print(failure, file=sys.stderr)
         return 1
-    print(f"{bundle.name}: icons staged, {len(usage)} usage descriptions localised in "
-          f"{len(lprojs)} languages, local recogniser linked.")
+    print(f"{bundle.name}: icons staged, {len(usage)} usage descriptions and {len(identifiers)} input source names "
+          f"localised in {len(lprojs)} languages, local recogniser linked.")
     return 0
 
 
