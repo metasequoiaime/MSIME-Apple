@@ -100,6 +100,8 @@
 
   此处此前记过一条「用户手写的释义会被自动学来的盖过、需要引擎侧改动」——**那是错的**，实测推翻：不改一行桥接代码，用户写的条目就已经排在最前。路径值得写下来：`translation-glosses.db` 与设置页写的 `custom_translations.txt` 同在用户目录下，而 `EnglishDictionary` 在没有显式 translations 路径时会读取数据库旁边的 sidecar，于是 learned 那个对象本身就带着用户手写的条目，`query_*_gloss` 又先查 custom。所以优先级是「两个文件恰好同目录」带来的涌现性质：挪动其中任何一个，或给 learned 传一个显式 translations 路径，都会把用户的释义静默降到最后。`crates/engine-bridge/src/lib.rs` 的 `hand_written_glosses_outrank_learned_and_packaged_ones` 现在固定住了这一条。
 
+另有一条记录需要收紧。#3182 把「以词定字占用的键不参与翻页」写成宿主侧要处理的一个可达状态，实际不是：`crates/client-core/src/preferences.rs` 的 `validate()` 在 `word_character.enabled` 与对应翻页键同时为真时返回 `ConflictingKeyBindings`，而保存（`preferences.validate()?`）和读取（`snapshot.preferences.validate()?`）两条路径都会调用它——带着这个组合的偏好文件根本加载不进来，设置页也存不下去，`key_conflict` 就是它在界面上的那句提示。所以宿主里那段排除是防御，不是在修一个用户能走到的状态；两个布尔项看着独立，共享层已经把互斥钉死了。
+
 因此当前只剩一项未完成：
 
 **安装后的交互验收**——不是代码缺口，见下一节，需要一次重新登录才能把新的输入源 identifier 加进本次登录会话的列表。
@@ -111,7 +113,7 @@
 | 功能组 | 来源入口 | 目的地证据 | 当前结论 |
 | --- | --- | --- | --- |
 | IMK 事件路由、候选面板、输入源注册 | `MetasequoiaInputController.mm`、`CandidatePanel.mm`、`InputSourceRegistration.mm`、`InputControllerKeyRouting.h` | `platforms/macos/src/input/InputController.mm`、`candidate/CandidatePanel.mm`、`input/InputSourceRegistration.mm`、`input/InputControllerPhysicalKeys.h` | 有调用链；目标另行处理来源未覆盖的小键盘数字与标点物理键 |
-| 候选翻页、以词定字、方向键导航 | `MetasequoiaCandidateKeyOptions`、`ClassifyConfiguredControllerKey` | 共享 `NavigationPreferences`、`WordCharacterPreferences`；宿主逐项消费 `minus_equal`/`comma_period`/`brackets`/`tab`/`page_up_down`/`arrows`/`mouse_wheel` | 有调用链；来源的互斥开关在目标是各自独立的布尔项 |
+| 候选翻页、以词定字、方向键导航 | `MetasequoiaCandidateKeyOptions`、`ClassifyConfiguredControllerKey` | 共享 `NavigationPreferences`、`WordCharacterPreferences`；宿主逐项消费 `minus_equal`/`comma_period`/`brackets`/`tab`/`page_up_down`/`arrows`/`mouse_wheel` | 有调用链；来源的互斥开关在目标是各自独立的布尔项，互斥由 `Preferences::validate()` 保证 |
 | 设置界面 | `PreferencesWindowController.mm` | 主编辑器为 Tauri `packages/ui/src/index.tsx`；原生回退 `settings/AppearancePreferences.mm`、`voice/VoiceProviderSettings.mm` | 有强制检查（`preference-coverage`、`voice-provider-settings-keys`）；按「公共 UI 放 Tauri」重构形态，非逐窗复刻 |
 | 语音输入 | `VoiceInputService.mm`、`VoiceSettings.mm`（云端 + 本地 Whisper） | `platforms/macos/src/voice/`：豆包流式、HTTP 批量、macOS 系统识别、本地 Whisper（#3014）；`shared/voice/` 提供 `recognize_local_asr` | 有强制检查（`bundle-contents` 校验可执行文件确实链接了本地识别器） |
 | 候选释义与翻译 | `TranslationClient.mm`、`CandidateGlossClient.swift`、第二语言、Option/Control 取列上屏 | `cloud/CustomTranslationBatch.mm`、`cloud/TranslationCache.mm`、`commitCandidateGlossColumn:`、共享 `translation_secondary_language` | 有调用链；目标另有腾讯、NiuTrans、账号释义与离线优先 |
@@ -126,6 +128,16 @@
 ## 目标具备而来源没有的部分
 
 屏幕键盘、手写识别板、AI 辅助与 AI 对话、社区资源与皮肤、打字统计、悬浮工具栏皮肤编辑、双拼键位提示面板、输入模式 HUD。这些不属于本次迁移范围，此处只说明两侧差集不是单向的。
+
+## 第六次比对：设置界面（2026-09-20，按参考窗口的截图）
+
+前五次比对走的是代码与产物，看不见界面本身长什么样。这一次的输入是参考窗口十三个页面的截图，比对的是结构而不是像素。三条差异落地，其余页面目标是超集，不动：
+
+- **侧边栏分组**（#3247）。参考按四组排列——输入类、外观类、数据类、帮助类，组间留空白不画线。目标此前是一条平铺列表。macOS 现在按参考分组，本客户端有而参考没有的页面（社区、AI 辅助、打字统计等）单独成组保留在帮助组之前，没有为了对齐截图把功能删掉。其他平台仍是原来的平铺列表。
+- **帮助页改成词条式**（#3247）。参考回答的是三个问题——怎么打字、候选旁边的英文是什么、为什么输入菜单里没有——每条左边术语右边说明，而不是整段散文。照此重写，顺带补上此前没有的数字键 1–9、翻页、Option+Shift+H、离线优先、需要账号、两种语言、词库没有更新。
+- **切换提示与全半角快捷键**（#3258）。参考把「切换中英文时显示提示」放在快捷键页紧挨 Shift 那一行，目标放在输入页，已挪过去且输入页不再重复。Option+Shift+H 在目标宿主里从上线起无条件占用、没有交还给应用的办法；新增 `keybindings.toggle_fullwidth_option_shift_h`（默认开，行为不变）并只门控这一个组合键——`IsFullWidthInputToggle` 同时匹配的 Ctrl+Shift+Space 是 Windows 宿主也保留的那个，设置页没有提它，照旧生效。macOS 上那几行的键名也按 Mac 键盘改写为 Control / Option。
+
+参考窗口有而这一轮没有动的：反馈页附带的诊断信息，参考写的是系统版本与输入方案序号，目标写的是平台与 User-Agent。要给出真实的 macOS 版本号需要宿主再开一个能力，不在这一轮里，记在此处。
 
 ## 仍需重新登录一次才能验收的部分
 
