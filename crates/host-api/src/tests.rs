@@ -202,6 +202,46 @@ fn surface_route_boundary_resolves_panels_and_rejects_bad_buffers() {
 }
 
 #[test]
+fn shuangpin_key_hint_boundary_publishes_the_engine_face() {
+    let hints = |value: &str| {
+        // SAFETY: the slice outlives the call.
+        read(unsafe { msime_client_shuangpin_key_hints(value.as_ptr(), value.len()) })
+    };
+
+    let xiaohe = hints("xiaohe");
+    assert_eq!(xiaohe["ok"], true);
+    // Both units the key carries, not just the first one.
+    assert_eq!(xiaohe["value"]["K"], "ing uai");
+    // Initials and finals stay on their own side of the separator.
+    assert_eq!(xiaohe["value"]["V"], "zh / ui ü");
+    assert!(xiaohe["value"].as_object().unwrap().len() >= 26);
+
+    // Each profile answers for itself rather than for the Engine's default.
+    assert_ne!(hints("microsoft")["value"], xiaohe["value"]);
+    assert_eq!(hints("microsoft")["value"][";"], "ing");
+
+    // An unknown name yields nothing instead of mislabelling the keys.
+    for unknown in ["", "quanpin", "xiaohe-v2"] {
+        assert_eq!(
+            hints(unknown)["value"].as_object().unwrap().len(),
+            0,
+            "{unknown:?} produced hints"
+        );
+    }
+
+    // A null buffer and an oversized length are refused, not dereferenced.
+    assert_eq!(
+        read(unsafe { msime_client_shuangpin_key_hints(std::ptr::null(), 6) })["ok"],
+        false
+    );
+    let value = "xiaohe";
+    assert_eq!(
+        read(unsafe { msime_client_shuangpin_key_hints(value.as_ptr(), 4096) })["ok"],
+        false
+    );
+}
+
+#[test]
 fn host_capability_boundary_describes_each_platform() {
     let capabilities = |value: &str| {
         // SAFETY: the slice outlives the call.

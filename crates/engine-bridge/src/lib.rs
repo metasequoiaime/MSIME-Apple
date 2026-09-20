@@ -164,6 +164,13 @@ mod ffi {
         pub parent: String,
         pub title: String,
     }
+    /// One letter key of a double-pinyin face and the units it carries, already
+    /// formatted for display as `initials / finals`.
+    #[derive(Clone, Debug)]
+    pub struct ShuangpinKeyHint {
+        pub key: String,
+        pub hint: String,
+    }
     #[derive(Clone, Debug)]
     pub struct CandidateGlossInput {
         pub text: String,
@@ -223,6 +230,7 @@ mod ffi {
         ) -> Result<EngineOptions>;
         fn hanzi_to_pinyin(options: &EngineOptions, text: &str) -> String;
         fn normalize_full_pinyin(input: &str, expected_syllables: usize) -> String;
+        fn shuangpin_key_hints(profile: &str) -> Vec<ShuangpinKeyHint>;
         fn snapshot(self: &EngineSession) -> Result<EngineSnapshot>;
         fn online_query(self: &EngineSession) -> Result<OnlineQuerySnapshot>;
         fn reset_cache(self: Pin<&mut EngineSession>);
@@ -395,6 +403,14 @@ pub fn hanzi_to_pinyin(options: &EngineOptions, text: &str) -> String {
 /// syllable table. An expected Han-character count resolves ambiguous cuts.
 pub fn normalize_full_pinyin(input: &str, expected_syllables: usize) -> String {
     ffi::normalize_full_pinyin(input, expected_syllables)
+}
+
+/// Per-key double-pinyin hint text for one profile, read out of the Engine's own
+/// profile tables. A keyboard face that keeps its own copy of the keymap drifts
+/// from the scheme the session runs, so hosts ask for this instead. An unknown
+/// profile name yields no hints rather than the default profile's.
+pub fn shuangpin_key_hints(profile: &str) -> Vec<ffi::ShuangpinKeyHint> {
+    ffi::shuangpin_key_hints(profile)
 }
 
 /// Atomically add, replace, or remove one personal-dictionary entry.
@@ -1162,6 +1178,77 @@ mod tests {
             }
             assert_eq!(session.snapshot().unwrap().segment_raw_boundaries, expected);
         }
+    }
+
+    /// A keyboard face labels its letter keys with the units they carry. The hints
+    /// have to come from the profile the session is running, which is why this asks
+    /// the session for its profile name instead of assuming the option index and the
+    /// name agree.
+    #[test]
+    fn shuangpin_key_hints_describe_the_profile_the_session_runs() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut seen: Vec<(String, Vec<(String, String)>)> = Vec::new();
+        for profile in 0..4 {
+            let mut options = options(dir.path());
+            options.scheme = 1;
+            options.shuangpin_profile = profile;
+            let session = Session::new(&options).unwrap();
+            let name = session.snapshot().unwrap().shuangpin_profile;
+            let hints: Vec<(String, String)> = shuangpin_key_hints(&name)
+                .into_iter()
+                .map(|entry| (entry.key, entry.hint))
+                .collect();
+            assert!(
+                hints.len() >= 26,
+                "{name} labelled only {} keys",
+                hints.len()
+            );
+            for (key, hint) in &hints {
+                assert!(
+                    key.len() == 1 && ("A"..="Z").contains(&key.as_str()) || key == ";",
+                    "{name} produced a hint for {key:?}, which is not a letter key"
+                );
+                assert!(!hint.is_empty(), "{name} key {key} carries an empty hint");
+                // " / " separates initials from finals, so it appears at most once; units
+                // on the same side are separated by a space.
+                assert!(
+                    hint.matches(" / ").count() <= 1,
+                    "{name} key {key} hint {hint:?} reads as more than two sides"
+                );
+            }
+            seen.push((name, hints));
+        }
+        for (index, (name, hints)) in seen.iter().enumerate() {
+            for (other_name, other_hints) in seen.iter().skip(index + 1) {
+                assert_ne!(
+                    hints, other_hints,
+                    "{name} and {other_name} produced the same key face"
+                );
+            }
+        }
+    }
+
+    /// Xiaohe keeps two finals on K, and a host-side copy of the keymap listed only
+    /// one of them, so the key that types `guai` carried no sign of it. The hints are
+    /// read out of the Engine now; this holds that specific key to both units.
+    #[test]
+    fn shuangpin_key_hints_keep_every_unit_a_key_carries() {
+        let hints: std::collections::HashMap<String, String> = shuangpin_key_hints("xiaohe")
+            .into_iter()
+            .map(|entry| (entry.key, entry.hint))
+            .collect();
+        assert_eq!(hints.get("K").map(String::as_str), Some("ing uai"));
+        assert_eq!(hints.get("V").map(String::as_str), Some("zh / ui ü"));
+    }
+
+    /// Labelling the keys with a scheme the session is not running is worse than
+    /// labelling nothing, so an unrecognised name yields no hints at all instead of
+    /// falling back to the default profile the Engine's own lookup returns.
+    #[test]
+    fn shuangpin_key_hints_reject_an_unknown_profile() {
+        assert!(shuangpin_key_hints("").is_empty());
+        assert!(shuangpin_key_hints("xiaohe-v2").is_empty());
+        assert!(shuangpin_key_hints("quanpin").is_empty());
     }
 
     #[test]

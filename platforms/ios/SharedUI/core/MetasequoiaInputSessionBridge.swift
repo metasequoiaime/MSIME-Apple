@@ -32,6 +32,8 @@ private func msimeClientRemoveCandidate(_ session: UInt64, _ generation: UInt64,
 private func msimeClientFixCandidatePosition(_ session: UInt64, _ generation: UInt64, _ index: UInt, _ position: UInt8) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_clear_candidate_position")
 private func msimeClientClearCandidatePosition(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_shuangpin_key_hints")
+private func msimeClientShuangpinKeyHints(_ profile: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_choose_nine_key_spelling")
 private func msimeClientChooseNineKeySpelling(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_set_nine_key_mode")
@@ -623,10 +625,26 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     ((try? view()["nine_key_spellings"] as? [String]) ?? [])
   }
 
+  /// Per-key double-pinyin hint text for the profile this session is running.
+  ///
+  /// The keymap is read out of the Engine rather than kept here. A host-side copy
+  /// drifts from the scheme the session runs - this one had lost Xiaohe's `uai`
+  /// from K, so the key that types `guai` carried no sign of it - and the Engine
+  /// is the only place that knows which units a profile puts on which key. The
+  /// shared layer answers with an empty face for a profile it does not run, which
+  /// is what a Quanpin or Wubi session reports.
   func shuangpinKeyHints() -> [String: String] {
-    guard let profile = try? view()["shuangpin_profile"] as? String,
-          ["xiaohe", "ziranma", "shoudao", "microsoft"].contains(profile) else { return [:] }
-    return Self.shuangpinHints[profile] ?? [:]
+    // The view names a profile whatever the scheme, because the Engine is built with one
+    // either way; only the scheme says whether the keys are running it.
+    guard let snapshot = try? view(),
+          (snapshot["scheme"] as? NSNumber)?.uint8Value == Self.shuangpinSchemeCode,
+          let profile = snapshot["shuangpin_profile"] as? String, !profile.isEmpty,
+          let data = profile.data(using: .utf8) else { return [:] }
+    let response = try? data.withUnsafeBytes { bytes -> Any in
+      try Self.decode(msimeClientShuangpinKeyHints(
+        bytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(data.count)))
+    }
+    return (response as? [String: String]) ?? [:]
   }
 
   // The engine keeps its dictionary access from creation until destroy, and those lock files sit in
@@ -798,32 +816,6 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     (try view()["candidates"] as? [[String: Any]]) ?? []
   }
 
-  private static func makeShuangpinHints(initials: [String: String], finals: [String: [String]]) -> [String: String] {
-    let keys = Array("QWERTYUIOPASDFGHJKLZXCVBNM;")
-    return keys.reduce(into: [:]) { result, key in
-      let name = String(key)
-      var units = finals[name] ?? []
-      if let initial = initials[name] { units.append(initial) }
-      guard !units.isEmpty else { return }
-      result[name] = units.map { $0.first == "v" ? "ü" + $0.dropFirst() : $0 }.sorted().joined(separator: " / ")
-    }
-  }
-
-  private static let shuangpinHints: [String: [String: String]] = [
-    "xiaohe": makeShuangpinHints(
-      initials: ["U": "sh", "I": "ch", "V": "zh"],
-      finals: ["Q": ["iu"], "W": ["ei"], "E": ["e"], "R": ["uan"], "T": ["ue", "ve"], "Y": ["un"], "U": ["u"], "I": ["i"], "O": ["uo", "o"], "P": ["ie"], "A": ["a"], "S": ["ong", "iong"], "D": ["ai"], "F": ["en"], "G": ["eng"], "H": ["ang"], "J": ["an"], "K": ["ing"], "L": ["uang", "iang"], "Z": ["ou"], "X": ["ua", "ia"], "C": ["ao"], "V": ["ui", "v"], "B": ["in"], "N": ["iao"], "M": ["ian"]]),
-    "ziranma": makeShuangpinHints(
-      initials: ["U": "sh", "I": "ch", "V": "zh"],
-      finals: ["Q": ["iu"], "W": ["ia", "ua"], "E": ["e"], "R": ["uan"], "T": ["ue", "ve"], "Y": ["ing", "uai"], "U": ["u"], "I": ["i"], "O": ["o", "uo"], "P": ["un"], "A": ["a"], "S": ["iong", "ong"], "D": ["iang", "uang"], "F": ["en"], "G": ["eng"], "H": ["ang"], "J": ["an"], "K": ["ao"], "L": ["ai"], "Z": ["ei"], "X": ["ie"], "C": ["iao"], "V": ["ui", "v"], "B": ["ou"], "N": ["in"], "M": ["ian"]]),
-    "shoudao": makeShuangpinHints(
-      initials: ["E": "sh", "I": "ch", "V": "zh"],
-      finals: ["Q": ["iu"], "W": ["ua"], "E": ["e"], "R": ["ie"], "T": ["uan"], "Y": ["ang"], "U": ["u"], "I": ["i"], "O": ["o", "uo"], "P": ["iao"], "A": ["a"], "S": ["ou"], "D": ["ao"], "F": ["eng"], "G": ["uai", "ing"], "H": ["ong", "iong"], "J": ["an"], "K": ["en", "ia"], "L": ["ai", "ue"], "Z": ["un"], "X": ["iang", "uang"], "C": ["in"], "V": ["v", "ui"], "B": ["ve"], "N": ["ian"], "M": ["ei"]]),
-    "microsoft": makeShuangpinHints(
-      initials: ["U": "sh", "I": "ch", "V": "zh"],
-      finals: ["Q": ["iu"], "W": ["ia", "ua"], "E": ["e"], "R": ["uan"], "T": ["ue"], "V": ["ve", "ui"], "Y": ["uai", "v"], "U": ["u"], "I": ["i"], "O": ["o", "uo"], "P": ["un"], "A": ["a"], "S": ["iong", "ong"], "D": ["iang", "uang"], "F": ["en"], "G": ["eng"], "H": ["ang"], "J": ["an"], "K": ["ao"], "L": ["ai"], ";": ["ing"], "Z": ["ei"], "X": ["ie"], "C": ["iao"], "B": ["ou"], "N": ["in"], "M": ["ian"]])
-  ]
-
   private func updatePreferences(_ mutate: (inout [String: Any]) -> Void) -> Bool {
     guard handle != 0 else { return false }
     let previous = (options["preferences"] as? [String: Any]) ?? [:]
@@ -868,6 +860,9 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       ?? root.appendingPathComponent("resources", isDirectory: true)
     return ["resources": resources.path, "state_root": root.path]
   }
+
+  /// `View.scheme` for double pinyin, as the shared runtime numbers the Engine's schemes.
+  private static let shuangpinSchemeCode: UInt8 = 1
 
   private static func ascii(_ value: String) -> MSIMEByte? {
     guard value.utf8.count == 1, let byte = value.utf8.first else { return nil }

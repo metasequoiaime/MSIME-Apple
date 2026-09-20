@@ -121,6 +121,12 @@ char *msime_client_snapshot_activate(uint64_t handle, const uint8_t *expected_ve
  * is optional, its members are not.
  */
 char *msime_client_default_preferences(void);
+/* Per-key double-pinyin hint text for one profile name, as a JSON object mapping
+ * an uppercase key to "initials / finals" - or to whichever side that key carries.
+ * Read out of the Engine's own profile tables so a keyboard face never carries a
+ * second copy of the keymap. An unknown profile name yields an empty object
+ * rather than the default profile's hints. */
+char *msime_client_shuangpin_key_hints(const uint8_t *profile, size_t length);
 /* Load PreferencesStore from an absolute UTF-8 directory, without a session.
  * May block on disk/file lock: use a worker thread. Returns PreferencesSnapshot.
  * Missing file returns shared defaults; malformed/future files return errors.

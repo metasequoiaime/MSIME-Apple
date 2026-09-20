@@ -1542,6 +1542,38 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(snapshot.candidates.contains("你好"), "the reloaded document lost nine-key")
   }
 
+  /// The key face has to name what the keys actually produce.
+  ///
+  /// The hints used to come from a copy of the keymap kept in this target, and that copy
+  /// had lost Xiaohe's `uai` from K - the key that types 乖 carried no sign of it. They now
+  /// come from the Engine's own profile through the shared ABI, so this drives a real
+  /// session per profile and checks the face against the key that produced candidates.
+  func testShuangpinKeyHintsComeFromTheProfileTheSessionRuns() throws {
+    let bridge = MetasequoiaInputSessionBridge()
+    // The key each profile puts `uai` on, reached with the `g` initial.
+    for (profile, key) in [("xiaohe", "K"), ("ziranma", "Y"), ("shoudao", "G"), ("microsoft", "Y")] {
+      _ = bridge.switch(toShuangpinProfile: profile)
+      _ = bridge.cancel()
+      let hints = bridge.shuangpinKeyHints()
+      XCTAssertGreaterThanOrEqual(hints.count, 26, "\(profile) labelled only \(hints.count) keys")
+      XCTAssertEqual(hints[key]?.contains("uai"), true,
+                     "\(profile) key \(key) reads \(hints[key] ?? "nothing") but types uai")
+      _ = bridge.handleCharacter("g")
+      XCTAssertFalse(bridge.handleCharacter(key.lowercased()).candidates.isEmpty,
+                     "\(profile) g\(key.lowercased()) produced no candidates")
+      _ = bridge.cancel()
+    }
+    // Both units K carries, not just the first one.
+    _ = bridge.switch(toShuangpinProfile: "xiaohe")
+    XCTAssertEqual(bridge.shuangpinKeyHints()["K"], "ing uai")
+    // Initials and finals stay on their own side of the separator.
+    XCTAssertEqual(bridge.shuangpinKeyHints()["V"], "zh / ui ü")
+    // A session that is not running double pinyin gets no face rather than the default one's.
+    _ = bridge.switch(toShuangpin: false)
+    XCTAssertTrue(bridge.shuangpinKeyHints().isEmpty, "Quanpin was labelled with a double-pinyin face")
+    _ = bridge.cancel()
+  }
+
   func testAdditionalShuangpinProfilesAndKeyHints() throws {
     let bridge = MetasequoiaInputSessionBridge()
     for (profile, input) in [("ziranma", "nihk"), ("microsoft", "nihk"), ("shoudao", "nihd"), ("xiaohe", "nihc")] {

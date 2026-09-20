@@ -131,6 +131,39 @@ pub extern "C" fn msime_client_default_preferences() -> *mut c_char {
     })
 }
 
+/// Per-key double-pinyin hint text for one profile, read out of the Engine's own
+/// profile tables.
+///
+/// A touch keyboard labels its letter keys with the units they carry, and a face
+/// that keeps its own copy of that keymap drifts from the scheme the session
+/// actually runs. The hints depend only on the profile, not on session state, so
+/// this takes no handle. An unknown name yields an empty object rather than the
+/// default profile's hints: labelling the keys with a scheme the session is not
+/// running is worse than labelling nothing.
+/// # Safety
+/// `profile` points to `length` readable UTF-8 bytes. Null is rejected.
+/// The returned response must be released with `msime_client_string_free`.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_shuangpin_key_hints(
+    profile: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if profile.is_null() || length > 64 {
+            return Err("invalid shuangpin profile buffer".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract; size checked above.
+        let bytes = unsafe { std::slice::from_raw_parts(profile, length) };
+        let name = std::str::from_utf8(bytes).map_err(|_| "invalid shuangpin profile encoding")?;
+        let hints: serde_json::Map<String, serde_json::Value> =
+            msime_engine_bridge::shuangpin_key_hints(name)
+                .into_iter()
+                .map(|entry| (entry.key, serde_json::Value::String(entry.hint)))
+                .collect();
+        Ok(serde_json::Value::Object(hints))
+    })
+}
+
 /// Load the shared store on a worker thread; no session handle is accessed.
 /// # Safety
 /// `directory` points to `length` readable UTF-8 bytes. Null is rejected.
