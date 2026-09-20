@@ -153,6 +153,12 @@ python3 scripts/test-preferences-field-parity.py || fail "preferences field pari
 note "shell route parity"
 python3 scripts/test-shell-route-parity.py || fail "shell route parity"
 
+# One settings page, six hosts, and the things a host can do arrive as optional
+# callbacks. A button that calls one without checking it is present renders live
+# where the feature does not exist and does nothing when pressed.
+note "settings action guard"
+python3 scripts/test-settings-action-guard.py || fail "settings action guard"
+
 # path::string() converts through the ANSI code page on Windows, so a profile
 # with Chinese characters in it mangles or throws. Nothing about that shows up
 # on a host whose system encoding is UTF-8, which is every host that runs this
