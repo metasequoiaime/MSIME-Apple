@@ -4328,6 +4328,54 @@ int main(int argc, char **argv) {
         }
         NSDictionary *beforeWordView = [controller valueForKey:@"view"];
         NSDictionary *beforeWordTransition = session.nextTransition;
+        // Both switches on at once, which the loop below deliberately avoids by turning paging off first.
+        // They are alternatives - applyCloudSettingsSnapshot: refuses a cloud snapshot that puts paging on
+        // the pair word-to-character holds - but nothing stopped a local toggle from setting both, and
+        // paging used to win here and leave 以词定字 inert on the keys it was explicitly bound to.
+        for (NSString *contested in @[@"brackets", @"minus_equal"]) {
+            // Through the shared snapshot, not the setters. setWordCharacterEnabled:keys: and
+            // setNavigation:enabled: each refuse a combination that collides, but
+            // applySharedCandidatePreferences: takes both fields straight - and that is the path the Tauri
+            // settings app writes through, so this is the state a user can actually end up in.
+            [appearance applySharedCandidatePreferences:@{
+                @"word_character": @{@"enabled": @YES, @"keys": contested},
+                @"navigation": @{contested: @YES}}];
+            assert([[appearance wordCharacterOptions][@"enabled"] boolValue] &&
+                   [appearance navigationEnabled:contested]);
+            NSDictionary *contestedView = @{@"session": @71, @"generation": @72, @"focused": @YES,
+                @"editing_text": @"synthetic",
+                @"candidates": @[@{@"text": @"合成", @"highlighted": @YES,
+                    @"id": @{@"session": @71, @"generation": @72, @"index": @8}}]};
+            for (NSUInteger edge = 0; edge < 2; ++edge) {
+                [controller setValue:contestedView forKey:@"view"];
+                layoutPanel.requestedVisible = YES;
+                NSString *glyph = [contested isEqual:@"brackets"] ? (edge ? @"]" : @"[") : (edge ? @"=" : @"-");
+                unsigned short code = [contested isEqual:@"brackets"] ? (edge ? 30 : 33) : (edge ? 24 : 27);
+                NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:glyph charactersIgnoringModifiers:glyph isARepeat:NO keyCode:code];
+                NSUInteger edges = session.edgeCalls;
+                session.lastCommand = UINT32_MAX;
+                session.nextTransition = @{@"handled": @NO, @"commit": NSNull.null, @"view": contestedView};
+                assert([controller handleEvent:event client:client]);
+                assert(session.edgeCalls == edges + 1 && session.lastEdge == edge);
+                assert(session.lastCommand != MSIME_PREVIOUS_PAGE && session.lastCommand != MSIME_NEXT_PAGE);
+            }
+            // The other pair still pages, so the exclusion is about the keys word-to-character holds and
+            // not about word-to-character being on at all.
+            NSString *free = [contested isEqual:@"brackets"] ? @"minus_equal" : @"brackets";
+            [appearance applySharedCandidatePreferences:@{@"navigation": @{free: @YES}}];
+            [controller setValue:contestedView forKey:@"view"];
+            layoutPanel.requestedVisible = YES;
+            NSString *freeGlyph = [free isEqual:@"brackets"] ? @"[" : @"-";
+            unsigned short freeCode = [free isEqual:@"brackets"] ? 33 : 27;
+            NSUInteger edges = session.edgeCalls;
+            session.lastCommand = UINT32_MAX;
+            assert([controller handleEvent:[NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:freeGlyph charactersIgnoringModifiers:freeGlyph isARepeat:NO keyCode:freeCode] client:client]);
+            assert(session.lastCommand == MSIME_PREVIOUS_PAGE && session.edgeCalls == edges);
+            [appearance applySharedCandidatePreferences:@{
+                @"word_character": @{@"enabled": @NO, @"keys": contested},
+                @"navigation": @{free: @NO, contested: @NO}}];
+        }
+
         for (NSString *keys in @[@"brackets", @"minus_equal"]) {
             [appearance setNavigation:keys enabled:NO];
             [appearance setWordCharacterEnabled:YES keys:keys];

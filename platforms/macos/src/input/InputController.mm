@@ -2985,6 +2985,19 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     [NSApp terminate:nil];
 }
 
+// Whether word-to-character is enabled and bound to the pair this event belongs to. Shared by the paging
+// exclusion and the branch that acts on it so the two can never disagree about who owns the key.
+- (BOOL)wordCharacterClaimsEvent:(NSEvent *)event {
+    NSDictionary *wordCharacter = [_appearance wordCharacterOptions];
+    if (![wordCharacter[@"enabled"] boolValue]) return NO;
+    NSString *characters = event.charactersIgnoringModifiers;
+    if (characters.length != 1) return NO;
+    const unichar character = [characters characterAtIndex:0];
+    const BOOL brackets = [wordCharacter[@"keys"] isEqual:@"brackets"];
+    return msime::mac::IsPhysicalWordCharacterKey(event.keyCode, brackets, static_cast<char>(character)) &&
+        (character == (brackets ? '[' : '-') || character == (brackets ? ']' : '='));
+}
+
 - (BOOL)handleEvent:(NSEvent *)event client:(id)sender {
     CGEventRef nativeEvent = event.CGEvent;
     if (nativeEvent && CGEventGetIntegerValueField(nativeEvent, kCGEventSourceUserData) == MSIMEVoiceCommitEventTag) return NO;
@@ -3259,8 +3272,16 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
         event.keyCode, 0);
     const BOOL unicodePlus = [_view[@"local_mode"] isEqual:@"unicode"] &&
         [event.charactersIgnoringModifiers isEqual:@"+"];
+    // Word-to-character owns whichever pair it is bound to, and paging does not get to take it. The two are
+    // alternatives, which applyCloudSettingsSnapshot: already says by refusing a snapshot whose paging
+    // preset collides - but that only guards the cloud path, so a locally enabled bracket or minus paging
+    // shortcut quietly won here and left 以词定字 doing nothing at all, with nothing to say why.
+    //
+    // The test is the one the word-to-character branch below applies, so the key is excluded from paging
+    // exactly when that branch will claim it: whichever way it goes, the keystroke has an owner.
+    const BOOL wordCharacterOwnsKey = [self wordCharacterClaimsEvent:event];
     if (_panel.isVisible && !(event.modifierFlags & NSEventModifierFlagShift) &&
-        physicalPageDirection != 0 && !japaneseMinusEqual && !unicodePlus) {
+        physicalPageDirection != 0 && !japaneseMinusEqual && !unicodePlus && !wordCharacterOwnsKey) {
         const BOOL previous = physicalPageDirection < 0 &&
             ((event.keyCode == 27 && [_appearance navigationEnabled:@"minus_equal"]) ||
              (event.keyCode == 33 && [_appearance navigationEnabled:@"brackets"]) ||
@@ -3288,13 +3309,11 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
                                                      event.keyCode, static_cast<char>(character))) {
                 // Fall through to the normal engine dispatch below.
             } else {
-            NSDictionary *wordCharacter = [_appearance wordCharacterOptions];
-            BOOL brackets = [wordCharacter[@"keys"] isEqual:@"brackets"];
+            BOOL brackets = [[_appearance wordCharacterOptions][@"keys"] isEqual:@"brackets"];
             BOOL first = character == (brackets ? '[' : '-');
-            BOOL last = character == (brackets ? ']' : '=');
-            if ([wordCharacter[@"enabled"] boolValue] &&
-                msime::mac::IsPhysicalWordCharacterKey(event.keyCode, brackets, static_cast<char>(character)) &&
-                (first || last)) {
+            // The same claim the paging exclusion above asks about, so the two cannot disagree about who
+            // owns the key and leave it doing nothing.
+            if ([self wordCharacterClaimsEvent:event]) {
                 if (![_view[@"focused"] isEqual:@YES] || ![_view[@"candidates"] isKindOfClass:NSArray.class]) return YES;
                 for (NSDictionary *candidate in _view[@"candidates"]) {
                     if (![candidate isKindOfClass:NSDictionary.class]) continue;
