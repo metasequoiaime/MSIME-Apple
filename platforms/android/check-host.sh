@@ -54,8 +54,16 @@ if rg -n 'Files\.(readString|writeString)\(' "$repo_root/platforms/android/java"
   echo "Files.readString/writeString need API 34; this host declares minSdk 28" >&2
   exit 1
 fi
+# The host compiles against AndroidX and Material now, and those are AARs that only Gradle resolves,
+# so this script no longer compiles the whole source set -- `platforms/android/gradle-app` does, and
+# build-apk.sh drives it. What stays here is the part that is worth having without a Gradle daemon:
+# the pure-Java models and their smokes, which have no Android dependency at all and run in a second.
 client_sources=()
 while IFS= read -r source; do
+  case "$source" in
+    */home/*) continue ;;
+  esac
+  if rg -q '^import (androidx|com\.google\.android\.material)\.' "$source"; then continue; fi
   client_sources+=("$source")
 done < <(find "$repo_root/platforms/android/java/app/msime/client" -name "*.java" -print)
 javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
@@ -164,10 +172,10 @@ java -cp "$output_dir" DictionarySnapshotQueueSmoke
 java -cp "$output_dir" DiagnosticPolicySmoke
 java -cp "$output_dir" SmartPunctuationContextSmoke
 java -cp "$output_dir" SymbolPanelModelSmoke
+# Resources are compiled but not linked here: they reference Material's theme attributes, and linking
+# those needs the library's own resources, which is Gradle's job. Compiling still catches a malformed
+# drawable, layout or values file, which is what this step was for.
 "$android_sdk/build-tools/35.0.0/aapt2" compile --dir "$repo_root/platforms/android/res" -o "$output_dir/resources.zip"
-"$android_sdk/build-tools/35.0.0/aapt2" link -I "$android_jar" \
-  --manifest "$repo_root/platforms/android/AndroidManifest.xml" \
-  -o "$output_dir/manifest.apk" "$output_dir/resources.zip"
 for alias in MainActivityForest MainActivitySky MainActivityDusk MainActivityVermilion; do
   if ! rg -q "android:name=\"\\.${alias}\"" "$repo_root/platforms/android/AndroidManifest.xml"; then
     echo "Android app icon alias missing: $alias" >&2

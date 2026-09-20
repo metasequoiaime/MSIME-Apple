@@ -1,0 +1,27 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Material 3 rather than the framework's Theme.Material: the host uses MaterialCardView,
+         MaterialButton and BottomNavigationView, and those resolve their own theme attributes. -->
+    <style name="Theme.MSIME" parent="Theme.Material3.DayNight.NoActionBar">
+        <item name="colorPrimary">@color/forest</item>
+        <item name="colorOnPrimary">@color/surface</item>
+        <item name="colorSecondary">@color/needle</item>
+        <item name="colorTertiary">@color/cone</item>
+        <item name="android:colorBackground">@color/mist</item>
+        <item name="colorSurface">@color/surface</item>
+        <item name="colorOnSurface">@color/ink</item>
+        <item name="android:statusBarColor">@android:color/transparent</item>
+        <item name="android:navigationBarColor">@android:color/transparent</item>
+    </style>
+
+    <!-- The rounded badge behind each feature tile's glyph. -->
+    <style name="Shape.Badge" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">12dp</item>
+    </style>
+
+    <style name="Shape.Avatar" parent="">
+        <item name="cornerFamily">rounded</item>
+        <item name="cornerSize">50%</item>
+    </style>
+</resources>
