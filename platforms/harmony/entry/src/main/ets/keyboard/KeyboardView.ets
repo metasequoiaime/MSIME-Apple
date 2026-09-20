@@ -22,6 +22,8 @@ import { JapaneseNineKeyActions } from './input/JapaneseNineKeyActions';
 import { JapaneseVariantPolicy } from './input/JapaneseVariantPolicy';
 import { CandidateManagementAction, ManagementAction } from './candidate/CandidateManagementAction';
 import { CandidateFontFamilyPolicy } from './candidate/CandidateFontFamilyPolicy';
+import { CandidateContextMenuPolicy, PointerAction, PointerButton }
+  from './input/CandidateContextMenuPolicy';
 import { CandidateSkinPolicy } from './candidate/CandidateSkinPolicy';
 import { CandidateWheelPolicy } from './candidate/CandidateWheelPolicy';
 import { KeyboardMetrics } from './KeyboardMetrics';
@@ -1171,6 +1173,18 @@ struct KeyboardView {
       .borderColor(this.candidateBorderColor()).onClick(() => KeyboardSession.shared.choose(index))
       .onHover((isHover: boolean): void => { this.hoveredCandidate = isHover ? index : -1; })
       .gesture(LongPressGesture().onAction(() => { this.punctuation = false; this.managing = index; }))
+      // The source opens this menu with a right click on the candidate window; it has no touch
+      // screen to long-press on. A 2in1 has both pointers, so it gets both gestures rather than
+      // being told to hold the left button down on a candidate and wait.
+      .onMouse((event: MouseEvent): void => {
+        if (!CandidateContextMenuPolicy.opens(event.button as number as PointerButton,
+          event.action as number as PointerAction)) {
+          return;
+        }
+        event.stopPropagation();
+        this.punctuation = false;
+        this.managing = index;
+      })
   }
 
   /**
