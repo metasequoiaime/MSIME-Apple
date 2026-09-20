@@ -701,8 +701,7 @@ impl<E: InputEngine> Runtime<E> {
     ///
     /// Only the online case is touched: with neither a cloud nor an AI candidate present the
     /// Engine already produces the fourth line, so there is nothing to rearrange and nothing to
-    /// risk. Extra cloud or AI candidates beyond the first keep their place among the locals rather
-    /// than being dropped, which is what the reference's moved-from vector does to them.
+    /// risk.
     fn normalize_online_slots(&mut self) {
         const CLOUD: u8 = 2;
         const AI: u8 = 3;
@@ -729,13 +728,18 @@ impl<E: InputEngine> Runtime<E> {
             return;
         }
 
-        let (mut locals, mut english, mut emoji, mut kaomoji) =
-            (Vec::new(), Vec::new(), Vec::new(), Vec::new());
-        let (mut cloud, mut ai) = (None, None);
+        let (mut locals, mut cloud, mut ai, mut english, mut emoji, mut kaomoji) = (
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        );
         for (index, source) in snapshot.candidate_sources.iter().enumerate() {
             match *source {
-                CLOUD if cloud.is_none() => cloud = Some(index),
-                AI if ai.is_none() => ai = Some(index),
+                CLOUD => cloud.push(index),
+                AI => ai.push(index),
                 ENGLISH => english.push(index),
                 EMOJI => emoji.push(index),
                 KAOMOJI => kaomoji.push(index),
@@ -743,22 +747,19 @@ impl<E: InputEngine> Runtime<E> {
             }
         }
 
+        // A provider may answer with several candidates - the AI limit reaches ten - and they take
+        // their seat as a group. The reference has only one of each to place and silently drops the
+        // rest; dropping a candidate the user was offered is not an option here.
         let mut order = Vec::with_capacity(count);
         let mut locals = locals.into_iter();
         order.extend(locals.next());
-        if let Some(index) = cloud {
-            order.push(index);
-            if let Some(index) = ai {
-                order.push(index);
-            }
+        if !cloud.is_empty() {
+            order.append(&mut cloud);
+            order.append(&mut ai);
         }
         let mut english = english.into_iter();
         order.extend(english.next());
-        if cloud.is_none() {
-            if let Some(index) = ai {
-                order.push(index);
-            }
-        }
+        order.append(&mut ai);
         let mut emoji = emoji.into_iter();
         let mut kaomoji = kaomoji.into_iter();
         order.extend(emoji.next());

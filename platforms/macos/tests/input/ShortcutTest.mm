@@ -96,6 +96,9 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic, copy) NSDictionary *enginePunctuationTransition;
 @property(nonatomic) uint8_t requestedPageSize;
 @property(nonatomic) BOOL failFinish;
+// Switching into English cancels the composition rather than finishing it, so the tests that check
+// "an Engine failure must not switch the mode" have to be able to fail a cancel too.
+@property(nonatomic) BOOL failCancel;
 @property(nonatomic) NSUInteger focusCalls;
 @property(nonatomic) BOOL chinesePunctuation;
 @property(nonatomic) NSUInteger punctuationCalls;
@@ -107,6 +110,7 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic) BOOL fullwidth;
 @property(nonatomic) NSUInteger widthCalls;
 @property(nonatomic, copy) NSDictionary *finishTransition;
+@property(nonatomic, copy) NSDictionary *cancelTransition;
 @property(nonatomic) NSUInteger snapshotCalls;
 @property(nonatomic, copy) NSDictionary *lastSnapshot;
 @property(nonatomic) NSUInteger settledRerankCalls;
@@ -223,7 +227,9 @@ static void CheckMenu(NSMenu *menu, id controller) {
     self.lastCommand = command;
     if (command == MSIME_COMMIT_RAW) ++self.rawCommitCalls;
     if (self.failFinish && command == MSIME_FINISH_COMPOSITION) return nil;
+    if (self.failCancel && command == MSIME_CANCEL) return nil;
     if (self.finishTransition && command == MSIME_FINISH_COMPOSITION) return self.finishTransition;
+    if (self.cancelTransition && command == MSIME_CANCEL) return self.cancelTransition;
     if (self.rawTransition && command == MSIME_COMMIT_RAW) return self.rawTransition;
     if (self.nextTransition) return self.nextTransition;
     return @{@"handled": @YES, @"commit": @"测试", @"view": @{@"editing_text": @"", @"caret_position": @0, @"candidates": @[]}};
@@ -1773,10 +1779,12 @@ static void TestModifierTaps() {
     auto down = TapEvent(NSEventTypeFlagsChanged, 56, NSEventModifierFlagShift, 1.0);
     auto up = TapEvent(NSEventTypeFlagsChanged, 56, 0, 1.1);
     session.failFinish = YES;
+    session.failCancel = YES;
     assert(![controller handleEvent:down client:client]);
     assert([controller handleEvent:up client:client]);
     assert(!prefs.englishMode);
     session.failFinish = NO;
+    session.failCancel = NO;
     assert(![controller handleEvent:down client:client]);
     assert([controller handleEvent:up client:client]);
     assert(prefs.englishMode && [client.committed isEqual:@"测试"]);
@@ -1788,12 +1796,14 @@ static void TestModifierTaps() {
     prefs.englishMode = NO;
     session.rawTransition = @{@"handled":@YES, @"commit":@"msime",
         @"view":@{@"editing_text":@"", @"caret_position":@0, @"candidates":@[]}};
-    // After the raw commit there is no composition left, so the finish that the mode switch performs has
-    // nothing to send: the real Engine answers handled with no commit, and the fake has to say the same or
+    // After the raw commit there is no composition left, so the cancel that the mode switch performs has
+    // nothing to drop: the real Engine answers handled with no commit, and the fake has to say the same or
     // it overwrites what the raw commit just inserted.
     NSDictionary *previousFinish = session.finishTransition;
+    NSDictionary *previousCancel = session.cancelTransition;
     session.finishTransition = @{@"handled":@YES,
         @"view":@{@"editing_text":@"", @"caret_position":@0, @"candidates":@[]}};
+    session.cancelTransition = session.finishTransition;
     [controller setValue:@{@"editing_text":@"msime", @"caret_position":@5, @"candidates":@[]} forKey:@"view"];
     NSUInteger rawBefore = session.rawCommitCalls;
     assert(![controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 56, NSEventModifierFlagShift, 3.0) client:client]);
@@ -1810,6 +1820,7 @@ static void TestModifierTaps() {
     assert(session.rawCommitCalls == rawBefore && prefs.englishMode);
     session.rawTransition = nil;
     session.finishTransition = previousFinish;
+    session.cancelTransition = previousCancel;
     // Hand the sequence below back the state it had before this block: English on, nothing composing.
     prefs.englishMode = YES;
     [controller setValue:nil forKey:@"view"];
@@ -2126,14 +2137,34 @@ static void TestControlOptionSpace() {
     prefs.inputModeShortcut = NO; // Independent from the legacy Shift+Space switch.
     NSEventModifierFlags flags = NSEventModifierFlagControl | NSEventModifierFlagOption;
     session.failFinish = YES;
+    session.failCancel = YES;
     panel.visible = YES;
     client.marked = @"test";
     assert([controller handleEvent:ModeKey(49, flags, NO) client:client]);
     assert(!prefs.englishMode && panel.visible && [client.marked isEqual:@"test"]);
     session.failFinish = NO;
+    session.failCancel = NO;
     assert([controller handleEvent:ModeKey(49, flags, NO) client:client]);
     assert(prefs.englishMode && !panel.visible && client.marked.length == 0);
-    assert(session.lastCommand == MSIME_FINISH_COMPOSITION && [client.committed isEqual:@"测试"]);
+    assert(session.lastCommand == MSIME_CANCEL);
+
+    // What the switch does to a composition in flight, which is the whole reason it sends a command
+    // at all. The reference's English-mode switch is FUNCTION_CANCEL and its handler terminates the
+    // composition without sending anything; committing the highlighted Chinese candidate instead -
+    // which this host used to do - puts a word nobody chose into the document, and the user reached
+    // for English precisely because the candidates on screen were wrong. The Shift tap keeps the
+    // other rule and is checked in TestModifierTaps.
+    prefs.englishMode = NO;
+    client.committed = nil;
+    client.marked = @"拼音";
+    session.lastCommand = UINT32_MAX;
+    session.nextTransition = @{@"handled":@YES,
+        @"view":@{@"editing_text":@"", @"caret_position":@0, @"candidates":@[]}};
+    [controller setValue:@{@"editing_text":@"nihao", @"caret_position":@5, @"candidates":@[]} forKey:@"view"];
+    assert([controller handleEvent:ModeKey(49, flags, NO) client:client]);
+    assert(prefs.englishMode && session.lastCommand == MSIME_CANCEL);
+    assert(client.committed.length == 0 && client.marked.length == 0);
+    session.nextTransition = nil;
     session.lastCommand = UINT32_MAX;
     assert([controller handleEvent:ModeKey(49, flags, YES) client:client]);
     assert(prefs.englishMode && session.lastCommand == UINT32_MAX);
@@ -2223,11 +2254,13 @@ static void TestInputMode(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     assert(!appearance.englishMode && session.lastCommand == MSIME_COMMIT_CANDIDATE);
     appearance.inputModeShortcut = YES;
     session.failFinish = YES;
+    session.failCancel = YES;
     panel.visible = YES;
     [controller selectEnglishMode:nil];
     [controller openCharacterPalette:nil];
     assert(!appearance.englishMode && panel.visible && controller.paletteCalls == 0);
     session.failFinish = NO;
+    session.failCancel = NO;
     client.marked = @"ceshi";
     client.committed = nil;
     [controller openCharacterPalette:nil];
