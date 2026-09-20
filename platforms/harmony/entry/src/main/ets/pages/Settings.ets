@@ -412,7 +412,7 @@ struct Settings {
             this.controller.registerJavaScriptProxy(this.bridge, BRIDGE_NAME,
               ['loadPreferences', 'savePreferences', 'hostCapabilities', 'appVersion',
                 'scanSkinCatalog', 'readSkinImage', 'readSkinFont', 'readSkinToolbarCss',
-                'dictionary', 'cloudDictionaryDownload',
+                'customSkinLibrary', 'dictionary', 'cloudDictionaryDownload',
                 'typingStatistics', 'openExternalUrl', 'copyText',
                 'openSystemKeyboardSettings', 'listVoiceCaptureDevices', 'listFontFamilies',
                 'keyboardFeedback', 'customTranslations', 'onboardingStatus',
