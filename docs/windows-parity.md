@@ -378,6 +378,16 @@ runner 现在自己去找仓库既有的约定缓存 `target/desktop-resources`�
 
 顺带说明这轮的取舍：能让计数好看的改动（放松断言）被否掉了，因为它并不能让套件通过；留下的是一条把原因查准的记录。计数不是目的。
 
+增量记录（2026-09-20，Windows 第二十九批：那条「需要 Windows」其实源于一处有意的设计分歧）：上一批把 `windows-server-smoke` 的拦路者定位到 Wine 的 DirectComposition 是桩。这一批问下一个问题——**来源是怎么做的**，因为如果来源也走 DirectComposition，那它就是纯环境限制；如果不是，那这条失败是本仓库自己的选择带来的。
+
+来源的输入法窗口用 **`WS_EX_LAYERED` 分层窗口**（`server/src/window/ime_windows.cpp`），DirectComposition 只出现在它的 WebView2 与设置路径里。本仓库的原生候选窗、候选浮出、悬浮工具栏、托盘菜单四个表面统一走 `DeviceResources::EnsureForComposition`，即 `DCompositionCreateDevice` 加 `CreateSwapChainForComposition`。
+
+所以这条失败的性质要改写：**不是「这个功能只能在 Windows 上验证」，而是「本仓库为这四个表面选了一条来源没走的合成路径，而 Wine 尚未实现它」**。来源那条路在 Wine 下本来是跑得起来的。
+
+这不构成要求改回分层窗口的理由——合成交换链避开了 `UpdateLayeredWindow` 每帧的 CPU 拷贝，四个表面都是低延迟且不能抢焦点的，选它有实在的道理，属于表里一贯记的「适配平台特性」。而且 `EnsureForComposition` 失败时回退到 `EnsureForWindow` 也不是好主意：普通 HWND 交换链拿不到逐像素透明，候选卡片的阴影会退化成不透明矩形，静默变丑比明确失败更糟。
+
+记下来是因为这两种读法对后续决策不同：若哪天要让这套在无 DirectComposition 的环境（Wine、或某些远程会话）下也能画，那是一次明确的渲染路径工作，而不是「等一台 Windows 机器」。
+
 ## 来源模块的落点
 
 逐模块记下来源的每个目录在本仓库落在哪里，以及为什么。上面那张功能表按「功能组」组织，回答的是某个功能有没有；这张按**来源的源码目录**组织，回答的是来源的每一块代码去了哪儿——两者互相校验，一块代码找不到落点就是缺口，哪怕对应功能在表里被标成有。
