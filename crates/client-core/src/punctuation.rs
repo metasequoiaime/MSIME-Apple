@@ -53,6 +53,189 @@ pub fn route(context: PunctuationContext) -> PunctuationRoute {
     }
 }
 
+/// The Chinese mark an ASCII one converts to, for the three the repeat gesture covers.
+fn chinese_mark(ascii: u8) -> Option<char> {
+    match ascii {
+        b',' => Some('，'),
+        b'.' => Some('。'),
+        b':' => Some('：'),
+        _ => None,
+    }
+}
+
+/// The full-width twin of an ASCII mark, for hosts that commit one instead.
+fn full_width_mark(ascii: u8) -> char {
+    match ascii {
+        b',' => '\u{ff0c}',
+        b'.' => '\u{ff0e}',
+        b':' => '\u{ff1a}',
+        _ => ascii as char,
+    }
+}
+
+/// What the previous press of a smart-punctuation key left behind.
+///
+/// Armed only when the press actually committed the ASCII mark that was asked for - or its
+/// full-width twin, which is what a full-width host commits. `editor_generation` is the host's
+/// own counter for "the caret is still where it was and the document is still the same one".
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RepeatSnapshot {
+    pub ascii: u8,
+    /// The scalar the first press committed.
+    pub committed: char,
+    pub timestamp_ms: u64,
+    pub editor_generation: u64,
+}
+
+/// Arm the repeat gesture after a commit, or decline to.
+pub fn arm_repeat(
+    ascii: u8,
+    commit: &str,
+    timestamp_ms: u64,
+    editor_generation: u64,
+) -> Option<RepeatSnapshot> {
+    chinese_mark(ascii)?;
+    let committed = commit.chars().next_back()?;
+    if committed != ascii as char && committed != full_width_mark(ascii) {
+        return None;
+    }
+    Some(RepeatSnapshot {
+        ascii,
+        committed,
+        timestamp_ms,
+        editor_generation,
+    })
+}
+
+/// How long after the first press the second one still counts as a correction.
+pub const REPEAT_WINDOW_MS: u64 = 2000;
+
+/// What the host knows when the same punctuation key is pressed again.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct RepeatContext {
+    pub ascii: u8,
+    pub preceding: Option<char>,
+    pub timestamp_ms: u64,
+    pub editor_generation: u64,
+    pub smart_punctuation: bool,
+    pub repeat_enabled: bool,
+    pub has_composition: bool,
+    pub candidate_count: usize,
+}
+
+/// Pressing the same mark again within the window replaces the ASCII one with Chinese.
+///
+/// The user asked for ASCII by context and is now saying they meant the Chinese mark after all,
+/// so this only fires when the document still holds exactly what the first press committed: a
+/// composition, any candidate on screen, a moved caret or a different editor all mean the gesture
+/// is about something else.
+pub fn should_replace_repeat(
+    snapshot: Option<RepeatSnapshot>,
+    context: RepeatContext,
+) -> Option<char> {
+    if !context.smart_punctuation
+        || !context.repeat_enabled
+        || context.has_composition
+        || context.candidate_count != 0
+    {
+        return None;
+    }
+    let snapshot = snapshot?;
+    if snapshot.ascii != context.ascii
+        || snapshot.editor_generation != context.editor_generation
+        || context.preceding != Some(snapshot.committed)
+    {
+        return None;
+    }
+    if context.timestamp_ms.checked_sub(snapshot.timestamp_ms)? > REPEAT_WINDOW_MS {
+        return None;
+    }
+    chinese_mark(context.ascii)
+}
+
+/// The ASCII twin of a Chinese punctuation mark, or `None` where there is none.
+///
+/// Both quote directions map to the same ASCII quote: a straight quote has no handedness.
+pub fn ascii_for_chinese_mark(chinese: char) -> Option<u8> {
+    Some(match chinese {
+        '。' => b'.',
+        '\u{ff0c}' => b',',
+        '！' => b'!',
+        '？' => b'?',
+        '；' => b';',
+        '\u{ff1a}' => b':',
+        '、' => b'/',
+        '\u{201c}' | '\u{201d}' => b'"',
+        '\u{2018}' | '\u{2019}' => b'\'',
+        '【' => b'[',
+        '】' => b']',
+        '《' => b'<',
+        '》' => b'>',
+        '（' => b'(',
+        '）' => b')',
+        _ => return None,
+    })
+}
+
+/// A Chinese mark that a following space would rewrite as ASCII.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct SpaceConvertSnapshot {
+    pub chinese: char,
+    /// Resolved when arming, so the conversion cannot disagree with what armed it.
+    pub ascii: u8,
+    pub editor_generation: u64,
+}
+
+/// Arm the space conversion after a commit, or decline to.
+///
+/// An auto-closed pair is refused: the caret sits between the two marks, so the character before
+/// it is the opening one and rewriting that would break the pair. A commit of more than one scalar
+/// is refused too - the mark has to be the last thing typed for the space to be about it.
+pub fn arm_space_convert(
+    committed: &str,
+    auto_closed_pair: bool,
+    smart_punctuation: bool,
+    space_convert: bool,
+    editor_generation: u64,
+) -> Option<SpaceConvertSnapshot> {
+    if !smart_punctuation || !space_convert || auto_closed_pair {
+        return None;
+    }
+    let mut characters = committed.chars();
+    let chinese = characters.next()?;
+    if characters.next().is_some() {
+        return None;
+    }
+    Some(SpaceConvertSnapshot {
+        chinese,
+        ascii: ascii_for_chinese_mark(chinese)?,
+        editor_generation,
+    })
+}
+
+/// A space right after a committed Chinese mark rewrites it as ASCII and is swallowed.
+///
+/// Swallowing the space is the whole gesture: the user is correcting the mark they just typed,
+/// not typing a mark and then a space. Nothing here is time-limited - the arming survives as long
+/// as the caret has not moved and the editor has not changed - because the decision re-reads what
+/// is actually before the caret and declines when it disagrees.
+pub fn decide_space_convert(
+    snapshot: Option<SpaceConvertSnapshot>,
+    character: u8,
+    preceding: Option<char>,
+    has_composition: bool,
+    editor_generation: u64,
+) -> Option<u8> {
+    let snapshot = snapshot?;
+    if character != b' ' || has_composition || snapshot.editor_generation != editor_generation {
+        return None;
+    }
+    if preceding != Some(snapshot.chinese) {
+        return None;
+    }
+    Some(snapshot.ascii)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -143,5 +326,195 @@ mod tests {
         value.chinese_punctuation = true;
         value.host_context_available = false;
         assert_eq!(route(value), PunctuationRoute::Engine);
+    }
+
+    #[test]
+    fn repeat_arms_only_on_the_mark_the_press_actually_committed() {
+        // 。 is the only one of the three whose Chinese form differs from its full-width form:
+        // ，and ：are U+FF0C and U+FF1A either way. So this is the case that can tell "the host
+        // committed the Chinese mark" apart from "the host commits full-width".
+        assert!(
+            arm_repeat(b'.', "。", 0, 1).is_none(),
+            "committed the Chinese mark, so the ASCII press never landed"
+        );
+        assert!(
+            arm_repeat(b'?', "?", 0, 1).is_none(),
+            "not one of the three marks"
+        );
+        assert!(arm_repeat(b',', "", 0, 1).is_none());
+        assert_eq!(arm_repeat(b',', ",", 5, 1).unwrap().committed, ',');
+        // A full-width host commits the full-width twin, and the gesture still belongs to it.
+        assert_eq!(
+            arm_repeat(b'.', "\u{ff0e}", 5, 1).unwrap().committed,
+            '\u{ff0e}'
+        );
+        // Only the last scalar matters: the commit may carry the word the mark ended.
+        assert_eq!(arm_repeat(b':', "ok:", 5, 1).unwrap().committed, ':');
+    }
+
+    #[test]
+    fn repeat_replaces_inside_the_window_and_only_then() {
+        let armed = arm_repeat(b',', ",", 1_000, 7);
+        let replace = |timestamp_ms, editor_generation, preceding| {
+            should_replace_repeat(
+                armed,
+                RepeatContext {
+                    ascii: b',',
+                    preceding,
+                    timestamp_ms,
+                    editor_generation,
+                    smart_punctuation: true,
+                    repeat_enabled: true,
+                    has_composition: false,
+                    candidate_count: 0,
+                },
+            )
+        };
+        assert_eq!(replace(1_500, 7, Some(',')), Some('，'));
+        assert_eq!(replace(1_000 + REPEAT_WINDOW_MS, 7, Some(',')), Some('，'));
+        assert_eq!(
+            replace(1_001 + REPEAT_WINDOW_MS, 7, Some(',')),
+            None,
+            "past the window"
+        );
+        assert_eq!(replace(900, 7, Some(',')), None, "clock went backwards");
+        assert_eq!(replace(1_500, 8, Some(',')), None, "another editor");
+        assert_eq!(
+            replace(1_500, 7, Some('a')),
+            None,
+            "the mark is not what is there"
+        );
+        assert_eq!(replace(1_500, 7, None), None, "nothing before the caret");
+    }
+
+    #[test]
+    fn repeat_declines_while_the_engine_owns_the_gesture() {
+        let armed = arm_repeat(b'.', ".", 0, 1);
+        let repeat_context =
+            |ascii, smart_punctuation, repeat_enabled, has_composition, candidate_count| {
+                RepeatContext {
+                    ascii,
+                    preceding: Some('.'),
+                    timestamp_ms: 10,
+                    editor_generation: 1,
+                    smart_punctuation,
+                    repeat_enabled,
+                    has_composition,
+                    candidate_count,
+                }
+            };
+        let replace = |smart, repeat, composing, candidates| {
+            should_replace_repeat(
+                armed,
+                repeat_context(b'.', smart, repeat, composing, candidates),
+            )
+        };
+        assert_eq!(replace(true, true, false, 0), Some('。'));
+        assert_eq!(
+            replace(false, true, false, 0),
+            None,
+            "smart punctuation off"
+        );
+        assert_eq!(
+            replace(true, false, false, 0),
+            None,
+            "the switch itself is off"
+        );
+        assert_eq!(replace(true, true, true, 0), None, "mid composition");
+        assert_eq!(replace(true, true, false, 3), None, "candidates on screen");
+        // A different key than the one that armed it is not this gesture.
+        assert_eq!(
+            should_replace_repeat(armed, repeat_context(b',', true, true, false, 0)),
+            None
+        );
+    }
+
+    #[test]
+    fn space_conversion_covers_the_marks_the_source_maps_and_no_others() {
+        for (chinese, ascii) in [
+            ('。', b'.'),
+            ('\u{ff0c}', b','),
+            ('！', b'!'),
+            ('？', b'?'),
+            ('；', b';'),
+            ('\u{ff1a}', b':'),
+            ('、', b'/'),
+            ('【', b'['),
+            ('】', b']'),
+            ('《', b'<'),
+            ('》', b'>'),
+            ('（', b'('),
+            ('）', b')'),
+        ] {
+            assert_eq!(ascii_for_chinese_mark(chinese), Some(ascii), "{chinese}");
+        }
+        // Both directions of a quote map to the one straight quote, which has no handedness.
+        assert_eq!(ascii_for_chinese_mark('\u{201c}'), Some(b'"'));
+        assert_eq!(ascii_for_chinese_mark('\u{201d}'), Some(b'"'));
+        assert_eq!(ascii_for_chinese_mark('\u{2018}'), Some(b'\''));
+        assert_eq!(ascii_for_chinese_mark('\u{2019}'), Some(b'\''));
+        for other in ['中', 'a', '.', '…', '—'] {
+            assert_eq!(ascii_for_chinese_mark(other), None, "{other}");
+        }
+    }
+
+    #[test]
+    fn space_conversion_arms_only_a_lone_mark_the_user_finished_typing() {
+        assert!(arm_space_convert("。", false, true, true, 1).is_some());
+        assert!(
+            arm_space_convert("。", true, true, true, 1).is_none(),
+            "auto-closed pair"
+        );
+        assert!(
+            arm_space_convert("好。", false, true, true, 1).is_none(),
+            "not the only scalar"
+        );
+        assert!(
+            arm_space_convert("中", false, true, true, 1).is_none(),
+            "not a mark"
+        );
+        assert!(arm_space_convert("", false, true, true, 1).is_none());
+        assert!(
+            arm_space_convert("。", false, false, true, 1).is_none(),
+            "smart punctuation off"
+        );
+        assert!(
+            arm_space_convert("。", false, true, false, 1).is_none(),
+            "the switch is off"
+        );
+    }
+
+    #[test]
+    fn space_converts_only_when_the_mark_is_still_there() {
+        let armed = arm_space_convert("，", false, true, true, 4);
+        assert_eq!(
+            decide_space_convert(armed, b' ', Some('\u{ff0c}'), false, 4),
+            Some(b',')
+        );
+        assert_eq!(
+            decide_space_convert(armed, b'a', Some('\u{ff0c}'), false, 4),
+            None,
+            "not a space"
+        );
+        assert_eq!(
+            decide_space_convert(armed, b' ', Some('\u{ff0c}'), true, 4),
+            None,
+            "mid composition"
+        );
+        assert_eq!(
+            decide_space_convert(armed, b' ', Some('\u{ff0c}'), false, 5),
+            None,
+            "another editor"
+        );
+        // The arming says what was committed, not what is still there; anything may have happened.
+        assert_eq!(
+            decide_space_convert(armed, b' ', Some('好'), false, 4),
+            None
+        );
+        assert_eq!(decide_space_convert(armed, b' ', None, false, 4), None);
+        assert_eq!(
+            decide_space_convert(None, b' ', Some('\u{ff0c}'), false, 4),
+            None
+        );
     }
 }
