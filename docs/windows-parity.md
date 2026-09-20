@@ -772,6 +772,19 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 ## 下一批实施顺序
 
+增量记录（2026-09-21，几条查过、判为「不是缺口」的，连同判据）：这一轮把来源设置窗写配置的 73 个键、宿主能力矩阵、以及 macOS 侧所有收窄共享取值的归一化函数逐个过了一遍，结果除了上面那条每页候选项数量之外没有别的缺口。判据记在这里，免得下一轮重查：
+
+- **设置键映射**：来源 `settings_app.cpp` 里 `path == "…"` 的 73 个键逐个在共享偏好或共享设置页里找到对应物，差异全是命名（`paging_brackets` → `navigation.brackets`、`cn_en_mixed_input` → `mixed_input.english`、`utility.*_mode` → `local_modes.*`、`word_to_character` → `word_character`、`*_helpcode_schema` → `quanpin_helpcode.schema` 等）。`input.wubi_schema` 与 `input.japanese_schema` 在来源那边各自只有一个选项（86 五笔、罗马字），不需要共享字段。
+- **宿主能力矩阵**：`HostCapabilities::for_platform` 里没有任何一项是「Windows 有、macOS 没有」。
+- **悬浮工具栏缩放**：macOS 的白名单 75/100/125/150 与来源下拉逐项相同。
+- **翻页键的缺省**：原生窗口那个三选一的「候选翻页快捷键」只在共享 `navigation` 没有显式布尔值时充当缺省，一旦设置页写过就以共享值为准；它推出的缺省（minus_equal 开、brackets 关、其余开、mouse_wheel 关）与共享 `NavigationPreferences::default()` 逐项相同。
+- **候选字号**：`metasequoia::mac` 下那两个只认 16/18/20 的 `NormalizeCandidateFontSize` 属保留的 Apple 适配层（`MetasequoiaInputController.mm`，不编进产物）；发出去的宿主走的是 12–32。
+
+另有两条是**刻意保留的差异**，都不属于 macOS 侧的缺口，一并记下来源：
+
+- **混输最小前缀的默认值**：来源安装模板是 5，共享默认是 2，`scripts/test-default-config-parity.py` 明确钉住了这个分工——Windows 宿主跟随来源模板，其余宿主用共享默认。改共享默认会一并动到 Linux、Android、iOS 与 HarmonyOS，超出 macOS 迁移的范围。
+- **快捷短语编码允许数字**：来源文档写「编码只能是英文字母」，本仓的 `validate_entry` 显式放行数字。共享运行时对数字键是「引擎先拒绝再说」（`result.handled` 优先于候选选择），所以带数字的编码在 K 模式下仍然打得出来，属超集而非缺口。
+
 增量记录（2026-09-21，每页候选项数量：macOS 把共享默认值改写掉了）：来源外观页的「每页候选项数量」提供 3–9，默认 6；共享偏好 `candidate_page_size` 接受 1–9，默认也是 6。macOS 这一侧是 `NormalizeCandidatePageSize`：只认 5、7、9，**其余一律改写成 9**。于是一个谁都没动过的设置，在这个平台上显示并保存为 9，而别的平台是 6；从别处写下的配置（另一个宿主、手改、云端同步回来的外观快照）带着 4 或 6 进来也会被静默改掉。云外观校验器 `MSIMECloudAppearanceCandidatePageSize` 同样只接受这三个值，一份别的宿主写的快照会被整条拒绝。
 
 这三个值来自 Apple 来源那个窗口，是本仓早先对齐它时引入的（#ecaf6a069「align macos candidate page sizes」），不是 macOS 的平台约束——面板画几行就是几行。按当前目标（复刻 MSIME-Windows）改回来：宿主接受共享偏好的整个 1–9 并把越界值拉到最近一端而不是顶到 9，未设置读作共享默认的 6，原生窗口与共享设置页都列出来源的 3–9，云快照按同一范围校验。
