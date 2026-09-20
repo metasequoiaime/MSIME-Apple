@@ -3092,6 +3092,18 @@ static void TestAccountGlossCacheIsSharedAcrossControllers() {
     assert(request);
     NSArray *results = [reader accountGlossResultsForRequest:request];
     assert(results.count == 1 && [results[0][@"translation"] isEqual:@"test"]);
+
+    // A controller that has stopped composing must stop answering the broadcast. The reply reaches every
+    // instance, and IMKit keeps one per text input client, so a request left behind after the client went
+    // away means a dozen of them merging results into sessions nobody is typing in.
+    assert([fetcher valueForKey:@"accountGlossRequest"] != nil);
+    [fetcher cancelCandidateTranslations];
+    assert([fetcher valueForKey:@"accountGlossRequest"] == nil);
+    fetcherSession.applied = nil;
+    [fetcher accountCandidateTranslationsDidArrive:
+        [NSNotification notificationWithName:@"MSIMEBackendCandidateTranslationsDidArrive" object:nil
+            userInfo:@{@"generation":@1, @"translations":@{@"\u6d4b\u8bd5":@"ignored"}}]];
+    assert(fetcherSession.applied == nil);
 }
 
 static void TestAccountGlossSkipsNonChineseCandidates() {

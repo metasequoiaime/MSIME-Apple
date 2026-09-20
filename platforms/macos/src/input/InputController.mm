@@ -837,6 +837,11 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     [self cancelCandidateGloss];
     [self cancelCustomTranslations];
     [self cancelAITranslations];
+    // The account gloss arrived after this method did and was never added to it. Its request outlived
+    // deactivation, so a controller whose client had gone away still answered every gloss broadcast -
+    // IMKit keeps a controller per text input client, so that is a dozen of them merging results and
+    // pushing them into sessions nobody is composing in. Its siblings are all cancelled here; so is it.
+    [self cancelAccountGloss];
 }
 
 - (NSDictionary *)highlightedCandidateForGloss {
