@@ -127,14 +127,34 @@ trap - EXIT
 rm -rf "$staging"
 
 identifier="$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$destination/Contents/Info.plist")"
+
+# Every build of this bundle gets registered with LaunchServices wherever it lands, so each worktree's
+# target/ directory leaves behind another record claiming the shipping identifier. Five of them had piled
+# up on the machine this was written on, pointing at build outputs and at temporary directories that no
+# longer existed. Leave only the installed one: LaunchServices has to resolve the identifier to a single
+# bundle, and it is the installed path that should win.
+lsregister="/System/Library/Frameworks/CoreServices.framework/Frameworks/LaunchServices.framework/Support/lsregister"
+if [ -x "$lsregister" ]; then
+  "$lsregister" -dump 2>/dev/null |
+    awk -v id="$identifier" '
+      /^path:/ { path = $0; sub(/^path: */, "", path); sub(/ \(0x[0-9a-f]*\)$/, "", path) }
+      $0 ~ "^identifier: +" id "$" { if (path != "") print path }' |
+    while IFS= read -r stale; do
+      [ "$stale" = "$destination" ] && continue
+      echo "dropping a competing LaunchServices record: $stale"
+      "$lsregister" -u "$stale" >/dev/null 2>&1 || true
+    done
+fi
+
 if "$destination/Contents/MacOS/$executable" --register-input-source &&
-  "$root/platforms/macos/scripts/check_input_source.swift" "$identifier"; then
+  "$root/platforms/macos/scripts/check_input_source.swift" "$identifier" "$destination"; then
   echo "select 水杉输入法（预览） from the input menu to start typing"
   exit 0
 fi
-# The registry is scoped to the login session: this project's own uninstall text says a removed input
-# method leaves the list only after the next login, and addition behaves the same way. The registration
-# itself is recorded - TISRegisterInputSource answers noErr - so this is a report, not a failed install.
+# The registry is scoped to the login session, which is measured rather than assumed: copy the input method
+# that does work, give the copy a fresh bundle identifier, re-sign it with the same Developer ID and
+# register it, and it fails identically. The registration itself is recorded - TISRegisterInputSource
+# answers noErr - so this is a report, not a failed install. check_input_source.swift carries the rest.
 cat >&2 <<'NOTE'
 
 the input method is installed and signed, but this login session's input source list does not show it yet.

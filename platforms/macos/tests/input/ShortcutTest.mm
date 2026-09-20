@@ -108,6 +108,7 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic, copy) NSDictionary *finishTransition;
 @property(nonatomic) NSUInteger snapshotCalls;
 @property(nonatomic, copy) NSDictionary *lastSnapshot;
+@property(nonatomic) NSUInteger settledRerankCalls;
 @end
 @implementation ShortcutSession
 // The controller defers a preference snapshot to the main queue while a composition is live, so a block
@@ -118,6 +119,12 @@ static void CheckMenu(NSMenu *menu, id controller) {
     ++self.snapshotCalls;
     self.lastSnapshot = snapshot;
     return @{@"deferred":@NO, @"view":[self viewWithError:nil]};
+}
+// The settled rerank runs off a timer, so it fires inside whichever test happens to be draining the run
+// loop when the delay elapses - the same way the deferred preference snapshot above does. Answering "nothing
+// moved" keeps it from perturbing the test it lands in.
+- (NSDictionary *)rerankSettledWithError:(NSError **)error {
+    (void)error; ++self.settledRerankCalls; return @{@"moved":@NO};
 }
 - (NSDictionary *)translationQueryWithError:(NSError **)error { (void)error; return nil; }
 - (NSDictionary *)onlineQueryWithError:(NSError **)error { (void)error; return nil; }
