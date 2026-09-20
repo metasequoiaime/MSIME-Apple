@@ -83,7 +83,7 @@ for exe in /bin-win/windows-*.exe /bin-win/msime-tsf-*.exe /bin-win/msimeui-test
   cp "$exe" /run/t/ 2>/dev/null || continue
   argument=""
   [ "$name" = windows-session-smoke ] && argument="$MSIME_RESOURCES"
-  if timeout 120 wine "/run/t/$name.exe" $argument >/dev/null 2>&1; then
+  if timeout 120 xvfb-run -a wine "/run/t/$name.exe" $argument >/dev/null 2>&1; then
     echo "PASS $name"
   else
     echo "FAIL $name"
