@@ -222,6 +222,19 @@ desktop tests/candidate/external-skins.test.tsx > settings synchronize all cards
 # windows-voice-controller-listener once in another, each passing on repeat, and
 # three consecutive full runs were 78/0, 78/0 and 77/1. Recorded so a single red
 # run on one of these names is read as load rather than as a regression.
+# x86 only. The layered fallback cannot be built there: Wine's 32-bit Direct2D
+# returns DXGI_ERROR_UNSUPPORTED (0x887A0004) from CreateDCRenderTarget, with
+# either D2D1_RENDER_TARGET_TYPE_DEFAULT or _SOFTWARE, while the same call
+# succeeds in the 64-bit build of the same image. So the two surfaces that need
+# to draw fail on x86 and pass on x64.
+#
+# WIC is not the cause - a 32-bit probe creates it successfully in that image.
+# A WIC bitmap render target might work instead, but that would put the COM
+# dependency back into the path that was just freed of it, for a Wine-only
+# benefit, so it is recorded rather than done.
+wine-x86 windows-server-smoke
+wine-x86 windows-session-smoke
+
 wine windows-voice-controller-connection
 wine windows-voice-controller-listener
 wine windows-session-smoke
