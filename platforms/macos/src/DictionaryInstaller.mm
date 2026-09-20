@@ -394,8 +394,9 @@ BOOL CleanupOrphanedResetTemporaryFiles(NSFileManager *fileManager, NSURL *dataD
         // file forever — a full dictionary copy in the case of .msime.db.installing. Every caller
         // reaches this sweep before staging anything of its own.
         if (![name hasPrefix:@".msime.db.resetting."] && ![name hasPrefix:@".msime.db.sha256.resetting."] &&
-            ![name hasPrefix:@".msime.db.installing."] && ![name hasPrefix:@".helpcodes.installing."] &&
-            ![name hasPrefix:@".helpcodes.backup."] && ![name hasPrefix:@".metasequoia-learning-reset.tmp."])
+            ![name hasPrefix:@".msime.db.installing."] && ![name hasPrefix:@".context-table.installing."] &&
+            ![name hasPrefix:@".helpcodes.installing."] && ![name hasPrefix:@".helpcodes.backup."] &&
+            ![name hasPrefix:@".metasequoia-learning-reset.tmp."])
         {
             continue;
         }
@@ -1008,6 +1009,50 @@ BOOL EnsureMetasequoiaDictionary(NSError **error)
                 [fileManager removeItemAtURL:temporary error:nil];
                 return FailWithErrno(error, publicationError);
             }
+        }
+    }
+    // The lattice's context tables. A cloud snapshot generation gets these staged by the engine, which copies them out
+    // of the bundle as part of preparing the generation; the local-only path never builds a generation and runs on
+    // RuntimePaths::legacy(), where the decoder looks for them in this directory and nothing else would put them here.
+    // Both are optional, so a bundle carrying neither is not an error.
+    for (NSString *table in @[ @"bigram.bin", @"trigram.bin" ])
+    {
+        NSURL *tableSource = [NSBundle.mainBundle.resourceURL URLByAppendingPathComponent:table];
+        if (![fileManager fileExistsAtPath:tableSource.path])
+        {
+            continue;
+        }
+        NSString *tableDigest = [[NSString
+            stringWithContentsOfURL:[NSBundle.mainBundle.resourceURL
+                                        URLByAppendingPathComponent:[table stringByAppendingString:@".sha256"]]
+                           encoding:NSUTF8StringEncoding
+                              error:nil]
+            stringByTrimmingCharactersInSet:NSCharacterSet.whitespaceAndNewlineCharacterSet];
+        NSURL *tableDestination = [dataDirectory URLByAppendingPathComponent:table];
+        if (DictionaryMatchesFingerprint(tableDestination, tableDigest))
+        {
+            continue;
+        }
+        NSURL *temporary = [dataDirectory
+            URLByAppendingPathComponent:[@".context-table.installing." stringByAppendingString:NSUUID.UUID.UUIDString]];
+        if (![fileManager copyItemAtURL:tableSource toURL:temporary error:error])
+        {
+            return NO;
+        }
+        if (!DictionaryMatchesFingerprint(temporary, tableDigest))
+        {
+            [fileManager removeItemAtURL:temporary error:nil];
+            return Fail(error, 13, @"上下文表摘要校验失败。");
+        }
+        // A running session may already have the previous table mapped, and the engine maps rather
+        // than reads it. Publish the complete replacement through a rename: a half-written table
+        // under an mmap is a crash, not a miss.
+        const int published = rename(temporary.fileSystemRepresentation, tableDestination.fileSystemRepresentation);
+        const int publicationError = errno;
+        if (published != 0)
+        {
+            [fileManager removeItemAtURL:temporary error:nil];
+            return FailWithErrno(error, publicationError);
         }
     }
     return YES;

@@ -10,6 +10,8 @@
       "SHA256SUMS.txt": "d9398ed7d7acf5acd01c76709b85e1100b413690747e72bd90e085543426ea9a",
       "dict_japanese.dat": "8baafcfc3881d0280cdda8bda7cf3968d8f8fbc94243fea94847cff2b6e2cd66",
       "mozc_dictionary_oss_README.txt": "6b1de66bc6fa30e0b45dc45b8c8f6c57bd78aff923c261a3efffac8eb86f7bac",
+      "bigram.bin": "fe37a578b8d89dc69288799af2f5792085e4314e4fa1eef387da0f510c59869f",
+      "trigram.bin": "97aa75f9bcd6464eaffa258ddac56bd3030ef9e52da6b2242c161eb8ee90fde1",
       "dictionary-manifest.json": "825f923fde93d84a213de0230820d3acee4840638edcd0091f1095e47f0a50ab"
     }
   }

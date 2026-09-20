@@ -325,6 +325,18 @@ if(METASEQUOIA_IME_BUILD_INPUT_METHOD)
         set_source_files_properties("${dictionary_directory}/mozc_dictionary_oss_README.txt"
             PROPERTIES MACOSX_PACKAGE_LOCATION Resources/Licenses)
     endif()
+    # The lattice's context tables. Optional by contract: a resource set carrying neither leaves the decoder scoring exactly as it did, so a locked product without them is not an error here. Each ships with the digest DictionaryInstaller checks before it publishes the file into the data directory.
+    foreach(context_table IN ITEMS bigram.bin trigram.bin)
+        if(EXISTS "${dictionary_directory}/${context_table}")
+            file(SHA256 "${dictionary_directory}/${context_table}" context_table_digest)
+            file(WRITE "${CMAKE_CURRENT_BINARY_DIR}/dictionary-digests/${context_table}.sha256"
+                "${context_table_digest}\n")
+            set(context_table_resources "${dictionary_directory}/${context_table}"
+                "${CMAKE_CURRENT_BINARY_DIR}/dictionary-digests/${context_table}.sha256")
+            target_sources(MetasequoiaIME PRIVATE ${context_table_resources})
+            set_source_files_properties(${context_table_resources} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
+        endif()
+    endforeach()
     set_source_files_properties(${METASEQUOIA_IME_SNAPSHOT_RESOURCES} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
     set_source_files_properties(${METASEQUOIA_IME_DICTIONARY} ${METASEQUOIA_IME_CUSTOM_TRANSLATIONS} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)
     set_source_files_properties(${METASEQUOIA_IME_ICONS} PROPERTIES MACOSX_PACKAGE_LOCATION Resources)

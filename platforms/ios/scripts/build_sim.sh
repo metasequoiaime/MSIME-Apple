@@ -40,6 +40,10 @@ raise SystemExit("No iPhone Simulator available")
 ')
 fi
 
+# xcodegen 是先写到临时目录再搬过来的,而它不建目标的父目录。新检出的仓库里 build/ios-sim 还不存在,于是报
+# 的是 `The file "XcodeGen" doesn't exist.` 加一条 /var/folders 下的路径 —— 既没说缺哪个目录,也看不出那是
+# xcodegen 自己的中转目录,只会让人去查 xcodegen 装坏没有。
+mkdir -p build/ios-sim
 xcodegen generate --spec platforms/ios/project.yml --project build/ios-sim --project-root .
 
 # 默认只编译。给参数就原样传给 xcodebuild,所以跑测试是

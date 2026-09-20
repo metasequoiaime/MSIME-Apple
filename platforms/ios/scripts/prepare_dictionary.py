@@ -20,7 +20,10 @@ import product_lock_shared
 FULL_DICTIONARY = REPOSITORY_ROOT / "vendor/MetasequoiaImeDict/out/msime.db"
 IOS_DICTIONARY = REPOSITORY_ROOT / "platforms/ios/KeyboardExtension/Resources/msime.db"
 DATABASES = ("msime.db", "english.db", "others.db")
-ASSETS = (*DATABASES, "dict_japanese.dat", "mozc_dictionary_oss_README.txt")
+# The lattice reads its context tables straight out of the dictionary generation, which the engine
+# stages from this resource directory. Staging them here is the whole of what the keyboard needs.
+CONTEXT_TABLES = ("bigram.bin", "trigram.bin")
+ASSETS = (*DATABASES, "dict_japanese.dat", "mozc_dictionary_oss_README.txt", *CONTEXT_TABLES)
 
 def main():
     lock = product_lock.load()

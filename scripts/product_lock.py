@@ -47,7 +47,9 @@ ENGINE_LOCK = "engine-lock.json"
 DATABASES = ("msime.db", "english.db")
 LEGACY_ASSETS = (*DATABASES, "SHA256SUMS.txt")
 JAPANESE_ASSETS = ("dict_japanese.dat", "mozc_dictionary_oss_README.txt")
-ASSETS = (*LEGACY_ASSETS, *JAPANESE_ASSETS)
+# The lattice's word-sequence tables. They are built from one dictionary generation's vocabulary, so they are locked with the generation that produced them rather than carried across releases. The decoder treats a missing table as no bonus at all, which is why they are shipped and verified here but never required at runtime.
+CONTEXT_TABLES = ("bigram.bin", "trigram.bin")
+ASSETS = (*LEGACY_ASSETS, *JAPANESE_ASSETS, *CONTEXT_TABLES)
 
 SHA = re.compile(r"[0-9a-f]{40}\Z")
 DIGEST = re.compile(r"[0-9a-f]{64}\Z")
@@ -94,7 +96,8 @@ def verify_assets(directory: Path, data: dict) -> None:
     shared.verify_digests(directory, data["dictionary"]["assets"])
 
     if PRODUCT_MANIFEST in data["dictionary"]["assets"]:
-        shared.verify_manifest_provenance(directory, PRODUCT_MANIFEST, _product.verify_product, (*DATABASES, *JAPANESE_ASSETS),
+        shared.verify_manifest_provenance(directory, PRODUCT_MANIFEST, _product.verify_product,
+                                          (*DATABASES, *JAPANESE_ASSETS, *CONTEXT_TABLES),
                                           data["dictionary"]["repository"], data["dictionary"]["source_commit"])
 
 
