@@ -23,6 +23,8 @@
 #include "../src/candidates/ShuangpinProfileNames.h"
 #include "../src/candidates/CandidateTranslationPolicy.h"
 #include "../src/core/SmartPunctuationSpace.h"
+#include "../src/system/DiagnosticLog.h"
+#include "../src/core/HelpcodeDefaults.h"
 #include "../src/system/TypingStatistics.h"
 #include <nlohmann/json.hpp>
 #include <algorithm>
@@ -257,6 +259,7 @@ public:
   }
   ~FcitxState() override { close(); }
   void close() {
+    if (session_) msime_linux_diagnostic_write("focus_out");
     if (session_) msime_client_string_free(msime_client_destroy(session_));
     session_ = 0;
     view_ = Json::object();
@@ -381,6 +384,12 @@ public:
     const auto next = schemes[(current + 1) % schemes.size()];
     if (!view_.value("editing_text", std::string{}).empty())
       command(MSIME_FINISH_COMPOSITION);
+    // The shared settings page and the IBus host both offer "中文" as a way back
+    // to the scheme the user last typed Chinese with. Nothing records it here,
+    // so switching to Japanese from the status area left that choice with
+    // nothing but the quanpin fallback to return to.
+    if (std::string(next) != "japanese")
+      saveStringPreference("last_chinese_scheme", next);
     saveStringPreference("scheme", next);
     waitForPreferenceSave();
     scheme_override_ = next;
@@ -670,7 +679,12 @@ public:
   }
   void waitForPreferenceSave() {
     if (!preferences_save_job_.valid()) return;
-    try { preferences_save_job_.get(); } catch (...) {}
+    bool saved = false;
+    try {
+      const auto result = preferences_save_job_.get();
+      saved = result.is_object() && !result.empty();
+    } catch (...) {}
+    msime_linux_diagnostic_write(saved ? "menu_save_succeeded" : "menu_save_failed");
     preferences_save_job_ = {};
   }
   void saveBooleanPreference(const char *key, bool enabled) {
@@ -1058,11 +1072,19 @@ public:
     }
     if (skin_override_) preferences["candidate_skin"] = *skin_override_;
   }
-  Json effectiveContextSnapshot(Json snapshot) const {
+  // Every caller hands the result to the session. Store revisions belong to the
+  // store: the same revision can carry two different documents once this host
+  // edits one for a menu toggle, and the runtime rejects that as a conflicting
+  // revision. The throw then reaches the action's catch, which closes the
+  // session - so toggling learning, translations or AI from the status area
+  // dropped the input method instead of changing a setting. Give the session
+  // its own increasing revision, the way the IBus host does.
+  Json effectiveContextSnapshot(Json snapshot) {
     if (snapshot.is_object() && snapshot.contains("preferences")) {
       auto preferences = snapshot.at("preferences");
       applyContextOverrides(preferences);
       snapshot["preferences"] = std::move(preferences);
+      snapshot["revision"] = ++applied_preferences_revision_;
     }
     return snapshot;
   }
@@ -1070,6 +1092,28 @@ public:
   // preferences it is handed, so a preference that moved the effective value
   // has to be re-stated or the session keeps converting with whatever the last
   // toggle left behind.
+  // The settings page carries a diagnostic_log switch that this host did not
+  // read, so turning it on logged the IBus session and nothing here. The sink
+  // takes event labels only - never keys, text, candidates, paths or provider
+  // replies - and stays closed unless the preference asks for it.
+  void configureDiagnostics() const {
+    const auto diagnostic = preferences_.value("diagnostic_log", Json::object());
+    msime_linux_diagnostic_configure(
+        options_path_, diagnostic.is_object() && diagnostic.value("server", false));
+  }
+  // "在候选窗中显示辅助码" and the wubi code hint both decide whether the
+  // annotation belongs on the candidate row. This host appended it
+  // unconditionally, so turning either off changed nothing here.
+  bool showCandidateAnnotations() const {
+    const auto scheme = view_.value("scheme", 0u);
+    if (scheme == 2) return preferences_.value("wubi_code_hint", true);
+    if (scheme != 0 && scheme != 1) return true;
+    const std::string section = scheme == 1 ? "shuangpin_helpcode" : "quanpin_helpcode";
+    return preferences_.value(section, Json::object())
+        .value("show_in_candidate_window",
+               msime::linux_host::default_show_helpcode(
+                   scheme == 1 ? "shuangpin" : "quanpin"));
+  }
   void syncSessionChinesePunctuation() {
     if (!session_ || session_chinese_punctuation_ == chinese_punctuation_) return;
     view_ = response(msime_client_set_chinese_punctuation(session_, chinese_punctuation_));
@@ -1083,9 +1127,11 @@ public:
         session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
     preferences_ = snapshot.at("preferences");
     applyContextOverrides(preferences_);
+    configureDiagnostics();
     chinese_punctuation_ = preferences_.value("chinese_punctuation", chinese_punctuation_);
     syncSessionChinesePunctuation();
     preferences_snapshot_ = std::move(snapshot);
+    msime_linux_diagnostic_write("preferences_applied");
     return true;
   }
   bool ensure() {
@@ -1094,9 +1140,14 @@ public:
     if (session_) return true;
     auto options = readOptions();
     candidate_skin_catalog_ = parseCandidateSkinCatalog(options);
+    // The skin catalogue is for this host's own menu; the Host API rejects an
+    // options document carrying a field it does not know, so leaving it in
+    // means no session can ever open on a deployment that installed skins.
+    options.erase("candidate_skin_catalog");
     private_ = privateInput();
     preferences_ = options.value("preferences", Json::object());
     applyContextOverrides(preferences_);
+    configureDiagnostics();
     traditional_ = preferences_.value("traditional_chinese_output", false);
     chinese_punctuation_ = preferences_.value("chinese_punctuation", true);
     paired_punctuation_ = preferences_.value("paired_punctuation", true);
@@ -1191,6 +1242,8 @@ public:
     const auto document = options.dump();
     view_ = response(msime_client_create(reinterpret_cast<const uint8_t *>(document.data()), document.size()));
     session_ = view_.at("session").get<uint64_t>();
+    applied_preferences_revision_ = 0;
+    msime_linux_diagnostic_write("focus_in");
     session_chinese_punctuation_ =
         options.at("preferences").value("chinese_punctuation", true);
     syncSessionChinesePunctuation();
@@ -1216,10 +1269,11 @@ public:
             snapshot["preferences"]["ai_assistant"]["enabled"] = false;
           }
           if (snapshot != preferences_snapshot_) {
-            auto effective = snapshot;
-            auto effectivePreferences = snapshot.at("preferences");
-            applyContextOverrides(effectivePreferences);
-            effective["preferences"] = effectivePreferences;
+            // Same document the menu toggles send, so it carries the session's
+            // own revision too; mixing store revisions with those would make
+            // the next toggle look stale.
+            auto effective = effectiveContextSnapshot(snapshot);
+            auto effectivePreferences = effective.at("preferences");
             const auto encoded = effective.dump();
             view_ = response(msime_client_update_preferences(session_,
                 reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
@@ -2172,6 +2226,8 @@ public:
   bool chinese_punctuation_ = true;
   // What the session was last told; see syncSessionChinesePunctuation().
   bool session_chinese_punctuation_ = true;
+  // Monotonic per session; see effectiveContextSnapshot().
+  uint64_t applied_preferences_revision_ = 0;
   bool paired_punctuation_ = true;
   bool smart_punctuation_ = true;
   bool smart_punctuation_repeat_ = true;
@@ -2282,12 +2338,13 @@ public:
 
 class FcitxCandidate : public fcitx::CandidateWord {
 public:
-  FcitxCandidate(fcitx::FactoryFor<FcitxState> *factory, const Json &candidate, bool traditional)
+  FcitxCandidate(fcitx::FactoryFor<FcitxState> *factory, const Json &candidate, bool traditional,
+                 bool annotations)
       : CandidateWord(fcitx::Text((traditional ? msime_linux_simplified_to_traditional(candidate.at("text").get<std::string>())
                                                : candidate.at("text").get<std::string>()) +
           (candidate.value("source", 0u) == 2 ? "  ☁️" :
            candidate.value("source", 0u) == 3 ? "  🤖" : "") +
-          (candidate.value("annotation", std::string()).empty() ? "" :
+          (!annotations || candidate.value("annotation", std::string()).empty() ? "" :
            "  " + candidate.at("annotation").get<std::string>()) +
           (candidate.contains("translation") && candidate.at("translation").is_string()
               ? "  " + candidate.at("translation").get<std::string>() : ""))), factory_(factory),
@@ -2326,13 +2383,15 @@ public:
       page_(state.view_.at("page")), pages_(state.view_.at("page_count")),
       layout_(state.preferences_.value("candidate_layout", std::string("vertical")) == "horizontal"
           ? fcitx::CandidateLayoutHint::Horizontal : fcitx::CandidateLayoutHint::Vertical) {
+    const bool annotations = state.showCandidateAnnotations();
     setPageable(this);
 #ifdef MSIME_FCITX_ACTIONS
     setActionable(this);
 #endif
     for (const auto &candidate : state.view_.at("candidates")) {
       if (candidate.value("highlighted", false)) cursor_ = words_.size();
-      words_.push_back(std::make_unique<FcitxCandidate>(factory, candidate, state.traditional_));
+      words_.push_back(std::make_unique<FcitxCandidate>(
+          factory, candidate, state.traditional_, annotations));
       labels_.emplace_back(std::to_string(words_.size()) + ". ");
     }
   }
@@ -4020,6 +4079,9 @@ public:
     catch (...) { unavailable(*state); }
   }
   static void unavailable(FcitxState &state) {
+    // The label names the host operation only; the error itself can carry input
+    // or paths and is never written.
+    msime_linux_diagnostic_write("operation_failed operation=fcitx_event");
     state.close(); state.clearPanel();
     state.ic_.inputPanel().setAuxUp(fcitx::Text("MSIME：请检查运行配置"));
     state.ic_.updateUserInterface(fcitx::UserInterfaceComponent::InputPanel);

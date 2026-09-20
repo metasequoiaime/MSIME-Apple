@@ -171,7 +171,21 @@ int main(int argc, char **argv) {
     fcitx::InputContextEvent focus(&ic, fcitx::EventType::InputContextFocusIn);
     engine.activate(entry, focus);
     auto *state = ic.propertyFor(&engine.factory_);
-    require(state->session_ != 0 && state->view_.contains("candidates"), "focus must unpack transition view");
+    if (state->session_ == 0) {
+      // ensure() funnels every failure into unavailable(), which swallows the
+      // reason. Ask it again here so the message names what went wrong instead
+      // of leaving the whole fixture unexplained.
+      std::string reason = "ensure() returned without a session";
+      try {
+        if (state->ensure()) reason = "session opened only on the second attempt";
+      } catch (const std::exception &error) {
+        reason = error.what();
+      } catch (...) {
+        reason = "non-standard exception";
+      }
+      require(state->session_ != 0, ("focus must unpack transition view: " + reason).c_str());
+    }
+    require(state->view_.contains("candidates"), "focus must unpack transition view");
     auto changedPreferences = options["preferences"];
     changedPreferences["number_row_selection"] = false;
     changedPreferences["candidate_layout"] = "horizontal";
@@ -199,13 +213,23 @@ int main(int argc, char **argv) {
     }
     require(!state->preferences_.value("number_row_selection", true),
             "runtime preferences reload in active Fcitx session");
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 39,
-            "native status actions attached");
+    // One per addAction() in activate(), plus the toolbar entry the host adds
+    // once it has a session. Adding or removing a status action changes this on
+    // purpose; the count is here so one going missing is noticed.
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 57,
+            ("native status actions attached: " +
+             std::to_string(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size()))
+                .c_str());
     require(engine.learning_action_.isChecked(&ic),
             "learning status action reflects reloaded preference");
     engine.learning_action_.activate(&ic);
+    // A toggle that throws is swallowed by the action's catch, which closes the
+    // session: report that rather than only the setting that did not move.
     require(!state->preferences_.value("learning", true),
-            "learning status action disables user learning");
+            ("learning status action disables user learning: session=" +
+             std::to_string(state->session_) + " learning=" +
+             std::to_string(state->preferences_.value("learning", true)))
+                .c_str());
     engine.learning_action_.activate(&ic);
     require(state->preferences_.value("learning", false),
             "learning status action restores user learning");
@@ -258,8 +282,10 @@ int main(int argc, char **argv) {
       require(!engine.cloud_candidates_action_.isChecked(&ic),
               "cloud candidates status action reflects disabled preference");
     }
-    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 39,
-            "AI status action attached");
+    require(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size() == 57,
+            ("AI status action attached: " +
+             std::to_string(ic.statusArea().actions(fcitx::StatusGroup::InputMethod).size()))
+                .c_str());
     require(engine.emoji_category_action_.shortText(&ic) == "表情：Emoji",
             "emoji category starts in the default catalog");
     engine.emoji_category_action_.activate(&ic);
@@ -807,6 +833,47 @@ int main(int argc, char **argv) {
     require(ic.committed == beforeTranslatedCommit + translatedText, "gloss excluded from committed text");
     state->close();
     state->clearPanel();
+    // The helpcode annotation on a candidate row follows the scheme's
+    // show_in_candidate_window preference, the way the IBus host renders it.
+    // This host used to append it whatever the setting said.
+    {
+      require(state->ensure(), "session for the annotation check");
+      auto withHelpcode = options;
+      withHelpcode["preferences"]["quanpin_helpcode"]["enabled"] = true;
+      withHelpcode["preferences"]["quanpin_helpcode"]["show_in_candidate_window"] = true;
+      state->preferences_ = withHelpcode.at("preferences");
+      require(state->showCandidateAnnotations(),
+              "quanpin annotation shown when the preference asks for it");
+      state->preferences_["quanpin_helpcode"]["show_in_candidate_window"] = false;
+      require(!state->showCandidateAnnotations(),
+              "quanpin annotation hidden when the preference turns it off");
+      state->close();
+      state->clearPanel();
+    }
+    // Cycling through the schemes has to leave a way back to Chinese: the
+    // shared settings page and the IBus host both offer "中文", and it returns
+    // to last_chinese_scheme. Leaving for Japanese must not overwrite it.
+    {
+      const auto savedScheme = [&](const char *key) {
+        const auto snapshot = response(msime_client_load_preferences(
+            reinterpret_cast<const uint8_t *>(preferenceDirectory.data()),
+            preferenceDirectory.size()));
+        return snapshot.at("preferences").value(key, std::string("quanpin"));
+      };
+      require(state->ensure(), "session for the scheme cycle");
+      while (state->view_.value("scheme", 0u) != 0) require(state->cycleScheme(), "reach quanpin");
+      require(state->cycleScheme() && savedScheme("scheme") == "shuangpin" &&
+                  savedScheme("last_chinese_scheme") == "shuangpin",
+              "shuangpin recorded as the last Chinese scheme");
+      require(state->cycleScheme() && savedScheme("scheme") == "wubi" &&
+                  savedScheme("last_chinese_scheme") == "wubi",
+              "wubi recorded as the last Chinese scheme");
+      require(state->cycleScheme() && savedScheme("scheme") == "japanese" &&
+                  savedScheme("last_chinese_scheme") == "wubi",
+              "Japanese leaves the last Chinese scheme alone");
+      state->close();
+      state->clearPanel();
+    }
     options["preferences"]["scheme"] = "japanese";
     std::ofstream(path) << options.dump();
     require(key(FcitxKey_k) && key(FcitxKey_o), "Japanese romaji composition");
