@@ -2,7 +2,9 @@
 import { afterEach, expect, test } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import { SkinToolbarPreview } from "../../../../packages/ui/src/skin/skin-toolbar-preview";
-import css from "../../../../packages/ui/src/skin/skin-toolbar-preview.css?raw";
+import { utilityCss } from "../support/utility-css";
+
+const css = utilityCss("skin-card-preview");
 import type { FloatingToolbarPreferences } from "@msime/ui";
 
 afterEach(cleanup);

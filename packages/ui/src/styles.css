@@ -17,10 +17,6 @@
 @custom-variant light-theme (html[data-theme="light"] &);
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities);
-@import "./skin/skin-candidate-preview.css";
-@import "./skin/skin-candidate-decorations.css";
-@import "./skin/skin-toolbar-preview.css";
-@import "./skin/external-skin-geometry.css";
 
 /* The class scan cannot be inferred from this file's location alone: the app entry points and their
  * fixtures live in a different workspace package from the components.
@@ -331,6 +327,605 @@
     font-size: var(--appearance-preedit-font-size, 16px);
   }
 }
+/*
+ * The skin preview card.
+ *
+ * A utility rather than a plain class because this name is the hook three stylesheets were written
+ * against, and their rules reach into the vendored candidate and toolbar markup: `.cand`, `.num`,
+ * `.pinyin`, `.wnd-h` and `.ftb-*` are names the upstream skins own, not ones this repo writes. They
+ * stay descendant selectors for that reason, nested here rather than living in separate files.
+ *
+ * The per-skin blocks pair with the `skin-<id>` class the same element carries.
+ */
+/*
+ * An external skin's decoration geometry.
+ *
+ * Source: Windows 04a8df56 skin.ts candidatePreviewCss / skin.css, GPL-3.0. Reserve the upstream
+ * geometry; the sibling image element receives bytes from the bounded host image reader, never a
+ * manifest-supplied URL.
+ *
+ * The stage is matched by `[data-skin-stage]` rather than by a class. It had been `.skin-preview-stage`,
+ * and that class stopped being rendered when the stage moved to utilities -- the same way this file's
+ * `.skin-card-preview` did -- so the selector had nothing to match. The data attribute is what the
+ * markup actually carries.
+ */
+@utility external-skin-decorated {
+  &.skin-card,
+  & .skin-card-preview,
+  & [data-skin-stage] {
+    overflow: visible;
+  }
+
+  & .candidate .containerParent {
+    position: relative;
+    box-sizing: border-box;
+    padding-top: var(--msime-skin-decoration-top, 0px);
+  }
+
+  & .candidate .containerParent:not(:empty)::before {
+    content: "";
+    position: absolute;
+    z-index: 0;
+    top: 0;
+    right: 0;
+    width: var(--msime-skin-decoration-width, 0px);
+    height: 118px;
+    background: none center / contain no-repeat;
+    pointer-events: none;
+  }
+
+  & .candidate .container {
+    position: relative;
+    z-index: 1;
+    min-width: max(7em, var(--msime-skin-min-width, 0px));
+  }
+
+  & .skin-decoration-image {
+    position: absolute;
+    z-index: 0;
+    top: 0;
+    right: 0;
+    width: var(--msime-skin-decoration-width, 0px);
+    height: 118px;
+    object-fit: contain;
+    pointer-events: none;
+  }
+}
+
+@utility skin-card-preview {
+  /* ---- The candidate window inside the card. ---- */
+  /* MSIME-Windows 04a8df56 candidate preview styles, GPL-3.0; scoped to skin cards. */
+  /* Keep the row for upstream adjacent-sibling decoration selectors. */
+  & .container.preedit-hidden > .pinyin {
+    display: none;
+  }
+  & .wnd-h {
+    /* Preview card is narrower than a real candwnd host; constrain to parent. */
+    max-width: 100%;
+    width: 100%;
+    min-width: 0;
+    box-sizing: border-box;
+
+    .container {
+      margin-top: 0px;
+      margin-left: 0px;
+      background: var(--cand-bg);
+      padding: 2px 1px;
+      border-radius: 6px;
+      box-shadow: var(--cand-shadow);
+      min-width: 7em;
+      /* Allow wrapping so the sample row is not clipped in settings preview.
+         Live candwnd keeps nowrap separately. */
+      width: fit-content;
+      max-width: 100%;
+      box-sizing: border-box;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      user-select: none;
+      border: 1.5px solid var(--cand-border);
+    }
+
+    .cursor {
+      display: inline-block;
+      margin-left: 1px;
+      width: 1.5px;
+      height: 1.2em;
+      background: var(--accent-strong);
+      transform: translateY(10%);
+    }
+
+    .row {
+      justify-content: space-between;
+      padding-top: 0;
+      padding-bottom: 0;
+      margin-top: 2px;
+      margin-bottom: 1px;
+    }
+
+    .cand {
+      border-radius: 4px;
+      padding: 2px 4px 2px 0;
+    }
+
+    .cand:hover {
+      background-color: var(--cand-hover);
+    }
+
+    .row-wrapper {
+      position: relative;
+      display: inline-block;
+      vertical-align: top;
+      max-width: 100%;
+      min-width: 0;
+      box-sizing: border-box;
+      white-space: normal;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .first-row-wrapper {
+      margin-left: 0;
+    }
+
+    .first {
+      position: relative;
+      background-color: var(--cand-selected);
+      border-radius: 4px;
+    }
+
+    /* bar */
+    .first::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 53%;
+      transform: translateY(-50%);
+      height: 0.8em;
+      width: 0.2em;
+      background: var(--accent-strong);
+      border-radius: 8px;
+    }
+
+    .text {
+      padding-left: calc(0.2em + 3px);
+      padding-right: 5px;
+      color: var(--cand-text);
+      display: block;
+      min-width: 0;
+      max-width: 100%;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .cand .text {
+      padding-left: calc(0.2em + 3px);
+      padding-right: 4px;
+      line-height: 1.25;
+    }
+
+    .num {
+      font-size: 0.8em;
+      color: var(--cand-num);
+      margin-right: 0;
+    }
+
+    .pinyin {
+      font-size: 14px;
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 0;
+    }
+
+    .hidden-pinyin {
+      visibility: hidden;
+    }
+  }
+  & .wnd-v {
+    .container {
+      margin-top: 0px;
+      margin-left: 0px;
+      background: var(--cand-bg);
+      padding: 2px;
+      border-radius: 6px;
+      box-shadow: var(--cand-shadow);
+      min-width: 7em;
+      width: min(720px, fit-content);
+      max-width: 720px;
+      box-sizing: border-box;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+      user-select: none;
+      border: 1.5px solid var(--cand-border);
+    }
+
+    .cursor {
+      display: inline-block;
+      margin-left: 1px;
+      width: 1.5px;
+      height: 1.2em;
+      background: var(--accent-strong);
+      transform: translateY(10%);
+    }
+
+    .row {
+      justify-content: space-between;
+      padding: 2px;
+      padding-right: 12px;
+      padding-top: 0;
+      padding-bottom: 0;
+      margin-top: 2px;
+    }
+
+    .cand {
+      border-radius: 4px;
+      padding-top: 1px;
+      padding-bottom: 1px;
+    }
+
+    .cand:hover {
+      background-color: var(--cand-hover);
+    }
+
+    .row-wrapper {
+      position: relative;
+    }
+
+    .first {
+      background-color: var(--cand-selected);
+      border-radius: 4px;
+    }
+
+    /* bar */
+    .first::before {
+      content: "";
+      position: absolute;
+      left: 0;
+      top: 50%;
+      transform: translateY(-50%);
+      height: 0.8em;
+      width: 0.2em;
+      background: var(--accent-strong);
+      border-radius: 8px;
+    }
+
+    .text {
+      padding-left: calc(0.2em + 3px);
+      color: var(--cand-text);
+      display: block;
+      min-width: 0;
+      max-width: 100%;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+
+    .cand .text {
+      line-height: 1.35;
+    }
+
+    .cand-no {
+      font-size: 0.8em;
+      color: var(--cand-num);
+      margin-right: 1.5px;
+    }
+
+    .pinyin {
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      justify-content: space-between;
+    }
+
+    .hidden-pinyin {
+      visibility: hidden;
+    }
+  }
+
+  /* ---- Per-skin decorations, paired with the skin-<id> class the card also carries. ---- */
+  /* MSIME-Windows 04a8df56 skin.css candidate decorations, GPL-3.0.
+     Selectors adapted to the shared card's skin and appearance attributes. */
+  &.skin-wechat .candidate .container {
+    padding: 2px;
+    border-radius: 5px;
+  }
+  &.skin-wechat .candidate .cand {
+    border-radius: 4px;
+  }
+  &.skin-wechat .candidate.wnd-v .cand {
+    padding-top: 1px;
+    padding-bottom: 1px;
+  }
+  &.skin-wechat .candidate .first {
+    border-radius: 5px;
+  }
+  &.skin-wechat .candidate .first::before {
+    display: none;
+  }
+  &.skin-wechat .candidate .cand.first:hover {
+    background-color: var(--cand-selected);
+  }
+  &.skin-wechat .candidate .first .text,
+  &.skin-wechat .candidate .first .num,
+  &.skin-wechat .candidate .first .cand-no {
+    color: #fff;
+  }
+  &.skin-graphite .candidate .container {
+    padding: 3px 5px;
+    border-radius: 3px;
+  }
+  &.skin-graphite .candidate .cand,
+  &.skin-graphite .candidate .first {
+    border-radius: 2px;
+  }
+  &.skin-graphite .candidate .first::before {
+    display: none;
+  }
+  &.skin-graphite[data-preview-theme="dark"] .candidate .first .text,
+  &.skin-graphite[data-preview-theme="dark"] .candidate .first .num,
+  &.skin-graphite[data-preview-theme="dark"] .candidate .first .cand-no {
+    color: #f1f3f5;
+  }
+  &.skin-graphite[data-preview-theme="light"] .candidate .first .text,
+  &.skin-graphite[data-preview-theme="light"] .candidate .first .num,
+  &.skin-graphite[data-preview-theme="light"] .candidate .first .cand-no {
+    color: #111827;
+  }
+  &.skin-willow_green .candidate .container {
+    --wg-surface: #2d2f2e;
+    --wg-hilite: #65c98d;
+    --wg-radius: 9px;
+    padding: 0;
+    border: none;
+    border-radius: 9px;
+    overflow: hidden;
+    isolation: isolate;
+    background-color: var(--wg-surface);
+    background-repeat: no-repeat;
+  }
+  &.skin-willow_green[data-preview-theme="light"] .candidate .container {
+    --wg-surface: #f4f5f3;
+    --wg-hilite: #58b980;
+  }
+  &.skin-willow_green
+    .candidate.wnd-v
+    .container.preedit-hidden:has(> .pinyin + .row-wrapper > .first) {
+    background-image: linear-gradient(var(--wg-hilite), var(--wg-hilite));
+    background-position: top;
+    background-size: 100% var(--wg-radius);
+  }
+  &.skin-willow_green .candidate.wnd-v .container.preedit-hidden > .pinyin + .row-wrapper > .cand {
+    padding-top: 7px;
+  }
+  &.skin-willow_green .candidate.wnd-v .container:has(> .row-wrapper:last-child > .first) {
+    background-image: linear-gradient(var(--wg-hilite), var(--wg-hilite));
+    background-position: bottom;
+    background-size: 100% var(--wg-radius);
+  }
+  &.skin-willow_green
+    .candidate.wnd-h
+    .container.preedit-hidden:has(> .pinyin + .row-wrapper > .first) {
+    background-image: linear-gradient(to right, var(--wg-hilite), var(--wg-hilite));
+    background-position: left;
+    background-size: var(--wg-radius) 100%;
+  }
+  &.skin-willow_green .candidate.wnd-h .container:has(> .row-wrapper:last-child > .first) {
+    background-image: linear-gradient(to left, var(--wg-hilite), var(--wg-hilite));
+    background-position: right;
+    background-size: var(--wg-radius) 100%;
+  }
+  &.skin-willow_green
+    .candidate
+    .container.preedit-hidden:has(> .pinyin + .row-wrapper > .first):has(
+      > .row-wrapper:last-child > .first
+    ) {
+    background-color: var(--wg-hilite);
+    background-image: none;
+  }
+  &.skin-willow_green .candidate .cand,
+  &.skin-willow_green .candidate .first {
+    border-radius: 0;
+    background-clip: padding-box;
+  }
+  &.skin-willow_green .candidate .first::before {
+    display: none;
+  }
+  &.skin-willow_green .candidate .cand.first:hover {
+    background-color: var(--wg-hilite);
+  }
+  &.skin-willow_green .candidate .first .text,
+  &.skin-willow_green .candidate .first .num,
+  &.skin-willow_green .candidate .first .cand-no {
+    color: #fff;
+  }
+  &.skin-willow_green .candidate.wnd-v .row.pinyin {
+    margin-top: 0;
+    padding: 6px 12px 4px 8px;
+  }
+  &.skin-willow_green .candidate.wnd-v .row.cand {
+    margin-top: 0;
+    padding: 4px 14px 4px 8px;
+  }
+  &.skin-willow_green .candidate.wnd-h {
+    width: fit-content;
+    max-width: 100%;
+  }
+  &.skin-willow_green .candidate.wnd-h .container {
+    width: max-content;
+    max-width: 100%;
+    letter-spacing: -0.31em;
+  }
+  &.skin-willow_green .candidate.wnd-h .row.pinyin {
+    letter-spacing: normal;
+    margin-top: 0;
+    margin-bottom: 0;
+    padding: 6px 10px 3px 8px;
+  }
+  &.skin-willow_green .candidate.wnd-h .row.cand {
+    margin-top: 0;
+    margin-bottom: 0;
+    padding: 6px 8px;
+  }
+  &.skin-willow_green .candidate.wnd-h .row-wrapper {
+    display: inline-block;
+    letter-spacing: normal;
+    margin: 0;
+    vertical-align: top;
+  }
+  &.skin-willow_green .candidate.wnd-h .first-row-wrapper {
+    margin-left: 0;
+  }
+
+  /* ---- The floating-toolbar preview that shares the same card. ---- */
+  /* MSIME-Windows 04a8df56 settings toolbar preview rules, GPL-3.0. */
+  & .ftb-preview-host {
+    display: flex;
+    justify-content: center;
+    padding: 14px 0 22px;
+    pointer-events: none;
+    --ftb-scale: 1;
+    --ftb-bar-height: 35px;
+    --ftb-icon-size: 24px;
+    --ftb-gap: 6px;
+    --ftb-pad-left: 8px;
+    --ftb-pad-right: 4px;
+    --ftb-radius: 8px;
+    --ftb-handle-width: 2.5px;
+    --ftb-handle-height: 14px;
+  }
+  & .ftb-preview-host .status-bar {
+    position: relative;
+    display: flex;
+    align-items: center;
+    height: calc(var(--ftb-bar-height) * var(--ftb-scale));
+    padding: 0 calc(var(--ftb-pad-right) * var(--ftb-scale)) 0
+      calc(var(--ftb-pad-left) * var(--ftb-scale));
+    gap: calc(var(--ftb-gap) * var(--ftb-scale));
+    background-color: #1a1a1a;
+    border: 1.4px solid rgba(255, 255, 255, 0.15);
+    border-radius: calc(var(--ftb-radius) * var(--ftb-scale));
+    box-shadow: 4px 4px 4px rgba(0, 0, 0, 0.4);
+    backdrop-filter: blur(8px);
+  }
+  & .ftb-preview-host .drag-handle {
+    position: relative;
+    width: calc(var(--ftb-handle-width) * var(--ftb-scale));
+    height: calc(var(--ftb-handle-height) * var(--ftb-scale));
+    margin-right: 0;
+    border-radius: calc(2px * var(--ftb-scale));
+    background: #8e8cd8;
+  }
+  & .ftb-preview-host .divider {
+    align-self: stretch;
+    width: calc(1.2px * var(--ftb-scale));
+    height: auto;
+    margin: 0 0 0 calc(4px * var(--ftb-scale));
+    background-color: rgba(255, 255, 255, 0.15);
+  }
+  & .ftb-preview-host .icon {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: calc(var(--ftb-icon-size) * var(--ftb-scale));
+    height: calc(var(--ftb-icon-size) * var(--ftb-scale));
+    color: #fff;
+    border-radius: calc(6px * var(--ftb-scale));
+    font-family: "Segoe UI Symbol", "Microsoft YaHei", sans-serif;
+    font-size: calc(var(--ftb-icon-size) * 0.833 * var(--ftb-scale));
+  }
+  & .ftb-preview-host .icon svg {
+    width: 100%;
+    height: 100%;
+    display: block;
+  }
+  & .ftb-preview-host .left-section {
+    display: flex;
+    align-items: center;
+    gap: calc(4px * var(--ftb-scale));
+  }
+  & .ftb-preview-host .right-section {
+    display: flex;
+    align-items: center;
+    gap: calc(var(--ftb-gap) * var(--ftb-scale));
+  }
+  & .ftb-preview-host svg {
+    display: block;
+  }
+  &[data-preview-theme="light"] .ftb-preview-host .status-bar {
+    background-color: #ffffff;
+    border: 1.4px solid rgba(0, 0, 0, 0.12);
+    box-shadow: 4px 4px 8px rgba(0, 0, 0, 0.12);
+  }
+  &[data-preview-theme="light"] .ftb-preview-host .divider {
+    background-color: rgba(0, 0, 0, 0.12);
+  }
+  &[data-preview-theme="light"] .ftb-preview-host .icon {
+    color: #1a1a1a;
+  }
+  &[data-preview-theme="light"] .ftb-preview-host .icon svg {
+    filter: invert(1);
+  }
+  &.skin-wechat[data-preview-theme="dark"] .ftb-preview-host .status-bar {
+    background-color: #151515;
+    border-color: #292929;
+    box-shadow: 0 5px 14px rgba(0, 0, 0, 0.38);
+  }
+  &.skin-wechat[data-preview-theme="light"] .ftb-preview-host .status-bar {
+    background-color: #f7f7f7;
+    border-color: #dedede;
+    box-shadow: 0 5px 14px rgba(0, 0, 0, 0.12);
+  }
+  &.skin-wechat .ftb-preview-host .drag-handle {
+    background: #07c160;
+  }
+  &.skin-graphite[data-preview-theme="dark"] .ftb-preview-host .status-bar {
+    background-color: #1c1f23;
+    border-color: #30353b;
+    border-radius: calc(4px * var(--ftb-scale));
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.28);
+  }
+  &.skin-graphite[data-preview-theme="light"] .ftb-preview-host .status-bar {
+    background-color: #fbfbfc;
+    border-color: #e2e5e9;
+    border-radius: calc(4px * var(--ftb-scale));
+    box-shadow: 0 2px 8px rgba(17, 24, 39, 0.1);
+  }
+  &.skin-graphite[data-preview-theme="dark"] .ftb-preview-host .drag-handle {
+    background: #8993a0;
+  }
+  &.skin-graphite[data-preview-theme="light"] .ftb-preview-host .drag-handle {
+    background: #5f6b7a;
+  }
+  &.skin-graphite .ftb-preview-host .icon {
+    border-radius: calc(3px * var(--ftb-scale));
+  }
+  &.skin-willow_green[data-preview-theme="dark"] .ftb-preview-host .status-bar {
+    background-color: #2d2f2e;
+    border-color: #3b3e3c;
+    border-radius: calc(9px * var(--ftb-scale));
+    box-shadow: 0 7px 18px rgba(0, 0, 0, 0.34);
+  }
+  &.skin-willow_green[data-preview-theme="light"] .ftb-preview-host .status-bar {
+    background-color: #f4f5f3;
+    border-color: #dfe3df;
+    border-radius: calc(9px * var(--ftb-scale));
+    box-shadow: 0 7px 18px rgba(42, 55, 47, 0.16);
+  }
+  &.skin-willow_green[data-preview-theme="dark"] .ftb-preview-host .drag-handle {
+    background: #65c98d;
+  }
+  &.skin-willow_green[data-preview-theme="light"] .ftb-preview-host .drag-handle {
+    background: #58b980;
+  }
+  & .ftb-preview-host {
+    justify-content: flex-start;
+    padding: 0;
+    max-width: 100%;
+    overflow: hidden;
+  }
+}
+
 @utility helpcode-schema {
   margin-top: 12px;
 }

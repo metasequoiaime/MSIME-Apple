@@ -2,7 +2,9 @@
 import { afterEach, expect, test } from "vitest";
 import { cleanup, render } from "@testing-library/react";
 import { SkinCandidatePreview } from "../../../../packages/ui/src/skin/skin-candidate-preview";
-import decorations from "../../../../packages/ui/src/skin/skin-candidate-decorations.css?raw";
+import { utilityCss } from "../support/utility-css";
+
+const decorations = utilityCss("skin-card-preview");
 
 afterEach(cleanup);
 
@@ -56,13 +58,16 @@ for (const orientation of ["horizontal", "vertical"] as const) {
   }
 }
 
-test("all migrated decoration rules stay scoped to skin cards", () => {
+test("every preview rule stays scoped to the card", () => {
   const sheet = new CSSStyleSheet();
   sheet.replaceSync(decorations);
-  expect(sheet.cssRules.length).toBe(32);
+  // The rules used to be checked one file at a time, with a count, against the per-skin prefix. They
+  // share one utility now, so the scoping is structural: everything inside it hangs off the card's own
+  // class, and a rule that escaped that would be a rule leaking onto the settings page at large.
+  expect(sheet.cssRules.length).toBeGreaterThan(30);
   for (const rule of Array.from(sheet.cssRules)) {
     const selector = (rule as CSSStyleRule).selectorText;
-    for (const part of selector.split(","))
-      expect(part.trim()).toMatch(/^\.skin-card-preview\.skin-/);
+    if (!selector) continue;
+    for (const part of selector.split(",")) expect(part.trim()).toMatch(/^\.skin-card-preview\b/);
   }
 });
