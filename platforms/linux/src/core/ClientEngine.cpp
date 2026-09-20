@@ -1546,9 +1546,8 @@ bool smart_punctuation_preceded_by_ascii_alphanumeric(const State &s) {
 bool smart_punctuation_repeat_matches_document(const State &s) {
   if (s.surrounding_cursor != s.surrounding_anchor)
     return false;
-  auto previous = std::string(1, s.last_smart_punctuation);
-  if (s.fullwidth)
-    previous = fullwidth_text(std::move(previous));
+  auto previous = msime::linux_host::ascii_mark_text(s.last_smart_punctuation,
+                                                     s.fullwidth);
   const auto cursor = surrounding_byte_offset(s, s.surrounding_cursor);
   return cursor >= previous.size() &&
          s.surrounding_text.compare(cursor - previous.size(), previous.size(),

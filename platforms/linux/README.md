@@ -51,6 +51,8 @@ Fcitx5 候选操作通过原生候选 Action（新版本）和输入上下文 st
 
 Fcitx5 现在也走同一条路径：它此前只在状态栏带着智能标点和重复标点两个开关，却没有任何改写实现，`smart_punctuation_space_convert` 在这个宿主上同样什么都不做。现改为共用 `SmartPunctuationSpace.h` 的指纹判定、按键集合、ASCII↔中文标点映射表和全角形式，通过 `InputContext::deleteSurroundingText` 改写，并沿用同样的解除点（任何其他按键、会话关闭）。ASCII→中文那张表原先在 IBus 宿主里单独写了一份，现由两个宿主共用，避免两条改写方向各自漂移。
 
+Fcitx5 的「重复标点回切中文」同样从只有开关变为真的生效：智能标点把某个标点保留为 ASCII 后，两秒内再按同一个键会通过 `deleteSurroundingText` 换成中文标点，该按键被消费、不再交给 Engine。与 Windows/IBus 一致，退格删掉那个 ASCII 标点后重新按同一个键会走中文路径——Fcitx5 的这个判断在共享 Rust 路由里做，因此实现方式是不再把前一个字符交给路由，让它按「前面不是 ASCII 字母数字」处理。上屏识别用共享的 `ascii_mark_from_text`，按 Engine 实际输出的宽度匹配，宿主不另留一份按键清单。
+
 候选快照同时携带 Engine 的来源编号，并与候选顺序绑定；GTK/Qt 或其他 Linux panel 可以据此区分词库、英文、Emoji、颜文字及在线候选，不需要从显示文本反推来源。来源只用于展示和交互提示，不改变候选身份、分页或提交文本。
 
 候选注释也由 Engine 快照按候选顺序提供：启用帮助码时使用当前方案和帮助码表生成，无法生成时保留纠错提示。Linux 宿主只显示该注释，不重复实现帮助码计算。
