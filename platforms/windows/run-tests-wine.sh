@@ -33,26 +33,50 @@ if [ ! -d "$build" ]; then
 fi
 
 # The MinGW runtime is not bundled beside the executables, so collect it from
-# the toolchain that produced them rather than copying it into the build tree.
-compiler=$(command -v x86_64-w64-mingw32-g++ 2>/dev/null) || {
-  echo "skipped: x86_64-w64-mingw32-g++ is not installed"; exit 0; }
-# Ask the compiler where its own files live rather than searching a prefix: the
-# same package ships an i686 toolchain with identically named DLLs, and picking
-# those makes every x86_64 executable fail to load - which reads as the whole
-# suite failing rather than as a runner mistake.
-toolchain="$("$compiler" -print-sysroot 2>/dev/null)"
-[ -n "$toolchain" ] && [ -d "$toolchain" ] ||
-  toolchain="$(dirname "$("$compiler" -print-libgcc-file-name 2>/dev/null)")"
+# the toolchain that produced them - which is not the same toolchain for both
+# architectures. x64 is built by this host. x86 cannot be: the i686 MinGW
+# usually installed on macOS uses SJLJ exceptions and Rust's target needs DWARF,
+# so build-cross-container.sh builds it inside the cross image. Taking the x86
+# runtime from this host would pair DWARF-built executables with an SJLJ
+# unwinder, and the unwinder is exactly what differs.
 runtime="$(mktemp -d)"
 trap 'rm -rf "$runtime"' EXIT
-found=0
-for name in libwinpthread-1.dll libstdc++-6.dll libgcc_s_seh-1.dll; do
-  path=$(find "$toolchain" -name "$name" -print -quit 2>/dev/null)
-  [ -n "$path" ] && cp "$path" "$runtime/" && found=$((found + 1))
-done
-if [ "$found" -ne 3 ]; then
-  echo "skipped: the MinGW runtime DLLs are not where this toolchain keeps them"
-  exit 0
+
+if [ "$arch" = x86 ]; then
+  cross=msime-cross:local
+  docker build --platform linux/amd64 -t "$cross" "$root/platforms/windows/cross" >/dev/null 2>&1 || {
+    echo "skipped: could not build the cross image"; exit 0; }
+  # Ask the compiler for its own runtime rather than guessing which versioned
+  # gcc directory the distribution used.
+  docker run --rm --platform linux/amd64 -v "$runtime":/out "$cross" sh -c '
+    for name in libwinpthread-1.dll libstdc++-6.dll libgcc_s_dw2-1.dll; do
+      path=$(i686-w64-mingw32-g++ -print-file-name="$name")
+      [ -f "$path" ] && cp "$path" /out/
+    done' >/dev/null 2>&1
+  found=$(ls -1 "$runtime" 2>/dev/null | wc -l | tr -d " ")
+  if [ "$found" != 3 ]; then
+    echo "skipped: the i686 MinGW runtime is not in the cross image"
+    exit 0
+  fi
+else
+  compiler=$(command -v x86_64-w64-mingw32-g++ 2>/dev/null) || {
+    echo "skipped: x86_64-w64-mingw32-g++ is not installed"; exit 0; }
+  # Ask the compiler where its own files live rather than searching a prefix: the
+  # same package ships an i686 toolchain with identically named DLLs, and picking
+  # those makes every x86_64 executable fail to load - which reads as the whole
+  # suite failing rather than as a runner mistake.
+  toolchain="$("$compiler" -print-sysroot 2>/dev/null)"
+  [ -n "$toolchain" ] && [ -d "$toolchain" ] ||
+    toolchain="$(dirname "$("$compiler" -print-libgcc-file-name 2>/dev/null)")"
+  found=0
+  for name in libwinpthread-1.dll libstdc++-6.dll libgcc_s_seh-1.dll; do
+    path=$(find "$toolchain" -name "$name" -print -quit 2>/dev/null)
+    [ -n "$path" ] && cp "$path" "$runtime/" && found=$((found + 1))
+  done
+  if [ "$found" -ne 3 ]; then
+    echo "skipped: the MinGW runtime DLLs are not where this toolchain keeps them"
+    exit 0
+  fi
 fi
 
 docker build --platform linux/amd64 -t "$image" "$root/platforms/windows/wine" >/dev/null 2>&1 || {
