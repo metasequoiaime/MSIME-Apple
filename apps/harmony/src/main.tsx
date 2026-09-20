@@ -22,6 +22,9 @@ import {
   CloudDictionaryApplyPanel,
   CloudCandidatesPanel,
   type AccountClient,
+  type AccountPreferences,
+  type AccountPreferenceSchema,
+  type SettingsSyncClient,
   type ChatClient,
   type ChatModels,
   type CloudClipboardPanelClient,
@@ -317,6 +320,32 @@ function accountClient(native: NativeBridge): AccountClient {
     },
     clearExpired: async () => {
       await request({ operation: "clear_expired" });
+    },
+    settingsSync: settingsSyncClient(native),
+  };
+}
+
+/**
+ * Settings sync, which is the only account surface that writes to this device.
+ *
+ * The host does the mapping, not the page: which local settings are account settings is a decision
+ * about this platform's preference document, and the page has no business holding a table of its
+ * keys. All four calls are one bridge request each.
+ *
+ * `apply` names the account the values were read under. The host checks it against the live session
+ * before and after the round trip, because a sign-out while the confirmation is on screen would
+ * otherwise write a stranger's settings over the user's own — and nothing on that screen could put
+ * them back.
+ */
+function settingsSyncClient(native: NativeBridge): SettingsSyncClient {
+  const request = <T,>(action: Record<string, unknown>): Promise<T> =>
+    bridgeRequest(native, "settings_sync", JSON.stringify(action)).then(unwrap<T>);
+  return {
+    schema: () => request<AccountPreferenceSchema>({ operation: "preferences_schema" }),
+    load: () => request<AccountPreferences>({ operation: "preferences_load" }),
+    upload: () => request<AccountPreferences>({ operation: "preferences_upload" }),
+    apply: async (userId) => {
+      await request({ operation: "preferences_apply", user_id: userId });
     },
   };
 }

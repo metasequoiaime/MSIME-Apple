@@ -588,6 +588,8 @@ class SettingsBridge {
       this.cloudDictionary(payload).then(deliver).catch(failed);
     } else if (kind === 'chat') {
       this.account(payload).then(deliver).catch(failed);
+    } else if (kind === 'settings_sync') {
+      this.settingsSync(payload).then(deliver).catch(failed);
     } else if (kind === 'cloud_dictionary_snapshot') {
       this.cloudDictionarySnapshot(payload).then(deliver).catch(failed);
     } else if (kind === 'ai_models') {
@@ -727,6 +729,29 @@ class SettingsBridge {
     } catch {
       return JSON.stringify({ ok: false, error: 'account_invalid' });
     }
+  }
+
+  /**
+   * The settings sync, which reads and writes the same preference document this page edits.
+   *
+   * The state directory is the host's, not the page's: the page names an operation and an account,
+   * and where the document lives is not something a WebView should be able to say.
+   */
+  settingsSync(action: string): Promise<string> {
+    if (this.accountBridge === undefined) {
+      return Promise.resolve(JSON.stringify({ ok: false, error: 'account_unavailable' }));
+    }
+    return this.accountBridge.preferencesSync(action, this.stateDirectory)
+      .then((reply: string): string => {
+        // Applying is the one operation that rewrites the document under the page's feet. The
+        // page's own copy is still the one it read on the way in, so every control keeps showing
+        // the old value and the next save is refused as a conflict. Hand it the new document here
+        // rather than waiting for the window to be brought forward again — that listener exists for
+        // changes the keyboard makes, and a change this window made should not need an app switch
+        // to become visible.
+        this.refreshPreferencesIfChanged();
+        return reply;
+      });
   }
 
   cloudDictionarySnapshot(action: string): Promise<string> {

@@ -167,6 +167,14 @@ import {
   AccountSessionStore,
   AccountTransport,
 } from "../entry/src/main/ets/account/AccountCloudBridge";
+import {
+  AccountPreferenceError,
+  AccountPreferenceSchema,
+  AccountPreferences,
+  applyAccountPreferences,
+  localAccountPreferences,
+  mergeAccountPreferences,
+} from "../entry/src/main/ets/account/AccountPreferencePlan";
 import { TypingStatisticsPolicy } from "../entry/src/main/ets/keyboard/TypingStatisticsPolicy";
 import { OnlineCandidatePolicy } from "../entry/src/main/ets/keyboard/candidate/OnlineCandidatePolicy";
 import {
@@ -4453,6 +4461,204 @@ group("account and cloud clipboard bridge keeps secrets native", () => {
         "dictionary offsets are bounded before transport",
       );
     });
+});
+
+/** A schema declaring everything this host maps, which is what a caught-up server would send. */
+function fullPreferenceSchema(): AccountPreferenceSchema {
+  const fields: Record<string, { type: string }> = {};
+  const declare = (keys: string[], type: string) => {
+    for (const key of keys) fields[key] = { type };
+  };
+  declare(
+    [
+      "input.schema",
+      "input.character_set",
+      "input.shuangpin_schema",
+      "input.frequency_mode",
+      "platform.harmony.keyboard_layout",
+      "platform.harmony.keyboard_skin",
+      "platform.harmony.custom_keyboard_skin",
+      "platform.harmony.theme",
+      "platform.harmony.candidate_skin",
+      "platform.harmony.haptic_strength",
+    ],
+    "string",
+  );
+  declare(
+    [
+      "input.learning",
+      "input.chinese_punctuation",
+      "input.smart_punctuation",
+      "input.paired_punctuation",
+      "input.wubi_code_hint",
+      "platform.harmony.voice_shortcut",
+      "platform.harmony.sound_enabled",
+      "platform.harmony.haptics_enabled",
+    ],
+    "boolean",
+  );
+  declare(
+    [
+      "input.frequency_trigger_count",
+      "input.frequency_linear_step",
+      "platform.harmony.touch_key_spacing_tenths",
+      "platform.harmony.touch_row_spacing_tenths",
+      "platform.harmony.keyboard_height_adjustment",
+    ],
+    "integer",
+  );
+  return { fields, maximumBytes: 64 * 1024, updateMode: "replace", revisionRequired: true };
+}
+
+const syncFeedback = { soundEnabled: true, hapticsEnabled: false, hapticStrength: "light" };
+
+group("the account settings sync maps this host's document, not another's", () => {
+  const local = {
+    scheme: "shuangpin",
+    traditional_chinese_output: true,
+    shuangpin_profile: "ziranma",
+    learning: false,
+    frequency: { mode: "linear", trigger_count: 3, linear_step: 2 },
+    chinese_punctuation: false,
+    touch_keyboard_layout: "nine_key",
+    touch_keyboard_skin: "midnight",
+    candidate_skin: "wechat",
+    touch_key_spacing_tenths: 40,
+    custom_touch_keyboard_skin: { background: 1 },
+  };
+  const values = localAccountPreferences(local, syncFeedback);
+  check(values["input.schema"] === "shuangpin", "the input schema travels");
+  check(values["input.character_set"] === "traditional", "and the character set as a word");
+  check(values["input.frequency_trigger_count"] === 3, "and the frequency numbers");
+  check(values["platform.harmony.keyboard_skin"] === "midnight", "and the touch skin");
+  // Not platform.android: the two are separate devices with separate keyboards, and sharing the
+  // namespace would let a HarmonyOS phone overwrite the skin on the user's Android keyboard.
+  check(
+    Object.keys(values).every((key) => !key.startsWith("platform.android.")),
+    "this host never writes another platform's keys",
+  );
+  check(
+    values["platform.harmony.custom_keyboard_skin"] === JSON.stringify({ background: 1 }),
+    "the custom design travels as one string, as the other hosts send it",
+  );
+  check(values["platform.harmony.haptic_strength"] === "light", "feedback comes from its own file");
+
+  // A document written by an older build is missing the keys that build did not have. Refusing to
+  // sync at all because of one absent field would help nobody.
+  const sparse = localAccountPreferences({}, syncFeedback);
+  check(sparse["input.schema"] === "quanpin", "an absent member takes the shared default");
+  check(sparse["input.learning"] === true, "including the ones that default to on");
+});
+
+group("uploading keeps what other devices wrote", () => {
+  const schema = fullPreferenceSchema();
+  const base: AccountPreferences = {
+    revision: 7,
+    settings: { "platform.ios.keyboard_skin": "rose", "input.schema": "quanpin" },
+  };
+  const merged = mergeAccountPreferences(base, { "input.schema": "wubi" }, schema);
+  check(merged.settings["input.schema"] === "wubi", "this host's value wins for its own key");
+  check(
+    merged.settings["platform.ios.keyboard_skin"] === "rose",
+    "another platform's field is kept rather than cleared",
+  );
+  check(merged.revision === 7, "the revision is the one that was read");
+
+  let refusedUnknown = false;
+  try {
+    mergeAccountPreferences(base, { "input.unknown_field": "x" }, schema);
+  } catch (error) {
+    refusedUnknown = error instanceof AccountPreferenceError && error.message === "account_invalid";
+  }
+  check(refusedUnknown, "writing a key the schema does not declare is refused, not dropped");
+
+  let refusedType = false;
+  try {
+    mergeAccountPreferences(base, { "input.learning": "yes" }, schema);
+  } catch (error) {
+    refusedType = error instanceof AccountPreferenceError && error.message === "account_invalid";
+  }
+  check(refusedType, "and so is the right key with the wrong type");
+});
+
+group("applying writes only what the schema declares", () => {
+  const schema = fullPreferenceSchema();
+  const local = { scheme: "quanpin", learning: true, frequency: { mode: "promote" } };
+  const cloud: AccountPreferences = {
+    revision: 3,
+    settings: {
+      "input.schema": "wubi",
+      "input.learning": false,
+      "input.frequency_trigger_count": 5,
+      "platform.harmony.candidate_skin": "graphite",
+    },
+  };
+  const applied = applyAccountPreferences(local, cloud, schema, syncFeedback);
+  check(applied.preferences.scheme === "wubi", "a declared string is written");
+  check(applied.preferences.learning === false, "and a declared boolean");
+  check(
+    (applied.preferences.frequency as Record<string, unknown>).trigger_count === 5,
+    "the frequency record is merged rather than replaced",
+  );
+  check(
+    (applied.preferences.frequency as Record<string, unknown>).mode === "promote",
+    "so a member the cloud said nothing about survives",
+  );
+  check(applied.preferences.candidate_skin === "graphite", "and the candidate skin is written");
+  // Nothing in the cloud document mentioned the three feedback keys, so the file is left alone
+  // rather than rewritten with whatever the defaults happen to be.
+  check(applied.feedback === null, "an untouched feedback file is not rewritten");
+
+  // A key the server has not declared yet does not travel and is not read. This is the state every
+  // platform.harmony.* key is in until the service declares it, so it has to be the quiet case.
+  const bare: AccountPreferenceSchema = {
+    fields: { "input.schema": { type: "string" } },
+    maximumBytes: 1024,
+    updateMode: "replace",
+    revisionRequired: true,
+  };
+  const partial = applyAccountPreferences(local, cloud, bare, syncFeedback);
+  check(partial.preferences.scheme === "wubi", "the declared key is still applied");
+  check(partial.preferences.learning === true, "while an undeclared one leaves the local value");
+
+  let refusedValue = false;
+  try {
+    applyAccountPreferences(
+      local,
+      { revision: 1, settings: { "input.schema": "esperanto" } },
+      schema,
+      syncFeedback,
+    );
+  } catch (error) {
+    refusedValue = error instanceof AccountPreferenceError && error.message === "account_invalid";
+  }
+  check(refusedValue, "a declared key carrying a value this host has no meaning for is refused");
+
+  let refusedMismatch = false;
+  try {
+    applyAccountPreferences(
+      local,
+      { revision: 1, settings: { "input.learning": 1 } },
+      schema,
+      syncFeedback,
+    );
+  } catch (error) {
+    refusedMismatch =
+      error instanceof AccountPreferenceError && error.message === "account_invalid";
+  }
+  check(refusedMismatch, "and a declared key arriving with the wrong type is refused, not ignored");
+
+  const withFeedback = applyAccountPreferences(
+    local,
+    { revision: 1, settings: { "platform.harmony.sound_enabled": false } },
+    schema,
+    syncFeedback,
+  );
+  check(withFeedback.feedback?.soundEnabled === false, "a feedback key is written");
+  check(
+    withFeedback.feedback?.hapticStrength === "light",
+    "and the members it did not mention keep their local values",
+  );
 });
 
 group("the account assistant answers with a model list and one reply", () => {
