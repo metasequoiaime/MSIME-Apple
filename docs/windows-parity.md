@@ -34,7 +34,7 @@
 | 谷歌云候选与 AI 联想 | README 云/AI 联想、设置 `ai-settings.ts` | `CloudCandidateWorker.cpp`、`AiCandidateWorker.cpp`，由 `SessionController.cpp` 构造并投递输入队列 | 有调用链；核对每个提供方、超时、取消、失焦后旧结果以及凭据路由，勿只验证 UI 保存。 |
 | 候选中英释义、腾讯云翻译、自定义翻译 | README 候选翻译/自定义翻译 | `TranslationWorker.cpp` → `SessionController.cpp` → 候选展示；共享 `translation.rs` / `translation_store.rs` | 有调用链；缓存失效已核对并确认做到（第三十六批）：缓存键按服务商与账号分域，凭据、端点、目标语言与启用开关任一变化都丢弃正负两种结果；腾讯请求签名已按官方 TC3-HMAC-SHA256 构造独立算出已知答案并钉住（第三十七批）；本地优先级已按源码核对为正确实现但**零测试覆盖**（第三十八批）；词库编辑已核对（第三十九批）：设置侧有五个按 Engine 实际读取语义写的用例，消费侧每次请求现算本地释义，编辑立即生效且恒胜过缓存的云端结果。本行四项到此走完。 |
 | 设置读取、保存、热更新与窗口行为 | `settings_app.cpp`、`config-sync.ts` | Tauri `load_preferences` / `save_preferences`，`PreferenceMonitor.cpp` 与 `main.cpp` 发布回调；macOS 云端桌面快照覆盖 Apple 20 项基线字段并保留客户端新增双拼预编辑字段 | 有调用链；逐字段核对默认值、冲突/损坏保护、当前组合期间延迟生效。macOS 云端快照现补齐两套辅助码方案、候选学习和本地扩展模式；本地扩展的兼容布尔值应用为八个本地模式的全开/全关。原生备用语音现在读取并回写当前 provider 的 `asr_tokens` / `polish_tokens` 槽位，缺失槽位保留旧扁平字段兼容。不能因配置字段存在就标记功能接通。 |
-| API 凭据测试 | `settings_app.cpp::apiCredentialTest` → `ApiCredentialTest::Run` | Tauri `test_api_credential` → `client-core::credential_*`（Windows/macOS） | 有调用链；Windows 已接入聊天、批量 ASR、豆包 WebSocket、腾讯云/NiuTrans/DeepLX 等共享凭据测试。仍需逐项核对来源字段与真实服务行为。 |
+| API 凭据测试（**本仓库新增，来源没有此功能**） | 来源无对应物；`settings/settings_app.cpp` 存在但不含凭据测试 | Tauri `test_api_credential` → `client-core::credential_*`（Windows/macOS） | 有调用链；Windows 已接入聊天、批量 ASR、豆包 WebSocket、腾讯云/NiuTrans/DeepLX 等共享凭据测试。**「逐项核对来源字段」一项已撤销（第五十二批）——来源没有可比的字段**；仅「真实服务行为」仍需真实账号验证。 |
 | 词库查询、增改删、导入导出、快捷短语 | `dictionary_manager.cpp`、设置 `dict.ts` / `tools-settings.ts` | Tauri `dictionary_request` / `dictionary_maintenance_handshake`，共享 `dictionary/access.rs` / `dictionary/import.rs` | 有调用链；验证 quiesce/resume、失败恢复、五笔/英文/快捷短语/翻译各表的字段和导出编码，保留用户数据。 |
 | 语音热键、流式/批量 ASR、润色、声音/静音、上屏方式 | `server/src/voice-input/`、设置 `voice.ts` | `main.cpp` → `VoiceHotkeyController` / `VoiceInputSession` → Engine 语音模块与 TSF；`VoiceSessionEpoch.h` | Windows Tauri 语音面板与 `recognize_voice` 已接入；全提供方、取消及焦点行为仍需 Windows 原生验证。macOS 原生备用窗口已将有效非云快照字段回写共享 `voice_input`，并可编辑 ASR/润色 provider token 槽位，但真实系统链路仍需验证。 |
 | 录音设备选择 | 需继续比对来源具体支持范围，不假定来源已支持 | Tauri `list_voice_capture_devices` → `host-macos::voice_capture_devices` → `MSIMEListVoiceCaptureDevices` 与共享 `capture_device/capture_backend`；Windows `VoiceInputConfig` / `VoiceInputSession` | Windows 已按稳定设备 ID 完成枚举、偏好保存和 `AudioCapture::start(..., device_id)` 透传，并有 `voice_capture_selection` 覆盖 backend/device 选择；macOS Tauri 与原生备用设置现在共用 CoreAudio 输入流枚举、默认设备排序和稳定 UID，且只接受空值、`auto`、`macos` 进入 CoreAudio，拒绝把其他平台后端静默重解释为 CoreAudio。真实硬件权限、安装后切换及来源设备标识范围仍待产品级验证。 |
@@ -672,6 +672,18 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 本仓库布局是**超集**：在同样的 QWERTY 块之上，另有 F10–F12、PrtSc、Scroll、Pause、Ins、Home、End、PgUp、PgDn、Menu（`VK_APPS`）与四向方向键。这正好印证了 `extended_key` 那段注释里的说法——「移植后的 React 布局把它们全部暴露出来，所以这里比来源更要紧」。换句话说，上一批核对的扩展键处理在来源那边多半是备而不用，在本仓库却是实打实要紧的。
 
 这一项到此走完。同一行只剩真实焦点恢复，需要原生环境。
+
+增量记录（2026-09-20，Windows 第五十二批：一条永远核不完的待办，因为它要比的东西不存在）：「API 凭据测试」那行把来源写成 `settings_app.cpp::apiCredentialTest` → `ApiCredentialTest::Run`，并留了「仍需逐项核对来源字段与真实服务行为」。
+
+**那两个函数在来源全树都不存在。** `server/src/settings/settings_app.cpp` 这个文件确实在（1522 行），但里面没有 `apiCredentialTest`；整棵树（排除 vendor）搜 `apiCredentialTest`、`ApiCredentialTest`、`testCredential`、`testConnection`、`verifyToken` 全部无果。
+
+再往外找也没有：来源 `server/src/ai/ai_assistant.cpp` 里唯一匹配 `test` 的四处全是 `g_latest` 这个变量名的子串；没有 `/v1/models` 之类的模型列举；设置页 `ai-settings.ts` 的标识符里只有 `aiToken`、`aiEndpoint`、`aiModel` 等输入控件，没有测试按钮；设置页 HTML 里两处「测试」都是正文用语（「测试反馈」「仅供测试使用」）。
+
+**结论：API 凭据测试是本仓库新增的功能，不是从来源迁移过来的。** 因此「逐项核对来源字段」这条待办无法执行，也不该执行——没有可比对的来源字段。本批把它撤销，并在表里标明该功能为新增。
+
+这条待办的形状与第四十九批那条一样：**看起来是个有效待办，实际指向不存在的东西**。区别是上一条指错了文件（真来源在别处），这一条指向的功能压根不存在。两者都比「没做」更坏，因为它们会让人以为还有已知的工作量。
+
+行内保留的只有「真实服务行为」——那是任何依赖外部服务的功能都需要真实账号才能验的，与来源无关。
 
 ## 来源模块的落点
 
