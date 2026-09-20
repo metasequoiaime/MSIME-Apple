@@ -102,9 +102,7 @@
 
 另有一条记录需要收紧。#3182 把「以词定字占用的键不参与翻页」写成宿主侧要处理的一个可达状态，实际不是：`crates/client-core/src/preferences.rs` 的 `validate()` 在 `word_character.enabled` 与对应翻页键同时为真时返回 `ConflictingKeyBindings`，而保存（`preferences.validate()?`）和读取（`snapshot.preferences.validate()?`）两条路径都会调用它——带着这个组合的偏好文件根本加载不进来，设置页也存不下去，`key_conflict` 就是它在界面上的那句提示。所以宿主里那段排除是防御，不是在修一个用户能走到的状态；两个布尔项看着独立，共享层已经把互斥钉死了。
 
-因此当前只剩一项未完成：
-
-**安装后的交互验收**——不是代码缺口，见下一节，需要一次重新登录才能把新的输入源 identifier 加进本次登录会话的列表。
+剩下的一项是**安装后的交互验收**——不是代码缺口。它此前还要先注销登录一次，#3270 让预览版继承一个本次会话开始时就在输入源列表里的标识之后不用了：从当前 develop 构建安装后，两个输入源都已注册启用，可以直接从输入菜单选中试打。测量过程见下面的《安装后验收》一节。
 
 ## 功能分组与目的地入口
 
@@ -139,15 +137,43 @@
 
 参考窗口有而这一轮没有动的：反馈页附带的诊断信息，参考写的是系统版本与输入方案序号，目标写的是平台与 User-Agent。要给出真实的 macOS 版本号需要宿主再开一个能力，不在这一轮里，记在此处。
 
-## 仍需重新登录一次才能验收的部分
+## 控制项与运行时键的两次机械比对（2026-09-20）
 
-这一项此前记为「需要签名产品包」，是错的。实测（见 `platforms/macos/README.md`）：把同机注册正常的那份输入法复制一份、只换 bundle identifier、用同一张 Developer ID 证书重签后注册，失败方式完全一样——`TISRegisterInputSource` 返回 noErr 而 `TISCreateInputSourceList` 查不到。真正的判据是**该 identifier 在本次登录会话开始时是否已在输入源列表里**：唯一能被列出的那份，其安装时间早于本次会话的开始；重启 `imklaunchagent`、`lsregister` 重新登记与重扫用户域都无效。所以本项目的 bundle 在这一点上与那份能用的输入法表现一致，不是装配缺陷，签名产品包也绕不过去。下列三项需要重新登录一次之后才能验收：
+第六次比对看的是截图，只覆盖参考窗口画出来的东西。补两条能机械跑、不依赖截图的：
+
+- **控制项标识**。参考 `PreferencesWindowController.mm` 里所有 `.identifier = @"…"` 共 23 个，逐个在目标的共享偏好与设置页里找对应项，全部有着落。命名从 camelCase 换成 snake_case，对应关系是：`edgeSelection`→`word_character.enabled`、`perApplicationMode`→`ime_mode_scope`、`outputScript`→`traditional_chinese_output`、`mixedEnglish`→`mixed_input.english`、`defaultEnglish`→`default_ime_mode`、`repeatPunctuation`→`smart_punctuation_repeat`，其余同名。
+- **运行时偏好键**。参考在输入路径上读的 `MetasequoiaInput{Flag,Integer,String}(@"…")` 共 27 个，同样逐个有对应。只有 `alwaysChinesePunctuation` / `alwaysEnglishPunctuation` 不是一对一：参考用两个互斥的「钉住」标志加一个跟随状态，目标用 `chinese_punctuation` 这一个状态加独立的 `smart_punctuation` 开关。目标这一侧更能表达（参考没有「钉成英文标点同时开智能标点」这种组合），不是缺口。
+
+两条都没有找到新的缺失项，这是第六次比对之外对「代码侧无已知缺口」这句话的又一次独立交叉检验。
+
+## 安装后验收：不再需要重新登录（2026-09-20 实测）
+
+这一节此前写的是「需要重新登录一次」，现在不需要了，原因是 #3270。
+
+之前的判据没有错：**一个在本次登录会话开始时不在输入源列表里的 bundle identifier，无论 bundle 内容如何都进不去**。错的是由此得出的结论——当时目标用的是自己的新标识 `app.msime.client.preview.inputmethod`，它在本次会话开始时确实不在列表里，所以永远注册不上。#3270 让预览版继承 `app.msime.inputmethod.MetasequoiaIME`，而这个标识在本次会话开始时就在列表里，于是走的是同一条判据的另一半：「已在列表中的 identifier 原地更新则正常」。
+
+实测：从 `e215ba7be` 构建、`platforms/macos/scripts/install.sh` 安装之后，`check_input_source.swift` 报
+
+```
+app.msime.inputmethod.MetasequoiaIME.Hans: enabled
+app.msime.inputmethod.MetasequoiaIME: enabled
+```
+
+连续 15 次查询全部命中。要注意刚替换 bundle、刚调用 `--register-input-source` 之后有一小段时间查询会时有时无——同一条命令隔几秒跑，会先报 not in the registry 再报 enabled。所以 `install.sh` 只查一次就下结论是不稳的，两个方向的误判都可能出现；判断安装结果时应多查几次再看。
+
+因此此前列的三项现在可以直接验收，不必先注销登录：
 
 1. 输入菜单与菜单栏中图标的实际观感；
 2. 麦克风与语音识别的 TCC 权限弹窗文案；
 3. 真实编辑器中的组合、标点转换与本地 Whisper 识别行为。
 
-bundle 自身是否装配正确由 `bundle-contents` 持续检查：图标是否真的暂存进 `Resources`、菜单图标是否带 16×16 与 32×32 两页、每条用途字符串是否在每种已暂存语言中都有、可执行文件是否链接了本地识别器。
+bundle 自身是否装配正确仍由 `bundle-contents` 持续检查：图标是否真的暂存进 `Resources`、菜单图标是否带 16×16 与 32×32 两页、每条用途字符串是否在每种已暂存语言中都有、可执行文件是否链接了本地识别器。
+
+## 旧记录：重新登录判据是怎么测出来的
+
+保留这段，因为判据本身仍然成立，只是不再拦住本项目。
+
+这一项更早的时候记为「需要签名产品包」，是错的。实测（见 `platforms/macos/README.md`）：把同机注册正常的那份输入法复制一份、只换 bundle identifier、用同一张 Developer ID 证书重签后注册，失败方式完全一样——`TISRegisterInputSource` 返回 noErr 而 `TISCreateInputSourceList` 查不到。真正的判据是**该 identifier 在本次登录会话开始时是否已在输入源列表里**：当时唯一能被列出的那份，其安装时间早于本次会话的开始；重启 `imklaunchagent`、`lsregister` 重新登记与重扫用户域都无效。所以那不是装配缺陷，签名产品包也绕不过去——换一个新标识仍然进不去。#3270 之后走的是这条判据的另一半，见上一节。
 
 ## 基线状态
 
