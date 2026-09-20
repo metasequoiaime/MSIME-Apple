@@ -413,6 +413,20 @@ struct HostOptions {
     /// rather than placed beside the dictionaries.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     sentence_model: Option<String>,
+    /// Absolute path to the larger model run once typing settles, for hosts that install one.
+    ///
+    /// Its own option rather than an entry in the dictionary lock, because the lock is shared by
+    /// every platform and `ResourceStore::verify` requires a resource directory to match it
+    /// exactly — a desktop-only artifact there would mean teaching the manifest, the Rust
+    /// verifier, the PowerShell verifier, four staging scripts and a CMake parser what a platform
+    /// is, all on the path that guarantees a shipped dictionary is intact. Twenty five megabytes
+    /// inside an iOS keyboard extension is also precisely what the small preset exists to avoid.
+    ///
+    /// A host that wants the second model installs it where it likes and names it here; one that
+    /// does not leaves this absent and behaves exactly as before. Today that is every host: the
+    /// desktop platforms are the ones this is for, and they set it alongside shipping the file.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    settled_model: Option<String>,
 }
 
 impl HostOptions {
@@ -514,6 +528,7 @@ pub fn prepare_host_configuration(
         // Written only when a model has actually been installed as its own artifact; a host that
         // places one beside the dictionaries needs no configuration.
         sentence_model: None,
+        settled_model: None,
     })?)
 }
 

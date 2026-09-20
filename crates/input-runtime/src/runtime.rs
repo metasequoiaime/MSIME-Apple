@@ -62,6 +62,16 @@ pub struct Runtime<E: InputEngine = Session> {
     /// Absent unless a host calls [`Runtime::set_reranker`], and absent is the only state the
     /// hosts that ship no model ever see.
     pub(crate) reranker: Option<Reranker>,
+    /// A second, larger model run once the user stops typing, when one is attached.
+    ///
+    /// Capacity is the most effective lever the model has — the 24M preset beats the 6.8M one by
+    /// 49 points of top-1 on the harvested failure set — and it is also the one the keystroke path
+    /// cannot afford: the same model measures p95 153ms against a 16ms frame, with the slowest
+    /// keystroke at 342ms. Both numbers are real and they do not have to be reconciled, because
+    /// they are answers to different questions. While the user is typing, the first row has to be
+    /// plausible now; when the user stops to read the candidates, it has to be right. The fast
+    /// model owns the first job and this one owns the second.
+    pub(crate) settled_reranker: Option<Reranker>,
 }
 
 /// `CandidateSource::Generated`: a whole-sentence path the word lattice assembled. The one source
@@ -286,6 +296,7 @@ impl<E: InputEngine> Runtime<E> {
             generation: 0,
             ai_context: String::new(),
             reranker: None,
+            settled_reranker: None,
             focused: false,
             page_size: page_size.into(),
             highlighted: 0,
@@ -302,6 +313,35 @@ impl<E: InputEngine> Runtime<E> {
     /// guessing at it.
     pub fn set_reranker(&mut self, reranker: Option<Reranker>) {
         self.reranker = reranker;
+    }
+
+    /// Attach the model that runs after typing settles. Absent leaves the behaviour unchanged.
+    pub fn set_settled_reranker(&mut self, reranker: Option<Reranker>) {
+        self.settled_reranker = reranker;
+    }
+
+    /// Re-rank the current candidates with the settled model, reporting whether the order moved.
+    ///
+    /// The host decides when this is: it owns the clock and already runs a settle timer for cloud
+    /// candidates. The runtime has no timer of its own and should not grow one — a keystroke that
+    /// arrives while this is deciding makes the whole answer stale, and only the host knows that
+    /// a keystroke arrived.
+    ///
+    /// Returns false when nothing changed, so a host can skip redrawing the candidate window. A
+    /// window that repaints identically on every pause is a flicker the user cannot explain.
+    pub fn rerank_settled(&mut self) -> bool {
+        if self.settled_reranker.is_none() || self.is_idle() {
+            return false;
+        }
+        let leader = self.cached.candidates.first().cloned();
+        std::mem::swap(&mut self.reranker, &mut self.settled_reranker);
+        self.rerank();
+        std::mem::swap(&mut self.reranker, &mut self.settled_reranker);
+        let moved = self.cached.candidates.first() != leader.as_ref();
+        if moved {
+            self.snapshot_valid = true;
+        }
+        moved
     }
 
     pub fn set_character_width(&mut self, width: CharacterWidth) {

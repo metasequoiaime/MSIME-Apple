@@ -243,6 +243,27 @@ pub extern "C" fn msime_client_punctuation_ascii(handle: u64, ascii: u8) -> *mut
     dispatch(handle, Action::PunctuationAscii(ascii))
 }
 
+/// Re-rank the visible candidates with the settled model, after the host's typing pause elapses.
+///
+/// The host owns the clock. It already runs a settle timer for cloud candidates, and it is the
+/// only side that knows whether a keystroke arrived while this was being decided — the runtime
+/// would have to guess. Call it when the composition has been unchanged for the pause, and not
+/// while keys are still arriving.
+///
+/// Answers `{"moved": bool, "view": ...}`. `moved` is false when the order did not change, which
+/// is the common case and the signal to leave the candidate window alone: repainting it
+/// identically on every pause is a flicker with no explanation behind it.
+#[no_mangle]
+pub extern "C" fn msime_client_rerank_settled(handle: u64) -> *mut c_char {
+    response(|| {
+        with_session(handle, |session| {
+            let moved = session.runtime.rerank_settled();
+            let view = session.runtime.view();
+            Ok(serde_json::json!({"moved": moved, "view": view}))
+        })
+    })
+}
+
 #[no_mangle]
 pub extern "C" fn msime_client_select(handle: u64, generation: u64, index: usize) -> *mut c_char {
     dispatch(

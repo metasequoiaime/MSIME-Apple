@@ -201,6 +201,19 @@ fn run(
     let mut runtime = Runtime::new(engine, 9)?;
     // Measuring the shipped path means measuring it with whatever the resource set contains. The
     // model is optional there, so its absence has to leave these numbers exactly as they were.
+    // The settled model, when the resource set ships one. Attaching it here is what lets the eval
+    // measure the shipped pair rather than either model alone: the fast one ranks every keystroke
+    // and this one ranks once at the end, which is exactly what a host does with its settle timer.
+    let settled_path = resources.join("sentence-model-desktop.safetensors");
+    match std::fs::read(&settled_path) {
+        Ok(bytes) => {
+            runtime.set_settled_reranker(Some(Reranker::new(std::sync::Arc::new(
+                SentenceModel::load(&bytes)?,
+            ))));
+            eprintln!("settling with {}", settled_path.display());
+        }
+        Err(_) => eprintln!("no settled model at {}", settled_path.display()),
+    }
     let model_path = resources.join("sentence-model.safetensors");
     match std::fs::read(&model_path) {
         Ok(bytes) => {
@@ -227,6 +240,9 @@ fn run(
                 shift: false,
             })?;
         }
+        // The user has stopped typing by the time a case is read, which is when a host fires its
+        // settle timer.
+        runtime.rerank_settled();
         let snapshot = runtime.all_candidates();
         let candidates: Vec<(String, u8)> = snapshot
             .candidates

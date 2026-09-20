@@ -1340,6 +1340,47 @@ fn unicode_mode_digits_compose_a_code_point_rather_than_picking_a_candidate() {
         .any(|candidate| candidate.text == "中"));
 }
 
+/// Without a settled model attached, the settle call is inert.
+///
+/// This is the shape every installation that ships one model is in, and the one where a mistake
+/// would be invisible: a settle pass that quietly reordered candidates using the fast model would
+/// look like the candidate window moving on its own after the user stopped typing.
+#[test]
+fn settling_without_a_second_model_changes_nothing() {
+    let mut runtime = runtime();
+    runtime.focus(true).expect("focus");
+    for byte in b"nihao" {
+        runtime
+            .dispatch(Action::Character {
+                value: *byte,
+                shift: false,
+            })
+            .expect("type");
+    }
+    let before: Vec<String> = runtime
+        .view()
+        .candidates
+        .iter()
+        .map(|candidate| candidate.text.clone())
+        .collect();
+    assert!(!runtime.rerank_settled(), "no settled model, nothing to do");
+    let after: Vec<String> = runtime
+        .view()
+        .candidates
+        .iter()
+        .map(|candidate| candidate.text.clone())
+        .collect();
+    assert_eq!(after, before);
+}
+
+/// An idle session has no candidates to settle on, and asking is not an error.
+#[test]
+fn settling_while_idle_is_inert() {
+    let mut runtime = runtime();
+    runtime.focus(true).expect("focus");
+    assert!(!runtime.rerank_settled());
+}
+
 fn withholding_runtime(offered: usize, withheld: usize, page_size: u8) -> Runtime<Fixture> {
     Runtime::new(
         Fixture {
