@@ -1440,3 +1440,17 @@ MSIME-Apple 的语音服务目录里有两个共享客户端一直没有的转�
 固定之后签名构建推进到下一道真实门槛：`No Accounts: Add a new account in Accounts settings`。本机 Xcode 未登录任何 Apple ID，也没有 App Store Connect API 密钥，而键盘扩展的 `com.metasequoiaime.client.keyboard` 尚无描述文件（App 的已存在，含 `group.app.msime.ios` 且已包含目标设备），必须由 Xcode 联网创建；缺账号时它退回到不含 App Groups 能力的通配描述文件，于是报 App Group 相关的三条错误。这一步需要账号凭据，不能代为完成，已把前置条件和完整命令写进 iOS README。
 
 本地验证：固定团队后既有的无签名真机构建 `platforms/ios/build-app.sh … device` 仍然产出 `水杉输入法.ipa`，未受影响；签名构建推进到账号门槛。提交不含 `pod install` 对工程文件的改写。
+
+### Engine 提锁 0.27.0，以及必须与之配对的词库发布
+
+把 `engine-lock.json` 从 `0531d421`（0.23.0）提到上游默认分支的 `915b24ff`（0.27.0，25 个提交），归档 SHA-256 按固定 URL 重新计算，两个 overlay 脚本（双码辅助缓存、解除首屏候选上限）在新树上仍然干净应用——它们碰的是 `providers/`、`shuangpin/`、`core/session.cpp` 与 `include/metasequoia/session.h`，与本批改动的 `quanpin/word_lattice.*`、`core/nine_key_session.cpp` 不重叠。
+
+只提 Engine 锁是不够的，这一批正是踩在这上面。0.27.0 的资源契约新增 `bigram.bin` 与 `trigram.bin`，整句词格仲裁按这两张表给路径加权；表不存在时 `NgramTable::open` 返回 nullptr，`word_lattice` 里所有 `options.bigram` / `options.trigram` 分支被跳过，于是 Engine 不报任何错，照常出候选，只是整句路径失去语言模型约束。装到真机上的表现是九键 `64426` 的候选顺序变成「你好 / 米高哦 / 米高」——一个没有被惩罚的三音节整句路径挤到了第二位。本地用 `ninekey_dictionary` 探针在同一份词库上做有表/无表对照，逐字复现了这个顺序。
+
+根因是词库锁没有跟着走：这两张表随上游 `dict-v2.0.0` 发布，而该 tag 指向的提交就是本次锁定的 Engine 提交，两者是配对发布的。`resources/desktop-dictionary.lock.json` 因此一并提到 `dict-v2.0.0`：新增两张 12 MB 的 ngram 表，`msime.db`（107.6 MB → 76.3 MB）、`english.db`（8.4 MB → 1.7 MB）与 `dictionary-manifest.json` 都是重建过的产物，`others.db`、`dict_japanese.dat` 和 mozc 许可证全文内容未变但 URL 随发布迁移；`dict_pinyin.dat` 取自 Engine 树、`sentence-model.safetensors` 属于另一个仓库的发布，两者不受影响。补齐后同一序列的顺序变为「你好 / 你好哦 / 米高哦」，`米高哦` 退到第三位。**`米高哦` 本身没有消失**，带尾音的整句候选仍然排在「你敢」「你搞」这类二字词之前，那属于 Engine 侧的仲裁行为，不在客户端这一层，也不因本批改动而改变。
+
+新增 `crates/engine-bridge/examples/ninekey_dictionary.rs`，按仓库既有的真词库探针约定接收一个已备齐的资源目录。它断言两件事：两张表在目录里；以及把它们拿掉后候选顺序确实会变——后者用来证明表是被读到的，而不是打包了却没生效。这道防护针对的正是本批的失败模式，因为「表缺失」在运行时没有任何可见信号。
+
+iOS 真机装机走的是产品宿主 `MSIMEClientApp`，不是 Tauri CLI：`build-app.sh … device` 固定 `CODE_SIGNING_ALLOWED=NO`，产物装不上真机，所以直接对 XcodeGen 工程加 CocoaPods workspace 调 `xcodebuild` 并允许签名，命令已写进 iOS README。本机 Xcode 已登录 team `LXCL4Z68GU`，`app.msime.ios` 与 `app.msime.ios.keyboard` 的开发描述文件都在本地且包含目标设备，README 中「本机没有登录账号、签名构建与真机验收尚未执行」的说法随之失效，已按实际状态改写。
+
+本地验证：`msime-engine-bridge`、`msime-input-runtime`、`msime-host-api` 三个 crate 共 188 个测试通过、0 失败；C++ Engine 0.27.0 重新编译通过；`ninekey_dictionary` 探针在补齐后的资源目录上通过。证据分级到第五级的签名与安装——App 与键盘扩展以开发证书签名、装上 iPhone 17（iOS 27）、启动成功；键盘扩展的启用与真实编辑器验收由使用者在设备上进行，不在本条记录的实测范围内。CI 保持禁用。
