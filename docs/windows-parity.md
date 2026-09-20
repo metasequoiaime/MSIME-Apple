@@ -1303,3 +1303,17 @@ Fcitx5 候选动作执行 stale 栅栏增量（2026-09-19）：CandidateAction �
 派生名一律在 path 自身的 native 字符串上拼接而不过 `path::string()`（第二批 #3059 的结论），`-wal` / `-shm` / `-journal` 三个 sidecar 在发布后删除，否则用户刚清掉的学习数据会在下次打开时回来。sidecar 删除位于 try 块内、发生在新文件已就位之后，抛出会把已成功的清除回滚并报成失败——这一点第二批已记录为已知形状，本批未改。
 
 至此对照表「词库查询、增改删、导入导出、快捷短语」一行的四项全部走完。
+
+增量记录（2026-09-21，Windows 第十三批：云候选与 AI 联想的五个轴）：对照表该行点名的五项「每个提供方、超时、取消、失焦后旧结果、凭据路由」逐条走。目标起点 `93075a413`。
+
+**五项都核对确认已做到**，结论记在这里以免重查：
+
+- 失焦后旧结果有**两道独立的栅栏**。Windows 侧 `FocusedSession::apply_cloud_response` / `apply_ai_candidates` 先 `prepared(lease)` 再 `gate_.with_active(lease, ...)`，过期 lease 的结果直接丢弃；Engine 侧 `OnlineRequestGuard::matches`（`vendor/MSIME-Engine/core/online_request_guard.h`）比对 session id、generation、scheme、identity、query_text、cache_key、分词和两个资格位，所以同一 lease 内「先打 ni 后打 nihao」的旧回复也进不来。共享 Rust 层不另设栅栏是对的——身份归 Engine 所有，多一份副本就是多一处漂移。
+- 超时两个 worker 各有各的值且都合理：云候选连接 2000ms / 总计 2000ms，AI 连接 2500ms / 总计 8000ms（LLM 本就更慢，照抄 2 秒会把它全判超时）。两者都是 `CURLOPT_PROTOCOLS_STR="https"`、不跟随重定向、`NOSIGNAL`。
+- 取消不只是「丢弃结果」：`CURLOPT_XFERINFOFUNCTION` 接到取消判据上，被取代的请求在传输途中就会中止，write 回调里也再查一次。
+- 响应与请求都有界：响应 256 KiB（AI 1 MiB）、query 16 KiB、AI 的 URL ≤ 2048 且必须 https、POST body 有大小上限。
+- 提供方路由两边同形：来源 `ai_assistant.cpp` 只对 `deepseek` 特判（多一个 thinking 字段），其余走通用 OpenAI 兼容路径；本仓 `client-core/src/ai.rs` 完全一致。
+
+**查出一处覆盖缺口并补上。** 整个 `platforms/windows/tests/` 里**没有一个文件提到过这三个 worker**——`CloudCandidateWorker`、`AiCandidateWorker`、`TranslationWorker` 的排队、去抖与取消一行覆盖都没有。这属于本表反复出现的「按源码核对为正确实现但零测试覆盖」，而这里出 bug 的表现是「打完字之后旧的云候选才冒出来」，不会在别处被发现。给 worker 加可注入的 fetcher（默认仍是真实那个），补四条用例：结果带对 lease 与 query、去抖窗口内只付一次且付新的那次、在途被取代的请求能看见自己被取代且结果绝不交付、五种非法请求一个都到不了网络。两种破坏分别红在不同断言上。
+
+值得一记的是这条用例**在本机真的跑过**，不只是链接：`FocusGate` / `PipeTicket` 不含 Windows 头，curl 本机就有，用 clang++ 原生编译运行通过。此前 Windows 侧的用例在这台机器上一律只有「链接成功」这一级证据。AI 与翻译两个 worker 的同类用例尚未补。
