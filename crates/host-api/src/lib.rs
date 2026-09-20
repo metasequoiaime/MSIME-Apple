@@ -498,11 +498,37 @@ fn settled_model_beside(resources: &std::path::Path) -> Option<String> {
     path.is_file().then(|| path.to_str())??.to_owned().into()
 }
 
+/// Drop the `\\?\` prefix Windows canonicalisation adds.
+///
+/// The Engine validates the directories it is given with `std::filesystem::path::is_absolute`, and
+/// libstdc++ reads a verbatim path as having no root name - so `\\?\Z:\res` is not absolute to it
+/// and preparation is refused. MSVC's standard library parses the prefix, which is why a build with
+/// it never sees this; the GNU cross build, and every test that runs those binaries, does.
+///
+/// Only the drive form is unwrapped. `\\?\UNC\server\share` means something different from
+/// `\\server\share` to the filesystem, so it is left alone rather than rewritten into a path that
+/// happens to parse.
+fn without_verbatim_prefix(path: std::path::PathBuf) -> std::path::PathBuf {
+    let text = match path.to_str() {
+        Some(text) => text,
+        None => return path,
+    };
+    let stripped = match text.strip_prefix(r"\\?\") {
+        Some(stripped) => stripped,
+        None => return path,
+    };
+    let drive = stripped.as_bytes();
+    if drive.len() >= 3 && drive[0].is_ascii_alphabetic() && drive[1] == b':' && drive[2] == b'\\' {
+        return std::path::PathBuf::from(stripped);
+    }
+    path
+}
+
 pub fn prepare_host_configuration(
     resources: &std::path::Path,
     state_root: &std::path::Path,
 ) -> Result<String, Box<dyn std::error::Error>> {
-    let resources = std::fs::canonicalize(resources)?;
+    let resources = without_verbatim_prefix(std::fs::canonicalize(resources)?);
     let specification: ResourceSet = serde_json::from_str(include_str!(
         "../../../resources/desktop-dictionary.lock.json"
     ))?;
