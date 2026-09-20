@@ -79,6 +79,7 @@ import {
 import { ChatPage, type ChatClient } from "./chat/chat-page";
 import { HomePage, type HomePageActions } from "./keyboard/home-page";
 import { CommunitySkinsPage, type CommunitySkinClient } from "./community/community-skins";
+import { candidateSkinPalette } from "./skin/skin-preview-palette";
 import {
   CommunityHomePage,
   CommunityResourcesPage,
@@ -4621,6 +4622,10 @@ export function SettingsPage({
                             className={`${settings.skinCardPreview} skin-${id}`}
                             data-skin-preview=""
                             data-preview-theme={skinPreviewThemes[id] ?? candidatePreviewTheme}
+                            style={candidateSkinPalette(
+                              id,
+                              skinPreviewThemes[id] ?? candidatePreviewTheme,
+                            )}
                             aria-hidden="true"
                           >
                             <div className={settings.skinPreviewStage} data-skin-stage="">
@@ -4682,6 +4687,10 @@ export function SettingsPage({
                           data-skin-preview=""
                           data-toolbar-preview=""
                           data-preview-theme={toolbarPreviewTheme}
+                          style={candidateSkinPalette(
+                            draft.candidate_skin ?? "willow_green",
+                            toolbarPreviewTheme,
+                          )}
                         >
                           <SkinToolbarPreview preferences={floatingToolbar} />
                         </div>
