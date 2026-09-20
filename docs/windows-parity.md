@@ -171,7 +171,17 @@
 
 同次还确认了资源与数据侧没有问题：`files/engine` 暂存 292 MB，`msime.db` 107 MB、`dict_japanese.dat` 66 MB、`english.db` 8.4 MB、`dict_pinyin.dat`、`others.db`、`sentence-model.safetensors` 均在位，`engine.ready` 标记按代次写入；设置页的词库查询在设备上执行成功（全新安装的用户词库为空属正常）。
 
-再往下定位需要带诊断日志的构建：`press()` 收到的字符值、`client.character` 的返回视图两者都没有日志，而这正是要看的两处。
+带诊断日志的构建已在 2in1 上跑过，输出是：
+
+```
+composing key produced no composition: scheme=quanpin local=none english=false candidates=0
+```
+
+即宿主侧四项输入全部正确——方案是全拼、无本地模式、非英文、候选为零——`client.character` 确实被调用，Engine 收到合法字母后返回了空视图。排查因此越过了宿主侧：`press()` 的参数、方案、模式都不是原因。
+
+余下的怀疑集中在 Engine 在该设备上打开词库的时机与结果：`prepare_host` 只校验文件存在与清单一致，真正打开 SQLite 是另一回事，而一次静默的打开失败会让此后每次查询都返回空，且不影响 `session created`。验证这一点需要 Engine 侧的日志，不是宿主侧能看到的。
+
+那条诊断日志已经留在代码里（不记录按键字符，只记录宿主状态），因此这个失败此后不会再是静默的。
 
 仍未取得设备证据的是：语音 provider 实际识别、手写实际识别。两者需要真实凭据与真实音频/笔迹。其余条目均有不依赖设备的回归覆盖。
 
