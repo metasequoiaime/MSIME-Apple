@@ -25,6 +25,9 @@ struct Fixture {
     /// Candidates this engine holds back until asked, standing in for the Engine's cap on a
     /// single-letter query. Empty means an engine that already returns everything it has.
     withheld: Vec<String>,
+    /// Where each candidate came from, parallel to `words`. Empty means an engine answering from
+    /// the local dictionary alone, which is what most of these tests are about.
+    sources: Vec<u8>,
 }
 
 #[cfg(unix)]
@@ -360,7 +363,11 @@ impl InputEngine for Fixture {
                 .enumerate()
                 .map(|(index, _)| format!("({index})"))
                 .collect(),
-            candidate_sources: vec![0; self.words.len()],
+            candidate_sources: if self.sources.len() == self.words.len() {
+                self.sources.clone()
+            } else {
+                vec![0; self.words.len()]
+            },
             candidate_positions: vec![0; self.words.len()],
             candidate_corrected: vec![false; self.words.len()],
             microsoft_shuangpin: false,
@@ -436,6 +443,7 @@ fn runtime() -> Runtime<Fixture> {
             balanced_openings: Vec::new(),
             cache_resets: 0,
             withheld: Vec::new(),
+            sources: Vec::new(),
         },
         5,
     )
@@ -460,6 +468,77 @@ fn auto_close_balance_accepts_only_the_book_title_opening() {
 
 // The AI context accumulator. Every host but Linux sent an empty context,
 // so AI suggestions had to guess from the pinyin alone.
+// The seating table in candidate_selection_policy.h places one candidate per provider, because the
+// reference has one of each. A provider here answers with several - the AI limit reaches ten - and
+// the first attempt at this treated everything past the first as a local candidate. That is not a
+// cosmetic mistake: a local candidate is what takes the first seat, so the second AI suggestion was
+// promoted over the first and landed on the space bar.
+#[test]
+fn several_candidates_from_one_provider_take_their_seat_as_a_group() {
+    let seated = |words: &[&str], sources: Vec<u8>| {
+        let mut runtime = Runtime::new(
+            Fixture {
+                scheme: 0,
+                dedicated_english: false,
+                nine_key: false,
+                nine_key_spellings: Vec::new(),
+                local_mode: "none".into(),
+                words: words.iter().map(|word| (*word).into()).collect(),
+                // The seating only runs on a snapshot whose parallel arrays all match, so the
+                // codes have to be as long as the words for this to exercise anything.
+                codes: (0..words.len()).map(|n| format!("code-{n}")).collect(),
+                text: String::new(),
+                snapshot_fails: false,
+                balanced_openings: Vec::new(),
+                cache_resets: 0,
+                withheld: Vec::new(),
+                sources,
+            },
+            9,
+        )
+        .unwrap();
+        runtime.focus(true).unwrap();
+        type_key(&mut runtime)
+            .view
+            .candidates
+            .into_iter()
+            .map(|candidate| (candidate.text, candidate.annotation))
+            .collect::<Vec<_>>()
+    };
+
+    // Chinese first, then the whole AI group in the order it arrived. The annotation travels with
+    // its candidate, so it also says the parallel arrays were rotated together rather than the text
+    // alone: 本地 arrived third and keeps "(2)".
+    assert_eq!(
+        seated(&["AI 一", "AI 二", "本地"], vec![3, 3, 0]),
+        vec![
+            ("本地".to_string(), "(2)".to_string()),
+            ("AI 一".to_string(), "(0)".to_string()),
+            ("AI 二".to_string(), "(1)".to_string()),
+        ]
+    );
+    // Same for a cloud reply of more than one, and the AI group still follows the cloud group.
+    assert_eq!(
+        seated(&["云一", "云二", "AI", "本地"], vec![2, 2, 3, 0])
+            .into_iter()
+            .map(|(text, _)| text)
+            .collect::<Vec<_>>(),
+        vec!["本地", "云一", "云二", "AI"]
+    );
+    // With a cloud candidate present English sits after AI, and a second English candidate waits
+    // behind the seated ones rather than displacing anything.
+    assert_eq!(
+        seated(
+            &["AI 一", "AI 二", "英一", "英二", "云", "本地"],
+            vec![3, 3, 4, 4, 2, 0]
+        )
+        .into_iter()
+        .map(|(text, _)| text)
+        .collect::<Vec<_>>(),
+        vec!["本地", "云", "AI 一", "AI 二", "英一", "英二"]
+    );
+}
+
 #[test]
 fn ai_context_keeps_the_recent_tail_on_a_character_boundary() {
     let mut runtime = runtime();
@@ -521,6 +600,7 @@ fn candidate_codes_follow_candidates_in_page_and_complete_snapshots() {
             balanced_openings: Vec::new(),
             cache_resets: 0,
             withheld: Vec::new(),
+            sources: Vec::new(),
         },
         2,
     )
@@ -1434,6 +1514,7 @@ fn withholding_runtime(offered: usize, withheld: usize, page_size: u8) -> Runtim
             withheld: (offered..offered + withheld)
                 .map(|n| format!("candidate-{n}"))
                 .collect(),
+            sources: Vec::new(),
         },
         page_size,
     )
