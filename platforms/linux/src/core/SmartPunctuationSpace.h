@@ -1,9 +1,56 @@
 #pragma once
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <vector>
 
 namespace msime::linux_host {
+
+// The three keys smart punctuation routes: a mark after an ASCII letter or digit
+// stays ASCII, otherwise Engine's Chinese table converts it. Shared so the IBus
+// and Fcitx5 hosts cannot disagree about which keys those are.
+inline constexpr bool is_smart_punctuation_key(char value) {
+  return value == ',' || value == '.' || value == ':';
+}
+
+// The Chinese mark Engine commits for an ASCII one, empty for a key that has no
+// pair here. One table for both hosts and for both rewrites - the repeat back to
+// Chinese and the space back to ASCII read the same mapping in opposite
+// directions, and a second copy of it would be a second thing to drift.
+inline constexpr std::string_view chinese_punctuation_mark(char value) {
+  switch (value) {
+  case ',': return "，";
+  case '.': return "。";
+  case ';': return "；";
+  case ':': return "：";
+  case '!': return "！";
+  case '?': return "？";
+  case '(': return "（";
+  case ')': return "）";
+  case '[': return "【";
+  case ']': return "】";
+  case '{': return "｛";
+  case '}': return "｝";
+  case '<': return "〈";
+  case '>': return "〉";
+  default: return {};
+  }
+}
+
+// An ASCII mark as the host would commit it under the current width setting.
+// Printable ASCII has a fullwidth form one block away; nothing else is offered
+// here, because nothing else is a mark these rewrites produce.
+inline std::string ascii_mark_text(char value, bool fullwidth) {
+  const auto byte = static_cast<unsigned char>(value);
+  if (!fullwidth || byte < 0x21 || byte > 0x7e)
+    return std::string(1, value);
+  const std::uint32_t code = byte + 0xfee0;
+  std::string wide;
+  wide.push_back(static_cast<char>(0xe0 | (code >> 12)));
+  wide.push_back(static_cast<char>(0x80 | ((code >> 6) & 0x3f)));
+  wide.push_back(static_cast<char>(0x80 | (code & 0x3f)));
+  return wide;
+}
 
 // Whether a Space may take the Chinese mark in front of the caret back to
 // ASCII.
