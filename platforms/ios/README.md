@@ -30,7 +30,7 @@ Apple 客户端旧版 `english.mixedCandidates` 布尔值在创建首个共享�
 
 iOS 26 会默认在滚动视图边缘叠加渐隐和模糊。键盘内的候选、拼写、方案、皮肤、工具、表情、手写、AI、语音和回复面板统一通过共享 UIKit/SwiftUI 适配关闭该效果，避免短面板首尾内容被遮盖；iOS 25 及更早版本保持原行为。
 
-“更多”工具面板使用显式分组模型，不从中文标题推断布局或开关语义。根页保留表情、剪贴板、AI、语音、本地输入和键盘设置六个入口；本地模式与键盘开关使用各自二级页，避免新增功能把首屏内容挤出键盘高度。
+“更多”工具面板使用显式分组模型，不从中文标题推断布局或开关语义。根页是表情、剪贴板、AI、语音、本地输入五个入口，加上直接摆在同一页的「设置」分组开关——繁体输出、按键音、按键振动、全角输入和振动强度；这些开关原先藏在「键盘设置」卡片后面，打开面板只看得到六张一样的入口卡，要再点一次才知道按键音开没开。本地输入仍然是二级页：八个模式是一份列表而不是一组开关，摊到根页会把首屏内容挤出键盘高度。
 
 手写方案在真机构建中使用锁定的 ML Kit Digital Ink 8.0.0。模型下载会为键盘扩展创建的后台 URLSession 注入 App Group 共享容器；没有完全访问或共享容器不可用时明确失败，不把模型写入扩展私有临时目录。Apple Silicon 模拟器继续编译不依赖 ML Kit 的同界面 fallback，因为该 SDK 的 arm64 slice 是 device 平台而不是 simulator 平台；fallback 不冒充识别成功。真机构建通过 CocoaPods workspace 链接 SDK。
 
@@ -132,7 +132,7 @@ xcodebuild test -project platforms/ios/MSIMEClient.xcodeproj -scheme MSIMEClient
 
 必须允许签名。测试宿主带 App Group entitlement，被测键盘要靠它读共享偏好；用 `CODE_SIGNING_ALLOWED=NO` 构建会剥掉 entitlement，宿主在套件中途被杀，后面的用例全部不报告。模拟器上 `CODE_SIGN_IDENTITY=-` 即 ad-hoc 签名，不需要任何开发者证书。
 
-当前结果为 210 通过、1 跳过、0 失败（Xcode 27 / iOS 27.0 模拟器，使用仓库中提交的 Xcode 工程）。唯一跳过的是 `CandidateTranslationTests.testCandidateLongPressOffersGlossInsertion` 的「开启释义」分支：固定词库发布里没有该候选的英文释义来源（`translation-glosses.db` 是用户编辑后的覆盖层），取不到释义时跳过而不是报成产品失败，一旦有释义就自动恢复断言。
+当前结果为 218 通过、1 跳过、0 失败（`MSIMEKeyboardTests` 165、`MSIMESharedTests` 38、`MSIMEServiceTests` 16；Xcode 27 / iOS 27.0 模拟器，使用仓库中提交的 Xcode 工程）。这个数字要跟着改动更新：该套件不接入 `verify-local.sh`，没有自动基线，所以这一行是它唯一的基线，写错了就没有别的东西会发现。唯一跳过的是 `CandidateTranslationTests.testCandidateLongPressOffersGlossInsertion` 的「开启释义」分支：固定词库发布里没有该候选的英文释义来源（`translation-glosses.db` 是用户编辑后的覆盖层），取不到释义时跳过而不是报成产品失败，一旦有释义就自动恢复断言。
 
 该套件目前不接入 `scripts/verify-local.sh`：它需要模拟器和已暂存的词库资源，单次运行约十分钟。
 

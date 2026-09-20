@@ -161,6 +161,164 @@ final class CandidateTranslationTests: XCTestCase {
     XCTAssertEqual(longChip.bounds.width, short, accuracy: 0.5)
   }
 
+  /// A row is reserved only for a gloss that can actually arrive.
+  ///
+  /// English has the offline dictionary the keyboard ships with, so it answers without a
+  /// network. Every other language has to be fetched, and a keyboard without full access has
+  /// no network at all - reserving a row for it reserves a row that stays blank for the life
+  /// of the keyboard. The whole switch being off reserves nothing whatever the languages say.
+  func testARowIsReservedOnlyForAGlossThatCanActuallyBeFetched() {
+    let previousGloss = CandidateGlossPreference.enabled
+    let previousSecondary = CandidateTranslationPreference.secondaryIndex
+    let previousOnline = CandidateTranslationPreference.onlineEnabled
+    defer {
+      CandidateGlossPreference.enabled = previousGloss
+      CandidateTranslationPreference.secondaryIndex = previousSecondary
+      CandidateTranslationPreference.onlineEnabled = previousOnline
+    }
+
+    CandidateTranslationPreference.onlineEnabled = true
+    CandidateGlossPreference.enabled = false
+    CandidateTranslationPreference.secondaryIndex = -1
+    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: true), 0,
+                   "the switch is off, so nothing is reserved")
+
+    CandidateGlossPreference.enabled = true
+    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: false), 1,
+                   "English comes from the dictionary in the bundle, with or without a network")
+
+    // 日语 - the second entry of the table, and one that has to be fetched.
+    CandidateTranslationPreference.secondaryIndex = 1
+    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: false), 1,
+                   "no full access means no network, so that row could never be filled")
+    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: true), 2,
+                   "the row appears once the gloss can be reached")
+    CandidateTranslationPreference.onlineEnabled = false
+    XCTAssertEqual(KeyboardViewController.configuredGlossLines(fullAccess: true), 1,
+                   "the user turned the network off, which is the same answer as not having one")
+  }
+
+  /// The reserved rows come out of the keyboard's own height, not out of the keys.
+  func testTheKeyboardGrowsByTheRowsTheStripReserves() throws {
+    let previousGloss = CandidateGlossPreference.enabled
+    let previousSecondary = CandidateTranslationPreference.secondaryIndex
+    defer {
+      CandidateGlossPreference.enabled = previousGloss
+      CandidateTranslationPreference.secondaryIndex = previousSecondary
+    }
+    CandidateTranslationPreference.secondaryIndex = -1
+
+    func keyboardHeight() -> CGFloat? {
+      let controller = KeyboardViewController()
+      controller.loadViewIfNeeded()
+      controller.view.frame = CGRect(x: 0, y: 0, width: 390, height: 320)
+      controller.viewWillAppear(false)
+      return controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant
+    }
+
+    CandidateGlossPreference.enabled = false
+    let bare = try XCTUnwrap(keyboardHeight())
+    CandidateGlossPreference.enabled = true
+    let glossed = try XCTUnwrap(keyboardHeight())
+    XCTAssertEqual(glossed - bare, KeyboardViewController.glossLineHeight, accuracy: 0.5,
+                   "the gloss row was taken off the keys instead of added to the keyboard")
+  }
+
+  /// The gloss sits on its own line under the candidate rather than beside it, and a candidate
+  /// without one stays a single line - the expanded panel draws the same rows as the strip.
+  func testGlossTakesItsOwnLineUnderTheCandidate() throws {
+    let panel = KeyboardCandidatePanelView(
+      candidates: ["你好", "泥好"], preedit: "nihao",
+      annotations: [
+        KeyboardCandidateAnnotation(text: "hello\nこんにちは", accessibilityDescription: "释义"),
+        .none,
+      ],
+      display: { $0 }, onSelect: { _ in }, onClose: {})
+    panel.frame = CGRect(x: 0, y: 0, width: 390, height: 220)
+    panel.layoutIfNeeded()
+
+    let glossed = try XCTUnwrap(
+      descendants(panel).first { $0.accessibilityIdentifier == "panelCandidate-1" } as? UIButton)
+    let title = try XCTUnwrap(glossed.configuration?.attributedTitle.map { String($0.characters) })
+    XCTAssertEqual(title.split(separator: "\n", omittingEmptySubsequences: false),
+                   ["你好", "hello", "こんにちは"],
+                   "the gloss belongs on its own line, not crowded beside the candidate")
+    let label = try XCTUnwrap(glossed.titleLabel)
+    XCTAssertGreaterThan(
+      label.bounds.height,
+      UIFont.preferredFont(forTextStyle: .body).lineHeight
+        + UIFont.preferredFont(forTextStyle: .caption2).lineHeight,
+      "a candidate with two glosses has to be drawn as three lines")
+
+    let bare = try XCTUnwrap(
+      descendants(panel).first { $0.accessibilityIdentifier == "panelCandidate-2" } as? UIButton)
+    XCTAssertEqual(bare.configuration?.title, "泥好", "a candidate without a gloss stays one line")
+  }
+
+  /// Chips must not resize when a gloss lands.
+  ///
+  /// The online glosses arrive a few hundred milliseconds late. A chip that grows from one line
+  /// to two on arrival moves every candidate after it out from under the finger that was already
+  /// reaching for one. The row is drawn blank until the answer comes, so the height never moves -
+  /// which is also why a chip whose gloss has not arrived still carries a placeholder line rather
+  /// than nothing.
+  func testAChipKeepsItsHeightWhileTheGlossIsStillOnItsWay() throws {
+    let placeholder = KeyboardViewController.pendingGlossPlaceholder
+    func annotation(_ text: String) -> KeyboardCandidateAnnotation {
+      KeyboardCandidateAnnotation(text: text, accessibilityDescription: text == placeholder ? "" : "释义")
+    }
+    func panel(_ annotations: [KeyboardCandidateAnnotation]) -> KeyboardCandidatePanelView {
+      let view = KeyboardCandidatePanelView(
+        candidates: ["你好", "泥嚎"], preedit: "nihao", annotations: annotations,
+        display: { $0 }, onSelect: { _ in }, onClose: {})
+      view.frame = CGRect(x: 0, y: 0, width: 390, height: 240)
+      view.layoutIfNeeded()
+      return view
+    }
+    func height(_ view: KeyboardCandidatePanelView, _ identifier: String) throws -> CGFloat {
+      try XCTUnwrap(
+        descendants(view).first { $0.accessibilityIdentifier == identifier } as? UIButton
+      ).bounds.height
+    }
+
+    let waiting = panel([annotation(placeholder), annotation(placeholder)])
+    let arrived = panel([annotation("hello"), annotation(placeholder)])
+    XCTAssertEqual(try height(waiting, "panelCandidate-1"), try height(arrived, "panelCandidate-1"),
+                   accuracy: 0.5, "the chip resized when the gloss landed")
+    XCTAssertEqual(try height(arrived, "panelCandidate-1"), try height(arrived, "panelCandidate-2"),
+                   accuracy: 0.5,
+                   "a page must not draw one height for answered chips and another for waiting ones")
+
+    // Only turning glosses off returns the page to single-line chips.
+    let single = panel([.none, .none])
+    XCTAssertLessThan(try height(single, "panelCandidate-1"), try height(waiting, "panelCandidate-1"),
+                      "a page with no glosses at all should be back to one line")
+  }
+
+  /// A stored index the table no longer has resolves to the first language rather than trapping.
+  /// The table is versioned with the build; a downgrade or an edited App Group value can leave
+  /// an index behind that is now out of range.
+  func testTheLanguageTableAnswersTheFirstEntryForAnIndexOutOfRange() {
+    let previousPrimary = CandidateTranslationPreference.primaryIndex
+    let previousSecondary = CandidateTranslationPreference.secondaryIndex
+    defer {
+      CandidateTranslationPreference.primaryIndex = previousPrimary
+      CandidateTranslationPreference.secondaryIndex = previousSecondary
+    }
+    XCTAssertEqual(CandidateTranslationPreference.language(at: -1),
+                   CandidateTranslationPreference.languages[0])
+    XCTAssertEqual(CandidateTranslationPreference.language(at: 99),
+                   CandidateTranslationPreference.languages[0])
+
+    CandidateTranslationPreference.primaryIndex = 99
+    XCTAssertEqual(CandidateTranslationPreference.primary,
+                   CandidateTranslationPreference.languages[0],
+                   "an unusable primary index falls back rather than dropping the gloss")
+    // The secondary is optional, so an unusable index means "none" instead of the first entry.
+    CandidateTranslationPreference.secondaryIndex = 99
+    XCTAssertNil(CandidateTranslationPreference.secondary)
+  }
+
   private func descendants(_ view: UIView) -> [UIView] {
     [view] + view.subviews.flatMap { descendants($0) }
   }
