@@ -21,8 +21,9 @@ import type { KeyEvent as InputKeyEvent } from '@ohos.multimodalInput.keyEvent';
 import { Action as KeyAction } from '@ohos.multimodalInput.keyEvent';
 import { StagedResources } from '../keyboard/StagedResources';
 import { HardwareKeyDispatch } from '../keyboard/HardwareKeyDispatch';
-import { PanelShortcut, PanelShortcutKey, PanelShortcutPolicy }
+import { PanelShortcutKey, PanelShortcutPolicy, PanelSurfaceAction }
   from '../keyboard/input/PanelShortcutPolicy';
+import { ToolbarButton } from '../keyboard/FloatingToolbarLayout';
 import { AttachedInputDevice, DeviceChange, HardwareKeyboardPolicy, KeyRoutingTransition }
   from '../keyboard/input/HardwareKeyboardPolicy';
 import { HarmonyHardwareKeyboards } from '../keyboard/input/HarmonyHardwareKeyboards';
@@ -392,10 +393,15 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       shiftKey: event.shiftKey, altKey: event.altKey, logoKey: event.logoKey
     };
     if (PanelShortcutPolicy.claims(panelKey)) {
-      if (PanelShortcutPolicy.shortcut(panelKey) === PanelShortcut.SCREEN_KEYBOARD) {
-        // Asking for the open surface closes it: there is one window, and this is the only way back
-        // to the candidates without a pointing device.
-        this.showDesktopSurface(DesktopSurface.SCREEN_KEYBOARD);
+      const surface: PanelSurfaceAction =
+        PanelShortcutPolicy.action(PanelShortcutPolicy.shortcut(panelKey));
+      if (surface !== PanelSurfaceAction.NONE) {
+        // Through the same entry the toolbar button uses, not the window helper underneath it. That
+        // helper shows and sizes a panel but never records which surface is open, so the view went
+        // on drawing candidates and the window was sized around them: a thin empty bar where a
+        // keyboard had been asked for. Asking for the open surface still closes it, because that is
+        // what this entry does.
+        session.runToolbarButton(surface as number as ToolbarButton);
       }
       // The release is claimed too, or a bare K lands in the editor after the panel has opened.
       return true;

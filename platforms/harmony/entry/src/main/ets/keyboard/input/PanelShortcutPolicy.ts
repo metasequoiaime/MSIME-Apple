@@ -33,6 +33,16 @@ export enum PanelShortcut {
   SCREEN_KEYBOARD,
 }
 
+/**
+ * Which toolbar action a shortcut stands in for. Mirrors `ToolbarButton`, which lives in a file
+ * this one must not import: the layout module reaches ArkUI types, and this policy is plain
+ * TypeScript so it can be tested without a device.
+ */
+export enum PanelSurfaceAction {
+  NONE = -1,
+  SCREEN_KEYBOARD = 5,
+}
+
 export class PanelShortcutPolicy {
   /**
    * Which panel a key asks for, if any.
@@ -48,6 +58,24 @@ export class PanelShortcutPolicy {
       return PanelShortcut.NONE;
     }
     return key.down ? PanelShortcut.SCREEN_KEYBOARD : PanelShortcut.NONE;
+  }
+
+  /**
+   * The toolbar action a shortcut asks for.
+   *
+   * A shortcut and a toolbar button that open the same surface must go through the same entry, or
+   * they do different things. They did: the chord called the host's window helper directly, which
+   * shows and sizes a panel but never tells the view which surface is open, so the keyboard was
+   * never drawn and the window was sized around the candidate strip that was still there. On a 2in1
+   * that is the whole feature — a thin empty bar where a keyboard was asked for.
+   *
+   * Naming the action here rather than at the call site is what makes that testable: the mapping is
+   * a value, and a test can hold it against the button the toolbar uses.
+   */
+  static action(shortcut: PanelShortcut): PanelSurfaceAction {
+    return shortcut === PanelShortcut.SCREEN_KEYBOARD
+      ? PanelSurfaceAction.SCREEN_KEYBOARD
+      : PanelSurfaceAction.NONE;
   }
 
   /**

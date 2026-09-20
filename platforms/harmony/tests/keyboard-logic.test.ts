@@ -196,6 +196,7 @@ import {
   PointerAction,
   PointerButton,
 } from "../entry/src/main/ets/keyboard/input/CandidateContextMenuPolicy";
+import { PanelSurfaceAction } from "../entry/src/main/ets/keyboard/input/PanelShortcutPolicy";
 import {
   SmartPunctuationSpacePolicy,
   SpaceConvertDecision,
@@ -4885,6 +4886,26 @@ group("only a translation takes the translation's appearance", () => {
     "and neither is one that was never resolved",
   );
   check(!CandidateGlossPolicy.annotationIsTranslation(null, "", true), "nor an empty one");
+});
+
+group("the panel chord asks for the same action the toolbar button does", () => {
+  // The chord used to call the host's window helper directly. That helper shows and sizes a panel
+  // but never records which surface is open, so the view went on drawing candidates and the window
+  // was sized around them — a thin empty bar on a 2in1 where a keyboard had been asked for. Naming
+  // the action makes the two entries comparable, which is the only way this stays fixed.
+  check(
+    (PanelSurfaceAction.SCREEN_KEYBOARD as number) === (ToolbarButton.SCREEN_KEYBOARD as number),
+    "the shortcut's action is the toolbar's screen-keyboard button",
+  );
+  check(
+    PanelShortcutPolicy.action(PanelShortcut.SCREEN_KEYBOARD) ===
+      PanelSurfaceAction.SCREEN_KEYBOARD,
+    "the screen-keyboard shortcut maps to that action",
+  );
+  check(
+    PanelShortcutPolicy.action(PanelShortcut.NONE) === PanelSurfaceAction.NONE,
+    "no shortcut asks for no surface",
+  );
 });
 
 // The account bridge deliberately models the asynchronous device HTTP API. Give its immediate
