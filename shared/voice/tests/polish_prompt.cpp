@@ -1,4 +1,4 @@
-#include "PolishPrompt.h"
+#include "../PolishPrompt.h"
 #include <iostream>
 #include <stdexcept>
 #include <string>
@@ -43,13 +43,23 @@ int main() {
 
     // An empty second or third slot does NOT fall back to the legacy box: that
     // box belongs to slot one, and borrowing it would send the wrong prompt.
+    // It falls back to the cleanup preset, which is also what an unset
+    // configuration gets, and which preset that is has to be pinned: slot two
+    // returned the faithful one here, so a slot the user never filled in had
+    // the model proof-read where every other empty slot had it condense.
     PolishPromptSlots empty_slot;
+    PolishPromptSlots unset;
+    const std::string cleanup = polish_prompt_for(unset);
     empty_slot.id = "custom_2";
     empty_slot.legacy = "legacy text";
     require(polish_prompt_for(empty_slot) != "legacy text");
-    require(!polish_prompt_for(empty_slot).empty());
+    require(polish_prompt_for(empty_slot) == cleanup);
     empty_slot.id = "custom_3";
     require(polish_prompt_for(empty_slot) != "legacy text");
+    require(polish_prompt_for(empty_slot) == cleanup);
+    empty_slot.id = "custom_1";
+    empty_slot.legacy.clear();
+    require(polish_prompt_for(empty_slot) == cleanup);
 
     // With a preset selected, a legacy prompt still overrides the built-in
     // text, so a configuration that only ever set polish_prompt keeps working.

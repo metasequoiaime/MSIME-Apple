@@ -56,6 +56,12 @@ def main() -> int:
         text = []
         for directory in directories:
             for path in (root / directory).rglob("*"):
+                # A field named only in a test is not a field the host acts on. Counting those made a
+                # test about the touch keyboard - written for another platform, in a crate this scan
+                # reaches - look like macOS consuming a preference it has no surface for, and the entry
+                # explaining why it cannot was then reported as stale.
+                if path.name in {"tests.rs", "test.rs"} or "tests" in path.parts:
+                    continue
                 if path.is_file() and path.suffix in {".h", ".m", ".mm", ".cpp", ".swift", ".rs"}:
                     text.append(path.read_text(encoding="utf-8", errors="ignore"))
         return "\n".join(text)

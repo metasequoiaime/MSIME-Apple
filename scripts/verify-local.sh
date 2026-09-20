@@ -198,6 +198,13 @@ python3 scripts/test-windows-32bit-compile.py || fail "windows x86 syntax"
 note "harmony settings bundle"
 python3 scripts/test-harmony-settings-bundle.py || fail "harmony settings bundle"
 
+# ArkTS decides what the injected bridge exposes twice - the method on the class
+# and its name in registerJavaScriptProxy - and only the second is what the page
+# sees. A name added in one place and not the other type-checks, compiles and
+# builds, then fails on a device as "not a function". It has happened once.
+note "harmony bridge parity"
+python3 scripts/test-harmony-bridge-parity.py || fail "harmony bridge parity"
+
 # rendered_view is null until the first render and after every session rebuild,
 # and nlohmann's value() throws on null. A throw inside the Linux key handler is
 # caught, so the symptom is a silently dropped key and one warning line - the

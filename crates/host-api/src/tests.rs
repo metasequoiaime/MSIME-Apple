@@ -1246,6 +1246,147 @@ fn the_reply_library_a_keyboard_rereads_is_written_through_its_own_store() {
 
 #[test]
 #[cfg(not(target_os = "android"))]
+fn ai_skin_planning_keeps_the_instruction_and_the_parser_together() {
+    let call = |request: String| {
+        read(unsafe { msime_client_ai_skin_plan(request.as_ptr(), request.len()) })
+    };
+
+    // The host does not write the instruction. It names the exact document the parser accepts, so
+    // a host composing its own would be asking for something the parser was not written against.
+    let composed = call(
+        json!({"operation": "compose", "prompt": "晨雾里的竹林", "model": "fast"}).to_string(),
+    );
+    assert_eq!(composed["ok"], true);
+    assert_eq!(composed["value"]["path"], "/v1/chat/completions");
+    assert_eq!(composed["value"]["body"]["model"], "fast");
+    assert_eq!(composed["value"]["body"]["stream"], false);
+    assert_eq!(composed["value"]["body"]["messages"][0]["role"], "system");
+    assert_eq!(
+        composed["value"]["body"]["messages"][0]["content"],
+        msime_client_core::skin::ai::AI_SKIN_SYSTEM_PROMPT
+    );
+    assert_eq!(
+        composed["value"]["body"]["messages"][1]["content"],
+        "晨雾里的竹林"
+    );
+
+    // The bounds are the ones `generate` applies before it spends anything: a prompt refused here
+    // is one the service would have refused after four requests.
+    assert_eq!(
+        call(json!({"operation": "compose", "prompt": "", "model": "fast"}).to_string())["error"],
+        "ai_skin_invalid"
+    );
+    assert_eq!(
+        call(json!({"operation": "compose", "prompt": "线\u{7}索", "model": "fast"}).to_string())
+            ["error"],
+        "ai_skin_invalid"
+    );
+    assert_eq!(
+        call(
+            json!({"operation": "compose", "prompt": "x".repeat(501), "model": "fast"}).to_string()
+        )["error"],
+        "ai_skin_invalid"
+    );
+
+    let design = |shape: &str, material: &str, accent: &str, prompt: &str| {
+        json!({
+            "name": "晨雾",
+            "description": "竹林里的薄雾",
+            "artworkPrompt": prompt,
+            "background": "#E8F0EB",
+            "keyBackground": "#FFFFFF",
+            "keyForeground": "#17251D",
+            "accent": accent,
+            "actionBackground": accent,
+            "gradientEnd": null,
+            "gradientHorizontal": false,
+            "keyShape": shape,
+            "keyMaterial": material,
+            "cornerRadius": 8,
+            "borderWidth": 0,
+            "shadow": 0.1,
+            "pattern": 0,
+            "monospaced": false,
+        })
+    };
+    let scene = |suffix: &str| {
+        format!(
+            "{}{suffix}",
+            "远山薄雾中的竹林与流水，主体靠近画面边缘，中央留白".repeat(2)
+        )
+    };
+    let answer = json!({
+        "skins": [
+            design("pebble", "raised", "#185C47", &scene("甲")),
+            design("capsule", "glass", "#1C3F6E", &scene("乙")),
+            design("ticket", "paper", "#6E2C1C", &scene("丙")),
+        ]
+    })
+    .to_string();
+    let parsed = call(json!({"operation": "parse", "text": answer}).to_string());
+    assert_eq!(parsed["ok"], true);
+    assert_eq!(parsed["value"].as_array().unwrap().len(), 3);
+    assert_eq!(parsed["value"][0]["artworkPrompt"], scene("甲"));
+    assert_eq!(parsed["value"][1]["design"]["keyShape"], "capsule");
+
+    // Three proposals that share a shape are not three skins to choose between, which is what the
+    // instruction asked the model for.
+    let same_shape = json!({
+        "skins": [
+            design("pebble", "raised", "#185C47", &scene("甲")),
+            design("pebble", "glass", "#1C3F6E", &scene("乙")),
+            design("ticket", "paper", "#6E2C1C", &scene("丙")),
+        ]
+    })
+    .to_string();
+    assert_eq!(
+        call(json!({"operation": "parse", "text": same_shape}).to_string())["error"],
+        "ai_skin_response"
+    );
+    assert_eq!(
+        call(json!({"operation": "parse", "text": "not json"}).to_string())["error"],
+        "ai_skin_response"
+    );
+
+    // A returned picture is checked by the shared client, header and all: a host that trusted the
+    // declared type would render whatever arrived under it.
+    // base64 of b"\x89PNG\r\n\x1A\nrest" and b"\xFF\xD8\xFFrest", written out so this crate does
+    // not take a base64 dependency for two fixtures.
+    let png = "iVBORw0KGgpyZXN0";
+    assert_eq!(
+        call(
+            json!({
+                "operation": "artwork",
+                "artwork": {"b64_json": png, "mime_type": "image/png", "width": 512, "height": 512},
+            })
+            .to_string()
+        )["ok"],
+        true
+    );
+    let jpeg_header_on_a_png_claim = "/9j/cmVzdA==";
+    assert_eq!(
+        call(
+            json!({
+                "operation": "artwork",
+                "artwork": {
+                    "b64_json": jpeg_header_on_a_png_claim,
+                    "mime_type": "image/png",
+                    "width": 512,
+                    "height": 512,
+                },
+            })
+            .to_string()
+        )["error"],
+        "ai_skin_response"
+    );
+    assert_eq!(
+        read(unsafe { msime_client_ai_skin_plan(std::ptr::null(), 0) })["ok"],
+        false
+    );
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
 fn skin_resource_bridge_revalidates_kind_and_package_containment() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().join("skins");

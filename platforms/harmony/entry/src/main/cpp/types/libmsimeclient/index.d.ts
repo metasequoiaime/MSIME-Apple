@@ -37,6 +37,15 @@ export const keyboardSkinTrial: (request: string) => string;
  * kept. Every operation answers with the whole library; the keyboard process rereads the same file.
  */
 export const communityResourceLibrary: (request: string) => string;
+/**
+ * The decisions in AI skin generation, for a host that performs the requests itself.
+ *
+ * `{operation:"compose",prompt,model}` answers `{path,body}` carrying the shared system prompt;
+ * `{operation:"parse",text}` answers the three validated plans or refuses; `{operation:"artwork"}`
+ * says whether a returned image is one this client will show. The instruction and the parser are
+ * one contract — the prompt names the exact document the parser accepts.
+ */
+export const aiSkinPlan: (request: string) => string;
 export const savePreferences: (
   directory: string,
   expectedRevision: number,

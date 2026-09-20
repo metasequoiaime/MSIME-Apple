@@ -772,6 +772,14 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 ## 下一批实施顺序
 
+增量记录（2026-09-21，来源测试清单第三批：语音润色的提示词槽位）：来源 `test_voice_providers.cpp` 的三条里，`voice_providers_empty_custom_falls_back_to_cleanup` 钉的是「自定义槽位留空时用精炼整理那份内置提示词」——它断言留空的自定义二拿到的文本含「整理助手」。本仓 `shared/voice/PolishPrompt.h` 在这一条上漂了：自定义一和自定义三留空回落到 `kCleanupPrompt`，自定义二留空回落到 `kFaithfulPrompt`。于是一个用户从没填过内容的槽位，模型收到的是「校对」而不是「精炼整理」，与另外两个空槽位的行为也不一致。
+
+这个头文件是共享的：Windows 宿主 `platforms/windows/src/system/PolishPrompt.h` 只是把它 include 进来，macOS 经 `HTTPVoiceRequest.mm` 用的也是它，所以这一处同时影响两个桌面宿主。
+
+漂移能发生是因为原有用例只断言了「不是 legacy 那份」和「非空」，没说是哪一份内置。现按来源改为 `kCleanupPrompt`，并把三个空槽位都钉到「与完全未配置时拿到的那份相同」。反向验证过：改回去，用例在第 56 行失败。
+
+顺带把这个测试挪到它测的代码旁边（`shared/voice/tests/polish_prompt.cpp`），并在 macOS 的 CTest 里注册。它此前只在 Windows 构建里跑，而两个桌面宿主都发这份提示词——这正是漂移没人发现的原因。
+
 增量记录（2026-09-21，来源测试清单第二批：字体族解析）：来源 `test_system_font_family.cpp` 钉住两条——下拉里列的是 DirectWrite 的族名且有序，以及**旧配置里存的 face 名要解析成 CSS 能匹配的族名**（`仓耳今楷05 W03` → `仓耳今楷05`）。第一条 macOS 已满足：`system_fonts::list` 走 `CTFontManagerCopyAvailableFontFamilyNames`，装进 `BTreeSet` 天然有序。第二条此前是空的：`resolve_css_families` 只在 Windows 上查别名，其余平台原样返回，注释写的是「其他宿主本来就只有族名」。
 
 对 macOS 这条不成立，理由和 Windows 完全一样：偏好里的字体名不只来自下拉——旧版本写下的文件、迁移过来的配置、手改的 JSON 都算数，而 CoreText 认 PostScript 名（`PingFangSC-Semibold`）、CSS 不认。于是候选窗（走 `NSFont`）显示的是用户选的那个字体，紧挨着的设置页预览（走 CSS）悄悄回退成别的——只有预览是错的，两边还对不上。

@@ -168,6 +168,13 @@ import {
   AccountTransport,
 } from "../entry/src/main/ets/account/AccountCloudBridge";
 import {
+  AiSkinCancelled,
+  AiSkinFailure,
+  AiSkinRun,
+  AiSkinRunner,
+  ArtworkJob,
+} from "../entry/src/main/ets/account/AiSkinRunPolicy";
+import {
   AccountPreferenceError,
   AccountPreferenceSchema,
   AccountPreferences,
@@ -4664,6 +4671,154 @@ group("applying writes only what the schema declares", () => {
     withFeedback.feedback?.hapticStrength === "light",
     "and the members it did not mention keep their local values",
   );
+});
+
+/** A runner whose answers are scripted, so the rules between the steps can be exercised alone. */
+function aiSkinRunner(overrides: Partial<AiSkinRunner> = {}): {
+  runner: AiSkinRunner;
+  created: string[];
+  deleted: string[];
+} {
+  const created: string[] = [];
+  const deleted: string[] = [];
+  const jobId = (index: number) => `${index}`.repeat(48).slice(0, 48);
+  let next = 1;
+  const plan = (suffix: string) => ({
+    name: `晨雾${suffix}`,
+    description: "说明",
+    artworkPrompt: `场景${suffix}`,
+    design: {},
+  });
+  const runner: AiSkinRunner = {
+    defaultModel: async () => "fast",
+    chat: async () => "{}",
+    plans: () => [plan("甲"), plan("乙"), plan("丙")],
+    createJob: async (artworkPrompt: string) => {
+      created.push(artworkPrompt);
+      const id = jobId(next++);
+      return { id, state: "succeeded", artwork: { b64_json: "x" } } as ArtworkJob;
+    },
+    readJob: async (id: string) => ({ id, state: "succeeded", artwork: { b64_json: "x" } }),
+    deleteJob: async (id: string) => {
+      deleted.push(id);
+    },
+    validateArtwork: () => true,
+    wait: async () => {},
+    now: () => 0,
+    ...overrides,
+  };
+  return { runner, created, deleted };
+}
+
+group("an AI skin run releases what it started, whichever way it ends", () => {
+  const { runner, created, deleted } = aiSkinRunner();
+  const run = new AiSkinRun(runner);
+  const ticks: number[] = [];
+  void run
+    .generate("晨雾里的竹林", (completed) => ticks.push(completed))
+    .then((proposals) => {
+      check(proposals.length === 3, "three illustrated designs come back");
+      check(created.length === 3, "one artwork job per plan");
+      // Every job is released. The user's account is what an abandoned upstream task is charged to,
+      // and nothing left on this device would ever go back to stop it.
+      check(deleted.length === 3, "and every one of them is released");
+      // Counted in finished pictures rather than as a fraction of the whole run: the catalog and the
+      // chat are quick and the pictures are not, so a percentage would sit still and say nothing.
+      check(
+        ticks.length === 3 && Math.max(...ticks) === 3,
+        "progress counts finished pictures, up to three",
+      );
+    });
+
+  // A run that fails partway must still release the job it had already created, and must not leave
+  // its siblings generating pictures for a set nobody will see.
+  const failingCreated: string[] = [];
+  const failing = aiSkinRunner({
+    createJob: async (artworkPrompt: string) => {
+      if (artworkPrompt === "场景乙") throw new AiSkinFailure("ai_skin_unavailable");
+      failingCreated.push(artworkPrompt);
+      return {
+        id: "a".repeat(48),
+        state: "succeeded",
+        artwork: { b64_json: "x" },
+      } as ArtworkJob;
+    },
+  });
+  const failed = new AiSkinRun(failing.runner);
+  void failed
+    .generate("晨雾", () => {})
+    .then(() => check(false, "a failing job must not resolve"))
+    .catch((error) => {
+      check(error instanceof AiSkinFailure, "the failure is reported, not swallowed");
+      check(failed.cancelled, "and the siblings are stopped");
+      check(
+        failing.deleted.length === failingCreated.length && failingCreated.length > 0,
+        "while the jobs that were created are still released",
+      );
+    });
+
+  // Cancelling before anything starts costs nothing, and has to be recognisable as a cancellation
+  // rather than as a failure — the page says different things about the two.
+  const idle = aiSkinRunner();
+  const cancelled = new AiSkinRun(idle.runner);
+  cancelled.cancel();
+  void cancelled
+    .generate("晨雾", () => {})
+    .then(() => check(false, "a cancelled run must not resolve"))
+    .catch((error) => {
+      check(error instanceof AiSkinCancelled, "cancelling is not a failure");
+      check(idle.created.length === 0, "and nothing was requested");
+    });
+
+  // A job the service never finishes is given the shared 200 seconds and then abandoned, rather
+  // than polled until the page is closed.
+  let clock = 0;
+  const slow = aiSkinRunner({
+    createJob: async () => ({ id: "b".repeat(48), state: "running" }) as ArtworkJob,
+    readJob: async (id: string) => ({ id, state: "running" }),
+    wait: async () => {
+      clock += 5000;
+    },
+    now: () => clock,
+  });
+  const stalled = new AiSkinRun(slow.runner);
+  void stalled
+    .generate("晨雾", () => {})
+    .then(() => check(false, "a stalled run must not resolve"))
+    .catch((error) => {
+      check(
+        error instanceof AiSkinFailure && error.message === "ai_skin_unavailable",
+        "a job that never finishes is abandoned",
+      );
+      check(slow.deleted.length > 0, "and released on the way out");
+    });
+
+  // The job id goes into a path, so its shape is checked before it does.
+  const forged = aiSkinRunner({
+    createJob: async () => ({ id: "../../users/me", state: "succeeded" }) as ArtworkJob,
+  });
+  void new AiSkinRun(forged.runner)
+    .generate("晨雾", () => {})
+    .then(() => check(false, "a forged job id must not resolve"))
+    .catch((error) => {
+      check(
+        error instanceof AiSkinFailure && error.message === "ai_skin_response",
+        "a job id that is not 48 hex characters never reaches a path",
+      );
+    });
+
+  // A picture the shared client will not show is a failed proposal, not one drawn with a blank.
+  const unusable = aiSkinRunner({ validateArtwork: () => false });
+  void new AiSkinRun(unusable.runner)
+    .generate("晨雾", () => {})
+    .then(() => check(false, "an unusable picture must not resolve"))
+    .catch((error) => {
+      check(
+        error instanceof AiSkinFailure && error.message === "ai_skin_response",
+        "an artwork the shared client refuses fails the proposal",
+      );
+      check(unusable.deleted.length > 0, "and its job is still released");
+    });
 });
 
 group("shared dictionaries and reply templates keep their own bounds", () => {

@@ -14,6 +14,7 @@ import { KeyboardLog, describeError } from '../keyboard/KeyboardLog';
 import { KeyboardSession } from '../keyboard/KeyboardSession';
 import { StagedResources } from '../keyboard/StagedResources';
 import { HarmonyAccountCloudBridge } from '../account/HarmonyAccountCloudBridge';
+import { HarmonyAiSkins } from '../account/HarmonyAiSkins';
 import { utf8Length } from '../keyboard/Utf8';
 import { niutransAuth, tencentAuthorization } from '../keyboard/CredentialCrypto';
 import { HarmonyVoiceCaptureDevices } from '../keyboard/input/HarmonyVoiceCaptureDevices';
@@ -104,6 +105,13 @@ interface VoiceCaptureDeviceReply {
 
 const BRIDGE_NAME: string = 'msimeHarmony';
 const PLATFORM: string = 'harmony';
+
+/** One AI skin request from the page: start a run, or stop the one under that id. */
+interface AiSkinAction {
+  operation: string;
+  request_id?: string;
+  prompt?: string;
+}
 
 /** One community resource request; only the two local library operations are handled here. */
 interface CommunityResourceAction {
@@ -404,7 +412,7 @@ struct Settings {
             this.controller.registerJavaScriptProxy(this.bridge, BRIDGE_NAME,
               ['loadPreferences', 'savePreferences', 'hostCapabilities', 'appVersion',
                 'scanSkinCatalog', 'readSkinImage', 'readSkinFont', 'readSkinToolbarCss',
-                'dictionary', 'cloudDictionaryDownload',
+                'customSkinLibrary', 'dictionary', 'cloudDictionaryDownload',
                 'typingStatistics', 'openExternalUrl', 'copyText',
                 'openSystemKeyboardSettings', 'listVoiceCaptureDevices', 'listFontFamilies',
                 'keyboardFeedback', 'customTranslations', 'onboardingStatus',
@@ -440,6 +448,7 @@ class SettingsBridge {
   private webview: web_webview.WebviewController | undefined = undefined;
   private context: common.UIAbilityContext | undefined = undefined;
   private accountBridge: HarmonyAccountCloudBridge | undefined = undefined;
+  private aiSkins: HarmonyAiSkins | undefined = undefined;
   private cloudDownloadRequest: number = 0;
 
   useWebview(controller: web_webview.WebviewController): void {
@@ -450,6 +459,7 @@ class SettingsBridge {
     this.context = context;
     this.stateDirectory = `${context.filesDir}/state`;
     this.accountBridge = new HarmonyAccountCloudBridge(context);
+    this.aiSkins = this.accountBridge.aiSkins();
     // The same copy the keyboard makes, by the same rule. The page reaches the dictionary through
     // it too, and two staging rules for one directory is how it came to hold a set matching neither.
     StagedResources.stage(`${context.resourceDir}/engine`, `${context.filesDir}/engine`,
@@ -614,6 +624,11 @@ class SettingsBridge {
       this.account(payload).then(deliver).catch(failed);
     } else if (kind === 'settings_sync') {
       this.settingsSync(payload).then(deliver).catch(failed);
+    } else if (kind === 'ai_skin') {
+      this.aiSkin(id, payload).then(deliver).catch((error: Object): void => {
+        KeyboardLog.error(`ai skin request failed: ${describeError(error)}`);
+        deliver(JSON.stringify({ ok: false, error: 'ai_skin_unavailable' }));
+      });
     } else if (kind === 'community_resource') {
       this.communityResource(payload).then(deliver).catch((error: Object): void => {
         KeyboardLog.error(`community resource request failed: ${describeError(error)}`);
@@ -667,6 +682,46 @@ class SettingsBridge {
     } catch {
       return raw;
     }
+  }
+
+  /**
+   * AI skin generation, which is the one request that reports before it answers.
+   *
+   * Three pictures take minutes, so a run that said nothing until it finished would be
+   * indistinguishable from one that had stopped. Progress goes out on its own channel rather than
+   * as part of the reply, the same direction the preference-change notification uses, and the
+   * request id the page chose travels with it so a stale run's counter cannot drive a new one's
+   * display.
+   */
+  async aiSkin(requestId: number, actionDocument: string): Promise<string> {
+    if (this.aiSkins === undefined) {
+      return JSON.stringify({ ok: false, error: 'ai_skin_unavailable' });
+    }
+    let action: AiSkinAction;
+    try {
+      action = JSON.parse(actionDocument) as AiSkinAction;
+    } catch {
+      return JSON.stringify({ ok: false, error: 'ai_skin_invalid' });
+    }
+    const id: string = action.request_id ?? '';
+    if (action.operation === 'cancel') return this.aiSkins.cancel(id);
+    if (action.operation !== 'generate') {
+      return JSON.stringify({ ok: false, error: 'ai_skin_invalid' });
+    }
+    return await this.aiSkins.generate(id, action.prompt ?? '', (completed: number): void => {
+      this.deliverAiSkinProgress(id, completed);
+    });
+  }
+
+  private deliverAiSkinProgress(requestId: string, completed: number): void {
+    if (this.webview === undefined) return;
+    this.webview.runJavaScript(
+      `globalThis.msimeHarmonyAiSkinProgress && globalThis.msimeHarmonyAiSkinProgress(`
+      + `${JSON.stringify(requestId)}, ${completed})`)
+      .catch((error: Object): void => {
+        // A progress tick that does not arrive costs the user a moving number, not the run.
+        KeyboardLog.error(`ai skin progress not delivered: ${describeError(error)}`);
+      });
   }
 
   /**

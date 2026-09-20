@@ -48,6 +48,20 @@ id 会进 URL 路径，所以在进去之前先按形状校验：把页面给的
 
 请求信封上限从 64 KB 提到 512 KB。每个操作仍各自校验自己的载荷，这一条只是解析前拦掉荒谬输入的第一道；但发布一份社区词库最多带 128 条、每条最长 1024 字符，而服务端允许 350,000 字节内容，64 KB 的信封会在本宿主上拒掉服务端本会接受的资源。
 
+AI 生成皮肤也由 Harmony 承载，对应 MSIME-Apple 的 `AISkinGenerationView` 与 `AISkinService`。`BackendAiSkinService::generate` 在 Rust 里跑完整条流水线，HTTP 归 Rust 的宿主直接用它；本宿主的设置界面走系统 HTTPS 栈，所以自己发这四类请求，把不属于传输的那部分问共享客户端：对模型说什么、回答是不是三套可用的设计、返回的图是不是这个客户端会显示的图。这跟候选那边 `aiRequestForQuery` / `parseAiResponse` 的切法是同一个。
+
+指令和解析器不能分开。系统提示词点名了解析器唯一接受的那份文档结构，所以 `compose` 把提示词一并返回，而不是让宿主自己写一份——自己写等于在向模型要一份解析器并非为之而写的文档。
+
+步骤之间的规则放在 `AiSkinRunPolicy`，请求放在 `HarmonyAiSkins`。会出问题的是规则那一半：取消要在每一步之间生效而不只在开头；一个任务失败要停掉另外两个，而不是让它们继续为一套没人会看到的方案出图；任务无论成功、失败还是被放弃都要释放——那是记在用户账号上的上游任务，设备上不会再有任何东西回去停它；进度按已完成的图片计数，因为对着屏幕等的人只关心这个数。这些都不需要网络就能测。
+
+进度单独走一条通道，不混在回复里，方向与偏好变更通知相同，并带上页面自己选的 request id：三张图要几分钟，一次从头到尾不吭声的运行和一次已经停了的运行在屏幕上没有区别；而过期运行的计数器不该去驱动新运行的显示。
+
+Apple 的首页（`KeyboardHomeView`）也由 Harmony 承载，但是按本平台裁剪而不是照抄：五个动作里这里有两个。「设置」打开系统输入法列表，选择器是安装第二步的去处，两个都是本宿主的能力。
+
+`openKeyboard` 故意不提供。Android 为它开一个独立的面板窗口；本宿主的键盘是 InputMethodExtensionAbility，编辑器要它的时候才出现，设置应用没有窗口可开。不提供这个动作时那张卡片会回落到共享的屏幕键盘页，那才是这里"让我看看键盘"的诚实版本。表情和剪贴板两个动作不提供的理由相同：在本宿主上它们是键盘自己键面上的界面，不是窗口。
+
+`registerJavaScriptProxy` 的名单现在由 `scripts/test-harmony-bridge-parity.py` 守着。ArkTS 对注入对象暴露什么有两处决定——类上的方法，和交给 `registerJavaScriptProxy` 的名字——而页面看得见的只有后者。一个名字只加了一处仍然能通过类型检查、能编译、能打包，然后在真机上以 `msimeHarmony.<name> is not a function` 的形式失败，表现是某一块功能就是不工作，而那恰好在这里谁也跑不了的那个平台上。具名皮肤库那一片就是这么漏的：方法写了，名字没注册，三道绿灯什么都没说。
+
 候选翻译复用共享 `translation_query` 与 `apply_translations` 代际契约。Harmony 原生边界负责把 Tencent TMT、NiuTrans 和 DeepLX 兼容自定义 provider 的签名/请求描述器及响应解析暴露给 ArkTS，网络传输仍由 Harmony HTTPS 栈完成；本地英文词典释义先在 Engine 侧解析，在线结果只补齐缺失项。多语言释义合并为有界的 ` / ` 展示文本，按 provider、目标语言和词条缓存，过期或 generation 不匹配的结果不会污染当前候选页。英文目标的成功释义通过共享 ABI 写入用户词典覆盖层，凭据只存在于当前请求内，不写日志。
 
 共享设置中的“流式预编辑”现在也由 Harmony 消费：关闭时识别中的临时结果不进面板，只有最终结果才显示；此前无论该开关如何，临时结果一律显示。“结果提交策略”反过来从 Harmony 的设置页移除——Windows 在 TSF / SendInput / 粘贴之间选，macOS 在系统事件与输入会话之间选，Linux 把选择交给用户自管的服务，而键盘扩展只有输入客户端一条提交路径，三选一在这里是一个只有一种结果的控件。该判断由 `HostCapabilities::voice_commit_mode` 决定。
@@ -113,6 +127,14 @@ MSIME_OHOS_NDK=/absolute/openharmony/native MSIME_OHOS_DEPS="$deps" \
 ```
 
 `SPDLOG_FMT_EXTERNAL` 不能省：它让 spdlog 用上面那份 fmt 而不是自带副本，与 64 位构建的解析方式一致。
+
+## 应用图标切换：本平台没有这个能力
+
+Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是 `SettingsClient.appIcon`，本宿主不声明它，于是那个控件不出现。这不是还没接，是公开 SDK 里没有对应的 API。
+
+在 API 24 的 `command-line-tools/sdk/default/openharmony/ets` 上查过：`@ohos.bundle.bundleManager` 对外只有 `canOpenLink`、`cleanBundleCacheFilesForSelf`、`getAbilityInfo`、`getAppCloneIdentity`、`getBundleInfo*`、`getBundleNameByUid*`、`getLaunchWant*`、`getPluginBundlePathForSelf`、`getProfileBy*` 和 `getSignatureInfo`——对自身是只读的，加上链接与分身的辅助；`@ohos.bundle.shortcutManager` 只有 `getAllShortcutInfoForSelf` 和 `setShortcutVisibleForSelf`。整个 `api/` 与 `kits/` 下没有 `setAbilityEnabled`、没有 alternate/dynamic icon 的任何形式。iOS 用 `setAlternateIconName`，Android 用 activity-alias 加 `setComponentEnabledSetting`，两条路在这里都没有对应物。
+
+所以这是按平台特性裁剪，而不是欠账：能力模型的用途正是让页面不画一个保存了却什么都不做的开关。如果将来 SDK 提供了对应 API，接法是声明 `appIcon` 并在 `module.json5` 里补上备用入口 ability——那时需要的是真机验证，不是这里的接线。
 
 仍未在 HarmonyOS 真机或模拟器上运行，因此系统输入法注册、焦点与选区、生命周期、签名、麦克风授权流程和真实编辑器验收都没有证据；构建通过不等于平台接入完成。
 

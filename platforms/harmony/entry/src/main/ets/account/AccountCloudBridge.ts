@@ -337,6 +337,37 @@ export class AccountCloudBridge {
     return session.user.id;
   }
 
+  /**
+   * An authenticated request for the AI skin run, whose bodies this bridge does not compose.
+   *
+   * The run's four requests carry documents the shared client decides — the system prompt, the
+   * artwork prompt the model wrote — so validating them a second time here would be this host
+   * having an opinion about a contract it does not own. What it does own is the session, the
+   * expiry and the generation, which is why the request still goes through the bridge.
+   */
+  async aiSkinRequest(
+    method: string,
+    path: string,
+    body?: Record<string, unknown>,
+    timeoutMs?: number,
+  ): Promise<{ value?: Action; error?: string }> {
+    if (!path.startsWith("/v1/")) return { error: "ai_skin_invalid" };
+    const result = await this.authenticatedJson(method, path, body, timeoutMs);
+    if (result.error === undefined) return result;
+    // The AI skin page decodes its own vocabulary, and an account code would arrive as a sentence
+    // about signing in rather than about the picture that failed.
+    return {
+      error:
+        result.error === "account_unauthorized"
+          ? "ai_skin_unauthorized"
+          : result.error === "account_invalid"
+            ? "ai_skin_invalid"
+            : result.error === "account_rate_limited"
+              ? "ai_skin_busy"
+              : "ai_skin_unavailable",
+    };
+  }
+
   /** The account preference schema and document, for the native half of the settings sync. */
   async preferenceSchema(): Promise<{ value?: Action; error?: string }> {
     return await this.authenticatedJson("GET", "/v1/users/me/preferences/schema");

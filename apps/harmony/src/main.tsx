@@ -24,6 +24,8 @@ import {
   CloudCandidatesPanel,
   type AccountClient,
   type AccountPreferences,
+  type AiSkinClient,
+  type AiSkinProposal,
   type CommunityResource,
   type CommunityResourceApplication,
   type CommunityResourceClient,
@@ -123,6 +125,8 @@ declare global {
   var msimeHarmonyPreferencesChanged: ((reply: string) => void) | undefined;
   // eslint-disable-next-line no-var
   var msimeHarmonyBridgeReply: ((id: number, reply: string) => void) | undefined;
+  // eslint-disable-next-line no-var
+  var msimeHarmonyAiSkinProgress: ((requestId: string, completed: number) => void) | undefined;
 }
 
 /**
@@ -497,6 +501,46 @@ function communityResourceClient(native: NativeBridge): CommunityResourceClient 
   };
 }
 
+/**
+ * AI skin generation, which is the one request that reports before it answers.
+ *
+ * Three pictures take minutes, so a run that said nothing until it finished would be
+ * indistinguishable from one that had stopped. Progress arrives on its own global, the same
+ * direction the preference-change notification uses, carrying the request id the page chose — a
+ * stale run's counter must not drive a new one's display.
+ *
+ * The deadline is the sum of what the pieces are allowed: a chat completion may take 125 seconds
+ * and each picture up to 200, and the three pictures run together. Giving this the ordinary 30
+ * would report a timeout for a run that was working.
+ */
+function aiSkinClient(native: NativeBridge): AiSkinClient {
+  return {
+    generate: (requestId, prompt) =>
+      bridgeRequest(
+        native,
+        "ai_skin",
+        JSON.stringify({ operation: "generate", request_id: requestId, prompt }),
+        360000,
+      ).then(unwrap<AiSkinProposal[]>),
+    cancel: async (requestId) => {
+      await bridgeRequest(
+        native,
+        "ai_skin",
+        JSON.stringify({ operation: "cancel", request_id: requestId }),
+      ).then(unwrap<Record<string, never>>);
+    },
+    onProgress: async (listener) => {
+      const previous = globalThis.msimeHarmonyAiSkinProgress;
+      globalThis.msimeHarmonyAiSkinProgress = (requestId: string, completed: number) => {
+        listener({ requestId, completed });
+      };
+      return () => {
+        globalThis.msimeHarmonyAiSkinProgress = previous;
+      };
+    },
+  };
+}
+
 function cloudClipboardClient(native: NativeBridge, close: () => void): CloudClipboardPanelClient {
   return {
     close: async () => close(),
@@ -733,8 +777,30 @@ function makeClient(
     candidateEnglishGloss: true,
     account: accountClient(native),
     chat: chatClient(native),
+    // The Apple home surface, adapted rather than copied. Two of its five actions exist here and
+    // three do not, and the page draws only what the host says it has.
+    //
+    // The two setup actions are this host's: 设置 opens the system input-method list, and the
+    // picker is where the second setup step happens.
+    //
+    // `openKeyboard` is deliberately absent. Android opens a separate panel window for it; this
+    // host's keyboard is an InputMethodExtensionAbility that appears when an editor asks for it,
+    // and there is no window for the settings app to open. Without the action the card falls back
+    // to the shared screen-keyboard page, which is the honest version of "show me the keyboard"
+    // here. The emoji and clipboard actions are absent for the same reason: on this host those are
+    // surfaces on the keyboard's own key faces, not windows.
+    home: {
+      openSystemKeyboardSettings: async () => native.openSystemKeyboardSettings(),
+      // The reply is unwrapped rather than ignored so a host that could not open the picker says
+      // so, which the card reports; the welcome flow's own copy of this call is the exception,
+      // because that screen has its own failure to show and nothing to add to it.
+      showInputMethodPicker: async () => {
+        unwrap<boolean>(native.showInputMethodPicker());
+      },
+    },
     communitySkins: communitySkinClient(native),
     communityResources: communityResourceClient(native),
+    aiSkins: aiSkinClient(native),
     openCloudClipboard: async () => openCloudClipboard(),
     openCloudDictionary: async () => openCloudDictionary(),
   };
