@@ -3,7 +3,9 @@ import { afterEach, beforeEach, expect, test, vi } from "vitest";
 import { act, cleanup, fireEvent, render, screen, within, waitFor } from "@testing-library/react";
 import { ExternalSkins, paletteCss } from "../../../../packages/ui/src/skin/external-skins";
 import { SettingsPage, type SkinCatalog, type Snapshot } from "@msime/ui";
-import geometryCss from "../../../../packages/ui/src/skin/external-skin-geometry.css?raw";
+import { utilityCss } from "../support/utility-css";
+
+const geometryCss = utilityCss("external-skin-decorated");
 import { skinImageUrl, type SkinImage } from "../../../../packages/ui/src/skin/skin-image";
 import desktopConfig from "../../src-tauri/tauri.conf.json";
 import * as fontPreparation from "../../../../packages/ui/src/skin/toolbar-fonts";
@@ -567,8 +569,8 @@ test("settings synchronize all cards and reset local overrides on candidate them
   const save = vi.fn(),
     scan = vi.fn().mockResolvedValue(catalog);
   render(<SettingsPage client={{ load: async () => initial, save, scanSkinCatalog: scan }} />);
-  await screen.findByLabelText("全局主题");
-  fireEvent.change(screen.getByLabelText("全局主题"), { target: { value: "light" } });
+  await screen.findByLabelText("主题模式");
+  fireEvent.change(screen.getByLabelText("主题模式"), { target: { value: "light" } });
   fireEvent.click(screen.getByRole("button", { name: "皮肤" }));
   refresh();
   await screen.findByRole("article", { name: "Sample skin" });
@@ -584,8 +586,8 @@ test("settings synchronize all cards and reset local overrides on candidate them
     );
   }
   fireEvent.click(screen.getByRole("button", { name: "外观" }));
-  fireEvent.change(screen.getByLabelText("全局主题"), { target: { value: "dark" } });
-  fireEvent.change(screen.getByLabelText("全局主题"), { target: { value: "light" } });
+  fireEvent.change(screen.getByLabelText("主题模式"), { target: { value: "dark" } });
+  fireEvent.change(screen.getByLabelText("主题模式"), { target: { value: "light" } });
   fireEvent.click(screen.getByRole("button", { name: "皮肤" }));
   for (const card of cards)
     expect(card.querySelector("[data-skin-preview]")?.getAttribute("data-preview-theme")).toBe(

@@ -589,6 +589,34 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 所以下一步是明确的：让 `msime-tsf` 在 mingw 交叉构建里产出，再用真实 COM 服务器重试激活。在那之前，表里那几行的推迟理由应当写成「TIP 激活未经真实服务器验证」，而不是笼统的「Wine 的 TSF 支持不足」——后者已被实测推翻。
 
+增量记录（2026-09-20，Windows 第四十六批：Wine 的 TSF 边界测到底，并更正两处自己的错话）：第四十五批测出核心链路可用、`ActivateLanguageProfile` 失败，但当时用的是没有 COM 服务器的临时 CLSID，无法归因。这批拿**真实 TIP** 测完了。
+
+先更正两处：其一，第四十五批说「`msime-tsf` 当前不在交叉构建产物里」——**错的**，它一直在产出，是 `target/windows-full/<arch>/tsf/libMetasequoiaImeTsf.dll`（21 MB），当时只看了顶层目录。其二，中途一度判断「`DllRegisterServer` 在 Wine 下挂死」——**也是错的**，见下。
+
+用真实 CLSID `{E3062E9A-D834-4637-8958-ED8CFA427D01}` 与 profile GUID `{4D59B1B4-D503-44AE-9259-BAD9BB2778AB}` 逐层测下来：
+
+**Wine 实现了的（全部 S_OK）**：`ITfThreadMgr` 创建与 `Activate`、`CreateDocumentMgr`、`CreateContext`（拿到编辑 cookie）、`Push` + `SetFocus` + `GetFocus` 往返、`ITfInputProcessorProfiles`、`ITfInputProcessorProfileMgr`、`ITfCategoryMgr`。TIP 的 DLL 本身 `LoadLibrary` 正常，`DllRegisterServer` 符号也在。
+
+**Wine 没有实现的**：`ITfInputProcessorProfileMgr::RegisterProfile` → **E_NOTIMPL (0x80004001)**；`ITfCategoryMgr::RegisterCategory` → **E_FAIL (0x80004005)**。
+
+**因此**：本仓库 TIP 的 `DllRegisterServer` 必然失败——它三步里前两步就过不去。直接调用它，**3 毫秒返回 E_FAIL，并不挂死**。此前观察到的 `regsvr32` 卡满 120 秒超时，是 **regsvr32 自己的失败对话框在 xvfb 下无人关闭**，与这个 DLL 无关。
+
+**这条边界取代原先那句笼统的「Wine 的 TSF 支持不足」**：Wine 能跑的是 TSF 的**运行时**，不能跑的是 TIP 的**注册**。凡是直接驱动 `ITfContext` 的行为，Wine 下都可验证；凡是需要「已注册并激活的输入法」才成立的行为，Wine 下不可能验证，且原因不是实现不全，而是那两个注册接口根本没实现——不是本仓库能绕过的。
+
+对来源 `experiments/tsf-edit-control` 的移植，这给出了明确前提：它作为编辑宿主的部分（绘制、候选框位置上报、选区命中）在 Wine 下可跑；但要让本仓库的 TIP 真正挂进去，仍需真实 Windows。
+
+增量记录（2026-09-20，Windows 第四十七批：TIP 能在 Wine 下创建出来，但激活失败的那一步没隔离出来）：第四十六批测出 Wine 不实现 TIP 注册。这批追问一步——**注册不了，能不能绕过注册直接驱动 TIP**。
+
+**能创建。** `DllGetClassObject` 是导出符号，绕开注册表拿到类工厂 S_OK，`CreateInstance(IID_ITfTextInputProcessor)` S_OK——本仓库真实的 TIP 对象在 Wine 下被实例化出来了。这一点此前没有人试过，它说明「Wine 下碰不到 TIP」的印象是错的。
+
+**但激活失败**：`ITfTextInputProcessor::Activate(threadMgr, clientId)` 在 219 毫秒后返回 E_FAIL。
+
+**失败的具体步骤没有隔离出来，本批不假装知道。** 追查过程中一度得出一条看着很顺的因果链——Wine 的 `RegisterProfile` 是 E_NOTIMPL，所以没有默认语言配置，所以 `GetDefaultLanguageProfile` 失败，所以 `_AddTextProcessorEngine` 返回 FALSE。**实测把这条链打断了两处**：`GetDefaultLanguageProfile` 返回的是 S_FALSE，而 `S_FALSE` 不算 `FAILED`，那道检查会放行；继续往下的 `SetupLanguageProfile` 读过源码，它只在 `tfClientId == 0 且 pThreadMgr == nullptr` 时失败，并不拒绝空的 profile GUID。所以这条链是错的，没有写进结论。
+
+**顺带确认的**：`ITfCategoryMgr::RegisterGUID` 在 Wine 下 S_OK（atom 正常，`GetGUID` 往返一致），失败的只有 `RegisterCategory`。也就是说显示属性的 atom 注册这一步不是障碍，障碍只在类别注册，而类别注册属于 `DllRegisterServer` 而非激活路径。
+
+**下一步的线索**：`CCompositionProcessorEngine::SetupLanguageProfile` 带一个 `isComLessMode` 参数——TIP 自身就有一条绕开 COM 注册的模式。要隔离 `Activate` 的失败点，需要构建一个带日志的 TIP；而 com-less 模式很可能正是 Wine 这种无法注册的环境下该走的路。这两件都留给下一轮，本批只报实测到的事实。
+
 ## 来源模块的落点
 
 逐模块记下来源的每个目录在本仓库落在哪里，以及为什么。上面那张功能表按「功能组」组织，回答的是某个功能有没有；这张按**来源的源码目录**组织，回答的是来源的每一块代码去了哪儿——两者互相校验，一块代码找不到落点就是缺口，哪怕对应功能在表里被标成有。
@@ -616,6 +644,16 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 来源有而本仓库有意不做的只有一项：`webview2/` 作为**候选窗**的可选渲染后端。这边候选窗只有 Direct2D 一种实现，`ui_backend` 作为配置契约保留（已登记在字段漂移门禁的 `RUST_ONLY`）。
 
 ## 下一批实施顺序
+
+增量记录（2026-09-20，外观页与来源对齐）：接着侧边栏往里做一层，比对来源 `partials/appearance.html` 的 21 个 section。
+
+措辞：同一项设置两边叫法不同的有 10 处，统一改用来源的说法——全局主题→主题模式、设置窗口主题→设置界面主题、候选窗主题→候选窗口主题、工具栏主题→悬浮工具栏主题、Emoji 面板主题→表情面板主题、手写面板主题→手写识别板主题、语音面板主题→语音输入弹出条主题、候选布局→候选项排列方式、候选字号→候选窗字号、每页候选数量→每页候选项数量。只改共享设置窗，macOS 的 `AppearancePreferences.mm`、fcitx5 与 IBus 菜单里的同名字串不动：那是各平台自己的界面，有自己的参考。「候选窗补充字体」没有跟来源叫「候选窗中文补充字体」，因为本仓这一项也承担非中文回落，且另有「候选窗英文字体」一行，照搬会写错。
+
+顺序：来源是 预览 → 界面渲染 → 跟随光标 → 字体 → 字号 → 颜色 → 每页数量 → 各类主题 → 排列方式 → 预编辑，而本仓把 8 个主题下拉全堆在预览之后，第一屏观感因此完全不同。现按来源重排，本客户端独有的几项贴着同类放——6 个候选配色跟在「候选文字颜色」之后，「双拼预编辑」跟在「候选项排列方式」之后。来源的「界面渲染」是 Windows 专有，不引入；「屏幕键盘主题」本仓在「屏幕键盘」页而非「外观」页，属位置差异，本次不动。新增测试只钉相对顺序，宿主隐藏某一节时不会误报，并已验证它在重排前的顺序下确实失败。
+
+设备证据（MateBook Pro 2in1 模拟器）：外观页依次渲染为 候选窗口预览 → 候选窗口跟随光标 → 候选窗英文字体 → 候选窗主字体 …… → 表情面板主题 → 手写识别板主题 → 语音输入弹出条主题 → 候选项排列方式 → 双拼预编辑 → 行内预编辑 → 候选窗预编辑，与来源同序。
+
+排查记录：中途两次装机后设置窗全白，一度怀疑是本次重排。实为宿主负载过高（磁盘 99%、多个交叉编译并行）时应用被 `THREAD_BLOCK_6S` 强杀，日志里是主线程卡在 `webViewTask`，不是页面报错——腾出空间后同一份产物渲染正常。判据：只含改名不含重排的产物在同样条件下也曾正常，而干净 develop 在磁盘紧张时同样会白屏。
 
 增量记录（2026-09-20，侧边栏与来源对齐）：逐项比对来源 `ui-html/webview2/settings/ime-settings/src/partials/sidebar.html` 的 15 项与共享 `pages`。图标先比过一遍：已引入的 13 个与来源逐字节相同，但 `ai.svg` 与 `voice_input.svg` 当初没引入，代码于是让「语音输入」复用手写识别板的图标、「AI 辅助」复用帮助的图标——侧边栏上因此有两对完全一样的图标，这是引入不完整而不是设计选择。两个图标已补齐并改回各自引用。
 
