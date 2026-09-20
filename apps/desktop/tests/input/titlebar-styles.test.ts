@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { expect, test } from "vitest";
-import variables from "../../../../packages/ui/src/upstream/variables.css?raw";
+import styles from "../../../../packages/ui/src/styles.css?raw";
 import * as settings from "../../../../packages/ui/src/settings/settings-style";
 
 /*
@@ -13,16 +13,32 @@ function utilities(value: string): string[] {
   return value.split(/\s+/).filter(Boolean);
 }
 
-function declarations(source: string, selector: string): CSSStyleDeclaration {
-  const sheet = new CSSStyleSheet();
-  sheet.replaceSync(source);
-  const matches = Array.from(sheet.cssRules).filter(
-    (rule): rule is CSSStyleRule =>
-      rule.type === CSSRule.STYLE_RULE &&
-      (rule as CSSStyleRule).selectorText.replace(/\s+/g, " ") === selector.replace(/\s+/g, " "),
+/*
+ * The palette lives in the stylesheet's base layer now. jsdom's CSSOM does not descend into `@layer`,
+ * so the declarations are read from the source text instead -- still the declaration rather than a
+ * computed style, which is the point of these tests.
+ */
+function tokens(source: string, selector: string): Map<string, string> {
+  // Matched with its opening brace: the same selector text also appears in the `@custom-variant`
+  // declaration near the top of the file, and `indexOf` would find that one first.
+  const opening = `${selector} {`;
+  const at = source.indexOf(opening);
+  expect(at).toBeGreaterThan(-1);
+  // Comments are stripped first: one of them carries a colon, and without this the declaration
+  // after it is swallowed into the comment's "value".
+  const body = source
+    .slice(at + opening.length, source.indexOf("}", at))
+    .replaceAll(/\/\*[^]*?\*\//g, "");
+  return new Map(
+    body
+      .split(";")
+      .map((line) => line.trim())
+      .filter(Boolean)
+      .map((line) => {
+        const split = line.indexOf(":");
+        return [line.slice(0, split).trim(), line.slice(split + 1).trim()] as const;
+      }),
   );
-  expect(matches.length).toBeGreaterThan(0);
-  return matches[matches.length - 1].style;
 }
 
 test("titlebar uses shared theme colors and upstream control dimensions", () => {
@@ -43,17 +59,17 @@ test("normal button interaction colors follow both themes", () => {
 
   // The tokens themselves still have to differ between the two palettes, or the hover would be
   // invisible in one of them.
-  const dark = declarations(variables, ':root,\nhtml[data-theme="dark"]');
-  const light = declarations(variables, 'html[data-theme="light"]');
+  const dark = tokens(styles, 'html[data-theme="dark"]');
+  const light = tokens(styles, 'html[data-theme="light"]');
   for (const token of [
     "--chrome-bg",
     "--text-color",
     "--titlebar-btn-hover",
     "--titlebar-btn-active",
   ]) {
-    expect(dark.getPropertyValue(token)).not.toBe("");
-    expect(light.getPropertyValue(token)).not.toBe("");
-    expect(dark.getPropertyValue(token)).not.toBe(light.getPropertyValue(token));
+    expect(dark.get(token)).toBeDefined();
+    expect(light.get(token)).toBeDefined();
+    expect(dark.get(token)).not.toBe(light.get(token));
   }
 });
 
