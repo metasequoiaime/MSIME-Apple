@@ -296,7 +296,7 @@ fn activate(handle: u64, expected: &str) -> Result<Value, &'static str> {
             let _ = std::fs::rename(to, from);
         }
         for backup in &backups {
-            let _ = std::fs::remove_dir_all(backup);
+            discard_recovered_backup(backup);
         }
     };
     // An entry that leads to another root nested below this one is left alone:
@@ -371,6 +371,17 @@ fn activate(handle: u64, expected: &str) -> Result<Value, &'static str> {
     }
     entries.remove(&handle);
     Ok(json!({"activated": true}))
+}
+
+/// Remove a backup directory only once rollback has emptied it.
+///
+/// `remove_dir` refuses a directory that still has anything in it, and that refusal is the point.
+/// The renames that put the original contents back are best effort - one of them failing is
+/// exactly the case where the backup is the only remaining copy of the user's dictionaries, and
+/// `remove_dir_all` would delete it on the way out of a failure that had already been survived.
+/// Leaving the directory on disk costs some space and keeps the data.
+fn discard_recovered_backup(backup: &Path) {
+    let _ = std::fs::remove_dir(backup);
 }
 
 fn version_without_access(options: &EngineOptions) -> Result<String, &'static str> {
