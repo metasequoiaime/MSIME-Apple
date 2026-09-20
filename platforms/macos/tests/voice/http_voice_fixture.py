@@ -54,7 +54,8 @@ class Server(ThreadingHTTPServer):
 server = Server(("127.0.0.1", 0), Handler)
 threading.Thread(target=server.serve_forever, daemon=True).start()
 try:
-    result = subprocess.run([sys.argv[1], f"http://127.0.0.1:{server.server_port}"], timeout=20)
+    # The six-second polish stall is waited out rather than abandoned, so the run needs room for it.
+    result = subprocess.run([sys.argv[1], f"http://127.0.0.1:{server.server_port}"], timeout=60)
     assert result.returncode == 0 and not errors
     assert counts == {"/asr": 3, "/polish": 1, "/polish-failure": 1, "/polish-timeout": 1}
 finally:

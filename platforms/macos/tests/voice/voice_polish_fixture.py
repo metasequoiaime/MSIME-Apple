@@ -44,7 +44,8 @@ class Handler(BaseHTTPRequestHandler):
 server = ThreadingHTTPServer(("127.0.0.1", 0), Handler)
 threading.Thread(target=server.serve_forever, daemon=True).start()
 try:
-    result = subprocess.run([sys.argv[1], f"http://127.0.0.1:{server.server_port}"], timeout=20)
+    # Two six-second stalls are waited out rather than abandoned, so the whole run needs room for them.
+    result = subprocess.run([sys.argv[1], f"http://127.0.0.1:{server.server_port}"], timeout=60)
     assert result.returncode == 0 and not errors
     assert counts == {"/polish": 1, "/failure": 1, "/empty": 1,
                       "/stall-headers": 1, "/stall-body": 1}

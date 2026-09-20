@@ -282,7 +282,7 @@ std::string recognize_cloud_asr(
 std::string polish_cloud_text(
     std::string_view text, std::string_view provider, std::string_view endpoint,
     std::string_view model, std::string_view token, std::string_view prompt,
-    const std::shared_ptr<std::atomic_bool> &cancelled) {
+    const std::shared_ptr<std::atomic_bool> &cancelled, long timeout_ms) {
   if (text.empty())
     return {};
   if (endpoint.empty() || model.empty() || token.empty() || prompt.empty())
@@ -333,11 +333,14 @@ std::string polish_cloud_text(
   curl_easy_setopt(curl.get(), CURLOPT_NOPROGRESS, 0L);
   curl_easy_setopt(curl.get(), CURLOPT_XFERINFOFUNCTION, progress);
   curl_easy_setopt(curl.get(), CURLOPT_XFERINFODATA, cancelled.get());
-  curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT_MS, 15000L);
-  // Match MSIME-Windows develop 30a22e6f: optional polish has a 3s total
-  // budget, including connection and body transfer. Callers retain ASR text
-  // on failure; a slow polish service must not hold that text for 30s.
-  curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT_MS, 3000L);
+  // The connect budget cannot usefully exceed the whole-request budget: with a 3s total, a 15s connect
+  // timeout can never be reached. Keep it within whatever the caller allows.
+  curl_easy_setopt(curl.get(), CURLOPT_CONNECTTIMEOUT_MS,
+                   static_cast<long>(std::min<long long>(15000, timeout_ms)));
+  // Whole request, not connection. MSIME-Windows develop 30a22e6f chose 3s so a slow polish service cannot
+  // hold the ASR text, and that remains the default. Hosts whose reference measured otherwise pass their
+  // own - see the macOS caller.
+  curl_easy_setopt(curl.get(), CURLOPT_TIMEOUT_MS, timeout_ms);
   curl_easy_setopt(curl.get(), CURLOPT_NOSIGNAL, 1L);
   const auto result = curl_easy_perform(curl.get());
   if (result != CURLE_OK)

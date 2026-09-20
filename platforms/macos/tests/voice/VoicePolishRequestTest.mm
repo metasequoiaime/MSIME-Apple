@@ -1,7 +1,9 @@
 #import "../../src/voice/HTTPVoiceRequest.h"
 #include <cassert>
+// Long enough for the deliberately slow fixture responses; the loop leaves as soon as the work finishes,
+// so raising the ceiling costs the passing cases nothing.
 static void Wait(BOOL (^done)(void)) {
-    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:5];
+    NSDate *deadline = [NSDate dateWithTimeIntervalSinceNow:20];
     while (!done() && deadline.timeIntervalSinceNow > 0)
         [NSRunLoop.currentRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.001]];
     assert(done());
@@ -26,19 +28,32 @@ int main(int argc, char **argv) {
         Wait(^BOOL { return done; });
         assert(![request polishText:@"second" completion:^(NSString *, NSError *) {} error:nil]);
         options[@"polish_model"] = @"fixture-model";
-        for (NSString *path in @[@"/failure", @"/empty", @"/stall-headers", @"/stall-body"]) {
+        // A polish that fails hands back the transcript untouched. That is the whole reason the budget
+        // matters: the failure is silent, so a budget the service cannot meet means the transcript went to
+        // the provider and the answer was binned with nothing shown.
+        for (NSString *path in @[@"/failure", @"/empty"]) {
+            options[@"polish_endpoint"] = [base stringByAppendingString:path];
+            request = [[MSIMEHTTPVoiceRequest alloc] initWithPolishOptions:options error:nil];
+            done = NO;
+            assert([request polishText:@"synthetic transcript" completion:^(NSString *text, NSError *error) {
+                assert(!error && [text isEqual:@"synthetic transcript"]); done = YES;
+            } error:nil]);
+            Wait(^BOOL { return done; });
+        }
+        // Six seconds is slow for a chat completion and well inside the budget this host asks for, so the
+        // answer is waited for and used. It used to be abandoned at three, which is under what cleaning a
+        // minute of transcript takes - the request went out and its reply was thrown away every time.
+        for (NSString *path in @[@"/stall-headers", @"/stall-body"]) {
             options[@"polish_endpoint"] = [base stringByAppendingString:path];
             request = [[MSIMEHTTPVoiceRequest alloc] initWithPolishOptions:options error:nil];
             done = NO;
             const NSTimeInterval started = NSProcessInfo.processInfo.systemUptime;
             assert([request polishText:@"synthetic transcript" completion:^(NSString *text, NSError *error) {
-                assert(!error && [text isEqual:@"synthetic transcript"]); done = YES;
+                assert(!error && [text isEqual:@"synthetic polished"]); done = YES;
             } error:nil]);
             Wait(^BOOL { return done; });
-            if ([path hasPrefix:@"/stall-"]) {
-                const NSTimeInterval elapsed = NSProcessInfo.processInfo.systemUptime - started;
-                assert(elapsed >= 2.5 && elapsed < 5);
-            }
+            const NSTimeInterval elapsed = NSProcessInfo.processInfo.systemUptime - started;
+            assert(elapsed >= 5.5);
         }
         options[@"polish_enabled"] = @NO;
         request = [[MSIMEHTTPVoiceRequest alloc] initWithPolishOptions:options error:nil];
