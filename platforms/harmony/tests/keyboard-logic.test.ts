@@ -186,6 +186,7 @@ import {
 } from "../entry/src/main/ets/keyboard/input/CandidateTextPolicy";
 import { CandidateSkinPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateSkinPolicy";
 import { CandidateNumberFontPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateNumberFontPolicy";
+import { PreeditCaretPolicy } from "../entry/src/main/ets/keyboard/candidate/PreeditCaretPolicy";
 import {
   CandidateContextMenuPolicy,
   PointerAction,
@@ -4792,6 +4793,42 @@ group("a malformed candidate size cannot produce an unusable number", () => {
   check(CandidateNumberFontPolicy.size(0) === 1, "zero does not become zero");
   check(CandidateNumberFontPolicy.size(-4) === 1, "nor does a negative size");
   check(CandidateNumberFontPolicy.size(Number.NaN) === 1, "nor does a size that is not a number");
+});
+
+group("the composition is split where the caret is", () => {
+  // Ctrl+Left, Ctrl+Right and Ctrl+Backspace edit one Engine segment at a time on a 2in1, and the
+  // caret they move was never drawn: the shared view carries caret_position and the ArkTS side had
+  // not declared it. A segment editor with an invisible caret cannot be used at all.
+  const split = PreeditCaretPolicy.split("nihao", 2);
+  check(split.before === "ni" && split.after === "hao", "the caret sits between the segments");
+  const end = PreeditCaretPolicy.split("nihao", 5);
+  check(end.before === "nihao" && end.after === "", "at the end nothing follows it");
+  const start = PreeditCaretPolicy.split("nihao", 0);
+  check(start.before === "" && start.after === "nihao", "at the start nothing precedes it");
+});
+
+group("a caret outside the composition is clamped, not indexed past", () => {
+  // The view and the caret arrive in the same message so they cannot normally disagree. A clamp
+  // costs nothing, and the alternative is a caret that vanishes exactly while someone is editing.
+  const over = PreeditCaretPolicy.split("ni", 9);
+  check(over.before === "ni" && over.after === "", "past the end lands at the end");
+  const under = PreeditCaretPolicy.split("ni", -3);
+  check(under.before === "" && under.after === "ni", "before the start lands at the start");
+  const empty = PreeditCaretPolicy.split("", 4);
+  check(empty.before === "" && empty.after === "", "an empty composition stays empty");
+  const nan = PreeditCaretPolicy.split("ni", Number.NaN);
+  check(nan.before === "ni" && nan.after === "", "an unusable position does not split the text");
+});
+
+group("the caret is as tall as the source draws it", () => {
+  // `.cursor { height: 1.2em }`.
+  check(PreeditCaretPolicy.height(18) === 22, "1.2em of the shared default preedit size");
+  check(PreeditCaretPolicy.height(12) === 14, "at the smallest allowed size");
+  check(PreeditCaretPolicy.height(32) === 38, "at the largest allowed size");
+  check(
+    PreeditCaretPolicy.height(0) === 1,
+    "a zero size still draws something rather than nothing",
+  );
 });
 
 // The account bridge deliberately models the asynchronous device HTTP API. Give its immediate

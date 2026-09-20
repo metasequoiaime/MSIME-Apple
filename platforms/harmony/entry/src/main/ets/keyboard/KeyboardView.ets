@@ -25,6 +25,7 @@ import { CandidateFontFamilyPolicy } from './candidate/CandidateFontFamilyPolicy
 import { CandidateContextMenuPolicy, PointerAction, PointerButton }
   from './input/CandidateContextMenuPolicy';
 import { CandidateNumberFontPolicy } from './candidate/CandidateNumberFontPolicy';
+import { PreeditCaretPolicy } from './candidate/PreeditCaretPolicy';
 import { CandidateSkinPolicy } from './candidate/CandidateSkinPolicy';
 import { CandidateWheelPolicy } from './candidate/CandidateWheelPolicy';
 import { KeyboardMetrics } from './KeyboardMetrics';
@@ -112,6 +113,8 @@ const BACKSPACE_REPEAT_MILLIS: number = 60;
 // like it should cost.
 const CURSOR_STEP_VP: number = 12;
 const KEY_HINT_FONT_SIZE: number = 10;
+/** `.cursor { width: 1.5px }` in the source's candidate stylesheets. */
+const PREEDIT_CARET_WIDTH_VP: number = 1.5;
 // 22 inside a touch target the row's height gives it, which is the proportion the iOS bar uses.
 const SHORTCUT_ICON_VP: number = 22;
 const BRAND_PILL_RADIUS_VP: number = 11;
@@ -209,6 +212,7 @@ const CHINESE_SYMBOL_FACES: Map<string, string> = new Map<string, string>([
 struct KeyboardView {
   @State candidates: CandidateEntry[] = [];
   @State editing: string = '';
+  @State editingCaret: number = 0;
   @State spellings: string[] = [];
   @State engineScheme: number = 0;
   /** Read-only English completions for the word being typed; empty whenever one is not. */
@@ -385,6 +389,7 @@ struct KeyboardView {
     KeyboardSession.shared.onChanged = (state: KeyboardState): void => {
       this.candidates = state.candidates;
       this.editing = state.editing;
+      this.editingCaret = state.editingCaret;
       this.spellings = state.spellings;
       this.engineScheme = state.scheme;
       this.japanese = state.scheme === JAPANESE_SCHEME && !state.english
@@ -985,12 +990,39 @@ struct KeyboardView {
             })
         } else if (this.diagnostic.length > 0 || !KeyboardFormFactor.isDesktop()
             || this.settings.candidateShowPreedit) {
-          Text(this.diagnostic.length > 0 ? this.diagnostic : this.editing)
-            .fontSize(this.settings.candidatePreeditFontSize)
-            .fontColor(this.candidateAccentColor())
-            .fontFamily(this.candidateFontFamily())
-            .maxLines(1)
-            .textOverflow({ overflow: TextOverflow.Ellipsis })
+          // The caret the segment keys move. The source draws it as a bar inside the composition
+          // (`.cursor`), and Ctrl+Left, Ctrl+Right and Ctrl+Backspace were already moving one here
+          // that nothing drew — a segment editor whose caret is invisible cannot be used, because
+          // there is no way to tell what the next key will affect. A diagnostic line is not a
+          // composition and gets no caret.
+          if (this.diagnostic.length > 0) {
+            Text(this.diagnostic)
+              .fontSize(this.settings.candidatePreeditFontSize)
+              .fontColor(this.candidateAccentColor())
+              .fontFamily(this.candidateFontFamily())
+              .maxLines(1)
+              .textOverflow({ overflow: TextOverflow.Ellipsis })
+          } else {
+            Row() {
+              Text(PreeditCaretPolicy.split(this.editing, this.editingCaret).before)
+                .fontSize(this.settings.candidatePreeditFontSize)
+                .fontColor(this.candidateAccentColor())
+                .fontFamily(this.candidateFontFamily())
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+              Divider()
+                .vertical(true)
+                .strokeWidth(PREEDIT_CARET_WIDTH_VP)
+                .height(PreeditCaretPolicy.height(this.settings.candidatePreeditFontSize))
+                .color(this.candidateAccentColor())
+              Text(PreeditCaretPolicy.split(this.editing, this.editingCaret).after)
+                .fontSize(this.settings.candidatePreeditFontSize)
+                .fontColor(this.candidateAccentColor())
+                .fontFamily(this.candidateFontFamily())
+                .maxLines(1)
+                .textOverflow({ overflow: TextOverflow.Ellipsis })
+            }
+          }
         } else {
           Blank()
         }
