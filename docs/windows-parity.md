@@ -1367,3 +1367,15 @@ Fcitx5 候选动作执行 stale 栅栏增量（2026-09-19）：CandidateAction �
 - `tests/clipboard/` 下的 `clipboard_history.cpp`、`clipboard_link.cpp`、`clipboard_presentation.cpp`——编译得起来但**断言失败**，原因是它们写的是已被废弃的旧契约。`normalize_clipboard_text` 的注释写明「只去掉 CF_UNICODETEXT 带来的终止符；换行（含 CRLF）与空白是用户内容，必须原样往返」，而测试期望 CRLF 折成 LF、首尾空白裁掉。实测存进去的正是未规范化的原串。**是测试过时不是代码有错**——行为改的时候没人更新它们，因为没有任何东西会编译它们。这三个是下一片。
 
 顺带记一条方法：写这个 runner 时自己踩了四个坑（把子进程夹具当测试、执行继承调用者 stdin 导致永久阻塞、并行执行饿死等定时器的用例、编译失败被算成跳过因而改坏了也返回 0），每一个都是反向验证暴露的。第四个尤其值得一提——它让这个工具犯了它正要去发现的那个错误。
+
+增量记录（2026-09-21，Windows 第十五批：把上一批查出的四个「没人编译的测试」处理完）：目标起点 `eaae1c858`。
+
+`tsf_key_dispatch` 上一批已接上。这一批是剩下三个：`tests/clipboard/` 下的 history、link、presentation，在任何 CMakeLists 里都没出现过。
+
+`clipboard_link` 与 `clipboard_presentation` **原样就通过**，只是没人编译，注册即可。
+
+`clipboard_history` 编译得起来但断言失败，是测试过时。现行契约由 `normalize_clipboard_text` 的注释写明：只去掉 CF_UNICODETEXT 带来的东西——首个 NUL 起截断、剥掉尾部 `\r`——而换行（含 CRLF）与空白是用户内容、必须原样往返。测试期望的是 CRLF 折成 LF、首尾空白裁掉，那是被有意废弃的旧规则。四处按现行契约重写，每一处都保留原本要测的那件事：往返改为断言一字不差；去重改用只差一个尾部 `\r` 的一对（它们确实规范化成同一条），并补一条反面；「规范化后为空」改用 `"\r"`，因为 `" \t\r\n"` 在新契约下不为空；NUL 那条从「剔除并保留其后 4000 字符」改为断言截断，4000 UTF-16 单位的上限另用干净字符串单独测。三条规则各自反向验证过。
+
+顺带把断言失败改成带行号——90 行里任何一条失败原本都报同一句话，定位这个问题时先吃了一次亏。
+
+本机 runner 现在报「1 not tests」，只剩 `voice_wire_peer.cpp` 那个真正的子进程夹具。至此上一批查出的四个全部处理完毕。
