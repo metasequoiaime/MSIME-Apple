@@ -624,6 +624,7 @@ public:
     }
     return true;
   }
+  void refreshToolbar();
   bool toggleInputMode() {
     if (!session_ || restricted() || privateInput() || !ic_.hasFocus()) return false;
     input_enabled_ = !input_enabled_;
@@ -1223,6 +1224,9 @@ public:
                 "switch_language_ctrl_alt_space", mode_ctrl_alt_space_enabled_);
             character_set_shortcut_enabled_ = reloaded.value(
                 "toggle_character_set_ctrl_shift_f", character_set_shortcut_enabled_);
+            // The toolbar follows the reloaded switches without waiting for the
+            // next focus change, the way the IBus property menu does.
+            refreshToolbar();
             const auto punctuationLock = preferences_.value("punctuation_lock", std::string("follow"));
             punctuation_lock_ = punctuationLock == "chinese" ? 1 : punctuationLock == "english" ? 2 : 0;
             navigation_ = preferences_.value("navigation", Json::object());
@@ -3365,6 +3369,27 @@ private:
   fcitx::FactoryFor<FcitxState> *factory_;
 };
 
+// The shared `floating_toolbar` preference and its eight component switches.
+//
+// Windows draws a floating window; the IBus host maps the same switches onto a
+// property submenu because a window detached from the input context is not
+// something an IBus engine owns. Fcitx5's status area is that surface here, so
+// the switches decide what a "工具栏" submenu contains - and they decided nothing
+// at all before, while the settings page showed all of them for this platform.
+//
+// The entries are the existing actions rather than copies: an entry that behaved
+// slightly differently from the status-area action beside it would be a second
+// implementation of the same toggle.
+class FcitxToolbarAction : public fcitx::SimpleAction {
+public:
+  FcitxToolbarAction() {
+    setShortText("工具栏");
+    setLongText("按设置显示的输入法工具栏项目");
+  }
+  void setMenu(fcitx::Menu *menu) { fcitx::SimpleAction::setMenu(menu); }
+  void activate(fcitx::InputContext *) override {}
+};
+
 class FcitxDesktopToolsAction : public fcitx::SimpleAction {
 public:
   FcitxDesktopToolsAction() {
@@ -3740,6 +3765,7 @@ public:
     voice_action_.registerAction("msime-voice", &instance->userInterfaceManager());
     voice_cancel_action_.registerAction("msime-voice-cancel", &instance->userInterfaceManager());
     desktop_tools_action_.registerAction("msime-desktop-tools", &instance->userInterfaceManager());
+    toolbar_action_.registerAction("msime-toolbar", &instance->userInterfaceManager());
     traditional_action_.registerAction("msime-traditional", &instance->userInterfaceManager());
     chinese_punctuation_action_.registerAction("msime-chinese-punctuation", &instance->userInterfaceManager());
     paired_punctuation_action_.registerAction("msime-paired-punctuation", &instance->userInterfaceManager());
@@ -3787,6 +3813,7 @@ public:
     cloud_clipboard_menu_.addAction(&cloud_clipboard_item3_);
     cloud_clipboard_menu_.addAction(&cloud_clipboard_item4_);
     cloud_clipboard_menu_.addAction(&cloud_clipboard_item5_);
+    toolbar_action_.setMenu(&toolbar_menu_);
     desktop_tools_action_.setMenu(&desktop_tools_menu_);
     desktop_tools_menu_.addAction(&handwriting_action_);
     desktop_tools_menu_.addAction(&keyboard_action_);
@@ -3877,6 +3904,10 @@ public:
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &emoji_group_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &voice_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &voice_cancel_action_);
+    // Rebuilt from the current preferences rather than assembled once: the
+    // switches are a shared document that can change while a context is focused,
+    // and the menu is shared too, so there is one place for it to follow.
+    event.inputContext()->propertyFor(&factory_)->refreshToolbar();
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &desktop_tools_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &traditional_action_);
     event.inputContext()->statusArea().addAction(fcitx::StatusGroup::InputMethod, &chinese_punctuation_action_);
@@ -3937,6 +3968,7 @@ public:
     event.inputContext()->statusArea().removeAction(&emoji_group_action_);
     event.inputContext()->statusArea().removeAction(&voice_action_);
     event.inputContext()->statusArea().removeAction(&voice_cancel_action_);
+    event.inputContext()->statusArea().removeAction(&toolbar_action_);
     event.inputContext()->statusArea().removeAction(&desktop_tools_action_);
     event.inputContext()->statusArea().removeAction(&traditional_action_);
     event.inputContext()->statusArea().removeAction(&chinese_punctuation_action_);
@@ -4092,6 +4124,12 @@ public:
   FcitxDesktopPanelAction cloud_dictionary_action_{&factory_, "cloud-dictionary", "云词典"};
   FcitxDesktopPanelAction desktop_cloud_clipboard_action_{&factory_, "cloud-clipboard", "云剪贴板"};
   FcitxDesktopPanelAction settings_action_{&factory_, "settings", "设置"};
+  FcitxToolbarAction toolbar_action_;
+  fcitx::Menu toolbar_menu_;
+  // What is currently in the submenu, so a rebuild removes exactly what it added.
+  std::vector<fcitx::Action *> toolbar_entries_;
+  bool toolbarEnabled(fcitx::InputContext *ic);
+  void rebuildToolbarMenu(fcitx::InputContext *ic);
   FcitxDesktopPanelAction about_action_{&factory_, "about", "关于"};
   fcitx::Menu emoji_menu_;
   FcitxEmojiItemAction emoji_item1_{&factory_, 0};
@@ -4102,6 +4140,16 @@ public:
   FcitxEmojiPageAction emoji_previous_action_{&factory_, false};
   FcitxEmojiPageAction emoji_next_action_{&factory_, true};
 };
+
+void FcitxState::refreshToolbar() {
+  if (!engine_) return;
+  engine_->rebuildToolbarMenu(&ic_);
+  if (engine_->toolbarEnabled(&ic_))
+    ic_.statusArea().addAction(fcitx::StatusGroup::InputMethod, &engine_->toolbar_action_);
+  else
+    ic_.statusArea().removeAction(&engine_->toolbar_action_);
+  ic_.updateUserInterface(fcitx::UserInterfaceComponent::StatusArea);
+}
 
 void FcitxState::render() {
   if (engine_) {
@@ -4626,6 +4674,41 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   }
   if (composing) command(MSIME_FINISH_COMPOSITION);
   return false;
+}
+
+bool FcitxEngine::toolbarEnabled(fcitx::InputContext *ic) {
+  if (!ic) return false;
+  const auto *state = ic->propertyFor(&factory_);
+  return state->session_ &&
+         state->preferences_.value("floating_toolbar", Json::object())
+             .value("enabled", true);
+}
+
+void FcitxEngine::rebuildToolbarMenu(fcitx::InputContext *ic) {
+  for (auto *action : toolbar_entries_)
+    toolbar_menu_.removeAction(action);
+  toolbar_entries_.clear();
+  if (!ic) return;
+  const auto *state = ic->propertyFor(&factory_);
+  if (!state->session_) return;
+  const auto toolbar = state->preferences_.value("floating_toolbar", Json::object());
+  if (!toolbar.value("enabled", true)) return;
+  // The mode entry is always present, as it is on Windows and on the IBus host;
+  // the rest follow their own switch. The defaults match those two hosts, which is
+  // why the screen keyboard is the one that starts hidden.
+  const auto append = [&](bool present, fcitx::Action *action) {
+    if (!present) return;
+    toolbar_menu_.addAction(action);
+    toolbar_entries_.push_back(action);
+  };
+  append(true, &input_mode_action_);
+  append(toolbar.value("english_mode", true), &english_action_);
+  append(toolbar.value("fullwidth", true), &width_action_);
+  append(toolbar.value("punctuation", true), &chinese_punctuation_action_);
+  append(toolbar.value("character_set", true), &traditional_action_);
+  append(toolbar.value("emoji", true), &desktop_emoji_action_);
+  append(toolbar.value("screen_keyboard", false), &keyboard_action_);
+  append(toolbar.value("settings", true), &settings_action_);
 }
 
 class FcitxFactory : public fcitx::AddonFactory {
