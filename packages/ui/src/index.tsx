@@ -4201,8 +4201,8 @@ export function SettingsPage({
                             })
                           }
                         >
-                          <option value="vertical">竖排</option>
-                          <option value="horizontal">横排</option>
+                          <option value="horizontal">横向</option>
+                          <option value="vertical">纵向</option>
                         </select>
                       </label>
                     </div>
@@ -4265,8 +4265,8 @@ export function SettingsPage({
                             })
                           }
                         >
-                          <option value="pinyin">显示拼音</option>
-                          <option value="empty">隐藏</option>
+                          <option value="pinyin">拼音分词</option>
+                          <option value="empty">不显示</option>
                         </select>
                       </label>
                     </div>
@@ -6201,8 +6201,8 @@ export function SettingsPage({
                               })
                             }
                           >
-                            <option value="app">按应用</option>
-                            <option value="global">全局</option>
+                            <option value="app">按应用记忆</option>
+                            <option value="global">全局统一</option>
                           </select>
                         </label>
                       </div>

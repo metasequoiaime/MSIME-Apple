@@ -734,6 +734,14 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 ## 下一批实施顺序
 
+增量记录（2026-09-20，下拉选项的文案）：section 标题已由 `referenceSections` 钉住，这一轮下沉一层比选项本身。来源三处与本仓不同（取值一致、只是标签）：「候选项排列方式」来源是 横向/纵向 且横向在前，本仓是 竖排/横排；「候选窗预编辑」来源是 拼音分词/不显示，本仓是 显示拼音/隐藏；「中英文状态」来源是 按应用记忆/全局统一，本仓是 按应用/全局。第二处同时是仓内不一致——紧挨着的「行内预编辑」对同一组 `pinyin`/`empty` 用的就是「拼音分词/不显示」。三处均已改用来源的说法，并新增 `referenceOptions` 表把这五个控件的选项逐项钉住。设备确认：外观页尾部现在显示 纵向 与 拼音分词。
+
+同一轮把来源另外两个集中策略头文件核完，均无可修项：
+
+`server/src/window/floating_toolbar_visibility_policy.h` 两条。`ShouldShowFloatingToolbar(configured_enabled, fullscreen, ime_active)` 本仓的 Windows 宿主已经实现（`platforms/windows/src/system/server_main.cpp`），连来源自己的用例也已移植（`platforms/windows/tests/core/fullscreen_foreground.cpp`）。HarmonyOS 覆盖了其中两项——工具栏只在 `desktop && toolbarEnabled()` 时创建，且活在键盘扩展里，我们不是当前输入法时它根本不存在。缺的 `fullscreen` 一项**没有可用信号**：输入法扩展只能拿到 `display.getDefaultDisplaySync()` 的尺寸与密度，前台窗口是否全屏属于窗管的特权查询，STATUS_BAR 面板在全屏下的去留由系统决定。这是平台能力差异，不是实现缺口。另一条 `ShouldDeferFloatingToolbarHide` 是 WebView2 首帧宽限期，无对应物。
+
+`server/src/window/ui_backend_policy.h` 是在 Direct2D 原生渲染与 WebView2 之间按 surface 选择后端，即来源外观页那一项「界面渲染」。HarmonyOS 用 ArkTS 原生渲染，没有第二套后端，无对应物——与第二片记录的「界面渲染不引入」一致。
+
 增量记录（2026-09-20，硬件键盘的按键归属）：沿上一片往下核了四处，**全部相符**，结论记在此处以免再查：
 
 - 以词定字的修饰键。来源 `WordToCharacterDirection`（`server/src/ipc/input_key_policy.h`）要求不带任何修饰键，`(modifiers & kKeyModifierMask) != 0` 直接返回 0。Harmony 的对应分支只显式写了 `!key.shiftKey`，看着像漏了 Ctrl/Alt，实际 `HardwareKeyRouter` 在更上面就有 `if (key.ctrlKey || key.altKey || key.logoKey) return RELEASE`，带修饰键的组合根本到不了那里，等价。
