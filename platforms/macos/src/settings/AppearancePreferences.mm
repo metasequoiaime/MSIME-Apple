@@ -1900,8 +1900,9 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     _pairedPunctuationButton = [NSButton checkboxWithTitle:@"成对标点" target:self action:@selector(pairedPunctuationChanged:)];
     _pairedPunctuationButton.toolTip = @"自动插入并配对引号、括号等标点";
     _punctuationLockButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    [_punctuationLockButton addItemsWithTitles:@[@"跟随中文标点", @"始终中文", @"始终英文"]];
-    _punctuationLockButton.accessibilityLabel = @"标点锁定";
+    [_punctuationLockButton
+        addItemsWithTitles:@[ @"跟随中英文状态", @"始终使用中文标点", @"始终使用英文标点" ]];
+    _punctuationLockButton.accessibilityLabel = @"固定标点";
     _punctuationLockButton.target = self;
     _punctuationLockButton.action = @selector(punctuationLockChanged:);
     _mixedEnglishButton = [NSButton checkboxWithTitle:@"中英混输" target:self action:@selector(mixedEnglishChanged:)];
@@ -2009,7 +2010,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 
     NSBox *punctuationCard = CardWithViews(@[
         _punctuationButton, _smartPunctuationButton, _smartPunctuationRepeatButton, _pairedPunctuationButton,
-        PreferenceRow(@"标点锁定", _punctuationLockButton),
+        PreferenceRow(@"固定标点", _punctuationLockButton),
     ], 9.0);
     punctuationCard.accessibilityLabel = @"标点输入卡片";
     NSBox *mixedCard = CardWithViews(@[

@@ -1164,7 +1164,7 @@ test("input parity controls persist cloud, translation and punctuation settings"
   // Anchored too: 重复标点转中文 names 智能标点 in its description, because the reference's wording
   // for it states the precondition rather than leaving the pair's relationship to be guessed.
   fireEvent.click(screen.getByRole("checkbox", { name: /^智能标点/ }));
-  fireEvent.change(screen.getByLabelText("标点锁定"), { target: { value: "english" } });
+  fireEvent.change(screen.getByLabelText("固定标点"), { target: { value: "english" } });
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(client.save).toHaveBeenCalledWith(7, {
@@ -3851,7 +3851,7 @@ test("a host without the defaults command shows no restore button", async () => 
 // repo used to keep the whole block of theme selects, does.
 // The reference window's 输入 page, in its order, same rules as the appearance one below: only the
 // sections it also has, only their relative order. The settings this client adds -- 全拼纠错, 模糊音,
-// 全角输入, 标点锁定, 英文建议 and the rest -- sit next to the reference section they belong with, so
+// 全角输入, 英文建议 and the rest -- sit next to the reference section they belong with, so
 // they are free to move without touching this list.
 // A section title is the element's own text plus a nested <small> description, so read only the
 // direct text nodes: "中文标点" has to stay distinguishable from "中文标点后按空格转换".
@@ -3923,6 +3923,7 @@ const referenceSections: { page: string; button: string; titles: string[] }[] = 
       "智能标点",
       "重复标点转中文",
       "成对标点自动补全",
+      "固定标点",
       "中英混输",
       "默认中英文",
       "中英文状态",
@@ -4039,6 +4040,12 @@ const referenceOptions: { page: string; button: string; control: string; options
     button: "外观",
     control: "候选窗预编辑",
     options: ["拼音分词", "不显示"],
+  },
+  {
+    page: "input",
+    button: "输入",
+    control: "固定标点",
+    options: ["跟随中英文状态", "始终使用中文标点", "始终使用英文标点"],
   },
   {
     page: "input",
@@ -5046,7 +5053,7 @@ test.each([
   await screen.findByRole("radio", { name: label });
   fireEvent.click(screen.getByRole("radio", { name: "日文" }));
   expect(screen.queryByRole("radio", { name: label })).toBeNull();
-  expect((screen.getByRole("radio", { name: "罗马字" }) as HTMLInputElement).checked).toBe(true);
+  expect((screen.getByRole("radio", { name: "罗马音" }) as HTMLInputElement).checked).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(stored.preferences.scheme).toBe("japanese");
@@ -5055,10 +5062,10 @@ test.each([
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
-  await screen.findByRole("radio", { name: "罗马字" });
+  await screen.findByRole("radio", { name: "罗马音" });
   fireEvent.click(screen.getByRole("radio", { name: "中文" }));
   expect((screen.getByRole("radio", { name: label }) as HTMLInputElement).checked).toBe(true);
-  expect(screen.queryByRole("radio", { name: "罗马字" })).toBeNull();
+  expect(screen.queryByRole("radio", { name: "罗马音" })).toBeNull();
 });
 
 test("saves edited preferences against the loaded revision", async () => {
