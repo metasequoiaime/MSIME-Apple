@@ -16,7 +16,7 @@ import java.util.function.Predicate;
 
 /** Device-only acceptance for the packaged ML Kit recognizer and real IME controls. */
 public final class HandwritingDeviceSmoke extends DeviceSmoke {
-    private static final String PREVIEW_PACKAGE = "app.msime.client.preview";
+    private static final String PREVIEW_PACKAGE = "app.msime.android";
     private static final long MODEL_TIMEOUT_MILLIS = 180_000;
     private static final String TOUCH_REQUEST = "msime-handwriting-touch.request";
     private static final String TOUCH_ACK = "msime-handwriting-touch.ack";
@@ -28,11 +28,11 @@ public final class HandwritingDeviceSmoke extends DeviceSmoke {
 
     @Override protected void runChecks() throws Exception {
         stage = "handwriting preview wake";
-        shell("am start -W -n app.msime.client.preview/app.msime.client.SetupActivity");
+        shell("am start -W -n app.msime.android/app.msime.client.SetupActivity");
         stage = "handwriting IME rebind";
-        shell("ime disable app.msime.client.preview/app.msime.client.MSIMEInputService");
-        shell("ime enable app.msime.client.preview/app.msime.client.MSIMEInputService");
-        shell("ime set app.msime.client.preview/app.msime.client.MSIMEInputService");
+        shell("ime disable app.msime.android/app.msime.client.MSIMEInputService");
+        shell("ime enable app.msime.android/app.msime.client.MSIMEInputService");
+        shell("ime set app.msime.android/app.msime.client.MSIMEInputService");
         SystemClock.sleep(1000);
         stage = "handwriting editor launch";
         Intent intent = new Intent(getTargetContext(), EditorActivity.class);

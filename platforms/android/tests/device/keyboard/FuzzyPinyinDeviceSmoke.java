@@ -59,13 +59,13 @@ public final class FuzzyPinyinDeviceSmoke extends DeviceSmoke {
                 throw new AssertionError("disabled fuzzy rule was not retained");
             }
         } finally {
-            shell("am start -W -n app.msime.client.preview/app.msime.client.SetupActivity");
+            shell("am start -W -n app.msime.android/app.msime.client.SetupActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath()); else publish(preferences, original);
         }
     }
 
     private Predicate<android.view.accessibility.AccessibilityNodeInfo> candidate(String text) {
-        return node -> equalsText("app.msime.client.preview", node.getPackageName())
+        return node -> equalsText("app.msime.android", node.getPackageName())
             && node.getContentDescription() != null
             && node.getContentDescription().toString().startsWith("候选 1：" + text);
     }
@@ -80,9 +80,9 @@ public final class FuzzyPinyinDeviceSmoke extends DeviceSmoke {
     }
 
     private void restartIme() throws Exception {
-        shell("ime disable app.msime.client.preview/app.msime.client.MSIMEInputService");
-        shell("ime enable app.msime.client.preview/app.msime.client.MSIMEInputService");
-        shell("ime set app.msime.client.preview/app.msime.client.MSIMEInputService");
+        shell("ime disable app.msime.android/app.msime.client.MSIMEInputService");
+        shell("ime enable app.msime.android/app.msime.client.MSIMEInputService");
+        shell("ime set app.msime.android/app.msime.client.MSIMEInputService");
         SystemClock.sleep(1000);
     }
 

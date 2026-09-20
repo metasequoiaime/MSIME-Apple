@@ -88,14 +88,14 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
                     + standard + " -> " + resetHeight);
 
             stage = "height survives input method restart";
-            shell("am start -W -n app.msime.client.preview/app.msime.client.SetupActivity");
+            shell("am start -W -n app.msime.android/app.msime.client.SetupActivity");
             rebindInputMethod();
             openEditor();
             int restarted = keyHeight("n");
             if (Math.abs(restarted - resetHeight) > 2)
                 throw new AssertionError("Persisted height changed after restart");
         } finally {
-            shell("am start -W -n app.msime.client.preview/app.msime.client.SetupActivity");
+            shell("am start -W -n app.msime.android/app.msime.client.SetupActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath());
             else publish(preferences, original);
         }
@@ -107,9 +107,9 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
     }
 
     private void rebindInputMethod() throws Exception {
-        shell("ime disable app.msime.client.preview/app.msime.client.MSIMEInputService");
-        shell("ime enable app.msime.client.preview/app.msime.client.MSIMEInputService");
-        shell("ime set app.msime.client.preview/app.msime.client.MSIMEInputService");
+        shell("ime disable app.msime.android/app.msime.client.MSIMEInputService");
+        shell("ime enable app.msime.android/app.msime.client.MSIMEInputService");
+        shell("ime set app.msime.android/app.msime.client.MSIMEInputService");
         SystemClock.sleep(1000);
     }
 
@@ -133,7 +133,7 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
     }
 
     private java.util.function.Predicate<AccessibilityNodeInfo> description(String value) {
-        return node -> equalsText("app.msime.client.preview", node.getPackageName())
+        return node -> equalsText("app.msime.android", node.getPackageName())
             && equalsText(value, node.getContentDescription());
     }
 

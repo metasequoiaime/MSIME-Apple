@@ -110,9 +110,20 @@ Android 账号设置中的云词典现通过同一认证会话访问 HTTPS API�
 
 桌面 JVM/JNI 冒烟仍只证明跨语言消费。后续需真机上的焦点/选区/编辑器动作和完整生命周期验收。当前键盘和首次准备页是原生预览布局；React 设置页的 Android 合包与验证见下文。
 
+## 两个 APK 入口，不要选错
+
+`platforms/android` 有两个构建脚本，产物**同名同路径**（`target/android/msime-client-preview.apk`），装到设备上也是同一个包名，但内容完全不同：
+
+- `build-apk.sh <已锁定词库目录>` —— 本目录自己的原生 IME 包。Java 宿主来自 `platforms/android/java`，manifest 是 `platforms/android/AndroidManifest.xml`，图标是 `platforms/android/res/drawable/app_icon_*`，不含任何 Tauri/WebView/React。装真机验证本目录的改动用这个。
+- `build-client-apk.sh <已锁定词库目录> [abi]` —— Tauri 合包。走 Gradle，从 `apps/desktop/src-tauri/gen/android/` 构建，把原生 IME 和 React 设置界面装进同一个包。
+
+下面「Tauri + React 共享设置合包」一节里的「推荐本地构建入口」只针对需要管理 UI 的场景，不是默认入口。要改、要验、要装本目录的原生宿主，就用 `build-apk.sh`。
+
+两者的资源来源也不同，改图标时尤其要认清：合包的 Gradle 用 `res.setSrcDirs` 覆盖了默认目录，取的是 `src/main/res-msime`、`platforms/android/res` 和 `apps/desktop/src-tauri/icons/android` 三处——`gen/android/app/src/main/res` 下那份 mipmap 不参与构建。启动器图标在合包里来自 `apps/desktop/src-tauri/icons/android`（adaptive icon，五个主题各一个 background 颜色），在原生包里来自 `platforms/android/res/drawable/app_icon_*`。改了一处不等于另一处也改了。
+
 ## Tauri + React 共享设置合包
 
-推荐本地构建入口：`ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/build-client-apk.sh <已锁定词库目录> [arm64-v8a|x86_64]`。默认 arm64-v8a，产物仍为 target/android/msime-client-preview.apk；需要先完成根目录 pnpm install --frozen-lockfile，准备 JDK 21、Android API 36、build-tools 35、固定 NDK/vcpkg 与 Rust Android target。Gradle 8.14.3 使用官方分发摘要固定，AGP/Kotlin 版本由项目固定。参数 --ci 仅用于 Tauri CLI 的非交互模式，不运行 GitHub CI。
+需要管理 UI 时的本地构建入口（不是本目录的默认入口，见上节）：`ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/build-client-apk.sh <已锁定词库目录> [arm64-v8a|x86_64]`。默认 arm64-v8a，产物仍为 target/android/msime-client-preview.apk；需要先完成根目录 pnpm install --frozen-lockfile，准备 JDK 21、Android API 36、build-tools 35、固定 NDK/vcpkg 与 Rust Android target。Gradle 8.14.3 使用官方分发摘要固定，AGP/Kotlin 版本由项目固定。参数 --ci 仅用于 Tauri CLI 的非交互模式，不运行 GitHub CI。
 
 apps/desktop/src-tauri/src/lib.rs 是桌面与移动共用的 Tauri commands/入口，Android 调用同一个 client-core PreferencesStore，指向应用私有 files/bootstrap/state，与 bootstrap 和 IME 监控目录一致。packages/ui 的 React 页没有 Android 副本。生成的 Android 工程已纳入源码，Gradle 直接引用 platforms/android/java、共享图标与暂存的锁定资源；不把原生宿主代码复制到 gen。不要重复执行 tauri android init 覆盖本仓定制。受版本控制的 Gradle 设置会从 `TAURI_ANDROID_DIR` 或 Cargo registry 定位锁定 Tauri Android 工程，合包脚本通过 `cargo metadata --locked` 注入精确路径；生成 Kotlin 绑定、native symlink、构建输出和本机配置仍忽略。
 
@@ -124,7 +135,7 @@ Apple 的社区资源入口已迁移到同一页的“皮肤 / 词库 / 回复�
 
 应用首次启动、缺少运行配置时进入已有 SetupActivity，准备成功后点击“打开共享设置”；不会自动启用或选择输入法。系统输入法设置入口也可打开共享设置页。Tauri 使用主进程，InputMethodService 使用同 UID 的独立 :ime 进程，通过文件锁和 revision 协作，不依赖设置窗口存活。这样 Tauri 退出最后一个窗口不会结束输入服务；不是通过让隐藏设置窗口常驻来维持输入。
 
-此合包是本地开发产物，使用原开发签名和 versionCode 1，便于覆盖安装同一预览包，不代表正式发行的版本策略；不得发布开发密钥。原 build-apk.sh 保留为不含管理 UI 的原生宿主测试包入口。合包 arm64 已构建并设备验证；x86_64 合包入口尚未验收，不用以前的原生 x86_64 构建冒充 Tauri 合包证据。分发前还需完整 Rust/Tauri/Gradle/Engine/词库许可审计。
+此合包是本地开发产物，使用原开发签名和 versionCode 1，便于覆盖安装同一预览包，不代表正式发行的版本策略；不得发布开发密钥。`build-apk.sh` 不是被取代的旧入口，而是本目录原生宿主自己的构建入口，验证本目录改动时用它。合包 arm64 已构建并设备验证；x86_64 合包入口尚未验收，不用以前的原生 x86_64 构建冒充 Tauri 合包证据。分发前还需完整 Rust/Tauri/Gradle/Engine/词库许可审计。
 
 在专用 AVD 上运行 `ANDROID_SDK_ROOT=<SDK绝对路径> bash platforms/android/tests/device/smoke.sh emulator-5580 --settings --statistics --handwriting`：保留原有输入与配置热更新测试，并在真实 Tauri WebView 中操作 React 表单，验证保存、共享 revision、内置与自定义键盘皮肤、重新读取与另一个进程中的实际标点上屏；测试不是直接调用保存 command 代替表单行为。设置套件先确认“我的”入口存在，再选择内置霓虹夜航并打开真实编辑器应用“奶油桃桃”模板，通过 Tauri IPC 对独立命名图库执行新建、重命名、更新、应用和删除，并确认图库写入不会提前修改普通 preferences；随后检查 `custom` 选择及卵石、立体、圆角、纹理字段落盘，并在重绑的 `:ime` 进程中通过皮肤按钮无障碍状态确认实际消费“我的皮肤”。独立 fixture 还验证 Keystore 加密会话的往返、密文不含固定明文 marker、清除与 16 KiB 上限，不向生产账号服务发送验证码。测试前后恢复图库、偏好及 fixture 会话文件。独立控制端还连续两次打开/关闭设置，验证 :ime PID 不变且仍能上屏。统计套件通过真实 InputConnection 与 React 页面验证聚合文件、启停、清空和跨进程读写，固定失败阶段不输出编辑器内容，并恢复测试前文件。手写套件需要网络以首次下载 ML Kit 模型，随后使用合成触摸轨迹验证离线识别与真实 InputConnection 提交；模型已存在时直接验证就绪路径。测试恢复原输入方案和偏好文件，不输出候选或编辑器内容；instrumentation 的强制停止与普通设置窗口关闭分开处理。
 

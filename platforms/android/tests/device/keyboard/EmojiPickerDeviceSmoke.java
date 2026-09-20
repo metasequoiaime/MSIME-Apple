@@ -92,14 +92,14 @@ public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
     }
 
     private void rebindInputMethod() throws Exception {
-        shell("ime disable app.msime.client.preview/app.msime.client.MSIMEInputService");
-        shell("ime enable app.msime.client.preview/app.msime.client.MSIMEInputService");
-        shell("ime set app.msime.client.preview/app.msime.client.MSIMEInputService");
+        shell("ime disable app.msime.android/app.msime.client.MSIMEInputService");
+        shell("ime enable app.msime.android/app.msime.client.MSIMEInputService");
+        shell("ime set app.msime.android/app.msime.client.MSIMEInputService");
         SystemClock.sleep(1000);
     }
 
     private Predicate<AccessibilityNodeInfo> description(String value) {
-        return node -> equalsText("app.msime.client.preview", node.getPackageName())
+        return node -> equalsText("app.msime.android", node.getPackageName())
             && equalsText(value, node.getContentDescription());
     }
 
@@ -114,7 +114,7 @@ public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
     private Predicate<AccessibilityNodeInfo> emojiCount(
             java.util.function.IntPredicate accepted) {
         return node -> {
-            if (!equalsText("app.msime.client.preview", node.getPackageName())
+            if (!equalsText("app.msime.android", node.getPackageName())
                     || node.getText() == null) return false;
             String text = node.getText().toString();
             int separator = text.indexOf(" 个表情");

@@ -20,7 +20,11 @@ android {
     namespace = "app.msime.client.preview"
     defaultConfig {
         manifestPlaceholders["usesCleartextTraffic"] = "false"
-        applicationId = "app.msime.client.preview"
+        // The package the device installs under. It is deliberately not the same as `namespace`:
+        // namespace is the code identity -- the R class, the manifest's relative names, and the
+        // package wry looks its generated Kotlin up by -- and moving that would mean moving the
+        // generated sources with it.
+        applicationId = "app.msime.android"
         minSdk = 28
         targetSdk = 35
         versionCode = tauriProperties.getProperty("tauri.android.versionCode", "1").toInt()

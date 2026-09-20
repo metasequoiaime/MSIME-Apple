@@ -51,22 +51,22 @@ public final class MicrosoftShuangpinDeviceSmoke extends DeviceSmoke {
             await(field("msime-test-plain").and(node -> equalsText("", node.getText())));
             await(imeTextContains("b;"));
         } finally {
-            shell("am start -W -n app.msime.client.preview/app.msime.client.SetupActivity");
+            shell("am start -W -n app.msime.android/app.msime.client.SetupActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath());
             else publish(preferences, original);
         }
     }
 
     private Predicate<AccessibilityNodeInfo> microsoftKey() {
-        return node -> equalsText("app.msime.client.preview", node.getPackageName())
+        return node -> equalsText("app.msime.android", node.getPackageName())
             && equalsText("微软双拼 ing", node.getContentDescription())
             && node.isClickable() && node.isVisibleToUser();
     }
 
     private void restartIme() throws Exception {
-        shell("ime disable app.msime.client.preview/app.msime.client.MSIMEInputService");
-        shell("ime enable app.msime.client.preview/app.msime.client.MSIMEInputService");
-        shell("ime set app.msime.client.preview/app.msime.client.MSIMEInputService");
+        shell("ime disable app.msime.android/app.msime.client.MSIMEInputService");
+        shell("ime enable app.msime.android/app.msime.client.MSIMEInputService");
+        shell("ime set app.msime.android/app.msime.client.MSIMEInputService");
         SystemClock.sleep(1000);
     }
 
