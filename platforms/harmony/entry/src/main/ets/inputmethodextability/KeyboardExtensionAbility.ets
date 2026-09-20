@@ -418,6 +418,12 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       KeyboardSession.shared.refreshToolbar();
       return true;
     }
+    // A space with nothing being composed is the editor's, with one exception: it is also the key
+    // that rewrites a just-committed Chinese mark as ASCII, and that arming only exists after a
+    // commit — which is to say, only when nothing is being composed.
+    if (event.action === KeyAction.DOWN && session.convertPunctuationSpace(event.unicodeChar)) {
+      return true;
+    }
     if (!session.composes()) {
       return false;
     }

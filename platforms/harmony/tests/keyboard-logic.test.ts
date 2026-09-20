@@ -186,6 +186,10 @@ import {
 } from "../entry/src/main/ets/keyboard/input/CandidateTextPolicy";
 import { CandidateSkinPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateSkinPolicy";
 import {
+  SmartPunctuationSpacePolicy,
+  SpaceConvertDecision,
+} from "../entry/src/main/ets/keyboard/input/SmartPunctuationSpacePolicy";
+import {
   PanelShortcut,
   PanelShortcutPolicy,
 } from "../entry/src/main/ets/keyboard/input/PanelShortcutPolicy";
@@ -4644,6 +4648,78 @@ group("keypad digits reach both digit paths", () => {
   check(
     select.action === HardwareKeyAction.SELECT && select.index === 2,
     "keypad 3 picks the third candidate",
+  );
+});
+
+group("space after a Chinese mark rewrites it as ASCII", () => {
+  // Transcribed from SmartPunctuationAsciiFor in the source. Both quote directions map to the same
+  // straight quote, as they do there.
+  check(SmartPunctuationSpacePolicy.asciiFor(0x3002) === 0x2e, "。 becomes .");
+  check(SmartPunctuationSpacePolicy.asciiFor(0x3001) === 0x2f, "、 becomes / rather than a comma");
+  check(SmartPunctuationSpacePolicy.asciiFor(0x201c) === 0x22, "“ becomes a straight quote");
+  check(SmartPunctuationSpacePolicy.asciiFor(0x201d) === 0x22, "and so does ”");
+  check(SmartPunctuationSpacePolicy.asciiFor(0x4e2d) === 0, "a Han character has no ASCII twin");
+
+  const armed = SmartPunctuationSpacePolicy.arm("。", false, true, true, 7);
+  check(armed !== null && armed.ascii === 0x2e, "committing 。 arms the conversion");
+  check(
+    SmartPunctuationSpacePolicy.decide(armed, 0x20, 0x3002, false, 7) ===
+      SpaceConvertDecision.CONVERT,
+    "a space with the mark still before the caret converts",
+  );
+});
+
+group("the conversion declines rather than rewriting the wrong character", () => {
+  const armed = SmartPunctuationSpacePolicy.arm("。", false, true, true, 7);
+  // The arming records what was committed, not what is still there.
+  check(
+    SmartPunctuationSpacePolicy.decide(armed, 0x20, 0x4e2d, false, 7) === SpaceConvertDecision.NONE,
+    "something else before the caret means the caret moved",
+  );
+  check(
+    SmartPunctuationSpacePolicy.decide(armed, 0x20, 0x3002, false, 8) === SpaceConvertDecision.NONE,
+    "a different editor session does not convert",
+  );
+  check(
+    SmartPunctuationSpacePolicy.decide(armed, 0x61, 0x3002, false, 7) === SpaceConvertDecision.NONE,
+    "a key that is not a space is not this gesture",
+  );
+  check(
+    SmartPunctuationSpacePolicy.decide(armed, 0x20, 0x3002, true, 7) === SpaceConvertDecision.NONE,
+    "a space mid-composition belongs to the composition",
+  );
+  check(
+    SmartPunctuationSpacePolicy.decide(null, 0x20, 0x3002, false, 7) === SpaceConvertDecision.NONE,
+    "nothing armed, nothing converted",
+  );
+});
+
+group("what the conversion refuses to arm on", () => {
+  // The caret sits between the two marks of an auto-closed pair, so the character before it is the
+  // opening one and rewriting it would break the pair. The source refuses the same case.
+  check(
+    SmartPunctuationSpacePolicy.arm("（", true, true, true, 1) === null,
+    "an auto-closed pair does not arm",
+  );
+  check(
+    SmartPunctuationSpacePolicy.arm("。", false, true, false, 1) === null,
+    "the switch being off means the setting is honoured, not ignored",
+  );
+  check(
+    SmartPunctuationSpacePolicy.arm("。", false, false, true, 1) === null,
+    "smart punctuation being off takes the whole family with it",
+  );
+  check(
+    SmartPunctuationSpacePolicy.arm("你好", false, true, true, 1) === null,
+    "a commit of more than one scalar is not a mark the space is about",
+  );
+  check(
+    SmartPunctuationSpacePolicy.arm("", false, true, true, 1) === null,
+    "nor is an empty commit",
+  );
+  check(
+    SmartPunctuationSpacePolicy.arm(null, false, true, true, 1) === null,
+    "nor is no commit at all",
   );
 });
 
