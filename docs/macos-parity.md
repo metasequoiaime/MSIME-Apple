@@ -68,7 +68,24 @@
 
 - 从来源 `platforms/macos/src/` 抽出 ObjC 方法、C/C++ 函数与 Swift 函数名共 **572 个**，逐个在目标的 `platforms/macos`、`shared`、`crates`、`packages/ui/src`、`apps/desktop/src` 全文检索。
 - 按名未命中 **173 个**。自动消解 `Metasequoia*` → `MSIME*` 的改名与 camelCase → snake_case 之后，余 **164 个**。
-- 这 164 个按来源归类：绝大多数是原生设置窗口的 action selector 与偏好访问器（`schemeChanged`、`voiceProviderChanged`、`storedWubiCodeHintEnabled`、`refreshVoiceControls` 一类），按「公共 UI 放 Tauri」本就不该在目标存在对应物；其余是被下沉的实现细节（词库安装与学习数据重置的标记/恢复协议 `WriteResetMarker`、`RecoverLearningReset`、`InstallMetasequoiaDictionary` 等，在目标由引擎与共享 Rust 承担）与内部小工具（`MsimeHex`、`FailWithErrno`、`RemoveIfPresent`）。
+- 这 164 个**逐个查出定义它的来源文件**，按文件归属如下（合计 164）：
+
+| 来源文件 | 个数 | 去向 |
+| --- | --- | --- |
+| `PreferencesWindowController.mm/.h` | 78 | 原生设置窗口。目标的设置面在 Tauri，按指令不该有对应物 |
+| `DictionaryInstaller.mm` | 18 | 词库安装。下沉到引擎与共享 Rust |
+| `MetasequoiaInputController.mm` | 15 | 目标也有的文件，**逐条核对见下** |
+| `PersonalDictionaryView.mm`、`PersonalDictionaryStore.mm/.h` | 14 | 原生个人词库界面与存储。目标是 Tauri 词库页 + 共享词库 ABI，且为超集 |
+| `InputBehaviorPreferences.h`、`CandidateAppearancePreferences.h`、`CandidatePageSize.h`、`LocalInputModePreferences.h`、`FloatingToolbarPreferences.h`、`CandidateTranslationLanguage.h` | 16 | 原生偏好读写器。目标的偏好在共享层，由 `preference_coverage.py` 双向校验 |
+| `FloatingToolbarPanel.mm` | 4 | **逐条核对见下** |
+| `CandidatePanel.mm/.h`、`CandidateSkinPreviewView.mm`、`InputModeHUDPanel.h` | 7 | **逐条核对见下** |
+| `TranslationClient.mm/.h`、`CandidateGlossClient.swift`、`BackendAccountBridge.swift` | 6 | 翻译与账号桥接。目标是 `CustomTranslationBatch`、`BackendCandidateGloss`、`BackendAccountBridge` |
+| `InputModeRouting.h`、`InputControllerKeyRouting.h` | 3 | 已在行为层比对中逐条核过 |
+| `Uninstaller.h` | 2 | 卸载器五条规则已逐条核过 |
+| `VoiceInputService.mm` | 1 | `beginCapture` → 目标的语音采集 |
+
+- 「目标也有同名文件」的那 **28 个**（控制器 15、悬浮工具栏 6、候选面板 7）逐条对照，全部有对应物：`MetasequoiaTogglePinnedWord` → `MSIMETogglePinnedCandidate`；`availableGlossColumnsPrimary` / `setArmedGlossColumn` → `_armedGlossColumn` 与其夹取；`commitGlossAtVisibleOffset` / `insertGlossForModifiedDigit` → `commitCandidateGlossColumn:` 及其 Option/Control 分支；`handleSolitaryShiftFlags` → `MSIMEModifierTap` 与 #3179 的原样上屏；`translationDictionary` → `candidate_glosses_with_user`；`LocalModeOptionsMatch` → 目标比的是整个 `Preferences` 值；`toolbarWidth` / `visibleButtonCount` / `applyItemVisibility` → `_preferredSize` 与 `_appliedComponentMask`；`MetasequoiaIsUsableCaretRect` → `MSIMEValidCaret`。
+- 唯一没有同名对应物且**确实不该有**的是 `rightMouseDown`：目标把候选菜单挂在按钮的 `menu` 属性上，右键由 AppKit 自带的 `menuForEvent:` 接手，而不是覆写鼠标事件——用的是框架自身的契约。
 - 其中不属于上述两类、最像功能的一组逐个核过并都已覆盖：Option/Control + 数字取释义（`CandidateGlossRequestForModifiers` → `commitCandidateGlossColumn:`）、待上屏列（`setArmedGlossColumn` → `_armedGlossColumn` 与其夹取）、候选置顶（`MetasequoiaTogglePinnedWord` → `MSIMESetCandidatePinned`）、释义调度（`scheduleCandidateTranslations` → `synchronizeCandidateGloss` / `synchronizeAccountGloss` 与空闲延迟）、反馈诊断（`copyFeedbackReport` → Tauri 反馈页的「复制报告」）、学习数据清除（`ResetMetasequoiaLearnedData` → Tauri「清除学习数据」→ `resetLearnedData` 能力 → `reset_learned_data` → 引擎）。
 - 单点对照另外确认：`ActionForSolitaryShift` 对应 #3179 之后的单击 Shift 行为，`NextArmedGlossColumn` 对应 `cycleArmedGlossColumnBackwards:`，`browseVoiceModel` 对应 #3212 新增的 `pickVoiceModelPath`，`MetasequoiaCandidateWantsOnlineGloss` 对应 #3156 的 `MSIMEOnlineGlossCandidates`。
 
