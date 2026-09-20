@@ -16,6 +16,7 @@ import {
   type EmojiCatalogItem,
 } from "../emoji/emoji-catalog";
 import { touchKeyboardSkinOptions, type TouchKeyboardSkin } from "./screen-keyboard-preview";
+import * as cloud from "./cloud-panel-style";
 import {
   skinColor,
   skinLuminance,
@@ -2169,18 +2170,16 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
   }
 
   return (
-    <main className="native-panel cloud-clipboard-panel" aria-label="云剪贴板">
+    <main className={`native-panel ${cloud.clipboardPanel}`} aria-label="云剪贴板">
       <header className="native-panel-header">
         <span>水杉云剪贴板</span>
         <button type="button" aria-label="关闭" onClick={() => void client.close()}>
           ×
         </button>
       </header>
-      <div className="cloud-clipboard-body">
-        <p className="cloud-clipboard-description">
-          只上传你明确选择的文本，不自动读取本地剪贴板。
-        </p>
-        <label className="cloud-clipboard-toggle">
+      <div className={cloud.clipboardBody}>
+        <p className={cloud.clipboardNote}>只上传你明确选择的文本，不自动读取本地剪贴板。</p>
+        <label className={cloud.clipboardToggle}>
           <span>启用云剪贴板</span>
           <input
             type="checkbox"
@@ -2190,18 +2189,33 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
           />
         </label>
         {confirmDisable && (
-          <div role="alertdialog" aria-label="关闭云剪贴板" aria-modal="true">
-            <p>关闭云剪贴板会删除云端历史，是否继续？</p>
-            <button type="button" disabled={busy} onClick={() => void toggle(true)}>
+          <div
+            className={cloud.clipboardConfirm}
+            role="alertdialog"
+            aria-label="关闭云剪贴板"
+            aria-modal="true"
+          >
+            <p className="m-0">关闭云剪贴板会删除云端历史，是否继续？</p>
+            <button
+              type="button"
+              className={cloud.clipboardDelete}
+              disabled={busy}
+              onClick={() => void toggle(true)}
+            >
               确认关闭并删除历史
             </button>
-            <button type="button" onClick={() => setConfirmDisable(false)}>
+            <button
+              type="button"
+              className={cloud.clipboardButton}
+              onClick={() => setConfirmDisable(false)}
+            >
               取消
             </button>
           </div>
         )}
-        <div className="cloud-clipboard-search">
+        <div className={cloud.clipboardSearchRow}>
           <input
+            className={cloud.clipboardInput}
             aria-label="搜索云端历史"
             value={search}
             onChange={(event) => {
@@ -2213,12 +2227,18 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
             }}
             placeholder="搜索云端历史"
           />
-          <button type="button" onClick={() => void refresh()} disabled={busy}>
+          <button
+            type="button"
+            className={cloud.clipboardButton}
+            onClick={() => void refresh()}
+            disabled={busy}
+          >
             刷新
           </button>
         </div>
-        <div className="cloud-clipboard-add">
+        <div className={cloud.clipboardAddRow}>
           <textarea
+            className={cloud.clipboardTextArea}
             aria-label="待上传文本"
             value={draft}
             onChange={(event) => {
@@ -2228,25 +2248,20 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
             placeholder="输入要上传的文本"
             rows={3}
           />
-          <small
-            className={
-              draft.length > 4000 ? "cloud-clipboard-length invalid" : "cloud-clipboard-length"
-            }
-          >
-            {draft.length} / 4000
-          </small>
+          <small className={cloud.clipboardCount(draft.length > 4000)}>{draft.length} / 4000</small>
           <button
             type="button"
+            className={cloud.clipboardSubmit}
             onClick={() => void add()}
             disabled={!enabled || draft.trim().length === 0 || draft.length > 4000 || busy}
           >
             上传明确选择的文本
           </button>
         </div>
-        <div className="cloud-clipboard-list" aria-label="云端历史">
+        <div className={cloud.clipboardList} aria-label="云端历史">
           {items.length ? (
             items.map((item) => (
-              <article className="cloud-clipboard-item" key={item.id}>
+              <article className={cloud.clipboardItem} key={item.id}>
                 <button type="button" disabled={busy} onClick={() => void choose(item)}>
                   {item.text}
                 </button>
@@ -2262,7 +2277,7 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
                 )}
                 <button
                   type="button"
-                  className="cloud-clipboard-delete"
+                  className={cloud.clipboardDelete}
                   aria-label={`删除 ${item.text}`}
                   onClick={() => void remove(item.id)}
                   disabled={busy}
@@ -2272,10 +2287,10 @@ export function CloudClipboardPanel({ client }: { client: CloudClipboardPanelCli
               </article>
             ))
           ) : (
-            <p className="cloud-clipboard-empty">暂无云端历史</p>
+            <p className={cloud.clipboardNote}>暂无云端历史</p>
           )}
         </div>
-        <p className="cloud-clipboard-notice" role="status">
+        <p className={cloud.clipboardNote} role="status">
           {notice}
         </p>
       </div>
@@ -2477,25 +2492,25 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
     void refresh(0, searchRef.current, next);
   }
   return (
-    <main className="native-panel cloud-dictionary-panel" aria-label="云词典">
+    <main className={`native-panel ${cloud.dictionaryPanel}`} aria-label="云词典">
       <header className="native-panel-header">
         <span>水杉云词典</span>
         <button type="button" aria-label="关闭" onClick={() => void client.close()}>
           ×
         </button>
       </header>
-      <div className="cloud-dictionary-body">
-        <p className="cloud-dictionary-description">
+      <div className={cloud.dictionaryBody}>
+        <p className={cloud.dictionaryNote}>
           管理当前账号的云端词条。修改需要 provider 提供登录态和同步服务。
         </p>
-        <div className="cloud-dictionary-kind-tabs" role="tablist" aria-label="云词库类型">
+        <div className={cloud.dictionaryKindTabs} role="tablist" aria-label="云词库类型">
           {cloudDictionaryKinds.map(([value, label]) => (
             <button
               key={value}
               type="button"
               role="tab"
               aria-selected={kind === value}
-              className={kind === value ? "active" : ""}
+              className={cloud.dictionaryKindTab(kind === value)}
               onClick={() => changeKind(value)}
               disabled={busy}
             >
@@ -2503,10 +2518,11 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
             </button>
           ))}
         </div>
-        <div className="cloud-dictionary-toolbar">
-          <label>
+        <div className={cloud.dictionaryToolbar}>
+          <label className={`${cloud.dictionaryField} ${cloud.dictionaryDesktopOnlyField}`}>
             词库
             <select
+              className={cloud.dictionaryInput}
               aria-label="词库类型"
               value={kind}
               onChange={(event) => changeKind(event.target.value as CloudDictionaryKind)}
@@ -2519,9 +2535,10 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
               ))}
             </select>
           </label>
-          <label className="cloud-dictionary-search">
+          <label className={cloud.dictionarySearch}>
             搜索
             <input
+              className={cloud.dictionaryInput}
               aria-label="搜索云词条"
               value={search}
               onChange={(event) => {
@@ -2562,26 +2579,29 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
           )}
         </div>
         {form && (
-          <div className="cloud-dictionary-form">
-            <label>
+          <div className={cloud.dictionaryForm}>
+            <label className={cloud.dictionaryField}>
               编码
               <input
+                className={cloud.dictionaryInput}
                 disabled={busy}
                 value={form.code}
                 onChange={(event) => setForm({ ...form, code: event.target.value })}
               />
             </label>
-            <label className="cloud-dictionary-word">
+            <label className={cloud.dictionaryWordField}>
               词条
               <input
+                className={cloud.dictionaryInput}
                 disabled={busy}
                 value={form.word}
                 onChange={(event) => setForm({ ...form, word: event.target.value })}
               />
             </label>
-            <label>
+            <label className={cloud.dictionaryField}>
               权重
               <input
+                className={cloud.dictionaryInput}
                 disabled={busy}
                 type="number"
                 min="0"
@@ -2603,17 +2623,17 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
           </div>
         )}
         {entries.length > 0 && (
-          <p className="cloud-dictionary-mobile-hint">
+          <p className={cloud.dictionaryMobileHint}>
             点按词条可编辑；窄屏下的下载和删除操作会分组显示。
           </p>
         )}
-        <div className="cloud-dictionary-list" aria-label="云词条">
+        <div className={cloud.dictionaryList} aria-label="云词条">
           {entries.length ? (
             entries.map((entry) => (
-              <article className="cloud-dictionary-item" key={entry.id}>
+              <article className={cloud.dictionaryItem} key={entry.id}>
                 <button
                   type="button"
-                  className="cloud-dictionary-item-main"
+                  className={cloud.dictionaryItemMain}
                   aria-label={`编辑云词条 ${entry.word}`}
                   onClick={() => beginEdit(entry)}
                   disabled={busy}
@@ -2623,7 +2643,7 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
                     {entry.code} · 权重 {entry.weight}
                   </small>
                 </button>
-                <div className="cloud-dictionary-item-actions">
+                <div className={cloud.dictionaryItemActions}>
                   {client.downloadToLocal && (
                     <button
                       type="button"
@@ -2655,11 +2675,12 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
               </article>
             ))
           ) : (
-            <p className="cloud-dictionary-empty">暂无词条</p>
+            <p className={cloud.dictionaryEmpty}>暂无词条</p>
           )}
         </div>
-        <div className="cloud-dictionary-pagination">
+        <div className={cloud.dictionaryPagination}>
           <button
+            className={cloud.dictionaryButton}
             type="button"
             onClick={() => void refresh(Math.max(0, offset - 100))}
             disabled={busy || offset === 0}
@@ -2668,6 +2689,7 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
           </button>
           <span>第 {Math.floor(offset / 100) + 1} 页</span>
           <button
+            className={cloud.dictionaryButton}
             type="button"
             onClick={() => void refresh(offset + 100)}
             disabled={busy || !hasMore}
@@ -2675,7 +2697,7 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
             下一页
           </button>
         </div>
-        <p className="cloud-dictionary-notice" role="status">
+        <p className={cloud.dictionaryNote} role="status">
           {notice}
         </p>
       </div>
@@ -2874,9 +2896,10 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
   );
 
   return (
-    <main className="native-panel cloud-dictionary-panel" aria-label="云词库文件">
+    <main className={`native-panel ${cloud.dictionaryPanel}`} aria-label="云词库文件">
       <header className="native-panel-header">
         <button
+          className={cloud.dictionaryButton}
           type="button"
           aria-label="返回云词典"
           onClick={() => void (client.back ? client.back() : client.close())}
@@ -2888,15 +2911,15 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
           ×
         </button>
       </header>
-      <div className="cloud-dictionary-body">
-        <div className="cloud-dictionary-kind-tabs" role="tablist" aria-label="云词库类型">
+      <div className={cloud.dictionaryBody}>
+        <div className={cloud.dictionaryKindTabs} role="tablist" aria-label="云词库类型">
           {cloudDictionaryKinds.map(([value, label]) => (
             <button
               key={value}
               type="button"
               role="tab"
               aria-selected={kind === value}
-              className={kind === value ? "active" : ""}
+              className={cloud.dictionaryKindTab(kind === value)}
               onClick={() => changeKind(value)}
               disabled={busy}
             >
@@ -2904,10 +2927,11 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
             </button>
           ))}
         </div>
-        <div className="cloud-dictionary-toolbar">
-          <label>
+        <div className={cloud.dictionaryToolbar}>
+          <label className={`${cloud.dictionaryField} ${cloud.dictionaryDesktopOnlyField}`}>
             词库
             <select
+              className={cloud.dictionaryInput}
               aria-label="词库类型"
               value={kind}
               onChange={(event) => changeKind(event.target.value as CloudDictionaryKind)}
@@ -2920,9 +2944,10 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
               ))}
             </select>
           </label>
-          <label>
+          <label className={cloud.dictionaryField}>
             文件格式
             <select
+              className={cloud.dictionaryInput}
               aria-label="文件格式"
               value={format}
               onChange={(event) => setFormat(event.target.value as CloudDictionaryFileFormat)}
@@ -2934,14 +2959,15 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
             </select>
           </label>
         </div>
-        <p className="cloud-dictionary-description">
+        <p className={cloud.dictionaryNote}>
           导入只处理你明确选择的本地文件，读取和上传均有 64 KiB 边界；导出所选类型的云端个人词条。
         </p>
-        <section className="cloud-dictionary-file-section" aria-label="导入云词库">
+        <section className={cloud.dictionarySection} aria-label="导入云词库">
           <h2>导入云词库</h2>
           <label className="secondary">
             选择 UTF-8 文件
             <input
+              className={cloud.dictionaryInput}
               hidden
               type="file"
               accept=".txt,.tsv,text/plain"
@@ -2954,7 +2980,7 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
             />
           </label>
           {file && (
-            <div className="cloud-dictionary-file-preview">
+            <div className={cloud.dictionaryFilePreview}>
               <strong>{file.name}</strong>
               <small>{file.bytes} 字节</small>
               <pre>{file.text.slice(0, 2000)}</pre>
@@ -2972,20 +2998,21 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
             </div>
           )}
         </section>
-        <section className="cloud-dictionary-file-section" aria-label="导出云词库">
+        <section className={cloud.dictionarySection} aria-label="导出云词库">
           <h2>导出云词库</h2>
-          <p className="cloud-dictionary-description">文件会下载到当前设备，不会修改云端词条。</p>
+          <p className={cloud.dictionaryNote}>文件会下载到当前设备，不会修改云端词条。</p>
           <button type="button" onClick={exportDictionary} disabled={busy || format === "hans"}>
             导出当前类型
           </button>
         </section>
         {client.snapshot && (
-          <section className="cloud-dictionary-file-section" aria-label="完整云词库备份">
+          <section className={cloud.dictionarySection} aria-label="完整云词库备份">
             <h2>完整云词库备份</h2>
-            <p className="cloud-dictionary-description">
+            <p className={cloud.dictionaryNote}>
               包含四类词库和排序记录；恢复只写云端，不会自动改动本机词库。
             </p>
             <button
+              className={cloud.dictionaryButton}
               type="button"
               onClick={() => void exportSnapshot()}
               disabled={busy || snapshotBusy}
@@ -2995,6 +3022,7 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
             <label className="secondary">
               选择快照恢复到云端
               <input
+                className={cloud.dictionaryInput}
                 hidden
                 type="file"
                 accept=".ndjson,application/x-ndjson"
@@ -3007,13 +3035,14 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
               />
             </label>
             {restorePreview && (
-              <div className="cloud-dictionary-file-preview">
+              <div className={cloud.dictionaryFilePreview}>
                 <strong>已校验快照</strong>
                 <small>
                   云端 revision {restorePreview.snapshot.cloudRevision} ·{" "}
                   {restorePreview.snapshot.records} 条记录 · {restorePreview.snapshot.bytes} 字节
                 </small>
                 <button
+                  className={cloud.dictionaryButton}
                   type="button"
                   onClick={() => void restoreSnapshot()}
                   disabled={busy || snapshotBusy}
@@ -3032,7 +3061,7 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
             )}
           </section>
         )}
-        <p className="cloud-dictionary-notice" role="status">
+        <p className={cloud.dictionaryNote} role="status">
           {notice}
         </p>
       </div>
@@ -3133,9 +3162,10 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
   }, [client]);
 
   return (
-    <main className="native-panel cloud-dictionary-panel" aria-label="应用云词库">
+    <main className={`native-panel ${cloud.dictionaryPanel}`} aria-label="应用云词库">
       <header className="native-panel-header">
         <button
+          className={cloud.dictionaryButton}
           type="button"
           aria-label="返回云词典"
           onClick={() => void (client.back ? client.back() : client.close())}
@@ -3147,13 +3177,13 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
           ×
         </button>
       </header>
-      <div className="cloud-dictionary-body">
-        <section className="cloud-dictionary-file-section" aria-label="准备本机词库">
+      <div className={cloud.dictionaryBody}>
+        <section className={cloud.dictionarySection} aria-label="准备本机词库">
           <h2>准备本机词库</h2>
-          <p className="cloud-dictionary-description">
+          <p className={cloud.dictionaryNote}>
             请启用水杉键盘并打开一次，让宿主提供当前本机词库版本。测试区或编辑器内容不会上传。
           </p>
-          <div className="cloud-dictionary-snapshot-fact">
+          <div className={cloud.dictionarySnapshotFact}>
             {localVersion ? (
               <>
                 <strong>已获取本机词库版本</strong>
@@ -3164,6 +3194,7 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
             )}
           </div>
           <button
+            className={cloud.dictionaryButton}
             type="button"
             onClick={download}
             disabled={
@@ -3185,13 +3216,13 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
           </button>
         </section>
         {preview && (
-          <section className="cloud-dictionary-file-section" aria-label="确认应用">
+          <section className={cloud.dictionarySection} aria-label="确认应用">
             <h2>确认应用</h2>
-            <p className="cloud-dictionary-description">
+            <p className={cloud.dictionaryNote}>
               云端 revision {preview.cloudRevision} · {preview.records} 条记录 · {preview.bytes}{" "}
               字节
             </p>
-            <p className="cloud-dictionary-description">
+            <p className={cloud.dictionaryNote}>
               词条 {preview.entries} · 覆盖 {preview.overlays} · 固定 {preview.positions} · 选择{" "}
               {preview.selections}
             </p>
@@ -3212,9 +3243,9 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
           </section>
         )}
         {request && (
-          <section className="cloud-dictionary-file-section" aria-label="处理结果">
+          <section className={cloud.dictionarySection} aria-label="处理结果">
             <h2>处理结果</h2>
-            <p className="cloud-dictionary-description">
+            <p className={cloud.dictionaryNote}>
               状态：{request.status} · 云端 revision {request.cloudRevision}
             </p>
             {(request.status === "queued" || request.status === "preparing") && (
@@ -3224,7 +3255,7 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
             )}
           </section>
         )}
-        <p className="cloud-dictionary-notice" role="status">
+        <p className={cloud.dictionaryNote} role="status">
           {notice}
         </p>
       </div>
@@ -3423,9 +3454,10 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
   }
 
   return (
-    <main className="native-panel cloud-dictionary-panel" aria-label="完整云词库目录">
+    <main className={`native-panel ${cloud.dictionaryPanel}`} aria-label="完整云词库目录">
       <header className="native-panel-header">
         <button
+          className={cloud.dictionaryButton}
           type="button"
           aria-label="返回云词典"
           onClick={() => void (client.back ? client.back() : client.close())}
@@ -3437,11 +3469,12 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
           ×
         </button>
       </header>
-      <div className="cloud-dictionary-body">
-        <div className="cloud-dictionary-toolbar">
-          <label>
+      <div className={cloud.dictionaryBody}>
+        <div className={cloud.dictionaryToolbar}>
+          <label className={`${cloud.dictionaryField} ${cloud.dictionaryDesktopOnlyField}`}>
             词库
             <select
+              className={cloud.dictionaryInput}
               aria-label="词库类型"
               value={kind}
               onChange={(event) => changeKind(event.target.value as CloudDictionaryKind)}
@@ -3454,9 +3487,10 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
               ))}
             </select>
           </label>
-          <label className="cloud-dictionary-search">
+          <label className={cloud.dictionarySearch}>
             编码
             <input
+              className={cloud.dictionaryInput}
               aria-label="完整目录编码"
               value={code}
               onChange={(event) => setCode(event.target.value)}
@@ -3467,6 +3501,7 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
             />
           </label>
           <button
+            className={cloud.dictionaryButton}
             type="button"
             onClick={() => void queryCatalog()}
             disabled={busy || (kind !== "quick" && !code.trim())}
@@ -3475,10 +3510,11 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
           </button>
         </div>
         {kind === "pinyin" && (
-          <div className="cloud-dictionary-actions">
-            <label>
+          <div className={cloud.dictionaryActions}>
+            <label className={cloud.dictionaryField}>
               编码方案
               <select
+                className={cloud.dictionaryInput}
                 aria-label="编码方案"
                 value={scheme}
                 onChange={(event) => setScheme(event.target.value)}
@@ -3489,9 +3525,10 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
               </select>
             </label>
             {scheme === "shuangpin" && (
-              <label>
+              <label className={cloud.dictionaryField}>
                 双拼方案
                 <select
+                  className={cloud.dictionaryInput}
                   aria-label="双拼方案"
                   value={profile}
                   onChange={(event) => setProfile(event.target.value)}
@@ -3506,28 +3543,26 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
             )}
           </div>
         )}
-        <p className="cloud-dictionary-description">
+        <p className={cloud.dictionaryNote}>
           包含基础词库与当前账号修改。编辑和删除只影响云端目录，不会自动修改本机词库。
         </p>
         {confirmed && entries.length > 0 && (
-          <p className="cloud-dictionary-mobile-hint">
-            点按词条可编辑；窄屏下的删除操作会分组显示。
-          </p>
+          <p className={cloud.dictionaryMobileHint}>点按词条可编辑；窄屏下的删除操作会分组显示。</p>
         )}
         {confirmed && (
-          <div className="cloud-dictionary-list" aria-label="完整目录结果">
+          <div className={cloud.dictionaryList} aria-label="完整目录结果">
             <p>
               查询编码：{normalized} · 云端版本 {revision}
             </p>
             {entries.length ? (
               entries.map((entry) => (
                 <article
-                  className="cloud-dictionary-item"
+                  className={cloud.dictionaryItem}
                   key={`${entry.kind}:${entry.code}:${entry.word}`}
                 >
                   <button
                     type="button"
-                    className="cloud-dictionary-item-main"
+                    className={cloud.dictionaryItemMain}
                     aria-label={`编辑完整目录词条 ${entry.word}`}
                     onClick={() => beginEdit(entry)}
                     disabled={busy}
@@ -3537,7 +3572,7 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
                       {entry.code} · 权重 {entry.weight}
                     </small>
                   </button>
-                  <div className="cloud-dictionary-item-actions">
+                  <div className={cloud.dictionaryItemActions}>
                     <button
                       type="button"
                       className="secondary"
@@ -3558,31 +3593,34 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
                 </article>
               ))
             ) : (
-              <p className="cloud-dictionary-empty">没有匹配的词条</p>
+              <p className={cloud.dictionaryEmpty}>没有匹配的词条</p>
             )}
           </div>
         )}
         {form && (
-          <div className="cloud-dictionary-form">
-            <label>
+          <div className={cloud.dictionaryForm}>
+            <label className={cloud.dictionaryField}>
               编码
               <input
+                className={cloud.dictionaryInput}
                 disabled={busy}
                 value={form.code}
                 onChange={(event) => setForm({ ...form, code: event.target.value })}
               />
             </label>
-            <label className="cloud-dictionary-word">
+            <label className={cloud.dictionaryWordField}>
               词条
               <input
+                className={cloud.dictionaryInput}
                 disabled={busy}
                 value={form.word}
                 onChange={(event) => setForm({ ...form, word: event.target.value })}
               />
             </label>
-            <label>
+            <label className={cloud.dictionaryField}>
               权重
               <input
+                className={cloud.dictionaryInput}
                 disabled={busy}
                 type="number"
                 min="0"
@@ -3604,8 +3642,9 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
           </div>
         )}
         {confirmed && (
-          <div className="cloud-dictionary-pagination">
+          <div className={cloud.dictionaryPagination}>
             <button
+              className={cloud.dictionaryButton}
               type="button"
               onClick={() => void queryCatalog(Math.max(0, offset - 100), confirmed)}
               disabled={busy || offset === 0}
@@ -3614,6 +3653,7 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
             </button>
             <span>第 {Math.floor(offset / 100) + 1} 页</span>
             <button
+              className={cloud.dictionaryButton}
               type="button"
               onClick={() => void queryCatalog(offset + 100, confirmed)}
               disabled={busy || !hasMore}
@@ -3622,7 +3662,7 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
             </button>
           </div>
         )}
-        <p className="cloud-dictionary-notice" role="status">
+        <p className={cloud.dictionaryNote} role="status">
           {notice}
         </p>
       </div>
@@ -3866,7 +3906,7 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
   }
 
   return (
-    <main className="native-panel cloud-dictionary-panel" aria-label="云端候选排序">
+    <main className={`native-panel ${cloud.dictionaryPanel}`} aria-label="云端候选排序">
       <header className="native-panel-header">
         <button
           type="button"
@@ -3880,11 +3920,12 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
           ×
         </button>
       </header>
-      <div className="cloud-dictionary-body">
-        <div className="cloud-dictionary-toolbar">
-          <label>
+      <div className={cloud.dictionaryBody}>
+        <div className={cloud.dictionaryToolbar}>
+          <label className={`${cloud.dictionaryField} ${cloud.dictionaryDesktopOnlyField}`}>
             词库
             <select
+              className={cloud.dictionaryInput}
               aria-label="词库类型"
               value={kind}
               onChange={(event) => changeKind(event.target.value as CloudDictionaryKind)}
@@ -3897,7 +3938,7 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
               ))}
             </select>
           </label>
-          <label className="cloud-dictionary-search">
+          <label className={cloud.dictionarySearch}>
             编码
             <input
               aria-label="云端候选编码"
@@ -3920,7 +3961,7 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
           </button>
         </div>
         {kind === "pinyin" && (
-          <div className="cloud-dictionary-actions">
+          <div className={cloud.dictionaryActions}>
             <label>
               <input
                 type="checkbox"
@@ -3961,7 +4002,7 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
           </div>
         )}
         {kind !== "quick" && (
-          <div className="cloud-dictionary-actions">
+          <div className={cloud.dictionaryActions}>
             <label>
               调频方式
               <select
@@ -4031,36 +4072,36 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
             </label>
           </div>
         )}
-        <p className="cloud-dictionary-description">
+        <p className={cloud.dictionaryNote}>
           排序、固定位置和删除只保存到当前账号；本机键盘需要后续同步才会采用云端状态。
         </p>
         {query && (
-          <div className="cloud-dictionary-list" aria-label="云端候选结果">
+          <div className={cloud.dictionaryList} aria-label="云端候选结果">
             <p>
               查询编码：{query.text} · 云端版本 {revision}
             </p>
             {candidates.length ? (
               candidates.map((candidate, index) => (
                 <article
-                  className="cloud-dictionary-item"
+                  className={cloud.dictionaryItem}
                   key={`${candidateMutationCode(candidate)}:${candidate.word}`}
                 >
                   <button
                     type="button"
-                    className="cloud-dictionary-item-main"
+                    className={cloud.dictionaryItemMain}
                     aria-label={`调频候选 ${candidate.word}`}
                     onClick={() => void rank(candidate)}
                     disabled={busy || kind === "quick"}
                   >
                     <strong>
-                      {index + 1}. <span className="cloud-candidate-word">{candidate.word}</span>
+                      {index + 1}. <span className="break-anywhere">{candidate.word}</span>
                     </strong>
                     <small>
                       {candidate.code} · 权重 {candidate.weight}
                     </small>
                   </button>
                   {kind !== "quick" && (
-                    <div className="cloud-dictionary-item-actions">
+                    <div className={cloud.dictionaryItemActions}>
                       <button
                         type="button"
                         className="secondary"
@@ -4092,30 +4133,30 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
                 </article>
               ))
             ) : (
-              <p className="cloud-dictionary-empty">没有匹配的候选</p>
+              <p className={cloud.dictionaryEmpty}>没有匹配的候选</p>
             )}
           </div>
         )}
         {query && candidates.length > 0 && (
-          <p className="cloud-dictionary-mobile-hint">
+          <p className={cloud.dictionaryMobileHint}>
             点按候选可调频；窄屏下的固定和删除操作会分组显示。
           </p>
         )}
         {positions.length > 0 && (
-          <div className="cloud-dictionary-list" aria-label="固定位置">
+          <div className={cloud.dictionaryList} aria-label="固定位置">
             <p>此查询的固定位置</p>
             {positions.map((item) => (
               <article
-                className="cloud-dictionary-item"
+                className={cloud.dictionaryItem}
                 key={`${item.context}:${item.code}:${item.word}`}
               >
-                <div className="cloud-dictionary-item-main cloud-dictionary-item-static">
+                <div className={`${cloud.dictionaryItemMain} ${cloud.dictionaryItemStatic}`}>
                   <strong>
                     第 {item.position} 位 · {item.word}
                   </strong>
                   <small>{item.code}</small>
                 </div>
-                <div className="cloud-dictionary-item-actions">
+                <div className={cloud.dictionaryItemActions}>
                   <button
                     type="button"
                     className="secondary"
@@ -4129,7 +4170,7 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
             ))}
           </div>
         )}
-        <p className="cloud-dictionary-notice" role="status">
+        <p className={cloud.dictionaryNote} role="status">
           {notice}
         </p>
       </div>
