@@ -1185,8 +1185,8 @@ struct KeyboardView {
       Text(`${index + 1}`).fontSize(CandidateNumberFontPolicy.size(this.settings.candidateFontSize))
         .fontColor(this.candidateNumberColor()).padding({ right: 4 })
       Text(candidate.text).fontSize(this.settings.candidateFontSize)
-        .fontColor(candidate.highlighted || candidate.fixedPosition ? this.candidateAccentColor()
-          : this.candidateTextColor())
+        .fontColor(CandidateSkinPolicy.rowTextColor(candidate.highlighted,
+          candidate.fixedPosition > 0, this.candidateTextColor(), this.candidateAccentColor()))
       if (candidate.badge.length > 0) {
         Text(candidate.badge).fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
           .fontColor(this.candidateAccentColor()).opacity(0.8).padding({ left: 2 })
