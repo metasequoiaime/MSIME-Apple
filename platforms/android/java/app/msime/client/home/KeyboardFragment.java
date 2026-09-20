@@ -15,6 +15,7 @@ import androidx.recyclerview.widget.RecyclerView;
 import com.google.android.material.button.MaterialButton;
 import java.util.Arrays;
 import java.util.List;
+import app.msime.client.FirstRunPreparation;
 import app.msime.client.R;
 
 /** The 键盘 tab: what the keyboard currently is, a way to try it, and the way in to each group. */
@@ -49,5 +50,31 @@ public final class KeyboardFragment extends Fragment {
         RecyclerView grid = view.findViewById(R.id.keyboard_features);
         grid.setLayoutManager(new GridLayoutManager(requireContext(), 3));
         grid.setAdapter(new FeatureAdapter(features));
+
+        // Preparation is silent while it works out and while it is done; it only takes the screen
+        // when the keyboard cannot reach the Engine, which is the one case the user has to know.
+        TextView preparation = view.findViewById(R.id.keyboard_preparation);
+        preparation.setOnClickListener(ignored -> FirstRunPreparation.retry(requireContext()));
+        FirstRunPreparation.observe(status -> {
+            if (!isAdded()) return;
+            switch (status) {
+                case RUNNING -> {
+                    preparation.setText(R.string.preparation_running);
+                    preparation.setClickable(false);
+                    preparation.setVisibility(View.VISIBLE);
+                }
+                case FAILED -> {
+                    preparation.setText(R.string.preparation_failed);
+                    preparation.setClickable(true);
+                    preparation.setVisibility(View.VISIBLE);
+                }
+                default -> preparation.setVisibility(View.GONE);
+            }
+        });
+    }
+
+    @Override public void onDestroyView() {
+        FirstRunPreparation.observe(null);
+        super.onDestroyView();
     }
 }

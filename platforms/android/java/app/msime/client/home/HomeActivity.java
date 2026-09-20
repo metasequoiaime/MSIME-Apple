@@ -9,6 +9,7 @@ import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.fragment.app.Fragment;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
+import app.msime.client.FirstRunPreparation;
 import app.msime.client.R;
 
 /**
@@ -39,6 +40,11 @@ public final class HomeActivity extends AppCompatActivity {
             return true;
         });
         if (state == null) show(new KeyboardFragment());
+
+        // The shipped dictionary is prepared on first run without the user having to find a button
+        // for it: a keyboard that cannot reach the Engine is not a state worth making someone opt
+        // out of. Existing configurations are reported, never overwritten.
+        FirstRunPreparation.startIfNeeded(this);
     }
 
     private Fragment pageFor(int itemId) {

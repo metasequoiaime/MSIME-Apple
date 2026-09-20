@@ -61,7 +61,7 @@ public final class NineKeyEnglishDeviceSmoke extends DeviceSmoke {
             stage = "nine-key English commit identity";
             await(field("msime-test-plain").and(node -> equalsText("ok", node.getText())));
         } finally {
-            shell("am start -W -n app.msime.android/app.msime.client.SetupActivity");
+            shell("am start -W -n app.msime.android/app.msime.client.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath());
             else publish(preferences, original);
         }

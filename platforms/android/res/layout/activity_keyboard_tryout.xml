@@ -86,6 +86,17 @@
                     android:textColor="@color/text_secondary"
                     android:textSize="14sp" />
 
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/tryout_switch"
+                    style="@style/Widget.Material3.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:paddingStart="0dp"
+                    android:text="@string/tryout_switch_ime"
+                    android:textSize="13sp"
+                    app:iconPadding="6dp" />
+
                 <TextView
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"

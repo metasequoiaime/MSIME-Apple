@@ -73,7 +73,7 @@ public final class CandidateGlossDeviceSmoke extends DeviceSmoke {
             if (findVisible(glossCandidate()) != null)
                 throw new AssertionError("Disabled candidate gloss became visible");
         } finally {
-            shell("am start -W -n app.msime.android/app.msime.client.SetupActivity");
+            shell("am start -W -n app.msime.android/app.msime.client.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath());
             else publish(preferences, original);
         }

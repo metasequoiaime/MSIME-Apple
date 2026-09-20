@@ -28,7 +28,7 @@ public final class HandwritingDeviceSmoke extends DeviceSmoke {
 
     @Override protected void runChecks() throws Exception {
         stage = "handwriting preview wake";
-        shell("am start -W -n app.msime.android/app.msime.client.SetupActivity");
+        shell("am start -W -n app.msime.android/app.msime.client.home.HomeActivity");
         stage = "handwriting IME rebind";
         shell("ime disable app.msime.android/app.msime.client.MSIMEInputService");
         shell("ime enable app.msime.android/app.msime.client.MSIMEInputService");

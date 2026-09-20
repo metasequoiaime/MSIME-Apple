@@ -50,6 +50,12 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
         TextInputEditText field = findViewById(R.id.tryout_field);
         MaterialButton dismiss = findViewById(R.id.tryout_dismiss);
 
+        // The system picker belongs here rather than on the 键盘 tab: it is only useful once the
+        // user is in front of an editor and finds another keyboard came up.
+        MaterialButton switchIme = findViewById(R.id.tryout_switch);
+        switchIme.setOnClickListener(ignored ->
+            getSystemService(InputMethodManager.class).showInputMethodPicker());
+
         // 收起键盘 only means something while the keyboard is up, as on Apple.
         dismiss.setVisibility(View.GONE);
         dismiss.setOnClickListener(ignored -> {
@@ -69,6 +75,6 @@ public final class KeyboardTryoutActivity extends AppCompatActivity {
 
         // Opening the screen is the user asking for the keyboard, so it is raised without a tap.
         field.requestFocus();
-        ViewCompat.getWindowInsetsController(field).show(WindowInsetsCompat.Type.ime());
+        WindowCompat.getInsetsController(getWindow(), field).show(WindowInsetsCompat.Type.ime());
     }
 }

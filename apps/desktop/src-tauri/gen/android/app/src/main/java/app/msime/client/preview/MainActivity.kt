@@ -18,6 +18,10 @@ class MainActivity : TauriActivity() {
   override fun onCreate(savedInstanceState: Bundle?) {
     enableEdgeToEdge()
     super.onCreate(savedInstanceState)
+    // Preparation used to sit behind a button on a development launcher screen. That screen is
+    // gone, so each launcher triggers it; the call is idempotent and never overwrites an existing
+    // configuration. Without this the bundle would ship a keyboard that cannot reach the Engine.
+    app.msime.client.FirstRunPreparation.startIfNeeded(this)
     onBackPressedDispatcher.addCallback(this, object : OnBackPressedCallback(true) {
       override fun handleOnBackPressed() {
         val webView = settingsWebView

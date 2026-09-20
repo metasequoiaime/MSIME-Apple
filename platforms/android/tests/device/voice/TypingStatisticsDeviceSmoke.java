@@ -58,7 +58,7 @@ public final class TypingStatisticsDeviceSmoke extends DeviceSmoke {
             stage = "controlled statistics baseline";
             publish(preferences, preferenceSnapshot.toString().getBytes(StandardCharsets.UTF_8));
             Files.deleteIfExists(statistics.toPath());
-            shell("am start -W -n app.msime.android/app.msime.client.SetupActivity");
+            shell("am start -W -n app.msime.android/app.msime.client.home.HomeActivity");
             shell("ime disable app.msime.android/app.msime.client.MSIMEInputService");
             shell("ime enable app.msime.android/app.msime.client.MSIMEInputService");
             shell("ime set app.msime.android/app.msime.client.MSIMEInputService");
@@ -117,7 +117,7 @@ public final class TypingStatisticsDeviceSmoke extends DeviceSmoke {
             js("(" + REFRESH + ").click(); true");
             awaitJs("(" + RANGE_TOTAL + ")?.textContent === '2'");
         } finally {
-            shell("am start -W -n app.msime.android/app.msime.client.SetupActivity");
+            shell("am start -W -n app.msime.android/app.msime.client.home.HomeActivity");
             SystemClock.sleep(500);
             restore(preferences, originalPreferences);
             restore(statistics, originalStatistics);
