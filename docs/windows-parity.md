@@ -772,6 +772,18 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 ## 下一批实施顺序
 
+增量记录（2026-09-21，来源测试清单这条轴转向 macOS，第一批：候选导航）：前几批按来源的设置页、文案、配色比，这一批换一个入口——来源 `server/tests/src/` 的 43 个测试。它们是来源自己用断言钉住的行为，而「两边都有、行为不同」这一类恰恰只有它们抓得住。这一批走候选窗那一组（`test_candidate_ui_state`、`test_candidate_ui_owner`、`test_candidate_size_estimator`、`test_candidate_view_model`、`test_floating_toolbar_visibility_policy`）。
+
+查到一处真实差异并修掉：**用方向键走到已加载候选的末尾时，引擎扣住的那批候选放不出来。**
+
+来源 `server/src/ipc/event_listener.cpp` 的 `move_selection` 在两种情况下先调 `expand_initial_candidates()` 再移动——选中项已在最后一个候选上，或选中项在当前页尾且下一页是短尾页。本仓的共享运行时只在 `Action::NextPage` 上扩充（`expand_for_next_page`），`Action::NextCandidate` 直接把高亮夹在 `cached.candidates.len() - 1`。引擎对单字母查询有二十四条的初始上限，于是同一个查询下按 Page Down 能走到词库深处，按方向键（以及任何一次一条地走的宿主路径）走到第二十四条就停住，再按没有反应。macOS 的方向键走的正是这条路（`InputController.mm` 把 ↑/↓ 发成 `MSIME_PREVIOUS_CANDIDATE`/`MSIME_NEXT_CANDIDATE`，即 host-api 的 102/103），Linux 与 HarmonyOS 同理。
+
+改在共享层（`crates/input-runtime`），两个触发条件按来源逐条对应，扩充后的重排复用原有路径（`rerank` + `demote_runner_up_readings`），四条用例钉住：走到末尾能取到扣住的候选、踏进短尾页前先填满（与翻页一侧同形，页面不会先短一下再长出来）、引擎没有存货时高亮停在最后一条不回绕、向上走永远不请求扩充（否则会在用户往回读的时候重排列表）。
+
+同组其余四项没有缺口，一并记下判据：候选窗的固定位置项本仓已按来源的 `#379AD3` 单独着色（`InputController.mm` 的 `candidateFixed`，与来源 `candidate_view_model.h` 同值），不与高亮合并；悬浮工具栏可见性 `configured_enabled && !fullscreen && ime_active` 与来源 `floating_toolbar_visibility_policy.h` 逐项相同（`MetasequoiaFloatingToolbarShouldShow`）；`candidate_size_estimator` 是 Direct2D 的度量工具，macOS 侧由 `CandidateRowFit.h` 和原生面板用例覆盖，属实现形态差异；翻页键的六组开关（minus/equal、逗号句号、方括号、Tab、PageUp/Down、方向键）macOS 全部消费，另多出 Home/End 落在当前页首尾。
+
+方向键的朝向是刻意的平台适配：来源只认 ↑/↓，macOS 按候选窗朝向决定（竖排认 ↑/↓，横排认 ←/→），这是既有决定，不动。
+
 增量记录（2026-09-20，视觉层）：文字各层比完，转到最影响「看起来一不一样」的东西——配色与度量。结论是这一层**本来就是精确移植**：
 
 - 配色。来源 `styles/variables.css` 的深色 64 个、浅色 63 个变量，与本仓 `styles.css` 里两个主题块逐值相同，唯一差异是一条长阴影在本仓换了行、渲染值一致。
@@ -792,7 +804,6 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 写这个守卫时自己先写错一版：正则只匹配 `client.X(` 这种调用形式，而面板那几个按钮写的是 `onClick={() => void openPanel(client.openScreenKeyboard)}`——把回调传进辅助函数而不是调用。我删掉一个 `disabled` 去验证，守卫却仍然通过，才发现这一版是摆设。已放宽为匹配 `client.X` 的出现（调用与传参都算），重新验证：删掉门控会报 `index.tsx:7541`，还原后通过。
 
-||||||| ad633c777
 增量记录（2026-09-20，开关描述文案）：标题和选项都钉住之后，比最后一层可见文字——每个开关下面那句 `<small>` 描述。逐条比对前先在代码里核实来源的说法对本仓是否成立，成立的才采用。
 
 采用三条，每条的断言都验过：
@@ -807,7 +818,6 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 未验证：这三行没有在设备上目视确认——模拟器滚动粒度较粗，几次都跨过了标点那几节。改动由 343 条测试与 bundle 漂移门覆盖，HAP 安装后页面渲染正常。
 
-||||||| 062662e5a
 增量记录（2026-09-20，下拉选项的文案）：section 标题已由 `referenceSections` 钉住，这一轮下沉一层比选项本身。来源三处与本仓不同（取值一致、只是标签）：「候选项排列方式」来源是 横向/纵向 且横向在前，本仓是 竖排/横排；「候选窗预编辑」来源是 拼音分词/不显示，本仓是 显示拼音/隐藏；「中英文状态」来源是 按应用记忆/全局统一，本仓是 按应用/全局。第二处同时是仓内不一致——紧挨着的「行内预编辑」对同一组 `pinyin`/`empty` 用的就是「拼音分词/不显示」。三处均已改用来源的说法，并新增 `referenceOptions` 表把这五个控件的选项逐项钉住。设备确认：外观页尾部现在显示 纵向 与 拼音分词。
 
 同一轮把来源另外两个集中策略头文件核完，均无可修项：
@@ -816,7 +826,6 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 `server/src/window/ui_backend_policy.h` 是在 Direct2D 原生渲染与 WebView2 之间按 surface 选择后端，即来源外观页那一项「界面渲染」。HarmonyOS 用 ArkTS 原生渲染，没有第二套后端，无对应物——与第二片记录的「界面渲染不引入」一致。
 
-||||||| ca6086b24
 增量记录（2026-09-20，`input_key_policy.h` 逐条走完）：不再抽查点位，把来源 `server/src/ipc/input_key_policy.h` 里那八条 `constexpr` 当作契约整体核对。结果：
 
 - `IsEnglishModeToggleKey`（Ctrl+Shift+E）、`WordToCharacterDirection`（无修饰键的 `-`/`=` 或 `[`/`]`）—— 上一片已确认相符。
@@ -829,7 +838,6 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 移植时自己先错了一次：夹具把 minus/equals 的 keycode 写成 2041/2042，实际是 2057/2058，于是「minus/equal 在其为配置项时生效」那条失败——是夹具写错不是代码问题。
 
-||||||| 74e902098
 增量记录（2026-09-20，硬件键盘的按键归属）：沿上一片往下核了四处，**全部相符**，结论记在此处以免再查：
 
 - 以词定字的修饰键。来源 `WordToCharacterDirection`（`server/src/ipc/input_key_policy.h`）要求不带任何修饰键，`(modifiers & kKeyModifierMask) != 0` 直接返回 0。Harmony 的对应分支只显式写了 `!key.shiftKey`，看着像漏了 Ctrl/Alt，实际 `HardwareKeyRouter` 在更上面就有 `if (key.ctrlKey || key.altKey || key.logoKey) return RELEASE`，带修饰键的组合根本到不了那里，等价。
@@ -839,14 +847,12 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 最后这条此前没有任何测试钉着：`input-runtime` 测试桩的 `set_dedicated_english` 用的是 trait 的空默认实现，所以该行为成立仅仅因为真实引擎恰好会重置。考虑到本仓引擎比来源新 467 个提交，这正是该钉住的一类风险。现让测试桩如实建模（模式真正改变时清空组字，重复设置同一模式不动），并加测试断言切换语言后组字消失、重复设置不误清。已把重置去掉验证过它确实会红（`left: "a"`, `right: ""`）。
 
-||||||| c1f3c8693
 增量记录（2026-09-20，组字期标点的上屏时机）：来源在组字进行中遇到标点时，先用高亮候选结束组字、再输出该标点——`IsCommitWithHighlightedCandidatePunctuationInCandidateMode`（`server/src/ipc/event_listener.cpp`）列出的是 `` ` ! @ # $ % ^ & * ( ) [ ] ; : \ " , < . > ? ' ``，并排除三类：`-`/`=`/Tab 永不触发，`,`/`.` 与 `[`/`]` 在被配成翻页键时也不触发。共享运行时的 `punctuation()` 行为与之一致（先 `engine.finish(self.highlighted)` 再翻译标点），注释里也写明了原因。
 
 差的是 HarmonyOS 的硬件键盘路由。`HardwareKeyRouter` 的标点分支写的是 `!composing && chinese && !japanese && isAsciiPunctuation(...)`，只在**没有组字**时把标点交给引擎；组字进行中则落到 `return RELEASE`，把键还给应用。于是在 2in1 上敲 `nihao` 再按 `!`，组字仍开着而 `!` 被插进编辑器里、排在还没上屏的拼音前面；触屏路径不受影响，它直接调 `KeyboardSession.punctuation()` 走运行时。现去掉 `!composing` 这一条：标点无论是否在组字中都归键盘所有，组字中的那次由运行时按来源的规则结束组字。翻页键不受影响——它们在更上面的 `composing` 分支里就被消费掉了，且按 keyCode 匹配（逗号是 2043），日语标点仍归应用。
 
 写这条测试时自己先踩了一次：夹具用 `keyCode: 0` 配 `unicodeChar: ','` 去验「逗号仍然翻页」，而导航是按 keyCode 匹配的，于是逗号没被认成翻页键、落到了标点分支——是夹具写错，不是代码问题，已改为用真实 keyCode 并断言 `PREVIOUS_PAGE`。
 
-||||||| f5898b178
 增量记录（2026-09-20，把逐页核对固化成可执行的检查）：前四片的页面对照都是靠读两边的源码得出的，而两边的朴素搜索都会失真——来源用 `class="section-title ai-heading"` 这类组合类名，本仓大量标题由 `{label}` 表达式渲染，于是同一批结论被反复重新推导，我自己在本轮里就误判过「实用功能少了八种模式」「皮肤页没有外部皮肤」。现把已核实的对应关系写成 `referenceSections` 表并配一个 `test.each`，覆盖外观、输入、辅助码、实用功能、悬浮工具栏、屏幕键盘、手写识别板、帮助八页：任何一节被删掉或改名，这里直接失败。已用「把候选项排列方式改名」验证过它确实会红。
 
 写这个表时发现两类先前没注意的门控，都不是缺失：其一，好几节挂在宿主能力后面（`candidate_font_controls`、`candidate_follow_cursor`、`ime_mode_scope`、`floating_toolbar_appearance`），用裸 fixture 断言会把「宿主没声明」误读成「界面没有」，故 fixture 按 `host_surface.rs` 给 Windows 的那组能力来写；其二，`候选窗主字体` 在本仓的 Windows 宿主上是被 `{!windows && …}` 有意隐藏的——Windows 显示的是「候选窗英文字体 + 补充字体」，那行还带 Windows 专属的「保存后自动应用」说明，而来源显示的是「主字体 + 中文补充字体」。这是 Windows 字体路径上的既有取舍，不属于 HarmonyOS 的迁移范围，表里以注释记录而不断言。
