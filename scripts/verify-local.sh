@@ -203,6 +203,13 @@ python3 scripts/test-installer-prerequisites.py || fail "installer prerequisites
 note "windows x86 syntax"
 python3 scripts/test-windows-32bit-compile.py || fail "windows x86 syntax"
 
+# Most of the Windows tests are policy with no Win32 call in the translation
+# unit. Without Windows and without Docker they had one level of evidence - the
+# cross build linked them - and linking does not catch an assertion. Same
+# sources, host compiler, actually executed.
+note "windows tests on this host"
+python3 scripts/test-windows-native-run.py || fail "windows tests on this host"
+
 # The HarmonyOS settings window is a WebView over a generated bundle that is
 # committed to the repository and that nothing rebuilds. It drifted for
 # fifty-two commits of shared UI before anyone looked, and a stale bundle is a
