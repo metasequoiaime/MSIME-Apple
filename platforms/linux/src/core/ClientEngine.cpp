@@ -247,6 +247,10 @@ struct State {
   std::optional<bool> emoji_override;
   std::optional<bool> kaomoji_override;
   std::optional<bool> punctuation_override, helpcode_override;
+  // What the session was last told. The runtime keeps the host's punctuation
+  // toggle as an override that outranks the preferences it is handed, so a
+  // preference change only reaches the session when the host re-states it.
+  std::optional<bool> session_chinese_punctuation;
   std::optional<bool> autocorrect_transposition_override, autocorrect_neighbor_override;
   bool show_helpcode_in_candidate_window = true;
   std::optional<bool> word_character_override;
@@ -464,6 +468,7 @@ struct State {
     close();
   }
   void close() {
+    session_chinese_punctuation.reset();
     if (candidate_hide_source) {
       const auto source = candidate_hide_source;
       candidate_hide_source = 0;
@@ -538,6 +543,7 @@ struct State {
     number_row_selection = number_row_override.value_or(
         options.value("preferences", Json::object()).value("number_row_selection", true));
     auto &preferences = options["preferences"];
+    if (punctuation_override) preferences["chinese_punctuation"] = *punctuation_override;
     if (paired_punctuation_override) preferences["paired_punctuation"] = *paired_punctuation_override;
     if (punctuation_lock_override) preferences["punctuation_lock"] = *punctuation_lock_override;
     if (scheme_override) preferences["scheme"] = *scheme_override;
@@ -650,6 +656,7 @@ struct State {
       view = response(msime_client_set_nine_key_mode(session, *nine_key_override));
     chinese_punctuation = punctuation_override.value_or(
         options.at("preferences").value("chinese_punctuation", true));
+    session_chinese_punctuation = chinese_punctuation;
     smart_punctuation = smart_punctuation_override.value_or(preferences.value("smart_punctuation", true));
     smart_punctuation_repeat = smart_repeat_override.value_or(preferences.value("smart_punctuation_repeat", true));
     smart_punctuation_space_convert =
@@ -873,6 +880,8 @@ struct State {
       preferences["candidate_translations"] = *candidate_translations_override;
     if (translation_target_language_override)
       preferences["translation_target_language"] = *translation_target_language_override;
+    if (punctuation_override)
+      preferences["chinese_punctuation"] = *punctuation_override;
     if (paired_punctuation_override)
       preferences["paired_punctuation"] = *paired_punctuation_override;
     if (punctuation_lock_override)
@@ -5084,6 +5093,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
                                   : selected == "chinese";
         if (s.session) {
           s.view = response(msime_client_set_chinese_punctuation(s.session, chinese));
+          s.session_chinese_punctuation = chinese;
           render(engine, s.view);
         }
         s.chinese_punctuation = chinese;
@@ -5101,6 +5111,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       }
       s.view =
           response(msime_client_set_chinese_punctuation(s.session, enabled));
+      s.session_chinese_punctuation = enabled;
       s.chinese_punctuation = enabled;
       s.punctuation_override = enabled;
       s.paired_tracker.clear();
@@ -5914,6 +5925,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       s.punctuation_override = s.chinese_punctuation;
       s.view = response(msime_client_set_chinese_punctuation(
           s.session, s.chinese_punctuation));
+      s.session_chinese_punctuation = s.chinese_punctuation;
       render(engine, s.view);
       publish_mode(engine);
       handled = true;
@@ -6477,6 +6489,14 @@ void apply_live_preferences(IBusEngine *engine, Json snapshot) {
   // Subsequent mode synchronization or voice cancellation may replace this
   // view. Do not restore the pre-transition snapshot after those actions.
   s.view = updated.at("view");
+  // update_preferences does not disturb the runtime's punctuation override, so
+  // a preference that moved the effective value has to be re-stated or the
+  // session keeps converting with the value the last menu toggle left behind.
+  if (s.session_chinese_punctuation != s.chinese_punctuation) {
+    s.view = response(
+        msime_client_set_chinese_punctuation(s.session, s.chinese_punctuation));
+    s.session_chinese_punctuation = s.chinese_punctuation;
+  }
   sync_global_input_mode(engine);
   if (s.voice_active && !s.voice_enabled)
     voice_cancel(engine);

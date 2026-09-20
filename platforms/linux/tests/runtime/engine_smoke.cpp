@@ -2161,8 +2161,14 @@ int main(int argc, char **argv) {
                 seen.lookup_visible && seen.committed == committed,
             "Punctuation toggle lost composition or committed input");
     invoke("Reset");
-    require(!key(','), "English punctuation should pass through when idle");
-    require(seen.committed == committed, "English punctuation emitted a commit");
+    {
+      const bool comma_handled = key(',');
+      require(!comma_handled && seen.committed == committed,
+              ("English punctuation should pass through when idle: handled=" +
+               std::to_string(comma_handled) + " committed=[" + seen.committed +
+               "] before=[" + committed + "] preedit=[" + seen.preedit + "]")
+                  .c_str());
+    }
     invoke("PropertyActivate",
            g_variant_new("(su)", "ChinesePunctuation", PROP_STATE_CHECKED));
     require(wait_saved_preferences([](const nlohmann::json &preferences) {
