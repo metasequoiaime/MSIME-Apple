@@ -1626,3 +1626,19 @@ Fcitx5 候选动作执行 stale 栅栏增量（2026-09-19）：CandidateAction �
 新增 `scripts/test-tracked-symlinks.py` 挂进 `--quick`：被跟踪的符号链接必须解析到仓库**之内**，绝对路径一律报错。从 index 读记录的目标而不是走工作树——重点本来就是「记进去的那个字符串」。反向验证：在仍带该链接的主 worktree 里跑是红的（`FAIL vendor -> /Users/…/vendor: an absolute path`），移除后绿。写它时又差点栽在同一个坑里：`ROOT` 取自脚本自身路径，于是在别的目录下跑它其实还在查脚本所在的那个 checkout，第一次「反向验证」得到的是假绿；把脚本复制进主 worktree 再跑才拿到真红。
 
 **移除本身是并行的 #3393 先落地的**，这里记准：本批推上去时 develop 已经带上了那次修复（连同把整个 `/vendor/` 加进 `.gitignore`，比本批原先只去掉尾斜杠的写法更彻底，合并时取了它）。同一个坏链接被两条线各自撞上，恰好说明为什么它需要的是门禁而不是又一次修复——本批留下的是门禁那部分。
+
+增量记录（2026-09-21，Windows 第二十七批：把「功能是否迁完」从记忆变成每次重新回答的问题）：目标起点 `b3a55e80f`。
+
+上一批逐页比到 `stats.html` 之后，按文件名继续往下走已经开始失真：`tools-settings.html` 的九项（剪贴板、K/T/U/E/M/J/Y/R 模式）在文档里一次都没被点名，实际早就齐了——`localModeRows` 八行加剪贴板，`super_jianpin` / `temporary_english` / `temporary_japanese` 只是换了个比 `jianpin_mode` / `y_mode` / `r_mode` 更说明问题的名字。按文件名统计覆盖率会把这种情况报成缺口。
+
+换一条真正机械的轴：来源 `engine/contracts/webview/messages.json`。那是它**自己生成**的一份清单，列出四个界面（设置、悬浮工具栏、候选窗、托盘菜单）能向宿主请求的全部动作，共 46 条。它比任何一次逐页阅读都可靠，因为来源新增一项能力时这份文件会跟着长——`statsRequest` 多出 `openDirectory` 就是这么来的，而本仓直到有人重读那一页才发现。
+
+逐条对完的结论：**46 条全部有对应物，其中 13 条是有意没有对应物的**。有意没有的分三类：来源在 WebView2 文档里自绘标题栏，于是要向宿主请求拖动、缩放、命中测试、窗口按钮和最大化按钮矩形（`dragStart` / `resizeStart` / `resizeHitTest` / `windowControl` / `maximizeButtonRect` / `focus`）——Tauri 窗口是带系统装饰的真窗口，这些请求没有对象；来源的候选窗是 WebView2，分不清真实鼠标移动和「窗口在静止鼠标下被移动」时合成出来的那一次，所以有一整套 arm/probe 仪表（`candidatePointerArmed` / `candidatePointerMotion` / `candidateFrameProbe` / `candidatePointerProbe` / `contentTruncated`）——本仓是 Direct2D 原生窗口，收到的就是真实消息，没有要消歧的东西；`copyText` 和 `ready` 属于「文档能力不足」的补偿，本仓的 webview 有剪贴板 API，原生工具栏创建出来就是 ready。
+
+几处值得记下的对照结果：来源工具栏是**七**项，比本仓配置里的六个开关多一个 `language`（中/英/日）——查下来本仓 `FloatingToolbarWindow.cpp` 把 language 无条件画出来，配置注释也写着「中英文切换始终显示」，是一致的；托盘菜单七项逐项相同；候选窗右键的置顶 / 固定排位 1–5 / 取消固定 / 删除四项都在 `CandidateMenuLayout.h` 里；`importHans`（批量导入纯汉字词组到拼音词库）本仓并进了导入格式自动识别（标准 / Windows TSV / Rime / 纯汉字自动注音），是适配不是缺失。
+
+新增 `scripts/test-reference-ui-actions.py` 挂进 `--quick`。它不能像配置键那样按名字比——来源那四个面是往宿主发消息的 WebView2 文档，本仓有三个面是原生代码、根本没有消息——所以每条动作映射到「本仓答复它的那个 token」，或者记成有意缺席并写明理由。来源有而这张表没有的动作就是发现：一项在没人看的时候到岸的能力。
+
+反向验证两条路径都走过：把 `statsRequest` 从表里删掉，它报 `FAIL statsRequest (settings)`；而「token 写错」这条不是模拟的——第一版把选词和关闭右键菜单分别写成了 `MSIME_SELECT` 和 `close_menu`，两个在本仓都不存在，检查当场报红，逼我去源码里找到真名 `select_candidate` 和 `CandidateFlyoutWindow`。这正是它该有的行为：映射表写得对不对，由仓库本身来判。
+
+附带一条环境结论，写进 AGENTS.md 免得下次再烧一小时：**`vendor/MSIME-Engine` 必须是真实目录，不能是符号链接。** 多个 worktree 共用一份已准备好的引擎，最自然的做法是链过去，但 `crates/engine-bridge/native/bridge.h` 用的是 `../../vendor/MSIME-Engine/common/...` 这样的相对包含，编译器得从 `vendor/MSIME-Engine` 用 `..` 爬回仓库根才能找到它——而 `..` 跨过符号链接后去的是**物理**父目录。链到 `~/.cache/...` 时它爬到了 `~/.cache/`，头文件当场没有。之前之所以侥幸没事，是因为链的目标那一侧恰好也有一个真实的 `vendor/`，`..` 爬上去正好落在它上面。省空间用硬链接复制（同一文件系统 `cp -al`）而不是 `ln -s`。

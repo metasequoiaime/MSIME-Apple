@@ -156,6 +156,11 @@ python3 scripts/test-default-config-parity.py || fail "default config contracts"
 note "windows config keys"
 python3 scripts/test-windows-config-keys.py || fail "windows config keys"
 
+# The configuration is what the reference can be told to do; this is what its interface can ask the
+# host to do. Between them they cover the capability surface from both sides.
+note "reference ui actions"
+python3 scripts/test-reference-ui-actions.py || fail "reference ui actions"
+
 # A settings-page key the Rust document has no field for does not get dropped:
 # deny_unknown_fields fails the whole save. Cheap enough to run in --quick,
 # and it is the pre-merge gate that would have caught it.

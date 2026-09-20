@@ -29,6 +29,7 @@
 - `<feature>` 用 kebab-case，从分支名或 issue 编号推出；不要加 `wt-` 前缀，父目录已经说明了它是什么。
 - 一路提交，不要把所有东西攒到最后。分支是第一道防线，目录只是第二道：一个 WIP 提交不花什么代价，却能扛住检出目录出的任何事。
 - 分支合并或废弃后立刻移除 worktree：`git worktree remove <path>`，然后 `git branch -D <branch>`。目录被手工删掉的话跑一次 `git worktree prune`。
+- **`vendor/MSIME-Engine` 必须是真实目录，不能是符号链接**，哪怕是指向另一个 checkout 里已经准备好的那一份。`crates/engine-bridge` 的头文件用 `../../vendor/MSIME-Engine/...` 这样的相对包含，编译器要从 `vendor/MSIME-Engine` 用 `..` 爬回仓库根；`..` 跨过符号链接后去的是**物理**父目录，于是爬到链接目标那边，头文件当场找不到。省磁盘就用硬链接复制（同一文件系统上 `cp -al`，几乎不占额外空间），别用 `ln -s`。
 
 清理不是可选的杂务。一个残留的 worktree 会让它完整的构建树一直活着——`target/`、`node_modules/` 和 `gradle-home/` 各自都是几个 GB——几十个被遗忘的 worktree 足以填满一块盘。
 
