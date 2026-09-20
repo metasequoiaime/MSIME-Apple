@@ -1354,3 +1354,16 @@ Fcitx5 候选动作执行 stale 栅栏增量（2026-09-19）：CandidateAction �
 **查出一处覆盖缺口并补上。** 整个 `platforms/windows/tests/` 里**没有一个文件提到过这三个 worker**——`CloudCandidateWorker`、`AiCandidateWorker`、`TranslationWorker` 的排队、去抖与取消一行覆盖都没有。这属于本表反复出现的「按源码核对为正确实现但零测试覆盖」，而这里出 bug 的表现是「打完字之后旧的云候选才冒出来」，不会在别处被发现。给 worker 加可注入的 fetcher（默认仍是真实那个），补四条用例：结果带对 lease 与 query、去抖窗口内只付一次且付新的那次、在途被取代的请求能看见自己被取代且结果绝不交付、五种非法请求一个都到不了网络。两种破坏分别红在不同断言上。
 
 值得一记的是这条用例**在本机真的跑过**，不只是链接：`FocusGate` / `PipeTicket` 不含 Windows 头，curl 本机就有，用 clang++ 原生编译运行通过。此前 Windows 侧的用例在这台机器上一律只有「链接成功」这一级证据。AI 与翻译两个 worker 的同类用例尚未补。
+
+增量记录（2026-09-21，Windows 第十四批：把「链接了」变成「跑过了」）：本表每一批的验证限制段都写着同一句话——没有 Windows 主机，所以 Windows 的用例只有「交叉构建链接成功」这一级证据。这一批发现那句话的适用范围比以为的小得多。
+
+`platforms/windows/tests/` 绝大部分是策略：对着契约结构体的纯函数，整个翻译单元里没有一次 Win32 调用。这类源文件用**宿主编译器**就能编译、链接、执行。实测 92 个测试源里 59 个可以，约 25 秒跑完，此前它们在这台机器上从未执行过一次。新增 `scripts/test-windows-native-run.py` 挂进 `--quick`。
+
+够格与否是发现出来的不是列出来的：能独立编译链接的，就是不需要 Windows 的。两类正常跳过——缺 Windows 头，或缺它在 Windows 构建里一起链接的其他翻译单元（未定义符号）。其余编译错误一律报失败：让编译不过的东西悄悄退出计数，正是套件消失的方式。两处 `HOST_DIFFERENCES` 各写明理由：`aux_message` 因为 `wchar_t` 在这里是 4 字节、Windows 是 2 字节，用宽字面量拼出来的线上字节形状不同、嵌入 NUL 那条根本表达不出来；`shell_surfaces` 断言的是 Windows 路径与环境块语义。另两处是编译期的宿主差异（`u8string()` 的 `char8_t`、只为 Windows 声明的 `preference_monitor_tests`）。
+
+**这个 runner 第一次真用就查出四个没有任何东西在编译的测试**，全部在 CMakeLists 里从未出现过，与 `known-failures.txt` 记的 msimeui-tests 同型：
+
+- `tests/input/tsf_key_dispatch.cpp`——原样就能通过，本批已注册进构建。
+- `tests/clipboard/` 下的 `clipboard_history.cpp`、`clipboard_link.cpp`、`clipboard_presentation.cpp`——编译得起来但**断言失败**，原因是它们写的是已被废弃的旧契约。`normalize_clipboard_text` 的注释写明「只去掉 CF_UNICODETEXT 带来的终止符；换行（含 CRLF）与空白是用户内容，必须原样往返」，而测试期望 CRLF 折成 LF、首尾空白裁掉。实测存进去的正是未规范化的原串。**是测试过时不是代码有错**——行为改的时候没人更新它们，因为没有任何东西会编译它们。这三个是下一片。
+
+顺带记一条方法：写这个 runner 时自己踩了四个坑（把子进程夹具当测试、执行继承调用者 stdin 导致永久阻塞、并行执行饿死等定时器的用例、编译失败被算成跳过因而改坏了也返回 0），每一个都是反向验证暴露的。第四个尤其值得一提——它让这个工具犯了它正要去发现的那个错误。

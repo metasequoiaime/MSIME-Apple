@@ -188,6 +188,18 @@ else()
   target_compile_options(windows-input-key-policy PRIVATE -Wall -Wextra -Werror)
 endif()
 add_test(NAME windows-input-key-policy COMMAND windows-input-key-policy)
+# This one existed for a while with nothing compiling it: no CMakeLists named
+# the source, so it was absent from every build and every count, the same way
+# msimeui-tests was. It passes as written.
+add_executable(windows-tsf-key-dispatch tests/input/tsf_key_dispatch.cpp)
+target_include_directories(windows-tsf-key-dispatch PRIVATE src src/system src/input)
+if(MSVC)
+  target_compile_options(windows-tsf-key-dispatch PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(windows-tsf-key-dispatch PRIVATE -Wall -Wextra -Werror)
+endif()
+add_test(NAME windows-tsf-key-dispatch COMMAND windows-tsf-key-dispatch)
+set_tests_properties(windows-tsf-key-dispatch PROPERTIES TIMEOUT 10)
 add_executable(windows-candidate-completion-policy tests/input/candidate_completion_policy.cpp)
 target_include_directories(windows-candidate-completion-policy PRIVATE src)
 if(MSVC)
