@@ -391,6 +391,14 @@ struct State {
     if (!mode_scope_global)
       app_input_modes.remember(focused_client, input_enabled);
   }
+  // A client identity that arrives after an anonymous focus describes the focus
+  // already on screen, not a new one. Carry the mode the user is looking at
+  // into that identity, unless we already remember one for it.
+  void adopt_app_input_mode(std::string_view client) {
+    if (mode_scope_global || client.empty() || app_input_modes.knows(client))
+      return;
+    app_input_modes.remember(client, input_enabled);
+  }
   void restore_app_input_mode() {
     if (mode_scope_global)
       return;
@@ -6900,13 +6908,21 @@ static void msime_preview_engine_class_init(MsimePreviewEngineClass *klass) {
   engine->focus_in_id = [](IBusEngine *engine, const gchar *context, const gchar *client) {
     auto &s = state(engine);
     const std::string next_client = client ? client : "";
-    if (s.focused && s.focused_client != next_client)
+    const std::string next_context = context ? context : "";
+    // IBus negotiates identity: the daemon may focus the engine first and name
+    // the context and client a moment later. That second call is the same focus
+    // arriving with a name, so take the name in place. Tearing the runtime down
+    // here would throw away whatever the user typed during the negotiation.
+    const bool naming_current_focus =
+        s.focused && s.focused_context.empty() && s.focused_client.empty();
+    if (s.focused && !naming_current_focus && s.focused_client != next_client)
       s.remember_app_input_mode();
-    if (s.focused &&
-        (s.focused_context != (context ? context : "") ||
-         s.focused_client != next_client))
+    if (s.focused && !naming_current_focus &&
+        (s.focused_context != next_context || s.focused_client != next_client))
       focus_out(engine);
-    s.focused_context = context ? context : "";
+    if (naming_current_focus)
+      s.adopt_app_input_mode(next_client);
+    s.focused_context = next_context;
     s.focused_client = next_client;
     s.surrounding_utf16 = g_strcmp0(client, "QIBusInputContext") == 0;
     focus_in(engine);

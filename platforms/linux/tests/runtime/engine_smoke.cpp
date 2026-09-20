@@ -1067,7 +1067,12 @@ int main(int argc, char **argv) {
       invoke("FocusIn");
       require(seen.mode_sensitive && seen.input_enabled == enabled &&
                   seen.smart_punctuation_sensitive == enabled,
-              "Refocus did not restore mode-dependent menu availability");
+              ("Refocus did not restore mode-dependent menu availability: wanted=" +
+               std::to_string(enabled) + " mode_sensitive=" +
+               std::to_string(seen.mode_sensitive) + " input_enabled=" +
+               std::to_string(seen.input_enabled) + " smart_punctuation_sensitive=" +
+               std::to_string(seen.smart_punctuation_sensitive))
+                  .c_str());
     }
     invoke("Set", g_variant_new("(ssv)", "org.freedesktop.IBus.Engine", "ContentType",
                                g_variant_new("(uu)", IBUS_INPUT_PURPOSE_PASSWORD, 0)));
