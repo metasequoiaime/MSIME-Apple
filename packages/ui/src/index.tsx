@@ -67,6 +67,7 @@ export type {
 } from "./keyboard/touch-keyboard-skin-design";
 import { ExternalSkins, type SkinCatalog } from "./skin/external-skins";
 import { TypingStatisticsPage, type TypingStatisticsClient } from "./settings/typing-statistics";
+import * as surface from "./keyboard/panel-surface-style";
 import {
   AccountPage,
   type AccountClient,
@@ -4602,7 +4603,7 @@ export function SettingsPage({
                   </fieldset>
                   <fieldset disabled={busy} hidden={page !== "input"} aria-label="输入">
                     {iosPlatform && (
-                      <div className="section input-handwriting-info">
+                      <div className="section">
                         <div className="section-title">手写输入</div>
                         <p>
                           首次在键盘中使用手写时下载中文模型，需要完全访问权限。下载后可离线识别，笔迹和识别结果不会上传。Google
@@ -4620,7 +4621,7 @@ export function SettingsPage({
                       </div>
                     )}
                     {harmonyPlatform && (
-                      <div className="section input-handwriting-info">
+                      <div className="section">
                         <div className="section-title">手写输入</div>
                         <p>
                           手写使用系统的文字识别能力，笔迹留在本机、不上传。设备未提供该能力时手写方案会明确提示，不会改用其他识别方式。
@@ -4628,7 +4629,7 @@ export function SettingsPage({
                       </div>
                     )}
                     {androidPlatform && (
-                      <div className="section input-handwriting-info">
+                      <div className="section">
                         <div className="section-title">Android 手写输入</div>
                         <p>
                           首次在 Android 键盘中切换到手写时，可能需要下载 Google ML Kit
@@ -6735,7 +6736,7 @@ export function SettingsPage({
                       </div>
                     </div>
                     <div className="section about-links">
-                      <div className="about-link-row about-version-row">
+                      <div className="about-labout-version-row">
                         <div>
                           <div className="about-link-title">当前版本</div>
                           <div className="about-version">v{currentAppVersion}</div>
@@ -6776,7 +6777,7 @@ export function SettingsPage({
                       )}
                       <button
                         type="button"
-                        className="about-link-row about-document-link"
+                        className="about-labout-document-link"
                         onClick={() => void openExternalUrl(platformLicenseUrl)}
                       >
                         <span className="about-link-title">开源许可协议</span>
@@ -6784,7 +6785,7 @@ export function SettingsPage({
                       </button>
                       <button
                         type="button"
-                        className="about-link-row about-document-link"
+                        className="about-labout-document-link"
                         onClick={() =>
                           void openExternalUrl(
                             clientHostedPlatform ? androidPrivacyUrl : privacyUrl,
@@ -7335,16 +7336,13 @@ export function SettingsPage({
                             打开
                           </button>
                         </div>
-                        <div
-                          className="panel-preview handwriting-preview"
-                          aria-label="手写识别板预览"
-                        >
+                        <div className="panel-preview" aria-label="手写识别板预览">
                           <div className="panel-preview-label">预览</div>
-                          <div className="handwriting-mock">
-                            <div className="handwriting-canvas">
-                              <span className="handwriting-stroke">水</span>
+                          <div className={surface.mock}>
+                            <div className={surface.mockCanvas}>
+                              <span className={surface.mockStroke}>水</span>
                             </div>
-                            <div className="handwriting-candidates">
+                            <div className={surface.mockCandidates}>
                               <span>水</span>
                               <span>永</span>
                               <span>木</span>

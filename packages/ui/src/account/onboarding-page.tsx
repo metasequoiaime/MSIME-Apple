@@ -1,4 +1,5 @@
 import { useState } from "react";
+import * as onboarding from "./onboarding-style";
 
 export type OnboardingInputScheme = "quanpin" | "nine_key";
 
@@ -11,8 +12,8 @@ export interface OnboardingActions {
 
 function Feature({ icon, title, children }: { icon: string; title: string; children: string }) {
   return (
-    <div className="onboarding-feature">
-      <span className="onboarding-feature-icon" aria-hidden="true">
+    <div className={onboarding.feature}>
+      <span className={onboarding.featureIcon} aria-hidden="true">
         {icon}
       </span>
       <span>
@@ -35,8 +36,8 @@ function SetupStep({
   last?: boolean;
 }) {
   return (
-    <div className="onboarding-setup-step">
-      <span className="onboarding-setup-number" aria-hidden="true">
+    <div className={onboarding.setupStep}>
+      <span className={onboarding.setupNumber} aria-hidden="true">
         {number}
       </span>
       <span>
@@ -84,17 +85,17 @@ export function WelcomeFlowPage({
   };
 
   return (
-    <main className="onboarding-page" aria-label="首次设置">
-      <header className="onboarding-header">
+    <main className={`${onboarding.page} ${onboarding.buttons}`} aria-label="首次设置">
+      <header className={onboarding.header}>
         <img src={new URL("./assets/msime.svg", import.meta.url).href} alt="" />
         <div>
-          <p className="onboarding-progress">{page + 1} / 4</p>
+          <p className={onboarding.progress}>{page + 1} / 4</p>
           <h1>{["欢迎使用水杉", "启用键盘", "选择输入方式", "让表达更轻松"][page]}</h1>
         </div>
         {onSkip && (
           <button
             type="button"
-            className="onboarding-skip"
+            className={onboarding.skip}
             disabled={busy}
             onClick={() => void run(onSkip)}
           >
@@ -102,11 +103,11 @@ export function WelcomeFlowPage({
           </button>
         )}
       </header>
-      <div className="onboarding-body">
+      <div className={onboarding.body}>
         {page === 0 && (
-          <section className="onboarding-section">
-            <h2>水杉输入法</h2>
-            <p className="onboarding-lead">让输入更自然，让表达更自在。</p>
+          <section className={onboarding.section}>
+            <h2 className={onboarding.sectionTitle}>水杉输入法</h2>
+            <p className={onboarding.lead}>让输入更自然，让表达更自在。</p>
             <Feature icon="⌨" title="熟悉的键盘，自由的选择">
               全拼、九键、双拼、五笔与日语，按你的习惯开启。
             </Feature>
@@ -116,18 +117,18 @@ export function WelcomeFlowPage({
             <Feature icon="✦" title="从打字到更好的表达">
               AI 对话、高情商回复和语音服务，按需配置。
             </Feature>
-            <p className="onboarding-privacy">日常输入无需登录，默认保持离线。</p>
+            <p className={onboarding.note}>日常输入无需登录，默认保持离线。</p>
           </section>
         )}
         {page === 1 && (
-          <section className="onboarding-section">
-            <h2>{ios ? "添加水杉键盘" : "添加水杉输入法"}</h2>
-            <p className="onboarding-lead">
+          <section className={onboarding.section}>
+            <h2 className={onboarding.sectionTitle}>{ios ? "添加水杉键盘" : "添加水杉输入法"}</h2>
+            <p className={onboarding.lead}>
               {ios
                 ? "在系统键盘列表中启用水杉，再回到任意输入框开始使用。"
                 : "准备好内置词库后，按下面步骤启用系统键盘。"}
             </p>
-            <div className="onboarding-setup-card">
+            <div className={onboarding.setupCard}>
               <SetupStep number={1} title="打开键盘设置">
                 {ios
                   ? "前往系统设置中的“通用 → 键盘 → 键盘”。"
@@ -144,7 +145,7 @@ export function WelcomeFlowPage({
                   : "在输入框中选择水杉输入法即可开始使用。"}
               </SetupStep>
             </div>
-            <div className="onboarding-system-actions">
+            <div className={onboarding.systemActions}>
               <button
                 type="button"
                 className="primary"
@@ -164,7 +165,7 @@ export function WelcomeFlowPage({
                 </button>
               )}
             </div>
-            <p className="onboarding-note">
+            <p className={onboarding.note}>
               {ios
                 ? "系统设置页面由 iOS 管理，水杉不会自动启用或切换键盘。"
                 : "系统设置页面由 Android 管理，水杉不会自动启用或切换输入法。"}
@@ -172,15 +173,15 @@ export function WelcomeFlowPage({
           </section>
         )}
         {page === 2 && (
-          <section className="onboarding-section">
-            <h2>从你熟悉的键盘开始</h2>
-            <p className="onboarding-lead">先选一种，稍后可以在输入设置中调整全部方案。</p>
-            <div className="onboarding-scheme-list" role="radiogroup" aria-label="首次输入方案">
+          <section className={onboarding.section}>
+            <h2 className={onboarding.sectionTitle}>从你熟悉的键盘开始</h2>
+            <p className={onboarding.lead}>先选一种，稍后可以在输入设置中调整全部方案。</p>
+            <div className={onboarding.schemeList} role="radiogroup" aria-label="首次输入方案">
               <button
                 type="button"
                 role="radio"
                 aria-checked={scheme === "quanpin"}
-                className={scheme === "quanpin" ? "selected" : ""}
+                className={onboarding.schemeOption(scheme === "quanpin")}
                 onClick={() => setScheme("quanpin")}
               >
                 <span aria-hidden="true">⌨</span>
@@ -194,7 +195,7 @@ export function WelcomeFlowPage({
                 type="button"
                 role="radio"
                 aria-checked={scheme === "nine_key"}
-                className={scheme === "nine_key" ? "selected" : ""}
+                className={onboarding.schemeOption(scheme === "nine_key")}
                 onClick={() => setScheme("nine_key")}
               >
                 <span aria-hidden="true">▦</span>
@@ -208,8 +209,8 @@ export function WelcomeFlowPage({
           </section>
         )}
         {page === 3 && (
-          <section className="onboarding-section">
-            <h2>输入之外，多一点灵感</h2>
+          <section className={onboarding.section}>
+            <h2 className={onboarding.sectionTitle}>输入之外，多一点灵感</h2>
             <Feature icon="✦" title="高情商回复">
               复制对方的话，在回复键盘中选择回复风格，点选结果插入。
             </Feature>
@@ -219,28 +220,33 @@ export function WelcomeFlowPage({
             <Feature icon="♫" title="语音与智能服务">
               语音输入和 AI 润色都可以单独配置，按需使用。
             </Feature>
-            <p className="onboarding-note">键盘联网功能由你主动触发；日常拼音输入不需要联网。</p>
+            <p className={onboarding.note}>键盘联网功能由你主动触发；日常拼音输入不需要联网。</p>
           </section>
         )}
       </div>
       {error && (
-        <p className="onboarding-error" role="alert">
+        <p className={onboarding.error} role="alert">
           {error}
         </p>
       )}
-      <footer className="onboarding-footer">
-        <div className="onboarding-dots" aria-label={`第 ${page + 1} 步，共 4 步`}>
+      <footer className={onboarding.footer}>
+        <div className={onboarding.dots} aria-label={`第 ${page + 1} 步，共 4 步`}>
           {[0, 1, 2, 3].map((index) => (
-            <i key={index} className={index === page ? "active" : ""} />
+            <i key={index} className={onboarding.dot(index === page)} />
           ))}
         </div>
-        <button type="button" className="primary onboarding-next" disabled={busy} onClick={advance}>
+        <button
+          type="button"
+          className={`primary ${onboarding.next}`}
+          disabled={busy}
+          onClick={advance}
+        >
           {busy ? "正在准备…" : page === 3 ? "开始使用水杉" : page === 0 ? "开始设置" : "下一步"}
         </button>
         {page > 0 && (
           <button
             type="button"
-            className="onboarding-back"
+            className={onboarding.back}
             disabled={busy}
             onClick={() => setPage(page - 1)}
           >

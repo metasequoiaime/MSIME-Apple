@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import * as account from "./account-style";
 
 export type AccountUser = {
   id: string;
@@ -207,12 +208,12 @@ function MobileAccountProfilePage({
   };
 
   return (
-    <div className="account-page account-profile-page">
-      <div className="account-profile-page-header">
+    <div className={account.page}>
+      <div className={account.profilePageHeader}>
         <button type="button" className="secondary" disabled={busy} onClick={onBack}>
           ‹ 返回
         </button>
-        <h2>编辑资料</h2>
+        <h2 className={account.heading}>编辑资料</h2>
       </div>
       {error && (
         <p role="alert" className="error">
@@ -224,18 +225,19 @@ function MobileAccountProfilePage({
           {notice}
         </p>
       )}
-      <section className="section account-profile-preview">
-        <div className="account-avatar" aria-hidden="true">
+      <section className={`${account.section} ${account.profilePreviewLarge}`}>
+        <div className={account.avatar("large")} aria-hidden="true">
           {(normalizedName || "水杉用户").slice(0, 1)}
         </div>
-        <h2>{normalizedName || "你的昵称"}</h2>
-        <p className="account-muted">在水杉，留下你的名字</p>
+        <h2 className={account.heading}>{normalizedName || "你的昵称"}</h2>
+        <p className={account.muted}>在水杉，留下你的名字</p>
       </section>
-      <section className="section account-profile">
-        <h2>社区昵称</h2>
-        <label>
+      <section className={`${account.section} ${account.stack}`}>
+        <h2 className={account.heading}>社区昵称</h2>
+        <label className={account.field}>
           社区昵称
           <input
+            className={account.input}
             aria-label="编辑社区昵称"
             maxLength={64}
             value={name}
@@ -250,11 +252,11 @@ function MobileAccountProfilePage({
               : "昵称最多 64 个字符，请勿使用换行或控制字符。"
             : "取一个喜欢的名字，让大家记住你。"}
         </p>
-        <p className="account-muted">{[...normalizedName].length}/64</p>
-        <div className="account-inline-actions">
+        <p className={account.muted}>{[...normalizedName].length}/64</p>
+        <div className={account.actionRow}>
           <button
             type="button"
-            className="account-primary"
+            className={account.primary}
             disabled={busy || !validName || normalizedName === user.displayName}
             onClick={rename}
           >
@@ -262,13 +264,13 @@ function MobileAccountProfilePage({
           </button>
         </div>
       </section>
-      <section className="section account-profile">
-        <h2>账号信息</h2>
-        <dl className="account-details">
+      <section className={`${account.section} ${account.stack}`}>
+        <h2 className={account.heading}>账号信息</h2>
+        <dl className={account.details}>
           <div>
             <dt>账号 ID</dt>
             <dd>
-              <button type="button" className="account-copy-id" onClick={copyId}>
+              <button type="button" className={account.copyId} onClick={copyId}>
                 {copied ? "已复制" : `#${user.id.slice(0, 6).toUpperCase()}`}
               </button>
             </dd>
@@ -283,9 +285,9 @@ function MobileAccountProfilePage({
           </div>
         </dl>
       </section>
-      <section className="section account-actions">
-        <h2>账号操作</h2>
-        <div className="account-inline-actions">
+      <section className={`${account.section} ${account.stack}`}>
+        <h2 className={account.heading}>账号操作</h2>
+        <div className={account.actionRow}>
           <button
             type="button"
             className="secondary"
@@ -322,7 +324,7 @@ function MobileAccountProfilePage({
       </section>
       {confirmation && (
         <div
-          className="account-confirmation"
+          className={account.confirmation}
           role="alertdialog"
           aria-label={
             confirmation === "delete"
@@ -334,7 +336,7 @@ function MobileAccountProfilePage({
                   : "确认退出登录"
           }
         >
-          <p>
+          <p className={account.note}>
             {confirmation === "delete"
               ? "注销账号将删除已发布皮肤、评分及其他云端账号数据，无法撤销。"
               : confirmation === "logout-all"
@@ -439,10 +441,10 @@ function AppIconSettingsCard({
   };
 
   return (
-    <section className="section app-icon-settings">
+    <section className={`${account.section} ${account.iconSettings}`}>
       <div>
-        <h2>App 图标</h2>
-        <p>
+        <h2 className={account.heading}>App 图标</h2>
+        <p className={account.note}>
           给主屏幕上的水杉换个颜色。
           {platform === "android"
             ? "Android 会使用系统启动器的图标别名保存选择。"
@@ -457,16 +459,16 @@ function AppIconSettingsCard({
           {error}
         </p>
       )}
-      {info && !info.supported && <p className="account-muted">当前设备暂不支持更换 App 图标。</p>}
+      {info && !info.supported && <p className={account.muted}>当前设备暂不支持更换 App 图标。</p>}
       {info && (
-        <div className="app-icon-grid">
+        <div className={account.iconGrid}>
           {appIconOptions.map((option) => {
             const selected = info.selected === option.id;
             const changing = pending === option.id;
             return (
               <button
                 type="button"
-                className={`app-icon-card${selected ? " selected" : ""}`}
+                className={account.iconCard(selected)}
                 key={option.id}
                 disabled={!info.supported || pending !== null}
                 aria-label={`${option.title}，${option.detail}`}
@@ -474,17 +476,17 @@ function AppIconSettingsCard({
                 onClick={() => void choose(option.id)}
               >
                 <span
-                  className="app-icon-preview"
+                  className={account.iconPreview}
                   style={{ backgroundColor: option.color }}
                   aria-hidden="true"
                 >
                   杉
                 </span>
-                <span className="app-icon-copy">
+                <span className={account.iconCopy}>
                   <strong>{option.title}</strong>
                   <small>{option.detail}</small>
                 </span>
-                <span className="app-icon-state">
+                <span className={account.iconState(selected)}>
                   {changing ? "更换中" : selected ? "使用中" : "使用此图标"}
                 </span>
               </button>
@@ -492,7 +494,7 @@ function AppIconSettingsCard({
           })}
         </div>
       )}
-      <p className="account-muted">更换后，系统启动器可能需要片刻刷新。随时可以切回原版。</p>
+      <p className={account.muted}>更换后，系统启动器可能需要片刻刷新。随时可以切回原版。</p>
     </section>
   );
 }
@@ -565,19 +567,19 @@ function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; user
 
   const hasCloudSettings = Boolean(cloud && Object.keys(cloud.settings).length > 0);
   return (
-    <section className="section account-settings-sync">
-      <h2>设置同步</h2>
-      <p>
+    <section className={`${account.section} ${account.stack}`}>
+      <h2 className={account.heading}>设置同步</h2>
+      <p className={account.note}>
         同步输入方案、简繁体、键盘声音与触感、词库学习开关和皮肤。凭据、联网授权及输入内容不会随设置上传。
       </p>
-      {cloud && <p className="account-muted">云端版本：{cloud.revision}</p>}
-      <div className="account-inline-actions">
+      {cloud && <p className={account.muted}>云端版本：{cloud.revision}</p>}
+      <div className={account.actionRow}>
         <button type="button" className="secondary" disabled={busy} onClick={() => void load()}>
           刷新云端设置
         </button>
         <button
           type="button"
-          className="account-primary"
+          className={account.primary}
           disabled={busy || !cloud || !schema}
           onClick={() => setConfirmation("upload")}
         >
@@ -596,11 +598,11 @@ function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; user
       {message && <p role="status">{message}</p>}
       {confirmation && (
         <div
-          className="account-confirmation"
+          className={account.confirmation}
           role="alertdialog"
           aria-label={confirmation === "upload" ? "确认上传本机设置" : "确认应用云端设置"}
         >
-          <p>
+          <p className={account.note}>
             {confirmation === "upload"
               ? "将更新云端对应设置，并保留其他平台专属设置。版本冲突时不会自动覆盖。"
               : "将替换本机对应设置，不会下载词库或开启数据上传。"}
@@ -608,7 +610,7 @@ function SettingsSyncCard({ client, userId }: { client: SettingsSyncClient; user
           <div>
             <button
               type="button"
-              className="account-primary"
+              className={account.primary}
               disabled={busy}
               onClick={() => void runConfirmed()}
             >
@@ -657,7 +659,7 @@ export function AccountPage({
   const resolvedAppIcon = appIcon ?? client?.appIcon;
   if (!client) {
     return (
-      <div className="account-page">
+      <div className={account.page}>
         {resolvedAppIcon && <AppIconSettingsCard client={resolvedAppIcon} platform={platform} />}
       </div>
     );
@@ -891,7 +893,7 @@ function AccountDetailsPage({
 
   if (loading)
     return (
-      <div className="account-page">
+      <div className={account.page}>
         <p role="status">正在读取账号状态…</p>
       </div>
     );
@@ -933,7 +935,7 @@ function AccountDetailsPage({
     });
 
   return (
-    <div className="account-page">
+    <div className={account.page}>
       {error && (
         <p role="alert" className="error">
           {error}
@@ -946,7 +948,7 @@ function AccountDetailsPage({
       )}
       <button
         type="button"
-        className="section account-hero account-profile-card"
+        className={`${account.section} ${account.hero} ${account.profileCard}`}
         disabled={!user || busy}
         aria-label={user ? "编辑个人资料" : undefined}
         onClick={() => {
@@ -966,25 +968,25 @@ function AccountDetailsPage({
           } else setEditingProfile(true);
         }}
       >
-        <div className="account-avatar" aria-hidden="true">
+        <div className={account.avatar("medium")} aria-hidden="true">
           {user ? preferredName(user).slice(0, 1) : "杉"}
         </div>
         <div>
-          <h2>{user ? preferredName(user) : "欢迎来到水杉"}</h2>
-          <p>{user ? "水杉账号已登录" : "登录，分享你的键盘设计"}</p>
+          <h2 className={account.heading}>{user ? preferredName(user) : "欢迎来到水杉"}</h2>
+          <p className={account.note}>{user ? "水杉账号已登录" : "登录，分享你的键盘设计"}</p>
         </div>
         {user && (
-          <span className="account-profile-card-chevron" aria-hidden="true">
+          <span className={account.profileChevron} aria-hidden="true">
             ›
           </span>
         )}
       </button>
       {appIcon && <AppIconSettingsCard client={appIcon} platform={platform} />}
       {onOpenLocalDesigns && (
-        <section className="section account-community-actions">
+        <section className={`${account.section} ${account.communityActions}`}>
           <div>
-            <h2>我的设计</h2>
-            <p>保存在本机的键盘皮肤，不会因登录账号而上传。</p>
+            <h2 className={account.heading}>我的设计</h2>
+            <p className={account.note}>保存在本机的键盘皮肤，不会因登录账号而上传。</p>
           </div>
           <button type="button" className="secondary" disabled={busy} onClick={onOpenLocalDesigns}>
             打开设计器
@@ -994,14 +996,15 @@ function AccountDetailsPage({
       {user ? (
         <>
           {!mobile && (
-            <section className="section account-profile">
+            <section className={`${account.section} ${account.stack}`}>
               <div>
-                <h2>个人资料</h2>
-                <p>昵称会显示在社区作品中，已发布的作品也会同步更新。</p>
+                <h2 className={account.heading}>个人资料</h2>
+                <p className={account.note}>昵称会显示在社区作品中，已发布的作品也会同步更新。</p>
               </div>
-              <label>
+              <label className={account.field}>
                 社区昵称
                 <input
+                  className={account.input}
                   aria-label="社区昵称"
                   maxLength={64}
                   value={name}
@@ -1009,17 +1012,17 @@ function AccountDetailsPage({
                   disabled={busy}
                 />
               </label>
-              <div className="account-inline-actions">
+              <div className={account.actionRow}>
                 <button
                   type="button"
-                  className="account-primary"
+                  className={account.primary}
                   disabled={busy || name.trim() === user.displayName}
                   onClick={rename}
                 >
                   {busy ? "正在处理…" : "保存昵称"}
                 </button>
               </div>
-              <dl className="account-details">
+              <dl className={account.details}>
                 <div>
                   <dt>账号 ID</dt>
                   <dd>#{user.id.slice(0, 6).toUpperCase()}</dd>
@@ -1033,20 +1036,20 @@ function AccountDetailsPage({
           )}
           {!mobile && editingProfile && (
             <div
-              className="account-modal-backdrop"
+              className={account.modalBackdrop}
               role="presentation"
               onMouseDown={(event) => {
                 if (event.target === event.currentTarget && !busy) setEditingProfile(false);
               }}
             >
               <section
-                className="account-modal"
+                className={account.modal}
                 role="dialog"
                 aria-modal="true"
                 aria-label="编辑个人资料"
               >
-                <div className="account-modal-heading">
-                  <h2>编辑资料</h2>
+                <div className={account.modalHeading}>
+                  <h2 className={account.heading}>编辑资料</h2>
                   <button
                     type="button"
                     className="secondary"
@@ -1056,15 +1059,16 @@ function AccountDetailsPage({
                     关闭
                   </button>
                 </div>
-                <div className="account-profile-preview">
-                  <div className="account-avatar" aria-hidden="true">
+                <div className={account.profilePreview}>
+                  <div className={account.avatar("small")} aria-hidden="true">
                     {preferredName(user).slice(0, 1)}
                   </div>
                   <strong>{name.trim() || "你的昵称"}</strong>
                 </div>
-                <label>
+                <label className={account.field}>
                   社区昵称
                   <input
+                    className={account.input}
                     aria-label="编辑社区昵称"
                     maxLength={64}
                     value={name}
@@ -1072,12 +1076,12 @@ function AccountDetailsPage({
                     onChange={(event) => setName(event.target.value)}
                   />
                 </label>
-                <p className="account-muted">昵称会显示在社区作品中，已发布的作品也会同步更新。</p>
-                <dl className="account-details">
+                <p className={account.muted}>昵称会显示在社区作品中，已发布的作品也会同步更新。</p>
+                <dl className={account.details}>
                   <div>
                     <dt>账号 ID</dt>
                     <dd>
-                      <button type="button" className="account-copy-id" onClick={copyAccountId}>
+                      <button type="button" className={account.copyId} onClick={copyAccountId}>
                         {copiedAccountId ? "已复制" : `#${user.id.slice(0, 6).toUpperCase()}`}
                       </button>
                     </dd>
@@ -1091,10 +1095,10 @@ function AccountDetailsPage({
                     <dd>{new Date(user.createdAt).toLocaleDateString("zh-CN")}</dd>
                   </div>
                 </dl>
-                <div className="account-inline-actions">
+                <div className={account.actionRow}>
                   <button
                     type="button"
-                    className="account-primary"
+                    className={account.primary}
                     disabled={busy || name.trim() === user.displayName}
                     onClick={() => {
                       rename();
@@ -1116,8 +1120,8 @@ function AccountDetailsPage({
             </div>
           )}
           {!mobile && (
-            <section className="section account-actions">
-              <h2>账号</h2>
+            <section className={`${account.section} ${account.stack}`}>
+              <h2 className={account.heading}>账号</h2>
               <div>
                 <button
                   type="button"
@@ -1146,11 +1150,11 @@ function AccountDetailsPage({
               </div>
               {confirmation && (
                 <div
-                  className="account-confirmation"
+                  className={account.confirmation}
                   role="alertdialog"
                   aria-label={confirmation === "delete" ? "确认注销账号" : "确认退出所有设备"}
                 >
-                  <p>
+                  <p className={account.note}>
                     {confirmation === "delete"
                       ? "注销账号将删除已发布皮肤、评分及其他云端账号数据，无法撤销。"
                       : "退出所有设备后，所有设备都需要重新登录。"}
@@ -1181,10 +1185,10 @@ function AccountDetailsPage({
             <SettingsSyncCard client={client.settingsSync} userId={user.id} />
           )}
           {(onOpenCloudDictionary || onOpenCloudClipboard) && (
-            <section className="section account-community-actions">
+            <section className={`${account.section} ${account.communityActions}`}>
               <div>
-                <h2>云端</h2>
-                <p>访问账号中的云词库和云剪贴板。</p>
+                <h2 className={account.heading}>云端</h2>
+                <p className={account.note}>访问账号中的云词库和云剪贴板。</p>
               </div>
               {onOpenCloudDictionary && (
                 <button
@@ -1211,10 +1215,10 @@ function AccountDetailsPage({
           {(openPublishedSkins || onOpenCommunity) &&
             (mobile ? (
               <>
-                <section className="section account-community-actions account-community-group">
+                <section className={`${account.section} ${account.communityGroup}`}>
                   <div>
-                    <h2>我发布的</h2>
-                    <p>管理你公开发布的社区作品。</p>
+                    <h2 className={account.heading}>我发布的</h2>
+                    <p className={account.note}>管理你公开发布的社区作品。</p>
                   </div>
                   {openPublishedSkins && (
                     <button
@@ -1251,10 +1255,10 @@ function AccountDetailsPage({
                   )}
                 </section>
                 {onOpenCommunity && (
-                  <section className="section account-community-actions account-community-group">
+                  <section className={`${account.section} ${account.communityGroup}`}>
                     <div>
-                      <h2>我收藏的</h2>
-                      <p>管理你收藏的社区资源。</p>
+                      <h2 className={account.heading}>我收藏的</h2>
+                      <p className={account.note}>管理你收藏的社区资源。</p>
                     </div>
                     <button
                       type="button"
@@ -1278,10 +1282,10 @@ function AccountDetailsPage({
                 )}
               </>
             ) : (
-              <section className="section account-community-actions">
+              <section className={`${account.section} ${account.communityActions}`}>
                 <div>
-                  <h2>我的社区作品</h2>
-                  <p>管理你公开发布或收藏的社区作品。</p>
+                  <h2 className={account.heading}>我的社区作品</h2>
+                  <p className={account.note}>管理你公开发布或收藏的社区作品。</p>
                 </div>
                 {openPublishedSkins && (
                   <button
@@ -1333,17 +1337,17 @@ function AccountDetailsPage({
             ))}
         </>
       ) : (
-        <section className="section account-login">
-          <h2>
+        <section className={`${account.section} ${account.stack}`}>
+          <h2 className={account.heading}>
             {channel === "email" ? "邮箱登录" : channel === "phone" ? "手机号登录" : "登录方式"}
           </h2>
           {!channel ? (
             <>
-              <div className="account-provider-actions">
+              <div className={account.actionRow}>
                 {providers.apple && client.appleLogin && (
                   <button
                     type="button"
-                    className="account-primary"
+                    className={account.primary}
                     disabled={busy}
                     onClick={signInWithApple}
                   >
@@ -1353,7 +1357,7 @@ function AccountDetailsPage({
                 {providers.email && (
                   <button
                     type="button"
-                    className="account-primary"
+                    className={account.primary}
                     onClick={() => chooseChannel("email")}
                   >
                     邮箱登录
@@ -1362,7 +1366,7 @@ function AccountDetailsPage({
                 {providers.phone && (
                   <button
                     type="button"
-                    className="account-primary"
+                    className={account.primary}
                     onClick={() => chooseChannel("phone")}
                   >
                     手机号登录
@@ -1370,7 +1374,7 @@ function AccountDetailsPage({
                 )}
               </div>
               {enabledProviders === 0 && (
-                <p className="account-muted">当前没有可用的验证码登录方式，请稍后重试。</p>
+                <p className={account.muted}>当前没有可用的验证码登录方式，请稍后重试。</p>
               )}
               <button
                 type="button"
@@ -1386,9 +1390,10 @@ function AccountDetailsPage({
             </>
           ) : (
             <>
-              <label>
+              <label className={account.field}>
                 {channel === "email" ? "邮箱地址" : "手机号（含国家区号）"}
                 <input
+                  className={account.input}
                   aria-label={channel === "email" ? "邮箱地址" : "手机号（含国家区号）"}
                   type={channel === "email" ? "email" : "tel"}
                   autoComplete={channel === "email" ? "email" : "tel"}
@@ -1402,10 +1407,10 @@ function AccountDetailsPage({
                   }}
                 />
               </label>
-              <div className="account-inline-actions">
+              <div className={account.actionRow}>
                 <button
                   type="button"
-                  className="account-primary"
+                  className={account.primary}
                   disabled={busy || !target.trim() || resendSeconds > 0}
                   onClick={requestCode}
                 >
@@ -1421,10 +1426,11 @@ function AccountDetailsPage({
                 </button>
               </div>
               {challenge && (
-                <div className="account-code">
-                  <label>
+                <div className={account.code}>
+                  <label className={account.field}>
                     6 位验证码
                     <input
+                      className={account.input}
                       aria-label="6 位验证码"
                       inputMode="numeric"
                       autoComplete="one-time-code"
@@ -1438,7 +1444,7 @@ function AccountDetailsPage({
                   </label>
                   <button
                     type="button"
-                    className="account-primary"
+                    className={account.primary}
                     disabled={busy || expired || !/^\d{6}$/.test(code)}
                     onClick={signIn}
                   >
@@ -1446,18 +1452,18 @@ function AccountDetailsPage({
                   </button>
                 </div>
               )}
-              <p className="account-muted">验证码只用于本次登录，请勿向他人透露。</p>
+              <p className={account.muted}>验证码只用于本次登录，请勿向他人透露。</p>
             </>
           )}
         </section>
       )}
       {(onOpenAbout || onOpenDesktopDownload) && (
-        <section className="section account-community-actions account-about-actions">
+        <section className={`${account.section} ${account.communityActions}`}>
           <div>
-            <h2>关于</h2>
-            <p>查看水杉版本信息、开源说明和其他平台下载指南。</p>
+            <h2 className={account.heading}>关于</h2>
+            <p className={account.note}>查看水杉版本信息、开源说明和其他平台下载指南。</p>
           </div>
-          <div className="account-inline-actions">
+          <div className={account.actionRow}>
             {onOpenAbout && (
               <button type="button" className="secondary" disabled={busy} onClick={onOpenAbout}>
                 关于水杉
@@ -1477,15 +1483,15 @@ function AccountDetailsPage({
         </section>
       )}
       {onReplayOnboarding && (
-        <section className="section account-about-actions">
+        <section className={`${account.section} ${account.actionRow}`}>
           <button type="button" className="secondary" disabled={busy} onClick={onReplayOnboarding}>
             重新查看新手引导
           </button>
         </section>
       )}
-      <section className="section account-privacy">
-        <h2>本地数据与云端作品</h2>
-        <p>
+      <section className={`${account.section} ${account.stack}`}>
+        <h2 className={account.heading}>本地数据与云端作品</h2>
+        <p className={account.note}>
           皮肤设计和打字统计保存在本机。只有你主动发布的作品会分享至社区；账号登录不会自动上传本地设计或输入记录。
         </p>
       </section>

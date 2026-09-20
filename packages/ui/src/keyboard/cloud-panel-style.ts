@@ -39,7 +39,8 @@ export const clipboardCount = (overLimit: boolean) =>
 export const clipboardConfirm = `flex flex-wrap items-center gap-2 rounded-[7px] border border-[#e7b4bb] bg-[#2b2b33] p-3 text-xs ${clipText}`;
 export const clipboardList = "min-h-0 flex-1 overflow-y-auto";
 /** A row, with its first child being the text itself: a full-width, wrapping, quiet button. */
-export const clipboardItem = `flex items-start gap-2 border-b border-white/[0.09] py-2.5 [&>button:first-child]:flex-1 [&>button:first-child]:border-0 [&>button:first-child]:bg-transparent [&>button:first-child]:p-0 [&>button:first-child]:text-left [&>button:first-child]:whitespace-pre-wrap [&>button:first-child]:break-anywhere [&>button:first-child]:${clipText}`;
+export const clipboardItem =
+  "flex items-start gap-2 border-b border-white/[0.09] py-2.5 [&>button:first-child]:flex-1 [&>button:first-child]:border-0 [&>button:first-child]:bg-transparent [&>button:first-child]:p-0 [&>button:first-child]:text-left [&>button:first-child]:whitespace-pre-wrap [&>button:first-child]:break-anywhere [&>button:first-child]:text-[#f5f5f7]";
 export const clipboardDelete =
   "shrink-0 grow-0 basis-auto rounded-md border-0 bg-[#3a3945] px-2 py-1 text-[#e7b4bb]";
 

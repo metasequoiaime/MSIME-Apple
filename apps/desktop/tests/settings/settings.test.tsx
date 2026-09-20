@@ -4647,14 +4647,14 @@ test("handwriting matches Windows candidate priority, uniqueness, and limit", as
       "H",
     ],
   });
-  const mounted = render(<HandwritingPanel client={{ close: vi.fn(), recognizeHandwriting }} />);
+  render(<HandwritingPanel client={{ close: vi.fn(), recognizeHandwriting }} />);
   const canvas = screen.getByLabelText("手写画布");
   fireEvent.pointerDown(canvas, { isPrimary: true, clientX: 20, clientY: 20, pointerId: 1 });
   fireEvent.pointerMove(canvas, { clientX: 80, clientY: 80, pointerId: 1 });
   fireEvent.pointerUp(canvas, { clientX: 100, clientY: 100, pointerId: 1 });
   await screen.findByRole("button", { name: "水" });
   expect(
-    within(mounted.container.querySelector(".handwriting-candidate-grid") as HTMLElement)
+    within(screen.getByRole("group", { name: "识别候选" }))
       .getAllByRole("button")
       .map((button) => button.textContent),
   ).toEqual(["水", "永", "木", "本", "未", "末", "术", "札", "正", "water", "A", "B"]);
