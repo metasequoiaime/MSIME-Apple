@@ -19,6 +19,7 @@ import {
   type TouchSkinKeyShape,
 } from "./touch-keyboard-skin-design";
 import type { CommunitySkinClient } from "../community/community-skins";
+import * as skin from "./touch-skin-style";
 
 type Category = "背景" | "按键" | "文本" | "设计" | "我的";
 type NameEditor = { operation: "create" } | { operation: "rename"; id: string };
@@ -611,15 +612,15 @@ export function TouchKeyboardSkinEditor({
   };
 
   return (
-    <div className="touch-skin-editor" aria-label="自定义皮肤编辑器">
-      <div className="touch-skin-editor-heading">
+    <div className={`${skin.editor} ${skin.editorFilled}`} aria-label="自定义皮肤编辑器">
+      <div className={skin.editorHeading}>
         <div>
           <div className="section-title">
             自定义皮肤
             <small>Apple 同款当前设计字段；修改后使用页面底部“保存设置”写入共享配置</small>
           </div>
         </div>
-        <div className="touch-skin-editor-heading-actions">
+        <div className={skin.editorHeadingActions}>
           {aiSkins && library && (
             <button
               type="button"
@@ -663,7 +664,7 @@ export function TouchKeyboardSkinEditor({
       )}
       {nameEditor && (
         <div
-          className="touch-skin-library-dialog"
+          className={skin.libraryDialog}
           role="dialog"
           aria-label={nameEditor.operation === "create" ? "保存我的皮肤" : "重命名皮肤"}
         >
@@ -697,7 +698,7 @@ export function TouchKeyboardSkinEditor({
       )}
       {confirmation && (
         <div
-          className="touch-skin-library-dialog"
+          className={skin.libraryDialog}
           role="alertdialog"
           aria-label={
             confirmation.operation === "update" ? "确认更新已保存皮肤" : "确认删除已保存皮肤"
@@ -729,11 +730,11 @@ export function TouchKeyboardSkinEditor({
         </div>
       )}
       {libraryNotice && (
-        <p className="touch-skin-library-notice" role="status">
+        <p className={skin.libraryNotice} role="status">
           {libraryNotice}
         </p>
       )}
-      <div className="touch-skin-editor-tabs" role="tablist" aria-label="皮肤编辑分类">
+      <div className={skin.editorTabs} role="tablist" aria-label="皮肤编辑分类">
         {(
           ["背景", "按键", "文本", "设计", ...(library ? ["我的" as const] : [])] as Category[]
         ).map((item) => (
@@ -741,7 +742,7 @@ export function TouchKeyboardSkinEditor({
             type="button"
             role="tab"
             aria-selected={category === item}
-            className={category === item ? "selected" : ""}
+            className={skin.editorTab(category === item)}
             onClick={() => setCategory(item)}
             key={item}
           >
@@ -750,12 +751,12 @@ export function TouchKeyboardSkinEditor({
         ))}
       </div>
 
-      <div className="touch-skin-editor-controls">
+      <div className={skin.editorControls}>
         {category === "背景" && (
           <>
-            <div className="touch-skin-control-block">
-              <div className="touch-skin-control-title">背景预设</div>
-              <div className="touch-skin-background-grid">
+            <div className={skin.controlBlock}>
+              <div className={skin.controlTitle}>背景预设</div>
+              <div className={skin.backgroundGrid}>
                 {touchKeyboardBackgroundPresets.map((preset) => (
                   <button
                     type="button"
@@ -778,17 +779,18 @@ export function TouchKeyboardSkinEditor({
                 ))}
               </div>
             </div>
-            <div className="touch-skin-control-block touch-skin-form-grid">
+            <div className={`${skin.controlBlock} ${skin.formGrid}`}>
               <label>
                 背景起始色
                 <input
+                  className={skin.colorInput}
                   aria-label="背景起始色"
                   type="color"
                   value={skinColor(design.background)}
                   onChange={(event) => patch({ background: colorNumber(event.target.value) })}
                 />
               </label>
-              <label className="touch-skin-check-label">
+              <label className={skin.checkLabel}>
                 <input
                   aria-label="渐变背景"
                   type="checkbox"
@@ -804,13 +806,14 @@ export function TouchKeyboardSkinEditor({
                   <label>
                     渐变结束色
                     <input
+                      className={skin.colorInput}
                       aria-label="渐变结束色"
                       type="color"
                       value={skinColor(design.gradientEnd)}
                       onChange={(event) => patch({ gradientEnd: colorNumber(event.target.value) })}
                     />
                   </label>
-                  <label className="touch-skin-check-label">
+                  <label className={skin.checkLabel}>
                     <input
                       aria-label="横向渐变"
                       type="checkbox"
@@ -822,9 +825,9 @@ export function TouchKeyboardSkinEditor({
                 </>
               )}
             </div>
-            <div className="touch-skin-control-block">
-              <div className="touch-skin-control-title">照片壁纸</div>
-              <label className="secondary touch-skin-photo-button">
+            <div className={skin.controlBlock}>
+              <div className={skin.controlTitle}>照片壁纸</div>
+              <label className={`secondary ${skin.photoButton}`}>
                 {design.photo ? "更换照片" : "选择照片"}
                 <input
                   aria-label="选择皮肤照片"
@@ -842,12 +845,12 @@ export function TouchKeyboardSkinEditor({
                 />
               </label>
               {photoError && (
-                <p role="alert" className="touch-skin-warning">
+                <p role="alert" className={skin.warning}>
                   {photoError}
                 </p>
               )}
               {design.photo && (
-                <div className="touch-skin-form-grid">
+                <div className={skin.formGrid}>
                   <label>
                     照片位置 · {Math.round((design.photoPosition ?? 0.5) * 100)}%
                     <input
@@ -882,7 +885,7 @@ export function TouchKeyboardSkinEditor({
                 </div>
               )}
             </div>
-            <div className="touch-skin-control-block touch-skin-form-grid">
+            <div className={`${skin.controlBlock} ${skin.formGrid}`}>
               <label>
                 背景纹理
                 <select
@@ -920,10 +923,11 @@ export function TouchKeyboardSkinEditor({
 
         {category === "按键" && (
           <>
-            <div className="touch-skin-control-block touch-skin-form-grid">
+            <div className={`${skin.controlBlock} ${skin.formGrid}`}>
               <label>
                 键帽颜色
                 <input
+                  className={skin.colorInput}
                   aria-label="键帽颜色"
                   type="color"
                   value={skinColor(design.keyBackground)}
@@ -933,6 +937,7 @@ export function TouchKeyboardSkinEditor({
               <label>
                 功能键颜色
                 <input
+                  className={skin.colorInput}
                   aria-label="功能键颜色"
                   type="color"
                   value={skinColor(design.actionBackground)}
@@ -940,7 +945,7 @@ export function TouchKeyboardSkinEditor({
                 />
               </label>
             </div>
-            <div className="touch-skin-control-block touch-skin-form-grid">
+            <div className={`${skin.controlBlock} ${skin.formGrid}`}>
               <label>
                 键帽造型
                 <select
@@ -1020,6 +1025,7 @@ export function TouchKeyboardSkinEditor({
               <label>
                 边框颜色
                 <input
+                  className={skin.colorInput}
                   aria-label="边框颜色"
                   type="color"
                   value={skinColor(design.customBorderColor ?? design.accent)}
@@ -1033,8 +1039,8 @@ export function TouchKeyboardSkinEditor({
         )}
 
         {category === "文本" && (
-          <div className="touch-skin-control-block touch-skin-form-grid">
-            <label className="touch-skin-check-label">
+          <div className={`${skin.controlBlock} ${skin.formGrid}`}>
+            <label className={skin.checkLabel}>
               <input
                 aria-label="等宽字形"
                 type="checkbox"
@@ -1046,6 +1052,7 @@ export function TouchKeyboardSkinEditor({
             <label>
               按键文字
               <input
+                className={skin.colorInput}
                 aria-label="按键文字"
                 type="color"
                 value={skinColor(design.keyForeground)}
@@ -1055,6 +1062,7 @@ export function TouchKeyboardSkinEditor({
             <label>
               提示与工具栏
               <input
+                className={skin.colorInput}
                 aria-label="提示与工具栏"
                 type="color"
                 value={skinColor(design.accent)}
@@ -1062,7 +1070,7 @@ export function TouchKeyboardSkinEditor({
               />
             </label>
             {!hasReadableSkinText(design) && (
-              <p className="touch-skin-warning">部分文字与背景对比度偏低，建议调整配色。</p>
+              <p className={skin.warning}>部分文字与背景对比度偏低，建议调整配色。</p>
             )}
             <button type="button" className="secondary" onClick={optimizeContrast}>
               优化文字对比度
@@ -1072,7 +1080,7 @@ export function TouchKeyboardSkinEditor({
 
         {category === "设计" && (
           <>
-            <div className="touch-skin-template-grid">
+            <div className={skin.templateGrid}>
               {touchKeyboardSkinTemplates.map((template) => (
                 <button
                   type="button"
@@ -1104,22 +1112,20 @@ export function TouchKeyboardSkinEditor({
           </>
         )}
         {category === "我的" && library && (
-          <div className="touch-skin-control-block" aria-label="我的皮肤图库">
-            <div className="touch-skin-control-title">我的皮肤 · {saved.length}/12</div>
-            {libraryBusy && saved.length === 0 && (
-              <p className="touch-skin-library-empty">正在读取…</p>
-            )}
+          <div className={skin.controlBlock} aria-label="我的皮肤图库">
+            <div className={skin.controlTitle}>我的皮肤 · {saved.length}/12</div>
+            {libraryBusy && saved.length === 0 && <p className={skin.libraryEmpty}>正在读取…</p>}
             {!libraryBusy && saved.length === 0 && (
-              <p className="touch-skin-library-empty">
+              <p className={skin.libraryEmpty}>
                 还没有命名保存的皮肤。调整满意后，点击“保存设计”。
               </p>
             )}
-            <div className="touch-skin-library-list">
+            <div className={skin.libraryList}>
               {saved.map((item) => (
-                <article key={item.id} className="touch-skin-library-card">
+                <article key={item.id} className={skin.libraryCard}>
                   <button
                     type="button"
-                    className="touch-skin-library-apply"
+                    className={skin.libraryApply}
                     aria-label={`应用已保存皮肤 ${item.name}`}
                     onClick={() => {
                       apply(item.design);
@@ -1134,7 +1140,7 @@ export function TouchKeyboardSkinEditor({
                     />
                     <strong>{item.name}</strong>
                   </button>
-                  <div className="touch-skin-library-actions">
+                  <div className={skin.libraryActions}>
                     <button
                       type="button"
                       className="secondary"
@@ -1174,8 +1180,8 @@ export function TouchKeyboardSkinEditor({
         )}
       </div>
 
-      <div className="touch-skin-editor-preview">
-        <div className="touch-skin-editor-actions">
+      <div className={skin.editorPreview}>
+        <div className={skin.editorActions}>
           <button
             type="button"
             className="secondary"

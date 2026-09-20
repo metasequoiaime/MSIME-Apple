@@ -97,7 +97,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let numberHint: UILabel?
   }
   private var nineKeyGridKeys: [NineKeyGridKey] = []
-  private enum MoreToolsPage { case root, localInput, keyboardSettings }
+  private enum MoreToolsPage { case root, localInput }
   private var moreTools: [KeyboardToolSection] = []
   private var moreToolsPage: MoreToolsPage = .root
   private let dismissShortcut = UIButton()
@@ -871,12 +871,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     scriptShortcut.addAction(UIAction { [weak self] _ in
       guard let self else { return }
       if inputScheme == .thoughtfulReply { showKeyboardAI(); return }
-      if KeyboardLayoutPreference.voiceShortcutEnabled { showKeyboardVoice(); return }
-      usesTraditionalOutput.toggle()
-      ChineseOutputPreference.usesTraditional = usesTraditionalOutput
-      _ = session.setTraditionalChineseOutput(usesTraditionalOutput)
-      renderCandidateStrip()
-      updateShortcutButtons()
+      showKeyboardVoice()
     }, for: .primaryActionTriggered)
     emojiShortcut.addAction(UIAction { [weak self] _ in self?.showEmojiPicker() },
                             for: .primaryActionTriggered)
@@ -903,21 +898,18 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       button.accessibilityLabel = label
       button.accessibilityIdentifier = id
     }
-    configure(scriptShortcut, title: usesTraditionalOutput ? "繁" : "简", symbol: nil,
-      label: usesTraditionalOutput ? "切换到简体" : "切换到繁体", id: "scriptShortcut")
-    scriptShortcut.isEnabled = !(isChineseMode && inputScheme.isJapanese)
-    scriptShortcut.accessibilityValue = scriptShortcut.isEnabled ? (usesTraditionalOutput ? "繁体" : "简体") : "日语不使用简繁转换"
-    if KeyboardLayoutPreference.voiceShortcutEnabled {
-      configure(scriptShortcut, title: nil, symbol: "waveform", label: "语音结果", id: "layoutVoiceShortcut")
-      scriptShortcut.isEnabled = true
-      scriptShortcut.accessibilityValue = nil
-    }
+    // 简繁是一次性设置,不占常驻工具位;这个位置只在高情商回复方案或顶部语音入口开启时出现。
+    //
+    // Script choice is made once and then left alone -- the app's 输入设置 already carries it, and the toolbar is the row you see whenever nothing is being composed. It moved into 更多, which is where the other settings that are set once already live.
     if inputScheme == .thoughtfulReply {
       configure(scriptShortcut, title: nil, symbol: "bubble.left.and.text.bubble.right",
         label: "生成高情商回复", id: "replyShortcut")
-      scriptShortcut.isEnabled = true
-      scriptShortcut.accessibilityValue = nil
+    } else {
+      configure(scriptShortcut, title: nil, symbol: "waveform", label: "语音结果", id: "layoutVoiceShortcut")
     }
+    scriptShortcut.isEnabled = true
+    scriptShortcut.accessibilityValue = nil
+    scriptShortcut.isHidden = inputScheme != .thoughtfulReply && !KeyboardLayoutPreference.voiceShortcutEnabled
     configure(emojiShortcut, title: nil, symbol: "face.smiling", label: "表情", id: "emojiShortcut")
     configure(skinShortcut, title: nil, symbol: "tshirt", label: "切换皮肤", id: "skinShortcut")
     skinShortcut.accessibilityValue = KeyboardSkinPreference.selected.title
@@ -929,29 +921,32 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     configure(dismissShortcut, title: nil, symbol: "chevron.down", label: "收起键盘", id: "dismissShortcut")
   }
 
+  /// 开关就摆在面板里,不再藏进二级页。
+  ///
+  /// 这些开关原来在「键盘设置」卡片后面:面板打开后看到的是六张一模一样的入口卡,要再点一次才知道按键音开没开。面板本来就会滚动,分组标题也已经能区分两类,多出来的那一层只是把状态藏起来。本地输入仍然是二级页 —— 八个模式是一份列表,不是一组开关。
   private func makeToolSections() -> [KeyboardToolSection] {
-    [KeyboardToolSection(title: nil, kind: .opens, columns: 2, tools: [
-      KeyboardTool(title: "表情", symbol: "face.smiling") { [weak self] in self?.showEmojiPicker() },
-      KeyboardTool(title: "剪贴板历史", symbol: "doc.on.clipboard") { [weak self] in self?.showClipboardHistory() },
-      KeyboardTool(title: "AI 润色", symbol: "sparkles") { [weak self] in
-        self?.closeKeyboardPicker(); self?.showKeyboardAI()
-      },
-      KeyboardTool(title: "语音结果", symbol: "waveform") { [weak self] in
-        self?.closeKeyboardPicker(); self?.showKeyboardVoice()
-      },
-      KeyboardTool(title: "本地输入", symbol: "textformat.123", enabled: supportsLocalTools) { [weak self] in
-        self?.showMoreToolsPage(.localInput)
-      },
-      KeyboardTool(title: "键盘设置", symbol: "gearshape") { [weak self] in
-        self?.showMoreToolsPage(.keyboardSettings)
-      },
-    ])]
-  }
-
-  private func makeKeyboardSettingsSections() -> [KeyboardToolSection] {
     [
-      backToToolsSection(),
-      KeyboardToolSection(title: "键盘设置", kind: .toggle, columns: 2, tools: [
+      KeyboardToolSection(title: nil, kind: .opens, columns: 2, tools: [
+        KeyboardTool(title: "表情", symbol: "face.smiling") { [weak self] in self?.showEmojiPicker() },
+        KeyboardTool(title: "剪贴板历史", symbol: "doc.on.clipboard") { [weak self] in self?.showClipboardHistory() },
+        KeyboardTool(title: "AI 润色", symbol: "sparkles") { [weak self] in
+          self?.closeKeyboardPicker(); self?.showKeyboardAI()
+        },
+        KeyboardTool(title: "语音结果", symbol: "waveform") { [weak self] in
+          self?.closeKeyboardPicker(); self?.showKeyboardVoice()
+        },
+        KeyboardTool(title: "本地输入", symbol: "textformat.123", enabled: supportsLocalTools) { [weak self] in
+          self?.showMoreToolsPage(.localInput)
+        },
+      ]),
+      KeyboardToolSection(title: "设置", kind: .toggle, columns: 2, tools: [
+        // 简繁是开关而不是两张选择卡:它本来就是一个布尔值,拆成两张只是多占一行。
+        KeyboardTool(title: "繁体输出", symbol: "character.textbox",
+                     selected: usesTraditionalOutput,
+                     enabled: !(isChineseMode && inputScheme.isJapanese)) { [weak self] in
+          guard let self else { return }
+          selectTraditionalOutput(!usesTraditionalOutput)
+        },
         KeyboardTool(title: "按键音", symbol: "speaker.wave.2",
                      selected: KeyboardFeedbackPreference.soundEnabled) { [weak self] in
           KeyboardFeedbackPreference.defaults.set(!KeyboardFeedbackPreference.soundEnabled,
@@ -1022,7 +1017,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     switch moreToolsPage {
     case .root: sections = moreTools
     case .localInput: sections = makeLocalModeSections()
-    case .keyboardSettings: sections = makeKeyboardSettingsSections()
     }
     morePicker?.update(sections: sections)
   }
@@ -3296,6 +3290,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     ])
     morePicker = picker
     UIAccessibility.post(notification: .screenChanged, argument: picker)
+  }
+
+  private func selectTraditionalOutput(_ traditional: Bool) {
+    usesTraditionalOutput = traditional
+    ChineseOutputPreference.usesTraditional = traditional
+    _ = session.setTraditionalChineseOutput(traditional)
+    renderCandidateStrip()
+    updateShortcutButtons()
   }
 
   private func showEmojiPicker() {

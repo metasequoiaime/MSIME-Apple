@@ -301,7 +301,7 @@ Engine 对**单字母**查询（`j`、`n` 这类只按声母的查询）只给 2
 
 增量记录（2026-09-20，Windows 第二十批：来源 README 的功能清单走完）：第十三到十九批沿来源 README 逐项验证，本批把结论收口并更新上表中已被覆盖、却仍写着「仍需核对」的行。
 
-这条轴上查到的**唯一真差异**是简繁转换的实现方式（第十六批）：来源用 OpenCC 词级转换，本仓库用 `LCMapStringEx` 逐字映射。引入 OpenCC 属于加依赖，未决，记在该批。
+这条轴上查到的**唯一真差异**是简繁转换的实现方式（第十六批，结论已在第二十七批更正为跨平台策略而非 Windows 单点缺口）。
 
 其余逐项都与来源一致：输入方案与辅助码、候选调频五种模式、以词定字、中英混输触发长度、emoji 与颜文字的插入位置、快捷模式的文档化拼法、日文与中文方案的往返保留（后者已由 `apps/desktop/tests/settings/settings.test.tsx` 覆盖，不需另加探针）。
 
@@ -367,6 +367,34 @@ runner 现在自己去找仓库既有的约定缓存 `target/desktop-resources`�
 写进注释的那条准备命令是**实跑验证过的，而且第一版是错的**：只跑 `install_resources` 会失败，因为锁里有一个产物来自 Engine 检出而不是词库发布，必须先跑 `scripts/fetch_engine.py`。这正是不该照抄自己记忆里的命令的理由。
 
 结果：有缓存的检出直接得到 77/78 且无需知道任何环境变量；没有的仍是 76/78，基线按此改写，两条路径都实测过。
+
+增量记录（2026-09-20，Windows 第二十七批：更正第十六批对简繁转换的定性）：第十六批把简繁记成「Windows 用 `LCMapStringEx` 而来源用 OpenCC，引不引 OpenCC 属于待定的依赖决定」。那段描述没错，但**定性错了**——我只看了 Windows 一个平台就把它当成 Windows 的单点选择。
+
+把三个桌面宿主都查一遍：Windows 用 `LCMapStringEx(LCMAP_TRADITIONAL_CHINESE)`，macOS 用 `CFStringTransform(Simplified-Traditional)`，Linux 用 ICU 的 `Simplified-Traditional` transliterator。**三家用的都是各自平台自带的转换设施**，而来源在包里带一份 OpenCC 数据。也就是说这不是 Windows 漏掉了什么，而是本仓库一条一致的跨平台策略；换成 OpenCC 意味着三个平台一起换，或者让 Windows 与另外两个不一致。
+
+取舍仍然真实存在：逐字映射在一对多的字上不如词级转换（「发」既可作「發」也可作「髮」），而消解这种歧义正是词级转换存在的理由。变化的是这件事该怎么提出来——不是「Windows 要不要加个依赖」，而是「三个桌面宿主要不要一起从平台设施换成随包分发的词级表」。仍然待定，但现在问题问对了。
+
+附带一处不对称，查清后认为合理：Linux 那边有 `汉语 → 漢語` 的具体断言，Windows 那边（第十六批新增的测试）刻意不钉映射表。理由是 ICU 是随包的库、行为稳定，而 `LCMapStringEx` 的表归操作系统、随 Windows 版本变动——在后者上钉具体繁体字等于钉一个 Windows 版本。
+
+增量记录（2026-09-20，Windows 第二十八批：把最后一条失败查到底，并否掉一个我自己做过的改动）：`windows-server-smoke` 是 Wine 下唯一还失败的套件，此前记的理由是「Wine 不把 `PER_MONITOR_AWARE_V2` 从 `GetWindowDpiAwarenessContext` 带回来」。写一个最小程序实测：Wine **接受** `SetThreadDpiAwarenessContext(PMv2)`，线程确实是 PMv2，但在该线程上创建的窗口报回 per-monitor **v1**（awareness=2）。所以那句话是对的，只是不完整。
+
+据此我先做了一处改动：按 ntdll 的 `wine_get_version` 精确识别 Wine，在其下接受 v1（Windows 上仍严格要求 v2）。它确实让断言通过了——**然后套件在更深处继续失败**，`window.failed()` 为真、窗口不可见。也就是说放松那条断言**换不来任何通过**，只给测试代码增加了 Wine 感知的复杂度。**改动已撤回。**
+
+真正的拦路者查清了：`DeviceResources::EnsureForComposition` 走 `DCompositionCreateDevice` 与 `CreateSwapChainForComposition`，而 Wine 的 DirectComposition 基本是桩。往镜像里加 Mesa 软件光栅器也无济于事，设备照样建不出来。
+
+这是唯一一条真正需要 Windows（或一个实现了 DirectComposition 的 Wine）的套件，基线按上述顺序逐条记下，免得下一个人重走这三步。
+
+顺带说明这轮的取舍：能让计数好看的改动（放松断言）被否掉了，因为它并不能让套件通过；留下的是一条把原因查准的记录。计数不是目的。
+
+增量记录（2026-09-20，Windows 第二十九批：那条「需要 Windows」其实源于一处有意的设计分歧）：上一批把 `windows-server-smoke` 的拦路者定位到 Wine 的 DirectComposition 是桩。这一批问下一个问题——**来源是怎么做的**，因为如果来源也走 DirectComposition，那它就是纯环境限制；如果不是，那这条失败是本仓库自己的选择带来的。
+
+来源的输入法窗口用 **`WS_EX_LAYERED` 分层窗口**（`server/src/window/ime_windows.cpp`），DirectComposition 只出现在它的 WebView2 与设置路径里。本仓库的原生候选窗、候选浮出、悬浮工具栏、托盘菜单四个表面统一走 `DeviceResources::EnsureForComposition`，即 `DCompositionCreateDevice` 加 `CreateSwapChainForComposition`。
+
+所以这条失败的性质要改写：**不是「这个功能只能在 Windows 上验证」，而是「本仓库为这四个表面选了一条来源没走的合成路径，而 Wine 尚未实现它」**。来源那条路在 Wine 下本来是跑得起来的。
+
+这不构成要求改回分层窗口的理由——合成交换链避开了 `UpdateLayeredWindow` 每帧的 CPU 拷贝，四个表面都是低延迟且不能抢焦点的，选它有实在的道理，属于表里一贯记的「适配平台特性」。而且 `EnsureForComposition` 失败时回退到 `EnsureForWindow` 也不是好主意：普通 HWND 交换链拿不到逐像素透明，候选卡片的阴影会退化成不透明矩形，静默变丑比明确失败更糟。
+
+记下来是因为这两种读法对后续决策不同：若哪天要让这套在无 DirectComposition 的环境（Wine、或某些远程会话）下也能画，那是一次明确的渲染路径工作，而不是「等一台 Windows 机器」。
 
 ## 来源模块的落点
 
