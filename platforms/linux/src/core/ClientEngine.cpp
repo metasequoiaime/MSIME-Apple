@@ -5860,6 +5860,7 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     if (ctrl_only && (key == IBUS_Return || key == IBUS_KP_Enter) &&
         s.candidate_translations && s.rendered_session == s.session &&
         s.rendered_candidates.is_array() && !s.rendered_candidates.empty() &&
+        s.rendered_view.is_object() &&
         s.rendered_view.value("generation", uint64_t{0}) ==
             s.view.value("generation", uint64_t{0})) {
       for (const auto &candidate : s.rendered_candidates) {
@@ -5938,11 +5939,19 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         return;
       }
     }
+    // Nothing rendered yet is not an ordinary candidate digit, and asking the
+    // rendered view about it is what broke: `rendered_view` is null until the
+    // first render, and reading it came before the identity fences that would
+    // have stopped short of it. Every session rebuild - a Chinese/English
+    // toggle, a menu override with no shared preferences directory to save
+    // into, a scheme change - resets it, so the next key threw, was swallowed by
+    // `guarded`, and was lost.
     const bool ordinary_candidate_digit =
-        !s.english_mode && s.rendered_view.value("local_mode", "none") == "none" &&
+        !s.english_mode && s.rendered_session == s.session &&
+        s.rendered_candidates.is_array() && !s.rendered_candidates.empty() &&
+        s.rendered_view.is_object() &&
+        s.rendered_view.value("local_mode", "none") == "none" &&
         !s.rendered_view.value("nine_key", false) &&
-        s.rendered_session == s.session && s.rendered_candidates.is_array() &&
-        !s.rendered_candidates.empty() &&
         ((key >= IBUS_0 && key <= IBUS_9) ||
          (key >= IBUS_KP_0 && key <= IBUS_KP_9));
     if (ordinary_candidate_digit &&
