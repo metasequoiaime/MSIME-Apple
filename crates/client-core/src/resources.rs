@@ -41,8 +41,12 @@ pub enum ResourceError {
     InvalidManifest,
     #[error("resource length or digest mismatch")]
     Integrity,
-    #[error("existing resource generation has unexpected files")]
-    ExistingGeneration,
+    /// Carries what was actually found. This is the one resource error a host cannot reproduce off
+    /// the device -- it fires on a directory the host did not stage itself, most often an app bundle
+    /// whose contents differ from the staging machine's. Without the listing there is nothing left
+    /// to read anywhere on the device.
+    #[error("existing resource generation has unexpected files: {0}")]
+    ExistingGeneration(String),
     #[error("resource storage or transport failed: {0}")]
     Io(#[from] std::io::Error),
 }
@@ -153,8 +157,13 @@ impl ResourceStore {
         specification: &ResourceSet,
     ) -> Result<(), ResourceError> {
         specification.validate()?;
-        if !fs::symlink_metadata(directory)?.file_type().is_dir() {
-            return Err(ResourceError::ExistingGeneration);
+        let kind = fs::symlink_metadata(directory)?.file_type();
+        if !kind.is_dir() {
+            return Err(ResourceError::ExistingGeneration(format!(
+                "{} is not a directory ({})",
+                directory.display(),
+                describe(kind)
+            )));
         }
         let expected: HashSet<_> = specification
             .artifacts
@@ -164,26 +173,60 @@ impl ResourceStore {
         let mut count = 0;
         for entry in fs::read_dir(directory)? {
             let entry = entry?;
-            if !entry.file_type()?.is_file()
-                || !expected.contains(
-                    entry
-                        .file_name()
-                        .to_str()
-                        .ok_or(ResourceError::ExistingGeneration)?,
-                )
-            {
-                return Err(ResourceError::ExistingGeneration);
+            let kind = entry.file_type()?;
+            let name = entry.file_name();
+            let Some(name) = name.to_str() else {
+                return Err(ResourceError::ExistingGeneration(format!(
+                    "non-UTF-8 entry in {}",
+                    directory.display()
+                )));
+            };
+            if !kind.is_file() {
+                return Err(ResourceError::ExistingGeneration(format!(
+                    "{name} in {} is a {}, not a file",
+                    directory.display(),
+                    describe(kind)
+                )));
+            }
+            if !expected.contains(name) {
+                return Err(ResourceError::ExistingGeneration(format!(
+                    "{name} in {} is not in the pinned resource set",
+                    directory.display()
+                )));
             }
             count += 1;
         }
         if count != expected.len() {
-            return Err(ResourceError::ExistingGeneration);
+            let mut missing: Vec<_> = expected
+                .iter()
+                .filter(|name| !directory.join(name).is_file())
+                .copied()
+                .collect();
+            missing.sort_unstable();
+            return Err(ResourceError::ExistingGeneration(format!(
+                "{} holds {count} of the {} pinned resources, missing: {}",
+                directory.display(),
+                expected.len(),
+                missing.join(", ")
+            )));
         }
         for artifact in &specification.artifacts {
             let mut input = File::open(directory.join(&artifact.name))?;
             copy_verified(&mut input, &mut std::io::sink(), artifact)?;
         }
         Ok(())
+    }
+}
+
+fn describe(kind: std::fs::FileType) -> &'static str {
+    if kind.is_dir() {
+        "directory"
+    } else if kind.is_symlink() {
+        "symlink"
+    } else if kind.is_file() {
+        "file"
+    } else {
+        "special file"
     }
 }
 

@@ -158,13 +158,15 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       options["preferences"] = Self.hostOverrides(
         applyingTo: options["preferences"] as? [String: Any] ?? [:])
     } catch {
-      initializationDiagnostic = "输入运行时准备失败。"
+      // 不吞掉底层原因。准备失败的理由几乎全是设备侧才成立的（资源校验、词库换代时的复制、共享容器不可用），
+      // 只留一句中文的话，设备上就再也没有别的地方能读到它。
+      initializationDiagnostic = "输入运行时准备失败：\(error.localizedDescription)"
       return
     }
     do {
       try createFocusedSession()
     } catch {
-      initializationDiagnostic = "输入运行时创建或激活失败。"
+      initializationDiagnostic = "输入运行时创建或激活失败：\(error.localizedDescription)"
     }
   }
 
