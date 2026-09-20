@@ -244,6 +244,32 @@ final class OnboardingUITests: XCTestCase {
     app.terminate()
   }
 
+  /// Put a settings entry under the finger before the caller taps it.
+  ///
+  /// The keyboard tab is where these entries live, and a test that has walked into another tab or
+  /// scrolled the page has to come back rather than tap whatever happens to hold that identifier
+  /// now. The links sit below the fold on the shorter devices, so the page is scrolled until the
+  /// entry is hittable instead of assuming a fixed offset; swiping up when the entry is already
+  /// on screen would scroll past it.
+  @MainActor
+  private func reachSettingsLink(_ identifier: String, in app: XCUIApplication) {
+    let keyboardTab = app.tabBars.buttons["键盘"]
+    if keyboardTab.exists && !keyboardTab.isSelected { keyboardTab.tap() }
+    let link = app.buttons[identifier]
+    XCTAssertTrue(link.waitForExistence(timeout: 10), "\(identifier) never appeared")
+    guard !link.isHittable else { return }
+    // Back to the top first: the entry may have been scrolled off either edge.
+    for _ in 0..<4 {
+      if link.isHittable { return }
+      app.swipeDown()
+    }
+    for _ in 0..<6 {
+      if link.isHittable { return }
+      app.swipeUp()
+    }
+    XCTAssertTrue(link.isHittable, "\(identifier) never became reachable")
+  }
+
   @MainActor
   private func openKeyboardSettingsIfNeeded(_ app: XCUIApplication) {
     let entry = app.buttons["aiSettingsLink"]
