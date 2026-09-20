@@ -1132,6 +1132,120 @@ fn installing_a_community_skin_is_one_step_so_a_failed_import_ends_its_trial() {
 
 #[test]
 #[cfg(not(target_os = "android"))]
+fn the_reply_library_a_keyboard_rereads_is_written_through_its_own_store() {
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory
+        .path()
+        .join("CommunityLibrary.json")
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let call = |request: String| {
+        read(unsafe { msime_client_community_resource_library(request.as_ptr(), request.len()) })
+    };
+    let template = |id: &str, prompt: &str| {
+        json!({
+            "id": id,
+            "kind": "reply",
+            "name": "高情商",
+            "description": "",
+            "author": "作者",
+            "content": {"prompt": prompt},
+            "revision": 1,
+            "saves": 0,
+            "saved": true,
+            "owned": false,
+            "rating_count": 0,
+            "rating_average": 0.0,
+            "my_rating": 0,
+        })
+    };
+    let id = "10000000-0000-4000-8000-000000000001";
+
+    // An untouched library is an empty list, which is what a first run looks like.
+    assert_eq!(
+        call(json!({"file": file, "action": {"operation": "load"}}).to_string()),
+        json!({"ok": true, "value": []})
+    );
+    let saved = call(
+        json!({
+            "file": file,
+            "action": {"operation": "save_reply", "item": template(id, "换个说法")},
+        })
+        .to_string(),
+    );
+    assert_eq!(saved["ok"], true);
+    assert_eq!(saved["value"][0]["id"], id);
+    assert_eq!(saved["value"][0]["content"]["prompt"], "换个说法");
+
+    // Keeping the same template twice replaces it rather than growing the list: the id is the
+    // publication, and a second copy would show up twice in the keyboard's menu.
+    let replaced = call(
+        json!({
+            "file": file,
+            "action": {"operation": "save_reply", "item": template(id, "更客气一点")},
+        })
+        .to_string(),
+    );
+    assert_eq!(replaced["value"].as_array().unwrap().len(), 1);
+    assert_eq!(replaced["value"][0]["content"]["prompt"], "更客气一点");
+
+    // A dictionary is not a reply template. The keyboard's parser skips what it does not recognise,
+    // so a host that wrote one here would produce a library that silently lost an entry.
+    let wrong_kind = json!({
+        "file": file,
+        "action": {
+            "operation": "save_reply",
+            "item": {
+                "id": "10000000-0000-4000-8000-000000000002",
+                "kind": "dictionary",
+                "name": "词库",
+                "description": "",
+                "author": "作者",
+                "content": {"entries": [{"kind": "pinyin", "code": "ni", "word": "你", "weight": 1}]},
+                "revision": 1,
+                "saves": 0,
+                "saved": true,
+                "owned": false,
+                "rating_count": 0,
+                "rating_average": 0.0,
+                "my_rating": 0,
+            },
+        },
+    });
+    assert_eq!(
+        call(wrong_kind.to_string())["error"],
+        "community_resource_library_format"
+    );
+
+    assert_eq!(
+        call(json!({"file": file, "action": {"operation": "remove", "id": id}}).to_string()),
+        json!({"ok": true, "value": []})
+    );
+    // Forgetting something that is not there is not a failure; the page may have been showing a
+    // library another process already changed.
+    assert_eq!(
+        call(json!({"file": file, "action": {"operation": "remove", "id": id}}).to_string())["ok"],
+        true
+    );
+    assert_eq!(
+        call(json!({"file": file, "action": {"operation": "remove", "id": "nope"}}).to_string())
+            ["error"],
+        "community_invalid"
+    );
+    assert_eq!(
+        call(json!({"file": "CommunityLibrary.json", "action": {"operation": "load"}}).to_string())
+            ["ok"],
+        false
+    );
+    assert_eq!(
+        read(unsafe { msime_client_community_resource_library(std::ptr::null(), 0) })["ok"],
+        false
+    );
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
 fn skin_resource_bridge_revalidates_kind_and_package_containment() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().join("skins");

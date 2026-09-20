@@ -176,6 +176,12 @@ char *msime_client_community_skin_install(const uint8_t *request, size_t length)
  * Answers {revision} so a caller holding the document can tell whether what it
  * is showing is still what is on disk. Writes preferences: use a worker. */
 char *msime_client_keyboard_skin_trial(const uint8_t *request, size_t length);
+/* JSON {file:absolute CommunityLibrary.json,action:{operation:"load"}} or
+ * {operation:"save_reply",item} or {operation:"remove",id}. The reply templates
+ * the user explicitly kept, which is the one thing the settings surface and the
+ * keyboard process share about the community. Every operation answers with the
+ * whole library. Takes the library's file lock: use a worker. */
+char *msime_client_community_resource_library(const uint8_t *request, size_t length);
 /* Read saved history only; disabled preferences return an empty entries array. */
 char *msime_client_load_clipboard_history(const uint8_t *directory, size_t length);
 /* JSON {directory,text}; removes exact saved entry, not the system clipboard. */

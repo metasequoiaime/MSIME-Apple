@@ -4661,6 +4661,192 @@ group("applying writes only what the schema declares", () => {
   );
 });
 
+group("shared dictionaries and reply templates keep their own bounds", () => {
+  let stored: string | null = null;
+  const store: AccountSessionStore = {
+    load: () => stored,
+    save: (value) => {
+      stored = value;
+    },
+    clear: () => {
+      stored = null;
+    },
+  };
+  const calls: { method: string; path: string; token?: string; body?: Record<string, unknown> }[] =
+    [];
+  const transport: AccountTransport = {
+    request: async (method, path, token, body) => {
+      calls.push({ method, path, token, body });
+      if (path === "/v1/auth/login")
+        return {
+          status: 200,
+          body: JSON.stringify({
+            access_token: "a".repeat(64),
+            refresh_token: "b".repeat(64),
+            token_type: "Bearer",
+            expires_in: 3600,
+            user: { id: "u1", display_name: "Test", created_at: "2026-01-01" },
+          }),
+        };
+      if (path.includes("/dictionaries/quick/catalog"))
+        return { status: 200, body: '{"revision":12}' };
+      return { status: 200, body: '{"items":[],"has_more":false}' };
+    },
+  };
+  const bridge = new AccountCloudBridge(transport, store);
+  const resources = (action: Record<string, unknown>) =>
+    bridge.handle(JSON.stringify({ operation: "community_resource", ...action }));
+  const id = "10000000-0000-4000-8000-000000000001";
+
+  void resources({
+    resource_operation: "list",
+    kind: "dictionary",
+    scope: "",
+    search: "",
+    offset: 0,
+  }).then((result) => {
+    check(JSON.parse(result).ok === true, "the public list reads without an account");
+  });
+  // 我的作品 and 收藏 are questions about an account. Without one the answer is either empty or
+  // somebody else's, so the host refuses rather than asking.
+  void resources({
+    resource_operation: "list",
+    kind: "reply",
+    scope: "mine",
+    search: "",
+    offset: 0,
+  }).then((result) => {
+    check(JSON.parse(result).error === "community_unauthorized", "while a scoped list needs one");
+  });
+  void resources({
+    resource_operation: "list",
+    kind: "song",
+    scope: "",
+    search: "",
+    offset: 0,
+  }).then((result) => {
+    check(JSON.parse(result).error === "community_invalid", "an unknown kind is refused");
+  });
+
+  void bridge
+    .handle('{"operation":"login","challenge_id":"challenge","credential":"123456"}')
+    .then(() => {
+      // Applying is two requests: the server has to be told which revision of the user's own
+      // dictionary this is merging into, so the read's answer goes into the write.
+      void resources({ resource_operation: "apply", id, resource_revision: 3 }).then((result) => {
+        check(JSON.parse(result).ok === true, "applying a shared dictionary is accepted");
+        const applied = calls.find((call) => call.path.endsWith("/apply"));
+        check(
+          applied?.body?.dictionary_revision === 12,
+          "and it carries the revision the catalog just reported",
+        );
+        check(applied?.body?.resource_revision === 3, "together with the resource revision");
+      });
+
+      // A reply is a prompt and nothing else; a dictionary is entries and no prompt. The shared
+      // service refuses the other combinations rather than ignoring the extra half, because a
+      // "dictionary" carrying a prompt is a resource whose author believed it was something else.
+      void resources({
+        resource_operation: "publish",
+        id,
+        kind: "reply",
+        name: "高情商",
+        description: "",
+        content: { prompt: "换个说法" },
+        revision: 1,
+      }).then((result) => {
+        check(JSON.parse(result).ok === true, "a reply carrying only a prompt publishes");
+      });
+      void resources({
+        resource_operation: "publish",
+        id,
+        kind: "reply",
+        name: "高情商",
+        description: "",
+        content: {
+          prompt: "换个说法",
+          entries: [{ kind: "pinyin", code: "ni", word: "你", weight: 1 }],
+        },
+        revision: 1,
+      }).then((result) => {
+        check(
+          JSON.parse(result).error === "community_invalid",
+          "a reply carrying dictionary entries does not",
+        );
+      });
+      void resources({
+        resource_operation: "publish",
+        id,
+        kind: "dictionary",
+        name: "词库",
+        description: "",
+        content: { entries: [] },
+        revision: 1,
+      }).then((result) => {
+        check(JSON.parse(result).error === "community_invalid", "nor an empty dictionary");
+      });
+      void resources({
+        resource_operation: "publish",
+        id,
+        kind: "dictionary",
+        name: "词库",
+        description: "",
+        content: {
+          entries: [
+            { kind: "pinyin", code: "ni", word: "你", weight: 1 },
+            { kind: "pinyin", code: "ni", word: "你", weight: 5 },
+          ],
+        },
+        revision: 1,
+      }).then((result) => {
+        check(
+          JSON.parse(result).error === "community_invalid",
+          "nor one that lists the same word twice",
+        );
+      });
+      void resources({
+        resource_operation: "publish",
+        id,
+        kind: "dictionary",
+        name: "词库",
+        description: "",
+        content: {
+          entries: Array.from({ length: 129 }, (_, index) => ({
+            kind: "pinyin",
+            code: `code${index}`,
+            word: `词${index}`,
+            weight: 1,
+          })),
+        },
+        revision: 1,
+      }).then((result) => {
+        check(JSON.parse(result).error === "community_invalid", "nor one past 128 entries");
+      });
+
+      // 128 entries of long words is more than the 64 KB the action envelope used to allow, and
+      // the service accepts 350,000 bytes of content. A smaller envelope would have refused here
+      // what the server would have taken.
+      void resources({
+        resource_operation: "publish",
+        id,
+        kind: "dictionary",
+        name: "词库",
+        description: "",
+        content: {
+          entries: Array.from({ length: 128 }, (_, index) => ({
+            kind: "pinyin",
+            code: `code${index}`,
+            word: "词".repeat(1000),
+            weight: 1,
+          })),
+        },
+        revision: 1,
+      }).then((result) => {
+        check(JSON.parse(result).ok === true, "a full-size dictionary fits through the envelope");
+      });
+    });
+});
+
 group("the skin gallery is public to browse and signed in to change", () => {
   let stored: string | null = null;
   const store: AccountSessionStore = {

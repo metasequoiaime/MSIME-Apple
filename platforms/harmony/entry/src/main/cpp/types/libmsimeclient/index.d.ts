@@ -32,6 +32,11 @@ export const customSkinLibrary: (request: string) => string;
 export const communitySkinInstall: (request: string) => string;
 /** `{directory,action:{operation:"finish",id,keep}}` or `{operation:"restore_pending"}`. */
 export const keyboardSkinTrial: (request: string) => string;
+/**
+ * `{file,action:{operation:"load"|"save_reply"|"remove",...}}` over the reply templates the user
+ * kept. Every operation answers with the whole library; the keyboard process rereads the same file.
+ */
+export const communityResourceLibrary: (request: string) => string;
 export const savePreferences: (
   directory: string,
   expectedRevision: number,
