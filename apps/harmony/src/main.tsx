@@ -63,14 +63,16 @@ interface NativeBridge {
   readSkinToolbarCss(id: string): string;
   appVersion(): string;
   dictionary(action: string): string;
-  account(action: string): Promise<string>;
-  cloudDictionary(action: string): Promise<string>;
   cloudDictionaryDownload(entry: string): string;
-  cloudDictionarySnapshot(action: string): Promise<string>;
   typingStatistics(action: string): string;
-  aiModels(request: string): Promise<string>;
-  aiTest(request: string): Promise<string>;
-  testApiCredential(request: string): Promise<string>;
+  /**
+   * Starts one of the asynchronous requests and returns at once.
+   *
+   * A bridge method that returns a Promise never settles on this platform, so the account, the
+   * cloud dictionary and its snapshots, the AI model list, the AI test and the credential test are
+   * started by number and answered later through `msimeHarmonyBridgeReply`.
+   */
+  startRequest(kind: string, id: number, payload: string): string;
   openExternalUrl(url: string): void;
   copyText(text: string): void;
   openSystemKeyboardSettings(): void;
@@ -99,6 +101,53 @@ interface NativeBridge {
 declare global {
   // eslint-disable-next-line no-var
   var msimeHarmonyPreferencesChanged: ((reply: string) => void) | undefined;
+  // eslint-disable-next-line no-var
+  var msimeHarmonyBridgeReply: ((id: number, reply: string) => void) | undefined;
+}
+
+/**
+ * The asynchronous half of the bridge.
+ *
+ * The host cannot answer through a returned Promise on this platform, so a request is started by
+ * number and the answer arrives later on a global the host calls. Each request keeps its own
+ * resolver until then.
+ *
+ * Numbers are per page load and never reused: a reply for a number nobody is waiting on belongs to
+ * a request that timed out or was made before a reload, and delivering it to whoever holds that
+ * number now would answer the wrong question.
+ *
+ * Requests do time out. A host that never replies would otherwise leave a settings control
+ * spinning with nothing to cancel it, and a reported failure is something the page can show.
+ */
+const pendingBridgeRequests = new Map<number, (reply: string) => void>();
+let nextBridgeRequestId = 1;
+
+globalThis.msimeHarmonyBridgeReply = (id: number, reply: string) => {
+  const resolve = pendingBridgeRequests.get(id);
+  if (!resolve) return;
+  pendingBridgeRequests.delete(id);
+  resolve(reply);
+};
+
+function bridgeRequest(native: NativeBridge, kind: string, payload: string): Promise<string> {
+  const id = nextBridgeRequestId++;
+  return new Promise<string>((resolve, reject) => {
+    const timer = setTimeout(() => {
+      if (!pendingBridgeRequests.delete(id)) return;
+      reject(new Error("请求超时，请重试。"));
+    }, 30000);
+    pendingBridgeRequests.set(id, (reply) => {
+      clearTimeout(timer);
+      resolve(reply);
+    });
+    try {
+      native.startRequest(kind, id, payload);
+    } catch (error) {
+      clearTimeout(timer);
+      pendingBridgeRequests.delete(id);
+      reject(error instanceof Error ? error : new Error(String(error)));
+    }
+  });
 }
 
 declare global {
@@ -173,7 +222,7 @@ async function whenOnboardingKnown(native: NativeBridge): Promise<boolean> {
 
 function accountClient(native: NativeBridge): AccountClient {
   const request = <T,>(action: Record<string, unknown>): Promise<T> =>
-    native.account(JSON.stringify(action)).then(unwrap<T>);
+    bridgeRequest(native, "account", JSON.stringify(action)).then(unwrap<T>);
   const user = (value: { id: string; display_name: string; created_at: string }) => ({
     id: value.id,
     displayName: value.display_name,
@@ -249,7 +298,9 @@ function cloudClipboardClient(native: NativeBridge, close: () => void): CloudCli
     copyText: async (text) => native.copyText(text),
     request: async (action) => {
       const { operation, ...payload } = action;
-      const value = await native.account(
+      const value = await bridgeRequest(
+        native,
+        "account",
         JSON.stringify({ operation: "clipboard", clipboard_operation: operation, ...payload }),
       );
       return unwrap<{ items?: { id: string; text: string }[]; enabled?: boolean }>(value);
@@ -280,10 +331,16 @@ function cloudDictionaryClient(
     request: async (action: CloudDictionaryAction) => {
       const { operation, ...payload } = action;
       if (operation.startsWith("snapshot_")) {
-        const snapshot = await native.cloudDictionarySnapshot(JSON.stringify(action));
+        const snapshot = await bridgeRequest(
+          native,
+          "cloud_dictionary_snapshot",
+          JSON.stringify(action),
+        );
         return unwrap<Response>(snapshot);
       }
-      const value = await native.cloudDictionary(
+      const value = await bridgeRequest(
+        native,
+        "cloud_dictionary",
         JSON.stringify({ operation: "dictionary", dictionary_operation: operation, ...payload }),
       );
       return unwrap<Response>(value);
@@ -368,15 +425,16 @@ function makeClient(
   };
   const aiAssistant: AiAssistantClient = {
     fetchModels: (configuration) =>
-      native.aiModels(JSON.stringify(configuration)).then(unwrap<string[]>),
-    test: (configuration) => native.aiTest(JSON.stringify(configuration)).then(unwrap<string>),
+      bridgeRequest(native, "ai_models", JSON.stringify(configuration)).then(unwrap<string[]>),
+    test: (configuration) =>
+      bridgeRequest(native, "ai_test", JSON.stringify(configuration)).then(unwrap<string>),
   };
   const testApiCredential = async (
     service: ApiCredentialTestService,
     config: Record<string, unknown>,
   ): Promise<ApiCredentialTestResult> =>
     unwrap<ApiCredentialTestResult>(
-      await native.testApiCredential(JSON.stringify({ service, config })),
+      await bridgeRequest(native, "api_credential", JSON.stringify({ service, config })),
     );
   return {
     // Wrapped like every other reply from the shared ABI. Reading it as the record itself leaves every
