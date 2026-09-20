@@ -3136,7 +3136,10 @@ export function SettingsPage({
         }
       }}
     >
-      {(client.windowControl || client.beginWindowDrag) && (
+      {/* A phone has no window to minimise, maximise, close or drag: the OS owns the frame. The host
+          still exposes the window commands on mobile because the same Tauri app binary backs both, so
+          the presence of a command is not the question -- the platform is. */}
+      {!mobilePlatform && (client.windowControl || client.beginWindowDrag) && (
         <header
           className="window-titlebar"
           aria-label="窗口控制"
@@ -3316,6 +3319,7 @@ export function SettingsPage({
                 onOpenPage={(value) => selectPage(value as SettingsPageId)}
                 onSelectScheme={selectHomeScheme}
                 onOpenChat={client.chat ? () => selectPage("chat") : undefined}
+                touchLayout={mobilePlatform}
               />
             )}
             {(client.account || client.appIcon) && page === "account" && (
