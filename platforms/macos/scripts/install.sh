@@ -98,9 +98,28 @@ if [ -d "$destination" ]; then
 fi
 mv "$staging/$name" "$destination"
 
-"$destination/Contents/MacOS/$executable" --register-input-source
-# The exit code alone is not evidence: a stale LaunchServices entry from the bundle that was just replaced
-# makes the first call succeed whether or not this one registered. Ask the registry.
-"$root/platforms/macos/scripts/check_input_source.swift" "$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$destination/Contents/Info.plist")"
 echo "installed $destination"
-echo "select 水杉输入法（预览） from the input menu to start typing"
+
+# Installing and registering are different operations with different failure meanings, so the rollback
+# ends here. A bundle that is in place and signed is a good install; whether this login session can see it
+# in the input source list is a separate question, and undoing a correct install over it would be worse
+# than reporting it.
+trap - EXIT
+[ -n "$backup" ] && rm -rf "$backup"
+rm -rf "$staging"
+
+identifier="$(/usr/libexec/PlistBuddy -c "Print :CFBundleIdentifier" "$destination/Contents/Info.plist")"
+if "$destination/Contents/MacOS/$executable" --register-input-source &&
+  "$root/platforms/macos/scripts/check_input_source.swift" "$identifier"; then
+  echo "select 水杉输入法（预览） from the input menu to start typing"
+  exit 0
+fi
+# The registry is scoped to the login session: this project's own uninstall text says a removed input
+# method leaves the list only after the next login, and addition behaves the same way. The registration
+# itself is recorded - TISRegisterInputSource answers noErr - so this is a report, not a failed install.
+cat >&2 <<'NOTE'
+
+the input method is installed and signed, but this login session's input source list does not show it yet.
+log out and back in, then choose 水杉输入法（预览） in System Settings > Keyboard > Text Input > Input Sources.
+if it is still missing after that, see the ruled-out causes in platforms/macos/README.md.
+NOTE
