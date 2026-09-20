@@ -87,15 +87,25 @@ bool DeviceResources::EnsureFactories()
         }
     }
 
-    if (!wicFactory_)
-    {
-        if (FAILED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
-                                    IID_PPV_ARGS(wicFactory_.GetAddressOf()))))
-        {
-            return false;
-        }
-    }
+    // WIC is only ever used to decode bitmaps, and it is the one factory here
+    // that goes through COM. A thread that never called CoInitialize gets
+    // CO_E_NOTINITIALIZED, and failing the whole function for it stops surfaces
+    // that draw nothing but text and shapes from drawing at all - which is how
+    // the candidate flyout ended up invisible. Both bitmap getters already
+    // check for a null factory and return nothing, so leave it null and let
+    // them try again later, once whoever owns the thread has initialised COM.
+    EnsureImagingFactory();
     return true;
+}
+
+bool DeviceResources::EnsureImagingFactory()
+{
+    if (wicFactory_)
+    {
+        return true;
+    }
+    return SUCCEEDED(CoCreateInstance(CLSID_WICImagingFactory, nullptr, CLSCTX_INPROC_SERVER,
+                                      IID_PPV_ARGS(wicFactory_.GetAddressOf())));
 }
 
 bool DeviceResources::EnsureForWindow(HWND hwnd)
@@ -577,7 +587,7 @@ IDWriteTextFormat *DeviceResources::GetTextFormat(const std::wstring &fontFamily
 ID2D1Bitmap *DeviceResources::GetBitmapFromFile(const std::wstring &filePath, D2D1_SIZE_F *size)
 {
     ID2D1RenderTarget *target = GetRenderTarget();
-    if (!target || !wicFactory_ || filePath.empty())
+    if (!target || filePath.empty() || !EnsureImagingFactory())
     {
         return nullptr;
     }
@@ -633,7 +643,7 @@ ID2D1Bitmap *DeviceResources::GetBitmapFromFile(const std::wstring &filePath, D2
 ID2D1Bitmap *DeviceResources::GetBitmapFromIcon(HICON icon, const std::wstring &key, D2D1_SIZE_F *size)
 {
     ID2D1RenderTarget *target = GetRenderTarget();
-    if (!target || !wicFactory_ || !icon || key.empty())
+    if (!target || !icon || key.empty() || !EnsureImagingFactory())
     {
         return nullptr;
     }

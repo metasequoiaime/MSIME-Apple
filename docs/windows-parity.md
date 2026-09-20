@@ -455,6 +455,18 @@ runner 现在自己去找仓库既有的约定缓存 `target/desktop-resources`�
 
 过程中还有一次自己造成的弯路值得记：有一轮我把构建输出重定向到 `/dev/null`，构建其实因为 `%f` 对上整型而失败，于是我拿旧的可执行文件跑了一整轮并得出「诊断没有输出」的困惑结论。**关键命令不要丢掉输出**——仓库规矩里本来就写着不要把需要看 exit code 的命令接管道，这次是同一类错误的另一种形态。
 
+增量记录（2026-09-20，Windows 第三十三批：x64 套件在 Wine 下首次 78/78 全通过）：最后一条 `windows-server-smoke` 拿下了，原因是第五处——**只画文字的表面不该依赖 COM**。
+
+浮出窗 `open()` 返回可见，`UpdateWindow()` 触发重绘后变为不可见。把被吞掉的异常打出来是「Candidate menu device unavailable」，再往里是 `EnsureFactories()` 为假，最后定位到 `CoCreateInstance(CLSID_WICImagingFactory)` 返回 `0x800401F0`（`CO_E_NOTINITIALIZED`）——运行该窗口的线程没有初始化 COM。
+
+`EnsureFactories` 把 WIC 当硬性前提，而 WIC 在这里只用于两个位图函数，且那两个函数**本来就检查空工厂并提前返回**。所以改为按需创建：`EnsureFactories` 不再因它失败，两个位图函数在真正需要时自己尝试。**只影响当前会整体失败的路径**，COM 已初始化的宿主行为不变。
+
+至此 x64 在 Wine 下 **78 通过 / 0 失败**，是本仓库第一次整套通过。三轮连跑为 78/0、78/0、77/1，那一次失败是 `windows-voice-controller-listener`；加上更早一轮的 `windows-voice-controller-connection`，这一族在模拟环境下是负载相关而非固定失败，已按仓库既有写法记进基线，免得单轮飘红被当成回归。
+
+**x86 仍是 76/2**（`windows-server-smoke` 与 `windows-session-smoke`），卡在与 x64 同一条渲染断言上。已排除 WIC：32 位探针在同一镜像里取 WIC 成功。原因未定，留作下一轮，不猜。
+
+回顾这条线的全部五道坎，四道是测出来的、一道是我先推错又测正的：prefix 无显示器创建导致 WIC 未注册 → DPI v2 不回传 → DirectComposition 是桩（回退到分层窗口）→ 点击点算在卡片坐标系却当客户区坐标发 → `ReleaseCapture` 先于读取按下 → WIC 被当成硬性前提。其中**后两条是产品缺陷，会影响真实 Windows 用户**，其余是环境或测试自身的问题。
+
 ## 来源模块的落点
 
 逐模块记下来源的每个目录在本仓库落在哪里，以及为什么。上面那张功能表按「功能组」组织，回答的是某个功能有没有；这张按**来源的源码目录**组织，回答的是来源的每一块代码去了哪儿——两者互相校验，一块代码找不到落点就是缺口，哪怕对应功能在表里被标成有。

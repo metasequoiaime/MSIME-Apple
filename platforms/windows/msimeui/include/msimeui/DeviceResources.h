@@ -88,6 +88,9 @@ class DeviceResources
     // Only reached where the composition path would have failed outright, so a
     // host that has a compositor never takes this route.
     bool EnsureCompositionSurface(HWND hwnd);
+    // Created on demand: it is the only COM-based factory here, and a surface
+    // that draws no bitmaps must not depend on the thread having initialised COM.
+    bool EnsureImagingFactory();
     bool EnsureLayered(HWND hwnd, UINT width, UINT height);
     void DiscardLayered();
     bool layered_ = false;
