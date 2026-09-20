@@ -145,6 +145,14 @@ python3 scripts/test-default-config-parity.py || fail "default config contracts"
 note "preferences field parity"
 python3 scripts/test-preferences-field-parity.py || fail "preferences field parity"
 
+# The tray menu hands the shared Tauri shell a route string that C++ builds and
+# Rust parses. Both sides pass their own tests on their own vocabulary, and a
+# name renamed on one side alone breaks nothing visible: an unparseable route is
+# not an error, it opens the ordinary settings window, so the row keeps working
+# and opens the wrong thing.
+note "shell route parity"
+python3 scripts/test-shell-route-parity.py || fail "shell route parity"
+
 # path::string() converts through the ANSI code page on Windows, so a profile
 # with Chinese characters in it mangles or throws. Nothing about that shows up
 # on a host whose system encoding is UTF-8, which is every host that runs this
