@@ -716,6 +716,17 @@ fieldset {
 .shortcut-row-danger {
   color: var(--danger-text);
 }
+/* A text field with an action beside it, sharing the width the field alone would take. Used where the
+   value is a filesystem path the host can resolve, so typing it remains possible and is not the only way. */
+.field-with-action {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.field-with-action > input {
+  flex: 1;
+  min-width: 0;
+}
 .service-action-row {
   display: flex;
   align-items: center;

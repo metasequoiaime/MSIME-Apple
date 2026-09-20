@@ -1350,6 +1350,11 @@ export interface SettingsClient {
   installInputSource?: () => Promise<void>;
   /** macOS moves the installed input source to Trash; data removal is explicit. */
   uninstallInputSource?: (removeUserData: boolean) => Promise<void>;
+  /**
+   * Ask the host for a file path, resolving to null when the user cancels. A local speech model is loaded
+   * by path and a file input hands back contents instead, so only the host can answer this.
+   */
+  pickVoiceModelPath?: () => Promise<string | null>;
   windowControl?: (action: "minimize" | "maximize" | "restore" | "close") => Promise<void>;
   beginWindowDrag?: () => Promise<void>;
   resizeWindow?: (edge: "n" | "s" | "e" | "w" | "ne" | "nw" | "se" | "sw") => Promise<void>;
@@ -7538,14 +7543,32 @@ export function SettingsPage({
                               ggml 模型的绝对路径，例如 /Users/you/models/ggml-large-v3-turbo.bin
                             </small>
                           </span>
-                          <input
-                            aria-label="Whisper 模型文件"
-                            value={voiceInput.asr_model_path ?? ""}
-                            placeholder="/path/to/ggml-model.bin"
-                            onChange={(event) =>
-                              updateVoice({ asr_model_path: event.target.value })
-                            }
-                          />
+                          <span className="field-with-action">
+                            <input
+                              aria-label="Whisper 模型文件"
+                              value={voiceInput.asr_model_path ?? ""}
+                              placeholder="/path/to/ggml-model.bin"
+                              onChange={(event) =>
+                                updateVoice({ asr_model_path: event.target.value })
+                              }
+                            />
+                            {client.pickVoiceModelPath && (
+                              <button
+                                type="button"
+                                className="secondary"
+                                onClick={() => {
+                                  void (async () => {
+                                    // Cancelling resolves to null and must leave the field as it was,
+                                    // rather than clearing a path that already worked.
+                                    const chosen = await client.pickVoiceModelPath?.();
+                                    if (chosen) updateVoice({ asr_model_path: chosen });
+                                  })();
+                                }}
+                              >
+                                选择…
+                              </button>
+                            )}
+                          </span>
                         </label>
                       </div>
                     )}
