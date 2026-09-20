@@ -122,15 +122,16 @@ desktop tests/candidate/external-skins.test.tsx > external selection enters the 
 desktop tests/candidate/external-skins.test.tsx > settings synchronize all cards and reset local overrides on candidate theme changes
 
 # The Windows suites, run under Wine by platforms/windows/run-tests-wine.sh.
-# 72 of 77 pass; these five do not, and each was read rather than assumed.
+# 75 of 77 pass; these two do not, and each was read rather than assumed.
 #
-# windows-server-smoke: "XDG_RUNTIME_DIR is invalid or not set" then "Candidate
-# window unavailable". The same reason the native entry above records - there is
-# no compositor - now observed directly instead of inferred.
+# windows-server-smoke used to stop at "XDG_RUNTIME_DIR is invalid or not set",
+# which was a missing X server rather than a missing compositor - the runner now
+# supplies one, and the suite gets past window creation. What it stops at now is
+# the assertion that the candidate window reports
+# DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2: Wine creates the window but does
+# not carry that awareness context back out of GetWindowDpiAwarenessContext.
+# A Wine limit, and a narrower one than the entry it replaces.
 wine windows-server-smoke
-# windows-fullscreen-foreground fails at line 41: it compares a window rectangle
-# against its monitor, and the container has neither.
-wine windows-fullscreen-foreground
 # windows-session-smoke stops at "Active candidate translation was not
 # re-dispatched", which is an input the suite documents rather than a defect:
 # it takes an optional absolute resource directory as argv[1], and without one
