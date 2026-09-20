@@ -5206,11 +5206,11 @@ export function SettingsPage({
                       <div className="input-option-content">
                         <label className="radio-option">
                           <input type="radio" name="japanese-scheme" checked readOnly />
-                          <span>罗马字</span>
+                          <span>罗马音</span>
                         </label>
                       </div>
                       <div className="input-setting-description japanese-scheme-description">
-                        直接输入罗马字，提供平假名、片假名及日语词库候选
+                        直接输入罗马音，提供平假名、片假名及日语词库候选
                       </div>
                     </div>
                     <div className="section" role="group" aria-labelledby="paging-title">
@@ -6033,9 +6033,11 @@ export function SettingsPage({
                     </div>
                     <div className="section">
                       <label className="section-header">
-                        <span className="section-title">标点锁定</span>
+                        <span className="section-title">
+                          固定标点<small>切换中英文时的标点形态，三者互斥</small>
+                        </span>
                         <select
-                          aria-label="标点锁定"
+                          aria-label="固定标点"
                           value={punctuationLock}
                           onChange={(event) =>
                             setDraft({
@@ -6045,9 +6047,9 @@ export function SettingsPage({
                             })
                           }
                         >
-                          <option value="follow">跟随输入模式</option>
-                          <option value="chinese">固定中文标点</option>
-                          <option value="english">固定英文标点</option>
+                          <option value="follow">跟随中英文状态</option>
+                          <option value="chinese">始终使用中文标点</option>
+                          <option value="english">始终使用英文标点</option>
                         </select>
                       </label>
                     </div>
