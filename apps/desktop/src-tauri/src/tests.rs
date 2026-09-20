@@ -480,7 +480,7 @@ fn macos_restart_targets_the_input_method_bundle() {
         [
             "-n",
             "-b",
-            "app.msime.client.preview.inputmethod",
+            "app.msime.inputmethod.MetasequoiaIME",
             "--args",
             "--reregister-input-source",
         ]
