@@ -64,12 +64,19 @@ native windows-session
 #
 # Fixing them belongs in the Engine, as the windows-session entry says.
 #
-# 2026-09-20: same note as windows-session. The Engine at the locked commit now
-# enters Unicode mode on shift+U and keeps its digits - the new input-runtime
-# test proves it through the real Engine - so local-mode-preferences may already
-# pass. It needs the configured macOS build to find out, which the run that
-# recorded this did not have.
-macos local-mode-preferences
+# 2026-09-20: local-mode-preferences is fixed and its line is gone. Run on the configured macOS build, the
+# Engine attribution above turned out to be wrong twice over. Unicode, date and time and quick phrase all
+# pass now - the Engine behaviour blamed here really was fixed - and the abort had moved on to emoji, where
+# it was never the Engine at all. Four of the eight modes are gated on a runtime resource as well as on the
+# preference (apply_local_mode_resource_gates: emoji and kaomoji need others.db, temporary English needs
+# english.db, temporary Japanese needs dict_japanese.dat), and the test built an empty resources directory,
+# so it asserted something that could not hold. The gate only asks whether the file is there, so the test
+# now creates empty ones - and asserts the gate itself, which nothing on macOS covered: with the resource
+# gone the mode stays off however the preference is set, and the trigger key comes back unhandled rather
+# than swallowed.
+#
+# The lesson for the two lines below: "the Engine answers differently from what the test asserts" was
+# recorded for all three at once, without either half being checked separately.
 macos text-client
 # Not the Engine. shortcut aborted in TestCloudCandidateEngineDelivery on an empty candidate array, and
 # the empty array is what the product is documented to produce: a cloud suggestion is merged into an
