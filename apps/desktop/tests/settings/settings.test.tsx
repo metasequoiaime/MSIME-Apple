@@ -2494,7 +2494,7 @@ test("screen keyboard matches upstream Shift and Caps posting combinations", asy
       // Find the key by what it types: the preview's row layout is presentation
       // and has already been rearranged once.
       const letter = Array.from(
-        panel.container.querySelectorAll<HTMLButtonElement>(".keyboard-row button"),
+        panel.container.querySelectorAll<HTMLButtonElement>("[data-keyboard-row] button"),
       ).find((button) => button.textContent === (shift ? "A" : "a"))!;
       expect(letter).toBeDefined();
       expect(screen.getByRole("button", { name: "Space" })).toBeDefined();
@@ -3729,7 +3729,9 @@ test("macOS sidebar keeps the reference order and groups", async () => {
   );
   await settingsReady();
   const sidebar = screen.getByRole("navigation", { name: "设置分类" });
-  const titles = [...sidebar.querySelectorAll("button.item")].map((item) => item.textContent ?? "");
+  const titles = [...sidebar.querySelectorAll("[data-sidebar-section] button")].map(
+    (item) => item.textContent ?? "",
+  );
   const reference = [
     "输入",
     "辅助码",
@@ -3747,7 +3749,7 @@ test("macOS sidebar keeps the reference order and groups", async () => {
   expect(titles.filter((title) => reference.includes(title))).toEqual(reference);
   // The groups are blocks of their own, so the pages this client has and the reference window does
   // not keep a place instead of being dropped from the list.
-  const groups = [...sidebar.querySelectorAll(".sidebar-section")];
+  const groups = [...sidebar.querySelectorAll("[data-sidebar-section]")];
   expect(groups.length).toBeGreaterThanOrEqual(4);
   expect(groups[0].firstElementChild?.textContent).toBe("输入");
   expect(groups.at(-1)?.firstElementChild?.textContent).toBe("帮助");

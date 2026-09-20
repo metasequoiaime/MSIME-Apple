@@ -3459,23 +3459,27 @@ export function SettingsPage({
             </label>
           </nav>
         )}
-        <nav className="sidebar" aria-label="设置分类">
-          <div className="sidebar-header">
+        <nav className={settings.sidebar} aria-label="设置分类">
+          <div className={settings.sidebarHeader}>
             <img src={logo} alt="" />
             <span>水杉 IME</span>
           </div>
           {sidebarGroups.map((group, index) => (
-            <div key={group[0].id} className={`sidebar-section${index > 0 ? " spaced" : ""}`}>
+            <div
+              key={group[0].id}
+              className={index > 0 ? `${settings.sidebarSection} mt-3.5` : settings.sidebarSection}
+              data-sidebar-section=""
+            >
               {group.map((item) => (
                 <button
                   key={item.id}
                   type="button"
-                  className={`item${page === item.id ? " active" : ""}`}
+                  className={settings.sidebarItem(page === item.id)}
                   aria-current={page === item.id ? "page" : undefined}
                   aria-controls="settings-content"
                   onClick={() => selectPage(item.id)}
                 >
-                  <span className="icon">
+                  <span className={settings.sidebarIcon}>
                     <img src={item.icon} alt="" />
                   </span>
                   {item.title}
@@ -3483,7 +3487,7 @@ export function SettingsPage({
               ))}
             </div>
           ))}
-          <p className="preview-label">客户端预览版</p>
+          <p className={settings.previewLabel}>客户端预览版</p>
         </nav>
         <main
           id="settings-content"

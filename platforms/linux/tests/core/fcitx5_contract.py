@@ -83,4 +83,24 @@ assert 'cycleHelpcodeSchema' in source
 assert 'toggleLocalMode' in source
 assert 'msime-local-unicode' in source
 assert 'msime-local-temporary-japanese' in source
+# The four configurable mode chords, and which host state each is read from. The
+# settings page shows all four switches for this platform; this host answered none
+# of them until it read `keybindings`, and a wiring that quietly went away would
+# look exactly like it did before - a switch that saves and does nothing.
+for name in ("mode_shift_enabled_", "mode_ctrl_enabled_",
+             "mode_ctrl_alt_space_enabled_", "character_set_shortcut_enabled_"):
+    assert name in source, name
+for key in ("switch_language_shift", "switch_language_ctrl",
+            "switch_language_ctrl_alt_space", "toggle_character_set_ctrl_shift_f"):
+    assert key in source, key
+# A bare modifier is measured on its release, and only when nothing else was typed
+# while it was held; the press half only arms it.
+assert "pure_shift_candidate_" in source and "pure_ctrl_candidate_" in source
+assert "modifier_toggle_deadline_" in source
+assert "event.isRelease()" in source
+# The startup mode belongs to the input context, not to each Engine session, or
+# refocusing would put the default back over the mode the user chose.
+assert "ime_mode_chosen_" in source
+assert 'preferences_.value("default_ime_mode", "chinese")' in source
+
 print("Fcitx5 addon metadata passed")

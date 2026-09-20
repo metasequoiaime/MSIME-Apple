@@ -71,3 +71,46 @@ export const mockCanvas =
 export const mockStroke = "rotate-[-7deg] font-kai text-[110px] leading-none text-secondary";
 export const mockCandidates =
   "mt-2.5 flex gap-2 [&>span]:flex-1 [&>span]:rounded-md [&>span]:border [&>span]:border-edge [&>span]:p-2";
+
+// ---- the on-screen keyboard panel ----
+
+/*
+ * This panel's palette is sixteen `--kb-*` custom properties, and `keyboardSkinStyles` sets every one
+ * of them on the root from the active skin. The stylesheet also carried a default for each, plus a
+ * light-theme override, and neither could ever apply: the component does not render without calling
+ * that function. The tokens are the theming mechanism; the utilities below only read them.
+ */
+export const keyboardPanel =
+  "flex h-screen min-h-0 flex-col rounded-lg bg-[var(--kb-background)] font-[var(--kb-font-family)] text-[var(--kb-text)]";
+export const keyboardHeader =
+  "h-7 flex-[0_0_28px] border-b-0 bg-[var(--kb-background)] pt-0 pr-1.5 pb-0 pl-2.5 text-xs text-[var(--kb-heading)] [&>button]:h-6 [&>button]:flex-[0_0_28px] [&>button]:rounded [&>button]:text-[var(--kb-text)] [&>button:hover]:bg-[var(--kb-hover)] [&>button:hover]:text-[var(--kb-text)]";
+export const keyboardNotice =
+  "min-w-0 overflow-hidden text-xs text-ellipsis whitespace-nowrap text-[var(--kb-heading)]";
+export const keyboardBody = "min-h-0 flex-1 px-[7px] pt-0 pb-[7px]";
+export const keyboardLayout = "flex h-full flex-col gap-[var(--keyboard-row-gap,4px)]";
+export const keyboardRow = "flex min-h-0 flex-1 gap-[var(--keyboard-key-gap,4px)]";
+/*
+ * A key. `--kb-current-fill` is the indirection that lets an action key swap its own fill without
+ * restating every other declaration, and the three materials layer on the same base.
+ */
+export const keyboardKey = (options: {
+  material: "flat" | "raised" | "glass" | "paper";
+  active: boolean;
+  wide: boolean;
+}) =>
+  [
+    "min-h-0 min-w-0 flex-1 rounded-[var(--kb-key-radius)] border-[length:var(--kb-border-width)] border-solid border-[var(--kb-border-color)] p-0 font-[inherit] shadow-[var(--kb-shadow)]",
+    "[--kb-current-fill:var(--kb-key-fill)] bg-[var(--kb-current-fill)] text-[var(--kb-text)]",
+    "hover:bg-[var(--kb-hover)] active:bg-[var(--kb-pressed)]",
+    options.wide ? "text-xs" : "text-[15px]",
+    options.active ? "bg-[var(--kb-active)]!" : "",
+    options.material === "raised"
+      ? "-translate-y-px shadow-[var(--kb-shadow),0_2px_0_rgba(0,0,0,0.18)] active:translate-y-0"
+      : "",
+    options.material === "glass" ? "backdrop-blur-[8px]" : "",
+    options.material === "paper"
+      ? "bg-[repeating-linear-gradient(0deg,transparent_0_7px,var(--kb-paper-line)_7px_8px)] [background-size:auto]"
+      : "",
+  ]
+    .filter(Boolean)
+    .join(" ");
