@@ -218,6 +218,16 @@ Engine 对**单字母**查询（`j`、`n` 这类只按声母的查询）只给 2
 
 不含汉字的候选（该输入的英文候选）也两边一致：Engine 拒绝处理且不动组合，宿主随后回退到从候选文本里抽字；抽不到就整条上屏——来源的 `ExtractHanCharacter` 返回空时同样保留完整候选文本走 `Normal`。
 
+增量记录（2026-09-20，Windows 第十六批：简繁转换的实现差异，以及它此前零覆盖）：沿来源 README 清单查到简繁，发现两件事。
+
+**一、实现方式不同，且此前从未记录。** 来源用 OpenCC：`server/src/conversion/chinese_converter.cpp` 加载 `assets/opencc` 下的 `s2t.json`，是词级转换。本仓库用 `platforms/windows/src/input/ChineseTextConversion.cpp` 的 `LCMapStringEx(LCMAP_TRADITIONAL_CHINESE)`，映射表属于操作系统，是逐字的。全仓搜不到 opencc 的任何痕迹。
+
+这会在一对多的字上产生不同输出（「发」既可作「發」也可作「髮」，「里」「干」同理），而词级转换正是用来消解这种歧义的。**具体差多少没有测量**：`LCMapStringEx` 只在 Windows 上有行为，本机没有 Windows 主机；拿 Wine 的映射表冒充 Windows 的映射表没有意义。
+
+引入 OpenCC 是加依赖（库加数据资产，另有许可问题），按仓库规矩不擅自做，记在此处待定。
+
+**二、这个函数此前没有任何测试。** 新增 `platforms/windows/tests/input/chinese_conversion.cpp`，并且刻意不去钉映射表——钉具体的繁体字等于钉一个 Windows 版本，在 Wine 下则是钉 Wine 的表。测的是这段代码自己的契约：开关关闭时原样返回、空输入、ASCII 原样、非法 UTF-8 走回退而不抛也不丢字、转换不会把非空文本变空、结果仍是同样字数的合法 UTF-8。Wine 下通过，套件计数 75/77 变为 76/78。
+
 ## 来源模块的落点
 
 逐模块记下来源的每个目录在本仓库落在哪里，以及为什么。上面那张功能表按「功能组」组织，回答的是某个功能有没有；这张按**来源的源码目录**组织，回答的是来源的每一块代码去了哪儿——两者互相校验，一块代码找不到落点就是缺口，哪怕对应功能在表里被标成有。
