@@ -12,6 +12,7 @@ import {
   type LocalDictionaryFormat,
   type LocalDictionaryKind,
   type Preferences,
+  type SavedTouchKeyboardSkin,
   type SkinCatalog,
   type SkinFont,
   type SkinImage,
@@ -66,6 +67,8 @@ interface NativeBridge {
   readSkinImage(id: string, relative: string): string;
   readSkinFont(id: string, relative: string): string;
   readSkinToolbarCss(id: string): string;
+  /** `""` reads the named designs; a serialized action applies one change first. */
+  customSkinLibrary(action: string): string;
   appVersion(): string;
   dictionary(action: string): string;
   cloudDictionaryDownload(entry: string): string;
@@ -607,6 +610,15 @@ function makeClient(
     fuzzyPinyin: true,
     touchKeyboardSchemes: true,
     customTouchKeyboardSkins: true,
+    // A named design can carry a bounded photo, so this is the one settings call whose payload is
+    // measured in megabytes. It still goes through the synchronous bridge: the alternative is the
+    // request-by-number channel, and a library read that has to survive a page reload is worse
+    // than a brief pause on a screen the user just opened.
+    customSkinLibrary: {
+      load: async () => unwrap<SavedTouchKeyboardSkin[]>(native.customSkinLibrary("")),
+      mutate: async (action) =>
+        unwrap<SavedTouchKeyboardSkin[]>(native.customSkinLibrary(JSON.stringify(action))),
+    },
     candidateEnglishGloss: true,
     account: accountClient(native),
     chat: chatClient(native),
