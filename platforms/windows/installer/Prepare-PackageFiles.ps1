@@ -289,6 +289,42 @@ if (-not $Light) {
         -SourceDirectory $targetResources `
         -ManifestPath (Join-Path $RepoRoot 'resources/desktop-dictionary.lock.json')
 }
+# 落定重排模型，装在资源目录的**同级**而不是里面。
+#
+# 装在里面会被上面那次复验当场拒绝：它要求那个目录恰好等于词库锁钉死的产物集，
+# 而那道校验的职责正是证明已发布的词库完整。prepare_host_configuration 去找的
+# 就是这个同级目录，找到才会把路径写进运行时配置。
+#
+# 可选：25MB 换的是桌面独有的提升（收割集 top-1 0.123 → 0.613），
+# 用 scripts/fetch_settled_model.py 取。没有就不装，行为与今天一致。
+$settledSource = Join-Path $RepoRoot 'target/settled-model'
+$settledTarget = Join-Path $targetServer 'settled-model'
+if (Test-Path -LiteralPath $settledTarget) {
+    Remove-Item -LiteralPath $settledTarget -Recurse -Force
+}
+if (-not $Light) {
+    $settledLock = Join-Path $RepoRoot 'resources/settled-model.lock.json'
+    $settledManifest = Get-Content -LiteralPath $settledLock -Raw | ConvertFrom-Json
+    $settledFiles = @()
+    foreach ($artifact in $settledManifest.artifacts) {
+        $candidate = Join-Path $settledSource ([string]$artifact.name)
+        if (-not (Test-Path -LiteralPath $candidate -PathType Leaf)) { $settledFiles = @(); break }
+        $file = Get-Item -LiteralPath $candidate -Force
+        if (($file.Attributes -band [IO.FileAttributes]::ReparsePoint) -or
+            $file.Length -ne $artifact.size -or
+            (Get-FileHash -LiteralPath $candidate -Algorithm SHA256).Hash -ne $artifact.sha256) {
+            throw "落定模型 $($artifact.name) 与锁文件不符"
+        }
+        $settledFiles += $file.FullName
+    }
+    if ($settledFiles.Count -gt 0) {
+        New-Item -ItemType Directory -Path $settledTarget -Force | Out-Null
+        foreach ($file in $settledFiles) { Copy-Item -LiteralPath $file -Destination $settledTarget -Force }
+        Write-Host "落定重排模型已装入：$settledTarget"
+    } else {
+        Write-Host "未找到落定重排模型（$settledSource），桌面落定重排保持关闭"
+    }
+}
 # Both package modes replace Server output. Copy model resources afterwards,
 # otherwise Reset-Directory silently removes them from an otherwise valid package.
 if ($hasHandwritingModel) {

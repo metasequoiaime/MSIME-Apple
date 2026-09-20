@@ -56,6 +56,9 @@ public:
   std::optional<nlohmann::json>
   apply_ai_candidates(const FocusLease &lease, const std::string &query,
                       const std::string &candidates);
+  /// Re-rank with the settled model; nothing when the order held or no model
+  /// is installed, which is the answer on every one-model installation.
+  std::optional<nlohmann::json> rerank_settled(const FocusLease &lease);
   std::optional<nlohmann::json> apply_cloud_response(const FocusLease &lease,
                                                      const std::string &query,
                                                      const std::string &body);

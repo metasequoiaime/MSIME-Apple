@@ -101,6 +101,13 @@ SessionController::SessionController(
                presentation_.disconnected(ticket);
            },
            [this](const FocusLease &lease, const PendingReply &reply) {
+             // Every delivered reply restarts the settle clock, so the pass
+             // only runs when the user has actually stopped, and never between
+             // the keystrokes of ordinary typing — which is what keeps the
+             // larger model off the keystroke path, where it measures p95
+             // 153ms against a 16ms frame.
+             settled_pending_ = lease;
+             settled_since_ = std::chrono::steady_clock::now();
              if (reply.online_query) {
                (void)cloud_.submit(lease, *reply.online_query);
                // The same query carries the resolved AI config and the
@@ -678,6 +685,33 @@ void SessionController::stop() {
   if (control_.joinable())
     control_.join();
 }
+/// How long a composition stands still before the settled model ranks it.
+///
+/// Shorter than the half second the cloud path waits, because this pass is
+/// local and it changes what the user is reading rather than annotating it.
+constexpr auto kSettledRerankDelay = std::chrono::milliseconds(150);
+
+void SessionController::run_settled_rerank() {
+  if (!settled_pending_ || stopping_)
+    return;
+  if (std::chrono::steady_clock::now() - settled_since_ < kSettledRerankDelay)
+    return;
+  const auto lease = *settled_pending_;
+  // Cleared before the work is queued: a composition is ranked once, and a
+  // keystroke arriving meanwhile sets it again with a fresh clock.
+  settled_pending_.reset();
+  try {
+    (void)input_.submit([this, lease](InputState &state) {
+      if (stopping_ || !transport_.current(lease.transport))
+        return;
+      if (auto view = state.rerank_settled(lease))
+        candidates_.online(lease, *view);
+    });
+  } catch (...) {
+    // A reranking pass must never stop the input queue.
+  }
+}
+
 void SessionController::run() {
   active_controller = this;
   try {
@@ -701,6 +735,7 @@ void SessionController::run() {
         failure_ = ControllerFailure::Preferences;
         break;
       }
+      run_settled_rerank();
       // A maintenance process that died between quiesce and resume would
       // otherwise leave every client without a session for good.
       if (const auto deadline = quiesce_deadline_.load();
