@@ -105,6 +105,26 @@ target_link_libraries(MSIMEClientInputMethod PRIVATE "${MSIME_SWIFT_BACKEND_OUTP
 target_include_directories(MSIMEClientInputMethod PRIVATE src ../../vendor/MSIME-Engine ../../vendor/MSIME-Engine/include)
 target_compile_options(MSIMEClientInputMethod PRIVATE -fobjc-arc -Wall -Wextra -Werror)
 target_link_libraries(MSIMEClientInputMethod PRIVATE apple-client msime-voice-providers "-framework AppKit" "-framework InputMethodKit" "-framework Carbon" "-framework AVFoundation" "-framework Speech")
+# Sparkle orders releases by CFBundleVersion, not by the marketing version, so a build that ships a
+# fixed number can never present itself as newer than the one already installed. Derive it from the
+# commit count: monotonic, reproducible from the source alone, and needing no release bookkeeping. A
+# source tree without git history (an archive export) falls back to 1, which only means such a build
+# cannot be offered as an update - it still installs and runs.
+find_package(Git QUIET)
+if(GIT_FOUND)
+  execute_process(
+    COMMAND "${GIT_EXECUTABLE}" rev-list --count HEAD
+    WORKING_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
+    OUTPUT_VARIABLE MSIME_BUILD_NUMBER
+    OUTPUT_STRIP_TRAILING_WHITESPACE
+    ERROR_QUIET
+    RESULT_VARIABLE MSIME_BUILD_NUMBER_RESULT)
+endif()
+if(NOT MSIME_BUILD_NUMBER MATCHES "^[0-9]+$")
+  set(MSIME_BUILD_NUMBER 1)
+endif()
+set(MACOSX_BUNDLE_BUNDLE_VERSION "${MSIME_BUILD_NUMBER}")
+message(STATUS "Bundle build number: ${MACOSX_BUNDLE_BUNDLE_VERSION}")
 set_target_properties(MSIMEClientInputMethod PROPERTIES MACOSX_BUNDLE_INFO_PLIST "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in")
 set(MSIME_LEGAL_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}/Licenses")
 file(MAKE_DIRECTORY "${MSIME_LEGAL_DIRECTORY}")

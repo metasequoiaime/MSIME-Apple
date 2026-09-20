@@ -56,21 +56,27 @@ int main()
         // Sparkle is only startable inside an application bundle. Everywhere else - a test binary, a
         // command-line tool, a bundle whose identifier never made it into the plist - it answers a start
         // with a modal alert, and an input method that stops typing behind a dialog is the worse failure.
-        assert(MSIMEUpdateHostIsApplicationBundle(@"app.msime.inputmethod.MetasequoiaIME",
-                                                  @"/Users/someone/Library/Input Methods/水杉输入法（预览）.app"));
-        assert(MSIMEUpdateHostIsApplicationBundle(@"app.example", @"/Applications/Example.app/"));
-        assert(!MSIMEUpdateHostIsApplicationBundle(nil, @"/Applications/Example.app"));
-        assert(!MSIMEUpdateHostIsApplicationBundle(@"", @"/Applications/Example.app"));
-        assert(!MSIMEUpdateHostIsApplicationBundle(@"app.example", nil));
-        assert(!MSIMEUpdateHostIsApplicationBundle(@"app.example", @"/usr/local/bin/example"));
+        NSString *feed = @"https://example.invalid/appcast.xml";
+        assert(MSIMEUpdateHostCanStartSparkle(@"app.msime.inputmethod.MetasequoiaIME",
+                                              @"/Users/someone/Library/Input Methods/水杉输入法（预览）.app", feed));
+        assert(MSIMEUpdateHostCanStartSparkle(@"app.example", @"/Applications/Example.app/", feed));
+        assert(!MSIMEUpdateHostCanStartSparkle(nil, @"/Applications/Example.app", feed));
+        assert(!MSIMEUpdateHostCanStartSparkle(@"", @"/Applications/Example.app", feed));
+        assert(!MSIMEUpdateHostCanStartSparkle(@"app.example", nil, feed));
+        assert(!MSIMEUpdateHostCanStartSparkle(@"app.example", @"/usr/local/bin/example", feed));
+        // A bundle with no feed configured is the shape this product currently ships: Sparkle started
+        // there has nothing to check and answers with the same modal alert, so it must stay unstarted.
+        assert(!MSIMEUpdateHostCanStartSparkle(@"app.example", @"/Applications/Example.app", nil));
+        assert(!MSIMEUpdateHostCanStartSparkle(@"app.example", @"/Applications/Example.app", @""));
         // A bundle path that merely contains ".app" is not one: this is the shape a test binary built
         // inside a bundle's directory has.
-        assert(!MSIMEUpdateHostIsApplicationBundle(@"app.example", @"/Applications/Example.app/Contents/MacOS/example"));
+        assert(!MSIMEUpdateHostCanStartSparkle(@"app.example", @"/Applications/Example.app/Contents/MacOS/example", feed));
 
         // This binary is exactly the case the guard exists for, so the shared controller must not have
         // started Sparkle - and must still answer rather than crash the caller.
-        assert(!MSIMEUpdateHostIsApplicationBundle(NSBundle.mainBundle.bundleIdentifier,
-                                                   NSBundle.mainBundle.bundlePath));
+        assert(!MSIMEUpdateHostCanStartSparkle(NSBundle.mainBundle.bundleIdentifier,
+                                               NSBundle.mainBundle.bundlePath,
+                                               [NSBundle.mainBundle objectForInfoDictionaryKey:@"SUFeedURL"]));
         MSIMEUpdateController *shared = MSIMEUpdateController.sharedController;
         assert(shared && !shared.canCheckForUpdates && !shared.automaticallyChecksForUpdates);
         [shared checkForUpdates:nil];

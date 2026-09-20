@@ -74,7 +74,8 @@
     dispatch_once(&onceToken, ^{
       NSBundle *host = NSBundle.mainBundle;
       id<MetasequoiaUpdateDriver> driver =
-          MSIMEUpdateHostIsApplicationBundle(host.bundleIdentifier, host.bundlePath)
+          MSIMEUpdateHostCanStartSparkle(host.bundleIdentifier, host.bundlePath,
+                                         [host objectForInfoDictionaryKey:@"SUFeedURL"])
               ? (id<MetasequoiaUpdateDriver>)[[MetasequoiaSparkleUpdateDriver alloc] init]
               : (id<MetasequoiaUpdateDriver>)[[MetasequoiaUnavailableUpdateDriver alloc] init];
       controller =
