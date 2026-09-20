@@ -125,7 +125,9 @@ static void TestCloudImportCache(MSIMEAppearancePreferences *preferences, NSUser
     NSDictionary *effective = [preferences cloudSettingsSnapshot];
     assert(MSIMEValidateCloudAppearance(effective));
     assert([effective[@"platform.macos.candidate_font_size"] isEqual:@12]);
-    assert([effective[@"platform.macos.candidate_page_size"] isEqual:@9]);
+    // One candidate a page is not a size the window offers, but it is one the shared preferences accept,
+    // so the snapshot carries what the document said rather than the nine this used to be rewritten to.
+    assert([effective[@"platform.macos.candidate_page_size"] isEqual:@1]);
     assert([effective[@"platform.macos.candidate_panel_style"] isEqual:@1]);
     assert([effective[@"platform.macos.input_scheme"] isEqual:@2]);
     for (NSString *key in @[@"autocorrect", @"chinese_punctuation", @"shuangpin_preedit_uses_raw", @"floating_toolbar"])

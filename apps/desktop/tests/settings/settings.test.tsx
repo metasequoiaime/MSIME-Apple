@@ -5113,7 +5113,9 @@ test("saves edited preferences against the loaded revision", async () => {
   );
 });
 
-test("macOS candidate page sizes use the native 5/7/9 options and normalize legacy values", async () => {
+test("macOS offers the same candidate page sizes as every other host and keeps the saved one", async () => {
+  // These were 5, 7 and 9 - the Apple reference's set - while the host rewrote anything else to 9. The
+  // shared default is six, so the platform displayed and saved nine for a setting nobody had touched.
   const preferences = { ...initial.preferences, candidate_page_size: 6 };
   const save = vi.fn().mockImplementation(async (_revision, next) => ({
     ...initial,
@@ -5129,12 +5131,22 @@ test("macOS candidate page sizes use the native 5/7/9 options and normalize lega
   const size = (await screen.findByRole("combobox", {
     name: "每页候选项数量",
   })) as HTMLSelectElement;
-  expect(Array.from(size.options).map((option) => option.value)).toEqual(["5", "7", "9"]);
-  expect(size.value).toBe("9");
-  fireEvent.change(size, { target: { value: "7" } });
+  expect(Array.from(size.options).map((option) => option.value)).toEqual([
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+  ]);
+  expect(size.value).toBe("6");
+  fireEvent.change(size, { target: { value: "4" } });
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(save).toHaveBeenCalledWith(7, { ...preferences, candidate_page_size: 7 });
+  expect(save).toHaveBeenCalledWith(7, { ...preferences, candidate_page_size: 4 });
 });
 
 test("macOS shuangpin keymap setting loads, toggles, and saves through the native preference bridge", async () => {

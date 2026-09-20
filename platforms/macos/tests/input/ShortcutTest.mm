@@ -1,4 +1,5 @@
 #import "../../src/input/InputController.mm"
+#include "../../src/candidate/CandidatePageSize.h"
 #import "../../src/input/InputSourceRegistration.h"
 #import "../../src/candidate/SkinSettingsView.h"
 #include <cassert>
@@ -348,7 +349,8 @@ static void TestPageSizeCache() {
     [controller setValue:session forKey:@"session"];
     [controller syncPageSize];
     [controller syncPageSize];
-    assert(session.pageSizeCalls == 1 && session.requestedPageSize == 9);
+    // Nothing stored yet, so this is the shared default rather than the top of the range.
+    assert(session.pageSizeCalls == 1 && session.requestedPageSize == 6);
     [controller applySharedToolbarPreferences:@{@"candidate_page_size": @5}];
     // The shared snapshot changed Engine independently; a local return to 9
     // must not be skipped just because the last direct request was also 9.
@@ -638,12 +640,13 @@ static void TestSharedInputPreferences() {
     NSPopUpButton *layout = (id)PreferenceControl(prefs, @selector(layoutChanged:));
     NSPopUpButton *font = (id)PreferenceControl(prefs, @selector(fontChanged:));
     NSPopUpButton *page = (id)PreferenceControl(prefs, @selector(pageSizeChanged:));
+    // Six is in here because it is the shared default, and this platform used to rewrite it to nine.
     for (NSUInteger size = 12; size <= 32; ++size) {
-        for (NSNumber *count in @[@5, @7, @9]) {
+        for (NSNumber *count in @[@5, @6, @7, @9]) {
             NSDictionary *candidate = @{@"candidate_layout": count.integerValue == 7 ? @"horizontal" : @"vertical", @"candidate_font_size": @(size), @"candidate_page_size": count};
             [controller applySharedToolbarPreferences:candidate];
             assert(prefs.vertical == (count.integerValue != 7) && prefs.fontSize == size && prefs.pageSize == count.unsignedIntegerValue);
-            assert(layout.indexOfSelectedItem == (NSInteger)(count.integerValue == 7 ? 0 : 1) && font.indexOfSelectedItem == (NSInteger)size - 12 && page.indexOfSelectedItem == (NSInteger)(count.integerValue == 5 ? 0 : count.integerValue == 7 ? 1 : 2));
+            assert(layout.indexOfSelectedItem == (NSInteger)(count.integerValue == 7 ? 0 : 1) && font.indexOfSelectedItem == (NSInteger)size - 12 && page.indexOfSelectedItem == (NSInteger)msime::mac::CandidatePageSizeOptionIndex(count.unsignedIntegerValue));
             for (NSString *key in candidate) assert([[prefs sharedPreferencesByMerging:candidate][key] isEqual:candidate[key]]);
         }
     }
@@ -658,11 +661,10 @@ static void TestSharedInputPreferences() {
     [NSApp sendAction:font.action to:font.target from:font];
     [page selectItemAtIndex:1];
     [NSApp sendAction:page.action to:page.target from:page];
-    // The page-size control offers 5, 7 and 9 rather than a range, so the second item is 7 - which is what
-    // the assertion on the line below has always expected of the same edit.
-    assert(!prefs.vertical && prefs.fontSize == 13 && prefs.pageSize == 7 && saves == 6);
+    // The page-size control lists the reference's three through nine, so the second item is four.
+    assert(!prefs.vertical && prefs.fontSize == 13 && prefs.pageSize == 4 && saves == 6);
     NSDictionary *candidateEdited = [prefs sharedPreferencesByMerging:@{}];
-    assert([candidateEdited[@"candidate_layout"] isEqual:@"horizontal"] && [candidateEdited[@"candidate_font_size"] isEqual:@13] && [candidateEdited[@"candidate_page_size"] isEqual:@7]);
+    assert([candidateEdited[@"candidate_layout"] isEqual:@"horizontal"] && [candidateEdited[@"candidate_font_size"] isEqual:@13] && [candidateEdited[@"candidate_page_size"] isEqual:@4]);
     [NSNotificationCenter.defaultCenter removeObserver:observer];
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
@@ -3722,12 +3724,16 @@ int main(int argc, char **argv) {
         assert(!appearance.vertical && appearance.fontSize == 18);
         assert(appearance.candidateFollowCursor);
         assert(appearance.pageShortcut == 0);
-        assert(appearance.pageSize == 9);
+        // Unset is the shared default, and a number past the end is pulled to the end rather than to
+        // the top of a three-value set.
+        assert(appearance.pageSize == 6);
         assert([appearance.skinID isEqual:@"fluent"]);
         appearance.skinID = @"../invalid";
         assert([appearance.skinID isEqual:@"fluent"]);
         appearance.pageSize = 10;
         assert(appearance.pageSize == 9);
+        appearance.pageSize = 4;
+        assert(appearance.pageSize == 4);
         appearance.pageShortcut = 99;
         assert(appearance.pageShortcut == 0);
         appearance.fontSize = 99;
@@ -3756,9 +3762,10 @@ int main(int argc, char **argv) {
             assert([loaded.skinID isEqual:skinIDs[option]]);
         }
         appearance.skinID = @"fluent";
-        assert(sizeControl.numberOfItems == 3);
-        NSArray *pageSizes = @[@5, @7, @9];
-        for (NSInteger option = 0; option < 3; ++option) {
+        // The reference's set, three through nine.
+        assert(sizeControl.numberOfItems == (NSInteger)msime::mac::kOfferedCandidatePageSizes);
+        NSArray *pageSizes = @[@3, @4, @5, @6, @7, @8, @9];
+        for (NSInteger option = 0; option < (NSInteger)msime::mac::kOfferedCandidatePageSizes; ++option) {
             assert(([sizeControl.itemTitles[option] isEqual:[NSString stringWithFormat:@"%@ 个", pageSizes[option]]]));
             [sizeControl selectItemAtIndex:option];
             [NSApp sendAction:sizeControl.action to:sizeControl.target from:sizeControl];

@@ -1,3 +1,26 @@
 #include "../../src/candidate/CandidatePageSize.h"
 #include <cassert>
-int main() { using namespace msime::mac; assert(NormalizeCandidatePageSize(5)==5); assert(NormalizeCandidatePageSize(7)==7); assert(NormalizeCandidatePageSize(9)==9); assert(NormalizeCandidatePageSize(6)==9); assert(CandidatePageSizeOptionIndex(7)==1); assert(CandidatePageSizeForOptionIndex(0)==5); return 0; }
+int main()
+{
+    using namespace msime::mac;
+    // Every size the shared preferences accept is honoured. The old rule kept 5, 7 and 9 and rewrote
+    // everything else to 9, which turned the shared default of six into nine on this platform alone and
+    // silently rewrote a document written anywhere else.
+    for (size_t size = kMinimumCandidatePageSize; size <= kMaximumCandidatePageSize; ++size)
+        assert(NormalizeCandidatePageSize(size) == size);
+    assert(NormalizeCandidatePageSize(6) == 6);
+    // Out of range is pulled to the nearest end rather than snapped to the top.
+    assert(NormalizeCandidatePageSize(0) == kMinimumCandidatePageSize);
+    assert(NormalizeCandidatePageSize(99) == kMaximumCandidatePageSize);
+    // The window lists the reference's set, three through nine.
+    assert(kOfferedCandidatePageSizes == 7);
+    assert(CandidatePageSizeForOptionIndex(0) == 3);
+    assert(CandidatePageSizeForOptionIndex(kOfferedCandidatePageSizes - 1) == 9);
+    assert(CandidatePageSizeForOptionIndex(kOfferedCandidatePageSizes) == 9);
+    assert(CandidatePageSizeOptionIndex(3) == 0);
+    assert(CandidatePageSizeOptionIndex(6) == 3);
+    assert(CandidatePageSizeOptionIndex(9) == kOfferedCandidatePageSizes - 1);
+    // A document below the listed set still selects the first item rather than falling off the list.
+    assert(CandidatePageSizeOptionIndex(1) == 0);
+    return 0;
+}
