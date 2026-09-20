@@ -65,8 +65,21 @@ export type SelectionCounts = {
   beyond?: number;
 };
 
+/** How long recorded days are kept. Anything else a host sends is read as "forever". */
+export type StatisticsRetention = "forever" | "30d" | "90d" | "180d" | "365d";
+
+export const retentionChoices: [StatisticsRetention, string][] = [
+  ["forever", "永久保留"],
+  ["30d", "保留最近 30 天"],
+  ["90d", "保留最近 90 天"],
+  ["180d", "保留最近 180 天"],
+  ["365d", "保留最近 365 天"],
+];
+
 export type TypingStatistics = {
   enabled: boolean;
+  /** Absent in statistics written before automatic cleanup existed, which means "forever". */
+  retention?: StatisticsRetention;
   total: number;
   days: Record<string, number>;
   detail?: Partial<TypingBreakdown>;
@@ -92,6 +105,8 @@ export type TypingStatisticsStatus = {
 export interface TypingStatisticsClient {
   load(): Promise<TypingStatisticsStatus>;
   setEnabled(enabled: boolean): Promise<TypingStatisticsStatus>;
+  /** Absent on hosts that do not keep the statistics themselves. */
+  setRetention?(retention: StatisticsRetention): Promise<TypingStatisticsStatus>;
   reset(): Promise<TypingStatisticsStatus>;
 }
 
@@ -1306,6 +1321,30 @@ export function TypingStatisticsPage({
               onChange={(event) => void update(() => client.setEnabled(event.target.checked))}
             />
           </label>
+          {client.setRetention && (
+            <label className="section-header mb-4">
+              <span className="section-title">
+                自动清理<small>按保留策略删除超期的每日记录，跨天后首次记录时执行。</small>
+              </span>
+              <select
+                aria-label="自动清理"
+                value={statistics.retention ?? "forever"}
+                disabled={busy}
+                onChange={(event) => {
+                  const setRetention = client.setRetention;
+                  if (!setRetention) return;
+                  const chosen = event.target.value as StatisticsRetention;
+                  void update(() => setRetention(chosen));
+                }}
+              >
+                {retentionChoices.map(([value, label]) => (
+                  <option key={value} value={value}>
+                    {label}
+                  </option>
+                ))}
+              </select>
+            </label>
+          )}
           <div className="flex flex-wrap gap-[9px]">
             <button
               type="button"

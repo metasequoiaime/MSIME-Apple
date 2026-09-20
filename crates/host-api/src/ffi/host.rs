@@ -221,6 +221,12 @@ pub unsafe extern "C" fn msime_client_typing_statistics(
         SetEnabled {
             enabled: bool,
         },
+        SetRetention {
+            retention: String,
+            /// The caller's local day, for the same reason `record` takes one: only the host
+            /// knows which day the window is counted back from.
+            day: String,
+        },
         Reset,
     }
     response(|| {
@@ -256,6 +262,17 @@ pub unsafe extern "C" fn msime_client_typing_statistics(
             StatisticsAction::SetEnabled { enabled } => serde_json::to_value(
                 store
                     .set_enabled(enabled)
+                    .map_err(|error| error.to_string())?,
+            )
+            .map_err(|_| "typing statistics response failed".to_owned()),
+            StatisticsAction::SetRetention { retention, day } => serde_json::to_value(
+                store
+                    .set_retention(
+                        msime_client_core::typing_statistics::StatisticsRetention::parse(
+                            &retention,
+                        ),
+                        &day,
+                    )
                     .map_err(|error| error.to_string())?,
             )
             .map_err(|_| "typing statistics response failed".to_owned()),

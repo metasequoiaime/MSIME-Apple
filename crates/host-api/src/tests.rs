@@ -1717,6 +1717,25 @@ fn typing_statistics_boundary_persists_only_aggregate_counts() {
         .unwrap();
         read(unsafe { msime_client_typing_statistics(request.as_ptr(), request.len()) })
     };
+    // Statistics ship off, so a fresh directory records nothing until asked. That is the
+    // boundary's behaviour too, and it is asserted before turning them on.
+    assert_eq!(
+        call(json!({"operation": "load"}))["value"]["enabled"],
+        false
+    );
+    assert_eq!(
+        call(json!({
+            "operation": "record",
+            "text": "ignored",
+            "source": "handwriting",
+            "day": "2026-09-12",
+        }))["value"]["recorded"],
+        0
+    );
+    assert_eq!(
+        call(json!({"operation": "set_enabled", "enabled": true}))["value"]["enabled"],
+        true
+    );
     let recorded = call(json!({
         "operation": "record",
         "text": "synthetic 🌲",
