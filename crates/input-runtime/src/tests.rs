@@ -1429,6 +1429,32 @@ fn paging_reaches_candidates_the_engine_withheld() {
 }
 
 #[test]
+fn the_full_list_holds_what_paging_would_have_reached() {
+    // Twelve offered and eight held back. Paging to the last page releases the eight; a host that
+    // opens the whole list instead never paged, so it used to see only the first twelve and the
+    // panel that promises everything was short by the tail of the answer.
+    let mut runtime = withholding_runtime(12, 8, 5);
+    runtime.focus(true).unwrap();
+    type_key(&mut runtime);
+    assert_eq!(runtime.all_candidates().candidates.len(), 20);
+    // Asking again is stable: there is nothing left to release and the list does not shift.
+    let repeated = runtime.all_candidates();
+    assert_eq!(repeated.candidates.len(), 20);
+    assert_eq!(
+        repeated.candidates.last().map(|c| c.text.as_str()),
+        Some("candidate-19")
+    );
+    // And it agrees with what paging reaches, which is the behaviour it is standing in for.
+    let mut paged = withholding_runtime(12, 8, 5);
+    paged.focus(true).unwrap();
+    type_key(&mut paged);
+    for _ in 0..3 {
+        paged.dispatch(Action::NextPage).unwrap();
+    }
+    assert_eq!(paged.all_candidates().candidates.len(), 20);
+}
+
+#[test]
 fn expansion_that_fills_the_current_page_does_not_advance_past_it() {
     // Three offered is a single short page. Asking for the next one has nowhere to go, so the
     // arrivals fill this page instead - advancing would step straight over them.

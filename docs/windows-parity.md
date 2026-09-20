@@ -725,6 +725,12 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 ## 下一批实施顺序
 
+增量记录（2026-09-20，输入行为层第一片）：先确认了一件决定工作量的事——两个仓库用的是同一个引擎 `github.com/metasequoiaime/MSIME-Engine`，来源以 submodule 锁在 `6bd22549`，本仓以 `engine-lock.json` 锁在 `0531d421`，而后者比前者**新 467 个提交**（来源那个 commit 是本仓的祖先）。所以候选生成、分词、词库这些引擎行为不存在「缺失」，本仓跑的是同一引擎的更新版本；行为差异只可能出在宿主怎么驱动它。本仓的候选快照字段（candidates / candidate_codes / candidate_annotations / candidate_sources / candidate_positions / candidate_corrected）也与来源 `CandidateViewItem` 的 text/annotation/badge/translation/fixed_position 一一对应，并多一个纠错标记。
+
+据此查到一处真实差异并修掉：引擎会把一部分候选扣在初始结果之后，要调 `expand_initial_candidates` 才放出来，而运行时里这个调用只有一处——`expand_for_next_page`，只在 `Action::NextPage` 时触发。翻页的宿主能拿到，改为「一次列出全部」的触屏宿主则永远拿不到。`all_candidates()` 是 `&self`，只读 `self.cached`。实测（`withholding_runtime(12, 8, 5)`）：翻页前 `all_candidates()` 返回 12 条，翻页到底后返回 20 条——号称「全部」的面板少了 8 条，正好是引擎扣住的那批。HarmonyOS 的触屏路径用的就是 `allCandidates`（`KeyboardSession.ets`，注释写明沿用 iOS 的做法放弃翻页），所以这 8 条在触屏上无法通过任何操作到达。现让 `all_candidates()` 先扩充再返回：这个调用本身就是「把全部给我」。扩充失败不致命，调用方仍拿到已有的那一代。
+
+未验证：设备上的候选条数没有亲眼确认。改动在 Rust 侧，已用 `MSIME_OHOS_DEPS` 复用既有前缀重新编出 `libmsimeclient.so` 并打包安装成功，但要看到展开列表需要先在系统设置里把输入法设为当前输入法，这条 GUI 路径本次没有走通。证据是运行时里实测的 12→20。
+
 增量记录（2026-09-20，候选窗与悬浮工具栏面板对照）：设置窗逐页走完后，转到打字时出现的两个面板本身。
 
 候选窗。来源的呈现规则在 `server/src/window/candidate_view_model.h`：一项由 text + annotation + badge 串接，翻译另起 `cand-translation`，而固定位置的项会被单独套上 `color:#379AD3`。本仓 `KeyboardView.ets` 的候选行把固定位置和高亮合并成同一个 `candidateAccentColor()`，于是在任何「强调色即选中色」的皮肤上，已固定的候选和当前选中的候选看起来完全一样——而固定位置这个功能的意义就在那个标记。现按来源给固定位置项独立配色，规则收进 `CandidateSkinPolicy.rowTextColor`，四条断言钉住四种组合。

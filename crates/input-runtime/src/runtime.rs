@@ -413,7 +413,26 @@ impl<E: InputEngine> Runtime<E> {
     }
 
     /// Copy the complete candidate generation for an explicitly opened panel.
-    pub fn all_candidates(&self) -> CandidateSnapshot {
+    ///
+    /// The engine holds candidates back behind the initial answer and only releases them when asked
+    /// (`expand_initial_candidates`), which until now happened solely on the way into the last page.
+    /// A host that pages reaches them; a host that opens the whole list instead -- which the touch
+    /// keyboards do, having dropped paging -- never did, so the panel that promises everything was
+    /// quietly showing the first tranche. Release them here too: this call is the request for all of
+    /// them. A refusal is not fatal; the caller still gets whatever the generation already holds.
+    pub fn all_candidates(&mut self) -> CandidateSnapshot {
+        if self.engine.expand_initial_candidates().unwrap_or(false) {
+            if let Ok(snapshot) = self.engine.snapshot() {
+                self.cached = snapshot;
+                self.rerank();
+                self.demote_runner_up_readings();
+            }
+        }
+        self.all_candidates_cached()
+    }
+
+    /// The generation as it stands, without asking the engine for more.
+    fn all_candidates_cached(&self) -> CandidateSnapshot {
         CandidateSnapshot {
             session: self.session,
             generation: self.generation,
