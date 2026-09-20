@@ -20,4 +20,11 @@ RUN dpkg --add-architecture i386 \
  && rm -rf /var/lib/apt/lists/*
 ENV WINEDEBUG=-all
 ENV WINEPREFIX=/wine
-RUN wineboot --init 2>/dev/null; true
+# Create the prefix under a display. Without one, prefix creation completes far
+# enough to look successful and leaves WIC unregistered: CoCreateInstance for
+# CLSID_WICImagingFactory then returns REGDB_E_CLASSNOTREG even though
+# windowscodecs.dll is present, and every surface that builds Direct2D factories
+# fails before it reaches anything graphical. Waiting for wineserver matters too
+# - the registry is still being written when wineboot returns.
+RUN xvfb-run -a sh -c 'wineboot --init >/dev/null 2>&1; wineserver -w' \
+ && test -d "$WINEPREFIX/drive_c/windows/system32"

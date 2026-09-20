@@ -165,6 +165,26 @@ bool DeviceResources::BindCompositionSurface()
 
 bool DeviceResources::EnsureForComposition(HWND hwnd)
 {
+    if (EnsureCompositionSurface(hwnd))
+    {
+        return true;
+    }
+    // DirectComposition is not everywhere: Wine implements it as a stub and
+    // remote sessions can refuse it. The Windows source draws these surfaces as
+    // layered windows, which gives the same per-pixel alpha without a
+    // compositor, so fall back to that rather than reporting the window
+    // unusable. Nothing reaches here on a host where composition worked.
+    RECT rc = {};
+    if (!hwnd || !GetClientRect(hwnd, &rc))
+    {
+        return false;
+    }
+    return EnsureLayered(hwnd, static_cast<UINT>((std::max)(rc.right, 1L)),
+                         static_cast<UINT>((std::max)(rc.bottom, 1L)));
+}
+
+bool DeviceResources::EnsureCompositionSurface(HWND hwnd)
+{
     hwnd_ = hwnd;
     if (!EnsureFactories() || !d2dFactory1_ || !hwnd)
     {
@@ -325,8 +345,121 @@ void DeviceResources::DiscardTarget()
     composition_ = false;
 }
 
+bool DeviceResources::EnsureLayered(HWND hwnd, UINT width, UINT height)
+{
+    // Only Direct2D and the DC target are needed here; the composition path's
+    // ID2D1Factory1 is not.
+    if (!EnsureFactories() || !d2dFactory_)
+    {
+        return false;
+    }
+    hwnd_ = hwnd;
+    if (layered_ && dcTarget_ && layeredWidth_ == width && layeredHeight_ == height)
+    {
+        const FLOAT dpi = DpiForHwnd();
+        dcTarget_->SetDpi(dpi, dpi);
+        return true;
+    }
+    DiscardLayered();
+
+    // Top-down and premultiplied: what UpdateLayeredWindow's ULW_ALPHA expects,
+    // and what Direct2D writes with D2D1_ALPHA_MODE_PREMULTIPLIED.
+    BITMAPINFO info = {};
+    info.bmiHeader.biSize = sizeof(info.bmiHeader);
+    info.bmiHeader.biWidth = static_cast<LONG>(width);
+    info.bmiHeader.biHeight = -static_cast<LONG>(height);
+    info.bmiHeader.biPlanes = 1;
+    info.bmiHeader.biBitCount = 32;
+    info.bmiHeader.biCompression = BI_RGB;
+    const HDC screen = GetDC(nullptr);
+    if (!screen)
+    {
+        return false;
+    }
+    void *bits = nullptr;
+    layeredBitmap_ = CreateDIBSection(screen, &info, DIB_RGB_COLORS, &bits, nullptr, 0);
+    layeredDC_ = CreateCompatibleDC(screen);
+    ReleaseDC(nullptr, screen);
+    if (!layeredBitmap_ || !layeredDC_)
+    {
+        DiscardLayered();
+        return false;
+    }
+    layeredPrevious_ = SelectObject(layeredDC_, layeredBitmap_);
+
+    if (!dcTarget_)
+    {
+        const auto properties = D2D1::RenderTargetProperties(
+            D2D1_RENDER_TARGET_TYPE_DEFAULT,
+            D2D1::PixelFormat(DXGI_FORMAT_B8G8R8A8_UNORM, D2D1_ALPHA_MODE_PREMULTIPLIED));
+        if (FAILED(d2dFactory_->CreateDCRenderTarget(&properties, dcTarget_.GetAddressOf())))
+        {
+            DiscardLayered();
+            return false;
+        }
+    }
+    const RECT bind = {0, 0, static_cast<LONG>(width), static_cast<LONG>(height)};
+    if (FAILED(dcTarget_->BindDC(layeredDC_, &bind)))
+    {
+        DiscardLayered();
+        return false;
+    }
+    const FLOAT dpi = DpiForHwnd();
+    dcTarget_->SetDpi(dpi, dpi);
+
+    // The style is what makes UpdateLayeredWindow legal for this window. The
+    // surfaces already create themselves WS_EX_NOACTIVATE; this adds to it.
+    const LONG_PTR style = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+    if ((style & WS_EX_LAYERED) == 0)
+    {
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, style | WS_EX_LAYERED);
+    }
+    layeredWidth_ = width;
+    layeredHeight_ = height;
+    layered_ = true;
+    return true;
+}
+
+void DeviceResources::DiscardLayered()
+{
+    if (layeredDC_)
+    {
+        if (layeredPrevious_)
+        {
+            SelectObject(layeredDC_, layeredPrevious_);
+        }
+        DeleteDC(layeredDC_);
+    }
+    if (layeredBitmap_)
+    {
+        DeleteObject(layeredBitmap_);
+    }
+    layeredPrevious_ = nullptr;
+    layeredDC_ = nullptr;
+    layeredBitmap_ = nullptr;
+    layeredWidth_ = 0;
+    layeredHeight_ = 0;
+    layered_ = false;
+}
+
 HRESULT DeviceResources::Present()
 {
+    if (layered_)
+    {
+        SIZE size = {static_cast<LONG>(layeredWidth_), static_cast<LONG>(layeredHeight_)};
+        POINT source = {0, 0};
+        BLENDFUNCTION blend = {AC_SRC_OVER, 0, 255, AC_SRC_ALPHA};
+        // No destination point: the surfaces position themselves, and supplying
+        // one here would move the window out from under them.
+        const HDC screen = GetDC(nullptr);
+        const BOOL updated = UpdateLayeredWindow(hwnd_, screen, nullptr, &size, layeredDC_,
+                                                 &source, 0, &blend, ULW_ALPHA);
+        if (screen)
+        {
+            ReleaseDC(nullptr, screen);
+        }
+        return updated ? S_OK : E_FAIL;
+    }
     if (!swapChain_)
     {
         return S_OK;
@@ -341,6 +474,10 @@ HRESULT DeviceResources::Present()
 
 ID2D1RenderTarget *DeviceResources::GetRenderTarget() const
 {
+    if (layered_ && dcTarget_)
+    {
+        return dcTarget_.Get();
+    }
     if (deviceContext_)
     {
         return deviceContext_.Get();
