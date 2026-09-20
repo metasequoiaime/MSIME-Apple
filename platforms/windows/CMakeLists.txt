@@ -571,6 +571,18 @@ add_test(NAME windows-dedicated-english-controller COMMAND windows-dedicated-eng
 set_tests_properties(windows-dedicated-english-controller PROPERTIES TIMEOUT 30)
 # The cloud worker's queueing: it coalesces submissions inside its debounce and
 # keeps only the newest, so the test spends real time waiting past that window.
+# Which candidates the right-click actions may be offered for. All four write
+# to the user dictionary, so offering one for a candidate the Engine will refuse
+# leaves a menu item that does nothing.
+add_executable(windows-candidate-action-availability tests/candidate/candidate_action_availability.cpp)
+target_include_directories(windows-candidate-action-availability PRIVATE src/candidate)
+if(MSVC)
+  target_compile_options(windows-candidate-action-availability PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(windows-candidate-action-availability PRIVATE -Wall -Wextra -Werror)
+endif()
+add_test(NAME windows-candidate-action-availability COMMAND windows-candidate-action-availability)
+set_tests_properties(windows-candidate-action-availability PROPERTIES TIMEOUT 10)
 add_executable(windows-cloud-candidate-worker tests/candidate/cloud_candidate_worker.cpp)
 target_link_libraries(windows-cloud-candidate-worker PRIVATE msime-windows-pump)
 target_include_directories(windows-cloud-candidate-worker PRIVATE src/candidate)

@@ -184,6 +184,13 @@ python3 scripts/test-quick-phrase-limit.py || fail "quick phrase limit"
 note "handwriting limits"
 python3 scripts/test-handwriting-limits.py || fail "handwriting limits"
 
+# Whether the candidate right-click actions are offered is decided on the
+# Engine's CandidateSource value, which arrives as a number this side cannot
+# name in C++. Inserting a source there shifts every later one, compiles
+# cleanly, and starts offering 删除 for cloud suggestions.
+note "candidate sources"
+python3 scripts/test-candidate-sources.py || fail "candidate sources"
+
 # The palette is most of what makes one window look like another, and this one
 # is built with Tailwind rather than by importing the source's sheet, so the two
 # copies of the same 64 names can drift a hex at a time without anyone noticing.

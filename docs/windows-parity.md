@@ -1459,3 +1459,13 @@ Fcitx5 候选动作执行 stale 栅栏增量（2026-09-19）：CandidateAction �
 记下几条规则的**理由**，它们从代码里读不出来但改动时必须知道：激活顺序即行为（同时开着 RCtrl+RAlt 和 RAlt 时，单键的若排在前面会把两键的彻底吞掉）；两者对 Ctrl 的要求不对称是有意的（RCtrl+RAlt 要右 Ctrl，Ctrl+Win 任一都认）；压制闩只在**抬起**时清除，按下时清会让抬起那次无人认领地漏给应用；既不是按下也不是抬起的事件不动修饰键状态，否则会把用户还按着的键标成松开。五条反向验证过，各红在不同行。
 
 本行其余四项仍需 Windows 原生验证。
+
+增量记录（2026-09-21，Windows 第十八批：候选右键动作的可用性）：沿对照表「悬浮工具栏、托盘菜单、入口快捷键」一行按模块查覆盖。目标起点 `d889ee820`。
+
+`src/candidate/` 下零覆盖的有六个，其中四个是本机测不了的（两个异步 worker 的网络部分、皮肤资产、窗口阴影的 Win32 绘制）。唯一既零覆盖又完全可测的是 `CandidateActionAvailability`——它决定候选右键那四项（置顶、固定排位、取消固定、删除）要不要给出来。
+
+判据原本是三个裸数字 `source == 0 || 1 || 4`。它们是 Engine `CandidateSource` 枚举的**位置**（0 Database、1 UserDatabase、4 EnglishDictionary），以数值形态过线；Windows Server 经共享 Host API 与 Engine 通信，include 不到 `core/word_item.h`，这一侧在 C++ 里叫不出那个枚举的名字。于是 Engine 往枚举中间插一项，后面每项挪一格，编译一声不响，而「删除」开始被提供给云候选——Engine 随后必定拒绝，菜单里多出一项按下去什么都不发生。新增 `scripts/test-candidate-sources.py` 挂进 `--quick` 把具名常量对住枚举位置，反向验证过。
+
+顺带把注释写准：原注释只说排除云和 AI 投影，而代码实际是**白名单**——快捷短语、Emoji、颜文字、生成项与兜底项同样被排除，因为它们不在这几个动作要编辑的词表里。白名单这一点本身有用例钉住：Engine 新增的 source 默认被拒，而不是默认被提供。
+
+另外核对确认无缺口：单码点候选不提供「删除」这条与来源一致（`CandidateMenu.h` 的注释直接引了来源 `candidate_presenter.cpp` 的行号），且已有覆盖；来源那边不按 source 过滤，本仓这条按 source 的白名单是本仓自己加的一层，方向是更严。
