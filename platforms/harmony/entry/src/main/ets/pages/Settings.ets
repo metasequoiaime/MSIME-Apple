@@ -20,6 +20,7 @@ import { HarmonyVoiceCaptureDevices } from '../keyboard/input/HarmonyVoiceCaptur
 import { KeyboardFeedbackBridge, MobileKeyboardFeedback } from '../keyboard/KeyboardFeedbackBridge';
 import inputMethod from '@ohos.inputMethod';
 import { PreferenceRevisionPolicy } from '../keyboard/input/PreferenceRevisionPolicy';
+import { PreferencesErrorCode } from '../keyboard/settings/PreferencesErrorCode';
 import picker from '@ohos.file.picker';
 import { SkinImportPolicy } from '../keyboard/skin/SkinImportPolicy';
 import EntryAbility from '../entryability/EntryAbility';
@@ -435,7 +436,7 @@ class SettingsBridge {
   loadPreferences(): string {
     const reply: string = client.loadPreferences(this.stateDirectory);
     this.rememberRevision(reply);
-    return reply;
+    return PreferencesErrorCode.rewrite(reply);
   }
 
   /**
@@ -655,7 +656,7 @@ class SettingsBridge {
   savePreferences(expectedRevision: number, document: string): string {
     const reply: string = client.savePreferences(this.stateDirectory, expectedRevision, document);
     this.rememberRevision(reply);
-    return reply;
+    return PreferencesErrorCode.rewrite(reply);
   }
 
   hostCapabilities(): string {

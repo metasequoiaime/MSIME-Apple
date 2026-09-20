@@ -162,10 +162,28 @@ interface Reply<T> {
   error: string;
 }
 
+/**
+ * Rejects the way the desktop host rejects: a plain record carrying a code.
+ *
+ * The shared settings UI decodes a failure by reading `error.code`, and only reads `message` off an
+ * `Error` as a fallback. An `Error` carrying the code in its message therefore matched none of those
+ * tables: every account failure arrived as the one generic sentence instead of the wording written
+ * for it, a cancelled sign-in was not recognised as cancelled, a dictionary failure lost its
+ * specific advice, and an AI failure put the machine code itself on screen.
+ */
 function unwrap<T>(raw: string): T {
   const reply = JSON.parse(raw) as Reply<T>;
-  if (!reply.ok) throw new Error(reply.error);
+  if (!reply.ok) throw { code: reply.error };
   return reply.value;
+}
+
+/** The startup failure has no settings page left to decode it, so it reads both shapes itself. */
+function startupFailure(error: unknown): string {
+  if (error instanceof Error) return error.message;
+  if (typeof error === "object" && error !== null && "code" in error) {
+    return String((error as { code: unknown }).code);
+  }
+  return String(error);
 }
 
 /**
@@ -642,10 +660,12 @@ if (root) {
         </StrictMode>,
       );
     })
-    .catch((error: Error) => {
+    .catch((error: unknown) => {
       // A blank window explains nothing. This is the one failure the page has to render itself,
-      // because it is the failure that means none of the rest of it can be rendered at all.
-      root.textContent = error.message;
+      // because it is the failure that means none of the rest of it can be rendered at all. Both
+      // rejection shapes reach here: the bridge itself refuses with an Error carrying a sentence,
+      // while a refused host call arrives as a record carrying a code.
+      root.textContent = startupFailure(error);
       root.setAttribute("style", "padding:24px;font:16px system-ui;color:#c0392b");
     });
 }

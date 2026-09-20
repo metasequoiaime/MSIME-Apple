@@ -603,6 +603,35 @@ mod tests {
         );
     }
 
+    /// Known answers, computed independently from Tencent's published TC3-HMAC-SHA256
+    /// construction rather than from this code.
+    ///
+    /// The determinism test above passes for any implementation that is stable and
+    /// input-sensitive, including a wrong one - it compares this code against itself.
+    /// These values come from the documented chain
+    /// `HMAC(HMAC(HMAC("TC3"+key, date), service), "tc3_request")`, so a signature that
+    /// drifts from the protocol fails here even while staying perfectly deterministic.
+    #[test]
+    fn tencent_tc3_matches_independently_computed_signatures() {
+        assert_eq!(
+            tencent_tc3_derive("secret", "20240101", "tmt", "request"),
+            "601335ccd32d88ea0d9678b52335a23bd44d4ff79a5d72a60c5c1b9b7b2d317a"
+        );
+        let payload = br#"{"SourceTextList":["hello"],"Source":"en","Target":"zh","ProjectId":0}"#;
+        assert_eq!(
+            tencent_tc3_sha256_hex(payload),
+            "66a3bcf3c82aee0cd2efbee35fc172ad45dd4b2aab2b7e304e5a7f03ae54e5c6"
+        );
+        // The whole header, so the credential scope and signed-header list are pinned
+        // alongside the signature: a request is rejected for any of the three.
+        assert_eq!(
+            tencent_tc3_authorization("AKIDEXAMPLE", "secret", 1704067200, "20240101", payload),
+            "TC3-HMAC-SHA256 Credential=AKIDEXAMPLE/20240101/tmt/tc3_request, \
+SignedHeaders=content-type;host;x-tc-action, \
+Signature=fdaffffbe1460ecd8cbc30e296ff6f49cc3b4af10b11e099462cca023fdb2c6c"
+        );
+    }
+
     #[test]
     fn tencent_tc3_canonical_request_matches_protocol_layout() {
         assert_eq!(

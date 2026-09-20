@@ -517,6 +517,19 @@ function DesktopSettings() {
                   },
                 }
               : {}),
+            // Same two commands, and the host resolves them through the provider
+            // service that holds the credential. The token is deliberately not
+            // passed: it is not in this process on this platform.
+            ...(host.platform === "linux"
+              ? {
+                  aiAssistant: {
+                    fetchModels: ({ endpoint, provider }) =>
+                      invoke<string[]>("ai_models", { endpoint, provider }),
+                    test: ({ endpoint, model, prompt, text, provider }) =>
+                      invoke<string>("ai_test", { endpoint, model, prompt, text, provider }),
+                  },
+                }
+              : {}),
             ...(host.platform === "windows" ||
             host.platform === "macos" ||
             host.platform === "linux"

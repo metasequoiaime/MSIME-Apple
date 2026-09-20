@@ -563,6 +563,7 @@ export interface HostCapabilities {
   helpcode_shift_entry?: boolean;
   skin_directory_import?: boolean;
   shuangpin_preedit?: boolean;
+  ai_provider_credentials?: boolean;
   voice_commit_mode?: boolean;
 }
 
@@ -693,13 +694,21 @@ export type AiAssistantPreferences = {
   prompt_custom_3: string;
 };
 export type AiAssistantClient = {
-  fetchModels(configuration: { endpoint: string; token: string }): Promise<string[]>;
+  // `provider` is for the hosts whose provider service holds the credential: it
+  // is what that service checks its private configuration against. The hosts that
+  // hold the token themselves ignore it and authenticate with `token`.
+  fetchModels(configuration: {
+    endpoint: string;
+    token: string;
+    provider: string;
+  }): Promise<string[]>;
   test(configuration: {
     endpoint: string;
     model: string;
     prompt: string;
     token: string;
     text: string;
+    provider: string;
   }): Promise<string>;
 };
 export type ApiCredentialTestService =
@@ -1760,6 +1769,10 @@ export function SettingsPage({
   // Every host's Engine honours the preference; this is about which of them draw the composition
   // themselves, and so show the user a difference between the raw keys and the expanded pinyin.
   const showShuangpinPreedit = host?.shuangpin_preedit ?? macosPlatform;
+  // The host's provider holds the AI credential, so the page does not ask for a token and does not
+  // withhold the service controls for want of one. Reaching the service still works - through that
+  // provider - which is why these controls are offered rather than hidden.
+  const aiProviderCredentials = host?.ai_provider_credentials ?? linuxPlatform;
   // A host with one way to commit a recognized result has nothing to choose between, and a select
   // with one outcome reads as a setting being ignored.
   const showVoiceCommitMode = host?.voice_commit_mode ?? !androidPlatform;
@@ -2738,7 +2751,7 @@ export function SettingsPage({
       setAiModelsStatus("请先填写完整的 HTTPS 接口地址。");
       return;
     }
-    if (!aiToken.trim()) {
+    if (!aiProviderCredentials && !aiToken.trim()) {
       setAiModelsStatus("请先填写 API Token，或使用已保存的密钥。");
       return;
     }
@@ -2749,6 +2762,7 @@ export function SettingsPage({
       const models = await client.aiAssistant.fetchModels({
         endpoint: ai.endpoint,
         token: aiToken,
+        provider: ai.provider,
       });
       if (generation !== aiRequestGeneration.current) return;
       setAiModels(models);
@@ -2769,8 +2783,12 @@ export function SettingsPage({
       setAiTestStatus("请先输入待润色文字。");
       return;
     }
-    if (!aiOrigin || !aiToken.trim()) {
-      setAiTestStatus("请先填写有效的 HTTPS 接口地址和 API Token。");
+    if (!aiOrigin || (!aiProviderCredentials && !aiToken.trim())) {
+      setAiTestStatus(
+        aiProviderCredentials
+          ? "请先填写有效的 HTTPS 接口地址。"
+          : "请先填写有效的 HTTPS 接口地址和 API Token。",
+      );
       return;
     }
     const generation = ++aiRequestGeneration.current;
@@ -2781,6 +2799,7 @@ export function SettingsPage({
       const result = await client.aiAssistant.test({
         endpoint: ai.endpoint,
         model: ai.model,
+        provider: ai.provider,
         prompt:
           ai.prompt ??
           defaultAiAssistant.prompt ??
@@ -8507,7 +8526,7 @@ export function SettingsPage({
                         },
                         !ai.enabled || !aiOrigin || !ai.model.trim() || !aiToken.trim(),
                       )}
-                    {!linuxPlatform && client.aiAssistant && (
+                    {client.aiAssistant && (
                       <div className="section">
                         <div className="section-header">
                           <span className="section-title">

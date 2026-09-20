@@ -29,10 +29,10 @@
 | TSF 按键、焦点、edit session、UI-less | `windows/`、`server/src/ipc/` | `platforms/windows/tsf/`、`WindowsServer.cpp`、`SessionController.cpp`、`PipePeer.cpp` | 有调用链；继续验证真实编辑器焦点切换、断线重连、跨位数 DLL/Server、组合提交与撤销。 |
 | 全拼、四种双拼、86 五笔、日语、辅助码 | README 对应指南、`engine/`、设置 `input.ts` / `helpcode.ts` | `crates/engine-bridge/`、`crates/input-runtime/`、`platforms/windows/src/ipc/SessionPump.cpp`、共享 `preferences.rs` | Windows 日语模式已将 `-` 交给长音符输入、禁止 `-`/`=` 翻页，并在 TSF/Server 两侧保持一致；候选选择现绑定会话、代次及单调窗口渲染 serial，等待上屏前的绘制回执可避免调频重排错选；macOS 原生候选面板现按共享 `wubi_code_hint` 显示严格前缀的剩余五笔编码，回退/本地模式保持不标注；各输入方案已用锁定词库逐项核对（`crates/engine-bridge/examples/schemes_dictionary.rs`，见第七批）；辅助码的单码调序与双码筛选已按来源规格逐条核对（第十五批）；日文与中文方案的往返保留由 `apps/desktop/tests/settings/settings.test.tsx` 跨三种中文方案覆盖；仍待真实编辑器交互验证。 |
 | 候选分页、高亮、调频、preedit、以词定字 | README 候选调频/preedit/标点指南 | `CandidateWindow.cpp`、`CandidateAction.h`、`SessionController.cpp`、`ReplyCodec.cpp`；Linux `ClientEngine.cpp` | 有调用链；Linux IBus 候选操作菜单现提供上一页/下一页并复用共享分页命令，调频持久化已用锁定词库覆盖三个半边——跨会话记住、关掉就不写、重置回出厂顺序（`crates/engine-bridge/examples/learning_dictionary.rs`，见第八批）；翻页现在能越过 Engine 对单字母查询的初始上限（第九批）；以词定字已按两端取字、三字候选、组合被消耗、无汉字候选与越界索引覆盖（第十四批）；调频五种模式各走各的规则已逐条核对（第十三批）；仍需检查分页键与鼠标行为和旧候选请求拒绝。 |
-| 中英文状态、独立英文候选、全半角、简繁、智能标点 | `server/src/english/`、设置 `input.ts` / `shortcut.ts` | `SharedConfigKeybindings.h`、`PunctuationPolicy.h`、`ReplyCodec.h` 中的 TsfLocalConfig、共享偏好与 Engine 桥接 | 已补齐 TSF client key-router 边界、IPC `Sent` / `DefinitelyNotSent` / `DeliveryAmbiguous` 三态 fallback、标点配置帧及宿主进程策略回归；仍需分别核对按应用/全局状态、CapsLock、标点重复、成对补全与热更新。 |
+| 中英文状态、独立英文候选、全半角、简繁、智能标点 | `server/src/english/`、设置 `input.ts` / `shortcut.ts` | `SharedConfigKeybindings.h`、`PunctuationPolicy.h`、`ReplyCodec.h` 中的 TsfLocalConfig、共享偏好与 Engine 桥接 | 已补齐 TSF client key-router 边界、IPC `Sent` / `DefinitelyNotSent` / `DeliveryAmbiguous` 三态 fallback、标点配置帧及宿主进程策略回归；五项已逐个核对（第四十批）：按应用/全局状态有纯决策函数与 `mode_authority` 用例；标点重复与成对补全随配置帧下发并由 `tsf_config_frames` 钉住；热更新有 `preference_monitor` 用例；CapsLock 由 Server 持有并经 `CapsLockChanged` 帧下发，这一项只有源码核对、没有专门用例。 |
 | K/T/U/E/M/J/Y/R 快捷模式、混输 | README 实用功能快捷模式 | Engine 桥接、共享偏好、`platforms/windows/src/ipc/ServerSession.cpp` 及 `platforms/windows/tests/runtime/session_smoke.cpp` | 已补带锁定词库的 ServerSession 回归：八种快捷模式均验证 Shift 入口、候选生成和选词提交；仍需 Windows 原生 TSF/真实编辑器交互验证。 |
 | 谷歌云候选与 AI 联想 | README 云/AI 联想、设置 `ai-settings.ts` | `CloudCandidateWorker.cpp`、`AiCandidateWorker.cpp`，由 `SessionController.cpp` 构造并投递输入队列 | 有调用链；核对每个提供方、超时、取消、失焦后旧结果以及凭据路由，勿只验证 UI 保存。 |
-| 候选中英释义、腾讯云翻译、自定义翻译 | README 候选翻译/自定义翻译 | `TranslationWorker.cpp` → `SessionController.cpp` → 候选展示；共享 `translation.rs` / `translation_store.rs` | 有调用链；仍需比较本地优先级、腾讯请求签名、词库编辑与缓存失效。 |
+| 候选中英释义、腾讯云翻译、自定义翻译 | README 候选翻译/自定义翻译 | `TranslationWorker.cpp` → `SessionController.cpp` → 候选展示；共享 `translation.rs` / `translation_store.rs` | 有调用链；缓存失效已核对并确认做到（第三十六批）：缓存键按服务商与账号分域，凭据、端点、目标语言与启用开关任一变化都丢弃正负两种结果；腾讯请求签名已按官方 TC3-HMAC-SHA256 构造独立算出已知答案并钉住（第三十七批）；本地优先级已按源码核对为正确实现但**零测试覆盖**（第三十八批）；词库编辑已核对（第三十九批）：设置侧有五个按 Engine 实际读取语义写的用例，消费侧每次请求现算本地释义，编辑立即生效且恒胜过缓存的云端结果。本行四项到此走完。 |
 | 设置读取、保存、热更新与窗口行为 | `settings_app.cpp`、`config-sync.ts` | Tauri `load_preferences` / `save_preferences`，`PreferenceMonitor.cpp` 与 `main.cpp` 发布回调；macOS 云端桌面快照覆盖 Apple 20 项基线字段并保留客户端新增双拼预编辑字段 | 有调用链；逐字段核对默认值、冲突/损坏保护、当前组合期间延迟生效。macOS 云端快照现补齐两套辅助码方案、候选学习和本地扩展模式；本地扩展的兼容布尔值应用为八个本地模式的全开/全关。原生备用语音现在读取并回写当前 provider 的 `asr_tokens` / `polish_tokens` 槽位，缺失槽位保留旧扁平字段兼容。不能因配置字段存在就标记功能接通。 |
 | API 凭据测试 | `settings_app.cpp::apiCredentialTest` → `ApiCredentialTest::Run` | Tauri `test_api_credential` → `client-core::credential_*`（Windows/macOS） | 有调用链；Windows 已接入聊天、批量 ASR、豆包 WebSocket、腾讯云/NiuTrans/DeepLX 等共享凭据测试。仍需逐项核对来源字段与真实服务行为。 |
 | 词库查询、增改删、导入导出、快捷短语 | `dictionary_manager.cpp`、设置 `dict.ts` / `tools-settings.ts` | Tauri `dictionary_request` / `dictionary_maintenance_handshake`，共享 `dictionary/access.rs` / `dictionary/import.rs` | 有调用链；验证 quiesce/resume、失败恢复、五笔/英文/快捷短语/翻译各表的字段和导出编码，保留用户数据。 |
@@ -493,6 +493,43 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 这条教训和之前几次同形，但方向相反：前几次是「断言从未被执行过所以是错的」，这次是「**整套测试从未被执行过，而计数看起来完全正常**」。一个通配符匹配不到东西时不会报错，只会安静地少跑一批——比断言写错更难发现。
 
+增量记录（2026-09-20，Windows 第三十六批：核清一条过时的「仍需核对」）：表里翻译那行写着「仍需比较本地优先级、腾讯请求签名、词库编辑与缓存失效」。其中**缓存失效已经做到了**，描述过时。
+
+`TranslationWorker` 给缓存键加了服务商域：小牛按 `niutrans:<app_id>`（源码注释写明「切换账号不能复用别人的译文，而密钥本身绝不进入缓存键」），自定义按 `custom:<endpoint>`，腾讯为 `tencent`。`SessionController` 在凭据、端点、目标语言或启用开关变化时调用 `clear_cache()`，并且注释写明要连负缓存一起丢——「即使候选页仍然合格」。
+
+本批只改这一行描述，不动代码。另外两项（本地优先级、腾讯请求签名）仍未核对，保留在表里。
+
+增量记录（2026-09-20，Windows 第三十七批：腾讯签名从「自证」改成「已知答案」）：表里剩下的两项之一是腾讯请求签名。现有测试只验三件事——同输入同输出、不同输入不同输出、长度 64。**一个算错但稳定的实现能全部通过**，因为它拿这段代码跟它自己比。
+
+按腾讯公开的 TC3-HMAC-SHA256 构造（`HMAC(HMAC(HMAC("TC3"+key, date), service), "tc3_request")`）在这段代码之外独立算出期望值，钉住三样：派生签名、载荷摘要、以及**整个 Authorization 头**——后者把凭据作用域与签名头列表一并钉住，因为请求被拒可能源于这三者中的任何一个。
+
+做了反向验证：把实现里的 `"tc3_request"` 改成 `"tc3_reques"`，**只有新测试失败**（7 通过 / 1 失败），原有的确定性测试在错误实现上照常通过。恢复后 8 个全过。这正是自证型测试抓不住的那类改动。
+
+表里那行剩下本地优先级与词库编辑两项，仍未核对。
+
+增量记录（2026-09-20，Windows 第三十八批：本地优先级是对的，但一行测试都没有）：表里剩下的「本地优先级」按源码核对结果是**实现正确**。`TranslationWorker` 先把已有译文的候选收进 `translated_texts`，再遍历 `custom_translation_plan` 的结果，对已在集合中的条目 `continue`——本地命中既不会被重复拿去问云端，也不会被云端结果覆盖。源码注释写明这是「保留本地词典命中、只对未命中的去问云端」，并点出错误做法是「把一条离线命中当成整页」。
+
+但它**没有任何测试**：`platforms/windows/tests/` 下没有一个文件引用 `TranslationWorker`。共享侧的 `custom_translation_plan` 有测试，覆盖的是去重、来源筛选、语向与长度限制——请求里根本不带已有译文，所以那条合并规则不在它的覆盖范围内。
+
+正确的做法是把这段合并判据抽成纯函数（`CandidateTranslationPolicy.h` 就是现成的去处）再钉住。**本批没有做**：那是对线上 worker 的行为性改动，而本机的 Docker 守护进程已停（见下一段），Windows 套件跑不起来。不做无法验证的改动，这一条按未覆盖记录，等能跑套件时再补。
+
+顺带记下本机状态：本轮密集的容器构建与多份词库下载把磁盘撑满（一度只剩 119 MB），OrbStack 因此停止，不是它自身故障。已清理自己产生的临时文件与主工作区的 `target/windows-full`；未触碰其他任务的 worktree 与正在被使用的共享 vcpkg 依赖树。跨检出共享依赖的机制仓库本来就有，本轮在主机侧没有充分利用，是这次资源耗尽的直接原因。
+
+增量记录（2026-09-20，Windows 第三十九批：翻译那一行的四项全部走完）：表里这行原写着「仍需比较本地优先级、腾讯请求签名、词库编辑与缓存失效」。四项逐个核完：
+
+- **缓存失效**（第三十六批）：已做到，且比那句话要求的细——缓存键按服务商与账号分域，凭据、端点、目标语言、启用开关任一变化丢弃正负两种结果。
+- **腾讯请求签名**（第三十七批）：原测试只验确定性与敏感性，算错但稳定的实现照样通过；改为按官方构造独立算出的已知答案，并做了反向验证。
+- **本地优先级**（第三十八批）：实现正确，但零测试覆盖，按未覆盖记录，没有做无法验证的改动。
+- **词库编辑**（本批）：设置侧有五个用例，且是按 Engine 实际的读取与覆盖语义写的——被 Engine 丢弃的行要计数而不是静默保留、同源多次拼写以最后一次为准。消费侧 `msime_client_candidate_gloss_request` 每次请求现算，带 `user_data` 与 `resources`，所以编辑立即生效；本地结果在 plan 与缓存循环之前填入，因此恒胜过缓存的云端结果。
+
+四项里三项确认做到、一项确认缺测试。这一行不再留「仍需」。
+
+增量记录（2026-09-20，Windows 第四十批：中英文状态那一行的五项逐个核对）：这行原写着「仍需分别核对按应用/全局状态、CapsLock、标点重复、成对补全与热更新」。
+
+**有测试的四项**：按应用/全局状态在 `ModeAuthority.h` 里是一个纯决策函数（失焦不推送、未播种时先由首次观察播种、换客户端时权威胜出且只推不一致者、同客户端改模式则成为新权威），`tests/input/mode_authority.cpp` 覆盖；标点重复（`SmartPunctuationRepeatToChineseChanged`）与成对补全（`PairedPunctuationChanged`）随配置帧下发，`tests/runtime/tsf_config_frames.cpp` 钉住帧序并另外覆盖按进程排除成对补全的策略；热更新由 `PreferenceMonitor` 负责，有 `tests/core/preference_monitor.cpp`。
+
+**只有源码核对、没有专门用例的一项**：CapsLock。Server 以 `GetKeyState(VK_CAPITAL)` 播种、由维护钩子回调更新，再经 `CapsLockChanged` 帧下发；源码注释写明钩子回调只发布状态、绝不碰传输，由主循环投递。这一项按「已实现但缺专门覆盖」记录，与第三十八批的本地优先级同等对待——**不把读过代码算成测过**。
+
 ## 来源模块的落点
 
 逐模块记下来源的每个目录在本仓库落在哪里，以及为什么。上面那张功能表按「功能组」组织，回答的是某个功能有没有；这张按**来源的源码目录**组织，回答的是来源的每一块代码去了哪儿——两者互相校验，一块代码找不到落点就是缺口，哪怕对应功能在表里被标成有。
@@ -520,6 +557,12 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 来源有而本仓库有意不做的只有一项：`webview2/` 作为**候选窗**的可选渲染后端。这边候选窗只有 Direct2D 一种实现，`ui_backend` 作为配置契约保留（已登记在字段漂移门禁的 `RUST_ONLY`）。
 
 ## 下一批实施顺序
+
+增量记录（2026-09-20，HarmonyOS 失败形状对齐）：承接上一条留下的那类缺陷。共享设置 UI 解码失败的主契约是普通对象上的 `error.code`（`accountMessage`、`dictionaryErrorMessage`、`message` 以及社区、聊天、皮肤编辑器各自的 `switch (error.code)`），只把 `Error` 的 `message` 当兜底文案读。本宿主的 `unwrap` 一直抛 `new Error(reply.error)`，而 `Error` 实例没有 `code` 属性，于是这些表一条都匹配不上：账号的六种失败全都落到同一句「账号服务暂不可用」，取消登录不被识别为取消，词库失败丢掉自己那句具体建议，AI 失败则把机器码本身显示给用户。现改为与桌面端 Tauri 的 `CommandError { code }` 同形，抛 `{ code }`。页面启动失败那一处是唯一自己渲染错误的地方，两种形状都要认，故单独取文案。
+
+偏好保存/读取那条路的错误来自 Rust C ABI，而 C ABI 的错误通道是全仓每个入口共用的单一字符串，里面是 `PreferencesError` 的英文 `Display` 文本而不是码——桌面端是在 Tauri 层按枚举匹配出码的。本片在本宿主的对应层（ArkTS 桥）做同样的事：`PreferencesErrorCode` 把共享 UI 确有文案的那几个变体的文本映回码，其余一律 `storage`，与桌面端对未命名失败的处理一致。文本匹配比按枚举匹配弱，所以刻意做窄：文案漂移只会让该失败退回泛化文案，不会给出错误的文案；并在 `crates/client-core` 加了一个把这些文案钉死的测试，漂移在改文案的地方就会被发现。不改 C ABI——iOS、Linux、Android 都在消费同一个错误通道。
+
+设备证据（同一台 MateBook Pro 2in1 模拟器，同一复现路径）：接口地址填不可达的 `https://127.0.0.1:1/v1` 并填入 token 后点「获取模型列表」，上一版显示机器码 `ai_models_unavailable`，本版显示「获取模型失败，请检查地址、密钥和网络。」，与桌面端一致。合成卡顿在 `inputText` 唤起系统输入法后同样复现，移动窗口即重绘，与上一条记录的判断一致。
 
 增量记录（2026-09-20，HarmonyOS 异步桥回推通道）：`#3236` 只恢复了无参数的同步方法，六个带参数、要做网络往返的方法仍然是坏的：`asyncMethodList` 与另一条官方异步注册路径在本 API 等级上都会挂住，页面等不到任何 settle。本片改为页面**同步**发起 `startRequest(kind, id, payload)`，宿主做完异步工作后用 `runJavaScript` 按请求号把结果回推，页面侧以请求号匹配 pending promise，30 秒超时。恢复的六条：`account`、`cloud_dictionary`、`cloud_dictionary_snapshot`、`ai_models`、`ai_test`、`api_credential`。
 
@@ -683,3 +726,17 @@ Fcitx5 剪贴板菜单预览增量（2026-09-19）：剪贴板与云剪贴板菜
 Fcitx5 在线候选来源隔离增量（2026-09-19）：云候选与 AI provider 请求现在只接受匹配当前请求槽位的 `source`，不再把一次 provider 响应中的另一来源候选跨槽位注入；与 IBus 的来源过滤一致。原生 Linux provider 交互仍待相应环境。
 
 Fcitx5 候选动作执行 stale 栅栏增量（2026-09-19）：CandidateAction 触发时重新枚举动作现在也校验当前焦点、输入启用状态、受限/私密上下文，避免菜单创建后状态变化仍执行旧候选管理操作；原生 Linux 桌面构建与交互验证仍待相应环境。
+
+增量记录（2026-09-20，Linux 本批：先把这个平台编译得出来，再谈功能对照）：本批的起因与 Windows 第三批同形——此前 Linux 的每一条记录都写着「逻辑回归通过」或「仍待 Linux 环境验证」，而事实是**这个平台的两块产物都构建不出来**，且没有任何一个门禁阶段编译过它们。先修构建，再修构建跑起来之后暴露的东西。
+
+1. Tauri 外壳在 Linux 上有 36 个编译错误（`--all-targets` 54 个）。即设置窗口、全部共享面板（表情、剪贴板、手写、屏幕键盘、语音、云词典、云剪贴板）和账号界面在这个宿主上不是「缺某个功能」，而是构建不出来。成因是把面板投递从 crate 根挪进 `panel_input` 那次重构：crate 根与 `panel_window` 仍在无限定地调用被挪走的私有函数，`clipboard_history` 丢了 `linux_clipboard` 与 `Mutex`，四处 `window.label().as_str()` 用到本工具链仍 unstable 的 `str::as_str`，一处 `Vec` 需要元素类型标注，六个面板纯函数用例够不着新模块。为什么没人发现：`cargo check --workspace` 只看宿主 target，而 macOS 上 `msime-desktop` 因为 `tauri.macos.conf.json` 把还没构建的 app bundle 列为资源被整包排除（就是本地每次都打印的那行 `msime-desktop: skipped`）。安卓那条阶段的注释早就写过同一个道理，只是没人给 Linux 加一条（#3218）。
+2. 原生宿主同样构建不出来：三个测试的相对 include 比源码移动后的层级少一级，其中一个连自己的 fixture 都引不到，`platforms/linux` 整个 target 配置不出来。修完后 IBus engine、Fcitx5 插件、全部 provider 入口与 18 个测试目标全部通过。跑起来之后发现 `linux-online-provider-contract` 约每五次失败一次，原因是 unix socket 的一个具体语义：`unix_release_sock` 在关闭方接收队列里还有未读数据时会给对端置 `ECONNRESET`，而 provider 客户端把请求正文和结尾换行分成两次写，fixture 的单次 `read` 有时只拿到正文、回复后 `close`，客户端于是在读到已排队的回复之前先拿到 ECONNRESET。两侧都改（客户端整行一次写出、fixture 读满一整行），连跑 30 次 0 失败（#3229）。
+3. 两块构建都接进了门禁：有 Docker 时在固定的 `rust:1.97.1-bookworm` 容器里分别 `cargo check -p msime-desktop --all-targets` 和 `platforms/linux/build-container.sh`（编译加 `ctest`），Linux 主机上直接用系统 ibus 开发包跑，两者都没有时跳过并打印命令。两条都做了反向验证：插入只在 Linux 分支成立的错误后，阶段确实报错并 FAIL。
+4. 隔离验收此前连启动都不可能：`check-container.sh` 自己算错了仓库根（少一级），`docker build` 拿到的上下文是 `platforms/platforms/linux/tests`；镜像两处 `COPY` 指着测试重组前的位置；`platforms/linux/tests` 下二十来个 Python 测试把根算成 `platforms/linux/tests` 再拼 `scripts/…`，随包在线/语音/剪贴板 provider、凭据测试、豆包鉴权、翻译缓存、录音设备这一整片自那次重组起一个都没跑过。修好之后容器内 `ctest` 19/19，三个 crate 的 Rust 测试、Host API 头导出校验、词典 CLI 与剪贴板验收全部通过，安装产物齐全（#3239）。
+5. 跑起来后找到两个真实宿主缺陷。其一：嵌套偏好对象整体可省略（共享 `Preferences` 给默认值）但成员一个都不能少，宿主把单个键补进文档里本来没有的 `mixed_input` / `local_modes` 时写出残缺对象，Host API 判为 invalid options document——没有配置共享偏好目录的部署里，从 IBus 菜单切一下混输候选或任一本地输入模式，会话就再也建不起来。默认值改由新的 `msime_client_default_preferences` 从共享层发布（#3239）。其二：`rendered_view` 在首次渲染前和每次会话重建后都是 null，而 `value()` 在 null 上抛异常、异常被 `guarded` 吞掉，于是中英文切换之后打的第一个字母被静默丢掉；十八处读里有两处没带 `is_object()` 守卫，其中一处还排在会短路的身份栅栏之前（#3245）。
+
+功能侧本批补齐四项，都是「设置页有开关、这个平台不消费」那一类：共享设置页的双拼预编辑选择此前按平台名只给 macOS，而 IBus 与 Fcitx5 都自己把快照的 `preedit` 写进平台预编辑并各自带着原生菜单开关（#3199）；`smart_punctuation_space_convert` 在 IBus 与 Fcitx5 上都是存得下、读不出效果的开关，现按来源规格补上——含来源自己踩过的那条坑，即改写前要回读标点前面的字符核对指纹，因为同一个标点在文档里通常不止一处而窗口内移动光标不是焦点变化（#3206、#3231）；Fcitx5 的「重复标点回切中文」同理从只有开关变为真的生效，并补上退格后重按同键走中文路径的另一半（#3233）。
+
+另有两项是这个平台整块缺失而非字段缺失：桌面外壳的九个账号命令此前只为 Windows、macOS、Android、iOS 注册，Linux 上登录、资料、改名、登出、注销没有宿主可调；补齐后会话存在共享状态目录下的 owner-only 文件里（0600、原子发布、读取前核对普通文件/属主/权限/大小），这弱于 Windows 凭据管理器与 macOS Keychain 的静态加密，接 Secret Service 需要新增依赖、属于另外的决定（#3220）。设置页的「获取模型列表」与「AI 润色测试」也不可用，因为持有 token 的宿主是自己发 HTTP 的，而这个平台按设计把 token 留在 provider 的私有配置里；改为 provider 的两种新请求，并用新能力位 `ai_provider_credentials` 表达「凭据归宿主的 provider」，替掉原先按平台名藏控件的做法（#3254）。
+
+本批的验证边界要说清楚：没有任何一项在真实 Linux 桌面上跑过，没有 IBus daemon 之外的 GTK/Qt 编辑器、没有 X11/Wayland 焦点与选区、没有 Fcitx5 实例。engine smoke 也还没走完——修掉上面第 5 条之后，它稳定停在更后面的位置（passthrough 加偏好热重载那一例里，`nihao` 的后续按键），那是本批修复之后才够得着的位置，单独查。本批后段本机 Docker 停了，因此最后两个切片的容器阶段按设计跳过；它们不触碰 C++。

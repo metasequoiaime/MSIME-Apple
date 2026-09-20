@@ -1068,9 +1068,13 @@ test("Android AI settings fetch models and run a native-hosted polish test", asy
   fireEvent.change(screen.getByLabelText("AI 测试输入"), { target: { value: "fixture input" } });
   fireEvent.click(screen.getByRole("button", { name: "发送并润色" }));
   await screen.findByText("fixture-polished");
+  // `provider` travels with both calls now: the hosts whose provider service
+  // holds the credential check their private configuration against it, and the
+  // hosts that hold the token themselves ignore it.
   expect(fetchModels).toHaveBeenCalledWith({
     endpoint: "https://api.deepseek.com/chat/completions",
     token: "fixture-token",
+    provider: "deepseek",
   });
   expect(testAi).toHaveBeenCalledWith({
     endpoint: "https://api.deepseek.com/chat/completions",
@@ -1078,7 +1082,47 @@ test("Android AI settings fetch models and run a native-hosted polish test", asy
     prompt: "请润色以下文字，保持原意，只返回修改后的文字。",
     token: "fixture-token",
     text: "fixture input",
+    provider: "deepseek",
   });
+});
+
+test("a provider-credential host runs the AI service controls without a token", async () => {
+  // On this host the credential is in the provider service's owner-only file, so
+  // the page offers no token field at all. Both service controls still have to
+  // work: they reach the service through that provider. Before the capability
+  // existed, the model listing was hidden by platform name and the polish test
+  // refused for want of a token the page is not allowed to hold.
+  const fetchModels = vi.fn().mockResolvedValue(["fixture-model", "fixture-fast"]);
+  const testAi = vi.fn().mockResolvedValue("fixture-polished");
+  render(
+    <SettingsPage
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        host: {
+          platform: "linux",
+          ai_provider_credentials: true,
+        } as HostCapabilities,
+        aiAssistant: { fetchModels, test: testAi },
+      }}
+    />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "AI 辅助" }));
+  expect(screen.queryByLabelText("AI API Token")).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "获取模型列表" }));
+  await screen.findByText("已获取 2 个可用模型。");
+  fireEvent.change(screen.getByLabelText("AI 测试输入"), { target: { value: "fixture input" } });
+  fireEvent.click(screen.getByRole("button", { name: "发送并润色" }));
+  await screen.findByText("fixture-polished");
+  // An empty token goes out because there is none to send; the provider ignores
+  // it and authenticates from its own configuration.
+  expect(fetchModels.mock.calls[0][0]).toMatchObject({ provider: "deepseek", token: "" });
+  expect(testAi.mock.calls[0][0]).toMatchObject({
+    provider: "deepseek",
+    text: "fixture input",
+    token: "",
+  });
+  cleanup();
 });
 
 test("AI settings explain the platform-specific keyboard surface", async () => {

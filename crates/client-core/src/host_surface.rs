@@ -168,6 +168,13 @@ pub struct HostCapabilities {
     /// the whole row cannot, and does not offer the choice.
     #[serde(default)]
     pub candidate_english_font: bool,
+    /// The AI service's credential lives with the host's provider rather than in
+    /// the settings document, so the settings page must not ask for a token and
+    /// must not gate the service controls on having one. The host still reaches
+    /// the service - through that provider - so the model listing and the polish
+    /// test are offered; what it cannot do is hold the secret.
+    #[serde(default)]
+    pub ai_provider_credentials: bool,
     /// The host draws a short, non-activating badge near the caret after the
     /// Chinese/English mode changes. A host with no way to put a window beside
     /// the caret, or one whose keyboard already shows the mode on its own key
@@ -354,6 +361,10 @@ impl HostCapabilities {
             // The skin folder is inside the sandbox on HarmonyOS, where no file
             // manager reaches it, so the skin is picked and copied in instead.
             skin_directory_import: platform == HostPlatform::Harmony,
+            // Linux keeps AI credentials in the provider service's owner-only
+            // configuration file and passes only non-sensitive options over its
+            // socket. Every other host holds the token itself.
+            ai_provider_credentials: platform == HostPlatform::Linux,
             candidate_english_font: matches!(
                 platform,
                 HostPlatform::Windows
@@ -756,6 +767,19 @@ mod tests {
         // The host chooses the preedit string the panel draws, so the raw keys
         // and the expanded pinyin are both reachable from the shared page.
         assert!(linux.shuangpin_preedit);
+        // The AI token is the provider's, so the page neither asks for one nor
+        // withholds the service controls for want of it. Every other host holds
+        // the token itself and must keep asking.
+        assert!(linux.ai_provider_credentials);
+        for platform in [
+            HostPlatform::Windows,
+            HostPlatform::Macos,
+            HostPlatform::Android,
+            HostPlatform::Ios,
+            HostPlatform::Harmony,
+        ] {
+            assert!(!HostCapabilities::for_platform(platform).ai_provider_credentials);
+        }
 
         let windows = HostCapabilities::for_platform(HostPlatform::Windows);
         assert!(!windows.number_row_selection);

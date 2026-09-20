@@ -492,6 +492,97 @@ def ai_credential_test(config, path):
             and bool(result["choices"]))
 
 
+def select_ai_profile(config, path):
+    """The private entry matching the settings page's provider, or None.
+
+    Same rule the credential test uses: the settings page names a provider and an
+    endpoint, the private file holds the token, and the two have to agree before
+    anything goes out. The model is deliberately not compared here - listing the
+    models available at an endpoint is how a user finds out what to put in that
+    field.
+    """
+    if not path or not isinstance(config, dict):
+        return None
+    private = load_ai_config(path)
+    provider = config.get("provider")
+    if not isinstance(provider, str):
+        return None
+    selected = private if private.get("provider") == provider else private.get("profiles", {}).get(provider)
+    if (not isinstance(selected, dict) or
+            any(config.get(key) != selected.get(key) for key in ("provider", "endpoint"))):
+        return None
+    return selected
+
+
+def ai_models_url(endpoint):
+    """The model catalogue beside the configured chat endpoint.
+
+    Reuses the API prefix the endpoint already carries rather than assuming one,
+    matching `ai_models_url` in the desktop shell: an endpoint of
+    `https://host/openai/v1/chat/completions` lists at `https://host/openai/v1/models`.
+    """
+    parts = urllib.parse.urlsplit(endpoint)
+    index = parts.path.find("/v1/")
+    base = parts.path[:index] if index >= 0 else ""
+    return urllib.parse.urlunsplit((parts.scheme, parts.netloc, base + "/v1/models", "", ""))
+
+
+def ai_models(query, server):
+    """List the models the configured AI service offers. Names only."""
+    selected = select_ai_profile(query if isinstance(query, dict) else {}, server.ai_config_path)
+    if not selected:
+        return {"models": []}
+    document = fetch(ai_models_url(selected["endpoint"]), 7.0, None, selected["token"])
+    if not isinstance(document, dict) or not isinstance(document.get("data"), list):
+        return {"models": []}
+    models = []
+    for entry in document["data"]:
+        if not isinstance(entry, dict):
+            continue
+        name = entry.get("id")
+        if (not isinstance(name, str) or not name or len(name) > 256 or
+                any(ord(character) < 32 or 127 <= ord(character) <= 159 for character in name) or
+                name in models):
+            continue
+        models.append(name)
+        if len(models) == 128:
+            break
+    return {"models": models}
+
+
+def ai_polish_test(query, server):
+    """Run one polish request through the configured service and return its text.
+
+    The prompt and the sample text come from the settings page; the endpoint,
+    model and token come from the private file. Nothing here is cached: this is a
+    button the user pressed, not a candidate request.
+    """
+    query = query if isinstance(query, dict) else {}
+    selected = select_ai_profile(query, server.ai_config_path)
+    prompt = query.get("prompt", "")
+    text = query.get("text")
+    if (not selected or selected.get("model") != query.get("model") or
+            not isinstance(prompt, str) or len(prompt.encode()) > 8192 or
+            not isinstance(text, str) or not text.strip() or len(text.encode()) > 8192):
+        return {"text": ""}
+    body = {"model": selected["model"], "stream": False, "temperature": 0.2,
+            "messages": [{"role": "system", "content": prompt},
+                         {"role": "user", "content": text}]}
+    if selected["provider"] == "deepseek":
+        body["thinking"] = {"type": "disabled"}
+    elif selected["provider"] == "siliconflow":
+        body["enable_thinking"] = False
+    document = fetch(selected["endpoint"], 8.0, body, selected["token"])
+    if not isinstance(document, dict) or not isinstance(document.get("choices"), list):
+        return {"text": ""}
+    for choice in document["choices"]:
+        message = choice.get("message") if isinstance(choice, dict) else None
+        content = message.get("content") if isinstance(message, dict) else None
+        if isinstance(content, str) and content.strip() and len(content.encode()) <= 16384:
+            return {"text": content.strip()}
+    return {"text": ""}
+
+
 def credential_test(query, server):
     service = query.get("service")
     config = query.get("config")
@@ -538,6 +629,14 @@ class Handler(socketserver.StreamRequestHandler):
             request = json.loads(line)
             query = request["query"]
             if request.get("version") != 1 or not isinstance(query, dict):
+                return
+            if request.get("kind") == "ai_models":
+                self.wfile.write(json.dumps(safely(ai_models, query, self.server) or {"models": []},
+                                            ensure_ascii=False).encode() + b"\n")
+                return
+            if request.get("kind") == "ai_test":
+                self.wfile.write(json.dumps(safely(ai_polish_test, query, self.server) or {"text": ""},
+                                            ensure_ascii=False).encode() + b"\n")
                 return
             if request.get("kind") == "credential_test":
                 self.wfile.write(json.dumps(credential_test(query, self.server),
