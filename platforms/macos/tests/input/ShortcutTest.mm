@@ -4480,6 +4480,27 @@ int main(int argc, char **argv) {
         // return value just repeats whatever the Engine answered, and here it says it handled the key.
         assert([controller handleEvent:unicodePlus client:client]);
         assert(session.lastCommand == UINT32_MAX && session.asciiCalls == 1 && session.lastASCII == '+');
+        // Selecting anything but the first candidate here is what Shift+digit is for: the unshifted
+        // digits are the code point being typed. Without it the panel shows candidates the keyboard
+        // cannot reach.
+        {
+            // The '+' above went through the Engine and left its answer in the view, so put the panel
+            // back into Unicode composition before asking about its digits.
+            [controller setValue:unicodePagingView forKey:@"view"];
+            [controller renderCandidates];
+            layoutPanel.requestedVisible = YES;
+            NSUInteger selectCallsBeforeUnicode = session.selectCalls;
+            NSUInteger asciiCallsBeforeUnicode = session.asciiCalls;
+            NSEvent *shiftedDigit = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:NSEventModifierFlagShift timestamp:0 windowNumber:0 context:nil characters:@"@" charactersIgnoringModifiers:@"2" isARepeat:NO keyCode:19];
+            assert([controller handleEvent:shiftedDigit client:client]);
+            assert(session.selectCalls == selectCallsBeforeUnicode + 1 && session.selectedIndex == 1);
+            assert(session.asciiCalls == asciiCallsBeforeUnicode);
+            // The unshifted digit stays hexadecimal input, which is the half that already worked.
+            NSEvent *plainDigit = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:@"2" charactersIgnoringModifiers:@"2" isARepeat:NO keyCode:19];
+            assert([controller handleEvent:plainDigit client:client]);
+            assert(session.selectCalls == selectCallsBeforeUnicode + 1);
+            assert(session.asciiCalls == asciiCallsBeforeUnicode + 1 && session.lastASCII == '2');
+        }
         [controller setValue:pageView forKey:@"view"];
         [controller renderCandidates];
         appearance.pageShortcut = 0;

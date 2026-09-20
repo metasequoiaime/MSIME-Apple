@@ -772,6 +772,12 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 ## 下一批实施顺序
 
+增量记录（2026-09-21，快捷模式指南逐条核对，第一条差异：Unicode 模式的候选选择）：测试清单走完之后换入口——来源 README 的《实用功能快捷模式》八行，每行都是可核对的具体约定。Unicode（U）那行写的是「空格上屏首选；`Shift + 数字` 选其他候选」，理由就在同一行里：不加 Shift 的数字是正在输入的码位。来源实现为 `event_listener.cpp` 的 `is_unicode_shift_digit_selection`，与空格走同一条选择路径。
+
+macOS 缺后半条。`ShouldRoutePhysicalCandidateDigit` 明确把 Unicode 模式和任何带修饰键的数字都排除在候选选择之外，而没有第二条规则把 Shift+数字 接回来——于是这个模式下键盘只能上屏第一个候选，面板里其余候选看得见、够不着（方向键还能挪高亮，但文档写的那条交互不存在）。
+
+按来源补上，写成与既有那条并列的纯函数：候选面板可见、处于 Unicode 组合、且修饰键恰好只有 Shift。键位映射沿用既有的 1–9（不含 0），与来源的 `'1'..'9'` 相同。四条纯函数用例加一条宿主级用例（真的发一个 Shift+2 事件，断言选中第二个候选，同时不加 Shift 的 `2` 仍作为十六进制输入到达引擎）。反向验证过：去掉新分支，宿主那条在第 4496 行失败。
+
 增量记录（2026-09-21，来源测试清单这一轮走完）：43 个文件按落点分完，macOS 侧这一轮到此为止。三处真实差异已各自修掉（方向键末尾不扩充、字体 face 名不解析、空槽位提示词），其余的判断依据记在这里，免得下一轮重查。
 
 **对 macOS 不成立的（Windows 进程边界或 WebView2 自绘）**：`test_inline_protocol`（设置壳的资源内联）、`test_candidate_window_template`（WebView2 候选模板的锚点替换，macOS 是原生面板）、`test_candidate_size_estimator`（Direct2D 度量，对应物是 `CandidateRowFit.h`）、`test_ipc_protocol_constants`、`test_pipe_write_policy`、`test_terminal_deactivation_policy`、`test_active_client_state`、`test_outbound_session_state`、`test_async_request_origin`。
