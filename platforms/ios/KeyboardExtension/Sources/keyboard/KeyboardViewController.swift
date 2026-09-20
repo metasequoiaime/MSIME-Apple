@@ -167,6 +167,11 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var visibleDiagnostic: String?
   private var diagnosticDismissTimer: Timer?
   private var shuangpinKeyHints: [String: String] = [:]
+  // What the last commit armed, if anything. These belong to the editor rather than to Engine:
+  // a different document, a moved caret, or a session rebuilt while the keyboard was away all
+  // mean the gesture is about something else, which is what the editor generation carries.
+  private var armedPunctuationRepeat: Any?
+  private var armedSpaceConversion: Any?
   private var showsSymbols = false
   private var letterCaseState = LetterCaseState.lowercase
   private var isAutomaticShift = false
@@ -1396,11 +1401,26 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       insertDirectText(symbol)
       return
     }
+    let editor = smartPunctuationEditor
+    // Pressing the same mark again right after it landed as ASCII means the user wanted the
+    // Chinese one after all. The shared layer decides; it declines unless the document still
+    // holds exactly what the first press committed.
+    let decision = session.smartPunctuationDecision(
+      character: punctuation, preceding: precedingCharacter,
+      timestampMilliseconds: smartPunctuationNow, editorGeneration: editor,
+      repeatSnapshot: armedPunctuationRepeat, spaceSnapshot: nil)
+    if let chinese = decision["replace_with"] as? String {
+      clearSmartPunctuationArming()
+      replacePrecedingCharacter(with: chinese)
+      return
+    }
+
     let preceding = KeyboardPunctuationContext.precedingScalar(
       textDocumentProxy.documentContextBeforeInput)
     let snapshot = session.handlePunctuationWithContext(punctuation, preceding: preceding)
     if snapshot.isHandled {
       render(snapshot)
+      armSmartPunctuation(punctuation, commit: snapshot.commitText, editor: editor)
       return
     }
 
@@ -1409,6 +1429,68 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // instead, so typing "nihao" then "@" produced "nihao@" rather than "你好@".
     render(session.finishComposition())
     insertDirectText(punctuation)
+    // The mark reached the document by this route too, so the follow-up gestures are about it
+    // just the same. What insertDirectText actually wrote is what arms them: full-width input
+    // rewrites the mark on the way out, and arming the ASCII the key carries would then describe
+    // a character that is not there.
+    armSmartPunctuation(
+      punctuation,
+      commit: FullWidthInputPolicy.output(
+        punctuation, enabled: KeyboardLayoutPreference.fullWidthInputEnabled),
+      editor: editor)
+  }
+
+  /// Milliseconds on the host's own clock, for the two-second repeat window.
+  private var smartPunctuationNow: UInt64 {
+    UInt64(Date().timeIntervalSince1970 * 1000)
+  }
+
+  /// The editor the gestures belong to. No document identifier means no editor to be sure about,
+  /// and 0 never matches a real one, so every armed gesture declines.
+  private var smartPunctuationEditor: UInt64 {
+    guard let document = KeyboardHostContext.documentIdentifier(for: textDocumentProxy) else {
+      return 0
+    }
+    // The first eight UUID bytes, read directly rather than through hashValue: Swift's hashing is
+    // seeded per process, and a value that changes between runs would be a poor thing to compare
+    // an armed gesture against. Reserve 0 for "no document".
+    let bytes = document.uuid
+    let low = [bytes.0, bytes.1, bytes.2, bytes.3, bytes.4, bytes.5, bytes.6, bytes.7]
+      .reduce(UInt64(0)) { ($0 << 8) | UInt64($1) }
+    return low == 0 ? 1 : low
+  }
+
+  private var precedingCharacter: String? {
+    textDocumentProxy.documentContextBeforeInput?.unicodeScalars.last.map { String($0) }
+  }
+
+  /// Remember what this commit makes possible next.
+  ///
+  /// Only a commit arms anything: a press that left a composition running has not put a mark in
+  /// the document for a follow-up gesture to be about.
+  private func armSmartPunctuation(_ ascii: String, commit: String?, editor: UInt64) {
+    guard let commit, !commit.isEmpty, editor != 0 else {
+      clearSmartPunctuationArming()
+      return
+    }
+    let armed = session.smartPunctuationArming(
+      ascii: ascii, commit: commit, timestampMilliseconds: smartPunctuationNow,
+      // This host never auto-closes a pair itself: Engine owns paired punctuation and commits
+      // both marks, which arrives here as a commit of two scalars and is refused on that ground.
+      editorGeneration: editor, autoClosedPair: false)
+    armedPunctuationRepeat = armed["repeat"] as? [String: Any]
+    armedSpaceConversion = armed["space"] as? [String: Any]
+  }
+
+  private func clearSmartPunctuationArming() {
+    armedPunctuationRepeat = nil
+    armedSpaceConversion = nil
+  }
+
+  /// Rewrite the character before the caret, keeping the host's own edit accounting straight.
+  private func replacePrecedingCharacter(with text: String) {
+    deleteOwnBackward()
+    insertOwnText(text)
   }
 
   private func synchronizeInputContext() {
@@ -2472,6 +2554,21 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func handleSpace() {
     if !handwriting.isHidden && handwriting.hasInk { _ = handwriting.commitFirst(); return }
     playInputClick()
+    // A space right after a committed Chinese mark rewrites it as ASCII and is swallowed: the
+    // user is correcting the mark they just typed, not typing a mark and then a space. Checked
+    // before anything else claims the key, and before the English branch, because the mark it
+    // corrects was committed while the keyboard was in Chinese.
+    let conversion = session.smartPunctuationDecision(
+      character: " ", preceding: precedingCharacter,
+      timestampMilliseconds: smartPunctuationNow, editorGeneration: smartPunctuationEditor,
+      repeatSnapshot: nil, spaceSnapshot: armedSpaceConversion)
+    if let ascii = (conversion["space_ascii"] as? NSNumber)?.uint8Value,
+       let scalar = UnicodeScalar(UInt32(ascii)) {
+      clearSmartPunctuationArming()
+      replacePrecedingCharacter(with: String(Character(scalar)))
+      return
+    }
+    clearSmartPunctuationArming()
     if !isChineseMode {
       insertDirectText(" ")
       refreshEnglishSuggestions()

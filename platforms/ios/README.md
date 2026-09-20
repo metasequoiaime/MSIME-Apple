@@ -20,7 +20,7 @@ iOS 云剪贴板复用共享账号会话和 Tauri `CloudClipboardPanel`，只上
 
 键盘扩展与共享 Tauri 统计页都从 App Group 的 `MSIME/typing-statistics.json` 读取聚合计数，并以同一锁文件串行更新。升级时若只存在旧 Swift App 写在 App Group 根目录的统计文件，会在双端加锁并验证后原子移动到共享状态目录；迁移和日常记录都只包含分类计数，不保存实际输入文本。
 
-键盘扩展通过共享宿主策略执行智能标点：中文跟随模式且 Engine 空闲时，逗号、句点或冒号紧跟 ASCII 字母或数字**且共享偏好中对应的 `smart_punctuation_direct_letter` / `smart_punctuation_direct_digit` 已开启**时保留 ASCII——这两个开关默认关闭，未开启时仍走 Engine 的中文标点；锁定中文或英文优先；已有组合、日语、英文和本地模式仍交给 Engine。扩展只从 `UITextDocumentProxy.documentContextBeforeInput` 提取紧邻光标的一个 Unicode 标量，不保存或记录宿主文字；中文/日文键帽显示值会先映射回 Engine 的 ASCII 标点输入，缺失上下文安全回退到 Engine 标点。
+键盘扩展通过共享宿主策略执行智能标点的三条规则。**重复标点转中文**：刚以 ASCII 上屏逗号、句点或冒号后两秒内再按同一个键，把它换成中文标点并结束这次手势；只在文档里确实还是第一次按下留下的那个字符时才触发，组字中、有候选、换了编辑器都不算。**空格转英文**：刚上屏一个中文标点后按空格，把它改回 ASCII 并吞掉空格——人是在改刚打出来的那个标点，不是打了标点再打空格；这一条默认关闭，因为它改写的是用户已经看着落下去的字符。两者的快照由键盘持有而不是放进会话：它们属于宿主的编辑器，而键盘收起时会话会被销毁重建，一个跨过那道缝还活着的手势是错的。editor generation 取 `documentIdentifier` 的前八个字节，不用 `hashValue`（Swift 的哈希按进程加种子）。第三条是**直出**：中文跟随模式且 Engine 空闲时，逗号、句点或冒号紧跟 ASCII 字母或数字**且共享偏好中对应的 `smart_punctuation_direct_letter` / `smart_punctuation_direct_digit` 已开启**时保留 ASCII——这两个开关默认关闭，未开启时仍走 Engine 的中文标点；锁定中文或英文优先；已有组合、日语、英文和本地模式仍交给 Engine。扩展只从 `UITextDocumentProxy.documentContextBeforeInput` 提取紧邻光标的一个 Unicode 标量，不保存或记录宿主文字；中文/日文键帽显示值会先映射回 Engine 的 ASCII 标点输入，缺失上下文安全回退到 Engine 标点。
 
 表情浏览器以远端默认分支固定来源 `MSIME-Apple@7de60fb5c5590f33e7f515db7e595a1d7e848ad1` 为交互基线，在空闲候选工具栏和“更多”面板提供入口，按 Unicode 固定顺序显示最近、笑脸、人物、动物、食物、旅行、活动、物品、符号和旗帜，每行八项，支持删除和返回。为适配共享客户端架构，iOS 不复制 Apple 扩展内的 SQLite 读取器，而是在串行后台队列通过共享 C ABI 分页读取已验证 `others.db`；每页、游标、文本和注释均有边界校验，过期分类结果不会覆盖当前页。选择后通过正常 `UITextDocumentProxy` 路径插入并记录最多 24 项的去重最近使用；打开面板前先由 Engine 完成已有组合，不保存或记录编辑器上下文。
 
