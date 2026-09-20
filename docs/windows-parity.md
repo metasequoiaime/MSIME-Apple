@@ -566,7 +566,28 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 **这个缺口值得单独记一笔**，因为它不是功能缺口而是**验证工具缺口**：本表里「原生 TSF / 真实编辑器交互验证」这一项之所以一直推迟，缺的正是一个可控的编辑宿主，而来源自带了一个。本仓库 `platforms/windows/msimeui/demos/` 下只有 `msimeui-demo`（绘制 demo），没有对应的 TSF 编辑控件宿主。
 
-本批没有移植它：那是一个需要真实 Windows 或 TSF 支持完备的环境才能运行的 Direct2D 工程，而 Wine 的 TSF 支持正是本表推迟该项的原因。移植一个无法运行、因而无法验证的宿主，与本轮一贯的做法相悖。按「已识别、未移植」记录，等有真实 Windows 主机时它就是现成的起点。
+本批没有移植它，按「已识别、未移植」记录。**当时给的理由（「Wine 的 TSF 支持不足」）随即被下一批的实测推翻**，见第四十五批：核心链路在 Wine 下完全可用。不移植的理由因此要重述为——该工程用 Direct2D 绘制并依赖真实 TIP 激活，而 TIP 激活这一步尚未用真实 COM 服务器验证过。等那一步过了，它就是现成的起点。
+
+
+增量记录（2026-09-20，Windows 第四十五批：实测 Wine 的 TSF，推翻一个继承来的假设）：上一批把「原生 TSF / 真实编辑器交互验证」推迟的理由写成「Wine 的 TSF 支持不足」。那是从表里继承的说法，**本轮此前没有人实测过**。这批测了。
+
+容器里的 Wine 带 `msctf.dll`、`msctfmonitor.dll`、`msctfp.dll`、`msimtf.dll`，注册表里有 `HKLM\SOFTWARE\Microsoft\CTF` 及其 `TIP` 子键。用最小探针逐个调用，结果是：
+
+- `CoCreateInstance(CLSID_TF_ThreadMgr)` → S_OK
+- `ITfThreadMgr::Activate` → S_OK，拿到 client id
+- `CreateDocumentMgr` → S_OK
+- `ITfDocumentMgr::CreateContext` → S_OK，拿到编辑 cookie
+- `Push` + `SetFocus` + `GetFocus` 往返 → S_OK，取回的正是同一个文档
+- `CoCreateInstance(CLSID_TF_InputProcessorProfiles)` → S_OK
+- `ITfInputProcessorProfiles::Register` → S_OK
+- `AddLanguageProfile` → S_OK
+- `ActivateLanguageProfile` → **E_INVALIDARG**
+
+**结论要分两半说，不能含糊。** 文档管理器、编辑上下文、编辑 cookie、焦点往返这条核心链路在 Wine 下完全可用，所以「Wine 的 TSF 不足以承载一个编辑宿主」这个说法，就核心路径而言**不成立**。
+
+唯一失败的 `ActivateLanguageProfile` **不能归咎于 Wine**：探针注册的是一个临时 CLSID，背后没有任何 COM 服务器，E_INVALIDARG 完全可能是这个测试设置本身造成的。要分辨，得拿本仓库真实的 TIP 去试——而 `msime-tsf` 当前不在交叉构建的产物里（它要求 `WIN32` 并依赖 `MSIME_HOST_LIBRARY`），本批没有走到那一步。
+
+所以下一步是明确的：让 `msime-tsf` 在 mingw 交叉构建里产出，再用真实 COM 服务器重试激活。在那之前，表里那几行的推迟理由应当写成「TIP 激活未经真实服务器验证」，而不是笼统的「Wine 的 TSF 支持不足」——后者已被实测推翻。
 
 ## 来源模块的落点
 
