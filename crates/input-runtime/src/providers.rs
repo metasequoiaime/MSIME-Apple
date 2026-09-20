@@ -391,6 +391,115 @@ impl UnixSocketProvider {
         .then_some(result)
     }
 
+    /// List the models the user's AI service offers, through the same provider
+    /// that holds its credential.
+    ///
+    /// The hosts that keep the token themselves fetch this catalogue directly.
+    /// This one cannot: on Linux the token lives in the provider's owner-only
+    /// file by design, so the provider is the only thing that can authenticate
+    /// the request. `provider` and `endpoint` come from the settings page and the
+    /// provider refuses unless its private configuration names the same two.
+    pub fn ai_models(&self, provider: &str, endpoint: &str) -> Option<Vec<String>> {
+        if provider.is_empty()
+            || provider.len() > 64
+            || endpoint.is_empty()
+            || endpoint.len() > 2048
+            || provider.chars().any(char::is_control)
+            || endpoint.chars().any(char::is_control)
+        {
+            return None;
+        }
+        let request = json!({
+            "version": 1,
+            "kind": "ai_models",
+            "query": { "provider": provider, "endpoint": endpoint },
+        })
+        .to_string();
+        let mut stream = self.connect()?;
+        let line = exchange_panel_request(
+            &mut stream,
+            &request,
+            16_384,
+            std::time::Duration::from_secs(15),
+        )?;
+        #[derive(Deserialize)]
+        struct Reply {
+            models: Vec<String>,
+        }
+        let reply: Reply = serde_json::from_str(&line).ok()?;
+        (reply.models.len() <= 128
+            && !reply.models.is_empty()
+            && reply.models.iter().all(|model| {
+                !model.is_empty() && model.len() <= 256 && !model.chars().any(char::is_control)
+            }))
+        .then_some(reply.models)
+    }
+
+    /// Run one polish request through the user's AI service and return its text.
+    ///
+    /// Same reason as `ai_models` for going through the provider, and the same
+    /// agreement check plus the model, which a polish request actually runs on.
+    /// The prompt and the sample text are the user's; they are not logged here and
+    /// the provider does not cache them.
+    pub fn ai_test(
+        &self,
+        provider: &str,
+        endpoint: &str,
+        model: &str,
+        prompt: &str,
+        text: &str,
+    ) -> Option<String> {
+        if provider.is_empty()
+            || provider.len() > 64
+            || endpoint.is_empty()
+            || endpoint.len() > 2048
+            || model.is_empty()
+            || model.len() > 256
+            || text.trim().is_empty()
+            || text.len() > 8192
+            || prompt.len() > 8192
+            || [provider, endpoint, model]
+                .iter()
+                .any(|value| value.chars().any(char::is_control))
+        {
+            return None;
+        }
+        let request = json!({
+            "version": 1,
+            "kind": "ai_test",
+            "query": {
+                "provider": provider,
+                "endpoint": endpoint,
+                "model": model,
+                "prompt": prompt,
+                "text": text,
+            },
+        })
+        .to_string();
+        if request.len() > 32_768 {
+            return None;
+        }
+        let mut stream = self.connect()?;
+        let line = exchange_panel_request(
+            &mut stream,
+            &request,
+            32_768,
+            std::time::Duration::from_secs(20),
+        )?;
+        #[derive(Deserialize)]
+        struct Reply {
+            text: String,
+        }
+        let reply: Reply = serde_json::from_str(&line).ok()?;
+        let polished = reply.text.trim();
+        (!polished.is_empty()
+            && polished.len() <= 16_384
+            && !polished
+                .chars()
+                .any(|character| character.is_control() && character != '\n'))
+        .then(|| polished.to_owned())
+    }
+
     /// Ask the user-owned handwriting recognizer for up to twelve candidates.
     /// The Linux panel owns ink capture and presentation; this service owns
     /// model selection and any platform-specific recognizer integration.
