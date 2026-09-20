@@ -115,6 +115,8 @@ pnpm --filter @msime/harmony build
 
 之所以提交而不是在打包时生成，是因为 `hvigorw assembleHap` 不会调用 Node 工具链；HAP 打包时这个文件必须已经在 rawfile 里。它也必须是**单文件**：`resource://` 文档的 origin 为 null，WebView 会拒绝跨 origin 拉取模块脚本和样式表，所以脚本、样式和资源全部内联进 HTML，因此体积在 1 MB 以上。改动共享设置 UI（`packages/ui`）后需要重新生成并连同源码一起提交，否则 HarmonyOS 上看到的还是旧界面。
 
+这一段以上的话此前就写在这里，仍然被违反了 52 次：从 #2863 到本次修复之间有 52 个提交改动 `packages/ui/src`，包没有重建过一次，HarmonyOS 的设置页一直在渲染一个别处已经不存在的界面。陈旧的包不会报错——它照常打开，只是少掉了此后加的每一个控件。因此 `scripts/verify-local.sh` 现在跑 `scripts/test-harmony-settings-bundle.py`：重建到临时目录并逐字节比对（该构建可复现，三次构建同一哈希），不一致就失败并给出重建命令。校验只报告漂移，不替你改文件。没写成 hvigor 任务是因为打包侧调不动 Node 工具链，而 `verify-local.sh` 本来就是本仓唯一的合并前门。
+
 ## 本地构建
 
 准备 DevEco Studio 提供的 OpenHarmony NDK，或设置 `MSIME_OHOS_NDK` 指向包含 `build/cmake/ohos.toolchain.cmake` 的 NDK。先安装依赖（根目录 `pnpm install --frozen-lockfile`），准备对应 Rust target、目标 ABI 的 SQLite 前缀和 Boost/fmt/spdlog CMake 配置目录。非 Homebrew 布局需显式设置 `MSIME_BOOST_DIR`、`MSIME_BOOST_HEADERS_DIR`、`MSIME_FMT_DIR` 和 `MSIME_SPDLOG_DIR`，再运行：

@@ -90,6 +90,10 @@ import {
   type HardwareKeyTarget,
 } from "../entry/src/main/ets/keyboard/HardwareKeyDispatch";
 import {
+  ImeEnabledState,
+  OnboardingStatePolicy,
+} from "../entry/src/main/ets/keyboard/input/OnboardingStatePolicy";
+import {
   AttachedKeyboardType,
   HardwareKeyboardPolicy,
   KeyRoutingTransition,
@@ -4376,6 +4380,83 @@ group("a malformed enumeration is not trusted", () => {
   check(
     HardwareKeyboardPolicy.applyChange(null, null).length === 0,
     "no devices and no change is no devices",
+  );
+});
+
+group("setup has two steps and they fail separately", () => {
+  const own = "app.msime.client";
+  check(
+    OnboardingStatePolicy.required({
+      enabled: ImeEnabledState.DISABLED,
+      currentBundle: "",
+      ownBundle: own,
+    }) === true,
+    "a keyboard nobody enabled opens the welcome flow",
+  );
+  // Enabled but not selected is where someone lands after doing half the setup, and it looks
+  // exactly like a working install until they try to type.
+  check(
+    OnboardingStatePolicy.required({
+      enabled: ImeEnabledState.FULL_EXPERIENCE_MODE,
+      currentBundle: "com.example.other",
+      ownBundle: own,
+    }) === true,
+    "enabled but not current still has a step left",
+  );
+  check(
+    OnboardingStatePolicy.required({
+      enabled: ImeEnabledState.FULL_EXPERIENCE_MODE,
+      currentBundle: own,
+      ownBundle: own,
+    }) === false,
+    "enabled and current goes straight to settings",
+  );
+  check(
+    OnboardingStatePolicy.required({
+      enabled: ImeEnabledState.BASIC_MODE,
+      currentBundle: own,
+      ownBundle: own,
+    }) === false,
+    "basic mode is enabled too",
+  );
+});
+
+group("an unanswerable setup query does not send anyone back to a welcome screen", () => {
+  // Someone who has typed with this keyboard for weeks must not meet a welcome screen because one
+  // system call failed. Settings is reachable from the flow; the flow is not reachable from
+  // settings, so the safe direction is settings.
+  check(
+    OnboardingStatePolicy.required({
+      enabled: null,
+      currentBundle: "",
+      ownBundle: "app.msime.client",
+    }) === false,
+    "an unreadable enablement state opens settings",
+  );
+  check(
+    OnboardingStatePolicy.required({
+      enabled: ImeEnabledState.FULL_EXPERIENCE_MODE,
+      currentBundle: "",
+      ownBundle: "app.msime.client",
+    }) === false,
+    "an unreadable current keyboard opens settings",
+  );
+  // An unreadable own name would otherwise compare unequal to every keyboard, including this one.
+  check(
+    OnboardingStatePolicy.required({
+      enabled: ImeEnabledState.FULL_EXPERIENCE_MODE,
+      currentBundle: "app.msime.client",
+      ownBundle: "",
+    }) === false,
+    "an unreadable own bundle opens settings",
+  );
+  check(
+    OnboardingStatePolicy.describe({
+      enabled: ImeEnabledState.FULL_EXPERIENCE_MODE,
+      currentBundle: "com.example.other",
+      ownBundle: "app.msime.client",
+    }) === "enabled but not current, opening welcome flow",
+    "the reason the window opened where it did is recorded, not inferred afterwards",
   );
 });
 
