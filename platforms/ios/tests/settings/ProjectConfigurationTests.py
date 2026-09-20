@@ -196,16 +196,21 @@ class ProjectConfigurationTests(unittest.TestCase):
         self.assertIn("path = HelpAndFeedbackViews.swift", project)
         self.assertEqual(project.count("HelpAndFeedbackViews.swift in Sources"), 2)
 
-    def test_shipping_build_uses_the_shared_tauri_ios_host(self):
+    def test_shipping_build_uses_the_native_ios_host(self):
         script = (IOS_ROOT / "build-app.sh").read_text()
         self.assertIn('tauri_target=aarch64-sim', script)
         self.assertIn('tauri_target=aarch64', script)
-        self.assertIn('pnpm --filter @msime/desktop tauri ios build \\', script)
-        self.assertIn('--target "$tauri_target" --no-sign --ci', script)
-        self.assertIn('MSIME_IOS_LEGACY_APP:-0', script)
-        shipping = script.split('if [ "${MSIME_IOS_LEGACY_APP:-0}" = 1 ]; then', 1)[0]
-        self.assertNotIn('xcodegen generate', shipping)
-        self.assertNotIn('xcodebuild', shipping)
+        guard = 'if [ "${MSIME_IOS_TAURI_COMPONENT:-0}" = 1 ]; then'
+        self.assertIn(guard, script)
+        component, shipping = script.split(guard, 1)[1].split("\nfi\n", 1)
+        # The Tauri iOS build is the shared component, reachable only behind the explicit opt-in.
+        self.assertIn('pnpm --filter @msime/desktop tauri ios build \\', component)
+        self.assertIn('--target "$tauri_target" --no-sign --ci', component)
+        self.assertNotIn('tauri ios build', shipping)
+        # The default product is the native host under platforms/ios.
+        self.assertIn('xcodegen generate', shipping)
+        self.assertIn('-scheme MSIMEClientApp', shipping)
+        self.assertNotIn('MSIME_IOS_LEGACY_APP', script)
 
 
 if __name__ == "__main__":
