@@ -759,7 +759,7 @@ void WaveOverlay::draw()
     }
 
     const HRESULT hr = render_target_->EndDraw();
-    if (hr == D2DERR_RECREATE_TARGET)
+    if (hr == static_cast<HRESULT>(D2DERR_RECREATE_TARGET))
     {
         release_render_target();
     }

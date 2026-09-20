@@ -1,6 +1,14 @@
 cmake_minimum_required(VERSION 3.25)
 include_directories("${CMAKE_CURRENT_SOURCE_DIR}/src/server" "${CMAKE_CURRENT_SOURCE_DIR}/src/ipc" "${CMAKE_CURRENT_SOURCE_DIR}/src/candidate" "${CMAKE_CURRENT_SOURCE_DIR}/src/voice" "${CMAKE_CURRENT_SOURCE_DIR}/src/clipboard" "${CMAKE_CURRENT_SOURCE_DIR}/src/input" "${CMAKE_CURRENT_SOURCE_DIR}/src/system")
 project(MSIMEClientWindowsBoundary LANGUAGES CXX)
+# State the Windows this targets instead of taking whatever the toolchain
+# happens to default to. The code already requires 1703: per-monitor v2 DPI
+# awareness and ID2D1DeviceContext5 both arrive there, and the latter sits
+# behind NTDDI_WIN10_RS2 in the Direct2D headers. Toolchains disagree on the
+# default - the build worked on one MinGW and failed to find that interface on
+# another - which is the kind of difference a build should not be deciding by
+# accident.
+add_compile_definitions(_WIN32_WINNT=0x0A00 NTDDI_VERSION=0x0A000003)
 set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 include(CTest)
