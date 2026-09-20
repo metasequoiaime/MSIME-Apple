@@ -4309,7 +4309,14 @@ test("cloud candidate rows trigger ranking and keep secondary actions grouped", 
       expect.objectContaining({ operation: "rank", code: "ni'hao", word: "你好" }),
     ),
   );
-  expect(document.querySelector(".cloud-dictionary-item-actions")).not.toBeNull();
+  // "Grouped" means the row's secondary actions sit together in one container rather than scattered
+  // through the row. Asserted through the buttons themselves: they are what has to stay grouped, and
+  // the container's class is a styling detail with no reason to be stable.
+  const row = screen.getByRole("button", { name: "调频候选 你好" }).parentElement!;
+  const group = row.querySelector("div")!;
+  expect(group).not.toBeNull();
+  const grouped = Array.from(group.querySelectorAll("button")).map((button) => button.textContent);
+  expect(grouped).toEqual(["调频", "固定", "删除"]);
   expect(confirm).toHaveBeenCalledWith("调整此云端候选的排序？");
   confirm.mockRestore();
 });

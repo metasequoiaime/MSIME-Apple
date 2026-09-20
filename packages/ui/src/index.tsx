@@ -49,6 +49,7 @@ import {
 } from "./keyboard/screen-keyboard-preview";
 import type { TouchKeyboardSkin } from "./keyboard/screen-keyboard-preview";
 import { TouchKeyboardSkinEditor } from "./keyboard/touch-keyboard-skin-editor";
+import * as skin from "./keyboard/touch-skin-style";
 import {
   defaultTouchKeyboardSkinDesign,
   type AiSkinClient,
@@ -4706,7 +4707,7 @@ export function SettingsPage({
                     )}
                     {client.touchKeyboardSchemes && (
                       <div
-                        className="section touch-keyboard-schemes"
+                        className="section"
                         role="group"
                         aria-labelledby="touch-keyboard-schemes-title"
                       >
@@ -4721,15 +4722,12 @@ export function SettingsPage({
                             const enabled = touchKeyboardSchemes.enabled.includes(scheme);
                             const selected = selectedTouchKeyboardScheme === scheme;
                             return (
-                              <div
-                                className="input-option-item touch-keyboard-scheme-item"
-                                key={scheme}
-                              >
+                              <div className="input-option-item" key={scheme}>
                                 {index > 0 && <div className="input-option-divider" />}
-                                <div className="touch-keyboard-scheme-row">
+                                <div className={skin.schemeRow}>
                                   <button
                                     type="button"
-                                    className="touch-keyboard-scheme-select"
+                                    className={skin.schemeSelect(selected)}
                                     aria-label={`设为当前输入方案 ${label}`}
                                     aria-pressed={selected}
                                     disabled={!enabled}
@@ -6993,21 +6991,22 @@ export function SettingsPage({
                       </label>
                     </div>
                     <div
-                      className="section touch-keyboard-skin-section"
+                      className="section"
                       role="group"
                       aria-labelledby="touch-keyboard-skin-title"
                     >
                       <div className="section-title" id="touch-keyboard-skin-title">
                         键盘皮肤<small>与 Apple 内置皮肤一致；独立于桌面候选窗皮肤</small>
                       </div>
-                      <div className="touch-keyboard-skin-grid">
+                      <div className={skin.skinGrid}>
                         {touchKeyboardSkinOptions.map((option) => (
                           <article
-                            className={`touch-keyboard-skin-card${touchKeyboardSkin === option.id ? " selected" : ""}`}
+                            className={skin.skinCard(touchKeyboardSkin === option.id)}
                             key={option.id}
                           >
                             <button
                               type="button"
+                              className={skin.skinCardButton}
                               role="switch"
                               aria-label={`屏幕键盘皮肤 ${option.title}`}
                               aria-checked={touchKeyboardSkin === option.id}
@@ -7018,22 +7017,21 @@ export function SettingsPage({
                                 skin={option.id}
                                 compact
                               />
-                              <span className="touch-keyboard-skin-copy">
+                              <span className={skin.skinCardCopy}>
                                 <strong>{option.title}</strong>
                                 <small>{option.description}</small>
                               </span>
-                              <span className="touch-keyboard-skin-check" aria-hidden="true">
+                              <span className={skin.skinCardCheck} aria-hidden="true">
                                 {touchKeyboardSkin === option.id ? "✓" : ""}
                               </span>
                             </button>
                           </article>
                         ))}
                         {client.customTouchKeyboardSkins && (
-                          <article
-                            className={`touch-keyboard-skin-card${touchKeyboardSkin === "custom" ? " selected" : ""}`}
-                          >
+                          <article className={skin.skinCard(touchKeyboardSkin === "custom")}>
                             <button
                               type="button"
+                              className={skin.skinCardButton}
                               role="switch"
                               aria-label="屏幕键盘皮肤 我的皮肤"
                               aria-checked={touchKeyboardSkin === "custom"}
@@ -7045,11 +7043,11 @@ export function SettingsPage({
                                 customDesign={customTouchKeyboardSkin}
                                 compact
                               />
-                              <span className="touch-keyboard-skin-copy">
+                              <span className={skin.skinCardCopy}>
                                 <strong>我的皮肤</strong>
                                 <small>自由配色 · 自定义键帽</small>
                               </span>
-                              <span className="touch-keyboard-skin-check" aria-hidden="true">
+                              <span className={skin.skinCardCheck} aria-hidden="true">
                                 {touchKeyboardSkin === "custom" ? "✓" : ""}
                               </span>
                             </button>
@@ -7059,7 +7057,7 @@ export function SettingsPage({
                       {client.customTouchKeyboardSkins && (
                         <button
                           type="button"
-                          className="secondary touch-skin-editor-open"
+                          className={`secondary ${skin.editorOpen}`}
                           aria-expanded={showTouchSkinEditor}
                           onClick={() => setShowTouchSkinEditor((value) => !value)}
                         >
@@ -7068,7 +7066,7 @@ export function SettingsPage({
                       )}
                     </div>
                     {mobilePlatform && client.communitySkins && (
-                      <div className="section touch-skin-community-entry">
+                      <div className="section">
                         <div className="section-header">
                           <span className="section-title">
                             社区皮肤<small>看看别人做的键盘皮肤，可以直接试用或保存</small>
@@ -7228,7 +7226,6 @@ export function SettingsPage({
                       >
                         <div className="panel-preview-label">预览</div>
                         <div
-                          className="touch-keyboard-geometry-drag-surface"
                           aria-label="拖动预览调整键盘间距"
                           onPointerDown={beginTouchGeometryDrag}
                           onPointerMove={updateTouchGeometryDrag}
