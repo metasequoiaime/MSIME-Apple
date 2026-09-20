@@ -200,6 +200,35 @@ export class AccountCloudBridge {
     }
   }
 
+  /**
+   * Who is signed in, for a caller that has to check before writing to the device.
+   *
+   * Applying cloud settings names the account they were read from. If the session changed in
+   * between — a sign-out and a different sign-in while the confirmation was on screen — the values
+   * on screen belong to someone else, and writing them is the one failure this sync could have that
+   * the user would not be able to undo from here.
+   */
+  currentUserId(): string | null {
+    const session = this.session;
+    if (session === null || session.expires_at <= Date.now()) return null;
+    return session.user.id;
+  }
+
+  /** The account preference schema and document, for the native half of the settings sync. */
+  async preferenceSchema(): Promise<{ value?: Action; error?: string }> {
+    return await this.authenticatedJson("GET", "/v1/users/me/preferences/schema");
+  }
+
+  async loadPreferenceDocument(): Promise<{ value?: Action; error?: string }> {
+    return await this.authenticatedJson("GET", "/v1/users/me/preferences");
+  }
+
+  async putPreferenceDocument(
+    value: Record<string, unknown>,
+  ): Promise<{ value?: Action; error?: string }> {
+    return await this.authenticatedJson("PUT", "/v1/users/me/preferences", value);
+  }
+
   /** Native-only raw download used for bounded snapshot files; never exposed to the WebView. */
   async rawAuthenticated(method: string, path: string): Promise<AccountTransportResponse> {
     const session = this.session;
