@@ -1538,3 +1538,20 @@ Fcitx5 候选动作执行 stale 栅栏增量（2026-09-19）：CandidateAction �
 四条反向验证会红。另两条如实记为**不会红**：`modifiers & ~1u` 与 Unicode 的 Shift+数字早退，都是同一规则的第二次声明——`translate_key` 对 Shift 以外的修饰键已返回 CancelAndForward，Shift+数字落空后本来也返回 None。作为这个函数自己的契约保留是合理的，但注释写明了，断言钉的是行为不是那两行。
 
 这已是本轮第三次遇到同一个形状（第十九批的 `wch <= 127`、本批这两条）：一层纵深防御在它那一层是看不出是否承重的，而给它编一个「能红」的断言等于骗自己。写清楚它由谁真正保证，比让测试看起来更满更有用。
+
+增量记录（2026-09-21，Windows 第二十一批：切到英文时组字怎么处理，以及一条自我纠错）：目标起点 `3e8eb7edc`。
+
+先记纠错。上一批我据来源 Server 的 `ShouldResetCompositionForImeMode` → `ClearState()` 判定「离开中文态应当丢弃组字」，把 `setEnglishInputMode:` 的 `MSIME_FINISH_COMPOSITION` 改成 `MSIME_CANCEL`，结果本仓已有的 Shift 轻点用例立刻变红——那条用例钉的是「组字中途轻点 Shift 上屏的是已输入的原始字母」。读错了：Server 那次 `ClearState()` 是收到客户端状态快照后清自己的后端，TSF 侧早已处理完组字（`IsBackendIndependentCompositionResetKey` 的注释明说「TSF locally consumes these keys and completes/cancels its composition」）。**只读 Server 不读 TSF 客户端，就会把清后端误当成丢用户的字。**
+
+去 `windows/src/` 读客户端，两条规则各自成立，而且**不是同一条**：
+
+- Shift 的中英文切换走 `FUNCTION_TOGGLE_IME_MODE` → `_HandleToogleIMEMode`，提交 `GetKeystrokeBuffer()` 里的原始击键串。本仓 Shift 轻点先发 `MSIME_COMMIT_RAW` 再切，对得上（早前那批已修）。
+- 英文输入模式开关（来源是 Ctrl+Shift+E）走 `FUNCTION_CANCEL` → `_HandleCancel`，`_RemoveDummyCompositionForComposing` + `_DeleteCandidateList` + `_TerminateComposition`，**什么都不上屏**。
+
+本仓把第一条的做法抄到了两个入口：菜单「选择英文模式」、Ctrl+Option+Space、悬浮工具栏的切换，全都发 `MSIME_FINISH_COMPOSITION`，也就是把高亮的中文候选提交进文档。用户伸手切英文恰恰是因为屏幕上的候选不是他要的，这时候替他上屏一个没人选的词。改为 `MSIME_CANCEL`，Shift 那条不受影响——它在调用之前已经把原始字母上屏，到这里没有东西可丢。
+
+用例钉的是行为而不是假 session 的默认应答：组字在途时切换，断言发出的是 `MSIME_CANCEL` 且客户端既没有收到 commit 也没有残留 marked text。反向验证过（改回 finish 红在 `TestControlOptionSpace`）。假 session 相应加了 `failCancel` 与 `cancelTransition`，因为「Engine 失败时不得切换模式」这条原来只能让 finish 失败。
+
+同一批里修掉一个自己上一批（#3387）引入的回归，它是被完整 macOS ctest 抓到的，而 #3387 我只跑了 workspace 测试与 `--quick`：来源的座位表 `candidate_selection_policy.h` 每个来源只安排一个候选，因为来源那边每种只有一个；本仓一次可以拿到多个（AI 上限十条），而我把「第一个之后的」归进了本地候选——本地候选是抢第一座的，于是第二条 AI 建议被顶到空格键上，第一条反而靠后。改成按来源分组、整组落座。这条现在有 Rust 用例（`several_candidates_from_one_provider_take_their_seat_as_a_group`），在代码所在的那一层，不必等 macOS 那一侧的集成用例才发现；假引擎为此多了一个 `sources` 字段。注意用例的并行数组必须等长，否则座位表整个提前返回，什么都不验。
+
+教训写在这里而不是留在会话里：**跨进程的功能，只读其中一侧的代码就下结论，必然读错一半。** 来源是 TSF 客户端 + Server 两半，本仓把两半合进一个 controller，于是来源里分属两侧的规则在这里看起来像一条。

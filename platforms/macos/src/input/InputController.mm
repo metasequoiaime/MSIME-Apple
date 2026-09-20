@@ -877,7 +877,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (!gloss.length) return NO;
     [(id<MSIMETextClient>)sender insertText:gloss replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
     _armedGlossColumn = 0;
-    NSDictionary *cancelled = [_session command:MSIME_CANCEL error:nil];
+    NSDictionary *cancelled = [_session command:MSIME_FINISH_COMPOSITION error:nil];
     if (cancelled) [self apply:cancelled];
     return YES;
 }
@@ -1979,9 +1979,19 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     [self ensureAppearance];
     const BOOL changed = _appearance.englishMode != enabled;
     if (enabled && !_appearance.englishMode && _session && _activeClient) {
-        NSDictionary *finished = [_session command:MSIME_FINISH_COMPOSITION error:nil];
-        if (!finished) return; // Do not hide an unsettled composition after an Engine failure.
-        [self apply:finished];
+        // Switching into English drops what was being composed rather than committing it. The
+        // reference has two different rules here and this host had copied the wrong one onto both
+        // entry points: its Shift toggle is FUNCTION_TOGGLE_IME_MODE, whose handler commits the raw
+        // keystroke buffer, while its English-mode switch (Ctrl+Shift+E) is FUNCTION_CANCEL, whose
+        // handler terminates the composition and sends nothing. Committing instead put a Chinese
+        // candidate nobody chose into the document - the user reached for English precisely because
+        // the candidates on screen were not what they wanted.
+        //
+        // The Shift tap keeps its own rule: it commits the raw letters before calling this, which
+        // leaves nothing here to cancel.
+        NSDictionary *cancelled = [_session command:MSIME_CANCEL error:nil];
+        if (!cancelled) return; // Do not hide an unsettled composition after an Engine failure.
+        [self apply:cancelled];
     }
     _appearance.englishMode = enabled;
     [self resetCandidateAnchor];
