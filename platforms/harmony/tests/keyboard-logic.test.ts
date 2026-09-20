@@ -186,6 +186,10 @@ import {
 } from "../entry/src/main/ets/keyboard/input/CandidateTextPolicy";
 import { CandidateSkinPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateSkinPolicy";
 import {
+  PanelShortcut,
+  PanelShortcutPolicy,
+} from "../entry/src/main/ets/keyboard/input/PanelShortcutPolicy";
+import {
   CandidateSkinCatalogPolicy,
   CandidateSkinPackage,
 } from "../entry/src/main/ets/keyboard/candidate/CandidateSkinCatalogPolicy";
@@ -4517,6 +4521,59 @@ group("candidate skins are not offered as touch-keyboard skins", () => {
   for (const id of ["fluent", "wechat", "graphite", "willow_green"]) {
     check(!KeyboardSkin.BUILT_IN_IDS.includes(id), `${id} stays out of the touch-keyboard picker`);
   }
+});
+
+group("the panel chord opens the screen keyboard", () => {
+  const chord = (over: Record<string, unknown> = {}) => ({
+    keyCode: 2027,
+    down: true,
+    ctrlKey: true,
+    shiftKey: true,
+    altKey: false,
+    logoKey: true,
+    ...over,
+  });
+  check(
+    PanelShortcutPolicy.shortcut(chord()) === PanelShortcut.SCREEN_KEYBOARD,
+    "Ctrl+Shift+Super+K asks for the screen keyboard, as Windows binds it",
+  );
+  // A chord that fires on a superset would swallow a combination the editor was meant to receive.
+  check(
+    PanelShortcutPolicy.shortcut(chord({ altKey: true })) === PanelShortcut.NONE,
+    "adding Alt makes it a different chord, not this one",
+  );
+  for (const missing of ["ctrlKey", "shiftKey", "logoKey"]) {
+    check(
+      PanelShortcutPolicy.shortcut(chord({ [missing]: false })) === PanelShortcut.NONE,
+      `${missing} is required, not merely allowed`,
+    );
+  }
+  check(
+    PanelShortcutPolicy.shortcut(chord({ keyCode: 2021 })) === PanelShortcut.NONE,
+    "another letter with the same modifiers is not the panel chord",
+  );
+});
+
+group("the panel chord is claimed on release as well as press", () => {
+  const release = {
+    keyCode: 2027,
+    down: false,
+    ctrlKey: true,
+    shiftKey: true,
+    altKey: false,
+    logoKey: true,
+  };
+  // Acting twice would toggle the panel straight back shut; letting the release through would put
+  // a bare K in the editor after the panel had already opened.
+  check(
+    PanelShortcutPolicy.shortcut(release) === PanelShortcut.NONE,
+    "the release does not open the panel a second time",
+  );
+  check(PanelShortcutPolicy.claims(release), "but it is still claimed, so no stray K is typed");
+  check(
+    !PanelShortcutPolicy.claims({ ...release, logoKey: false }),
+    "a key that is not part of the chord is left to the editor",
+  );
 });
 
 // The account bridge deliberately models the asynchronous device HTTP API. Give its immediate

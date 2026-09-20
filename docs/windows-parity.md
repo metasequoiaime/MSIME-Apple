@@ -132,6 +132,7 @@
 | 四种皮肤、深浅色、字体 | `candidate/CandidateSkinPolicy.ts`、`skin/KeyboardSkin.ts` 的四套候选配色、`candidate/CandidateFontFamilyPolicy.ts` | 逻辑回归；配色取自上游 `packages/ui/src/upstream/candidate-themes/skins` |
 | `Ctrl+Shift+E`、`Ctrl+Shift+Space`、`Ctrl+.` | `InputModeRouting.ts` | 逻辑回归；硬件键未在设备上按 |
 | `Ctrl+Shift+Alt+1–8`、`+C` | `HardwareKeyRouter.ts`、`KeyboardSession.resetCache` | 逻辑回归；同上 |
+| `Ctrl+Shift+Super+K`（打开屏幕键盘） | `input/PanelShortcutPolicy.ts` → `DesktopSurface.SCREEN_KEYBOARD` | 逻辑回归；硬件键未在设备上按 |
 | 外接键盘（手机/平板接蓝牙或 USB 键盘） | `input/HardwareKeyboardPolicy.ts`、`input/HarmonyHardwareKeyboards.ets` | 逻辑回归；热插拔未在设备上插拔 |
 | 更新、关于、帮助、反馈 | 共享设置页 | 共享 UI |
 | 设置窗口本体 | `pages/Settings.ets` 的 WebView 加载 `apps/harmony` 构建的共享 `SettingsPage` | 构建产物防漂移校验（`scripts/test-harmony-settings-bundle.py`） |

@@ -238,10 +238,18 @@ impl HostCapabilities {
             ),
             // Windows handles Ctrl+Shift+Win+K on its maintenance hook; Linux
             // uses the current IBus context, and macOS uses the current IMK
-            // context with Command in place of the Windows/Super modifier.
+            // context with Command in place of the Windows/Super modifier. A
+            // HarmonyOS keyboard extension has no global hook and sees keys only
+            // while attached to an editor, which turns out to be the wrong
+            // reason to withhold this: the panel inserts into the focused
+            // editor, so an editor is the precondition for it being useful at
+            // all rather than a restriction on when the chord may fire.
             panel_shortcuts: matches!(
                 platform,
-                HostPlatform::Linux | HostPlatform::Windows | HostPlatform::Macos
+                HostPlatform::Linux
+                    | HostPlatform::Windows
+                    | HostPlatform::Macos
+                    | HostPlatform::Harmony
             ),
             // Harmony 2-in-1 hardware keyboards use the same candidate number
             // row as Windows; the ArkTS router releases digits when this
@@ -848,7 +856,10 @@ mod tests {
         assert!(harmony.fuzzy_pinyin);
         // Consumed: the hardware key router reads all four bindings, so the page may offer them.
         assert!(harmony.mode_switch_shortcuts);
-        assert!(!harmony.panel_shortcuts);
+        // Consumed since the panel chord was bound: the extension sees Ctrl+Shift+Super+K while it
+        // is attached to an editor, which is the only state in which a panel that inserts into that
+        // editor is useful anyway.
+        assert!(harmony.panel_shortcuts);
         assert!(harmony.number_row_selection);
         // The two network providers create their own capturer, so a chosen microphone is routable.
         assert!(harmony.voice_capture_devices);
