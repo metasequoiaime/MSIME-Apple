@@ -232,8 +232,9 @@ desktop tests/candidate/external-skins.test.tsx > settings synchronize all cards
 # A WIC bitmap render target might work instead, but that would put the COM
 # dependency back into the path that was just freed of it, for a Wine-only
 # benefit, so it is recorded rather than done.
-wine-x86 windows-server-smoke
-wine-x86 windows-session-smoke
+# Left as prose rather than entries: the wine phase runs x64 and emits names as
+# "wine <suite>", so a "wine-x86" line could never match anything and would sit
+# here looking like something that is checked.
 
 wine windows-voice-controller-connection
 wine windows-voice-controller-listener
