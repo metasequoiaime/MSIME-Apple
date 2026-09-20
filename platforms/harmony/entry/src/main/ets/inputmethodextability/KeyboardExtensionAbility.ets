@@ -21,6 +21,8 @@ import type { KeyEvent as InputKeyEvent } from '@ohos.multimodalInput.keyEvent';
 import { Action as KeyAction } from '@ohos.multimodalInput.keyEvent';
 import { StagedResources } from '../keyboard/StagedResources';
 import { HardwareKeyDispatch } from '../keyboard/HardwareKeyDispatch';
+import { PanelShortcut, PanelShortcutKey, PanelShortcutPolicy }
+  from '../keyboard/input/PanelShortcutPolicy';
 import { AttachedInputDevice, DeviceChange, HardwareKeyboardPolicy, KeyRoutingTransition }
   from '../keyboard/input/HardwareKeyboardPolicy';
 import { HarmonyHardwareKeyboards } from '../keyboard/input/HarmonyHardwareKeyboards';
@@ -382,6 +384,22 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     if (session.routeVoiceHotkey(voiceKey)) {
       return true;
     }
+    // The panel chord, like the voice ones, applies whether or not anything is being composed: the
+    // on-screen keyboard exists for the character the physical keyboard has no key for, and needing
+    // to be mid-composition to ask for it would put it out of reach exactly when it is wanted.
+    const panelKey: PanelShortcutKey = {
+      keyCode: event.key.code, down: event.action === KeyAction.DOWN, ctrlKey: event.ctrlKey,
+      shiftKey: event.shiftKey, altKey: event.altKey, logoKey: event.logoKey
+    };
+    if (PanelShortcutPolicy.claims(panelKey)) {
+      if (PanelShortcutPolicy.shortcut(panelKey) === PanelShortcut.SCREEN_KEYBOARD) {
+        // Asking for the open surface closes it: there is one window, and this is the only way back
+        // to the candidates without a pointing device.
+        this.showDesktopSurface(DesktopSurface.SCREEN_KEYBOARD);
+      }
+      // The release is claimed too, or a bare K lands in the editor after the panel has opened.
+      return true;
+    }
     // Switching mode is the one thing worth claiming in an editor this keyboard will not compose
     // for: the mode outlives the field, and a password box is exactly where one notices being in the
     // wrong one. Checked before anything else, so a chord meant for the mode never reaches the
@@ -398,6 +416,12 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     if (gesture === ModeGesture.TOGGLE_PUNCTUATION) {
       session.togglePunctuation();
       KeyboardSession.shared.refreshToolbar();
+      return true;
+    }
+    // A space with nothing being composed is the editor's, with one exception: it is also the key
+    // that rewrites a just-committed Chinese mark as ASCII, and that arming only exists after a
+    // commit — which is to say, only when nothing is being composed.
+    if (event.action === KeyAction.DOWN && session.convertPunctuationSpace(event.unicodeChar)) {
       return true;
     }
     if (!session.composes()) {

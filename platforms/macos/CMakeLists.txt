@@ -484,8 +484,15 @@ if(MSIME_SPARKLE_ROOT)
   target_compile_options(MSIMEClientInputMethod PRIVATE "-F${MSIME_SPARKLE_ROOT}")
   target_link_libraries(MSIMEClientInputMethod PRIVATE "${MSIME_SPARKLE_FRAMEWORK}")
   set_property(TARGET MSIMEClientInputMethod APPEND PROPERTY BUILD_RPATH "@executable_path/../Frameworks")
+  # ditto, not `cmake -E copy_directory`: the latter follows symlinks, and a macOS framework is mostly
+  # symlinks - Headers, Resources, the binary itself all point into Versions/Current. Flattening them
+  # tripled the staged framework from 3 MB to 9 MB and, worse, left codesign calling the bundle format
+  # ambiguous and refusing to seal it. An input method that cannot be signed cannot be registered as an
+  # input source at all, so this decided whether the product could be installed.
   add_custom_command(TARGET MSIMEClientInputMethod POST_BUILD
-    COMMAND "${CMAKE_COMMAND}" -E copy_directory "${MSIME_SPARKLE_FRAMEWORK}"
+    COMMAND "${CMAKE_COMMAND}" -E rm -rf
+      "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks/Sparkle.framework"
+    COMMAND ditto "${MSIME_SPARKLE_FRAMEWORK}"
       "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks/Sparkle.framework")
 endif()
 add_executable(candidate-skin-test tests/candidate/CandidateSkinTest.cpp src/candidate/CandidateSkin.cpp)

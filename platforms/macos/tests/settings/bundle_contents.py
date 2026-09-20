@@ -117,6 +117,22 @@ def main() -> int:
             if not localised.get(key, "").strip():
                 failures.append(f"{key} is not localised in {lproj.name}")
 
+    # A macOS framework is mostly symlinks - Headers, Resources and the binary all point into
+    # Versions/Current. A copy that follows them produces a directory codesign calls ambiguous and refuses
+    # to seal, and an input method that cannot be signed cannot be registered as an input source at all.
+    for framework in sorted((contents / "Frameworks").glob("*.framework")):
+        versions = framework / "Versions"
+        if not versions.is_dir():
+            failures.append(f"{framework.name} has no Versions directory; it was flattened on the way in")
+            continue
+        for entry in ("Resources", framework.stem):
+            staged = framework / entry
+            if staged.exists() and not staged.is_symlink():
+                failures.append(
+                    f"{framework.name}/{entry} is a copy rather than a link into Versions; "
+                    f"codesign will call the bundle format ambiguous"
+                )
+
     # The on-device recogniser is a build option. Compiled into a library the executable never links, the
     # host accepts the provider in its settings and then recognises somewhere else - which is the state this
     # bundle shipped in before the provider was wired up.

@@ -72,9 +72,21 @@ if [ -n "${MSIME_WINE_RESOURCES:-}" ] && [ -d "${MSIME_WINE_RESOURCES}" ]; then
   resources_argument='Z:\\res'
 fi
 
+# windows-installer-launch reads the real installer script rather than a copy of
+# its arguments, so it needs the repository. That is this runner's to supply -
+# the directory is right here - and not a property of the test.
+installer="$root/platforms/windows/installer"
+installer_mount=()
+installer_argument=""
+if [ -d "$installer" ]; then
+  installer_mount=(-v "$installer":/installer:ro)
+  installer_argument='Z:\\installer\\msime_setup.iss'
+fi
+
 docker run --rm --platform linux/amd64 \
   -v "$build":/bin-win:ro -v "$runtime":/rt:ro ${resources_mount[@]+"${resources_mount[@]}"} \
-  -e "MSIME_RESOURCES=$resources_argument" "$image" sh -c '
+  ${installer_mount[@]+"${installer_mount[@]}"} \
+  -e "MSIME_RESOURCES=$resources_argument" -e "MSIME_INSTALLER=$installer_argument" "$image" sh -c '
 mkdir -p /run/t && cp /rt/*.dll /run/t/ && cp /bin-win/*.dll /run/t/ 2>/dev/null
 cd /run/t
 for exe in /bin-win/windows-*.exe /bin-win/msime-tsf-*.exe /bin-win/msimeui-tests.exe; do
@@ -83,6 +95,7 @@ for exe in /bin-win/windows-*.exe /bin-win/msime-tsf-*.exe /bin-win/msimeui-test
   cp "$exe" /run/t/ 2>/dev/null || continue
   argument=""
   [ "$name" = windows-session-smoke ] && argument="$MSIME_RESOURCES"
+  [ "$name" = windows-installer-launch ] && argument="$MSIME_INSTALLER"
   if timeout 120 xvfb-run -a wine "/run/t/$name.exe" $argument >/dev/null 2>&1; then
     echo "PASS $name"
   else

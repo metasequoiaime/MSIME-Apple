@@ -186,6 +186,14 @@ import {
 } from "../entry/src/main/ets/keyboard/input/CandidateTextPolicy";
 import { CandidateSkinPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateSkinPolicy";
 import {
+  SmartPunctuationSpacePolicy,
+  SpaceConvertDecision,
+} from "../entry/src/main/ets/keyboard/input/SmartPunctuationSpacePolicy";
+import {
+  PanelShortcut,
+  PanelShortcutPolicy,
+} from "../entry/src/main/ets/keyboard/input/PanelShortcutPolicy";
+import {
   CandidateSkinCatalogPolicy,
   CandidateSkinPackage,
 } from "../entry/src/main/ets/keyboard/candidate/CandidateSkinCatalogPolicy";
@@ -4517,6 +4525,202 @@ group("candidate skins are not offered as touch-keyboard skins", () => {
   for (const id of ["fluent", "wechat", "graphite", "willow_green"]) {
     check(!KeyboardSkin.BUILT_IN_IDS.includes(id), `${id} stays out of the touch-keyboard picker`);
   }
+});
+
+group("the panel chord opens the screen keyboard", () => {
+  const chord = (over: Record<string, unknown> = {}) => ({
+    keyCode: 2027,
+    down: true,
+    ctrlKey: true,
+    shiftKey: true,
+    altKey: false,
+    logoKey: true,
+    ...over,
+  });
+  check(
+    PanelShortcutPolicy.shortcut(chord()) === PanelShortcut.SCREEN_KEYBOARD,
+    "Ctrl+Shift+Super+K asks for the screen keyboard, as Windows binds it",
+  );
+  // A chord that fires on a superset would swallow a combination the editor was meant to receive.
+  check(
+    PanelShortcutPolicy.shortcut(chord({ altKey: true })) === PanelShortcut.NONE,
+    "adding Alt makes it a different chord, not this one",
+  );
+  for (const missing of ["ctrlKey", "shiftKey", "logoKey"]) {
+    check(
+      PanelShortcutPolicy.shortcut(chord({ [missing]: false })) === PanelShortcut.NONE,
+      `${missing} is required, not merely allowed`,
+    );
+  }
+  check(
+    PanelShortcutPolicy.shortcut(chord({ keyCode: 2021 })) === PanelShortcut.NONE,
+    "another letter with the same modifiers is not the panel chord",
+  );
+});
+
+group("the panel chord is claimed on release as well as press", () => {
+  const release = {
+    keyCode: 2027,
+    down: false,
+    ctrlKey: true,
+    shiftKey: true,
+    altKey: false,
+    logoKey: true,
+  };
+  // Acting twice would toggle the panel straight back shut; letting the release through would put
+  // a bare K in the editor after the panel had already opened.
+  check(
+    PanelShortcutPolicy.shortcut(release) === PanelShortcut.NONE,
+    "the release does not open the panel a second time",
+  );
+  check(PanelShortcutPolicy.claims(release), "but it is still claimed, so no stray K is typed");
+  check(
+    !PanelShortcutPolicy.claims({ ...release, logoKey: false }),
+    "a key that is not part of the chord is left to the editor",
+  );
+});
+
+group("a numeric keypad is a number row", () => {
+  const key = (over: Record<string, unknown> = {}) => ({
+    keyCode: 2104,
+    unicodeChar: 0,
+    ctrlKey: false,
+    altKey: false,
+    shiftKey: false,
+    logoKey: false,
+    ...over,
+  });
+  // The source normalises the keypad in one place so every digit path gets it at once. Without it
+  // the maintenance chord matched only the number row, because with Ctrl+Shift+Alt held the system
+  // resolves no character and the chord has to match on the code.
+  const normalized = HardwareKeyRouter.normalizeNumpad(key());
+  check(normalized.keyCode === 2001, "keypad 1 reads as the number-row 1");
+  check(normalized.unicodeChar === 0x31, "and carries the digit the system did not resolve");
+  check(
+    HardwareKeyRouter.normalizeNumpad(key({ keyCode: 2112 })).keyCode === 2009,
+    "keypad 9 reads as the number-row 9",
+  );
+  const letter = HardwareKeyRouter.normalizeNumpad(key({ keyCode: 2017, unicodeChar: 0x61 }));
+  check(letter.keyCode === 2017 && letter.unicodeChar === 0x61, "anything else is left alone");
+  // A keypad key that did resolve a character keeps it rather than having one invented.
+  check(
+    HardwareKeyRouter.normalizeNumpad(key({ keyCode: 2106, unicodeChar: 0x33 })).unicodeChar ===
+      0x33,
+    "a resolved character is kept",
+  );
+});
+
+group("keypad digits reach both digit paths", () => {
+  const compose = {
+    minusEqual: true,
+    commaPeriod: true,
+    brackets: false,
+    tab: true,
+    pageUpDown: true,
+    mouseWheel: false,
+    arrows: true,
+  };
+  const chord = HardwareKeyRouter.route(
+    { keyCode: 2105, unicodeChar: 0, ctrlKey: true, altKey: true, shiftKey: true, logoKey: false },
+    true,
+    true,
+    false,
+    compose,
+  );
+  check(
+    chord.action === HardwareKeyAction.REMOVE_CANDIDATE && chord.index === 1,
+    "Ctrl+Shift+Alt+keypad2 deletes the second candidate, as Ctrl+Shift+Alt+2 does",
+  );
+  const select = HardwareKeyRouter.route(
+    {
+      keyCode: 2106,
+      unicodeChar: 0,
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: false,
+      logoKey: false,
+    },
+    true,
+    true,
+    false,
+    compose,
+  );
+  check(
+    select.action === HardwareKeyAction.SELECT && select.index === 2,
+    "keypad 3 picks the third candidate",
+  );
+});
+
+group("space after a Chinese mark rewrites it as ASCII", () => {
+  // Transcribed from SmartPunctuationAsciiFor in the source. Both quote directions map to the same
+  // straight quote, as they do there.
+  check(SmartPunctuationSpacePolicy.asciiFor(0x3002) === 0x2e, "。 becomes .");
+  check(SmartPunctuationSpacePolicy.asciiFor(0x3001) === 0x2f, "、 becomes / rather than a comma");
+  check(SmartPunctuationSpacePolicy.asciiFor(0x201c) === 0x22, "“ becomes a straight quote");
+  check(SmartPunctuationSpacePolicy.asciiFor(0x201d) === 0x22, "and so does ”");
+  check(SmartPunctuationSpacePolicy.asciiFor(0x4e2d) === 0, "a Han character has no ASCII twin");
+
+  const armed = SmartPunctuationSpacePolicy.arm("。", false, true, true, 7);
+  check(armed !== null && armed.ascii === 0x2e, "committing 。 arms the conversion");
+  check(
+    SmartPunctuationSpacePolicy.decide(armed, 0x20, 0x3002, false, 7) ===
+      SpaceConvertDecision.CONVERT,
+    "a space with the mark still before the caret converts",
+  );
+});
+
+group("the conversion declines rather than rewriting the wrong character", () => {
+  const armed = SmartPunctuationSpacePolicy.arm("。", false, true, true, 7);
+  // The arming records what was committed, not what is still there.
+  check(
+    SmartPunctuationSpacePolicy.decide(armed, 0x20, 0x4e2d, false, 7) === SpaceConvertDecision.NONE,
+    "something else before the caret means the caret moved",
+  );
+  check(
+    SmartPunctuationSpacePolicy.decide(armed, 0x20, 0x3002, false, 8) === SpaceConvertDecision.NONE,
+    "a different editor session does not convert",
+  );
+  check(
+    SmartPunctuationSpacePolicy.decide(armed, 0x61, 0x3002, false, 7) === SpaceConvertDecision.NONE,
+    "a key that is not a space is not this gesture",
+  );
+  check(
+    SmartPunctuationSpacePolicy.decide(armed, 0x20, 0x3002, true, 7) === SpaceConvertDecision.NONE,
+    "a space mid-composition belongs to the composition",
+  );
+  check(
+    SmartPunctuationSpacePolicy.decide(null, 0x20, 0x3002, false, 7) === SpaceConvertDecision.NONE,
+    "nothing armed, nothing converted",
+  );
+});
+
+group("what the conversion refuses to arm on", () => {
+  // The caret sits between the two marks of an auto-closed pair, so the character before it is the
+  // opening one and rewriting it would break the pair. The source refuses the same case.
+  check(
+    SmartPunctuationSpacePolicy.arm("（", true, true, true, 1) === null,
+    "an auto-closed pair does not arm",
+  );
+  check(
+    SmartPunctuationSpacePolicy.arm("。", false, true, false, 1) === null,
+    "the switch being off means the setting is honoured, not ignored",
+  );
+  check(
+    SmartPunctuationSpacePolicy.arm("。", false, false, true, 1) === null,
+    "smart punctuation being off takes the whole family with it",
+  );
+  check(
+    SmartPunctuationSpacePolicy.arm("你好", false, true, true, 1) === null,
+    "a commit of more than one scalar is not a mark the space is about",
+  );
+  check(
+    SmartPunctuationSpacePolicy.arm("", false, true, true, 1) === null,
+    "nor is an empty commit",
+  );
+  check(
+    SmartPunctuationSpacePolicy.arm(null, false, true, true, 1) === null,
+    "nor is no commit at all",
+  );
 });
 
 // The account bridge deliberately models the asynchronous device HTTP API. Give its immediate
