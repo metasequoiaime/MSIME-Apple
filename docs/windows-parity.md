@@ -134,6 +134,7 @@
 | 设置页在设备上渲染 | `pages/Settings.ets` WebView 加载共享 `SettingsPage` | **设备上验证**：2in1 上完整侧栏（含 #3165 解封的辅助码页）与候选窗预览 |
 | 屏幕键盘 | 本宿主自身即键盘；2in1 另有 `DesktopSurface.SCREEN_KEYBOARD` | 设备上面板创建成功 |
 | 悬浮工具栏、组件开关、缩放 | `FloatingToolbar.ets`、`FloatingToolbarLayout.ts` | 逻辑回归 |
+| 悬浮工具栏缩放档位与图标字号 | `FloatingToolbarLayout.scale` / `.fontSize` | 与来源逐项一致，见下 |
 | Emoji、颜文字、符号、剪贴板历史 | `emoji/EmojiCatalogModel.ts`、`clipboard/*` | 逻辑回归 |
 | 四种皮肤、深浅色、字体 | `candidate/CandidateSkinPolicy.ts`、`skin/KeyboardSkin.ts` 的四套候选配色、`candidate/CandidateFontFamilyPolicy.ts` | 逻辑回归；配色取自上游 `packages/ui/src/upstream/candidate-themes/skins` |
 | `Ctrl+Shift+E`、`Ctrl+Shift+Space`、`Ctrl+.` | `InputModeRouting.ts` | 逻辑回归；硬件键未在设备上按 |
@@ -199,6 +200,10 @@ composing key produced no composition: scheme=quanpin local=none english=false c
 仍未取得设备证据的是：语音 provider 实际识别、手写实际识别。两者需要真实凭据与真实音频/笔迹。其余条目均有不依赖设备的回归覆盖。
 
 候选皮肤一项此前只写「逻辑回归」，掩盖了一个外观缺陷：四个来源皮肤被近似映射到触摸键盘的调色板上，而 `wechat` 与 `willow_green` 都落在 `forest`，于是微信绿与杨柳青在 2in1 上完全同色——`#07c160` 和 `#58b980` 并不接近，四个皮肤实际只剩三个。不渲染上游 CSS 并不需要另造一套颜色：上游样式表就在本仓库 `packages/ui/src/upstream/candidate-themes/skins` 下，四套配色（明暗各一）现直接取自各自的样式表，由 ArkUI 原生绘制。触摸键盘的八个皮肤是另一项偏好，未改动，这四个也不进触摸皮肤选择器。
+
+悬浮工具栏核对过两项声称，均成立。`FloatingToolbarLayout.scale` 的注释写着"匹配 Windows 工具栏的四档缩放"，核对来源 `floating-toolbar.ts` 的 `normalizeScaleKey`：确实只有 0.75 / 1 / 1.25 / 1.5 四档且其余一律归为 1，本宿主的实现与之逐项相同。图标字号方面，共享设置页给出的选项正是 16、18、20、22、24、26、28，与本宿主的 16..28 与默认 24 完全吻合——共享文档把 `scale_percent` 校验到 50..200、`font_size` 校验到 12..48，那是文档容许范围，不是界面给得出的值。
+
+工具栏的**度量**则与来源不同，这是有意的而非缺陷，记在这里以便后面真要做设计决定时有个出处：来源的 `ui-html/webview2/ftb` 用 `--ftb-bar-height: 35px`、`--ftb-icon-size: 24px`、`--ftb-gap: 6px`、左右内边距 8/4（左侧留给拖动手柄）；本宿主用 44 / 42 / 10.5 与对称的 10，且文件头写明"Ported from platforms/macos/src/FloatingToolbarPanel.mm, including the arithmetic"。也就是说它跟的是 macOS 而不是 Windows。在一台既有触摸又有鼠标的 2in1 上把图标压到 24px 是否合适，是产品判断，不在此单方面改动。
 
 外部皮肤目录是一处已确认的缺口，记在这里而不是直接改掉，因为它的正确解法是一个产品决定。来源的 `skin_directory::open` 有 `#[cfg(target_os = "windows")]` 分支，所以"打开皮肤目录"是来源实实在在有的功能；共享皮肤页把它渲染成一个按钮，并按 `disabled={!openDirectory}` 决定可用性。本宿主不提供该成员，于是那个按钮**渲染出来但永远点不动**。
 
