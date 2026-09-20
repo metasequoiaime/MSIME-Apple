@@ -367,6 +367,7 @@ struct State {
   bool translation_loading = false;
   guint online_delay_source = 0;
   guint translation_delay_source = 0;
+  guint settled_rerank_source = 0;
   bool cloud_candidates = true;
   bool candidate_translations = true;
   bool candidate_english_gloss = false;
@@ -384,6 +385,11 @@ struct State {
     if (translation_delay_source) {
       const auto source = translation_delay_source;
       translation_delay_source = 0;
+      g_source_remove(source);
+    }
+    if (settled_rerank_source) {
+      const auto source = settled_rerank_source;
+      settled_rerank_source = 0;
       g_source_remove(source);
     }
     ++provider_epoch;
@@ -1723,6 +1729,52 @@ void translation_dispatch(IBusEngine *engine) {
 }
 // Match the Windows translation worker's 500ms idle window. Only copy
 // the current Engine query when dispatching, never at the first keystroke.
+/// How long the composition has to stand still before the larger model ranks it.
+///
+/// Shorter than the 500ms the cloud and translation paths wait, because this one is local and its
+/// result changes what the user is looking at rather than annotating it. Long enough that it does
+/// not fire between the keystrokes of ordinary typing, which is what keeps the 24M model off the
+/// keystroke path where it measures p95 153ms against a 16ms frame.
+constexpr guint kSettledRerankDelayMs = 150;
+
+/// Re-rank the visible candidates with the settled model once typing stops.
+///
+/// Every keystroke reschedules, so the pass only runs when the user actually pauses. The runtime
+/// reports whether the order moved and the window is only redrawn when it did: repainting an
+/// identical candidate list on every pause is a flicker with no explanation behind it.
+///
+/// Inert unless a settled model was installed — `msime_client_rerank_settled` answers `moved:
+/// false` immediately when none is attached, which is every installation that ships one model.
+void settled_rerank_schedule(IBusEngine *engine) {
+  auto &s = state(engine);
+  if (s.settled_rerank_source) {
+    const auto source = s.settled_rerank_source;
+    s.settled_rerank_source = 0;
+    g_source_remove(source);
+  }
+  if (!s.session || !s.focused || s.blocked || !s.input_enabled ||
+      s.view.value("candidates", Json::array()).empty())
+    return;
+  s.settled_rerank_source = g_timeout_add_full(
+      G_PRIORITY_DEFAULT, kSettledRerankDelayMs,
+      [](gpointer data) -> gboolean {
+        auto *engine = IBUS_ENGINE(data);
+        auto &s = state(engine);
+        s.settled_rerank_source = 0;
+        if (!s.session) return G_SOURCE_REMOVE;
+        try {
+          const auto applied = response(msime_client_rerank_settled(s.session));
+          if (applied.value("moved", false) && applied.contains("view")) {
+            s.view = applied.at("view");
+            render(engine, s.view);
+          }
+        } catch (...) {
+        }
+        return G_SOURCE_REMOVE;
+      },
+      engine, nullptr);
+}
+
 void translation_schedule(IBusEngine *engine) {
   auto &s = state(engine);
   if (s.translation_delay_source) {
@@ -1879,6 +1931,7 @@ void translation_complete(GObject *source, GAsyncResult *result, gpointer) {
     return;
   if (translation_request_is_stale(engine, request->query)) {
     translation_schedule(engine);
+    settled_rerank_schedule(engine);
     return;
   }
   auto translations = request->local_translations;
@@ -1999,6 +2052,7 @@ void online_complete(GObject *source, GAsyncResult *result, gpointer) {
       translation_dispatch(engine);
     else
       translation_schedule(engine);
+    settled_rerank_schedule(engine);
   } catch (...) {}
 }
 } // namespace
@@ -3332,6 +3386,7 @@ bool apply(IBusEngine *engine, char *raw, PunctuationPairMode pair_mode) {
   render(engine, state(engine).view);
   online_schedule(engine);
   translation_schedule(engine);
+  settled_rerank_schedule(engine);
   return result.at("handled").get<bool>();
 }
 template <class F> void guarded(IBusEngine *engine, const char *operation, F action) noexcept {
@@ -4168,6 +4223,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       publish_mode(engine);
       if (enabled)
         translation_schedule(engine);
+    settled_rerank_schedule(engine);
       return;
     }
     if (property_name.rfind("TranslationLanguage/", 0) == 0) {
@@ -4194,6 +4250,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       publish_mode(engine);
       if (s.candidate_translations)
         translation_schedule(engine);
+    settled_rerank_schedule(engine);
       return;
     }
     if (property_name == "NumberRowSelection") {
@@ -6264,6 +6321,7 @@ void apply_live_preferences(IBusEngine *engine, Json snapshot) {
   render(engine, s.view);
   publish_mode(engine);
   translation_schedule(engine);
+  settled_rerank_schedule(engine);
   online_schedule(engine);
 }
 struct MenuPreferenceSave {
@@ -6563,6 +6621,7 @@ gboolean reload_preferences(gpointer data) {
       publish_mode(engine);
       online_schedule(engine);
       translation_schedule(engine);
+    settled_rerank_schedule(engine);
     }
   });
   if (s.preferences_loading)
