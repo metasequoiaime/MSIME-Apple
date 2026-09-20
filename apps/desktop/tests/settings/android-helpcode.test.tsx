@@ -101,3 +101,37 @@ test("the desktop sidebar keeps the helper-code page and its window wording", as
   fireEvent.click(screen.getByRole("button", { name: "辅助码" }));
   expect(screen.getAllByLabelText("在候选窗口显示辅助码").length).toBe(2);
 });
+
+// HarmonyOS ships the same helper-code input: its ChineseHelpcodePolicy is the Android one,
+// ported, and the session calls it on every shifted key during a quanpin or shuangpin
+// composition. The page was hidden there anyway, which left a shipping feature with no way to
+// pick a schema or turn it off — the state this file's Android tests exist to prevent.
+test("HarmonyOS reaches the helper-code page from 更多设置", async () => {
+  renderSettings("harmony");
+
+  const more = await moreSettings();
+  expect(Array.from(more.options).map((option) => option.text)).toContain("辅助码");
+
+  fireEvent.change(more, { target: { value: "helpcode" } });
+  expect(screen.getByRole("heading", { name: "辅助码" })).toBeTruthy();
+});
+
+test("HarmonyOS saves a helper-code schema into shared preferences", async () => {
+  const save = renderSettings("harmony");
+
+  const more = await moreSettings();
+  fireEvent.change(more, { target: { value: "helpcode" } });
+  const schema = screen.getByRole("combobox", { name: /全拼辅助码方案/ }) as HTMLSelectElement;
+  expect(schema.value).toBe("ziranma");
+  fireEvent.change(schema, { target: { value: "xiaohe" } });
+
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await waitFor(() =>
+    expect(save).toHaveBeenCalledWith(
+      7,
+      expect.objectContaining({
+        quanpin_helpcode: expect.objectContaining({ schema: "xiaohe" }),
+      }),
+    ),
+  );
+});
