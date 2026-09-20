@@ -383,9 +383,8 @@ struct Settings {
                 'typingStatistics', 'openExternalUrl', 'copyText',
                 'openSystemKeyboardSettings', 'listVoiceCaptureDevices', 'listFontFamilies',
                 'keyboardFeedback', 'customTranslations', 'onboardingStatus',
-                'showInputMethodPicker', 'importSkinFolder'],
-              ['account', 'cloudDictionary', 'cloudDictionarySnapshot',
-                'aiModels', 'aiTest', 'testApiCredential']);
+                'showInputMethodPicker', 'importSkinFolder', 'startRequest'],
+              []);
           } catch (error) {
             KeyboardLog.error(`settings bridge not registered: ${describeError(error)}`);
           }
@@ -559,6 +558,55 @@ class SettingsBridge {
     }
     KeyboardLog.info('skin imported');
     return JSON.stringify({ ok: true, value: name, error: '' } as TextReply);
+  }
+
+  /**
+   * Starts one of the asynchronous requests and answers at once.
+   *
+   * A bridge method that returns a Promise never settles on this platform, so the six below could
+   * not answer the page at all: the account, the cloud dictionary and its snapshots, the AI model
+   * list, the AI test and the credential test. They are left as they are and started from here
+   * instead; the reply is delivered afterwards through `runJavaScript`, the same direction the
+   * preference-change notification already uses.
+   *
+   * An unknown kind is answered rather than ignored. A page waiting on a number nobody will ever
+   * send is indistinguishable from a slow network, and this one is a mistake that should say so.
+   */
+  startRequest(kind: string, id: number, payload: string): string {
+    const deliver: (reply: string) => void = (reply: string): void => this.deliverReply(id, reply);
+    const failed: (error: Object) => void = (error: Object): void => {
+      deliver(JSON.stringify({ ok: false, error: describeError(error) }));
+    };
+    if (kind === 'account') {
+      this.account(payload).then(deliver).catch(failed);
+    } else if (kind === 'cloud_dictionary') {
+      this.cloudDictionary(payload).then(deliver).catch(failed);
+    } else if (kind === 'cloud_dictionary_snapshot') {
+      this.cloudDictionarySnapshot(payload).then(deliver).catch(failed);
+    } else if (kind === 'ai_models') {
+      this.aiModels(payload).then(deliver).catch(failed);
+    } else if (kind === 'ai_test') {
+      this.aiTest(payload).then(deliver).catch(failed);
+    } else if (kind === 'api_credential') {
+      this.testApiCredential(payload).then(deliver).catch(failed);
+    } else {
+      KeyboardLog.error(`unknown bridge request: ${kind}`);
+      this.deliverReply(id, JSON.stringify({ ok: false, error: 'unknown_request' }));
+    }
+    return JSON.stringify({ ok: true, value: '', error: '' } as TextReply);
+  }
+
+  /** Hands one reply back to the page, under the number it was asked with. */
+  private deliverReply(id: number, reply: string): void {
+    if (this.webview === undefined) {
+      return;
+    }
+    this.webview.runJavaScript(
+      `globalThis.msimeHarmonyBridgeReply && globalThis.msimeHarmonyBridgeReply(${id}, `
+      + `${JSON.stringify(reply)})`)
+      .catch((error: Object): void => {
+        KeyboardLog.error(`bridge reply not delivered: ${describeError(error)}`);
+      });
   }
 
   /** The shared settings page uses the same validated catalog as desktop presenters. */

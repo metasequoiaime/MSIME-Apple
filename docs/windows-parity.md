@@ -511,6 +511,14 @@ runner 现在自己去找仓库既有的约定缓存 `target/desktop-resources`�
 
 ## 下一批实施顺序
 
+增量记录（2026-09-20，HarmonyOS 异步桥回推通道）：`#3236` 只恢复了无参数的同步方法，六个带参数、要做网络往返的方法仍然是坏的：`asyncMethodList` 与另一条官方异步注册路径在本 API 等级上都会挂住，页面等不到任何 settle。本片改为页面**同步**发起 `startRequest(kind, id, payload)`，宿主做完异步工作后用 `runJavaScript` 按请求号把结果回推，页面侧以请求号匹配 pending promise，30 秒超时。恢复的六条：`account`、`cloud_dictionary`、`cloud_dictionary_snapshot`、`ai_models`、`ai_test`、`api_credential`。
+
+设备证据（MateBook Pro 2in1 模拟器，HarmonyOS 6.0.1(21)）：设置页加载正常；「我的」页点「刷新登录方式」后 NETSTACK 记录到一次真实 HTTPS 往返（`RespCode:200`，45 ms），即请求腿把异步工作真的发了出去。回包腿的直接观测在 AI 辅助页取得：把接口地址填成不可达的 `https://127.0.0.1:1/v1` 并填入 token 后点「获取模型列表」，宿主 `aiModels()` 捕获连接失败（`os_errno 111`，`curl_code 7`）并返回 `{ok:false,error:'ai_models_unavailable'}`，该字符串经 `runJavaScript` 回推后由页面渲染在「服务模型」区。请求与回包两腿都有设备证据。
+
+该次测试中窗口一度整片变黑。这不是页面或进程故障：两个 `app.msime.client:render` 进程始终存活，faultlog 无新条目，宿主磁盘处于 98% 且模拟器 GL 交换管道掉到 3 KB/s（`DGLES d_eglSwapBuffers_special`），移动窗口即完整重绘、之前注入的点击也都已生效。记为模拟器合成卡顿，与本片改动无关；与本会话早先那次被误判为「显示层故障」的是同一个宿主磁盘条件。
+
+本片发现但未修的一类缺陷：`apps/harmony/src/main.tsx` 的 `unwrap` 以 `new Error(reply.error)` 抛出，而共享 UI 解码错误的主契约是普通对象上的 `error.code`（桌面端 Tauri 的 `CommandError { code }`）。后果有三处已确认：`packages/ui/src/index.tsx` 的 `message()` 先判 `instanceof Error` 再查 code 表，所以偏好保存冲突在本宿主显示宿主返回的原文而不是「设置已在其他窗口修改。请重新读取后再保存。」；`packages/ui/src/account/account-page.tsx` 的 `accountMessage()` 要求 `"code" in error`，而 `Error` 实例没有该属性，于是全部账号失败一律落到泛化的「账号服务暂不可用，请稍后再试。」；AI 取模型失败在本宿主显示机器码 `ai_models_unavailable`，桌面显示中文兜底。影响面是 `main.tsx` 里全部 25 处 `unwrap` 调用点，不限于本片恢复的路径。下一片按桌面契约把 reject 形状改为 `{ code }`。
+
 增量记录（2026-09-20，HarmonyOS 首次设备运行）：目标 `21da4a315`。此前 HarmonyOS 一栏的全部结论都只有源码与构建证据，本次首次在模拟器上实际运行，证据等级随之改变。
 
 环境为 DevEco 自带的 HarmonyOS 6.0.1(21) phone 镜像，与项目 `compileSdkVersion` 一致；`bm install` 接受未签名 HAP。干净安装后启用输入法，本宿主日志域输出为：`module loaded` → `staged .../files/engine` → `session 1 created` → `panel ready: phone, soft keyboard`，系统侧返回 `Succeeded in enabling IME. status:FULL_EXPERIENCE_MODE`。即 ArkTS → NAPI → Rust → C++ Engine 整条链在设备上可用，Engine 会话与软键盘面板均真实创建。三个 ABI 的原生库均已构建，HAP 含全部 `libs/<abi>/`。
