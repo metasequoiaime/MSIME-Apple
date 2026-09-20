@@ -517,7 +517,9 @@ function DesktopSettings() {
                   },
                 }
               : {}),
-            ...(host.platform === "windows" || host.platform === "macos"
+            ...(host.platform === "windows" ||
+            host.platform === "macos" ||
+            host.platform === "linux"
               ? {
                   account: {
                     status: () => invoke("account_status"),

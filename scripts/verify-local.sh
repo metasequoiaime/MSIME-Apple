@@ -243,6 +243,63 @@ else
   echo "skipped: pinned NDK, aarch64-linux-android target or android-deps not present"
 fi
 
+note "compile: linux desktop shell"
+# Same hole the android phase above exists to close, for the other target nobody
+# here compiles. `cargo check --workspace` sees one target, and the macOS run
+# excludes msime-desktop outright because the bundle it lists as a resource is
+# not built - so every `#[cfg(target_os = "linux")]` branch in the Tauri shell
+# was compiled by nothing at all. Thirty-six errors had collected behind that:
+# the refactor that moved panel delivery out of the crate root left the crate
+# root calling the moved functions unqualified, clipboard_history lost the
+# module and the Mutex it names, four label arguments went through a method
+# unstable on this toolchain, and a Vec needed its element type. The Linux
+# settings window, every shared panel and the account surface could not be built
+# at all, which is a more complete outage than any single feature gap.
+#
+# In a container, because the Linux shell needs webkit2gtk, gtk3 and libsoup and
+# a macOS machine has none of them. Skipped rather than required, like the native
+# phases: no Docker means no gate, and the command is printed so the next person
+# can run it. The build tree is kept out of target/debug - the container's
+# aarch64-unknown-linux-gnu host build would otherwise share that directory with
+# the host's own and the two would rebuild each other on every run.
+linux_desktop_note="docker run --rm -v \"\$PWD\":/source -w /source rust:1.97.1-bookworm cargo check -p msime-desktop --locked --all-targets"
+if [ "$(uname -s 2>/dev/null)" = "Linux" ]; then
+  cargo check -p msime-desktop --locked --all-targets 2>&1 | tail -3
+  [ "${PIPESTATUS[0]}" -eq 0 ] || fail "cargo check -p msime-desktop (linux)"
+elif command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+  # The Engine archive is fetched into vendor/, which a fresh worktree does not
+  # have; mount whichever tree already holds it rather than downloading it again
+  # inside the container. Without one the container fetches it itself.
+  main_worktree="$(dirname "$(git rev-parse --git-common-dir 2>/dev/null || echo .)")"
+  linux_vendor=""
+  for candidate in "$root/vendor" "$main_worktree/vendor"; do
+    [ -d "$candidate/MSIME-Engine" ] && linux_vendor="$candidate" && break
+  done
+  mkdir -p "$root/target/linux-desktop-check"
+  docker run --rm \
+    -v "$root":/source \
+    ${linux_vendor:+-v "$linux_vendor":/source/vendor:ro} \
+    -v "$root/target/linux-desktop-check":/ctarget \
+    -w /source \
+    -e CARGO_TARGET_DIR=/ctarget \
+    ${linux_vendor:+-e MSIME_SKIP_ENGINE_FETCH=1} \
+    -e PATH=/usr/local/cargo/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin \
+    rust:1.97.1-bookworm bash -c '
+      apt-get update -qq >/dev/null 2>&1
+      apt-get install -y -qq --no-install-recommends libwebkit2gtk-4.1-dev libgtk-3-dev \
+        libsoup-3.0-dev libjavascriptcoregtk-4.1-dev pkg-config cmake libssl-dev libboost-dev \
+        libfmt-dev libspdlog-dev libsqlite3-dev python3 >/dev/null 2>&1
+      cargo check -p msime-desktop --locked --all-targets --message-format short 2>&1
+    ' > "$root/target/linux-desktop-check/check.log" 2>&1
+  status=$?
+  grep -E ': error' "$root/target/linux-desktop-check/check.log" | head -5
+  [ "$status" -eq 0 ] || fail "cargo check -p msime-desktop (linux container)"
+  tail -1 "$root/target/linux-desktop-check/check.log"
+else
+  echo "skipped: no docker available for the linux desktop shell check"
+  echo "  run $linux_desktop_note"
+fi
+
 note "compile: native host"
 if [ -d "$MSIME_NATIVE_BUILD" ]; then
   # The native tests link the Rust library, so it has to be current or they

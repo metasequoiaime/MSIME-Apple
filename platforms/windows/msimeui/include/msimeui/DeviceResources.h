@@ -84,6 +84,19 @@ class DeviceResources
     UINT pixelWidth_ = 1;
     UINT pixelHeight_ = 1;
     bool composition_ = false;
+    // Drawn through a layered window when DirectComposition is unavailable.
+    // Only reached where the composition path would have failed outright, so a
+    // host that has a compositor never takes this route.
+    bool EnsureCompositionSurface(HWND hwnd);
+    bool EnsureLayered(HWND hwnd, UINT width, UINT height);
+    void DiscardLayered();
+    bool layered_ = false;
+    UINT layeredWidth_ = 0;
+    UINT layeredHeight_ = 0;
+    HDC layeredDC_ = nullptr;
+    HBITMAP layeredBitmap_ = nullptr;
+    HGDIOBJ layeredPrevious_ = nullptr;
+    Microsoft::WRL::ComPtr<ID2D1DCRenderTarget> dcTarget_;
 
     Microsoft::WRL::ComPtr<ID2D1Factory> d2dFactory_;
     Microsoft::WRL::ComPtr<ID2D1Factory1> d2dFactory1_;

@@ -199,27 +199,25 @@ desktop tests/candidate/external-skins.test.tsx > settings synchronize all cards
 # same two, for the same reasons, on x86 and x64 - the names are not repeated
 # per architecture because the runner reports one set either way.
 #
-# windows-server-smoke: the candidate window cannot create its rendering
-# device. `window.failed()` is true and the window never becomes visible.
+# windows-server-smoke now renders. It stops at `require(clicks == 1)` in the
+# click test - the card paints and the window is visible, but a synthesised
+# WM_LBUTTONDOWN/UP pair does not register as a click. That is the next thing to
+# look at and it is not one of the three blockers that came before it.
 #
-# The first blocker is WIC, not DirectComposition. DeviceResources::EnsureFactories
-# needs Direct2D, DirectWrite and WIC; under Wine the first two succeed and
-# CoCreateInstance(CLSID_WICImagingFactory) returns REGDB_E_CLASSNOTREG
-# (0x80040154). windowscodecs.dll is present in the prefix but its classes are
-# not registered, and `wine regsvr32 windowscodecs.dll` hangs rather than
-# fixing it.
+# Those three, in the order they were found and removed:
+#   - the prefix was created at image build time without a display, which leaves
+#     WIC unregistered; CoCreateInstance(CLSID_WICImagingFactory) returned
+#     REGDB_E_CLASSNOTREG and every Direct2D factory failed before anything
+#     graphical was attempted;
+#   - Wine reports windows created on a PER_MONITOR_AWARE_V2 thread as v1, so the
+#     window-level DPI assertion cannot hold there; the test now accepts v1 only
+#     when ntdll exports wine_get_version, and still requires v2 on Windows;
+#   - DirectComposition is a stub, so EnsureForComposition fails; DeviceResources
+#     now falls back to a layered window, which is what the Windows source uses,
+#     and the surfaces draw.
 #
-# An earlier version of this entry named DirectComposition. That was read off
-# the code path rather than measured: EnsureFactories returns false before
-# EnsureForComposition ever reaches DCompositionCreateDevice, so whether Wine's
-# DirectComposition would have worked is still unknown. Instrumenting the steps
-# is what showed it.
-#
-# Two other things are established and still true: Wine reports windows created
-# on a PER_MONITOR_AWARE_V2 thread as v1, so the DPI assertion above cannot hold
-# there either; and the Windows source draws these surfaces as WS_EX_LAYERED
-# rather than through a compositor, so a layered path would not need
-# DirectComposition at all. Neither can be exercised until WIC is available.
+# About seventy lines of assertions between the old stopping point and this one
+# had never been executed before; they pass.
 wine windows-server-smoke
 # windows-session-smoke needs the optional absolute resource directory the
 # suite documents as argv[1]. run-tests-wine.sh now finds the repository's own

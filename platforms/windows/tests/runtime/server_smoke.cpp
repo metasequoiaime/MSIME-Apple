@@ -11,6 +11,7 @@
 #include "WindowsServer.h"
 #include <cstring>
 #include <filesystem>
+#include <cstdio>
 #include <iostream>
 #include <utility>
 
@@ -60,6 +61,29 @@ struct ClientPipe {
   ClientPipe &operator=(const ClientPipe &) = delete;
 };
 } // namespace
+namespace {
+// Wine honours SetThreadDpiAwarenessContext(PER_MONITOR_AWARE_V2) for the
+// thread and then reports windows created on it as v1. Ask ntdll whether this
+// is Wine rather than inferring it from the failure: treating "the assertion
+// did not hold" as "this must be Wine" would let a real Windows regression
+// through as well.
+bool running_under_wine() {
+  const auto ntdll = GetModuleHandleW(L"ntdll.dll");
+  return ntdll && GetProcAddress(ntdll, "wine_get_version") != nullptr;
+}
+// Exactly what the thread asked for on Windows; at least per-monitor v1 on
+// Wine, which does not carry v2 through to the window. The thread's own context
+// is still asserted strictly, so the product is still on the hook for setting it.
+bool window_awareness_is_expected(HWND window) {
+  const auto context = GetWindowDpiAwarenessContext(window);
+  if (AreDpiAwarenessContextsEqual(context,
+                                   DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2))
+    return true;
+  return running_under_wine() &&
+         AreDpiAwarenessContextsEqual(context,
+                                      DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE);
+}
+} // namespace
 int main() {
   try {
     {
@@ -68,9 +92,7 @@ int main() {
       CandidateWindow window([&] { return value; });
       require(AreDpiAwarenessContextsEqual(original_dpi,
                                            GetThreadDpiAwarenessContext()));
-      require(AreDpiAwarenessContextsEqual(
-          GetWindowDpiAwarenessContext(window.handle()),
-          DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2));
+      require(window_awareness_is_expected(window.handle()));
       require(!IsWindowVisible(window.handle()));
       require((GetWindowLongPtrW(window.handle(), GWL_EXSTYLE) &
                WS_EX_NOACTIVATE) != 0);

@@ -721,6 +721,13 @@ fn scanning_missing_skin_directory_does_not_create_it() {
 
 #[cfg(target_os = "linux")]
 use super::*;
+// The panel helpers these cover live in `panel_input` since the delivery code
+// moved out of the crate root; `use super::*` no longer reaches them.
+#[cfg(target_os = "linux")]
+use super::panel_input::{
+    focused_sway_container, panel_text_requires_clipboard, parse_xdotool_geometry,
+    sway_rect_for_container, sway_workspace_for_container, x11_window_is_owned_by_process,
+};
 
 #[cfg(target_os = "linux")]
 #[test]
@@ -852,4 +859,87 @@ fn runtime_options_sync_replaces_preferences_atomically() {
     sync_runtime_options(&state, &preferences).unwrap();
     let updated: Value = serde_json::from_slice(&std::fs::read(path).unwrap()).unwrap();
     assert_eq!(updated["preferences"]["candidate_page_size"], 9);
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_account_storage_round_trips_an_owner_only_session() {
+    use msime_client_core::account::{
+        AccountSessionStorage, AccountTokens, AccountUser, SavedAccountSession,
+    };
+    use std::os::unix::fs::PermissionsExt;
+
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let storage = crate::platform::linux::linux_account::LinuxAccountStorage::new(directory.path());
+    // Nothing saved yet is an empty store, not a broken one: a first run must
+    // report "signed out" rather than "secure storage is unavailable".
+    assert!(storage.load().expect("empty store").is_none());
+
+    let session = SavedAccountSession {
+        tokens: AccountTokens {
+            access_token: "synthetic-access".into(),
+            refresh_token: "synthetic-refresh".into(),
+            token_type: "Bearer".into(),
+            expires_in: 3600,
+            user: AccountUser {
+                id: "synthetic-id".into(),
+                display_name: "合成用户".into(),
+                created_at: "2026-01-01T00:00:00Z".into(),
+            },
+        },
+        expires_at_unix_ms: 1_700_000_000_000,
+    };
+    storage.save(&session).expect("save");
+    let path = directory.path().join("account-session.json");
+    // The tokens must never be readable by the rest of the machine, and the
+    // temporary file used to publish them must not be left behind.
+    assert_eq!(
+        std::fs::metadata(&path).unwrap().permissions().mode() & 0o777,
+        0o600
+    );
+    assert!(!directory.path().join("account-session.json.new").exists());
+    let loaded = storage.load().expect("load").expect("a saved session");
+    assert_eq!(loaded.tokens.access_token, "synthetic-access");
+    assert_eq!(loaded.expires_at_unix_ms, 1_700_000_000_000);
+
+    // A store another user can read is not one this host wrote. Reporting it as
+    // a storage failure keeps the session out of use; answering "signed out"
+    // would quietly start a new login against a file someone else can read.
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o644)).unwrap();
+    assert!(storage.load().is_err());
+    std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o600)).unwrap();
+    assert!(storage.load().expect("load").is_some());
+
+    storage.clear().expect("clear");
+    assert!(!path.exists());
+    // Clearing an already-cleared store is the normal path after a failed
+    // refresh, so it is not an error.
+    storage.clear().expect("clear again");
+    assert!(storage.load().expect("cleared store").is_none());
+}
+
+#[cfg(target_os = "linux")]
+#[test]
+fn linux_account_storage_refuses_a_symlinked_or_oversized_store() {
+    use msime_client_core::account::AccountSessionStorage;
+
+    let directory = tempfile::tempdir().expect("temporary directory");
+    let elsewhere = directory.path().join("elsewhere.json");
+    std::fs::write(&elsewhere, b"{}").unwrap();
+    let storage = crate::platform::linux::linux_account::LinuxAccountStorage::new(directory.path());
+    let path = directory.path().join("account-session.json");
+    std::os::unix::fs::symlink(&elsewhere, &path).unwrap();
+    // Following the link would read through a path this host did not choose.
+    assert!(storage.load().is_err());
+    std::fs::remove_file(&path).unwrap();
+
+    std::fs::write(&path, vec![b'x'; 32 * 1024]).unwrap();
+    std::fs::set_permissions(
+        &path,
+        <std::fs::Permissions as std::os::unix::fs::PermissionsExt>::from_mode(0o600),
+    )
+    .unwrap();
+    // A session document is two JWTs and an expiry; this is not one, and it is
+    // rejected on its size before any of it is parsed.
+    assert!(storage.load().is_err());
 }
