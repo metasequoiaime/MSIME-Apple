@@ -399,6 +399,18 @@ runner 现在自己去找仓库既有的约定缓存 `target/desktop-resources`�
 
 记下来是因为这两种读法对后续决策不同：若哪天要让这套在无 DirectComposition 的环境（Wine、或某些远程会话）下也能画，那是一次明确的渲染路径工作，而不是「等一台 Windows 机器」。
 
+增量记录（2026-09-20，Windows 第三十批：更正第二十八批的拦路者，并记下一次做了又撤回的实现）：第二十八批说 `windows-server-smoke` 卡在 Wine 的 DirectComposition 是桩。**那个结论是读代码路径推出来的，不是测出来的，而且是错的。**
+
+按第二十九批的判断（来源用分层窗口，所以这条路可以不依赖合成器），我实现了一条分层回退：`EnsureForComposition` 失败时改走 `CreateDCRenderTarget` + 预乘 alpha DIB + `UpdateLayeredWindow`。先用一个独立最小程序在 Wine 下验证过这整条链可用（D2D 工厂、`CreateDCRenderTarget`、`BindDC`、绘制、`UpdateLayeredWindow` 全部成功，窗口可见）。接缝也是干净的：没有任何调用方用 `GetDeviceContext()`，全部走已是基接口类型的 `GetRenderTarget()`。
+
+**但回退在套件里根本没被走到。** 逐步加诊断才看清：`DeviceResources::EnsureFactories()` 需要 Direct2D、DirectWrite 与 WIC 三样，Wine 下前两样成功，`CoCreateInstance(CLSID_WICImagingFactory)` 返回 `REGDB_E_CLASSNOTREG`。`windowscodecs.dll` 在 prefix 里存在，但类没注册；`wine regsvr32 windowscodecs.dll` 不是修好它而是挂住。
+
+也就是说 `EnsureFactories` 在 `EnsureForComposition` 走到 `DCompositionCreateDevice` 之前就返回了假——**Wine 的 DirectComposition 到底行不行，至今仍然未知**。
+
+因此那条分层回退**已撤回**，没有合入：它编译得过、原理验证过，但在这里一次都没被执行到，合进去等于把一段无法演示其作用的渲染代码放进产品。等 WIC 可用之后再说。
+
+第二十八批那条「否掉一个能让计数变好看的改动」的判断依然成立，但**理由变了**：当时我以为渲染永远不通，所以放松 DPI 断言没意义；实际是连工厂都建不起来。结论对，推理错。这两者的区别值得记下——对的结论配错的推理，下一次就会错。
+
 ## 来源模块的落点
 
 逐模块记下来源的每个目录在本仓库落在哪里，以及为什么。上面那张功能表按「功能组」组织，回答的是某个功能有没有；这张按**来源的源码目录**组织，回答的是来源的每一块代码去了哪儿——两者互相校验，一块代码找不到落点就是缺口，哪怕对应功能在表里被标成有。
