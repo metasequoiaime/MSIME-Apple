@@ -156,7 +156,10 @@ if command -v cargo >/dev/null 2>&1; then
   # host-api is the DLL the Server links against, so its FFI boundary is worth
   # exercising on the target it ships for. It needs the same native dependency
   # prefix the cross build uses; without one, only host-windows is staged.
-  rust_packages="-p msime-host-windows"
+  # client-core carries the shared logic plus a few #[cfg(windows)] paths - the
+  # file-replacement retry in the gloss store among them - that the host run can
+  # never reach, because on macOS and Linux the other branch is compiled.
+  rust_packages="-p msime-host-windows -p msime-client-core"
   deps_prefix="${MSIME_WINDOWS_DEPS_ROOT:-$root/target/windows-native-deps}/$arch/$arch-mingw-static"
   if [ -d "$deps_prefix" ]; then
     rust_packages="$rust_packages -p msime-host-api"

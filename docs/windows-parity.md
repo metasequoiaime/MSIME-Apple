@@ -720,6 +720,18 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 结果：套件从 78 通过 / 1 失败增至 **83 通过 / 1 失败**，唯一失败仍是基线里那条 `msimeui-tests`（Rosetta 在 arm64 主机上模拟 x86_64）。
 
+增量记录（2026-09-20，Windows 第五十六批：`client-core` 也在 Windows 目标下执行，一段从未被跑过的 Windows 专有代码终于被覆盖）：第五十五批抓到的那个 bug 有个类特征——**平台相关的默认值，配上一个假定非 Windows 取值的测试**。顺着这个特征在 `client-core` 里扫了一遍 `cfg(windows)`：
+
+- `preferences.rs` 的 `smart_punctuation_default`，已在上一批处理。
+- `preferences/tests.rs` 里有一处 `let expected = !cfg!(windows);`——**这是正确的写法**，它显式承认了平台差异，留作对照。
+- `translation/store.rs` 有两段 `#[cfg(windows)]`：`persist_replacing` 在替换文件遇到 `PermissionDenied` 时做有限重试，注释写明是为了避开 Windows 上另一进程短暂持有文件的窗口。
+
+**最后这段在宿主目标下永远编译不到**，因此从来没有被任何测试执行过。本批把 `msime-client-core` 也纳入 Wine 运行器，它的 247 个单元测试因此在 Windows 目标上执行，其中 `concurrent_replacement_never_exposes_partial_records` 正是覆盖这条重试路径的那个——全部通过。
+
+结果：套件从 83 通过 / 1 失败增至 **86 通过 / 1 失败**。至此在 Wine 下执行的 Rust 测试二进制共八个，合计约 350 个用例，覆盖 `client-core`（共享逻辑与 Windows 专有文件替换）、`host-api`（发布 DLL 的 FFI 边界）与 `host-windows`（剪贴板、合成按键、扩展键）。唯一失败仍是基线里的 `msimeui-tests`。
+
+三批连起来的意义：本轮此前多次只能写「已实现但缺覆盖」或「靠读源码核对」，原因不是没人想测，而是**套件够不着那些代码**。运行器扩展之后，那些条目里有相当一部分不再需要真实 Windows 才能验证。
+
 ## 来源模块的落点
 
 逐模块记下来源的每个目录在本仓库落在哪里，以及为什么。上面那张功能表按「功能组」组织，回答的是某个功能有没有；这张按**来源的源码目录**组织，回答的是来源的每一块代码去了哪儿——两者互相校验，一块代码找不到落点就是缺口，哪怕对应功能在表里被标成有。
