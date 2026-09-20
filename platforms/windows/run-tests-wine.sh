@@ -145,7 +145,10 @@ docker run --rm --platform linux/amd64 \
   -e "MSIME_RESOURCES=$resources_argument" -e "MSIME_INSTALLER=$installer_argument" "$image" sh -c '
 mkdir -p /run/t && cp /rt/*.dll /run/t/ && cp /bin-win/*.dll /run/t/ 2>/dev/null
 cd /run/t
-for exe in /bin-win/windows-*.exe /bin-win/msime-tsf-*.exe /bin-win/msimeui-tests.exe; do
+# msimeui puts its test executable in bin/ rather than beside the others, so a
+# top-level pattern silently matched nothing and that suite was never run here.
+for exe in /bin-win/windows-*.exe /bin-win/msime-tsf-*.exe /bin-win/msimeui-tests.exe \
+           /bin-win/bin/msimeui-tests.exe; do
   [ -f "$exe" ] || continue
   name=$(basename "$exe" .exe)
   cp "$exe" /run/t/ 2>/dev/null || continue

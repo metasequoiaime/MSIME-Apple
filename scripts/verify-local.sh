@@ -180,6 +180,14 @@ python3 scripts/test-windows-32bit-compile.py || fail "windows x86 syntax"
 note "harmony settings bundle"
 python3 scripts/test-harmony-settings-bundle.py || fail "harmony settings bundle"
 
+# rendered_view is null until the first render and after every session rebuild,
+# and nlohmann's value() throws on null. A throw inside the Linux key handler is
+# caught, so the symptom is a silently dropped key and one warning line - the
+# first letter after a Chinese/English toggle. Reproducing it needs a live IBus
+# session with a rebuilt Engine session, which no phase here has.
+note "linux rendered view guard"
+python3 scripts/test-linux-rendered-view-guard.py || fail "linux rendered view guard"
+
 note "compile: rust workspace"
 # The desktop app's Tauri config lists the platform IME bundle as a packaged
 # resource, and Tauri's build script fails when a listed resource is absent. On

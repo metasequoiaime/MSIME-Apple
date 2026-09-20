@@ -236,6 +236,19 @@ desktop tests/candidate/external-skins.test.tsx > settings synchronize all cards
 # "wine <suite>", so a "wine-x86" line could never match anything and would sit
 # here looking like something that is checked.
 
+# msimeui-tests had never run here at all: CMake puts it in bin/ while the
+# runner's pattern looked for it beside the other executables, so the pattern
+# matched nothing and the suite was silently absent from every count. It is
+# included now, which is why it appears as a failure rather than as an
+# improvement - the failure was always there, just invisible.
+#
+# It runs 18 of its 35 cases and then the process dies with
+# "rosetta error: invalid gdt selector index 5". That is the arm64 host
+# emulating x86_64, not Wine and not the product: the cases that pass are the
+# layout ones, and it stops when it reaches the tests that build real
+# DirectWrite and Direct2D devices. An x86_64 host may well get further; this
+# entry records what this machine does.
+wine msimeui-tests
 wine windows-voice-controller-connection
 wine windows-voice-controller-listener
 wine windows-session-smoke
