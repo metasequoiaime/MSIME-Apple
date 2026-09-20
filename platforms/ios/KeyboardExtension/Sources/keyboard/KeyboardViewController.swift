@@ -871,12 +871,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     scriptShortcut.addAction(UIAction { [weak self] _ in
       guard let self else { return }
       if inputScheme == .thoughtfulReply { showKeyboardAI(); return }
-      if KeyboardLayoutPreference.voiceShortcutEnabled { showKeyboardVoice(); return }
-      usesTraditionalOutput.toggle()
-      ChineseOutputPreference.usesTraditional = usesTraditionalOutput
-      _ = session.setTraditionalChineseOutput(usesTraditionalOutput)
-      renderCandidateStrip()
-      updateShortcutButtons()
+      showKeyboardVoice()
     }, for: .primaryActionTriggered)
     emojiShortcut.addAction(UIAction { [weak self] _ in self?.showEmojiPicker() },
                             for: .primaryActionTriggered)
@@ -903,21 +898,18 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       button.accessibilityLabel = label
       button.accessibilityIdentifier = id
     }
-    configure(scriptShortcut, title: usesTraditionalOutput ? "繁" : "简", symbol: nil,
-      label: usesTraditionalOutput ? "切换到简体" : "切换到繁体", id: "scriptShortcut")
-    scriptShortcut.isEnabled = !(isChineseMode && inputScheme.isJapanese)
-    scriptShortcut.accessibilityValue = scriptShortcut.isEnabled ? (usesTraditionalOutput ? "繁体" : "简体") : "日语不使用简繁转换"
-    if KeyboardLayoutPreference.voiceShortcutEnabled {
-      configure(scriptShortcut, title: nil, symbol: "waveform", label: "语音结果", id: "layoutVoiceShortcut")
-      scriptShortcut.isEnabled = true
-      scriptShortcut.accessibilityValue = nil
-    }
+    // 简繁是一次性设置,不占常驻工具位;这个位置只在高情商回复方案或顶部语音入口开启时出现。
+    //
+    // Script choice is made once and then left alone -- the app's 输入设置 already carries it, and the toolbar is the row you see whenever nothing is being composed. It moved into 更多, which is where the other settings that are set once already live.
     if inputScheme == .thoughtfulReply {
       configure(scriptShortcut, title: nil, symbol: "bubble.left.and.text.bubble.right",
         label: "生成高情商回复", id: "replyShortcut")
-      scriptShortcut.isEnabled = true
-      scriptShortcut.accessibilityValue = nil
+    } else {
+      configure(scriptShortcut, title: nil, symbol: "waveform", label: "语音结果", id: "layoutVoiceShortcut")
     }
+    scriptShortcut.isEnabled = true
+    scriptShortcut.accessibilityValue = nil
+    scriptShortcut.isHidden = inputScheme != .thoughtfulReply && !KeyboardLayoutPreference.voiceShortcutEnabled
     configure(emojiShortcut, title: nil, symbol: "face.smiling", label: "表情", id: "emojiShortcut")
     configure(skinShortcut, title: nil, symbol: "tshirt", label: "切换皮肤", id: "skinShortcut")
     skinShortcut.accessibilityValue = KeyboardSkinPreference.selected.title
@@ -952,6 +944,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     [
       backToToolsSection(),
       KeyboardToolSection(title: "键盘设置", kind: .toggle, columns: 2, tools: [
+        // 简繁是开关而不是两张选择卡:它本来就是一个布尔值,拆成两张只是多占一行。
+        KeyboardTool(title: "繁体输出", symbol: "character.textbox",
+                     selected: usesTraditionalOutput,
+                     enabled: !(isChineseMode && inputScheme.isJapanese)) { [weak self] in
+          guard let self else { return }
+          selectTraditionalOutput(!usesTraditionalOutput)
+        },
         KeyboardTool(title: "按键音", symbol: "speaker.wave.2",
                      selected: KeyboardFeedbackPreference.soundEnabled) { [weak self] in
           KeyboardFeedbackPreference.defaults.set(!KeyboardFeedbackPreference.soundEnabled,
@@ -3296,6 +3295,14 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     ])
     morePicker = picker
     UIAccessibility.post(notification: .screenChanged, argument: picker)
+  }
+
+  private func selectTraditionalOutput(_ traditional: Bool) {
+    usesTraditionalOutput = traditional
+    ChineseOutputPreference.usesTraditional = traditional
+    _ = session.setTraditionalChineseOutput(traditional)
+    renderCandidateStrip()
+    updateShortcutButtons()
   }
 
   private func showEmojiPicker() {
