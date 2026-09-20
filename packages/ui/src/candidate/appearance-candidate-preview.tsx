@@ -9,6 +9,7 @@ import type { SkinImageReader } from "../skin/skin-image";
 import { useCandidatePreviewTheme } from "./candidate-preview-theme";
 import { useResolvedCandidateFonts, type FontFamilyResolver } from "./resolved-candidate-fonts";
 import * as settings from "../settings/settings-style";
+import { candidateSkinPalette } from "../skin/skin-preview-palette";
 
 export function AppearanceCandidatePreview({
   preferences: storedPreferences,
@@ -54,6 +55,7 @@ export function AppearanceCandidatePreview({
           data-preview-theme={theme}
           data-font-size={candidateFontSize(preferences.candidate_font_size)}
           style={{
+            ...candidateSkinPalette(skin, theme),
             ...candidateFontStyle(preferences),
             ...candidateTextStyle(
               preferences.candidate_text_color,

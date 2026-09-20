@@ -30,6 +30,7 @@ import {
   type TouchKeyboardSkinDesign,
 } from "@msime/ui";
 import { validateGitHubRelease } from "../../../../packages/ui/src/settings/update-manifest";
+import { candidateSkinPalette } from "../../../../packages/ui/src/skin/skin-preview-palette";
 
 afterEach(cleanup);
 
@@ -2417,7 +2418,11 @@ test("automatic color swatch follows candidate theme without persisting a color 
   const preview = screen
     .getByRole("region", { name: "候选窗口预览" })
     .querySelector<HTMLElement>(".appearance-candidate-preview")!;
-  expect(preview.style.getPropertyValue("--cand-text")).toBe("");
+  // No override left, so the preview shows the skin's own colour for the candidate theme in force --
+  // which is the light one here -- rather than the #123456 that was typed and then dropped.
+  expect(preview.style.getPropertyValue("--cand-text")).toBe(
+    (candidateSkinPalette("willow_green", "light") as Record<string, string>)["--cand-text"],
+  );
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await waitFor(() =>
     expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ candidate_text_color: null })),
@@ -3025,8 +3030,12 @@ test("candidate text colour loads, previews, saves and resets to theme", async (
     candidate_text_color: "#abcdef",
   });
   fireEvent.click(screen.getByRole("button", { name: "跟随主题" }));
-  expect(preview.style.getPropertyValue("--cand-text")).toBe("");
-  expect(preview.style.getPropertyValue("--cand-num")).toBe("");
+  // Dropping the override hands the tokens back to the skin. That used to mean clearing them so a
+  // stylesheet rule could apply; the skin's palette is now set on the element itself, so what the
+  // preview falls back to is the palette's own value rather than an empty string.
+  const palette = candidateSkinPalette("willow_green", "dark") as Record<string, string>;
+  expect(preview.style.getPropertyValue("--cand-text")).toBe(palette["--cand-text"]);
+  expect(preview.style.getPropertyValue("--cand-num")).toBe(palette["--cand-num"]);
   expect(color.value).toBe("#e9e8e8");
   expect(screen.getByRole("button", { name: "跟随主题" }).getAttribute("aria-pressed")).toBe(
     "true",
@@ -3643,7 +3652,9 @@ test("the flat sidebar keeps the reference window's order", async () => {
   );
   await settingsReady();
   const sidebar = screen.getByRole("navigation", { name: "设置分类" });
-  const titles = [...sidebar.querySelectorAll("button.item")].map((item) => item.textContent ?? "");
+  const titles = [...sidebar.querySelectorAll("[data-sidebar-section] button")].map(
+    (item) => item.textContent ?? "",
+  );
   const reference = [
     "外观",
     "输入",
