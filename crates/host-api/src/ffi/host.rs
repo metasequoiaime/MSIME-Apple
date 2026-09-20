@@ -672,6 +672,95 @@ fn resource_library_code(
     .to_owned()
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "operation")]
+enum AiSkinPlanRequest {
+    Compose {
+        prompt: String,
+        model: String,
+    },
+    Parse {
+        text: String,
+    },
+    Artwork {
+        artwork: msime_client_core::skin::ai::AiSkinArtwork,
+    },
+}
+
+/// The parts of AI skin generation that are a decision rather than a transfer.
+///
+/// `BackendAiSkinService::generate` does the whole pipeline, and the hosts that
+/// can run it do. A host whose HTTP must go through the surrounding platform -
+/// HarmonyOS, whose settings surface reaches the network through the system
+/// stack - cannot, so it performs the four requests itself and asks here for
+/// everything that is not the transfer: what to say to the model, whether the
+/// answer is three usable designs, and whether a returned image is one this
+/// client will show.
+///
+/// The split is the same one `msime_client_ai_request_for_query` and
+/// `msime_client_parse_ai_response` already make for candidates. What must not
+/// be split is the instruction from the parser: the system prompt names the
+/// exact document `plan_ai_skins` refuses anything else for, so `compose`
+/// returns it rather than letting a host write its own.
+/// # Safety
+/// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_ai_skin_plan(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        // An artwork payload carries base64 image bytes, which the shared service bounds at 11 MB.
+        if request.is_null() || length > 12 * 1024 * 1024 {
+            return Err("ai_skin_invalid".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let request: AiSkinPlanRequest =
+            serde_json::from_slice(bytes).map_err(|_| "ai_skin_invalid")?;
+        match request {
+            AiSkinPlanRequest::Compose { prompt, model } => {
+                // The same bounds `generate` applies before it spends anything: a prompt this
+                // refuses is one the service would refuse after four requests.
+                if prompt.is_empty()
+                    || prompt.chars().count() > 500
+                    || prompt.chars().any(char::is_control)
+                    || model.is_empty()
+                    || model.len() > 200
+                    || model.chars().any(char::is_control)
+                {
+                    return Err("ai_skin_invalid".into());
+                }
+                Ok(json!({
+                    "path": "/v1/chat/completions",
+                    "body": {
+                        "messages": [
+                            {
+                                "role": "system",
+                                "content": msime_client_core::skin::ai::AI_SKIN_SYSTEM_PROMPT,
+                            },
+                            {"role": "user", "content": prompt},
+                        ],
+                        "model": model,
+                        "max_tokens": 2048,
+                        "stream": false,
+                    },
+                }))
+            }
+            AiSkinPlanRequest::Parse { text } => {
+                let plans = msime_client_core::skin::ai::plan_ai_skins(&text)
+                    .map_err(|_| "ai_skin_response")?;
+                serde_json::to_value(plans).map_err(|_| "ai_skin_response".into())
+            }
+            AiSkinPlanRequest::Artwork { artwork } => {
+                msime_client_core::skin::ai::validate_ai_skin_artwork(&artwork)
+                    .map_err(|_| "ai_skin_response")?;
+                Ok(json!({"valid": true}))
+            }
+        }
+    })
+}
+
 /// Read saved clipboard history without observing or modifying the system clipboard.
 /// # Safety
 /// `directory` points to `length` readable UTF-8 bytes. Null is rejected.

@@ -6,6 +6,7 @@ import { AccountCloudBridge, AccountSessionStore, AccountTransport, AccountTrans
 import { KeyboardSession } from '../keyboard/KeyboardSession';
 import { utf8Length } from '../keyboard/Utf8';
 import { KeyboardFeedbackBridge } from '../keyboard/KeyboardFeedbackBridge';
+import { HarmonyAiSkins } from './HarmonyAiSkins';
 import {
   AccountPreferences,
   AccountPreferenceSchema,
@@ -176,6 +177,16 @@ export class HarmonyAccountCloudBridge {
 
   request(action: string): Promise<string> {
     return this.bridge.handle(action);
+  }
+
+  /**
+   * The AI skin runner, which shares this bridge's session rather than holding one of its own.
+   *
+   * Its four requests are authenticated as the same user the rest of the account surface is, and a
+   * sign-out has to stop a run that is in flight. A second session object would have missed that.
+   */
+  aiSkins(): HarmonyAiSkins {
+    return new HarmonyAiSkins(this.bridge);
   }
 
   /**
