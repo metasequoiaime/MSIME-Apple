@@ -3042,6 +3042,18 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     }
     if (voiceShortcut.consumed) return YES;
     if (_modifierTap.observe(event, _appearance.shiftTapShortcut, _appearance.controlTapShortcut)) {
+        // A tap during a composition sends out the letters that were typed, not the highlighted candidate.
+        // Reaching for Shift mid-word is how a word the dictionary does not carry - a name, a command, an
+        // acronym - gets out without losing what was already typed; finishing the composition instead
+        // commits the Chinese candidate, which is the opposite of what was asked for.
+        //
+        // Commit first, then switch: switching rebuilds the input session, and the other order loses the
+        // letters still being composed. setEnglishInputMode: finishes any composition of its own, which is
+        // a no-op once this has run.
+        if ([_view[@"editing_text"] length] && _session && _activeClient) {
+            NSDictionary *raw = [_session command:MSIME_COMMIT_RAW error:nil];
+            if (raw) [self apply:raw];
+        }
         [self setEnglishInputMode:!_appearance.englishMode];
         return YES;
     }

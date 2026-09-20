@@ -109,6 +109,8 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic) NSUInteger snapshotCalls;
 @property(nonatomic, copy) NSDictionary *lastSnapshot;
 @property(nonatomic) NSUInteger settledRerankCalls;
+@property(nonatomic) NSUInteger rawCommitCalls;
+@property(nonatomic, copy) NSDictionary *rawTransition;
 @end
 @implementation ShortcutSession
 // The controller defers a preference snapshot to the main queue while a composition is live, so a block
@@ -218,8 +220,10 @@ static void CheckMenu(NSMenu *menu, id controller) {
 - (NSDictionary *)command:(uint32_t)command error:(NSError **)error {
     (void)error;
     self.lastCommand = command;
+    if (command == MSIME_COMMIT_RAW) ++self.rawCommitCalls;
     if (self.failFinish && command == MSIME_FINISH_COMPOSITION) return nil;
     if (self.finishTransition && command == MSIME_FINISH_COMPOSITION) return self.finishTransition;
+    if (self.rawTransition && command == MSIME_COMMIT_RAW) return self.rawTransition;
     if (self.nextTransition) return self.nextTransition;
     return @{@"handled": @YES, @"commit": @"测试", @"view": @{@"editing_text": @"", @"caret_position": @0, @"candidates": @[]}};
 }
@@ -1714,6 +1718,40 @@ static void TestModifierTaps() {
     assert(![controller handleEvent:down client:client]);
     assert([controller handleEvent:up client:client]);
     assert(prefs.englishMode && [client.committed isEqual:@"测试"]);
+
+    // With letters still being composed the tap sends those letters out, not the highlighted candidate.
+    // That is the whole point of reaching for Shift mid-word: a name, a command or an acronym the
+    // dictionary does not carry leaves as what was typed. The composition is committed before the switch,
+    // because switching rebuilds the session and would take the letters with it.
+    prefs.englishMode = NO;
+    session.rawTransition = @{@"handled":@YES, @"commit":@"msime",
+        @"view":@{@"editing_text":@"", @"caret_position":@0, @"candidates":@[]}};
+    // After the raw commit there is no composition left, so the finish that the mode switch performs has
+    // nothing to send: the real Engine answers handled with no commit, and the fake has to say the same or
+    // it overwrites what the raw commit just inserted.
+    NSDictionary *previousFinish = session.finishTransition;
+    session.finishTransition = @{@"handled":@YES,
+        @"view":@{@"editing_text":@"", @"caret_position":@0, @"candidates":@[]}};
+    [controller setValue:@{@"editing_text":@"msime", @"caret_position":@5, @"candidates":@[]} forKey:@"view"];
+    NSUInteger rawBefore = session.rawCommitCalls;
+    assert(![controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 56, NSEventModifierFlagShift, 3.0) client:client]);
+    assert([controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 56, 0, 3.1) client:client]);
+    assert(session.rawCommitCalls == rawBefore + 1);
+    assert([client.committed isEqual:@"msime"] && prefs.englishMode);
+
+    // Nothing composing, nothing to send out: the tap is only the mode switch.
+    prefs.englishMode = NO;
+    [controller setValue:@{@"editing_text":@"", @"caret_position":@0, @"candidates":@[]} forKey:@"view"];
+    rawBefore = session.rawCommitCalls;
+    assert(![controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 56, NSEventModifierFlagShift, 4.0) client:client]);
+    assert([controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 56, 0, 4.1) client:client]);
+    assert(session.rawCommitCalls == rawBefore && prefs.englishMode);
+    session.rawTransition = nil;
+    session.finishTransition = previousFinish;
+    // Hand the sequence below back the state it had before this block: English on, nothing composing.
+    prefs.englishMode = YES;
+    [controller setValue:nil forKey:@"view"];
+
     assert(![controller handleEvent:down client:client]);
     assert([controller handleEvent:up client:client]);
     assert(!prefs.englishMode);
