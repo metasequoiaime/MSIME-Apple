@@ -60,6 +60,8 @@ import { ClipboardHistoryPreferencePolicy } from './clipboard/ClipboardHistoryPr
 import {
   DEFAULT_VOICE_INPUT_CONFIGURATION, VoiceInputConfiguration, VoiceInputConfigurationPolicy
 } from './input/VoiceInputConfiguration';
+import { SmartPunctuationSpacePolicy, SmartPunctuationSpaceSnapshot, SpaceConvertDecision }
+  from './input/SmartPunctuationSpacePolicy';
 import { SmartPunctuationContext } from './input/SmartPunctuationContext';
 import { PairedPunctuationPolicy, PairedPunctuationCompletion } from
   './input/PairedPunctuationPolicy';
@@ -500,6 +502,7 @@ interface PreparedPreferences {
   chinese_punctuation: boolean;
   smart_punctuation: boolean;
   smart_punctuation_repeat: boolean;
+  smart_punctuation_space_convert: boolean;
   paired_punctuation: boolean;
   punctuation_lock: string;
   word_character: PreparedWordCharacterPreferences;
@@ -1053,6 +1056,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.chinesePunctuation = preferences.chinese_punctuation;
       this.smartPunctuation = preferences.smart_punctuation !== false;
       this.smartPunctuationRepeat = preferences.smart_punctuation_repeat !== false;
+      this.smartPunctuationSpaceConvert = preferences.smart_punctuation_space_convert === true;
       this.punctuationLock = preferences.punctuation_lock;
       this.wordCharacter = preferences.word_character.enabled
         ? preferences.word_character.keys : 'disabled';
@@ -1633,6 +1637,11 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   press(ascii: number, shift: boolean): void {
+    // Checked before the repeat arming is cleared: the space that converts is the key immediately
+    // after the mark, so this is the one press where both armings are live at once.
+    if (this.convertPunctuationSpace(ascii)) {
+      return;
+    }
     this.clearSmartPunctuationRepeat();
     if (!this.composes()) {
       // Straight to the editor, with no composition and nothing learned. A password or a one-time
@@ -1720,6 +1729,12 @@ export class KeyboardSession implements HardwareKeyTarget {
     } else {
       this.clearSmartPunctuationRepeat();
     }
+    // Armed off the Engine's own commit rather than off the key that was pressed: what reaches the
+    // editor is what the space would be correcting, and the two differ whenever the punctuation
+    // policy rewrote the mark.
+    this.smartPunctuationSpaceSnapshot = SmartPunctuationSpacePolicy.arm(
+      committed, completion !== null, this.smartPunctuation, this.smartPunctuationSpaceConvert,
+      this.editorGeneration);
     if (completion === null || this.inputClient === undefined) return;
     try {
       this.inputClient.insertTextSync(completion.closing);
@@ -1955,6 +1970,10 @@ export class KeyboardSession implements HardwareKeyTarget {
   private chinesePunctuation: boolean = true;
   private smartPunctuation: boolean = true;
   private smartPunctuationRepeat: boolean = true;
+  // Off by default, like the rest of the family on the Windows baseline: it changes a
+  // character the user already saw land.
+  private smartPunctuationSpaceConvert: boolean = false;
+  private smartPunctuationSpaceSnapshot: SmartPunctuationSpaceSnapshot | null = null;
   private punctuationLock: string = 'follow';
   private wordCharacter: string = 'disabled';
   private smartPunctuationSnapshot: SmartPunctuationRepeatSnapshot | null = null;
@@ -3290,6 +3309,59 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   private clearSmartPunctuationRepeat(): void {
     this.smartPunctuationSnapshot = null;
+  }
+
+  /**
+   * Rewrites a just-committed Chinese mark as ASCII when the next key is a space.
+   *
+   * Returns whether it did, because the caller must then not also deliver the space: the user is
+   * correcting the mark they just typed, not typing a mark and then a space.
+   *
+   * What is actually before the caret is re-read here rather than trusted from the arming. The
+   * arming records what was committed; anything may have happened since, and the source declines
+   * in exactly the same way when the two disagree.
+   */
+  convertPunctuationSpace(character: number): boolean {
+    const snapshot: SmartPunctuationSpaceSnapshot | null = this.smartPunctuationSpaceSnapshot;
+    if (snapshot === null || character !== 0x20 || this.inputClient === undefined) {
+      return false;
+    }
+    let preceding: number = 0;
+    try {
+      preceding = SmartPunctuationContext.precedingCodePoint(this.inputClient.getForwardSync(2));
+    } catch (error) {
+      KeyboardLog.error(`punctuation space context unavailable: ${describeError(error)}`);
+      this.clearSmartPunctuationSpace();
+      return false;
+    }
+    const decision: SpaceConvertDecision = SmartPunctuationSpacePolicy.decide(
+      snapshot, character, preceding, this.editing.length > 0, this.editorGeneration);
+    if (decision !== SpaceConvertDecision.CONVERT) {
+      this.clearSmartPunctuationSpace();
+      return false;
+    }
+    const ascii: string = String.fromCharCode(snapshot.ascii);
+    try {
+      // The preceding scalar was just checked to be the armed mark, so this cannot eat other text.
+      this.inputClient.deleteBackwardSync(1);
+      this.inputClient.insertTextSync(ascii);
+      this.recordTypingStatistics(ascii, this.typingSource());
+    } catch (error) {
+      KeyboardLog.error(`punctuation space conversion unavailable: ${describeError(error)}`);
+      this.clearSmartPunctuationSpace();
+      return false;
+    }
+    this.clearSmartPunctuationSpace();
+    // Typing the same mark again turns it back, which is the existing repeat behaviour and what the
+    // source arms at this point too: the conversion has to be undoable without reaching for
+    // backspace, or a mis-fire costs more than it saves.
+    this.smartPunctuationSnapshot = SmartPunctuationRepeatPolicy.snapshot(
+      snapshot.ascii, ascii, Date.now(), this.editorGeneration);
+    return true;
+  }
+
+  private clearSmartPunctuationSpace(): void {
+    this.smartPunctuationSpaceSnapshot = null;
   }
 
   private canArmSmartPunctuationRepeat(ascii: number, preceding: number): boolean {

@@ -116,7 +116,7 @@
 | preedit 显示、双拼原始预编辑 | `candidate_preedit_style`；`shuangpin_preedit` 能力位 | 逻辑回归 + 能力位测试 |
 | 中英混输、emoji/颜文字混输、独立英文候选 | Engine 侧 `mixed_input`；`dedicated_english` | 共享偏好契约 |
 | 直接英文补全 | `input/EnglishSuggestionPolicy.ts`；NAPI `englishCompletions` | 逻辑回归 |
-| 智能标点、重复转中文、成对补全、以词定字 | `input/SmartPunctuation*.ts`、`PairedPunctuationPolicy.ts`、`CandidateTextPolicy.ts` | 逻辑回归 |
+| 智能标点、重复转中文、空格转 ASCII、成对补全、以词定字 | `input/SmartPunctuation*.ts`、`PairedPunctuationPolicy.ts`、`CandidateTextPolicy.ts` | 逻辑回归 |
 | 中英文状态按应用/全局记忆 | `input/ImeModeScopePolicy.ts` | 逻辑回归 |
 | 全半角、简繁 | `input/FullWidthInputPolicy.ts`、`input/ChineseOutputPolicy.ts` | 逻辑回归 |
 | 八个快捷模式 K/T/U/E/M/J/Y/R | Engine 侧 `local_modes`；`input/LocalInputMode.ts` | 共享偏好契约 |
