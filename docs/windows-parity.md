@@ -130,6 +130,8 @@
 | 录音提示音、录音时静音其他音频 | `input/HarmonyVoiceRecordingBehaviour.ets` + `VoiceRecordingBehaviourPolicy.ts` | 逻辑回归；音频未在设备上听 |
 | 录音设备选择 | `input/VoiceCaptureDevicePolicy.ts`、`HarmonyVoiceCaptureDevices.ets` | 逻辑回归 |
 | 手写识别 | `input/HandwritingStrokePolicy.ts` + Core Vision Kit；设置页手写分页有本宿主专属说明 | 逻辑回归 + UI 回归；识别本身未在设备上跑 |
+| 软键盘组字（手机） | `KeyboardView` 触摸路径 → `KeyboardSession.press` → Engine | **设备上验证**：点 `N` 得到预编辑 `n` 与候选 `1 那` |
+| 设置页在设备上渲染 | `pages/Settings.ets` WebView 加载共享 `SettingsPage` | **设备上验证**：2in1 上完整侧栏（含 #3165 解封的辅助码页）与候选窗预览 |
 | 屏幕键盘 | 本宿主自身即键盘；2in1 另有 `DesktopSurface.SCREEN_KEYBOARD` | 设备上面板创建成功 |
 | 悬浮工具栏、组件开关、缩放 | `FloatingToolbar.ets`、`FloatingToolbarLayout.ts` | 逻辑回归 |
 | Emoji、颜文字、符号、剪贴板历史 | `emoji/EmojiCatalogModel.ts`、`clipboard/*` | 逻辑回归 |
@@ -164,6 +166,12 @@
 同次运行暴露一个设备上才能观察到的缺陷，**尚未修复**：2in1 上字母被领进组合串后，预编辑与候选窗都不出现。已排除的原因有两项——`panel.show()` 本身可用（`Ctrl+Shift+Super+K` 能把面板显示出来），`onComposition` 回调确实在 `if (desktop)` 分支内被赋值。资源暂存也成立（`StagedResources.stage` 返回假时 `onCreate` 会提前返回，而日志显示 `session 1 created` 与 `panel ready` 都发生了）。症状收敛为：Engine 接受按键但不返回 editing text，因此 `composing()` 始终为假、`onComposition(true)` 从不触发。再往下定位需要带诊断日志的构建。
 
 复现步骤：2in1 实例上安装并切为当前输入法 → 打开浏览器并点中页内搜索框（确认日志出现 `attached to editor`）→ 确认工具栏显示 `中` → `hdc shell uinput -K -d 2030 -i 50 -u 2030`。预期出现候选窗，实际字段与面板都无变化。
+
+同一个 HAP 在 phone 实例上做对照，结论把范围切干净了：**Engine、词库与组字链路全部正常，坏的只是 2in1 的硬件键路径**。手机上点软键盘的 `N` 键，预编辑立刻显示 `n`、候选栏出现 `1 那`、回车键由"搜索"变为"选定"。两条路径最终调用的是同一个 `KeyboardSession.press()`，触摸路径能组字，硬件键路径不能。
+
+同次还确认了资源与数据侧没有问题：`files/engine` 暂存 292 MB，`msime.db` 107 MB、`dict_japanese.dat` 66 MB、`english.db` 8.4 MB、`dict_pinyin.dat`、`others.db`、`sentence-model.safetensors` 均在位，`engine.ready` 标记按代次写入；设置页的词库查询在设备上执行成功（全新安装的用户词库为空属正常）。
+
+再往下定位需要带诊断日志的构建：`press()` 收到的字符值、`client.character` 的返回视图两者都没有日志，而这正是要看的两处。
 
 仍未取得设备证据的是：语音 provider 实际识别、手写实际识别。两者需要真实凭据与真实音频/笔迹。其余条目均有不依赖设备的回归覆盖。
 
