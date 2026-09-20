@@ -38,7 +38,9 @@ local.properties
 *.report.html
 
 # Prepared by scripts/fetch_engine.py from engine-lock.json rather than tracked or submoduled.
-/vendor/MSIME-Engine/
+# No trailing slash: several checkouts of this repository share one prepared Engine by linking to
+# it, and a symlink is not a directory to git - with the slash the link showed up as untracked.
+/vendor/MSIME-Engine
 
 # The native host's Gradle project: its build directories and daemon caches are per-machine, and the
 # .gradle caches hold absolute paths and lock files that mean nothing on another checkout.
