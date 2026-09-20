@@ -329,9 +329,16 @@ int main(int argc, char **argv) {
       g_variant_unref(reply);
       return handled != FALSE;
     };
+    // Fifty-six call sites share this, and "Phrase key not consumed" named none
+    // of them. Number the calls and say which key: a failure here otherwise costs
+    // a bisection through the whole fixture to find out where it happened.
+    int phrase_calls = 0;
     auto phrase = [&] {
+      const int call = ++phrase_calls;
       for (char c : std::string("nihao"))
-        require(key(c), "Phrase key not consumed");
+        require(key(c), ("Phrase key '" + std::string(1, c) + "' not consumed in phrase() call " +
+                         std::to_string(call))
+                            .c_str());
     };
     invoke("FocusIn");
     require(!seen.emoji_candidates,
