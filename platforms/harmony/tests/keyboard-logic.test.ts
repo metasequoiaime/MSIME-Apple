@@ -1235,6 +1235,25 @@ group("maps shared candidate skins to native Harmony palettes", () => {
     CandidateSkinPolicy.rowDetailColor(true, "#111111", "#ffffff") === "#ffffff",
     "selected candidate details follow the selected text colour",
   );
+  // Pinned and selected are different states in the source: CandidateViewHtml wraps a
+  // fixed-position item in its own #379AD3 rather than the selected-row colour. Drawing both in the
+  // skin's accent made them indistinguishable on any skin whose accent is its selection colour.
+  check(
+    CandidateSkinPolicy.rowTextColor(false, false, "#111111", "#ffffff") === "#111111",
+    "an ordinary candidate uses the normal text colour",
+  );
+  check(
+    CandidateSkinPolicy.rowTextColor(true, false, "#111111", "#ffffff") === "#ffffff",
+    "the selected candidate uses the selected text colour",
+  );
+  check(
+    CandidateSkinPolicy.rowTextColor(false, true, "#111111", "#ffffff") === "#379AD3",
+    "a pinned candidate takes the source's own colour, not the skin's",
+  );
+  check(
+    CandidateSkinPolicy.rowTextColor(true, true, "#111111", "#ffffff") === "#379AD3",
+    "being selected as well does not hide that a candidate is pinned",
+  );
   // Each source skin now resolves to a palette of its own, built from its own upstream stylesheet,
   // rather than to the nearest touch-keyboard palette. The nearest-palette mapping is what put
   // 微信绿 and 杨柳青 on the same colours.
