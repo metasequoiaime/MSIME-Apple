@@ -390,22 +390,32 @@ const helpcodeSchemas: [HelpcodeSchema, string][] = [
   ["shouyouplus", "首右plus"],
   ["xiaohe", "小鹤"],
 ];
+/**
+ * The sidebar, in the reference window's order.
+ *
+ * Everything from 外观 down is the reference's own list, item for item and in its sequence, so a
+ * user who knows that window finds the same page in the same place here. The pages this client has
+ * and that window does not -- the account, the AI conversation, the community and the typing
+ * statistics -- sit ahead of it as a block of their own rather than being interleaved, which is
+ * also the group the mobile hosts promote. macOS reorders this into `macosSidebarGroups`, because
+ * its own reference window groups rather than lists.
+ */
 const pages = [
   { id: "home", title: "首页", icon: new URL("./assets/msime.svg", import.meta.url).href },
   { id: "account", title: "我的", icon: new URL("./assets/account.svg", import.meta.url).href },
   { id: "chat", title: "AI 对话", icon: new URL("./assets/help.svg", import.meta.url).href },
   { id: "community", title: "社区", icon: new URL("./assets/community.svg", import.meta.url).href },
   {
+    id: "typing-statistics",
+    title: "打字统计",
+    icon: new URL("./assets/statistics.svg", import.meta.url).href,
+  },
+  {
     id: "appearance",
     title: "外观",
     icon: new URL("./assets/appearance.svg", import.meta.url).href,
   },
   { id: "input", title: "输入", icon: new URL("./assets/input.svg", import.meta.url).href },
-  {
-    id: "typing-statistics",
-    title: "打字统计",
-    icon: new URL("./assets/statistics.svg", import.meta.url).href,
-  },
   { id: "helpcode", title: "辅助码", icon: new URL("./assets/helpcode.svg", import.meta.url).href },
   {
     id: "shortcuts",
@@ -419,6 +429,11 @@ const pages = [
   },
   { id: "skin", title: "皮肤", icon: new URL("./assets/skin.svg", import.meta.url).href },
   {
+    id: "voice",
+    title: "语音输入",
+    icon: new URL("./assets/voice-input.svg", import.meta.url).href,
+  },
+  {
     id: "screen-keyboard",
     title: "屏幕键盘",
     icon: new URL("./assets/screen-keyboard.svg", import.meta.url).href,
@@ -428,13 +443,8 @@ const pages = [
     title: "手写识别板",
     icon: new URL("./assets/handwriting.svg", import.meta.url).href,
   },
-  {
-    id: "voice",
-    title: "语音输入",
-    icon: new URL("./assets/handwriting.svg", import.meta.url).href,
-  },
-  { id: "ai", title: "AI 辅助", icon: new URL("./assets/help.svg", import.meta.url).href },
   { id: "tools", title: "实用功能", icon: new URL("./assets/utilities.svg", import.meta.url).href },
+  { id: "ai", title: "AI 辅助", icon: new URL("./assets/ai.svg", import.meta.url).href },
   {
     id: "floating-toolbar",
     title: "悬浮工具栏",

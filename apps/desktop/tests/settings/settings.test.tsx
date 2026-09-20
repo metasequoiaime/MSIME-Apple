@@ -3628,6 +3628,45 @@ test("macOS and iOS help pages use their native host instructions", async () => 
   expect(await screen.findByText(/iPhone 与 iPad 触屏输入体验/)).toBeDefined();
 });
 
+// Every host but macOS lists the sidebar flat, so this is the order a Windows user sees and the
+// order the HarmonyOS settings window shows. Pinned against the reference window's own sidebar so
+// inserting a page cannot quietly move the reference's pages around it.
+test("the flat sidebar keeps the reference window's order", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: { platform: "windows", floating_toolbar: true } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  const sidebar = screen.getByRole("navigation", { name: "设置分类" });
+  const titles = [...sidebar.querySelectorAll("button.item")].map((item) => item.textContent ?? "");
+  const reference = [
+    "外观",
+    "输入",
+    "辅助码",
+    "快捷键",
+    "词库",
+    "皮肤",
+    "语音输入",
+    "屏幕键盘",
+    "手写识别板",
+    "实用功能",
+    "AI 辅助",
+    "悬浮工具栏",
+    "帮助",
+    "关于",
+    "反馈",
+  ];
+  expect(titles.filter((title) => reference.includes(title))).toEqual(reference);
+  // The pages this client has and the reference window does not sit ahead of that run rather than
+  // being interleaved with it.
+  expect(titles.indexOf("外观")).toBeGreaterThan(titles.indexOf("打字统计"));
+});
+
 test("macOS shortcut page owns the mode HUD and the full-width chord", async () => {
   const save = vi.fn().mockResolvedValue({ ...initial, revision: 8 });
   render(
