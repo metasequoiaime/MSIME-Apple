@@ -16,6 +16,8 @@ import java.util.concurrent.Executors;
 /** Development launcher for first resource preparation, never auto-enables this IME. */
 public final class SetupActivity extends Activity {
     private static final ExecutorService WORKER = Executors.newSingleThreadExecutor();
+    /** Tauri generates its activity under its own Kotlin package, which is the Gradle namespace. */
+    private static final String SHARED_SETTINGS_ACTIVITY = "app.msime.client.preview.MainActivity";
     @Override public void onCreate(Bundle state) {
         WindowLayout.theme(this);
         super.onCreate(state);
@@ -58,7 +60,11 @@ public final class SetupActivity extends Activity {
         picker.setText("选择输入法");
         picker.setOnClickListener(ignored -> ((InputMethodManager)getSystemService(INPUT_METHOD_SERVICE)).showInputMethodPicker());
         layout.addView(picker);
-        Intent sharedSettings = new Intent().setClassName(getPackageName(), getPackageName() + ".MainActivity");
+        // The Tauri bundle's activity, named outright rather than derived from the package. The two
+        // stopped agreeing when the application id became app.msime.android while the generated Kotlin
+        // kept its own package: deriving the class from getPackageName() asked for one that does not
+        // exist, and the button silently stopped appearing in the bundle.
+        Intent sharedSettings = new Intent().setClassName(getPackageName(), SHARED_SETTINGS_ACTIVITY);
         if (sharedSettings.resolveActivity(getPackageManager()) != null) {
             Button settingsPage = new Button(this);
             settingsPage.setText("打开共享设置");
