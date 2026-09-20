@@ -18,7 +18,6 @@
 @import "tailwindcss/theme.css" layer(theme);
 @import "tailwindcss/utilities.css" layer(utilities);
 @import "./upstream/variables.css";
-@import "./upstream/sidebar.css";
 @import "./skin/skin-preview.css";
 @import "./skin/skin-candidate-preview.css";
 @import "./skin/skin-candidate-decorations.css";
@@ -236,6 +235,16 @@
   &:checked::after {
     transform: translate(20px, -50%);
   }
+
+  /* In a forced-colours mode the drawn switch disappears: the system paints its own palette, and the
+     white knob and the grey track collapse to the same colour. Hand it back to the platform. */
+  @media (forced-colors: active) {
+    appearance: auto;
+
+    &::after {
+      display: none;
+    }
+  }
 }
 /* A radio drawn the same way, for the same reason. */
 @utility radio-option {
@@ -269,6 +278,17 @@
     background: #8e8cd8;
     transform: translate(-50%, -50%);
   }
+
+  /* Same reasoning as the switch: the drawn dot has no contrast of its own in a forced palette. */
+  @media (forced-colors: active) {
+    & input[type="radio"] {
+      appearance: auto;
+    }
+
+    & input[type="radio"]::after {
+      display: none;
+    }
+  }
 }
 @utility check-option {
   display: flex;
@@ -294,6 +314,219 @@
   color: var(--text-secondary);
 }
 
+/*
+ * The last of the settings-page pieces. Utilities rather than markup-side strings for the same reason
+ * as the primitives above: `input-option-divider` alone appears at 27 call sites, and the combobox and
+ * its menu are a pair whose positioning only makes sense together.
+ */
+/*
+ * The appearance preview renders the vendored candidate markup, so this reaches into class names the
+ * upstream skins own. The three custom properties are what the font controls on the page write to.
+ */
+@utility appearance-candidate-preview {
+  & .candidate {
+    font-family: var(--appearance-font-family, sans-serif);
+    font-size: var(--appearance-font-size, 16px);
+  }
+
+  & .candidate .pinyin {
+    font-size: var(--appearance-preedit-font-size, 16px);
+  }
+}
+@utility helpcode-schema {
+  margin-top: 12px;
+}
+@utility frequency-option-content {
+  margin-top: 8px;
+}
+@utility frequency-option-row {
+  padding: 10px 0;
+}
+@utility candidate-fallback-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin: 12px 0;
+}
+@utility candidate-fallback-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+
+  & input {
+    flex: 1;
+    min-width: 0;
+  }
+
+  & .font-family-combobox {
+    flex: 1;
+  }
+}
+/* The field and its menu: the menu is positioned against the field, so the two are one thing. */
+@utility font-family-combobox {
+  position: relative;
+  min-width: 0;
+
+  & input {
+    box-sizing: border-box;
+    width: 100%;
+  }
+}
+@utility font-family-menu {
+  position: absolute;
+  z-index: 20;
+  top: 100%;
+  right: 0;
+  left: 0;
+  max-height: 240px;
+  overflow: auto;
+  padding: 4px;
+  border: 1px solid var(--dropdown-menu-border);
+  border-radius: 6px;
+  background: var(--dropdown-menu-bg);
+  color: var(--dropdown-item-color);
+  box-shadow: var(--dropdown-menu-shadow);
+
+  & [role="option"] {
+    padding: 6px 10px;
+    overflow-wrap: anywhere;
+    cursor: pointer;
+  }
+
+  & [role="option"]:hover,
+  & [aria-selected="true"] {
+    background: var(--dropdown-item-hover-bg);
+  }
+}
+/* Windows 04a8df56 appearance.css colour controls, GPL-3.0. */
+@utility candidate-color-control {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+
+  & input[type="color"] {
+    width: 36px;
+    height: 28px;
+    padding: 0;
+    border: 1px solid var(--control-border);
+    border-radius: 6px;
+    background: transparent;
+    cursor: pointer;
+  }
+}
+@utility candidate-color-reset {
+  padding: 4px 10px;
+  border: 1px solid var(--control-border);
+  border-radius: 6px;
+  background: var(--button-secondary-bg);
+  color: var(--button-secondary-text);
+  font-size: 12px;
+  cursor: pointer;
+
+  &:hover {
+    background: var(--button-secondary-hover);
+  }
+
+  &.is-active {
+    border-color: var(--accent-soft-border);
+    background: var(--accent-soft);
+    color: var(--text-color);
+  }
+}
+@utility input-option-content {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 12px;
+}
+@utility input-mode-options {
+  display: grid;
+  grid-template-columns: 1fr auto 1fr;
+  align-items: center;
+  gap: 12px;
+}
+@utility input-option-item {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+@utility input-option-divider {
+  width: 100%;
+  height: 0.8px;
+  background-color: var(--divider-color);
+}
+@utility input-setting-description {
+  margin-top: 5px;
+  color: var(--text-muted);
+  font-size: 12px;
+}
+@utility japanese-scheme-description {
+  margin-top: 10px;
+}
+@utility word-to-character-keys-row {
+  margin-top: 18px;
+  padding-top: 16px;
+  border-top: 1px solid var(--divider-color);
+
+  & .radio-option {
+    padding: 8px 4px;
+  }
+
+  /* A disabled choice still has to be readable enough to explain why it is unavailable. */
+  & .radio-option:has(input:disabled) {
+    opacity: 0.45;
+    cursor: not-allowed;
+  }
+}
+@utility screen-keyboard-artwork {
+  display: block;
+  width: min(100%, 760px);
+  height: auto;
+  margin: 0 auto;
+  font-family: "Segoe UI", system-ui, sans-serif;
+
+  &.compact {
+    width: 96px;
+    margin: 0;
+    border-radius: 5px;
+  }
+}
+@utility native-panel {
+  width: 100vw;
+  min-height: 100vh;
+  overflow: hidden;
+  background: var(--chrome-bg);
+  color: var(--text-color);
+}
+@utility native-panel-header {
+  display: flex;
+  height: 38px;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 12px 0 16px;
+  border-bottom: 1px solid var(--border-color);
+  background: var(--surface-raised);
+  color: var(--text-color);
+  font-size: 13px;
+  user-select: none;
+
+  & button {
+    width: 28px;
+    height: 28px;
+    border: 0;
+    border-radius: 5px;
+    background: transparent;
+    color: var(--text-muted);
+    font-size: 21px;
+    line-height: 1;
+  }
+
+  & button:hover {
+    background: var(--button-secondary-hover);
+    color: var(--text-color);
+  }
+}
+
 @utility press-spring {
   transition:
     transform 0.28s cubic-bezier(0.34, 1.56, 0.64, 1),
@@ -302,471 +535,95 @@
     background-color 0.18s ease;
 }
 
-* {
-  box-sizing: border-box;
-}
-html,
-body,
-#root {
-  width: 100%;
-  height: 100%;
-  margin: 0;
-}
-html,
-body {
-  background: var(--chrome-bg);
-  color: var(--text-color);
-}
-body {
-  font-family: "Noto Sans SC", "Microsoft YaHei", "Segoe UI Variable", "Segoe UI", sans-serif;
-  font-size: 14px;
-}
-button,
-select {
-  font: inherit;
-  color: inherit;
-}
-button {
-  cursor: pointer;
-}
-button:disabled,
-select:disabled,
-input:disabled {
-  cursor: default;
-  opacity: 0.5;
-}
-:focus-visible {
-  outline: 2px solid var(--accent-color);
-  outline-offset: 3px;
-}
-[hidden] {
-  display: none !important;
-}
-.sidebar {
-  flex: 0 0 200px;
-}
-.sidebar .item {
-  border: 0;
-  background: transparent;
-  font: inherit;
-  text-align: left;
-  min-height: 36px;
-  flex-shrink: 0;
-}
-.sidebar-section {
-  flex-shrink: 0;
-}
-/* 分组之间留空白而不是分隔线，与 macOS 系统设置一致 */
-.sidebar-section.spaced {
-  margin-top: 14px;
-}
-.sidebar .item.active::before {
-  content: "";
-  position: absolute;
-  left: 0;
-  width: 4px;
-  height: 22px;
-  border-radius: 999px;
-  background: var(--accent-color);
-}
-.preview-label {
-  color: var(--text-muted);
-  font-size: 12px;
-  margin: auto 20px 0;
-  padding-top: 24px;
-}
-fieldset {
-  border: 0;
-  padding: 0;
-  margin: 0;
-  min-width: 0;
-}
-.helpcode-schema {
-  margin-top: 12px;
-}
-.frequency-option-content {
-  margin-top: 8px;
-}
-.frequency-option-row {
-  padding: 10px 0;
-}
-.appearance-candidate-preview .candidate {
-  font-size: var(--appearance-font-size, 16px);
-}
-.appearance-candidate-preview .candidate {
-  font-family: var(--appearance-font-family, sans-serif);
-}
-.candidate-fallback-list {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-  margin: 12px 0;
-}
-.candidate-fallback-row {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-}
-.candidate-fallback-row input {
-  flex: 1;
-  min-width: 0;
-}
-.font-family-combobox {
-  position: relative;
-  min-width: 0;
-}
-.candidate-fallback-row .font-family-combobox {
-  flex: 1;
-}
-.font-family-combobox input {
-  box-sizing: border-box;
-  width: 100%;
-}
-.font-family-menu {
-  position: absolute;
-  z-index: 20;
-  top: 100%;
-  left: 0;
-  right: 0;
-  max-height: 240px;
-  overflow: auto;
-  border: 1px solid var(--dropdown-menu-border);
-  border-radius: 6px;
-  background: var(--dropdown-menu-bg);
-  color: var(--dropdown-item-color);
-  box-shadow: var(--dropdown-menu-shadow);
-  padding: 4px;
-}
-.font-family-menu [role="option"] {
-  padding: 6px 10px;
-  cursor: pointer;
-  overflow-wrap: anywhere;
-}
-.font-family-menu [role="option"]:hover,
-.font-family-menu [aria-selected="true"] {
-  background: var(--dropdown-item-hover-bg);
-}
-.appearance-candidate-preview .candidate .pinyin {
-  font-size: var(--appearance-preedit-font-size, 16px);
-}
-/* Windows 04a8df56 appearance.css colour controls, GPL-3.0. */
-.candidate-color-control {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-}
-.candidate-color-control input[type="color"] {
-  width: 36px;
-  height: 28px;
-  padding: 0;
-  border: 1px solid var(--control-border);
-  border-radius: 6px;
-  background: transparent;
-  cursor: pointer;
-}
-.candidate-color-reset {
-  border: 1px solid var(--control-border);
-  background: var(--button-secondary-bg);
-  color: var(--button-secondary-text);
-  border-radius: 6px;
-  padding: 4px 10px;
-  font-size: 12px;
-  cursor: pointer;
-}
-.candidate-color-reset:hover {
-  background: var(--button-secondary-hover);
-}
-.candidate-color-reset.is-active {
-  border-color: var(--accent-soft-border);
-  background: var(--accent-soft);
-  color: var(--text-color);
-}
-.input-option-content {
-  margin-top: 12px;
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.input-mode-options {
-  display: grid;
-  grid-template-columns: 1fr auto 1fr;
-  align-items: center;
-  gap: 12px;
-}
-.input-option-item {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-.input-option-divider {
-  width: 100%;
-  height: 0.8px;
-  background-color: var(--divider-color);
-}
-.input-setting-description {
-  color: var(--text-muted);
-  font-size: 12px;
-  margin-top: 5px;
-}
-.japanese-scheme-description {
-  margin-top: 10px;
-}
-.word-to-character-keys-row {
-  margin-top: 18px;
-  padding-top: 16px;
-  border-top: 1px solid var(--divider-color);
-}
-.word-to-character-keys-row .radio-option {
-  padding: 8px 4px;
-}
-.word-to-character-keys-row .radio-option:has(input:disabled) {
-  opacity: 0.45;
-  cursor: not-allowed;
-}
-select {
-  background: var(--dropdown-bg);
-  border: 1px solid var(--border-color);
-  border-radius: 8px;
-  font-size: 14px;
-  padding: 4px 6px 4px 9px;
-  min-width: 110px;
-  max-width: 100%;
-}
-select:hover:not(:disabled) {
-  background: var(--surface-raised);
-  border-color: var(--border-strong);
-}
-small {
-  display: block;
-  font-size: 12px;
-  font-weight: 400;
-  color: var(--text-muted);
-  margin-top: 6px;
-  line-height: 1.6;
-}
-.screen-keyboard-artwork {
-  display: block;
-  width: min(100%, 760px);
-  height: auto;
-  margin: 0 auto;
-  font-family: "Segoe UI", system-ui, sans-serif;
-}
-.screen-keyboard-artwork.compact {
-  width: 96px;
-  margin: 0;
-  border-radius: 5px;
-}
-.native-panel {
-  width: 100vw;
-  min-height: 100vh;
-  overflow: hidden;
-  background: var(--chrome-bg);
-  color: var(--text-color);
-}
-.native-panel-header {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  height: 38px;
-  padding: 0 12px 0 16px;
-  border-bottom: 1px solid var(--border-color);
-  background: var(--surface-raised);
-  color: var(--text-color);
-  font-size: 13px;
-  user-select: none;
-}
-.native-panel-header button {
-  width: 28px;
-  height: 28px;
-  border: 0;
-  border-radius: 5px;
-  background: transparent;
-  color: var(--text-muted);
-  font-size: 21px;
-  line-height: 1;
-}
-.native-panel-header button:hover {
-  background: var(--button-secondary-hover);
-  color: var(--text-color);
-}
-.keyboard-panel {
-  --kb-background: #17181d;
-  --kb-text: #f1f1f3;
-  --kb-heading: #d7d8dd;
-  --kb-key: #2b2d34;
-  --kb-key-fill: var(--kb-key);
-  --kb-action: var(--kb-key);
-  --kb-action-fill: var(--kb-action);
-  --kb-action-text: var(--kb-text);
-  --kb-paper-line: rgba(0, 0, 0, 0.08);
-  --kb-hover: #41434d;
-  --kb-active: #535866;
-  --kb-pressed: #666a77;
-  --kb-key-radius: 5px;
-  --kb-border-width: 0px;
-  --kb-border-color: transparent;
-  --kb-shadow: none;
-  --kb-font-family: inherit;
-  background: var(--kb-background);
-  color: var(--kb-text);
-  font-family: var(--kb-font-family);
-}
-.keyboard-panel[data-keyboard-theme="light"] {
-  --kb-background: #eceef2;
-  --kb-text: #202124;
-  --kb-heading: #555861;
-  --kb-key: #fff;
-  --kb-hover: #e1e4ea;
-  --kb-active: #d7d0e0;
-  --kb-pressed: #c7c9d0;
-}
-.keyboard-panel {
-  display: flex;
-  flex-direction: column;
-  height: 100vh;
-  min-height: 0;
-  border-radius: 8px;
-}
-.keyboard-panel .native-panel-header {
-  flex: 0 0 28px;
-  height: 28px;
-  padding: 0 6px 0 10px;
-  border-bottom: 0;
-  background: var(--kb-background);
-  color: var(--kb-heading);
-  font-size: 12px;
-}
-.keyboard-panel .native-panel-header button {
-  flex: 0 0 28px;
-  height: 24px;
-  border-radius: 4px;
-  color: var(--kb-text);
-}
-.keyboard-panel .native-panel-header button:hover {
-  background: var(--kb-hover);
-  color: var(--kb-text);
-}
-.keyboard-panel-body {
-  flex: 1;
-  min-height: 0;
-  padding: 0 7px 7px;
-}
-.keyboard-panel-notice {
-  min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-  color: var(--kb-heading);
-  font-size: 12px;
-}
-.keyboard-layout {
-  display: flex;
-  flex-direction: column;
-  height: 100%;
-  gap: var(--keyboard-row-gap, 4px);
-}
-.keyboard-row {
-  display: flex;
-  flex: 1;
-  min-height: 0;
-  gap: var(--keyboard-key-gap, 4px);
-}
-.keyboard-key {
-  --kb-current-fill: var(--kb-key-fill);
-  flex: 1 1 0;
-  min-width: 0;
-  min-height: 0;
-  padding: 0;
-  border: var(--kb-border-width) solid var(--kb-border-color);
-  border-radius: var(--kb-key-radius);
-  background: var(--kb-current-fill);
-  color: var(--kb-text);
-  box-shadow: var(--kb-shadow);
-  font-family: inherit;
-  font-size: 15px;
-}
-.keyboard-key.action {
-  --kb-current-fill: var(--kb-action-fill);
-  color: var(--kb-action-text);
-}
-.keyboard-key.material-raised {
-  transform: translateY(-1px);
-  box-shadow:
-    var(--kb-shadow),
-    0 2px 0 rgba(0, 0, 0, 0.18);
-}
-.keyboard-key.material-raised:active {
-  transform: translateY(0);
-}
-.keyboard-key.material-glass {
-  backdrop-filter: blur(8px);
-  -webkit-backdrop-filter: blur(8px);
-}
-.keyboard-key.material-paper {
-  background-image: repeating-linear-gradient(
-    0deg,
-    transparent 0 7px,
-    var(--kb-paper-line) 7px 8px
-  );
-  background-size: auto;
-}
-.keyboard-key:hover {
-  background: var(--kb-hover);
-}
-.keyboard-key.action:hover {
-  background: var(--kb-hover);
-  color: var(--kb-text);
-}
-.keyboard-key.active {
-  background: var(--kb-active);
-}
-.keyboard-key:active {
-  background: var(--kb-pressed);
-}
-.keyboard-key.wide {
-  font-size: 12px;
-}
-@media (max-width: 600px) {
-  .sidebar {
+/*
+ * The element layer.
+ *
+ * Preflight is deliberately still not imported. These are not a reset -- they are this app's own
+ * element defaults, and they exist because every instance wants them: a `select` that is not styled
+ * on each of its several dozen call sites, a `small` that is the caption under a setting wherever one
+ * appears. Tailwind's `@layer base` is where those belong, and putting them there means any utility
+ * beside them still wins, which was not true while they were loose rules.
+ */
+@layer base {
+  * {
+    box-sizing: border-box;
+  }
+
+  html,
+  body,
+  #root {
     width: 100%;
-    flex: 0 0 auto;
-    flex-direction: row;
-    flex-wrap: wrap;
-    padding: 8px;
-    overflow: visible;
+    height: 100%;
+    margin: 0;
   }
-  .sidebar {
-    display: none;
+
+  html,
+  body {
+    background: var(--chrome-bg);
+    color: var(--text-color);
   }
-  .sidebar-header {
-    width: 100%;
-    margin-bottom: 0;
-    padding: 0 4px 8px;
+
+  body {
+    font-family: var(--font-ui);
+    font-size: 14px;
   }
-  .sidebar .item {
-    flex: 1;
-    margin: 2px;
-    gap: 6px;
-    padding: 6px 8px;
+
+  button,
+  select {
+    font: inherit;
+    color: inherit;
   }
-  .preview-label {
-    display: none;
+
+  button {
+    cursor: pointer;
   }
-}
-@media (forced-colors: active) {
-  .radio-option input[type="radio"] {
-    appearance: auto;
+
+  button:disabled,
+  select:disabled,
+  input:disabled {
+    cursor: default;
+    opacity: 0.5;
   }
-  .radio-option input[type="radio"]::after {
-    display: none;
+
+  :focus-visible {
+    outline: 2px solid var(--accent-color);
+    outline-offset: 3px;
   }
-  .toggle {
-    appearance: auto;
+
+  [hidden] {
+    display: none !important;
   }
-  .toggle::after {
-    display: none;
+
+  fieldset {
+    margin: 0;
+    padding: 0;
+    border: 0;
+    min-width: 0;
   }
-  .sidebar .item.active {
-    outline: 1px solid Highlight;
+
+  select {
+    min-width: 110px;
+    max-width: 100%;
+    padding: 4px 6px 4px 9px;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--dropdown-bg);
+    font-size: 14px;
+  }
+
+  select:hover:not(:disabled) {
+    border-color: var(--border-strong);
+    background: var(--surface-raised);
+  }
+
+  /* The caption under a setting. Block, because it always sits on its own line under the control it
+     explains rather than running on from it. */
+  small {
+    display: block;
+    margin-top: 6px;
+    color: var(--text-muted);
+    font-size: 12px;
+    font-weight: 400;
+    line-height: 1.6;
   }
 }

@@ -173,3 +173,32 @@ export const windowIcon =
 export const secretInput = "inline-flex items-center gap-1.5";
 export const secretToggle =
   "cursor-pointer rounded-md border border-current bg-transparent px-2 py-0.5 text-xs text-inherit disabled:cursor-default disabled:opacity-50";
+
+// ---- the sidebar ----
+
+/*
+ * Its own compositing layer: the active indicator is positioned against the item, and without
+ * `contain` a reflow in the content beside it re-rasterises the whole column. The scrollbar is styled
+ * through the WebKit pseudo-elements, which have no utility form.
+ */
+export const sidebar =
+  "relative z-1 isolate flex w-50 flex-col overflow-y-auto py-3 [contain:layout_style_paint] [scrollbar-gutter:stable] [transform:translateZ(0)] [&::-webkit-scrollbar]:w-2 [&::-webkit-scrollbar-track]:bg-transparent [&::-webkit-scrollbar-thumb]:rounded-sm [&::-webkit-scrollbar-thumb]:bg-[var(--scrollbar-thumb)] [&::-webkit-scrollbar-thumb]:transition-colors [&::-webkit-scrollbar-thumb:hover]:bg-[var(--scrollbar-thumb-hover)] max-phone:hidden";
+export const sidebarHeader =
+  "mb-2 flex items-center gap-1.5 px-3 pt-0 pb-3 [&>img]:size-[25px] [&>img]:translate-y-px [&>img]:rounded-md [&>span]:ml-[3px] [&>span]:text-[19px] [&>span]:font-medium";
+/*
+ * The active item draws its own indicator with a pseudo-element. The stylesheet also carried an
+ * `.active-indicator` rule, complete with a comment about driving its position from WAAPI -- and no
+ * component has ever rendered that element, so nothing was driving anything.
+ */
+export const sidebarItem = (active: boolean) =>
+  `relative mx-2 my-0.5 flex min-h-9 shrink-0 items-center justify-start gap-[15px] rounded-[5px] border-0 bg-transparent px-3 py-1.5 text-left font-[inherit] transition-none text-[var(--sidebar-item-color)] hover:bg-[var(--sidebar-hover)] hover:[&_img]:opacity-100 ${
+    active
+      ? "bg-[var(--item-active-hover)] hover:text-body before:absolute before:left-0 before:h-[22px] before:w-1 before:rounded-full before:bg-accent before:content-[''] forced-colors:outline forced-colors:outline-1 forced-colors:outline-[Highlight] [&_img]:opacity-100"
+      : ""
+  }`;
+export const sidebarIcon =
+  "relative top-[1.5px] flex size-6 flex-[0_0_24px] items-center justify-center [&>img]:block [&>img]:size-[22px] [&>img]:object-contain [&>img]:opacity-90 [&>img]:transition-opacity [&>img]:duration-150 light-theme:[&>img]:invert light-theme:[&>img]:brightness-25";
+/* A group of sidebar items. Groups are separated by space rather than a rule, matching macOS System
+ * Settings; the first one gets no gap because it sits directly under the header. */
+export const sidebarSection = "shrink-0";
+export const previewLabel = "mt-auto mr-5 mb-0 ml-5 pt-6 text-xs text-muted max-phone:hidden";
