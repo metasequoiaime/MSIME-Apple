@@ -1766,7 +1766,7 @@ fn macos_input_source_restart_args() -> [&'static str; 5] {
     [
         "-n",
         "-b",
-        "app.msime.client.preview.inputmethod",
+        "app.msime.inputmethod.MetasequoiaIME",
         "--args",
         "--reregister-input-source",
     ]
@@ -1840,8 +1840,9 @@ async fn install_input_source(app: tauri::AppHandle) -> Result<(), HostActionErr
     })?
 }
 
+// The input method writes through NSUserDefaults.standardUserDefaults, so its domain is its bundle identifier; reading any other name finds an empty - or stale - plist while the settings page reports that it saved.
 #[cfg(target_os = "macos")]
-const MACOS_INPUT_METHOD_DEFAULTS_DOMAIN: &str = "app.msime.client.preview.inputmethod";
+const MACOS_INPUT_METHOD_DEFAULTS_DOMAIN: &str = "app.msime.inputmethod.MetasequoiaIME";
 
 #[cfg(target_os = "macos")]
 const MACOS_SHUANGPIN_KEYMAP_DEFAULTS_KEY: &str = "MSIMEClientShuangpinKeymap";

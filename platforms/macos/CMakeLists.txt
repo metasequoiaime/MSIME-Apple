@@ -801,6 +801,14 @@ add_test(
           "${CMAKE_CURRENT_SOURCE_DIR}/tests/settings/info_plist_usage.py"
           "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"
           "${CMAKE_CURRENT_SOURCE_DIR}/src")
+# The input source identifiers and the names the input menu shows for them live in different files, so renaming the bundle leaves the names keyed on an identifier nothing declares any more - and the menu then prints the identifier itself.
+add_test(
+  NAME info-plist-names
+  COMMAND "${Python3_EXECUTABLE}"
+          "${CMAKE_CURRENT_SOURCE_DIR}/tests/settings/info_plist_names.py"
+          "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"
+          "${CMAKE_CURRENT_SOURCE_DIR}/resources"
+          "${CMAKE_CURRENT_SOURCE_DIR}/../..")
 add_test(
   NAME entitlements-guard
   COMMAND "${Python3_EXECUTABLE}"

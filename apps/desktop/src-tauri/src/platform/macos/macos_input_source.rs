@@ -10,7 +10,8 @@ use std::fs;
 use std::io;
 use std::path::{Path, PathBuf};
 
-pub(crate) const INPUT_SOURCE_BUNDLE_ID: &str = "app.msime.client.preview.inputmethod";
+// The identifier the input method bundle carries, which is MetasequoiaIME's rather than a new one of this client's: the preview supersedes that input source in place instead of standing beside it. `validate_bundle` looks for it in the packaged Info.plist, so a value that has drifted from platforms/macos/Info.plist.in rejects the correct bundle rather than accepting a wrong one.
+pub(crate) const INPUT_SOURCE_BUNDLE_ID: &str = "app.msime.inputmethod.MetasequoiaIME";
 pub(crate) const INPUT_SOURCE_BUNDLE_NAME: &str = "水杉输入法（预览）.app";
 const INPUT_SOURCE_EXECUTABLE: &str = "水杉输入法（预览）";
 

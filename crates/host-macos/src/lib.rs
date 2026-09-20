@@ -177,7 +177,8 @@ pub fn uninstall_input_source(
         CString::new(bundle.to_string_lossy().as_bytes()).map_err(|_| "invalid uninstall path")?;
     let user_data = CString::new(user_data.to_string_lossy().as_bytes())
         .map_err(|_| "invalid uninstall path")?;
-    let domain = CString::new("app.msime.client.preview.inputmethod").unwrap();
+    // The preferences the input method leaves behind are keyed on its bundle identifier; removing any other domain leaves the real one on disk and reports a clean uninstall.
+    let domain = CString::new("app.msime.inputmethod.MetasequoiaIME").unwrap();
     unsafe extern "C" {
         fn msime_macos_uninstall_input_source(
             bundle: *const std::ffi::c_char,

@@ -146,7 +146,7 @@
 | 学习数据清除 | `ResetMetasequoiaLearnedData` 及其标记/恢复协议 | `crates/host-api/src/dictionary.rs` 的 `Operation::Reset`，经 `DictionaryAccess::try_maintenance` 加锁后交 `msime_engine_bridge::reset_learned_data` | 有调用链；按「输入算法与词库归 Engine」下沉，宿主不再自建标记恢复协议 |
 | 软件更新 | `UpdateController.mm`（Sparkle 2.9.6） | `core/UpdateController.mm`；非应用 bundle 进程拒绝启动 Sparkle（#3014），并有 `update-controller` 覆盖（#3025） | 有强制检查 |
 | 卸载 | `Uninstaller.mm` | `crates/host-macos/native/uninstaller.mm`，`shared-uninstaller` CTest | 有强制检查 |
-| 输入菜单图标、本地化、TCC 权限 | `MetasequoiaIMEMenuIcon.tiff`、`render_menu_icon.swift`、`Info.plist` 用途字符串 | `resources/MSIMEClientInputMethodMenuIcon.{svg,tiff}`、`scripts/render_menu_icon.swift`（#3021）；语音识别用途字符串及其本地化（#3015、#3052） | 有强制检查（`info-plist-icons`、`info-plist-usage`、`bundle-contents`） |
+| 输入菜单图标、本地化、TCC 权限 | `MetasequoiaIMEMenuIcon.tiff`、`render_menu_icon.swift`、`Info.plist` 用途字符串 | `resources/MSIMEClientInputMethodMenuIcon.{svg,tiff}`、`scripts/render_menu_icon.swift`（#3021）；语音识别用途字符串及其本地化（#3015、#3052）；输入源名称的本地化键与 bundle id 配对 | 有强制检查（`info-plist-icons`、`info-plist-usage`、`info-plist-names`、`bundle-contents`） |
 | 账号、云剪贴板、云词典、快照、社区 | `shared/backend/*.swift` | `shared/backend/` 为来源的超集（另有 `BackendAiClient.swift`），并带 Swift 测试 | 有调用链 |
 
 ## 目标具备而来源没有的部分
@@ -237,5 +237,6 @@ bundle 自身是否装配正确仍由 `bundle-contents` 持续检查：图标是
 - `preference-coverage`：共享偏好要么被 macOS 宿主消费，要么在清单中写明不适用的理由。
 - `bundle-contents`：产物 bundle 的图标、本地化与本地识别器链接。
 - `info-plist-icons`、`info-plist-usage`：模板 plist 的图标引用与 TCC 用途字符串（含每种语言的本地化）。
+- `info-plist-names`：输入源标识、输入菜单里显示的名字，以及源码里按标识办事的那些地方。三者分在 `Info.plist.in`、每种语言各一份的 `InfoPlist.strings` 和 Rust/Objective-C 源码里，中间没有任何东西连着，所以改 bundle id 会留下一组键名仍然合法、却挂在已不存在的标识上的本地化（菜单于是把标识本身画出来），以及一批仍按旧标识校验安装包、启动进程、读写偏好域的字面量。检查三向：plist 声明的每个标识在每种语言里都有名字，`.strings` 里每个标识形状的键都对应一个 plist 仍在声明的标识，源码里每个输入法标识形状的字面量也都是 plist 当前声明的那个。
 - `voice-provider-settings-keys`：原生语音窗口的每个文本字段都对应一个运行时读取的默认键。
 - `entitlements-guard`：签名用的权限文件不含受限权限（`com.apple.developer.*` 整族都需要 provisioning profile 背书，Developer ID 签名给不了，AMFI 会在 exec 时拒绝启动，表现为输入法从输入菜单里消失而签名本身校验正常），且 `install.sh` 拿到这样一份文件时会在动任何东西之前拒签。对应来源侧 #465 在发布打包脚本里的同名拦截。
