@@ -792,7 +792,6 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 写这个守卫时自己先写错一版：正则只匹配 `client.X(` 这种调用形式，而面板那几个按钮写的是 `onClick={() => void openPanel(client.openScreenKeyboard)}`——把回调传进辅助函数而不是调用。我删掉一个 `disabled` 去验证，守卫却仍然通过，才发现这一版是摆设。已放宽为匹配 `client.X` 的出现（调用与传参都算），重新验证：删掉门控会报 `index.tsx:7541`，还原后通过。
 
-||||||| ad633c777
 增量记录（2026-09-20，开关描述文案）：标题和选项都钉住之后，比最后一层可见文字——每个开关下面那句 `<small>` 描述。逐条比对前先在代码里核实来源的说法对本仓是否成立，成立的才采用。
 
 采用三条，每条的断言都验过：
@@ -807,7 +806,6 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 未验证：这三行没有在设备上目视确认——模拟器滚动粒度较粗，几次都跨过了标点那几节。改动由 343 条测试与 bundle 漂移门覆盖，HAP 安装后页面渲染正常。
 
-||||||| 062662e5a
 增量记录（2026-09-20，下拉选项的文案）：section 标题已由 `referenceSections` 钉住，这一轮下沉一层比选项本身。来源三处与本仓不同（取值一致、只是标签）：「候选项排列方式」来源是 横向/纵向 且横向在前，本仓是 竖排/横排；「候选窗预编辑」来源是 拼音分词/不显示，本仓是 显示拼音/隐藏；「中英文状态」来源是 按应用记忆/全局统一，本仓是 按应用/全局。第二处同时是仓内不一致——紧挨着的「行内预编辑」对同一组 `pinyin`/`empty` 用的就是「拼音分词/不显示」。三处均已改用来源的说法，并新增 `referenceOptions` 表把这五个控件的选项逐项钉住。设备确认：外观页尾部现在显示 纵向 与 拼音分词。
 
 同一轮把来源另外两个集中策略头文件核完，均无可修项：
@@ -816,7 +814,6 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 `server/src/window/ui_backend_policy.h` 是在 Direct2D 原生渲染与 WebView2 之间按 surface 选择后端，即来源外观页那一项「界面渲染」。HarmonyOS 用 ArkTS 原生渲染，没有第二套后端，无对应物——与第二片记录的「界面渲染不引入」一致。
 
-||||||| ca6086b24
 增量记录（2026-09-20，`input_key_policy.h` 逐条走完）：不再抽查点位，把来源 `server/src/ipc/input_key_policy.h` 里那八条 `constexpr` 当作契约整体核对。结果：
 
 - `IsEnglishModeToggleKey`（Ctrl+Shift+E）、`WordToCharacterDirection`（无修饰键的 `-`/`=` 或 `[`/`]`）—— 上一片已确认相符。
@@ -829,7 +826,6 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 移植时自己先错了一次：夹具把 minus/equals 的 keycode 写成 2041/2042，实际是 2057/2058，于是「minus/equal 在其为配置项时生效」那条失败——是夹具写错不是代码问题。
 
-||||||| 74e902098
 增量记录（2026-09-20，硬件键盘的按键归属）：沿上一片往下核了四处，**全部相符**，结论记在此处以免再查：
 
 - 以词定字的修饰键。来源 `WordToCharacterDirection`（`server/src/ipc/input_key_policy.h`）要求不带任何修饰键，`(modifiers & kKeyModifierMask) != 0` 直接返回 0。Harmony 的对应分支只显式写了 `!key.shiftKey`，看着像漏了 Ctrl/Alt，实际 `HardwareKeyRouter` 在更上面就有 `if (key.ctrlKey || key.altKey || key.logoKey) return RELEASE`，带修饰键的组合根本到不了那里，等价。
@@ -839,14 +835,12 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 最后这条此前没有任何测试钉着：`input-runtime` 测试桩的 `set_dedicated_english` 用的是 trait 的空默认实现，所以该行为成立仅仅因为真实引擎恰好会重置。考虑到本仓引擎比来源新 467 个提交，这正是该钉住的一类风险。现让测试桩如实建模（模式真正改变时清空组字，重复设置同一模式不动），并加测试断言切换语言后组字消失、重复设置不误清。已把重置去掉验证过它确实会红（`left: "a"`, `right: ""`）。
 
-||||||| c1f3c8693
 增量记录（2026-09-20，组字期标点的上屏时机）：来源在组字进行中遇到标点时，先用高亮候选结束组字、再输出该标点——`IsCommitWithHighlightedCandidatePunctuationInCandidateMode`（`server/src/ipc/event_listener.cpp`）列出的是 `` ` ! @ # $ % ^ & * ( ) [ ] ; : \ " , < . > ? ' ``，并排除三类：`-`/`=`/Tab 永不触发，`,`/`.` 与 `[`/`]` 在被配成翻页键时也不触发。共享运行时的 `punctuation()` 行为与之一致（先 `engine.finish(self.highlighted)` 再翻译标点），注释里也写明了原因。
 
 差的是 HarmonyOS 的硬件键盘路由。`HardwareKeyRouter` 的标点分支写的是 `!composing && chinese && !japanese && isAsciiPunctuation(...)`，只在**没有组字**时把标点交给引擎；组字进行中则落到 `return RELEASE`，把键还给应用。于是在 2in1 上敲 `nihao` 再按 `!`，组字仍开着而 `!` 被插进编辑器里、排在还没上屏的拼音前面；触屏路径不受影响，它直接调 `KeyboardSession.punctuation()` 走运行时。现去掉 `!composing` 这一条：标点无论是否在组字中都归键盘所有，组字中的那次由运行时按来源的规则结束组字。翻页键不受影响——它们在更上面的 `composing` 分支里就被消费掉了，且按 keyCode 匹配（逗号是 2043），日语标点仍归应用。
 
 写这条测试时自己先踩了一次：夹具用 `keyCode: 0` 配 `unicodeChar: ','` 去验「逗号仍然翻页」，而导航是按 keyCode 匹配的，于是逗号没被认成翻页键、落到了标点分支——是夹具写错，不是代码问题，已改为用真实 keyCode 并断言 `PREVIOUS_PAGE`。
 
-||||||| f5898b178
 增量记录（2026-09-20，把逐页核对固化成可执行的检查）：前四片的页面对照都是靠读两边的源码得出的，而两边的朴素搜索都会失真——来源用 `class="section-title ai-heading"` 这类组合类名，本仓大量标题由 `{label}` 表达式渲染，于是同一批结论被反复重新推导，我自己在本轮里就误判过「实用功能少了八种模式」「皮肤页没有外部皮肤」。现把已核实的对应关系写成 `referenceSections` 表并配一个 `test.each`，覆盖外观、输入、辅助码、实用功能、悬浮工具栏、屏幕键盘、手写识别板、帮助八页：任何一节被删掉或改名，这里直接失败。已用「把候选项排列方式改名」验证过它确实会红。
 
 写这个表时发现两类先前没注意的门控，都不是缺失：其一，好几节挂在宿主能力后面（`candidate_font_controls`、`candidate_follow_cursor`、`ime_mode_scope`、`floating_toolbar_appearance`），用裸 fixture 断言会把「宿主没声明」误读成「界面没有」，故 fixture 按 `host_surface.rs` 给 Windows 的那组能力来写；其二，`候选窗主字体` 在本仓的 Windows 宿主上是被 `{!windows && …}` 有意隐藏的——Windows 显示的是「候选窗英文字体 + 补充字体」，那行还带 Windows 专属的「保存后自动应用」说明，而来源显示的是「主字体 + 中文补充字体」。这是 Windows 字体路径上的既有取舍，不属于 HarmonyOS 的迁移范围，表里以注释记录而不断言。
@@ -1130,3 +1124,29 @@ Fcitx5 候选动作执行 stale 栅栏增量（2026-09-19）：CandidateAction �
 工具链一处：`build-container.sh` 用固定 tag `:local` 构建门禁镜像，而多个 worktree 会同时构建它——谁最后构建完谁决定所有人跑的是什么。实测表现为同一条命令时灵时不灵。改为按 checkout 路径散列命名，并把 `dbus-bin` 装进镜像（`--no-install-recommends` 下 `dbus` 不会带上它），免得每次手跑 smoke 都要现装。
 
 验证：连跑八次。验证边界不变——仍然没有任何一项在真实 Linux 桌面上跑过，没有 GTK/Qt 编辑器、没有 X11/Wayland 焦点与选区、没有 Fcitx5 实例；engine smoke 覆盖的是 IBus 宿主经 D-Bus 的行为。
+
+增量记录（2026-09-21，Windows 第六批：跟进来源新基线，先补 Windows 从来没记过一个字的打字统计）：来源远端默认分支已推进到 `b1ec3202676163927ff8632126379a42df90294b`，比第五批固定的 `1e4c331d` 多出一批提交，其中「输入统计」是一整个新功能组（DLL 采集、Server 聚合存储、设置页展示），本对照表此前没有任何一行覆盖它。目标起点 `10fba7d75`。
+
+先说清两边不是一回事，免得下次照着来源的文件名找落点：**本仓早就有打字统计**（`crates/client-core/src/typing_statistics.rs` 加 `packages/ui/src/settings/typing-statistics.tsx`，1051 行），而且比来源那一页更宽——它有日历热力图、七日均线趋势、输入方案排行、字符类型饼图，以及来源完全没有的候选命中位置分布（首选命中率）。来源新增的是另外一组指标：活跃时长、打字速度、连续天数、当日 24 小时分布。所以这不是「有没有统计」的问题，是**两套指标各有各的缺口**。
+
+本批只做一件事，因为它是其中最硬的一个：**Windows 上这个页面永远是空的**。`typing_statistics` 能力位对 Windows 声明为 `true`，设置页照常渲染，但 `platforms/windows/` 整个目录没有任何一处调用过 `msime_client_typing_statistics`——macOS、Linux、Android、HarmonyOS 都在各自的上屏出口记录，只有 Windows 没有。Windows 用户看到的不是「统计不准」，是除了 Tauri 面板粘贴之外一个字都没有。
+
+落点选在 Server 而不是 TSF DLL，这一条与来源不同且是有意的：来源把采集放进 DLL，因为它的 Engine 与 DLL 同进程；本仓 Server 是唯一看得到每一条上屏字符串的地方，共享 Host API 也链在这一侧，而文本本来就要作为上屏载荷从 Server 走到 DLL，采集不让它多跨任何一道边界。来源因此需要一条新的统计命名管道（`FANY_IME_STATS_*` 契约、`stats_frames`、`stats_pipe`），本仓一条都不需要。
+
+实现要点三条，每条都有用例：
+
+1. `PendingReply::committed_text` 由七个产生完整上屏的出口填写，**部分选词不填**。本仓的 `prefix_` 是「Engine 已选、DLL 尚未上屏」的暂存，分词选词会连着走好几步 `partial_selection` 才由最后一条 `candidate_commit` 整串上屏；哪一步都记就会把同一个词记好几遍。`reply_composer` 里新加的断言钉的正是这条。
+2. 记录发生在投递**确认之后**（`confirm` / `confirm_ui`），不是组好回复的时候。写失败或结果不确定时 pending 保留、不确认，于是也不记——「已上屏」的含义因此是「已送达」而不是「已组好」，和来源在 DLL 的三个组字出口读文档内容是同一个判据。
+3. 归属取 `transition.commit_context` 而不是上屏后的 view。上屏会清掉本地模式，只看 view 的话一次 Emoji 模式的上屏会被记成全拼。来源标识与 Linux/Apple 宿主逐个相同，三家写的是同一份文档。
+
+性能上避开一个自己先写错的版本：最初在 `confirm()` 里整份拷贝 `PendingReply` 再判断有没有提交，而 `confirm()` 每个按键都走一次，等于在输入热路径上对含候选列表的 transition JSON 做深拷贝。改成只在确实有提交时取那一小段字符串，`resolve_typing_source_from_transition` 全程按引用取字段。
+
+验证：x86_64 MinGW 交叉构建整套通过（host DLL、TSF DLL、Server、msimeui 与全部原生测试可执行文件，含新增的 `windows-typing-statistics`），i686 语法门禁 249 个源文件通过，`verify-local.sh --quick` 通过。**没有在 Windows 主机上安装运行**，因此没有任何一项声称真实编辑器里打字后统计页出现了数字。
+
+同批顺手修掉一个与功能无关但一直在的问题：`docs/windows-parity.md` 里有六行 `||||||| <sha>`。pre-commit 早就有冲突标记检查，它只匹配 `<<<<<<<` 和 `>>>>>>>`，而 `merge.conflictStyle` 为 diff3/zdiff3 时 git 还会写一行基线标记——手工解决时删掉认得的三种、留下这一种，钩子不出声。钩子的正则补上基线标记（并顺带改成只看新增行：原来的 `-G` 对新增和删除一视同仁，删除标记的那次提交会被它自己拦住），另加 `scripts/test-conflict-markers.py` 扫描整棵已跟踪树并挂进 `--quick`。后者不是重复：钩子看的是差异，只可能看见引入标记的那一次提交，标记一旦进了 HEAD 就再也没有东西看它一眼——这六行就是这么活下来的。两个方向都反向验证过会红。
+
+本批查出但**未动**的三处，记下来以免下次重新推导：
+
+- 来源新增的活跃时长、打字速度（按活跃分钟算，且只数可读字符）、连续天数与当日 24 小时分布，本仓一项都没有。这是下一片，做在共享 `typing_statistics` 与共享设置页里，不做成 Windows 私有的 SQLite 表。其中一处需要单独决定：来源的速度只数 `cjk + latin`，而它的 `latin` 是纯 ASCII 字母、假名落在 `other`，于是日文输入的速度恒为零——本仓有完整日文模式，照抄会得到一个对日文用户明显错误的读数。
+- 共享设置页有 11 处以上 `window.confirm`（删词条、清空统计、关闭模糊音、放弃未保存修改等）。来源本批把它换成自绘对话框，理由是在 WebView2 里它是宿主模态窗口、不跟随页面主题、弹出期间页面自己的键盘与焦点处理全被挂起——这三条对本仓的每一个 webview 宿主同样成立。更要紧的是本仓这套页面还跑在 iOS WKWebView、Android WebView 和 HarmonyOS ArkWeb 里，而**全仓没有任何一个宿主注册过 confirm 面板回调**。这几个 webview 在没有回调时是弹窗还是直接返回 false，我没有在设备上验证过，所以这里不写结论；但「返回 false」意味着按钮按下去什么都不发生，正是本表第 789 行那条「死按钮比没有按钮更糟」。需要在 iOS/Android/HarmonyOS 上各按一次删除确认才能定性。
+- 来源的第六套辅助码「加加」（`566ff8b8`）与全拼备选切分／调频重排（`1ea01d5e`、`e32eeade`）都在 Engine 及其码表资产里。本仓 Engine 由 `engine-lock.json` 固定独立归档，这些行为要进来只能是提锁，与第五批同一条理由：提锁影响面覆盖全部平台，单独决定。
