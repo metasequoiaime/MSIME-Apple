@@ -86,6 +86,8 @@ interface NativeBridge {
   onboardingStatus(): Promise<string>;
   /** The system's keyboard picker, which is where the second setup step happens. */
   showInputMethodPicker(): Promise<string>;
+  /** `{"ok":true,"value":"<folder name>"}`; an empty value means the user cancelled. */
+  importSkinFolder(): Promise<string>;
 }
 
 declare global {
@@ -380,6 +382,13 @@ function makeClient(
     openExternalUrl: async (url: string) => native.openExternalUrl(url),
     copyText: async (text: string) => native.copyText(text),
     openSystemKeyboardSettings: async () => native.openSystemKeyboardSettings(),
+    // The source opens its skin folder so a skin can be dropped in. That folder is inside the
+    // sandbox here, so the direction is reversed: the user points at a skin and it is copied in.
+    // The page renders this behind the same control and says 导入皮肤 instead, because the host
+    // capability tells it which of the two this is.
+    openSkinDirectory: async () => {
+      unwrap<string>(await native.importSkinFolder());
+    },
     listVoiceCaptureDevices: async () =>
       unwrap<VoiceCaptureDevice[]>(native.listVoiceCaptureDevices()),
     listFontFamilies: async () => unwrap<string[]>(native.listFontFamilies()),

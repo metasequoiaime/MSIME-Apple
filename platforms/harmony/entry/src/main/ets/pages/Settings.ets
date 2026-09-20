@@ -20,6 +20,8 @@ import { HarmonyVoiceCaptureDevices } from '../keyboard/input/HarmonyVoiceCaptur
 import { KeyboardFeedbackBridge, MobileKeyboardFeedback } from '../keyboard/KeyboardFeedbackBridge';
 import inputMethod from '@ohos.inputMethod';
 import { PreferenceRevisionPolicy } from '../keyboard/input/PreferenceRevisionPolicy';
+import picker from '@ohos.file.picker';
+import { SkinImportPolicy } from '../keyboard/skin/SkinImportPolicy';
 import EntryAbility from '../entryability/EntryAbility';
 import { ImeEnabledState, OnboardingState, OnboardingStatePolicy }
   from '../keyboard/input/OnboardingStatePolicy';
@@ -371,7 +373,8 @@ struct Settings {
             'dictionary', 'account', 'cloudDictionary', 'cloudDictionaryDownload', 'cloudDictionarySnapshot',
             'typingStatistics', 'aiModels', 'aiTest', 'testApiCredential', 'openExternalUrl', 'copyText',
             'openSystemKeyboardSettings', 'listVoiceCaptureDevices', 'listFontFamilies',
-            'keyboardFeedback', 'customTranslations', 'onboardingStatus', 'showInputMethodPicker'],
+            'keyboardFeedback', 'customTranslations', 'onboardingStatus', 'showInputMethodPicker',
+            'importSkinFolder'],
           controller: this.controller
         })
         .width('100%')
@@ -472,6 +475,61 @@ class SettingsBridge {
       .catch((error: Object): void => {
         KeyboardLog.error(`preference change not delivered: ${describeError(error)}`);
       });
+  }
+
+  /**
+   * Imports a skin folder the user picks.
+   *
+   * The source's button opens the client's skin folder so a skin can be dropped in. That folder is
+   * inside the sandbox here and no file manager reaches it, so the direction is reversed: the user
+   * points at a skin wherever it is and it is copied in. Same goal, and the only mechanism this
+   * platform offers.
+   *
+   * A whole folder rather than a file, because a skin is a directory — the catalog looks for a
+   * stylesheet inside one and refuses anything else, so importing a single file would import
+   * something the catalog would then decline to list.
+   */
+  async importSkinFolder(): Promise<string> {
+    if (this.context === undefined) {
+      return JSON.stringify({ ok: false, error: 'settings context unavailable' } as TextReply);
+    }
+    let picked: string[] = [];
+    try {
+      const options: picker.DocumentSelectOptions = new picker.DocumentSelectOptions();
+      options.selectMode = picker.DocumentSelectMode.FOLDER;
+      options.maxSelectNumber = 1;
+      picked = await new picker.DocumentViewPicker(this.context).select(options);
+    } catch (error) {
+      KeyboardLog.error(`skin picker refused: ${describeError(error)}`);
+      return JSON.stringify({ ok: false, error: '无法打开选择器' } as TextReply);
+    }
+    if (picked.length === 0) {
+      // Cancelling is not a failure, and reporting one would put an error on screen for a user who
+      // simply changed their mind.
+      return JSON.stringify({ ok: true, value: '', error: '' } as TextReply);
+    }
+    const name: string | null = SkinImportPolicy.pickedName(picked[0]);
+    if (name === null) {
+      KeyboardLog.error('skin folder name refused');
+      return JSON.stringify({ ok: false, error: '皮肤文件夹名不可用' } as TextReply);
+    }
+    const destination: string = `${this.stateDirectory}/skins/${name}`;
+    try {
+      if (!fs.accessSync(`${this.stateDirectory}/skins`)) {
+        fs.mkdirSync(`${this.stateDirectory}/skins`, true);
+      }
+      if (fs.accessSync(destination)) {
+        // Replacing rather than merging: a half-overwritten skin is a skin whose stylesheet and
+        // assets come from two different versions, which the catalog would list and then draw wrong.
+        fs.rmdirSync(destination);
+      }
+      fs.copyDirSync(picked[0], `${this.stateDirectory}/skins`, 1);
+    } catch (error) {
+      KeyboardLog.error(`skin import failed: ${describeError(error)}`);
+      return JSON.stringify({ ok: false, error: '导入失败' } as TextReply);
+    }
+    KeyboardLog.info('skin imported');
+    return JSON.stringify({ ok: true, value: name, error: '' } as TextReply);
   }
 
   /** The shared settings page uses the same validated catalog as desktop presenters. */

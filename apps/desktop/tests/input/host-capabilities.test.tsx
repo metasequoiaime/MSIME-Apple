@@ -488,3 +488,29 @@ test("the mode badge switch follows the capability rather than the macOS platfor
   await screen.findByRole("button", { name: "保存设置" });
   expect(screen.queryByLabelText("中英文切换提示")).toBeNull();
 });
+
+test("a host whose skin folder is unreachable is offered an import, not a folder", async () => {
+  // The source opens its skin folder so a skin can be dropped in. HarmonyOS keeps that folder in
+  // the application sandbox where no file manager reaches it, so the button has to say what it
+  // actually does — it was disabled there, promising a folder that never appeared.
+  mount({
+    host: capabilities({ platform: "harmony", skin_directory_import: true }),
+    scanSkinCatalog: async () => ({ directory: "/skins", skins: [] }) as never,
+    openSkinDirectory: async () => undefined,
+  });
+  await screen.findByRole("button", { name: "保存设置" });
+  fireEvent.click(screen.getByRole("button", { name: "皮肤" }));
+  expect(screen.getByRole("button", { name: "导入皮肤" })).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "打开目录" })).toBeNull();
+});
+
+test("a desktop host still opens its skin folder", async () => {
+  mount({
+    host: capabilities({ platform: "windows" }),
+    scanSkinCatalog: async () => ({ directory: "C:/skins", skins: [] }) as never,
+    openSkinDirectory: async () => undefined,
+  });
+  await screen.findByRole("button", { name: "保存设置" });
+  fireEvent.click(screen.getByRole("button", { name: "皮肤" }));
+  expect(screen.getByRole("button", { name: "打开目录" })).toBeTruthy();
+});
