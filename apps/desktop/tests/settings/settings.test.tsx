@@ -840,7 +840,7 @@ test("traditional Chinese output toggle persists", async () => {
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
   const toggle = (await screen.findByRole("checkbox", {
-    name: "繁体中文输出",
+    name: "简繁输入",
   })) as HTMLInputElement;
   expect(toggle.checked).toBe(false);
   fireEvent.click(toggle);
@@ -1156,12 +1156,11 @@ test("input parity controls persist cloud, translation and punctuation settings"
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
-  expect(((await screen.findByLabelText("默认输入状态")) as HTMLSelectElement).value).toBe(
-    "chinese",
-  );
-  fireEvent.click(await screen.findByRole("checkbox", { name: /云联想/ }));
-  fireEvent.click(screen.getByRole("checkbox", { name: /候选翻译/ }));
-  fireEvent.change(screen.getByLabelText("候选翻译目标语言"), { target: { value: "ja" } });
+  expect(((await screen.findByLabelText("默认中英文")) as HTMLSelectElement).value).toBe("chinese");
+  // Anchored: the emoji and kaomoji toggles mention 云候选 in their own descriptions.
+  fireEvent.click(await screen.findByRole("checkbox", { name: /^云候选/ }));
+  fireEvent.click(screen.getByRole("checkbox", { name: /候选词翻译/ }));
+  fireEvent.change(screen.getByLabelText("候选词翻译目标语言"), { target: { value: "ja" } });
   fireEvent.click(screen.getByRole("checkbox", { name: /智能标点/ }));
   fireEvent.change(screen.getByLabelText("标点锁定"), { target: { value: "english" } });
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
@@ -1193,7 +1192,7 @@ test("Android candidate translations persist an optional second language", async
   );
   fireEvent.click(await screen.findByRole("button", { name: "输入" }));
   const secondary = screen.getByRole("combobox", {
-    name: "候选翻译第二种语言",
+    name: "候选词翻译第二种语言",
   }) as HTMLSelectElement;
   expect(secondary.value).toBe("");
   fireEvent.change(secondary, { target: { value: "ja" } });
@@ -1224,7 +1223,7 @@ test("macOS candidate translations expose the shared second language", async () 
   );
   fireEvent.click(await screen.findByRole("button", { name: "输入" }));
   const secondary = screen.getByRole("combobox", {
-    name: "候选翻译第二种语言",
+    name: "候选词翻译第二种语言",
   }) as HTMLSelectElement;
   expect(secondary.value).toBe("");
   expect([...secondary.options].map((option) => option.value)).toEqual([
@@ -1268,9 +1267,9 @@ test("mobile translation languages stay editable for offline English glosses", a
     />,
   );
   fireEvent.click(await screen.findByRole("button", { name: "输入" }));
-  const primary = screen.getByRole("combobox", { name: "候选翻译目标语言" }) as HTMLSelectElement;
+  const primary = screen.getByRole("combobox", { name: "候选词翻译目标语言" }) as HTMLSelectElement;
   const secondary = screen.getByRole("combobox", {
-    name: "候选翻译第二种语言",
+    name: "候选词翻译第二种语言",
   }) as HTMLSelectElement;
   expect([...primary.options].map((option) => option.value)).not.toContain("ru");
   expect([...secondary.options].map((option) => option.value)).not.toContain("ru");
@@ -1298,11 +1297,11 @@ test("mobile preserves legacy Russian gloss values without leaking them to new p
   const first = render(<SettingsPage client={client} />);
   fireEvent.click(await screen.findByRole("button", { name: "输入" }));
   expect(
-    (screen.getByRole("combobox", { name: "候选翻译目标语言" }) as HTMLSelectElement)
+    (screen.getByRole("combobox", { name: "候选词翻译目标语言" }) as HTMLSelectElement)
       .selectedOptions[0].textContent,
   ).toContain("已保存");
   expect(
-    (screen.getByRole("combobox", { name: "候选翻译第二种语言" }) as HTMLSelectElement)
+    (screen.getByRole("combobox", { name: "候选词翻译第二种语言" }) as HTMLSelectElement)
       .selectedOptions[0].textContent,
   ).toContain("已保存");
   first.unmount();
@@ -1310,7 +1309,8 @@ test("mobile preserves legacy Russian gloss values without leaking them to new p
   fireEvent.click(await screen.findByRole("button", { name: "输入" }));
   expect(
     [
-      ...(screen.getByRole("combobox", { name: "候选翻译目标语言" }) as HTMLSelectElement).options,
+      ...(screen.getByRole("combobox", { name: "候选词翻译目标语言" }) as HTMLSelectElement)
+        .options,
     ].map((option) => option.value),
   ).not.toContain("ru");
 });
@@ -3854,6 +3854,65 @@ test("a host without the defaults command shows no restore button", async () => 
 // only their relative order, so a host that hides a section (no candidate font control, no row
 // colours) does not fail this -- but moving 主题模式 back above the fonts, which is where this
 // repo used to keep the whole block of theme selects, does.
+// The reference window's 输入 page, in its order, same rules as the appearance one below: only the
+// sections it also has, only their relative order. The settings this client adds -- 全拼纠错, 模糊音,
+// 全角输入, 标点锁定, 英文建议 and the rest -- sit next to the reference section they belong with, so
+// they are free to move without touching this list.
+// A section title is the element's own text plus a nested <small> description, so read only the
+// direct text nodes: "中文标点" has to stay distinguishable from "中文标点后按空格转换".
+const sectionTitles = (scope: HTMLElement) =>
+  [...scope.querySelectorAll(".section-title")].map((node) =>
+    [...node.childNodes]
+      .filter((child) => child.nodeType === 3)
+      .map((child) => child.textContent ?? "")
+      .join("")
+      .replace(/\s+/g, " ")
+      .trim(),
+  );
+
+test("the input page follows the reference window's order", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: { platform: "windows", floating_toolbar: true } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  // The page starts on 外观, and a hidden fieldset is out of the accessibility tree.
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  const input = await screen.findByRole("group", { name: "输入" });
+  const present = sectionTitles(input);
+  const reference = [
+    "输入模式",
+    "输入方案",
+    "双拼方案",
+    "五笔方案",
+    "日语方案",
+    "翻页方式",
+    "候选词翻译",
+    "以词定字",
+    "中文标点",
+    "智能标点",
+    "重复标点转中文",
+    "成对标点自动补全",
+    "中英混输",
+    "默认中英文",
+    "中英文状态",
+    "简繁输入",
+    "云候选",
+    "拼音方案调频",
+  ];
+  const ordered = present.filter((text) => reference.includes(text));
+  // 输入方案 has a touch variant and a desktop variant; only one is ever shown, but both can be in
+  // the tree, so collapse a repeat rather than reading it as a move.
+  const collapsed = ordered.filter((title, index) => title !== ordered[index - 1]);
+  expect(collapsed).toEqual(reference.filter((title) => collapsed.includes(title)));
+  expect(collapsed.length).toBeGreaterThanOrEqual(12);
+});
+
 test("the appearance page follows the reference window's order", async () => {
   render(
     <SettingsPage
@@ -3866,9 +3925,7 @@ test("the appearance page follows the reference window's order", async () => {
   );
   await settingsReady();
   const appearance = screen.getByRole("group", { name: "外观" });
-  const present = [...appearance.querySelectorAll(".section-title")].map((node) =>
-    (node.textContent ?? "").replace(/\s+/g, " ").trim(),
-  );
+  const present = sectionTitles(appearance);
   const reference = [
     "候选窗口跟随光标",
     "候选窗主字体",
@@ -3888,16 +3945,9 @@ test("the appearance page follows the reference window's order", async () => {
     "行内预编辑",
     "候选窗预编辑",
   ];
-  // A section title carries its own <small> description, so match on the leading title text.
-  const seen = reference.filter((title) =>
-    present.some((text) => text === title || text.startsWith(title)),
-  );
-  const ordered = present.flatMap((text) => {
-    const hit = reference.find((title) => text === title || text.startsWith(title));
-    return hit ? [hit] : [];
-  });
-  expect(ordered).toEqual(seen);
-  expect(seen.length).toBeGreaterThanOrEqual(10);
+  const ordered = present.filter((text) => reference.includes(text));
+  expect(ordered).toEqual(reference.filter((title) => ordered.includes(title)));
+  expect(ordered.length).toBeGreaterThanOrEqual(10);
 });
 
 test("macOS sidebar keeps the reference order and groups", async () => {
