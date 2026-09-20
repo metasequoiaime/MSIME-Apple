@@ -58,9 +58,13 @@ export const skinPreviewSwitch =
  * The preview renders the vendored candidate markup, so these reach into class names the upstream
  * skins own (`.candidate`, `.wnd-v .container`). They stay descendant selectors for that reason --
  * as arbitrary variants rather than as stylesheet rules.
+ *
+ * `skin-card-preview` is the `@utility` of the same name, which carries the rest of the card: the
+ * candidate window, the per-skin decorations and the toolbar preview. Three stylesheets were written
+ * against that hook, so it has to be on the element by that name.
  */
 export const skinCardPreview =
-  "flex flex-col bg-[var(--skin-preview-stage-bg)] py-[9px] [&_.candidate]:max-w-full [&_.candidate]:min-w-0 [&_.candidate]:text-base [&_.wnd-v_.container]:w-fit [&_.wnd-v_.container]:max-w-full";
+  "skin-card-preview flex flex-col bg-[var(--skin-preview-stage-bg)] py-[9px] [&_.candidate]:max-w-full [&_.candidate]:min-w-0 [&_.candidate]:text-base [&_.wnd-v_.container]:w-fit [&_.wnd-v_.container]:max-w-full";
 export const skinPreviewStage = "flex min-w-0 items-start overflow-hidden px-6 py-[9px]";
 
 // ---- the floating toolbar editor ----
