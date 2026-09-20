@@ -55,6 +55,47 @@ comm -23 /tmp/ref.txt /tmp/ours.txt   # 这 26 条，应与下表一致
 
 屏幕键盘、手写识别板、AI 辅助与 AI 对话、社区资源与皮肤、打字统计、悬浮工具栏皮肤编辑、双拼键位提示面板、输入模式 HUD。差集不是单向的。
 
+## 五、符号层：来源的 518 个函数与方法
+
+文件层回答「文件去了哪」，断言层回答「被测试钉住的行为是什么状态」。两者都漏掉同一块：**来源写了、但自己没写测试的行为**。这一节补上——把来源 `platforms/macos/src` 与 `shared/apple-bridge` 里所有 Objective-C 方法与 C/C++ 函数抽出来逐个找去处。
+
+抽取与比对（可重跑）：
+
+```sh
+ref=/path/to/MSIME-apple
+{ grep -rhoE '^[-+] \([^)]+\)[a-zA-Z_][A-Za-z0-9_]*' "$ref"/platforms/macos/src "$ref"/shared/apple-bridge --include='*.mm' --include='*.h' | sed -E 's/^[-+] \([^)]+\)//'
+  grep -rhoE '^(inline |static |extern "C" )*[A-Za-z_][A-Za-z0-9_:<>* ]* ([A-Z][A-Za-z0-9_]*)\(' "$ref"/platforms/macos/src "$ref"/shared/apple-bridge --include='*.h' --include='*.cpp' | grep -oE '[A-Z][A-Za-z0-9_]*\($' | tr -d '('
+} | sort -u | wc -l   # 518
+```
+
+结果分三层：
+
+| | 数量 | 说明 |
+| --- | ---: | --- |
+| 同名即命中 | 315 | 直接在本仓库里存在同名符号 |
+| 原生设置窗的 AppKit 管线 | 166 | `*Changed` 动作选择器、`refresh*` / `update*Controls*` 控件刷新、`set*` / `stored*` 的 NSUserDefaults 存取器。这些是来源 3323 行 `PreferencesWindowController.mm` 的骨架；按「公共 UI 放 Tauri」，对应物是 React 的 `onChange` 与一份共享 `Preferences`，不存在同名符号是设计结果 |
+| 承载行为、需逐个定位 | 37 | 下表 |
+
+37 个逐个都有去处：
+
+| 来源符号 | 目的地 |
+| --- | --- |
+| `MetasequoiaRegisterInputSource`、`MetasequoiaRegisterAndEnableInputSources`、`MetasequoiaShouldRegisterInputSource` | `input/InputSourceRegistration.h`、`input/input_method_main.mm`（仅前缀 `Metasequoia`→`MSIME`） |
+| `MetasequoiaInputModeHUDFrame`、`MetasequoiaIsUsableCaretRect` | `input/InputModeHUDPanel.mm` |
+| `MetasequoiaShuangpinKeymapPanelFrame` | `settings/ShuangpinKeymapPanel.h` |
+| `MetasequoiaFloatingToolbarWidth` | `core/FloatingToolbarPanel.mm` |
+| `ShouldAutoCommitUniqueWubiCandidate` | `core/WubiCommitPolicy.h` 的 `MSIMEShouldAutoCommitWubi` |
+| `ActionForSolitaryShift`、`handleSolitaryShiftFlags` | `core/ModifierTap.h`，控制器用 `_modifierTap.observe(...)` |
+| `ClassifyConfiguredControllerKey` | `input/InputControllerPhysicalKeys.h` |
+| `MetasequoiaCandidateKeyOptions`、`MetasequoiaCandidateFollowsCaret` | 共享 `NavigationPreferences` / `candidate_follow_cursor` |
+| `candidatePinToggled` | `candidate/CandidateDisplay.h` |
+| 释义与翻译共 12 个（`LookupCandidateGloss`、`FormatCandidateGloss`、`TakeLeadingSenses`、`FindSenseDelimiter`、`CollapseWhitespace`、`IsAsciiSpace`、`IsHanCodePoint`、`IsEnglishCandidateText`、`NextArmedGlossColumn`、`CandidateGlossRequestForModifiers`、`CandidateSupportsOnlineGloss`、`TranslationQueryForCandidate`、`CandidateTranslationProviderAt`） | `crates/host-api/src/ffi/translation.rs`（所有宿主共用的 C ABI） |
+| `EncodePersonalWord`、`DecodePersonalWord`、`personalEntriesAtOffset`、`ResetMetasequoiaLearnedData(ForCurrentUser)` | `crates/host-api/src/dictionary.rs` |
+| `InstallMetasequoiaDictionary`、`InstallMetasequoiaEnglishDictionary`、`InstallMetasequoiaHelpCodes`、`PrepareMetasequoiaDictionary` | `shared/apple-bridge/DictionaryInstallation.mm`、`dictionary/DictionaryInstaller.mm` |
+| `UninstallMetasequoia`、`UninstallMetasequoiaForCurrentUser` | `crates/host-macos/native/uninstaller.mm` 的 `msime_macos_uninstall_input_source` |
+
+这一轮没有找到新的缺口。
+
 ## 这份清单不能证明什么
 
-它证明的是「来源的每个源文件都有去处」，不是「每个函数的行为都一致」。行为层的证据在 `docs/macos-parity.md`：截图比对、23 个控制项标识、27 个运行时偏好键、以及来源自己测试里的 93 条断言——最后这条轴找出了唯一一个真缺口（恢复默认设置，#3280），其余三条都没有新发现。
+它证明的是「来源的每个源文件、每个函数都有去处」，不是「每个函数的行为都逐字一致」。行为层的证据在 `docs/macos-assertion-audit.md` 与 `docs/macos-parity.md`：截图比对、23 个控制项标识、27 个运行时偏好键、以及来源自己测试里的 93 条断言——最后这条轴找出了唯一一个真缺口（恢复默认设置，#3280），其余三条都没有新发现。
