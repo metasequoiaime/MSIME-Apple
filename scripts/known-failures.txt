@@ -116,9 +116,22 @@ native windows-session
 # - The input-method menu expected toggleVoiceInput: where the product has showVoicePanel, which routes to
 #   the shared panel when a provider socket is there and falls back to the toggle when it is not.
 #
-# It now reaches the Unicode-mode paging assertion: with local_mode unicode, '+' (keyCode 24) is expected to
-# go unhandled so the Engine receives it as ASCII, and handleEvent consumes it for paging instead. That one
-# looks like the product rather than the test, and it is where the next attempt starts.
+# Three more after that, and the Unicode one turned out to be the test as well:
+#
+# - The Unicode '+' assertion expected handleEvent to return NO. The guard against paging on '+' works, and
+#   the key does reach the Engine as ASCII - which is the contract, and which the very next line asserts.
+#   The return value only repeats what the Engine answered, and it answered that it handled the key.
+# - The navigation table gave comma and period keyCode 0. Paging is routed by physical key code (43 and 47),
+#   so with 0 they could only fall through to ASCII - meaning both halves of that loop passed for the same
+#   wrong reason, the shortcut never being exercised at all.
+# - What a key does once its shortcut is off is not uniform, and the loop was deriving it. Comma and period
+#   are ordinary characters and go to the Engine; Tab is never consumed and never forwarded, because it
+#   belongs to the application; Page Down and the arrows carry no character to forward. Each entry states
+#   its own expectation now.
+#
+# It now reaches TestInputSourceModeReset, where ShortcutSession does not implement
+# updatePreferencesSnapshot:error: and the run dies on an unrecognized selector rather than an assertion.
+# The fake needs filling in. That is where the next attempt starts.
 macos shortcut
 # Load-dependent rather than always-failing: passes on its own and on a second full
 # run, observed failing once in a full parallel run alongside the aborting shortcut test.

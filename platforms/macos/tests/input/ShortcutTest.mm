@@ -4245,7 +4245,10 @@ int main(int argc, char **argv) {
         session.lastCommand = UINT32_MAX;
         session.asciiCalls = 0;
         NSEvent *unicodePlus = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:@"+" charactersIgnoringModifiers:@"+" isARepeat:NO keyCode:24];
-        assert(![controller handleEvent:unicodePlus client:client]);
+        // '+' is part of the U+ code-point sequence, so it must reach the Engine instead of paging the
+        // panel. The contract is the next line - no paging command, one ASCII call carrying '+' - while the
+        // return value just repeats whatever the Engine answered, and here it says it handled the key.
+        assert([controller handleEvent:unicodePlus client:client]);
         assert(session.lastCommand == UINT32_MAX && session.asciiCalls == 1 && session.lastASCII == '+');
         [controller setValue:pageView forKey:@"view"];
         [controller renderCandidates];
@@ -4307,11 +4310,18 @@ int main(int argc, char **argv) {
         [controller setValue:beforeWordView forKey:@"view"];
         session.nextTransition = beforeWordTransition;
         appearance.pageShortcut = 0;
-        for (NSArray *entry in @[@[@"comma_period", @",", @0, @(MSIME_PREVIOUS_PAGE)],
-                                 @[@"comma_period", @".", @0, @(MSIME_NEXT_PAGE)],
-                                 @[@"tab", @"\t", @48, @(MSIME_NEXT_PAGE)],
-                                 @[@"page_up_down", @"", @121, @(MSIME_NEXT_PAGE)],
-                                 @[@"arrows", @"", @125, @(MSIME_NEXT_CANDIDATE)]]) {
+        // Paging is routed by physical key code, not by the glyph the layout produces, so comma and period
+        // need theirs - 43 and 47. With 0 they could only ever fall through to ASCII, which is what the
+        // disabled half of this loop asserts, so both halves were passing for the same wrong reason.
+        // The last element is what the key does once its shortcut is off, which is not the same for all of
+        // them: comma and period are ordinary characters and go to the Engine, while Tab is never consumed
+        // and never forwarded - it belongs to the application - and Page Down and the arrows carry no
+        // character to forward at all.
+        for (NSArray *entry in @[@[@"comma_period", @",", @43, @(MSIME_PREVIOUS_PAGE), @1],
+                                 @[@"comma_period", @".", @47, @(MSIME_NEXT_PAGE), @1],
+                                 @[@"tab", @"\t", @48, @(MSIME_NEXT_PAGE), @0],
+                                 @[@"page_up_down", @"", @121, @(MSIME_NEXT_PAGE), @0],
+                                 @[@"arrows", @"", @125, @(MSIME_NEXT_CANDIDATE), @0]]) {
             for (NSNumber *enabled in @[@NO, @YES]) {
                 [appearance applySharedCandidatePreferences:@{@"navigation": @{entry[0]:enabled}}];
                 layoutPanel.requestedVisible = YES;
@@ -4322,9 +4332,10 @@ int main(int argc, char **argv) {
                 BOOL handled = [controller handleEvent:event client:client];
                 if (enabled.boolValue) assert(handled && session.lastCommand == [entry[3] unsignedIntValue]);
                 else {
+                    // Turned off means no paging command, whatever else happens to the key.
                     assert(session.lastCommand == UINT32_MAX);
-                    if ([entry[2] unsignedShortValue] != 0) assert(!handled);
-                    else assert(session.asciiCalls == 1);
+                    assert(session.asciiCalls == [entry[4] unsignedIntegerValue]);
+                    if (![entry[4] unsignedIntegerValue]) assert(!handled);
                 }
             }
         }
