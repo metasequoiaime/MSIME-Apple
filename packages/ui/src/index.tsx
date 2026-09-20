@@ -87,6 +87,7 @@ import {
   type CommunityResourceClient,
 } from "./community/community-resources";
 export { useConfirm, type ConfirmRequest } from "./core/confirm";
+export { decodeDictionaryBytes, readDictionaryFile } from "./dictionary/dictionary-file";
 export {
   TypingStatisticsPage,
   activityMetrics,

@@ -4684,6 +4684,31 @@ test("cloud dictionary panel supports paging and CRUD actions", async () => {
   panel.unmount();
 });
 
+test("a cloud dictionary file is decoded the same way the local import decodes it", async () => {
+  const request = vi.fn().mockResolvedValue({});
+  render(<CloudDictionaryFilesPanel client={{ close: vi.fn(), request }} />);
+  // "你好\tni'hao\n" as GB18030, which Windows dictionary tools still write. Decoded as UTF-8
+  // it becomes replacement characters and contains no NUL, so the panel's only guard passed and
+  // a cloud dictionary of "\ufffd" was uploaded without a word of complaint.
+  const bytes = new Uint8Array([
+    0xc4, 0xe3, 0xba, 0xc3, 0x09, 0x6e, 0x69, 0x27, 0x68, 0x61, 0x6f, 0x0a,
+  ]);
+  fireEvent.change(screen.getByLabelText("选择文件"), {
+    target: { files: [new File([bytes], "gb18030.tsv")] },
+  });
+  expect(await screen.findByText("gb18030.tsv")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "确认上传到云端" }));
+  await answerConfirm("confirm");
+  await waitFor(() =>
+    expect(request).toHaveBeenCalledWith({
+      operation: "import",
+      kind: "pinyin",
+      format: "standard",
+      text: "你好\tni'hao\n",
+    }),
+  );
+});
+
 test("cloud dictionary files previews, confirms and preserves bounded import/export contracts", async () => {
   const request = vi
     .fn()
@@ -4692,7 +4717,7 @@ test("cloud dictionary files previews, confirms and preserves bounded import/exp
     );
   render(<CloudDictionaryFilesPanel client={{ close: vi.fn(), request }} />);
   const file = new File(["ni\t你\n"], "words.tsv", { type: "text/tab-separated-values" });
-  fireEvent.change(screen.getByLabelText("选择 UTF-8 文件"), { target: { files: [file] } });
+  fireEvent.change(screen.getByLabelText("选择文件"), { target: { files: [file] } });
   expect(await screen.findByText("words.tsv")).toBeDefined();
   expect(request).not.toHaveBeenCalledWith(expect.objectContaining({ operation: "import" }));
   fireEvent.click(screen.getByRole("button", { name: "确认上传到云端" }));
@@ -4717,7 +4742,7 @@ test("cloud dictionary files previews, confirms and preserves bounded import/exp
     }),
   );
   const oversized = new File(["x".repeat(65537)], "large.tsv", { type: "text/plain" });
-  fireEvent.change(screen.getByLabelText("选择 UTF-8 文件"), { target: { files: [oversized] } });
+  fireEvent.change(screen.getByLabelText("选择文件"), { target: { files: [oversized] } });
   expect(await screen.findByText("导入文件必须大于 0 且不超过 64 KiB")).toBeDefined();
 });
 
