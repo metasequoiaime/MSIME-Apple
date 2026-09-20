@@ -65,7 +65,7 @@ Engine 只用到 Boost 的头文件（`find_package(Boost REQUIRED)` 之后链�
 
 `device` 目标产出 `target/ios/device/libmsime_host_api.a`，`simulator` 目标产出 arm64 的 `target/ios/simulator/libmsime_host_api.a`。脚本会自动识别依赖前缀下唯一的版本化 `BoostConfig.cmake` 与 `boost_headers-config.cmake`；有多个版本时，分别用 `MSIME_BOOST_DIR` 和 `MSIME_BOOST_HEADERS_DIR` 指向对应配置目录。
 
-一条命令完成资源暂存、键盘扩展 native 构建，并构建共享 Tauri iOS App（同时嵌入键盘扩展）：
+一条命令完成资源暂存、键盘扩展 native 构建，并构建 iOS 的产品宿主 `MSIMEClientApp`（同时嵌入键盘扩展）。要改为单独构建 Tauri/React 这个公共组件，在同一条命令前加 `MSIME_IOS_TAURI_COMPONENT=1`：
 
 ```sh
 MSIME_IOS_DEPS=/absolute/ios/dependency-prefix \
