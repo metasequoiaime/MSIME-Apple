@@ -539,15 +539,30 @@ int main(int argc, char **argv) {
           g_usleep(1000);
         }
       };
+      // Online requests are debounced, so settling for a fixed duration before
+      // reading an exact count is a race the loaded machine loses. Wait for the
+      // request to arrive, then settle to prove no second one follows it.
+      auto await_online = [&](unsigned expected) {
+        const auto deadline = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
+        while (provider.online_requests.load() < expected &&
+               g_get_monotonic_time() < deadline) {
+          while (g_main_context_iteration(nullptr, FALSE)) {}
+          g_usleep(1000);
+        }
+        settle_online();
+        return provider.online_requests.load() == expected;
+      };
       phrase();
-      settle_online();
-      require(provider.online_requests > 0, "Synthetic online provider received no request");
-      require(provider.online_requests == 1,
-              "Empty cloud result repeatedly requested the same input");
+      require(await_online(1),
+              ("Synthetic online provider request count is not 1: " +
+               std::to_string(provider.online_requests))
+                  .c_str());
       invoke("Reset");
       phrase();
-      settle_online();
-      require(provider.online_requests == 2, "New input did not request cloud candidates");
+      require(await_online(2),
+              ("New input did not request cloud candidates exactly once: " +
+               std::to_string(provider.online_requests))
+                  .c_str());
       invoke("PropertyActivate", g_variant_new("(su)", "CloudCandidates", PROP_STATE_UNCHECKED));
       invoke("Reset");
       phrase();
@@ -556,8 +571,10 @@ int main(int argc, char **argv) {
               "Disabled cloud and AI still dispatched an online request");
       provider.return_online_candidate = true;
       invoke("PropertyActivate", g_variant_new("(su)", "CloudCandidates", PROP_STATE_CHECKED));
-      settle_online();
-      require(provider.online_requests == 3, "Re-enabled cloud candidates did not request input");
+      require(await_online(3),
+              ("Re-enabled cloud candidates did not request input: " +
+               std::to_string(provider.online_requests))
+                  .c_str());
       require(std::any_of(seen.candidates.begin(), seen.candidates.end(),
                           [](const std::string &text) { return text == "云端测试  云"; }),
               "Cloud reply lost Engine identity when AI was disabled");
@@ -2047,13 +2064,26 @@ int main(int argc, char **argv) {
     invoke("PropertyActivate",
            g_variant_new("(su)", "LocalModes/temporary_japanese", PROP_STATE_UNCHECKED));
     seen.committed.clear();
-    require(!key('r', IBUS_SHIFT_MASK) && !seen.preedit_visible && seen.committed.empty(),
-            "Disabled temporary Japanese mode swallowed Shift+R");
+    // With a stored preferences directory the menu toggle is a save, not an
+    // immediate switch: it is written, read back and only then applied to the
+    // session. Asserting the key in the same turn tests the old preference.
     require(wait_saved_preferences([](const nlohmann::json &preferences) {
               return !preferences.at("local_modes")
                           .at("temporary_japanese").get<bool>();
             }),
             "Temporary Japanese disable was not persisted");
+    bool japanese_released = false;
+    for (int attempt = 0; attempt < 200 && !japanese_released; ++attempt) {
+      japanese_released = !key('r', IBUS_SHIFT_MASK) && !seen.preedit_visible &&
+                          seen.committed.empty();
+      if (!japanese_released) {
+        invoke("Reset");
+        seen.committed.clear();
+        while (g_main_context_iteration(nullptr, FALSE)) {}
+        g_usleep(10000);
+      }
+    }
+    require(japanese_released, "Disabled temporary Japanese mode swallowed Shift+R");
     invoke("PropertyActivate",
            g_variant_new("(su)", "LocalModes/temporary_japanese", PROP_STATE_CHECKED));
     require(wait_saved_preferences([](const nlohmann::json &preferences) {
