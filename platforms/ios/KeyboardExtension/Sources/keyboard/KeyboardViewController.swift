@@ -97,7 +97,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     let numberHint: UILabel?
   }
   private var nineKeyGridKeys: [NineKeyGridKey] = []
-  private enum MoreToolsPage { case root, localInput, keyboardSettings }
+  private enum MoreToolsPage { case root, localInput }
   private var moreTools: [KeyboardToolSection] = []
   private var moreToolsPage: MoreToolsPage = .root
   private let dismissShortcut = UIButton()
@@ -921,29 +921,25 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     configure(dismissShortcut, title: nil, symbol: "chevron.down", label: "收起键盘", id: "dismissShortcut")
   }
 
+  /// 开关就摆在面板里,不再藏进二级页。
+  ///
+  /// 这些开关原来在「键盘设置」卡片后面:面板打开后看到的是六张一模一样的入口卡,要再点一次才知道按键音开没开。面板本来就会滚动,分组标题也已经能区分两类,多出来的那一层只是把状态藏起来。本地输入仍然是二级页 —— 八个模式是一份列表,不是一组开关。
   private func makeToolSections() -> [KeyboardToolSection] {
-    [KeyboardToolSection(title: nil, kind: .opens, columns: 2, tools: [
-      KeyboardTool(title: "表情", symbol: "face.smiling") { [weak self] in self?.showEmojiPicker() },
-      KeyboardTool(title: "剪贴板历史", symbol: "doc.on.clipboard") { [weak self] in self?.showClipboardHistory() },
-      KeyboardTool(title: "AI 润色", symbol: "sparkles") { [weak self] in
-        self?.closeKeyboardPicker(); self?.showKeyboardAI()
-      },
-      KeyboardTool(title: "语音结果", symbol: "waveform") { [weak self] in
-        self?.closeKeyboardPicker(); self?.showKeyboardVoice()
-      },
-      KeyboardTool(title: "本地输入", symbol: "textformat.123", enabled: supportsLocalTools) { [weak self] in
-        self?.showMoreToolsPage(.localInput)
-      },
-      KeyboardTool(title: "键盘设置", symbol: "gearshape") { [weak self] in
-        self?.showMoreToolsPage(.keyboardSettings)
-      },
-    ])]
-  }
-
-  private func makeKeyboardSettingsSections() -> [KeyboardToolSection] {
     [
-      backToToolsSection(),
-      KeyboardToolSection(title: "键盘设置", kind: .toggle, columns: 2, tools: [
+      KeyboardToolSection(title: nil, kind: .opens, columns: 2, tools: [
+        KeyboardTool(title: "表情", symbol: "face.smiling") { [weak self] in self?.showEmojiPicker() },
+        KeyboardTool(title: "剪贴板历史", symbol: "doc.on.clipboard") { [weak self] in self?.showClipboardHistory() },
+        KeyboardTool(title: "AI 润色", symbol: "sparkles") { [weak self] in
+          self?.closeKeyboardPicker(); self?.showKeyboardAI()
+        },
+        KeyboardTool(title: "语音结果", symbol: "waveform") { [weak self] in
+          self?.closeKeyboardPicker(); self?.showKeyboardVoice()
+        },
+        KeyboardTool(title: "本地输入", symbol: "textformat.123", enabled: supportsLocalTools) { [weak self] in
+          self?.showMoreToolsPage(.localInput)
+        },
+      ]),
+      KeyboardToolSection(title: "设置", kind: .toggle, columns: 2, tools: [
         // 简繁是开关而不是两张选择卡:它本来就是一个布尔值,拆成两张只是多占一行。
         KeyboardTool(title: "繁体输出", symbol: "character.textbox",
                      selected: usesTraditionalOutput,
@@ -1021,7 +1017,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     switch moreToolsPage {
     case .root: sections = moreTools
     case .localInput: sections = makeLocalModeSections()
-    case .keyboardSettings: sections = makeKeyboardSettingsSections()
     }
     morePicker?.update(sections: sections)
   }

@@ -689,13 +689,10 @@ final class NineKeyKeyboardTests: XCTestCase {
         XCTAssertEqual(card.bounds.height, 48)
       }
       try button("moreCard-返回工具", in: controller).sendActions(for: .primaryActionTriggered)
-      XCTAssertNotNil(try button("moreCard-键盘设置", in: controller))
-
-      try button("moreCard-键盘设置", in: controller).sendActions(for: .primaryActionTriggered)
       controller.view.layoutIfNeeded()
       let feedback = try button("moreCard-按键振动", in: controller)
       XCTAssertLessThanOrEqual(feedback.convert(feedback.bounds, to: panel).maxY, panel.bounds.height)
-      for title in ["返回工具", "按键音", "按键振动", "全角输入", "振动强度"] {
+      for title in ["繁体输出", "按键音", "按键振动", "全角输入", "振动强度"] {
         let card = try button("moreCard-" + title, in: controller)
         XCTAssertEqual(card.bounds.height, 48)
         XCTAssertLessThanOrEqual(card.convert(card.bounds, to: panel).maxY, panel.bounds.height)
@@ -710,7 +707,6 @@ final class NineKeyKeyboardTests: XCTestCase {
       try button("moreCard-按键音", in: controller).sendActions(for: .primaryActionTriggered)
       XCTAssertFalse(KeyboardFeedbackPreference.soundEnabled)
       XCTAssertEqual(try button("moreCard-按键音", in: controller).accessibilityValue, "已关闭")
-      try button("moreCard-返回工具", in: controller).sendActions(for: .primaryActionTriggered)
       try button("moreCard-AI 润色", in: controller).sendActions(for: .primaryActionTriggered)
       XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "keyboardMorePicker" })
       XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, 260 + KeyboardViewController.stripExtraHeight)
@@ -732,7 +728,6 @@ final class NineKeyKeyboardTests: XCTestCase {
     letter.sendActions(for: .primaryActionTriggered)
     let preedit = try button("preeditButton", in: controller).configuration?.title
     try button("moreShortcut", in: controller).sendActions(for: .primaryActionTriggered)
-    try button("moreCard-键盘设置", in: controller).sendActions(for: .primaryActionTriggered)
     XCTAssertEqual(try button("moreCard-全角输入", in: controller).accessibilityValue, "已关闭")
     try button("moreCard-全角输入", in: controller).sendActions(for: .primaryActionTriggered)
     XCTAssertTrue(KeyboardLayoutPreference.fullWidthInputEnabled)
@@ -1066,7 +1061,6 @@ final class NineKeyKeyboardTests: XCTestCase {
       XCTAssertNil(try button("skinShortcut", in: controller).menu)
       XCTAssertTrue(try button("layoutVoiceShortcut", in: controller).isHidden)
       try button("moreShortcut", in: controller).sendActions(for: .primaryActionTriggered)
-      try button("moreCard-键盘设置", in: controller).sendActions(for: .primaryActionTriggered)
       try button("moreCard-繁体输出", in: controller).sendActions(for: .primaryActionTriggered)
       XCTAssertTrue(ChineseOutputPreference.usesTraditional)
       try button("moreCard-繁体输出", in: controller).sendActions(for: .primaryActionTriggered)
