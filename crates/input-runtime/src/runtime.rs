@@ -554,7 +554,7 @@ impl<E: InputEngine> Runtime<E> {
         }
         let page = self.highlighted / self.page_size;
         let last_page = (len - 1) / self.page_size;
-        let next_is_partial_last = page + 1 == last_page && len % self.page_size != 0;
+        let next_is_partial_last = page + 1 == last_page && !len.is_multiple_of(self.page_size);
         if page != last_page && !next_is_partial_last {
             return Ok(false);
         }
