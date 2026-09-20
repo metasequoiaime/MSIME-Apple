@@ -32,7 +32,7 @@
 | 中英文状态、独立英文候选、全半角、简繁、智能标点 | `server/src/english/`、设置 `input.ts` / `shortcut.ts` | `SharedConfigKeybindings.h`、`PunctuationPolicy.h`、`ReplyCodec.h` 中的 TsfLocalConfig、共享偏好与 Engine 桥接 | 已补齐 TSF client key-router 边界、IPC `Sent` / `DefinitelyNotSent` / `DeliveryAmbiguous` 三态 fallback、标点配置帧及宿主进程策略回归；仍需分别核对按应用/全局状态、CapsLock、标点重复、成对补全与热更新。 |
 | K/T/U/E/M/J/Y/R 快捷模式、混输 | README 实用功能快捷模式 | Engine 桥接、共享偏好、`platforms/windows/src/ipc/ServerSession.cpp` 及 `platforms/windows/tests/runtime/session_smoke.cpp` | 已补带锁定词库的 ServerSession 回归：八种快捷模式均验证 Shift 入口、候选生成和选词提交；仍需 Windows 原生 TSF/真实编辑器交互验证。 |
 | 谷歌云候选与 AI 联想 | README 云/AI 联想、设置 `ai-settings.ts` | `CloudCandidateWorker.cpp`、`AiCandidateWorker.cpp`，由 `SessionController.cpp` 构造并投递输入队列 | 有调用链；核对每个提供方、超时、取消、失焦后旧结果以及凭据路由，勿只验证 UI 保存。 |
-| 候选中英释义、腾讯云翻译、自定义翻译 | README 候选翻译/自定义翻译 | `TranslationWorker.cpp` → `SessionController.cpp` → 候选展示；共享 `translation.rs` / `translation_store.rs` | 有调用链；缓存失效已核对并确认做到（第三十六批）：缓存键按服务商与账号分域，凭据、端点、目标语言与启用开关任一变化都丢弃正负两种结果；腾讯请求签名已按官方 TC3-HMAC-SHA256 构造独立算出已知答案并钉住（第三十七批）；本地优先级已按源码核对为正确实现但**零测试覆盖**（第三十八批）；仍需比较词库编辑。 |
+| 候选中英释义、腾讯云翻译、自定义翻译 | README 候选翻译/自定义翻译 | `TranslationWorker.cpp` → `SessionController.cpp` → 候选展示；共享 `translation.rs` / `translation_store.rs` | 有调用链；缓存失效已核对并确认做到（第三十六批）：缓存键按服务商与账号分域，凭据、端点、目标语言与启用开关任一变化都丢弃正负两种结果；腾讯请求签名已按官方 TC3-HMAC-SHA256 构造独立算出已知答案并钉住（第三十七批）；本地优先级已按源码核对为正确实现但**零测试覆盖**（第三十八批）；词库编辑已核对（第三十九批）：设置侧有五个按 Engine 实际读取语义写的用例，消费侧每次请求现算本地释义，编辑立即生效且恒胜过缓存的云端结果。本行四项到此走完。 |
 | 设置读取、保存、热更新与窗口行为 | `settings_app.cpp`、`config-sync.ts` | Tauri `load_preferences` / `save_preferences`，`PreferenceMonitor.cpp` 与 `main.cpp` 发布回调；macOS 云端桌面快照覆盖 Apple 20 项基线字段并保留客户端新增双拼预编辑字段 | 有调用链；逐字段核对默认值、冲突/损坏保护、当前组合期间延迟生效。macOS 云端快照现补齐两套辅助码方案、候选学习和本地扩展模式；本地扩展的兼容布尔值应用为八个本地模式的全开/全关。原生备用语音现在读取并回写当前 provider 的 `asr_tokens` / `polish_tokens` 槽位，缺失槽位保留旧扁平字段兼容。不能因配置字段存在就标记功能接通。 |
 | API 凭据测试 | `settings_app.cpp::apiCredentialTest` → `ApiCredentialTest::Run` | Tauri `test_api_credential` → `client-core::credential_*`（Windows/macOS） | 有调用链；Windows 已接入聊天、批量 ASR、豆包 WebSocket、腾讯云/NiuTrans/DeepLX 等共享凭据测试。仍需逐项核对来源字段与真实服务行为。 |
 | 词库查询、增改删、导入导出、快捷短语 | `dictionary_manager.cpp`、设置 `dict.ts` / `tools-settings.ts` | Tauri `dictionary_request` / `dictionary_maintenance_handshake`，共享 `dictionary/access.rs` / `dictionary/import.rs` | 有调用链；验证 quiesce/resume、失败恢复、五笔/英文/快捷短语/翻译各表的字段和导出编码，保留用户数据。 |
@@ -514,6 +514,15 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 正确的做法是把这段合并判据抽成纯函数（`CandidateTranslationPolicy.h` 就是现成的去处）再钉住。**本批没有做**：那是对线上 worker 的行为性改动，而本机的 Docker 守护进程已停（见下一段），Windows 套件跑不起来。不做无法验证的改动，这一条按未覆盖记录，等能跑套件时再补。
 
 顺带记下本机状态：本轮密集的容器构建与多份词库下载把磁盘撑满（一度只剩 119 MB），OrbStack 因此停止，不是它自身故障。已清理自己产生的临时文件与主工作区的 `target/windows-full`；未触碰其他任务的 worktree 与正在被使用的共享 vcpkg 依赖树。跨检出共享依赖的机制仓库本来就有，本轮在主机侧没有充分利用，是这次资源耗尽的直接原因。
+
+增量记录（2026-09-20，Windows 第三十九批：翻译那一行的四项全部走完）：表里这行原写着「仍需比较本地优先级、腾讯请求签名、词库编辑与缓存失效」。四项逐个核完：
+
+- **缓存失效**（第三十六批）：已做到，且比那句话要求的细——缓存键按服务商与账号分域，凭据、端点、目标语言、启用开关任一变化丢弃正负两种结果。
+- **腾讯请求签名**（第三十七批）：原测试只验确定性与敏感性，算错但稳定的实现照样通过；改为按官方构造独立算出的已知答案，并做了反向验证。
+- **本地优先级**（第三十八批）：实现正确，但零测试覆盖，按未覆盖记录，没有做无法验证的改动。
+- **词库编辑**（本批）：设置侧有五个用例，且是按 Engine 实际的读取与覆盖语义写的——被 Engine 丢弃的行要计数而不是静默保留、同源多次拼写以最后一次为准。消费侧 `msime_client_candidate_gloss_request` 每次请求现算，带 `user_data` 与 `resources`，所以编辑立即生效；本地结果在 plan 与缓存循环之前填入，因此恒胜过缓存的云端结果。
+
+四项里三项确认做到、一项确认缺测试。这一行不再留「仍需」。
 
 ## 来源模块的落点
 
