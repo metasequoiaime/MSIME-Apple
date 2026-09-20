@@ -340,6 +340,20 @@ int main(int argc, char **argv) {
       }
       return ready();
     };
+    // The lookup table only ever carries the page the panel shows, so a
+    // candidate the engine ranks past the first page has to be paged to before
+    // it can be selected. Returns its index on the page it was found, or -1.
+    auto page_to = [&](const std::string &wanted) {
+      for (int page = 0; page < 24; ++page) {
+        const auto found = std::find(seen.candidates.begin(), seen.candidates.end(), wanted);
+        if (found != seen.candidates.end())
+          return static_cast<int>(found - seen.candidates.begin());
+        const auto before = seen.candidates;
+        if (!key(IBUS_Page_Down) || seen.candidates == before)
+          break;
+      }
+      return -1;
+    };
     // The host hides the candidate window on a 24ms timer rather than in the
     // turn that empties it, so a composition that briefly has no candidates does
     // not flicker the panel. Anything asserting that the window is gone has to
@@ -1933,14 +1947,25 @@ int main(int argc, char **argv) {
     require(key('j', IBUS_SHIFT_MASK), "Super-jianpin mode could not restart");
     for (const char character : std::string("nh"))
       require(key(static_cast<guint>(character)), "Super-jianpin input was not consumed");
-    require(std::any_of(seen.candidates.begin(), seen.candidates.end(),
-                        [](const std::string &candidate) { return candidate == "你好"; }),
-            "Super-jianpin fixture candidate was not exposed");
-    const bool settled_commit_4 = key(IBUS_space);
+    // The engine ranks 女孩/你会 above 你好 for this code, so the fixture pages to
+    // the candidate instead of assuming it leads the list.
+    const int jianpin_index = page_to("你好");
+    {
+      std::string observed;
+      for (const auto &candidate : seen.candidates)
+        observed += "[" + candidate + "]";
+      require(jianpin_index >= 0,
+              ("Super-jianpin fixture candidate was not exposed: preedit=[" + seen.preedit +
+               "] last page=" + observed)
+                  .c_str());
+    }
+    invoke("CandidateClicked",
+           g_variant_new("(uuu)", static_cast<guint>(jianpin_index), 1, 0));
     settle_lookup();
-    require(settled_commit_4 && seen.committed == "你好" && !seen.preedit_visible &&
-                !seen.lookup_visible,
-            "Super-jianpin candidate was not committed through IBus");
+    require(seen.committed == "你好" && !seen.preedit_visible && !seen.lookup_visible,
+            ("Super-jianpin candidate was not committed through IBus: committed=[" +
+             seen.committed + "]")
+                .c_str());
 
     invoke("Reset");
     seen.committed.clear();
