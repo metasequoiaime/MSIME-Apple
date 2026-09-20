@@ -121,6 +121,7 @@
 | 中英混输、emoji/颜文字混输、独立英文候选 | Engine 侧 `mixed_input`；`dedicated_english` | 共享偏好契约 |
 | 直接英文补全 | `input/EnglishSuggestionPolicy.ts`；NAPI `englishCompletions` | 逻辑回归 |
 | 智能标点、重复转中文、空格转 ASCII、成对补全、以词定字 | `input/SmartPunctuation*.ts`、`PairedPunctuationPolicy.ts`、`CandidateTextPolicy.ts` | 逻辑回归 |
+| 中文标点直输（`\`→、 `` ` ``→· `$`→￥ `^`→…… `_`→——） | Engine 侧 `input_session.cpp`；硬件键经 `isAsciiPunctuation` 全部送达 | 硬件键全覆盖；触摸键盘见下 |
 | 中英文状态按应用/全局记忆 | `input/ImeModeScopePolicy.ts` | 逻辑回归 |
 | 全半角、简繁 | `input/FullWidthInputPolicy.ts`、`input/ChineseOutputPolicy.ts` | 逻辑回归 |
 | 八个快捷模式 K/T/U/E/M/J/Y/R | Engine 侧 `local_modes`；`input/LocalInputMode.ts` | 共享偏好契约 |
@@ -200,6 +201,12 @@ composing key produced no composition: scheme=quanpin local=none english=false c
 仍未取得设备证据的是：语音 provider 实际识别、手写实际识别。两者需要真实凭据与真实音频/笔迹。其余条目均有不依赖设备的回归覆盖。
 
 候选皮肤一项此前只写「逻辑回归」，掩盖了一个外观缺陷：四个来源皮肤被近似映射到触摸键盘的调色板上，而 `wechat` 与 `willow_green` 都落在 `forest`，于是微信绿与杨柳青在 2in1 上完全同色——`#07c160` 和 `#58b980` 并不接近，四个皮肤实际只剩三个。不渲染上游 CSS 并不需要另造一套颜色：上游样式表就在本仓库 `packages/ui/src/upstream/candidate-themes/skins` 下，四套配色（明暗各一）现直接取自各自的样式表，由 ArkUI 原生绘制。触摸键盘的八个皮肤是另一项偏好，未改动，这四个也不进触摸皮肤选择器。
+
+来源指南列出的五个中文标点直输映射（`\`→、、`` ` ``→·、`$`→￥、`^`→……、`_`→——）都在 Engine 侧的 `input_session.cpp` 里，本宿主调的是同一个 Engine，因此**硬件键路径全部具备**——`HardwareKeyRouter` 的 `isAsciiPunctuation` 覆盖 0x5b–0x60，这五个字符都落在其中。
+
+触摸键盘则只覆盖其中三个。符号行是 `1234567890` / `,.?!;:'"@/` / `()[]<>\-_=`，所以 `\`（、）、`_`（——）、`<` `>`（《》）能点出来，而 **`^`（……）与 `$`（￥）不在行内**；符号面板是数据驱动的 `symbol_catalog`，其中有单个的 `·` `—` `…`，没有中文排版用的双字形 `……` `——`，也没有 `、￥《》`。因此在手机形态下，省略号与人民币号无法通过点按输入，间隔号则可经符号面板取得。
+
+这不是本宿主特有：`platforms/android/java/.../KeyboardLayout.java` 的三行符号与这里**逐字相同**，限制是随移植一起来的。要补齐就得重设两个移动宿主共用的触摸符号布局，属于产品决定，因此记录而不在此改动。
 
 悬浮工具栏核对过两项声称，均成立。`FloatingToolbarLayout.scale` 的注释写着"匹配 Windows 工具栏的四档缩放"，核对来源 `floating-toolbar.ts` 的 `normalizeScaleKey`：确实只有 0.75 / 1 / 1.25 / 1.5 四档且其余一律归为 1，本宿主的实现与之逐项相同。图标字号方面，共享设置页给出的选项正是 16、18、20、22、24、26、28，与本宿主的 16..28 与默认 24 完全吻合——共享文档把 `scale_percent` 校验到 50..200、`font_size` 校验到 12..48，那是文档容许范围，不是界面给得出的值。
 
