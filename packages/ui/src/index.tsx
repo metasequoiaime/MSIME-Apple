@@ -6255,7 +6255,9 @@ export function SettingsPage({
                         <small>
                           {macosPlatform
                             ? "可从当前输入上下文使用 Command 组合键打开面板。"
-                            : "桌面环境转发 Super 组合键时可从当前输入上下文打开面板。"}
+                            : harmonyPlatform
+                              ? "连接实体键盘后，在输入状态下可用 Super 组合键打开面板。"
+                              : "桌面环境转发 Super 组合键时可从当前输入上下文打开面板。"}
                         </small>
                         <div className="shortcut-list">
                           <div className="shortcut-row">
