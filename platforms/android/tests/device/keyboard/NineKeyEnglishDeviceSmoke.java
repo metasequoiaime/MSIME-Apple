@@ -61,7 +61,7 @@ public final class NineKeyEnglishDeviceSmoke extends DeviceSmoke {
             stage = "nine-key English commit identity";
             await(field("msime-test-plain").and(node -> equalsText("ok", node.getText())));
         } finally {
-            shell("am start -W -n app.msime.client.preview/app.msime.client.SetupActivity");
+            shell("am start -W -n app.msime.android/app.msime.client.SetupActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath());
             else publish(preferences, original);
         }
@@ -69,7 +69,7 @@ public final class NineKeyEnglishDeviceSmoke extends DeviceSmoke {
 
     private Predicate<AccessibilityNodeInfo> candidate(String text) {
         return node -> {
-            if (!equalsText("app.msime.client.preview", node.getPackageName())
+            if (!equalsText("app.msime.android", node.getPackageName())
                     || !node.isClickable() || node.getContentDescription() == null) return false;
             String description = node.getContentDescription().toString();
             int delimiter = description.indexOf('：');
@@ -80,9 +80,9 @@ public final class NineKeyEnglishDeviceSmoke extends DeviceSmoke {
     }
 
     private void restartIme() throws Exception {
-        shell("ime disable app.msime.client.preview/app.msime.client.MSIMEInputService");
-        shell("ime enable app.msime.client.preview/app.msime.client.MSIMEInputService");
-        shell("ime set app.msime.client.preview/app.msime.client.MSIMEInputService");
+        shell("ime disable app.msime.android/app.msime.client.MSIMEInputService");
+        shell("ime enable app.msime.android/app.msime.client.MSIMEInputService");
+        shell("ime set app.msime.android/app.msime.client.MSIMEInputService");
         SystemClock.sleep(1000);
     }
 

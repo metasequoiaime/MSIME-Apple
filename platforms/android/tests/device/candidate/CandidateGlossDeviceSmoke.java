@@ -73,7 +73,7 @@ public final class CandidateGlossDeviceSmoke extends DeviceSmoke {
             if (findVisible(glossCandidate()) != null)
                 throw new AssertionError("Disabled candidate gloss became visible");
         } finally {
-            shell("am start -W -n app.msime.client.preview/app.msime.client.SetupActivity");
+            shell("am start -W -n app.msime.android/app.msime.client.SetupActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath());
             else publish(preferences, original);
         }
@@ -118,7 +118,7 @@ public final class CandidateGlossDeviceSmoke extends DeviceSmoke {
     }
 
     private boolean preview(AccessibilityNodeInfo node) {
-        return equalsText("app.msime.client.preview", node.getPackageName());
+        return equalsText("app.msime.android", node.getPackageName());
     }
 
     private AccessibilityNodeInfo findVisible(Predicate<AccessibilityNodeInfo> predicate) {
@@ -130,9 +130,9 @@ public final class CandidateGlossDeviceSmoke extends DeviceSmoke {
     }
 
     private void restartIme() throws Exception {
-        shell("ime disable app.msime.client.preview/app.msime.client.MSIMEInputService");
-        shell("ime enable app.msime.client.preview/app.msime.client.MSIMEInputService");
-        shell("ime set app.msime.client.preview/app.msime.client.MSIMEInputService");
+        shell("ime disable app.msime.android/app.msime.client.MSIMEInputService");
+        shell("ime enable app.msime.android/app.msime.client.MSIMEInputService");
+        shell("ime set app.msime.android/app.msime.client.MSIMEInputService");
         SystemClock.sleep(1000);
     }
 

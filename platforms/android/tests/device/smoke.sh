@@ -35,7 +35,7 @@ tap() {
   [[ "$bounds" =~ ^\[([0-9]+),([0-9]+)\]\[([0-9]+),([0-9]+)\]$ ]] || { echo "Missing tap target: $1" >&2; exit 1; }
   "$adb" -s "$serial" shell input tap "$(( (BASH_REMATCH[1] + BASH_REMATCH[3]) / 2 ))" "$(( (BASH_REMATCH[2] + BASH_REMATCH[4]) / 2 ))"
 }
-"$adb" -s "$serial" shell am start -W -n app.msime.client.preview/app.msime.client.SetupActivity >/dev/null
+"$adb" -s "$serial" shell am start -W -n app.msime.android/app.msime.client.SetupActivity >/dev/null
 tap '//node[@text="准备词库"]'
 ready=false
 for attempt in $(seq 1 30); do
@@ -45,8 +45,8 @@ for attempt in $(seq 1 30); do
   sleep 1
 done
 [[ "$ready" == true ]] || { echo "Device bootstrap timed out" >&2; exit 1; }
-"$adb" -s "$serial" shell ime enable app.msime.client.preview/app.msime.client.MSIMEInputService
-"$adb" -s "$serial" shell ime set app.msime.client.preview/app.msime.client.MSIMEInputService
+"$adb" -s "$serial" shell ime enable app.msime.android/app.msime.client.MSIMEInputService
+"$adb" -s "$serial" shell ime set app.msime.android/app.msime.client.MSIMEInputService
 "$adb" -s "$serial" shell am force-stop app.msime.client.test
 result=$("$adb" -s "$serial" shell am instrument -w app.msime.client.test/app.msime.client.test.DeviceSmoke)
 printf '%s\n' "$result"
@@ -89,7 +89,7 @@ if [[ "$settings" == true ]]; then
   done
 fi
 if [[ "$statistics" == true ]]; then
-  "$adb" -s "$serial" shell am force-stop app.msime.client.preview
+  "$adb" -s "$serial" shell am force-stop app.msime.android
   result=$("$adb" -s "$serial" shell am instrument -w app.msime.client.test/app.msime.client.test.TypingStatisticsDeviceSmoke)
   printf '%s\n' "$result"
   [[ "$result" == *MSIME_DEVICE_SMOKE_PASSED* ]] || { echo "Typing statistics acceptance failed" >&2; exit 1; }

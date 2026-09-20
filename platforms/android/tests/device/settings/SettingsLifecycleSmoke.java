@@ -11,22 +11,22 @@ public final class SettingsLifecycleSmoke extends DeviceSmoke {
         stage = "initial IME process";
         // The preceding instrumentation may force-stop its target package. Rebind
         // once before measuring; never rebind between either settings close and input.
-        shell("ime disable app.msime.client.preview/app.msime.client.MSIMEInputService");
-        shell("ime enable app.msime.client.preview/app.msime.client.MSIMEInputService");
-        shell("ime set app.msime.client.preview/app.msime.client.MSIMEInputService");
+        shell("ime disable app.msime.android/app.msime.client.MSIMEInputService");
+        shell("ime enable app.msime.android/app.msime.client.MSIMEInputService");
+        shell("ime set app.msime.android/app.msime.client.MSIMEInputService");
         android.os.SystemClock.sleep(1000);
         shell("am start -W -f 0x10008000 -n app.msime.client.test/app.msime.client.test.EditorActivity");
         tap(field("msime-test-plain"));
         await(key("n"));
-        String originalPid = shell("pidof app.msime.client.preview:ime").trim();
+        String originalPid = shell("pidof app.msime.android:ime").trim();
         if (!originalPid.matches("[0-9]+")) throw new AssertionError("Dedicated IME process missing");
         for (int iteration = 0; iteration < 2; iteration++) {
             stage = "settings open and close";
-            shell("am start -W -n app.msime.client.preview/.MainActivity");
-            await(node -> equalsText("app.msime.client.preview", node.getPackageName()) && equalsText("android.webkit.WebView", node.getClassName()));
+            shell("am start -W -n app.msime.android/.MainActivity");
+            await(node -> equalsText("app.msime.android", node.getPackageName()) && equalsText("android.webkit.WebView", node.getClassName()));
             shell("input keyevent 4");
             await(field("msime-test-plain"));
-            String afterPid = shell("pidof app.msime.client.preview:ime").trim();
+            String afterPid = shell("pidof app.msime.android:ime").trim();
             if (!originalPid.equals(afterPid)) throw new AssertionError("Closing settings restarted the IME process");
             stage = "input after settings close";
             tap(field("msime-test-plain"));
