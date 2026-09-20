@@ -125,6 +125,8 @@ targets:
       - path: ../../target/ios/EngineResources
         buildPhase: resources
         type: folder
+      - path: SharedResources/KeyboardBrand.png
+        buildPhase: resources
       - path: SharedResources/PrivacyInfo.xcprivacy
         buildPhase: resources
     settings:
@@ -188,6 +190,8 @@ targets:
         excludes:
           - handwriting/HandwritingInputView.swift
       - path: SharedUI
+      - path: SharedResources/KeyboardBrand.png
+        buildPhase: resources
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.msime.ios.keyboard-tests
