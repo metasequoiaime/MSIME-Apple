@@ -156,7 +156,9 @@ pub fn validate_cloud_request(request: &CloudDictionaryRequest) -> Result<(), &'
             && word.len() <= 1024
             && !word.chars().any(char::is_control)
             && weight >= 0
-            && (kind != "quick" || word.encode_utf16().count() <= 199)
+            && (kind != "quick"
+                || word.encode_utf16().count()
+                    <= msime_client_core::dictionary::import::MAX_QUICK_PHRASE_UTF16)
     };
     let valid_id = |id: &str| {
         id.len() == 64

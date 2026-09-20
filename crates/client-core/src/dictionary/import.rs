@@ -17,8 +17,18 @@ use thiserror::Error;
 /// import holds the dictionary maintenance lock.
 pub const MAX_ENTRIES: usize = 1000;
 const MAX_VALUE_BYTES: usize = 1024;
-/// Quick phrases are delivered through editors that count UTF-16 units.
-const MAX_QUICK_PHRASE_UTF16: usize = 199;
+/// The longest quick phrase, in UTF-16 units.
+///
+/// Editors count UTF-16 units, and so does the Windows candidate pipe: this is
+/// `FanyImePipeLimits::CandidateTextMaxLength` from the Engine's own
+/// `contracts/ipc_protocol_limits.h`, which is the field the phrase is finally
+/// written into. A phrase longer than the field cannot be delivered, so it is
+/// refused where it is entered rather than truncated where it is used.
+///
+/// One constant for every caller, checked against the contract by
+/// `scripts/test-quick-phrase-limit.py`. It was four separate literals across
+/// three crates, none of them attached to the header that decides the value.
+pub const MAX_QUICK_PHRASE_UTF16: usize = 199;
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
