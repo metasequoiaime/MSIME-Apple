@@ -227,9 +227,11 @@ int main()
             Require(glyph > 0.0, "The candidate font measured an empty glyph.");
             const CGFloat available = MAX(80.0, NSScreen.mainScreen.visibleFrame.size.width - 20.0);
             NSString *sentence = [@"" stringByPaddingToLength:(NSUInteger)MAX(4.0, floor(available * 0.4 / glyph))
-                                                   withString:@"水杉输入法" startingAtIndex:0];
+                                                   withString:@"水杉输入法"
+                                              startingAtIndex:0];
             NSString *shortWord = [@"" stringByPaddingToLength:(NSUInteger)MAX(2.0, floor(available * 0.12 / glyph))
-                                                    withString:@"候选" startingAtIndex:0];
+                                                    withString:@"候选"
+                                               startingAtIndex:0];
             NSMutableArray *overflowing =
                 [NSMutableArray arrayWithObject:MetasequoiaIndexedCandidateString(sentence, 0)];
             while (overflowing.count < 9)
