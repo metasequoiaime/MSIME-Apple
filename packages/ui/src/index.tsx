@@ -2997,8 +2997,15 @@ export function SettingsPage({
   // that shipping feature with no way to pick a schema or turn it off. The
   // Apple keyboard extension has no helper-code input at all, so iOS keeps the
   // page hidden.
+  //
+  // HarmonyOS was in the hidden list while shipping the same input: its
+  // ChineseHelpcodePolicy is the Android one, ported, and the session calls it
+  // on every shifted key. So it had the feature and no way to configure it —
+  // the very state this comment already describes as the reason Android is not
+  // in the list. It also keeps its hardware shortcuts and keyboard toolbar in
+  // the input-method panel, so neither of those is hidden there either.
   const mobileHiddenPageIds: readonly SettingsPageId[] = harmonyPlatform
-    ? ["helpcode"]
+    ? []
     : androidPlatform
       ? ["shortcuts", "floating-toolbar"]
       : ["helpcode", "shortcuts", "floating-toolbar"];

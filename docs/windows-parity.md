@@ -108,7 +108,7 @@
 | 全拼、四种双拼、86 五笔 | `keyboard/KeyboardScheme.ts`；Engine 经共享 `prepare_host_configuration` | 逻辑回归；设备上 Engine 会话建立 |
 | 日文罗马字、平假名/片假名、日语词库 | `input/JapaneseNineKeyLayout.ts`、`input/JapaneseVariantPolicy.ts` | 逻辑回归 |
 | 切日文保留中文方案 | `KeyboardScheme.mapping` + `KeyboardSession.schemeChanges` | 逻辑回归 |
-| 五种辅助码方案、单码/双码 | `input/ChineseHelpcodePolicy.ts`；Engine 侧 `quanpin_helpcode`/`shuangpin_helpcode` | 逻辑回归 |
+| 五种辅助码方案、单码/双码 | `input/ChineseHelpcodePolicy.ts`；Engine 侧 `quanpin_helpcode`/`shuangpin_helpcode`；设置页辅助码分页 | 逻辑回归 + UI 回归 |
 | 谷歌云候选、AI 联想（四提供方） | `candidate/OnlineCandidatePolicy.ts`；NAPI `onlineQuery`/`applyOnlineCandidates` | 逻辑回归 |
 | 候选中英互译、腾讯 TMT / NiuTrans / DeepLX | `candidate/TranslationPolicy.ts`、`CredentialCrypto.ets` | 逻辑回归 |
 | 自定义候选窗翻译（覆盖层） | 设置页写 `<state>/user/custom_translations.txt`；Engine `prepare_translation_sidecar` 读取 | 解析规则逐条对齐 C++ 并有测试 |
