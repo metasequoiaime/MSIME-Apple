@@ -27,8 +27,8 @@
 | 功能组 | 来源入口 | 目的地证据 | 当前结论与下一项验证 |
 | --- | --- | --- | --- |
 | TSF 按键、焦点、edit session、UI-less | `windows/`、`server/src/ipc/` | `platforms/windows/tsf/`、`WindowsServer.cpp`、`SessionController.cpp`、`PipePeer.cpp` | 有调用链；继续验证真实编辑器焦点切换、断线重连、跨位数 DLL/Server、组合提交与撤销。 |
-| 全拼、四种双拼、86 五笔、日语、辅助码 | README 对应指南、`engine/`、设置 `input.ts` / `helpcode.ts` | `crates/engine-bridge/`、`crates/input-runtime/`、`platforms/windows/src/ipc/SessionPump.cpp`、共享 `preferences.rs` | Windows 日语模式已将 `-` 交给长音符输入、禁止 `-`/`=` 翻页，并在 TSF/Server 两侧保持一致；候选选择现绑定会话、代次及单调窗口渲染 serial，等待上屏前的绘制回执可避免调频重排错选；macOS 原生候选面板现按共享 `wubi_code_hint` 显示严格前缀的剩余五笔编码，回退/本地模式保持不标注；各输入方案已用锁定词库逐项核对（`crates/engine-bridge/examples/schemes_dictionary.rs`，见第七批），仍待真实编辑器交互验证。 |
-| 候选分页、高亮、调频、preedit、以词定字 | README 候选调频/preedit/标点指南 | `CandidateWindow.cpp`、`CandidateAction.h`、`SessionController.cpp`、`ReplyCodec.cpp`；Linux `ClientEngine.cpp` | 有调用链；Linux IBus 候选操作菜单现提供上一页/下一页并复用共享分页命令，调频持久化已用锁定词库覆盖三个半边——跨会话记住、关掉就不写、重置回出厂顺序（`crates/engine-bridge/examples/learning_dictionary.rs`，见第八批）；翻页现在能越过 Engine 对单字母查询的初始上限（第九批）；仍需检查分页键、鼠标与键盘行为和旧候选请求拒绝。 |
+| 全拼、四种双拼、86 五笔、日语、辅助码 | README 对应指南、`engine/`、设置 `input.ts` / `helpcode.ts` | `crates/engine-bridge/`、`crates/input-runtime/`、`platforms/windows/src/ipc/SessionPump.cpp`、共享 `preferences.rs` | Windows 日语模式已将 `-` 交给长音符输入、禁止 `-`/`=` 翻页，并在 TSF/Server 两侧保持一致；候选选择现绑定会话、代次及单调窗口渲染 serial，等待上屏前的绘制回执可避免调频重排错选；macOS 原生候选面板现按共享 `wubi_code_hint` 显示严格前缀的剩余五笔编码，回退/本地模式保持不标注；各输入方案已用锁定词库逐项核对（`crates/engine-bridge/examples/schemes_dictionary.rs`，见第七批）；辅助码的单码调序与双码筛选已按来源规格逐条核对（第十五批）；日文与中文方案的往返保留由 `apps/desktop/tests/settings/settings.test.tsx` 跨三种中文方案覆盖；仍待真实编辑器交互验证。 |
+| 候选分页、高亮、调频、preedit、以词定字 | README 候选调频/preedit/标点指南 | `CandidateWindow.cpp`、`CandidateAction.h`、`SessionController.cpp`、`ReplyCodec.cpp`；Linux `ClientEngine.cpp` | 有调用链；Linux IBus 候选操作菜单现提供上一页/下一页并复用共享分页命令，调频持久化已用锁定词库覆盖三个半边——跨会话记住、关掉就不写、重置回出厂顺序（`crates/engine-bridge/examples/learning_dictionary.rs`，见第八批）；翻页现在能越过 Engine 对单字母查询的初始上限（第九批）；以词定字已按两端取字、三字候选、组合被消耗、无汉字候选与越界索引覆盖（第十四批）；调频五种模式各走各的规则已逐条核对（第十三批）；仍需检查分页键与鼠标行为和旧候选请求拒绝。 |
 | 中英文状态、独立英文候选、全半角、简繁、智能标点 | `server/src/english/`、设置 `input.ts` / `shortcut.ts` | `SharedConfigKeybindings.h`、`PunctuationPolicy.h`、`ReplyCodec.h` 中的 TsfLocalConfig、共享偏好与 Engine 桥接 | 已补齐 TSF client key-router 边界、IPC `Sent` / `DefinitelyNotSent` / `DeliveryAmbiguous` 三态 fallback、标点配置帧及宿主进程策略回归；仍需分别核对按应用/全局状态、CapsLock、标点重复、成对补全与热更新。 |
 | K/T/U/E/M/J/Y/R 快捷模式、混输 | README 实用功能快捷模式 | Engine 桥接、共享偏好、`platforms/windows/src/ipc/ServerSession.cpp` 及 `platforms/windows/tests/runtime/session_smoke.cpp` | 已补带锁定词库的 ServerSession 回归：八种快捷模式均验证 Shift 入口、候选生成和选词提交；仍需 Windows 原生 TSF/真实编辑器交互验证。 |
 | 谷歌云候选与 AI 联想 | README 云/AI 联想、设置 `ai-settings.ts` | `CloudCandidateWorker.cpp`、`AiCandidateWorker.cpp`，由 `SessionController.cpp` 构造并投递输入队列 | 有调用链；核对每个提供方、超时、取消、失焦后旧结果以及凭据路由，勿只验证 UI 保存。 |
@@ -248,6 +248,14 @@ Engine 对**单字母**查询（`j`、`n` 这类只按声母的查询）只给 2
 新增 `crates/engine-bridge/examples/mixed_ordering_dictionary.rs`，钉住用户看得见的那部分：三类各自第一个的相对次序，以及两个开关各自只移除自己那一类。后半条是必需的——只断言「存在时的次序」，对一个完全忽略开关的实现同样成立。
 
 顺带更正本表此前一处标签错误：候选来源的数值按 `core/word_item.h` 的枚举序号，9 是 **Fallback** 不是 Generated（Generated 是 8）。第十批记录里把整句候选的来源 9 写成「整句生成」，措辞不准；该批的结论（那条候选不是词库条目、学习后变为词库条目）不受影响。
+
+增量记录（2026-09-20，Windows 第二十批：来源 README 的功能清单走完）：第十三到十九批沿来源 README 逐项验证，本批把结论收口并更新上表中已被覆盖、却仍写着「仍需核对」的行。
+
+这条轴上查到的**唯一真差异**是简繁转换的实现方式（第十六批）：来源用 OpenCC 词级转换，本仓库用 `LCMapStringEx` 逐字映射。引入 OpenCC 属于加依赖，未决，记在该批。
+
+其余逐项都与来源一致：输入方案与辅助码、候选调频五种模式、以词定字、中英混输触发长度、emoji 与颜文字的插入位置、快捷模式的文档化拼法、日文与中文方案的往返保留（后者已由 `apps/desktop/tests/settings/settings.test.tsx` 覆盖，不需另加探针）。
+
+这七批里我自己犯过三类错，一并记下，因为它们各自代表一种失效模式：**前提没核对**（`learning` 默认关、辅助码表没备、主工作区落后 44 个提交，三次都差点把「我没打开它」报成「功能坏了」）；**把举例当契约**（来源写「如 `nh` → 你好」是说简拼检索得到它，我写成了断言首选等于它）；**否定断言不设防**（只断言「有候选时的次序」或「没有英文候选」，对一个把功能整个关掉的实现同样成立，因此每条否定都要与同一输入上的肯定成对）。
 
 ## 来源模块的落点
 
