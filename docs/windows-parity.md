@@ -1206,3 +1206,17 @@ Fcitx5 候选动作执行 stale 栅栏增量（2026-09-19）：CandidateAction �
 其余宿主逐个核过：Android 走 wry 的 `RustWebChromeClient.onJsConfirm`，会弹真的 `AlertDialog`，功能正常，但按钮文案是写死的英文 `OK` / `Cancel`，与页面的中文界面不一致；Linux（WebKitGTK）与 Windows（WebView2）原生支持，工作正常。HarmonyOS 的 ArkWeb 在 `Settings.ets` 里没有注册 `onConfirm`，其默认行为没有在设备上验证过，这里不下结论。
 
 来源本批（`fcf594e2`）正好把 `window.confirm` 换成了自绘对话框，理由是宿主模态窗口不跟随页面主题、弹出期间页面自己的键盘与焦点处理被挂起。那三条理由对本仓每个 webview 宿主都成立，而上面这条比它们严重得多。下一片按同一方向做：共享一个自绘确认对话框，把这 11 处换掉，顺带解决 Android 的英文按钮。
+
+增量记录（2026-09-21，Windows 第八批：把上一批量出来的死按钮修掉）：接第七批末尾那条。共享设置页 16 处 `window.confirm`，在 macOS 桌面和 iOS 上按下去什么都不发生，证据链见第七批。这一批把它们全部换成页内对话框。
+
+换法是 `useConfirm()`（`packages/ui/src/core/confirm.tsx`）：返回一个可 await 的 `confirm` 和一个要渲染的节点，页面靠使用这个 hook 接入，不用 provider 也不用 portal——共享 UI 是一棵很大的树，为一个对话框加一层上下文提供者要碰的地方比 16 个调用点还多。浮层沿用仓内已有的 `role="dialog"` 样式，Esc 与点遮罩都是取消，焦点进入时落在确认按钮、答完还回原处。
+
+三处边界各有用例，都是自绘对话框特有而宿主模态没有的问题：弹着时再发一个请求直接答否，而不是把对话框从正在做决定的用户眼前换掉；组件在对话框开着时卸载答否，而不是让调用方永远等下去；从对话框内部按下、在遮罩上松开不算取消。
+
+顺带修掉 `panels.tsx` 里的 `confirmAction`：它在 `typeof window.confirm !== "function"` 时**不问直接放行**，即在一个没有 confirm 的宿主上删除云端候选会无声执行。这是与上面相反方向的同一个错误——一个假定宿主对话框一定可用的封装，两种失败形状都被它占全了。
+
+21 处测试原本 stub `window.confirm`，等于在断言一个用户根本看不见的控件；改成回答真正渲染出来的对话框（`apps/desktop/tests/support/confirm.ts`），顺带证明每条流程都确实走到了它。
+
+新增 `scripts/test-no-host-dialogs.py` 挂进 `--quick`，禁止共享 UI 出现 `window.confirm` / `alert` / `prompt`。这个守卫自己先写错一版并且**错得很典型**：判断是否带 `window.` 前缀时看的是匹配位置之前的字符，而 `window` 就在匹配里面，于是它放过了 `window.confirm` 却抓住了 `alert` 和 `prompt`——只测一种写法就会以为它是好的。改看匹配文本后四种写法（含 `window . confirm`）全部拦下，裸 `confirm(`（hook 自己的方法）照常放行。
+
+未做：Android 那边弹窗能出来，但按钮文案是 wry 写死的英文 `OK` / `Cancel`；改用页内对话框之后这个问题一并消失，因为按钮由本页渲染。HarmonyOS 的 ArkWeb 默认行为仍未在设备上验证，不过页内对话框对它同样成立，所以这条不再是缺口而只是一个没查完的事实。真机上按这些按钮仍未做过。
