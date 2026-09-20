@@ -11,7 +11,12 @@ import re
 
 MANIFEST_NAME = 'dictionary-manifest.json'
 SUPPORTED_FORMATS = (1,)
-DESKTOP_FILES = frozenset({'msime.db', 'english.db', 'others.db', 'dict_japanese.dat', 'mozc_dictionary_oss_README.txt'})
+# bigram.bin and trigram.bin joined the desktop product when the lattice's context tables started
+# shipping. A consumer that has not re-vendored this file yet rejects the newer product outright,
+# which is the intended failure: the tables belong to the dictionary generation, and a host that
+# does not know about them would install a generation the decoder then reads as incomplete.
+DESKTOP_FILES = frozenset({'msime.db', 'english.db', 'others.db', 'dict_japanese.dat', 'bigram.bin',
+                           'trigram.bin', 'mozc_dictionary_oss_README.txt'})
 MOBILE_FILES = frozenset({'msime.db', 'msime.db.sha256'})
 
 
