@@ -4211,6 +4211,99 @@ const referenceOptions: { page: string; button: string; control: string; options
     options: ["拼音分词", "不显示"],
   },
   {
+    page: "appearance",
+    button: "外观",
+    control: "候选窗字号",
+    options: Array.from({ length: 21 }, (_, index) => String(index + 12)),
+  },
+  {
+    page: "appearance",
+    button: "外观",
+    control: "候选窗预编辑字号",
+    options: Array.from({ length: 21 }, (_, index) => String(index + 12)),
+  },
+  {
+    page: "appearance",
+    button: "外观",
+    control: "主题模式",
+    options: ["深色", "浅色", "跟随系统"],
+  },
+  {
+    page: "appearance",
+    button: "外观",
+    control: "设置界面主题",
+    options: ["跟随全局", "深色", "浅色"],
+  },
+  {
+    // This one read 跟随 where every other surface theme - and the reference - says 跟随全局.
+    page: "appearance",
+    button: "外观",
+    control: "候选窗口主题",
+    options: ["跟随全局", "深色", "浅色"],
+  },
+  {
+    page: "input",
+    button: "输入",
+    control: "双拼方案",
+    options: ["小鹤双拼", "自然码双拼", "首道双拼", "微软双拼"],
+  },
+  {
+    page: "input",
+    button: "输入",
+    control: "触发字符数",
+    options: ["1", "2", "3", "4", "5", "6", "7", "8"],
+  },
+  {
+    page: "input",
+    button: "输入",
+    control: "调频方式",
+    options: ["关闭", "一次置顶", "折半调频", "线性调频", "一次置前"],
+  },
+  {
+    page: "input",
+    button: "输入",
+    control: "触发频次(第几次上屏触发)",
+    options: ["1", "2", "3", "4", "5", "6"],
+  },
+  {
+    page: "input",
+    button: "输入",
+    control: "线性调频步长",
+    options: ["1", "2", "3", "4", "5", "6"],
+  },
+  {
+    page: "helpcode",
+    button: "辅助码",
+    control: "双拼辅助码方案",
+    options: ["蓝天小雨点", "自然码", "首右2.0", "首右plus", "小鹤"],
+  },
+  {
+    page: "helpcode",
+    button: "辅助码",
+    control: "全拼辅助码方案",
+    options: ["蓝天小雨点", "自然码", "首右2.0", "首右plus", "小鹤"],
+  },
+  {
+    page: "floating-toolbar",
+    button: "悬浮工具栏",
+    control: "工具栏缩放",
+    options: ["75%", "100%", "125%", "150%"],
+  },
+  {
+    page: "floating-toolbar",
+    button: "悬浮工具栏",
+    control: "图标尺寸",
+    options: ["16", "18", "20", "22", "24", "26", "28"],
+  },
+  {
+    // The four built-in prompts, named as the reference names them in the same table the prompts
+    // themselves were copied from. The three custom slots are this client's.
+    page: "voice",
+    button: "语音输入",
+    control: "润色方案",
+    options: ["精炼整理", "忠实校对", "中翻英", "口语整理", "自定义一", "自定义二", "自定义三"],
+  },
+  {
     page: "input",
     button: "输入",
     control: "固定标点",
@@ -4230,23 +4323,45 @@ const referenceOptions: { page: string; button: string; control: string; options
   },
 ];
 
-test.each(referenceOptions)(
-  "$control offers the reference window's choices",
-  async ({ button, control, options }) => {
+const optionHosts: [string, HostCapabilities][] = [
+  [
+    "windows",
+    {
+      platform: "windows",
+      floating_toolbar: true,
+      floating_toolbar_components: true,
+      floating_toolbar_appearance: true,
+      candidate_font_controls: true,
+      candidate_follow_cursor: true,
+      ime_mode_scope: true,
+      mode_switch_shortcuts: true,
+      panel_shortcuts: true,
+    } as HostCapabilities,
+  ],
+  // The same lists, asked of macOS. A choice that exists on one host and not the other is a
+  // difference in the page, and this is the layer where one hid: the candidate page sizes were
+  // 5/7/9 here and 3-9 in the reference until the host stopped rewriting them.
+  ["macos", macosHostCapabilities],
+];
+
+test.each(
+  referenceOptions.flatMap((entry) =>
+    optionHosts.map(([platform, host]) => ({ ...entry, platform, host })),
+  ),
+)(
+  "$control offers the reference window's choices on $platform",
+  async ({ button, control, options, host }) => {
     render(
       <SettingsPage
         client={{
           load: vi.fn().mockResolvedValue(initial),
           save: vi.fn(),
-          host: {
-            platform: "windows",
-            floating_toolbar: true,
-            floating_toolbar_components: true,
-            floating_toolbar_appearance: true,
-            candidate_font_controls: true,
-            candidate_follow_cursor: true,
-            ime_mode_scope: true,
-          } as HostCapabilities,
+          host,
+          dictionary: {
+            list: vi.fn().mockResolvedValue({ entries: [], has_more: false }),
+            edit: vi.fn(),
+          },
+          scanSkinCatalog: vi.fn().mockResolvedValue({ skins: [] }),
         }}
       />,
     );
