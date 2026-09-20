@@ -115,6 +115,7 @@
 | 候选调频（五种算法、触发次数、步长） | Engine 侧 `frequency`，设置页无平台门 | 共享偏好契约 |
 | 候选窗右键菜单（删除候选等） | `input/CandidateContextMenuPolicy.ts` + `KeyboardView.onMouse`；触屏长按保持不变 | 逻辑回归；2in1 鼠标未在设备上点 |
 | 候选序号字号 | `candidate/CandidateNumberFontPolicy.ts`（上游 `.num { font-size: 0.8em }`） | 逻辑回归 |
+| preedit 光标（分词编辑可见） | `candidate/PreeditCaretPolicy.ts`（上游 `.cursor`）；共享视图 `caret_position` | 逻辑回归；2in1 分词键未在设备上按 |
 | preedit 显示、双拼原始预编辑 | `candidate_preedit_style`；`shuangpin_preedit` 能力位 | 逻辑回归 + 能力位测试 |
 | 中英混输、emoji/颜文字混输、独立英文候选 | Engine 侧 `mixed_input`；`dedicated_english` | 共享偏好契约 |
 | 直接英文补全 | `input/EnglishSuggestionPolicy.ts`；NAPI `englishCompletions` | 逻辑回归 |
@@ -208,6 +209,14 @@ Engine 对**单字母**查询（`j`、`n` 这类只按声母的查询）只给 2
 合起来，Wine 下从最初的 72 通过 / 5 失败到现在 75 通过 / 2 失败。
 
 一个坑：`xvfb` 包本身不含 `xauth`，缺了它 `xvfb-run` 直接报 `xauth command not found`，于是整轮 77 个套件全部 FAIL——看起来像改动把一切弄坏了，实际是 runner 自己起不来。加装 `xauth` 即可。这类「全红」要先怀疑 runner，不要先怀疑被测对象。
+
+增量记录（2026-09-20，Windows 第十四批：以词定字）：沿来源 README 的功能清单继续。`[` 上屏高亮候选的首个汉字、`]` 上屏末字，这条规则只有在存在多字候选时才有意义，空词库根本走不到。新增 `crates/engine-bridge/examples/word_to_character_dictionary.rs`。
+
+覆盖两端取字、三字候选（末字不能靠取第二个字蒙混过去）、组合被消耗、不含汉字的候选、越界索引。
+
+「组合被消耗」这一条专门去来源核对过，不是想当然：来源在发出 `Normal` 或 `CommitExactText` 之后调用 `ClearState()`，所以把剩余输入留着继续组合的宿主会与它不一致。本仓库经 Engine 的 `select_edge` 达到同样结果。
+
+不含汉字的候选（该输入的英文候选）也两边一致：Engine 拒绝处理且不动组合，宿主随后回退到从候选文本里抽字；抽不到就整条上屏——来源的 `ExtractHanCharacter` 返回空时同样保留完整候选文本走 `Normal`。
 
 增量记录（2026-09-20，Windows 第十五批：辅助码）：来源 README 给辅助码的篇幅最长，规格也最细，且自带可验证的例子——「阿」的自然码辅助码是 `ek`。新增 `crates/engine-bridge/examples/helpcode_dictionary.rs`：单码只调整顺序（匹配的排前，其余保留），双码严格筛选（只留匹配的），词组第一码取首字首码、第二码取末字首码。四条全部符合来源描述，包括 `ayiEN` 同时留下「阿姨」和「阿姨好」——末字「好」是 `nz`，规则读的是末字的**首**码，所以它该留下。
 

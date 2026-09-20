@@ -71,6 +71,18 @@ native windows-session
 # recorded this did not have.
 macos local-mode-preferences
 macos text-client
+# Not the Engine. shortcut aborted in TestCloudCandidateEngineDelivery on an empty candidate array, and
+# the empty array is what the product is documented to produce: a cloud suggestion is merged into an
+# existing candidate page and never manufactures one, matching Windows, so that a callback arriving after
+# the local page was cleared cannot rebuild a page out of stale provider state. That test builds its
+# session on empty resource directories, so the Engine offers nothing locally and the suggestion is
+# correctly refused. It now asserts the contract instead, and the merge path is covered where a real
+# dictionary exists - crates/host-api/src/tests.rs drives the same "nihao" query and checks the candidate
+# reaches the view.
+#
+# The suite then reaches TestAiCandidateRetryAfterRejectedResponse, which had never executed, and fails at
+# session.applications == 1: after the host rejects the first AI application the retry's reply does not
+# reach applyOnlineCandidates. Whether the retry or the test is wrong is not yet established.
 macos shortcut
 # Load-dependent rather than always-failing: passes on its own and on a second full
 # run, observed failing once in a full parallel run alongside the aborting shortcut test.
