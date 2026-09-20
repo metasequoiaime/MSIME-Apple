@@ -1,6 +1,7 @@
 #pragma once
 #include <ctime>
 #include <nlohmann/json.hpp>
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -126,35 +127,42 @@ resolve_typing_source_from_transition(const nlohmann::json &transition) {
       view.value("shuangpin_profile", std::string("xiaohe")));
 }
 
-// Local calendar day as `YYYY-MM-DD`. The day axis has to be the user's day,
-// and only this process knows which timezone that is. An empty return means
-// the conversion failed and the caller must skip the record rather than
-// attribute it to a guessed day.
-inline std::string local_day(std::time_t instant) {
+// Resolved local calendar fields, or nothing when the conversion failed. The
+// day and hour axes both have to be the user's, and only this process knows
+// which timezone that is; a failure means the caller skips the record rather
+// than attributing it to a guessed day.
+struct LocalTimeParts {
+  std::string day; // YYYY-MM-DD
+  int hour = 0;    // 0-23
+};
+
+inline std::optional<LocalTimeParts> local_time_parts(std::time_t instant) {
   std::tm local{};
 #ifdef _WIN32
   if (localtime_s(&local, &instant) != 0)
-    return {};
+    return std::nullopt;
 #else
   if (localtime_r(&instant, &local) == nullptr)
-    return {};
+    return std::nullopt;
 #endif
   char day[11]{};
   if (std::strftime(day, sizeof(day), "%Y-%m-%d", &local) == 0)
-    return {};
-  return std::string(day);
+    return std::nullopt;
+  return LocalTimeParts{std::string(day), local.tm_hour};
 }
 
-// Build the shared host request for one commit. Empty text, an empty directory
-// or a failed day conversion all yield an empty string: statistics are best
-// effort and must never manufacture a record they cannot place. Whether the
-// directory is absolute is not re-decided here - the shared host owns that rule
-// and rejects the request - because a second copy of it would drift.
+// Build the shared host request for one commit. Empty text, an empty directory,
+// or a day or hour that did not resolve all yield an empty string: statistics
+// are best effort and must never manufacture a record they cannot place.
+// Whether the directory is absolute is not re-decided here - the shared host
+// owns that rule and rejects the request - because a second copy would drift.
 inline std::string typing_statistics_record_request(std::string_view directory,
                                                     const std::string &text,
                                                     TypingSource source,
-                                                    const std::string &day) {
-  if (text.empty() || directory.empty() || day.size() != 10)
+                                                    const std::string &day,
+                                                    int hour) {
+  if (text.empty() || directory.empty() || day.size() != 10 || hour < 0 ||
+      hour > 23)
     return {};
   const auto request =
       nlohmann::json{
@@ -163,7 +171,8 @@ inline std::string typing_statistics_record_request(std::string_view directory,
            nlohmann::json{{"operation", "record"},
                           {"text", text},
                           {"source", std::string(typing_source_id(source))},
-                          {"day", day}}}}
+                          {"day", day},
+                          {"hour", hour}}}}
           .dump();
   // The shared entry point rejects buffers past 64 KiB. A single commit never
   // approaches that; a pathological paste is dropped instead of truncated,

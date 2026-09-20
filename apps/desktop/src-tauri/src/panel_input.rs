@@ -789,16 +789,17 @@ pub(crate) fn record_panel_typing_statistics(
     text: &str,
     source: TypingSource,
 ) {
-    let day = time::OffsetDateTime::now_local()
-        .unwrap_or_else(|_| time::OffsetDateTime::now_utc())
-        .date();
+    // One instant for both fields: a day and an hour read separately either side of midnight
+    // would file the commit under one day and the other day's hour.
+    let now = time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
+    let date = now.date();
     let day = format!(
         "{:04}-{:02}-{:02}",
-        day.year(),
-        u8::from(day.month()),
-        day.day()
+        date.year(),
+        u8::from(date.month()),
+        date.day()
     );
-    let _ = store.record(text, source, &day);
+    let _ = store.record(text, source, &day, Some(now.hour()));
 }
 
 #[cfg(target_os = "linux")]

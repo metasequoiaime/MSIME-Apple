@@ -161,6 +161,7 @@ interface TypingStatisticsRecordAction {
   text: string;
   source: string;
   day: string;
+  hour: number;
 }
 
 interface TypingStatisticsRecordRequest {
@@ -3409,8 +3410,12 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   private recordTypingStatistics(text: string, source: string): void {
     if (text.length === 0 || this.stateDirectory.length === 0) return;
+    // One Date for both fields: a day and an hour read from separate instants either side of
+    // midnight would file the commit under one day and the other day's hour.
+    const instant: Date = new Date();
     const action: TypingStatisticsRecordAction = {
-      operation: 'record', text: text, source: source, day: TypingStatisticsPolicy.day(new Date())
+      operation: 'record', text: text, source: source,
+      day: TypingStatisticsPolicy.day(instant), hour: TypingStatisticsPolicy.hour(instant)
     };
     const requestDocument: TypingStatisticsRecordRequest = {
       directory: this.stateDirectory, action: action

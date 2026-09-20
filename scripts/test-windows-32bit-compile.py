@@ -69,10 +69,23 @@ def main() -> int:
         print(f"skipped: {COMPILER} is not installed")
         return 0
 
-    entries = [
+    listed = [
         entry for entry in json.loads(path.read_text(encoding="utf-8"))
         if entry["file"].endswith((".cpp", ".cc"))
     ]
+    # The database is whatever the last x64 cross build left behind, and this check runs before
+    # the stage that refreshes it. A source that has since been moved or renamed is therefore
+    # still listed at its old path, and compiling it reports "No such file or directory" - a
+    # failure about the previous run rather than about this change, on a gate whose own notes say
+    # that is how a gate teaches people to pass it with --no-verify. A source deleted while still
+    # referenced is not missed by letting these through: CMake itself refuses to configure, in
+    # the native-host stage further down.
+    entries = [entry for entry in listed if pathlib.Path(entry["file"]).exists()]
+    stale = len(listed) - len(entries)
+    if not entries:
+        print("skipped: every source in the x64 compile database has moved since it was written")
+        print("  run platforms/windows/build-cross.sh x64 to refresh it")
+        return 0
     failures = []
     with ThreadPoolExecutor() as pool:
         for source, error in pool.map(check, entries):
@@ -84,7 +97,8 @@ def main() -> int:
         print(f"FAIL {failure}", file=sys.stderr)
     if failures:
         return 1
-    print(f"windows x86 syntax: {len(entries)} sources compile for i686 too")
+    note = f" ({stale} stale, refreshed by the next cross build)" if stale else ""
+    print(f"windows x86 syntax: {len(entries)} sources compile for i686 too{note}")
     return 0
 
 

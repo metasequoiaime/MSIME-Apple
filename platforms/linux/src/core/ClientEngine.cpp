@@ -1024,6 +1024,7 @@ struct TypingStatisticsTask {
   std::string text;
   std::string source;
   std::string day;
+  int hour = 0;
 };
 
 void record_typing_statistics(IBusEngine *engine, std::string text,
@@ -1037,12 +1038,17 @@ void record_typing_statistics(IBusEngine *engine, std::string text,
   if (!now)
     return;
   gchar *formatted_day = g_date_time_format(now, "%Y-%m-%d");
+  // Read the hour from the same instant as the day, before it is released: two
+  // calls either side of midnight would file the commit under one day and the
+  // other day's hour.
+  const int hour = g_date_time_get_hour(now);
   g_date_time_unref(now);
   if (!formatted_day)
     return;
   TypingStatisticsTask request{
       directory, std::move(text),
-      std::string(msime::linux_host::typing_source_id(source)), formatted_day};
+      std::string(msime::linux_host::typing_source_id(source)), formatted_day,
+      hour};
   g_free(formatted_day);
   auto task = g_task_new(G_OBJECT(engine), nullptr, nullptr, nullptr);
   g_task_set_task_data(task, new TypingStatisticsTask(std::move(request)),
@@ -1058,7 +1064,8 @@ void record_typing_statistics(IBusEngine *engine, std::string text,
           {"action", Json{{"operation", "record"},
                             {"text", request.text},
                             {"source", request.source},
-                            {"day", request.day}}}}
+                            {"day", request.day},
+                            {"hour", request.hour}}}}
                                 .dump();
       auto *raw = msime_client_typing_statistics(
           reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size());

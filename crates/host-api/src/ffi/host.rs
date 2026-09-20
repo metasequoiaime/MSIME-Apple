@@ -212,6 +212,11 @@ pub unsafe extern "C" fn msime_client_typing_statistics(
             text: String,
             source: TypingSource,
             day: String,
+            /// Local hour of the commit, 0-23. Absent from hosts that have not been taught to
+            /// send one, whose days then have characters but no hourly breakdown - which is the
+            /// honest result, since this layer cannot resolve the host's timezone itself.
+            #[serde(default)]
+            hour: Option<u8>,
         },
         SetEnabled {
             enabled: bool,
@@ -237,9 +242,14 @@ pub unsafe extern "C" fn msime_client_typing_statistics(
                 serde_json::to_value(store.load().map_err(|error| error.to_string())?)
                     .map_err(|_| "typing statistics response failed".to_owned())
             }
-            StatisticsAction::Record { text, source, day } => {
+            StatisticsAction::Record {
+                text,
+                source,
+                day,
+                hour,
+            } => {
                 let recorded = store
-                    .record(&text, source, &day)
+                    .record(&text, source, &day, hour)
                     .map_err(|error| error.to_string())?;
                 Ok(json!({"recorded": recorded}))
             }

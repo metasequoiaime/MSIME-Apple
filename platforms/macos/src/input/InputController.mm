@@ -84,7 +84,7 @@ static void MSIMERecordTypingStatistics(NSString *directory, NSString *text, msi
     if (![directory isKindOfClass:NSString.class] || !directory.isAbsolutePath ||
         ![text isKindOfClass:NSString.class] || text.length == 0) return;
     NSDateComponents *components = [NSCalendar.currentCalendar components:NSCalendarUnitYear | NSCalendarUnitMonth |
-        NSCalendarUnitDay fromDate:NSDate.date];
+        NSCalendarUnitDay | NSCalendarUnitHour fromDate:NSDate.date];
     NSString *day = [NSString stringWithFormat:@"%04ld-%02ld-%02ld", (long)components.year,
         (long)components.month, (long)components.day];
     const std::string_view sourceID = msime::mac::TypingSourceId(source);
@@ -94,7 +94,9 @@ static void MSIMERecordTypingStatistics(NSString *directory, NSString *text, msi
     NSDictionary *request = @{ @"directory": directory, @"action": @{
         @"operation": @"record", @"text": text,
         @"source": sourceString,
-        @"day": day } };
+        @"day": day,
+        // The hour axis has to come from the same calendar as the day beside it.
+        @"hour": @((long)components.hour) } };
     NSData *data = [NSJSONSerialization dataWithJSONObject:request options:0 error:nil];
     if (!data || data.length > 65536) return;
     dispatch_async(MSIMETypingStatisticsQueue(), ^{
