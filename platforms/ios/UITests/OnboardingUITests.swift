@@ -64,7 +64,10 @@ final class OnboardingUITests: XCTestCase {
     let account = app.tabBars.buttons["我的"]
     XCTAssertTrue(account.waitForExistence(timeout: 5))
     account.tap()
-    XCTAssertTrue(app.navigationBars["我的"].waitForExistence(timeout: 5))
+    // The account page sets an empty navigation title and names itself in its content, so the
+    // tab selection plus one of its own rows is what says this screen is up.
+    XCTAssertTrue(account.isSelected)
+    XCTAssertTrue(app.buttons["accountAppIcon"].waitForExistence(timeout: 5))
     // 我的设计 was withdrawn from this page: the skin editor keeps one entry, on the skin page,
     // rather than the same destination under two tabs.
     XCTAssertTrue(app.buttons["accountAppIcon"].exists)
@@ -246,28 +249,95 @@ final class OnboardingUITests: XCTestCase {
 
   /// Put a settings entry under the finger before the caller taps it.
   ///
-  /// The keyboard tab is where these entries live, and a test that has walked into another tab or
-  /// scrolled the page has to come back rather than tap whatever happens to hold that identifier
-  /// now. The links sit below the fold on the shorter devices, so the page is scrolled until the
-  /// entry is hittable instead of assuming a fixed offset; swiping up when the entry is already
-  /// on screen would scroll past it.
+  /// The keyboard tab carries most of these entries directly, and a test that has walked into
+  /// another tab or scrolled the page has to come back rather than tap whatever happens to hold
+  /// that identifier now. The entries sit below the fold on the shorter devices, so the page is
+  /// scrolled until one is hittable instead of assuming a fixed offset, in both directions -
+  /// an entry can be scrolled off either edge.
+  ///
+  /// 语音设置 is the exception: it is not on the home page at all. It hangs off the 按键 page,
+  /// beside the switch that puts the voice entry on the keyboard's own toolbar, because that is
+  /// the setting people are looking at when they want it. The identifier also exists on
+  /// `KeyboardSettingsView`, which nothing presents any more - reaching for it there is what made
+  /// this look like a missing entry rather than a moved one.
   @MainActor
   private func reachSettingsLink(_ identifier: String, in app: XCUIApplication) {
+    // Pop whatever the caller pushed before looking: these entries live on the tab's root, and a
+    // loop that visits one settings page per turn is still standing on the previous one. Tapping
+    // the selected tab does not pop a SwiftUI navigation stack, so the back button does it.
+    for _ in 0..<4 {
+      let back = app.navigationBars.buttons.element(boundBy: 0)
+      guard back.exists, back.isHittable else { break }
+      back.tap()
+    }
     let keyboardTab = app.tabBars.buttons["键盘"]
     if keyboardTab.exists && !keyboardTab.isSelected { keyboardTab.tap() }
-    let link = app.buttons[identifier]
-    XCTAssertTrue(link.waitForExistence(timeout: 10), "\(identifier) never appeared")
-    guard !link.isHittable else { return }
-    // Back to the top first: the entry may have been scrolled off either edge.
-    for _ in 0..<4 {
-      if link.isHittable { return }
-      app.swipeDown()
+
+    // Scroll by dragging a point that belongs to the list, not by swiping the screen.
+    //
+    // `app.swipeUp()` starts at the centre, and on 键盘设置 the centre is the keyboard preview,
+    // which reads a vertical drag as a row-spacing change: the form never moves and the setting
+    // the test is about to read gets edited on the way. Swiping the collection view has the same
+    // problem, because its frame includes the preview. So the drag starts low, below the preview
+    // and above the tab bar, where only the form is.
+    func scrollList(up: Bool) {
+      let start = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: up ? 0.86 : 0.52))
+      let end = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: up ? 0.52 : 0.86))
+      start.press(forDuration: 0.05, thenDragTo: end)
     }
-    for _ in 0..<6 {
-      if link.isHittable { return }
-      app.swipeUp()
+
+    func scrollTo(_ resolve: () -> XCUIElement) -> Bool {
+      if resolve().exists && resolve().isHittable { return true }
+      for _ in 0..<4 {
+        if resolve().exists && resolve().isHittable { return true }
+        scrollList(up: false)
+      }
+      for _ in 0..<10 {
+        if resolve().exists && resolve().isHittable { return true }
+        scrollList(up: true)
+      }
+      return resolve().exists && resolve().isHittable
     }
-    XCTAssertTrue(link.isHittable, "\(identifier) never became reachable")
+
+    // A Form row does not always come through as a button: the home page's cards do, the plain
+    // NavigationLink rows on 键盘设置 come through as cells. Ask for the identifier rather than
+    // for one element type.
+    func entry(_ name: String) -> XCUIElement {
+      for candidate in [app.buttons[name], app.cells[name], app.otherElements[name],
+                        app.staticTexts[name]] where candidate.exists {
+        return candidate
+      }
+      return app.buttons[name]
+    }
+
+    if identifier == "voiceSettingsLink" {
+      XCTAssertTrue(scrollTo { entry("keyboardLayoutLink") },
+                    "keyboardLayoutLink never became reachable: \(visible(app))")
+      entry("keyboardLayoutLink").tap()
+    }
+    XCTAssertTrue(scrollTo { entry(identifier) },
+                  "\(identifier) never became reachable: \(visible(app))")
+  }
+
+  /// The settings entry with this identifier, whichever element type it came through as.
+  @MainActor
+  private func settingsEntry(_ name: String, in app: XCUIApplication) -> XCUIElement {
+    for candidate in [app.buttons[name], app.cells[name], app.otherElements[name],
+                      app.staticTexts[name]] where candidate.exists {
+      return candidate
+    }
+    return app.buttons[name]
+  }
+
+  /// Every identifier on screen, for a failure message that says where the test actually was
+  /// rather than only what it wanted. Without it, "never became reachable" reads the same whether
+  /// the entry moved, the page did not load, or the scroll never happened.
+  @MainActor
+  private func visible(_ app: XCUIApplication) -> String {
+    app.debugDescription.split(separator: "\n")
+      .filter { $0.contains("identifier: ") }
+      .map { $0.trimmingCharacters(in: .whitespaces) }
+      .joined(separator: " | ")
   }
 
   @MainActor
@@ -288,7 +358,8 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue(app.navigationBars["社区"].waitForExistence(timeout: 5))
     XCTAssertEqual(app.tabBars.buttons.count, 4)
     app.tabBars.buttons["统计"].tap()
-    XCTAssertTrue(app.navigationBars["打字统计"].waitForExistence(timeout: 5))
+    // Same here: the statistics page carries no navigation title, only its own controls.
+    XCTAssertTrue(app.segmentedControls["statisticsTab"].waitForExistence(timeout: 5))
     app.tabBars.buttons["我的"].tap()
     XCTAssertTrue(app.buttons["accountAppIcon"].waitForExistence(timeout: 5))
     app.tabBars.buttons["键盘"].tap()
@@ -320,14 +391,17 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertTrue(app.buttons["communitySkinCard-20000000-0000-4000-8000-000000000001"].exists)
     app.tabBars.buttons["键盘"].tap()
     app.navigationBars.buttons.firstMatch.tap()
-    XCTAssertTrue(app.navigationBars["水杉输入法"].exists)
+    // The home page has no navigation title either; the tryout card is what only it has.
+    XCTAssertTrue(app.buttons["keyboardTryoutLink"].waitForExistence(timeout: 5))
     app.tabBars.buttons["我的"].tap()
     let replay = app.buttons["replayOnboardingLink"]
     for _ in 0..<6 { if replay.isHittable { break }; app.swipeUp() }
     replay.tap()
     XCTAssertTrue(app.buttons["skipOnboardingButton"].waitForExistence(timeout: 5))
     app.buttons["skipOnboardingButton"].tap()
-    XCTAssertTrue(app.navigationBars["我的"].waitForExistence(timeout: 5))
+    // Replaying onboarding returns to the tab it was started from, and that page carries no
+    // navigation title - the selected tab and its own rows are what say so.
+    XCTAssertTrue(app.buttons["accountAppIcon"].waitForExistence(timeout: 5))
     XCTAssertTrue(app.tabBars.buttons["我的"].isSelected)
   }
 
@@ -346,7 +420,8 @@ final class OnboardingUITests: XCTestCase {
     app.navigationBars["登录水杉"].buttons["取消"].tap()
     XCTAssertTrue(app.navigationBars["试用键盘"].waitForExistence(timeout: 5))
     app.navigationBars.buttons.firstMatch.tap()
-    XCTAssertTrue(app.navigationBars["水杉输入法"].exists)
+    // The home page has no navigation title either; the tryout card is what only it has.
+    XCTAssertTrue(app.buttons["keyboardTryoutLink"].waitForExistence(timeout: 5))
   }
 
   @MainActor
@@ -515,7 +590,7 @@ final class OnboardingUITests: XCTestCase {
     app.launchArguments = isolation + ["-hasCompletedOnboarding", "YES", "-voiceResultFixture"]
     app.launch()
     reachSettingsLink("voiceSettingsLink", in: app)
-    app.buttons["voiceSettingsLink"].tap()
+    settingsEntry("voiceSettingsLink", in: app).tap()
     XCTAssertFalse(app.staticTexts["等待键盘插入"].exists)
     for _ in 0..<8 {
       if app.buttons["sendVoiceToKeyboard"].isHittable { break }
@@ -1193,9 +1268,9 @@ final class OnboardingUITests: XCTestCase {
     finish.tap()
     app.launchArguments = ["-service.ai.endpoint", "", "-service.ai.model", ""]
 
-    XCTAssertTrue(app.staticTexts["水杉输入法"].waitForExistence(timeout: 10))
-
-    XCTAssertTrue(app.navigationBars["水杉输入法"].waitForExistence(timeout: 5))
+    // Onboarding hands over to the home page, which names itself in neither its navigation bar
+    // nor a label - it shows the mark. Its own entries are what say the handover happened.
+    XCTAssertTrue(app.buttons["keyboardTryoutLink"].waitForExistence(timeout: 10))
     app.buttons["inputSettingsLink"].tap()
     XCTAssertTrue(app.buttons["inputScheme_quanpin"].exists)
     XCTAssertTrue(app.buttons["inputScheme_shuangpin"].exists)
@@ -1205,7 +1280,7 @@ final class OnboardingUITests: XCTestCase {
     XCTAssertEqual(nineKey.value as? String, "已选择")
     app.terminate()
     app.launch()
-    XCTAssertTrue(app.navigationBars["水杉输入法"].waitForExistence(timeout: 5))
+    XCTAssertTrue(app.buttons["keyboardTryoutLink"].waitForExistence(timeout: 5))
     app.buttons["inputSettingsLink"].tap()
     XCTAssertEqual(app.buttons["inputScheme_nineKey"].value as? String, "已选择")
 
@@ -1224,7 +1299,7 @@ final class OnboardingUITests: XCTestCase {
       ("aiSettingsLink", "AI 设置"), ("voiceSettingsLink", "语音设置"),
     ] {
       reachSettingsLink(identifier, in: app)
-      let link = app.buttons[identifier]
+      let link = settingsEntry(identifier, in: app)
       link.tap()
       XCTAssertTrue(app.navigationBars[title].waitForExistence(timeout: 5))
       if identifier == "skinSettingsLink" {

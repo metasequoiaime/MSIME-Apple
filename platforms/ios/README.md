@@ -156,18 +156,13 @@ xcodebuild test -project platforms/ios/MSIMEClient.xcodeproj -scheme MSIMEClient
 
 真机上就是正常在 设置 → 键盘 里添加一次，之后这组用例会自己跑起来。
 
-补回 `reachSettingsLink`、让这个目标重新编译之后，第一次完整运行的结果是 **39 执行、2 跳过、6 失败**（873 秒）。两条跳过是上面那组键盘验收；六条失败全在 `OnboardingUITests`，都是此前从未执行过的用例：
+补回 `reachSettingsLink`、让这个目标重新编译之后，第一次完整运行是 39 执行、2 跳过、6 失败；那六条随后逐条查清并修好，**当前结果为 39 执行、2 跳过、0 失败**（917 秒）。两条跳过是上面那组键盘验收，等键盘在设置里启用后才会真正执行。
 
-```
-testAccountEntryExplainsExplicitDataSharing
-testChatLoginIsFocusedAndCancelReturnsToTryout
-testMainTabsKeepIndependentNavigation
-testSettingsPersistAndExposeGuideAndTryout
-testSkinDiscoveryUsesCommunityTabAndReturnsToOrigin
-testVoiceResultIsExplicitlyTransferredAndClaimedOnce
-```
+那六条都不是产品坏了，分三类，记在这里因为同样的坑很容易再踩：
 
-这六条还没有逐条查过，所以不知道是界面改了而检查没跟上，还是真的坏了——在查清之前不要把它们当成任何一种。这一行是这个目标的基线，和上面那条键盘套件的数字一样，改动之后要跟着更新。
+- **断言了不存在的导航栏标题。** 首页、我的、打字统计都是 `navigationTitle("")`，名字有意放进了内容里。要判断「在哪一屏」，用选中的标签页加上只有那一屏才有的元素，不要用导航栏标题。
+- **入口搬了家。** `voiceSettingsLink` 不在首页，活路径是 首页 → 按键 → 语音设置。同名标识符还留在 `KeyboardSettingsView` 上，而那个页面已经没有任何地方实例化——它是 `ce4a76844` 把入口搬到首页时留下的孤儿，朝它伸手会让「搬家」看起来像「缺失」。
+- **滚动没有真的发生。** SwiftUI 的 `Form` 是惰性列表，折线以下的行不在无障碍树里，所以「先 `waitForExistence` 再滚」永远等不到也永远不滚；而 `app.swipeUp()` 从屏幕中心起手，在 键盘设置 页那是键盘预览，那块把上下拖动解释成**改行间距**——表单不动，还顺手改掉了马上要读的设置。要边滚边看，并且用坐标拖拽把起点压在预览以下、标签栏以上。
 
 `MSIMEClientApp` 是 iOS 的产品宿主，装机与设备验收都以它为准，也是 `build-app.sh` 的默认产物，不需要任何开关。要单独构建 Tauri/React 这个公共组件时用 `MSIME_IOS_TAURI_COMPONENT=1` 显式选择。此前该脚本默认产出 Tauri 包、把原生宿主锁在 `MSIME_IOS_LEGACY_APP=1` 后面，并由一条测试固化，这与架构相反，已纠正。
 
