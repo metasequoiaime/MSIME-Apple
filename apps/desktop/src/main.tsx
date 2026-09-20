@@ -163,6 +163,7 @@ const client: SettingsClient = {
   restartInputMethod: () => invoke("restart_input_method"),
   installInputSource: () => invoke("install_input_source"),
   uninstallInputSource: (removeUserData) => invoke("uninstall_input_source", { removeUserData }),
+  pickVoiceModelPath: () => invoke("pick_voice_model_path"),
   windowControl: async (action) => {
     const window = getCurrentWindow();
     if (action === "minimize") return window.minimize();
