@@ -3,7 +3,11 @@ options:
   deploymentTarget:
     iOS: "17.0"
   bundleIdPrefix: app.msime.ios
-  createIntermediateGroups: true
+  # false，否则 xcodegen 会为 platforms/ios 之上的路径（../../shared、../../target）建一层中间 group，
+  # 并用仓库根目录的名字命名它。那个名字是谁最后跑的 xcodegen、他的 worktree 叫什么——于是每个人重新
+  # 生成一次，工程就变一次，object ID 跟着大面积重排。改成 false 之后，在任意目录名下生成的工程逐字节
+  # 相同（实测两个不同名 worktree 的 project.pbxproj SHA-256 一致）。
+  createIntermediateGroups: false
 settings:
   base:
     SWIFT_VERSION: 5.0
