@@ -7270,15 +7270,27 @@ export function SettingsPage({
                       <div className="section" role="group" aria-label="诊断日志">
                         <label className="section-header">
                           <span className="section-title">
-                            {linuxPlatform ? "IBus 宿主日志" : "Server 端日志"}
+                            {linuxPlatform
+                              ? "IBus 宿主日志"
+                              : macosPlatform
+                                ? "输入法日志"
+                                : "Server 端日志"}
                             <small>
                               {linuxPlatform
                                 ? "排查 IBus 宿主通信、焦点会话、菜单和输入延迟时开启。日志限量轮转，只记录状态和操作阶段，不记录按键、输入内容或候选文本。"
-                                : "排查 Server 通信和输入延迟时开启。记录慢请求阶段、候选窗、悬浮工具栏、菜单、焦点会话和通信状态，不记录按键、输入内容或候选文本。"}
+                                : macosPlatform
+                                  ? "排查焦点切换和设置加载失败时开启。记录焦点进出与偏好加载、应用、保存的结果，限量轮转，不记录按键、输入内容或候选文本。文件是应用支持目录下的 diagnostic.log，复现后可直接发送。"
+                                  : "排查 Server 通信和输入延迟时开启。记录慢请求阶段、候选窗、悬浮工具栏、菜单、焦点会话和通信状态，不记录按键、输入内容或候选文本。"}
                             </small>
                           </span>
                           <input
-                            aria-label={linuxPlatform ? "IBus 宿主日志" : "Server 端日志"}
+                            aria-label={
+                              linuxPlatform
+                                ? "IBus 宿主日志"
+                                : macosPlatform
+                                  ? "输入法日志"
+                                  : "Server 端日志"
+                            }
                             className="toggle"
                             type="checkbox"
                             checked={diagnosticLog.server}
