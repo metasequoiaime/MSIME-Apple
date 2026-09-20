@@ -128,6 +128,14 @@ MSIME_OHOS_NDK=/absolute/openharmony/native MSIME_OHOS_DEPS="$deps" \
 
 `SPDLOG_FMT_EXTERNAL` 不能省：它让 spdlog 用上面那份 fmt 而不是自带副本，与 64 位构建的解析方式一致。
 
+## 应用图标切换：本平台没有这个能力
+
+Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是 `SettingsClient.appIcon`，本宿主不声明它，于是那个控件不出现。这不是还没接，是公开 SDK 里没有对应的 API。
+
+在 API 24 的 `command-line-tools/sdk/default/openharmony/ets` 上查过：`@ohos.bundle.bundleManager` 对外只有 `canOpenLink`、`cleanBundleCacheFilesForSelf`、`getAbilityInfo`、`getAppCloneIdentity`、`getBundleInfo*`、`getBundleNameByUid*`、`getLaunchWant*`、`getPluginBundlePathForSelf`、`getProfileBy*` 和 `getSignatureInfo`——对自身是只读的，加上链接与分身的辅助；`@ohos.bundle.shortcutManager` 只有 `getAllShortcutInfoForSelf` 和 `setShortcutVisibleForSelf`。整个 `api/` 与 `kits/` 下没有 `setAbilityEnabled`、没有 alternate/dynamic icon 的任何形式。iOS 用 `setAlternateIconName`，Android 用 activity-alias 加 `setComponentEnabledSetting`，两条路在这里都没有对应物。
+
+所以这是按平台特性裁剪，而不是欠账：能力模型的用途正是让页面不画一个保存了却什么都不做的开关。如果将来 SDK 提供了对应 API，接法是声明 `appIcon` 并在 `module.json5` 里补上备用入口 ability——那时需要的是真机验证，不是这里的接线。
+
 仍未在 HarmonyOS 真机或模拟器上运行，因此系统输入法注册、焦点与选区、生命周期、签名、麦克风授权流程和真实编辑器验收都没有证据；构建通过不等于平台接入完成。
 
 按键音与振动现在也能从设置页调整，而不只是键盘内那张卡片：共享 `mobileKeyboardFeedback` 客户端读写键盘自己的 `key-feedback.json`，两个进程共用同一份文件（这项设置属于当前设备而非账号，所以不进共享偏好）。设置页是第二个写入者，改动在键盘下次启动时生效。强度预览直接振一下。共享 DTO 把最强一档叫 `strong`，键盘自己的枚举叫 `heavy`，两边由 `KeyboardFeedbackBridge` 转换——直接赋值会写入键盘不认识的值，`KeyboardFeedback.parse` 会静默回退，表现为"保存了但手感没变"。
