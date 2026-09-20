@@ -1,7 +1,64 @@
 #include "FocusedSession.h"
+#include <ctime>
+#include <memory>
 #include <stdexcept>
+#include <thread>
+#include <utility>
 
 namespace msime::windows {
+std::string
+FocusedSession::typing_statistics_directory(const std::string &options) {
+  try {
+    return nlohmann::json::parse(options).value("preferences_directory",
+                                                std::string{});
+  } catch (...) {
+    // Statistics are optional. A configuration this session already accepted
+    // must not be re-litigated here.
+    return {};
+  }
+}
+std::optional<FocusedSession::Commit> FocusedSession::pending_commit() const {
+  if (!composer_ || !composer_->has_pending())
+    return std::nullopt;
+  const auto &reply = composer_->pending();
+  if (!reply.committed_text || reply.committed_text->empty())
+    return std::nullopt;
+  return Commit{*reply.committed_text,
+                resolve_typing_source_from_transition(reply.source.transition)};
+}
+void FocusedSession::record_commit(const std::optional<Commit> &delivered) {
+  if (!delivered)
+    return;
+  if (statistics_) {
+    statistics_(delivered->text, delivered->source);
+    return;
+  }
+  if (statistics_directory_.empty())
+    return;
+  auto request =
+      typing_statistics_record_request(statistics_directory_, delivered->text,
+                                       delivered->source,
+                                       local_day(std::time(nullptr)));
+  if (request.empty())
+    return;
+  // Off the input queue: the shared store takes a file lock, and a commit must
+  // never wait on statistics. Detached like the other hosts do; the request is
+  // a self-contained copy, so nothing here outlives it.
+  try {
+    std::thread([payload = std::move(request)] {
+      try {
+        if (auto *raw = msime_client_typing_statistics(
+                reinterpret_cast<const uint8_t *>(payload.data()),
+                payload.size()))
+          msime_client_string_free(raw);
+      } catch (...) {
+        // Best effort; text commitment has already happened.
+      }
+    }).detach();
+  } catch (...) {
+    // Thread exhaustion drops the record rather than the keystroke.
+  }
+}
 void FocusedSession::check_thread() const {
   if (std::this_thread::get_id() != thread_)
     throw std::logic_error("Wrong focused session thread");
@@ -133,13 +190,20 @@ bool FocusedSession::confirm(const FocusLease &lease, uint64_t request) {
   check_thread();
   if (!prepared(lease))
     return false;
-  return gate_.with_active(lease, [&] {
+  // Read before the acknowledgement, which clears the pending reply, and
+  // recorded only if it went through: a throw leaves the commit unconfirmed,
+  // and an unconfirmed commit is not in the document.
+  const auto delivered = pending_commit();
+  const bool confirmed = gate_.with_active(lease, [&] {
     composer_->confirm_delivery(client_, lease.epoch, request);
     if (preferences_retry_) {
       session_.update_preferences(lease.epoch, preferences_retry_->dump());
       preferences_retry_.reset();
     }
   });
+  if (confirmed)
+    record_commit(delivered);
+  return confirmed;
 }
 std::optional<PendingReply>
 FocusedSession::select_candidate(const FocusLease &lease, uint64_t session,
@@ -211,13 +275,17 @@ bool FocusedSession::confirm_ui(const FocusLease &lease, uint64_t generation) {
   check_thread();
   if (!prepared(lease))
     return false;
-  return gate_.with_active(lease, [&] {
+  const auto delivered = pending_commit();
+  const bool confirmed = gate_.with_active(lease, [&] {
     composer_->confirm_ui_delivery(client_, lease.epoch, generation);
     if (preferences_retry_) {
       session_.update_preferences(lease.epoch, preferences_retry_->dump());
       preferences_retry_.reset();
     }
   });
+  if (confirmed)
+    record_commit(delivered);
+  return confirmed;
 }
 std::optional<PendingReply> FocusedSession::pending(const FocusLease &lease) {
   check_thread();

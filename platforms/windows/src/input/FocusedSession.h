@@ -1,16 +1,30 @@
 #pragma once
 #include "FocusGate.h"
 #include "ReplyComposer.h"
+#include "TypingStatistics.h"
 #include <functional>
+#include <string>
 
 namespace msime::windows {
+// Receives the text of a commit that has been confirmed as delivered, together
+// with the mode that produced it. Injected so the queue can be exercised
+// without touching the shared store; the default writes it there.
+using TypingStatisticsSink =
+    std::function<void(const std::string &, TypingSource)>;
+
 // One registered client's queue-owned adapter. No pipe I/O runs here; the
 // controller prepares on the input queue, writes the focus fence on an I/O
 // worker, then enqueues keys. It must cancel the previous client's session too.
 class FocusedSession final {
 public:
   FocusedSession(FocusGate &gate, uint64_t client, const std::string &options)
-      : gate_(gate), client_(client), session_(client, options) {}
+      : gate_(gate), client_(client), session_(client, options),
+        statistics_directory_(typing_statistics_directory(options)) {}
+  // Replaces the default shared-store writer. The queue thread calls it
+  // synchronously, so an injected sink must not block.
+  void set_typing_statistics_sink(TypingStatisticsSink sink) {
+    statistics_ = std::move(sink);
+  }
   bool prepare(const FocusLease &lease);
   // No operation may invalidate a key reply awaiting transport confirmation.
   std::optional<nlohmann::json> dedicated_english(const FocusLease &lease, bool exit);
@@ -90,10 +104,24 @@ private:
   bool prepared(const FocusLease &lease) const;
   void attach_online_query(const FocusLease &lease,
                            std::optional<PendingReply> &reply);
+  // One commit's text and the mode that produced it, read off the pending
+  // reply before a confirmation clears it. Only the string is copied: the
+  // input queue runs this on every key, and copying the whole reply would deep
+  // copy its candidate list for keys that commit nothing.
+  struct Commit {
+    std::string text;
+    TypingSource source = TypingSource::Unknown;
+  };
+  std::optional<Commit> pending_commit() const;
+  // Records a commit that has been confirmed as delivered.
+  void record_commit(const std::optional<Commit> &delivered);
+  static std::string typing_statistics_directory(const std::string &options);
   FocusGate &gate_;
   uint64_t client_;
   const std::thread::id thread_ = std::this_thread::get_id();
   ServerSession session_;
+  std::string statistics_directory_;
+  TypingStatisticsSink statistics_;
   std::optional<FocusLease> lease_;
   std::optional<ReplyComposer> composer_;
   std::optional<nlohmann::json> preferences_retry_;

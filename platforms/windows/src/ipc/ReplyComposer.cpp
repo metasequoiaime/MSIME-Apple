@@ -78,8 +78,12 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
     // completion acknowledgement, not a second text insertion frame.
     if (!raw.empty() || !local_text || *local_text != prefix_ + delta)
       next.encoded = EncodedReply{ReplyError::InvalidFields, {}};
-    else
+    else {
       next.next_prefix.clear();
+      // Inserted by the TSF itself; the observation was validated against the
+      // prefix and Engine state above, so it is in the document either way.
+      next.committed_text = *local_text;
+    }
     break;
   case ReplyPath::Selection:
     if (!result.reply_expected) {
@@ -97,6 +101,7 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
       } else {
         next.encoded = candidate_commit(result.request_id, total);
         next.next_prefix.clear();
+        next.committed_text = total;
       }
     }
     break;
@@ -114,6 +119,7 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
       }
       next.encoded = exact_commit(result.request_id, prefix_ + output_delta);
       next.next_prefix.clear();
+      next.committed_text = prefix_ + output_delta;
     }
     break;
   case ReplyPath::CandidatePunctuationFallback:
@@ -124,6 +130,7 @@ ReplyComposer::stage(const KeyResult &result, ReplyPath path, bool uiless,
     next.encoded = candidate_commit(result.request_id,
                                     prefix_ + output_delta);
     next.next_prefix.clear();
+    next.committed_text = prefix_ + output_delta;
     break;
   case ReplyPath::IgnoredNavigation:
   case ReplyPath::PreviousCandidate:
@@ -426,6 +433,7 @@ std::optional<PendingReply> ReplyComposer::select_candidate(ServerSession &sessi
     next.next_prefix.clear();
     next.traditional_output = traditional_output_;
     next.ui_selection = ui_complete_selection(prefix_ + text);
+    next.committed_text = prefix_ + text;
     if (!next.ui_selection)
       throw std::runtime_error("Unencodable translation selection");
     translation_page_active_ = false;
@@ -460,6 +468,7 @@ std::optional<PendingReply> ReplyComposer::select_candidate(ServerSession &sessi
   else if (raw.empty()) {
     next.ui_selection = ui_complete_selection(prefix_ + output_delta);
     next.next_prefix.clear();
+    next.committed_text = prefix_ + output_delta;
   } else {
     next.next_prefix = prefix_ + output_delta;
     const auto &raw_after = next.source.transition.at("view").at("editing_text").get<std::string>();
@@ -541,6 +550,7 @@ std::optional<PendingReply> ReplyComposer::commit_candidate_translation(
   if (raw.empty()) {
     next.ui_selection = ui_complete_selection(prefix_ + output);
     next.next_prefix.clear();
+    next.committed_text = prefix_ + output;
   } else {
     next.next_prefix = prefix_ + output;
     next.ui_selection = ui_partial_selection(
@@ -649,6 +659,7 @@ std::optional<PendingReply> ReplyComposer::translation_page_key(
   next.source = {client_, epoch, packet.request_id, true, transition};
   next.encoded = exact_commit(packet.request_id, prefix_ + text);
   next.next_prefix.clear();
+  next.committed_text = prefix_ + text;
   next.traditional_output = traditional_output_;
   translation_page_active_ = false;
   translation_page_items_.clear();
