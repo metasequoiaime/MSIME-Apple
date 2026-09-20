@@ -334,6 +334,12 @@ impl HostCapabilities {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SettingsCategory {
+    /// The account page, the AI conversation and the community browser are pages of the same shared
+    /// settings surface as the rest. They were missing from this list, so no host could route to them and
+    /// macOS opened its own account window instead of the page the other platforms show.
+    Account,
+    Chat,
+    Community,
     Appearance,
     Input,
     TypingStatistics,
@@ -356,6 +362,9 @@ impl SettingsCategory {
     /// Matches the category identifiers the shared settings page renders.
     pub fn as_str(self) -> &'static str {
         match self {
+            SettingsCategory::Account => "account",
+            SettingsCategory::Chat => "chat",
+            SettingsCategory::Community => "community",
             SettingsCategory::Appearance => "appearance",
             SettingsCategory::Input => "input",
             SettingsCategory::TypingStatistics => "typing-statistics",
@@ -377,6 +386,9 @@ impl SettingsCategory {
 
     pub fn parse(value: &str) -> Result<Self, RouteError> {
         match value {
+            "account" => Ok(SettingsCategory::Account),
+            "chat" => Ok(SettingsCategory::Chat),
+            "community" => Ok(SettingsCategory::Community),
             "appearance" => Ok(SettingsCategory::Appearance),
             "input" => Ok(SettingsCategory::Input),
             "typing-statistics" => Ok(SettingsCategory::TypingStatistics),
@@ -398,7 +410,10 @@ impl SettingsCategory {
         }
     }
 
-    pub const ALL: [SettingsCategory; 16] = [
+    pub const ALL: [SettingsCategory; 19] = [
+        SettingsCategory::Account,
+        SettingsCategory::Chat,
+        SettingsCategory::Community,
         SettingsCategory::Appearance,
         SettingsCategory::Input,
         SettingsCategory::TypingStatistics,
