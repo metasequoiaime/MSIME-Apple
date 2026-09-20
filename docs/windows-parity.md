@@ -1124,3 +1124,29 @@ Fcitx5 候选动作执行 stale 栅栏增量（2026-09-19）：CandidateAction �
 工具链一处：`build-container.sh` 用固定 tag `:local` 构建门禁镜像，而多个 worktree 会同时构建它——谁最后构建完谁决定所有人跑的是什么。实测表现为同一条命令时灵时不灵。改为按 checkout 路径散列命名，并把 `dbus-bin` 装进镜像（`--no-install-recommends` 下 `dbus` 不会带上它），免得每次手跑 smoke 都要现装。
 
 验证：连跑八次。验证边界不变——仍然没有任何一项在真实 Linux 桌面上跑过，没有 GTK/Qt 编辑器、没有 X11/Wayland 焦点与选区、没有 Fcitx5 实例；engine smoke 覆盖的是 IBus 宿主经 D-Bus 的行为。
+
+增量记录（2026-09-21，Windows 第六批：跟进来源新基线，先补 Windows 从来没记过一个字的打字统计）：来源远端默认分支已推进到 `b1ec3202676163927ff8632126379a42df90294b`，比第五批固定的 `1e4c331d` 多出一批提交，其中「输入统计」是一整个新功能组（DLL 采集、Server 聚合存储、设置页展示），本对照表此前没有任何一行覆盖它。目标起点 `10fba7d75`。
+
+先说清两边不是一回事，免得下次照着来源的文件名找落点：**本仓早就有打字统计**（`crates/client-core/src/typing_statistics.rs` 加 `packages/ui/src/settings/typing-statistics.tsx`，1051 行），而且比来源那一页更宽——它有日历热力图、七日均线趋势、输入方案排行、字符类型饼图，以及来源完全没有的候选命中位置分布（首选命中率）。来源新增的是另外一组指标：活跃时长、打字速度、连续天数、当日 24 小时分布。所以这不是「有没有统计」的问题，是**两套指标各有各的缺口**。
+
+本批只做一件事，因为它是其中最硬的一个：**Windows 上这个页面永远是空的**。`typing_statistics` 能力位对 Windows 声明为 `true`，设置页照常渲染，但 `platforms/windows/` 整个目录没有任何一处调用过 `msime_client_typing_statistics`——macOS、Linux、Android、HarmonyOS 都在各自的上屏出口记录，只有 Windows 没有。Windows 用户看到的不是「统计不准」，是除了 Tauri 面板粘贴之外一个字都没有。
+
+落点选在 Server 而不是 TSF DLL，这一条与来源不同且是有意的：来源把采集放进 DLL，因为它的 Engine 与 DLL 同进程；本仓 Server 是唯一看得到每一条上屏字符串的地方，共享 Host API 也链在这一侧，而文本本来就要作为上屏载荷从 Server 走到 DLL，采集不让它多跨任何一道边界。来源因此需要一条新的统计命名管道（`FANY_IME_STATS_*` 契约、`stats_frames`、`stats_pipe`），本仓一条都不需要。
+
+实现要点三条，每条都有用例：
+
+1. `PendingReply::committed_text` 由七个产生完整上屏的出口填写，**部分选词不填**。本仓的 `prefix_` 是「Engine 已选、DLL 尚未上屏」的暂存，分词选词会连着走好几步 `partial_selection` 才由最后一条 `candidate_commit` 整串上屏；哪一步都记就会把同一个词记好几遍。`reply_composer` 里新加的断言钉的正是这条。
+2. 记录发生在投递**确认之后**（`confirm` / `confirm_ui`），不是组好回复的时候。写失败或结果不确定时 pending 保留、不确认，于是也不记——「已上屏」的含义因此是「已送达」而不是「已组好」，和来源在 DLL 的三个组字出口读文档内容是同一个判据。
+3. 归属取 `transition.commit_context` 而不是上屏后的 view。上屏会清掉本地模式，只看 view 的话一次 Emoji 模式的上屏会被记成全拼。来源标识与 Linux/Apple 宿主逐个相同，三家写的是同一份文档。
+
+性能上避开一个自己先写错的版本：最初在 `confirm()` 里整份拷贝 `PendingReply` 再判断有没有提交，而 `confirm()` 每个按键都走一次，等于在输入热路径上对含候选列表的 transition JSON 做深拷贝。改成只在确实有提交时取那一小段字符串，`resolve_typing_source_from_transition` 全程按引用取字段。
+
+验证：x86_64 MinGW 交叉构建整套通过（host DLL、TSF DLL、Server、msimeui 与全部原生测试可执行文件，含新增的 `windows-typing-statistics`），i686 语法门禁 249 个源文件通过，`verify-local.sh --quick` 通过。**没有在 Windows 主机上安装运行**，因此没有任何一项声称真实编辑器里打字后统计页出现了数字。
+
+同批顺手修掉一个与功能无关但一直在的问题：`docs/windows-parity.md` 里有六行 `||||||| <sha>`。pre-commit 早就有冲突标记检查，它只匹配 `<<<<<<<` 和 `>>>>>>>`，而 `merge.conflictStyle` 为 diff3/zdiff3 时 git 还会写一行基线标记——手工解决时删掉认得的三种、留下这一种，钩子不出声。钩子的正则补上基线标记（并顺带改成只看新增行：原来的 `-G` 对新增和删除一视同仁，删除标记的那次提交会被它自己拦住），另加 `scripts/test-conflict-markers.py` 扫描整棵已跟踪树并挂进 `--quick`。后者不是重复：钩子看的是差异，只可能看见引入标记的那一次提交，标记一旦进了 HEAD 就再也没有东西看它一眼——这六行就是这么活下来的。两个方向都反向验证过会红。
+
+本批查出但**未动**的三处，记下来以免下次重新推导：
+
+- 来源新增的活跃时长、打字速度（按活跃分钟算，且只数可读字符）、连续天数与当日 24 小时分布，本仓一项都没有。这是下一片，做在共享 `typing_statistics` 与共享设置页里，不做成 Windows 私有的 SQLite 表。其中一处需要单独决定：来源的速度只数 `cjk + latin`，而它的 `latin` 是纯 ASCII 字母、假名落在 `other`，于是日文输入的速度恒为零——本仓有完整日文模式，照抄会得到一个对日文用户明显错误的读数。
+- 共享设置页有 11 处以上 `window.confirm`（删词条、清空统计、关闭模糊音、放弃未保存修改等）。来源本批把它换成自绘对话框，理由是在 WebView2 里它是宿主模态窗口、不跟随页面主题、弹出期间页面自己的键盘与焦点处理全被挂起——这三条对本仓的每一个 webview 宿主同样成立。更要紧的是本仓这套页面还跑在 iOS WKWebView、Android WebView 和 HarmonyOS ArkWeb 里，而**全仓没有任何一个宿主注册过 confirm 面板回调**。这几个 webview 在没有回调时是弹窗还是直接返回 false，我没有在设备上验证过，所以这里不写结论；但「返回 false」意味着按钮按下去什么都不发生，正是本表第 789 行那条「死按钮比没有按钮更糟」。需要在 iOS/Android/HarmonyOS 上各按一次删除确认才能定性。
+- 来源的第六套辅助码「加加」（`566ff8b8`）与全拼备选切分／调频重排（`1ea01d5e`、`e32eeade`）都在 Engine 及其码表资产里。本仓 Engine 由 `engine-lock.json` 固定独立归档，这些行为要进来只能是提锁，与第五批同一条理由：提锁影响面覆盖全部平台，单独决定。
