@@ -1044,6 +1044,11 @@ pub struct KeybindingPreferences {
     pub switch_language_ctrl_alt_space: bool,
     #[serde(default = "enabled_by_default")]
     pub toggle_character_set_ctrl_shift_f: bool,
+    /// The macOS Option+Shift+H chord. The host has reserved it unconditionally since it shipped,
+    /// so this defaults on: the preference gives the chord back to the application, it does not
+    /// turn on something that was off. Other hosts have no such chord and ignore it.
+    #[serde(default = "enabled_by_default")]
+    pub toggle_fullwidth_option_shift_h: bool,
 }
 
 impl Default for KeybindingPreferences {
@@ -1053,6 +1058,7 @@ impl Default for KeybindingPreferences {
             switch_language_ctrl: false,
             switch_language_ctrl_alt_space: true,
             toggle_character_set_ctrl_shift_f: true,
+            toggle_fullwidth_option_shift_h: true,
         }
     }
 }
