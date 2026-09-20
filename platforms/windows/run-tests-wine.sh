@@ -153,9 +153,30 @@ if command -v cargo >/dev/null 2>&1; then
   # --no-run builds the test binaries and prints where they landed; anything that
   # fails to build is reported and skipped rather than failing the whole run,
   # because the C++ suite below is still worth having.
-  cargo test -p msime-host-windows --target "$rust_triple" --no-run \
+  # host-api is the DLL the Server links against, so its FFI boundary is worth
+  # exercising on the target it ships for. It needs the same native dependency
+  # prefix the cross build uses; without one, only host-windows is staged.
+  rust_packages="-p msime-host-windows"
+  deps_prefix="${MSIME_WINDOWS_DEPS_ROOT:-$root/target/windows-native-deps}/$arch/$arch-mingw-static"
+  if [ -d "$deps_prefix" ]; then
+    rust_packages="$rust_packages -p msime-host-api"
+    export MSIME_WINDOWS_DEPS="$deps_prefix"
+  else
+    echo "note: no native dependency prefix at $deps_prefix, skipping the host-api tests"
+  fi
+  # Filter on profile.test: --no-run also reports examples, which are ordinary
+  # programs that expect arguments and would be counted as failures here.
+  cargo test $rust_packages --target "$rust_triple" --no-run \
     --message-format=json 2>/dev/null \
-    | sed -n 's/.*"executable":"\([^"]*\)".*/\1/p' \
+    | python3 -c 'import sys, json
+for line in sys.stdin:
+    try:
+        message = json.loads(line)
+    except ValueError:
+        continue
+    executable = message.get("executable")
+    if executable and message.get("profile", {}).get("test"):
+        print(executable)' \
     | while IFS= read -r exe; do
         [ -f "$exe" ] || continue
         cp "$exe" "$rust_stage/rust-$(basename "$exe" .exe | sed 's/-[0-9a-f]\{16\}$//').exe"
@@ -180,6 +201,11 @@ for exe in /bin-win/windows-*.exe /bin-win/msime-tsf-*.exe /bin-win/msimeui-test
   argument=""
   [ "$name" = windows-session-smoke ] && argument="$MSIME_RESOURCES"
   [ "$name" = windows-installer-launch ] && argument="$MSIME_INSTALLER"
+  # That one walks the src/ directory of its own crate at run time to compare the
+  # C header against the Rust exports. Only the executable is copied in here, so
+  # it has nothing to walk, and it is a source-consistency check with no platform
+  # dimension that the host run already covers.
+  [ "$name" = rust-msime_host_api ] && argument="--skip the_c_header_and_the_rust_exports_agree"
   if timeout 120 xvfb-run -a wine "/run/t/$name.exe" $argument >/dev/null 2>&1; then
     echo "PASS $name"
   else
