@@ -14,7 +14,7 @@
 - `crates/input-runtime`：会话编排、焦点取消、候选分页和带代次的选择；不复制 Engine 组词状态机。
 - `crates/engine-bridge`：通过 CXX 调用固定上游 C++ Engine 的公共 Session。
 - `crates/host-api`：版本化 C 接口、线程绑定的会话句柄和显式响应释放。
-- `packages/ui`、`apps/desktop`：共享 React 设置页与 Tauri 应用壳，桌面、Android 和 iOS 使用同一个 Rust 入口库、commands 与 React 页面；目录名暂沿用 desktop。Rust 入口按 `platform/{android,ios,linux,macos,windows,desktop}`、`shared/`、`tests/` 分层。
+- `packages/ui`、`apps/desktop`：共享 React 设置页与 Tauri 承载层，各平台使用同一个 Rust 入口库、commands 与 React 页面；目录名暂沿用 desktop。Rust 入口按 `platform/{android,ios,linux,macos,windows,desktop}`、`shared/`、`tests/` 分层。**Tauri 是公共组件，不是任何平台的产品本体**：最终安装、启动、被系统识别为输入法的，始终是 `platforms/<os>` 下的原生宿主，Tauri/React 由它按需承载。
 - `shared/apple/`：macOS 与 iOS 共用的 Foundation / Objective-C++ 桥接，不包含系统输入法入口。
 - `platforms/`：各系统入口和适配层。Android、iOS、macOS、Linux、Windows 与 HarmonyOS 均保留自己的宿主边界；共享输入算法和组合状态仍在 C++ Engine。Android 15 arm64 模拟器已验证系统输入和共享设置，Linux arm64 容器已验证 IBus daemon 输入链路，Windows 已完成跨目标与本地边界测试，HarmonyOS 目前只有源码/交叉构建入口。真机、Linux 图形桌面、Windows 系统入口、HarmonyOS 设备以及 iOS 签名和设备验收仍待完成。
 
@@ -29,7 +29,7 @@
 | [Windows](platforms/windows/README.md) | `platforms/windows/`、`platforms/windows/tsf/` | x86/x64 交叉编译、管道/Server 边界测试 | Windows 原生运行、TSF 注册和编辑器验收 |
 | [HarmonyOS](platforms/harmony/README.md) | `platforms/harmony/` | ArkTS 逻辑测试和 OpenHarmony NDK 构建入口 | DevEco/HAP 设备运行和系统输入验收 |
 
-共享库可以加载进不同宿主进程；不要求启动 Tauri 才能输入。跨进程设置变更需要明确的持久化与通知机制。
+共享库可以加载进不同宿主进程；不要求启动 Tauri 才能输入。Android、iOS、HarmonyOS、Linux、macOS 与 Windows 一致：产品形态是 `platforms/<os>` 的原生宿主，Tauri 只提供跨平台共享的功能与界面，不单独作为产品启动。跨进程设置变更需要明确的持久化与通知机制。
 
 ## 开发
 
@@ -49,7 +49,7 @@ pnpm tauri dev
 
 桌面设置默认通过 `app.msime.client.preview` 应用数据目录中的 `preferences.json` 保存，也可用绝对路径环境变量 `MSIME_CLIENT_STATE_DIR` 指向隔离开发目录。新 macOS 预览宿主可后台读取同一目录，输入中延迟应用；这不修改旧产品的已安装输入法。多个设置窗口保存时通过 revision 检测冲突，用户须显式重新读取后决定是否覆盖。
 
-Android 合包构建和设备测试见 [Android 宿主](platforms/android/README.md#tauri--react-共享设置合包)。Tauri 设置与原生 `:ime` 服务同包、不同进程，共享私有 files/bootstrap/state；关闭设置窗口不结束输入法进程。iOS Tauri App 已嵌入原生键盘扩展 target，并通过 App Group 共享状态；签名和设备验收边界见 [iOS 宿主](platforms/ios/README.md)。
+Android 合包构建和设备测试见 [Android 宿主](platforms/android/README.md#tauri--react-共享设置合包)。Tauri 设置与原生 `:ime` 服务同包、不同进程，共享私有 files/bootstrap/state；关闭设置窗口不结束输入法进程。iOS 的产品宿主是 `platforms/ios` 的原生 App，它嵌入原生键盘扩展并通过 App Group 共享状态；Tauri/React 在 iOS 上只作为共享功能与界面的公共组件，不作为独立 App 启动。签名和设备验收边界见 [iOS 宿主](platforms/ios/README.md)。
 
 每个可验证的功能单独 commit。新实现接入并通过行为回归之前，各平台现有实现继续运行。
 
