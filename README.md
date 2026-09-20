@@ -82,7 +82,7 @@ Engine 由 `engine-lock.json` 固定：锁文件同时记录 Engine 及其第三
 
 ## 固定词库资源
 
-`resources/desktop-dictionary.lock.json` 固定已发布 `dict-v1.0.0` 的来源、长度和 SHA-256。其中 `mozc_dictionary_oss_README.txt` 是日文词库的许可证全文，IPAdic 与 ICOT 的条款都要求它随词库一同分发，重新打包时不可省略；详见[第三方组件清单](docs/third-party.md#日文词库的分发义务)。首次下载约 184 MB。开发准备命令：
+`resources/desktop-dictionary.lock.json` 固定已发布 `dict-v2.0.0` 的来源、长度和 SHA-256。其中 `mozc_dictionary_oss_README.txt` 是日文词库的许可证全文，IPAdic 与 ICOT 的条款都要求它随词库一同分发，重新打包时不可省略；详见[第三方组件清单](docs/third-party.md#日文词库的分发义务)。首次下载约 170 MB。**词库发布与 `engine-lock.json` 配对**：`dict-v2.0.0` 的 tag 指向的正是当前锁定的 Engine 提交，它多出的 `bigram.bin` 与 `trigram.bin` 是整句词格仲裁的语言模型表。表缺失时 Engine 不报错，只是整句路径不加权——候选照出，顺序变差，所以提 Engine 锁必须同时提词库锁。开发准备命令：
 
 ```sh
 cargo run -p msime-client-core --example install_resources -- target/resources
