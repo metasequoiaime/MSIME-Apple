@@ -1560,6 +1560,7 @@ Fcitx5 候选动作执行 stale 栅栏增量（2026-09-19）：CandidateAction �
 
 方法上记一条给下次：本轮前期用「测试覆盖」找缺口效率很高但方向偏了，**功能迁移要拿来源的功能清单逐条比**，覆盖率只是它的下游。
 
+
 增量记录（2026-09-21，Windows 第二十二批：切到英文时组字怎么处理，以及一条自我纠错）：目标起点 `3e8eb7edc`。
 
 先记纠错。上一批我据来源 Server 的 `ShouldResetCompositionForImeMode` → `ClearState()` 判定「离开中文态应当丢弃组字」，把 `setEnglishInputMode:` 的 `MSIME_FINISH_COMPOSITION` 改成 `MSIME_CANCEL`，结果本仓已有的 Shift 轻点用例立刻变红——那条用例钉的是「组字中途轻点 Shift 上屏的是已输入的原始字母」。读错了：Server 那次 `ClearState()` 是收到客户端状态快照后清自己的后端，TSF 侧早已处理完组字（`IsBackendIndependentCompositionResetKey` 的注释明说「TSF locally consumes these keys and completes/cancels its composition」）。**只读 Server 不读 TSF 客户端，就会把清后端误当成丢用户的字。**
@@ -1577,7 +1578,20 @@ Fcitx5 候选动作执行 stale 栅栏增量（2026-09-19）：CandidateAction �
 
 教训写在这里而不是留在会话里：**跨进程的功能，只读其中一侧的代码就下结论，必然读错一半。** 来源是 TSF 客户端 + Server 两半，本仓把两半合进一个 controller，于是来源里分属两侧的规则在这里看起来像一条。
 
-增量记录（2026-09-21，Windows 第二十三批：Home/End 到的是列表两端，不是当前页两端）：目标起点 `cac0fb423`。接第二十二批的方向，继续读来源的 TSF 客户端一侧。
+（编号说明：「第二十二批」出现了两次。两条记录是同一天在不同 worktree 里并行写的，各自都已合并，谁也不比谁晚；不去改已合并记录的编号，后续从二十四继续。）
+
+
+增量记录（2026-09-21，Windows 第二十四批：把功能对照变成可执行的检查）：接上一批。目标起点 `e431c8ad9`。
+
+上一批把统计的默认与保留策略迁到共享层，但没同步到 Windows 出厂配置模板。补齐后更要紧的是把**找到它的方法**固化下来：来源的出厂配置是「那个产品能被告知做什么」最完整的一份清单（180 个键、18 个分节），它有而本仓没有的键就是一个没人迁移的功能，而别处不会有任何东西发现——设置页只渲染它知道的，偏好结构体只解析它声明的。新增 `scripts/test-windows-config-keys.py` 挂进 `--quick`，只比键名，本仓多出的不报。
+
+当前结果：**来源 180 个键在本仓全部有对应物，本仓另有 30 个**。也就是说配置契约这一层的迁移是完整的——这比此前「逐项读过」的记录强，因为它每次 `--quick` 都会重新回答。
+
+写这个检查时踩了两个会造成**假通过**的坑，记下来：参照检出按当前 checkout 的同级目录找，而本仓惯例是在 `~/worktrees` 下干活，于是它永远「skipped」、看起来像通过；用本地 `origin/HEAD` 定位参照修订，而那个符号引用是克隆时写一次的、这台机器上指向发布分支 `origin/main`，比默认分支少 30 个键——照它比会在上游多出 30 个键时报告「全部齐备」。现在问远端要默认分支，并始终打印用的是哪个 ref 和哪个 SHA。
+
+**加加辅助码这条要改一下此前的记法。** 前几批把它记为「在 Engine 里，只能提锁」，这不准确：本仓的 `engine-lock.json` 已经带 overlay 脚本机制（当前有两个），技术上完全可以再加一个把 `assets::helpcodes` 从五项扩到六项。真正的阻塞点是那张 7968 行码表本身——来源 `engine/helpcode/NOTICE.md` 写明它是从拼音加加 5.x 安装包内 `fzm.bin` **重建**的非官方数据。把它引进本仓是一次第三方数据的分发决定，而 ARCHITECTURE.md 要求引入新上游资产时连同来源提交、许可证文本、通知位置和分发限制一并提交。这该由仓库所有者定，不是实现层面能顺手做掉的事。记准阻塞点，比记一个听起来更技术性的理由有用。
+
+增量记录（2026-09-21，Windows 第二十四批：Home/End 到的是列表两端，不是当前页两端）：目标起点 `cac0fb423`。接第二十二批的方向，继续读来源的 TSF 客户端一侧。
 
 按来源客户端的 `KEYSTROKE_FUNCTION` 逐项对——这是一份很紧凑的功能清单，正合「拿来源的功能清单逐条比」。Home/End 在来源里分类为 `FUNCTION_MOVE_PAGE_TOP` / `FUNCTION_MOVE_PAGE_BOTTOM`（组字期与候选期两条路径都是），呈现层收到后调 `_SetSelection(0)` 与 `_SetSelection(-1)`，而 `CCandidateSessionState::SetSelection` 把 -1 读成 `Count() - 1`，末尾再 `AdjustPageIndexForSelection()` 把页跟过去。也就是说：**Home 回到整份列表的第一条、End 到最后一条，页码随之改变。**
 

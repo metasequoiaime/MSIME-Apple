@@ -220,3 +220,30 @@ print(
     "Windows smart punctuation is off on a fresh profile, as its template ships: "
     f"{len(windows_smart_punctuation)} switches"
 )
+
+# Statistics count what a person types, so the template and the shared default have to agree that
+# they start off. The reference says so in its own feature list, and a template that shipped them
+# on would turn them on for every fresh profile regardless of what the shared code says.
+statistics = windows_defaults["statistics"]
+assert statistics["enabled"] is False, "the statistics template must ship them off"
+assert re.search(
+    r"fn enabled_by_default\(\) -> bool \{\s*(?:///[^\n]*\n\s*)*false\s*\}",
+    (ROOT / "crates/client-core/src/typing_statistics.rs").read_text(encoding="utf-8"),
+), "the shared statistics default must be off, matching the template"
+
+# An unrecognised retention is read as forever. The template must name one the code knows, or the
+# value it ships would silently mean something other than what it says.
+retentions = {"forever", "30d", "90d", "180d", "365d"}
+assert statistics["retention"] in retentions, (
+    f"unknown statistics retention {statistics['retention']!r}; "
+    f"the shared store understands {sorted(retentions)}"
+)
+statistics_source = (ROOT / "crates/client-core/src/typing_statistics.rs").read_text(
+    encoding="utf-8"
+)
+for spelling in retentions - {"forever"}:
+    assert f'"{spelling}" =>' in statistics_source, (
+        f"the template offers {spelling} but the shared store does not parse it"
+    )
+
+print(f"Windows statistics ship off with retention {statistics['retention']!r}")
