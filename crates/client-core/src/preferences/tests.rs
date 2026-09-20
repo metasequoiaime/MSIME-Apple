@@ -1899,3 +1899,48 @@ fn smart_punctuation_first_run_follows_the_windows_baseline() {
     assert_eq!(loaded.smart_punctuation, !expected);
     assert_eq!(loaded.smart_punctuation_repeat, !expected);
 }
+
+/// The HarmonyOS host has no way to match on this type.
+///
+/// Its settings page reaches this store through the C ABI, whose error channel is a single string
+/// shared by every entry point, so it recovers the code the shared UI decodes by matching the text
+/// itself in `PreferencesErrorCode` (`platforms/harmony/entry/src/main/ets/keyboard/settings/`).
+/// Rewording a variant there silently costs that failure its own sentence, so the wordings that
+/// mapping names are pinned here, where the rewording would happen.
+#[test]
+fn error_wordings_the_harmony_host_matches_on() {
+    assert_eq!(
+        PreferencesError::Conflict.to_string(),
+        "preferences changed; reload before saving"
+    );
+    assert_eq!(
+        PreferencesError::InvalidPageSize.to_string(),
+        "candidate page size must be between 1 and 9"
+    );
+    assert_eq!(
+        PreferencesError::InvalidFrequency.to_string(),
+        "frequency trigger count and linear step must be between 1 and 10"
+    );
+    assert_eq!(
+        PreferencesError::InvalidMixedInput.to_string(),
+        "mixed English minimum prefix must be between 1 and 8"
+    );
+    assert_eq!(
+        PreferencesError::InvalidFloatingToolbar.to_string(),
+        "floating toolbar settings are invalid"
+    );
+    assert_eq!(
+        PreferencesError::ConflictingKeyBindings.to_string(),
+        "word-to-character and paging cannot use the same keys"
+    );
+    assert_eq!(
+        PreferencesError::UnsupportedFormat.to_string(),
+        "unsupported preferences format"
+    );
+    // Matched by prefix, because the cause it carries varies.
+    assert!(
+        PreferencesError::Json(serde_json::from_str::<u8>("x").unwrap_err())
+            .to_string()
+            .starts_with("invalid preferences document:")
+    );
+}
