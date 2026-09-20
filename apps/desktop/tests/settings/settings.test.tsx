@@ -4372,85 +4372,91 @@ test.each(
   },
 );
 
-test("the input page follows the reference window's order", async () => {
-  render(
-    <SettingsPage
-      client={{
-        load: vi.fn().mockResolvedValue(initial),
-        save: vi.fn(),
-        host: { platform: "windows", floating_toolbar: true } as HostCapabilities,
-      }}
-    />,
-  );
-  await settingsReady();
-  // The page starts on 外观, and a hidden fieldset is out of the accessibility tree.
-  fireEvent.click(screen.getByRole("button", { name: "输入" }));
-  const input = await screen.findByRole("group", { name: "输入" });
-  const present = sectionTitles(input);
-  const reference = [
-    "输入模式",
-    "输入方案",
-    "双拼方案",
-    "五笔方案",
-    "日语方案",
-    "翻页方式",
-    "候选词翻译",
-    "以词定字",
-    "中文标点",
-    "智能标点",
-    "重复标点转中文",
-    "成对标点自动补全",
-    "中英混输",
-    "默认中英文",
-    "中英文状态",
-    "简繁输入",
-    "云候选",
-    "拼音方案调频",
-  ];
-  const ordered = present.filter((text) => reference.includes(text));
-  // 输入方案 has a touch variant and a desktop variant; only one is ever shown, but both can be in
-  // the tree, so collapse a repeat rather than reading it as a move.
-  const collapsed = ordered.filter((title, index) => title !== ordered[index - 1]);
-  expect(collapsed).toEqual(reference.filter((title) => collapsed.includes(title)));
-  expect(collapsed.length).toBeGreaterThanOrEqual(12);
-});
+test.each(optionHosts)(
+  "the input page follows the reference window's order on %s",
+  async (_platform, host) => {
+    render(
+      <SettingsPage
+        client={{
+          load: vi.fn().mockResolvedValue(initial),
+          save: vi.fn(),
+          host,
+        }}
+      />,
+    );
+    await settingsReady();
+    // The page starts on 外观, and a hidden fieldset is out of the accessibility tree.
+    fireEvent.click(screen.getByRole("button", { name: "输入" }));
+    const input = await screen.findByRole("group", { name: "输入" });
+    const present = sectionTitles(input);
+    const reference = [
+      "输入模式",
+      "输入方案",
+      "双拼方案",
+      "五笔方案",
+      "日语方案",
+      "翻页方式",
+      "候选词翻译",
+      "以词定字",
+      "中文标点",
+      "智能标点",
+      "重复标点转中文",
+      "成对标点自动补全",
+      "中英混输",
+      "默认中英文",
+      "中英文状态",
+      "简繁输入",
+      "云候选",
+      "拼音方案调频",
+    ];
+    const ordered = present.filter((text) => reference.includes(text));
+    // 输入方案 has a touch variant and a desktop variant; only one is ever shown, but both can be in
+    // the tree, so collapse a repeat rather than reading it as a move.
+    const collapsed = ordered.filter((title, index) => title !== ordered[index - 1]);
+    expect(collapsed).toEqual(reference.filter((title) => collapsed.includes(title)));
+    expect(collapsed.length).toBeGreaterThanOrEqual(12);
+  },
+);
 
-test("the appearance page follows the reference window's order", async () => {
-  render(
-    <SettingsPage
-      client={{
-        load: vi.fn().mockResolvedValue(initial),
-        save: vi.fn(),
-        host: { platform: "windows", floating_toolbar: true } as HostCapabilities,
-      }}
-    />,
-  );
-  await settingsReady();
-  const appearance = screen.getByRole("group", { name: "外观" });
-  const present = sectionTitles(appearance);
-  const reference = [
-    "候选窗口跟随光标",
-    "候选窗主字体",
-    "候选窗字号",
-    "候选窗预编辑字号",
-    "候选文字颜色",
-    "每页候选项数量",
-    "主题模式",
-    "设置界面主题",
-    "候选窗口主题",
-    "悬浮工具栏主题",
-    "菜单主题",
-    "表情面板主题",
-    "手写识别板主题",
-    "语音输入弹出条主题",
-    "候选项排列方式",
-    "行内预编辑",
-    "候选窗预编辑",
-  ];
-  const ordered = present.filter((text) => reference.includes(text));
-  expect(ordered).toEqual(reference.filter((title) => ordered.includes(title)));
-  expect(ordered.length).toBeGreaterThanOrEqual(10);
-});
+test.each(optionHosts)(
+  "the appearance page follows the reference window's order on %s",
+  async (_platform, host) => {
+    render(
+      <SettingsPage
+        client={{
+          load: vi.fn().mockResolvedValue(initial),
+          save: vi.fn(),
+          host,
+        }}
+      />,
+    );
+    await settingsReady();
+    const appearance = screen.getByRole("group", { name: "外观" });
+    const present = sectionTitles(appearance);
+    const reference = [
+      "候选窗口跟随光标",
+      "候选窗主字体",
+      "候选窗字号",
+      "候选窗预编辑字号",
+      "候选文字颜色",
+      "每页候选项数量",
+      "主题模式",
+      "设置界面主题",
+      "候选窗口主题",
+      "悬浮工具栏主题",
+      "菜单主题",
+      "表情面板主题",
+      "手写识别板主题",
+      "语音输入弹出条主题",
+      "候选项排列方式",
+      "行内预编辑",
+      "候选窗预编辑",
+    ];
+    const ordered = present.filter((text) => reference.includes(text));
+    expect(ordered).toEqual(reference.filter((title) => ordered.includes(title)));
+    expect(ordered.length).toBeGreaterThanOrEqual(10);
+  },
+);
 
 test("macOS enables the shuangpin profile menu only under shuangpin", async () => {
   render(
