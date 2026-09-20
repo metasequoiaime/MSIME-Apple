@@ -499,7 +499,7 @@ const macosHelpCards = [
         term: "需要账号",
         text: "在线那部分走水杉账号。安装时会自动创建一个本机账号，通常不需要你做任何事。",
       },
-      { term: "两种语言", text: "可以同时显示两种语言的释义，在输入页的候选翻译里设置。" },
+      { term: "两种语言", text: "可以同时显示两种语言的释义，在输入页的候选词翻译里设置。" },
       {
         term: "Tab",
         text: "在候选词和它的释义之间切换要上屏的那一列，Shift+Tab 反向。切到哪一列，那一列就会加下划线，数字键、空格和点击上屏的都是它。",
@@ -519,7 +519,7 @@ const macosHelpCards = [
       },
       {
         term: "候选旁没有释义",
-        text: "先确认输入页的候选翻译是开着的。词典没收录的词要联网查询，断网时只会显示词典里有的那些。",
+        text: "先确认输入页的候选词翻译是开着的。词典没收录的词要联网查询，断网时只会显示词典里有的那些。",
       },
       { term: "词库没有更新", text: "词库更新随版本发布。在「关于」页检查更新。" },
     ],
@@ -1878,14 +1878,14 @@ export function SettingsPage({
   const platformNetworkDescription = androidPlatform
     ? "语音输入会调用设备上的系统语音识别服务，识别结果回到键盘后需确认才会插入；AI 功能按需配置。日常拼音输入无需联网。"
     : linuxPlatform
-      ? "语音识别和云联想由用户自行管理的 provider 提供，设置页只保存行为选项，不保存或转发 provider 的凭据。"
+      ? "语音识别和云候选由用户自行管理的 provider 提供，设置页只保存行为选项，不保存或转发 provider 的凭据。"
       : macosPlatform
-        ? "语音识别、候选翻译和 AI 功能仅在用户配置并启用对应服务时联网；日常拼音输入无需联网。"
+        ? "语音识别、候选词翻译和 AI 功能仅在用户配置并启用对应服务时联网；日常拼音输入无需联网。"
         : harmonyPlatform
           ? "豆包语音识别仅在用户配置并启用时联网；也可使用 HarmonyOS 系统语音识别。原始音频只在本次识别期间处理。"
           : iosPlatform
             ? "键盘扩展的日常拼音输入无需联网；账号、云同步、AI 和语音功能仅在用户启用时联网。"
-            : "语音识别和 AI 联想需要自行填入 API 和 token。云联想目前支持谷歌的云接口，请注意网络问题。";
+            : "语音识别和 AI 联想需要自行填入 API 和 token。云候选目前支持谷歌的云接口，请注意网络问题。";
   const platformAboutDescription = androidPlatform
     ? "为 Android 触屏输入体验打造的开放中文输入法。"
     : linuxPlatform
@@ -4892,50 +4892,53 @@ export function SettingsPage({
                         </button>
                       </div>
                     )}
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          默认输入状态<small>新焦点会话开始时使用的中文或英文状态</small>
-                        </span>
-                        <select
-                          aria-label="默认输入状态"
-                          value={draft.default_ime_mode ?? "chinese"}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              default_ime_mode: event.target
-                                .value as Preferences["default_ime_mode"],
-                            })
-                          }
-                        >
-                          <option value="chinese">中文</option>
-                          <option value="english">英文</option>
-                        </select>
-                      </label>
-                    </div>
-                    {showModeScope && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            中英文状态范围
-                            <small>按应用分别记忆输入状态，或让所有输入上下文保持同一状态</small>
-                          </span>
-                          <select
-                            aria-label="中英文状态范围"
-                            value={draft.ime_mode_scope ?? "app"}
-                            onChange={(event) =>
+                    <div
+                      className="section"
+                      role="group"
+                      aria-labelledby="input-mode-title"
+                      hidden={client.touchKeyboardSchemes}
+                    >
+                      <div className="section-title" id="input-mode-title">
+                        输入模式
+                      </div>
+                      <div className="input-setting-description">
+                        切换中文或日文输入，并保留各模式上次选择的方案
+                      </div>
+                      <div className="input-option-content input-mode-options">
+                        <label className="radio-option">
+                          <input
+                            type="radio"
+                            name="input-mode"
+                            value="chinese"
+                            checked={draft.scheme !== "japanese"}
+                            onChange={() =>
+                              setDraft({ ...draft, scheme: draft.last_chinese_scheme ?? "quanpin" })
+                            }
+                          />
+                          <span>中文</span>
+                        </label>
+                        <div className="input-option-divider" />
+                        <label className="radio-option">
+                          <input
+                            type="radio"
+                            name="input-mode"
+                            value="japanese"
+                            checked={draft.scheme === "japanese"}
+                            onChange={() =>
                               setDraft({
                                 ...draft,
-                                ime_mode_scope: event.target.value as Preferences["ime_mode_scope"],
+                                last_chinese_scheme:
+                                  draft.scheme === "japanese"
+                                    ? draft.last_chinese_scheme
+                                    : draft.scheme,
+                                scheme: "japanese",
                               })
                             }
-                          >
-                            <option value="app">按应用</option>
-                            <option value="global">全局</option>
-                          </select>
+                          />
+                          <span>日文</span>
                         </label>
                       </div>
-                    )}
+                    </div>
                     {client.touchKeyboardSchemes && (
                       <div
                         className="section"
@@ -4986,53 +4989,6 @@ export function SettingsPage({
                         </div>
                       </div>
                     )}
-                    <div
-                      className="section"
-                      role="group"
-                      aria-labelledby="input-mode-title"
-                      hidden={client.touchKeyboardSchemes}
-                    >
-                      <div className="section-title" id="input-mode-title">
-                        输入模式
-                      </div>
-                      <div className="input-setting-description">
-                        切换中文或日文输入，并保留各模式上次选择的方案
-                      </div>
-                      <div className="input-option-content input-mode-options">
-                        <label className="radio-option">
-                          <input
-                            type="radio"
-                            name="input-mode"
-                            value="chinese"
-                            checked={draft.scheme !== "japanese"}
-                            onChange={() =>
-                              setDraft({ ...draft, scheme: draft.last_chinese_scheme ?? "quanpin" })
-                            }
-                          />
-                          <span>中文</span>
-                        </label>
-                        <div className="input-option-divider" />
-                        <label className="radio-option">
-                          <input
-                            type="radio"
-                            name="input-mode"
-                            value="japanese"
-                            checked={draft.scheme === "japanese"}
-                            onChange={() =>
-                              setDraft({
-                                ...draft,
-                                last_chinese_scheme:
-                                  draft.scheme === "japanese"
-                                    ? draft.last_chinese_scheme
-                                    : draft.scheme,
-                                scheme: "japanese",
-                              })
-                            }
-                          />
-                          <span>日文</span>
-                        </label>
-                      </div>
-                    </div>
                     <div
                       className="section"
                       role="group"
@@ -5233,6 +5189,430 @@ export function SettingsPage({
                         ))}
                       </div>
                     </div>
+                    <div className="section">
+                      <label className="section-header">
+                        <span className="section-title">
+                          候选词翻译<small>为当前候选请求翻译结果并显示在候选行</small>
+                        </span>
+                        <input
+                          className="toggle"
+                          type="checkbox"
+                          checked={candidateTranslations}
+                          onChange={(event) =>
+                            setDraft({ ...draft, candidate_translations: event.target.checked })
+                          }
+                        />
+                      </label>
+                      <div className="input-option-divider" />
+                      <label className="section-header">
+                        <span className="section-title">目标语言</span>
+                        <select
+                          aria-label="候选词翻译目标语言"
+                          disabled={!candidateGlossLanguagesEnabled}
+                          value={translationTargetLanguage}
+                          onChange={(event) =>
+                            setDraft({
+                              ...draft,
+                              translation_target_language: event.target
+                                .value as Preferences["translation_target_language"],
+                            })
+                          }
+                        >
+                          {visibleTranslationLanguages.map(([value, label]) => (
+                            <option key={value} value={value}>
+                              {label}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                      {(androidPlatform || iosPlatform || macosPlatform) && (
+                        <>
+                          <div className="input-option-divider" />
+                          <label className="section-header">
+                            <span className="section-title">
+                              第二种语言<small>候选词下方可同时显示第二种释义</small>
+                            </span>
+                            <select
+                              aria-label="候选词翻译第二种语言"
+                              disabled={!candidateGlossLanguagesEnabled}
+                              value={translationSecondaryLanguage}
+                              onChange={(event) =>
+                                setDraft({
+                                  ...draft,
+                                  translation_secondary_language:
+                                    event.target.value === ""
+                                      ? null
+                                      : (event.target
+                                          .value as Preferences["translation_target_language"]),
+                                })
+                              }
+                            >
+                              {visibleSecondaryLanguages.map(([value, label]) => (
+                                <option key={value || "none"} value={value}>
+                                  {label}
+                                </option>
+                              ))}
+                            </select>
+                          </label>
+                        </>
+                      )}
+                      {androidPlatform && (
+                        <p className="input-setting-description">
+                          Android 使用已登录的 MSIME
+                          在线服务处理候选词翻译；凭据保存在系统安全存储中，不会进入此设置页。
+                        </p>
+                      )}
+                    </div>
+                    {!androidPlatform && (
+                      <>
+                        <div className="section" role="group" aria-label="候选词翻译服务">
+                          <label className="section-header">
+                            <span className="section-title">翻译服务</span>
+                            <select
+                              aria-label="候选词翻译服务"
+                              disabled={!candidateTranslations}
+                              value={translationProvider}
+                              onChange={(event) =>
+                                setTranslationProvider(
+                                  event.target.value as "none" | "custom" | "tencent" | "niutrans",
+                                )
+                              }
+                            >
+                              <option value="none">关闭</option>
+                              <option value="tencent">腾讯云机器翻译</option>
+                              <option value="niutrans">小牛翻译（NiuTrans）</option>
+                              <option value="custom">自定义 DeepLX 兼容服务</option>
+                            </select>
+                          </label>
+                        </div>
+                        <div className="section" role="group" aria-label="小牛翻译（NiuTrans）">
+                          <label className="section-header">
+                            <span className="section-title">
+                              小牛翻译（NiuTrans）
+                              <small>使用 App ID 和 API Key 为候选词提供逐条翻译</small>
+                            </span>
+                            <input
+                              aria-label="小牛翻译（NiuTrans）"
+                              className="toggle"
+                              type="checkbox"
+                              disabled={!candidateTranslations}
+                              checked={niutrans.enabled}
+                              onChange={(event) =>
+                                setTranslationProvider(event.target.checked ? "niutrans" : "none")
+                              }
+                            />
+                          </label>
+                          <div className="input-option-divider" />
+                          <label className="section-header">
+                            <span className="section-title">App ID</span>
+                            <input
+                              aria-label="NiuTrans App ID"
+                              value={niutrans.app_id}
+                              disabled={!candidateTranslations || !niutrans.enabled}
+                              onChange={(event) =>
+                                setDraft({
+                                  ...draft,
+                                  niutrans: { ...niutrans, app_id: event.target.value },
+                                })
+                              }
+                            />
+                          </label>
+                          <div className="input-option-divider" />
+                          <label className="section-header">
+                            <span className="section-title">API Key</span>
+                            <SecretInput
+                              label="NiuTrans API Key"
+                              value={niutrans.apikey}
+                              disabled={!candidateTranslations || !niutrans.enabled}
+                              onChange={(value) =>
+                                setDraft({ ...draft, niutrans: { ...niutrans, apikey: value } })
+                              }
+                            />
+                          </label>
+                          {niutrans.enabled &&
+                            credentialTestControl(
+                              "translation.niutrans",
+                              "测试 NiuTrans 配置",
+                              { app_id: niutrans.app_id, apikey: niutrans.apikey },
+                              !candidateTranslations ||
+                                !niutrans.app_id.trim() ||
+                                !niutrans.apikey.trim(),
+                            )}
+                        </div>
+                        <div className="section" role="group" aria-label="在线翻译服务">
+                          {linuxPlatform ? (
+                            <>
+                              <div className="section-title">
+                                在线翻译服务
+                                <small>由用户管理的 Linux provider 服务负责网络请求和凭据</small>
+                              </div>
+                              <p className="input-setting-description">
+                                候选词翻译开启后，provider 从用户配置目录的{" "}
+                                <code>tencent-provider.json</code>{" "}
+                                读取腾讯云凭据；设置页不保存不会生效的 SecretId 或 SecretKey。
+                              </p>
+                              {translationProvider === "tencent" &&
+                                credentialTestControl(
+                                  "translation.tencent",
+                                  "测试腾讯云翻译配置",
+                                  {},
+                                  !candidateTranslations,
+                                )}
+                            </>
+                          ) : (
+                            <>
+                              <label className="section-header">
+                                <span className="section-title">
+                                  在线翻译服务
+                                  <small>
+                                    候选词翻译默认使用腾讯云机器翻译，需要填入你自己的 API 凭据
+                                  </small>
+                                </span>
+                                <input
+                                  aria-label="腾讯云机器翻译"
+                                  className="toggle"
+                                  type="checkbox"
+                                  disabled={!candidateTranslations}
+                                  checked={tencentTranslation.enabled}
+                                  onChange={(event) =>
+                                    setDraft({
+                                      ...draft,
+                                      tencent_tmt: {
+                                        ...tencentTranslation,
+                                        enabled: event.target.checked,
+                                      },
+                                    })
+                                  }
+                                />
+                              </label>
+                              <div className="input-option-divider" />
+                              <label className="section-header">
+                                <span className="section-title">SecretId</span>
+                                <input
+                                  aria-label="腾讯云 SecretId"
+                                  type="text"
+                                  autoComplete="off"
+                                  spellCheck={false}
+                                  value={tencentTranslation.secret_id}
+                                  disabled={!candidateTranslations || !tencentTranslation.enabled}
+                                  onChange={(event) =>
+                                    setDraft({
+                                      ...draft,
+                                      tencent_tmt: {
+                                        ...tencentTranslation,
+                                        secret_id: event.target.value,
+                                      },
+                                    })
+                                  }
+                                  placeholder="AKIDxxxxxxxxxxxxxxxx"
+                                />
+                              </label>
+                              <div className="input-option-divider" />
+                              <label className="section-header">
+                                <span className="section-title">SecretKey</span>
+                                <SecretInput
+                                  label="腾讯云 SecretKey"
+                                  value={tencentTranslation.secret_key}
+                                  disabled={!candidateTranslations || !tencentTranslation.enabled}
+                                  onChange={(value) =>
+                                    setDraft({
+                                      ...draft,
+                                      tencent_tmt: { ...tencentTranslation, secret_key: value },
+                                    })
+                                  }
+                                />
+                              </label>
+                              <div className="input-option-divider" />
+                              <label className="section-header">
+                                <span className="section-title">地域</span>
+                                <input
+                                  aria-label="腾讯云地域"
+                                  type="text"
+                                  autoComplete="off"
+                                  spellCheck={false}
+                                  value={tencentTranslation.region}
+                                  disabled={!candidateTranslations || !tencentTranslation.enabled}
+                                  onChange={(event) =>
+                                    setDraft({
+                                      ...draft,
+                                      tencent_tmt: {
+                                        ...tencentTranslation,
+                                        region: event.target.value,
+                                      },
+                                    })
+                                  }
+                                  placeholder="ap-guangzhou"
+                                />
+                              </label>
+                              {(windowsPlatform || macosPlatform) &&
+                                tencentTranslation.enabled &&
+                                credentialTestControl(
+                                  "translation.tencent",
+                                  "测试腾讯云翻译配置",
+                                  {
+                                    secret_id: tencentTranslation.secret_id,
+                                    secret_key: tencentTranslation.secret_key,
+                                    region: tencentTranslation.region,
+                                  },
+                                  !candidateTranslations ||
+                                    Boolean(
+                                      tencentCredentialIssue(
+                                        tencentTranslation.secret_id,
+                                        tencentTranslation.secret_key,
+                                        tencentTranslation.region,
+                                      ),
+                                    ),
+                                )}
+                              {candidateTranslations &&
+                                tencentTranslation.enabled &&
+                                tencentCredentialIssue(
+                                  tencentTranslation.secret_id,
+                                  tencentTranslation.secret_key,
+                                  tencentTranslation.region,
+                                ) && (
+                                  <p className={settings.settingsWarning} role="status">
+                                    {tencentCredentialIssue(
+                                      tencentTranslation.secret_id,
+                                      tencentTranslation.secret_key,
+                                      tencentTranslation.region,
+                                    )}
+                                  </p>
+                                )}
+                              {candidateTranslations &&
+                                tencentTranslation.enabled &&
+                                !tencentCredentialIssue(
+                                  tencentTranslation.secret_id,
+                                  tencentTranslation.secret_key,
+                                  tencentTranslation.region,
+                                ) &&
+                                !(
+                                  tencentSecretConfigured(tencentTranslation.secret_id) &&
+                                  tencentSecretConfigured(tencentTranslation.secret_key)
+                                ) &&
+                                !customTranslation.enabled && (
+                                  <p className={settings.settingsWarning} role="status">
+                                    未填写腾讯云凭据，候选词翻译不会有任何结果。请填入 SecretId 与
+                                    SecretKey，或改用下面的自定义翻译服务。
+                                  </p>
+                                )}
+                            </>
+                          )}
+                        </div>
+                        {client.customTranslations && (
+                          <div className="section" role="group" aria-label="自定义候选释义设置">
+                            <div className="section-title">
+                              自定义候选释义
+                              <small>
+                                候选窗的中英互译来自内置词库；覆盖不全或译得不准时，可以自己加一层，不改内置词库。每行一条，用
+                                Tab 分隔源词和译文；以 #
+                                开头的行是注释。源词含汉字即为中译英，全是英文则为英译中。同一个源词写多次时以最后一次为准。保存后重新启动输入法生效。
+                              </small>
+                            </div>
+                            <textarea
+                              aria-label="自定义候选释义"
+                              rows={8}
+                              value={customTranslationsText}
+                              placeholder={customTranslationsExample}
+                              onChange={(event) => {
+                                setCustomTranslationsText(event.target.value);
+                                setCustomTranslationsNotice("");
+                              }}
+                            />
+                            <p role="status">
+                              {customTranslationsNotice || customTranslationsSummary}
+                            </p>
+                            <button
+                              type="button"
+                              className="secondary"
+                              disabled={customTranslationsBusy}
+                              onClick={() => void saveCustomTranslations()}
+                            >
+                              {customTranslationsBusy ? "保存中…" : "保存自定义释义"}
+                            </button>
+                          </div>
+                        )}
+                        <div className="section" role="group" aria-label="自定义翻译服务">
+                          <label className="section-header">
+                            <span className="section-title">
+                              自定义翻译服务
+                              <small>
+                                改用自建的兼容 DeepLX 的 HTTPS
+                                服务；关闭后候选词翻译使用上面选择的在线服务
+                              </small>
+                            </span>
+                            <input
+                              aria-label="自定义翻译服务"
+                              className="toggle"
+                              type="checkbox"
+                              disabled={!candidateTranslations}
+                              checked={customTranslation.enabled}
+                              onChange={(event) =>
+                                setDraft({
+                                  ...draft,
+                                  custom_translation: {
+                                    ...customTranslation,
+                                    enabled: event.target.checked,
+                                  },
+                                })
+                              }
+                            />
+                          </label>
+                          <div className="input-option-divider" />
+                          <label className="section-header">
+                            <span className="section-title">翻译 Endpoint</span>
+                            <input
+                              aria-label="自定义翻译 Endpoint"
+                              type="url"
+                              value={customTranslation.endpoint}
+                              disabled={!candidateTranslations || !customTranslation.enabled}
+                              onChange={(event) =>
+                                setDraft({
+                                  ...draft,
+                                  custom_translation: {
+                                    ...customTranslation,
+                                    endpoint: event.target.value,
+                                  },
+                                })
+                              }
+                              placeholder="https://example.com/translate"
+                            />
+                          </label>
+                          {candidateTranslations &&
+                            customTranslation.enabled &&
+                            translationEndpointIssue(customTranslation.endpoint) && (
+                              <p className={settings.settingsWarning} role="status">
+                                {translationEndpointIssue(customTranslation.endpoint)}
+                              </p>
+                            )}
+                          <div className="input-option-divider" />
+                          <label className="section-header">
+                            <span className="section-title">API Key</span>
+                            <SecretInput
+                              label="自定义翻译 API Key"
+                              value={customTranslation.api_key}
+                              disabled={!candidateTranslations || !customTranslation.enabled}
+                              onChange={(value) =>
+                                setDraft({
+                                  ...draft,
+                                  custom_translation: { ...customTranslation, api_key: value },
+                                })
+                              }
+                            />
+                          </label>
+                          {customTranslation.enabled &&
+                            credentialTestControl(
+                              "translation.custom",
+                              "测试自定义翻译配置",
+                              {
+                                endpoint: customTranslation.endpoint,
+                                api_key: customTranslation.api_key,
+                              },
+                              !candidateTranslations ||
+                                Boolean(translationEndpointIssue(customTranslation.endpoint)),
+                            )}
+                        </div>
+                      </>
+                    )}
                     <div className="section">
                       <label className="section-header">
                         <span className="section-title">
@@ -5570,7 +5950,7 @@ export function SettingsPage({
                     <div className="section">
                       <label className="section-header">
                         <span className="section-title">
-                          成对标点<small>自动补全成对引号和括号</small>
+                          成对标点自动补全<small>自动补全成对引号和括号</small>
                         </span>
                         <input
                           className="toggle"
@@ -5602,526 +5982,6 @@ export function SettingsPage({
                         </select>
                       </label>
                     </div>
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          繁体中文输出<small>将提交的简体中文转换为繁体中文</small>
-                        </span>
-                        <input
-                          aria-label="繁体中文输出"
-                          className="toggle"
-                          type="checkbox"
-                          checked={draft.traditional_chinese_output ?? false}
-                          onChange={(event) =>
-                            setDraft({ ...draft, traditional_chinese_output: event.target.checked })
-                          }
-                        />
-                      </label>
-                    </div>
-                    {/* macOS keeps this with the chords that trigger it, on the shortcut page. */}
-                    {showInputModeHUD && !macosPlatform && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            中英文切换提示
-                            <small>
-                              切换输入模式后，在光标附近短暂显示“中”或“英”，不会抢占焦点。
-                            </small>
-                          </span>
-                          <input
-                            aria-label="中英文切换提示"
-                            className="toggle"
-                            type="checkbox"
-                            checked={inputModeHUD}
-                            onChange={(event) =>
-                              setDraft({ ...draft, input_mode_hud: event.target.checked })
-                            }
-                          />
-                        </label>
-                      </div>
-                    )}
-                    {client.candidateEnglishGloss && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            显示英文释义
-                            <small>
-                              在候选词后面标出它的英文意思，中文候选给英文、英文候选给中文。释义来自随键盘打包的离线词库，不联网。
-                            </small>
-                          </span>
-                          <input
-                            aria-label="显示英文释义"
-                            className="toggle"
-                            type="checkbox"
-                            checked={candidateEnglishGloss}
-                            onChange={(event) =>
-                              setDraft({ ...draft, candidate_english_gloss: event.target.checked })
-                            }
-                          />
-                        </label>
-                      </div>
-                    )}
-                    {showEnglishSuggestions && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            英文建议
-                            <small>
-                              英文 26
-                              键直接输入时，在候选栏显示当前单词的补全建议；关闭后仍可正常输入英文。
-                            </small>
-                          </span>
-                          <input
-                            aria-label="英文建议"
-                            className="toggle"
-                            type="checkbox"
-                            checked={englishSuggestions}
-                            onChange={(event) =>
-                              setDraft({ ...draft, english_suggestions: event.target.checked })
-                            }
-                          />
-                        </label>
-                      </div>
-                    )}
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          云联想<small>向在线服务请求额外候选</small>
-                        </span>
-                        <input
-                          className="toggle"
-                          type="checkbox"
-                          checked={cloudCandidates}
-                          onChange={(event) =>
-                            setDraft({ ...draft, cloud_candidates: event.target.checked })
-                          }
-                        />
-                      </label>
-                    </div>
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          候选翻译<small>为当前候选请求翻译结果并显示在候选行</small>
-                        </span>
-                        <input
-                          className="toggle"
-                          type="checkbox"
-                          checked={candidateTranslations}
-                          onChange={(event) =>
-                            setDraft({ ...draft, candidate_translations: event.target.checked })
-                          }
-                        />
-                      </label>
-                      <div className="input-option-divider" />
-                      <label className="section-header">
-                        <span className="section-title">目标语言</span>
-                        <select
-                          aria-label="候选翻译目标语言"
-                          disabled={!candidateGlossLanguagesEnabled}
-                          value={translationTargetLanguage}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              translation_target_language: event.target
-                                .value as Preferences["translation_target_language"],
-                            })
-                          }
-                        >
-                          {visibleTranslationLanguages.map(([value, label]) => (
-                            <option key={value} value={value}>
-                              {label}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                      {(androidPlatform || iosPlatform || macosPlatform) && (
-                        <>
-                          <div className="input-option-divider" />
-                          <label className="section-header">
-                            <span className="section-title">
-                              第二种语言<small>候选词下方可同时显示第二种释义</small>
-                            </span>
-                            <select
-                              aria-label="候选翻译第二种语言"
-                              disabled={!candidateGlossLanguagesEnabled}
-                              value={translationSecondaryLanguage}
-                              onChange={(event) =>
-                                setDraft({
-                                  ...draft,
-                                  translation_secondary_language:
-                                    event.target.value === ""
-                                      ? null
-                                      : (event.target
-                                          .value as Preferences["translation_target_language"]),
-                                })
-                              }
-                            >
-                              {visibleSecondaryLanguages.map(([value, label]) => (
-                                <option key={value || "none"} value={value}>
-                                  {label}
-                                </option>
-                              ))}
-                            </select>
-                          </label>
-                        </>
-                      )}
-                      {androidPlatform && (
-                        <p className="input-setting-description">
-                          Android 使用已登录的 MSIME
-                          在线服务处理候选翻译；凭据保存在系统安全存储中，不会进入此设置页。
-                        </p>
-                      )}
-                    </div>
-                    {!androidPlatform && (
-                      <>
-                        <div className="section" role="group" aria-label="候选翻译服务">
-                          <label className="section-header">
-                            <span className="section-title">翻译服务</span>
-                            <select
-                              aria-label="候选翻译服务"
-                              disabled={!candidateTranslations}
-                              value={translationProvider}
-                              onChange={(event) =>
-                                setTranslationProvider(
-                                  event.target.value as "none" | "custom" | "tencent" | "niutrans",
-                                )
-                              }
-                            >
-                              <option value="none">关闭</option>
-                              <option value="tencent">腾讯云机器翻译</option>
-                              <option value="niutrans">小牛翻译（NiuTrans）</option>
-                              <option value="custom">自定义 DeepLX 兼容服务</option>
-                            </select>
-                          </label>
-                        </div>
-                        <div className="section" role="group" aria-label="小牛翻译（NiuTrans）">
-                          <label className="section-header">
-                            <span className="section-title">
-                              小牛翻译（NiuTrans）
-                              <small>使用 App ID 和 API Key 为候选词提供逐条翻译</small>
-                            </span>
-                            <input
-                              aria-label="小牛翻译（NiuTrans）"
-                              className="toggle"
-                              type="checkbox"
-                              disabled={!candidateTranslations}
-                              checked={niutrans.enabled}
-                              onChange={(event) =>
-                                setTranslationProvider(event.target.checked ? "niutrans" : "none")
-                              }
-                            />
-                          </label>
-                          <div className="input-option-divider" />
-                          <label className="section-header">
-                            <span className="section-title">App ID</span>
-                            <input
-                              aria-label="NiuTrans App ID"
-                              value={niutrans.app_id}
-                              disabled={!candidateTranslations || !niutrans.enabled}
-                              onChange={(event) =>
-                                setDraft({
-                                  ...draft,
-                                  niutrans: { ...niutrans, app_id: event.target.value },
-                                })
-                              }
-                            />
-                          </label>
-                          <div className="input-option-divider" />
-                          <label className="section-header">
-                            <span className="section-title">API Key</span>
-                            <SecretInput
-                              label="NiuTrans API Key"
-                              value={niutrans.apikey}
-                              disabled={!candidateTranslations || !niutrans.enabled}
-                              onChange={(value) =>
-                                setDraft({ ...draft, niutrans: { ...niutrans, apikey: value } })
-                              }
-                            />
-                          </label>
-                          {niutrans.enabled &&
-                            credentialTestControl(
-                              "translation.niutrans",
-                              "测试 NiuTrans 配置",
-                              { app_id: niutrans.app_id, apikey: niutrans.apikey },
-                              !candidateTranslations ||
-                                !niutrans.app_id.trim() ||
-                                !niutrans.apikey.trim(),
-                            )}
-                        </div>
-                        <div className="section" role="group" aria-label="在线翻译服务">
-                          {linuxPlatform ? (
-                            <>
-                              <div className="section-title">
-                                在线翻译服务
-                                <small>由用户管理的 Linux provider 服务负责网络请求和凭据</small>
-                              </div>
-                              <p className="input-setting-description">
-                                候选翻译开启后，provider 从用户配置目录的{" "}
-                                <code>tencent-provider.json</code>{" "}
-                                读取腾讯云凭据；设置页不保存不会生效的 SecretId 或 SecretKey。
-                              </p>
-                              {translationProvider === "tencent" &&
-                                credentialTestControl(
-                                  "translation.tencent",
-                                  "测试腾讯云翻译配置",
-                                  {},
-                                  !candidateTranslations,
-                                )}
-                            </>
-                          ) : (
-                            <>
-                              <label className="section-header">
-                                <span className="section-title">
-                                  在线翻译服务
-                                  <small>
-                                    候选翻译默认使用腾讯云机器翻译，需要填入你自己的 API 凭据
-                                  </small>
-                                </span>
-                                <input
-                                  aria-label="腾讯云机器翻译"
-                                  className="toggle"
-                                  type="checkbox"
-                                  disabled={!candidateTranslations}
-                                  checked={tencentTranslation.enabled}
-                                  onChange={(event) =>
-                                    setDraft({
-                                      ...draft,
-                                      tencent_tmt: {
-                                        ...tencentTranslation,
-                                        enabled: event.target.checked,
-                                      },
-                                    })
-                                  }
-                                />
-                              </label>
-                              <div className="input-option-divider" />
-                              <label className="section-header">
-                                <span className="section-title">SecretId</span>
-                                <input
-                                  aria-label="腾讯云 SecretId"
-                                  type="text"
-                                  autoComplete="off"
-                                  spellCheck={false}
-                                  value={tencentTranslation.secret_id}
-                                  disabled={!candidateTranslations || !tencentTranslation.enabled}
-                                  onChange={(event) =>
-                                    setDraft({
-                                      ...draft,
-                                      tencent_tmt: {
-                                        ...tencentTranslation,
-                                        secret_id: event.target.value,
-                                      },
-                                    })
-                                  }
-                                  placeholder="AKIDxxxxxxxxxxxxxxxx"
-                                />
-                              </label>
-                              <div className="input-option-divider" />
-                              <label className="section-header">
-                                <span className="section-title">SecretKey</span>
-                                <SecretInput
-                                  label="腾讯云 SecretKey"
-                                  value={tencentTranslation.secret_key}
-                                  disabled={!candidateTranslations || !tencentTranslation.enabled}
-                                  onChange={(value) =>
-                                    setDraft({
-                                      ...draft,
-                                      tencent_tmt: { ...tencentTranslation, secret_key: value },
-                                    })
-                                  }
-                                />
-                              </label>
-                              <div className="input-option-divider" />
-                              <label className="section-header">
-                                <span className="section-title">地域</span>
-                                <input
-                                  aria-label="腾讯云地域"
-                                  type="text"
-                                  autoComplete="off"
-                                  spellCheck={false}
-                                  value={tencentTranslation.region}
-                                  disabled={!candidateTranslations || !tencentTranslation.enabled}
-                                  onChange={(event) =>
-                                    setDraft({
-                                      ...draft,
-                                      tencent_tmt: {
-                                        ...tencentTranslation,
-                                        region: event.target.value,
-                                      },
-                                    })
-                                  }
-                                  placeholder="ap-guangzhou"
-                                />
-                              </label>
-                              {(windowsPlatform || macosPlatform) &&
-                                tencentTranslation.enabled &&
-                                credentialTestControl(
-                                  "translation.tencent",
-                                  "测试腾讯云翻译配置",
-                                  {
-                                    secret_id: tencentTranslation.secret_id,
-                                    secret_key: tencentTranslation.secret_key,
-                                    region: tencentTranslation.region,
-                                  },
-                                  !candidateTranslations ||
-                                    Boolean(
-                                      tencentCredentialIssue(
-                                        tencentTranslation.secret_id,
-                                        tencentTranslation.secret_key,
-                                        tencentTranslation.region,
-                                      ),
-                                    ),
-                                )}
-                              {candidateTranslations &&
-                                tencentTranslation.enabled &&
-                                tencentCredentialIssue(
-                                  tencentTranslation.secret_id,
-                                  tencentTranslation.secret_key,
-                                  tencentTranslation.region,
-                                ) && (
-                                  <p className={settings.settingsWarning} role="status">
-                                    {tencentCredentialIssue(
-                                      tencentTranslation.secret_id,
-                                      tencentTranslation.secret_key,
-                                      tencentTranslation.region,
-                                    )}
-                                  </p>
-                                )}
-                              {candidateTranslations &&
-                                tencentTranslation.enabled &&
-                                !tencentCredentialIssue(
-                                  tencentTranslation.secret_id,
-                                  tencentTranslation.secret_key,
-                                  tencentTranslation.region,
-                                ) &&
-                                !(
-                                  tencentSecretConfigured(tencentTranslation.secret_id) &&
-                                  tencentSecretConfigured(tencentTranslation.secret_key)
-                                ) &&
-                                !customTranslation.enabled && (
-                                  <p className={settings.settingsWarning} role="status">
-                                    未填写腾讯云凭据，候选翻译不会有任何结果。请填入 SecretId 与
-                                    SecretKey，或改用下面的自定义翻译服务。
-                                  </p>
-                                )}
-                            </>
-                          )}
-                        </div>
-                        {client.customTranslations && (
-                          <div className="section" role="group" aria-label="自定义候选释义设置">
-                            <div className="section-title">
-                              自定义候选释义
-                              <small>
-                                候选窗的中英互译来自内置词库；覆盖不全或译得不准时，可以自己加一层，不改内置词库。每行一条，用
-                                Tab 分隔源词和译文；以 #
-                                开头的行是注释。源词含汉字即为中译英，全是英文则为英译中。同一个源词写多次时以最后一次为准。保存后重新启动输入法生效。
-                              </small>
-                            </div>
-                            <textarea
-                              aria-label="自定义候选释义"
-                              rows={8}
-                              value={customTranslationsText}
-                              placeholder={customTranslationsExample}
-                              onChange={(event) => {
-                                setCustomTranslationsText(event.target.value);
-                                setCustomTranslationsNotice("");
-                              }}
-                            />
-                            <p role="status">
-                              {customTranslationsNotice || customTranslationsSummary}
-                            </p>
-                            <button
-                              type="button"
-                              className="secondary"
-                              disabled={customTranslationsBusy}
-                              onClick={() => void saveCustomTranslations()}
-                            >
-                              {customTranslationsBusy ? "保存中…" : "保存自定义释义"}
-                            </button>
-                          </div>
-                        )}
-                        <div className="section" role="group" aria-label="自定义翻译服务">
-                          <label className="section-header">
-                            <span className="section-title">
-                              自定义翻译服务
-                              <small>
-                                改用自建的兼容 DeepLX 的 HTTPS
-                                服务；关闭后候选翻译使用上面选择的在线服务
-                              </small>
-                            </span>
-                            <input
-                              aria-label="自定义翻译服务"
-                              className="toggle"
-                              type="checkbox"
-                              disabled={!candidateTranslations}
-                              checked={customTranslation.enabled}
-                              onChange={(event) =>
-                                setDraft({
-                                  ...draft,
-                                  custom_translation: {
-                                    ...customTranslation,
-                                    enabled: event.target.checked,
-                                  },
-                                })
-                              }
-                            />
-                          </label>
-                          <div className="input-option-divider" />
-                          <label className="section-header">
-                            <span className="section-title">翻译 Endpoint</span>
-                            <input
-                              aria-label="自定义翻译 Endpoint"
-                              type="url"
-                              value={customTranslation.endpoint}
-                              disabled={!candidateTranslations || !customTranslation.enabled}
-                              onChange={(event) =>
-                                setDraft({
-                                  ...draft,
-                                  custom_translation: {
-                                    ...customTranslation,
-                                    endpoint: event.target.value,
-                                  },
-                                })
-                              }
-                              placeholder="https://example.com/translate"
-                            />
-                          </label>
-                          {candidateTranslations &&
-                            customTranslation.enabled &&
-                            translationEndpointIssue(customTranslation.endpoint) && (
-                              <p className={settings.settingsWarning} role="status">
-                                {translationEndpointIssue(customTranslation.endpoint)}
-                              </p>
-                            )}
-                          <div className="input-option-divider" />
-                          <label className="section-header">
-                            <span className="section-title">API Key</span>
-                            <SecretInput
-                              label="自定义翻译 API Key"
-                              value={customTranslation.api_key}
-                              disabled={!candidateTranslations || !customTranslation.enabled}
-                              onChange={(value) =>
-                                setDraft({
-                                  ...draft,
-                                  custom_translation: { ...customTranslation, api_key: value },
-                                })
-                              }
-                            />
-                          </label>
-                          {customTranslation.enabled &&
-                            credentialTestControl(
-                              "translation.custom",
-                              "测试自定义翻译配置",
-                              {
-                                endpoint: customTranslation.endpoint,
-                                api_key: customTranslation.api_key,
-                              },
-                              !candidateTranslations ||
-                                Boolean(translationEndpointIssue(customTranslation.endpoint)),
-                            )}
-                        </div>
-                      </>
-                    )}
                     <div className="section" role="group" aria-label="中英混输">
                       <label className="section-header">
                         <span className="section-title">
@@ -6200,6 +6060,146 @@ export function SettingsPage({
                         </label>
                       </div>
                     ))}
+                    {/* macOS keeps this with the chords that trigger it, on the shortcut page. */}
+                    {showInputModeHUD && !macosPlatform && (
+                      <div className="section">
+                        <label className="section-header">
+                          <span className="section-title">
+                            中英文切换提示
+                            <small>
+                              切换输入模式后，在光标附近短暂显示“中”或“英”，不会抢占焦点。
+                            </small>
+                          </span>
+                          <input
+                            aria-label="中英文切换提示"
+                            className="toggle"
+                            type="checkbox"
+                            checked={inputModeHUD}
+                            onChange={(event) =>
+                              setDraft({ ...draft, input_mode_hud: event.target.checked })
+                            }
+                          />
+                        </label>
+                      </div>
+                    )}
+                    {client.candidateEnglishGloss && (
+                      <div className="section">
+                        <label className="section-header">
+                          <span className="section-title">
+                            显示英文释义
+                            <small>
+                              在候选词后面标出它的英文意思，中文候选给英文、英文候选给中文。释义来自随键盘打包的离线词库，不联网。
+                            </small>
+                          </span>
+                          <input
+                            aria-label="显示英文释义"
+                            className="toggle"
+                            type="checkbox"
+                            checked={candidateEnglishGloss}
+                            onChange={(event) =>
+                              setDraft({ ...draft, candidate_english_gloss: event.target.checked })
+                            }
+                          />
+                        </label>
+                      </div>
+                    )}
+                    {showEnglishSuggestions && (
+                      <div className="section">
+                        <label className="section-header">
+                          <span className="section-title">
+                            英文建议
+                            <small>
+                              英文 26
+                              键直接输入时，在候选栏显示当前单词的补全建议；关闭后仍可正常输入英文。
+                            </small>
+                          </span>
+                          <input
+                            aria-label="英文建议"
+                            className="toggle"
+                            type="checkbox"
+                            checked={englishSuggestions}
+                            onChange={(event) =>
+                              setDraft({ ...draft, english_suggestions: event.target.checked })
+                            }
+                          />
+                        </label>
+                      </div>
+                    )}
+                    <div className="section">
+                      <label className="section-header">
+                        <span className="section-title">
+                          默认中英文<small>新焦点会话开始时使用的中文或英文状态</small>
+                        </span>
+                        <select
+                          aria-label="默认中英文"
+                          value={draft.default_ime_mode ?? "chinese"}
+                          onChange={(event) =>
+                            setDraft({
+                              ...draft,
+                              default_ime_mode: event.target
+                                .value as Preferences["default_ime_mode"],
+                            })
+                          }
+                        >
+                          <option value="chinese">中文</option>
+                          <option value="english">英文</option>
+                        </select>
+                      </label>
+                    </div>
+                    {showModeScope && (
+                      <div className="section">
+                        <label className="section-header">
+                          <span className="section-title">
+                            中英文状态
+                            <small>按应用分别记忆输入状态，或让所有输入上下文保持同一状态</small>
+                          </span>
+                          <select
+                            aria-label="中英文状态"
+                            value={draft.ime_mode_scope ?? "app"}
+                            onChange={(event) =>
+                              setDraft({
+                                ...draft,
+                                ime_mode_scope: event.target.value as Preferences["ime_mode_scope"],
+                              })
+                            }
+                          >
+                            <option value="app">按应用</option>
+                            <option value="global">全局</option>
+                          </select>
+                        </label>
+                      </div>
+                    )}
+                    <div className="section">
+                      <label className="section-header">
+                        <span className="section-title">
+                          简繁输入<small>将提交的简体中文转换为繁体中文</small>
+                        </span>
+                        <input
+                          aria-label="简繁输入"
+                          className="toggle"
+                          type="checkbox"
+                          checked={draft.traditional_chinese_output ?? false}
+                          onChange={(event) =>
+                            setDraft({ ...draft, traditional_chinese_output: event.target.checked })
+                          }
+                        />
+                      </label>
+                    </div>
+                    <div className="section">
+                      <label className="section-header">
+                        <span className="section-title">
+                          云候选<small>向在线服务请求额外候选</small>
+                        </span>
+                        <input
+                          className="toggle"
+                          type="checkbox"
+                          checked={cloudCandidates}
+                          onChange={(event) =>
+                            setDraft({ ...draft, cloud_candidates: event.target.checked })
+                          }
+                        />
+                      </label>
+                    </div>
                     <div className="section" role="group" aria-labelledby="frequency-title">
                       <div className="section-title" id="frequency-title">
                         拼音方案调频

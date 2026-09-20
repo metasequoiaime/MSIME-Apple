@@ -55,31 +55,31 @@ test("host capabilities decide platform-specific settings instead of the user ag
   // the capability, not the platform name.
   mount({ host: capabilities({ platform: "windows", ime_mode_scope: true }) });
   await screen.findByRole("button", { name: "保存设置" });
-  expect(screen.getByLabelText("中英文状态范围")).toBeTruthy();
+  expect(screen.getByLabelText("中英文状态")).toBeTruthy();
 });
 
 test("a macOS host receives its native mode scope control", async () => {
   mount({ host: capabilities({ platform: "macos", ime_mode_scope: true }) });
   await screen.findByRole("button", { name: "保存设置" });
   expect(screen.getByText("按应用分别记忆输入状态，或让所有输入上下文保持同一状态")).toBeTruthy();
-  expect(screen.getByLabelText("中英文状态范围")).toBeTruthy();
+  expect(screen.getByLabelText("中英文状态")).toBeTruthy();
 });
 
 test("a touch host that can name the editor's application gets the mode scope control", async () => {
   // HarmonyOS reads the bundle name off the editor attribute, so a per-application map is real
   // there; the gate stays the capability rather than a list of desktop platform names.
   mount({ host: capabilities({ platform: "harmony", ime_mode_scope: true }) });
-  await screen.findByLabelText("中英文状态范围");
+  await screen.findByLabelText("中英文状态");
   cleanup();
   mount({ host: capabilities({ platform: "android", ime_mode_scope: false }) });
   await screen.findByLabelText("输入模式");
-  expect(screen.queryByLabelText("中英文状态范围")).toBeNull();
+  expect(screen.queryByLabelText("中英文状态")).toBeNull();
 });
 
 test("a host without mode scope support does not receive the control", async () => {
   mount({ host: capabilities({ platform: "windows" }) });
   await screen.findByRole("button", { name: "保存设置" });
-  expect(screen.queryByLabelText("中英文状态范围")).toBeNull();
+  expect(screen.queryByLabelText("中英文状态")).toBeNull();
 });
 
 test("a host without capabilities keeps the previous user-agent behaviour", async () => {
@@ -87,7 +87,7 @@ test("a host without capabilities keeps the previous user-agent behaviour", asyn
   // false under jsdom, so this matches the behaviour shipped before the contract.
   mount({});
   await screen.findByRole("button", { name: "保存设置" });
-  expect(screen.queryByLabelText("中英文状态范围")).toBeNull();
+  expect(screen.queryByLabelText("中英文状态")).toBeNull();
 });
 
 test("typing statistics follow the injected client on any platform", async () => {
