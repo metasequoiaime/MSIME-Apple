@@ -147,7 +147,25 @@
 
 两类条目没有目的地实现，都是平台差异而非缺口：Windows 的服务守护与服务重启/退出快捷键针对独立 Server 进程，HarmonyOS 的输入法扩展由系统拉起与回收。
 
-未取得设备证据的部分集中在三处：硬件按键经 Engine 组字、语音 provider 实际识别、手写实际识别。后两者需要凭据与真实音频/笔迹。其余条目均有不依赖设备的回归覆盖，且输入法在设备上已完成安装、启用、切换、原生模块加载、Engine 会话建立、面板创建与接管真实编辑器。
+2026-09-20 在 2in1 模拟器实例（`const.product.devicetype` = `2in1`、API 23、aarch64）上取得了硬件按键这一栏的设备证据，该栏此前长期记为"未验证"。逐项结果：
+
+| 项目 | 设备证据 |
+| --- | --- |
+| 安装、启用、切为当前输入法 | `ime -e -f` 返回 `FULL_EXPERIENCE_MODE`，`ime -g` 返回本宿主 |
+| 扩展启动链 | `module loaded` → `session 1 created` → `routing hardware keys: 0 device(s)` → `panel ready: 2in1, candidate window, with toolbar` |
+| 接管真实编辑器 | 浏览器页内搜索框：`attached to editor: pattern=0 enter=3` |
+| 硬件和弦 `Ctrl+Shift+E` | 工具栏在 `中` 与 `英` 之间往返切换，两个方向均生效 |
+| 按键领取契约 | 中文模式下字母键被领取、不进编辑器；英文模式下同一键穿透到编辑器；退格两种模式下均放行 |
+| `Ctrl+Shift+Super+K` 打开屏幕键盘 | 和弦按下后面板出现在窗口底部 |
+| 悬浮工具栏渲染 | 屏幕右下角显示 `中 。 半 简 😊 ⚙` 并随模式更新 |
+
+其中按键领取契约是关键判据：**同一个字母键在两种模式下行为相反**，这只有键真正进入本宿主的路由才可能发生。
+
+同次运行暴露一个设备上才能观察到的缺陷，**尚未修复**：2in1 上字母被领进组合串后，预编辑与候选窗都不出现。已排除的原因有两项——`panel.show()` 本身可用（`Ctrl+Shift+Super+K` 能把面板显示出来），`onComposition` 回调确实在 `if (desktop)` 分支内被赋值。资源暂存也成立（`StagedResources.stage` 返回假时 `onCreate` 会提前返回，而日志显示 `session 1 created` 与 `panel ready` 都发生了）。症状收敛为：Engine 接受按键但不返回 editing text，因此 `composing()` 始终为假、`onComposition(true)` 从不触发。再往下定位需要带诊断日志的构建。
+
+复现步骤：2in1 实例上安装并切为当前输入法 → 打开浏览器并点中页内搜索框（确认日志出现 `attached to editor`）→ 确认工具栏显示 `中` → `hdc shell uinput -K -d 2030 -i 50 -u 2030`。预期出现候选窗，实际字段与面板都无变化。
+
+仍未取得设备证据的是：语音 provider 实际识别、手写实际识别。两者需要真实凭据与真实音频/笔迹。其余条目均有不依赖设备的回归覆盖。
 
 候选皮肤一项此前只写「逻辑回归」，掩盖了一个外观缺陷：四个来源皮肤被近似映射到触摸键盘的调色板上，而 `wechat` 与 `willow_green` 都落在 `forest`，于是微信绿与杨柳青在 2in1 上完全同色——`#07c160` 和 `#58b980` 并不接近，四个皮肤实际只剩三个。不渲染上游 CSS 并不需要另造一套颜色：上游样式表就在本仓库 `packages/ui/src/upstream/candidate-themes/skins` 下，四套配色（明暗各一）现直接取自各自的样式表，由 ArkUI 原生绘制。触摸键盘的八个皮肤是另一项偏好，未改动，这四个也不进触摸皮肤选择器。
 

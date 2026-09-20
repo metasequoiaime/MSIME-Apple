@@ -180,7 +180,11 @@ MSIME: panel ready: phone, soft keyboard
 
 切换本身已验证：解锁屏幕后 `ime -s app.msime.client` 成功，`ime -g` 返回 `status: FULL_EXPERIENCE_MODE`。2in1 实例（`const.product.devicetype` = `2in1`、API 23、aarch64）上同样验证通过：安装、启用、切换为当前输入法均成功，原生模块加载。这是硬件键盘相关功能（模式和弦、语音快捷键、维护和弦）的目标形态。
 
-模拟器在本机的故障边界，已排查到具体原因而非笼统"需要设备"：手机实例的 sceneboard 反复卡死（faultlog 多条 `sysfreeze-com.ohos.sceneboard`），`aa start` 报成功但画面不刷新、注入触摸不落到图标；新建的干净实例部署完镜像后 qemu 始终不启动；2in1 实例 guest 内核与 hdc 正常，但显示不出帧、`uitest dumpLayout` 等待 UI 服务广播超时。三个实例三种失败，都在模拟器的显示/UI 层，guest 侧正常。因此无法让任一编辑器取得焦点，而输入法扩展要等编辑器请求才被系统拉起。
+模拟器起不来的真实原因是**磁盘空间**，不是模拟器本身。上面这段曾把它记成"三个实例三种失败，都在模拟器的显示/UI 层"——那是错的，现予纠正：sceneboard 卡死、qemu 不启动、显示不出帧、`uitest` 等待 UI 服务超时，这些症状都出现在宿主机根分区被构建产物占到 97%（可用 16 GB）的时候。清掉仓库里可重建的 `target/debug`（约 6.6 GB）之后，同一个 2in1 实例 **45 秒启动**，显示、桌面、触摸注入与截图全部正常，随后完成了硬件按键的整套验证。
+
+教训是判据问题：症状出现在模拟器的显示层，不等于成因在那里。排查顺序应当是先 `df -h` 再怪模拟器。
+
+清理时有一处必须当心：Android AVD 就放在仓库的 `target/android/avd-home/` 下，运行中的 qemu 会持有它的镜像文件句柄。macOS 允许删除已打开的文件，进程不会崩但后备存储没了，所以不能对 `target/` 整体 `rm -rf`；用 `lsof +D target/<子目录>` 逐个确认再删。
 
 已验证（2026-09-20）：输入法接管真实编辑器。验证办法是一个一次性探针应用——页面上一个 `TextInput` 加 `.defaultFocus(true)`，加载即自动取得焦点，因此不依赖显示层出帧、也不依赖触摸注入命中图标（这台机器上模拟器的显示栈正是这两处失效）。探针启动后本宿主日志出现 `attached to editor: pattern=-1 enter=6`，`ps` 显示 `app.msime.client:inputMethod` 进程在运行并为该输入框回报 `SetTextFieldAvoidInfo`。即系统把一个真实编辑器的输入路由给了本输入法，本输入法作出了响应。
 
