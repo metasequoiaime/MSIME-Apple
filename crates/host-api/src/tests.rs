@@ -202,6 +202,163 @@ fn surface_route_boundary_resolves_panels_and_rejects_bad_buffers() {
 }
 
 #[test]
+fn smart_punctuation_gesture_boundary_arms_and_decides_from_the_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host_preferences(
+        dir.path(),
+        Preferences {
+            smart_punctuation: true,
+            smart_punctuation_repeat: true,
+            smart_punctuation_space_convert: true,
+            ..chinese_preferences()
+        },
+    );
+    let arm = |body: serde_json::Value| {
+        let text = body.to_string();
+        // SAFETY: the buffer outlives the call.
+        read(unsafe { msime_client_smart_punctuation_arm(handle, text.as_ptr(), text.len()) })
+    };
+    let decide = |body: serde_json::Value| {
+        let text = body.to_string();
+        // SAFETY: the buffer outlives the call.
+        read(unsafe { msime_client_smart_punctuation_decide(handle, text.as_ptr(), text.len()) })
+    };
+
+    // An ASCII mark the host committed arms the repeat gesture and nothing else.
+    let armed = arm(json!({
+        "ascii": 44, "commit": ",", "timestamp_ms": 1_000,
+        "editor_generation": 3, "auto_closed_pair": false
+    }));
+    assert_eq!(armed["ok"], true);
+    assert_eq!(armed["value"]["repeat"]["committed"], ",");
+    assert!(
+        armed["value"]["space"].is_null(),
+        "a comma is not a Chinese mark"
+    );
+
+    let repeat = armed["value"]["repeat"].clone();
+    let replaced = decide(json!({
+        "character": 44, "preceding": ",", "timestamp_ms": 1_500,
+        "editor_generation": 3, "repeat": repeat, "space": null
+    }));
+    assert_eq!(replaced["value"]["replace_with"], "，");
+    assert!(replaced["value"]["space_ascii"].is_null());
+
+    // Past the window, in another editor, or over a character that is no longer there: nothing.
+    for (timestamp, generation, preceding) in [(4_000, 3, ","), (1_500, 9, ","), (1_500, 3, "好")]
+    {
+        let answer = decide(json!({
+            "character": 44, "preceding": preceding, "timestamp_ms": timestamp,
+            "editor_generation": generation, "repeat": armed["value"]["repeat"], "space": null
+        }));
+        assert!(
+            answer["value"]["replace_with"].is_null(),
+            "{timestamp} {generation} {preceding} still replaced"
+        );
+    }
+
+    // A committed Chinese mark arms the space conversion instead.
+    let armed = arm(json!({
+        "ascii": 46, "commit": "。", "timestamp_ms": 2_000,
+        "editor_generation": 3, "auto_closed_pair": false
+    }));
+    assert!(
+        armed["value"]["repeat"].is_null(),
+        "the ASCII press never landed"
+    );
+    assert_eq!(armed["value"]["space"]["ascii"], 46);
+
+    let space = armed["value"]["space"].clone();
+    let converted = decide(json!({
+        "character": 32, "preceding": "。", "timestamp_ms": 2_100,
+        "editor_generation": 3, "repeat": null, "space": space
+    }));
+    assert_eq!(converted["value"]["space_ascii"], 46);
+    // An auto-closed pair never arms: the caret sits between the two marks.
+    let paired = arm(json!({
+        "ascii": 40, "commit": "（", "timestamp_ms": 2_000,
+        "editor_generation": 3, "auto_closed_pair": true
+    }));
+    assert!(paired["value"]["space"].is_null());
+
+    // Malformed buffers are refused, not dereferenced.
+    assert_eq!(
+        read(unsafe { msime_client_smart_punctuation_arm(handle, std::ptr::null(), 8) })["ok"],
+        false
+    );
+    let body = json!({
+        "character": 32, "preceding": "ab", "timestamp_ms": 1,
+        "editor_generation": 3, "repeat": null, "space": null
+    })
+    .to_string();
+    assert_eq!(
+        read(unsafe { msime_client_smart_punctuation_decide(handle, body.as_ptr(), body.len()) })
+            ["ok"],
+        false,
+        "preceding must be a single scalar"
+    );
+}
+
+#[test]
+fn smart_punctuation_gestures_follow_their_own_switches() {
+    let dir = tempfile::tempdir().unwrap();
+    let arm = |handle: u64, body: serde_json::Value| {
+        let text = body.to_string();
+        // SAFETY: the buffer outlives the call.
+        read(unsafe { msime_client_smart_punctuation_arm(handle, text.as_ptr(), text.len()) })
+    };
+    let comma = json!({
+        "ascii": 44, "commit": ",", "timestamp_ms": 0,
+        "editor_generation": 1, "auto_closed_pair": false
+    });
+    let period = json!({
+        "ascii": 46, "commit": "。", "timestamp_ms": 0,
+        "editor_generation": 1, "auto_closed_pair": false
+    });
+
+    // The shipped defaults are not the same for the two: repeat follows smart punctuation and is
+    // on everywhere but Windows, while space conversion is off until asked for, because it
+    // rewrites a character the user already watched land.
+    let shipped = test_host_preferences(dir.path(), chinese_preferences());
+    assert_eq!(
+        arm(shipped, comma.clone())["value"]["repeat"]["committed"],
+        ","
+    );
+    assert!(
+        arm(shipped, period.clone())["value"]["space"].is_null(),
+        "space conversion is off until it is asked for"
+    );
+
+    // Each switch answers only for its own gesture.
+    let repeat_off = test_host_preferences(
+        dir.path(),
+        Preferences {
+            smart_punctuation_repeat: false,
+            smart_punctuation_space_convert: true,
+            ..chinese_preferences()
+        },
+    );
+    assert!(arm(repeat_off, comma.clone())["value"]["repeat"].is_null());
+    assert_eq!(
+        arm(repeat_off, period.clone())["value"]["space"]["ascii"],
+        46
+    );
+
+    // Smart punctuation off is the whole family off, whatever the sub-switches say.
+    let all_off = test_host_preferences(
+        dir.path(),
+        Preferences {
+            smart_punctuation: false,
+            smart_punctuation_repeat: true,
+            smart_punctuation_space_convert: true,
+            ..chinese_preferences()
+        },
+    );
+    assert!(arm(all_off, comma)["value"]["repeat"].is_null());
+    assert!(arm(all_off, period)["value"]["space"].is_null());
+}
+
+#[test]
 fn shuangpin_key_hint_boundary_publishes_the_engine_face() {
     let hints = |value: &str| {
         // SAFETY: the slice outlives the call.

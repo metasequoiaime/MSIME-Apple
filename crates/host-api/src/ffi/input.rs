@@ -218,6 +218,189 @@ pub extern "C" fn msime_client_punctuation_with_context(
     }
 }
 
+/// Whether the commit just made arms either smart-punctuation follow-up gesture.
+///
+/// Both answers are pure, but the switches that gate them live in the applied preferences, so the
+/// host asks the session rather than keeping a second copy of them. The host holds the returned
+/// snapshots: they belong to its editor, not to Engine, and a session rebuilt while the keyboard
+/// was away must not carry a gesture across the gap.
+/// # Safety
+/// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
+/// The returned response must be released with `msime_client_string_free`.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_smart_punctuation_arm(
+    handle: u64,
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Request {
+        ascii: u8,
+        commit: String,
+        timestamp_ms: u64,
+        editor_generation: u64,
+        auto_closed_pair: bool,
+    }
+    response(|| {
+        if request.is_null() || length > 4096 {
+            return Err("invalid smart punctuation request".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract; size checked above.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let value: Request =
+            serde_json::from_slice(bytes).map_err(|_| "invalid smart punctuation request")?;
+        SESSIONS.with(|sessions| {
+            let sessions = sessions
+                .try_borrow()
+                .map_err(|_| "reentrant host call".to_owned())?;
+            let session = sessions
+                .get(&handle)
+                .ok_or_else(|| "unknown session or wrong thread".to_owned())?;
+            let smart = session.applied.smart_punctuation;
+            let repeat = msime_client_core::punctuation::arm_repeat(
+                value.ascii,
+                &value.commit,
+                value.timestamp_ms,
+                value.editor_generation,
+            )
+            .filter(|_| smart && session.applied.smart_punctuation_repeat);
+            let space = msime_client_core::punctuation::arm_space_convert(
+                &value.commit,
+                value.auto_closed_pair,
+                smart,
+                session.applied.smart_punctuation_space_convert,
+                value.editor_generation,
+            );
+            Ok(json!({
+                "repeat": repeat.map(|armed| json!({
+                    "ascii": armed.ascii,
+                    "committed": armed.committed.to_string(),
+                    "timestamp_ms": armed.timestamp_ms,
+                    "editor_generation": armed.editor_generation,
+                })),
+                "space": space.map(|armed| json!({
+                    "chinese": armed.chinese.to_string(),
+                    "ascii": armed.ascii,
+                    "editor_generation": armed.editor_generation,
+                })),
+            }))
+        })
+    })
+}
+
+/// What a key press should do, given what the host has armed.
+///
+/// `preceding` is what the editor actually holds before the caret, read at the moment of the
+/// press. Both decisions re-read it and decline when it disagrees with the arming, so a stale
+/// snapshot can never rewrite the wrong character.
+/// # Safety
+/// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
+/// The returned response must be released with `msime_client_string_free`.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_smart_punctuation_decide(
+    handle: u64,
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct ArmedRepeat {
+        ascii: u8,
+        committed: String,
+        timestamp_ms: u64,
+        editor_generation: u64,
+    }
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct ArmedSpace {
+        chinese: String,
+        ascii: u8,
+        editor_generation: u64,
+    }
+    #[derive(Deserialize)]
+    #[serde(deny_unknown_fields)]
+    struct Request {
+        character: u8,
+        preceding: Option<String>,
+        timestamp_ms: u64,
+        editor_generation: u64,
+        repeat: Option<ArmedRepeat>,
+        space: Option<ArmedSpace>,
+    }
+    response(|| {
+        if request.is_null() || length > 4096 {
+            return Err("invalid smart punctuation request".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract; size checked above.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let value: Request =
+            serde_json::from_slice(bytes).map_err(|_| "invalid smart punctuation request")?;
+        let single = |text: &str| -> Result<char, String> {
+            let mut characters = text.chars();
+            let first = characters.next().ok_or_else(|| "empty scalar".to_owned())?;
+            if characters.next().is_some() {
+                return Err("expected a single scalar".into());
+            }
+            Ok(first)
+        };
+        let preceding = match value.preceding.as_deref() {
+            None | Some("") => None,
+            Some(text) => Some(single(text)?),
+        };
+        let repeat_snapshot = match value.repeat {
+            None => None,
+            Some(armed) => Some(msime_client_core::punctuation::RepeatSnapshot {
+                ascii: armed.ascii,
+                committed: single(&armed.committed)?,
+                timestamp_ms: armed.timestamp_ms,
+                editor_generation: armed.editor_generation,
+            }),
+        };
+        let space_snapshot = match value.space {
+            None => None,
+            Some(armed) => Some(msime_client_core::punctuation::SpaceConvertSnapshot {
+                chinese: single(&armed.chinese)?,
+                ascii: armed.ascii,
+                editor_generation: armed.editor_generation,
+            }),
+        };
+        SESSIONS.with(|sessions| {
+            let sessions = sessions
+                .try_borrow()
+                .map_err(|_| "reentrant host call".to_owned())?;
+            let session = sessions
+                .get(&handle)
+                .ok_or_else(|| "unknown session or wrong thread".to_owned())?;
+            let view = session.runtime.view();
+            let replace = msime_client_core::punctuation::should_replace_repeat(
+                repeat_snapshot,
+                msime_client_core::punctuation::RepeatContext {
+                    ascii: value.character,
+                    preceding,
+                    timestamp_ms: value.timestamp_ms,
+                    editor_generation: value.editor_generation,
+                    smart_punctuation: session.applied.smart_punctuation,
+                    repeat_enabled: session.applied.smart_punctuation_repeat,
+                    has_composition: !session.runtime.is_idle(),
+                    candidate_count: view.candidates.len(),
+                },
+            );
+            let space = msime_client_core::punctuation::decide_space_convert(
+                space_snapshot,
+                value.character,
+                preceding,
+                !session.runtime.is_idle(),
+                value.editor_generation,
+            );
+            Ok(json!({
+                "replace_with": replace.map(|mark| mark.to_string()),
+                "space_ascii": space,
+            }))
+        })
+    })
+}
+
 /// Notify Engine that a host-emitted paired closing mark completed the opening.
 #[no_mangle]
 pub extern "C" fn msime_client_balance_paired_punctuation_after_auto_close(
