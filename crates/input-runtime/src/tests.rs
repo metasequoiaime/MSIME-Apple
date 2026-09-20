@@ -883,45 +883,58 @@ fn expanded_panel_selection_accepts_only_any_candidate_from_current_generation()
 }
 
 #[test]
-fn candidate_page_edges_stay_within_the_active_page() {
+fn candidate_list_edges_reach_the_ends_of_the_whole_list() {
     let mut runtime = runtime();
     runtime.focus(true).unwrap();
     type_key(&mut runtime);
-    let first = runtime.dispatch(Action::FirstCandidateOnPage).unwrap().view;
-    assert_eq!(
-        first
-            .candidates
+    let highlighted = |view: &View| {
+        view.candidates
             .iter()
-            .find(|c| c.highlighted)
+            .find(|candidate| candidate.highlighted)
             .unwrap()
-            .text,
-        "candidate-0"
-    );
-    let last = runtime.dispatch(Action::LastCandidateOnPage).unwrap().view;
-    assert_eq!(
-        last.candidates.iter().find(|c| c.highlighted).unwrap().text,
-        "candidate-4"
-    );
+            .text
+            .clone()
+    };
+
+    // From the second page, Home goes back to the very first candidate and takes the page with it -
+    // the reference answers its Home with SetSelection(0), which readjusts the page. Stopping at the
+    // top of the page the user is already looking at is a keystroke that changes almost nothing.
     runtime.dispatch(Action::NextPage).unwrap();
-    let page_last = runtime.dispatch(Action::LastCandidateOnPage).unwrap().view;
+    let first = runtime.dispatch(Action::FirstCandidate).unwrap().view;
+    assert_eq!(highlighted(&first), "candidate-0");
+    assert_eq!(first.page, 0);
+
+    // End reaches the last candidate there is, page and all. The fixture holds twelve at a page of
+    // five, so that is the third page rather than the end of the first.
+    let last = runtime.dispatch(Action::LastCandidate).unwrap().view;
+    assert_eq!(highlighted(&last), "candidate-11");
+    assert_eq!(last.page, 2);
+    assert_eq!(last.page_count, 3);
+
+    // Pressing it again stays put rather than walking further.
+    let again = runtime.dispatch(Action::LastCandidate).unwrap().view;
+    assert_eq!(highlighted(&again), "candidate-11");
+}
+
+// The Engine caps what it returns to a short query and hands the rest over when asked. End has to
+// ask, or it lands on the last candidate that happened to be cached - and a second press would then
+// move further, which is not what an End key does.
+#[test]
+fn the_last_candidate_is_the_last_one_the_engine_has() {
+    let mut runtime = withholding_runtime(5, 4, 5);
+    runtime.focus(true).unwrap();
+    let page = type_key(&mut runtime).view;
+    assert_eq!(page.page_count, 1);
+
+    let last = runtime.dispatch(Action::LastCandidate).unwrap().view;
+    assert_eq!(last.page_count, 2);
     assert_eq!(
-        page_last
-            .candidates
+        last.candidates
             .iter()
-            .find(|c| c.highlighted)
+            .find(|candidate| candidate.highlighted)
             .unwrap()
             .text,
-        "candidate-9"
-    );
-    let page_first = runtime.dispatch(Action::FirstCandidateOnPage).unwrap().view;
-    assert_eq!(
-        page_first
-            .candidates
-            .iter()
-            .find(|c| c.highlighted)
-            .unwrap()
-            .text,
-        "candidate-5"
+        "candidate-8"
     );
 }
 

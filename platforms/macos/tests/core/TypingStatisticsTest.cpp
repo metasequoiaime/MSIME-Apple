@@ -34,6 +34,11 @@ int main() {
 
     const auto directory = std::filesystem::temp_directory_path() / "msime-macos-typing-statistics-test";
     std::filesystem::remove_all(directory);
+    // Statistics are off until the user turns them on, as the baseline ships them, and a record into
+    // a store that is off counts nothing. Turning them on here is what the settings page does before
+    // any of this is reachable.
+    assert(call(directory, "{\"operation\":\"set_enabled\",\"enabled\":true}").find("\"enabled\":true") !=
+           std::string::npos);
     const auto result = call(directory, "{\"operation\":\"record\",\"text\":\"合成🌲\",\"source\":\"japanese\",\"day\":\"2026-09-15\"}");
     assert(result.find("\"recorded\":3") != std::string::npos);
     const auto loaded = call(directory, "{\"operation\":\"load\"}");

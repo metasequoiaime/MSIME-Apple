@@ -6241,8 +6241,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         (key == IBUS_Home || key == IBUS_KP_Home || key == IBUS_End ||
          key == IBUS_KP_End)) {
       const auto command = (key == IBUS_Home || key == IBUS_KP_Home)
-                               ? MSIME_FIRST_CANDIDATE_ON_PAGE
-                               : MSIME_LAST_CANDIDATE_ON_PAGE;
+                               ? MSIME_FIRST_CANDIDATE
+                               : MSIME_LAST_CANDIDATE;
       handled = apply(engine, msime_client_command(s.session, command));
       return;
     }

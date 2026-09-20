@@ -4684,9 +4684,9 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     case FcitxKey_Left: case FcitxKey_KP_Left: return command(MSIME_MOVE_LEFT);
     case FcitxKey_Right: case FcitxKey_KP_Right: return command(MSIME_MOVE_RIGHT);
     case FcitxKey_Home: case FcitxKey_KP_Home:
-      return command(MSIME_FIRST_CANDIDATE_ON_PAGE);
+      return command(MSIME_FIRST_CANDIDATE);
     case FcitxKey_End: case FcitxKey_KP_End:
-      return command(MSIME_LAST_CANDIDATE_ON_PAGE);
+      return command(MSIME_LAST_CANDIDATE);
     case FcitxKey_Tab: case FcitxKey_KP_Tab:
       if (navigation_.value("tab", true)) return command(shift ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE);
       break;
