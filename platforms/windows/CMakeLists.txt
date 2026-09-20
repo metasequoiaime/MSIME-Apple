@@ -718,6 +718,33 @@ foreach(target msime-windows-session windows-session-smoke windows-reply-codec m
     target_compile_options(${target} PRIVATE -Wall -Wextra -Werror)
   endif()
 endforeach()
+# The clipboard store and its presentation mailbox. All three of these sat in
+# the tree with no CMakeLists naming them, so nothing compiled them and they
+# were absent from every build and every count - the same shape as the
+# msimeui-tests entry in known-failures.txt. Registered outside the WIN32-only
+# Server block below, because none of them needs the Server. Written out one by
+# one rather than generated: the name of a test source should be findable by
+# searching for it.
+add_library(msime-windows-clipboard STATIC src/clipboard/ClipboardHistory.cpp
+            src/clipboard/ClipboardPresentation.cpp)
+target_include_directories(msime-windows-clipboard PUBLIC src src/clipboard)
+target_link_libraries(msime-windows-clipboard PUBLIC nlohmann_json::nlohmann_json)
+add_executable(windows-clipboard-history tests/clipboard/clipboard_history.cpp)
+target_link_libraries(windows-clipboard-history PRIVATE msime-windows-clipboard)
+add_executable(windows-clipboard-link tests/clipboard/clipboard_link.cpp)
+target_link_libraries(windows-clipboard-link PRIVATE msime-windows-clipboard)
+add_executable(windows-clipboard-presentation tests/clipboard/clipboard_presentation.cpp)
+target_link_libraries(windows-clipboard-presentation PRIVATE msime-windows-clipboard)
+foreach(clipboard_target windows-clipboard-history windows-clipboard-link
+        windows-clipboard-presentation)
+  if(MSVC)
+    target_compile_options(${clipboard_target} PRIVATE /W4 /WX /utf-8)
+  else()
+    target_compile_options(${clipboard_target} PRIVATE -Wall -Wextra -Werror)
+  endif()
+  add_test(NAME ${clipboard_target} COMMAND ${clipboard_target})
+  set_tests_properties(${clipboard_target} PROPERTIES TIMEOUT 30)
+endforeach()
 if(WIN32)
   install(FILES installer/config.default.toml DESTINATION share/msime)
   install(DIRECTORY installer/assets/icons/ DESTINATION share/msime/icons)
