@@ -3467,3 +3467,72 @@ fn a_settled_model_beside_the_resources_is_discovered() {
         beside.join("sentence-model-desktop.safetensors").to_str()
     );
 }
+
+/// Every entry point the C header promises is actually exported, and the other way round.
+///
+/// Native hosts compile against `include/msime_client.h`; the Rust side is the implementation.
+/// Nothing was comparing the two, so `msime_client_rerank_settled` shipped as a Rust export with
+/// no declaration — invisible here and a compile error in every native host that reached for it.
+/// A text comparison is enough to catch that, and catches the reverse omission too.
+#[test]
+fn the_c_header_and_the_rust_exports_agree() {
+    const HEADER: &str = include_str!("../include/msime_client.h");
+    // Walked rather than listed: a guard that needs a new entry every time a module is added is
+    // a guard that silently stops covering things.
+    fn read_all(directory: &std::path::Path, into: &mut String) {
+        for entry in std::fs::read_dir(directory).expect("source directory") {
+            let path = entry.expect("entry").path();
+            if path.is_dir() {
+                read_all(&path, into);
+            } else if path.extension().is_some_and(|e| e == "rs")
+                // This file included would match its own matcher's literals.
+                && path.file_name().is_some_and(|name| name != "tests.rs")
+            {
+                into.push_str(&std::fs::read_to_string(&path).expect("source"));
+            }
+        }
+    }
+    let mut sources = String::new();
+    read_all(std::path::Path::new("src"), &mut sources);
+
+    let names = |text: &str, prefix: &str| -> std::collections::BTreeSet<String> {
+        text.match_indices(prefix)
+            .map(|(start, _)| {
+                text[start..]
+                    .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+                    .next()
+                    .unwrap_or_default()
+                    .to_owned()
+            })
+            .filter(|name| name.len() > prefix.len())
+            .collect()
+    };
+
+    let declared = names(HEADER, "msime_client_");
+    // Only what is actually exported: a bare text match also catches `msime_client_core::`, the
+    // crate this one depends on, whose paths are not entry points.
+    let exported: std::collections::BTreeSet<String> = sources
+        .split("#[no_mangle]")
+        .skip(1)
+        .filter_map(|block| {
+            let start = block.find("fn msime_client_")? + "fn ".len();
+            Some(
+                block[start..]
+                    .split(|c: char| !c.is_ascii_alphanumeric() && c != '_')
+                    .next()?
+                    .to_owned(),
+            )
+        })
+        .collect();
+    assert!(!declared.is_empty() && !exported.is_empty());
+
+    // One direction only. The header also declares types and callback typedefs under the same
+    // prefix — `msime_client_key_event`, `msime_client_focus_lease` — which are not functions and
+    // have no Rust export to match. The direction that breaks a host build is the other one: an
+    // export a native host cannot see because nothing declares it.
+    let undeclared: Vec<_> = exported.difference(&declared).cloned().collect();
+    assert!(
+        undeclared.is_empty(),
+        "exported from Rust, absent from include/msime_client.h: {undeclared:?}"
+    );
+}
