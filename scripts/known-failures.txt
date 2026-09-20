@@ -207,23 +207,16 @@ desktop tests/candidate/external-skins.test.tsx > settings synchronize all cards
 # not carry that awareness context back out of GetWindowDpiAwarenessContext.
 # A Wine limit, and a narrower one than the entry it replaces.
 wine windows-server-smoke
-# windows-session-smoke stops at "Active candidate translation was not
-# re-dispatched", which is an input the suite documents rather than a defect:
-# it takes an optional absolute resource directory as argv[1], and without one
-# its dictionaries are empty temp directories, so typing "ni" produces no
-# candidate to translate. The outer "Preference retry task failed" used to hide
-# this - a require() inside a queued task throws on the worker thread and the
-# queue turns it into a status - which the harness now prints.
+# windows-session-smoke needs the optional absolute resource directory the
+# suite documents as argv[1]; run-tests-wine.sh passes it when
+# MSIME_WINE_RESOURCES points at one. With it, preparation now succeeds and the
+# suite reaches "Layout-produced punctuation replaced digit selection" - an
+# assertion nothing had ever executed, because every earlier run stopped before
+# it. That one is the next thing to look at, not a known environment limit.
 #
-# Staging the artefacts from resources/desktop-dictionary.lock.json and passing
-# them through MSIME_WINE_RESOURCES does not finish it either: preparation then
-# fails under Wine at "Locked dictionary preparation failed", while the same
-# msime_client_prepare_host call against the same directory returns ok:true
-# natively. So that last step is a Wine limit, not a product one.
-#
-# Two earlier entries here were wrong about the cause and are worth remembering:
-# session_pump.cpp:334 looked like punctuation routing and was ServerSession::key
-# swallowing every unmodified letter (#3116, a real defect); the mode-notification
-# loop looked like a product bug and was a wrong expectation about full/half-width
-# (#3117).
+# An earlier version of this entry said preparation failing under Wine was "a
+# Wine limit, not a product one". That was wrong. The cause was
+# std::fs::canonicalize returning a \\?\ verbatim path and libstdc++ reading it
+# as having no root name, so the Engine refused it as not absolute - the same
+# binaries would refuse it on Windows. It is fixed rather than recorded.
 wine windows-session-smoke

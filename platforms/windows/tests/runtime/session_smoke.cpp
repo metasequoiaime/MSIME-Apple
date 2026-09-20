@@ -154,6 +154,12 @@ int main(int argc, char **argv) {
               reinterpret_cast<const uint8_t *>(input.data()), input.size()),
           msime_client_string_free);
       auto document = Json::parse(prepared.get());
+      if (!document.at("ok").get<bool>()) {
+        // The reply carries why. Asserting only on `ok` throws that away and
+        // leaves one message standing for every way preparation can fail.
+        std::fprintf(stderr, "dictionary preparation refused: %s\n  asked: %s\n",
+                     document.dump().c_str(), input.c_str());
+      }
       require(document.at("ok").get<bool>(),
               "Locked dictionary preparation failed");
       options = document.at("value");
