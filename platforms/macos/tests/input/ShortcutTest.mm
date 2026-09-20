@@ -1121,6 +1121,22 @@ static void TestFullWidth(NSUserDefaults *defaults, MSIMEAppearancePreferences *
         assert(![controller handleEvent:ModeKey(4, chord | extra, NO) client:client]);
         assert(appearance.fullWidthInput);
     }
+    // Turning the preference off gives Option+Shift+H back to the application. Ctrl+Shift+Space is
+    // not what the settings page names, so it keeps working either way.
+    const BOOL restoreFullWidthShortcut = appearance.fullWidthShortcut;
+    const BOOL fullWidthBefore = appearance.fullWidthInput;
+    appearance.fullWidthShortcut = NO;
+    assert(![controller handleEvent:ModeKey(4, chord, NO) client:client]);
+    assert(appearance.fullWidthInput == fullWidthBefore);
+    assert([controller handleEvent:ModeKey(49, windowsChord, NO) client:client]);
+    assert(appearance.fullWidthInput != fullWidthBefore);
+    assert([controller handleEvent:ModeKey(49, windowsChord, NO) client:client]);
+    assert(appearance.fullWidthInput == fullWidthBefore);
+    appearance.fullWidthShortcut = restoreFullWidthShortcut;
+    assert([controller handleEvent:ModeKey(4, chord, NO) client:client]);
+    assert(appearance.fullWidthInput != fullWidthBefore);
+    assert([controller handleEvent:ModeKey(4, chord, NO) client:client]);
+    assert(appearance.fullWidthInput == fullWidthBefore);
     appearance.englishMode = YES;
     assert(![controller handleEvent:ModeKey(4, chord, NO) client:client]);
     assert([controller handleEvent:ModeKey(49, windowsChord, NO) client:client]);

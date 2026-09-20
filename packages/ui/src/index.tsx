@@ -247,12 +247,14 @@ export type KeybindingPreferences = {
   switch_language_ctrl: boolean;
   switch_language_ctrl_alt_space: boolean;
   toggle_character_set_ctrl_shift_f: boolean;
+  toggle_fullwidth_option_shift_h: boolean;
 };
 const defaultKeybindings: KeybindingPreferences = {
   switch_language_shift: true,
   switch_language_ctrl: false,
   switch_language_ctrl_alt_space: true,
   toggle_character_set_ctrl_shift_f: true,
+  toggle_fullwidth_option_shift_h: true,
 };
 export type FuzzyPinyinPreferences = { enabled: boolean; rules: string[]; seeded?: boolean };
 const defaultFuzzyPinyin: FuzzyPinyinPreferences = { enabled: false, rules: [] };
@@ -1730,6 +1732,19 @@ export function SettingsPage({
   const host = client.host;
   const showModeScope = host ? host.ime_mode_scope : linuxPlatform;
   const showModeSwitchShortcuts = host ? host.mode_switch_shortcuts : linuxPlatform;
+  // Named for the keys the user is actually looking at: macOS calls them Control and Option.
+  const modeSwitchShortcutRows: [keyof KeybindingPreferences, string][] = [
+    ["switch_language_shift", "Shift 切换中英文"],
+    ["switch_language_ctrl", macosPlatform ? "单击 Control 切换中英文" : "单击 Ctrl 切换中英文"],
+    [
+      "switch_language_ctrl_alt_space",
+      macosPlatform ? "Control+Option+Space 切换中英文" : "Ctrl+Alt+Space 切换中英文",
+    ],
+    [
+      "toggle_character_set_ctrl_shift_f",
+      macosPlatform ? "Control+Shift+F 切换简繁" : "Ctrl+Shift+F 切换简繁",
+    ],
+  ];
   const showPanelShortcuts = host ? host.panel_shortcuts : linuxPlatform;
   const showNumberRowSelection = host ? host.number_row_selection === true : linuxPlatform;
   const showRestartInputMethod =
@@ -5545,7 +5560,8 @@ export function SettingsPage({
                         />
                       </label>
                     </div>
-                    {showInputModeHUD && (
+                    {/* macOS keeps this with the chords that trigger it, on the shortcut page. */}
+                    {showInputModeHUD && !macosPlatform && (
                       <div className="section">
                         <label className="section-header">
                           <span className="section-title">
@@ -6384,14 +6400,7 @@ export function SettingsPage({
                         <small>
                           在当前输入上下文中切换中英文模式；关闭后快捷键会交给应用处理。
                         </small>
-                        {(
-                          [
-                            ["switch_language_shift", "Shift 切换中英文"],
-                            ["switch_language_ctrl", "单击 Ctrl 切换中英文"],
-                            ["switch_language_ctrl_alt_space", "Ctrl+Alt+Space 切换中英文"],
-                            ["toggle_character_set_ctrl_shift_f", "Ctrl+Shift+F 切换简繁"],
-                          ] as const
-                        ).map(([key, label]) => (
+                        {modeSwitchShortcutRows.map(([key, label]) => (
                           <label className="section-header" key={key}>
                             <span className="section-title">{label}</span>
                             <input
@@ -6408,6 +6417,48 @@ export function SettingsPage({
                             />
                           </label>
                         ))}
+                        {macosPlatform && showInputModeHUD && (
+                          <label className="section-header">
+                            <span className="section-title">
+                              切换中英文时显示提示
+                              <small>切换后在光标下方短暂显示「中」或「英」。</small>
+                            </span>
+                            <input
+                              aria-label="切换中英文时显示提示"
+                              className="toggle"
+                              type="checkbox"
+                              checked={inputModeHUD}
+                              onChange={(event) =>
+                                setDraft({ ...draft, input_mode_hud: event.target.checked })
+                              }
+                            />
+                          </label>
+                        )}
+                        {macosPlatform && (
+                          <label className="section-header">
+                            <span className="section-title">
+                              Option+Shift+H 切换全半角
+                              <small>
+                                关掉后这个组合键交给应用处理；工具栏的全半角开关不受影响。
+                              </small>
+                            </span>
+                            <input
+                              aria-label="Option+Shift+H 切换全半角"
+                              className="toggle"
+                              type="checkbox"
+                              checked={keybindings.toggle_fullwidth_option_shift_h}
+                              onChange={(event) =>
+                                setDraft({
+                                  ...draft,
+                                  keybindings: {
+                                    ...keybindings,
+                                    toggle_fullwidth_option_shift_h: event.target.checked,
+                                  },
+                                })
+                              }
+                            />
+                          </label>
+                        )}
                         {windowsPlatform && (
                           <div className={settings.shortcutIntro}>
                             <div className="section-title">修改或关闭 Ctrl+Space（系统）</div>
