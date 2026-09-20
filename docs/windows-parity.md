@@ -772,6 +772,12 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 ## 下一批实施顺序
 
+增量记录（2026-09-21，来源测试清单第二批：字体族解析）：来源 `test_system_font_family.cpp` 钉住两条——下拉里列的是 DirectWrite 的族名且有序，以及**旧配置里存的 face 名要解析成 CSS 能匹配的族名**（`仓耳今楷05 W03` → `仓耳今楷05`）。第一条 macOS 已满足：`system_fonts::list` 走 `CTFontManagerCopyAvailableFontFamilyNames`，装进 `BTreeSet` 天然有序。第二条此前是空的：`resolve_css_families` 只在 Windows 上查别名，其余平台原样返回，注释写的是「其他宿主本来就只有族名」。
+
+对 macOS 这条不成立，理由和 Windows 完全一样：偏好里的字体名不只来自下拉——旧版本写下的文件、迁移过来的配置、手改的 JSON 都算数，而 CoreText 认 PostScript 名（`PingFangSC-Semibold`）、CSS 不认。于是候选窗（走 `NSFont`）显示的是用户选的那个字体，紧挨着的设置页预览（走 CSS）悄悄回退成别的——只有预览是错的，两边还对不上。
+
+按 CoreText 补上，形态与 Windows 那份对应但不照搬：CoreText 查不到名字时不报错，而是返回一个替代字体，所以只有「拿回来的就是问的那一个」时才采用答案——PostScript 名、全名、或者问的本来就是族名，三者之一匹配才算数，否则保留原值不动。实测：`Helvetica-Bold` → `Helvetica`，`PingFangSC-Semibold` → `PingFang SC`，`HiraginoSans-W3` 与 `Hiragino Sans W3` 都 → `Hiragino Sans`，`Synthetic W03` 原样返回。用例另钉住顺序与条数——调用方是按位置把答案配回候选字体/英文字体/回落字体三个字段的，少一条或换个顺序就会把一个字体的族名安到另一个设置上。
+
 增量记录（2026-09-21，来源测试清单这条轴转向 macOS，第一批：候选导航）：前几批按来源的设置页、文案、配色比，这一批换一个入口——来源 `server/tests/src/` 的 43 个测试。它们是来源自己用断言钉住的行为，而「两边都有、行为不同」这一类恰恰只有它们抓得住。这一批走候选窗那一组（`test_candidate_ui_state`、`test_candidate_ui_owner`、`test_candidate_size_estimator`、`test_candidate_view_model`、`test_floating_toolbar_visibility_policy`）。
 
 查到一处真实差异并修掉：**用方向键走到已加载候选的末尾时，引擎扣住的那批候选放不出来。**
