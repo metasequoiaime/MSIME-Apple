@@ -782,7 +782,7 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 另有两条是**刻意保留的差异**，都不属于 macOS 侧的缺口，一并记下来源：
 
-- **混输最小前缀的默认值**：来源安装模板是 5，共享默认是 2，`scripts/test-default-config-parity.py` 明确钉住了这个分工——Windows 宿主跟随来源模板，其余宿主用共享默认。改共享默认会一并动到 Linux、Android、iOS 与 HarmonyOS，超出 macOS 迁移的范围。
+- **混输最小前缀的默认值**（本条已订正并修掉）：先前这里按守卫的注释写成「来源安装模板是 5」。实测不是——来源 `installer/default_config/config.default.toml` 自加入该文件起就是 2，历史上从未出现过 5（`git log -S` 无命中），而 2 也正是共享默认。macOS 这侧本来就是 2，与来源一致；差的是本仓 Windows 模板的 5，出厂状态下英文候选要敲五个字母才出来，而来源是两个，`scripts/test-default-config-parity.py` 的断言还挡着不让改。模板改回 2，守卫改为「与共享默认一致」。
 - **快捷短语编码允许数字**：来源文档写「编码只能是英文字母」，本仓的 `validate_entry` 显式放行数字。共享运行时对数字键是「引擎先拒绝再说」（`result.handled` 优先于候选选择），所以带数字的编码在 K 模式下仍然打得出来，属超集而非缺口。
 
 增量记录（2026-09-21，每页候选项数量：macOS 把共享默认值改写掉了）：来源外观页的「每页候选项数量」提供 3–9，默认 6；共享偏好 `candidate_page_size` 接受 1–9，默认也是 6。macOS 这一侧是 `NormalizeCandidatePageSize`：只认 5、7、9，**其余一律改写成 9**。于是一个谁都没动过的设置，在这个平台上显示并保存为 9，而别的平台是 6；从别处写下的配置（另一个宿主、手改、云端同步回来的外观快照）带着 4 或 6 进来也会被静默改掉。云外观校验器 `MSIMECloudAppearanceCandidatePageSize` 同样只接受这三个值，一份别的宿主写的快照会被整条拒绝。

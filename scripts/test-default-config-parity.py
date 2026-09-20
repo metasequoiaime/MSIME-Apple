@@ -22,17 +22,19 @@ with WINDOWS_DEFAULTS.open("rb") as config_file:
 
 shared_minimum_prefix = int(mixed_input_default.group(1))
 windows_minimum_prefix = windows_defaults["general"]["cn_en_mixed_input_min_chars"]
-# Windows deliberately follows MSIME-Windows' installer baseline (5), while
-# the shared preference default remains 2 for hosts that do not use the
-# Windows installer template.
-assert windows_minimum_prefix == 5, (
-    "Windows cn_en_mixed_input_min_chars must preserve the Windows baseline: "
-    f"{windows_minimum_prefix}"
+# This asserted 5 and called it the Windows baseline. The reference's own factory configuration
+# (MSIME-Windows, installer/default_config/config.default.toml) has said 2 since the file was added
+# and has never said 5, and 2 is also the shared default - so shipping 5 here meant English
+# candidates appeared after five letters out of the box where the reference shows them after two,
+# with this assertion standing in the way of noticing.
+assert windows_minimum_prefix == shared_minimum_prefix, (
+    "Windows cn_en_mixed_input_min_chars must match the shared default "
+    f"({shared_minimum_prefix}): {windows_minimum_prefix}"
 )
 
 print(
-    "Windows mixed-input minimum prefix uses the Windows baseline: "
-    f"{windows_minimum_prefix} (shared default: {shared_minimum_prefix})"
+    "Windows mixed-input minimum prefix matches the reference and the shared default: "
+    f"{windows_minimum_prefix}"
 )
 
 voice_auth_default = re.search(
