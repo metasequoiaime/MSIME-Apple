@@ -44,6 +44,13 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEClientSessionDidReplaceSnapshotN
 - (nullable NSDictionary *)fixGeneration:(uint64_t)generation index:(NSUInteger)index position:(uint8_t)position error:(NSError **)error;
 - (nullable NSDictionary *)clearPositionGeneration:(uint64_t)generation index:(NSUInteger)index error:(NSError **)error;
 - (nullable NSDictionary<NSString *, id> *)viewWithError:(NSError **)error;
+/// Re-rank the visible candidates with the settled model, after the host's typing pause.
+///
+/// The host owns the clock: only it knows whether a keystroke arrived while the pass ran. Answers
+/// {moved, view}; `moved` is NO when the order did not change, which is the signal to leave the
+/// candidate window alone rather than repaint it identically. Inert, and immediately NO, when no
+/// settled model is installed. No network I/O.
+- (nullable NSDictionary *)rerankSettledWithError:(NSError **)error;
 /// Copied Engine query, or nil when ineligible. Does not perform network I/O.
 - (nullable NSDictionary *)onlineQueryWithError:(NSError **)error;
 /// Build a descriptor for the copied query using this session's current AI
