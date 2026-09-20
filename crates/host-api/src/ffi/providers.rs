@@ -121,10 +121,30 @@ pub extern "C" fn msime_client_translation_query(handle: u64) -> *mut c_char {
             {
                 return Ok(Value::Null);
             }
+            // Whether the online gloss endpoint may be asked about each candidate,
+            // answered once here so every host applies the same rule. Only Chinese
+            // candidates qualify: a gloss model has nothing to say about "cun",
+            // "123", "OpenAI", a punctuation candidate or an emoji, and asking
+            // spends the account's bounded quota to put noise under candidates
+            // that should carry no gloss - a pinyin buffer candidate also hands
+            // the user's raw keystrokes to a remote service.
+            //
+            // The gloss path only. A user's own translator detects the direction
+            // per candidate, so English candidates still reach it, and the offline
+            // dictionary answers for every candidate because it never leaves the
+            // machine.
             let candidates = view
                 .candidates
                 .iter()
-                .map(|candidate| json!({ "text": candidate.text }))
+                .map(|candidate| {
+                    json!({
+                        "text": candidate.text,
+                        "online_gloss":
+                            msime_client_core::translation::is_cloud_translatable_chinese(
+                                &candidate.text,
+                            ),
+                    })
+                })
                 .collect::<Vec<_>>();
             let custom_translation = &preferences.custom_translation;
             let tencent = &preferences.tencent_tmt;

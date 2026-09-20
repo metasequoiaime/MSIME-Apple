@@ -3467,3 +3467,38 @@ fn a_settled_model_beside_the_resources_is_discovered() {
         beside.join("sentence-model-desktop.safetensors").to_str()
     );
 }
+
+#[test]
+fn translation_queries_only_clear_chinese_candidates_for_the_network() {
+    // A network translator has nothing to say about a Latin letter, a digit or an emoji, and asking it
+    // spends the account's bounded quota to put noise under candidates that should carry no gloss. The
+    // offline dictionary still sees every candidate: it answers for English too and never leaves the
+    // machine, which is why the filter lives on the query rather than on the candidate list.
+    for (input, text, online) in [
+        (&b"U4e2d"[..], "\u{4e2d}", true),
+        (&b"U0041"[..], "A", false),
+        (&b"U0031"[..], "1", false),
+        (&b"U1f600"[..], "\u{1f600}", false),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let preferences = Preferences {
+            candidate_translations: true,
+            ..Preferences::default()
+        };
+        let handle = test_host_preferences(dir.path(), preferences);
+        read(msime_client_focus(handle, true));
+        for byte in input {
+            read(msime_client_character(
+                handle,
+                *byte,
+                byte.is_ascii_uppercase(),
+            ));
+        }
+        let query = read(msime_client_translation_query(handle));
+        assert_eq!(
+            query["value"]["candidates"],
+            json!([{ "text": text, "online_gloss": online }]),
+            "candidate {text:?} was cleared for the online gloss endpoint incorrectly"
+        );
+    }
+}

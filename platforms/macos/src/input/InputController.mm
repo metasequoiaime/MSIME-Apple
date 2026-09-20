@@ -296,6 +296,28 @@ static NSArray<NSString *> *MSIMETranslationTargets(NSDictionary *query) {
     return targets.count ? [targets copy] : @[];
 }
 
+// Which candidates the account gloss endpoint may be asked about. Only Chinese ones: a model has nothing
+// to say about "cun", "123", "OpenAI", a punctuation candidate or an emoji, and asking spends the account's
+// bounded quota to put noise under candidates that should carry no gloss - a pinyin buffer candidate also
+// hands the user's raw keystrokes to a remote service. The shared query answers this per candidate so every
+// host applies the same rule.
+//
+// This is the gloss path only. The user's own translator (custom, Tencent TMT, NiuTrans) keeps seeing
+// English candidates, because there the direction is detected per candidate and English to Chinese is a
+// translation someone asked for. The offline dictionary is not filtered either - it answers for English and
+// never leaves the machine.
+static NSArray<NSDictionary *> *MSIMEOnlineGlossCandidates(NSDictionary *query) {
+    NSArray *raw = [query[@"candidates"] isKindOfClass:NSArray.class] ? query[@"candidates"] : @[];
+    NSMutableArray<NSDictionary *> *candidates = [NSMutableArray arrayWithCapacity:raw.count];
+    for (NSDictionary *candidate in raw) {
+        if (![candidate isKindOfClass:NSDictionary.class] ||
+            ![candidate[@"text"] isKindOfClass:NSString.class] ||
+            ![candidate[@"online_gloss"] isEqual:@YES]) continue;
+        [candidates addObject:candidate];
+    }
+    return [candidates copy];
+}
+
 static NSArray<NSString *> *MSIMETranslationTargetsFromPreferences(NSDictionary *preferences, NSString *fallback) {
     NSArray *supported = @[@"en", @"fr", @"ja", @"es", @"ru", @"de", @"ko"];
     NSString *primary = [preferences[@"translation_target_language"] isKindOfClass:NSString.class]
@@ -1004,10 +1026,10 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if ([query[@"custom_translation"] isKindOfClass:NSDictionary.class] ||
         [query[@"tencent_tmt"] isKindOfClass:NSDictionary.class] || [query[@"niutrans"] isKindOfClass:NSDictionary.class])
         return nil;
-    NSArray *candidates = query[@"candidates"];
-    return [candidates isKindOfClass:NSArray.class] && candidates.count
+    NSArray *candidates = MSIMEOnlineGlossCandidates(query);
+    return candidates.count
         ? @{ @"generation": query[@"generation"], @"target_languages": query[@"target_languages"],
-             @"candidates": [candidates copy] } : nil;
+             @"candidates": candidates } : nil;
 }
 
 - (NSArray<NSDictionary *> *)accountGlossResultsForRequest:(NSDictionary *)request {

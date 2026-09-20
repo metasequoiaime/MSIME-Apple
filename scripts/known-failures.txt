@@ -89,8 +89,9 @@ macos text-client
 # loaded the machine was; and the paging-shortcut round trip did not account for word-to-character owning
 # the bracket keys.
 #
-# It now reaches line 3880 - a keyboard selection asserting selectCalls + 1 with no ASCII calls - which
-# had never executed either. That is where the next attempt starts.
+# It now reaches the keyboard selection asserting selectCalls + 1 with no ASCII calls - which had never
+# executed either. That is where the next attempt starts. (Line 3931 at the time of writing; the assertion
+# text is the stable way to find it, since tests get added above it.)
 macos shortcut
 # Load-dependent rather than always-failing: passes on its own and on a second full
 # run, observed failing once in a full parallel run alongside the aborting shortcut test.
