@@ -4183,6 +4183,61 @@ function flattenGroups(groups: EmojiCatalogGroup[]) {
   return groups.flatMap((group) => group.items);
 }
 
+/*
+ * The emoji panel is its own window with its own palette, switched by `data-panel-theme` on the root
+ * rather than by the app's theme variables -- it has to match the host's panel chrome, not the
+ * settings page. Every colour therefore comes in a dark/light pair, and the stylesheet wrote each
+ * one twice: once as a base rule and again under a `[data-panel-theme="light"]` descendant selector,
+ * thirty rules whose only job was to restate the first thirty. The pairs are named once here and the
+ * light half rides along as a `group-data` variant, so a colour that changes changes in one place.
+ */
+const panelSurface = "bg-[#202027] group-data-[panel-theme=light]:bg-[#f7f8fa]";
+const panelText = "text-[#f5f5f7] group-data-[panel-theme=light]:text-[#202124]";
+const panelMuted = "text-[#aeb0b7] group-data-[panel-theme=light]:text-[#656a73]";
+const panelDim = "text-[#b8b8c0] group-data-[panel-theme=light]:text-[#656a73]";
+const panelDivider = "border-white/[0.09] group-data-[panel-theme=light]:border-[#d9dce3]";
+/** A raised field: the search box, a clipboard row, the delete button beside one. */
+const panelField =
+  "border border-[#3a3a44] bg-[#2b2b33] text-[#f5f5f7] group-data-[panel-theme=light]:border-[#c8ccd5] group-data-[panel-theme=light]:bg-white group-data-[panel-theme=light]:text-[#202124]";
+/** What a hoverable control settles on: a lift in the background and full-strength text. */
+const panelRaise =
+  "hover:bg-[#303038] hover:text-[#f5f5f7] group-data-[panel-theme=light]:hover:bg-[#eceef3] group-data-[panel-theme=light]:hover:text-[#202124]";
+/** The selected state of a tab, a category chip or an activation choice. */
+const panelChosen =
+  "bg-[#303038] text-[#f5f5f7] group-data-[panel-theme=light]:bg-[#eceef3] group-data-[panel-theme=light]:text-[#202124]";
+const panelAccentBorder = "border-[#d88bde] group-data-[panel-theme=light]:border-[#9a62ad]";
+/** A quiet text button: the back link, a toolbar action, a group's trailing action. */
+const panelTextButton = `rounded-[5px] border-0 bg-transparent ${panelDim} ${panelRaise}`;
+const panelToolbar = `mb-2 flex min-h-[34px] items-center gap-[9px] border-b pb-2.5 ${panelDivider}`;
+/** The size a quiet button takes in a toolbar. Each utility is written out somewhere as a literal --
+ * Tailwind scans source text, so a class name assembled from string parts at runtime is one it never
+ * generates. Interpolating a constant that already holds literals is fine; building `[&>button]:` +
+ * a name is not. */
+const panelAction = `${panelTextButton} px-2.5 py-[5px] text-xs`;
+const panelHeading = `m-0 text-sm font-semibold ${panelText}`;
+const panelContent =
+  "min-h-0 flex-1 overflow-y-auto px-6 pt-2 pb-[52px] max-phone:px-3.5 [scrollbar-color:#77747d_transparent]";
+const panelChip = (chosen: boolean) =>
+  `shrink-0 rounded-[7px] border px-2.5 py-1.5 font-[inherit] text-xs ${
+    chosen
+      ? `${panelAccentBorder} ${panelChosen}`
+      : `border-transparent bg-transparent ${panelDim} ${panelRaise} focus-visible:bg-[#303038] focus-visible:text-[#f5f5f7] group-data-[panel-theme=light]:focus-visible:bg-[#eceef3] group-data-[panel-theme=light]:focus-visible:text-[#202124]`
+  }`;
+const panelEmpty = `m-0 flex min-h-[220px] items-center justify-center text-center text-sm ${panelMuted}`;
+/*
+ * A tile. Grid tiles are uniform squares; flow tiles hold kaomoji and captioned symbols, so they size
+ * to their content and wrap their text instead. The `:nth-child(n)` the stylesheet used on the group
+ * was only there to win a specificity fight with the grid rule -- a fight utilities do not have.
+ */
+const panelTile = (flow: boolean) =>
+  `flex min-w-0 items-center justify-center overflow-hidden rounded-[9px] border border-transparent bg-transparent text-center font-emoji-text leading-[1.2] break-anywhere ${panelText} hover:border-[#555560] hover:bg-[#303038] focus-visible:border-[#555560] focus-visible:bg-[#303038] group-data-[panel-theme=light]:hover:border-[#c8ccd5] group-data-[panel-theme=light]:hover:bg-[#eceef3] group-data-[panel-theme=light]:focus-visible:border-[#c8ccd5] group-data-[panel-theme=light]:focus-visible:bg-[#eceef3] disabled:cursor-wait disabled:opacity-55 ${
+    flow
+      ? "max-w-full flex-[0_1_auto] min-h-12 px-3 py-2.5 text-xl whitespace-pre-wrap"
+      : "min-h-[66px] p-1.5 text-[29px]"
+  }`;
+const clipboardRow = `w-full flex-1 min-w-0 overflow-hidden rounded-lg px-3.5 py-3 text-left font-[inherit] text-ellipsis whitespace-nowrap ${panelField} hover:border-[#d88bde] hover:bg-[#303038] focus-visible:border-[#d88bde] focus-visible:bg-[#303038] group-data-[panel-theme=light]:hover:border-[#9a62ad] group-data-[panel-theme=light]:hover:bg-[#eceef3] group-data-[panel-theme=light]:focus-visible:border-[#9a62ad] group-data-[panel-theme=light]:focus-visible:bg-[#eceef3]`;
+const clipboardSideButton = `shrink-0 grow-0 basis-auto rounded-lg p-2 font-[inherit] ${panelField} hover:border-[#d88bde] focus-visible:border-[#d88bde] group-data-[panel-theme=light]:hover:border-[#9a62ad] group-data-[panel-theme=light]:focus-visible:border-[#9a62ad]`;
+
 export function EmojiPanel({
   client,
   theme = "dark",
@@ -4597,7 +4652,7 @@ export function EmojiPanel({
     if (!client.clipboard?.remove || clipboardMutation.current) return;
     const panel = navigation.ref.current;
     const focused = panel?.ownerDocument.activeElement;
-    const rows = Array.from(panel?.querySelectorAll<HTMLElement>(".clipboard-panel-row") ?? []);
+    const rows = Array.from(panel?.querySelectorAll<HTMLElement>("[data-clipboard-row]") ?? []);
     const index = rows.findIndex((row) => focused != null && row.contains(focused));
     if (focused instanceof HTMLElement && index >= 0)
       deletedRowFocus.current = { element: focused, index, query };
@@ -4683,7 +4738,7 @@ export function EmojiPanel({
       if (page !== "home") {
         selectPage("home");
         navigation.ref.current
-          ?.querySelector<HTMLInputElement>(".emoji-panel-search input")
+          ?.querySelector<HTMLInputElement>("input[data-panel-search]")
           ?.focus();
       } else {
         void closeEmoji();
@@ -4705,22 +4760,24 @@ export function EmojiPanel({
     const focused = panel.ownerDocument.activeElement;
     if (focused && focused !== panel.ownerDocument.body && focused !== pending.element) return;
     const items = Array.from(
-      panel.querySelectorAll<HTMLButtonElement>(".clipboard-panel-item:not(:disabled)"),
+      panel.querySelectorAll<HTMLButtonElement>("[data-clipboard-item]:not(:disabled)"),
     );
     const target =
       items[Math.min(pending.index, items.length - 1)] ??
-      panel.querySelector<HTMLInputElement>(".emoji-panel-search input");
+      panel.querySelector<HTMLInputElement>("input[data-panel-search]");
     target?.focus({ preventScroll: true });
     target?.scrollIntoView({ block: "nearest", inline: "nearest" });
   }, [clipboard, clipboardBusy, page, query]);
   return (
     <main
       {...navigation}
-      className="native-panel emoji-panel"
+      className={`native-panel group flex min-h-screen flex-col overflow-hidden ${panelSurface} ${panelText}`}
       data-panel-theme={theme}
       aria-label="表情与符号"
     >
-      <header className="native-panel-header">
+      <header
+        className={`native-panel-header flex-[0_0_38px] border-b ${panelDivider} ${panelSurface} ${panelText} [&>button]:text-[#aeb0b7] group-data-[panel-theme=light]:[&>button]:text-[#656a73]`}
+      >
         <span>Emoji and more</span>
         <button
           type="button"
@@ -4731,9 +4788,15 @@ export function EmojiPanel({
           ×
         </button>
       </header>
-      <div className="emoji-panel-search">
-        <span aria-hidden="true">⌕</span>
+      <div
+        className={`mx-6 mt-3.5 flex flex-[0_0_52px] items-center gap-2 rounded-[10px] px-3.5 max-phone:mx-3.5 ${panelField} focus-within:border-[#d88bde] focus-within:shadow-[0_0_0_1px_rgba(216,139,222,0.35)] group-data-[panel-theme=light]:focus-within:border-[#9a62ad] group-data-[panel-theme=light]:focus-within:shadow-[0_0_0_1px_rgba(154,98,173,0.28)]`}
+      >
+        <span className="text-[23px] leading-none" aria-hidden="true">
+          ⌕
+        </span>
         <input
+          className="min-w-0 flex-1 border-0 bg-transparent font-[inherit] text-[#f5f5f7] outline-0 placeholder:text-[#aeb0b7] group-data-[panel-theme=light]:text-[#202124] group-data-[panel-theme=light]:placeholder:text-[#7a7e87]"
+          data-panel-search=""
           aria-label="搜索"
           aria-keyshortcuts="Control+f"
           value={query}
@@ -4757,24 +4820,40 @@ export function EmojiPanel({
           }
         />
       </div>
-      <nav className="emoji-panel-tabs" aria-label="面板分类">
+      <nav
+        className="flex flex-[0_0_72px] items-stretch gap-1 px-[18px] pt-2 max-phone:px-2"
+        aria-label="面板分类"
+      >
         {emojiPages.map((item) => (
           <button
             type="button"
             key={item.id}
-            className={page === item.id ? "active" : ""}
+            className={`flex min-w-0 flex-1 flex-col items-center justify-center gap-[3px] rounded-t-[7px] border-0 bg-transparent ${
+              page === item.id
+                ? `${panelChosen} shadow-[inset_0_-3px_#d88bde] group-data-[panel-theme=light]:shadow-[inset_0_-3px_#9a62ad]`
+                : `${panelDim} ${panelRaise}`
+            }`}
             aria-label={item.label}
             aria-pressed={page === item.id}
             onClick={() => selectPage(item.id)}
           >
-            <span aria-hidden="true">{item.icon}</span>
-            <small>{item.label}</small>
+            <span className="min-h-7 font-emoji text-[23px] leading-[1.1]" aria-hidden="true">
+              {item.icon}
+            </span>
+            <small className="m-0 text-[10px] leading-[1.2] text-inherit max-phone:text-[9px]">
+              {item.label}
+            </small>
           </button>
         ))}
       </nav>
       {isDetail && (
-        <div className="emoji-panel-back">
-          <button type="button" aria-label="返回" onClick={() => selectPage("home")}>
+        <div className="flex-[0_0_32px] px-6">
+          <button
+            type="button"
+            className={`${panelTextButton} px-2 py-[5px]`}
+            aria-label="返回"
+            onClick={() => selectPage("home")}
+          >
             ‹ 返回
           </button>
         </div>
@@ -4784,7 +4863,7 @@ export function EmojiPanel({
         page !== "gif" &&
         catalogUnavailable.length > 0 && (
           <div
-            className="emoji-panel-toolbar emoji-panel-catalog-status"
+            className={`${panelToolbar} shrink-0 grow-0 basis-auto px-6 py-1.5 text-xs`}
             role="status"
             aria-busy={catalogLoading}
           >
@@ -4796,6 +4875,7 @@ export function EmojiPanel({
             </span>
             <button
               type="button"
+              className={`${panelAction} ml-auto`}
               disabled={catalogLoading || clipboardBusy}
               onClick={() => {
                 setCatalogLoading(true);
@@ -4811,10 +4891,19 @@ export function EmojiPanel({
         page !== "gif" &&
         canCopy &&
         client.sendText && (
-          <div className="emoji-panel-activation" role="group" aria-label="点击项目时的操作">
+          <div
+            className={`flex shrink-0 items-center gap-1.5 px-6 py-1 text-xs ${panelDim}`}
+            role="group"
+            aria-label="点击项目时的操作"
+          >
             <span>点击项目：</span>
             <button
               type="button"
+              className={`rounded-md border px-[9px] py-[5px] font-[inherit] disabled:cursor-wait disabled:opacity-55 ${
+                effectiveMode === "copy"
+                  ? `${panelAccentBorder} ${panelChosen}`
+                  : "border-transparent bg-transparent text-inherit"
+              }`}
               aria-pressed={effectiveMode === "copy"}
               disabled={clipboardBusy}
               onClick={() => {
@@ -4826,6 +4915,11 @@ export function EmojiPanel({
             </button>
             <button
               type="button"
+              className={`rounded-md border px-[9px] py-[5px] font-[inherit] disabled:cursor-wait disabled:opacity-55 ${
+                effectiveMode === "input"
+                  ? `${panelAccentBorder} ${panelChosen}`
+                  : "border-transparent bg-transparent text-inherit"
+              }`}
               aria-pressed={effectiveMode === "input"}
               disabled={clipboardBusy}
               onClick={() => {
@@ -4839,11 +4933,12 @@ export function EmojiPanel({
         )}
       {categoryPage && (
         <nav
-          className="emoji-panel-categories"
+          className="flex shrink-0 gap-1.5 overflow-x-auto px-6 py-2 whitespace-pre-wrap"
           aria-label={page === "emoji" ? "Emoji 子分类" : "符号子分类"}
         >
           <button
             type="button"
+            className={panelChip(activeCategory === "all")}
             aria-pressed={activeCategory === "all"}
             onClick={() => selectCategory("all")}
           >
@@ -4852,6 +4947,7 @@ export function EmojiPanel({
           {page === "emoji" && (
             <button
               type="button"
+              className={panelChip(activeCategory === "recent")}
               aria-pressed={activeCategory === "recent"}
               onClick={() => selectCategory("recent")}
             >
@@ -4862,6 +4958,7 @@ export function EmojiPanel({
             <button
               type="button"
               key={tab.id}
+              className={panelChip(activeCategory === tab.id)}
               aria-pressed={activeCategory === tab.id}
               onClick={() => selectCategory(tab.id)}
             >
@@ -4871,13 +4968,14 @@ export function EmojiPanel({
         </nav>
       )}
       {page === "clipboard" ? (
-        <section className="emoji-panel-content clipboard-panel-content" aria-label="剪贴板历史">
-          <div className="emoji-panel-toolbar">
-            <h2>剪贴板</h2>
-            <div className="clipboard-panel-actions">
+        <section className={`${panelContent} pt-3.5`} aria-label="剪贴板历史">
+          <div className={panelToolbar}>
+            <h2 className={panelHeading}>剪贴板</h2>
+            <div className="ml-auto flex gap-2">
               {client.clipboard?.list && (
                 <button
                   type="button"
+                  className={panelAction}
                   disabled={clipboardBusy}
                   onClick={() => {
                     if (!clipboardMutation.current) setClipboardRefresh((value) => value + 1);
@@ -4889,6 +4987,7 @@ export function EmojiPanel({
               {client.clipboard?.sync && (
                 <button
                   type="button"
+                  className={panelAction}
                   disabled={clipboardBusy || clipboardEnabled === false}
                   onClick={() => void syncClipboard()}
                 >
@@ -4898,6 +4997,7 @@ export function EmojiPanel({
               {client.clipboard?.clear && (
                 <button
                   type="button"
+                  className={panelAction}
                   disabled={clipboardBusy || !clipboard.length}
                   onClick={() => void clearClipboard()}
                 >
@@ -4907,16 +5007,17 @@ export function EmojiPanel({
             </div>
           </div>
           {clipboardLoadFailed ? (
-            <p className="emoji-panel-empty" role="status">
+            <p className={panelEmpty} role="status">
               无法读取剪贴板历史，请点击“刷新列表”重试
             </p>
           ) : clipboardEnabled === false ? (
-            <div className="emoji-panel-empty">
+            <div className={`${panelEmpty} flex-col gap-2`}>
               <p>剪贴板历史已关闭</p>
               <p>开启后保存复制过的文本；关闭会清空历史。</p>
               {client.clipboard?.enable && (
                 <button
                   type="button"
+                  className={panelAction}
                   disabled={clipboardBusy}
                   onClick={() => void enableClipboard()}
                 >
@@ -4925,12 +5026,13 @@ export function EmojiPanel({
               )}
             </div>
           ) : visibleClipboard.length ? (
-            <div className="clipboard-panel-list">
+            <div className="flex flex-col gap-[7px]">
               {visibleClipboard.map((item) => (
-                <div className="clipboard-panel-row" key={item}>
+                <div className="flex items-stretch gap-1.5" data-clipboard-row="" key={item}>
                   <button
                     type="button"
-                    className="clipboard-panel-item"
+                    className={clipboardRow}
+                    data-clipboard-item=""
                     data-emoji-navigation-item
                     aria-keyshortcuts={
                       [canCopy ? "Control+c" : "", client.clipboard?.remove ? "Delete" : ""]
@@ -4947,7 +5049,7 @@ export function EmojiPanel({
                   {client.clipboard?.paste && (
                     <button
                       type="button"
-                      className="clipboard-panel-delete"
+                      className={clipboardSideButton}
                       disabled={clipboardBusy}
                       aria-label="粘贴此条记录到原应用"
                       onClick={() => void pasteClipboard(item)}
@@ -4958,7 +5060,7 @@ export function EmojiPanel({
                   {client.clipboard?.remove && (
                     <button
                       type="button"
-                      className="clipboard-panel-delete"
+                      className={clipboardSideButton}
                       disabled={clipboardBusy}
                       aria-label="删除此条记录"
                       onClick={() => void removeClipboard(item)}
@@ -4970,18 +5072,18 @@ export function EmojiPanel({
               ))}
             </div>
           ) : (
-            <p className="emoji-panel-empty" role="status">
+            <p className={panelEmpty} role="status">
               {query ? "没有匹配的剪贴板记录" : "暂无剪贴板记录"}
             </p>
           )}
         </section>
       ) : page === "sticker" || page === "gif" ? (
-        <p className="emoji-panel-empty">
+        <p className={panelEmpty}>
           {page === "sticker" ? "贴纸来源可在这里接入" : "GIF 来源可在这里接入"}
         </p>
       ) : (
         <section
-          className="emoji-panel-content"
+          className={panelContent}
           aria-label={
             page === "home"
               ? "最近使用与目录"
@@ -4994,21 +5096,27 @@ export function EmojiPanel({
         >
           {(page === "home" || (page === "emoji" && activeCategory === "recent")) &&
             recent.length > 0 && (
-              <div className="emoji-panel-toolbar">
+              <div className={panelToolbar}>
                 <span>最近使用</span>
-                <button type="button" onClick={clearRecent} disabled={clipboardBusy}>
+                <button
+                  type="button"
+                  className={`${panelAction} ml-auto`}
+                  onClick={clearRecent}
+                  disabled={clipboardBusy}
+                >
                   清除最近使用
                 </button>
               </div>
             )}
           {displayGroups.map((group) => (
-            <div className="emoji-panel-group" key={JSON.stringify([group.parent, group.title])}>
-              <div className="emoji-panel-group-title">
-                <span>{group.icon}</span>
-                <h2>{group.title}</h2>
+            <div className="mb-[22px]" key={JSON.stringify([group.parent, group.title])}>
+              <div className="mb-2 flex min-h-[34px] items-center gap-[9px]">
+                <span className="w-6 text-center font-emoji text-xl">{group.icon}</span>
+                <h2 className={panelHeading}>{group.title}</h2>
                 {group.moreTarget && (
                   <button
                     type="button"
+                    className={`${panelAction} ml-auto`}
                     onClick={() => {
                       setCategories((current) => ({ ...current, emoji: "all", symbols: "all" }));
                       selectPage(group.moreTarget!);
@@ -5018,11 +5126,17 @@ export function EmojiPanel({
                   </button>
                 )}
               </div>
-              <div className={`emoji-panel-grid${group.flow ? " emoji-panel-flow" : ""}`}>
+              <div
+                className={
+                  group.flow
+                    ? "flex flex-wrap items-stretch gap-1.5"
+                    : "grid grid-cols-6 gap-1.5 max-phone:grid-cols-4"
+                }
+              >
                 {group.items.map((item, index) => (
                   <button
                     type="button"
-                    className="emoji-panel-item"
+                    className={panelTile(group.flow === true)}
                     data-emoji-navigation-item
                     disabled={clipboardBusy}
                     key={`${index}-${item.text}`}
@@ -5036,17 +5150,18 @@ export function EmojiPanel({
             </div>
           ))}
           {catalogLoading && (
-            <p className="emoji-panel-empty emoji-panel-loading" role="status" aria-live="polite">
+            <p className={`${panelEmpty} opacity-75`} role="status" aria-live="polite">
               正在加载表情库…
             </p>
           )}
           {!displayGroups.length && !catalogLoading && (
-            <p className="emoji-panel-empty">{query ? "No results" : "暂无可显示内容"}</p>
+            <p className={panelEmpty}>{query ? "No results" : "暂无可显示内容"}</p>
           )}
           {itemPageCount > 1 && (
-            <div className="emoji-panel-toolbar" role="navigation" aria-label="Emoji 分页">
+            <div className={panelToolbar} role="navigation" aria-label="Emoji 分页">
               <button
                 type="button"
+                className={panelAction}
                 disabled={itemPage === 0}
                 onClick={() => setItemPage((value) => Math.max(0, value - 1))}
               >
@@ -5058,6 +5173,7 @@ export function EmojiPanel({
               <button
                 type="button"
                 disabled={itemPage + 1 >= itemPageCount}
+                className={panelAction}
                 onClick={() => setItemPage((value) => Math.min(itemPageCount - 1, value + 1))}
               >
                 下一页
@@ -5066,7 +5182,10 @@ export function EmojiPanel({
           )}
         </section>
       )}
-      <p className="emoji-panel-notice" role="status">
+      <p
+        className={`m-0 min-h-[30px] flex-[0_0_30px] border-t px-6 py-1.5 text-center text-xs ${panelDivider} ${panelMuted}`}
+        role="status"
+      >
         {notice ||
           (page === "clipboard" || effectiveMode === "copy"
             ? "点击项目即可复制"
