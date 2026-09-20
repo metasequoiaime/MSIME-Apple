@@ -18,7 +18,7 @@ crates/engine-bridge           CXX 桥接
 MSIME-Engine (C++, 固定版本)   输入算法与组合状态
 ```
 
-`crates/client-core` 与上面这条链路平行，负责本地配置和固定资源的分代安装，不参与按键处理。`packages/ui` 与 `apps/desktop` 是共享的 React 设置页和 Tauri 应用壳，桌面、Android、iOS 共用同一个 Rust 入口库与同一套页面。
+`crates/client-core` 与上面这条链路平行，负责本地配置和固定资源的分代安装，不参与按键处理。`packages/ui` 与 `apps/desktop` 是共享的 React 设置页和承载它们的 Tauri 层，各平台共用同一个 Rust 入口库与同一套页面。
 
 **产品本体是 `platforms/<os>` 的原生宿主。** Android、iOS、HarmonyOS、Linux、macOS、Windows 一律如此：最终安装、启动、被系统识别为输入法的都是原生宿主。Tauri/React 是跨平台共享功能与界面的公共组件，由原生宿主按需承载，不单独作为某个平台的产品去启动或验收。`apps/desktop` 的目录名和 Tauri 生成的工程都不改变这一点。
 
