@@ -503,11 +503,19 @@ pub struct Preferences {
     #[serde(default)]
     pub smart_punctuation_space_convert: bool,
     /// Keep `,` `.` `:` as ASCII when they follow a digit.
-    #[serde(default)]
+    #[serde(default = "smart_punctuation_default")]
     pub smart_punctuation_direct_digit: bool,
     /// The same after a letter. Two switches rather than one, because a
     /// version number and an English sentence want different answers.
-    #[serde(default)]
+    ///
+    /// Both follow the parent switch's default rather than being off on their
+    /// own. The reference has one switch here, and its description - which this
+    /// page shows verbatim - promises ASCII after a letter or a digit. Split
+    /// into three and with the two halves off, that switch was on out of the
+    /// box and did nothing: the sentence under it was false until the user
+    /// found two more toggles. A document that already carries the keys is
+    /// unaffected, since this answers only for one that does not.
+    #[serde(default = "smart_punctuation_default")]
     pub smart_punctuation_direct_letter: bool,
     #[serde(default = "enabled_by_default")]
     pub paired_punctuation: bool,
@@ -1182,8 +1190,8 @@ impl Default for Preferences {
             smart_punctuation: smart_punctuation_default(),
             smart_punctuation_repeat: smart_punctuation_default(),
             smart_punctuation_space_convert: false,
-            smart_punctuation_direct_digit: false,
-            smart_punctuation_direct_letter: false,
+            smart_punctuation_direct_digit: smart_punctuation_default(),
+            smart_punctuation_direct_letter: smart_punctuation_default(),
             paired_punctuation: true,
             punctuation_lock: PunctuationLock::Follow,
             navigation: NavigationPreferences::default(),

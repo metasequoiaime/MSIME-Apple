@@ -1822,11 +1822,23 @@ fn smart_punctuation_sub_switches_survive_a_save() {
         "smart_punctuation_direct_letter",
     ];
 
-    // Absent from a document that predates them, and off by default: the
-    // Windows baseline ships the whole family disabled.
+    // A document that predates them reads them as their defaults, which is what the family's
+    // parent says: the two halves of 智能标点 follow it, and the space rewrite does not.
+    let following_parent = !cfg!(windows);
     let defaults = serde_json::to_value(Preferences::default()).unwrap();
-    for key in keys {
-        assert_eq!(defaults[key], serde_json::Value::Bool(false), "{key}");
+    assert_eq!(
+        defaults["smart_punctuation_space_convert"],
+        serde_json::Value::Bool(false)
+    );
+    for key in [
+        "smart_punctuation_direct_digit",
+        "smart_punctuation_direct_letter",
+    ] {
+        assert_eq!(
+            defaults[key],
+            serde_json::Value::Bool(following_parent),
+            "{key}"
+        );
     }
     let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
     for key in keys {
@@ -1839,11 +1851,16 @@ fn smart_punctuation_sub_switches_survive_a_save() {
     fs::write(store.path(), serde_json::to_vec(&legacy).unwrap()).unwrap();
     let loaded = store.load().unwrap().preferences;
     assert!(!loaded.smart_punctuation_space_convert);
-    assert!(!loaded.smart_punctuation_direct_digit);
-    assert!(!loaded.smart_punctuation_direct_letter);
+    assert_eq!(loaded.smart_punctuation_direct_digit, following_parent);
+    assert_eq!(loaded.smart_punctuation_direct_letter, following_parent);
 
+    // One at a time, from all three off, so a key that was written into the wrong field shows up
+    // as its neighbour turning on rather than being hidden by a default that already said true.
     for (revision, key) in keys.iter().enumerate() {
         let mut value = serde_json::to_value(Preferences::default()).unwrap();
+        for other in keys {
+            value[other] = false.into();
+        }
         value[*key] = true.into();
         let saved = store
             .save(revision as u64, serde_json::from_value(value).unwrap())
@@ -1874,10 +1891,14 @@ fn smart_punctuation_first_run_follows_the_windows_baseline() {
     let defaults = Preferences::default();
     assert_eq!(defaults.smart_punctuation, expected);
     assert_eq!(defaults.smart_punctuation_repeat, expected);
-    // The three sub-switches are off everywhere, which is also the baseline.
+    // The two halves of 智能标点 follow it. The reference has no such halves - one switch there
+    // means "ASCII after a letter or a digit", which is the sentence this page shows under the
+    // parent - so with them off the parent was on out of the box and did nothing.
+    assert_eq!(defaults.smart_punctuation_direct_digit, expected);
+    assert_eq!(defaults.smart_punctuation_direct_letter, expected);
+    // Space-after-punctuation is not one of those halves: it rewrites a character the user already
+    // saw land, and the reference has no equivalent at all, so it stays off until asked for.
     assert!(!defaults.smart_punctuation_space_convert);
-    assert!(!defaults.smart_punctuation_direct_digit);
-    assert!(!defaults.smart_punctuation_direct_letter);
 
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());
