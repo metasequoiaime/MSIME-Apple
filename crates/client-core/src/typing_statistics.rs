@@ -27,8 +27,69 @@ const MAX_ACTIVE_MS_PER_DAY: u64 = 24 * 60 * 60 * 1000;
 /// literal in the middle of `record`.
 const ACTIVE_GAP_LIMIT_MS: u64 = 10_000;
 
+/// Statistics are off until the user turns them on.
+///
+/// The Windows baseline ships them disabled and says so in its own feature list, and it is the
+/// right way round for something that counts what a person types: a feature like this should be
+/// asked for rather than opted out of. A document written before this field existed keeps
+/// whatever it says; only a fresh profile gets the default.
 fn enabled_by_default() -> bool {
-    true
+    false
+}
+
+/// How long recorded days are kept.
+///
+/// Copied from the Windows baseline's `[statistics] retention`, including that an unrecognised
+/// value is read as `Forever`: a preference this side does not understand must not be taken as
+/// permission to delete anything.
+#[derive(Clone, Copy, Debug, Default, Deserialize, Eq, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub enum StatisticsRetention {
+    #[default]
+    #[serde(rename = "forever")]
+    Forever,
+    #[serde(rename = "30d")]
+    Days30,
+    #[serde(rename = "90d")]
+    Days90,
+    #[serde(rename = "180d")]
+    Days180,
+    #[serde(rename = "365d")]
+    Days365,
+}
+
+impl StatisticsRetention {
+    /// The window in days, or `None` for "keep everything".
+    pub fn days(self) -> Option<u32> {
+        match self {
+            Self::Forever => None,
+            Self::Days30 => Some(30),
+            Self::Days90 => Some(90),
+            Self::Days180 => Some(180),
+            Self::Days365 => Some(365),
+        }
+    }
+
+    /// Parse the stored spelling. Anything else is `Forever`, never a shorter window.
+    pub fn parse(value: &str) -> Self {
+        match value {
+            "30d" => Self::Days30,
+            "90d" => Self::Days90,
+            "180d" => Self::Days180,
+            "365d" => Self::Days365,
+            _ => Self::Forever,
+        }
+    }
+}
+
+/// An unknown retention value is `Forever` rather than a parse failure: a damaged or newer
+/// preference must not make the whole document unreadable, and must never delete more.
+fn retention_or_forever<'de, D>(deserializer: D) -> Result<StatisticsRetention, D::Error>
+where
+    D: serde::Deserializer<'de>,
+{
+    let value = String::deserialize(deserializer).unwrap_or_default();
+    Ok(StatisticsRetention::parse(&value))
 }
 
 #[derive(Clone, Copy, Debug, Deserialize, Eq, PartialEq, Serialize)]
@@ -222,12 +283,23 @@ pub struct TypingStatistics {
     /// commit's instant, which is the only thing the gap can be measured against.
     #[serde(default)]
     pub last_commit_ms: u64,
+    /// How long recorded days are kept.
+    #[serde(default, deserialize_with = "retention_or_forever")]
+    pub retention: StatisticsRetention,
+    /// The last day the retention window was applied.
+    ///
+    /// The baseline prunes on the first write of each day rather than on every write, so this is
+    /// what "first" is measured against. It is a day key, not a clock reading.
+    #[serde(default)]
+    pub last_pruned_day: String,
 }
 
 impl Default for TypingStatistics {
     fn default() -> Self {
         Self {
-            enabled: true,
+            // Same answer as the serde default, and it has to be: this is what a missing file
+            // returns, which is exactly the fresh profile the default is about.
+            enabled: enabled_by_default(),
             total: 0,
             days: BTreeMap::new(),
             detail: TypingBreakdown::default(),
@@ -236,6 +308,8 @@ impl Default for TypingStatistics {
             daily_active_ms: BTreeMap::new(),
             daily_hours: BTreeMap::new(),
             last_commit_ms: 0,
+            retention: StatisticsRetention::Forever,
+            last_pruned_day: String::new(),
         }
     }
 }
@@ -309,6 +383,27 @@ impl TypingStatistics {
             }
         }
         Ok(())
+    }
+
+    /// Drop every recorded day outside the retention window, counting back from `today`.
+    ///
+    /// The comparison is on the day key, which sorts as a date because it is `YYYY-MM-DD`; no
+    /// calendar arithmetic is needed beyond producing the boundary. `Forever` removes nothing,
+    /// and a day in the future - a clock that was wrong when it was recorded - is kept rather
+    /// than silently deleted, because the alternative is losing real typing to a bad clock.
+    pub fn apply_retention(&mut self, today: &str) {
+        let Some(days) = self.retention.days() else {
+            return;
+        };
+        let Some(boundary) = day_before(today, days) else {
+            return;
+        };
+        self.days.retain(|day, _| *day >= boundary);
+        self.daily_details.retain(|day, _| *day >= boundary);
+        self.daily_active_ms.retain(|day, _| *day >= boundary);
+        self.daily_hours.retain(|day, _| *day >= boundary);
+        // `total` and `detail` are lifetime counters the page shows as "累计"; the baseline keeps
+        // its own running totals across a cleanup too. Only the per-day axes are windowed.
     }
 
     /// Active milliseconds recorded for `day`, or `None` when that day predates the measurement.
@@ -536,6 +631,12 @@ impl TypingStatisticsStore {
             value.daily_active_ms.remove(&oldest);
             value.daily_hours.remove(&oldest);
         }
+        // On the first write of each day, as the baseline does. Doing it on every write would
+        // read the whole history on every commit for a boundary that moves once a day.
+        if value.last_pruned_day != day {
+            value.apply_retention(day);
+            value.last_pruned_day = day.to_owned();
+        }
         self.write_locked(&value)?;
         Ok(count)
     }
@@ -561,6 +662,27 @@ impl TypingStatisticsStore {
         let _lock = self.lock()?;
         let mut value = self.read_locked()?;
         value.enabled = enabled;
+        self.write_locked(&value)?;
+        Ok(value)
+    }
+
+    /// Choose how long recorded days are kept.
+    ///
+    /// `today` is the caller's local day, for the same reason `record` takes one. A window that
+    /// has just been narrowed applies immediately rather than at the next day boundary: the user
+    /// asked for those days to be gone, and waiting would leave them visible on the page they
+    /// asked from.
+    pub fn set_retention(
+        &self,
+        retention: StatisticsRetention,
+        today: &str,
+    ) -> Result<TypingStatistics, TypingStatisticsError> {
+        validate_day(today)?;
+        let _lock = self.lock()?;
+        let mut value = self.read_locked()?;
+        value.retention = retention;
+        value.apply_retention(today);
+        value.last_pruned_day = today.to_owned();
         self.write_locked(&value)?;
         Ok(value)
     }
@@ -641,6 +763,48 @@ fn validate_counts(value: &TypingBreakdown, total: u64) -> Result<(), TypingStat
         }
     }
     Ok(())
+}
+
+/// The day key `days` days before `day`, or `None` when `day` is not a date.
+///
+/// Days-since-epoch arithmetic on the calendar fields, so it stays correct across months, years
+/// and leap days without pulling a timezone into a pure function.
+fn day_before(day: &str, days: u32) -> Option<String> {
+    let year: i64 = day.get(0..4)?.parse().ok()?;
+    let month: i64 = day.get(5..7)?.parse().ok()?;
+    let date: i64 = day.get(8..10)?.parse().ok()?;
+    let shifted = days_from_civil(year, month, date).checked_sub(i64::from(days))?;
+    let (year, month, date) = civil_from_days(shifted);
+    Some(format!("{year:04}-{month:02}-{date:02}"))
+}
+
+/// Howard Hinnant's civil-date algorithms, for a proleptic Gregorian calendar.
+fn days_from_civil(year: i64, month: i64, day: i64) -> i64 {
+    let year = if month <= 2 { year - 1 } else { year };
+    let era = if year >= 0 { year } else { year - 399 } / 400;
+    let year_of_era = (year - era * 400) as u64;
+    let month_position = if month > 2 { month - 3 } else { month + 9 } as u64;
+    let day_of_year = (153 * month_position + 2) / 5 + day as u64 - 1;
+    let day_of_era = year_of_era * 365 + year_of_era / 4 - year_of_era / 100 + day_of_year;
+    era * 146_097 + day_of_era as i64 - 719_468
+}
+
+fn civil_from_days(days: i64) -> (i64, i64, i64) {
+    let days = days + 719_468;
+    let era = if days >= 0 { days } else { days - 146_096 } / 146_097;
+    let day_of_era = (days - era * 146_097) as u64;
+    let year_of_era =
+        (day_of_era - day_of_era / 1460 + day_of_era / 36_524 - day_of_era / 146_096) / 365;
+    let year = year_of_era as i64 + era * 400;
+    let day_of_year = day_of_era - (365 * year_of_era + year_of_era / 4 - year_of_era / 100);
+    let month_position = (5 * day_of_year + 2) / 153;
+    let day = (day_of_year - (153 * month_position + 2) / 5 + 1) as i64;
+    let month = if month_position < 10 {
+        month_position + 3
+    } else {
+        month_position - 9
+    } as i64;
+    (if month <= 2 { year + 1 } else { year }, month, day)
 }
 
 fn validate_day(day: &str) -> Result<(), TypingStatisticsError> {
@@ -731,6 +895,8 @@ mod selection_tests {
     fn store() -> (tempfile::TempDir, TypingStatisticsStore) {
         let directory = tempfile::tempdir().expect("tempdir");
         let store = TypingStatisticsStore::new(directory.path());
+        // These tests are about counting, not about the default. Statistics ship off.
+        store.set_enabled(true).expect("enable");
         (directory, store)
     }
 
@@ -795,6 +961,7 @@ mod tests {
     fn records_graphemes_categories_and_sources_without_text() {
         let directory = tempfile::tempdir().unwrap();
         let store = TypingStatisticsStore::new(directory.path());
+        store.set_enabled(true).unwrap();
         assert_eq!(
             store
                 .record(
@@ -851,6 +1018,7 @@ mod tests {
     fn moves_a_valid_legacy_store_without_replacing_shared_statistics() {
         let root = tempfile::tempdir().unwrap();
         let legacy = TypingStatisticsStore::new(root.path());
+        legacy.set_enabled(true).unwrap();
         legacy
             .record("old", TypingSource::English, "2026-09-07", Some(9))
             .unwrap();
@@ -861,6 +1029,9 @@ mod tests {
         assert!(!root.path().join("typing-statistics.json").exists());
         assert_eq!(shared.load().unwrap().total, 3);
 
+        // Its document was moved away, so as far as the store is concerned this is a fresh
+        // profile again - and a fresh profile has statistics off.
+        legacy.set_enabled(true).unwrap();
         legacy
             .record("legacy", TypingSource::English, "2026-09-08", Some(9))
             .unwrap();
@@ -873,6 +1044,7 @@ mod tests {
     fn serializes_writers_and_bounds_daily_history() {
         let directory = tempfile::tempdir().unwrap();
         let store = Arc::new(TypingStatisticsStore::new(directory.path()));
+        store.set_enabled(true).unwrap();
         let writers = (0..50)
             .map(|_| {
                 let store = Arc::clone(&store);
@@ -928,6 +1100,7 @@ mod tests {
     fn active_time_counts_only_the_gaps_that_are_still_typing() {
         let directory = tempfile::tempdir().unwrap();
         let store = TypingStatisticsStore::new(directory.path());
+        store.set_enabled(true).unwrap();
         let day = "2026-09-21";
         // The first commit has nothing to measure against, so it contributes no active time -
         // otherwise the epoch itself would be counted as one enormous pause.
@@ -990,6 +1163,7 @@ mod tests {
     fn hourly_buckets_come_from_the_host_and_are_optional() {
         let directory = tempfile::tempdir().unwrap();
         let store = TypingStatisticsStore::new(directory.path());
+        store.set_enabled(true).unwrap();
         let day = "2026-09-21";
         store
             .record_at("ab", TypingSource::Quanpin, day, Some(0), 1_000)
@@ -1022,6 +1196,7 @@ mod tests {
     fn retention_and_reset_take_the_activity_axes_with_them() {
         let directory = tempfile::tempdir().unwrap();
         let store = TypingStatisticsStore::new(directory.path());
+        store.set_enabled(true).unwrap();
         // 28-day months and 12-month years, so the synthetic calendar stays valid past the
         // retention limit without pulling in a date library.
         for offset in 0..=MAX_RETAINED_DAYS {
@@ -1063,6 +1238,130 @@ mod tests {
         // Reset means reset: when typing last happened is the one field that would otherwise
         // survive and still say something about the user.
         assert_eq!(reset.last_commit_ms, 0);
+    }
+
+    #[test]
+    fn the_retention_boundary_is_calendar_arithmetic() {
+        // Across a month, a year and a leap day, which is what a subtraction on the day number
+        // alone would get wrong.
+        assert_eq!(day_before("2026-09-21", 0).as_deref(), Some("2026-09-21"));
+        assert_eq!(day_before("2026-09-21", 30).as_deref(), Some("2026-08-22"));
+        assert_eq!(day_before("2026-01-05", 30).as_deref(), Some("2025-12-06"));
+        // 2028 is a leap year: 2028-03-01 minus one day is the 29th.
+        assert_eq!(day_before("2028-03-01", 1).as_deref(), Some("2028-02-29"));
+        assert_eq!(day_before("2026-03-01", 1).as_deref(), Some("2026-02-28"));
+        assert_eq!(day_before("2027-01-01", 365).as_deref(), Some("2026-01-01"));
+        // Not a date at all.
+        assert_eq!(day_before("not-a-day", 30), None);
+    }
+
+    #[test]
+    fn an_unknown_retention_keeps_everything() {
+        // A preference this build does not understand must never be read as permission to delete.
+        assert_eq!(
+            StatisticsRetention::parse("30d"),
+            StatisticsRetention::Days30
+        );
+        assert_eq!(
+            StatisticsRetention::parse("365d"),
+            StatisticsRetention::Days365
+        );
+        assert_eq!(
+            StatisticsRetention::parse("7d"),
+            StatisticsRetention::Forever
+        );
+        assert_eq!(StatisticsRetention::parse(""), StatisticsRetention::Forever);
+        assert_eq!(StatisticsRetention::Forever.days(), None);
+        assert_eq!(StatisticsRetention::Days90.days(), Some(90));
+        // And the same through the document, where a damaged value must not make the whole file
+        // unreadable either.
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("typing-statistics.json");
+        fs::write(
+            &path,
+            r#"{"enabled":true,"total":1,"days":{"2026-09-21":1},"retention":"7d"}"#,
+        )
+        .unwrap();
+        let store = TypingStatisticsStore::new(directory.path());
+        assert_eq!(
+            store.load().unwrap().retention,
+            StatisticsRetention::Forever
+        );
+    }
+
+    #[test]
+    fn retention_drops_days_outside_the_window_on_the_first_write_of_a_day() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = TypingStatisticsStore::new(directory.path());
+        store.set_enabled(true).unwrap();
+        for day in ["2026-06-01", "2026-08-25", "2026-09-20"] {
+            store
+                .record_at("字", TypingSource::Quanpin, day, Some(9), 1_000)
+                .unwrap();
+        }
+        assert_eq!(store.load().unwrap().days.len(), 3);
+
+        // Choosing a window applies it at once: the user asked for those days to be gone, and
+        // waiting for the next day boundary would leave them on the page they asked from.
+        let narrowed = store
+            .set_retention(StatisticsRetention::Days30, "2026-09-21")
+            .unwrap();
+        assert_eq!(
+            narrowed.days.keys().collect::<Vec<_>>(),
+            ["2026-08-25", "2026-09-20"]
+        );
+        assert!(!narrowed.daily_details.contains_key("2026-06-01"));
+        assert!(!narrowed.daily_hours.contains_key("2026-06-01"));
+        // Lifetime totals survive a cleanup, as they do in the baseline; only the per-day axes
+        // are windowed.
+        assert_eq!(narrowed.total, 3);
+
+        // A later day carries the window with it: 2026-08-25 falls out once "today" moves past
+        // thirty days from it.
+        store
+            .record_at("字", TypingSource::Quanpin, "2026-09-25", Some(9), 2_000)
+            .unwrap();
+        let moved = store.load().unwrap();
+        assert!(!moved.days.contains_key("2026-08-25"));
+        assert!(moved.days.contains_key("2026-09-20"));
+
+        // The mark that says the window has been applied for this day.
+        //
+        // That pruning happens on the *first* write of a day rather than on every write is a
+        // cost property, not an observable one: the boundary only depends on the day, so running
+        // it on every commit would reach the same result by doing more work. This asserts the
+        // mark is kept; nothing here can tell the two apart, and an assertion claiming to would
+        // be pinning nothing.
+        assert_eq!(moved.last_pruned_day, "2026-09-25");
+
+        // Forever removes nothing.
+        let kept = store
+            .set_retention(StatisticsRetention::Forever, "2027-12-31")
+            .unwrap();
+        assert_eq!(kept.days.len(), 2);
+    }
+
+    #[test]
+    fn statistics_are_off_until_they_are_asked_for() {
+        // The baseline ships them disabled and says so in its feature list. A fresh profile must
+        // not start counting what someone types before they have said yes.
+        let directory = tempfile::tempdir().unwrap();
+        let store = TypingStatisticsStore::new(directory.path());
+        assert!(!store.load().unwrap().enabled);
+        assert_eq!(
+            store
+                .record("字", TypingSource::Quanpin, "2026-09-21", Some(9))
+                .unwrap(),
+            0
+        );
+        assert_eq!(store.load().unwrap().total, 0);
+        // A document written before this field existed keeps what it says.
+        fs::write(
+            directory.path().join("typing-statistics.json"),
+            r#"{"enabled":true,"total":5,"days":{"2026-09-21":5}}"#,
+        )
+        .unwrap();
+        assert!(store.load().unwrap().enabled);
     }
 
     #[test]

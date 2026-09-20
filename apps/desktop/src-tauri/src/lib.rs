@@ -410,6 +410,36 @@ async fn set_typing_statistics_enabled(
 }
 
 #[tauri::command]
+async fn set_typing_statistics_retention(
+    state: tauri::State<'_, TypingStatisticsState>,
+    retention: String,
+) -> Result<TypingStatisticsStatus, CommandError> {
+    let store = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        // The window counts back from the user's day, and this process is the one that knows
+        // which day that is - the same reason a recorded commit carries one.
+        let now =
+            time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
+        let date = now.date();
+        let today = format!(
+            "{:04}-{:02}-{:02}",
+            date.year(),
+            u8::from(date.month()),
+            date.day()
+        );
+        let statistics = store
+            .set_retention(
+                msime_client_core::typing_statistics::StatisticsRetention::parse(&retention),
+                &today,
+            )
+            .map_err(|_| CommandError { code: "storage" })?;
+        typing_statistics_status(&store, statistics)
+    })
+    .await
+    .map_err(|_| CommandError { code: "storage" })?
+}
+
+#[tauri::command]
 async fn reset_typing_statistics(
     state: tauri::State<'_, TypingStatisticsState>,
 ) -> Result<TypingStatisticsStatus, CommandError> {
@@ -3486,6 +3516,7 @@ pub fn run() {
             mutate_custom_skin_library,
             load_typing_statistics,
             set_typing_statistics_enabled,
+            set_typing_statistics_retention,
             reset_typing_statistics,
             scan_skin_catalog,
             read_skin_image,

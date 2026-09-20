@@ -128,6 +128,7 @@ async function downloadCloudEntryToLocal(
 const typingStatistics: TypingStatisticsClient = {
   load: () => invoke("load_typing_statistics"),
   setEnabled: (enabled: boolean) => invoke("set_typing_statistics_enabled", { enabled }),
+  setRetention: (retention: string) => invoke("set_typing_statistics_retention", { retention }),
   reset: () => invoke("reset_typing_statistics"),
 };
 const client: SettingsClient = {

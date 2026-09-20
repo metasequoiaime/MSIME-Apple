@@ -90,6 +90,8 @@ export { useConfirm, type ConfirmRequest } from "./core/confirm";
 export { decodeDictionaryBytes, readDictionaryFile } from "./dictionary/dictionary-file";
 export {
   TypingStatisticsPage,
+  retentionChoices,
+  type StatisticsRetention,
   activityMetrics,
   addDays,
   currentStreak,
