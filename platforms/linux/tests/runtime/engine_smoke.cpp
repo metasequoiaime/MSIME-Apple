@@ -329,6 +329,28 @@ int main(int argc, char **argv) {
       g_variant_unref(reply);
       return handled != FALSE;
     };
+    // Direct class calls make no D-Bus round trip, so the signals an observation
+    // comes from are still queued when the call returns. Wait for the
+    // observation itself rather than draining whatever happens to be pending.
+    auto wait_until = [&](auto ready) {
+      const auto deadline = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
+      while (!ready() && g_get_monotonic_time() < deadline) {
+        while (g_main_context_iteration(nullptr, FALSE)) {}
+        g_usleep(1000);
+      }
+      return ready();
+    };
+    // The host hides the candidate window on a 24ms timer rather than in the
+    // turn that empties it, so a composition that briefly has no candidates does
+    // not flicker the panel. Anything asserting that the window is gone has to
+    // wait for that timer instead of reading a value deliberately not there yet.
+    auto settle_lookup = [&] {
+      const auto deadline = g_get_monotonic_time() + 2 * G_USEC_PER_SEC;
+      while (seen.lookup_visible && g_get_monotonic_time() < deadline) {
+        while (g_main_context_iteration(nullptr, FALSE)) {}
+        g_usleep(1000);
+      }
+    };
     // Fifty-six call sites share this, and "Phrase key not consumed" named none
     // of them. Number the calls and say which key: a failure here otherwise costs
     // a bisection through the whole fixture to find out where it happened.
@@ -1649,9 +1671,15 @@ int main(int argc, char **argv) {
     }
     for (guint enter_key : {IBUS_Return, IBUS_KP_Enter}) {
       phrase();
-      require(key(enter_key) && seen.committed == "nihao" &&
+      const bool enter_handled = key(enter_key);
+      settle_lookup();
+      require(enter_handled && seen.committed == "nihao" &&
                   !seen.preedit_visible && !seen.lookup_visible,
-              "Enter selected an incremental candidate instead of raw spelling");
+              ("Enter selected an incremental candidate instead of raw spelling: handled=" +
+               std::to_string(enter_handled) + " committed=[" + seen.committed +
+               "] preedit=" + std::to_string(seen.preedit_visible) + " lookup=" +
+               std::to_string(seen.lookup_visible))
+                  .c_str());
       seen.committed.clear();
     }
     // Ctrl-only segment editing follows the Windows composition behavior:
@@ -1719,6 +1747,7 @@ int main(int argc, char **argv) {
     require(key(IBUS_space), "Space not handled");
     require(!key(IBUS_Shift_L, IBUS_RELEASE_MASK) && seen.input_enabled,
             "Shift chord tail toggled input after Space");
+    settle_lookup();
     require(seen.committed == "你好" && !seen.preedit_visible &&
                 !seen.lookup_visible,
             "Commit/clear signal mismatch");
@@ -1734,12 +1763,12 @@ int main(int argc, char **argv) {
     const auto property_first_page = seen.candidates;
     IBUS_ENGINE_GET_CLASS(engine)->property_activate(
         IBUS_ENGINE(engine), "CandidateNextPage", PROP_STATE_UNCHECKED);
-    require(seen.lookup_visible && !seen.candidates.empty() &&
-                seen.candidates != property_first_page,
+    require(wait_until([&] { return seen.candidates != property_first_page; }) &&
+                seen.lookup_visible && !seen.candidates.empty(),
             "Candidate panel next-page action did not use shared paging");
     IBUS_ENGINE_GET_CLASS(engine)->property_activate(
         IBUS_ENGINE(engine), "CandidatePreviousPage", PROP_STATE_UNCHECKED);
-    require(seen.candidates == property_first_page,
+    require(wait_until([&] { return seen.candidates == property_first_page; }),
             "Candidate panel previous-page action did not restore the shared page");
     invoke("PageDown");
     require(seen.lookup_visible && !seen.candidates.empty(),
@@ -1751,6 +1780,7 @@ int main(int argc, char **argv) {
     invoke("Reset");
     const auto committed_before_stale_click = seen.committed;
     invoke("CandidateClicked", g_variant_new("(uuu)", 0, 1, 0));
+    settle_lookup();
     require(seen.committed == committed_before_stale_click &&
                 !seen.lookup_visible,
             "Candidate click used a cleared rendered snapshot");
@@ -1776,6 +1806,7 @@ int main(int argc, char **argv) {
             "Mixed Emoji candidate was not exposed in the Chinese session");
     const auto mixed_emoji_index = static_cast<guint>(mixed_emoji - seen.candidates.begin());
     invoke("CandidateClicked", g_variant_new("(uuu)", 0, mixed_emoji_index, 0));
+    settle_lookup();
     require(seen.committed == "😀" && !seen.preedit_visible && !seen.lookup_visible,
             "Mixed Emoji candidate was not committed through IBus");
 
@@ -1788,6 +1819,7 @@ int main(int argc, char **argv) {
             "Mixed English candidate was not exposed at the configured prefix threshold");
     const auto mixed_english_index = static_cast<guint>(mixed_english - seen.candidates.begin());
     invoke("CandidateClicked", g_variant_new("(uuu)", 0, mixed_english_index, 0));
+    settle_lookup();
     require(seen.committed == "hello" && !seen.preedit_visible && !seen.lookup_visible,
             "Mixed English candidate was not committed through IBus");
 
@@ -1836,6 +1868,7 @@ int main(int argc, char **argv) {
     require(seen.preedit == "U4e00" && seen.candidates.size() == 1 &&
                 seen.candidates.front() == "一",
             "Unicode mode did not expose the deterministic scalar candidate");
+    settle_lookup();
     require(key(IBUS_space) && seen.committed == "一" && !seen.preedit_visible &&
                 !seen.lookup_visible,
             "Unicode candidate was not committed through IBus");
@@ -1847,6 +1880,7 @@ int main(int argc, char **argv) {
       require(key(static_cast<guint>(character)), "Date-time keyword input was not consumed");
     require(seen.candidates.size() >= 13 && !seen.candidates.front().empty(),
             "Date-time mode did not expose current date candidates");
+    settle_lookup();
     require(key(IBUS_space) && !seen.committed.empty() && !seen.preedit_visible &&
                 !seen.lookup_visible,
             "Date-time candidate was not committed through IBus");
@@ -1859,6 +1893,7 @@ int main(int argc, char **argv) {
     require(std::any_of(seen.candidates.begin(), seen.candidates.end(),
                         [](const std::string &candidate) { return candidate == "永远滴神"; }),
             "Quick-phrase fixture candidate was not exposed");
+    settle_lookup();
     require(key(IBUS_space) && seen.committed == "永远滴神" && !seen.preedit_visible &&
                 !seen.lookup_visible,
             "Quick-phrase candidate was not committed through IBus");
@@ -1871,6 +1906,7 @@ int main(int argc, char **argv) {
     require(std::any_of(seen.candidates.begin(), seen.candidates.end(),
                         [](const std::string &candidate) { return candidate == "你好"; }),
             "Super-jianpin fixture candidate was not exposed");
+    settle_lookup();
     require(key(IBUS_space) && seen.committed == "你好" && !seen.preedit_visible &&
                 !seen.lookup_visible,
             "Super-jianpin candidate was not committed through IBus");
@@ -1883,6 +1919,7 @@ int main(int argc, char **argv) {
     require(seen.preedit == "YMSIME" && seen.candidates.size() >= 1 &&
                 seen.candidates.front() == "MSIME",
             "Temporary English mode did not expose its raw candidate");
+    settle_lookup();
     require(key(IBUS_Return) && seen.committed == "MSIME" && !seen.preedit_visible &&
                 !seen.lookup_visible,
             "Temporary English raw text was not committed through IBus");
@@ -1894,6 +1931,7 @@ int main(int argc, char **argv) {
       require(key(static_cast<guint>(character)), "Emoji keyword input was not consumed");
     require(!seen.candidates.empty() && seen.candidates.front() == "😀",
             "Emoji mode did not expose the locked-resource fixture candidate");
+    settle_lookup();
     require(key(IBUS_space) && seen.committed == "😀" && !seen.preedit_visible &&
                 !seen.lookup_visible,
             "Emoji candidate was not committed through IBus");
@@ -1905,6 +1943,7 @@ int main(int argc, char **argv) {
       require(key(static_cast<guint>(character)), "Kaomoji keyword input was not consumed");
     require(!seen.candidates.empty() && seen.candidates.front() == "!(*￣(￣　*)",
             "Kaomoji mode did not expose the locked-resource fixture candidate");
+    settle_lookup();
     require(key(IBUS_space) && seen.committed == "!(*￣(￣　*)" && !seen.preedit_visible &&
                 !seen.lookup_visible,
             "Kaomoji candidate was not committed through IBus");
@@ -1983,6 +2022,7 @@ int main(int argc, char **argv) {
         key(IBUS_minus) && seen.preedit == "-" && seen.candidates.size() == 2 &&
             seen.candidates[0] == "ー" && seen.candidates[1] == "-",
         "Bare Japanese minus did not offer long-vowel and hyphen candidates");
+    settle_lookup();
     require(key(IBUS_equal) && seen.committed == japanese_commit + "ー=" &&
                 !seen.preedit_visible && !seen.lookup_visible,
             "Japanese equal key paged candidates instead of committing "
@@ -2059,6 +2099,7 @@ int main(int argc, char **argv) {
       require(key(keypad), "Keypad punctuation was not consumed");
       require(seen.committed == prefix + highlighted + mark,
               "Keypad punctuation did not finish the highlighted candidate literally");
+      settle_lookup();
       require(!seen.preedit_visible && !seen.lookup_visible,
               "Keypad punctuation left the candidate view visible");
     }
@@ -2091,6 +2132,7 @@ int main(int argc, char **argv) {
     invoke("Reset");
     invoke("Reset");
     invoke("FocusOut");
+    settle_lookup();
     require(!seen.preedit_visible && !seen.lookup_visible && !key('n'),
             "Focus loss did not clear and stop input");
     invoke("Set", g_variant_new(
@@ -2294,6 +2336,7 @@ int main(int argc, char **argv) {
       require(!key(native_key), "Idle native navigation was consumed");
       phrase();
       auto expected = seen.committed + seen.candidates.front();
+      settle_lookup();
       require(!key(native_key) && seen.committed == expected &&
                   !seen.preedit_visible && !seen.lookup_visible,
               "Disabled navigation lost input or intercepted the editor key");
@@ -2342,6 +2385,7 @@ int main(int argc, char **argv) {
       invoke("PageDown");
       auto last =
           seen.committed + edge_text(seen.candidates.at(seen.cursor), true);
+      settle_lookup();
       require(key(minus ? IBUS_equal : IBUS_bracketright) &&
                   seen.committed == last && !seen.lookup_visible,
               "Last Han binding did not use the displayed global candidate");
