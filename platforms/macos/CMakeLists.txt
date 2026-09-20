@@ -146,6 +146,28 @@ endforeach()
 add_custom_command(TARGET MSIMEClientInputMethod POST_BUILD
   COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks"
   COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${MSIME_SWIFT_BACKEND_OUTPUT}" "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks/MSIMEBackend.dylib")
+# The recognizer this host is forced to carry, and the four ggml libraries behind it.
+#
+# `MSIME_SHARED_VOICE_LOCAL_WHISPER` is set ON and FORCE above, so the input method links
+# @rpath/libwhisper.1.dylib and three libggml-*.0.dylib whether or not anyone wanted them. Only
+# MSIMEBackend and Sparkle were ever copied into Frameworks, so an installed bundle aborted at
+# launch with `Library not loaded: @rpath/libwhisper.1.dylib` — the build and the signature both
+# succeed, and the failure only appears when the app is asked to start.
+#
+# Copied as targets rather than by file name: the versioned names carry whisper's and ggml's own
+# version numbers, and a bump would silently leave the bundle pointing at a library that is no
+# longer built.
+foreach(MSIME_BUNDLED_LIBRARY whisper ggml ggml-base ggml-cpu ggml-metal)
+  if(TARGET ${MSIME_BUNDLED_LIBRARY})
+    add_custom_command(TARGET MSIMEClientInputMethod POST_BUILD
+      COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+              "$<TARGET_FILE:${MSIME_BUNDLED_LIBRARY}>"
+              "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks/$<TARGET_FILE_NAME:${MSIME_BUNDLED_LIBRARY}>"
+      COMMAND "${CMAKE_COMMAND}" -E create_symlink
+              "$<TARGET_FILE_NAME:${MSIME_BUNDLED_LIBRARY}>"
+              "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks/$<TARGET_SONAME_FILE_NAME:${MSIME_BUNDLED_LIBRARY}>")
+  endif()
+endforeach()
 set(MSIME_OPTIONS_FILE "" CACHE FILEPATH "Optional development runtime configuration; never distribute this file")
 if(MSIME_OPTIONS_FILE)
   target_sources(MSIMEClientInputMethod PRIVATE "${MSIME_OPTIONS_FILE}")
