@@ -1,8 +1,8 @@
 {
   "repository": "metasequoiaime/MSIME-Engine",
-  "commit": "e92a9c7c64e262f30218ca9aaad5f40d0b18cf89",
-  "archive": "https://github.com/metasequoiaime/MSIME-Engine/archive/e92a9c7c64e262f30218ca9aaad5f40d0b18cf89.tar.gz",
-  "sha256": "dcd6276795ee12c585682cbc272ea4864b47fcc527505590f56bd6b04d8b3642",
+  "commit": "f611f2ffe82058339d3372e107e4c8e9bb92c738",
+  "archive": "https://github.com/metasequoiaime/MSIME-Engine/archive/f611f2ffe82058339d3372e107e4c8e9bb92c738.tar.gz",
+  "sha256": "829a6cf12768f9c5c20873bba69f22fb766ab4a7010e465667e189d70d75d232",
   "patches": [],
   "overlay_scripts": [
     "scripts/apply_engine_double_helpcode_cache.py",
