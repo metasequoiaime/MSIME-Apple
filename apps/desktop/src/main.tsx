@@ -483,7 +483,18 @@ function DesktopSettings() {
               host.platform === "windows" ||
               host.platform === "macos" ||
               host.platform === "ios",
-            ...(host.typing_statistics ? { typingStatistics } : {}),
+            // A file manager is only reachable on the desktop hosts; iOS and Android get the same
+            // page without the button rather than one that fails when pressed.
+            ...(host.typing_statistics
+              ? {
+                  typingStatistics: isMobileHost(host.platform)
+                    ? typingStatistics
+                    : {
+                        ...typingStatistics,
+                        openDirectory: () => invoke<void>("open_typing_statistics_directory"),
+                      },
+                }
+              : {}),
             ...(host.fuzzy_pinyin ? { fuzzyPinyin: true } : {}),
             ...(host.platform === "ios" || host.platform === "android"
               ? createMobileHostServices(host.platform, {

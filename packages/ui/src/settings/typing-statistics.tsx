@@ -107,6 +107,8 @@ export interface TypingStatisticsClient {
   setEnabled(enabled: boolean): Promise<TypingStatisticsStatus>;
   /** Absent on hosts that do not keep the statistics themselves. */
   setRetention?(retention: StatisticsRetention): Promise<TypingStatisticsStatus>;
+  /** Absent where a file manager is not reachable - iOS and Android render no button rather than a dead one. */
+  openDirectory?(): Promise<void>;
   reset(): Promise<TypingStatisticsStatus>;
 }
 
@@ -834,6 +836,33 @@ function StatisticsHourlyBars({ hours }: { hours: readonly number[] }) {
   );
 }
 
+/** Why the page has nothing to show, or "" when there is nothing to explain.
+ *
+ * Every message here ends in "type a few more characters and come back". That is only true advice
+ * while recording is on: with it off the counts are zero because nothing is being recorded, and
+ * typing more records nothing. Recording ships off, so that is the state a new profile lands in -
+ * it gets the call to action above instead, and this stays quiet rather than sending anyone off to
+ * type for no effect.
+ *
+ * On iOS the keyboard extension cannot reach the shared App Group container without Full Access,
+ * so there the prerequisite is named rather than the typing.
+ */
+export function availabilityNotice(
+  statistics: Pick<TypingStatistics, "enabled" | "total">,
+  status: Pick<TypingStatisticsStatus, "availability" | "lastWrittenMs">,
+  iosPlatform: boolean,
+): string {
+  if (!statistics.enabled) return "";
+  if (status.availability === "neverWritten")
+    return iosPlatform
+      ? "键盘从未写入过统计。请在系统设置 → 通用 → 键盘 → 键盘 → 水杉输入法中开启“允许完全访问”，然后用水杉键盘输入几个字再回来刷新。未开启时仍可正常打字，只是不记录统计。"
+      : "键盘从未写入过统计。请用水杉键盘成功输入几个字符，再返回此页刷新。";
+  if (statistics.total === 0 && status.lastWrittenMs)
+    return `统计最后写入于 ${new Date(status.lastWrittenMs).toLocaleString("zh-CN")}，当前计数为零；如果刚刚清空过统计，这是正常的。`;
+  if (statistics.total === 0) return "统计文件已建立，但当前还没有输入记录。";
+  return "";
+}
+
 export function TypingStatisticsPage({
   client,
   mobile = false,
@@ -1002,18 +1031,8 @@ export function TypingStatisticsPage({
       symbol: "?",
     },
   ];
-  // On iOS the keyboard extension cannot reach the shared App Group container without Full
-  // Access, so "type a few more characters" is advice that cannot work: the count stays at
-  // zero however much is typed. Name the actual prerequisite instead.
   const iosPlatform = platform === "ios";
-  let availabilityMessage = "";
-  if (status.availability === "neverWritten") {
-    availabilityMessage = iosPlatform
-      ? "键盘从未写入过统计。请在系统设置 → 通用 → 键盘 → 键盘 → 水杉输入法中开启“允许完全访问”，然后用水杉键盘输入几个字再回来刷新。未开启时仍可正常打字，只是不记录统计。"
-      : "键盘从未写入过统计。请用水杉键盘成功输入几个字符，再返回此页刷新。";
-  } else if (statistics.total === 0 && status.lastWrittenMs)
-    availabilityMessage = `统计最后写入于 ${new Date(status.lastWrittenMs).toLocaleString("zh-CN")}，当前计数为零；如果刚刚清空过统计，这是正常的。`;
-  else if (statistics.total === 0) availabilityMessage = "统计文件已建立，但当前还没有输入记录。";
+  const availabilityMessage = availabilityNotice(statistics, status, iosPlatform);
   const resetStatistics = async () => {
     const confirmed = await confirm({
       title: "清空打字统计",
@@ -1072,6 +1091,24 @@ export function TypingStatisticsPage({
             </div>
           </details>
         </div>
+      )}
+      {!statistics.enabled && (
+        <section className="section m-0" aria-labelledby="statistics-disabled-title">
+          <h2 id="statistics-disabled-title" className={heading}>
+            输入统计已关闭
+          </h2>
+          <p className="mt-2 mb-0 leading-relaxed text-secondary">
+            开启后这里会显示输入字数、速度与时段分布。统计只保存在本机，不记录输入内容，也不联网。
+          </p>
+          <button
+            type="button"
+            className="secondary"
+            disabled={busy}
+            onClick={() => void update(() => client.setEnabled(true))}
+          >
+            {busy ? "处理中…" : "启用输入统计"}
+          </button>
+        </section>
       )}
       <section className="section m-0">
         {mobile ? (
@@ -1354,6 +1391,23 @@ export function TypingStatisticsPage({
             >
               {busy ? "处理中…" : "刷新统计"}
             </button>
+            {client.openDirectory && (
+              <button
+                type="button"
+                className="secondary m-0"
+                disabled={busy}
+                onClick={() => {
+                  const openDirectory = client.openDirectory;
+                  if (!openDirectory) return;
+                  setError("");
+                  void openDirectory().catch(() =>
+                    setError("无法打开数据目录，可能是文件管理器不可用。"),
+                  );
+                }}
+              >
+                打开数据目录
+              </button>
+            )}
             <button
               type="button"
               className="secondary m-0 text-danger"

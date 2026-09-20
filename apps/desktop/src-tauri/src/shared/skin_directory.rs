@@ -1,6 +1,6 @@
 use std::path::{Path, PathBuf};
 
-/// Create only the host-selected skin directory and pass its absolute path to
+/// Create only the host-selected directory and pass its absolute path to
 /// the platform opener. Neither a webview path nor a shell command is accepted.
 fn prepare_and_open(
     root: &Path,

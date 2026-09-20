@@ -454,6 +454,21 @@ async fn reset_typing_statistics(
     .map_err(|_| CommandError { code: "storage" })?
 }
 
+/// Reveal the folder holding the statistics file.
+///
+/// The page states that the statistics never leave this machine; this is how that claim can be
+/// checked rather than taken on trust. The host picks the folder - the webview cannot name one.
+#[tauri::command]
+async fn open_typing_statistics_directory(
+    state: tauri::State<'_, TypingStatisticsState>,
+) -> Result<(), CommandError> {
+    let root = state.0.directory().to_path_buf();
+    tauri::async_runtime::spawn_blocking(move || skin_directory::open(&root))
+        .await
+        .map_err(|_| CommandError { code: "storage" })?
+        .map_err(|code| CommandError { code })
+}
+
 fn read_skin_toolbar_stylesheet_at(
     root: PathBuf,
     id: &str,
@@ -3518,6 +3533,7 @@ pub fn run() {
             set_typing_statistics_enabled,
             set_typing_statistics_retention,
             reset_typing_statistics,
+            open_typing_statistics_directory,
             scan_skin_catalog,
             read_skin_image,
             read_skin_font,
