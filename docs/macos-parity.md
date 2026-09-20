@@ -66,12 +66,16 @@
 
 代码侧的迁移按上述五次比对已无已知缺口；macOS `ctest` 全通过，`scripts/known-failures.txt` 无 macOS 条目。
 
-未完成的有两类，都不是「还没做」：
+曾经挂着的两条跨平台取舍，现已各自归位：
 
-1. **安装后的交互验收**——不是代码缺口，见下一节，需要一次重新登录才能把新的输入源 identifier 加进本次登录会话的列表。
-2. **两条跨平台产品取舍**，改动落在 Windows/macOS 共用代码上，且目标侧的现状都有测试固定，因此没有单方面改动：
-   - **语音整理的请求预算**。目标沿用 Windows 的 3 秒总预算（`VoicePolishRequestTest.mm` 断言卡住的服务在 2.5–5 秒内被放弃），来源用 30 秒并注明 3 秒下整理「永远来不及返回」。现状的代价是：转写已经发给服务商，结果基本拿不到，而失败被 `HTTPVoiceRequest.mm` 吞掉、界面无任何提示。
-   - **离线释义的查询顺序**。引擎把顺序设计成构造参数（custom_translations → 随包 → 联网缓存，缓存排最后），来源直接用四参数构造；目标改为另开 `translation-glosses.db` 先查，于是联网学到的释义会盖过用户自己写在 `custom_translations.txt` 里的那条。目标这个顺序由 `crates/engine-bridge/src/lib.rs` 的 `unsafe_learned_glosses_fall_back_to_packaged_values` 明确断言，是有意为之。
+- **语音整理的请求预算**：是 macOS 缺口，已修（#3224）。目标此前沿用 Windows 的 3 秒总预算，而来源实测 3 秒下整理「永远来不及返回」并使用 30 秒；配合 `HTTPVoiceRequest.mm` 吞掉失败的写法，结果是转写已经发给服务商、清理后的答案每次都被丢弃、界面毫无提示。现在预算是带默认值的参数，默认仍是 Windows 的 3 秒，只有 macOS 显式传 30 秒——Windows 行为一字未动。代价也一并写在提交里：整理与转写在同一条路径上，慢的服务会推迟文字上屏本身，这与来源的取舍相同，且好过「发出去再把回答扔掉」。
+- **离线释义的查询顺序**：**不是 macOS 迁移缺口**。`msime_client_candidate_gloss_request` 是所有宿主共用的 C ABI，`candidate_glosses_with_user` 的顺序在 macOS、Windows、Linux、HarmonyOS 上完全一致，macOS 并不落后于本产品的任何宿主。与来源的差异是整个产品层面的一个刻意选择：引擎把顺序设计成构造参数（custom_translations → 随包 → 联网缓存），来源直接用四参数构造，而目标另开 `translation-glosses.db` 先查，并由 `crates/engine-bridge/src/lib.rs` 的 `unsafe_learned_glosses_fall_back_to_packaged_values` 明确断言「learned 优先于随包」。
+
+  值得单独立项的是其中一个副作用：用户手写在 `custom_translations.txt` 里的释义会被自动学来的联网释义盖过。想在保留目标现有契约的前提下修它，需要引擎把 custom 那一层单独暴露出来——custom 与随包词库目前同属一个 `EnglishDictionary` 对象，在桥接层无法分离。这属于引擎侧的改动，不在本次 macOS 迁移范围内。
+
+因此当前只剩一项未完成：
+
+**安装后的交互验收**——不是代码缺口，见下一节，需要一次重新登录才能把新的输入源 identifier 加进本次登录会话的列表。
 
 ## 功能分组与目的地入口
 
