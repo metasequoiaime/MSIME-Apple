@@ -148,11 +148,12 @@ xcodebuild test -project platforms/ios/MSIMEClient.xcodeproj -scheme MSIMEClient
 
 `KeyboardExtensionEditorUITests` 是唯一把键盘扩展当成系统键盘来用的一组用例：其余所有套件都直接在测试宿主里构造 `KeyboardViewController`，那条路覆盖不到只在运行期才存在的部分——系统是否真的加载这个扩展、扩展进程能否读到 App Group 共享容器、上屏文本是否真的到达别人的 `UITextDocumentProxy`。它要求键盘已在「设置」里启用；没启用时跳过而不是失败，并在跳过信息里带上当时键面上有什么。
 
-**在 iOS 27 模拟器上还没有找到无人值守启用第三方键盘的办法，下面三条都试过、都不行，不要再走一遍：**
+**在 iOS 27 模拟器上，键盘能装上但切不过去。** 这两件事要分开说，我一开始混为一谈并写错过结论：
 
-- 往 `.GlobalPreferences` 写 `AppleKeyboards`（含扩展 bundle id）并重启模拟器。值确实落盘也读得回来，但系统按自己的存储重建键盘环——连一起写进去的系统拼音键盘都不出现，环里始终只有英文和 Emoji。
-- `pluginkit -e use -i app.msime.ios.keyboard`。扩展本来就以 `com.apple.keyboard-service` 注册着，置成 `+` 之后能跨重装保持，但键盘环不变，所以它不是那道门。
-- `App-prefs:General&path=Keyboard` 之类的深链。命令返回成功，界面停在设置首页不跳转；iOS 27 的「键盘」也已不在「通用」下面。
+- **启用是成功的。** 往 `.GlobalPreferences` 写 `AppleKeyboards`（加上扩展 bundle id `app.msime.ios.keyboard`）并重启模拟器之后，设置 → 通用 → 键盘 → 键盘 里确实列着「水杉输入法 · 中文」。用一条临时 UI 测试走 Settings 把每一层的单元格文案打出来才看清这一点——此前只凭「键盘环里没有它」就断定写入无效，是错的。
+- **切换是失败的。** XCUITest 到不了它。`app.buttons["Next keyboard"]` 点下去落在 shift 上（键面在 Q/q 之间来回，始终是同一个 `UIKeyboardLayoutStar`），长按它弹出的是单手键盘的「默认/右手/左手」菜单，里面一个键盘名字都没有——连已启用的简体拼音和英语都没有。`app.keyboards.buttons` 只有 `shift` / `emoji` / `Return` 三个。
+
+另外两条与启用无关，试过也无效，不必再走：`pluginkit -e use -i app.msime.ios.keyboard`（扩展本来就注册为 `com.apple.keyboard-service`，置 `+` 能跨重装保持，但和键盘环无关），以及 `App-prefs:General&path=Keyboard` 深链（命令返回成功，界面停在设置首页不跳转）。
 
 真机上就是正常在 设置 → 键盘 里添加一次，之后这组用例会自己跑起来。
 

@@ -3977,6 +3977,75 @@ const referenceSections: { page: string; button: string; titles: string[] }[] = 
     titles: ["打开手写识别板"],
   },
   {
+    page: "voice",
+    button: "语音输入",
+    titles: [
+      // 来源的「基础设置」与「启用语音输入」在这里合成一节。
+      "语音输入",
+      // 来源：ASR API。
+      "识别服务",
+      "豆包识别选项",
+      // 来源：文本润色 API。
+      "文本润色 provider",
+      "录音时静音其他声音",
+      // 来源：语音输入快捷键。三个长按组合的键名按平台改写（Option/Command 对 Alt/Win），
+      // 所以这里只钉小节本身，键名由各自平台的用例覆盖。
+      "语音快捷键",
+    ],
+  },
+  {
+    page: "skin",
+    button: "皮肤",
+    titles: [
+      // 来源把四套内置皮肤各自做成一节；这里是一个皮肤选择器，四套在同一个卡片列表里，
+      // 所以只有「外部皮肤」是小节。皮肤本身四套都在（CandidateSkin.cpp 与皮肤页的名字）。
+      "外部皮肤",
+    ],
+  },
+  {
+    page: "dictionary",
+    button: "词库",
+    titles: [
+      // 来源分成「批量导入纯汉字词组」与「导出词库」两节；这里是一节带类别选择的词库管理，
+      // 查询、新增、编辑、导入、导出都在其中，导入说明里写明支持纯汉字自动注音。
+      "本地词库管理",
+    ],
+  },
+  {
+    page: "ai",
+    button: "AI 辅助",
+    titles: [
+      // 来源：启用 AI 联想。这里的开关还管 iOS 键盘的 AI 回复与 Android 的选中文字润色，
+      // 所以名字不按来源收窄到候选联想。
+      "启用 AI 辅助",
+      // 来源把这些放在「API 配置」一节里，这里各自成行。
+      "服务提供商",
+      "模型",
+      "接口地址",
+      "API Token",
+    ],
+  },
+  {
+    page: "shortcuts",
+    button: "快捷键",
+    titles: [
+      // 来源：中英文切换。简繁切换在来源是并列的一节，这里是这一节里的一行，且键名按平台
+      // 改写（Control 对 Ctrl），所以不在这里钉。
+      "输入模式切换",
+      "候选操作",
+      // 来源：全局快捷键。
+      "面板快捷键",
+    ],
+  },
+  {
+    page: "about",
+    button: "关于",
+    titles: [
+      // 来源另有「TSF 端日志」，那是 Windows 的 TIP 进程，按平台门控。
+      "Server 端日志",
+    ],
+  },
+  {
     page: "help",
     button: "帮助",
     titles: ["快速上手", "基本功能"],
@@ -3991,6 +4060,14 @@ test.each(referenceSections)(
         client={{
           load: vi.fn().mockResolvedValue(initial),
           save: vi.fn(),
+          // The dictionary and skin pages render their sections only once the host offers them
+          // anything to show; without these two the pages would be empty and the table would be
+          // asserting nothing about them.
+          dictionary: {
+            list: vi.fn().mockResolvedValue({ entries: [], has_more: false }),
+            edit: vi.fn(),
+          },
+          scanSkinCatalog: vi.fn().mockResolvedValue({ skins: [] }),
           // The capabilities `host_surface.rs` gives the Windows host, since these are the
           // reference's own sections: several of them are behind a capability and a bare fixture
           // would assert they are missing when the host simply never declared it.
@@ -4002,6 +4079,10 @@ test.each(referenceSections)(
             candidate_font_controls: true,
             candidate_follow_cursor: true,
             ime_mode_scope: true,
+            // `for_platform(Windows)` declares both, and the shortcut page's sections are behind
+            // them; without these the table would pass by asserting a page that rendered nothing.
+            mode_switch_shortcuts: true,
+            panel_shortcuts: true,
           } as HostCapabilities,
         }}
       />,
@@ -4011,6 +4092,94 @@ test.each(referenceSections)(
     const page = await screen.findByRole("group", { name: button });
     const present = sectionTitles(page);
     expect(titles.filter((title) => !present.includes(title))).toEqual([]);
+  },
+);
+
+/**
+ * The same sections, asked of the macOS host.
+ *
+ * The table above renders with Windows' capabilities because the sections are the reference
+ * window's. That says nothing about the host this client is migrating them to: a section behind a
+ * capability macOS does not declare, or behind a platform name, would be missing there and the
+ * assertion above would still pass. This is the same table against `for_platform(Macos)`.
+ *
+ * A section macOS legitimately does not show is named here with the reason, and an entry that stops
+ * being needed fails, so the list cannot outlive what it explains.
+ */
+/** What `host_surface.rs` answers for HostPlatform::Macos, field for field. */
+const macosHostCapabilities = {
+  platform: "macos",
+  restart_input_method: true,
+  panel_windows: true,
+  ime_mode_scope: true,
+  typing_statistics: true,
+  fuzzy_pinyin: true,
+  system_fonts: true,
+  window_chrome: true,
+  floating_toolbar: true,
+  floating_toolbar_appearance: true,
+  floating_toolbar_components: true,
+  mode_switch_shortcuts: true,
+  panel_shortcuts: true,
+  number_row_selection: false,
+  voice_capture_devices: true,
+  candidate_font_controls: true,
+  candidate_row_colors: true,
+  candidate_selection_appearance: true,
+  candidate_follow_cursor: true,
+  input_mode_hud: true,
+  voice_commit_mode: true,
+  shuangpin_preedit: true,
+  candidate_english_font: true,
+} as HostCapabilities;
+
+const macosAbsentSections: Record<string, string> = {
+  // The Windows font row carries this note; macOS applies the family without a restart, and its
+  // font controls are the shared three (main, supplementary, English) rather than Windows' pair.
+  保存后自动应用: "a Windows-only note on its own font row",
+  // The handwriting panel needs the input method process's IMK session, and the settings window is
+  // a different process. macOS shows a card saying to open it from the toolbar or the input menu
+  // instead of a button that could not work from here.
+  打开手写识别板: "the panel is opened from the input method, not from this window",
+  // The reference answers a new user's questions as prose. macOS answers the same ones as term and
+  // description rows (`macosHelpCards`), because the three that actually come up there - how to
+  // switch to English, how to select a candidate, why the input source is missing from the menu -
+  // want to be findable rather than read through.
+  快速上手: "macOS answers the same questions as help cards",
+  基本功能: "macOS answers the same questions as help cards",
+};
+
+test.each(referenceSections)(
+  "the $page page carries the reference window's sections on macOS too",
+  async ({ button, titles }) => {
+    render(
+      <SettingsPage
+        client={{
+          load: vi.fn().mockResolvedValue(initial),
+          save: vi.fn(),
+          // What `host_surface.rs` gives HostPlatform::Macos, so a missing section is a difference
+          // in the page rather than a capability the fixture forgot to declare.
+          host: macosHostCapabilities,
+          dictionary: {
+            list: vi.fn().mockResolvedValue({ entries: [], has_more: false }),
+            edit: vi.fn(),
+          },
+          scanSkinCatalog: vi.fn().mockResolvedValue({ skins: [] }),
+        }}
+      />,
+    );
+    await settingsReady();
+    fireEvent.click(screen.getByRole("button", { name: button }));
+    const page = await screen.findByRole("group", { name: button });
+    const present = sectionTitles(page);
+    const wanted = titles.filter((title) => !(title in macosAbsentSections));
+    expect(wanted.filter((title) => !present.includes(title))).toEqual([]);
+    for (const [title, reason] of Object.entries(macosAbsentSections)) {
+      if (!titles.includes(title)) continue;
+      expect(present.includes(title), `${title} is shown on macOS after all: ${reason}`).toBe(
+        false,
+      );
+    }
   },
 );
 
