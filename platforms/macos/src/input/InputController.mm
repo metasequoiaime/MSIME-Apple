@@ -3239,9 +3239,13 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
         NSDictionary *candidate = ((NSUInteger)physicalDigit < visibleCandidates.count) ? visibleCandidates[(NSUInteger)physicalDigit] : nil;
         if ([self commitCandidateGlossColumn:_armedGlossColumn candidate:candidate client:sender]) return YES;
     }
+    const BOOL unicodeComposition = [_view[@"local_mode"] isEqual:@"unicode"];
     if (msime::mac::ShouldRoutePhysicalCandidateDigit(
-            _panel.isVisible, [_view[@"nine_key"] boolValue], [_view[@"local_mode"] isEqual:@"unicode"],
-            (event.modifierFlags & candidateDigitModifiers) != 0)) {
+            _panel.isVisible, [_view[@"nine_key"] boolValue], unicodeComposition,
+            (event.modifierFlags & candidateDigitModifiers) != 0) ||
+        msime::mac::ShouldRouteUnicodeShiftCandidateDigit(
+            _panel.isVisible, unicodeComposition,
+            (event.modifierFlags & candidateDigitModifiers) == NSEventModifierFlagShift)) {
         const int slot = msime::mac::PhysicalCandidateDigitSlot(event.keyCode);
         if (slot >= 0) {
             // The panel owns the rendered snapshot. If it is from an older
