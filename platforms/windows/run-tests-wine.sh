@@ -139,8 +139,33 @@ if [ -d "$installer" ]; then
   installer_argument='Z:\\installer\\msime_setup.iss'
 fi
 
+# The Rust host carries the Windows-only code the C++ suite never touches:
+# clipboard reads and writes, synthetic key strokes, the extended-key set. Its
+# tests build for the same target and run under the same Wine, but this runner
+# only ever globbed C++ executables, so none of them ran here. Build them into a
+# staging directory and let the loop below pick them up with the rest.
+rust_triple=x86_64-pc-windows-gnu
+[ "$arch" = x86 ] && rust_triple=i686-pc-windows-gnu
+rust_stage="$root/target/wine-rust-tests/$arch"
+rm -rf "$rust_stage"
+mkdir -p "$rust_stage"
+if command -v cargo >/dev/null 2>&1; then
+  # --no-run builds the test binaries and prints where they landed; anything that
+  # fails to build is reported and skipped rather than failing the whole run,
+  # because the C++ suite below is still worth having.
+  cargo test -p msime-host-windows --target "$rust_triple" --no-run \
+    --message-format=json 2>/dev/null \
+    | sed -n 's/.*"executable":"\([^"]*\)".*/\1/p' \
+    | while IFS= read -r exe; do
+        [ -f "$exe" ] || continue
+        cp "$exe" "$rust_stage/rust-$(basename "$exe" .exe | sed 's/-[0-9a-f]\{16\}$//').exe"
+      done
+else
+  echo "skipped: cargo unavailable, the Rust host tests will not run under Wine"
+fi
+
 docker run --rm --platform linux/amd64 \
-  -v "$build":/bin-win:ro -v "$runtime":/rt:ro ${resources_mount[@]+"${resources_mount[@]}"} \
+  -v "$build":/bin-win:ro -v "$runtime":/rt:ro -v "$rust_stage":/bin-rust:ro ${resources_mount[@]+"${resources_mount[@]}"} \
   ${installer_mount[@]+"${installer_mount[@]}"} \
   -e "MSIME_RESOURCES=$resources_argument" -e "MSIME_INSTALLER=$installer_argument" "$image" sh -c '
 mkdir -p /run/t && cp /rt/*.dll /run/t/ && cp /bin-win/*.dll /run/t/ 2>/dev/null
@@ -148,7 +173,7 @@ cd /run/t
 # msimeui puts its test executable in bin/ rather than beside the others, so a
 # top-level pattern silently matched nothing and that suite was never run here.
 for exe in /bin-win/windows-*.exe /bin-win/msime-tsf-*.exe /bin-win/msimeui-tests.exe \
-           /bin-win/bin/msimeui-tests.exe; do
+           /bin-win/bin/msimeui-tests.exe /bin-rust/rust-*.exe; do
   [ -f "$exe" ] || continue
   name=$(basename "$exe" .exe)
   cp "$exe" /run/t/ 2>/dev/null || continue
