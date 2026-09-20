@@ -249,3 +249,29 @@ fn activation_case(nested_dictionaries: bool, hold_session: bool, handle: u64) {
     assert!(!registry().lock().unwrap().contains_key(&handle));
     assert!(activate(handle, &expected).is_err());
 }
+
+#[test]
+fn a_backup_that_still_holds_the_user_s_data_survives_the_cleanup() {
+    use std::fs;
+
+    // Rollback puts the original contents back with renames that are best effort. One of those
+    // failing is precisely the case where the backup is the only remaining copy, and the cleanup
+    // that follows used to be `remove_dir_all` - it would have deleted the user's dictionaries on
+    // the way out of a failure they had already survived.
+    let root = tempfile::tempdir().unwrap();
+
+    let recovered = root.path().join("rollback-emptied-this");
+    fs::create_dir_all(&recovered).unwrap();
+    super::discard_recovered_backup(&recovered);
+    assert!(!recovered.exists(), "an emptied backup is cleaned up");
+
+    let stranded = root.path().join("rollback-could-not-empty-this");
+    fs::create_dir_all(&stranded).unwrap();
+    fs::write(stranded.join("user.db"), b"the only copy").unwrap();
+    super::discard_recovered_backup(&stranded);
+    assert_eq!(
+        fs::read(stranded.join("user.db")).unwrap(),
+        b"the only copy",
+        "a backup with anything left in it is kept, whatever it costs in space"
+    );
+}
