@@ -13,7 +13,9 @@ if(NOT TARGET MetasequoiaIme::Voice)
   set(MSIME_VOICE_WHISPER ${MSIME_SHARED_VOICE_LOCAL_WHISPER})
   if(MSIME_SHARED_VOICE_LOCAL_WHISPER)
     # Match the Apple host's pinned configuration: everything static so the bundle carries no loose dylib, no -march=native in a redistributable binary, and no BLAS backend, which would raise the deployment floor to macOS 13.3. Metal and the CPU backend remain.
-    set(BUILD_SHARED_LIBS OFF)
+    #
+    # Forced into the cache, not set as a normal variable, because whisper.cpp declares this same name with `option()` and does not set CMP0077. With the policy unset, `option()` on a first configure clears the normal variable and writes its own default - so the first configure of a fresh build directory produced shared libraries and every configure after it produced static ones, from the same source. The build directory then disagreed with itself: the macOS bundle staged `libwhisper.1.dylib` and friends into Frameworks, and re-running CMake for any reason - editing a CMakeLists is enough - turned those targets static and failed the generate step on `$<TARGET_SONAME_FILE_NAME:whisper>`. A cache entry is what `option()` looks at, so this decides it once for every configure.
+    set(BUILD_SHARED_LIBS OFF CACHE BOOL "Static Engine voice dependencies; see shared/voice/CMakeLists.txt" FORCE)
     set(GGML_NATIVE OFF)
     set(GGML_BLAS OFF)
     # Embed the Metal shaders in the archive; otherwise the host has to find and stage a default.metallib next to the binary at runtime.
@@ -65,4 +67,12 @@ if(BUILD_TESTING)
     target_compile_options(shared-voice-provider-routing PRIVATE -UNDEBUG)
   endif()
   add_test(NAME shared-voice-provider-routing COMMAND shared-voice-provider-routing)
+  if(MSIME_SHARED_VOICE_LOCAL_WHISPER AND TARGET ggml)
+    # Which compute backends the linked-in recognizer actually registers. The libraries are static
+    # here, and a backend the registry never hears about costs nothing visible: whisper still answers,
+    # on the CPU.
+    add_executable(shared-voice-backend-registry tests/backend_registry.cpp)
+    target_link_libraries(shared-voice-backend-registry PRIVATE ggml)
+    add_test(NAME shared-voice-backend-registry COMMAND shared-voice-backend-registry)
+  endif()
 endif()
