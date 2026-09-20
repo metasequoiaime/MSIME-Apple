@@ -20,6 +20,8 @@ MSIME-Engine (C++, 固定版本)   输入算法与组合状态
 
 `crates/client-core` 与上面这条链路平行，负责本地配置和固定资源的分代安装，不参与按键处理。`packages/ui` 与 `apps/desktop` 是共享的 React 设置页和 Tauri 应用壳，桌面、Android、iOS 共用同一个 Rust 入口库与同一套页面。
 
+**产品本体是 `platforms/<os>` 的原生宿主。** Android、iOS、HarmonyOS、Linux、macOS、Windows 一律如此：最终安装、启动、被系统识别为输入法的都是原生宿主。Tauri/React 是跨平台共享功能与界面的公共组件，由原生宿主按需承载，不单独作为某个平台的产品去启动或验收。`apps/desktop` 的目录名和 Tauri 生成的工程都不改变这一点。
+
 ## 四条不能打破的边界
 
 **输入算法归 C++ Engine。** 组词状态机、候选排序、学习回放都在 Engine 里。`input-runtime` 只维护宿主编排和展示状态——它知道当前是第几页、焦点在不在、这次选择属于哪一代快照，但它不知道「ni hao」应该出什么词。在 Rust 侧复制一份组词逻辑，就等于让两份实现开始漂移。
