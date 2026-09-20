@@ -11,6 +11,11 @@
 # 已知杂质：网页文本按标点切句，少数用例是被切出来的半句（"是一次意气风发"）。金标准仍是原文，
 # 拼音仍解得出来，所以它们测的东西没变，只是读起来不像完整句子。
 #
+# 标签 reported：用户在产品里遇到并报上来的句子，不是从语料收割的，所以没有上文。r-0001 的 未来可期
+# 当时根本不在词库里（只有 可期 1111 对 客气 75460）；r-0002 的 扛把子 在词库里但权重 100，十音节以内
+# 的整句提权后就对了，十一音节起无论多少权重都不进候选 —— 词格给出的那条句子是 视作撑开远射取得扛把子，
+# 前半句错得比 Google 整句还多，而 Google 整句没有这个词。这两条留在这里是给排序改动当靶子。
+#
 # 列：id / 拼音 / 金标准 / 字数 / 标签 / 上文
 # 语料署名：C4 中文部分 (ODC-BY, https://huggingface.co/datasets/allenai/c4)
 p-0001	genjuguanfangxinwengao	根据官方新闻稿	7	harvested	TC Helicon和TC Applied Technologies（TC应用技术）
@@ -323,3 +328,5 @@ p-0307	qianqulenali	钱去了哪里	5	harvested	存款单还在我手上
 p-0308	renfugaoling	妊妇高龄	4	harvested	先天畸形儿分娩史
 p-0309	fangxiachutoushiyanyuan	放下锄头是演员	7	harvested	　浙江淳安下姜村村民：我们拿起锄头是村民
 p-0310	chenchangshengdengleliangzhou	陈长生等了两周	7	harvested	星辰变最新章节列表我们是兄弟最新章节_全天腾讯分分彩计划
+r-0001	weilaikeqi	未来可期	4	reported	
+r-0002	womendemubiaoshizuochengkaiyuanshequdekangbazi	我们的目标是做成开源社区的扛把子	16	reported	

@@ -3,34 +3,34 @@
     "10": {
       "cases": 9,
       "found": 1.0,
-      "mrr": 0.558,
-      "top1": 0.222,
-      "top1_char_prefix": 0.467,
+      "mrr": 0.669,
+      "top1": 0.444,
+      "top1_char_prefix": 0.6,
       "top5": 0.889,
       "top9": 0.889
     },
     "11": {
       "cases": 13,
-      "found": 1.0,
-      "mrr": 0.285,
-      "top1": 0.077,
-      "top1_char_prefix": 0.469,
+      "found": 0.846,
+      "mrr": 0.315,
+      "top1": 0.154,
+      "top1_char_prefix": 0.517,
       "top5": 0.462,
       "top9": 0.462
     },
     "12": {
       "cases": 6,
       "found": 1.0,
-      "mrr": 0.341,
+      "mrr": 0.421,
       "top1": 0.167,
       "top1_char_prefix": 0.583,
-      "top5": 0.5,
-      "top9": 0.5
+      "top5": 0.667,
+      "top9": 0.667
     },
     "13": {
       "cases": 11,
-      "found": 1.0,
-      "mrr": 0.374,
+      "found": 0.909,
+      "mrr": 0.373,
       "top1": 0.182,
       "top1_char_prefix": 0.706,
       "top5": 0.545,
@@ -55,35 +55,35 @@
       "top9": 0.5
     },
     "16": {
-      "cases": 1,
-      "found": 1.0,
-      "mrr": 0.015,
+      "cases": 2,
+      "found": 0.0,
+      "mrr": 0.0,
       "top1": 0.0,
-      "top1_char_prefix": 0.25,
+      "top1_char_prefix": 0.531,
       "top5": 0.0,
       "top9": 0.0
     },
     "4": {
-      "cases": 91,
-      "found": 1.0,
-      "mrr": 0.314,
-      "top1": 0.11,
-      "top1_char_prefix": 0.387,
-      "top5": 0.505,
-      "top9": 0.505
+      "cases": 92,
+      "found": 0.989,
+      "mrr": 0.321,
+      "top1": 0.12,
+      "top1_char_prefix": 0.399,
+      "top5": 0.511,
+      "top9": 0.511
     },
     "5": {
       "cases": 35,
-      "found": 1.0,
-      "mrr": 0.35,
-      "top1": 0.057,
-      "top1_char_prefix": 0.389,
+      "found": 0.943,
+      "mrr": 0.378,
+      "top1": 0.114,
+      "top1_char_prefix": 0.446,
       "top5": 0.629,
       "top9": 0.629
     },
     "6": {
       "cases": 50,
-      "found": 1.0,
+      "found": 0.98,
       "mrr": 0.446,
       "top1": 0.24,
       "top1_char_prefix": 0.497,
@@ -92,10 +92,10 @@
     },
     "7": {
       "cases": 41,
-      "found": 1.0,
-      "mrr": 0.364,
-      "top1": 0.146,
-      "top1_char_prefix": 0.523,
+      "found": 0.951,
+      "mrr": 0.449,
+      "top1": 0.317,
+      "top1_char_prefix": 0.617,
       "top5": 0.561,
       "top9": 0.561
     },
@@ -110,39 +110,48 @@
     },
     "9": {
       "cases": 21,
-      "found": 1.0,
-      "mrr": 0.272,
-      "top1": 0.048,
-      "top1_char_prefix": 0.476,
-      "top5": 0.476,
-      "top9": 0.476
+      "found": 0.81,
+      "mrr": 0.361,
+      "top1": 0.143,
+      "top1_char_prefix": 0.55,
+      "top5": 0.571,
+      "top9": 0.571
     }
   },
   "by_tag": {
     "harvested": {
       "cases": 310,
-      "found": 1.0,
-      "mrr": 0.35,
-      "top1": 0.123,
-      "top1_char_prefix": 0.457,
-      "top5": 0.561,
-      "top9": 0.561
+      "found": 0.955,
+      "mrr": 0.379,
+      "top1": 0.171,
+      "top1_char_prefix": 0.49,
+      "top5": 0.574,
+      "top9": 0.574
+    },
+    "reported": {
+      "cases": 2,
+      "found": 0.5,
+      "mrr": 0.003,
+      "top1": 0.0,
+      "top1_char_prefix": 0.656,
+      "top5": 0.0,
+      "top9": 0.0
     }
   },
-  "cases": 310,
+  "cases": 312,
   "gold_source": {
     "database": 2,
     "fallback": 108,
-    "generated": 200
+    "generated": 187
   },
   "overall": {
-    "cases": 310,
-    "found": 1.0,
-    "mrr": 0.35,
-    "top1": 0.123,
-    "top1_char_prefix": 0.457,
-    "top5": 0.561,
-    "top9": 0.561
+    "cases": 312,
+    "found": 0.952,
+    "mrr": 0.377,
+    "top1": 0.17,
+    "top1_char_prefix": 0.491,
+    "top5": 0.571,
+    "top9": 0.571
   },
   "sample_failures": [
     {
@@ -156,7 +165,7 @@
       "gold": "建筑类资质值得托付",
       "id": "p-0004",
       "input": "jianzhuleizizhizhidetuofu",
-      "rank": 193,
+      "rank": null,
       "top1": "建筑类资质值得托福"
     },
     {
@@ -233,7 +242,7 @@
       "gold": "国际社会解除对伊朗实施的制裁措施",
       "id": "p-0015",
       "input": "guojishehuijiechuduiyilangshishidezhicaicuoshi",
-      "rank": 67,
+      "rank": null,
       "top1": "国际社会接触对伊朗实施的制裁措施"
     },
     {
@@ -277,13 +286,6 @@
       "input": "gebieyunniang",
       "rank": 2,
       "top1": "各别酝酿"
-    },
-    {
-      "gold": "便是导火索",
-      "id": "p-0024",
-      "input": "bianshidaohuosuo",
-      "rank": 2,
-      "top1": "便是到货所"
     },
     {
       "gold": "没能挺住",
@@ -366,7 +368,7 @@
       "gold": "他仍然希望能够加大训练量",
       "id": "p-0037",
       "input": "tarengranxiwangnenggoujiadaxunlianliang",
-      "rank": 55,
+      "rank": 2,
       "top1": "他仍然希望能够加大训练两"
     },
     {
@@ -424,11 +426,18 @@
       "input": "kailuohangxianbuanquan",
       "rank": 2,
       "top1": "开罗航线部安全"
+    },
+    {
+      "gold": "实时视频回传",
+      "id": "p-0048",
+      "input": "shishishipinhuichuan",
+      "rank": 228,
+      "top1": "实施食品回传"
     }
   ],
   "top1_source": {
     "database": 1,
-    "fallback": 127,
-    "generated": 182
+    "fallback": 145,
+    "generated": 166
   }
 }
