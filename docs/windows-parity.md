@@ -693,9 +693,18 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 **本批没有删它**（可能是预留或其他分支在用），也没有把它接起来（那会无缘无故改动生产路径）。按「存在但未接入」记录。
 
-**同时记下一个覆盖事实**：在用的 Rust 路径在 Wine 套件里也没有覆盖——`run-tests-wine.sh` 只 glob `windows-*.exe`、`msime-tsf-*.exe` 与 `msimeui-tests.exe`，即只跑 C++ 测试可执行文件，不跑 cargo 为 Windows 目标产出的测试二进制。要覆盖 `write_clipboard_text` / `read_clipboard_text`，得先扩展这个运行器，那是比加一个用例大的改动。
+**同时记下一个覆盖事实**：在用的 Rust 路径在 Wine 套件里也没有覆盖——`run-tests-wine.sh` 只 glob `windows-*.exe`、`msime-tsf-*.exe` 与 `msimeui-tests.exe`，即只跑 C++ 测试可执行文件，不跑 cargo 为 Windows 目标产出的测试二进制。要覆盖 `write_clipboard_text` / `read_clipboard_text`，得先扩展这个运行器——**第五十四批做了这件事**，那两个函数所在的 crate 现在随套件一起在 Wine 下执行。
 
 这一条的教训与本轮多次遇到的同形：**先确认要测的东西是活的**。三个纯逻辑用例的存在，让剪贴板看起来「有覆盖」；而真正会在用户机器上跑的那两条路径，一条根本没编译，另一条套件够不着。
+
+
+增量记录（2026-09-20，Windows 第五十四批：让 Wine 套件也跑 Rust 宿主的 Windows 测试）：上一批记下一个事实——`run-tests-wine.sh` 只 glob `windows-*.exe`、`msime-tsf-*.exe` 与 `msimeui-tests.exe`，即只跑 C++ 测试可执行文件。于是 `crates/host-windows` 里那套 Windows 专有代码在容器里零覆盖：剪贴板读写、合成按键、扩展键集合，全都只在真实 Windows 上才可能被执行到。
+
+本批把它接上了。`cargo test -p msime-host-windows --target x86_64-pc-windows-gnu --no-run` 能为同一目标产出测试二进制，它们在同一个 Wine 下跑得起来——先实测确认，再改脚本：把产物收进 `target/wine-rust-tests/<arch>`，作为只读卷挂进容器，让原有循环一并跑。x86 用 `i686-pc-windows-gnu`；目标未安装或 cargo 不可用时优雅跳过，不影响 C++ 套件。
+
+结果：套件从 78 通过 / 1 失败变成 **80 通过 / 1 失败**，新增的 `rust-msime_host_windows`（11 个单元测试）与 `rust-paste_policy`（2 个）全部通过。其中就包括第五十批只靠读源码核对过的扩展键与扫描码那几条——它们现在是真的被执行了，不再只是被读过。
+
+**另记一个偶发**：第一次运行时 `windows-voice-controller-listener` 失败，第二次通过，其余一致。它不是本批引入的（本批只增加挂载与二进制），但它是一个此前没有记录在案的不稳定用例，写在这里以免下次有人把它当成新回归。
 
 ## 来源模块的落点
 
