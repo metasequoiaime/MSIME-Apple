@@ -1422,6 +1422,12 @@ export interface SettingsClient {
   dictionary?: DictionaryClient;
   /** macOS can atomically restore packaged dictionaries and clear all learning state. */
   resetLearnedData?: () => Promise<void>;
+  /**
+   * What a restore-to-defaults would write, without writing it. The host decides what survives --
+   * the credentials, and the endpoint and model that address the same service -- because that rule
+   * belongs with the document, not with this page.
+   */
+  loadDefaultPreferences?: () => Promise<Preferences>;
   readAppVersion?: () => Promise<string>;
   openExternalUrl?: (url: string) => Promise<void>;
   /** macOS opens the versioned third-party notices shipped with the app bundle. */
@@ -2732,6 +2738,33 @@ export function SettingsPage({
       setPhraseError(dictionaryErrorMessage(error, "全部词库导出失败，请稍后重试。"));
     } finally {
       setPhraseBusy(false);
+    }
+  }
+
+  /**
+   * Put every setting back to its default, as a draft.
+   *
+   * The source window writes the defaults the moment the button is clicked. Here the result goes
+   * into the draft instead and the user saves it like any other edit, because this page has an
+   * explicit save and a dirty marker -- writing behind them would be the one action on the page
+   * that does not work the way the rest of it does. It also means a misclick costs nothing.
+   */
+  async function restoreDefaults() {
+    if (!client.loadDefaultPreferences || busy) return;
+    if (
+      typeof window !== "undefined" &&
+      !window.confirm(
+        "把所有设置恢复为默认值？语音和翻译服务的密钥、以及词库和学习数据不会改变。恢复后需要点击保存设置才会生效。",
+      )
+    )
+      return;
+    setError("");
+    setNotice("");
+    try {
+      setDraft(await client.loadDefaultPreferences());
+      setNotice("所有设置已恢复默认，请点击保存设置。");
+    } catch {
+      setError("无法读取默认设置，请重试。原有设置不会被自动重置。");
     }
   }
 
@@ -8871,6 +8904,16 @@ export function SettingsPage({
                     </p>
                   )}
                   <footer className={settings.settingsActions}>
+                    {client.loadDefaultPreferences && (
+                      <button
+                        type="button"
+                        className="secondary"
+                        disabled={busy}
+                        onClick={() => void restoreDefaults()}
+                      >
+                        恢复默认设置
+                      </button>
+                    )}
                     <span>{dirty ? "有未保存的修改" : ""}</span>
                     <button type="submit" disabled={busy || !dirty || !validCandidateFonts(draft)}>
                       {busy ? "处理中…" : "保存设置"}

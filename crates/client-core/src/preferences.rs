@@ -1432,6 +1432,60 @@ impl Preferences {
         }
     }
 
+    /// Every setting back to its default, except what the user cannot simply retype.
+    ///
+    /// The source window's 恢复默认设置 clears a fixed list of preference keys, and that list does
+    /// not name the translation or voice services at all -- over there their credentials live
+    /// outside this document, so a reset there never costs a secret. Here they live in it, so the
+    /// same promise has to be kept from the other direction: start at `Default` and carry the
+    /// service configuration across.
+    ///
+    /// The endpoint, provider and model travel with the token rather than resetting beside it. A
+    /// key left pointing at a default endpoint is worse than either keeping the pair or clearing
+    /// it, because nothing on the page says the two no longer belong together. `asr_model_path`
+    /// travels for the same reason: it is a file the user went and found.
+    ///
+    /// `fuzzy_pinyin.seeded` is not a setting at all -- it records that the one-time seeding has
+    /// happened -- so clearing it would silently re-seed rules the user had turned off.
+    pub fn restored_to_defaults(&self) -> Self {
+        let mut next = Self::default();
+
+        next.voice_input.asr_provider = self.voice_input.asr_provider.clone();
+        next.voice_input.asr_app_key = self.voice_input.asr_app_key.clone();
+        next.voice_input.asr_token = self.voice_input.asr_token.clone();
+        next.voice_input.asr_tokens = self.voice_input.asr_tokens.clone();
+        next.voice_input.asr_endpoint = self.voice_input.asr_endpoint.clone();
+        next.voice_input.asr_model = self.voice_input.asr_model.clone();
+        next.voice_input.asr_model_path = self.voice_input.asr_model_path.clone();
+        next.voice_input.asr_resource_id = self.voice_input.asr_resource_id.clone();
+        next.voice_input.doubao_auth_mode = self.voice_input.doubao_auth_mode.clone();
+        next.voice_input.polish_provider = self.voice_input.polish_provider.clone();
+        next.voice_input.polish_token = self.voice_input.polish_token.clone();
+        next.voice_input.polish_tokens = self.voice_input.polish_tokens.clone();
+        next.voice_input.polish_endpoint = self.voice_input.polish_endpoint.clone();
+        next.voice_input.polish_model = self.voice_input.polish_model.clone();
+
+        next.ai_assistant.provider = self.ai_assistant.provider.clone();
+        next.ai_assistant.model = self.ai_assistant.model.clone();
+        next.ai_assistant.token = self.ai_assistant.token.clone();
+        next.ai_assistant.tokens = self.ai_assistant.tokens.clone();
+        next.ai_assistant.endpoint = self.ai_assistant.endpoint.clone();
+
+        next.custom_translation.endpoint = self.custom_translation.endpoint.clone();
+        next.custom_translation.api_key = self.custom_translation.api_key.clone();
+
+        next.tencent_tmt.secret_id = self.tencent_tmt.secret_id.clone();
+        next.tencent_tmt.secret_key = self.tencent_tmt.secret_key.clone();
+        next.tencent_tmt.region = self.tencent_tmt.region.clone();
+
+        next.niutrans.app_id = self.niutrans.app_id.clone();
+        next.niutrans.apikey = self.niutrans.apikey.clone();
+
+        next.fuzzy_pinyin.seeded = self.fuzzy_pinyin.seeded;
+
+        next
+    }
+
     pub fn validate(&self) -> Result<(), PreferencesError> {
         let tencent = &self.tencent_tmt;
         if tencent.secret_id.len() > 4096

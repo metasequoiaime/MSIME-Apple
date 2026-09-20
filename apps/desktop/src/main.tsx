@@ -34,6 +34,7 @@ import {
   type TypingStatisticsClient,
   type PanelClient,
   type VoicePanelClient,
+  type Preferences,
   type SettingsClient,
   type Snapshot,
   type DictionaryClient,
@@ -198,6 +199,7 @@ const client: SettingsClient = {
   dictionary,
   resetLearnedData: () =>
     invoke("dictionary_request", { action: { operation: "reset" } }).then(() => undefined),
+  loadDefaultPreferences: () => invoke<Preferences>("restored_default_preferences"),
   /* mobile host services are injected after host_capabilities resolves */
 };
 const panelClients: {
