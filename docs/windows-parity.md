@@ -720,3 +720,17 @@ Fcitx5 剪贴板菜单预览增量（2026-09-19）：剪贴板与云剪贴板菜
 Fcitx5 在线候选来源隔离增量（2026-09-19）：云候选与 AI provider 请求现在只接受匹配当前请求槽位的 `source`，不再把一次 provider 响应中的另一来源候选跨槽位注入；与 IBus 的来源过滤一致。原生 Linux provider 交互仍待相应环境。
 
 Fcitx5 候选动作执行 stale 栅栏增量（2026-09-19）：CandidateAction 触发时重新枚举动作现在也校验当前焦点、输入启用状态、受限/私密上下文，避免菜单创建后状态变化仍执行旧候选管理操作；原生 Linux 桌面构建与交互验证仍待相应环境。
+
+增量记录（2026-09-20，Linux 本批：先把这个平台编译得出来，再谈功能对照）：本批的起因与 Windows 第三批同形——此前 Linux 的每一条记录都写着「逻辑回归通过」或「仍待 Linux 环境验证」，而事实是**这个平台的两块产物都构建不出来**，且没有任何一个门禁阶段编译过它们。先修构建，再修构建跑起来之后暴露的东西。
+
+1. Tauri 外壳在 Linux 上有 36 个编译错误（`--all-targets` 54 个）。即设置窗口、全部共享面板（表情、剪贴板、手写、屏幕键盘、语音、云词典、云剪贴板）和账号界面在这个宿主上不是「缺某个功能」，而是构建不出来。成因是把面板投递从 crate 根挪进 `panel_input` 那次重构：crate 根与 `panel_window` 仍在无限定地调用被挪走的私有函数，`clipboard_history` 丢了 `linux_clipboard` 与 `Mutex`，四处 `window.label().as_str()` 用到本工具链仍 unstable 的 `str::as_str`，一处 `Vec` 需要元素类型标注，六个面板纯函数用例够不着新模块。为什么没人发现：`cargo check --workspace` 只看宿主 target，而 macOS 上 `msime-desktop` 因为 `tauri.macos.conf.json` 把还没构建的 app bundle 列为资源被整包排除（就是本地每次都打印的那行 `msime-desktop: skipped`）。安卓那条阶段的注释早就写过同一个道理，只是没人给 Linux 加一条（#3218）。
+2. 原生宿主同样构建不出来：三个测试的相对 include 比源码移动后的层级少一级，其中一个连自己的 fixture 都引不到，`platforms/linux` 整个 target 配置不出来。修完后 IBus engine、Fcitx5 插件、全部 provider 入口与 18 个测试目标全部通过。跑起来之后发现 `linux-online-provider-contract` 约每五次失败一次，原因是 unix socket 的一个具体语义：`unix_release_sock` 在关闭方接收队列里还有未读数据时会给对端置 `ECONNRESET`，而 provider 客户端把请求正文和结尾换行分成两次写，fixture 的单次 `read` 有时只拿到正文、回复后 `close`，客户端于是在读到已排队的回复之前先拿到 ECONNRESET。两侧都改（客户端整行一次写出、fixture 读满一整行），连跑 30 次 0 失败（#3229）。
+3. 两块构建都接进了门禁：有 Docker 时在固定的 `rust:1.97.1-bookworm` 容器里分别 `cargo check -p msime-desktop --all-targets` 和 `platforms/linux/build-container.sh`（编译加 `ctest`），Linux 主机上直接用系统 ibus 开发包跑，两者都没有时跳过并打印命令。两条都做了反向验证：插入只在 Linux 分支成立的错误后，阶段确实报错并 FAIL。
+4. 隔离验收此前连启动都不可能：`check-container.sh` 自己算错了仓库根（少一级），`docker build` 拿到的上下文是 `platforms/platforms/linux/tests`；镜像两处 `COPY` 指着测试重组前的位置；`platforms/linux/tests` 下二十来个 Python 测试把根算成 `platforms/linux/tests` 再拼 `scripts/…`，随包在线/语音/剪贴板 provider、凭据测试、豆包鉴权、翻译缓存、录音设备这一整片自那次重组起一个都没跑过。修好之后容器内 `ctest` 19/19，三个 crate 的 Rust 测试、Host API 头导出校验、词典 CLI 与剪贴板验收全部通过，安装产物齐全（#3239）。
+5. 跑起来后找到两个真实宿主缺陷。其一：嵌套偏好对象整体可省略（共享 `Preferences` 给默认值）但成员一个都不能少，宿主把单个键补进文档里本来没有的 `mixed_input` / `local_modes` 时写出残缺对象，Host API 判为 invalid options document——没有配置共享偏好目录的部署里，从 IBus 菜单切一下混输候选或任一本地输入模式，会话就再也建不起来。默认值改由新的 `msime_client_default_preferences` 从共享层发布（#3239）。其二：`rendered_view` 在首次渲染前和每次会话重建后都是 null，而 `value()` 在 null 上抛异常、异常被 `guarded` 吞掉，于是中英文切换之后打的第一个字母被静默丢掉；十八处读里有两处没带 `is_object()` 守卫，其中一处还排在会短路的身份栅栏之前（#3245）。
+
+功能侧本批补齐四项，都是「设置页有开关、这个平台不消费」那一类：共享设置页的双拼预编辑选择此前按平台名只给 macOS，而 IBus 与 Fcitx5 都自己把快照的 `preedit` 写进平台预编辑并各自带着原生菜单开关（#3199）；`smart_punctuation_space_convert` 在 IBus 与 Fcitx5 上都是存得下、读不出效果的开关，现按来源规格补上——含来源自己踩过的那条坑，即改写前要回读标点前面的字符核对指纹，因为同一个标点在文档里通常不止一处而窗口内移动光标不是焦点变化（#3206、#3231）；Fcitx5 的「重复标点回切中文」同理从只有开关变为真的生效，并补上退格后重按同键走中文路径的另一半（#3233）。
+
+另有两项是这个平台整块缺失而非字段缺失：桌面外壳的九个账号命令此前只为 Windows、macOS、Android、iOS 注册，Linux 上登录、资料、改名、登出、注销没有宿主可调；补齐后会话存在共享状态目录下的 owner-only 文件里（0600、原子发布、读取前核对普通文件/属主/权限/大小），这弱于 Windows 凭据管理器与 macOS Keychain 的静态加密，接 Secret Service 需要新增依赖、属于另外的决定（#3220）。设置页的「获取模型列表」与「AI 润色测试」也不可用，因为持有 token 的宿主是自己发 HTTP 的，而这个平台按设计把 token 留在 provider 的私有配置里；改为 provider 的两种新请求，并用新能力位 `ai_provider_credentials` 表达「凭据归宿主的 provider」，替掉原先按平台名藏控件的做法（#3254）。
+
+本批的验证边界要说清楚：没有任何一项在真实 Linux 桌面上跑过，没有 IBus daemon 之外的 GTK/Qt 编辑器、没有 X11/Wayland 焦点与选区、没有 Fcitx5 实例。engine smoke 也还没走完——修掉上面第 5 条之后，它稳定停在更后面的位置（passthrough 加偏好热重载那一例里，`nihao` 的后续按键），那是本批修复之后才够得着的位置，单独查。本批后段本机 Docker 停了，因此最后两个切片的容器阶段按设计跳过；它们不触碰 C++。
