@@ -216,7 +216,11 @@ desktop tests/candidate/external-skins.test.tsx > settings synchronize all cards
 #     the device still fails.
 #
 # So this one needs Windows, or a Wine with DirectComposition. It is the only
-# suite left that does.
+# suite left that does - and that is a consequence of a choice this repository
+# made rather than of the architecture: the Windows source draws its IME windows
+# as WS_EX_LAYERED and uses DirectComposition only for WebView2, while the four
+# native surfaces here all go through EnsureForComposition. The source's path
+# would run under Wine. See docs/windows-parity.md for why the choice stands.
 wine windows-server-smoke
 # windows-session-smoke needs the optional absolute resource directory the
 # suite documents as argv[1]. run-tests-wine.sh now finds the repository's own
