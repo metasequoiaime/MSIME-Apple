@@ -706,6 +706,20 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 **另记一个偶发**：第一次运行时 `windows-voice-controller-listener` 失败，第二次通过，其余一致。它不是本批引入的（本批只增加挂载与二进制），但它是一个此前没有记录在案的不稳定用例，写在这里以免下次有人把它当成新回归。
 
+增量记录（2026-09-20，Windows 第五十五批：把 host-api 也纳入 Wine，当场抓到一个「在 Windows 上断言了反面」的测试）：第五十四批让 Wine 跑起 `msime-host-windows` 的测试。这批把 `msime-host-api` 也纳入——那是 Server 链接的 `msime_host_api.dll` 所在的 crate，FFI 边界就在这里，值得在它实际发布的目标上执行。
+
+它需要与交叉构建同一棵原生依赖树（`MSIME_WINDOWS_DEPS`），所以运行器现在按 `MSIME_WINDOWS_DEPS_ROOT` 推出前缀；前缀不存在时只跑 host-windows 并打印一行说明，不让整轮失败。
+
+**首次为 Windows 目标执行 host-api 的 99 个测试，2 个失败，其中一个是真问题。**
+
+`contextual_punctuation_respects_editor_context_preferences_and_composition` 显式设了 `smart_punctuation_direct_digit` 与 `_direct_letter`，却让 `smart_punctuation` 走默认值——而那个默认是 `!cfg!(windows)`（Windows 上由 TIP 自己处理智能标点，所以共享默认关闭）。于是这个用例在 Windows 目标下**断言了与它本意相反的事**，并且一直「通过」，因为套件从来只为宿主目标跑过。本批把前提写进测试本身。产品代码没有改动：Windows 上默认关闭是有意的。
+
+另一个失败 `the_c_header_and_the_rust_exports_agree` 不是缺陷——它在运行时遍历自己 crate 的 `src/` 比对 C 头文件与 Rust 导出，而容器里只有可执行文件。这是一项没有平台维度的源码一致性检查，宿主那轮已经覆盖，故在 Wine 下按名跳过并写明理由。
+
+**还修正了一处自己的疏漏**：`cargo test --no-run --message-format=json` 报出的 `executable` 不只有测试，还包括 examples——`prepare_host`、`preferences_latency`、`dictionary_requests` 都是需要命令行参数的普通程序，被当成测试跑就成了三个假失败。现在按 `profile.test` 过滤。
+
+结果：套件从 78 通过 / 1 失败增至 **83 通过 / 1 失败**，唯一失败仍是基线里那条 `msimeui-tests`（Rosetta 在 arm64 主机上模拟 x86_64）。
+
 ## 来源模块的落点
 
 逐模块记下来源的每个目录在本仓库落在哪里，以及为什么。上面那张功能表按「功能组」组织，回答的是某个功能有没有；这张按**来源的源码目录**组织，回答的是来源的每一块代码去了哪儿——两者互相校验，一块代码找不到落点就是缺口，哪怕对应功能在表里被标成有。
@@ -742,6 +756,20 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 `server/src/window/ui_backend_policy.h` 是在 Direct2D 原生渲染与 WebView2 之间按 surface 选择后端，即来源外观页那一项「界面渲染」。HarmonyOS 用 ArkTS 原生渲染，没有第二套后端，无对应物——与第二片记录的「界面渲染不引入」一致。
 
+||||||| ca6086b24
+增量记录（2026-09-20，`input_key_policy.h` 逐条走完）：不再抽查点位，把来源 `server/src/ipc/input_key_policy.h` 里那八条 `constexpr` 当作契约整体核对。结果：
+
+- `IsEnglishModeToggleKey`（Ctrl+Shift+E）、`WordToCharacterDirection`（无修饰键的 `-`/`=` 或 `[`/`]`）—— 上一片已确认相符。
+- `NormalizeNumpadDigitKey` —— Harmony 的 `HardwareKeyRouter.normalizeNumpad` 同样把小键盘 0–9 归一成主键盘数字，并在 `route` 入口只做一次（来源在 Server 边界做一次），且多填了缺失的字符。
+- `ShouldLearnEnteredEnglishWord` —— `engine-bridge` 的 `commit_raw_with_policy` 里是 `before.dedicated_english || local_special_mode || (chinese_scheme && !complete_pure_pinyin)`，与来源逐项相同。
+- `IsBackendIndependentCompositionResetKey`（Shift/Esc）与 `ShouldResetCompositionForImeMode` —— 这两条是 Windows 分体架构下 Server 与 TSF 的**同步**约定（TSF 已在本地取消组字，Server 必须跟着重置后端），HarmonyOS 的键盘扩展自己拥有组字，没有对应物。其用户可见效果「离开中文模式会清掉正在拼的字」在本仓由引擎的 `set_dedicated_english_mode` → `reset_composition()` 覆盖，已在上一片钉住。来源的 Shift 切换同样受 `ReadConfiguredSwitchLanguageHotkeys().shift` 门控，与本仓一致。
+- `ShouldSendCompositionReply`、`InputSessionMatchesConfig` —— 都是 Windows IPC 回包协议的内部规则，非分体架构没有对应物。
+
+来源自己有一份该策略的测试 `server/tests/src/test_input_key_policy.cpp`。把其中以词定字那组用例移植到本仓的路由测试上，补齐了此前没覆盖的三类：偏好错配（设为 minus_equal 时按方括号必须无效，反之亦然）、功能关闭、以及任一修饰键按下时都不生效（来源写作 `(modifiers & kKeyModifierMask) != 0`，本仓等价于 Ctrl/Alt/Meta 在更上面被 RELEASE、Shift 在分支内排除）。已把错配那一条的守卫放松验证过测试确实会红。
+
+移植时自己先错了一次：夹具把 minus/equals 的 keycode 写成 2041/2042，实际是 2057/2058，于是「minus/equal 在其为配置项时生效」那条失败——是夹具写错不是代码问题。
+
+||||||| 74e902098
 增量记录（2026-09-20，硬件键盘的按键归属）：沿上一片往下核了四处，**全部相符**，结论记在此处以免再查：
 
 - 以词定字的修饰键。来源 `WordToCharacterDirection`（`server/src/ipc/input_key_policy.h`）要求不带任何修饰键，`(modifiers & kKeyModifierMask) != 0` 直接返回 0。Harmony 的对应分支只显式写了 `!key.shiftKey`，看着像漏了 Ctrl/Alt，实际 `HardwareKeyRouter` 在更上面就有 `if (key.ctrlKey || key.altKey || key.logoKey) return RELEASE`，带修饰键的组合根本到不了那里，等价。
@@ -1018,3 +1046,27 @@ Fcitx5 候选动作执行 stale 栅栏增量（2026-09-19）：CandidateAction �
 另外记一条：「Online misses did not merge with the displayed offline hits」在三次运行里只失败过一次，另两次走过去了，是时序相关而不是恒定失败。
 
 在此之前的部分全部通过：容器内 `ctest` 19/19、三个 crate 的 Rust 测试、Host API 头导出校验、词典 CLI 与剪贴板验收、完整安装产物，以及 engine smoke 自身在此之前的全部断言（含缺 `mixed_input` 对象那一例、直接输入透传、偏好热重载后不带会话的宿主快捷键重载、`ime_mode_scope` 的两轮、离线释义先于在线回填）。
+
+增量记录（2026-09-20，Linux engine smoke 首次跑完）：隔离验收的 IBus engine smoke 从上一批停住的位置一路走到结尾，`IBus D-Bus shared-runtime acceptance passed`。这一段把宿主缺陷和夹具缺陷分开处理，下面按性质列。
+
+宿主侧三处真实缺陷：
+
+1. **匿名客户端丢失中英文模式。** IBus 从 1.5.27 才报告客户端身份，而且客户端可以不报；此前这两种情况下的模式一律丢弃，于是每次焦点离开再回来都退回配置的默认模式。Windows 上模式挂在 TSF client 上不会这样，最接近的做法是给匿名客户端一个共享槽位——分辨不出来的窗口就当成同一个。
+2. **迟到的焦点身份把会话拆了。** 守护进程可能先发一次不带 context/client 的 focus、稍后才补上身份，`focus_in_id` 把第二次当成切换直接 `focus_out`，用户在协商期间打的字就没了。`focus_in` 里本来就写着「IBus may replay focus after negotiating client identity」，这层包装却先把会话拆了。现在当前焦点还没有身份时就地认领，并把屏幕上的模式带进这个身份。
+3. **中英标点的偏好改动到不了会话。** 运行时把宿主的标点开关记成一个 override，它压过随后下发的偏好；宿主在绝对偏好目录下走的是保存-读回-`update_preferences`。于是从菜单关掉中文标点之后，界面状态和偏好文件都变了，会话却还在按上一次内联切换留下的值转标点，逗号照样出「，」。三处修：新建会话时把 override 写进传给会话的偏好（否则焦点切换、内容类型变化重建会话后又悄悄退回文件值）、`apply_session_overrides` 同样带上、`apply_live_preferences` 记住会话最后被告知的值并在生效值变化时重新下发。
+
+夹具侧的错误期望，每一条都先拿到证据再改：
+
+- 候选窗的隐藏是 24ms 防闪烁定时器，直接类调用又不走 D-Bus 往返、信号还排在队里。十六处「候选窗应已关闭」和两处翻页断言改成等条件；翻页那两处原先 next-page 读到的还是上一页，previous-page 反因此「通过」，错的方向上互相抵消。
+- 查找表只携带面板当前显示的那一页，而夹具把页大小设成 2。「日期模式给出 13 个以上候选」永远不成立——引擎给的是 17 个。改为翻页收集。
+- 超级简拼：引擎对 `nh` 的排序是 女孩、你会 在 你好 之前，夹具却按空格提交首选。改为翻页找到候选再点。
+- 词频学习：词频排序按用户敲下的切分来，你好吗 按三段词排，永远不会排进 你好 的两段列表。夹具点的就是它，于是「私密会话里不学习」和「普通会话里恢复学习」两条断言都是空的——两边都不动、两边都通过。改成选一个与 nihao 同为两段的候选（这份词库里是 拟好），两条断言这才各自成立。
+- `CandidateClicked` 的参数是 `(index, button, flags)`，混合候选那两处写成了 `(0, index, 0)`；宿主要求 button 在 1..5，候选落在本页第 0 位时整个事件被丢弃。
+- 绝对偏好目录下的菜单开关是一次保存（写盘、读回、再应用），本地模式禁用和 NiuTrans 那两处在同一轮里就断言，测的是旧偏好。
+- 会话重建：这段要验证「重建之后旧会话排队的回调不能再提交文本」，需要一次不跑主循环的同步重建。原来用 ShuangpinProfile 触发，但绝对目录下它只是排一次保存、`apply_live_preferences` 是往现有会话推偏好、根本不重建。改用内容类型切换（private 提示），那是真正的原地 close/open，也是生产里真实存在的路径。
+
+三处时序：在线候选那几处先固定等 1.7 秒再读精确计数，机器一忙就输，改成等请求到达再静置证明没有第二次；在线漏词合并的 2 秒预算不够——放开 provider 之后还要过工作线程读取、idle 合并、500ms 翻译去抖和 150ms settle，放宽到 8 秒，断言的是「最终会合并」而不是「多快」；修饰键绑定那两处把禁用后的偏好注入进来，但快照里带着偏好目录，重载 tick 会把文件里的值放回去，注入的偏好能不能活到按键松开取决于 tick 落在哪儿，改为注入时不带目录。
+
+工具链一处：`build-container.sh` 用固定 tag `:local` 构建门禁镜像，而多个 worktree 会同时构建它——谁最后构建完谁决定所有人跑的是什么。实测表现为同一条命令时灵时不灵。改为按 checkout 路径散列命名，并把 `dbus-bin` 装进镜像（`--no-install-recommends` 下 `dbus` 不会带上它），免得每次手跑 smoke 都要现装。
+
+验证：连跑八次。验证边界不变——仍然没有任何一项在真实 Linux 桌面上跑过，没有 GTK/Qt 编辑器、没有 X11/Wayland 焦点与选区、没有 Fcitx5 实例；engine smoke 覆盖的是 IBus 宿主经 D-Bus 的行为。

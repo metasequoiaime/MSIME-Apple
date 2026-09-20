@@ -839,6 +839,7 @@ public:
     if (!session_) return false;
     chinese_punctuation_ = !chinese_punctuation_;
     view_ = response(msime_client_set_chinese_punctuation(session_, chinese_punctuation_));
+    session_chinese_punctuation_ = chinese_punctuation_;
     preferences_["chinese_punctuation"] = chinese_punctuation_;
     if (preferences_snapshot_.is_object() && preferences_snapshot_.contains("preferences"))
       preferences_snapshot_["preferences"]["chinese_punctuation"] = chinese_punctuation_;
@@ -1065,6 +1066,15 @@ public:
     }
     return snapshot;
   }
+  // The runtime keeps the punctuation toggle as an override that outranks the
+  // preferences it is handed, so a preference that moved the effective value
+  // has to be re-stated or the session keeps converting with whatever the last
+  // toggle left behind.
+  void syncSessionChinesePunctuation() {
+    if (!session_ || session_chinese_punctuation_ == chinese_punctuation_) return;
+    view_ = response(msime_client_set_chinese_punctuation(session_, chinese_punctuation_));
+    session_chinese_punctuation_ = chinese_punctuation_;
+  }
   bool applyPreferenceSnapshot(Json snapshot) {
     if (!snapshot.is_object() || !snapshot.contains("revision") ||
         !snapshot.contains("preferences")) return false;
@@ -1073,6 +1083,8 @@ public:
         session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
     preferences_ = snapshot.at("preferences");
     applyContextOverrides(preferences_);
+    chinese_punctuation_ = preferences_.value("chinese_punctuation", chinese_punctuation_);
+    syncSessionChinesePunctuation();
     preferences_snapshot_ = std::move(snapshot);
     return true;
   }
@@ -1179,6 +1191,9 @@ public:
     const auto document = options.dump();
     view_ = response(msime_client_create(reinterpret_cast<const uint8_t *>(document.data()), document.size()));
     session_ = view_.at("session").get<uint64_t>();
+    session_chinese_punctuation_ =
+        options.at("preferences").value("chinese_punctuation", true);
+    syncSessionChinesePunctuation();
     view_ = response(msime_client_focus(session_, true)).at("view");
     return true;
   }
@@ -1211,6 +1226,7 @@ public:
             preferences_ = std::move(effectivePreferences);
             traditional_ = preferences_.value("traditional_chinese_output", traditional_);
             chinese_punctuation_ = preferences_.value("chinese_punctuation", chinese_punctuation_);
+            syncSessionChinesePunctuation();
             paired_punctuation_ = preferences_.value("paired_punctuation", paired_punctuation_);
             smart_punctuation_ = preferences_.value("smart_punctuation", smart_punctuation_);
             smart_punctuation_repeat_ = preferences_.value(
@@ -2154,6 +2170,8 @@ public:
   bool private_ = false;
   bool traditional_ = false;
   bool chinese_punctuation_ = true;
+  // What the session was last told; see syncSessionChinesePunctuation().
+  bool session_chinese_punctuation_ = true;
   bool paired_punctuation_ = true;
   bool smart_punctuation_ = true;
   bool smart_punctuation_repeat_ = true;

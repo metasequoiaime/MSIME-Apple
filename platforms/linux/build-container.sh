@@ -35,8 +35,15 @@ done
 build_root="$repo_root/target/linux-build-gate"
 mkdir -p "$build_root"
 
-docker build -q -t msime-client-linux-build-gate:local \
+# Tag per checkout. Several worktrees build this gate at once and the image is
+# built from the Dockerfile in each of them, so a fixed tag means whichever
+# finished last decides what everybody runs - a gate silently executing another
+# checkout's image is worse than no gate.
+image_tag="msime-client-linux-build-gate:$(printf %s "$repo_root" | shasum | cut -c1-12)"
+
+docker build -q -t "$image_tag" \
   -f platforms/linux/tests/tools/Dockerfile.build-gate platforms/linux/tests >/dev/null
+echo "gate image: $image_tag" >&2
 
 docker run --rm --init \
   -v "$repo_root":/source \
@@ -45,7 +52,7 @@ docker run --rm --init \
   -w /source \
   -e CARGO_TARGET_DIR=/build/cargo \
   ${vendor:+-e MSIME_SKIP_ENGINE_FETCH=1} \
-  msime-client-linux-build-gate:local bash -euo pipefail -c '
+  "$image_tag" bash -euo pipefail -c '
     cargo build -p msime-host-api --locked
     cmake -S platforms/linux -B /build/cmake -G Ninja \
       -DMSIME_ENABLE_FCITX5=ON \
