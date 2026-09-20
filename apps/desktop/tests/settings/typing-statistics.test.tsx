@@ -286,8 +286,9 @@ test("candidate positions show a first-candidate rate and keep rank order", asyn
   expect(screen.getByLabelText("第 1 条：30 次，60.0%")).not.toBeNull();
   expect(screen.getByLabelText("第 10 条以后：10 次，20.0%")).not.toBeNull();
 
-  // Order is the position, never the size: the ninth row outranks every empty one before it.
-  const rows = screen.getByLabelText("候选命中位置分布").querySelectorAll(".statistics-rank-row");
+  // Order is the position, never the size: the ninth row outranks every empty one before it. Each row
+  // is found by the label it already carries for assistive technology, not by a styling class.
+  const rows = screen.getByLabelText("候选命中位置分布").querySelectorAll("[aria-label*='次，']");
   expect(Array.from(rows).map((row) => row.querySelector("span")?.textContent)).toEqual([
     "第 1 条",
     "第 2 条",
