@@ -25,8 +25,16 @@ class CloudCandidateWorker final
         std::string body;
     };
     using Completed = std::function<void(Result)>;
+    // Performs one request. `cancelled` answers true once this request has been
+    // superseded or the worker is stopping, and is polled during the transfer
+    // so a superseded request stops paying for itself. Injected so the queueing
+    // above it can be exercised without a network: what goes wrong here is
+    // ordering, not HTTP.
+    using Fetcher =
+        std::function<std::string(const std::string &, const std::function<bool()> &)>;
 
     explicit CloudCandidateWorker(Completed completed);
+    CloudCandidateWorker(Completed completed, Fetcher fetcher);
     ~CloudCandidateWorker();
     CloudCandidateWorker(const CloudCandidateWorker &) = delete;
     CloudCandidateWorker &operator=(const CloudCandidateWorker &) = delete;
@@ -51,6 +59,7 @@ class CloudCandidateWorker final
                              const std::function<bool()> &cancelled);
 
     Completed completed_;
+    Fetcher fetch_;
     mutable std::mutex mutex_;
     std::condition_variable wake_;
     std::optional<Request> pending_;

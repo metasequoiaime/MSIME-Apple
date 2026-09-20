@@ -68,10 +68,20 @@ std::string request_url(const std::string &query)
 
 } // namespace
 
-CloudCandidateWorker::CloudCandidateWorker(Completed completed) : completed_(std::move(completed))
+CloudCandidateWorker::CloudCandidateWorker(Completed completed)
+    : CloudCandidateWorker(std::move(completed), Fetcher{})
+{
+}
+
+CloudCandidateWorker::CloudCandidateWorker(Completed completed, Fetcher fetcher)
+    : completed_(std::move(completed)), fetch_(std::move(fetcher))
 {
     if (!completed_)
         throw std::invalid_argument("Missing cloud candidate completion");
+    if (!fetch_)
+        fetch_ = [](const std::string &query, const std::function<bool()> &cancelled) {
+            return fetch(query, cancelled);
+        };
     worker_ = std::thread([this] { run(); });
 }
 
@@ -185,7 +195,7 @@ void CloudCandidateWorker::run() noexcept
         try
         {
             const auto cancelled = [this, serial = request.serial] { return this->cancelled(serial); };
-            auto body = fetch(request.query, cancelled);
+            auto body = fetch_(request.query, cancelled);
             if (body.empty() || cancelled())
                 continue;
             completed_(Result{std::move(request.lease), std::move(request.query), std::move(body)});
