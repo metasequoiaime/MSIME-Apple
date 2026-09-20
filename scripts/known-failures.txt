@@ -129,13 +129,25 @@ native windows-session
 #   belongs to the application; Page Down and the arrows carry no character to forward. Each entry states
 #   its own expectation now.
 #
-# It now reaches TestInputSourceModeReset, where ShortcutSession does not implement
-# updatePreferencesSnapshot:error: and the run dies on an unrecognized selector rather than an assertion.
-# The fake needs filling in. That is where the next attempt starts.
-macos shortcut
-# Load-dependent rather than always-failing: passes on its own and on a second full
-# run, observed failing once in a full parallel run alongside the aborting shortcut test.
-macos shortcut-translations
+# 2026-09-20: shortcut passes, and both macOS lines are gone. The last three were the same kind of thing:
+#
+# - ShortcutSession did not implement updatePreferencesSnapshot:error:. The controller defers a snapshot to
+#   the main queue while a composition is live, so a block one test schedules lands in another test's run
+#   loop - which is why this surfaced as an unrecognized selector inside TestInputSourceModeReset, a test
+#   that never touches that session.
+# - The punctuation fixture gives editing_text and preedit different values, but the inline preedit style
+#   decides which one is marked and it defaults to raw, so the preedit was never what reached the client.
+#   The test asks for the style it is asserting now.
+# - TestCharacterSetShortcut ran on the shared appearance. Each keybinding is published from the appearance
+#   only once its own native default has been written, so on an object earlier tests have touched the merge
+#   stops being a pass-through: the test was asserting cross-test isolation that does not exist. It has its
+#   own preference suite now, and cleans it up.
+#
+# Nothing in this whole sequence was the Engine. The entry above said it was, for all three macOS suites at
+# once; every one of them turned out to be the test.
+#
+# shortcut-translations came off with it: it was recorded as load-dependent, "observed failing once in a
+# full parallel run alongside the aborting shortcut test", and the aborting shortcut test is gone.
 
 # rerank-latency sentences breaches the frame budget the benchmark checks: p95
 # with the model is 20.64ms against 16.00ms, 129 of 1320 keystrokes (9.8%) cost

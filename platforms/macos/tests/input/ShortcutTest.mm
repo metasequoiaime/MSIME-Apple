@@ -106,8 +106,19 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic) BOOL fullwidth;
 @property(nonatomic) NSUInteger widthCalls;
 @property(nonatomic, copy) NSDictionary *finishTransition;
+@property(nonatomic) NSUInteger snapshotCalls;
+@property(nonatomic, copy) NSDictionary *lastSnapshot;
 @end
 @implementation ShortcutSession
+// The controller defers a preference snapshot to the main queue while a composition is live, so a block
+// scheduled by one test can land in another test's run loop. Without this the fake raises an unrecognized
+// selector from a completely unrelated test, which is how it surfaced.
+- (NSDictionary *)updatePreferencesSnapshot:(NSDictionary *)snapshot error:(NSError **)error {
+    (void)error;
+    ++self.snapshotCalls;
+    self.lastSnapshot = snapshot;
+    return @{@"deferred":@NO, @"view":[self viewWithError:nil]};
+}
 - (NSDictionary *)translationQueryWithError:(NSError **)error { (void)error; return nil; }
 - (NSDictionary *)onlineQueryWithError:(NSError **)error { (void)error; return nil; }
 - (NSDictionary *)setCharacterWidthFull:(BOOL)fullwidth error:(NSError **)error {
@@ -846,6 +857,10 @@ static void TestPunctuation(NSUserDefaults *defaults, MSIMEAppearancePreferences
         @"editing_text":@"nini", @"preedit":@"ni'ni", @"caret_position":@2,
         @"dedicated_english":@YES, @"candidates":@[]};
     session.punctuationView = punctuationView;
+    // The inline preedit style decides whether the client is marked with the segmented preedit or the raw
+    // editing text, and it defaults to raw - so the distinct preedit in this fixture was never what reached
+    // the client. Ask for the style this assertion is about instead of inheriting whatever ran before.
+    [appearance applySharedInputPreferences:@{@"tsf_preedit_style":@"pinyin"}];
     NSString *previousCommit = client.committed;
     session.lastCommand = UINT32_MAX;
     [controller syncPunctuation];
@@ -953,7 +968,13 @@ static void TestMixedInputPreferences() {
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
-static void TestCharacterSetShortcut(NSUserDefaults *defaults, MSIMEAppearancePreferences *appearance) {
+// Its own preference suite, not the shared one. Every keybinding here is published only once its native
+// default has actually been written, so on an appearance other tests have already touched the merge stops
+// being a pass-through and these assertions are about cross-test isolation that does not exist.
+static void TestCharacterSetShortcut(void) {
+    NSString *suite = [@"msime.character-set." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
     assert(appearance.characterSetShortcut);
     NSDictionary *keys = @{@"toggle_character_set_ctrl_shift_f":@NO, @"switch_language_shift":@NO};
     assert([[appearance sharedPreferencesByMerging:@{@"keybindings":keys}][@"keybindings"] isEqual:keys]);
@@ -1013,6 +1034,7 @@ static void TestCharacterSetShortcut(NSUserDefaults *defaults, MSIMEAppearancePr
     appearance.characterSetShortcut = YES;
     appearance.englishMode = english;
     assert(appearance.fullWidthInput == fullWidth && appearance.chinesePunctuation == punctuation);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
 static void TestDedicatedEnglish(MSIMEAppearancePreferences *appearance) {
@@ -4492,7 +4514,7 @@ int main(int argc, char **argv) {
         TestPairedPunctuationHostExclusion();
         TestEmojiBridgeFallback();
         TestMixedInputPreferences();
-        TestCharacterSetShortcut(defaults, appearance);
+        TestCharacterSetShortcut();
         TestDedicatedEnglish(appearance);
         TestKeymap(defaults, appearance);
         Method fontMethod = class_getClassMethod(NSFont.class, @selector(monospacedSystemFontOfSize:weight:));
