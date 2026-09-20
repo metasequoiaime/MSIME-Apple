@@ -300,6 +300,37 @@ else
   echo "  run $linux_desktop_note"
 fi
 
+note "compile: linux native host"
+# The product on Linux is platforms/linux - the IBus engine, the Fcitx5 addon and
+# the provider entry points - and no phase here built any of it. It had stopped
+# building: three tests carried relative includes one level short of where the
+# sources moved, and one could not name its own fixtures, so the target would not
+# even configure. The Windows equivalent of this hole cost six simultaneous
+# breakages before anyone looked.
+#
+# build-container.sh does the work, in a container because a macOS machine has no
+# IBus, Fcitx5 or XKB development packages. It compiles and runs the unit tests;
+# tests/tools/check-container.sh remains the acceptance run that needs a verified
+# dictionary directory and a live IBus daemon.
+if [ "$(uname -s 2>/dev/null)" = "Linux" ] && pkg-config --exists ibus-1.0 2>/dev/null; then
+  cmake -S platforms/linux -B "$root/target/linux-gate" -DMSIME_ENABLE_FCITX5=ON >/dev/null 2>&1 &&
+    cmake --build "$root/target/linux-gate" >/dev/null 2>&1 &&
+    ctest --test-dir "$root/target/linux-gate" --output-on-failure >/dev/null 2>&1 &&
+    echo "linux native host: builds and its tests pass" ||
+    { cmake --build "$root/target/linux-gate" 2>&1 | grep -Ei "error" | head -5
+      fail "linux native host"; }
+elif command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+  if bash platforms/linux/build-container.sh > "$root/target/linux-native-gate.log" 2>&1; then
+    grep -E "tests passed" "$root/target/linux-native-gate.log" | tail -1
+  else
+    grep -E "error|FAILED|Errors while" "$root/target/linux-native-gate.log" | head -5
+    fail "linux native host (container)"
+  fi
+else
+  echo "skipped: no docker available for the linux native host check"
+  echo "  run platforms/linux/build-container.sh"
+fi
+
 note "compile: native host"
 if [ -d "$MSIME_NATIVE_BUILD" ]; then
   # The native tests link the Rust library, so it has to be current or they

@@ -57,11 +57,22 @@ int main() {
   std::thread provider([server] {
     const int client = accept(server, nullptr, nullptr);
     require(client >= 0, "accept failed");
-    char buffer[16384]{};
-    const auto count = read(client, buffer, sizeof(buffer) - 1);
-    require(count > 0 && std::string(buffer, static_cast<size_t>(count)).find("version") !=
-                               std::string::npos,
-            "query was not sent");
+    // Read the whole request line, not one read's worth of it. A provider that
+    // leaves part of the request unread and then closes hands the client
+    // ECONNRESET instead of the reply it already queued - unix_release_sock sets
+    // that on the peer whenever the closing socket still has data waiting - so
+    // this fixture would fail about one run in five, depending on whether the
+    // client's terminating newline arrived as its own segment. A real provider
+    // reads a line; so does this one now.
+    std::string received;
+    while (received.find('\n') == std::string::npos) {
+      char buffer[16384]{};
+      const auto count = read(client, buffer, sizeof(buffer) - 1);
+      require(count > 0, "query was not sent");
+      received.append(buffer, static_cast<size_t>(count));
+      require(received.size() <= 16384, "query exceeded the request bound");
+    }
+    require(received.find("version") != std::string::npos, "query was not sent");
     const std::string reply = "{\"text\":\"candidate\",\"source\":0}\n";
     require(write(client, reply.data(), reply.size()) ==
                 static_cast<ssize_t>(reply.size()),
