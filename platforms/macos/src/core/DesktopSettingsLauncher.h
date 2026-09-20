@@ -9,7 +9,7 @@ static inline void MSIMEOpenDesktopRouteWithContext(NSString *route, NSString *o
     NSDictionary<NSString *, NSString *> *environment, NSWorkspace *workspace,
     void (^launched)(NSRunningApplication *), dispatch_block_t fallback) {
     if (optionsPath && !optionsPath.isAbsolutePath) { fallback(); return; }
-    NSURL *url = [workspace URLForApplicationWithBundleIdentifier:@"app.msime.client.preview"];
+    NSURL *url = [workspace URLForApplicationWithBundleIdentifier:@"app.msime.inputmethod.MetasequoiaIME.settings"];
     if (!url) { fallback(); return; }
     NSWorkspaceOpenConfiguration *configuration = [NSWorkspaceOpenConfiguration configuration];
     configuration.arguments = @[[NSString stringWithFormat:@"--route=%@", route]];

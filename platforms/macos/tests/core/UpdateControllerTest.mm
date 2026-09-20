@@ -56,7 +56,7 @@ int main()
         // Sparkle is only startable inside an application bundle. Everywhere else - a test binary, a
         // command-line tool, a bundle whose identifier never made it into the plist - it answers a start
         // with a modal alert, and an input method that stops typing behind a dialog is the worse failure.
-        assert(MSIMEUpdateHostIsApplicationBundle(@"app.msime.client.preview.inputmethod",
+        assert(MSIMEUpdateHostIsApplicationBundle(@"app.msime.inputmethod.MetasequoiaIME",
                                                   @"/Users/someone/Library/Input Methods/水杉输入法（预览）.app"));
         assert(MSIMEUpdateHostIsApplicationBundle(@"app.example", @"/Applications/Example.app/"));
         assert(!MSIMEUpdateHostIsApplicationBundle(nil, @"/Applications/Example.app"));
