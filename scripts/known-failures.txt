@@ -199,13 +199,24 @@ desktop tests/candidate/external-skins.test.tsx > settings synchronize all cards
 # same two, for the same reasons, on x86 and x64 - the names are not repeated
 # per architecture because the runner reports one set either way.
 #
-# windows-server-smoke used to stop at "XDG_RUNTIME_DIR is invalid or not set",
-# which was a missing X server rather than a missing compositor - the runner now
-# supplies one, and the suite gets past window creation. What it stops at now is
-# the assertion that the candidate window reports
-# DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2: Wine creates the window but does
-# not carry that awareness context back out of GetWindowDpiAwarenessContext.
-# A Wine limit, and a narrower one than the entry it replaces.
+# windows-server-smoke: the candidate window cannot create its rendering
+# device. `window.failed()` is true and the window never becomes visible, at
+# server_smoke.cpp:115.
+#
+# Measured rather than inferred, in this order:
+#   - the missing XDG_RUNTIME_DIR this entry once blamed was a missing X server,
+#     which the runner now supplies;
+#   - the DPI assertion above it is satisfiable in the sense that matters: a
+#     probe shows Wine honours SetThreadDpiAwarenessContext(PER_MONITOR_AWARE_V2)
+#     for the thread and then reports windows created on it as v1, so that
+#     assertion cannot hold there - but relaxing it changes nothing, because
+#   - DeviceResources::EnsureForComposition calls DCompositionCreateDevice and
+#     IDXGIFactory2::CreateSwapChainForComposition, and Wine's DirectComposition
+#     is a stub. Adding Mesa's software rasteriser to the image does not help:
+#     the device still fails.
+#
+# So this one needs Windows, or a Wine with DirectComposition. It is the only
+# suite left that does.
 wine windows-server-smoke
 # windows-session-smoke needs the optional absolute resource directory the
 # suite documents as argv[1]. run-tests-wine.sh now finds the repository's own

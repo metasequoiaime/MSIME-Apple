@@ -368,6 +368,16 @@ runner 现在自己去找仓库既有的约定缓存 `target/desktop-resources`�
 
 附带一处不对称，查清后认为合理：Linux 那边有 `汉语 → 漢語` 的具体断言，Windows 那边（第十六批新增的测试）刻意不钉映射表。理由是 ICU 是随包的库、行为稳定，而 `LCMapStringEx` 的表归操作系统、随 Windows 版本变动——在后者上钉具体繁体字等于钉一个 Windows 版本。
 
+增量记录（2026-09-20，Windows 第二十八批：把最后一条失败查到底，并否掉一个我自己做过的改动）：`windows-server-smoke` 是 Wine 下唯一还失败的套件，此前记的理由是「Wine 不把 `PER_MONITOR_AWARE_V2` 从 `GetWindowDpiAwarenessContext` 带回来」。写一个最小程序实测：Wine **接受** `SetThreadDpiAwarenessContext(PMv2)`，线程确实是 PMv2，但在该线程上创建的窗口报回 per-monitor **v1**（awareness=2）。所以那句话是对的，只是不完整。
+
+据此我先做了一处改动：按 ntdll 的 `wine_get_version` 精确识别 Wine，在其下接受 v1（Windows 上仍严格要求 v2）。它确实让断言通过了——**然后套件在更深处继续失败**，`window.failed()` 为真、窗口不可见。也就是说放松那条断言**换不来任何通过**，只给测试代码增加了 Wine 感知的复杂度。**改动已撤回。**
+
+真正的拦路者查清了：`DeviceResources::EnsureForComposition` 走 `DCompositionCreateDevice` 与 `CreateSwapChainForComposition`，而 Wine 的 DirectComposition 基本是桩。往镜像里加 Mesa 软件光栅器也无济于事，设备照样建不出来。
+
+这是唯一一条真正需要 Windows（或一个实现了 DirectComposition 的 Wine）的套件，基线按上述顺序逐条记下，免得下一个人重走这三步。
+
+顺带说明这轮的取舍：能让计数好看的改动（放松断言）被否掉了，因为它并不能让套件通过；留下的是一条把原因查准的记录。计数不是目的。
+
 ## 来源模块的落点
 
 逐模块记下来源的每个目录在本仓库落在哪里，以及为什么。上面那张功能表按「功能组」组织，回答的是某个功能有没有；这张按**来源的源码目录**组织，回答的是来源的每一块代码去了哪儿——两者互相校验，一块代码找不到落点就是缺口，哪怕对应功能在表里被标成有。
