@@ -47,6 +47,11 @@ pub trait InputEngine {
     fn set_nine_key_enabled(&mut self, _enabled: bool) -> Result<(), RuntimeError> {
         Err(RuntimeError::Engine("Nine-key mode is unsupported".into()))
     }
+    /// Ask for candidates withheld from the first answer, reporting whether the list grew. The
+    /// default answers no, which is what an engine that already returns everything it has means.
+    fn expand_initial_candidates(&mut self) -> Result<bool, RuntimeError> {
+        Ok(false)
+    }
     fn choose_nine_key_spelling(&mut self, _index: usize) -> Result<EngineResult, RuntimeError> {
         Err(RuntimeError::Engine(
             "Nine-key spelling selection is unsupported".into(),
@@ -164,6 +169,9 @@ impl InputEngine for Session {
     fn set_nine_key_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
         Session::set_nine_key_enabled(self, enabled)
             .map_err(|e| RuntimeError::Engine(e.to_string()))
+    }
+    fn expand_initial_candidates(&mut self) -> Result<bool, RuntimeError> {
+        Session::expand_initial_candidates(self).map_err(|e| RuntimeError::Engine(e.to_string()))
     }
     fn choose_nine_key_spelling(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
         Session::choose_nine_key_spelling(self, index)

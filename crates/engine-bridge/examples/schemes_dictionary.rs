@@ -43,6 +43,47 @@ impl Probe {
 
     /// Each call gets its own user and cache directories: learning from one probe must not decide
     /// the candidate order seen by the next.
+    /// Type `keys`, then ask the same session to hand over what it withheld. Answers the candidate
+    /// count before, whether the Engine reported growth, and the count after.
+    fn read_expanding(
+        &mut self,
+        scheme: u8,
+        profile: u8,
+        keys: &str,
+    ) -> Result<(usize, bool, usize), Box<dyn std::error::Error>> {
+        let mut session = self.session(scheme, profile)?;
+        for character in keys.bytes() {
+            session.character(character, false)?;
+        }
+        let before = session.snapshot()?.candidates.len();
+        let grew = session.expand_initial_candidates()?;
+        Ok((before, grew, session.snapshot()?.candidates.len()))
+    }
+
+    fn session(&mut self, scheme: u8, profile: u8) -> Result<Session, Box<dyn std::error::Error>> {
+        self.sequence += 1;
+        let slot = self.sequence;
+        let mut options = prepare_options(
+            self.resources
+                .to_str()
+                .ok_or("resource path is not UTF-8")?,
+            self.temporary
+                .path()
+                .join(format!("user-{slot}"))
+                .to_str()
+                .unwrap(),
+            self.temporary
+                .path()
+                .join(format!("cache-{slot}"))
+                .to_str()
+                .unwrap(),
+            "schemes-fixture",
+        )?;
+        options.scheme = scheme;
+        options.shuangpin_profile = profile;
+        Ok(Session::new(&options)?)
+    }
+
     fn read(
         &mut self,
         scheme: u8,
@@ -179,6 +220,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         chinese.reading.is_empty(),
         "quanpin carried a kana reading: {}",
         chinese.reading
+    );
+
+    // A single letter is the one query the Engine caps, at twenty-four candidates, handing over the
+    // rest only when asked. Reading the cap here rather than trusting the number keeps this honest
+    // if the Engine ever changes it: what matters is that asking produces more than the first
+    // answer held.
+    let (capped, grew, expanded) = probe.read_expanding(QUANPIN, 0, "j")?;
+    assert!(grew, "the Engine withheld nothing for a single letter");
+    assert!(
+        expanded > capped,
+        "expansion reported growth but the list is still {expanded} long"
     );
 
     println!("all schemes reached the pinned dictionaries");

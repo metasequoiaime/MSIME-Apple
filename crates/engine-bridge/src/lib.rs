@@ -296,6 +296,7 @@ mod ffi {
         ) -> Result<Vec<String>>;
         fn character(self: Pin<&mut EngineSession>, value: u8, shift: bool)
             -> Result<EngineResult>;
+        fn expand_initial_candidates(self: Pin<&mut EngineSession>) -> Result<bool>;
         fn set_nine_key_enabled(self: Pin<&mut EngineSession>, enabled: bool) -> Result<()>;
         fn choose_nine_key_spelling(
             self: Pin<&mut EngineSession>,
@@ -640,6 +641,12 @@ impl Session {
     }
     pub fn character(&mut self, value: u8, shift: bool) -> Result<EngineResult, cxx::Exception> {
         self.inner.pin_mut().character(value, shift)
+    }
+    /// Ask the Engine for the candidates it withheld from a single-letter query. It caps those at
+    /// twenty-four so the first page is cheap; everything below that cap is unreachable until
+    /// someone asks. Answers whether the candidate list actually grew.
+    pub fn expand_initial_candidates(&mut self) -> Result<bool, cxx::Exception> {
+        self.inner.pin_mut().expand_initial_candidates()
     }
     pub fn set_nine_key_enabled(&mut self, enabled: bool) -> Result<(), cxx::Exception> {
         self.inner.pin_mut().set_nine_key_enabled(enabled)

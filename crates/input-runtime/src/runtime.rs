@@ -498,6 +498,36 @@ impl<E: InputEngine> Runtime<E> {
         Ok(())
     }
 
+    /// The Engine caps a single-letter query at twenty-four candidates so the first page is cheap,
+    /// and hands over the rest only when asked. Without this, paging stops at that cap and the rest
+    /// of the dictionary is unreachable for those queries.
+    ///
+    /// Expanding when the next page would be the partial last one keeps that page full the first
+    /// time it is shown, rather than showing a short page that silently grows.
+    ///
+    /// Answers whether the arrivals filled the page the caller is already on, in which case paging
+    /// has to stay put: advancing would step over the candidates that just showed up.
+    fn expand_for_next_page(&mut self) -> Result<bool, RuntimeError> {
+        let len = self.cached.candidates.len();
+        if len == 0 {
+            return Ok(false);
+        }
+        let page = self.highlighted / self.page_size;
+        let last_page = (len - 1) / self.page_size;
+        let next_is_partial_last = page + 1 == last_page && len % self.page_size != 0;
+        if page != last_page && !next_is_partial_last {
+            return Ok(false);
+        }
+        let page_was_full = (page + 1) * self.page_size <= len;
+        if !self.engine.expand_initial_candidates()? {
+            return Ok(false);
+        }
+        self.cached = self.engine.snapshot()?;
+        self.rerank();
+        self.demote_runner_up_readings();
+        Ok(page == last_page && !page_was_full)
+    }
+
     fn advance(&mut self) -> Result<(), RuntimeError> {
         self.generation = self
             .generation
@@ -800,8 +830,13 @@ impl<E: InputEngine> Runtime<E> {
             }
         }
         self.advance()?;
+        let filled_current_page =
+            matches!(action, Action::NextPage) && self.expand_for_next_page()?;
         let len = self.cached.candidates.len();
         let next_highlight = match &action {
+            // Staying keeps the highlight exactly where it was: the page did not change, it only
+            // stopped being short.
+            Action::NextPage if filled_current_page => Some(self.highlighted),
             Action::NextPage if len > 0 => Some(
                 (self.highlighted / self.page_size + 1).min((len - 1) / self.page_size)
                     * self.page_size,
