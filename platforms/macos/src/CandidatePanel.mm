@@ -2,10 +2,12 @@
 #import "CandidateAppearancePreferences.h"
 #import "CandidateSkinAppearance.h"
 #include "CandidateGlossLayout.h"
+#include "CandidateRowFit.h"
 #include "InputBehaviorPreferences.h"
 #include "StringConversion.h"
 
 #include <cmath>
+#include <vector>
 
 @interface MetasequoiaCandidateWindow : NSPanel
 @end
@@ -361,6 +363,8 @@ static const CGFloat kCandidateNumberGap = 6.0;
     const CGFloat inset = MAX(2.0, _skin.tokens.pad);
     const BOOL vertical = _panelType == kIMKSingleColumnScrollingCandidatePanel;
     NSMutableArray<NSNumber *> *widths = [NSMutableArray array];
+    std::vector<metasequoia::mac::CandidateRowItem> rowItems;
+    rowItems.reserve(_data.count);
     NSMutableArray<NSString *> *titles = [NSMutableArray array];
     CGFloat width = 0;
     const BOOL paging = _hasPreviousPage || _hasNextPage;
@@ -396,6 +400,8 @@ static const CGFloat kCandidateNumberGap = 6.0;
             translation.length > 0 ? [translation sizeWithAttributes:primaryMeasure].width : 0.0;
         const CGFloat secondaryWidth =
             secondary.length > 0 ? [secondary sizeWithAttributes:secondaryMeasure].width : 0.0;
+        // 候选词本身要多宽,和释义想要多宽分开记:一行放不下时先砍释义、再从行尾砍起,靠前的长句最后才让宽度。
+        const CGFloat textWidth = ceil(leftPad + headWidth + (stacked ? 10.0 : 8.0));
         CGFloat itemWidth;
         if (stacked)
         {
@@ -411,6 +417,7 @@ static const CGFloat kCandidateNumberGap = 6.0;
                 if (glossWidth > 0.0)
                     itemWidth = ceil(itemWidth + metasequoia::mac::CandidateGlossReservedWidth(glossWidth));
         }
+        rowItems.push_back({textWidth, itemWidth});
         [titles addObject:title];
         [translations addObject:translation.length > 0 ? translation : @""];
         [secondaryTranslations addObject:secondary.length > 0 ? secondary : @""];
@@ -423,13 +430,15 @@ static const CGFloat kCandidateNumberGap = 6.0;
     }
     else if (width > availableWidth && width > 0)
     {
-        const CGFloat scale = availableWidth / width;
+        // 一行放不下这一页时,整行等比压缩会把排在最前、最可能被选中的长句和末尾的单字候选砍掉同样的比例。
+        // 完整显示比凑满一页更重要:按原宽度从头排,排不下就不排了 —— 这一页少显示几条,显示出来的都是完整的。
+        const std::vector<double> fitted = metasequoia::mac::FitCandidateRowWidths(rowItems, availableWidth);
         width = 0;
         for (NSUInteger index = 0; index < widths.count; ++index)
         {
-            const CGFloat scaled = MAX(24.0, floor(widths[index].doubleValue * scale));
-            widths[index] = @(scaled);
-            width += scaled;
+            const CGFloat fittedWidth = floor(fitted[index]);
+            widths[index] = @(fittedWidth);
+            width += fittedWidth;
         }
     }
     const CGFloat navigationHeight = paging && vertical ? 26 : 0;
@@ -482,6 +491,9 @@ static const CGFloat kCandidateNumberGap = 6.0;
     for (NSUInteger index = 0; index < _data.count; ++index)
     {
         const CGFloat itemWidth = vertical ? width : widths[index].doubleValue;
+        // 横排放不下的候选宽度是 0:这一页剩下的都排不下了,不画残缺的格子。
+        if (itemWidth <= 0.0)
+            break;
         const CGFloat y = vertical ? contentTop - (index + 1) * rowHeight : inset;
         MetasequoiaCandidateButton *button =
             [[MetasequoiaCandidateButton alloc] initWithFrame:NSMakeRect(x, y, itemWidth, rowHeight)];
