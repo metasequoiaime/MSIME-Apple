@@ -4021,6 +4021,74 @@ test.each(referenceSections)(
   },
 );
 
+/**
+ * The option lists the reference window offers for a given control, value and label both.
+ *
+ * Section titles are pinned above; these are the choices inside them, which drifted separately --
+ * 候选项排列方式 read 竖排/横排 where the reference names the axis, and 候选窗预编辑 read
+ * 显示拼音/隐藏 for the same pinyin/empty pair that 行内预编辑 right above it already called
+ * 拼音分词/不显示.
+ */
+const referenceOptions: { page: string; button: string; control: string; options: string[] }[] = [
+  {
+    page: "appearance",
+    button: "外观",
+    control: "候选项排列方式",
+    options: ["横向", "纵向"],
+  },
+  {
+    page: "appearance",
+    button: "外观",
+    control: "行内预编辑",
+    options: ["原始按键", "拼音分词", "不显示"],
+  },
+  {
+    page: "appearance",
+    button: "外观",
+    control: "候选窗预编辑",
+    options: ["拼音分词", "不显示"],
+  },
+  {
+    page: "input",
+    button: "输入",
+    control: "默认中英文",
+    options: ["中文", "英文"],
+  },
+  {
+    page: "input",
+    button: "输入",
+    control: "中英文状态",
+    options: ["按应用记忆", "全局统一"],
+  },
+];
+
+test.each(referenceOptions)(
+  "$control offers the reference window's choices",
+  async ({ button, control, options }) => {
+    render(
+      <SettingsPage
+        client={{
+          load: vi.fn().mockResolvedValue(initial),
+          save: vi.fn(),
+          host: {
+            platform: "windows",
+            floating_toolbar: true,
+            floating_toolbar_components: true,
+            floating_toolbar_appearance: true,
+            candidate_font_controls: true,
+            candidate_follow_cursor: true,
+            ime_mode_scope: true,
+          } as HostCapabilities,
+        }}
+      />,
+    );
+    await settingsReady();
+    fireEvent.click(screen.getByRole("button", { name: button }));
+    const select = (await screen.findByRole("combobox", { name: control })) as HTMLSelectElement;
+    expect([...select.options].map((option) => option.textContent)).toEqual(options);
+  },
+);
+
 test("the input page follows the reference window's order", async () => {
   render(
     <SettingsPage

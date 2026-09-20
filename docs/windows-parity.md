@@ -720,6 +720,18 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 结果：套件从 78 通过 / 1 失败增至 **83 通过 / 1 失败**，唯一失败仍是基线里那条 `msimeui-tests`（Rosetta 在 arm64 主机上模拟 x86_64）。
 
+增量记录（2026-09-20，Windows 第五十六批：`client-core` 也在 Windows 目标下执行，一段从未被跑过的 Windows 专有代码终于被覆盖）：第五十五批抓到的那个 bug 有个类特征——**平台相关的默认值，配上一个假定非 Windows 取值的测试**。顺着这个特征在 `client-core` 里扫了一遍 `cfg(windows)`：
+
+- `preferences.rs` 的 `smart_punctuation_default`，已在上一批处理。
+- `preferences/tests.rs` 里有一处 `let expected = !cfg!(windows);`——**这是正确的写法**，它显式承认了平台差异，留作对照。
+- `translation/store.rs` 有两段 `#[cfg(windows)]`：`persist_replacing` 在替换文件遇到 `PermissionDenied` 时做有限重试，注释写明是为了避开 Windows 上另一进程短暂持有文件的窗口。
+
+**最后这段在宿主目标下永远编译不到**，因此从来没有被任何测试执行过。本批把 `msime-client-core` 也纳入 Wine 运行器，它的 247 个单元测试因此在 Windows 目标上执行，其中 `concurrent_replacement_never_exposes_partial_records` 正是覆盖这条重试路径的那个——全部通过。
+
+结果：套件从 83 通过 / 1 失败增至 **86 通过 / 1 失败**。至此在 Wine 下执行的 Rust 测试二进制共八个，合计约 350 个用例，覆盖 `client-core`（共享逻辑与 Windows 专有文件替换）、`host-api`（发布 DLL 的 FFI 边界）与 `host-windows`（剪贴板、合成按键、扩展键）。唯一失败仍是基线里的 `msimeui-tests`。
+
+三批连起来的意义：本轮此前多次只能写「已实现但缺覆盖」或「靠读源码核对」，原因不是没人想测，而是**套件够不着那些代码**。运行器扩展之后，那些条目里有相当一部分不再需要真实 Windows 才能验证。
+
 ## 来源模块的落点
 
 逐模块记下来源的每个目录在本仓库落在哪里，以及为什么。上面那张功能表按「功能组」组织，回答的是某个功能有没有；这张按**来源的源码目录**组织，回答的是来源的每一块代码去了哪儿——两者互相校验，一块代码找不到落点就是缺口，哪怕对应功能在表里被标成有。
@@ -762,6 +774,16 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 未验证：这三行没有在设备上目视确认——模拟器滚动粒度较粗，几次都跨过了标点那几节。改动由 343 条测试与 bundle 漂移门覆盖，HAP 安装后页面渲染正常。
 
+||||||| 062662e5a
+增量记录（2026-09-20，下拉选项的文案）：section 标题已由 `referenceSections` 钉住，这一轮下沉一层比选项本身。来源三处与本仓不同（取值一致、只是标签）：「候选项排列方式」来源是 横向/纵向 且横向在前，本仓是 竖排/横排；「候选窗预编辑」来源是 拼音分词/不显示，本仓是 显示拼音/隐藏；「中英文状态」来源是 按应用记忆/全局统一，本仓是 按应用/全局。第二处同时是仓内不一致——紧挨着的「行内预编辑」对同一组 `pinyin`/`empty` 用的就是「拼音分词/不显示」。三处均已改用来源的说法，并新增 `referenceOptions` 表把这五个控件的选项逐项钉住。设备确认：外观页尾部现在显示 纵向 与 拼音分词。
+
+同一轮把来源另外两个集中策略头文件核完，均无可修项：
+
+`server/src/window/floating_toolbar_visibility_policy.h` 两条。`ShouldShowFloatingToolbar(configured_enabled, fullscreen, ime_active)` 本仓的 Windows 宿主已经实现（`platforms/windows/src/system/server_main.cpp`），连来源自己的用例也已移植（`platforms/windows/tests/core/fullscreen_foreground.cpp`）。HarmonyOS 覆盖了其中两项——工具栏只在 `desktop && toolbarEnabled()` 时创建，且活在键盘扩展里，我们不是当前输入法时它根本不存在。缺的 `fullscreen` 一项**没有可用信号**：输入法扩展只能拿到 `display.getDefaultDisplaySync()` 的尺寸与密度，前台窗口是否全屏属于窗管的特权查询，STATUS_BAR 面板在全屏下的去留由系统决定。这是平台能力差异，不是实现缺口。另一条 `ShouldDeferFloatingToolbarHide` 是 WebView2 首帧宽限期，无对应物。
+
+`server/src/window/ui_backend_policy.h` 是在 Direct2D 原生渲染与 WebView2 之间按 surface 选择后端，即来源外观页那一项「界面渲染」。HarmonyOS 用 ArkTS 原生渲染，没有第二套后端，无对应物——与第二片记录的「界面渲染不引入」一致。
+
+||||||| ca6086b24
 增量记录（2026-09-20，`input_key_policy.h` 逐条走完）：不再抽查点位，把来源 `server/src/ipc/input_key_policy.h` 里那八条 `constexpr` 当作契约整体核对。结果：
 
 - `IsEnglishModeToggleKey`（Ctrl+Shift+E）、`WordToCharacterDirection`（无修饰键的 `-`/`=` 或 `[`/`]`）—— 上一片已确认相符。
