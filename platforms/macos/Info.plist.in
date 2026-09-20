@@ -1,7 +1,7 @@
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
-<key>CFBundleIdentifier</key><string>app.msime.client.preview.inputmethod</string>
+<key>CFBundleIdentifier</key><string>app.msime.inputmethod.MetasequoiaIME</string>
 <key>CFBundleDevelopmentRegion</key><string>zh_CN</string>
 <key>CFBundleExecutable</key><string>水杉输入法（预览）</string>
 <key>CFBundleName</key><string>Metasequoia IME</string>
@@ -27,7 +27,7 @@
 <key>tsInputMethodCharacterRepertoireKey</key><array><string>Hans</string></array>
 <key>TISIntendedLanguage</key><string>zh-Hans</string>
 <key>TISInputSourceLanguages</key><array><string>zh-Hans</string></array>
-<key>TISInputSourceID</key><string>app.msime.client.preview.inputmethod</string>
+<key>TISInputSourceID</key><string>app.msime.inputmethod.MetasequoiaIME</string>
 <!-- The input menu draws its icon through HIToolbox, which reads the file's pages rather than one page's
      DPI. A 256-point application icon in this slot is scaled into a 16-point menu slot as artwork rather
      than as a template, so it cannot tint for dark mode or for the highlighted menu row. The TIFF carries
@@ -45,9 +45,9 @@
 <dict>
   <key>tsInputModeListKey</key>
   <dict>
-    <key>app.msime.client.preview.inputmethod.Hans</key>
+    <key>app.msime.inputmethod.MetasequoiaIME.Hans</key>
     <dict>
-      <key>TISInputSourceID</key><string>app.msime.client.preview.inputmethod.Hans</string>
+      <key>TISInputSourceID</key><string>app.msime.inputmethod.MetasequoiaIME.Hans</string>
       <key>TISIntendedLanguage</key><string>zh-Hans</string>
       <key>tsInputModeCharacterRepertoireKey</key><array><string>Hans</string></array>
       <key>tsInputModeDefaultStateKey</key><true/>
@@ -59,6 +59,6 @@
     </dict>
   </dict>
   <key>tsVisibleInputModeOrderedArrayKey</key>
-  <array><string>app.msime.client.preview.inputmethod.Hans</string></array>
+  <array><string>app.msime.inputmethod.MetasequoiaIME.Hans</string></array>
 </dict>
 </dict></plist>
