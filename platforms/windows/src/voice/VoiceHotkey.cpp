@@ -5,6 +5,18 @@
 #include <utility>
 
 namespace msime::windows {
+// The policy header names these so it can be compiled and tested without
+// <windows.h>. Here, where the real header is in scope, each one is held to the
+// value it stands for: a rename or a typo cannot pass.
+static_assert(voice_key_lcontrol == VK_LCONTROL);
+static_assert(voice_key_rcontrol == VK_RCONTROL);
+static_assert(voice_key_lwin == VK_LWIN);
+static_assert(voice_key_rwin == VK_RWIN);
+static_assert(voice_key_ralt == VK_RMENU);
+static_assert(voice_key_f9 == VK_F9);
+static_assert(voice_key_space == VK_SPACE);
+static_assert(voice_key_escape == VK_ESCAPE);
+
 namespace {
 constexpr wchar_t kClassName[] = L"MSIMEClientVoiceHotkeyWindow";
 constexpr UINT kStartMessage = WM_APP + 200;
@@ -85,7 +97,7 @@ void VoiceHotkeyController::refresh() {
   observed_hotkey_rctrl_ralt_ = config.hotkey_rctrl_ralt;
   observed_hotkey_hold_space_lock_ = config.hotkey_hold_space_lock;
   const bool release_ralt = suppress_ralt_until_up_.load();
-  if (active_hold_.load() != HoldShortcut::None ||
+  if (active_hold_.load() != VoiceHoldShortcut::None ||
       (!config.enabled && voice_.recording()))
     voice_.stop();
   reset_state();
@@ -134,31 +146,18 @@ LRESULT VoiceHotkeyController::handle_window(HWND hwnd, UINT message,
   }
 }
 
-bool VoiceHotkeyController::ctrl_pressed() const {
-  return lctrl_pressed_.load() || rctrl_pressed_.load();
-}
-bool VoiceHotkeyController::win_pressed() const {
-  return lwin_pressed_.load() || rwin_pressed_.load();
-}
-bool VoiceHotkeyController::hold_pressed(HoldShortcut shortcut) const {
-  switch (shortcut) {
-  case HoldShortcut::RAlt:
-    return ralt_pressed_.load();
-  case HoldShortcut::CtrlWin:
-    return ctrl_pressed() && win_pressed();
-  case HoldShortcut::RCtrlRAlt:
-    return rctrl_pressed_.load() && ralt_pressed_.load();
-  default:
-    return false;
-  }
+VoiceModifierState VoiceHotkeyController::modifiers() const {
+  return VoiceModifierState{ralt_pressed_.load(), lctrl_pressed_.load(),
+                            rctrl_pressed_.load(), lwin_pressed_.load(),
+                            rwin_pressed_.load()};
 }
 
-void VoiceHotkeyController::activate(HoldShortcut shortcut) {
+void VoiceHotkeyController::activate(VoiceHoldShortcut shortcut) {
   active_hold_.store(shortcut);
   cancel_posted_.store(false);
-  if (shortcut == HoldShortcut::RAlt || shortcut == HoldShortcut::RCtrlRAlt)
+  if (voice_hold_suppresses_ralt(shortcut))
     suppress_ralt_until_up_.store(true);
-  else if (shortcut == HoldShortcut::CtrlWin)
+  else if (voice_hold_suppresses_win(shortcut))
     suppress_win_until_up_.store(true);
   if (window_)
     PostMessageW(window_, voice_.locked() ? kStopMessage : kStartMessage, 0,
@@ -176,7 +175,7 @@ void VoiceHotkeyController::reset_state() {
   cancel_posted_ = false;
   suppress_ralt_until_up_ = false;
   suppress_win_until_up_ = false;
-  active_hold_ = HoldShortcut::None;
+  active_hold_ = VoiceHoldShortcut::None;
 }
 
 LRESULT CALLBACK VoiceHotkeyController::keyboard_proc(int code, WPARAM wparam,
@@ -190,38 +189,36 @@ LRESULT CALLBACK VoiceHotkeyController::keyboard_proc(int code, WPARAM wparam,
   const bool down = wparam == WM_KEYDOWN || wparam == WM_SYSKEYDOWN;
   const bool up = wparam == WM_KEYUP || wparam == WM_SYSKEYUP;
   const auto config = self.config_provider_();
+  const VoiceHotkeyBindings bindings{config.hotkey_ralt, config.hotkey_ctrl_f9,
+                                     config.hotkey_ctrl_win,
+                                     config.hotkey_rctrl_ralt,
+                                     config.hotkey_hold_space_lock};
   const auto active_before = self.active_hold_.load();
 
-  if (key->vkCode == VK_LCONTROL || key->vkCode == VK_RCONTROL) {
-    auto &state = key->vkCode == VK_LCONTROL ? self.lctrl_pressed_
-                                             : self.rctrl_pressed_;
-    state.store(down ? true : up ? false : state.load());
-  } else if (key->vkCode == VK_LWIN || key->vkCode == VK_RWIN) {
-    auto &state = key->vkCode == VK_LWIN ? self.lwin_pressed_ : self.rwin_pressed_;
-    state.store(down ? true : up ? false : state.load());
-  } else if (key->vkCode == VK_RMENU) {
-    self.ralt_pressed_.store(down ? true : up ? false : self.ralt_pressed_.load());
-  }
+  const auto modifiers =
+      voice_modifier_state_after(self.modifiers(), key->vkCode, down, up);
+  self.ralt_pressed_.store(modifiers.ralt);
+  self.lctrl_pressed_.store(modifiers.lctrl);
+  self.rctrl_pressed_.store(modifiers.rctrl);
+  self.lwin_pressed_.store(modifiers.lwin);
+  self.rwin_pressed_.store(modifiers.rwin);
 
   if (!config.enabled || !self.active_provider_()) {
-    self.active_hold_ = HoldShortcut::None;
+    self.active_hold_ = VoiceHoldShortcut::None;
     if (self.voice_.recording() && !self.cancel_posted_.exchange(true))
       PostMessageW(self.window_, kCancelMessage, 0, 0);
-    const bool suppress_ralt = key->vkCode == VK_RMENU &&
-                               self.suppress_ralt_until_up_.load();
-    const bool suppress_win = (key->vkCode == VK_LWIN || key->vkCode == VK_RWIN) &&
-                              self.suppress_win_until_up_.load();
-    if (up && key->vkCode == VK_RMENU)
+    const bool suppressed =
+        voice_key_is_suppressed(key->vkCode, self.suppress_ralt_until_up_.load(),
+                                self.suppress_win_until_up_.load());
+    if (voice_key_clears_ralt_latch(key->vkCode, up))
       self.suppress_ralt_until_up_ = false;
-    if (up && (key->vkCode == VK_LWIN || key->vkCode == VK_RWIN))
+    if (voice_key_clears_win_latch(key->vkCode, up))
       self.suppress_win_until_up_ = false;
-    return suppress_ralt || suppress_win
-               ? 1
-               : CallNextHookEx(self.hook_, code, wparam, lparam);
+    return suppressed ? 1 : CallNextHookEx(self.hook_, code, wparam, lparam);
   }
 
   if (key->vkCode == VK_F9 && config.hotkey_ctrl_f9) {
-    if (down && !self.f9_pressed_.exchange(true) && self.ctrl_pressed()) {
+    if (down && !self.f9_pressed_.exchange(true) && modifiers.ctrl()) {
       self.ctrl_f9_consumed_ = true;
       PostMessageW(self.window_, kToggleMessage, 0, 0);
       return 1;
@@ -236,46 +233,36 @@ LRESULT CALLBACK VoiceHotkeyController::keyboard_proc(int code, WPARAM wparam,
     self.ctrl_f9_consumed_ = false;
   }
 
-  if (active_before == HoldShortcut::None && down) {
-    if (config.hotkey_rctrl_ralt && key->vkCode == VK_RMENU &&
-        self.rctrl_pressed_.load())
-      self.activate(HoldShortcut::RCtrlRAlt);
-    else if (config.hotkey_ctrl_win &&
-             (key->vkCode == VK_LWIN || key->vkCode == VK_RWIN) &&
-             self.ctrl_pressed())
-      self.activate(HoldShortcut::CtrlWin);
-    else if (config.hotkey_ralt && key->vkCode == VK_RMENU)
-      self.activate(HoldShortcut::RAlt);
-  } else if (active_before != HoldShortcut::None && up &&
-             !self.hold_pressed(active_before)) {
-    self.active_hold_ = HoldShortcut::None;
+  if (active_before == VoiceHoldShortcut::None && down) {
+    const auto activated = voice_hold_activation(key->vkCode, bindings, modifiers);
+    if (activated != VoiceHoldShortcut::None)
+      self.activate(activated);
+  } else if (active_before != VoiceHoldShortcut::None && up &&
+             !voice_hold_held(active_before, modifiers)) {
+    self.active_hold_ = VoiceHoldShortcut::None;
     if (!self.voice_.locked())
       PostMessageW(self.window_, kStopMessage, 0, 0);
   }
 
   const auto active_now = self.active_hold_.load();
-  if (key->vkCode == VK_SPACE && active_now != HoldShortcut::None &&
-      config.hotkey_hold_space_lock) {
+  if (voice_space_locks_hold(key->vkCode, active_now, bindings)) {
     if (down && !self.voice_.locked())
       PostMessageW(self.window_, kLockMessage, 0, 0);
     return 1;
   }
-  if (key->vkCode == VK_ESCAPE && self.voice_.recording()) {
+  if (voice_escape_cancels(key->vkCode, self.voice_.recording())) {
     if (down)
       PostMessageW(self.window_, kCancelMessage, 0, 0);
     return 1;
   }
 
-  const bool suppress_ralt = key->vkCode == VK_RMENU &&
-                             self.suppress_ralt_until_up_.load();
-  const bool suppress_win = (key->vkCode == VK_LWIN || key->vkCode == VK_RWIN) &&
-                            self.suppress_win_until_up_.load();
-  if (up && key->vkCode == VK_RMENU)
+  const bool suppressed =
+      voice_key_is_suppressed(key->vkCode, self.suppress_ralt_until_up_.load(),
+                              self.suppress_win_until_up_.load());
+  if (voice_key_clears_ralt_latch(key->vkCode, up))
     self.suppress_ralt_until_up_ = false;
-  if (up && (key->vkCode == VK_LWIN || key->vkCode == VK_RWIN))
+  if (voice_key_clears_win_latch(key->vkCode, up))
     self.suppress_win_until_up_ = false;
-  return suppress_ralt || suppress_win
-             ? 1
-             : CallNextHookEx(self.hook_, code, wparam, lparam);
+  return suppressed ? 1 : CallNextHookEx(self.hook_, code, wparam, lparam);
 }
 } // namespace msime::windows

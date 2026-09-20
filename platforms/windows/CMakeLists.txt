@@ -884,6 +884,19 @@ else()
 endif()
 add_test(NAME windows-voice-control-message COMMAND windows-voice-control-message)
 
+# The keyboard hook's decisions, with no Win32 in them. The hook itself cannot
+# run off Windows, and nothing covered these rules at all - a modifier leaking
+# to the application after being used as a shortcut, or a hold that keeps
+# recording after the user let go, are one-branch mistakes.
+add_executable(windows-voice-hotkey-policy tests/voice/voice_hotkey_policy.cpp)
+target_include_directories(windows-voice-hotkey-policy PRIVATE src/voice)
+if(MSVC)
+  target_compile_options(windows-voice-hotkey-policy PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(windows-voice-hotkey-policy PRIVATE -Wall -Wextra -Werror)
+endif()
+add_test(NAME windows-voice-hotkey-policy COMMAND windows-voice-hotkey-policy)
+set_tests_properties(windows-voice-hotkey-policy PROPERTIES TIMEOUT 10)
 add_executable(windows-voice-session-epoch tests/voice/voice_session_epoch.cpp)
 target_link_libraries(windows-voice-session-epoch PRIVATE Threads::Threads)
 add_test(NAME windows-voice-session-epoch COMMAND windows-voice-session-epoch)
