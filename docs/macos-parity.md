@@ -68,3 +68,4 @@ bundle 自身是否装配正确由 `bundle-contents` 持续检查：图标是否
 - `bundle-contents`：产物 bundle 的图标、本地化与本地识别器链接。
 - `info-plist-icons`、`info-plist-usage`：模板 plist 的图标引用与 TCC 用途字符串（含每种语言的本地化）。
 - `voice-provider-settings-keys`：原生语音窗口的每个文本字段都对应一个运行时读取的默认键。
+- `entitlements-guard`：签名用的权限文件不含受限权限（`com.apple.developer.*` 整族都需要 provisioning profile 背书，Developer ID 签名给不了，AMFI 会在 exec 时拒绝启动，表现为输入法从输入菜单里消失而签名本身校验正常），且 `install.sh` 拿到这样一份文件时会在动任何东西之前拒签。对应来源侧 #465 在发布打包脚本里的同名拦截。

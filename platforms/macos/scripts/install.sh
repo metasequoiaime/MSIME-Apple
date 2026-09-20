@@ -13,6 +13,7 @@
 # Usage: platforms/macos/scripts/install.sh [path/to/bundle.app]
 #   MSIME_SIGNING_IDENTITY       signing identity; defaults to the first Developer ID Application found
 #   MSIME_INPUT_METHODS_DIR      destination; defaults to ~/Library/Input Methods
+#   MSIME_VOICE_ENTITLEMENTS     entitlements to sign with; defaults to resources/VoiceInput.entitlements
 set -euo pipefail
 
 name="水杉输入法（预览）.app"
@@ -20,12 +21,29 @@ executable="水杉输入法（预览）"
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 source_bundle="${1:-$root/target/macos/$name}"
 destination_root="${MSIME_INPUT_METHODS_DIR:-$HOME/Library/Input Methods}"
-entitlements="$root/platforms/macos/resources/VoiceInput.entitlements"
+entitlements="${MSIME_VOICE_ENTITLEMENTS:-$root/platforms/macos/resources/VoiceInput.entitlements}"
 
 if [ ! -d "$source_bundle" ]; then
   echo "no bundle at $source_bundle; build MSIMEClientInputMethod first (see platforms/macos/README.md)" >&2
   exit 1
 fi
+/usr/bin/plutil -lint "$entitlements" >/dev/null
+
+# Restricted entitlements are the ones a provisioning profile has to vouch for, and the whole
+# com.apple.developer.* family is restricted. A Developer ID signature cannot vouch for them: AMFI rejects
+# the binary at exec, so the input method never launches and therefore never registers as an input source.
+# The signature itself verifies fine, which is what makes this worth refusing up front rather than
+# discovering it as an input method that silently will not start. com.apple.developer.applesignin is the
+# one that actually tempts us — native Apple sign-in is simply not available to a Developer ID input
+# method. See resources/VoiceInput.entitlements.
+restricted="$(/usr/bin/plutil -convert json -o - "$entitlements" |
+  /usr/bin/python3 -c 'import json,sys; print(" ".join(k for k in json.load(sys.stdin) if k.startswith("com.apple.developer.")))')"
+if [ -n "$restricted" ]; then
+  echo "refusing to sign: $entitlements declares restricted entitlements: $restricted" >&2
+  echo "a Developer ID signature cannot carry them and the input method would not launch" >&2
+  exit 1
+fi
+
 [ -d "$destination_root" ] || mkdir -p "$destination_root"
 destination="$destination_root/$name"
 
