@@ -22,6 +22,8 @@ import {
   CloudDictionaryApplyPanel,
   CloudCandidatesPanel,
   type AccountClient,
+  type ChatClient,
+  type ChatModels,
   type CloudClipboardPanelClient,
   type CloudDictionaryAction,
   type CloudDictionaryPanelClient,
@@ -69,8 +71,12 @@ interface NativeBridge {
    * Starts one of the asynchronous requests and returns at once.
    *
    * A bridge method that returns a Promise never settles on this platform, so the account, the
-   * cloud dictionary and its snapshots, the AI model list, the AI test and the credential test are
-   * started by number and answered later through `msimeHarmonyBridgeReply`.
+   * account-backed chat, the cloud dictionary and its snapshots, the AI model list, the AI test and
+   * the credential test are started by number and answered later through `msimeHarmonyBridgeReply`.
+   *
+   * The caller chooses the deadline, because the kinds do not share one: a completion is a model
+   * writing text and is given the same 125 seconds the shared clients allow it, while everything
+   * else answers from a database and should report a stalled network in seconds.
    */
   startRequest(kind: string, id: number, payload: string): string;
   openExternalUrl(url: string): void;
@@ -129,13 +135,18 @@ globalThis.msimeHarmonyBridgeReply = (id: number, reply: string) => {
   resolve(reply);
 };
 
-function bridgeRequest(native: NativeBridge, kind: string, payload: string): Promise<string> {
+function bridgeRequest(
+  native: NativeBridge,
+  kind: string,
+  payload: string,
+  timeoutMs = 30000,
+): Promise<string> {
   const id = nextBridgeRequestId++;
   return new Promise<string>((resolve, reject) => {
     const timer = setTimeout(() => {
       if (!pendingBridgeRequests.delete(id)) return;
       reject(new Error("请求超时，请重试。"));
-    }, 30000);
+    }, timeoutMs);
     pendingBridgeRequests.set(id, (reply) => {
       clearTimeout(timer);
       resolve(reply);
@@ -307,6 +318,39 @@ function accountClient(native: NativeBridge): AccountClient {
     clearExpired: async () => {
       await request({ operation: "clear_expired" });
     },
+  };
+}
+
+/**
+ * The account-backed assistant, which signs in with the session the host already holds.
+ *
+ * This is not the user-configured AI service on the AI page: that one carries the user's own
+ * endpoint and token and is reached through `aiAssistant`. This one has no credential to configure,
+ * which is why the page offers it only once an account exists.
+ *
+ * The completion gets its own deadline. The host allows a model 125 seconds to answer, so a page
+ * that gave up at 30 would report a timeout for a request that was about to succeed — and then the
+ * reply would arrive for a number nobody is waiting on and be dropped.
+ */
+function chatClient(native: NativeBridge): ChatClient {
+  return {
+    models: async () =>
+      unwrap<ChatModels>(
+        await bridgeRequest(
+          native,
+          "chat",
+          JSON.stringify({ operation: "chat", chat_operation: "models" }),
+        ),
+      ),
+    complete: async (messages, model) =>
+      unwrap<{ content: string }>(
+        await bridgeRequest(
+          native,
+          "chat",
+          JSON.stringify({ operation: "chat", chat_operation: "complete", messages, model }),
+          130000,
+        ),
+      ).content,
   };
 }
 
@@ -536,6 +580,7 @@ function makeClient(
     customTouchKeyboardSkins: true,
     candidateEnglishGloss: true,
     account: accountClient(native),
+    chat: chatClient(native),
     openCloudClipboard: async () => openCloudClipboard(),
     openCloudDictionary: async () => openCloudDictionary(),
   };

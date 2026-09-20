@@ -564,11 +564,15 @@ class SettingsBridge {
   /**
    * Starts one of the asynchronous requests and answers at once.
    *
-   * A bridge method that returns a Promise never settles on this platform, so the six below could
-   * not answer the page at all: the account, the cloud dictionary and its snapshots, the AI model
-   * list, the AI test and the credential test. They are left as they are and started from here
-   * instead; the reply is delivered afterwards through `runJavaScript`, the same direction the
-   * preference-change notification already uses.
+   * A bridge method that returns a Promise never settles on this platform, so the ones below could
+   * not answer the page at all: the account, the account-backed chat, the cloud dictionary and its
+   * snapshots, the AI model list, the AI test and the credential test. They are left as they are
+   * and started from here instead; the reply is delivered afterwards through `runJavaScript`, the
+   * same direction the preference-change notification already uses.
+   *
+   * Chat is its own kind rather than another `account` caller because the page gives it a longer
+   * deadline: a completion is a model writing text, and sharing the account kind would have meant
+   * either cutting chat off early or letting a stalled profile fetch spin for two minutes.
    *
    * An unknown kind is answered rather than ignored. A page waiting on a number nobody will ever
    * send is indistinguishable from a slow network, and this one is a mistake that should say so.
@@ -582,6 +586,8 @@ class SettingsBridge {
       this.account(payload).then(deliver).catch(failed);
     } else if (kind === 'cloud_dictionary') {
       this.cloudDictionary(payload).then(deliver).catch(failed);
+    } else if (kind === 'chat') {
+      this.account(payload).then(deliver).catch(failed);
     } else if (kind === 'cloud_dictionary_snapshot') {
       this.cloudDictionarySnapshot(payload).then(deliver).catch(failed);
     } else if (kind === 'ai_models') {

@@ -4455,6 +4455,147 @@ group("account and cloud clipboard bridge keeps secrets native", () => {
     });
 });
 
+group("the account assistant answers with a model list and one reply", () => {
+  let stored: string | null = null;
+  const store: AccountSessionStore = {
+    load: () => stored,
+    save: (value) => {
+      stored = value;
+    },
+    clear: () => {
+      stored = null;
+    },
+  };
+  const calls: {
+    method: string;
+    path: string;
+    body?: Record<string, unknown>;
+    timeoutMs?: number;
+  }[] = [];
+  let models = '{"data":[{"id":"fast"},{"id":"careful"}],"default_model":"careful"}';
+  let completion = JSON.stringify({
+    choices: [{ message: { role: "assistant", content: "第一行\n第二行" } }],
+  });
+  const transport: AccountTransport = {
+    request: async (method, path, _token, body, timeoutMs) => {
+      calls.push({ method, path, body, timeoutMs });
+      if (path === "/v1/auth/login")
+        return {
+          status: 200,
+          body: JSON.stringify({
+            access_token: "a".repeat(64),
+            refresh_token: "b".repeat(64),
+            token_type: "Bearer",
+            expires_in: 3600,
+            user: { id: "u1", display_name: "Test", created_at: "2026-01-01" },
+          }),
+        };
+      if (path === "/v1/models") return { status: 200, body: models };
+      if (path === "/v1/chat/completions") return { status: 200, body: completion };
+      return { status: 404, body: "{}" };
+    },
+  };
+  const bridge = new AccountCloudBridge(transport, store);
+  const ask = (action: Record<string, unknown>) =>
+    bridge.handle(JSON.stringify({ operation: "chat", ...action }));
+
+  void ask({ chat_operation: "models" }).then((result) => {
+    check(
+      JSON.parse(result).error === "account_unauthorized",
+      "chat needs the native session, not a token from the page",
+    );
+  });
+  void bridge
+    .handle('{"operation":"login","challenge_id":"challenge","credential":"123456"}')
+    .then(() => {
+      void ask({ chat_operation: "models" }).then((result) => {
+        const reply = JSON.parse(result);
+        check(reply.ok === true, "the model catalog is accepted");
+        // The page's ChatModels is camelCase; the service answers in snake_case. Reshaping here is
+        // what keeps every host's page reading one field name.
+        check(reply.value.defaultModel === "careful", "the default model is named for the page");
+        check(
+          reply.value.data.length === 2 && reply.value.data[0].id === "fast",
+          "and the catalog keeps its order",
+        );
+      });
+      void ask({
+        chat_operation: "complete",
+        model: "careful",
+        messages: [{ role: "user", content: "你好" }],
+      }).then((result) => {
+        const reply = JSON.parse(result);
+        check(reply.ok === true, "a completion is accepted");
+        // A conversation is written in paragraphs. The bridge's other validators reject control
+        // characters, which would have refused every multi-line answer the assistant gives.
+        check(reply.value.content === "第一行\n第二行", "newlines in a reply are content");
+        const sent = calls.find((call) => call.path === "/v1/chat/completions");
+        check(sent?.body?.max_tokens === 2048, "the shared request shape is sent");
+        check(sent?.body?.stream === false, "and it does not ask for a stream");
+        check(
+          typeof sent?.timeoutMs === "number" && sent.timeoutMs === 125000,
+          "a model writing text gets the shared 125-second budget",
+        );
+        const catalog = calls.find((call) => call.path === "/v1/models");
+        check(
+          catalog?.timeoutMs === undefined,
+          "while a catalog lookup keeps the ordinary timeout",
+        );
+      });
+      void ask({
+        chat_operation: "complete",
+        model: "careful",
+        messages: [{ role: "narrator", content: "旁白" }],
+      }).then((result) => {
+        check(
+          JSON.parse(result).error === "account_invalid",
+          "an unknown role never reaches transport",
+        );
+      });
+      void ask({
+        chat_operation: "complete",
+        model: "careful",
+        messages: Array.from({ length: 17 }, () => ({ role: "user", content: "x" })),
+      }).then((result) => {
+        check(
+          JSON.parse(result).error === "account_invalid",
+          "and neither does a history past the shared limit",
+        );
+      });
+      void ask({ chat_operation: "complete", model: "careful", messages: [] }).then((result) => {
+        check(JSON.parse(result).error === "account_invalid", "nor an empty conversation");
+      });
+      void ask({ chat_operation: "unknown" }).then((result) => {
+        check(JSON.parse(result).error === "account_invalid", "an unknown chat operation is named");
+      });
+    });
+
+  // The two shapes the service could send back that must not become a visible reply: the refusal
+  // has to be distinguishable from an answer, or the page shows an empty bubble and no error.
+  void bridge
+    .handle('{"operation":"login","challenge_id":"challenge","credential":"123456"}')
+    .then(() => {
+      completion = JSON.stringify({ choices: [{ message: { role: "user", content: "回声" } }] });
+      void ask({
+        chat_operation: "complete",
+        model: "careful",
+        messages: [{ role: "user", content: "你好" }],
+      }).then((result) => {
+        check(
+          JSON.parse(result).error === "account_unavailable",
+          "a reply that is not from the assistant is refused",
+        );
+        models = '{"data":[{"id":"fast"}],"default_model":"missing"}';
+        void ask({ chat_operation: "models" }).then((catalog) => {
+          check(
+            JSON.parse(catalog).error === "account_unavailable",
+            "and a default model absent from the catalog is refused",
+          );
+        });
+      });
+    });
+});
+
 group("a device's own buttons are not a keyboard", () => {
   // Every phone enumerates a keyboard source for volume and power. Only the type separates them,
   // which is the whole reason this decision is not `sources.includes("keyboard")`.
