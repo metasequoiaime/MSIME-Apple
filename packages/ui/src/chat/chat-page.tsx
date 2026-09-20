@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import * as chat from "./chat-style";
 
 export type ChatMessage = {
   role: "user" | "assistant" | "system";
@@ -156,13 +157,13 @@ export function ChatPage({
   };
 
   return (
-    <section className="chat-page" aria-label="AI 对话">
-      <div className="chat-toolbar">
+    <section className={chat.page} aria-label="AI 对话">
+      <div className={chat.toolbar}>
         <div>
           <strong>边聊天，边试键盘</strong>
           <small>使用共享账号与 EveryAPI 对话</small>
         </div>
-        <div className="chat-model-controls">
+        <div className={chat.modelControls}>
           {loadingModels ? (
             <span role="status">正在加载模型…</span>
           ) : (
@@ -192,12 +193,12 @@ export function ChatPage({
         </div>
       </div>
       {loginNeeded && onLogin && (
-        <button type="button" className="primary chat-login" onClick={onLogin}>
+        <button type="button" className={`primary ${chat.login}`} onClick={onLogin}>
           登录使用 AI
         </button>
       )}
       {error && (
-        <div className="chat-error" role="alert">
+        <div className={chat.error} role="alert">
           <span>{error}</span>
           {!loginNeeded && messages.at(-1)?.role === "user" && (
             <button type="button" className="secondary" disabled={sending} onClick={retry}>
@@ -206,9 +207,9 @@ export function ChatPage({
           )}
         </div>
       )}
-      <div className="chat-messages" aria-live="polite">
+      <div className={chat.messages} aria-live="polite">
         {messages.length === 0 && (
-          <div className="chat-empty">
+          <div className={chat.empty}>
             <strong>试试你的输入方案和键盘皮肤</strong>
             <span>
               发一条消息，看看水杉键盘在不同编辑器中的表现。对话内容只用于本次请求，不会写入输入统计。
@@ -216,17 +217,17 @@ export function ChatPage({
           </div>
         )}
         {messages.map((message) => (
-          <div className={`chat-message chat-${message.role}`} key={message.id}>
-            <span>{message.content}</span>
+          <div className={chat.message(message.role === "user")} key={message.id}>
+            <span className={chat.bubble(message.role === "user")}>{message.content}</span>
           </div>
         ))}
         {sending && (
-          <div className="chat-pending" role="status">
+          <div className={chat.pending} role="status">
             正在回复…
           </div>
         )}
       </div>
-      <div className="chat-composer">
+      <div className={chat.composer}>
         <textarea
           ref={composer}
           aria-label="聊天消息"
@@ -242,7 +243,7 @@ export function ChatPage({
             }
           }}
         />
-        <div className="chat-actions">
+        <div className={chat.actions}>
           <button
             type="button"
             className="secondary"

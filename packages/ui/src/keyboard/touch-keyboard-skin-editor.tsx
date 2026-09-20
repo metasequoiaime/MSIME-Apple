@@ -20,6 +20,8 @@ import {
 } from "./touch-keyboard-skin-design";
 import type { CommunitySkinClient } from "../community/community-skins";
 import * as skin from "./touch-skin-style";
+import * as doc from "../settings/document-style";
+import * as community from "../community/community-style";
 
 type Category = "背景" | "按键" | "文本" | "设计" | "我的";
 type NameEditor = { operation: "create" } | { operation: "rename"; id: string };
@@ -276,21 +278,21 @@ function AiSkinGeneration({
   };
 
   return (
-    <div className="community-dialog-backdrop">
+    <div className={community.backdrop}>
       <section
-        className="community-publish-dialog ai-skin-generation"
+        className={`${community.dialog} ${doc.generation}`}
         role="dialog"
         aria-modal="true"
         aria-label="AI 皮肤抽卡"
       >
-        <div className="community-dialog-heading">
+        <div className={community.dialogHeading}>
           <div>
             <h2>AI 皮肤抽卡</h2>
             <p>一次抽出三张原创皮肤，遇到喜欢的就留下。</p>
           </div>
           <button
             type="button"
-            className="community-dialog-close"
+            className={community.dialogClose}
             disabled={busy}
             onClick={onClose}
             aria-label="关闭 AI 皮肤抽卡"
@@ -299,9 +301,9 @@ function AiSkinGeneration({
           </button>
         </div>
         {proposals.length === 0 && (
-          <div className="ai-skin-mystery-cards" aria-hidden="true">
+          <div className={doc.mysteryCards} aria-hidden="true">
             {["leaf", "moon", "sparkles"].map((icon, index) => (
-              <div key={icon} className={`ai-skin-mystery-card ai-skin-mystery-${index}`}>
+              <div key={icon} className={doc.mysteryCard(index)}>
                 MSIME<span>{icon === "leaf" ? "♧" : icon === "moon" ? "☾" : "✦"}</span>等待揭晓
               </div>
             ))}
@@ -316,7 +318,7 @@ function AiSkinGeneration({
         >
           {proposals.length ? "再抽三张" : "抽三张皮肤"}
         </button>
-        <p className="ai-skin-generation-note">
+        <p className={doc.generationNote}>
           AI 随机搭配插画、键帽造型与材质。抽到的皮肤可以继续编辑、保存或分享。
         </p>
         {busy && (
@@ -332,15 +334,15 @@ function AiSkinGeneration({
           </p>
         )}
         {message && <p role="status">{message}</p>}
-        <div className="ai-skin-card-list">
+        <div className={doc.cardList}>
           {proposals.map((proposal) => {
             const item = saved[proposal.name];
             return (
-              <article className="ai-skin-card" key={proposal.name}>
+              <article className={doc.card} key={proposal.name}>
                 <h3>{proposal.name}</h3>
                 <p>{proposal.description}</p>
                 <ScreenKeyboardPreview theme="light" skin="custom" customDesign={proposal.design} />
-                <div className="ai-skin-card-actions">
+                <div className={doc.cardActions}>
                   <button
                     type="button"
                     className="primary"
@@ -381,11 +383,7 @@ function AiSkinGeneration({
           })}
         </div>
         {publishing && communitySkins && (
-          <div
-            className="community-confirmation ai-skin-publish-form"
-            role="dialog"
-            aria-label="发布 AI 皮肤"
-          >
+          <div className={doc.publishForm} role="dialog" aria-label="发布 AI 皮肤">
             <h3>发布到社区</h3>
             <label>
               皮肤名称
@@ -432,7 +430,7 @@ function AiSkinGeneration({
             </button>
           </div>
         )}
-        <div className="community-dialog-actions">
+        <div className={community.dialogActions}>
           <button type="button" className="secondary" disabled={busy} onClick={onClose}>
             完成
           </button>
