@@ -159,6 +159,12 @@ python3 scripts/test-shell-route-parity.py || fail "shell route parity"
 note "settings action guard"
 python3 scripts/test-settings-action-guard.py || fail "settings action guard"
 
+# The palette is most of what makes one window look like another, and this one
+# is built with Tailwind rather than by importing the source's sheet, so the two
+# copies of the same 64 names can drift a hex at a time without anyone noticing.
+note "settings palette parity"
+python3 scripts/test-settings-palette-parity.py || fail "settings palette parity"
+
 # path::string() converts through the ANSI code page on Windows, so a profile
 # with Chinese characters in it mangles or throws. Nothing about that shows up
 # on a host whose system encoding is UTF-8, which is every host that runs this
