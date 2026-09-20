@@ -267,6 +267,35 @@ mod tests {
     }
 
     #[test]
+    fn the_shipped_defaults_do_what_the_switch_says_they_do() {
+        // The page shows the reference's own sentence under 智能标点: ASCII after a letter or a
+        // digit. The reference has one switch; this has three, and the two halves used to be off,
+        // so on every host where the parent defaults on the switch was on and the sentence was
+        // false. This reads the defaults rather than the fixture above, which sets all three.
+        let defaults = crate::preferences::Preferences::default();
+        let mut value = context(b',', Some('1'));
+        value.smart_punctuation = defaults.smart_punctuation;
+        value.direct_digit = defaults.smart_punctuation_direct_digit;
+        value.direct_letter = defaults.smart_punctuation_direct_letter;
+        let expected = if defaults.smart_punctuation {
+            PunctuationRoute::Ascii
+        } else {
+            // Windows ships the parent off, and the halves follow it.
+            PunctuationRoute::Engine
+        };
+        assert_eq!(route(value), expected);
+        let mut letter = value;
+        letter.preceding = Some('a');
+        assert_eq!(route(letter), expected);
+        // Turning the parent off still silences both halves, whatever they say.
+        let mut parent_off = value;
+        parent_off.smart_punctuation = false;
+        parent_off.direct_digit = true;
+        parent_off.direct_letter = true;
+        assert_eq!(route(parent_off), PunctuationRoute::Engine);
+    }
+
+    #[test]
     fn unsupported_or_non_ascii_context_stays_with_engine() {
         for preceding in [None, Some('中'), Some(' '), Some('_')] {
             assert_eq!(route(context(b',', preceding)), PunctuationRoute::Engine);

@@ -2504,9 +2504,19 @@ fn contextual_punctuation_respects_editor_context_preferences_and_composition() 
         "？"
     );
 
-    // Both switches are off on the Windows baseline and in the shipped defaults, and a host that read
-    // neither converted for users who had asked for none of it.
-    let plain = test_host(dir.path());
+    // Turning the two halves off is how a user asks for none of this, and then a comma after a digit
+    // or a letter stays Chinese. They default on where the parent does - the parent's own
+    // description promises exactly this conversion - so the document says so rather than relying on
+    // a default that now points the other way.
+    let plain = test_host_preferences(
+        dir.path(),
+        Preferences {
+            smart_punctuation: true,
+            smart_punctuation_direct_digit: false,
+            smart_punctuation_direct_letter: false,
+            ..chinese_preferences()
+        },
+    );
     assert_eq!(read(msime_client_focus(plain, true))["ok"], true);
     for preceding in [u32::from('0'), u32::from('a')] {
         assert_eq!(

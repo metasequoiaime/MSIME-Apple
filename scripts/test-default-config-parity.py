@@ -201,11 +201,20 @@ assert not any(windows_smart_punctuation.values()), (
     "Windows smart-punctuation switches must default to off: "
     f"{sorted(key for key, value in windows_smart_punctuation.items() if value)}"
 )
-for field in ("smart_punctuation_space_convert", "smart_punctuation_direct_digit",
-              "smart_punctuation_direct_letter"):
-    assert re.search(rf"#\[serde\(default\)\]\s*pub {field}: bool", core_source), (
-        f"{field} must default to off on every host, matching the template"
-    )
+# The space rewrite has no equivalent in the reference and changes a character the user already saw
+# land, so it is off until asked for. The two halves of 智能标点 follow the parent instead: the
+# reference has one switch there and this page shows its description verbatim - ASCII after a letter
+# or a digit - so halves that were off on their own left the parent on and doing nothing. Following
+# the parent keeps a fresh Windows profile with the whole family off, which is what the template
+# above ships and what this check exists for.
+assert re.search(
+    r"#\[serde\(default\)\]\s*pub smart_punctuation_space_convert: bool", core_source
+), "smart_punctuation_space_convert must default to off on every host, matching the template"
+for field in ("smart_punctuation_direct_digit", "smart_punctuation_direct_letter"):
+    assert re.search(
+        rf'#\[serde\(default = "smart_punctuation_default"\)\]\s*(?:///[^\n]*\n\s*)*pub {field}: bool',
+        core_source,
+    ), f"{field} must follow the 智能标点 default, which is off on Windows"
 
 print(
     "Windows smart punctuation is off on a fresh profile, as its template ships: "
