@@ -18,6 +18,12 @@ export const skinCatalog: (directory: string) => string;
 export const skinResource: (request: string) => string;
 /** JSON stylesheet request; returns a nullable stylesheet in the structured response. */
 export const skinToolbarStylesheet: (request: string) => string;
+/**
+ * `{directory}` reads the named custom touch-keyboard designs; adding `{action}` applies one change
+ * first. Both answer with the whole library. Takes the library's file lock, so call it off the UI
+ * thread when the design carries a photo.
+ */
+export const customSkinLibrary: (request: string) => string;
 export const savePreferences: (
   directory: string,
   expectedRevision: number,

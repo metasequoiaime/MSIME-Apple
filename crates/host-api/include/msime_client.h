@@ -155,6 +155,13 @@ char *msime_client_skin_resource(const uint8_t *request, size_t length);
 /* JSON {directory:absolute path,id:skin id}; returns a nullable stylesheet
  * string from the manifest, after revalidating the package and path. */
 char *msime_client_skin_toolbar_stylesheet(const uint8_t *request, size_t length);
+/* JSON {directory:absolute state root} reads the named custom touch-keyboard
+ * designs; adding action:{operation:"create"|"rename"|"update"|"delete",...}
+ * applies one change first. Both answer with the whole library, because every
+ * caller redraws the list. Takes the library's file lock and rewrites it
+ * atomically: use a worker. Failures carry the shared community_* codes the
+ * settings pages already have wording for, not a Display string. */
+char *msime_client_custom_skin_library(const uint8_t *request, size_t length);
 /* Read saved history only; disabled preferences return an empty entries array. */
 char *msime_client_load_clipboard_history(const uint8_t *directory, size_t length);
 /* JSON {directory,text}; removes exact saved entry, not the system clipboard. */

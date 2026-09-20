@@ -635,6 +635,24 @@ class SettingsBridge {
     }
   }
 
+  /**
+   * The user's own named touch-keyboard designs.
+   *
+   * Forwarded to the shared store rather than kept here. That store already owns the file lock, the
+   * atomic replace, the twelve-item limit and the name rules; a second implementation on this host
+   * would be a second opinion about what is in the library, and the two would drift the first time
+   * either side changed a rule.
+   *
+   * The state directory comes from the host, not from the page: where the library lives is not
+   * something a WebView should be able to name.
+   */
+  customSkinLibrary(action: string): string {
+    const request: string = action.length === 0
+      ? JSON.stringify({ directory: this.stateDirectory })
+      : `{"directory":${JSON.stringify(this.stateDirectory)},"action":${action}}`;
+    return client.customSkinLibrary(request);
+  }
+
   /** Read only an image declared by a validated external skin manifest. */
   readSkinImage(id: string, relative: string): string {
     return client.skinResource(JSON.stringify({

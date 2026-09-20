@@ -383,6 +383,75 @@ pub unsafe extern "C" fn msime_client_skin_toolbar_stylesheet(
     })
 }
 
+#[derive(Debug, Deserialize)]
+struct CustomSkinLibraryRequest {
+    directory: String,
+    action: Option<msime_client_core::skin::custom_library::CustomSkinLibraryAction>,
+}
+
+/// Read or change the named custom touch-keyboard designs.
+///
+/// The Tauri hosts hold `CustomSkinLibraryStore` as Rust and call it directly.
+/// A host that reaches this crate only through the C ABI - the HarmonyOS
+/// settings bridge is the one that does - would otherwise have to write a
+/// second implementation of the same file: its locking, its atomic replace, its
+/// name normalization and its twelve-item limit. Two stores for one library is
+/// how the two of them start disagreeing about what is in it.
+///
+/// A request with no `action` reads; one with an action applies it. Both answer
+/// with the whole library, because every caller redraws the list afterwards and
+/// a mutation that returned only its own item would leave the page guessing
+/// what the rename did to the ordering.
+/// # Safety
+/// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_custom_skin_library(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        // A design can carry a bounded photo, so the ceiling is the store's own
+        // file limit rather than the small one the other requests here use.
+        if request.is_null() || length > 9_000_000 {
+            return Err("community_storage".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let request: CustomSkinLibraryRequest =
+            serde_json::from_slice(bytes).map_err(|_| "community_invalid")?;
+        if !Path::new(&request.directory).is_absolute() {
+            return Err("community_storage".into());
+        }
+        let store = msime_client_core::skin::custom_library::CustomSkinLibraryStore::new(
+            &request.directory,
+        );
+        let items = match request.action {
+            None => store.load(),
+            Some(action) => store.mutate(action),
+        }
+        .map_err(custom_skin_library_code)?;
+        serde_json::to_value(items).map_err(|_| "community_storage".into())
+    })
+}
+
+/// The codes the shared community pages already have a sentence for. A host that
+/// forwarded the `Display` text instead would put an English sentence written
+/// for a log into a Chinese dialog.
+fn custom_skin_library_code(
+    error: msime_client_core::skin::custom_library::CustomSkinLibraryError,
+) -> String {
+    use msime_client_core::skin::custom_library::CustomSkinLibraryError as Failure;
+    match error {
+        Failure::Full => "community_skin_library_full",
+        Failure::InvalidName => "community_skin_invalid_name",
+        Failure::DuplicateName => "community_skin_duplicate_name",
+        Failure::NotFound => "community_not_found",
+        Failure::Json(_) | Failure::Invalid => "community_skin_library_format",
+        Failure::Io(_) => "community_storage",
+    }
+    .to_owned()
+}
+
 /// Read saved clipboard history without observing or modifying the system clipboard.
 /// # Safety
 /// `directory` points to `length` readable UTF-8 bytes. Null is rejected.

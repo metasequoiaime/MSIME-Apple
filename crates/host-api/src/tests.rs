@@ -963,6 +963,85 @@ fn skin_catalog_reaches_native_presenters_without_the_settings_shell() {
 
 #[test]
 #[cfg(not(target_os = "android"))]
+fn custom_skin_library_reaches_a_c_abi_host_without_a_second_store() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().to_str().unwrap().to_owned();
+    let call = |request: String| {
+        read(unsafe { msime_client_custom_skin_library(request.as_ptr(), request.len()) })
+    };
+    let read_library = || call(json!({"directory": root}).to_string());
+    // An untouched library is an empty list rather than a failure to show.
+    assert_eq!(read_library(), json!({"ok": true, "value": []}));
+
+    let design =
+        serde_json::to_value(msime_client_core::preferences::TouchKeyboardSkinDesign::default())
+            .unwrap();
+    let created = call(
+        json!({
+            "directory": root,
+            "action": {"operation": "create", "name": "晨雾", "design": design},
+        })
+        .to_string(),
+    );
+    assert_eq!(created["ok"], true);
+    assert_eq!(created["value"][0]["name"], "晨雾");
+    // A mutation answers with the whole library, so the page redraws from one reply.
+    assert_eq!(created["value"], read_library()["value"]);
+    let id = created["value"][0]["id"].as_str().unwrap().to_owned();
+
+    // The codes are the ones the shared community pages have wording for; a host forwarding the
+    // Display text would put an English log sentence into a Chinese dialog.
+    let duplicate = call(
+        json!({
+            "directory": root,
+            "action": {"operation": "create", "name": "晨雾", "design": design},
+        })
+        .to_string(),
+    );
+    assert_eq!(duplicate["ok"], false);
+    assert_eq!(duplicate["error"], "community_skin_duplicate_name");
+    let missing = call(
+        json!({
+            "directory": root,
+            "action": {"operation": "delete", "id": "10000000-0000-4000-8000-000000000009"},
+        })
+        .to_string(),
+    );
+    assert_eq!(missing["error"], "community_not_found");
+    let blank = call(
+        json!({
+            "directory": root,
+            "action": {"operation": "rename", "id": id, "name": "   "},
+        })
+        .to_string(),
+    );
+    assert_eq!(blank["error"], "community_skin_invalid_name");
+
+    let renamed = call(
+        json!({
+            "directory": root,
+            "action": {"operation": "rename", "id": id, "name": "竹影"},
+        })
+        .to_string(),
+    );
+    assert_eq!(renamed["value"][0]["name"], "竹影");
+    assert_eq!(
+        call(json!({"directory": root, "action": {"operation": "delete", "id": id}}).to_string()),
+        json!({"ok": true, "value": []})
+    );
+
+    // A relative root and a null buffer are refused rather than resolved against whatever the
+    // process happens to have as its working directory.
+    assert_eq!(call(json!({"directory": "skins"}).to_string())["ok"], false);
+    assert_eq!(
+        read(unsafe { msime_client_custom_skin_library(std::ptr::null(), 0) })["ok"],
+        false
+    );
+    assert_eq!(call("not json".to_owned())["error"], "community_invalid");
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
 fn skin_resource_bridge_revalidates_kind_and_package_containment() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().join("skins");
