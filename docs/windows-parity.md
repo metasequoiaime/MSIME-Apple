@@ -27,7 +27,7 @@
 | 功能组 | 来源入口 | 目的地证据 | 当前结论与下一项验证 |
 | --- | --- | --- | --- |
 | TSF 按键、焦点、edit session、UI-less | `windows/`、`server/src/ipc/` | `platforms/windows/tsf/`、`WindowsServer.cpp`、`SessionController.cpp`、`PipePeer.cpp` | 有调用链；继续验证真实编辑器焦点切换、断线重连、跨位数 DLL/Server、组合提交与撤销。 |
-| 全拼、四种双拼、86 五笔、日语、辅助码 | README 对应指南、`engine/`、设置 `input.ts` / `helpcode.ts` | `crates/engine-bridge/`、`crates/input-runtime/`、`platforms/windows/src/ipc/SessionPump.cpp`、共享 `preferences.rs` | Windows 日语模式已将 `-` 交给长音符输入、禁止 `-`/`=` 翻页，并在 TSF/Server 两侧保持一致；候选选择现绑定会话、代次及单调窗口渲染 serial，等待上屏前的绘制回执可避免调频重排错选；macOS 原生候选面板现按共享 `wubi_code_hint` 显示严格前缀的剩余五笔编码，回退/本地模式保持不标注；仍待固定词库逐项核对各输入方案。 |
+| 全拼、四种双拼、86 五笔、日语、辅助码 | README 对应指南、`engine/`、设置 `input.ts` / `helpcode.ts` | `crates/engine-bridge/`、`crates/input-runtime/`、`platforms/windows/src/ipc/SessionPump.cpp`、共享 `preferences.rs` | Windows 日语模式已将 `-` 交给长音符输入、禁止 `-`/`=` 翻页，并在 TSF/Server 两侧保持一致；候选选择现绑定会话、代次及单调窗口渲染 serial，等待上屏前的绘制回执可避免调频重排错选；macOS 原生候选面板现按共享 `wubi_code_hint` 显示严格前缀的剩余五笔编码，回退/本地模式保持不标注；各输入方案已用锁定词库逐项核对（`crates/engine-bridge/examples/schemes_dictionary.rs`，见第七批），仍待真实编辑器交互验证。 |
 | 候选分页、高亮、调频、preedit、以词定字 | README 候选调频/preedit/标点指南 | `CandidateWindow.cpp`、`CandidateAction.h`、`SessionController.cpp`、`ReplyCodec.cpp`；Linux `ClientEngine.cpp` | 有调用链；Linux IBus 候选操作菜单现提供上一页/下一页并复用共享分页命令，仍需检查分页键、鼠标与键盘行为、调频持久化和旧候选请求拒绝。 |
 | 中英文状态、独立英文候选、全半角、简繁、智能标点 | `server/src/english/`、设置 `input.ts` / `shortcut.ts` | `SharedConfigKeybindings.h`、`PunctuationPolicy.h`、`ReplyCodec.h` 中的 TsfLocalConfig、共享偏好与 Engine 桥接 | 已补齐 TSF client key-router 边界、IPC `Sent` / `DefinitelyNotSent` / `DeliveryAmbiguous` 三态 fallback、标点配置帧及宿主进程策略回归；仍需分别核对按应用/全局状态、CapsLock、标点重复、成对补全与热更新。 |
 | K/T/U/E/M/J/Y/R 快捷模式、混输 | README 实用功能快捷模式 | Engine 桥接、共享偏好、`platforms/windows/src/ipc/ServerSession.cpp` 及 `platforms/windows/tests/runtime/session_smoke.cpp` | 已补带锁定词库的 ServerSession 回归：八种快捷模式均验证 Shift 入口、候选生成和选词提交；仍需 Windows 原生 TSF/真实编辑器交互验证。 |
@@ -147,7 +147,15 @@
 
 1. 智能标点在 Windows 上的首次默认（#3105）。Windows 安装包发的 `config.default.toml` 五个开关全为关，来源也已把整族改成默认关；但那只是安装模板，运行中的 Server 读的是共享偏好文档，而共享默认里主开关与同键转回都是开——Windows 上的实际首次默认与它自己随包发出去的基线正好相反。默认函数改为 `!cfg!(windows)`：只动 Windows，其余宿主一直是开着发的，让偏好在老用户脚下变掉比按平台不同更糟；两边都不影响已存下来的值。判据放进 `test-default-config-parity.py`，它比对安装模板 TOML 与 Rust 源码两份互相独立的来源，把默认函数改回 `true` 会指名报错——不像单测断言实现等于实现那样自证。
 2. x86（#3108）。32 位 TSF DLL 会被加载进每个 32 位宿主，但这个架构从来没被构建过：`build-cross.sh x86` 的 Rust 侧要 DWARF 展开，而 macOS 上常见的 i686 MinGW 是 SJLJ。查下去发现一处只在 x86_64 成立的代码：`CandidateWindow.cpp` 把无捕获 lambda 直接传给 `EnumFontFamiliesExW`，而 `FONTENUMPROCW` 是 `__stdcall`、lambda 转出来的是 `__cdecl`——x86_64 上只有一种调用约定所以同型，x86 上是不同类型，直接编译错误。改成具名 `CALLBACK` 函数（`ShellLauncher` 的 `EnumWindows` 回调本来就是这个写法）。新增 `scripts/test-windows-32bit-compile.py` 挂进 `--quick`：编译参数取自 x64 构建产出的 `compile_commands.json` 而不是另一份手工清单，往 CMake 加源文件或 include 自动被覆盖；只换编译器且 `-fsyntax-only`，不链接因此不需要 32 位库。当前 247 个源文件全部通过。x86 的**链接**仍未覆盖，那要等一套 DWARF 展开的 i686 工具链。
-3. Engine 锁（结论：现在提锁拿不到那些行为，不是暂缓）。来源基线之后的 Engine 侧提交（ü 换 nue/lue/ju 写法再送进 Google 解码器、词格整句改 kenlm 三元模型、整句候选落用户词组）只存在于来源自己树内的 `engine/`。本仓库跟踪的是独立仓库 `metasequoiaime/MSIME-Engine`，克隆后核对：它比本仓库锁定的 `0531d421` 只多 5 个提交（`e25f2b8`、`5eab393`、`d45268d` 及两个 release chore），全部是词格 ngram 表的构建与落盘；全仓搜不到 kenlm / `sc.lm`，也搜不到把 ü 改写成 nue/lue/ju 再交给 Google 解码器的那段。也就是说提锁既拿不到上述任何一项 Windows 对照项，又会把词格 ngram 表的改动带进来，而整句重排在本仓库正由 Rust 侧的 `chinese-ime-lm` 另行推进（#3088）——两边同时动同一块行为会互相盖掉。因此本批不提锁，且这次是有依据的结论：等那些改动发布到独立 Engine 仓库之后再议。附带一提，本仓库的 Engine 是否同样存在 ü 拼写问题，仍未判定：engine-bridge 的测试装置用空词库临时目录，`qu`、`xu` 这类无 ü 的音节同样出不了候选，要判定必须带真实系统词典。
+3. Engine 锁（结论：现在提锁拿不到那些行为，不是暂缓）。来源基线之后的 Engine 侧提交（ü 换 nue/lue/ju 写法再送进 Google 解码器、词格整句改 kenlm 三元模型、整句候选落用户词组）只存在于来源自己树内的 `engine/`。本仓库跟踪的是独立仓库 `metasequoiaime/MSIME-Engine`，克隆后核对：它比本仓库锁定的 `0531d421` 只多 5 个提交（`e25f2b8`、`5eab393`、`d45268d` 及两个 release chore），全部是词格 ngram 表的构建与落盘；全仓搜不到 kenlm / `sc.lm`，也搜不到把 ü 改写成 nue/lue/ju 再交给 Google 解码器的那段。也就是说提锁既拿不到上述任何一项 Windows 对照项，又会把词格 ngram 表的改动带进来，而整句重排在本仓库正由 Rust 侧的 `chinese-ime-lm` 另行推进（#3088）——两边同时动同一块行为会互相盖掉。因此本批不提锁，且这次是有依据的结论：等那些改动发布到独立 Engine 仓库之后再议。附带一提，本仓库的 Engine 是否同样存在 ü 拼写问题，仍未判定：engine-bridge 的测试装置用空词库临时目录，`qu`、`xu` 这类无 ü 的音节同样出不了候选，要判定必须带真实系统词典。（第七批已用锁定词库判定：不存在该问题，两种写法都通。）
+
+增量记录（2026-09-20，Windows 第七批：用锁定词库逐项核对输入方案，并结掉 ü 那条「未判定」）：本批不改产品代码，新增 `crates/engine-bridge/examples/schemes_dictionary.rs`，按本仓库既有的真词库探针约定（同 `local_modes_dictionary`）接收一个按 `resources/desktop-dictionary.lock.json` 备齐的资源目录。起因是方案类的单测全部建在合成 sqlite 词库上：那能证明拼写解析器切对了音节，却证明不了这个方案够得着真实词条——空表对正确和错误的拼写一律回答「没有候选」。
+
+覆盖到的：全拼 `nihao` 首选 `你好`；四套双拼 profile 各自用 `ni` 走通到 `你`（`ni` 在四套里都是 n+i，一个输入就覆盖四条路径，不必硬编四张韵母表）；微软双拼另加 `nihk`，preedit 必须切成 `ni'hao` 且首选 `你好`；五笔按键名汉字 `gggg`/`hhhh`/`aaaa` 得到 `王`/`目`/`工`；日语罗马字 `nihon`/`sakura` 的假名读音为 `にほん`/`さくら` 且候选含 `日本`/`さくら`，同时反查全拼不带假名读音。每次探测各用独立的 user 与 cache 目录，免得前一次的学习影响后一次的候选顺序。
+
+同时把第六批第 3 条里记为「仍未判定」的 ü 拼写结掉，结论是本仓库**不存在**该问题：`nve` 与 `nue` 首选同为 `虐`，`lve` 与 `lue` 同为 `略`，j/q/x 后那个其实是 ü 的 `u`（`ju`/`qu`/`xu`/`jue`/`quan`）也全部出候选。来源 `ccbaa3a6` 需要在交给 Google 解码器之前把 ü 改写成 nue/lue/ju 写法，这边两种写法本来就都通，因此不是缺口，也不构成提 Engine 锁的理由。之所以拖到现在才判定，正是因为空词库分辨不出这件事——判据必须带真实词典。
+
+该探针与其余真词库探针一样不挂进 `verify-local.sh`：锁定词库不在仓库里。本批没有 Windows 主机，不声称任何原生安装、TSF 注册或真实编辑器交互。
 
 ## 下一批实施顺序
 
