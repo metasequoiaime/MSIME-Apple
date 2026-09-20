@@ -3668,107 +3668,22 @@ export function SettingsPage({
                       active={page === "appearance"}
                       revision={snapshot?.revision ?? 0}
                     />
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          工具栏主题
-                          <small>覆盖全局主题；当前影响工具栏设置预览，原生工具栏需宿主支持</small>
-                        </span>
-                        <select
-                          aria-label="工具栏主题"
-                          value={draft.toolbar_theme ?? "follow"}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              toolbar_theme: event.target.value as SurfaceTheme,
-                            })
-                          }
-                        >
-                          <option value="follow">跟随全局</option>
-                          <option value="dark">深色</option>
-                          <option value="light">浅色</option>
-                        </select>
-                      </label>
-                    </div>
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          手写面板主题<small>覆盖手写识别板的明暗外观</small>
-                        </span>
-                        <select
-                          aria-label="手写面板主题"
-                          value={draft.handwriting_theme ?? "follow"}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              handwriting_theme: event.target.value as SurfaceTheme,
-                            })
-                          }
-                        >
-                          <option value="follow">跟随全局</option>
-                          <option value="dark">深色</option>
-                          <option value="light">浅色</option>
-                        </select>
-                      </label>
-                    </div>
-                    {!androidPlatform && (
+                    {showCandidateFollowCursor && (
                       <div className="section">
                         <label className="section-header">
                           <span className="section-title">
-                            语音面板主题<small>覆盖语音输入面板的明暗外观</small>
+                            候选窗口跟随光标
+                            <small>关闭后保持首次出现的位置，直到候选窗口消失。</small>
                           </span>
-                          <select
-                            aria-label="语音面板主题"
-                            value={draft.voice_theme ?? "follow"}
+                          <input
+                            aria-label="候选窗口跟随光标"
+                            className="toggle"
+                            type="checkbox"
+                            checked={draft.candidate_follow_cursor ?? true}
                             onChange={(event) =>
-                              setDraft({
-                                ...draft,
-                                voice_theme: event.target.value as SurfaceTheme,
-                              })
+                              setDraft({ ...draft, candidate_follow_cursor: event.target.checked })
                             }
-                          >
-                            <option value="follow">跟随全局</option>
-                            <option value="dark">深色</option>
-                            <option value="light">浅色</option>
-                          </select>
-                        </label>
-                      </div>
-                    )}
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          Emoji 面板主题<small>覆盖 Emoji、颜文字和符号面板的明暗外观</small>
-                        </span>
-                        <select
-                          aria-label="Emoji 面板主题"
-                          value={draft.emoji_theme ?? "follow"}
-                          onChange={(event) =>
-                            setDraft({ ...draft, emoji_theme: event.target.value as SurfaceTheme })
-                          }
-                        >
-                          <option value="follow">跟随全局</option>
-                          <option value="dark">深色</option>
-                          <option value="light">浅色</option>
-                        </select>
-                      </label>
-                    </div>
-                    {!mobilePlatform && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            菜单主题<small>覆盖托盘菜单与候选右键菜单的明暗外观</small>
-                          </span>
-                          <select
-                            aria-label="菜单主题"
-                            value={draft.menu_theme ?? "follow"}
-                            onChange={(event) =>
-                              setDraft({ ...draft, menu_theme: event.target.value as SurfaceTheme })
-                            }
-                          >
-                            <option value="follow">跟随全局</option>
-                            <option value="dark">深色</option>
-                            <option value="light">浅色</option>
-                          </select>
+                          />
                         </label>
                       </div>
                     )}
@@ -3785,119 +3700,12 @@ export function SettingsPage({
                         <small>当前宿主的候选面板不支持自定义字体或字号。</small>
                       </div>
                     )}
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          全局主题<small>设置窗口和各界面的默认明暗模式</small>
-                        </span>
-                        <select
-                          aria-label="全局主题"
-                          value={themeMode}
-                          onChange={(event) =>
-                            setDraft({ ...draft, theme: event.target.value as ThemeMode })
-                          }
-                        >
-                          <option value="dark">深色</option>
-                          <option value="light">浅色</option>
-                          <option value="system">跟随系统</option>
-                        </select>
-                      </label>
-                    </div>
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          设置窗口主题<small>覆盖全局主题，仅影响当前设置窗口</small>
-                        </span>
-                        <select
-                          aria-label="设置窗口主题"
-                          value={settingsTheme}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              settings_theme: event.target.value as SurfaceTheme,
-                            })
-                          }
-                        >
-                          <option value="follow">跟随全局</option>
-                          <option value="dark">深色</option>
-                          <option value="light">浅色</option>
-                        </select>
-                      </label>
-                    </div>
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">
-                          候选窗主题
-                          <small>
-                            预览跟随全局主题；Linux IBus panel 支持时使用，跟随时由桌面主题决定
-                          </small>
-                        </span>
-                        <select
-                          aria-label="候选窗主题"
-                          value={draft.candidate_theme ?? "follow"}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              candidate_theme: event.target.value as SurfaceTheme,
-                            })
-                          }
-                        >
-                          <option value="follow">跟随</option>
-                          <option value="dark">深色</option>
-                          <option value="light">浅色</option>
-                        </select>
-                      </label>
-                    </div>
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">候选布局</span>
-                        <select
-                          aria-label="候选布局"
-                          value={draft.candidate_layout ?? "vertical"}
-                          onChange={(event) =>
-                            setDraft({
-                              ...draft,
-                              candidate_layout: event.target
-                                .value as Preferences["candidate_layout"],
-                            })
-                          }
-                        >
-                          <option value="vertical">竖排</option>
-                          <option value="horizontal">横排</option>
-                        </select>
-                      </label>
-                    </div>
-                    {showShuangpinPreedit && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            双拼预编辑
-                            <small>
-                              仅在双拼方案下生效；选择保留原始双拼按键，或显示展开后的拼音分词。
-                            </small>
-                          </span>
-                          <select
-                            aria-label="双拼预编辑"
-                            value={draft.shuangpin_preedit_uses_raw === false ? "pinyin" : "raw"}
-                            onChange={(event) =>
-                              setDraft({
-                                ...draft,
-                                shuangpin_preedit_uses_raw: event.target.value === "raw",
-                              })
-                            }
-                          >
-                            <option value="raw">原始按键</option>
-                            <option value="pinyin">拼音分词</option>
-                          </select>
-                        </label>
-                      </div>
-                    )}
                     {showCandidateFontControls && (
                       <div className="section">
                         <label className="section-header">
-                          <span className="section-title">候选字号</span>
+                          <span className="section-title">候选窗字号</span>
                           <select
-                            aria-label="候选字号"
+                            aria-label="候选窗字号"
                             value={candidateFontSize(draft.candidate_font_size)}
                             onChange={(event) =>
                               setDraft({
@@ -3967,25 +3775,6 @@ export function SettingsPage({
                         </div>
                       </div>
                     </div>
-                    {showCandidateFollowCursor && (
-                      <div className="section">
-                        <label className="section-header">
-                          <span className="section-title">
-                            候选窗口跟随光标
-                            <small>关闭后保持首次出现的位置，直到候选窗口消失。</small>
-                          </span>
-                          <input
-                            aria-label="候选窗口跟随光标"
-                            className="toggle"
-                            type="checkbox"
-                            checked={draft.candidate_follow_cursor ?? true}
-                            onChange={(event) =>
-                              setDraft({ ...draft, candidate_follow_cursor: event.target.checked })
-                            }
-                          />
-                        </label>
-                      </div>
-                    )}
                     {!showCandidateRowColors && (
                       <div className="section">
                         <small>当前宿主的候选面板不支持强调或选中行颜色。</small>
@@ -4178,6 +3967,239 @@ export function SettingsPage({
                     </div>
                     <div className="section">
                       <label className="section-header">
+                        <span className="section-title">每页候选项数量</span>
+                        <select
+                          aria-label="每页候选项数量"
+                          value={
+                            candidatePageSizes.includes(draft.candidate_page_size)
+                              ? draft.candidate_page_size
+                              : 9
+                          }
+                          onChange={(event) =>
+                            setDraft({ ...draft, candidate_page_size: Number(event.target.value) })
+                          }
+                        >
+                          {candidatePageSizes.map((size) => (
+                            <option key={size} value={size}>
+                              {size}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    </div>
+                    <div className="section">
+                      <label className="section-header">
+                        <span className="section-title">
+                          主题模式<small>设置窗口和各界面的默认明暗模式</small>
+                        </span>
+                        <select
+                          aria-label="主题模式"
+                          value={themeMode}
+                          onChange={(event) =>
+                            setDraft({ ...draft, theme: event.target.value as ThemeMode })
+                          }
+                        >
+                          <option value="dark">深色</option>
+                          <option value="light">浅色</option>
+                          <option value="system">跟随系统</option>
+                        </select>
+                      </label>
+                    </div>
+                    <div className="section">
+                      <label className="section-header">
+                        <span className="section-title">
+                          设置界面主题<small>覆盖主题模式，仅影响当前设置窗口</small>
+                        </span>
+                        <select
+                          aria-label="设置界面主题"
+                          value={settingsTheme}
+                          onChange={(event) =>
+                            setDraft({
+                              ...draft,
+                              settings_theme: event.target.value as SurfaceTheme,
+                            })
+                          }
+                        >
+                          <option value="follow">跟随全局</option>
+                          <option value="dark">深色</option>
+                          <option value="light">浅色</option>
+                        </select>
+                      </label>
+                    </div>
+                    <div className="section">
+                      <label className="section-header">
+                        <span className="section-title">
+                          候选窗口主题
+                          <small>
+                            预览跟随主题模式；Linux IBus panel 支持时使用，跟随时由桌面主题决定
+                          </small>
+                        </span>
+                        <select
+                          aria-label="候选窗口主题"
+                          value={draft.candidate_theme ?? "follow"}
+                          onChange={(event) =>
+                            setDraft({
+                              ...draft,
+                              candidate_theme: event.target.value as SurfaceTheme,
+                            })
+                          }
+                        >
+                          <option value="follow">跟随</option>
+                          <option value="dark">深色</option>
+                          <option value="light">浅色</option>
+                        </select>
+                      </label>
+                    </div>
+                    <div className="section">
+                      <label className="section-header">
+                        <span className="section-title">
+                          悬浮工具栏主题
+                          <small>覆盖主题模式；当前影响工具栏设置预览，原生工具栏需宿主支持</small>
+                        </span>
+                        <select
+                          aria-label="悬浮工具栏主题"
+                          value={draft.toolbar_theme ?? "follow"}
+                          onChange={(event) =>
+                            setDraft({
+                              ...draft,
+                              toolbar_theme: event.target.value as SurfaceTheme,
+                            })
+                          }
+                        >
+                          <option value="follow">跟随全局</option>
+                          <option value="dark">深色</option>
+                          <option value="light">浅色</option>
+                        </select>
+                      </label>
+                    </div>
+                    {!mobilePlatform && (
+                      <div className="section">
+                        <label className="section-header">
+                          <span className="section-title">
+                            菜单主题<small>覆盖托盘菜单与候选右键菜单的明暗外观</small>
+                          </span>
+                          <select
+                            aria-label="菜单主题"
+                            value={draft.menu_theme ?? "follow"}
+                            onChange={(event) =>
+                              setDraft({ ...draft, menu_theme: event.target.value as SurfaceTheme })
+                            }
+                          >
+                            <option value="follow">跟随全局</option>
+                            <option value="dark">深色</option>
+                            <option value="light">浅色</option>
+                          </select>
+                        </label>
+                      </div>
+                    )}
+                    <div className="section">
+                      <label className="section-header">
+                        <span className="section-title">
+                          表情面板主题<small>覆盖 Emoji、颜文字和符号面板的明暗外观</small>
+                        </span>
+                        <select
+                          aria-label="表情面板主题"
+                          value={draft.emoji_theme ?? "follow"}
+                          onChange={(event) =>
+                            setDraft({ ...draft, emoji_theme: event.target.value as SurfaceTheme })
+                          }
+                        >
+                          <option value="follow">跟随全局</option>
+                          <option value="dark">深色</option>
+                          <option value="light">浅色</option>
+                        </select>
+                      </label>
+                    </div>
+                    <div className="section">
+                      <label className="section-header">
+                        <span className="section-title">
+                          手写识别板主题<small>覆盖手写识别板的明暗外观</small>
+                        </span>
+                        <select
+                          aria-label="手写识别板主题"
+                          value={draft.handwriting_theme ?? "follow"}
+                          onChange={(event) =>
+                            setDraft({
+                              ...draft,
+                              handwriting_theme: event.target.value as SurfaceTheme,
+                            })
+                          }
+                        >
+                          <option value="follow">跟随全局</option>
+                          <option value="dark">深色</option>
+                          <option value="light">浅色</option>
+                        </select>
+                      </label>
+                    </div>
+                    {!androidPlatform && (
+                      <div className="section">
+                        <label className="section-header">
+                          <span className="section-title">
+                            语音输入弹出条主题<small>覆盖语音输入面板的明暗外观</small>
+                          </span>
+                          <select
+                            aria-label="语音输入弹出条主题"
+                            value={draft.voice_theme ?? "follow"}
+                            onChange={(event) =>
+                              setDraft({
+                                ...draft,
+                                voice_theme: event.target.value as SurfaceTheme,
+                              })
+                            }
+                          >
+                            <option value="follow">跟随全局</option>
+                            <option value="dark">深色</option>
+                            <option value="light">浅色</option>
+                          </select>
+                        </label>
+                      </div>
+                    )}
+                    <div className="section">
+                      <label className="section-header">
+                        <span className="section-title">候选项排列方式</span>
+                        <select
+                          aria-label="候选项排列方式"
+                          value={draft.candidate_layout ?? "vertical"}
+                          onChange={(event) =>
+                            setDraft({
+                              ...draft,
+                              candidate_layout: event.target
+                                .value as Preferences["candidate_layout"],
+                            })
+                          }
+                        >
+                          <option value="vertical">竖排</option>
+                          <option value="horizontal">横排</option>
+                        </select>
+                      </label>
+                    </div>
+                    {showShuangpinPreedit && (
+                      <div className="section">
+                        <label className="section-header">
+                          <span className="section-title">
+                            双拼预编辑
+                            <small>
+                              仅在双拼方案下生效；选择保留原始双拼按键，或显示展开后的拼音分词。
+                            </small>
+                          </span>
+                          <select
+                            aria-label="双拼预编辑"
+                            value={draft.shuangpin_preedit_uses_raw === false ? "pinyin" : "raw"}
+                            onChange={(event) =>
+                              setDraft({
+                                ...draft,
+                                shuangpin_preedit_uses_raw: event.target.value === "raw",
+                              })
+                            }
+                          >
+                            <option value="raw">原始按键</option>
+                            <option value="pinyin">拼音分词</option>
+                          </select>
+                        </label>
+                      </div>
+                    )}
+                    <div className="section">
+                      <label className="section-header">
                         <span className="section-title">行内预编辑</span>
                         <select
                           aria-label="行内预编辑"
@@ -4212,28 +4234,6 @@ export function SettingsPage({
                         >
                           <option value="pinyin">显示拼音</option>
                           <option value="empty">隐藏</option>
-                        </select>
-                      </label>
-                    </div>
-                    <div className="section">
-                      <label className="section-header">
-                        <span className="section-title">每页候选数量</span>
-                        <select
-                          aria-label="每页候选数量"
-                          value={
-                            candidatePageSizes.includes(draft.candidate_page_size)
-                              ? draft.candidate_page_size
-                              : 9
-                          }
-                          onChange={(event) =>
-                            setDraft({ ...draft, candidate_page_size: Number(event.target.value) })
-                          }
-                        >
-                          {candidatePageSizes.map((size) => (
-                            <option key={size} value={size}>
-                              {size}
-                            </option>
-                          ))}
                         </select>
                       </label>
                     </div>
@@ -7251,7 +7251,7 @@ export function SettingsPage({
                     <div className="section">
                       <label className="section-header">
                         <span className="section-title">
-                          屏幕键盘主题<small>覆盖全局主题；桌面屏幕键盘支持此设置</small>
+                          屏幕键盘主题<small>覆盖主题模式；桌面屏幕键盘支持此设置</small>
                         </span>
                         <select
                           aria-label="屏幕键盘主题"

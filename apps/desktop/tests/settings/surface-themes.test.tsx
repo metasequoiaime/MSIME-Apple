@@ -39,8 +39,8 @@ async function openAppearance(platform: string) {
 test("Android offers the emoji and handwriting panel themes", async () => {
   await openAppearance("android");
 
-  expect(screen.getByLabelText("Emoji 面板主题")).toBeTruthy();
-  expect(screen.getByLabelText("手写面板主题")).toBeTruthy();
+  expect(screen.getByLabelText("表情面板主题")).toBeTruthy();
+  expect(screen.getByLabelText("手写识别板主题")).toBeTruthy();
 });
 
 // Only the native desktop menus read menu_theme; a touch host draws no menu it applies to.

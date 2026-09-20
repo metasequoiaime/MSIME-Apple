@@ -236,7 +236,7 @@ test("candidate appearance follows host capabilities", async () => {
   });
   await screen.findByRole("button", { name: "保存设置" });
   expect(screen.queryByLabelText("候选窗主字体")).toBeNull();
-  expect(screen.queryByLabelText("候选字号")).toBeNull();
+  expect(screen.queryByLabelText("候选窗字号")).toBeNull();
   expect(screen.queryByLabelText("候选窗预编辑字号")).toBeNull();
   expect(screen.getByLabelText("候选强调色")).toBeTruthy();
   expect(screen.getByLabelText("候选选中色")).toBeTruthy();
@@ -258,7 +258,7 @@ test("Windows candidate appearance keeps native controls", async () => {
     }),
   });
   await screen.findByRole("button", { name: "保存设置" });
-  expect(screen.getByLabelText("候选字号")).toBeTruthy();
+  expect(screen.getByLabelText("候选窗字号")).toBeTruthy();
   expect(screen.getByLabelText("候选强调色")).toBeTruthy();
   expect(screen.getByLabelText("候选边框色")).toBeTruthy();
   // Windows places its own card, so pinning it is a real choice there.
@@ -292,7 +292,7 @@ test("Android candidate appearance exposes native font and color controls", asyn
   await screen.findByRole("button", { name: "保存设置" });
   expect(screen.getByLabelText("候选窗英文字体")).toBeTruthy();
   expect(screen.getByLabelText("候选窗主字体")).toBeTruthy();
-  expect(screen.getByLabelText("候选字号")).toBeTruthy();
+  expect(screen.getByLabelText("候选窗字号")).toBeTruthy();
   expect(screen.getByLabelText("候选强调色")).toBeTruthy();
   expect(screen.getByLabelText("候选悬停色")).toBeTruthy();
   expect(screen.getByLabelText("候选边框色")).toBeTruthy();
