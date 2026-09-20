@@ -195,7 +195,7 @@ desktop tests/candidate/external-skins.test.tsx > external selection enters the 
 desktop tests/candidate/external-skins.test.tsx > settings synchronize all cards and reset local overrides on candidate theme changes
 
 # The Windows suites, run under Wine by platforms/windows/run-tests-wine.sh.
-# 76 of 78 pass; these two do not, and each was read rather than assumed. The
+# 77 of 78 pass with MSIME_WINE_RESOURCES set, 76 without; these do not, and each was read rather than assumed. The
 # same two, for the same reasons, on x86 and x64 - the names are not repeated
 # per architecture because the runner reports one set either way.
 #
@@ -209,14 +209,7 @@ desktop tests/candidate/external-skins.test.tsx > settings synchronize all cards
 wine windows-server-smoke
 # windows-session-smoke needs the optional absolute resource directory the
 # suite documents as argv[1]; run-tests-wine.sh passes it when
-# MSIME_WINE_RESOURCES points at one. With it, preparation now succeeds and the
-# suite reaches "Layout-produced punctuation replaced digit selection" - an
-# assertion nothing had ever executed, because every earlier run stopped before
-# it. That one is the next thing to look at, not a known environment limit.
-#
-# An earlier version of this entry said preparation failing under Wine was "a
-# Wine limit, not a product one". That was wrong. The cause was
-# std::fs::canonicalize returning a \\?\ verbatim path and libstdc++ reading it
-# as having no root name, so the Engine refused it as not absolute - the same
-# binaries would refuse it on Windows. It is fixed rather than recorded.
+# MSIME_WINE_RESOURCES points at one. Given that, it passes - so it is listed
+# here only for a run without one, where its dictionaries are empty temp
+# directories and nothing it types produces a candidate.
 wine windows-session-smoke
