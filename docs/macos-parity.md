@@ -91,6 +91,30 @@
 - 其中不属于上述两类、最像功能的一组逐个核过并都已覆盖：Option/Control + 数字取释义（`CandidateGlossRequestForModifiers` → `commitCandidateGlossColumn:`）、待上屏列（`setArmedGlossColumn` → `_armedGlossColumn` 与其夹取）、候选置顶（`MetasequoiaTogglePinnedWord` → `MSIMESetCandidatePinned`）、释义调度（`scheduleCandidateTranslations` → `synchronizeCandidateGloss` / `synchronizeAccountGloss` 与空闲延迟）、反馈诊断（`copyFeedbackReport` → Tauri 反馈页的「复制报告」）、学习数据清除（`ResetMetasequoiaLearnedData` → Tauri「清除学习数据」→ `resetLearnedData` 能力 → `reset_learned_data` → 引擎）。
 - 单点对照另外确认：`ActionForSolitaryShift` 对应 #3179 之后的单击 Shift 行为，`NextArmedGlossColumn` 对应 `cycleArmedGlossColumnBackwards:`，`browseVoiceModel` 对应 #3212 新增的 `pickVoiceModelPath`，`MetasequoiaCandidateWantsOnlineGloss` 对应 #3156 的 `MSIMEOnlineGlossCandidates`。
 
+## 结论：代码侧迁移已完成
+
+2026-09-20。下这个结论的依据是五条各自独立、各自可重跑的比对轴**全部跑完**，每条找到的缺口都已修复并合入，当前没有已知未处理项：
+
+| 轴 | 覆盖面 | 规模 | 产出 |
+| --- | --- | ---: | --- |
+| 参考窗口截图 | 设置界面的结构与文案 | 13 页 | #3247 侧边栏分组与帮助页、#3258 快捷键页 |
+| 控制项标识 | 设置窗摆出来的每一个控件 | 23 | 无缺口 |
+| 运行时偏好键 | 输入路径上真正读的偏好 | 27 | 无缺口 |
+| 测试断言 | 来源用测试钉住的行为 | 93 | #3280 恢复默认设置、#3298 双拼方案菜单 |
+| 符号 | 来源写了但没写测试的行为 | 518 | 无缺口 |
+
+文件层另有一份全量清单：来源 `platforms/macos/src` 与 `shared` 的 111 个源文件逐个列出去处，见 [macos-feature-inventory.md](macos-feature-inventory.md)；断言逐条的状态见 [macos-assertion-audit.md](macos-assertion-audit.md)。两份都附了可重跑的抽取命令，表可以核对而不是只能相信。
+
+**已知分歧共三处，都是刻意的，都有理由：**
+
+1. **悬浮工具栏齿轮**可关闭（参考不可关）。目标的工具栏组件更多，把「设置」一并交给用户是一致的；关掉也不困人，输入菜单里仍有「水杉输入法设置…」，手写与语音按钮恒常存在。
+2. **标点模型**：参考是两个互斥的钉住标志加一个跟随态，目标是一个状态加独立的智能标点开关。目标这侧更能表达。
+3. **翻译 provider 模型**：参考是单选，目标是三家各自独立配置。目标是超集。
+
+另有一处方向相反的差集：屏幕键盘、手写识别板、AI 辅助与 AI 对话、社区资源与皮肤、打字统计、悬浮工具栏皮肤编辑、双拼键位提示面板、输入模式 HUD——目标有而来源没有。
+
+**这个结论的边界，说清楚：** 它成立于「所有能机械重跑的比对方法都已用尽且无剩余缺口」这个意义上。它不等于逐字节等价，也覆盖不到一类东西——来源既没写测试、也不体现在文件或符号层的实际手感（比如某个延迟、某个动画的观感）。那一类只能靠在真实编辑器里打字发现；输入源现在已注册可用（见下面《安装后验收》一节），这条路是通的。发现任何这类问题，按缺口处理即可，不需要重开一轮比对。
+
 ## 当前完成度
 
 代码侧的迁移按上述五次比对已无已知缺口；macOS `ctest` 全通过，`scripts/known-failures.txt` 无 macOS 条目。
