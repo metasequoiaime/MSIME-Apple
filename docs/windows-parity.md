@@ -743,6 +743,14 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 最后这条此前没有任何测试钉着：`input-runtime` 测试桩的 `set_dedicated_english` 用的是 trait 的空默认实现，所以该行为成立仅仅因为真实引擎恰好会重置。考虑到本仓引擎比来源新 467 个提交，这正是该钉住的一类风险。现让测试桩如实建模（模式真正改变时清空组字，重复设置同一模式不动），并加测试断言切换语言后组字消失、重复设置不误清。已把重置去掉验证过它确实会红（`left: "a"`, `right: ""`）。
 
+||||||| c1f3c8693
+增量记录（2026-09-20，组字期标点的上屏时机）：来源在组字进行中遇到标点时，先用高亮候选结束组字、再输出该标点——`IsCommitWithHighlightedCandidatePunctuationInCandidateMode`（`server/src/ipc/event_listener.cpp`）列出的是 `` ` ! @ # $ % ^ & * ( ) [ ] ; : \ " , < . > ? ' ``，并排除三类：`-`/`=`/Tab 永不触发，`,`/`.` 与 `[`/`]` 在被配成翻页键时也不触发。共享运行时的 `punctuation()` 行为与之一致（先 `engine.finish(self.highlighted)` 再翻译标点），注释里也写明了原因。
+
+差的是 HarmonyOS 的硬件键盘路由。`HardwareKeyRouter` 的标点分支写的是 `!composing && chinese && !japanese && isAsciiPunctuation(...)`，只在**没有组字**时把标点交给引擎；组字进行中则落到 `return RELEASE`，把键还给应用。于是在 2in1 上敲 `nihao` 再按 `!`，组字仍开着而 `!` 被插进编辑器里、排在还没上屏的拼音前面；触屏路径不受影响，它直接调 `KeyboardSession.punctuation()` 走运行时。现去掉 `!composing` 这一条：标点无论是否在组字中都归键盘所有，组字中的那次由运行时按来源的规则结束组字。翻页键不受影响——它们在更上面的 `composing` 分支里就被消费掉了，且按 keyCode 匹配（逗号是 2043），日语标点仍归应用。
+
+写这条测试时自己先踩了一次：夹具用 `keyCode: 0` 配 `unicodeChar: ','` 去验「逗号仍然翻页」，而导航是按 keyCode 匹配的，于是逗号没被认成翻页键、落到了标点分支——是夹具写错，不是代码问题，已改为用真实 keyCode 并断言 `PREVIOUS_PAGE`。
+
+||||||| f5898b178
 增量记录（2026-09-20，把逐页核对固化成可执行的检查）：前四片的页面对照都是靠读两边的源码得出的，而两边的朴素搜索都会失真——来源用 `class="section-title ai-heading"` 这类组合类名，本仓大量标题由 `{label}` 表达式渲染，于是同一批结论被反复重新推导，我自己在本轮里就误判过「实用功能少了八种模式」「皮肤页没有外部皮肤」。现把已核实的对应关系写成 `referenceSections` 表并配一个 `test.each`，覆盖外观、输入、辅助码、实用功能、悬浮工具栏、屏幕键盘、手写识别板、帮助八页：任何一节被删掉或改名，这里直接失败。已用「把候选项排列方式改名」验证过它确实会红。
 
 写这个表时发现两类先前没注意的门控，都不是缺失：其一，好几节挂在宿主能力后面（`candidate_font_controls`、`candidate_follow_cursor`、`ime_mode_scope`、`floating_toolbar_appearance`），用裸 fixture 断言会把「宿主没声明」误读成「界面没有」，故 fixture 按 `host_surface.rs` 给 Windows 的那组能力来写；其二，`候选窗主字体` 在本仓的 Windows 宿主上是被 `{!windows && …}` 有意隐藏的——Windows 显示的是「候选窗英文字体 + 补充字体」，那行还带 Windows 专属的「保存后自动应用」说明，而来源显示的是「主字体 + 中文补充字体」。这是 Windows 字体路径上的既有取舍，不属于 HarmonyOS 的迁移范围，表里以注释记录而不断言。

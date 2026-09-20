@@ -1716,6 +1716,55 @@ group("releases the candidate number row when the shared preference asks", () =>
   );
 });
 
+group("commits the highlighted candidate when punctuation arrives mid-composition", () => {
+  // The source finishes the composition with the highlighted candidate and then emits the mark
+  // (`IsCommitWithHighlightedCandidatePunctuationInCandidateMode` in server/src/ipc/event_listener.cpp,
+  // which lists ` ! @ # $ % ^ & * ( ) [ ] ; : \ " , < . > ? ' ). Releasing the key instead leaves
+  // the composition open and drops the mark into the editor in front of what is still being spelled.
+  const mark = (character: string): HardwareKey => ({
+    keyCode: 0,
+    unicodeChar: character.charCodeAt(0),
+    ctrlKey: false,
+    altKey: false,
+    logoKey: false,
+    shiftKey: false,
+  });
+  for (const character of ["!", "?", ";", '"', ":", "@", "#", "%", "&", "*", "(", ")"]) {
+    check(
+      HardwareKeyRouter.route(mark(character), true, true).action === HardwareKeyAction.PUNCTUATION,
+      `${character} finishes the composition rather than escaping to the editor`,
+    );
+  }
+  // With no composition open the mark is still the keyboard's, exactly as before.
+  check(
+    HardwareKeyRouter.route(mark("!"), false, true).action === HardwareKeyAction.PUNCTUATION,
+    "punctuation on an empty composition stays with the keyboard",
+  );
+  // The keys a preference has turned into paging keys keep paging; they are consumed above, and
+  // they are matched by key code rather than by the character they carry.
+  check(
+    HardwareKeyRouter.route(
+      {
+        keyCode: 2043,
+        unicodeChar: ",".charCodeAt(0),
+        ctrlKey: false,
+        altKey: false,
+        logoKey: false,
+        shiftKey: false,
+      },
+      true,
+      true,
+    ).action === HardwareKeyAction.PREVIOUS_PAGE,
+    "a comma bound to paging still pages",
+  );
+  // Japanese punctuation stays with the application, as it already did.
+  check(
+    HardwareKeyRouter.route(mark("!"), true, true, false, undefined, false, true).action ===
+      HardwareKeyAction.RELEASE,
+    "Japanese leaves punctuation to the application",
+  );
+});
+
 group("maps hardware navigation according to the shared preferences", () => {
   const navigation = {
     minusEqual: true,
