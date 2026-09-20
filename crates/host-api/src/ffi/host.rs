@@ -593,6 +593,85 @@ fn keyboard_skin_trial_code(
     .to_owned()
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "operation")]
+enum CommunityResourceLibraryAction {
+    Load,
+    SaveReply {
+        item: Box<msime_client_core::community::resource::CommunityResource>,
+    },
+    Remove {
+        id: String,
+    },
+}
+
+#[derive(Debug, Deserialize)]
+struct CommunityResourceLibraryRequest {
+    file: String,
+    action: CommunityResourceLibraryAction,
+}
+
+/// Read or change the reply templates the user explicitly kept.
+///
+/// This file is the one thing the settings surface and the keyboard process
+/// share about the community: the keyboard rereads it when a reply is asked
+/// for, and it holds only what the user chose to keep. Writing it needs the
+/// store's validation - reply kind, a non-empty prompt, no dictionary entries,
+/// the fifty-item ceiling - and a host that wrote the file itself would be a
+/// second author of a format the keyboard parses strictly, which is a
+/// disagreement waiting to happen rather than a saving.
+///
+/// Every operation answers with the whole library for the same reason the skin
+/// library does: the caller redraws the list.
+/// # Safety
+/// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_community_resource_library(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if request.is_null() || length > 4_000_000 {
+            return Err("community_storage".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let request: CommunityResourceLibraryRequest =
+            serde_json::from_slice(bytes).map_err(|_| "community_invalid")?;
+        if !Path::new(&request.file).is_absolute() {
+            return Err("community_storage".into());
+        }
+        let store =
+            msime_client_core::community::resource_library::CommunityResourceLibraryStore::new(
+                &request.file,
+            );
+        match request.action {
+            CommunityResourceLibraryAction::Load => {}
+            CommunityResourceLibraryAction::SaveReply { item } => {
+                store.save_reply(*item).map_err(resource_library_code)?;
+            }
+            CommunityResourceLibraryAction::Remove { id } => {
+                let id = msime_client_core::uuid::Uuid::parse_str(&id)
+                    .map_err(|_| "community_invalid")?;
+                store.remove(id).map_err(resource_library_code)?;
+            }
+        }
+        serde_json::to_value(store.load().map_err(resource_library_code)?)
+            .map_err(|_| "community_storage".into())
+    })
+}
+
+fn resource_library_code(
+    error: msime_client_core::community::resource_library::CommunityResourceLibraryError,
+) -> String {
+    use msime_client_core::community::resource_library::CommunityResourceLibraryError as Failure;
+    match error {
+        Failure::Io(_) => "community_storage",
+        Failure::Json(_) | Failure::Invalid => "community_resource_library_format",
+    }
+    .to_owned()
+}
+
 /// Read saved clipboard history without observing or modifying the system clipboard.
 /// # Safety
 /// `directory` points to `length` readable UTF-8 bytes. Null is rejected.

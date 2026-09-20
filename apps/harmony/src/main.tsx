@@ -24,6 +24,10 @@ import {
   CloudCandidatesPanel,
   type AccountClient,
   type AccountPreferences,
+  type CommunityResource,
+  type CommunityResourceApplication,
+  type CommunityResourceClient,
+  type CommunityResourcePage,
   type CommunitySkin,
   type CommunitySkinClient,
   type CommunitySkinDownload,
@@ -430,6 +434,69 @@ function communitySkinClient(native: NativeBridge): CommunitySkinClient {
   };
 }
 
+/**
+ * Community dictionaries and reply templates.
+ *
+ * The public list and one resource's detail read without an account, the way the skin gallery does.
+ * 我的作品 and 收藏 do not: they are questions about an account, and answering them without one
+ * would either be empty or be somebody else's.
+ *
+ * `storeReply` and `removeReply` never reach the network. They write the local file the keyboard
+ * process rereads when a reply is asked for, which is the only thing the two sides of this app
+ * share about the community — and it holds only what the user chose to keep.
+ */
+function communityResourceClient(native: NativeBridge): CommunityResourceClient {
+  const request = <T,>(action: Record<string, unknown>): Promise<T> =>
+    bridgeRequest(
+      native,
+      "community_resource",
+      JSON.stringify({ operation: "community_resource", ...action }),
+    ).then(unwrap<T>);
+  return {
+    list: (kind, scope, search, offset) =>
+      request<CommunityResourcePage>({
+        resource_operation: "list",
+        kind,
+        scope,
+        search,
+        offset,
+      }),
+    detail: (id) => request<CommunityResource>({ resource_operation: "detail", id }),
+    publish: async (id, kind, name, description, content, revision) => {
+      await request({
+        resource_operation: "publish",
+        id,
+        kind,
+        name,
+        description,
+        content,
+        revision,
+      });
+    },
+    apply: (id, resourceRevision) =>
+      request<CommunityResourceApplication>({
+        resource_operation: "apply",
+        id,
+        resource_revision: resourceRevision,
+      }),
+    save: async (id, saved) => {
+      await request({ resource_operation: "save", id, saved });
+    },
+    rate: async (id, stars) => {
+      await request({ resource_operation: "rate", id, stars });
+    },
+    unpublish: async (id) => {
+      await request({ resource_operation: "unpublish", id });
+    },
+    storeReply: async (item) => {
+      await request({ resource_operation: "store_reply", item });
+    },
+    removeReply: async (id) => {
+      await request({ resource_operation: "remove_reply", id });
+    },
+  };
+}
+
 function cloudClipboardClient(native: NativeBridge, close: () => void): CloudClipboardPanelClient {
   return {
     close: async () => close(),
@@ -667,6 +734,7 @@ function makeClient(
     account: accountClient(native),
     chat: chatClient(native),
     communitySkins: communitySkinClient(native),
+    communityResources: communityResourceClient(native),
     openCloudClipboard: async () => openCloudClipboard(),
     openCloudDictionary: async () => openCloudDictionary(),
   };

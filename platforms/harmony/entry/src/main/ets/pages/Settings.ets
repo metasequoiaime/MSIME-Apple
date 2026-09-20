@@ -105,6 +105,13 @@ interface VoiceCaptureDeviceReply {
 const BRIDGE_NAME: string = 'msimeHarmony';
 const PLATFORM: string = 'harmony';
 
+/** One community resource request; only the two local library operations are handled here. */
+interface CommunityResourceAction {
+  resource_operation: string;
+  id?: string;
+  item?: Object;
+}
+
 /** One community skin request from the page; only download and finish_trial are handled here. */
 interface CommunitySkinAction {
   community_operation: string;
@@ -607,6 +614,11 @@ class SettingsBridge {
       this.account(payload).then(deliver).catch(failed);
     } else if (kind === 'settings_sync') {
       this.settingsSync(payload).then(deliver).catch(failed);
+    } else if (kind === 'community_resource') {
+      this.communityResource(payload).then(deliver).catch((error: Object): void => {
+        KeyboardLog.error(`community resource request failed: ${describeError(error)}`);
+        deliver(JSON.stringify({ ok: false, error: 'community_unavailable' }));
+      });
     } else if (kind === 'community_skin') {
       this.communitySkin(payload).then(deliver).catch((error: Object): void => {
         KeyboardLog.error(`community skin request failed: ${describeError(error)}`);
@@ -655,6 +667,41 @@ class SettingsBridge {
     } catch {
       return raw;
     }
+  }
+
+  /**
+   * Community dictionaries and reply templates.
+   *
+   * Everything but the two library operations is one request to the account bridge. Keeping and
+   * forgetting a reply template are not requests at all: that library is a local file, and it is
+   * the only thing the settings surface and the keyboard process share about the community.
+   *
+   * The file sits beside the state directory rather than inside it, at `files/CommunityLibrary.json`
+   * — the same path `KeyboardSession.communityReplyTemplates` reads. The keyboard extension is given
+   * `files/state`, so a library written inside that directory would be written where the reader
+   * never looks.
+   */
+  async communityResource(actionDocument: string): Promise<string> {
+    if (this.accountBridge === undefined || this.context === undefined) {
+      return JSON.stringify({ ok: false, error: 'community_unavailable' });
+    }
+    let action: CommunityResourceAction;
+    try {
+      action = JSON.parse(actionDocument) as CommunityResourceAction;
+    } catch {
+      return JSON.stringify({ ok: false, error: 'community_invalid' });
+    }
+    const file: string = `${this.context.filesDir}/CommunityLibrary.json`;
+    if (action.resource_operation === 'store_reply') {
+      return client.communityResourceLibrary(`{"file":${JSON.stringify(file)},`
+        + `"action":{"operation":"save_reply","item":${JSON.stringify(action.item ?? null)}}}`);
+    }
+    if (action.resource_operation === 'remove_reply') {
+      return client.communityResourceLibrary(JSON.stringify({
+        file: file, action: { operation: 'remove', id: action.id }
+      }));
+    }
+    return this.accountBridge.request(actionDocument);
   }
 
   /**
