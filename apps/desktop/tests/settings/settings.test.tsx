@@ -3871,6 +3871,154 @@ const sectionTitles = (scope: HTMLElement) =>
       .trim(),
   );
 
+/**
+ * The reference window's settings sections, page by page, as verified against its partials in
+ * `ui-html/webview2/settings/ime-settings/src/partials`.
+ *
+ * Four slices of this comparison were done by reading both trees, and each one cost time to
+ * re-derive because a naive search under-reports both sides: the reference combines class names
+ * (`class="section-title ai-heading"`) and this UI renders many titles from an expression rather
+ * than literal text. This table is that work, written down so it is checked rather than repeated,
+ * and so dropping or renaming one of these sections fails here instead of silently diverging.
+ *
+ * Where a name differs deliberately it is recorded with the reason, not silently omitted.
+ */
+const referenceSections: { page: string; button: string; titles: string[] }[] = [
+  {
+    page: "appearance",
+    button: "外观",
+    titles: [
+      "候选窗口跟随光标",
+      // 候选窗主字体 is not asserted: this repo hides it on the Windows host, which shows
+      // 候选窗英文字体 and the fallback list instead (candidate-font-controls.tsx branches on
+      // `windows`, and the English row carries Windows' own "保存后自动应用" note). That is an
+      // existing decision about the Windows font path, not HarmonyOS drift, so it is recorded
+      // rather than forced.
+      "候选窗字号",
+      "候选窗预编辑字号",
+      "候选文字颜色",
+      "每页候选项数量",
+      "主题模式",
+      "设置界面主题",
+      "候选窗口主题",
+      "悬浮工具栏主题",
+      "菜单主题",
+      "表情面板主题",
+      "手写识别板主题",
+      "语音输入弹出条主题",
+      "候选项排列方式",
+      "行内预编辑",
+      "候选窗预编辑",
+    ],
+  },
+  {
+    page: "input",
+    button: "输入",
+    titles: [
+      "输入模式",
+      "输入方案",
+      "双拼方案",
+      "五笔方案",
+      "日语方案",
+      "翻页方式",
+      "候选词翻译",
+      "以词定字",
+      // 中文标点 is the reference's 始终使用英文标点 with the opposite polarity on the same
+      // `chinese_punctuation` preference, so the reference's wording would mislabel the toggle.
+      "中文标点",
+      "智能标点",
+      "重复标点转中文",
+      "成对标点自动补全",
+      "中英混输",
+      "默认中英文",
+      "中英文状态",
+      "简繁输入",
+      "云候选",
+      "拼音方案调频",
+    ],
+  },
+  {
+    page: "helpcode",
+    button: "辅助码",
+    titles: [
+      "双拼辅助码",
+      "双拼辅助码方案",
+      "全拼辅助码",
+      "全拼辅助码方案",
+      // The display rows name their own scheme, as the reference does. Desktop says 候选窗口,
+      // the touch hosts say 候选栏, which is the surface they actually have.
+      "在候选窗口中显示双拼辅助码",
+      "在候选窗口中显示全拼辅助码",
+    ],
+  },
+  {
+    page: "tools",
+    button: "实用功能",
+    titles: [
+      "剪贴板管理",
+      "快捷短语(K 模式)",
+      "日期与时间快捷输入(T 模式)",
+      "Unicode 便捷录入(U 模式)",
+      "Emoji 快捷输入(E 模式)",
+      "颜文字快捷输入(M 模式)",
+      "超级简拼(J 模式)",
+      "临时英文(Y 模式)",
+      "临时日语(R 模式)",
+    ],
+  },
+  {
+    page: "floating-toolbar",
+    button: "悬浮工具栏",
+    titles: ["在桌面显示悬浮工具栏", "工具栏缩放", "图标尺寸", "工具栏组件"],
+  },
+  {
+    page: "screen-keyboard",
+    button: "屏幕键盘",
+    titles: ["打开屏幕键盘"],
+  },
+  {
+    page: "handwriting",
+    button: "手写识别板",
+    titles: ["打开手写识别板"],
+  },
+  {
+    page: "help",
+    button: "帮助",
+    titles: ["快速上手", "基本功能"],
+  },
+];
+
+test.each(referenceSections)(
+  "the $page page still carries the reference window's sections",
+  async ({ button, titles }) => {
+    render(
+      <SettingsPage
+        client={{
+          load: vi.fn().mockResolvedValue(initial),
+          save: vi.fn(),
+          // The capabilities `host_surface.rs` gives the Windows host, since these are the
+          // reference's own sections: several of them are behind a capability and a bare fixture
+          // would assert they are missing when the host simply never declared it.
+          host: {
+            platform: "windows",
+            floating_toolbar: true,
+            floating_toolbar_components: true,
+            floating_toolbar_appearance: true,
+            candidate_font_controls: true,
+            candidate_follow_cursor: true,
+            ime_mode_scope: true,
+          } as HostCapabilities,
+        }}
+      />,
+    );
+    await settingsReady();
+    fireEvent.click(screen.getByRole("button", { name: button }));
+    const page = await screen.findByRole("group", { name: button });
+    const present = sectionTitles(page);
+    expect(titles.filter((title) => !present.includes(title))).toEqual([]);
+  },
+);
+
 test("the input page follows the reference window's order", async () => {
   render(
     <SettingsPage
