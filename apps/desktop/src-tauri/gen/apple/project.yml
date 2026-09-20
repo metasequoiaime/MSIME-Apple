@@ -184,6 +184,12 @@ targets:
         CURRENT_PROJECT_VERSION: 1
         SWIFT_VERSION: 5.0
         CODE_SIGN_ENTITLEMENTS: ../../../../../platforms/ios/KeyboardExtension/Resources/MSIMEKeyboardExtension.entitlements
+        # The Tauri CLI applies APPLE_DEVELOPMENT_TEAM to its own app target only, so the
+        # embedded targets have to pick it up themselves or a signed device build stops at
+        # "Signing for MSIMEKeyboardExtension requires a development team". Xcode falls back
+        # to the process environment for a setting the project leaves empty, so unsigned
+        # simulator builds are unaffected.
+        DEVELOPMENT_TEAM: LXCL4Z68GU
         SWIFT_OBJC_BRIDGING_HEADER: $(SRCROOT)/../../../../../platforms/ios/KeyboardExtension/Sources/core/MetasequoiaKeyboard-Bridging-Header.h
         APPLICATION_EXTENSION_API_ONLY: true
         SKIP_INSTALL: true

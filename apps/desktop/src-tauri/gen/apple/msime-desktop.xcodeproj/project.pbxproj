@@ -1117,6 +1117,7 @@
 				ARCHS = (
 					arm64,
 				);
+				DEVELOPMENT_TEAM = LXCL4Z68GU;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.metasequoiaime.client.swift-rs-runtime-exports";
 				PRODUCT_NAME = MSIMESwiftRsRuntimeExports;
 				SKIP_INSTALL = YES;
@@ -1145,6 +1146,7 @@
 					"-lc++",
 					"-lsqlite3",
 				);
+				DEVELOPMENT_TEAM = LXCL4Z68GU;
 				PRODUCT_BUNDLE_IDENTIFIER = com.metasequoiaime.client.keyboard;
 				PRODUCT_NAME = MSIMEKeyboardExtension;
 				SKIP_INSTALL = YES;
@@ -1159,6 +1161,7 @@
 				ARCHS = (
 					arm64,
 				);
+				DEVELOPMENT_TEAM = LXCL4Z68GU;
 				PRODUCT_BUNDLE_IDENTIFIER = "com.metasequoiaime.client.swift-rs-runtime-exports";
 				PRODUCT_NAME = MSIMESwiftRsRuntimeExports;
 				SKIP_INSTALL = YES;
@@ -1226,6 +1229,7 @@
 					"-lc++",
 					"-lsqlite3",
 				);
+				DEVELOPMENT_TEAM = LXCL4Z68GU;
 				PRODUCT_BUNDLE_IDENTIFIER = com.metasequoiaime.client.keyboard;
 				PRODUCT_NAME = MSIMEKeyboardExtension;
 				SKIP_INSTALL = YES;

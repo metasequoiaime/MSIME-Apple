@@ -1432,3 +1432,11 @@ MSIME-Apple 的语音服务目录里有两个共享客户端一直没有的转�
 因此把 README 的说法拆成两层：实测部分列出崩溃报告里的完整 CoreFoundation 调用链；调用方为 wry 是推断，并写明推断依据——依赖树里只有 `wry::platform_webview_version` 调用 `bundleWithIdentifier`，`tauri-runtime-wry` 在 `Wry::init` 中无条件执行该探测，产物二进制里能找到 `com.apple.WebKit` 与该函数的错误字符串，且 wry 0.57 的同一函数未改动。结论不变（不在仓库代码内、未改 vendored crate），但读者能看出哪一部分是观测、哪一部分是推断。
 
 本地验证：debug 构建、ad-hoc 签名安装、干净设备复现各一次；未改动代码，CI 保持禁用。
+
+### iOS 真机签名构建的团队配置
+
+真机签名构建此前停在 `Signing for "MSIMEKeyboardExtension" requires a development team`：Tauri CLI 只把 `APPLE_DEVELOPMENT_TEAM` 应用到它自己的 App target，内嵌的键盘扩展与 SwiftRs 导出 target 不会继承。先尝试让这两个 target 以 `$(APPLE_DEVELOPMENT_TEAM)` 读取环境变量，Xcode 并不会把任意环境变量当作构建设置展开，仍然失败；改为在工程里为这两个 target 固定 `DEVELOPMENT_TEAM`（与 App 现有开发描述文件同一团队），换团队时在 `xcodebuild` 命令行覆盖。
+
+固定之后签名构建推进到下一道真实门槛：`No Accounts: Add a new account in Accounts settings`。本机 Xcode 未登录任何 Apple ID，也没有 App Store Connect API 密钥，而键盘扩展的 `com.metasequoiaime.client.keyboard` 尚无描述文件（App 的已存在，含 `group.app.msime.ios` 且已包含目标设备），必须由 Xcode 联网创建；缺账号时它退回到不含 App Groups 能力的通配描述文件，于是报 App Group 相关的三条错误。这一步需要账号凭据，不能代为完成，已把前置条件和完整命令写进 iOS README。
+
+本地验证：固定团队后既有的无签名真机构建 `platforms/ios/build-app.sh … device` 仍然产出 `水杉输入法.ipa`，未受影响；签名构建推进到账号门槛。提交不含 `pod install` 对工程文件的改写。

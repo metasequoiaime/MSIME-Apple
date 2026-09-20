@@ -72,6 +72,20 @@ MSIME_IOS_DEPS=/absolute/ios/dependency-prefix \
   platforms/ios/build-app.sh "$resource_dir" simulator
 ```
 
+## 真机签名构建
+
+`build-app.sh … device` 走的是 `--no-sign`，只验证编译与打包。要装到真机上，需要签名构建：
+
+```sh
+cd apps/desktop/src-tauri/gen/apple && pod install --deployment && cd -
+APPLE_DEVELOPMENT_TEAM=LXCL4Z68GU MSIME_IOS_DEPS=/absolute/ios/dependency-prefix \
+  pnpm --filter @msime/desktop tauri ios build --target aarch64 --ci
+```
+
+Tauri CLI 只把 `APPLE_DEVELOPMENT_TEAM` 应用到它自己的 App target，内嵌的 `MSIMEKeyboardExtension` 与 `MSIMESwiftRsRuntimeExports` 不会继承，签名构建会停在 `Signing for "MSIMEKeyboardExtension" requires a development team`。因此工程里为这两个 target 固定了 `DEVELOPMENT_TEAM`；`--no-sign` 构建不受影响（`CODE_SIGNING_ALLOWED=NO` 时该设置不参与）。需要换团队时在 `xcodebuild` 命令行覆盖同名设置。
+
+首次签名构建前需要在 Xcode 的 Settings → Accounts 里登录该团队的 Apple ID：App 的开发描述文件（含 `group.app.msime.ios` App Group，且已包含目标设备）本机已有，但键盘扩展的 `com.metasequoiaime.client.keyboard` 还没有，必须由 Xcode 联网创建。没有登录账号时构建会报 `No Accounts: Add a new account in Accounts settings`，并退回到不含 App Groups 能力的通配描述文件。本机当前既没有登录账号，也没有 App Store Connect API 密钥，因此签名构建与真机验收尚未执行。
+
 真机产物把最后一个参数改为 `device`。真机构建会在 `apps/desktop/src-tauri/gen/apple` 执行锁定的 CocoaPods 安装，再调用 Tauri CLI；模拟器使用 `aarch64-sim` 并保留手写 fallback。无签名构建只验证源码、链接和 bundle 内容，不代表键盘扩展已经安装、授权或完成真机宿主验证。
 
 真机目标当前产出 `apps/desktop/src-tauri/gen/apple/build/arm64/水杉输入法.ipa`：arm64 单架构，`Payload/水杉输入法.app` 内嵌 `PlugIns/MSIMEKeyboardExtension.appex`，扩展侧带锁定 ML Kit Digital Ink 的资源包，App 与扩展各自打包同一份已校验 EngineResources。这只说明真机目标能完整编译和打包；签名、安装、键盘启用与真实编辑器验收仍未执行。
