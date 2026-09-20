@@ -111,6 +111,10 @@ static NSDictionary *decode(char *response, NSError **error) {
     return NO;
 }
 - (NSDictionary *)hostOptions { return _hostOptions; }
+- (NSDictionary *)rerankSettledWithError:(NSError **)error {
+    id value = decodeValue(msime_client_rerank_settled(_handle), error);
+    return [value isKindOfClass:NSDictionary.class] ? value : nil;
+}
 - (NSDictionary *)onlineQueryWithError:(NSError **)error {
     id value = decodeValue(msime_client_online_query(_handle), error);
     return [value isKindOfClass:NSDictionary.class] ? value : nil;

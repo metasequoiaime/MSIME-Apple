@@ -101,3 +101,71 @@ test("the desktop sidebar keeps the helper-code page and its window wording", as
   fireEvent.click(screen.getByRole("button", { name: "辅助码" }));
   expect(screen.getAllByLabelText("在候选窗口显示辅助码").length).toBe(2);
 });
+
+// HarmonyOS ships the same helper-code input: its ChineseHelpcodePolicy is the Android one,
+// ported, and the session calls it on every shifted key during a quanpin or shuangpin
+// composition. The page was hidden there anyway, which left a shipping feature with no way to
+// pick a schema or turn it off — the state this file's Android tests exist to prevent.
+test("HarmonyOS reaches the helper-code page from 更多设置", async () => {
+  renderSettings("harmony");
+
+  const more = await moreSettings();
+  expect(Array.from(more.options).map((option) => option.text)).toContain("辅助码");
+
+  fireEvent.change(more, { target: { value: "helpcode" } });
+  expect(screen.getByRole("heading", { name: "辅助码" })).toBeTruthy();
+});
+
+test("HarmonyOS saves a helper-code schema into shared preferences", async () => {
+  const save = renderSettings("harmony");
+
+  const more = await moreSettings();
+  fireEvent.change(more, { target: { value: "helpcode" } });
+  const schema = screen.getByRole("combobox", { name: /全拼辅助码方案/ }) as HTMLSelectElement;
+  expect(schema.value).toBe("ziranma");
+  fireEvent.change(schema, { target: { value: "xiaohe" } });
+
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await waitFor(() =>
+    expect(save).toHaveBeenCalledWith(
+      7,
+      expect.objectContaining({
+        quanpin_helpcode: expect.objectContaining({ schema: "xiaohe" }),
+      }),
+    ),
+  );
+});
+
+// The gesture is the host's, not the platform's: Windows appends a helper code to a finished
+// spelling and needs none, while the hosts running the ported ChineseHelpcodePolicy mark it with
+// Shift. HarmonyOS reached the page before it could read this sentence.
+test("the Shift explanation follows the capability, not the platform name", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: { platform: "harmony", helpcode_shift_entry: true } as never,
+        home: { openKeyboard: vi.fn(), openSystemKeyboardSettings: vi.fn() },
+      }}
+    />,
+  );
+  const more = await moreSettings();
+  fireEvent.change(more, { target: { value: "helpcode" } });
+  expect(screen.getByText(/按 Shift\s*再输入的字母作为辅助码/)).toBeTruthy();
+});
+
+test("a host that appends helper codes is not told to hold Shift", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: { platform: "windows", helpcode_shift_entry: false } as never,
+      }}
+    />,
+  );
+  await screen.findByRole("button", { name: "保存设置" });
+  fireEvent.click(screen.getByRole("button", { name: "辅助码" }));
+  expect(screen.queryByText(/按 Shift\s*再输入的字母作为辅助码/)).toBeNull();
+});

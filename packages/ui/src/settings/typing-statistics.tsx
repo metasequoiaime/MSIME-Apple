@@ -13,6 +13,39 @@ const menuPopover =
   "absolute top-9 right-0 flex min-w-[180px] flex-col gap-[3px] rounded-[10px] border border-edge bg-card p-1.5 shadow-card";
 const menuItem =
   "flex min-h-[34px] w-full items-center justify-between gap-3 rounded-[7px] border-0 bg-transparent px-[9px] py-1.5 text-left text-body not-disabled:hover:bg-[var(--button-secondary-hover)]";
+// The page container. Named because this component returns it from three places -- loading, error and
+// loaded -- and the loading branch was the one that got left behind when the class it used was
+// replaced.
+const page = "flex flex-col gap-3.5 max-phone:gap-2.5";
+const empty = "mt-0.5 mb-3.5 text-center text-muted";
+const rankChart = "mt-4 mb-[18px] flex flex-col gap-[11px]";
+// The first column has to hold the longest label without the row's ellipsis cutting it, so the two
+// charts size it differently: 候选命中位置 carries a share column the scheme ranking does not.
+const rankRow = (withShare: boolean) =>
+  `grid items-center gap-[9px] text-xs ${withShare ? "grid-cols-[minmax(88px,1fr)_minmax(80px,2fr)_auto_auto]" : "grid-cols-[minmax(80px,1fr)_minmax(90px,2fr)_auto]"} [&>span]:overflow-hidden [&>span]:text-ellipsis [&>span]:whitespace-nowrap [&>strong]:min-w-9 [&>strong]:text-right [&>strong]:tabular-nums [&>strong]:text-secondary [&>small]:min-w-11 [&>small]:text-right [&>small]:tabular-nums [&>small]:text-muted`;
+const rankTrack = "h-[11px] overflow-hidden rounded-full bg-subtle";
+const legendRow =
+  "grid animate-row-reveal grid-cols-[22px_minmax(0,1fr)_auto_58px] items-center gap-[9px] motion-reduce:animate-none max-phone:grid-cols-[22px_minmax(0,1fr)_auto_50px] max-phone:gap-[7px] [&>strong]:font-medium [&>strong]:tabular-nums [&>small]:m-0 [&>small]:text-right [&>small]:tabular-nums";
+const legendDot =
+  "grid size-[22px] place-items-center rounded-[7px] text-xs font-[650] leading-none";
+const shapeGraphic = "size-full rounded-full";
+
+// The heatmap's five shades are one accent at five opacities, indexed by level, so the level a day
+// falls into picks its class directly. Level 0 is the empty track rather than a faint accent.
+const heatLevels = [
+  "bg-subtle",
+  "bg-accent opacity-[0.28]",
+  "bg-accent opacity-[0.46]",
+  "bg-accent opacity-[0.68]",
+  "bg-accent",
+] as const;
+const heatCell = "block size-[14px] box-border rounded-[3px] border-0 p-0";
+// A week is a column of seven fixed-height rows; the weekday gutter uses the same row track so the
+// labels line up with the cells beside them.
+const heatWeek = "grid grid-rows-[repeat(7,14px)] gap-[3px]";
+const bar = "block w-full min-h-0.5 rounded-t-[3px] rounded-b-[1px]";
+const axis = "mt-[7px] flex justify-between text-xs text-muted";
+
 // The segmented control behind both the phone's content tabs and the desktop's range picker. The
 // column count is a parameter because the two differ, and because the tab row silently kept four
 // columns after a fifth tab was added -- the extra one wrapped onto a second row at a quarter width.
@@ -227,38 +260,40 @@ function StatisticsHeatmap({
       : "";
   });
   return (
-    <div className="statistics-heatmap" role="group" aria-label="每日输入热力图">
-      <div className="statistics-heatmap-scroll">
-        <div className="statistics-heatmap-months" aria-hidden="true">
+    <div className="mt-2" role="group" aria-label="每日输入热力图">
+      <div className="overflow-x-auto pb-1 [scrollbar-width:thin]">
+        <div
+          className="flex h-4 w-max min-w-full items-end text-[9px] text-muted [&>span:first-child]:w-[18px] [&>span:first-child]:flex-[0_0_18px] [&>span:not(:first-child)]:mr-[3px] [&>span:not(:first-child)]:w-[14px] [&>span:not(:first-child)]:overflow-visible [&>span:not(:first-child)]:whitespace-nowrap"
+          aria-hidden="true"
+        >
           <span />
           {monthLabels.map((label, index) => (
             <span key={index}>{label}</span>
           ))}
         </div>
-        <div className="statistics-heatmap-body">
-          <div className="statistics-heatmap-weekdays" aria-hidden="true">
+        <div className="flex w-max min-w-full gap-1">
+          <div
+            className={`${heatWeek} w-[18px] flex-[0_0_18px] text-right text-[9px] leading-[14px] text-muted`}
+            aria-hidden="true"
+          >
             {["", "一", "", "三", "", "五", ""].map((label, index) => (
               <span key={index}>{label}</span>
             ))}
           </div>
-          <div className="statistics-heatmap-grid" role="grid">
+          <div className="flex gap-[3px]" role="grid">
             {weeks.map((week, index) => (
-              <div className="statistics-heatmap-week" key={index}>
+              <div className={heatWeek} key={index}>
                 {week.map((day) => {
                   if (day.future)
                     return (
-                      <span
-                        className="statistics-heatmap-cell future"
-                        key={day.key}
-                        aria-hidden="true"
-                      />
+                      <span className={`${heatCell} invisible`} key={day.key} aria-hidden="true" />
                     );
                   const level =
                     day.count === 0 ? 0 : Math.max(1, Math.ceil((day.count / maximum) * 4));
                   return (
                     <button
                       type="button"
-                      className={`statistics-heatmap-cell level-${level}${selectedDay === day.key ? " selected" : ""}`}
+                      className={`${heatCell} ${heatLevels[level]} cursor-pointer${selectedDay === day.key ? " outline-2 outline-offset-1 outline-[#e59b43]" : ""}`}
                       key={day.key}
                       aria-label={`热力图：${day.label}，${day.count} 字符`}
                       aria-pressed={selectedDay === day.key}
@@ -271,13 +306,11 @@ function StatisticsHeatmap({
           </div>
         </div>
       </div>
-      <div className="statistics-heatmap-legend" aria-hidden="true">
+      <div className="mt-2 flex items-center gap-1 text-[10px] text-muted" aria-hidden="true">
         <span>少</span>
-        <i className="level-0" />
-        <i className="level-1" />
-        <i className="level-2" />
-        <i className="level-3" />
-        <i className="level-4" />
+        {heatLevels.map((shade, level) => (
+          <i className={`block size-3 rounded-[2px] ${shade}`} key={level} />
+        ))}
         <span>多</span>
       </div>
     </div>
@@ -311,11 +344,16 @@ function StatisticsTrendLine({
   const selectedValue = selectedIndex >= 0 ? values[selectedIndex] : 0;
   return (
     <div
-      className="statistics-line-chart"
+      className="mt-3 h-[170px] w-full text-accent"
       role="img"
       aria-label={days.length > 120 ? "每日输入趋势折线图，显示七日均线" : "每日输入趋势折线图"}
     >
-      <svg viewBox="0 0 100 100" preserveAspectRatio="none" aria-hidden="true">
+      <svg
+        className="block size-full overflow-visible"
+        viewBox="0 0 100 100"
+        preserveAspectRatio="none"
+        aria-hidden="true"
+      >
         <defs>
           <linearGradient id="statistics-trend-area" x1="0" y1="0" x2="0" y2="1">
             <stop offset="0" stopColor="currentColor" stopOpacity=".34" />
@@ -332,6 +370,7 @@ function StatisticsTrendLine({
         />
         {selectedIndex >= 0 && (
           <circle
+            className="fill-[#e59b43] stroke-card stroke-[1.5px]"
             cx={(selectedIndex / Math.max(1, days.length - 1)) * 100}
             cy={96 - (selectedValue / maximum) * 88}
             r="2.2"
@@ -370,13 +409,14 @@ function ShapeChart({
     const ranked = slices.filter((slice) => slice.count > 0).sort((a, b) => b.count - a.count);
     const peak = Math.max(1, ...ranked.map((slice) => slice.count));
     return (
-      <div className="statistics-rank-chart" role="img" aria-label="输入方案排行">
-        {ranked.length === 0 && <p className="statistics-empty">暂无输入记录</p>}
+      <div className={rankChart} role="img" aria-label="输入方案排行">
+        {ranked.length === 0 && <p className={empty}>暂无输入记录</p>}
         {ranked.map((slice) => (
-          <div className="statistics-rank-row" key={slice.id}>
+          <div className={rankRow(false)} key={slice.id}>
             <span>{slice.title}</span>
-            <div className="statistics-rank-track">
+            <div className={rankTrack}>
               <i
+                className="block h-full rounded-[inherit]"
                 style={{ width: `${(slice.count / peak) * 100}%`, backgroundColor: slice.color }}
               />
             </div>
@@ -389,18 +429,26 @@ function ShapeChart({
   const label = variant === "pie" ? "字符类型饼图" : "语言模式环形图";
   return (
     <div
-      className={`statistics-shape-chart statistics-shape-${variant}`}
+      className="relative mx-auto mt-4 mb-[18px] grid size-[190px] place-items-center"
       role="img"
       aria-label={label}
     >
       <div
-        className="statistics-shape-graphic"
+        // The donut is the pie with its middle masked out, so both variants share one gradient and
+        // differ only by that mask.
+        className={
+          variant === "donut"
+            ? `${shapeGraphic} [mask:radial-gradient(circle,transparent_0_61%,#000_62%)]`
+            : shapeGraphic
+        }
         style={{ background: chartGradient(slices, Math.max(1, total)) }}
       />
       {variant === "donut" && (
-        <div className="statistics-donut-center">
-          <strong>{total.toLocaleString("zh-CN")}</strong>
-          <span>字符</span>
+        <div className="absolute flex size-[106px] flex-col items-center justify-center rounded-full bg-card">
+          <strong className="text-[25px] tabular-nums text-body">
+            {total.toLocaleString("zh-CN")}
+          </strong>
+          <span className="text-[11px] text-muted">字符</span>
         </div>
       )}
     </div>
@@ -421,14 +469,20 @@ function Distribution({
   const total = slices.reduce((value, slice) => value + slice.count, 0);
   const visible = slices.filter((slice) => slice.count > 0 || slice.id !== "unknown");
   return (
-    <section className="section statistics-distribution" aria-labelledby={`statistics-${title}`}>
-      <h2 id={`statistics-${title}`}>{title}</h2>
+    <section className="section m-0" aria-labelledby={`statistics-${title}`}>
+      <h2 className={heading} id={`statistics-${title}`}>
+        {title}
+      </h2>
       {variant === "bar" ? (
-        <div className="statistics-distribution-bar" aria-hidden="true">
+        <div
+          className="mt-4 mb-3.5 flex h-[18px] w-full overflow-hidden rounded-full bg-subtle"
+          aria-hidden="true"
+        >
           {slices
             .filter((slice) => slice.count > 0)
             .map((slice) => (
               <span
+                className="h-full origin-left animate-bar-reveal motion-reduce:animate-none"
                 key={slice.id}
                 style={{
                   backgroundColor: slice.color,
@@ -440,16 +494,19 @@ function Distribution({
       ) : (
         <ShapeChart slices={slices} variant={variant} total={total} />
       )}
-      {total === 0 && <p className="statistics-empty">暂无输入记录</p>}
-      <div className="statistics-legend">
-        {visible.map((slice) => (
+      {total === 0 && <p className={empty}>暂无输入记录</p>}
+      <div className="flex flex-col gap-[11px]">
+        {visible.map((slice, index) => (
           <div
-            className="statistics-legend-row"
+            // The rows reveal in sequence. The stylesheet staggered them with eight :nth-child rules;
+            // the index is already here, so the delay comes from it and any row count works.
+            className={legendRow}
+            style={{ animationDelay: `${Math.min(index, 8) * 0.03}s` }}
             key={slice.id}
             aria-label={`${slice.title} ${slice.count} 字符，${total === 0 ? "无占比" : `${((slice.count / total) * 100).toFixed(1)}%`}`}
           >
             <span
-              className="statistics-dot statistics-symbol"
+              className={legendDot}
               style={{ color: slice.color, backgroundColor: `${slice.color}1a` }}
               aria-hidden="true"
             >
@@ -493,35 +550,37 @@ function CandidateRanks({ selections }: { selections: SelectionCounts | undefine
   ];
   const share = (count: number) => (total === 0 ? "—" : `${((count / total) * 100).toFixed(1)}%`);
   return (
-    <section
-      className="section statistics-distribution"
-      aria-labelledby="statistics-candidate-ranks"
-    >
-      <h2 id="statistics-candidate-ranks">候选命中位置</h2>
-      <p className="statistics-hero">
-        <strong aria-label="首选命中率">
+    <section className="section m-0" aria-labelledby="statistics-candidate-ranks">
+      <h2 className={heading} id="statistics-candidate-ranks">
+        候选命中位置
+      </h2>
+      <p className="mt-3.5 mb-1 flex items-baseline gap-2">
+        <strong className="text-[30px] leading-[1.1] tabular-nums" aria-label="首选命中率">
           {total === 0 ? "—" : `${((ranks[0] / total) * 100).toFixed(1)}%`}
         </strong>
-        <span aria-hidden="true">首选命中率</span>
-        <small>{total === 0 ? "暂无记录" : `共 ${total.toLocaleString("zh-CN")} 次上屏`}</small>
+        <span className="text-[13px] text-secondary" aria-hidden="true">
+          首选命中率
+        </span>
+        <small className="ml-auto text-xs text-muted">
+          {total === 0 ? "暂无记录" : `共 ${total.toLocaleString("zh-CN")} 次上屏`}
+        </small>
       </p>
       {total === 0 ? (
-        <p className="statistics-empty">暂无候选记录。用水杉键盘上屏几次后再回来查看。</p>
+        <p className={empty}>暂无候选记录。用水杉键盘上屏几次后再回来查看。</p>
       ) : (
-        <div
-          className="statistics-rank-chart statistics-candidate-ranks"
-          role="img"
-          aria-label="候选命中位置分布"
-        >
+        <div className={rankChart} role="img" aria-label="候选命中位置分布">
           {rows.map((row) => (
             <div
-              className="statistics-rank-row"
+              className={rankRow(true)}
               key={row.id}
               aria-label={`${row.label}：${row.count} 次，${share(row.count)}`}
             >
               <span>{row.label}</span>
-              <div className="statistics-rank-track">
-                <i style={{ width: `${(row.count / peak) * 100}%`, backgroundColor: palette[0] }} />
+              <div className={rankTrack}>
+                <i
+                  className="block h-full rounded-[inherit]"
+                  style={{ width: `${(row.count / peak) * 100}%`, backgroundColor: palette[0] }}
+                />
               </div>
               <strong>{row.count.toLocaleString("zh-CN")}</strong>
               <small>{share(row.count)}</small>
@@ -594,7 +653,7 @@ export function TypingStatisticsPage({
 
   if (!status)
     return (
-      <div className="statistics-page">
+      <div className={page}>
         {error ? (
           <p role="alert" className="error">
             {error}
@@ -721,7 +780,7 @@ export function TypingStatisticsPage({
   };
 
   return (
-    <div className="flex flex-col gap-3.5 max-phone:gap-2.5">
+    <div className={page}>
       {error && (
         <p role="alert" className="error">
           {error}
@@ -854,34 +913,45 @@ export function TypingStatisticsPage({
               selectedDay={selectedDay}
             />
           ) : (
-            <div className={`statistics-bars statistics-bars-${trendDays.length}`}>
+            <div
+              className={`mt-3 flex h-[145px] items-end ${trendDays.length === 7 ? "gap-2.5" : "gap-[3px]"} max-phone:gap-0.5`}
+            >
               {trendDays.map((day) => {
                 const count = statistics.days[day.key] ?? 0;
+                const chosen = selectedDay === day.key;
+                // A selection dims every other bar. The old stylesheet did this with two `:has()`
+                // selectors because CSS could not see which day was picked; here the component
+                // already holds it, so the state answers directly.
+                const dimmed = selectedDay !== null && !chosen;
                 return (
                   <button
                     type="button"
+                    className="flex h-full min-w-0 flex-1 flex-col items-center justify-end gap-1 border-0 bg-transparent p-0 text-[10px] text-muted"
                     key={day.key}
                     title={`${day.label}：${count} 字符`}
                     aria-label={`${day.label}，${count} 字符`}
-                    aria-pressed={selectedDay === day.key}
+                    aria-pressed={chosen}
                     onClick={() =>
                       setSelectedDay((current) => (current === day.key ? null : day.key))
                     }
                   >
                     {trendDays.length === 7 && <span>{count}</span>}
-                    <i style={{ height: `${Math.max(2, (count / maximum) * 100)}%` }} />
+                    <i
+                      className={`${bar} ${chosen ? "bg-[#e59b43]" : "bg-accent"} ${dimmed ? "opacity-40" : chosen ? "opacity-100" : "opacity-85"}`}
+                      style={{ height: `${Math.max(2, (count / maximum) * 100)}%` }}
+                    />
                   </button>
                 );
               })}
             </div>
           )}
-          <div className="statistics-axis">
+          <div className={axis}>
             <span>{trendDays[0]?.label}</span>
             <span>{trendDays.at(-1)?.label}</span>
           </div>
           {mobile && (
             <>
-              <p className="statistics-heatmap-caption">每天一格，一列一周</p>
+              <p className="mt-[18px] mb-0 text-xs text-muted">每天一格，一列一周</p>
               <StatisticsHeatmap
                 days={statistics.days}
                 selectedDay={selectedDay}

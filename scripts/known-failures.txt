@@ -102,13 +102,52 @@ native windows-session
 # loaded the machine was; and the paging-shortcut round trip did not account for word-to-character owning
 # the bracket keys.
 #
-# It now reaches the keyboard selection asserting selectCalls + 1 with no ASCII calls - which had never
-# executed either. That is where the next attempt starts. (Line 3931 at the time of writing; the assertion
-# text is the stable way to find it, since tests get added above it.)
-macos shortcut
-# Load-dependent rather than always-failing: passes on its own and on a second full
-# run, observed failing once in a full parallel run alongside the aborting shortcut test.
-macos shortcut-translations
+# Six more layers peeled, every one a stale assertion rather than a product fault, and every one of them
+# reached only because the layer before it stopped aborting:
+#
+# - Two assertions read session.asciiCalls as an absolute count when the session is shared with everything
+#   above, where the Caps Lock block has already sent one 'A' through it. Both are relative now, like the
+#   selectCalls baseline sitting next to them.
+# - The pinned-candidate check read slot 1. Pinning moves the candidate to slot 0 - that is what 置顶 does -
+#   so it was asserting the opposite of the feature.
+# - The menu-operations loop invokes 置顶 and left 布局 pinned for the rest of the function, which reorders
+#   every later render. It undoes it now, and the chrome block finds its buttons by candidate identity
+#   rather than by subview position, so pin order cannot decide which button is "the selected one".
+# - The input-method menu expected toggleVoiceInput: where the product has showVoicePanel, which routes to
+#   the shared panel when a provider socket is there and falls back to the toggle when it is not.
+#
+# Three more after that, and the Unicode one turned out to be the test as well:
+#
+# - The Unicode '+' assertion expected handleEvent to return NO. The guard against paging on '+' works, and
+#   the key does reach the Engine as ASCII - which is the contract, and which the very next line asserts.
+#   The return value only repeats what the Engine answered, and it answered that it handled the key.
+# - The navigation table gave comma and period keyCode 0. Paging is routed by physical key code (43 and 47),
+#   so with 0 they could only fall through to ASCII - meaning both halves of that loop passed for the same
+#   wrong reason, the shortcut never being exercised at all.
+# - What a key does once its shortcut is off is not uniform, and the loop was deriving it. Comma and period
+#   are ordinary characters and go to the Engine; Tab is never consumed and never forwarded, because it
+#   belongs to the application; Page Down and the arrows carry no character to forward. Each entry states
+#   its own expectation now.
+#
+# 2026-09-20: shortcut passes, and both macOS lines are gone. The last three were the same kind of thing:
+#
+# - ShortcutSession did not implement updatePreferencesSnapshot:error:. The controller defers a snapshot to
+#   the main queue while a composition is live, so a block one test schedules lands in another test's run
+#   loop - which is why this surfaced as an unrecognized selector inside TestInputSourceModeReset, a test
+#   that never touches that session.
+# - The punctuation fixture gives editing_text and preedit different values, but the inline preedit style
+#   decides which one is marked and it defaults to raw, so the preedit was never what reached the client.
+#   The test asks for the style it is asserting now.
+# - TestCharacterSetShortcut ran on the shared appearance. Each keybinding is published from the appearance
+#   only once its own native default has been written, so on an object earlier tests have touched the merge
+#   stops being a pass-through: the test was asserting cross-test isolation that does not exist. It has its
+#   own preference suite now, and cleans it up.
+#
+# Nothing in this whole sequence was the Engine. The entry above said it was, for all three macOS suites at
+# once; every one of them turned out to be the test.
+#
+# shortcut-translations came off with it: it was recorded as load-dependent, "observed failing once in a
+# full parallel run alongside the aborting shortcut test", and the aborting shortcut test is gone.
 
 # rerank-latency sentences breaches the frame budget the benchmark checks: p95
 # with the model is 20.64ms against 16.00ms, 129 of 1320 keystrokes (9.8%) cost

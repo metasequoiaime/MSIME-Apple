@@ -484,6 +484,7 @@ export interface HostCapabilities {
   input_mode_hud?: boolean;
   candidate_english_font?: boolean;
   english_suggestions?: boolean;
+  helpcode_shift_entry?: boolean;
   shuangpin_preedit?: boolean;
   voice_commit_mode?: boolean;
 }
@@ -1653,6 +1654,10 @@ export function SettingsPage({
     host?.candidate_english_font ?? (windowsPlatform || macosPlatform || androidPlatform);
   // iOS shows its own switch for the same surface, from the native store, so it is not here.
   const showEnglishSuggestions = host?.english_suggestions ?? androidPlatform;
+  // Which hosts mark a helper code with Shift rather than appending it to a finished spelling.
+  // Was a platform name, which is how HarmonyOS came to run the same ported policy and show the
+  // page without the one sentence that says how to type one.
+  const showHelpcodeShiftEntry = host?.helpcode_shift_entry ?? androidPlatform;
   // Every host's Engine honours the preference; this is about which of them draw the composition
   // themselves, and so show the user a difference between the raw keys and the expanded pinyin.
   const showShuangpinPreedit = host?.shuangpin_preedit ?? macosPlatform;
@@ -2997,8 +3002,15 @@ export function SettingsPage({
   // that shipping feature with no way to pick a schema or turn it off. The
   // Apple keyboard extension has no helper-code input at all, so iOS keeps the
   // page hidden.
+  //
+  // HarmonyOS was in the hidden list while shipping the same input: its
+  // ChineseHelpcodePolicy is the Android one, ported, and the session calls it
+  // on every shifted key. So it had the feature and no way to configure it —
+  // the very state this comment already describes as the reason Android is not
+  // in the list. It also keeps its hardware shortcuts and keyboard toolbar in
+  // the input-method panel, so neither of those is hidden there either.
   const mobileHiddenPageIds: readonly SettingsPageId[] = harmonyPlatform
-    ? ["helpcode"]
+    ? []
     : androidPlatform
       ? ["shortcuts", "floating-toolbar"]
       : ["helpcode", "shortcuts", "floating-toolbar"];
@@ -6127,7 +6139,7 @@ export function SettingsPage({
                     )}
                   </fieldset>
                   <fieldset disabled={busy} hidden={page !== "helpcode"} aria-label="辅助码">
-                    {androidPlatform && (
+                    {showHelpcodeShiftEntry && (
                       <div className="section input-setting-description">
                         <p>
                           全拼或双拼组字时，按 Shift

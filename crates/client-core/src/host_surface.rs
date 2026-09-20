@@ -145,6 +145,14 @@ pub struct HostCapabilities {
     /// store, so it reads this as false and shows its own control.
     #[serde(default)]
     pub english_suggestions: bool,
+    /// A letter becomes a helper code because the user held Shift for it, rather
+    /// than because of where it sits in the spelling. Windows appends helper
+    /// codes directly to a finished pinyin and needs no gesture; a keyboard host
+    /// does, or the letter would be eaten as more pinyin. The hosts that mark
+    /// them this way are the ones running the ported ChineseHelpcodePolicy, and
+    /// the settings page explains the gesture only where it applies.
+    #[serde(default)]
+    pub helpcode_shift_entry: bool,
     /// The host applies a separate family for Latin text in the candidate panel.
     /// A host whose renderer resolves one family list per glyph, or which draws
     /// Latin from its own font, can honour this; one with a single typeface for
@@ -320,6 +328,12 @@ impl HostCapabilities {
             ),
             shuangpin_preedit: matches!(platform, HostPlatform::Macos | HostPlatform::Harmony),
             english_suggestions: matches!(platform, HostPlatform::Android | HostPlatform::Harmony),
+            // Android and HarmonyOS run the same ported ChineseHelpcodePolicy:
+            // Shift during a quanpin or shuangpin composition hands the next
+            // letter to the Engine as a helper code. iOS has no helper-code
+            // input at all, and the desktop hosts append the code to a finished
+            // spelling instead of marking it.
+            helpcode_shift_entry: matches!(platform, HostPlatform::Android | HostPlatform::Harmony),
             candidate_english_font: matches!(
                 platform,
                 HostPlatform::Windows
@@ -727,6 +741,9 @@ mod tests {
         // choice is real there.
         assert!(windows.ime_mode_scope);
         assert!(windows.panel_windows);
+        // The source appends a helper code to a finished spelling; no gesture marks it, so the
+        // explanation of the gesture would be describing something that does not happen here.
+        assert!(!windows.helpcode_shift_entry);
         // The Server mirrors these into the shared config.toml the TIP reads,
         // so the controls offer settings that actually take effect.
         assert!(windows.mode_switch_shortcuts);
@@ -875,6 +892,9 @@ mod tests {
         // is attached to an editor, which is the only state in which a panel that inserts into that
         // editor is useful anyway.
         assert!(harmony.panel_shortcuts);
+        // Shift marks a helper code here exactly as it does on Android; the page explains that
+        // gesture and would otherwise have explained it to nobody on this host.
+        assert!(harmony.helpcode_shift_entry);
         assert!(harmony.number_row_selection);
         // The two network providers create their own capturer, so a chosen microphone is routable.
         assert!(harmony.voice_capture_devices);

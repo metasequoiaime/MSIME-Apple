@@ -51,7 +51,7 @@ static void CheckMenu(NSMenu *menu, id controller) {
         @"openCharacterPalette:", @"showEmoji:", @"showScreenKeyboard:",
         @"showAppearance:", @"showDictionary:", @"showAccount:",
         @"showCloudClipboard:", @"showCloudDictionary:", @"showHandwriting:", @"prepareDictionary:", @"",
-        @"checkForUpdates:", @"openWebsite:", @"showHelp:", @"showAbout:", @"showFeedback:", @"toggleVoiceInput:", @"showVoiceSettings:"
+        @"checkForUpdates:", @"openWebsite:", @"showHelp:", @"showAbout:", @"showFeedback:", @"showVoicePanel", @"showVoiceSettings:"
     ];
     assert(menu.numberOfItems == (NSInteger)actions.count && !menu.autoenablesItems);
     for (NSUInteger index = 0; index < actions.count; ++index) {
@@ -106,8 +106,19 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic) BOOL fullwidth;
 @property(nonatomic) NSUInteger widthCalls;
 @property(nonatomic, copy) NSDictionary *finishTransition;
+@property(nonatomic) NSUInteger snapshotCalls;
+@property(nonatomic, copy) NSDictionary *lastSnapshot;
 @end
 @implementation ShortcutSession
+// The controller defers a preference snapshot to the main queue while a composition is live, so a block
+// scheduled by one test can land in another test's run loop. Without this the fake raises an unrecognized
+// selector from a completely unrelated test, which is how it surfaced.
+- (NSDictionary *)updatePreferencesSnapshot:(NSDictionary *)snapshot error:(NSError **)error {
+    (void)error;
+    ++self.snapshotCalls;
+    self.lastSnapshot = snapshot;
+    return @{@"deferred":@NO, @"view":[self viewWithError:nil]};
+}
 - (NSDictionary *)translationQueryWithError:(NSError **)error { (void)error; return nil; }
 - (NSDictionary *)onlineQueryWithError:(NSError **)error { (void)error; return nil; }
 - (NSDictionary *)setCharacterWidthFull:(BOOL)fullwidth error:(NSError **)error {
@@ -846,6 +857,10 @@ static void TestPunctuation(NSUserDefaults *defaults, MSIMEAppearancePreferences
         @"editing_text":@"nini", @"preedit":@"ni'ni", @"caret_position":@2,
         @"dedicated_english":@YES, @"candidates":@[]};
     session.punctuationView = punctuationView;
+    // The inline preedit style decides whether the client is marked with the segmented preedit or the raw
+    // editing text, and it defaults to raw - so the distinct preedit in this fixture was never what reached
+    // the client. Ask for the style this assertion is about instead of inheriting whatever ran before.
+    [appearance applySharedInputPreferences:@{@"tsf_preedit_style":@"pinyin"}];
     NSString *previousCommit = client.committed;
     session.lastCommand = UINT32_MAX;
     [controller syncPunctuation];
@@ -953,7 +968,13 @@ static void TestMixedInputPreferences() {
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
-static void TestCharacterSetShortcut(NSUserDefaults *defaults, MSIMEAppearancePreferences *appearance) {
+// Its own preference suite, not the shared one. Every keybinding here is published only once its native
+// default has actually been written, so on an appearance other tests have already touched the merge stops
+// being a pass-through and these assertions are about cross-test isolation that does not exist.
+static void TestCharacterSetShortcut(void) {
+    NSString *suite = [@"msime.character-set." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
     assert(appearance.characterSetShortcut);
     NSDictionary *keys = @{@"toggle_character_set_ctrl_shift_f":@NO, @"switch_language_shift":@NO};
     assert([[appearance sharedPreferencesByMerging:@{@"keybindings":keys}][@"keybindings"] isEqual:keys]);
@@ -1013,6 +1034,7 @@ static void TestCharacterSetShortcut(NSUserDefaults *defaults, MSIMEAppearancePr
     appearance.characterSetShortcut = YES;
     appearance.englishMode = english;
     assert(appearance.fullWidthInput == fullWidth && appearance.chinesePunctuation == punctuation);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
 static void TestDedicatedEnglish(MSIMEAppearancePreferences *appearance) {
@@ -2036,6 +2058,14 @@ static void TestInputMode(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     appearance.englishMode = NO;
 }
 
+// The rendered order is not the candidate order: a pinned candidate is drawn first whatever its index.
+static MSIMECandidateButton *CandidateButtonWithID(NSView *container, NSDictionary *identifier) {
+    for (NSView *child in container.subviews)
+        if ([child isKindOfClass:MSIMECandidateButton.class] &&
+            [((MSIMECandidateButton *)child).candidateID isEqual:identifier])
+            return (MSIMECandidateButton *)child;
+    return nil;
+}
 static MSIMECandidateButton *PageButton(NSView *content, NSInteger tag) {
     for (NSView *view in content.subviews) {
         if ([view isKindOfClass:MSIMECandidateButton.class] && view.tag == tag) return (id)view;
@@ -3925,15 +3955,21 @@ int main(int argc, char **argv) {
             return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:characters charactersIgnoringModifiers:characters isARepeat:NO keyCode:code];
         };
         NSUInteger selectedCallsBeforeKeyboard = session.selectCalls;
+        // Both baselines are relative, because this session is shared with everything above: the Caps Lock
+        // block has already sent one ASCII 'A' through it, so an absolute asciiCalls == 0 here asserts
+        // something about another test rather than about this key.
+        NSUInteger asciiCallsBeforeKeyboard = session.asciiCalls;
         assert([controller handleEvent:candidateKey(18, @"1") client:client]);
         assert(session.selectCalls == selectedCallsBeforeKeyboard + 1 && session.selectedGeneration == 2 && session.selectedIndex == 0);
+        // Slot 3 has no button in the painted panel. The key is consumed rather than selecting anything or
+        // falling through to Engine numeric input, which would type a literal 3 into the composition.
         assert([controller handleEvent:candidateKey(20, @"3") client:client]);
-        assert(session.selectCalls == selectedCallsBeforeKeyboard + 1 && session.asciiCalls == 0);
+        assert(session.selectCalls == selectedCallsBeforeKeyboard + 1 && session.asciiCalls == asciiCallsBeforeKeyboard);
         NSMutableDictionary *unpaintedView = [pageView mutableCopy];
         unpaintedView[@"generation"] = @99;
         [controller setValue:unpaintedView forKey:@"view"];
         assert([controller handleEvent:candidateKey(18, @"1") client:client]);
-        assert(session.selectCalls == selectedCallsBeforeKeyboard + 1 && session.asciiCalls == 0);
+        assert(session.selectCalls == selectedCallsBeforeKeyboard + 1 && session.asciiCalls == asciiCallsBeforeKeyboard);
         assert([controller handleEvent:candidateKey(49, @" ") client:client]);
         assert(session.selectCalls == selectedCallsBeforeKeyboard + 1);
         [controller setValue:pageView forKey:@"view"];
@@ -3993,7 +4029,10 @@ int main(int argc, char **argv) {
         assert(positionMenu.numberOfItems == 7 && [positionMenu itemAtIndex:5].separatorItem);
         [NSUserDefaults.standardUserDefaults setObject:@{@"ce'shi": @[@"布局"]} forKey:@"MSIMEClientPinnedCandidates"];
         [controller renderCandidates];
-        MSIMECandidateButton *pinnedCandidate = (id)PageButton(layoutPanel.contentView, 1);
+        // Pinning moves the candidate to the first slot - that is what 置顶 does - while it keeps the Engine
+        // index it had, so selecting it still commits the right word. Reading slot 1 here asserted the
+        // opposite of the feature, and never ran because the suite aborted earlier.
+        MSIMECandidateButton *pinnedCandidate = (id)PageButton(layoutPanel.contentView, 0);
         assert(pinnedCandidate && [pinnedCandidate.title containsString:@"布局"]);
         assert([pinnedCandidate.candidateID[@"index"] isEqual:@1]);
         assert([[[pinnedCandidate menuForEvent:rightClick] itemAtIndex:0].title isEqual:@"取消置顶"]);
@@ -4011,6 +4050,16 @@ int main(int argc, char **argv) {
             assert(session.maintenanceCalls == calls + 1 && session.maintenanceAction == operation.tag);
             assert(session.selectedGeneration == 2 && session.selectedIndex == 1);
         }
+        // 置顶 is one of the operations above, so the loop leaves 布局 pinned. That reorders every later
+        // render in this function - including the external-skin block, which reads the first button as the
+        // highlighted one - so undo it here rather than at the end. The loop is checking that each menu
+        // item dispatches maintenance, not setting up state for anybody else.
+        [NSUserDefaults.standardUserDefaults removeObjectForKey:@"MSIMEClientPinnedCandidates"];
+        [controller renderCandidates];
+        // renderCandidates rebuilds the buttons, so everything captured from the previous panel is stale.
+        clickCandidate = (id)PageButton(layoutPanel.contentView, 1);
+        candidateMenu = clickCandidate.menu;
+        assert(clickCandidate && candidateMenu.numberOfItems == 3);
         NSMenuItem *retainedOperation = [candidateMenu itemAtIndex:0];
         NSDictionary *validContext = retainedOperation.representedObject;
         NSUInteger maintenanceCalls = session.maintenanceCalls;
@@ -4106,11 +4155,13 @@ int main(int argc, char **argv) {
                     assert([chrome.strokeColor isEqual:SkinColor(tokens.border)]);
                     assert(chrome.cornerRadius == tokens.radius && chrome.lineWidth == tokens.borderWidth);
                     assert(!chrome.isOpaque && !layoutPanel.isOpaque);
-                    MSIMECandidateButton *selected = (id)chrome.subviews[0];
-                    MSIMECandidateButton *unselected = (id)chrome.subviews[1];
+                    // By identity, not by position: a pinned candidate is drawn first whether or not it is
+                    // the highlighted one, and 布局 is pinned by the menu loop above. Reading subviews[0]
+                    // as "the selected one" asserted the ordering rather than the colouring.
+                    MSIMECandidateButton *selected = CandidateButtonWithID(chrome, preservedView[@"candidates"][0][@"id"]);
+                    MSIMECandidateButton *unselected = CandidateButtonWithID(chrome, preservedView[@"candidates"][1][@"id"]);
+                    assert(selected && unselected);
                     assert(selected.candidateHighlighted && !unselected.candidateHighlighted);
-                    assert([selected.candidateID isEqual:preservedView[@"candidates"][0][@"id"]]);
-                    assert([unselected.candidateID isEqual:preservedView[@"candidates"][1][@"id"]]);
                     assert([selected.fillColor isEqual:SkinColor(tokens.selected)]);
                     assert([selected.titleColor isEqual:SkinColor(tokens.selectedText)]);
                     assert([unselected.titleColor isEqual:SkinColor(tokens.text)]);
@@ -4216,7 +4267,10 @@ int main(int argc, char **argv) {
         session.lastCommand = UINT32_MAX;
         session.asciiCalls = 0;
         NSEvent *unicodePlus = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:@"+" charactersIgnoringModifiers:@"+" isARepeat:NO keyCode:24];
-        assert(![controller handleEvent:unicodePlus client:client]);
+        // '+' is part of the U+ code-point sequence, so it must reach the Engine instead of paging the
+        // panel. The contract is the next line - no paging command, one ASCII call carrying '+' - while the
+        // return value just repeats whatever the Engine answered, and here it says it handled the key.
+        assert([controller handleEvent:unicodePlus client:client]);
         assert(session.lastCommand == UINT32_MAX && session.asciiCalls == 1 && session.lastASCII == '+');
         [controller setValue:pageView forKey:@"view"];
         [controller renderCandidates];
@@ -4278,11 +4332,18 @@ int main(int argc, char **argv) {
         [controller setValue:beforeWordView forKey:@"view"];
         session.nextTransition = beforeWordTransition;
         appearance.pageShortcut = 0;
-        for (NSArray *entry in @[@[@"comma_period", @",", @0, @(MSIME_PREVIOUS_PAGE)],
-                                 @[@"comma_period", @".", @0, @(MSIME_NEXT_PAGE)],
-                                 @[@"tab", @"\t", @48, @(MSIME_NEXT_PAGE)],
-                                 @[@"page_up_down", @"", @121, @(MSIME_NEXT_PAGE)],
-                                 @[@"arrows", @"", @125, @(MSIME_NEXT_CANDIDATE)]]) {
+        // Paging is routed by physical key code, not by the glyph the layout produces, so comma and period
+        // need theirs - 43 and 47. With 0 they could only ever fall through to ASCII, which is what the
+        // disabled half of this loop asserts, so both halves were passing for the same wrong reason.
+        // The last element is what the key does once its shortcut is off, which is not the same for all of
+        // them: comma and period are ordinary characters and go to the Engine, while Tab is never consumed
+        // and never forwarded - it belongs to the application - and Page Down and the arrows carry no
+        // character to forward at all.
+        for (NSArray *entry in @[@[@"comma_period", @",", @43, @(MSIME_PREVIOUS_PAGE), @1],
+                                 @[@"comma_period", @".", @47, @(MSIME_NEXT_PAGE), @1],
+                                 @[@"tab", @"\t", @48, @(MSIME_NEXT_PAGE), @0],
+                                 @[@"page_up_down", @"", @121, @(MSIME_NEXT_PAGE), @0],
+                                 @[@"arrows", @"", @125, @(MSIME_NEXT_CANDIDATE), @0]]) {
             for (NSNumber *enabled in @[@NO, @YES]) {
                 [appearance applySharedCandidatePreferences:@{@"navigation": @{entry[0]:enabled}}];
                 layoutPanel.requestedVisible = YES;
@@ -4293,9 +4354,10 @@ int main(int argc, char **argv) {
                 BOOL handled = [controller handleEvent:event client:client];
                 if (enabled.boolValue) assert(handled && session.lastCommand == [entry[3] unsignedIntValue]);
                 else {
+                    // Turned off means no paging command, whatever else happens to the key.
                     assert(session.lastCommand == UINT32_MAX);
-                    if ([entry[2] unsignedShortValue] != 0) assert(!handled);
-                    else assert(session.asciiCalls == 1);
+                    assert(session.asciiCalls == [entry[4] unsignedIntegerValue]);
+                    if (![entry[4] unsignedIntegerValue]) assert(!handled);
                 }
             }
         }
@@ -4452,7 +4514,7 @@ int main(int argc, char **argv) {
         TestPairedPunctuationHostExclusion();
         TestEmojiBridgeFallback();
         TestMixedInputPreferences();
-        TestCharacterSetShortcut(defaults, appearance);
+        TestCharacterSetShortcut();
         TestDedicatedEnglish(appearance);
         TestKeymap(defaults, appearance);
         Method fontMethod = class_getClassMethod(NSFont.class, @selector(monospacedSystemFontOfSize:weight:));
