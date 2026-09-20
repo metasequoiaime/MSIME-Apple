@@ -52,6 +52,35 @@ inline std::string ascii_mark_text(char value, bool fullwidth) {
   return wide;
 }
 
+// The ASCII mark a committed string stands for, in either width; 0 for anything
+// else. The inverse of ascii_mark_text over exactly the marks these rewrites
+// touch, so a host can recognise its own commit without keeping a second list of
+// keys next to the table.
+inline char ascii_mark_from_text(std::string_view text, bool fullwidth) {
+  for (char value = 0x21; value <= 0x7e; ++value) {
+    if (chinese_punctuation_mark(value).empty())
+      continue;
+    const auto candidate = ascii_mark_text(value, fullwidth);
+    if (std::string_view(candidate) == text)
+      return value;
+  }
+  return 0;
+}
+
+// Whether pressing the same smart-punctuation key again may replace the ASCII
+// mark it just committed with the Chinese one.
+//
+// Weaker than the space conversion's check on purpose, and deliberately not
+// strengthened here: this one is guarded by a two-second window and by the key
+// being the same one, which the source relies on instead of a fingerprint. The
+// only document question is whether that ASCII mark - in whichever width the
+// host committed it - is still the character in front of the caret.
+inline bool repeat_conversion_matches_document(
+    char ascii_mark, bool fullwidth, const std::vector<std::string> &preceding) {
+  return !preceding.empty() &&
+         preceding.back() == ascii_mark_text(ascii_mark, fullwidth);
+}
+
 // Whether a Space may take the Chinese mark in front of the caret back to
 // ASCII.
 //

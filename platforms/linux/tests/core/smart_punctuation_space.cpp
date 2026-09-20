@@ -4,9 +4,11 @@
 #include <string>
 #include <vector>
 
+using msime::linux_host::ascii_mark_from_text;
 using msime::linux_host::ascii_mark_text;
 using msime::linux_host::chinese_punctuation_mark;
 using msime::linux_host::is_smart_punctuation_key;
+using msime::linux_host::repeat_conversion_matches_document;
 using msime::linux_host::space_conversion_matches_document;
 
 int main() {
@@ -67,5 +69,25 @@ int main() {
   assert(ascii_mark_text('.', true) != chinese_punctuation_mark('.'));
   // Nothing outside printable ASCII has a fullwidth form to offer.
   assert(ascii_mark_text('\n', true) == std::string(1, '\n'));
+
+  // Recognising the host's own commit, so the repeat gesture can arm without a
+  // second list of keys beside the table.
+  assert(ascii_mark_from_text(",", false) == ',');
+  assert(ascii_mark_from_text("．", true) == '.');
+  assert(ascii_mark_from_text("a", false) == 0);
+  assert(ascii_mark_from_text("", false) == 0);
+  // A halfwidth comma is not what a fullwidth host committed, and the fullwidth
+  // comma is - the same codepoint as the Chinese one, which is why the repeat
+  // gesture is guarded by the key and the window rather than by the glyph alone.
+  assert(ascii_mark_from_text(",", true) == 0);
+  assert(ascii_mark_from_text("，", true) == ',');
+
+  // The repeat check asks one question of the document: is that ASCII mark, in
+  // the width the host committed it, still in front of the caret.
+  assert(repeat_conversion_matches_document(',', false, {"a", ","}));
+  assert(!repeat_conversion_matches_document(',', false, {"a", "."}));
+  assert(!repeat_conversion_matches_document(',', false, {}));
+  assert(repeat_conversion_matches_document('.', true, {"．"}));
+  assert(!repeat_conversion_matches_document('.', true, {"."}));
   return 0;
 }

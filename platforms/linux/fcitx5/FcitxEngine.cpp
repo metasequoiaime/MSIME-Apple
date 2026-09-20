@@ -266,6 +266,9 @@ public:
     resources_.clear();
     space_convert_mark_ = 0;
     space_convert_preceding_.clear();
+    last_smart_punctuation_ = 0;
+    last_smart_punctuation_at_ = {};
+    smart_punctuation_rejected_ = 0;
     preferences_job_session_ = 0;
     preferences_snapshot_ = Json();
     preferences_save_job_ = {};
@@ -1084,6 +1087,7 @@ public:
     chinese_punctuation_ = preferences_.value("chinese_punctuation", true);
     paired_punctuation_ = preferences_.value("paired_punctuation", true);
     smart_punctuation_ = preferences_.value("smart_punctuation", true);
+    smart_punctuation_repeat_ = preferences_.value("smart_punctuation_repeat", true);
     smart_punctuation_space_convert_ =
         preferences_.value("smart_punctuation_space_convert", false);
     if (!smart_punctuation_ || !smart_punctuation_space_convert_ ||
@@ -1091,6 +1095,8 @@ public:
       space_convert_mark_ = 0;
       space_convert_preceding_.clear();
     }
+    if (!smart_punctuation_ || !smart_punctuation_repeat_ || !paired_punctuation_)
+      forgetSmartPunctuationRepeat();
     const auto punctuationLock = preferences_.value("punctuation_lock", std::string("follow"));
     punctuation_lock_ = punctuationLock == "chinese" ? 1 : punctuationLock == "english" ? 2 : 0;
     navigation_ = preferences_.value("navigation", Json::object());
@@ -1190,6 +1196,8 @@ public:
             chinese_punctuation_ = preferences_.value("chinese_punctuation", chinese_punctuation_);
             paired_punctuation_ = preferences_.value("paired_punctuation", paired_punctuation_);
             smart_punctuation_ = preferences_.value("smart_punctuation", smart_punctuation_);
+            smart_punctuation_repeat_ = preferences_.value(
+                "smart_punctuation_repeat", smart_punctuation_repeat_);
             smart_punctuation_space_convert_ = preferences_.value(
                 "smart_punctuation_space_convert", smart_punctuation_space_convert_);
             const auto punctuationLock = preferences_.value("punctuation_lock", std::string("follow"));
@@ -1845,6 +1853,23 @@ public:
       auto text = result["commit"].get<std::string>();
       if (traditional_ && view_.value("scheme", 0u) != 3)
         text = msime_linux_simplified_to_traditional(text);
+      // An ASCII mark smart punctuation kept can be taken back to Chinese by
+      // typing the same key again. Engine applies the width itself here, so the
+      // commit is matched in whichever width it went out as - and against the
+      // width in effect when this key produced it, which is the one still in
+      // view_ at this point.
+      const auto committedMark =
+          msime::linux_host::ascii_mark_from_text(text, fullwidthOutput());
+      if (committedMark != 0 && smart_punctuation_ && paired_punctuation_) {
+        last_smart_punctuation_ = committedMark;
+        last_smart_punctuation_at_ = std::chrono::steady_clock::now();
+      } else if (committedMark == 0) {
+        // Anything that is not one of these marks ends the gesture; a mark
+        // committed with the feature off leaves the record alone rather than
+        // clearing a window the user is still inside.
+        last_smart_punctuation_ = 0;
+        last_smart_punctuation_at_ = {};
+      }
       commitText(text);
     }
     view_ = result.contains("view") ? result.at("view") : result;
@@ -1881,6 +1906,36 @@ public:
   bool fullwidthOutput() const {
     return view_.value("character_width", std::string{}) == "Fullwidth";
   }
+  void forgetSmartPunctuationRepeat() {
+    last_smart_punctuation_ = 0;
+    last_smart_punctuation_at_ = {};
+    smart_punctuation_rejected_ = 0;
+  }
+  // The same mark typed twice inside the window means the user wanted the
+  // Chinese one after all. Returns true when it replaced the mark, in which case
+  // the key is consumed and never reaches Engine.
+  bool repeatSmartPunctuationToChinese(char ascii) {
+    if (!chinese_punctuation_ || !smart_punctuation_ || !smart_punctuation_repeat_ ||
+        !paired_punctuation_ || last_smart_punctuation_ != ascii ||
+        last_smart_punctuation_at_ == std::chrono::steady_clock::time_point{} ||
+        composingOrCandidates())
+      return false;
+    if (std::chrono::steady_clock::now() - last_smart_punctuation_at_ >
+        std::chrono::seconds(2))
+      return false;
+    const auto chinese = msime::linux_host::chinese_punctuation_mark(ascii);
+    const auto characters = precedingCharacters(1);
+    if (chinese.empty() || !characters ||
+        !msime::linux_host::repeat_conversion_matches_document(
+            ascii, fullwidthOutput(), *characters))
+      return false;
+    ic_.deleteSurroundingText(-1, 1);
+    commitText(std::string(chinese));
+    forgetSmartPunctuationRepeat();
+    space_convert_mark_ = 0;
+    space_convert_preceding_.clear();
+    return true;
+  }
   bool punctuation(uint8_t value) {
     uint32_t preceding = 0;
     const auto &surrounding = ic_.surroundingText();
@@ -1906,11 +1961,18 @@ public:
       if (const auto characters = precedingCharacters(1); characters && !characters->empty())
         armedPreceding = characters->front();
     }
+    // The ASCII mark this key already produced once was deleted, so the shared
+    // route must not keep it a second time. Withholding the preceding character
+    // is how that route is told there is no ASCII letter or digit to stay beside.
+    if (smart_punctuation_rejected_ == ascii)
+      preceding = 0;
     const bool handled = apply(msime_client_punctuation_with_context(session_, value, preceding));
     if (arm && handled) {
       space_convert_mark_ = ascii;
       space_convert_preceding_ = std::move(armedPreceding);
     }
+    if (handled && smart_punctuation_rejected_ == ascii)
+      forgetSmartPunctuationRepeat();
     return handled;
   }
   // A Space right after a Chinese mark the user did not want takes that mark
@@ -2067,7 +2129,16 @@ public:
   bool chinese_punctuation_ = true;
   bool paired_punctuation_ = true;
   bool smart_punctuation_ = true;
+  bool smart_punctuation_repeat_ = true;
   bool smart_punctuation_space_convert_ = false;
+  // The ASCII mark smart punctuation just kept, and when. Pressing the same key
+  // again inside the window replaces it with the Chinese one. `rejected` is the
+  // other half of that gesture: after the ASCII mark is backspaced away,
+  // retyping the same key must reach Engine's Chinese table instead of being
+  // kept as ASCII a second time.
+  char last_smart_punctuation_ = 0;
+  std::chrono::steady_clock::time_point last_smart_punctuation_at_{};
+  char smart_punctuation_rejected_ = 0;
   // The ASCII key whose Chinese mark Engine just committed with nothing
   // composing, and the character that stood in front of it at that moment. A
   // bare Space arriving next takes the mark back to ASCII; any other key
@@ -4101,6 +4172,17 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   }
   if (event.isRelease()) return false;
   if (!input_enabled_) return false;
+  if (sym == FcitxKey_BackSpace) {
+    if (last_smart_punctuation_ != 0) {
+      smart_punctuation_rejected_ = last_smart_punctuation_;
+      last_smart_punctuation_ = 0;
+      last_smart_punctuation_at_ = {};
+    }
+  } else if (smart_punctuation_rejected_ != 0) {
+    const auto typed = fcitx::Key::keySymToUTF8(sym);
+    if (typed.size() != 1 || typed[0] != smart_punctuation_rejected_)
+      smart_punctuation_rejected_ = 0;
+  }
   // Only a Space arriving immediately after the mark, with nothing in between,
   // can take it back; anything else means the user moved on. The conversion
   // itself never consumes the key.
@@ -4426,8 +4508,11 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
                                    (text[0] == '-' || text[0] == '=');
     if (japaneseLongVowel)
       return apply(msime_client_character(session_, static_cast<uint8_t>(text[0]), false));
-    if (asciiPunctuation)
+    if (asciiPunctuation) {
+      if (repeatSmartPunctuationToChinese(text[0]))
+        return true;
       return punctuation(static_cast<uint8_t>(text[0]));
+    }
     return apply(msime_client_character(session_, static_cast<uint8_t>(text[0]), key.states().test(fcitx::KeyState::Shift)));
   }
   if (composing) command(MSIME_FINISH_COMPOSITION);
