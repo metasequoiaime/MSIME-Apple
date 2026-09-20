@@ -89,11 +89,43 @@ docker build --platform linux/amd64 -t "$image" "$root/platforms/windows/wine" >
 # passed through; without it the suite runs as far as it can.
 # bash 3.2 treats an empty array as unset under `set -u`, so every expansion
 # of it has to be guarded rather than written plainly.
+#
+# Default to the cache the rest of the repository already uses for this set -
+# platforms/windows/installer/DesktopResources.md documents target/desktop-resources
+# and the packaging scripts default to it - so a checkout that has it gets the
+# full suite without anyone having to know this variable exists. Populate it with
+#
+#   python3 scripts/fetch_engine.py
+#   cargo run -p msime-client-core --example install_resources -- target/desktop-resources
+#
+# Both steps are needed: one of the locked artifacts comes from the Engine
+# checkout rather than the dictionary release, and install_resources says so
+# rather than fetching it itself.
+#
+# install_resources writes into a generation directory named for the set's
+# hash, so the artifacts are one level below what it is given. Resolve that
+# here: what gets mounted has to be the directory the files are actually in.
+if [ -z "${MSIME_WINE_RESOURCES:-}" ]; then
+  cache="$root/target/desktop-resources"
+  if [ -f "$cache/msime.db" ]; then
+    MSIME_WINE_RESOURCES="$cache"
+  else
+    for generation in "$cache"/*/; do
+      if [ -f "$generation/msime.db" ]; then
+        MSIME_WINE_RESOURCES="${generation%/}"
+        break
+      fi
+    done
+  fi
+fi
 resources_mount=()
 resources_argument=""
 if [ -n "${MSIME_WINE_RESOURCES:-}" ] && [ -d "${MSIME_WINE_RESOURCES}" ]; then
   resources_mount=(-v "${MSIME_WINE_RESOURCES}":/res:ro)
   resources_argument='Z:\\res'
+  echo "resources: ${MSIME_WINE_RESOURCES}"
+else
+  echo "resources: none; windows-session-smoke will stop at its documented input"
 fi
 
 # windows-installer-launch reads the real installer script rather than a copy of
