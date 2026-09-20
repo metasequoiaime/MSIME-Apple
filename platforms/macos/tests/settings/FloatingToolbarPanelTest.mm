@@ -90,6 +90,21 @@ int main() {
         [panel applyThemePreferences:@{@"theme": @"system", @"toolbar_theme": @"follow"}];
         assert(panel.appearance == nil);
         assert([panel.frameAutosaveName isEqualToString:@"MetasequoiaFloatingToolbarFrame"]);
+        {
+            // Resizing a hidden toolbar must not write a saved frame. The window has an autosave name, so
+            // any setFrame: here is persisted, and setVisible: reads the presence of that default as "the
+            // user placed it" - which would strand a toolbar the user has never seen in the corner this
+            // path clamps to, instead of the default placement on the screen holding the pointer.
+            NSString *key = @"NSWindow Frame MetasequoiaFloatingToolbarFrame";
+            [NSUserDefaults.standardUserDefaults removeObjectForKey:key];
+            assert(!panel.visible);
+            [panel applySizingPreferences:@{@"floating_toolbar": @{@"scale_percent": @150, @"font_size": @28}}];
+            assert([NSUserDefaults.standardUserDefaults objectForKey:key] == nil);
+            // The size still took effect; it is applied when the toolbar is shown.
+            const NSSize hiddenPreferred = [[panel valueForKey:@"preferredSize"] sizeValue];
+            assert(hiddenPreferred.width > 0 && hiddenPreferred.height > 0);
+            [panel applySizingPreferences:@{@"floating_toolbar": @{@"scale_percent": @100, @"font_size": @24}}];
+        }
         [panel setFrameAutosaveName:@""]; // Geometry tests must not persist window placement.
         msime::mac::SkinTokens light{}, dark{};
         light.surface = {0.8, 0.7, 0.6, 1};
@@ -153,8 +168,12 @@ int main() {
                 NSDictionary *preferences = @{@"floating_toolbar": @{@"scale_percent": scale, @"font_size": size}};
                 [panel applySizingPreferences:preferences];
                 const double factor = scale.doubleValue / 100.0;
-                assert(panel.frame.size.width == std::ceil((422.0 + 8.0 * (size.doubleValue - 24.0)) * factor));
-                assert(panel.frame.size.height == std::ceil((size.doubleValue + 20.0) * factor));
+                // The panel is hidden here, so the size it will take lives in preferredSize rather than in
+                // the frame: setVisible: applies it when the toolbar is placed. Resizing a hidden window
+                // would otherwise persist a frame through its autosave name.
+                const NSSize preferred = [[panel valueForKey:@"preferredSize"] sizeValue];
+                assert(preferred.width == std::ceil((422.0 + 8.0 * (size.doubleValue - 24.0)) * factor));
+                assert(preferred.height == std::ceil((size.doubleValue + 20.0) * factor));
                 assert(std::abs(inputMode.frame.size.width - (size.doubleValue + 18.0) * factor) < 0.01);
                 assert(std::abs(inputMode.frame.size.height - (size.doubleValue + 8.0) * factor) < 0.01);
                 assert(std::abs(inputMode.font.pointSize - size.doubleValue * factor * 0.833) < 0.01);
@@ -171,11 +190,13 @@ int main() {
                 NSImage *configuredEmoji = [emoji.image imageWithSymbolConfiguration:emoji.symbolConfiguration];
                 assert(NSEqualSizes(expectedEmoji.size, configuredEmoji.size));
                 NSRect stable = panel.frame;
+                const NSSize stablePreferred = [[panel valueForKey:@"preferredSize"] sizeValue];
                 [panel applySizingPreferences:preferences];
                 assert(NSEqualRects(stable, panel.frame));
+                assert(NSEqualSizes(stablePreferred, [[panel valueForKey:@"preferredSize"] sizeValue]));
                 [panel applySizingPreferences:@{@"floating_toolbar": @{@"scale_percent": scale, @"font_size": size, @"screen_keyboard": @YES}}];
                 assert(!keyboard.hidden && keyboard.superview != nil);
-                assert(panel.frame.size.width == std::ceil((472.0 + 9.0 * (size.doubleValue - 24.0)) * factor));
+                assert([[panel valueForKey:@"preferredSize"] sizeValue].width == std::ceil((472.0 + 9.0 * (size.doubleValue - 24.0)) * factor));
                 assert([keyboard.contentTintColor isEqual:settings.contentTintColor]);
                 NSImage *expectedKeyboard = [keyboard.image imageWithSymbolConfiguration:
                     [NSImageSymbolConfiguration configurationWithPointSize:size.doubleValue * factor weight:NSFontWeightRegular]];
@@ -184,10 +205,12 @@ int main() {
             }
         }
         [panel applySizingPreferences:@{@"floating_toolbar": @{@"scale_percent": @999, @"font_size": @(-1)}}];
-        assert(panel.frame.size.width == 422.0 && panel.frame.size.height == 44.0);
+        assert(NSEqualSizes([[panel valueForKey:@"preferredSize"] sizeValue], NSMakeSize(422.0, 44.0)));
         [panel applySizingPreferences:@{@"floating_toolbar": @{@"scale_percent": @150, @"font_size": @28}}];
         FloatingToolbarTestDelegate *sizingDelegate = [FloatingToolbarTestDelegate new];
-        const NSSize configuredSize = panel.frame.size;
+        // Configured while hidden, so it is the preferred size that carries it; showing the toolbar is what
+        // puts it on the frame, and it has to survive being hidden and shown again.
+        const NSSize configuredSize = [[panel valueForKey:@"preferredSize"] sizeValue];
         [panel activateForDelegate:sizingDelegate visible:YES];
         assert(NSEqualSizes(panel.frame.size, configuredSize));
         [panel setVisible:NO forDelegate:sizingDelegate];
@@ -208,7 +231,7 @@ int main() {
             [panel applySizingPreferences:@{@"floating_toolbar": components}];
             for (NSUInteger index = 0; index < keys.count; ++index)
                 assert(optionalButtons[index].hidden == ((mask & (1u << index)) == 0));
-            assert(panel.frame.size.width == std::ceil((count * 46.0 + (count - 1) * 8.0 + 30.0) * 1.5));
+            assert([[panel valueForKey:@"preferredSize"] sizeValue].width == std::ceil((count * 46.0 + (count - 1) * 8.0 + 30.0) * 1.5));
             assert(inputMode.superview != nil);
             CGFloat previousRight = 0;
             for (NSButton *button in @[inputMode, punctuation, fullWidth, traditional, emoji, handwriting, keyboard, voice, settings]) {
@@ -224,11 +247,11 @@ int main() {
             assert(button.hidden == (button == keyboard));
             if (!button.hidden) assert(button.superview != nil);
         }
-        assert(panel.frame.size.width == 422.0);
+        assert([[panel valueForKey:@"preferredSize"] sizeValue].width == 422.0);
         [panel applySizingPreferences:@{@"floating_toolbar": @{@"screen_keyboard": @"invalid"}}];
-        assert(keyboard.hidden && panel.frame.size.width == 422.0);
+        assert(keyboard.hidden && [[panel valueForKey:@"preferredSize"] sizeValue].width == 422.0);
         [panel applySizingPreferences:@{@"floating_toolbar": @{@"screen_keyboard": @YES}}];
-        assert(!keyboard.hidden && panel.frame.size.width == 472.0);
+        assert(!keyboard.hidden && [[panel valueForKey:@"preferredSize"] sizeValue].width == 472.0);
 
         [panel updateEnglishInputMode:YES chinesePunctuationEnabled:NO fullWidthEnabled:YES traditionalChineseOutputEnabled:YES];
         assert([inputMode.title isEqualToString:@"英"] && [punctuation.title isEqualToString:@"."] &&
