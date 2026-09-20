@@ -158,6 +158,7 @@ static NSString *const ShiftTapShortcutKey = @"MSIMEClientShiftTapShortcut";
 static NSString *const ControlTapShortcutKey = @"MSIMEClientControlTapShortcut";
 static NSString *const ControlOptionSpaceShortcutKey = @"MSIMEClientControlOptionSpaceShortcut";
 static NSString *const CharacterSetShortcutKey = @"MSIMEClientCharacterSetShortcut";
+static NSString *const FullWidthShortcutKey = @"MSIMEClientFullWidthShortcut";
 static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled";
 static NSString *const FloatingToolbarOptionsKey = @"MSIMEClientFloatingToolbarOptions";
 static NSArray<NSString *> *FloatingToolbarComponentKeys() {
@@ -440,6 +441,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     NSNumber *_sharedControlOptionSpaceShortcut;
     NSButton *_controlOptionSpaceShortcutButton;
     NSNumber *_sharedCharacterSetShortcut;
+    NSNumber *_sharedFullWidthShortcut;
     NSButton *_characterSetShortcutButton;
     NSMutableDictionary *_sharedHelpcodeOptions;
     NSMutableDictionary<NSString *, NSPopUpButton *> *_helpcodeSchemaButtons;
@@ -649,6 +651,12 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         id existing = merged[@"keybindings"];
         NSMutableDictionary *keys = [existing isKindOfClass:NSDictionary.class] ? [existing mutableCopy] : [NSMutableDictionary dictionary];
         keys[@"toggle_character_set_ctrl_shift_f"] = @(self.characterSetShortcut);
+        merged[@"keybindings"] = keys;
+    }
+    if ([_defaults objectForKey:FullWidthShortcutKey] != nil) {
+        id existing = merged[@"keybindings"];
+        NSMutableDictionary *keys = [existing isKindOfClass:NSDictionary.class] ? [existing mutableCopy] : [NSMutableDictionary dictionary];
+        keys[@"toggle_fullwidth_option_shift_h"] = @(self.fullWidthShortcut);
         merged[@"keybindings"] = keys;
     }
     merged[@"candidate_layout"] = self.vertical ? @"vertical" : @"horizontal";
@@ -1086,6 +1094,8 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
         if (LocalModeBoolean(inputMode)) _sharedControlOptionSpaceShortcut = inputMode;
         id enabled = keys[@"toggle_character_set_ctrl_shift_f"];
         if (LocalModeBoolean(enabled)) _sharedCharacterSetShortcut = enabled;
+        id fullWidth = keys[@"toggle_fullwidth_option_shift_h"];
+        if (LocalModeBoolean(fullWidth)) _sharedFullWidthShortcut = fullWidth;
     }
     id punctuation = preferences[@"chinese_punctuation"];
     if (LocalModeBoolean(punctuation)) _sharedChinesePunctuation = punctuation;
@@ -1353,6 +1363,15 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 - (void)setCharacterSetShortcut:(BOOL)value {
     _sharedCharacterSetShortcut = nil;
     [_defaults setBool:value forKey:CharacterSetShortcutKey];
+    [self preferencesChanged];
+}
+- (BOOL)fullWidthShortcut {
+    if (_sharedFullWidthShortcut) return _sharedFullWidthShortcut.boolValue;
+    return [_defaults objectForKey:FullWidthShortcutKey] == nil || [_defaults boolForKey:FullWidthShortcutKey];
+}
+- (void)setFullWidthShortcut:(BOOL)value {
+    _sharedFullWidthShortcut = nil;
+    [_defaults setBool:value forKey:FullWidthShortcutKey];
     [self preferencesChanged];
 }
 - (void)setInputModeShortcut:(BOOL)value {
@@ -2581,6 +2600,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
              ShuangpinPreeditKey, LocalModesKey, HelpcodeKey, HelpcodeOptionsKey, QuanpinHelpcodeKey,
              ShuangpinHelpcodeKey, KeymapKey, WubiKey, InputModeShortcutKey, ShiftTapShortcutKey,
              ControlTapShortcutKey, ControlOptionSpaceShortcutKey, CharacterSetShortcutKey,
+             FullWidthShortcutKey,
              FloatingToolbarKey, FloatingToolbarOptionsKey,
          ])
         [_defaults removeObjectForKey:key];

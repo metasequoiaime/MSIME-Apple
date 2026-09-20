@@ -61,6 +61,7 @@ FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNot
 @property(nonatomic) BOOL controlTapShortcut;
 @property(nonatomic) BOOL controlOptionSpaceShortcut;
 @property(nonatomic) BOOL characterSetShortcut;
+@property(nonatomic) BOOL fullWidthShortcut;
 @property(nonatomic) BOOL traditionalOutput;
 @property(nonatomic) BOOL fullWidthInput;
 @property(nonatomic) BOOL chinesePunctuation;

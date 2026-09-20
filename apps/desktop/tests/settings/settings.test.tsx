@@ -72,11 +72,18 @@ test("macOS exposes the non-activating input-mode HUD preference", async () => {
   }));
   render(
     <SettingsPage
-      client={{ load: async () => initial, save, host: { platform: "macos" } as HostCapabilities }}
+      client={{
+        load: async () => initial,
+        save,
+        // macOS always reports mode-switch shortcuts, and the HUD lives with the chords it reacts to.
+        host: { platform: "macos", mode_switch_shortcuts: true } as HostCapabilities,
+      }}
     />,
   );
-  fireEvent.click(await screen.findByRole("button", { name: "输入" }));
-  const toggle = screen.getByRole("checkbox", { name: "中英文切换提示" }) as HTMLInputElement;
+  fireEvent.click(await screen.findByRole("button", { name: "快捷键" }));
+  const toggle = screen.getByRole("checkbox", {
+    name: "切换中英文时显示提示",
+  }) as HTMLInputElement;
   expect(toggle.checked).toBe(true);
   fireEvent.click(toggle);
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
@@ -3575,6 +3582,56 @@ test("macOS and iOS help pages use their native host instructions", async () => 
   expect(screen.queryByText(/Win \+ Space/)).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
   expect(await screen.findByText(/iPhone 与 iPad 触屏输入体验/)).toBeDefined();
+});
+
+test("macOS shortcut page owns the mode HUD and the full-width chord", async () => {
+  const save = vi.fn().mockResolvedValue({ ...initial, revision: 8 });
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save,
+        host: { platform: "macos", mode_switch_shortcuts: true } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  // The chords are named for the keys a Mac keyboard actually has.
+  expect(await screen.findByText("单击 Control 切换中英文")).toBeDefined();
+  expect(screen.getByText("Control+Option+Space 切换中英文")).toBeDefined();
+  const hud = screen.getByRole("checkbox", { name: "切换中英文时显示提示" });
+  expect((hud as HTMLInputElement).checked).toBe(true);
+  const fullWidth = screen.getByRole("checkbox", { name: "Option+Shift+H 切换全半角" });
+  expect((fullWidth as HTMLInputElement).checked).toBe(true);
+  fireEvent.click(fullWidth);
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(save).toHaveBeenCalledWith(
+    7,
+    expect.objectContaining({
+      keybindings: expect.objectContaining({ toggle_fullwidth_option_shift_h: false }),
+    }),
+  );
+  // The HUD toggle moved here from the input page rather than being shown twice.
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  expect(screen.queryByRole("checkbox", { name: "中英文切换提示" })).toBeNull();
+});
+
+test("the full-width chord row is macOS only", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: { platform: "windows", mode_switch_shortcuts: true } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  expect(await screen.findByText("单击 Ctrl 切换中英文")).toBeDefined();
+  expect(screen.queryByRole("checkbox", { name: "Option+Shift+H 切换全半角" })).toBeNull();
 });
 
 test("macOS sidebar keeps the reference order and groups", async () => {

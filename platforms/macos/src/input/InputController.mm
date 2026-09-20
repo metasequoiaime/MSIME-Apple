@@ -3155,7 +3155,11 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
         if (!event.isARepeat) [self toggleDedicatedEnglishMode:nil];
         return YES;
     }
-    if (msime::mac::IsFullWidthInputToggle(event.keyCode, event.modifierFlags) && (!_appearance.englishMode || event.keyCode == 49)) {
+    // Only the Option+Shift+H arm is a preference; Ctrl+Shift+Space is the chord the Windows host
+    // reserves too, and the settings page says nothing about it.
+    if (msime::mac::IsFullWidthInputToggle(event.keyCode, event.modifierFlags) &&
+        (event.keyCode == 49 || _appearance.fullWidthShortcut) &&
+        (!_appearance.englishMode || event.keyCode == 49)) {
         if (!event.isARepeat) _appearance.fullWidthInput = !_appearance.fullWidthInput;
         return YES;
     }
