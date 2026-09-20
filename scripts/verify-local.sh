@@ -142,6 +142,11 @@ fi
 note "conflict markers"
 python3 scripts/test-conflict-markers.py || fail "conflict markers"
 
+# Same shape as the marker scan: a symlink pointing at one machine's absolute path breaks every
+# other checkout, and the checkout it was made on is the one place it keeps working.
+note "tracked symlinks"
+python3 scripts/test-tracked-symlinks.py || fail "tracked symlinks"
+
 note "default config contracts"
 python3 scripts/test-default-config-parity.py || fail "default config contracts"
 

@@ -447,6 +447,11 @@ impl TypingStatisticsStore {
         }
     }
 
+    /// Where the statistics file lives, for hosts that offer to reveal it in a file manager.
+    pub fn directory(&self) -> &Path {
+        &self.directory
+    }
+
     fn path(&self) -> PathBuf {
         self.directory.join("typing-statistics.json")
     }
