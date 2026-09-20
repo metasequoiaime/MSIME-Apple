@@ -289,6 +289,20 @@ impl InputEngine for Fixture {
         self.balanced_openings.push(opening);
         Ok(())
     }
+    /// Model what the engine does: a real change to the mode resets the composition.
+    ///
+    /// `InputSession::set_dedicated_english_mode` calls `reset_composition()` when the flag
+    /// actually flips, which is the source's `SetEnglishInputMode` followed by `ClearState`. The
+    /// default here was a no-op, so nothing on this side held the rule and a change in the engine
+    /// -- pinned 467 commits ahead of the reference -- would have gone unnoticed.
+    fn set_dedicated_english(&mut self, enabled: bool) -> Result<(), RuntimeError> {
+        if self.dedicated_english == enabled {
+            return Ok(());
+        }
+        self.dedicated_english = enabled;
+        self.text.clear();
+        Ok(())
+    }
     fn expand_initial_candidates(&mut self) -> Result<bool, RuntimeError> {
         if self.withheld.is_empty() {
             return Ok(false);
@@ -1096,6 +1110,28 @@ fn dedicated_english_state_resets_highlight_without_guessing_from_text() {
     runtime.engine.dedicated_english = false;
     runtime.refresh().unwrap();
     assert!(!runtime.view().dedicated_english);
+}
+
+#[test]
+fn switching_the_language_drops_the_composition_being_spelled() {
+    // The source pairs `SetEnglishInputMode` with `ClearState`, and the engine does the same inside
+    // `set_dedicated_english_mode`: letters spelled for Chinese are not what the user wants sitting
+    // in an English composition. The hosts reach this through `msime_client_set_english_mode`, which
+    // is what every mode-switch chord ends up calling -- Shift, a Ctrl tap, Ctrl+Alt+Space and
+    // Ctrl+Shift+E alike.
+    let mut runtime = runtime();
+    runtime.focus(true).unwrap();
+    type_key(&mut runtime);
+    assert!(!runtime.view().editing_text.is_empty());
+    runtime.set_dedicated_english(true).unwrap();
+    assert!(runtime.view().dedicated_english);
+    assert_eq!(runtime.view().editing_text, "");
+    // Setting the same mode again is not a change, so there is nothing to reset and nothing to lose.
+    type_key(&mut runtime);
+    let spelled = runtime.view().editing_text.clone();
+    assert!(!spelled.is_empty());
+    runtime.set_dedicated_english(true).unwrap();
+    assert_eq!(runtime.view().editing_text, spelled);
 }
 
 #[test]
