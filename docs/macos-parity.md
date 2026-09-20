@@ -53,9 +53,25 @@
 - **#3179** 组合中途单击 Shift：目标上屏高亮候选，来源上屏已输入的原始字母。两边都有快捷键、偏好与符号，做的事相反——而这个手势的用途正是把词库里没有的词原样送出去。
 - **#3182** 以词定字与候选翻页可被指到同一对键上，翻页先执行，显式绑定的以词定字静默失效。来源用互斥开关规避，目标的原生 setter 也互相拒绝，但 `applySharedCandidatePreferences:` 不检查——而那是 Tauri 设置页写入的路径。
 
+## 第五次比对：能力与产物（2026-09-20）
+
+第四次按行为核对之后又补了一轮，针对的是「两边都有、但目标这边用户够不着」这一类。找出并修掉两个：
+
+- **#3216** macOS 设置页隐藏了表情、颜文字、临时日语三个本地模式开关，理由写的是「预览包只发 msime.db 和 english.db」。但 `others.db` 与 `dict_japanese.dat` 自 `780a9381b`（2026-09-09）就在 `resources/desktop-dictionary.lock.json` 里，比那条过滤早十天，而 `tauri.macos.conf.json` 整目录打包已校验的资源集——三个能用的模式在设置里没有任何办法打开。同样受资源门控的「临时英文」一直显示着，这个不一致本身就说明前提错了。资源真缺时由 `apply_local_mode_resource_gates` 关掉该模式、触发键原样插入大写字母，比隐藏开关更好。
+- **#3212** 本地 Whisper 模型只能手填绝对路径，而来源有 `browseVoiceModel:` 文件选择器。webview 的 file input 给的是内容不是路径，所以共享设置页答不了，改为向宿主要一个可选能力（`pickVoiceModelPath`），原生实现放在 `crates/host-macos/native/`，不引入新依赖；宿主不提供就不显示按钮，手填照旧。
+
+本轮核过且确认等价或目标更强的：来源 12 个共享后端文件目标全有（另有 `BackendAiClient`）；四个原生视图（剪贴板、词库、账号、设置同步）文案差集为空；云词库备份视图逐字一致；输入法菜单条目集合一致；引擎选项写入面一致（来源的嵌套字段对应目标的扁平字段，自动纠错来源是一个总开关、目标拆成换位与邻键两项，覆盖引擎仅有的两个位）；`HostSurface` 各能力位 macOS 均已开启，唯一未开的 `number_row_selection` 来源没有该功能；`preference_coverage.py` 的「不适用」清单双向校验、无陈旧项。
+
 ## 当前完成度
 
-代码侧的迁移按上述四次比对已无已知缺口；macOS `ctest` 120/120，`scripts/known-failures.txt` 无 macOS 条目。唯一未完成的是**安装后的交互验收**，它不是代码缺口：见下一节，需要一次重新登录才能把新的输入源 identifier 加进本次登录会话的列表。
+代码侧的迁移按上述五次比对已无已知缺口；macOS `ctest` 全通过，`scripts/known-failures.txt` 无 macOS 条目。
+
+未完成的有两类，都不是「还没做」：
+
+1. **安装后的交互验收**——不是代码缺口，见下一节，需要一次重新登录才能把新的输入源 identifier 加进本次登录会话的列表。
+2. **两条跨平台产品取舍**，改动落在 Windows/macOS 共用代码上，且目标侧的现状都有测试固定，因此没有单方面改动：
+   - **语音整理的请求预算**。目标沿用 Windows 的 3 秒总预算（`VoicePolishRequestTest.mm` 断言卡住的服务在 2.5–5 秒内被放弃），来源用 30 秒并注明 3 秒下整理「永远来不及返回」。现状的代价是：转写已经发给服务商，结果基本拿不到，而失败被 `HTTPVoiceRequest.mm` 吞掉、界面无任何提示。
+   - **离线释义的查询顺序**。引擎把顺序设计成构造参数（custom_translations → 随包 → 联网缓存，缓存排最后），来源直接用四参数构造；目标改为另开 `translation-glosses.db` 先查，于是联网学到的释义会盖过用户自己写在 `custom_translations.txt` 里的那条。目标这个顺序由 `crates/engine-bridge/src/lib.rs` 的 `unsafe_learned_glosses_fall_back_to_packaged_values` 明确断言，是有意为之。
 
 ## 功能分组与目的地入口
 
