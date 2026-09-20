@@ -319,6 +319,11 @@ group("maps Harmony commits to shared typing-statistics sources", () => {
     TypingStatisticsPolicy.day(new Date(2026, 8, 19)) === "2026-09-19",
     "day keys use the native local calendar date",
   );
+  check(
+    TypingStatisticsPolicy.hour(new Date(2026, 8, 19, 0, 30)) === 0 &&
+      TypingStatisticsPolicy.hour(new Date(2026, 8, 19, 23, 59)) === 23,
+    "hour buckets use the same local calendar as the day beside them",
+  );
 });
 
 group("bounds and deduplicates asynchronous online AI candidates", () => {

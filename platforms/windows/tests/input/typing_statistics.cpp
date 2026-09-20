@@ -78,33 +78,51 @@ int main() {
     require(resolve_typing_source_from_transition(Json::object()) ==
             TypingSource::Unknown);
 
-    const auto day = local_day(0);
-    require(day.size() == 10 && day[4] == '-' && day[7] == '-');
+    const auto local = local_time_parts(0);
+    require(local.has_value());
+    require(local->day.size() == 10 && local->day[4] == '-' &&
+            local->day[7] == '-');
+    require(local->hour >= 0 && local->hour <= 23);
 
-    const auto request = typing_statistics_record_request(
-        "C:\\Users\\ime\\state", "你好", TypingSource::Quanpin, "2026-09-21");
+    const auto request =
+        typing_statistics_record_request("C:\\Users\\ime\\state", "你好",
+                                         TypingSource::Quanpin, "2026-09-21", 9);
     const auto parsed = Json::parse(request);
     require(parsed.at("directory") == "C:\\Users\\ime\\state");
     require(parsed.at("action").at("operation") == "record");
     require(parsed.at("action").at("text") == "你好");
     require(parsed.at("action").at("source") == "quanpin");
     require(parsed.at("action").at("day") == "2026-09-21");
-    // Nothing usable in, nothing out: a record with no text, no home or no
-    // resolvable day would have to invent one of them.
+    require(parsed.at("action").at("hour") == 9);
+    // Nothing usable in, nothing out: a record with no text, no home, or no
+    // resolvable day or hour would have to invent one of them.
     require(typing_statistics_record_request("C:\\state", "", TypingSource::Ai,
-                                             "2026-09-21")
+                                             "2026-09-21", 0)
                 .empty());
     require(typing_statistics_record_request("", "你好", TypingSource::Ai,
-                                             "2026-09-21")
+                                             "2026-09-21", 0)
                 .empty());
-    require(
-        typing_statistics_record_request("C:\\state", "你好", TypingSource::Ai, "")
-            .empty());
+    require(typing_statistics_record_request("C:\\state", "你好",
+                                             TypingSource::Ai, "", 0)
+                .empty());
+    // Both ends of the hour range, so an off-by-one on either bound shows up.
+    require(!typing_statistics_record_request("C:\\state", "你好",
+                                              TypingSource::Ai, "2026-09-21", 0)
+                 .empty());
+    require(!typing_statistics_record_request("C:\\state", "你好",
+                                              TypingSource::Ai, "2026-09-21", 23)
+                 .empty());
+    require(typing_statistics_record_request("C:\\state", "你好",
+                                             TypingSource::Ai, "2026-09-21", 24)
+                .empty());
+    require(typing_statistics_record_request("C:\\state", "你好",
+                                             TypingSource::Ai, "2026-09-21", -1)
+                .empty());
     // The shared entry point refuses buffers past 64 KiB, so an oversized
     // commit is dropped whole rather than counted as a shorter one.
     require(typing_statistics_record_request("C:\\state",
                                              std::string(70'000, 'a'),
-                                             TypingSource::Reply, "2026-09-21")
+                                             TypingSource::Reply, "2026-09-21", 9)
                 .empty());
     std::cout << "Windows typing statistics checks passed\n";
     return 0;

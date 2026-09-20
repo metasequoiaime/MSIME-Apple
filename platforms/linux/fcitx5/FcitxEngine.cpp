@@ -1578,12 +1578,14 @@ public:
     char day[11]{};
     if (std::strftime(day, sizeof(day), "%Y-%m-%d", &local) == 0) return;
     const auto sourceId = std::string(msime::linux_host::typing_source_id(source));
-    std::thread([directory, text, sourceId, day = std::string(day)] {
+    std::thread([directory, text, sourceId, day = std::string(day),
+                 hour = local.tm_hour] {
       try {
         const auto request = Json{
             {"directory", directory},
             {"action", Json{{"operation", "record"}, {"text", text},
-                              {"source", sourceId}, {"day", day}}}}
+                              {"source", sourceId}, {"day", day},
+                              {"hour", hour}}}}
                                   .dump();
         if (auto *raw = msime_client_typing_statistics(
                 reinterpret_cast<const uint8_t *>(request.data()), request.size()))

@@ -136,9 +136,11 @@ char *msime_client_load_preferences(const uint8_t *directory, size_t length);
 /* Private aggregate typing statistics. JSON request (<=65536 bytes):
  * {directory:absolute path,action:{operation:"load"|"reset"}}
  * {directory,action:{operation:"set_enabled",enabled:bool}}
- * {directory,action:{operation:"record",text,source,day:"YYYY-MM-DD"}}.
+ * {directory,action:{operation:"record",text,source,day:"YYYY-MM-DD",hour?:0-23}}.
  * Record classifies committed text in memory and persists only aggregate counts;
  * text is never returned or stored. May block on disk/file lock: use a worker.
+ * `hour` is the commit's local hour and must come from the same instant as `day`;
+ * omit it rather than guess, and the day keeps its counts with no hourly split.
  */
 char *msime_client_typing_statistics(const uint8_t *request, size_t length);
 /* Scan an absolute UTF-8 skin root and return the catalog the settings page

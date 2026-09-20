@@ -15,6 +15,17 @@ const MAX_DOCUMENT_BYTES: u64 = 1_048_576;
 const MAX_COMMIT_BYTES: usize = 40_000;
 const MAX_COMMIT_SCALARS: usize = 10_000;
 const MAX_COUNT: u64 = 9_000_000_000_000_000;
+/// Buckets in a day, one per local hour.
+pub const HOURS: usize = 24;
+/// A day cannot hold more active time than it has milliseconds.
+const MAX_ACTIVE_MS_PER_DAY: u64 = 24 * 60 * 60 * 1000;
+/// A pause of at most this much between two consecutive commits counts as active typing time.
+///
+/// Taken from the Windows baseline, which calibrated it on real input: at five seconds ordinary
+/// thinking pauses were counted as typing and the speed reading came out too low. It is the one
+/// number here that decides what "active" means, so it is a constant with a reason rather than a
+/// literal in the middle of `record`.
+const ACTIVE_GAP_LIMIT_MS: u64 = 10_000;
 
 fn enabled_by_default() -> bool {
     true
@@ -183,6 +194,34 @@ pub struct TypingStatistics {
     /// exists to give — how often the first candidate was the right one — does not need one.
     #[serde(default)]
     pub selections: SelectionCounts,
+    /// Active typing time per day, in milliseconds.
+    ///
+    /// Active means the gap to the previous commit was positive and no longer than
+    /// [`ACTIVE_GAP_LIMIT_MS`]; anything longer is a break and contributes nothing. It exists to
+    /// be a denominator: characters alone say how much was typed, not how fast, and wall-clock
+    /// time between the first and last commit of a day would divide by the whole working day.
+    ///
+    /// A day absent here has no measured active time, which is not the same as zero characters —
+    /// documents written before this existed have counts for their days and no entry here, and
+    /// every metric derived from it has to treat that as "unknown" rather than "instant".
+    #[serde(default)]
+    pub daily_active_ms: BTreeMap<String, u64>,
+    /// Characters per local hour, [`HOURS`] buckets per day.
+    ///
+    /// The hour comes from the host for the same reason the day does: only the host knows which
+    /// timezone the user is in, and an hour axis quietly disagreeing with the day beside it would
+    /// be worse than no axis. A host that does not send one still records characters; its days
+    /// simply have no hourly breakdown.
+    #[serde(default)]
+    pub daily_hours: BTreeMap<String, Vec<u64>>,
+    /// Milliseconds since the Unix epoch of the last counted commit.
+    ///
+    /// State, not history: every commit overwrites it, so it says when typing last happened and
+    /// nothing about what was typed or when anything before it was. It has to be in the file
+    /// because the store is constructed per call and has nowhere else to keep the previous
+    /// commit's instant, which is the only thing the gap can be measured against.
+    #[serde(default)]
+    pub last_commit_ms: u64,
 }
 
 impl Default for TypingStatistics {
@@ -194,6 +233,9 @@ impl Default for TypingStatistics {
             detail: TypingBreakdown::default(),
             daily_details: BTreeMap::new(),
             selections: SelectionCounts::default(),
+            daily_active_ms: BTreeMap::new(),
+            daily_hours: BTreeMap::new(),
+            last_commit_ms: 0,
         }
     }
 }
@@ -238,7 +280,45 @@ impl TypingStatistics {
         {
             return Err(TypingStatisticsError::InvalidDocument);
         }
+        if self.daily_active_ms.len() > MAX_RETAINED_DAYS
+            || self.daily_hours.len() > MAX_RETAINED_DAYS
+        {
+            return Err(TypingStatisticsError::InvalidDocument);
+        }
+        for (day, active_ms) in &self.daily_active_ms {
+            // A day that has active time but no characters is not a document this code can
+            // produce, and letting it through would put a day on the calendar that nobody typed
+            // on.
+            if !self.days.contains_key(day) || *active_ms > MAX_ACTIVE_MS_PER_DAY {
+                return Err(TypingStatisticsError::InvalidDocument);
+            }
+        }
+        for (day, hours) in &self.daily_hours {
+            let Some(total) = self.days.get(day) else {
+                return Err(TypingStatisticsError::InvalidDocument);
+            };
+            // Not equality: days recorded before hosts sent an hour have characters and no
+            // buckets, so the buckets can only ever be a subset of the day.
+            if hours.len() != HOURS
+                || hours
+                    .iter()
+                    .try_fold(0_u64, |sum, count| sum.checked_add(*count))
+                    .is_none_or(|sum| sum > *total)
+            {
+                return Err(TypingStatisticsError::InvalidDocument);
+            }
+        }
         Ok(())
+    }
+
+    /// Active milliseconds recorded for `day`, or `None` when that day predates the measurement.
+    pub fn active_ms(&self, day: &str) -> Option<u64> {
+        self.daily_active_ms.get(day).copied()
+    }
+
+    /// The day's per-hour character counts, or `None` when the host sent no hour for it.
+    pub fn hours(&self, day: &str) -> Option<&[u64]> {
+        self.daily_hours.get(day).map(Vec::as_slice)
     }
 }
 
@@ -355,11 +435,31 @@ impl TypingStatisticsStore {
         }
     }
 
+    /// Count one commit's characters against `day`, and the gap since the previous commit as
+    /// active time.
+    ///
+    /// `hour` is the local hour the commit happened in. `None` records the characters without an
+    /// hourly breakdown, which is what a host that cannot resolve a local hour should send rather
+    /// than guessing one.
     pub fn record(
         &self,
         text: &str,
         source: TypingSource,
         day: &str,
+        hour: Option<u8>,
+    ) -> Result<u64, TypingStatisticsError> {
+        self.record_at(text, source, day, hour, epoch_millis(SystemTime::now()))
+    }
+
+    /// `record` with the instant supplied, so the active-time rules can be tested without
+    /// sleeping. Production always passes the current time.
+    pub fn record_at(
+        &self,
+        text: &str,
+        source: TypingSource,
+        day: &str,
+        hour: Option<u8>,
+        now_ms: u64,
     ) -> Result<u64, TypingStatisticsError> {
         validate_day(day)?;
         if text.len() > MAX_COMMIT_BYTES || text.chars().count() > MAX_COMMIT_SCALARS {
@@ -394,10 +494,47 @@ impl TypingStatisticsStore {
             .entry(day.to_owned())
             .or_default()
             .merge(&addition)?;
+
+        // Attribute the gap to the day and hour of *this* commit, the way the Windows baseline
+        // does: the pause belongs to the typing it precedes, and a session that crosses midnight
+        // therefore leaves its last pause on the new day rather than extending the old one.
+        let active_ms = active_gap_ms(value.last_commit_ms, now_ms);
+        if active_ms > 0 {
+            let day_active = value.daily_active_ms.entry(day.to_owned()).or_default();
+            *day_active = day_active
+                .saturating_add(active_ms)
+                .min(MAX_ACTIVE_MS_PER_DAY);
+        }
+        // Never moves backwards. A clock set back would otherwise make every later commit look
+        // like it followed a huge pause, and the first one after the correction would be counted
+        // as a fresh session instead of the continuation it is.
+        if now_ms > value.last_commit_ms {
+            value.last_commit_ms = now_ms;
+        }
+
+        if let Some(hour) = hour.filter(|hour| usize::from(*hour) < HOURS) {
+            let buckets = value
+                .daily_hours
+                .entry(day.to_owned())
+                .or_insert_with(|| vec![0; HOURS]);
+            // A file edited by hand could carry a short vector; resize rather than panic on the
+            // index, because a malformed bucket list must not cost the user the count itself.
+            if buckets.len() != HOURS {
+                buckets.resize(HOURS, 0);
+            }
+            let bucket = &mut buckets[usize::from(hour)];
+            *bucket = bucket
+                .checked_add(count)
+                .filter(|count| *count <= MAX_COUNT)
+                .ok_or(TypingStatisticsError::CountExhausted)?;
+        }
+
         while value.days.len() > MAX_RETAINED_DAYS {
             let oldest = value.days.keys().next().cloned().expect("nonempty days");
             value.days.remove(&oldest);
             value.daily_details.remove(&oldest);
+            value.daily_active_ms.remove(&oldest);
+            value.daily_hours.remove(&oldest);
         }
         self.write_locked(&value)?;
         Ok(count)
@@ -438,9 +575,37 @@ impl TypingStatisticsStore {
         // Reset means reset. Leaving the selection histogram behind would keep counting after a
         // user asked for it to stop existing, which is the one thing this module must not do.
         value.selections = SelectionCounts::default();
+        value.daily_active_ms.clear();
+        value.daily_hours.clear();
+        // Including when typing last happened: it is the only field that survives a reset by
+        // saying anything about the user at all.
+        value.last_commit_ms = 0;
         self.write_locked(&value)?;
         Ok(value)
     }
+}
+
+/// Milliseconds since the Unix epoch, saturating at zero for clocks set before 1970.
+fn epoch_millis(time: SystemTime) -> u64 {
+    time.duration_since(SystemTime::UNIX_EPOCH)
+        .map(|elapsed| u64::try_from(elapsed.as_millis()).unwrap_or(u64::MAX))
+        .unwrap_or(0)
+}
+
+/// How much of the gap between two commits counts as active typing.
+///
+/// Zero for the first commit ever (`previous` is 0), for a gap longer than the limit, and for any
+/// non-positive gap — which covers both a clock set backwards and two commits landing in the same
+/// millisecond.
+fn active_gap_ms(previous_ms: u64, now_ms: u64) -> u64 {
+    if previous_ms == 0 || now_ms <= previous_ms {
+        return 0;
+    }
+    let gap = now_ms - previous_ms;
+    if gap > ACTIVE_GAP_LIMIT_MS {
+        return 0;
+    }
+    gap
 }
 
 fn checked_increment(
@@ -636,6 +801,7 @@ mod tests {
                     "汉𠮷Aée\u{301}９1，!👨‍👩‍👧‍👦1️⃣あЖ+ \n",
                     TypingSource::NineKey,
                     "2026-09-07",
+                    Some(9),
                 )
                 .unwrap(),
             14
@@ -670,7 +836,7 @@ mod tests {
         store.set_enabled(false).unwrap();
         assert_eq!(
             store
-                .record("ignored", TypingSource::English, "2026-09-07")
+                .record("ignored", TypingSource::English, "2026-09-07", Some(9))
                 .unwrap(),
             0
         );
@@ -686,7 +852,7 @@ mod tests {
         let root = tempfile::tempdir().unwrap();
         let legacy = TypingStatisticsStore::new(root.path());
         legacy
-            .record("old", TypingSource::English, "2026-09-07")
+            .record("old", TypingSource::English, "2026-09-07", Some(9))
             .unwrap();
         let shared_directory = root.path().join("MSIME");
         let shared = TypingStatisticsStore::new(&shared_directory);
@@ -696,7 +862,7 @@ mod tests {
         assert_eq!(shared.load().unwrap().total, 3);
 
         legacy
-            .record("legacy", TypingSource::English, "2026-09-08")
+            .record("legacy", TypingSource::English, "2026-09-08", Some(9))
             .unwrap();
         assert!(!shared.migrate_from(root.path()).unwrap());
         assert_eq!(shared.load().unwrap().total, 3);
@@ -712,7 +878,7 @@ mod tests {
                 let store = Arc::clone(&store);
                 std::thread::spawn(move || {
                     store
-                        .record("字", TypingSource::Quanpin, "2026-01-01")
+                        .record("字", TypingSource::Quanpin, "2026-01-01", Some(9))
                         .unwrap();
                 })
             })
@@ -730,6 +896,7 @@ mod tests {
                     "字",
                     TypingSource::Quanpin,
                     &format!("{year:04}-{month:02}-{day:02}"),
+                    Some(9),
                 )
                 .unwrap();
         }
@@ -745,7 +912,7 @@ mod tests {
         let directory = tempfile::tempdir().unwrap();
         let store = TypingStatisticsStore::new(directory.path());
         assert!(matches!(
-            store.record("x", TypingSource::English, "2026-13-01"),
+            store.record("x", TypingSource::English, "2026-13-01", Some(9)),
             Err(TypingStatisticsError::InvalidDay)
         ));
         let path = directory.path().join("typing-statistics.json");
@@ -755,5 +922,178 @@ mod tests {
             Err(TypingStatisticsError::InvalidDocument)
         ));
         assert!(fs::read_to_string(path).unwrap().contains("\"latin\":2"));
+    }
+
+    #[test]
+    fn active_time_counts_only_the_gaps_that_are_still_typing() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = TypingStatisticsStore::new(directory.path());
+        let day = "2026-09-21";
+        // The first commit has nothing to measure against, so it contributes no active time -
+        // otherwise the epoch itself would be counted as one enormous pause.
+        store
+            .record_at("a", TypingSource::Quanpin, day, Some(9), 1_000)
+            .unwrap();
+        assert_eq!(store.load().unwrap().active_ms(day), None);
+
+        store
+            .record_at("b", TypingSource::Quanpin, day, Some(9), 4_000)
+            .unwrap();
+        assert_eq!(store.load().unwrap().active_ms(day), Some(3_000));
+
+        // Exactly at the limit still counts; one millisecond past it is a break.
+        store
+            .record_at(
+                "c",
+                TypingSource::Quanpin,
+                day,
+                Some(9),
+                4_000 + ACTIVE_GAP_LIMIT_MS,
+            )
+            .unwrap();
+        assert_eq!(
+            store.load().unwrap().active_ms(day),
+            Some(3_000 + ACTIVE_GAP_LIMIT_MS)
+        );
+        let after_break = 4_000 + ACTIVE_GAP_LIMIT_MS + ACTIVE_GAP_LIMIT_MS + 1;
+        store
+            .record_at("d", TypingSource::Quanpin, day, Some(9), after_break)
+            .unwrap();
+        assert_eq!(
+            store.load().unwrap().active_ms(day),
+            Some(3_000 + ACTIVE_GAP_LIMIT_MS)
+        );
+
+        // A clock set backwards adds nothing and does not move the mark backwards; the next
+        // commit at a sane instant must not be measured against the rolled-back one.
+        store
+            .record_at("e", TypingSource::Quanpin, day, Some(9), 500)
+            .unwrap();
+        let rolled_back = store.load().unwrap();
+        assert_eq!(
+            rolled_back.active_ms(day),
+            Some(3_000 + ACTIVE_GAP_LIMIT_MS)
+        );
+        assert_eq!(rolled_back.last_commit_ms, after_break);
+
+        // Two commits in the same millisecond are not a gap.
+        store
+            .record_at("f", TypingSource::Quanpin, day, Some(9), after_break)
+            .unwrap();
+        assert_eq!(
+            store.load().unwrap().active_ms(day),
+            Some(3_000 + ACTIVE_GAP_LIMIT_MS)
+        );
+    }
+
+    #[test]
+    fn hourly_buckets_come_from_the_host_and_are_optional() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = TypingStatisticsStore::new(directory.path());
+        let day = "2026-09-21";
+        store
+            .record_at("ab", TypingSource::Quanpin, day, Some(0), 1_000)
+            .unwrap();
+        store
+            .record_at("c", TypingSource::Quanpin, day, Some(23), 2_000)
+            .unwrap();
+        // No hour: the characters still count, the day simply has no breakdown for them. The
+        // buckets are therefore a subset of the day's total, never equal to it in general.
+        store
+            .record_at("de", TypingSource::Quanpin, day, None, 3_000)
+            .unwrap();
+        // Out of range is dropped rather than folded into a neighbouring hour, which would put
+        // typing on the chart at a time it did not happen.
+        store
+            .record_at("f", TypingSource::Quanpin, day, Some(24), 4_000)
+            .unwrap();
+
+        let value = store.load().unwrap();
+        let hours = value.hours(day).unwrap();
+        assert_eq!(hours.len(), HOURS);
+        assert_eq!(hours[0], 2);
+        assert_eq!(hours[23], 1);
+        assert_eq!(hours.iter().sum::<u64>(), 3);
+        assert_eq!(value.days[day], 6);
+        assert_eq!(value.hours("2026-09-20"), None);
+    }
+
+    #[test]
+    fn retention_and_reset_take_the_activity_axes_with_them() {
+        let directory = tempfile::tempdir().unwrap();
+        let store = TypingStatisticsStore::new(directory.path());
+        // 28-day months and 12-month years, so the synthetic calendar stays valid past the
+        // retention limit without pulling in a date library.
+        for offset in 0..=MAX_RETAINED_DAYS {
+            let day = format!(
+                "{:04}-{:02}-{:02}",
+                2026 + offset / 336,
+                (offset % 336) / 28 + 1,
+                offset % 28 + 1
+            );
+            store
+                .record_at(
+                    "字",
+                    TypingSource::Quanpin,
+                    &day,
+                    Some(9),
+                    1_000 + offset as u64 * 500,
+                )
+                .unwrap();
+        }
+        let value = store.load().unwrap();
+        assert_eq!(value.days.len(), MAX_RETAINED_DAYS);
+        // Pruning a day has to drop every axis keyed by it, or validate() rejects the document
+        // it just wrote and the user loses the whole history to a stale entry.
+        assert!(value.daily_active_ms.len() <= MAX_RETAINED_DAYS);
+        assert!(value.daily_hours.len() <= MAX_RETAINED_DAYS);
+        assert!(value
+            .daily_active_ms
+            .keys()
+            .all(|day| value.days.contains_key(day)));
+        assert!(value
+            .daily_hours
+            .keys()
+            .all(|day| value.days.contains_key(day)));
+        assert!(store.load().is_ok());
+
+        let reset = store.reset().unwrap();
+        assert!(reset.daily_active_ms.is_empty());
+        assert!(reset.daily_hours.is_empty());
+        // Reset means reset: when typing last happened is the one field that would otherwise
+        // survive and still say something about the user.
+        assert_eq!(reset.last_commit_ms, 0);
+    }
+
+    #[test]
+    fn rejects_activity_axes_that_do_not_match_the_days() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("typing-statistics.json");
+        let store = TypingStatisticsStore::new(directory.path());
+        let cases = [
+            // Active time on a day with no characters.
+            r#"{"enabled":true,"total":1,"days":{"2026-09-21":1},"dailyActiveMs":{"2026-09-20":5}}"#,
+            // More active time than a day contains.
+            r#"{"enabled":true,"total":1,"days":{"2026-09-21":1},"dailyActiveMs":{"2026-09-21":86400001}}"#,
+            // Buckets that do not describe a day of 24 hours.
+            r#"{"enabled":true,"total":1,"days":{"2026-09-21":1},"dailyHours":{"2026-09-21":[1,0,0]}}"#,
+            // Buckets claiming more characters than the day has.
+            r#"{"enabled":true,"total":1,"days":{"2026-09-21":1},"dailyHours":{"2026-09-21":[2,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0,0]}}"#,
+        ];
+        for document in cases {
+            fs::write(&path, document).unwrap();
+            assert!(
+                matches!(store.load(), Err(TypingStatisticsError::InvalidDocument)),
+                "accepted {document}"
+            );
+        }
+        // A day with characters and no activity axes is not malformed: that is every day
+        // recorded before these axes existed.
+        fs::write(
+            &path,
+            r#"{"enabled":true,"total":1,"days":{"2026-09-21":1}}"#,
+        )
+        .unwrap();
+        assert_eq!(store.load().unwrap().total, 1);
     }
 }

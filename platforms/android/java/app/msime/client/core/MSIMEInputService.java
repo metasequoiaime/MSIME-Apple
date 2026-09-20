@@ -54,7 +54,7 @@ import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -462,10 +462,14 @@ public final class MSIMEInputService extends InputMethodService {
         String directory = typingStatisticsDirectory();
         if (directory.isEmpty() || text == null || text.isEmpty()) return;
         final String request;
+        // One instant for both fields: a day and an hour read separately either side of
+        // midnight would file the commit under one day and the other day's hour.
+        final LocalDateTime instant = LocalDateTime.now();
         try {
             request = new JSONObject().put("directory", directory).put("action",
                 new JSONObject().put("operation", "record").put("text", text)
-                    .put("source", source.id()).put("day", LocalDate.now().toString()))
+                    .put("source", source.id()).put("day", instant.toLocalDate().toString())
+                    .put("hour", instant.getHour()))
                 .toString();
         } catch (JSONException error) {
             reportTypingStatisticsFailure();

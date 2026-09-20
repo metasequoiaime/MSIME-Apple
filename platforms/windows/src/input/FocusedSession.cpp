@@ -35,10 +35,12 @@ void FocusedSession::record_commit(const std::optional<Commit> &delivered) {
   }
   if (statistics_directory_.empty())
     return;
-  auto request =
-      typing_statistics_record_request(statistics_directory_, delivered->text,
-                                       delivered->source,
-                                       local_day(std::time(nullptr)));
+  const auto local = local_time_parts(std::time(nullptr));
+  if (!local)
+    return;
+  auto request = typing_statistics_record_request(
+      statistics_directory_, delivered->text, delivered->source, local->day,
+      local->hour);
   if (request.empty())
     return;
   // Off the input queue: the shared store takes a file lock, and a commit must
