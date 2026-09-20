@@ -734,6 +734,12 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 ## 下一批实施顺序
 
+增量记录（2026-09-20，把逐页核对固化成可执行的检查）：前四片的页面对照都是靠读两边的源码得出的，而两边的朴素搜索都会失真——来源用 `class="section-title ai-heading"` 这类组合类名，本仓大量标题由 `{label}` 表达式渲染，于是同一批结论被反复重新推导，我自己在本轮里就误判过「实用功能少了八种模式」「皮肤页没有外部皮肤」。现把已核实的对应关系写成 `referenceSections` 表并配一个 `test.each`，覆盖外观、输入、辅助码、实用功能、悬浮工具栏、屏幕键盘、手写识别板、帮助八页：任何一节被删掉或改名，这里直接失败。已用「把候选项排列方式改名」验证过它确实会红。
+
+写这个表时发现两类先前没注意的门控，都不是缺失：其一，好几节挂在宿主能力后面（`candidate_font_controls`、`candidate_follow_cursor`、`ime_mode_scope`、`floating_toolbar_appearance`），用裸 fixture 断言会把「宿主没声明」误读成「界面没有」，故 fixture 按 `host_surface.rs` 给 Windows 的那组能力来写；其二，`候选窗主字体` 在本仓的 Windows 宿主上是被 `{!windows && …}` 有意隐藏的——Windows 显示的是「候选窗英文字体 + 补充字体」，那行还带 Windows 专属的「保存后自动应用」说明，而来源显示的是「主字体 + 中文补充字体」。这是 Windows 字体路径上的既有取舍，不属于 HarmonyOS 的迁移范围，表里以注释记录而不断言。
+
+同一轮还核过几处怀疑、结论都是已实现或有意适配，一并记下以免再查：HarmonyOS 的 `InputCommand` 枚举值与 C ABI 的命令码逐一对应（分段命令是显式的 12/13/14，不是顺延的 9/10/11）；翻页键集合覆盖来源的 `IsPagingKey` 全部并多出鼠标滚轮；日语浊音/半浊音/小假名在触屏上以 `SURFACE_VARIANTS` 面板实现（点假名直接按下对应罗马字笔画），而不是来源的 `CycleKanaVariant` 循环命令。
+
 增量记录（2026-09-20，输入行为层第一片）：先确认了一件决定工作量的事——两个仓库用的是同一个引擎 `github.com/metasequoiaime/MSIME-Engine`，来源以 submodule 锁在 `6bd22549`，本仓以 `engine-lock.json` 锁在 `0531d421`，而后者比前者**新 467 个提交**（来源那个 commit 是本仓的祖先）。所以候选生成、分词、词库这些引擎行为不存在「缺失」，本仓跑的是同一引擎的更新版本；行为差异只可能出在宿主怎么驱动它。本仓的候选快照字段（candidates / candidate_codes / candidate_annotations / candidate_sources / candidate_positions / candidate_corrected）也与来源 `CandidateViewItem` 的 text/annotation/badge/translation/fixed_position 一一对应，并多一个纠错标记。
 
 据此查到一处真实差异并修掉：引擎会把一部分候选扣在初始结果之后，要调 `expand_initial_candidates` 才放出来，而运行时里这个调用只有一处——`expand_for_next_page`，只在 `Action::NextPage` 时触发。翻页的宿主能拿到，改为「一次列出全部」的触屏宿主则永远拿不到。`all_candidates()` 是 `&self`，只读 `self.cached`。实测（`withholding_runtime(12, 8, 5)`）：翻页前 `all_candidates()` 返回 12 条，翻页到底后返回 20 条——号称「全部」的面板少了 8 条，正好是引擎扣住的那批。HarmonyOS 的触屏路径用的就是 `allCandidates`（`KeyboardSession.ets`，注释写明沿用 iOS 的做法放弃翻页），所以这 8 条在触屏上无法通过任何操作到达。现让 `all_candidates()` 先扩充再返回：这个调用本身就是「把全部给我」。扩充失败不致命，调用方仍拿到已有的那一代。
