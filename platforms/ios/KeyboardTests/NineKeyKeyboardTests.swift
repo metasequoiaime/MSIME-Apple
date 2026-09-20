@@ -1601,10 +1601,15 @@ final class NineKeyKeyboardTests: XCTestCase {
       for letter in input { snapshot = bridge.handleCharacter(String(letter)) }
       XCTAssertNil(snapshot.diagnosticText, "Provider \(trigger)")
       XCTAssertFalse(snapshot.candidates.isEmpty, "Provider \(trigger)")
-      if trigger == "Y" { XCTAssertGreaterThan(snapshot.candidates.count, 1) }
       if trigger == "K" { XCTAssertTrue(snapshot.candidates.contains("永远滴神")) }
       _ = bridge.cancel()
     }
+
+    // The English provider completes a prefix instead of only matching the whole word. A typed-out "hello" no longer shows that: the curated word list ranks twenty thousand words by frequency, so the rare inflections the old ECDICT dump carried alongside it are gone and the exact match stands alone. A prefix is what the behaviour was ever about.
+    _ = bridge.openLocalMode("Y")
+    for letter in "hel" { snapshot = bridge.handleCharacter(String(letter)) }
+    XCTAssertGreaterThan(snapshot.candidates.count, 1, "The English provider stopped completing a prefix.")
+    _ = bridge.cancel()
   }
 
   func testNineKeyInputAndLayoutSwitches() throws {
