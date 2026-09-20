@@ -3362,7 +3362,10 @@ export function SettingsPage({
           )}
         </header>
       )}
-      <div className="settings-body">
+      <div
+        className="flex min-h-0 min-w-0 flex-1 overflow-hidden max-phone:flex-col"
+        data-settings-body=""
+      >
         {/* A bottom tab bar. `order-2` seats it below the content while the DOM keeps it ahead, so
             assistive technology and keyboard focus still reach the navigation first, and the bottom
             padding clears the gesture inset. Hidden above phone width, where the sidebar serves. */}
@@ -3438,10 +3441,14 @@ export function SettingsPage({
           ))}
           <p className="preview-label">客户端预览版</p>
         </nav>
-        <main id="settings-content" aria-labelledby="page-title">
-          <div className="content">
-            <header className="content-header">
-              <h1 id="page-title">
+        <main
+          id="settings-content"
+          className="min-h-0 min-w-0 flex-1 overflow-y-auto pt-0 pr-6 pb-0 pl-4 [scrollbar-gutter:stable] max-phone:px-2"
+          aria-labelledby="page-title"
+        >
+          <div className="mx-auto mt-0.5 mb-0 w-full max-w-[900px] p-3 max-phone:px-1 max-phone:py-3">
+            <header className="mb-2 flex items-center gap-2.5 pt-0 pr-6 pb-3 pl-[0.5em]">
+              <h1 className="m-0 text-lg font-medium" id="page-title">
                 {availablePages.find((item) => item.id === page)?.title ?? "外观"}
               </h1>
             </header>

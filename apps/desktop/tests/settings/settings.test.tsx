@@ -134,7 +134,7 @@ test("titlebar sits above the shared sidebar and content body", async () => {
     />,
   );
   await screen.findByRole("button", { name: "保存设置" });
-  const body = mounted.container.querySelector(".settings-body")!;
+  const body = mounted.container.querySelector("[data-settings-body]")!;
   expect(body.contains(screen.getByRole("navigation", { name: "设置分类" }))).toBe(true);
   expect(body.contains(screen.getByRole("main"))).toBe(true);
   expect(body.contains(screen.getByRole("banner", { name: "窗口控制" }))).toBe(false);
