@@ -165,6 +165,13 @@ python3 scripts/test-installer-prerequisites.py || fail "installer prerequisites
 note "windows x86 syntax"
 python3 scripts/test-windows-32bit-compile.py || fail "windows x86 syntax"
 
+# The HarmonyOS settings window is a WebView over a generated bundle that is
+# committed to the repository and that nothing rebuilds. It drifted for
+# fifty-two commits of shared UI before anyone looked, and a stale bundle is a
+# working bundle: the window renders, it simply renders last month's UI.
+note "harmony settings bundle"
+python3 scripts/test-harmony-settings-bundle.py || fail "harmony settings bundle"
+
 note "compile: rust workspace"
 # The desktop app's Tauri config lists the platform IME bundle as a packaged
 # resource, and Tauri's build script fails when a listed resource is absent. On
