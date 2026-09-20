@@ -25,6 +25,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
         // Taken before the options are consumed, and kept separate from the engine's own paths.
         let sentence_model_path = options.sentence_model.clone();
         let settled_model_path = options.settled_model.clone();
+        let phrase_preedit = options.phrase_preedit.unwrap_or(false);
         let options = options.into_engine_options();
         let dictionary_access = DictionaryAccess::try_session(
             std::path::Path::new(&options.user_data),
@@ -53,6 +54,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
         let mut runtime =
             Runtime::new_with_touch_layout(engine, page_size, applied.touch_keyboard_layout)
                 .map_err(|e| e.to_string())?;
+        runtime.set_phrase_preedit(phrase_preedit);
         runtime.set_reranker(
             sentence_model(&options.dictionaries, sentence_model_path.as_deref())
                 .map(Reranker::new),

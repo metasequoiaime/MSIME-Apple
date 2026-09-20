@@ -444,6 +444,28 @@ int main() {
         assert([client.marked isEqual:@"shi"] && client.selection.location == 1);
         MSIMEApplyTransition(@{@"commit": NSNull.null, @"view": @{@"editing_text": @"", @"caret_position": @5}}, client);
         assert([client.committed isEqual:@"你好"] && client.marked.length == 0 && client.selection.location == 0);
+        // A phrase put together out of several selections: the piece already chosen leads the marked
+        // text instead of going to the document, and the caret sits past it. The runtime hands it
+        // over as its own field because caret_position counts into the editing text in this host's
+        // string unit, and a prefix of Chinese characters is not the same length in both.
+        MSIMEApplyTransition(@{@"view": @{@"editing_text": @"paobu", @"phrase_prefix": @"海滩",
+                                          @"caret_position": @5}}, client);
+        assert([client.marked isEqual:@"海滩paobu"] && client.selection.location == 7);
+        // The caret inside the remaining reading moves with it.
+        MSIMEApplyTransition(@{@"view": @{@"editing_text": @"paobu", @"phrase_prefix": @"海滩",
+                                          @"caret_position": @2}}, client);
+        assert([client.marked isEqual:@"海滩paobu"] && client.selection.location == 4);
+        // A client that asked for no inline preedit shows none of it, as the reference leaves its
+        // own prefix length at zero for that style.
+        MSIMEApplyTransitionWithPreeditStyle(@{@"view": @{@"editing_text": @"paobu",
+                                                         @"phrase_prefix": @"海滩", @"caret_position": @5}},
+                                             client, MSIMEInlinePreeditStyleEmpty);
+        assert(client.marked.length == 0);
+        // Finishing the phrase sends it out in one piece; the field is gone by then.
+        MSIMEApplyTransition(@{@"commit": @"海滩跑步", @"view": @{@"editing_text": @"", @"caret_position": @0}},
+                             client);
+        assert([client.committed isEqual:@"海滩跑步"] && client.marked.length == 0);
+
         // Shuangpin full-pinyin display must not expose the raw key sequence.
         MSIMEApplyTransition(@{@"view": @{@"editing_text": @"b;", @"preedit": @"bing", @"caret_position": @2}}, client);
         assert([client.marked isEqual:@"bing"] && client.selection.location == 4);

@@ -63,6 +63,13 @@ char *msime_client_prepare_host(const uint8_t *options, size_t length);
  * profiles: xiaohe, ziranma, shoudao, microsoft. Unknown values are rejected.
  * Optional preferences_directory is bootstrap metadata for host file monitoring;
  * session creation itself does not monitor or load it.
+ * Optional phrase_preedit=true asks for a half-composed phrase to stay in the
+ * composition: picking a candidate that covers only part of the input leaves the
+ * chosen piece in view.phrase_prefix instead of committing it, and the whole
+ * phrase commits at once when the composition ends. The host must draw that
+ * field ahead of editing_text - it is separate because caret_position is an
+ * offset into editing_text in the host's own string unit. Omitted means each
+ * piece is committed as it is picked, as before.
  * The host must prepare and validate its dictionary generation before creation.
  * Creation acquires cooperative shared access to user_data and dictionaries until
  * destroy. It fails immediately while a participating maintenance writer holds
