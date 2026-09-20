@@ -147,7 +147,7 @@
 | 外部皮肤目录入口 | `pages/Settings.ets` 的 `importSkinFolder` + `skin/SkinImportPolicy.ts`；能力位 `skin_directory_import` 决定按钮文案 | 逻辑回归 + UI 回归；选择器未在设备上走 |
 | 设置窗口本体 | `pages/Settings.ets` 的 WebView 加载 `apps/harmony` 构建的共享 `SettingsPage` | 构建产物防漂移校验（`scripts/test-harmony-settings-bundle.py`） |
 | 设置窗口冷启动 | 共享 `SettingsStartupPage` | 逻辑回归；此前为纯白窗口最多 5 秒 |
-| 开机引导（启用输入法、选为当前） | 共享 `WelcomeFlowPage` + `input/OnboardingStatePolicy.ts` | 逻辑回归；真实系统界面跳转未在设备上走 |
+| 开机引导（启用输入法、选为当前） | 共享 `WelcomeFlowPage` + `input/OnboardingStatePolicy.ts` | **设备上验证**：全新安装未启用时渲染「1/4 欢迎使用水杉」 |
 | 服务守护、安装、卸载 | 不适用：扩展生命周期由系统管理 | — |
 | `Ctrl+Shift+Alt+R`/`+T`（重启/退出服务） | 不适用：本宿主没有独立服务进程 | — |
 | 用户词库日志回放（`MetasequoiaImeDictionaryReplay`） | 不适用：来源随安装包分发该 CLI 但设置界面不暴露它；HarmonyOS 应用无用户可调用的命令行，而在设置页加入口等于给本宿主一个来源没有的功能 | — |
@@ -211,6 +211,12 @@ composing key produced no composition: scheme=quanpin local=none english=false c
 悬浮工具栏核对过两项声称，均成立。`FloatingToolbarLayout.scale` 的注释写着"匹配 Windows 工具栏的四档缩放"，核对来源 `floating-toolbar.ts` 的 `normalizeScaleKey`：确实只有 0.75 / 1 / 1.25 / 1.5 四档且其余一律归为 1，本宿主的实现与之逐项相同。图标字号方面，共享设置页给出的选项正是 16、18、20、22、24、26、28，与本宿主的 16..28 与默认 24 完全吻合——共享文档把 `scale_percent` 校验到 50..200、`font_size` 校验到 12..48，那是文档容许范围，不是界面给得出的值。
 
 工具栏的**度量**则与来源不同，这是有意的而非缺陷，记在这里以便后面真要做设计决定时有个出处：来源的 `ui-html/webview2/ftb` 用 `--ftb-bar-height: 35px`、`--ftb-icon-size: 24px`、`--ftb-gap: 6px`、左右内边距 8/4（左侧留给拖动手柄）；本宿主用 44 / 42 / 10.5 与对称的 10，且文件头写明"Ported from platforms/macos/src/FloatingToolbarPanel.mm, including the arithmetic"。也就是说它跟的是 macOS 而不是 Windows。在一台既有触摸又有鼠标的 2in1 上把图标压到 24px 是否合适，是产品判断，不在此单方面改动。
+
+设备上跑本次新增的三项功能时，暴露出一个此前无人发现的桥接缺陷，影响面远大于这三项：`javaScriptProxy` 分 `methodList`（同步）与 `asyncMethodList`（异步）两张表，而本仓库把**全部方法都注册进了同步表**，其中六个是早就存在的异步方法——`account`、`cloudDictionary`、`cloudDictionarySnapshot`、`aiModels`、`aiTest`、`testApiCredential`。异步方法注册在同步表里，页面拿到的不是它的返回值。开机引导正是这样失效的：宿主日志打印「opening welcome flow」，页面却画出设置页，因为那次查询的回复页面读不到，被 `catch` 兜成了「不需要引导」。
+
+两条官方异步注册路径在本机的 API 23 模拟器上都不可用：属性形式的 `asyncMethodList` 与 `registerJavaScriptProxy` 的第四参数都让 Promise 永不兑现，页面停在启动页。两者都在设备上试过。因此本宿主自己的三个方法改为不走异步桥接——引导状态由宿主在窗口创建时算好、页面同步读取且回复带 `ready` 标志以免竞态，选择器与皮肤导入改为同步发起、结果不经返回值传递。
+
+那六个早就存在的异步方法仍未修复：它们带参数且要做网络往返，无法照搬这个办法，需要另一套机制（例如宿主用 `runJavaScript` 回推结果，就像偏好变更通知那样）。这一条记在这里，因为它意味着账号、云词库与 AI 相关的设置项在本宿主上很可能一直没有真正工作过。
 
 外部皮肤目录此前是一处缺口，现已按平台自己的方式补上。来源的 `skin_directory::open` 有 `#[cfg(target_os = "windows")]` 分支，所以"打开皮肤目录"是来源实实在在有的功能；共享皮肤页把它渲染成一个按钮，并按 `disabled={!openDirectory}` 决定可用性。本宿主不提供该成员，于是那个按钮**渲染出来但永远点不动**。
 

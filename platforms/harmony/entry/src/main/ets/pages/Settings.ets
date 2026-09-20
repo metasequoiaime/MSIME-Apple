@@ -65,6 +65,8 @@ interface RevisionReply {
 interface OnboardingReply {
   ok: boolean;
   value: boolean;
+  /** False until the answer has been computed; the page waits rather than acting on a default. */
+  ready: boolean;
   error: string;
 }
 
@@ -349,6 +351,9 @@ struct Settings {
   aboutToAppear(): void {
     this.bridge.attach(this.context);
     this.bridge.useWebview(this.controller);
+    // Started here rather than on demand: the page reads the answer synchronously, and the reply
+    // carries whether it is ready so the page waits instead of acting on a default.
+    this.bridge.prepareOnboarding();
     EntryAbility.onActivated = (): void => this.bridge.refreshPreferencesIfChanged();
   }
 
@@ -364,18 +369,26 @@ struct Settings {
         .javaScriptAccess(true)
         .domStorageAccess(true)
         .fileAccess(true)
-        // Registered before the first load, so the page finds it already there rather than racing it.
-        .javaScriptProxy({
-          object: this.bridge,
-          name: BRIDGE_NAME,
-          methodList: ['loadPreferences', 'savePreferences', 'hostCapabilities', 'appVersion',
-            'scanSkinCatalog', 'readSkinImage', 'readSkinFont', 'readSkinToolbarCss',
-            'dictionary', 'account', 'cloudDictionary', 'cloudDictionaryDownload', 'cloudDictionarySnapshot',
-            'typingStatistics', 'aiModels', 'aiTest', 'testApiCredential', 'openExternalUrl', 'copyText',
-            'openSystemKeyboardSettings', 'listVoiceCaptureDevices', 'listFontFamilies',
-            'keyboardFeedback', 'customTranslations', 'onboardingStatus', 'showInputMethodPicker',
-            'importSkinFolder'],
-          controller: this.controller
+        // Registered through the controller rather than the attribute: the attribute form takes an
+        // async list but never settles the promises it hands the page, which is worse than the bug
+        // it was meant to fix — the page hangs on its startup screen instead of quietly receiving
+        // nothing. onControllerAttached runs before the first load, so the page still finds the
+        // object already there rather than racing it.
+        .onControllerAttached(() => {
+          try {
+            this.controller.registerJavaScriptProxy(this.bridge, BRIDGE_NAME,
+              ['loadPreferences', 'savePreferences', 'hostCapabilities', 'appVersion',
+                'scanSkinCatalog', 'readSkinImage', 'readSkinFont', 'readSkinToolbarCss',
+                'dictionary', 'cloudDictionaryDownload',
+                'typingStatistics', 'openExternalUrl', 'copyText',
+                'openSystemKeyboardSettings', 'listVoiceCaptureDevices', 'listFontFamilies',
+                'keyboardFeedback', 'customTranslations', 'onboardingStatus',
+                'showInputMethodPicker', 'importSkinFolder'],
+              ['account', 'cloudDictionary', 'cloudDictionarySnapshot',
+                'aiModels', 'aiTest', 'testApiCredential']);
+          } catch (error) {
+            KeyboardLog.error(`settings bridge not registered: ${describeError(error)}`);
+          }
         })
         .width('100%')
         .height('100%')
@@ -396,6 +409,8 @@ class SettingsBridge {
   // What the page was last handed, so an activation can tell a changed document from an unchanged
   // one. -1 until the page has loaded once, which never compares equal to a real revision.
   private observedRevision: number = -1;
+  private onboardingRequired: boolean = false;
+  private onboardingReady: boolean = false;
   // Needed to hand the page a document: the bridge is called from the page, but this one call goes
   // the other way.
   private webview: web_webview.WebviewController | undefined = undefined;
@@ -489,7 +504,21 @@ class SettingsBridge {
    * stylesheet inside one and refuses anything else, so importing a single file would import
    * something the catalog would then decline to list.
    */
-  async importSkinFolder(): Promise<string> {
+  /**
+   * Starts the skin import and answers at once.
+   *
+   * Like the picker, the page cannot wait for this: a bridge method that returns a Promise never
+   * settles on this platform build, so an awaited import would leave the button reading 正在导入
+   * forever. The panel's own rescan is what shows the result.
+   */
+  importSkinFolder(): string {
+    this.runSkinImport().catch((error: Object): void => {
+      KeyboardLog.error(`skin import failed: ${describeError(error)}`);
+    });
+    return JSON.stringify({ ok: true, value: '', error: '' } as TextReply);
+  }
+
+  private async runSkinImport(): Promise<string> {
     if (this.context === undefined) {
       return JSON.stringify({ ok: false, error: 'settings context unavailable' } as TextReply);
     }
@@ -1478,7 +1507,27 @@ class SettingsBridge {
    * "unknown", which the policy reads as "show settings" rather than sending a long-time user back
    * to a welcome screen because one system call did not answer.
    */
-  async onboardingStatus(): Promise<string> {
+  /**
+   * Whether setup still has a step left, from a value computed before the page asked.
+   *
+   * Synchronous on purpose. A bridge method that returns a Promise is delivered to the page through
+   * a channel that does not settle on this platform build — registered in the sync list the page
+   * receives something it cannot await, and registered in the async list, by either the attribute or
+   * the controller, the promise never resolves and the page waits on its startup screen forever.
+   * Both were tried on a device. So the answer is prepared while the window is being created and
+   * handed over as a plain value.
+   *
+   * Not yet computed reads as "no onboarding", which is the safe direction: the settings page is
+   * reachable from the welcome flow and the welcome flow is not reachable from settings.
+   */
+  onboardingStatus(): string {
+    return JSON.stringify({
+      ok: true, value: this.onboardingRequired, ready: this.onboardingReady, error: ''
+    } as OnboardingReply);
+  }
+
+  /** Computes the answer the page will read. Called before the page is shown. */
+  async prepareOnboarding(): Promise<void> {
     let enabled: ImeEnabledState | null = null;
     try {
       const state: inputMethod.EnabledState =
@@ -1506,9 +1555,8 @@ class SettingsBridge {
       enabled: enabled, currentBundle: current, ownBundle: own
     };
     KeyboardLog.info(`onboarding: ${OnboardingStatePolicy.describe(state)}`);
-    return JSON.stringify({
-      ok: true, value: OnboardingStatePolicy.required(state), error: ''
-    } as OnboardingReply);
+    this.onboardingRequired = OnboardingStatePolicy.required(state);
+    this.onboardingReady = true;
   }
 
   /**
@@ -1518,17 +1566,21 @@ class SettingsBridge {
    * Windows has neither — there is nothing to pick — which is why this sits behind the shared
    * welcome flow's action rather than anywhere in the settings page itself.
    */
-  async showInputMethodPicker(): Promise<string> {
-    try {
-      await inputMethod.getSetting().showOptionalInputMethods();
-      return JSON.stringify({ ok: true, value: true, error: '' } as OnboardingReply);
-    } catch (error) {
+  /**
+   * Opens the system keyboard picker and answers at once.
+   *
+   * The page has nothing to do with the result — the picker is a system screen and the user's
+   * choice shows up in the onboarding state next time it is read — and an answer that never
+   * arrives would leave the welcome flow's button spinning. A refusal is logged rather than
+   * returned for the same reason.
+   */
+  showInputMethodPicker(): string {
+    inputMethod.getSetting().showOptionalInputMethods().catch((error: Object): void => {
       KeyboardLog.error(`keyboard picker would not open: ${describeError(error)}`);
-      return JSON.stringify({
-        ok: false, value: false, error: '无法打开输入法选择'
-      } as OnboardingReply);
-    }
+    });
+    return JSON.stringify({ ok: true, value: true, ready: true, error: '' } as OnboardingReply);
   }
+
 
   /** Where the user turns the keyboard on, which is a system screen rather than one of ours. */
   openSystemKeyboardSettings(): void {
