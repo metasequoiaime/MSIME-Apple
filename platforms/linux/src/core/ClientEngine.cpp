@@ -5,6 +5,7 @@
 #include "HelpcodeDefaults.h"
 #include "NavigationBindings.h"
 #include "NativeCompose.h"
+#include "SmartPunctuationSpace.h"
 #include "WordCharacterBinding.h"
 #include "../voice/VoiceAction.h"
 #include "../voice/VoiceWorker.h"
@@ -238,6 +239,7 @@ struct State {
   bool wubi_code_hint = true;
   bool smart_punctuation = true;
   bool smart_punctuation_repeat = true;
+  bool smart_punctuation_space_convert = false;
   bool paired_punctuation = true;
   bool pure_shift_candidate = false;
   bool pure_ctrl_candidate = false;
@@ -270,6 +272,16 @@ struct State {
   // A deleted ASCII smart mark keeps this caret position on the Chinese path
   // when the same key is immediately retyped, matching the Windows behavior.
   char smart_punctuation_rejected = 0;
+  // The ASCII key whose Chinese mark Engine just committed with nothing
+  // composing. A bare Space arriving next takes that mark back to ASCII; any
+  // other key disarms it. `space_convert_preceding` is the character that stood
+  // in front of the mark when it was committed - the document usually holds the
+  // same mark in several places, and moving the caret inside one window is not
+  // a focus change, so the rewrite re-reads both characters before touching
+  // anything. An empty value means the mark was committed at the start of the
+  // document and there is nothing to fingerprint.
+  char space_convert_mark = 0;
+  std::string space_convert_preceding;
   std::string punctuation_lock = "follow";
   std::string preedit_style = "raw";
   std::optional<guint> candidate_text_color, candidate_background_color;
@@ -462,6 +474,8 @@ struct State {
     last_smart_punctuation = 0;
     last_smart_punctuation_time = 0;
     smart_punctuation_rejected = 0;
+    space_convert_mark = 0;
+    space_convert_preceding.clear();
     paired_tracker.clear();
   }
   void open() {
@@ -594,6 +608,8 @@ struct State {
         options.at("preferences").value("chinese_punctuation", true));
     smart_punctuation = smart_punctuation_override.value_or(preferences.value("smart_punctuation", true));
     smart_punctuation_repeat = smart_repeat_override.value_or(preferences.value("smart_punctuation_repeat", true));
+    smart_punctuation_space_convert =
+        preferences.value("smart_punctuation_space_convert", false);
     paired_punctuation = options.at("preferences").value("paired_punctuation", true);
     punctuation_lock = preferences.value("punctuation_lock", "follow");
     if (punctuation_lock == "chinese")
@@ -664,6 +680,8 @@ struct State {
         preferences.value("smart_punctuation", true));
     smart_punctuation_repeat = smart_repeat_override.value_or(
         preferences.value("smart_punctuation_repeat", true));
+    smart_punctuation_space_convert =
+        preferences.value("smart_punctuation_space_convert", false);
     paired_punctuation = paired_punctuation_override.value_or(
         preferences.value("paired_punctuation", true));
     punctuation_lock = punctuation_lock_override.value_or(
@@ -683,6 +701,11 @@ struct State {
       last_smart_punctuation = 0;
       last_smart_punctuation_time = 0;
       smart_punctuation_rejected = 0;
+    }
+    if (!smart_punctuation || !smart_punctuation_space_convert ||
+        !chinese_punctuation) {
+      space_convert_mark = 0;
+      space_convert_preceding.clear();
     }
     traditional_output = traditional_output_override.value_or(
         preferences.value("traditional_chinese_output", false));
@@ -1532,6 +1555,30 @@ bool smart_punctuation_repeat_matches_document(const State &s) {
          s.surrounding_text.compare(cursor - previous.size(), previous.size(),
                                     previous) == 0;
 }
+// The `count` code points standing in front of the caret, oldest first. A
+// shorter result means the document starts there; std::nullopt means the caret
+// is not a plain insertion point or the host published no usable text, which is
+// not the same thing as "nothing precedes it".
+std::optional<std::vector<std::string>> surrounding_preceding_characters(
+    const State &s, std::size_t count) {
+  if (!s.surrounding_valid || s.surrounding_cursor != s.surrounding_anchor)
+    return std::nullopt;
+  auto offset = surrounding_byte_offset(s, s.surrounding_cursor);
+  if (offset > s.surrounding_text.size())
+    return std::nullopt;
+  const auto *begin = s.surrounding_text.c_str();
+  std::vector<std::string> characters;
+  while (characters.size() < count && offset > 0) {
+    const auto *end = begin + offset;
+    const auto *start = g_utf8_find_prev_char(begin, end);
+    if (!start)
+      return std::nullopt;
+    characters.emplace(characters.begin(), start,
+                       static_cast<std::size_t>(end - start));
+    offset = static_cast<std::size_t>(start - begin);
+  }
+  return characters;
+}
 std::optional<std::string> surrounding_following_character(const State &s) {
   if (!s.surrounding_valid || s.surrounding_cursor != s.surrounding_anchor)
     return std::nullopt;
@@ -1545,6 +1592,47 @@ std::optional<std::string> surrounding_following_character(const State &s) {
     return std::nullopt;
   const auto *end = g_utf8_next_char(start);
   return std::string(start, static_cast<std::size_t>(end - start));
+}
+// A Space right after a Chinese mark the user did not want takes that mark back
+// to ASCII. It re-reads the document first for the reason the source's own fix
+// records: the same mark usually stands in more than one place, and moving the
+// caret inside a window is not a focus change, so the mark in front of the
+// caret has to still be the one that was committed and has to still follow the
+// character it followed. The Space itself is never consumed here - it reaches
+// Engine and the editor exactly as it otherwise would.
+bool convert_smart_punctuation_space(IBusEngine *engine) {
+  auto &s = state(engine);
+  const char mark = s.space_convert_mark;
+  const auto expected_preceding = std::move(s.space_convert_preceding);
+  s.space_convert_mark = 0;
+  s.space_convert_preceding.clear();
+  if (mark == 0 || !s.smart_punctuation || !s.smart_punctuation_space_convert ||
+      !s.chinese_punctuation)
+    return false;
+  if (!s.view.value("editing_text", std::string{}).empty() ||
+      !s.view.value("candidates", Json::array()).empty())
+    return false;
+  const auto *chinese = smart_punctuation_pair(mark);
+  if (!chinese)
+    return false;
+  const auto characters = surrounding_preceding_characters(s, 2);
+  if (!characters || !msime::linux_host::space_conversion_matches_document(
+                         chinese, expected_preceding, *characters))
+    return false;
+  ibus_engine_delete_surrounding_text(engine, -1, 1);
+  // The mark was replaced in the editor, not appended.
+  if (!s.ai_context.empty()) {
+    std::size_t last = s.ai_context.size() - 1;
+    while (last > 0 &&
+           (static_cast<unsigned char>(s.ai_context[last]) & 0xc0) == 0x80)
+      --last;
+    s.ai_context.erase(last);
+  }
+  auto replacement = std::string(1, mark);
+  if (s.fullwidth)
+    replacement = fullwidth_text(std::move(replacement));
+  commit_text(engine, replacement);
+  return true;
 }
 bool try_skip_paired_closing(IBusEngine *engine, guint key, guint flags) {
   auto &s = state(engine);
@@ -5466,6 +5554,12 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
              s.smart_punctuation_rejected != static_cast<char>(key)) {
     s.smart_punctuation_rejected = 0;
   }
+  // Only a Space arriving immediately after the mark, with nothing in between,
+  // can take it back; anything else means the user moved on.
+  if (s.space_convert_mark != 0 && !(key == IBUS_space && modifiers == 0)) {
+    s.space_convert_mark = 0;
+    s.space_convert_preceding.clear();
+  }
   bool handled = false;
   const auto fullwidth_idle_commit = [&](guint value) {
     if (!s.fullwidth || value < 0x21 || value > 0x7e)
@@ -6048,12 +6142,29 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     if (key >= 0x21 && key <= 0x7e &&
         std::ispunct(static_cast<unsigned char>(ascii)) != 0 &&
         (ascii != '\'' || !has_composition)) {
+      // Engine is about to commit the Chinese mark for this key. Record what
+      // the caret follows now, while the document still predates the commit;
+      // a Space arriving next checks both characters before rewriting either.
+      const bool arm_space_convert =
+          s.smart_punctuation && s.smart_punctuation_space_convert &&
+          s.chinese_punctuation && is_smart_punctuation_key(key) &&
+          !has_composition && !candidate_active;
+      std::string armed_preceding;
+      if (arm_space_convert) {
+        const auto preceding = surrounding_preceding_characters(s, 1);
+        if (preceding && !preceding->empty())
+          armed_preceding = preceding->front();
+      }
       handled = apply(engine, msime_client_punctuation(
           s.session, static_cast<uint8_t>(ascii)));
       if (!handled)
         handled = fullwidth_idle_commit(key);
       if (is_smart_punctuation_key(key))
         s.smart_punctuation_rejected = 0;
+      if (arm_space_convert && handled) {
+        s.space_convert_mark = ascii;
+        s.space_convert_preceding = std::move(armed_preceding);
+      }
       return;
     }
     if (!s.view.at("candidates").empty() &&
@@ -6079,6 +6190,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       command = MSIME_CANCEL;
       break;
     case IBUS_space:
+      if (modifiers == 0)
+        (void)convert_smart_punctuation_space(engine);
       if (s.fullwidth && !has_composition && !candidate_active) {
         commit_text(engine, "\xe3\x80\x80");
         handled = true;
