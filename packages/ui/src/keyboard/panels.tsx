@@ -718,7 +718,9 @@ export function KeyboardPanel({
     // synthetic test/event turn. Update the visible faces eagerly so the
     // keyboard remains truthful between those two events.
     if (typeof document === "undefined") return;
-    const buttons = document.querySelectorAll<HTMLButtonElement>(".keyboard-layout .keyboard-key");
+    const buttons = document.querySelectorAll<HTMLButtonElement>(
+      "[data-keyboard-layout-grid] .keyboard-key",
+    );
     rows.flat().forEach((item, index) => {
       const button = buttons[index];
       if (!button) return;
@@ -886,10 +888,9 @@ export function KeyboardPanel({
   const skinStyle = keyboardSkinStyles(theme, skin, customDesign);
   const renderedModifiers = modifiersRef.current;
   const keyMaterial = skin === "custom" ? (customDesign?.keyMaterial ?? "flat") : "flat";
-  const materialClass = keyMaterial === "flat" ? "" : ` material-${keyMaterial}`;
   return (
     <main
-      className="native-panel keyboard-panel"
+      className={`native-panel ${surface.keyboardPanel}`}
       style={skinStyle}
       data-keyboard-theme={theme}
       data-keyboard-skin={skin}
@@ -897,8 +898,8 @@ export function KeyboardPanel({
       data-keyboard-layout={activeLayout}
       aria-label="屏幕键盘"
     >
-      <header className="native-panel-header" {...drag}>
-        <span className="keyboard-panel-notice" role="status" title={notice}>
+      <header className={`native-panel-header ${surface.keyboardHeader}`} {...drag}>
+        <span className={surface.keyboardNotice} role="status" title={notice}>
           {notice}
         </span>
         <button type="button" aria-label="切换键盘布局" onClick={switchLayout}>
@@ -918,10 +919,10 @@ export function KeyboardPanel({
           ×
         </button>
       </header>
-      <div className="keyboard-panel-body">
-        <div className="keyboard-layout" style={keyboardStyle}>
+      <div className={surface.keyboardBody}>
+        <div className={surface.keyboardLayout} data-keyboard-layout-grid="" style={keyboardStyle}>
           {rows.map((row, rowIndex) => (
-            <div className="keyboard-row" key={rowIndex}>
+            <div className={surface.keyboardRow} data-keyboard-row="" key={rowIndex}>
               {row.map((keyToRender, keyIndex) => {
                 const letter = keyToRender.label.length === 1 && /[a-z]/i.test(keyToRender.label);
                 const shifted = renderedModifiers.has("Shift") && keyToRender.label.length === 1;
@@ -947,7 +948,14 @@ export function KeyboardPanel({
                     aria-pressed={
                       keyToRender.modifier ? renderedModifiers.has(keyToRender.modifier) : undefined
                     }
-                    className={`keyboard-key${materialClass}${keyToRender.modifier ? " modifier" : ""}${keyToRender.label === "Space" ? " space" : ""}${keyToRender.label.length > 1 ? " wide" : ""}${keyToRender.modifier && renderedModifiers.has(keyToRender.modifier) ? " active" : ""}`}
+                    data-key-material={keyMaterial}
+                    className={`keyboard-key ${surface.keyboardKey({
+                      material: keyMaterial,
+                      active: Boolean(
+                        keyToRender.modifier && renderedModifiers.has(keyToRender.modifier),
+                      ),
+                      wide: keyToRender.label.length > 1,
+                    })}`}
                     onPointerDown={(event) => beginPointerKey(event, keyToRender)}
                     onPointerUp={stopKeyRepeat}
                     onPointerCancel={stopKeyRepeat}

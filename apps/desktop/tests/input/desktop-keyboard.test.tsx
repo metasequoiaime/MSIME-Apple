@@ -185,7 +185,9 @@ test("keyboard applies selected built-in and custom skin preferences", async () 
   expect(main.getAttribute("data-keyboard-material")).toBe("raised");
   expect(main.style.getPropertyValue("--kb-key-radius")).toContain("42%");
   expect(main.style.getPropertyValue("--kb-key-fill")).toContain("0.45");
-  expect(main.querySelector(".keyboard-key")?.className).toContain("material-raised");
+  // The material is a property of the key, not a class name: it decides the fill, the lift and the
+  // shadow together, so the key carries it as data rather than as styling a test has to decode.
+  expect(main.querySelector(".keyboard-key")?.getAttribute("data-key-material")).toBe("raised");
   expect(main.style.getPropertyValue("background-image")).toContain("data:image/jpeg;base64,");
   expect(main.style.getPropertyValue("background-image")).toContain("linear-gradient");
   expect(main.style.getPropertyValue("background-position")).toContain("75% 75%");
