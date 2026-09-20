@@ -668,7 +668,10 @@ final class NineKeyKeyboardTests: XCTestCase {
       controller.view.layoutIfNeeded()
       let panel = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardMorePicker" })
       XCTAssertEqual(panel.bounds.height, 260 + KeyboardViewController.stripExtraHeight)
-      for title in ["表情", "剪贴板历史", "AI 润色", "语音结果", "本地输入", "键盘设置"] {
+      // 键盘设置 is not one of these any more: the switches behind it moved onto this page, which
+      // is why the toggles below are read straight off the root rather than through a card. This
+      // list kept asking for the card that level used to be.
+      for title in ["表情", "剪贴板历史", "AI 润色", "语音结果", "本地输入"] {
         let card = try button("moreCard-" + title, in: controller)
         XCTAssertGreaterThan(card.bounds.width, 140)
         XCTAssertEqual(card.bounds.height, 48)
@@ -690,12 +693,27 @@ final class NineKeyKeyboardTests: XCTestCase {
       }
       try button("moreCard-返回工具", in: controller).sendActions(for: .primaryActionTriggered)
       controller.view.layoutIfNeeded()
-      let feedback = try button("moreCard-按键振动", in: controller)
-      XCTAssertLessThanOrEqual(feedback.convert(feedback.bounds, to: panel).maxY, panel.bounds.height)
+      // The 设置 switches sit on the root page rather than behind a card of their own, so the page
+      // is taller than the keyboard and the last row is reached by scrolling. That is the panel's
+      // design - the group header says the switches are there, which is what the local input modes
+      // lacked when they were stranded in the same scroll. So this asks that every switch is laid
+      // out inside the scrollable content rather than that every one is above the fold; a card
+      // that fell outside the content is one nothing can scroll to.
+      let scroll = try XCTUnwrap(descendants(panel).compactMap { $0 as? UIScrollView }.first)
       for title in ["繁体输出", "按键音", "按键振动", "全角输入", "振动强度"] {
         let card = try button("moreCard-" + title, in: controller)
         XCTAssertEqual(card.bounds.height, 48)
-        XCTAssertLessThanOrEqual(card.convert(card.bounds, to: panel).maxY, panel.bounds.height)
+        let frame = card.convert(card.bounds, to: scroll)
+        XCTAssertGreaterThanOrEqual(frame.minY, -0.5, "\(title) is above the scrollable content")
+        XCTAssertLessThanOrEqual(frame.maxY, scroll.contentSize.height + 0.5,
+                                 "\(title) is below the scrollable content")
+      }
+      // The entry cards above them stay on the first screen: the page opens on the tools, and a
+      // tool nobody scrolls to is a tool nobody finds.
+      for title in ["表情", "剪贴板历史", "AI 润色", "语音结果", "本地输入"] {
+        let card = try button("moreCard-" + title, in: controller)
+        XCTAssertLessThanOrEqual(card.convert(card.bounds, to: panel).maxY, panel.bounds.height,
+                                 "\(title) was pushed off the first screen")
       }
       let attachment = XCTAttachment(image: UIGraphicsImageRenderer(bounds: controller.view.bounds).image { context in
         controller.view.layer.render(in: context.cgContext)
@@ -756,7 +774,9 @@ final class NineKeyKeyboardTests: XCTestCase {
         let selected = try XCTUnwrap(buttons.first { $0.accessibilityIdentifier == "schemeCard-nineKey" })
         assertColor(picker.backgroundColor, skin.background)
         assertColor(back.tintColor, skin.accent)
-        assertColor(selected.backgroundColor, skin.accent.withAlphaComponent(0.10))
+        // 0.12 is the source's fill for a selected scheme card; the picker was brought onto it and
+        // this expectation was left on the old 0.10.
+        assertColor(selected.backgroundColor, skin.accent.withAlphaComponent(0.12))
         let labels = selected.subviews.compactMap { $0 as? UILabel }.filter { $0.text?.isEmpty == false }
         XCTAssertEqual(labels.count, 3)
         for label in labels {
@@ -1634,7 +1654,14 @@ final class NineKeyKeyboardTests: XCTestCase {
       for letter in input { snapshot = bridge.handleCharacter(String(letter)) }
       XCTAssertNil(snapshot.diagnosticText, "Provider \(trigger)")
       XCTAssertFalse(snapshot.candidates.isEmpty, "Provider \(trigger)")
-      if trigger == "Y" { XCTAssertGreaterThan(snapshot.candidates.count, 1) }
+      // Temporary English completes what was typed. This used to ask for more than one answer,
+      // which counted rows in the pinned dictionary rather than describing the product: the
+      // release `english.db` now holds exactly one word beginning with "hello", so the count
+      // moved while the behaviour did not.
+      if trigger == "Y" {
+        XCTAssertTrue(snapshot.candidates.contains { $0.lowercased().hasPrefix(input) },
+                      "Provider Y answered \(snapshot.candidates) for \(input)")
+      }
       if trigger == "K" { XCTAssertTrue(snapshot.candidates.contains("永远滴神")) }
       _ = bridge.cancel()
     }
