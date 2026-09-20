@@ -9,4 +9,10 @@
     <string name="keyboard_card_title">我的键盘</string>
     <string name="keyboard_current_look">当前外观</string>
     <string name="keyboard_try">试用键盘</string>
+    <string name="tryout_back">返回</string>
+    <string name="tryout_dismiss_keyboard">收起键盘</string>
+    <string name="tryout_heading">边打字，边试键盘</string>
+    <string name="tryout_body">点下面的输入框就能调出水杉输入法。试试你的皮肤、输入方案和模糊音；这里打的字只留在这一页，不会被读取或保存。</string>
+    <string name="tryout_ai_absent">与 AI 对话还没有接到 Android。模型目录和会话由后端提供，原生宿主尚未实现读取，所以这里不放模型选择——一个选不动的下拉框比没有更糟。</string>
+    <string name="tryout_hint">输入文字，试试键盘</string>
 </resources>

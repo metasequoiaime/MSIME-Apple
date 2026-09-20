@@ -6,7 +6,6 @@ import android.provider.Settings;
 import android.view.LayoutInflater;
 import android.view.View;
 import android.view.ViewGroup;
-import android.view.inputmethod.InputMethodManager;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -33,9 +32,10 @@ public final class KeyboardFragment extends Fragment {
         ((TextView) view.findViewById(R.id.keyboard_summary)).setText(skin + " · " + scheme);
 
         MaterialButton trial = view.findViewById(R.id.keyboard_try);
-        trial.setOnClickListener(ignored -> {
-            requireContext().getSystemService(InputMethodManager.class).showInputMethodPicker();
-        });
+        // The Apple app opens an editor here rather than the system picker: trying the keyboard
+        // means typing with it, and the picker only offers to switch away from it.
+        trial.setOnClickListener(ignored ->
+            startActivity(new Intent(requireContext(), KeyboardTryoutActivity.class)));
 
         List<FeatureAdapter.Feature> features = Arrays.asList(
             new FeatureAdapter.Feature(R.drawable.ic_feature_skin, R.color.tile_pink, "皮肤", skin, null),

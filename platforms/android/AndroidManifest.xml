@@ -9,6 +9,7 @@
             <intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter>
         </activity>
         <activity android:name="app.msime.client.SetupActivity" android:exported="true" />
+        <activity android:name="app.msime.client.home.KeyboardTryoutActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
         <activity-alias android:name=".MainActivityForest" android:targetActivity="app.msime.client.home.HomeActivity" android:icon="@drawable/app_icon_forest" android:enabled="false" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
         <activity-alias android:name=".MainActivitySky" android:targetActivity="app.msime.client.home.HomeActivity" android:icon="@drawable/app_icon_sky" android:enabled="false" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
         <activity-alias android:name=".MainActivityDusk" android:targetActivity="app.msime.client.home.HomeActivity" android:icon="@drawable/app_icon_dusk" android:enabled="false" android:exported="true"><intent-filter><action android:name="android.intent.action.MAIN" /><category android:name="android.intent.category.LAUNCHER" /></intent-filter></activity-alias>
