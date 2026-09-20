@@ -828,6 +828,73 @@ fn credential_provider_socket(document: &Value, service: &str) -> Option<PathBuf
     })?
 }
 
+/// The AI service's model catalogue, by way of the provider that holds its
+/// credential.
+///
+/// The hosts that keep the token in the shell fetch this over HTTP themselves
+/// (`ai::ai_models`). On Linux the token is in the provider's owner-only file by
+/// design, so the shell has nothing to authenticate with and asks the provider
+/// instead. Same command name, so the settings page does not need to know which
+/// host it is on.
+#[cfg(target_os = "linux")]
+#[tauri::command]
+async fn ai_models(
+    runtime: tauri::State<'_, RuntimeOptionsState>,
+    provider: String,
+    endpoint: String,
+) -> Result<Vec<String>, CommandError> {
+    let runtime = runtime.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let document = runtime.snapshot().map_err(|_| CommandError {
+            code: "ai_models_unavailable",
+        })?;
+        let path = credential_provider_socket(&document, "ai.assistant").ok_or(CommandError {
+            code: "ai_models_unavailable",
+        })?;
+        UnixSocketProvider::new(path)
+            .ai_models(&provider, &endpoint)
+            .ok_or(CommandError {
+                code: "ai_models_unavailable",
+            })
+    })
+    .await
+    .map_err(|_| CommandError {
+        code: "ai_models_unavailable",
+    })?
+}
+
+/// One polish request through the user's AI service, for the settings page's test
+/// box. Routed through the provider for the same reason as the model listing.
+#[cfg(target_os = "linux")]
+#[tauri::command]
+async fn ai_test(
+    runtime: tauri::State<'_, RuntimeOptionsState>,
+    provider: String,
+    endpoint: String,
+    model: String,
+    prompt: String,
+    text: String,
+) -> Result<String, CommandError> {
+    let runtime = runtime.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        let document = runtime.snapshot().map_err(|_| CommandError {
+            code: "ai_test_unavailable",
+        })?;
+        let path = credential_provider_socket(&document, "ai.assistant").ok_or(CommandError {
+            code: "ai_test_unavailable",
+        })?;
+        UnixSocketProvider::new(path)
+            .ai_test(&provider, &endpoint, &model, &prompt, &text)
+            .ok_or(CommandError {
+                code: "ai_test_unavailable",
+            })
+    })
+    .await
+    .map_err(|_| CommandError {
+        code: "ai_test_unavailable",
+    })?
+}
+
 #[tauri::command]
 async fn test_api_credential(
     runtime: tauri::State<'_, RuntimeOptionsState>,
@@ -3259,12 +3326,16 @@ pub fn run() {
                 all(test, not(target_os = "android"))
             ))]
             ai::ai_models,
+            #[cfg(target_os = "linux")]
+            ai_models,
             #[cfg(any(
                 target_os = "macos",
                 target_os = "windows",
                 all(test, not(target_os = "android"))
             ))]
             ai::ai_test,
+            #[cfg(target_os = "linux")]
+            ai_test,
             load_preferences,
             load_custom_skin_library,
             mutate_custom_skin_library,
