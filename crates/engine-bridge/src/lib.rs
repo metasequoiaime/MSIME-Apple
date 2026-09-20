@@ -824,6 +824,63 @@ mod tests {
     }
 
     #[test]
+    fn hand_written_glosses_outrank_learned_and_packaged_ones() {
+        // The user's own file wins, and nothing was pinning that. It arrives by a route worth writing
+        // down: translation-glosses.db sits in the user directory the settings page writes
+        // custom_translations.txt to, and EnglishDictionary opened without an explicit translations path
+        // reads its sidecar from beside the database - so the learned store carries the hand-written
+        // entries too, and query_*_gloss answers from them before touching anything else.
+        //
+        // That makes the precedence an emergent property of where two files happen to live. Moving either
+        // one, or giving the learned store an explicit translations path, would silently drop the user's
+        // glosses to the bottom. This test is what would notice.
+        let resources = tempfile::tempdir().unwrap();
+        let user = tempfile::tempdir().unwrap();
+        let database = rusqlite::Connection::open(resources.path().join("english.db")).unwrap();
+        database
+            .execute_batch(
+                "CREATE TABLE english_words(word TEXT,display TEXT,weight INTEGER);
+                 CREATE TABLE en_zh_glosses(english TEXT PRIMARY KEY,chinese_gloss TEXT);
+                 CREATE TABLE zh_en_glosses(chinese TEXT PRIMARY KEY,english_gloss TEXT);
+                 INSERT INTO zh_en_glosses VALUES('测试','packaged gloss');",
+            )
+            .unwrap();
+        let resources_path = resources.path().to_str().unwrap();
+        let user_path = user.path().to_str().unwrap();
+        let candidates = vec![("测试".into(), 0)];
+
+        // Packaged only, to begin with.
+        assert_eq!(
+            candidate_glosses_with_user(resources_path, user_path, &candidates).unwrap(),
+            vec!["packaged gloss"]
+        );
+
+        // A gloss learned from the network outranks the packaged one, which this already guaranteed.
+        assert!(save_candidate_gloss(
+            user_path,
+            true,
+            "测试",
+            "learned gloss"
+        ));
+        assert_eq!(
+            candidate_glosses_with_user(resources_path, user_path, &candidates).unwrap(),
+            vec!["learned gloss"]
+        );
+
+        // What the user wrote outranks both. Anything else means an automatic answer silently replacing
+        // the one they asked for by hand.
+        std::fs::write(
+            user.path().join("custom_translations.txt"),
+            "测试\thand written gloss\n",
+        )
+        .unwrap();
+        assert_eq!(
+            candidate_glosses_with_user(resources_path, user_path, &candidates).unwrap(),
+            vec!["hand written gloss"]
+        );
+    }
+
+    #[test]
     fn unsafe_learned_glosses_fall_back_to_packaged_values() {
         let resources = tempfile::tempdir().unwrap();
         let user = tempfile::tempdir().unwrap();
