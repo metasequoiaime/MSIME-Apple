@@ -3951,6 +3951,43 @@ test("the appearance page follows the reference window's order", async () => {
   expect(ordered.length).toBeGreaterThanOrEqual(10);
 });
 
+test("macOS enables the shuangpin profile menu only under shuangpin", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: { platform: "macos" } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  // The fixture is quanpin, so the choice would change nothing yet.
+  const menu = (await screen.findByRole("combobox", { name: "双拼方案" })) as HTMLSelectElement;
+  expect(menu.disabled).toBe(true);
+  fireEvent.click(screen.getByRole("radio", { name: "双拼" }));
+  expect(menu.disabled).toBe(false);
+  fireEvent.click(screen.getByRole("radio", { name: "全拼" }));
+  expect(menu.disabled).toBe(true);
+});
+
+test("other hosts keep the shuangpin profile menu editable", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: { platform: "windows" } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  const menu = (await screen.findByRole("combobox", { name: "双拼方案" })) as HTMLSelectElement;
+  expect(menu.disabled).toBe(false);
+});
+
 test("macOS sidebar keeps the reference order and groups", async () => {
   render(
     <SettingsPage
