@@ -2,6 +2,7 @@
 // (`SkinCommunityView.swift`, `CommunityGalleryStyle.swift`).
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ScreenKeyboardPreview } from "../keyboard/screen-keyboard-preview";
+import * as style from "./community-style";
 import type {
   CustomSkinLibraryClient,
   SavedTouchKeyboardSkin,
@@ -213,19 +214,19 @@ function CommunitySkinPublishDialog({
   };
 
   return (
-    <div className="community-dialog-backdrop">
+    <div className={style.backdrop}>
       <form
-        className="community-publish-dialog"
+        className={style.dialog}
         role="dialog"
         aria-modal="true"
         aria-label="发布我的皮肤"
         onSubmit={(event) => void submit(event)}
       >
-        <div className="community-dialog-heading">
+        <div className={style.dialogHeading}>
           <h2>发布我的皮肤</h2>
           <button
             type="button"
-            className="community-dialog-close"
+            className={style.dialogClose}
             disabled={busy}
             onClick={onClose}
             aria-label="关闭发布窗口"
@@ -240,13 +241,14 @@ function CommunitySkinPublishDialog({
         )}
         {busy && saved.length === 0 && <p role="status">正在读取我的皮肤…</p>}
         {!busy && saved.length === 0 && (
-          <p className="community-empty">还没有命名保存的皮肤，请先在“设计我的皮肤”中保存一款。</p>
+          <p className={style.notice}>还没有命名保存的皮肤，请先在“设计我的皮肤”中保存一款。</p>
         )}
         {saved.length > 0 && (
           <>
-            <label>
+            <label className={style.field}>
               发布设计
               <select
+                className={style.fieldControl}
                 aria-label="发布设计"
                 value={selectedId}
                 disabled={busy}
@@ -265,13 +267,14 @@ function CommunitySkinPublishDialog({
               </select>
             </label>
             {selected && (
-              <div className="community-publish-preview">
+              <div className={`${style.cardStage} max-h-[220px]`}>
                 <ScreenKeyboardPreview theme="light" skin="custom" customDesign={selected.design} />
               </div>
             )}
-            <label>
+            <label className={style.field}>
               皮肤名称
               <input
+                className={style.fieldControl}
                 aria-label="发布皮肤名称"
                 maxLength={32}
                 value={name}
@@ -282,9 +285,10 @@ function CommunitySkinPublishDialog({
                 }}
               />
             </label>
-            <label>
+            <label className={style.field}>
               设计说明
               <textarea
+                className={style.textArea}
                 aria-label="发布设计说明"
                 maxLength={280}
                 rows={4}
@@ -296,8 +300,9 @@ function CommunitySkinPublishDialog({
                 }}
               />
             </label>
-            <label className="community-publish-agreement">
+            <label className={style.agreement}>
               <input
+                className={style.agreementBox}
                 type="checkbox"
                 aria-label="确认拥有发布素材权利"
                 checked={agreed}
@@ -306,12 +311,12 @@ function CommunitySkinPublishDialog({
               />
               我拥有发布所用素材的权利，并同意其他用户免费下载使用
             </label>
-            <p className="community-publish-warning">
+            <p className={style.warning}>
               发布后设计及照片壁纸将公开。请勿包含私人照片或敏感信息；发布成功后可在“我的作品”中下架。
             </p>
           </>
         )}
-        <div className="community-dialog-actions">
+        <div className={style.dialogActions}>
           <button type="button" className="secondary" disabled={busy} onClick={onClose}>
             取消
           </button>
@@ -336,16 +341,16 @@ function CommunitySkinCard({
   return (
     <button
       type="button"
-      className="community-skin-card"
+      className={style.card}
       aria-label={`查看皮肤 ${skin.name}`}
       onClick={open}
     >
-      <span className="community-skin-preview">
+      <span className={style.cardStage}>
         <ScreenKeyboardPreview theme={theme} skin="custom" customDesign={skin.design} compact />
       </span>
       <strong>{skin.name}</strong>
-      <span className="community-skin-author">{skin.owned ? "我的作品" : skin.author}</span>
-      <span className="community-skin-metrics">
+      <span className={style.cardAuthor}>{skin.owned ? "我的作品" : skin.author}</span>
+      <span className={style.cardMetrics}>
         <span>↓ {skin.downloads.toLocaleString("zh-CN")}</span>
         <span>☆ {rating(skin)}</span>
       </span>
@@ -563,10 +568,10 @@ export function CommunitySkinsPage({
 
   if (selected)
     return (
-      <div className="community-page community-detail-page">
+      <div className={style.page}>
         <button
           type="button"
-          className="community-back"
+          className={style.back}
           disabled={actionBusy}
           onClick={() => void closeDetail()}
           aria-label="返回社区"
@@ -578,35 +583,35 @@ export function CommunitySkinsPage({
             {error}
           </p>
         )}
-        <section className="section community-detail">
-          <div className="community-detail-preview">
+        <section className={`section ${style.detail}`}>
+          <div className={style.detailStage}>
             <ScreenKeyboardPreview theme={theme} skin="custom" customDesign={selected.design} />
           </div>
-          <div className="community-detail-title">
-            <div>
-              <h2>{selected.name}</h2>
-              <p>{selected.author}</p>
+          <div className={style.detailTitle}>
+            <div className={style.headingBody}>
+              <h2 className={style.headingTitle}>{selected.name}</h2>
+              <p className={style.headingNote}>{selected.author}</p>
             </div>
-            {selected.owned && <span>我的作品</span>}
+            {selected.owned && <span className={style.detailBadge}>我的作品</span>}
           </div>
-          {selected.description && <p className="community-description">{selected.description}</p>}
-          <p className="community-detail-metrics">
+          {selected.description && <p className={style.description}>{selected.description}</p>}
+          <p className={style.metrics}>
             {selected.downloads.toLocaleString("zh-CN")} 人下载 · {rating(selected)} ·{" "}
             {selected.rating_count.toLocaleString("zh-CN")} 人评分
           </p>
           {selected.my_rating > 0 && (
-            <p className="community-my-rating">我的评分：{selected.my_rating} 星</p>
+            <p className={style.metrics}>我的评分：{selected.my_rating} 星</p>
           )}
           {detailBusy && <p role="status">正在读取皮肤详情…</p>}
           {actionNotice && (
-            <p role="status" className="community-action-notice">
+            <p role="status" className={style.actionNotice}>
               {actionNotice}
             </p>
           )}
           {!trial && (
             <button
               type="button"
-              className="primary community-action"
+              className={`primary ${style.action}`}
               disabled={actionBusy || detailBusy}
               onClick={() => void download()}
             >
@@ -614,7 +619,10 @@ export function CommunitySkinsPage({
             </button>
           )}
           {trial && (
-            <div className="community-trial-actions" aria-label="皮肤试用">
+            <div
+              className={`${style.divided} grid grid-cols-2 gap-2 [&>p]:col-span-full [&>p]:mt-0 [&>p]:mb-2.5 [&>p]:text-xs [&>p]:text-secondary`}
+              aria-label="皮肤试用"
+            >
               <p>正在试用：{trial.name}</p>
               <button
                 type="button"
@@ -635,14 +643,17 @@ export function CommunitySkinsPage({
             </div>
           )}
           {!selected.owned && (
-            <div className="community-rating-actions" aria-label="我的评分">
+            <div
+              className={`${style.divided} [&>p]:mt-0 [&>p]:mb-2.5 [&>p]:text-xs [&>p]:text-secondary`}
+              aria-label="我的评分"
+            >
               <p>我的评分（下载后可评，可重新选择）</p>
-              <div>
+              <div className="grid grid-cols-5 gap-1.5">
                 {[1, 2, 3, 4, 5].map((stars) => (
                   <button
                     key={stars}
                     type="button"
-                    className="secondary"
+                    className="secondary min-w-0 px-[5px]"
                     disabled={actionBusy}
                     aria-label={`评 ${stars} 星`}
                     onClick={() => void rateSkin(stars)}
@@ -656,7 +667,7 @@ export function CommunitySkinsPage({
           {selected.owned && (
             <button
               type="button"
-              className="danger-text community-unpublish"
+              className="danger-text pt-0"
               disabled={actionBusy || Boolean(trial)}
               onClick={() => setConfirmUnpublish(true)}
             >
@@ -664,7 +675,7 @@ export function CommunitySkinsPage({
             </button>
           )}
           {confirmUnpublish && (
-            <div className="community-confirmation" role="alertdialog" aria-label="确认下架皮肤">
+            <div className={style.confirmation} role="alertdialog" aria-label="确认下架皮肤">
               <p>下架后其他用户无法再下载，已下载的本地皮肤会保留。确定下架“{selected.name}”吗？</p>
               <div>
                 <button
@@ -691,9 +702,9 @@ export function CommunitySkinsPage({
     );
 
   return (
-    <div className="community-page">
+    <div className={style.page}>
       <form
-        className="community-search"
+        className={style.searchRow}
         role="search"
         onSubmit={(event) => {
           event.preventDefault();
@@ -701,20 +712,27 @@ export function CommunitySkinsPage({
         }}
       >
         <input
+          className={style.searchInput}
           aria-label="搜索皮肤设计"
           placeholder="搜索皮肤设计"
           value={search}
           onChange={(event) => setSearch([...event.target.value].slice(0, 128).join(""))}
         />
-        <button type="submit">搜索</button>
+        <button type="submit" className={style.searchSubmit}>
+          搜索
+        </button>
       </form>
-      <div className="community-heading">
-        <div>
-          <h2>{mineOnly ? "你的公开设计" : "换个心情，从键盘开始"}</h2>
-          <p>{mineOnly ? "管理你发布到社区的皮肤" : "发现创作者的配色与巧思，找到你的那一款"}</p>
+      <div className={style.heading}>
+        <div className={style.headingBody}>
+          <h2 className={style.headingTitle}>
+            {mineOnly ? "你的公开设计" : "换个心情，从键盘开始"}
+          </h2>
+          <p className={style.headingNote}>
+            {mineOnly ? "管理你发布到社区的皮肤" : "发现创作者的配色与巧思，找到你的那一款"}
+          </p>
         </div>
-        <div className="community-heading-actions">
-          <div className="community-scope-actions" role="group" aria-label="社区皮肤范围">
+        <div className={style.headingActions}>
+          <div className={style.scopeButtons} role="group" aria-label="社区皮肤范围">
             <button
               type="button"
               className={mineOnly ? "secondary" : "primary"}
@@ -755,7 +773,7 @@ export function CommunitySkinsPage({
         </p>
       )}
       {!listBusy && skins.filter((skin) => !mineOnly || skin.owned).length === 0 && (
-        <p className="community-empty">
+        <p className={style.notice}>
           {mineOnly
             ? hasMore
               ? "当前页没有你的作品，请继续加载查看更多。"
@@ -763,7 +781,7 @@ export function CommunitySkinsPage({
             : "暂时没有匹配的皮肤。"}
         </p>
       )}
-      <div className="community-grid">
+      <div className={style.grid}>
         {skins
           .filter((skin) => !mineOnly || skin.owned)
           .map((skin) => (
@@ -773,7 +791,7 @@ export function CommunitySkinsPage({
       {hasMore && (
         <button
           type="button"
-          className="secondary community-more"
+          className={`secondary ${style.more}`}
           disabled={listBusy}
           onClick={() => void requestList(activeSearch.current, true)}
         >
@@ -781,7 +799,7 @@ export function CommunitySkinsPage({
         </button>
       )}
       {listBusy && (
-        <p role="status" className="community-loading">
+        <p role="status" className={style.notice}>
           正在读取社区皮肤…
         </p>
       )}

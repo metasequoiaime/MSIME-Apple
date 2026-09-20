@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { CommunitySkinsPage, type CommunitySkinClient } from "./community-skins";
+import * as style from "./community-style";
 
 export type CommunityResourceKind = "dictionary" | "reply";
 export type CommunityResourceScope = "" | "mine" | "saved";
@@ -116,19 +117,19 @@ function ResourceCard({ item, open }: { item: CommunityResource; open: () => voi
   return (
     <button
       type="button"
-      className="community-resource-card"
+      className={style.card}
       onClick={open}
       aria-label={`查看${kindTitle(item.kind)} ${item.name}`}
     >
-      <span className="community-resource-icon" aria-hidden="true">
+      <span className={style.resourceIcon} aria-hidden="true">
         {item.kind === "dictionary" ? "字" : "话"}
       </span>
-      <strong>{item.name}</strong>
-      <span className="community-resource-author">{item.owned ? "我的作品" : item.author}</span>
-      <span className="community-resource-description">
+      <strong className={style.cardTitle}>{item.name}</strong>
+      <span className={style.cardAuthor}>{item.owned ? "我的作品" : item.author}</span>
+      <span className={style.resourceDescription}>
         {item.description || (item.kind === "dictionary" ? "共享词条" : "回复语气模板")}
       </span>
-      <span className="community-resource-metrics">
+      <span className={style.cardMetrics}>
         ☆ {rating(item)} · {item.saves.toLocaleString("zh-CN")} 人收藏
       </span>
     </button>
@@ -217,19 +218,19 @@ function ResourceEditor({
     }
   };
   return (
-    <div className="community-dialog-backdrop">
+    <div className={style.backdrop}>
       <form
-        className="community-publish-dialog"
+        className={style.dialog}
         role="dialog"
         aria-modal="true"
         aria-label={existing ? "更新社区作品" : `发布${kindTitle(kind)}`}
         onSubmit={(event) => void submit(event)}
       >
-        <div className="community-dialog-heading">
-          <h2>{existing ? "更新作品" : `发布${kindTitle(kind)}`}</h2>
+        <div className={style.dialogHeading}>
+          <h2 className={style.dialogTitle}>{existing ? "更新作品" : `发布${kindTitle(kind)}`}</h2>
           <button
             type="button"
-            className="community-dialog-close"
+            className={style.dialogClose}
             onClick={close}
             disabled={busy}
             aria-label="关闭发布窗口"
@@ -242,7 +243,7 @@ function ResourceEditor({
             {error}
           </p>
         )}
-        <label>
+        <label className={style.field}>
           作品名称
           <input
             aria-label="社区作品名称"
@@ -252,7 +253,7 @@ function ResourceEditor({
             onChange={(event) => setName(event.target.value)}
           />
         </label>
-        <label>
+        <label className={style.field}>
           作品说明
           <textarea
             aria-label="社区作品说明"
@@ -264,7 +265,7 @@ function ResourceEditor({
           />
         </label>
         {kind === "reply" ? (
-          <label>
+          <label className={style.field}>
             回复提示词
             <textarea
               aria-label="社区回复提示词"
@@ -277,8 +278,8 @@ function ResourceEditor({
           </label>
         ) : (
           <>
-            <div className="community-resource-entry-form">
-              <label>
+            <div className={style.entryForm}>
+              <label className={style.field}>
                 类型
                 <select
                   aria-label="社区词条类型"
@@ -293,7 +294,7 @@ function ResourceEditor({
                   <option value="english">英文</option>
                 </select>
               </label>
-              <label>
+              <label className={style.field}>
                 编码
                 <input
                   aria-label="社区词条编码"
@@ -302,7 +303,7 @@ function ResourceEditor({
                   onChange={(event) => setCode(event.target.value)}
                 />
               </label>
-              <label>
+              <label className={style.field}>
                 词语
                 <input
                   aria-label="社区词条文字"
@@ -311,7 +312,7 @@ function ResourceEditor({
                   onChange={(event) => setWord(event.target.value)}
                 />
               </label>
-              <label>
+              <label className={style.field}>
                 权重
                 <input
                   aria-label="社区词条权重"
@@ -325,10 +326,7 @@ function ResourceEditor({
                 添加词条
               </button>
             </div>
-            <div
-              className="community-resource-entry-list"
-              aria-label={`待发布词条 ${entries.length}/128`}
-            >
+            <div className={style.entryList} aria-label={`待发布词条 ${entries.length}/128`}>
               {entries.map((item, index) => (
                 <div key={`${item.kind}-${item.code}-${item.word}-${index}`}>
                   <span>
@@ -348,7 +346,7 @@ function ResourceEditor({
           </>
         )}
         {!existing && (
-          <label className="community-publish-agreement">
+          <label className={style.agreement}>
             <input
               type="checkbox"
               aria-label="确认拥有发布内容权利"
@@ -359,11 +357,11 @@ function ResourceEditor({
             我拥有发布所用内容的权利，并同意其他用户查看和使用
           </label>
         )}
-        <p className="community-publish-warning">
+        <p className={style.warning}>
           发布内容会公开展示。请勿包含 API
           Key、私人聊天内容或其他个人资料；发布后可在“我的作品”中下架。
         </p>
-        <div className="community-dialog-actions">
+        <div className={style.dialogActions}>
           <button type="button" className="secondary" disabled={busy} onClick={close}>
             取消
           </button>
@@ -481,8 +479,8 @@ function ResourceDetail({
       close();
     });
   return (
-    <div className="community-page community-detail-page">
-      <button type="button" className="community-back" disabled={busy} onClick={close}>
+    <div className={style.page}>
+      <button type="button" className={style.back} disabled={busy} onClick={close}>
         ← 社区
       </button>
       {error && (
@@ -490,25 +488,25 @@ function ResourceDetail({
           {error}
         </p>
       )}
-      <section className="section community-detail">
-        <div className="community-detail-title">
-          <div>
-            <h2>{item.name}</h2>
-            <p>
+      <section className={`section ${style.detail}`}>
+        <div className={style.detailTitle}>
+          <div className={style.headingBody}>
+            <h2 className={style.headingTitle}>{item.name}</h2>
+            <p className={style.headingNote}>
               {item.author} · v{item.revision}
             </p>
           </div>
-          {item.owned && <span>我的作品</span>}
+          {item.owned && <span className={style.detailBadge}>我的作品</span>}
         </div>
-        {item.description && <p className="community-description">{item.description}</p>}
-        <p className="community-detail-metrics">
+        {item.description && <p className={style.description}>{item.description}</p>}
+        <p className={style.metrics}>
           {item.saves.toLocaleString("zh-CN")} 人收藏 · {rating(item)} ·{" "}
           {item.rating_count.toLocaleString("zh-CN")} 人评分
         </p>
         {item.kind === "dictionary" ? (
           <>
             <h3>词条预览 · {(item.content.entries ?? []).length} 条</h3>
-            <div className="community-resource-preview">
+            <div className={style.entryPreview}>
               {(item.content.entries ?? []).map((entry, index) => (
                 <div key={`${entry.kind}-${entry.code}-${index}`}>
                   <span>{entry.word}</span>
@@ -519,7 +517,7 @@ function ResourceDetail({
             {localDictionary?.import && (
               <button
                 type="button"
-                className="primary community-action"
+                className={`primary ${style.action}`}
                 disabled={busy}
                 onClick={applyLocal}
               >
@@ -528,23 +526,23 @@ function ResourceDetail({
             )}
             <button
               type="button"
-              className="secondary community-action"
+              className={`secondary ${style.action}`}
               disabled={busy}
               onClick={apply}
             >
               导入这版词库到云端
             </button>
-            <p className="community-readonly-note">
+            <p className={`${style.metrics} ${style.divided}`}>
               本机导入只更新当前设备；云端导入会合并到账号云词库。版本发生变化时云端导入会停止并要求重新查看。
             </p>
           </>
         ) : (
           <>
             <h3>提示词预览</h3>
-            <pre className="community-prompt-preview">{item.content.prompt}</pre>
+            <pre className={style.promptPreview}>{item.content.prompt}</pre>
             <button
               type="button"
-              className="primary community-action"
+              className={`primary ${style.action}`}
               disabled={busy}
               onClick={storeReply}
             >
@@ -552,7 +550,7 @@ function ResourceDetail({
             </button>
             <button
               type="button"
-              className="secondary community-action"
+              className={`secondary ${style.action}`}
               disabled={busy}
               onClick={removeReply}
             >
@@ -561,15 +559,23 @@ function ResourceDetail({
           </>
         )}
         {notice && (
-          <p role="status" className="community-action-notice">
+          <p role="status" className={style.actionNotice}>
             {notice}
           </p>
         )}
-        <button type="button" className="secondary community-action" disabled={busy} onClick={save}>
+        <button
+          type="button"
+          className={`secondary ${style.action}`}
+          disabled={busy}
+          onClick={save}
+        >
           {item.saved ? "取消收藏" : "收藏，关注后续更新"}
         </button>
         {!item.owned && (
-          <div className="community-rating-actions" aria-label="我的评分">
+          <div
+            className={`${style.divided} [&>p]:mt-0 [&>p]:mb-2.5 [&>p]:text-xs [&>p]:text-secondary`}
+            aria-label="我的评分"
+          >
             <p>我的评分（可重新选择）</p>
             <div>
               {[1, 2, 3, 4, 5].map((stars) => (
@@ -591,7 +597,7 @@ function ResourceDetail({
           <>
             <button
               type="button"
-              className="secondary community-action"
+              className={`secondary ${style.action}`}
               disabled={busy}
               onClick={() => setEditing(true)}
             >
@@ -608,7 +614,7 @@ function ResourceDetail({
           </>
         )}
         {confirmDelete && (
-          <div className="community-confirmation" role="alertdialog" aria-label="确认下架作品">
+          <div className={style.confirmation} role="alertdialog" aria-label="确认下架作品">
             <p>
               下架后其他用户无法获取此作品，已有本地回复模板和云词库副本不会被删除。确定下架“
               {item.name}”吗？
@@ -734,9 +740,9 @@ export function CommunityResourcesPage({
       />
     );
   return (
-    <div className="community-page">
+    <div className={style.page}>
       <form
-        className="community-search"
+        className={style.searchRow}
         role="search"
         onSubmit={(event) => {
           event.preventDefault();
@@ -744,16 +750,19 @@ export function CommunityResourcesPage({
         }}
       >
         <input
+          className={style.searchInput}
           aria-label={`搜索${kindTitle(kind)}`}
           placeholder={`搜索${kindTitle(kind)}`}
           value={search}
           onChange={(event) => setSearch([...event.target.value].slice(0, 128).join(""))}
         />
-        <button type="submit">搜索</button>
+        <button type="submit" className={style.searchSubmit}>
+          搜索
+        </button>
       </form>
-      <div className="community-heading">
-        <div>
-          <h2>
+      <div className={style.heading}>
+        <div className={style.headingBody}>
+          <h2 className={style.headingTitle}>
             {scope === "mine"
               ? `我的${kindTitle(kind)}作品`
               : scope === "saved"
@@ -762,15 +771,15 @@ export function CommunityResourcesPage({
                   ? "好词，随手可得"
                   : "找到舒服的表达"}
           </h2>
-          <p>
+          <p className={style.headingNote}>
             {kind === "dictionary"
               ? "把常用词带进云词库，让输入更顺手"
               : "收藏喜欢的语气，给每次回应一点灵感"}
           </p>
         </div>
-        <div className="community-heading-actions">
+        <div className={style.headingActions}>
           <div
-            className="community-scope-actions"
+            className={style.scopeButtonsCollapsing}
             role="group"
             aria-label={`${kindTitle(kind)}范围`}
           >
@@ -799,11 +808,18 @@ export function CommunityResourcesPage({
               我的作品
             </button>
           </div>
-          <details className="community-scope-menu">
-            <summary aria-label={`${kindTitle(kind)}筛选范围`}>{scopeTitle(scope)}</summary>
-            <div role="group" aria-label={`${kindTitle(kind)}筛选范围`}>
+          <details className={style.scopeMenu}>
+            <summary className={style.scopeMenuSummary} aria-label={`${kindTitle(kind)}筛选范围`}>
+              {scopeTitle(scope)}
+            </summary>
+            <div
+              className={style.scopeMenuList}
+              role="group"
+              aria-label={`${kindTitle(kind)}筛选范围`}
+            >
               <button
                 type="button"
+                className={style.scopeMenuItem}
                 aria-label="筛选范围：全部"
                 aria-pressed={scope === ""}
                 onClick={(event) => {
@@ -815,6 +831,7 @@ export function CommunityResourcesPage({
               </button>
               <button
                 type="button"
+                className={style.scopeMenuItem}
                 aria-label="筛选范围：收藏"
                 aria-pressed={scope === "saved"}
                 onClick={(event) => {
@@ -826,6 +843,7 @@ export function CommunityResourcesPage({
               </button>
               <button
                 type="button"
+                className={style.scopeMenuItem}
                 aria-label="筛选范围：我的作品"
                 aria-pressed={scope === "mine"}
                 onClick={(event) => {
@@ -848,15 +866,15 @@ export function CommunityResourcesPage({
         </p>
       )}
       {!busy && items.length === 0 && (
-        <p className="community-empty">这里还没有{kindTitle(kind)}作品。</p>
+        <p className={style.notice}>这里还没有{kindTitle(kind)}作品。</p>
       )}
-      <div className="community-grid">
+      <div className={style.grid}>
         {items.map((item) => (
           <ResourceCard key={item.id} item={item} open={() => openDetail(item)} />
         ))}
       </div>
       {busy && (
-        <p role="status" className="community-loading">
+        <p role="status" className={style.notice}>
           正在读取社区…
         </p>
       )}
@@ -906,13 +924,12 @@ export function CommunityHomePage({
 }) {
   const [category, setCategory] = useState<"skin" | CommunityResourceKind>(initialCategory);
   return (
-    <div className="community-home">
-      <div className="community-category-tabs" role="tablist" aria-label="社区分类">
+    <div className={style.page}>
+      <div className={style.categoryTabs} role="tablist" aria-label="社区分类">
         <button
           type="button"
           role="tab"
           aria-selected={category === "skin"}
-          className={category === "skin" ? "active" : ""}
           onClick={() => setCategory("skin")}
         >
           皮肤
@@ -921,7 +938,6 @@ export function CommunityHomePage({
           type="button"
           role="tab"
           aria-selected={category === "dictionary"}
-          className={category === "dictionary" ? "active" : ""}
           onClick={() => setCategory("dictionary")}
         >
           词库
@@ -930,7 +946,6 @@ export function CommunityHomePage({
           type="button"
           role="tab"
           aria-selected={category === "reply"}
-          className={category === "reply" ? "active" : ""}
           onClick={() => setCategory("reply")}
         >
           回复
