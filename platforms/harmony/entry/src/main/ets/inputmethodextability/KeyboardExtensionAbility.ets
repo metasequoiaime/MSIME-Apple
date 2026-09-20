@@ -229,7 +229,6 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
   private switchInputMode(): void {
     this.modeKeys.disarm();
     const english: boolean = KeyboardSession.shared.toggleLanguage();
-    KeyboardLog.info(`input mode switched: english=${english}`);
     KeyboardSession.shared.refreshToolbar();
     this.showModeBadge(english);
   }
