@@ -153,6 +153,12 @@ pub(crate) fn ai_test_request(
     Ok(output.to_owned())
 }
 
+// Linux routes these two through the provider socket instead - see the
+// same-named commands in lib.rs - and `#[tauri::command]` declares a crate-level
+// `macro_rules! __cmd__<name>`, so two commands sharing a name collide however
+// separate their modules are. Gate the definitions the way their registration is
+// already gated rather than leaving both to exist on Linux.
+#[cfg(not(target_os = "linux"))]
 #[tauri::command]
 pub(crate) async fn ai_models(
     endpoint: String,
@@ -165,6 +171,7 @@ pub(crate) async fn ai_models(
         })?
 }
 
+#[cfg(not(target_os = "linux"))]
 #[tauri::command]
 pub(crate) async fn ai_test(
     endpoint: String,

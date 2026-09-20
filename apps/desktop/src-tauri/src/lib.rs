@@ -3323,7 +3323,7 @@ pub fn run() {
             #[cfg(any(
                 target_os = "macos",
                 target_os = "windows",
-                all(test, not(target_os = "android"))
+                all(test, not(target_os = "android"), not(target_os = "linux"))
             ))]
             ai::ai_models,
             #[cfg(target_os = "linux")]
@@ -3331,7 +3331,7 @@ pub fn run() {
             #[cfg(any(
                 target_os = "macos",
                 target_os = "windows",
-                all(test, not(target_os = "android"))
+                all(test, not(target_os = "android"), not(target_os = "linux"))
             ))]
             ai::ai_test,
             #[cfg(target_os = "linux")]
