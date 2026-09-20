@@ -26,6 +26,8 @@ import { CandidateContextMenuPolicy, PointerAction, PointerButton }
   from './input/CandidateContextMenuPolicy';
 import { CandidateNumberFontPolicy } from './candidate/CandidateNumberFontPolicy';
 import { PreeditCaretPolicy } from './candidate/PreeditCaretPolicy';
+import { CandidateTranslationStyle, TRANSLATION_OPACITY }
+  from './candidate/CandidateTranslationStyle';
 import { CandidateSkinPolicy } from './candidate/CandidateSkinPolicy';
 import { CandidateWheelPolicy } from './candidate/CandidateWheelPolicy';
 import { KeyboardMetrics } from './KeyboardMetrics';
@@ -1194,8 +1196,20 @@ struct KeyboardView {
           .fontColor(this.candidateDetailColor(candidate)).opacity(0.5).padding({ left: 2 })
       }
       if (candidate.annotation.length > 0) {
-        Text(candidate.annotation).fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
-          .fontColor(this.candidateDetailColor(candidate)).opacity(0.7).padding({ left: 4 })
+        // A translation has a stated appearance in the source and takes it; an Engine annotation
+        // has none in either stylesheet and keeps what it had, rather than being given the
+        // translation's on the assumption that the source meant both.
+        if (candidate.annotationIsTranslation) {
+          Text(candidate.annotation)
+            .fontSize(CandidateTranslationStyle.fontSize(this.settings.candidateFontSize))
+            .fontColor(this.candidateDetailColor(candidate))
+            .opacity(TRANSLATION_OPACITY)
+            .padding({ left: CandidateTranslationStyle.gap(this.settings.candidateFontSize) })
+        } else {
+          Text(candidate.annotation)
+            .fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
+            .fontColor(this.candidateDetailColor(candidate)).opacity(0.7).padding({ left: 4 })
+        }
       }
     }.alignItems(VerticalAlign.Center)
       .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP, right: KeyboardMetrics.CANDIDATE_PADDING_VP })
