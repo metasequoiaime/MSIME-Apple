@@ -72,6 +72,14 @@ export type TypingStatistics = {
   dailyDetails?: Record<string, Partial<TypingBreakdown>>;
   /** Absent in statistics written before candidate positions were counted. */
   selections?: SelectionCounts;
+  /**
+   * Active typing time per day, in milliseconds. A day is absent when it predates the
+   * measurement, which is not the same as zero: it means unknown, and every metric divided by it
+   * has to leave that day out rather than read it as instant.
+   */
+  dailyActiveMs?: Record<string, number>;
+  /** Characters per local hour, 24 buckets per day. Absent for days the host sent no hour for. */
+  dailyHours?: Record<string, number[]>;
 };
 
 export type TypingStatisticsStatus = {
@@ -189,6 +197,179 @@ function mobileTrendLength(days: Record<string, number>): number {
 
 function sum(values: Record<string, number>, keys: readonly string[]): number {
   return keys.reduce((total, key) => total + (values[key] ?? 0), 0);
+}
+
+/** Buckets in a day, matching the shared store. */
+export const HOURS = 24;
+/**
+ * Character classes the speed metric counts.
+ *
+ * Speed is characters per active minute, and digits, punctuation, emoji and symbols are not prose:
+ * counting them reads as a burst of speed for someone entering a phone number. This differs from
+ * the Windows baseline in one place on purpose - there `latin` is ASCII letters only and kana fall
+ * into `other`, so Japanese input measures as zero speed. This product has a full Japanese mode,
+ * so `otherLetter` (kana, hangul, and every other script that is not Han or Latin) counts too.
+ */
+const speedCharacterKinds = ["han", "latin", "otherLetter"] as const;
+
+/** A day's characters that count toward speed; zero for days with no recorded breakdown. */
+function readableCharacters(detail: Partial<TypingBreakdown> | undefined): number {
+  return speedCharacterKinds.reduce((total, kind) => total + (detail?.characters?.[kind] ?? 0), 0);
+}
+
+/**
+ * Offsets a `YYYY-MM-DD` key by whole days.
+ *
+ * Through UTC deliberately: the keys are calendar labels rather than instants, and local-time
+ * arithmetic would lose or repeat a day at a daylight-saving boundary - which on those two days a
+ * year would break a streak that was never broken.
+ */
+export function addDays(key: string, days: number): string {
+  const parsed = Date.parse(`${key}T00:00:00Z`);
+  if (Number.isNaN(parsed)) return key;
+  const shifted = new Date(parsed + days * 86_400_000);
+  const month = String(shifted.getUTCMonth() + 1).padStart(2, "0");
+  const day = String(shifted.getUTCDate()).padStart(2, "0");
+  return `${shifted.getUTCFullYear()}-${month}-${day}`;
+}
+
+/** Characters per active minute; zero when either side is missing. */
+function charactersPerMinute(characters: number, activeMs: number): number {
+  if (characters <= 0 || activeMs <= 0) return 0;
+  return characters / (activeMs / 60_000);
+}
+
+/**
+ * A day needs this much active time before it can win "fastest day".
+ *
+ * Without it a day holding a dozen characters typed in two seconds tops the ranking forever.
+ */
+const fastestDayMinimumActiveMs = 60_000;
+
+export type ActivityMetrics = {
+  /** Days that have any record. Days with no record are not rows and never enter an average. */
+  recordedDays: number;
+  averagePerDay: number;
+  todayActiveMs: number;
+  totalActiveMs: number;
+  todaySpeed: number;
+  averageSpeed: number;
+  fastestSpeed: number;
+  fastestDay: string | null;
+  currentStreak: number;
+  longestStreak: number;
+  bestDay: string | null;
+  bestDayCharacters: number;
+  /** Today's 24 hourly buckets, or null when the host recorded no hours for today. */
+  todayHours: number[] | null;
+  /** False when nothing has ever measured active time, which is not the same as zero speed. */
+  hasActivity: boolean;
+};
+
+/**
+ * Everything the rhythm cards show, derived in one place so the markup only formats.
+ *
+ * `todayKey` is passed in rather than read from the clock so the result is a function of its
+ * arguments alone.
+ */
+export function activityMetrics(statistics: TypingStatistics, todayKey: string): ActivityMetrics {
+  const recorded = Object.keys(statistics.days)
+    .filter((key) => /^\d{4}-\d{2}-\d{2}$/.test(key))
+    .sort();
+  const activeByDay = statistics.dailyActiveMs ?? {};
+  let totalActiveMs = 0;
+  let totalReadable = 0;
+  let fastestSpeed = 0;
+  let fastestDay: string | null = null;
+  let bestDay: string | null = null;
+  let bestDayCharacters = 0;
+  for (const key of recorded) {
+    const activeMs = activeByDay[key] ?? 0;
+    const readable = readableCharacters(statistics.dailyDetails?.[key]);
+    if (activeMs > 0) {
+      totalActiveMs += activeMs;
+      totalReadable += readable;
+      if (activeMs >= fastestDayMinimumActiveMs) {
+        const speed = charactersPerMinute(readable, activeMs);
+        // Strictly greater, so the earliest day keeps a tie - `recorded` is sorted ascending.
+        if (speed > fastestSpeed) {
+          fastestSpeed = speed;
+          fastestDay = key;
+        }
+      }
+    }
+    const characters = statistics.days[key] ?? 0;
+    if (characters > bestDayCharacters) {
+      bestDayCharacters = characters;
+      bestDay = key;
+    }
+  }
+  const todayHours = statistics.dailyHours?.[todayKey];
+  return {
+    recordedDays: recorded.length,
+    averagePerDay: recorded.length === 0 ? 0 : statistics.total / recorded.length,
+    todayActiveMs: activeByDay[todayKey] ?? 0,
+    totalActiveMs,
+    todaySpeed: charactersPerMinute(
+      readableCharacters(statistics.dailyDetails?.[todayKey]),
+      activeByDay[todayKey] ?? 0,
+    ),
+    averageSpeed: charactersPerMinute(totalReadable, totalActiveMs),
+    fastestSpeed,
+    fastestDay,
+    currentStreak: currentStreak(recorded, todayKey),
+    longestStreak: longestStreak(recorded),
+    bestDay,
+    bestDayCharacters,
+    todayHours: Array.isArray(todayHours) && todayHours.length === HOURS ? todayHours : null,
+    hasActivity: totalActiveMs > 0,
+  };
+}
+
+/**
+ * Consecutive recorded days ending today, or ending yesterday when today has no record yet.
+ *
+ * Today is still in progress, so it must not reset a streak the user has not actually broken.
+ */
+export function currentStreak(recorded: readonly string[], todayKey: string): number {
+  const present = new Set(recorded);
+  let cursor = present.has(todayKey) ? todayKey : addDays(todayKey, -1);
+  let streak = 0;
+  while (present.has(cursor)) {
+    streak += 1;
+    cursor = addDays(cursor, -1);
+  }
+  return streak;
+}
+
+/** The longest run of consecutive recorded days. `recorded` must be sorted ascending. */
+export function longestStreak(recorded: readonly string[]): number {
+  if (recorded.length === 0) return 0;
+  let longest = 1;
+  let run = 1;
+  for (let index = 1; index < recorded.length; index += 1) {
+    if (recorded[index] === recorded[index - 1]) continue;
+    run = recorded[index] === addDays(recorded[index - 1], 1) ? run + 1 : 1;
+    if (run > longest) longest = run;
+  }
+  return longest;
+}
+
+/** `1小时23分` / `12分` / `45秒`, so a reader does not divide milliseconds in their head. */
+export function formatActiveTime(milliseconds: number): string {
+  if (milliseconds <= 0) return "0分";
+  const totalMinutes = Math.floor(milliseconds / 60_000);
+  if (totalMinutes === 0) return `${Math.max(1, Math.round(milliseconds / 1000))}秒`;
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  if (hours === 0) return `${minutes}分`;
+  return minutes === 0 ? `${hours}小时` : `${hours}小时${minutes}分`;
+}
+
+/** `9月21日` from a `YYYY-MM-DD` key, matching the labels the trend axis uses. */
+function dayLabel(key: string): string {
+  const [, month, day] = key.split("-");
+  return `${Number(month)}月${Number(day)}日`;
 }
 
 function withUnknown(value: Partial<TypingBreakdown> | undefined, total: number): TypingBreakdown {
@@ -595,6 +776,48 @@ function CandidateRanks({ selections }: { selections: SelectionCounts | undefine
   );
 }
 
+/**
+ * Today's characters by local hour.
+ *
+ * Every hour gets a column, including the empty ones: a chart that only drew the hours with input
+ * would put 9am next to 3pm and read as continuous typing.
+ */
+function StatisticsHourlyBars({ hours }: { hours: readonly number[] }) {
+  const peak = Math.max(1, ...hours);
+  const total = hours.reduce((sum, count) => sum + count, 0);
+  return (
+    <>
+      <p className="mt-[7px] mb-0 text-xs text-muted">
+        最高 {peak.toLocaleString("zh-CN")} 字符 / 小时 · 共 {total.toLocaleString("zh-CN")} 字符
+      </p>
+      <div
+        className="mt-3 flex h-[110px] items-end gap-[3px]"
+        role="img"
+        aria-label="今日各时段输入分布"
+      >
+        {hours.map((count, hour) => (
+          <div
+            key={hour}
+            className="flex h-full min-w-0 flex-1 flex-col justify-end"
+            title={`${hour} 时：${count} 字符`}
+            aria-label={`${hour} 时，${count} 字符`}
+          >
+            <i
+              className={`${bar} bg-accent ${count === 0 ? "opacity-25" : "opacity-85"}`}
+              style={{ height: `${Math.max(2, (count / peak) * 100)}%` }}
+            />
+          </div>
+        ))}
+      </div>
+      <div className={axis}>
+        <span>0 时</span>
+        <span>12 时</span>
+        <span>23 时</span>
+      </div>
+    </>
+  );
+}
+
 export function TypingStatisticsPage({
   client,
   mobile = false,
@@ -681,6 +904,7 @@ export function TypingStatisticsPage({
       ? "累计输入"
       : `近 ${period} 天输入`;
   const maximum = Math.max(1, ...trendDays.map((day) => statistics.days[day.key] ?? 0));
+  const activity = activityMetrics(statistics, today.key);
   const characterSlices = characterKinds.map(([id, title], index) => ({
     id,
     title,
@@ -891,6 +1115,68 @@ export function TypingStatisticsPage({
           </div>
         </div>
       </section>
+      <section className="section m-0" aria-labelledby="statistics-rhythm-title">
+        <h2 className={heading} id="statistics-rhythm-title">
+          输入节奏
+        </h2>
+        <div className="mt-[22px] grid grid-cols-2 gap-6 max-phone:gap-3">
+          <div className={metric}>
+            <span className="text-secondary">今日速度</span>
+            <strong className={metricValue} aria-label="今日输入速度">
+              {Math.round(activity.todaySpeed).toLocaleString("zh-CN")}
+            </strong>
+            <small className="m-0">字 / 分钟</small>
+          </div>
+          <div className={metric}>
+            <span className="text-secondary">平均速度</span>
+            <strong className={metricValue} aria-label="平均输入速度">
+              {Math.round(activity.averageSpeed).toLocaleString("zh-CN")}
+            </strong>
+            <small className="m-0">字 / 分钟</small>
+          </div>
+          <div className={metric}>
+            <span className="text-secondary">今日活跃</span>
+            <strong className={metricValue} aria-label="今日活跃时长">
+              {formatActiveTime(activity.todayActiveMs)}
+            </strong>
+            <small className="m-0">连续打字的时间</small>
+          </div>
+          <div className={metric}>
+            <span className="text-secondary">连续天数</span>
+            <strong className={metricValue} aria-label="连续输入天数">
+              {activity.currentStreak.toLocaleString("zh-CN")}
+            </strong>
+            <small className="m-0">最长 {activity.longestStreak.toLocaleString("zh-CN")} 天</small>
+          </div>
+        </div>
+        <div className={`${axis} flex-wrap gap-x-4`}>
+          <span>
+            日均 {Math.round(activity.averagePerDay).toLocaleString("zh-CN")} 字符 ·{" "}
+            {activity.recordedDays.toLocaleString("zh-CN")} 天有记录
+          </span>
+          <span>
+            {activity.bestDay
+              ? `最多 ${dayLabel(activity.bestDay)}，${activity.bestDayCharacters.toLocaleString("zh-CN")} 字符`
+              : "还没有记录"}
+            {activity.fastestDay
+              ? ` · 最快 ${dayLabel(activity.fastestDay)}，${Math.round(activity.fastestSpeed).toLocaleString("zh-CN")} 字 / 分钟`
+              : ""}
+          </span>
+        </div>
+        <p className={footerNote}>
+          {activity.hasActivity
+            ? "速度按连续打字的时间计算，两次上屏间隔超过 10 秒算休息、不计入；只统计汉字与字母，数字和标点不参与。"
+            : "还没有测量到活跃时长。这项从本次更新后开始记录，之前的输入只有字数。"}
+        </p>
+      </section>
+      {activity.todayHours && (
+        <section className="section m-0" aria-labelledby="statistics-hours-title">
+          <h2 className={heading} id="statistics-hours-title">
+            今日时段
+          </h2>
+          <StatisticsHourlyBars hours={activity.todayHours} />
+        </section>
+      )}
       {(!mobile || mobileTab === "trend") && (
         <section className="section m-0" aria-labelledby="statistics-trend-title">
           <h2 className={heading} id="statistics-trend-title">

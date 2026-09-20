@@ -87,6 +87,12 @@ import {
 } from "./community/community-resources";
 export {
   TypingStatisticsPage,
+  activityMetrics,
+  addDays,
+  currentStreak,
+  formatActiveTime,
+  longestStreak,
+  type ActivityMetrics,
   type TypingBreakdown,
   type TypingStatistics,
   type TypingStatisticsClient,
