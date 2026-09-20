@@ -97,6 +97,21 @@ char *msime_client_create(const uint8_t *options, size_t length);
  * with the identical nonempty request ID and content.
  */
 char *msime_client_dictionary(const uint8_t *request, size_t length);
+/* Smart punctuation follow-up gestures. The host holds the snapshots: they belong
+ * to its editor, not to Engine, and a session rebuilt while the keyboard was away
+ * must not carry a gesture across the gap. The switches that gate them live in the
+ * applied preferences, so the session answers rather than the host keeping a copy.
+ * arm: {ascii, commit, timestamp_ms, editor_generation, auto_closed_pair} ->
+ *      {repeat: {ascii, committed, timestamp_ms, editor_generation}|null,
+ *       space: {chinese, ascii, editor_generation}|null}
+ * decide: {character, preceding, timestamp_ms, editor_generation, repeat, space} ->
+ *      {replace_with: "，"|null, space_ascii: 46|null}
+ * `preceding` is what the editor holds before the caret at the moment of the press;
+ * both decisions re-read it and decline when it disagrees with the arming, so a
+ * stale snapshot can never rewrite the wrong character. A non-null space_ascii means
+ * replace the preceding mark with it and swallow the space. Maximum 4096 bytes. */
+char *msime_client_smart_punctuation_arm(uint64_t handle, const uint8_t *request, size_t length);
+char *msime_client_smart_punctuation_decide(uint64_t handle, const uint8_t *request, size_t length);
 /* Pure Engine validation/normalization for one Entry object. No paths or
  * session are required and no dictionary state is changed. */
 char *msime_client_dictionary_validate(const uint8_t *request, size_t length);

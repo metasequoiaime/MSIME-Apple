@@ -32,6 +32,10 @@ private func msimeClientRemoveCandidate(_ session: UInt64, _ generation: UInt64,
 private func msimeClientFixCandidatePosition(_ session: UInt64, _ generation: UInt64, _ index: UInt, _ position: UInt8) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_clear_candidate_position")
 private func msimeClientClearCandidatePosition(_ session: UInt64, _ generation: UInt64, _ index: UInt) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_smart_punctuation_arm")
+private func msimeClientSmartPunctuationArm(_ session: UInt64, _ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_smart_punctuation_decide")
+private func msimeClientSmartPunctuationDecide(_ session: UInt64, _ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_shuangpin_key_hints")
 private func msimeClientShuangpinKeyHints(_ profile: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_choose_nine_key_spelling")
@@ -436,6 +440,39 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
                                     preceding: UInt32) -> MetasequoiaInputSnapshot {
     guard let byte = Self.ascii(character) else { return diagnostic("标点输入无效") }
     return dispatch { msimeClientPunctuationWithContext(handle, byte, preceding) }
+  }
+
+  /// What the commit just made arms, if anything.
+  ///
+  /// The snapshots belong to the host's editor rather than to Engine, so the keyboard holds them
+  /// and hands them back on the next press. The switches that gate them live in the shared
+  /// preferences, which is why this asks the session instead of reading a second copy here.
+  func smartPunctuationArming(ascii: String, commit: String, timestampMilliseconds: UInt64,
+                              editorGeneration: UInt64,
+                              autoClosedPair: Bool) -> [String: Any] {
+    guard let byte = Self.ascii(ascii), handle != 0 else { return [:] }
+    let request: [String: Any] = ["ascii": byte, "commit": commit,
+                                  "timestamp_ms": timestampMilliseconds,
+                                  "editor_generation": editorGeneration,
+                                  "auto_closed_pair": autoClosedPair]
+    return (try? Self.callUpdate(msimeClientSmartPunctuationArm, handle, request)) ?? [:]
+  }
+
+  /// What this press should do about a previously armed gesture.
+  ///
+  /// `preceding` is what the editor holds before the caret right now. Both decisions re-read it
+  /// and decline when it disagrees with the arming, so a snapshot left over from an edit the
+  /// keyboard never saw cannot rewrite the wrong character.
+  func smartPunctuationDecision(character: String, preceding: String?,
+                                timestampMilliseconds: UInt64, editorGeneration: UInt64,
+                                repeatSnapshot: Any?, spaceSnapshot: Any?) -> [String: Any] {
+    guard let byte = Self.ascii(character), handle != 0 else { return [:] }
+    let request: [String: Any] = ["character": byte, "preceding": preceding ?? NSNull(),
+                                  "timestamp_ms": timestampMilliseconds,
+                                  "editor_generation": editorGeneration,
+                                  "repeat": repeatSnapshot ?? NSNull(),
+                                  "space": spaceSnapshot ?? NSNull()]
+    return (try? Self.callUpdate(msimeClientSmartPunctuationDecide, handle, request)) ?? [:]
   }
 
   func handleBackspace() -> MetasequoiaInputSnapshot { command(0) }
