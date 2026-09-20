@@ -35,6 +35,7 @@ public:
     bool apply_online_candidates(const OnlineQuerySnapshot& query, rust::Slice<const rust::String> candidates,
                                 std::uint8_t source);
     EngineResult character(std::uint8_t value, bool shift);
+    bool expand_initial_candidates();
     void set_nine_key_enabled(bool enabled);
     EngineResult choose_nine_key_spelling(std::size_t index);
     EngineResult command(std::uint8_t value);

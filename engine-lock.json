@@ -5,7 +5,8 @@
   "sha256": "819ea3175d5f37c7c164c3423bb313140aa25887c5e421b309adaeffca839b72",
   "patches": [],
   "overlay_scripts": [
-    "scripts/apply_engine_double_helpcode_cache.py"
+    "scripts/apply_engine_double_helpcode_cache.py",
+    "scripts/apply_engine_expand_initial_candidates.py"
   ],
   "dependencies": [
     {
