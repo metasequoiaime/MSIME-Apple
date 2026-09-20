@@ -1425,8 +1425,13 @@ int main(int argc, char **argv) {
     require(voice_provider.finished.load() == recreate_finals + 1,
             "Session-recreation fixture did not produce the old result");
     g_usleep(50000);
-    IBUS_ENGINE_GET_CLASS(engine)->property_activate(
-        engine, "ShuangpinProfile/ziranma", PROP_STATE_CHECKED);
+    // The rebuild has to happen without running the main loop, so the queued
+    // callback from the old session is still waiting when the replacement
+    // opens. A content-type transition rebuilds the session in place; a menu
+    // preference cannot be used here, because with a stored preferences
+    // directory it only schedules a save and updates the session that exists.
+    IBUS_ENGINE_GET_CLASS(engine)->set_content_type(
+        engine, IBUS_INPUT_PURPOSE_FREE_FORM, IBUS_INPUT_HINT_PRIVATE);
     IBUS_ENGINE_GET_CLASS(engine)->property_activate(
         engine, "VoiceInput", PROP_STATE_CHECKED);
     require(wait_voice([&] { return voice_provider.started.load() == recreate_starts + 2; }),
@@ -1442,6 +1447,8 @@ int main(int argc, char **argv) {
     require(wait_voice([&] { return seen.committed == "synthetic voice"; }),
             "Current-session voice result did not commit after recreation");
     seen.committed.clear();
+    invoke("Set", g_variant_new("(ssv)", "org.freedesktop.IBus.Engine", "ContentType",
+                               g_variant_new("(uu)", IBUS_INPUT_PURPOSE_FREE_FORM, 0)));
     const auto escape_starts = voice_provider.started.load();
     const auto escape_cancels = voice_provider.cancelled.load();
     const auto escape_finals = voice_provider.finished.load();
