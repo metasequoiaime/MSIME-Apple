@@ -219,7 +219,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     InputSchemePreference.enabledSchemes = [.quanpin]
     controller.viewWillAppear(false)
     XCTAssertEqual(InputSchemePreference.scheme, .quanpin)
-    XCTAssertEqual(try button("scriptShortcut", in: controller).accessibilityIdentifier, "scriptShortcut")
+    XCTAssertTrue(try button("layoutVoiceShortcut", in: controller).isHidden)
     XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "replyKeyboard" })
 
     // Inserting a reply takes the panel away so the text it just wrote, and the backspace that
@@ -589,7 +589,7 @@ final class NineKeyKeyboardTests: XCTestCase {
     voice.isOn = false
     voice.sendActions(for: .valueChanged)
     try button("closeLayoutPicker", in: controller).sendActions(for: .primaryActionTriggered)
-    XCTAssertNotNil(try button("scriptShortcut", in: controller))
+    XCTAssertTrue(try button("layoutVoiceShortcut", in: controller).isHidden)
   }
 
   func testKeyboardSettingsResetRestoresIndependentDefaults() throws {
@@ -649,7 +649,7 @@ final class NineKeyKeyboardTests: XCTestCase {
       let more = try button("moreShortcut", in: controller)
       XCTAssertTrue(toolbar.arrangedSubviews.first === more)
       XCTAssertEqual(toolbar.arrangedSubviews.compactMap(\.accessibilityIdentifier), [
-        "moreShortcut", "layoutShortcut", "scriptShortcut", "emojiShortcut",
+        "moreShortcut", "layoutShortcut", "layoutVoiceShortcut", "emojiShortcut",
         "skinShortcut", "schemeButton", "dismissShortcut",
       ])
       for item in toolbar.arrangedSubviews {
@@ -689,13 +689,10 @@ final class NineKeyKeyboardTests: XCTestCase {
         XCTAssertEqual(card.bounds.height, 48)
       }
       try button("moreCard-返回工具", in: controller).sendActions(for: .primaryActionTriggered)
-      XCTAssertNotNil(try button("moreCard-键盘设置", in: controller))
-
-      try button("moreCard-键盘设置", in: controller).sendActions(for: .primaryActionTriggered)
       controller.view.layoutIfNeeded()
       let feedback = try button("moreCard-按键振动", in: controller)
       XCTAssertLessThanOrEqual(feedback.convert(feedback.bounds, to: panel).maxY, panel.bounds.height)
-      for title in ["返回工具", "按键音", "按键振动", "全角输入", "振动强度"] {
+      for title in ["繁体输出", "按键音", "按键振动", "全角输入", "振动强度"] {
         let card = try button("moreCard-" + title, in: controller)
         XCTAssertEqual(card.bounds.height, 48)
         XCTAssertLessThanOrEqual(card.convert(card.bounds, to: panel).maxY, panel.bounds.height)
@@ -710,7 +707,6 @@ final class NineKeyKeyboardTests: XCTestCase {
       try button("moreCard-按键音", in: controller).sendActions(for: .primaryActionTriggered)
       XCTAssertFalse(KeyboardFeedbackPreference.soundEnabled)
       XCTAssertEqual(try button("moreCard-按键音", in: controller).accessibilityValue, "已关闭")
-      try button("moreCard-返回工具", in: controller).sendActions(for: .primaryActionTriggered)
       try button("moreCard-AI 润色", in: controller).sendActions(for: .primaryActionTriggered)
       XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier == "keyboardMorePicker" })
       XCTAssertEqual(controller.view.constraints.first { $0.identifier == "keyboardHeight" }?.constant, 260 + KeyboardViewController.stripExtraHeight)
@@ -732,7 +728,6 @@ final class NineKeyKeyboardTests: XCTestCase {
     letter.sendActions(for: .primaryActionTriggered)
     let preedit = try button("preeditButton", in: controller).configuration?.title
     try button("moreShortcut", in: controller).sendActions(for: .primaryActionTriggered)
-    try button("moreCard-键盘设置", in: controller).sendActions(for: .primaryActionTriggered)
     XCTAssertEqual(try button("moreCard-全角输入", in: controller).accessibilityValue, "已关闭")
     try button("moreCard-全角输入", in: controller).sendActions(for: .primaryActionTriggered)
     XCTAssertTrue(KeyboardLayoutPreference.fullWidthInputEnabled)
@@ -1057,19 +1052,20 @@ final class NineKeyKeyboardTests: XCTestCase {
       XCTAssertGreaterThanOrEqual(brandSlot.bounds.width - brand.frame.maxX, 6)
       XCTAssertLessThan(brand.convert(brand.bounds, to: toolbar).maxX,
                         try button("schemeButton", in: controller).convert(try button("schemeButton", in: controller).bounds, to: toolbar).minX)
-      for id in ["layoutShortcut", "schemeButton", "scriptShortcut", "emojiShortcut",
+      for id in ["layoutShortcut", "schemeButton", "emojiShortcut",
                  "skinShortcut", "moreShortcut", "dismissShortcut"] {
         let control = try button(id, in: controller)
         XCTAssertGreaterThanOrEqual(control.bounds.width, 44)
         XCTAssertGreaterThanOrEqual(control.bounds.height, 38)
       }
       XCTAssertNil(try button("skinShortcut", in: controller).menu)
-      let script = try button("scriptShortcut", in: controller)
-      script.sendActions(for: .primaryActionTriggered)
+      XCTAssertTrue(try button("layoutVoiceShortcut", in: controller).isHidden)
+      try button("moreShortcut", in: controller).sendActions(for: .primaryActionTriggered)
+      try button("moreCard-繁体输出", in: controller).sendActions(for: .primaryActionTriggered)
       XCTAssertTrue(ChineseOutputPreference.usesTraditional)
-      XCTAssertEqual(script.accessibilityValue, "繁体")
-      script.sendActions(for: .primaryActionTriggered)
+      try button("moreCard-繁体输出", in: controller).sendActions(for: .primaryActionTriggered)
       XCTAssertFalse(ChineseOutputPreference.usesTraditional)
+      try button("closeMorePicker", in: controller).sendActions(for: .primaryActionTriggered)
       let key = try button("nineKey6", in: controller)
       let frame = key.convert(key.bounds, to: controller.view)
       let attachment = XCTAttachment(image: UIGraphicsImageRenderer(bounds: controller.view.bounds).image { context in
@@ -1219,7 +1215,7 @@ final class NineKeyKeyboardTests: XCTestCase {
             XCTAssertNil(selector.configuration?.title)
             XCTAssertNotNil(selector.configuration?.image)
             XCTAssertEqual(selector.accessibilityLabel, "选择输入方案")
-            for id in ["layoutShortcut", "scriptShortcut", "emojiShortcut", "skinShortcut", "moreShortcut", "dismissShortcut"] {
+            for id in ["layoutShortcut", "emojiShortcut", "skinShortcut", "moreShortcut", "dismissShortcut"] {
               XCTAssertGreaterThanOrEqual(try button(id, in: controller).bounds.width, 44)
             }
             if width == 320 {
