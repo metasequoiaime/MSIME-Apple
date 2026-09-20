@@ -2738,13 +2738,16 @@ export function SettingsPage({
     setDraft({ ...next, touch_keyboard_schemes: { enabled, selected: scheme } });
   };
   const localModes = draft?.local_modes ?? defaultLocalModes;
-  // The macOS preview bundle intentionally ships only msime.db and english.db.
-  // Keep the Tauri page honest about what its IMK host can actually run; the
-  // shared preference still retains the other platform modes for hosts that
-  // provide their catalog resources.
-  const visibleLocalModeRows = macosPlatform
-    ? localModeRows.filter(([key]) => !["emoji", "kaomoji", "temporary_japanese"].includes(key))
-    : localModeRows;
+  // Every platform sees every mode. macOS used to hide emoji, kaomoji and temporary Japanese on the
+  // grounds that its bundle shipped only msime.db and english.db, but others.db and dict_japanese.dat have
+  // been in resources/desktop-dictionary.lock.json since 780a9381b and tauri.macos.conf.json bundles the
+  // whole verified set - so the switches were hidden for modes that worked. Temporary English, gated the
+  // same way on english.db, was visible throughout, which is how inconsistent this had become.
+  //
+  // A host missing a catalog is still handled, and handled better than by hiding a switch: the runtime
+  // turns that mode off when its resource is absent, so the trigger key inserts its capital instead of
+  // being swallowed.
+  const visibleLocalModeRows = localModeRows;
   const quanpinAutocorrect = {
     autocorrect_transposition: draft?.quanpin?.autocorrect_transposition ?? false,
     autocorrect_neighbor: draft?.quanpin?.autocorrect_neighbor ?? false,

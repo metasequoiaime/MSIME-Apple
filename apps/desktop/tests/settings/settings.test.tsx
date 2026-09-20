@@ -1643,7 +1643,7 @@ test("utility mode switches preserve defaults and drafts across pages", async ()
   });
 });
 
-test("macOS utility modes match the resources shipped in the IMK bundle", async () => {
+test("macOS offers every local mode, because every catalog ships", async () => {
   const save = vi.fn().mockImplementation(async (_revision, preferences) => ({
     ...initial,
     revision: 8,
@@ -1664,9 +1664,12 @@ test("macOS utility modes match the resources shipped in the IMK bundle", async 
   expect(screen.getByRole("checkbox", { name: /^Unicode/ })).toBeDefined();
   expect(screen.getByRole("checkbox", { name: /^超级简拼/ })).toBeDefined();
   expect(screen.getByRole("checkbox", { name: /^临时英文/ })).toBeDefined();
-  expect(screen.queryByRole("checkbox", { name: /^Emoji/ })).toBeNull();
-  expect(screen.queryByRole("checkbox", { name: /^颜文字/ })).toBeNull();
-  expect(screen.queryByRole("checkbox", { name: /^临时日语/ })).toBeNull();
+  // others.db and dict_japanese.dat are in the pinned resource set the macOS app bundles, so these three
+  // work and hiding their switches only hid working features. Temporary English, gated the same way on
+  // english.db, was never hidden.
+  expect(screen.getByRole("checkbox", { name: /^Emoji/ })).toBeDefined();
+  expect(screen.getByRole("checkbox", { name: /^颜文字/ })).toBeDefined();
+  expect(screen.getByRole("checkbox", { name: /^临时日语/ })).toBeDefined();
   fireEvent.click(screen.getByRole("checkbox", { name: /^Unicode/ }));
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
