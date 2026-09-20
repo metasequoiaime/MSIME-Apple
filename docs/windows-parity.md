@@ -143,7 +143,7 @@
 | 外接键盘（手机/平板接蓝牙或 USB 键盘） | `input/HardwareKeyboardPolicy.ts`、`input/HarmonyHardwareKeyboards.ets` | 逻辑回归；热插拔未在设备上插拔 |
 | 更新、关于、帮助、反馈 | 共享设置页 | 共享 UI |
 | 设置页感知外部偏好变更 | `entryability` 的 `windowStageEvent` + `input/PreferenceRevisionPolicy.ts` | 逻辑回归；窗口切换未在设备上走 |
-| 外部皮肤目录入口 | **缺口**：本宿主扫描 `${filesDir}/state/skins` 并能读取其中的皮肤，但用户没有任何办法往里放文件 | 见下 |
+| 外部皮肤目录入口 | `pages/Settings.ets` 的 `importSkinFolder` + `skin/SkinImportPolicy.ts`；能力位 `skin_directory_import` 决定按钮文案 | 逻辑回归 + UI 回归；选择器未在设备上走 |
 | 设置窗口本体 | `pages/Settings.ets` 的 WebView 加载 `apps/harmony` 构建的共享 `SettingsPage` | 构建产物防漂移校验（`scripts/test-harmony-settings-bundle.py`） |
 | 设置窗口冷启动 | 共享 `SettingsStartupPage` | 逻辑回归；此前为纯白窗口最多 5 秒 |
 | 开机引导（启用输入法、选为当前） | 共享 `WelcomeFlowPage` + `input/OnboardingStatePolicy.ts` | 逻辑回归；真实系统界面跳转未在设备上走 |
@@ -205,11 +205,13 @@ composing key produced no composition: scheme=quanpin local=none english=false c
 
 工具栏的**度量**则与来源不同，这是有意的而非缺陷，记在这里以便后面真要做设计决定时有个出处：来源的 `ui-html/webview2/ftb` 用 `--ftb-bar-height: 35px`、`--ftb-icon-size: 24px`、`--ftb-gap: 6px`、左右内边距 8/4（左侧留给拖动手柄）；本宿主用 44 / 42 / 10.5 与对称的 10，且文件头写明"Ported from platforms/macos/src/FloatingToolbarPanel.mm, including the arithmetic"。也就是说它跟的是 macOS 而不是 Windows。在一台既有触摸又有鼠标的 2in1 上把图标压到 24px 是否合适，是产品判断，不在此单方面改动。
 
-外部皮肤目录是一处已确认的缺口，记在这里而不是直接改掉，因为它的正确解法是一个产品决定。来源的 `skin_directory::open` 有 `#[cfg(target_os = "windows")]` 分支，所以"打开皮肤目录"是来源实实在在有的功能；共享皮肤页把它渲染成一个按钮，并按 `disabled={!openDirectory}` 决定可用性。本宿主不提供该成员，于是那个按钮**渲染出来但永远点不动**。
+外部皮肤目录此前是一处缺口，现已按平台自己的方式补上。来源的 `skin_directory::open` 有 `#[cfg(target_os = "windows")]` 分支，所以"打开皮肤目录"是来源实实在在有的功能；共享皮肤页把它渲染成一个按钮，并按 `disabled={!openDirectory}` 决定可用性。本宿主不提供该成员，于是那个按钮**渲染出来但永远点不动**。
 
-本宿主的皮肤目录在应用沙箱内（`${filesDir}/state/skins`），系统文件管理器浏览不到，所以"打开目录"在这个平台上没有对应物。用户的目标是把皮肤包放进去，平台对应的做法是文档选择器导入——那是新增一个界面能力，共享页目前也没有这个槽位，因此不在这里擅自添加。
+本宿主的皮肤目录在应用沙箱内（`${filesDir}/state/skins`），系统文件管理器浏览不到，所以"打开目录"在这个平台上没有对应物。用户的目标是把皮肤包放进去，因此方向反过来：用户用文档选择器指向皮肤所在的文件夹，由本宿主拷进去。选的是文件夹而不是文件，因为一个皮肤就是一个目录——`skin/catalog.rs` 判 `is_dir` 并在其中找样式表，导入单个文件会导入一个随后被目录扫描拒绝列出的东西。
 
-顺带记下形状：这是本轮第三个"控件渲染出来但恒久不可用"的地方，前两个是手写页的打开按钮（已修）与辅助码分页（已解封）。它们的共同点是宿主缺一个 client 成员，而共享页选择了禁用而非隐藏——按平台名门控的那一类缺陷之外，这是另一类需要逐项核对 client 成员与渲染结果才能发现的缺陷。
+按钮文案由新增的能力位 `skin_directory_import` 决定，在本宿主上显示「导入皮肤」：一个说「打开目录」却永远打不开目录的按钮，比没有按钮更误导。
+
+顺带记下形状：这是本轮第三个"控件渲染出来但恒久不可用"的地方，三个都已处理：手写页的打开按钮、辅助码分页、以及这里的皮肤目录。它们的共同点是宿主缺一个 client 成员，而共享页选择了禁用而非隐藏——按平台名门控的那一类缺陷之外，这是另一类需要逐项核对 client 成员与渲染结果才能发现的缺陷。
 
 设置界面一项此前记作「共享 UI」，这句话在源码层面成立、在运行时不成立：HarmonyOS 的设置窗口是 WebView 加载一个提交进仓库的构建产物，而它自 #2863 起没有被重建过，其间 52 个提交改动了 `packages/ui/src`。也就是说本仓库在长达数十个提交的时间里，HarmonyOS 上渲染的是一个别处已不存在的界面，此后新增的每一个能力位控件在这里都不可见。陈旧的包不报错——窗口照常打开，只是少掉一批控件，看上去像是这个平台本来就没有这些设置。已重建，并把「改完共享 UI 要重新生成」从一句文档变成 `verify-local.sh` 里的一道逐字节校验。共享 UI 的结论今后按该校验成立，而不是按源码引用关系成立。
 

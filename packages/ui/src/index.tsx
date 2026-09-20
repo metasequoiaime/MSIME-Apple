@@ -487,6 +487,7 @@ export interface HostCapabilities {
   candidate_english_font?: boolean;
   english_suggestions?: boolean;
   helpcode_shift_entry?: boolean;
+  skin_directory_import?: boolean;
   shuangpin_preedit?: boolean;
   voice_commit_mode?: boolean;
 }
@@ -4465,6 +4466,7 @@ export function SettingsPage({
                       activeTheme={candidatePreviewTheme}
                       scan={client.scanSkinCatalog}
                       openDirectory={client.openSkinDirectory}
+                      importsSkin={host?.skin_directory_import === true}
                       readImage={client.readSkinImage}
                       readFont={client.readSkinFont}
                       readToolbarCss={client.readSkinToolbarCss}

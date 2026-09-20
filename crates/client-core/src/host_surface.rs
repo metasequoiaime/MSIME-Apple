@@ -155,6 +155,13 @@ pub struct HostCapabilities {
     /// the settings page explains the gesture only where it applies.
     #[serde(default)]
     pub helpcode_shift_entry: bool,
+    /// A skin arrives by being picked rather than by being dropped into a
+    /// folder. The source opens its skin folder so the user can put one there;
+    /// a host whose folder is inside an application sandbox has nothing to
+    /// open, so it asks the user to point at the skin instead. The page needs
+    /// to know which of the two it is, because the button says so.
+    #[serde(default)]
+    pub skin_directory_import: bool,
     /// The host applies a separate family for Latin text in the candidate panel.
     /// A host whose renderer resolves one family list per glyph, or which draws
     /// Latin from its own font, can honour this; one with a single typeface for
@@ -344,6 +351,9 @@ impl HostCapabilities {
             // input at all, and the desktop hosts append the code to a finished
             // spelling instead of marking it.
             helpcode_shift_entry: matches!(platform, HostPlatform::Android | HostPlatform::Harmony),
+            // The skin folder is inside the sandbox on HarmonyOS, where no file
+            // manager reaches it, so the skin is picked and copied in instead.
+            skin_directory_import: platform == HostPlatform::Harmony,
             candidate_english_font: matches!(
                 platform,
                 HostPlatform::Windows
@@ -757,6 +767,7 @@ mod tests {
         // The source appends a helper code to a finished spelling; no gesture marks it, so the
         // explanation of the gesture would be describing something that does not happen here.
         assert!(!windows.helpcode_shift_entry);
+        assert!(!windows.skin_directory_import);
         // The Server mirrors these into the shared config.toml the TIP reads,
         // so the controls offer settings that actually take effect.
         assert!(windows.mode_switch_shortcuts);
@@ -908,6 +919,9 @@ mod tests {
         // Shift marks a helper code here exactly as it does on Android; the page explains that
         // gesture and would otherwise have explained it to nobody on this host.
         assert!(harmony.helpcode_shift_entry);
+        // Its skin folder is inside the sandbox, so the page asks the user to point at a skin
+        // rather than offering to open a folder that nothing can browse.
+        assert!(harmony.skin_directory_import);
         assert!(harmony.number_row_selection);
         // The two network providers create their own capturer, so a chosen microphone is routable.
         assert!(harmony.voice_capture_devices);

@@ -198,6 +198,7 @@ import {
 } from "../entry/src/main/ets/keyboard/input/CandidateContextMenuPolicy";
 import { PanelSurfaceAction } from "../entry/src/main/ets/keyboard/input/PanelShortcutPolicy";
 import { PreferenceRevisionPolicy } from "../entry/src/main/ets/keyboard/input/PreferenceRevisionPolicy";
+import { SkinImportPolicy } from "../entry/src/main/ets/keyboard/skin/SkinImportPolicy";
 import {
   SmartPunctuationSpacePolicy,
   SpaceConvertDecision,
@@ -4930,6 +4931,47 @@ group("an unreadable revision does not replace a good one", () => {
   check(PreferenceRevisionPolicy.observe(5, -2) === 5, "and so does a negative one");
   // -1 is what the bridge starts with, and it must not compare equal to any real revision.
   check(PreferenceRevisionPolicy.changed(-1, 0), "the initial value counts as not yet observed");
+});
+
+group("an imported skin folder name comes from outside and is checked", () => {
+  check(SkinImportPolicy.destinationName("midnight") === "midnight", "an ordinary name is kept");
+  check(
+    SkinImportPolicy.destinationName("  forest  ") === "forest",
+    "surrounding space is trimmed",
+  );
+  // The skins root sits beside the staged dictionary, so a name that climbs out of it would write
+  // over the Engine's resources.
+  check(SkinImportPolicy.destinationName("../../engine") === null, "a traversal is refused");
+  check(SkinImportPolicy.destinationName("a/b") === null, "and so is any forward slash");
+  check(SkinImportPolicy.destinationName("a\\b") === null, "and any backslash");
+  check(SkinImportPolicy.destinationName(".") === null, "a lone dot means the skins root itself");
+  check(SkinImportPolicy.destinationName("..") === null, "and two dots mean its parent");
+  check(SkinImportPolicy.destinationName("") === null, "an empty name is not a folder");
+  check(SkinImportPolicy.destinationName("   ") === null, "nor is one made only of space");
+  check(SkinImportPolicy.destinationName("a\u0007b") === null, "a control character is refused");
+  check(SkinImportPolicy.destinationName("x".repeat(65)) === null, "and so is an over-long name");
+  check(SkinImportPolicy.destinationName("x".repeat(64)) !== null, "64 is still allowed");
+});
+
+group("the folder name is taken from the picked URI", () => {
+  check(
+    SkinImportPolicy.pickedName("file://docs/a/b/midnight") === "midnight",
+    "the last segment is the folder the user chose",
+  );
+  check(
+    SkinImportPolicy.pickedName("file://docs/a/midnight/") === "midnight",
+    "a trailing separator does not make the name empty",
+  );
+  check(
+    SkinImportPolicy.pickedName("file://docs/a/my%20skin") === "my skin",
+    "an escaped segment is decoded",
+  );
+  // A name that survives decoding still has to pass the same check.
+  check(
+    SkinImportPolicy.pickedName("file://docs/a/%2E%2E") === null,
+    "an escaped traversal is refused after decoding, not before",
+  );
+  check(SkinImportPolicy.pickedName(null) === null, "no pick is no name");
 });
 
 // The account bridge deliberately models the asynchronous device HTTP API. Give its immediate

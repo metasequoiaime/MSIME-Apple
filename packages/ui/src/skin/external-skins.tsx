@@ -240,6 +240,7 @@ function ExternalSkinCard({
 export function ExternalSkins({
   scan,
   openDirectory,
+  importsSkin = false,
   readImage,
   readFont,
   readToolbarCss,
@@ -250,6 +251,12 @@ export function ExternalSkins({
 }: {
   scan?: () => Promise<SkinCatalog>;
   openDirectory?: () => Promise<void>;
+  /**
+   * The host copies a skin the user points at, instead of opening a folder for them to drop one
+   * into. Its skin folder is inside an application sandbox, so there is nothing to open — the
+   * button has to say what it actually does, or it promises a folder that never appears.
+   */
+  importsSkin?: boolean;
   readImage?: SkinImageReader;
   readFont?: SkinFontReader;
   readToolbarCss?: ToolbarCssReader;
@@ -346,7 +353,13 @@ export function ExternalSkins({
             disabled={!openDirectory || opening}
             onClick={() => void openFolder()}
           >
-            {opening ? "正在打开…" : "打开目录"}
+            {opening
+              ? importsSkin
+                ? "正在导入…"
+                : "正在打开…"
+              : importsSkin
+                ? "导入皮肤"
+                : "打开目录"}
           </button>
           <button
             type="button"
@@ -358,7 +371,9 @@ export function ExternalSkins({
           </button>
         </div>
       </div>
-      {openFailed && <p role="alert">无法打开皮肤目录，请重试。</p>}
+      {openFailed && (
+        <p role="alert">{importsSkin ? "导入皮肤失败，请重试。" : "无法打开皮肤目录，请重试。"}</p>
+      )}
       {failed && <p role="alert">读取皮肤目录失败，请重试。{catalog && "仍显示上次扫描结果。"}</p>}
       <div role="status">
         {!scan
