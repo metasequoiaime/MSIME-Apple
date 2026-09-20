@@ -142,6 +142,33 @@ xcodebuild test -project platforms/ios/MSIMEClient.xcodeproj -scheme MSIMEClient
 
 该套件目前不接入 `scripts/verify-local.sh`：它需要模拟器和已暂存的词库资源，单次运行约十分钟。
 
+## 界面测试与键盘扩展的真机验收
+
+`MSIMEClientUITests` 走 `xcodebuild test -scheme MSIMEClientUITests`，需要 `ARCHS=arm64 ONLY_ACTIVE_ARCH=YES`——原生库只有 arm64 切片，不加这两个设置时模拟器目标会按 x86_64 链接并在扩展上报未定义符号。
+
+`KeyboardExtensionEditorUITests` 是唯一把键盘扩展当成系统键盘来用的一组用例：其余所有套件都直接在测试宿主里构造 `KeyboardViewController`，那条路覆盖不到只在运行期才存在的部分——系统是否真的加载这个扩展、扩展进程能否读到 App Group 共享容器、上屏文本是否真的到达别人的 `UITextDocumentProxy`。它要求键盘已在「设置」里启用；没启用时跳过而不是失败，并在跳过信息里带上当时键面上有什么。
+
+**在 iOS 27 模拟器上还没有找到无人值守启用第三方键盘的办法，下面三条都试过、都不行，不要再走一遍：**
+
+- 往 `.GlobalPreferences` 写 `AppleKeyboards`（含扩展 bundle id）并重启模拟器。值确实落盘也读得回来，但系统按自己的存储重建键盘环——连一起写进去的系统拼音键盘都不出现，环里始终只有英文和 Emoji。
+- `pluginkit -e use -i app.msime.ios.keyboard`。扩展本来就以 `com.apple.keyboard-service` 注册着，置成 `+` 之后能跨重装保持，但键盘环不变，所以它不是那道门。
+- `App-prefs:General&path=Keyboard` 之类的深链。命令返回成功，界面停在设置首页不跳转；iOS 27 的「键盘」也已不在「通用」下面。
+
+真机上就是正常在 设置 → 键盘 里添加一次，之后这组用例会自己跑起来。
+
+补回 `reachSettingsLink`、让这个目标重新编译之后，第一次完整运行的结果是 **39 执行、2 跳过、6 失败**（873 秒）。两条跳过是上面那组键盘验收；六条失败全在 `OnboardingUITests`，都是此前从未执行过的用例：
+
+```
+testAccountEntryExplainsExplicitDataSharing
+testChatLoginIsFocusedAndCancelReturnsToTryout
+testMainTabsKeepIndependentNavigation
+testSettingsPersistAndExposeGuideAndTryout
+testSkinDiscoveryUsesCommunityTabAndReturnsToOrigin
+testVoiceResultIsExplicitlyTransferredAndClaimedOnce
+```
+
+这六条还没有逐条查过，所以不知道是界面改了而检查没跟上，还是真的坏了——在查清之前不要把它们当成任何一种。这一行是这个目标的基线，和上面那条键盘套件的数字一样，改动之后要跟着更新。
+
 `MSIMEClientApp` 是 iOS 的产品宿主，装机与设备验收都以它为准，也是 `build-app.sh` 的默认产物，不需要任何开关。要单独构建 Tauri/React 这个公共组件时用 `MSIME_IOS_TAURI_COMPONENT=1` 显式选择。此前该脚本默认产出 Tauri 包、把原生宿主锁在 `MSIME_IOS_LEGACY_APP=1` 后面，并由一条测试固化，这与架构相反，已纠正。
 
 **上面那条 SIGTRAP 只挡 Tauri 宿主，不挡这个。** `MSIMEClientApp` 不加载 WebView，在 iOS 27 模拟器上界面能正常起来，键盘扩展也随它一起装进去，所以要在模拟器上看界面就走这条路：
