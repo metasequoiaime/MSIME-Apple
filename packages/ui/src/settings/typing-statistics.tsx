@@ -1,5 +1,24 @@
 import { useEffect, useMemo, useState } from "react";
 
+const heading = "m-0 text-[15px] font-semibold text-body";
+const metric = "flex min-w-0 flex-col gap-1";
+const metricValue = "text-[30px] font-[650] leading-tight break-anywhere tabular-nums text-accent";
+const footerNote = "mt-3.5 mb-0 text-xs leading-relaxed text-muted";
+const privacy = "mt-4 mb-0 text-xs leading-[1.7] text-muted";
+// The phone's overflow menu: a details/summary disclosure, because it closes on an outside tap
+// without any state to keep in sync.
+const menuSummary =
+  "grid h-[30px] w-[34px] cursor-pointer list-none place-items-center rounded-[9px] border border-edge bg-card text-xl leading-none text-secondary hover:bg-[var(--button-secondary-hover)] hover:text-body [&::-webkit-details-marker]:hidden";
+const menuPopover =
+  "absolute top-9 right-0 flex min-w-[180px] flex-col gap-[3px] rounded-[10px] border border-edge bg-card p-1.5 shadow-card";
+const menuItem =
+  "flex min-h-[34px] w-full items-center justify-between gap-3 rounded-[7px] border-0 bg-transparent px-[9px] py-1.5 text-left text-body not-disabled:hover:bg-[var(--button-secondary-hover)]";
+// The segmented control behind both the phone's content tabs and the desktop's range picker. The
+// column count is a parameter because the two differ, and because the tab row silently kept four
+// columns after a fifth tab was added -- the extra one wrapped onto a second row at a quarter width.
+const segmented = (columns: number) =>
+  `grid gap-[3px] rounded-[9px] bg-subtle p-[3px] ${columns === 5 ? "grid-cols-5" : "grid-cols-3"} [&>button]:min-h-[34px] [&>button]:rounded-[7px] [&>button]:border-0 [&>button]:bg-transparent [&>button]:text-secondary [&>button[aria-selected=true]]:bg-raised [&>button[aria-selected=true]]:text-body [&>button[aria-selected=true]]:shadow-card [&>button[aria-pressed=true]]:bg-raised [&>button[aria-pressed=true]]:text-body [&>button[aria-pressed=true]]:shadow-card`;
+
 export type TypingBreakdown = {
   characters: Record<string, number>;
   sources: Record<string, number>;
@@ -442,7 +461,7 @@ function Distribution({
           </div>
         ))}
       </div>
-      {footer && <p className="statistics-footer-note">{footer}</p>}
+      {footer && <p className={footerNote}>{footer}</p>}
     </section>
   );
 }
@@ -510,7 +529,7 @@ function CandidateRanks({ selections }: { selections: SelectionCounts | undefine
           ))}
         </div>
       )}
-      <p className="statistics-footer-note">
+      <p className={footerNote}>
         每次上屏记录选中的是第几条候选，只记位置，不记任何文字。首选命中率越高，说明排序越贴合你的输入。
       </p>
     </section>
@@ -702,18 +721,20 @@ export function TypingStatisticsPage({
   };
 
   return (
-    <div className="statistics-page">
+    <div className="flex flex-col gap-3.5 max-phone:gap-2.5">
       {error && (
         <p role="alert" className="error">
           {error}
         </p>
       )}
       {mobile && (
-        <div className="statistics-mobile-toolbar">
-          <details className="statistics-mobile-menu">
-            <summary aria-label="统计选项">⋯</summary>
-            <div className="statistics-mobile-menu-popover" role="menu" aria-label="统计选项">
-              <label className="statistics-mobile-menu-toggle">
+        <div className="-mb-1 flex min-h-0 justify-end">
+          <details className="relative z-[3]">
+            <summary className={menuSummary} aria-label="统计选项">
+              ⋯
+            </summary>
+            <div className={menuPopover} role="menu" aria-label="统计选项">
+              <label className={menuItem}>
                 <span>记录打字统计</span>
                 <input
                   aria-label="记录打字统计"
@@ -735,7 +756,7 @@ export function TypingStatisticsPage({
               <button
                 type="button"
                 role="menuitem"
-                className="statistics-reset"
+                className={`${menuItem} text-danger`}
                 disabled={busy}
                 onClick={resetStatistics}
               >
@@ -745,9 +766,9 @@ export function TypingStatisticsPage({
           </details>
         </div>
       )}
-      <section className="section statistics-overview">
+      <section className="section m-0">
         {mobile ? (
-          <div className="statistics-mobile-tabs" role="tablist" aria-label="统计内容">
+          <div className={segmented(5)} role="tablist" aria-label="统计内容">
             {(
               [
                 ["trend", "趋势"],
@@ -772,7 +793,7 @@ export function TypingStatisticsPage({
             ))}
           </div>
         ) : (
-          <div className="statistics-period" role="group" aria-label="统计范围">
+          <div className={segmented(3)} role="group" aria-label="统计范围">
             {(
               [
                 [7, "7 天"],
@@ -794,30 +815,32 @@ export function TypingStatisticsPage({
             ))}
           </div>
         )}
-        <div className="statistics-metrics">
-          <div>
-            <span>今日输入</span>
-            <strong aria-label="今日输入字符数">
+        <div className="mt-[22px] grid grid-cols-2 gap-6 max-phone:gap-3">
+          <div className={metric}>
+            <span className="text-secondary">今日输入</span>
+            <strong className={metricValue} aria-label="今日输入字符数">
               {(statistics.days[today.key] ?? 0).toLocaleString("zh-CN")}
             </strong>
-            <small>字符</small>
+            <small className="m-0">字符</small>
           </div>
-          <div>
-            <span>{scopeTitle}</span>
-            <strong aria-label="当前范围输入字符数">{scopeTotal.toLocaleString("zh-CN")}</strong>
-            <small>字符</small>
+          <div className={metric}>
+            <span className="text-secondary">{scopeTitle}</span>
+            <strong className={metricValue} aria-label="当前范围输入字符数">
+              {scopeTotal.toLocaleString("zh-CN")}
+            </strong>
+            <small className="m-0">字符</small>
           </div>
         </div>
       </section>
       {(!mobile || mobileTab === "trend") && (
-        <section className="section statistics-trend" aria-labelledby="statistics-trend-title">
-          <h2 id="statistics-trend-title">
+        <section className="section m-0" aria-labelledby="statistics-trend-title">
+          <h2 className={heading} id="statistics-trend-title">
             每日趋势 ·{" "}
             {mobile && trendDays.length >= 360
               ? "近一年"
               : `近 ${mobile ? trendDays.length : period === 0 ? 30 : period} 天`}
           </h2>
-          <p>
+          <p className="mt-[7px] mb-0 text-xs text-muted">
             最高{" "}
             {maximum === 1 && trendDays.every((day) => !statistics.days[day.key])
               ? 0
@@ -866,7 +889,7 @@ export function TypingStatisticsPage({
               />
             </>
           )}
-          <p className="statistics-footer-note">
+          <p className={footerNote}>
             {mobile ? "点按热力图查看当天的分类与占比。" : "点按柱形查看当天的分类与占比。"}
           </p>
           {selectedDay && (
@@ -897,15 +920,15 @@ export function TypingStatisticsPage({
       )}
       {(!mobile || mobileTab === "ranks") && <CandidateRanks selections={statistics.selections} />}
       {mobile ? (
-        <section className="section statistics-privacy-section">
-          <p className="statistics-privacy">
+        <section className="section m-0 pt-0.5">
+          <p className={`${privacy} mt-0`}>
             仅统计水杉键盘成功提交的字符，含标点及表情，不含空格、换行和未上屏拼音。组合表情计为一个字符，删除文字不扣减。仅在本机保存日期、分类和数量，不保存输入内容。每日明细保留最近
             366 个有记录的日期，累计分类持续保留。
           </p>
         </section>
       ) : (
-        <section className="section statistics-controls">
-          <label className="section-header">
+        <section className="section m-0">
+          <label className="section-header mb-4">
             <span className="section-title">
               记录打字统计<small>关闭后，新提交不会增加统计。</small>
             </span>
@@ -918,10 +941,10 @@ export function TypingStatisticsPage({
               onChange={(event) => void update(() => client.setEnabled(event.target.checked))}
             />
           </label>
-          <div className="statistics-control-actions">
+          <div className="flex flex-wrap gap-[9px]">
             <button
               type="button"
-              className="secondary"
+              className="secondary m-0"
               disabled={busy}
               onClick={() => void update(() => client.load())}
             >
@@ -929,23 +952,23 @@ export function TypingStatisticsPage({
             </button>
             <button
               type="button"
-              className="secondary statistics-reset"
+              className="secondary m-0 text-danger"
               disabled={busy}
               onClick={resetStatistics}
             >
               清空统计
             </button>
           </div>
-          <p className="statistics-privacy">
+          <p className={privacy}>
             仅统计水杉键盘成功提交的字符，含标点及表情，不含空格、换行和未上屏拼音。组合表情计为一个字符，删除文字不扣减。仅在本机保存日期、分类和数量，不保存输入内容。每日明细保留最近
             366 个有记录的日期，累计分类持续保留。
           </p>
         </section>
       )}
       {availabilityMessage && (
-        <section className="section statistics-availability">
-          <h2>统计没有数据</h2>
-          <p>{availabilityMessage}</p>
+        <section className="section m-0">
+          <h2 className={heading}>统计没有数据</h2>
+          <p className="mt-2 mb-0 leading-relaxed text-secondary">{availabilityMessage}</p>
           {iosPlatform && status.availability === "neverWritten" && openSystemSettings && (
             <button type="button" className="secondary" onClick={() => void openSystemSettings()}>
               打开系统键盘设置
