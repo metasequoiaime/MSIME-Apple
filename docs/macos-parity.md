@@ -50,9 +50,9 @@
 
 屏幕键盘、手写识别板、AI 辅助与 AI 对话、社区资源与皮肤、打字统计、悬浮工具栏皮肤编辑、双拼键位提示面板、输入模式 HUD。这些不属于本次迁移范围，此处只说明两侧差集不是单向的。
 
-## 仍需签名产品包验收的部分
+## 仍需重新登录一次才能验收的部分
 
-本地构建的 bundle 在本机 macOS 27 上**注册不上输入源**（见 `platforms/macos/README.md` 的实测记录：`--register-input-source` 返回 1，按 bundle id 过滤的输入源列表为空，而同机 Developer ID 签名的正式版两个源正常启用；改动前就已安装在那里的那份构建同样失败）。因此下列三项无法用本地构建验收：
+这一项此前记为「需要签名产品包」，是错的。实测（见 `platforms/macos/README.md`）：把同机注册正常的那份输入法复制一份、只换 bundle identifier、用同一张 Developer ID 证书重签后注册，失败方式完全一样——`TISRegisterInputSource` 返回 noErr 而 `TISCreateInputSourceList` 查不到。真正的判据是**该 identifier 在本次登录会话开始时是否已在输入源列表里**：唯一能被列出的那份，其安装时间早于本次会话的开始；重启 `imklaunchagent`、`lsregister` 重新登记与重扫用户域都无效。所以本项目的 bundle 在这一点上与那份能用的输入法表现一致，不是装配缺陷，签名产品包也绕不过去。下列三项需要重新登录一次之后才能验收：
 
 1. 输入菜单与菜单栏中图标的实际观感；
 2. 麦克风与语音识别的 TCC 权限弹窗文案；
