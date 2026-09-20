@@ -29,10 +29,17 @@ test("renders the keyboard home surface with the current skin and scheme", () =>
   expect(screen.getByText("高情商回复")).toBeTruthy();
 });
 
+// Each shortcut is meant to be recognisable by its own colour rather than by reading the label, so
+// the six icons must not collapse onto one palette. Found through the grid that holds them: the
+// tiles are styled with utilities now, and a class name there is no longer a stable handle.
 test("home shortcuts expose a distinct visual tile for each function", () => {
-  const { container } = render(<HomePage preferences={initial.preferences} onOpenPage={vi.fn()} />);
-  const icons = [...container.querySelectorAll<HTMLElement>(".home-quick-icon")];
-  expect(icons).toHaveLength(6);
+  render(<HomePage preferences={initial.preferences} onOpenPage={vi.fn()} />);
+  const grid = screen.getByRole("button", { name: /皮肤/ }).parentElement!;
+  const tiles = [...grid.querySelectorAll("button")];
+  expect(tiles).toHaveLength(6);
+
+  const icons = tiles.map((tile) => tile.querySelector<HTMLElement>('span[aria-hidden="true"]')!);
+  expect(icons.every(Boolean)).toBe(true);
   expect(new Set(icons.map((icon) => icon.className)).size).toBe(6);
 });
 

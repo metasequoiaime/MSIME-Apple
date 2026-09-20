@@ -2,6 +2,27 @@ import { ScreenKeyboardPreview, type TouchKeyboardSkin } from "./screen-keyboard
 import { useCandidatePreviewTheme } from "../candidate/candidate-preview-theme";
 import type { Preferences, TouchKeyboardScheme } from "../index";
 
+// Every tappable surface on this page is the same card: full width, a hairline that strengthens on
+// hover, and the shared press animation. Named here rather than repeated at each of the five call
+// sites, because a card that drifts from the others is the failure this page is prone to.
+const card =
+  "press-spring w-full rounded-[14px] border border-edge bg-card text-left text-body shadow-card hover:border-edge-strong active:scale-[0.96] active:opacity-[0.88] motion-reduce:transition-none";
+// The cards that are a single row: icon, a growing middle, and a trailing chevron.
+const rowCard = `${card} flex items-center justify-between gap-3 px-3.5 py-[13px]`;
+const cardTitle = "block text-[15px] font-semibold";
+const cardNote = "mt-1";
+// The middle column of a row card: it takes the leftover width and is allowed to shrink, which is
+// what lets the note beside it ellipsise instead of pushing the chevron off the edge.
+const rowBody = "min-w-0 flex-1";
+const rowChevron = "shrink-0 grow-0 basis-auto text-lg text-muted";
+const quickTile =
+  "press-spring flex min-w-0 flex-col items-start gap-[5px] rounded-[11px] border border-edge bg-subtle p-3 text-left text-body hover:border-edge-strong hover:bg-raised active:scale-[0.96] active:opacity-[0.88] motion-reduce:transition-none max-tight:px-2 max-tight:py-2.5";
+const quickIcon =
+  "grid size-[34px] place-items-center rounded-[11px] text-[17px] font-[650] leading-none";
+const quickTitle = "text-[13px] font-semibold";
+const quickNote =
+  "m-0 w-full overflow-hidden text-ellipsis whitespace-nowrap max-tight:text-[11px]";
+
 export interface HomePageActions {
   openKeyboard?: () => Promise<void>;
   openEmojiPanel?: () => Promise<void>;
@@ -102,15 +123,17 @@ export function HomePage({
           alt=""
         />
       </header>
-      <button type="button" className="home-keyboard-card" onClick={openKeyboard}>
-        <div className="home-card-heading">
+      <button type="button" className={`${card} flex flex-col gap-3 p-4`} onClick={openKeyboard}>
+        <div className="flex items-center justify-between gap-3">
           <span>
-            <strong>我的键盘</strong>
-            <small>
+            <strong className={cardTitle}>我的键盘</strong>
+            <small className={cardNote}>
               {skinTitle} · {schemeTitle(preferences)}
             </small>
           </span>
-          <em>当前外观</em>
+          <em className="shrink-0 grow-0 basis-auto rounded-full bg-accent-soft px-2 py-1 text-[11px] not-italic text-accent">
+            当前外观
+          </em>
         </div>
         <ScreenKeyboardPreview
           theme={theme}
@@ -118,103 +141,136 @@ export function HomePage({
           customDesign={customDesign}
           layout={touchLayout ? "touch" : "desktop"}
         />
-        <span className="home-card-action">
+        <span className="flex items-center justify-between text-[13px] font-semibold text-accent">
           ⌨ 试用键盘 <span aria-hidden="true">→</span>
         </span>
       </button>
-      <div className="home-quick-grid">
-        <button type="button" onClick={() => onOpenPage("skin")}>
-          <span className="home-quick-icon home-quick-icon-skin" aria-hidden="true">
+      <div className="grid grid-cols-3 gap-2.5 max-tight:gap-[7px]">
+        <button type="button" className={quickTile} onClick={() => onOpenPage("skin")}>
+          <span
+            className={`${quickIcon} bg-[rgb(219_111_159/15%)] text-[#db6f9f]`}
+            aria-hidden="true"
+          >
             ◈
           </span>
-          <strong>皮肤</strong>
-          <small>{skinTitle}</small>
+          <strong className={quickTitle}>皮肤</strong>
+          <small className={quickNote}>{skinTitle}</small>
         </button>
-        <button type="button" onClick={() => onOpenPage("input")}>
-          <span className="home-quick-icon home-quick-icon-input" aria-hidden="true">
+        <button type="button" className={quickTile} onClick={() => onOpenPage("input")}>
+          <span
+            className={`${quickIcon} bg-[rgb(25_167_141/15%)] text-[#19a78d]`}
+            aria-hidden="true"
+          >
             ⌨
           </span>
-          <strong>输入方案</strong>
-          <small>{schemeTitle(preferences)}</small>
+          <strong className={quickTitle}>输入方案</strong>
+          <small className={quickNote}>{schemeTitle(preferences)}</small>
         </button>
-        <button type="button" onClick={() => onOpenPage("screen-keyboard")}>
-          <span className="home-quick-icon home-quick-icon-keyboard" aria-hidden="true">
+        <button type="button" className={quickTile} onClick={() => onOpenPage("screen-keyboard")}>
+          <span
+            className={`${quickIcon} bg-[rgb(119_114_223/15%)] text-[#7772df]`}
+            aria-hidden="true"
+          >
             ⌗
           </span>
-          <strong>按键</strong>
-          <small>间距与语音</small>
+          <strong className={quickTitle}>按键</strong>
+          <small className={quickNote}>间距与语音</small>
         </button>
-        <button type="button" onClick={() => onOpenPage("dictionary")}>
-          <span className="home-quick-icon home-quick-icon-dictionary" aria-hidden="true">
+        <button type="button" className={quickTile} onClick={() => onOpenPage("dictionary")}>
+          <span
+            className={`${quickIcon} bg-[rgb(152_112_90/15%)] text-[#98705a]`}
+            aria-hidden="true"
+          >
             ▤
           </span>
-          <strong>词库</strong>
-          <small>个人词与同步</small>
+          <strong className={quickTitle}>词库</strong>
+          <small className={quickNote}>个人词与同步</small>
         </button>
-        <button type="button" onClick={() => onOpenPage("ai")}>
-          <span className="home-quick-icon home-quick-icon-ai" aria-hidden="true">
+        <button type="button" className={quickTile} onClick={() => onOpenPage("ai")}>
+          <span
+            className={`${quickIcon} bg-[rgb(229_155_67/15%)] text-[#e59b43]`}
+            aria-hidden="true"
+          >
             ✦
           </span>
-          <strong>AI</strong>
-          <small>回复与润色</small>
+          <strong className={quickTitle}>AI</strong>
+          <small className={quickNote}>回复与润色</small>
         </button>
         <button
           type="button"
+          className={quickTile}
           onClick={() =>
             actions?.openSystemKeyboardSettings
               ? invokeAction(actions.openSystemKeyboardSettings)
               : onOpenPage("screen-keyboard")
           }
         >
-          <span className="home-quick-icon home-quick-icon-system" aria-hidden="true">
+          <span
+            className={`${quickIcon} bg-[rgb(130_136_146/15%)] text-[#747b86]`}
+            aria-hidden="true"
+          >
             ⚙
           </span>
-          <strong>系统设置</strong>
-          <small>启用与完全访问</small>
+          <strong className={quickTitle}>系统设置</strong>
+          <small className={quickNote}>启用与完全访问</small>
         </button>
       </div>
       <button
         type="button"
-        className="home-feature-card"
+        className={rowCard}
         onClick={() => {
           onSelectScheme?.("thoughtful_reply");
           onOpenPage("input");
         }}
       >
-        <span className="home-feature-icon" aria-hidden="true">
+        <span
+          className="grid size-[34px] shrink-0 grow-0 basis-[34px] place-items-center rounded-[10px] bg-accent-soft text-[18px] text-accent"
+          aria-hidden="true"
+        >
           ✦
         </span>
-        <span>
-          <strong>高情商回复</strong>
-          <small>切换回复键盘，试试更合适的表达</small>
+        <span className={rowBody}>
+          <strong className={cardTitle}>高情商回复</strong>
+          <small className={cardNote}>切换回复键盘，试试更合适的表达</small>
         </span>
-        <span aria-hidden="true">↗</span>
+        <span className={rowChevron} aria-hidden="true">
+          ↗
+        </span>
       </button>
       {onOpenChat && (
-        <button type="button" className="home-feature-card" onClick={onOpenChat}>
-          <span className="home-feature-icon" aria-hidden="true">
+        <button type="button" className={rowCard} onClick={onOpenChat}>
+          <span
+            className="grid size-[34px] shrink-0 grow-0 basis-[34px] place-items-center rounded-[10px] bg-accent-soft text-[18px] text-accent"
+            aria-hidden="true"
+          >
             ◌
           </span>
-          <span>
-            <strong>边聊天，边试键盘</strong>
-            <small>在共享账号中选择 EveryAPI 模型开始对话</small>
+          <span className={rowBody}>
+            <strong className={cardTitle}>边聊天，边试键盘</strong>
+            <small className={cardNote}>在共享账号中选择 EveryAPI 模型开始对话</small>
           </span>
-          <span aria-hidden="true">→</span>
+          <span className={rowChevron} aria-hidden="true">
+            →
+          </span>
         </button>
       )}
-      <button type="button" className="home-settings-card" onClick={() => onOpenPage("appearance")}>
-        <span aria-hidden="true">⚙</span>
-        <span>
-          <strong>键盘设置</strong>
-          <small>输入偏好、词库、AI 与语音</small>
+      <button type="button" className={rowCard} onClick={() => onOpenPage("appearance")}>
+        <span className="text-[19px] text-accent" aria-hidden="true">
+          ⚙
         </span>
-        <span aria-hidden="true">›</span>
+        <span className={rowBody}>
+          <strong className={cardTitle}>键盘设置</strong>
+          <small className={cardNote}>输入偏好、词库、AI 与语音</small>
+        </span>
+        <span className={rowChevron} aria-hidden="true">
+          ›
+        </span>
       </button>
-      <div className="home-system-actions">
+      <div className="flex flex-wrap gap-[9px]">
         {actions?.openEmojiPanel && (
           <button
             type="button"
-            className="secondary"
+            className="secondary m-0"
             onClick={() => invokeAction(actions.openEmojiPanel)}
           >
             表情与符号
@@ -223,7 +279,7 @@ export function HomePage({
         {actions?.openClipboardPanel && (
           <button
             type="button"
-            className="secondary"
+            className="secondary m-0"
             onClick={() => invokeAction(actions.openClipboardPanel)}
           >
             剪贴板历史
@@ -232,7 +288,7 @@ export function HomePage({
         {actions?.openSystemKeyboardSettings && (
           <button
             type="button"
-            className="secondary"
+            className="secondary m-0"
             onClick={() => invokeAction(actions.openSystemKeyboardSettings)}
           >
             系统键盘设置
@@ -241,7 +297,7 @@ export function HomePage({
         {actions?.showInputMethodPicker && (
           <button
             type="button"
-            className="secondary"
+            className="secondary m-0"
             onClick={() => invokeAction(actions.showInputMethodPicker)}
           >
             选择输入法
