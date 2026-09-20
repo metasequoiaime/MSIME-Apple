@@ -52,6 +52,8 @@ struct Observation {
   bool punctuation_enabled = false;
   bool autocorrect_transposition = false;
   bool autocorrect_neighbor = false;
+  bool learning_enabled = false;
+  bool learning_sensitive = false;
 };
 void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
             const gchar *name, GVariant *parameters, gpointer data) {
@@ -105,6 +107,10 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
       seen.input_enabled =
           ibus_property_get_state(property) == PROP_STATE_CHECKED;
       seen.mode_sensitive = ibus_property_get_sensitive(property);
+    }
+    if (key == "Learning") {
+      seen.learning_enabled = ibus_property_get_state(property) == PROP_STATE_CHECKED;
+      seen.learning_sensitive = ibus_property_get_sensitive(property);
     }
     if (key == "SmartPunctuation")
       seen.smart_punctuation_sensitive = ibus_property_get_sensitive(property);
@@ -2366,8 +2372,22 @@ int main(int argc, char **argv) {
     phrase();
     require(seen.candidates.size() == 4,
             "Settings did not recover after writer unlock");
+    // Frequency ranking is scoped to the segmentation the user typed: a longer
+    // word carried on the same prefix (你好吗) is ranked among three-segment
+    // entries, never against 你好, so selecting it cannot move it to the top of
+    // this list whatever the preference says. Learn a candidate that shares
+    // nihao's two segments instead.
+    auto two_segment_index = [&] {
+      for (std::size_t index = 1; index < seen.candidates.size(); ++index)
+        if (g_utf8_strlen(seen.candidates[index].c_str(), -1) == 2)
+          return static_cast<int>(index);
+      return -1;
+    };
     auto private_candidates = seen.candidates;
-    invoke("CandidateClicked", g_variant_new("(uuu)", 1, 1, 0));
+    const int private_learn = two_segment_index();
+    require(private_learn > 0, "Private session exposed no two-segment candidate to learn");
+    invoke("CandidateClicked",
+           g_variant_new("(uuu)", static_cast<guint>(private_learn), 1, 0));
     phrase();
     require(seen.candidates == private_candidates,
             "Reload enabled frequency learning in a private session");
@@ -2377,11 +2397,39 @@ int main(int argc, char **argv) {
                          g_variant_new("(uu)", IBUS_INPUT_PURPOSE_FREE_FORM, 0)));
     settle();
     phrase();
-    auto learned = seen.candidates.at(1);
-    invoke("CandidateClicked", g_variant_new("(uuu)", 1, 1, 0));
+    const int learn_index = two_segment_index();
+    require(learn_index > 0, "Normal session exposed no two-segment candidate to learn");
+    auto learned = seen.candidates.at(static_cast<std::size_t>(learn_index));
+    const auto before_learning = seen.candidates;
+    invoke("CandidateClicked",
+           g_variant_new("(uuu)", static_cast<guint>(learn_index), 1, 0));
+    const auto committed_learning = seen.committed;
     phrase();
-    require(seen.candidates.front() == learned,
-            "Normal session did not restore configured frequency learning");
+    {
+      std::string observed;
+      for (const auto &candidate : seen.candidates)
+        observed += "[" + candidate + "]";
+      std::string before;
+      for (const auto &candidate : before_learning)
+        before += "[" + candidate + "]";
+      std::string journal = "missing";
+      {
+        std::error_code error;
+        for (const auto &entry :
+             std::filesystem::recursive_directory_iterator(root, error)) {
+          if (entry.path().filename() == "msime_user.db")
+            journal = entry.path().string() + " size=" +
+                      std::to_string(std::filesystem::file_size(entry.path(), error));
+        }
+      }
+      require(seen.candidates.front() == learned,
+              ("Normal session did not restore configured frequency learning: learned=[" +
+               learned + "] committed=[" + committed_learning + "] before=" + before +
+               " after=" + observed + " journal=" + journal +
+               " learning=" + std::to_string(seen.learning_enabled) +
+               " learning_sensitive=" + std::to_string(seen.learning_sensitive))
+                  .c_str());
+    }
     invoke("Reset");
     struct Binding {
       const char *name;
