@@ -576,6 +576,8 @@ export interface HostCapabilities {
   shuangpin_preedit?: boolean;
   ai_provider_credentials?: boolean;
   voice_commit_mode?: boolean;
+  /** The OS release the host is running on, for the feedback page to attach. */
+  os_version?: string;
 }
 
 /** Superseded by the host-provided capabilities; used only when a host predates them. */
@@ -1508,6 +1510,31 @@ function requestedPage(value: string | undefined): SettingsPageId {
   return pages.some((page) => page.id === value) ? (value as SettingsPageId) : "appearance";
 }
 
+/** What the platform calls itself, for text a person reads rather than a switch the code takes. */
+function platformOsName(platform: HostPlatform): string {
+  return platform === "macos"
+    ? "macOS"
+    : platform === "windows"
+      ? "Windows"
+      : platform === "harmony"
+        ? "HarmonyOS"
+        : platform === "ios"
+          ? "iOS"
+          : platform === "android"
+            ? "Android"
+            : "Linux";
+}
+
+function schemeTitle(scheme: Preferences["scheme"]): string {
+  return scheme === "quanpin"
+    ? "全拼"
+    : scheme === "shuangpin"
+      ? "双拼"
+      : scheme === "wubi"
+        ? "五笔"
+        : "日语";
+}
+
 function personalDictionaryKindTitle(kind: PersonalDictionaryImportEntry["kind"]): string {
   return kind === "pinyin"
     ? "拼音"
@@ -1984,10 +2011,18 @@ export function SettingsPage({
     >
   >({});
   const credentialTestGeneration = useRef<Partial<Record<ApiCredentialTestService, number>>>({});
+  // What a report needs first is the release and the scheme, because that is what a repro is
+  // written against. The user agent only says which web view drew this window, so it is the
+  // fallback for a host that cannot name its own OS rather than a line of its own.
   const supportDiagnostics = [
     `水杉 IME ${currentAppVersion}`,
-    `平台：${host?.platform ?? (androidPlatform ? "android" : iosPlatform ? "ios" : "desktop")}`,
-    typeof navigator === "undefined" ? "" : `User-Agent：${navigator.userAgent.slice(0, 256)}`,
+    host?.os_version
+      ? `${platformOsName(host.platform)} ${host.os_version}`
+      : `平台：${host?.platform ?? (androidPlatform ? "android" : iosPlatform ? "ios" : "desktop")}`,
+    draft ? `输入方案：${schemeTitle(draft.scheme)}` : "",
+    host?.os_version || typeof navigator === "undefined"
+      ? ""
+      : `User-Agent：${navigator.userAgent.slice(0, 256)}`,
   ]
     .filter(Boolean)
     .join("\n");
