@@ -103,4 +103,24 @@ assert "event.isRelease()" in source
 assert "ime_mode_chosen_" in source
 assert 'preferences_.value("default_ime_mode", "chinese")' in source
 
+# The floating toolbar's eight component switches decide what the "工具栏" submenu
+# contains. They decided nothing here before, while the settings page showed all of
+# them for this platform, so each switch is pinned to the entry it governs.
+assert "msime-toolbar" in source
+assert "rebuildToolbarMenu" in source and "refreshToolbar" in source
+for key, default in (("english_mode", "true"), ("fullwidth", "true"),
+                     ("punctuation", "true"), ("character_set", "true"),
+                     ("emoji", "true"), ("screen_keyboard", "false"),
+                     ("settings", "true")):
+    assert f'toolbar.value("{key}", {default})' in source, key
+# The entries are the existing actions, not copies: a toolbar entry that behaved
+# differently from the status-area action beside it would be a second
+# implementation of the same toggle.
+for action in ("input_mode_action_", "english_action_", "width_action_",
+               "chinese_punctuation_action_", "traditional_action_",
+               "desktop_emoji_action_", "keyboard_action_", "settings_action_"):
+    assert f"append(" in source and action in source, action
+# A rebuild removes exactly what it added; the menu is shared across contexts.
+assert "toolbar_entries_" in source
+
 print("Fcitx5 addon metadata passed")

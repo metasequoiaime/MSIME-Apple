@@ -113,6 +113,23 @@ int main() {
       require(frame_text(tsf_config_frames(config)[7]) == L"0|s0d0l1");
     }
 
+    // Caps Lock travels on its own frame rather than in the configuration set:
+    // the Server owns the indicator because the TIP only sampled GetKeyState at
+    // activation, so pressing Caps mid-session left it stale. Nothing covered
+    // the frame itself, only the state behind it.
+    for (const bool enabled : {false, true}) {
+      const auto frame = caps_lock_frame(enabled);
+      require(frame.size() == sizeof(FanyImeNamedpipeDataToTsfWorkerThread));
+      require(frame_type(frame) == FanyImeWorkerReplyType::CapsLockChanged);
+      // "0"/"1", the payload the TIP parses - not a raw byte, and not the
+      // configuration frame's key=value shape.
+      require(frame_text(frame) == (enabled ? L"1" : L"0"));
+    }
+    // It is its own message type, so it can never be mistaken for one of the
+    // configuration frames above.
+    for (const auto &frame : tsf_config_frames(TsfLocalConfig{}))
+      require(frame_type(frame) != FanyImeWorkerReplyType::CapsLockChanged);
+
     std::cout << "TSF config frames: every setting the TIP reads is encoded\n";
   } catch (const std::exception &failure) {
     std::cerr << failure.what() << '\n';

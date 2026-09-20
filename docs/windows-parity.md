@@ -29,7 +29,7 @@
 | TSF 按键、焦点、edit session、UI-less | `windows/`、`server/src/ipc/` | `platforms/windows/tsf/`、`WindowsServer.cpp`、`SessionController.cpp`、`PipePeer.cpp` | 有调用链；继续验证真实编辑器焦点切换、断线重连、跨位数 DLL/Server、组合提交与撤销。 |
 | 全拼、四种双拼、86 五笔、日语、辅助码 | README 对应指南、`engine/`、设置 `input.ts` / `helpcode.ts` | `crates/engine-bridge/`、`crates/input-runtime/`、`platforms/windows/src/ipc/SessionPump.cpp`、共享 `preferences.rs` | Windows 日语模式已将 `-` 交给长音符输入、禁止 `-`/`=` 翻页，并在 TSF/Server 两侧保持一致；候选选择现绑定会话、代次及单调窗口渲染 serial，等待上屏前的绘制回执可避免调频重排错选；macOS 原生候选面板现按共享 `wubi_code_hint` 显示严格前缀的剩余五笔编码，回退/本地模式保持不标注；各输入方案已用锁定词库逐项核对（`crates/engine-bridge/examples/schemes_dictionary.rs`，见第七批）；辅助码的单码调序与双码筛选已按来源规格逐条核对（第十五批）；日文与中文方案的往返保留由 `apps/desktop/tests/settings/settings.test.tsx` 跨三种中文方案覆盖；仍待真实编辑器交互验证。 |
 | 候选分页、高亮、调频、preedit、以词定字 | README 候选调频/preedit/标点指南 | `CandidateWindow.cpp`、`CandidateAction.h`、`SessionController.cpp`、`ReplyCodec.cpp`；Linux `ClientEngine.cpp` | 有调用链；Linux IBus 候选操作菜单现提供上一页/下一页并复用共享分页命令，调频持久化已用锁定词库覆盖三个半边——跨会话记住、关掉就不写、重置回出厂顺序（`crates/engine-bridge/examples/learning_dictionary.rs`，见第八批）；翻页现在能越过 Engine 对单字母查询的初始上限（第九批）；以词定字已按两端取字、三字候选、组合被消耗、无汉字候选与越界索引覆盖（第十四批）；调频五种模式各走各的规则已逐条核对（第十三批）；分页键、鼠标滚轮与旧候选请求拒绝三项已核对（第四十一批），均有用例；本行到此走完。 |
-| 中英文状态、独立英文候选、全半角、简繁、智能标点 | `server/src/english/`、设置 `input.ts` / `shortcut.ts` | `SharedConfigKeybindings.h`、`PunctuationPolicy.h`、`ReplyCodec.h` 中的 TsfLocalConfig、共享偏好与 Engine 桥接 | 已补齐 TSF client key-router 边界、IPC `Sent` / `DefinitelyNotSent` / `DeliveryAmbiguous` 三态 fallback、标点配置帧及宿主进程策略回归；五项已逐个核对（第四十批）：按应用/全局状态有纯决策函数与 `mode_authority` 用例；标点重复与成对补全随配置帧下发并由 `tsf_config_frames` 钉住；热更新有 `preference_monitor` 用例；CapsLock 由 Server 持有并经 `CapsLockChanged` 帧下发，这一项只有源码核对、没有专门用例。 |
+| 中英文状态、独立英文候选、全半角、简繁、智能标点 | `server/src/english/`、设置 `input.ts` / `shortcut.ts` | `SharedConfigKeybindings.h`、`PunctuationPolicy.h`、`ReplyCodec.h` 中的 TsfLocalConfig、共享偏好与 Engine 桥接 | 已补齐 TSF client key-router 边界、IPC `Sent` / `DefinitelyNotSent` / `DeliveryAmbiguous` 三态 fallback、标点配置帧及宿主进程策略回归；五项已逐个核对（第四十批）：按应用/全局状态有纯决策函数与 `mode_authority` 用例；标点重复与成对补全随配置帧下发并由 `tsf_config_frames` 钉住；热更新有 `preference_monitor` 用例；CapsLock 由 Server 持有并经 `CapsLockChanged` 帧下发，帧本身已在第四十二批补上用例。 |
 | K/T/U/E/M/J/Y/R 快捷模式、混输 | README 实用功能快捷模式 | Engine 桥接、共享偏好、`platforms/windows/src/ipc/ServerSession.cpp` 及 `platforms/windows/tests/runtime/session_smoke.cpp` | 已补带锁定词库的 ServerSession 回归：八种快捷模式均验证 Shift 入口、候选生成和选词提交；仍需 Windows 原生 TSF/真实编辑器交互验证。 |
 | 谷歌云候选与 AI 联想 | README 云/AI 联想、设置 `ai-settings.ts` | `CloudCandidateWorker.cpp`、`AiCandidateWorker.cpp`，由 `SessionController.cpp` 构造并投递输入队列 | 有调用链；核对每个提供方、超时、取消、失焦后旧结果以及凭据路由，勿只验证 UI 保存。 |
 | 候选中英释义、腾讯云翻译、自定义翻译 | README 候选翻译/自定义翻译 | `TranslationWorker.cpp` → `SessionController.cpp` → 候选展示；共享 `translation.rs` / `translation_store.rs` | 有调用链；缓存失效已核对并确认做到（第三十六批）：缓存键按服务商与账号分域，凭据、端点、目标语言与启用开关任一变化都丢弃正负两种结果；腾讯请求签名已按官方 TC3-HMAC-SHA256 构造独立算出已知答案并钉住（第三十七批）；本地优先级已按源码核对为正确实现但**零测试覆盖**（第三十八批）；词库编辑已核对（第三十九批）：设置侧有五个按 Engine 实际读取语义写的用例，消费侧每次请求现算本地释义，编辑立即生效且恒胜过缓存的云端结果。本行四项到此走完。 |
@@ -41,7 +41,7 @@
 | 手写 | 来源设置 `handwriting-settings.ts` 和模型资源 | `ShellSurfaces.h` / `main.cpp` → Tauri `recognize_handwriting` / `submit_handwriting_candidate`，共享 `panels.tsx` | 有目的地入口；比较模型打包、笔画缩放、撤销/清空、多候选及原编辑器上屏。 |
  | 屏幕键盘 | 来源设置 `screenkb-settings.ts` | `main.cpp` → Tauri keyboard route、`desktop-keyboard.tsx`、Windows `send_key` 分支；macOS Tauri 与原生备用键盘都在每次按键时读取当前前台编辑器，并在实际投递前重新校验身份；无 Accessibility 权限时只拒绝投递、不弹权限请求；Tauri 面板仍捕获 PID+启动时间用于生命周期恢复 | macOS 键盘路径不再把当前设置宿主误当成输入目标，也不会在用户切换编辑器后继续投递到旧窗口；共享 Tauri 面板与原生备用面板的普通键均按 450ms 首次延迟、75ms 间隔自动重复，粘滞修饰键与 Num Lock 保持单次切换且键盘/辅助功能激活仍为单次发送；投递失败、失焦或关闭会停止重复且不自动重放；macOS Tauri 首次显示和隐藏后重开时按当前/主显示器的物理工作区底部居中，兼容负坐标、多显示器和 Retina 缩放。布局、修饰键按下/释放语义及真实焦点恢复仍需逐项核对。 |
 | Emoji、颜文字、符号、剪贴板历史 | README 与来源 `clipboard_history.cpp` | `ClipboardMonitor.cpp` / `ClipboardHistory.cpp`、Tauri `load_emoji_catalog` / `paste_clipboard_text`、共享 `panels.tsx` | macOS 常驻输入源与 Tauri 监视器现按 NSPasteboard `changeCount` 读取外部文本变化，共用 4000 UTF-16 单位、12000 UTF-8 字节边界，并复用共享 50 条历史、去重/置顶和开关清理；关闭历史时不读取剪贴板内容。Emoji 面板通过已认证的一次性桌面输入会话把记录定向提交回原应用，普通 Emoji 候选与剪贴板大文本使用独立校验模式。仍需核对安装后真实持续监视与目标窗口行为，不能以普通 SendInput 冒充会话定向提交。 |
-| 悬浮工具栏、托盘菜单、入口快捷键 | 来源 `window/*presenter*`、`ui-html/webview2/ftb` / `menu` | `FloatingToolbarWindow.cpp`、`TrayMenuWindow.cpp`、`MaintenanceHotkey.cpp`、`ShellSurfaces.h` / `ShellLauncher.cpp` | 有调用链；设置/手写/键盘/语音/云剪贴板/云词库等启动共享 Tauri，低延迟不抢焦点宿主保留原生。macOS 与 Tauri 预览现消费 `floating_toolbar.english_mode` 及其余组件开关，原生共享偏好合并也保留该字段并按可见组件重算宽度；来源和目标菜单项、禁用条件仍需逐项比对。 |
+| 悬浮工具栏、托盘菜单、入口快捷键 | 来源 `window/*presenter*`、`ui-html/webview2/ftb` / `menu` | `FloatingToolbarWindow.cpp`、`TrayMenuWindow.cpp`、`MaintenanceHotkey.cpp`、`ShellSurfaces.h` / `ShellLauncher.cpp` | 有调用链；设置/手写/键盘/语音/云剪贴板/云词库等启动共享 Tauri，低延迟不抢焦点宿主保留原生。macOS 与 Tauri 预览现消费 `floating_toolbar.english_mode` 及其余组件开关，原生共享偏好合并也保留该字段并按可见组件重算宽度；菜单项与禁用条件已逐项比对（第四十三批）：动作一一对应且目标多出手写识别板；工具栏组件与来源 README 所列六项一一对应；禁用语义是进程边界带来的有意差异，已记录。 |
 | 皮肤、主题、字体、外观预览 | 来源 `appearance.ts` / `skin.ts`、`candwnd/skins` | 共享 `packages/ui/src/upstream/`、`skin/catalog.rs`、`CandidateSkin.h`、`CandidateWindow.cpp` | Windows 已消费候选字体/回退字体、主题颜色、横竖排布局和阴影字段；`candidate_font_reload`、`candidate_palette` 与 shadow 回归覆盖非法值回退。仍需逐主题运行时截图、外部资源和字体回退逐项比较。 |
 | 更新、关于、帮助、反馈、重启 | 来源 `about-settings.ts` / `feedback-settings.ts` / `update-manifest.ts`，`restartServer` | 共享 `update-manifest.ts` / `index.tsx`，Tauri `open_external_url` / `restart_input_method` | Windows 重启使用固定 UTF-16LE `RestartServer` Aux payload 并有回归覆盖；更新 manifest/release 链接要求干净 HTTPS，外链 opener 拒绝无主机与 shell 字符。安装包信任、来源、失败反馈及原生安装仍待逐项对照。 |
 | 服务守护、安装、升级、卸载、资源打包 | 来源 README 服务守护、`installer/`、构建脚本 | `platforms/windows/installer/`、`tests/runner_regression.ps1`、TSF 注册代码 | 安装入口已限制为文件名安全的数字版本并保留现有包清单/用户数据保护回归；仍待 Windows PowerShell、TSF 注册、重启恢复、升级保留数据和卸载清理的产品级验证。 |
@@ -539,6 +539,34 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 **旧候选请求拒绝**：`tests/runtime/session_smoke.cpp` 在记下一个代次、让它过期之后，断言用旧代次选词被拒绝。
 
 三项均有用例，本行不再留「仍需」。
+
+增量记录（2026-09-20，Windows 第四十二批：把上一批记为缺覆盖的 CapsLock 补上）：第四十批把 CapsLock 记成「已实现但只有源码核对」。Docker 恢复、Windows 套件能跑之后，按当时说的把它补上。
+
+`caps_lock_frame` 现在有三条断言：帧长与协议结构一致、类型是 `CapsLockChanged`、载荷是 TIP 解析的 `"0"`/`"1"`（不是裸字节，也不是配置帧那种 key=value 形状）。另加一条反向约束——配置帧集合里不得出现 `CapsLockChanged`，免得它哪天被顺手并进那一批。
+
+做了反向验证：把 `caps_lock_frame` 的类型换成 `InputModeChanged`，测试在帧类型那一行失败；恢复后套件回到 78 通过 / 1 失败（唯一那条是基线里已记的 `msimeui-tests`，Rosetta 在 arm64 主机上模拟 x86_64 的崩溃）。
+
+**本地优先级那条没有跟着补，是重新权衡后的决定**：真正值得测的是整个合并过程，而它嵌在 `TranslationWorker` 的循环里，抽出来要重构；只抽一个「集合里有没有」的谓词则证明不了什么。行为今天是正确的，为一条已正确的规则重构只能端到端验证的 worker，风险大于收益。维持记录为未覆盖，不因为「能跑了」就顺手改。
+
+增量记录（2026-09-20，Windows 第四十三批：托盘菜单与工具栏逐项比对）：这行原写着「来源和目标菜单项、禁用条件仍需逐项比对」。
+
+**菜单项**：来源 `ui-html/webview2/menu/default.html` 里的动作共六个——`floatingToggle`、`emojiSymbols`、`keyboardPanel`、`voiceInput`、`settings`、`about`。本仓库 `TrayMenuCommand` 七个，前六个一一对应，多出的是手写识别板（与第二批记的「目标为超集」一致）。
+
+**工具栏组件**：来源 README 写「中英文切换始终显示，其余组件（全角、标点、简繁、表情、屏幕键盘、设置）可按需勾选」，另可调整缩放与图标尺寸。`FloatingToolbarPreferences` 逐项对应：`english_mode`、`fullwidth`、`punctuation`、`character_set`、`emoji`、`screen_keyboard`、`settings`，加上 `scale_percent` 与 `font_size`。
+
+**禁用条件是有意差异，不是缺口**：来源的菜单 HTML 里 `disabled` 出现零次——它的面板全在同进程内，永远可用，所以从不禁用。本仓库的面板在独立的 Tauri 壳里，壳可能不在，于是能力缺失的行**保持可见但置灰**，而不是点了没反应或干脆隐藏。`TrayMenuLayout.h` 的注释写明这个选择的依据正是「与发行版菜单从不隐藏条目一致」——保住来源的可见性语义，同时诚实反映进程边界。
+
+这一行不再留「仍需」。
+
+增量记录（2026-09-20，Windows 第四十四批：核查这张表自己是否完整）：前面四十三批都在核表里的条目，这批核的是**表本身有没有漏掉来源的模块**。
+
+来源 `server/src/` 下 25 个模块，24 个在本表有落点。唯一没有的是 `defines`，里面只有 `base_structures.h`、`defines.h`、`globals.h` 三个头文件，是类型与常量定义而非功能模块，不构成缺口。
+
+顶层目录里 `docs`、`server`、`windows`、`ui`、`ui-html`、`installer`、`scripts`、`tests`、`vendor` 都有落点，**唯独 `experiments` 没有**。它下面是 `tsf-edit-control`：一个基于 Win32 TSF 的编辑控件实验工程，用 Direct2D / DirectWrite 绘制，自带最小宿主 demo，功能包括 preedit 与 display attribute 绘制、候选框位置上报、软换行、选区与鼠标命中。
+
+**这个缺口值得单独记一笔**，因为它不是功能缺口而是**验证工具缺口**：本表里「原生 TSF / 真实编辑器交互验证」这一项之所以一直推迟，缺的正是一个可控的编辑宿主，而来源自带了一个。本仓库 `platforms/windows/msimeui/demos/` 下只有 `msimeui-demo`（绘制 demo），没有对应的 TSF 编辑控件宿主。
+
+本批没有移植它：那是一个需要真实 Windows 或 TSF 支持完备的环境才能运行的 Direct2D 工程，而 Wine 的 TSF 支持正是本表推迟该项的原因。移植一个无法运行、因而无法验证的宿主，与本轮一贯的做法相悖。按「已识别、未移植」记录，等有真实 Windows 主机时它就是现成的起点。
 
 ## 来源模块的落点
 
