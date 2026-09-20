@@ -663,6 +663,12 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     merged[@"candidate_follow_cursor"] = @(self.candidateFollowCursor);
     merged[@"input_mode_hud"] = @(self.inputModeHUD);
     merged[@"scheme"] = self.inputScheme;
+    // Leaving for Japanese has to leave a way back. `last_chinese_scheme` is what every other host
+    // writes when the scheme changes - Fcitx5, IBus, iOS and HarmonyOS all do - and what the shared
+    // settings page reads to put the user back on 五笔 rather than 全拼. This window sets the scheme
+    // itself, Japanese included, so without this the field keeps whatever a different surface wrote
+    // and the way back points at the wrong scheme.
+    if (![self.inputScheme isEqual:@"japanese"]) merged[@"last_chinese_scheme"] = self.inputScheme;
     merged[@"shuangpin_profile"] = self.shuangpinProfile;
     merged[@"shuangpin_preedit_uses_raw"] = @(self.shuangpinPreeditUsesRaw);
     NSMutableDictionary *qh = [merged[@"quanpin_helpcode"] mutableCopy] ?: [NSMutableDictionary dictionary];
