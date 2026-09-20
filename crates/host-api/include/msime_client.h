@@ -182,6 +182,14 @@ char *msime_client_keyboard_skin_trial(const uint8_t *request, size_t length);
  * keyboard process share about the community. Every operation answers with the
  * whole library. Takes the library's file lock: use a worker. */
 char *msime_client_community_resource_library(const uint8_t *request, size_t length);
+/* The decisions in AI skin generation, for a host whose HTTP must go through
+ * the surrounding platform and so performs the four requests itself.
+ * {operation:"compose",prompt,model} returns {path,body} carrying the shared
+ * system prompt; {operation:"parse",text} returns the three validated plans or
+ * refuses; {operation:"artwork",artwork} says whether a returned image is one
+ * this client will show. The instruction and the parser must not be separated:
+ * the prompt names the exact document the parser accepts. */
+char *msime_client_ai_skin_plan(const uint8_t *request, size_t length);
 /* Read saved history only; disabled preferences return an empty entries array. */
 char *msime_client_load_clipboard_history(const uint8_t *directory, size_t length);
 /* JSON {directory,text}; removes exact saved entry, not the system clipboard. */

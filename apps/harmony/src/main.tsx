@@ -24,6 +24,8 @@ import {
   CloudCandidatesPanel,
   type AccountClient,
   type AccountPreferences,
+  type AiSkinClient,
+  type AiSkinProposal,
   type CommunityResource,
   type CommunityResourceApplication,
   type CommunityResourceClient,
@@ -123,6 +125,8 @@ declare global {
   var msimeHarmonyPreferencesChanged: ((reply: string) => void) | undefined;
   // eslint-disable-next-line no-var
   var msimeHarmonyBridgeReply: ((id: number, reply: string) => void) | undefined;
+  // eslint-disable-next-line no-var
+  var msimeHarmonyAiSkinProgress: ((requestId: string, completed: number) => void) | undefined;
 }
 
 /**
@@ -497,6 +501,46 @@ function communityResourceClient(native: NativeBridge): CommunityResourceClient 
   };
 }
 
+/**
+ * AI skin generation, which is the one request that reports before it answers.
+ *
+ * Three pictures take minutes, so a run that said nothing until it finished would be
+ * indistinguishable from one that had stopped. Progress arrives on its own global, the same
+ * direction the preference-change notification uses, carrying the request id the page chose — a
+ * stale run's counter must not drive a new one's display.
+ *
+ * The deadline is the sum of what the pieces are allowed: a chat completion may take 125 seconds
+ * and each picture up to 200, and the three pictures run together. Giving this the ordinary 30
+ * would report a timeout for a run that was working.
+ */
+function aiSkinClient(native: NativeBridge): AiSkinClient {
+  return {
+    generate: (requestId, prompt) =>
+      bridgeRequest(
+        native,
+        "ai_skin",
+        JSON.stringify({ operation: "generate", request_id: requestId, prompt }),
+        360000,
+      ).then(unwrap<AiSkinProposal[]>),
+    cancel: async (requestId) => {
+      await bridgeRequest(
+        native,
+        "ai_skin",
+        JSON.stringify({ operation: "cancel", request_id: requestId }),
+      ).then(unwrap<Record<string, never>>);
+    },
+    onProgress: async (listener) => {
+      const previous = globalThis.msimeHarmonyAiSkinProgress;
+      globalThis.msimeHarmonyAiSkinProgress = (requestId: string, completed: number) => {
+        listener({ requestId, completed });
+      };
+      return () => {
+        globalThis.msimeHarmonyAiSkinProgress = previous;
+      };
+    },
+  };
+}
+
 function cloudClipboardClient(native: NativeBridge, close: () => void): CloudClipboardPanelClient {
   return {
     close: async () => close(),
@@ -735,6 +779,7 @@ function makeClient(
     chat: chatClient(native),
     communitySkins: communitySkinClient(native),
     communityResources: communityResourceClient(native),
+    aiSkins: aiSkinClient(native),
     openCloudClipboard: async () => openCloudClipboard(),
     openCloudDictionary: async () => openCloudDictionary(),
   };
