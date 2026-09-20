@@ -328,7 +328,9 @@ void CandidateFlyoutWindow::paint(Panel &panel) {
   // A composition swap chain only reaches the screen once it is presented.
   if (SUCCEEDED(drawn) && FAILED(panel.device.Present()))
     throw std::runtime_error("Candidate menu presentation failed");
-  if (drawn == D2DERR_RECREATE_TARGET) {
+  // Signed HRESULT against a macro that is unsigned in some SDK and MinGW
+  // versions; see CandidateWindow.cpp for the same comparison.
+  if (drawn == static_cast<HRESULT>(D2DERR_RECREATE_TARGET)) {
     // Losing the device is not a presentation failure; rebuild on the next
     // opening rather than hiding a live menu.
     panel.device.DiscardTarget();

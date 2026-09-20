@@ -570,7 +570,7 @@ void Window::OnPaint()
         }
 
         const HRESULT hr = target->EndDraw();
-        if (hr == D2DERR_RECREATE_TARGET)
+        if (hr == static_cast<HRESULT>(D2DERR_RECREATE_TARGET))
         {
             deviceResources_.DiscardTarget();
         }

@@ -59,6 +59,7 @@ output="$repo_root/target/windows-full/$arch"
 # second hand-maintained list that drifts.
 cmake -S platforms/windows -B "$output" \
   -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_CXX_COMPILER="$compiler-g++" \
+  -DCMAKE_C_COMPILER="$compiler-gcc" \
   -DCMAKE_EXPORT_COMPILE_COMMANDS=ON \
   -DCMAKE_BUILD_TYPE=Debug -DCMAKE_PREFIX_PATH="$prefix" \
   -DMSIME_WINDOWS_PIPE_ONLY=OFF \

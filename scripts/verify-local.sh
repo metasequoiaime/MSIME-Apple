@@ -356,9 +356,11 @@ elif [ "$windows_host" -eq 0 ] && command -v x86_64-w64-mingw32-g++ >/dev/null 2
   # Both architectures the product ships a DLL for. 32-bit is not a formality
   # here: windows_ipc.h pins its frame sizes and field offsets with
   # static_assert, and those are exactly what a pointer-width change moves.
-  # The full cross build cannot cover i686 on this toolchain (x86 Rust GNU
-  # needs DWARF unwinding and Homebrew's i686 MinGW is SJLJ), but this
-  # configuration links no Rust at all, so the protocol still gets checked.
+  # The full cross build cannot cover i686 with the MinGW commonly installed on
+  # macOS (x86 Rust GNU needs DWARF unwinding and Homebrew's i686 MinGW is
+  # SJLJ); platforms/windows/build-cross-container.sh does it in a container
+  # whose toolchain has DWARF. This configuration links no Rust at all, so the
+  # protocol gets checked here either way.
   for cross_arch in x86_64 i686; do
     command -v "$cross_arch-w64-mingw32-g++" >/dev/null 2>&1 || continue
     cross_dir="${MSIME_PIPE_BUILD}-cross-$cross_arch"
