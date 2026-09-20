@@ -18,6 +18,9 @@ import { utf8Length } from '../keyboard/Utf8';
 import { niutransAuth, tencentAuthorization } from '../keyboard/CredentialCrypto';
 import { HarmonyVoiceCaptureDevices } from '../keyboard/input/HarmonyVoiceCaptureDevices';
 import { KeyboardFeedbackBridge, MobileKeyboardFeedback } from '../keyboard/KeyboardFeedbackBridge';
+import inputMethod from '@ohos.inputMethod';
+import { ImeEnabledState, OnboardingState, OnboardingStatePolicy }
+  from '../keyboard/input/OnboardingStatePolicy';
 import { FeedbackSettings } from '../keyboard/KeyboardFeedback';
 import { VoiceCaptureDevice } from '../keyboard/input/VoiceCaptureDevicePolicy';
 
@@ -43,6 +46,12 @@ interface CustomTranslationAction {
 interface TextReply {
   ok: boolean;
   value: string;
+  error: string;
+}
+
+interface OnboardingReply {
+  ok: boolean;
+  value: boolean;
   error: string;
 }
 
@@ -343,7 +352,7 @@ struct Settings {
             'dictionary', 'account', 'cloudDictionary', 'cloudDictionaryDownload', 'cloudDictionarySnapshot',
             'typingStatistics', 'aiModels', 'aiTest', 'testApiCredential', 'openExternalUrl', 'copyText',
             'openSystemKeyboardSettings', 'listVoiceCaptureDevices', 'listFontFamilies',
-            'keyboardFeedback', 'customTranslations'],
+            'keyboardFeedback', 'customTranslations', 'onboardingStatus', 'showInputMethodPicker'],
           controller: this.controller
         })
         .width('100%')
@@ -1315,6 +1324,66 @@ class SettingsBridge {
       return JSON.stringify({ ok: false, value: [], error: '无法读取录音设备列表' } as VoiceCaptureDeviceReply);
     }
     return JSON.stringify({ ok: true, value: devices, error: '' } as VoiceCaptureDeviceReply);
+  }
+
+  /**
+   * Whether setup still has a step left in it.
+   *
+   * Asked once when the window opens, so the page can show the welcome flow instead of a settings
+   * page for a keyboard that cannot yet type. Both queries are allowed to fail: a refusal answers
+   * "unknown", which the policy reads as "show settings" rather than sending a long-time user back
+   * to a welcome screen because one system call did not answer.
+   */
+  async onboardingStatus(): Promise<string> {
+    let enabled: ImeEnabledState | null = null;
+    try {
+      const state: inputMethod.EnabledState =
+        await inputMethod.getSetting().getInputMethodState();
+      enabled = state as number as ImeEnabledState;
+    } catch (error) {
+      KeyboardLog.error(`input method state unavailable: ${describeError(error)}`);
+    }
+    let current: string = '';
+    try {
+      current = inputMethod.getCurrentInputMethod().name;
+    } catch (error) {
+      KeyboardLog.error(`current input method unavailable: ${describeError(error)}`);
+    }
+    // Read rather than written down: a bundle name in two places is a bundle name that can disagree
+    // with itself, and the copy here would be the one nobody updates.
+    let own: string = '';
+    try {
+      own = bundleManager.getBundleInfoForSelfSync(
+        bundleManager.BundleFlag.GET_BUNDLE_INFO_DEFAULT).name;
+    } catch (error) {
+      KeyboardLog.error(`own bundle name unavailable: ${describeError(error)}`);
+    }
+    const state: OnboardingState = {
+      enabled: enabled, currentBundle: current, ownBundle: own
+    };
+    KeyboardLog.info(`onboarding: ${OnboardingStatePolicy.describe(state)}`);
+    return JSON.stringify({
+      ok: true, value: OnboardingStatePolicy.required(state), error: ''
+    } as OnboardingReply);
+  }
+
+  /**
+   * The system's keyboard picker.
+   *
+   * Enabling an input method and selecting it are two different screens, and this is the second.
+   * Windows has neither — there is nothing to pick — which is why this sits behind the shared
+   * welcome flow's action rather than anywhere in the settings page itself.
+   */
+  async showInputMethodPicker(): Promise<string> {
+    try {
+      await inputMethod.getSetting().showOptionalInputMethods();
+      return JSON.stringify({ ok: true, value: true, error: '' } as OnboardingReply);
+    } catch (error) {
+      KeyboardLog.error(`keyboard picker would not open: ${describeError(error)}`);
+      return JSON.stringify({
+        ok: false, value: false, error: '无法打开输入法选择'
+      } as OnboardingReply);
+    }
   }
 
   /** Where the user turns the keyboard on, which is a system screen rather than one of ours. */

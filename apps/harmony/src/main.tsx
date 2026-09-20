@@ -3,6 +3,8 @@ import { type ReactNode, useState } from "react";
 import { createRoot } from "react-dom/client";
 import {
   SettingsPage,
+  SettingsStartupPage,
+  WelcomeFlowPage,
   type DictionaryClient,
   type DictionaryEntry,
   type DictionaryImportResult,
@@ -80,6 +82,10 @@ interface NativeBridge {
   keyboardFeedback(request: string): string;
   /** `{operation:"load"|"save",text?}`; the overlay the Engine reads from the user data directory. */
   customTranslations(request: string): string;
+  /** Whether setup still has a step left: not enabled, or enabled but not the current keyboard. */
+  onboardingStatus(): Promise<string>;
+  /** The system's keyboard picker, which is where the second setup step happens. */
+  showInputMethodPicker(): Promise<string>;
 }
 
 declare global {
@@ -395,7 +401,17 @@ function makeClient(
   };
 }
 
-function HarmonySettings({ native }: { native: NativeBridge }): ReactNode {
+function HarmonySettings({
+  native,
+  onboarding,
+}: {
+  native: NativeBridge;
+  onboarding: boolean;
+}): ReactNode {
+  // Setup is the one thing that has to happen before anything in the settings page can matter, so
+  // the flow replaces the page rather than sitting somewhere inside it. Skipping is allowed: a
+  // keyboard the user has decided to set up later is not a reason to withhold its settings.
+  const [bootstrapRequired, setBootstrapRequired] = useState(onboarding);
   const [cloudClipboardOpen, setCloudClipboardOpen] = useState(false);
   const [cloudDictionaryOpen, setCloudDictionaryOpen] = useState(false);
   const [cloudDictionaryPage, setCloudDictionaryPage] = useState<CloudDictionaryPage>("main");
@@ -419,6 +435,43 @@ function HarmonySettings({ native }: { native: NativeBridge }): ReactNode {
     snapshot: false,
     snapshotNative: false,
   };
+  if (bootstrapRequired) {
+    return (
+      <WelcomeFlowPage
+        actions={{
+          platform: "android",
+          // Resources are staged by the keyboard when it starts, and there is no separate step to
+          // run here; the flow expects the promise, not work.
+          prepareResources: async () => {},
+          openSystemKeyboardSettings: async () => native.openSystemKeyboardSettings(),
+          showInputMethodPicker: async () => {
+            unwrap<boolean>(await native.showInputMethodPicker());
+          },
+        }}
+        onComplete={async (scheme) => {
+          // The scheme picked in the flow is the whole point of that step; dropping it would leave
+          // the user with a keyboard laid out the way they had just declined. Written the same way
+          // the mobile hosts write it, so a profile carried between them means the same thing.
+          const snapshot = await client.load();
+          const enabled = [...(snapshot.preferences.touch_keyboard_schemes?.enabled ?? [])];
+          if (!enabled.includes(scheme)) enabled.push(scheme);
+          await client.save(snapshot.revision, {
+            ...snapshot.preferences,
+            scheme: "quanpin",
+            last_chinese_scheme: "quanpin",
+            touch_keyboard_layout: scheme === "nine_key" ? "nine_key" : "twenty_six_key",
+            touch_keyboard_schemes: {
+              ...snapshot.preferences.touch_keyboard_schemes,
+              enabled,
+              selected: scheme,
+            },
+          });
+          setBootstrapRequired(false);
+        }}
+        onSkip={async () => setBootstrapRequired(false)}
+      />
+    );
+  }
   return (
     <>
       <SettingsPage client={client} />
@@ -448,11 +501,25 @@ function HarmonySettings({ native }: { native: NativeBridge }): ReactNode {
 
 const root = document.getElementById("root");
 if (root) {
+  const app = createRoot(root);
+  // Waiting for the bridge took up to five seconds against a blank white window. Every other host
+  // shows the shared startup page while it opens; there was never a reason for this one not to.
+  app.render(
+    <StrictMode>
+      <SettingsStartupPage />
+    </StrictMode>,
+  );
   whenBridgeReady()
-    .then((native) => {
-      createRoot(root).render(
+    .then(async (native) => {
+      // A refused query answers "no onboarding": someone who has been using the keyboard for weeks
+      // should not be sent back to a welcome screen because one system call did not answer.
+      const onboarding = await native
+        .onboardingStatus()
+        .then(unwrap<boolean>)
+        .catch(() => false);
+      app.render(
         <StrictMode>
-          <HarmonySettings native={native} />
+          <HarmonySettings native={native} onboarding={onboarding} />
         </StrictMode>,
       );
     })
