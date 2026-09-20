@@ -784,3 +784,13 @@ Fcitx5 候选动作执行 stale 栅栏增量（2026-09-19）：CandidateAction �
 另有两项是这个平台整块缺失而非字段缺失：桌面外壳的九个账号命令此前只为 Windows、macOS、Android、iOS 注册，Linux 上登录、资料、改名、登出、注销没有宿主可调；补齐后会话存在共享状态目录下的 owner-only 文件里（0600、原子发布、读取前核对普通文件/属主/权限/大小），这弱于 Windows 凭据管理器与 macOS Keychain 的静态加密，接 Secret Service 需要新增依赖、属于另外的决定（#3220）。设置页的「获取模型列表」与「AI 润色测试」也不可用，因为持有 token 的宿主是自己发 HTTP 的，而这个平台按设计把 token 留在 provider 的私有配置里；改为 provider 的两种新请求，并用新能力位 `ai_provider_credentials` 表达「凭据归宿主的 provider」，替掉原先按平台名藏控件的做法（#3254）。
 
 本批的验证边界要说清楚：没有任何一项在真实 Linux 桌面上跑过，没有 IBus daemon 之外的 GTK/Qt 编辑器、没有 X11/Wayland 焦点与选区、没有 Fcitx5 实例。engine smoke 也还没走完——修掉上面第 5 条之后，它稳定停在更后面的位置（passthrough 加偏好热重载那一例里，`nihao` 的后续按键），那是本批修复之后才够得着的位置，单独查。本批后段本机 Docker 停了，因此最后两个切片的容器阶段按设计跳过；它们不触碰 C++。
+
+增量记录（2026-09-20，Linux engine smoke 又往前走了一大段）：修掉「会话重建后第一个按键被静默丢掉」之后，隔离验收的 engine smoke 停在 `phrase()` 的第二次调用。原来的断言只说 "Phrase key not consumed"，而这个 lambda 有 56 个调用点，一句话指不到任何一个；现已改为报出是第几次调用、哪一个键，位置立刻就定住了。
+
+停住的是 `ime_mode_scope` 那个循环（先 `app` 后 `global`）的第一轮，它连续要求三件事：FocusIn 后 `InputMode` 属性为 checked（中文）；`!key(Ctrl_L 按下) && key(Ctrl_L 松开)`，即配置的 Ctrl 快捷键在松开时被消费；紧接着 `phrase()` 打出 `nihao` 并要求仍是中文。这三条一起不可能成立——宿主里 Ctrl 松开被消费当且仅当它真的切了模式（`process_key` 的那一段除了 `toggle_input_mode` 没有别的消费路径），而 `toggle_input_mode` 先翻转 `input_enabled`，再写进按应用的记忆，`open()` 又用 `restore_app_input_mode()` 把刚写进去的新值读回来。带探针实测：Ctrl 按下时 `enabled=1`，松开被消费，随后的 `n` 看到 `enabled=0`，走透传、不被领取。
+
+判据取自本次迁移的准绳：Windows 上配置了 Ctrl 快捷键就会切换中英文，`ime_mode_scope` 决定的是这个状态记在哪儿、而不是快捷键动不动它，宿主实现的正是这一条。所以错的是 fixture 那一侧。改为切两次并各自核对模式：默认中文 → Ctrl 切到透传（断言不再是中文）→ Ctrl 切回中文（断言是中文）→ `phrase()` 组中文候选。覆盖比原来更多，且与 Windows 一致。
+
+改完之后这一整段循环通过，运行前进了一大段，现在停在后面两处（都是本次修复之后才够得着的位置，各自单独查）：其一是候选译文合并那一条「Online misses did not merge with the displayed offline hits」，三次运行里只出现过一次，剩下两次走过去了，所以它是时序相关而不是恒定失败；其二是更后面的「Ctrl+Enter did not commit the rendered candidate translation」，两次运行一致。
+
+在此之前的部分全部通过：容器内 `ctest` 19/19、三个 crate 的 Rust 测试、Host API 头导出校验、词典 CLI 与剪贴板验收、完整安装产物，以及 engine smoke 自身在此之前的全部断言（含缺 `mixed_input` 对象那一例、直接输入透传、偏好热重载后不带会话的宿主快捷键重载、`ime_mode_scope` 的两轮、离线释义先于在线回填）。
