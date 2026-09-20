@@ -2286,11 +2286,13 @@ test("candidate appearance settings persist and use Windows baseline defaults", 
     })),
   };
   render(<SettingsPage client={client} />);
-  expect(((await screen.findByLabelText("候选布局")) as HTMLSelectElement).value).toBe("vertical");
-  expect((screen.getByLabelText("候选字号") as HTMLSelectElement).value).toBe("18");
+  expect(((await screen.findByLabelText("候选项排列方式")) as HTMLSelectElement).value).toBe(
+    "vertical",
+  );
+  expect((screen.getByLabelText("候选窗字号") as HTMLSelectElement).value).toBe("18");
   expect((screen.getByLabelText("候选窗预编辑字号") as HTMLSelectElement).value).toBe("15");
-  fireEvent.change(screen.getByLabelText("候选布局"), { target: { value: "horizontal" } });
-  fireEvent.change(screen.getByLabelText("候选字号"), { target: { value: "20" } });
+  fireEvent.change(screen.getByLabelText("候选项排列方式"), { target: { value: "horizontal" } });
+  fireEvent.change(screen.getByLabelText("候选窗字号"), { target: { value: "20" } });
   fireEvent.click(screen.getByRole("button", { name: "皮肤" }));
   expect(screen.getByRole("switch", { name: /杨柳青/ }).getAttribute("aria-checked")).toBe("true");
   fireEvent.click(screen.getByRole("switch", { name: /微信绿/ }));
@@ -2403,14 +2405,14 @@ test("automatic color swatch follows candidate theme without persisting a color 
   const change = (label: string, value: string) =>
     fireEvent.change(screen.getByLabelText(label), { target: { value } });
   expect(color.value).toBe("#e9e8e8");
-  change("全局主题", "light");
+  change("主题模式", "light");
   expect(color.value).toBe("#1a1a1a");
-  change("设置窗口主题", "dark");
+  change("设置界面主题", "dark");
   expect(color.value).toBe("#1a1a1a");
-  change("候选窗主题", "dark");
+  change("候选窗口主题", "dark");
   expect(color.value).toBe("#e9e8e8");
   change("候选文字颜色", "#123456");
-  change("候选窗主题", "light");
+  change("候选窗口主题", "light");
   expect(color.value).toBe("#123456");
   fireEvent.click(screen.getByRole("button", { name: "跟随主题" }));
   expect(color.value).toBe("#1a1a1a");
@@ -2971,7 +2973,7 @@ test("toolbar theme loads, previews independently, saves and reloads", async () 
     return snapshot;
   });
   render(<SettingsPage client={{ load: async () => snapshot, save }} />);
-  const select = (await screen.findByLabelText("工具栏主题")) as HTMLSelectElement;
+  const select = (await screen.findByLabelText("悬浮工具栏主题")) as HTMLSelectElement;
   expect(select.value).toBe("light");
   fireEvent.click(screen.getByRole("button", { name: "悬浮工具栏" }));
   const preview = screen.getByLabelText("悬浮工具栏预览").querySelector("[data-toolbar-preview]")!;
@@ -3050,7 +3052,7 @@ test("complete candidate and preedit font sizes load, preview independently and 
     .fn()
     .mockImplementation(async (_revision, preferences) => ({ ...saved, revision: 8, preferences }));
   render(<SettingsPage client={{ load: async () => saved, save }} />);
-  const size = (await screen.findByLabelText("候选字号")) as HTMLSelectElement;
+  const size = (await screen.findByLabelText("候选窗字号")) as HTMLSelectElement;
   const preedit = screen.getByLabelText("候选窗预编辑字号") as HTMLSelectElement;
   expect(size.value).toBe("19");
   expect(preedit.value).toBe("27");
@@ -3092,9 +3094,9 @@ test("appearance preview follows drafts, skin selection and reload without savin
   expect(preview.querySelectorAll(".cand")).toHaveLength(5);
   expect(preview.querySelector('[data-preview-layout="vertical"]')).not.toBeNull();
   expect(preview.querySelector('[data-font-size="18"]')).not.toBeNull();
-  fireEvent.change(screen.getByLabelText("候选布局"), { target: { value: "horizontal" } });
-  fireEvent.change(screen.getByLabelText("候选字号"), { target: { value: "20" } });
-  fireEvent.change(screen.getByLabelText("每页候选数量"), { target: { value: "9" } });
+  fireEvent.change(screen.getByLabelText("候选项排列方式"), { target: { value: "horizontal" } });
+  fireEvent.change(screen.getByLabelText("候选窗字号"), { target: { value: "20" } });
+  fireEvent.change(screen.getByLabelText("每页候选项数量"), { target: { value: "9" } });
   fireEvent.change(screen.getByLabelText("候选窗预编辑"), { target: { value: "empty" } });
   expect(preview.querySelectorAll(".cand")).toHaveLength(9);
   expect(preview.querySelector('[data-preview-layout="horizontal"]')).not.toBeNull();
@@ -3643,7 +3645,9 @@ test("the flat sidebar keeps the reference window's order", async () => {
   );
   await settingsReady();
   const sidebar = screen.getByRole("navigation", { name: "设置分类" });
-  const titles = [...sidebar.querySelectorAll("button.item")].map((item) => item.textContent ?? "");
+  const titles = [...sidebar.querySelectorAll("[data-sidebar-section] button")].map(
+    (item) => item.textContent ?? "",
+  );
   const reference = [
     "外观",
     "输入",
@@ -3715,6 +3719,56 @@ test("the full-width chord row is macOS only", async () => {
   fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
   expect(await screen.findByText("单击 Ctrl 切换中英文")).toBeDefined();
   expect(screen.queryByRole("checkbox", { name: "Option+Shift+H 切换全半角" })).toBeNull();
+});
+
+// The reference window's 外观 page, in its order. Only the sections it also has are pinned, and
+// only their relative order, so a host that hides a section (no candidate font control, no row
+// colours) does not fail this -- but moving 主题模式 back above the fonts, which is where this
+// repo used to keep the whole block of theme selects, does.
+test("the appearance page follows the reference window's order", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: { platform: "windows", floating_toolbar: true } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  const appearance = screen.getByRole("group", { name: "外观" });
+  const present = [...appearance.querySelectorAll(".section-title")].map((node) =>
+    (node.textContent ?? "").replace(/\s+/g, " ").trim(),
+  );
+  const reference = [
+    "候选窗口跟随光标",
+    "候选窗主字体",
+    "候选窗字号",
+    "候选窗预编辑字号",
+    "候选文字颜色",
+    "每页候选项数量",
+    "主题模式",
+    "设置界面主题",
+    "候选窗口主题",
+    "悬浮工具栏主题",
+    "菜单主题",
+    "表情面板主题",
+    "手写识别板主题",
+    "语音输入弹出条主题",
+    "候选项排列方式",
+    "行内预编辑",
+    "候选窗预编辑",
+  ];
+  // A section title carries its own <small> description, so match on the leading title text.
+  const seen = reference.filter((title) =>
+    present.some((text) => text === title || text.startsWith(title)),
+  );
+  const ordered = present.flatMap((text) => {
+    const hit = reference.find((title) => text === title || text.startsWith(title));
+    return hit ? [hit] : [];
+  });
+  expect(ordered).toEqual(seen);
+  expect(seen.length).toBeGreaterThanOrEqual(10);
 });
 
 test("macOS sidebar keeps the reference order and groups", async () => {
@@ -4585,7 +4639,7 @@ test("saves edited preferences against the loaded revision", async () => {
     })),
   };
   render(<SettingsPage client={client} />);
-  const size = await screen.findByRole("combobox", { name: "每页候选数量" });
+  const size = await screen.findByRole("combobox", { name: "每页候选项数量" });
   fireEvent.change(size, { target: { value: "9" } });
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
@@ -4608,7 +4662,9 @@ test("macOS candidate page sizes use the native 5/7/9 options and normalize lega
     host: { platform: "macos" } as HostCapabilities,
   };
   render(<SettingsPage client={client} />);
-  const size = (await screen.findByRole("combobox", { name: "每页候选数量" })) as HTMLSelectElement;
+  const size = (await screen.findByRole("combobox", {
+    name: "每页候选项数量",
+  })) as HTMLSelectElement;
   expect(Array.from(size.options).map((option) => option.value)).toEqual(["5", "7", "9"]);
   expect(size.value).toBe("9");
   fireEvent.change(size, { target: { value: "7" } });
@@ -4658,7 +4714,7 @@ test("conflicts preserve edits and require an explicit reload", async () => {
     save: vi.fn().mockRejectedValue({ code: "conflict" }),
   };
   render(<SettingsPage client={client} />);
-  const size = await screen.findByRole("combobox", { name: "每页候选数量" });
+  const size = await screen.findByRole("combobox", { name: "每页候选项数量" });
   fireEvent.change(size, { target: { value: "9" } });
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   expect((await screen.findByRole("alert")).textContent).toContain("其他窗口");
@@ -4687,7 +4743,7 @@ test.each(["windows", "macos", "linux"])(
     };
     render(<SettingsPage client={client} />);
     const size = (await screen.findByRole("combobox", {
-      name: "每页候选数量",
+      name: "每页候选项数量",
     })) as HTMLSelectElement;
     await waitFor(() => expect(changed).toBeDefined());
     changed?.({
@@ -4761,14 +4817,14 @@ test("category navigation preserves one draft and saves edits across pages", asy
   render(<SettingsPage client={client} />);
   const appearance = screen.getByRole("button", { name: "外观" });
   expect(appearance.getAttribute("aria-current")).toBe("page");
-  const pageSize = await screen.findByRole("combobox", { name: "每页候选数量" });
+  const pageSize = await screen.findByRole("combobox", { name: "每页候选项数量" });
   fireEvent.change(pageSize, { target: { value: "9" } });
   fireEvent.click(screen.getByRole("button", { name: "辅助码" }));
   expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("辅助码");
-  expect(screen.queryByRole("combobox", { name: "每页候选数量" })).toBeNull();
+  expect(screen.queryByRole("combobox", { name: "每页候选项数量" })).toBeNull();
   fireEvent.click(screen.getByRole("checkbox", { name: "全拼辅助码" }));
   fireEvent.click(appearance);
-  expect(screen.getByRole("combobox", { name: "每页候选数量" }).textContent).toContain("9");
+  expect(screen.getByRole("combobox", { name: "每页候选项数量" }).textContent).toContain("9");
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(client.save).toHaveBeenCalledWith(7, {

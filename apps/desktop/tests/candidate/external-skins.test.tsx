@@ -567,8 +567,8 @@ test("settings synchronize all cards and reset local overrides on candidate them
   const save = vi.fn(),
     scan = vi.fn().mockResolvedValue(catalog);
   render(<SettingsPage client={{ load: async () => initial, save, scanSkinCatalog: scan }} />);
-  await screen.findByLabelText("全局主题");
-  fireEvent.change(screen.getByLabelText("全局主题"), { target: { value: "light" } });
+  await screen.findByLabelText("主题模式");
+  fireEvent.change(screen.getByLabelText("主题模式"), { target: { value: "light" } });
   fireEvent.click(screen.getByRole("button", { name: "皮肤" }));
   refresh();
   await screen.findByRole("article", { name: "Sample skin" });
@@ -584,8 +584,8 @@ test("settings synchronize all cards and reset local overrides on candidate them
     );
   }
   fireEvent.click(screen.getByRole("button", { name: "外观" }));
-  fireEvent.change(screen.getByLabelText("全局主题"), { target: { value: "dark" } });
-  fireEvent.change(screen.getByLabelText("全局主题"), { target: { value: "light" } });
+  fireEvent.change(screen.getByLabelText("主题模式"), { target: { value: "dark" } });
+  fireEvent.change(screen.getByLabelText("主题模式"), { target: { value: "light" } });
   fireEvent.click(screen.getByRole("button", { name: "皮肤" }));
   for (const card of cards)
     expect(card.querySelector("[data-skin-preview]")?.getAttribute("data-preview-theme")).toBe(
