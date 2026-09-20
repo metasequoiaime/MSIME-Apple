@@ -85,6 +85,20 @@ int main() {
             assert([NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
             options[name] = path;
         }
+        // Four of the eight modes are gated on a runtime resource as well as on the preference: emoji and
+        // kaomoji read others.db, temporary English reads english.db, temporary Japanese reads
+        // dict_japanese.dat. apply_local_mode_resource_gates turns the mode off when the file is absent, so
+        // that a missing optional resource makes Shift+E insert a capital E rather than swallow the key.
+        //
+        // Without these, this test asserted something that could not hold, and it had been read as the
+        // Engine refusing to enter the mode. The gate only asks whether the file is there, so empty files
+        // are enough to let the preference plumbing this test is actually about run for all eight modes -
+        // and keeping them empty keeps the test off the fetched dictionaries.
+        NSString *resources = options[@"resources"];
+        NSArray<NSString *> *gated = @[@"others.db", @"english.db", @"dict_japanese.dat"];
+        for (NSString *resource in gated)
+            assert([NSFileManager.defaultManager createFileAtPath:[resources stringByAppendingPathComponent:resource]
+                                                         contents:[NSData data] attributes:nil]);
         NSError *error = nil;
         MSIMEClientSession *session = [[MSIMEClientSession alloc] initWithOptions:options error:&error];
         assert(session && !error && [session setFocused:YES error:&error]);
@@ -128,6 +142,31 @@ int main() {
             }
         }
         assert([session closeWithError:&error] && !error);
+
+        // The other half of the same contract, which nothing here covered: with the resource gone the mode
+        // stays off however the preference is set, and the trigger key falls back to inserting its capital
+        // rather than being swallowed. A session reads the gate when it applies a snapshot, so this needs a
+        // fresh one rather than another revision on the session above.
+        for (NSString *resource in gated)
+            assert([NSFileManager.defaultManager removeItemAtPath:[resources stringByAppendingPathComponent:resource]
+                                                            error:nil]);
+        MSIMEClientSession *ungated = [[MSIMEClientSession alloc] initWithOptions:options error:&error];
+        assert(ungated && !error && [ungated setFocused:YES error:&error]);
+        prefs.inputScheme = @"quanpin";
+        NSDictionary *all = @{@"format_version": @1, @"revision": @(++revision),
+            @"preferences": [prefs sharedPreferencesByMerging:shared[@"preferences"]]};
+        assert([[ungated updatePreferencesSnapshot:all error:&error][@"deferred"] isEqual:@NO]);
+        for (NSArray<NSString *> *entry in @[@[@"emoji", @"E"], @[@"kaomoji", @"M"],
+                                             @[@"temporary_english", @"Y"], @[@"temporary_japanese", @"R"]]) {
+            uint8_t trigger = (uint8_t)[entry[1] characterAtIndex:0];
+            NSDictionary *reply = [ungated typeASCII:trigger shift:YES error:&error];
+            assert(![reply[@"view"][@"local_mode"] isEqual:entry[0]]);
+            // Not swallowed: unhandled is what leaves the application to insert the capital itself.
+            assert([reply[@"handled"] isEqual:@NO]);
+            assert([reply[@"view"][@"editing_text"] isEqual:@""]);
+            assert([ungated command:MSIME_CANCEL error:&error]);
+        }
+        assert([ungated closeWithError:&error] && !error);
         [NSNotificationCenter.defaultCenter removeObserver:observer];
         MSIMERemoveTestPreferenceSuite(defaults, suite);
         assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);

@@ -124,5 +124,86 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         assert_eq!(other.snapshot()?.local_mode, other_name);
         println!("{name}: enabled entry and disabled fallback passed");
     }
+    documented_boundaries(&resources)?;
+    Ok(())
+}
+
+/// The entry checks above only ask whether a mode produced something. These take the spellings the
+/// source documents for two of them and check what comes out.
+fn documented_boundaries(resources: &std::path::Path) -> Result<(), Box<dyn std::error::Error>> {
+    let temporary = tempfile::tempdir()?;
+    let mut sequence = 0usize;
+    let mut typed = |letter: u8, keys: &str| -> Result<Vec<String>, Box<dyn std::error::Error>> {
+        sequence += 1;
+        let options = prepare_options(
+            resources.to_str().ok_or("resource path is not UTF-8")?,
+            temporary
+                .path()
+                .join(format!("user-{sequence}"))
+                .to_str()
+                .unwrap(),
+            temporary
+                .path()
+                .join(format!("cache-{sequence}"))
+                .to_str()
+                .unwrap(),
+            "local-modes-fixture",
+        )?;
+        let mut session = Session::new(&options)?;
+        session.character(letter, true)?;
+        for character in keys.bytes() {
+            session.character(character, false)?;
+        }
+        let candidates = session.snapshot()?.candidates;
+        if candidates.is_empty() {
+            return Err(format!("{} offered nothing for {keys}", letter as char).into());
+        }
+        Ok(candidates)
+    };
+
+    // Date-time takes three spellings for each of its three answers. Only `rq` was covered before,
+    // so eight of the nine documented ways in were never exercised.
+    //
+    // The three spellings of one answer have to agree, which is the check that they are aliases
+    // rather than three things that happen to be non-empty. Time is compared only for shape: its
+    // answer moves while this runs, so requiring the three to match would fail on a second boundary.
+    let date: Vec<String> = ["rq", "riqi", "date"]
+        .iter()
+        .map(|keys| typed(b'T', keys).map(|list| list[0].clone()))
+        .collect::<Result<_, _>>()?;
+    assert!(
+        date[0] == date[1] && date[1] == date[2],
+        "date spellings disagreed: {date:?}"
+    );
+    let week: Vec<String> = ["xq", "xingqi", "week"]
+        .iter()
+        .map(|keys| typed(b'T', keys).map(|list| list[0].clone()))
+        .collect::<Result<_, _>>()?;
+    assert!(
+        week[0] == week[1] && week[1] == week[2],
+        "weekday spellings disagreed: {week:?}"
+    );
+    for keys in ["sj", "shijian", "time"] {
+        assert!(!typed(b'T', keys)?[0].is_empty(), "{keys} offered no time");
+    }
+    assert_ne!(date[0], week[0], "date and weekday returned the same text");
+
+    // Super-jianpin searches by initials: `nh` reaches 你好, whose two syllables start n and h.
+    // Which of the matches leads is a ranking question - 女孩 does, here - so what is asserted is
+    // that the initials search found it at all, and that nothing answering plain `nh` as pinyin
+    // crowds it out.
+    let jianpin = typed(b'J', "nh")?;
+    assert!(
+        jianpin.contains(&"你好".to_string()),
+        "super-jianpin nh did not reach 你好: {:?}",
+        &jianpin[..jianpin.len().min(8)]
+    );
+    assert!(
+        jianpin.iter().take(8).all(|word| word.chars().count() >= 2),
+        "super-jianpin nh offered a single character: {:?}",
+        &jianpin[..jianpin.len().min(8)]
+    );
+
+    println!("date-time spellings and super-jianpin initials match the documented behaviour");
     Ok(())
 }
