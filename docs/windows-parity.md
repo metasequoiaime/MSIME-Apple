@@ -706,6 +706,20 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 **另记一个偶发**：第一次运行时 `windows-voice-controller-listener` 失败，第二次通过，其余一致。它不是本批引入的（本批只增加挂载与二进制），但它是一个此前没有记录在案的不稳定用例，写在这里以免下次有人把它当成新回归。
 
+增量记录（2026-09-20，Windows 第五十五批：把 host-api 也纳入 Wine，当场抓到一个「在 Windows 上断言了反面」的测试）：第五十四批让 Wine 跑起 `msime-host-windows` 的测试。这批把 `msime-host-api` 也纳入——那是 Server 链接的 `msime_host_api.dll` 所在的 crate，FFI 边界就在这里，值得在它实际发布的目标上执行。
+
+它需要与交叉构建同一棵原生依赖树（`MSIME_WINDOWS_DEPS`），所以运行器现在按 `MSIME_WINDOWS_DEPS_ROOT` 推出前缀；前缀不存在时只跑 host-windows 并打印一行说明，不让整轮失败。
+
+**首次为 Windows 目标执行 host-api 的 99 个测试，2 个失败，其中一个是真问题。**
+
+`contextual_punctuation_respects_editor_context_preferences_and_composition` 显式设了 `smart_punctuation_direct_digit` 与 `_direct_letter`，却让 `smart_punctuation` 走默认值——而那个默认是 `!cfg!(windows)`（Windows 上由 TIP 自己处理智能标点，所以共享默认关闭）。于是这个用例在 Windows 目标下**断言了与它本意相反的事**，并且一直「通过」，因为套件从来只为宿主目标跑过。本批把前提写进测试本身。产品代码没有改动：Windows 上默认关闭是有意的。
+
+另一个失败 `the_c_header_and_the_rust_exports_agree` 不是缺陷——它在运行时遍历自己 crate 的 `src/` 比对 C 头文件与 Rust 导出，而容器里只有可执行文件。这是一项没有平台维度的源码一致性检查，宿主那轮已经覆盖，故在 Wine 下按名跳过并写明理由。
+
+**还修正了一处自己的疏漏**：`cargo test --no-run --message-format=json` 报出的 `executable` 不只有测试，还包括 examples——`prepare_host`、`preferences_latency`、`dictionary_requests` 都是需要命令行参数的普通程序，被当成测试跑就成了三个假失败。现在按 `profile.test` 过滤。
+
+结果：套件从 78 通过 / 1 失败增至 **83 通过 / 1 失败**，唯一失败仍是基线里那条 `msimeui-tests`（Rosetta 在 arm64 主机上模拟 x86_64）。
+
 ## 来源模块的落点
 
 逐模块记下来源的每个目录在本仓库落在哪里，以及为什么。上面那张功能表按「功能组」组织，回答的是某个功能有没有；这张按**来源的源码目录**组织，回答的是来源的每一块代码去了哪儿——两者互相校验，一块代码找不到落点就是缺口，哪怕对应功能在表里被标成有。

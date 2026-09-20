@@ -1845,6 +1845,11 @@ fn contextual_punctuation_respects_editor_context_preferences_and_composition() 
     let handle = test_host_preferences(
         dir.path(),
         Preferences {
+            // Stated rather than inherited: the default is `!cfg!(windows)`, because the
+            // Windows TIP does this itself. Leaving it to the default made this a test that
+            // quietly asserted the opposite thing on Windows - and passed everywhere it was
+            // ever run, since the suite only ran for the host target.
+            smart_punctuation: true,
             smart_punctuation_direct_digit: true,
             smart_punctuation_direct_letter: true,
             ..chinese_preferences()
