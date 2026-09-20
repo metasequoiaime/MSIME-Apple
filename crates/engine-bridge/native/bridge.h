@@ -24,6 +24,7 @@ struct CandidateGlossInput;
 struct HandwritingPoint;
 struct DictionaryEntry;
 struct DictionaryPage;
+struct ShuangpinKeyHint;
 class EngineSession {
 public:
     explicit EngineSession(const EngineOptions& options);
@@ -71,6 +72,7 @@ rust::Vec<CaptureDevice> capture_devices();
 EngineOptions prepare_options(rust::Str resources, rust::Str user_data, rust::Str cache, rust::Str content_id);
 rust::String hanzi_to_pinyin(const EngineOptions& options, rust::Str text);
 rust::String normalize_full_pinyin(rust::Str input, std::size_t expected_syllables);
+rust::Vec<ShuangpinKeyHint> shuangpin_key_hints(rust::Str profile);
 DictionaryPage dictionary_entries(const EngineOptions& options, std::size_t offset, std::size_t limit);
 rust::Vec<rust::String> english_completions(rust::Str resources, rust::Str prefix, std::size_t limit);
 DictionaryEntry dictionary_validate(const DictionaryEntry& entry);
