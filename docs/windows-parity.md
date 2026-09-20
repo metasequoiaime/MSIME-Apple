@@ -28,7 +28,7 @@
 | --- | --- | --- | --- |
 | TSF 按键、焦点、edit session、UI-less | `windows/`、`server/src/ipc/` | `platforms/windows/tsf/`、`WindowsServer.cpp`、`SessionController.cpp`、`PipePeer.cpp` | 有调用链；继续验证真实编辑器焦点切换、断线重连、跨位数 DLL/Server、组合提交与撤销。 |
 | 全拼、四种双拼、86 五笔、日语、辅助码 | README 对应指南、`engine/`、设置 `input.ts` / `helpcode.ts` | `crates/engine-bridge/`、`crates/input-runtime/`、`platforms/windows/src/ipc/SessionPump.cpp`、共享 `preferences.rs` | Windows 日语模式已将 `-` 交给长音符输入、禁止 `-`/`=` 翻页，并在 TSF/Server 两侧保持一致；候选选择现绑定会话、代次及单调窗口渲染 serial，等待上屏前的绘制回执可避免调频重排错选；macOS 原生候选面板现按共享 `wubi_code_hint` 显示严格前缀的剩余五笔编码，回退/本地模式保持不标注；各输入方案已用锁定词库逐项核对（`crates/engine-bridge/examples/schemes_dictionary.rs`，见第七批）；辅助码的单码调序与双码筛选已按来源规格逐条核对（第十五批）；日文与中文方案的往返保留由 `apps/desktop/tests/settings/settings.test.tsx` 跨三种中文方案覆盖；仍待真实编辑器交互验证。 |
-| 候选分页、高亮、调频、preedit、以词定字 | README 候选调频/preedit/标点指南 | `CandidateWindow.cpp`、`CandidateAction.h`、`SessionController.cpp`、`ReplyCodec.cpp`；Linux `ClientEngine.cpp` | 有调用链；Linux IBus 候选操作菜单现提供上一页/下一页并复用共享分页命令，调频持久化已用锁定词库覆盖三个半边——跨会话记住、关掉就不写、重置回出厂顺序（`crates/engine-bridge/examples/learning_dictionary.rs`，见第八批）；翻页现在能越过 Engine 对单字母查询的初始上限（第九批）；以词定字已按两端取字、三字候选、组合被消耗、无汉字候选与越界索引覆盖（第十四批）；调频五种模式各走各的规则已逐条核对（第十三批）；仍需检查分页键与鼠标行为和旧候选请求拒绝。 |
+| 候选分页、高亮、调频、preedit、以词定字 | README 候选调频/preedit/标点指南 | `CandidateWindow.cpp`、`CandidateAction.h`、`SessionController.cpp`、`ReplyCodec.cpp`；Linux `ClientEngine.cpp` | 有调用链；Linux IBus 候选操作菜单现提供上一页/下一页并复用共享分页命令，调频持久化已用锁定词库覆盖三个半边——跨会话记住、关掉就不写、重置回出厂顺序（`crates/engine-bridge/examples/learning_dictionary.rs`，见第八批）；翻页现在能越过 Engine 对单字母查询的初始上限（第九批）；以词定字已按两端取字、三字候选、组合被消耗、无汉字候选与越界索引覆盖（第十四批）；调频五种模式各走各的规则已逐条核对（第十三批）；分页键、鼠标滚轮与旧候选请求拒绝三项已核对（第四十一批），均有用例；本行到此走完。 |
 | 中英文状态、独立英文候选、全半角、简繁、智能标点 | `server/src/english/`、设置 `input.ts` / `shortcut.ts` | `SharedConfigKeybindings.h`、`PunctuationPolicy.h`、`ReplyCodec.h` 中的 TsfLocalConfig、共享偏好与 Engine 桥接 | 已补齐 TSF client key-router 边界、IPC `Sent` / `DefinitelyNotSent` / `DeliveryAmbiguous` 三态 fallback、标点配置帧及宿主进程策略回归；五项已逐个核对（第四十批）：按应用/全局状态有纯决策函数与 `mode_authority` 用例；标点重复与成对补全随配置帧下发并由 `tsf_config_frames` 钉住；热更新有 `preference_monitor` 用例；CapsLock 由 Server 持有并经 `CapsLockChanged` 帧下发，这一项只有源码核对、没有专门用例。 |
 | K/T/U/E/M/J/Y/R 快捷模式、混输 | README 实用功能快捷模式 | Engine 桥接、共享偏好、`platforms/windows/src/ipc/ServerSession.cpp` 及 `platforms/windows/tests/runtime/session_smoke.cpp` | 已补带锁定词库的 ServerSession 回归：八种快捷模式均验证 Shift 入口、候选生成和选词提交；仍需 Windows 原生 TSF/真实编辑器交互验证。 |
 | 谷歌云候选与 AI 联想 | README 云/AI 联想、设置 `ai-settings.ts` | `CloudCandidateWorker.cpp`、`AiCandidateWorker.cpp`，由 `SessionController.cpp` 构造并投递输入队列 | 有调用链；核对每个提供方、超时、取消、失焦后旧结果以及凭据路由，勿只验证 UI 保存。 |
@@ -529,6 +529,16 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 **有测试的四项**：按应用/全局状态在 `ModeAuthority.h` 里是一个纯决策函数（失焦不推送、未播种时先由首次观察播种、换客户端时权威胜出且只推不一致者、同客户端改模式则成为新权威），`tests/input/mode_authority.cpp` 覆盖；标点重复（`SmartPunctuationRepeatToChineseChanged`）与成对补全（`PairedPunctuationChanged`）随配置帧下发，`tests/runtime/tsf_config_frames.cpp` 钉住帧序并另外覆盖按进程排除成对补全的策略；热更新由 `PreferenceMonitor` 负责，有 `tests/core/preference_monitor.cpp`。
 
 **只有源码核对、没有专门用例的一项**：CapsLock。Server 以 `GetKeyState(VK_CAPITAL)` 播种、由维护钩子回调更新，再经 `CapsLockChanged` 帧下发；源码注释写明钩子回调只发布状态、绝不碰传输，由主循环投递。这一项按「已实现但缺专门覆盖」记录，与第三十八批的本地优先级同等对待——**不把读过代码算成测过**。
+
+增量记录（2026-09-20，Windows 第四十一批：候选分页那一行的最后三项）：原写着「仍需检查分页键与鼠标行为和旧候选请求拒绝」。三项都有实际覆盖。
+
+**分页键**：`NavigationPolicy.h` 的键映射此前已与来源 `event_listener.cpp` 逐键对照过——减号/等号、逗号/句点、方括号、Tab（Shift 为上一页）、PageUp/PageDown、上下方向键移动选择，语义与来源一致；`tests/input/navigation_policy.cpp` 覆盖。来源侧的五个开关（`paging_minus_equal` 等）在本仓库以 `navigation` 结构体承载，字段一一对应。
+
+**鼠标滚轮**：`consume_candidate_wheel_delta` 是纯函数，`tests/ui/candidate_wheel.cpp` 钉住四条——不足一格的位移要保留、满一格才发出翻页、方向正确映射、反向滚动时清掉残留行程。窗口侧另有一条契约：滚轮翻页未开启时把消息交还默认过程，而不是在这个 NOACTIVATE 窗口上吞掉它。
+
+**旧候选请求拒绝**：`tests/runtime/session_smoke.cpp` 在记下一个代次、让它过期之后，断言用旧代次选词被拒绝。
+
+三项均有用例，本行不再留「仍需」。
 
 ## 来源模块的落点
 

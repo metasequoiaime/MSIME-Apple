@@ -50,15 +50,6 @@ pub(crate) fn ai_models_url(endpoint: &Url) -> Url {
     url
 }
 
-// Linux answers these two from the provider instead, in `lib.rs`. Both definitions carry
-// `#[tauri::command]`, which puts a `__cmd__ai_models` macro at the crate root -- so the
-// condition here has to be the complement of the one on the `lib.rs` pair, not merely the
-// condition the handler list registers under, or the two macros collide on Linux.
-#[cfg(any(
-    target_os = "macos",
-    target_os = "windows",
-    all(test, not(target_os = "android"), not(target_os = "linux"))
-))]
 pub(crate) fn ai_models_request(endpoint: &str, token: &str) -> Result<Vec<String>, CommandError> {
     let endpoint = validate_ai_endpoint(endpoint)?;
     validate_ai_token(token)?;
@@ -103,11 +94,6 @@ pub(crate) fn ai_models_request(endpoint: &str, token: &str) -> Result<Vec<Strin
     Ok(models)
 }
 
-#[cfg(any(
-    target_os = "macos",
-    target_os = "windows",
-    all(test, not(target_os = "android"), not(target_os = "linux"))
-))]
 pub(crate) fn ai_test_request(
     endpoint: &str,
     model: &str,
@@ -167,11 +153,12 @@ pub(crate) fn ai_test_request(
     Ok(output.to_owned())
 }
 
-#[cfg(any(
-    target_os = "macos",
-    target_os = "windows",
-    all(test, not(target_os = "android"), not(target_os = "linux"))
-))]
+// Linux routes these two through the provider socket instead - see the
+// same-named commands in lib.rs - and `#[tauri::command]` declares a crate-level
+// `macro_rules! __cmd__<name>`, so two commands sharing a name collide however
+// separate their modules are. Gate the definitions the way their registration is
+// already gated rather than leaving both to exist on Linux.
+#[cfg(not(target_os = "linux"))]
 #[tauri::command]
 pub(crate) async fn ai_models(
     endpoint: String,
@@ -184,11 +171,7 @@ pub(crate) async fn ai_models(
         })?
 }
 
-#[cfg(any(
-    target_os = "macos",
-    target_os = "windows",
-    all(test, not(target_os = "android"), not(target_os = "linux"))
-))]
+#[cfg(not(target_os = "linux"))]
 #[tauri::command]
 pub(crate) async fn ai_test(
     endpoint: String,
