@@ -452,11 +452,19 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     _chrome.layer.cornerRadius = 10.0 * scale;
     // NSWindow rounds fractional point sizes; round outward so controls are never clipped.
     _preferredSize = NSMakeSize(std::ceil((count * (fontSize + 18.0) + (count - 1) * 8.0 + 30.0) * scale), std::ceil((fontSize + 20.0) * scale));
-    NSRect frame = self.frame;
-    frame.size = _preferredSize;
-    NSScreen *screen = ScreenContainingFrame(frame) ?: NSScreen.mainScreen;
-    if (screen) frame = SizedToolbarFrame(frame, screen.visibleFrame, YES, _preferredSize);
-    [self setFrame:frame display:YES];
+    // Only touch the frame once the toolbar is actually on screen. This runs on every shared preference
+    // change, hidden or not, and the window carries a frame autosave name - so resizing a hidden toolbar
+    // wrote a saved frame for a window the user has never placed, pinned to the restored-margin corner.
+    // setVisible: then read that as "the user put it there" and restored the corner instead of the default
+    // bottom-right placement on the screen holding the pointer. It sizes from _preferredSize itself, so
+    // leaving the frame alone here costs nothing.
+    if (self.visible) {
+        NSRect frame = self.frame;
+        frame.size = _preferredSize;
+        NSScreen *screen = ScreenContainingFrame(frame) ?: NSScreen.mainScreen;
+        if (screen) frame = SizedToolbarFrame(frame, screen.visibleFrame, YES, _preferredSize);
+        [self setFrame:frame display:YES];
+    }
     [_chrome layoutSubtreeIfNeeded];
     [self applySkin];
 }
