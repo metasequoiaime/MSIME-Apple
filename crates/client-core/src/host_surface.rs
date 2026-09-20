@@ -74,7 +74,7 @@ impl HostPlatform {
 /// What the surrounding host can actually do. The shared UI renders from this
 /// rather than guessing from `navigator.userAgent`, which previously hid working
 /// controls on Windows and macOS and left 打字统计 dead on every desktop.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Debug, Eq, PartialEq, Serialize, Deserialize)]
 #[serde(deny_unknown_fields)]
 pub struct HostCapabilities {
     pub platform: HostPlatform,
@@ -181,6 +181,13 @@ pub struct HostCapabilities {
     /// faces, has nothing to switch on and does not offer the choice.
     #[serde(default)]
     pub input_mode_hud: bool,
+    /// The operating system release, as the machine reports it, for the feedback
+    /// page to attach. Not a platform assumption like the flags above -- the host
+    /// fills it in after `for_platform`, the way `system_fonts` is filled in --
+    /// so a host with no cheap way to read it simply leaves it out and the page
+    /// falls back to what the web view knows about itself.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub os_version: Option<String>,
 }
 
 impl HostCapabilities {
@@ -372,6 +379,7 @@ impl HostCapabilities {
                     | HostPlatform::Android
                     | HostPlatform::Harmony
             ),
+            os_version: None,
         }
     }
 }

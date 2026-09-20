@@ -3712,6 +3712,50 @@ test("macOS shortcut page owns the mode HUD and the full-width chord", async () 
   expect(screen.queryByRole("checkbox", { name: "中英文切换提示" })).toBeNull();
 });
 
+test("the feedback report leads with the release and the scheme", async () => {
+  const copyText = vi.fn().mockResolvedValue(undefined);
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        copyText,
+        host: { platform: "macos", os_version: "27.0" } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "反馈" }));
+  fireEvent.click(await screen.findByRole("button", { name: "复制报告" }));
+  await waitFor(() => expect(copyText).toHaveBeenCalledOnce());
+  const report = copyText.mock.calls[0][0] as string;
+  expect(report).toContain("macOS 27.0");
+  expect(report).toContain("输入方案：全拼");
+  // The user agent only names the web view; with a real release to report it is noise.
+  expect(report).not.toContain("User-Agent");
+});
+
+test("a host that cannot name its release still reports something", async () => {
+  const copyText = vi.fn().mockResolvedValue(undefined);
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        copyText,
+        host: { platform: "linux" } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "反馈" }));
+  fireEvent.click(await screen.findByRole("button", { name: "复制报告" }));
+  await waitFor(() => expect(copyText).toHaveBeenCalledOnce());
+  const report = copyText.mock.calls[0][0] as string;
+  expect(report).toContain("平台：linux");
+  expect(report).toContain("User-Agent");
+});
+
 test("the full-width chord row is macOS only", async () => {
   render(
     <SettingsPage

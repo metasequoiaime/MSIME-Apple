@@ -943,3 +943,27 @@ fn linux_account_storage_refuses_a_symlinked_or_oversized_store() {
     // rejected on its size before any of it is parsed.
     assert!(storage.load().is_err());
 }
+
+#[cfg(not(target_os = "android"))]
+#[test]
+fn the_macos_release_is_read_or_left_out() {
+    let plist = concat!(
+        "<plist><dict><key>ProductName</key><string>macOS</string>",
+        "<key>ProductVersion</key><string>27.0</string>",
+        "<key>ProductBuildVersion</key><string>27A1234</string></dict></plist>"
+    );
+    assert_eq!(
+        crate::product_version_from_plist(plist).as_deref(),
+        Some("27.0")
+    );
+    // Anything that is not a release number is left out rather than guessed at: this string ends
+    // up in a report the user files, and the build version right beside it is not it.
+    for rejected in [
+        "<plist><dict><key>ProductBuildVersion</key><string>27A1234</string></dict></plist>",
+        "<key>ProductVersion</key><string>27A1234</string>",
+        "<key>ProductVersion</key><string></string>",
+        "<key>ProductVersion</key><string>27.0",
+    ] {
+        assert_eq!(crate::product_version_from_plist(rejected), None);
+    }
+}
