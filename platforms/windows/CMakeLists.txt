@@ -186,6 +186,20 @@ set_tests_properties(windows-typing-statistics PROPERTIES TIMEOUT 10)
 # Which keys edit the composition at all: letters, the manual separator, the
 # Japanese long vowel, the double-pinyin ing key, Unicode digits, erase and
 # caret. Dense enough that a wrong branch is an input bug and nothing else.
+# 以词定字: which bare key takes the first or the last Han character out of the
+# highlighted word. The direction is the feature, and the bracket pair is also
+# the TSF's paging keys, so when it must not fire matters as much as when it does.
+add_executable(windows-word-character-policy tests/input/word_character_policy.cpp)
+target_include_directories(windows-word-character-policy PRIVATE src src/input src/ipc
+                           ../../vendor/MSIME-Engine/contracts ../../crates/host-api/include)
+target_link_libraries(windows-word-character-policy PRIVATE nlohmann_json::nlohmann_json)
+if(MSVC)
+  target_compile_options(windows-word-character-policy PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(windows-word-character-policy PRIVATE -Wall -Wextra -Werror)
+endif()
+add_test(NAME windows-word-character-policy COMMAND windows-word-character-policy)
+set_tests_properties(windows-word-character-policy PROPERTIES TIMEOUT 10)
 add_executable(windows-edit-policy tests/input/edit_policy.cpp)
 target_include_directories(windows-edit-policy PRIVATE src src/system src/input
                            ../../vendor/MSIME-Engine/contracts ../../crates/host-api/include)
