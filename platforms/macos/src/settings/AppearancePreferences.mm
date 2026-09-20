@@ -2569,7 +2569,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     NSString *userData = configuredState ?: defaultState.path;
     BOOL ok = msime_macos_uninstall_input_source(bundle.path.fileSystemRepresentation,
                                                   userData.fileSystemRepresentation,
-                                                  "app.msime.client.preview.inputmethod",
+                                                  "app.msime.inputmethod.MetasequoiaIME",
                                                   _removeUserDataButton.state == NSControlStateValueOn);
     if (!ok) {
         NSAlert *failure = [NSAlert new];
