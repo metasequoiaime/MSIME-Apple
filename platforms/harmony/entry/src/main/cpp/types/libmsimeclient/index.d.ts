@@ -24,6 +24,14 @@ export const skinToolbarStylesheet: (request: string) => string;
  * thread when the design carries a photo.
  */
 export const customSkinLibrary: (request: string) => string;
+/**
+ * `{directory,id,name,design}` starts a skin trial and imports the design, answering `{skin,trial}`.
+ * One call rather than two: the trial remembers the skin being replaced, so a failed import has to
+ * end it. Writes preferences and two locked files, so call it off the UI thread.
+ */
+export const communitySkinInstall: (request: string) => string;
+/** `{directory,action:{operation:"finish",id,keep}}` or `{operation:"restore_pending"}`. */
+export const keyboardSkinTrial: (request: string) => string;
 export const savePreferences: (
   directory: string,
   expectedRevision: number,

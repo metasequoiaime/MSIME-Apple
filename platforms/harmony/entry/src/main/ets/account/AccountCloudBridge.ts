@@ -56,6 +56,56 @@ const MAX_CHAT_RESPONSE_BYTES = 16 * 1024;
 const CHAT_TIMEOUT_MS = 125 * 1000;
 const CHAT_ROLES = ["user", "assistant", "system"];
 
+/** The gallery's own bounds, matching `client-core`'s community skin service. */
+const MAX_COMMUNITY_SEARCH = 128;
+
+/**
+ * A publication id, checked before it is put in a path.
+ *
+ * The service names skins by UUID and the shared service parses one before building the URL. A
+ * host that interpolated whatever the page sent would let a page turn a skin id into a different
+ * endpoint, so the shape is the check: anything that is not a hyphenated UUID is refused here.
+ */
+function validUuid(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(value)
+  );
+}
+
+/**
+ * Text bound by characters rather than bytes, as the shared service counts it.
+ *
+ * A description may contain newlines and tabs; a name may not. Everything else that is a control
+ * character is refused in both, which is the same rule `valid_text` applies.
+ */
+function validCommunityText(
+  value: unknown,
+  minimum: number,
+  maximum: number,
+  multiline = false,
+): value is string {
+  if (typeof value !== "string") return false;
+  const characters = [...value];
+  if (characters.length < minimum || characters.length > maximum) return false;
+  return !characters.some((character) => {
+    if (multiline && (character === "\n" || character === "\t")) return false;
+    const code = character.codePointAt(0) ?? 0;
+    return code <= 0x1f || code === 0x7f;
+  });
+}
+
+/** The community pages have their own wording; an `account_*` code arrives as the generic one. */
+function communityStatus(status: number): string {
+  if (status === 400) return "community_invalid";
+  if (status === 401) return "community_unauthorized";
+  if (status === 403) return "community_forbidden";
+  if (status === 404) return "community_not_found";
+  if (status === 409) return "community_conflict";
+  if (status === 429) return "community_rate_limited";
+  return "community_unavailable";
+}
+
 function error(code: string): string {
   return JSON.stringify({ ok: false, error: code });
 }
@@ -192,10 +242,15 @@ export class AccountCloudBridge {
           return await this.dictionary(action);
         case "chat":
           return await this.chat(action);
+        case "community_skin":
+          return await this.community(action);
         default:
           return error("account_invalid");
       }
     } catch (cause) {
+      // The community pages decode a different vocabulary from the account ones, so a thrown
+      // transport failure has to arrive in the one its caller has wording for.
+      if (operation === "community_skin") return error("community_unavailable");
       return error(cause instanceof Error ? cause.message : "account_unavailable");
     }
   }
@@ -464,6 +519,108 @@ export class AccountCloudBridge {
       return error("account_unavailable");
     }
     return success({ content });
+  }
+
+  /**
+   * The community skin gallery.
+   *
+   * Browsing is deliberately not authenticated: the gallery is public, and a signed-out user who
+   * could not look at it would have no way to decide whether an account is worth making. The
+   * session is attached when there is one, because that is what turns `owned` and `my_rating` into
+   * this user's answers rather than nobody's. Everything that changes something — downloading,
+   * rating, publishing, withdrawing — requires it.
+   *
+   * The design itself is not validated here beyond being an object. It is handed straight to the
+   * shared store, which has the only complete definition of a valid design and normalizes it; a
+   * second opinion written on this host would be the one that goes stale.
+   */
+  private async community(action: Action): Promise<string> {
+    const operation = action.community_operation;
+    if (operation === "list") {
+      if (
+        !this.boundedNumber(action.offset, 0, 1000000) ||
+        !validString(action.search, MAX_COMMUNITY_SEARCH, true)
+      ) {
+        return error("community_invalid");
+      }
+      const path =
+        `/v1/community/skins?offset=${action.offset}&q=` + `${encodeURIComponent(action.search)}`;
+      return await this.communityRequest("GET", path, false);
+    }
+    if (operation === "detail") {
+      if (!validUuid(action.id)) return error("community_invalid");
+      return await this.communityRequest("GET", `/v1/community/skins/${action.id}`, false);
+    }
+    if (operation === "download") {
+      if (!validUuid(action.id)) return error("community_invalid");
+      return await this.communityRequest("POST", `/v1/community/skins/${action.id}/download`, true);
+    }
+    if (operation === "rate") {
+      if (!validUuid(action.id) || !this.boundedNumber(action.stars, 1, 5)) {
+        return error("community_invalid");
+      }
+      return await this.communityRequest("PUT", `/v1/community/skins/${action.id}/rating`, true, {
+        stars: action.stars,
+      });
+    }
+    if (operation === "publish") {
+      const name = action.name;
+      const description = action.description;
+      if (
+        !validUuid(action.id) ||
+        !validCommunityText(name, 1, 32) ||
+        name.trim() !== name ||
+        !validCommunityText(description, 0, 280, true) ||
+        action.design === null ||
+        typeof action.design !== "object" ||
+        Array.isArray(action.design)
+      ) {
+        return error("community_invalid");
+      }
+      return await this.communityRequest("POST", "/v1/community/skins", true, {
+        id: action.id,
+        name,
+        description,
+        design: action.design,
+      });
+    }
+    if (operation === "unpublish") {
+      if (!validUuid(action.id)) return error("community_invalid");
+      return await this.communityRequest("DELETE", `/v1/community/skins/${action.id}`, true);
+    }
+    return error("community_invalid");
+  }
+
+  /**
+   * One community request, with the session attached when there is one.
+   *
+   * The failure codes are the community vocabulary rather than the account one: the pages that read
+   * these have wording for "已达到发布上限" and "自己的作品不能评分"，which an `account_conflict`
+   * would arrive as the generic sentence instead.
+   */
+  private async communityRequest(
+    method: string,
+    path: string,
+    authenticated: boolean,
+    body?: Record<string, unknown>,
+  ): Promise<string> {
+    const session = this.session;
+    const signedIn = session !== null && session.expires_at > Date.now();
+    if (authenticated && !signedIn) return error("community_unauthorized");
+    const generation = this.generation;
+    const token = signedIn && session !== null ? session.access_token : undefined;
+    const response = await this.transport.request(method, path, token, body);
+    if (generation !== this.generation) return error("community_cancelled");
+    if (response.status === 401 && signedIn) {
+      this.clearExpired();
+      return error("community_unauthorized");
+    }
+    if (response.status < 200 || response.status >= 300) {
+      return error(communityStatus(response.status));
+    }
+    const value = parseJson(response.body);
+    if (value === null && response.body.length > 0) return error("community_unavailable");
+    return success(value ?? {});
   }
 
   private kind(value: unknown): string | null {

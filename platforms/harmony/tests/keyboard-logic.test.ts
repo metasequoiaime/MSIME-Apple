@@ -4661,6 +4661,138 @@ group("applying writes only what the schema declares", () => {
   );
 });
 
+group("the skin gallery is public to browse and signed in to change", () => {
+  let stored: string | null = null;
+  const store: AccountSessionStore = {
+    load: () => stored,
+    save: (value) => {
+      stored = value;
+    },
+    clear: () => {
+      stored = null;
+    },
+  };
+  const calls: { method: string; path: string; token?: string }[] = [];
+  let status = 200;
+  const transport: AccountTransport = {
+    request: async (method, path, token) => {
+      calls.push({ method, path, token });
+      if (path === "/v1/auth/login")
+        return {
+          status: 200,
+          body: JSON.stringify({
+            access_token: "a".repeat(64),
+            refresh_token: "b".repeat(64),
+            token_type: "Bearer",
+            expires_in: 3600,
+            user: { id: "u1", display_name: "Test", created_at: "2026-01-01" },
+          }),
+        };
+      return { status, body: '{"skins":[],"has_more":false}' };
+    },
+  };
+  const bridge = new AccountCloudBridge(transport, store);
+  const gallery = (action: Record<string, unknown>) =>
+    bridge.handle(JSON.stringify({ operation: "community_skin", ...action }));
+  const id = "10000000-0000-4000-8000-000000000001";
+
+  // Browsing signed out is the point: someone who cannot see the gallery has no way to decide
+  // whether an account is worth making.
+  void gallery({ community_operation: "list", offset: 0, search: "" }).then((result) => {
+    check(JSON.parse(result).ok === true, "the gallery is readable without an account");
+    const listed = calls.find((call) => call.path.startsWith("/v1/community/skins?"));
+    check(listed?.token === undefined, "and that request carries no token");
+  });
+  void gallery({ community_operation: "download", id }).then((result) => {
+    check(
+      JSON.parse(result).error === "community_unauthorized",
+      "but downloading needs an account",
+    );
+  });
+  void gallery({ community_operation: "rate", id, stars: 5 }).then((result) => {
+    check(JSON.parse(result).error === "community_unauthorized", "and so does rating");
+  });
+
+  // An id goes into the URL path. Interpolating whatever the page sent would let a page turn a
+  // skin id into a different endpoint, so the shape is the check.
+  void gallery({ community_operation: "detail", id: "../../users/me" }).then((result) => {
+    check(
+      JSON.parse(result).error === "community_invalid",
+      "an id that is not a uuid never reaches a path",
+    );
+  });
+  void gallery({ community_operation: "rate", id, stars: 9 }).then((result) => {
+    check(JSON.parse(result).error === "community_invalid", "a rating outside 1..5 is refused");
+  });
+  void gallery({ community_operation: "list", offset: 0, search: "x".repeat(129) }).then(
+    (result) => {
+      check(JSON.parse(result).error === "community_invalid", "and an overlong search");
+    },
+  );
+  void gallery({ community_operation: "unknown", id }).then((result) => {
+    check(JSON.parse(result).error === "community_invalid", "and an unknown operation is named");
+  });
+
+  void bridge
+    .handle('{"operation":"login","challenge_id":"challenge","credential":"123456"}')
+    .then(() => {
+      void gallery({ community_operation: "list", offset: 0, search: "森林" }).then(() => {
+        const listed = calls.filter((call) => call.path.startsWith("/v1/community/skins?")).pop();
+        check(listed?.token !== undefined, "a signed-in browse carries the session");
+        check(
+          listed?.path.includes(encodeURIComponent("森林")) === true,
+          "and the search is encoded rather than pasted into the URL",
+        );
+      });
+      void gallery({
+        community_operation: "publish",
+        id,
+        name: "  晨雾  ",
+        description: "",
+        design: {},
+      }).then((result) => {
+        check(
+          JSON.parse(result).error === "community_invalid",
+          "an untrimmed name is refused the way the shared service refuses it",
+        );
+      });
+      void gallery({
+        community_operation: "publish",
+        id,
+        name: "晨雾",
+        description: "第一行\n第二行",
+        design: {},
+      }).then((result) => {
+        // A description is prose and may be written in paragraphs; a name may not.
+        check(JSON.parse(result).ok === true, "a multi-line description is allowed");
+      });
+      void gallery({
+        community_operation: "publish",
+        id,
+        name: "晨\n雾",
+        description: "",
+        design: {},
+      }).then((result) => {
+        check(JSON.parse(result).error === "community_invalid", "while a multi-line name is not");
+      });
+
+      // The community pages decode their own vocabulary; an account_* code would arrive as the
+      // one generic sentence instead of "已达到发布上限".
+      status = 409;
+      void gallery({ community_operation: "detail", id }).then((result) => {
+        check(
+          JSON.parse(result).error === "community_conflict",
+          "a refusal carries the community code, not the account one",
+        );
+        status = 403;
+        void gallery({ community_operation: "detail", id }).then((forbidden) => {
+          check(JSON.parse(forbidden).error === "community_forbidden", "and so does a forbidden");
+          status = 200;
+        });
+      });
+    });
+});
+
 group("the account assistant answers with a model list and one reply", () => {
   let stored: string | null = null;
   const store: AccountSessionStore = {

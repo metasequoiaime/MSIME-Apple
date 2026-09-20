@@ -1042,6 +1042,96 @@ fn custom_skin_library_reaches_a_c_abi_host_without_a_second_store() {
 
 #[test]
 #[cfg(not(target_os = "android"))]
+fn installing_a_community_skin_is_one_step_so_a_failed_import_ends_its_trial() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().to_str().unwrap().to_owned();
+    let install = |request: String| {
+        read(unsafe { msime_client_community_skin_install(request.as_ptr(), request.len()) })
+    };
+    let trial = |request: String| {
+        read(unsafe { msime_client_keyboard_skin_trial(request.as_ptr(), request.len()) })
+    };
+    let preferences = msime_client_core::preferences::PreferencesStore::new(directory.path());
+    let design = serde_json::to_value(msime_client_core::preferences::TouchKeyboardSkinDesign {
+        background: 0x102030,
+        ..Default::default()
+    })
+    .unwrap();
+    let id = "10000000-0000-4000-8000-000000000001";
+
+    let installed =
+        install(json!({"directory": root, "id": id, "name": "晨雾", "design": design}).to_string());
+    assert_eq!(installed["ok"], true);
+    assert_eq!(installed["value"]["skin"]["id"], id);
+    assert_eq!(installed["value"]["skin"]["name"], "晨雾");
+    assert_eq!(installed["value"]["trial"]["name"], "晨雾");
+    // The design is on the keyboard, not merely in the library: a gallery that saved a skin
+    // without wearing it would make "试用" mean nothing.
+    let applied = preferences.load().unwrap();
+    assert_eq!(
+        applied.preferences.touch_keyboard_skin,
+        msime_client_core::preferences::TouchKeyboardSkin::Custom
+    );
+    assert_eq!(
+        applied.preferences.custom_touch_keyboard_skin.background,
+        0x102030
+    );
+
+    // Declining puts the previous skin back, which is the whole reason the trial exists.
+    let trial_id = installed["value"]["trial"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let restored = trial(
+        json!({
+            "directory": root,
+            "action": {"operation": "finish", "id": trial_id, "keep": false},
+        })
+        .to_string(),
+    );
+    assert_eq!(restored["ok"], true);
+    let reverted = preferences.load().unwrap();
+    assert_ne!(
+        reverted.preferences.touch_keyboard_skin,
+        msime_client_core::preferences::TouchKeyboardSkin::Custom
+    );
+    // The library keeps it: declining the trial is declining to wear it now, not to own it.
+    let library = json!({"directory": root}).to_string();
+    let saved = read(unsafe { msime_client_custom_skin_library(library.as_ptr(), library.len()) });
+    assert_eq!(saved["value"][0]["id"], id);
+
+    // Recovery is safe with nothing pending, because that is exactly when it runs: at startup,
+    // before anyone knows whether the last session ended mid-trial.
+    assert_eq!(
+        trial(json!({"directory": root, "action": {"operation": "restore_pending"}}).to_string())
+            ["ok"],
+        true
+    );
+
+    assert_eq!(
+        install(
+            json!({"directory": root, "id": "not-a-uuid", "name": "x", "design": design})
+                .to_string()
+        )["error"],
+        "community_invalid"
+    );
+    assert_eq!(
+        install(json!({"directory": "skins", "id": id, "name": "x", "design": design}).to_string())
+            ["ok"],
+        false
+    );
+    assert_eq!(
+        read(unsafe { msime_client_community_skin_install(std::ptr::null(), 0) })["ok"],
+        false
+    );
+    assert_eq!(
+        read(unsafe { msime_client_keyboard_skin_trial(std::ptr::null(), 0) })["ok"],
+        false
+    );
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
 fn skin_resource_bridge_revalidates_kind_and_package_containment() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().join("skins");

@@ -24,6 +24,10 @@ import {
   CloudCandidatesPanel,
   type AccountClient,
   type AccountPreferences,
+  type CommunitySkin,
+  type CommunitySkinClient,
+  type CommunitySkinDownload,
+  type CommunitySkinPage,
   type AccountPreferenceSchema,
   type SettingsSyncClient,
   type ChatClient,
@@ -386,6 +390,46 @@ function chatClient(native: NativeBridge): ChatClient {
   };
 }
 
+/**
+ * The community skin gallery.
+ *
+ * Browsing is not gated on an account: the gallery is public, and a signed-out user who could not
+ * look at it would have no way to decide whether an account is worth making. The host attaches the
+ * session when there is one, which is what turns `owned` and `my_rating` into this user's answers.
+ *
+ * `download` is the only call that is more than a request. The host fetches the design, starts a
+ * trial with it and imports it into the library in one step, and answers with both halves: the
+ * saved skin for the library the page just grew, and the trial id the page answers 保留 or 还原
+ * with afterwards.
+ */
+function communitySkinClient(native: NativeBridge): CommunitySkinClient {
+  const request = <T,>(action: Record<string, unknown>): Promise<T> =>
+    bridgeRequest(
+      native,
+      "community_skin",
+      JSON.stringify({ operation: "community_skin", ...action }),
+    ).then(unwrap<T>);
+  return {
+    list: (offset, search) =>
+      request<CommunitySkinPage>({ community_operation: "list", offset, search }),
+    detail: (id) => request<CommunitySkin>({ community_operation: "detail", id }),
+    download: (id, name) =>
+      request<CommunitySkinDownload>({ community_operation: "download", id, name }),
+    rate: async (id, stars) => {
+      await request({ community_operation: "rate", id, stars });
+    },
+    publish: async (id, name, description, design) => {
+      await request({ community_operation: "publish", id, name, description, design });
+    },
+    unpublish: async (id) => {
+      await request({ community_operation: "unpublish", id });
+    },
+    finishTrial: async (id, keep) => {
+      await request({ community_operation: "finish_trial", id, keep });
+    },
+  };
+}
+
 function cloudClipboardClient(native: NativeBridge, close: () => void): CloudClipboardPanelClient {
   return {
     close: async () => close(),
@@ -622,6 +666,7 @@ function makeClient(
     candidateEnglishGloss: true,
     account: accountClient(native),
     chat: chatClient(native),
+    communitySkins: communitySkinClient(native),
     openCloudClipboard: async () => openCloudClipboard(),
     openCloudDictionary: async () => openCloudDictionary(),
   };

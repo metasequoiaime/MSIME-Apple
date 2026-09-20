@@ -162,6 +162,20 @@ char *msime_client_skin_toolbar_stylesheet(const uint8_t *request, size_t length
  * atomically: use a worker. Failures carry the shared community_* codes the
  * settings pages already have wording for, not a Display string. */
 char *msime_client_custom_skin_library(const uint8_t *request, size_t length);
+/* JSON {directory:absolute state root,id:publication uuid,name,design}. Starts
+ * a skin trial and imports the design into the library, answering
+ * {skin,trial}. One call rather than two: the trial is what remembers the skin
+ * being replaced, so a failed import has to end it or the user wears a design
+ * that was never saved. The download itself is the caller's, because only the
+ * surrounding platform's HTTPS stack can fetch it. Writes preferences and two
+ * locked files: use a worker. */
+char *msime_client_community_skin_install(const uint8_t *request, size_t length);
+/* JSON {directory,action:{operation:"finish",id,keep}} or
+ * {operation:"restore_pending"}. Declining a trial puts the previous skin back;
+ * restore_pending is the crash recovery and is safe with no trial pending.
+ * Answers {revision} so a caller holding the document can tell whether what it
+ * is showing is still what is on disk. Writes preferences: use a worker. */
+char *msime_client_keyboard_skin_trial(const uint8_t *request, size_t length);
 /* Read saved history only; disabled preferences return an empty entries array. */
 char *msime_client_load_clipboard_history(const uint8_t *directory, size_t length);
 /* JSON {directory,text}; removes exact saved entry, not the system clipboard. */
