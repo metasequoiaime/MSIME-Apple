@@ -70,6 +70,9 @@ targets:
         INFOPLIST_FILE: ""
         # 主屏、设置和系统的应用列表都显示这个名字。没有它时 iOS 退回 CFBundleName,也就是 PRODUCT_NAME,装出来的图标底下写的是 MSIMEClientApp。
         INFOPLIST_KEY_CFBundleDisplayName: 水杉输入法
+        # LaunchScreen.storyboard 一直被编进 bundle,但没有这个键就没人指向它,启动屏等于白打包。
+        INFOPLIST_KEY_UILaunchStoryboardName: LaunchScreen
+        INFOPLIST_KEY_UISupportedInterfaceOrientations: "UIInterfaceOrientationPortrait UIInterfaceOrientationLandscapeLeft UIInterfaceOrientationLandscapeRight"
         INFOPLIST_KEY_NSMicrophoneUsageDescription: "仅在你开始语音输入时录音，并发送到你配置的语音识别服务。"
         ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ASSETCATALOG_COMPILER_ALTERNATE_APPICON_NAMES: AppIconForest AppIconSky AppIconDusk AppIconVermilion
