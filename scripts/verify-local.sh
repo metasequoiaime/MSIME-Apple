@@ -177,6 +177,13 @@ python3 scripts/test-no-host-dialogs.py || fail "host dialogs"
 note "quick phrase limit"
 python3 scripts/test-quick-phrase-limit.py || fail "quick phrase limit"
 
+# The panel and the shared contract cap strokes, points and candidates
+# separately. The panel may be stricter, never looser: past the contract the
+# user draws and recognition silently returns nothing, because the request was
+# refused before it reached a recogniser.
+note "handwriting limits"
+python3 scripts/test-handwriting-limits.py || fail "handwriting limits"
+
 # The palette is most of what makes one window look like another, and this one
 # is built with Tailwind rather than by importing the source's sheet, so the two
 # copies of the same 64 names can drift a hex at a time without anyone noticing.
