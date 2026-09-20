@@ -35,8 +35,8 @@ pub enum Action {
     PreviousPage,
     NextCandidate,
     PreviousCandidate,
-    FirstCandidateOnPage,
-    LastCandidateOnPage,
+    FirstCandidate,
+    LastCandidate,
 }
 
 pub struct Runtime<E: InputEngine = Session> {
@@ -1039,6 +1039,12 @@ impl<E: InputEngine> Runtime<E> {
         if matches!(action, Action::NextCandidate) {
             self.expand_for_next_candidate()?;
         }
+        // The last candidate means the last one there is. The Engine caps what it returns to a
+        // single-letter query and hands the rest over on request, so without this End would stop at
+        // the end of what happened to be cached and move again the next time it was pressed.
+        if matches!(action, Action::LastCandidate) {
+            self.expand_cached_candidates()?;
+        }
         let len = self.cached.candidates.len();
         let next_highlight = match &action {
             // Staying keeps the highlight exactly where it was: the page did not change, it only
@@ -1053,14 +1059,14 @@ impl<E: InputEngine> Runtime<E> {
             }
             Action::NextCandidate if len > 0 => Some((self.highlighted + 1).min(len - 1)),
             Action::PreviousCandidate if len > 0 => Some(self.highlighted.saturating_sub(1)),
-            Action::FirstCandidateOnPage if len > 0 => {
-                Some((self.highlighted / self.page_size) * self.page_size)
-            }
-            Action::LastCandidateOnPage if len > 0 => Some(
-                ((self.highlighted / self.page_size) * self.page_size + self.page_size)
-                    .min(len)
-                    .saturating_sub(1),
-            ),
+            // The ends of the list, not the ends of the page. The reference's Home and End are
+            // FUNCTION_MOVE_PAGE_TOP and FUNCTION_MOVE_PAGE_BOTTOM, and its presenter answers both
+            // with SetSelection - index 0, or -1 read as Count() - 1 - which then pulls the page
+            // along to wherever that candidate sits. Every host here routes its own Home and End to
+            // this action, so all four used to stop at the edges of the page the user was already
+            // looking at, which is a keystroke that does almost nothing.
+            Action::FirstCandidate if len > 0 => Some(0),
+            Action::LastCandidate if len > 0 => Some(len - 1),
             _ => None,
         };
         if let Some(index) = next_highlight {

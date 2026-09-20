@@ -381,8 +381,8 @@ HRESULT CMetasequoiaIME::_HandleCandidateArrowKey( //
         {
         case FUNCTION_MOVE_PAGE_UP: command = MSIME_PREVIOUS_PAGE; break;
         case FUNCTION_MOVE_PAGE_DOWN: command = MSIME_NEXT_PAGE; break;
-        case FUNCTION_MOVE_PAGE_TOP: command = MSIME_FIRST_CANDIDATE_ON_PAGE; break;
-        case FUNCTION_MOVE_PAGE_BOTTOM: command = MSIME_LAST_CANDIDATE_ON_PAGE; break;
+        case FUNCTION_MOVE_PAGE_TOP: command = MSIME_FIRST_CANDIDATE; break;
+        case FUNCTION_MOVE_PAGE_BOTTOM: command = MSIME_LAST_CANDIDATE; break;
         case FUNCTION_MOVE_UP: command = MSIME_PREVIOUS_CANDIDATE; break;
         case FUNCTION_MOVE_DOWN: command = MSIME_NEXT_CANDIDATE; break;
         default: break;

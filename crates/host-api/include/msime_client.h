@@ -346,7 +346,7 @@ enum MsimeCommand {
     MSIME_BACKSPACE_SEGMENT = 12, MSIME_MOVE_LEFT_SEGMENT = 13, MSIME_MOVE_RIGHT_SEGMENT = 14,
     MSIME_NEXT_PAGE = 100, MSIME_PREVIOUS_PAGE = 101,
     MSIME_NEXT_CANDIDATE = 102, MSIME_PREVIOUS_CANDIDATE = 103,
-    MSIME_FIRST_CANDIDATE_ON_PAGE = 104, MSIME_LAST_CANDIDATE_ON_PAGE = 105
+    MSIME_FIRST_CANDIDATE = 104, MSIME_LAST_CANDIDATE = 105
 };
 char *msime_client_command(uint64_t session, uint32_t command);
 /* Re-rank the visible candidates with the settled model, once the host's typing pause elapses.
