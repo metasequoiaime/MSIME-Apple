@@ -171,6 +171,12 @@ python3 scripts/test-settings-action-guard.py || fail "settings action guard"
 note "host dialogs"
 python3 scripts/test-no-host-dialogs.py || fail "host dialogs"
 
+# A quick phrase ends up in the candidate pipe's text field, whose size the Engine declares. The
+# limit on it was six bare literals across three crates, none attached to that header, so moving
+# the engine lock would have changed the field and nothing else.
+note "quick phrase limit"
+python3 scripts/test-quick-phrase-limit.py || fail "quick phrase limit"
+
 # The palette is most of what makes one window look like another, and this one
 # is built with Tailwind rather than by importing the source's sheet, so the two
 # copies of the same 64 names can drift a hex at a time without anyone noticing.

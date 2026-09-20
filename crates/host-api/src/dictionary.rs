@@ -812,7 +812,10 @@ fn validate_entry(entry: &Entry) -> Result<(), String> {
     {
         return Err("invalid dictionary entry".into());
     }
-    if matches!(entry.kind, Kind::QuickPhrase) && entry.value.encode_utf16().count() > 199 {
+    if matches!(entry.kind, Kind::QuickPhrase)
+        && entry.value.encode_utf16().count()
+            > msime_client_core::dictionary::import::MAX_QUICK_PHRASE_UTF16
+    {
         return Err("quick phrase too long".into());
     }
     Ok(())
