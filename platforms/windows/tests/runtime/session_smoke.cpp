@@ -1060,6 +1060,19 @@ int main(int argc, char **argv) {
         require(!basic.basic_key(session, digit, epoch, TsfPreeditStyle::Pinyin) &&
                     session.view() == unchanged && !basic.has_pending(),
                 "Basic dispatcher consumed priority punctuation");
+        // The two checks above ran against an ended composition: Ctrl+Enter
+        // committed the translation, so there was nothing left to disturb, and
+        // "the view did not change" is what they are really asserting.
+        //
+        // Selecting a candidate needs one, so start a fresh composition here.
+        // Without this the digit below has nothing to select, the Engine
+        // commits nothing, and the reply is NavigationIgnored - which is
+        // correct behaviour for an empty composition and was read as the
+        // layout's punctuation having replaced the selection.
+        for (char c : std::string("nihao")) key(c - 'a' + 'A', c);
+        require(!session.view().at("candidates").empty(),
+                "Retyped input produced no candidate to select");
+        digit.request_id = request++;
         digit.keycode = '1';
         digit.wch = '&'; // An unshifted digit VK on a non-US layout.
         const auto layout_selected =
