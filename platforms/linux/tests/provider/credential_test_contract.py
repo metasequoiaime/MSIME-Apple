@@ -11,12 +11,12 @@ import unittest
 from unittest import mock
 
 
-ROOT = Path(__file__).resolve().parents[1]
+ROOT = Path(__file__).resolve().parents[2]
 sys.path.insert(0, str(ROOT / "scripts"))
 
 
 def load(name, filename):
-    loader = importlib.machinery.SourceFileLoader(name, str(ROOT / filename))
+    loader = importlib.machinery.SourceFileLoader(name, str(ROOT / "scripts" / filename))
     spec = importlib.util.spec_from_loader(loader.name, loader)
     module = importlib.util.module_from_spec(spec)
     loader.exec_module(module)

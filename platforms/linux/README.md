@@ -243,9 +243,13 @@ Linux 安装还会在 `${CMAKE_INSTALL_DATADIR}/msime-client/handwriting` 放置
 
 `bash build-container.sh` 在容器里编译整个 Linux 原生宿主（IBus engine、Fcitx5 插件、全部 provider 入口和单测）并运行 `ctest`，不需要词库、不启动任何 daemon，也不需要本机是 Linux；它由 `scripts/verify-local.sh` 作为编译门禁自动调用，Linux 主机上则直接用系统 ibus 开发包跑同一套配置。镜像定义在 `tests/tools/Dockerfile.build-gate`，与隔离验收镜像分开，以免给后者加上会改变其构建内容的 X11/XFixes/Fcitx5 开发包。
 
+隔离验收现在真的能跑起来。此前 `check-container.sh` 自己算错了仓库根（少一级），`docker build` 拿到的上下文是 `platforms/platforms/linux/tests`，镜像连构建都开始不了；镜像的两处 `COPY` 同样指着测试重组前的位置。另外 `platforms/linux/tests` 下二十来个 Python 测试都把根算成 `platforms/linux/tests` 再去拼 `scripts/…`，于是随包在线/语音/剪贴板 provider、凭据测试、豆包鉴权、翻译缓存、录音设备这一整片测试自那次重组以来一个都没跑过。这些路径已修好，脚本也会像 Windows 门禁找 vcpkg 那样去找已有的 `vendor/MSIME-Engine` 并挂进容器，因此在 worktree 里也能跑（`/source` 是只读挂载，Engine 归档没法在容器里就地取回）。
+
 `bash tests/tools/check-container.sh /absolute/verified-resources` 创建专用 Linux 容器，源码与词库只读挂载，构建缓存仅写入本仓 target/linux。基础 Rust 镜像固定摘要，apt 开发依赖来自 Debian bookworm 仓库；不声称所有系统包字节级可复现。容器内创建独立 D-Bus 和 IBus daemon，不连接宿主桌面，不修改现有输入源，结束后移除容器并保留构建缓存。
 
 `engine_smoke` 使用真实共享库与固定 Release 词库，通过 D-Bus 调用实际 IBusEngine：验证预编辑与候选信号、上屏、第二页全局索引点击、标点、修饰键/key-up、快捷键取消、失焦、密码隔离与私密文本恢复。另启动实际宿主可执行文件，由独立 Python IBus 输入上下文通过 daemon/factory 输入合成拼音并接收提交。共享核心/运行时/宿主 25 项 Rust 测试纳入本地脚本。
+
+运行中发现并修掉一个真实的宿主缺陷：嵌套偏好对象整体可以省略（共享 `Preferences` 会给默认值），但它的成员一个都不能少。宿主把单个键补进一个 runtime-options 文档里本来没有的 `mixed_input` / `local_modes` 时，写出的是残缺对象，Host API 直接判为 invalid options document——也就是说没有配置共享偏好目录的部署里，从 IBus 菜单切一下 Emoji/颜文字混输候选或任一本地输入模式，会话就再也建不起来，该输入上下文彻底不能输入。现在这些默认值由新的 `msime_client_default_preferences` 从共享层发布，宿主据此补全缺失成员，不在 C++ 里另写一份契约。
 
 已验证 Debian bookworm arm64、IBus 1.5.27。仍需真实 GTK/Qt 编辑器、X11/Wayland 焦点与选区、panel 位置、其他架构与发行版、安装打包以及 Tauri 设置自动重读。Linux IBus 预览宿主已连接配置文件监听；不是完整 Linux 产品迁移完成。CI 保持禁用。
 

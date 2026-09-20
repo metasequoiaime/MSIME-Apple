@@ -116,6 +116,21 @@ pub unsafe extern "C" fn msime_client_prepare_host(
     })
 }
 
+/// The shared preference defaults, as the document a host would have to produce.
+///
+/// A host that patches one key into a nested preference object needs the rest of
+/// that object's fields, because the nested structures require all of them - only
+/// the object as a whole is optional. Writing those defaults into a platform host
+/// would put a second copy of this contract in another language, so they are
+/// published here instead.
+#[no_mangle]
+pub extern "C" fn msime_client_default_preferences() -> *mut c_char {
+    response(|| {
+        serde_json::to_value(msime_client_core::preferences::Preferences::default())
+            .map_err(|e| e.to_string())
+    })
+}
+
 /// Load the shared store on a worker thread; no session handle is accessed.
 /// # Safety
 /// `directory` points to `length` readable UTF-8 bytes. Null is rejected.
