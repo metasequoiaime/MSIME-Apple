@@ -156,6 +156,19 @@ xcodebuild test -project platforms/ios/MSIMEClient.xcodeproj -scheme MSIMEClient
 
 真机上就是正常在 设置 → 键盘 里添加一次，之后这组用例会自己跑起来。
 
+补回 `reachSettingsLink`、让这个目标重新编译之后，第一次完整运行的结果是 **39 执行、2 跳过、6 失败**（873 秒）。两条跳过是上面那组键盘验收；六条失败全在 `OnboardingUITests`，都是此前从未执行过的用例：
+
+```
+testAccountEntryExplainsExplicitDataSharing
+testChatLoginIsFocusedAndCancelReturnsToTryout
+testMainTabsKeepIndependentNavigation
+testSettingsPersistAndExposeGuideAndTryout
+testSkinDiscoveryUsesCommunityTabAndReturnsToOrigin
+testVoiceResultIsExplicitlyTransferredAndClaimedOnce
+```
+
+这六条还没有逐条查过，所以不知道是界面改了而检查没跟上，还是真的坏了——在查清之前不要把它们当成任何一种。这一行是这个目标的基线，和上面那条键盘套件的数字一样，改动之后要跟着更新。
+
 `MSIMEClientApp` 是 iOS 的产品宿主，装机与设备验收都以它为准，也是 `build-app.sh` 的默认产物，不需要任何开关。要单独构建 Tauri/React 这个公共组件时用 `MSIME_IOS_TAURI_COMPONENT=1` 显式选择。此前该脚本默认产出 Tauri 包、把原生宿主锁在 `MSIME_IOS_LEGACY_APP=1` 后面，并由一条测试固化，这与架构相反，已纠正。
 
 **上面那条 SIGTRAP 只挡 Tauri 宿主，不挡这个。** `MSIMEClientApp` 不加载 WebView，在 iOS 27 模拟器上界面能正常起来，键盘扩展也随它一起装进去，所以要在模拟器上看界面就走这条路：
