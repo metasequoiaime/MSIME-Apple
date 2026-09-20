@@ -131,10 +131,6 @@ wine windows-server-smoke
 # windows-fullscreen-foreground fails at line 41: it compares a window rectangle
 # against its monitor, and the container has neither.
 wine windows-fullscreen-foreground
-# windows-installer-launch: "Expected installer script path". It resolves the
-# installer script relative to the repository, which is not mounted into the
-# container - a property of this runner, not of the test.
-wine windows-installer-launch
 # windows-session-smoke stops at "Active candidate translation was not
 # re-dispatched", which is an input the suite documents rather than a defect:
 # it takes an optional absolute resource directory as argv[1], and without one
