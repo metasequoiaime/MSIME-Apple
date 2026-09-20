@@ -61,8 +61,10 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
         // The settled model is optional and independent: a resource set that ships only the small
         // one behaves exactly as before, and one that ships both gets the fast model per keystroke
         // and the large one when typing stops.
-        runtime
-            .set_settled_reranker(sentence_model_settled(&options.dictionaries).map(Reranker::new));
+        runtime.set_settled_reranker(
+            sentence_model_settled(&options.dictionaries, settled_model_path.as_deref())
+                .map(Reranker::new),
+        );
 
         let view = runtime.view();
         let output = serde_json::to_value(&view).map_err(|e| e.to_string())?;
