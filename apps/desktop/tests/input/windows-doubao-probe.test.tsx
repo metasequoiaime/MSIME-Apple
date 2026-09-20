@@ -59,12 +59,20 @@ test.each(
   }
   fireEvent.click(button);
   await screen.findByText("fixture complete");
+  // Spelled out rather than spreading the provider defaults: the probe sends the endpoint and the
+  // model from them but never the documentation URL, so spreading silently asserted a field the
+  // payload has never carried, and adding one to the defaults broke this test rather than the code.
   expect(probe).toHaveBeenCalledWith("voice.asr", {
     provider: "doubao",
-    ...ASR_PROVIDER_DEFAULTS.doubao,
+    endpoint: ASR_PROVIDER_DEFAULTS.doubao.endpoint,
+    model: ASR_PROVIDER_DEFAULTS.doubao.model,
     token: "synthetic-key",
     auth_mode: authMode,
     app_id: authMode === "legacy" ? "synthetic-app-edited" : "",
     resource_id: "fixture-resource",
+    doubao_enable_itn: true,
+    doubao_enable_punc: true,
+    doubao_enable_ddc: false,
+    doubao_boosting_table_id: "",
   });
 });

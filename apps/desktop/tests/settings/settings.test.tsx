@@ -1522,9 +1522,10 @@ test("helpcode schemes save independently and retain disabled selections", async
     name: "全拼辅助码方案",
   })) as HTMLSelectElement;
   const shuangpin = screen.getByRole("combobox", { name: "双拼辅助码方案" }) as HTMLSelectElement;
-  const displays = screen.getAllByRole("checkbox", {
-    name: "在候选窗口显示辅助码",
-  }) as HTMLInputElement[];
+  const displays = [
+    screen.getByRole("checkbox", { name: "在候选窗口中显示双拼辅助码" }),
+    screen.getByRole("checkbox", { name: "在候选窗口中显示全拼辅助码" }),
+  ] as HTMLInputElement[];
   expect(quanpin.value).toBe("ziranma");
   expect(shuangpin.value).toBe("lantian");
   expect(displays.map((display) => display.checked)).toEqual([true, false]);
