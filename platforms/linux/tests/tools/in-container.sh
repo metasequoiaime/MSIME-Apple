@@ -14,6 +14,7 @@ python3 platforms/linux/tests/dictionary/tencent_credential_normalization.py
 python3 platforms/linux/tests/dictionary/custom_translation_config.py
 python3 platforms/linux/tests/voice/doubao_auth_mode.py
 python3 platforms/linux/tests/provider/credential_test_contract.py
+python3 platforms/linux/tests/provider/ai_service_contract.py
 python3 platforms/linux/tests/clipboard/clipboard_capture_destination.py
 python3 platforms/linux/tests/clipboard/clipboard_watch_lifecycle.py
 cargo build -p msime-host-api --locked

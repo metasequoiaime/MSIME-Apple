@@ -313,6 +313,8 @@ msime-client-online-provider "$XDG_RUNTIME_DIR/msime-client/online.sock"
 
 服务只接受同一用户连接，同时最多处理四个请求；云候选与 AI 并行请求，AI 失败时仍可返回云候选。HTTP 响应最多 64 KiB，拒绝 HTTP 重定向以保持凭据与端点绑定。AI 沿用 Windows 的 JSON 请求、上下文、candidate_limit 和 DeepSeek thinking 禁用设置，按配置最多保留 10 条有效且不重复的模型候选，再由 Engine 批量缓存和排序。成功的 AI 结果按 provider、endpoint、model 和拼音分段保存在有界进程内缓存中，可跨候选 generation 复用；缓存键不包含凭据、上下文、提示词、会话或原始输入，空响应和失败不会缓存。候选翻译同样按单项缓存，最多 4096 项；成功结果在当前 provider scope 下持续复用，直到配置 scope 变化或容量淘汰，失败项使用 8 分钟负缓存且在 TTL 内不会重复请求，独立候选不会互相抑制。服务不打印输入或网络错误正文，退出时仅删除自己创建的 socket。该入口同时实现候选翻译；语音由独立的随包 voice provider 提供；账户同步服务仍按各自契约接入。
 
+设置页的「获取模型列表」和「AI 润色测试」也接进了同一个 provider。这两个按钮此前在 Linux 上不可用：持有 token 的宿主是自己发 HTTP 去取的，而这个平台按设计把 token 留在 provider 的所有者专用配置文件里，外壳手上没有可用于鉴权的东西。现在 provider 增加 `ai_models` 与 `ai_test` 两种请求：设置页只给出 provider 名、接口地址、模型、提示词和待润色文字，provider 先核对这些与私有配置中的 provider/接口地址（润色再加模型）一致，再用自己的 token 发请求；不一致就什么都不发。模型名最多 128 个、每个 256 字节，去重并保序；润色结果最多 16 KiB。新增能力位 `ai_provider_credentials` 表示「凭据归宿主的 provider」，设置页据此不显示 API Token 输入框，也不再因为没有 token 而禁用这两个按钮——此前模型列表那一段是按平台名藏掉的。
+
 共享设置页可对当前腾讯翻译、NiuTrans、自定义翻译、AI 辅助、语音识别和语音润色选项执行“测试配置”。Linux Tauri 只把服务名和当前非敏感选项发送到已有 provider socket；AI、腾讯和语音 token 仍由 provider 从所有者专用配置文件读取，不返回 WebView。NiuTrans 与自定义翻译继续沿用本来就会进入候选翻译请求的设置字段。provider 使用固定的合成文本或静音 WAV 发出最小请求，并只返回有界的成功/失败文案，不转发服务端正文、URL、凭据或异常细节。测试不会保存草稿，也不采集真实输入；provider 不可用时设置页明确提示先启动服务。
 
 
