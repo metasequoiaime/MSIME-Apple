@@ -45,6 +45,14 @@ def main() -> int:
         if path.is_file() and path.suffix in SOURCE_SUFFIXES
     )
 
+    declared_values = dict(declared)
+    # Which .lproj the plist's own strings are written in. CFBundleDevelopmentRegion names it, and the
+    # bundle spells it the way the resource directories do.
+    region = re.search(r"<key>CFBundleDevelopmentRegion</key>\s*<string>([^<]*)</string>", text)
+    development_region = {"zh_CN": "zh-Hans", "zh-Hans": "zh-Hans", "en": "en", "en_US": "en"}.get(
+        (region.group(1) if region else "").strip(), ""
+    )
+
     failures = []
     for symbols, key in GATES:
         used = [symbol for symbol in symbols if symbol in sources]
@@ -71,6 +79,15 @@ def main() -> int:
                 failures.append(f"{key} is not localised in {strings.parent.name}")
             elif not value.strip():
                 failures.append(f"{key} is localised as an empty string in {strings.parent.name}")
+            elif strings.parent.name.removesuffix(".lproj") == development_region and value != declared_values[key]:
+                # The plist string is the development region's, so it and that region's .lproj are the same
+                # sentence said twice. Letting them drift leaves two wordings for one dialog and hides the
+                # weaker one where only an unlocalised system sees it - which is what had happened here.
+                failures.append(
+                    f"{key} reads differently in the plist and in {strings.parent.name}:\n"
+                    f"  plist: {declared_values[key]}\n"
+                    f"  {strings.parent.name}: {value}"
+                )
 
     if failures:
         for failure in failures:
