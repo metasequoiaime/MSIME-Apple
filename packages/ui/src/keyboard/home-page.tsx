@@ -88,13 +88,19 @@ export function HomePage({
   };
 
   return (
-    <section className="home-page" aria-label="首页">
-      <header className="home-intro">
+    <section className="flex flex-col gap-3.5 pb-6" aria-label="首页">
+      <header className="flex items-center justify-between gap-4 px-1 pt-2 pb-0.5">
         <div>
-          <h2>让输入，更像你</h2>
-          <p>从一次顺手的表达开始</p>
+          <h2 className="m-0 text-2xl font-[650] tracking-[-0.02em] text-body max-tight:text-[21px]">
+            让输入，更像你
+          </h2>
+          <p className="mt-1.5 mb-0 text-muted">从一次顺手的表达开始</p>
         </div>
-        <img src={new URL("../assets/msime.svg", import.meta.url).href} alt="" />
+        <img
+          className="size-12 opacity-80"
+          src={new URL("../assets/msime.svg", import.meta.url).href}
+          alt=""
+        />
       </header>
       <button type="button" className="home-keyboard-card" onClick={openKeyboard}>
         <div className="home-card-heading">

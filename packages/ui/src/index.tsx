@@ -3234,13 +3234,23 @@ export function SettingsPage({
         </header>
       )}
       <div className="settings-body">
+        {/* A bottom tab bar. `order-2` seats it below the content while the DOM keeps it ahead, so
+            assistive technology and keyboard focus still reach the navigation first, and the bottom
+            padding clears the gesture inset. Hidden above phone width, where the sidebar serves. */}
         {mobilePlatform && (
-          <nav className="mobile-primary-nav" aria-label="主要功能">
+          <nav
+            className="hidden max-phone:order-2 max-phone:grid max-phone:grid-cols-5 max-phone:gap-1.5 max-phone:border-t max-phone:border-edge max-phone:bg-chrome max-phone:px-2 max-phone:pt-2 max-phone:pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))]"
+            aria-label="主要功能"
+          >
             {mobilePrimaryPages.map((item) => (
               <button
                 key={item.id}
                 type="button"
-                className={page === item.id ? "active" : ""}
+                className={`min-h-[42px] min-w-0 cursor-pointer rounded-xl border bg-card text-[13px] ${
+                  page === item.id
+                    ? "border-accent font-semibold text-accent"
+                    : "border-edge text-body"
+                }`}
                 aria-current={page === item.id ? "page" : undefined}
                 onClick={() => selectPage(item.id)}
               >
@@ -3253,9 +3263,10 @@ export function SettingsPage({
                       : item.title}
               </button>
             ))}
-            <label className="mobile-secondary-select">
+            <label className="flex min-h-[42px] min-w-0 flex-col justify-center gap-px rounded-xl border border-edge bg-card px-2 py-[3px] text-[10px] text-muted">
               更多设置
               <select
+                className="min-w-0 border-0 bg-transparent text-xs text-body outline-none"
                 aria-label="更多设置"
                 value={mobileSecondaryPages.some((item) => item.id === page) ? page : ""}
                 onChange={(event) => {
