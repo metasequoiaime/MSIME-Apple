@@ -136,7 +136,9 @@ pub struct HostCapabilities {
     /// The host renders the Engine's composition text itself, so the choice
     /// between the raw shuangpin keys and the expanded pinyin is visible there.
     /// Every host's Engine honours the preference; this says which of them draw
-    /// the result where a user would see the difference.
+    /// the result where a user would see the difference. A host that hands the
+    /// snapshot's `preedit` to a desktop panel still decides which string goes
+    /// there, so the difference is its to show.
     #[serde(default)]
     pub shuangpin_preedit: bool,
     /// The host shows read-only English word completions while typing directly
@@ -326,7 +328,15 @@ impl HostCapabilities {
                 platform,
                 HostPlatform::Windows | HostPlatform::Macos | HostPlatform::Linux
             ),
-            shuangpin_preedit: matches!(platform, HostPlatform::Macos | HostPlatform::Harmony),
+            // The Linux hosts write the snapshot's `preedit` into the IBus and
+            // Fcitx5 preedit themselves, and both already carry their own
+            // toggle for this in the native status menu - a setting the shared
+            // page was hiding could only be reached from there, and only while
+            // the shuangpin scheme was active.
+            shuangpin_preedit: matches!(
+                platform,
+                HostPlatform::Macos | HostPlatform::Harmony | HostPlatform::Linux
+            ),
             english_suggestions: matches!(platform, HostPlatform::Android | HostPlatform::Harmony),
             // Android and HarmonyOS run the same ported ChineseHelpcodePolicy:
             // Shift during a quanpin or shuangpin composition hands the next
@@ -733,6 +743,9 @@ mod tests {
         assert!(!linux.candidate_selection_appearance);
         // IBus owns the candidate list's placement, so the host cannot pin it.
         assert!(!linux.candidate_follow_cursor);
+        // The host chooses the preedit string the panel draws, so the raw keys
+        // and the expanded pinyin are both reachable from the shared page.
+        assert!(linux.shuangpin_preedit);
 
         let windows = HostCapabilities::for_platform(HostPlatform::Windows);
         assert!(!windows.number_row_selection);
