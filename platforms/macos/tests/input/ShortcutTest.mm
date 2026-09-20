@@ -930,6 +930,50 @@ static void TestPairedPunctuationHostExclusion() {
     assert(!MSIMEPairedPunctuationExcludedBundleIdentifier(nil));
 }
 
+static void TestPairedPunctuationClosesThePair() {
+    // The Engine commits the opening mark alone - the Windows TIP and the Linux host each append
+    // their own closing mark, and this host used to append nothing at all, so the switch was on and
+    // the page promised a pair that never arrived. IMK cannot move the client's caret, so the
+    // closing mark rides in the marked text after it until the composition ends.
+    NSString *suite = [@"app.msime.test.paired." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert(appearance.pairedPunctuation);
+    ModeController *controller = [ModeController alloc];
+    ShortcutClient *client = [ShortcutClient new];
+    client.document = @"";
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:client forKey:@"activeClient"];
+
+    [controller apply:@{@"commit": @"（", @"view": @{@"editing_text": @"", @"caret_position": @0}}];
+    assert([client.committed isEqual:@"（"]);
+    assert([client.marked isEqual:@"）"]);
+
+    // Composing inside the pair keeps the closing mark visible and after the caret.
+    [controller apply:@{@"commit": NSNull.null, @"view": @{@"editing_text": @"ni", @"caret_position": @2}}];
+    assert([client.marked isEqual:@"ni）"]);
+
+    // Committing takes the closing mark with it, and the pair is done.
+    [controller apply:@{@"commit": @"你好", @"view": @{@"editing_text": @"", @"caret_position": @0}}];
+    assert([client.committed isEqual:@"你好）"]);
+    [controller apply:@{@"commit": @"吗", @"view": @{@"editing_text": @"", @"caret_position": @0}}];
+    assert([client.committed isEqual:@"吗"]);
+
+    // A pair left open when the composition is torn down is closed rather than dropped.
+    [controller apply:@{@"commit": @"【", @"view": @{@"editing_text": @"", @"caret_position": @0}}];
+    assert([client.marked isEqual:@"】"]);
+    [controller flushPendingPairedClosing];
+    assert([client.committed isEqual:@"】"]);
+    [controller flushPendingPairedClosing];
+    assert([client.committed isEqual:@"】"]);
+
+    // With the preference off nothing is owed, and the commit is what the Engine said.
+    appearance.pairedPunctuation = NO;
+    [controller apply:@{@"commit": @"（", @"view": @{@"editing_text": @"", @"caret_position": @0}}];
+    assert([client.committed isEqual:@"（"] && client.marked.length == 0);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 static void TestEmojiBridgeFallback() {
     ModeController *controller = [ModeController alloc];
     [controller showEmoji:nil];
@@ -4816,6 +4860,7 @@ int main(int argc, char **argv) {
         TestPunctuation(defaults, appearance);
         TestPairedPunctuationPreferences();
         TestPairedPunctuationHostExclusion();
+        TestPairedPunctuationClosesThePair();
         TestEmojiBridgeFallback();
         TestMixedInputPreferences();
         TestCharacterSetShortcut();

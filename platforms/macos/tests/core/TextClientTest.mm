@@ -417,6 +417,28 @@ int main() {
         TestEngineMaintenance();
         TestCustomTranslationHTTPBridge();
         TestTencentTranslationHTTPBridge();
+        // A pair the host owes the document: the closing mark is the tail of the marked text, so it
+        // stays after the caret while the composition runs, and a commit takes it with it. IMK has
+        // no caret setter, which is why the closing cannot simply be typed after the opening.
+        MSIMEApplyTransitionWithPendingClosing(
+            @{@"commit": NSNull.null, @"view": @{@"editing_text": @"ni", @"caret_position": @2}},
+            client, MSIMEInlinePreeditStylePinyin, @"）");
+        assert([client.marked isEqual:@"ni）"] && client.selection.location == 2);
+        MSIMEApplyTransitionWithPendingClosing(
+            @{@"commit": @"你好", @"view": @{@"editing_text": @"", @"caret_position": @0}}, client,
+            MSIMEInlinePreeditStylePinyin, @"）");
+        assert([client.committed isEqual:@"你好）"]);
+        assert(client.marked.length == 0);
+        // Nothing pending is the ordinary case, and behaves as before.
+        MSIMEApplyTransitionWithPendingClosing(
+            @{@"commit": @"你好", @"view": @{@"editing_text": @"shi", @"caret_position": @1}}, client,
+            MSIMEInlinePreeditStylePinyin, nil);
+        assert([client.committed isEqual:@"你好"] && [client.marked isEqual:@"shi"]);
+        // An empty inline preedit still carries the mark, or the user would watch it disappear.
+        MSIMEApplyTransitionWithPendingClosing(
+            @{@"commit": NSNull.null, @"view": @{@"editing_text": @"ni", @"caret_position": @2}},
+            client, MSIMEInlinePreeditStyleEmpty, @"】");
+        assert([client.marked isEqual:@"】"] && client.selection.location == 0);
         MSIMEApplyTransition(@{@"commit": @"你好", @"view": @{@"editing_text": @"shi", @"caret_position": @1}}, client);
         assert([client.committed isEqual:@"你好"]);
         assert([client.marked isEqual:@"shi"] && client.selection.location == 1);
