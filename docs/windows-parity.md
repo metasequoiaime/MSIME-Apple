@@ -734,6 +734,19 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 ## 下一批实施顺序
 
+增量记录（2026-09-20，`input_key_policy.h` 逐条走完）：不再抽查点位，把来源 `server/src/ipc/input_key_policy.h` 里那八条 `constexpr` 当作契约整体核对。结果：
+
+- `IsEnglishModeToggleKey`（Ctrl+Shift+E）、`WordToCharacterDirection`（无修饰键的 `-`/`=` 或 `[`/`]`）—— 上一片已确认相符。
+- `NormalizeNumpadDigitKey` —— Harmony 的 `HardwareKeyRouter.normalizeNumpad` 同样把小键盘 0–9 归一成主键盘数字，并在 `route` 入口只做一次（来源在 Server 边界做一次），且多填了缺失的字符。
+- `ShouldLearnEnteredEnglishWord` —— `engine-bridge` 的 `commit_raw_with_policy` 里是 `before.dedicated_english || local_special_mode || (chinese_scheme && !complete_pure_pinyin)`，与来源逐项相同。
+- `IsBackendIndependentCompositionResetKey`（Shift/Esc）与 `ShouldResetCompositionForImeMode` —— 这两条是 Windows 分体架构下 Server 与 TSF 的**同步**约定（TSF 已在本地取消组字，Server 必须跟着重置后端），HarmonyOS 的键盘扩展自己拥有组字，没有对应物。其用户可见效果「离开中文模式会清掉正在拼的字」在本仓由引擎的 `set_dedicated_english_mode` → `reset_composition()` 覆盖，已在上一片钉住。来源的 Shift 切换同样受 `ReadConfiguredSwitchLanguageHotkeys().shift` 门控，与本仓一致。
+- `ShouldSendCompositionReply`、`InputSessionMatchesConfig` —— 都是 Windows IPC 回包协议的内部规则，非分体架构没有对应物。
+
+来源自己有一份该策略的测试 `server/tests/src/test_input_key_policy.cpp`。把其中以词定字那组用例移植到本仓的路由测试上，补齐了此前没覆盖的三类：偏好错配（设为 minus_equal 时按方括号必须无效，反之亦然）、功能关闭、以及任一修饰键按下时都不生效（来源写作 `(modifiers & kKeyModifierMask) != 0`，本仓等价于 Ctrl/Alt/Meta 在更上面被 RELEASE、Shift 在分支内排除）。已把错配那一条的守卫放松验证过测试确实会红。
+
+移植时自己先错了一次：夹具把 minus/equals 的 keycode 写成 2041/2042，实际是 2057/2058，于是「minus/equal 在其为配置项时生效」那条失败——是夹具写错不是代码问题。
+
+||||||| 74e902098
 增量记录（2026-09-20，硬件键盘的按键归属）：沿上一片往下核了四处，**全部相符**，结论记在此处以免再查：
 
 - 以词定字的修饰键。来源 `WordToCharacterDirection`（`server/src/ipc/input_key_policy.h`）要求不带任何修饰键，`(modifiers & kKeyModifierMask) != 0` 直接返回 0。Harmony 的对应分支只显式写了 `!key.shiftKey`，看着像漏了 Ctrl/Alt，实际 `HardwareKeyRouter` 在更上面就有 `if (key.ctrlKey || key.altKey || key.logoKey) return RELEASE`，带修饰键的组合根本到不了那里，等价。

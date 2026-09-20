@@ -1907,6 +1907,82 @@ group("maps Windows word-to-character bindings to highlighted candidate edges", 
   );
 });
 
+group("word-to-character answers only the configured unmodified pair", () => {
+  // The cases the source pins for `WordToCharacterDirection`
+  // (server/tests/src/test_input_key_policy.cpp), read against this router: the wrong pair for the
+  // configured preference does nothing, any modifier at all disables it, and so does turning the
+  // feature off.
+  const KEY_LEFT_BRACKET: number = 2059;
+  const KEY_RIGHT_BRACKET: number = 2060;
+  const KEY_MINUS: number = 2057;
+  const KEY_EQUALS: number = 2058;
+  const press = (keyCode: number, held: Partial<HardwareKey> = {}): HardwareKey => ({
+    keyCode,
+    unicodeChar: 0,
+    ctrlKey: false,
+    altKey: false,
+    logoKey: false,
+    shiftKey: false,
+    ...held,
+  });
+  const edge = (keyCode: number, preference: string, held: Partial<HardwareKey> = {}) =>
+    HardwareKeyRouter.route(
+      press(keyCode, held),
+      true,
+      true,
+      false,
+      undefined,
+      false,
+      false,
+      preference,
+      true,
+    ).action;
+
+  check(
+    edge(KEY_LEFT_BRACKET, "brackets") === HardwareKeyAction.WORD_CHARACTER_FIRST &&
+      edge(KEY_RIGHT_BRACKET, "brackets") === HardwareKeyAction.WORD_CHARACTER_LAST,
+    "the bracket pair answers when it is the configured one",
+  );
+  check(
+    edge(KEY_MINUS, "minus_equal") === HardwareKeyAction.WORD_CHARACTER_FIRST &&
+      edge(KEY_EQUALS, "minus_equal") === HardwareKeyAction.WORD_CHARACTER_LAST,
+    "the minus/equal pair answers when it is the configured one",
+  );
+  // The source returns 0 for the pair that is not configured, in both directions.
+  check(
+    edge(KEY_LEFT_BRACKET, "minus_equal") !== HardwareKeyAction.WORD_CHARACTER_FIRST &&
+      edge(KEY_RIGHT_BRACKET, "minus_equal") !== HardwareKeyAction.WORD_CHARACTER_LAST,
+    "brackets do nothing while minus/equal is the configured pair",
+  );
+  check(
+    edge(KEY_MINUS, "brackets") !== HardwareKeyAction.WORD_CHARACTER_FIRST &&
+      edge(KEY_EQUALS, "brackets") !== HardwareKeyAction.WORD_CHARACTER_LAST,
+    "minus/equal does nothing while brackets is the configured pair",
+  );
+  check(
+    edge(KEY_LEFT_BRACKET, "disabled") !== HardwareKeyAction.WORD_CHARACTER_FIRST &&
+      edge(KEY_MINUS, "disabled") !== HardwareKeyAction.WORD_CHARACTER_FIRST,
+    "neither pair answers while the feature is off",
+  );
+  // `(modifiers & kKeyModifierMask) != 0` disables it in the source; here Ctrl, Alt and Meta are
+  // released above the branch and Shift is excluded inside it, which comes to the same thing.
+  for (const held of [
+    { ctrlKey: true },
+    { altKey: true },
+    { logoKey: true },
+    { shiftKey: true },
+    { ctrlKey: true, shiftKey: true },
+    { altKey: true, shiftKey: true },
+    { ctrlKey: true, altKey: true },
+  ]) {
+    check(
+      edge(KEY_LEFT_BRACKET, "brackets", held) !== HardwareKeyAction.WORD_CHARACTER_FIRST &&
+        edge(KEY_MINUS, "minus_equal", held) !== HardwareKeyAction.WORD_CHARACTER_FIRST,
+      `a held ${Object.keys(held).join("+")} stops the pair from selecting a character`,
+    );
+  }
+});
+
 group("extracts Han characters for word-to-character fallback", () => {
   check(
     CandidateTextPolicy.extractHanCharacter("abc中b文", CandidateTextEdge.FIRST) === "中",
