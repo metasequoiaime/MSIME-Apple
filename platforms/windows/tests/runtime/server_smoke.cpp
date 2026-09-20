@@ -29,11 +29,20 @@ LPARAM first_candidate_point(HWND window, size_t count) {
   RECT client{};
   require(GetClientRect(window, &client));
   const double scale = GetDpiForWindow(window) / 96.0;
+  // The card sits inside transparent shadow margins, and the window hit-tests
+  // against the card rather than against itself: rows are laid out in the
+  // card's width, and a point in card space has to be moved back out by the
+  // same insets to become the client point a mouse message carries. Measuring
+  // against the window's own width and sending the result unshifted lands above
+  // and left of the row - which is what this helper used to do, and why nothing
+  // it produced ever registered as a click.
+  const CandidateShadowInsets insets;
+  const double card_width = client.right / scale - insets.left - insets.right;
   const auto row = candidate_row_bounds(
-      0, count, client.right / scale,
-      candidate_card_metrics(16.0, 16.0, true), false);
-  return MAKELPARAM(static_cast<int>((row.left + row.right) / 2.0 * scale),
-                    static_cast<int>((row.top + row.bottom) / 2.0 * scale));
+      0, count, card_width, candidate_card_metrics(16.0, 16.0, true), false);
+  return MAKELPARAM(
+      static_cast<int>((insets.left + (row.left + row.right) / 2.0) * scale),
+      static_cast<int>((insets.top + (row.top + row.bottom) / 2.0) * scale));
 }
 template <class T> std::vector<uint8_t> fixture_bytes(const T &value) {
   std::vector<uint8_t> bytes(sizeof(T));

@@ -870,9 +870,13 @@ LRESULT CALLBACK CandidateWindow::procedure(HWND window, UINT message,
         return 0;
       }
       case WM_LBUTTONUP: {
-        if (GetCapture() == window) ReleaseCapture();
+        // Take the press before releasing capture. ReleaseCapture delivers
+        // WM_CAPTURECHANGED to this window, and that is the cancellation path -
+        // it clears pressed_. Releasing first therefore destroys the very press
+        // this handler is about to read, and the click never reaches click_.
         const auto pressed = self->pressed_;
         self->pressed_.reset();
+        if (GetCapture() == window) ReleaseCapture();
         const auto hit = self->hit(static_cast<short>(LOWORD(lparam)),
                                    static_cast<short>(HIWORD(lparam)));
         if (pressed && hit && pressed->session == hit->session &&
