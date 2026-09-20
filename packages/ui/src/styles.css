@@ -4785,13 +4785,22 @@ button.statistics-heatmap-cell {
   .settings-body {
     flex-direction: column;
   }
+  /* A phone's primary navigation belongs under the thumb, not above the content: this is a bottom tab
+     bar on iOS and Android alike. `order` moves it without disturbing the DOM order, which keeps it
+     first for screen readers and keyboard focus. */
   .mobile-primary-nav {
+    order: 2;
     display: grid;
     grid-template-columns: repeat(5, minmax(0, 1fr));
     gap: 6px;
-    padding: 8px;
+    padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px));
     background: var(--chrome-bg);
-    border-bottom: 1px solid var(--border-color);
+    border-top: 1px solid var(--border-color);
+  }
+  /* Column flex items refuse to shrink past their content without this, which would push the tab bar
+     off-screen on a long page instead of scrolling the page. */
+  #settings-content {
+    min-height: 0;
   }
   .mobile-primary-nav button,
   .mobile-secondary-select {

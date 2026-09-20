@@ -42,12 +42,14 @@ export function HomePage({
   onOpenPage,
   onSelectScheme,
   onOpenChat,
+  touchLayout = false,
 }: {
   preferences: Preferences;
   actions?: HomePageActions;
   onOpenPage: (page: string) => void;
   onOpenChat?: () => void;
   onSelectScheme?: (scheme: TouchKeyboardScheme) => void;
+  touchLayout?: boolean;
 }) {
   const theme = useCandidatePreviewTheme(preferences.theme, preferences.screen_keyboard_theme);
   const skin = preferences.touch_keyboard_skin ?? "forest";
@@ -92,7 +94,7 @@ export function HomePage({
           <h2>让输入，更像你</h2>
           <p>从一次顺手的表达开始</p>
         </div>
-        <img src={new URL("./assets/msime.svg", import.meta.url).href} alt="" />
+        <img src={new URL("../assets/msime.svg", import.meta.url).href} alt="" />
       </header>
       <button type="button" className="home-keyboard-card" onClick={openKeyboard}>
         <div className="home-card-heading">
@@ -108,6 +110,7 @@ export function HomePage({
           theme={theme}
           skin={skin as TouchKeyboardSkin}
           customDesign={customDesign}
+          layout={touchLayout ? "touch" : "desktop"}
         />
         <span className="home-card-action">
           ⌨ 试用键盘 <span aria-hidden="true">→</span>

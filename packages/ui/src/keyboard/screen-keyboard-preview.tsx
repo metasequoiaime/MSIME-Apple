@@ -271,7 +271,17 @@ const rows = [
     key("Ctrl", 1.25),
   ],
 ];
-const actionLabels = new Set(["Backspace", "Enter", "Shift", "Del"]);
+// The touch hosts put three letter rows above a control strip, so the desktop artwork above is the
+// wrong picture of them: it promises a number row, Tab, Caps Lock and Win keys that a phone keyboard
+// simply does not have. Mirrors KeyboardLayout.LETTER_ROWS plus the leading controls that
+// MSIMEInputService builds beneath them.
+const touchRows = [
+  letters("qwertyuiop"),
+  [key("", 0.5), ...letters("asdfghjkl"), key("", 0.5)],
+  [key("⇧", 1.5), ...letters("zxcvbnm"), key("⌫", 1.5)],
+  [key("符号", 1.5), key("中/英", 1.5), key("空格", 4.5), key("，"), key("↵", 1.5)],
+];
+const actionLabels = new Set(["Backspace", "Enter", "Shift", "Del", "⇧", "⌫", "↵"]);
 
 function optionFor(id: Exclude<TouchKeyboardSkin, "custom">): TouchKeyboardSkinOption {
   return touchKeyboardSkinOptions.find((option) => option.id === id) ?? touchKeyboardSkinOptions[0];
@@ -346,6 +356,7 @@ export function ScreenKeyboardPreview({
   keySpacingTenths = 60,
   rowSpacingTenths = 70,
   heightAdjustment = 0,
+  layout = "desktop",
 }: {
   theme: "dark" | "light";
   skin?: TouchKeyboardSkin;
@@ -354,7 +365,10 @@ export function ScreenKeyboardPreview({
   keySpacingTenths?: number;
   rowSpacingTenths?: number;
   heightAdjustment?: number;
+  layout?: "desktop" | "touch";
 }) {
+  const touch = layout === "touch";
+  const layoutRows = touch ? touchRows : rows;
   const custom = skin === "custom" && customDesign ? customDesign : undefined;
   const option = optionFor(skin === "custom" ? "forest" : skin);
   const palette = custom
@@ -390,7 +404,7 @@ export function ScreenKeyboardPreview({
   // non-default geometry visibly track the iOS keyboard settings sliders.
   const keyGap = 4 + keySpacing - 6;
   const rowGap = 4 + rowSpacing - 7;
-  const height = (canvasHeight - 28 - 7 - rowGap * 4) / 5;
+  const height = (canvasHeight - 28 - 7 - rowGap * (layoutRows.length - 1)) / layoutRows.length;
   return (
     <svg
       className={`screen-keyboard-artwork${compact ? " compact" : ""}`}
@@ -485,10 +499,19 @@ export function ScreenKeyboardPreview({
         <rect width="1100" height={canvasHeight} rx="8" fill={`url(#${patternId})`} />
       )}
       <text x="10" y="14" dominantBaseline="middle" fontSize="12" fill={palette.accent}>
-        Touch keyboard
+        {touch ? "水杉 IME" : "Touch keyboard"}
       </text>
-      <path d="M1075 9l10 10m0-10l-10 10" fill="none" stroke={palette.foreground} strokeWidth="2" />
-      {rows.map((row, rowIndex) => {
+      {/* The close glyph belongs to the desktop panel, which floats in a window the user can dismiss.
+          A phone's keyboard is dismissed by the system, so drawing an X there promises nothing. */}
+      {!touch && (
+        <path
+          d="M1075 9l10 10m0-10l-10 10"
+          fill="none"
+          stroke={palette.foreground}
+          strokeWidth="2"
+        />
+      )}
+      {layoutRows.map((row, rowIndex) => {
         const available = 1100 - 14 - keyGap * (row.length - 1);
         const total = row.reduce((sum, item) => sum + item.weight, 0);
         let x = 7;
@@ -499,6 +522,9 @@ export function ScreenKeyboardPreview({
               const width = (available * item.weight) / total;
               const left = x;
               x += width + keyGap;
+              // An unlabelled entry is the half-key inset that centres the home row, not a key the
+              // user can press: it takes up its width and draws nothing.
+              if (!item.label) return null;
               const action = actionLabels.has(item.label);
               const path = keyPath(
                 left,
