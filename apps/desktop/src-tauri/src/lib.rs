@@ -39,7 +39,7 @@ use platform::desktop::desktop_preferences_monitor;
 #[cfg(target_os = "ios")]
 use platform::ios::ios_account;
 #[cfg(target_os = "linux")]
-use platform::linux::{linux_audio_devices, linux_process};
+use platform::linux::{linux_account, linux_audio_devices, linux_process};
 #[cfg(target_os = "macos")]
 use platform::macos::{
     macos_account, macos_cloud_clipboard, macos_cloud_dictionary, macos_handwriting,
@@ -2985,6 +2985,12 @@ pub fn run() {
             let mut clipboard =
                 ClipboardHistoryStore::open(directory.join("clipboard_history.json"));
             let _ = clipboard.load();
+            // After `directory`, not beside the other hosts' account setup
+            // above: the Linux session store lives in the shared state
+            // directory, so it cannot be built before that directory is
+            // resolved.
+            #[cfg(target_os = "linux")]
+            linux_account::setup(app.handle(), &directory)?;
             let preferences = Arc::new(PreferencesStore::new(&directory));
             let keyboard_skin_trials =
                 KeyboardSkinTrialStore::new(&directory, Arc::clone(&preferences));
@@ -3324,6 +3330,8 @@ pub fn run() {
             android_account::account_status,
             #[cfg(target_os = "windows")]
             windows_account::account_status,
+            #[cfg(target_os = "linux")]
+            linux_account::account_status,
             #[cfg(target_os = "macos")]
             macos_account::account_status,
             #[cfg(target_os = "android")]
@@ -3342,24 +3350,32 @@ pub fn run() {
             android_account::account_providers,
             #[cfg(target_os = "windows")]
             windows_account::account_providers,
+            #[cfg(target_os = "linux")]
+            linux_account::account_providers,
             #[cfg(target_os = "macos")]
             macos_account::account_providers,
             #[cfg(target_os = "android")]
             android_account::account_request_code,
             #[cfg(target_os = "windows")]
             windows_account::account_request_code,
+            #[cfg(target_os = "linux")]
+            linux_account::account_request_code,
             #[cfg(target_os = "macos")]
             macos_account::account_request_code,
             #[cfg(target_os = "android")]
             android_account::account_login,
             #[cfg(target_os = "windows")]
             windows_account::account_login,
+            #[cfg(target_os = "linux")]
+            linux_account::account_login,
             #[cfg(target_os = "macos")]
             macos_account::account_login,
             #[cfg(target_os = "android")]
             android_account::account_profile,
             #[cfg(target_os = "windows")]
             windows_account::account_profile,
+            #[cfg(target_os = "linux")]
+            linux_account::account_profile,
             #[cfg(target_os = "macos")]
             macos_account::account_profile,
             #[cfg(target_os = "android")]
@@ -3370,24 +3386,32 @@ pub fn run() {
             android_account::account_rename,
             #[cfg(target_os = "windows")]
             windows_account::account_rename,
+            #[cfg(target_os = "linux")]
+            linux_account::account_rename,
             #[cfg(target_os = "macos")]
             macos_account::account_rename,
             #[cfg(target_os = "android")]
             android_account::account_logout,
             #[cfg(target_os = "windows")]
             windows_account::account_logout,
+            #[cfg(target_os = "linux")]
+            linux_account::account_logout,
             #[cfg(target_os = "macos")]
             macos_account::account_logout,
             #[cfg(target_os = "android")]
             android_account::account_delete,
             #[cfg(target_os = "windows")]
             windows_account::account_delete,
+            #[cfg(target_os = "linux")]
+            linux_account::account_delete,
             #[cfg(target_os = "macos")]
             macos_account::account_delete,
             #[cfg(target_os = "android")]
             android_account::account_forget,
             #[cfg(target_os = "windows")]
             windows_account::account_forget,
+            #[cfg(target_os = "linux")]
+            linux_account::account_forget,
             #[cfg(target_os = "macos")]
             macos_account::account_forget,
             #[cfg(target_os = "android")]

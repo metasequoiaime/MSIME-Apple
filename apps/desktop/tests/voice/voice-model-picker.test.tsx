@@ -17,7 +17,12 @@ const snapshot: Snapshot = {
     candidate_page_size: 5,
     learning: true,
     chinese_punctuation: true,
-    voice_input: { enabled: true, asr_provider: "local", asr_model_path: "/old/model.bin" },
+    voice_input: {
+      enabled: true,
+      language: "zh-CN",
+      asr_provider: "local",
+      asr_model_path: "/old/model.bin",
+    },
   },
 };
 
