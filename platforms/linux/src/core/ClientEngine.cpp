@@ -1421,14 +1421,12 @@ std::string preedit_style(const Json &preferences) {
   const auto style = preferences.value("tsf_preedit_style", "raw");
   return style == "pinyin" || style == "empty" ? style : "raw";
 }
+// The mapping itself is shared with the Fcitx5 host; this keeps the pointer
+// shape its existing callers use. A string_view over a literal is NUL
+// terminated, so data() is a valid C string here.
 const char *smart_punctuation_pair(char value) {
-  switch (value) {
-  case ',': return "，"; case '.': return "。"; case ';': return "；";
-  case ':': return "："; case '!': return "！"; case '?': return "？";
-  case '(': return "（"; case ')': return "）"; case '[': return "【";
-  case ']': return "】"; case '{': return "｛"; case '}': return "｝";
-  case '<': return "〈"; case '>': return "〉"; default: return nullptr;
-  }
+  const auto mark = msime::linux_host::chinese_punctuation_mark(value);
+  return mark.empty() ? nullptr : mark.data();
 }
 const char *paired_punctuation_closing(std::string_view text) {
   for (const auto &[opening, closing] : {
@@ -1494,7 +1492,8 @@ std::optional<std::string> paired_closing_from_text(std::string_view text) {
   return std::nullopt;
 }
 bool is_smart_punctuation_key(guint key) {
-  return key == IBUS_comma || key == IBUS_period || key == IBUS_colon;
+  return key <= 0x7f &&
+         msime::linux_host::is_smart_punctuation_key(static_cast<char>(key));
 }
 bool is_ascii_alphanumeric(unsigned char value) {
   return (value >= '0' && value <= '9') ||

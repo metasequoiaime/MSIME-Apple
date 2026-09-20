@@ -4,6 +4,9 @@
 #include <string>
 #include <vector>
 
+using msime::linux_host::ascii_mark_text;
+using msime::linux_host::chinese_punctuation_mark;
+using msime::linux_host::is_smart_punctuation_key;
 using msime::linux_host::space_conversion_matches_document;
 
 int main() {
@@ -34,5 +37,35 @@ int main() {
   assert(!space_conversion_matches_document("，", "", {}));
   // A key with no Chinese mark never arms, and never matches if it somehow did.
   assert(!space_conversion_matches_document("", "好", after_letter));
+
+  // The three keys smart punctuation routes, and only those.
+  assert(is_smart_punctuation_key(',') && is_smart_punctuation_key('.') &&
+         is_smart_punctuation_key(':'));
+  assert(!is_smart_punctuation_key(';') && !is_smart_punctuation_key('!') &&
+         !is_smart_punctuation_key('a') && !is_smart_punctuation_key(' '));
+
+  // One mark table, read by both rewrites and both hosts.
+  assert(chinese_punctuation_mark(',') == "，");
+  assert(chinese_punctuation_mark('.') == "。");
+  assert(chinese_punctuation_mark(':') == "：");
+  assert(chinese_punctuation_mark('<') == "〈");
+  assert(chinese_punctuation_mark('a').empty());
+  assert(chinese_punctuation_mark(' ').empty());
+
+  // Half width leaves the key alone; full width moves printable ASCII one block
+  // up, which is what the host would have committed in the first place.
+  assert(ascii_mark_text(',', false) == ",");
+  assert(ascii_mark_text('.', false) == ".");
+  assert(ascii_mark_text('.', true) == "\uff0e");
+  assert(ascii_mark_text(':', true) == "\uff1a");
+  // Worth stating rather than discovering: the fullwidth comma and the Chinese
+  // comma are the same codepoint, so under fullwidth output taking that mark
+  // back to ASCII changes nothing on screen. Only the full stop actually differs
+  // (U+FF0E against U+3002). This follows the source and the other hosts; it is
+  // not a shortcut taken here.
+  assert(ascii_mark_text(',', true) == chinese_punctuation_mark(','));
+  assert(ascii_mark_text('.', true) != chinese_punctuation_mark('.'));
+  // Nothing outside printable ASCII has a fullwidth form to offer.
+  assert(ascii_mark_text('\n', true) == std::string(1, '\n'));
   return 0;
 }

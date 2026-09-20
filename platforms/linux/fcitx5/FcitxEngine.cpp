@@ -22,6 +22,7 @@
 #include "../src/candidates/CandidatePalette.h"
 #include "../src/candidates/ShuangpinProfileNames.h"
 #include "../src/candidates/CandidateTranslationPolicy.h"
+#include "../src/core/SmartPunctuationSpace.h"
 #include "../src/system/TypingStatistics.h"
 #include <nlohmann/json.hpp>
 #include <algorithm>
@@ -263,6 +264,8 @@ public:
     navigation_ = Json::object();
     options_path_.clear();
     resources_.clear();
+    space_convert_mark_ = 0;
+    space_convert_preceding_.clear();
     preferences_job_session_ = 0;
     preferences_snapshot_ = Json();
     preferences_save_job_ = {};
@@ -1080,6 +1083,14 @@ public:
     traditional_ = preferences_.value("traditional_chinese_output", false);
     chinese_punctuation_ = preferences_.value("chinese_punctuation", true);
     paired_punctuation_ = preferences_.value("paired_punctuation", true);
+    smart_punctuation_ = preferences_.value("smart_punctuation", true);
+    smart_punctuation_space_convert_ =
+        preferences_.value("smart_punctuation_space_convert", false);
+    if (!smart_punctuation_ || !smart_punctuation_space_convert_ ||
+        !chinese_punctuation_) {
+      space_convert_mark_ = 0;
+      space_convert_preceding_.clear();
+    }
     const auto punctuationLock = preferences_.value("punctuation_lock", std::string("follow"));
     punctuation_lock_ = punctuationLock == "chinese" ? 1 : punctuationLock == "english" ? 2 : 0;
     navigation_ = preferences_.value("navigation", Json::object());
@@ -1178,6 +1189,9 @@ public:
             traditional_ = preferences_.value("traditional_chinese_output", traditional_);
             chinese_punctuation_ = preferences_.value("chinese_punctuation", chinese_punctuation_);
             paired_punctuation_ = preferences_.value("paired_punctuation", paired_punctuation_);
+            smart_punctuation_ = preferences_.value("smart_punctuation", smart_punctuation_);
+            smart_punctuation_space_convert_ = preferences_.value(
+                "smart_punctuation_space_convert", smart_punctuation_space_convert_);
             const auto punctuationLock = preferences_.value("punctuation_lock", std::string("follow"));
             punctuation_lock_ = punctuationLock == "chinese" ? 1 : punctuationLock == "english" ? 2 : 0;
             navigation_ = preferences_.value("navigation", Json::object());
@@ -1838,6 +1852,35 @@ public:
     return result.value("handled", false);
   }
   bool command(uint32_t command) { return apply(msime_client_command(session_, command)); }
+  // The `count` characters in front of the caret, oldest first. std::nullopt is
+  // "this host publishes nothing usable there", which is not the same answer as
+  // an empty vector: that one means the document starts at the caret.
+  std::optional<std::vector<std::string>> precedingCharacters(size_t count) {
+    const auto &surrounding = ic_.surroundingText();
+    if (privateInput() || !ic_.capabilityFlags().test(fcitx::CapabilityFlag::SurroundingText) ||
+        !surrounding.isValid() || surrounding.cursor() != surrounding.anchor())
+      return std::nullopt;
+    const auto &text = surrounding.text();
+    const auto length = fcitx::utf8::lengthValidated(text);
+    if (length == fcitx::utf8::INVALID_LENGTH || surrounding.cursor() > length)
+      return std::nullopt;
+    const auto available = std::min<size_t>(count, surrounding.cursor());
+    std::vector<std::string> characters;
+    auto start = fcitx::utf8::nextNChar(text.begin(), surrounding.cursor() - available);
+    for (size_t index = 0; index < available; ++index) {
+      const auto next = fcitx::utf8::nextChar(start);
+      characters.emplace_back(start, next);
+      start = next;
+    }
+    return characters;
+  }
+  bool composingOrCandidates() const {
+    return !view_.value("editing_text", std::string{}).empty() ||
+           !view_.value("candidates", Json::array()).empty();
+  }
+  bool fullwidthOutput() const {
+    return view_.value("character_width", std::string{}) == "Fullwidth";
+  }
   bool punctuation(uint8_t value) {
     uint32_t preceding = 0;
     const auto &surrounding = ic_.surroundingText();
@@ -1850,7 +1893,45 @@ public:
         preceding = fcitx::utf8::getChar(
             fcitx::utf8::nextNChar(text.begin(), surrounding.cursor() - 1), text.end());
     }
-    return apply(msime_client_punctuation_with_context(session_, value, preceding));
+    // Engine is about to commit the Chinese mark for this key. Record what the
+    // caret follows now, while the document still predates the commit; a Space
+    // arriving next re-reads both characters before rewriting either.
+    const auto ascii = static_cast<char>(value);
+    const bool arm = smart_punctuation_ && smart_punctuation_space_convert_ &&
+                     chinese_punctuation_ &&
+                     msime::linux_host::is_smart_punctuation_key(ascii) &&
+                     !composingOrCandidates();
+    std::string armedPreceding;
+    if (arm) {
+      if (const auto characters = precedingCharacters(1); characters && !characters->empty())
+        armedPreceding = characters->front();
+    }
+    const bool handled = apply(msime_client_punctuation_with_context(session_, value, preceding));
+    if (arm && handled) {
+      space_convert_mark_ = ascii;
+      space_convert_preceding_ = std::move(armedPreceding);
+    }
+    return handled;
+  }
+  // A Space right after a Chinese mark the user did not want takes that mark
+  // back to ASCII, mirroring the source's space conversion and the IBus host.
+  // The Space itself is never consumed: it goes on to Engine and the editor as
+  // it otherwise would.
+  void convertSmartPunctuationSpace() {
+    const auto mark = space_convert_mark_;
+    const auto expected = std::move(space_convert_preceding_);
+    space_convert_mark_ = 0;
+    space_convert_preceding_.clear();
+    if (mark == 0 || !smart_punctuation_ || !smart_punctuation_space_convert_ ||
+        !chinese_punctuation_ || composingOrCandidates())
+      return;
+    const auto chinese = msime::linux_host::chinese_punctuation_mark(mark);
+    const auto characters = precedingCharacters(2);
+    if (!characters || !msime::linux_host::space_conversion_matches_document(
+                           chinese, expected, *characters))
+      return;
+    ic_.deleteSurroundingText(-1, 1);
+    commitText(msime::linux_host::ascii_mark_text(mark, fullwidthOutput()));
   }
   void select(uint64_t session, uint64_t generation, size_t index) {
     if (translation_candidates_active_) {
@@ -1985,6 +2066,15 @@ public:
   bool traditional_ = false;
   bool chinese_punctuation_ = true;
   bool paired_punctuation_ = true;
+  bool smart_punctuation_ = true;
+  bool smart_punctuation_space_convert_ = false;
+  // The ASCII key whose Chinese mark Engine just committed with nothing
+  // composing, and the character that stood in front of it at that moment. A
+  // bare Space arriving next takes the mark back to ASCII; any other key
+  // disarms. The fingerprint is there because the same mark usually appears more
+  // than once and moving the caret inside a window is not a focus change.
+  char space_convert_mark_ = 0;
+  std::string space_convert_preceding_;
   uint8_t punctuation_lock_ = 0;
   std::string online_socket_, online_query_;
   uint64_t online_job_session_ = 0;
@@ -4011,6 +4101,20 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   }
   if (event.isRelease()) return false;
   if (!input_enabled_) return false;
+  // Only a Space arriving immediately after the mark, with nothing in between,
+  // can take it back; anything else means the user moved on. The conversion
+  // itself never consumes the key.
+  if (space_convert_mark_ != 0) {
+    if (sym == FcitxKey_space && states.testAny(fcitx::KeyStates{
+                                     fcitx::KeyState::Ctrl, fcitx::KeyState::Alt,
+                                     fcitx::KeyState::Shift, fcitx::KeyState::Super,
+                                     fcitx::KeyState::Hyper}) == false) {
+      convertSmartPunctuationSpace();
+    } else {
+      space_convert_mark_ = 0;
+      space_convert_preceding_.clear();
+    }
+  }
   if ((sym == FcitxKey_k || sym == FcitxKey_K) &&
       states.test(fcitx::KeyState::Ctrl) && states.test(fcitx::KeyState::Shift) &&
       states.test(fcitx::KeyState::Super) &&
