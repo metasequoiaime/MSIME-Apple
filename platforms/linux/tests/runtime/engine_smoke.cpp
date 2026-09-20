@@ -713,7 +713,12 @@ int main(int argc, char **argv) {
       require(provider.english_greeting_requests == 0,
               "Offline dictionary hit was also sent to the online provider");
       provider.hold_responses = false;
-      const auto remote_deadline = g_get_monotonic_time() + 2000000;
+      // Releasing the provider is not the last step: the reply is read on a
+      // worker thread, merged on an idle turn, and any re-query behind it waits
+      // out the 500ms translation debounce and a 150ms settle tick. Two seconds
+      // covered that only when the machine was idle. This asserts that the miss
+      // eventually merges, not how fast.
+      const auto remote_deadline = g_get_monotonic_time() + 8 * G_USEC_PER_SEC;
       auto has_remote_gloss = [&] {
         return std::any_of(seen.candidates.begin(), seen.candidates.end(),
             [](const std::string &text) { return text.find("synthetic gloss") != std::string::npos; });
@@ -1347,6 +1352,10 @@ int main(int argc, char **argv) {
                 "Mode chord fixture did not disable input");
         if (disable_binding) {
           auto disabled = options;
+          // Keep the store out of it: with a preferences directory the reload
+          // tick re-reads the file and puts the binding back, so whether this
+          // sees the injected preference depends on where the tick lands.
+          disabled.erase("preferences_directory");
           disabled["preferences"]["keybindings"]["switch_language_ctrl_alt_space"] = false;
           msime_preview_configure(disabled.dump());
           invoke("FocusIn");
@@ -1403,6 +1412,9 @@ int main(int argc, char **argv) {
       phrase();
       require(!key(modifier_key), "Reconfigured modifier press was intercepted");
       auto disabled = options;
+      // As above: the injected binding has to be the authority for this moment,
+      // not a value the next reload tick can overwrite from the file.
+      disabled.erase("preferences_directory");
       const bool ctrl = modifier_key == IBUS_Control_L || modifier_key == IBUS_Control_R;
       disabled["preferences"]["keybindings"][ctrl ? "switch_language_ctrl"
                                                    : "switch_language_shift"] = false;
@@ -2480,10 +2492,18 @@ int main(int argc, char **argv) {
       require(!key(native_key), "Idle native navigation was consumed");
       phrase();
       auto expected = seen.committed + seen.candidates.front();
+      // The key is what finishes the composition here, so the panel can only be
+      // gone after it has been pressed.
+      const bool native_forwarded = !key(native_key);
       settle_lookup();
-      require(!key(native_key) && seen.committed == expected &&
+      require(native_forwarded && seen.committed == expected &&
                   !seen.preedit_visible && !seen.lookup_visible,
-              "Disabled navigation lost input or intercepted the editor key");
+              ("Disabled navigation lost input or intercepted the editor key: forwarded=" +
+               std::to_string(native_forwarded) + " committed=[" + seen.committed +
+               "] expected=[" + expected + "] preedit=" +
+               std::to_string(seen.preedit_visible) + " lookup=" +
+               std::to_string(seen.lookup_visible))
+                  .c_str());
     }
     phrase();
     auto expected_punctuation = seen.committed + seen.candidates.front() + "。";
