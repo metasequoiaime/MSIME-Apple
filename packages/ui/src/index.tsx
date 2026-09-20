@@ -7293,6 +7293,27 @@ export function SettingsPage({
                           </button>
                         )}
                       </div>
+                    ) : harmonyPlatform ? (
+                      <div className="section panel-launch-card">
+                        <div className="section-title">HarmonyOS 键盘手写</div>
+                        <p className="panel-inline-note">
+                          请在系统输入法设置中启用水杉输入法，再从键盘的方案选择器切换到“手写”。2in1
+                          上候选窗不绘制键面，先从工具栏打开屏幕键盘，方案选择器在那里。
+                        </p>
+                        <p className="panel-inline-note">
+                          识别由系统的 Core Vision Kit
+                          在设备上完成，候选确认后才提交到当前编辑器；笔迹和识别结果不离开设备。
+                        </p>
+                        {client.openSystemKeyboardSettings && (
+                          <button
+                            type="button"
+                            className="secondary"
+                            onClick={() => void client.openSystemKeyboardSettings!()}
+                          >
+                            打开系统输入法设置
+                          </button>
+                        )}
+                      </div>
                     ) : macosPlatform ? (
                       <div className="section panel-launch-card">
                         <div className="section-title">macOS 手写识别板</div>

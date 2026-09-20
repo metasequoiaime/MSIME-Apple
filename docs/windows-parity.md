@@ -129,7 +129,7 @@
 | 语音五个快捷键、空格锁定 | `input/VoiceHotkeyPolicy.ts` | 逻辑回归 |
 | 录音提示音、录音时静音其他音频 | `input/HarmonyVoiceRecordingBehaviour.ets` + `VoiceRecordingBehaviourPolicy.ts` | 逻辑回归；音频未在设备上听 |
 | 录音设备选择 | `input/VoiceCaptureDevicePolicy.ts`、`HarmonyVoiceCaptureDevices.ets` | 逻辑回归 |
-| 手写识别 | `input/HandwritingStrokePolicy.ts` + Core Vision Kit | 逻辑回归；AsyncCallback 缺陷已修，识别本身未在设备上跑 |
+| 手写识别 | `input/HandwritingStrokePolicy.ts` + Core Vision Kit；设置页手写分页有本宿主专属说明 | 逻辑回归 + UI 回归；识别本身未在设备上跑 |
 | 屏幕键盘 | 本宿主自身即键盘；2in1 另有 `DesktopSurface.SCREEN_KEYBOARD` | 设备上面板创建成功 |
 | 悬浮工具栏、组件开关、缩放 | `FloatingToolbar.ets`、`FloatingToolbarLayout.ts` | 逻辑回归 |
 | Emoji、颜文字、符号、剪贴板历史 | `emoji/EmojiCatalogModel.ts`、`clipboard/*` | 逻辑回归 |
