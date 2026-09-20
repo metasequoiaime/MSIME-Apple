@@ -318,7 +318,7 @@ void CTextInputCtrl::OnPaint()
     _pRenderTarget->Clear(D2D1::ColorF(D2D1::ColorF::White));
     _editor.Render(_pRenderTarget);
     const HRESULT hr = _pRenderTarget->EndDraw();
-    if (hr == D2DERR_RECREATE_TARGET)
+    if (hr == static_cast<HRESULT>(D2DERR_RECREATE_TARGET))
     {
         DiscardDeviceResources();
     }

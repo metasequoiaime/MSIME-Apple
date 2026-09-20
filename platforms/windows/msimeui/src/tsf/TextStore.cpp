@@ -1,7 +1,10 @@
 #include "TextStore.h"
 #include "TextEditor.h"
 #include "TextInputCtrl.h"
-#include "InputScope.h"
+// Angle brackets and the spelling the SDK headers themselves use: this is a
+// platform header, not one of ours, and a case-sensitive filesystem will not
+// find "InputScope.h" against the inputscope.h that ships with MinGW.
+#include <inputscope.h>
 #include "tsattrs.h"
 #include "../DebugLog.h"
 

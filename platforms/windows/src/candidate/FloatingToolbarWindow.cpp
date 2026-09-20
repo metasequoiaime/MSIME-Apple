@@ -374,7 +374,9 @@ void FloatingToolbarWindow::paint() {
   // A composition swap chain only reaches the screen once it is presented.
   if (SUCCEEDED(drawn) && FAILED(device_.Present()))
     throw std::runtime_error("Toolbar presentation failed");
-  if (drawn == D2DERR_RECREATE_TARGET) {
+  // Signed HRESULT against a macro that is unsigned in some SDK and MinGW
+  // versions; see CandidateWindow.cpp for the same comparison.
+  if (drawn == static_cast<HRESULT>(D2DERR_RECREATE_TARGET)) {
     device_.DiscardTarget();
     InvalidateRect(window_, nullptr, FALSE);
     return;

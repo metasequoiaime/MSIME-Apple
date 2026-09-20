@@ -255,6 +255,19 @@ Engine 对**单字母**查询（`j`、`n` 这类只按声母的查询）只给 2
 
 超级简拼按首字母检索，`nh` 能检索到「你好」。**这里我先写错了断言**：按来源表格里「全拼如 `nh` → 你好」写成了断言首选等于「你好」，实测首选是「女孩」。来源那句是举例说明简拼检索得到它，不是承诺排第一；排第几取决于词频，钉首选是过度规定。改为断言「你好」在候选之中，并附一条前八个候选都不是单字——单字会说明它退化成了普通拼音检索而非简拼检索。
 
+增量记录（2026-09-20，Windows 第二十一批：x86 终于被构建出来）：第六批把 x86 记为受阻，理由是「`build-cross.sh x86` 的 Rust 侧要 DWARF 展开，而 macOS 上常见的 i686 MinGW 是 SJLJ」。那条守卫自己就写着「换一套兼容的工具链」——那是**这台机器**的限制，不是这个架构的。Debian 的 i686 MinGW 配置为 `--disable-sjlj-exceptions --with-dwarf2`，容器里现成。
+
+新增 `platforms/windows/cross/Dockerfile` 与 `platforms/windows/build-cross-container.sh`：把仓库挂进容器跑既有的 `build-cross.sh`，不改构建流程本身。vcpkg 与依赖树用容器专属目录，因为 macOS 上引导出的 vcpkg 里是 macOS 二进制。结果：**x86 的 host DLL、TSF DLL、Server 与全部原生测试首次全部链接成功**，32 位宿主进程要加载的那个 TSF DLL 至此不再是从未构建过的目标。
+
+路上暴露出四处只有在这条路径上才会现形的问题，逐条修掉，四处都是各平台都更正确的写法而非容器补丁：
+
+1. **CMake 的 C 编译器落到宿主**。`build-cross.sh` 只设了 `CMAKE_CXX_COMPILER`，C 编译器取默认；在 Linux 容器里那就是 `/usr/bin/cc`，链接时报 `unrecognized option '--major-image-version'`。显式设 `CMAKE_C_COMPILER`。
+2. **没有声明目标 Windows 版本**。`ID2D1DeviceContext5` 在 Direct2D 头文件里被 `NTDDI_VERSION >= NTDDI_WIN10_RS2` 挡着，而构建从未声明过版本、取的是工具链默认值——Homebrew 的够高，Debian 的不够。代码本来就要求 1703（per-monitor v2 DPI 与该接口都起自那一版），现在在 CMakeLists 里写明。（改这处时我顺手把 `project()` 的语言加成了 `C CXX`，那是多余的：容器里触发 C 编译器检测的是 Engine 的 voice 子项目，而加上之后 pipe-only 那条不含该子项目的配置反倒开始要求 C 编译器。已撤回，只保留 `CMAKE_C_COMPILER`。）
+3. **`#include "InputScope.h"`**。那是平台头不是自有头，MinGW 提供的是 `inputscope.h`，大小写敏感的文件系统找不到。改为 `#include <inputscope.h>`。
+4. **`hr == D2DERR_RECREATE_TARGET` 的符号比较**。`HRESULT` 有符号而该宏在部分 SDK/MinGW 版本里是无符号，于是在一套工具链上是警告、另一套上静默。按规矩做了广度扫描：同样写法共 **7 处**，全部改为显式转 `HRESULT`。
+
+本机 x64 构建与 Wine 套件（76 通过 / 2 失败）均无回归。x86 的**执行**仍未覆盖：Wine runner 目前只搬 x86_64 的 MinGW 运行库。
+
 ## 来源模块的落点
 
 逐模块记下来源的每个目录在本仓库落在哪里，以及为什么。上面那张功能表按「功能组」组织，回答的是某个功能有没有；这张按**来源的源码目录**组织，回答的是来源的每一块代码去了哪儿——两者互相校验，一块代码找不到落点就是缺口，哪怕对应功能在表里被标成有。

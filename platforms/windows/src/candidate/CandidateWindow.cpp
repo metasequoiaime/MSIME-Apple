@@ -693,7 +693,10 @@ void CandidateWindow::paint() {
   // A composition swap chain only reaches the screen once it is presented.
   if (SUCCEEDED(drawn) && FAILED(device_.Present()))
     throw std::runtime_error("Candidate presentation failed");
-  if (drawn == D2DERR_RECREATE_TARGET) {
+  // Cast rather than compare directly: HRESULT is signed and the macro is
+  // unsigned in some SDK and MinGW versions, which makes the comparison a
+  // warning on one toolchain and silent on another.
+  if (drawn == static_cast<HRESULT>(D2DERR_RECREATE_TARGET)) {
     // Losing the device is not a presentation failure; rebuild on the next
     // refresh rather than hiding a live composition. Clearing shown_ is what
     // makes that rebuild reachable: reposition() returns early while the cached

@@ -281,7 +281,9 @@ void TrayMenuWindow::paint() {
   // A composition swap chain only reaches the screen once it is presented.
   if (SUCCEEDED(drawn) && FAILED(device_.Present()))
     throw std::runtime_error("Tray menu presentation failed");
-  if (drawn == D2DERR_RECREATE_TARGET) {
+  // Signed HRESULT against a macro that is unsigned in some SDK and MinGW
+  // versions; see CandidateWindow.cpp for the same comparison.
+  if (drawn == static_cast<HRESULT>(D2DERR_RECREATE_TARGET)) {
     // Losing the device is not a presentation failure; rebuild on the next
     // opening rather than hiding a live menu.
     device_.DiscardTarget();
