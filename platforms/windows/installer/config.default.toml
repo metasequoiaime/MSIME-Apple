@@ -410,3 +410,17 @@ prompt = """你是一个中文全拼输入法联想引擎。输入为已经切�
 prompt_custom_1 = ""
 prompt_custom_2 = ""
 prompt_custom_3 = ""
+
+[statistics]
+# Local only, off by default: character counts and active typing time are
+# recorded on this machine, no text and no network.
+# 仅本机记录、默认关闭；只记字数与活跃时长，不记录文本、不联网。
+enabled = false
+# Retention policy for the local statistics: forever | 30d | 90d | 180d | 365d.
+# Days outside the window are deleted on the first record of each day;
+# "forever" keeps everything. An unrecognised value is read as forever, never
+# as a shorter window.
+# 统计保留策略：forever | 30d | 90d | 180d | 365d；跨天后首次记录时删除超出
+# 窗口的每日记录，forever 表示永久保留。非法值按 forever 处理，绝不按更短的
+# 窗口处理。
+retention = "forever"
