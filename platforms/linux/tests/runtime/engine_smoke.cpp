@@ -433,9 +433,22 @@ int main(int argc, char **argv) {
       invoke("FocusIn");
       require(seen.mode_sensitive && seen.input_enabled && seen.smart_punctuation_sensitive,
               "Chinese refocus did not restore the mode menu with a session");
+      // The configured Ctrl shortcut switches the mode and the scope remembers
+      // the new one - that is what Windows does, whichever scope is configured,
+      // and what this host does. The assertions here used to require the release
+      // to be consumed and then require Chinese input immediately after, which
+      // cannot both hold: a consumed release means the mode was toggled, and this
+      // context starts in Chinese. Toggle twice, and check the mode each time.
       require(!key(IBUS_Control_L, IBUS_CONTROL_MASK) &&
                   key(IBUS_Control_L, IBUS_RELEASE_MASK),
-              "Configured Ctrl shortcut did not preserve the initial Chinese mode");
+              "Configured Ctrl shortcut did not switch away from the initial Chinese mode");
+      require(!seen.input_enabled,
+              "Configured Ctrl shortcut was consumed without leaving Chinese input");
+      require(!key(IBUS_Control_L, IBUS_CONTROL_MASK) &&
+                  key(IBUS_Control_L, IBUS_RELEASE_MASK),
+              "Configured Ctrl shortcut did not switch back from passthrough");
+      require(seen.input_enabled,
+              "Configured Ctrl shortcut did not return to Chinese input");
       phrase();
       require(seen.input_enabled && !seen.english_mode && seen.preedit == "nihao" &&
                   !seen.candidates.empty() && seen.candidates.front() == "你好",
