@@ -129,7 +129,7 @@
 | 屏幕键盘 | 本宿主自身即键盘；2in1 另有 `DesktopSurface.SCREEN_KEYBOARD` | 设备上面板创建成功 |
 | 悬浮工具栏、组件开关、缩放 | `FloatingToolbar.ets`、`FloatingToolbarLayout.ts` | 逻辑回归 |
 | Emoji、颜文字、符号、剪贴板历史 | `emoji/EmojiCatalogModel.ts`、`clipboard/*` | 逻辑回归 |
-| 四种皮肤、深浅色、字体 | `candidate/CandidateSkinPolicy.ts`、`candidate/CandidateFontFamilyPolicy.ts` | 逻辑回归 |
+| 四种皮肤、深浅色、字体 | `candidate/CandidateSkinPolicy.ts`、`skin/KeyboardSkin.ts` 的四套候选配色、`candidate/CandidateFontFamilyPolicy.ts` | 逻辑回归；配色取自上游 `packages/ui/src/upstream/candidate-themes/skins` |
 | `Ctrl+Shift+E`、`Ctrl+Shift+Space`、`Ctrl+.` | `InputModeRouting.ts` | 逻辑回归；硬件键未在设备上按 |
 | `Ctrl+Shift+Alt+1–8`、`+C` | `HardwareKeyRouter.ts`、`KeyboardSession.resetCache` | 逻辑回归；同上 |
 | 外接键盘（手机/平板接蓝牙或 USB 键盘） | `input/HardwareKeyboardPolicy.ts`、`input/HarmonyHardwareKeyboards.ets` | 逻辑回归；热插拔未在设备上插拔 |
@@ -143,6 +143,8 @@
 两类条目没有目的地实现，都是平台差异而非缺口：Windows 的服务守护与服务重启/退出快捷键针对独立 Server 进程，HarmonyOS 的输入法扩展由系统拉起与回收。
 
 未取得设备证据的部分集中在三处：硬件按键经 Engine 组字、语音 provider 实际识别、手写实际识别。后两者需要凭据与真实音频/笔迹。其余条目均有不依赖设备的回归覆盖，且输入法在设备上已完成安装、启用、切换、原生模块加载、Engine 会话建立、面板创建与接管真实编辑器。
+
+候选皮肤一项此前只写「逻辑回归」，掩盖了一个外观缺陷：四个来源皮肤被近似映射到触摸键盘的调色板上，而 `wechat` 与 `willow_green` 都落在 `forest`，于是微信绿与杨柳青在 2in1 上完全同色——`#07c160` 和 `#58b980` 并不接近，四个皮肤实际只剩三个。不渲染上游 CSS 并不需要另造一套颜色：上游样式表就在本仓库 `packages/ui/src/upstream/candidate-themes/skins` 下，四套配色（明暗各一）现直接取自各自的样式表，由 ArkUI 原生绘制。触摸键盘的八个皮肤是另一项偏好，未改动，这四个也不进触摸皮肤选择器。
 
 设置界面一项此前记作「共享 UI」，这句话在源码层面成立、在运行时不成立：HarmonyOS 的设置窗口是 WebView 加载一个提交进仓库的构建产物，而它自 #2863 起没有被重建过，其间 52 个提交改动了 `packages/ui/src`。也就是说本仓库在长达数十个提交的时间里，HarmonyOS 上渲染的是一个别处已不存在的界面，此后新增的每一个能力位控件在这里都不可见。陈旧的包不报错——窗口照常打开，只是少掉一批控件，看上去像是这个平台本来就没有这些设置。已重建，并把「改完共享 UI 要重新生成」从一句文档变成 `verify-local.sh` 里的一道逐字节校验。共享 UI 的结论今后按该校验成立，而不是按源码引用关系成立。
 
@@ -181,6 +183,12 @@ Engine 对**单字母**查询（`j`、`n` 这类只按声母的查询）只给 2
 实测：`j` 从 5 页变为 291 页，第四页起是此前够不到的候选。`crates/input-runtime/src/tests.rs` 新增三个 fixture 用例（能翻到被扣下的候选、填满当前页时不前进、不扣候选的引擎翻页行为逐页不变），`schemes_dictionary` 补一段真词库断言。
 
 一处自己踩的坑记下来：overlay 的 `replace_once` 是从既有脚本抄的，而既有脚本的每个 hunk 都会消耗掉自己的锚点，我这三个 hunk 都是在锚点后面追加、锚点仍在，于是「锚点还在吗」回答不了「是否已经应用过」——跑第二遍就又插了一份，Engine 直接编译失败于重定义。改为每个 hunk 另给一个只有改写后文件才有的标记来判定，并实际连跑两次验证幂等。
+
+增量记录（2026-09-20，Windows 第十批：自动造词）：来源在 Server 里手工串这件事——候选只消耗了部分输入就把 `creating_word` 打开，用 `update_creating_word_progress` 累积各段，完成时落进用户词库。本仓库没有对应代码，一度看起来是缺口；查下去不是：锁定 Engine 的 `InputSession::commit` 内部已经自带整条链（`advance_composition_after_selection` + `update_creating_word_progress` + `store_user_phrase_from_canonical_pinyin`），而门面的 `select` 正是走它。来源要手工串，是因为它那版 Engine 把这几步摊在外面。
+
+新增 `crates/engine-bridge/examples/phrase_creation_dictionary.rs` 验证。这件事两头都看不见：空词库给不出「只消耗一部分」的候选，组合根本不会发生；而只看完整输入也看不见，因为词格对任何输入都能给出整句候选，`海滩跑步` 无论存没存过都排第一。区分两者的是**简拼**——存过的短语答 `htpb`，重新生成的整句不答。探针即以此为判据，并覆盖关掉学习时同样的组合不写入。
+
+过程中先得出过一个错误结论，记下来免得下次重犯：第一版探针判定「组合出的短语没有落盘」，证据是简拼召不回、候选来源恒为整句生成、工作词库全表扫不到。三条证据都是真的，结论却是错的——桥接的 `prepare_options` 把 `learning` 显式设为 `false`（与 Engine 自身默认的 `true` 相反），而探针没设，于是不落盘正是正确行为。开启后简拼立刻召回，来源从整句生成变为词库条目。教训是判定「功能缺失」之前先核对自己有没有把它打开，而不是先去读 Engine 内部。
 
 增量记录（2026-09-20，Windows 第十一批：把一条记在基线上的「环境所限」变回真的跑）：Wine runner 的四条失败里，`windows-installer-launch` 的原因写着「它按仓库相对路径找安装脚本，而容器没挂仓库」。那不是环境限制，是 runner 自己少挂了一个目录——那个目录就在手边。
 

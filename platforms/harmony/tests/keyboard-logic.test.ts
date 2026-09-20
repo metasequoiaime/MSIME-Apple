@@ -1212,27 +1212,30 @@ group("maps shared candidate skins to native Harmony palettes", () => {
     CandidateSkinPolicy.rowDetailColor(true, "#111111", "#ffffff") === "#ffffff",
     "selected candidate details follow the selected text colour",
   );
-  check(CandidateSkinPolicy.harmonySkin("fluent") === "porcelain", "Fluent uses the clean palette");
-  check(CandidateSkinPolicy.harmonySkin("wechat") === "forest", "WeChat uses the green palette");
+  // Each source skin now resolves to a palette of its own, built from its own upstream stylesheet,
+  // rather than to the nearest touch-keyboard palette. The nearest-palette mapping is what put
+  // 微信绿 and 杨柳青 on the same colours.
+  check(CandidateSkinPolicy.harmonySkin("fluent") === "fluent", "Fluent keeps its own palette");
+  check(CandidateSkinPolicy.harmonySkin("wechat") === "wechat", "WeChat keeps its own palette");
   check(
-    CandidateSkinPolicy.harmonySkin("graphite") === "blueprint",
-    "Graphite uses the blue-gray palette",
+    CandidateSkinPolicy.harmonySkin("graphite") === "graphite",
+    "Graphite keeps its own palette",
   );
   check(
-    CandidateSkinPolicy.harmonySkin("willow_green") === "forest",
-    "Willow green uses the green palette",
+    CandidateSkinPolicy.harmonySkin("willow_green") === "willow_green",
+    "Willow green keeps its own palette",
   );
   check(CandidateSkinPolicy.harmonySkin("unknown") === "forest", "unknown ids fall back safely");
   check(CandidateSkinPolicy.showSelectedBar("fluent"), "Fluent shows its selected bar");
   check(!CandidateSkinPolicy.showSelectedBar("wechat"), "WeChat skin omits its selected bar");
   check(!CandidateSkinPolicy.showSelectedBar("graphite"), "Graphite skin omits its selected bar");
   check(
-    CandidateSkinPolicy.harmonySkin("sample", "wechat") === "forest",
-    "external skins inherit the WeChat Harmony palette",
+    CandidateSkinPolicy.harmonySkin("sample", "wechat") === "wechat",
+    "external skins inherit the WeChat palette",
   );
   check(
-    CandidateSkinPolicy.harmonySkin("sample", "graphite") === "blueprint",
-    "external skins inherit the Graphite Harmony palette",
+    CandidateSkinPolicy.harmonySkin("sample", "graphite") === "graphite",
+    "external skins inherit the Graphite palette",
   );
 });
 
@@ -4458,6 +4461,62 @@ group("an unanswerable setup query does not send anyone back to a welcome screen
     }) === "enabled but not current, opening welcome flow",
     "the reason the window opened where it did is recorded, not inferred afterwards",
   );
+});
+
+group("each source candidate skin keeps its own colours", () => {
+  const ids = ["fluent", "wechat", "graphite", "willow_green"];
+  const resolved = ids.map((id) => CandidateSkinPolicy.harmonySkin(id));
+  check(
+    new Set(resolved).size === ids.length,
+    "four source skins resolve to four palettes, not two",
+  );
+  // 微信绿 and 杨柳青 both used to land on `forest`, which made them pixel-identical. #07c160 and
+  // #58b980 are not close; one of the four skins was effectively missing.
+  const accents = ids.map(
+    (id) => KeyboardSkin.from(CandidateSkinPolicy.harmonySkin(id), false).accent,
+  );
+  check(new Set(accents).size === ids.length, "and to four different highlight colours");
+  check(
+    KeyboardSkin.from("wechat", false).accent.toLowerCase() === "#07c160",
+    "微信绿 keeps the upstream WeChat green",
+  );
+  check(
+    KeyboardSkin.from("willow_green", false).accent.toLowerCase() === "#58b980",
+    "杨柳青 keeps its own, lighter green",
+  );
+  check(
+    KeyboardSkin.from("fluent", false).accent.toLowerCase() === "#6b69d6",
+    "Fluent keeps the upstream indigo",
+  );
+});
+
+group("candidate palettes follow the upstream dark stylesheets", () => {
+  // Taken from horizontal_dark.css per skin, not derived by darkening the light values: the source
+  // picks a different hue for some skins and a mechanical transform would drift from it.
+  check(
+    KeyboardSkin.from("graphite", true).accent.toLowerCase() === "#8993a0",
+    "graphite lightens its slate in dark mode",
+  );
+  check(
+    KeyboardSkin.from("willow_green", true).accent.toLowerCase() === "#65c98d",
+    "杨柳青 lightens its green in dark mode",
+  );
+  check(
+    KeyboardSkin.from("wechat", true).accent.toLowerCase() === "#07c160",
+    "微信绿 keeps the same green in both, as upstream does",
+  );
+  check(
+    KeyboardSkin.from("fluent", true).keyForeground.toLowerCase() === "#e9e8e8",
+    "dark text comes from the dark stylesheet",
+  );
+});
+
+group("candidate skins are not offered as touch-keyboard skins", () => {
+  // Two different preferences. A candidate palette in the keyboard picker would offer the user a
+  // keyboard skin built from a candidate window's colours, which is not a skin anyone designed.
+  for (const id of ["fluent", "wechat", "graphite", "willow_green"]) {
+    check(!KeyboardSkin.BUILT_IN_IDS.includes(id), `${id} stays out of the touch-keyboard picker`);
+  }
 });
 
 // The account bridge deliberately models the asynchronous device HTTP API. Give its immediate
