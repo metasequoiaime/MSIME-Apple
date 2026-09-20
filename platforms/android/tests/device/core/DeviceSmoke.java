@@ -124,7 +124,7 @@ public class DeviceSmoke extends Instrumentation {
     protected Predicate<AccessibilityNodeInfo> key(String text) {
         boolean letter = text.length() == 1 && Character.isLetter(text.charAt(0))
             && text.charAt(0) < 128;
-        return node -> equalsText("app.msime.client.preview", node.getPackageName())
+        return node -> equalsText("app.msime.android", node.getPackageName())
             && (letter ? node.getText() != null && text.equalsIgnoreCase(node.getText().toString())
                 : equalsText(text, node.getText()));
     }
@@ -136,12 +136,12 @@ public class DeviceSmoke extends Instrumentation {
      * so neither is an identity. The stable part is the prefix.
      */
     protected Predicate<AccessibilityNodeInfo> described(String description) {
-        return node -> equalsText("app.msime.client.preview", node.getPackageName())
+        return node -> equalsText("app.msime.android", node.getPackageName())
             && equalsText(description, node.getContentDescription());
     }
 
     protected Predicate<AccessibilityNodeInfo> describedPrefix(String prefix) {
-        return node -> equalsText("app.msime.client.preview", node.getPackageName())
+        return node -> equalsText("app.msime.android", node.getPackageName())
             && node.getContentDescription() != null
             && node.getContentDescription().toString().startsWith(prefix);
     }
@@ -158,15 +158,15 @@ public class DeviceSmoke extends Instrumentation {
     }
 
     protected Predicate<AccessibilityNodeInfo> scriptState() {
-        return node -> equalsText("app.msime.client.preview", node.getPackageName())
+        return node -> equalsText("app.msime.android", node.getPackageName())
             && node.isEnabled() && (equalsText("简", node.getText()) || equalsText("繁", node.getText()));
     }
     protected Predicate<AccessibilityNodeInfo> imeTextContains(String text) {
-        return node -> equalsText("app.msime.client.preview", node.getPackageName())
+        return node -> equalsText("app.msime.android", node.getPackageName())
             && node.getText() != null && node.getText().toString().contains(text);
     }
     private Predicate<AccessibilityNodeInfo> imeText(String text) {
-        return node -> equalsText("app.msime.client.preview", node.getPackageName())
+        return node -> equalsText("app.msime.android", node.getPackageName())
             && equalsText(text, node.getText());
     }
     private AccessibilityNodeInfo findAnyVisibleImeNode(Predicate<AccessibilityNodeInfo> match) {
@@ -225,7 +225,7 @@ public class DeviceSmoke extends Instrumentation {
         target = awaitAny(match);
         // Android 15 can reject synthetic coordinates over IME and instrumentation windows.
         // Accessibility click still invokes the real product control and InputConnection path.
-        if (equalsText("app.msime.client.preview", target.getPackageName())
+        if (equalsText("app.msime.android", target.getPackageName())
                 && target.isClickable()) {
             if (!target.performAction(AccessibilityNodeInfo.ACTION_CLICK))
                 throw new AssertionError("Synthetic control action failed");

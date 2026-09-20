@@ -58,10 +58,10 @@ public final class TypingStatisticsDeviceSmoke extends DeviceSmoke {
             stage = "controlled statistics baseline";
             publish(preferences, preferenceSnapshot.toString().getBytes(StandardCharsets.UTF_8));
             Files.deleteIfExists(statistics.toPath());
-            shell("am start -W -n app.msime.client.preview/app.msime.client.SetupActivity");
-            shell("ime disable app.msime.client.preview/app.msime.client.MSIMEInputService");
-            shell("ime enable app.msime.client.preview/app.msime.client.MSIMEInputService");
-            shell("ime set app.msime.client.preview/app.msime.client.MSIMEInputService");
+            shell("am start -W -n app.msime.android/app.msime.client.SetupActivity");
+            shell("ime disable app.msime.android/app.msime.client.MSIMEInputService");
+            shell("ime enable app.msime.android/app.msime.client.MSIMEInputService");
+            shell("ime set app.msime.android/app.msime.client.MSIMEInputService");
             SystemClock.sleep(1000);
 
             stage = "IME aggregate write";
@@ -117,7 +117,7 @@ public final class TypingStatisticsDeviceSmoke extends DeviceSmoke {
             js("(" + REFRESH + ").click(); true");
             awaitJs("(" + RANGE_TOTAL + ")?.textContent === '2'");
         } finally {
-            shell("am start -W -n app.msime.client.preview/app.msime.client.SetupActivity");
+            shell("am start -W -n app.msime.android/app.msime.client.SetupActivity");
             SystemClock.sleep(500);
             restore(preferences, originalPreferences);
             restore(statistics, originalStatistics);
@@ -159,11 +159,11 @@ public final class TypingStatisticsDeviceSmoke extends DeviceSmoke {
 
     private void openSettings() throws Exception {
         if (settingsActivity == null) {
-            Intent intent = new Intent().setClassName(getTargetContext(), "app.msime.client.preview.MainActivity")
+            Intent intent = new Intent().setClassName(getTargetContext(), "app.msime.android.MainActivity")
                 .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TASK);
             settingsActivity = startActivitySync(intent);
         } else {
-            shell("am start -W -n app.msime.client.preview/.MainActivity");
+            shell("am start -W -n app.msime.android/.MainActivity");
         }
         long deadline = SystemClock.uptimeMillis() + 15000;
         do {

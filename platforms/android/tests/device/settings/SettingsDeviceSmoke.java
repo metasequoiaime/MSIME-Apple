@@ -80,7 +80,7 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
         Activity activity = null;
         try {
             stage = "React settings load";
-            Intent intent = new Intent().setClassName(getTargetContext(), "app.msime.client.preview.MainActivity").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+            Intent intent = new Intent().setClassName(getTargetContext(), "app.msime.android.MainActivity").addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
             activity = startActivitySync(intent);
             Activity owner = activity;
             long deadline = SystemClock.uptimeMillis() + 15000;
@@ -265,14 +265,14 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
                 + ").value === '60' && (" + ROW_SPACING + ").value === '70' && !("
                 + VOICE_SHORTCUT + ").checked");
             stage = "cross-process system input uses saved preferences";
-            shell("ime disable app.msime.client.preview/app.msime.client.MSIMEInputService");
-            shell("ime enable app.msime.client.preview/app.msime.client.MSIMEInputService");
-            shell("ime set app.msime.client.preview/app.msime.client.MSIMEInputService");
+            shell("ime disable app.msime.android/app.msime.client.MSIMEInputService");
+            shell("ime enable app.msime.android/app.msime.client.MSIMEInputService");
+            shell("ime set app.msime.android/app.msime.client.MSIMEInputService");
             SystemClock.sleep(1000);
             shell("am start -W -f 0x10008000 -n app.msime.client.test/app.msime.client.test.EditorActivity");
             tap(field("msime-test-plain"));
             stage = "cross-process keyboard uses saved skin";
-            awaitAnyNode(node -> equalsText("app.msime.client.preview", node.getPackageName())
+            awaitAnyNode(node -> equalsText("app.msime.android", node.getPackageName())
                 && equalsText("切换键盘皮肤；当前我的皮肤", node.getContentDescription()));
             stage = "cross-process punctuation uses saved preferences";
             for (String key : new String[] {"n", "i", "h", "a", "o"}) tap(key(key));
@@ -282,16 +282,16 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
             stage = "cross-process scheme picker uses shared visibility";
             assertSharedSchemePicker();
             stage = "scheme visibility survives IME restart";
-            shell("am start -W -n app.msime.client.preview/app.msime.client.SetupActivity");
-            shell("ime disable app.msime.client.preview/app.msime.client.MSIMEInputService");
-            shell("ime enable app.msime.client.preview/app.msime.client.MSIMEInputService");
-            shell("ime set app.msime.client.preview/app.msime.client.MSIMEInputService");
+            shell("am start -W -n app.msime.android/app.msime.client.SetupActivity");
+            shell("ime disable app.msime.android/app.msime.client.MSIMEInputService");
+            shell("ime enable app.msime.android/app.msime.client.MSIMEInputService");
+            shell("ime set app.msime.android/app.msime.client.MSIMEInputService");
             SystemClock.sleep(1000);
             shell("am start -W -f 0x10008000 -n app.msime.client.test/app.msime.client.test.EditorActivity");
             tap(field("msime-test-plain"));
             assertSharedSchemePicker();
         } finally {
-            shell("am start -W -n app.msime.client.preview/app.msime.client.SetupActivity");
+            shell("am start -W -n app.msime.android/app.msime.client.SetupActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath()); else publish(preferences, original);
             if (originalSkinLibrary == null) Files.deleteIfExists(skinLibrary.toPath());
             else { skinLibrary.getParentFile().mkdirs(); publish(skinLibrary, originalSkinLibrary); }
@@ -300,21 +300,21 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
     private void assertSharedSchemePicker() throws Exception {
         String prefix = stage;
         stage = prefix + ": open picker";
-        tap(node -> equalsText("app.msime.client.preview", node.getPackageName())
+        tap(node -> equalsText("app.msime.android", node.getPackageName())
             && equalsText("输入方案：全拼 26 键", node.getContentDescription()));
         stage = prefix + ": selected fallback card";
-        await(node -> equalsText("app.msime.client.preview", node.getPackageName())
+        await(node -> equalsText("app.msime.android", node.getPackageName())
             && equalsText("输入方案卡片 全拼 26 键", node.getContentDescription())
             && equalsText("已选中", node.getStateDescription()));
         stage = prefix + ": hidden card absence";
         for (var window : automation.getWindows()) {
-            if (find(window.getRoot(), node -> equalsText("app.msime.client.preview", node.getPackageName())
+            if (find(window.getRoot(), node -> equalsText("app.msime.android", node.getPackageName())
                     && equalsText("输入方案卡片 全拼 9 键", node.getContentDescription())) != null) {
                 throw new AssertionError("Hidden scheme remained in the keyboard picker");
             }
         }
         stage = prefix + ": return to keyboard";
-        tap(node -> equalsText("app.msime.client.preview", node.getPackageName())
+        tap(node -> equalsText("app.msime.android", node.getPackageName())
             && equalsText("返回键盘", node.getContentDescription()));
     }
     private AccessibilityNodeInfo awaitAnyNode(java.util.function.Predicate<AccessibilityNodeInfo> match) {

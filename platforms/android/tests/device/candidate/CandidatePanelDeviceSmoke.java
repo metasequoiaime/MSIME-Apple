@@ -41,7 +41,7 @@ public final class CandidatePanelDeviceSmoke extends DeviceSmoke {
 
     private Predicate<AccessibilityNodeInfo> completeCount() {
         return node -> {
-            if (!equalsText("app.msime.client.preview", node.getPackageName())
+            if (!equalsText("app.msime.android", node.getPackageName())
                     || node.getText() == null) return false;
             String value = node.getText().toString();
             if (!value.endsWith(" 个候选")) return false;
@@ -54,7 +54,7 @@ public final class CandidatePanelDeviceSmoke extends DeviceSmoke {
     }
 
     private Predicate<AccessibilityNodeInfo> candidateTen() {
-        return node -> equalsText("app.msime.client.preview", node.getPackageName())
+        return node -> equalsText("app.msime.android", node.getPackageName())
             && node.getContentDescription() != null
             && node.getContentDescription().toString().startsWith("候选 10：")
             && node.isClickable();

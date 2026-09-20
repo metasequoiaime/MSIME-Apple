@@ -103,7 +103,7 @@ public final class MoreToolsDeviceSmoke extends DeviceSmoke {
     }
 
     private Predicate<AccessibilityNodeInfo> shortcutBar() {
-        return node -> equalsText("app.msime.client.preview", node.getPackageName())
+        return node -> equalsText("app.msime.android", node.getPackageName())
             && equalsText("键盘快捷栏", node.getContentDescription());
     }
 
