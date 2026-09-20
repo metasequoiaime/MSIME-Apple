@@ -617,6 +617,32 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 **下一步的线索**：`CCompositionProcessorEngine::SetupLanguageProfile` 带一个 `isComLessMode` 参数——TIP 自身就有一条绕开 COM 注册的模式。要隔离 `Activate` 的失败点，需要构建一个带日志的 TIP；而 com-less 模式很可能正是 Wine 这种无法注册的环境下该走的路。这两件都留给下一轮，本批只报实测到的事实。
 
+增量记录（2026-09-20，Windows 第四十八批：com-less 那条线索实测不成立，附 Wine 下 TSF 的完整测绘）：上一批把 `isComLessMode` 点名为「像样的线索」。**这批试了，不成立**——记下来，省得下一个人再花一遍力气。
+
+`ITfTextInputProcessorEx` 取到 S_OK 之后，`ActivateEx` 用三种标志各试一次：`TF_TMAE_COMLESS`、`TF_TMAE_COMLESS | TF_TMAE_SECUREMODE`、以及 flags 为 0 —— **三者一律 E_FAIL**（151ms / 122ms / 118ms）。com-less 模式救不了它，失败点在别处。
+
+顺带把激活序列最前面两步的原语也测了，全部可用：`ITfSource` 的 QI、`AdviseSink(ITfThreadMgrEventSink)`（拿到 cookie）、`UnadviseSink`、`ITfKeystrokeMgr` 的 QI 均为 S_OK。所以失败发生在这两步之后。
+
+**Wine 下 TSF 的完整测绘（全部实测，非推断）：**
+
+| 能力 | 结果 |
+|---|---|
+| `ITfThreadMgr` 创建 / `Activate` | S_OK |
+| `CreateDocumentMgr` / `CreateContext` | S_OK，拿到编辑 cookie |
+| `Push` / `SetFocus` / `GetFocus` 往返 | S_OK，取回同一文档 |
+| `ITfSource` QI / `AdviseSink` / `UnadviseSink` | S_OK |
+| `ITfKeystrokeMgr` QI | S_OK |
+| `ITfCategoryMgr` 创建 / `RegisterGUID` / `GetGUID` | S_OK，atom 往返一致 |
+| `ITfInputProcessorProfiles` / `ProfileMgr` 创建 | S_OK |
+| `GetCurrentLanguage` | S_OK |
+| TIP 经 `DllGetClassObject` 实例化（绕过注册表） | S_OK，`ITfTextInputProcessor` 与 `Ex` 都拿得到 |
+| `GetDefaultLanguageProfile` | S_FALSE（无已注册配置） |
+| `ITfCategoryMgr::RegisterCategory` | **E_FAIL** |
+| `ITfInputProcessorProfileMgr::RegisterProfile` | **E_NOTIMPL** |
+| TIP `ActivateEx`（三种标志） | **E_FAIL** |
+
+**结论**：Wine 能提供 TSF 的运行时与全部前置原语，也能让本仓库的 TIP 被实例化；不能提供的是 TIP 注册，而激活失败的具体步骤**仍未隔离**。要往下走只有一条路——构建一个带日志的 TIP，逐个 `goto ExitError` 打点。本轮不做，因为那要改线上 TIP 的构建配置，且改完仍无法在 Wine 下产生可用的输入法，收益只在诊断本身。
+
 ## 来源模块的落点
 
 逐模块记下来源的每个目录在本仓库落在哪里，以及为什么。上面那张功能表按「功能组」组织，回答的是某个功能有没有；这张按**来源的源码目录**组织，回答的是来源的每一块代码去了哪儿——两者互相校验，一块代码找不到落点就是缺口，哪怕对应功能在表里被标成有。
