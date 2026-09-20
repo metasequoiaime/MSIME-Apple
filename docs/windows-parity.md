@@ -605,6 +605,18 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 对来源 `experiments/tsf-edit-control` 的移植，这给出了明确前提：它作为编辑宿主的部分（绘制、候选框位置上报、选区命中）在 Wine 下可跑；但要让本仓库的 TIP 真正挂进去，仍需真实 Windows。
 
+增量记录（2026-09-20，Windows 第四十七批：TIP 能在 Wine 下创建出来，但激活失败的那一步没隔离出来）：第四十六批测出 Wine 不实现 TIP 注册。这批追问一步——**注册不了，能不能绕过注册直接驱动 TIP**。
+
+**能创建。** `DllGetClassObject` 是导出符号，绕开注册表拿到类工厂 S_OK，`CreateInstance(IID_ITfTextInputProcessor)` S_OK——本仓库真实的 TIP 对象在 Wine 下被实例化出来了。这一点此前没有人试过，它说明「Wine 下碰不到 TIP」的印象是错的。
+
+**但激活失败**：`ITfTextInputProcessor::Activate(threadMgr, clientId)` 在 219 毫秒后返回 E_FAIL。
+
+**失败的具体步骤没有隔离出来，本批不假装知道。** 追查过程中一度得出一条看着很顺的因果链——Wine 的 `RegisterProfile` 是 E_NOTIMPL，所以没有默认语言配置，所以 `GetDefaultLanguageProfile` 失败，所以 `_AddTextProcessorEngine` 返回 FALSE。**实测把这条链打断了两处**：`GetDefaultLanguageProfile` 返回的是 S_FALSE，而 `S_FALSE` 不算 `FAILED`，那道检查会放行；继续往下的 `SetupLanguageProfile` 读过源码，它只在 `tfClientId == 0 且 pThreadMgr == nullptr` 时失败，并不拒绝空的 profile GUID。所以这条链是错的，没有写进结论。
+
+**顺带确认的**：`ITfCategoryMgr::RegisterGUID` 在 Wine 下 S_OK（atom 正常，`GetGUID` 往返一致），失败的只有 `RegisterCategory`。也就是说显示属性的 atom 注册这一步不是障碍，障碍只在类别注册，而类别注册属于 `DllRegisterServer` 而非激活路径。
+
+**下一步的线索**：`CCompositionProcessorEngine::SetupLanguageProfile` 带一个 `isComLessMode` 参数——TIP 自身就有一条绕开 COM 注册的模式。要隔离 `Activate` 的失败点，需要构建一个带日志的 TIP；而 com-less 模式很可能正是 Wine 这种无法注册的环境下该走的路。这两件都留给下一轮，本批只报实测到的事实。
+
 ## 来源模块的落点
 
 逐模块记下来源的每个目录在本仓库落在哪里，以及为什么。上面那张功能表按「功能组」组织，回答的是某个功能有没有；这张按**来源的源码目录**组织，回答的是来源的每一块代码去了哪儿——两者互相校验，一块代码找不到落点就是缺口，哪怕对应功能在表里被标成有。
