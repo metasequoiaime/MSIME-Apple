@@ -3657,6 +3657,7 @@ export function SettingsPage({
                 theme={keyboardPreviewTheme}
                 localSkinLibrary={client.customSkinLibrary}
                 initialMine={communityDestination === "published-skins"}
+                mobile={mobilePlatform}
               />
             )}
             {!client.communitySkins && client.communityResources && page === "community" && (
