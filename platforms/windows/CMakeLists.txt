@@ -180,6 +180,20 @@ else()
 endif()
 add_test(NAME windows-typing-statistics COMMAND windows-typing-statistics)
 set_tests_properties(windows-typing-statistics PROPERTIES TIMEOUT 10)
+# Which punctuation ends the composition with the highlighted candidate. The
+# set is the reference's, character for character; one missing mark is a key
+# that quietly stops doing that, visible only while typing.
+add_executable(windows-punctuation-policy tests/input/punctuation_policy.cpp)
+target_include_directories(windows-punctuation-policy PRIVATE src src/system src/input
+                           ../../vendor/MSIME-Engine/contracts ../../crates/host-api/include)
+target_link_libraries(windows-punctuation-policy PRIVATE nlohmann_json::nlohmann_json)
+if(MSVC)
+  target_compile_options(windows-punctuation-policy PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(windows-punctuation-policy PRIVATE -Wall -Wextra -Werror)
+endif()
+add_test(NAME windows-punctuation-policy COMMAND windows-punctuation-policy)
+set_tests_properties(windows-punctuation-policy PROPERTIES TIMEOUT 10)
 add_executable(windows-input-key-policy tests/input/input_key_policy.cpp)
 target_include_directories(windows-input-key-policy PRIVATE src)
 if(MSVC)
