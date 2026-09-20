@@ -24,6 +24,7 @@ import { CandidateManagementAction, ManagementAction } from './candidate/Candida
 import { CandidateFontFamilyPolicy } from './candidate/CandidateFontFamilyPolicy';
 import { CandidateContextMenuPolicy, PointerAction, PointerButton }
   from './input/CandidateContextMenuPolicy';
+import { CandidateNumberFontPolicy } from './candidate/CandidateNumberFontPolicy';
 import { CandidateSkinPolicy } from './candidate/CandidateSkinPolicy';
 import { CandidateWheelPolicy } from './candidate/CandidateWheelPolicy';
 import { KeyboardMetrics } from './KeyboardMetrics';
@@ -1147,7 +1148,7 @@ struct KeyboardView {
         Blank().width(3).height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP * 0.55)
           .backgroundColor(this.candidatePalette().accent).borderRadius(2)
       }
-      Text(`${index + 1}`).fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
+      Text(`${index + 1}`).fontSize(CandidateNumberFontPolicy.size(this.settings.candidateFontSize))
         .fontColor(this.candidateNumberColor()).padding({ right: 4 })
       Text(candidate.text).fontSize(this.settings.candidateFontSize)
         .fontColor(candidate.highlighted || candidate.fixedPosition ? this.candidateAccentColor()

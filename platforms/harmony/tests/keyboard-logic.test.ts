@@ -185,6 +185,7 @@ import {
   CandidateTextEdge,
 } from "../entry/src/main/ets/keyboard/input/CandidateTextPolicy";
 import { CandidateSkinPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateSkinPolicy";
+import { CandidateNumberFontPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateNumberFontPolicy";
 import {
   CandidateContextMenuPolicy,
   PointerAction,
@@ -4762,6 +4763,35 @@ group("the candidate window does not swallow the other mouse buttons", () => {
     !CandidateContextMenuPolicy.opens(PointerButton.NONE, PointerAction.PRESS),
     "and so is a press with no button at all",
   );
+});
+
+group("the candidate number keeps its proportion, as the source states it", () => {
+  // `.num { font-size: 0.8em }` in every candidate stylesheet. The host used to subtract a
+  // constant with a floor, which agrees with the ratio at no size at all.
+  check(
+    CandidateNumberFontPolicy.size(18) === 14,
+    "at the shared default the number is 14, not 10",
+  );
+  check(CandidateNumberFontPolicy.size(12) === 10, "at the smallest allowed size");
+  check(CandidateNumberFontPolicy.size(32) === 26, "at the largest allowed size");
+  // The old formula was max(10, size - 8): identical at no point in the range, and wrong in both
+  // directions around it.
+  for (const size of [12, 16, 18, 20, 24, 28, 32]) {
+    const previous = Math.max(10, size - 8);
+    const ratio = CandidateNumberFontPolicy.size(size);
+    check(
+      ratio === Math.round(size * 0.8),
+      `size ${size} follows the ratio (was ${previous}, now ${ratio})`,
+    );
+  }
+});
+
+group("a malformed candidate size cannot produce an unusable number", () => {
+  // The shared document validates 12..=32, so this is a guard rather than a design choice: a zero
+  // or negative font size is a crash or an invisible row, not a small number.
+  check(CandidateNumberFontPolicy.size(0) === 1, "zero does not become zero");
+  check(CandidateNumberFontPolicy.size(-4) === 1, "nor does a negative size");
+  check(CandidateNumberFontPolicy.size(Number.NaN) === 1, "nor does a size that is not a number");
 });
 
 // The account bridge deliberately models the asynchronous device HTTP API. Give its immediate
