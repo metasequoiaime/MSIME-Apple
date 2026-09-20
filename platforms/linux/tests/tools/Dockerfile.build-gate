@@ -6,7 +6,9 @@
 # more trustworthy.
 #
 # No locked dictionaries and no daemons: this image compiles and runs the unit
-# tests, which is what a pre-merge gate can honestly check.
+# tests, which is what a pre-merge gate can honestly check. dbus is here only so
+# the engine smoke can be run by hand against a locked resource directory
+# without installing it into the container on every run.
 FROM rust:1.97.1-bookworm@sha256:0e2bcaef56d041a486784e54104a81aebe0da44bd03019bd70bc0401e42e4a97
 RUN apt-get update && apt-get install -y --no-install-recommends \
   cmake ninja-build pkg-config python3 \
@@ -14,5 +16,6 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   libibus-1.0-dev libxkbcommon-dev nlohmann-json3-dev \
   libwayland-dev wayland-protocols libx11-dev libxfixes-dev \
   libfcitx5core-dev libfcitx5utils-dev libfcitx5config-dev \
+  dbus dbus-bin \
   && rm -rf /var/lib/apt/lists/*
 WORKDIR /source

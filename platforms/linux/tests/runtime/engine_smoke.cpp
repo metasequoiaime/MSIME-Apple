@@ -52,6 +52,8 @@ struct Observation {
   bool punctuation_enabled = false;
   bool autocorrect_transposition = false;
   bool autocorrect_neighbor = false;
+  bool learning_enabled = false;
+  bool learning_sensitive = false;
 };
 void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
             const gchar *name, GVariant *parameters, gpointer data) {
@@ -105,6 +107,10 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
       seen.input_enabled =
           ibus_property_get_state(property) == PROP_STATE_CHECKED;
       seen.mode_sensitive = ibus_property_get_sensitive(property);
+    }
+    if (key == "Learning") {
+      seen.learning_enabled = ibus_property_get_state(property) == PROP_STATE_CHECKED;
+      seen.learning_sensitive = ibus_property_get_sensitive(property);
     }
     if (key == "SmartPunctuation")
       seen.smart_punctuation_sensitive = ibus_property_get_sensitive(property);
@@ -329,6 +335,42 @@ int main(int argc, char **argv) {
       g_variant_unref(reply);
       return handled != FALSE;
     };
+    // Direct class calls make no D-Bus round trip, so the signals an observation
+    // comes from are still queued when the call returns. Wait for the
+    // observation itself rather than draining whatever happens to be pending.
+    auto wait_until = [&](auto ready) {
+      const auto deadline = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
+      while (!ready() && g_get_monotonic_time() < deadline) {
+        while (g_main_context_iteration(nullptr, FALSE)) {}
+        g_usleep(1000);
+      }
+      return ready();
+    };
+    // The lookup table only ever carries the page the panel shows, so a
+    // candidate the engine ranks past the first page has to be paged to before
+    // it can be selected. Returns its index on the page it was found, or -1.
+    auto page_to = [&](const std::string &wanted) {
+      for (int page = 0; page < 24; ++page) {
+        const auto found = std::find(seen.candidates.begin(), seen.candidates.end(), wanted);
+        if (found != seen.candidates.end())
+          return static_cast<int>(found - seen.candidates.begin());
+        const auto before = seen.candidates;
+        if (!key(IBUS_Page_Down) || seen.candidates == before)
+          break;
+      }
+      return -1;
+    };
+    // The host hides the candidate window on a 24ms timer rather than in the
+    // turn that empties it, so a composition that briefly has no candidates does
+    // not flicker the panel. Anything asserting that the window is gone has to
+    // wait for that timer instead of reading a value deliberately not there yet.
+    auto settle_lookup = [&] {
+      const auto deadline = g_get_monotonic_time() + 2 * G_USEC_PER_SEC;
+      while (seen.lookup_visible && g_get_monotonic_time() < deadline) {
+        while (g_main_context_iteration(nullptr, FALSE)) {}
+        g_usleep(1000);
+      }
+    };
     // Fifty-six call sites share this, and "Phrase key not consumed" named none
     // of them. Number the calls and say which key: a failure here otherwise costs
     // a bisection through the whole fixture to find out where it happened.
@@ -503,15 +545,30 @@ int main(int argc, char **argv) {
           g_usleep(1000);
         }
       };
+      // Online requests are debounced, so settling for a fixed duration before
+      // reading an exact count is a race the loaded machine loses. Wait for the
+      // request to arrive, then settle to prove no second one follows it.
+      auto await_online = [&](unsigned expected) {
+        const auto deadline = g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
+        while (provider.online_requests.load() < expected &&
+               g_get_monotonic_time() < deadline) {
+          while (g_main_context_iteration(nullptr, FALSE)) {}
+          g_usleep(1000);
+        }
+        settle_online();
+        return provider.online_requests.load() == expected;
+      };
       phrase();
-      settle_online();
-      require(provider.online_requests > 0, "Synthetic online provider received no request");
-      require(provider.online_requests == 1,
-              "Empty cloud result repeatedly requested the same input");
+      require(await_online(1),
+              ("Synthetic online provider request count is not 1: " +
+               std::to_string(provider.online_requests))
+                  .c_str());
       invoke("Reset");
       phrase();
-      settle_online();
-      require(provider.online_requests == 2, "New input did not request cloud candidates");
+      require(await_online(2),
+              ("New input did not request cloud candidates exactly once: " +
+               std::to_string(provider.online_requests))
+                  .c_str());
       invoke("PropertyActivate", g_variant_new("(su)", "CloudCandidates", PROP_STATE_UNCHECKED));
       invoke("Reset");
       phrase();
@@ -520,8 +577,10 @@ int main(int argc, char **argv) {
               "Disabled cloud and AI still dispatched an online request");
       provider.return_online_candidate = true;
       invoke("PropertyActivate", g_variant_new("(su)", "CloudCandidates", PROP_STATE_CHECKED));
-      settle_online();
-      require(provider.online_requests == 3, "Re-enabled cloud candidates did not request input");
+      require(await_online(3),
+              ("Re-enabled cloud candidates did not request input: " +
+               std::to_string(provider.online_requests))
+                  .c_str());
       require(std::any_of(seen.candidates.begin(), seen.candidates.end(),
                           [](const std::string &text) { return text == "云端测试  云"; }),
               "Cloud reply lost Engine identity when AI was disabled");
@@ -654,7 +713,12 @@ int main(int argc, char **argv) {
       require(provider.english_greeting_requests == 0,
               "Offline dictionary hit was also sent to the online provider");
       provider.hold_responses = false;
-      const auto remote_deadline = g_get_monotonic_time() + 2000000;
+      // Releasing the provider is not the last step: the reply is read on a
+      // worker thread, merged on an idle turn, and any re-query behind it waits
+      // out the 500ms translation debounce and a 150ms settle tick. Two seconds
+      // covered that only when the machine was idle. This asserts that the miss
+      // eventually merges, not how fast.
+      const auto remote_deadline = g_get_monotonic_time() + 8 * G_USEC_PER_SEC;
       auto has_remote_gloss = [&] {
         return std::any_of(seen.candidates.begin(), seen.candidates.end(),
             [](const std::string &text) { return text.find("synthetic gloss") != std::string::npos; });
@@ -663,8 +727,16 @@ int main(int argc, char **argv) {
         while (g_main_context_iteration(nullptr, FALSE)) {}
         g_usleep(1000);
       }
-      require(has_remote_gloss() && seen.candidates.front() == local_hit,
-              "Online misses did not merge with the displayed offline hits");
+      {
+        std::string observed;
+        for (const auto &candidate : seen.candidates)
+          observed += "[" + candidate + "]";
+        require(has_remote_gloss() && seen.candidates.front() == local_hit,
+                ("Online misses did not merge with the displayed offline hits: gloss=" +
+                 std::to_string(has_remote_gloss()) + " local_hit=[" + local_hit +
+                 "] candidates=" + observed)
+                    .c_str());
+      }
       // A fresh host with no online socket must reuse the persisted misses.
       ibus_object_destroy(IBUS_OBJECT(engine));
       g_object_unref(engine);
@@ -810,6 +882,15 @@ int main(int argc, char **argv) {
           {"enabled", true}, {"app_id", "synthetic-app"},
           {"apikey", "synthetic-key"}};
       save(2);
+      // Ctrl+Enter above committed the gloss and cancelled the composition, so
+      // there are no candidates left. `translation_schedule` returns early when
+      // the view has none - correctly, since there is nothing to translate - so
+      // without composing again this wait could never end. What is checked here
+      // is therefore that the next composition asks the provider again rather
+      // than reusing the gloss from before the preference change; it does not
+      // also prove the request was made for candidates that were already on
+      // screen, which this fixture has no composition left to show.
+      phrase();
       const auto changed_deadline =
           g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
       auto old_translation_visible = [&] {
@@ -854,6 +935,14 @@ int main(int argc, char **argv) {
       translated["translation_provider_socket"] = socket;
       translated["preferences"]["candidate_translations"] = true;
       translated["preferences"]["candidate_page_size"] = 2;
+      // Not English. The packaged english.db answers 你好 offline with the single
+      // sense "hello", and an offline hit is shown without ever reaching the
+      // provider - which is the documented behaviour and what Windows does. With
+      // English as the target, the provider's multi-sense gloss therefore landed
+      // on the second candidate only, the highlighted one carried "hello", and
+      // Ctrl+Enter committed that single sense instead of opening the page this
+      // case exists to check. Any other target language goes straight online.
+      translated["preferences"]["translation_target_language"] = "ja";
       msime_preview_configure(translated.dump());
       engine = create_engine();
       seen = Observation{};
@@ -875,14 +964,32 @@ int main(int argc, char **argv) {
       gboolean translation_handled = FALSE;
       g_variant_get(translation_commit, "(b)", &translation_handled);
       g_variant_unref(translation_commit);
-      require(translation_handled && seen.candidates.size() == 2 &&
-                  seen.candidates[0] == "first sense" &&
-                  seen.candidates[1] == "second sense" && seen.committed.empty(),
-              "Ctrl+Enter did not open the multi-sense translation page");
+      {
+        std::string shown;
+        for (const auto &candidate : seen.candidates)
+          shown += (shown.empty() ? "" : "|") + candidate;
+        require(translation_handled && seen.candidates.size() == 2 &&
+                    seen.candidates[0] == "first sense" &&
+                    seen.candidates[1] == "second sense" && seen.committed.empty(),
+                ("Ctrl+Enter did not open the multi-sense translation page: handled=" +
+                 std::to_string(static_cast<int>(translation_handled)) + " candidates=[" +
+                 shown + "] committed=[" + seen.committed + "]")
+                    .c_str());
+      }
       invoke("CandidateClicked", g_variant_new("(uuu)", 1, 1, 0));
+      // The candidate window closes on the host's 24ms anti-flicker timer, not in
+      // the same turn as the commit; wait for it rather than for a duration.
+      const auto sense_hidden = g_get_monotonic_time() + 2 * G_USEC_PER_SEC;
+      while (seen.lookup_visible && g_get_monotonic_time() < sense_hidden) {
+        while (g_main_context_iteration(nullptr, FALSE)) {}
+        g_usleep(1000);
+      }
       require(seen.committed == "second sense" && !seen.preedit_visible &&
                   !seen.lookup_visible,
-              "Selecting a translated sense did not commit and close the page");
+              ("Selecting a translated sense did not commit and close the page: committed=[" +
+               seen.committed + "] preedit=" + std::to_string(seen.preedit_visible) +
+               " lookup=" + std::to_string(seen.lookup_visible))
+                  .c_str());
       ibus_object_destroy(IBUS_OBJECT(engine));
       g_object_unref(engine);
     }
@@ -1032,7 +1139,12 @@ int main(int argc, char **argv) {
       invoke("FocusIn");
       require(seen.mode_sensitive && seen.input_enabled == enabled &&
                   seen.smart_punctuation_sensitive == enabled,
-              "Refocus did not restore mode-dependent menu availability");
+              ("Refocus did not restore mode-dependent menu availability: wanted=" +
+               std::to_string(enabled) + " mode_sensitive=" +
+               std::to_string(seen.mode_sensitive) + " input_enabled=" +
+               std::to_string(seen.input_enabled) + " smart_punctuation_sensitive=" +
+               std::to_string(seen.smart_punctuation_sensitive))
+                  .c_str());
     }
     invoke("Set", g_variant_new("(ssv)", "org.freedesktop.IBus.Engine", "ContentType",
                                g_variant_new("(uu)", IBUS_INPUT_PURPOSE_PASSWORD, 0)));
@@ -1240,6 +1352,10 @@ int main(int argc, char **argv) {
                 "Mode chord fixture did not disable input");
         if (disable_binding) {
           auto disabled = options;
+          // Keep the store out of it: with a preferences directory the reload
+          // tick re-reads the file and puts the binding back, so whether this
+          // sees the injected preference depends on where the tick lands.
+          disabled.erase("preferences_directory");
           disabled["preferences"]["keybindings"]["switch_language_ctrl_alt_space"] = false;
           msime_preview_configure(disabled.dump());
           invoke("FocusIn");
@@ -1296,6 +1412,9 @@ int main(int argc, char **argv) {
       phrase();
       require(!key(modifier_key), "Reconfigured modifier press was intercepted");
       auto disabled = options;
+      // As above: the injected binding has to be the authority for this moment,
+      // not a value the next reload tick can overwrite from the file.
+      disabled.erase("preferences_directory");
       const bool ctrl = modifier_key == IBUS_Control_L || modifier_key == IBUS_Control_R;
       disabled["preferences"]["keybindings"][ctrl ? "switch_language_ctrl"
                                                    : "switch_language_shift"] = false;
@@ -1385,8 +1504,13 @@ int main(int argc, char **argv) {
     require(voice_provider.finished.load() == recreate_finals + 1,
             "Session-recreation fixture did not produce the old result");
     g_usleep(50000);
-    IBUS_ENGINE_GET_CLASS(engine)->property_activate(
-        engine, "ShuangpinProfile/ziranma", PROP_STATE_CHECKED);
+    // The rebuild has to happen without running the main loop, so the queued
+    // callback from the old session is still waiting when the replacement
+    // opens. A content-type transition rebuilds the session in place; a menu
+    // preference cannot be used here, because with a stored preferences
+    // directory it only schedules a save and updates the session that exists.
+    IBUS_ENGINE_GET_CLASS(engine)->set_content_type(
+        engine, IBUS_INPUT_PURPOSE_FREE_FORM, IBUS_INPUT_HINT_PRIVATE);
     IBUS_ENGINE_GET_CLASS(engine)->property_activate(
         engine, "VoiceInput", PROP_STATE_CHECKED);
     require(wait_voice([&] { return voice_provider.started.load() == recreate_starts + 2; }),
@@ -1402,6 +1526,8 @@ int main(int argc, char **argv) {
     require(wait_voice([&] { return seen.committed == "synthetic voice"; }),
             "Current-session voice result did not commit after recreation");
     seen.committed.clear();
+    invoke("Set", g_variant_new("(ssv)", "org.freedesktop.IBus.Engine", "ContentType",
+                               g_variant_new("(uu)", IBUS_INPUT_PURPOSE_FREE_FORM, 0)));
     const auto escape_starts = voice_provider.started.load();
     const auto escape_cancels = voice_provider.cancelled.load();
     const auto escape_finals = voice_provider.finished.load();
@@ -1602,9 +1728,15 @@ int main(int argc, char **argv) {
     }
     for (guint enter_key : {IBUS_Return, IBUS_KP_Enter}) {
       phrase();
-      require(key(enter_key) && seen.committed == "nihao" &&
+      const bool enter_handled = key(enter_key);
+      settle_lookup();
+      require(enter_handled && seen.committed == "nihao" &&
                   !seen.preedit_visible && !seen.lookup_visible,
-              "Enter selected an incremental candidate instead of raw spelling");
+              ("Enter selected an incremental candidate instead of raw spelling: handled=" +
+               std::to_string(enter_handled) + " committed=[" + seen.committed +
+               "] preedit=" + std::to_string(seen.preedit_visible) + " lookup=" +
+               std::to_string(seen.lookup_visible))
+                  .c_str());
       seen.committed.clear();
     }
     // Ctrl-only segment editing follows the Windows composition behavior:
@@ -1672,6 +1804,7 @@ int main(int argc, char **argv) {
     require(key(IBUS_space), "Space not handled");
     require(!key(IBUS_Shift_L, IBUS_RELEASE_MASK) && seen.input_enabled,
             "Shift chord tail toggled input after Space");
+    settle_lookup();
     require(seen.committed == "你好" && !seen.preedit_visible &&
                 !seen.lookup_visible,
             "Commit/clear signal mismatch");
@@ -1687,12 +1820,12 @@ int main(int argc, char **argv) {
     const auto property_first_page = seen.candidates;
     IBUS_ENGINE_GET_CLASS(engine)->property_activate(
         IBUS_ENGINE(engine), "CandidateNextPage", PROP_STATE_UNCHECKED);
-    require(seen.lookup_visible && !seen.candidates.empty() &&
-                seen.candidates != property_first_page,
+    require(wait_until([&] { return seen.candidates != property_first_page; }) &&
+                seen.lookup_visible && !seen.candidates.empty(),
             "Candidate panel next-page action did not use shared paging");
     IBUS_ENGINE_GET_CLASS(engine)->property_activate(
         IBUS_ENGINE(engine), "CandidatePreviousPage", PROP_STATE_UNCHECKED);
-    require(seen.candidates == property_first_page,
+    require(wait_until([&] { return seen.candidates == property_first_page; }),
             "Candidate panel previous-page action did not restore the shared page");
     invoke("PageDown");
     require(seen.lookup_visible && !seen.candidates.empty(),
@@ -1704,6 +1837,7 @@ int main(int argc, char **argv) {
     invoke("Reset");
     const auto committed_before_stale_click = seen.committed;
     invoke("CandidateClicked", g_variant_new("(uuu)", 0, 1, 0));
+    settle_lookup();
     require(seen.committed == committed_before_stale_click &&
                 !seen.lookup_visible,
             "Candidate click used a cleared rendered snapshot");
@@ -1728,7 +1862,8 @@ int main(int argc, char **argv) {
     require(mixed_emoji != seen.candidates.end(),
             "Mixed Emoji candidate was not exposed in the Chinese session");
     const auto mixed_emoji_index = static_cast<guint>(mixed_emoji - seen.candidates.begin());
-    invoke("CandidateClicked", g_variant_new("(uuu)", 0, mixed_emoji_index, 0));
+    invoke("CandidateClicked", g_variant_new("(uuu)", mixed_emoji_index, 1, 0));
+    settle_lookup();
     require(seen.committed == "😀" && !seen.preedit_visible && !seen.lookup_visible,
             "Mixed Emoji candidate was not committed through IBus");
 
@@ -1740,7 +1875,8 @@ int main(int argc, char **argv) {
     require(mixed_english != seen.candidates.end(),
             "Mixed English candidate was not exposed at the configured prefix threshold");
     const auto mixed_english_index = static_cast<guint>(mixed_english - seen.candidates.begin());
-    invoke("CandidateClicked", g_variant_new("(uuu)", 0, mixed_english_index, 0));
+    invoke("CandidateClicked", g_variant_new("(uuu)", mixed_english_index, 1, 0));
+    settle_lookup();
     require(seen.committed == "hello" && !seen.preedit_visible && !seen.lookup_visible,
             "Mixed English candidate was not committed through IBus");
 
@@ -1789,7 +1925,9 @@ int main(int argc, char **argv) {
     require(seen.preedit == "U4e00" && seen.candidates.size() == 1 &&
                 seen.candidates.front() == "一",
             "Unicode mode did not expose the deterministic scalar candidate");
-    require(key(IBUS_space) && seen.committed == "一" && !seen.preedit_visible &&
+    const bool settled_commit_1 = key(IBUS_space);
+    settle_lookup();
+    require(settled_commit_1 && seen.committed == "一" && !seen.preedit_visible &&
                 !seen.lookup_visible,
             "Unicode candidate was not committed through IBus");
 
@@ -1798,9 +1936,30 @@ int main(int argc, char **argv) {
     require(key('t', IBUS_SHIFT_MASK), "Date-time mode could not restart");
     for (const char character : std::string("rq"))
       require(key(static_cast<guint>(character)), "Date-time keyword input was not consumed");
-    require(seen.candidates.size() >= 13 && !seen.candidates.front().empty(),
-            "Date-time mode did not expose current date candidates");
-    require(key(IBUS_space) && !seen.committed.empty() && !seen.preedit_visible &&
+    {
+      // The lookup table carries one page, so the whole date list is only
+      // observable by paging through it. Windows shows the same seventeen
+      // formats behind its own pager.
+      std::vector<std::string> paged;
+      for (int page = 0; page < 24; ++page) {
+        const auto before = seen.candidates;
+        for (const auto &candidate : seen.candidates)
+          if (std::find(paged.begin(), paged.end(), candidate) == paged.end())
+            paged.push_back(candidate);
+        if (!key(IBUS_Page_Down) || seen.candidates == before)
+          break;
+      }
+      std::string observed;
+      for (const auto &candidate : paged)
+        observed += "[" + candidate + "]";
+      require(paged.size() >= 13 && !paged.front().empty(),
+              ("Date-time mode did not expose current date candidates: count=" +
+               std::to_string(paged.size()) + " candidates=" + observed)
+                  .c_str());
+    }
+    const bool settled_commit_2 = key(IBUS_space);
+    settle_lookup();
+    require(settled_commit_2 && !seen.committed.empty() && !seen.preedit_visible &&
                 !seen.lookup_visible,
             "Date-time candidate was not committed through IBus");
 
@@ -1812,7 +1971,9 @@ int main(int argc, char **argv) {
     require(std::any_of(seen.candidates.begin(), seen.candidates.end(),
                         [](const std::string &candidate) { return candidate == "永远滴神"; }),
             "Quick-phrase fixture candidate was not exposed");
-    require(key(IBUS_space) && seen.committed == "永远滴神" && !seen.preedit_visible &&
+    const bool settled_commit_3 = key(IBUS_space);
+    settle_lookup();
+    require(settled_commit_3 && seen.committed == "永远滴神" && !seen.preedit_visible &&
                 !seen.lookup_visible,
             "Quick-phrase candidate was not committed through IBus");
 
@@ -1821,12 +1982,25 @@ int main(int argc, char **argv) {
     require(key('j', IBUS_SHIFT_MASK), "Super-jianpin mode could not restart");
     for (const char character : std::string("nh"))
       require(key(static_cast<guint>(character)), "Super-jianpin input was not consumed");
-    require(std::any_of(seen.candidates.begin(), seen.candidates.end(),
-                        [](const std::string &candidate) { return candidate == "你好"; }),
-            "Super-jianpin fixture candidate was not exposed");
-    require(key(IBUS_space) && seen.committed == "你好" && !seen.preedit_visible &&
-                !seen.lookup_visible,
-            "Super-jianpin candidate was not committed through IBus");
+    // The engine ranks 女孩/你会 above 你好 for this code, so the fixture pages to
+    // the candidate instead of assuming it leads the list.
+    const int jianpin_index = page_to("你好");
+    {
+      std::string observed;
+      for (const auto &candidate : seen.candidates)
+        observed += "[" + candidate + "]";
+      require(jianpin_index >= 0,
+              ("Super-jianpin fixture candidate was not exposed: preedit=[" + seen.preedit +
+               "] last page=" + observed)
+                  .c_str());
+    }
+    invoke("CandidateClicked",
+           g_variant_new("(uuu)", static_cast<guint>(jianpin_index), 1, 0));
+    settle_lookup();
+    require(seen.committed == "你好" && !seen.preedit_visible && !seen.lookup_visible,
+            ("Super-jianpin candidate was not committed through IBus: committed=[" +
+             seen.committed + "]")
+                .c_str());
 
     invoke("Reset");
     seen.committed.clear();
@@ -1836,7 +2010,9 @@ int main(int argc, char **argv) {
     require(seen.preedit == "YMSIME" && seen.candidates.size() >= 1 &&
                 seen.candidates.front() == "MSIME",
             "Temporary English mode did not expose its raw candidate");
-    require(key(IBUS_Return) && seen.committed == "MSIME" && !seen.preedit_visible &&
+    const bool settled_commit_5 = key(IBUS_Return);
+    settle_lookup();
+    require(settled_commit_5 && seen.committed == "MSIME" && !seen.preedit_visible &&
                 !seen.lookup_visible,
             "Temporary English raw text was not committed through IBus");
 
@@ -1847,7 +2023,9 @@ int main(int argc, char **argv) {
       require(key(static_cast<guint>(character)), "Emoji keyword input was not consumed");
     require(!seen.candidates.empty() && seen.candidates.front() == "😀",
             "Emoji mode did not expose the locked-resource fixture candidate");
-    require(key(IBUS_space) && seen.committed == "😀" && !seen.preedit_visible &&
+    const bool settled_commit_6 = key(IBUS_space);
+    settle_lookup();
+    require(settled_commit_6 && seen.committed == "😀" && !seen.preedit_visible &&
                 !seen.lookup_visible,
             "Emoji candidate was not committed through IBus");
 
@@ -1858,7 +2036,9 @@ int main(int argc, char **argv) {
       require(key(static_cast<guint>(character)), "Kaomoji keyword input was not consumed");
     require(!seen.candidates.empty() && seen.candidates.front() == "!(*￣(￣　*)",
             "Kaomoji mode did not expose the locked-resource fixture candidate");
-    require(key(IBUS_space) && seen.committed == "!(*￣(￣　*)" && !seen.preedit_visible &&
+    const bool settled_commit_7 = key(IBUS_space);
+    settle_lookup();
+    require(settled_commit_7 && seen.committed == "!(*￣(￣　*)" && !seen.preedit_visible &&
                 !seen.lookup_visible,
             "Kaomoji candidate was not committed through IBus");
 
@@ -1902,13 +2082,26 @@ int main(int argc, char **argv) {
     invoke("PropertyActivate",
            g_variant_new("(su)", "LocalModes/temporary_japanese", PROP_STATE_UNCHECKED));
     seen.committed.clear();
-    require(!key('r', IBUS_SHIFT_MASK) && !seen.preedit_visible && seen.committed.empty(),
-            "Disabled temporary Japanese mode swallowed Shift+R");
+    // With a stored preferences directory the menu toggle is a save, not an
+    // immediate switch: it is written, read back and only then applied to the
+    // session. Asserting the key in the same turn tests the old preference.
     require(wait_saved_preferences([](const nlohmann::json &preferences) {
               return !preferences.at("local_modes")
                           .at("temporary_japanese").get<bool>();
             }),
             "Temporary Japanese disable was not persisted");
+    bool japanese_released = false;
+    for (int attempt = 0; attempt < 200 && !japanese_released; ++attempt) {
+      japanese_released = !key('r', IBUS_SHIFT_MASK) && !seen.preedit_visible &&
+                          seen.committed.empty();
+      if (!japanese_released) {
+        invoke("Reset");
+        seen.committed.clear();
+        while (g_main_context_iteration(nullptr, FALSE)) {}
+        g_usleep(10000);
+      }
+    }
+    require(japanese_released, "Disabled temporary Japanese mode swallowed Shift+R");
     invoke("PropertyActivate",
            g_variant_new("(su)", "LocalModes/temporary_japanese", PROP_STATE_CHECKED));
     require(wait_saved_preferences([](const nlohmann::json &preferences) {
@@ -1936,7 +2129,9 @@ int main(int argc, char **argv) {
         key(IBUS_minus) && seen.preedit == "-" && seen.candidates.size() == 2 &&
             seen.candidates[0] == "ー" && seen.candidates[1] == "-",
         "Bare Japanese minus did not offer long-vowel and hyphen candidates");
-    require(key(IBUS_equal) && seen.committed == japanese_commit + "ー=" &&
+    const bool settled_commit_8 = key(IBUS_equal);
+    settle_lookup();
+    require(settled_commit_8 && seen.committed == japanese_commit + "ー=" &&
                 !seen.preedit_visible && !seen.lookup_visible,
             "Japanese equal key paged candidates instead of committing "
             "punctuation");
@@ -1984,8 +2179,14 @@ int main(int argc, char **argv) {
                 seen.lookup_visible && seen.committed == committed,
             "Punctuation toggle lost composition or committed input");
     invoke("Reset");
-    require(!key(','), "English punctuation should pass through when idle");
-    require(seen.committed == committed, "English punctuation emitted a commit");
+    {
+      const bool comma_handled = key(',');
+      require(!comma_handled && seen.committed == committed,
+              ("English punctuation should pass through when idle: handled=" +
+               std::to_string(comma_handled) + " committed=[" + seen.committed +
+               "] before=[" + committed + "] preedit=[" + seen.preedit + "]")
+                  .c_str());
+    }
     invoke("PropertyActivate",
            g_variant_new("(su)", "ChinesePunctuation", PROP_STATE_CHECKED));
     require(wait_saved_preferences([](const nlohmann::json &preferences) {
@@ -2012,6 +2213,7 @@ int main(int argc, char **argv) {
       require(key(keypad), "Keypad punctuation was not consumed");
       require(seen.committed == prefix + highlighted + mark,
               "Keypad punctuation did not finish the highlighted candidate literally");
+      settle_lookup();
       require(!seen.preedit_visible && !seen.lookup_visible,
               "Keypad punctuation left the candidate view visible");
     }
@@ -2044,6 +2246,7 @@ int main(int argc, char **argv) {
     invoke("Reset");
     invoke("Reset");
     invoke("FocusOut");
+    settle_lookup();
     require(!seen.preedit_visible && !seen.lookup_visible && !key('n'),
             "Focus loss did not clear and stop input");
     invoke("Set", g_variant_new(
@@ -2181,8 +2384,22 @@ int main(int argc, char **argv) {
     phrase();
     require(seen.candidates.size() == 4,
             "Settings did not recover after writer unlock");
+    // Frequency ranking is scoped to the segmentation the user typed: a longer
+    // word carried on the same prefix (你好吗) is ranked among three-segment
+    // entries, never against 你好, so selecting it cannot move it to the top of
+    // this list whatever the preference says. Learn a candidate that shares
+    // nihao's two segments instead.
+    auto two_segment_index = [&] {
+      for (std::size_t index = 1; index < seen.candidates.size(); ++index)
+        if (g_utf8_strlen(seen.candidates[index].c_str(), -1) == 2)
+          return static_cast<int>(index);
+      return -1;
+    };
     auto private_candidates = seen.candidates;
-    invoke("CandidateClicked", g_variant_new("(uuu)", 1, 1, 0));
+    const int private_learn = two_segment_index();
+    require(private_learn > 0, "Private session exposed no two-segment candidate to learn");
+    invoke("CandidateClicked",
+           g_variant_new("(uuu)", static_cast<guint>(private_learn), 1, 0));
     phrase();
     require(seen.candidates == private_candidates,
             "Reload enabled frequency learning in a private session");
@@ -2192,11 +2409,39 @@ int main(int argc, char **argv) {
                          g_variant_new("(uu)", IBUS_INPUT_PURPOSE_FREE_FORM, 0)));
     settle();
     phrase();
-    auto learned = seen.candidates.at(1);
-    invoke("CandidateClicked", g_variant_new("(uuu)", 1, 1, 0));
+    const int learn_index = two_segment_index();
+    require(learn_index > 0, "Normal session exposed no two-segment candidate to learn");
+    auto learned = seen.candidates.at(static_cast<std::size_t>(learn_index));
+    const auto before_learning = seen.candidates;
+    invoke("CandidateClicked",
+           g_variant_new("(uuu)", static_cast<guint>(learn_index), 1, 0));
+    const auto committed_learning = seen.committed;
     phrase();
-    require(seen.candidates.front() == learned,
-            "Normal session did not restore configured frequency learning");
+    {
+      std::string observed;
+      for (const auto &candidate : seen.candidates)
+        observed += "[" + candidate + "]";
+      std::string before;
+      for (const auto &candidate : before_learning)
+        before += "[" + candidate + "]";
+      std::string journal = "missing";
+      {
+        std::error_code error;
+        for (const auto &entry :
+             std::filesystem::recursive_directory_iterator(root, error)) {
+          if (entry.path().filename() == "msime_user.db")
+            journal = entry.path().string() + " size=" +
+                      std::to_string(std::filesystem::file_size(entry.path(), error));
+        }
+      }
+      require(seen.candidates.front() == learned,
+              ("Normal session did not restore configured frequency learning: learned=[" +
+               learned + "] committed=[" + committed_learning + "] before=" + before +
+               " after=" + observed + " journal=" + journal +
+               " learning=" + std::to_string(seen.learning_enabled) +
+               " learning_sensitive=" + std::to_string(seen.learning_sensitive))
+                  .c_str());
+    }
     invoke("Reset");
     struct Binding {
       const char *name;
@@ -2247,9 +2492,18 @@ int main(int argc, char **argv) {
       require(!key(native_key), "Idle native navigation was consumed");
       phrase();
       auto expected = seen.committed + seen.candidates.front();
-      require(!key(native_key) && seen.committed == expected &&
+      // The key is what finishes the composition here, so the panel can only be
+      // gone after it has been pressed.
+      const bool native_forwarded = !key(native_key);
+      settle_lookup();
+      require(native_forwarded && seen.committed == expected &&
                   !seen.preedit_visible && !seen.lookup_visible,
-              "Disabled navigation lost input or intercepted the editor key");
+              ("Disabled navigation lost input or intercepted the editor key: forwarded=" +
+               std::to_string(native_forwarded) + " committed=[" + seen.committed +
+               "] expected=[" + expected + "] preedit=" +
+               std::to_string(seen.preedit_visible) + " lookup=" +
+               std::to_string(seen.lookup_visible))
+                  .c_str());
     }
     phrase();
     auto expected_punctuation = seen.committed + seen.candidates.front() + "。";
@@ -2295,7 +2549,9 @@ int main(int argc, char **argv) {
       invoke("PageDown");
       auto last =
           seen.committed + edge_text(seen.candidates.at(seen.cursor), true);
-      require(key(minus ? IBUS_equal : IBUS_bracketright) &&
+      const bool settled_commit_9 = key(minus ? IBUS_equal : IBUS_bracketright);
+      settle_lookup();
+      require(settled_commit_9 &&
                   seen.committed == last && !seen.lookup_visible,
               "Last Han binding did not use the displayed global candidate");
       // An invalid simultaneous paging binding must not replace live settings.
