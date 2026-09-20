@@ -51,6 +51,23 @@ pub struct Runtime<E: InputEngine = Session> {
     pub(crate) snapshot_valid: bool,
     pub(crate) character_width: CharacterWidth,
     pub(crate) touch_keyboard_layout: TouchKeyboardLayout,
+    /// Whether the host draws a half-composed phrase itself instead of having it committed.
+    ///
+    /// Picking a candidate that consumes only part of the input leaves the Engine composing the
+    /// rest, and it hands back the piece that was chosen. The reference keeps that piece inside its
+    /// composition - `word_for_creating_word` is prepended to the reading and the caret is shifted
+    /// past it - and commits the phrase as one piece when the composition ends. This runtime sent
+    /// it to the document immediately, so half a phrase landed in the application while the user
+    /// was still typing the rest of it.
+    ///
+    /// Off by default because a host that does not draw [`View::phrase_prefix`] would show nothing
+    /// at all for that piece. Each host turns it on as it learns to draw it.
+    pub(crate) phrase_preedit: bool,
+    /// The piece already chosen for the phrase being composed, held back from the document.
+    ///
+    /// Non-empty only while the Engine is still composing, so a host's existing test for "is there
+    /// a composition" stays true wherever this is non-empty.
+    pub(crate) phrase_prefix: String,
     /// Recently committed text, sent to the AI provider as context.
     ///
     /// The reference sends what the user has just written so a suggestion fits
@@ -309,7 +326,22 @@ impl<E: InputEngine> Runtime<E> {
             snapshot_valid: true,
             character_width: CharacterWidth::Halfwidth,
             touch_keyboard_layout,
+            phrase_preedit: false,
+            phrase_prefix: String::new(),
         })
+    }
+
+    /// Hold a half-composed phrase in the composition instead of committing its parts.
+    ///
+    /// The host promises to draw [`View::phrase_prefix`] ahead of the editing text; see the field
+    /// for why this is the host's call. Turning it off while a phrase is held commits what is held,
+    /// because the alternative is dropping text the user already chose.
+    pub fn set_phrase_preedit(&mut self, enabled: bool) -> Option<String> {
+        self.phrase_preedit = enabled;
+        if enabled || self.phrase_prefix.is_empty() {
+            return None;
+        }
+        Some(std::mem::take(&mut self.phrase_prefix))
     }
 
     /// Attach a candidate reranker. Hosts load the model themselves, because where a model file
@@ -398,6 +430,7 @@ impl<E: InputEngine> Runtime<E> {
             generation: self.generation,
             focused: self.focused,
             preedit: self.cached.preedit.clone(),
+            phrase_prefix: self.phrase_prefix.clone(),
             reading: self.cached.reading.clone(),
             editing_text: self.cached.editing_text.clone(),
             caret_position: self.cached.caret_position,
@@ -651,6 +684,46 @@ impl<E: InputEngine> Runtime<E> {
                 cut += 1;
             }
             self.ai_context.drain(..cut);
+        }
+    }
+
+    /// Keep a chosen piece of a phrase out of the document until the phrase is done.
+    ///
+    /// Three things can happen to what the Engine hands back:
+    ///
+    /// - it picked a candidate and is still composing the rest, so the piece is held;
+    /// - something ended the composition and committed, so the held pieces lead that commit - the
+    ///   reference does the same on Enter, which commits `word_for_creating_word` together with the
+    ///   remaining raw input;
+    /// - the composition ended with nothing committed. A cancel means the user threw the whole
+    ///   thing away, so the held pieces go with it. Anything else - backspacing the remaining
+    ///   reading away is the one that happens - commits what is held rather than dropping letters
+    ///   the user chose. That is a deliberate step away from the reference, which keeps showing the
+    ///   piece with an empty reading: holding text with no composition to hang it on would make
+    ///   every host's test for "is there a composition" lie.
+    fn hold_phrase_progress(&mut self, picked: bool, discard: bool, result: &mut EngineResult) {
+        if !self.phrase_preedit {
+            return;
+        }
+        let composing = !self.cached.editing_text.is_empty();
+        if picked && result.has_commit && composing {
+            self.phrase_prefix.push_str(&result.commit);
+            result.has_commit = false;
+            result.commit = String::new();
+            return;
+        }
+        if self.phrase_prefix.is_empty() || composing {
+            return;
+        }
+        let held = std::mem::take(&mut self.phrase_prefix);
+        if discard {
+            return;
+        }
+        if result.has_commit {
+            result.commit = held + &result.commit;
+        } else {
+            result.has_commit = true;
+            result.commit = held;
         }
     }
 
@@ -933,7 +1006,10 @@ impl<E: InputEngine> Runtime<E> {
         self.focused = false;
         let result = self.engine.command(Command::Cancel);
         self.refresh()?;
-        let result = result?;
+        let mut result = result?;
+        // Leaving the client cancels the composition, but a phrase piece being held back is text
+        // the user chose and, before it was held back, would already be in the document. Send it.
+        self.hold_phrase_progress(false, false, &mut result);
         self.focused = focused;
         // A different client is a different sentence, so context never leaks
         // from one application into another.
@@ -1077,6 +1153,9 @@ impl<E: InputEngine> Runtime<E> {
             scheme: self.cached.scheme,
             local_mode: self.cached.local_mode.clone(),
         };
+        // A digit on the candidate page picks a candidate; the Engine is asked the same question as
+        // for Select, so it can begin a phrase the same way.
+        let mut selected_by_digit = false;
         let result = match action {
             Action::ResetCache => {
                 self.engine.reset_cache()?;
@@ -1112,6 +1191,7 @@ impl<E: InputEngine> Runtime<E> {
                     if slot >= self.page_size || page_start + slot >= len {
                         return Ok(empty_result(true));
                     }
+                    selected_by_digit = true;
                     self.engine.select(page_start + slot)
                 })
             }
@@ -1144,6 +1224,18 @@ impl<E: InputEngine> Runtime<E> {
             // A successful engine commit must survive a presentation refresh failure.
             result.diagnostic = format!("Candidate refresh failed: {error}");
         }
+        let picked = selected_by_digit
+            || matches!(
+                action,
+                Action::Select(_)
+                    | Action::SelectAnyCandidate(_)
+                    | Action::SelectEdge(..)
+                    | Action::SelectHighlighted
+            );
+        // Escape throws the whole composition away, the chosen pieces with it - the reference's
+        // _HandleCancel clears `word_for_creating_word` in the same breath.
+        let discarded = matches!(action, Action::Command(Command::Cancel));
+        self.hold_phrase_progress(picked, discarded, &mut result);
         let mut transition = self.transition(result);
         if transition.commit.is_some() {
             transition.commit_context = Some(commit_context);

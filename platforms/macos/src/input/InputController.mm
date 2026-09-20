@@ -2748,6 +2748,13 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     if (!_session) {
         NSDictionary *options = [self runtimeOptions];
         if (options) {
+            // This host draws view.phrase_prefix, so a phrase being assembled out of several
+            // selections stays in the composition instead of arriving in the document one piece at
+            // a time. The options file is shared with hosts that do not, which is why it is asked
+            // for here rather than written into the file.
+            NSMutableDictionary *requested = [options mutableCopy];
+            requested[@"phrase_preedit"] = @YES;
+            options = requested;
             _session = [[MSIMEClientSession alloc] initWithOptions:options error:nil];
             _requestedPageSize = 0;
             id directory = options[@"preferences_directory"];
@@ -3849,6 +3856,14 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
         label.font = preeditFont;
         NSString *editing = [_view[@"editing_text"] isKindOfClass:NSString.class] ? _view[@"editing_text"] : @"";
         label.caretIndex = MSIMEPreeditCaretPosition(editing, preedit, _view[@"caret_position"]);
+        // The chosen part of a phrase in progress is held out of the document, so the window has to
+        // show it as well; without this the reading in the window would disagree with the marked
+        // text in the client, which carries it.
+        NSString *phrase = _view[@"phrase_prefix"];
+        if ([phrase isKindOfClass:NSString.class] && phrase.length) {
+            label.stringValue = [phrase stringByAppendingString:label.stringValue];
+            label.caretIndex += phrase.length;
+        }
         label.showsCaret = [_view[@"focused"] isEqual:@YES];
         label.frame = NSMakeRect(inset, height - inset - decorationHeight - preeditHeight, width - 2 * inset, preeditHeight);
         [content addSubview:label];

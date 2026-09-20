@@ -103,6 +103,16 @@ void MSIMEApplyTransitionWithPendingClosing(NSDictionary *transition, id<MSIMETe
         marked = @"";
         caret = 0;
     }
+    // A phrase being put together out of several selections keeps the part already chosen in the
+    // composition instead of sending it to the document. It leads the marked text and the caret
+    // moves past it, the way the reference prepends word_for_creating_word to the reading and
+    // offsets the display caret by its length. The runtime hands it over separately because
+    // caret_position is an offset into the editing text in this host's own string unit.
+    NSString *phrase = view[@"phrase_prefix"];
+    if ([phrase isKindOfClass:NSString.class] && phrase.length && style != MSIMEInlinePreeditStyleEmpty) {
+        marked = [phrase stringByAppendingString:marked];
+        caret += phrase.length;
+    }
     // While the pair is open the closing mark is the tail of the marked text, so it stays visible and
     // stays after the caret. A commit above has already consumed it.
     if (closing && ![commit isKindOfClass:NSString.class]) marked = [marked stringByAppendingString:closing];

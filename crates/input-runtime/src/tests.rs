@@ -28,6 +28,9 @@ struct Fixture {
     /// Where each candidate came from, parallel to `words`. Empty means an engine answering from
     /// the local dictionary alone, which is what most of these tests are about.
     sources: Vec<u8>,
+    /// What is left to compose after a candidate is picked, standing in for an Engine that answered
+    /// with a candidate covering only part of the input. `None` is an engine that finishes.
+    remaining_after_select: Option<String>,
 }
 
 #[cfg(unix)]
@@ -405,6 +408,16 @@ impl InputEngine for Fixture {
         Ok(empty_result(true))
     }
     fn select(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
+        if let Some(remaining) = self.remaining_after_select.take() {
+            self.text = remaining;
+            self.local_mode = "none".into();
+            return Ok(EngineResult {
+                handled: true,
+                has_commit: true,
+                commit: self.words[index].clone(),
+                diagnostic: String::new(),
+            });
+        }
         self.text.clear();
         self.nine_key_spellings.clear();
         self.local_mode = "none".into();
@@ -444,6 +457,7 @@ fn runtime() -> Runtime<Fixture> {
             cache_resets: 0,
             withheld: Vec::new(),
             sources: Vec::new(),
+            remaining_after_select: None,
         },
         5,
     )
@@ -493,6 +507,7 @@ fn several_candidates_from_one_provider_take_their_seat_as_a_group() {
                 cache_resets: 0,
                 withheld: Vec::new(),
                 sources,
+                remaining_after_select: None,
             },
             9,
         )
@@ -537,6 +552,146 @@ fn several_candidates_from_one_provider_take_their_seat_as_a_group() {
         .collect::<Vec<_>>(),
         vec!["本地", "云", "AI 一", "AI 二", "英一", "英二"]
     );
+}
+
+// Half a phrase belongs in the composition, not in the document. Picking a candidate that covers
+// only part of the input leaves the Engine composing the rest and hands back the piece that was
+// picked; sending that piece straight out puts half a phrase into the application - a search box
+// searches for it, an editor records an undo step for it - while the user is still typing.
+#[test]
+fn a_chosen_phrase_piece_waits_for_the_rest_of_the_phrase() {
+    let start = |remaining: Option<&str>| {
+        let mut runtime = Runtime::new(
+            Fixture {
+                scheme: 0,
+                dedicated_english: false,
+                nine_key: false,
+                nine_key_spellings: Vec::new(),
+                local_mode: "none".into(),
+                words: vec!["海滩".into(), "跑步".into()],
+                codes: Vec::new(),
+                text: String::new(),
+                snapshot_fails: false,
+                balanced_openings: Vec::new(),
+                cache_resets: 0,
+                withheld: Vec::new(),
+                sources: Vec::new(),
+                remaining_after_select: remaining.map(str::to_owned),
+            },
+            5,
+        )
+        .unwrap();
+        runtime.focus(true).unwrap();
+        runtime
+    };
+    let pick = |runtime: &mut Runtime<Fixture>| {
+        let id = runtime.view().candidates[0].id;
+        runtime.dispatch(Action::Select(id)).unwrap()
+    };
+
+    // Off, which is what a host that cannot draw the piece gets: unchanged behaviour.
+    let mut runtime = start(Some("paobu"));
+    type_key(&mut runtime);
+    let held = pick(&mut runtime);
+    assert_eq!(held.commit.as_deref(), Some("海滩"));
+    assert!(held.view.phrase_prefix.is_empty());
+
+    // On: the piece is held, shown to the host separately from the editing text, and the whole
+    // phrase goes out as one commit when the composition ends.
+    let mut runtime = start(Some("paobu"));
+    runtime.set_phrase_preedit(true);
+    type_key(&mut runtime);
+    let held = pick(&mut runtime);
+    assert_eq!(held.commit, None);
+    assert_eq!(held.view.phrase_prefix, "海滩");
+    assert_eq!(held.view.editing_text, "paobu");
+    let rest = runtime.view().candidates[1].id;
+    let done = runtime.dispatch(Action::Select(rest)).unwrap();
+    assert_eq!(done.commit.as_deref(), Some("海滩跑步"));
+    assert!(done.view.phrase_prefix.is_empty());
+    assert!(done.view.editing_text.is_empty());
+
+    // Escape throws away what was chosen along with what was typed, as the reference's _HandleCancel
+    // does - it clears word_for_creating_word in the same breath as terminating the composition.
+    let mut runtime = start(Some("paobu"));
+    runtime.set_phrase_preedit(true);
+    type_key(&mut runtime);
+    pick(&mut runtime);
+    let cancelled = runtime.dispatch(Action::Command(Command::Cancel)).unwrap();
+    assert_eq!(cancelled.commit, None);
+    assert!(cancelled.view.phrase_prefix.is_empty());
+
+    // Leaving the client cancels the composition too, but there the piece goes to the document:
+    // before it was ever held back it would already be there, and a click into another window is
+    // not the user throwing the phrase away.
+    let mut runtime = start(Some("paobu"));
+    runtime.set_phrase_preedit(true);
+    type_key(&mut runtime);
+    pick(&mut runtime);
+    let blurred = runtime.focus(false).unwrap();
+    assert_eq!(blurred.commit.as_deref(), Some("海滩"));
+    assert!(blurred.view.phrase_prefix.is_empty());
+
+    // A commit that no candidate was picked for is not part of a phrase. Punctuation finishes the
+    // composition and sends the mark out with it; that commit has to read the same either way.
+    let mut plain = start(None);
+    type_key(&mut plain);
+    let expected = plain.dispatch(Action::Punctuation(b',')).unwrap().commit;
+    assert!(expected.is_some());
+    let mut runtime = start(None);
+    runtime.set_phrase_preedit(true);
+    type_key(&mut runtime);
+    let punctuated = runtime.dispatch(Action::Punctuation(b',')).unwrap();
+    assert_eq!(punctuated.commit, expected);
+    assert!(punctuated.view.phrase_prefix.is_empty());
+
+    // Turning it off with a piece in hand hands the piece back rather than dropping it.
+    let mut runtime = start(Some("paobu"));
+    runtime.set_phrase_preedit(true);
+    type_key(&mut runtime);
+    pick(&mut runtime);
+    assert_eq!(runtime.set_phrase_preedit(false).as_deref(), Some("海滩"));
+    assert!(runtime.view().phrase_prefix.is_empty());
+}
+
+// The one place this leaves the reference: there, backspacing the remaining reading away keeps the
+// chosen piece on screen with nothing after it. Holding text with no composition under it would
+// make every host's "is there a composition" test lie, so the piece is committed instead.
+#[test]
+fn a_phrase_piece_survives_the_reading_being_deleted() {
+    let mut runtime = Runtime::new(
+        Fixture {
+            scheme: 0,
+            dedicated_english: false,
+            nine_key: false,
+            nine_key_spellings: Vec::new(),
+            local_mode: "none".into(),
+            words: vec!["海滩".into(), "跑步".into()],
+            codes: Vec::new(),
+            text: String::new(),
+            snapshot_fails: false,
+            balanced_openings: Vec::new(),
+            cache_resets: 0,
+            withheld: Vec::new(),
+            sources: Vec::new(),
+            remaining_after_select: Some("p".into()),
+        },
+        5,
+    )
+    .unwrap();
+    runtime.set_phrase_preedit(true);
+    runtime.focus(true).unwrap();
+    type_key(&mut runtime);
+    let id = runtime.view().candidates[0].id;
+    let held = runtime.dispatch(Action::Select(id)).unwrap();
+    assert_eq!(held.view.phrase_prefix, "海滩");
+
+    let emptied = runtime
+        .dispatch(Action::Command(Command::Backspace))
+        .unwrap();
+    assert!(emptied.view.editing_text.is_empty());
+    assert_eq!(emptied.commit.as_deref(), Some("海滩"));
+    assert!(emptied.view.phrase_prefix.is_empty());
 }
 
 #[test]
@@ -601,6 +756,7 @@ fn candidate_codes_follow_candidates_in_page_and_complete_snapshots() {
             cache_resets: 0,
             withheld: Vec::new(),
             sources: Vec::new(),
+            remaining_after_select: None,
         },
         2,
     )
@@ -1528,6 +1684,7 @@ fn withholding_runtime(offered: usize, withheld: usize, page_size: u8) -> Runtim
                 .map(|n| format!("candidate-{n}"))
                 .collect(),
             sources: Vec::new(),
+            remaining_after_select: None,
         },
         page_size,
     )

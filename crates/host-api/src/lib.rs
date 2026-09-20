@@ -397,6 +397,13 @@ struct HostOptions {
     preferences: Preferences,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     preferences_directory: Option<String>,
+    /// The host draws a half-composed phrase itself: picking a candidate that covers only part of
+    /// the input leaves the chosen piece in `view.phrase_prefix` instead of committing it, and the
+    /// whole phrase commits at once when the composition ends. Absent means the previous behaviour,
+    /// where each piece went to the document as it was picked, because a host that does not draw
+    /// the field would otherwise show nothing for it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    phrase_preedit: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     clipboard_history_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -564,6 +571,7 @@ pub fn prepare_host_configuration(
                 .ok_or("non-UTF-8 state path")?
                 .to_owned(),
         ),
+        phrase_preedit: None,
         clipboard_history_path: None,
         online_provider_socket: None,
         translation_provider_socket: None,
