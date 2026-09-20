@@ -96,12 +96,21 @@ int main() {
       assert(!MSIMEApplyCloudAppearance(values, defaults));
       assert([MSIMECloudAppearanceSnapshot(defaults) isEqual:saved]);
     }
-    for (id invalid in @[@YES, @0, @1, @6, @10, @1.5, @"5", NSNull.null]) {
+    // 1 and 6 are sizes the shared preferences accept, so a snapshot carrying either is applied rather
+    // than refused; what stays invalid is a non-number, a non-integer, and anything outside 1..9.
+    for (id invalid in @[@YES, @0, @10, @1.5, @"5", NSNull.null]) {
       values = [saved mutableCopy];
       values[@"platform.macos.candidate_page_size"] = invalid;
       assert(!MSIMEApplyCloudAppearance(values, defaults));
       assert([MSIMECloudAppearanceSnapshot(defaults) isEqual:saved]);
     }
+    for (NSNumber *accepted in @[@1, @4, @6, @9]) {
+      values = [saved mutableCopy];
+      values[@"platform.macos.candidate_page_size"] = accepted;
+      assert(MSIMEApplyCloudAppearance(values, defaults));
+      assert([MSIMECloudAppearanceSnapshot(defaults)[@"platform.macos.candidate_page_size"] isEqual:accepted]);
+    }
+    MSIMEApplyCloudAppearance(saved, defaults);
     for (id invalid in @[@YES, @0, @99, @12.5, @"12"]) {
       [defaults setObject:invalid forKey:@"MSIMEClientCandidateFontSize"];
       [defaults setObject:invalid forKey:@"MSIMEClientCandidatePageSize"];

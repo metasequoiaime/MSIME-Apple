@@ -853,6 +853,11 @@ target_include_directories(candidate-selection-state-test PRIVATE src ../../vend
 target_compile_options(candidate-selection-state-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(candidate-selection-state-test PRIVATE "-framework Foundation")
 add_test(NAME candidate-selection-state COMMAND candidate-selection-state-test)
+# The page-size rules had a test file and no target: it had never been built, let alone run, which is
+# how a clamp that rewrote the shared default stayed in place.
+add_executable(candidate-page-size-test tests/candidate/CandidatePageSizeTest.cpp)
+target_compile_options(candidate-page-size-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+add_test(NAME candidate-page-size COMMAND candidate-page-size-test)
 
 add_executable(voice-wave-overlay-test tests/voice/VoiceWaveOverlayTest.mm src/voice/VoiceWaveOverlay.mm)
 target_compile_options(voice-wave-overlay-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
