@@ -351,6 +351,11 @@ if(MSIME_DESKTOP_BINARY)
   install(PROGRAMS "${MSIME_DESKTOP_BINARY}" DESTINATION "${CMAKE_INSTALL_BINDIR}" RENAME msime-client-desktop)
   install(PROGRAMS ${CMAKE_CURRENT_BINARY_DIR}/msime-client-settings DESTINATION "${CMAKE_INSTALL_BINDIR}")
   install(FILES ${CMAKE_CURRENT_BINARY_DIR}/msime-client.desktop DESTINATION "${CMAKE_INSTALL_DATADIR}/applications")
+  # The desktop entry names Icon=msime-client, which resolves through the icon theme rather than a
+  # path, so the entry is only as good as these files: without them the launcher falls back to a
+  # generic placeholder and the application looks unbranded in every menu that reads the entry.
+  install(DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/data/icons/"
+          DESTINATION "${CMAKE_INSTALL_DATADIR}/icons")
 endif()
 if(MSIME_RUNTIME_OPTIONS_FILE)
  install(FILES "${MSIME_RUNTIME_OPTIONS_FILE}" DESTINATION "${CMAKE_INSTALL_SYSCONFDIR}/msime-client" RENAME runtime-options.json)
