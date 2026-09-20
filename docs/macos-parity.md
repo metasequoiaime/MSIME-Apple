@@ -1,6 +1,6 @@
 # macOS 功能迁移对照
 
-逐个源文件的去处清单在 [macos-feature-inventory.md](macos-feature-inventory.md)：那份是「一个不漏地列出来」，这份是「用什么方法比过、发现了什么」。
+逐个源文件的去处清单在 [macos-feature-inventory.md](macos-feature-inventory.md)，来源 93 条测试断言的逐条核对在 [macos-assertion-audit.md](macos-assertion-audit.md)：那份是「一个不漏地列出来」，这份是「用什么方法比过、发现了什么」。
 
 ## 范围与固定基线
 
