@@ -183,6 +183,20 @@ set_tests_properties(windows-typing-statistics PROPERTIES TIMEOUT 10)
 # Which punctuation ends the composition with the highlighted candidate. The
 # set is the reference's, character for character; one missing mark is a key
 # that quietly stops doing that, visible only while typing.
+# Which keys edit the composition at all: letters, the manual separator, the
+# Japanese long vowel, the double-pinyin ing key, Unicode digits, erase and
+# caret. Dense enough that a wrong branch is an input bug and nothing else.
+add_executable(windows-edit-policy tests/input/edit_policy.cpp)
+target_include_directories(windows-edit-policy PRIVATE src src/system src/input
+                           ../../vendor/MSIME-Engine/contracts ../../crates/host-api/include)
+target_link_libraries(windows-edit-policy PRIVATE nlohmann_json::nlohmann_json)
+if(MSVC)
+  target_compile_options(windows-edit-policy PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(windows-edit-policy PRIVATE -Wall -Wextra -Werror)
+endif()
+add_test(NAME windows-edit-policy COMMAND windows-edit-policy)
+set_tests_properties(windows-edit-policy PROPERTIES TIMEOUT 10)
 add_executable(windows-punctuation-policy tests/input/punctuation_policy.cpp)
 target_include_directories(windows-punctuation-policy PRIVATE src src/system src/input
                            ../../vendor/MSIME-Engine/contracts ../../crates/host-api/include)
