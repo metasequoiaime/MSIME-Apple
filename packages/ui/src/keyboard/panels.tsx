@@ -17,6 +17,7 @@ import {
 } from "../emoji/emoji-catalog";
 import { touchKeyboardSkinOptions, type TouchKeyboardSkin } from "./screen-keyboard-preview";
 import * as cloud from "./cloud-panel-style";
+import * as surface from "./panel-surface-style";
 import {
   skinColor,
   skinLuminance,
@@ -1115,7 +1116,7 @@ function HandwritingCandidateButton({
     <button
       ref={button}
       type="button"
-      className="handwriting-candidate-submit"
+      className={surface.candidateSubmit}
       style={{ fontSize }}
       title={`${copy ? "复制" : "输入"}：${candidate}`}
       aria-keyshortcuts={onCopy ? "Control+c" : undefined}
@@ -1488,12 +1489,12 @@ export function HandwritingPanel({
   const renderStrokes = [...strokes, ...(drawing.length ? [{ points: drawing }] : [])];
   return (
     <main
-      className="native-panel handwriting-panel"
+      className={`native-panel ${surface.handwritingPanel}`}
       onKeyDown={editInk}
       data-panel-theme={theme}
       aria-label="手写识别板"
     >
-      <header className="native-panel-header" {...drag}>
+      <header className={`native-panel-header ${surface.panelHeader}`} {...drag}>
         <span>水杉手写识别板</span>
         <button
           type="button"
@@ -1504,10 +1505,10 @@ export function HandwritingPanel({
           ×
         </button>
       </header>
-      <div className="handwriting-panel-body">
-        <section className="ink-canvas-section">
+      <div className={surface.handwritingBody}>
+        <section className={surface.inkSection}>
           <svg
-            className="ink-canvas"
+            className={surface.inkCanvas}
             data-drawing={drawing.length > 0}
             tabIndex={0}
             viewBox="0 0 420 420"
@@ -1535,7 +1536,7 @@ export function HandwritingPanel({
               </text>
             )}
           </svg>
-          <div className="handwriting-actions">
+          <div className={surface.handwritingActions}>
             <button
               type="button"
               onClick={undo}
@@ -1572,9 +1573,9 @@ export function HandwritingPanel({
             )}
           </div>
         </section>
-        <section className="recognition-section">
+        <section className={surface.recognitionSection}>
           <h2>识别结果</h2>
-          <div className="handwriting-actions" role="group" aria-label="点击手写候选的操作">
+          <div className={surface.handwritingActions} role="group" aria-label="点击手写候选的操作">
             <span>点击候选：</span>
             <button
               type="button"
@@ -1593,9 +1594,16 @@ export function HandwritingPanel({
               输入
             </button>
           </div>
-          <div className="handwriting-candidate-grid" onKeyDown={navigateCandidates}>
+          <div
+            className={surface.candidateGrid}
+            // Named so the grid can be reached as a unit: assistive technology announces the group,
+            // and a test has something to hold onto that is not a styling class.
+            role="group"
+            aria-label="识别候选"
+            onKeyDown={navigateCandidates}
+          >
             {candidates.map((candidate) => (
-              <div className="handwriting-candidate" key={candidate}>
+              <div className={surface.candidate} key={candidate}>
                 <HandwritingCandidateButton
                   candidate={candidate}
                   copy={effectiveMode === "copy"}
@@ -1610,7 +1618,7 @@ export function HandwritingPanel({
                 {effectiveMode === "copy" && client.submitHandwritingCandidate ? (
                   <button
                     type="button"
-                    className="handwriting-candidate-copy"
+                    className={surface.candidateCopy}
                     aria-label={`输入候选 ${candidate}`}
                     disabled={closing || submitting}
                     onClick={() => void chooseCandidate(candidate)}
@@ -1622,7 +1630,7 @@ export function HandwritingPanel({
                   client.copyHandwritingCandidate && (
                     <button
                       type="button"
-                      className="handwriting-candidate-copy"
+                      className={surface.candidateCopy}
                       aria-label={`复制候选 ${candidate}`}
                       disabled={closing || submitting}
                       onClick={() => void chooseCandidate(candidate, true)}
@@ -1905,15 +1913,19 @@ export function VoicePanel({
   }
 
   return (
-    <main className="native-panel voice-panel" data-panel-theme={theme} aria-label="语音输入">
-      <header className="native-panel-header" {...drag}>
+    <main
+      className={`native-panel ${surface.voicePanel}`}
+      data-panel-theme={theme}
+      aria-label="语音输入"
+    >
+      <header className={`native-panel-header ${surface.panelHeader}`} {...drag}>
         <span>水杉语音输入</span>
         <button type="button" aria-label="关闭" onClick={() => void close()}>
           ×
         </button>
       </header>
-      <div className="voice-panel-body">
-        <div className="voice-panel-icon" aria-hidden="true">
+      <div className={surface.voiceBody}>
+        <div className={surface.voiceIcon} aria-hidden="true">
           🎙
         </div>
         <h1>语音输入</h1>
@@ -1922,13 +1934,14 @@ export function VoicePanel({
             麦克风音量 <meter aria-label="麦克风音量" min={0} max={1} value={inputLevel} />
           </label>
         )}
-        <p className="voice-panel-description">
+        <p className={surface.voiceNote}>
           {client.description ??
             "录音和识别由已配置的 Linux provider 服务完成，输入法不会保存原始音频。"}
         </p>
-        <label className="voice-panel-language">
+        <label className={surface.voiceLanguage}>
           识别语言
           <input
+            className={surface.voiceLanguageInput}
             value={language}
             maxLength={64}
             list="voice-language-options"
@@ -1944,7 +1957,7 @@ export function VoicePanel({
         </label>
         <button
           type="button"
-          className="voice-panel-record"
+          className={surface.voiceRecord}
           onClick={() => void (busy ? stop() : recognize())}
           disabled={submitting || stopping || (busy && !(client.stopVoice ?? client.cancelVoice))}
         >
@@ -1956,6 +1969,7 @@ export function VoicePanel({
           </button>
         )}
         <textarea
+          className={surface.voiceTextArea}
           aria-label="识别结果"
           aria-describedby={exceedsSubmitLimit ? "voice-result-limit" : undefined}
           aria-invalid={exceedsSubmitLimit || undefined}
@@ -1966,13 +1980,13 @@ export function VoicePanel({
           rows={4}
         />
         {exceedsSubmitLimit && (
-          <p id="voice-result-limit" className="voice-panel-description" role="status">
+          <p id="voice-result-limit" className={surface.voiceNote} role="status">
             内容超过单次提交长度，请精简或复制结果后手动粘贴。
           </p>
         )}
         <button
           type="button"
-          className="voice-panel-submit"
+          className={surface.voiceSubmit}
           onClick={() => void submit()}
           disabled={
             !text ||
@@ -2003,8 +2017,8 @@ export function VoicePanel({
         >
           清空结果
         </button>
-        {busy && client.cancelVoice && <p className="voice-panel-description">按 Esc 取消录音</p>}
-        <p className="voice-panel-notice" role="status">
+        {busy && client.cancelVoice && <p className={surface.voiceNote}>按 Esc 取消录音</p>}
+        <p className={surface.voiceNote} role="status">
           {notice}
         </p>
       </div>
