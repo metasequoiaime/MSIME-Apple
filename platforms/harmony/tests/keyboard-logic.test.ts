@@ -198,6 +198,7 @@ import {
 } from "../entry/src/main/ets/keyboard/input/CandidateContextMenuPolicy";
 import { PanelSurfaceAction } from "../entry/src/main/ets/keyboard/input/PanelShortcutPolicy";
 import { PreferenceRevisionPolicy } from "../entry/src/main/ets/keyboard/input/PreferenceRevisionPolicy";
+import { PreferencesErrorCode } from "../entry/src/main/ets/keyboard/settings/PreferencesErrorCode";
 import { SkinImportPolicy } from "../entry/src/main/ets/keyboard/skin/SkinImportPolicy";
 import {
   SmartPunctuationSpacePolicy,
@@ -4972,6 +4973,68 @@ group("the folder name is taken from the picked URI", () => {
     "an escaped traversal is refused after decoding, not before",
   );
   check(SkinImportPolicy.pickedName(null) === null, "no pick is no name");
+});
+
+group("a refused preferences write carries the code the page has a sentence for", () => {
+  // The whole point of the compare-and-swap: the keyboard's toolbar wrote while a settings window
+  // was open. The page asks the user to reload, but only if it can tell this apart from a failure.
+  check(
+    PreferencesErrorCode.of("preferences changed; reload before saving") === "conflict",
+    "a stale revision is a conflict",
+  );
+  check(
+    PreferencesErrorCode.of("candidate page size must be between 1 and 9") === "invalid",
+    "an out-of-range page size is invalid",
+  );
+  check(
+    PreferencesErrorCode.of("frequency trigger count and linear step must be between 1 and 10") ===
+      "frequency_invalid",
+    "a bad frequency has its own code",
+  );
+  check(
+    PreferencesErrorCode.of("mixed English minimum prefix must be between 1 and 8") ===
+      "mixed_input_invalid",
+    "and so does a bad mixed-input prefix",
+  );
+  check(
+    PreferencesErrorCode.of("word-to-character and paging cannot use the same keys") ===
+      "key_conflict",
+    "colliding key bindings are a key conflict",
+  );
+  check(
+    PreferencesErrorCode.of("unsupported preferences format") === "format",
+    "an unreadable format is a format failure",
+  );
+  check(
+    PreferencesErrorCode.of("invalid preferences document: expected value at line 1 column 1") ===
+      "format",
+    "a nested cause is matched by its prefix",
+  );
+  // Anything unnamed becomes the code the desktop uses for everything it does not name, so the page
+  // says its general sentence rather than printing English at the user.
+  check(
+    PreferencesErrorCode.of("preferences storage failed: permission denied") === "storage",
+    "an unnamed refusal falls back to storage",
+  );
+  check(PreferencesErrorCode.of("") === "storage", "and so does a refusal with no reason at all");
+});
+
+group("rewriting a reply touches only the refusals", () => {
+  check(
+    PreferencesErrorCode.rewrite(
+      JSON.stringify({ ok: false, error: "preferences changed; reload before saving" }),
+    ) === JSON.stringify({ ok: false, error: "conflict" }),
+    "a refusal is rewritten",
+  );
+  const accepted = JSON.stringify({ ok: true, value: { revision: 4 } });
+  check(PreferencesErrorCode.rewrite(accepted) === accepted, "an accepted write is left alone");
+  // This sits on the path that carries the whole document; forwarding something unreadable is
+  // better than replacing it with a failure invented here.
+  check(
+    PreferencesErrorCode.rewrite("not json") === "not json",
+    "an unreadable reply is forwarded",
+  );
+  check(PreferencesErrorCode.rewrite("null") === "null", "and so is a reply that is not a record");
 });
 
 // The account bridge deliberately models the asynchronous device HTTP API. Give its immediate

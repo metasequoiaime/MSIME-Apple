@@ -511,6 +511,12 @@ runner 现在自己去找仓库既有的约定缓存 `target/desktop-resources`�
 
 ## 下一批实施顺序
 
+增量记录（2026-09-20，HarmonyOS 失败形状对齐）：承接上一条留下的那类缺陷。共享设置 UI 解码失败的主契约是普通对象上的 `error.code`（`accountMessage`、`dictionaryErrorMessage`、`message` 以及社区、聊天、皮肤编辑器各自的 `switch (error.code)`），只把 `Error` 的 `message` 当兜底文案读。本宿主的 `unwrap` 一直抛 `new Error(reply.error)`，而 `Error` 实例没有 `code` 属性，于是这些表一条都匹配不上：账号的六种失败全都落到同一句「账号服务暂不可用」，取消登录不被识别为取消，词库失败丢掉自己那句具体建议，AI 失败则把机器码本身显示给用户。现改为与桌面端 Tauri 的 `CommandError { code }` 同形，抛 `{ code }`。页面启动失败那一处是唯一自己渲染错误的地方，两种形状都要认，故单独取文案。
+
+偏好保存/读取那条路的错误来自 Rust C ABI，而 C ABI 的错误通道是全仓每个入口共用的单一字符串，里面是 `PreferencesError` 的英文 `Display` 文本而不是码——桌面端是在 Tauri 层按枚举匹配出码的。本片在本宿主的对应层（ArkTS 桥）做同样的事：`PreferencesErrorCode` 把共享 UI 确有文案的那几个变体的文本映回码，其余一律 `storage`，与桌面端对未命名失败的处理一致。文本匹配比按枚举匹配弱，所以刻意做窄：文案漂移只会让该失败退回泛化文案，不会给出错误的文案；并在 `crates/client-core` 加了一个把这些文案钉死的测试，漂移在改文案的地方就会被发现。不改 C ABI——iOS、Linux、Android 都在消费同一个错误通道。
+
+设备证据（同一台 MateBook Pro 2in1 模拟器，同一复现路径）：接口地址填不可达的 `https://127.0.0.1:1/v1` 并填入 token 后点「获取模型列表」，上一版显示机器码 `ai_models_unavailable`，本版显示「获取模型失败，请检查地址、密钥和网络。」，与桌面端一致。合成卡顿在 `inputText` 唤起系统输入法后同样复现，移动窗口即重绘，与上一条记录的判断一致。
+
 增量记录（2026-09-20，HarmonyOS 异步桥回推通道）：`#3236` 只恢复了无参数的同步方法，六个带参数、要做网络往返的方法仍然是坏的：`asyncMethodList` 与另一条官方异步注册路径在本 API 等级上都会挂住，页面等不到任何 settle。本片改为页面**同步**发起 `startRequest(kind, id, payload)`，宿主做完异步工作后用 `runJavaScript` 按请求号把结果回推，页面侧以请求号匹配 pending promise，30 秒超时。恢复的六条：`account`、`cloud_dictionary`、`cloud_dictionary_snapshot`、`ai_models`、`ai_test`、`api_credential`。
 
 设备证据（MateBook Pro 2in1 模拟器，HarmonyOS 6.0.1(21)）：设置页加载正常；「我的」页点「刷新登录方式」后 NETSTACK 记录到一次真实 HTTPS 往返（`RespCode:200`，45 ms），即请求腿把异步工作真的发了出去。回包腿的直接观测在 AI 辅助页取得：把接口地址填成不可达的 `https://127.0.0.1:1/v1` 并填入 token 后点「获取模型列表」，宿主 `aiModels()` 捕获连接失败（`os_errno 111`，`curl_code 7`）并返回 `{ok:false,error:'ai_models_unavailable'}`，该字符串经 `runJavaScript` 回推后由页面渲染在「服务模型」区。请求与回包两腿都有设备证据。
