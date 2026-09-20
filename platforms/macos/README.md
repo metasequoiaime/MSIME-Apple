@@ -12,7 +12,7 @@ macOS 平台源码统一放在 `src/` 下按 `backend/`、`voice/`、`candidate/
 
 **2026-09-20 更新：这条限制对本项目已经不生效了。** #3270 之后预览版的 `CFBundleIdentifier` 继承 `app.msime.inputmethod.MetasequoiaIME`，而它在本次登录会话开始时就在输入源列表里，于是命中的是上面那条判据的另一半——已在列表中的 identifier 原地更新是正常的。实测从当前 develop 构建并 `install.sh` 安装之后，`check_input_source.swift` 稳定报 `app.msime.inputmethod.MetasequoiaIME` 与 `.Hans` 两条 enabled，连续 15 次查询全部命中，不必注销登录。上面记的那些排除项仍然有效，只是它们描述的是「给预览版一个全新标识」那条路——那条路依旧走不通，这也正是继承标识的理由。
 
-同一天的后续实测补一条更要紧的：**在别的 worktree 里裸跑 `cmake --build --target MSIMEClientInputMethod` 会把这个注册顶掉。** 构建产物是同一个 identifier 的第二份 bundle，LaunchServices 会登记它；那个构建目录一旦被删，本次会话的输入源条目就跟着消失，之后 `lsregister -u` 陈旧路径、`lsregister -f` 已安装的那份、重新 `--register-input-source`，都只能换来紧接其后的两三次命中，很快又回到查不到，只有重新登录能恢复。`install.sh` 在注册前会 `lsregister -u` 掉指向其他路径的竞争记录，裸构建没有这一步。所以本机验收期间不要单独构建这个 target，要构建就构建完立刻 `install.sh` 重装。
+同一天的后续实测推翻了一条一度写在这里的话。当时写的是「在别的 worktree 裸跑 `cmake --build` 会把注册顶掉，只有重新登录能恢复」——**不对**。那次读到的 0/12 是真的，但过一段时间之后，不做任何操作也没有重新登录，连查 15 次全部命中，直接枚举 TIS 也能看到两条都 enabled。真正的现象是：`TISCreateInputSourceList` 在 bundle 被替换或重新注册之后会有分钟级的一段时间按 bundle id 查不到东西，然后自己回来。
 
 注册结果在刚替换 bundle、刚调用 `--register-input-source` 之后有一段不稳定的窗口：同一条 `check_input_source.swift` 隔几秒跑，会先报 not in the registry，再报 enabled。`install.sh` 只查一次就下结论，两个方向的误判都可能出现——判断安装结果时多查几次再看。
 

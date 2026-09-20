@@ -685,6 +685,18 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 行内保留的只有「真实服务行为」——那是任何依赖外部服务的功能都需要真实账号才能验的，与来源无关。
 
+增量记录（2026-09-20，Windows 第五十三批：想给剪贴板补一条真调 Win32 的测试，结果发现测错了对象）：`tests/clipboard/` 下三个用例都是纯逻辑（历史、链接识别、呈现），`clipboard_text.cpp` 测的也只是 `normalize_clipboard_text` 这个纯字符串函数。真正调 `OpenClipboard` / `EmptyClipboard` / `SetClipboardData` 的地方一行没测，而 Wine 实现了这套 API——看上去是个能当场关掉的缺口。
+
+写完测试却链接失败：`msime::windows::paste_clipboard_text` 未定义。追下去发现 **`platforms/windows/src/clipboard/ClipboardPaste.cpp` 没有出现在任何 CMakeLists 里，不被编译进任何目标；`paste_clipboard_text` 在全仓库也没有任何调用者。**
+
+在用的是另一条路径：`apps/desktop/src-tauri/src/clipboard_history.rs` 调 `msime_host_windows::write_clipboard_text`，即共享 Rust 宿主里的实现，由 Tauri 壳消费。换句话说剪贴板写入早已随「公共功能进 Tauri」这条主线搬到 Rust 侧，C++ 那份是被留下的平行实现。
+
+**本批没有删它**（可能是预留或其他分支在用），也没有把它接起来（那会无缘无故改动生产路径）。按「存在但未接入」记录。
+
+**同时记下一个覆盖事实**：在用的 Rust 路径在 Wine 套件里也没有覆盖——`run-tests-wine.sh` 只 glob `windows-*.exe`、`msime-tsf-*.exe` 与 `msimeui-tests.exe`，即只跑 C++ 测试可执行文件，不跑 cargo 为 Windows 目标产出的测试二进制。要覆盖 `write_clipboard_text` / `read_clipboard_text`，得先扩展这个运行器，那是比加一个用例大的改动。
+
+这一条的教训与本轮多次遇到的同形：**先确认要测的东西是活的**。三个纯逻辑用例的存在，让剪贴板看起来「有覆盖」；而真正会在用户机器上跑的那两条路径，一条根本没编译，另一条套件够不着。
+
 ## 来源模块的落点
 
 逐模块记下来源的每个目录在本仓库落在哪里，以及为什么。上面那张功能表按「功能组」组织，回答的是某个功能有没有；这张按**来源的源码目录**组织，回答的是来源的每一块代码去了哪儿——两者互相校验，一块代码找不到落点就是缺口，哪怕对应功能在表里被标成有。
