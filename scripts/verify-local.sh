@@ -145,6 +145,12 @@ python3 scripts/test-conflict-markers.py || fail "conflict markers"
 note "default config contracts"
 python3 scripts/test-default-config-parity.py || fail "default config contracts"
 
+# The reference's factory configuration is the most complete list of what that product can be
+# told to do. A key it has and this repository does not is a feature nobody migrated, and nothing
+# else would notice. Skips without a reference checkout beside the main worktree.
+note "windows config keys"
+python3 scripts/test-windows-config-keys.py || fail "windows config keys"
+
 # A settings-page key the Rust document has no field for does not get dropped:
 # deny_unknown_fields fails the whole save. Cheap enough to run in --quick,
 # and it is the pre-merge gate that would have caught it.
