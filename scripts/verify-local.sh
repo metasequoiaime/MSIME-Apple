@@ -178,12 +178,18 @@ note "compile: rust workspace"
 # guard below matched on no machine and the desktop crate was excluded from
 # every run anyone has made. Three compile errors reached develop behind that.
 desktop_resource="target/macos/水杉输入法（预览）.app"
-[ "$windows_host" -eq 1 ] && desktop_resource="target/win-full"
-if [ -e "$desktop_resource" ]; then
+# The bundle is not the only resource tauri.macos.conf.json points at. A checkout with the input method
+# built but the dictionary release not staged has half of them, and the build script fails on the missing
+# half rather than skipping - which reads as a broken crate instead of an unprepared checkout.
+desktop_companion="target/macos/EngineResources"
+[ "$windows_host" -eq 1 ] && { desktop_resource="target/win-full"; desktop_companion="target/win-full"; }
+if [ -e "$desktop_resource" ] && [ -e "$desktop_companion" ]; then
   cargo check --workspace --all-targets 2>&1 | tail -3
   [ "${PIPESTATUS[0]}" -eq 0 ] || fail "cargo check"
 else
-  echo "msime-desktop: skipped ($desktop_resource not built yet)"
+  missing="$desktop_resource"
+  [ -e "$desktop_resource" ] && missing="$desktop_companion"
+  echo "msime-desktop: skipped ($missing not built yet)"
   cargo check --workspace --all-targets --exclude msime-desktop 2>&1 | tail -3
   [ "${PIPESTATUS[0]}" -eq 0 ] || fail "cargo check"
 fi
