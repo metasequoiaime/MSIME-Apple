@@ -772,6 +772,24 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 ## 下一批实施顺序
 
+增量记录（2026-09-21，来源测试清单第二批：字体族解析）：来源 `test_system_font_family.cpp` 钉住两条——下拉里列的是 DirectWrite 的族名且有序，以及**旧配置里存的 face 名要解析成 CSS 能匹配的族名**（`仓耳今楷05 W03` → `仓耳今楷05`）。第一条 macOS 已满足：`system_fonts::list` 走 `CTFontManagerCopyAvailableFontFamilyNames`，装进 `BTreeSet` 天然有序。第二条此前是空的：`resolve_css_families` 只在 Windows 上查别名，其余平台原样返回，注释写的是「其他宿主本来就只有族名」。
+
+对 macOS 这条不成立，理由和 Windows 完全一样：偏好里的字体名不只来自下拉——旧版本写下的文件、迁移过来的配置、手改的 JSON 都算数，而 CoreText 认 PostScript 名（`PingFangSC-Semibold`）、CSS 不认。于是候选窗（走 `NSFont`）显示的是用户选的那个字体，紧挨着的设置页预览（走 CSS）悄悄回退成别的——只有预览是错的，两边还对不上。
+
+按 CoreText 补上，形态与 Windows 那份对应但不照搬：CoreText 查不到名字时不报错，而是返回一个替代字体，所以只有「拿回来的就是问的那一个」时才采用答案——PostScript 名、全名、或者问的本来就是族名，三者之一匹配才算数，否则保留原值不动。实测：`Helvetica-Bold` → `Helvetica`，`PingFangSC-Semibold` → `PingFang SC`，`HiraginoSans-W3` 与 `Hiragino Sans W3` 都 → `Hiragino Sans`，`Synthetic W03` 原样返回。用例另钉住顺序与条数——调用方是按位置把答案配回候选字体/英文字体/回落字体三个字段的，少一条或换个顺序就会把一个字体的族名安到另一个设置上。
+
+增量记录（2026-09-21，来源测试清单这条轴转向 macOS，第一批：候选导航）：前几批按来源的设置页、文案、配色比，这一批换一个入口——来源 `server/tests/src/` 的 43 个测试。它们是来源自己用断言钉住的行为，而「两边都有、行为不同」这一类恰恰只有它们抓得住。这一批走候选窗那一组（`test_candidate_ui_state`、`test_candidate_ui_owner`、`test_candidate_size_estimator`、`test_candidate_view_model`、`test_floating_toolbar_visibility_policy`）。
+
+查到一处真实差异并修掉：**用方向键走到已加载候选的末尾时，引擎扣住的那批候选放不出来。**
+
+来源 `server/src/ipc/event_listener.cpp` 的 `move_selection` 在两种情况下先调 `expand_initial_candidates()` 再移动——选中项已在最后一个候选上，或选中项在当前页尾且下一页是短尾页。本仓的共享运行时只在 `Action::NextPage` 上扩充（`expand_for_next_page`），`Action::NextCandidate` 直接把高亮夹在 `cached.candidates.len() - 1`。引擎对单字母查询有二十四条的初始上限，于是同一个查询下按 Page Down 能走到词库深处，按方向键（以及任何一次一条地走的宿主路径）走到第二十四条就停住，再按没有反应。macOS 的方向键走的正是这条路（`InputController.mm` 把 ↑/↓ 发成 `MSIME_PREVIOUS_CANDIDATE`/`MSIME_NEXT_CANDIDATE`，即 host-api 的 102/103），Linux 与 HarmonyOS 同理。
+
+改在共享层（`crates/input-runtime`），两个触发条件按来源逐条对应，扩充后的重排复用原有路径（`rerank` + `demote_runner_up_readings`），四条用例钉住：走到末尾能取到扣住的候选、踏进短尾页前先填满（与翻页一侧同形，页面不会先短一下再长出来）、引擎没有存货时高亮停在最后一条不回绕、向上走永远不请求扩充（否则会在用户往回读的时候重排列表）。
+
+同组其余四项没有缺口，一并记下判据：候选窗的固定位置项本仓已按来源的 `#379AD3` 单独着色（`InputController.mm` 的 `candidateFixed`，与来源 `candidate_view_model.h` 同值），不与高亮合并；悬浮工具栏可见性 `configured_enabled && !fullscreen && ime_active` 与来源 `floating_toolbar_visibility_policy.h` 逐项相同（`MetasequoiaFloatingToolbarShouldShow`）；`candidate_size_estimator` 是 Direct2D 的度量工具，macOS 侧由 `CandidateRowFit.h` 和原生面板用例覆盖，属实现形态差异；翻页键的六组开关（minus/equal、逗号句号、方括号、Tab、PageUp/Down、方向键）macOS 全部消费，另多出 Home/End 落在当前页首尾。
+
+方向键的朝向是刻意的平台适配：来源只认 ↑/↓，macOS 按候选窗朝向决定（竖排认 ↑/↓，横排认 ←/→），这是既有决定，不动。
+
 增量记录（2026-09-20，视觉层）：文字各层比完，转到最影响「看起来一不一样」的东西——配色与度量。结论是这一层**本来就是精确移植**：
 
 - 配色。来源 `styles/variables.css` 的深色 64 个、浅色 63 个变量，与本仓 `styles.css` 里两个主题块逐值相同，唯一差异是一条长阴影在本仓换了行、渲染值一致。

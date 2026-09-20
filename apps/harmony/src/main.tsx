@@ -12,6 +12,7 @@ import {
   type LocalDictionaryFormat,
   type LocalDictionaryKind,
   type Preferences,
+  type SavedTouchKeyboardSkin,
   type SkinCatalog,
   type SkinFont,
   type SkinImage,
@@ -23,6 +24,14 @@ import {
   CloudCandidatesPanel,
   type AccountClient,
   type AccountPreferences,
+  type CommunityResource,
+  type CommunityResourceApplication,
+  type CommunityResourceClient,
+  type CommunityResourcePage,
+  type CommunitySkin,
+  type CommunitySkinClient,
+  type CommunitySkinDownload,
+  type CommunitySkinPage,
   type AccountPreferenceSchema,
   type SettingsSyncClient,
   type ChatClient,
@@ -66,6 +75,8 @@ interface NativeBridge {
   readSkinImage(id: string, relative: string): string;
   readSkinFont(id: string, relative: string): string;
   readSkinToolbarCss(id: string): string;
+  /** `""` reads the named designs; a serialized action applies one change first. */
+  customSkinLibrary(action: string): string;
   appVersion(): string;
   dictionary(action: string): string;
   cloudDictionaryDownload(entry: string): string;
@@ -383,6 +394,109 @@ function chatClient(native: NativeBridge): ChatClient {
   };
 }
 
+/**
+ * The community skin gallery.
+ *
+ * Browsing is not gated on an account: the gallery is public, and a signed-out user who could not
+ * look at it would have no way to decide whether an account is worth making. The host attaches the
+ * session when there is one, which is what turns `owned` and `my_rating` into this user's answers.
+ *
+ * `download` is the only call that is more than a request. The host fetches the design, starts a
+ * trial with it and imports it into the library in one step, and answers with both halves: the
+ * saved skin for the library the page just grew, and the trial id the page answers 保留 or 还原
+ * with afterwards.
+ */
+function communitySkinClient(native: NativeBridge): CommunitySkinClient {
+  const request = <T,>(action: Record<string, unknown>): Promise<T> =>
+    bridgeRequest(
+      native,
+      "community_skin",
+      JSON.stringify({ operation: "community_skin", ...action }),
+    ).then(unwrap<T>);
+  return {
+    list: (offset, search) =>
+      request<CommunitySkinPage>({ community_operation: "list", offset, search }),
+    detail: (id) => request<CommunitySkin>({ community_operation: "detail", id }),
+    download: (id, name) =>
+      request<CommunitySkinDownload>({ community_operation: "download", id, name }),
+    rate: async (id, stars) => {
+      await request({ community_operation: "rate", id, stars });
+    },
+    publish: async (id, name, description, design) => {
+      await request({ community_operation: "publish", id, name, description, design });
+    },
+    unpublish: async (id) => {
+      await request({ community_operation: "unpublish", id });
+    },
+    finishTrial: async (id, keep) => {
+      await request({ community_operation: "finish_trial", id, keep });
+    },
+  };
+}
+
+/**
+ * Community dictionaries and reply templates.
+ *
+ * The public list and one resource's detail read without an account, the way the skin gallery does.
+ * 我的作品 and 收藏 do not: they are questions about an account, and answering them without one
+ * would either be empty or be somebody else's.
+ *
+ * `storeReply` and `removeReply` never reach the network. They write the local file the keyboard
+ * process rereads when a reply is asked for, which is the only thing the two sides of this app
+ * share about the community — and it holds only what the user chose to keep.
+ */
+function communityResourceClient(native: NativeBridge): CommunityResourceClient {
+  const request = <T,>(action: Record<string, unknown>): Promise<T> =>
+    bridgeRequest(
+      native,
+      "community_resource",
+      JSON.stringify({ operation: "community_resource", ...action }),
+    ).then(unwrap<T>);
+  return {
+    list: (kind, scope, search, offset) =>
+      request<CommunityResourcePage>({
+        resource_operation: "list",
+        kind,
+        scope,
+        search,
+        offset,
+      }),
+    detail: (id) => request<CommunityResource>({ resource_operation: "detail", id }),
+    publish: async (id, kind, name, description, content, revision) => {
+      await request({
+        resource_operation: "publish",
+        id,
+        kind,
+        name,
+        description,
+        content,
+        revision,
+      });
+    },
+    apply: (id, resourceRevision) =>
+      request<CommunityResourceApplication>({
+        resource_operation: "apply",
+        id,
+        resource_revision: resourceRevision,
+      }),
+    save: async (id, saved) => {
+      await request({ resource_operation: "save", id, saved });
+    },
+    rate: async (id, stars) => {
+      await request({ resource_operation: "rate", id, stars });
+    },
+    unpublish: async (id) => {
+      await request({ resource_operation: "unpublish", id });
+    },
+    storeReply: async (item) => {
+      await request({ resource_operation: "store_reply", item });
+    },
+    removeReply: async (id) => {
+      await request({ resource_operation: "remove_reply", id });
+    },
+  };
+}
+
 function cloudClipboardClient(native: NativeBridge, close: () => void): CloudClipboardPanelClient {
   return {
     close: async () => close(),
@@ -607,9 +721,20 @@ function makeClient(
     fuzzyPinyin: true,
     touchKeyboardSchemes: true,
     customTouchKeyboardSkins: true,
+    // A named design can carry a bounded photo, so this is the one settings call whose payload is
+    // measured in megabytes. It still goes through the synchronous bridge: the alternative is the
+    // request-by-number channel, and a library read that has to survive a page reload is worse
+    // than a brief pause on a screen the user just opened.
+    customSkinLibrary: {
+      load: async () => unwrap<SavedTouchKeyboardSkin[]>(native.customSkinLibrary("")),
+      mutate: async (action) =>
+        unwrap<SavedTouchKeyboardSkin[]>(native.customSkinLibrary(JSON.stringify(action))),
+    },
     candidateEnglishGloss: true,
     account: accountClient(native),
     chat: chatClient(native),
+    communitySkins: communitySkinClient(native),
+    communityResources: communityResourceClient(native),
     openCloudClipboard: async () => openCloudClipboard(),
     openCloudDictionary: async () => openCloudDictionary(),
   };

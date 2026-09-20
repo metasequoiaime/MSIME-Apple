@@ -35,7 +35,16 @@ type Session = {
 
 type Action = Record<string, unknown>;
 
-const MAX_ACTION_BYTES = 64 * 1024;
+/**
+ * The envelope ceiling, which is a first line rather than the real bound.
+ *
+ * Every operation checks its own payload — the clipboard 4,000 characters, a dictionary import 64
+ * KB, a chat request 64 KB — so this exists to stop something absurd before it is even parsed. It
+ * is 512 KB rather than 64 because publishing a community dictionary carries up to 128 entries of
+ * up to 1,024 characters each, and the shared service allows 350,000 bytes of content: a 64 KB
+ * envelope would have refused a resource the server would have accepted, on this host only.
+ */
+const MAX_ACTION_BYTES = 512 * 1024;
 const MAX_CLIPBOARD_TEXT = 4000;
 const MAX_SEARCH = 256;
 
@@ -55,6 +64,111 @@ const MAX_CHAT_RESPONSE_BYTES = 16 * 1024;
 /** A completion is a model writing, not a lookup; the shared clients wait this long for one. */
 const CHAT_TIMEOUT_MS = 125 * 1000;
 const CHAT_ROLES = ["user", "assistant", "system"];
+
+/** The gallery's own bounds, matching `client-core`'s community skin service. */
+const MAX_COMMUNITY_SEARCH = 128;
+
+/**
+ * A publication id, checked before it is put in a path.
+ *
+ * The service names skins by UUID and the shared service parses one before building the URL. A
+ * host that interpolated whatever the page sent would let a page turn a skin id into a different
+ * endpoint, so the shape is the check: anything that is not a hyphenated UUID is refused here.
+ */
+function validUuid(value: unknown): value is string {
+  return (
+    typeof value === "string" &&
+    /^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$/.test(value)
+  );
+}
+
+/**
+ * Text bound by characters rather than bytes, as the shared service counts it.
+ *
+ * A description may contain newlines and tabs; a name may not. Everything else that is a control
+ * character is refused in both, which is the same rule `valid_text` applies.
+ */
+function validCommunityText(
+  value: unknown,
+  minimum: number,
+  maximum: number,
+  multiline = false,
+): value is string {
+  if (typeof value !== "string") return false;
+  const characters = [...value];
+  if (characters.length < minimum || characters.length > maximum) return false;
+  return !characters.some((character) => {
+    if (multiline && (character === "\n" || character === "\t")) return false;
+    const code = character.codePointAt(0) ?? 0;
+    return code <= 0x1f || code === 0x7f;
+  });
+}
+
+function validCommunityKind(value: unknown): value is string {
+  return value === "dictionary" || value === "reply";
+}
+
+/** `""` is 全部, and the only scope a signed-out browser can ask for. */
+function validCommunityScope(value: unknown): value is string {
+  return value === "" || value === "mine" || value === "saved";
+}
+
+/**
+ * What a resource may carry, which depends on what it is.
+ *
+ * A reply is a prompt and nothing else; a dictionary is between one and 128 entries and no prompt.
+ * The shared service refuses the other combinations outright rather than ignoring the extra half,
+ * because a "dictionary" carrying a prompt is a resource whose author believed it was something
+ * else.
+ */
+function validResourceContent(kind: unknown, value: unknown): boolean {
+  if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+  const content = value as Action;
+  const entries = content.entries;
+  const prompt = content.prompt;
+  if (kind === "reply") {
+    return (
+      (entries === undefined || (Array.isArray(entries) && entries.length === 0)) &&
+      validCommunityText(prompt, 1, 2000, true)
+    );
+  }
+  if (prompt !== undefined && prompt !== null) return false;
+  if (!Array.isArray(entries) || entries.length === 0 || entries.length > 128) return false;
+  const seen: string[] = [];
+  for (const value of entries as unknown[]) {
+    if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
+    const entry = value as Action;
+    const entryKind = entry.kind;
+    const code = entry.code;
+    const word = entry.word;
+    if (
+      typeof entryKind !== "string" ||
+      !["pinyin", "wubi", "quick", "english"].includes(entryKind) ||
+      !validCommunityText(code, 1, 256) ||
+      !validCommunityText(word, 1, 1024) ||
+      typeof entry.weight !== "number" ||
+      !Number.isInteger(entry.weight) ||
+      entry.weight < 0
+    ) {
+      return false;
+    }
+    const key = `${entryKind}\u0000${code}\u0000${word}`;
+    if (seen.includes(key)) return false;
+    seen.push(key);
+  }
+  return true;
+}
+
+/** The community pages have their own wording; an `account_*` code arrives as the generic one. */
+function communityStatus(status: number): string {
+  if (status === 400) return "community_invalid";
+  if (status === 401) return "community_unauthorized";
+  if (status === 403) return "community_forbidden";
+  if (status === 404) return "community_not_found";
+  if (status === 409) return "community_conflict";
+  if (status === 429) return "community_rate_limited";
+  return "community_unavailable";
+}
 
 function error(code: string): string {
   return JSON.stringify({ ok: false, error: code });
@@ -192,10 +306,19 @@ export class AccountCloudBridge {
           return await this.dictionary(action);
         case "chat":
           return await this.chat(action);
+        case "community_skin":
+          return await this.community(action);
+        case "community_resource":
+          return await this.communityResource(action);
         default:
           return error("account_invalid");
       }
     } catch (cause) {
+      // The community pages decode a different vocabulary from the account ones, so a thrown
+      // transport failure has to arrive in the one its caller has wording for.
+      if (operation === "community_skin" || operation === "community_resource") {
+        return error("community_unavailable");
+      }
       return error(cause instanceof Error ? cause.message : "account_unavailable");
     }
   }
@@ -464,6 +587,226 @@ export class AccountCloudBridge {
       return error("account_unavailable");
     }
     return success({ content });
+  }
+
+  /**
+   * The community skin gallery.
+   *
+   * Browsing is deliberately not authenticated: the gallery is public, and a signed-out user who
+   * could not look at it would have no way to decide whether an account is worth making. The
+   * session is attached when there is one, because that is what turns `owned` and `my_rating` into
+   * this user's answers rather than nobody's. Everything that changes something — downloading,
+   * rating, publishing, withdrawing — requires it.
+   *
+   * The design itself is not validated here beyond being an object. It is handed straight to the
+   * shared store, which has the only complete definition of a valid design and normalizes it; a
+   * second opinion written on this host would be the one that goes stale.
+   */
+  private async community(action: Action): Promise<string> {
+    const operation = action.community_operation;
+    if (operation === "list") {
+      if (
+        !this.boundedNumber(action.offset, 0, 1000000) ||
+        !validString(action.search, MAX_COMMUNITY_SEARCH, true)
+      ) {
+        return error("community_invalid");
+      }
+      const path =
+        `/v1/community/skins?offset=${action.offset}&q=` + `${encodeURIComponent(action.search)}`;
+      return await this.communityRequest("GET", path, false);
+    }
+    if (operation === "detail") {
+      if (!validUuid(action.id)) return error("community_invalid");
+      return await this.communityRequest("GET", `/v1/community/skins/${action.id}`, false);
+    }
+    if (operation === "download") {
+      if (!validUuid(action.id)) return error("community_invalid");
+      return await this.communityRequest("POST", `/v1/community/skins/${action.id}/download`, true);
+    }
+    if (operation === "rate") {
+      if (!validUuid(action.id) || !this.boundedNumber(action.stars, 1, 5)) {
+        return error("community_invalid");
+      }
+      return await this.communityRequest("PUT", `/v1/community/skins/${action.id}/rating`, true, {
+        stars: action.stars,
+      });
+    }
+    if (operation === "publish") {
+      const name = action.name;
+      const description = action.description;
+      if (
+        !validUuid(action.id) ||
+        !validCommunityText(name, 1, 32) ||
+        name.trim() !== name ||
+        !validCommunityText(description, 0, 280, true) ||
+        action.design === null ||
+        typeof action.design !== "object" ||
+        Array.isArray(action.design)
+      ) {
+        return error("community_invalid");
+      }
+      return await this.communityRequest("POST", "/v1/community/skins", true, {
+        id: action.id,
+        name,
+        description,
+        design: action.design,
+      });
+    }
+    if (operation === "unpublish") {
+      if (!validUuid(action.id)) return error("community_invalid");
+      return await this.communityRequest("DELETE", `/v1/community/skins/${action.id}`, true);
+    }
+    return error("community_invalid");
+  }
+
+  /**
+   * One community request, with the session attached when there is one.
+   *
+   * The failure codes are the community vocabulary rather than the account one: the pages that read
+   * these have wording for "已达到发布上限" and "自己的作品不能评分"，which an `account_conflict`
+   * would arrive as the generic sentence instead.
+   */
+  private async communityRequest(
+    method: string,
+    path: string,
+    authenticated: boolean,
+    body?: Record<string, unknown>,
+  ): Promise<string> {
+    const session = this.session;
+    const signedIn = session !== null && session.expires_at > Date.now();
+    if (authenticated && !signedIn) return error("community_unauthorized");
+    const generation = this.generation;
+    const token = signedIn && session !== null ? session.access_token : undefined;
+    const response = await this.transport.request(method, path, token, body);
+    if (generation !== this.generation) return error("community_cancelled");
+    if (response.status === 401 && signedIn) {
+      this.clearExpired();
+      return error("community_unauthorized");
+    }
+    if (response.status < 200 || response.status >= 300) {
+      return error(communityStatus(response.status));
+    }
+    const value = parseJson(response.body);
+    if (value === null && response.body.length > 0) return error("community_unavailable");
+    return success(value ?? {});
+  }
+
+  /**
+   * Community dictionaries and reply templates.
+   *
+   * The public list and one resource's detail are readable signed out, for the same reason the skin
+   * gallery is. 我的作品 and 收藏 are not: they are questions about an account, and answering them
+   * without one would either be empty or be somebody else's.
+   */
+  private async communityResource(action: Action): Promise<string> {
+    const operation = action.resource_operation;
+    if (operation === "list") {
+      const kind = action.kind;
+      const scope = action.scope;
+      if (
+        !validCommunityKind(kind) ||
+        !validCommunityScope(scope) ||
+        !this.boundedNumber(action.offset, 0, 1000000) ||
+        !validString(action.search, MAX_COMMUNITY_SEARCH, true)
+      ) {
+        return error("community_invalid");
+      }
+      // A scope other than "all" is a question about the signed-in user, so it needs the session
+      // rather than merely benefiting from it.
+      const path =
+        `/v1/community/resources?kind=${kind}&scope=${scope}` +
+        `&q=${encodeURIComponent(action.search)}&offset=${action.offset}`;
+      return await this.communityRequest("GET", path, scope !== "");
+    }
+    if (operation === "detail") {
+      if (!validUuid(action.id)) return error("community_invalid");
+      return await this.communityRequest("GET", `/v1/community/resources/${action.id}`, false);
+    }
+    if (operation === "publish") {
+      const name = action.name;
+      const description = action.description;
+      if (
+        !validUuid(action.id) ||
+        !validCommunityKind(action.kind) ||
+        !validCommunityText(name, 1, 32) ||
+        name.trim() !== name ||
+        !validCommunityText(description, 0, 280, true) ||
+        !this.boundedNumber(action.revision, 0, 50000) ||
+        !validResourceContent(action.kind, action.content)
+      ) {
+        return error("community_invalid");
+      }
+      return await this.communityRequest("POST", "/v1/community/resources", true, {
+        id: action.id,
+        kind: action.kind,
+        name,
+        description,
+        content: action.content,
+        revision: action.revision,
+      });
+    }
+    if (operation === "apply") return await this.applyResource(action);
+    if (operation === "save") {
+      if (!validUuid(action.id) || typeof action.saved !== "boolean") {
+        return error("community_invalid");
+      }
+      return await this.communityRequest("PUT", `/v1/community/resources/${action.id}/save`, true, {
+        saved: action.saved,
+      });
+    }
+    if (operation === "rate") {
+      if (!validUuid(action.id) || !this.boundedNumber(action.stars, 1, 5)) {
+        return error("community_invalid");
+      }
+      return await this.communityRequest(
+        "PUT",
+        `/v1/community/resources/${action.id}/rating`,
+        true,
+        { stars: action.stars },
+      );
+    }
+    if (operation === "unpublish") {
+      if (!validUuid(action.id)) return error("community_invalid");
+      return await this.communityRequest("DELETE", `/v1/community/resources/${action.id}`, true);
+    }
+    return error("community_invalid");
+  }
+
+  /**
+   * Merging a shared dictionary into the account's own.
+   *
+   * Two requests, because the server needs to be told which revision of the user's dictionary this
+   * is being applied to: the read comes first and its answer goes into the write. The shared
+   * service does the same, and it is the reason this is not a single call the page could make — a
+   * page that held the revision between the two would be holding it across a screen the user can
+   * leave.
+   */
+  private async applyResource(action: Action): Promise<string> {
+    if (!validUuid(action.id) || !this.boundedNumber(action.resource_revision, 1, 50000)) {
+      return error("community_invalid");
+    }
+    const catalog = await this.communityRequest(
+      "GET",
+      "/v1/users/me/dictionaries/quick/catalog?q=&offset=0&limit=100&scheme=pinyin&profile=xiaohe",
+      true,
+    );
+    let dictionaryRevision: number;
+    try {
+      const parsed: Action = JSON.parse(catalog) as Action;
+      if (parsed.ok !== true) return catalog;
+      const value = parsed.value as Action;
+      const revision = value.revision;
+      if (typeof revision !== "number" || !Number.isInteger(revision) || revision < 0) {
+        return error("community_unavailable");
+      }
+      dictionaryRevision = revision;
+    } catch {
+      return error("community_unavailable");
+    }
+    return await this.communityRequest("POST", `/v1/community/resources/${action.id}/apply`, true, {
+      resource_revision: action.resource_revision,
+      dictionary_revision: dictionaryRevision,
+    });
   }
 
   private kind(value: unknown): string | null {

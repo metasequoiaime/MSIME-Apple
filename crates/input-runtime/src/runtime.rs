@@ -578,13 +578,47 @@ impl<E: InputEngine> Runtime<E> {
             return Ok(false);
         }
         let page_was_full = (page + 1) * self.page_size <= len;
+        if !self.expand_cached_candidates()? {
+            return Ok(false);
+        }
+        Ok(page == last_page && !page_was_full)
+    }
+
+    /// Moving the highlight off the end of the loaded list has to release the withheld candidates
+    /// too, not only paging.
+    ///
+    /// The same cap sits behind both. A host that walks the list one candidate at a time - which is
+    /// every arrow key and every mouse wheel notch - would otherwise stop at the twenty-fourth
+    /// candidate and be unable to reach the rest of the dictionary, while pressing page-down on the
+    /// same query walks straight past it. The second condition mirrors the paging one: stepping into
+    /// the partial last page fills it first, so it is never shown short and then grown.
+    fn expand_for_next_candidate(&mut self) -> Result<(), RuntimeError> {
+        let len = self.cached.candidates.len();
+        if len == 0 {
+            return Ok(());
+        }
+        let page = self.highlighted / self.page_size;
+        let last_page = (len - 1) / self.page_size;
+        let at_last_candidate = self.highlighted + 1 == len;
+        let at_page_end = (self.highlighted + 1).is_multiple_of(self.page_size);
+        let next_is_partial_last = page + 1 == last_page && !len.is_multiple_of(self.page_size);
+        if !at_last_candidate && !(at_page_end && next_is_partial_last) {
+            return Ok(());
+        }
+        self.expand_cached_candidates()?;
+        Ok(())
+    }
+
+    /// Ask the Engine for what it held back, and re-apply the orderings the cached page carries:
+    /// the arrivals are ranked against the candidates already on screen, not appended raw.
+    fn expand_cached_candidates(&mut self) -> Result<bool, RuntimeError> {
         if !self.engine.expand_initial_candidates()? {
             return Ok(false);
         }
         self.cached = self.engine.snapshot()?;
         self.rerank();
         self.demote_runner_up_readings();
-        Ok(page == last_page && !page_was_full)
+        Ok(true)
     }
 
     fn advance(&mut self) -> Result<(), RuntimeError> {
@@ -891,6 +925,9 @@ impl<E: InputEngine> Runtime<E> {
         self.advance()?;
         let filled_current_page =
             matches!(action, Action::NextPage) && self.expand_for_next_page()?;
+        if matches!(action, Action::NextCandidate) {
+            self.expand_for_next_candidate()?;
+        }
         let len = self.cached.candidates.len();
         let next_highlight = match &action {
             // Staying keeps the highlight exactly where it was: the page did not change, it only

@@ -1,9 +1,17 @@
 //! Installed family names only; never expose font files or paths to the webview.
+#[cfg(target_os = "macos")]
+mod aliases_macos;
 #[cfg(windows)]
 mod aliases_windows;
 
 /// Resolve display-only CSS names without changing stored font preferences.
-/// Other hosts already use their native family names.
+///
+/// A preference can hold a face name where a stylesheet needs a family, because the picker is not the
+/// only way a name gets in there: a file written by an older build, a migrated profile, an edit by
+/// hand. The hosts whose native text layer accepts both - DirectWrite and CoreText - render such a
+/// name correctly in the candidate window while the settings preview beside it silently falls back,
+/// so both ask their own font system what family the name belongs to. The remaining hosts have only
+/// family names to begin with.
 pub fn resolve_css_families(names: Vec<String>) -> Result<Vec<String>, &'static str> {
     if names.len() > 33
         || names
@@ -17,7 +25,12 @@ pub fn resolve_css_families(names: Vec<String>) -> Result<Vec<String>, &'static 
         .into_iter()
         .map(|name| aliases_windows::resolve(&name).unwrap_or(name))
         .collect());
-    #[cfg(not(windows))]
+    #[cfg(target_os = "macos")]
+    return Ok(names
+        .into_iter()
+        .map(|name| aliases_macos::resolve(&name).unwrap_or(name))
+        .collect());
+    #[cfg(not(any(windows, target_os = "macos")))]
     Ok(names)
 }
 

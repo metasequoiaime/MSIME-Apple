@@ -18,7 +18,30 @@ export const skinCatalog: (directory: string) => string;
 export const skinResource: (request: string) => string;
 /** JSON stylesheet request; returns a nullable stylesheet in the structured response. */
 export const skinToolbarStylesheet: (request: string) => string;
-export const savePreferences: (directory: string, expectedRevision: number, snapshot: string) => string;
+/**
+ * `{directory}` reads the named custom touch-keyboard designs; adding `{action}` applies one change
+ * first. Both answer with the whole library. Takes the library's file lock, so call it off the UI
+ * thread when the design carries a photo.
+ */
+export const customSkinLibrary: (request: string) => string;
+/**
+ * `{directory,id,name,design}` starts a skin trial and imports the design, answering `{skin,trial}`.
+ * One call rather than two: the trial remembers the skin being replaced, so a failed import has to
+ * end it. Writes preferences and two locked files, so call it off the UI thread.
+ */
+export const communitySkinInstall: (request: string) => string;
+/** `{directory,action:{operation:"finish",id,keep}}` or `{operation:"restore_pending"}`. */
+export const keyboardSkinTrial: (request: string) => string;
+/**
+ * `{file,action:{operation:"load"|"save_reply"|"remove",...}}` over the reply templates the user
+ * kept. Every operation answers with the whole library; the keyboard process rereads the same file.
+ */
+export const communityResourceLibrary: (request: string) => string;
+export const savePreferences: (
+  directory: string,
+  expectedRevision: number,
+  snapshot: string,
+) => string;
 export const dictionary: (request: string) => string;
 export const updatePreferences: (handle: number, snapshot: string) => string;
 export const typingStatistics: (request: string) => string;
@@ -43,8 +66,12 @@ export const aiRequestForQuery: (handle: number, query: string) => string;
 export const aiHttpRequest: (request: string) => string;
 export const parseAiResponse: (body: string, limit: number) => string;
 export const applyCloudResponse: (handle: number, query: string, body: string) => string;
-export const applyOnlineCandidates: (handle: number, query: string, candidates: string,
-  source: number) => string;
+export const applyOnlineCandidates: (
+  handle: number,
+  query: string,
+  candidates: string,
+  source: number,
+) => string;
 export const personalDictionarySync: (options: string) => string;
 export const prepareHost: (options: string) => string;
 
@@ -67,17 +94,31 @@ export const balancePairedPunctuationAfterAutoClose: (handle: number, opening: n
 export const command: (handle: number, command: number) => string;
 
 export const select: (handle: number, generation: number, index: number) => string;
-export const selectEdge: (handle: number, generation: number, index: number, edge: number) => string;
+export const selectEdge: (
+  handle: number,
+  generation: number,
+  index: number,
+  edge: number,
+) => string;
 export const selectAnyCandidate: (handle: number, generation: number, index: number) => string;
 export const pinCandidate: (handle: number, generation: number, index: number) => string;
-export const fixCandidatePosition: (handle: number, generation: number, index: number, position: number) => string;
+export const fixCandidatePosition: (
+  handle: number,
+  generation: number,
+  index: number,
+  position: number,
+) => string;
 export const clearCandidatePosition: (handle: number, generation: number, index: number) => string;
 export const removeCandidate: (handle: number, generation: number, index: number) => string;
 export const chooseNineKeySpelling: (handle: number, generation: number, index: number) => string;
 
 export const view: (handle: number) => string;
 export const allCandidates: (handle: number) => string;
-export const applyTranslations: (handle: number, generation: number, translations: string) => string;
+export const applyTranslations: (
+  handle: number,
+  generation: number,
+  translations: string,
+) => string;
 /** Start/cancel the shared voice generation used to reject stale asynchronous recognition. */
 export const voiceStart: (handle: number) => string;
 export const voiceCancel: (handle: number) => string;
@@ -89,6 +130,10 @@ export interface DoubaoFrameResult {
 }
 
 /** Native gzip framing keeps the ArkTS WebSocket adapter free of credential or transcript logging. */
-export const doubaoEncodeFrame: (messageType: number, flags: number, sequence: number,
-  payload: ArrayBuffer) => ArrayBuffer;
+export const doubaoEncodeFrame: (
+  messageType: number,
+  flags: number,
+  sequence: number,
+  payload: ArrayBuffer,
+) => ArrayBuffer;
 export const doubaoDecodeFrame: (frame: ArrayBuffer) => DoubaoFrameResult | null;

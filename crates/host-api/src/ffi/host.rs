@@ -393,6 +393,295 @@ pub unsafe extern "C" fn msime_client_skin_toolbar_stylesheet(
     })
 }
 
+#[derive(Debug, Deserialize)]
+struct CustomSkinLibraryRequest {
+    directory: String,
+    action: Option<msime_client_core::skin::custom_library::CustomSkinLibraryAction>,
+}
+
+/// Read or change the named custom touch-keyboard designs.
+///
+/// The Tauri hosts hold `CustomSkinLibraryStore` as Rust and call it directly.
+/// A host that reaches this crate only through the C ABI - the HarmonyOS
+/// settings bridge is the one that does - would otherwise have to write a
+/// second implementation of the same file: its locking, its atomic replace, its
+/// name normalization and its twelve-item limit. Two stores for one library is
+/// how the two of them start disagreeing about what is in it.
+///
+/// A request with no `action` reads; one with an action applies it. Both answer
+/// with the whole library, because every caller redraws the list afterwards and
+/// a mutation that returned only its own item would leave the page guessing
+/// what the rename did to the ordering.
+/// # Safety
+/// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_custom_skin_library(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        // A design can carry a bounded photo, so the ceiling is the store's own
+        // file limit rather than the small one the other requests here use.
+        if request.is_null() || length > 9_000_000 {
+            return Err("community_storage".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let request: CustomSkinLibraryRequest =
+            serde_json::from_slice(bytes).map_err(|_| "community_invalid")?;
+        if !Path::new(&request.directory).is_absolute() {
+            return Err("community_storage".into());
+        }
+        let store = msime_client_core::skin::custom_library::CustomSkinLibraryStore::new(
+            &request.directory,
+        );
+        let items = match request.action {
+            None => store.load(),
+            Some(action) => store.mutate(action),
+        }
+        .map_err(custom_skin_library_code)?;
+        serde_json::to_value(items).map_err(|_| "community_storage".into())
+    })
+}
+
+/// The codes the shared community pages already have a sentence for. A host that
+/// forwarded the `Display` text instead would put an English sentence written
+/// for a log into a Chinese dialog.
+fn custom_skin_library_code(
+    error: msime_client_core::skin::custom_library::CustomSkinLibraryError,
+) -> String {
+    use msime_client_core::skin::custom_library::CustomSkinLibraryError as Failure;
+    match error {
+        Failure::Full => "community_skin_library_full",
+        Failure::InvalidName => "community_skin_invalid_name",
+        Failure::DuplicateName => "community_skin_duplicate_name",
+        Failure::NotFound => "community_not_found",
+        Failure::Json(_) | Failure::Invalid => "community_skin_library_format",
+        Failure::Io(_) => "community_storage",
+    }
+    .to_owned()
+}
+
+#[derive(Debug, Deserialize)]
+struct CommunitySkinInstallRequest {
+    directory: String,
+    id: String,
+    name: String,
+    design: msime_client_core::preferences::TouchKeyboardSkinDesign,
+}
+
+#[derive(Debug, Serialize)]
+struct CommunitySkinInstallResponse {
+    skin: msime_client_core::skin::custom_library::SavedTouchKeyboardSkin,
+    trial: msime_client_core::skin::keyboard_trial::KeyboardSkinTrial,
+}
+
+/// Put a downloaded community design on the keyboard and into the library.
+///
+/// One entry point rather than two, because the two steps are not independent.
+/// The trial has to start first - it is what remembers the skin the user was
+/// using - and if the library then refuses the import, the trial must be
+/// finished without keeping it or the user is left wearing a skin that was
+/// never saved and has nothing to restore from. A host doing this in two calls
+/// owns that rollback, and every host that owns it writes it slightly
+/// differently.
+///
+/// The download itself is not here. Fetching the design is the one part that
+/// has to go through the surrounding platform's HTTPS stack, so the caller
+/// hands over a design it already has.
+/// # Safety
+/// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_community_skin_install(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if request.is_null() || length > 9_000_000 {
+            return Err("community_storage".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let request: CommunitySkinInstallRequest =
+            serde_json::from_slice(bytes).map_err(|_| "community_invalid")?;
+        if !Path::new(&request.directory).is_absolute() {
+            return Err("community_storage".into());
+        }
+        let id = msime_client_core::uuid::Uuid::parse_str(&request.id)
+            .map_err(|_| "community_invalid")?;
+        let library = msime_client_core::skin::custom_library::CustomSkinLibraryStore::new(
+            &request.directory,
+        );
+        let trials = msime_client_core::skin::keyboard_trial::KeyboardSkinTrialStore::new(
+            &request.directory,
+            std::sync::Arc::new(msime_client_core::preferences::PreferencesStore::new(
+                &request.directory,
+            )),
+        );
+        let (trial, _) = trials
+            .begin(&request.name, request.design.clone())
+            .map_err(keyboard_skin_trial_code)?;
+        let skin = match library.import_download(id, &request.name, request.design) {
+            Ok(skin) => skin,
+            Err(error) => {
+                let _ = trials.finish(trial.id, false);
+                return Err(custom_skin_library_code(error));
+            }
+        };
+        serde_json::to_value(CommunitySkinInstallResponse { skin, trial })
+            .map_err(|_| "community_storage".into())
+    })
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "operation")]
+enum KeyboardSkinTrialAction {
+    Finish { id: String, keep: bool },
+    RestorePending,
+}
+
+#[derive(Debug, Deserialize)]
+struct KeyboardSkinTrialRequest {
+    directory: String,
+    action: KeyboardSkinTrialAction,
+}
+
+/// End or recover a touch-keyboard skin trial.
+///
+/// A trial is what makes "try this skin" reversible: the record beside the
+/// preference document remembers the skin that was in use, so declining puts it
+/// back and a crash mid-trial does not leave the user stuck in someone else's
+/// design. `restore_pending` is that recovery, and it is safe to call when
+/// there is no trial - it answers with the current preferences.
+/// # Safety
+/// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_keyboard_skin_trial(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if request.is_null() || length > 16384 {
+            return Err("community_storage".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let request: KeyboardSkinTrialRequest =
+            serde_json::from_slice(bytes).map_err(|_| "community_invalid")?;
+        if !Path::new(&request.directory).is_absolute() {
+            return Err("community_storage".into());
+        }
+        let trials = msime_client_core::skin::keyboard_trial::KeyboardSkinTrialStore::new(
+            &request.directory,
+            std::sync::Arc::new(msime_client_core::preferences::PreferencesStore::new(
+                &request.directory,
+            )),
+        );
+        let snapshot = match request.action {
+            KeyboardSkinTrialAction::Finish { id, keep } => {
+                let id = msime_client_core::uuid::Uuid::parse_str(&id)
+                    .map_err(|_| "community_invalid")?;
+                trials.finish(id, keep)
+            }
+            KeyboardSkinTrialAction::RestorePending => trials.restore_pending(),
+        }
+        .map_err(keyboard_skin_trial_code)?;
+        // The revision comes back so a caller holding the document can tell whether the
+        // preferences it is showing are still the ones on disk.
+        Ok(json!({"revision": snapshot.revision}))
+    })
+}
+
+fn keyboard_skin_trial_code(
+    error: msime_client_core::skin::keyboard_trial::KeyboardSkinTrialError,
+) -> String {
+    use msime_client_core::skin::keyboard_trial::KeyboardSkinTrialError as Failure;
+    match error {
+        Failure::Io(_) | Failure::Preferences(_) => "community_storage",
+        Failure::Json(_) | Failure::Invalid => "community_trial_format",
+    }
+    .to_owned()
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "snake_case", tag = "operation")]
+enum CommunityResourceLibraryAction {
+    Load,
+    SaveReply {
+        item: Box<msime_client_core::community::resource::CommunityResource>,
+    },
+    Remove {
+        id: String,
+    },
+}
+
+#[derive(Debug, Deserialize)]
+struct CommunityResourceLibraryRequest {
+    file: String,
+    action: CommunityResourceLibraryAction,
+}
+
+/// Read or change the reply templates the user explicitly kept.
+///
+/// This file is the one thing the settings surface and the keyboard process
+/// share about the community: the keyboard rereads it when a reply is asked
+/// for, and it holds only what the user chose to keep. Writing it needs the
+/// store's validation - reply kind, a non-empty prompt, no dictionary entries,
+/// the fifty-item ceiling - and a host that wrote the file itself would be a
+/// second author of a format the keyboard parses strictly, which is a
+/// disagreement waiting to happen rather than a saving.
+///
+/// Every operation answers with the whole library for the same reason the skin
+/// library does: the caller redraws the list.
+/// # Safety
+/// `request` points to `length` readable UTF-8 JSON bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_community_resource_library(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if request.is_null() || length > 4_000_000 {
+            return Err("community_storage".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        let request: CommunityResourceLibraryRequest =
+            serde_json::from_slice(bytes).map_err(|_| "community_invalid")?;
+        if !Path::new(&request.file).is_absolute() {
+            return Err("community_storage".into());
+        }
+        let store =
+            msime_client_core::community::resource_library::CommunityResourceLibraryStore::new(
+                &request.file,
+            );
+        match request.action {
+            CommunityResourceLibraryAction::Load => {}
+            CommunityResourceLibraryAction::SaveReply { item } => {
+                store.save_reply(*item).map_err(resource_library_code)?;
+            }
+            CommunityResourceLibraryAction::Remove { id } => {
+                let id = msime_client_core::uuid::Uuid::parse_str(&id)
+                    .map_err(|_| "community_invalid")?;
+                store.remove(id).map_err(resource_library_code)?;
+            }
+        }
+        serde_json::to_value(store.load().map_err(resource_library_code)?)
+            .map_err(|_| "community_storage".into())
+    })
+}
+
+fn resource_library_code(
+    error: msime_client_core::community::resource_library::CommunityResourceLibraryError,
+) -> String {
+    use msime_client_core::community::resource_library::CommunityResourceLibraryError as Failure;
+    match error {
+        Failure::Io(_) => "community_storage",
+        Failure::Json(_) | Failure::Invalid => "community_resource_library_format",
+    }
+    .to_owned()
+}
+
 /// Read saved clipboard history without observing or modifying the system clipboard.
 /// # Safety
 /// `directory` points to `length` readable UTF-8 bytes. Null is rejected.

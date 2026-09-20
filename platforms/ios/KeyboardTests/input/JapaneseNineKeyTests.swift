@@ -147,10 +147,19 @@ final class JapaneseNineKeyTests: XCTestCase {
     }
   }
 
+  /// The mode column covers exactly the four rows of the kana grid, in the proportions a real
+  /// kana keyboard uses: one row each, except the script key, which takes two whenever the system
+  /// draws the globe itself.
+  ///
+  /// The ratios alone do not say this. Writing each key's height against the column - a `.fill`
+  /// stack, whose own height its children decide - computes the right numbers through a cycle,
+  /// and a solver is free to settle it differently: iOS 27 made 123 2.33pt taller than ^_^ and
+  /// overflowed the column by 2pt while every ratio here still looked plausible. So this checks
+  /// that the one-row keys match each other exactly and that the parts add up to the whole.
   func testModeColumnGivesScriptKeyTwoRowsWhenTheGlobeIsSystemOwned() throws {
     let modeKeys = (0..<4).map { index in
       let button = UIButton(type: .system)
-      button.accessibilityIdentifier = "mode-(index)"
+      button.accessibilityIdentifier = "mode-\(index)"
       return button
     }
     let panel = JapaneseNineKeyView(makeKey: { title, _, action in
@@ -158,12 +167,41 @@ final class JapaneseNineKeyTests: XCTestCase {
     }, modeKeys: modeKeys)
     panel.frame = CGRect(x: 0, y: 0, width: 414, height: 220)
     panel.layoutIfNeeded()
+    let column = try XCTUnwrap(
+      nodes(panel).first { $0.accessibilityIdentifier == "japaneseModeColumn" } as? UIStackView)
+
+    // The system draws the globe below the keyboard, so ours is hidden and the script key covers
+    // the row it would have taken.
+    modeKeys[3].isHidden = true
     panel.setModeColumnFull(false)
     panel.layoutIfNeeded()
-    XCTAssertGreaterThan(modeKeys[2].bounds.height, modeKeys[0].bounds.height * 1.5)
+    let single = modeKeys[0].bounds.height
+    XCTAssertGreaterThan(single, 40, "a mode key that short is not a touch target")
+    XCTAssertEqual(modeKeys[1].bounds.height, single, accuracy: 1,
+                   "the one-row mode keys have to be the same height as each other")
+    XCTAssertEqual(modeKeys[2].bounds.height, single * 2 + column.spacing, accuracy: 1.5,
+                   "two rows means two keys plus the gap between them")
+    // The three visible keys and their two gaps fill the column, with nothing left over.
+    //
+    // The tolerance scales with the key count rather than being a flat constant: one row's ideal
+    // height carries a fraction (53.5pt in a 220pt column), layout rounds each key to a point, and
+    // three roundings accumulate. What this is actually asking - whether a gap or a key was left
+    // out of the split - is off by 7pt or more, which this still catches.
+    let used = [modeKeys[0], modeKeys[1], modeKeys[2]].map(\.bounds.height).reduce(0, +)
+      + column.spacing * 2
+    XCTAssertEqual(used, column.bounds.height, accuracy: 3, "the column was not filled")
+
+    // With the globe ours to draw, all four keys take one row each.
+    modeKeys[3].isHidden = false
     panel.setModeColumnFull(true)
     panel.layoutIfNeeded()
-    XCTAssertEqual(modeKeys[2].bounds.height, modeKeys[0].bounds.height, accuracy: 1)
+    let full = modeKeys[0].bounds.height
+    for key in modeKeys.dropFirst() {
+      XCTAssertEqual(key.bounds.height, full, accuracy: 1,
+                     "every key takes one row once the globe is ours")
+    }
+    XCTAssertEqual(full * 4 + column.spacing * 3, column.bounds.height, accuracy: 4,
+                   "the column was not filled")
   }
 
   func testJapaneseNineKeyDigitLayerUsesSymbolsAndKeepsKanaPunctuation() throws {

@@ -181,6 +181,10 @@ TEXT_ENTRY(LoadPreferences, msime_client_load_preferences)
 TEXT_ENTRY(SkinCatalog, msime_client_skin_catalog)
 TEXT_ENTRY(SkinResource, msime_client_skin_resource)
 TEXT_ENTRY(SkinToolbarStylesheet, msime_client_skin_toolbar_stylesheet)
+TEXT_ENTRY(CustomSkinLibrary, msime_client_custom_skin_library)
+TEXT_ENTRY(CommunitySkinInstall, msime_client_community_skin_install)
+TEXT_ENTRY(KeyboardSkinTrial, msime_client_keyboard_skin_trial)
+TEXT_ENTRY(CommunityResourceLibrary, msime_client_community_resource_library)
 TEXT_ENTRY(Dictionary, msime_client_dictionary)
 TEXT_ENTRY(TypingStatistics, msime_client_typing_statistics)
 TEXT_ENTRY(PersonalDictionarySync, msime_client_personal_dictionary_sync)
@@ -628,6 +632,10 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("skinCatalog", SkinCatalog),
         ENTRY("skinResource", SkinResource),
         ENTRY("skinToolbarStylesheet", SkinToolbarStylesheet),
+        ENTRY("customSkinLibrary", CustomSkinLibrary),
+        ENTRY("communitySkinInstall", CommunitySkinInstall),
+        ENTRY("keyboardSkinTrial", KeyboardSkinTrial),
+        ENTRY("communityResourceLibrary", CommunityResourceLibrary),
         ENTRY("dictionary", Dictionary),
         ENTRY("savePreferences", SavePreferences),
         ENTRY("updatePreferences", UpdatePreferences),

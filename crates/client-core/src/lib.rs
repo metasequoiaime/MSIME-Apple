@@ -5,6 +5,16 @@
 //! `dictionary_access` and `personal_dictionary` belonged together, and the
 //! shared prefixes were doing the grouping work that the module tree should do.
 
+/// The `Uuid` this crate's public API is written in terms of.
+///
+/// `SavedTouchKeyboardSkin::id`, `CustomSkinLibraryStore::import_download` and
+/// `KeyboardSkinTrialStore::finish` all name it, so a caller cannot use those
+/// without it. Re-exporting is how it stays one version: a host that reached
+/// for the crate itself would pick a version independently, and two `Uuid`
+/// types that are structurally identical and nominally different produce a
+/// mismatch error with no obvious cause.
+pub use uuid;
+
 pub mod account;
 pub mod ai;
 pub mod clipboard;

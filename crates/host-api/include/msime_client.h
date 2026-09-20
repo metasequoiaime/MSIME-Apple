@@ -157,6 +157,33 @@ char *msime_client_skin_resource(const uint8_t *request, size_t length);
 /* JSON {directory:absolute path,id:skin id}; returns a nullable stylesheet
  * string from the manifest, after revalidating the package and path. */
 char *msime_client_skin_toolbar_stylesheet(const uint8_t *request, size_t length);
+/* JSON {directory:absolute state root} reads the named custom touch-keyboard
+ * designs; adding action:{operation:"create"|"rename"|"update"|"delete",...}
+ * applies one change first. Both answer with the whole library, because every
+ * caller redraws the list. Takes the library's file lock and rewrites it
+ * atomically: use a worker. Failures carry the shared community_* codes the
+ * settings pages already have wording for, not a Display string. */
+char *msime_client_custom_skin_library(const uint8_t *request, size_t length);
+/* JSON {directory:absolute state root,id:publication uuid,name,design}. Starts
+ * a skin trial and imports the design into the library, answering
+ * {skin,trial}. One call rather than two: the trial is what remembers the skin
+ * being replaced, so a failed import has to end it or the user wears a design
+ * that was never saved. The download itself is the caller's, because only the
+ * surrounding platform's HTTPS stack can fetch it. Writes preferences and two
+ * locked files: use a worker. */
+char *msime_client_community_skin_install(const uint8_t *request, size_t length);
+/* JSON {directory,action:{operation:"finish",id,keep}} or
+ * {operation:"restore_pending"}. Declining a trial puts the previous skin back;
+ * restore_pending is the crash recovery and is safe with no trial pending.
+ * Answers {revision} so a caller holding the document can tell whether what it
+ * is showing is still what is on disk. Writes preferences: use a worker. */
+char *msime_client_keyboard_skin_trial(const uint8_t *request, size_t length);
+/* JSON {file:absolute CommunityLibrary.json,action:{operation:"load"}} or
+ * {operation:"save_reply",item} or {operation:"remove",id}. The reply templates
+ * the user explicitly kept, which is the one thing the settings surface and the
+ * keyboard process share about the community. Every operation answers with the
+ * whole library. Takes the library's file lock: use a worker. */
+char *msime_client_community_resource_library(const uint8_t *request, size_t length);
 /* Read saved history only; disabled preferences return an empty entries array. */
 char *msime_client_load_clipboard_history(const uint8_t *directory, size_t length);
 /* JSON {directory,text}; removes exact saved entry, not the system clipboard. */

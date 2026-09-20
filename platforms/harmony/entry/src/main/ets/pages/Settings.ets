@@ -105,6 +105,30 @@ interface VoiceCaptureDeviceReply {
 const BRIDGE_NAME: string = 'msimeHarmony';
 const PLATFORM: string = 'harmony';
 
+/** One community resource request; only the two local library operations are handled here. */
+interface CommunityResourceAction {
+  resource_operation: string;
+  id?: string;
+  item?: Object;
+}
+
+/** One community skin request from the page; only download and finish_trial are handled here. */
+interface CommunitySkinAction {
+  community_operation: string;
+  id: string;
+  name?: string;
+  keep?: boolean;
+}
+
+interface CommunityDownloadValue {
+  design?: Object;
+}
+
+interface CommunityDownloadReply {
+  ok: boolean;
+  value?: CommunityDownloadValue;
+}
+
 interface CloudDownloadEntry {
   kind: string;
   code: string;
@@ -590,6 +614,16 @@ class SettingsBridge {
       this.account(payload).then(deliver).catch(failed);
     } else if (kind === 'settings_sync') {
       this.settingsSync(payload).then(deliver).catch(failed);
+    } else if (kind === 'community_resource') {
+      this.communityResource(payload).then(deliver).catch((error: Object): void => {
+        KeyboardLog.error(`community resource request failed: ${describeError(error)}`);
+        deliver(JSON.stringify({ ok: false, error: 'community_unavailable' }));
+      });
+    } else if (kind === 'community_skin') {
+      this.communitySkin(payload).then(deliver).catch((error: Object): void => {
+        KeyboardLog.error(`community skin request failed: ${describeError(error)}`);
+        deliver(JSON.stringify({ ok: false, error: 'community_unavailable' }));
+      });
     } else if (kind === 'cloud_dictionary_snapshot') {
       this.cloudDictionarySnapshot(payload).then(deliver).catch(failed);
     } else if (kind === 'ai_models') {
@@ -633,6 +667,132 @@ class SettingsBridge {
     } catch {
       return raw;
     }
+  }
+
+  /**
+   * Community dictionaries and reply templates.
+   *
+   * Everything but the two library operations is one request to the account bridge. Keeping and
+   * forgetting a reply template are not requests at all: that library is a local file, and it is
+   * the only thing the settings surface and the keyboard process share about the community.
+   *
+   * The file sits beside the state directory rather than inside it, at `files/CommunityLibrary.json`
+   * — the same path `KeyboardSession.communityReplyTemplates` reads. The keyboard extension is given
+   * `files/state`, so a library written inside that directory would be written where the reader
+   * never looks.
+   */
+  async communityResource(actionDocument: string): Promise<string> {
+    if (this.accountBridge === undefined || this.context === undefined) {
+      return JSON.stringify({ ok: false, error: 'community_unavailable' });
+    }
+    let action: CommunityResourceAction;
+    try {
+      action = JSON.parse(actionDocument) as CommunityResourceAction;
+    } catch {
+      return JSON.stringify({ ok: false, error: 'community_invalid' });
+    }
+    const file: string = `${this.context.filesDir}/CommunityLibrary.json`;
+    if (action.resource_operation === 'store_reply') {
+      return client.communityResourceLibrary(`{"file":${JSON.stringify(file)},`
+        + `"action":{"operation":"save_reply","item":${JSON.stringify(action.item ?? null)}}}`);
+    }
+    if (action.resource_operation === 'remove_reply') {
+      return client.communityResourceLibrary(JSON.stringify({
+        file: file, action: { operation: 'remove', id: action.id }
+      }));
+    }
+    return this.accountBridge.request(actionDocument);
+  }
+
+  /**
+   * The community skin gallery.
+   *
+   * Browsing, rating, publishing and withdrawing are one request each and go straight to the
+   * account bridge. Downloading is the one that is not: the design has to be fetched over the
+   * system HTTPS stack and then put on the keyboard and into the library, and those two local steps
+   * are a single native call because a failed import has to end the trial it started.
+   *
+   * Finishing a trial never touches the network at all. It is the answer to 保留 or 还原 on a skin
+   * that is already applied, so it is answered from the device.
+   */
+  async communitySkin(actionDocument: string): Promise<string> {
+    if (this.accountBridge === undefined) {
+      return JSON.stringify({ ok: false, error: 'community_unavailable' });
+    }
+    let action: CommunitySkinAction;
+    try {
+      action = JSON.parse(actionDocument) as CommunitySkinAction;
+    } catch {
+      return JSON.stringify({ ok: false, error: 'community_invalid' });
+    }
+    if (action.community_operation === 'finish_trial') {
+      return this.finishSkinTrial(action);
+    }
+    if (action.community_operation !== 'download') {
+      return this.accountBridge.request(actionDocument);
+    }
+    return await this.installCommunitySkin(action);
+  }
+
+  /**
+   * Downloads one design and puts it on the keyboard.
+   *
+   * The reply shape is the shared one — `{skin, trial}` — because the page uses both: the skin to
+   * show in the library it just grew, the trial id to answer 保留 or 还原 with afterwards.
+   */
+  private async installCommunitySkin(action: CommunitySkinAction): Promise<string> {
+    if (this.accountBridge === undefined) {
+      return JSON.stringify({ ok: false, error: 'community_unavailable' });
+    }
+    const downloaded: string = await this.accountBridge.request(JSON.stringify({
+      operation: 'community_skin', community_operation: 'download', id: action.id
+    }));
+    let design: Object;
+    try {
+      const reply: CommunityDownloadReply = JSON.parse(downloaded) as CommunityDownloadReply;
+      if (!reply.ok || reply.value === undefined || reply.value.design === undefined) {
+        return downloaded.length > 0 ? downloaded
+          : JSON.stringify({ ok: false, error: 'community_unavailable' });
+      }
+      design = reply.value.design;
+    } catch {
+      return JSON.stringify({ ok: false, error: 'community_unavailable' });
+    }
+    const installed: string = client.communitySkinInstall(JSON.stringify({
+      directory: this.stateDirectory, id: action.id, name: action.name, design: design
+    }));
+    // The install wrote the preference document, so the page's copy is now the old one. Same
+    // reasoning as the settings sync: a control still showing the previous skin would refuse the
+    // next save as a conflict.
+    this.refreshPreferencesIfChanged();
+    return installed;
+  }
+
+  private finishSkinTrial(action: CommunitySkinAction): string {
+    const reply: string = client.keyboardSkinTrial(JSON.stringify({
+      directory: this.stateDirectory,
+      action: { operation: 'finish', id: action.id, keep: action.keep === true }
+    }));
+    this.refreshPreferencesIfChanged();
+    return reply;
+  }
+
+  /**
+   * The user's own named touch-keyboard designs.
+   *
+   * Forwarded to the shared store rather than kept here. That store already owns the file lock, the
+   * atomic replace, the twelve-item limit and the name rules; a second implementation on this host
+   * would be a second opinion about what is in the library, and the two would drift the first time
+   * either side changed a rule.
+   *
+   * The state directory comes from the host, not from the page: where the library lives is not
+   * something a WebView should be able to name.
+   */
+  customSkinLibrary(action: string): string {
+    const request: string = action.length === 0
+      ? JSON.stringify({ directory: this.stateDirectory })
+      : `{"directory":${JSON.stringify(this.stateDirectory)},"action":${action}}`;
+    return client.customSkinLibrary(request);
   }
 
   /** Read only an image declared by a validated external skin manifest. */
