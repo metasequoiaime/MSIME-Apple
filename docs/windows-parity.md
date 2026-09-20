@@ -772,6 +772,18 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 ## 下一批实施顺序
 
+增量记录（2026-09-21，来源测试清单这一轮走完）：43 个文件按落点分完，macOS 侧这一轮到此为止。三处真实差异已各自修掉（方向键末尾不扩充、字体 face 名不解析、空槽位提示词），其余的判断依据记在这里，免得下一轮重查。
+
+**对 macOS 不成立的（Windows 进程边界或 WebView2 自绘）**：`test_inline_protocol`（设置壳的资源内联）、`test_candidate_window_template`（WebView2 候选模板的锚点替换，macOS 是原生面板）、`test_candidate_size_estimator`（Direct2D 度量，对应物是 `CandidateRowFit.h`）、`test_ipc_protocol_constants`、`test_pipe_write_policy`、`test_terminal_deactivation_policy`、`test_active_client_state`、`test_outbound_session_state`、`test_async_request_origin`。
+
+**归 Engine 或共享层、两边跑的是同一份的**：`test_quanpin_scheme`、`test_shuangpin_query`、`test_shuangpin_scheme`、`test_engine_shuangpin_session`、`test_wubi`、`test_japanese_romaji`、`test_jianpin_query`、`test_emoji_query`、`test_kaomoji_query`、`test_kaomoji_sql`、`test_date_time_query`、`test_english_dictionary`、`test_user_dictionary_journal`、`test_translation_gloss`、`test_custom_translation`。
+
+**查过、无缺口的**：候选固定位置的独立配色、悬浮工具栏可见性三条件、翻页键六组开关、混输英文的最小前缀（两边都是 2，且都由偏好校验钉在 1–8）、剪贴板历史的 50 条上限与去重后置顶、词库分页的有界扫描与 `has_more`。
+
+**一处实现不同、结果等价，实测过**：简繁输出。来源用 OpenCC 的 `s2t.json`（随包带 `assets/opencc`），macOS 用 ICU 的 `CFStringTransform(Simplified-Traditional)`，不带数据文件。ICU 这条一向被认为弱在词组上下文，所以按公认的难例实测了一遍：皇后→皇后、头发→頭髮、干面→乾麵、里面→裡面、面条→麵條、后天→後天、发展→發展、周杰伦→周傑倫，八条全对。结论是平台适配而不是缺口，不引入 OpenCC 与它的数据文件。
+
+**记一处刻意保留的差异**：偏好文件的升级路径。来源 `test_config_template_merge` 钉的是三方合并——用户改过的键保留、仍停在旧默认值的键跟随新默认值、模板里没有的键和段落丢弃。本仓的 `preferences.json` 每次都把全部字段写出来，没有「旧默认值」这个概念，所以改默认值永远到不了已有用户；`deny_unknown_fields` 又让退役字段不能删（`ui_backend` 的注释已经写明这一点）。这是存储模型层面的取舍，不是某个功能的缺口，改动面也远超一次功能迁移，单独提出来由所有者决定，本轮不动。
+
 增量记录（2026-09-21，来源测试清单第三批：语音润色的提示词槽位）：来源 `test_voice_providers.cpp` 的三条里，`voice_providers_empty_custom_falls_back_to_cleanup` 钉的是「自定义槽位留空时用精炼整理那份内置提示词」——它断言留空的自定义二拿到的文本含「整理助手」。本仓 `shared/voice/PolishPrompt.h` 在这一条上漂了：自定义一和自定义三留空回落到 `kCleanupPrompt`，自定义二留空回落到 `kFaithfulPrompt`。于是一个用户从没填过内容的槽位，模型收到的是「校对」而不是「精炼整理」，与另外两个空槽位的行为也不一致。
 
 这个头文件是共享的：Windows 宿主 `platforms/windows/src/system/PolishPrompt.h` 只是把它 include 进来，macOS 经 `HTTPVoiceRequest.mm` 用的也是它，所以这一处同时影响两个桌面宿主。
