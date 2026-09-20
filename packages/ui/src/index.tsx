@@ -6456,12 +6456,22 @@ export function SettingsPage({
                             </select>
                           </label>
                           <label className="section-header">
+                            {/*
+                             * Named after its own scheme, the way the reference window names these:
+                             * both rows are on the page at once, so one shared wording left two
+                             * checkboxes with the same accessible name and nothing to tell a screen
+                             * reader -- or a test -- which one it had.
+                             */}
                             <span className="section-title">
-                              {mobilePlatform ? "在候选栏显示辅助码" : "在候选窗口显示辅助码"}
+                              {mobilePlatform
+                                ? `在候选栏中显示${label}辅助码`
+                                : `在候选窗口中显示${label}辅助码`}
                             </span>
                             <input
                               aria-label={
-                                mobilePlatform ? "在候选栏显示辅助码" : "在候选窗口显示辅助码"
+                                mobilePlatform
+                                  ? `在候选栏中显示${label}辅助码`
+                                  : `在候选窗口中显示${label}辅助码`
                               }
                               className="toggle"
                               type="checkbox"
@@ -8214,7 +8224,7 @@ export function SettingsPage({
                             ["sound_enabled", "语音提示音", true],
                             ["start_sound", "开始录音提示音", true],
                             ["end_sound", "结束录音提示音", true],
-                            ["mute_system_audio", "录音时静音其他音频", false],
+                            ["mute_system_audio", "录音时静音其他声音", false],
                           ] as const
                         ).map(([key, label, enabledByDefault]) => (
                           <label className="section-header" key={key}>

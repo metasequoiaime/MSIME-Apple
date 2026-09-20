@@ -82,8 +82,9 @@ test("mobile names the candidate row rather than a window", async () => {
 
   const more = await moreSettings();
   fireEvent.change(more, { target: { value: "helpcode" } });
-  expect(screen.getAllByLabelText("在候选栏显示辅助码").length).toBe(2);
-  expect(screen.queryByLabelText("在候选窗口显示辅助码")).toBeNull();
+  expect(screen.getByLabelText("在候选栏中显示双拼辅助码")).toBeTruthy();
+  expect(screen.getByLabelText("在候选栏中显示全拼辅助码")).toBeTruthy();
+  expect(screen.queryByLabelText("在候选窗口中显示双拼辅助码")).toBeNull();
 });
 
 // The Apple keyboard extension has no helper-code input at all.
@@ -99,7 +100,8 @@ test("the desktop sidebar keeps the helper-code page and its window wording", as
 
   await screen.findByRole("button", { name: "保存设置" });
   fireEvent.click(screen.getByRole("button", { name: "辅助码" }));
-  expect(screen.getAllByLabelText("在候选窗口显示辅助码").length).toBe(2);
+  expect(screen.getByLabelText("在候选窗口中显示双拼辅助码")).toBeTruthy();
+  expect(screen.getByLabelText("在候选窗口中显示全拼辅助码")).toBeTruthy();
 });
 
 // HarmonyOS ships the same helper-code input: its ChineseHelpcodePolicy is the Android one,
