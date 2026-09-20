@@ -41,7 +41,7 @@
 | 手写 | 来源设置 `handwriting-settings.ts` 和模型资源 | `ShellSurfaces.h` / `main.cpp` → Tauri `recognize_handwriting` / `submit_handwriting_candidate`，共享 `panels.tsx` | 有目的地入口；比较模型打包、笔画缩放、撤销/清空、多候选及原编辑器上屏。 |
  | 屏幕键盘 | 来源设置 `screenkb-settings.ts` | `main.cpp` → Tauri keyboard route、`desktop-keyboard.tsx`、Windows `send_key` 分支；macOS Tauri 与原生备用键盘都在每次按键时读取当前前台编辑器，并在实际投递前重新校验身份；无 Accessibility 权限时只拒绝投递、不弹权限请求；Tauri 面板仍捕获 PID+启动时间用于生命周期恢复 | macOS 键盘路径不再把当前设置宿主误当成输入目标，也不会在用户切换编辑器后继续投递到旧窗口；共享 Tauri 面板与原生备用面板的普通键均按 450ms 首次延迟、75ms 间隔自动重复，粘滞修饰键与 Num Lock 保持单次切换且键盘/辅助功能激活仍为单次发送；投递失败、失焦或关闭会停止重复且不自动重放；macOS Tauri 首次显示和隐藏后重开时按当前/主显示器的物理工作区底部居中，兼容负坐标、多显示器和 Retina 缩放。布局、修饰键按下/释放语义及真实焦点恢复仍需逐项核对。 |
 | Emoji、颜文字、符号、剪贴板历史 | README 与来源 `clipboard_history.cpp` | `ClipboardMonitor.cpp` / `ClipboardHistory.cpp`、Tauri `load_emoji_catalog` / `paste_clipboard_text`、共享 `panels.tsx` | macOS 常驻输入源与 Tauri 监视器现按 NSPasteboard `changeCount` 读取外部文本变化，共用 4000 UTF-16 单位、12000 UTF-8 字节边界，并复用共享 50 条历史、去重/置顶和开关清理；关闭历史时不读取剪贴板内容。Emoji 面板通过已认证的一次性桌面输入会话把记录定向提交回原应用，普通 Emoji 候选与剪贴板大文本使用独立校验模式。仍需核对安装后真实持续监视与目标窗口行为，不能以普通 SendInput 冒充会话定向提交。 |
-| 悬浮工具栏、托盘菜单、入口快捷键 | 来源 `window/*presenter*`、`ui-html/webview2/ftb` / `menu` | `FloatingToolbarWindow.cpp`、`TrayMenuWindow.cpp`、`MaintenanceHotkey.cpp`、`ShellSurfaces.h` / `ShellLauncher.cpp` | 有调用链；设置/手写/键盘/语音/云剪贴板/云词库等启动共享 Tauri，低延迟不抢焦点宿主保留原生。macOS 与 Tauri 预览现消费 `floating_toolbar.english_mode` 及其余组件开关，原生共享偏好合并也保留该字段并按可见组件重算宽度；来源和目标菜单项、禁用条件仍需逐项比对。 |
+| 悬浮工具栏、托盘菜单、入口快捷键 | 来源 `window/*presenter*`、`ui-html/webview2/ftb` / `menu` | `FloatingToolbarWindow.cpp`、`TrayMenuWindow.cpp`、`MaintenanceHotkey.cpp`、`ShellSurfaces.h` / `ShellLauncher.cpp` | 有调用链；设置/手写/键盘/语音/云剪贴板/云词库等启动共享 Tauri，低延迟不抢焦点宿主保留原生。macOS 与 Tauri 预览现消费 `floating_toolbar.english_mode` 及其余组件开关，原生共享偏好合并也保留该字段并按可见组件重算宽度；菜单项与禁用条件已逐项比对（第四十三批）：动作一一对应且目标多出手写识别板；工具栏组件与来源 README 所列六项一一对应；禁用语义是进程边界带来的有意差异，已记录。 |
 | 皮肤、主题、字体、外观预览 | 来源 `appearance.ts` / `skin.ts`、`candwnd/skins` | 共享 `packages/ui/src/upstream/`、`skin/catalog.rs`、`CandidateSkin.h`、`CandidateWindow.cpp` | Windows 已消费候选字体/回退字体、主题颜色、横竖排布局和阴影字段；`candidate_font_reload`、`candidate_palette` 与 shadow 回归覆盖非法值回退。仍需逐主题运行时截图、外部资源和字体回退逐项比较。 |
 | 更新、关于、帮助、反馈、重启 | 来源 `about-settings.ts` / `feedback-settings.ts` / `update-manifest.ts`，`restartServer` | 共享 `update-manifest.ts` / `index.tsx`，Tauri `open_external_url` / `restart_input_method` | Windows 重启使用固定 UTF-16LE `RestartServer` Aux payload 并有回归覆盖；更新 manifest/release 链接要求干净 HTTPS，外链 opener 拒绝无主机与 shell 字符。安装包信任、来源、失败反馈及原生安装仍待逐项对照。 |
 | 服务守护、安装、升级、卸载、资源打包 | 来源 README 服务守护、`installer/`、构建脚本 | `platforms/windows/installer/`、`tests/runner_regression.ps1`、TSF 注册代码 | 安装入口已限制为文件名安全的数字版本并保留现有包清单/用户数据保护回归；仍待 Windows PowerShell、TSF 注册、重启恢复、升级保留数据和卸载清理的产品级验证。 |
@@ -547,6 +547,16 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 做了反向验证：把 `caps_lock_frame` 的类型换成 `InputModeChanged`，测试在帧类型那一行失败；恢复后套件回到 78 通过 / 1 失败（唯一那条是基线里已记的 `msimeui-tests`，Rosetta 在 arm64 主机上模拟 x86_64 的崩溃）。
 
 **本地优先级那条没有跟着补，是重新权衡后的决定**：真正值得测的是整个合并过程，而它嵌在 `TranslationWorker` 的循环里，抽出来要重构；只抽一个「集合里有没有」的谓词则证明不了什么。行为今天是正确的，为一条已正确的规则重构只能端到端验证的 worker，风险大于收益。维持记录为未覆盖，不因为「能跑了」就顺手改。
+
+增量记录（2026-09-20，Windows 第四十三批：托盘菜单与工具栏逐项比对）：这行原写着「来源和目标菜单项、禁用条件仍需逐项比对」。
+
+**菜单项**：来源 `ui-html/webview2/menu/default.html` 里的动作共六个——`floatingToggle`、`emojiSymbols`、`keyboardPanel`、`voiceInput`、`settings`、`about`。本仓库 `TrayMenuCommand` 七个，前六个一一对应，多出的是手写识别板（与第二批记的「目标为超集」一致）。
+
+**工具栏组件**：来源 README 写「中英文切换始终显示，其余组件（全角、标点、简繁、表情、屏幕键盘、设置）可按需勾选」，另可调整缩放与图标尺寸。`FloatingToolbarPreferences` 逐项对应：`english_mode`、`fullwidth`、`punctuation`、`character_set`、`emoji`、`screen_keyboard`、`settings`，加上 `scale_percent` 与 `font_size`。
+
+**禁用条件是有意差异，不是缺口**：来源的菜单 HTML 里 `disabled` 出现零次——它的面板全在同进程内，永远可用，所以从不禁用。本仓库的面板在独立的 Tauri 壳里，壳可能不在，于是能力缺失的行**保持可见但置灰**，而不是点了没反应或干脆隐藏。`TrayMenuLayout.h` 的注释写明这个选择的依据正是「与发行版菜单从不隐藏条目一致」——保住来源的可见性语义，同时诚实反映进程边界。
+
+这一行不再留「仍需」。
 
 ## 来源模块的落点
 
