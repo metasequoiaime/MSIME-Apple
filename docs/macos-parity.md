@@ -62,6 +62,16 @@
 
 本轮核过且确认等价或目标更强的：来源 12 个共享后端文件目标全有（另有 `BackendAiClient`）；四个原生视图（剪贴板、词库、账号、设置同步）文案差集为空；云词库备份视图逐字一致；输入法菜单条目集合一致；引擎选项写入面一致（来源的嵌套字段对应目标的扁平字段，自动纠错来源是一个总开关、目标拆成换位与邻键两项，覆盖引擎仅有的两个位）；`HostSurface` 各能力位 macOS 均已开启，唯一未开的 `number_row_selection` 来源没有该功能；`preference_coverage.py` 的「不适用」清单双向校验、无陈旧项。
 
+## 符号比对的重跑（2026-09-20，双方当前 HEAD）
+
+前面那次符号比对做在固定提交上，而两边此后都前进过，所以在来源 `63c51ed`（比之前的固定检出多出候选行宽适配等改动）与目标当时的 `develop` 上重跑了一遍，方法与结论都记下来，便于下次复核而不是重新发明：
+
+- 从来源 `platforms/macos/src/` 抽出 ObjC 方法、C/C++ 函数与 Swift 函数名共 **572 个**，逐个在目标的 `platforms/macos`、`shared`、`crates`、`packages/ui/src`、`apps/desktop/src` 全文检索。
+- 按名未命中 **173 个**。自动消解 `Metasequoia*` → `MSIME*` 的改名与 camelCase → snake_case 之后，余 **164 个**。
+- 这 164 个按来源归类：绝大多数是原生设置窗口的 action selector 与偏好访问器（`schemeChanged`、`voiceProviderChanged`、`storedWubiCodeHintEnabled`、`refreshVoiceControls` 一类），按「公共 UI 放 Tauri」本就不该在目标存在对应物；其余是被下沉的实现细节（词库安装与学习数据重置的标记/恢复协议 `WriteResetMarker`、`RecoverLearningReset`、`InstallMetasequoiaDictionary` 等，在目标由引擎与共享 Rust 承担）与内部小工具（`MsimeHex`、`FailWithErrno`、`RemoveIfPresent`）。
+- 其中不属于上述两类、最像功能的一组逐个核过并都已覆盖：Option/Control + 数字取释义（`CandidateGlossRequestForModifiers` → `commitCandidateGlossColumn:`）、待上屏列（`setArmedGlossColumn` → `_armedGlossColumn` 与其夹取）、候选置顶（`MetasequoiaTogglePinnedWord` → `MSIMESetCandidatePinned`）、释义调度（`scheduleCandidateTranslations` → `synchronizeCandidateGloss` / `synchronizeAccountGloss` 与空闲延迟）、反馈诊断（`copyFeedbackReport` → Tauri 反馈页的「复制报告」）、学习数据清除（`ResetMetasequoiaLearnedData` → Tauri「清除学习数据」→ `resetLearnedData` 能力 → `reset_learned_data` → 引擎）。
+- 单点对照另外确认：`ActionForSolitaryShift` 对应 #3179 之后的单击 Shift 行为，`NextArmedGlossColumn` 对应 `cycleArmedGlossColumnBackwards:`，`browseVoiceModel` 对应 #3212 新增的 `pickVoiceModelPath`，`MetasequoiaCandidateWantsOnlineGloss` 对应 #3156 的 `MSIMEOnlineGlossCandidates`。
+
 ## 当前完成度
 
 代码侧的迁移按上述五次比对已无已知缺口；macOS `ctest` 全通过，`scripts/known-failures.txt` 无 macOS 条目。
