@@ -724,6 +724,14 @@ add_test(
 # host does not read it the switch saves, the page says it saved, and nothing changes - which is how 本地
 # Whisper and the smart-punctuation direct switches sat there doing nothing. Nothing else catches that,
 # because the host compiles and the tests pass either way.
+# The settings page list lives in TypeScript and the route vocabulary in Rust, so nothing connects them.
+# A page added without a category is a page no host can open - which is how the account page ended up with
+# macOS showing its own window instead of the one every other platform shows.
+add_test(
+  NAME settings-route-coverage
+  COMMAND "${Python3_EXECUTABLE}"
+          "${CMAKE_CURRENT_SOURCE_DIR}/tests/settings/settings_route_coverage.py"
+          "${CMAKE_CURRENT_SOURCE_DIR}/../..")
 add_test(
   NAME preference-coverage
   COMMAND "${Python3_EXECUTABLE}"

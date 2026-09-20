@@ -1641,12 +1641,16 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 }
 - (void)showAccount:(id)sender {
     (void)sender;
-    if (!MSIMEOpenBackendAccount(NSClassFromString(@"MSIMEBackendAccountWindow"))) {
+    // The shared settings page owns the account surface, the same as every other entry in this menu. The
+    // bundled SwiftUI window stays as the fallback for a host without the desktop application, which is
+    // what it was before this route existed - it was simply being opened first.
+    MSIMEOpenDesktopRoute(@"settings:account", NSWorkspace.sharedWorkspace, ^{
+        if (MSIMEOpenBackendAccount(NSClassFromString(@"MSIMEBackendAccountWindow"))) return;
         NSAlert *alert = [[NSAlert alloc] init];
         alert.messageText = @"账户窗口暂不可用";
         alert.informativeText = @"请重新启动输入法；若仍无法打开，请检查安装是否完整。";
         [alert runModal];
-    }
+    });
 }
 - (void)showCloudClipboard:(id)sender {
     NSRunningApplication *application = NSWorkspace.sharedWorkspace.frontmostApplication;
