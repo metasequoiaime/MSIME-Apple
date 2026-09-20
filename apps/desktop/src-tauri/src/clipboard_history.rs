@@ -6,6 +6,8 @@
 
 #[cfg(target_os = "android")]
 use crate::platform::android::android_account;
+#[cfg(target_os = "linux")]
+use crate::platform::linux::linux_clipboard;
 use crate::{
     clipboard_history_uses_preference, host_platform, ClipboardHistoryState, HostActionError,
 };
@@ -18,6 +20,8 @@ use msime_tauri_mobile_platform::MobilePlatform;
 #[cfg(target_os = "ios")]
 use std::path::PathBuf;
 use std::sync::Arc;
+#[cfg(target_os = "linux")]
+use std::sync::Mutex;
 
 pub(crate) fn clipboard_enabled(
     store: &std::sync::Arc<PreferencesStore>,
