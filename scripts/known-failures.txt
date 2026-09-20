@@ -208,8 +208,9 @@ desktop tests/candidate/external-skins.test.tsx > settings synchronize all cards
 # A Wine limit, and a narrower one than the entry it replaces.
 wine windows-server-smoke
 # windows-session-smoke needs the optional absolute resource directory the
-# suite documents as argv[1]; run-tests-wine.sh passes it when
-# MSIME_WINE_RESOURCES points at one. Given that, it passes - so it is listed
-# here only for a run without one, where its dictionaries are empty temp
-# directories and nothing it types produces a candidate.
+# suite documents as argv[1]. run-tests-wine.sh now finds the repository's own
+# target/desktop-resources cache without being told, so a checkout that has it
+# reports this suite passing and 77 of 78 overall. This line covers a checkout
+# that does not: the dictionaries are then empty temp directories and nothing
+# it types produces a candidate. The runner prints which of the two a run used.
 wine windows-session-smoke
