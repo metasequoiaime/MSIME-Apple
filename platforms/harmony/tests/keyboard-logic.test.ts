@@ -186,6 +186,11 @@ import {
 } from "../entry/src/main/ets/keyboard/input/CandidateTextPolicy";
 import { CandidateSkinPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateSkinPolicy";
 import {
+  CandidateContextMenuPolicy,
+  PointerAction,
+  PointerButton,
+} from "../entry/src/main/ets/keyboard/input/CandidateContextMenuPolicy";
+import {
   SmartPunctuationSpacePolicy,
   SpaceConvertDecision,
 } from "../entry/src/main/ets/keyboard/input/SmartPunctuationSpacePolicy";
@@ -4720,6 +4725,42 @@ group("what the conversion refuses to arm on", () => {
   check(
     SmartPunctuationSpacePolicy.arm(null, false, true, true, 1) === null,
     "nor is no commit at all",
+  );
+});
+
+group("a right click opens the candidate menu, as it does in the source", () => {
+  check(
+    CandidateContextMenuPolicy.opens(PointerButton.RIGHT, PointerAction.PRESS),
+    "the right button opens the management menu",
+  );
+  // Acting on both press and release would open the menu and immediately act again on whatever
+  // entry the cursor had landed on.
+  check(
+    !CandidateContextMenuPolicy.opens(PointerButton.RIGHT, PointerAction.RELEASE),
+    "the release does not open it a second time",
+  );
+  check(
+    !CandidateContextMenuPolicy.opens(PointerButton.RIGHT, PointerAction.MOVE),
+    "nor does moving with the button held",
+  );
+  check(
+    !CandidateContextMenuPolicy.opens(PointerButton.LEFT, PointerAction.PRESS),
+    "the left button still chooses the candidate",
+  );
+});
+
+group("the candidate window does not swallow the other mouse buttons", () => {
+  // The middle button pastes on some systems and the side buttons navigate. A candidate window
+  // that claimed them would be taking away a gesture it never offered.
+  for (const button of [PointerButton.MIDDLE, PointerButton.BACK, PointerButton.FORWARD]) {
+    check(
+      !CandidateContextMenuPolicy.opens(button, PointerAction.PRESS),
+      `button ${button} is left to the system`,
+    );
+  }
+  check(
+    !CandidateContextMenuPolicy.opens(PointerButton.NONE, PointerAction.PRESS),
+    "and so is a press with no button at all",
   );
 });
 
