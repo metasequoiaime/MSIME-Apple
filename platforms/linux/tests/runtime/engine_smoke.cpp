@@ -810,6 +810,15 @@ int main(int argc, char **argv) {
           {"enabled", true}, {"app_id", "synthetic-app"},
           {"apikey", "synthetic-key"}};
       save(2);
+      // Ctrl+Enter above committed the gloss and cancelled the composition, so
+      // there are no candidates left. `translation_schedule` returns early when
+      // the view has none - correctly, since there is nothing to translate - so
+      // without composing again this wait could never end. What is checked here
+      // is therefore that the next composition asks the provider again rather
+      // than reusing the gloss from before the preference change; it does not
+      // also prove the request was made for candidates that were already on
+      // screen, which this fixture has no composition left to show.
+      phrase();
       const auto changed_deadline =
           g_get_monotonic_time() + 5 * G_USEC_PER_SEC;
       auto old_translation_visible = [&] {
@@ -854,6 +863,14 @@ int main(int argc, char **argv) {
       translated["translation_provider_socket"] = socket;
       translated["preferences"]["candidate_translations"] = true;
       translated["preferences"]["candidate_page_size"] = 2;
+      // Not English. The packaged english.db answers 你好 offline with the single
+      // sense "hello", and an offline hit is shown without ever reaching the
+      // provider - which is the documented behaviour and what Windows does. With
+      // English as the target, the provider's multi-sense gloss therefore landed
+      // on the second candidate only, the highlighted one carried "hello", and
+      // Ctrl+Enter committed that single sense instead of opening the page this
+      // case exists to check. Any other target language goes straight online.
+      translated["preferences"]["translation_target_language"] = "ja";
       msime_preview_configure(translated.dump());
       engine = create_engine();
       seen = Observation{};
@@ -875,14 +892,32 @@ int main(int argc, char **argv) {
       gboolean translation_handled = FALSE;
       g_variant_get(translation_commit, "(b)", &translation_handled);
       g_variant_unref(translation_commit);
-      require(translation_handled && seen.candidates.size() == 2 &&
-                  seen.candidates[0] == "first sense" &&
-                  seen.candidates[1] == "second sense" && seen.committed.empty(),
-              "Ctrl+Enter did not open the multi-sense translation page");
+      {
+        std::string shown;
+        for (const auto &candidate : seen.candidates)
+          shown += (shown.empty() ? "" : "|") + candidate;
+        require(translation_handled && seen.candidates.size() == 2 &&
+                    seen.candidates[0] == "first sense" &&
+                    seen.candidates[1] == "second sense" && seen.committed.empty(),
+                ("Ctrl+Enter did not open the multi-sense translation page: handled=" +
+                 std::to_string(static_cast<int>(translation_handled)) + " candidates=[" +
+                 shown + "] committed=[" + seen.committed + "]")
+                    .c_str());
+      }
       invoke("CandidateClicked", g_variant_new("(uuu)", 1, 1, 0));
+      // The candidate window closes on the host's 24ms anti-flicker timer, not in
+      // the same turn as the commit; wait for it rather than for a duration.
+      const auto sense_hidden = g_get_monotonic_time() + 2 * G_USEC_PER_SEC;
+      while (seen.lookup_visible && g_get_monotonic_time() < sense_hidden) {
+        while (g_main_context_iteration(nullptr, FALSE)) {}
+        g_usleep(1000);
+      }
       require(seen.committed == "second sense" && !seen.preedit_visible &&
                   !seen.lookup_visible,
-              "Selecting a translated sense did not commit and close the page");
+              ("Selecting a translated sense did not commit and close the page: committed=[" +
+               seen.committed + "] preedit=" + std::to_string(seen.preedit_visible) +
+               " lookup=" + std::to_string(seen.lookup_visible))
+                  .c_str());
       ibus_object_destroy(IBUS_OBJECT(engine));
       g_object_unref(engine);
     }
