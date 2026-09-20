@@ -2040,7 +2040,9 @@ test("macOS exposes its native server logger without a Windows TSF switch", asyn
   );
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
   expect(await screen.findByRole("heading", { name: "关于" })).toBeDefined();
-  expect(screen.getByLabelText("Server 端日志")).toBeDefined();
+  // macOS has no Server process, so the switch is named for what it actually logs here.
+  expect(screen.getByLabelText("输入法日志")).toBeDefined();
+  expect(screen.queryByLabelText("Server 端日志")).toBeNull();
   expect(screen.queryByLabelText("TSF 端日志")).toBeNull();
   expect(screen.queryByLabelText("IBus 宿主日志")).toBeNull();
 });
@@ -4146,6 +4148,9 @@ const macosAbsentSections: Record<string, string> = {
   // switch to English, how to select a candidate, why the input source is missing from the menu -
   // want to be findable rather than read through.
   快速上手: "macOS answers the same questions as help cards",
+  // macOS runs no Server process; the same switch is 输入法日志 there, named for the focus and
+  // preference events it actually records.
+  "Server 端日志": "macOS names this 输入法日志, having no Server process",
   基本功能: "macOS answers the same questions as help cards",
 };
 
