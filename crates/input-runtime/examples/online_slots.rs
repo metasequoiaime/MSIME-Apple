@@ -86,8 +86,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         with_both.iter().position(|text| text == ai)
     );
 
-    // On its own it still takes the third seat rather than moving up: the reference numbers the
-    // seats, it does not pack them.
+    // On its own it moves up rather than holding the third seat. The README numbers the seats -
+    // 「插入首页第三项」 - but the arrangement in `candidate_selection_policy.h` packs them: one
+    // local, then cloud, then English, then AI, each only when it exists. This query has no cloud
+    // result and no English candidate, so the AI one is second. The implementation is what the user
+    // gets, so it is what this pins.
     let mut alone = Runtime::new(Session::new(&options)?, 9)?;
     alone.focus(true)?;
     compose(&mut alone)?;
@@ -97,9 +100,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert!(alone.apply_online_candidate(&query, ai, 1)?);
     let ai_only = candidates(&alone);
     assert_eq!(
-        ai_only.get(2).map(String::as_str),
+        ai_only.get(1).map(String::as_str),
         Some(ai),
         "AI alone landed in {ai_only:?}"
+    );
+    assert_eq!(
+        ai_only.first(),
+        local.first(),
+        "the local first choice keeps its seat"
     );
 
     // A cloud result the local list already has is not inserted twice.
@@ -118,6 +126,6 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "the existing candidate was duplicated: {after:?}"
     );
 
-    println!("online slots: cloud takes the second seat, AI the third, and a duplicate of a local candidate is not inserted");
+    println!("online slots: cloud takes the second seat, AI follows it, an AI result on its own moves up, and a duplicate of a local candidate is not inserted");
     Ok(())
 }
