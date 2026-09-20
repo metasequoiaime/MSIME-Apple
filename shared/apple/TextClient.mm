@@ -73,7 +73,17 @@ uint32_t MSIMETextClientPrecedingUnicodeScalar(id<MSIMETextClient> client) {
 
 void MSIMEApplyTransitionWithPreeditStyle(NSDictionary *transition, id<MSIMETextClient> client,
                                           MSIMEInlinePreeditStyle style) {
+    MSIMEApplyTransitionWithPendingClosing(transition, client, style, nil);
+}
+
+void MSIMEApplyTransitionWithPendingClosing(NSDictionary *transition, id<MSIMETextClient> client,
+                                            MSIMEInlinePreeditStyle style, NSString *closing) {
+    if (!closing.length) closing = nil;
     id commit = transition[@"commit"];
+    // A commit ends the pair: the closing mark goes in with the text it was holding open, and the
+    // caret lands after it, where the next character belongs.
+    if ([commit isKindOfClass:NSString.class] && closing)
+        commit = [(NSString *)commit stringByAppendingString:closing];
     if ([commit isKindOfClass:NSString.class]) [client insertText:commit replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
     NSDictionary *view = transition[@"view"];
     if (![view isKindOfClass:NSDictionary.class]) return;
@@ -93,6 +103,9 @@ void MSIMEApplyTransitionWithPreeditStyle(NSDictionary *transition, id<MSIMEText
         marked = @"";
         caret = 0;
     }
+    // While the pair is open the closing mark is the tail of the marked text, so it stays visible and
+    // stays after the caret. A commit above has already consumed it.
+    if (closing && ![commit isKindOfClass:NSString.class]) marked = [marked stringByAppendingString:closing];
     [client setMarkedText:marked selectionRange:NSMakeRange(caret, 0) replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
 }
 
