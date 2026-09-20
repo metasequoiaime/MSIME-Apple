@@ -5063,7 +5063,12 @@ export function SettingsPage({
                     >
                       <label className="section-header">
                         <span className="section-title">双拼方案</span>
+                        {/* The source disables this menu unless Shuangpin is the active scheme
+                            (`_shuangpinSchemeButton.enabled = storedScheme == 1`): until then the
+                            choice changes nothing, and a live control that does nothing reads as a
+                            setting being ignored. Other hosts keep it always editable. */}
                         <select
+                          disabled={macosPlatform && draft.scheme !== "shuangpin"}
                           value={draft.shuangpin_profile}
                           onChange={(event) =>
                             setDraft({
