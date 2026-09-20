@@ -290,6 +290,50 @@ if(MSIME_ENGINE_RESOURCES)
   install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/desktop-dictionary.lock.json"
           DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client")
 endif()
+# The settled-rerank model, installed as a sibling of the resource bundle.
+#
+# A sibling and not a member: the Engine verifier requires the resource directory to hold exactly
+# the artifacts the dictionary lock pins, so an extra file there fails the check that proves a
+# shipped dictionary is intact. `prepare_host_configuration` looks for it here and writes the path
+# into the runtime options; without it the host behaves exactly as it does today.
+#
+# Optional because it is 25 MB and buys a desktop-only improvement — 49 points of top-1 on the
+# harvested failure set, at a cost that keeps it off the keystroke path and on the settle timer.
+# Fetch it with `scripts/fetch_settled_model.py`, which writes `target/settled-model` by default.
+if(MSIME_SETTLED_MODEL)
+  if(NOT IS_DIRECTORY "${MSIME_SETTLED_MODEL}")
+    message(FATAL_ERROR "MSIME_SETTLED_MODEL is not a directory: ${MSIME_SETTLED_MODEL}")
+  endif()
+  file(READ "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/settled-model.lock.json"
+       MSIME_SETTLED_LOCK)
+  string(JSON MSIME_SETTLED_COUNT LENGTH "${MSIME_SETTLED_LOCK}" artifacts)
+  math(EXPR MSIME_SETTLED_LAST "${MSIME_SETTLED_COUNT} - 1")
+  foreach(MSIME_SETTLED_INDEX RANGE 0 ${MSIME_SETTLED_LAST})
+    string(JSON MSIME_SETTLED_NAME GET "${MSIME_SETTLED_LOCK}"
+           artifacts ${MSIME_SETTLED_INDEX} name)
+    set(MSIME_SETTLED_FILE "${MSIME_SETTLED_MODEL}/${MSIME_SETTLED_NAME}")
+    if(NOT EXISTS "${MSIME_SETTLED_FILE}" OR
+       IS_DIRECTORY "${MSIME_SETTLED_FILE}" OR
+       IS_SYMLINK "${MSIME_SETTLED_FILE}")
+      message(FATAL_ERROR "Missing settled model ${MSIME_SETTLED_NAME} in ${MSIME_SETTLED_MODEL}")
+    endif()
+    string(JSON MSIME_SETTLED_SIZE GET "${MSIME_SETTLED_LOCK}"
+           artifacts ${MSIME_SETTLED_INDEX} size)
+    string(JSON MSIME_SETTLED_SHA256 GET "${MSIME_SETTLED_LOCK}"
+           artifacts ${MSIME_SETTLED_INDEX} sha256)
+    file(SIZE "${MSIME_SETTLED_FILE}" MSIME_SETTLED_ACTUAL_SIZE)
+    file(SHA256 "${MSIME_SETTLED_FILE}" MSIME_SETTLED_ACTUAL_SHA256)
+    if(NOT MSIME_SETTLED_ACTUAL_SIZE STREQUAL MSIME_SETTLED_SIZE OR
+       NOT MSIME_SETTLED_ACTUAL_SHA256 STREQUAL MSIME_SETTLED_SHA256)
+      message(FATAL_ERROR
+        "Settled model ${MSIME_SETTLED_NAME} does not match the reviewed lock")
+    endif()
+    install(FILES "${MSIME_SETTLED_FILE}"
+            DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client/settled-model")
+  endforeach()
+  install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/settled-model.lock.json"
+          DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client")
+endif()
 if(MSIME_DESKTOP_BINARY)
   if(NOT EXISTS "${MSIME_DESKTOP_BINARY}")
     message(FATAL_ERROR "MSIME_DESKTOP_BINARY does not exist: ${MSIME_DESKTOP_BINARY}")

@@ -283,6 +283,12 @@ enum MsimeCommand {
     MSIME_FIRST_CANDIDATE_ON_PAGE = 104, MSIME_LAST_CANDIDATE_ON_PAGE = 105
 };
 char *msime_client_command(uint64_t session, uint32_t command);
+/* Re-rank the visible candidates with the settled model, once the host's typing pause elapses.
+ * The host owns the clock: it is the only side that knows whether a keystroke arrived while the
+ * pass was being decided. Answers {"moved": bool, "view": ...}; "moved" is false when the order
+ * did not change, which is the signal to leave the candidate window alone rather than repaint it
+ * identically. Inert, and immediately false, when no settled model is installed. */
+char *msime_client_rerank_settled(uint64_t session);
 /* Pass the generation and global index from the displayed candidate's id. */
 char *msime_client_select(uint64_t session, uint64_t generation, size_t index);
 /* Select any entry copied by msime_client_all_candidates for this exact

@@ -188,6 +188,10 @@ import { CandidateSkinPolicy } from "../entry/src/main/ets/keyboard/candidate/Ca
 import { CandidateNumberFontPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateNumberFontPolicy";
 import { PreeditCaretPolicy } from "../entry/src/main/ets/keyboard/candidate/PreeditCaretPolicy";
 import {
+  CandidateTranslationStyle,
+  TRANSLATION_OPACITY,
+} from "../entry/src/main/ets/keyboard/candidate/CandidateTranslationStyle";
+import {
   CandidateContextMenuPolicy,
   PointerAction,
   PointerButton,
@@ -4829,6 +4833,58 @@ group("the caret is as tall as the source draws it", () => {
     PreeditCaretPolicy.height(0) === 1,
     "a zero size still draws something rather than nothing",
   );
+});
+
+group("the offline gloss is drawn the way the source draws it", () => {
+  // .cand-translation { margin-left: 0.65em; font-size: 0.78em; opacity: 0.62 }, identical in all
+  // four skins' vertical stylesheets.
+  check(CandidateTranslationStyle.fontSize(18) === 14, "0.78em of the shared default");
+  check(CandidateTranslationStyle.fontSize(12) === 9, "at the smallest allowed candidate size");
+  check(CandidateTranslationStyle.fontSize(32) === 25, "at the largest allowed candidate size");
+  check(TRANSLATION_OPACITY === 0.62, "and the source's transparency rather than the host's 0.7");
+});
+
+group("the gloss gap resolves against the gloss, not the candidate", () => {
+  // `em` in margin-left resolves against the element's own computed font size; only font-size
+  // itself looks upwards. The gloss is already 0.78 of the row, so the gap is 0.65 of that.
+  check(CandidateTranslationStyle.gap(18) === Math.round(18 * 0.78 * 0.65), "0.65em of the gloss");
+  check(CandidateTranslationStyle.gap(18) === 9, "which is 9 at the shared default, not 12");
+  check(CandidateTranslationStyle.gap(32) === 16, "and scales with the candidate size");
+});
+
+group("a malformed candidate size cannot make the gloss unusable", () => {
+  check(CandidateTranslationStyle.fontSize(0) === 1, "a zero size still draws something");
+  check(CandidateTranslationStyle.fontSize(-2) === 1, "and so does a negative one");
+  check(
+    CandidateTranslationStyle.fontSize(Number.NaN) === 1,
+    "and so does one that is not a number",
+  );
+  check(
+    CandidateTranslationStyle.gap(0) === 0,
+    "a zero size asks for no gap rather than a negative one",
+  );
+});
+
+group("only a translation takes the translation's appearance", () => {
+  // The Engine's annotation shares the slot here but has no rule in either stylesheet, so giving it
+  // the translation's styling would be assuming the source meant both.
+  check(
+    CandidateGlossPolicy.annotationIsTranslation(null, "hello", true),
+    "a resolved gloss with no Engine annotation is a translation",
+  );
+  check(
+    !CandidateGlossPolicy.annotationIsTranslation("qwer", "hello", true),
+    "an Engine annotation wins the slot and is not a translation",
+  );
+  check(
+    !CandidateGlossPolicy.annotationIsTranslation(null, "hello", false),
+    "a gloss the user turned off is not in the slot at all",
+  );
+  check(
+    !CandidateGlossPolicy.annotationIsTranslation(null, null, true),
+    "and neither is one that was never resolved",
+  );
+  check(!CandidateGlossPolicy.annotationIsTranslation(null, "", true), "nor an empty one");
 });
 
 // The account bridge deliberately models the asynchronous device HTTP API. Give its immediate

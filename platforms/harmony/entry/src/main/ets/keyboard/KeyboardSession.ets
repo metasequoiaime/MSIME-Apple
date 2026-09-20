@@ -101,6 +101,9 @@ export interface CandidateEntry {
   readonly text: string;
   readonly hint: string;
   readonly annotation: string;
+  /** The annotation slot is a translation rather than an Engine annotation; they are styled
+   * differently because the source styles only one of them. */
+  readonly annotationIsTranslation: boolean;
   /** Engine-selected candidate; selection is not necessarily the first row. */
   readonly highlighted: boolean;
   readonly badge: string;
@@ -2041,6 +2044,8 @@ export class KeyboardSession implements HardwareKeyTarget {
         hint: WubiCodeHintPolicy.hint(candidate.code, view.preedit, this.wubiCodeHint, view.scheme,
           view.local_mode, view.answered_by_pinyin_fallback),
         annotation: CandidateGlossPolicy.annotation(candidate.annotation,
+          candidate.translation ?? null, this.candidateEnglishGloss),
+        annotationIsTranslation: CandidateGlossPolicy.annotationIsTranslation(candidate.annotation,
           candidate.translation ?? null, this.candidateEnglishGloss)
       });
     }
@@ -2088,6 +2093,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       hint: WubiCodeHintPolicy.hint(candidate.code, view.preedit, this.wubiCodeHint, view.scheme,
         view.local_mode, view.answered_by_pinyin_fallback),
       annotation: CandidateGlossPolicy.annotation(candidate.annotation,
+        candidate.translation ?? null, this.candidateEnglishGloss),
+      annotationIsTranslation: CandidateGlossPolicy.annotationIsTranslation(candidate.annotation,
         candidate.translation ?? null, this.candidateEnglishGloss)
     }));
     this.onChanged({
@@ -2109,7 +2116,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (translations === null || this.onChanged === undefined) return;
     const view: EngineView | undefined = this.lastView;
     const entries: CandidateEntry[] = translations.map((text: string, index: number): CandidateEntry => ({
-      text: text, hint: '', annotation: '', highlighted: index === 0, badge: '',
+      text: text, hint: '', annotation: '', annotationIsTranslation: false,
+      highlighted: index === 0, badge: '',
       fixedPosition: 0, source: 0, translation: null
     }));
     this.onChanged({

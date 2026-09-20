@@ -116,6 +116,7 @@
 | 候选窗右键菜单（删除候选等） | `input/CandidateContextMenuPolicy.ts` + `KeyboardView.onMouse`；触屏长按保持不变 | 逻辑回归；2in1 鼠标未在设备上点 |
 | 候选序号字号 | `candidate/CandidateNumberFontPolicy.ts`（上游 `.num { font-size: 0.8em }`） | 逻辑回归 |
 | preedit 光标（分词编辑可见） | `candidate/PreeditCaretPolicy.ts`（上游 `.cursor`）；共享视图 `caret_position` | 逻辑回归；2in1 分词键未在设备上按 |
+| 候选释义外观 | `candidate/CandidateTranslationStyle.ts`（上游竖排 `.cand-translation`） | 逻辑回归 |
 | preedit 显示、双拼原始预编辑 | `candidate_preedit_style`；`shuangpin_preedit` 能力位 | 逻辑回归 + 能力位测试 |
 | 中英混输、emoji/颜文字混输、独立英文候选 | Engine 侧 `mixed_input`；`dedicated_english` | 共享偏好契约 |
 | 直接英文补全 | `input/EnglishSuggestionPolicy.ts`；NAPI `englishCompletions` | 逻辑回归 |
@@ -225,6 +226,22 @@ Engine 对**单字母**查询（`j`、`n` 这类只按声母的查询）只给 2
 顺着这条又核了一遍打包：设置页提供五种方案，而安装测试只断言打包了 `helpcode.txt` 一个文件，一度怀疑只发了蓝天小雨点一种。查 `Prepare-PackageFiles.ps1` 是 `Copy-DirectoryContents` 整个 helpcodes 目录，五种都发，安装测试那行只是抽查。不是缺口。
 
 探针自己把表补进资源视图，因此不需要使用者额外准备；大词库用符号链接、辅助码表实拷贝——Engine 把资源暂存进用户目录那一步不跟随链接目录，链过去等于没有表。
+
+增量记录（2026-09-20，Windows 第十六批：简繁转换的实现差异，以及它此前零覆盖）：沿来源 README 清单查到简繁，发现两件事。
+
+**一、实现方式不同，且此前从未记录。** 来源用 OpenCC：`server/src/conversion/chinese_converter.cpp` 加载 `assets/opencc` 下的 `s2t.json`，是词级转换。本仓库用 `platforms/windows/src/input/ChineseTextConversion.cpp` 的 `LCMapStringEx(LCMAP_TRADITIONAL_CHINESE)`，映射表属于操作系统，是逐字的。全仓搜不到 opencc 的任何痕迹。
+
+这会在一对多的字上产生不同输出（「发」既可作「發」也可作「髮」，「里」「干」同理），而词级转换正是用来消解这种歧义的。**具体差多少没有测量**：`LCMapStringEx` 只在 Windows 上有行为，本机没有 Windows 主机；拿 Wine 的映射表冒充 Windows 的映射表没有意义。
+
+引入 OpenCC 是加依赖（库加数据资产，另有许可问题），按仓库规矩不擅自做，记在此处待定。
+
+**二、这个函数此前没有任何测试。** 新增 `platforms/windows/tests/input/chinese_conversion.cpp`，并且刻意不去钉映射表——钉具体的繁体字等于钉一个 Windows 版本，在 Wine 下则是钉 Wine 的表。测的是这段代码自己的契约：开关关闭时原样返回、空输入、ASCII 原样、非法 UTF-8 走回退而不抛也不丢字、转换不会把非空文本变空、结果仍是同样字数的合法 UTF-8。Wine 下通过，套件计数 75/77 变为 76/78。
+
+增量记录（2026-09-20，Windows 第十七批：中英混输的触发字符数）：来源写明英文候选在字母串达到设定长度（1～8）后才出现。新增 `crates/engine-bridge/examples/mixed_input_dictionary.rs`，用真实英文词库验证阈值 2 与 3 各自的边界、把阈值抬到超过已输入长度会把候选收回、以及关掉混输后任何长度都不出英文候选。
+
+这项的陷阱在于「没有英文候选」有两个原因：阈值没到，和词库里根本没有以这串字母开头的词。分不清这两者的测试，在功能被整个关掉时也会通过。所以每个否定用例都与同一串字母上的肯定用例成对出现，关掉开关那一组用的正是上面刚刚出过候选的字母串。
+
+（探测过程中 `shij` 在任何阈值下都不出英文候选，正是后一种原因——英文词库没有该前缀，不是阈值失效。这也是不把它写进断言的理由。）
 
 ## 来源模块的落点
 
