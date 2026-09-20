@@ -2952,6 +2952,55 @@ static void TestTencentCandidateScheduling() {
     pending.reply(online); assert(session.delivered.count == 0);
     [controller cancelCandidateTranslations]; [[MSIMETranslationCache sharedCache] clear];
 }
+@interface AccountGlossSession : ShortcutSession
+@property(nonatomic, copy) NSArray *candidates;
+@end
+@implementation AccountGlossSession
+- (NSDictionary *)translationQueryWithError:(NSError **)error {
+    (void)error;
+    // No custom_translation / tencent_tmt / niutrans: a user-owned translator takes precedence over the
+    // account endpoint, so the account gloss path is only reachable when none is configured.
+    return @{@"generation":@1, @"target_languages":@[@"en"], @"candidates":self.candidates ?: @[]};
+}
+- (NSDictionary *)viewWithError:(NSError **)error {
+    (void)error; return @{@"generation":@1, @"scheme":@0, @"local_mode":@"none", @"candidates":@[]};
+}
+@end
+
+// Only Chinese candidates reach the account gloss endpoint. The shared query answers this per candidate;
+// the controller must honour that answer rather than sending the whole page. Asking about "cun", "123",
+// "OpenAI", a punctuation candidate or an emoji spends the account's bounded quota to put noise under
+// candidates that should carry no gloss, and a pinyin buffer candidate hands raw keystrokes to a service.
+static void TestAccountGlossSkipsNonChineseCandidates() {
+    NSString *suite = [@"msime.account-gloss." stringByAppendingString:NSUUID.UUID.UUIDString];
+    MSIMEAppearancePreferences *prefs =
+        [[MSIMEAppearancePreferences alloc] initWithDefaults:[[NSUserDefaults alloc] initWithSuiteName:suite]];
+    CustomTranslationController *controller = [CustomTranslationController alloc];
+    controller.batches = [NSMutableArray array];
+    AccountGlossSession *session = [AccountGlossSession new];
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+
+    session.candidates = @[@{@"text":@"\u6d4b\u8bd5", @"online_gloss":@YES},
+                           @{@"text":@"cun", @"online_gloss":@NO},
+                           @{@"text":@"123", @"online_gloss":@NO},
+                           @{@"text":@"OpenAI", @"online_gloss":@NO},
+                           @{@"text":@"\U0001F600", @"online_gloss":@NO},
+                           @{@"text":@"\u4f60\u597d", @"online_gloss":@YES}];
+    NSDictionary *request = [controller currentAccountGlossRequest];
+    assert([[request[@"candidates"] valueForKey:@"text"] isEqual:(@[@"\u6d4b\u8bd5", @"\u4f60\u597d"])]);
+
+    // A page with nothing to ask about produces no request at all, rather than an empty one that would
+    // still cost a round trip and a signature.
+    session.candidates = @[@{@"text":@"cun", @"online_gloss":@NO}, @{@"text":@"OpenAI", @"online_gloss":@NO}];
+    assert(![controller currentAccountGlossRequest]);
+
+    // A candidate the shared layer never answered for is not sent either: absent is not permission.
+    session.candidates = @[@{@"text":@"\u6d4b\u8bd5"}];
+    assert(![controller currentAccountGlossRequest]);
+}
+
 static void TestCustomTranslationController() {
     CustomTranslationController *controller = [CustomTranslationController alloc];
     controller.batches = [NSMutableArray array];
@@ -3387,6 +3436,7 @@ int main(int argc, char **argv) {
         [NSApplication sharedApplication];
         if (argc == 2 && std::string(argv[1]) == "--translations") {
             TestGlossScheduling();
+            TestAccountGlossSkipsNonChineseCandidates();
             TestCustomTranslationController();
             TestSecondaryTranslationScheduling();
             TestCustomTranslationCacheDelivery();
@@ -3412,6 +3462,7 @@ int main(int argc, char **argv) {
         TestAiCandidateEngineDelivery();
         TestCloudCandidatePreference();
         TestGlossScheduling();
+        TestAccountGlossSkipsNonChineseCandidates();
         TestCustomTranslationController();
         TestSecondaryTranslationScheduling();
         TestCustomTranslationCacheDelivery();

@@ -3468,6 +3468,41 @@ fn a_settled_model_beside_the_resources_is_discovered() {
     );
 }
 
+#[test]
+fn translation_queries_only_clear_chinese_candidates_for_the_network() {
+    // A gloss model has nothing to say about a Latin letter, a digit or an emoji, and asking spends the
+    // account's bounded quota to put noise under candidates that should carry no gloss. The flag gates the
+    // gloss endpoint only: a user's own translator detects the direction per candidate and still sees
+    // English ones, and the offline dictionary sees everything because it never leaves the machine.
+    for (input, text, online) in [
+        (&b"U4e2d"[..], "\u{4e2d}", true),
+        (&b"U0041"[..], "A", false),
+        (&b"U0031"[..], "1", false),
+        (&b"U1f600"[..], "\u{1f600}", false),
+    ] {
+        let dir = tempfile::tempdir().unwrap();
+        let preferences = Preferences {
+            candidate_translations: true,
+            ..Preferences::default()
+        };
+        let handle = test_host_preferences(dir.path(), preferences);
+        read(msime_client_focus(handle, true));
+        for byte in input {
+            read(msime_client_character(
+                handle,
+                *byte,
+                byte.is_ascii_uppercase(),
+            ));
+        }
+        let query = read(msime_client_translation_query(handle));
+        assert_eq!(
+            query["value"]["candidates"],
+            json!([{ "text": text, "online_gloss": online }]),
+            "candidate {text:?} was cleared for the online gloss endpoint incorrectly"
+        );
+    }
+}
+
 /// Every entry point the C header promises is actually exported, and the other way round.
 ///
 /// Native hosts compile against `include/msime_client.h`; the Rust side is the implementation.
