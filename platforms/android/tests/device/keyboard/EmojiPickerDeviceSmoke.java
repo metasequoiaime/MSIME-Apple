@@ -19,11 +19,17 @@ public final class EmojiPickerDeviceSmoke extends DeviceSmoke {
         tap(key("i"));
         await(field("msime-test-plain").and(node -> equalsText("ni", node.getText())));
 
+        // The candidate strip takes the shortcut row while a composition is open, the way Apple
+        // has it, so 更多 is only reachable once the composition is done. Commit it first and let
+        // the rest of this case derive the committed prefix from the field.
+        stage = "composition committed before emoji";
+        tap(key("空格"));
+        await(key("更多").and(AccessibilityNodeInfo::isClickable));
+
         stage = "emoji more entry";
         tap(key("更多"));
         tap(description("表情"));
         await(description("表情面板"));
-        stage = "composition finished before emoji";
 
         stage = "emoji category navigation";
         tap(description("表情分类 笑脸"));

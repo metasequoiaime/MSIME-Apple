@@ -16,6 +16,8 @@ Harmony 设置页暴露共享的模糊拼音规则、触摸输入方案启用列
 
 录音行为的四个共享开关现在也由 Harmony 消费——设置页的说明一直写着"录音期间的提示音与静音由输入法在本机处理"，而此前本宿主一项都不做。开始与结束提示音使用 Windows 安装包同一份 `start.mp3` / `end.mp3`（同样的字节，放进模块的 `rawfile/audios/`），经 AVPlayer 播放，播放器随每次提示音创建并释放：键盘扩展不是媒体应用，为一段不到一秒的声音常驻一条音频管线不值得。`sound_enabled` 是两个提示音之上的总开关。"录音时静音其他音频"通过 `AudioSessionManager.activateAudioSession` 以 `CONCURRENCY_PAUSE_OTHERS` 实现，录音结束或取消时 `deactivateAudioSession` 归还；该项默认关闭，从正在播放的应用手里拿走音频会话是侵入性的。取消的录音不播结束音——没有识别结果可宣告。以上任何一步失败都只记日志，不影响录音本身。
 
+语音回复的解释逻辑抽成了 `VoiceResponsePolicy`。识别器本身握着麦克风、套接字和会话代次，没有凭据和真实音频就跑不起来；但"这条回复是什么意思"不需要两者，而且恰恰是最容易写错的部分——豆包的错误码可能出现在顶层也可能在 `payload_msg` 里，文字同样两处都可能，而没有文字的最终帧仍然必须结束录音，当成"什么都没发生"会让麦克风一直开着。这部分现在用合成回复逐条覆盖；provider 的真实往返仍未验证。
+
 2in1 硬件键盘补齐 Windows 的五个语音快捷键，各自受共享 `voice_input.hotkey_*` 开关控制：右 Alt 长按录音、Ctrl+Win 与 Ctrl+右 Alt 两个长按和弦、录音中按空格锁定（松开长按键不再结束）、Ctrl+F9 开始/停止（也用于结束已锁定的录音），录音中按 Esc 取消。设置页一直显示这五个开关，此前本宿主一个也不消费。空格与 Esc 只在录音时被占用，其余时刻仍归组合输入；长按键的重复按下不算第二次请求。录音状态由绘制识别面板的视图告知会话，识别自行结束（拿到最终结果或 provider 失败）时会清掉长按与锁定，否则下一次按下长按键会被当成一次并不存在的录音的释放。
 
 共享设置中的“顶部语音入口”现在也会驱动 Harmony 触屏键盘：开启后，快捷栏会显示麦克风入口并直接打开系统识别；`voice_input.enabled` 关闭时，顶部入口和“工具”面板卡片都会隐藏，保持平台特性与 Windows 的可选语音开关一致。
@@ -33,6 +35,8 @@ Harmony 设置页暴露共享的模糊拼音规则、触摸输入方案启用列
 直接英文输入现在有只读的英文补全，与 Android / iOS 一致，并受共享 `english_suggestions` 开关控制。查询走已有的共享 C ABI `msime_client_english_completions_request`（本次由 NAPI 导出）：它不创建 Engine 会话，因此可以离开 UI 线程。光标前的词按字母向前读到边界，全角字母归一为 ASCII——用户在全角模式下打的仍然是英文单词。少于两个字母不查询：一个字母能匹配词库的大半，却要为每次按键付一次查询。补全列表画在候选条上（直接英文没有组合，候选条本来是空的），点选前重新读取光标前的词，若编辑器已经改变就放弃，避免删掉补全从未涉及的文本。回复在进入候选条之前做长度与类型校验。
 
 悬浮工具栏的“设置”按钮现在也读共享 `floating_toolbar.settings`：此前它是唯一关不掉的按钮，使设置页那个开关在本宿主上是一个没有结果的控件。关闭后工具栏按可见按钮重新计算宽度，和其余组件一致。
+
+路由决策到会话调用的映射从扩展里抽成了 `HardwareKeyDispatch`。此前它是扩展内部一个二十五分支的 switch，上游路由器和下游会话方法都有测试，唯独这个接头没有——左方向键接到 `moveRight`、翻页键接到移动高亮，在今天的测试下和正确代码看起来一模一样，要等有人在 2in1 上打字才会发现。现在是一个对显式接口的纯函数（ArkTS 不支持结构化类型，所以需要把硬件键路径要求会话提供什么写成接口），`KeyboardSession` 声明实现该接口，编译器因此也会检查这份契约。二十四个动作逐条有测试，包括"被占用但不产生效果"的两个。
 
 2in1 硬件键盘补齐 Windows 基线的三个模式快捷键：`Ctrl+Shift+E` 切换中英文状态、`Ctrl+Shift+Space` 切换全角/半角、`Ctrl+.` 切换中英文标点。Linux 宿主同样实现这三个。它们不属于设置页可关闭的那四项绑定——Windows 把它们定死，关掉 Shift 单击并没有对 `Ctrl+Shift+E` 表态。标点走的是工具栏按钮已经在用的那条偏好写入路径，而不是另起一套 live session 开关：同一个开关两套机制正是两边开始不一致的起点。`InputModeRouting` 此前没有任何测试，本次连同原有的单击修饰键判定一起补上。
 
@@ -96,6 +100,8 @@ MSIME_OHOS_NDK=/absolute/openharmony/native MSIME_OHOS_DEPS="$deps" \
 - `AppScope/`、`entry/src/main/resources/`：应用元数据和资源。
 - `build-native.sh`、`stage-resources.sh`：共享 Host API、NAPI 库和固定资源的构建/暂存入口。
 - `entry/src/main/resources/rawfile/settings/index.html`：设置页的单文件打包产物，由 `apps/harmony` 生成，见下方[设置页打包](#设置页打包)。
+
+Windows 文档里的“自定义候选窗翻译”在 Harmony 上改由设置页提供。Engine 本来就在每个宿主上读这份覆盖层——`prepare_translation_sidecar` 先看用户数据目录再看资源目录——所以缺的从来不是功能，而是投放途径：没人能把文件放进应用沙盒。设置页的“自定义候选释义”把同一份内容写到 Engine 已经在看的位置（`<state>/user/custom_translations.txt`），解析规则逐条对齐 `EnglishDictionary::load_custom_translations`（Tab 分隔、`#` 注释、首尾空白修剪、源词含非 ASCII 即中译英、同源词后者覆盖前者），页面因此能在保存前说清楚这份文件里到底有多少条、多少行读不出来。留空即删除该文件，而不是留下一份 Engine 每次都读成空集的文档。**不写进已暂存的资源目录**：那里按锁文件逐项精确校验，多一个文件就会让键盘拒绝启动。
 
 设置页的本地词库管理复用共享设置 UI 和 `msime_client_dictionary`：可分页查看、编辑、导入、导出和处理失败队列。ArkTS 设置桥只接受操作 JSON；引擎资源和状态目录始终由宿主从应用沙盒准备，WebView 不能提交路径。词库写操作需要 Engine 独占维护窗口：空闲时会短暂重建会话并恢复语言、九键和焦点状态；正在组合输入时会返回忙碌错误，不会替用户取消输入。读取操作可与活动会话并行。
 
@@ -170,9 +176,15 @@ MSIME: panel ready: phone, soft keyboard
 
 即：系统接受了该输入法（`Succeeded in enabling IME. status:FULL_EXPERIENCE_MODE`），NAPI 模块加载、资源暂存、Engine 会话建立、软键盘面板创建，整条 ArkTS → NAPI → Rust → C++ Engine 链在设备上通。`bm install` 接受未签名 HAP（模拟器）。
 
-切换本身已验证：解锁屏幕后 `ime -s app.msime.client` 成功，`ime -g` 返回 `status: FULL_EXPERIENCE_MODE`。
+切换本身已验证：解锁屏幕后 `ime -s app.msime.client` 成功，`ime -g` 返回 `status: FULL_EXPERIENCE_MODE`。2in1 实例（`const.product.devicetype` = `2in1`、API 23、aarch64）上同样验证通过：安装、启用、切换为当前输入法均成功，原生模块加载。这是硬件键盘相关功能（模式和弦、语音快捷键、维护和弦）的目标形态。
 
-仍未验证：焦点交给真实编辑器后输入并上屏。该模拟器实例的 sceneboard 反复卡死（faultlog 有多条 `sysfreeze-com.ohos.sceneboard`），`aa start` 报成功但画面不刷新、注入触摸不落到图标，没有编辑器能取得焦点，而输入法扩展要等编辑器请求才被拉起、焦点与选区、生命周期、真机签名与安装、麦克风授权流程。启用与面板创建不等于输入验收。
+模拟器在本机的故障边界，已排查到具体原因而非笼统"需要设备"：手机实例的 sceneboard 反复卡死（faultlog 多条 `sysfreeze-com.ohos.sceneboard`），`aa start` 报成功但画面不刷新、注入触摸不落到图标；新建的干净实例部署完镜像后 qemu 始终不启动；2in1 实例 guest 内核与 hdc 正常，但显示不出帧、`uitest dumpLayout` 等待 UI 服务广播超时。三个实例三种失败，都在模拟器的显示/UI 层，guest 侧正常。因此无法让任一编辑器取得焦点，而输入法扩展要等编辑器请求才被系统拉起。
+
+已验证（2026-09-20）：输入法接管真实编辑器。验证办法是一个一次性探针应用——页面上一个 `TextInput` 加 `.defaultFocus(true)`，加载即自动取得焦点，因此不依赖显示层出帧、也不依赖触摸注入命中图标（这台机器上模拟器的显示栈正是这两处失效）。探针启动后本宿主日志出现 `attached to editor: pattern=-1 enter=6`，`ps` 显示 `app.msime.client:inputMethod` 进程在运行并为该输入框回报 `SetTextFieldAvoidInfo`。即系统把一个真实编辑器的输入路由给了本输入法，本输入法作出了响应。
+
+该验证同时暴露了两个缺陷，均已修复：OHOS 的 AsyncCallback 无论成败都会传入 `BusinessError`，成功时 `code` 为 0，因此 `if (error)` 恒为真——设置页每次加载成功都会记一条"加载失败"，真正的失败反而淹没其中；手写识别更严重，`componentSnapshot.get` 的回调同样这样判断，于是每一笔都在看快照之前就走了失败分支，手写从来没有识别成功过。
+
+仍未验证：按键经由输入法组字。此处此前写作"手机形态刻意不接管硬件按键"，那是读错了代码的结论。`KeyboardExtensionAbility` 确实只在 `isDesktop()` 时注册 `keyEvent`，但那段注释论证的是「2in1 上这是唯一通路」——它说明桌面需要注册，并没有说明手机不该注册。区别不是文字游戏：手机或平板接上蓝牙/USB 键盘时，不注册意味着框架把按键直接交给编辑器，物理键打出原文字母而完全不组字，这是功能缺口。现已改为形态决定画不画键、枚举决定路不路由键（`HardwareKeyboardPolicy`），判据是 `ALPHABETIC_KEYBOARD` 而非 `sources` 含 `keyboard`——后者在每台手机上都因音量与电源键成立。因此这一项的设备验证不再需要一台 2in1，任何接得上键盘的设备都可以。
 
 ## 验证边界
 

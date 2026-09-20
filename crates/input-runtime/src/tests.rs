@@ -22,6 +22,9 @@ struct Fixture {
     snapshot_fails: bool,
     balanced_openings: Vec<u8>,
     cache_resets: usize,
+    /// Candidates this engine holds back until asked, standing in for the Engine's cap on a
+    /// single-letter query. Empty means an engine that already returns everything it has.
+    withheld: Vec<String>,
 }
 
 #[cfg(unix)]
@@ -286,6 +289,13 @@ impl InputEngine for Fixture {
         self.balanced_openings.push(opening);
         Ok(())
     }
+    fn expand_initial_candidates(&mut self) -> Result<bool, RuntimeError> {
+        if self.withheld.is_empty() {
+            return Ok(false);
+        }
+        self.words.append(&mut self.withheld);
+        Ok(true)
+    }
     fn set_nine_key_enabled(&mut self, enabled: bool) -> Result<(), RuntimeError> {
         self.nine_key = enabled;
         self.nine_key_spellings.clear();
@@ -411,6 +421,7 @@ fn runtime() -> Runtime<Fixture> {
             snapshot_fails: false,
             balanced_openings: Vec::new(),
             cache_resets: 0,
+            withheld: Vec::new(),
         },
         5,
     )
@@ -495,6 +506,7 @@ fn candidate_codes_follow_candidates_in_page_and_complete_snapshots() {
             snapshot_fails: false,
             balanced_openings: Vec::new(),
             cache_resets: 0,
+            withheld: Vec::new(),
         },
         2,
     )
@@ -1367,4 +1379,84 @@ fn settling_while_idle_is_inert() {
     let mut runtime = runtime();
     runtime.focus(true).expect("focus");
     assert!(!runtime.rerank_settled());
+}
+
+fn withholding_runtime(offered: usize, withheld: usize, page_size: u8) -> Runtime<Fixture> {
+    Runtime::new(
+        Fixture {
+            scheme: 0,
+            dedicated_english: false,
+            nine_key: false,
+            nine_key_spellings: Vec::new(),
+            local_mode: "none".into(),
+            words: (0..offered).map(|n| format!("candidate-{n}")).collect(),
+            codes: Vec::new(),
+            text: String::new(),
+            snapshot_fails: false,
+            balanced_openings: Vec::new(),
+            cache_resets: 0,
+            withheld: (offered..offered + withheld)
+                .map(|n| format!("candidate-{n}"))
+                .collect(),
+        },
+        page_size,
+    )
+    .unwrap()
+}
+
+#[test]
+fn paging_reaches_candidates_the_engine_withheld() {
+    // Twelve offered at five a page is two full pages and a short third. Without the expansion the
+    // third page is the end of the road, and the eight held back are unreachable by any key.
+    let mut runtime = withholding_runtime(12, 8, 5);
+    runtime.focus(true).unwrap();
+    type_key(&mut runtime);
+    assert_eq!(runtime.view().page_count, 3);
+    let second = runtime.dispatch(Action::NextPage).unwrap().view;
+    assert_eq!(second.page, 1);
+    // Entering the short last page is where the expansion belongs: the page is filled before it is
+    // shown, rather than appearing short and then growing under the user.
+    let third = runtime.dispatch(Action::NextPage).unwrap().view;
+    assert_eq!(third.page, 2);
+    assert_eq!(third.page_count, 4);
+    assert_eq!(third.candidates.len(), 5);
+    let fourth = runtime.dispatch(Action::NextPage).unwrap().view;
+    assert_eq!(fourth.page, 3);
+    assert_eq!(
+        fourth.candidates.first().map(|c| c.text.as_str()),
+        Some("candidate-15")
+    );
+}
+
+#[test]
+fn expansion_that_fills_the_current_page_does_not_advance_past_it() {
+    // Three offered is a single short page. Asking for the next one has nowhere to go, so the
+    // arrivals fill this page instead - advancing would step straight over them.
+    let mut runtime = withholding_runtime(3, 4, 5);
+    runtime.focus(true).unwrap();
+    type_key(&mut runtime);
+    let filled = runtime.dispatch(Action::NextPage).unwrap().view;
+    assert_eq!(filled.page, 0);
+    assert_eq!(filled.page_count, 2);
+    assert_eq!(filled.candidates.len(), 5);
+    assert_eq!(
+        filled.candidates.first().map(|c| c.text.as_str()),
+        Some("candidate-0")
+    );
+    // The page is no longer short, so the next request moves on as usual.
+    assert_eq!(runtime.dispatch(Action::NextPage).unwrap().view.page, 1);
+}
+
+#[test]
+fn an_engine_withholding_nothing_pages_exactly_as_before() {
+    let mut runtime = withholding_runtime(12, 0, 5);
+    runtime.focus(true).unwrap();
+    type_key(&mut runtime);
+    for expected in [1, 2, 2, 2] {
+        assert_eq!(
+            runtime.dispatch(Action::NextPage).unwrap().view.page,
+            expected
+        );
+    }
+    assert_eq!(runtime.view().page_count, 3);
 }

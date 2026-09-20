@@ -56,15 +56,21 @@ public class DeviceSmoke extends Instrumentation {
             stage = "deletion";
             tap(key("⌫"));
             await(field("msime-test-plain").and(node -> equalsText("你", node.getText())));
+            // 繁体输出 is a setting rather than a toolbar key, the way Apple has it: it moved out
+            // of the shortcut bar and into 更多, so this drives it there.
             stage = "simplified output baseline";
-            AccessibilityNodeInfo script = await(scriptState());
-            if (equalsText("繁", script.getText())) {
-                tap(key("繁"));
-                await(key("简").and(AccessibilityNodeInfo::isEnabled));
+            tap(key("更多"));
+            await(toolPanel());
+            AccessibilityNodeInfo script = await(tool("繁体输出"));
+            if (equalsText("已开启", script.getStateDescription())) {
+                tap(tool("繁体输出"));
+                await(toolWithState("繁体输出", "已关闭"));
             }
             stage = "traditional output switch";
-            tap(key("简"));
-            await(key("繁").and(AccessibilityNodeInfo::isEnabled));
+            tap(tool("繁体输出"));
+            await(toolWithState("繁体输出", "已开启"));
+            tap(tool("返回键盘"));
+            await(key("n").and(AccessibilityNodeInfo::isClickable));
             stage = "traditional candidate display";
             for (String key : new String[] {"s", "h", "u", "r", "u", "f", "a"}) tap(key(key));
             await(imeTextContains("輸入法"));
@@ -73,8 +79,12 @@ public class DeviceSmoke extends Instrumentation {
             stage = "traditional commit result";
             await(field("msime-test-plain").and(node -> equalsText("你輸入法", node.getText())));
             stage = "restore simplified output";
-            tap(key("繁"));
-            await(key("简").and(AccessibilityNodeInfo::isEnabled));
+            tap(key("更多"));
+            await(toolPanel());
+            tap(tool("繁体输出"));
+            await(toolWithState("繁体输出", "已关闭"));
+            tap(tool("返回键盘"));
+            await(key("n").and(AccessibilityNodeInfo::isClickable));
             stage = "password focus action";
             tap(field("msime-test-password"));
             stage = "password field focus";
@@ -88,7 +98,9 @@ public class DeviceSmoke extends Instrumentation {
             stage = "view-hide composition";
             tap(field("msime-test-plain"));
             for (String key : new String[] {"n", "i", "h", "a", "o"}) tap(key(key));
-            await(field("msime-test-plain").and(node -> equalsText("nihao", node.getText())));
+            // The field still holds 你輸入法 from the traditional stage, and getText() includes the
+            // composing region, so this is that text with the pinyin still being composed on it.
+            await(field("msime-test-plain").and(node -> equalsText("你輸入法nihao", node.getText())));
             if (!automation.performGlobalAction(AccessibilityService.GLOBAL_ACTION_BACK))
                 throw new AssertionError("Keyboard hide action failed");
             SystemClock.sleep(500);
@@ -100,9 +112,51 @@ public class DeviceSmoke extends Instrumentation {
     protected Predicate<AccessibilityNodeInfo> field(String description) {
         return node -> equalsText("app.msime.client.test", node.getPackageName()) && equalsText(description, node.getContentDescription());
     }
+    /**
+     * The key that types `text`, whatever case it is drawn in.
+     *
+     * <p>A Chinese keyboard draws its 26 letter keys in caps while still sending the lowercase
+     * letter, so a letter key is identified by the letter and not by its face. Which case is drawn
+     * is `LetterKeyFacePolicy`'s contract and has its own host coverage; asserting it again from
+     * here only made these cases fail the moment the faces became correct. Every other key -- 空格,
+     * 简, 繁, ⌫ -- still matches exactly.
+     */
     protected Predicate<AccessibilityNodeInfo> key(String text) {
-        return node -> equalsText("app.msime.client.preview", node.getPackageName()) && equalsText(text, node.getText());
+        boolean letter = text.length() == 1 && Character.isLetter(text.charAt(0))
+            && text.charAt(0) < 128;
+        return node -> equalsText("app.msime.client.preview", node.getPackageName())
+            && (letter ? node.getText() != null && text.equalsIgnoreCase(node.getText().toString())
+                : equalsText(text, node.getText()));
     }
+    /**
+     * A control identified by the start of its accessibility description.
+     *
+     * <p>Several shortcut entries put their current value in both the face and the description --
+     * the scheme entry reads `拼26` / `输入方案：全拼 26 键`, the skin entry names the skin in use --
+     * so neither is an identity. The stable part is the prefix.
+     */
+    protected Predicate<AccessibilityNodeInfo> described(String description) {
+        return node -> equalsText("app.msime.client.preview", node.getPackageName())
+            && equalsText(description, node.getContentDescription());
+    }
+
+    protected Predicate<AccessibilityNodeInfo> describedPrefix(String prefix) {
+        return node -> equalsText("app.msime.client.preview", node.getPackageName())
+            && node.getContentDescription() != null
+            && node.getContentDescription().toString().startsWith(prefix);
+    }
+    protected Predicate<AccessibilityNodeInfo> toolPanel() {
+        return described("更多工具");
+    }
+
+    protected Predicate<AccessibilityNodeInfo> tool(String description) {
+        return described(description);
+    }
+
+    protected Predicate<AccessibilityNodeInfo> toolWithState(String description, String state) {
+        return tool(description).and(node -> equalsText(state, node.getStateDescription()));
+    }
+
     protected Predicate<AccessibilityNodeInfo> scriptState() {
         return node -> equalsText("app.msime.client.preview", node.getPackageName())
             && node.isEnabled() && (equalsText("简", node.getText()) || equalsText("繁", node.getText()));
@@ -132,7 +186,8 @@ public class DeviceSmoke extends Instrumentation {
         }
         return null;
     }
-    private AccessibilityNodeInfo findAny(AccessibilityNodeInfo node,
+    /** Matches anywhere in the tree, including nodes scrolled outside the visible area. */
+    protected AccessibilityNodeInfo findAny(AccessibilityNodeInfo node,
                                            Predicate<AccessibilityNodeInfo> match) {
         if (node == null) return null;
         if (match.test(node)) return node;
@@ -153,7 +208,7 @@ public class DeviceSmoke extends Instrumentation {
         } while (SystemClock.uptimeMillis() < deadline);
         throw new AssertionError("Expected synthetic UI state was not observed");
     }
-    private AccessibilityNodeInfo awaitAny(Predicate<AccessibilityNodeInfo> match) {
+    protected AccessibilityNodeInfo awaitAny(Predicate<AccessibilityNodeInfo> match) {
         long deadline = SystemClock.uptimeMillis() + 15000;
         do {
             for (AccessibilityWindowInfo window : automation.getWindows()) {
@@ -194,7 +249,11 @@ public class DeviceSmoke extends Instrumentation {
     }
     protected void tapSymbol(String symbol) throws java.util.concurrent.TimeoutException {
         tap(key("符号"));
-        tap(key(symbol));
+        // A symbol key in Chinese mode wears its Chinese face whatever the engine is configured to
+        // insert -- the face follows the mode, the inserted mark follows the punctuation setting,
+        // exactly as on Apple. Accept either face and let the caller assert what was inserted.
+        String chinese = app.msime.client.ChineseSymbolFaces.face(symbol, true);
+        tap(key(symbol).or(key(chinese)));
         tap(key("字母"));
     }
 }

@@ -71,9 +71,16 @@ case "$(uname -s 2>/dev/null)" in MINGW*|MSYS*|CYGWIN*) windows_host=1 ;; esac
 # cross build. It needs the compilers and a vcpkg already bootstrapped at the
 # manifest baseline; bootstrapping one is a long download, so this only adopts
 # a tree that is already there rather than creating one mid-verification.
+#
+# The main worktree's tree counts too. This repository is developed in many
+# short-lived worktrees, each with its own target/, so looking only beside this
+# checkout would leave the gate skipping in every one of them - which is the
+# failure this gate exists to stop, one directory removed.
 cross_vcpkg=""
 if [ "$windows_host" -eq 0 ] && command -v x86_64-w64-mingw32-g++ >/dev/null 2>&1; then
-  for candidate in "${MSIME_VCPKG_ROOT:-}" "$root/target/tooling/vcpkg"; do
+  main_worktree="$(dirname "$(git rev-parse --git-common-dir 2>/dev/null || echo .)")"
+  for candidate in "${MSIME_VCPKG_ROOT:-}" "$root/target/tooling/vcpkg" \
+    "$main_worktree/target/tooling/vcpkg"; do
     [ -n "$candidate" ] && [ -x "$candidate/vcpkg" ] && cross_vcpkg="$candidate" && break
   done
 fi
@@ -96,6 +103,7 @@ fi
 
 failed=0
 new_failures=""
+observed_wine="$(mktemp)"
 note() { printf '\n=== %s ===\n' "$1"; }
 fail() { echo "FAIL: $1"; failed=1; }
 
@@ -143,6 +151,19 @@ python3 scripts/test-preferences-field-parity.py || fail "preferences field pari
 # script - hence a static check rather than a test.
 note "windows path encoding"
 python3 scripts/test-windows-path-encoding.py || fail "windows path encoding"
+
+# The prerequisite check lives in Inno Setup's Pascal Script, which nothing off
+# Windows can compile. This pins the parts a later edit could quietly drop.
+note "installer prerequisites"
+python3 scripts/test-installer-prerequisites.py || fail "installer prerequisites"
+
+# The 32-bit TSF DLL is loaded into every 32-bit host application, and nothing
+# built that architecture: build-cross.sh x86 needs a DWARF-unwinding MinGW for
+# the Rust side and the common macOS toolchain is SJLJ. This re-checks the same
+# sources with the same flags under the i686 compiler, which needs no 32-bit
+# libraries because it never links.
+note "windows x86 syntax"
+python3 scripts/test-windows-32bit-compile.py || fail "windows x86 syntax"
 
 note "compile: rust workspace"
 # The desktop app's Tauri config lists the platform IME bundle as a packaged
@@ -223,17 +244,64 @@ elif [ -n "$cross_vcpkg" ]; then
   # directory level short by a move. None of it was subtle; nothing was looking.
   # Once, into a log: unlike the CMake phases above this one costs minutes even
   # incrementally, so it is not run twice to get both the message and the code.
-  cross_log="$(mktemp)"
-  if MSIME_VCPKG_ROOT="$cross_vcpkg" bash platforms/windows/build-cross.sh x64 >"$cross_log" 2>&1; then
-    echo "windows cross build (x64): links"
+  # Built dependencies live beside the vcpkg tree that produced them, so every
+  # worktree on this machine shares one rather than each rebuilding curl and
+  # boost before it can compile anything of ours.
+  cross_deps="$(dirname "$cross_vcpkg")/windows-native-deps"
+  # One cross build per machine at a time. The vcpkg checkout and the built
+  # dependencies are both shared, and this repository is worked in several
+  # worktrees at once, so two runs otherwise overlap: one reinstalls the
+  # manifest into the prefix the other is already compiling against, and the
+  # second fails on a header that is present before and after. A gate that goes
+  # red for reasons unrelated to the change is a gate people learn to pass with
+  # --no-verify, so a run that cannot take the lock reports what it did - which
+  # is nothing - rather than a failure.
+  #
+  # mkdir is the test-and-set: it is atomic on every filesystem this runs on,
+  # unlike "test -e then create". The trap covers an interrupted run; a lock
+  # left by a killed process is cleared by removing the directory it names,
+  # which the message points at.
+  cross_lock="$cross_deps/.verify-cross-build.lock"
+  mkdir -p "$cross_deps" 2>/dev/null
+  if ! mkdir "$cross_lock" 2>/dev/null; then
+    echo "windows cross build: skipped (another run holds $cross_lock)"
   else
-    grep -Ei "error:|Error [0-9]|No rule to make target" "$cross_log" | head -5
-    fail "windows cross build"
+    trap 'rmdir "$cross_lock" 2>/dev/null' EXIT
+    cross_log="$(mktemp)"
+    if MSIME_VCPKG_ROOT="$cross_vcpkg" MSIME_WINDOWS_DEPS_ROOT="$cross_deps" \
+      bash platforms/windows/build-cross.sh x64 >"$cross_log" 2>&1; then
+      echo "windows cross build (x64): links"
+    elif grep -q "Failed to take the filesystem lock" "$cross_log"; then
+      # vcpkg's own lock, taken by something that is not this gate.
+      echo "windows cross build: skipped (vcpkg busy in another run)"
+    else
+      grep -Ei "error:|Error [0-9]|No rule to make target" "$cross_log" | head -5
+      fail "windows cross build"
+    fi
+    rm -f "$cross_log"
+    rmdir "$cross_lock" 2>/dev/null
+    trap - EXIT
   fi
-  rm -f "$cross_log"
 else
   echo "skipped: $MSIME_NATIVE_BUILD not configured, and no MinGW cross toolchain"
   echo "  run platforms/windows/build-cross.sh x64 once to enable this gate here"
+fi
+
+# Not in --quick: it emulates x86_64 on an arm64 host, so it costs minutes.
+# It is the only thing here that runs the Windows suites rather than building
+# them, which is why it is in the full run rather than nowhere.
+if [ "$quick" -eq 0 ]; then
+  note "windows suites under wine"
+  wine_log="$(mktemp)"
+  bash platforms/windows/run-tests-wine.sh x64 >"$wine_log" 2>&1
+  if grep -q "^skipped:" "$wine_log"; then
+    sed -n '1,2p' "$wine_log"
+  else
+    grep "^FAIL " "$wine_log" | sed 's/^FAIL /wine /' > "$observed_wine"
+    echo "wine: $(grep -c '^PASS' "$wine_log") passed, $(grep -c '^FAIL ' "$wine_log") failed"
+    compare "windows suites under wine" "$observed_wine"
+  fi
+  rm -f "$wine_log"
 fi
 
 note "compile: macos"
@@ -266,12 +334,39 @@ if cmake -S platforms/windows -B "$MSIME_PIPE_BUILD" -DMSIME_WINDOWS_PIPE_ONLY=O
     cmake --build "$MSIME_PIPE_BUILD" --config Debug 2>&1 |
       grep -Ei "error C[0-9]|error LNK" | head -5
   fi
+elif [ "$windows_host" -eq 0 ] && command -v x86_64-w64-mingw32-g++ >/dev/null 2>&1; then
+  # It cannot configure against the *host* compiler off Windows, but it can
+  # cross-configure, and this one needs nothing but the compiler - no Rust
+  # library, no vcpkg. So the configuration the comment above calls "one
+  # nobody runs" can actually be run nearly everywhere, rather than skipped
+  # on every machine that is not Windows.
+  # Both architectures the product ships a DLL for. 32-bit is not a formality
+  # here: windows_ipc.h pins its frame sizes and field offsets with
+  # static_assert, and those are exactly what a pointer-width change moves.
+  # The full cross build cannot cover i686 on this toolchain (x86 Rust GNU
+  # needs DWARF unwinding and Homebrew's i686 MinGW is SJLJ), but this
+  # configuration links no Rust at all, so the protocol still gets checked.
+  for cross_arch in x86_64 i686; do
+    command -v "$cross_arch-w64-mingw32-g++" >/dev/null 2>&1 || continue
+    cross_dir="${MSIME_PIPE_BUILD}-cross-$cross_arch"
+    if cmake -S platforms/windows -B "$cross_dir" -DMSIME_WINDOWS_PIPE_ONLY=ON \
+      -DCMAKE_SYSTEM_NAME=Windows -DCMAKE_CXX_COMPILER="$cross_arch-w64-mingw32-g++" \
+      -DCMAKE_BUILD_TYPE=Debug >/dev/null 2>&1 &&
+      cmake --build "$cross_dir" --parallel >/dev/null 2>&1; then
+      echo "pipe-only: cross-builds ($cross_arch)"
+    else
+      cmake --build "$cross_dir" --parallel 2>&1 |
+        grep -Ei "error:|Error [0-9]" | head -5
+      fail "pipe-only cross build ($cross_arch)"
+    fi
+  done
 elif [ "$windows_host" -eq 0 ]; then
-  # platforms/windows cannot configure off Windows, and this phase had no guard
-  # for that while every other native phase does. --quick is documented as the
-  # pre-merge gate, so an unconditional failure here made that gate permanently
-  # red on macOS and Linux - which is a good way to teach everyone to skip it.
-  echo "pipe-only: skipped (needs a Windows host)"
+  # platforms/windows cannot configure off Windows without a cross compiler,
+  # and this phase had no guard for that while every other native phase does.
+  # --quick is documented as the pre-merge gate, so an unconditional failure
+  # here made that gate permanently red on macOS and Linux - which is a good
+  # way to teach everyone to skip it.
+  echo "pipe-only: skipped (needs a Windows host or a MinGW cross compiler)"
 else
   fail "pipe-only configure"
 fi
@@ -401,10 +496,16 @@ if [ -n "${MSIME_EVAL_RESOURCES:-}" ] && [ -d "${MSIME_EVAL_RESOURCES:-}" ]; the
   # `harvested` is the failure set: cases picked because the product gets them wrong, so its
   # top-1 is near zero by construction and its top-5 is the number that means something. It is
   # gated the same way regardless, because a regression moves it just as visibly.
-  for set in sentences harvested words; do
+  #
+  # `neutral` is harvested the same way but against the engine alone, so no reranking model is
+  # implicated in choosing the cases. That is what makes its top-1 comparable across models —
+  # 0.622 for the shipped 4.25M weights against 0.805 for the 24.9M ones, disagreeing on 272 of
+  # 1104 cases where the hand-written set produced three disagreements and McNemar p = 0.25.
+  for set in sentences harvested neutral words; do
     case "$set" in
       sentences) args="--set resources/eval/sentences-v1.tsv" ;;
       harvested) args="--set resources/eval/sentences-v2.tsv" ;;
+      neutral) args="--set resources/eval/sentences-neutral-v1.tsv" ;;
       words) args="--set resources/eval/quanpin-words-v1.tsv --limit 3000" ;;
     esac
     # shellcheck disable=SC2086

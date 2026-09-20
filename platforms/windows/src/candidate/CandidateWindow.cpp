@@ -10,17 +10,24 @@
 
 namespace msime::windows {
 namespace {
+// A named CALLBACK rather than a lambda, as ShellLauncher's EnumWindows proc
+// already is. FONTENUMPROCW is __stdcall; a captureless lambda converts to a
+// __cdecl function pointer, and on x86 those are different types - this was a
+// compile error for the 32-bit build and only compiled at all on x86_64, where
+// there is one calling convention.
+int CALLBACK note_font_found(const LOGFONTW *, const TEXTMETRICW *, DWORD,
+                             LPARAM data) {
+  *reinterpret_cast<bool *>(data) = true;
+  return 0;
+}
 bool installed_font(const std::wstring &family) {
   HDC dc = GetDC(nullptr);
   if (!dc) return false;
   LOGFONTW logfont{};
   wcsncpy_s(logfont.lfFaceName, family.c_str(), LF_FACESIZE - 1);
   bool found = false;
-  EnumFontFamiliesExW(dc, &logfont,
-      [](const LOGFONTW *, const TEXTMETRICW *, DWORD, LPARAM data) -> int {
-        *reinterpret_cast<bool *>(data) = true;
-        return 0;
-      }, reinterpret_cast<LPARAM>(&found), 0);
+  EnumFontFamiliesExW(dc, &logfont, note_font_found,
+                      reinterpret_cast<LPARAM>(&found), 0);
   ReleaseDC(nullptr, dc);
   return found;
 }
@@ -595,9 +602,11 @@ void CandidateWindow::paint() {
         static_cast<float>(frame.card_top) +
             static_cast<float>(metrics.pad_y + metrics.preedit_row)};
     const auto text = wide(value->preedit);
+    // Same clamp, same reason as the candidate rows below: a long enough
+    // reading would otherwise be drawn past the card.
     target->DrawText(text.c_str(), static_cast<UINT32>(text.size()),
                       format(preedit_font_size_, DWRITE_TEXT_ALIGNMENT_LEADING),
-                      rect, brush(text_color));
+                      rect, brush(text_color), D2D1_DRAW_TEXT_OPTIONS_CLIP);
     // The insertion point. Without it, moving left or right inside a long
     // pinyin string gave no indication of where the next key would land - and
     // the settings preview drew a caret the real window never did.
@@ -669,11 +678,16 @@ void CandidateWindow::paint() {
     if (!value->candidates[i].translation.empty())
       candidate_label += "  · " + value->candidates[i].translation;
     const auto text = wide(candidate_label);
+    // Clipped to the row. The card is clamped to the work area, the format
+    // does not wrap, and without this a candidate wider than that clamp paints
+    // straight past the card edge - onto the transparent shadow margin, so the
+    // overflow reads as text floating beside the window. It is also text the
+    // user cannot click: hit testing uses this same row rectangle.
     target->DrawText(
         text.c_str(), static_cast<UINT32>(text.size()),
         format(font_size_, DWRITE_TEXT_ALIGNMENT_LEADING),
         D2D1_RECT_F{rect.left + gutter, rect.top, rect.right, rect.bottom},
-        brush(row_text_color));
+        brush(row_text_color), D2D1_DRAW_TEXT_OPTIONS_CLIP);
   }
   const HRESULT drawn = target->EndDraw();
   // A composition swap chain only reaches the screen once it is presented.

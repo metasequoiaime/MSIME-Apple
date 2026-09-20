@@ -30,7 +30,13 @@ struct BackendKeychain: BackendSessionStorage {
     var result: CFTypeRef?
     let status = SecItemCopyMatching(query as CFDictionary, &result)
     if status == errSecItemNotFound { return try migrateCommunitySession() }
-    guard status == errSecSuccess, let data = result as? Data else { throw BackendAccountClient.Failure(status: 0) }
+    // A keychain we cannot read is not a session we have. An unsigned simulator build answers
+    // -34018 (errSecMissingEntitlement) here, and a device can answer errSecInteractionNotAllowed
+    // while locked; treating either as a hard failure took every screen that asks "am I signed in"
+    // down with it, and the only thing the user saw was the status-0 fallback, 请求未完成. Absent
+    // and unreadable are the same answer to that question. Data we *can* read but cannot decode is
+    // a real fault and still throws.
+    guard status == errSecSuccess, let data = result as? Data else { return nil }
     do { return try JSONDecoder().decode(BackendSavedSession.self, from: data) }
     catch { throw BackendAccountClient.Failure(status: 0) }
   }
@@ -42,7 +48,8 @@ struct BackendKeychain: BackendSessionStorage {
     var result: CFTypeRef?
     let status = SecItemCopyMatching(lookup as CFDictionary, &result)
     if status == errSecItemNotFound { return nil }
-    guard status == errSecSuccess, let data = result as? Data else { throw BackendAccountClient.Failure(status: 0) }
+    // Same reasoning as above: an unreadable legacy item is nothing to migrate, not an error.
+    guard status == errSecSuccess, let data = result as? Data else { return nil }
     struct Legacy: Decodable {
       struct User: Decodable { let id: String; let display_name: String; let created_at: String? }
       let access_token: String; let refresh_token: String; let user: User

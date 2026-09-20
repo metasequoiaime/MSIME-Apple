@@ -29,6 +29,8 @@ public final class KeyboardLayoutAdjustView extends FrameLayout {
         void close();
     }
 
+    /** Long enough for a run of accessibility steps to settle, short enough to feel immediate. */
+    private static final long COMMIT_DELAY_MILLIS = 250;
     private static final int BAR_HEIGHT_DP = 52;
     private static final int SPACING_MARGIN_DP = 8;
     private final Listener listener;
@@ -41,6 +43,7 @@ public final class KeyboardLayoutAdjustView extends FrameLayout {
     private int heightAdjustment;
     private boolean trackingHeight;
     private boolean adjustmentsEnabled = true;
+    private final Runnable commitAdjustment = this::commitAdjustment;
     private float downX;
     private float downY;
     private int baseKeySpacing;
@@ -238,20 +241,38 @@ public final class KeyboardLayoutAdjustView extends FrameLayout {
         catch (IllegalArgumentException error) { return Color.WHITE; }
     }
 
+    /**
+     * A drag previews while it moves and saves when the finger lifts. An accessibility adjustment
+     * has no lift, so each step has to save on its own; previewing alone left the new height to be
+     * overwritten by the next preferences apply, and the value bounced straight back.
+     */
     @Override public boolean performAccessibilityAction(int action, Bundle arguments) {
         if (action == AccessibilityNodeInfo.ACTION_SCROLL_FORWARD) {
-            heightAdjustment = KeyboardGeometry.heightAdjustment(heightAdjustment + 2);
-            listener.height(heightAdjustment);
-            updateHint("键盘高度 " + KeyboardGeometry.displayHeight(heightAdjustment));
-            return true;
+            return adjustHeight(heightAdjustment + 2);
         }
         if (action == AccessibilityNodeInfo.ACTION_SCROLL_BACKWARD) {
-            heightAdjustment = KeyboardGeometry.heightAdjustment(heightAdjustment - 2);
-            listener.height(heightAdjustment);
-            updateHint("键盘高度 " + KeyboardGeometry.displayHeight(heightAdjustment));
-            return true;
+            return adjustHeight(heightAdjustment - 2);
         }
         return super.performAccessibilityAction(action, arguments);
+    }
+
+    private boolean adjustHeight(int value) {
+        heightAdjustment = KeyboardGeometry.heightAdjustment(value);
+        listener.height(heightAdjustment);
+        updateHint("键盘高度 " + KeyboardGeometry.displayHeight(heightAdjustment));
+        // Repeated steps coalesce into one save, the way a drag saves once when the finger lifts.
+        // Saving on every step loses saves instead: a save already in flight makes the next
+        // request a no-op, so the last steps -- and a reset tapped straight afterwards -- vanish.
+        removeCallbacks(commitAdjustment);
+        postDelayed(commitAdjustment, COMMIT_DELAY_MILLIS);
+        return true;
+    }
+
+    private void commitAdjustment() { listener.commit(); }
+
+    @Override protected void onDetachedFromWindow() {
+        removeCallbacks(commitAdjustment);
+        super.onDetachedFromWindow();
     }
 
     @SuppressWarnings("deprecation")

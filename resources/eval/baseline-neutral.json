@@ -1,0 +1,415 @@
+{
+  "by_syllables": {
+    "10": {
+      "cases": 94,
+      "found": 1.0,
+      "mrr": 0.759,
+      "top1": 0.691,
+      "top1_char_prefix": 0.814,
+      "top5": 0.819,
+      "top9": 0.819
+    },
+    "11": {
+      "cases": 96,
+      "found": 1.0,
+      "mrr": 0.713,
+      "top1": 0.646,
+      "top1_char_prefix": 0.817,
+      "top5": 0.771,
+      "top9": 0.771
+    },
+    "12": {
+      "cases": 53,
+      "found": 1.0,
+      "mrr": 0.703,
+      "top1": 0.642,
+      "top1_char_prefix": 0.789,
+      "top5": 0.755,
+      "top9": 0.755
+    },
+    "13": {
+      "cases": 46,
+      "found": 1.0,
+      "mrr": 0.807,
+      "top1": 0.739,
+      "top1_char_prefix": 0.881,
+      "top5": 0.87,
+      "top9": 0.87
+    },
+    "14": {
+      "cases": 34,
+      "found": 1.0,
+      "mrr": 0.724,
+      "top1": 0.647,
+      "top1_char_prefix": 0.786,
+      "top5": 0.794,
+      "top9": 0.794
+    },
+    "15": {
+      "cases": 28,
+      "found": 1.0,
+      "mrr": 0.702,
+      "top1": 0.643,
+      "top1_char_prefix": 0.771,
+      "top5": 0.75,
+      "top9": 0.75
+    },
+    "16": {
+      "cases": 22,
+      "found": 1.0,
+      "mrr": 0.866,
+      "top1": 0.818,
+      "top1_char_prefix": 0.844,
+      "top5": 0.909,
+      "top9": 0.909
+    },
+    "6": {
+      "cases": 217,
+      "found": 1.0,
+      "mrr": 0.713,
+      "top1": 0.59,
+      "top1_char_prefix": 0.76,
+      "top5": 0.829,
+      "top9": 0.829
+    },
+    "7": {
+      "cases": 178,
+      "found": 1.0,
+      "mrr": 0.658,
+      "top1": 0.59,
+      "top1_char_prefix": 0.791,
+      "top5": 0.713,
+      "top9": 0.719
+    },
+    "8": {
+      "cases": 184,
+      "found": 1.0,
+      "mrr": 0.648,
+      "top1": 0.538,
+      "top1_char_prefix": 0.734,
+      "top5": 0.75,
+      "top9": 0.75
+    },
+    "9": {
+      "cases": 153,
+      "found": 1.0,
+      "mrr": 0.666,
+      "top1": 0.608,
+      "top1_char_prefix": 0.794,
+      "top5": 0.712,
+      "top9": 0.719
+    }
+  },
+  "by_tag": {
+    "harvested": {
+      "cases": 1105,
+      "found": 1.0,
+      "mrr": 0.697,
+      "top1": 0.614,
+      "top1_char_prefix": 0.784,
+      "top5": 0.772,
+      "top9": 0.774
+    }
+  },
+  "cases": 1105,
+  "gold_source": {
+    "database": 1,
+    "generated": 1104
+  },
+  "overall": {
+    "cases": 1105,
+    "found": 1.0,
+    "mrr": 0.697,
+    "top1": 0.614,
+    "top1_char_prefix": 0.784,
+    "top5": 0.772,
+    "top9": 0.774
+  },
+  "sample_failures": [
+    {
+      "gold": "一天两次出动",
+      "id": "h-0001",
+      "input": "yitianliangcichudong",
+      "rank": 2,
+      "top1": "一天两次触动"
+    },
+    {
+      "gold": "不能视为伪品",
+      "id": "h-0011",
+      "input": "bunengshiweiweipin",
+      "rank": 2,
+      "top1": "不能是微微品"
+    },
+    {
+      "gold": "不过卢克是谁",
+      "id": "h-0013",
+      "input": "buguolukeshishei",
+      "rank": 2,
+      "top1": "不过路可是谁"
+    },
+    {
+      "gold": "两人携手登舟",
+      "id": "h-0014",
+      "input": "liangrenxieshoudengzhou",
+      "rank": 2,
+      "top1": "两人携手等周"
+    },
+    {
+      "gold": "中间包了韭菜",
+      "id": "h-0015",
+      "input": "zhongjianbaolejiucai",
+      "rank": 72,
+      "top1": "中间爆了韭菜"
+    },
+    {
+      "gold": "也是练功之道",
+      "id": "h-0021",
+      "input": "yeshiliangongzhidao",
+      "rank": 88,
+      "top1": "也是练功知道"
+    },
+    {
+      "gold": "二是规范程序",
+      "id": "h-0022",
+      "input": "ershiguifanchengxu",
+      "rank": 2,
+      "top1": "而是规范程序"
+    },
+    {
+      "gold": "但不全部脱开",
+      "id": "h-0027",
+      "input": "danbuquanbutuokai",
+      "rank": 95,
+      "top1": "但不全部拖开"
+    },
+    {
+      "gold": "但来得这么快",
+      "id": "h-0030",
+      "input": "danlaidezhemekuai",
+      "rank": 2,
+      "top1": "但来的这么快"
+    },
+    {
+      "gold": "你更看好哪个",
+      "id": "h-0032",
+      "input": "nigengkanhaonage",
+      "rank": 2,
+      "top1": "你更看好那个"
+    },
+    {
+      "gold": "你的事迹感人",
+      "id": "h-0033",
+      "input": "nideshijiganren",
+      "rank": 73,
+      "top1": "你的世纪感人"
+    },
+    {
+      "gold": "值得用心品鉴",
+      "id": "h-0037",
+      "input": "zhideyongxinpinjian",
+      "rank": 233,
+      "top1": "值得用新品见"
+    },
+    {
+      "gold": "做到事实清楚",
+      "id": "h-0038",
+      "input": "zuodaoshishiqingchu",
+      "rank": 2,
+      "top1": "做到实施清楚"
+    },
+    {
+      "gold": "再次深表谢意",
+      "id": "h-0043",
+      "input": "zaicishenbiaoxieyi",
+      "rank": 25,
+      "top1": "在此深表协议"
+    },
+    {
+      "gold": "农民梦见豌豆",
+      "id": "h-0044",
+      "input": "nongminmengjianwandou",
+      "rank": 26,
+      "top1": "农民梦见完都"
+    },
+    {
+      "gold": "冲洗鸡肉要快",
+      "id": "h-0046",
+      "input": "chongxijirouyaokuai",
+      "rank": 2,
+      "top1": "冲洗肌肉要快"
+    },
+    {
+      "gold": "出具探伤报告",
+      "id": "h-0047",
+      "input": "chujutanshangbaogao",
+      "rank": 96,
+      "top1": "出局摊上报告"
+    },
+    {
+      "gold": "创新永不过时",
+      "id": "h-0049",
+      "input": "chuangxinyongbuguoshi",
+      "rank": 28,
+      "top1": "创新用不过是"
+    },
+    {
+      "gold": "去救一个奴婢",
+      "id": "h-0052",
+      "input": "qujiuyigenubi",
+      "rank": 2,
+      "top1": "去就一个奴婢"
+    },
+    {
+      "gold": "去看建党伟业",
+      "id": "h-0053",
+      "input": "qukanjiandangweiye",
+      "rank": 99,
+      "top1": "去看见党委也"
+    },
+    {
+      "gold": "反应格外淡定",
+      "id": "h-0057",
+      "input": "fanyinggewaidanding",
+      "rank": 2,
+      "top1": "反映格外淡定"
+    },
+    {
+      "gold": "只是一场酒醉",
+      "id": "h-0061",
+      "input": "zhishiyichangjiuzui",
+      "rank": 2,
+      "top1": "只是一场就最"
+    },
+    {
+      "gold": "只要你不告我",
+      "id": "h-0062",
+      "input": "zhiyaonibugaowo",
+      "rank": 2,
+      "top1": "只要你不高我"
+    },
+    {
+      "gold": "后面哨马探知",
+      "id": "h-0065",
+      "input": "houmianshaomatanzhi",
+      "rank": 33,
+      "top1": "后面哨马弹指"
+    },
+    {
+      "gold": "含泪挥别父母",
+      "id": "h-0067",
+      "input": "hanleihuibiefumu",
+      "rank": 91,
+      "top1": "含泪回别父母"
+    },
+    {
+      "gold": "听凭大哥发落",
+      "id": "h-0068",
+      "input": "tingpingdagefaluo",
+      "rank": 2,
+      "top1": "听平大哥发罗"
+    },
+    {
+      "gold": "哈登三分失准",
+      "id": "h-0069",
+      "input": "hadengsanfenshizhun",
+      "rank": 2,
+      "top1": "哈等三分是准"
+    },
+    {
+      "gold": "四要敢闯新路",
+      "id": "h-0071",
+      "input": "siyaoganchuangxinlu",
+      "rank": 2,
+      "top1": "死遥感创新路"
+    },
+    {
+      "gold": "回到天佑帅府",
+      "id": "h-0073",
+      "input": "huidaotianyoushuaifu",
+      "rank": 2,
+      "top1": "回到天有帅副"
+    },
+    {
+      "gold": "堆得乱七八糟",
+      "id": "h-0077",
+      "input": "duideluanqibazao",
+      "rank": 2,
+      "top1": "对的乱七八糟"
+    },
+    {
+      "gold": "多为砖木结构",
+      "id": "h-0078",
+      "input": "duoweizhuanmujiegou",
+      "rank": 78,
+      "top1": "多位砖木结构"
+    },
+    {
+      "gold": "多动两下筷子",
+      "id": "h-0079",
+      "input": "duodongliangxiakuaizi",
+      "rank": 74,
+      "top1": "多栋两下筷子"
+    },
+    {
+      "gold": "天籁再次忧伤",
+      "id": "h-0082",
+      "input": "tianlaizaiciyoushang",
+      "rank": 74,
+      "top1": "天来再次忧伤"
+    },
+    {
+      "gold": "女真南侵中原",
+      "id": "h-0083",
+      "input": "nvzhennanqinzhongyuan",
+      "rank": 2,
+      "top1": "女真难亲中原"
+    },
+    {
+      "gold": "好在心口如一",
+      "id": "h-0084",
+      "input": "haozaixinkouruyi",
+      "rank": 2,
+      "top1": "好在心口如意"
+    },
+    {
+      "gold": "如何打开销路",
+      "id": "h-0085",
+      "input": "ruhedakaixiaolu",
+      "rank": 55,
+      "top1": "如何打开小鹿"
+    },
+    {
+      "gold": "如果处理得当",
+      "id": "h-0086",
+      "input": "ruguochulidedang",
+      "rank": 2,
+      "top1": "如果处理的当"
+    },
+    {
+      "gold": "孟获措手不及",
+      "id": "h-0088",
+      "input": "menghuocuoshoubuji",
+      "rank": 60,
+      "top1": "猛火措手不及"
+    },
+    {
+      "gold": "实则寸步不让",
+      "id": "h-0090",
+      "input": "shizecunbuburang",
+      "rank": 183,
+      "top1": "实则存不不让"
+    },
+    {
+      "gold": "实力铸就口碑",
+      "id": "h-0091",
+      "input": "shilizhujiukoubei",
+      "rank": 2,
+      "top1": "是立柱就口碑"
+    }
+  ],
+  "top1_source": {
+    "database": 1,
+    "fallback": 259,
+    "generated": 845
+  }
+}

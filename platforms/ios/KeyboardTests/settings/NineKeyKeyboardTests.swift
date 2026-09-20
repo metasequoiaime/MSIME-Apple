@@ -975,10 +975,23 @@ final class NineKeyKeyboardTests: XCTestCase {
     [view] + view.subviews.flatMap { descendants($0) }
   }
 
+  /// Clear the whole composition the way the keyboard does it: holding delete past the repeat
+  /// threshold wipes the composition instead of deleting one more character. There is no separate
+  /// clear key to press -- the tests used to reach for a `nineKeyClear` that no keyboard has ever
+  /// built, so they failed looking it up before asserting anything.
+  private func clearComposition(in controller: KeyboardViewController) throws {
+    let delete = try button("nineKeyDelete", in: controller)
+    let begin = try XCTUnwrap(delete.actions(forTarget: controller, forControlEvent: .touchDown)?.first)
+    controller.perform(NSSelectorFromString(begin))
+    controller.perform(NSSelectorFromString("repeatBackspace"))
+  }
+
   private func button(_ identifier: String, in controller: KeyboardViewController) throws -> UIButton {
+    // Name the identifier: a bare "expected non-nil value of type UIButton" from a test that
+    // looks up a dozen keys says nothing about which one went missing.
     try XCTUnwrap(descendants(controller.view).first {
       $0.accessibilityIdentifier == identifier
-    } as? UIButton)
+    } as? UIButton, "No button with accessibility identifier \(identifier).")
   }
 
   func testLetterFacesAreUppercaseUntilEnglishTakesOver() throws {
@@ -1016,11 +1029,16 @@ final class NineKeyKeyboardTests: XCTestCase {
   func testShortcutsYieldToCandidatesWithoutMovingKeys() throws {
     let previousScheme = InputSchemePreference.scheme
     let previousScript = ChineseOutputPreference.usesTraditional
+    // The chip text is the subject here -- no ordinal, no stray whitespace. A gloss adds a second
+    // line to that text and would fail the assertion for a reason this test is not about.
+    let previousGloss = CandidateGlossPreference.enabled
     InputSchemePreference.scheme = .nineKey
     ChineseOutputPreference.usesTraditional = false
+    CandidateGlossPreference.enabled = false
     defer {
       InputSchemePreference.scheme = previousScheme
       ChineseOutputPreference.usesTraditional = previousScript
+      CandidateGlossPreference.enabled = previousGloss
     }
     for width in [320.0, 414.0] {
       let controller = KeyboardViewController()
@@ -1070,7 +1088,7 @@ final class NineKeyKeyboardTests: XCTestCase {
       XCTAssertFalse(chip.contains(where: \.isNumber), chip)
       XCTAssertEqual(chip, chip.trimmingCharacters(in: .whitespaces), chip)
       XCTAssertEqual(key.convert(key.bounds, to: controller.view), frame)
-      try button("nineKeyClear", in: controller).sendActions(for: .primaryActionTriggered)
+      try clearComposition(in: controller)
       controller.view.layoutIfNeeded()
       XCTAssertFalse(toolbar.isHidden)
       XCTAssertEqual(key.convert(key.bounds, to: controller.view), frame)
@@ -1183,8 +1201,11 @@ final class NineKeyKeyboardTests: XCTestCase {
       controller.view.frame = CGRect(x: 0, y: 0, width: width, height: 260 + KeyboardViewController.stripExtraHeight)
       controller.view.layoutIfNeeded()
       let reference = try button("nineKey6", in: controller).bounds.height
-      // Handwriting has a taller canvas, covered by HandwritingTests.
-      for scheme in ChineseInputScheme.allCases where scheme != .handwriting {
+      // Handwriting has a taller canvas, covered by HandwritingTests. The kana nine-key panel
+      // brings its own ⌫ / 空白 / 改行 and the action row is collapsed underneath it, so the
+      // shared return key has no height to keep there; JapaneseNineKeyTests covers that layout.
+      for scheme in ChineseInputScheme.allCases
+      where scheme != .handwriting && scheme != .japaneseNineKey {
         InputSchemePreference.scheme = scheme
         controller.viewWillAppear(false)
         for symbols in [false, true] {
@@ -1654,8 +1675,11 @@ final class NineKeyKeyboardTests: XCTestCase {
     attachment.lifetime = .keepAlways
     add(attachment)
 
+    // The digit layer keeps the three-column grid and only swaps the legends, which is what
+    // testNineKeyDigitLayerKeepsTheGridAndRestoresLetters pins down and what the Apple client
+    // asserts here too. Switching language is the one that puts the grid away.
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
-    XCTAssertTrue(try XCTUnwrap(nine.superview).isHidden)
+    XCTAssertFalse(try XCTUnwrap(nine.superview).isHidden)
     try button("layoutToggleButton", in: controller).sendActions(for: .primaryActionTriggered)
     XCTAssertFalse(try XCTUnwrap(nine.superview).isHidden)
     try button("bottomLanguageKey", in: controller).sendActions(for: .primaryActionTriggered)
@@ -1673,7 +1697,15 @@ final class NineKeyKeyboardTests: XCTestCase {
   // 候选条能横向滚，所以放不下的候选应该滚出去，不是在 chip 里折成两行。
   func testCandidateChipsNeverWrapToASecondLine() throws {
     let previous = InputSchemePreference.scheme
-    defer { InputSchemePreference.scheme = previous }
+    // Glosses are on by default and reserve a line of their own under the candidate, which is a
+    // different question from the one this test asks: whether a chip too wide for the row breaks
+    // instead of truncating. Pin the preference so the measurement is of wrapping alone.
+    let previousGloss = CandidateGlossPreference.enabled
+    defer {
+      InputSchemePreference.scheme = previous
+      CandidateGlossPreference.enabled = previousGloss
+    }
+    CandidateGlossPreference.enabled = false
     InputSchemePreference.scheme = .nineKey
     let controller = KeyboardViewController()
     controller.loadViewIfNeeded()
@@ -1759,7 +1791,7 @@ final class NineKeyKeyboardTests: XCTestCase {
           try button("nineKey6", in: controller).sendActions(for: .primaryActionTriggered)
           XCTAssertTrue(try XCTUnwrap(button("candidate-1", in: controller).configuration?.title).contains("你好"))
         } else if phase == "cleared" {
-          try button("nineKeyClear", in: controller).sendActions(for: .primaryActionTriggered)
+          try clearComposition(in: controller)
           XCTAssertTrue(descendants(controller.view).allSatisfy {
             $0.accessibilityIdentifier?.hasPrefix("candidate-") != true || $0.isHidden
           })

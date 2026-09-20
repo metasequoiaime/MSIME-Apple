@@ -13,10 +13,15 @@ final class JapaneseNineKeyTests: XCTestCase {
   func testKanaKeysFeedJapaneseEngineCandidates() throws {
     let previous = InputSchemePreference.scheme
     let enabled = InputSchemePreference.enabledSchemes
+    // The candidate the Engine returns is what is being checked. A gloss appends a second line to
+    // the chip's title, so leaving it on turns a suffix check into a check of the gloss layout.
+    let previousGloss = CandidateGlossPreference.enabled
     defer {
       InputSchemePreference.enabledSchemes = enabled
       InputSchemePreference.scheme = previous
+      CandidateGlossPreference.enabled = previousGloss
     }
+    CandidateGlossPreference.enabled = false
     InputSchemePreference.enabledSchemes = ChineseInputScheme.allCases
     InputSchemePreference.scheme = .japaneseNineKey
     XCTAssertEqual(InputSchemePreference.scheme, .japaneseNineKey)

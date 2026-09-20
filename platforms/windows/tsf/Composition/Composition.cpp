@@ -396,6 +396,18 @@ HRESULT CMetasequoiaIME::_HandleSmartPunctuationConvert(TfEditCookie ec, _In_ IT
         space.Set(L" ", 1);
         return _AddCharAndFinalize(ec, pContext, &space);
     }
+    // Reading nothing back is not "the document happens to be empty here": a
+    // terminal's TSF context is a proxy that keeps no committed text, and it
+    // accepts ShiftStart and SetText and reports success while changing
+    // nothing on screen. Rewriting in place there silently does nothing. Go
+    // through the input queue instead, which is what the host cannot fake.
+    if (preceding == 0 && _QueueSmartPunctuationRewrite(ascii))
+    {
+        _smartPunctuationShadowChar = ascii;
+        _smartPunctuationShadowValid = true;
+        _ArmSmartPunctuationRevert(ascii, chinese, beforeChar);
+        return S_OK;
+    }
 
     TF_SELECTION selection = {};
     ULONG fetched = 0;
@@ -460,6 +472,15 @@ HRESULT CMetasequoiaIME::_HandleSmartPunctuationRevert(TfEditCookie ec, _In_ ITf
         CStringRange fallback;
         fallback.Set(&chinese, 1);
         return _AddCharAndFinalize(ec, pContext, &fallback);
+    }
+    // Same as the convert above: a store that gives nothing back cannot be
+    // rewritten in place, and appending the Chinese form instead would leave
+    // the ASCII one in front of it.
+    if (preceding == 0 && _QueueSmartPunctuationRewrite(chinese))
+    {
+        _smartPunctuationShadowChar = chinese;
+        _smartPunctuationShadowValid = true;
+        return S_OK;
     }
 
     TF_SELECTION selection = {};
@@ -738,6 +759,35 @@ void CMetasequoiaIME::_ResetSmartPunctuationHistory()
     _smartPunctuationCommitTick = 0;
     _smartPunctuationFocusToken = 0;
     _smartPunctuationForegroundWindow = nullptr;
+}
+
+bool CMetasequoiaIME::_QueueSmartPunctuationRewrite(WCHAR replacement)
+{
+    if (replacement == 0 || _msgWndHandle == nullptr)
+    {
+        return false;
+    }
+    const uint64_t focusToken = _CaptureFocusSessionToken();
+    if (focusToken == 0 || !_IsFocusSessionCurrent(focusToken))
+    {
+        return false;
+    }
+
+    _pendingSmartPunctuationReplacement = replacement;
+    _pendingSmartPunctuationFocusToken = focusToken;
+    _pendingSmartPunctuationForegroundWindow = GetForegroundWindow();
+    _pendingSmartPunctuationDeadline = GetTickCount64() + SMART_PUNCTUATION_REWRITE_DEADLINE_MS;
+
+    if (!PostMessage(_msgWndHandle, WM_ReplaceRepeatedSmartPunctuation, static_cast<WPARAM>(focusToken & 0xFFFFFFFFULL),
+                     static_cast<LPARAM>((focusToken >> 32) & 0xFFFFFFFFULL)))
+    {
+        _pendingSmartPunctuationReplacement = 0;
+        _pendingSmartPunctuationFocusToken = 0;
+        _pendingSmartPunctuationForegroundWindow = nullptr;
+        _pendingSmartPunctuationDeadline = 0;
+        return false;
+    }
+    return true;
 }
 
 bool CMetasequoiaIME::_QueueRepeatedSmartPunctuationReplacement(WCHAR wch)

@@ -120,3 +120,38 @@ desktop tests/candidate/external-skins.test.tsx > external selection enters the 
 # defect. It was missing from this baseline, which made the desktop suite look
 # red for an unrecorded reason.
 desktop tests/candidate/external-skins.test.tsx > settings synchronize all cards and reset local overrides on candidate theme changes
+
+# The Windows suites, run under Wine by platforms/windows/run-tests-wine.sh.
+# 72 of 77 pass; these five do not, and each was read rather than assumed.
+#
+# windows-server-smoke: "XDG_RUNTIME_DIR is invalid or not set" then "Candidate
+# window unavailable". The same reason the native entry above records - there is
+# no compositor - now observed directly instead of inferred.
+wine windows-server-smoke
+# windows-fullscreen-foreground fails at line 41: it compares a window rectangle
+# against its monitor, and the container has neither.
+wine windows-fullscreen-foreground
+# windows-installer-launch: "Expected installer script path". It resolves the
+# installer script relative to the repository, which is not mounted into the
+# container - a property of this runner, not of the test.
+wine windows-installer-launch
+# windows-session-smoke stops at "Active candidate translation was not
+# re-dispatched", which is an input the suite documents rather than a defect:
+# it takes an optional absolute resource directory as argv[1], and without one
+# its dictionaries are empty temp directories, so typing "ni" produces no
+# candidate to translate. The outer "Preference retry task failed" used to hide
+# this - a require() inside a queued task throws on the worker thread and the
+# queue turns it into a status - which the harness now prints.
+#
+# Staging the artefacts from resources/desktop-dictionary.lock.json and passing
+# them through MSIME_WINE_RESOURCES does not finish it either: preparation then
+# fails under Wine at "Locked dictionary preparation failed", while the same
+# msime_client_prepare_host call against the same directory returns ok:true
+# natively. So that last step is a Wine limit, not a product one.
+#
+# Two earlier entries here were wrong about the cause and are worth remembering:
+# session_pump.cpp:334 looked like punctuation routing and was ServerSession::key
+# swallowing every unmodified letter (#3116, a real defect); the mode-notification
+# loop looked like a product bug and was a wrong expectation about full/half-width
+# (#3117).
+wine windows-session-smoke

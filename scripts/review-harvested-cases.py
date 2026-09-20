@@ -6,7 +6,7 @@ sufficient: `resources/eval/README.md` excludes sentences whose pinyin has two e
 readings, because "评测集不能既诚实又有歧义" — a case whose gold is one of two defensible answers
 measures the grader, not the decoder. Deciding that is a judgement, not a filter.
 
-Three questions per case, asked together over the same state because none needs another's answer:
+Four questions per case, asked together over the same state because none needs another's answer:
 
   intended     Choice over the readings the decoder actually produced. If this disagrees with the
                original, the case is not usable: either the corpus sentence is odd, or the decoder's
@@ -14,11 +14,14 @@ Three questions per case, asked together over the same state because none needs 
   well_formed  Noul on whether the chosen reading is connected Chinese someone would type, rather
                than a page title, a run of keywords or a fragment. Web corpora are full of those
                and they make poor evaluation cases whatever the decoder does with them.
+  well_written Noul on whether that reading is correct Chinese at all. A corpus sentence carrying
+               its own typo makes a case whose gold is wrong, and those are worse than useless:
+               人多为患 penalises exactly the scorer good enough to propose 人满为患.
   ambiguous    Noul on whether more than one reading is equally natural here. This is the README's
                own exclusion rule, asked directly. Recorded, but no longer a veto — see below.
 
-A case is proposed for the set when the choice lands on the original and the reading is a sentence.
-Everything else is written out with the reason attached, for a person to scan. The script proposes;
+A case is proposed when the choice lands on the original and that reading is a correctly written
+sentence. Everything else is written out with the reason attached, for a person to scan. The script proposes;
 it does not decide. Nothing here is a gate.
 
 Input is convert_eval's `--dump` JSONL, which carries the real candidate list, the gold and the
@@ -50,12 +53,17 @@ MODEL = "jev-latest"
 # threshold had before it, one band higher. The number is still recorded in the flagged file, so a
 # person can look for a band where it means something; nothing decides on it.
 #
-# What those 436 cases actually needed is the question below. C4 is web text, so a large share of
-# what survives harvesting is page titles and keyword runs — 黄页三门峡分站, 南岗洗车店, 资江天气.
-# They are not ambiguous, they are not sentences, and a reranking evaluation built on them measures
-# how well a model ranks navigation furniture.
+# What those 436 cases actually needed are the two questions that replaced it. C4 is web text, so a
+# large share of what survives harvesting is page titles and keyword runs — 黄页三门峡分站,
+# 南岗洗车店, 资江天气. They are not ambiguous, they are not sentences, and a reranking evaluation
+# built on them measures how well a model ranks navigation furniture.
+#
+# The second came from reading 30 accepted cases by hand: three carried the corpus's own errors —
+# 人多为患 for 人满为患, 济南是自然风景优美, 如何考出钢琴. Those are worse than noise, because the
+# scorer good enough to propose the correct writing is the one they penalise.
 MIN_CHOICE_CONFIDENCE = 0.60
 MIN_WELL_FORMED = 0.50
+MIN_WELL_WRITTEN = 0.50
 
 KEY = os.environ.get("TYPESAFE_API_KEY", "")
 if not KEY:
@@ -97,6 +105,21 @@ def ask(case):
                     "did the writer mean?"
                 ),
                 "criteria": {text: None for text in options},
+            },
+            "well_written": {
+                "type": "noul",
+                "instructions": (
+                    "Is the option named by `intended` correct Chinese — free of typos, "
+                    "wrong characters and broken grammar?"
+                ),
+                "criteria": {
+                    "true": "It is written the way a careful writer would write it.",
+                    "false": (
+                        "It contains a miswritten character, a malformed set phrase, or a "
+                        "grammatical error — 人多为患 where 人满为患 is meant, or a sentence "
+                        "that does not parse."
+                    ),
+                },
             },
             "well_formed": {
                 "type": "noul",
@@ -163,10 +186,12 @@ def ask(case):
     intended = answer["answers"]["intended"]
     ambiguous = answer["answers"]["ambiguous"]
     well_formed = answer["answers"]["well_formed"]
+    well_written = answer["answers"]["well_written"]
     case["jev_choice"] = intended["choice"]
     case["jev_confidence"] = intended.get("confidence")
     case["jev_ambiguity"] = ambiguous.get("noul")
     case["jev_well_formed"] = well_formed.get("noul")
+    case["jev_well_written"] = well_written.get("noul")
     case["usage"] = answer.get("usage", {})
 
     if case["jev_choice"] != case["gold"]:
@@ -175,6 +200,8 @@ def ask(case):
         case["verdict"] = "low-confidence"
     elif (case["jev_well_formed"] or 0) < MIN_WELL_FORMED:
         case["verdict"] = "not-a-sentence"
+    elif (case["jev_well_written"] or 0) < MIN_WELL_WRITTEN:
+        case["verdict"] = "corpus-error"
     else:
         case["verdict"] = "accept"
     return case
@@ -211,7 +238,7 @@ def main():
     with open(f"{prefix}-flagged.tsv", "w") as handle:
         handle.write("# 未通过，附理由。disagrees-with-original 往往说明引擎的答案也站得住；\n")
         handle.write("# not-a-sentence 多半是网页标题或关键词串，语料本身的问题，不是解码的。\n")
-        handle.write("# 列：判定 / id / 拼音 / 金标准 / 评审所选 / 歧义 / 成句 / 上文\n")
+        handle.write("# 列：判定 / id / 拼音 / 金标准 / 评审所选 / 歧义 / 成句 / 无误 / 上文\n")
         for case in cases:
             if case["verdict"] == "accept":
                 continue
@@ -225,6 +252,7 @@ def main():
                         case.get("jev_choice", ""),
                         f"{case.get('jev_ambiguity', -1):.2f}",
                         f"{case.get('jev_well_formed', -1):.2f}",
+                        f"{case.get('jev_well_written', -1):.2f}",
                         case.get("context", ""),
                     ]
                 )

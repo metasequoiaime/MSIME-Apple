@@ -22,6 +22,74 @@
 
 ## 当前证据
 
+### Android 无障碍连续调整合并为一次保存（2026-09-20）
+
+上一切片让无障碍增减每步都保存后，`KeyboardHeightDeviceSmoke` 能把高度走到 +48 并持久化，但紧接着的“恢复默认”丢失了。原因是 `saveTouchGeometry` 在已有保存进行中时直接返回：每 2 dp 一次保存会把保存路径打满，后面的步骤和随后立刻点下的重置都变成空操作。拖动路径不会这样，因为它整段只在松手时保存一次。
+
+无障碍连续调整现在同样合并为一次保存：每步仍然即时预览，提交则以 250 ms 去抖合并，相当于“停止调整”这一刻，视图从窗口分离时取消待发提交。设备实测 `increase keyboard height` 与 `decrease keyboard height` 两个阶段都通过，`preferences.json` 分别记录 +48 与 -12。
+
+同一套件另外两处按实现修正：`设置` 在偏好仍在加载、以及几何保存进行中时是禁用的，用例原先不等待就点，表现为随机的 `Synthetic control action failed`，现在等它可用再点；“恢复默认”按钮的 `恢复默认` 是它的**文字**，描述是 `恢复键盘布局默认值`，用例原先用文字当描述找。上一切片中我自己加的“改完尺寸后组字验证”被移除——从设置面板返回后编辑器没有重新绑定，敲键不会进入字段，它验证的也不是这个套件的契约。
+
+该套件仍停在 `restore keyboard settings defaults`：重置未写入偏好文件。用例会直接写 `preferences.json` 来铺基线，而重置走的是带 revision CAS 的保存路径，两者是否冲突需要单独查证，留作后续切片。其余五个设备套件保持通过。
+
+### Android 键盘高度的无障碍增减现在会保存（2026-09-20）
+
+在模拟器上驱动键盘设置时发现：`KeyboardLayoutAdjustView` 的无障碍增减把高度调到新值后又弹回原值，反复 0 → 2 → 0 → 2。拖动路径在 `ACTION_UP` 调 `listener.commit()` 保存，而无障碍路径只调 `listener.height(...)` 预览，从不保存；预览值随后被下一次偏好应用覆盖回持久值。README 写的是“松手、无障碍增减及切换语音入口后通过共享 revision CAS 保存”，实现并未做到。无障碍增减没有“松手”这个时刻，因此每一步都要自己保存：两个方向现在共用一条 `adjustHeight`，预览后立即 commit。
+
+设备实测：修复后 `KeyboardHeightDeviceSmoke` 的 `increase keyboard height` 阶段通过，高度从 0 走到 +48，且 `preferences.json` 实际记录了 48（用例按 revision 递增核对）。
+
+同一套件的设备用例也按当前实现修正：`keyHeight` 原先找 `按键 n`，而字母键的描述是 `字母 N`——`按键` 是符号键的形式，且中文态字母画大写——改为按键本身匹配；键盘设置面板已从带 `键盘高度` SeekBar 的旧面板改成透明拖动层，旧 SeekBar 仍在树中但为 GONE，因此高度控件改为匹配拖动层（它以 SeekBar 形态上报高度 range），并用其仅有的 ±2 dp 滚动动作走到目标值，而不是它并不支持的 `ACTION_SET_PROGRESS`。设置面板只在键盘空闲时可达（组字时候选条占用快捷行），因此“组字中实时改尺寸”这一场景在 UI 上不可达，改为每次改完尺寸后组字再清除，验证新尺寸下输入仍然正常。
+
+顺带修复 develop 上阻断 Android 合包的 TypeScript 错误：`custom-translations.test.tsx` 的 `Snapshot` fixture 缺少 `Preferences` 的必填字段，`pnpm build` 的类型检查失败导致 APK 打不出来。
+
+该套件仍停在 `return from tall setting`：从设置返回后未能观察到可见的字母键，留作后续切片。其余五个设备套件保持通过。
+
+### Android 共享偏好设备回归对齐实现（2026-09-20）
+
+`PreferencesDeviceSmoke` 在模拟器上停在两处，都是用例的判据与实现不符：
+
+一、页大小用“屏幕上看得见第 5 个候选、看不见第 6 个”来判断。候选条是横向滚动的，候选越宽越早滚出可视区——实测 `nihao` 的第 5 项 `你好呀` 确实渲染且可点，只是不在可视范围内，而 `await` 只认 `isVisibleToUser()`。页大小说的是这一页渲染几个候选，与可视宽度无关，因此改用不限可视区的查找断言“渲染出第 5 个、没有第 6 个”；原来的“看不见第 6 个”反而是个弱判据，越界候选滚出屏幕也会通过。`findAny` 与 `awaitAny` 相应提升为 protected，`HandwritingDeviceSmoke` 里同名的私有副本删除（现在会变成非法覆盖）。
+
+二、关掉中文标点后，用例去找一个面上写 `,` 的键。符号键的**键面**跟随中英模式，不跟随标点设置——Apple 的注释同样写的是“随中英模式换脸”——而实际插入的字符由 Engine 的标点表决定。所以设置关闭后键面仍是 `，`，插入的才是 `,`。`tapSymbol` 改为接受两种键面中的任意一种，并直接复用产品的 `ChineseSymbolFaces.face(symbol, true)` 而不是在测试里重抄一份映射；该类因此加入设备测试的编译清单。用例断言的仍然是插入结果 `你好,`。
+
+设备实测：`DeviceSmoke`、`CandidatePanelDeviceSmoke`、`MoreToolsDeviceSmoke`、`EmojiPickerDeviceSmoke`、`PreferencesDeviceSmoke` 五个验收套件在专用 API 35 arm64 模拟器上通过，其中共享偏好一项覆盖组字中延迟应用、提交后生效、页大小、标点、坏文件保留与恢复。Android host 检查通过。
+
+`smoke.sh` 继续跑到 `KeyboardHeightDeviceSmoke` 的「baseline keyboard height」停下，留作后续切片。
+
+### Android 展开候选与表情设备回归对齐实现（2026-09-20）
+
+在专用 API 35 arm64 模拟器上继续推进设备验收，两个套件的期望落后于已落地的实现：
+
+`CandidatePanelDeviceSmoke` 断言展开候选 chip **不可长按**。长按菜单是 `fix(android): support expanded candidate long press` 明确加上的：候选管理与释义插入在展开面板同样可达，监听器始终挂着，功能关闭时返回 false。该断言改为要求可长按；真正区分展开 chip 与候选条 chip 的契约——面上不画序号、全局序号只存在于无障碍描述——保持不变并继续断言。
+
+`EmojiPickerDeviceSmoke` 先输入 `ni` 组字，再去快捷栏点「更多」。组字时候选条按 Apple 的做法占用快捷行（“The shortcut bar stands in for the candidates”），快捷栏整条不在，因此这一步在任何实现下都够不着。用例改为先用空格把组合上屏、等快捷栏回来再进「更多 → 表情」；后续断言本就是从字段动态取已上屏前缀，不受影响。原先那个空的 `composition finished before emoji` 阶段随之改名为实际发生的“先上屏再开表情”。
+
+设备实测：`DeviceSmoke`、`CandidatePanelDeviceSmoke`、`MoreToolsDeviceSmoke`、`EmojiPickerDeviceSmoke` 四个验收套件在模拟器上通过，覆盖组词上屏、繁体、退格、密码直接输入、完整候选面板与跨页上屏、两列工具面板、表情分类分页插入删除与最近项跨重启。Android host 检查通过。
+
+`smoke.sh` 继续跑到 `PreferencesDeviceSmoke` 的「baseline five candidates」停下，留作后续切片。
+
+### Android 收起键盘按首选上屏，设备回归对齐当前快捷栏（2026-09-20）
+
+模拟器实测发现：组字中收起键盘，编辑器留下的是字面 `nihao` 而不是 `你好`。`finishInputViewPresentation`（注释写明对应 Apple 的 `viewWillDisappear` 边界）用的是 `command(2)`（CommitRaw）。macOS 的 `deactivateServer` 在同一个失焦边界用的是 `MSIME_FINISH_COMPOSITION`，即按首选候选结束组合；Android 当初写成 raw 只是因为命令 9 在当时的 FFI 里尚未映射，与语义无关。现在改用已命名的 `FINISH_COMPOSITION_COMMAND`，`check-host.sh` 已有的检查保证 9 仍是 `Action::Finish`。
+
+同时把设备回归对齐到已经落地的快捷栏。`MoreToolsDeviceSmoke` 期望「方案」文字按钮，而 `render()` 会把该键的文字和无障碍描述都改成当前方案（`拼26` / `输入方案：全拼 26 键`），因此新增按描述前缀匹配的 `describedPrefix`，其余固定文字的键不变。`DeviceSmoke` 的简繁用例仍在快捷栏找该键，但它已按 Apple 移入「更多」；改为打开「更多」操作「繁体输出」设置卡并返回键盘，`tool` / `toolWithState` / `toolPanel` 三个匹配器从 `MoreToolsDeviceSmoke` 提到基类共用。最后一个阶段断言编辑器内容恰为 `nihao`，但此时字段里已有前面阶段留下的 `你輸入法`，且 `getText()` 包含组合区，实际应为 `你輸入法nihao`。
+
+设备实测：`DeviceSmoke` 与 `MoreToolsDeviceSmoke` 两个验收套件在专用 API 35 arm64 模拟器上通过，覆盖组词上屏、繁体显示与上屏、退格、密码字段直接输入，以及两列工具/设置面板、本地输入子面板和返回键盘。Android host 检查与 `scripts/verify-local.sh --quick` 通过。
+
+`smoke.sh` 继续跑到 `CandidatePanelDeviceSmoke` 的「candidate panel out-of-page entry」停下，报展开候选 chip 契约不符；该套件同属落后于当前实现的一批，留作后续切片。
+
+### Android 26 键中文拼音输入修复（2026-09-20）
+
+在专用 API 35 arm64 模拟器上实测发现：26 键中文态逐键输入 `nihao` 得到的是字面 `NIHAO`，完全不组字。原因是 `KeyboardLayout.rows(layer, shifted)` 在 `shifted` 为真时把**键值本身**大写，而 `rebuildKeyRows` 传入的正是 `LetterKeyFacePolicy.displaysUppercase(...)`——中文键面按 Apple 一律大写，于是键值也变成 `N`。Engine 不能用大写字母起拼音组合，返回未处理，宿主按既有边界把它当字面上屏。中文 26 键输入因此整体失效，而本地检查全部通过：JVM smoke 只单独验证 `rows()` 和 `LetterKeyFacePolicy`，没有一条覆盖“键面大写时键值必须保持小写”这个它们之间的契约。
+
+`rows()` 去掉 `shifted` 参数，只返回键值的规范形式（字母恒为小写）；键面继续由 `LetterKeyFacePolicy` 单独决定。`KeyboardLayoutSmoke` 相应改写，并新增对该契约的断言：字母键值必须是小写，且同一个键在中文态的 face 必须是大写、英文态非 shift 时必须是小写。
+
+设备回归 `DeviceSmoke.key()` 此前按键面文本精确匹配字母键，因而在键面正确变为大写后永远匹配不上。字母键改为按字母本身匹配（忽略大小写），键面大小写由 `LetterKeyFacePolicy` 的宿主回归负责；空格、简、繁、⌫ 等仍按原文精确匹配。
+
+设备实测证据：修复后在模拟器上逐键点 `n i h a o`，预编辑显示 `nihao`、候选栏显示 `1 你好` 且分页为 `1/13`，点候选后编辑器收到 `你好`；`DeviceSmoke` 也从原先卡在 typing 推进到通过 typing、组词、空格上屏、退格四个阶段。Android host Java/API、manifest/resource、全部 JVM smoke 与 `scripts/verify-local.sh --quick` 通过。
+
+`DeviceSmoke` 之后停在简繁切换：该快捷键已按 Apple 从快捷栏移入“更多”，而设备用例仍在快捷栏找它；`MoreToolsDeviceSmoke` 同样停在快捷栏，因为它期望「方案/皮肤/设置/收起」文字按钮，而快捷栏现在是图标加无障碍描述。这一批设备用例整体落后于已对齐 Apple 的快捷栏，留作后续切片，不在本次修复范围内。
+
 ### 移动端从键盘皮肤直达社区（2026-09-20）
 
 Apple 的「皮肤」页带一条 `discoverSkins()` 入口——「去社区发现皮肤」，把用户送到社区标签的皮肤分类。共享设置的屏幕键盘页只有内置皮肤和自定义编辑器，没有这条路：移动端的社区是并列标签，从皮肤页看完内置皮肤后没有任何地方能继续去看别人做的皮肤。
@@ -1321,3 +1389,46 @@ MSIME-Apple 的语音服务目录里有两个共享客户端一直没有的转�
 个人词库文件导入卡片对所有移动宿主显示（`importPersonal` 在 iOS 与 Android 上都接了），但说明文字写的是「确认后加入 Android 键盘同步队列」。iOS 用户读到的是一句不成立的话：那条队列是 App Group 里由本机键盘扩展消费的队列，和 Android 无关。改为按宿主平台命名，未知平台不提平台名，句子依然通顺。这是共享 UI 里唯一一处未按平台收敛的 Android 文案，其余 Android 字样要么在 `androidPlatform` 分支内、要么是代码注释。
 
 本地验证：新增 3 项 Vitest 覆盖 iOS、Android 与未知平台三种措辞；`tests/dictionary` 全部 61 项通过；桌面 TypeScript 检查与 `pnpm build` 通过。未改动导入行为本身，CI 保持禁用。
+
+### iOS Swift 测试套件恢复可运行
+
+`platforms/ios` 的 229 个 Swift 用例迁移过来之后，仓库里没有任何地方说明怎么跑，也没有任何记录显示它跑过。本次把它接通并记录结果，同时修掉两处让它跑不完或测错对象的问题：
+
+**测试宿主漏了 App Group entitlement。** MSIME-Apple 的 `MetasequoiaKeyboardTestHost` 声明了 `CODE_SIGN_ENTITLEMENTS`，迁移过来的 `MSIMEKeyboardTestHost` 没有。被测键盘要靠这个容器读共享偏好；没有它，宿主会在套件中途以 `Test crashed with signal kill before establishing connection` 被杀，后面的用例全部不报告（实测只跑到 88 项）。补上后整套 211 项全部执行完毕。相应地，构建测试时必须允许签名——模拟器用 `CODE_SIGN_IDENTITY=-` 做 ad-hoc 签名即可，不需要开发者证书；`CODE_SIGNING_ALLOWED=NO` 会把 entitlement 一并剥掉。
+
+**候选气泡的行数限制从来没生效。** `updateCandidateButton` 在 `button.configuration = configuration` 之后紧接着写 `titleLabel?.numberOfLines`，而 UIKit 按自己的节奏应用配置并在过程中重建 title label，赋的值随即被丢弃——测试读回来是 0（不限行），候选词于是折到第二行，而候选条是横向滚动的，放不下的候选本该截断并留在滚动区后面。改为由 `KeyboardKeyButton.titleLineCount` 在每次 `layoutSubviews` 重新应用，展开候选面板里同样的写法一并改掉。修改后读回的是代码本来想要的值。
+
+本地验证：Xcode 27 / iOS 27.0 模拟器上，已 `simctl erase` 的干净设备，201 通过、10 失败，两次运行结果一致；失败名单记入 `platforms/ios/README.md`，集中在候选条与九键的布局测量和 Engine 候选断言，尚未逐条定位。该套件暂不接入 `scripts/verify-local.sh`：需要模拟器与已暂存词库资源，单次约十分钟。未执行真机验收，CI 保持禁用。
+
+### iOS Swift 套件的 10 项失败逐条定位
+
+上一切片把套件跑起来后留下 201 通过、10 失败。逐条查完，9 条有明确结论并已修复，剩 1 条如实记录：
+
+- `testKeyLayoutsKeepNineKeyHeight` 断言共享 return 键在每个方案下都保持九键高度，但假名九键面板自带 ⌫／空白／改行，底排 `actionRow` 按设计整条收起（两个仓库的实现和注释都写明了），那里的共享 return 键没有高度可言。按行为把该方案排除，与已排除的手写同理。
+- `testKeyPositionsStayFixedWhileComposingAndClearing` 与 `testShortcutsYieldToCandidatesWithoutMovingKeys` 去按一个 `nineKeyClear` 键——这个标识符只存在于本仓库的测试里，生产代码和 MSIME-Apple 都没有。改回 Apple 的做法：长按删除键越过重复阈值即清空整段组合，并把该辅助方法一并迁过来。
+- `testSpellingStripReusesItsButtonsBetweenKeystrokes` 找不到 `nineKeySpellingStrip`：Apple 在 `spellingScrollView` 上设了这个标识符，迁移时漏了。补回生产代码——它同时是无障碍和自动化定位这条拼写条的依据。
+- `testNineKeyInputAndLayoutSwitches` 断言切到数字层后九键网格隐藏，与本仓库的 `testNineKeyDigitLayerKeepsTheGridAndRestoresLetters` 以及 Apple 的同一处断言都相反：数字层保持三列网格、只换键面。两处断言在迁移中被写反，改回。
+- `testCandidateChipsNeverWrapToASecondLine`、`testShortcutsYieldToCandidatesWithoutMovingKeys` 与两份 `testKanaKeysFeedJapaneseEngineCandidates` 受默认开启的候选释义影响：释义会在候选标题下另起一行，把「是否折行」「标题有无序号和空白」「标题是否以某词结尾」三种断言都变成了在测释义排版。这些用例各自把释义偏好钉住并还原。
+- `testExpandedCandidateWidthDoesNotChangeWithGlossLength` 读到的宽度为 0：`updateAnnotations` 重建了整排格子却没请求布局，新格子还没有 frame。在产品代码里补 `setNeedsLayout()`，而不是在测试里补一次布局——任何调用方都该拿到已布局的格子。
+- `testCandidateLongPressOffersGlossInsertion` 的「开启释义」分支依赖离线英文释义，而固定词库发布里没有该来源（`translation-glosses.db` 是用户编辑后的覆盖层）。取不到释义时跳过并说明，「关闭释义则不出现该菜单项」的断言照常运行；有释义时自动恢复。
+- 仍失败的 `SmartPunctuationTests.testBridgeUsesSmartContextOnlyWhileEngineIsIdle`：紧跟 ASCII 字母的逗号本应保留 ASCII，实际被当成中文标点提交「，」。它在未改动的 `origin/develop` 上、单独运行、模拟器 `simctl erase` 过的干净容器里同样失败；此前整套运行中通过，是被前序用例留下的进程内状态掩盖。不属本次迁移引入，根因未定位，按名记录在 iOS README 中。
+
+顺带给测试里的按钮查找助手加上标识符名：原来只报「expected non-nil value of type UIButton」，在一个要找十几个键的用例里等于没说。
+
+本地验证：Xcode 27 / iOS 27.0 模拟器，使用仓库中提交的 Xcode 工程，完整套件 210 通过、1 跳过、1 失败（较上一切片的 201 通过、10 失败）。未执行真机验收，CI 保持禁用。
+
+### iOS 智能标点测试与文档对齐实际路由
+
+上一切片留下的最后一项失败已定位。`SmartPunctuationTests` 断言紧跟 ASCII 字母的逗号保留 ASCII，而共享路由 `client_core::punctuation::route` 要求 `smart_punctuation_direct_letter` 为真才走这条分支，该偏好默认关闭（`smart_punctuation` 本身在非 Windows 上默认开启，两个「直接」开关默认关闭）。规则本身已由 `crates/client-core/src/punctuation.rs` 的单元测试在开关打开的前提下覆盖；iOS 这条用例要验的是桥接把前一个字符送到共享层，因此改为按出厂默认断言：字母后和汉字后都跟随中文标点，组字进行中仍交给 Engine。
+
+`platforms/ios/README.md` 里「紧跟 ASCII 字母/数字会保留 ASCII」的说法漏了这个前提，读起来像是默认行为，一并补上两个开关的名字和默认值。
+
+本地验证：完整 iOS Swift 套件 210 通过、1 跳过、0 失败（此前为 210 通过、1 跳过、1 失败）。未改动任何路由实现或偏好默认值，CI 保持禁用。
+
+### iOS 模拟器启动崩溃的证据边界校准
+
+此前把启动崩溃直接写成「崩溃栈落在 `wry::webview_version()`」，实际能实测到的只到 `+[NSBundle bundleWithIdentifier:]` 以下的 CoreFoundation 帧——应用侧的调用者帧在 release 产物里未符号化。补做的 debug 构建同样复现崩溃，但在本机反复抹除/重启后模拟器的 launch 服务进入坏状态（`ipc/mig server died`），没能拿到符号化调用栈。
+
+因此把 README 的说法拆成两层：实测部分列出崩溃报告里的完整 CoreFoundation 调用链；调用方为 wry 是推断，并写明推断依据——依赖树里只有 `wry::platform_webview_version` 调用 `bundleWithIdentifier`，`tauri-runtime-wry` 在 `Wry::init` 中无条件执行该探测，产物二进制里能找到 `com.apple.WebKit` 与该函数的错误字符串，且 wry 0.57 的同一函数未改动。结论不变（不在仓库代码内、未改 vendored crate），但读者能看出哪一部分是观测、哪一部分是推断。
+
+本地验证：debug 构建、ad-hoc 签名安装、干净设备复现各一次；未改动代码，CI 保持禁用。

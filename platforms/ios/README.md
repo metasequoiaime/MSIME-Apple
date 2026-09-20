@@ -20,7 +20,7 @@ iOS 云剪贴板复用共享账号会话和 Tauri `CloudClipboardPanel`，只上
 
 键盘扩展与共享 Tauri 统计页都从 App Group 的 `MSIME/typing-statistics.json` 读取聚合计数，并以同一锁文件串行更新。升级时若只存在旧 Swift App 写在 App Group 根目录的统计文件，会在双端加锁并验证后原子移动到共享状态目录；迁移和日常记录都只包含分类计数，不保存实际输入文本。
 
-键盘扩展通过共享宿主策略执行智能标点：中文跟随模式且 Engine 空闲时，逗号、句点或冒号紧跟 ASCII 字母/数字会保留 ASCII，锁定中文或英文优先；已有组合、日语、英文和本地模式仍交给 Engine。扩展只从 `UITextDocumentProxy.documentContextBeforeInput` 提取紧邻光标的一个 Unicode 标量，不保存或记录宿主文字；中文/日文键帽显示值会先映射回 Engine 的 ASCII 标点输入，缺失上下文安全回退到 Engine 标点。
+键盘扩展通过共享宿主策略执行智能标点：中文跟随模式且 Engine 空闲时，逗号、句点或冒号紧跟 ASCII 字母或数字**且共享偏好中对应的 `smart_punctuation_direct_letter` / `smart_punctuation_direct_digit` 已开启**时保留 ASCII——这两个开关默认关闭，未开启时仍走 Engine 的中文标点；锁定中文或英文优先；已有组合、日语、英文和本地模式仍交给 Engine。扩展只从 `UITextDocumentProxy.documentContextBeforeInput` 提取紧邻光标的一个 Unicode 标量，不保存或记录宿主文字；中文/日文键帽显示值会先映射回 Engine 的 ASCII 标点输入，缺失上下文安全回退到 Engine 标点。
 
 表情浏览器以远端默认分支固定来源 `MSIME-Apple@7de60fb5c5590f33e7f515db7e595a1d7e848ad1` 为交互基线，在空闲候选工具栏和“更多”面板提供入口，按 Unicode 固定顺序显示最近、笑脸、人物、动物、食物、旅行、活动、物品、符号和旗帜，每行八项，支持删除和返回。为适配共享客户端架构，iOS 不复制 Apple 扩展内的 SQLite 读取器，而是在串行后台队列通过共享 C ABI 分页读取已验证 `others.db`；每页、游标、文本和注释均有边界校验，过期分类结果不会覆盖当前页。选择后通过正常 `UITextDocumentProxy` 路径插入并记录最多 24 项的去重最近使用；打开面板前先由 Engine 完成已有组合，不保存或记录编辑器上下文。
 
@@ -85,7 +85,25 @@ codesign -f -s - --entitlements apps/desktop/src-tauri/gen/apple/msime-desktop_i
 xcrun simctl install booted "$app"
 ```
 
-签名后 App Group 查找成功，但 iOS 27 模拟器上进程仍会在启动时 SIGTRAP：`tauri-runtime-wry` 启动时调用 `wry::webview_version()` 探测 WebView，它走 `+[NSBundle bundleWithIdentifier:@"com.apple.WebKit"]`，在该系统版本的 CoreFoundation 内部以 `CFRelease` 空指针陷阱结束。这条路径在仓库代码之外，修复属于上游；在它解决之前，模拟器只能验证到构建、打包与安装，界面与键盘扩展的运行仍需真机。
+签名后 App Group 查找成功（日志里 `container_create_or_lookup…: success`），但 iOS 27 模拟器上进程仍会在启动时 SIGTRAP，release 与 debug 构建一致，`simctl erase` 后的干净设备上同样复现。崩溃报告里实测到的调用链是 `+[NSBundle bundleWithIdentifier:]` → `_CFBundleGetBundleWithIdentifier` → `_CFBundleEnsureBundleExistsForImagePath` → `__CFBundleCopyFrameworkURLForExecutablePath` → `CFRelease` 的空指针陷阱；应用侧的调用者帧未符号化。据此推断调用方为 `wry::platform_webview_version`：它是依赖树里唯一调用 `bundleWithIdentifier` 的位置，`tauri-runtime-wry` 在 `Wry::init` 中无条件执行 `wry::webview_version().is_ok()`，且 `com.apple.WebKit` 与该函数的错误字符串都能在产物二进制里找到；wry 0.57 的同一函数未改动。结论是这条路径在仓库代码之外，未修改任何 vendored crate；在它解决之前，模拟器只能验证到构建、打包与安装，界面与键盘扩展的运行仍需真机。
+
+## 运行 iOS Swift 测试
+
+`KeyboardTests/`、`ServiceTests/` 与 `TransportTests/` 通过遗留 Xcode 工程的测试宿主在模拟器上运行。准备好 `target/ios/EngineResources` 与模拟器原生库之后：
+
+```sh
+xcodegen generate -s platforms/ios/project.yml -p platforms/ios
+xcodebuild test -project platforms/ios/MSIMEClient.xcodeproj -scheme MSIMEClientTests \
+  -destination 'platform=iOS Simulator,name=iPhone 18 Pro Max' \
+  -derivedDataPath target/ios/derived-tests \
+  CODE_SIGN_IDENTITY=- CODE_SIGNING_REQUIRED=NO CODE_SIGNING_ALLOWED=YES
+```
+
+必须允许签名。测试宿主带 App Group entitlement，被测键盘要靠它读共享偏好；用 `CODE_SIGNING_ALLOWED=NO` 构建会剥掉 entitlement，宿主在套件中途被杀，后面的用例全部不报告。模拟器上 `CODE_SIGN_IDENTITY=-` 即 ad-hoc 签名，不需要任何开发者证书。
+
+当前结果为 210 通过、1 跳过、0 失败（Xcode 27 / iOS 27.0 模拟器，使用仓库中提交的 Xcode 工程）。唯一跳过的是 `CandidateTranslationTests.testCandidateLongPressOffersGlossInsertion` 的「开启释义」分支：固定词库发布里没有该候选的英文释义来源（`translation-glosses.db` 是用户编辑后的覆盖层），取不到释义时跳过而不是报成产品失败，一旦有释义就自动恢复断言。
+
+该套件目前不接入 `scripts/verify-local.sh`：它需要模拟器和已暂存的词库资源，单次运行约十分钟。
 
 原生 SwiftUI 设置 App 只作为迁移期间的测试入口保留。需要重建它来运行旧版 UI 测试时，设置 `MSIME_IOS_LEGACY_APP=1`；默认构建不会再把 `MSIMEClientApp` 作为产品宿主。
 

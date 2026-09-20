@@ -14,6 +14,8 @@ API 35 arm64 专用模拟器已经覆盖原生输入、Tauri/IME 合包、共享
 
 `MSIMEInputService` 提供实际 InputMethodService 源码、系统 manifest 和输入法元数据；最小 Android 28，编译目标 35。软键盘、硬件 ASCII 键、候选点击和翻页调用同一 JNI；Engine 提交与剩余编辑串通过 `EditorBridge` 按顺序映射到 InputConnection。宿主不实现输入算法或分页规则。密码、非文本和无建议字段直接输入，不创建 Engine；IME_FLAG_NO_PERSONALIZED_LEARNING 关闭当前会话学习。宿主不记录输入；网络权限只供用户明确启用并确认发送的 AI 请求使用。
 
+键值与键面是两件事：`KeyboardLayout.rows(layer)` 只给键值，字母恒为小写，因为这是交给 Engine 的形式，Engine 只能用小写字母起拼音组合；键面由 `LetterKeyFacePolicy` 单独决定，中文 26 键按 Apple 一律画大写。两者曾被合并处理，导致中文态把 `N` 发给 Engine、被拒后当字面上屏，26 键中文输入整体失效。
+
 软键盘的主按键区按 Apple 键盘的基础层次拆成字母层和符号层；字母层支持可见的 Shift 状态，符号层保留标点、括号和数字，两个层次均通过无障碍描述暴露当前按键。层次排列由无 Android 依赖的 `KeyboardLayout` 提供，便于在主机测试中验证布局不被宿主生命周期改变。
 
 “符”入口按 Apple 的整屏符号面板适配为 Android 原生面板：常用、中文、英文、数字、网络五类使用左侧分类和右侧五列滚动网格，底部提供返回、删除和锁定连续输入。打开前先由 Engine 完成组合；符号通过普通 `InputConnection` 以本地输入来源上屏，未锁定时插入一个后回到键盘，锁定时可连续输入。分类、网格数量和锁定行为由无 Android 依赖的 `SymbolPanelModel` 验证，宿主只负责 View 与触摸反馈。
@@ -34,9 +36,13 @@ API 35 arm64 专用模拟器已经覆盖原生输入、Tauri/IME 合包、共享
 
 引擎不接受的标点按 Apple `handleSymbol` 的边界处理：组字中时先用共享宿主命令 9（`Action::Finish`）按首选候选结束组合，再由宿主把该标点上屏。Android 的预编辑是真正的 composing region，直接 `commitText` 会替换掉正在组的拼音，于是「nihao」后按 `@` 只剩 `@`；现在得到「你好@」，与 Apple 和 macOS 的 finish_composition 一致。没有组合时照旧直接上屏，被拒绝的数字仍是当前页没有对应候选的候选键，不走这条自动上屏。边界由无 Android 依赖的 `DeclinedKeyPolicy` 提供。
 
+收起键盘或输入视图结束时，若仍在组字，按首选候选结束组合后上屏，与 macOS 失焦边界的 `MSIME_FINISH_COMPOSITION` 一致；编辑器因此留下 `你好` 而不是字面 `nihao`。
+
 回车键按当前 Android `EditorInfo` 显示并执行前往、搜索、发送、下一项、完成或上一项动作；无明确动作、未知动作或编辑器设置 `IME_FLAG_NO_ENTER_ACTION` 时显示“换行”并提交换行符。执行前先通过共享 Engine 完成当前组合；若组合已被处理，回车到此为止，不再误触发编辑器动作或追加换行。日语九键侧栏同步显示“改行/確定”，底部全局回车仍保留 Android 的 `EditorInfo` 标签和 dispatch 适配，条件由同一个纯 Java 契约提供。
 
 工具栏“空格”支持轻点选词或插入空格，也可左右滑动向编辑器发送有界方向键事件以移动光标。滑动开始时先完成 Engine 组合，距离累积器绑定当前 `InputConnection` 身份；输入目标变化、手势取消、非有限坐标或异常跳变都会终止移动，不读取或持久化编辑器文本。
+
+无障碍增减键盘高度每一步都会保存：拖动在松手时 commit，而无障碍调整没有松手这一刻，只预览会被下一次偏好应用覆盖回原值。
 
 键盘工具栏的“设置”面板以远端默认分支固定来源 `MSIME-Apple@3d300cdc62fe0d09565b30bd3e4165571fb91562` 复刻透明实时调整层：键盘保持可见，键盘区域左右拖动按 Apple 的主轴锁定规则调整按键间距，上下拖动调整行间距，顶部工具条拖动把手调整高度；Android 额外保留顶部语音入口开关。高度在平台默认键区基础上支持 -12–+48 dp，并以整数写入共享 `touch_keyboard_height_adjustment`；26 键三行均分增量，九键整体增减，手写把增量用于书写与工具区。间距支持 3.0–6.0 dp 和 4.0–10.0 dp，并以 0.1 dp 精度写入共享 `touch_key_spacing_tenths` / `touch_row_spacing_tenths`。拖动时直接更新已有 View 的高度或 margin，不重建按键树、Engine 或丢失当前组词与手写笔迹；松手、无障碍增减及切换语音入口后通过共享 revision CAS 保存，冲突或写入失败会恢复最近一次已接受快照。
 

@@ -661,8 +661,13 @@ public final class MSIMEInputService extends InputMethodService {
         closeSymbolPanel();
         deactivateHandwriting();
         clearDiagnostic();
+        // macOS resolves the same focus-loss boundary with finish_composition, so a keyboard put
+        // away mid-composition leaves 你好 behind rather than the letters `nihao`. This was
+        // CommitRaw only because command 9 was unmapped in the FFI when the path was written.
         if (session != 0 && connection != null && view != null
-                && !view.optString("editing_text", "").isEmpty()) command(2);
+                && !view.optString("editing_text", "").isEmpty()) {
+            command(FINISH_COMPOSITION_COMMAND);
+        }
     }
 
     @Override public void onConfigurationChanged(Configuration configuration) {
@@ -5427,10 +5432,8 @@ public final class MSIMEInputService extends InputMethodService {
         boolean localMode = view != null
             && !"none".equals(view.optString("local_mode", "none"));
         boolean shifted = letterCase.usesUppercase();
-        boolean uppercaseFaces = LetterKeyFacePolicy.displaysUppercase(
-            chineseMode, localMode, shifted);
-        java.util.List<java.util.List<String>> rows = KeyboardLayout.rows(
-            keyboardLayer, uppercaseFaces);
+        // The face is the policy's job; the key itself always sends its canonical lowercase form.
+        java.util.List<java.util.List<String>> rows = KeyboardLayout.rows(keyboardLayer);
         for (int rowIndex = 0; rowIndex < rows.size(); rowIndex++) {
             java.util.List<String> keys = rows.get(rowIndex);
             LinearLayout row = new LinearLayout(this);

@@ -20,6 +20,10 @@ import { DesktopSurface } from '../keyboard/DesktopSurface';
 import type { KeyEvent as InputKeyEvent } from '@ohos.multimodalInput.keyEvent';
 import { Action as KeyAction } from '@ohos.multimodalInput.keyEvent';
 import { StagedResources } from '../keyboard/StagedResources';
+import { HardwareKeyDispatch } from '../keyboard/HardwareKeyDispatch';
+import { AttachedInputDevice, DeviceChange, HardwareKeyboardPolicy, KeyRoutingTransition }
+  from '../keyboard/input/HardwareKeyboardPolicy';
+import { HarmonyHardwareKeyboards } from '../keyboard/input/HarmonyHardwareKeyboards';
 
 // The badge's own geometry, from platforms/macos/src/InputModeHUDPanel.mm: a capsule that carries
 // the logo and one character side by side, shown long enough to read and gone before the next word.
@@ -72,6 +76,11 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
   private screenHeight: number = 0;
   private candidateCount: number = 0;
   private candidateWidthVp: number = KeyboardMetrics.CANDIDATE_WINDOW_WIDTH_VP;
+  // The attached keyboards, and whether their keys are currently being routed. Tracked rather than
+  // re-derived because a second on('keyEvent') is not idempotent: it would deliver every keystroke
+  // twice, and the framework de-duplicates nothing.
+  private attachedKeyboards: AttachedInputDevice[] = [];
+  private routingKeys: boolean = false;
 
   /** The editor moved its caret; the candidate window goes with it if it is up. */
   private readonly caretMoved: (x: number, y: number, height: number) => void =
@@ -406,89 +415,60 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     if (event.action !== KeyAction.DOWN) {
       return true;
     }
-    switch (decision.action) {
-      case HardwareKeyAction.COMPOSE:
-        session.press(decision.character, key.shiftKey);
-        break;
-      case HardwareKeyAction.PUNCTUATION:
-        session.punctuation(decision.character);
-        break;
-      case HardwareKeyAction.BACKSPACE:
-        session.backspace();
-        break;
-      case HardwareKeyAction.CANCEL:
-        session.cancel();
-        break;
-      case HardwareKeyAction.MOVE_LEFT:
-        session.moveLeft();
-        break;
-      case HardwareKeyAction.MOVE_RIGHT:
-        session.moveRight();
-        break;
-      case HardwareKeyAction.MOVE_HOME:
-        session.moveHome();
-        break;
-      case HardwareKeyAction.MOVE_END:
-        session.moveEnd();
-        break;
-      case HardwareKeyAction.DELETE_FORWARD:
-        session.deleteForward();
-        break;
-      case HardwareKeyAction.BACKSPACE_SEGMENT:
-        session.backspaceSegment();
-        break;
-      case HardwareKeyAction.MOVE_LEFT_SEGMENT:
-        session.moveLeftSegment();
-        break;
-      case HardwareKeyAction.MOVE_RIGHT_SEGMENT:
-        session.moveRightSegment();
-        break;
-      case HardwareKeyAction.COMMIT:
-        session.commitHighlighted();
-        break;
-      case HardwareKeyAction.COMMIT_RAW:
-        session.commitRaw();
-        break;
-      case HardwareKeyAction.COMMIT_TRANSLATION:
-        session.commitTranslation();
-        break;
-      case HardwareKeyAction.SELECT:
-        session.choose(decision.index);
-        break;
-      case HardwareKeyAction.RESET_CACHE:
-        session.resetCache();
-        break;
-      case HardwareKeyAction.REMOVE_CANDIDATE:
-        // The slot may hold nothing, or a cloud or AI candidate the dictionary cannot forget. The
-        // key stays claimed either way: the chord was pressed deliberately, and letting a stray '1'
-        // through to the editor because the candidate was the wrong kind would be worse.
-        session.removeManagedCandidate(decision.index);
-        break;
-      case HardwareKeyAction.WORD_CHARACTER_FIRST:
-        session.selectEdge(CandidateTextEdge.FIRST);
-        break;
-      case HardwareKeyAction.WORD_CHARACTER_LAST:
-        session.selectEdge(CandidateTextEdge.LAST);
-        break;
-      case HardwareKeyAction.NEXT_PAGE:
-        session.nextPage();
-        break;
-      case HardwareKeyAction.PREVIOUS_PAGE:
-        session.previousPage();
-        break;
-      case HardwareKeyAction.NEXT_CANDIDATE:
-        session.nextCandidate();
-        break;
-      case HardwareKeyAction.PREVIOUS_CANDIDATE:
-        session.previousCandidate();
-        break;
-      case HardwareKeyAction.IGNORED:
-        break;
-      default:
-        return false;
-    }
+    HardwareKeyDispatch.apply(decision, key.shiftKey, session);
     return true;
   };
+
+  /**
+   * Routes physical keys for as long as there are physical keys to route.
+   *
+   * The hot-plug listener is registered before the first enumeration so that a keyboard attached
+   * during startup is not missed in the gap between the two, and the enumeration is applied on top
+   * of whatever the listener has already recorded rather than replacing it.
+   */
+  private routeKeysWhenAttached(): void {
+    if (KeyboardFormFactor.isDesktop()) {
+      this.applyKeyRouting();
+      return;
+    }
+    HarmonyHardwareKeyboards.watch((change: DeviceChange): void => {
+      this.attachedKeyboards = HardwareKeyboardPolicy.applyChange(this.attachedKeyboards, change);
+      this.applyKeyRouting();
+    });
+    HarmonyHardwareKeyboards.list((devices: AttachedInputDevice[]): void => {
+      for (const device of devices) {
+        this.attachedKeyboards = HardwareKeyboardPolicy.applyChange(this.attachedKeyboards,
+          { type: 'add', deviceId: device.deviceId, keyboardType: device.keyboardType });
+      }
+      this.applyKeyRouting();
+    });
+  }
+
+  /** Brings the `keyEvent` subscription in line with what is attached, and only when it differs. */
+  private applyKeyRouting(): void {
+    const route: boolean =
+      HardwareKeyboardPolicy.routes(KeyboardFormFactor.isDesktop(), this.attachedKeyboards);
+    const transition: KeyRoutingTransition | null =
+      HardwareKeyboardPolicy.transition(this.routingKeys, route);
+    if (transition === null) {
+      return;
+    }
+    try {
+      if (transition === KeyRoutingTransition.SUBSCRIBE) {
+        inputMethodEngine.getKeyboardDelegate().on('keyEvent', this.typed);
+        this.routingKeys = true;
+        KeyboardLog.info(`routing hardware keys: ${this.attachedKeyboards.length} device(s)`);
+        return;
+      }
+      // off('keyEvent') wants the same callback reference on() was given, which is why `typed` is a
+      // property and not a method.
+      inputMethodEngine.getKeyboardDelegate().off('keyEvent', this.typed);
+      this.routingKeys = false;
+      KeyboardLog.info('hardware keys released: no keyboard attached');
+    } catch (error) {
+      KeyboardLog.error(`key routing ${transition} refused: ${describeError(error)}`);
+    }
+  }
 
   /**
    * Copies the packaged dictionary into the sandbox once, and only once.
@@ -528,17 +508,22 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     }
     engine.on('inputStart', this.started);
     engine.on('inputStop', this.stopped);
+    // Which gestures are bound is the document's business, so the keyboard and the settings page
+    // cannot disagree about what a key does. Bound before any key can arrive, on every device: a
+    // keyboard may be plugged into this one later.
+    this.modeKeys.use(KeyboardSession.shared.modeBindings());
     if (KeyboardFormFactor.isDesktop()) {
-      // Where the keys are the machine's, this is the only way anything reaches the Engine at all:
-      // nothing is ever tapped on a panel that draws no keys.
-      inputMethodEngine.getKeyboardDelegate().on('keyEvent', this.typed);
-      // Which gestures are bound is the document's business, so the keyboard and the settings page
-      // cannot disagree about what a key does.
-      this.modeKeys.use(KeyboardSession.shared.modeBindings());
       // A candidate window belongs beside the text it is offering candidates for, not at a fixed
-      // place on the screen, so it follows the caret the editor reports.
+      // place on the screen, so it follows the caret the editor reports. Only a candidate window has
+      // anywhere to go: a fixed soft keyboard sits at the bottom wherever the caret is.
       inputMethodEngine.getKeyboardDelegate().on('cursorContextChange', this.caretMoved);
     }
+    // Where the keys are the machine's, routing them is the only way anything reaches the Engine at
+    // all: nothing is ever tapped on a panel that draws no keys. Where they are not, an attached
+    // keyboard still has to compose — unrouted, the framework hands the key to the editor and a
+    // phone with a keyboard types raw letters — so the enumeration decides, and keeps deciding as
+    // keyboards come and go.
+    this.routeKeysWhenAttached();
     // A machine with its own keys gets a candidate window rather than a keyboard. The framework does
     // not show or hide a FLAG_CANDIDATE panel for you, which costs nothing here: this host has always
     // driven show and hide itself from inputStart and inputStop rather than leaving it to the
@@ -703,10 +688,14 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
   onDestroy(): void {
     engine.off('inputStart', this.started);
     engine.off('inputStop', this.stopped);
-    if (KeyboardFormFactor.isDesktop()) {
+    if (this.routingKeys) {
       inputMethodEngine.getKeyboardDelegate().off('keyEvent', this.typed);
+      this.routingKeys = false;
+    }
+    if (KeyboardFormFactor.isDesktop()) {
       inputMethodEngine.getKeyboardDelegate().off('cursorContextChange', this.caretMoved);
     }
+    HarmonyHardwareKeyboards.unwatch();
     KeyboardSession.shared.stop();
     if (this.hudTimer >= 0) {
       clearTimeout(this.hudTimer);

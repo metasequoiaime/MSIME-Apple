@@ -125,7 +125,16 @@ KeyResult ServerSession::key(const FanyImeNamedpipeData &packet,
   const auto modifiers = PipeMetadata::key_modifiers(packet.modifiers_down);
   const auto digit_key = normalize_digit_key(packet.keycode);
   nlohmann::json current = view();
-  if (!current.is_null() && current.at("local_mode") != "unknown" &&
+  // Digits only. The branch selects a candidate by slot, and without this it
+  // claimed every unmodified key: 'b' is VK 66, so digit_key - '1' is 17, and
+  // an empty page sent it to the else below - reported handled, never given to
+  // the Engine, so the character was silently dropped. A page of eighteen or
+  // more candidates would have been worse, committing candidate 17 for a
+  // letter press. Typing shuangpin through this path could not work at all,
+  // and nothing noticed because these suites had never been run.
+  const bool selection_digit = digit_key >= '1' && digit_key <= '9';
+  if (selection_digit && !current.is_null() &&
+      current.at("local_mode") != "unknown" &&
       ((current.at("local_mode") == "unicode" && modifiers == 1) ||
        (current.at("local_mode") != "unicode" && modifiers == 0))) {
     // TSF selects by VK digit, regardless of layout-produced text. Unicode

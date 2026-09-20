@@ -102,6 +102,9 @@ final class KeyboardCandidatePanelView: UIView {
     self.annotations = annotations
     guard laidOutWidth > 0 else { return }
     rebuildRows(within: laidOutWidth)
+    // The rows were just replaced, so the chips that came back have no frame yet. Ask for a
+    // layout pass rather than leaving them to whatever happens to dirty the panel next.
+    setNeedsLayout()
   }
 
   // Rows are packed against a known width, so they are built here rather than in init.
@@ -195,7 +198,7 @@ final class KeyboardCandidatePanelView: UIView {
     let chip = KeyboardKeyButton(
       configuration: configuration,
       primaryAction: UIAction { [weak self] _ in self?.onSelect(index) })
-    chip.titleLabel?.numberOfLines = 1 + annotation.text.split(separator: "\n", omittingEmptySubsequences: false).count
+    chip.titleLineCount = 1 + annotation.text.split(separator: "\n", omittingEmptySubsequences: false).count
     chip.accessibilityIdentifier = "panelCandidate-\(number)"
     chip.accessibilityLabel = annotation.accessibilityDescription.isEmpty
       ? "候选词 \(number)：\(text)"

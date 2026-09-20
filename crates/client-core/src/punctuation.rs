@@ -16,6 +16,13 @@ pub struct PunctuationContext {
     pub has_composition: bool,
     pub chinese_punctuation: bool,
     pub smart_punctuation: bool,
+    /// Keep `,` `.` `:` as ASCII after a digit, and after a letter. Two
+    /// switches rather than one, because a version number and an English
+    /// sentence want different answers - and both are off on the Windows
+    /// baseline, so a host that ignored them was converting for users who had
+    /// asked for neither.
+    pub direct_digit: bool,
+    pub direct_letter: bool,
     pub lock: PunctuationLock,
 }
 
@@ -31,12 +38,14 @@ pub fn route(context: PunctuationContext) -> PunctuationRoute {
         PunctuationLock::English => return PunctuationRoute::Ascii,
         PunctuationLock::Follow => {}
     }
+    let direct = context.preceding.is_some_and(|value| {
+        (value.is_ascii_digit() && context.direct_digit)
+            || (value.is_ascii_alphabetic() && context.direct_letter)
+    });
     if context.chinese_punctuation
         && context.smart_punctuation
         && matches!(context.character, b',' | b'.' | b':')
-        && context
-            .preceding
-            .is_some_and(|value| value.is_ascii_alphanumeric())
+        && direct
     {
         PunctuationRoute::Ascii
     } else {
@@ -56,6 +65,8 @@ mod tests {
             has_composition: false,
             chinese_punctuation: true,
             smart_punctuation: true,
+            direct_digit: true,
+            direct_letter: true,
             lock: PunctuationLock::Follow,
         }
     }
@@ -89,6 +100,36 @@ mod tests {
         assert_eq!(route(value), PunctuationRoute::Ascii);
         value.has_composition = true;
         assert_eq!(route(value), PunctuationRoute::Engine);
+    }
+
+    #[test]
+    fn each_direct_switch_only_answers_for_its_own_kind_of_neighbour() {
+        // Off is the Windows baseline and the shipped default, so a host that reads neither switch was
+        // converting punctuation for every user who had asked for none of it.
+        let mut value = context(b'.', Some('7'));
+        value.direct_digit = false;
+        value.direct_letter = true;
+        assert_eq!(route(value), PunctuationRoute::Engine);
+
+        let mut value = context(b'.', Some('a'));
+        value.direct_digit = true;
+        value.direct_letter = false;
+        assert_eq!(route(value), PunctuationRoute::Engine);
+
+        // A version number and an English sentence are the two cases the pair exists to separate.
+        let mut value = context(b'.', Some('7'));
+        value.direct_letter = false;
+        assert_eq!(route(value), PunctuationRoute::Ascii);
+        let mut value = context(b',', Some('z'));
+        value.direct_digit = false;
+        assert_eq!(route(value), PunctuationRoute::Ascii);
+
+        for preceding in ['7', 'a'] {
+            let mut value = context(b':', Some(preceding));
+            value.direct_digit = false;
+            value.direct_letter = false;
+            assert_eq!(route(value), PunctuationRoute::Engine);
+        }
     }
 
     #[test]

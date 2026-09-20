@@ -1126,6 +1126,9 @@ EngineResult EngineSession::character(std::uint8_t value, bool shift) {
     if (value > 127) throw std::invalid_argument("Engine character must be ASCII");
     return result_for(session_.character(static_cast<char>(value), shift));
 }
+bool EngineSession::expand_initial_candidates() {
+    return session_.expand_initial_candidates();
+}
 void EngineSession::set_nine_key_enabled(bool enabled) {
     session_.set_nine_key_enabled(enabled);
     nine_key_ = enabled;

@@ -493,9 +493,9 @@ pub struct Preferences {
     #[serde(default)]
     pub traditional_chinese_output: bool,
     pub chinese_punctuation: bool,
-    #[serde(default = "enabled_by_default")]
+    #[serde(default = "smart_punctuation_default")]
     pub smart_punctuation: bool,
-    #[serde(default = "enabled_by_default")]
+    #[serde(default = "smart_punctuation_default")]
     pub smart_punctuation_repeat: bool,
     /// Space after a just-committed Chinese punctuation rewrites it as ASCII.
     /// Off by default, like the rest of the family on the Windows baseline:
@@ -1061,6 +1061,23 @@ fn enabled_by_default() -> bool {
     true
 }
 
+/// Smart punctuation is off on a fresh Windows profile and on nowhere else.
+///
+/// It rewrites a character the user already saw land, so the Windows baseline
+/// ships the whole family disabled and asks for it to be turned on
+/// deliberately - `platforms/windows/installer/config.default.toml` has every
+/// one of the five switches `false`. That file is the installed template; the
+/// running Server reads this document instead, so without this the effective
+/// first-run default on Windows was the opposite of the baseline it ships.
+///
+/// Only Windows moves. The other hosts have shipped these on and a preference
+/// that changes under existing users is worse than one that differs by
+/// platform; a stored value is untouched either way, since this answers only
+/// for a document that does not have the key yet.
+fn smart_punctuation_default() -> bool {
+    !cfg!(windows)
+}
+
 fn default_candidate_font_size() -> u8 {
     18
 }
@@ -1156,8 +1173,8 @@ impl Default for Preferences {
             shuangpin_helpcode: default_shuangpin_helpcode(),
             traditional_chinese_output: false,
             chinese_punctuation: true,
-            smart_punctuation: true,
-            smart_punctuation_repeat: true,
+            smart_punctuation: smart_punctuation_default(),
+            smart_punctuation_repeat: smart_punctuation_default(),
             smart_punctuation_space_convert: false,
             smart_punctuation_direct_digit: false,
             smart_punctuation_direct_letter: false,

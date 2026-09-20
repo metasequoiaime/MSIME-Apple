@@ -203,6 +203,8 @@ pub extern "C" fn msime_client_punctuation_with_context(
                 .punctuation_override
                 .unwrap_or(session.applied.chinese_punctuation),
             smart_punctuation: session.applied.smart_punctuation,
+            direct_digit: session.applied.smart_punctuation_direct_digit,
+            direct_letter: session.applied.smart_punctuation_direct_letter,
             lock,
         });
         Ok(match route {
