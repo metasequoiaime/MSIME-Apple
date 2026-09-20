@@ -90,6 +90,7 @@
 		2DDFE1928D74C113DF773969 /* WAVPCMExtractor.swift in Sources */ = {isa = PBXBuildFile; fileRef = CF406F60D186354E48767AFB /* WAVPCMExtractor.swift */; };
 		2E9D7B7016A9238789018EFD /* CandidateTranslationStore.swift in Sources */ = {isa = PBXBuildFile; fileRef = 44FA49473CBC55923C7B4378 /* CandidateTranslationStore.swift */; };
 		2EA8399606D4D9616E25AFDD /* BackendAnonymousAccount.swift in Sources */ = {isa = PBXBuildFile; fileRef = 8A28330A8A6A26456C5CAB1A /* BackendAnonymousAccount.swift */; };
+		2ECC03615A3ED0B3CF4C0A2A /* KeyboardExtensionEditorUITests.swift in Sources */ = {isa = PBXBuildFile; fileRef = C69EFF90CAC95D7C6B3158B1 /* KeyboardExtensionEditorUITests.swift */; };
 		2ECD22F4B595B717B8EFAB4D /* StatisticsCharts.swift in Sources */ = {isa = PBXBuildFile; fileRef = D0509A4A134319D17F7D6670 /* StatisticsCharts.swift */; };
 		30E7DCF068C0BAB93201E728 /* BackendAiClient.swift in Sources */ = {isa = PBXBuildFile; fileRef = 0DD27E4D5116A057B7A521F5 /* BackendAiClient.swift */; };
 		31FB2796F064B131CB55632B /* WubiCodeHintPreference.swift in Sources */ = {isa = PBXBuildFile; fileRef = 87844566164DF604747D9C08 /* WubiCodeHintPreference.swift */; };
@@ -674,6 +675,7 @@
 		C319748F3841C94BADDBDE6C /* BackendCommunityResourcesView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackendCommunityResourcesView.swift; sourceTree = "<group>"; };
 		C33D99057C59C448E6AA763A /* FuzzyPinyinSettingsView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FuzzyPinyinSettingsView.swift; sourceTree = "<group>"; };
 		C4370A5DEF25DF58EF4406C3 /* ClipboardHistoryStore.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ClipboardHistoryStore.swift; sourceTree = "<group>"; };
+		C69EFF90CAC95D7C6B3158B1 /* KeyboardExtensionEditorUITests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = KeyboardExtensionEditorUITests.swift; sourceTree = "<group>"; };
 		C7FE5DEC53AAC548F03142BC /* DoubaoVoiceCoordinator.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DoubaoVoiceCoordinator.swift; sourceTree = "<group>"; };
 		C8CEB8B53A49EDD3D2311452 /* HandwritingTests.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = HandwritingTests.swift; sourceTree = "<group>"; };
 		CA0AA119D7B8E03394F9B45C /* MSIMEDoubaoTransportTests.xctest */ = {isa = PBXFileReference; includeInIndex = 0; lastKnownFileType = wrapper.cfbundle; path = MSIMEDoubaoTransportTests.xctest; sourceTree = BUILT_PRODUCTS_DIR; };
@@ -1370,6 +1372,7 @@
 		E50D9446AC0C0A697D4470BE /* UITests */ = {
 			isa = PBXGroup;
 			children = (
+				C69EFF90CAC95D7C6B3158B1 /* KeyboardExtensionEditorUITests.swift */,
 				84E0EA58776B85E03854D05F /* OnboardingUITests.swift */,
 			);
 			path = UITests;
@@ -1755,6 +1758,7 @@
 			isa = PBXSourcesBuildPhase;
 			buildActionMask = 2147483647;
 			files = (
+				2ECC03615A3ED0B3CF4C0A2A /* KeyboardExtensionEditorUITests.swift in Sources */,
 				7F0BC1EC35ED9E3F7B3042B1 /* OnboardingUITests.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
