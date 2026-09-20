@@ -627,6 +627,7 @@ public:
   bool toggleInputMode() {
     if (!session_ || restricted() || privateInput() || !ic_.hasFocus()) return false;
     input_enabled_ = !input_enabled_;
+    ime_mode_chosen_ = true;
     if (!input_enabled_) {
       if (!view_.value("editing_text", std::string{}).empty()) command(MSIME_FINISH_COMPOSITION);
       clearPanel();
@@ -1090,6 +1091,21 @@ public:
     smart_punctuation_repeat_ = preferences_.value("smart_punctuation_repeat", true);
     smart_punctuation_space_convert_ =
         preferences_.value("smart_punctuation_space_convert", false);
+    const auto keybindings = preferences_.value("keybindings", Json::object());
+    mode_shift_enabled_ = keybindings.value("switch_language_shift", true);
+    mode_ctrl_enabled_ = keybindings.value("switch_language_ctrl", false);
+    mode_ctrl_alt_space_enabled_ =
+        keybindings.value("switch_language_ctrl_alt_space", true);
+    character_set_shortcut_enabled_ =
+        keybindings.value("toggle_character_set_ctrl_shift_f", true);
+    // Windows starts a new context in Chinese unless the user said otherwise.
+    // Applied once per input context, not once per session: refocusing or
+    // rebuilding the Engine session must keep the mode the user chose rather than
+    // putting the startup default back.
+    if (!ime_mode_chosen_) {
+      input_enabled_ = preferences_.value("default_ime_mode", "chinese") != "english";
+      ime_mode_chosen_ = true;
+    }
     if (!smart_punctuation_ || !smart_punctuation_space_convert_ ||
         !chinese_punctuation_) {
       space_convert_mark_ = 0;
@@ -1200,6 +1216,13 @@ public:
                 "smart_punctuation_repeat", smart_punctuation_repeat_);
             smart_punctuation_space_convert_ = preferences_.value(
                 "smart_punctuation_space_convert", smart_punctuation_space_convert_);
+            const auto reloaded = preferences_.value("keybindings", Json::object());
+            mode_shift_enabled_ = reloaded.value("switch_language_shift", mode_shift_enabled_);
+            mode_ctrl_enabled_ = reloaded.value("switch_language_ctrl", mode_ctrl_enabled_);
+            mode_ctrl_alt_space_enabled_ = reloaded.value(
+                "switch_language_ctrl_alt_space", mode_ctrl_alt_space_enabled_);
+            character_set_shortcut_enabled_ = reloaded.value(
+                "toggle_character_set_ctrl_shift_f", character_set_shortcut_enabled_);
             const auto punctuationLock = preferences_.value("punctuation_lock", std::string("follow"));
             punctuation_lock_ = punctuationLock == "chinese" ? 1 : punctuationLock == "english" ? 2 : 0;
             navigation_ = preferences_.value("navigation", Json::object());
@@ -2200,7 +2223,24 @@ public:
   bool voice_rctrl_ralt_held_ = false;
   bool voice_space_consumed_ = false;
   bool voice_space_locked_ = false;
+  // Which context starts in Chinese, and which of the four configurable mode
+  // chords this host answers. Fcitx5 had the CN/EN toggle on its status area
+  // only: the settings page showed all four switches for this platform and none
+  // of them did anything here, and a user who chose to start in English got
+  // Chinese anyway.
   bool input_enabled_ = true;
+  bool mode_shift_enabled_ = true;
+  bool mode_ctrl_enabled_ = false;
+  bool mode_ctrl_alt_space_enabled_ = true;
+  bool character_set_shortcut_enabled_ = true;
+  // A bare modifier switches on release, and only if nothing else was typed
+  // while it was held. Windows measures the same gesture; so does the IBus host.
+  bool ime_mode_chosen_ = false;
+  bool pure_shift_candidate_ = false;
+  bool pure_ctrl_candidate_ = false;
+  bool shift_down_ = false;
+  bool ctrl_down_ = false;
+  std::chrono::steady_clock::time_point modifier_toggle_deadline_{};
   std::shared_future<Json> voice_job_;
   std::shared_ptr<FcitxVoiceMailbox> voice_mailbox_;
   uint64_t voice_generation_ = 0;
@@ -4170,6 +4210,41 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     if (event.isRelease()) voice_space_consumed_ = false;
     return true;
   }
+  // A bare modifier switches on its release, which is the half this host never
+  // saw: everything below returns before looking at releases.
+  {
+    const bool shiftRelease = sym == FcitxKey_Shift_L || sym == FcitxKey_Shift_R;
+    const bool ctrlRelease = sym == FcitxKey_Control_L || sym == FcitxKey_Control_R;
+    if ((shiftRelease || ctrlRelease) && event.isRelease()) {
+      const bool candidate = shiftRelease ? pure_shift_candidate_ : pure_ctrl_candidate_;
+      const bool enabled = shiftRelease ? mode_shift_enabled_ : mode_ctrl_enabled_;
+      if (shiftRelease) {
+        shift_down_ = false;
+        pure_shift_candidate_ = false;
+      } else {
+        ctrl_down_ = false;
+        pure_ctrl_candidate_ = false;
+      }
+      // Held too long is a modifier being used, not a gesture; the other
+      // modifiers being down says the same thing.
+      if (candidate && enabled && ic_.hasFocus() && !restricted() && !privateInput() &&
+          std::chrono::steady_clock::now() <= modifier_toggle_deadline_ &&
+          !states.testAny(fcitx::KeyStates{fcitx::KeyState::Alt, fcitx::KeyState::Super,
+                                          fcitx::KeyState::Hyper}) &&
+          !(shiftRelease ? ctrl_down_ : shift_down_)) {
+        try {
+          // Same follow-up as the existing Ctrl+Shift+E and Ctrl+Shift+Space
+          // chords: the toggle redraws the input panel, and the status area
+          // re-reads its own checked state when Fcitx5 next draws it.
+          if (ensure() && toggleInputMode()) return true;
+        } catch (...) {
+          close();
+          clearPanel();
+        }
+      }
+      return false;
+    }
+  }
   if (event.isRelease()) return false;
   if (!input_enabled_) return false;
   if (sym == FcitxKey_BackSpace) {
@@ -4315,6 +4390,40 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   if (sym == FcitxKey_Escape && voice_loading_) {
     cancelVoice();
     return composing ? command(MSIME_CANCEL) : true;
+  }
+  // The four configurable mode chords. Windows measures a bare modifier on its
+  // release and only when nothing else was typed while it was held, and so does
+  // the IBus host; this host answered none of them, while the settings page
+  // showed all four switches for this platform.
+  const bool shiftKey = sym == FcitxKey_Shift_L || sym == FcitxKey_Shift_R;
+  const bool ctrlKey = sym == FcitxKey_Control_L || sym == FcitxKey_Control_R;
+  const bool otherModifiers =
+      states.testAny(fcitx::KeyStates{fcitx::KeyState::Alt, fcitx::KeyState::Super,
+                                      fcitx::KeyState::Hyper});
+  if (shiftKey || ctrlKey) {
+    const bool wasDown = shiftKey ? shift_down_ : ctrl_down_;
+    if (shiftKey) shift_down_ = true;
+    if (ctrlKey) ctrl_down_ = true;
+    if (!wasDown) {
+      modifier_toggle_deadline_ =
+          std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
+      pure_shift_candidate_ = shiftKey && mode_shift_enabled_ && !otherModifiers && !ctrl;
+      pure_ctrl_candidate_ = ctrlKey && mode_ctrl_enabled_ && !otherModifiers && !shift;
+    }
+    return false;
+  }
+  // Any other key press means the held modifier was part of a combination.
+  pure_shift_candidate_ = false;
+  pure_ctrl_candidate_ = false;
+  if (sym == FcitxKey_space && ctrl && !shift &&
+      (alt ? mode_ctrl_alt_space_enabled_ : true)) {
+    if (composing) command(MSIME_COMMIT_RAW);
+    return toggleInputMode();
+  }
+  if (character_set_shortcut_enabled_ && ctrl && shift && !alt &&
+      (sym == FcitxKey_f || sym == FcitxKey_F)) {
+    if (composing) command(MSIME_COMMIT_RAW);
+    return toggleTraditional();
   }
   if (ctrl && shift && !alt && (sym == FcitxKey_e || sym == FcitxKey_E)) {
     if (composing) command(MSIME_COMMIT_RAW);
