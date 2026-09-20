@@ -787,10 +787,23 @@ int main(int argc, char **argv) {
       gboolean translation_handled = FALSE;
       g_variant_get(translation_commit, "(b)", &translation_handled);
       g_variant_unref(translation_commit);
+      // The candidate window is hidden on a 24ms timer, not in the same turn as
+      // the commit: the host defers it so a composition that briefly empties its
+      // candidate list does not flicker the panel. Wait for the condition rather
+      // than reading a value that is deliberately not there yet.
+      const auto translation_hidden = g_get_monotonic_time() + 2 * G_USEC_PER_SEC;
+      while (seen.lookup_visible && g_get_monotonic_time() < translation_hidden) {
+        while (g_main_context_iteration(nullptr, FALSE)) {}
+        g_usleep(1000);
+      }
       require(translation_handled &&
                   seen.committed.find("synthetic gloss [1]") != std::string::npos &&
                   !seen.preedit_visible && !seen.lookup_visible,
-              "Ctrl+Enter did not commit the rendered candidate translation");
+              ("Ctrl+Enter did not commit the rendered candidate translation: handled=" +
+               std::to_string(static_cast<int>(translation_handled)) + " committed=[" +
+               seen.committed + "] preedit=" + std::to_string(seen.preedit_visible) +
+               " lookup=" + std::to_string(seen.lookup_visible))
+                  .c_str());
       invoke("Reset");
       provider.hold_responses = true;
       translated["preferences"]["niutrans"] = {

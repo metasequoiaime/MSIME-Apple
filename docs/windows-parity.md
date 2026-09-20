@@ -812,6 +812,12 @@ Fcitx5 候选动作执行 stale 栅栏增量（2026-09-19）：CandidateAction �
 
 判据取自本次迁移的准绳：Windows 上配置了 Ctrl 快捷键就会切换中英文，`ime_mode_scope` 决定的是这个状态记在哪儿、而不是快捷键动不动它，宿主实现的正是这一条。所以错的是 fixture 那一侧。改为切两次并各自核对模式：默认中文 → Ctrl 切到透传（断言不再是中文）→ Ctrl 切回中文（断言是中文）→ `phrase()` 组中文候选。覆盖比原来更多，且与 Windows 一致。
 
-改完之后这一整段循环通过，运行前进了一大段，现在停在后面两处（都是本次修复之后才够得着的位置，各自单独查）：其一是候选译文合并那一条「Online misses did not merge with the displayed offline hits」，三次运行里只出现过一次，剩下两次走过去了，所以它是时序相关而不是恒定失败；其二是更后面的「Ctrl+Enter did not commit the rendered candidate translation」，两次运行一致。
+改完之后这一整段循环通过，运行又往前走了两段：
+
+其一，「Ctrl+Enter did not commit the rendered candidate translation」。把断言改成会报出它看到了什么之后，一次运行就说清楚了：`handled=1 committed=[synthetic gloss [1]] preedit=0 lookup=1`——译文上屏、组合清掉、预编辑也收了，只有候选窗还在。原因不是缺陷：候选窗的隐藏走的是 `schedule_candidate_hide` 的 24ms 定时器，宿主故意延后，免得组合中途候选列表短暂清空时面板闪一下。断言读的是一个按设计还没到的值，改成按条件等待。
+
+其二（当前停住的位置），「NiuTrans preference change did not request a new translation」。fixture 在 `invoke("Reset")` 之后打开 NiuTrans 并保存 revision 2，然后等 provider 收到第二次请求。但 Reset 之后既没有组合也没有候选，而宿主的行为是「设置热更新后立即调度**当前**候选的翻译」——没有候选就没有要翻的东西。要么 fixture 少了一次重新组词，要么期望的是配置变更对已显示候选的重新请求而 Reset 恰好把它们清掉了。这一条同样是「fixture 写的和宿主做的哪个对」的取舍，本次不猜。
+
+另外记一条：「Online misses did not merge with the displayed offline hits」在三次运行里只失败过一次，另两次走过去了，是时序相关而不是恒定失败。
 
 在此之前的部分全部通过：容器内 `ctest` 19/19、三个 crate 的 Rust 测试、Host API 头导出校验、词典 CLI 与剪贴板验收、完整安装产物，以及 engine smoke 自身在此之前的全部断言（含缺 `mixed_input` 对象那一例、直接输入透传、偏好热重载后不带会话的宿主快捷键重载、`ime_mode_scope` 的两轮、离线释义先于在线回填）。
