@@ -146,6 +146,15 @@
       "top5": 0.667,
       "top9": 0.667
     },
+    "pronoun-ambiguous": {
+      "cases": 12,
+      "found": 1.0,
+      "mrr": 1.0,
+      "top1": 1.0,
+      "top1_char_prefix": 1.0,
+      "top5": 1.0,
+      "top9": 1.0
+    },
     "seg-ambiguity": {
       "cases": 12,
       "found": 0.917,

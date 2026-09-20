@@ -496,10 +496,16 @@ if [ -n "${MSIME_EVAL_RESOURCES:-}" ] && [ -d "${MSIME_EVAL_RESOURCES:-}" ]; the
   # `harvested` is the failure set: cases picked because the product gets them wrong, so its
   # top-1 is near zero by construction and its top-5 is the number that means something. It is
   # gated the same way regardless, because a regression moves it just as visibly.
-  for set in sentences harvested words; do
+  #
+  # `neutral` is harvested the same way but against the engine alone, so no reranking model is
+  # implicated in choosing the cases. That is what makes its top-1 comparable across models —
+  # 0.622 for the shipped 4.25M weights against 0.805 for the 24.9M ones, disagreeing on 272 of
+  # 1104 cases where the hand-written set produced three disagreements and McNemar p = 0.25.
+  for set in sentences harvested neutral words; do
     case "$set" in
       sentences) args="--set resources/eval/sentences-v1.tsv" ;;
       harvested) args="--set resources/eval/sentences-v2.tsv" ;;
+      neutral) args="--set resources/eval/sentences-neutral-v1.tsv" ;;
       words) args="--set resources/eval/quanpin-words-v1.tsv --limit 3000" ;;
     esac
     # shellcheck disable=SC2086
