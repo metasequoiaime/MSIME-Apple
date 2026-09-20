@@ -68,22 +68,34 @@ test("Caps Lock and Shift invert letters while commit keys drop sticky modifiers
   const sendKey = vi.fn().mockResolvedValue(undefined);
   render(<KeyboardPanel client={{ close: async () => {}, sendKey }} platform="windows" />);
 
+  // Keys are delivered through a queue, so each press has to settle before the call is read --
+  // asserting synchronously reads the previous key's request.
+  const press = async (button: HTMLElement) => {
+    await act(async () => {
+      fireEvent.click(button);
+      await Promise.resolve();
+    });
+  };
+
+  // The reference panel draws the key faces from Shift alone -- Caps Lock does not change them --
+  // while the character it posts follows caps != shift (KeyboardPanel.cpp, the face at the label
+  // and the case at the post). So the face still reads "a" here and the keystroke is uppercase.
   fireEvent.click(screen.getByRole("button", { name: "Caps Lock" }));
-  const upper = screen.getByRole("button", { name: "A" });
-  fireEvent.click(upper);
+  await press(screen.getByRole("button", { name: "a" }));
   expect(sendKey).toHaveBeenLastCalledWith(
     expect.objectContaining({ virtual_key: 0x41, shift: true }),
   );
 
+  // Shift on top of Caps Lock: the face turns uppercase, the keystroke turns back to lowercase.
   fireEvent.click(screen.getAllByRole("button", { name: "Shift" })[0]);
-  const lower = screen.getByRole("button", { name: "a" });
-  fireEvent.click(lower);
+  await press(screen.getByRole("button", { name: "A" }));
   expect(sendKey).toHaveBeenLastCalledWith(
     expect.objectContaining({ virtual_key: 0x41, shift: false }),
   );
 
-  fireEvent.click(screen.getByRole("button", { name: "Ctrl" }));
-  fireEvent.click(screen.getByRole("button", { name: "Enter" }));
+  // Left and right Ctrl are both on the layout, same as Shift above.
+  fireEvent.click(screen.getAllByRole("button", { name: "Ctrl" })[0]);
+  await press(screen.getByRole("button", { name: "Enter" }));
   expect(sendKey).toHaveBeenLastCalledWith(
     expect.objectContaining({
       virtual_key: 0x0d,

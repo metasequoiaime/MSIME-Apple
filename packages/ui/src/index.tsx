@@ -8048,9 +8048,16 @@ export function SettingsPage({
                         doubao_enable_punc: voiceInput.doubao_enable_punc !== false,
                         doubao_enable_ddc: voiceInput.doubao_enable_ddc === true,
                       })}
+                    {/*
+                     * Doubao belongs in this list, not in a HarmonyOS-only arm: the probe is the
+                     * shared one, and Windows and macOS have had it since it was added. Gating it
+                     * on HarmonyOS alone silently dropped the button on the two hosts whose tests
+                     * cover it.
+                     */}
                     {(windowsPlatform || macosPlatform || harmonyPlatform) &&
-                      (["openai", "siliconflow", "groq"].includes(voiceInput.asr_provider ?? "") ||
-                        (harmonyPlatform && voiceInput.asr_provider === "doubao")) && (
+                      ["openai", "siliconflow", "groq", "doubao"].includes(
+                        voiceInput.asr_provider ?? "",
+                      ) && (
                         <>
                           <p className={settings.panelPreviewLabel}>
                             测试会向当前服务发送一秒合成静音，不使用麦克风；服务可能计入 API 用量。
