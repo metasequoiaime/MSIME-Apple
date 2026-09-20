@@ -16,9 +16,10 @@ typedef void (^MetasequoiaUpdateActivationHandler)(void);
 // version, a code signature - and started anywhere else it reports the misconfiguration with a modal
 // alert, which in an input method means the user's typing stops behind a dialog they never asked for.
 // A pure function so the decision can be tested without starting an updater.
-static inline BOOL MSIMEUpdateHostIsApplicationBundle(NSString *_Nullable identifier, NSString *_Nullable path)
+static inline BOOL MSIMEUpdateHostCanStartSparkle(NSString *_Nullable identifier, NSString *_Nullable path,
+                                                  NSString *_Nullable feedURL)
 {
-    return identifier.length > 0 && [path.pathExtension isEqualToString:@"app"];
+    return identifier.length > 0 && [path.pathExtension isEqualToString:@"app"] && feedURL.length > 0;
 }
 
 @interface MetasequoiaUpdateController : NSObject
