@@ -1170,3 +1170,13 @@ Fcitx5 候选动作执行 stale 栅栏增量（2026-09-19）：CandidateAction �
 验证：`cargo test -p msime-client-core typing_statistics` 13 项、`apps/desktop` 全套 91 文件 806 条用例、HarmonyOS 逻辑回归 1204 条断言、Windows 纯逻辑用例全部通过；`cargo fmt` / `clippy` / `tsc --noEmit` 干净；设置页动作门控、配色对照、偏好字段对照三个静态检查通过；HarmonyOS 设置 bundle 已重新生成。渲染断言反向验证过（去掉速度里的 `han` 会让五条用例变红）。
 
 本批的验证空洞两处，写明而不是略过：`apps/desktop/src-tauri` 在本机被整包排除（缺 macOS app bundle 资源），所以 `panel_input.rs` 那处只核对了 `time::OffsetDateTime::hour` 在 vendored `time-0.3.55` 里的实际签名，没有编译过；Android、macOS、HarmonyOS 三个宿主的改动同样没有在各自工具链上编译，本机只有 Windows 交叉与 Rust/TS 这几条路径。没有任何一项在真机上看到过数字。
+
+同批把上一批留的第二条待决项查实了，结论比预想的严重，**修复放在下一片**：共享设置页的 `window.confirm` 在 macOS 桌面和 iOS 上**根本不工作**，按钮按下去什么都不会发生。
+
+这一条不是推断，是在本机量出来的。证据链四段：(1) 本仓 `Cargo.lock` 锁的是 `wry 0.55.1` 加 `tauri 2.11.5`；(2) wry 的 `WryWebViewUIDelegate`（`src/wkwebview/class/wry_web_view_ui_delegate.rs`）只实现了三个 `WKUIDelegate` 方法——文件上传面板、媒体捕获授权、新窗口创建，`runJavaScriptAlertPanel` / `runJavaScriptConfirmPanel` / `runJavaScriptTextInputPanel` 一个都没有；(3) `tauri-runtime-wry` 与 `tauri` 自己不另设 uiDelegate（全仓搜不到）；(4) 照着这个配置写了一个最小 WKWebView 探针（不设 JS 对话框方法）在本机跑，结果是 `confirm()` **2 毫秒内返回 false、什么都不显示**。WKWebView 本身不提供内建 JS 对话框，必须由 delegate 实现，没实现就等同用户点了取消。
+
+受影响的是共享设置页里 11 处以上的确认：删除词条、清空打字统计、关闭模糊音并清空规则、恢复屏幕键盘默认值、放弃未保存修改后重新读取、删除云词条、把云词条加入本机词典、开始新对话等。在 macOS 与 iOS 上它们全部是死按钮——这正是本表第 789 行那条「死按钮比没有按钮更糟，它宣称功能存在」，而那一轮的静态守卫只检查按钮有没有按宿主能力门控，检查不到这一类。
+
+其余宿主逐个核过：Android 走 wry 的 `RustWebChromeClient.onJsConfirm`，会弹真的 `AlertDialog`，功能正常，但按钮文案是写死的英文 `OK` / `Cancel`，与页面的中文界面不一致；Linux（WebKitGTK）与 Windows（WebView2）原生支持，工作正常。HarmonyOS 的 ArkWeb 在 `Settings.ets` 里没有注册 `onConfirm`，其默认行为没有在设备上验证过，这里不下结论。
+
+来源本批（`fcf594e2`）正好把 `window.confirm` 换成了自绘对话框，理由是宿主模态窗口不跟随页面主题、弹出期间页面自己的键盘与焦点处理被挂起。那三条理由对本仓每个 webview 宿主都成立，而上面这条比它们严重得多。下一片按同一方向做：共享一个自绘确认对话框，把这 11 处换掉，顺带解决 Android 的英文按钮。
