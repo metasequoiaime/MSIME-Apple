@@ -22,6 +22,28 @@ NSUInteger IndexOrZero(NSArray<NSString *> *values, NSString *value)
 
 } // namespace
 
+// The prompt presets, as an identifier the preference stores and a name the user reads.
+//
+// This popup used to be built from the identifiers alone, so the window offered `cleanup` and
+// `zh2en` as menu items and wrote back whichever string was on screen. The names are the reference's
+// own (`PolishPromptPreset` in voice_providers.cpp); the three custom slots are this client's.
+static inline NSArray<NSString *> *MSIMEPolishPromptIdentifiers(void)
+{
+    return @[@"cleanup", @"faithful", @"zh2en", @"casual", @"custom_1", @"custom_2", @"custom_3"];
+}
+
+static inline NSArray<NSString *> *MSIMEPolishPromptTitles(void)
+{
+    return @[@"精炼整理", @"忠实校对", @"中翻英", @"口语整理", @"自定义一", @"自定义二", @"自定义三"];
+}
+
+static inline NSString *MSIMEPolishPromptIdentifierForIndex(NSInteger index)
+{
+    NSArray<NSString *> *identifiers = MSIMEPolishPromptIdentifiers();
+    return index >= 0 && (NSUInteger)index < identifiers.count ? identifiers[(NSUInteger)index]
+                                                               : identifiers.firstObject;
+}
+
 @implementation MSIMEVoiceSettings {
     NSPopUpButton *_language;
     NSTextField *_status;
@@ -54,7 +76,7 @@ NSUInteger IndexOrZero(NSArray<NSString *> *values, NSString *value)
         [_polishProvider addItemsWithTitles:@[@"DeepSeek", @"OpenAI", @"SiliconFlow", @"Groq"]];
         _polishToken = [[NSSecureTextField alloc] initWithFrame:NSZeroRect];
         _polishToken.placeholderString = @"润色 Token（仅保存在本机）";
-        _model = [NSTextField textFieldWithString:@""]; _model.placeholderString = @"留空使用提供商默认模型"; _polishEndpoint = [NSTextField textFieldWithString:@""]; _polishEndpoint.placeholderString = @"整理服务地址（可选）"; _polishPrompt = [NSTextField textFieldWithString:@""]; _polishPrompt.placeholderString = @"整理提示词（可选）"; _polishCustom1 = [NSTextField textFieldWithString:@""]; _polishCustom2 = [NSTextField textFieldWithString:@""]; _polishCustom3 = [NSTextField textFieldWithString:@""]; _polishPromptID = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO]; [_polishPromptID addItemsWithTitles:@[@"cleanup", @"faithful", @"zh2en", @"casual", @"custom_1", @"custom_2", @"custom_3"]];
+        _model = [NSTextField textFieldWithString:@""]; _model.placeholderString = @"留空使用提供商默认模型"; _polishEndpoint = [NSTextField textFieldWithString:@""]; _polishEndpoint.placeholderString = @"整理服务地址（可选）"; _polishPrompt = [NSTextField textFieldWithString:@""]; _polishPrompt.placeholderString = @"整理提示词（可选）"; _polishCustom1 = [NSTextField textFieldWithString:@""]; _polishCustom2 = [NSTextField textFieldWithString:@""]; _polishCustom3 = [NSTextField textFieldWithString:@""]; _polishPromptID = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO]; [_polishPromptID addItemsWithTitles:MSIMEPolishPromptTitles()];
         _endpoint = [NSTextField textFieldWithString:@""]; _endpoint.placeholderString = @"ASR 接口地址（可选）";
         _token = [[NSSecureTextField alloc] initWithFrame:NSZeroRect]; _token.placeholderString = @"ASR Token（仅保存在本机）";
         _asrModel = [NSTextField textFieldWithString:@""]; _asrModel.placeholderString = @"ASR 模型（可选）"; _doubaoBoostingTable = [NSTextField textFieldWithString:@""]; _doubaoAppKey = [NSTextField textFieldWithString:@""]; _doubaoResourceID = [NSTextField textFieldWithString:@""];
@@ -69,7 +91,7 @@ NSUInteger IndexOrZero(NSArray<NSString *> *values, NSString *value)
         NSString *selectedPolishProvider = polishProviders[IndexOrZero(polishProviders, [defaults stringForKey:@"MSIMEClientVoicePolishProvider"] ?: @"deepseek")];
         _loadedPolishProvider = [selectedPolishProvider copy];
         [_polishProvider selectItemAtIndex:IndexOrZero(polishProviders, selectedPolishProvider)];
-        _model.stringValue = [defaults stringForKey:@"MSIMEClientVoicePolishModel"] ?: @""; _polishEndpoint.stringValue = [defaults stringForKey:@"MSIMEClientVoicePolishEndpoint"] ?: @""; _polishPrompt.stringValue = [defaults stringForKey:@"MSIMEClientVoicePolishPrompt"] ?: @""; _polishCustom1.stringValue = [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom1"] ?: @""; _polishCustom2.stringValue = [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom2"] ?: @""; _polishCustom3.stringValue = [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom3"] ?: @""; NSUInteger preset = [@[@"cleanup", @"faithful", @"zh2en", @"casual", @"custom_1", @"custom_2", @"custom_3"] indexOfObject:[defaults stringForKey:@"MSIMEClientVoicePolishPromptID"] ?: @"cleanup"]; [_polishPromptID selectItemAtIndex:preset == NSNotFound ? 0 : preset];
+        _model.stringValue = [defaults stringForKey:@"MSIMEClientVoicePolishModel"] ?: @""; _polishEndpoint.stringValue = [defaults stringForKey:@"MSIMEClientVoicePolishEndpoint"] ?: @""; _polishPrompt.stringValue = [defaults stringForKey:@"MSIMEClientVoicePolishPrompt"] ?: @""; _polishCustom1.stringValue = [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom1"] ?: @""; _polishCustom2.stringValue = [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom2"] ?: @""; _polishCustom3.stringValue = [defaults stringForKey:@"MSIMEClientVoicePolishPromptCustom3"] ?: @""; NSUInteger preset = [MSIMEPolishPromptIdentifiers() indexOfObject:[defaults stringForKey:@"MSIMEClientVoicePolishPromptID"] ?: @"cleanup"]; [_polishPromptID selectItemAtIndex:preset == NSNotFound ? 0 : preset];
         _endpoint.stringValue = [defaults stringForKey:@"MSIMEClientVoiceASREndpoint"] ?: @"";
         _token.stringValue = MSIMEVoiceTokenForProvider(defaults, @"MSIMEClientVoiceASRTokens",
                                                         selectedASRProvider,
@@ -152,7 +174,8 @@ NSUInteger IndexOrZero(NSArray<NSString *> *values, NSString *value)
     [d setObject:_polishToken.stringValue forKey:@"MSIMEClientVoicePolishToken"];
     [d setObject:_polishEndpoint.stringValue forKey:@"MSIMEClientVoicePolishEndpoint"];
     [d setObject:_polishPrompt.stringValue forKey:@"MSIMEClientVoicePolishPrompt"];
-    [d setObject:_polishPromptID.titleOfSelectedItem forKey:@"MSIMEClientVoicePolishPromptID"];
+    [d setObject:MSIMEPolishPromptIdentifierForIndex(_polishPromptID.indexOfSelectedItem)
+          forKey:@"MSIMEClientVoicePolishPromptID"];
     [d setObject:_polishCustom1.stringValue forKey:@"MSIMEClientVoicePolishPromptCustom1"];
     [d setObject:_polishCustom2.stringValue forKey:@"MSIMEClientVoicePolishPromptCustom2"];
     [d setObject:_polishCustom3.stringValue forKey:@"MSIMEClientVoicePolishPromptCustom3"];

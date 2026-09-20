@@ -4090,7 +4090,7 @@ export function SettingsPage({
                             })
                           }
                         >
-                          <option value="follow">跟随</option>
+                          <option value="follow">跟随全局</option>
                           <option value="dark">深色</option>
                           <option value="light">浅色</option>
                         </select>
