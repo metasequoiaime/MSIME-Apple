@@ -863,7 +863,13 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (cachedCandidates.count) {
         NSDictionary *transition = [_session applyOnlineCandidates:cachedCandidates source:1 query:online error:nil];
         if ([transition[@"applied"] boolValue]) {
-            _aiQuery = [[_session onlineQueryWithError:nil] copy];
+            // The same shape the provider path records, not the bare online query: this value is compared
+            // against a freshly built @{online, config} on the next render, and a bare one never matches,
+            // so the render that follows this apply asked the session for another descriptor.
+            NSDictionary *postOnline = [_session onlineQueryWithError:nil];
+            NSDictionary *postConfig = postOnline[@"ai_assistant"];
+            _aiQuery = [postOnline isKindOfClass:NSDictionary.class] && [postConfig isKindOfClass:NSDictionary.class]
+                ? @{ @"online": [postOnline copy], @"config": [postConfig copy] } : nil;
             [self apply:transition];
             return;
         }
@@ -890,12 +896,15 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             current->_aiBatch = nil;
             NSMutableArray *texts = [NSMutableArray array];
             for (NSDictionary *result in results) if ([result[@"translation"] isKindOfClass:NSString.class]) [texts addObject:result[@"translation"]];
-            if (texts.count && cacheKey) {
-                if (current->_aiCandidateCache.count >= 4096) [current->_aiCandidateCache removeAllObjects];
-                current->_aiCandidateCache[cacheKey] = [texts copy];
-            }
             NSDictionary *transition = [session applyOnlineCandidates:texts source:1 query:query[@"online"] error:nil];
             if ([transition[@"applied"] boolValue]) {
+                // Cache what the session took, not what the provider said. Caching before the attempt
+                // meant a refused suggestion was kept and served straight back on the next render, so the
+                // retry re-applied the text the session had just declined instead of asking again.
+                if (texts.count && cacheKey) {
+                    if (current->_aiCandidateCache.count >= 4096) [current->_aiCandidateCache removeAllObjects];
+                    current->_aiCandidateCache[cacheKey] = [texts copy];
+                }
                 // apply_online_candidates advances the shared generation. Keep
                 // the post-apply identity before applying the view so the
                 // render pass does not enqueue the same AI request again.
@@ -1045,6 +1054,10 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (!payload) return;
     NSString *primary = targets.firstObject ?: @"";
     NSString *secondary = targets.count > 1 ? targets[1] : @"";
+    // weak_import: the Swift backend supplies this, and a process without the dylib binds it to null.
+    // Calling through that is a jump to address zero, which is what the settings window's three call
+    // sites have always guarded against and these two did not.
+    if (MSIMEFetchAccountCandidateGlosses == nullptr) return;
     MSIMEFetchAccountCandidateGlosses([[NSString alloc] initWithData:payload encoding:NSUTF8StringEncoding].UTF8String,
                                       primary.UTF8String, secondary.UTF8String,
                                       [request[@"generation"] unsignedLongLongValue]);
@@ -2616,7 +2629,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 - (NSDictionary *)runtimeOptions { return MSIMELoadRuntimeOptions(); }
 
 - (void)prepareSession {
-    MSIMEEnsureAnonymousAccount();
+    if (MSIMEEnsureAnonymousAccount != nullptr) MSIMEEnsureAnonymousAccount();
     if (!_session) {
         NSDictionary *options = [self runtimeOptions];
         if (options) {

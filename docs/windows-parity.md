@@ -218,6 +218,14 @@ Engine 对**单字母**查询（`j`、`n` 这类只按声母的查询）只给 2
 
 不含汉字的候选（该输入的英文候选）也两边一致：Engine 拒绝处理且不动组合，宿主随后回退到从候选文本里抽字；抽不到就整条上屏——来源的 `ExtractHanCharacter` 返回空时同样保留完整候选文本走 `Normal`。
 
+增量记录（2026-09-20，Windows 第十五批：辅助码）：来源 README 给辅助码的篇幅最长，规格也最细，且自带可验证的例子——「阿」的自然码辅助码是 `ek`。新增 `crates/engine-bridge/examples/helpcode_dictionary.rs`：单码只调整顺序（匹配的排前，其余保留），双码严格筛选（只留匹配的），词组第一码取首字首码、第二码取末字首码。四条全部符合来源描述，包括 `ayiEN` 同时留下「阿姨」和「阿姨好」——末字「好」是 `nz`，规则读的是末字的**首**码，所以它该留下。
+
+这一批差点报出一个不存在的缺陷，记下来：第一次探测时 `aEK` 返回**空候选列表**、`aE` 也不把「阿」提前，看起来像双码辅助整个坏掉。实际是辅助码表（`helpcodes/*.txt`）是与词库分开的 Engine 资源，而我的资源目录只按 `resources/desktop-dictionary.lock.json` 备了 8 个词典产物，根本没有那些表。表一旦缺失，没有任何候选能匹配任何辅助码，于是单码不再调序、双码把一切筛光——读起来正是「功能坏了」的样子。补上表之后四条立刻全对。
+
+顺着这条又核了一遍打包：设置页提供五种方案，而安装测试只断言打包了 `helpcode.txt` 一个文件，一度怀疑只发了蓝天小雨点一种。查 `Prepare-PackageFiles.ps1` 是 `Copy-DirectoryContents` 整个 helpcodes 目录，五种都发，安装测试那行只是抽查。不是缺口。
+
+探针自己把表补进资源视图，因此不需要使用者额外准备；大词库用符号链接、辅助码表实拷贝——Engine 把资源暂存进用户目录那一步不跟随链接目录，链过去等于没有表。
+
 增量记录（2026-09-20，Windows 第十六批：简繁转换的实现差异，以及它此前零覆盖）：沿来源 README 清单查到简繁，发现两件事。
 
 **一、实现方式不同，且此前从未记录。** 来源用 OpenCC：`server/src/conversion/chinese_converter.cpp` 加载 `assets/opencc` 下的 `s2t.json`，是词级转换。本仓库用 `platforms/windows/src/input/ChineseTextConversion.cpp` 的 `LCMapStringEx(LCMAP_TRADITIONAL_CHINESE)`，映射表属于操作系统，是逐字的。全仓搜不到 opencc 的任何痕迹。
