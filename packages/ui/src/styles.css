@@ -1,3 +1,17 @@
+/* Tailwind, without preflight.
+ *
+ * The utilities layer is imported but the base layer is not, because this stylesheet is being
+ * converted surface by surface rather than at once: preflight resets every element, and the rules
+ * still waiting their turn below were written against browser defaults. Adding it now would restyle
+ * the unconverted majority in one go, which is the opposite of an incremental migration. It goes in
+ * when the last hand-written rule leaves.
+ *
+ * The layer order is declared first so utilities always outrank the rules below regardless of import
+ * order or specificity accidents during the conversion.
+ */
+@layer theme, base, components, utilities;
+@import "tailwindcss/theme.css" layer(theme);
+@import "tailwindcss/utilities.css" layer(utilities);
 @import "./upstream/variables.css";
 @import "./upstream/sections.css";
 @import "./upstream/sidebar.css";
@@ -6,6 +20,61 @@
 @import "./skin/skin-candidate-decorations.css";
 @import "./skin/skin-toolbar-preview.css";
 @import "./skin/external-skin-geometry.css";
+
+/* The class scan cannot be inferred from this file's location alone: the app entry points and their
+ * fixtures live in a different workspace package from the components.
+ *
+ * Restricted to the modules that carry class names. Scanning whole directories also reads the
+ * stylesheets in them, and the scanner takes any word that parses as a utility -- so the declarations
+ * still waiting to be converted here (`position: absolute`, `position: sticky`) were generating
+ * `.absolute` and `.sticky` rules that nothing referenced. */
+@source "../src/**/*.{ts,tsx}";
+@source "../../../apps/desktop/src/**/*.{ts,tsx}";
+@source "../../../apps/harmony/src/**/*.{ts,tsx}";
+
+/* `inline` matters here. The palette is switched at runtime by `html[data-theme]`, so the utilities
+ * have to resolve to the custom property rather than to whatever value it happened to hold at build
+ * time -- a copied value would freeze every Tailwind-styled element in dark mode. The names stay
+ * close to the variables they wrap so a rule that moves from CSS to a utility reads the same. */
+@theme inline {
+  --color-accent: var(--accent-color);
+  --color-accent-strong: var(--accent-strong);
+  --color-accent-soft: var(--accent-soft);
+  --color-accent-soft-border: var(--accent-soft-border);
+  --color-chrome: var(--chrome-bg);
+  --color-surface: var(--bg-color);
+  --color-card: var(--card-bg);
+  --color-card-solid: var(--card-bg-solid);
+  --color-raised: var(--surface-raised);
+  --color-sunken: var(--surface-sunken);
+  --color-subtle: var(--surface-subtle);
+  --color-control: var(--control-bg);
+  --color-control-border: var(--control-border);
+  --color-edge: var(--border-color);
+  --color-edge-strong: var(--border-strong);
+  --color-body: var(--text-color);
+  --color-secondary: var(--text-secondary);
+  --color-muted: var(--text-muted);
+  --color-faint: var(--text-subtle);
+  --color-danger: var(--danger-text);
+  --color-danger-hover: var(--danger-hover);
+  --shadow-card: var(--card-shadow);
+  --font-ui: "Noto Sans SC", "Microsoft YaHei", "Segoe UI Variable", "Segoe UI", sans-serif;
+}
+
+/* The three widths this UI actually responds to, so a rule that moves to a utility keeps the exact
+ * breakpoint it had rather than being rounded to whichever Tailwind default is nearest.
+ *
+ * Each is one pixel above the `max-width` it replaces, because Tailwind derives `max-*` variants as
+ * `width < value` while the stylesheet was written as `width <= value`: `max-phone:` is therefore
+ * `@media (max-width: 600px)` exactly. These are not `inline` -- a breakpoint is a build-time
+ * constant, not something the theme switches.
+ */
+@theme {
+  --breakpoint-tight: 561px;
+  --breakpoint-phone: 601px;
+  --breakpoint-narrow: 681px;
+}
 
 * {
   box-sizing: border-box;
@@ -147,9 +216,6 @@ input:disabled {
   height: 100%;
   overflow: hidden;
   background: var(--chrome-bg);
-}
-.mobile-primary-nav {
-  display: none;
 }
 .settings-body {
   display: flex;
@@ -1483,35 +1549,6 @@ button.statistics-heatmap-cell {
   color: var(--text-secondary);
   line-height: 1.6;
 }
-.home-page {
-  display: flex;
-  flex-direction: column;
-  gap: 14px;
-  padding-bottom: 24px;
-}
-.home-intro {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  gap: 16px;
-  padding: 8px 4px 2px;
-}
-.home-intro h2 {
-  margin: 0;
-  color: var(--text-color);
-  font-size: 24px;
-  font-weight: 650;
-  letter-spacing: -0.02em;
-}
-.home-intro p {
-  margin: 6px 0 0;
-  color: var(--text-muted);
-}
-.home-intro img {
-  width: 48px;
-  height: 48px;
-  opacity: 0.8;
-}
 .home-keyboard-card,
 .home-feature-card,
 .home-settings-card {
@@ -1705,9 +1742,6 @@ button.statistics-heatmap-cell {
   margin: 0;
 }
 @media (max-width: 560px) {
-  .home-intro h2 {
-    font-size: 21px;
-  }
   .home-quick-grid {
     gap: 7px;
   }
@@ -4785,59 +4819,10 @@ button.statistics-heatmap-cell {
   .settings-body {
     flex-direction: column;
   }
-  /* A phone's primary navigation belongs under the thumb, not above the content: this is a bottom tab
-     bar on iOS and Android alike. `order` moves it without disturbing the DOM order, which keeps it
-     first for screen readers and keyboard focus. */
-  .mobile-primary-nav {
-    order: 2;
-    display: grid;
-    grid-template-columns: repeat(5, minmax(0, 1fr));
-    gap: 6px;
-    padding: 8px 8px calc(8px + env(safe-area-inset-bottom, 0px));
-    background: var(--chrome-bg);
-    border-top: 1px solid var(--border-color);
-  }
   /* Column flex items refuse to shrink past their content without this, which would push the tab bar
      off-screen on a long page instead of scrolling the page. */
   #settings-content {
     min-height: 0;
-  }
-  .mobile-primary-nav button,
-  .mobile-secondary-select {
-    min-width: 0;
-    min-height: 42px;
-    border: 1px solid var(--border-color);
-    border-radius: 12px;
-    background: var(--card-bg);
-    color: var(--text-color);
-    font: inherit;
-    font-size: 13px;
-  }
-  .mobile-primary-nav button {
-    cursor: pointer;
-  }
-  .mobile-primary-nav button.active {
-    border-color: var(--accent-color);
-    color: var(--accent-color);
-    font-weight: 600;
-  }
-  .mobile-secondary-select {
-    display: flex;
-    flex-direction: column;
-    justify-content: center;
-    gap: 1px;
-    padding: 3px 8px;
-    font-size: 10px;
-    color: var(--text-muted);
-  }
-  .mobile-secondary-select select {
-    min-width: 0;
-    border: 0;
-    background: transparent;
-    color: var(--text-color);
-    font: inherit;
-    font-size: 12px;
-    outline: none;
   }
   .sidebar {
     width: 100%;

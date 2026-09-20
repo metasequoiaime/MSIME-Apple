@@ -90,35 +90,43 @@ test("the home hero image resolves to a real asset", async () => {
   renderSettings("android");
   await screen.findByRole("button", { name: "保存设置" });
 
-  const hero = document.querySelector(".home-intro img") as HTMLImageElement;
+  // Queried through the landmark rather than a class, because the home page's styling is Tailwind
+  // utilities: a class name there is a styling detail with no reason to stay put.
+  const home = screen.getByRole("region", { name: "首页" });
+  const hero = home.querySelector("header img") as HTMLImageElement;
   expect(hero).toBeTruthy();
   expect(hero.src).not.toContain("/keyboard/assets/");
   expect(hero.src).toContain("msime.svg");
 });
 
-// A phone's primary navigation has to stay reachable by thumb. The DOM keeps it ahead of the content
-// so assistive technology and keyboard focus still meet it first; only the stylesheet moves it down,
-// which is why the placement is asserted there rather than through a computed style jsdom never
-// resolves.
-test("the phone navigation leads the content in the DOM", async () => {
+// A phone's primary navigation has to stay reachable by thumb, and it is a bottom tab bar on every
+// touch host. The DOM deliberately keeps it ahead of the content so assistive technology and keyboard
+// focus meet the navigation first; `order-2` is what seats it below. Both halves of that arrangement
+// are asserted, because either one alone is wrong: the DOM order without the utility puts the bar back
+// at the top, and the utility without the DOM order sends focus to the bottom of the page first.
+test("the phone navigation leads the content but is seated below it", async () => {
   renderSettings("android");
   await screen.findByRole("button", { name: "保存设置" });
 
   const primary = screen.getByRole("navigation", { name: "主要功能" });
   expect(within(primary).getByRole("button", { name: "键盘" })).toBeTruthy();
+
   const body = primary.parentElement!;
   const content = body.querySelector("#settings-content")!;
-  expect(body.classList.contains("settings-body")).toBe(true);
   expect(primary.compareDocumentPosition(content) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+  // jsdom loads the stylesheet but resolves no media query, so the utility is read off the element
+  // rather than from a computed style. `max-phone` is the project's own 600px breakpoint.
+  const utilities = primary.className.split(/\s+/);
+  expect(utilities).toContain("max-phone:order-2");
+  expect(utilities).toContain("max-phone:border-t");
+  expect(utilities).toContain("max-phone:pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))]");
+  expect(utilities.some((name) => name.includes("border-b"))).toBe(false);
 });
 
-test("the stylesheet seats the phone navigation at the bottom edge", () => {
-  const mobile = css.slice(css.indexOf("@media (max-width: 600px)"));
-  const nav = mobile.slice(mobile.indexOf(".mobile-primary-nav {"));
-  const block = nav.slice(0, nav.indexOf("}"));
-
-  expect(block).toContain("order: 2");
-  expect(block).toContain("border-top:");
-  expect(block).not.toContain("border-bottom:");
-  expect(block).toContain("env(safe-area-inset-bottom");
+// The breakpoint the phone layout keys on has to keep meaning what the stylesheet used to say, or
+// every `max-phone:` utility silently moves. Tailwind derives `max-*` as `width < value`, so 601px is
+// the rendering of `@media (max-width: 600px)`.
+test("the phone breakpoint is the 600px one the layout was written for", () => {
+  expect(css).toContain("--breakpoint-phone: 601px");
 });
