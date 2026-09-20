@@ -346,6 +346,8 @@ impl DictionaryHostOptions {
 }
 
 struct SkinDirectoryState(PathBuf);
+/// The Engine's user directory: where the documents a user writes by hand live, `custom_translations.txt` among them.
+struct UserDirectoryState(PathBuf);
 struct TypingStatisticsState(TypingStatisticsStore);
 
 #[derive(serde::Serialize)]
@@ -437,6 +439,83 @@ async fn read_skin_toolbar_stylesheet(
 ) -> Result<Option<String>, CommandError> {
     let root = directory.0.clone();
     tauri::async_runtime::spawn_blocking(move || read_skin_toolbar_stylesheet_at(root, &id))
+        .await
+        .map_err(|_| CommandError { code: "storage" })?
+}
+
+/// The user's own candidate glosses, as a document the settings page edits.
+///
+/// The reference has the user drop `custom_translations.txt` into the profile directory and says so in
+/// its documentation. That instruction does not survive the move to macOS, where the same directory
+/// lives under `~/Library` and the Finder hides it by default, so the overlay was reachable on paper
+/// and not in practice. The page already knows how to edit the document - it was only ever handed to
+/// HarmonyOS - so the host supplies the two ends, and the Engine keeps reading the same file.
+const CUSTOM_TRANSLATIONS_MAX_BYTES: usize = 1024 * 1024;
+
+fn custom_translations_path(user: &std::path::Path) -> PathBuf {
+    user.join("custom_translations.txt")
+}
+
+fn read_custom_translations_at(user: PathBuf) -> Result<String, CommandError> {
+    match std::fs::read(custom_translations_path(&user)) {
+        Ok(bytes) => {
+            if bytes.len() > CUSTOM_TRANSLATIONS_MAX_BYTES {
+                return Err(CommandError { code: "storage" });
+            }
+            // A UTF-8 BOM is an encoding marker the reference accepts, not part of the first source word.
+            let text = String::from_utf8(bytes).map_err(|_| CommandError { code: "storage" })?;
+            Ok(text.strip_prefix('\u{feff}').unwrap_or(&text).to_owned())
+        }
+        // No overlay yet is the ordinary state, not a failure: the page opens on an empty document.
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(_) => Err(CommandError { code: "storage" }),
+    }
+}
+
+fn write_custom_translations_at(user: PathBuf, text: &str) -> Result<(), CommandError> {
+    if text.len() > CUSTOM_TRANSLATIONS_MAX_BYTES || text.contains('\0') {
+        return Err(CommandError {
+            code: "invalid_document",
+        });
+    }
+    let path = custom_translations_path(&user);
+    // An emptied document means "no overlay". Removing the file says that; leaving an empty one
+    // behind would have the Engine open and read an empty set every session instead.
+    if text.trim().is_empty() {
+        return match std::fs::remove_file(&path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(_) => Err(CommandError { code: "storage" }),
+        };
+    }
+    std::fs::create_dir_all(&user).map_err(|_| CommandError { code: "storage" })?;
+    // Written beside the target and renamed, so a failure halfway through leaves the previous overlay
+    // in place rather than a truncated one the Engine would read as the whole set.
+    let staging = user.join("custom_translations.txt.writing");
+    std::fs::write(&staging, text).map_err(|_| CommandError { code: "storage" })?;
+    std::fs::rename(&staging, &path).map_err(|_| {
+        let _ = std::fs::remove_file(&staging);
+        CommandError { code: "storage" }
+    })
+}
+
+#[tauri::command]
+async fn read_custom_translations(
+    directory: tauri::State<'_, UserDirectoryState>,
+) -> Result<String, CommandError> {
+    let user = directory.0.clone();
+    tauri::async_runtime::spawn_blocking(move || read_custom_translations_at(user))
+        .await
+        .map_err(|_| CommandError { code: "storage" })?
+}
+
+#[tauri::command]
+async fn write_custom_translations(
+    directory: tauri::State<'_, UserDirectoryState>,
+    text: String,
+) -> Result<(), CommandError> {
+    let user = directory.0.clone();
+    tauri::async_runtime::spawn_blocking(move || write_custom_translations_at(user, &text))
         .await
         .map_err(|_| CommandError { code: "storage" })?
 }
@@ -630,7 +709,8 @@ struct PanelInputTarget(msime_host_macos::LaunchTarget);
 #[derive(Clone, Debug)]
 struct PanelInputTarget;
 
-#[derive(serde::Serialize)]
+// Debug so a test that unwraps a command result says which code came back rather than only that one did.
+#[derive(Debug, serde::Serialize)]
 struct CommandError {
     code: &'static str,
 }
@@ -3159,6 +3239,7 @@ pub fn run() {
             }
             app.manage(TypingStatisticsState(typing_statistics));
             app.manage(SkinDirectoryState(directory.join("skins")));
+            app.manage(UserDirectoryState(directory.join("user")));
             app.manage(preferences.clone());
             let clipboard_state = ClipboardHistoryState(Arc::new(Mutex::new(clipboard)));
             app.manage(ClipboardHistoryState(Arc::clone(&clipboard_state.0)));
@@ -3410,6 +3491,8 @@ pub fn run() {
             read_skin_image,
             read_skin_font,
             read_skin_toolbar_stylesheet,
+            read_custom_translations,
+            write_custom_translations,
             open_skin_directory,
             test_api_credential,
             save_preferences,
