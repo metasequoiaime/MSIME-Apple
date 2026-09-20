@@ -1161,7 +1161,9 @@ test("input parity controls persist cloud, translation and punctuation settings"
   fireEvent.click(await screen.findByRole("checkbox", { name: /^云候选/ }));
   fireEvent.click(screen.getByRole("checkbox", { name: /候选词翻译/ }));
   fireEvent.change(screen.getByLabelText("候选词翻译目标语言"), { target: { value: "ja" } });
-  fireEvent.click(screen.getByRole("checkbox", { name: /智能标点/ }));
+  // Anchored too: 重复标点转中文 names 智能标点 in its description, because the reference's wording
+  // for it states the precondition rather than leaving the pair's relationship to be guessed.
+  fireEvent.click(screen.getByRole("checkbox", { name: /^智能标点/ }));
   fireEvent.change(screen.getByLabelText("标点锁定"), { target: { value: "english" } });
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
