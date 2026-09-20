@@ -394,8 +394,9 @@ else()
 endif()
 add_test(NAME windows-mode-authority COMMAND windows-mode-authority)
 set_tests_properties(windows-mode-authority PROPERTIES TIMEOUT 10)
-add_executable(windows-polish-prompt tests/voice/polish_prompt.cpp)
-target_include_directories(windows-polish-prompt PRIVATE src)
+# The presets and the slot fallbacks are shared/voice's, and so is the test now: it sat in this tree while
+# both desktop hosts shipped the header, so nothing this host's gate runs ever checked it on the other one.
+add_executable(windows-polish-prompt ../../shared/voice/tests/polish_prompt.cpp)
 if(MSVC)
   target_compile_options(windows-polish-prompt PRIVATE /W4 /WX /utf-8)
 else()

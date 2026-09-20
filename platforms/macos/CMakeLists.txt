@@ -680,6 +680,12 @@ add_executable(voice-polish-request-test tests/voice/VoicePolishRequestTest.mm s
 target_compile_options(voice-polish-request-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(voice-polish-request-test PRIVATE msime-voice-providers "-framework Foundation")
 add_test(NAME voice-polish-request COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/voice/voice_polish_fixture.py" "$<TARGET_FILE:voice-polish-request-test>")
+# Which prompt each slot resolves to. The request test above sends whatever it is handed; this one says what
+# that should be. The header is shared/voice's and this host ships it through HTTPVoiceRequest.mm, but its
+# only test ran in the Windows build - so a fallback that had drifted from the reference sat here unchecked.
+add_executable(shared-polish-prompt-test ../../shared/voice/tests/polish_prompt.cpp)
+target_compile_options(shared-polish-prompt-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+add_test(NAME shared-polish-prompt COMMAND shared-polish-prompt-test)
 target_sources(shortcut-test PRIVATE src/cloud/TranslationCache.mm src/input/InputModeHUDPanel.mm)
 add_executable(shuangpin-keymap-input-test tests/input/ShuangpinKeymapInputTest.mm src/settings/ShuangpinKeymapPanel.mm)
 target_include_directories(shuangpin-keymap-input-test PRIVATE src ../../vendor/MSIME-Engine ../../vendor/MSIME-Engine/include)
