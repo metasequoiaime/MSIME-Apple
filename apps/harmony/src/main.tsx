@@ -777,6 +777,27 @@ function makeClient(
     candidateEnglishGloss: true,
     account: accountClient(native),
     chat: chatClient(native),
+    // The Apple home surface, adapted rather than copied. Two of its five actions exist here and
+    // three do not, and the page draws only what the host says it has.
+    //
+    // The two setup actions are this host's: 设置 opens the system input-method list, and the
+    // picker is where the second setup step happens.
+    //
+    // `openKeyboard` is deliberately absent. Android opens a separate panel window for it; this
+    // host's keyboard is an InputMethodExtensionAbility that appears when an editor asks for it,
+    // and there is no window for the settings app to open. Without the action the card falls back
+    // to the shared screen-keyboard page, which is the honest version of "show me the keyboard"
+    // here. The emoji and clipboard actions are absent for the same reason: on this host those are
+    // surfaces on the keyboard's own key faces, not windows.
+    home: {
+      openSystemKeyboardSettings: async () => native.openSystemKeyboardSettings(),
+      // The reply is unwrapped rather than ignored so a host that could not open the picker says
+      // so, which the card reports; the welcome flow's own copy of this call is the exception,
+      // because that screen has its own failure to show and nothing to add to it.
+      showInputMethodPicker: async () => {
+        unwrap<boolean>(native.showInputMethodPicker());
+      },
+    },
     communitySkins: communitySkinClient(native),
     communityResources: communityResourceClient(native),
     aiSkins: aiSkinClient(native),
