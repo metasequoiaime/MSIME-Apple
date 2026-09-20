@@ -82,12 +82,18 @@ interface NativeBridge {
   keyboardFeedback(request: string): string;
   /** `{operation:"load"|"save",text?}`; the overlay the Engine reads from the user data directory. */
   customTranslations(request: string): string;
-  /** Whether setup still has a step left: not enabled, or enabled but not the current keyboard. */
-  onboardingStatus(): Promise<string>;
+  /**
+   * Whether setup still has a step left: not enabled, or enabled but not the current keyboard.
+   *
+   * Synchronous, and the reply says whether the answer is ready yet — a bridge method that returns
+   * a Promise never settles on this platform, so the host prepares the answer instead and the page
+   * waits for `ready` rather than acting on a default.
+   */
+  onboardingStatus(): string;
   /** The system's keyboard picker, which is where the second setup step happens. */
-  showInputMethodPicker(): Promise<string>;
-  /** `{"ok":true,"value":"<folder name>"}`; an empty value means the user cancelled. */
-  importSkinFolder(): Promise<string>;
+  showInputMethodPicker(): string;
+  /** Starts the picker and answers at once; the panel's own rescan is what shows the result. */
+  importSkinFolder(): string;
 }
 
 declare global {
@@ -135,6 +141,34 @@ function whenBridgeReady(): Promise<NativeBridge> {
     };
     poll();
   });
+}
+
+/**
+ * The host's answer to "is setup finished", once it has one.
+ *
+ * The reply carries `ready` because the host computes it while the window is being created and the
+ * page may ask first. Waiting a moment is right where guessing is not: a default of "finished"
+ * skips the welcome flow for someone who has not enabled the keyboard, and a default of
+ * "unfinished" shows it to someone who has.
+ *
+ * It does give up. A host that never becomes ready is a host whose settings page should still open.
+ */
+async function whenOnboardingKnown(native: NativeBridge): Promise<boolean> {
+  const deadline = Date.now() + 2000;
+  for (;;) {
+    try {
+      const reply = JSON.parse(native.onboardingStatus()) as {
+        ok: boolean;
+        value: boolean;
+        ready: boolean;
+      };
+      if (reply.ok && reply.ready) return reply.value;
+    } catch {
+      return false;
+    }
+    if (Date.now() > deadline) return false;
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  }
 }
 
 function accountClient(native: NativeBridge): AccountClient {
@@ -387,7 +421,7 @@ function makeClient(
     // The page renders this behind the same control and says 导入皮肤 instead, because the host
     // capability tells it which of the two this is.
     openSkinDirectory: async () => {
-      unwrap<string>(await native.importSkinFolder());
+      native.importSkinFolder();
     },
     listVoiceCaptureDevices: async () =>
       unwrap<VoiceCaptureDevice[]>(native.listVoiceCaptureDevices()),
@@ -475,7 +509,7 @@ function HarmonySettings({
           prepareResources: async () => {},
           openSystemKeyboardSettings: async () => native.openSystemKeyboardSettings(),
           showInputMethodPicker: async () => {
-            unwrap<boolean>(await native.showInputMethodPicker());
+            native.showInputMethodPicker();
           },
         }}
         onComplete={async (scheme) => {
@@ -543,10 +577,7 @@ if (root) {
     .then(async (native) => {
       // A refused query answers "no onboarding": someone who has been using the keyboard for weeks
       // should not be sent back to a welcome screen because one system call did not answer.
-      const onboarding = await native
-        .onboardingStatus()
-        .then(unwrap<boolean>)
-        .catch(() => false);
+      const onboarding = await whenOnboardingKnown(native);
       app.render(
         <StrictMode>
           <HarmonySettings native={native} onboarding={onboarding} />
