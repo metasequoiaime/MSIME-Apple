@@ -1662,7 +1662,21 @@ export class KeyboardSession implements HardwareKeyTarget {
       return;
     }
     this.tapFeedback();
+    const before: number = this.editing.length;
     this.apply(client.character(this.handle, ascii, shift));
+    // A letter that leaves the composition exactly as it was is the one failure this path cannot
+    // otherwise report: the key was claimed, so the application never sees it, and the Engine
+    // answered `ok`, so apply() has nothing to complain about. The result is a key that silently
+    // does nothing — which is what happened on a 2in1, where hardware keys compose nothing while
+    // the same press() from the touch keyboard composes normally.
+    //
+    // What is logged is the shape of the failure, never the key: a character in hilog is the user's
+    // text. The scheme and the local mode are the two host-side inputs that decide whether a letter
+    // should have composed at all, and both are already public state.
+    if (before === 0 && this.editing.length === 0) {
+      KeyboardLog.error(`composing key produced no composition: scheme=${this.schemeName}`
+        + ` local=${this.localMode} english=${this.englishMode} candidates=${this.currentCandidates.length}`);
+    }
   }
 
   /** Route an ASCII punctuation key through the shared editor-context policy. */
