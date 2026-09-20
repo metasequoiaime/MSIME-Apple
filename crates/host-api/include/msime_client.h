@@ -151,6 +151,9 @@ char *msime_client_load_preferences(const uint8_t *directory, size_t length);
 /* Private aggregate typing statistics. JSON request (<=65536 bytes):
  * {directory:absolute path,action:{operation:"load"|"reset"}}
  * {directory,action:{operation:"set_enabled",enabled:bool}}
+ * {directory,action:{operation:"set_retention",retention,day:"YYYY-MM-DD"}}
+ *   retention is forever|30d|90d|180d|365d; anything else is read as forever,
+ *   never as a shorter window. `day` is the caller's local day.
  * {directory,action:{operation:"record",text,source,day:"YYYY-MM-DD",hour?:0-23}}.
  * Record classifies committed text in memory and persists only aggregate counts;
  * text is never returned or stored. May block on disk/file lock: use a worker.
