@@ -328,8 +328,19 @@ static void TestEnginePreedit(FakeTextClient *client) {
         ++replacements;
     }];
     NSString *version = [@"" stringByPaddingToLength:64 withString:@"0" startingAtIndex:0];
-    // A nonexistent prepared handle forces activation failure after destruction,
-    // exercising actual host recovery rather than a mocked notification.
+    // Activation is refused outright while a composition is live, before anything is destroyed. That guard
+    // arrived after the recovery assertion below and this caller was never updated, which is why the run
+    // aborted here: the recovery path cannot be reached from a composing session at all any more.
+    NSError *composingError = nil;
+    assert(![MSIMEClientSession applySnapshotHandle:UINT64_MAX expectedVersion:version error:&composingError]);
+    assert(composingError && replacements == 0);
+    // Refused means untouched, not half-applied: the composition the user is still typing survives.
+    assert([[session viewWithError:&error][@"editing_text"] isEqual:@"b"] && !error);
+
+    // With the composition finished the guard opens, and a nonexistent prepared handle forces activation
+    // failure after destruction - exercising actual host recovery rather than a mocked notification.
+    MSIMEApplyTransition([session command:MSIME_CANCEL error:&error], client);
+    assert(!error);
     NSError *activationError = nil;
     assert(![MSIMEClientSession applySnapshotHandle:UINT64_MAX expectedVersion:version error:&activationError]);
     assert(activationError && replacements == 1);
