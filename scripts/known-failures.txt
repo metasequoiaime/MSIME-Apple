@@ -195,7 +195,9 @@ desktop tests/candidate/external-skins.test.tsx > external selection enters the 
 desktop tests/candidate/external-skins.test.tsx > settings synchronize all cards and reset local overrides on candidate theme changes
 
 # The Windows suites, run under Wine by platforms/windows/run-tests-wine.sh.
-# 76 of 78 pass; these two do not, and each was read rather than assumed.
+# 76 of 78 pass; these two do not, and each was read rather than assumed. The
+# same two, for the same reasons, on x86 and x64 - the names are not repeated
+# per architecture because the runner reports one set either way.
 #
 # windows-server-smoke used to stop at "XDG_RUNTIME_DIR is invalid or not set",
 # which was a missing X server rather than a missing compositor - the runner now

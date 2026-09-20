@@ -10,8 +10,13 @@
 # environment failure that is really a missing X server - which this image can
 # supply, unlike a real monitor.
 FROM debian:trixie-slim
-RUN apt-get update -qq \
- && apt-get install -y -qq --no-install-recommends wine xvfb xauth \
+# The i386 architecture is what brings WoW64 in. Without wine32 the 64-bit Wine
+# has no C:\windows\syswow64\ntdll.dll, and every 32-bit executable fails to
+# start - which reads as the whole x86 suite failing rather than as the runner
+# being unable to run it at all.
+RUN dpkg --add-architecture i386 \
+ && apt-get update -qq \
+ && apt-get install -y -qq --no-install-recommends wine wine32 wine64 xvfb xauth \
  && rm -rf /var/lib/apt/lists/*
 ENV WINEDEBUG=-all
 ENV WINEPREFIX=/wine
