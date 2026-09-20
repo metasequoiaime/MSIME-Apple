@@ -149,6 +149,8 @@ Linux IBus 候选表同步 Windows 内置 fluent、微信绿、石墨和杨柳�
 
 双拼方案提供 IBus 属性“双拼原始预编辑”，对应共享 `shuangpin_preedit_uses_raw`：开启时预编辑保留原始双拼编码，关闭时显示 Engine 展开的拼音。该选项仅在双拼方案下可用；有共享偏好目录时按 revision 持久化并由 Engine 在组合空闲后应用，没有偏好目录时切换会结束当前组合并重建当前会话。
 
+共享设置页的“输入 → 双拼预编辑”在 Linux 上同样可见，对应 `HostCapabilities::shuangpin_preedit`。IBus 与 Fcitx5 都是自己把快照的 `preedit` 写进平台预编辑的，因此这个选择归宿主展示；此前该控件按平台名只给 macOS，Linux 用户只能在双拼方案生效时从原生状态菜单里找到它。
+
 五笔方案提供 IBus 属性“五笔剩余编码”，对应共享 `wubi_code_hint`，默认开启；关闭后候选仍按 Engine 原文显示，但隐藏候选后的剩余五笔编码提示。该设置仅影响展示，不改变候选身份或提交文本；配置共享偏好目录时持久化，未配置时保留在当前会话。
 
 Windows 的 `clipboard_history` 依赖独立剪贴板监听器和候选历史 UI；IBus Engine API 不提供剪贴板事件。Linux IBus 宿主只读取用户明确配置的历史文件，并通过属性菜单提供最近条目、删除和清空操作，不读取系统剪贴板，也不在输入线程监听剪贴板。Linux 桌面面板的剪贴板同步仍由独立 Tauri 服务承载。独立工具的 `get INDEX` 操作会将已存储条目写到标准输出，`remove-index INDEX` 按历史位置删除单个条目，供桌面服务或 compositor 显式接管粘贴和删除动作；它不会写入或读取系统剪贴板。
