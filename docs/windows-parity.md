@@ -141,6 +141,7 @@
 | `Ctrl+Shift+Super+K`（打开屏幕键盘） | `input/PanelShortcutPolicy.ts` → `DesktopSurface.SCREEN_KEYBOARD` | 逻辑回归；硬件键未在设备上按 |
 | 外接键盘（手机/平板接蓝牙或 USB 键盘） | `input/HardwareKeyboardPolicy.ts`、`input/HarmonyHardwareKeyboards.ets` | 逻辑回归；热插拔未在设备上插拔 |
 | 更新、关于、帮助、反馈 | 共享设置页 | 共享 UI |
+| 设置页感知外部偏好变更 | `entryability` 的 `windowStageEvent` + `input/PreferenceRevisionPolicy.ts` | 逻辑回归；窗口切换未在设备上走 |
 | 设置窗口本体 | `pages/Settings.ets` 的 WebView 加载 `apps/harmony` 构建的共享 `SettingsPage` | 构建产物防漂移校验（`scripts/test-harmony-settings-bundle.py`） |
 | 设置窗口冷启动 | 共享 `SettingsStartupPage` | 逻辑回归；此前为纯白窗口最多 5 秒 |
 | 开机引导（启用输入法、选为当前） | 共享 `WelcomeFlowPage` + `input/OnboardingStatePolicy.ts` | 逻辑回归；真实系统界面跳转未在设备上走 |

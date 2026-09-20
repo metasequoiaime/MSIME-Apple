@@ -197,6 +197,7 @@ import {
   PointerButton,
 } from "../entry/src/main/ets/keyboard/input/CandidateContextMenuPolicy";
 import { PanelSurfaceAction } from "../entry/src/main/ets/keyboard/input/PanelShortcutPolicy";
+import { PreferenceRevisionPolicy } from "../entry/src/main/ets/keyboard/input/PreferenceRevisionPolicy";
 import {
   SmartPunctuationSpacePolicy,
   SpaceConvertDecision,
@@ -4906,6 +4907,29 @@ group("the panel chord asks for the same action the toolbar button does", () => 
     PanelShortcutPolicy.action(PanelShortcut.NONE) === PanelSurfaceAction.NONE,
     "no shortcut asks for no surface",
   );
+});
+
+group("the settings page is refreshed on a changed document, not on every visit", () => {
+  // The page answers an announcement with "设置已被其他窗口修改" when it holds unsaved edits, so an
+  // announcement that did not correspond to a change costs the user their draft for nothing.
+  check(PreferenceRevisionPolicy.changed(7, 8), "a newer document is a change");
+  check(!PreferenceRevisionPolicy.changed(7, 7), "the same document is not");
+  // The only ways a revision goes backwards are a restored profile or a rewritten document, and in
+  // both the page is holding something that no longer describes the file.
+  check(PreferenceRevisionPolicy.changed(8, 3), "a document that went backwards is a change too");
+  check(
+    !PreferenceRevisionPolicy.changed(Number.NaN, 4),
+    "an unusable observation announces nothing",
+  );
+  check(!PreferenceRevisionPolicy.changed(4, Number.NaN), "and neither does an unusable reading");
+});
+
+group("an unreadable revision does not replace a good one", () => {
+  check(PreferenceRevisionPolicy.observe(5, 9) === 9, "a usable revision is remembered");
+  check(PreferenceRevisionPolicy.observe(5, Number.NaN) === 5, "NaN leaves the previous in place");
+  check(PreferenceRevisionPolicy.observe(5, -2) === 5, "and so does a negative one");
+  // -1 is what the bridge starts with, and it must not compare equal to any real revision.
+  check(PreferenceRevisionPolicy.changed(-1, 0), "the initial value counts as not yet observed");
 });
 
 // The account bridge deliberately models the asynchronous device HTTP API. Give its immediate

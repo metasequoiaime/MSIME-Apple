@@ -19,6 +19,8 @@ import { niutransAuth, tencentAuthorization } from '../keyboard/CredentialCrypto
 import { HarmonyVoiceCaptureDevices } from '../keyboard/input/HarmonyVoiceCaptureDevices';
 import { KeyboardFeedbackBridge, MobileKeyboardFeedback } from '../keyboard/KeyboardFeedbackBridge';
 import inputMethod from '@ohos.inputMethod';
+import { PreferenceRevisionPolicy } from '../keyboard/input/PreferenceRevisionPolicy';
+import EntryAbility from '../entryability/EntryAbility';
 import { ImeEnabledState, OnboardingState, OnboardingStatePolicy }
   from '../keyboard/input/OnboardingStatePolicy';
 import { FeedbackSettings } from '../keyboard/KeyboardFeedback';
@@ -47,6 +49,15 @@ interface TextReply {
   ok: boolean;
   value: string;
   error: string;
+}
+
+interface RevisionValue {
+  revision: number;
+}
+
+interface RevisionReply {
+  ok: boolean;
+  value?: RevisionValue;
 }
 
 interface OnboardingReply {
@@ -335,6 +346,14 @@ struct Settings {
 
   aboutToAppear(): void {
     this.bridge.attach(this.context);
+    this.bridge.useWebview(this.controller);
+    EntryAbility.onActivated = (): void => this.bridge.refreshPreferencesIfChanged();
+  }
+
+  aboutToDisappear(): void {
+    // The ability outlives this page, so a handler left behind would hold a bridge whose webview
+    // has gone.
+    EntryAbility.onActivated = undefined;
   }
 
   build() {
@@ -371,9 +390,19 @@ struct Settings {
  */
 class SettingsBridge {
   private stateDirectory: string = '';
+  // What the page was last handed, so an activation can tell a changed document from an unchanged
+  // one. -1 until the page has loaded once, which never compares equal to a real revision.
+  private observedRevision: number = -1;
+  // Needed to hand the page a document: the bridge is called from the page, but this one call goes
+  // the other way.
+  private webview: web_webview.WebviewController | undefined = undefined;
   private context: common.UIAbilityContext | undefined = undefined;
   private accountBridge: HarmonyAccountCloudBridge | undefined = undefined;
   private cloudDownloadRequest: number = 0;
+
+  useWebview(controller: web_webview.WebviewController): void {
+    this.webview = controller;
+  }
 
   attach(context: common.UIAbilityContext): void {
     this.context = context;
@@ -387,7 +416,62 @@ class SettingsBridge {
 
 
   loadPreferences(): string {
-    return client.loadPreferences(this.stateDirectory);
+    const reply: string = client.loadPreferences(this.stateDirectory);
+    this.rememberRevision(reply);
+    return reply;
+  }
+
+  /**
+   * The revision the page was last handed, so a later activation can tell a changed document from
+   * an unchanged one. Parsed defensively: a reply this cannot read leaves the previous value alone,
+   * because a wrong number here would announce a change that did not happen.
+   */
+  private rememberRevision(reply: string): void {
+    try {
+      const parsed: RevisionReply = JSON.parse(reply) as RevisionReply;
+      if (parsed.ok && parsed.value !== undefined) {
+        this.observedRevision =
+          PreferenceRevisionPolicy.observe(this.observedRevision, parsed.value.revision);
+      }
+    } catch (error) {
+      KeyboardLog.error(`preference revision unreadable: ${describeError(error)}`);
+    }
+  }
+
+  /**
+   * Hands the page the current document when it has moved since the page was given one.
+   *
+   * Called when the settings window comes back to the front, which on this host is the only moment
+   * a cross-process change can be noticed: the keyboard writes preferences from its toolbar and
+   * there is no listener between the two processes.
+   */
+  refreshPreferencesIfChanged(): void {
+    const reply: string = client.loadPreferences(this.stateDirectory);
+    let current: number = this.observedRevision;
+    try {
+      const parsed: RevisionReply = JSON.parse(reply) as RevisionReply;
+      if (!parsed.ok || parsed.value === undefined) {
+        return;
+      }
+      current = parsed.value.revision;
+    } catch (error) {
+      KeyboardLog.error(`preference revision unreadable: ${describeError(error)}`);
+      return;
+    }
+    if (!PreferenceRevisionPolicy.changed(this.observedRevision, current)) {
+      return;
+    }
+    this.observedRevision = current;
+    // The page parks a listener under this name; calling it with the reply the page would have got
+    // from loadPreferences keeps the two paths identical.
+    if (this.webview === undefined) {
+      return;
+    }
+    this.webview.runJavaScript(
+      `globalThis.msimeHarmonyPreferencesChanged && globalThis.msimeHarmonyPreferencesChanged(${JSON.stringify(reply)})`)
+      .catch((error: Object): void => {
+        KeyboardLog.error(`preference change not delivered: ${describeError(error)}`);
+      });
   }
 
   /** The shared settings page uses the same validated catalog as desktop presenters. */
@@ -434,7 +518,9 @@ class SettingsBridge {
    * point of having one.
    */
   savePreferences(expectedRevision: number, document: string): string {
-    return client.savePreferences(this.stateDirectory, expectedRevision, document);
+    const reply: string = client.savePreferences(this.stateDirectory, expectedRevision, document);
+    this.rememberRevision(reply);
+    return reply;
   }
 
   hostCapabilities(): string {
