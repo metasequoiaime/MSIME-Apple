@@ -98,6 +98,10 @@ pub(crate) fn move_to_back<T>(items: &mut Vec<T>, moved: &[bool]) {
 ///
 /// A rotation rather than a swap, so the rest of the list stays as the engine ranked it: promoting
 /// one candidate is the whole change, not a reshuffle.
+fn apply_order<T: Clone>(items: &mut Vec<T>, order: &[usize]) {
+    *items = order.iter().map(|index| items[*index].clone()).collect();
+}
+
 fn rotate_to_front<T>(items: &mut [T], index: usize) {
     items[..=index].rotate_right(1);
 }
@@ -618,6 +622,7 @@ impl<E: InputEngine> Runtime<E> {
         self.cached = self.engine.snapshot()?;
         self.rerank();
         self.demote_runner_up_readings();
+        self.normalize_online_slots();
         Ok(true)
     }
 
@@ -676,6 +681,110 @@ impl<E: InputEngine> Runtime<E> {
     ///
     /// The candidate arrays run in parallel and every one of them has to move together. Rotating
     /// only the texts would leave each candidate wearing another's code, annotation and source.
+    /// Seat the online candidates the way the reference does.
+    ///
+    /// `candidate_selection_policy.h` writes the arrangement out:
+    ///
+    /// ```text
+    /// no cloud:    Chinese, English, AI, emoji, kaomoji
+    /// cloud:       Chinese, cloud, AI, English, emoji, kaomoji
+    /// cloud only:  Chinese, cloud, English, emoji, kaomoji
+    /// base:        Chinese, English, emoji, kaomoji
+    /// ```
+    ///
+    /// The reference applies it in its Server, on top of what the Engine returned. This client
+    /// replaced that Server with this runtime and the step did not come across, so the Engine's own
+    /// placement was what the user saw - and the two agree until an online candidate arrives.
+    /// Injecting an AI suggestion moved the English candidate from the second seat to the fourth
+    /// and put a second Chinese candidate in front of it, which is the last line of the table read
+    /// backwards.
+    ///
+    /// Only the online case is touched: with neither a cloud nor an AI candidate present the
+    /// Engine already produces the fourth line, so there is nothing to rearrange and nothing to
+    /// risk. Extra cloud or AI candidates beyond the first keep their place among the locals rather
+    /// than being dropped, which is what the reference's moved-from vector does to them.
+    fn normalize_online_slots(&mut self) {
+        const CLOUD: u8 = 2;
+        const AI: u8 = 3;
+        const ENGLISH: u8 = 4;
+        const EMOJI: u8 = 6;
+        const KAOMOJI: u8 = 7;
+
+        let snapshot = &self.cached;
+        let count = snapshot.candidates.len();
+        if count < 2
+            || snapshot.candidate_sources.len() != count
+            || snapshot.candidate_codes.len() != count
+            || snapshot.candidate_annotations.len() != count
+            || snapshot.candidate_positions.len() != count
+            || snapshot.candidate_corrected.len() != count
+        {
+            return;
+        }
+        if !snapshot
+            .candidate_sources
+            .iter()
+            .any(|source| *source == CLOUD || *source == AI)
+        {
+            return;
+        }
+
+        let (mut locals, mut english, mut emoji, mut kaomoji) =
+            (Vec::new(), Vec::new(), Vec::new(), Vec::new());
+        let (mut cloud, mut ai) = (None, None);
+        for (index, source) in snapshot.candidate_sources.iter().enumerate() {
+            match *source {
+                CLOUD if cloud.is_none() => cloud = Some(index),
+                AI if ai.is_none() => ai = Some(index),
+                ENGLISH => english.push(index),
+                EMOJI => emoji.push(index),
+                KAOMOJI => kaomoji.push(index),
+                _ => locals.push(index),
+            }
+        }
+
+        let mut order = Vec::with_capacity(count);
+        let mut locals = locals.into_iter();
+        order.extend(locals.next());
+        if let Some(index) = cloud {
+            order.push(index);
+            if let Some(index) = ai {
+                order.push(index);
+            }
+        }
+        let mut english = english.into_iter();
+        order.extend(english.next());
+        if cloud.is_none() {
+            if let Some(index) = ai {
+                order.push(index);
+            }
+        }
+        let mut emoji = emoji.into_iter();
+        let mut kaomoji = kaomoji.into_iter();
+        order.extend(emoji.next());
+        order.extend(kaomoji.next());
+        order.extend(locals);
+        order.extend(english);
+        order.extend(emoji);
+        order.extend(kaomoji);
+        // A permutation or nothing: a missing or repeated index would silently drop a candidate.
+        debug_assert_eq!(order.len(), count);
+        if order.len() != count {
+            return;
+        }
+        if order.iter().enumerate().all(|(seat, index)| seat == *index) {
+            return;
+        }
+
+        let snapshot = &mut self.cached;
+        apply_order(&mut snapshot.candidates, &order);
+        apply_order(&mut snapshot.candidate_codes, &order);
+        apply_order(&mut snapshot.candidate_annotations, &order);
+        apply_order(&mut snapshot.candidate_sources, &order);
+        apply_order(&mut snapshot.candidate_positions, &order);
+        apply_order(&mut snapshot.candidate_corrected, &order);
+    }
+
     fn rerank(&mut self) {
         let Some(reranker) = self.reranker.as_mut() else {
             return;
@@ -797,6 +906,7 @@ impl<E: InputEngine> Runtime<E> {
         self.cached = self.engine.snapshot()?;
         self.rerank();
         self.demote_runner_up_readings();
+        self.normalize_online_slots();
         self.snapshot_valid = true;
         if self.cached.editing_text == previous.editing_text
             && self.cached.scheme == previous.scheme
