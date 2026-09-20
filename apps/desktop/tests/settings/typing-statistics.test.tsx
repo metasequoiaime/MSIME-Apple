@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { answerConfirm } from "../support/confirm";
 import {
   SettingsPage,
   type HostCapabilities,
@@ -241,10 +242,11 @@ test("statistics toggle refreshes immediately and reset requires confirmation wi
   await waitFor(() => expect(typingStatistics.setEnabled).toHaveBeenCalledWith(false));
   await waitFor(() => expect((toggle as HTMLInputElement).checked).toBe(false));
 
-  vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true);
   fireEvent.click(screen.getByRole("button", { name: "清空统计" }));
+  await answerConfirm("cancel");
   expect(typingStatistics.reset).not.toHaveBeenCalled();
   fireEvent.click(screen.getByRole("button", { name: "清空统计" }));
+  await answerConfirm("confirm");
   await waitFor(() => expect(typingStatistics.reset).toHaveBeenCalledTimes(1));
   await waitFor(() => expect(screen.getByLabelText("当前范围输入字符数").textContent).toBe("0"));
   expect((toggle as HTMLInputElement).checked).toBe(false);

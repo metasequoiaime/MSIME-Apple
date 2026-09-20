@@ -1,3 +1,4 @@
+import { useConfirm } from "./core/confirm";
 import { VoiceDevicePicker, type VoiceDeviceReader } from "./voice/voice-device-picker";
 import {
   useEffect,
@@ -85,6 +86,7 @@ import {
   CommunityResourcesPage,
   type CommunityResourceClient,
 } from "./community/community-resources";
+export { useConfirm, type ConfirmRequest } from "./core/confirm";
 export {
   TypingStatisticsPage,
   activityMetrics,
@@ -1761,6 +1763,7 @@ export function SettingsPage({
   initialPage?: string;
   onReplayOnboarding?: () => void;
 }) {
+  const { confirm, confirmation } = useConfirm();
   // Hosts that report capabilities are authoritative; the user-agent probe stays
   // only so a host that predates the contract keeps its current behaviour.
   const linuxPlatform = client.host ? client.host.platform === "linux" : isLinuxDesktop();
@@ -2376,8 +2379,14 @@ export function SettingsPage({
     }
   }
 
-  function resetTouchKeyboardSettings() {
-    if (!draft || !window.confirm("恢复屏幕键盘的高度、间距和顶部语音入口默认值？")) return;
+  async function resetTouchKeyboardSettings() {
+    if (!draft) return;
+    const confirmed = await confirm({
+      title: "恢复屏幕键盘默认值",
+      message: "高度、间距和顶部语音入口都会回到默认。",
+      confirmLabel: "恢复",
+    });
+    if (!confirmed || !draft) return;
     const next = { ...draft };
     // Delete the optional fields instead of storing the current defaults. This keeps reset
     // forward-compatible when a host changes its fallback values.
@@ -2533,11 +2542,13 @@ export function SettingsPage({
   async function removePhrase(entry: DictionaryEntry) {
     if (!client.dictionary) return;
     // Deletion is not undoable and the row is one click away from 编辑.
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm(`删除词条“${entry.value}”（${entry.key}）？此操作无法撤销。`)
-    )
-      return;
+    const confirmed = await confirm({
+      title: "删除词条",
+      message: `“${entry.value}”（${entry.key}）将被删除，此操作无法撤销。`,
+      confirmLabel: "删除",
+      danger: true,
+    });
+    if (!confirmed || !client.dictionary) return;
     setPhraseBusy(true);
     setPhraseError("");
     setPhraseNotice("");
@@ -2757,13 +2768,12 @@ export function SettingsPage({
    */
   async function restoreDefaults() {
     if (!client.loadDefaultPreferences || busy) return;
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm(
-        "把所有设置恢复为默认值？语音和翻译服务的密钥、以及词库和学习数据不会改变。恢复后需要点击保存设置才会生效。",
-      )
-    )
-      return;
+    const confirmed = await confirm({
+      title: "恢复默认设置",
+      message: "语音和翻译服务的密钥、词库和学习数据都不会改变。恢复后需要点击保存设置才会生效。",
+      confirmLabel: "恢复",
+    });
+    if (!confirmed || !client.loadDefaultPreferences || busy) return;
     setError("");
     setNotice("");
     try {
@@ -2776,13 +2786,14 @@ export function SettingsPage({
 
   async function resetLearnedData() {
     if (!client.resetLearnedData || phraseBusy) return;
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm(
-        "清除所有学习数据？候选词频、用户词典和拼音学习记录将永久删除。此操作无法撤销，输入方案等设置不会改变。",
-      )
-    )
-      return;
+    const confirmed = await confirm({
+      title: "清除学习数据",
+      message:
+        "候选词频、用户词典和拼音学习记录将永久删除，此操作无法撤销。输入方案等设置不会改变。",
+      confirmLabel: "清除",
+      danger: true,
+    });
+    if (!confirmed || !client.resetLearnedData || phraseBusy) return;
     setPhraseBusy(true);
     setPhraseError("");
     setPhraseNotice("");
@@ -3372,6 +3383,7 @@ export function SettingsPage({
         }
       }}
     >
+      {confirmation}
       {/* A phone has no window to minimise, maximise, close or drag: the OS owns the frame. The host
           still exposes the window commands on mobile because the same Tauri app binary backs both, so
           the presence of a command is not the question -- the platform is. */}
@@ -5838,7 +5850,13 @@ export function SettingsPage({
                           type="button"
                           className="secondary fuzzy-pinyin-reset"
                           onClick={() => {
-                            if (window.confirm("关闭模糊音并清空所有规则？"))
+                            void confirm({
+                              title: "关闭模糊音",
+                              message: "所有模糊音规则会被清空。",
+                              confirmLabel: "关闭并清空",
+                              danger: true,
+                            }).then((confirmed) => {
+                              if (!confirmed) return;
                               setDraft({
                                 ...draft,
                                 fuzzy_pinyin: {
@@ -5847,6 +5865,7 @@ export function SettingsPage({
                                   seeded: fuzzyPinyin.seeded ?? false,
                                 },
                               });
+                            });
                           }}
                         >
                           重置模糊音配置
@@ -7540,7 +7559,7 @@ export function SettingsPage({
                         type="button"
                         className="danger-text"
                         aria-label="恢复屏幕键盘默认设置"
-                        onClick={resetTouchKeyboardSettings}
+                        onClick={() => void resetTouchKeyboardSettings()}
                       >
                         恢复默认
                       </button>
@@ -8963,8 +8982,18 @@ export function SettingsPage({
                   className="secondary"
                   disabled={busy}
                   onClick={() => {
-                    if (!dirty || window.confirm("重新读取会放弃尚未保存的修改，是否继续？"))
+                    if (!dirty) {
                       void reload();
+                      return;
+                    }
+                    void confirm({
+                      title: "重新读取",
+                      message: "尚未保存的修改会被放弃。",
+                      confirmLabel: "放弃并重新读取",
+                      danger: true,
+                    }).then((confirmed) => {
+                      if (confirmed) void reload();
+                    });
                   }}
                 >
                   重新读取

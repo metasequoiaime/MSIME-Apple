@@ -165,6 +165,12 @@ python3 scripts/test-shell-route-parity.py || fail "shell route parity"
 note "settings action guard"
 python3 scripts/test-settings-action-guard.py || fail "settings action guard"
 
+# The action guard above checks that a button is gated on the host being able to do the thing. It
+# cannot see a button gated on a dialog the host never shows: `window.confirm` returns false with
+# nothing on screen under wry's WKWebView, so on macOS and iOS those buttons did nothing at all.
+note "host dialogs"
+python3 scripts/test-no-host-dialogs.py || fail "host dialogs"
+
 # The palette is most of what makes one window look like another, and this one
 # is built with Tailwind rather than by importing the source's sheet, so the two
 # copies of the same 64 names can drift a hex at a time without anyone noticing.
