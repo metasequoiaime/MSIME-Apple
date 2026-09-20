@@ -1,4 +1,5 @@
 import { useConfirm } from "../core/confirm";
+import { readDictionaryFile } from "../dictionary/dictionary-file";
 import { usePanelDrag } from "./use-panel-drag";
 import { useEmojiNavigation } from "../emoji/use-emoji-navigation";
 import {
@@ -2743,7 +2744,7 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
   const [format, setFormat] = useState<CloudDictionaryFileFormat>("standard");
   const [file, setFile] = useState<{ name: string; text: string; bytes: number } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState("选择 UTF-8 TSV 文件后确认上传；导出不会改变云端内容");
+  const [notice, setNotice] = useState("选择 TSV 文件后确认上传；导出不会改变云端内容");
   const [snapshotBusy, setSnapshotBusy] = useState(false);
   const [restorePreview, setRestorePreview] = useState<{
     text: string;
@@ -2787,7 +2788,13 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
     void run(async (revision) => {
       let text: string;
       try {
-        text = await selected.text();
+        // The same reader the local dictionary import uses. `File.text()` decodes as UTF-8 and
+        // nothing else, which is wrong twice over for dictionary files: a UTF-16 one came out as
+        // NULs and was refused, and a GB18030 one - which Windows tools still write - decoded to
+        // replacement characters with no NUL anywhere, so it passed the check below and uploaded
+        // a cloud dictionary of `\ufffd`. Reading it here the way the other panel does means one
+        // file behaves the same in both.
+        text = await readDictionaryFile(selected);
       } catch {
         throw new Error("invalid file");
       }
@@ -2795,7 +2802,7 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
       if (!text || text.includes("\u0000")) throw new Error("invalid file");
       setFile({ name: selected.name || "dictionary.tsv", text, bytes: selected.size });
       setNotice("文件已读取；确认后才会写入云端");
-    }, "无法读取文件，请确认是大小不超过 64 KiB 的 UTF-8 文本");
+    }, "无法读取文件，请确认是大小不超过 64 KiB 的文本词库");
   }
 
   async function importFile() {
@@ -2822,7 +2829,7 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
       if (revision !== requestRevision.current) return;
       setFile(null);
       setNotice("云词库已导入；如需影响本机输入，请另行应用到本机");
-    }, "导入失败，请检查 UTF-8 TSV 文件格式");
+    }, "导入失败，请检查 TSV 文件格式");
   }
 
   function exportDictionary() {
@@ -3015,7 +3022,7 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
         <section className={cloud.dictionarySection} aria-label="导入云词库">
           <h2>导入云词库</h2>
           <label className="secondary">
-            选择 UTF-8 文件
+            选择文件
             <input
               className={cloud.dictionaryInput}
               hidden

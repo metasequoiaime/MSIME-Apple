@@ -175,6 +175,16 @@ pub fn parse(
     max_bytes: usize,
 ) -> Result<ImportReport, ImportError> {
     let format = ImportFormat::parse(format).ok_or(ImportError::UnsupportedFormat)?;
+    // A leading U+FEFF is a byte-order mark, not content - and every Windows tool that writes a
+    // dictionary puts one there, including this application's own exporter. It is stripped here
+    // rather than left to callers because `str::trim` does not remove it: U+FEFF has not been a
+    // White_Space character for a long time, so it survives into the first row and lands wherever
+    // that format puts column one. In the word-first formats that is the word, which then parses
+    // cleanly and is stored with an invisible prefix that can never match what a user types; in
+    // the Windows format it is the code, which is refused as a bad alphabet and reported as one
+    // failed line with nothing a reader could act on. Both are silent in their own way, and one
+    // of them corrupts data.
+    let text = text.strip_prefix('\u{feff}').unwrap_or(text);
     if text.is_empty() {
         return Err(ImportError::Empty);
     }
@@ -597,6 +607,51 @@ mod tests {
         assert!(dictionary_row_matches(true, "anything", ""));
         assert!(!dictionary_row_matches(false, "wq", ""));
         assert!(!dictionary_row_matches(false, "wq", "wq"));
+    }
+
+    #[test]
+    fn a_byte_order_mark_belongs_to_the_envelope_and_not_to_the_first_row() {
+        // Exactly what this application's own exporter writes, and what every Windows text tool
+        // writes: U+FEFF, then the rows.
+        let standard = parse_ok(
+            ImportKind::Pinyin,
+            "standard",
+            "\u{feff}你好\tni'hao\t7\n世界\tshi'jie\n",
+        );
+        assert_eq!(standard.failed, 0);
+        // Without stripping this reads back as "\u{feff}你好": it parses, it is stored, and it
+        // can never match anything the user types, with nothing reported.
+        assert_eq!(standard.entries[0].value, "你好");
+        assert_eq!(standard.entries[0].key, "ni'hao");
+        assert_eq!(standard.entries.len(), 2);
+
+        // In the code-first format the mark lands on the code instead, where it is refused for
+        // its alphabet - one failed line and no way for a reader to tell why.
+        let windows = parse_ok(
+            ImportKind::Pinyin,
+            "windows",
+            "\u{feff}ni'hao\t你好\t7\nshi'jie\t世界\n",
+        );
+        assert_eq!(windows.failed, 0);
+        assert_eq!(windows.entries.len(), 2);
+        assert_eq!(windows.entries[0].key, "ni'hao");
+
+        // Only the leading one is an envelope marker. A U+FEFF anywhere else is content the row
+        // rules judge for themselves, and the row it appears in still fails on its own terms.
+        let inner = parse_ok(
+            ImportKind::Pinyin,
+            "standard",
+            "你好\tni'hao\n世\u{feff}界\tshi'jie\n",
+        );
+        assert_eq!(inner.entries.len(), 2);
+        assert_eq!(inner.entries[1].value, "世\u{feff}界");
+
+        // A file that is nothing but a mark has no rows, and says so as an empty file rather than
+        // as one with nothing usable in it.
+        assert_eq!(
+            parse(ImportKind::Pinyin, "standard", "\u{feff}", LIMIT),
+            Err(ImportError::Empty)
+        );
     }
 }
 
