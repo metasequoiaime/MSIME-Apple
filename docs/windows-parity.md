@@ -589,6 +589,22 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 所以下一步是明确的：让 `msime-tsf` 在 mingw 交叉构建里产出，再用真实 COM 服务器重试激活。在那之前，表里那几行的推迟理由应当写成「TIP 激活未经真实服务器验证」，而不是笼统的「Wine 的 TSF 支持不足」——后者已被实测推翻。
 
+增量记录（2026-09-20，Windows 第四十六批：Wine 的 TSF 边界测到底，并更正两处自己的错话）：第四十五批测出核心链路可用、`ActivateLanguageProfile` 失败，但当时用的是没有 COM 服务器的临时 CLSID，无法归因。这批拿**真实 TIP** 测完了。
+
+先更正两处：其一，第四十五批说「`msime-tsf` 当前不在交叉构建产物里」——**错的**，它一直在产出，是 `target/windows-full/<arch>/tsf/libMetasequoiaImeTsf.dll`（21 MB），当时只看了顶层目录。其二，中途一度判断「`DllRegisterServer` 在 Wine 下挂死」——**也是错的**，见下。
+
+用真实 CLSID `{E3062E9A-D834-4637-8958-ED8CFA427D01}` 与 profile GUID `{4D59B1B4-D503-44AE-9259-BAD9BB2778AB}` 逐层测下来：
+
+**Wine 实现了的（全部 S_OK）**：`ITfThreadMgr` 创建与 `Activate`、`CreateDocumentMgr`、`CreateContext`（拿到编辑 cookie）、`Push` + `SetFocus` + `GetFocus` 往返、`ITfInputProcessorProfiles`、`ITfInputProcessorProfileMgr`、`ITfCategoryMgr`。TIP 的 DLL 本身 `LoadLibrary` 正常，`DllRegisterServer` 符号也在。
+
+**Wine 没有实现的**：`ITfInputProcessorProfileMgr::RegisterProfile` → **E_NOTIMPL (0x80004001)**；`ITfCategoryMgr::RegisterCategory` → **E_FAIL (0x80004005)**。
+
+**因此**：本仓库 TIP 的 `DllRegisterServer` 必然失败——它三步里前两步就过不去。直接调用它，**3 毫秒返回 E_FAIL，并不挂死**。此前观察到的 `regsvr32` 卡满 120 秒超时，是 **regsvr32 自己的失败对话框在 xvfb 下无人关闭**，与这个 DLL 无关。
+
+**这条边界取代原先那句笼统的「Wine 的 TSF 支持不足」**：Wine 能跑的是 TSF 的**运行时**，不能跑的是 TIP 的**注册**。凡是直接驱动 `ITfContext` 的行为，Wine 下都可验证；凡是需要「已注册并激活的输入法」才成立的行为，Wine 下不可能验证，且原因不是实现不全，而是那两个注册接口根本没实现——不是本仓库能绕过的。
+
+对来源 `experiments/tsf-edit-control` 的移植，这给出了明确前提：它作为编辑宿主的部分（绘制、候选框位置上报、选区命中）在 Wine 下可跑；但要让本仓库的 TIP 真正挂进去，仍需真实 Windows。
+
 ## 来源模块的落点
 
 逐模块记下来源的每个目录在本仓库落在哪里，以及为什么。上面那张功能表按「功能组」组织，回答的是某个功能有没有；这张按**来源的源码目录**组织，回答的是来源的每一块代码去了哪儿——两者互相校验，一块代码找不到落点就是缺口，哪怕对应功能在表里被标成有。
