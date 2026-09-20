@@ -685,8 +685,16 @@ int main(int argc, char **argv) {
         while (g_main_context_iteration(nullptr, FALSE)) {}
         g_usleep(1000);
       }
-      require(has_remote_gloss() && seen.candidates.front() == local_hit,
-              "Online misses did not merge with the displayed offline hits");
+      {
+        std::string observed;
+        for (const auto &candidate : seen.candidates)
+          observed += "[" + candidate + "]";
+        require(has_remote_gloss() && seen.candidates.front() == local_hit,
+                ("Online misses did not merge with the displayed offline hits: gloss=" +
+                 std::to_string(has_remote_gloss()) + " local_hit=[" + local_hit +
+                 "] candidates=" + observed)
+                    .c_str());
+      }
       // A fresh host with no online socket must reuse the persisted misses.
       ibus_object_destroy(IBUS_OBJECT(engine));
       g_object_unref(engine);
@@ -1805,7 +1813,7 @@ int main(int argc, char **argv) {
     require(mixed_emoji != seen.candidates.end(),
             "Mixed Emoji candidate was not exposed in the Chinese session");
     const auto mixed_emoji_index = static_cast<guint>(mixed_emoji - seen.candidates.begin());
-    invoke("CandidateClicked", g_variant_new("(uuu)", 0, mixed_emoji_index, 0));
+    invoke("CandidateClicked", g_variant_new("(uuu)", mixed_emoji_index, 1, 0));
     settle_lookup();
     require(seen.committed == "😀" && !seen.preedit_visible && !seen.lookup_visible,
             "Mixed Emoji candidate was not committed through IBus");
@@ -1818,7 +1826,7 @@ int main(int argc, char **argv) {
     require(mixed_english != seen.candidates.end(),
             "Mixed English candidate was not exposed at the configured prefix threshold");
     const auto mixed_english_index = static_cast<guint>(mixed_english - seen.candidates.begin());
-    invoke("CandidateClicked", g_variant_new("(uuu)", 0, mixed_english_index, 0));
+    invoke("CandidateClicked", g_variant_new("(uuu)", mixed_english_index, 1, 0));
     settle_lookup();
     require(seen.committed == "hello" && !seen.preedit_visible && !seen.lookup_visible,
             "Mixed English candidate was not committed through IBus");
