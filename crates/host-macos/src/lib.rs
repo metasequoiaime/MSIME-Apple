@@ -451,6 +451,31 @@ pub fn send_keyboard_key(request: &KeyboardInputRequest) -> bool {
     unsafe { msime_macos_send_keyboard_key(stroke.code, stroke.flags) }
 }
 
+/// Ask the user for a file and return its path, or `None` if they cancelled.
+///
+/// A local speech model is identified to the recognizer by path, and a web view's file input hands back
+/// contents rather than a path - so the shared settings page cannot do this itself and asks the host.
+/// Must run on the main thread; the native side refuses anywhere else rather than showing a panel from a
+/// worker, which AppKit does not support.
+#[cfg(target_os = "macos")]
+pub fn pick_file() -> Option<String> {
+    unsafe extern "C" {
+        fn msime_macos_pick_file() -> *mut std::os::raw::c_char;
+        fn msime_macos_free_picked_path(path: *mut std::os::raw::c_char);
+    }
+    // SAFETY: the native side returns either null or a strdup'd UTF-8 path that this owns and frees.
+    let raw = unsafe { msime_macos_pick_file() };
+    if raw.is_null() {
+        return None;
+    }
+    let path = unsafe { std::ffi::CStr::from_ptr(raw) }
+        .to_str()
+        .ok()
+        .map(str::to_owned);
+    unsafe { msime_macos_free_picked_path(raw) };
+    path
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -537,29 +562,4 @@ mod tests {
         // without letting anything run.
         std::hint::black_box((load, save, clear));
     }
-}
-
-/// Ask the user for a file and return its path, or `None` if they cancelled.
-///
-/// A local speech model is identified to the recognizer by path, and a web view's file input hands back
-/// contents rather than a path - so the shared settings page cannot do this itself and asks the host.
-/// Must run on the main thread; the native side refuses anywhere else rather than showing a panel from a
-/// worker, which AppKit does not support.
-#[cfg(target_os = "macos")]
-pub fn pick_file() -> Option<String> {
-    unsafe extern "C" {
-        fn msime_macos_pick_file() -> *mut std::os::raw::c_char;
-        fn msime_macos_free_picked_path(path: *mut std::os::raw::c_char);
-    }
-    // SAFETY: the native side returns either null or a strdup'd UTF-8 path that this owns and frees.
-    let raw = unsafe { msime_macos_pick_file() };
-    if raw.is_null() {
-        return None;
-    }
-    let path = unsafe { std::ffi::CStr::from_ptr(raw) }
-        .to_str()
-        .ok()
-        .map(str::to_owned);
-    unsafe { msime_macos_free_picked_path(raw) };
-    path
 }
