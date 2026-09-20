@@ -39,6 +39,20 @@ pub struct UnixSocketProvider {
     path: PathBuf,
 }
 
+// The request and its terminating newline go out as one write. Sent separately
+// they can arrive as two segments, and a provider that reads only the first and
+// then closes leaves data unread in its own receive queue - which on a unix
+// socket makes the kernel set ECONNRESET on this side, losing a reply it had
+// already queued. Every provider here is line-framed, so there is never a reason
+// to split the line.
+#[cfg(unix)]
+fn with_terminator(request: &str) -> String {
+    let mut line = String::with_capacity(request.len() + 1);
+    line.push_str(request);
+    line.push('\n');
+    line
+}
+
 // One-shot panel providers have a fixed transfer deadline, including writes.
 // Check the response envelope before appending bytes, not after allocating it.
 #[cfg(unix)]
@@ -49,19 +63,19 @@ fn exchange_panel_request(
     timeout: std::time::Duration,
 ) -> Option<String> {
     let deadline = std::time::Instant::now() + timeout;
-    for mut bytes in [request.as_bytes(), b"\n".as_slice()] {
-        while !bytes.is_empty() {
-            let remaining = deadline.checked_duration_since(std::time::Instant::now())?;
-            if remaining.is_zero() {
-                return None;
-            }
-            stream.set_write_timeout(Some(remaining)).ok()?;
-            match stream.write(bytes) {
-                Ok(0) => return None,
-                Ok(count) => bytes = &bytes[count..],
-                Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
-                Err(_) => return None,
-            }
+    let line = with_terminator(request);
+    let mut bytes = line.as_bytes();
+    while !bytes.is_empty() {
+        let remaining = deadline.checked_duration_since(std::time::Instant::now())?;
+        if remaining.is_zero() {
+            return None;
+        }
+        stream.set_write_timeout(Some(remaining)).ok()?;
+        match stream.write(bytes) {
+            Ok(0) => return None,
+            Ok(count) => bytes = &bytes[count..],
+            Err(error) if error.kind() == std::io::ErrorKind::Interrupted => {}
+            Err(_) => return None,
         }
     }
     let mut bytes = Vec::new();
@@ -191,8 +205,9 @@ impl UnixSocketProvider {
             .ok()?;
         let request = json!({"version": 1, "kind": "online", "query": query}).to_string();
         if request.len() > 16384
-            || stream.write_all(request.as_bytes()).is_err()
-            || stream.write_all(b"\n").is_err()
+            || stream
+                .write_all(with_terminator(&request).as_bytes())
+                .is_err()
         {
             return None;
         }
@@ -287,8 +302,9 @@ impl UnixSocketProvider {
             .ok()?;
         let request = json!({"version": 1, "kind": "translation", "query": query}).to_string();
         if request.len() > 16384
-            || stream.write_all(request.as_bytes()).is_err()
-            || stream.write_all(b"\n").is_err()
+            || stream
+                .write_all(with_terminator(&request).as_bytes())
+                .is_err()
         {
             return None;
         }
@@ -571,8 +587,9 @@ impl UnixSocketProvider {
         }
         let request = request.to_string();
         if request.len() > 16_384
-            || stream.write_all(request.as_bytes()).is_err()
-            || stream.write_all(b"\n").is_err()
+            || stream
+                .write_all(with_terminator(&request).as_bytes())
+                .is_err()
         {
             return None;
         }
@@ -667,8 +684,9 @@ impl UnixSocketProvider {
         })
         .to_string();
         request.len() <= 4096
-            && stream.write_all(request.as_bytes()).is_ok()
-            && stream.write_all(b"\n").is_ok()
+            && stream
+                .write_all(with_terminator(&request).as_bytes())
+                .is_ok()
     }
 
     /// Ask a user-owned voice provider to finish the active capture session.
@@ -696,8 +714,9 @@ impl UnixSocketProvider {
         })
         .to_string();
         request.len() <= 4096
-            && stream.write_all(request.as_bytes()).is_ok()
-            && stream.write_all(b"\n").is_ok()
+            && stream
+                .write_all(with_terminator(&request).as_bytes())
+                .is_ok()
     }
 
     /// Forward one validated account-backed dictionary operation to the

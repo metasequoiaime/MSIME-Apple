@@ -11,8 +11,8 @@
 #include <sys/file.h>
 #include <unistd.h>
 #include <vector>
-#include "voice_provider_fixture.h"
-#include "translation_provider_fixture.h"
+#include "../voice/voice_provider_fixture.h"
+#include "../dictionary/translation_provider_fixture.h"
 
 namespace {
 void require(bool condition, const char *message) {
