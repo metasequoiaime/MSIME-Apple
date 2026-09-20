@@ -6,10 +6,12 @@
 //! window. The panels themselves must never take focus, which is why the target
 //! is captured before the panel appears and restored after.
 
+#[cfg(target_os = "linux")]
+use crate::clipboard_history::write_linux_clipboard;
 use crate::*;
 
 #[cfg(target_os = "linux")]
-fn focused_sway_container(value: &serde_json::Value) -> Option<u64> {
+pub(crate) fn focused_sway_container(value: &serde_json::Value) -> Option<u64> {
     if value.get("focused").and_then(serde_json::Value::as_bool) == Some(true) {
         if let Some(id) = value.get("id").and_then(serde_json::Value::as_u64) {
             return Some(id);
@@ -28,7 +30,10 @@ fn focused_sway_container(value: &serde_json::Value) -> Option<u64> {
 }
 
 #[cfg(target_os = "linux")]
-fn sway_rect_for_container(value: &serde_json::Value, id: u64) -> Option<(f64, f64, f64, f64)> {
+pub(crate) fn sway_rect_for_container(
+    value: &serde_json::Value,
+    id: u64,
+) -> Option<(f64, f64, f64, f64)> {
     if value.get("id").and_then(serde_json::Value::as_u64) == Some(id) {
         let rect = value.get("rect")?;
         return Some((
@@ -51,7 +56,7 @@ fn sway_rect_for_container(value: &serde_json::Value, id: u64) -> Option<(f64, f
 }
 
 #[cfg(target_os = "linux")]
-fn sway_workspace_for_container(
+pub(crate) fn sway_workspace_for_container(
     value: &serde_json::Value,
     id: u64,
     workspace: Option<(f64, f64, f64, f64)>,
@@ -84,7 +89,7 @@ fn sway_workspace_for_container(
 }
 
 #[cfg(target_os = "linux")]
-fn parse_xdotool_geometry(value: &str) -> Option<(f64, f64, f64, f64)> {
+pub(crate) fn parse_xdotool_geometry(value: &str) -> Option<(f64, f64, f64, f64)> {
     let mut fields = std::collections::HashMap::new();
     for line in value.lines() {
         let (key, value) = line.split_once('=')?;
@@ -161,7 +166,7 @@ pub(crate) fn panel_position(
 }
 
 #[cfg(target_os = "linux")]
-fn x11_window_is_owned_by_process(pid_output: &str, process_id: u32) -> bool {
+pub(crate) fn x11_window_is_owned_by_process(pid_output: &str, process_id: u32) -> bool {
     pid_output.trim().parse::<u32>().ok() == Some(process_id)
 }
 
@@ -229,7 +234,7 @@ fn capture_panel_input_target() -> Result<PanelInputTarget, HostActionError> {
 }
 
 #[cfg(target_os = "linux")]
-fn remember_panel_input_target(
+pub(crate) fn remember_panel_input_target(
     state: &tauri::State<'_, PanelInputState>,
     label: &str,
     replace: bool,
@@ -244,7 +249,7 @@ fn remember_panel_input_target(
 }
 
 #[cfg(target_os = "linux")]
-fn panel_input_target(
+pub(crate) fn panel_input_target(
     state: &tauri::State<'_, PanelInputState>,
     label: &str,
 ) -> Result<PanelInputTarget, HostActionError> {
@@ -563,10 +568,12 @@ fn release_panel_focus(
     if focused {
         // Hide every editable panel so the compositor cannot focus another one.
         // The screen keyboard never accepts focus and stays available for typing.
-        let mut hidden = Vec::new();
+        // Annotated because the rollback loop below calls a method on an element
+        // before the `push` that would otherwise name the type.
+        let mut hidden: Vec<tauri::WebviewWindow> = Vec::new();
         for window in windows {
             let visible = window.is_visible().unwrap_or(false);
-            if let Err(_) = window.hide() {
+            if window.hide().is_err() {
                 for hidden_window in hidden {
                     let _ = hidden_window.show();
                 }
@@ -624,7 +631,7 @@ fn send_x11_panel_key(window: &str, key: &str) -> Result<(), HostActionError> {
 }
 
 #[cfg(target_os = "linux")]
-fn send_panel_key(
+pub(crate) fn send_panel_key(
     app: &tauri::AppHandle,
     target: PanelInputTarget,
     request: KeyboardInputRequest,
@@ -697,7 +704,7 @@ fn send_panel_key(
 }
 
 #[cfg(target_os = "linux")]
-fn panel_text_requires_clipboard(target: &PanelInputTarget, text: &str) -> bool {
+pub(crate) fn panel_text_requires_clipboard(target: &PanelInputTarget, text: &str) -> bool {
     text.chars()
         .any(|character| matches!(character, '\n' | '\r' | '\t'))
         || ((!text.is_ascii())
@@ -777,7 +784,11 @@ fn send_panel_text_to_target(
 }
 
 #[cfg(any(target_os = "linux", target_os = "windows"))]
-fn record_panel_typing_statistics(store: &TypingStatisticsStore, text: &str, source: TypingSource) {
+pub(crate) fn record_panel_typing_statistics(
+    store: &TypingStatisticsStore,
+    text: &str,
+    source: TypingSource,
+) {
     let day = time::OffsetDateTime::now_local()
         .unwrap_or_else(|_| time::OffsetDateTime::now_utc())
         .date();
@@ -791,7 +802,7 @@ fn record_panel_typing_statistics(store: &TypingStatisticsStore, text: &str, sou
 }
 
 #[cfg(target_os = "linux")]
-async fn send_panel_text(
+pub(crate) async fn send_panel_text(
     app: tauri::AppHandle,
     state: &tauri::State<'_, PanelInputState>,
     typing_statistics: &tauri::State<'_, TypingStatisticsState>,
@@ -825,7 +836,7 @@ async fn send_panel_text(
 }
 
 #[cfg(target_os = "linux")]
-fn send_panel_ctrl_v(
+pub(crate) fn send_panel_ctrl_v(
     app: &tauri::AppHandle,
     target: &PanelInputTarget,
 ) -> Result<(), HostActionError> {
@@ -855,7 +866,7 @@ fn send_panel_ctrl_v(
 }
 
 #[cfg(target_os = "linux")]
-fn send_panel_voice_text(
+pub(crate) fn send_panel_voice_text(
     app: &tauri::AppHandle,
     target: &PanelInputTarget,
     text: &str,
@@ -890,7 +901,7 @@ fn send_panel_voice_text(
 // itself stays free of unsafe code.
 
 #[cfg(target_os = "windows")]
-fn remember_panel_input_target(
+pub(crate) fn remember_panel_input_target(
     state: &tauri::State<'_, PanelInputState>,
 ) -> Result<(), HostActionError> {
     // Editable panels invoke this again after mounting. Do not replace the

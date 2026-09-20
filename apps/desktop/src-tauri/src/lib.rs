@@ -14,6 +14,24 @@ mod platform;
 mod shared;
 mod voice;
 
+// The refactor that moved panel delivery out of the crate root left these calls
+// behind unqualified, and nothing compiled the two hosts that build the module,
+// so the shells stayed broken. Name them explicitly rather than glob-importing:
+// the module already does `use crate::*`, and a glob back would make every
+// shared name ambiguous.
+#[cfg(target_os = "linux")]
+use clipboard_history::{start_linux_clipboard_monitor, write_linux_clipboard};
+// Everything but these two is one host's own. Windows reaches its foreground
+// window through send_panel_key_windows and send_panel_text_windows, which the
+// call sites already name directly.
+#[cfg(target_os = "linux")]
+use panel_input::{
+    panel_input_target, panel_position, send_panel_ctrl_v, send_panel_key, send_panel_text,
+    send_panel_voice_text,
+};
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+use panel_input::{record_panel_typing_statistics, remember_panel_input_target};
+
 #[cfg(target_os = "android")]
 use platform::android::android_account;
 #[cfg(any(target_os = "linux", target_os = "windows", target_os = "macos"))]
@@ -21,7 +39,7 @@ use platform::desktop::desktop_preferences_monitor;
 #[cfg(target_os = "ios")]
 use platform::ios::ios_account;
 #[cfg(target_os = "linux")]
-use platform::linux::{linux_audio_devices, linux_clipboard, linux_process};
+use platform::linux::{linux_audio_devices, linux_process};
 #[cfg(target_os = "macos")]
 use platform::macos::{
     macos_account, macos_cloud_clipboard, macos_cloud_dictionary, macos_handwriting,
@@ -1903,7 +1921,7 @@ fn activate_desktop_surface(app: &tauri::AppHandle, route: SurfaceRoute) {
             let _ = remember_panel_input_target(&state);
             windows_panel_position(f64::from(surface.width), f64::from(surface.height))
         };
-        let _ = open_panel_window(
+        let _ = panel_window::open_panel_window(
             app,
             surface.label,
             surface.query,
@@ -1933,11 +1951,7 @@ fn remember_input_target(
     state: tauri::State<'_, PanelInputState>,
 ) -> Result<(), HostActionError> {
     #[cfg(target_os = "linux")]
-    return remember_panel_input_target(
-        &state,
-        window.label().as_str(),
-        window.label() == "keyboard-panel",
-    );
+    return remember_panel_input_target(&state, window.label(), window.label() == "keyboard-panel");
     #[cfg(target_os = "windows")]
     return remember_panel_input_target(&state);
     #[cfg(not(any(target_os = "linux", target_os = "windows")))]
@@ -1981,7 +1995,7 @@ async fn send_key(
         // Windows panel's per-click foreground capture. Do not re-probe here:
         // an async command could otherwise observe a different editor than
         // the one captured for this queued key.
-        let target = panel_input_target(&state, window.label().as_str())?;
+        let target = panel_input_target(&state, window.label())?;
         return tauri::async_runtime::spawn_blocking(move || send_panel_key(&app, target, request))
             .await
             .map_err(|_| HostActionError {
@@ -2300,7 +2314,7 @@ async fn submit_handwriting_candidate(
             app,
             &state,
             &typing_statistics,
-            window.label(),
+            window.label().to_owned(),
             candidate,
             TypingSource::Handwriting,
         )
@@ -2344,7 +2358,7 @@ async fn send_text(
         app,
         &state,
         &typing_statistics,
-        window.label(),
+        window.label().to_owned(),
         text,
         TypingSource::Unknown,
     )
@@ -2389,7 +2403,7 @@ async fn paste_clipboard_text(
                 code: "invalid_text",
             });
         }
-        let target = panel_input_target(&state, window.label().as_str())?;
+        let target = panel_input_target(&state, window.label())?;
         tauri::async_runtime::spawn_blocking(move || {
             if !write_linux_clipboard(&text) {
                 return Err(HostActionError {
@@ -2535,7 +2549,7 @@ async fn send_voice_text(
     }
     #[cfg(target_os = "linux")]
     {
-        let target = panel_input_target(&state, window.label().as_str())?;
+        let target = panel_input_target(&state, window.label())?;
         let store = store.inner().clone();
         let typing_statistics = typing_statistics.0.clone();
         return tauri::async_runtime::spawn_blocking(move || {

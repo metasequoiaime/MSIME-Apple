@@ -5,7 +5,9 @@
 //! take focus, because taking it would end the text client's composition.
 
 #[cfg(target_os = "linux")]
-use crate::panel_position;
+use crate::panel_input::panel_position;
+#[cfg(any(target_os = "linux", target_os = "windows"))]
+use crate::panel_input::remember_panel_input_target;
 #[cfg(any(target_os = "macos", test))]
 use crate::platform::macos::macos_keyboard;
 #[cfg(target_os = "macos")]

@@ -721,6 +721,13 @@ fn scanning_missing_skin_directory_does_not_create_it() {
 
 #[cfg(target_os = "linux")]
 use super::*;
+// The panel helpers these cover live in `panel_input` since the delivery code
+// moved out of the crate root; `use super::*` no longer reaches them.
+#[cfg(target_os = "linux")]
+use super::panel_input::{
+    focused_sway_container, panel_text_requires_clipboard, parse_xdotool_geometry,
+    sway_rect_for_container, sway_workspace_for_container, x11_window_is_owned_by_process,
+};
 
 #[cfg(target_os = "linux")]
 #[test]
