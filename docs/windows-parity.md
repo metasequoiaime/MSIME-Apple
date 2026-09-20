@@ -199,6 +199,14 @@ Engine 对**单字母**查询（`j`、`n` 这类只按声母的查询）只给 2
 
 这一轮顺带暴露了我自己的一个方法错误，记下来：主工作区落后 develop 44 个提交，而我在它上面 grep 判定过若干「本仓库没有 X」。落后正好会伪造缺失——`run-tests-wine.sh` 就是这样被我判成不存在的，它其实早在 develop 上。凡是结论为「不存在」的检查，必须在最新代码上复核；结论为「存在」的不受影响。第一遍用旧产物跑出的 `windows-dedicated-english` 失败同理，是旧二进制而非回归，重新交叉构建后即通过。
 
+增量记录（2026-09-20，Windows 第十二批：给 Wine 容器一块虚拟显示）：上一批之后 Wine 还剩三条失败，其中两条记的理由是「要合成器」和「要真实显示器」。前者读错了——`XDG_RUNTIME_DIR is invalid or not set` 说的是没有 X 服务器，而不是没有合成器，X 服务器这个容器供得起。镜像装上 `xvfb`，跑测试时走 `xvfb-run -a`。
+
+`windows-fullscreen-foreground` 随之通过，基线那条删掉。`windows-server-smoke` 也走过了窗口创建，但停在新的地方：断言候选窗报告 `DPI_AWARENESS_CONTEXT_PER_MONITOR_AWARE_V2`，而 Wine 建得出窗口却不把这个感知上下文从 `GetWindowDpiAwarenessContext` 带回来。仍是 Wine 的限制，但比它替换掉的那条窄得多，也是读出来的而不是推的。
+
+合起来，Wine 下从最初的 72 通过 / 5 失败到现在 75 通过 / 2 失败。
+
+一个坑：`xvfb` 包本身不含 `xauth`，缺了它 `xvfb-run` 直接报 `xauth command not found`，于是整轮 77 个套件全部 FAIL——看起来像改动把一切弄坏了，实际是 runner 自己起不来。加装 `xauth` 即可。这类「全红」要先怀疑 runner，不要先怀疑被测对象。
+
 ## 下一批实施顺序
 
 增量记录（2026-09-20，HarmonyOS 首次设备运行）：目标 `21da4a315`。此前 HarmonyOS 一栏的全部结论都只有源码与构建证据，本次首次在模拟器上实际运行，证据等级随之改变。
