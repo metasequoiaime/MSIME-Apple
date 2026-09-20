@@ -2998,6 +2998,23 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
         (character == (brackets ? '[' : '-') || character == (brackets ? ']' : '='));
 }
 
+// The height the horizontal panel keeps under every candidate for its glosses, whether or not this page
+// has any yet. Sizing by content instead means the first composition reserves nothing - the gloss request
+// is debounced and answered seconds later, so no candidate carries one - and the panel grows the moment
+// the answer lands, which is the jump the reservation exists to prevent. Reserved per configured target
+// language, so a single-language setup does not pay for a row it will never fill.
+//
+// Horizontal only. Vertical draws the gloss on the candidate's own row, where it costs width rather than
+// height, and width still follows the content: reserving it would widen the panel for nothing.
+- (CGFloat)reservedGlossHeightForFont:(NSFont *)glossFont {
+    if (_appearance.vertical) return 0;
+    if (!_appearance.candidateTranslations && !_appearance.candidateEnglishGloss) return 0;
+    if (_glossEnabled && !_glossEnabled.boolValue && !_appearance.candidateEnglishGloss) return 0;
+    const NSUInteger lines = MIN(MAX(_glossTargetLanguages.count, (NSUInteger)1), (NSUInteger)2);
+    NSString *placeholder = lines > 1 ? @"X\nX" : @"X";
+    return MSIMETranslationTextSize(placeholder, glossFont).height + 4;
+}
+
 - (BOOL)handleEvent:(NSEvent *)event client:(id)sender {
     CGEventRef nativeEvent = event.CGEvent;
     if (nativeEvent && CGEventGetIntegerValueField(nativeEvent, kCGEventSourceUserData) == MSIMEVoiceCommitEventTag) return NO;
@@ -3537,8 +3554,8 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
             rowHeight = MAX(rowHeight, MSIMECandidateTextHeight(CandidateDisplayWithWubiHint(candidate, traditional,
                 MSIMEWubiCodeHint(candidate, _view, _wubiCodeHintEnabled)), font) + 12);
         if (!_appearance.vertical) {
-            CGFloat glossHeight = 0;
             NSFont *glossFont = [_appearance candidateFontOfSize:font.pointSize * 0.78 englishFirst:YES];
+            CGFloat glossHeight = [self reservedGlossHeightForFont:glossFont];
             for (NSDictionary *candidate in candidates) {
                 NSString *translation = CandidateTranslation(candidate);
                 if (translation.length) glossHeight = MAX(glossHeight, MSIMETranslationTextSize(translation, glossFont).height + 4);
@@ -3608,7 +3625,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     const BOOL traditional = _appearance.traditionalOutput && MSIMEScriptConversionApplies(_view);
     NSFont *numberFont = MSIMECandidateNumberFont(font);
     NSFont *glossFont = [_appearance candidateFontOfSize:font.pointSize * 0.78 englishFirst:YES];
-    CGFloat glossHeight = 0;
+    CGFloat glossHeight = [self reservedGlossHeightForFont:glossFont];
     std::vector<msime::mac::CandidateRowItem> rowItems;
     rowItems.reserve(candidates.count);
     for (NSDictionary *candidate in candidates) {

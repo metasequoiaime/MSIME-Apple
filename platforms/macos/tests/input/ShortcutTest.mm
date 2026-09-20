@@ -4513,12 +4513,31 @@ int main(int argc, char **argv) {
             assert([translated.translation isEqual:@"synthetic glossary"] && translated.translationBelow == !vertical.boolValue);
             assert(fabs(translated.translationFont.pointSize - translated.font.pointSize * 0.78) < 0.01);
             assert([translated.toolTip containsString:@"\nsynthetic glossary"] && [translated.candidateID isEqual:word[@"id"]]);
-            assert(vertical.boolValue ? translated.frame.size.width > originalSize.width : translated.frame.size.height > originalSize.height);
+            // Vertical puts the gloss on the candidate's own row, so it costs width and the row grows when
+            // one arrives. Horizontal stacks it underneath and the height is already reserved, so the row
+            // does not change - the gloss lands in space that was kept for it rather than pushing the panel
+            // taller seconds after the composition started.
+            if (vertical.boolValue) assert(translated.frame.size.width > originalSize.width);
+            else assert(fabs(translated.frame.size.height - originalSize.height) < 0.01);
             NSBitmapImageRep *bitmap = [translated bitmapImageRepForCachingDisplayInRect:translated.bounds];
             assert(bitmap);
             [translated cacheDisplayInRect:translated.bounds toBitmapImageRep:bitmap];
             [word removeObjectForKey:@"translation"];
         }
+        // The reservation is real, not just an absent assertion: with the feature off the horizontal row is
+        // shorter than with it on and nothing to show yet. That difference is the space the gloss lands in.
+        appearance.vertical = NO;
+        [controller renderCandidates];
+        const CGFloat reservedHeight = PageButton(layoutPanel.contentView, 0).frame.size.height;
+        const BOOL previousTranslations = appearance.candidateTranslations;
+        const BOOL previousGloss = appearance.candidateEnglishGloss;
+        appearance.candidateTranslations = NO;
+        appearance.candidateEnglishGloss = NO;
+        [controller renderCandidates];
+        assert(PageButton(layoutPanel.contentView, 0).frame.size.height < reservedHeight);
+        appearance.candidateTranslations = previousTranslations;
+        appearance.candidateEnglishGloss = previousGloss;
+        [controller renderCandidates];
         word[@"corrected"] = @YES;
         NSUInteger fixedCase = 0;
         for (id fixed in @[@0, @1, @5, @(-1), @256, @YES, @1.0, @"1", NSNull.null]) {
