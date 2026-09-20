@@ -479,6 +479,25 @@ impl HostOptions {
 
 /// Bootstrap a new host using the reviewed desktop data and Engine-owned replay.
 /// Call only while all sessions using state_root are stopped. Does not activate it.
+/// The settled-rerank model installed beside a resource bundle, when one is there.
+///
+/// A sibling directory rather than a file inside `resources`, because that directory is verified
+/// against `desktop-dictionary.lock.json` and must match it *exactly* — an extra file there fails
+/// the check whose job is to prove a shipped dictionary is intact. The lock is also shared by all
+/// six platforms, and this model is wanted by three: it buys 49 points of top-1 on the harvested
+/// failure set and costs p95 153ms per keystroke, which is why it runs on the settle timer, and
+/// why 25MB of it has no business inside an iOS keyboard extension.
+///
+/// Absence is the normal case and is not an error. A host that installs the model puts it here;
+/// one that does not is left exactly as it was.
+fn settled_model_beside(resources: &std::path::Path) -> Option<String> {
+    let path = resources
+        .parent()?
+        .join("settled-model")
+        .join("sentence-model-desktop.safetensors");
+    path.is_file().then(|| path.to_str())??.to_owned().into()
+}
+
 pub fn prepare_host_configuration(
     resources: &std::path::Path,
     state_root: &std::path::Path,
@@ -528,7 +547,7 @@ pub fn prepare_host_configuration(
         // Written only when a model has actually been installed as its own artifact; a host that
         // places one beside the dictionaries needs no configuration.
         sentence_model: None,
-        settled_model: None,
+        settled_model: settled_model_beside(&resources),
     })?)
 }
 

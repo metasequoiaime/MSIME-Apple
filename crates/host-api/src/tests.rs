@@ -3437,3 +3437,33 @@ fn english_completion_request_queries_dictionary_and_rejects_invalid_input() {
     );
     assert!(!directory.path().join("english.db-journal").exists());
 }
+
+/// The settled model is found beside a resource bundle, and its absence is not an error.
+///
+/// Beside rather than inside, because `prepare_host_configuration` verifies the resource directory
+/// against the shared dictionary lock and that check requires an exact match — a model dropped in
+/// there would fail the very check that proves a shipped dictionary is intact.
+#[test]
+fn a_settled_model_beside_the_resources_is_discovered() {
+    let root = tempfile::tempdir().expect("tempdir");
+    let resources = root.path().join("resources");
+    std::fs::create_dir_all(&resources).expect("resources");
+    assert_eq!(super::settled_model_beside(&resources), None);
+
+    let beside = root.path().join("settled-model");
+    std::fs::create_dir_all(&beside).expect("beside");
+    // A directory of the right name is not a model.
+    std::fs::create_dir_all(beside.join("sentence-model-desktop.safetensors")).expect("decoy");
+    assert_eq!(super::settled_model_beside(&resources), None);
+
+    std::fs::remove_dir(beside.join("sentence-model-desktop.safetensors")).expect("decoy");
+    std::fs::write(
+        beside.join("sentence-model-desktop.safetensors"),
+        b"weights",
+    )
+    .expect("model");
+    assert_eq!(
+        super::settled_model_beside(&resources).as_deref(),
+        beside.join("sentence-model-desktop.safetensors").to_str()
+    );
+}
