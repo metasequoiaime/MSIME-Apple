@@ -1699,6 +1699,37 @@ final class NineKeyKeyboardTests: XCTestCase {
     XCTAssertTrue(second.contains { ($0.accessibilityIdentifier ?? "").hasPrefix("nineKeySpelling_") })
   }
 
+  /// Nine-key digits reach the English candidates too.
+  ///
+  /// From a report: typing 65 on nine-key wanted `ok` and the strip had nothing. The digits are
+  /// letter groups, so the mixed-English path has to see them the same way the Chinese one does;
+  /// nothing in the host mapped them, and the failure looked like the word being missing from
+  /// the dictionary rather than like the layout never asking.
+  func testNineKeyOffersEnglishForTheDigitsTyped() throws {
+    let previousScheme = InputSchemePreference.scheme
+    let enabled = InputSchemePreference.enabledSchemes
+    defer {
+      InputSchemePreference.enabledSchemes = enabled
+      InputSchemePreference.scheme = previousScheme
+    }
+    InputSchemePreference.enabledSchemes = [.quanpin, .nineKey]
+    InputSchemePreference.scheme = .nineKey
+    let controller = KeyboardViewController()
+    controller.loadViewIfNeeded()
+    controller.view.frame = CGRect(
+      x: 0, y: 0, width: 390, height: 260 + KeyboardViewController.stripExtraHeight)
+    controller.viewWillAppear(false)
+    for key in ["nineKey6", "nineKey5"] {
+      try button(key, in: controller).sendActions(for: .primaryActionTriggered)
+    }
+    let chips = descendants(controller.view).compactMap { $0 as? UIButton }
+      .filter { ($0.accessibilityIdentifier ?? "").hasPrefix("candidate-") && !$0.isHidden }
+      .compactMap { chip -> String? in
+        chip.configuration?.attributedTitle.map { String($0.characters) } ?? chip.configuration?.title
+      }
+    XCTAssertTrue(chips.contains { $0.hasPrefix("ok") }, "nine-key 65 offered no ok: \(chips)")
+  }
+
   func testNineKeyInputAndLayoutSwitches() throws {
     let previous = InputSchemePreference.scheme
     InputSchemePreference.scheme = .nineKey
