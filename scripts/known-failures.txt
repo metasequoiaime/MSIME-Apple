@@ -102,9 +102,23 @@ native windows-session
 # loaded the machine was; and the paging-shortcut round trip did not account for word-to-character owning
 # the bracket keys.
 #
-# It now reaches the keyboard selection asserting selectCalls + 1 with no ASCII calls - which had never
-# executed either. That is where the next attempt starts. (Line 3931 at the time of writing; the assertion
-# text is the stable way to find it, since tests get added above it.)
+# Six more layers peeled, every one a stale assertion rather than a product fault, and every one of them
+# reached only because the layer before it stopped aborting:
+#
+# - Two assertions read session.asciiCalls as an absolute count when the session is shared with everything
+#   above, where the Caps Lock block has already sent one 'A' through it. Both are relative now, like the
+#   selectCalls baseline sitting next to them.
+# - The pinned-candidate check read slot 1. Pinning moves the candidate to slot 0 - that is what 置顶 does -
+#   so it was asserting the opposite of the feature.
+# - The menu-operations loop invokes 置顶 and left 布局 pinned for the rest of the function, which reorders
+#   every later render. It undoes it now, and the chrome block finds its buttons by candidate identity
+#   rather than by subview position, so pin order cannot decide which button is "the selected one".
+# - The input-method menu expected toggleVoiceInput: where the product has showVoicePanel, which routes to
+#   the shared panel when a provider socket is there and falls back to the toggle when it is not.
+#
+# It now reaches the Unicode-mode paging assertion: with local_mode unicode, '+' (keyCode 24) is expected to
+# go unhandled so the Engine receives it as ASCII, and handleEvent consumes it for paging instead. That one
+# looks like the product rather than the test, and it is where the next attempt starts.
 macos shortcut
 # Load-dependent rather than always-failing: passes on its own and on a second full
 # run, observed failing once in a full parallel run alongside the aborting shortcut test.

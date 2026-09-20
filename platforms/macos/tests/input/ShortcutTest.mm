@@ -51,7 +51,7 @@ static void CheckMenu(NSMenu *menu, id controller) {
         @"openCharacterPalette:", @"showEmoji:", @"showScreenKeyboard:",
         @"showAppearance:", @"showDictionary:", @"showAccount:",
         @"showCloudClipboard:", @"showCloudDictionary:", @"showHandwriting:", @"prepareDictionary:", @"",
-        @"checkForUpdates:", @"openWebsite:", @"showHelp:", @"showAbout:", @"showFeedback:", @"toggleVoiceInput:", @"showVoiceSettings:"
+        @"checkForUpdates:", @"openWebsite:", @"showHelp:", @"showAbout:", @"showFeedback:", @"showVoicePanel", @"showVoiceSettings:"
     ];
     assert(menu.numberOfItems == (NSInteger)actions.count && !menu.autoenablesItems);
     for (NSUInteger index = 0; index < actions.count; ++index) {
@@ -2036,6 +2036,14 @@ static void TestInputMode(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     appearance.englishMode = NO;
 }
 
+// The rendered order is not the candidate order: a pinned candidate is drawn first whatever its index.
+static MSIMECandidateButton *CandidateButtonWithID(NSView *container, NSDictionary *identifier) {
+    for (NSView *child in container.subviews)
+        if ([child isKindOfClass:MSIMECandidateButton.class] &&
+            [((MSIMECandidateButton *)child).candidateID isEqual:identifier])
+            return (MSIMECandidateButton *)child;
+    return nil;
+}
 static MSIMECandidateButton *PageButton(NSView *content, NSInteger tag) {
     for (NSView *view in content.subviews) {
         if ([view isKindOfClass:MSIMECandidateButton.class] && view.tag == tag) return (id)view;
@@ -3925,15 +3933,21 @@ int main(int argc, char **argv) {
             return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:characters charactersIgnoringModifiers:characters isARepeat:NO keyCode:code];
         };
         NSUInteger selectedCallsBeforeKeyboard = session.selectCalls;
+        // Both baselines are relative, because this session is shared with everything above: the Caps Lock
+        // block has already sent one ASCII 'A' through it, so an absolute asciiCalls == 0 here asserts
+        // something about another test rather than about this key.
+        NSUInteger asciiCallsBeforeKeyboard = session.asciiCalls;
         assert([controller handleEvent:candidateKey(18, @"1") client:client]);
         assert(session.selectCalls == selectedCallsBeforeKeyboard + 1 && session.selectedGeneration == 2 && session.selectedIndex == 0);
+        // Slot 3 has no button in the painted panel. The key is consumed rather than selecting anything or
+        // falling through to Engine numeric input, which would type a literal 3 into the composition.
         assert([controller handleEvent:candidateKey(20, @"3") client:client]);
-        assert(session.selectCalls == selectedCallsBeforeKeyboard + 1 && session.asciiCalls == 0);
+        assert(session.selectCalls == selectedCallsBeforeKeyboard + 1 && session.asciiCalls == asciiCallsBeforeKeyboard);
         NSMutableDictionary *unpaintedView = [pageView mutableCopy];
         unpaintedView[@"generation"] = @99;
         [controller setValue:unpaintedView forKey:@"view"];
         assert([controller handleEvent:candidateKey(18, @"1") client:client]);
-        assert(session.selectCalls == selectedCallsBeforeKeyboard + 1 && session.asciiCalls == 0);
+        assert(session.selectCalls == selectedCallsBeforeKeyboard + 1 && session.asciiCalls == asciiCallsBeforeKeyboard);
         assert([controller handleEvent:candidateKey(49, @" ") client:client]);
         assert(session.selectCalls == selectedCallsBeforeKeyboard + 1);
         [controller setValue:pageView forKey:@"view"];
@@ -3993,7 +4007,10 @@ int main(int argc, char **argv) {
         assert(positionMenu.numberOfItems == 7 && [positionMenu itemAtIndex:5].separatorItem);
         [NSUserDefaults.standardUserDefaults setObject:@{@"ce'shi": @[@"布局"]} forKey:@"MSIMEClientPinnedCandidates"];
         [controller renderCandidates];
-        MSIMECandidateButton *pinnedCandidate = (id)PageButton(layoutPanel.contentView, 1);
+        // Pinning moves the candidate to the first slot - that is what 置顶 does - while it keeps the Engine
+        // index it had, so selecting it still commits the right word. Reading slot 1 here asserted the
+        // opposite of the feature, and never ran because the suite aborted earlier.
+        MSIMECandidateButton *pinnedCandidate = (id)PageButton(layoutPanel.contentView, 0);
         assert(pinnedCandidate && [pinnedCandidate.title containsString:@"布局"]);
         assert([pinnedCandidate.candidateID[@"index"] isEqual:@1]);
         assert([[[pinnedCandidate menuForEvent:rightClick] itemAtIndex:0].title isEqual:@"取消置顶"]);
@@ -4011,6 +4028,16 @@ int main(int argc, char **argv) {
             assert(session.maintenanceCalls == calls + 1 && session.maintenanceAction == operation.tag);
             assert(session.selectedGeneration == 2 && session.selectedIndex == 1);
         }
+        // 置顶 is one of the operations above, so the loop leaves 布局 pinned. That reorders every later
+        // render in this function - including the external-skin block, which reads the first button as the
+        // highlighted one - so undo it here rather than at the end. The loop is checking that each menu
+        // item dispatches maintenance, not setting up state for anybody else.
+        [NSUserDefaults.standardUserDefaults removeObjectForKey:@"MSIMEClientPinnedCandidates"];
+        [controller renderCandidates];
+        // renderCandidates rebuilds the buttons, so everything captured from the previous panel is stale.
+        clickCandidate = (id)PageButton(layoutPanel.contentView, 1);
+        candidateMenu = clickCandidate.menu;
+        assert(clickCandidate && candidateMenu.numberOfItems == 3);
         NSMenuItem *retainedOperation = [candidateMenu itemAtIndex:0];
         NSDictionary *validContext = retainedOperation.representedObject;
         NSUInteger maintenanceCalls = session.maintenanceCalls;
@@ -4106,11 +4133,13 @@ int main(int argc, char **argv) {
                     assert([chrome.strokeColor isEqual:SkinColor(tokens.border)]);
                     assert(chrome.cornerRadius == tokens.radius && chrome.lineWidth == tokens.borderWidth);
                     assert(!chrome.isOpaque && !layoutPanel.isOpaque);
-                    MSIMECandidateButton *selected = (id)chrome.subviews[0];
-                    MSIMECandidateButton *unselected = (id)chrome.subviews[1];
+                    // By identity, not by position: a pinned candidate is drawn first whether or not it is
+                    // the highlighted one, and 布局 is pinned by the menu loop above. Reading subviews[0]
+                    // as "the selected one" asserted the ordering rather than the colouring.
+                    MSIMECandidateButton *selected = CandidateButtonWithID(chrome, preservedView[@"candidates"][0][@"id"]);
+                    MSIMECandidateButton *unselected = CandidateButtonWithID(chrome, preservedView[@"candidates"][1][@"id"]);
+                    assert(selected && unselected);
                     assert(selected.candidateHighlighted && !unselected.candidateHighlighted);
-                    assert([selected.candidateID isEqual:preservedView[@"candidates"][0][@"id"]]);
-                    assert([unselected.candidateID isEqual:preservedView[@"candidates"][1][@"id"]]);
                     assert([selected.fillColor isEqual:SkinColor(tokens.selected)]);
                     assert([selected.titleColor isEqual:SkinColor(tokens.selectedText)]);
                     assert([unselected.titleColor isEqual:SkinColor(tokens.text)]);
