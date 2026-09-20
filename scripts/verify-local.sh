@@ -136,6 +136,12 @@ else
   echo "  until then every build error below may be an artefact of the stale tree"
 fi
 
+# The pre-commit hook only ever sees the commit that introduces a marker, so a
+# marker already in HEAD is invisible to it forever. Six of them lived in
+# docs/windows-parity.md until this scan existed.
+note "conflict markers"
+python3 scripts/test-conflict-markers.py || fail "conflict markers"
+
 note "default config contracts"
 python3 scripts/test-default-config-parity.py || fail "default config contracts"
 
