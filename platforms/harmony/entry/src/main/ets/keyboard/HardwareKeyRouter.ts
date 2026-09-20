@@ -330,10 +330,15 @@ export class HardwareKeyRouter {
       (key.unicodeChar >= 0x61 && key.unicodeChar <= 0x7a) ||
       (key.unicodeChar >= 0x41 && key.unicodeChar <= 0x5a);
     if (!letter) {
-      // A Chinese hardware keyboard owns punctuation when no composition is open, just as the
-      // touch keyboard does. Navigation punctuation has already been consumed above while a
-      // composition is active; modifiers and Japanese punctuation remain application-owned.
-      if (!composing && chinese && !japanese && isAsciiPunctuation(key.unicodeChar)) {
+      // A Chinese hardware keyboard owns punctuation, composing or not, just as the touch keyboard
+      // does. Mid-composition the mark ends it: the shared runtime finishes with the highlighted
+      // candidate before translating the mark, which is what the source does in
+      // `IsCommitWithHighlightedCandidatePunctuationInCandidateMode`. Releasing it instead left the
+      // composition open and dropped the mark into the editor ahead of the letters still being
+      // spelled. Navigation punctuation has already been consumed above while composing, so the
+      // keys a preference turned into paging keys still page; modifiers and Japanese punctuation
+      // remain application-owned.
+      if (chinese && !japanese && isAsciiPunctuation(key.unicodeChar)) {
         return decision(HardwareKeyAction.PUNCTUATION, key.unicodeChar);
       }
       return RELEASE;
