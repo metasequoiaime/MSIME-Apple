@@ -1876,8 +1876,9 @@ int main(int argc, char **argv) {
     require(seen.preedit == "U4e00" && seen.candidates.size() == 1 &&
                 seen.candidates.front() == "一",
             "Unicode mode did not expose the deterministic scalar candidate");
+    const bool settled_commit_1 = key(IBUS_space);
     settle_lookup();
-    require(key(IBUS_space) && seen.committed == "一" && !seen.preedit_visible &&
+    require(settled_commit_1 && seen.committed == "一" && !seen.preedit_visible &&
                 !seen.lookup_visible,
             "Unicode candidate was not committed through IBus");
 
@@ -1886,10 +1887,30 @@ int main(int argc, char **argv) {
     require(key('t', IBUS_SHIFT_MASK), "Date-time mode could not restart");
     for (const char character : std::string("rq"))
       require(key(static_cast<guint>(character)), "Date-time keyword input was not consumed");
-    require(seen.candidates.size() >= 13 && !seen.candidates.front().empty(),
-            "Date-time mode did not expose current date candidates");
+    {
+      // The lookup table carries one page, so the whole date list is only
+      // observable by paging through it. Windows shows the same seventeen
+      // formats behind its own pager.
+      std::vector<std::string> paged;
+      for (int page = 0; page < 24; ++page) {
+        const auto before = seen.candidates;
+        for (const auto &candidate : seen.candidates)
+          if (std::find(paged.begin(), paged.end(), candidate) == paged.end())
+            paged.push_back(candidate);
+        if (!key(IBUS_Page_Down) || seen.candidates == before)
+          break;
+      }
+      std::string observed;
+      for (const auto &candidate : paged)
+        observed += "[" + candidate + "]";
+      require(paged.size() >= 13 && !paged.front().empty(),
+              ("Date-time mode did not expose current date candidates: count=" +
+               std::to_string(paged.size()) + " candidates=" + observed)
+                  .c_str());
+    }
+    const bool settled_commit_2 = key(IBUS_space);
     settle_lookup();
-    require(key(IBUS_space) && !seen.committed.empty() && !seen.preedit_visible &&
+    require(settled_commit_2 && !seen.committed.empty() && !seen.preedit_visible &&
                 !seen.lookup_visible,
             "Date-time candidate was not committed through IBus");
 
@@ -1901,8 +1922,9 @@ int main(int argc, char **argv) {
     require(std::any_of(seen.candidates.begin(), seen.candidates.end(),
                         [](const std::string &candidate) { return candidate == "永远滴神"; }),
             "Quick-phrase fixture candidate was not exposed");
+    const bool settled_commit_3 = key(IBUS_space);
     settle_lookup();
-    require(key(IBUS_space) && seen.committed == "永远滴神" && !seen.preedit_visible &&
+    require(settled_commit_3 && seen.committed == "永远滴神" && !seen.preedit_visible &&
                 !seen.lookup_visible,
             "Quick-phrase candidate was not committed through IBus");
 
@@ -1914,8 +1936,9 @@ int main(int argc, char **argv) {
     require(std::any_of(seen.candidates.begin(), seen.candidates.end(),
                         [](const std::string &candidate) { return candidate == "你好"; }),
             "Super-jianpin fixture candidate was not exposed");
+    const bool settled_commit_4 = key(IBUS_space);
     settle_lookup();
-    require(key(IBUS_space) && seen.committed == "你好" && !seen.preedit_visible &&
+    require(settled_commit_4 && seen.committed == "你好" && !seen.preedit_visible &&
                 !seen.lookup_visible,
             "Super-jianpin candidate was not committed through IBus");
 
@@ -1927,8 +1950,9 @@ int main(int argc, char **argv) {
     require(seen.preedit == "YMSIME" && seen.candidates.size() >= 1 &&
                 seen.candidates.front() == "MSIME",
             "Temporary English mode did not expose its raw candidate");
+    const bool settled_commit_5 = key(IBUS_Return);
     settle_lookup();
-    require(key(IBUS_Return) && seen.committed == "MSIME" && !seen.preedit_visible &&
+    require(settled_commit_5 && seen.committed == "MSIME" && !seen.preedit_visible &&
                 !seen.lookup_visible,
             "Temporary English raw text was not committed through IBus");
 
@@ -1939,8 +1963,9 @@ int main(int argc, char **argv) {
       require(key(static_cast<guint>(character)), "Emoji keyword input was not consumed");
     require(!seen.candidates.empty() && seen.candidates.front() == "😀",
             "Emoji mode did not expose the locked-resource fixture candidate");
+    const bool settled_commit_6 = key(IBUS_space);
     settle_lookup();
-    require(key(IBUS_space) && seen.committed == "😀" && !seen.preedit_visible &&
+    require(settled_commit_6 && seen.committed == "😀" && !seen.preedit_visible &&
                 !seen.lookup_visible,
             "Emoji candidate was not committed through IBus");
 
@@ -1951,8 +1976,9 @@ int main(int argc, char **argv) {
       require(key(static_cast<guint>(character)), "Kaomoji keyword input was not consumed");
     require(!seen.candidates.empty() && seen.candidates.front() == "!(*￣(￣　*)",
             "Kaomoji mode did not expose the locked-resource fixture candidate");
+    const bool settled_commit_7 = key(IBUS_space);
     settle_lookup();
-    require(key(IBUS_space) && seen.committed == "!(*￣(￣　*)" && !seen.preedit_visible &&
+    require(settled_commit_7 && seen.committed == "!(*￣(￣　*)" && !seen.preedit_visible &&
                 !seen.lookup_visible,
             "Kaomoji candidate was not committed through IBus");
 
@@ -2030,8 +2056,9 @@ int main(int argc, char **argv) {
         key(IBUS_minus) && seen.preedit == "-" && seen.candidates.size() == 2 &&
             seen.candidates[0] == "ー" && seen.candidates[1] == "-",
         "Bare Japanese minus did not offer long-vowel and hyphen candidates");
+    const bool settled_commit_8 = key(IBUS_equal);
     settle_lookup();
-    require(key(IBUS_equal) && seen.committed == japanese_commit + "ー=" &&
+    require(settled_commit_8 && seen.committed == japanese_commit + "ー=" &&
                 !seen.preedit_visible && !seen.lookup_visible,
             "Japanese equal key paged candidates instead of committing "
             "punctuation");
@@ -2393,8 +2420,9 @@ int main(int argc, char **argv) {
       invoke("PageDown");
       auto last =
           seen.committed + edge_text(seen.candidates.at(seen.cursor), true);
+      const bool settled_commit_9 = key(minus ? IBUS_equal : IBUS_bracketright);
       settle_lookup();
-      require(key(minus ? IBUS_equal : IBUS_bracketright) &&
+      require(settled_commit_9 &&
                   seen.committed == last && !seen.lookup_visible,
               "Last Han binding did not use the displayed global candidate");
       // An invalid simultaneous paging binding must not replace live settings.
