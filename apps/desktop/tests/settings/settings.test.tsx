@@ -3544,12 +3544,16 @@ test("macOS and iOS help pages use their native host instructions", async () => 
     />,
   );
   fireEvent.click(screen.getByRole("button", { name: "帮助" }));
-  expect(await screen.findByText(/macOS 平台的中文输入法/)).toBeDefined();
-  expect(screen.getByText(/系统设置的键盘输入法/)).toBeDefined();
-  expect(screen.getByText(/候选翻译和 AI 功能仅在用户配置并启用/)).toBeDefined();
-  expect(screen.getByText(/按 Tab 在候选词、目标语言释义和第二语言释义之间切换/)).toBeDefined();
-  expect(screen.getByText(/Option\+数字直接上屏目标语言释义/)).toBeDefined();
-  expect(screen.getByText(/输入法菜单里没有水杉输入法时/)).toBeDefined();
+  // macOS answers the three questions as term/description rows, not prose, so the page carries the
+  // reference window's own terms rather than the shared platform intro.
+  expect(await screen.findByRole("group", { name: "开始输入" })).toBeDefined();
+  expect(screen.getByRole("group", { name: "候选词释义" })).toBeDefined();
+  expect(screen.getByRole("group", { name: "遇到问题" })).toBeDefined();
+  expect(screen.getByText("数字键 1–9")).toBeDefined();
+  expect(screen.getByText("Option / Control + 数字")).toBeDefined();
+  expect(screen.getByText(/Shift\+Tab 反向/)).toBeDefined();
+  expect(screen.getByText(/系统设置 › 键盘 › 文字输入 › 输入法/)).toBeDefined();
+  expect(screen.queryByText(/macOS 平台的中文输入法/)).toBeNull();
   expect(screen.queryByText(/Win \+ Space/)).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
   expect(await screen.findByText(/现代 macOS 桌面体验/)).toBeDefined();
@@ -3571,6 +3575,43 @@ test("macOS and iOS help pages use their native host instructions", async () => 
   expect(screen.queryByText(/Win \+ Space/)).toBeNull();
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
   expect(await screen.findByText(/iPhone 与 iPad 触屏输入体验/)).toBeDefined();
+});
+
+test("macOS sidebar keeps the reference order and groups", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: { platform: "macos", floating_toolbar: true } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  const sidebar = screen.getByRole("navigation", { name: "设置分类" });
+  const titles = [...sidebar.querySelectorAll("button.item")].map((item) => item.textContent ?? "");
+  const reference = [
+    "输入",
+    "辅助码",
+    "快捷键",
+    "实用功能",
+    "语音输入",
+    "外观",
+    "皮肤",
+    "悬浮工具栏",
+    "词库",
+    "帮助",
+    "反馈",
+    "关于",
+  ];
+  expect(titles.filter((title) => reference.includes(title))).toEqual(reference);
+  // The groups are blocks of their own, so the pages this client has and the reference window does
+  // not keep a place instead of being dropped from the list.
+  const groups = [...sidebar.querySelectorAll(".sidebar-section")];
+  expect(groups.length).toBeGreaterThanOrEqual(4);
+  expect(groups[0].firstElementChild?.textContent).toBe("输入");
+  expect(groups.at(-1)?.firstElementChild?.textContent).toBe("帮助");
+  expect(titles).toContain("AI 辅助");
 });
 
 test("about page validates a newer release before offering its URL", async () => {

@@ -353,6 +353,13 @@ input:disabled {
   min-height: 36px;
   flex-shrink: 0;
 }
+.sidebar-section {
+  flex-shrink: 0;
+}
+/* 分组之间留空白而不是分隔线，与 macOS 系统设置一致 */
+.sidebar-section.spaced {
+  margin-top: 14px;
+}
 .sidebar .item.active::before {
   content: "";
   position: absolute;

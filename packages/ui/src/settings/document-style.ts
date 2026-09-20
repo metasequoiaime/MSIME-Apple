@@ -14,6 +14,18 @@ export const eyebrow = "text-xs tracking-[0.04em] text-muted";
 export const heroTitle = "mt-0.5 text-[22px] font-semibold text-body";
 export const note = "flex flex-col gap-[5px] text-secondary [&>span]:text-xs [&>span]:text-muted";
 
+/**
+ * The guide cards: a term on the left, what it does on the right. The macOS reference window leads
+ * each card with a single row, rules it off, and runs the rest together; the first row is the one
+ * that carries the whole card, so it gets the air.
+ */
+export const guide = "flex flex-col gap-3";
+export const guideRow =
+  "grid grid-cols-[minmax(0,170px)_minmax(0,1fr)] items-baseline gap-5 max-narrow:grid-cols-1 max-narrow:gap-1";
+export const guideLead = "border-b border-[var(--divider-color)] pb-3.5";
+export const guideTerm = "text-body";
+export const guideText = "m-0! text-secondary";
+
 export const mark =
   "flex size-[62px] items-center justify-center rounded-2xl bg-raised p-2.5 [&>img]:size-12";
 /** The link lists are inset from the card edge so the dividers stop short of it, as iOS does. */
