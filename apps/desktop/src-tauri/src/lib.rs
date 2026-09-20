@@ -1823,6 +1823,23 @@ async fn save_macos_wubi_auto_commit_unique(enabled: bool) -> Result<(), HostAct
 
 #[cfg(target_os = "macos")]
 #[tauri::command]
+async fn pick_voice_model_path(app: tauri::AppHandle) -> Result<Option<String>, HostActionError> {
+    // A local speech model is loaded by path, and a web view's file input hands back contents instead, so
+    // the settings page cannot resolve one itself. AppKit will only run the panel on the main thread.
+    let (send, received) = std::sync::mpsc::sync_channel(1);
+    app.run_on_main_thread(move || {
+        let _ = send.send(msime_host_macos::pick_file());
+    })
+    .map_err(|_| HostActionError {
+        code: "unavailable",
+    })?;
+    received.recv().map_err(|_| HostActionError {
+        code: "unavailable",
+    })
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
 async fn uninstall_input_source(
     remove_user_data: bool,
     app: tauri::AppHandle,
@@ -3287,6 +3304,8 @@ pub fn run() {
             save_macos_wubi_auto_commit_unique,
             #[cfg(target_os = "macos")]
             uninstall_input_source,
+            #[cfg(target_os = "macos")]
+            pick_voice_model_path,
             #[cfg(target_os = "android")]
             android_account::account_status,
             #[cfg(target_os = "windows")]
