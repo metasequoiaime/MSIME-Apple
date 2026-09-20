@@ -27,10 +27,11 @@ std::string recognize_cloud_asr(
     std::string_view endpoint, std::string_view model, std::string_view token,
     std::string_view language,
     const std::shared_ptr<std::atomic_bool> &cancelled);
+// timeout_ms is the whole request budget - connection, upload and response - not a connect timeout. The default is the Windows one; a host that needs longer states its own. Getting this wrong is silent: callers keep the ASR text when polish fails, so a budget the service cannot meet means the transcript was uploaded and the answer thrown away with nothing shown.
 std::string polish_cloud_text(
     std::string_view text, std::string_view provider, std::string_view endpoint,
     std::string_view model, std::string_view token, std::string_view prompt,
-    const std::shared_ptr<std::atomic_bool> &cancelled);
+    const std::shared_ptr<std::atomic_bool> &cancelled, long timeout_ms = 3000);
 // Whether this build carries the on-device Whisper provider. Hosts offer the "local" provider only when it answers true; without it the recognizer below always throws, and a host that advertised the option anyway would fall back to the platform recognizer without saying so.
 bool local_asr_available();
 // Transcribe on this machine with the model file at `model_path`. Nothing leaves the process. `language` is the host's language tag; "auto" asks Whisper to detect. Throws VoiceError when the build has no Whisper, the model cannot be loaded, or the request was cancelled.

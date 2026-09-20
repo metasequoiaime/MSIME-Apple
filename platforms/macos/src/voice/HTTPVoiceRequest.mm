@@ -33,8 +33,13 @@ std::string Polish(std::string text, NSDictionary *options, const std::shared_pt
             String(options, @"polish_prompt_custom_2"), String(options, @"polish_prompt_custom_3")});
         if (Endpoint(endpoint)) {
             if (polishing) dispatch_async(dispatch_get_main_queue(), ^{ if (!cancelled->load()) polishing(); });
+            // 30s, the budget the reference host uses and for the reason it measured: a chat completion
+            // cleaning up to a minute of transcript does not answer inside the 3s default, and the catch
+            // below keeps the ASR text without telling anyone - so the transcript reached the provider and
+            // the cleaned answer was discarded every time. Waiting is the lesser cost; sending the text and
+            // binning the reply is the one nobody asked for.
             auto polished = msime::voice::polish_cloud_text(text, provider, endpoint, model,
-                String(options, @"polish_token"), prompt, cancelled);
+                String(options, @"polish_token"), prompt, cancelled, 30000);
             if (!polished.empty() && polished.size() <= 65536) text = std::move(polished);
         }
     } catch (const std::exception &) { /* Optional polish failure preserves ASR. */ }
