@@ -89,6 +89,11 @@ interface NativeBridge {
 }
 
 declare global {
+  // eslint-disable-next-line no-var
+  var msimeHarmonyPreferencesChanged: ((reply: string) => void) | undefined;
+}
+
+declare global {
   interface Window {
     msimeHarmony?: NativeBridge;
   }
@@ -343,6 +348,22 @@ function makeClient(
     // shrinks to the few controls that have no capability behind them.
     host: unwrap<HostCapabilities>(native.hostCapabilities()),
     load: async () => unwrap<Snapshot>(native.loadPreferences()),
+    // The keyboard writes preferences from its toolbar and the two are separate processes, so the
+    // host calls this when the settings window comes back to the front and the document has moved.
+    // The reply is the one loadPreferences would have returned, so both paths parse identically.
+    onPreferencesChanged: async (listener) => {
+      globalThis.msimeHarmonyPreferencesChanged = (reply: string) => {
+        try {
+          listener(unwrap<Snapshot>(reply));
+        } catch {
+          // A document this cannot read is not worth interrupting the page for; the next save still
+          // has the store's revision check behind it.
+        }
+      };
+      return () => {
+        globalThis.msimeHarmonyPreferencesChanged = undefined;
+      };
+    },
     save: async (revision: number, preferences: Preferences) => {
       // The revision sent is the one the page read; the document carries the next. The store compares
       // the former against what is on disk and refuses the save if the keyboard moved in between.

@@ -4,6 +4,7 @@ import AbilityConstant from '@ohos.app.ability.AbilityConstant';
 import window from '@ohos.window';
 import { KeyboardLog } from '../keyboard/KeyboardLog';
 import { BusinessErrorPolicy } from '../keyboard/BusinessErrorPolicy';
+import { describeError } from '../keyboard/KeyboardLog';
 
 /**
  * The application the keyboard belongs to.
@@ -14,11 +15,28 @@ import { BusinessErrorPolicy } from '../keyboard/BusinessErrorPolicy';
  * document the keyboard reads when it next starts.
  */
 export default class EntryAbility extends UIAbility {
+  /** Set by the settings page, which owns the bridge that can read and deliver the document. */
+  static onActivated: (() => void) | undefined = undefined;
+
   onCreate(want: Want, launch: AbilityConstant.LaunchParam): void {
     KeyboardLog.info('app created');
   }
 
   onWindowStageCreate(stage: window.WindowStage): void {
+    // The keyboard writes preferences of its own — the toolbar's 简繁, 标点 and 全半角 each save —
+    // and the two are separate processes with no listener between them. A settings window that
+    // missed one got a conflict on its next save, which is safe but tells the user only that
+    // something clashed. Refreshing when the window comes back to the front is the moment a user
+    // who has just used the keyboard is looking at this page again.
+    try {
+      stage.on('windowStageEvent', (event: window.WindowStageEventType): void => {
+        if (event === window.WindowStageEventType.ACTIVE) {
+          EntryAbility.onActivated?.();
+        }
+      });
+    } catch (error) {
+      KeyboardLog.error(`window stage events unavailable: ${describeError(error)}`);
+    }
     // An AsyncCallback is handed a BusinessError whether it succeeded or not, and on success that
     // object carries code 0. Testing the object itself reported a failure on every successful load,
     // which is also what made a real one impossible to spot among them.
