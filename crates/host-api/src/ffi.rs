@@ -36,8 +36,17 @@ pub(crate) const SETTLED_MODEL_FILE: &str = "sentence-model-desktop.safetensors"
 ///
 /// Shares `sentence_model`'s cache by going through it, so two sessions on the same resources load
 /// the twenty five megabytes once between them rather than once each.
-pub(crate) fn sentence_model_settled(dictionaries: &str) -> Option<Arc<SentenceModel>> {
-    let path = Path::new(dictionaries).join(SETTLED_MODEL_FILE);
+pub(crate) fn sentence_model_settled(
+    dictionaries: &str,
+    configured: Option<&str>,
+) -> Option<Arc<SentenceModel>> {
+    let path = match configured {
+        Some(path) => PathBuf::from(path),
+        None => Path::new(dictionaries).join(SETTLED_MODEL_FILE),
+    };
+    // Absence is the normal case — most installations ship one model — so it is checked rather
+    // than reported. A host that named a path and got nothing gets the same silence: a second
+    // model is not worth failing a session over.
     if !path.is_file() {
         return None;
     }

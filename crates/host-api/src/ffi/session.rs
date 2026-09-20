@@ -24,6 +24,7 @@ pub unsafe extern "C" fn msime_client_create(options: *const u8, length: usize) 
         let applied = options.preferences.clone();
         // Taken before the options are consumed, and kept separate from the engine's own paths.
         let sentence_model_path = options.sentence_model.clone();
+        let settled_model_path = options.settled_model.clone();
         let options = options.into_engine_options();
         let dictionary_access = DictionaryAccess::try_session(
             std::path::Path::new(&options.user_data),
