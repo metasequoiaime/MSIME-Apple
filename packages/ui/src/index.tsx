@@ -5903,7 +5903,8 @@ export function SettingsPage({
                     <div className="section">
                       <label className="section-header">
                         <span className="section-title">
-                          智能标点<small>根据输入上下文选择中文或英文标点形式</small>
+                          智能标点
+                          <small>中文标点模式下，字母或数字后的 , . : 自动使用英文标点</small>
                         </span>
                         <input
                           className="toggle"
@@ -5918,7 +5919,10 @@ export function SettingsPage({
                     <div className="section">
                       <label className="section-header">
                         <span className="section-title">
-                          重复标点转中文<small>短时间重复输入 ASCII 标点时转换为中文标点</small>
+                          重复标点转中文
+                          <small>
+                            智能标点输出英文标点后，2 秒内再次输入同一标点时替换为中文标点
+                          </small>
                         </span>
                         <input
                           className="toggle"
@@ -5988,7 +5992,8 @@ export function SettingsPage({
                     <div className="section">
                       <label className="section-header">
                         <span className="section-title">
-                          成对标点自动补全<small>自动补全成对引号和括号</small>
+                          成对标点自动补全
+                          <small>输入左侧符号时自动补全右侧符号，并将光标置于中间</small>
                         </span>
                         <input
                           className="toggle"
