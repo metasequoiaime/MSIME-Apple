@@ -732,6 +732,18 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 三批连起来的意义：本轮此前多次只能写「已实现但缺覆盖」或「靠读源码核对」，原因不是没人想测，而是**套件够不着那些代码**。运行器扩展之后，那些条目里有相当一部分不再需要真实 Windows 才能验证。
 
+增量记录（2026-09-20，Windows 第五十七批：Wine 容器没有 locale，中文路径一律失败——对一个中文输入法而言是严重盲区）：把 `msime-engine-bridge` 也纳入 Wine 运行器时，`reset_learned_data_restores_packaged_dictionaries_and_clears_journal` 失败，`create_dir_all` 在创建名为 `陆傲天` 的目录时返回 `NotFound`，而同一循环里的 `ascii` 那轮正常。
+
+**没有直接当成缺陷。** 写了一个只调 `std::fs::create_dir_all` 的最小 Rust 程序去分辨：ASCII 目录成功、CJK 目录 `NotFound`，写文件则是 `Path not found`。这说明问题在环境而非本仓库代码。
+
+根因是容器**根本没有设 locale**：`LANG` 为空、`LC_CTYPE="POSIX"`。Wine 依据 locale 决定文件名的编码映射，POSIX 下非 ASCII 路径直接失败。镜像里其实有 `C.utf8`。加上 `-e LANG=C.utf8 -e LC_ALL=C.utf8` 之后，同一个探针两轮全部成功，`engine-bridge` 那条测试也随之通过。
+
+**这一条值得单独强调**：本仓库是中文输入法，而它的 Windows 测试环境此前无法处理中文路径。任何涉及 CJK 文件名的行为在这里都测不了，且失败形式是 `NotFound` 这种容易被误判成代码缺陷的错误。
+
+同批另外三处改动：`--tests` 只构建测试目标（`engine-bridge` 有个用 `std::os::unix` 的 example，为该目标根本编不过）；运行器不再静默吞掉 cargo 的错误——没有产出任何 Rust 二进制时会打印提示并附上日志路径（`msimeui-tests` 长期没被执行而计数看起来正常，正是这种静默造成的）；`engine-bridge` 纳入后新增 28 个用例。
+
+结果：套件 **88 通过 / 1 失败**，十个 Rust 测试二进制全部通过，唯一失败仍是基线里的 `msimeui-tests`。会话开始时这个数字是 78 通过 / 1 失败。
+
 ## 来源模块的落点
 
 逐模块记下来源的每个目录在本仓库落在哪里，以及为什么。上面那张功能表按「功能组」组织，回答的是某个功能有没有；这张按**来源的源码目录**组织，回答的是来源的每一块代码去了哪儿——两者互相校验，一块代码找不到落点就是缺口，哪怕对应功能在表里被标成有。

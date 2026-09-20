@@ -159,7 +159,7 @@ if command -v cargo >/dev/null 2>&1; then
   # client-core carries the shared logic plus a few #[cfg(windows)] paths - the
   # file-replacement retry in the gloss store among them - that the host run can
   # never reach, because on macOS and Linux the other branch is compiled.
-  rust_packages="-p msime-host-windows -p msime-client-core"
+  rust_packages="-p msime-host-windows -p msime-client-core -p msime-engine-bridge"
   deps_prefix="${MSIME_WINDOWS_DEPS_ROOT:-$root/target/windows-native-deps}/$arch/$arch-mingw-static"
   if [ -d "$deps_prefix" ]; then
     rust_packages="$rust_packages -p msime-host-api"
@@ -169,8 +169,11 @@ if command -v cargo >/dev/null 2>&1; then
   fi
   # Filter on profile.test: --no-run also reports examples, which are ordinary
   # programs that expect arguments and would be counted as failures here.
-  cargo test $rust_packages --target "$rust_triple" --no-run \
-    --message-format=json 2>/dev/null \
+  # --tests excludes examples, which are not tests and need not build for this
+  # target - engine-bridge ships one that uses std::os::unix.
+  rust_build_log="$rust_stage/cargo.log"
+  cargo test $rust_packages --target "$rust_triple" --no-run --tests \
+    --message-format=json 2>"$rust_build_log" \
     | python3 -c 'import sys, json
 for line in sys.stdin:
     try:
@@ -184,6 +187,12 @@ for line in sys.stdin:
         [ -f "$exe" ] || continue
         cp "$exe" "$rust_stage/rust-$(basename "$exe" .exe | sed 's/-[0-9a-f]\{16\}$//').exe"
       done
+  # Silence here would mean the Rust suites vanish without a word, which is how
+  # the C++ side lost msimeui-tests for so long. Say so, and keep the log.
+  if [ -z "$(ls -A "$rust_stage" 2>/dev/null | grep -v '^cargo\.log$')" ]; then
+    echo "note: no Rust test binaries were staged; see $rust_build_log"
+    grep -E '^error' "$rust_build_log" | head -3
+  fi
 else
   echo "skipped: cargo unavailable, the Rust host tests will not run under Wine"
 fi
@@ -191,7 +200,8 @@ fi
 docker run --rm --platform linux/amd64 \
   -v "$build":/bin-win:ro -v "$runtime":/rt:ro -v "$rust_stage":/bin-rust:ro ${resources_mount[@]+"${resources_mount[@]}"} \
   ${installer_mount[@]+"${installer_mount[@]}"} \
-  -e "MSIME_RESOURCES=$resources_argument" -e "MSIME_INSTALLER=$installer_argument" "$image" sh -c '
+  -e "MSIME_RESOURCES=$resources_argument" -e "MSIME_INSTALLER=$installer_argument" \
+  -e LANG=C.utf8 -e LC_ALL=C.utf8 "$image" sh -c '
 mkdir -p /run/t && cp /rt/*.dll /run/t/ && cp /bin-win/*.dll /run/t/ 2>/dev/null
 cd /run/t
 # msimeui puts its test executable in bin/ rather than beside the others, so a
