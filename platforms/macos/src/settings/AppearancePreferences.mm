@@ -1549,7 +1549,10 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 }
 - (NSUInteger)pageSize {
     NSInteger value = _sharedPageSize ? _sharedPageSize.integerValue : [_defaults integerForKey:PageSizeKey];
-    return msime::mac::NormalizeCandidatePageSize(static_cast<NSUInteger>(MAX(0, value)));
+    // Absent reads as zero, which is not a page size. That is the unset case, and it means the shared
+    // default rather than the nearest legal number.
+    if (value <= 0) return msime::mac::kDefaultCandidatePageSize;
+    return msime::mac::NormalizeCandidatePageSize(static_cast<NSUInteger>(value));
 }
 - (void)setPageSize:(NSUInteger)value {
     _sharedPageSize = nil;
@@ -1864,8 +1867,9 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     navigationControls.orientation = NSUserInterfaceLayoutOrientationVertical;
     navigationControls.alignment = NSLayoutAttributeLeading;
     _pageSizeButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    for (NSUInteger size : {static_cast<NSUInteger>(5), static_cast<NSUInteger>(7), static_cast<NSUInteger>(9)})
-        [_pageSizeButton addItemWithTitle:[NSString stringWithFormat:@"%lu 个", (unsigned long)size]];
+    for (NSUInteger index = 0; index < msime::mac::kOfferedCandidatePageSizes; ++index)
+        [_pageSizeButton addItemWithTitle:[NSString stringWithFormat:@"%lu 个",
+            (unsigned long)msime::mac::CandidatePageSizeForOptionIndex(index)]];
     _pageSizeButton.accessibilityLabel = @"每页候选";
     _pageSizeButton.target = self;
     _pageSizeButton.action = @selector(pageSizeChanged:);

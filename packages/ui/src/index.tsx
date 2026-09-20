@@ -1776,9 +1776,10 @@ export function SettingsPage({
   const windowsPlatform = client.host?.platform === "windows";
   const macosPlatform = client.host?.platform === "macos";
   const nativeVoicePlatform = macosPlatform || harmonyPlatform;
-  const candidatePageSizes = macosPlatform
-    ? [5, 7, 9]
-    : Array.from({ length: 9 }, (_, index) => index + 1);
+  // One list for every host. macOS used to be given 5, 7 and 9 - the Apple reference's set - while its
+  // own normalisation rewrote anything else to 9, so the shared default of six displayed and saved as
+  // nine on that platform alone.
+  const candidatePageSizes = Array.from({ length: 9 }, (_, index) => index + 1);
   // Functional controls follow what the host declares it can do. Only the prose
   // below still varies by platform name. A host that predates the contract keeps
   // the previous Linux-only behaviour.
@@ -2310,11 +2311,7 @@ export function SettingsPage({
     setError("");
     setNotice("");
     try {
-      const preferences =
-        macosPlatform && !candidatePageSizes.includes(draft.candidate_page_size)
-          ? { ...draft, candidate_page_size: 9 }
-          : draft;
-      const value = await client.save(snapshot.revision, preferences);
+      const value = await client.save(snapshot.revision, draft);
       if (macosPlatform && client.saveMacosShuangpinKeymap && macosShuangpinKeymap !== undefined) {
         await client.saveMacosShuangpinKeymap(macosShuangpinKeymap);
       }
@@ -4022,11 +4019,7 @@ export function SettingsPage({
                         <span className="section-title">每页候选项数量</span>
                         <select
                           aria-label="每页候选项数量"
-                          value={
-                            candidatePageSizes.includes(draft.candidate_page_size)
-                              ? draft.candidate_page_size
-                              : 9
-                          }
+                          value={draft.candidate_page_size}
                           onChange={(event) =>
                             setDraft({ ...draft, candidate_page_size: Number(event.target.value) })
                           }
