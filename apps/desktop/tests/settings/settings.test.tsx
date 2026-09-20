@@ -31,6 +31,7 @@ import {
 } from "@msime/ui";
 import { validateGitHubRelease } from "../../../../packages/ui/src/settings/update-manifest";
 import { candidateSkinPalette } from "../../../../packages/ui/src/skin/skin-preview-palette";
+import { answerConfirm } from "../support/confirm";
 
 afterEach(cleanup);
 
@@ -157,7 +158,6 @@ test("titlebar sits above the shared sidebar and content body", async () => {
 
 test("Android fuzzy-pinyin settings preserve rules while disabled and reset explicitly", async () => {
   const save = vi.fn().mockResolvedValue(initial);
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   render(<SettingsPage client={{ load: async () => initial, save, fuzzyPinyin: true }} />);
   await screen.findByRole("button", { name: "保存设置" });
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
@@ -175,10 +175,10 @@ test("Android fuzzy-pinyin settings preserve rules while disabled and reset expl
   expect(rule.checked).toBe(true);
   expect(rule.disabled).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "重置模糊音配置" }));
-  expect(confirm).toHaveBeenCalledWith("关闭模糊音并清空所有规则？");
+  expect((await screen.findByRole("alertdialog")).textContent).toContain("所有模糊音规则会被清空");
+  await answerConfirm("confirm");
   expect(enabled.checked).toBe(false);
   expect(rule.checked).toBe(false);
-  confirm.mockRestore();
 });
 
 test("Android fuzzy-pinyin first enable seeds every rule once", async () => {
@@ -1876,13 +1876,11 @@ test("dictionary manager queries, edits and removes Engine entries", async () =>
     ),
   );
   // Deletion is not undoable, so it asks first.
-  const confirmRemoval = vi.spyOn(window, "confirm").mockReturnValue(true);
   fireEvent.click(await screen.findByRole("button", { name: "删除" }));
+  await answerConfirm("confirm");
   await waitFor(() =>
     expect(edit).toHaveBeenCalledWith(quick, null, expect.stringMatching(/^ui-remove-/)),
   );
-  expect(confirmRemoval).toHaveBeenCalled();
-  confirmRemoval.mockRestore();
 });
 
 test("dictionary manager pages through entries instead of loading the whole dictionary", async () => {
@@ -2697,9 +2695,8 @@ test("screen keyboard theme and Apple skin load, save independently and reload",
   expect(preview.getAttribute("data-preview-skin")).toBe("forest");
   fireEvent.change(select, { target: { value: "follow" } });
   expect(preview.getAttribute("data-preview-theme")).toBe("light");
-  const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(true);
   fireEvent.click(screen.getByRole("button", { name: "重新读取" }));
-  confirm.mockRestore();
+  await answerConfirm("confirm");
   await waitFor(() => expect(select.value).toBe("dark"));
   expect(preview.getAttribute("data-preview-theme")).toBe("dark");
   expect(preview.getAttribute("data-preview-skin")).toBe("midnight");
@@ -3001,9 +2998,8 @@ test("toolbar theme loads, previews independently, saves and reloads", async () 
     ),
   );
   fireEvent.change(select, { target: { value: "dark" } });
-  const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(true);
   fireEvent.click(screen.getByRole("button", { name: "重新读取" }));
-  confirm.mockRestore();
+  await answerConfirm("confirm");
   await waitFor(() => expect(select.value).toBe("follow"));
 });
 
@@ -3122,9 +3118,8 @@ test("appearance preview follows drafts, skin selection and reload without savin
   fireEvent.click(screen.getByRole("button", { name: "外观" }));
   expect(preview.querySelector(".skin-wechat")).not.toBeNull();
   expect(save).not.toHaveBeenCalled();
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   fireEvent.click(screen.getByRole("button", { name: "重新读取" }));
-  confirm.mockRestore();
+  await answerConfirm("confirm");
   await waitFor(() => expect(preview.querySelectorAll(".cand")).toHaveLength(5));
   expect(preview.querySelector(".skin-willow_green")).not.toBeNull();
   expect(preview.querySelector(".pinyin")).not.toBeNull();
@@ -3778,7 +3773,6 @@ test("the full-width chord row is macOS only", async () => {
 });
 
 test("restore defaults stages the host's defaults instead of writing them", async () => {
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   const save = vi.fn().mockResolvedValue({ ...initial, revision: 8 });
   // What the host hands back: settings at their defaults, the key it was told to keep still there.
   const restored = {
@@ -3802,11 +3796,11 @@ test("restore defaults stages the host's defaults instead of writing them", asyn
   );
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "恢复默认设置" }));
+  await answerConfirm("confirm");
   // Staged, not written: the page says to save, and nothing has been sent yet.
   await screen.findByText("所有设置已恢复默认，请点击保存设置。");
   expect(loadDefaultPreferences).toHaveBeenCalledOnce();
   expect(save).not.toHaveBeenCalled();
-  expect(confirm).toHaveBeenCalled();
 
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
@@ -3817,11 +3811,9 @@ test("restore defaults stages the host's defaults instead of writing them", asyn
       voice_input: expect.objectContaining({ asr_token: "kept-by-the-host" }),
     }),
   );
-  confirm.mockRestore();
 });
 
 test("restore defaults declined leaves the draft alone", async () => {
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
   const loadDefaultPreferences = vi.fn();
   render(
     <SettingsPage
@@ -3835,8 +3827,8 @@ test("restore defaults declined leaves the draft alone", async () => {
   );
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "恢复默认设置" }));
+  await answerConfirm("cancel");
   expect(loadDefaultPreferences).not.toHaveBeenCalled();
-  confirm.mockRestore();
 });
 
 test("a host without the defaults command shows no restore button", async () => {
@@ -4686,7 +4678,6 @@ test("cloud dictionary panel supports paging and CRUD actions", async () => {
 });
 
 test("cloud dictionary files previews, confirms and preserves bounded import/export contracts", async () => {
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   const request = vi
     .fn()
     .mockImplementation(async (action: { operation: string; kind?: string; format?: string }) =>
@@ -4698,6 +4689,10 @@ test("cloud dictionary files previews, confirms and preserves bounded import/exp
   expect(await screen.findByText("words.tsv")).toBeDefined();
   expect(request).not.toHaveBeenCalledWith(expect.objectContaining({ operation: "import" }));
   fireEvent.click(screen.getByRole("button", { name: "确认上传到云端" }));
+  expect((await screen.findByRole("alertdialog")).textContent).toContain(
+    "按“标准 TSV”导入拼音词库",
+  );
+  await answerConfirm("confirm");
   await waitFor(() =>
     expect(request).toHaveBeenCalledWith({
       operation: "import",
@@ -4717,8 +4712,6 @@ test("cloud dictionary files previews, confirms and preserves bounded import/exp
   const oversized = new File(["x".repeat(65537)], "large.tsv", { type: "text/plain" });
   fireEvent.change(screen.getByLabelText("选择 UTF-8 文件"), { target: { files: [oversized] } });
   expect(await screen.findByText("导入文件必须大于 0 且不超过 64 KiB")).toBeDefined();
-  expect(confirm).toHaveBeenCalledWith(expect.stringContaining("确认按“标准 TSV”导入"));
-  confirm.mockRestore();
 });
 
 test("cloud dictionary entries open their editor from the row on touch layouts", async () => {
@@ -4747,19 +4740,17 @@ test("cloud dictionary deletion asks for confirmation before changing the cloud 
     weight: 100,
     revision: 2,
   };
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
   const request = vi.fn().mockResolvedValue({ entries: [entry], has_more: false, offset: 0 });
   render(<CloudDictionaryPanel client={{ close: vi.fn(), request }} />);
   await screen.findByText("你");
   fireEvent.click(screen.getByRole("button", { name: "删除" }));
-  expect(confirm).toHaveBeenCalledWith("确认删除云词条“你”？仅删除云端版本，本机词库不会改变。");
+  expect((await screen.findByRole("alertdialog")).textContent).toContain("“你”只会从云端删除");
+  await answerConfirm("cancel");
   expect(request).not.toHaveBeenCalledWith(expect.objectContaining({ operation: "delete" }));
-  confirm.mockRestore();
 });
 
 test("cloud dictionary panel can queue an entry for the local dictionary", async () => {
   const close = vi.fn().mockResolvedValue(undefined);
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   const entry = {
     id: "a".repeat(64),
     kind: "pinyin" as const,
@@ -4773,16 +4764,17 @@ test("cloud dictionary panel can queue an entry for the local dictionary", async
   const panel = render(<CloudDictionaryPanel client={{ close, request, downloadToLocal }} />);
   expect(await screen.findByText("你")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "下载到本机 你" }));
-  expect(confirm).toHaveBeenCalledWith("确认将云词条“你”加入本机个人词典？");
+  expect((await screen.findByRole("alertdialog")).textContent).toContain(
+    "云词条“你”会被加入本机个人词典",
+  );
+  await answerConfirm("confirm");
   await waitFor(() => expect(downloadToLocal).toHaveBeenCalledWith(entry));
   expect(screen.getByRole("status").textContent).toContain("云词条已加入本机词典队列");
-  confirm.mockRestore();
   panel.unmount();
 });
 
 test("cloud dictionary apply requires preview and explicit confirmation", async () => {
   const close = vi.fn().mockResolvedValue(undefined);
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   const request = vi.fn().mockImplementation(async (action: { operation: string }) => {
     if (action.operation === "snapshot_status") return { localVersion: "local-v1", request: null };
     if (action.operation === "snapshot_preview")
@@ -4817,20 +4809,23 @@ test("cloud dictionary apply requires preview and explicit confirmation", async 
     token: "snapshot-token",
   });
   fireEvent.click(screen.getByRole("button", { name: "替换本机词库" }));
+  expect((await screen.findByRole("alertdialog")).textContent).toContain(
+    "替换本机个人词库和学习记录",
+  );
+  await answerConfirm("confirm");
   await waitFor(() =>
     expect(request).toHaveBeenCalledWith({
       operation: "snapshot_enqueue",
       token: "snapshot-token",
     }),
   );
-  expect(confirm).toHaveBeenCalledWith(expect.stringContaining("确认用这份云端快照替换"));
   fireEvent.click(screen.getByRole("button", { name: "取消待应用快照" }));
+  await answerConfirm("confirm");
   await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "snapshot_cancel" }));
 });
 
 test("cloud dictionary snapshot backup and restore stay behind validation and confirmation", async () => {
   const close = vi.fn().mockResolvedValue(undefined);
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   const request = vi.fn().mockImplementation(async (action: { operation: string }) => {
     if (action.operation === "snapshot_export")
       return { text: '{"type":"header"}\n', filename: "snapshot.ndjson" };
@@ -4856,6 +4851,10 @@ test("cloud dictionary snapshot backup and restore stay behind validation and co
   fireEvent.change(screen.getByLabelText("选择快照恢复到云端"), { target: { files: [file] } });
   expect(await screen.findByText(/云端 revision 7/)).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "确认恢复云端词库" }));
+  expect((await screen.findByRole("alertdialog")).textContent).toContain(
+    "替换全部云端词库和排序记录",
+  );
+  await answerConfirm("confirm");
   await waitFor(() =>
     expect(request).toHaveBeenCalledWith({
       operation: "snapshot_restore",
@@ -4864,7 +4863,6 @@ test("cloud dictionary snapshot backup and restore stay behind validation and co
       revision: 12,
     }),
   );
-  expect(confirm).toHaveBeenCalledWith("确认用此快照替换全部云端词库和排序记录？");
   if (typeof URL.createObjectURL === "function")
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:fixture");
   else
@@ -4919,7 +4917,6 @@ test("cloud dictionary catalog panel queries and edits complete directory entrie
 test("cloud candidates panel uses canonical pinyin and manages ranking and fixed positions", async () => {
   const close = vi.fn().mockResolvedValue(undefined);
   const back = vi.fn().mockResolvedValue(undefined);
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   const request = vi.fn().mockImplementation(async (action: { operation: string }) => {
     if (action.operation === "candidates")
       return {
@@ -4943,18 +4940,21 @@ test("cloud candidates panel uses canonical pinyin and manages ranking and fixed
   fireEvent.click(screen.getByRole("button", { name: "查询云端候选" }));
   expect(await screen.findByText("你好")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "调频" }));
+  await answerConfirm("confirm");
   await waitFor(() =>
     expect(request).toHaveBeenCalledWith(
       expect.objectContaining({ operation: "rank", code: "ni'hao", revision: 42 }),
     ),
   );
   fireEvent.click(screen.getByRole("button", { name: "固定" }));
+  await answerConfirm("confirm");
   await waitFor(() =>
     expect(request).toHaveBeenCalledWith(
       expect.objectContaining({ operation: "set_fixed_position", code: "ni'hao", position: 1 }),
     ),
   );
   fireEvent.click(screen.getByRole("button", { name: "取消固定" }));
+  await answerConfirm("confirm");
   await waitFor(() =>
     expect(request).toHaveBeenCalledWith(
       expect.objectContaining({ operation: "set_fixed_position", position: null }),
@@ -4964,11 +4964,9 @@ test("cloud candidates panel uses canonical pinyin and manages ranking and fixed
   await waitFor(() => expect(back).toHaveBeenCalledTimes(1));
   fireEvent.click(screen.getByRole("button", { name: "关闭" }));
   await waitFor(() => expect(close).toHaveBeenCalledTimes(1));
-  confirm.mockRestore();
 });
 
 test("cloud candidate rows trigger ranking and keep secondary actions grouped", async () => {
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   const candidate = { code: "nihc", canonical_pinyin: "ni'hao", word: "你好", weight: 10 };
   const request = vi.fn().mockImplementation(async (action: { operation: string }) => {
     if (action.operation === "candidates")
@@ -4983,6 +4981,7 @@ test("cloud candidate rows trigger ranking and keep secondary actions grouped", 
   fireEvent.click(screen.getByRole("button", { name: "查询云端候选" }));
   await screen.findByText("你好");
   fireEvent.click(screen.getByRole("button", { name: "调频候选 你好" }));
+  await answerConfirm("confirm");
   await waitFor(() =>
     expect(request).toHaveBeenCalledWith(
       expect.objectContaining({ operation: "rank", code: "ni'hao", word: "你好" }),
@@ -4996,8 +4995,6 @@ test("cloud candidate rows trigger ranking and keep secondary actions grouped", 
   expect(group).not.toBeNull();
   const grouped = Array.from(group.querySelectorAll("button")).map((button) => button.textContent);
   expect(grouped).toEqual(["调频", "固定", "删除"]);
-  expect(confirm).toHaveBeenCalledWith("调整此云端候选的排序？");
-  confirm.mockRestore();
 });
 
 test("saves a shuangpin profile and retains it when switching schemes", async () => {
@@ -5155,10 +5152,9 @@ test("conflicts preserve edits and require an explicit reload", async () => {
   expect((await screen.findByRole("alert")).textContent).toContain("其他窗口");
   expect(size.textContent).toContain("9");
   expect(client.load).toHaveBeenCalledTimes(1);
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   fireEvent.click(screen.getByRole("button", { name: "重新读取" }));
+  await answerConfirm("confirm");
   await waitFor(() => expect(size.textContent).toContain("5"));
-  confirm.mockRestore();
 });
 
 test.each(["windows", "macos", "linux"])(

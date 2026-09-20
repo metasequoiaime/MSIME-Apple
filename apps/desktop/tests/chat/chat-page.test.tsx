@@ -2,6 +2,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { ChatPage, type ChatClient, type ChatMessage } from "@msime/ui";
+import { answerConfirm } from "../support/confirm";
 
 afterEach(cleanup);
 
@@ -22,7 +23,6 @@ test("loads models, sends a message, and starts a new conversation", async () =>
     expect(model).toBe("fixture-fast");
     return "fixture reply";
   });
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   render(<ChatPage client={client({ complete })} />);
 
   const model = await screen.findByRole("combobox", { name: "聊天模型" });
@@ -36,10 +36,11 @@ test("loads models, sends a message, and starts a new conversation", async () =>
   expect(complete).toHaveBeenCalledTimes(1);
 
   fireEvent.click(screen.getByRole("button", { name: "新对话" }));
-  expect(confirm).toHaveBeenCalledWith("开始新对话？当前消息将被清空。");
+  // The conversation survives until the question is answered.
+  expect(screen.queryByText("fixture prompt")).toBeTruthy();
+  await answerConfirm("confirm");
   expect(screen.queryByText("fixture prompt")).toBeNull();
   expect(screen.queryByText("fixture reply")).toBeNull();
-  confirm.mockRestore();
 });
 
 test("shows an actionable error and retries the latest user message", async () => {

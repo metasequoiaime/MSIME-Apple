@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useState } from "react";
+import { useConfirm } from "../core/confirm";
 
 const heading = "m-0 text-[15px] font-semibold text-body";
 const metric = "flex min-w-0 flex-col gap-1";
@@ -830,6 +831,7 @@ export function TypingStatisticsPage({
   /** iOS only: opens this app's page in Settings, from which Full Access is reachable. */
   openSystemSettings?: () => Promise<void>;
 }) {
+  const { confirm, confirmation } = useConfirm();
   const [status, setStatus] = useState<TypingStatisticsStatus>();
   const [period, setPeriod] = useState<Period>(7);
   const [selectedDay, setSelectedDay] = useState<string | null>(null);
@@ -997,14 +999,21 @@ export function TypingStatisticsPage({
   } else if (statistics.total === 0 && status.lastWrittenMs)
     availabilityMessage = `统计最后写入于 ${new Date(status.lastWrittenMs).toLocaleString("zh-CN")}，当前计数为零；如果刚刚清空过统计，这是正常的。`;
   else if (statistics.total === 0) availabilityMessage = "统计文件已建立，但当前还没有输入记录。";
-  const resetStatistics = () => {
-    if (!window.confirm("清空所有打字统计？累计字数、分类和每日记录将被删除，无法恢复。")) return;
+  const resetStatistics = async () => {
+    const confirmed = await confirm({
+      title: "清空打字统计",
+      message: "累计字数、分类和每日记录都会被删除，无法恢复。",
+      confirmLabel: "清空",
+      danger: true,
+    });
+    if (!confirmed) return;
     setSelectedDay(null);
-    void update(client.reset);
+    await update(client.reset);
   };
 
   return (
     <div className={page}>
+      {confirmation}
       {error && (
         <p role="alert" className="error">
           {error}
@@ -1041,7 +1050,7 @@ export function TypingStatisticsPage({
                 role="menuitem"
                 className={`${menuItem} text-danger`}
                 disabled={busy}
-                onClick={resetStatistics}
+                onClick={() => void resetStatistics()}
               >
                 清空统计
               </button>
@@ -1310,7 +1319,7 @@ export function TypingStatisticsPage({
               type="button"
               className="secondary m-0 text-danger"
               disabled={busy}
-              onClick={resetStatistics}
+              onClick={() => void resetStatistics()}
             >
               清空统计
             </button>

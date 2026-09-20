@@ -3,6 +3,7 @@ import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { DesktopCloudDictionary } from "../../src/dictionary/desktop-cloud-dictionary";
 import { CloudCandidatesPanel, CloudDictionaryCatalogPanel } from "@msime/ui";
+import { answerConfirm } from "../support/confirm";
 
 afterEach(cleanup);
 
@@ -73,7 +74,6 @@ test("desktop dictionary subpages reuse the session client and return without cl
 
 test("desktop dictionary apply page previews, confirms and cancels through the shared queue", async () => {
   const close = vi.fn().mockResolvedValue(undefined);
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   const request = vi.fn().mockImplementation(async (action: { operation: string }) => {
     if (action.operation === "list") return { entries: [], has_more: false, offset: 0 };
     if (action.operation === "snapshot_status") return { localVersion: "local-v1", request: null };
@@ -111,13 +111,16 @@ test("desktop dictionary apply page previews, confirms and cancels through the s
   fireEvent.click(screen.getByRole("button", { name: "下载云词库并预览" }));
   expect(await screen.findByText(/云端 revision 7/)).toBeTruthy();
   fireEvent.click(screen.getByRole("button", { name: "替换本机词库" }));
+  expect((await screen.findByRole("alertdialog")).textContent).toContain(
+    "替换本机个人词库和学习记录",
+  );
+  await answerConfirm("confirm");
   await waitFor(() =>
     expect(request).toHaveBeenCalledWith({ operation: "snapshot_enqueue", token: "preview-token" }),
   );
   fireEvent.click(screen.getByRole("button", { name: "取消待应用快照" }));
+  await answerConfirm("confirm");
   await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "snapshot_cancel" }));
-  expect(confirm).toHaveBeenCalledWith(expect.stringContaining("确认用这份云端快照替换"));
-  confirm.mockRestore();
 });
 
 test("desktop dictionary file page reuses the authenticated client and returns to entries", async () => {

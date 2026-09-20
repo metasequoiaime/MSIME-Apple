@@ -2,6 +2,7 @@
 import { afterEach, expect, test, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { SettingsPage, type DictionaryEntry, type Snapshot } from "@msime/ui";
+import { answerConfirm } from "../support/confirm";
 // Not re-exported from the package root; take it from the module that owns it.
 import {
   DICTIONARY_PAGE_SIZE,
@@ -60,17 +61,15 @@ async function openDictionary(dictionary: ReturnType<typeof dictionaryClient>) {
 }
 
 test("deleting an entry asks first and does nothing when declined", async () => {
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
   const dictionary = dictionaryClient();
   await openDictionary(dictionary);
   fireEvent.click(screen.getAllByRole("button", { name: "删除" })[0]);
-  expect(confirm).toHaveBeenCalled();
+  await answerConfirm("cancel");
   // Declining must not reach the host at all.
   expect(dictionary.edit).not.toHaveBeenCalled();
 });
 
 test("a confirmed delete reloads the page the user was reading", async () => {
-  vi.spyOn(window, "confirm").mockReturnValue(true);
   const dictionary = dictionaryClient();
   await openDictionary(dictionary);
   // Move to the second page before deleting.
@@ -79,6 +78,7 @@ test("a confirmed delete reloads the page the user was reading", async () => {
   expect(dictionary.list.mock.calls[1][0]).toBe(DICTIONARY_PAGE_SIZE);
 
   fireEvent.click(screen.getAllByRole("button", { name: "删除" })[0]);
+  await answerConfirm("confirm");
   await waitFor(() => expect(dictionary.edit).toHaveBeenCalled());
   await waitFor(() => expect(dictionary.list).toHaveBeenCalledTimes(3));
   // Previously this reloaded at offset 0 and threw the reader back to page 1.
@@ -86,7 +86,6 @@ test("a confirmed delete reloads the page the user was reading", async () => {
 });
 
 test("deleting the only row on a later page steps back instead of showing nothing", async () => {
-  vi.spyOn(window, "confirm").mockReturnValue(true);
   const dictionary = dictionaryClient({
     list: vi
       .fn()
@@ -101,6 +100,7 @@ test("deleting the only row on a later page steps back instead of showing nothin
   await waitFor(() => expect(dictionary.list).toHaveBeenCalledTimes(2));
 
   fireEvent.click(screen.getAllByRole("button", { name: "删除" })[0]);
+  await answerConfirm("confirm");
   await waitFor(() => expect(dictionary.list).toHaveBeenCalledTimes(3));
   expect(dictionary.list.mock.calls[2][0]).toBe(0);
 });

@@ -1,4 +1,5 @@
 import { useEffect, useRef, useState } from "react";
+import { useConfirm } from "../core/confirm";
 import * as chat from "./chat-style";
 
 export type ChatMessage = {
@@ -60,6 +61,7 @@ export function ChatPage({
   const [catalog, setCatalog] = useState<ChatModels | null>(null);
   const [selectedModel, setSelectedModel] = useState("");
   const [messages, setMessages] = useState<DisplayMessage[]>([]);
+  const { confirm, confirmation } = useConfirm();
   const [draft, setDraft] = useState("");
   const [loadingModels, setLoadingModels] = useState(true);
   const [sending, setSending] = useState(false);
@@ -158,6 +160,7 @@ export function ChatPage({
 
   return (
     <section className={chat.page} aria-label="AI 对话">
+      {confirmation}
       <div className={chat.toolbar}>
         <div>
           <strong>边聊天，边试键盘</strong>
@@ -249,7 +252,17 @@ export function ChatPage({
             className="secondary"
             disabled={!messages.length && !draft}
             onClick={() => {
-              if (!messages.length || window.confirm("开始新对话？当前消息将被清空。")) clear();
+              if (!messages.length) {
+                clear();
+                return;
+              }
+              void confirm({
+                title: "开始新对话",
+                message: "当前消息将被清空。",
+                confirmLabel: "开始",
+              }).then((confirmed) => {
+                if (confirmed) clear();
+              });
             }}
           >
             新对话
