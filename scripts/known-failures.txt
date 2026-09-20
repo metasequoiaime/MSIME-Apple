@@ -75,9 +75,15 @@ native windows-session
 # gone the mode stays off however the preference is set, and the trigger key comes back unhandled rather
 # than swallowed.
 #
-# The lesson for the two lines below: "the Engine answers differently from what the test asserts" was
-# recorded for all three at once, without either half being checked separately.
-macos text-client
+# The lesson for the line below: "the Engine answers differently from what the test asserts" was recorded
+# for all three at once, without either half being checked separately.
+#
+# 2026-09-20: text-client is fixed and its line is gone too, and it was not the Engine either. Snapshot
+# activation is refused outright while a composition is live - 36c5d3dad, 2026-09-16 - and that commit
+# added its own test while leaving this caller, which had been asserting the post-destruction recovery path
+# from a composing session since #1359 on 2026-09-12. The recovery path is simply not reachable from that
+# state any more. The test now cancels first to reach it, and asserts the guard on the way through: refused
+# means untouched, with no replacement notification and the composition still there.
 # Not the Engine. shortcut aborted in TestCloudCandidateEngineDelivery on an empty candidate array, and
 # the empty array is what the product is documented to produce: a cloud suggestion is merged into an
 # existing candidate page and never manufactures one, matching Windows, so that a callback arriving after
