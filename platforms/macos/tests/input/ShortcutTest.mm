@@ -636,7 +636,9 @@ static void TestSharedInputPreferences() {
     [NSApp sendAction:font.action to:font.target from:font];
     [page selectItemAtIndex:1];
     [NSApp sendAction:page.action to:page.target from:page];
-    assert(!prefs.vertical && prefs.fontSize == 13 && prefs.pageSize == 2 && saves == 6);
+    // The page-size control offers 5, 7 and 9 rather than a range, so the second item is 7 - which is what
+    // the assertion on the line below has always expected of the same edit.
+    assert(!prefs.vertical && prefs.fontSize == 13 && prefs.pageSize == 7 && saves == 6);
     NSDictionary *candidateEdited = [prefs sharedPreferencesByMerging:@{}];
     assert([candidateEdited[@"candidate_layout"] isEqual:@"horizontal"] && [candidateEdited[@"candidate_font_size"] isEqual:@13] && [candidateEdited[@"candidate_page_size"] isEqual:@7]);
     [NSNotificationCenter.defaultCenter removeObserver:observer];
@@ -3142,9 +3144,10 @@ static void TestCustomTranslationIdleDelay(BOOL tencent) {
     assert(first.valid && first.fireDate.timeIntervalSinceNow > 0 && first.fireDate.timeIntervalSinceNow <= 0.5);
     [controller synchronizeCustomTranslations];
     assert(first == [controller valueForKey:@"customTimer"]);
-    // Same reasoning: run the loop for a slice of the delay rather than sleeping toward its edge.
-    [NSRunLoop.mainRunLoop runUntilDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
-    assert(!first.valid || controller.batches.count == 0);
+    // Do not advance time at all. What has to hold is that scheduling a request does not send one, and
+    // running the loop toward the edge of the delay only gave the timer a chance to fire and made the
+    // assertion depend on how loaded the machine was - which is what it then had to be weakened for.
+    assert(controller.batches.count == 0);
     session.generation++; session.page = @[@{@"text":@"newest", @"source":@4}];
     [controller synchronizeCustomTranslations];
     NSTimer *second = [controller valueForKey:@"customTimer"];
@@ -3474,6 +3477,16 @@ int main(int argc, char **argv) {
             assert(loaded.pageSize == [pageSizes[option] unsignedIntegerValue]);
         }
         assert(([shortcutControl.itemTitles isEqual:@[@"- / =", @"[ / ]", @"Page Up / Page Down"]]));
+        // Word-to-character owns a key group, and paging cannot take the same one: the setter refuses and
+        // beeps rather than leaving both bound to the brackets. It ships enabled on the brackets, so the
+        // bracket option is refused until it is turned off - which is what the control's tooltip tells the
+        // user and what this loop has to turn off before every option can be selected.
+        [appearance setWordCharacterEnabled:YES keys:@"brackets"];
+        [shortcutControl selectItemAtIndex:1];
+        [NSApp sendAction:shortcutControl.action to:shortcutControl.target from:shortcutControl];
+        assert([[MSIMEAppearancePreferences alloc] initWithDefaults:defaults].pageShortcut != 1);
+
+        [appearance setWordCharacterEnabled:NO keys:@"brackets"];
         for (NSInteger option = 0; option < 3; ++option) {
             [shortcutControl selectItemAtIndex:option];
             [NSApp sendAction:shortcutControl.action to:shortcutControl.target from:shortcutControl];

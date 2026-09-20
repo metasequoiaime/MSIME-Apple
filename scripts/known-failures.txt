@@ -80,9 +80,17 @@ macos text-client
 # dictionary exists - crates/host-api/src/tests.rs drives the same "nihao" query and checks the candidate
 # reaches the view.
 #
-# The suite then reaches TestAiCandidateRetryAfterRejectedResponse, which had never executed, and fails at
-# session.applications == 1: after the host rejects the first AI application the retry's reply does not
-# reach applyOnlineCandidates. Whether the retry or the test is wrong is not yet established.
+# Six more things behind it have now been fixed, each one exposed only once the one before it stopped
+# aborting the run: the AI cache kept a suggestion the session had refused and served it straight back;
+# the cached-apply path recorded the current query in a shape the next render could not match, so it asked
+# for another descriptor; two weak-imported Swift entry points were called without the null check their
+# three siblings have, which is a jump to address zero in any process without the dylib; a page-size
+# expectation predated the control being restricted to 5, 7 and 9; an idle-delay assertion depended on how
+# loaded the machine was; and the paging-shortcut round trip did not account for word-to-character owning
+# the bracket keys.
+#
+# It now reaches line 3880 - a keyboard selection asserting selectCalls + 1 with no ASCII calls - which
+# had never executed either. That is where the next attempt starts.
 macos shortcut
 # Load-dependent rather than always-failing: passes on its own and on a second full
 # run, observed failing once in a full parallel run alongside the aborting shortcut test.
