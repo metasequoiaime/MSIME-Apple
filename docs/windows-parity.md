@@ -1260,3 +1260,13 @@ Fcitx5 候选动作执行 stale 栅栏增量（2026-09-19）：CandidateAction �
 **核对确认不适用一项：** 来源 `fcf594e2` 的词库浮层定位。它的根因是 `#content-container` 上有 `contain: layout paint`，于是写在页面片段里的 `position: fixed` 提示条和弹窗退化成相对该容器定位、跟着内容一起滚。本仓逐个查过：`[contain:layout_style_paint]` 只出现在侧栏（`settings-style.ts`），设置外壳是 `flex h-full flex-col overflow-hidden bg-chrome`，云词典各面板根是 `min-h-screen bg-chrome text-body`，都没有 `contain`、`transform`、`filter` 或 `backdrop-filter`——`overflow: hidden` 不产生包含块——所以 `fixed` 照常相对视口解析。第八批新加的确认对话框就渲染在这些根下面，一并核过。带 `backdrop-blur` 的玻璃面板样式确实存在，但用在表情/键盘面板，不在这几个树里。
 
 **不移植，理由同第五批：** 加加辅助码（`566ff8b8`）与全拼备选切分／调频重排（`1ea01d5e`、`e32eeade`）都在 Engine 与其码表资产里，只能通过提 `engine-lock.json` 进来，影响面覆盖全部平台，单独决定。
+
+增量记录（2026-09-21，Windows 第十批：词库维护这一行往下查）：对照表「词库查询、增改删、导入导出、快捷短语」一行点名的四项里，先走 quiesce/resume 与失败恢复，再走导出编码。目标起点 `cb0365752`。
+
+**quiesce/resume 与失败恢复：核对确认已做到，无需改动。** 这里记下结论以免下次重查。桌面侧在收到 `dictionary maintenance busy` 时才握手，成功后重试，然后**无条件**发 resume（注释写明「导入失败总比让输入法没有会话好」）。Server 侧 `quiesce_dictionaries` 成功时设一个 30 秒 deadline，控制线程每 tick 检查、过期就自己 resume——所以一个在 quiesce 和 resume 之间死掉的设置进程，最多让输入停 30 秒而不是停到重启。没有 Server 在听时 quiesce 返回真、resume 返回假，判据是「锁本来就空着，调用方该继续」。三层各自独立，任一层失效另外两层仍然成立。
+
+**导入编码：查出并修掉一处静默损坏。** 云词库文件面板用 `File.text()` 读用户选的文件，它只按 UTF-8 解码；而本地词库导入早就走 `decodeDictionaryBytes`，处理 UTF-8 BOM、UTF-16 两种字节序和 GB18030。同一个文件两个面板两种结果，云端这边更糟：UTF-16 解出来满是 NUL，被 `text.includes("\u0000")` 挡下（至少是拒绝）；GB18030 解出来是一串 `�` 且**不含 NUL**，守卫放行，一份全是替换字符的词库被静默上传到用户云端。实测 `"你好\tni'hao\n"` 的 GB18030 字节按 UTF-8 解码得到 `"���\tni'hao\n"`。改成调用同一个读取器，NUL 检查保留给真正的二进制文件。
+
+顺带修共享导入解析器不剥前导 BOM。目前每个调用方都在更上游剥掉了，所以不是当下可触发的缺陷，但它是公共入口而这条不变量只靠「每个调用方都记得」维持。`str::trim` 不去掉它（U+FEFF 早就不是 White_Space），于是它活到第一行、落在该格式的第一列：词在前的格式里粘在词上，解析通过、存进引擎、永远匹配不上；编码在前的格式里落在编码上，判字母表非法，报一行失败且读者无从得知原因。两种都静默，其中一种损坏数据。
+
+两处都反向验证过。本行剩下的「五笔/英文/快捷短语/翻译各表的字段」与「保留用户数据」尚未走完。
