@@ -1510,6 +1510,88 @@ fn expansion_that_fills_the_current_page_does_not_advance_past_it() {
 }
 
 #[test]
+fn walking_the_highlight_off_the_end_reaches_candidates_the_engine_withheld() {
+    // Ten offered at five a page is two full pages, so the partial-last-page rule below never fires
+    // and this exercises the end of the list on its own. Walking down one candidate at a time - an
+    // arrow key, a wheel notch - used to stop dead on the tenth, while page-down on the same query
+    // walked past it. The cap is the Engine's single-letter limit, and selection has to release it
+    // for the same reason paging does.
+    let mut runtime = withholding_runtime(10, 8, 5);
+    runtime.focus(true).unwrap();
+    type_key(&mut runtime);
+    for _ in 0..9 {
+        runtime.dispatch(Action::NextCandidate).unwrap();
+    }
+    let last_offered = runtime.view();
+    assert_eq!(last_offered.page_count, 2);
+    let expanded = runtime.dispatch(Action::NextCandidate).unwrap().view;
+    assert_eq!(expanded.page, 2);
+    assert_eq!(expanded.page_count, 4);
+    assert_eq!(
+        expanded
+            .candidates
+            .iter()
+            .find(|candidate| candidate.highlighted)
+            .map(|candidate| candidate.text.as_str()),
+        Some("candidate-10")
+    );
+}
+
+#[test]
+fn stepping_into_the_partial_last_page_fills_it_first() {
+    // The page-down path already fills the short last page before entering it. Arriving at the same
+    // page by selection has to look the same, or the page appears short and then grows under a
+    // highlight that is already sitting in it.
+    let mut runtime = withholding_runtime(12, 8, 5);
+    runtime.focus(true).unwrap();
+    type_key(&mut runtime);
+    for _ in 0..9 {
+        runtime.dispatch(Action::NextCandidate).unwrap();
+    }
+    let entered = runtime.dispatch(Action::NextCandidate).unwrap().view;
+    assert_eq!(entered.page, 2);
+    assert_eq!(entered.candidates.len(), 5);
+    assert_eq!(
+        entered.candidates.first().map(|c| c.text.as_str()),
+        Some("candidate-10")
+    );
+}
+
+#[test]
+fn the_highlight_stops_at_the_last_candidate_once_nothing_is_withheld() {
+    // Expansion is not a wrap: when the Engine has nothing left, the selection stays where it is
+    // rather than moving or reordering the list under it.
+    let mut runtime = withholding_runtime(3, 0, 5);
+    runtime.focus(true).unwrap();
+    type_key(&mut runtime);
+    for _ in 0..2 {
+        runtime.dispatch(Action::NextCandidate).unwrap();
+    }
+    let end = runtime.dispatch(Action::NextCandidate).unwrap().view;
+    assert_eq!(end.candidates.len(), 3);
+    assert_eq!(
+        end.candidates
+            .iter()
+            .position(|candidate| candidate.highlighted),
+        Some(2)
+    );
+}
+
+#[test]
+fn walking_the_highlight_backwards_never_asks_for_more() {
+    // Only forward motion runs into the cap. Asking the Engine to expand while moving up would
+    // reorder the list the user is reading back through.
+    let mut runtime = withholding_runtime(10, 8, 5);
+    runtime.focus(true).unwrap();
+    type_key(&mut runtime);
+    for _ in 0..8 {
+        runtime.dispatch(Action::NextCandidate).unwrap();
+    }
+    runtime.dispatch(Action::PreviousCandidate).unwrap();
+    assert_eq!(runtime.view().page_count, 2);
+}
+
+#[test]
 fn an_engine_withholding_nothing_pages_exactly_as_before() {
     let mut runtime = withholding_runtime(12, 0, 5);
     runtime.focus(true).unwrap();
