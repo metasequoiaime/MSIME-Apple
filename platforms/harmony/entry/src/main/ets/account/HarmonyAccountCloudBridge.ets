@@ -89,17 +89,19 @@ interface HttpHeaders {
 }
 
 class HarmonyTransport implements AccountTransport {
-  async request(method: string, path: string, token?: string,
-    body?: Object): Promise<AccountTransportResponse> {
+  async request(method: string, path: string, token?: string, body?: Object,
+    timeoutMs?: number): Promise<AccountTransportResponse> {
     if (!path.startsWith('/v1/') || path.includes('\\')) throw new Error('account_invalid');
     const request = http.createHttp();
     const headers: HttpHeaders = { Accept: 'application/json', 'Content-Type': 'application/json' };
     if (token !== undefined) headers.Authorization = `Bearer ${token}`;
+    // Only the read side takes the caller's budget. Connecting is connecting on every endpoint, and
+    // a chat request to an unreachable host should still fail in seconds rather than in two minutes.
     const options: http.HttpRequestOptions = {
       method: this.method(method),
       header: headers,
       connectTimeout: 30000,
-      readTimeout: 30000,
+      readTimeout: timeoutMs === undefined ? 30000 : timeoutMs,
       extraData: body === undefined ? undefined : JSON.stringify(body)
     };
     try {

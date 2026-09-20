@@ -3,11 +3,19 @@ import { utf8Length } from "../keyboard/Utf8";
 export type AccountTransportResponse = { status: number; body: string };
 
 export interface AccountTransport {
+  /**
+   * `timeoutMs` is the read timeout for this one request, not a bridge-wide setting.
+   *
+   * Every other call here answers from a database and is done in seconds; a chat completion is a
+   * model generating text and the shared clients allow it 125. Giving the whole transport that
+   * budget would mean a dead network takes two minutes to report on a profile fetch too.
+   */
   request(
     method: string,
     path: string,
     token?: string,
     body?: Record<string, unknown>,
+    timeoutMs?: number,
   ): Promise<AccountTransportResponse>;
 }
 
@@ -30,6 +38,23 @@ type Action = Record<string, unknown>;
 const MAX_ACTION_BYTES = 64 * 1024;
 const MAX_CLIPBOARD_TEXT = 4000;
 const MAX_SEARCH = 256;
+
+/**
+ * The chat bounds, which are the shared ones rather than a HarmonyOS reading of them.
+ *
+ * They match `BackendChatClient` on Apple and `client-core`'s account client byte for byte, because
+ * the server enforces the same numbers and a client that is stricter turns a working conversation
+ * into an unexplained refusal on one platform only.
+ */
+const MAX_CHAT_MODELS = 33;
+const MAX_CHAT_MODEL_ID_BYTES = 200;
+const MAX_CHAT_MESSAGES = 16;
+const MAX_CHAT_MESSAGE_BYTES = 16 * 1024;
+const MAX_CHAT_REQUEST_BYTES = 64 * 1024;
+const MAX_CHAT_RESPONSE_BYTES = 16 * 1024;
+/** A completion is a model writing, not a lookup; the shared clients wait this long for one. */
+const CHAT_TIMEOUT_MS = 125 * 1000;
+const CHAT_ROLES = ["user", "assistant", "system"];
 
 function error(code: string): string {
   return JSON.stringify({ ok: false, error: code });
@@ -165,6 +190,8 @@ export class AccountCloudBridge {
           return await this.clipboard(action);
         case "dictionary":
           return await this.dictionary(action);
+        case "chat":
+          return await this.chat(action);
         default:
           return error("account_invalid");
       }
@@ -289,6 +316,125 @@ export class AccountCloudBridge {
       return JSON.parse(result).ok ? success({ enabled: action.enabled }) : result;
     }
     return error("account_invalid");
+  }
+
+  /**
+   * The account-backed assistant, which is a different service from the user-configured one.
+   *
+   * The credential is the account session the host already holds, so the page never sees a token:
+   * it names an operation and gets back a model list or one reply. Both halves are validated here
+   * rather than in the page, because the page is the one surface that is not part of the product on
+   * every host — the same bounds have to hold for a keyboard asking the same questions.
+   */
+  private async chat(action: Action): Promise<string> {
+    const operation = action.chat_operation;
+    if (operation === "models") return await this.chatModels();
+    if (operation === "complete") return await this.chatComplete(action);
+    return error("account_invalid");
+  }
+
+  private async chatModels(): Promise<string> {
+    const result = await this.authenticatedJson("GET", "/v1/models");
+    if (result.error !== undefined) return error(result.error);
+    const value = result.value;
+    if (value === undefined) return error("account_unavailable");
+    const data = value.data;
+    if (
+      !Array.isArray(data) ||
+      data.length === 0 ||
+      data.length > MAX_CHAT_MODELS ||
+      !validString(value.default_model, MAX_CHAT_MODEL_ID_BYTES)
+    ) {
+      return error("account_unavailable");
+    }
+    const ids: string[] = [];
+    for (const model of data as unknown[]) {
+      if (model === null || typeof model !== "object" || Array.isArray(model)) {
+        return error("account_unavailable");
+      }
+      const id = (model as Action).id;
+      if (
+        !validString(id, MAX_CHAT_MODEL_ID_BYTES) ||
+        !boundedUtf8(id, MAX_CHAT_MODEL_ID_BYTES) ||
+        ids.includes(id)
+      ) {
+        return error("account_unavailable");
+      }
+      ids.push(id);
+    }
+    const defaultModel = value.default_model as string;
+    if (!ids.includes(defaultModel)) return error("account_unavailable");
+    return success({ data: ids.map((id) => ({ id })), defaultModel });
+  }
+
+  private async chatComplete(action: Action): Promise<string> {
+    const model = action.model;
+    const messages = action.messages;
+    if (
+      !validString(model, MAX_CHAT_MODEL_ID_BYTES) ||
+      !boundedUtf8(model, MAX_CHAT_MODEL_ID_BYTES) ||
+      !Array.isArray(messages) ||
+      messages.length === 0 ||
+      messages.length > MAX_CHAT_MESSAGES
+    ) {
+      return error("account_invalid");
+    }
+    const history: { role: string; content: string }[] = [];
+    for (const message of messages as unknown[]) {
+      if (message === null || typeof message !== "object" || Array.isArray(message)) {
+        return error("account_invalid");
+      }
+      const role = (message as Action).role;
+      const content = (message as Action).content;
+      // Newlines are content here, not a control character to refuse: a conversation is written in
+      // paragraphs, and the shared clients bound the text by bytes rather than by character class.
+      if (
+        typeof role !== "string" ||
+        !CHAT_ROLES.includes(role) ||
+        typeof content !== "string" ||
+        content.length === 0 ||
+        !boundedUtf8(content, MAX_CHAT_MESSAGE_BYTES)
+      ) {
+        return error("account_invalid");
+      }
+      history.push({ role, content });
+    }
+    const body: Record<string, unknown> = {
+      messages: history,
+      model,
+      max_tokens: 2048,
+      stream: false,
+    };
+    if (utf8Length(JSON.stringify(body)) > MAX_CHAT_REQUEST_BYTES) return error("account_invalid");
+    const result = await this.authenticatedJson(
+      "POST",
+      "/v1/chat/completions",
+      body,
+      CHAT_TIMEOUT_MS,
+    );
+    if (result.error !== undefined) return error(result.error);
+    if (result.value === undefined) return error("account_unavailable");
+    const choices = result.value.choices;
+    if (!Array.isArray(choices) || choices.length === 0) return error("account_unavailable");
+    const first = choices[0] as unknown;
+    if (first === null || typeof first !== "object" || Array.isArray(first)) {
+      return error("account_unavailable");
+    }
+    const reply = (first as Action).message;
+    if (reply === null || typeof reply !== "object" || Array.isArray(reply)) {
+      return error("account_unavailable");
+    }
+    const role = (reply as Action).role;
+    const content = (reply as Action).content;
+    if (
+      role !== "assistant" ||
+      typeof content !== "string" ||
+      content.trim().length === 0 ||
+      !boundedUtf8(content, MAX_CHAT_RESPONSE_BYTES)
+    ) {
+      return error("account_unavailable");
+    }
+    return success({ content });
   }
 
   private kind(value: unknown): string | null {
@@ -570,6 +716,44 @@ export class AccountCloudBridge {
       return error("account_unauthorized");
     }
     return this.response(response);
+  }
+
+  /**
+   * An authenticated request whose body the caller validates itself.
+   *
+   * `authenticated` answers the page directly, which is right for the endpoints whose response is
+   * already the DTO. Chat is not one of them: its reply has to be checked and reshaped before the
+   * page sees it, so this returns the parsed document and leaves the envelope to the caller. The
+   * session, expiry and generation handling is the same either way — that part must not be
+   * duplicated, or one of the two copies eventually stops clearing an expired session.
+   */
+  private async authenticatedJson(
+    method: string,
+    path: string,
+    body?: Record<string, unknown>,
+    timeoutMs?: number,
+  ): Promise<{ value?: Action; error?: string }> {
+    const session = this.session;
+    if (session === null) return { error: "account_unauthorized" };
+    const generation = this.generation;
+    if (session.expires_at <= Date.now()) return { error: "account_unauthorized" };
+    const response = await this.transport.request(
+      method,
+      path,
+      session.access_token,
+      body,
+      timeoutMs,
+    );
+    if (generation !== this.generation) return { error: "account_cancelled" };
+    if (response.status === 401) {
+      this.clearExpired();
+      return { error: "account_unauthorized" };
+    }
+    if (response.status < 200 || response.status >= 300)
+      return { error: mapStatus(response.status) };
+    const value = parseJson(response.body);
+    if (value === null) return { error: "account_unavailable" };
+    return { value };
   }
 
   private async authenticatedRaw(
