@@ -296,6 +296,24 @@ static NSArray<NSString *> *MSIMETranslationTargets(NSDictionary *query) {
     return targets.count ? [targets copy] : @[];
 }
 
+// Account glosses live in the process-wide translation cache, not on the controller. IMKit builds one
+// controller per text input client - a dozen or more over a session - so the instance that fetched a gloss
+// is usually not the one composing next time. Kept per instance, the answers scatter into controllers that
+// are no longer composing and every new text field starts from nothing, which is what "it shows up the
+// second time but not the first" actually is: the second time happened to land on the same instance.
+//
+// The key is language and word, so sharing is safe: a gloss any instance fetched is correct for all of
+// them. Three elements and a leading scope of its own, so it cannot collide with the five-element
+// identities the user's own translator uses.
+static NSArray<NSString *> *MSIMEAccountGlossIdentity(NSString *target, NSString *text) {
+    return @[@"account", target ?: @"", text ?: @""];
+}
+
+static NSString *MSIMEAccountGlossCached(NSString *target, NSString *text) {
+    id value = [[MSIMETranslationCache sharedCache] valueForIdentity:MSIMEAccountGlossIdentity(target, text)];
+    return [value isKindOfClass:NSString.class] ? value : nil;
+}
+
 // Which candidates the account gloss endpoint may be asked about. Only Chinese ones: a model has nothing
 // to say about "cun", "123", "OpenAI", a punctuation candidate or an emoji, and asking spends the account's
 // bounded quota to put noise under candidates that should carry no gloss - a pinyin buffer candidate also
@@ -653,7 +671,6 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSDictionary *_tencentTranslationConfig;
     NSDictionary *_niuTransConfig;
     NSArray<NSDictionary *> *_customResults;
-    NSMutableDictionary<NSString *, NSString *> *_accountGlossCache;
     NSString *_accountGlossSignature;
     NSDictionary *_accountGlossRequest;
     NSArray<NSDictionary *> *_accountGlossResults;
@@ -1040,8 +1057,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         if (![text isKindOfClass:NSString.class]) continue;
         NSMutableArray *values = [NSMutableArray array];
         for (NSString *target in request[@"target_languages"]) {
-            NSString *value = _accountGlossCache[[NSString stringWithFormat:@"%@|%@", target, text]];
-            [values addObject:value ?: @""];
+            [values addObject:MSIMEAccountGlossCached(target, text) ?: @""];
         }
         BOOL hasValue = NO;
         for (NSString *value in values) if (value.length) { hasValue = YES; break; }
@@ -1055,7 +1071,6 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if ([_accountGlossRequest isEqual:request]) return;
     [self cancelAccountGloss];
     _accountGlossRequest = [request copy];
-    if (!_accountGlossCache) _accountGlossCache = [NSMutableDictionary dictionary];
     NSArray *targets = request[@"target_languages"];
     NSMutableArray *pending = [NSMutableArray array];
     NSMutableString *signature = [NSMutableString string];
@@ -1064,7 +1079,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
             NSString *text = candidate[@"text"];
             if (![target isKindOfClass:NSString.class] || ![text isKindOfClass:NSString.class]) continue;
             [signature appendFormat:@"|%@|%@", target, text];
-            if (!_accountGlossCache[[NSString stringWithFormat:@"%@|%@", target, text]]) [pending addObject:text];
+            if (!MSIMEAccountGlossCached(target, text)) [pending addObject:text];
         }
     }
     _accountGlossResults = [self accountGlossResultsForRequest:request];
@@ -1089,13 +1104,13 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 - (void)accountCandidateTranslationsDidArrive:(NSNotification *)notification {
     NSDictionary *info = notification.userInfo;
     if (![_accountGlossRequest isKindOfClass:NSDictionary.class] || ![info isKindOfClass:NSDictionary.class]) return;
-    if (!_accountGlossCache) _accountGlossCache = [NSMutableDictionary dictionary];
     void (^merge)(NSDictionary *, NSString *) = ^(NSDictionary *values, NSString *target) {
         if (![values isKindOfClass:NSDictionary.class]) return;
         for (NSString *text in values) {
             NSString *value = values[text];
             if ([text isKindOfClass:NSString.class] && [value isKindOfClass:NSString.class] && value.length)
-                self->_accountGlossCache[[NSString stringWithFormat:@"%@|%@", target, text]] = value;
+                [[MSIMETranslationCache sharedCache] rememberTranslation:value
+                                                                identity:MSIMEAccountGlossIdentity(target, text)];
         }
     };
     NSArray *targets = _accountGlossRequest[@"target_languages"];

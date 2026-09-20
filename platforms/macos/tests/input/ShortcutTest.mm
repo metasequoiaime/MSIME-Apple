@@ -3029,6 +3029,7 @@ static void TestTencentCandidateScheduling() {
 }
 @interface AccountGlossSession : ShortcutSession
 @property(nonatomic, copy) NSArray *candidates;
+@property(nonatomic, copy) NSArray *applied;
 @end
 @implementation AccountGlossSession
 - (NSDictionary *)translationQueryWithError:(NSError **)error {
@@ -3040,12 +3041,59 @@ static void TestTencentCandidateScheduling() {
 - (NSDictionary *)viewWithError:(NSError **)error {
     (void)error; return @{@"generation":@1, @"scheme":@0, @"local_mode":@"none", @"candidates":@[]};
 }
+// Reached once a gloss arrives and the controller pushes the merged results back into the view.
+- (NSDictionary *)applyTranslations:(NSArray *)translations generation:(uint64_t)generation error:(NSError **)error {
+    (void)error; (void)generation;
+    self.applied = translations;
+    return @{@"applied":@YES, @"view":[self viewWithError:nil]};
+}
 @end
 
 // Only Chinese candidates reach the account gloss endpoint. The shared query answers this per candidate;
 // the controller must honour that answer rather than sending the whole page. Asking about "cun", "123",
 // "OpenAI", a punctuation candidate or an emoji spends the account's bounded quota to put noise under
 // candidates that should carry no gloss, and a pinyin buffer candidate hands raw keystrokes to a service.
+// A gloss fetched through one controller has to be visible to the next one. IMKit builds a controller per
+// text input client, so the instance that fetched is rarely the instance composing a moment later; held per
+// instance, the answers pile up in controllers that stopped composing and every new text field starts from
+// nothing - which is the "it appears the second time, not the first" symptom, the second time happening to
+// reuse the same instance.
+static void TestAccountGlossCacheIsSharedAcrossControllers() {
+    NSString *suite = [@"msime.account-gloss-shared." stringByAppendingString:NSUUID.UUID.UUIDString];
+    MSIMEAppearancePreferences *prefs =
+        [[MSIMEAppearancePreferences alloc] initWithDefaults:[[NSUserDefaults alloc] initWithSuiteName:suite]];
+    NSArray *candidates = @[@{@"text":@"\u6d4b\u8bd5", @"online_gloss":@YES}];
+
+    CustomTranslationController *fetcher = [CustomTranslationController alloc];
+    fetcher.batches = [NSMutableArray array];
+    AccountGlossSession *fetcherSession = [AccountGlossSession new];
+    fetcherSession.candidates = candidates;
+    [fetcher setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [fetcher setValue:prefs forKey:@"appearance"];
+    [fetcher setValue:fetcherSession forKey:@"session"];
+    [fetcher synchronizeAccountGloss:[fetcher currentAccountGlossRequest]];
+
+    // The reply carries the same payload the Swift backend posts. Delivered straight to the instance that
+    // asked, because these controllers are built without the activation that registers the observer.
+    [fetcher accountCandidateTranslationsDidArrive:
+        [NSNotification notificationWithName:@"MSIMEBackendCandidateTranslationsDidArrive" object:nil
+            userInfo:@{@"generation":@1, @"translations":@{@"\u6d4b\u8bd5":@"test"}}]];
+    assert([[[fetcher valueForKey:@"accountGlossResults"] valueForKey:@"translation"] containsObject:@"test"]);
+
+    // A different controller, as a different text field would get, and it must not have to ask again.
+    CustomTranslationController *reader = [CustomTranslationController alloc];
+    reader.batches = [NSMutableArray array];
+    AccountGlossSession *readerSession = [AccountGlossSession new];
+    readerSession.candidates = candidates;
+    [reader setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [reader setValue:prefs forKey:@"appearance"];
+    [reader setValue:readerSession forKey:@"session"];
+    NSDictionary *request = [reader currentAccountGlossRequest];
+    assert(request);
+    NSArray *results = [reader accountGlossResultsForRequest:request];
+    assert(results.count == 1 && [results[0][@"translation"] isEqual:@"test"]);
+}
+
 static void TestAccountGlossSkipsNonChineseCandidates() {
     NSString *suite = [@"msime.account-gloss." stringByAppendingString:NSUUID.UUID.UUIDString];
     MSIMEAppearancePreferences *prefs =
@@ -3512,6 +3560,7 @@ int main(int argc, char **argv) {
         if (argc == 2 && std::string(argv[1]) == "--translations") {
             TestGlossScheduling();
             TestAccountGlossSkipsNonChineseCandidates();
+            TestAccountGlossCacheIsSharedAcrossControllers();
             TestCustomTranslationController();
             TestSecondaryTranslationScheduling();
             TestCustomTranslationCacheDelivery();
@@ -3538,6 +3587,7 @@ int main(int argc, char **argv) {
         TestCloudCandidatePreference();
         TestGlossScheduling();
         TestAccountGlossSkipsNonChineseCandidates();
+        TestAccountGlossCacheIsSharedAcrossControllers();
         TestCustomTranslationController();
         TestSecondaryTranslationScheduling();
         TestCustomTranslationCacheDelivery();
