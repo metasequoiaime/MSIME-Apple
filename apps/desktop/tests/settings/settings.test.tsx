@@ -3772,6 +3772,82 @@ test("the full-width chord row is macOS only", async () => {
   expect(screen.queryByRole("checkbox", { name: "Option+Shift+H 切换全半角" })).toBeNull();
 });
 
+test("restore defaults stages the host's defaults instead of writing them", async () => {
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
+  const save = vi.fn().mockResolvedValue({ ...initial, revision: 8 });
+  // What the host hands back: settings at their defaults, the key it was told to keep still there.
+  const restored = {
+    ...initial.preferences,
+    candidate_page_size: 9,
+    voice_input: { ...initial.preferences.voice_input, asr_token: "kept-by-the-host" },
+  };
+  const loadDefaultPreferences = vi.fn().mockResolvedValue(restored);
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue({
+          ...initial,
+          preferences: { ...initial.preferences, candidate_page_size: 5 },
+        }),
+        save,
+        loadDefaultPreferences,
+        host: { platform: "macos" } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "恢复默认设置" }));
+  // Staged, not written: the page says to save, and nothing has been sent yet.
+  await screen.findByText("所有设置已恢复默认，请点击保存设置。");
+  expect(loadDefaultPreferences).toHaveBeenCalledOnce();
+  expect(save).not.toHaveBeenCalled();
+  expect(confirm).toHaveBeenCalled();
+
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await screen.findByText("设置已保存。");
+  expect(save).toHaveBeenCalledWith(7, expect.objectContaining({ candidate_page_size: 9 }));
+  expect(save).toHaveBeenCalledWith(
+    7,
+    expect.objectContaining({
+      voice_input: expect.objectContaining({ asr_token: "kept-by-the-host" }),
+    }),
+  );
+  confirm.mockRestore();
+});
+
+test("restore defaults declined leaves the draft alone", async () => {
+  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
+  const loadDefaultPreferences = vi.fn();
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        loadDefaultPreferences,
+        host: { platform: "macos" } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "恢复默认设置" }));
+  expect(loadDefaultPreferences).not.toHaveBeenCalled();
+  confirm.mockRestore();
+});
+
+test("a host without the defaults command shows no restore button", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: { platform: "windows" } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  expect(screen.queryByRole("button", { name: "恢复默认设置" })).toBeNull();
+});
+
 test("macOS sidebar keeps the reference order and groups", async () => {
   render(
     <SettingsPage

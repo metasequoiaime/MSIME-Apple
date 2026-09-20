@@ -1944,3 +1944,85 @@ fn error_wordings_the_harmony_host_matches_on() {
             .starts_with("invalid preferences document:")
     );
 }
+
+/// A restore puts every setting back and costs the user no secret.
+///
+/// The secrets are asserted by walking the serialized document rather than by listing the fields:
+/// a credential added later would otherwise be reset by `restored_to_defaults` with nothing to
+/// notice it, and the whole point of the method is that it never silently throws one away.
+#[test]
+fn restoring_defaults_keeps_what_cannot_be_retyped() {
+    let mut edited = Preferences {
+        candidate_page_size: 7,
+        learning: !Preferences::default().learning,
+        scheme: InputScheme::Wubi,
+        ..Preferences::default()
+    };
+    edited.keybindings.switch_language_shift = false;
+    edited.fuzzy_pinyin.seeded = true;
+    edited.fuzzy_pinyin.enabled = true;
+    edited.voice_input.asr_provider = "doubao".into();
+    edited.voice_input.asr_token = "fixture-asr-token".into();
+    edited.voice_input.asr_endpoint = "https://asr.example.test/v1".into();
+    edited.voice_input.asr_model_path = "/Users/fixture/models/ggml.bin".into();
+    edited.voice_input.polish_token = "fixture-polish-token".into();
+    edited.voice_input.polish_enabled = true;
+    edited.ai_assistant.token = "fixture-ai-token".into();
+    edited.ai_assistant.enabled = true;
+    edited.custom_translation.api_key = "fixture-custom-key".into();
+    edited.tencent_tmt.secret_id = "fixture-tencent-id".into();
+    edited.tencent_tmt.secret_key = "fixture-tencent-key".into();
+    edited.niutrans.app_id = "fixture-niutrans-app".into();
+    edited.niutrans.apikey = "fixture-niutrans-key".into();
+
+    let restored = edited.restored_to_defaults();
+    let defaults = Preferences::default();
+
+    // The settings are back.
+    assert_eq!(restored.candidate_page_size, defaults.candidate_page_size);
+    assert_eq!(restored.learning, defaults.learning);
+    assert_eq!(restored.scheme, defaults.scheme);
+    assert_eq!(
+        restored.keybindings.switch_language_shift,
+        defaults.keybindings.switch_language_shift
+    );
+    assert_eq!(restored.fuzzy_pinyin.enabled, defaults.fuzzy_pinyin.enabled);
+    assert!(!restored.voice_input.polish_enabled);
+    assert!(!restored.ai_assistant.enabled);
+
+    // The fixture itself has to be a document the store would accept, or this proves nothing.
+    edited.validate().expect("edited fixture validates");
+
+    // Nothing that reads as a secret was dropped, whoever adds one next.
+    let document = serde_json::to_string(&restored).expect("restored preferences serialize");
+    for secret in [
+        "fixture-asr-token",
+        "fixture-polish-token",
+        "fixture-ai-token",
+        "fixture-custom-key",
+        "fixture-tencent-id",
+        "fixture-tencent-key",
+        "fixture-niutrans-key",
+    ] {
+        assert!(
+            document.contains(secret),
+            "{secret} did not survive a restore"
+        );
+    }
+    // What addresses the same service travels with it.
+    assert_eq!(restored.voice_input.asr_provider, "doubao");
+    assert_eq!(
+        restored.voice_input.asr_endpoint,
+        "https://asr.example.test/v1"
+    );
+    assert_eq!(
+        restored.voice_input.asr_model_path,
+        "/Users/fixture/models/ggml.bin"
+    );
+    // The seeding marker is not a setting: clearing it would re-seed rules the user turned off.
+    assert!(restored.fuzzy_pinyin.seeded);
+
+    // A restore is idempotent and produces a document the store will accept.
+    restored.validate().expect("restored preferences validate");
+    assert_eq!(restored.restored_to_defaults(), restored);
+}

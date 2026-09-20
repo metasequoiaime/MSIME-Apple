@@ -667,6 +667,28 @@ fn custom_skin_library_error(value: CustomSkinLibraryError) -> CommandError {
     }
 }
 
+/// The settings document the restore-defaults button would write.
+///
+/// It reads the current document and hands back what a restore would produce, without writing
+/// anything: the page puts it in the draft and the user saves it like any other edit, so a misclick
+/// costs nothing and the change is visible before it lands. `restored_to_defaults` decides what
+/// survives -- the credentials and what addresses the same service -- so that rule lives beside the
+/// struct rather than in the page.
+#[tauri::command]
+async fn restored_default_preferences(
+    store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
+) -> Result<Preferences, CommandError> {
+    let store = store.inner().clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        store
+            .load()
+            .map(|snapshot| snapshot.preferences.restored_to_defaults())
+            .map_err(CommandError::from)
+    })
+    .await
+    .map_err(|_| CommandError { code: "storage" })?
+}
+
 #[tauri::command]
 async fn load_preferences(
     store: tauri::State<'_, std::sync::Arc<PreferencesStore>>,
@@ -3377,6 +3399,7 @@ pub fn run() {
             #[cfg(target_os = "linux")]
             ai_test,
             load_preferences,
+            restored_default_preferences,
             load_custom_skin_library,
             mutate_custom_skin_library,
             load_typing_statistics,
