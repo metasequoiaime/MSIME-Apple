@@ -634,6 +634,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSDictionary *_menuThemePreferences;
     MSIMEDictionaryWindowController *_dictionaryWindow;
     NSTimer *_cloudTimer;
+    NSTimer *_settledTimer;
     MSIMECloudCandidateRequest *_cloudRequest;
     NSDictionary *_cloudQuery;
     uint64_t _cloudEpoch;
@@ -1392,6 +1393,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     ++_cloudEpoch;
     [_cloudTimer invalidate];
     _cloudTimer = nil;
+    [self cancelSettledRerank];
     [_cloudRequest cancel];
     _cloudRequest = nil;
     _cloudQuery = nil;
@@ -1399,6 +1401,47 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 
 - (MSIMECloudCandidateRequest *)cloudRequestForURL:(NSURL *)url completion:(void (^)(NSData *))completion {
     return [[MSIMECloudCandidateRequest alloc] initWithURL:url configuration:NSURLSessionConfiguration.ephemeralSessionConfiguration completion:completion];
+}
+
+/// How long the composition stands still before the larger model ranks it.
+///
+/// Shorter than the half second the cloud path waits, because this one is local and it changes
+/// what the user is reading rather than annotating it. Long enough that ordinary typing never lets
+/// it fire, which is what keeps the 24M model off the keystroke path where it measures p95 153ms
+/// against a 16ms frame.
+static const NSTimeInterval kSettledRerankDelay = 0.15;
+
+- (void)cancelSettledRerank {
+    [_settledTimer invalidate];
+    _settledTimer = nil;
+}
+
+/// Re-rank once typing stops. Every refresh reschedules, so it only runs on a real pause.
+///
+/// Inert unless a settled model was installed: the shared host answers `moved: NO` immediately
+/// when none is attached, which is every installation that ships one model. The window is redrawn
+/// only when the order actually moved — repainting an identical candidate list on every pause is
+/// a flicker with no explanation behind it.
+- (void)scheduleSettledRerank {
+    [self cancelSettledRerank];
+    if (!_activeClient || !_session || _focusPending || _appearance.englishMode) return;
+    const uint64_t epoch = _cloudEpoch;
+    MSIMEClientSession *session = _session;
+    id client = _activeClient;
+    __weak MSIMEInputController *weakSelf = self;
+    _settledTimer = [NSTimer timerWithTimeInterval:kSettledRerankDelay repeats:NO block:^(NSTimer *timer) {
+        (void)timer;
+        MSIMEInputController *controller = weakSelf;
+        if (!controller || controller->_cloudEpoch != epoch || controller->_session != session ||
+            controller->_activeClient != client || controller->_focusPending ||
+            controller->_appearance.englishMode) return;
+        controller->_settledTimer = nil;
+        NSDictionary *applied = [session rerankSettledWithError:nil];
+        // Same shape the cloud path applies — a transition carrying the refreshed view — so it
+        // goes through the same method rather than a second way of updating the window.
+        if ([applied[@"moved"] boolValue]) [controller apply:applied];
+    }];
+    [NSRunLoop.mainRunLoop addTimer:_settledTimer forMode:NSRunLoopCommonModes];
 }
 
 - (void)synchronizeCloudCandidates {
@@ -2725,6 +2768,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
         [self refreshFloatingToolbarState];
         [self renderCandidates];
         [self synchronizeCloudCandidates];
+    [self scheduleSettledRerank];
         [self synchronizeCandidateGloss];
         [self synchronizeAccountGloss:[self currentAccountGlossRequest]];
         [self synchronizeCustomTranslations];
@@ -3423,6 +3467,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     [self refreshFloatingToolbarState];
     [self renderCandidates];
     [self synchronizeCloudCandidates];
+    [self scheduleSettledRerank];
     [self synchronizeCandidateGloss];
     [self synchronizeAccountGloss:[self currentAccountGlossRequest]];
     [self synchronizeCustomTranslations];
