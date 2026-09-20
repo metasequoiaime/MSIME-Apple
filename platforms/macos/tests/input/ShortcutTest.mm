@@ -1789,6 +1789,91 @@ static void *MonitoredSourceProperty(TISInputSourceRef source, CFStringRef key) 
     return (__bridge void *)((__bridge NSDictionary *)source)[(__bridge NSString *)key];
 }
 
+// What an editor receives, driven through the real engine.
+//
+// Every other controller test here hands the controller a stand-in session, and the tests that drive a real
+// session call it directly. Neither covers the path a typist exercises: a key event reaching handleEvent:,
+// the engine deciding what the composition now is, and the transition being applied to the text client. A
+// wrong preedit, a swallowed commit or punctuation in the wrong script would show up in that seam, and it
+// had nothing under it.
+//
+// IMK delivering the event is the only part left out - that needs the input source selected. From
+// handleEvent: down this is the real thing.
+static void TestRealSessionComposition() {
+    NSString *root = [NSTemporaryDirectory() stringByAppendingPathComponent:NSUUID.UUID.UUIDString];
+    NSMutableDictionary *options = [@{@"api_version": @1,
+        @"preferences": @{@"scheme": @"quanpin", @"default_ime_mode": @"chinese", @"candidate_page_size": @5,
+                          @"learning": @NO, @"chinese_punctuation": @YES}} mutableCopy];
+    for (NSString *name in @[@"resources", @"user_data", @"cache", @"dictionaries"]) {
+        NSString *path = [root stringByAppendingPathComponent:name];
+        assert([NSFileManager.defaultManager createDirectoryAtPath:path withIntermediateDirectories:YES attributes:nil error:nil]);
+        options[name] = path;
+    }
+    NSError *error = nil;
+    MSIMEClientSession *session = [[MSIMEClientSession alloc] initWithOptions:options error:&error];
+    assert(session && !error);
+    assert([session setFocused:YES error:&error] && !error);
+
+    NSString *suite = [@"msime.real-composition." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs =
+        [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults skinsRoot:[NSURL fileURLWithPath:root]];
+    ShortcutClient *client = [ShortcutClient new];
+    client.document = @"";
+    client.caret = NSMakeRect(100, 100, 1, 16);
+    ModeController *controller = [ModeController alloc];
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    HiddenCandidatePanel *panel = [[HiddenCandidatePanel alloc] init];
+    [controller setValue:panel forKey:@"panel"];
+
+    // Unicode mode needs no dictionary, so what comes back is the engine's own answer rather than a
+    // fixture's. Shift+U opens it and the code point is typed into the buffer.
+    assert([controller handleEvent:KeypadKey(32, @"U", NSEventModifierFlagShift, NO) client:client]);
+    for (NSArray *stroke in @[@[@21, @"4"], @[@14, @"e"], @[@19, @"2"], @[@2, @"d"]])
+        assert([controller handleEvent:KeypadKey([stroke[0] unsignedShortValue], stroke[1], 0, NO) client:client]);
+    // The editor shows the composition while it is being typed, not only once it ends.
+    assert([client.marked isEqual:@"U4e2d"]);
+    assert(client.insertions.count == 0);
+
+    // Space commits what the engine resolved the code point to, and the marked text goes with it.
+    assert([controller handleEvent:ModeKey(49, 0, NO) client:client]);
+    assert(client.insertions.count == 1 && [client.insertions[0] isEqual:@"\u4e2d"]);
+    assert(client.marked.length == 0);
+
+    // Return is the other half of the same contract: it commits the letters that were typed, not the
+    // character they resolve to. Someone who meant to write the code point itself gets it.
+    [client.insertions removeAllObjects];
+    assert([controller handleEvent:KeypadKey(32, @"U", NSEventModifierFlagShift, NO) client:client]);
+    for (NSArray *stroke in @[@[@21, @"4"], @[@14, @"e"], @[@19, @"2"], @[@2, @"d"]])
+        assert([controller handleEvent:KeypadKey([stroke[0] unsignedShortValue], stroke[1], 0, NO) client:client]);
+    NSEvent *enter = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0
+        timestamp:0 windowNumber:0 context:nil characters:@"\r" charactersIgnoringModifiers:@"\r" isARepeat:NO keyCode:36];
+    assert([controller handleEvent:enter client:client]);
+    assert(client.insertions.count == 1 && [client.insertions[0] isEqual:@"U4e2d"]);
+    assert(client.marked.length == 0);
+
+    // Punctuation with nothing composing goes through the shared policy and reaches the editor converted.
+    [client.insertions removeAllObjects];
+    NSEvent *comma = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0
+        timestamp:0 windowNumber:0 context:nil characters:@"," charactersIgnoringModifiers:@"," isARepeat:NO keyCode:43];
+    assert([controller handleEvent:comma client:client]);
+    assert(client.insertions.count == 1 && [client.insertions[0] isEqual:@"\uff0c"]);
+
+    // With the preference off there is nothing to convert, so the key is declined rather than consumed and
+    // the application types its own comma. Consuming it and inserting the ASCII one would look the same
+    // here and be wrong in an editor that treats the two differently.
+    [client.insertions removeAllObjects];
+    assert([session setChinesePunctuationEnabled:NO error:&error] && !error);
+    assert(![controller handleEvent:comma client:client]);
+    assert(client.insertions.count == 0);
+
+    assert([session closeWithError:&error] && !error);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+    assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
+}
+
 static void TestInputSourceModeReset() {
     NSString *suite = [@"msime.source-reset." stringByAppendingString:NSUUID.UUID.UUIDString];
     NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
@@ -4673,6 +4758,7 @@ int main(int argc, char **argv) {
         TestControlOptionSpace();
         TestInputModePolicy();
         TestInputSourceModeReset();
+        TestRealSessionComposition();
         TestModifierTaps();
         TestStaleClientDeactivation();
         TestPreferenceClientGeneration();
