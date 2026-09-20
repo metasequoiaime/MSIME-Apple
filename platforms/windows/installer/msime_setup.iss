@@ -651,7 +651,7 @@ begin
     task in the interactive user's session; LIMITED avoids an elevated token. }
   Params :=
     '/Create /F /TN "{#MyWatchdogTaskName}" /SC ONLOGON ' +
-    '/RL LIMITED /IT /TR "\"' + WatchdogPath + '\""';
+    '/RL LIMITED /IT /TR "' + WatchdogPath + '"';
   if
     (not Exec(
       ExpandConstant('{sys}\schtasks.exe'),
