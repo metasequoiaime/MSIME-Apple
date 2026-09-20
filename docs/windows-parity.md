@@ -39,7 +39,7 @@
 | 语音热键、流式/批量 ASR、润色、声音/静音、上屏方式 | `server/src/voice-input/`、设置 `voice.ts` | `main.cpp` → `VoiceHotkeyController` / `VoiceInputSession` → Engine 语音模块与 TSF；`VoiceSessionEpoch.h` | Windows Tauri 语音面板与 `recognize_voice` 已接入；全提供方、取消及焦点行为仍需 Windows 原生验证。macOS 原生备用窗口已将有效非云快照字段回写共享 `voice_input`，并可编辑 ASR/润色 provider token 槽位，但真实系统链路仍需验证。 |
 | 录音设备选择 | 需继续比对来源具体支持范围，不假定来源已支持 | Tauri `list_voice_capture_devices` → `host-macos::voice_capture_devices` → `MSIMEListVoiceCaptureDevices` 与共享 `capture_device/capture_backend`；Windows `VoiceInputConfig` / `VoiceInputSession` | Windows 已按稳定设备 ID 完成枚举、偏好保存和 `AudioCapture::start(..., device_id)` 透传，并有 `voice_capture_selection` 覆盖 backend/device 选择；macOS Tauri 与原生备用设置现在共用 CoreAudio 输入流枚举、默认设备排序和稳定 UID，且只接受空值、`auto`、`macos` 进入 CoreAudio，拒绝把其他平台后端静默重解释为 CoreAudio。真实硬件权限、安装后切换及来源设备标识范围仍待产品级验证。 |
 | 手写 | 来源设置 `handwriting-settings.ts` 和模型资源 | `ShellSurfaces.h` / `main.cpp` → Tauri `recognize_handwriting` / `submit_handwriting_candidate`，共享 `panels.tsx` | 有目的地入口；比较模型打包、笔画缩放、撤销/清空、多候选及原编辑器上屏。 |
- | 屏幕键盘 | 来源设置 `screenkb-settings.ts` | `main.cpp` → Tauri keyboard route、`desktop-keyboard.tsx`、Windows `send_key` 分支；macOS Tauri 与原生备用键盘都在每次按键时读取当前前台编辑器，并在实际投递前重新校验身份；无 Accessibility 权限时只拒绝投递、不弹权限请求；Tauri 面板仍捕获 PID+启动时间用于生命周期恢复 | macOS 键盘路径不再把当前设置宿主误当成输入目标，也不会在用户切换编辑器后继续投递到旧窗口；共享 Tauri 面板与原生备用面板的普通键均按 450ms 首次延迟、75ms 间隔自动重复，粘滞修饰键与 Num Lock 保持单次切换且键盘/辅助功能激活仍为单次发送；投递失败、失焦或关闭会停止重复且不自动重放；macOS Tauri 首次显示和隐藏后重开时按当前/主显示器的物理工作区底部居中，兼容负坐标、多显示器和 Retina 缩放。布局、修饰键按下/释放语义及真实焦点恢复仍需逐项核对。 |
+ | 屏幕键盘 | 来源面板 `server/src/keyboard-panel/KeyboardPanel.cpp`（设置页 `screenkb-settings.ts` 只是入口按钮） | `main.cpp` → Tauri keyboard route、`desktop-keyboard.tsx`、Windows `send_key` 分支；macOS Tauri 与原生备用键盘都在每次按键时读取当前前台编辑器，并在实际投递前重新校验身份；无 Accessibility 权限时只拒绝投递、不弹权限请求；Tauri 面板仍捕获 PID+启动时间用于生命周期恢复 | macOS 键盘路径不再把当前设置宿主误当成输入目标，也不会在用户切换编辑器后继续投递到旧窗口；共享 Tauri 面板与原生备用面板的普通键均按 450ms 首次延迟、75ms 间隔自动重复，粘滞修饰键与 Num Lock 保持单次切换且键盘/辅助功能激活仍为单次发送；投递失败、失焦或关闭会停止重复且不自动重放；macOS Tauri 首次显示和隐藏后重开时按当前/主显示器的物理工作区底部居中，兼容负坐标、多显示器和 Retina 缩放。真实焦点恢复仍需原生验证；布局与修饰键语义的比对对象已更正（第四十九批）——来源不是 `screenkb-settings.ts` 而是 `server/src/keyboard-panel/KeyboardPanel.cpp`，逐键比对尚未做。 |
 | Emoji、颜文字、符号、剪贴板历史 | README 与来源 `clipboard_history.cpp` | `ClipboardMonitor.cpp` / `ClipboardHistory.cpp`、Tauri `load_emoji_catalog` / `paste_clipboard_text`、共享 `panels.tsx` | macOS 常驻输入源与 Tauri 监视器现按 NSPasteboard `changeCount` 读取外部文本变化，共用 4000 UTF-16 单位、12000 UTF-8 字节边界，并复用共享 50 条历史、去重/置顶和开关清理；关闭历史时不读取剪贴板内容。Emoji 面板通过已认证的一次性桌面输入会话把记录定向提交回原应用，普通 Emoji 候选与剪贴板大文本使用独立校验模式。仍需核对安装后真实持续监视与目标窗口行为，不能以普通 SendInput 冒充会话定向提交。 |
 | 悬浮工具栏、托盘菜单、入口快捷键 | 来源 `window/*presenter*`、`ui-html/webview2/ftb` / `menu` | `FloatingToolbarWindow.cpp`、`TrayMenuWindow.cpp`、`MaintenanceHotkey.cpp`、`ShellSurfaces.h` / `ShellLauncher.cpp` | 有调用链；设置/手写/键盘/语音/云剪贴板/云词库等启动共享 Tauri，低延迟不抢焦点宿主保留原生。macOS 与 Tauri 预览现消费 `floating_toolbar.english_mode` 及其余组件开关，原生共享偏好合并也保留该字段并按可见组件重算宽度；菜单项与禁用条件已逐项比对（第四十三批）：动作一一对应且目标多出手写识别板；工具栏组件与来源 README 所列六项一一对应；禁用语义是进程边界带来的有意差异，已记录。 |
 | 皮肤、主题、字体、外观预览 | 来源 `appearance.ts` / `skin.ts`、`candwnd/skins` | 共享 `packages/ui/src/upstream/`、`skin/catalog.rs`、`CandidateSkin.h`、`CandidateWindow.cpp` | Windows 已消费候选字体/回退字体、主题颜色、横竖排布局和阴影字段；`candidate_font_reload`、`candidate_palette` 与 shadow 回归覆盖非法值回退。仍需逐主题运行时截图、外部资源和字体回退逐项比较。 |
@@ -642,6 +642,12 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 | TIP `ActivateEx`（三种标志） | **E_FAIL** |
 
 **结论**：Wine 能提供 TSF 的运行时与全部前置原语，也能让本仓库的 TIP 被实例化；不能提供的是 TIP 注册，而激活失败的具体步骤**仍未隔离**。要往下走只有一条路——构建一个带日志的 TIP，逐个 `goto ExitError` 打点。本轮不做，因为那要改线上 TIP 的构建配置，且改完仍无法在 Wine 下产生可用的输入法，收益只在诊断本身。
+
+增量记录（2026-09-20，Windows 第四十九批：屏幕键盘那行的来源指错了文件）：这行原把「布局、修饰键按下/释放语义」的比对来源写成设置模块 `screenkb-settings.ts`。**那个文件里两样都没有**——它总共 19 行，只做两件事：按主题切换预览图 `softkbd_light.png` / `softkbd.png`，以及给一个按钮挂上 `postMessage({type:'openKeyboardPanel'})`。它是设置页里的入口，不是键盘本身。
+
+真正的来源是 `server/src/keyboard-panel/KeyboardPanel.cpp`，其中引用了 37 个不同的虚拟键：左右 Win（`VK_LWIN` / `VK_RWIN`）、左右 Ctrl 与 Alt（`VK_CONTROL` / `VK_RCONTROL`、`VK_MENU` / `VK_RMENU`）、应用键 `VK_APPS`、导航簇（`VK_HOME` / `VK_END` / `VK_PRIOR` / `VK_NEXT` / 四向方向键）、`VK_INSERT` / `VK_DELETE`、`VK_NUMLOCK` / `VK_CAPITAL`、以及整套 OEM 标点（`VK_OEM_1` 到 `VK_OEM_7` 加 `VK_OEM_COMMA` / `MINUS` / `PERIOD` / `PLUS`）。
+
+**本批只更正比对对象，没有做逐键比对。** 这个更正本身有价值：原先那条待办指着一个不含目标内容的文件，任何人照着它去核都会扑空；现在它指向真正需要 diff 的那份源码。左右修饰键是否都区分、`VK_APPS` 与两个 Win 键是否都有对应，是逐键比对时要回答的第一批问题。
 
 ## 来源模块的落点
 
