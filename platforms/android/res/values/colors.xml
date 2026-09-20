@@ -1,0 +1,18 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The Apple app's MetasequoiaTheme, so the two platforms read as one product. -->
+<resources>
+    <color name="forest">#185C48</color>
+    <color name="needle">#4D8A72</color>
+    <color name="mist">#F3F7F5</color>
+    <color name="cone">#A7673B</color>
+    <color name="ink">#14231D</color>
+    <color name="surface">#FFFFFF</color>
+    <color name="text_secondary">#707C76</color>
+    <color name="hairline">#E4EAE7</color>
+    <color name="tile_pink">#FCE7EC</color>
+    <color name="tile_green">#E2ECE7</color>
+    <color name="tile_violet">#E9E8F8</color>
+    <color name="tile_sand">#F5EBE2</color>
+    <color name="tile_amber">#FFF0E0</color>
+    <color name="tile_grey">#EEF0EF</color>
+</resources>

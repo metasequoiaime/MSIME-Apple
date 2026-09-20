@@ -39,3 +39,9 @@ local.properties
 
 # Prepared by scripts/fetch_engine.py from engine-lock.json rather than tracked or submoduled.
 /vendor/MSIME-Engine/
+
+# The native host's Gradle project: its build directories and daemon caches are per-machine, and the
+# .gradle caches hold absolute paths and lock files that mean nothing on another checkout.
+/platforms/android/gradle-app/.gradle/
+/platforms/android/gradle-app/build/
+/platforms/android/gradle-app/app/build/

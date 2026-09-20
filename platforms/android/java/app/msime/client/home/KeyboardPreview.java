@@ -1,6 +1,9 @@
 package app.msime.client.home;
 
 import android.content.Context;
+import android.util.AttributeSet;
+import androidx.core.content.ContextCompat;
+import app.msime.client.R;
 import android.graphics.Canvas;
 import android.graphics.Color;
 import android.graphics.Paint;
@@ -26,28 +29,39 @@ public final class KeyboardPreview extends View {
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF key = new RectF();
 
-    public KeyboardPreview(Context context) {
-        super(context);
-        setBackground(Theme.filled(context, Color.rgb(240, 245, 242), 14f));
+    /** Inflated from the keyboard page's layout, so it takes the two-argument constructor. */
+    public KeyboardPreview(Context context, AttributeSet attributes) {
+        super(context, attributes);
+        android.graphics.drawable.GradientDrawable background = new android.graphics.drawable.GradientDrawable();
+        background.setColor(Color.rgb(240, 245, 242));
+        background.setCornerRadius(dp(14));
+        setBackground(background);
     }
 
-    @Override protected void onDraw(Canvas canvas) {
-        Context context = getContext();
-        float pad = Theme.dp(context, 8);
-        float gap = Theme.dp(context, 5);
-        float stripHeight = Theme.dp(context, 26);
-        float radius = Theme.dp(context, 7);
+    private float dp(float value) {
+        return value * getResources().getDisplayMetrics().density;
+    }
 
-        paint.setColor(Theme.INK);
-        paint.setTextSize(Theme.dp(context, 12));
+    private int ink() { return ContextCompat.getColor(getContext(), R.color.ink); }
+    private int forest() { return ContextCompat.getColor(getContext(), R.color.forest); }
+    private int secondary() { return ContextCompat.getColor(getContext(), R.color.text_secondary); }
+
+    @Override protected void onDraw(Canvas canvas) {
+        float pad = dp(8);
+        float gap = dp(5);
+        float stripHeight = dp(26);
+        float radius = dp(7);
+
+        paint.setColor(ink());
+        paint.setTextSize(dp(12));
         paint.setTextAlign(Paint.Align.LEFT);
-        canvas.drawText("ni hao", pad + Theme.dp(context, 6), pad + stripHeight * 0.66f, paint);
-        paint.setColor(Theme.FOREST);
-        canvas.drawText("你好", pad + Theme.dp(context, 52), pad + stripHeight * 0.66f, paint);
-        paint.setColor(Theme.TEXT_SECONDARY);
-        canvas.drawText("你号", pad + Theme.dp(context, 84), pad + stripHeight * 0.66f, paint);
+        canvas.drawText("ni hao", pad + dp(6), pad + stripHeight * 0.66f, paint);
+        paint.setColor(forest());
+        canvas.drawText("你好", pad + dp(52), pad + stripHeight * 0.66f, paint);
+        paint.setColor(secondary());
+        canvas.drawText("你号", pad + dp(84), pad + stripHeight * 0.66f, paint);
         paint.setTextAlign(Paint.Align.RIGHT);
-        canvas.drawText("九键", getWidth() - pad - Theme.dp(context, 6), pad + stripHeight * 0.66f, paint);
+        canvas.drawText("九键", getWidth() - pad - dp(6), pad + stripHeight * 0.66f, paint);
 
         float top = pad + stripHeight;
         float available = getHeight() - top - pad;
@@ -61,10 +75,10 @@ public final class KeyboardPreview extends View {
                 float x = pad + c * (width + gap);
                 key.set(x, y, x + width, y + rowHeight);
                 boolean accent = "换行".equals(row[c]);
-                paint.setColor(accent ? Theme.FOREST : Color.WHITE);
+                paint.setColor(accent ? forest() : Color.WHITE);
                 canvas.drawRoundRect(key, radius, radius, paint);
-                paint.setColor(accent ? Color.WHITE : Theme.INK);
-                paint.setTextSize(Theme.dp(context, row[c].length() > 2 ? 10 : 12));
+                paint.setColor(accent ? Color.WHITE : ink());
+                paint.setTextSize(dp(row[c].length() > 2 ? 10 : 12));
                 canvas.drawText(row[c], key.centerX(),
                     key.centerY() + paint.getTextSize() * 0.36f, paint);
             }

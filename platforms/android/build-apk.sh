@@ -11,36 +11,38 @@ android_jar="$android_sdk/platforms/android-35/android.jar"
 [[ -f "$android_jar" && -x "$tools_dir/d8" ]] || { echo "Android platform/build-tools 35 required" >&2; exit 1; }
 artifacts=$(cargo run --quiet -p msime-client-core --example verify_resources --locked -- "$resource_dir")
 for abi in arm64-v8a x86_64; do bash platforms/android/build-native.sh "$abi"; done
-mkdir -p target/android
-build_dir=$(mktemp -d "$repo_root/target/android/apk-build.XXXXXX")
-mkdir -p "$build_dir/classes" "$build_dir/dex" "$build_dir/assets/dictionary" "$build_dir/pack/lib"
-cp resources/desktop-dictionary.lock.json "$build_dir/assets/"
-while IFS= read -r artifact; do cp "$resource_dir/$artifact" "$build_dir/assets/dictionary/"; done <<< "$artifacts"
-cargo run --quiet -p msime-client-core --example verify_resources --locked -- "$build_dir/assets/dictionary" >/dev/null
-cp -R target/android/notices "$build_dir/assets/native-notices"
-cp LICENSE "$build_dir/assets/client-LICENSE.txt"
-client_sources=()
-while IFS= read -r source; do
-  client_sources+=("$source")
-done < <(find platforms/android/java/app/msime/client -name "*.java" -print)
-javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$build_dir/classes" "${client_sources[@]}"
-jar --create --file "$build_dir/classes.jar" -C "$build_dir/classes" .
-"$tools_dir/d8" --release --min-api 28 --lib "$android_jar" --output "$build_dir/dex" "$build_dir/classes.jar"
-"$tools_dir/aapt2" compile --dir platforms/android/res -o "$build_dir/resources.zip"
-"$tools_dir/aapt2" link -I "$android_jar" --manifest platforms/android/AndroidManifest.xml \
-  -A "$build_dir/assets" -o "$build_dir/unsigned.apk" "$build_dir/resources.zip"
-cp "$build_dir/dex/classes.dex" "$build_dir/pack/"
-for abi in arm64-v8a x86_64; do cp -R "target/android/jniLibs/$abi" "$build_dir/pack/lib/"; done
-(cd "$build_dir/pack" && zip -q -0 -r "$build_dir/unsigned.apk" lib classes.dex)
-"$tools_dir/zipalign" -P 16 4 "$build_dir/unsigned.apk" "$build_dir/aligned.apk"
+
+# The host is a Gradle build now: it uses AndroidX and Material, and those ship as AARs whose
+# resources have to be merged and whose R classes have to be generated per package. The previous
+# aapt2/d8 pipeline had no dependency resolution at all, so every one of those steps would have been
+# hand-rolled here. Gradle and AGP are pinned to the versions the Tauri bundle already resolves.
+assets="$repo_root/target/android/host-assets"
+rm -rf "$assets"
+mkdir -p "$assets/dictionary"
+cp resources/desktop-dictionary.lock.json "$assets/"
+while IFS= read -r artifact; do cp "$resource_dir/$artifact" "$assets/dictionary/"; done <<< "$artifacts"
+cargo run --quiet -p msime-client-core --example verify_resources --locked -- "$assets/dictionary" >/dev/null
+mkdir -p "$assets/native-notices"
+cp -R target/android/notices/. "$assets/native-notices/"
+cp LICENSE "$assets/client-LICENSE.txt"
+
+gradle_dir="$repo_root/platforms/android/gradle-app"
+tauri_gradlew="$repo_root/apps/desktop/src-tauri/gen/android/gradlew"
+[[ -x "$tauri_gradlew" ]] || { echo "Gradle wrapper required; run the Tauri Android init once" >&2; exit 1; }
+ANDROID_HOME="$android_sdk" "$tauri_gradlew" --project-dir "$gradle_dir" --console=plain assembleRelease
+
+unsigned="$gradle_dir/app/build/outputs/apk/release/app-release-unsigned.apk"
+[[ -f "$unsigned" ]] || { echo "Expected host APK not produced" >&2; exit 1; }
 keystore="$repo_root/target/android/development.keystore"
 if [[ ! -f "$keystore" ]]; then
   keytool -genkeypair -keystore "$keystore" -storepass android -keypass android \
     -alias androiddebugkey -dname "CN=MSIME Development" -keyalg RSA -keysize 2048 -validity 3650
 fi
+"$tools_dir/zipalign" -P 16 4 "$unsigned" "$repo_root/target/android/aligned.apk"
 "$tools_dir/apksigner" sign --ks "$keystore" --ks-key-alias androiddebugkey \
-  --ks-pass pass:android --key-pass pass:android --out "$build_dir/signed.apk" "$build_dir/aligned.apk"
-"$tools_dir/apksigner" verify --verbose "$build_dir/signed.apk"
-"$tools_dir/zipalign" -c -P 16 4 "$build_dir/signed.apk"
-cp "$build_dir/signed.apk" target/android/msime-client-preview.apk
+  --ks-pass pass:android --key-pass pass:android \
+  --out target/android/msime-client-preview.apk "$repo_root/target/android/aligned.apk"
+"$tools_dir/apksigner" verify --verbose target/android/msime-client-preview.apk
+"$tools_dir/zipalign" -c -P 16 4 target/android/msime-client-preview.apk
+rm -f "$repo_root/target/android/aligned.apk"
 echo "Development APK built: $repo_root/target/android/msime-client-preview.apk; not installed or device-verified"
