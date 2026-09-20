@@ -10,6 +10,8 @@
 #include "RegistrationInbox.h"
 #include "SessionWorkers.h"
 #include <atomic>
+#include <chrono>
+#include <optional>
 #include <string_view>
 
 namespace msime::windows {
@@ -113,6 +115,16 @@ public:
 
 private:
   void run();
+  /// The composition that has been standing still, and since when.
+  ///
+  /// Windows has no run loop here to hang a timer on, so the settle pass rides
+  /// the existing service tick: the lease is recorded when a reply is
+  /// delivered, and the pass runs on the first tick after the delay has
+  /// elapsed. Cleared once it has run, so a composition is ranked once rather
+  /// than on every tick that follows.
+  std::optional<FocusLease> settled_pending_;
+  std::chrono::steady_clock::time_point settled_since_{};
+  void run_settled_rerank();
   RegistrationInbox &inbox_;
   MainTransport &transport_;
   std::function<bool()> healthy_;

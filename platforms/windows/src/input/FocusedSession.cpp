@@ -296,6 +296,15 @@ bool FocusedSession::cancel_focus_token(uint64_t token) {
   return cancel(*lease_);
 }
 std::optional<nlohmann::json>
+FocusedSession::rerank_settled(const FocusLease &lease) {
+  check_thread();
+  if (!prepared(lease))
+    return std::nullopt;
+  std::optional<nlohmann::json> result;
+  gate_.with_active(lease, [&] { result = session_.rerank_settled(lease.epoch); });
+  return result;
+}
+std::optional<nlohmann::json>
 FocusedSession::apply_cloud_response(const FocusLease &lease,
                                      const std::string &query,
                                      const std::string &body) {

@@ -321,6 +321,24 @@ std::optional<std::string> ServerSession::ai_request(uint64_t epoch,
   }
 }
 std::optional<nlohmann::json>
+ServerSession::rerank_settled(uint64_t epoch) {
+  check_active(epoch);
+  try {
+    const auto value = response(msime_client_rerank_settled(session_));
+    // Nothing moved is the common answer and is not a result: redrawing an
+    // identical candidate list on every pause is a flicker with no cause the
+    // user can see. It is also what an installation with no settled model
+    // installed always answers.
+    if (!value.is_object() || !value.value("moved", false) ||
+        !value.contains("view") || !value.at("view").is_object())
+      return std::nullopt;
+    return value.at("view");
+  } catch (...) {
+    // A reranking pass is an improvement, never a reason to stop input.
+    return std::nullopt;
+  }
+}
+std::optional<nlohmann::json>
 ServerSession::apply_cloud_response(uint64_t epoch, const std::string &query,
                                      const std::string &body) {
   check_active(epoch);

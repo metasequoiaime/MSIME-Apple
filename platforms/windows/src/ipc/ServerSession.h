@@ -71,6 +71,9 @@ public:
   std::optional<std::string> online_query(uint64_t epoch);
   std::optional<std::string> ai_request(uint64_t epoch,
                                         const std::string &query);
+  /// Re-rank with the settled model; the refreshed view, or nothing when the
+  /// order did not move or no settled model is installed.
+  std::optional<nlohmann::json> rerank_settled(uint64_t epoch);
   std::optional<nlohmann::json>
   apply_cloud_response(uint64_t epoch, const std::string &query,
                        const std::string &body);

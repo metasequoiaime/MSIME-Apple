@@ -287,6 +287,12 @@ bool InputState::cancel_composition(const FocusLease &lease) {
   return owner && owner->cancel_composition(lease);
 }
 std::optional<nlohmann::json>
+InputState::rerank_settled(const FocusLease &lease) {
+  check_thread();
+  auto *owner = session(lease.transport);
+  return owner ? owner->rerank_settled(lease) : std::nullopt;
+}
+std::optional<nlohmann::json>
 InputState::apply_cloud_response(const FocusLease &lease,
                                  const std::string &query,
                                  const std::string &body) {
