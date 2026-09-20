@@ -12,6 +12,7 @@ import { SkinCandidatePreview } from "./skin-candidate-preview";
 import { candidateFontSize, candidateFontStyle } from "../candidate/candidate-font-size";
 import { candidateTextStyle } from "../candidate/candidate-text-color";
 import { candidateFamilyStyle } from "../candidate/candidate-font-family";
+import * as settings from "../settings/settings-style";
 
 function LoadedPreview({
   skin,
@@ -65,13 +66,14 @@ function LoadedPreview({
   return (
     <div className={decorated ? "external-skin-decorated" : undefined}>
       <div
-        className={`skin-card-preview appearance-candidate-preview skin-${base} ${scope}`}
+        data-skin-preview=""
+        className={`${settings.skinCardPreview} appearance-candidate-preview skin-${base} ${scope}`}
         style={geometry}
         data-preview-theme={theme}
         data-font-size={candidateFontSize(preferences.candidate_font_size)}
         aria-hidden="true"
       >
-        <div className="skin-preview-stage">
+        <div className={settings.skinPreviewStage} data-skin-stage="">
           <SkinCandidatePreview
             orientation={preferences.candidate_layout ?? "vertical"}
             count={preferences.candidate_page_size}

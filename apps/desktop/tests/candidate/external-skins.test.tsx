@@ -19,7 +19,7 @@ beforeEach(() =>
   }),
 );
 function previewCss(card: HTMLElement): string {
-  const scope = Array.from(card.querySelector(".skin-card-preview")!.classList).find((value) =>
+  const scope = Array.from(card.querySelector("[data-skin-preview]")!.classList).find((value) =>
     value.startsWith("external-preview-"),
   )!;
   return document.adoptedStyleSheets
@@ -296,7 +296,7 @@ test("decorated previews preserve upstream geometry in both layouts without deco
   refresh();
   const card = await screen.findByRole("article");
   expect(card.classList.contains("external-skin-decorated")).toBe(true);
-  const preview = card.querySelector<HTMLElement>(".skin-card-preview")!;
+  const preview = card.querySelector<HTMLElement>("[data-skin-preview]")!;
   expect(preview.style.getPropertyValue("--msime-skin-min-width")).toBe("280.5px");
   expect(preview.style.getPropertyValue("--msime-skin-decoration-top")).toBe("32.5px");
   expect(preview.style.getPropertyValue("--msime-skin-decoration-width")).toBe("150px");
@@ -306,7 +306,7 @@ test("decorated previews preserve upstream geometry in both layouts without deco
     ).not.toBeNull();
   }
   expect(card.querySelectorAll(".containerParent")).toHaveLength(2);
-  expect(card.querySelector(".skin-preview-stage:last-child .containerParent")).toBeNull();
+  expect(card.querySelector("[data-skin-stage]:last-child .containerParent")).toBeNull();
 });
 
 test.each([
@@ -336,7 +336,7 @@ test.each([
     const card = await screen.findByRole("article");
     expect(card.classList.contains("external-skin-decorated")).toBe(false);
     expect(card.querySelector(".containerParent")).toBeNull();
-    const preview = card.querySelector<HTMLElement>(".skin-card-preview")!;
+    const preview = card.querySelector<HTMLElement>("[data-skin-preview]")!;
     expect(preview.style.getPropertyValue("--msime-skin-min-width")).toBe("0px");
     expect(preview.style.getPropertyValue("--msime-skin-decoration-top")).toBe("0px");
     expect(preview.style.getPropertyValue("--msime-skin-decoration-width")).toBe("0px");
@@ -509,7 +509,7 @@ test("catalog is scanned only on request and displays host directory, metadata a
   expect(within(card).getByText("sample · v1 · Example")).toBeTruthy();
   expect(screen.getByText("已忽略 1 个无效皮肤目录")).toBeTruthy();
   expect(screen.getByText("Bad：invalid manifest")).toBeTruthy();
-  expect(card.querySelectorAll(".skin-preview-stage")).toHaveLength(3);
+  expect(card.querySelectorAll("[data-skin-stage]")).toHaveLength(3);
 });
 
 test("external selection enters the revisioned draft; preview toggles never save or select", async () => {
@@ -558,7 +558,7 @@ test("light-only skin compatibility follows actual theme, not card override", as
   view.rerender(<ExternalSkins {...props} onSelect={onSelect} scan={scan} activeTheme="dark" />);
   expect((toggle as HTMLButtonElement).disabled).toBe(true);
   expect(
-    view.container.querySelector(".skin-card-preview")?.getAttribute("data-preview-theme"),
+    view.container.querySelector("[data-skin-preview]")?.getAttribute("data-preview-theme"),
   ).toBe("light");
   expect(scan).toHaveBeenCalledTimes(1);
 });
@@ -575,11 +575,11 @@ test("settings synchronize all cards and reset local overrides on candidate them
   const cards = screen.getAllByRole("article");
   expect(cards).toHaveLength(5);
   for (const card of cards) {
-    expect(card.querySelector(".skin-card-preview")?.getAttribute("data-preview-theme")).toBe(
+    expect(card.querySelector("[data-skin-preview]")?.getAttribute("data-preview-theme")).toBe(
       "light",
     );
     fireEvent.click(within(card).getByRole("button", { name: "预览深色" }));
-    expect(card.querySelector(".skin-card-preview")?.getAttribute("data-preview-theme")).toBe(
+    expect(card.querySelector("[data-skin-preview]")?.getAttribute("data-preview-theme")).toBe(
       "dark",
     );
   }
@@ -588,7 +588,7 @@ test("settings synchronize all cards and reset local overrides on candidate them
   fireEvent.change(screen.getByLabelText("全局主题"), { target: { value: "light" } });
   fireEvent.click(screen.getByRole("button", { name: "皮肤" }));
   for (const card of cards)
-    expect(card.querySelector(".skin-card-preview")?.getAttribute("data-preview-theme")).toBe(
+    expect(card.querySelector("[data-skin-preview]")?.getAttribute("data-preview-theme")).toBe(
       "light",
     );
   expect(scan).toHaveBeenCalledTimes(1);

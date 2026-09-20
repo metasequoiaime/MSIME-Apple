@@ -8,6 +8,7 @@ import type { SkinCatalog } from "../skin/external-skins";
 import type { SkinImageReader } from "../skin/skin-image";
 import { useCandidatePreviewTheme } from "./candidate-preview-theme";
 import { useResolvedCandidateFonts, type FontFamilyResolver } from "./resolved-candidate-fonts";
+import * as settings from "../settings/settings-style";
 
 export function AppearanceCandidatePreview({
   preferences: storedPreferences,
@@ -48,7 +49,8 @@ export function AppearanceCandidatePreview({
       </div>
       {builtin ? (
         <div
-          className={`skin-card-preview appearance-candidate-preview skin-${skin}`}
+          data-skin-preview=""
+          className={`${settings.skinCardPreview} appearance-candidate-preview skin-${skin}`}
           data-preview-theme={theme}
           data-font-size={candidateFontSize(preferences.candidate_font_size)}
           style={{
@@ -66,7 +68,7 @@ export function AppearanceCandidatePreview({
           }}
           aria-hidden="true"
         >
-          <div className="skin-preview-stage">
+          <div className={settings.skinPreviewStage} data-skin-stage="">
             <SkinCandidatePreview
               orientation={preferences.candidate_layout ?? "vertical"}
               count={preferences.candidate_page_size}

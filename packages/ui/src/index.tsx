@@ -68,6 +68,8 @@ export type {
 import { ExternalSkins, type SkinCatalog } from "./skin/external-skins";
 import { TypingStatisticsPage, type TypingStatisticsClient } from "./settings/typing-statistics";
 import * as surface from "./keyboard/panel-surface-style";
+import * as settings from "./settings/settings-style";
+import * as doc from "./settings/document-style";
 import {
   AccountPage,
   type AccountClient,
@@ -1498,7 +1500,11 @@ function PersonalDictionaryImportCard({
     : "";
 
   return (
-    <div className="section personal-dictionary-import" role="region" aria-label="个人词库文件导入">
+    <div
+      className={`section ${settings.importSection}`}
+      role="region"
+      aria-label="个人词库文件导入"
+    >
       <div className="section-header">
         <span className="section-title">
           个人词库文件
@@ -1535,7 +1541,7 @@ function PersonalDictionaryImportCard({
       </div>
       {busy && <p role="status">正在读取或加入同步队列…</p>}
       {fileName && entries && (
-        <div className="personal-dictionary-preview">
+        <div className={settings.importPreview}>
           <strong>{fileName}</strong>
           <span>
             已校验 {entries.length} 条（{countByKind}），确认后逐条同步。
@@ -2874,7 +2880,7 @@ export function SettingsPage({
     const state = credentialTests[service];
     const visible = state?.signature === signature;
     return (
-      <div className="service-action-row">
+      <div className={settings.serviceRow}>
         <div>
           <button
             type="button"
@@ -3124,7 +3130,8 @@ export function SettingsPage({
         : "";
   return (
     <div
-      className="settings-shell"
+      className={settings.shell}
+      data-settings-shell=""
       onPointerDownCapture={(event) => {
         pendingTitlebarDrag.current = null;
         if (!client.resizeWindow || event.button !== 0 || windowMaximized) return;
@@ -3164,7 +3171,7 @@ export function SettingsPage({
           the presence of a command is not the question -- the platform is. */}
       {!mobilePlatform && (client.windowControl || client.beginWindowDrag) && (
         <header
-          className="window-titlebar"
+          className={settings.titlebar}
           aria-label="窗口控制"
           onDoubleClick={(event) => {
             pendingTitlebarDrag.current = null;
@@ -3218,10 +3225,12 @@ export function SettingsPage({
             pendingTitlebarDrag.current = null;
           }}
         >
-          <span className="window-title">水杉 IME</span>
+          <span className={settings.title} data-window-title="">
+            水杉 IME
+          </span>
           {client.windowControl && (
             <span
-              className="window-controls"
+              className={settings.windowControls}
               onPointerDown={(event) => event.stopPropagation()}
               onDoubleClick={(event) => event.stopPropagation()}
             >
@@ -3230,7 +3239,12 @@ export function SettingsPage({
                 aria-label="最小化"
                 onClick={() => void client.windowControl!("minimize")}
               >
-                <img className="window-icon" src={windowIcons.minimize} alt="" draggable={false} />
+                <img
+                  className={settings.windowIcon}
+                  src={windowIcons.minimize}
+                  alt=""
+                  draggable={false}
+                />
               </button>
               <button
                 type="button"
@@ -3238,7 +3252,7 @@ export function SettingsPage({
                 onClick={() => void client.windowControl!(windowMaximized ? "restore" : "maximize")}
               >
                 <img
-                  className="window-icon"
+                  className={settings.windowIcon}
                   src={windowMaximized ? windowIcons.restore : windowIcons.maximize}
                   alt=""
                   draggable={false}
@@ -3246,11 +3260,16 @@ export function SettingsPage({
               </button>
               <button
                 type="button"
-                className="window-close"
+                className={settings.windowClose}
                 aria-label="关闭"
                 onClick={() => void client.windowControl!("close")}
               >
-                <img className="window-icon" src={windowIcons.close} alt="" draggable={false} />
+                <img
+                  className={settings.windowIcon}
+                  src={windowIcons.close}
+                  alt=""
+                  draggable={false}
+                />
               </button>
             </span>
           )}
@@ -4046,7 +4065,7 @@ export function SettingsPage({
                     )}
                     {client.dictionary && (
                       <div
-                        className="section quick-phrase-manager"
+                        className={`section ${settings.managerHeader}`}
                         role="region"
                         aria-label="快捷短语管理"
                       >
@@ -4131,7 +4150,7 @@ export function SettingsPage({
                           </p>
                         )}
                         {dictionaryFailures.length > 0 && (
-                          <div className="dictionary-failures" role="alert">
+                          <div className={settings.failures} role="alert">
                             <p>
                               有 {dictionaryFailures.length}{" "}
                               项词库请求同步失败，可以重试或移除失败记录。
@@ -4170,7 +4189,7 @@ export function SettingsPage({
                             </ul>
                           </div>
                         )}
-                        <div className="dictionary-manager-controls">
+                        <div className={settings.managerControls}>
                           <label>
                             词库{" "}
                             <select
@@ -4226,12 +4245,12 @@ export function SettingsPage({
                           </p>
                         )}
                         {phraseNotice && (
-                          <p role="status" className="dict-notice">
+                          <p role="status" className={settings.empty}>
                             {phraseNotice}
                           </p>
                         )}
                         {phraseForm && (
-                          <div className="quick-phrase-form">
+                          <div className={settings.phraseForm}>
                             <label>
                               编码{" "}
                               <input
@@ -4240,7 +4259,7 @@ export function SettingsPage({
                                   setPhraseForm({ ...phraseForm, key: event.target.value })
                                 }
                               />
-                              <small className="dictionary-key-hint">
+                              <small className={settings.keyHint}>
                                 {dictionaryKindKeyHint(dictionaryKind)}
                               </small>
                             </label>
@@ -4284,14 +4303,14 @@ export function SettingsPage({
                           </div>
                         )}
                         {phrases.length === 0 ? (
-                          <p className="dict-empty">
+                          <p className={settings.empty}>
                             点击查询后查看
                             {localDictionaryKinds.find(([kind]) => kind === dictionaryKind)?.[1] ??
                               "词库"}
                             词条
                           </p>
                         ) : (
-                          <ul className="quick-phrase-list">
+                          <ul className={settings.phraseList}>
                             {phrases
                               .filter((entry) => entry.key.startsWith(phraseSearch))
                               .map((entry, index) => (
@@ -4329,7 +4348,7 @@ export function SettingsPage({
                               ))}
                           </ul>
                         )}
-                        <div className="dictionary-pagination">
+                        <div className="flex items-center justify-center gap-4 text-xs text-secondary">
                           <button
                             type="button"
                             className="secondary"
@@ -4382,11 +4401,11 @@ export function SettingsPage({
                     )}
                   </fieldset>
                   <fieldset disabled={busy} hidden={page !== "skin"} aria-label="皮肤">
-                    <div className="skin-intro">
+                    <div className={settings.skinIntro}>
                       选择候选窗和悬浮工具栏使用的主题；明暗预览仅影响当前卡片，不修改设置。
                     </div>
                     {snapshot?.candidate_skin_catalog && (
-                      <div className="skin-catalog-status" role="status">
+                      <div className={settings.externalMeta} role="status">
                         外部皮肤目录：
                         {snapshot.candidate_skin_catalog.scanned
                           ? `已扫描（${snapshot.candidate_skin_catalog.packages.length} 个）`
@@ -4396,38 +4415,46 @@ export function SettingsPage({
                           : ""}
                       </div>
                     )}
-                    <div className="skin-grid">
+                    <div className={settings.skinGrid}>
                       {skinOptions.map(([id, title, description]) => (
                         <article
                           aria-label={title}
-                          className={`skin-card${(draft.candidate_skin ?? "willow_green") === id ? " selected" : ""}`}
+                          className={settings.skinCard(
+                            (draft.candidate_skin ?? "willow_green") === id,
+                          )}
                           key={id}
                         >
-                          <div className="skin-card-header">
-                            <div className="skin-card-body">
-                              <span className="skin-card-title">
+                          <div className={settings.skinCardHeader} data-skin-card-header="">
+                            <div className={settings.skinCardBody}>
+                              <span className={settings.skinCardTitle}>
                                 {title} (
                                 {(skinPreviewThemes[id] ?? candidatePreviewTheme) === "dark"
                                   ? "Dark"
                                   : "Light"}
                                 )
                               </span>
-                              <span className="skin-card-description">{description}</span>
+                              <span className={settings.skinCardDescription}>{description}</span>
                             </div>
-                            <div className="skin-card-actions">
+                            <div className={settings.skinCardActions}>
                               <button
                                 type="button"
                                 role="switch"
                                 aria-label={title}
                                 aria-checked={(draft.candidate_skin ?? "willow_green") === id}
-                                className="skin-selection-switch"
+                                className={settings.skinSwitch(
+                                  (draft.candidate_skin ?? "willow_green") === id,
+                                )}
                                 onClick={() => setDraft({ ...draft, candidate_skin: id })}
                               >
-                                <span />
+                                <span
+                                  className={settings.skinSwitchKnob(
+                                    (draft.candidate_skin ?? "willow_green") === id,
+                                  )}
+                                />
                               </button>
                               <button
                                 type="button"
-                                className="skin-preview-switch"
+                                className={settings.skinPreviewSwitch}
                                 onClick={() =>
                                   setSkinPreviewThemes((current) => ({
                                     ...current,
@@ -4445,17 +4472,18 @@ export function SettingsPage({
                             </div>
                           </div>
                           <div
-                            className={`skin-card-preview skin-${id}`}
+                            className={`${settings.skinCardPreview} skin-${id}`}
+                            data-skin-preview=""
                             data-preview-theme={skinPreviewThemes[id] ?? candidatePreviewTheme}
                             aria-hidden="true"
                           >
-                            <div className="skin-preview-stage">
+                            <div className={settings.skinPreviewStage} data-skin-stage="">
                               <SkinCandidatePreview orientation="horizontal" />
                             </div>
-                            <div className="skin-preview-stage">
+                            <div className={settings.skinPreviewStage} data-skin-stage="">
                               <SkinCandidatePreview orientation="vertical" />
                             </div>
-                            <div className="skin-preview-stage">
+                            <div className={settings.skinPreviewStage} data-skin-stage="">
                               <SkinToolbarPreview />
                             </div>
                           </div>
@@ -4480,8 +4508,8 @@ export function SettingsPage({
                     hidden={page !== "floating-toolbar"}
                     aria-label="悬浮工具栏"
                   >
-                    <div className="section floating-toolbar-card">
-                      <label className="section-header floating-toolbar-setting-row">
+                    <div className={`section ${settings.toolbarCard}`}>
+                      <label className={`section-header ${settings.toolbarSettingRow}`}>
                         <span className="section-title">
                           在桌面显示悬浮工具栏<small>快速访问输入法状态与常用功能</small>
                         </span>
@@ -4501,10 +4529,12 @@ export function SettingsPage({
                           }
                         />
                       </label>
-                      <div className="floating-toolbar-preview" aria-label="悬浮工具栏预览">
-                        <div className="floating-toolbar-preview-label">预览</div>
+                      <div className={settings.toolbarPreviewArea} aria-label="悬浮工具栏预览">
+                        <div className={settings.toolbarPreviewLabel}>预览</div>
                         <div
-                          className={`skin-card-preview toolbar-settings-preview skin-${draft.candidate_skin ?? "willow_green"}`}
+                          className={`${settings.skinCardPreview} skin-${draft.candidate_skin ?? "willow_green"}`}
+                          data-skin-preview=""
+                          data-toolbar-preview=""
                           data-preview-theme={toolbarPreviewTheme}
                         >
                           <SkinToolbarPreview preferences={floatingToolbar} />
@@ -4519,7 +4549,7 @@ export function SettingsPage({
                       </div>
                     )}
                     {showToolbarAppearance && (
-                      <div className="section floating-toolbar-appearance">
+                      <div className={`section ${settings.toolbarAppearanceHeader}`}>
                         <label className="section-header">
                           <span className="section-title">
                             工具栏缩放<small>相对系统 DPI 的额外缩放，不改变系统显示缩放</small>
@@ -4576,15 +4606,15 @@ export function SettingsPage({
                       </div>
                     )}
                     {showToolbarComponents && (
-                      <div className="section floating-toolbar-components">
+                      <div className={`section ${settings.toolbarComponents}`}>
                         <div className="section-title">
                           工具栏组件<small>勾选要显示在悬浮工具栏中的功能</small>
                         </div>
-                        <div className="floating-toolbar-component-list">
-                          <label className="check-option floating-toolbar-required-option">
+                        <div className={settings.toolbarComponentList}>
+                          <label className={`check-option ${settings.toolbarRequiredOption}`}>
                             <input type="checkbox" checked disabled />
                             <span>中英文切换</span>
-                            <span className="floating-toolbar-required-label">始终显示</span>
+                            <span className={settings.toolbarRequiredLabel}>始终显示</span>
                           </label>
                           {floatingToolbarOptions.map(([key, label]) => (
                             <div key={key}>
@@ -5758,7 +5788,7 @@ export function SettingsPage({
                                   tencentTranslation.secret_key,
                                   tencentTranslation.region,
                                 ) && (
-                                  <p className="settings-warning" role="status">
+                                  <p className={settings.settingsWarning} role="status">
                                     {tencentCredentialIssue(
                                       tencentTranslation.secret_id,
                                       tencentTranslation.secret_key,
@@ -5778,7 +5808,7 @@ export function SettingsPage({
                                   tencentSecretConfigured(tencentTranslation.secret_key)
                                 ) &&
                                 !customTranslation.enabled && (
-                                  <p className="settings-warning" role="status">
+                                  <p className={settings.settingsWarning} role="status">
                                     未填写腾讯云凭据，候选翻译不会有任何结果。请填入 SecretId 与
                                     SecretKey，或改用下面的自定义翻译服务。
                                   </p>
@@ -5868,7 +5898,7 @@ export function SettingsPage({
                           {candidateTranslations &&
                             customTranslation.enabled &&
                             translationEndpointIssue(customTranslation.endpoint) && (
-                              <p className="settings-warning" role="status">
+                              <p className={settings.settingsWarning} role="status">
                                 {translationEndpointIssue(customTranslation.endpoint)}
                               </p>
                             )}
@@ -6228,7 +6258,7 @@ export function SettingsPage({
                     })}
                   </fieldset>
                   <fieldset disabled={busy} hidden={page !== "shortcuts"} aria-label="快捷键">
-                    <div className="section shortcut-intro">
+                    <div className={`section ${settings.shortcutIntro}`}>
                       输入法快捷键仅在对应输入状态或候选窗口显示时生效。翻页方式可在“输入”中启用或关闭。
                     </div>
                     {showModeSwitchShortcuts && (
@@ -6262,7 +6292,7 @@ export function SettingsPage({
                           </label>
                         ))}
                         {windowsPlatform && (
-                          <div className="shortcut-system-guide">
+                          <div className={settings.shortcutIntro}>
                             <div className="section-title">修改或关闭 Ctrl+Space（系统）</div>
                             <small>
                               Ctrl+Space 由 Windows 管理，此处不控制。请前往系统设置修改“输入法 /
@@ -6295,15 +6325,15 @@ export function SettingsPage({
                               ? "连接实体键盘后，在输入状态下可用 Super 组合键打开面板。"
                               : "桌面环境转发 Super 组合键时可从当前输入上下文打开面板。"}
                         </small>
-                        <div className="shortcut-list">
-                          <div className="shortcut-row">
+                        <div className={settings.shortcutList}>
+                          <div className={settings.shortcutRow}>
                             <span>打开屏幕键盘</span>
                             <kbd>Ctrl+Shift+{macosPlatform ? "Command" : "Super"}+K</kbd>
                           </div>
                         </div>
                       </div>
                     )}
-                    <div className="section shortcut-section">
+                    <div className={`section ${settings.shortcutSectionTitle}`}>
                       <div className="section-title">候选操作</div>
                       <small>输入和选取候选词时使用</small>
                       {showNumberRowSelection && (
@@ -6322,63 +6352,63 @@ export function SettingsPage({
                           />
                         </label>
                       )}
-                      <div className="shortcut-list">
-                        <div className="shortcut-row">
+                      <div className={settings.shortcutList}>
+                        <div className={settings.shortcutRow}>
                           <span>选择候选</span>
                           <kbd>Space{(draft.number_row_selection ?? true) ? " 或 1–9" : ""}</kbd>
                         </div>
                         {(draft.navigation ?? defaultNavigation).minus_equal && (
-                          <div className="shortcut-row">
+                          <div className={settings.shortcutRow}>
                             <span>向前 / 向后翻页</span>
                             <kbd>- / =</kbd>
                           </div>
                         )}
                         {(draft.navigation ?? defaultNavigation).comma_period && (
-                          <div className="shortcut-row">
+                          <div className={settings.shortcutRow}>
                             <span>向前 / 向后翻页</span>
                             <kbd>, / .</kbd>
                           </div>
                         )}
                         {(draft.navigation ?? defaultNavigation).tab && (
-                          <div className="shortcut-row">
+                          <div className={settings.shortcutRow}>
                             <span>向前 / 向后翻页</span>
                             <kbd>Shift+Tab / Tab</kbd>
                           </div>
                         )}
                         {(draft.navigation ?? defaultNavigation).page_up_down && (
-                          <div className="shortcut-row">
+                          <div className={settings.shortcutRow}>
                             <span>向前 / 向后翻页</span>
                             <kbd>Page Up / Page Down</kbd>
                           </div>
                         )}
                         {(draft.navigation ?? defaultNavigation).mouse_wheel && (
-                          <div className="shortcut-row">
+                          <div className={settings.shortcutRow}>
                             <span>候选窗口翻页</span>
                             <kbd>鼠标滚轮</kbd>
                           </div>
                         )}
                         {(draft.navigation ?? defaultNavigation).arrows && (
-                          <div className="shortcut-row">
+                          <div className={settings.shortcutRow}>
                             <span>移动候选项</span>
                             <kbd>↑ / ↓</kbd>
                           </div>
                         )}
-                        <div className="shortcut-row">
+                        <div className={settings.shortcutRow}>
                           <span>移动到当前候选页首 / 尾</span>
                           <kbd>Home / End</kbd>
                         </div>
-                        <div className="shortcut-row">
+                        <div className={settings.shortcutRow}>
                           <span>编辑输入串</span>
                           <kbd>← / → / Backspace</kbd>
                         </div>
-                        <div className="shortcut-row">
+                        <div className={settings.shortcutRow}>
                           <span>提交原始输入 / 取消输入</span>
                           <kbd>Enter / Esc</kbd>
                         </div>
                       </div>
                     </div>
                     {showDesktopMaintenanceShortcuts && (
-                      <div className="section shortcut-section">
+                      <div className={`section ${settings.shortcutSectionTitle}`}>
                         <div className="section-title">
                           {macosPlatform ? "输入上下文维护快捷键" : "全局维护快捷键"}
                         </div>
@@ -6389,18 +6419,18 @@ export function SettingsPage({
                               ? "当前 IBus 会话中的候选维护与服务重启"
                               : "程序运行时全局生效；用于维护与调试"}
                         </small>
-                        <div className="shortcut-list">
-                          <div className="shortcut-row">
+                        <div className={settings.shortcutList}>
+                          <div className={settings.shortcutRow}>
                             <span>删除当前候选窗口中的第 1–8 项</span>
                             <kbd>{maintenanceChord}+1–8</kbd>
                           </div>
                           {linuxPlatform && (
                             <>
-                              <div className="shortcut-row">
+                              <div className={settings.shortcutRow}>
                                 <span>清除当前输入法会话的 Engine 缓存</span>
                                 <kbd>Ctrl+Shift+Alt+C</kbd>
                               </div>
-                              <div className="shortcut-row">
+                              <div className={settings.shortcutRow}>
                                 <span>重启输入法服务</span>
                                 <kbd>Ctrl+Shift+Alt+R</kbd>
                               </div>
@@ -6408,7 +6438,7 @@ export function SettingsPage({
                           )}
                           {!linuxPlatform && (
                             <>
-                              <div className="shortcut-row">
+                              <div className={settings.shortcutRow}>
                                 <span>
                                   {macosPlatform
                                     ? "清除当前输入法会话的 Engine 缓存"
@@ -6416,13 +6446,15 @@ export function SettingsPage({
                                 </span>
                                 <kbd>{maintenanceChord}+C</kbd>
                               </div>
-                              <div className="shortcut-row">
+                              <div className={settings.shortcutRow}>
                                 <span>
                                   {macosPlatform ? "重新注册并重启当前输入法" : "重启输入法服务"}
                                 </span>
                                 <kbd>{maintenanceChord}+R</kbd>
                               </div>
-                              <div className="shortcut-row shortcut-row-danger">
+                              <div
+                                className={`${settings.shortcutRow} ${settings.shortcutRowDanger}`}
+                              >
                                 <span>
                                   {macosPlatform ? "立即退出当前输入法进程" : "立即退出输入法服务"}
                                 </span>
@@ -6434,7 +6466,7 @@ export function SettingsPage({
                       </div>
                     )}
                     {showRestartInputMethod && (
-                      <div className="section shortcut-section">
+                      <div className={`section ${settings.shortcutSectionTitle}`}>
                         <div className="section-title">输入法服务</div>
                         <small>
                           {macosPlatform
@@ -6443,7 +6475,7 @@ export function SettingsPage({
                               ? "IBus 配置支持热重载；需要重新启动输入法服务时可使用此按钮。"
                               : "请求受监督的输入法服务重新启动。"}
                         </small>
-                        <div className="service-action-row">
+                        <div className={settings.serviceRow}>
                           <span>{macosPlatform ? "重新注册当前输入源" : "立即重启输入法服务"}</span>
                           <HostActionButton
                             action={client.restartInputMethod}
@@ -6457,7 +6489,7 @@ export function SettingsPage({
                           />
                         </div>
                         {showInstallInputSource && (
-                          <div className="service-action-row">
+                          <div className={settings.serviceRow}>
                             <span>
                               安装或更新水杉输入源
                               <small>
@@ -6496,7 +6528,7 @@ export function SettingsPage({
                           />
                         )}
                       </label>
-                      <div className="clipboard-toolbar">
+                      <div className={settings.clipboardToolbar}>
                         {!iosPlatform && client.clipboard?.sync && (
                           <button
                             type="button"
@@ -6535,13 +6567,17 @@ export function SettingsPage({
                         )}
                       </div>
                       {clipboardHistory && client.clipboard?.list && (
-                        <div className="clipboard-list" aria-label="剪贴板历史">
+                        <div className={settings.clipboardList} aria-label="剪贴板历史">
                           {clipboardEntries.length === 0 ? (
                             <small>暂无历史记录</small>
                           ) : (
                             clipboardEntries.map((entry) => (
-                              <div className="clipboard-row" key={entry.text}>
-                                <span className="clipboard-entry">
+                              <div
+                                className={settings.clipboardRow}
+                                data-clipboard-entry-row=""
+                                key={entry.text}
+                              >
+                                <span className={settings.clipboardEntry}>
                                   <span title={entry.text}>{entry.text}</span>
                                   <small>
                                     {entry.pinned ? "已固定 · " : ""}
@@ -6550,7 +6586,7 @@ export function SettingsPage({
                                       : "旧记录"}
                                   </small>
                                 </span>
-                                <span className="clipboard-actions">
+                                <span className={settings.clipboardActions}>
                                   {client.clipboard?.copy && (
                                     <button
                                       type="button"
@@ -6598,7 +6634,7 @@ export function SettingsPage({
                         </div>
                       )}
                       {macosPlatform ? (
-                        <p className="panel-inline-note">
+                        <p className={settings.panelPreviewLabel}>
                           云剪贴板和云词典需要当前输入法进程提供输入会话；请从输入法悬浮工具栏或输入法菜单打开对应面板。
                         </p>
                       ) : (
@@ -6647,9 +6683,9 @@ export function SettingsPage({
                     ))}
                   </fieldset>
                   <fieldset disabled={busy} hidden={page !== "help"} aria-label="帮助">
-                    <div className="section document-page help-document">
+                    <div className={`section ${doc.page}`}>
                       <p>{platformHelpIntro}</p>
-                      <div className="document-subsection">
+                      <div className={doc.subsection}>
                         <div className="section-title">快速上手</div>
                         <p>{platformQuickStart}</p>
                         {mobilePlatform && client.openSystemKeyboardSettings && (
@@ -6663,7 +6699,7 @@ export function SettingsPage({
                         )}
                       </div>
                       {iosPlatform && (
-                        <div className="document-subsection">
+                        <div className={doc.subsection}>
                           <div className="section-title">允许完全访问</div>
                           <p>
                             打字统计保存本机字数、手写首次下载识别模型时需要在系统键盘设置中开启“允许完全访问”。不开启也可以正常打字；键盘默认离线，不会因为未开启而上传输入内容。
@@ -6671,7 +6707,7 @@ export function SettingsPage({
                         </div>
                       )}
                       {androidPlatform && (
-                        <div className="document-subsection">
+                        <div className={doc.subsection}>
                           <div className="section-title">输入权限</div>
                           <p>
                             Android
@@ -6679,7 +6715,7 @@ export function SettingsPage({
                           </p>
                         </div>
                       )}
-                      <div className="document-subsection">
+                      <div className={doc.subsection}>
                         <div className="section-title">基本功能</div>
                         <p>
                           支持全拼、双拼和五笔。可以在设置窗口下的输入功能分区进行切换。全拼和双拼均支持辅助码，辅助码方案目前支持自然码辅助码、蓝天小雨点、首右
@@ -6690,7 +6726,7 @@ export function SettingsPage({
                       </div>
                       {macosPlatform && (
                         <>
-                          <div className="document-subsection">
+                          <div className={doc.subsection}>
                             <div className="section-title">候选词释义</div>
                             <p>
                               常见词优先使用随输入法打包的本机词典，不联网也不会等待；词典没有收录的词才会请求在线服务，生僻字和多字词可能需要等待片刻。在线释义需要水杉账号，安装时会自动创建本机账号。
@@ -6699,7 +6735,7 @@ export function SettingsPage({
                               可以在“输入”页开启候选翻译并设置目标语言和第二语言。候选旁没有释义时，先确认候选翻译已开启；离线时只显示本机词典已有的释义。
                             </p>
                           </div>
-                          <div className="document-subsection">
+                          <div className={doc.subsection}>
                             <div className="section-title">候选操作</div>
                             <p>
                               候选窗口显示释义时，按 Tab
@@ -6711,7 +6747,7 @@ export function SettingsPage({
                               Control+数字直接上屏第二语言释义。
                             </p>
                           </div>
-                          <div className="document-subsection">
+                          <div className={doc.subsection}>
                             <div className="section-title">遇到问题</div>
                             <p>
                               输入法菜单里没有水杉输入法时，请到“系统设置 › 键盘 › 文字输入 ›
@@ -6721,7 +6757,7 @@ export function SettingsPage({
                         </>
                       )}
                       {client.openExternalUrl && (
-                        <div className="document-subsection">
+                        <div className={doc.subsection}>
                           <div className="section-title">更多</div>
                           <button
                             type="button"
@@ -6735,30 +6771,30 @@ export function SettingsPage({
                     </div>
                   </fieldset>
                   <fieldset disabled={busy} hidden={page !== "about"} aria-label="关于">
-                    <div className="section document-hero about-hero">
-                      <div className="about-mark">
+                    <div className={`section ${doc.hero}`}>
+                      <div className={doc.mark}>
                         <img src={logo} alt="水杉 IME" />
                       </div>
                       <div>
-                        <div className="document-eyebrow">Metasequoia IME</div>
-                        <div className="document-hero-title">水杉 IME</div>
+                        <div className={doc.eyebrow}>Metasequoia IME</div>
+                        <div className={doc.heroTitle}>水杉 IME</div>
                         <p>{platformAboutDescription}</p>
                       </div>
                     </div>
-                    <div className="section about-links">
-                      <div className="about-labout-version-row">
+                    <div className={`section ${doc.linkList}`}>
+                      <div className={`${doc.linkRow} ${doc.versionRow}`}>
                         <div>
-                          <div className="about-link-title">当前版本</div>
-                          <div className="about-version">v{currentAppVersion}</div>
+                          <div className={doc.linkTitle}>当前版本</div>
+                          <div className={doc.version}>v{currentAppVersion}</div>
                           {updateStatus && (
-                            <p className="about-update-status" role="status">
+                            <p className={doc.updateStatus} role="status">
                               {updateStatus}
                             </p>
                           )}
                         </div>
                         <button
                           type="button"
-                          className="secondary about-update-button"
+                          className={`secondary ${doc.updateButton}`}
                           disabled={updateBusy}
                           onClick={() => void checkForUpdate()}
                         >
@@ -6766,10 +6802,10 @@ export function SettingsPage({
                         </button>
                       </div>
                       {availableUpdate && (
-                        <div className="about-update-result">
+                        <div className={doc.updateResult}>
                           <p>水杉 IME v{availableUpdate.version.display} 已发布。</p>
                           {installerTrust?.warning && (
-                            <p className="about-update-warning">{installerTrust.warning}</p>
+                            <p className={doc.updateWarning}>{installerTrust.warning}</p>
                           )}
                           {installerTrust?.verify && (
                             <p>
@@ -6787,33 +6823,33 @@ export function SettingsPage({
                       )}
                       <button
                         type="button"
-                        className="about-labout-document-link"
+                        className={doc.linkRow}
                         onClick={() => void openExternalUrl(platformLicenseUrl)}
                       >
-                        <span className="about-link-title">开源许可协议</span>
+                        <span className={doc.linkTitle}>开源许可协议</span>
                         <span aria-hidden="true">↗</span>
                       </button>
                       <button
                         type="button"
-                        className="about-labout-document-link"
+                        className={doc.linkRow}
                         onClick={() =>
                           void openExternalUrl(
                             clientHostedPlatform ? androidPrivacyUrl : privacyUrl,
                           )
                         }
                       >
-                        <span className="about-link-title">隐私政策</span>
+                        <span className={doc.linkTitle}>隐私政策</span>
                         <span aria-hidden="true">↗</span>
                       </button>
                     </div>
                     {macosPlatform && (
-                      <div className="section about-legal" role="group" aria-label="许可与卸载">
+                      <div className="section" role="group" aria-label="许可与卸载">
                         <div className="section-header">
                           <span className="section-title">
                             许可与版权
                             <small>水杉 IME 以 GPL-3.0 发布；第三方组件许可随应用资源提供。</small>
                           </span>
-                          <span className="about-copyright" aria-label="版权">
+                          <span className={doc.version} aria-label="版权">
                             © 2026 Metasequoia IME
                           </span>
                         </div>
@@ -6827,7 +6863,7 @@ export function SettingsPage({
                           </button>
                         )}
                         {client.uninstallInputSource && (
-                          <div className="service-action-row service-action-row-danger">
+                          <div className={`${settings.serviceRow} ${settings.serviceRowDanger}`}>
                             <span>
                               卸载水杉输入法
                               <small>
@@ -6867,7 +6903,7 @@ export function SettingsPage({
                             </div>
                             {uninstallConfirmation && (
                               <div
-                                className="service-confirmation"
+                                className={settings.serviceConfirmation}
                                 role="alertdialog"
                                 aria-modal="true"
                                 aria-label="确认卸载水杉输入法"
@@ -6904,21 +6940,21 @@ export function SettingsPage({
                       </div>
                     )}
                     {mobilePlatform && (
-                      <div className="section about-guides" aria-label="帮助与反馈">
+                      <div className={`section ${doc.linkList}`} aria-label="帮助与反馈">
                         <button
                           type="button"
-                          className="about-link-row"
+                          className={doc.linkRow}
                           onClick={() => selectPage("help")}
                         >
-                          <span className="about-link-title">使用帮助</span>
+                          <span className={doc.linkTitle}>使用帮助</span>
                           <span aria-hidden="true">›</span>
                         </button>
                         <button
                           type="button"
-                          className="about-link-row"
+                          className={doc.linkRow}
                           onClick={() => selectPage("feedback")}
                         >
-                          <span className="about-link-title">反馈问题与建议</span>
+                          <span className={doc.linkTitle}>反馈问题与建议</span>
                           <span aria-hidden="true">›</span>
                         </button>
                       </div>
@@ -7217,25 +7253,22 @@ export function SettingsPage({
                         恢复默认
                       </button>
                     </div>
-                    <div className="section panel-launch-card">
-                      <div className="section-header panel-launch-row">
+                    <div className={`section ${settings.launchCard}`}>
+                      <div className={`section-header ${settings.launchRow}`}>
                         <span className="section-title">
                           打开屏幕键盘<small>使用鼠标或触控方式输入文字与快捷按键</small>
                         </span>
                         <button
                           type="button"
-                          className="secondary panel-open-button"
+                          className={`secondary ${settings.openButton}`}
                           disabled={!client.openScreenKeyboard}
                           onClick={() => void openPanel(client.openScreenKeyboard)}
                         >
                           打开
                         </button>
                       </div>
-                      <div
-                        className="panel-preview screen-keyboard-preview"
-                        aria-label="屏幕键盘预览"
-                      >
-                        <div className="panel-preview-label">预览</div>
+                      <div className={settings.panelPreview} aria-label="屏幕键盘预览">
+                        <div className={settings.panelPreviewLabel}>预览</div>
                         <div
                           aria-label="拖动预览调整键盘间距"
                           onPointerDown={beginTouchGeometryDrag}
@@ -7258,13 +7291,13 @@ export function SettingsPage({
                   </fieldset>
                   <fieldset disabled={busy} hidden={page !== "handwriting"} aria-label="手写识别板">
                     {iosPlatform ? (
-                      <div className="section panel-launch-card">
+                      <div className={`section ${settings.launchCard}`}>
                         <div className="section-title">iOS 键盘手写</div>
-                        <p className="panel-inline-note">
+                        <p className={settings.panelPreviewLabel}>
                           请在 iOS
                           系统键盘设置中启用水杉键盘，并在键盘内切换到“手写”输入方案。首次使用会按需下载中文识别模型；需要开启“允许完全访问”才能下载模型，下载后可离线识别。
                         </p>
-                        <p className="panel-inline-note">
+                        <p className={settings.panelPreviewLabel}>
                           手写由键盘扩展在当前输入框内完成，不打开独立的 Tauri
                           手写面板；笔迹和识别结果不会上传，Google ML Kit 仅可能发送性能及使用统计。
                         </p>
@@ -7279,14 +7312,14 @@ export function SettingsPage({
                         )}
                       </div>
                     ) : androidPlatform ? (
-                      <div className="section panel-launch-card">
+                      <div className={`section ${settings.launchCard}`}>
                         <div className="section-title">Android 键盘手写</div>
-                        <p className="panel-inline-note">
+                        <p className={settings.panelPreviewLabel}>
                           请在 Android
                           系统输入法设置中启用水杉键盘，再从键盘方案切换到“手写”。首次使用时按需下载
                           Google ML Kit 中文手写模型；模型就绪后可离线识别。
                         </p>
-                        <p className="panel-inline-note">
+                        <p className={settings.panelPreviewLabel}>
                           手写识别在 Android
                           键盘进程内完成，候选确认后才提交到当前编辑器；笔迹和识别结果不会上传，Google
                           ML Kit 仅可能发送性能及使用统计。
@@ -7302,13 +7335,13 @@ export function SettingsPage({
                         )}
                       </div>
                     ) : harmonyPlatform ? (
-                      <div className="section panel-launch-card">
+                      <div className={`section ${settings.launchCard}`}>
                         <div className="section-title">HarmonyOS 键盘手写</div>
-                        <p className="panel-inline-note">
+                        <p className={settings.panelPreviewLabel}>
                           请在系统输入法设置中启用水杉输入法，再从键盘的方案选择器切换到“手写”。2in1
                           上候选窗不绘制键面，先从工具栏打开屏幕键盘，方案选择器在那里。
                         </p>
-                        <p className="panel-inline-note">
+                        <p className={settings.panelPreviewLabel}>
                           识别由系统的 Core Vision Kit
                           在设备上完成，候选确认后才提交到当前编辑器；笔迹和识别结果不离开设备。
                         </p>
@@ -7323,31 +7356,31 @@ export function SettingsPage({
                         )}
                       </div>
                     ) : macosPlatform ? (
-                      <div className="section panel-launch-card">
+                      <div className={`section ${settings.launchCard}`}>
                         <div className="section-title">macOS 手写识别板</div>
-                        <p className="panel-inline-note">
+                        <p className={settings.panelPreviewLabel}>
                           手写面板需要当前输入法进程提供 IMK
                           输入会话；请从输入法悬浮工具栏或输入法菜单打开，识别候选会直接回到当前输入上下文。
                         </p>
                       </div>
                     ) : (
-                      <div className="section panel-launch-card">
-                        <div className="section-header panel-launch-row">
+                      <div className={`section ${settings.launchCard}`}>
+                        <div className={`section-header ${settings.launchRow}`}>
                           <span className="section-title">
                             打开手写识别板
                             <small>使用鼠标或触控方式手写输入，自动识别候选汉字</small>
                           </span>
                           <button
                             type="button"
-                            className="secondary panel-open-button"
+                            className={`secondary ${settings.openButton}`}
                             disabled={!client.openHandwriting}
                             onClick={() => void openPanel(client.openHandwriting)}
                           >
                             打开
                           </button>
                         </div>
-                        <div className="panel-preview" aria-label="手写识别板预览">
-                          <div className="panel-preview-label">预览</div>
+                        <div className={settings.panelPreview} aria-label="手写识别板预览">
+                          <div className={settings.panelPreviewLabel}>预览</div>
                           <div className={surface.mock}>
                             <div className={surface.mockCanvas}>
                               <span className={surface.mockStroke}>水</span>
@@ -7365,36 +7398,36 @@ export function SettingsPage({
                   </fieldset>
                   <fieldset disabled={busy} hidden={page !== "voice"} aria-label="语音输入">
                     {localVoice ? (
-                      <div className="section panel-launch-card">
+                      <div className={`section ${settings.launchCard}`}>
                         <div className="section-title">本地 Whisper</div>
-                        <p className="panel-inline-note">
+                        <p className={settings.panelPreviewLabel}>
                           录音和识别都在这台机器上完成，音频不会离开本机，也不需要任何 API
                           Key。需要自备 whisper.cpp 的 ggml
                           模型文件（.bin），在下方填写它的绝对路径；模型越大越准也越慢，首次识别要等模型载入。可选的文本润色仍会调用你配置的云服务。
                         </p>
                       </div>
                     ) : systemVoice ? (
-                      <div className="section panel-launch-card">
+                      <div className={`section ${settings.launchCard}`}>
                         <div className="section-title">
                           {harmonyPlatform ? "HarmonyOS" : "macOS"} 系统语音
                         </div>
-                        <p className="panel-inline-note">
+                        <p className={settings.panelPreviewLabel}>
                           保存设置后，在目标应用中启用水杉输入法，使用键盘内的语音入口录音。不需要识别
                           API
                           Key；首次使用需授予麦克风和语音识别权限。服务可用性及是否联网由系统决定，可选文本润色仍使用你配置的云服务。
                         </p>
                       </div>
                     ) : androidPlatform ? (
-                      <div className="section panel-launch-card">
+                      <div className={`section ${settings.launchCard}`}>
                         <div className="section-title">Android 系统语音</div>
-                        <p className="panel-inline-note">
+                        <p className={settings.panelPreviewLabel}>
                           从键盘工具栏的“语音”入口调用设备上的系统语音识别服务。识别结果会回到键盘，确认后才插入当前输入框。
                         </p>
                       </div>
                     ) : iosPlatform ? (
-                      <div className="section panel-launch-card">
+                      <div className={`section ${settings.launchCard}`}>
                         <div className="section-title">iOS 应用语音</div>
-                        <p className="panel-inline-note">
+                        <p className={settings.panelPreviewLabel}>
                           iOS
                           的录音、识别和文本提交在当前共享设置与应用语音服务中完成。保存设置后，从应用内的语音入口开始；识别结果会回到当前页面，再由你确认使用。不打开无法提交到键盘扩展输入会话的
                           Tauri 语音面板。
@@ -7410,26 +7443,26 @@ export function SettingsPage({
                         )}
                       </div>
                     ) : macosPlatform ? (
-                      <div className="section panel-launch-card">
+                      <div className={`section ${settings.launchCard}`}>
                         <div className="section-title">macOS 输入法语音</div>
-                        <p className="panel-inline-note">
+                        <p className={settings.panelPreviewLabel}>
                           macOS
                           的语音录音、云端识别和文本提交由当前输入法进程负责；保存设置后，请在目标应用中使用下方语音快捷键或输入法悬浮工具栏开始。不打开无法提交到当前输入法会话的
                           Tauri 面板。
                         </p>
                       </div>
                     ) : harmonyPlatform ? (
-                      <div className="section panel-launch-card">
+                      <div className={`section ${settings.launchCard}`}>
                         <div className="section-title">HarmonyOS 输入法语音</div>
-                        <p className="panel-inline-note">
+                        <p className={settings.panelPreviewLabel}>
                           豆包配置有效时，键盘直接采集 16 kHz
                           麦克风音频并进行实时识别；选择系统识别时由 HarmonyOS CoreSpeechKit
                           处理。识别结果会回到键盘，确认后才插入当前输入框。
                         </p>
                       </div>
                     ) : (
-                      <div className="section panel-launch-card">
-                        <div className="section-header panel-launch-row">
+                      <div className={`section ${settings.launchCard}`}>
+                        <div className={`section-header ${settings.launchRow}`}>
                           <span className="section-title">
                             打开语音输入
                             <small>
@@ -7440,7 +7473,7 @@ export function SettingsPage({
                           </span>
                           <button
                             type="button"
-                            className="secondary panel-open-button"
+                            className={`secondary ${settings.openButton}`}
                             disabled={!client.openVoice}
                             onClick={() => void openPanel(client.openVoice)}
                           >
@@ -7448,7 +7481,7 @@ export function SettingsPage({
                           </button>
                         </div>
                         {linuxPlatform && (
-                          <p className="panel-inline-note">
+                          <p className={settings.panelPreviewLabel}>
                             没有 provider 时可继续使用 IBus 属性中的入口；服务负责录音、模型和凭据。
                           </p>
                         )}
@@ -7548,7 +7581,7 @@ export function SettingsPage({
                               ggml 模型的绝对路径，例如 /Users/you/models/ggml-large-v3-turbo.bin
                             </small>
                           </span>
-                          <span className="field-with-action">
+                          <span className="flex items-center gap-2 [&>input]:min-w-0 [&>input]:flex-1">
                             <input
                               aria-label="Whisper 模型文件"
                               value={voiceInput.asr_model_path ?? ""}
@@ -7744,7 +7777,7 @@ export function SettingsPage({
                       (["openai", "siliconflow", "groq"].includes(voiceInput.asr_provider ?? "") ||
                         (harmonyPlatform && voiceInput.asr_provider === "doubao")) && (
                         <>
-                          <p className="panel-inline-note">
+                          <p className={settings.panelPreviewLabel}>
                             测试会向当前服务发送一秒合成静音，不使用麦克风；服务可能计入 API 用量。
                           </p>
                           {credentialTestControl(
@@ -8320,7 +8353,7 @@ export function SettingsPage({
                         !ai.enabled || !aiOrigin || !ai.model.trim() || !aiToken.trim(),
                       )}
                     {!linuxPlatform && client.aiAssistant && (
-                      <div className="section ai-service-tools">
+                      <div className="section">
                         <div className="section-header">
                           <span className="section-title">
                             服务模型
@@ -8473,12 +8506,12 @@ export function SettingsPage({
                     )}
                   </fieldset>
                   <fieldset disabled={busy} hidden={page !== "feedback"} aria-label="反馈">
-                    <div className="section document-hero">
-                      <div className="document-eyebrow">反馈与交流</div>
-                      <div className="document-hero-title">告诉我们你的想法</div>
+                    <div className={`section ${doc.hero}`}>
+                      <div className={doc.eyebrow}>反馈与交流</div>
+                      <div className={doc.heroTitle}>告诉我们你的想法</div>
                       <p>遇到问题或有功能建议时，可以通过以下渠道提交和交流。</p>
                     </div>
-                    <div className="section feedback-report" aria-label="问题报告">
+                    <div className="section" aria-label="问题报告">
                       <div className="section-title">
                         提交可复现的问题
                         <small>报告只在你点击按钮时生成，不会读取或上传输入历史。</small>
@@ -8507,11 +8540,13 @@ export function SettingsPage({
                           rows={6}
                         />
                       </label>
-                      <div className="document-note">
+                      <div className={doc.note}>
                         <strong>会一起附上的信息</strong>
-                        <span className="feedback-diagnostics">{supportDiagnostics}</span>
+                        <span className="block break-anywhere text-xs text-secondary">
+                          {supportDiagnostics}
+                        </span>
                       </div>
-                      <div className="service-action-row">
+                      <div className={settings.serviceRow}>
                         {client.copyText && (
                           <button
                             type="button"
@@ -8537,11 +8572,11 @@ export function SettingsPage({
                         并预填报告；网址长度有限，过长描述会被截断，完整内容请先复制。
                       </small>
                     </div>
-                    <div className="feedback-list">
-                      <div className="section feedback-card">
-                        <div className="feedback-icon">GH</div>
-                        <div className="feedback-body">
-                          <div className="feedback-title">GitHub Issues</div>
+                    <div className={doc.feedbackList}>
+                      <div className={`section ${doc.feedbackCard}`}>
+                        <div className={doc.feedbackIcon}>GH</div>
+                        <div className={doc.feedbackBody}>
+                          <div className={doc.feedbackTitle}>GitHub Issues</div>
                           <p>适合提交可复现的问题、功能建议和开发讨论。</p>
                           <code>{platformIssuesUrl.replace("https://", "")}</code>
                         </div>
@@ -8553,10 +8588,10 @@ export function SettingsPage({
                           查看 Issues
                         </button>
                       </div>
-                      <div className="section feedback-card">
-                        <div className="feedback-icon">QQ</div>
-                        <div className="feedback-body">
-                          <div className="feedback-title">QQ 交流群</div>
+                      <div className={`section ${doc.feedbackCard}`}>
+                        <div className={doc.feedbackIcon}>QQ</div>
+                        <div className={doc.feedbackBody}>
+                          <div className={doc.feedbackTitle}>QQ 交流群</div>
                           <p>适合中文用户进行日常交流、测试反馈和使用讨论。</p>
                           <code>群号：829919142</code>
                         </div>
@@ -8574,10 +8609,10 @@ export function SettingsPage({
                           {feedbackCopied ? "已复制" : "复制群号"}
                         </button>
                       </div>
-                      <div className="section feedback-card">
-                        <div className="feedback-icon">TG</div>
-                        <div className="feedback-body">
-                          <div className="feedback-title">Telegram 群组</div>
+                      <div className={`section ${doc.feedbackCard}`}>
+                        <div className={doc.feedbackIcon}>TG</div>
+                        <div className={doc.feedbackBody}>
+                          <div className={doc.feedbackTitle}>Telegram 群组</div>
                           <p>面向国际用户和开发者的即时讨论频道。</p>
                           <code>t.me/msimegroup</code>
                         </div>
@@ -8590,7 +8625,7 @@ export function SettingsPage({
                         </button>
                       </div>
                     </div>
-                    <div className="section document-note">
+                    <div className={`section ${doc.note}`}>
                       <strong>提交问题时建议附上</strong>
                       <span>
                         系统版本、输入方案、复现步骤、相关截图，以及 Debug 输出中的关键日志。
@@ -8603,7 +8638,7 @@ export function SettingsPage({
                       字节，补充字体最多 32 项。
                     </p>
                   )}
-                  <footer className="settings-actions">
+                  <footer className={settings.settingsActions}>
                     <span>{dirty ? "有未保存的修改" : ""}</span>
                     <button type="submit" disabled={busy || !dirty || !validCandidateFonts(draft)}>
                       {busy ? "处理中…" : "保存设置"}

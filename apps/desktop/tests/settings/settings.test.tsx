@@ -142,7 +142,9 @@ test("titlebar sits above the shared sidebar and content body", async () => {
   expect(screen.getByRole("button", { name: "关闭" }).classList.contains("window-close")).toBe(
     true,
   );
-  expect(mounted.container.querySelector(".window-title")?.textContent).toBe("水杉 IME");
+  expect(
+    within(screen.getByRole("banner", { name: "窗口控制" })).getByText("水杉 IME").textContent,
+  ).toBe("水杉 IME");
 });
 
 test("Android fuzzy-pinyin settings preserve rules while disabled and reset explicitly", async () => {
@@ -519,7 +521,9 @@ test("window SVGs follow host state and retain accessible controls", async () =>
     expect(img.getAttribute("src")).toBe(source);
     expect(img.alt).toBe("");
     expect(img.draggable).toBe(false);
-    expect(img.className).toBe("window-icon");
+    // The glyph ships white and is inverted on a light theme; that is the contract, not a class name.
+    expect(img.className).toContain("light-theme:invert");
+    expect(img.className).toContain("object-contain");
     expect(button.textContent).toBe("");
     return button;
   }
@@ -544,7 +548,7 @@ test("resize starts on edge press, not pointer movement", async () => {
     <SettingsPage client={{ load: async () => initial, save: vi.fn(), resizeWindow }} />,
   );
   await screen.findByRole("button", { name: "保存设置" });
-  const shell = mounted.container.querySelector(".settings-shell")!;
+  const shell = mounted.container.querySelector("[data-settings-shell]")!;
   vi.spyOn(shell, "getBoundingClientRect").mockReturnValue({
     left: 0,
     top: 0,
@@ -635,7 +639,7 @@ test("resize edges do not drag or double-click maximize the titlebar", async () 
   );
   await screen.findByRole("button", { name: "保存设置" });
   vi.spyOn(
-    mounted.container.querySelector(".settings-shell")!,
+    mounted.container.querySelector("[data-settings-shell]")!,
     "getBoundingClientRect",
   ).mockReturnValue({
     left: 0,
@@ -1746,7 +1750,9 @@ test("clipboard history exposes timestamps, pinning, deletion and two-step clear
   await waitFor(() => expect(setPinned).toHaveBeenCalledWith("synthetic recent", true));
   expect(await screen.findAllByRole("button", { name: "取消固定剪贴板记录" })).toHaveLength(2);
 
-  const recentRow = screen.getByText("synthetic recent").closest(".clipboard-row") as HTMLElement;
+  const recentRow = screen
+    .getByText("synthetic recent")
+    .closest("[data-clipboard-entry-row]") as HTMLElement;
   fireEvent.click(within(recentRow).getByRole("button", { name: "删除剪贴板记录" }));
   await waitFor(() => expect(remove).toHaveBeenCalledWith("synthetic recent"));
   expect(screen.queryByText("synthetic recent")).toBeNull();
@@ -2917,9 +2923,7 @@ test("toolbar theme loads, previews independently, saves and reloads", async () 
   const select = (await screen.findByLabelText("工具栏主题")) as HTMLSelectElement;
   expect(select.value).toBe("light");
   fireEvent.click(screen.getByRole("button", { name: "悬浮工具栏" }));
-  const preview = screen
-    .getByLabelText("悬浮工具栏预览")
-    .querySelector(".toolbar-settings-preview")!;
+  const preview = screen.getByLabelText("悬浮工具栏预览").querySelector("[data-toolbar-preview]")!;
   expect(preview.getAttribute("data-preview-theme")).toBe("light");
   fireEvent.click(screen.getByRole("button", { name: "外观" }));
   fireEvent.change(select, { target: { value: "follow" } });
@@ -3199,18 +3203,18 @@ test("skin preview switches are independent, reversible and do not change saved 
   const cards = screen.getAllByRole("article");
   expect(cards).toHaveLength(4);
   for (const card of cards) {
-    expect(card.querySelector(".skin-card-preview")?.getAttribute("data-preview-theme")).toBe(
+    expect(card.querySelector("[data-skin-preview]")?.getAttribute("data-preview-theme")).toBe(
       "dark",
     );
     fireEvent.click(within(card).getByRole("button", { name: "预览浅色" }));
-    expect(card.querySelector(".skin-card-preview")?.getAttribute("data-preview-theme")).toBe(
+    expect(card.querySelector("[data-skin-preview]")?.getAttribute("data-preview-theme")).toBe(
       "light",
     );
     expect(screen.getByRole("switch", { name: /杨柳青/ }).getAttribute("aria-checked")).toBe(
       "true",
     );
     for (const other of cards.filter((item) => item !== card))
-      expect(other.querySelector(".skin-card-preview")?.getAttribute("data-preview-theme")).toBe(
+      expect(other.querySelector("[data-skin-preview]")?.getAttribute("data-preview-theme")).toBe(
         "dark",
       );
     fireEvent.click(within(card).getByRole("button", { name: "预览深色" }));
@@ -3221,7 +3225,7 @@ test("skin preview switches are independent, reversible and do not change saved 
   fireEvent.click(within(wechat).getByRole("button", { name: "预览浅色" }));
   fireEvent.click(screen.getByRole("button", { name: "外观" }));
   fireEvent.click(screen.getByRole("button", { name: "皮肤" }));
-  expect(wechat.querySelector(".skin-card-preview")?.getAttribute("data-preview-theme")).toBe(
+  expect(wechat.querySelector("[data-skin-preview]")?.getAttribute("data-preview-theme")).toBe(
     "light",
   );
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
@@ -3266,12 +3270,12 @@ test("skin header controls precede previews and always keep one selected skin", 
   fireEvent.click(screen.getByRole("button", { name: "皮肤" }));
   const cards = screen.getAllByRole("article");
   for (const card of cards) {
-    const header = card.querySelector(".skin-card-header")!;
-    expect(header.nextElementSibling).toBe(card.querySelector(".skin-card-preview"));
+    const header = card.querySelector("[data-skin-card-header]")!;
+    expect(header.nextElementSibling).toBe(card.querySelector("[data-skin-preview]"));
     const control = within(card).getByRole("switch");
     expect(control.tagName).toBe("BUTTON");
     expect(header.contains(control)).toBe(true);
-    expect(card.querySelectorAll(".skin-preview-stage")).toHaveLength(3);
+    expect(card.querySelectorAll("[data-skin-stage]")).toHaveLength(3);
     fireEvent.click(control);
     fireEvent.click(control);
     expect(control.getAttribute("aria-checked")).toBe("true");
@@ -3280,7 +3284,7 @@ test("skin header controls precede previews and always keep one selected skin", 
     ).toHaveLength(1);
     // Static samples cannot select a different skin by clicking their labels.
     const other = cards.find((item) => item !== card)!;
-    fireEvent.click(other.querySelector(".skin-card-preview")!);
+    fireEvent.click(other.querySelector("[data-skin-preview]")!);
     expect(control.getAttribute("aria-checked")).toBe("true");
   }
   expect(save).not.toHaveBeenCalled();

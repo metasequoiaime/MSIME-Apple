@@ -5,6 +5,7 @@ import { useSkinImage, type SkinImageReader } from "./skin-image";
 import type { SkinFontReader } from "./skin-font";
 import { installSkinPalette } from "./skin-palette";
 import { useToolbarCss, type ToolbarCssReader } from "./use-toolbar-css";
+import * as settings from "../settings/settings-style";
 
 type Palette = Partial<
   Record<"accent" | "selected" | "hover" | "surface" | "border" | "text" | "number", string | null>
@@ -182,12 +183,13 @@ function ExternalSkinCard({
         </div>
       </div>
       <div
-        className={`skin-card-preview skin-${base} ${scope}${theme === "light" ? " theme-light" : ""}`}
+        data-skin-preview=""
+        className={`${settings.skinCardPreview} skin-${base} ${scope}${theme === "light" ? " theme-light" : ""}`}
         style={geometry}
         data-preview-theme={theme}
         aria-hidden="true"
       >
-        <div className="skin-preview-stage">
+        <div className={settings.skinPreviewStage} data-skin-stage="">
           <SkinCandidatePreview
             orientation="horizontal"
             decorated={decorated}
@@ -195,7 +197,7 @@ function ExternalSkinCard({
             onImageError={() => setDecodeFailed(true)}
           />
         </div>
-        <div className="skin-preview-stage">
+        <div className={settings.skinPreviewStage} data-skin-stage="">
           <SkinCandidatePreview
             orientation="vertical"
             decorated={decorated}
@@ -203,7 +205,7 @@ function ExternalSkinCard({
             onImageError={() => setDecodeFailed(true)}
           />
         </div>
-        <div className="skin-preview-stage">
+        <div className={settings.skinPreviewStage} data-skin-stage="">
           <SkinToolbarPreview />
         </div>
       </div>

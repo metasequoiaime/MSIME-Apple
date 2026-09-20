@@ -1,14 +1,21 @@
 // @vitest-environment jsdom
 import { expect, test } from "vitest";
-import styles from "../../../../packages/ui/src/styles.css?raw";
 import variables from "../../../../packages/ui/src/upstream/variables.css?raw";
+import * as settings from "../../../../packages/ui/src/settings/settings-style";
 
-// Inspect parsed CSS declarations: jsdom does not resolve custom properties or
-// simulate native WebView hover/layout. These are stylesheet contract tests.
+/*
+ * The titlebar reproduces the upstream Windows one, and jsdom resolves neither custom properties nor
+ * native hover, so these stay contract tests: they read the declaration the titlebar is built from
+ * rather than a computed style. That source is now the utility strings rather than a stylesheet, so
+ * the assertions read utilities -- the contract is the same, the place it is written moved.
+ */
+function utilities(value: string): string[] {
+  return value.split(/\s+/).filter(Boolean);
+}
+
 function declarations(source: string, selector: string): CSSStyleDeclaration {
   const sheet = new CSSStyleSheet();
   sheet.replaceSync(source);
-  expect(source).toContain("--titlebar");
   const matches = Array.from(sheet.cssRules).filter(
     (rule): rule is CSSStyleRule =>
       rule.type === CSSRule.STYLE_RULE &&
@@ -19,21 +26,23 @@ function declarations(source: string, selector: string): CSSStyleDeclaration {
 }
 
 test("titlebar uses shared theme colors and upstream control dimensions", () => {
-  const titlebar = declarations(styles, ".window-titlebar");
-  expect(titlebar.getPropertyValue("background")).toBe("var(--chrome-bg)");
-  expect(titlebar.getPropertyValue("color")).toBe("var(--text-color)");
-  expect(titlebar.getPropertyValue("height")).toBe("var(--titlebar-height)");
-  const button = declarations(styles, ".window-controls button");
-  expect(button.getPropertyValue("height")).toBe("var(--titlebar-height)");
-  expect(button.getPropertyValue("width")).toBe("42px");
+  const titlebar = utilities(settings.titlebar);
+  expect(titlebar).toContain("bg-chrome");
+  expect(titlebar).toContain("text-body");
+  expect(titlebar).toContain("h-[var(--titlebar-height)]");
+
+  const controls = utilities(settings.windowControls);
+  expect(controls).toContain("[&>button]:h-[var(--titlebar-height)]");
+  expect(controls).toContain("[&>button]:w-[42px]");
 });
 
 test("normal button interaction colors follow both themes", () => {
-  for (const state of ["hover", "active"]) {
-    expect(
-      declarations(styles, `.window-controls button:${state}`).getPropertyValue("background"),
-    ).toBe(`var(--titlebar-btn-${state})`);
-  }
+  const controls = utilities(settings.windowControls);
+  expect(controls).toContain("[&>button:hover]:bg-[var(--titlebar-btn-hover)]");
+  expect(controls).toContain("[&>button:active]:bg-[var(--titlebar-btn-active)]");
+
+  // The tokens themselves still have to differ between the two palettes, or the hover would be
+  // invisible in one of them.
   const dark = declarations(variables, ':root,\nhtml[data-theme="dark"]');
   const light = declarations(variables, 'html[data-theme="light"]');
   for (const token of [
@@ -49,32 +58,25 @@ test("normal button interaction colors follow both themes", () => {
 });
 
 test("close interaction and keyboard focus keep dedicated styles", () => {
-  expect(
-    declarations(styles, ".window-controls .window-close:hover").getPropertyValue("background"),
-  ).toBe("rgb(196, 43, 28)");
-  expect(
-    declarations(styles, ".window-controls .window-close:active").getPropertyValue("background"),
-  ).toBe("rgb(167, 34, 22)");
-  expect(
-    declarations(styles, ".window-controls button:focus-visible").getPropertyValue(
-      "outline-offset",
-    ),
-  ).toBe("-3px");
+  const close = utilities(settings.windowClose);
+  expect(close).toContain("hover:bg-[#c42b1c]!");
+  expect(close).toContain("active:bg-[#a72216]!");
+  expect(utilities(settings.windowControls)).toContain(
+    "[&>button:focus-visible]:-outline-offset-[3px]",
+  );
 });
 
 test("window SVGs retain upstream sizing and light-theme contrast", () => {
-  const icon = declarations(styles, ".window-icon");
-  expect(icon.getPropertyValue("width")).toBe("9px");
-  expect(icon.getPropertyValue("height")).toBe("10px");
-  expect(icon.getPropertyValue("object-fit")).toBe("contain");
-  expect(icon.getPropertyValue("pointer-events")).toBe("none");
-  expect(
-    declarations(styles, 'html[data-theme="light"] .window-icon').getPropertyValue("filter"),
-  ).toBe("invert(1) brightness(0.2)");
-  expect(
-    declarations(
-      styles,
-      'html[data-theme="light"] .window-close:hover .window-icon, html[data-theme="light"] .window-close:active .window-icon',
-    ).getPropertyValue("filter"),
-  ).toBe("none");
+  const icon = utilities(settings.windowIcon);
+  expect(icon).toContain("size-[9px]");
+  expect(icon).toContain("h-2.5");
+  expect(icon).toContain("object-contain");
+  expect(icon).toContain("[pointer-events:none]");
+  expect(icon).toContain("light-theme:invert");
+  expect(icon).toContain("light-theme:brightness-[0.2]");
+
+  // Close is the exception: it goes red on hover, so the white glyph must not invert there.
+  const close = utilities(settings.windowClose);
+  expect(close).toContain("light-theme:hover:[&_img]:[filter:none]");
+  expect(close).toContain("light-theme:active:[&_img]:[filter:none]");
 });
