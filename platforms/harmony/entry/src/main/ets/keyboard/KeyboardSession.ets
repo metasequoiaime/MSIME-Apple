@@ -113,6 +113,8 @@ export interface CandidateEntry {
 interface EngineView {
   candidates: Candidate[];
   editing_text: string;
+  /** Byte offset into `editing_text`, which for this ASCII text is also the character index. */
+  caret_position: number;
   generation: number;
   /** Which spellings the digits typed so far could be, offered while the nine-key grid is up. */
   nine_key_spellings: string[];
@@ -344,6 +346,7 @@ interface OnlineApplyValue {
 export interface KeyboardState {
   readonly candidates: CandidateEntry[];
   readonly editing: string;
+  readonly editingCaret: number;
   readonly spellings: string[];
   readonly scheme: number;
   readonly shuangpinProfile: string;
@@ -1929,6 +1932,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     // Bounded before it reaches the surface: a diagnostic is a message, not a place to print a
     // stack trace into a keyboard four rows tall.
     this.editing = value.view.editing_text;
+    this.editingCaret = value.view.caret_position;
     this.scheme = value.view.scheme;
     this.diagnostic = InputDiagnosticPolicy.normalize(
       value.diagnostic === undefined ? null : value.diagnostic);
@@ -1995,6 +1999,9 @@ export class KeyboardSession implements HardwareKeyTarget {
   // the table on every keystroke.
   private converter: i18n.Transliterator | undefined = undefined;
   private editing: string = '';
+  // Where the segment keys have put the caret. Drawn by the candidate window, which is the
+  // only place it is visible: the editor sees a committed string, not a composition.
+  private editingCaret: number = 0;
   private currentCandidates: Candidate[] = [];
   private translationPage: string[] | null = null;
   private lastView: EngineView | undefined = undefined;
@@ -2041,6 +2048,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.onChanged({
         candidates: entries,
         editing: view.editing_text,
+        editingCaret: view.caret_position,
         spellings: view.nine_key_spellings,
         scheme: view.scheme,
         shuangpinProfile: view.shuangpin_profile,
@@ -2083,7 +2091,8 @@ export class KeyboardSession implements HardwareKeyTarget {
         candidate.translation ?? null, this.candidateEnglishGloss)
     }));
     this.onChanged({
-      candidates: entries, editing: view.editing_text, spellings: view.nine_key_spellings,
+      candidates: entries, editing: view.editing_text, editingCaret: view.caret_position,
+      spellings: view.nine_key_spellings,
       scheme: view.scheme, shuangpinProfile: view.shuangpin_profile, localMode: view.local_mode,
       english: view.dedicated_english, diagnostic: this.diagnostic
     });
@@ -2105,7 +2114,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     }));
     this.onChanged({
       candidates: entries,
-      editing: view?.editing_text ?? this.editing, spellings: [],
+      editing: view?.editing_text ?? this.editing,
+      editingCaret: view?.caret_position ?? this.editingCaret, spellings: [],
       scheme: view?.scheme ?? this.scheme, shuangpinProfile: view?.shuangpin_profile ?? this.profileName,
       localMode: view?.local_mode ?? this.localMode,
       english: view?.dedicated_english ?? this.englishMode, diagnostic: this.diagnostic
