@@ -147,7 +147,47 @@ fn host_capabilities() -> HostCapabilities {
     let mut capabilities = HostCapabilities::for_platform(host_platform());
     // Font enumeration is a build-time capability, not a platform assumption.
     capabilities.system_fonts = system_fonts::supported();
+    capabilities.os_version = macos_product_version();
     capabilities
+}
+
+/// The macOS release, read straight out of the file the system keeps it in.
+///
+/// `sw_vers` would answer the same question, but it answers it by spawning a
+/// process on the settings window's first paint, and this is one `read_to_string`
+/// of a file that is XML on every release this client supports. Anything
+/// unexpected in it is not worth reporting a guess for, so the caller gets
+/// `None` and the page falls back to the web view's own user agent.
+#[cfg(target_os = "macos")]
+fn macos_product_version() -> Option<String> {
+    product_version_from_plist(
+        &std::fs::read_to_string("/System/Library/CoreServices/SystemVersion.plist").ok()?,
+    )
+}
+
+#[cfg(not(target_os = "macos"))]
+fn macos_product_version() -> Option<String> {
+    None
+}
+
+/// `ProductVersion` out of that plist, or `None` if what is there is not a
+/// release number. The check is the point: this string is attached to a report
+/// the user files, so it reports what the file says or nothing at all.
+#[cfg(any(target_os = "macos", test))]
+pub(crate) fn product_version_from_plist(plist: &str) -> Option<String> {
+    let rest = plist.split_once("<key>ProductVersion</key>")?.1;
+    let value = rest
+        .split_once("<string>")?
+        .1
+        .split_once("</string>")?
+        .0
+        .trim();
+    (!value.is_empty()
+        && value.len() <= 32
+        && value
+            .bytes()
+            .all(|byte| byte.is_ascii_digit() || byte == b'.'))
+    .then(|| value.to_owned())
 }
 
 /// The settings section a host menu asked for, if any. The launcher passes it
