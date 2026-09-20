@@ -4576,6 +4576,77 @@ group("the panel chord is claimed on release as well as press", () => {
   );
 });
 
+group("a numeric keypad is a number row", () => {
+  const key = (over: Record<string, unknown> = {}) => ({
+    keyCode: 2104,
+    unicodeChar: 0,
+    ctrlKey: false,
+    altKey: false,
+    shiftKey: false,
+    logoKey: false,
+    ...over,
+  });
+  // The source normalises the keypad in one place so every digit path gets it at once. Without it
+  // the maintenance chord matched only the number row, because with Ctrl+Shift+Alt held the system
+  // resolves no character and the chord has to match on the code.
+  const normalized = HardwareKeyRouter.normalizeNumpad(key());
+  check(normalized.keyCode === 2001, "keypad 1 reads as the number-row 1");
+  check(normalized.unicodeChar === 0x31, "and carries the digit the system did not resolve");
+  check(
+    HardwareKeyRouter.normalizeNumpad(key({ keyCode: 2112 })).keyCode === 2009,
+    "keypad 9 reads as the number-row 9",
+  );
+  const letter = HardwareKeyRouter.normalizeNumpad(key({ keyCode: 2017, unicodeChar: 0x61 }));
+  check(letter.keyCode === 2017 && letter.unicodeChar === 0x61, "anything else is left alone");
+  // A keypad key that did resolve a character keeps it rather than having one invented.
+  check(
+    HardwareKeyRouter.normalizeNumpad(key({ keyCode: 2106, unicodeChar: 0x33 })).unicodeChar ===
+      0x33,
+    "a resolved character is kept",
+  );
+});
+
+group("keypad digits reach both digit paths", () => {
+  const compose = {
+    minusEqual: true,
+    commaPeriod: true,
+    brackets: false,
+    tab: true,
+    pageUpDown: true,
+    mouseWheel: false,
+    arrows: true,
+  };
+  const chord = HardwareKeyRouter.route(
+    { keyCode: 2105, unicodeChar: 0, ctrlKey: true, altKey: true, shiftKey: true, logoKey: false },
+    true,
+    true,
+    false,
+    compose,
+  );
+  check(
+    chord.action === HardwareKeyAction.REMOVE_CANDIDATE && chord.index === 1,
+    "Ctrl+Shift+Alt+keypad2 deletes the second candidate, as Ctrl+Shift+Alt+2 does",
+  );
+  const select = HardwareKeyRouter.route(
+    {
+      keyCode: 2106,
+      unicodeChar: 0,
+      ctrlKey: false,
+      altKey: false,
+      shiftKey: false,
+      logoKey: false,
+    },
+    true,
+    true,
+    false,
+    compose,
+  );
+  check(
+    select.action === HardwareKeyAction.SELECT && select.index === 2,
+    "keypad 3 picks the third candidate",
+  );
+});
+
 // The account bridge deliberately models the asynchronous device HTTP API. Give its immediate
 // mock responses one microtask turn before reporting the suite result.
 setTimeout(() => {
