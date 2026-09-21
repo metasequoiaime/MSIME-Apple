@@ -27,6 +27,25 @@ import java.util.concurrent.Executor;
 public final class GoogleSignInFlow {
     private GoogleSignInFlow() {}
 
+    /**
+     * 把异常说成一句话。
+     *
+     * <p>取消和配置错误不是一件事：前者是用户的决定，后者是这台设备上这个 app 根本拿不到令牌。
+     * 原来两者都写成「没有完成」，于是屏幕上那句话对任何一种情况都成立，也就什么都没说——查一次
+     * 得去翻 logcat。类型和原文都带上，代价是一句长一点的话。
+     */
+    private static String explain(GetCredentialException error) {
+        if (error instanceof androidx.credentials.exceptions.GetCredentialCancellationException) {
+            return "已取消 Google 登录";
+        }
+        if (error instanceof androidx.credentials.exceptions.NoCredentialException) {
+            return "这台设备上没有可用的 Google 账号";
+        }
+        String detail = error.getMessage();
+        return "Google 登录失败：" + error.getType()
+            + (detail == null || detail.isEmpty() ? "" : "，" + detail);
+    }
+
     /** What came back: a token to exchange, or a reason to show. */
     public interface Listener {
         void onToken(String idToken);
@@ -75,8 +94,7 @@ public final class GoogleSignInFlow {
                 }
 
                 @Override public void onError(GetCredentialException error) {
-                    // 用户按了取消也走这里，所以这句要中性：说没完成，不说失败了。
-                    listener.onFailure("Google 登录没有完成");
+                    listener.onFailure(explain(error));
                 }
             });
     }
