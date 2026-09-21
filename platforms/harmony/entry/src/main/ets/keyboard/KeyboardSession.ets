@@ -85,6 +85,7 @@ import {
 import {
   SmartPunctuationRepeatPolicy, SmartPunctuationRepeatSnapshot
 } from './input/SmartPunctuationRepeatPolicy';
+import { BackspaceHoldPolicy } from './input/BackspaceHoldPolicy';
 
 // Shapes of the JSON the shared C ABI answers with. Only the fields this minimal surface reads are
 // declared; the responses carry considerably more.
@@ -389,6 +390,8 @@ export interface KeyboardState {
 }
 
 interface EngineValue {
+  /** False means the platform editor, rather than the Engine composition, owns the command. */
+  handled: boolean;
   // The Rust side sends Option<String>, but an absent commit reaches ArkTS as undefined rather than
   // the null the JSON names, so both have to be spelled out here. Treating one and not the other
   // threw on every focus, which tore the session down before a single key could be pressed.
@@ -2036,11 +2039,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
   }
 
-  private command(command: InputCommand): void {
+  private command(command: InputCommand): boolean {
     if (this.handle === 0) {
-      return;
+      return false;
     }
-    this.apply(client.command(this.handle, command));
+    return this.apply(client.command(this.handle, command));
   }
 
   commitHighlighted(): void {
@@ -2084,7 +2087,16 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   backspace(): void {
-    this.command(InputCommand.BACKSPACE);
+    const handled: boolean = this.command(InputCommand.BACKSPACE);
+    if (!BackspaceHoldPolicy.deletesEditor(handled) || this.inputClient === undefined) {
+      return;
+    }
+    try {
+      this.inputClient.deleteBackwardSync(1);
+      this.refreshEnglishSuggestions();
+    } catch (error) {
+      KeyboardLog.error(`editor backspace unavailable: ${describeError(error)}`);
+    }
   }
 
   /** Throw the composition away without committing it, which is what 重输 means. */
@@ -2198,7 +2210,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.insertWithSource(fallback, this.typingSource());
   }
 
-  private apply(raw: string): void {
+  private apply(raw: string): boolean {
     let response: Response;
     try {
       response = JSON.parse(raw) as Response;
@@ -2207,11 +2219,11 @@ export class KeyboardSession implements HardwareKeyTarget {
       // failure to chase on a device. The reply itself stays out of the log: it carries candidates,
       // and candidates are the user's text.
       KeyboardLog.error(`unreadable engine reply: ${describeError(error)}`);
-      return;
+      return false;
     }
     if (!response.ok) {
       KeyboardLog.error(`engine refused: ${response.error}`);
-      return;
+      return false;
     }
     const value: EngineValue = response.value;
     // Bounded before it reaches the surface: a diagnostic is a message, not a place to print a
@@ -2231,6 +2243,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.recordTypingStatistics(output, this.typingSource());
     }
     this.render(value.view);
+    return value.handled === true;
   }
 
   /** For the entry points whose reply is a bare view. */

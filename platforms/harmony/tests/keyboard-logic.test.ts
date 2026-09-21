@@ -487,6 +487,8 @@ group("a held Delete never crosses from composition into committed text", () => 
     "the first repeat clears an unfinished composition as one operation");
   check(BackspaceHoldPolicy.firstRepeat(false) === BackspaceHoldAction.DELETE,
     "without a composition the hold keeps deleting editor text");
+  check(BackspaceHoldPolicy.deletesEditor(false), "an unhandled backspace falls through to the editor");
+  check(!BackspaceHoldPolicy.deletesEditor(true), "a handled backspace never also deletes editor text");
 });
 
 group("bounds handwriting points and rejects empty recognition requests", () => {

@@ -8,4 +8,9 @@ export class BackspaceHoldPolicy {
   static firstRepeat(composing: boolean): BackspaceHoldAction {
     return composing ? BackspaceHoldAction.CANCEL_COMPOSITION : BackspaceHoldAction.DELETE;
   }
+
+  /** An unhandled Engine backspace belongs to the editor under the input method. */
+  static deletesEditor(engineHandled: boolean): boolean {
+    return !engineHandled;
+  }
 }
