@@ -13,14 +13,16 @@ import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentManager;
 import androidx.fragment.app.FragmentTransaction;
 import app.msime.client.CommunityRequest;
+import app.msime.client.FirstRunPreparation;
 import app.msime.client.R;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
 
 /**
  * The host app: four tabs over one fragment container, matching the Apple app's shell.
  *
- * Resource preparation stays in SetupActivity; this screen does not duplicate it and never enables
- * the input method on the user's behalf.
+ * First-run dictionary preparation is started from here, because this is the launcher and there is
+ * nowhere else the user reliably arrives. It never enables or selects the input method on their
+ * behalf -- that remains a decision taken in system settings.
  *
  * Each tab is created once and then hidden rather than replaced. Replacing tore the page down on
  * every switch: coming back to 社区 re-fetched the listing over the network and threw away how far
@@ -70,6 +72,11 @@ public final class HomeActivity extends AppCompatActivity {
         });
         show(selected);
         tabs.setSelectedItemId(selected);
+
+        // The shipped dictionary is prepared on first run without the user having to find a button
+        // for it: a keyboard that cannot reach the Engine is not a state worth making someone opt
+        // out of. Existing configurations are reported, never overwritten.
+        FirstRunPreparation.startIfNeeded(this);
     }
 
     @Override protected void onSaveInstanceState(@NonNull Bundle state) {

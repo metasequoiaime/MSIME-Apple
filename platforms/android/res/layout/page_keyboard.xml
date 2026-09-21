@@ -82,6 +82,18 @@
                         app:ensureMinTouchTargetSize="false" />
                 </LinearLayout>
 
+                <TextView
+                    android:id="@+id/keyboard_preparation"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:background="@color/mist"
+                    android:lineSpacingExtra="3dp"
+                    android:padding="12dp"
+                    android:textColor="@color/text_secondary"
+                    android:textSize="13sp"
+                    android:visibility="gone" />
+
                 <app.msime.client.home.KeyboardPreview
                     android:id="@+id/keyboard_preview"
                     android:layout_width="match_parent"

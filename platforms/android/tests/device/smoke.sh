@@ -35,13 +35,16 @@ tap() {
   [[ "$bounds" =~ ^\[([0-9]+),([0-9]+)\]\[([0-9]+),([0-9]+)\]$ ]] || { echo "Missing tap target: $1" >&2; exit 1; }
   "$adb" -s "$serial" shell input tap "$(( (BASH_REMATCH[1] + BASH_REMATCH[3]) / 2 ))" "$(( (BASH_REMATCH[2] + BASH_REMATCH[4]) / 2 ))"
 }
-"$adb" -s "$serial" shell am start -W -n app.msime.android/app.msime.client.SetupActivity >/dev/null
-tap '//node[@text="准备词库"]'
+# The host prepares the shipped dictionary itself on first run; there is no button to press for it
+# any more. The 键盘 tab shows the state only while preparing or after a failure, so the tab having
+# rendered with no preparation notice is what readiness looks like.
+"$adb" -s "$serial" shell am start -W -n app.msime.android/app.msime.client.home.HomeActivity >/dev/null
 ready=false
-for attempt in $(seq 1 30); do
+for attempt in $(seq 1 60); do
   dump
-  if [[ $(xmllint --xpath 'boolean(//node[contains(@text,"资源准备完成") or contains(@text,"检测到已有配置")])' "$xml") == true ]]; then ready=true; break; fi
-  if [[ $(xmllint --xpath 'boolean(//node[contains(@text,"准备失败")])' "$xml") == true ]]; then echo "Device bootstrap failed" >&2; exit 1; fi
+  if [[ $(xmllint --xpath 'boolean(//node[contains(@text,"词库准备失败")])' "$xml") == true ]]; then echo "Device bootstrap failed" >&2; exit 1; fi
+  if [[ $(xmllint --xpath 'boolean(//node[contains(@text,"试用键盘")])' "$xml") == true \
+     && $(xmllint --xpath 'boolean(//node[contains(@text,"正在准备词库")])' "$xml") == false ]]; then ready=true; break; fi
   sleep 1
 done
 [[ "$ready" == true ]] || { echo "Device bootstrap timed out" >&2; exit 1; }

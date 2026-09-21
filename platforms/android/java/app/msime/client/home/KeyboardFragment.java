@@ -20,6 +20,8 @@ import com.google.android.material.button.MaterialButton;
 import com.google.android.material.chip.Chip;
 import java.util.ArrayList;
 import java.util.List;
+import app.msime.client.FirstRunPreparation;
+import app.msime.client.R;
 import org.json.JSONObject;
 
 /** The 键盘 tab: what the keyboard currently is, a way to try it, and the way in to each group. */
@@ -30,7 +32,6 @@ public final class KeyboardFragment extends HomeTabFragment {
     private FeatureAdapter features;
     private boolean loaded;
     private boolean prepared = true;
-    private boolean preparing;
 
     @Override public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup parent,
                                        @Nullable Bundle state) {
@@ -39,15 +40,10 @@ public final class KeyboardFragment extends HomeTabFragment {
 
     @Override public void onViewCreated(@NonNull View view, @Nullable Bundle state) {
         MaterialButton trial = view.findViewById(R.id.keyboard_try);
-        trial.setOnClickListener(ignored -> {
-            // Trying the keyboard before its dictionary exists is not a thing that can work, so on
-            // a fresh install this button is the step that is actually missing.
-            if (!prepared) {
-                prepare();
-                return;
-            }
-            startActivity(new Intent(requireContext(), TrialActivity.class));
-        });
+        // The Apple app opens an editor here rather than the system picker: trying the keyboard
+        // means typing with it, and the picker only offers to switch away from it.
+        trial.setOnClickListener(ignored ->
+            startActivity(new Intent(requireContext(), KeyboardTryoutActivity.class)));
 
         features = new FeatureAdapter(java.util.List.of());
         RecyclerView grid = view.findViewById(R.id.keyboard_features);
@@ -55,6 +51,37 @@ public final class KeyboardFragment extends HomeTabFragment {
         grid.setAdapter(features);
         render();
         reload();
+
+        // Preparation is silent while it works out and while it is done; it only takes the screen
+        // when the keyboard cannot reach the Engine, which is the one case the user has to know.
+        TextView preparation = view.findViewById(R.id.keyboard_preparation);
+        preparation.setOnClickListener(ignored -> FirstRunPreparation.retry(requireContext()));
+        FirstRunPreparation.observe(status -> {
+            if (!isAdded()) return;
+            switch (status) {
+                case RUNNING -> {
+                    preparation.setText(R.string.preparation_running);
+                    preparation.setClickable(false);
+                    preparation.setVisibility(View.VISIBLE);
+                }
+                case FAILED -> {
+                    preparation.setText(R.string.preparation_failed);
+                    preparation.setClickable(true);
+                    preparation.setVisibility(View.VISIBLE);
+                }
+                default -> {
+                    preparation.setVisibility(View.GONE);
+                    // The store only becomes readable once preparation finishes, so the tiles have
+                    // to be asked again; otherwise they keep saying 尚未准备 until the tab is left.
+                    reload();
+                }
+            }
+        });
+    }
+
+    @Override public void onDestroyView() {
+        FirstRunPreparation.observe(null);
+        super.onDestroyView();
     }
 
     // The keyboard's own pickers write the same file, so what this tab shows can go stale while
@@ -72,22 +99,6 @@ public final class KeyboardFragment extends HomeTabFragment {
             }
             loaded = true;
             render();
-        });
-    }
-
-    /** Unpack the built-in dictionary, which is what a fresh install is waiting on. */
-    private void prepare() {
-        if (preparing) return;
-        preparing = true;
-        render();
-        HostTask.run(this, HostStore::prepare, failure -> {
-            preparing = false;
-            View view = getView();
-            if (view != null && failure != null && !failure.isEmpty()) {
-                com.google.android.material.snackbar.Snackbar.make(view, failure,
-                    com.google.android.material.snackbar.Snackbar.LENGTH_LONG).show();
-            }
-            reload();
         });
     }
 
@@ -121,10 +132,6 @@ public final class KeyboardFragment extends HomeTabFragment {
                 resolved, "nine_key".equals(layout), selected.glyph() + selected.badge());
         }
         ((TextView) view.findViewById(R.id.keyboard_summary)).setText(skin + " · " + scheme);
-
-        MaterialButton trial = view.findViewById(R.id.keyboard_try);
-        trial.setEnabled(!preparing);
-        trial.setText(preparing ? "正在准备词库…" : prepared ? "试用键盘" : "准备词库");
 
         Chip look = view.findViewById(R.id.keyboard_look);
         boolean ready = isReady();

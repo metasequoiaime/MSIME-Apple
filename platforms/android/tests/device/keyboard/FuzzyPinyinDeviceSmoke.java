@@ -59,7 +59,7 @@ public final class FuzzyPinyinDeviceSmoke extends DeviceSmoke {
                 throw new AssertionError("disabled fuzzy rule was not retained");
             }
         } finally {
-            shell("am start -W -n app.msime.android/app.msime.client.SetupActivity");
+            shell("am start -W -n app.msime.android/app.msime.client.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath()); else publish(preferences, original);
         }
     }

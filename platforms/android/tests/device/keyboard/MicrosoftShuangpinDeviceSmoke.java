@@ -51,7 +51,7 @@ public final class MicrosoftShuangpinDeviceSmoke extends DeviceSmoke {
             await(field("msime-test-plain").and(node -> equalsText("", node.getText())));
             await(imeTextContains("b;"));
         } finally {
-            shell("am start -W -n app.msime.android/app.msime.client.SetupActivity");
+            shell("am start -W -n app.msime.android/app.msime.client.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath());
             else publish(preferences, original);
         }

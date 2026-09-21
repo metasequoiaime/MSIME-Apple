@@ -61,25 +61,6 @@ public final class HostStore {
         return !directory(context).isEmpty();
     }
 
-    /**
-     * Unpack and verify the built-in dictionary, once.
-     *
-     * <p>Existing configurations are never overwritten -- {@link app.msime.client.Bootstrap} returns
-     * false for them and this reports success, because the caller's question is whether the host is
-     * usable now, not whether this call is what made it so.
-     *
-     * @return an empty string on success, or the failure to show
-     */
-    public static String prepare(Context context) {
-        try {
-            app.msime.client.Bootstrap.prepare(context);
-            return "";
-        } catch (Exception | LinkageError error) {
-            // Preparation touches no editor and no session; this never carries typed text.
-            return "词库准备失败，请检查存储空间后重试。";
-        }
-    }
-
     /** The whole snapshot -- `revision` and `preferences` -- or null when it cannot be read. */
     @Nullable public static JSONObject loadPreferences(Context context) {
         String directory = directory(context);

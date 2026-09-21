@@ -28,7 +28,7 @@ public final class PreferencesDeviceSmoke extends DeviceSmoke {
             publish(preferences, snapshot.toString().getBytes(StandardCharsets.UTF_8));
             // Clear the previous editor's focus before the instrumentation-driven
             // rebind; otherwise its delayed hide request can hide the new keyboard.
-            shell("am start -W -n app.msime.android/app.msime.client.SetupActivity");
+            shell("am start -W -n app.msime.android/app.msime.client.home.HomeActivity");
             // Instrumenting the IME package restarts its process. Rebind the system
             // service before opening the editor; this fixture runs only on the guarded AVD.
             shell("ime disable app.msime.android/app.msime.client.MSIMEInputService");
@@ -86,7 +86,7 @@ public final class PreferencesDeviceSmoke extends DeviceSmoke {
             throw error;
         } finally {
             // Stop editor first; the next session starts with the restored configuration.
-            shell("am start -W -n app.msime.android/app.msime.client.SetupActivity");
+            shell("am start -W -n app.msime.android/app.msime.client.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath()); else publish(preferences, original);
         }
     }

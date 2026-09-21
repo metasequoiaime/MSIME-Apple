@@ -88,14 +88,14 @@ public final class KeyboardHeightDeviceSmoke extends DeviceSmoke {
                     + standard + " -> " + resetHeight);
 
             stage = "height survives input method restart";
-            shell("am start -W -n app.msime.android/app.msime.client.SetupActivity");
+            shell("am start -W -n app.msime.android/app.msime.client.home.HomeActivity");
             rebindInputMethod();
             openEditor();
             int restarted = keyHeight("n");
             if (Math.abs(restarted - resetHeight) > 2)
                 throw new AssertionError("Persisted height changed after restart");
         } finally {
-            shell("am start -W -n app.msime.android/app.msime.client.SetupActivity");
+            shell("am start -W -n app.msime.android/app.msime.client.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath());
             else publish(preferences, original);
         }

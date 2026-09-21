@@ -282,7 +282,7 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
             stage = "cross-process scheme picker uses shared visibility";
             assertSharedSchemePicker();
             stage = "scheme visibility survives IME restart";
-            shell("am start -W -n app.msime.android/app.msime.client.SetupActivity");
+            shell("am start -W -n app.msime.android/app.msime.client.home.HomeActivity");
             shell("ime disable app.msime.android/app.msime.client.MSIMEInputService");
             shell("ime enable app.msime.android/app.msime.client.MSIMEInputService");
             shell("ime set app.msime.android/app.msime.client.MSIMEInputService");
@@ -291,7 +291,7 @@ public final class SettingsDeviceSmoke extends DeviceSmoke {
             tap(field("msime-test-plain"));
             assertSharedSchemePicker();
         } finally {
-            shell("am start -W -n app.msime.android/app.msime.client.SetupActivity");
+            shell("am start -W -n app.msime.android/app.msime.client.home.HomeActivity");
             if (original == null) Files.deleteIfExists(preferences.toPath()); else publish(preferences, original);
             if (originalSkinLibrary == null) Files.deleteIfExists(skinLibrary.toPath());
             else { skinLibrary.getParentFile().mkdirs(); publish(skinLibrary, originalSkinLibrary); }
