@@ -186,6 +186,8 @@ ctest --test-dir target/macos --output-on-failure
 platforms/macos/stage-resources.sh <已校验资源目录>
 ```
 
+打包时如果 `cargo` 报某个过程宏 crate「can't find crate for `xxx_macros`」，看它前面一行的 dlopen 错误：本机遇到过 `mis-aligned LINKEDIT string pool`，即过程宏的 dylib 被产出成 dyld 拒绝加载的形状。那不是依赖缺失，也不是版本不匹配——同一个目录再构建仍然失败，而换一个干净的 `CARGO_TARGET_DIR` 就通过。macOS 的 CMake 构建与 cargo 共用 `target/` 时更容易碰上；打包设置应用用独立的 `CARGO_TARGET_DIR` 最省事。
+
 `tauri.macos.conf.json` 会把 `target/macos/EngineResources` 嵌入为 `EngineResources`；不要直接把未校验的词库目录配置到 bundle。资源目录缺少 `others.db` 或 `dict_japanese.dat` 时，宿主会安全关闭对应的 Emoji、颜文字或临时日语触发键，而不会吞掉普通大写字母。
 
 Tauri macOS 设置宿主首次启动时，如果应用数据目录中没有 `runtime-options.json`，会从 bundle 内的 `EngineResources` 调用共享 Host API 准备默认用户词库、缓存和配置，并以同目录原子发布配置；已有配置不会被覆盖。`MSIME_CLIENT_HOST_OPTIONS`（兼容 `MSIME_IBUS_OPTIONS`）显式指定配置时不会触发自动准备，`MSIME_CLIENT_STATE_DIR` 仍可指定偏好与用户状态根目录。资源校验或准备失败会以通用错误终止本次设置宿主启动，不泄露路径、输入或 Host API 诊断内容。
