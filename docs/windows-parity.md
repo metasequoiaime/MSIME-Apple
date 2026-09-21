@@ -1642,7 +1642,9 @@ Fcitx5 候选动作执行 stale 栅栏增量（2026-09-19）：CandidateAction �
 
 前缀作为 `view.phrase_prefix` **单独一个字段**交给宿主，而不是拼进 `editing_text`：`caret_position` 是进入那串文本的偏移，而各宿主按自己的字符串单位读它（Apple 是 UTF-16，其余按字节）——此前两者一致只是因为编辑文本全是 ASCII，前缀一旦是汉字就不再一致。宿主自己拼、自己按自己的单位移光标。
 
-按宿主分期打开（`HostOptions.phrase_preedit`，默认关=旧行为）。本批只开 macOS：本机能跑完整 ctest，而 Linux/Harmony/Android 三个宿主本机既没有容器也没有工具链，仓库又没有 CI，盲改等于没验。Windows 宿主下一批跟上（它的 TSF 侧本来就有同一套概念）。不开的宿主一个字节都没变。
+按宿主分期打开（`HostOptions.phrase_preedit`，默认关=旧行为）。本批只开 macOS：本机能跑完整 ctest，而 Linux/Harmony/Android 三个宿主本机既没有容器也没有工具链，仓库又没有 CI，盲改等于没验。不开的宿主一个字节都没变。
+
+（**紧接着的核对推翻了这句里关于 Windows 的部分**：本仓 Windows 宿主**已经**在自己的 IPC 层做了同一件事——`ReplyComposer` 把共享运行时的增量选词结果累积成整个已选前缀，选词后还有剩余输入时发 `NeedToCreateWord`，全部完成后发含完整前缀的 `Normal`，TSF 侧则沿用来源的 `word_for_creating_word` 显示，并额外有 `_creatingWordRestoreHistory` 在退格跨过边界时恢复上一段。它这样做是因为那半边说的是旧 DLL 的协议。所以 Windows **不该**打开 `phrase_preedit`，打开会双重累积。真正还没对齐的是 Linux 的两套前端、Harmony 与 Android——它们逐段上屏，等能验证时再打开。）
 
 增量记录（2026-09-21，Windows 第二十八批：把「功能是否迁完」从记忆变成每次重新回答的问题）：目标起点 `b3a55e80f`。
 
