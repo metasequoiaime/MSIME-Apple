@@ -8,14 +8,16 @@ const MAX_INPUT: usize = 256;
 const MAX_RESPONSE: usize = 256 * 1024;
 /// How long a cloud candidate is worth waiting for, connecting and in total.
 ///
-/// The reference sets both on its own request (`CONNECTTIMEOUT_MS 2000`, `TIMEOUT_MS 2500` in
-/// `cloud/cloud_request.cpp`). Every host here was choosing its own: this one asked for 2000 ms in
-/// total and macOS for 2000 ms, so a reply arriving between two and two and a half seconds - an
-/// ordinary result on a slow link, since the request is only sent after a 500 ms pause in typing -
-/// showed up in the reference and was thrown away here. The numbers live in one place now, and
-/// `scripts/test-cloud-request-budget.py` keeps the hosts reading the same ones.
+/// The reference gives every phase of the request 2000 ms: its cloud worker fetches over WinHTTP
+/// and calls `WinHttpSetTimeouts(2000, 2000, 2000, 2000)` (`cloud/cloud_ime.cpp`). Each host here
+/// had picked its own number, which is why these live in one place now even though the current
+/// values agree with it - `scripts/test-cloud-request-budget.py` keeps them reading the same ones.
+///
+/// An earlier revision of this comment said 2000 connecting and 2500 in total, and this file said
+/// 2500. That came from `cloud/cloud_request.cpp`, a libcurl path that no longer exists at the
+/// pinned reference: it was read out of an older checkout. The hosts had it right.
 pub const CONNECT_TIMEOUT_MS: u64 = 2000;
-pub const REQUEST_TIMEOUT_MS: u64 = 2500;
+pub const REQUEST_TIMEOUT_MS: u64 = 2000;
 const MAX_CANDIDATE: usize = 512;
 const MAX_CACHE_ENTRIES: usize = 4096;
 

@@ -38,8 +38,9 @@ HOSTS = [
         (None, r"CURLOPT_\w*TIMEOUT\w*_MS,\s*([0-9]+)L"),
     ),
 ]
-# What the reference asks for, so a change here is a change against it rather than a typo.
-REFERENCE = {"CONNECT": 2000, "REQUEST": 2500}
+# What the reference asks for, so a change here is a change against it rather than a typo. Its cloud
+# worker fetches over WinHTTP and gives resolve, connect, send and receive 2000 ms each.
+REFERENCE = {"CONNECT": 2000, "REQUEST": 2000}
 
 
 def declared(path: pathlib.Path, pattern: str) -> dict[str, int]:

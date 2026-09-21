@@ -434,12 +434,13 @@ char *msime_client_ai_request_for_query(uint64_t session,
  */
 char *msime_client_translation_query(uint64_t session);
 /* How long a cloud candidate is worth waiting for: connecting, and in total.
- * Mirrors client-core's cloud::candidates, which took them from the reference's
- * own request. A host must not shorten them on its own - a reply arriving after
- * its private deadline is one the reference would have shown.
+ * Mirrors client-core's cloud::candidates, which takes them from the reference,
+ * whose cloud worker gives every phase of the request 2000 ms. A host must not
+ * choose its own: a reply arriving after a private deadline is one the
+ * reference would have shown.
  */
 #define MSIME_CLOUD_CONNECT_TIMEOUT_MS 2000
-#define MSIME_CLOUD_REQUEST_TIMEOUT_MS 2500
+#define MSIME_CLOUD_REQUEST_TIMEOUT_MS 2000
 /* Build the bounded HTTPS cloud URL for an eligible OnlineQuery. The native
  * host performs network I/O and applies the copied result separately. */
 char *msime_client_cloud_request_url(const uint8_t *query, size_t query_length);
