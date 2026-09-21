@@ -186,7 +186,9 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 预留看的是**设置**而不是「答案到没到」——`KeyboardSession.glossesExpected()`。按到达与否来留，等于又把宽度交还给网络。
 
-**这一片只修了宽度这一半。** 另一半是来源把释义放在候选**下面**自成一行、并为此把候选条加高（`GlossTakesItsOwnLineUnderTheCandidate`、`TheKeyboardGrowsByTheRowsTheStripReserves`）。这边释义在旁边，与来源**纵向**样式表的 `margin-left: 0.65em` 一致（`CandidateTranslationStyle` 里已经照它移植过），所以纵向列表这一侧本来就对；横排要改成两行是一次看得见的改版，而模拟器现在起不来、改完没法看，所以没有在盲改的情况下动它。
+后续按来源 `GlossTakesItsOwnLineUnderTheCandidate`、`AChipKeepsItsHeightWhileTheTranslationIsStillOnItsWay` 与 `TheKeyboardGrowsByTheRowsTheStripReserves` 补齐了另一半：手机和横排 2-in-1 候选把释义放在词条下方，按设置与可用 provider 在请求发出前预留固定第二行，原生 panel 同步增加同样的高度；大候选字号会把释义行一起撑高，不截字。纵向 2-in-1 列表仍按来源纵向样式把释义放在旁边，不额外增高。
+
+这次断言审计还找出两处比样式更直接的错误。第一，在线 `candidate_translations` 的结果被误绑到独立的 `candidate_english_gloss` 开关；关掉随包英文释义后，网络结果已经写回 Engine 却永远不画。现在展示门控是两者的并集，是否预留空行则分别按「目标语言含英语」和「已配置可用 provider」判断。第二，无释义时实现返回的是 `width('100%')`，与“按词宽”的注释和 `CandidateChipWidth.content(..., false, ...)` 测试相反，横排因此一屏只有一个候选；现在走同一份词宽算术。`scripts/test-harmony-candidate-translation.py` 固定这条宿主接线，纯逻辑套件固定 provider、空占位、面板高度和纵向适配。这里没有新增 HAP 或设备画面证据。
 
 ## 展开候选面板里没有释义，长按也没有反应
 
