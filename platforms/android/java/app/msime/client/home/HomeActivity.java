@@ -37,6 +37,8 @@ public final class HomeActivity extends AppCompatActivity {
     private OnBackPressedCallback back;
     private int selected = FIRST_TAB;
     @Nullable private CommunityRequest.Kind pendingKind;
+    /** A tab whose kept instance is stale and has to be built again on the next switch to it. */
+    private int rebuild;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -87,10 +89,8 @@ public final class HomeActivity extends AppCompatActivity {
      * the one on screen is showing another.
      */
     public void openCommunity(CommunityRequest.Kind kind) {
-        FragmentManager manager = getSupportFragmentManager();
-        Fragment existing = manager.findFragmentByTag(tag(R.id.tab_community));
-        if (existing != null) manager.beginTransaction().remove(existing).commitNow();
         pendingKind = kind;
+        rebuild = R.id.tab_community;
         if (selected == R.id.tab_community) show(R.id.tab_community);
         else openTab(R.id.tab_community);
     }
@@ -104,12 +104,18 @@ public final class HomeActivity extends AppCompatActivity {
             Fragment page = manager.findFragmentByTag(tag(id));
             if (id != itemId) {
                 if (page != null && !page.isHidden()) transaction.hide(page);
-            } else if (page == null) {
-                transaction.add(R.id.home_content, create(id), tag(id));
-            } else {
-                transaction.show(page);
+                continue;
             }
+            // Removing and adding in one transaction rather than committing the removal on its own:
+            // a synchronous commit here can land on top of a tab switch that has not run yet.
+            if (page != null && rebuild == id) {
+                transaction.remove(page);
+                page = null;
+            }
+            if (page == null) transaction.add(R.id.home_content, create(id), tag(id));
+            else transaction.show(page);
         }
+        rebuild = 0;
         transaction.commit();
     }
 

@@ -1,5 +1,6 @@
 package app.msime.client.home;
 
+import android.annotation.SuppressLint;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.Color;
@@ -31,6 +32,16 @@ public final class HeatmapView extends View {
     private List<String> days = List.of();
     @Nullable private Consumer<String> onDayPicked;
     @Nullable private String selected;
+    /**
+     * Where the finger went down, so {@link #performClick} knows which cell was meant.
+     *
+     * <p>The tap is not resolved at touch time. Consuming the gesture would take it away from the
+     * scrolling page this calendar sits in, and a drag that started on the calendar would fail to
+     * scroll; leaving it to the clickable View's own handling keeps that distinction where the
+     * framework already makes it correctly.
+     */
+    private float downX;
+    private float downY;
 
     public HeatmapView(Context context, AttributeSet attributes) {
         super(context, attributes);
@@ -77,23 +88,31 @@ public final class HeatmapView extends View {
         return offset >= 0 && offset < daily.length ? offset : -1;
     }
 
+    // Lint wants this override to call performClick itself. It is super.onTouchEvent that decides a
+    // tap happened and calls it -- doing it here as well would fire the selection on a drag that
+    // was only passing through on its way to scrolling the page.
+    @SuppressLint("ClickableViewAccessibility")
     @Override public boolean onTouchEvent(MotionEvent event) {
-        if (onDayPicked == null) return super.onTouchEvent(event);
-        if (event.getActionMasked() != MotionEvent.ACTION_UP) return true;
-        float gap = dp(3f);
-        float size = cellSize();
-        if (size <= 0) return true;
-        int column = (int) (event.getX() / (size + gap));
-        int row = (int) (event.getY() / (size + gap));
-        if (column < 0 || column >= columns() || row < 0 || row >= ROWS) return true;
-        int offset = offsetAt(column, row);
-        String day = offset >= 0 && offset < days.size() ? days.get(offset) : null;
-        performClick();
-        onDayPicked.accept(day);
-        return true;
+        if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+            downX = event.getX();
+            downY = event.getY();
+        }
+        return super.onTouchEvent(event);
     }
 
-    @Override public boolean performClick() { return super.performClick(); }
+    @Override public boolean performClick() {
+        boolean handled = super.performClick();
+        if (onDayPicked == null) return handled;
+        float gap = dp(3f);
+        float size = cellSize();
+        if (size <= 0) return handled;
+        int column = (int) (downX / (size + gap));
+        int row = (int) (downY / (size + gap));
+        if (column < 0 || column >= columns() || row < 0 || row >= ROWS) return handled;
+        int offset = offsetAt(column, row);
+        onDayPicked.accept(offset >= 0 && offset < days.size() ? days.get(offset) : null);
+        return true;
+    }
 
     @Override protected void onDraw(Canvas canvas) {
         float gap = dp(3f);
