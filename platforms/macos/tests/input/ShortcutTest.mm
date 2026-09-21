@@ -1300,6 +1300,58 @@ static void TestKeypadDecimal(MSIMEAppearancePreferences *appearance) {
     assert(session.punctuationASCIICalls == 2);
 }
 
+// Editing a composition by segmentation unit rather than by character. The reference's composition
+// editor gives Ctrl+Backspace and Ctrl+Left / Ctrl+Right this meaning, and both Linux front ends and
+// the Windows host route them; this host handed every Ctrl chord back to the application after
+// finishing the composition, so the three keys did nothing but commit what was being typed.
+static void TestSegmentEditingChords(MSIMEAppearancePreferences *appearance) {
+    ModeController *controller = [ModeController alloc];
+    ShortcutSession *session = [ShortcutSession new];
+    ShortcutClient *client = [ShortcutClient new];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    appearance.englishMode = NO;
+    NSDictionary *composing = @{ @"focused": @YES, @"editing_text": @"nihao", @"caret_position": @5,
+                                 @"candidates": @[@{@"text": @"你好"}] };
+    [controller setValue:composing forKey:@"view"];
+
+    for (NSArray *entry in @[@[@51, @(MSIME_BACKSPACE_SEGMENT)], @[@123, @(MSIME_MOVE_LEFT_SEGMENT)],
+                             @[@124, @(MSIME_MOVE_RIGHT_SEGMENT)]]) {
+        const unsigned short code = [entry[0] unsignedShortValue];
+        session.lastCommand = UINT32_MAX;
+        assert([controller handleEvent:ModeKey(code, NSEventModifierFlagControl, NO) client:client]);
+        assert(session.lastCommand == [entry[1] unsignedIntValue]);
+        [controller setValue:composing forKey:@"view"];
+    }
+
+    // Only the bare Ctrl chord. With anything else held the key is the application's, and this host
+    // finishes the composition on the way out rather than editing it.
+    for (NSNumber *extra in @[@(NSEventModifierFlagShift), @(NSEventModifierFlagOption),
+                              @(NSEventModifierFlagCommand)]) {
+        session.lastCommand = UINT32_MAX;
+        assert(![controller handleEvent:ModeKey(51, NSEventModifierFlagControl | extra.unsignedIntegerValue, NO)
+                                 client:client]);
+        assert(session.lastCommand == MSIME_FINISH_COMPOSITION);
+        [controller setValue:composing forKey:@"view"];
+    }
+
+    // With nothing being composed the chord stays the application's: Ctrl+Backspace deletes a word
+    // in the editor, and an input method that swallowed it would be taking a shortcut nobody gave it.
+    [controller setValue:@{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] } forKey:@"view"];
+    session.lastCommand = UINT32_MAX;
+    assert(![controller handleEvent:ModeKey(51, NSEventModifierFlagControl, NO) client:client]);
+    assert(session.lastCommand == MSIME_FINISH_COMPOSITION);
+
+    // A candidate page with no editing text still counts as a composition: the pinyin has been
+    // consumed by earlier selections and the page is what is left to edit.
+    [controller setValue:@{ @"focused": @YES, @"editing_text": @"", @"candidates": @[@{@"text": @"你好"}] }
+                  forKey:@"view"];
+    session.lastCommand = UINT32_MAX;
+    assert([controller handleEvent:ModeKey(123, NSEventModifierFlagControl, NO) client:client]);
+    assert(session.lastCommand == MSIME_MOVE_LEFT_SEGMENT);
+}
+
 static void TestKeypadOperators(MSIMEAppearancePreferences *appearance) {
     ModeController *controller = [ModeController alloc];
     ShortcutSession *session = [ShortcutSession new];
@@ -5007,6 +5059,7 @@ int main(int argc, char **argv) {
         TestFullWidth(defaults, appearance);
         TestSessionOptions();
         TestKeypadDecimal(appearance);
+        TestSegmentEditingChords(appearance);
         TestKeypadOperators(appearance);
         TestSmartPunctuationPreferences();
         TestSharedCharacterWidth();

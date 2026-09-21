@@ -1930,3 +1930,11 @@ if let Some(route) = launch_route_from_args(&args) { ... }
 按这条重验了今天所有据此改过行为的结论，其余四条在基线上一致：英文模式开关走 `FUNCTION_CANCEL`（#3390）、Home/End 的 `MOVE_PAGE_TOP/BOTTOM` 与 `SetSelection(-1)` 取末项（#3392）、造词期 `word_for_creating_word` 的显示与 Shift 提交原始击键（#3395）、TSF 显示属性的点线/无下划线两类（#3408）；另有英文候选 5/1000、颜文字 2/3、AI 的 650/2500/8000 也都未变。
 
 下次对照前先 `git -C <来源> log -1` 与对照表第一节的固定提交核对，不一致就用 `git show <基线>:<路径>` 取文件，而不是读工作区。
+
+增量记录（2026-09-21，Windows 第四十八批：macOS 缺了按分词单位编辑组字）：用基线重新读 `input_key_policy.h` 时发现的——它比我之前读的旧检出多出四条规则，全是造词期的编辑：`ShouldRetreatCreatingWordSelection`、`IsSegmentBackspaceKey`、`IsSegmentCaretKey`、`ShouldDropCreatingWordSegment`。
+
+其中两条是纯按键路由：**Ctrl+Backspace 按分词单位删、Ctrl+← / Ctrl+→ 按分词单位移光标**，且只认裸 Ctrl（带 Shift/Alt/Win 就还给应用）。共享运行时早就有 `SegmentBackspace` / `SegmentMoveLeft` / `SegmentMoveRight` 三个动作与 `segment_raw_boundaries`，Linux 两套前端与 Windows 宿主都已接线，**只有 macOS 没接**——这三个键在 macOS 上落进「任何 Ctrl/Option/Command 组合都先结束组字再交还应用」那条规则，于是它们唯一的效果是把正在打的字上屏。
+
+接上，判据照 Linux 已有的那条（裸 Ctrl + 有活动组字），并且必须放在那条「交还应用」规则**之前**——第一版放在按键 switch 里，永远到不了。用例钉四类：三个键各自发出对应命令、带别的修饰键时不接管（仍是结束组字后交还）、没有组字时不接管、以及「只有候选页没有编辑文本」也算组字（前面的选词已经把拼音吃掉了，剩下的正是要编辑的部分）。反向验证过。
+
+另两条（退格退回上一段选择、分段退格删掉上一段）需要 Engine 侧的选择历史与「客户端能应用回复」的协商，本仓 macOS 走的是进程内会话、没有那层协商，留待单独评估，本批不动。
