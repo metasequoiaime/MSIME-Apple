@@ -12,7 +12,7 @@
 | 每一项设定对应共享层的哪个字段 | `scripts/test-reference-config-coverage.py` | 178 项全部有着落，6 项写明为什么没有字段 |
 | 来源界面能对宿主发起的每个动作 | `scripts/test-reference-ui-actions.py` | 46 个动作全部有人答 |
 | 来源发布日志里的每一条 | `scripts/test-reference-feature-log.py` | 19 条全部过过一遍 |
-| 来源源码树里的每个文件 | `scripts/test-reference-source-inventory.py` | 274 个：159 个同名、103 个改名、12 个写明不需要 |
+| 来源源码树里的每个文件 | `scripts/test-reference-source-inventory.py` | 274 个：161 个同名、101 个改名、12 个写明不需要 |
 
 **刻意与来源不同、且理由写在对应批次里的：** 候选窗、悬浮工具栏与输入法菜单本仓由各平台原生绘制（来源画在 WebView2 里），设置页与各类面板走 Tauri + 共享 React；简繁转换用 ICU 而非 OpenCC；偏好文件每次整份写出而不做三方合并。这些是「适配平台特性」的取舍，不是欠账。
 
@@ -28,8 +28,8 @@
 
 2026-09-17 本次对照使用以下不可变对象，未读取相邻仓库未提交内容：
 
-- 来源：`metasequoiaime/MSIME-Windows`，通过 `git ls-remote --symref origin HEAD` 确认默认分支 `develop`，固定提交 `e1d53dd8f01fd351633f08374f189157f5cb47e9`（2026-09-20 审计）。
-- 目标：`metasequoiaime/msime` 的 `develop`，固定提交 `71008a3f9c905e7bc880d83f97e4a0d46d623ab5`（2026-09-20 当前远端默认分支；完整对象以远端 `origin/develop` 为准）。
+- 来源：`metasequoiaime/MSIME-Windows` 的固定提交 `467b9804dac9bcea7dfac654d293dc9f99f57b09`。五道 reference 门禁统一从 `scripts/reference_source.py` 读取这个对象，不跟随相邻检出的当前分支或可变远端 tip；`MSIME_REFERENCE_DIR` 只覆盖检出位置，不能覆盖版本。
+- 目标：`metasequoiaime/msime` 的 `develop`；各增量以实际 PR merge commit 为证，不把一个会随迁移继续推进的目标 SHA 伪装成全程不变的基线。
 - 来源 Engine 已内嵌为 `engine/`，其 `UPSTREAM.md` 记录导入提交 `c810d201f549b337ae0c4a65a9d694103f1c1754`。目标通过 `engine-lock.json` 和 `scripts/fetch_engine.py` 获取并校验独立的 `vendor/MSIME-Engine` 源码归档，不使用 `.gitmodules`、递归 Git checkout 或 gitlink。两者不能因目录名或协议名相同而视为内容相同，也不能把来源 Server 的新接口记为目标已接入。
 
 来源功能入口以该提交的 `README.md`「功能简介」「核心功能指南」、`ui-html/webview2/settings/ime-settings/src/modules/sidebar.ts`、`server/src/settings/settings_app.cpp` 和 `engine/contracts/webview/messages.json` 交叉核对。README 只是入口索引，后续仍须逐字段、逐动作下钻；本表不是穷尽行为的完成证明。
@@ -1761,7 +1761,7 @@ Fcitx5 候选动作执行 stale 栅栏增量（2026-09-19）：CandidateAction �
 
 当前结果：**来源 180 个键在本仓全部有对应物，本仓另有 30 个**。也就是说配置契约这一层的迁移是完整的——这比此前「逐项读过」的记录强，因为它每次 `--quick` 都会重新回答。
 
-写这个检查时踩了两个会造成**假通过**的坑，记下来：参照检出按当前 checkout 的同级目录找，而本仓惯例是在 `~/worktrees` 下干活，于是它永远「skipped」、看起来像通过；用本地 `origin/HEAD` 定位参照修订，而那个符号引用是克隆时写一次的、这台机器上指向发布分支 `origin/main`，比默认分支少 30 个键——照它比会在上游多出 30 个键时报告「全部齐备」。现在问远端要默认分支，并始终打印用的是哪个 ref 和哪个 SHA。
+写这个检查时踩了两个会造成**假通过**的坑，记下来：参照检出按当前 checkout 的同级目录找，而本仓惯例是在 `~/worktrees` 下干活，于是它永远「skipped」、看起来像通过；用本地 `origin/HEAD` 定位参照修订，而那个符号引用是克隆时写一次的、这台机器上指向发布分支 `origin/main`，比默认分支少 30 个键——照它比会在上游多出 30 个键时报告「全部齐备」。当时的修法是问远端要默认分支，并打印实际 ref 和 SHA；迁移范围后来固定为 `467b9804`，现在进一步改成所有 reference 门禁只读取这个不可变对象，远端 tip 不再参与判定。
 
 **加加辅助码这条要改一下此前的记法。** 前几批把它记为「在 Engine 里，只能提锁」，这不准确：本仓的 `engine-lock.json` 已经带 overlay 脚本机制（当前有两个），技术上完全可以再加一个把 `assets::helpcodes` 从五项扩到六项。真正的阻塞点是那张 7968 行码表本身——来源 `engine/helpcode/NOTICE.md` 写明它是从拼音加加 5.x 安装包内 `fzm.bin` **重建**的非官方数据。把它引进本仓是一次第三方数据的分发决定，而 ARCHITECTURE.md 要求引入新上游资产时连同来源提交、许可证文本、通知位置和分发限制一并提交。这该由仓库所有者定，不是实现层面能顺手做掉的事。记准阻塞点，比记一个听起来更技术性的理由有用。
 
