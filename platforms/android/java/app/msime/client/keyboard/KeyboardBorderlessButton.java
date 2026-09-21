@@ -2,12 +2,12 @@ package app.msime.client;
 
 import android.content.Context;
 import android.graphics.drawable.Drawable;
-import android.widget.Button;
 
 /** Button whose shortcut-bar face stays plain while the shared host still styles its text. */
-public final class KeyboardBorderlessButton extends Button {
+public final class KeyboardBorderlessButton extends KeyboardPressButton {
     public KeyboardBorderlessButton(Context context) {
         super(context);
+        setKeyboardRole(KeyboardKeyRole.GLYPH);
         super.setBackground(null);
     }
 

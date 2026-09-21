@@ -99,6 +99,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/keyboard/LocalInputModeSmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/KeyboardSchemeSmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/NineKeyLayoutSmoke.java" \
+  "$repo_root/platforms/android/tests/keyboard/KeyboardActionRowSmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/JapaneseNineKeyLayoutSmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/JapaneseNineKeyActionsSmoke.java" \
   "$repo_root/platforms/android/tests/core/JapaneseVariantPolicySmoke.java" \
@@ -155,6 +156,7 @@ java -cp "$output_dir" MoreToolsLayoutSmoke
 java -cp "$output_dir" LocalInputModeSmoke
 java -cp "$output_dir" KeyboardSchemeSmoke
 java -cp "$output_dir" NineKeyLayoutSmoke
+java -cp "$output_dir" KeyboardActionRowSmoke
 java -cp "$output_dir" JapaneseNineKeyLayoutSmoke
 java -cp "$output_dir" JapaneseNineKeyActionsSmoke
 java -cp "$output_dir" JapaneseVariantPolicySmoke
