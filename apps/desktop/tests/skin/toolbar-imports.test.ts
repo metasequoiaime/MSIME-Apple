@@ -50,6 +50,33 @@ test("removes charset and decodes quoted and escaped import URLs", async () => {
   expect(result.css).not.toContain("@import");
 });
 
+test("treats comments as trivia between import components", async () => {
+  const read = vi.fn(async () => ".imported { color: red }");
+  const result = await prepareToolbarImports(
+    '@import /* source */ url("parts.css") /* target */ layer /* layer */ supports(display: grid) /* supports */ screen;',
+    "toolbar.css",
+    read,
+  );
+  expect(result.partial).toBe(false);
+  expect(read).toHaveBeenCalledExactlyOnceWith("parts.css");
+  expect(result.css).toContain("@layer");
+  expect(result.css).toContain("@supports (display: grid)");
+  expect(result.css).toContain("@media screen");
+  expect(result.css).toContain(".imported");
+});
+
+test("drops an import with unterminated component trivia", async () => {
+  const read = vi.fn(async () => ".imported {}");
+  const result = await prepareToolbarImports(
+    '@import "parts.css" /* unfinished',
+    "toolbar.css",
+    read,
+  );
+  expect(result.partial).toBe(true);
+  expect(read).not.toHaveBeenCalled();
+  expect(result.css).not.toContain("@import");
+});
+
 test("does not activate imports that occur after ordinary rules", async () => {
   const read = vi.fn(async () => ".imported { color: red }");
   const result = await prepareToolbarImports(

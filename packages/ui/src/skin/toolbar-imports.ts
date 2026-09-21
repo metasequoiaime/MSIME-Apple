@@ -16,13 +16,23 @@ type ImportSpec = {
   media: string | undefined;
 };
 
+function consumeTrivia(value: string): string | null {
+  for (;;) {
+    value = value.replace(/^[ \t\r\n\f]+/, "");
+    if (!value.startsWith("/*")) return value;
+    const end = value.indexOf("*/", 2);
+    if (end < 0) return null;
+    value = value.slice(end + 2);
+  }
+}
+
 function consumeString(value: string): { raw: string; rest: string; quoted: boolean } | null {
   const quote = value[0];
   if (quote !== '"' && quote !== "'") return null;
   for (let index = 1; index < value.length; index++) {
     if (value[index] === "\\") index++;
     else if (value[index] === quote)
-      return { raw: value.slice(1, index), rest: value.slice(index + 1).trim(), quoted: true };
+      return { raw: value.slice(1, index), rest: value.slice(index + 1), quoted: true };
   }
   return null;
 }
@@ -47,7 +57,7 @@ function consumeFunction(value: string, name: string): { raw: string; rest: stri
     else if (char === ")" && --depth === 0)
       return {
         raw: value.slice(head[0].length, index).trim(),
-        rest: value.slice(index + 1).trim(),
+        rest: value.slice(index + 1),
       };
   }
   return null;
@@ -70,7 +80,9 @@ function packagePath(base: string, relative: string): string | null {
 }
 
 function importSpec(params: string, base: string): ImportSpec | null {
-  params = params.trim();
+  const leading = consumeTrivia(params);
+  if (leading === null) return null;
+  params = leading;
   const quoted = consumeString(params);
   const url = quoted ? null : consumeFunction(params, "url");
   const source = quoted?.raw ?? url?.raw;
@@ -78,25 +90,28 @@ function importSpec(params: string, base: string): ImportSpec | null {
   const decoded = decodeCssUrl(source, Boolean(quoted) || /^['"]/.test(source));
   const relative = decoded && packagePath(base, decoded.replace(/^['"]|['"]$/g, ""));
   if (!relative) return null;
-  let rest = (quoted?.rest ?? url?.rest ?? "").trim();
+  let rest = consumeTrivia(quoted?.rest ?? url?.rest ?? "");
+  if (rest === null) return null;
   let layer: string | null | undefined;
-  if (/^layer(?:\s|\(|$)/i.test(rest)) {
+  if (/^layer(?:\s|\/\*|\(|$)/i.test(rest)) {
     const named = consumeFunction(rest, "layer");
     if (named) {
       if (!named.raw) return null;
       layer = named.raw;
-      rest = named.rest;
+      rest = consumeTrivia(named.rest);
     } else {
       layer = null;
-      rest = rest.slice(5).trim();
+      rest = consumeTrivia(rest.slice(5));
     }
+    if (rest === null) return null;
   }
   let supports: string | undefined;
   if (/^supports\s*\(/i.test(rest)) {
     const condition = consumeFunction(rest, "supports");
     if (!condition || !condition.raw) return null;
     supports = condition.raw;
-    rest = condition.rest;
+    rest = consumeTrivia(condition.rest);
+    if (rest === null) return null;
   }
   return { relative, layer, supports, media: rest || undefined };
 }
