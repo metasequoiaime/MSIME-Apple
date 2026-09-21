@@ -1,5 +1,7 @@
 # HarmonyOS 输入宿主预览
 
+迁移对照见 [docs/harmony-parity.md](../../docs/harmony-parity.md)：用什么方法比过 MSIME-Apple、发现了什么、哪些是按平台特性裁剪而不是欠账，以及真机验收时该优先核对的几项。
+
 OpenHarmony 适配保留 ArkTS/ArkUI 应用入口与 NAPI 原生边界。共享输入算法、组合状态、配置校验和资源准备继续由 Rust Host API 与 C++ Engine 提供；`platforms/harmony/native/client_napi.cpp` 只负责 NAPI 注册和 C ABI 转发，不复制候选分页或输入状态机。
 
 Harmony 设置页暴露共享的模糊拼音规则、触摸输入方案启用列表、自定义触摸键盘皮肤设计和候选英文释义开关。这四项此前都只有键盘一侧在消费：`PreferencesStore` 里有值，键盘准备 Engine 会话时会读，但设置页从未开启对应的客户端开关，用户没有任何途径改动它们。它们各自只写共享偏好，不需要平台能力。
