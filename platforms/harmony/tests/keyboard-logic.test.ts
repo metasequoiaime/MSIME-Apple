@@ -2219,6 +2219,18 @@ group("a candidate with a gloss offers the gloss as something to type", () => {
     "while the announcement keeps the whole thing, which is read aloud rather than laid out",
   );
 
+  const touch = CandidateManagementAction.touchActions("hello", true);
+  check(touch.length === 1, "a touch long press offers one action, not desktop management");
+  check(touch[0].title === "hello", "the touch action is the bare gloss, as the source draws it");
+  check(
+    CandidateManagementAction.touchActions("hello", false).length === 0,
+    "an Engine annotation is not offered as translated text",
+  );
+  check(
+    CandidateManagementAction.touchActions("", true).length === 0,
+    "a candidate without a gloss has no touch long-press menu",
+  );
+
   const distinct = CandidateManagementAction.actionsForFixedPosition(0).map(
     (action: ManagementAction) => action.menuItemId,
   );

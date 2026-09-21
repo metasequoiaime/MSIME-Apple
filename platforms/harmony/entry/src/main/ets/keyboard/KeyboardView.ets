@@ -247,6 +247,8 @@ struct KeyboardView {
   /** The Japanese digit layer's bracket list, which shares the strip the other long presses use. */
   @State brackets: boolean = false;
   @State managing: number = -1;
+  /** Touch offers only a translation; mouse right-click keeps desktop management actions. */
+  @State touchCandidateMenu: boolean = false;
   @State feedback: FeedbackSettings = KeyboardFeedback.DEFAULTS;
   @State traditional: boolean = false;
   @State voiceSkin: KeyboardSkin = KeyboardSkin.from('forest', false);
@@ -1603,17 +1605,19 @@ struct KeyboardView {
       .borderWidth(this.settings.candidateBorderColor === null ? 0 : 1)
       .borderColor(this.candidateBorderColor()).onClick(() => KeyboardSession.shared.choose(index))
       .onHover((isHover: boolean): void => { this.hoveredCandidate = isHover ? index : -1; })
-      .gesture(LongPressGesture().onAction(() => { this.punctuation = false; this.brackets = false; this.managing = index; }))
+      .gesture(LongPressGesture().onAction(() => this.openTouchCandidateMenu(index)))
       // The source opens this menu with a right click on the candidate window; it has no touch
       // screen to long-press on. A 2in1 has both pointers, so it gets both gestures rather than
       // being told to hold the left button down on a candidate and wait.
       .onMouse((event: MouseEvent): void => {
-        if (!CandidateContextMenuPolicy.opens(event.button as number as PointerButton,
+        if (!KeyboardFormFactor.isDesktop() || !CandidateContextMenuPolicy.opens(
+          event.button as number as PointerButton,
           event.action as number as PointerAction)) {
           return;
         }
         event.stopPropagation();
         this.punctuation = false;
+        this.touchCandidateMenu = false;
         this.managing = index;
       })
   }
@@ -2267,6 +2271,7 @@ struct KeyboardView {
     }
     this.pendingRemoval = -1;
     this.managing = -1;
+    this.touchCandidateMenu = false;
     switch (action.id) {
       case 'INSERT_GLOSS': {
         // The strip can be rebuilt while the menu is open, and then this index is somebody else's
@@ -2282,7 +2287,7 @@ struct KeyboardView {
         }
         const current: ManagementAction | null =
           CandidateManagementAction.glossAction(candidate.annotation);
-        if (current === null || current.title !== action.title) {
+        if (current === null || current.announcement !== action.announcement) {
           return;
         }
         // The gloss first and the composition after, which is the order macOS uses: cancelling
@@ -2311,6 +2316,23 @@ struct KeyboardView {
     }
     this.diagnostic = action.announcement;
     this.clearDiagnosticLater();
+  }
+
+  private openTouchCandidateMenu(index: number): void {
+    if (index < 0 || index >= this.candidates.length) {
+      return;
+    }
+    this.touchCandidateMenu = false;
+    this.managing = -1;
+    const candidate: CandidateEntry = this.candidates[index];
+    if (CandidateManagementAction.touchActions(
+      candidate.annotation, candidate.annotationIsTranslation).length === 0) {
+      return;
+    }
+    this.punctuation = false;
+    this.brackets = false;
+    this.touchCandidateMenu = true;
+    this.managing = index;
   }
 
   /** All three at once: they are one decision about how the keyboard is laid out. */
@@ -3293,7 +3315,8 @@ struct KeyboardView {
     if (!row.annotationIsTranslation) {
       return [];
     }
-    const action: ManagementAction | null = CandidateManagementAction.glossAction(row.annotation);
+    const action: ManagementAction | null =
+      CandidateManagementAction.touchGlossAction(row.annotation);
     return action === null ? [] : [action];
   }
 
@@ -3323,6 +3346,10 @@ struct KeyboardView {
     const managed: CandidateEntry | null =
       this.managing >= 0 && this.managing < this.candidates.length
         ? this.candidates[this.managing] : null;
+    if (this.touchCandidateMenu) {
+      return managed === null ? [] : CandidateManagementAction.touchActions(
+        managed.annotation, managed.annotationIsTranslation);
+    }
     const source: number = managed === null ? 0 : managed.source;
     const actions: ManagementAction[] = CandidateManagementAction.actionsForFixedPosition(
       managed === null ? 0 : managed.fixedPosition,
@@ -3408,6 +3435,7 @@ struct KeyboardView {
           this.brackets = false;
           this.expandedGloss = -1;
           this.managing = -1;
+          this.touchCandidateMenu = false;
         })
     }
     .width('100%')
