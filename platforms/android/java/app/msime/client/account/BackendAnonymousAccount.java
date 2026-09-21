@@ -57,6 +57,24 @@ final class BackendAnonymousAccount {
         }
     }
 
+    /**
+     * The anonymous subject already on this device, or an empty string when there is none.
+     *
+     * <p>Read-only on purpose: the settings screen shows this, and merely looking at that screen
+     * must not be what creates the identity. {@link #accessToken} is where one is created, on the
+     * first request that actually needs it.
+     */
+    String savedSubject() {
+        try {
+            String saved = credentials.load();
+            if (saved == null) return "";
+            String subject = new JSONObject(saved).optString("subject", "");
+            return subject.matches("msime-[a-z0-9]{16}") ? subject : "";
+        } catch (Exception error) {
+            return "";
+        }
+    }
+
     private JSONObject loadOrCreateIdentity() throws Exception {
         String saved = credentials.load();
         if (saved != null) {
