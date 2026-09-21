@@ -2044,12 +2044,12 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   /** Invalidate asynchronous reply work without logging or retaining editor text. */
-  invalidateReplyContext(): void {
+  invalidateReplyContext(notifyEditorChange: boolean = true): void {
     this.replyContextGeneration++;
     this.replyResultEditorGeneration = -1;
     this.replyResultContextGeneration = -1;
     this.replyResultTexts = [];
-    if (this.onReplyContextChanged !== undefined) {
+    if (notifyEditorChange && this.onReplyContextChanged !== undefined) {
       this.onReplyContextChanged();
     }
   }

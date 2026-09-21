@@ -501,6 +501,8 @@ struct KeyboardView {
     KeyboardSession.shared.onClipboardHistoryChanged = undefined;
     KeyboardSession.shared.onVoiceInputChanged = undefined;
     KeyboardSession.shared.onEditorChanged = undefined;
+    KeyboardSession.shared.onReplyContextChanged = undefined;
+    KeyboardSession.shared.invalidateReplyContext(false);
     this.cancelBackspace();
     this.cancelHandwritingTimer();
     this.handwritingRecognition.changed();
@@ -1022,6 +1024,12 @@ struct KeyboardView {
     if (surface !== SURFACE_REPLY) {
       this.replyGeneration += 1;
       this.replyBusy = false;
+      this.replyResults = [];
+      if (this.surface === SURFACE_REPLY) {
+        // The Apple model invalidates its context when the reply surface is cleared. Do the same
+        // in the session as well as the view so a late HTTP answer cannot remain insertable.
+        KeyboardSession.shared.invalidateReplyContext(false);
+      }
     }
     if (surface !== SURFACE_POLISH) {
       // Abandons a rewrite the user has walked away from. The generation is what the reply the

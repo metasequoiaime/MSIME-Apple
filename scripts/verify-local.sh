@@ -339,6 +339,7 @@ python3 scripts/test-harmony-snapshot-inspection.py || fail "harmony snapshot in
 python3 scripts/test-harmony-personal-dictionary.py || fail "harmony personal dictionary"
 python3 scripts/test-harmony-candidate-translation.py || fail "harmony candidate translation"
 python3 scripts/test-harmony-expanded-candidates.py || fail "harmony expanded candidates"
+python3 scripts/test-harmony-reply-lifecycle.py || fail "harmony reply lifecycle"
 
 note "harmony bridge parity"
 python3 scripts/test-harmony-bridge-parity.py || fail "harmony bridge parity"
