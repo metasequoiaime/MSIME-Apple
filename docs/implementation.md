@@ -1454,3 +1454,13 @@ MSIME-Apple 的语音服务目录里有两个共享客户端一直没有的转�
 iOS 真机装机走的是产品宿主 `MSIMEClientApp`，不是 Tauri CLI：`build-app.sh … device` 固定 `CODE_SIGNING_ALLOWED=NO`，产物装不上真机，所以直接对 XcodeGen 工程加 CocoaPods workspace 调 `xcodebuild` 并允许签名，命令已写进 iOS README。本机 Xcode 已登录 team `LXCL4Z68GU`，`app.msime.ios` 与 `app.msime.ios.keyboard` 的开发描述文件都在本地且包含目标设备，README 中「本机没有登录账号、签名构建与真机验收尚未执行」的说法随之失效，已按实际状态改写。
 
 本地验证：`msime-engine-bridge`、`msime-input-runtime`、`msime-host-api` 三个 crate 共 188 个测试通过、0 失败；C++ Engine 0.27.0 重新编译通过；`ninekey_dictionary` 探针在补齐后的资源目录上通过。证据分级到第五级的签名与安装——App 与键盘扩展以开发证书签名、装上 iPhone 17（iOS 27）、启动成功；键盘扩展的启用与真实编辑器验收由使用者在设备上进行，不在本条记录的实测范围内。CI 保持禁用。
+
+### Linux 安装后的首次配置，以及组件名去掉 -preview
+
+把 Fcitx5 插件真装到一台 Arch 机器上用起来，暴露的不是代码缺陷而是产品缺口：安装完成之后没有任何产品侧的路径能把状态拼起来。词库要么在配置阶段用 `-DMSIME_ENGINE_RESOURCES` 随包装好，要么只能在仓库检出里跑 `install_resources` 示例去取——只拿到安装包的用户凑不齐词库，而没有词库一个候选都出不来；更糟的是词库锁此前只在随包提供词库时才安装，也就是最需要它的那种安装里反而没有。状态目录同样：`msime-client-prepare` 要两个绝对路径，用户得先知道该给哪两个。这些步骤此前只存在于对话和 README 的零散段落里，等于每个用户各自重做一遍。
+
+新增随装的 `msime-client-setup` 把三步收成一条命令：按词库锁逐个核对名称、大小和 SHA-256，调用已有的 `msime-client-prepare` 在 `$XDG_CONFIG_HOME/msime-client` 建立状态，再按当前运行的是 fcitx5 还是 ibus 打印下一步。默认不联网，取回词库必须显式 `--download`；校验不过即中止，不留半份词库；状态目录已存在时报错而不是覆盖。词库锁里 `dict_pinyin.dat` 没有下载地址（它来自引擎源码树），该项按同样改为无条件随装的 `engine-lock.json` 找到对应固定依赖归档，校验归档摘要后只取出这一个文件，再按词库锁校验它本身。判定规则由 `linux-setup-resolution` 覆盖，不需要词库也不联网，因此容器门禁真的会跑到它。
+
+同批把 IBus 组件与引擎名的 `-preview` 后缀去掉（`msime-client-preview` → `msime-client`，应用 id `app.msime.client.preview` → `app.msime.client`，两份组件文件随之改名），宿主内部的 `msime_preview_*` 改为 `msime_ibus_*`。安装只写入新的组件文件，不会带走改名前留下的那一份，升级需先卸载或手工删除，这一条写进了 README 的卸载章节。共享桌面数据目录仍叫 `app.msime.client.preview`——它是 macOS、Windows 与设置页共用的应用数据目录名，改它会搬走已有用户的 `preferences.json`、皮肤和打字统计，属于需要迁移方案的另一件事，本批不动。
+
+证据：`verify-local.sh --quick` 整体通过；`platforms/linux` 全部目标构建、ctest 23 项通过；安装清单预演确认新入口与两份锁就位；`msime-client-setup` 三条路径在本机实测（已有词库一次准备成功、缺词库未给 `--download` 退出码 1 并说明办法、状态目录已存在退出码 1 且不改动既有目录）。`--download` 的完整取回未在本机执行，只验证了校验与报错路径。真实 GTK/Qt 编辑器里的逐键输入仍未验收，不据此宣称 Linux 产品迁移完成。CI 保持禁用。

@@ -25,7 +25,7 @@
 | [Android](platforms/android/README.md) | `platforms/android/` | API 35 arm64 专用模拟器、Tauri/IME 合包和共享设置 | 真机、x86_64 合包、完整生命周期 |
 | [iOS](platforms/ios/README.md) | `platforms/ios/` | Swift/配置测试；模拟器 App 与真机 `.ipa` 的未签名构建，两者都内嵌键盘扩展和固定词库 | 签名、设备安装与键盘扩展启用验收 |
 | [macOS](platforms/macos/README.md) | `platforms/macos/` | IMK 预览 bundle、Rust/C++/CTest 和离屏 UI 测试 | 安装输入源、真实编辑器和权限验收 |
-| [Linux](platforms/linux/README.md) | `platforms/linux/` | arm64 容器中的 IBus daemon、Fcitx5 构建和隔离测试 | 图形桌面、安装包和 Wayland/X11 端到端 |
+| [Linux](platforms/linux/README.md) | `platforms/linux/` | arm64 容器中的 IBus daemon、Fcitx5 构建和隔离测试；Arch 图形桌面上安装后被 fcitx5 加载并出现在输入法列表 | 真实编辑器端到端、cpack 安装包和 Wayland/X11 焦点与选区 |
 | [Windows](platforms/windows/README.md) | `platforms/windows/`、`platforms/windows/tsf/` | x86/x64 交叉编译、管道/Server 边界测试 | Windows 原生运行、TSF 注册和编辑器验收 |
 | [HarmonyOS](platforms/harmony/README.md) | `platforms/harmony/` | ArkTS 逻辑测试和 OpenHarmony NDK 构建入口 | DevEco/HAP 设备运行和系统输入验收 |
 
@@ -55,7 +55,7 @@ Android 合包构建和设备测试见 [Android 宿主](platforms/android/README
 
 共享设置支持 shuangpin_profile：xiaohe（小鹤）、ziranma（自然码）、shoudao（首道）、microsoft（微软）。旧配置缺省按小鹤读取且不自动改写，未知值拒绝；设置页在非双拼方案下禁用此选择但保留已选值。方案更改沿用组词结束后替换 Engine 的规则。新宿主会写出此字段，旧版本严格解析器可能拒绝新配置，设置端和宿主应成套更新，不得通过删除未知字段强行降级。
 
-Linux 本地构建和隔离 D-Bus / IBus 测试见 [Linux 宿主](platforms/linux/README.md)。宿主已支持设置文件自动重读；图形桌面安装和真实编辑器验证仍需分别执行。
+Linux 本地构建、隔离 D-Bus / IBus 测试和安装后的首次配置见 [Linux 宿主](platforms/linux/README.md)。宿主已支持设置文件自动重读，安装后由随装的 `msime-client-setup` 备齐词库并准备运行配置；真实编辑器验证仍需单独执行。
 
 平台迁移以 MSIME-Windows 完整功能为行为基线，逐项把公共业务和界面接入共享层/Tauri，同时保留 Windows TSF DLL / Server 的进程和协议边界。Android、iOS、macOS、Linux 与 HarmonyOS 按各自系统能力适配；目录整理或跨目标编译不等于系统入口、签名、安装和设备验收完成。
 
