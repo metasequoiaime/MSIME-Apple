@@ -57,7 +57,7 @@ if wayland:
 
 
 wait(lambda: bus.is_connected(), "Qt fixture could not connect to IBus")
-wait(lambda: any(engine.get_name() == "msime-client-preview" for engine in bus.list_active_engines()),
+wait(lambda: any(engine.get_name() == "msime-client" for engine in bus.list_active_engines()),
      "Native IBus engine was not registered")
 
 
@@ -86,9 +86,9 @@ else:
     subprocess.run(["xdotool", "windowfocus", "--sync", str(int(window.winId()))], check=True)
 first.setFocus()
 pump()
-assert bus.set_global_engine("msime-client-preview")
+assert bus.set_global_engine("msime-client")
 wait(lambda: bus.get_global_engine() is not None and
-     bus.get_global_engine().get_name() == "msime-client-preview", "Qt engine activation failed")
+     bus.get_global_engine().get_name() == "msime-client", "Qt engine activation failed")
 # Let the Qt IM module finish its asynchronous input-context setup.
 end = time.monotonic() + 0.3
 while time.monotonic() < end:

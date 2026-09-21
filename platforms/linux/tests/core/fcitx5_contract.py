@@ -16,7 +16,10 @@ assert entry["InputMethod"]["Addon"] == "msime"
 assert entry["InputMethod"]["LangCode"] == "zh_CN"
 cmake = (root / "CMakeLists.txt").read_text()
 assert "MSIME_ENABLE_FCITX5" in cmake
-assert '${MSIME_ENABLE_PACKAGING}' in cmake
+# 默认值跟着环境走而不是跟着打包开关：装了 Fcitx5 开发包的机器就构建这个并列入口，
+# 打包路径仍然无条件包含它。此前默认取自 MSIME_ENABLE_PACKAGING，也就是默认关闭。
+assert "find_package(Fcitx5Core" in cmake
+assert "MSIME_ENABLE_PACKAGING OR Fcitx5Core_FOUND" in cmake
 assert cmake.index('option(MSIME_ENABLE_FCITX5') < cmake.index('include(cmake/packaging.cmake)')
 packaging = (root / "cmake/packaging.cmake").read_text()
 assert "if(MSIME_ENABLE_FCITX5)" in packaging

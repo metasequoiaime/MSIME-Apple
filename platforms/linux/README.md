@@ -1,4 +1,4 @@
-# Linux IBus 预览宿主
+# Linux 原生宿主（IBus 与 Fcitx5）
 
 ## 目录结构
 
@@ -9,17 +9,7 @@ arm64 容器已覆盖隔离 IBus daemon 与真实 Engine 链路，Fcitx5 具备�
 
 ## Fcitx5
 
-Linux also ships a native Fcitx5 addon. Configure the normal Linux build with
-`-DMSIME_ENABLE_FCITX5=ON` after installing the Fcitx5 development package; the
-addon links the same `msime-host-api` ABI used by the IBus host, and keeps one
-Host API session per Fcitx input context. It does not run an IBus daemon or use
-the Fcitx IBus compatibility frontend. Install the resulting addon and
-`msime.conf`/`inputmethod/msime.conf` into the Fcitx5 prefix, then select
-“MSIME” with `fcitx5-configtool`. Set `MSIME_FCITX5_OPTIONS` to an absolute
-runtime-options JSON path when the user configuration is outside the usual
-XDG location. Password, numeric and sensitive contexts stay unhandled, while
-preedit, the Engine-owned candidate page, page navigation and candidate IDs are
-forwarded through Fcitx5's native input panel.
+Linux 另有一个原生 Fcitx5 插件。它与 IBus 宿主并列，不是挂在后者下面的东西：在 Fcitx5 上，输入法**本身就是**被 `fcitx5` 进程加载的 addon，正如 IBus 的 engine 本身就是一个说 D-Bus 的独立进程，两者链接的是同一个 `msime-host-api` ABI。插件按每个 Fcitx 输入上下文保持一个 Host API 会话，不运行 IBus daemon，也不使用 Fcitx 的 IBus 兼容前端。普通的 Linux 构建只要机器上装了 Fcitx5 开发包就会配置它；传 `-DMSIME_ENABLE_FCITX5=OFF` 可以退出，没装开发包时配置阶段会把取得它的办法打出来。在进程内这一点有个后果值得预先考虑：Engine 和随包词库活在 `fcitx5` 进程里，Engine 一崩，所有应用同时失去输入法，而 IBus 宿主崩掉的只是它自己的进程，daemon 还在。把构建出的插件和 `msime.conf`/`inputmethod/msime.conf` 安装到 Fcitx5 前缀后，用 `fcitx5-configtool` 选择「MSIME」。用户配置不在通常的 XDG 位置时，用 `MSIME_FCITX5_OPTIONS` 指定绝对的 runtime-options JSON 路径。密码、数字和敏感上下文一律不处理，预编辑、Engine 拥有的候选页、翻页和候选身份则通过 Fcitx5 原生输入面板转发。
 
 Fcitx5 的状态栏现在按共享 `floating_toolbar` 的八个组件开关提供一个「工具栏」子菜单。Windows 画的是一个悬浮窗口，IBus 把同一组开关映射到属性子菜单（脱离输入上下文的窗口不是 IBus engine 该拥有的东西），Fcitx5 这里的对应面就是状态栏；在此之前这些开关在这个宿主上一个都不起作用，而设置页按能力位把它们全都显示着。子菜单里放的是已有的那些 action 本身而不是副本——一个行为和旁边状态栏项目略有不同的入口，等于同一个开关有了两份实现。中英文模式项恒定存在（与 Windows、IBus 一致），其余各自跟随自己的开关，默认值也与那两个宿主相同，所以屏幕键盘是唯一默认隐藏的一项。偏好热重载时立即重建，不等下一次焦点变化。
 
@@ -29,9 +19,28 @@ Fcitx5 候选操作通过原生候选 Action（新版本）和输入上下文 st
 
 候选页显示时，Home/End 将当前高亮移动到该页首项或末项；没有候选页时仍交给编辑器处理。
 
+## 安装后首次使用
+
+安装本身不产生任何用户状态：没有词库、没有运行配置，也不会替你选中输入法。把这三件事补齐的是随装的 `msime-client-setup`：
+
+```sh
+msime-client-setup              # 用已备齐的词库准备状态目录
+msime-client-setup --download   # 允许按随装的词库锁取回缺失词库（首次约 170 MB）
+```
+
+它按 `desktop-dictionary.lock.json` 逐个核对词库的名称、大小和 SHA-256，再调用 `msime-client-prepare` 在 `$XDG_CONFIG_HOME/msime-client`（默认 `~/.config/msime-client`）建立状态并发布 `runtime-options.json`，最后按当前跑着的是 fcitx5 还是 ibus 打印下一步。词库目录按「随包安装的 `${CMAKE_INSTALL_DATADIR}/msime-client/resources` → `$XDG_DATA_HOME/msime-client/resources`」的顺序查找，`--resources` 显式指定优先；状态目录必须尚不存在，已存在时报错而不是覆盖。校验不过就中止，不会留下半份词库。
+
+`--download` 之外不发起任何网络请求。词库锁里 `dict_pinyin.dat` 没有下载地址——它来自引擎源码树——所以该项按同样随装的 `engine-lock.json` 找到对应的固定依赖归档，校验归档摘要后只取出这一个文件，再按词库锁校验它本身。两份锁都无条件随装：此前词库锁只在配置阶段传了 `MSIME_ENGINE_RESOURCES` 时才安装，也就是最需要它的那种安装里反而没有，只拿到安装包的用户没有任何办法把词库凑齐。
+
+准备好状态后选中输入法：Fcitx5 用 `fcitx5-configtool` 把「MSIME」加入当前输入法组，IBus 执行 `ibus restart` 后在输入源里选择「MSIME Client」。
+
+**Fcitx5 的状态区入口需要桌面提供托盘宿主。** 中英文、简繁、工具栏这些动作挂在输入法状态区，由托盘（StatusNotifierItem）承载；部分发行版以 `fcitx5 --disable notificationitem` 启动，那些入口就不会出现。输入本身不受影响，设置也仍可从应用列表里的「水杉输入法」或 `msime-client-settings` 打开；要让它们显示，需要在桌面侧恢复托盘。这属于发行版与桌面的配置，输入法不代劳，也不因此改为创建脱离输入上下文的悬浮窗口。
+
+判定规则由 `tests/core/setup_resolution.py` 钉住，不需要词库也不联网：哪份词库算可用、锁里没有 URL 的那项归哪个归档、去哪里找锁和已有词库。
+
 ## 生成 Linux 安装包
 
-在 Linux 上配置构建时显式传入 `-DMSIME_ENABLE_PACKAGING=ON -DCMAKE_INSTALL_PREFIX=/usr`，并按原构建流程提供 Host API 库、可选桌面二进制和已固定来源的资源。启用打包时 Fcitx5 原生插件默认一并构建；若只需 IBus 开发构建，可显式传入 `-DMSIME_ENABLE_FCITX5=OFF`。打包构建不得设置 `MSIME_RUNTIME_OPTIONS_FILE`，也不得启用安装开发测试程序的 `MSIME_LINUX_VOICE`。
+在 Linux 上配置构建时显式传入 `-DMSIME_ENABLE_PACKAGING=ON -DCMAKE_INSTALL_PREFIX=/usr`，并按原构建流程提供 Host API 库、可选桌面二进制和已固定来源的资源。打包构建必定包含 Fcitx5 原生插件（不受开发机上是否装有 Fcitx5 开发包影响）；若只需 IBus 开发构建，可显式传入 `-DMSIME_ENABLE_FCITX5=OFF`。打包构建不得设置 `MSIME_RUNTIME_OPTIONS_FILE`，也不得启用安装开发测试程序的 `MSIME_LINUX_VOICE`。
 
 完成正常构建后，可运行 `cpack --config <build-dir>/CPackConfig.cmake -G TGZ` 生成按 `/usr` 布局安装的归档，或在具备 Debian 打包工具的 Linux 环境运行相同命令并使用 `-G DEB` 生成 Debian 包。归档不是可任意搬移的便携包。Debian 包声明 IBus、Python 依赖，并由 `dpkg-shlibdeps` 从 ELF 文件生成共享库依赖；包中包含许可证及本构建说明。包版本取自桌面 `tauri.conf.json`，不另建版本序列。
 
@@ -40,6 +49,8 @@ Fcitx5 候选操作通过原生候选 Action（新版本）和输入上下文 st
 ## 卸载 CMake 安装
 
 保留执行安装的构建目录，可用 `cmake --build <build-dir> --target uninstall` 删除该构建的 `install_manifest.txt` 中记录的程序、资源和桌面入口。卸载前先切换到其他输入法并关闭 MSIME 面板；已启用的用户 provider 服务应先停止。执行卸载所需权限与原安装相同。
+
+从带 `-preview` 后缀的旧安装升级时，先执行一次上面的卸载，或手工删除 `${CMAKE_INSTALL_DATADIR}/ibus/component/msime-client-preview.xml`。安装只写入当前的 `msime-client.xml`，不会带走改名前留下的那一份，两份并存会让 IBus 的输入法列表里同时出现新旧两项。Fcitx5 侧的 addon 与 inputmethod 配置文件名未变，不受影响。
 
 暂存安装使用相同的 `DESTDIR`，例如 `DESTDIR=/absolute/staging cmake --build <build-dir> --target uninstall`。若安装时用 `cmake --install` 的 `--prefix` 覆盖了配置前缀，使用 `cmake -DMSIME_UNINSTALL_PREFIX=/actual/prefix -P <build-dir>/uninstall.cmake`。程序文件必须位于该前缀内；前缀外的自定义绝对安装目录会使卸载在删除前中止，需要按原安装布局单独处理。
 
@@ -203,7 +214,7 @@ cargo run -p msime-host-api --example prepare_host --locked -- /absolute/verifie
 target/linux-ibus/msime-client-ibus /absolute/new-preview-state/runtime-options.json
 ```
 
-准备配置必须在没有会话使用该状态目录时执行。运行入口动态注册独立的 `msime-client-preview`，不安装系统组件、不修改旧 Linux 产品或自动切换用户输入法；关闭进程即结束本次注册。安装后的 component 通过 `msime-client-ibus-launcher` 启动，默认读取 `~/.config/msime-client/runtime-options.json`；也可用 `MSIME_IBUS_OPTIONS` 指向已准备好的绝对路径。launcher 按自身目录定位 Engine，支持自定义安装前缀。库与运行配置含开发路径，目前不是可分发安装包。宿主监听配置 JSON 的写入和原子替换事件；后续新焦点会话使用新配置，正在组合的会话保持原设置直到结束。
+准备配置必须在没有会话使用该状态目录时执行。运行入口动态注册独立的 `msime-client`，不安装系统组件、不修改旧 Linux 产品或自动切换用户输入法；关闭进程即结束本次注册。安装后的 component 通过 `msime-client-ibus-launcher` 启动，默认读取 `~/.config/msime-client/runtime-options.json`；也可用 `MSIME_IBUS_OPTIONS` 指向已准备好的绝对路径。launcher 按自身目录定位 Engine，支持自定义安装前缀。库与运行配置含开发路径，目前不是可分发安装包。宿主监听配置 JSON 的写入和原子替换事件；后续新焦点会话使用新配置，正在组合的会话保持原设置直到结束。
 
 安装产物提供 `msime-client-prepare`，首次准备状态无需 Cargo 或源码目录：
 

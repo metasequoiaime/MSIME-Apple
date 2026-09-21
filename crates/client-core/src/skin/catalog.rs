@@ -111,6 +111,27 @@ pub struct SkinCatalog {
     pub issues: Vec<SkinIssue>,
 }
 
+/// 内置候选皮肤，以及它们各自的显示标题。
+///
+/// 每个宿主都要渲染这四款，也都要判断某个 id 是不是内置的，于是每个宿主原先各存了一
+/// 份。这种副本不会安静地待着：Linux 的两个并列宿主曾经对同一个 `graphite` 给出不同
+/// 的名字，一个显示 Graphite、一个显示石墨，而文档记的是后者。标题和 id 在这里发布
+/// 一次，宿主只消费。
+pub const BUILTIN_SKINS: [(&str, &str); 4] = [
+    ("fluent", "Fluent"),
+    ("wechat", "微信绿"),
+    ("graphite", "石墨"),
+    ("willow_green", "杨柳青"),
+];
+
+/// 新建偏好所选的内置皮肤，与 Windows 的候选外观基线一致。
+pub const DEFAULT_SKIN: &str = "willow_green";
+
+/// 该 id 是否属于内置皮肤。外部皮肤不得占用这些 id。
+pub fn is_builtin(id: &str) -> bool {
+    BUILTIN_SKINS.iter().any(|(builtin, _)| *builtin == id)
+}
+
 fn safe_id(id: &str) -> bool {
     !id.is_empty()
         && id.len() <= 64
@@ -196,7 +217,7 @@ fn enum_array(
 }
 
 fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
-    if !safe_id(folder) || matches!(folder, "fluent" | "wechat" | "graphite" | "willow_green") {
+    if !safe_id(folder) || is_builtin(folder) {
         return Err("invalid skin id".into());
     }
     let dir = root.join(folder);
@@ -236,10 +257,7 @@ fn load(root: &Path, folder: &str) -> Result<SkinSummary, String> {
     let base = required_string(table, "base", 32)?;
     let author = optional_string(table, "author", 120)?;
     let description = optional_string(table, "description", 500)?;
-    if !matches!(
-        base.as_str(),
-        "fluent" | "wechat" | "graphite" | "willow_green"
-    ) {
+    if !is_builtin(&base) {
         return Err("unsupported base skin".into());
     }
     let supports = table

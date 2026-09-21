@@ -206,6 +206,12 @@ add_executable(linux-japanese-conversion-test tests/core/japanese_conversion.cpp
 target_compile_options(linux-japanese-conversion-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 target_include_directories(linux-japanese-conversion-test PRIVATE src)
 add_test(NAME linux-japanese-conversion COMMAND linux-japanese-conversion-test)
+# One table for the two menus over one setting, because they disagreed: 首右 had been written as
+# 搜狗, which names a different company's input method.
+add_executable(linux-helpcode-schema-names-test tests/core/helpcode_schema_names.cpp)
+target_compile_options(linux-helpcode-schema-names-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+target_include_directories(linux-helpcode-schema-names-test PRIVATE src)
+add_test(NAME linux-helpcode-schema-names COMMAND linux-helpcode-schema-names-test)
 add_executable(linux-phrase-preedit-test tests/core/phrase_preedit.cpp)
 target_compile_options(linux-phrase-preedit-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 target_include_directories(linux-phrase-preedit-test PRIVATE src)
@@ -214,6 +220,13 @@ add_executable(linux-smart-punctuation-space-test tests/core/smart_punctuation_s
 target_compile_options(linux-smart-punctuation-space-test PRIVATE -Wall -Wextra -Werror)
 target_include_directories(linux-smart-punctuation-space-test PRIVATE src)
 add_test(NAME linux-smart-punctuation-space COMMAND linux-smart-punctuation-space-test)
+add_test(NAME linux-setup-resolution
+         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/setup_resolution.py")
+add_executable(linux-candidate-skin-catalog-test tests/core/candidate_skin_catalog.cpp)
+target_compile_options(linux-candidate-skin-catalog-test PRIVATE -Wall -Wextra -Werror)
+target_include_directories(linux-candidate-skin-catalog-test PRIVATE src)
+target_link_libraries(linux-candidate-skin-catalog-test PRIVATE nlohmann_json::nlohmann_json)
+add_test(NAME linux-candidate-skin-catalog COMMAND linux-candidate-skin-catalog-test)
 add_executable(linux-typing-statistics-test tests/core/typing_statistics.cpp)
 target_compile_options(linux-typing-statistics-test PRIVATE -Wall -Wextra -Werror)
 target_include_directories(linux-typing-statistics-test PRIVATE src)
@@ -229,7 +242,7 @@ if(MSIME_LINUX_VOICE)
  target_include_directories(msime-voice-worker-test PRIVATE src)
  add_test(NAME linux-voice-worker COMMAND msime-voice-worker-test)
 endif()
-configure_file(data/msime-client-preview.xml.in ${CMAKE_CURRENT_BINARY_DIR}/msime-client-preview.xml @ONLY)
+configure_file(data/msime-client.xml.in ${CMAKE_CURRENT_BINARY_DIR}/msime-client.xml @ONLY)
 install(TARGETS msime-client-ibus msime-client-dictionary msime-client-cloud-dictionary msime-client-cloud-clipboard msime-client-online msime-client-translation msime-client-clipboard
                 msime-client-handwriting msime-client-voice msime-client-emoji msime-client-clipboard-capture msime-client-prepare
                 RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
@@ -238,6 +251,17 @@ if(MSIME_LINUX_VOICE)
 endif()
 install(PROGRAMS scripts/msime-client-ibus-launcher scripts/msime-client-online-provider scripts/msime-client-voice-provider scripts/msime-client-provider-session DESTINATION "${CMAKE_INSTALL_BINDIR}")
 install(PROGRAMS scripts/msime-client-clipboard-monitor DESTINATION "${CMAKE_INSTALL_BINDIR}")
+# 安装后的首次配置入口。词库与状态目录此前没有任何产品侧的路径：词库要么在配置阶段随包
+# 装好，要么只能在仓库检出里跑一个 Cargo 示例去取，于是只拿到安装包的用户凑不齐词库，而
+# 没有词库一个候选都出不来。两份锁无条件随装，它们是这个入口据以校验和取回的依据——词库
+# 锁此前只在 MSIME_ENGINE_RESOURCES 存在时才安装，也就是最需要它的那种安装里反而没有。
+install(PROGRAMS scripts/msime-client-setup DESTINATION "${CMAKE_INSTALL_BINDIR}")
+if(NOT MSIME_ENGINE_RESOURCES)
+  install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/desktop-dictionary.lock.json"
+          DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client")
+endif()
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../../engine-lock.json"
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client")
 set(MSIME_SYSTEMD_USER_UNIT_DIR "${CMAKE_INSTALL_DATADIR}/systemd/user" CACHE PATH "systemd user unit installation directory")
 foreach(MSIME_PROVIDER online voice clipboard)
   configure_file(data/msime-client-${MSIME_PROVIDER}.service.in
@@ -373,7 +397,7 @@ endif()
 if(MSIME_RUNTIME_OPTIONS_FILE)
  install(FILES "${MSIME_RUNTIME_OPTIONS_FILE}" DESTINATION "${CMAKE_INSTALL_SYSCONFDIR}/msime-client" RENAME runtime-options.json)
 endif()
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/msime-client-preview.xml DESTINATION "${CMAKE_INSTALL_DATADIR}/ibus/component")
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/msime-client.xml DESTINATION "${CMAKE_INSTALL_DATADIR}/ibus/component")
 install(FILES "${MSIME_HOST_LIBRARY}" DESTINATION "${CMAKE_INSTALL_LIBDIR}/msime-client")
 file(RELATIVE_PATH MSIME_HOST_LIBRARY_RELATIVE_DIR
   "${CMAKE_INSTALL_FULL_BINDIR}" "${CMAKE_INSTALL_FULL_LIBDIR}/msime-client")
@@ -424,14 +448,37 @@ add_test(NAME linux-native-compose COMMAND linux-native-compose-test
   "${CMAKE_CURRENT_SOURCE_DIR}/tests/input/compose.fixture")
 
 option(MSIME_ENABLE_PACKAGING "Enable Linux TGZ and Debian package generation" OFF)
-# A distributable Linux package must include both native desktop input-method
-# entry points by default. Developers building only the IBus host can still
-# opt out explicitly with -DMSIME_ENABLE_FCITX5=OFF.
+# IBus 与 Fcitx5 是并列的两个系统入口，不是宿主和它的插件，所以一次普通的开发构建
+# 没有理由把其中一个整个落下。这个默认值原先跟着打包开关走，于是直接配置本目录只会
+# 构建 IBus 宿主，Fcitx5 插件仅对正在做包的人编译。改为跟着环境走：装了开发包就构建
+# 它，没装就把取得它的办法打出来，而不是悄悄丢掉这个平台的一半。打包仍然强制包含它，
+# -DMSIME_ENABLE_FCITX5=OFF 仍然可以显式退出。
+find_package(Fcitx5Core 5.0.20 QUIET)
+if(MSIME_ENABLE_PACKAGING OR Fcitx5Core_FOUND)
+  set(MSIME_ENABLE_FCITX5_DEFAULT ON)
+else()
+  set(MSIME_ENABLE_FCITX5_DEFAULT OFF)
+endif()
 option(MSIME_ENABLE_FCITX5 "Build the native Fcitx5 input method addon"
-       ${MSIME_ENABLE_PACKAGING})
+       ${MSIME_ENABLE_FCITX5_DEFAULT})
+if(NOT MSIME_ENABLE_FCITX5)
+  message(STATUS "跳过：Fcitx5 插件；请安装 Fcitx5 开发包（Fcitx5Core 5.0.20+），"
+                 "或在配置时传入 -DMSIME_ENABLE_FCITX5=ON")
+endif()
 if(MSIME_ENABLE_PACKAGING)
   include(cmake/packaging.cmake)
 endif()
 if(MSIME_ENABLE_FCITX5)
   add_subdirectory(fcitx5)
 endif()
+
+# assert() 是这些测试唯一的断言手段，而 Release 配置定义的 NDEBUG 会把它们整个消掉：
+# 测试于是一个条件都不检查，还照样报告通过，只在 assert 里出现的局部变量同时变成未使
+# 用变量，-Werror 再把构建打断。此前只有两个目标单独带了 -UNDEBUG，其余三十来个没有。
+# 断言对构建类型的依赖不该逐个目标去记，统一加在这里。
+get_property(msime_linux_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+foreach(msime_linux_target IN LISTS msime_linux_targets)
+  if(msime_linux_target MATCHES "-test$")
+    target_compile_options(${msime_linux_target} PRIVATE -UNDEBUG)
+  endif()
+endforeach()

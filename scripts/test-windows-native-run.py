@@ -20,6 +20,7 @@ these are the same assertions the Windows build would make.
 
 from __future__ import annotations
 
+import functools
 import os
 import pathlib
 import shutil
@@ -162,6 +163,34 @@ def include_flags() -> list[str]:
     return flags
 
 
+def accepts_declspec(driver: str) -> bool:
+    """这个 C++ 驱动认不认 -fdeclspec。"""
+    if shutil.which(driver) is None:
+        return False
+    probe = subprocess.run(
+        [driver, "-std=c++20", "-w", "-fdeclspec", "-fsyntax-only", "-x", "c++", "-"],
+        input="int main() { return 0; }\n",
+        capture_output=True,
+        text=True,
+    )
+    return probe.returncode == 0
+
+
+@functools.lru_cache(maxsize=1)
+def compiler() -> str | None:
+    """用来编译这些源文件的宿主 C++ 驱动，没有合适的返回 None。
+
+    -fdeclspec 是 clang 的选项。这个 runner 写在 macOS 上，那里的 `c++` 就是 clang，
+    但多数 Linux 发行版上它是 GCC，而 GCC 直接拒绝这个选项——于是每个源文件都停在第一
+    行，整套测试被报成「全坏了」，正是这个 runner 存在的意义的反面。`c++` 是谁不该靠
+    猜：探一次这个选项，默认驱动不认就改用 clang++。
+    """
+    for driver in (os.environ.get("CXX"), "c++", "clang++"):
+        if driver and accepts_declspec(driver):
+            return driver
+    return None
+
+
 def build(
     source: pathlib.Path, flags: list[str], workspace: pathlib.Path
 ) -> tuple[pathlib.Path | None, str]:
@@ -176,7 +205,7 @@ def build(
         # -fdeclspec: these sources are written for MSVC, and a `__declspec(dllexport)` on a
         # function is not something to work around - clang accepts it behind this flag, and
         # without it a source that is otherwise perfectly portable stops at its first line.
-        ["c++", "-std=c++20", "-w", "-fdeclspec", *flags, "-o", str(binary), str(source), *companions],
+        [compiler(), "-std=c++20", "-w", "-fdeclspec", *flags, "-o", str(binary), str(source), *companions],
         capture_output=True,
         text=True,
     )
@@ -233,8 +262,12 @@ def execute(source: pathlib.Path, binary: pathlib.Path) -> tuple[str, str]:
 
 
 def main() -> int:
-    if shutil.which("c++") is None:
-        print("skipped: no host C++ compiler")
+    if compiler() is None:
+        # 有编译器但它不认 -fdeclspec，与根本没有编译器是两回事，说清楚是哪一种，并把
+        # 取得它的办法打出来——「跳过」不该让人以为这台机器已经覆盖到了。
+        print("skipped: no host C++ compiler that accepts -fdeclspec"
+              if shutil.which("c++") else "skipped: no host C++ compiler")
+        print("  install clang to enable this gate here")
         return 0
     if not TESTS.exists():
         print("skipped: the Windows tests are not present")

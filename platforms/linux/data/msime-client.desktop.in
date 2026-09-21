@@ -1,8 +1,11 @@
 [Desktop Entry]
 Type=Application
-Name=MSIME Client Preview
+Name=MSIME Client
+Name[zh_CN]=水杉输入法
 GenericName=Chinese Input Method Settings
+GenericName[zh_CN]=中文输入法设置
 Comment=Configure the MSIME Linux desktop host
+Comment[zh_CN]=配置水杉输入法的 Linux 桌面宿主
 Exec=@CMAKE_INSTALL_FULL_BINDIR@/msime-client-settings
 TryExec=@CMAKE_INSTALL_FULL_BINDIR@/msime-client-settings
 Icon=msime-client

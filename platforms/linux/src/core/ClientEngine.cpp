@@ -3,10 +3,12 @@
 #include "../clipboard/ClipboardText.h"
 #include "../system/ChineseTextConversion.h"
 #include "HelpcodeDefaults.h"
+#include "HelpcodeSchemaNames.h"
 #include "NavigationBindings.h"
 #include "NativeCompose.h"
 #include "PhrasePreedit.h"
 #include "JapaneseConversion.h"
+#include "CandidateSkinCatalog.h"
 #include "SmartPunctuationSpace.h"
 #include "WordCharacterBinding.h"
 #include "../voice/VoiceAction.h"
@@ -44,9 +46,13 @@
 #include <vector>
 
 using Json = nlohmann::json;
-struct MsimePreviewEngine;
+struct MsimeIbusEngine;
 namespace {
-constexpr const char *kDefaultCandidateSkin = "willow_green";
+// 内置皮肤目录、它们的标题和默认皮肤都由共享层发布，这个宿主不存副本——IBus 与
+// Fcitx5 各存一份的那段时间里，同一个 graphite 在两边的名字就不一样。
+const std::vector<msime::linux_host::CandidateSkin> &builtin_skins();
+std::string default_candidate_skin();
+bool listed_skin(const std::string &id);
 Json configured;
 uint64_t configuration_generation = 0;
 std::atomic<uint64_t> next_client_token{1};
@@ -61,9 +67,8 @@ bool system_dark = false;
 Json skin_display_preferences(Json preferences) {
   if (preferences.value("candidate_theme", "follow") == "follow")
     preferences["candidate_theme"] = system_dark ? "dark" : "light";
-  const auto selected = preferences.value("candidate_skin", kDefaultCandidateSkin);
-  if (selected == "fluent" || selected == "wechat" || selected == "graphite" ||
-      selected == "willow_green")
+  const auto selected = preferences.value("candidate_skin", default_candidate_skin());
+  if (msime::linux_host::candidate_skin_title(builtin_skins(), selected) != "外部：" + selected)
     return preferences;
   const auto catalog = configured.find("candidate_skin_catalog");
   if (catalog == configured.end() || !catalog->is_object())
@@ -149,6 +154,32 @@ Json response(char *raw) {
   if (!document.at("ok").get<bool>())
     throw std::runtime_error("Host operation failed");
   return document.at("value");
+}
+const Json &builtin_skin_document() {
+  static const Json document = [] {
+    try {
+      return response(msime_client_builtin_skins());
+    } catch (...) {
+      return Json::object();
+    }
+  }();
+  return document;
+}
+const std::vector<msime::linux_host::CandidateSkin> &builtin_skins() {
+  static const auto skins = msime::linux_host::parse_builtin_skins(builtin_skin_document());
+  return skins;
+}
+std::string default_candidate_skin() {
+  static const auto value = msime::linux_host::default_skin(builtin_skin_document());
+  return value;
+}
+// 内置或当前运行配置列出的皮肤。两处「这个 id 还可用吗」原先各自把内置表和配置目录
+// 再展开一遍，现在共用同一份合成列表。
+bool listed_skin(const std::string &id) {
+  for (const auto &skin : msime::linux_host::candidate_skin_list(
+           builtin_skins(), msime::linux_host::parse_configured_skins(configured), std::string{}))
+    if (skin.id == id) return true;
+  return false;
 }
 std::optional<guint> candidate_text_color(const Json &preferences);
 std::optional<guint> candidate_number_color(const Json &preferences);
@@ -1403,7 +1434,7 @@ std::optional<guint> candidate_text_color(const Json &preferences) {
   if (const auto custom =
           palette_color(preferences.value("candidate_text_color", Json(nullptr))))
     return custom;
-  const auto skin = preferences.value("candidate_skin", kDefaultCandidateSkin);
+  const auto skin = preferences.value("candidate_skin", default_candidate_skin());
   const auto theme = preferences.value("candidate_theme", "follow");
   if (msime::linux_host::candidate_builtin_skin(skin))
     return msime::linux_host::candidate_builtin_palette(skin, theme == "dark").text;
@@ -1413,7 +1444,7 @@ std::optional<guint> candidate_number_color(const Json &preferences) {
   if (const auto custom =
           palette_color(preferences.value("candidate_number_color", Json(nullptr))))
     return custom;
-  const auto skin = preferences.value("candidate_skin", kDefaultCandidateSkin);
+  const auto skin = preferences.value("candidate_skin", default_candidate_skin());
   const auto theme = preferences.value("candidate_theme", "follow");
   if (msime::linux_host::candidate_builtin_skin(skin))
     return msime::linux_host::candidate_builtin_palette(skin, theme == "dark").number;
@@ -1423,7 +1454,7 @@ std::optional<guint> candidate_accent_color(const Json &preferences) {
   if (const auto custom =
           palette_color(preferences.value("candidate_accent_color", Json(nullptr))))
     return custom;
-  const auto skin = preferences.value("candidate_skin", kDefaultCandidateSkin);
+  const auto skin = preferences.value("candidate_skin", default_candidate_skin());
   const auto theme = preferences.value("candidate_theme", "follow");
   if (msime::linux_host::candidate_builtin_skin(skin))
     return msime::linux_host::candidate_builtin_accent(skin, theme == "dark");
@@ -1434,7 +1465,7 @@ std::optional<guint> candidate_background_color(const Json &preferences) {
     return custom;
   if (const auto custom = palette_color(preferences.value("candidate_surface_color", Json(nullptr))))
     return custom;
-  const auto skin = preferences.value("candidate_skin", kDefaultCandidateSkin);
+  const auto skin = preferences.value("candidate_skin", default_candidate_skin());
   const auto theme = preferences.value("candidate_theme", "follow");
   const bool dark = theme == "dark";
   if (msime::linux_host::candidate_builtin_skin(skin))
@@ -1447,7 +1478,7 @@ std::optional<guint> candidate_selected_color(const Json &preferences) {
   if (const auto custom =
           palette_color(preferences.value("candidate_selected_color", Json(nullptr))))
     return custom;
-  const auto skin = preferences.value("candidate_skin", kDefaultCandidateSkin);
+  const auto skin = preferences.value("candidate_skin", default_candidate_skin());
   const auto theme = preferences.value("candidate_theme", "follow");
   if (msime::linux_host::candidate_builtin_skin(skin))
     return msime::linux_host::candidate_builtin_palette(skin, theme == "dark").selected;
@@ -1457,7 +1488,7 @@ std::optional<guint> candidate_selected_text_color(const Json &preferences) {
   if (const auto custom =
           palette_color(preferences.value("candidate_text_color", Json(nullptr))))
     return custom;
-  const auto skin = preferences.value("candidate_skin", kDefaultCandidateSkin);
+  const auto skin = preferences.value("candidate_skin", default_candidate_skin());
   const auto theme = preferences.value("candidate_theme", "follow");
   if (msime::linux_host::candidate_builtin_skin(skin)) {
     const auto palette =
@@ -1471,7 +1502,7 @@ std::optional<guint> candidate_selected_number_color(const Json &preferences) {
   if (const auto custom =
           palette_color(preferences.value("candidate_number_color", Json(nullptr))))
     return custom;
-  const auto skin = preferences.value("candidate_skin", kDefaultCandidateSkin);
+  const auto skin = preferences.value("candidate_skin", default_candidate_skin());
   const auto theme = preferences.value("candidate_theme", "follow");
   if (msime::linux_host::candidate_builtin_skin(skin)) {
     const auto palette =
@@ -2212,21 +2243,21 @@ void online_complete(GObject *source, GAsyncResult *result, gpointer) {
 }
 } // namespace
 
-struct MsimePreviewEngine {
+struct MsimeIbusEngine {
   IBusEngine parent;
   State *state;
 };
-struct MsimePreviewEngineClass {
+struct MsimeIbusEngineClass {
   IBusEngineClass parent;
 };
-G_DEFINE_TYPE(MsimePreviewEngine, msime_preview_engine, IBUS_TYPE_ENGINE)
+G_DEFINE_TYPE(MsimeIbusEngine, msime_ibus_engine, IBUS_TYPE_ENGINE)
 
 namespace {
 State &state(IBusEngine *engine) {
-  return *reinterpret_cast<MsimePreviewEngine *>(engine)->state;
+  return *reinterpret_cast<MsimeIbusEngine *>(engine)->state;
 }
 void clipboard_complete(GObject *source, GAsyncResult *result, gpointer) {
-  auto self = reinterpret_cast<MsimePreviewEngine *>(source);
+  auto self = reinterpret_cast<MsimeIbusEngine *>(source);
   if (!self->state)
     return;
   auto &s = *self->state;
@@ -2410,8 +2441,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
   auto &s = state(engine);
   if (s.skin_override) {
     const auto selected = *s.skin_override;
-    bool available = selected == "fluent" || selected == "wechat" ||
-                     selected == "graphite" || selected == "willow_green";
+    bool available = listed_skin(selected);
     if (!available) {
       const auto catalog = configured.find("candidate_skin_catalog");
       if (catalog != configured.end() && catalog->is_object()) {
@@ -2464,7 +2494,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
   const auto theme = s.theme_override.value_or(
       configured.at("preferences").value("candidate_theme", "follow"));
   const auto skin = s.skin_override.value_or(
-      configured.at("preferences").value("candidate_skin", kDefaultCandidateSkin));
+      configured.at("preferences").value("candidate_skin", default_candidate_skin()));
   auto property = ibus_property_new(
       "InputMode", PROP_TYPE_TOGGLE,
       ibus_text_new_from_static_string("输入法模式"), "",
@@ -2637,12 +2667,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
       configured.at("preferences").value(active_scheme + "_helpcode", Json::object())
           .value("schema", std::string(msime::linux_host::default_helpcode_schema(
                                active_scheme))));
-  for (const auto &[value, label] : {std::pair{"lantian", "蓝天"},
-                                     std::pair{"ziranma", "自然码"},
-                                     std::pair{"shouyou2_0", "搜狗 2.0"},
-                                     std::pair{"shouyouplus", "搜狗 Plus"},
-                                     std::pair{"xiaohe", "小鹤"},
-                                     std::pair{"jiajia", "加加"}}) {
+  for (const auto &[value, label] : msime::linux_host::kHelpcodeSchemaNames) {
     auto item = ibus_property_new(
         (std::string("HelpcodeSchema/") + value).c_str(), PROP_TYPE_RADIO,
         ibus_text_new_from_static_string(label), "",
@@ -2956,41 +2981,24 @@ void publish_mode(IBusEngine *engine, bool registration) {
       ibus_text_new_from_static_string("选择候选窗口皮肤"),
       s.focused && !s.blocked && !menu_save_pending, TRUE, PROP_STATE_UNCHECKED, nullptr);
   auto skin_menu = ibus_prop_list_new();
-  std::set<std::string> listed_skins{"fluent", "wechat", "graphite", "willow_green"};
-  const std::pair<const char *, const char *> skin_options[] = {
-      {"fluent", "Fluent"}, {"wechat", "微信绿"},
-      {"graphite", "Graphite"}, {"willow_green", "杨柳青"}};
-  for (const auto &[value, label] : skin_options) {
-    auto item = ibus_property_new(
-        (std::string("CandidateSkin/") + value).c_str(), PROP_TYPE_RADIO,
-        ibus_text_new_from_string(label), "",
-        ibus_text_new_from_static_string("选择候选窗口皮肤"), !menu_save_pending, TRUE,
-        skin == value ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr);
-    ibus_prop_list_append(skin_menu, item);
-  }
-  if (const auto catalog = configured.find("candidate_skin_catalog");
-      catalog != configured.end() && catalog->is_object()) {
-    if (const auto packages = catalog->find("packages");
-        packages != catalog->end() && packages->is_array()) {
-      for (const auto &package : *packages) {
-        const auto id = package.value("id", std::string{});
-        if (id.empty() || !listed_skins.insert(id).second) continue;
-        const auto title = package.value("title", id);
-        ibus_prop_list_append(skin_menu, ibus_property_new(
-            (std::string("CandidateSkin/") + id).c_str(), PROP_TYPE_RADIO,
-            ibus_text_new_from_string(title.c_str()), "",
-            ibus_text_new_from_static_string("外部候选皮肤"), !menu_save_pending, TRUE,
-            skin == id ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr));
-      }
-    }
-  }
-  if (listed_skins.count(skin) == 0) {
-    auto item = ibus_property_new(
-        (std::string("CandidateSkin/") + skin).c_str(), PROP_TYPE_RADIO,
-        ibus_text_new_from_string((std::string("外部：") + skin).c_str()), "",
-        ibus_text_new_from_static_string("当前配置的皮肤不在可用目录中"), FALSE, TRUE,
-        PROP_STATE_CHECKED, nullptr);
-    ibus_prop_list_append(skin_menu, item);
+  const auto listed_skins = msime::linux_host::candidate_skin_list(
+      builtin_skins(), msime::linux_host::parse_configured_skins(configured), skin);
+  const auto builtin_count = builtin_skins().size();
+  for (std::size_t index = 0; index < listed_skins.size(); ++index) {
+    const auto &entry = listed_skins[index];
+    // 合成列表把不在目录里的当前皮肤补在末尾。它照旧不可选中——切到一个宿主拿不到
+    // 定义的皮肤没有意义——但它带着自己的名字留在菜单里，而不是消失。
+    const bool builtin = index < builtin_count;
+    const bool external_current = index >= builtin_count && entry.id == skin &&
+                                  entry.title == "外部：" + skin;
+    ibus_prop_list_append(skin_menu, ibus_property_new(
+        (std::string("CandidateSkin/") + entry.id).c_str(), PROP_TYPE_RADIO,
+        ibus_text_new_from_string(entry.title.c_str()), "",
+        ibus_text_new_from_static_string(
+            builtin ? "选择候选窗口皮肤"
+                    : external_current ? "当前配置的皮肤不在可用目录中" : "外部候选皮肤"),
+        external_current ? FALSE : !menu_save_pending, TRUE,
+        skin == entry.id ? PROP_STATE_CHECKED : PROP_STATE_UNCHECKED, nullptr));
   }
   ibus_property_set_sub_props(skin_property, skin_menu);
   auto scheme = ibus_property_new(
@@ -4881,23 +4889,11 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
       const auto selected = std::string(name).substr(std::string("CandidateSkin/").size());
       if (value != PROP_STATE_CHECKED || menu_save_pending)
         return;
-      bool available = selected == "fluent" || selected == "wechat" ||
-                       selected == "graphite" || selected == "willow_green";
-      const auto catalog = configured.find("candidate_skin_catalog");
-      if (!available && catalog != configured.end() && catalog->is_object()) {
-        const auto packages = catalog->find("packages");
-        if (packages != catalog->end() && packages->is_array()) {
-          for (const auto &package : *packages) {
-            if (package.is_object() && package.value("id", std::string{}) == selected) {
-              available = true;
-              break;
-            }
-          }
-        }
-      }
-      if (!available) return;
+      // 菜单只列经过校验的目录项，这里原先却接受任何带 id 的 package，两边对「可用」
+      // 的判断不是同一条。共用合成列表后它们必然一致。
+      if (!listed_skin(selected)) return;
       if (s.skin_override.value_or(
-              configured.at("preferences").value("candidate_skin", kDefaultCandidateSkin)) == selected)
+              configured.at("preferences").value("candidate_skin", default_candidate_skin())) == selected)
         return;
       const auto directory = configured.value("preferences_directory", std::string{});
       if (!directory.empty() && directory.front() == '/') {
@@ -6104,8 +6100,12 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         ibus_engine_forward_key_event(engine, IBUS_Left, 0, 0);
       return;
     }
+    // 记下的是一个 ASCII 标点字符，键值是无符号的。char 在此平台有符号，直接比较既
+    // 触发 -Werror=sign-compare（新编译器上整个 IBus 宿主因此编不出来），也会让任何
+    // 高位为 1 的字节提升成一个巨大的无符号数去和键值比。按 unsigned char 取值。
     if (s.chinese_punctuation && s.smart_punctuation_repeat &&
-        s.paired_punctuation && s.last_smart_punctuation == key &&
+        s.paired_punctuation &&
+        static_cast<guint>(static_cast<unsigned char>(s.last_smart_punctuation)) == key &&
         s.last_smart_punctuation_time != 0 &&
         g_get_monotonic_time() - s.last_smart_punctuation_time <=
             kSmartPunctuationRepeatIntervalUs &&
@@ -6614,7 +6614,7 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
       +[](GObject *source, GAsyncResult *result, gpointer) {
         menu_save_pending = false;
         ++menu_status_generation;
-        auto self = reinterpret_cast<MsimePreviewEngine *>(source);
+        auto self = reinterpret_cast<MsimeIbusEngine *>(source);
         std::unique_ptr<Json> snapshot(static_cast<Json *>(
             g_task_propagate_pointer(G_TASK(result), nullptr)));
         if (!self->state) return;
@@ -6911,7 +6911,7 @@ gboolean reload_preferences(gpointer data) {
   s.preferences_loading = true;
   auto task = g_task_new(G_OBJECT(engine), nullptr,
                          +[](GObject *source, GAsyncResult *result, gpointer) {
-                           auto self = reinterpret_cast<MsimePreviewEngine *>(source);
+                           auto self = reinterpret_cast<MsimeIbusEngine *>(source);
                            std::unique_ptr<char, decltype(&msime_client_string_free)> raw(
                                static_cast<char *>(g_task_propagate_pointer(
                                    G_TASK(result), nullptr)),
@@ -6975,16 +6975,16 @@ void register_properties(IBusEngine *engine) {
   publish_mode(engine, true);
 }
 void destroy(IBusObject *object) {
-  auto self = reinterpret_cast<MsimePreviewEngine *>(object);
+  auto self = reinterpret_cast<MsimeIbusEngine *>(object);
   if (self->state && self->state->preferences_timer)
     g_source_remove(self->state->preferences_timer);
   delete self->state;
   self->state = nullptr;
-  IBUS_OBJECT_CLASS(msime_preview_engine_parent_class)->destroy(object);
+  IBUS_OBJECT_CLASS(msime_ibus_engine_parent_class)->destroy(object);
 }
 } // namespace
 
-static void msime_preview_engine_init(MsimePreviewEngine *engine) {
+static void msime_ibus_engine_init(MsimeIbusEngine *engine) {
   engine->state = new State();
   engine->state->wave_overlay_surface =
       msime::linux_host::create_wave_overlay_surface(
@@ -7002,7 +7002,7 @@ static void msime_preview_engine_init(MsimePreviewEngine *engine) {
   engine->state->preferences_timer =
       g_timeout_add(1000, reload_preferences, engine);
 }
-static void msime_preview_engine_class_init(MsimePreviewEngineClass *klass) {
+static void msime_ibus_engine_class_init(MsimeIbusEngineClass *klass) {
   auto engine = IBUS_ENGINE_CLASS(klass);
   engine->process_key_event = process_key;
   engine->property_activate = property_activate;
@@ -7065,7 +7065,7 @@ static void msime_preview_engine_class_init(MsimePreviewEngineClass *klass) {
   engine->cursor_down = [](IBusEngine *e) { page(e, MSIME_NEXT_CANDIDATE); };
   IBUS_OBJECT_CLASS(klass)->destroy = destroy;
 }
-void msime_preview_configure(const std::string &options) {
+void msime_ibus_configure(const std::string &options) {
   if (options.size() > 16384 || msime_client_abi_version() != 2)
     throw std::runtime_error("Invalid host configuration");
   auto next = Json::parse(options);
@@ -7077,7 +7077,7 @@ void msime_preview_configure(const std::string &options) {
     ++configuration_generation;
   }
 }
-void msime_preview_set_system_dark(bool dark) {
+void msime_ibus_set_system_dark(bool dark) {
   if (system_dark != dark) {
     system_dark = dark;
     ++configuration_generation;

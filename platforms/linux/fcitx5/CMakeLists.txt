@@ -2,6 +2,12 @@ cmake_minimum_required(VERSION 3.25)
 project(MSIMEClientFcitx5 LANGUAGES CXX)
 include(GNUInstallDirs)
 include(CTest)
+# 作为上级工程的子目录构建时不继承它钉死的 C++17。Fcitx5 5.1 的公开头文件用了
+# std::span 和 ranges，语言标准应当由 Fcitx5::Core 的接口要求决定；继承下来的 17 会
+# 让这个插件在新版本 Fcitx5 上整个编译不过，而单独配置这个目录时它是好的——上级工程
+# 的全局设置本来就不该管到一个并列入口用什么标准。
+unset(CMAKE_CXX_STANDARD)
+unset(CMAKE_CXX_STANDARD_REQUIRED)
 find_package(Fcitx5Core 5.0.20 REQUIRED)
 find_package(nlohmann_json 3.11 REQUIRED)
 find_package(PkgConfig REQUIRED)

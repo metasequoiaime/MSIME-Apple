@@ -193,6 +193,16 @@ int main(int argc, char **argv) {
     changedPreferences["smart_punctuation_repeat"] = true;
     changedPreferences["learning"] = true;
     const auto preferenceDirectory = options["preferences_directory"].get<std::string>();
+    // 聚合打字统计是用户显式开启的本地功能，存储层默认关闭，record 在关闭时如实不计。
+    // 下面那条「提交计入统计」的断言此前建立在一个从未开启过的存储上，于是无论宿主做
+    // 了什么都必然为 0——它从没被执行到，因为这个测试一直挂在更前面的皮肤断言上。
+    {
+      const auto enable = Json{{"directory", preferenceDirectory},
+                               {"action", Json{{"operation", "set_enabled"},
+                                               {"enabled", true}}}}.dump();
+      response(msime_client_typing_statistics(
+          reinterpret_cast<const uint8_t *>(enable.data()), enable.size()));
+    }
     const auto currentSnapshot = response(msime_client_load_preferences(
         reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size()));
     const auto changed = Json{{"format_version", 1},
@@ -248,7 +258,15 @@ int main(int argc, char **argv) {
             "candidate theme action updates the active session");
     require(engine.candidate_skin_action_.shortText(&ic) == "候选皮肤：杨柳青",
             "candidate skin action starts at the built-in preference");
+    // 每按一次前进一格，按满一圈回到原处：内置四款加配置目录里的一款，共五格。此处
+    // 原先按 5 次却期望停在 solarized，那只有当前皮肤还不在列表里（首按落到表头）时
+    // 才成立；共享偏好基线把新建偏好种成杨柳青之后，这个期望就一直是错的，而这两个
+    // 原生测试要真实词库才注册，容器门禁不带词库，于是一直没人看见。顺序本身现在由
+    // linux-candidate-skin-catalog 覆盖，这里钉的是宿主确实走在那条共享路径上。
     for (int i = 0; i < 5; ++i) engine.candidate_skin_action_.activate(&ic);
+    require(state->preferences_.value("candidate_skin", std::string{}) == "willow_green",
+            "candidate skin action returns to the start after a full cycle");
+    engine.candidate_skin_action_.activate(&ic);
     require(state->preferences_.value("candidate_skin", std::string{}) == "solarized",
             "candidate skin action cycles into the configured catalog");
     require(engine.candidate_skin_action_.shortText(&ic) == "候选皮肤：Solarized",
@@ -530,8 +548,18 @@ int main(int argc, char **argv) {
     require(!engine.width_action_.isChecked(&ic), "status action restores halfwidth");
     require(state->preferences_.value("character_width", std::string{}) == "halfwidth",
             "status action updates the live snapshot back to halfwidth");
-    const auto finalWidth = response(msime_client_load_preferences(
-        reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size()));
+    // 与上面那次切换同样是异步保存，此处原先立即回读，于是读到的往往还是上一个值。
+    // 实测切回半角后文件在数十毫秒内更新并保持，所以缺的是等待而不是保存——两次检查
+    // 用同一个轮询，免得这条断言的成败取决于机器快慢。
+    const auto finalWidthDeadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+    Json finalWidth;
+    while (std::chrono::steady_clock::now() < finalWidthDeadline) {
+      finalWidth = response(msime_client_load_preferences(
+          reinterpret_cast<const uint8_t *>(preferenceDirectory.data()), preferenceDirectory.size()));
+      if (finalWidth.value("preferences", Json::object()).value("character_width", std::string{}) ==
+          "halfwidth") break;
+      std::this_thread::sleep_for(std::chrono::milliseconds(10));
+    }
     require(finalWidth.value("preferences", Json::object()).value("character_width", std::string{}) ==
                 "halfwidth",
             "serialized preference saves retain the latest width toggle");
@@ -860,16 +888,26 @@ int main(int argc, char **argv) {
             preferenceDirectory.size()));
         return snapshot.at("preferences").value(key, std::string("quanpin"));
       };
+      // 方案切换的持久化是异步的，立即回读拿到的往往还是上一个值。断言的是最终状态，
+      // 所以这里等它落盘，而不是赌一次读取的时机。
+      const auto savedSchemeBecomes = [&](const char *key, const char *expected) {
+        const auto deadline = std::chrono::steady_clock::now() + std::chrono::seconds(2);
+        while (std::chrono::steady_clock::now() < deadline) {
+          if (savedScheme(key) == expected) return true;
+          std::this_thread::sleep_for(std::chrono::milliseconds(10));
+        }
+        return false;
+      };
       require(state->ensure(), "session for the scheme cycle");
       while (state->view_.value("scheme", 0u) != 0) require(state->cycleScheme(), "reach quanpin");
-      require(state->cycleScheme() && savedScheme("scheme") == "shuangpin" &&
-                  savedScheme("last_chinese_scheme") == "shuangpin",
+      require(state->cycleScheme() && savedSchemeBecomes("scheme", "shuangpin") &&
+                  savedSchemeBecomes("last_chinese_scheme", "shuangpin"),
               "shuangpin recorded as the last Chinese scheme");
-      require(state->cycleScheme() && savedScheme("scheme") == "wubi" &&
-                  savedScheme("last_chinese_scheme") == "wubi",
+      require(state->cycleScheme() && savedSchemeBecomes("scheme", "wubi") &&
+                  savedSchemeBecomes("last_chinese_scheme", "wubi"),
               "wubi recorded as the last Chinese scheme");
-      require(state->cycleScheme() && savedScheme("scheme") == "japanese" &&
-                  savedScheme("last_chinese_scheme") == "wubi",
+      require(state->cycleScheme() && savedSchemeBecomes("scheme", "japanese") &&
+                  savedSchemeBecomes("last_chinese_scheme", "wubi"),
               "Japanese leaves the last Chinese scheme alone");
       state->close();
       state->clearPanel();

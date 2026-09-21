@@ -82,10 +82,25 @@ void WaveOverlayWaylandSurface::seat_capabilities(void *data, wl_seat *seat,
   const bool pointer_available = (capabilities & WL_SEAT_CAPABILITY_POINTER) != 0;
   if (pointer_available && !self->pointer_) {
     self->pointer_ = wl_seat_get_pointer(seat);
-    static const wl_pointer_listener pointer_listener = {
-        pointer_enter, pointer_leave, pointer_motion, pointer_button,
-        pointer_axis, pointer_frame, pointer_axis_source, pointer_axis_stop,
-        pointer_axis_discrete, pointer_axis_value120};
+    // 按成员逐个赋值，而不是按位置聚合初始化。wl_pointer_listener 会随协议版本增加
+    // 成员（wayland-client 1.23 起有 axis_relative_direction，1.24 起有 warp），按
+    // 位置写死的初始化列表在新头文件上触发 -Werror=missing-field-initializers，整个
+    // Linux 宿主在装有新 wayland 的机器上就构建不出来；而把新成员补进列表又会让旧头
+    // 文件编不过。先值初始化再逐个赋值对两边都成立，未知成员保持空指针。
+    static const wl_pointer_listener pointer_listener = [] {
+      wl_pointer_listener listener{};
+      listener.enter = pointer_enter;
+      listener.leave = pointer_leave;
+      listener.motion = pointer_motion;
+      listener.button = pointer_button;
+      listener.axis = pointer_axis;
+      listener.frame = pointer_frame;
+      listener.axis_source = pointer_axis_source;
+      listener.axis_stop = pointer_axis_stop;
+      listener.axis_discrete = pointer_axis_discrete;
+      listener.axis_value120 = pointer_axis_value120;
+      return listener;
+    }();
     wl_pointer_add_listener(self->pointer_, &pointer_listener, self);
   } else if (!pointer_available && self->pointer_) {
     wl_pointer_destroy(self->pointer_);
