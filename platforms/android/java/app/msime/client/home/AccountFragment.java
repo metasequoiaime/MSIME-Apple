@@ -93,6 +93,10 @@ public final class AccountFragment extends HomeTabFragment {
         divider(rows);
         addRow(rows, R.drawable.ic_tab_statistics, R.color.badge_field, "打字统计",
             "记录开关、保留期和清除都在统计页", () -> openTab(R.id.tab_statistics));
+        divider(rows);
+        addRow(rows, R.drawable.ic_feature_system, R.color.badge_field, "关于水杉",
+            "版本、电脑版下载、开源与隐私", () -> startActivity(
+                new android.content.Intent(requireContext(), AboutActivity.class)));
 
         HostTask.run(this, HostStore::directory, directory -> {
             View current = getView();
