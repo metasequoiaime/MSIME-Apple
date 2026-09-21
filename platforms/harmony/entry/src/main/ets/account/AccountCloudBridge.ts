@@ -240,6 +240,30 @@ function parseJson(body: string): Action | null {
   }
 }
 
+/**
+ * Validate the one-record change page used to guard a native snapshot apply.
+ *
+ * Harmony applies complete Engine snapshots rather than replaying cloud mutations, so it only
+ * needs to know whether anything changed. It still has to reject the same impossible cursors the
+ * fixed Apple client rejects; treating an inconsistent empty page as current could overwrite a
+ * newer dictionary with the preview the user saw earlier.
+ */
+export function dictionaryChangePageChanged(body: string, after: number): boolean | null {
+  if (!Number.isSafeInteger(after) || after < 0 || utf8Length(body) > 256 * 1024) return null;
+  const page = parseJson(body);
+  if (page === null || !Array.isArray(page.changes) || page.changes.length > 1) return null;
+  if (!Number.isSafeInteger(page.next) || (page.next as number) < 0) return null;
+  if (typeof page.has_more !== "boolean") return null;
+  const next = page.next as number;
+  if (page.changes.length === 0) return next === after && page.has_more === false ? false : null;
+  const change = page.changes[0];
+  if (change === null || typeof change !== "object" || Array.isArray(change)) return null;
+  const revision = (change as Action).revision;
+  if (!Number.isSafeInteger(revision) || (revision as number) <= after || revision !== next)
+    return null;
+  return true;
+}
+
 function validateUser(value: unknown): value is Session["user"] {
   if (value === null || typeof value !== "object" || Array.isArray(value)) return false;
   const user = value as Action;

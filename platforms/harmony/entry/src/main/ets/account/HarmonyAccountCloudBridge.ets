@@ -4,7 +4,10 @@ import common from '@ohos.app.ability.common';
 import picker from '@ohos.file.picker';
 import util from '@ohos.util';
 import client from 'libmsimeclient.so';
-import { AccountCloudBridge, AccountSessionStore, AccountTransport, AccountTransportResponse } from './AccountCloudBridge';
+import {
+  AccountCloudBridge, AccountSessionStore, AccountTransport, AccountTransportResponse,
+  dictionaryChangePageChanged
+} from './AccountCloudBridge';
 import { KeyboardSession } from '../keyboard/KeyboardSession';
 import { utf8Length } from '../keyboard/Utf8';
 import { KeyboardFeedbackBridge } from '../keyboard/KeyboardFeedbackBridge';
@@ -217,10 +220,6 @@ interface SnapshotInspectReply {
   ok: boolean;
   value?: SnapshotMetadata;
   error?: string;
-}
-
-interface SnapshotChanges {
-  changes?: Object[];
 }
 
 /** Account and cloud clipboard state stays in the host; WebView receives only bounded DTOs. */
@@ -734,9 +733,10 @@ export class HarmonyAccountCloudBridge {
       if (changes.status < 200 || changes.status >= 300 || changes.body.length === 0) {
         return this.failure('snapshot_unavailable');
       }
-      const page: SnapshotChanges = JSON.parse(changes.body) as SnapshotChanges;
-      if (!Array.isArray(page.changes)) return this.failure('snapshot_unavailable');
-      if (page.changes.length > 0 || token !== this.snapshotToken
+      const changed: boolean | null = dictionaryChangePageChanged(
+        changes.body, this.snapshotMetadata.cloudRevision);
+      if (changed === null) return this.failure('snapshot_unavailable');
+      if (changed || token !== this.snapshotToken
         || this.snapshotMetadata === undefined || this.snapshotFile.length === 0
         || this.bridge.currentUserId() !== this.snapshotAccountId) {
         this.clearSnapshotPreview();

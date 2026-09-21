@@ -204,6 +204,7 @@ import {
   AccountSessionStore,
   AccountTransport,
   AccountTransportResponse,
+  dictionaryChangePageChanged,
 } from "../entry/src/main/ets/account/AccountCloudBridge";
 import {
   AiSkinCancelled,
@@ -5538,6 +5539,50 @@ group("cloud dictionary exports are bounded before a native host saves them", ()
       });
     });
   });
+});
+
+group("snapshot conflict pages cannot lie about their cursor", () => {
+  const changed = JSON.stringify({
+    changes: [
+      {
+        revision: 2,
+        ranking: [
+          {
+            id: "",
+            kind: "pinyin",
+            code: "ni",
+            word: "你",
+            weight: 8,
+            revision: 2,
+            user_inserted: false,
+          },
+        ],
+        selection: { context: "pinyin", code: "ni", word: "你", count: 0 },
+        position: { context: "pinyin", code: "ni", word: "你", position: 0 },
+        reset: true,
+      },
+    ],
+    next: 2,
+    has_more: true,
+  });
+  check(
+    dictionaryChangePageChanged(changed, 0) === true,
+    "any well-formed change conflicts with a prepared snapshot",
+  );
+  check(
+    dictionaryChangePageChanged('{"changes":[],"next":4,"has_more":false}', 4) === false,
+    "an empty stationary final page keeps the snapshot current",
+  );
+  for (const invalid of [
+    '{"changes":[{"revision":5}],"next":5,"has_more":false}',
+    '{"changes":[],"next":7,"has_more":false}',
+    '{"changes":[],"next":7,"has_more":true}',
+  ]) {
+    check(
+      dictionaryChangePageChanged(invalid, invalid.includes("5") ? 5 : 6) === null,
+      "a non-advancing or inconsistent cursor is refused",
+    );
+  }
 });
 
 group("account access tokens rotate once and cannot outlive logout", () => {
