@@ -1940,6 +1940,29 @@ group("offers all fixed candidate slots and checks the active one", () => {
   );
 });
 
+group("the expanded panel offers the same gloss the strip does", () => {
+  // MSIME-Apple's TheExpandedPanelAnswersALongPressToo and TheExpandedPanelDrawsTheSameGlossesAsThe
+  // Strip. Here allCandidates() kept only the text, so the panel listed words while the strip
+  // beside it explained them, and its long press had nothing to read.
+  //
+  // What the panel offers is the gloss alone. The management operations index the page the strip
+  // shows, and the panel selects through selectAnyCandidate with a position in the whole list, so
+  // there is no number here that would mean anything to them — which is also why the source's
+  // panel answers with the gloss menu and nothing else.
+  const gloss = CandidateManagementAction.glossAction("hello");
+  check(gloss !== null, "the panel builds the same action the strip's menu does");
+  check(
+    gloss !== null && gloss.id === "INSERT_GLOSS",
+    "so one dispatcher and one title format serve both",
+  );
+
+  // The wrap estimate reads the text, and a row now carries more than a string. Counting code
+  // points rather than UTF-16 units is what keeps a surrogate pair one column wide.
+  const widthOf = (text: string): number => Array.from(text).length * 20 + 8;
+  check(widthOf("你好") === 48, "two CJK characters are two columns");
+  check(widthOf("\u{1F600}") === 28, "and an emoji is one, not two");
+});
+
 group("a candidate with a gloss offers the gloss as something to type", () => {
   // MSIME-Apple's TheCandidateMenuOffersToInsertTheGlossItself: macOS hands the translation over
   // with Option and a digit, a touch keyboard has no modifiers, so it goes on the long press. Until

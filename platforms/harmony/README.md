@@ -176,6 +176,18 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 所以这是按平台特性裁剪，而不是欠账：能力模型的用途正是让页面不画一个保存了却什么都不做的开关。如果将来 SDK 提供了对应 API，接法是声明 `appIcon` 并在 `module.json5` 里补上备用入口 ability——那时需要的是真机验证，不是这里的接线。
 
+## 展开候选面板里没有释义，长按也没有反应
+
+上一条把释义接到了候选条的长按菜单上。来源还有两条与之配套：`TheExpandedPanelDrawsTheSameGlossesAsTheStrip` 和 `TheExpandedPanelAnswersALongPressToo`——候选多到要展开时，那一页同样画释义、同样答应长按。
+
+这边两条都不成立，而且是同一个原因：`allCandidates()` 从原生拿到完整候选记录（`source`、`fixed_position`、`annotation`、`translation` 都在），却只保留了 `text`。于是展开面板列着一串词，旁边的候选条却给每个词写着释义；长按也无从谈起，因为没有可读的东西。现在它返回 `ExpandedCandidate`——文字加释义加「这条释义是不是译文」。
+
+**展开面板只给释义，不给词条管理。** 这不是照抄来源的取舍，是这边的下标空间决定的：管理操作走的是候选条那一页的位置，而展开面板经 `selectAnyCandidate` 用的是整份列表里的位置，两者是不同的原生入口。在这里放管理项，就是拿一份列表的编号去索引另一份。来源的展开面板同样只答应释义菜单，两边因此落在同一处。
+
+`ExpandedCandidate` 刻意比 `CandidateEntry` 窄，只有面板用得上的三个字段：把 `fixedPosition` 和 `source` 一起带过来，正是在邀请上面那种串号。
+
+顺带修掉换行估宽里的一处：原来按 `candidate.length` 算列数，那是 UTF-16 单元数，一个 emoji 会被当成两列。现在按码点数。
+
 ## 候选词的译文此前只能看，不能用
 
 候选下方那行释义在这台宿主上一直是只读的：macOS 用 Option／Control 加数字把译文交出去，触摸键盘没有修饰键可用，来源因此把它挂在候选的长按上（`TheCandidateMenuOffersToInsertTheGlossItself`）。鸿蒙这边长按候选给的是词条管理——优先显示、固定到第几位、取消固定、删除词条——没有任何一处能把看得见的译文打出去。

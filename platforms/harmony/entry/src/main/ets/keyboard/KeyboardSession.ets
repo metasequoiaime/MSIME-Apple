@@ -234,6 +234,20 @@ interface EmojiSymbolGroupsResponse {
   error: string;
 }
 
+/**
+ * One row of the expanded panel: the word and whatever is written under it.
+ *
+ * Deliberately narrower than CandidateEntry. The panel draws a text and a gloss and selects through
+ * selectAnyCandidate, which takes a position in this list; the fixed slot and the source belong to
+ * the page the management operations act on, and carrying them here would invite indexing one list
+ * with the other's number.
+ */
+export interface ExpandedCandidate {
+  readonly text: string;
+  readonly annotation: string;
+  readonly annotationIsTranslation: boolean;
+}
+
 interface CandidateSnapshot {
   generation: number;
   candidates: Candidate[];
@@ -3696,7 +3710,16 @@ export class KeyboardSession implements HardwareKeyTarget {
    * taps away. Showing the whole list at once is the arrangement the iOS keyboard settled on for the
    * same reason.
    */
-  allCandidates(): string[] {
+  /**
+   * Every candidate the composition has, not just the page the strip shows.
+   *
+   * Returns the entries rather than their text. The native record has carried the annotation and
+   * the translation all along and this threw both away, so the expanded panel could draw a list of
+   * words with no glosses under them while the strip beside it had them — and the gloss the long
+   * press offers had nothing to read. Only the fields the panel uses are filled: the management
+   * operations index the page rather than this list, so the source does not offer them here either.
+   */
+  allCandidates(): ExpandedCandidate[] {
     if (this.handle === 0) {
       return [];
     }
@@ -3710,11 +3733,17 @@ export class KeyboardSession implements HardwareKeyTarget {
       // The generation identifies the composition these belong to; selecting against a stale one
       // would act on a list the user is no longer looking at.
       this.generation = response.value.generation;
-      const texts: string[] = [];
+      const entries: ExpandedCandidate[] = [];
       for (const candidate of response.value.candidates) {
-        texts.push(candidate.text);
+        entries.push({
+          text: candidate.text,
+          annotation: CandidateGlossPolicy.annotation(candidate.annotation,
+            candidate.translation ?? null, this.candidateEnglishGloss),
+          annotationIsTranslation: CandidateGlossPolicy.annotationIsTranslation(
+            candidate.annotation, candidate.translation ?? null, this.candidateEnglishGloss)
+        });
       }
-      return texts;
+      return entries;
     } catch (error) {
       KeyboardLog.error(`candidate list unreadable: ${describeError(error)}`);
       return [];

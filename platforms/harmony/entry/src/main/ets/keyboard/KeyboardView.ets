@@ -1,5 +1,6 @@
 import {
-  KeyboardSession, KeyboardPreferences, KeyboardState, CandidateEntry, EmojiPage, EmojiRow
+  KeyboardSession, KeyboardPreferences, KeyboardState, CandidateEntry, ExpandedCandidate,
+  EmojiPage, EmojiRow
 } from './KeyboardSession';
 import { KeyboardScheme, SchemeDefinition } from './KeyboardScheme';
 import { VoiceHotkeyAction } from './input/VoiceHotkeyPolicy';
@@ -271,7 +272,9 @@ struct KeyboardView {
   @State clips: ClipboardHistoryItem[] = [];
   @State clipboardNotice: string = '';
   @State confirmingClear: boolean = false;
-  @State expanded: string[] = [];
+  @State expanded: ExpandedCandidate[] = [];
+  /** Which row of the expanded panel is showing its gloss, or -1. Its own index space. */
+  @State expandedGloss: number = -1;
   @State availableWidth: number = 0;
   @State caseMode: LetterCaseMode = LetterCaseMode.LOWERCASE;
   @State skin: KeyboardSkin = KeyboardSkin.from('forest', false);
@@ -904,6 +907,7 @@ struct KeyboardView {
     }
     if (surface !== SURFACE_EXPANDED) {
       this.expanded = [];
+      this.expandedGloss = -1;
     }
   }
 
@@ -1044,7 +1048,7 @@ struct KeyboardView {
   private expandedRows(): number[][] {
     const widths: number[] = [];
     for (const candidate of this.expanded) {
-      widths.push(candidate.length * this.settings.candidateFontSize
+      widths.push(Array.from(candidate.text).length * this.settings.candidateFontSize
         + KeyboardMetrics.CANDIDATE_PADDING_VP * 2);
     }
     const assignment: number[] = CandidateWrapPolicy.rows(this.availableWidth, 0, widths);
@@ -2896,6 +2900,41 @@ struct KeyboardView {
    * policy as the name it compares against rather than the Engine's runtime id: the two never
    * matched, so the rule that withholds dictionary actions from Japanese candidates never fired.
    */
+  /** The one action the expanded panel's long press offers, or none when the row lost its gloss. */
+  private expandedGlossActions(): ManagementAction[] {
+    if (this.expandedGloss < 0 || this.expandedGloss >= this.expanded.length) {
+      return [];
+    }
+    const row: ExpandedCandidate = this.expanded[this.expandedGloss];
+    if (!row.annotationIsTranslation) {
+      return [];
+    }
+    const action: ManagementAction | null = CandidateManagementAction.glossAction(row.annotation);
+    return action === null ? [] : [action];
+  }
+
+  /**
+   * Type the gloss the expanded panel is offering, then put the panel and the composition away.
+   *
+   * The same order the strip's menu uses and the one macOS uses: the text first, the composition
+   * after. Re-read rather than trusted, because the list can be replaced while the strip is open.
+   */
+  private insertExpandedGloss(): void {
+    const actions: ManagementAction[] = this.expandedGlossActions();
+    const row: ExpandedCandidate | null =
+      this.expandedGloss >= 0 && this.expandedGloss < this.expanded.length
+        ? this.expanded[this.expandedGloss] : null;
+    this.expandedGloss = -1;
+    if (actions.length === 0 || row === null) {
+      return;
+    }
+    KeyboardSession.shared.insert(row.annotation.trim());
+    KeyboardSession.shared.cancel();
+    this.show(SURFACE_NONE);
+    this.diagnostic = actions[0].announcement;
+    this.clearDiagnosticLater();
+  }
+
   private managementActions(): ManagementAction[] {
     const managed: CandidateEntry | null =
       this.managing >= 0 && this.managing < this.candidates.length
@@ -2928,7 +2967,16 @@ struct KeyboardView {
         .fontColor(this.skin.keyForeground)
         .opacity(0.55)
         .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP })
-      if (this.brackets) {
+      if (this.expandedGloss >= 0) {
+        // One action, drawn like the others rather than as a sentence: it is a thing to tap.
+        ForEach(this.expandedGlossActions(), (item: ManagementAction) => {
+          Text(item.title)
+            .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+            .fontColor(this.skin.accent)
+            .padding({ left: 10, right: 10 })
+            .onClick(() => this.insertExpandedGloss())
+        }, (item: ManagementAction) => `${item.id}:${item.title}`)
+      } else if (this.brackets) {
         ForEach(JapaneseNineKeyLayout.digitBrackets(), (bracket: string) => {
           Text(bracket)
             .fontSize(KeyboardMetrics.CANDIDATE_FONT_SIZE)
@@ -2974,6 +3022,7 @@ struct KeyboardView {
         .onClick(() => {
           this.punctuation = false;
           this.brackets = false;
+          this.expandedGloss = -1;
           this.managing = -1;
         })
     }
@@ -3017,10 +3066,24 @@ struct KeyboardView {
                     .fontFamily(this.candidateFontFamily())
                     .opacity(0.72)
                     .padding({ right: 4 })
-                  Text(this.expanded[index])
-                  .fontSize(this.settings.candidateFontSize)
-                  .fontColor(this.candidateTextColor())
-                  .fontFamily(this.candidateFontFamily())
+                  Column() {
+                    Text(this.expanded[index].text)
+                      .fontSize(this.settings.candidateFontSize)
+                      .fontColor(this.candidateTextColor())
+                      .fontFamily(this.candidateFontFamily())
+                    // The same line the strip draws under a candidate. It used to be dropped on the
+                    // way here, so the panel listed words while the strip beside it explained them.
+                    if (this.expanded[index].annotation.length > 0) {
+                      Text(this.expanded[index].annotation)
+                        .fontSize(Math.max(KEY_HINT_FONT_SIZE,
+                          this.settings.candidateFontSize - 8))
+                        .fontColor(this.candidateTextColor())
+                        .fontFamily(this.candidateFontFamily())
+                        .opacity(this.expanded[index].annotationIsTranslation ? 0.62 : 0.72)
+                        .maxLines(1)
+                    }
+                  }
+                  .alignItems(HorizontalAlign.Start)
                 }
                   .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
                     right: KeyboardMetrics.CANDIDATE_PADDING_VP })
@@ -3029,7 +3092,15 @@ struct KeyboardView {
                     KeyboardSession.shared.chooseAny(index);
                     this.show(SURFACE_NONE);
                   })
-              }, (index: number) => `${index}:${this.expanded[index]}`)
+                  // The source answers a long press here with the same gloss it offers on the
+                  // strip. Only the gloss: the management operations index the page rather than
+                  // this list, so there is no number here that would mean anything to them.
+                  .gesture(LongPressGesture().onAction(() => {
+                    if (this.expanded[index].annotationIsTranslation) {
+                      this.expandedGloss = index;
+                    }
+                  }))
+              }, (index: number) => `${index}:${this.expanded[index].text}`)
               Blank()
             }
             .width('100%')
@@ -3582,10 +3653,12 @@ struct KeyboardView {
   build() {
     Stack({ alignContent: Alignment.Top }) {
       this.keyboard()
-      if (this.punctuation || this.brackets || this.managing >= 0) {
+      if (this.punctuation || this.brackets || this.managing >= 0
+        || this.expandedGloss >= 0) {
         Column() {
           this.overlayStrip(this.punctuation ? '常用标点'
-            : this.brackets ? '括弧' : '候选词管理')
+            : this.brackets ? '括弧'
+              : this.expandedGloss >= 0 ? '释义' : '候选词管理')
         }
         .width('100%')
         .padding({
