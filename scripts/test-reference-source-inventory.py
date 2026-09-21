@@ -120,7 +120,7 @@ ANSWERED_BY: dict[str, str] = {
     # Voice input.
     "voice_batch_protocol": "platforms/windows/src/voice/VoiceControlMessage.cpp",
     "voice_control_dispatch": "platforms/windows/src/voice/VoiceControllerDispatch.h",
-    "voice_input_overlay_utils": "platforms/windows/src/system/WaveOverlayUtils.cpp",
+    "voice_input_overlay_utils": "platforms/windows/src/voice/WaveOverlayUtils.cpp",
     "mvi_utils": "platforms/windows/src/voice/VoiceProviders.h",
     # Sessions and the pipe. The reference's policy headers land on this repository's own
     # decomposition of the same protocol rather than one-for-one.
@@ -140,9 +140,9 @@ ANSWERED_BY: dict[str, str] = {
     "ftb_diag_log": "platforms/windows/src/ipc/DiagnosticBatch.h",
     # Utilities that kept their job but not their name.
     "ime_paths": "platforms/windows/src/ipc/ServerResources.h",
-    "ime_utils": "platforms/windows/src/system/server_main.cpp",
+    "ime_utils": "platforms/windows/src/entrypoints/server_main.cpp",
     "window_utils": "platforms/windows/src/candidate/WindowShadow.h",
-    "single_instance": "platforms/windows/src/system/server_main.cpp",
+    "single_instance": "platforms/windows/src/entrypoints/server_main.cpp",
     "chinese_converter": "platforms/windows/src/input/ChineseTextConversion.cpp",
     "base_structures": "platforms/windows/src/ipc/PipeMetadata.h",
     "defines": "platforms/windows/src/ipc/PipeMetadata.h",
