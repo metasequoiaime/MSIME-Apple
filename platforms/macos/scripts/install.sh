@@ -146,6 +146,15 @@ if [ -x "$lsregister" ]; then
     done
 fi
 
+# Refresh the record for the bundle that was just written, before asking it to register itself.
+# Replacing a bundle in place leaves LaunchServices holding the previous copy's record for that path -
+# observed as `lsappinfo` reporting a null bundle identifier for the running process, the system refusing
+# to launch the input method on demand, and the first --register-input-source afterwards returning 0
+# without the source appearing. One -f on the installed path fixes all three.
+if [ -x "$lsregister" ]; then
+  "$lsregister" -f "$destination" >/dev/null 2>&1 || true
+fi
+
 if "$destination/Contents/MacOS/$executable" --register-input-source &&
   "$root/platforms/macos/scripts/check_input_source.swift" "$identifier" "$destination"; then
   echo "select 水杉输入法 from the input menu to start typing"

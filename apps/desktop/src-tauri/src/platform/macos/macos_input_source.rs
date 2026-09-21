@@ -212,7 +212,30 @@ pub(crate) fn installed_bundle_path() -> Result<PathBuf, InstallError> {
     Ok(home_input_methods()?.join(INPUT_SOURCE_BUNDLE_NAME))
 }
 
+/// The path LaunchServices records bundles through, when it is where macOS keeps it.
+const LSREGISTER: &str = "/System/Library/Frameworks/CoreServices.framework/Frameworks/\
+LaunchServices.framework/Support/lsregister";
+
+/// Refresh the LaunchServices record for a bundle that was just replaced in place.
+///
+/// Without it the record still describes the previous copy at that path: the system then refuses to
+/// launch the input method when its source is selected, `lsappinfo` reports a null bundle identifier
+/// for the process, and the bundle's own `--register-input-source` returns success without the
+/// source appearing in the list. All three were observed on the machine this was written on, and one
+/// `-f` on the installed path clears them. Best-effort: the install itself has already succeeded, and
+/// a machine without the tool is not a reason to fail it.
+fn refresh_launch_services(bundle: &Path) {
+    if !Path::new(LSREGISTER).exists() {
+        return;
+    }
+    let _ = std::process::Command::new(LSREGISTER)
+        .arg("-f")
+        .arg(bundle)
+        .status();
+}
+
 fn register_installed_bundle(bundle: &Path) -> Result<(), InstallError> {
+    refresh_launch_services(bundle);
     let executable = bundle.join("Contents/MacOS").join(INPUT_SOURCE_EXECUTABLE);
     let status = std::process::Command::new(executable)
         .arg("--register-input-source")
