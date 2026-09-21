@@ -10,7 +10,8 @@
     "scripts/apply_engine_english_display.py",
     "scripts/apply_engine_expand_initial_candidates.py",
     "scripts/apply_engine_frequency_comparison_set.py",
-    "scripts/apply_engine_jiajia_helpcode.py"
+    "scripts/apply_engine_jiajia_helpcode.py",
+    "scripts/apply_engine_standalone_sentence_learning.py"
   ],
   "dependencies": [
     {
