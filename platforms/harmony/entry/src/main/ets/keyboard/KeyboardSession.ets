@@ -1970,6 +1970,7 @@ export class KeyboardSession implements HardwareKeyTarget {
           this.inputClient.insertTextSync(chinese);
           this.recordTypingStatistics(chinese, this.typingSource());
           this.clearSmartPunctuationRepeat();
+          this.refreshEnglishSuggestions();
           return;
         } catch (error) {
           KeyboardLog.error(`repeated punctuation replacement unavailable: ${describeError(error)}`);
@@ -2002,6 +2003,7 @@ export class KeyboardSession implements HardwareKeyTarget {
           ?? String.fromCharCode(ascii);
         this.inputClient.insertTextSync(literal);
         this.recordTypingStatistics(literal, this.typingSource());
+        this.refreshEnglishSuggestions();
         if (this.canArmSmartPunctuationRepeat(ascii, preceding)) {
           this.smartPunctuationSnapshot = SmartPunctuationRepeatPolicy.snapshot(
             ascii, literal, now, this.editorGeneration);
@@ -2025,6 +2027,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     try {
       this.inputClient.insertTextSync(completion.closing);
       this.recordTypingStatistics(completion.closing, this.typingSource());
+      this.refreshEnglishSuggestions();
       if (completion.opening === 0x3c) {
         const balanced: string = client.balancePairedPunctuationAfterAutoClose(
           this.handle, completion.opening);
@@ -3459,6 +3462,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       const output: string = this.asTraditional(widened === null ? text : widened);
       this.inputClient.insertText(output);
       this.recordTypingStatistics(output, this.typingSource());
+      this.refreshEnglishSuggestions();
     }
   }
 
