@@ -2305,10 +2305,8 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
 - (BOOL)usesNativeHTTPVoice {
     NSString *provider = [NSUserDefaults.standardUserDefaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"";
     // "local" recognises on this machine rather than over HTTP, but it is the same batch shape - record, hand the samples to one request, commit what comes back - so it travels the same path. A build without the recognizer keeps the option out of the settings surface, and falls through to the platform recognizer here if a preference file names it anyway.
-    if ([provider.lowercaseString isEqual:@"local"])
-        return !MSIMEVoiceProviderSocket() && msime::voice::local_asr_available();
-    return !MSIMEVoiceProviderSocket() &&
-        [@[@"openai", @"groq", @"siliconflow", @"cloud"] containsObject:provider.lowercaseString];
+    return MSIMEVoiceUsesNativeHTTPProvider(provider, MSIMEVoiceProviderSocket() != nil,
+                                            msime::voice::local_asr_available());
 }
 - (BOOL)usesNativeDoubaoVoice {
     NSString *provider = [NSUserDefaults.standardUserDefaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"doubao";

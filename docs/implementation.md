@@ -1323,7 +1323,9 @@ macOS 屏幕键盘在打开时捕获外部前台应用的进程 ID，并在后�
 
 MSIME-Apple 的语音服务目录里有两个共享客户端一直没有的转写服务：EveryAPI 和 Mistral·Voxtral。两者都是与既有 OpenAI/SiliconFlow/Groq 相同的 HTTPS multipart 批量转写，所以接入的不是新传输，而是各层认得这两个 id 并解析到正确的接口地址与模型：共享 C++ `default_asr_endpoint` / `default_asr_model`、Rust `ASR_PROVIDERS` 校验、iOS 语音配置解析、移动端 multipart 请求校验、凭据测试白名单、Linux provider 脚本的服务与默认值表，以及设置页的识别服务选项。默认模型和文档地址取自 Apple 的 `VoiceProviderPreset`，没有自行编造。
 
-切换服务仍沿用既有规则：豆包的 websocket 默认地址会被改写成新服务的 HTTPS 地址，用户手填的地址和模型保留，API Key 留在被切走那个服务的槽位里。只有豆包携带请求头，两个新服务的请求头必须为空。HarmonyOS 继续按既有的「当前版本不可用」标注处理非豆包服务；macOS 旧原生语音设置窗口是迁移期的独立入口，未纳入本次改动。
+切换服务仍沿用既有规则：豆包的 websocket 默认地址会被改写成新服务的 HTTPS 地址，用户手填的地址和模型保留，API Key 留在被切走那个服务的槽位里。只有豆包携带请求头，两个新服务的请求头必须为空。HarmonyOS 继续按既有的「当前版本不可用」标注处理非豆包服务；macOS 旧原生语音设置窗口是迁移期的独立入口，未纳入这批设置界面改动。
+
+后续原生宿主审计发现 macOS 的实际路由没有同步扩展：公共设置页虽然能保存 EveryAPI 与 Mistral，`HTTPVoiceRequest` 也已接受两者，但 `InputController` 的批量 HTTP provider 集合仍只有 OpenAI、Groq 与 SiliconFlow。没有外部 provider socket 时，两项会静默落入 macOS Speech 路径，所选 endpoint、model 和 token 全被忽略。现已将两者纳入原生 HTTP 路由，并由 controller 回归把全部 HTTPS provider、豆包 websocket 与系统识别三类分开断言；这次没有执行真实服务请求或真实编辑器验收。
 
 本地验证：`shared-voice-provider-routing` 以 `-Wall -Wextra -Werror` 编译并通过，覆盖两个新服务的默认地址、默认模型、非 websocket 判定、豆包地址改写和语言参数；`msime-client-core` 239 项、`msime-tauri-mobile-platform` 12 项 Rust 测试通过（含扩展后的凭据探测与 multipart 校验用例）；`cargo fmt --all --check` 与两个 crate 的 clippy `-D warnings` 通过；桌面 UI 套件 700 passed，失败项与 `scripts/known-failures.txt` 一致；新增 4 项 Vitest 覆盖默认值、地址改写、手填保留和 iOS 设置页选项；Linux provider 脚本的服务集合与默认值表一致性已断言。`apps/desktop/src-tauri` 的 iOS 语音配置用例已写入但未能执行：该 crate 的构建脚本要求先产出 macOS 预览 bundle，而 `cargo build -p msime-host-api` 在本机以 `can't find crate for zerofrom_derive` 失败——在未修改的 `origin/develop` 上同样失败，属既有环境债而非本次回归。未执行真实服务请求、iOS 真机或 Linux 图形桌面验收，CI 保持禁用。
 
