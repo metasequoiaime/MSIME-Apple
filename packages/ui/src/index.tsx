@@ -3503,6 +3503,9 @@ export function SettingsPage({
     <div
       className={settings.shell}
       data-settings-shell=""
+      // The phone hosts read as one product with the Apple app, which is where the palette below
+      // comes from. The inherited one is the Windows settings accent.
+      data-mobile={mobilePlatform ? "" : undefined}
       onPointerDownCapture={(event) => {
         pendingTitlebarDrag.current = null;
         if (!client.resizeWindow || event.button !== 0 || windowMaximized) return;
@@ -3656,15 +3659,17 @@ export function SettingsPage({
             padding clears the gesture inset. Hidden above phone width, where the sidebar serves. */}
         {mobilePlatform && (
           <nav
-            className="hidden max-phone:order-2 max-phone:grid max-phone:grid-cols-4 max-phone:gap-1.5 max-phone:border-t max-phone:border-edge max-phone:bg-chrome max-phone:px-2 max-phone:pt-2 max-phone:pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))]"
+            className="hidden max-phone:order-2 max-phone:mx-3 max-phone:mb-[calc(0.5rem+env(safe-area-inset-bottom,0px))] max-phone:grid max-phone:grid-cols-4 max-phone:gap-1 max-phone:rounded-[26px] max-phone:border max-phone:border-edge max-phone:bg-card max-phone:p-1.5 max-phone:shadow-card"
             aria-label="主要功能"
           >
             {mobilePrimaryPages.map((item) => (
               <button
                 key={item.id}
                 type="button"
-                className={`flex min-h-[48px] min-w-0 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-xl border-0 bg-transparent px-1 py-1 text-[11px] ${
-                  mobileActiveTab === item.id ? "font-semibold text-accent" : "text-muted"
+                className={`flex min-h-[46px] min-w-0 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-[20px] border-0 px-1 py-1 text-[11px] ${
+                  mobileActiveTab === item.id
+                    ? "bg-accent-soft font-semibold text-accent"
+                    : "bg-transparent text-muted"
                 }`}
                 aria-current={mobileActiveTab === item.id ? "page" : undefined}
                 onClick={() => selectPage(item.id)}
@@ -3716,7 +3721,13 @@ export function SettingsPage({
           aria-labelledby="page-title"
         >
           <div className="mx-auto mt-0.5 mb-0 w-full max-w-[900px] p-3 max-phone:px-1 max-phone:py-3">
-            <header className="mb-2 flex items-center gap-2.5 pt-0 pr-6 pb-3 pl-[0.5em]">
+            {/* On a phone the home page opens on its own headline, and the source shows no page
+                title above it. Hidden rather than dropped: it is what labels `main`. */}
+            <header
+              className={`mb-2 flex items-center gap-2.5 pt-0 pr-6 pb-3 pl-[0.5em] ${
+                mobilePlatform && page === "home" ? "max-phone:sr-only" : ""
+              }`}
+            >
               <h1 className="m-0 text-lg font-medium" id="page-title">
                 {availablePages.find((item) => item.id === page)?.title ?? "外观"}
               </h1>

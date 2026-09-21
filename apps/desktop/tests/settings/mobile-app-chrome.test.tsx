@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { SettingsPage, type Snapshot } from "@msime/ui";
 import css from "../../../../packages/ui/src/styles.css?raw";
 
@@ -83,22 +83,34 @@ test("the desktop home card keeps the full keyboard", async () => {
   expect(keys).toContain("Tab");
 });
 
-// The hero art is resolved relative to the module that asks for it, and home-page.tsx sits one
-// directory deeper than index.tsx. The same relative path in both places left a broken image on the
-// phone's first screen.
-test("the home hero image resolves to a real asset", async () => {
+// A phone opens on the headline and carries no brand mark: the source shows none there, and the app
+// is already the thing being looked at. Desktop keeps it, and there the path still has to resolve —
+// home-page.tsx sits one directory deeper than index.tsx, and the same relative path written in both
+// left a broken image on this very screen once already.
+//
+// Queried through the landmark rather than a class, because the home page's styling is Tailwind
+// utilities: a class name there is a styling detail with no reason to stay put.
+test("the home hero image is a desktop-only mark, and resolves", async () => {
   renderSettings("android");
   await screen.findByRole("button", { name: "保存设置" });
 
-  // Queried through the landmark rather than a class, because the home page's styling is Tailwind
-  // utilities: a class name there is a styling detail with no reason to stay put.
   const home = screen.getByRole("region", { name: "首页" });
-  const hero = home.querySelector("header img") as HTMLImageElement;
-  expect(hero).toBeTruthy();
-  expect(hero.src).not.toContain("/keyboard/assets/");
+  expect(home.querySelector("header img")).toBeNull();
+
+  cleanup();
+  renderSettings("windows");
+  await screen.findByRole("button", { name: "保存设置" });
+  fireEvent.click(screen.getByRole("button", { name: "首页" }));
+  const desktopHero = screen
+    .getByRole("region", { name: "首页" })
+    .querySelector("header img") as HTMLImageElement;
+  expect(desktopHero).toBeTruthy();
+  expect(desktopHero.src).not.toContain("/keyboard/assets/");
   // Either form is a resolved asset: a path to the file, or the file itself once it is small enough
   // for the bundler to inline. What this guards against is a path that resolves to nothing.
-  expect(hero.src.includes("msime.svg") || hero.src.startsWith("data:image/svg+xml")).toBe(true);
+  expect(
+    desktopHero.src.includes("msime.svg") || desktopHero.src.startsWith("data:image/svg+xml"),
+  ).toBe(true);
 });
 
 // A phone's primary navigation has to stay reachable by thumb, and it is a bottom tab bar on every
@@ -121,9 +133,10 @@ test("the phone navigation leads the content but is seated below it", async () =
   // rather than from a computed style. `max-phone` is the project's own 600px breakpoint.
   const utilities = primary.className.split(/\s+/);
   expect(utilities).toContain("max-phone:order-2");
-  expect(utilities).toContain("max-phone:border-t");
-  expect(utilities).toContain("max-phone:pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))]");
-  expect(utilities.some((name) => name.includes("border-b"))).toBe(false);
+  // A capsule floating clear of the edges, the way the source draws it, rather than a full-width
+  // strip ruled off with a top hairline. The bottom inset still clears the gesture area.
+  expect(utilities).toContain("max-phone:rounded-[26px]");
+  expect(utilities).toContain("max-phone:mb-[calc(0.5rem+env(safe-area-inset-bottom,0px))]");
 });
 
 // The breakpoint the phone layout keys on has to keep meaning what the stylesheet used to say, or
