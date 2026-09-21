@@ -76,21 +76,28 @@ NSError *Error(NSString *message)
 {
     return [NSError errorWithDomain:service code:1 userInfo:@{NSLocalizedDescriptionKey : message}];
 }
-NSDictionary *Key(NSString *kind, NSString *endpoint)
+NSDictionary *Key(NSString *kind, NSString *provider, NSString *endpoint)
 {
-    NSURL *url = [NSURL URLWithString:endpoint];
-    NSString *origin = [NSString
-        stringWithFormat:@"%@://%@:%@", (url.scheme.lowercaseString ? url.scheme.lowercaseString : @""),
-                         (url.host.lowercaseString ? url.host.lowercaseString : @""), (url.port ? url.port : @443)];
+    return @{
+        (__bridge id)kSecClass : (__bridge id)kSecClassGenericPassword,
+        (__bridge id)kSecAttrService : service,
+        (__bridge id)kSecAttrAccount : MSIMEVoiceProviderCredentialAccount(kind, provider, endpoint)
+    };
+}
+NSDictionary *LegacyKey(NSString *kind, NSString *endpoint)
+{
+    NSURLComponents *url = [NSURLComponents componentsWithString:endpoint ?: @""];
+    NSString *origin = [NSString stringWithFormat:@"%@://%@:%@", url.scheme.lowercaseString ?: @"",
+                                                   url.host.lowercaseString ?: @"", url.port ?: @443];
     return @{
         (__bridge id)kSecClass : (__bridge id)kSecClassGenericPassword,
         (__bridge id)kSecAttrService : service,
         (__bridge id)kSecAttrAccount : [kind stringByAppendingFormat:@"|%@", origin]
     };
 }
-NSString *ReadToken(NSString *kind, NSString *endpoint)
+NSString *ReadKey(NSDictionary *key)
 {
-    NSMutableDictionary *query = [Key(kind, endpoint) mutableCopy];
+    NSMutableDictionary *query = [key mutableCopy];
     query[(__bridge id)kSecReturnData] = @YES;
     CFTypeRef result = nullptr;
     OSStatus status = SecItemCopyMatching((__bridge CFDictionaryRef)query, &result);
@@ -100,9 +107,18 @@ NSString *ReadToken(NSString *kind, NSString *endpoint)
     NSString *text = [[NSString alloc] initWithData:data encoding:NSUTF8StringEncoding];
     return text ? text : @"";
 }
-BOOL WriteToken(NSString *kind, NSString *endpoint, NSString *token, NSError **error)
+NSString *ReadToken(NSString *kind, NSString *provider, NSString *endpoint, BOOL allowLegacy)
 {
-    NSDictionary *query = Key(kind, endpoint);
+    NSString *token = ReadKey(Key(kind, provider, endpoint));
+    return token.length || !allowLegacy ? token : ReadKey(LegacyKey(kind, endpoint));
+}
+void DeleteKey(NSDictionary *key)
+{
+    SecItemDelete((__bridge CFDictionaryRef)key);
+}
+BOOL WriteToken(NSString *kind, NSString *provider, NSString *endpoint, NSString *token, NSError **error)
+{
+    NSDictionary *query = Key(kind, provider, endpoint);
     if (token.length == 0)
     {
         const OSStatus status = SecItemDelete((__bridge CFDictionaryRef)query);
@@ -126,38 +142,10 @@ BOOL WriteToken(NSString *kind, NSString *endpoint, NSString *token, NSError **e
         *error = Error(@"无法保存到系统钥匙串，请解锁钥匙串后重试。");
     return NO;
 }
-// The account carries the endpoint origin, so editing an endpoint writes a new item and WriteToken
-// only ever deletes the origin it was handed — the bearer token for the previous origin stayed in
-// the login keychain indefinitely. Every save prunes whatever this service owns beyond the two
-// accounts currently in use.
-void PruneTokens(NSArray<NSDictionary *> *keptKeys)
+void DeleteToken(NSString *kind, NSString *provider, NSString *endpoint)
 {
-    NSMutableSet<NSString *> *keptAccounts = [NSMutableSet set];
-    for (NSDictionary *key in keptKeys)
-    {
-        [keptAccounts addObject:key[(__bridge id)kSecAttrAccount]];
-    }
-    NSDictionary *query = @{
-        (__bridge id)kSecClass : (__bridge id)kSecClassGenericPassword,
-        (__bridge id)kSecAttrService : service,
-        (__bridge id)kSecMatchLimit : (__bridge id)kSecMatchLimitAll,
-        (__bridge id)kSecReturnAttributes : @YES
-    };
-    CFTypeRef result = nullptr;
-    if (SecItemCopyMatching((__bridge CFDictionaryRef)query, &result) != errSecSuccess)
-        return;
-    NSArray<NSDictionary *> *items = CFBridgingRelease(result);
-    for (NSDictionary *item in items)
-    {
-        NSString *account = item[(__bridge id)kSecAttrAccount];
-        if (account.length == 0 || [keptAccounts containsObject:account])
-            continue;
-        SecItemDelete((__bridge CFDictionaryRef) @{
-            (__bridge id)kSecClass : (__bridge id)kSecClassGenericPassword,
-            (__bridge id)kSecAttrService : service,
-            (__bridge id)kSecAttrAccount : account
-        });
-    }
+    DeleteKey(Key(kind, provider, endpoint));
+    DeleteKey(LegacyKey(kind, endpoint));
 }
 BOOL IsEndpoint(NSString *value)
 {
@@ -194,7 +182,8 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
 + (instancetype)loadSettings
 {
     MetasequoiaVoiceProviderSettings *value = [self new];
-    NSDictionary *saved = [[NSUserDefaults standardUserDefaults] dictionaryForKey:@"voiceInput"];
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    NSDictionary *saved = [defaults dictionaryForKey:@"voiceInput"];
     if (!saved)
         saved = @{};
     NSString *rawProvider =
@@ -219,11 +208,28 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
             : NO;
     value.polishEndpoint = SharedSetting(saved, @"polishEndpoint", @"https://api.siliconflow.cn/v1/chat/completions");
     value.polishModel = SharedSetting(saved, @"polishModel", @"Qwen/Qwen3-8B");
-    id sharedCaptureDevice = [NSUserDefaults.standardUserDefaults objectForKey:@"MSIMEClientVoiceCaptureDevice"];
+    id sharedCaptureDevice = [defaults objectForKey:@"MSIMEClientVoiceCaptureDevice"];
     value.captureDevice = [sharedCaptureDevice isKindOfClass:NSString.class]
         ? sharedCaptureDevice : StringSetting(saved, @"captureDevice", @"");
-    value.token = ReadToken(@"asr", value.endpoint);
-    value.polishToken = ReadToken(@"polish", value.polishEndpoint);
+    value.tokenSlots = MSIMEValidVoiceTokenSlots([defaults objectForKey:@"MSIMEClientVoiceASRTokens"]) ?: @{};
+    const BOOL serviceProvider = MSIMEVoiceASRProviderUsesService(rawProvider);
+    NSString *sharedToken = serviceProvider
+        ? MSIMEVoiceTokenForProvider(defaults, @"MSIMEClientVoiceASRTokens", rawProvider,
+                                     [defaults stringForKey:@"MSIMEClientVoiceASRToken"])
+        : @"";
+    value.token = sharedToken.length ? sharedToken
+        : (serviceProvider ? ReadToken(@"asr", rawProvider, value.endpoint, YES) : @"");
+    if (serviceProvider && value.token.length) {
+        NSMutableDictionary *slots = [value.tokenSlots mutableCopy];
+        slots[rawProvider] = value.token;
+        value.tokenSlots = slots;
+    }
+    NSString *polishProvider = [defaults stringForKey:@"MSIMEClientVoicePolishProvider"] ?: @"siliconflow";
+    NSString *sharedPolishToken = MSIMEVoiceTokenForProvider(
+        defaults, @"MSIMEClientVoicePolishTokens", polishProvider,
+        [defaults stringForKey:@"MSIMEClientVoicePolishToken"]);
+    value.polishToken = sharedPolishToken.length
+        ? sharedPolishToken : ReadToken(@"polish", polishProvider, value.polishEndpoint, YES);
     return value;
 }
 - (BOOL)validate:(NSError **)error
@@ -258,11 +264,35 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
 {
     if (![self validate:error])
         return NO;
-    if (!WriteToken(@"asr", self.endpoint, self.token, error) ||
-        !WriteToken(@"polish", self.polishEndpoint, self.polishToken, error))
+    NSUserDefaults *defaults = NSUserDefaults.standardUserDefaults;
+    NSString *previousProvider = [defaults stringForKey:@"MSIMEClientVoiceASRProvider"] ?: @"";
+    NSString *previousEndpoint = [defaults stringForKey:@"MSIMEClientVoiceASREndpoint"] ?: @"";
+    NSString *polishProvider = [defaults stringForKey:@"MSIMEClientVoicePolishProvider"] ?: @"siliconflow";
+    NSString *previousPolishEndpoint = [defaults stringForKey:@"MSIMEClientVoicePolishEndpoint"] ?: @"";
+    const BOOL serviceProvider = MSIMEVoiceASRProviderUsesService(self.provider);
+    const BOOL changedProvider = previousProvider.length &&
+        ![previousProvider.lowercaseString isEqual:self.provider.lowercaseString];
+    NSString *previousToken = [self.tokenSlots[previousProvider] isKindOfClass:NSString.class]
+        ? self.tokenSlots[previousProvider] : @"";
+    const BOOL migratePrevious = changedProvider && MSIMEVoiceASRProviderUsesService(previousProvider) &&
+        previousEndpoint.length && previousToken.length;
+    if ((migratePrevious && !WriteToken(@"asr", previousProvider, previousEndpoint, previousToken, error)) ||
+        (serviceProvider && !WriteToken(@"asr", self.provider, self.endpoint, self.token, error)) ||
+        !WriteToken(@"polish", polishProvider, self.polishEndpoint, self.polishToken, error))
         return NO;
-    PruneTokens(@[ Key(@"asr", self.endpoint), Key(@"polish", self.polishEndpoint) ]);
-    [[NSUserDefaults standardUserDefaults] setObject:@{
+    if (migratePrevious) DeleteKey(LegacyKey(@"asr", previousEndpoint));
+    if (!changedProvider) DeleteKey(LegacyKey(@"asr", self.endpoint));
+    DeleteKey(LegacyKey(@"polish", self.polishEndpoint));
+    // An endpoint edit for the same provider retires that provider's old
+    // credential. Switching providers preserves the provider being left.
+    if (MSIMEVoiceProviderShouldDeletePreviousCredential(previousProvider, previousEndpoint,
+                                                         self.provider, self.endpoint))
+        DeleteToken(@"asr", previousProvider, previousEndpoint);
+    if (previousPolishEndpoint.length &&
+        ![MSIMEVoiceProviderCredentialAccount(@"polish", polishProvider, previousPolishEndpoint)
+            isEqual:MSIMEVoiceProviderCredentialAccount(@"polish", polishProvider, self.polishEndpoint)])
+        DeleteToken(@"polish", polishProvider, previousPolishEndpoint);
+    [defaults setObject:@{
         @"provider" : self.provider,
         @"endpoint" : self.endpoint,
         @"model" : self.model,
@@ -288,8 +318,16 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
     };
     NSDictionary<NSString *, NSString *> *sharedKeys = MSIMEVoiceProviderSharedKeys();
     for (NSString *field in values)
-        [[NSUserDefaults standardUserDefaults] setObject:values[field] forKey:sharedKeys[field]];
-    [[NSUserDefaults standardUserDefaults] setBool:self.polishEnabled forKey:@"MSIMEClientVoicePolish"];
+        [defaults setObject:values[field] forKey:sharedKeys[field]];
+    [defaults setObject:MSIMEVoiceProviderTokenSlotsByUpdating(
+                            self.tokenSlots ?: [defaults objectForKey:@"MSIMEClientVoiceASRTokens"], self.provider,
+                            self.token, serviceProvider)
+                 forKey:@"MSIMEClientVoiceASRTokens"];
+    [defaults setObject:MSIMEVoiceProviderTokenSlotsByUpdating(
+                            [defaults objectForKey:@"MSIMEClientVoicePolishTokens"], polishProvider,
+                            self.polishToken, YES)
+                 forKey:@"MSIMEClientVoicePolishTokens"];
+    [defaults setBool:self.polishEnabled forKey:@"MSIMEClientVoicePolish"];
     [[NSNotificationCenter defaultCenter] postNotificationName:MSIMEVoiceProviderSettingsDidChangeNotification object:self];
     return YES;
 }
@@ -305,6 +343,8 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
     NSSecureTextField *_token, *_polishToken;
     NSButton *_polish;
     NSTextField *_status;
+    NSString *_loadedProvider;
+    NSMutableDictionary<NSString *, NSString *> *_tokenDrafts;
 }
 + (instancetype)sharedController
 {
@@ -390,6 +430,10 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
     _endpoint.stringValue = value.endpoint;
     _model.stringValue = value.model;
     _token.stringValue = value.token;
+    _loadedProvider = value.provider;
+    _tokenDrafts = [value.tokenSlots mutableCopy] ?: [NSMutableDictionary dictionary];
+    if (MSIMEVoiceASRProviderUsesService(_loadedProvider))
+        _tokenDrafts[_loadedProvider] = value.token ?: @"";
     _modelPath.stringValue = value.modelPath;
     [_captureDevice removeAllItems];
     NSMenuItem *automatic = [[NSMenuItem alloc] initWithTitle:@"系统默认" action:nil keyEquivalent:@""];
@@ -428,12 +472,20 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
 - (void)providerChanged:(id)sender
 {
     (void)sender;
+    if (MSIMEVoiceASRProviderUsesService(_loadedProvider))
+        _tokenDrafts[_loadedProvider] = _token.stringValue ?: @"";
     NSArray *providerIDs = MSIMEVoiceASRProviderIDs();
     NSUInteger index = MIN((NSUInteger)_provider.indexOfSelectedItem, providerIDs.count - 1);
     NSString *provider = providerIDs[index];
-    _endpoint.stringValue = MSIMEVoiceASRProviderDefaultEndpoint(provider);
-    _model.stringValue = MSIMEVoiceASRProviderDefaultModel(provider);
-    _token.stringValue = @"";
+    _endpoint.stringValue = MSIMEVoiceProviderValueAfterSelection(
+        _endpoint.stringValue, MSIMEVoiceASRProviderDefaultEndpoint(provider), ProviderValues(@"endpoint"));
+    _model.stringValue = MSIMEVoiceProviderValueAfterSelection(
+        _model.stringValue, MSIMEVoiceASRProviderDefaultModel(provider), ProviderValues(@"model"));
+    id draft = _tokenDrafts[provider];
+    _token.stringValue = MSIMEVoiceASRProviderUsesService(provider)
+        ? ([draft isKindOfClass:NSString.class] ? draft : ReadToken(@"asr", provider, _endpoint.stringValue, NO))
+        : @"";
+    _loadedProvider = provider;
     [self updateEnabled:nil];
 }
 - (void)updateEnabled:(id)sender
@@ -479,6 +531,11 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
     value.endpoint = _endpoint.stringValue;
     value.model = _model.stringValue;
     value.token = _token.stringValue;
+    if (MSIMEVoiceASRProviderUsesService(value.provider))
+        _tokenDrafts[value.provider] = value.token ?: @"";
+    else
+        [_tokenDrafts removeObjectForKey:value.provider];
+    value.tokenSlots = [_tokenDrafts copy];
     value.modelPath = _modelPath.stringValue;
     value.polishEnabled = _polish.state == NSControlStateValueOn;
     value.polishEndpoint = _polishEndpoint.stringValue;
