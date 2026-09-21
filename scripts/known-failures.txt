@@ -252,3 +252,13 @@ wine msimeui-tests
 wine windows-voice-controller-connection
 wine windows-voice-controller-listener
 wine windows-session-smoke
+
+# fcitx5-native-ai 要求「点中的候选就是上屏的候选」，它是对的，坏的是产品：开启 AI
+# 联想后，面板上显示「合成候选 🤖」的那一项带着 {generation:14,index:1}，而运行时在
+# 同一个代次下把 index 1 解析成引擎候选「你好解」，于是点它上屏的是另一个词。实测这
+# 组身份：面板渲染时视图 index 1 是 AI 候选，选中时同一代次的视图里它已经变回引擎候
+# 选，代次却没有推进——apply_online_candidate 成功时会 advance()，正是为了让陈旧身份
+# 选不中，所以问题出在此后某次 refresh 在不推进代次的情况下换掉了页内容。根因在共享
+# 运行时的 refresh 语义而不是某个宿主，Windows 与 IBus 同样走这条路，因此不在 Linux
+# 宿主这一侧顺手改。这一行记的是已测到的缺陷，不是豁免。
+fcitx5-native-ai

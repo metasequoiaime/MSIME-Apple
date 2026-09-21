@@ -22,6 +22,7 @@
 #include "../src/candidates/CandidatePalette.h"
 #include "../src/candidates/ShuangpinProfileNames.h"
 #include "../src/candidates/CandidateTranslationPolicy.h"
+#include "../src/core/CandidateSkinCatalog.h"
 #include "../src/core/SmartPunctuationSpace.h"
 #include "../src/system/DiagnosticLog.h"
 #include "../src/core/HelpcodeDefaults.h"
@@ -151,29 +152,33 @@ Json readOptions() {
   return Json::parse(data.data(), data.data() + file.gcount());
 }
 
-using CandidateSkinCatalog = std::vector<std::pair<std::string, std::string>>;
+using CandidateSkinCatalog = std::vector<msime::linux_host::CandidateSkin>;
 
 CandidateSkinCatalog parseCandidateSkinCatalog(const Json &options) {
-  CandidateSkinCatalog result;
-  const auto catalog = options.find("candidate_skin_catalog");
-  if (catalog == options.end() || !catalog->is_object()) return result;
-  const auto packages = catalog->find("packages");
-  if (packages == catalog->end() || !packages->is_array()) return result;
-  for (const auto &package : *packages) {
-    if (!package.is_object()) continue;
-    const auto id = package.value("id", std::string{});
-    const auto title = package.value("title", id);
-    if (id.empty() || id.size() > 64 || title.empty() || title.size() > 128) continue;
-    if (!std::all_of(id.begin(), id.end(), [](unsigned char c) {
-          return std::isalnum(c) || c == '_' || c == '-' || c == '.';
-        })) continue;
-    if (id == "fluent" || id == "wechat" || id == "graphite" || id == "willow_green") continue;
-    if (std::find_if(result.begin(), result.end(), [&](const auto &item) {
-          return item.first == id;
-        }) == result.end())
-      result.emplace_back(id, title);
-  }
-  return result;
+  return msime::linux_host::parse_configured_skins(options);
+}
+
+// 内置皮肤与默认皮肤来自共享层，宿主不留副本。ABI 的答案在进程内不变，取一次即可；
+// 取不到时保持空列表，让当前皮肤按「外部」显示，而不是在这里补一份会漂的内置表。
+const Json &builtinSkinDocument() {
+  static const Json document = [] {
+    try {
+      return response(msime_client_builtin_skins());
+    } catch (...) {
+      return Json::object();
+    }
+  }();
+  return document;
+}
+
+const std::vector<msime::linux_host::CandidateSkin> &builtinSkins() {
+  static const auto skins = msime::linux_host::parse_builtin_skins(builtinSkinDocument());
+  return skins;
+}
+
+std::string defaultSkin() {
+  static const auto value = msime::linux_host::default_skin(builtinSkinDocument());
+  return value;
 }
 
 std::string onlineSocket(const Json &options) {
@@ -973,18 +978,10 @@ public:
   }
   bool cycleCandidateSkin() {
     if (!session_ || restricted() || privateInput()) return false;
-    static constexpr std::array<const char *, 4> builtinSkins = {
-        "fluent", "wechat", "graphite", "willow_green"};
-    std::vector<std::string> skins;
-    skins.reserve(builtinSkins.size() + candidate_skin_catalog_.size());
-    for (const auto *skin : builtinSkins) skins.emplace_back(skin);
-    for (const auto &[id, title] : candidate_skin_catalog_) {
-      (void)title;
-      if (std::find(skins.begin(), skins.end(), id) == skins.end()) skins.push_back(id);
-    }
-    const auto current = preferences_.value("candidate_skin", std::string("willow_green"));
-    const auto it = std::find(skins.begin(), skins.end(), current);
-    const auto next = it == skins.end() || std::next(it) == skins.end() ? skins.front() : *std::next(it);
+    const auto current = preferences_.value("candidate_skin", defaultSkin());
+    const auto skins =
+        msime::linux_host::candidate_skin_list(builtinSkins(), candidate_skin_catalog_, current);
+    const auto next = msime::linux_host::next_candidate_skin(skins, current);
     if (!view_.value("editing_text", std::string{}).empty())
       command(MSIME_FINISH_COMPOSITION);
     saveStringPreference("candidate_skin", next);
@@ -1243,8 +1240,14 @@ public:
       preferences_["learning"] = false;
       preferences_["cloud_candidates"] = false;
       preferences_["ai_assistant"]["enabled"] = false;
-      options["preferences"] = preferences_;
     }
+    // 会话按本上下文实际生效的那份偏好建立，而不是文件里的原样。此前这一行只在私密
+    // 上下文里执行，于是 applyContextOverrides 写进 preferences_ 的那几个 override
+    // ——方案、皮肤、双拼方案案、辅助码方案——都进不了 Engine：状态栏切到双拼，偏好
+    // 存下了，新建的会话却仍按文件里的全拼跑，再切一次又从全拼算下一格，于是循环卡在
+    // 第一格，用户永远到不了五笔和日文。私密上下文是唯一没中招的，只是因为它顺手把同
+    // 一份 preferences_ 回填了。
+    options["preferences"] = preferences_;
     // This front end draws view.phrase_prefix ahead of the reading, so a phrase assembled out of
     // several selections stays in the composition instead of reaching the document one piece at a
     // time. Requesting it and drawing it are one decision; see core/PhrasePreedit.h.
@@ -3108,11 +3111,11 @@ public:
   std::string shortText(fcitx::InputContext *ic) const override {
     if (!ic) return "候选皮肤";
     const auto *state = ic->propertyFor(factory_);
-    const auto skin = state->preferences_.value("candidate_skin", std::string("willow_green"));
-    for (const auto &[id, title] : state->candidate_skin_catalog_)
-      if (skin == id) return "候选皮肤：" + title;
-    return skin == "fluent" ? "候选皮肤：Fluent" : skin == "wechat" ? "候选皮肤：微信绿" :
-        skin == "graphite" ? "候选皮肤：石墨" : "候选皮肤：杨柳青";
+    const auto skin = state->preferences_.value("candidate_skin", defaultSkin());
+    return "候选皮肤：" + msime::linux_host::candidate_skin_title(
+        msime::linux_host::candidate_skin_list(builtinSkins(), state->candidate_skin_catalog_,
+                                               skin),
+        skin);
   }
   std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
   void activate(fcitx::InputContext *ic) override {

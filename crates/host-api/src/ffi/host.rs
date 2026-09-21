@@ -131,6 +131,26 @@ pub extern "C" fn msime_client_default_preferences() -> *mut c_char {
     })
 }
 
+/// 内置候选皮肤的 id、显示标题，以及新建偏好所用的默认皮肤。
+///
+/// 每个宿主都要把内置皮肤列出来、判断某个 id 是不是内置的、并给它一个名字，于是每个
+/// 宿主原先各写了一份表。这类副本已经漂过：Linux 的 IBus 与 Fcitx5 两个并列宿主对同
+/// 一个 `graphite` 给出的名字不同。和上面的默认偏好同理，这份契约在共享层发布一次，
+/// 宿主只消费。顺序即宿主的展示顺序和循环顺序。
+#[no_mangle]
+pub extern "C" fn msime_client_builtin_skins() -> *mut c_char {
+    response(|| {
+        let skins: Vec<_> = msime_client_core::skin::catalog::BUILTIN_SKINS
+            .iter()
+            .map(|(id, title)| serde_json::json!({ "id": id, "title": title }))
+            .collect();
+        Ok(serde_json::json!({
+            "skins": skins,
+            "default": msime_client_core::skin::catalog::DEFAULT_SKIN,
+        }))
+    })
+}
+
 /// Per-key double-pinyin hint text for one profile, read out of the Engine's own
 /// profile tables.
 ///

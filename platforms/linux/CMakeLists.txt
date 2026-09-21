@@ -220,6 +220,11 @@ add_executable(linux-smart-punctuation-space-test tests/core/smart_punctuation_s
 target_compile_options(linux-smart-punctuation-space-test PRIVATE -Wall -Wextra -Werror)
 target_include_directories(linux-smart-punctuation-space-test PRIVATE src)
 add_test(NAME linux-smart-punctuation-space COMMAND linux-smart-punctuation-space-test)
+add_executable(linux-candidate-skin-catalog-test tests/core/candidate_skin_catalog.cpp)
+target_compile_options(linux-candidate-skin-catalog-test PRIVATE -Wall -Wextra -Werror)
+target_include_directories(linux-candidate-skin-catalog-test PRIVATE src)
+target_link_libraries(linux-candidate-skin-catalog-test PRIVATE nlohmann_json::nlohmann_json)
+add_test(NAME linux-candidate-skin-catalog COMMAND linux-candidate-skin-catalog-test)
 add_executable(linux-typing-statistics-test tests/core/typing_statistics.cpp)
 target_compile_options(linux-typing-statistics-test PRIVATE -Wall -Wextra -Werror)
 target_include_directories(linux-typing-statistics-test PRIVATE src)
@@ -430,14 +435,37 @@ add_test(NAME linux-native-compose COMMAND linux-native-compose-test
   "${CMAKE_CURRENT_SOURCE_DIR}/tests/input/compose.fixture")
 
 option(MSIME_ENABLE_PACKAGING "Enable Linux TGZ and Debian package generation" OFF)
-# A distributable Linux package must include both native desktop input-method
-# entry points by default. Developers building only the IBus host can still
-# opt out explicitly with -DMSIME_ENABLE_FCITX5=OFF.
+# IBus 与 Fcitx5 是并列的两个系统入口，不是宿主和它的插件，所以一次普通的开发构建
+# 没有理由把其中一个整个落下。这个默认值原先跟着打包开关走，于是直接配置本目录只会
+# 构建 IBus 宿主，Fcitx5 插件仅对正在做包的人编译。改为跟着环境走：装了开发包就构建
+# 它，没装就把取得它的办法打出来，而不是悄悄丢掉这个平台的一半。打包仍然强制包含它，
+# -DMSIME_ENABLE_FCITX5=OFF 仍然可以显式退出。
+find_package(Fcitx5Core 5.0.20 QUIET)
+if(MSIME_ENABLE_PACKAGING OR Fcitx5Core_FOUND)
+  set(MSIME_ENABLE_FCITX5_DEFAULT ON)
+else()
+  set(MSIME_ENABLE_FCITX5_DEFAULT OFF)
+endif()
 option(MSIME_ENABLE_FCITX5 "Build the native Fcitx5 input method addon"
-       ${MSIME_ENABLE_PACKAGING})
+       ${MSIME_ENABLE_FCITX5_DEFAULT})
+if(NOT MSIME_ENABLE_FCITX5)
+  message(STATUS "跳过：Fcitx5 插件；请安装 Fcitx5 开发包（Fcitx5Core 5.0.20+），"
+                 "或在配置时传入 -DMSIME_ENABLE_FCITX5=ON")
+endif()
 if(MSIME_ENABLE_PACKAGING)
   include(cmake/packaging.cmake)
 endif()
 if(MSIME_ENABLE_FCITX5)
   add_subdirectory(fcitx5)
 endif()
+
+# assert() 是这些测试唯一的断言手段，而 Release 配置定义的 NDEBUG 会把它们整个消掉：
+# 测试于是一个条件都不检查，还照样报告通过，只在 assert 里出现的局部变量同时变成未使
+# 用变量，-Werror 再把构建打断。此前只有两个目标单独带了 -UNDEBUG，其余三十来个没有。
+# 断言对构建类型的依赖不该逐个目标去记，统一加在这里。
+get_property(msime_linux_targets DIRECTORY PROPERTY BUILDSYSTEM_TARGETS)
+foreach(msime_linux_target IN LISTS msime_linux_targets)
+  if(msime_linux_target MATCHES "-test$")
+    target_compile_options(${msime_linux_target} PRIVATE -UNDEBUG)
+  endif()
+endforeach()
