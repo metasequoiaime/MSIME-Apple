@@ -42,20 +42,14 @@ ENTRY_POINTS = {
 
 IMPORT = re.compile(r"""^\s*import\s[^'"]*['"]([^'"]+)['"]""", re.MULTILINE)
 
-# Modules that are already unwired on the day this check was written. Each line is debt, not an
-# exemption: the way to remove one is to give the module a caller or to remove the module, and this
-# check fails if a name here becomes reachable, so the list cannot quietly rot into a list of lies.
+# Empty, and meant to stay that way. It exists because this check was written against a tree that
+# already had two unwired modules, and an allowlist was the only way to land the check without
+# either deleting someone else's code in the same change or leaving the check switched off. Both
+# entries were then resolved rather than kept: see the commit that emptied this.
 #
-# Both entries are the same file. `6a865d6e8 refactor(harmony): split keyboard sources by
-# responsibility` moved it into `settings/` and left the original behind, so there are two
-# byte-identical copies (they differ only in the depth of one relative import) and nothing imports
-# either: the settings bridge reaches the shared store through `client.loadPreferences` /
-# `savePreferences` instead. They are left in place rather than deleted because "nothing imports it"
-# is not the same as "nothing needs it" - that is a judgement for whoever owns the refactor.
-KNOWN_UNWIRED = {
-    "platforms/harmony/entry/src/main/ets/keyboard/PreferenceStore.ts",
-    "platforms/harmony/entry/src/main/ets/keyboard/settings/PreferenceStore.ts",
-}
+# Anything added here is debt, not an exemption. The check fails if a listed name becomes reachable
+# again, so the list cannot rot into a list of lies.
+KNOWN_UNWIRED: set[str] = set()
 
 
 def imported_stems(path: pathlib.Path) -> set[str]:

@@ -191,7 +191,9 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 **这里有一个必须写下来的操作事实：输入法要在 `FULL_EXPERIENCE_MODE` 下才会被框架驱动。** `ime -e <bundle>` 的默认是 `-b`，也就是 `BASIC_MODE`；在那个模式下 `ime -s` 会成功、`ime -g` 会报告本输入法是当前输入法、`app.msime.client:inputMethod` 进程也会起来，但编辑器获得焦点时框架打的是 `ShowKeyboardImplWithoutLock, panel not create` 与 `OnInputStart, entry is nullptr`，而本扩展的 ArkTS 一行日志都没有——`onCreate` 从未运行。表现就是键盘完全不出现，且看不出任何错误。换成 `ime -e <bundle> -f` 之后，同一次点击立刻打出 `attached to editor: pattern=0 enter=2`，面板正常呈现。做过一次对照：同一个输入框、同一次点击，华为系统输入法在我们处于 BASIC_MODE 时照常弹出，所以这不是模拟器、WebView 或该字段的问题。
 
-仍然没有证据的：账号、社区与 AI 服务的真实往返（本模拟器无网络，社区页显示的是离线预览数据）、`deleteBackwardSync(length)` 的单位、读屏实际念出的内容、个人词库队列在下一次会话启动时是否真的被排空。真机签名与麦克风授权流程同样未验。
+键盘在第三方应用里同样可用：华为浏览器的搜索框上打 `nihao` 得到候选 `你好`，上屏后浏览器据此拉取了联想词，说明文字确实到达了那个编辑器。回车键在那里读作「搜索」而在本应用的搜索框读作「前往」，两次都取自编辑器自己声明的动作。
+
+仍然没有证据的：账号、社区与 AI 服务的真实往返（模拟器本身联网，社区页显示离线预览数据是因为没有登录账号）、`deleteBackwardSync(length)` 的单位、读屏实际念出的内容、个人词库队列在下一次会话启动时是否真的被排空。真机签名与麦克风授权流程同样未验。
 
 按键音与振动现在也能从设置页调整，而不只是键盘内那张卡片：共享 `mobileKeyboardFeedback` 客户端读写键盘自己的 `key-feedback.json`，两个进程共用同一份文件（这项设置属于当前设备而非账号，所以不进共享偏好）。设置页是第二个写入者，改动在键盘下次启动时生效。强度预览直接振一下。共享 DTO 把最强一档叫 `strong`，键盘自己的枚举叫 `heavy`，两边由 `KeyboardFeedbackBridge` 转换——直接赋值会写入键盘不认识的值，`KeyboardFeedback.parse` 会静默回退，表现为"保存了但手感没变"。
 
