@@ -30,6 +30,25 @@ struct Entry {
     weight: i64,
 }
 
+impl Entry {
+    /// The entry as the Engine will store it: the code lowercased, and a weight inside the range
+    /// it accepts.
+    ///
+    /// Both are the Engine's rules (`validate_personal_dictionary_entry`), applied here so a value
+    /// this layer would otherwise hand on and have refused - with an error naming neither the
+    /// field nor the reason - becomes the entry the user meant. A weight of zero is the one the
+    /// reference writes for an imported English row, and losing the row over a rank difference of
+    /// one would be the worse trade.
+    fn normalized_for_engine(mut self) -> Self {
+        self.key = self.key.to_ascii_lowercase();
+        self.weight = self.weight.max(MINIMUM_WEIGHT);
+        self
+    }
+}
+
+/// The smallest weight the Engine stores; anything below it is refused outright.
+const MINIMUM_WEIGHT: i64 = 1;
+
 impl From<Entry> for DictionaryEntry {
     fn from(entry: Entry) -> Self {
         Self {
@@ -328,6 +347,15 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
             replacement,
             request_id,
         } => {
+            // The code is case-insensitive, and the Engine says so by folding it
+            // (`validate_personal_dictionary_entry` lowercases the key before it checks anything
+            // else); the reference's settings page lowercases it at its own boundary for the same
+            // reason. This layer used to reject an uppercase letter instead, so a quick phrase
+            // typed as `QQ` came back as "invalid dictionary entry" while the very same code
+            // typed in lower case was fine - and an entry edited after being imported from a file
+            // that had it in upper case could never be matched to the row it stored.
+            let previous = previous.map(Entry::normalized_for_engine);
+            let replacement = replacement.map(Entry::normalized_for_engine);
             for entry in previous.iter().chain(replacement.iter()) {
                 validate_entry(entry)?;
             }
@@ -408,12 +436,16 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
                     failed: 0,
                     first_failures: Vec::new(),
                     truncated: false,
+                    swapped: false,
                 });
             report.record_rejected(&rejected_lines);
             let mut result = json!({ "applied": applied });
             // Tell the caller what was skipped instead of reporting a clean import.
             result["failed"] = json!(report.failed);
             result["truncated"] = json!(report.truncated);
+            // The file turned out to be the other column order; the card says so rather than
+            // leaving the user with a count they cannot explain.
+            result["swapped"] = json!(report.swapped);
             result["first_failures"] =
                 serde_json::to_value(&report.first_failures).map_err(|error| error.to_string())?;
             Ok(result)

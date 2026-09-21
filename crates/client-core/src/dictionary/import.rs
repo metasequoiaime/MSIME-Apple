@@ -74,6 +74,18 @@ pub enum ImportFormat {
 }
 
 impl ImportFormat {
+    /// The same layout with the two columns exchanged, or `None` for a format that has only one.
+    ///
+    /// Rime files are word-first by definition - the code is the second column of a `dict.yaml`
+    /// row - so there is no other order to try.
+    fn flipped(self) -> Option<Self> {
+        match self {
+            ImportFormat::Standard => Some(ImportFormat::Windows),
+            ImportFormat::Windows => Some(ImportFormat::Standard),
+            ImportFormat::Rime => None,
+        }
+    }
+
     pub fn parse(value: &str) -> Option<Self> {
         match value {
             "standard" => Some(ImportFormat::Standard),
@@ -145,6 +157,18 @@ pub struct ImportReport {
     pub first_failures: Vec<ImportFailure>,
     /// Rows beyond [`MAX_ENTRIES`] were not examined.
     pub truncated: bool,
+    /// The file was read with the columns the other way round from the format that was asked for.
+    ///
+    /// The two coded layouts differ only in which column comes first, and which one a file uses is
+    /// a property of the tool that wrote it rather than of the platform it ran on: the reference
+    /// exports pinyin and wubi word-first and English and quick phrases code-first, from the same
+    /// settings page. Asking the user to know that - and telling them "no usable rows" when they
+    /// guess wrong, for a file that is perfectly good - is a puzzle with one answer. So a file
+    /// that yields nothing in the order requested is read once more the other way, and this says
+    /// so, because a silent reinterpretation of which column is the word would be worse than the
+    /// puzzle.
+    #[serde(default)]
+    pub swapped: bool,
 }
 
 pub const REPORTED_FAILURES: usize = 5;
@@ -211,11 +235,30 @@ pub fn parse(
         return Err(ImportError::ControlCharacters);
     }
 
+    let report = parse_rows(kind, format, text);
+    if !report.entries.is_empty() {
+        return Ok(report);
+    }
+    // Nothing was usable. Before refusing the file, read it in the other column order: see
+    // `ImportReport::swapped` for why a user cannot be expected to know which one their file is.
+    if let Some(other) = format.flipped() {
+        let mut retry = parse_rows(kind, other, text);
+        if !retry.entries.is_empty() {
+            retry.swapped = true;
+            return Ok(retry);
+        }
+    }
+    Err(ImportError::NoUsableRows)
+}
+
+/// Every row of the text in one column order, with unusable ones counted rather than fatal.
+fn parse_rows(kind: ImportKind, format: ImportFormat, text: &str) -> ImportReport {
     let mut report = ImportReport {
         entries: Vec::new(),
         failed: 0,
         first_failures: Vec::new(),
         truncated: false,
+        swapped: false,
     };
     let mut in_yaml_header = false;
     for (index, line) in text.lines().enumerate() {
@@ -257,10 +300,7 @@ pub fn parse(
             }
         }
     }
-    if report.entries.is_empty() {
-        return Err(ImportError::NoUsableRows);
-    }
-    Ok(report)
+    report
 }
 
 fn parse_row(
@@ -307,6 +347,10 @@ fn parse_row(
     if weight < 0 {
         return Err(ImportIssue::Weight);
     }
+    // The Engine stores nothing below 1, and a file that says 0 is ordinary: it is what the
+    // reference writes for an imported English row whose line carried no weight. Keeping the row
+    // at the Engine's floor loses a rank difference of one; refusing it loses the word.
+    let weight = weight.max(1);
     Ok(ImportEntry {
         key,
         value: word.to_owned(),
@@ -371,6 +415,60 @@ mod tests {
         assert!(!report.truncated);
     }
 
+    // A file written the other way round is read anyway. The reference's own settings page exports
+    // pinyin and wubi word-first and English and quick phrases code-first, so "which order is my
+    // file" is a question its users cannot answer from where the file came from.
+    #[test]
+    fn a_file_in_the_other_column_order_is_read_rather_than_refused() {
+        // Asked for word-first, given code-first.
+        let report = parse_ok(ImportKind::Wubi, "standard", "ggg\t三\t7\nhhh\t四\n");
+        assert!(report.swapped);
+        assert_eq!(report.entries.len(), 2);
+        assert_eq!(report.entries[0].key, "ggg");
+        assert_eq!(report.entries[0].value, "三");
+        assert_eq!(report.entries[1].weight, 10000);
+
+        // And the other way: asked for code-first, given word-first.
+        let report = parse_ok(ImportKind::Wubi, "windows", "三\tggg\t7\n");
+        assert!(report.swapped);
+        assert_eq!(report.entries[0].key, "ggg");
+
+        // A file that is already in the order asked for is not flagged, and the retry never runs.
+        let report = parse_ok(ImportKind::Wubi, "standard", "三\tggg\t7\n");
+        assert!(!report.swapped);
+        assert_eq!(report.entries[0].key, "ggg");
+
+        // A file that is unusable in both orders is still unusable, and says so once.
+        assert_eq!(
+            parse(ImportKind::Wubi, "standard", "三\t四\n", LIMIT),
+            Err(ImportError::NoUsableRows)
+        );
+    }
+
+    // A file that writes 0 in the weight column is ordinary - it is what the reference produces
+    // for an English row whose line carried no weight - and the Engine stores nothing below 1.
+    // Keeping the row at the floor costs a rank difference of one; refusing it costs the word.
+    #[test]
+    fn a_zero_weight_row_is_kept_at_the_floor_rather_than_refused() {
+        let report = parse_ok(
+            ImportKind::QuickPhrase,
+            "standard",
+            "在家等\tzjd\t0\n企鹅\tqq\t5\n",
+        );
+        assert_eq!(report.failed, 0);
+        assert_eq!(report.entries.len(), 2);
+        assert_eq!(report.entries[0].weight, 1);
+        assert_eq!(report.entries[1].weight, 5);
+        // A negative weight is still a malformed file rather than a small number.
+        let refused = parse_ok(
+            ImportKind::QuickPhrase,
+            "standard",
+            "在家等\tzjd\t-1\n企鹅\tqq\t5\n",
+        );
+        assert_eq!(refused.failed, 1);
+        assert_eq!(refused.entries.len(), 1);
+    }
+
     #[test]
     fn rime_skips_its_yaml_header_and_metadata_weights() {
         let report = parse_ok(
@@ -396,9 +494,10 @@ mod tests {
             parse(ImportKind::Wubi, "windows", "abcde\t你好\n", LIMIT),
             Err(ImportError::NoUsableRows)
         );
-        // English keys are letters only.
+        // English keys are letters only. Both columns have to be unusable as a key, because a file
+        // whose columns are the other way round is read that way rather than refused.
         assert_eq!(
-            parse(ImportKind::English, "standard", "hello\th3llo\n", LIMIT),
+            parse(ImportKind::English, "standard", "h3llo\th3llo\n", LIMIT),
             Err(ImportError::NoUsableRows)
         );
         // Quick phrase keys allow digits.

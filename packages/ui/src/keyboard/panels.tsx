@@ -3010,8 +3010,8 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
               onChange={(event) => setFormat(event.target.value as CloudDictionaryFileFormat)}
               disabled={busy}
             >
-              <option value="standard">标准 TSV</option>
-              <option value="windows">Windows TSV</option>
+              <option value="standard">词在前（标准 TSV）</option>
+              <option value="windows">编码在前（Windows TSV）</option>
               {kind === "pinyin" && <option value="hans">汉字自动注音（仅导入）</option>}
             </select>
           </label>

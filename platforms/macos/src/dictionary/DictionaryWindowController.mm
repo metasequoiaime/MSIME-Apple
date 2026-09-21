@@ -44,7 +44,7 @@
     _kind.target = self;
     _kind.action = @selector(dictionaryKindChanged:);
     _format = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    for (NSArray<NSString *> *item in @[@[@"标准 TSV", @"standard"], @[@"Windows TSV", @"windows"], @[@"Rime userdb / dict.yaml", @"rime"], @[@"汉字自动注音（仅导入）", @"hans"]]) {
+    for (NSArray<NSString *> *item in @[@[@"词在前（标准 TSV）", @"standard"], @[@"编码在前（Windows TSV）", @"windows"], @[@"Rime userdb / dict.yaml", @"rime"], @[@"汉字自动注音（仅导入）", @"hans"]]) {
         [_format addItemWithTitle:item[0]];
         _format.lastItem.representedObject = item[1];
     }
@@ -259,7 +259,7 @@
     if (self.runtimeError) { [self showMessage:self.runtimeError]; return; }
     NSString *format = [self selectedFormat];
     if ([format isEqualToString:@"hans"] || [format isEqualToString:@"rime"]) {
-        [self showMessage:@"当前格式仅支持导入，请选择标准 TSV 或 Windows TSV。"];
+        [self showMessage:@"当前格式仅支持导入，请选择「词在前」或「编码在前」。"];
         return;
     }
     NSSavePanel *panel = [NSSavePanel savePanel];

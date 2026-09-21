@@ -63,7 +63,42 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let remove = json!({ "operation": "edit", "previous": entry, "replacement": null, "request_id": "native-remove" });
     assert_eq!(request(&options, remove.clone())["ok"], true);
     assert_eq!(request(&options, remove)["ok"], true);
+    assert_eq!(
+        request(&options, list.clone())["value"]["entries"],
+        json!([])
+    );
+
+    // A code typed in upper case is the same code, and a weight of zero is a weight the Engine
+    // will not store. Both are folded here rather than refused: the Engine lowercases the key
+    // itself and the reference's settings page does the same at its own boundary, while a row
+    // lost over a rank difference of one is a word the user does not get back.
+    let shouted = json!({ "kind": "quick_phrase", "key": "QQ", "value": "企鹅", "weight": 0 });
+    let add_shouted = json!({ "operation": "edit", "previous": null, "replacement": shouted.clone(), "request_id": "native-fold" });
+    assert_eq!(request(&options, add_shouted)["value"]["applied"], true);
+    let stored = request(&options, list.clone());
+    assert_eq!(
+        stored["value"]["entries"],
+        json!([{ "kind": "quick_phrase", "key": "qq", "value": "企鹅", "weight": 1 }]),
+        "the stored entry is the folded one"
+    );
+
+    // And it is reachable by typing the code, which is the point of folding it rather than
+    // storing what was typed into the box.
+    let session = create(&options);
+    read(msime_client_focus(session, true));
+    read(msime_client_character(session, b'K', true));
+    for byte in b"qq" {
+        read(msime_client_character(session, *byte, false));
+    }
+    let typed = read(msime_client_command(session, 1));
+    assert_eq!(typed["value"]["commit"], "企鹅");
+    read(msime_client_destroy(session));
+
+    // Removing it with the form that created it works, because both sides fold the same way.
+    let remove_shouted = json!({ "operation": "edit", "previous": shouted, "replacement": null, "request_id": "native-fold-remove" });
+    assert_eq!(request(&options, remove_shouted)["ok"], true);
     assert_eq!(request(&options, list)["value"]["entries"], json!([]));
-    println!("native list/busy/add/retry/recreate/commit/remove roundtrip passed");
+
+    println!("native list/busy/add/retry/recreate/commit/remove/fold roundtrip passed");
     Ok(())
 }

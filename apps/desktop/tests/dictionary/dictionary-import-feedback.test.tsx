@@ -46,6 +46,14 @@ describe("describeImportResult", () => {
     expect(describeImportResult("五笔", { applied: 1000, truncated: true })).toContain("过长");
   });
 
+  test("a file read in the other column order says so", () => {
+    const message = describeImportResult("五笔", { applied: 4, swapped: true });
+    expect(message).toContain("相反");
+    // It is not a failure: the rows all landed.
+    expect(message).not.toContain("跳过");
+    expect(describeImportResult("五笔", { applied: 4 })).not.toContain("相反");
+  });
+
   test("a host without the report degrades to the count", () => {
     // Older hosts return {applied} only; the message must not invent failures.
     const message = describeImportResult("英文", { applied: 5 });

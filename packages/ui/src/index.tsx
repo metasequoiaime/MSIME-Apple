@@ -995,6 +995,8 @@ export interface DictionaryImportResult {
   failed?: number;
   /** Rows beyond the per-file cap were not examined. */
   truncated?: boolean;
+  /** The file was read with its two columns the other way round from the format chosen. */
+  swapped?: boolean;
   first_failures?: { line: number; issue: string }[];
 }
 
@@ -1014,6 +1016,10 @@ export function describeImportResult(kind: string, result: DictionaryImportResul
     }
   }
   if (result.truncated) parts.push("文件过长，仅导入了前一部分。");
+  // Said rather than done quietly: which column holds the code is the one thing about the file the
+  // reader may want to check, and the same settings page in the Windows version exports the two
+  // orders for different dictionaries.
+  if (result.swapped) parts.push("该文件的两列与所选格式相反，已按文件本身的顺序读取。");
   return parts.join("");
 }
 
@@ -4555,8 +4561,8 @@ export function SettingsPage({
                                 setDictionaryFormat(event.target.value as LocalDictionaryFormat)
                               }
                             >
-                              <option value="standard">标准 TSV</option>
-                              <option value="windows">Windows TSV</option>
+                              <option value="standard">词在前（标准 TSV）</option>
+                              <option value="windows">编码在前（Windows TSV）</option>
                               <option value="rime">Rime userdb / dict.yaml</option>
                               {dictionaryKind === "pinyin" && (
                                 <option value="hans">汉字自动注音（仅导入）</option>
