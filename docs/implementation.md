@@ -234,13 +234,13 @@ Android/iOS 共享统计页的“趋势”分段新增年度日历热力图：�
 
 ### macOS Emoji 面板主题覆盖（next42）
 
-共享设置中的 `emoji_theme` 已接入 macOS `MacEmojiAppearance`。Emoji、颜文字和符号 SwiftUI 面板解析 `dark`、`light`、`follow` 与全局 `theme`：表面显式值优先，跟随时继承全局，全局 `system` 时发布 `nil` 交给系统环境。非法或非字符串表面值不会覆盖全局解析。新增 `emoji-appearance` CTest 覆盖覆盖、跟随、系统与非法输入；真实 `水杉输入法.app` 编译验证桥接仍可加载该 Swift backend。
+共享设置中的 `emoji_theme` 已接入 macOS `MacEmojiAppearance`。Emoji、颜文字和符号 SwiftUI 面板解析 `dark`、`light`、`follow` 与全局 `theme`：表面显式值优先，跟随时继承全局，全局 `system` 时发布 `nil` 交给系统环境。非法或非字符串表面值不会覆盖全局解析。新增 `emoji-appearance` CTest 覆盖覆盖、跟随、系统与非法输入；真实 `水杉输入法（预览）.app` 编译验证桥接仍可加载该 Swift backend。
 
 ### macOS 手写板主题覆盖（next43）
 
 共享设置中的 `handwriting_theme` 已接入 macOS 原生 SwiftUI 手写识别板。手写板表面显式 `dark`/`light` 时覆盖全局 `theme`；`follow` 继承全局；全局为 `system` 时使用可选 `ColorScheme`，由 SwiftUI/AppKit 跟随系统。画布背景、笔迹和根窗口前景色同步使用解析后的明暗 palette；偏好热更新只更新展示状态，不重建手写识别请求或改变候选提交路径。缺失、非法或非字符串表面值不会覆盖全局解析。
 
-新增 `handwriting-provider` CTest 覆盖显式覆盖、跟随、系统和非法值，以及原有笔迹请求边界；Rust workspace、`msime-host-api`、手写 provider 和真实 `水杉输入法.app` target 均在 macOS 13 最低部署目标下通过本地构建验证。该切片仍不代表已安装输入源、麦克风/识别权限、真实编辑器或完整手写模型链路的系统级验收。
+新增 `handwriting-provider` CTest 覆盖显式覆盖、跟随、系统和非法值，以及原有笔迹请求边界；Rust workspace、`msime-host-api`、手写 provider 和真实 `水杉输入法（预览）.app` target 均在 macOS 13 最低部署目标下通过本地构建验证。该切片仍不代表已安装输入源、麦克风/识别权限、真实编辑器或完整手写模型链路的系统级验收。
 
 ### macOS 候选表面主题覆盖（next41）
 
@@ -1267,7 +1267,7 @@ Windows TSF 的键事件路径现在从共享偏好读取中英文与简繁切�
 
 ### macOS Tauri 正式输入源安装入口
 
-macOS 设置页的“安装 / 更新”现在通过 Tauri 专用命令安装随设置应用打包的 `水杉输入法.app`。安装器先校验固定 bundle identifier、Info.plist、可执行文件和所有目录项，复制到用户输入法目录的带进程号 staging 目录，完整复制成功后才原子替换旧 bundle；源 bundle、目标 bundle 或内部资源为符号链接时拒绝处理。替换完成后直接启动已安装 bundle 的 `--register-input-source`，只注册并启用自身，不静默切换当前输入源；重新注册按钮仍保留为独立操作。Tauri macOS 资源映射现在把 IMK bundle 随设置应用一起打包，其他平台没有该入口。
+macOS 设置页的“安装 / 更新”现在通过 Tauri 专用命令安装随设置应用打包的 `水杉输入法（预览）.app`。安装器先校验固定 bundle identifier、Info.plist、可执行文件和所有目录项，复制到用户输入法目录的带进程号 staging 目录，完整复制成功后才原子替换旧 bundle；源 bundle、目标 bundle 或内部资源为符号链接时拒绝处理。替换完成后直接启动已安装 bundle 的 `--register-input-source`，只注册并启用自身，不静默切换当前输入源；重新注册按钮仍保留为独立操作。Tauri macOS 资源映射现在把 IMK bundle 随设置应用一起打包，其他平台没有该入口。
 
 本地验证：macOS Tauri Rust 安装器合成 bundle 回归 3/3（原子替换、可执行权限、错误 bundle/符号链接拒绝）；桌面设置 UI 定向测试 139 项、TypeScript 检查和 Vite 构建通过；InputSourceRegistration Objective-C++ 严格编译与测试通过。完整桌面 Rust 测试仍有两个与本切片无关的既有断言失败，未修改其行为；未在真实用户 `~/Library/Input Methods`、LaunchServices、系统输入源切换或编辑器上执行安装验收，也未声称签名/公证完成，CI 保持禁用。
 
@@ -1337,13 +1337,13 @@ MSIME-Apple 的语音服务目录里有两个共享客户端一直没有的转�
 2. 键盘扩展源码按功能重组后，`SWIFT_OBJC_BRIDGING_HEADER` 仍指向重组前的 `KeyboardExtension/Sources/MetasequoiaKeyboard-Bridging-Header.h`。原生 Xcode 工程当时跟着改了，Tauri 生成工程没有，于是扩展的 Swift 编译整批失败。
 3. iOS 产物实际使用的是 Tauri 拷进 `libapp.a` 的 staticlib，但 `cargo build --lib` 同时会产出 cdylib，而 cdylib 必须自己链接完整。其中四个符号是 App target 里由 Xcode 编译的 Swift `@_cdecl` 导出（个人词库与快照桥接），cargo 链接时还不存在。新增 `.cargo/config.toml`，只对 `aarch64-apple-ios` 与 `aarch64-apple-ios-sim` 两个目标延后这些符号的解析；不做工作区级放宽，否则会在其他平台掩盖真正缺失的符号。
 
-修复后模拟器构建产出 `水杉输入法.app`，内含 `PlugIns/MSIMEKeyboardExtension.appex`（4.7 MB 二进制）与固定词库发布的八个 EngineResources 文件。
+修复后模拟器构建产出 `水杉输入法（预览）.app`，内含 `PlugIns/MSIMEKeyboardExtension.appex`（4.7 MB 二进制）与固定词库发布的八个 EngineResources 文件。
 
 本地验证：`platforms/ios/build-native.sh simulator` 与 `platforms/ios/build-app.sh … simulator` 均完成；bundle 内容已逐项列出确认。App 在 iOS 27 模拟器上可安装：默认无签名 bundle 因缺少 entitlements 在 App Group 查找上报 `client is not entitled`，按 README 新增的 ad-hoc 签名步骤补上 entitlements 后查找成功。启动仍以 SIGTRAP 结束，崩溃栈落在 `tauri-runtime-wry` 启动探测调用的 `wry::webview_version()` → `+[NSBundle bundleWithIdentifier:@"com.apple.WebKit"]`，在该系统版本的 CoreFoundation 内部 `CFRelease` 空指针陷阱；该路径不在仓库代码内，未改动 vendored crate。因此本次只声称构建、打包与安装可复现，界面与键盘扩展运行仍待真机验收，CI 保持禁用。
 
 ### iOS 真机目标构建复现
 
-在模拟器链路修好之后，真机目标不需要额外改动即可跑通：`platforms/ios/build-native.sh device` 产出 `target/ios/device/libmsime_host_api.a`，`platforms/ios/build-app.sh … device` 先在 `apps/desktop/src-tauri/gen/apple` 执行锁定的 CocoaPods 安装，再由 Tauri CLI 完成未签名归档，产出 `水杉输入法.ipa`。解包确认为 arm64 单架构，`Payload/水杉输入法.app` 内嵌 `PlugIns/MSIMEKeyboardExtension.appex`，扩展侧带锁定 ML Kit Digital Ink 的资源包，App 与扩展各自打包同一份已校验 EngineResources。据此把根 README 与 iOS README 里「模拟器构建脚本」「真机键盘扩展」的状态改为实测结果。
+在模拟器链路修好之后，真机目标不需要额外改动即可跑通：`platforms/ios/build-native.sh device` 产出 `target/ios/device/libmsime_host_api.a`，`platforms/ios/build-app.sh … device` 先在 `apps/desktop/src-tauri/gen/apple` 执行锁定的 CocoaPods 安装，再由 Tauri CLI 完成未签名归档，产出 `水杉输入法.ipa`。解包确认为 arm64 单架构，`Payload/水杉输入法（预览）.app` 内嵌 `PlugIns/MSIMEKeyboardExtension.appex`，扩展侧带锁定 ML Kit Digital Ink 的资源包，App 与扩展各自打包同一份已校验 EngineResources。据此把根 README 与 iOS README 里「模拟器构建脚本」「真机键盘扩展」的状态改为实测结果。
 
 顺带记录一个副作用：真机路径里的 `pod install --deployment` 会改写被跟踪的 `gen/apple/msime-desktop.xcodeproj/project.pbxproj`，往里加 Pods framework 引用。README 已说明 CocoaPods workspace 与 `Pods` 目录不入库，但没提这份工程文件也会被改；跑完真机构建后需要把它还原，否则工作区会带着构建产物。本次提交不包含该改动。
 

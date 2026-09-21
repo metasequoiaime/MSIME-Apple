@@ -2576,13 +2576,13 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
                                             create:NO
                                              error:nil];
     NSURL *inputMethods = [library URLByAppendingPathComponent:@"Input Methods" isDirectory:YES];
-    NSURL *bundle = [inputMethods URLByAppendingPathComponent:@"水杉输入法.app" isDirectory:YES];
-    // A machine that installed before the name lost its 预览 suffix still has the old bundle and no
-    // new one; uninstalling has to remove what is actually there rather than a path that was never
-    // written. Both carry the same bundle identifier, so only one of them can be installed.
+    NSURL *bundle = [inputMethods URLByAppendingPathComponent:@"水杉输入法（预览）.app" isDirectory:YES];
+    // A copy briefly installed under the shorter directory name may be the one that is there.
+    // Uninstalling has to remove what exists rather than a path that was never written; both carry
+    // the same bundle identifier, so only one of them can be installed.
     if (![NSFileManager.defaultManager fileExistsAtPath:bundle.path]) {
-        NSURL *legacy = [inputMethods URLByAppendingPathComponent:@"水杉输入法（预览）.app" isDirectory:YES];
-        if ([NSFileManager.defaultManager fileExistsAtPath:legacy.path]) bundle = legacy;
+        NSURL *other = [inputMethods URLByAppendingPathComponent:@"水杉输入法.app" isDirectory:YES];
+        if ([NSFileManager.defaultManager fileExistsAtPath:other.path]) bundle = other;
     }
     NSDictionary *runtime = MSIMELoadRuntimeOptions();
     NSString *configuredState = [runtime[ @"preferences_directory"] isKindOfClass:NSString.class]

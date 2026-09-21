@@ -58,7 +58,7 @@ int main()
         // with a modal alert, and an input method that stops typing behind a dialog is the worse failure.
         NSString *feed = @"https://example.invalid/appcast.xml";
         assert(MSIMEUpdateHostCanStartSparkle(@"app.msime.inputmethod.MetasequoiaIME",
-                                              @"/Users/someone/Library/Input Methods/水杉输入法.app", feed));
+                                              @"/Users/someone/Library/Input Methods/水杉输入法（预览）.app", feed));
         assert(MSIMEUpdateHostCanStartSparkle(@"app.example", @"/Applications/Example.app/", feed));
         assert(!MSIMEUpdateHostCanStartSparkle(nil, @"/Applications/Example.app", feed));
         assert(!MSIMEUpdateHostCanStartSparkle(@"", @"/Applications/Example.app", feed));
