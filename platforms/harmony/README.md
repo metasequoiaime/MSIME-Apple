@@ -26,6 +26,8 @@ Harmony 设置页暴露共享的模糊拼音规则、触摸输入方案启用列
 
 共享皮肤页的「我的设计」也由 Harmony 承载，对应 MSIME-Apple 的 `CustomSkinEditorView` 与 `CustomKeyboardSkin`。它不是设置文档里那份 `custom_touch_keyboard_skin`（那只有一套，是当前正在用的那一套），而是最多十二套具名设计的独立文件——命名、改名、覆盖、删除。
 
+来源断言审计补上了原生键盘最后一段渲染链。此前 `CustomKeyboardSkin` 虽然解析渐变、照片、图案、键帽形状/材质、阴影和透明度，真正的 `KeyboardView` 却只读取基础颜色与等宽字体，导致共享设置预览会变、系统键盘不变。现在共享 Base64 照片先经过 512 KB 与 JPEG/PNG/GIF/WebP 魔数校验，再作为 ArkUI 图片源进入根背景；渐变、照片位置/压暗和三种固定图案在键盘背板绘制，键帽消费形状半径、材质高光、阴影与填充 alpha。填充透明度不再施加到整个容器，因此不会把键文字一起淡化。`scripts/test-harmony-custom-skin-rendering.py` 固定这些产品调用点；本轮没有 HAP 或设备截图证据。
+
 这条没有像账号那样在 ArkTS 里重写一份，而是走新的 C ABI `msime_client_custom_skin_library`：Tauri 宿主把 `CustomSkinLibraryStore` 当 Rust 直接调，只通过 C ABI 到达这个 crate 的宿主（本宿主就是）否则就得把同一个文件的锁、原子替换、名称规范化和十二条上限再实现一遍，而一个库两个 store 正是两边开始对"里面有什么"意见不一致的起点。请求不带 `action` 是读，带了就先改再读，两种都回整个库——每个调用方改完都要重画列表，只回自己那一条会让页面猜改名对排序做了什么。
 
 失败码用共享社区页面已经有措辞的那几个 `community_*`，不是 `Display` 文本：后者是写给日志的英文句子，不该出现在中文对话框里。
