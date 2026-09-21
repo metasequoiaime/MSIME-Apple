@@ -1482,3 +1482,9 @@ iOS 真机装机走的是产品宿主 `MSIMEClientApp`，不是 Tauri CLI：`bui
 同批把 IBus 组件与引擎名的 `-preview` 后缀去掉（`msime-client-preview` → `msime-client`，应用 id `app.msime.client.preview` → `app.msime.client`，两份组件文件随之改名），宿主内部的 `msime_preview_*` 改为 `msime_ibus_*`。安装只写入新的组件文件，不会带走改名前留下的那一份，升级需先卸载或手工删除，这一条写进了 README 的卸载章节。共享桌面数据目录仍叫 `app.msime.client.preview`——它是 macOS、Windows 与设置页共用的应用数据目录名，改它会搬走已有用户的 `preferences.json`、皮肤和打字统计，属于需要迁移方案的另一件事，本批不动。
 
 证据：`verify-local.sh --quick` 整体通过；`platforms/linux` 全部目标构建、ctest 23 项通过；安装清单预演确认新入口与两份锁就位；`msime-client-setup` 三条路径在本机实测（已有词库一次准备成功、缺词库未给 `--download` 退出码 1 并说明办法、状态目录已存在退出码 1 且不改动既有目录）。`--download` 的完整取回未在本机执行，只验证了校验与报错路径。真实 GTK/Qt 编辑器里的逐键输入仍未验收，不据此宣称 Linux 产品迁移完成。CI 保持禁用。
+
+### 外部工具栏皮肤的包内 CSS 导入
+
+固定 Windows 来源把外部皮肤目录挂成 `candidate-skins` 虚拟来源，浏览器因此会按每份样式表的位置解析相对 `@import` 与 `url()`。共享 Tauri 预览改用 constructed stylesheet 后，`@import` 会被浏览器直接丢弃；导入表位于子目录时，它的资源地址还会被误当成相对 skin 根目录。这使合法皮肤只显示基础样式并报告 partial。
+
+共享 UI 现在先在 host 边界读取同一 skin 包内的 CSS，再递归展开导入并把每份样式表的资源路径归一到包根。保留 `layer`、`supports()` 与 media 条件；远程、绝对和越出包根的导入会被删除并报告 partial。循环、深度、文件数与总字节均有上限，导入后的字体、图片、动画与作用域隔离继续走既有准备链。Tauri 新命令只接受 package id 与已归一化相对路径，Rust 核心重新验证当前 manifest、目录 containment、CSS MIME、8 MiB 单文件限制与 UTF-8，不向 webview 暴露文件系统路径。

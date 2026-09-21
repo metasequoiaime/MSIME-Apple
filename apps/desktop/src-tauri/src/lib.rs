@@ -490,6 +490,27 @@ async fn read_skin_toolbar_stylesheet(
         .map_err(|_| CommandError { code: "storage" })?
 }
 
+fn read_skin_stylesheet_at(
+    root: PathBuf,
+    id: &str,
+    relative: &str,
+) -> Result<String, CommandError> {
+    msime_client_core::skin::catalog::read_stylesheet(root, id, relative)
+        .map_err(|_| CommandError { code: "storage" })
+}
+
+#[tauri::command]
+async fn read_skin_stylesheet(
+    directory: tauri::State<'_, SkinDirectoryState>,
+    id: String,
+    relative: String,
+) -> Result<String, CommandError> {
+    let root = directory.0.clone();
+    tauri::async_runtime::spawn_blocking(move || read_skin_stylesheet_at(root, &id, &relative))
+        .await
+        .map_err(|_| CommandError { code: "storage" })?
+}
+
 /// The user's own candidate glosses, as a document the settings page edits.
 ///
 /// The reference has the user drop `custom_translations.txt` into the profile directory and says so in
@@ -3780,6 +3801,7 @@ pub fn run() {
             scan_skin_catalog,
             read_skin_image,
             read_skin_font,
+            read_skin_stylesheet,
             read_skin_toolbar_stylesheet,
             read_custom_translations,
             write_custom_translations,
