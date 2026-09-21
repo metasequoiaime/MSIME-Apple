@@ -1,17 +1,22 @@
 #!/usr/bin/env python3
-"""Every surface that names a helpcode scheme names it the way the reference does.
+"""One setting reads the same wherever the user can read it.
 
-A scheme's name is its own, not a description of it, so there is exactly one right spelling and the
-reference owns it. Five places here spell them out - the shared settings page, the macOS settings
-window, the macOS backend page, and the two Linux menus, which now share one table - and until this
-check existed they did not agree: both Linux menus wrote 首右 as 搜狗, naming a different company's
-input method in a menu that switches helpcode schemes. Nothing noticed, because no check here had
-ever looked at a user-visible name; the config-key, UI-action and settings-coverage checks all
-compare identifiers, and the identifier (`shouyou2_0`) was right in every copy.
+Every other reference-facing check here compares identifiers: config keys, client actions,
+setting-to-field coverage, the source inventory. An identifier being right says nothing about the
+words printed next to it, and that is where two defects had been sitting. Both Linux menus wrote
+the 首右 helpcode schemes as 搜狗 - a different company's input method, named in a menu for
+switching helpcode schemes - while the identifier `shouyou2_0` was correct in every copy. The macOS
+backend page called the paging choices 「减号 / 等号」 and 「方括号」 where the settings window
+showed the keys themselves, so one setting read two ways inside one application.
 
-So this compares the labels, and compares them against the reference rather than against each
-other: five copies agreeing on the wrong name is exactly the state this is meant to catch. The
-reference's own dropdown is the source, and the identifiers pair the two sides up.
+Two kinds of comparison, because the two settings have different owners:
+
+- The helpcode schemes are named by the reference, and the labels are checked against it rather
+  than against each other - every copy here agreeing on the wrong name is exactly the state this
+  exists to catch. The identifiers pair the two sides up.
+- The paging preset is this platform's own (the reference offers seven independent switches, not a
+  three-way preset), so nothing upstream can settle its wording. What is checked is that the two
+  macOS surfaces showing it agree.
 
 The reference checkout is optional. Without it the check reports what it would have needed and
 passes, the same as every other stage that depends on something not every machine has - but the
@@ -139,7 +144,7 @@ def macos_backend() -> dict[str, str]:
     source = (ROOT / "platforms/macos/src/backend/settings/BackendSettingsView.swift").read_text(
         encoding="utf-8"
     )
-    labels = re.search(r'helpcode_schema":\s*names = \[([^\]]*)\]', source)
+    labels = re.search(r'helpcode_schema":\s*names = \[(.*)$', source, re.M)
     assert labels, "the macOS backend page no longer names the helpcode schemes"
     # The backend page indexes its names by the stored integer, and that order is the C++ one.
     identifiers = (ROOT / "platforms/macos/src/settings/HelpcodeSchemaPreference.h").read_text(
@@ -162,6 +167,39 @@ SURFACES = {
     "the macOS backend page": macos_backend,
     "the Linux menus": linux_menus,
 }
+
+
+def paging_preset() -> int:
+    """The macOS paging preset, named twice on one platform.
+
+    `platform.macos.candidate_page_shortcut` is this platform's own three-way preset - it is what
+    the shared seven-switch navigation setting falls back to for a profile that predates it - and
+    the settings window and the backend page each spell its choices out. Nothing upstream can
+    settle the wording, so what has to hold is that the two agree; they did not, and a reader
+    comparing the two screens had to work out that 「方括号」 and 「[ / ]」 were one choice.
+    """
+    window_source = (ROOT / "platforms/macos/src/settings/AppearancePreferences.mm").read_text(
+        encoding="utf-8"
+    )
+    window = re.search(r"\[_pageShortcutButton addItemsWithTitles:@\[(.*?)\]\];", window_source)
+    assert window, "the macOS settings window no longer titles the paging preset"
+    backend_source = (
+        ROOT / "platforms/macos/src/backend/settings/BackendSettingsView.swift"
+    ).read_text(encoding="utf-8")
+    # The choices contain a bracket of their own (`[ / ]`), so the array cannot be matched by
+    # stopping at the first `]`. Take the rest of the line and read the quoted strings out of it.
+    backend = re.search(r'candidate_page_shortcut":\s*names = \[(.*)$', backend_source, re.M)
+    assert backend, "the macOS backend page no longer names the paging preset"
+    in_window = re.findall(r'@"([^"]+)"', window.group(1))
+    in_backend = re.findall(r'"([^"]+)"', backend.group(1))
+    if in_window == in_backend:
+        return 0
+    print(
+        f"FAIL the macOS settings window names the paging choices {in_window} where the backend "
+        f"page names them {in_backend}; they are one setting",
+        file=sys.stderr,
+    )
+    return 1
 
 
 def main() -> int:
@@ -210,12 +248,15 @@ def main() -> int:
                 )
                 failures += 1
 
+    failures += paging_preset()
+
     if failures:
         return 1
     print(
         f"helpcode schema labels: {len(copies)} surfaces name the same "
         f"{len(copies[first])} schemes, matching {source}"
     )
+    print("candidate paging preset: the two macOS surfaces name its choices the same way")
     return 0
 
 

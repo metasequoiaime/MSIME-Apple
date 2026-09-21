@@ -205,11 +205,12 @@ python3 scripts/test-no-host-dialogs.py || fail "host dialogs"
 note "reference config coverage"
 python3 scripts/test-reference-config-coverage.py || fail "reference config coverage"
 
-# The checks above compare identifiers, and an identifier being right says nothing about the name
-# the user reads next to it: both Linux menus spelled the 首右 helpcode schemes 搜狗, which is a
-# different company's input method, and every identifier around them was correct.
-note "helpcode schema labels"
-python3 scripts/test-helpcode-schema-labels.py || fail "helpcode schema labels"
+# The checks above compare identifiers, and an identifier being right says nothing about the words
+# printed next to it: both Linux menus spelled the 首右 helpcode schemes 搜狗, which is a different
+# company's input method, and the macOS backend page named the paging choices in words where the
+# settings window showed the keys. Every identifier around both was correct.
+note "settings label parity"
+python3 scripts/test-settings-label-parity.py || fail "settings label parity"
 
 # A quick phrase ends up in the candidate pipe's text field, whose size the Engine declares. The
 # limit on it was six bare literals across three crates, none attached to that header, so moving
@@ -632,6 +633,40 @@ fi
 macos_configured() {
   [ -f "$MSIME_MACOS_BUILD/build.ninja" ] || [ -f "$MSIME_MACOS_BUILD/Makefile" ]
 }
+
+# The one dependency that configure refuses without. It was recorded as absent from this machine
+# and it was not - the same wrong call as the container runtime, the Android SDK, Xcode and DevEco,
+# and this is the target platform, so a skip here costs more than any of them. Look where a copy
+# actually tends to be before concluding anything, and configure the build when one is found: the
+# host library Cargo already built in this run is the other half, and both are cheap next to the
+# platform going unbuilt.
+macos_sparkle_root() {
+  if [ -n "${MSIME_SPARKLE_ROOT:-}" ]; then
+    printf '%s\n' "$MSIME_SPARKLE_ROOT"
+    return 0
+  fi
+  for candidate in "$HOME/deps/Sparkle-2.9.6" "$HOME/msime-shared/sparkle"; do
+    [ -d "$candidate/Sparkle.framework" ] && printf '%s\n' "$candidate" && return 0
+  done
+  return 1
+}
+
+if [ "$apple_host" -eq 1 ] && ! macos_configured; then
+  if sparkle_root=$(macos_sparkle_root); then
+    note "configure: macos"
+    # The workspace stage above checks rather than builds, so the static library configure insists
+    # on may not exist yet even though everything needed to produce it does.
+    [ -f target/debug/libmsime_host_api.a ] ||
+      cargo build -p msime-host-api >/dev/null 2>&1 ||
+      echo "macos: could not build msime-host-api"
+    if cmake -S platforms/macos -B "$MSIME_MACOS_BUILD" \
+      -DMSIME_SPARKLE_ROOT="$sparkle_root" -DCMAKE_BUILD_TYPE=Debug >/dev/null 2>&1; then
+      echo "macos: configured against Sparkle at $sparkle_root"
+    else
+      echo "macos: configure failed against Sparkle at $sparkle_root, leaving the stage skipped"
+    fi
+  fi
+fi
 
 note "compile: macos"
 if macos_configured; then
