@@ -31,14 +31,12 @@ def main() -> int:
             "    } catch (error)", session.index("      if (decision.queued)")
         )
     ]
-    stop = scheduler.find("this.stop()")
-    restart = scheduler.find("this.start(")
     required = {
         "four-entry native batch": ".take(4)" in store,
         "idle sync before Engine session": start < drain < create,
-        "two-second yield": "PERSONAL_DICTIONARY_RETRY_MS: number = 2000" in session,
+        "two-second yield": "IDLE_DICTIONARY_RETRY_MS: number = 2000" in session,
         "composition guard": "this.composing() || this.isInLocalMode()" in scheduler,
-        "Engine session release": stop >= 0 and restart >= 0 and stop < restart,
+        "Engine session release": "this.restartIdleSession('personal dictionary queue')" in scheduler,
         "mode restoration": "client.setEnglishMode" in scheduler
         and "client.setNineKeyMode" in scheduler,
         "remaining work rescheduled": "this.schedulePersonalDictionaryDrain();" in scheduler,

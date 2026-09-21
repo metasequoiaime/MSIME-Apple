@@ -545,6 +545,27 @@ interface SnapshotQueueProcessReply {
   error?: string;
 }
 
+interface SnapshotQueueRequestState {
+  status: string;
+}
+
+interface SnapshotQueueStateValue {
+  request?: SnapshotQueueRequestState | null;
+}
+
+interface SnapshotQueueStateReply {
+  ok: boolean;
+  value?: SnapshotQueueStateValue;
+  error?: string;
+}
+
+interface SnapshotQueueStateAction {
+  operation: string;
+  directory: string;
+  options: Object;
+  acknowledge: boolean;
+}
+
 // Only the fields the keyboard acts on are declared. The rest of the document is forwarded to create
 // untouched, so naming it here would only invite the two shapes to drift apart.
 interface PreparedPreferences {
@@ -788,7 +809,7 @@ enum InputCommand {
 }
 
 const JAPANESE_SCHEME: number = 3;
-const PERSONAL_DICTIONARY_RETRY_MS: number = 2000;
+const IDLE_DICTIONARY_RETRY_MS: number = 2000;
 
 /**
  * Owns the native session for the lifetime of the extension ability and turns key presses into
@@ -803,6 +824,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   private inputClient: inputMethodEngine.InputClient | undefined = undefined;
   private personalDictionarySettled: boolean = true;
   private personalDictionaryTimer: number = -1;
+  private snapshotOptions: Object | undefined = undefined;
+  private snapshotQueueTimer: number = -1;
   private editorGeneration: number = 0;
   // Editor mutations are echoed asynchronously through KeyboardDelegate.textChange. Keep the
   // count raised until those callbacks arrive so our own commit cannot be mistaken for a host edit
@@ -1070,6 +1093,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       const requested: PreparedOptions = prepared.value;
       requested.phrase_preedit = true;
       options = JSON.stringify(requested);
+      this.snapshotOptions = requested;
       this.processDictionarySnapshot(requested, stateRoot);
       const preferences: PreparedPreferences = prepared.value.preferences;
       this.clipboardHistoryEnabled = ClipboardHistoryPreferencePolicy.enabled(
@@ -1233,6 +1257,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.handle = created.value.session;
       KeyboardLog.info(`session ${this.handle} created`);
       this.schedulePersonalDictionaryDrain();
+      this.scheduleDictionarySnapshotPoll();
       return true;
     } catch (error) {
       // A response that will not parse means the ABI moved underneath us. Refusing to start is
@@ -1286,22 +1311,67 @@ export class KeyboardSession implements HardwareKeyTarget {
         this.schedulePersonalDictionaryDrain();
         return;
       }
-      const attached: inputMethodEngine.InputClient | undefined = this.inputClient;
-      const english: boolean = this.englishMode;
-      const nineKey: boolean = this.nineKeyMode;
-      this.stop();
-      if (!this.start(this.resourceDirectory, this.stateDirectory, this.systemDark)) {
-        KeyboardLog.error('personal dictionary queue left the session unavailable');
+      this.restartIdleSession('personal dictionary queue');
+    }, IDLE_DICTIONARY_RETRY_MS);
+  }
+
+  /** Poll the cross-process snapshot queue just as the Apple worker timer does. */
+  private scheduleDictionarySnapshotPoll(): void {
+    if (this.snapshotQueueTimer >= 0 || this.handle === 0) return;
+    this.snapshotQueueTimer = setTimeout((): void => {
+      this.snapshotQueueTimer = -1;
+      if (this.composing() || this.isInLocalMode()) {
+        this.scheduleDictionarySnapshotPoll();
         return;
       }
-      this.englishMode = english;
-      this.nineKeyMode = nineKey;
-      if (attached !== undefined && this.inputClient === attached) {
-        this.apply(client.focus(this.handle, true));
-        this.applyView(client.setEnglishMode(this.handle, english));
-        this.applyView(client.setNineKeyMode(this.handle, nineKey));
+      if (this.dictionarySnapshotNeedsWork()) {
+        this.restartIdleSession('snapshot queue');
+        return;
       }
-    }, PERSONAL_DICTIONARY_RETRY_MS);
+      this.scheduleDictionarySnapshotPoll();
+    }, IDLE_DICTIONARY_RETRY_MS);
+  }
+
+  /** Querying queue state takes no Engine maintenance lock and never acknowledges terminal state. */
+  private dictionarySnapshotNeedsWork(): boolean {
+    if (this.snapshotOptions === undefined || this.stateDirectory.length === 0) return false;
+    try {
+      const action: SnapshotQueueStateAction = {
+        operation: 'state', directory: `${this.stateDirectory}/dictionary-snapshots`,
+        options: this.snapshotOptions, acknowledge: false
+      };
+      const reply: SnapshotQueueStateReply =
+        JSON.parse(client.snapshotQueue(JSON.stringify(action))) as SnapshotQueueStateReply;
+      if (!reply.ok) {
+        KeyboardLog.error(`snapshot queue poll refused: ${reply.error ?? 'snapshot_unavailable'}`);
+        return false;
+      }
+      const request: SnapshotQueueRequestState | null | undefined = reply.value?.request;
+      return request !== undefined && request !== null
+        && (request.status === 'queued' || request.status === 'preparing');
+    } catch (error) {
+      KeyboardLog.error(`snapshot queue poll unavailable: ${describeError(error)}`);
+      return false;
+    }
+  }
+
+  /** Rebuild an idle Engine session without changing the editor-visible input mode. */
+  private restartIdleSession(reason: string): void {
+    const attached: inputMethodEngine.InputClient | undefined = this.inputClient;
+    const english: boolean = this.englishMode;
+    const nineKey: boolean = this.nineKeyMode;
+    this.stop();
+    if (!this.start(this.resourceDirectory, this.stateDirectory, this.systemDark)) {
+      KeyboardLog.error(`${reason} left the session unavailable`);
+      return;
+    }
+    this.englishMode = english;
+    this.nineKeyMode = nineKey;
+    if (attached !== undefined && this.inputClient === attached) {
+      this.apply(client.focus(this.handle, true));
+      this.applyView(client.setEnglishMode(this.handle, english));
+      this.applyView(client.setNineKeyMode(this.handle, nineKey));
+    }
   }
 
   /** Whether the Engine's output is being converted to traditional. */
@@ -1911,6 +1981,10 @@ export class KeyboardSession implements HardwareKeyTarget {
       clearTimeout(this.personalDictionaryTimer);
       this.personalDictionaryTimer = -1;
     }
+    if (this.snapshotQueueTimer >= 0) {
+      clearTimeout(this.snapshotQueueTimer);
+      this.snapshotQueueTimer = -1;
+    }
     if (this.handle !== 0) {
       client.destroy(this.handle);
       this.handle = 0;
@@ -2035,7 +2109,7 @@ export class KeyboardSession implements HardwareKeyTarget {
         KeyboardLog.error(`snapshot queue refused: ${reply.error ?? 'snapshot_unavailable'}`);
       }
     } catch (error) {
-      // The durable request remains queued/preparing. The next keyboard start retries the UUID.
+      // The durable request remains queued/preparing. The idle poll retries the same UUID.
       KeyboardLog.error(`snapshot queue unavailable: ${describeError(error)}`);
     }
   }

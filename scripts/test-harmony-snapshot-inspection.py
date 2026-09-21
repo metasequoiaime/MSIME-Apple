@@ -46,6 +46,11 @@ def main() -> int:
         in account,
         "idle queue worker": "this.processDictionarySnapshot(requested, stateRoot)" in keyboard
         and "operation: 'process'" in keyboard,
+        "live queue poll": "this.scheduleDictionarySnapshotPoll()" in keyboard
+        and "operation: 'state'" in keyboard
+        and "acknowledge: false" in keyboard,
+        "idle session rebuild": "this.dictionarySnapshotNeedsWork()" in keyboard
+        and "this.restartIdleSession('snapshot queue')" in keyboard,
     }
     problems = [name for name, present in required.items() if not present]
     if "response.body.split(" in download:

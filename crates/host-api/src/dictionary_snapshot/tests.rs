@@ -4,6 +4,39 @@ fn snapshot_module_is_present() {
 }
 
 #[test]
+fn queue_state_can_be_polled_while_an_engine_session_holds_shared_access() {
+    use msime_client_core::dictionary::access::DictionaryAccess;
+    use msime_client_core::preferences::Preferences;
+    use std::fs;
+
+    let root = tempfile::tempdir().unwrap();
+    for name in ["resources", "user", "cache", "dictionaries"] {
+        fs::create_dir(root.path().join(name)).unwrap();
+    }
+    let path = |name: &str| root.path().join(name).to_string_lossy().into_owned();
+    let options: super::HostOptions = serde_json::from_value(serde_json::json!({
+        "api_version": 1,
+        "resources": path("resources"),
+        "user_data": path("user"),
+        "cache": path("cache"),
+        "dictionaries": path("dictionaries"),
+        "preferences": Preferences::default(),
+    }))
+    .unwrap();
+    let _session =
+        DictionaryAccess::try_session(&root.path().join("user"), &root.path().join("dictionaries"))
+            .unwrap()
+            .unwrap();
+    let queue_root = tempfile::tempdir_in(root.path()).unwrap();
+    let queue = super::snapshot_queue(queue_root.path().to_str().unwrap()).unwrap();
+
+    let state = super::snapshot_queue_state(&queue, options, false).unwrap();
+
+    assert!(state["request"].is_null());
+    assert!(state["localVersion"].as_str().is_some());
+}
+
+#[test]
 fn inspection_requires_the_complete_counted_snapshot_envelope() {
     use sha2::{Digest, Sha256};
     use std::fs;
