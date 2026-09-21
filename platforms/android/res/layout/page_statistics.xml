@@ -13,6 +13,32 @@
         android:orientation="vertical"
         android:padding="16dp">
 
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:gravity="center_vertical"
+            android:orientation="horizontal">
+
+            <TextView
+                android:layout_width="0dp"
+                android:layout_height="wrap_content"
+                android:layout_weight="1"
+                android:layout_marginStart="4dp"
+                android:text="统计"
+                android:textColor="@color/ink"
+                android:textSize="19sp"
+                android:textStyle="bold" />
+
+            <com.google.android.material.button.MaterialButton
+                android:id="@+id/statistics_menu"
+                style="@style/Widget.Material3.Button.IconButton"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:contentDescription="统计选项"
+                app:icon="@drawable/ic_statistics_menu"
+                app:iconTint="@color/ink" />
+        </LinearLayout>
+
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
@@ -203,61 +229,6 @@
                 android:textSize="12sp" />
         </LinearLayout>
 
-        <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:layout_marginStart="4dp"
-            android:text="记录"
-            android:textColor="@color/text_secondary"
-            android:textSize="13sp" />
-
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            app:cardCornerRadius="18dp"
-            app:cardElevation="1dp"
-            app:cardBackgroundColor="@color/surface">
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="14dp">
-
-                <com.google.android.material.materialswitch.MaterialSwitch
-                    android:id="@+id/statistics_enabled"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:text="记录打字统计"
-                    android:textColor="@color/ink"
-                    android:textSize="16sp" />
-
-                <TextView
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="14dp"
-                    android:text="保留每日明细"
-                    android:textColor="@color/ink"
-                    android:textSize="16sp" />
-
-                <com.google.android.material.chip.ChipGroup
-                    android:id="@+id/statistics_retention"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    app:singleSelection="true"
-                    app:selectionRequired="true" />
-
-                <com.google.android.material.button.MaterialButton
-                    android:id="@+id/statistics_reset"
-                    style="@style/Widget.Material3.Button.TextButton"
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="8dp"
-                    android:text="清除全部统计" />
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
 
         <TextView
             android:layout_width="match_parent"

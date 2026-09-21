@@ -4,6 +4,8 @@
     <color name="forest">#185C48</color>
     <color name="needle">#4D8A72</color>
     <color name="mist">#F3F7F5</color>
+    <!-- 占比图的梯度末端；起点是 forest。同一条品牌绿的明度梯度，不是八个互不相干的色相。 -->
+    <color name="chart_ramp_end">#A8D2C0</color>
     <color name="cone">#A7673B</color>
     <color name="ink">#14231D</color>
     <color name="surface">#FFFFFF</color>

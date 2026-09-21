@@ -2,8 +2,11 @@ package app.msime.client.home;
 
 import android.os.Bundle;
 import android.view.LayoutInflater;
+import android.view.MenuItem;
+import android.view.SubMenu;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.PopupMenu;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
@@ -11,10 +14,7 @@ import app.msime.client.R;
 import app.msime.client.TypingStatisticsModel;
 import app.msime.client.TypingStatisticsModel.Section;
 import com.google.android.material.button.MaterialButton;
-import com.google.android.material.chip.Chip;
-import com.google.android.material.chip.ChipGroup;
 import com.google.android.material.dialog.MaterialAlertDialogBuilder;
-import com.google.android.material.materialswitch.MaterialSwitch;
 import com.google.android.material.tabs.TabLayout;
 import java.time.LocalDate;
 import java.util.List;
@@ -30,15 +30,16 @@ import java.util.Map;
  */
 public final class StatisticsFragment extends HomeTabFragment {
     /** 趋势默认画 30 天；记录不足 30 天就画到最早那条。 */
-    private static final int DEFAULT_TREND_DAYS = 30;
-    private static final int MIN_TREND_DAYS = 7;
+    /** 趋势最多画一年：引擎那边每日明细就保留 366 天，再往前没有数据可画。 */
+    private static final int TREND_DAY_LIMIT = 366;
+    /** 下限三十天，和 Apple 一致：一个月以下看不出「这个月比上个月多」。 */
+    private static final int TREND_DAY_FLOOR = 30;
 
     private static final Map<String, String> RETENTIONS = retentions();
 
     private Section section = Section.TREND;
     @Nullable private TypingStatisticsModel statistics;
     @Nullable private String selectedDay;
-    private boolean applyingState;
 
     @Override public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup parent,
                                        @Nullable Bundle state) {
@@ -59,30 +60,7 @@ public final class StatisticsFragment extends HomeTabFragment {
             @Override public void onTabReselected(TabLayout.Tab tab) {}
         });
 
-        ChipGroup retention = view.findViewById(R.id.statistics_retention);
-        for (Map.Entry<String, String> entry : RETENTIONS.entrySet()) {
-            Chip chip = new Chip(requireContext());
-            chip.setText(entry.getValue());
-            chip.setTag(entry.getKey());
-            chip.setCheckable(true);
-            chip.setId(View.generateViewId());
-            retention.addView(chip);
-        }
-        retention.setOnCheckedStateChangeListener((group, ids) -> {
-            if (applyingState || ids.isEmpty()) return;
-            View chip = group.findViewById(ids.get(0));
-            if (chip == null) return;
-            String value = String.valueOf(chip.getTag());
-            HostTask.run(this, context -> HostStore.setStatisticsRetention(context, value),
-                this::adopt);
-        });
-
-        MaterialSwitch enabled = view.findViewById(R.id.statistics_enabled);
-        enabled.setOnCheckedChangeListener((button, checked) -> {
-            if (applyingState) return;
-            HostTask.run(this, context -> HostStore.setStatisticsEnabled(context, checked),
-                this::adopt);
-        });
+        view.findViewById(R.id.statistics_menu).setOnClickListener(this::showMenu);
 
         HeatmapView heatmap = view.findViewById(R.id.statistics_heatmap);
         heatmap.setOnDayPicked(picked -> {
@@ -96,16 +74,56 @@ public final class StatisticsFragment extends HomeTabFragment {
             render();
         });
 
-        MaterialButton reset = view.findViewById(R.id.statistics_reset);
-        reset.setOnClickListener(ignored -> new MaterialAlertDialogBuilder(requireContext())
-            .setTitle("清除全部统计")
-            .setMessage("今日、累计和全部分类计数都会归零，且无法恢复。键盘会从下一次输入重新开始记录。")
-            .setNegativeButton("取消", null)
-            .setPositiveButton("清除", (dialog, which) -> HostTask.run(this,
-                context -> HostStore.resetStatistics(context), this::adopt))
-            .show());
-
         reload();
+    }
+
+    /**
+     * 记录开关、保留期、刷新和清空都收在这后面。
+     *
+     * <p>They used to sit in a card under whichever tab was open, so every switch between 趋势 and
+     * 方案 meant scrolling past the same three controls again. This page is for reading numbers;
+     * the controls are for the once in a while you change something. The Apple app moved them to
+     * the same place for the same reason.
+     */
+    private void showMenu(View anchor) {
+        if (statistics == null) return;
+        PopupMenu menu = new PopupMenu(requireContext(), anchor);
+        MenuItem record = menu.getMenu().add("记录打字统计");
+        record.setCheckable(true);
+        record.setChecked(statistics.enabled());
+        record.setOnMenuItemClickListener(item -> {
+            boolean next = !statistics.enabled();
+            HostTask.run(this, context -> HostStore.setStatisticsEnabled(context, next), this::adopt);
+            return true;
+        });
+        SubMenu retention = menu.getMenu().addSubMenu("保留每日明细");
+        for (Map.Entry<String, String> entry : RETENTIONS.entrySet()) {
+            String key = entry.getKey();
+            MenuItem item = retention.add(entry.getValue());
+            item.setCheckable(true);
+            item.setChecked(key.equals(statistics.retention()));
+            item.setOnMenuItemClickListener(ignored -> {
+                HostTask.run(this, context -> HostStore.setStatisticsRetention(context, key),
+                    this::adopt);
+                return true;
+            });
+        }
+        retention.setGroupCheckable(0, true, true);
+        menu.getMenu().add("刷新统计").setOnMenuItemClickListener(item -> {
+            reload();
+            return true;
+        });
+        menu.getMenu().add("清空统计").setOnMenuItemClickListener(item -> {
+            new MaterialAlertDialogBuilder(requireContext())
+                .setTitle("清除全部统计")
+                .setMessage("今日、累计和全部分类计数都会归零，且无法恢复。键盘会从下一次输入重新开始记录。")
+                .setNegativeButton("取消", null)
+                .setPositiveButton("清除", (dialog, which) -> HostTask.run(this,
+                    context -> HostStore.resetStatistics(context), this::adopt))
+                .show();
+            return true;
+        });
+        menu.show();
     }
 
     // The keyboard is a separate process and has been recording while this screen was away.
@@ -153,35 +171,22 @@ public final class StatisticsFragment extends HomeTabFragment {
         MaterialButton scope = view.findViewById(R.id.statistics_scope_clear);
         scope.setVisibility(scoped ? View.VISIBLE : View.GONE);
 
-        applyingState = true;
-        MaterialSwitch enabled = view.findViewById(R.id.statistics_enabled);
-        enabled.setChecked(statistics.enabled());
-        ChipGroup retention = view.findViewById(R.id.statistics_retention);
-        for (int index = 0; index < retention.getChildCount(); index++) {
-            View chip = retention.getChildAt(index);
-            if (chip instanceof Chip value && statistics.retention().equals(value.getTag())) {
-                retention.check(value.getId());
-            }
-        }
-        applyingState = false;
-
         boolean trend = section == Section.TREND;
         trendSection.setVisibility(trend ? View.VISIBLE : View.GONE);
         distributionSection.setVisibility(trend ? View.GONE : View.VISIBLE);
         if (trend) {
-            // 画到最早那条记录为止：把 30 天固定死，会给一个用了三天的人画二十七天的零，
-            // 那条线读起来像是刚刚才开始用，而不是刚刚才装上。一周是下限，两个点不成其为趋势。
+            // 画到最早那条记录为止，上限一年：数据本来就攒着一年，固定三十天看不出月与月之间的差。
             int span = statistics.recordedSpan(day);
-            int days = span <= 0 ? DEFAULT_TREND_DAYS
-                : Math.min(DEFAULT_TREND_DAYS, Math.max(MIN_TREND_DAYS, span));
+            int days = span <= 0 ? TREND_DAY_FLOOR
+                : Math.min(TREND_DAY_LIMIT, Math.max(TREND_DAY_FLOOR, span));
             int[] series = statistics.trend(day, days);
             TrendChart chart = view.findViewById(R.id.statistics_trend);
             ((TextView) view.findViewById(R.id.statistics_trend_title))
-                .setText("每日趋势 · 近 " + days + " 天");
+                .setText(days >= 360 ? "每日趋势 · 近一年" : "每日趋势 · 近 " + days + " 天");
             chart.setDaily(series);
             chart.setContentDescription("每日趋势，近 " + days + " 天，最高 " + peak(series) + " 字符");
             HeatmapView heatmap = view.findViewById(R.id.statistics_heatmap);
-            int calendarDays = DEFAULT_TREND_DAYS * 4;
+            int calendarDays = TREND_DAY_LIMIT;
             heatmap.setDaily(statistics.trend(day, calendarDays));
             heatmap.setDays(statistics.trendDays(day, calendarDays));
             heatmap.setSelected(selectedDay);
@@ -194,7 +199,14 @@ public final class StatisticsFragment extends HomeTabFragment {
         ((TextView) view.findViewById(R.id.statistics_distribution_title))
             .setText(selectedDay == null ? section.heading()
                 : section.heading() + " · " + readableDay(selectedDay));
-        ((DistributionView) view.findViewById(R.id.statistics_distribution)).setSlices(slices);
+        // 哪一块用哪种图，和 Apple 那边一致：类型看占比、模式的环心放总数、方案条目多所以排行。
+        DistributionView.Style chart = switch (section) {
+            case KIND -> DistributionView.Style.PIE;
+            case MODE -> DistributionView.Style.DONUT;
+            default -> DistributionView.Style.RANK;
+        };
+        ((DistributionView) view.findViewById(R.id.statistics_distribution))
+            .setSlices(slices, chart);
         ((TextView) view.findViewById(R.id.statistics_distribution_note)).setText(note(section));
     }
 
