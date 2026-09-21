@@ -21,8 +21,6 @@ import com.google.android.material.appbar.MaterialToolbar;
  * including the two footers -- what the keyboard sends and when is a claim, and it should read the
  * same on both platforms rather than being paraphrased per host.
  *
- * <p>使用帮助 and 反馈问题与建议 are their own screens over there and have not been ported; this page
- * links out to the site and the repository instead of pretending to carry them.
  */
 public final class AboutActivity extends AppCompatActivity {
     private static final String SITE = "https://msime.app/";
@@ -38,16 +36,22 @@ public final class AboutActivity extends AppCompatActivity {
         ((TextView) findViewById(R.id.about_version)).setText(version());
 
         LinearLayout about = findViewById(R.id.about_msime_rows);
-        addRow(about, "电脑版下载", "macOS、Windows、Linux 的安装包与指南",
+        addRow(about, R.drawable.ic_about_desktop, "电脑版下载", "macOS、Windows、Linux 的安装包与指南",
             () -> startActivity(new Intent(this, DesktopDownloadActivity.class)));
 
         LinearLayout help = findViewById(R.id.about_help_rows);
-        addRow(help, "官方网站", "msime.app", () -> open(SITE));
+        addRow(help, R.drawable.ic_about_help, "使用帮助", "启用键盘、输入方案、常见问题",
+            () -> startActivity(new Intent(this, HelpActivity.class)));
         divider(help);
-        addRow(help, "开源代码与许可证", "GitHub", () -> open(REPOSITORY));
+        addRow(help, R.drawable.ic_about_feedback, "反馈问题与建议", "在应用内写，附带版本与设备信息",
+            () -> startActivity(new Intent(this, FeedbackActivity.class)));
+        divider(help);
+        addRow(help, R.drawable.ic_about_site, "官方网站", "msime.app", () -> open(SITE));
+        divider(help);
+        addRow(help, R.drawable.ic_about_code, "开源代码与许可证", "GitHub", () -> open(REPOSITORY));
 
         LinearLayout privacy = findViewById(R.id.about_privacy_rows);
-        addRow(privacy, "隐私说明", "msime.app", () -> open(PRIVACY));
+        addRow(privacy, R.drawable.ic_about_privacy, "隐私说明", "msime.app", () -> open(PRIVACY));
     }
 
     /** `版本 1.2 (34)`, or a dash for either half that the package manager will not give up. */
@@ -73,12 +77,17 @@ public final class AboutActivity extends AppCompatActivity {
         }
     }
 
-    private void addRow(LinearLayout parent, String title, String value, Runnable action) {
+    private void addRow(LinearLayout parent, @androidx.annotation.DrawableRes int icon,
+            String title, String value, Runnable action) {
         LinearLayout row = (LinearLayout) LayoutInflater.from(this)
             .inflate(R.layout.item_setting_row, parent, false);
-        // 这几行没有图标：母版那边每行带一个 SF Symbol，Android 这边没有对应的一套字形，
-        // 与其塞六个凑数的图，不如留白。
-        row.findViewById(R.id.row_badge).setVisibility(View.GONE);
+        com.google.android.material.imageview.ShapeableImageView badge =
+            row.findViewById(R.id.row_badge);
+        badge.setImageResource(icon);
+        badge.setBackgroundTintList(android.content.res.ColorStateList.valueOf(
+            androidx.core.content.ContextCompat.getColor(this, R.color.badge_field)));
+        badge.setImageTintList(android.content.res.ColorStateList.valueOf(
+            androidx.core.content.ContextCompat.getColor(this, R.color.forest)));
         ((TextView) row.findViewById(R.id.row_title)).setText(title);
         ((TextView) row.findViewById(R.id.row_value)).setText(value);
         row.setContentDescription(title + "，" + value);
