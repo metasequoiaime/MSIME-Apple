@@ -30,6 +30,12 @@ from concurrent.futures import ThreadPoolExecutor
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 TESTS = ROOT / "platforms/windows/tests"
+# The TIP has its own tests, under its own directory, and most of them are the same kind of thing:
+# policy over contract structs with no Win32 call in the translation unit. They were outside this
+# runner only because it looked in one place, so the DLL's own decisions - which Enter commits, how
+# a candidate is owned - had the cross build as their only evidence here.
+TSF_TESTS = ROOT / "platforms/windows/tsf/tests"
+TEST_ROOTS = [TESTS, TSF_TESTS]
 SRC = ROOT / "platforms/windows/src"
 
 # Sources that build here but cannot pass here. Each is a property of the host,
@@ -63,10 +69,15 @@ ARGUMENTS = {
 # - linking arbitrary sources would drag the whole Windows build in. When the
 # host library has not been built here the three are skipped exactly like any
 # other source that needs more than itself.
-COMPANIONS = {
-    "candidate/cloud_candidate_worker.cpp": ["candidate/CloudCandidateWorker.cpp"],
-    "candidate/ai_candidate_worker.cpp": ["candidate/AiCandidateWorker.cpp"],
-    "candidate/translation_worker.cpp": ["candidate/TranslationWorker.cpp"],
+# Values are (sources relative to platforms/windows, whether they need the shared host library).
+COMPANIONS: dict[str, tuple[list[str], bool]] = {
+    "candidate/cloud_candidate_worker.cpp": (["src/candidate/CloudCandidateWorker.cpp"], True),
+    "candidate/ai_candidate_worker.cpp": (["src/candidate/AiCandidateWorker.cpp"], True),
+    "candidate/translation_worker.cpp": (["src/candidate/TranslationWorker.cpp"], True),
+    # The TIP's reply parser, which its own policy tests call. No host library: this is JSON in,
+    # struct out.
+    "tsf/input/raw_commit.cpp": (["tsf/EngineResponse.cpp"], False),
+    "tsf/input/engine_response.cpp": (["tsf/EngineResponse.cpp"], False),
 }
 COMPANION_LIBRARIES = ["-lcurl", "-lsqlite3"]
 COMPANION_FRAMEWORKS = [
@@ -88,14 +99,18 @@ def host_library() -> pathlib.Path | None:
 
 
 def companion_flags(relative: str) -> list[str] | None:
-    """Extra compiler arguments for a source that needs its class body, or None."""
-    companions = COMPANIONS.get(relative)
-    if not companions:
+    """Extra compiler arguments for a source that needs another translation unit, or None."""
+    entry = COMPANIONS.get(relative)
+    if not entry:
         return []
+    companions, needs_library = entry
+    windows = ROOT / "platforms/windows"
+    flags = [str(windows / name) for name in companions]
+    if not needs_library:
+        return flags
     library = host_library()
     if library is None:
         return None
-    flags = [str(SRC / name) for name in companions]
     flags += [str(library), *COMPANION_LIBRARIES]
     if sys.platform == "darwin":
         for framework in COMPANION_FRAMEWORKS:
@@ -116,11 +131,23 @@ def cmake_sources() -> set[str]:
     mentioned: set[str] = set()
     for lists in sorted((ROOT / "platforms/windows").rglob("CMakeLists.txt")):
         text = lists.read_text(encoding="utf-8")
-        for source in TESTS.rglob("*.cpp"):
+        for source in sources():
             relative = source.relative_to(ROOT / "platforms/windows").as_posix()
             if relative in text or source.name in text:
-                mentioned.add(source.relative_to(TESTS).as_posix())
+                mentioned.add(key_for(source))
     return mentioned
+
+
+def sources() -> list[pathlib.Path]:
+    """Every test source under either root, in a stable order."""
+    return sorted(path for root in TEST_ROOTS for path in root.rglob("*.cpp"))
+
+
+def key_for(source: pathlib.Path) -> str:
+    """The name a source is known by here: relative to its own root, prefixed for the TIP's."""
+    if TSF_TESTS in source.parents:
+        return f"tsf/{source.relative_to(TSF_TESTS).as_posix()}"
+    return source.relative_to(TESTS).as_posix()
 
 
 def include_flags() -> list[str]:
@@ -128,6 +155,8 @@ def include_flags() -> list[str]:
     # contract and host headers. Derived so a new subdirectory needs no edit.
     directories = [SRC, *(path for path in sorted(SRC.iterdir()) if path.is_dir())]
     directories += [TESTS / "core", ROOT / "vendor/MSIME-Engine/contracts", ROOT / "crates/host-api/include"]
+    # The TIP's own headers, for its own tests.
+    directories += [ROOT / "platforms/windows/tsf"]
     flags = [f"-I{path}" for path in directories if path.exists()]
     flags += [f"-I{path}" for path in EXTRA_INCLUDES if pathlib.Path(path).exists()]
     return flags
@@ -137,14 +166,17 @@ def build(
     source: pathlib.Path, flags: list[str], workspace: pathlib.Path
 ) -> tuple[pathlib.Path | None, str]:
     """(executable, reason). A null executable with a reason is a failure to report."""
-    relative = source.relative_to(TESTS).as_posix()
+    relative = key_for(source)
     binary = workspace / relative.replace("/", "_").removesuffix(".cpp")
     companions = companion_flags(relative)
     if companions is None:
         return None, ""
     # Compiling is CPU-bound and safe to do many at once.
     compiled = subprocess.run(
-        ["c++", "-std=c++20", "-w", *flags, "-o", str(binary), str(source), *companions],
+        # -fdeclspec: these sources are written for MSVC, and a `__declspec(dllexport)` on a
+        # function is not something to work around - clang accepts it behind this flag, and
+        # without it a source that is otherwise perfectly portable stops at its first line.
+        ["c++", "-std=c++20", "-w", "-fdeclspec", *flags, "-o", str(binary), str(source), *companions],
         capture_output=True,
         text=True,
     )
@@ -166,7 +198,7 @@ def build(
     )
     if any(marker in compiled.stderr for marker in ordinary):
         return None, ""
-    if source.relative_to(TESTS).as_posix() in HOST_DIFFERENCES:
+    if relative in HOST_DIFFERENCES:
         return None, ""
     first = next(
         (line for line in compiled.stderr.splitlines() if "error" in line),
@@ -177,7 +209,7 @@ def build(
 
 def execute(source: pathlib.Path, binary: pathlib.Path) -> tuple[str, str]:
     """Returns (outcome, detail) where outcome is passed / failed / excluded."""
-    relative = source.relative_to(TESTS).as_posix()
+    relative = key_for(source)
     if relative in HOST_DIFFERENCES:
         return "excluded", HOST_DIFFERENCES[relative]
     try:
@@ -209,16 +241,13 @@ def main() -> int:
         return 0
     flags = include_flags()
     built_by_cmake = cmake_sources()
-    sources = [
-        source
-        for source in sorted(TESTS.rglob("*.cpp"))
-        if source.relative_to(TESTS).as_posix() in built_by_cmake
-    ]
-    fixtures = len(list(TESTS.rglob("*.cpp"))) - len(sources)
+    candidates = sources()
+    selected = [source for source in candidates if key_for(source) in built_by_cmake]
+    fixtures = len(candidates) - len(selected)
     with tempfile.TemporaryDirectory() as directory:
         workspace = pathlib.Path(directory)
         with ThreadPoolExecutor(max_workers=os.cpu_count()) as pool:
-            builds = list(pool.map(lambda source: build(source, flags, workspace), sources))
+            builds = list(pool.map(lambda source: build(source, flags, workspace), selected))
         # Run one at a time. Some of these wait on their own timers - a worker's
         # debounce window, a lease deadline - and a gate that reds because the
         # machine was busy is a gate people learn to skip. Serial execution costs
@@ -232,7 +261,7 @@ def main() -> int:
                     else (("failed", reason) if reason else ("skipped", ""))
                 ),
             )
-            for source, (binary, reason) in zip(sources, builds)
+            for source, (binary, reason) in zip(selected, builds)
         ]
 
     failures = [

@@ -799,7 +799,13 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 **Linux 两套前端同日补上（同一批的后半）**：决策部分抽成 `platforms/linux/src/core/JapaneseConversion.h` 一个纯状态机（空格/回车各一个入口，返回「开始转换 / 步进 / 回到首条 / 提交某条 / 提交读音 / 不接管」），IBus 与 fcitx5 各自执行结果——两者别的地方差得远（一个路由 keysym 自己画候选表，一个把候选列表交给 fcitx 面板），共享的只有这个决定。提交候选时都按**屏幕上那一条的身份** select，与 IBus 空格原有的「渲染页围栏」同一个理由：实时视图可能已经比用户看到的快一代。容器门禁 20/20（新增 `linux-japanese-conversion`，七组断言含单条候选、改读音作废、无候选不接管）。
 
-**本仓 Windows 宿主仍未改，理由具体**：它的回车分两条路——候选窗开着时 TSF 侧把回车标成 `ReplyPath::Selection`，Server 直接提交高亮候选；否则才走 `MSIME_COMMIT_RAW`。要把「没按过空格就提交假名」放进去，得先决定转换状态放在 DLL 还是 Server（两边都持有一半：一个知道候选窗是否开着，一个知道方案与组字），而这条路本机既跑不起来也无法交互验证，只有交叉构建这一级证据。留作单独一批，先记下判据。
+**本仓 Windows 宿主同日也改了，但只改得动的那一半。** 先说清它的形状：回车在 TSF 一侧就地结束组字，只是把「我提交了什么」作为观察值告诉 Server（`KeyEventSink.cpp` 那段 localCommitObservation），所以 Server 改不了已经进文档的文字——这一半确实要动 DLL。而**挂着宿主引擎适配器时走的是另一条路**：`HostRawCommit.h` 的 `CommitHostRaw` 向引擎要 `MSIME_COMMIT_RAW` 再把返回的文字插进去，那是引擎驱动的提交，改得动也测得了。
+
+改法利用引擎自己的判据：`MSIME_COMMIT_READING` 只在「方案是日语且有组字」时才回答，其余一律返回空结果（`InputSession::CommitReading` 的第一行），所以 DLL 不需要知道方案——先问读音，答得上就提交假名，答不上就照旧问原文。写失败时不拿原文当第二次机会（那会在假名没进去之后把罗马字塞进文档）。
+
+顺带把原生运行器扩到 TIP 自己的测试目录：`platforms/windows/tsf/tests` 里多数同样是「对着契约结构体的纯策略」，此前只因为运行器只看一个目录而留在「需要 Windows 构建」那一堆里。加上伴随源文件表里两条（TIP 的回复解析器）与 `-fdeclspec`（这些源文件是给 MSVC 写的，clang 加这个开关就认），本机原生通过数 **68 → 79**，其中就包括这条回车用例；反向验证时它确实红。
+
+剩下的一半（DLL 就地结束组字那条路）仍未改：它要动 `platforms/windows/tsf` 的组字缓冲，且本机只有交叉构建与原生策略用例两级证据，跑不起来也无法交互验证。
 
 增量记录（2026-09-21，把「设置项是否齐全」这个问题一次性关掉，并让它保持关着）：来源把整个配置面写在一个文件里——`installer/default_config/config.default.toml`，17 个段 178 个键——这是两边现有材料里最接近「这个产品一共能被设定哪些事」的清单。本表此前按页、按控件比过好几轮，每轮都在重复同样两类假结果：**看着缺的其实是有意改名**（`y_mode` 就是 `local_modes.temporary_english`、`cn_en_mixed_input_min_chars` 就是 `mixed_input.minimum_prefix`），**看着有的其实只是某个无关标识符里恰好含同一个词**。
 
