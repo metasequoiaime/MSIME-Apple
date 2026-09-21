@@ -6443,6 +6443,14 @@ group("the candidate window does not swallow the other mouse buttons", () => {
 });
 
 group("the candidate number keeps its proportion, as the source states it", () => {
+  check(
+    !CandidateNumberFontPolicy.visible(false),
+    "a touch candidate does not draw an ordinal with no number key to answer it",
+  );
+  check(
+    CandidateNumberFontPolicy.visible(true),
+    "a 2-in-1 candidate keeps the ordinal for its physical number row",
+  );
   // `.num { font-size: 0.8em }` in every candidate stylesheet. The host used to subtract a
   // constant with a floor, which agrees with the ratio at no size at all.
   check(

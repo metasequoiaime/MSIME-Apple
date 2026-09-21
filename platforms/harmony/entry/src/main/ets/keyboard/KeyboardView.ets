@@ -1563,8 +1563,10 @@ struct KeyboardView {
         Blank().width(3).height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP * 0.55)
           .backgroundColor(this.candidatePalette().accent).borderRadius(2)
       }
-      Text(`${index + 1}`).fontSize(CandidateNumberFontPolicy.size(this.settings.candidateFontSize))
-        .fontColor(this.candidateNumberColor()).padding({ right: 4 })
+      if (CandidateNumberFontPolicy.visible(KeyboardFormFactor.isDesktop())) {
+        Text(`${index + 1}`).fontSize(CandidateNumberFontPolicy.size(this.settings.candidateFontSize))
+          .fontColor(this.candidateNumberColor()).padding({ right: 4 })
+      }
       Text(candidate.text).fontSize(this.settings.candidateFontSize)
         .fontColor(CandidateSkinPolicy.rowTextColor(candidate.highlighted,
           candidate.fixedPosition > 0, this.candidateTextColor(), this.candidateAccentColor()))
