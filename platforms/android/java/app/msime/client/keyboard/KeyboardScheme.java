@@ -1,5 +1,6 @@
 package app.msime.client;
 
+import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -63,9 +64,13 @@ public enum KeyboardScheme {
     public static List<KeyboardScheme> enabledFromPreferenceIds(List<String> ids) {
         if (ids == null) return List.of(values());
         Set<String> requested = new LinkedHashSet<>(ids);
-        List<KeyboardScheme> enabled = Arrays.stream(values())
-            .filter(candidate -> requested.contains(candidate.preferenceId)).toList();
-        return enabled.isEmpty() ? List.of(QUANPIN) : enabled;
+        // A plain loop, not `Stream#toList`: that arrived in API 34 and this host declares
+        // minSdk 28, so it compiles against the platform jar and throws on the device.
+        List<KeyboardScheme> enabled = new ArrayList<>();
+        for (KeyboardScheme candidate : values()) {
+            if (requested.contains(candidate.preferenceId)) enabled.add(candidate);
+        }
+        return enabled.isEmpty() ? List.of(QUANPIN) : List.copyOf(enabled);
     }
 
     /** Shared selected is authoritative; otherwise preserve the applied scheme or use first enabled. */

@@ -3345,7 +3345,7 @@ public final class MSIMEInputService extends InputMethodService {
 
         java.util.List<SkinChoice> saved = new java.util.ArrayList<>();
         try {
-            for (CustomSkinLibrary.Item item : CustomSkinLibrary.read(Path.of(preferencesDirectory))) {
+            for (CustomSkinLibrary.Item item : CustomSkinLibrary.read(java.nio.file.Paths.get(preferencesDirectory))) {
                 JSONObject design = item.design();
                 saved.add(new SkinChoice("custom", item.name(),
                     KeyboardSkin.customFixture(CustomKeyboardSkin.from(design), skin.dark()), design));
@@ -5636,6 +5636,10 @@ public final class MSIMEInputService extends InputMethodService {
                 if (keyboardLayer == KeyboardLayout.Layer.LETTERS) {
                     keyButton.setContentDescription(LetterKeyFacePolicy.accessibilityLabel(
                         input, chineseMode, localMode, shifted));
+                    // 字母键读作「字母 Q」而不是「按键 Q」，所以描述推导一直把它判成 action 面，
+                    // 26 键的字母因此是实心深绿的。角色说了算之后就不必靠描述去猜。
+                    if (keyButton instanceof KeyboardPressButton press)
+                        press.setKeyboardRole(KeyboardKeyRole.KEY);
                 }
                 if (keyboardLayer == KeyboardLayout.Layer.SYMBOLS) {
                     symbolKeyButtons.add(keyButton);
@@ -6700,8 +6704,9 @@ public final class MSIMEInputService extends InputMethodService {
                 }
             }
         }
+        // 分页不再进这一行：candidatePage 就在它旁边，两个 1/33 挨着显示是同一件事说了两遍。
         if (status != null) status.setText(message + preferencesNotice
-            + (dedicatedEnglish ? " · 英文输入" : "") + localMode + page
+            + (dedicatedEnglish ? " · 英文输入" : "") + localMode
             + switch (letterCase.mode()) {
                 case LOWERCASE -> "";
                 case SHIFTED -> " · Shift";
@@ -6900,8 +6905,10 @@ public final class MSIMEInputService extends InputMethodService {
         if (verticalCandidates != null) verticalCandidates.removeAllViews();
         if (candidatePaging != null) candidatePaging.removeAllViews();
         if (expandCandidates != null) expandCandidates.setVisibility(View.GONE);
+        // 这一行是组词时才有意义的控制：光标在组词串里移动、翻候选页、取消这次组词。空闲时它是
+        // 十个按不出结果的按钮，占掉候选行上方一整行。
         if (candidatePagingScroll != null)
-            candidatePagingScroll.setVisibility(hasDiagnostic ? View.GONE : View.VISIBLE);
+            candidatePagingScroll.setVisibility(idle || hasDiagnostic ? View.GONE : View.VISIBLE);
         if (view == null) {
             closeCandidatePanel();
             renderEnglishSuggestions(activeCandidates);
