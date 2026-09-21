@@ -148,6 +148,7 @@ import {
   supportedPhoto,
 } from "../entry/src/main/ets/keyboard/skin/CustomKeyboardSkin";
 import { DictionaryMaintenancePolicy } from "../entry/src/main/ets/keyboard/DictionaryMaintenancePolicy";
+import { KeyAccessibilityPolicy } from "../entry/src/main/ets/keyboard/input/KeyAccessibilityPolicy";
 import {
   AiPolishPolicy,
   MAX_POLISH_SOURCE_CHARACTERS,
@@ -577,6 +578,48 @@ group("polishing acts on what is in front of the caret, and only if it still is"
   check(
     AiPolishPolicy.replacement(withEmoji, result, withEmoji)?.deleteCount === 7,
     "the delete count follows the code points",
+  );
+});
+
+group("a key says what it does, not what it draws", () => {
+  // A key face is as short as it can be and often not a word: read aloud, `⇧` is nothing, `123` is
+  // a number and `中` is a character rather than an action. The source names every one of them.
+  check(KeyAccessibilityPolicy.symbol("；") === "符号 ；", "a symbol is read as a symbol");
+  check(KeyAccessibilityPolicy.symbol("") === "符号", "and a blank one still says what it is");
+  check(KeyAccessibilityPolicy.delete() === "删除", "the delete glyph gets a word");
+  check(KeyAccessibilityPolicy.language() === "切换中英文", "the language key names the action");
+  check(
+    KeyAccessibilityPolicy.layoutToggle(false) === "切换到数字和符号",
+    "the layout toggle names where it goes",
+  );
+  check(
+    KeyAccessibilityPolicy.layoutToggle(true) === "切换到所选输入方案",
+    "and names the other direction when it is pointing back",
+  );
+  check(KeyAccessibilityPolicy.punctuation() === "常用标点", "the comma key names its long press");
+
+  // Mid-composition space selects the highlighted candidate. Someone who cannot see the candidate
+  // row has no other way to know the key changed meaning under them.
+  check(KeyAccessibilityPolicy.space(false) === "空格", "space is space when nothing is composing");
+  check(KeyAccessibilityPolicy.space(true) === "选定", "and says so when it will select instead");
+
+  // The return key's face is already a whole word, so the spoken name is that word rather than a
+  // second description of it.
+  check(KeyAccessibilityPolicy.returnKey("搜索") === "搜索", "return reads as what it will do");
+  check(KeyAccessibilityPolicy.returnKey("") === "换行", "with a fallback when the face is empty");
+
+  const plain = KeyAccessibilityPolicy.candidate(1, "你好", "", "");
+  check(plain === "候选词 1：你好", "a candidate is numbered as it is shown");
+  // The remaining spelling turns "this word" into "this word, if you keep going" — the difference
+  // between a candidate that commits now and one that does not.
+  check(
+    KeyAccessibilityPolicy.candidate(2, "你", "hao", "") === "候选词 2：你，还需输入 hao",
+    "and says what is still to be typed",
+  );
+  check(
+    KeyAccessibilityPolicy.candidate(3, "绿", "", "，英文释义：green") ===
+      "候选词 3：绿，英文释义：green",
+    "the gloss is appended as the ported policy words it",
   );
 });
 
