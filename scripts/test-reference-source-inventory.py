@@ -109,6 +109,14 @@ ANSWERED_BY: dict[str, str] = {
     "window_hook": "platforms/windows/src/input/MaintenanceHotkey.cpp",
     "surface_theme_config": "platforms/windows/src/voice/VoiceTheme.h",
     "svg_path_geometry": "platforms/windows/msimeui/src/Controls.cpp",
+    # The document side of the reference's second candidate renderer. Its markup is vendored in
+    # packages/ui/src/upstream/candidate-themes/; these two are the contracts that fill it.
+    "candidate_window_template": "crates/client-core/src/candidate_document.rs",
+    "inline_protocol": "crates/client-core/src/candidate_document.rs",
+    # Third-party skin CSS reaching a webview document is the same policy question on both sides.
+    # The shared layer parses it into a constructed stylesheet, scopes it, drops declarations whose
+    # resources did not resolve, and discards @import along the way.
+    "skin_css_policy": "packages/ui/src/skin/skin-toolbar-css.ts",
     # Voice input.
     "voice_batch_protocol": "platforms/windows/src/voice/VoiceControlMessage.cpp",
     "voice_control_dispatch": "platforms/windows/src/voice/VoiceControllerDispatch.h",
@@ -149,10 +157,13 @@ DELIBERATELY_ABSENT: dict[str, str] = {
     # `ui_backend` survives as a configuration contract (registered RUST_ONLY in the field-drift
     # gate) so a profile carrying it still loads.
     "windows_webview2": "The candidate window has one renderer here, Direct2D. See docs/windows-parity.md.",
-    "candidate_window_template": "Markup for the WebView2 candidate renderer, which does not exist here.",
-    "inline_protocol": "The WebView2 candidate renderer's document protocol; no document, no protocol.",
-    "skin_css_policy": "Skin CSS is for the WebView2 renderer. Direct2D skins are read by CandidateSkin.h.",
-    "ui_backend_policy": "Chooses between the two renderers. With one renderer there is nothing to choose.",
+    "ui_backend_policy": (
+        "Chooses between the two renderers per surface. With one renderer there is nothing to "
+        "choose, and the key is inert here (registered RUST_ONLY in the field-drift gate). What "
+        "the policy also carries - that `d2d`, `webview` and `web` are spellings this product has "
+        "written - is migrated into UiBackend's serde aliases, so a profile written by either side "
+        "is read rather than rejected."
+    ),
     "webview_utils": "WebView2 host helpers. The webview here is Tauri's, which brings its own.",
     # Engine-owned. These call into the Engine's own tables; the Engine is vendored whole, so the
     # calling code lives in the shared runtime rather than being reimplemented per platform.
