@@ -1773,3 +1773,23 @@ if let Some(route) = launch_route_from_args(&args) { ... }
 真正的候选过滤在这一层验不了——那需要真实词库，而这些单元测试跑在空目录上。macOS 那几处改动本机也编不了：`platforms/macos` 的 CMake 配置要求 Sparkle 2.9.6，这台机器上没有，整场会话里 macOS 这一级都是 skipped；只对能独立编译的两个头文件做了 `-fsyntax-only`。`--quick` 全绿（其中 harmony 预构建包那道门禁又一次因为共享 UI 改动而拦下，已重新生成）。
 
 同一批里修掉一个自己踩出来的门禁坑：`scripts/verify-local.sh` 判断 macOS 那一级要不要跑，用的是「`target/macos-isolated` 目录是否存在」。我为了在本机跑 macOS 用例去 configure 了一次，因为缺 Sparkle 2.9.6 而以 `FATAL_ERROR` 失败——但 CMake 在报错之前已经写下了目录和 `CMakeCache.txt`，于是门禁认为「已配置」，随后的编译与 ctest 两级一起变红。判据改成「有没有生成出构建系统文件」（`build.ninja` / `Makefile`），那是只有走完的 configure 才会写的东西。两个方向都验过：只有 `CMakeCache.txt` 时跳过，有 `Makefile` 时才跑。
+
+增量记录（2026-09-21，Windows 第三十六批：把「完整」落到文件级的记账上）：目标起点 `ac48a74ba`。
+
+此前三道检查都是从**外面**看来源：它能被配置成什么（180 个键）、它的界面能请求什么（46 个动作）、它发布过什么（19 条 changelog bullet）。三道都答不了迁移真正要回答的那个问题——**它的源码树里还有没有东西是本仓没有对应物的**。README 的功能清单太粗（二十几条），一条「词库管理」背后是十三个文件。
+
+新增 `scripts/test-reference-source-inventory.py`，走完来源 `windows/`（TSF 文本服务）、`server/src/`（承载候选窗、工具栏、设置程序与词库的进程）和 `ui/src/`（它自研的 Direct2D 控件框架）下全部 **274 个 `.cpp`/`.h`**，每个必须以三种方式之一落地：
+
+1. 本仓有同名文件（容许两边的命名习惯差异）；
+2. `ANSWERED_BY` 指名本仓哪个文件以另一个名字答复它，**且那个路径必须存在**；
+3. `DELIBERATELY_ABSENT` 写明为什么本仓不需要答复它。
+
+三者都不沾的就是发现：一个没人记过账的文件。
+
+**当前结果：274 个全部有着落——159 个同名对上，99 个改名后对上，16 个有意没有。** 有意没有的集中在两处：来源候选窗有 Direct2D 和 WebView2 两套渲染后端，本仓只有 Direct2D（`windows_webview2` / `candidate_window_template` / `inline_protocol` / `skin_css_policy` / `ui_backend_policy` / `webview_utils` 六个文件），`ui_backend` 作为配置契约保留；以及 emoji / 颜文字 / 英文三个 `*_ime` 属于 Engine 自己的表，由共享运行时去问，不在各平台重写。另有 `serial_task_queue`——它把来源设置窗的后台工作串到一个线程上，而本仓的设置窗是 Tauri 应用，命令本来就跑在它的异步运行时上。
+
+第二条形式刻意指**路径**而不是一句话：一句「已经支持」谁都能写，而一个必须存在的路径会在本仓自己把文件删掉或改名时立刻报红。第三条形式的理由是该被怀疑着读的部分——迁移要藏起没做的事，就藏在那里——所以每条都写「用户拿到的是什么」，而不是「换了种方式处理」。
+
+反向验证两条路径：删掉 `cloud_ime` 那条记录，它报 `nothing here is recorded as answering this file`；把它指向一个不存在的文件，它报 `recorded as answered by ... which does not exist`。写的时候也真的被自己抓到过一次——`ime_paths` 最初写成 `system/ServerResources.h`，而那个文件在 `ipc/` 下，检查当场报红。
+
+至此四道检查从四个方向回答同一个问题，每次 `--quick` 重新回答一遍：配置能力、界面能力、发布过的功能、以及源码文件。

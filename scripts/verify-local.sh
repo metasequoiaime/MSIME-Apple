@@ -166,6 +166,12 @@ python3 scripts/test-reference-ui-actions.py || fail "reference ui actions"
 note "reference feature log"
 python3 scripts/test-reference-feature-log.py || fail "reference feature log"
 
+# The three checks above look at the reference from the outside - its configuration, its interface,
+# its changelog. This one walks its source tree, which is the only place a file nobody migrated can
+# still be hiding.
+note "reference source inventory"
+python3 scripts/test-reference-source-inventory.py || fail "reference source inventory"
+
 # A settings-page key the Rust document has no field for does not get dropped:
 # deny_unknown_fields fails the whole save. Cheap enough to run in --quick,
 # and it is the pre-merge gate that would have caught it.
