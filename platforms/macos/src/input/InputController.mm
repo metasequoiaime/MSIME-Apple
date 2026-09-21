@@ -2743,18 +2743,25 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
 
 - (NSDictionary *)runtimeOptions { return MSIMELoadRuntimeOptions(); }
 
+// What this host asks a session for, on top of what the options file carries.
+//
+// The file is shared with hosts that render a view differently, so a behaviour this host draws is
+// requested here rather than written into it. Its own function because the session it produces is
+// built inside prepareSession, where a test would have to stand up a whole Engine to see it.
+static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
+    if (![runtimeOptions isKindOfClass:NSDictionary.class]) return nil;
+    NSMutableDictionary *requested = [runtimeOptions mutableCopy];
+    // This host draws view.phrase_prefix, so a phrase being assembled out of several selections
+    // stays in the composition instead of arriving in the document one piece at a time.
+    requested[@"phrase_preedit"] = @YES;
+    return requested;
+}
+
 - (void)prepareSession {
     if (MSIMEEnsureAnonymousAccount != nullptr) MSIMEEnsureAnonymousAccount();
     if (!_session) {
-        NSDictionary *options = [self runtimeOptions];
+        NSDictionary *options = MSIMESessionOptions([self runtimeOptions]);
         if (options) {
-            // This host draws view.phrase_prefix, so a phrase being assembled out of several
-            // selections stays in the composition instead of arriving in the document one piece at
-            // a time. The options file is shared with hosts that do not, which is why it is asked
-            // for here rather than written into the file.
-            NSMutableDictionary *requested = [options mutableCopy];
-            requested[@"phrase_preedit"] = @YES;
-            options = requested;
             _session = [[MSIMEClientSession alloc] initWithOptions:options error:nil];
             _requestedPageSize = 0;
             id directory = options[@"preferences_directory"];

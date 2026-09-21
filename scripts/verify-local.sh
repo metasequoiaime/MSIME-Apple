@@ -212,6 +212,13 @@ python3 scripts/test-handwriting-limits.py || fail "handwriting limits"
 note "cloud request budget"
 python3 scripts/test-cloud-request-budget.py || fail "cloud request budget"
 
+# A host either holds a half-composed phrase in the composition and draws it, or
+# commits each piece as it is picked. Half of that is invisible in the worst
+# way: a host that asks for the piece to be held and draws it nowhere shows
+# nothing at all for text the user already chose.
+note "phrase preedit hosts"
+python3 scripts/test-phrase-preedit-hosts.py || fail "phrase preedit hosts"
+
 # Whether the candidate right-click actions are offered is decided on the
 # Engine's CandidateSource value, which arrives as a number this side cannot
 # name in C++. Inserting a source there shifts every later one, compiles

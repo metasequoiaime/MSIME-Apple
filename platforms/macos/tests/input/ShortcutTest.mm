@@ -1242,6 +1242,31 @@ static void TestFullWidth(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     assert(client.committed == nil && control.state == NSControlStateValueOff);
 }
 
+// What this host asks a session for, on top of the options file. The file is shared with hosts that
+// render differently, so a behaviour this one draws has to be requested rather than written into it -
+// and if that request is ever dropped, nothing else here notices: a phrase being assembled would go
+// back to arriving in the document one piece at a time, which looks like ordinary typing.
+static void TestSessionOptions() {
+    assert(!MSIMESessionOptions(nil));
+    assert(!MSIMESessionOptions((NSDictionary *)@"not a dictionary"));
+
+    NSDictionary *file = @{@"api_version":@1, @"resources":@"/synthetic/resources",
+        @"preferences":@{@"scheme":@"quanpin"}};
+    NSDictionary *requested = MSIMESessionOptions(file);
+    assert([requested[@"phrase_preedit"] isEqual:@YES]);
+    // Everything the file carried is passed through untouched, including nested objects.
+    for (NSString *key in file) assert([requested[key] isEqual:file[key]]);
+    assert(requested.count == file.count + 1);
+    // The caller's dictionary is not modified: prepareSession reads preferences_directory back out
+    // of the result, and the options file dictionary is handed around elsewhere.
+    assert(!file[@"phrase_preedit"]);
+
+    // An options file that already says something about it does not get to say no: this host draws
+    // the field, and a stale file predates the behaviour entirely.
+    NSDictionary *stale = MSIMESessionOptions(@{@"api_version":@1, @"phrase_preedit":@NO});
+    assert([stale[@"phrase_preedit"] isEqual:@YES]);
+}
+
 static void TestKeypadDecimal(MSIMEAppearancePreferences *appearance) {
     ModeController *controller = [ModeController alloc];
     ShortcutSession *session = [ShortcutSession new];
@@ -4884,6 +4909,7 @@ int main(int argc, char **argv) {
         TestStaleClientDeactivation();
         TestPreferenceClientGeneration();
         TestFullWidth(defaults, appearance);
+        TestSessionOptions();
         TestKeypadDecimal(appearance);
         TestKeypadOperators(appearance);
         TestSmartPunctuationPreferences();

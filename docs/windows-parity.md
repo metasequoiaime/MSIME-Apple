@@ -1728,7 +1728,35 @@ if let Some(route) = launch_route_from_args(&args) { ... }
 
 反向验证：把「拼音输入长度上限」那条从表里删掉，它报 `FAIL set max len limit for pinyin input`。当前 19 条全部有记录。
 
-增量记录（2026-09-21，Windows 第三十三批：把最后一项迁过来——加加辅助码）：目标起点 `2569cb526`。
+增量记录（2026-09-21，Windows 第三十三批：六处核过是对的，以及一处真缺的覆盖）：目标起点 `1c2ec8197`。本批以核对为主，逐条记下判据，免得下一轮重查。
+
+**候选行的拼接顺序。** 来源 `candidate_view_model.h` 的 `CandidateViewHtml` 是「文本 + 注解 + 角标」拼成一段，译文单独一段，固定位整段着 `#379AD3`。macOS 的 `CandidateDisplay` 同序（文本 → 注解 → 角标 ☁️/🤖），译文与固定位颜色也已各自对齐。macOS 多出的 `*` 纠错标记在 2026-09-20 的记录里已写明是本仓多出的一项（引擎新版本才有 `candidate_corrected`），不是错位。
+
+**英文候选的两个上限。** 来源 Server 写死 `kMixedCandidateLimit = 5`、`kDedicatedCandidateLimit = 1000`、混输最小前缀默认 2。本仓不走那条 Server 路径，而 Engine 自己的 `candidate_queries.cpp` 就是 `query_prefix(prefix, 5)` 与 `query_prefix(prefix, 1000)`——同样的两个数，因为来源那边本来也是照着引擎写的。最小前缀 2 已由 `--quick` 的默认值脚本钉住。
+
+**小键盘数字选词。** 来源在 Server 边界把 `VK_NUMPAD0..9` 归一成数字键（`NormalizeNumpadDigitKey`）。macOS 的 `PhysicalCandidateDigitSlot` 已经把 83–92 映成候选 1–9，注释直接引了 Windows 的归一化，且不接受小键盘 0；小键盘的标点键另有一张表。
+
+**皮肤目录。** 来源 `IsBuiltIn` 是 fluent/wechat/graphite/willow_green 四个，`IsSafeId` 是「首字符字母数字、整体只允许小写字母数字与 `. _ -`、上限 64」。本仓 `skin/catalog.rs` 逐条相同（`safe_id` 与那四个内置 id）。
+
+**用户词库日志重放。** 来源有一个独立 exe 走 Engine 的 `user_dictionary::replay`，把日志重放进新装词库。本仓同样有这个工具（`crates/engine-bridge/src/bin/MetasequoiaImeDictionaryReplay.rs`），只是 macOS 的词库更新不走它：走的是快照 staging，把用户词条、固定位、选择记录成流写进新一代（`stage_dictionary_state`）。两条路都保住用户数据，形态差异，不是缺口。
+
+**AI 那一半的时序。** 来源防抖 650ms、连接 2500ms、总计 8000ms，命中缓存时跳过防抖直接出；缓存键是 provider + endpoint + model + 分段拼音。macOS 的 `_aiTimer` 是 0.65 秒，`client-core/src/ai.rs` 的 descriptor 是 2500/8000，`MSIMEAICacheKey` 是同样四项，命中时也是直接 apply 不等防抖。唯一差别是本仓给缓存加了 4096 条上限而来源不清（只在 Stop 时清），方向是更严。
+
+**本批唯一真动的地方**：macOS 在建会话时额外请求 `phrase_preedit`（第二十七批加的），此前没有任何用例钉住——这个请求一旦丢了，半截词会退回逐段上屏，而那看起来就是普通打字，没有别的东西会发现。把这一步抽成 `MSIMESessionOptions` 并在 `ShortcutTest` 钉住：请求被加上、文件原有的键原样透传、不修改调用方的字典、以及「文件里写着 `phrase_preedit: false` 也不作数」——旧文件根本早于这个行为。反向验证过。
+
+增量记录（2026-09-21，Windows 第三十四批：给「半截词」的分期推广加一道守卫）：目标起点 `d49536d18`。
+
+第二十七批把「半截词留在组字里」做进共享运行时，并按宿主分期打开，本批给这个分期状态加一道静态守卫。理由是这件事**做一半会无声丢字**：宿主要是请求了 `phrase_preedit` 却不画 `view.phrase_prefix`，用户已经选中的那一段既不在文档里也不在屏幕上，而组字在他按 Esc 之前不会结束——那一段就这么没了。反过来只画不请求则是死代码。
+
+`scripts/test-phrase-preedit-hosts.py` 按宿主判定，并**把共享渲染器与宿主自身的源码分开**：Apple 的 `TextClient.mm` 同时服务 macOS 与 iOS，而这两个宿主今天不在同一边，所以「共享渲染器能画」不构成任何单个宿主的证据。当前状态被钉为：macOS 持有并绘制，Linux / Windows / HarmonyOS / Android / iOS / 桌面壳逐段上屏。
+
+两个方向都反向验证过：给 Linux 加一行请求而不加渲染会红；把 macOS 两处读取（共享渲染器与候选窗标签）同时去掉也会红——只去掉其中一处不会，因为另一处仍在画，这正是判据要的语义。
+
+第一版被注释骗过：`InputController.mm` 的注释里写着 `view.phrase_prefix`，删掉真正的读取之后守卫仍判为「在画」。改成先剥掉 `//` 与 `/* */` 再匹配——被删掉实现、只留注释，恰恰是这个守卫最该抓的形状。
+
+记下 iOS 的位置：它用的就是那份共享渲染器（`KeyboardViewController.mm` 走 `MSIMEApplyTransition`），所以接上只差会话选项里的一行；但本机跑不了 iOS 用例，不做无法验证的改动，按现状钉住。
+
+增量记录（2026-09-21，Windows 第三十五批：把最后一项迁过来——加加辅助码）：目标起点 `2569cb526`。
 
 第三十二批的结论是「按上游 README 功能清单逐条核对，只剩加加辅助码没有对应物」，并把它记成「等仓库所有者做第三方数据决定」。**那个决定已经有了**：仓库所有者明确要求完整复刻，本批照此执行。该做的不是替他决定，而是把决定所需要知道的事实摆清楚，然后把活干完——这两件事都做了，见 `resources/helpcodes/NOTICE.md`。
 
