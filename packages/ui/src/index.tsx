@@ -244,7 +244,13 @@ export {
 } from "./dictionary/custom-translations";
 export type { VoiceCaptureDevice, VoiceDeviceReader } from "./voice/voice-device-picker";
 
-export type HelpcodeSchema = "lantian" | "ziranma" | "shouyou2_0" | "shouyouplus" | "xiaohe";
+export type HelpcodeSchema =
+  | "lantian"
+  | "ziranma"
+  | "shouyou2_0"
+  | "shouyouplus"
+  | "xiaohe"
+  | "jiajia";
 export type HelpcodePreferences = {
   enabled: boolean;
   schema: HelpcodeSchema;
@@ -401,6 +407,7 @@ const helpcodeSchemas: [HelpcodeSchema, string][] = [
   ["shouyou2_0", "首右2.0"],
   ["shouyouplus", "首右plus"],
   ["xiaohe", "小鹤"],
+  ["jiajia", "加加"],
 ];
 /**
  * The sidebar, in the reference window's order.
