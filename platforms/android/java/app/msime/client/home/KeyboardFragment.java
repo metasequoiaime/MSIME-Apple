@@ -140,22 +140,22 @@ public final class KeyboardFragment extends HomeTabFragment {
             startActivity(new Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)));
 
         List<FeatureAdapter.Feature> tiles = new ArrayList<>();
-        tiles.add(new FeatureAdapter.Feature(R.drawable.ic_feature_skin, R.color.tile_pink,
+        tiles.add(new FeatureAdapter.Feature(R.drawable.ic_feature_skin, R.color.badge_field,
             "皮肤", skin, preferences == null ? null
                 : () -> KeyboardSheets.showSkins(this, snapshot, this::reload)));
-        tiles.add(new FeatureAdapter.Feature(R.drawable.ic_feature_scheme, R.color.tile_green,
+        tiles.add(new FeatureAdapter.Feature(R.drawable.ic_feature_scheme, R.color.badge_field,
             "输入方案", scheme, preferences == null ? null
                 : () -> KeyboardSheets.showSchemes(this, snapshot, this::reload)));
-        tiles.add(new FeatureAdapter.Feature(R.drawable.ic_feature_keys, R.color.tile_violet,
+        tiles.add(new FeatureAdapter.Feature(R.drawable.ic_feature_keys, R.color.badge_field,
             "按键", keysSummary(preferences), preferences == null ? null
                 : () -> KeyboardSheets.showKeys(this, snapshot, this::reload)));
-        tiles.add(new FeatureAdapter.Feature(R.drawable.ic_feature_dictionary, R.color.tile_sand,
+        tiles.add(new FeatureAdapter.Feature(R.drawable.ic_feature_dictionary, R.color.badge_field,
             "词库", dictionarySummary(preferences), preferences == null ? null
                 : () -> KeyboardSheets.showInputFeatures(this, snapshot, this::reload)));
-        tiles.add(new FeatureAdapter.Feature(R.drawable.ic_feature_ai, R.color.tile_amber,
+        tiles.add(new FeatureAdapter.Feature(R.drawable.ic_feature_ai, R.color.badge_field,
             "AI", aiSummary(preferences), preferences == null ? null
                 : () -> KeyboardSheets.showAi(this, snapshot, this::reload)));
-        tiles.add(new FeatureAdapter.Feature(R.drawable.ic_feature_system, R.color.tile_grey,
+        tiles.add(new FeatureAdapter.Feature(R.drawable.ic_feature_system, R.color.badge_field,
             "系统设置", ready ? "已启用" : "启用与切换",
             () -> startActivity(new Intent(Settings.ACTION_INPUT_METHOD_SETTINGS))));
 

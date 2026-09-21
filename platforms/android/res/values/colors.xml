@@ -11,12 +11,11 @@
     <color name="surface">#FFFFFF</color>
     <color name="text_secondary">#707C76</color>
     <color name="hairline">#E4EAE7</color>
-    <color name="tile_pink">#FCE7EC</color>
-    <color name="tile_green">#E2ECE7</color>
-    <color name="tile_violet">#E9E8F8</color>
-    <color name="tile_sand">#F5EBE2</color>
-    <color name="tile_amber">#FFF0E0</color>
-    <color name="tile_grey">#EEF0EF</color>
+    <!-- Material 的 surface variant 角色。留着原来的值，只是不再叫 tile。 -->
+    <color name="surface_variant">#E2ECE7</color>
+    <!-- 图标那块底：强调色压到一成多。Apple 那边整套界面只有这一支绿，六个互不相干的粉彩色
+         除了「彼此不同」之外什么都没说，何况它们从来就没画出来过。 -->
+    <color name="badge_field">#22185C48</color>
     <!-- 图标那块深色场，自适应图标的背景层取它，于是遮罩切出来的永远是这块底而不是灰板。 -->
     <color name="app_icon_field">#252525</color>
 </resources>
