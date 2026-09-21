@@ -14,11 +14,11 @@
         <item name="colorOnSurface">@color/ink</item>
 
         <!-- Every role the theme leaves out is resolved from Material 3's own baseline, and that baseline is violet: the bottom bar took its background from colorSurfaceContainer and its active indicator from colorSecondaryContainer, so both rendered lilac next to the forest palette. The container and outline roles below are the ones these pages actually resolve; the surface container ramp is given in full because a role omitted here reappears as violet the moment a component reaches for it. -->
-        <item name="colorPrimaryContainer">@color/tile_green</item>
+        <item name="colorPrimaryContainer">@color/surface_variant</item>
         <item name="colorOnPrimaryContainer">@color/forest</item>
-        <item name="colorSecondaryContainer">@color/tile_green</item>
+        <item name="colorSecondaryContainer">@color/surface_variant</item>
         <item name="colorOnSecondaryContainer">@color/forest</item>
-        <item name="colorSurfaceVariant">@color/tile_green</item>
+        <item name="colorSurfaceVariant">@color/surface_variant</item>
         <item name="colorOnSurfaceVariant">@color/text_secondary</item>
         <item name="colorSurfaceContainerLowest">@color/surface</item>
         <item name="colorSurfaceContainerLow">@color/surface</item>

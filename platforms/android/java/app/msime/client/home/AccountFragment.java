@@ -66,7 +66,7 @@ public final class AccountFragment extends HomeTabFragment {
         LinearLayout rows = view.findViewById(R.id.account_personal_rows);
         rows.removeAllViews();
         AppIconStyle current = AppIcons.selected(requireContext());
-        addRow(rows, R.drawable.ic_feature_skin, R.color.tile_violet, "App 图标",
+        addRow(rows, R.drawable.ic_feature_skin, R.color.badge_field, "App 图标",
             current.title() + " · " + current.description(), this::showIcons);
     }
 
@@ -75,10 +75,10 @@ public final class AccountFragment extends HomeTabFragment {
         if (view == null) return;
         LinearLayout rows = view.findViewById(R.id.account_content_rows);
         rows.removeAllViews();
-        addRow(rows, R.drawable.ic_feature_dictionary, R.color.tile_sand, "词包与回复模板",
+        addRow(rows, R.drawable.ic_feature_dictionary, R.color.badge_field, "词包与回复模板",
             "在社区里浏览并保存", () -> openCommunity(CommunityRequest.Kind.DICTIONARY));
         divider(rows);
-        addRow(rows, R.drawable.ic_feature_skin, R.color.tile_pink, "社区皮肤",
+        addRow(rows, R.drawable.ic_feature_skin, R.color.badge_field, "社区皮肤",
             "保存后在键盘的皮肤面板里选用", () -> openCommunity(CommunityRequest.Kind.SKIN));
         // 「我发布的」那一行去掉了：它唯一的作用是告诉用户去登录一个这里不存在、也不需要的账号。
     }
@@ -88,10 +88,10 @@ public final class AccountFragment extends HomeTabFragment {
         if (view == null) return;
         LinearLayout rows = view.findViewById(R.id.account_storage_rows);
         rows.removeAllViews();
-        addRow(rows, R.drawable.ic_feature_system, R.color.tile_green, "设置与词库位置",
+        addRow(rows, R.drawable.ic_feature_system, R.color.badge_field, "设置与词库位置",
             "读取中…", this::showStorage);
         divider(rows);
-        addRow(rows, R.drawable.ic_tab_statistics, R.color.tile_grey, "打字统计",
+        addRow(rows, R.drawable.ic_tab_statistics, R.color.badge_field, "打字统计",
             "记录开关、保留期和清除都在统计页", () -> openTab(R.id.tab_statistics));
 
         HostTask.run(this, HostStore::directory, directory -> {
@@ -127,7 +127,9 @@ public final class AccountFragment extends HomeTabFragment {
             LinearLayout row = (LinearLayout) LayoutInflater.from(requireContext())
                 .inflate(R.layout.item_setting_row, sheet.content(), false);
             ShapeableImageView badge = row.findViewById(R.id.row_badge);
+            // 这一行画的是图标本身，不是字形：不着色，也不要那块底。
             badge.setImageResource(icon(style));
+            badge.setBackground(null);
             badge.setPadding(0, 0, 0, 0);
             ((TextView) row.findViewById(R.id.row_title)).setText(style.title());
             ((TextView) row.findViewById(R.id.row_value)).setText(style.description());
@@ -176,6 +178,8 @@ public final class AccountFragment extends HomeTabFragment {
         badge.setImageResource(icon);
         badge.setBackgroundTintList(
             ColorStateList.valueOf(ContextCompat.getColor(requireContext(), tint)));
+        badge.setImageTintList(ColorStateList.valueOf(
+            ContextCompat.getColor(requireContext(), R.color.forest)));
         ((TextView) row.findViewById(R.id.row_title)).setText(title);
         ((TextView) row.findViewById(R.id.row_value)).setText(value);
         row.setOnClickListener(ignored -> action.run());

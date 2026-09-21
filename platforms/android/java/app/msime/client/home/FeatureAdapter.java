@@ -62,6 +62,8 @@ public final class FeatureAdapter extends RecyclerView.Adapter<FeatureAdapter.Ho
         holder.badge.setImageResource(feature.icon);
         holder.badge.setBackgroundTintList(
             ColorStateList.valueOf(ContextCompat.getColor(holder.itemView.getContext(), feature.tint)));
+        holder.badge.setImageTintList(ColorStateList.valueOf(
+            ContextCompat.getColor(holder.itemView.getContext(), R.color.forest)));
         holder.title.setText(feature.title);
         holder.value.setText(feature.value);
         holder.itemView.setEnabled(feature.action != null);
