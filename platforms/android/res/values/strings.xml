@@ -48,7 +48,7 @@
     <string name="feedback_copied">已复制报告</string>
     <!-- 后端那份 Google client ID。空着就等于这台构建没有配置 Google 登录，界面上也就不出现
          那颗按钮——一个按下去必然失败的入口比没有更糟。 -->
-    <string name="google_server_client_id" translatable="false"></string>
+    <string name="google_server_client_id" translatable="false">237074057301-r57imd6da5psrmvs64ajg97uqgg8a6ai.apps.googleusercontent.com</string>
     <string name="account_sign_in_google">使用 Google 登录</string>
     <string name="account_sign_in_hint">登录后可在皮肤社区发布、下载和评分。日常输入不需要登录。</string>
     <string name="account_sign_out">退出登录</string>
