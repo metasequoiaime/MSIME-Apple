@@ -638,6 +638,7 @@ group("a key says what it does, not what it draws", () => {
     "and names the other direction when it is pointing back",
   );
   check(KeyAccessibilityPolicy.punctuation() === "常用标点", "the comma key names its long press");
+  check(KeyAccessibilityPolicy.symbolPanel() === "符号面板", "the compact symbol key names its panel");
 });
 
 group("every tool in the shortcut bar has a name", () => {

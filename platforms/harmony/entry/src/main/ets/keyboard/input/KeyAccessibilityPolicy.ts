@@ -54,6 +54,10 @@ export class KeyAccessibilityPolicy {
     return "常用标点";
   }
 
+  static symbolPanel(): string {
+    return "符号面板";
+  }
+
   static scheme(): string {
     return "选择输入方案";
   }

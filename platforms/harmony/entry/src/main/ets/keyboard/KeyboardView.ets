@@ -1645,10 +1645,12 @@ struct KeyboardView {
         }
         .layoutWeight(1)
         .width('100%')
-        this.nineKeyControl('重输', () => KeyboardSession.shared.cancel());
+        // A period is punctuation while spelling and a decimal point beside the digit grid. Clear
+        // is already available by holding Delete, so it no longer spends a permanent key here.
+        this.nineKeyControl('.', '句点', () => KeyboardSession.shared.punctuation(0x2e));
         // 0 is inserted on the digit layer for the same reason the other nine are, and spelled on
         // the letter layer, where the Engine reads it as a candidate position.
-        this.nineKeyControl('0', this.symbols
+        this.nineKeyControl('0', '数字 0', this.symbols
           ? () => KeyboardSession.shared.punctuation(0x30)
           : () => KeyboardSession.shared.press(0x30, false));
       }
@@ -1681,23 +1683,34 @@ struct KeyboardView {
           this.symbols = !this.symbols;
         }
       });
-      Column() {
+      if (this.nineKey) {
         this.fixedKey({
-          face: '，',
-          label: KeyAccessibilityPolicy.punctuation(),
-          size: KeyboardMetrics.KEY_FONT_SIZE,
+          face: '符',
+          label: KeyAccessibilityPolicy.symbolPanel(),
+          size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
           emphasized: false,
           width: KeyboardMetrics.MODIFIER_WIDTH_VP,
-          action: () => KeyboardSession.shared.punctuation(0x2c)
+          action: () => this.openSymbolSurface()
         });
+      } else {
+        Column() {
+          this.fixedKey({
+            face: '，',
+            label: KeyAccessibilityPolicy.punctuation(),
+            size: KeyboardMetrics.KEY_FONT_SIZE,
+            emphasized: false,
+            width: KeyboardMetrics.MODIFIER_WIDTH_VP,
+            action: () => KeyboardSession.shared.punctuation(0x2c)
+          });
+        }
+        .width(KeyboardMetrics.MODIFIER_WIDTH_VP)
+        .height('100%')
+        .gesture(LongPressGesture().onAction(() => {
+          this.managing = -1;
+          this.brackets = false;
+          this.punctuation = true;
+        }))
       }
-      .width(KeyboardMetrics.MODIFIER_WIDTH_VP)
-      .height('100%')
-      .gesture(LongPressGesture().onAction(() => {
-        this.managing = -1;
-        this.brackets = false;
-        this.punctuation = true;
-      }))
       this.spaceKey();
       this.fixedKey({
         // The face is the mode it is in, not the pair it toggles between: a key labelled 中/英
@@ -3824,7 +3837,7 @@ struct KeyboardView {
   }
 
   @Builder
-  nineKeyControl(face: string, action: () => void) {
+  nineKeyControl(face: string, label: string, action: () => void) {
     Column() {
       Text(face)
         .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
@@ -3839,6 +3852,7 @@ struct KeyboardView {
     .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
     .borderWidth(this.skin.borderWidth)
     .borderColor(this.skin.borderColor)
+    .accessibilityText(label)
     .onClick(action)
   }
 
