@@ -15,4 +15,6 @@
     <color name="tile_sand">#F5EBE2</color>
     <color name="tile_amber">#FFF0E0</color>
     <color name="tile_grey">#EEF0EF</color>
+    <!-- 图标那块深色场，自适应图标的背景层取它，于是遮罩切出来的永远是这块底而不是灰板。 -->
+    <color name="app_icon_field">#252525</color>
 </resources>
