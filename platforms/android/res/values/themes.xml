@@ -1,7 +1,10 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <!-- Material 3 rather than the framework's Theme.Material: the host uses MaterialCardView, MaterialButton and BottomNavigationView, and those resolve their own theme attributes. -->
-    <style name="Theme.MSIME" parent="Theme.Material3.DayNight.NoActionBar">
+    <!-- 基础主题与启动画面分开：values-v31 在上面叠启动画面属性，其余一律共用这一份。 -->
+    <style name="Theme.MSIME" parent="Theme.MSIME.Base" />
+
+    <style name="Theme.MSIME.Base" parent="Theme.Material3.DayNight.NoActionBar">
         <item name="colorPrimary">@color/forest</item>
         <item name="colorOnPrimary">@color/surface</item>
         <item name="colorSecondary">@color/needle</item>

@@ -1,0 +1,29 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  启动画面上的那枚标，与应用图标同一份几何：面板、边框、笔画都取自 apps/desktop/app-icon.svg。
+  这里是矢量而不是位图，因为启动画面要给它做描边动画；位图没有路径可以走。
+-->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="110dp"
+    android:height="110dp"
+    android:viewportWidth="110"
+    android:viewportHeight="110">
+
+    <path
+        android:name="panel"
+        android:pathData="M15 5H95V105H15V5Z"
+        android:fillColor="@color/app_icon_field" />
+
+    <path
+        android:name="frame"
+        android:pathData="M15 5H95V105H15V5Z"
+        android:strokeColor="#A8DF8E"
+        android:strokeWidth="5" />
+
+    <path
+        android:name="mark"
+        android:pathData="M74.7234 14L35.1501 29.1727L74.7234 40.5522L35.1501 59.518C72.562 65.84 107.728 71.024 33 95"
+        android:strokeColor="#FFFFFF"
+        android:strokeWidth="8"
+        android:strokeLineCap="round" />
+</vector>
