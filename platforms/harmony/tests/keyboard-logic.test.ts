@@ -162,6 +162,7 @@ import {
   HANDWRITING_MAX_CANDIDATES,
 } from "../entry/src/main/ets/keyboard/input/HandwritingStrokePolicy";
 import { KeyboardFormFactorPolicy } from "../entry/src/main/ets/keyboard/KeyboardFormFactorPolicy";
+import { SymbolPanelPolicy } from "../entry/src/main/ets/keyboard/input/SymbolPanelPolicy";
 import {
   VoiceRecognitionPolicy,
   VOICE_MAX_TEXT,
@@ -457,6 +458,24 @@ group("keeps desktop-only chrome off touch devices", () => {
   check(!KeyboardFormFactorPolicy.isDesktop("tablet"), "a tablet keeps the touch keyboard");
   check(!KeyboardFormFactorPolicy.isDesktop("default"), "an unknown form factor fails closed");
   check(!KeyboardFormFactorPolicy.isDesktop(null), "missing device information fails closed");
+});
+
+group("SymbolPanelPolicy", () => {
+  const symbolCategories = SymbolPanelPolicy.categories();
+  check(symbolCategories.map((category) => category.id).join(",") === "common,chinese,english,number,network",
+    "the symbol panel keeps its stable category order");
+  check(symbolCategories.map((category) => category.symbols.length).join(",") === "30,50,40,50,30",
+    "the complete committed symbol catalog is present");
+  check(symbolCategories.every((category) => category.title.length > 0 && category.symbols.length > 0),
+    "every symbol panel category has a title and entries");
+  check(symbolCategories.every((category) => category.symbols.length <= SymbolPanelPolicy.maxSymbolsPerCategory()),
+    "the symbol panel bounds each category");
+  check(symbolCategories.every((category) => category.symbols.every((symbol) => SymbolPanelPolicy.isValidSymbol(symbol))),
+    "the symbol panel rejects no catalog symbol");
+  check(SymbolPanelPolicy.select(false).returnToKeyboard && !SymbolPanelPolicy.select(false).locked,
+    "a normal symbol tap returns to the keyboard");
+  check(!SymbolPanelPolicy.select(true).returnToKeyboard && SymbolPanelPolicy.select(true).locked,
+    "a locked symbol panel stays open for continuous input");
 });
 
 group("bounds handwriting points and rejects empty recognition requests", () => {

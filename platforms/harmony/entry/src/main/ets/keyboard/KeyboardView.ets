@@ -58,6 +58,7 @@ import { HarmonyVoiceRecognizer } from './input/HarmonyVoiceRecognizer';
 import { VoiceRecognitionPolicy } from './input/VoiceRecognitionPolicy';
 import { ReplyKeyboardPolicy, ReplyStyle } from './ReplyKeyboardPolicy';
 import { CommunityReplyTemplate } from './CommunityReplyLibraryPolicy';
+import { SymbolPanelCategory, SymbolPanelPolicy } from './input/SymbolPanelPolicy';
 
 /**
  * The 26-key touch keyboard, laid out to the same metrics as the iOS extension in
@@ -146,6 +147,7 @@ const SURFACE_VARIANTS: string = 'variants';
 const SURFACE_VOICE: string = 'voice';
 const SURFACE_REPLY: string = 'reply';
 const SURFACE_POLISH: string = 'polish';
+const SURFACE_SYMBOLS: string = 'symbols-panel';
 
 const TOOL_ICON_VP: number = 18;
 // Third, which is where iOS puts the English card.
@@ -263,6 +265,8 @@ struct KeyboardView {
   @State emojiKaomojiGroups: string[] = [];
   @State emojiSymbolGroups: EmojiSymbolGroup[] = [];
   @State emojiSymbolParent: string = '';
+  @State symbolCategory: number = 0;
+  @State symbolLocked: boolean = false;
   /**
    * Which surface is covering the keys, if any.
    *
@@ -693,6 +697,26 @@ struct KeyboardView {
     this.toggle(SURFACE_EMOJI);
     if (this.surface === SURFACE_EMOJI) {
       this.showEmojiPanel(this.emojiPanel);
+    }
+  }
+
+  private openSymbolSurface(): void {
+    if (KeyboardFormFactor.isDesktop()) {
+      return;
+    }
+    this.symbolCategory = 0;
+    this.symbolLocked = false;
+    this.show(SURFACE_SYMBOLS);
+  }
+
+  private selectSymbol(symbol: string): void {
+    if (!SymbolPanelPolicy.isValidSymbol(symbol)) {
+      return;
+    }
+    KeyboardSession.shared.insert(symbol);
+    const selection = SymbolPanelPolicy.select(this.symbolLocked);
+    if (selection.returnToKeyboard) {
+      this.show(SURFACE_NONE);
     }
   }
 
@@ -3357,6 +3381,12 @@ struct KeyboardView {
                   this.openEmojiSurface();
                 });
               }
+              GridItem() {
+                this.toolCard('符号', '⌘', null, this.surface === SURFACE_SYMBOLS, true, () => {
+                  this.show(SURFACE_NONE);
+                  this.openSymbolSurface();
+                });
+              }
               if (this.clipboardEnabled) {
                 GridItem() {
                   this.toolCard('剪贴板历史', null, $r('app.media.tool_clipboard'), false, true, () => {
@@ -3718,6 +3748,81 @@ struct KeyboardView {
     .backgroundColor(this.emojiSkin.background)
   }
 
+  /** The full categorized symbol keyboard; unlike emoji symbols it returns after one tap by default. */
+  @Builder
+  symbolPanelFace() {
+    Column() {
+      Scroll() {
+        Row({ space: KeyboardMetrics.KEY_SPACING_VP }) {
+          ForEach(SymbolPanelPolicy.categories(), (category: SymbolPanelCategory, index: number) => {
+            Text(category.title)
+              .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+              .fontColor(index === this.symbolCategory ? this.skin.accent : this.skin.keyForeground)
+              .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
+                right: KeyboardMetrics.CANDIDATE_PADDING_VP })
+              .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 5)
+              .accessibilityText(`${category.title}符号`)
+              .onClick(() => this.symbolCategory = index)
+          }, (category: SymbolPanelCategory) => category.id)
+        }
+      }
+      .scrollable(ScrollDirection.Horizontal)
+      .scrollBar(BarState.Off)
+      .width('100%')
+      .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 5)
+
+      Grid() {
+        ForEach(SymbolPanelPolicy.category(this.symbolCategory).symbols
+          .slice(0, SymbolPanelPolicy.maxSymbolsPerCategory()), (symbol: string) => {
+          GridItem() {
+            Text(symbol)
+              .fontSize(KeyboardMetrics.CANDIDATE_FONT_SIZE + 2)
+              .fontColor(this.skin.keyForeground)
+              .textAlign(TextAlign.Center)
+              .width('100%')
+              .accessibilityText(symbol)
+              .onClick(() => this.selectSymbol(symbol))
+          }
+          .height(46)
+          .backgroundColor(this.skin.keyBackground)
+          .borderRadius(this.skin.cornerRadius)
+        }, (symbol: string, index: number) => `${this.symbolCategory}:${index}:${symbol}`)
+      }
+      .columnsTemplate('1fr '.repeat(5).trim())
+      .columnsGap(1)
+      .rowsGap(1)
+      .width('100%')
+      .layoutWeight(1)
+
+      Row() {
+        Text('返回')
+          .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
+          .fontColor(this.skin.accent)
+          .accessibilityText('返回键盘')
+          .onClick(() => this.show(SURFACE_NONE))
+        Blank()
+        Text(this.symbolLocked ? '连续输入：开' : '连续输入：关')
+          .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+          .fontColor(this.symbolLocked ? this.skin.accent : this.skin.keyForeground)
+          .accessibilityText(this.symbolLocked ? '关闭连续输入' : '开启连续输入')
+          .onClick(() => this.symbolLocked = !this.symbolLocked)
+        Blank()
+        Text('删除')
+          .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
+          .fontColor(this.skin.keyForeground)
+          .accessibilityText(KeyAccessibilityPolicy.delete())
+          .onClick(() => KeyboardSession.shared.backspace())
+      }
+      .width('100%')
+      .height(this.rowHeight(3))
+      .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
+        right: KeyboardMetrics.CANDIDATE_PADDING_VP })
+    }
+    .width('100%')
+    .height(this.surfaceHeight())
+    .backgroundColor(this.skin.background)
+  }
+
   @Builder
   nineKeyControl(face: string, action: () => void) {
     Column() {
@@ -3813,6 +3918,8 @@ struct KeyboardView {
         this.pickerFace()
       } else if (this.surface === SURFACE_EMOJI) {
         this.emojiFace()
+      } else if (this.surface === SURFACE_SYMBOLS) {
+        this.symbolPanelFace()
       } else if (this.japanese && this.surface === SURFACE_VARIANTS && !this.symbols) {
         this.variantFace()
       } else if (this.japanese) {
