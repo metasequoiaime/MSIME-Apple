@@ -1,64 +1,106 @@
 #!/usr/bin/env python3
-"""Render the editable brand SVG variants with librsvg (brew install librsvg)."""
+"""Render every iOS icon from the one brand artwork with librsvg (brew install librsvg).
+
+The artwork lives at `apps/desktop/app-icon.svg` and is the same file the Windows client ships as
+`msime.ico`; it is not duplicated here. The alternate icons differ from the default by exactly one
+value - the colour of the ragged frame - so they are derived rather than drawn, and only the
+rendered PNGs are kept. Changing the logo means replacing that one master.
+
+The master is transparent outside the frame, which an app icon may not be: iOS applies its own
+mask and expects an opaque square. Each rendition is therefore laid over the artwork's own dark
+field before rasterising.
+"""
 import json
 from pathlib import Path
-import shutil
 import subprocess
+import tempfile
 
 ROOT = Path(__file__).resolve().parents[1] / "App/Resources"
 ASSETS = ROOT / "Assets.xcassets"
-MARK = 'M25 6.5 7.5 14 24.5 18.25 7.5 25.75c4.5 3.5 10.5 5.25 17.5 2.75'
-VARIANTS = {
-    "Forest": ("#287B61", "#0A302C", "#ECF7D9", '<circle cx="8" cy="5" r="23" fill="#A8D6A0" opacity=".08"/>'),
-    "Sky": ("#70DCF0", "#2665D4", "#FFFFFF", '<path d="M-2 26Q8 20 18 27T38 26V36H-2Z" fill="#FFFFFF" opacity=".12"/>'),
-    "Dusk": ("#A896EF", "#40306B", "#FFF0DC", '<circle cx="28" cy="7" r="10" fill="#FAD3DD" opacity=".16"/><circle cx="7" cy="28" r="15" fill="#453D98" opacity=".18"/>'),
-    "Vermilion": ("#F2E7D6", "#F2E7D6", "#FFF2DF", '<rect x="2.8" y="4.2" width="26.4" height="27.6" rx="4.5" fill="#B74332"/>'),
-}
+MASTER = Path(__file__).resolve().parents[3] / "apps/desktop/app-icon.svg"
 
-def catalog(path, filename):
+FRAME = "#A8DF8E"
+FIELD = "#252525"
+# One colour each, taken from the theme's own palette and far enough from the default's light
+# green to be told apart at home-screen size.
+VARIANTS = {"Forest": "#287B61", "Sky": "#70DCF0", "Dusk": "#A896EF", "Vermilion": "#B74332"}
+
+
+def artwork(frame: str) -> str:
+    master = MASTER.read_text()
+    body = master.split("\n", 1)[1]
+    return (
+        '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"'
+        ' width="110" height="110" viewBox="0 0 110 110" fill="none">\n'
+        f'<rect width="110" height="110" fill="{FIELD}"/>\n' + body
+    ).replace(FRAME, frame)
+
+
+def render(source: Path, destination: Path, pixels: int) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        ["rsvg-convert", "-w", str(pixels), "-h", str(pixels), str(source), "-o", str(destination)],
+        check=True,
+    )
+
+
+def preview(name: str, source: Path) -> None:
+    path = ASSETS / f"AppIconPreview{name}.imageset"
     path.mkdir(parents=True, exist_ok=True)
-    entry = {"filename": filename, "idiom": "universal"}
-    (path / "Contents.json").write_text(json.dumps({"images": [entry], "info": {"author": "xcode", "version": 1}}, indent=2) + "\n")
+    (path / "Contents.json").write_text(
+        json.dumps(
+            {"images": [{"filename": "Preview.png", "idiom": "universal"}],
+             "info": {"author": "xcode", "version": 1}},
+            indent=2,
+        ) + "\n"
+    )
+    render(source, path / "Preview.png", 256)
 
 
-def alternate_catalog(path, source):
-    # Supply explicit iPhone and iPad renditions, including legacy-size slots.
+def alternate(name: str, source: Path) -> None:
+    """Explicit iPhone and iPad renditions, including the legacy-size slots."""
+    path = ASSETS / f"AppIcon{name}.appiconset"
     path.mkdir(parents=True, exist_ok=True)
     images = []
-    for idiom, sizes, scales in [("iphone", [20, 29, 40, 60], [2, 3]), ("ipad", [20, 29, 40, 76], [1, 2]), ("ipad", [83.5], [2])]:
+    for idiom, sizes, scales in [
+        ("iphone", [20, 29, 40, 60], [2, 3]),
+        ("ipad", [20, 29, 40, 76], [1, 2]),
+        ("ipad", [83.5], [2]),
+    ]:
         for size in sizes:
             for scale in scales:
-                pixels = str(int(size * scale))
+                pixels = int(size * scale)
                 filename = f"Icon-{pixels}.png"
-                subprocess.run(["rsvg-convert", "-w", pixels, "-h", pixels, str(source), "-o", str(path / filename)], check=True)
-                images.append({"idiom": idiom, "size": f"{size}x{size}", "scale": f"{scale}x", "filename": filename})
-    images.append({"idiom": "ios-marketing", "size": "1024x1024", "scale": "1x", "filename": "Icon.png"})
-    (path / "Contents.json").write_text(json.dumps({"images": images, "info": {"author": "xcode", "version": 1}}, indent=2) + "\n")
+                render(source, path / filename, pixels)
+                images.append(
+                    {"idiom": idiom, "size": f"{size}x{size}", "scale": f"{scale}x",
+                     "filename": filename}
+                )
+    images.append({"idiom": "ios-marketing", "size": "1024x1024", "scale": "1x",
+                   "filename": "Icon.png"})
+    render(source, path / "Icon.png", 1024)
+    (path / "Contents.json").write_text(
+        json.dumps({"images": images, "info": {"author": "xcode", "version": 1}}, indent=2) + "\n"
+    )
 
 
-def main():
-    for name, (start, end, ink, decoration) in VARIANTS.items():
-        # Full-bleed opaque backgrounds; iOS supplies the outer icon mask.
-        transform = 'translate(3.2 3.6) scale(.8)' if name == "Vermilion" else 'translate(1.6 1.8) scale(.9)'
-        svg = f'''<svg xmlns="http://www.w3.org/2000/svg" width="1024" height="1024" viewBox="-2 0 36 36">
-  <title>Metasequoia — {name}</title>
-  <defs><linearGradient id="background" x2=".8" y2="1"><stop stop-color="{start}"/><stop offset="1" stop-color="{end}"/></linearGradient></defs>
-  <path fill="url(#background)" d="M-2 0h36v36H-2z"/>
-  {decoration}
-  <path d="{MARK}" transform="{transform}" fill="none" stroke="{ink}" stroke-width="3.8" stroke-linecap="round" stroke-linejoin="round"/>
-</svg>
-'''
-        source = ROOT / "AlternateIcons" / f"{name}.svg"
-        source.write_text(svg)
-        icon = ASSETS / f"AppIcon{name}.appiconset"
-        alternate_catalog(icon, source)
-        subprocess.run(["rsvg-convert", str(source), "-o", str(icon / "Icon.png")], check=True)
-        preview = ASSETS / f"AppIconPreview{name}.imageset"
-        catalog(preview, "Preview.png")
-        subprocess.run(["rsvg-convert", "-w", "256", "-h", "256", str(source), "-o", str(preview / "Preview.png")], check=True)
-    original = ASSETS / "AppIconPreviewClassic.imageset"
-    catalog(original, "Preview.png")
-    shutil.copyfile(ASSETS / "AppIcon.appiconset/AppIcon.png", original / "Preview.png")
+def main() -> None:
+    with tempfile.TemporaryDirectory() as directory:
+        staging = Path(directory)
+
+        default = staging / "AppIcon.svg"
+        default.write_text(artwork(FRAME))
+        render(default, ASSETS / "AppIcon.appiconset/AppIcon.png", 1024)
+        preview("Classic", default)
+        # The launch screen, the welcome page and the about page all show the mark on a light
+        # background, at a size where the frame reads as part of it.
+        render(default, ASSETS / "MSIMELogo.imageset/logo.png", 1024)
+
+        for name, frame in VARIANTS.items():
+            source = staging / f"{name}.svg"
+            source.write_text(artwork(frame))
+            alternate(name, source)
+            preview(name, source)
 
 
 if __name__ == "__main__":

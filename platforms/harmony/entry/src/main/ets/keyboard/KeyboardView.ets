@@ -8,6 +8,8 @@ import { VoiceRecordingBehaviourPolicy } from './input/VoiceRecordingBehaviourPo
 import { KeyboardSkin } from './skin/KeyboardSkin';
 import { EnglishLetterCaseState, LetterCaseMode } from './input/EnglishLetterCaseState';
 import { LetterKeyFacePolicy } from './input/LetterKeyFacePolicy';
+import { KeyAccessibilityPolicy } from './input/KeyAccessibilityPolicy';
+import { CandidateGlossPolicy } from './candidate/CandidateGlossPolicy';
 import { ShuangpinKeyHintPolicy } from './input/ShuangpinKeyHintPolicy';
 import { ReturnKeyAction } from './input/ReturnKeyAction';
 import { InputDiagnosticPolicy } from './input/InputDiagnosticPolicy';
@@ -75,6 +77,14 @@ import { CommunityReplyTemplate } from './CommunityReplyLibraryPolicy';
  */
 interface KeyOptions {
   face: string;
+  /**
+   * What a screen reader says, which is not the face.
+   *
+   * Optional only so a key whose face is already a whole word need not repeat it; every key that
+   * draws a glyph, an abbreviation or a mode indicator sets it. Absent leaves ArkUI reading the
+   * face, which for `⇧` or `123` is nothing useful.
+   */
+  label?: string;
   /** The double-pinyin unit under the letter, or empty when the key does not stand for one. */
   hint?: string;
   size: number;
@@ -538,6 +548,7 @@ struct KeyboardView {
     Column() {
       this.keyFace($$)
     }
+    .accessibilityText($$.label ?? $$.face)
     .layoutWeight(1)
     .height('100%')
     .backgroundColor($$.emphasized ? this.skin.actionBackground : this.skin.keyBackground)
@@ -554,6 +565,7 @@ struct KeyboardView {
     Column() {
       this.keyFace($$)
     }
+    .accessibilityText($$.label ?? $$.face)
     .width($$.width)
     .height('100%')
     .backgroundColor($$.emphasized ? this.skin.actionBackground : this.skin.keyBackground)
@@ -866,6 +878,7 @@ struct KeyboardView {
   private symbolKey(symbol: string): KeyOptions {
     return {
       face: this.symbolFace(symbol),
+      label: KeyAccessibilityPolicy.symbol(this.symbolFace(symbol)),
       size: KeyboardMetrics.KEY_FONT_SIZE,
       emphasized: false,
       width: 0,
@@ -945,6 +958,10 @@ struct KeyboardView {
   private letterKey(letter: string): KeyOptions {
     return {
       face: this.letterFace(letter),
+      // Ported with the face policy and, until now, computed for nobody: the view attached no
+      // accessibility text at all, so every key on this keyboard was silent to a screen reader.
+      label: LetterKeyFacePolicy.accessibilityLabel(letter, !this.english,
+        this.localMode !== 'none', this.caseMode !== LetterCaseMode.LOWERCASE),
       hint: this.letterHint(letter),
       size: KeyboardMetrics.KEY_FONT_SIZE,
       emphasized: false,
@@ -1196,6 +1213,23 @@ struct KeyboardView {
       this.candidateTextColor(), this.candidateAccentColor());
   }
 
+  /**
+   * What a screen reader says for one candidate.
+   *
+   * Computed here because a @Builder body may hold only the UI description, the same reason
+   * `candidateDetailColor` is a method. The suffix goes through the ported gloss policy rather
+   * than being written again: it already decides whether an annotation reads as 提示 or as
+   * 英文释义, and that distinction is not one to re-derive at the call site.
+   */
+  private candidateLabel(candidate: CandidateEntry, index: number): string {
+    const annotation: string | null =
+      candidate.annotation.length > 0 ? candidate.annotation : null;
+    const suffix: string = CandidateGlossPolicy.accessibilitySuffix(
+      candidate.annotationIsTranslation ? null : annotation,
+      candidate.annotationIsTranslation ? annotation : null, true);
+    return KeyAccessibilityPolicy.candidate(index + 1, candidate.text, candidate.hint, suffix);
+  }
+
   @Builder
   candidateCell(candidate: CandidateEntry, index: number) {
     Row() {
@@ -1234,6 +1268,7 @@ struct KeyboardView {
         }
       }
     }.alignItems(VerticalAlign.Center)
+      .accessibilityText(this.candidateLabel(candidate, index))
       .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP, right: KeyboardMetrics.CANDIDATE_PADDING_VP })
       .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP).width('100%')
       .backgroundColor(index === this.hoveredCandidate ? this.candidateHoverColor()
@@ -1428,6 +1463,7 @@ struct KeyboardView {
     .width(width)
     .height('100%')
     .justifyContent(FlexAlign.Center)
+    .accessibilityText(KeyAccessibilityPolicy.delete())
     .backgroundColor(this.skin.keyBackground)
     .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
     .borderWidth(this.skin.borderWidth)
@@ -1463,6 +1499,9 @@ struct KeyboardView {
     .layoutWeight(1)
     .height('100%')
     .justifyContent(FlexAlign.Center)
+    // What it will do, not what it is: mid-composition this key selects the highlighted candidate,
+    // and a user who cannot see the candidate row has no other way to know it changed meaning.
+    .accessibilityText(KeyAccessibilityPolicy.space(this.candidates.length > 0))
     .backgroundColor(this.skin.keyBackground)
     .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
     .borderWidth(this.skin.borderWidth)
@@ -3313,6 +3352,7 @@ struct KeyboardView {
           if (!this.symbols) {
             this.fixedKey({
               face: this.caseMode === LetterCaseMode.CAPS_LOCK ? '⇪' : '⇧',
+              label: this.letterCase.accessibilityLabel(this.english),
               size: KeyboardMetrics.KEY_FONT_SIZE,
               emphasized: this.caseMode !== LetterCaseMode.LOWERCASE,
               width: KeyboardMetrics.MODIFIER_WIDTH_VP,
@@ -3333,6 +3373,7 @@ struct KeyboardView {
         Row({ space: this.keySpacing() }) {
           this.fixedKey({
             face: this.symbols ? '返回' : '123',
+            label: KeyAccessibilityPolicy.layoutToggle(this.symbols),
             size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
             emphasized: false,
             width: KeyboardMetrics.LAYOUT_TOGGLE_WIDTH_VP,
@@ -3343,6 +3384,7 @@ struct KeyboardView {
           Column() {
             this.fixedKey({
               face: '，',
+              label: KeyAccessibilityPolicy.punctuation(),
               size: KeyboardMetrics.KEY_FONT_SIZE,
               emphasized: false,
               width: KeyboardMetrics.MODIFIER_WIDTH_VP,
@@ -3360,6 +3402,8 @@ struct KeyboardView {
             // The face is the mode it is in, not the pair it toggles between: a key labelled 中/英
             // says nothing about which one is running.
             face: this.english ? 'En' : '中',
+            // Never the mode it is in: a label reading 中 would be the character, not the action.
+            label: KeyAccessibilityPolicy.language(),
             size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
             emphasized: true,
             width: KeyboardMetrics.LANGUAGE_WIDTH_VP,
@@ -3377,6 +3421,12 @@ struct KeyboardView {
               ? JapaneseNineKeyActions.returnTitle(this.editing.length > 0)
               : (this.candidates.length > 0
                 ? '选定' : ReturnKeyAction.title(KeyboardSession.shared.returnAction(), false)),
+            // The face is already a whole word here — 搜索, 换行, 选定 — so the spoken name is the
+            // same word rather than a second description of it.
+            label: KeyAccessibilityPolicy.returnKey(this.japanese
+              ? JapaneseNineKeyActions.returnTitle(this.editing.length > 0)
+              : (this.candidates.length > 0
+                ? '选定' : ReturnKeyAction.title(KeyboardSession.shared.returnAction(), false))),
             size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
             emphasized: true,
             width: KeyboardMetrics.RETURN_WIDTH_VP,

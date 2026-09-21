@@ -6,6 +6,7 @@ import Want from '@ohos.app.ability.Want';
 import bundleManager from '@ohos.bundle.bundleManager';
 import font from '@ohos.font';
 import vibrator from '@ohos.vibrator';
+import deviceInfo from '@ohos.deviceInfo';
 import http from '@ohos.net.http';
 import webSocket from '@ohos.net.webSocket';
 import util from '@ohos.util';
@@ -29,6 +30,7 @@ import { ImeEnabledState, OnboardingState, OnboardingStatePolicy }
   from '../keyboard/input/OnboardingStatePolicy';
 import { FeedbackSettings } from '../keyboard/KeyboardFeedback';
 import { VoiceCaptureDevice } from '../keyboard/input/VoiceCaptureDevicePolicy';
+import { OsVersionPolicy } from '../keyboard/input/OsVersionPolicy';
 
 /** One key-feedback operation from the page: load, save or preview. */
 interface KeyboardFeedbackAction {
@@ -927,8 +929,34 @@ class SettingsBridge {
     return PreferencesErrorCode.rewrite(reply);
   }
 
+  /**
+   * What this host can do, plus the one field the shared client leaves to the host to fill.
+   *
+   * `os_version` is deliberately not part of `HostCapabilities::for_platform` — it is not a
+   * platform assumption but a fact about the machine, so each host reads it and adds it. Without
+   * it the feedback page names the platform and quotes the web view's user agent, which identifies
+   * the browser engine rather than the system a report would have to be reproduced on.
+   */
   hostCapabilities(): string {
-    return client.hostCapabilities(PLATFORM);
+    const document: string = client.hostCapabilities(PLATFORM);
+    const release: string | null = OsVersionPolicy.release(deviceInfo.osFullName);
+    if (release === null) {
+      return document;
+    }
+    try {
+      const reply: Record<string, Object> = JSON.parse(document) as Record<string, Object>;
+      if (reply['ok'] !== true) {
+        return document;
+      }
+      const value: Record<string, Object> = reply['value'] as Record<string, Object>;
+      value['os_version'] = release;
+      return JSON.stringify(reply);
+    } catch (error) {
+      // A capability document this cannot read is forwarded untouched: the page has a fallback for
+      // a missing version and none for a reply that has stopped being one.
+      KeyboardLog.error(`host capabilities unreadable: ${describeError(error)}`);
+      return document;
+    }
   }
 
   dictionary(action: string): string {
