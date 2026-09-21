@@ -5,6 +5,15 @@ The Engine and its third-party sources are fetched as verified source archives. 
 commit and SHA-256 for every archive, so this repository never needs a ``.gitmodules`` file or a
 recursive Git checkout in order to build. The operation is idempotent: a prepared tree carrying the
 same lock marker is left alone.
+
+Measured on 2026-09-21, and unresolved here because re-pinning a hash to whatever is served today
+would be the lock agreeing with the thing it exists to check: the Engine archive named by
+``engine-lock.json`` now hashes to ``40df62bf7c0b…`` where the lock says ``829a6cf12768…``. The
+download is stable — two fetches, same digest — and all four dependency archives in the same lock
+still verify, so this is specific to ``metasequoiaime/MSIME-Engine`` rather than a change in how
+GitHub builds tarballs. A cold checkout therefore cannot prepare the Engine at all, and the usual
+way round it is to copy a prepared ``vendor/MSIME-Engine`` from a warm one. That copy is now
+reproducible from the lock; before the overlay fix that went with this note, it was not.
 """
 import hashlib
 import json

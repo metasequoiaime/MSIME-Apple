@@ -4,17 +4,41 @@ from pathlib import Path
 
 
 def replace_once(path: Path, before: str, after: str) -> None:
+    """Patch the one place this text appears, and refuse if it appears anywhere else.
+
+    The count is checked rather than assumed. Replacing the first of several identical matches is
+    how this overlay quietly half-applied for as long as the Engine archive carried two copies of
+    the same call: the anchor was found, nothing raised, and the second copy went on compiling
+    against a defaulted argument. A run that finds a number it did not expect should stop.
+    """
     text = path.read_text()
     if after in text and before not in text:
         return
-    if before not in text:
-        raise RuntimeError(f"Engine overlay did not match: {path}")
+    found = text.count(before)
+    if found != 1:
+        raise RuntimeError(
+            f"Engine overlay expected one match in {path}, found {found}; "
+            f"use replace_every if the Engine now has more than one"
+        )
     path.write_text(text.replace(before, after, 1))
+
+
+def replace_every(path: Path, before: str, after: str) -> None:
+    """Patch every place this text appears, for a call the Engine makes from more than one path."""
+    text = path.read_text()
+    if before not in text:
+        if after in text:
+            return
+        raise RuntimeError(f"Engine overlay did not match: {path}")
+    path.write_text(text.replace(before, after))
 
 
 def apply(root: Path) -> None:
     provider = root / "providers/pinyin_candidate_provider.cpp"
-    replace_once(
+    # Both single-word paths, not just the first. The Engine reaches this call from two places and
+    # they have to cache the same thing; leaving one on the three-argument form still compiles,
+    # because the fourth parameter defaults, so the word is simply cached without its helpcodes.
+    replace_every(
         provider,
         "return shuangpin_engine_.insert_word_to_active_helpcode_cache(request.raw_input, word, source);",
         "return shuangpin_engine_.insert_word_to_active_helpcode_cache(\n"
@@ -101,7 +125,8 @@ def apply(root: Path) -> None:
         "    auto insert_into_cache = [&](auto &cache) {\n"
         "        if (auto opt = cache.get(cache_key))",
     )
-    replace_once(dictionary_cpp, "cache.insert(pinyin, list);\n            return true;", "cache.insert(cache_key, list);\n            return true;")
+    # Both lookup paths cache under the same key, for the same reason the provider patches both.
+    replace_every(dictionary_cpp, "cache.insert(pinyin, list);\n            return true;", "cache.insert(cache_key, list);\n            return true;")
     replace_once(
         dictionary_cpp,
         "    const bool updated_single = insert_into_cache(_cached_buffer_sgl);\n"
