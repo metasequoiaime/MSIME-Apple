@@ -1779,3 +1779,17 @@ if let Some(route) = launch_route_from_args(&args) { ... }
 **成对标点与半截词同时在场。** 两者都是同一段 marked text 的尾巴/头部，而且分居光标两侧：待补的右括号必须留在最后（用户要看见将要补上的是什么），已选的半截词必须留在最前（那是已经定下来的文字），光标在两者之间——打字从那里继续。#3380 与 #3395 各自有用例，交叉情形没有。补在 `TextClientTest`：组字中断言 `海滩paobu）` 且光标在 7，结束时整条词连同右括号一次上屏。反向验证过（把前缀改成追加而不是前置，第 453 行变红）。
 
 **候选窗锚点。** 来源 `GetCandidateLayoutCaret`：跟随光标关掉时，用本次组字会话开始时捕获的锚点（`g_candidate_session_anchor`），捕获一次后整段会话复用；跟随光标打开、或者报上来的 y 是 `INVALID_Y` 时走实时光标。macOS 的 `_candidateAnchorValid` / `_candidateAnchorCaret` 逐条相同，并且在跟随开关本身变化时重置锚点（`MSIMEValidCaret` 对应那个无效值判断）。核过，不是缺口。
+
+增量记录（2026-09-21，Windows 第三十七批：组字里的两段要看得出分界）：目标起点 `f95bb51b2`。
+
+来源用 TSF 显示属性把组字分成两类：正在输入的那段是 `TF_ATTR_INPUT`，画点线下划线；已转换的那段是 `TF_ATTR_TARGET_CONVERTED`，不画下划线（`windows/src/DisplayAttribute/DisplayAttributeInfo.cpp`，颜色一律交给应用默认）。也就是说来源里「已经定下的」与「还在打的」在屏幕上是分得开的。
+
+第二十七批把半截词留进组字之后，本仓的 marked text 里也有了这两段，但整段只有一个样式——「海滩paobu」连成一条下划线，用户看不出已经选定的到哪儿为止。
+
+按 macOS 自己的惯例补上分段，而不是照搬点线：AppKit 这边的约定是**已定下的那段细下划线、正在处理的那段粗下划线**（日文输入法在 macOS 上都是这样），并给两段各自的 `NSMarkedClauseSegment` 序号，走 segment 的客户端能看见两段。权重方向与来源相反是平台惯例差异，语义一致。
+
+只在 AppKit 生效：`#if TARGET_OS_OSX`。UIKit 那边的 `UITextDocumentProxy setMarkedText:` 只收纯字符串，而 UIKit 宿主目前不持有半截词（见第三十四批的守卫），非 OSX 路径与改动前逐字节相同。
+
+两处构建细节记下来免得重查：`apple-client` 此前只链 Foundation/Security/CoreText，要加 AppKit；而 `emoji-swift-host-test` 那条 `swiftc` 命令用 `-force_load` 直接吃静态库，**拿不到 CMake 的传递链接库**，得在它自己的命令行上补。后者是 `ctest` 报 `Not Run` 而不是编译失败的那一类，容易看成无关。
+
+用例：断言两段的下划线样式与 clause 序号、以及「没有半截词时仍然是纯字符串」（不持有半截词的宿主完全不受影响）。测试里的假客户端相应把 `marked` 改成 `id` 并加 `markedString`。反向验证过（把第二段改成细下划线，第 475 行变红）。
