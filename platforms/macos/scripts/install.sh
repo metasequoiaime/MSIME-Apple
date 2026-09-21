@@ -16,8 +16,8 @@
 #   MSIME_VOICE_ENTITLEMENTS     entitlements to sign with; defaults to resources/VoiceInput.entitlements
 set -euo pipefail
 
-name="水杉输入法（预览）.app"
-executable="水杉输入法（预览）"
+name="水杉输入法.app"
+executable="水杉输入法"
 root="$(cd "$(dirname "${BASH_SOURCE[0]}")/../../.." && pwd)"
 source_bundle="${1:-$root/target/macos/$name}"
 destination_root="${MSIME_INPUT_METHODS_DIR:-$HOME/Library/Input Methods}"
@@ -148,7 +148,7 @@ fi
 
 if "$destination/Contents/MacOS/$executable" --register-input-source &&
   "$root/platforms/macos/scripts/check_input_source.swift" "$identifier" "$destination"; then
-  echo "select 水杉输入法（预览） from the input menu to start typing"
+  echo "select 水杉输入法 from the input menu to start typing"
   exit 0
 fi
 # The registry is scoped to the login session, which is measured rather than assumed: copy the input method
@@ -158,6 +158,6 @@ fi
 cat >&2 <<'NOTE'
 
 the input method is installed and signed, but this login session's input source list does not show it yet.
-log out and back in, then choose 水杉输入法（预览） in System Settings > Keyboard > Text Input > Input Sources.
+log out and back in, then choose 水杉输入法 in System Settings > Keyboard > Text Input > Input Sources.
 if it is still missing after that, see the ruled-out causes in platforms/macos/README.md.
 NOTE

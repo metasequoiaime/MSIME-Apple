@@ -12,8 +12,15 @@ use std::path::{Path, PathBuf};
 
 // The identifier the input method bundle carries, which is MetasequoiaIME's rather than a new one of this client's: the preview supersedes that input source in place instead of standing beside it. `validate_bundle` looks for it in the packaged Info.plist, so a value that has drifted from platforms/macos/Info.plist.in rejects the correct bundle rather than accepting a wrong one.
 pub(crate) const INPUT_SOURCE_BUNDLE_ID: &str = "app.msime.inputmethod.MetasequoiaIME";
-pub(crate) const INPUT_SOURCE_BUNDLE_NAME: &str = "水杉输入法（预览）.app";
-const INPUT_SOURCE_EXECUTABLE: &str = "水杉输入法（预览）";
+pub(crate) const INPUT_SOURCE_BUNDLE_NAME: &str = "水杉输入法.app";
+const INPUT_SOURCE_EXECUTABLE: &str = "水杉输入法";
+/// What the bundle was called before, still sitting in `~/Library/Input Methods` on any machine
+/// that installed one.
+///
+/// It carries the same bundle identifier, so leaving it beside the new one gives the input menu two
+/// entries for one input source and the system no way to say which is meant. Installing removes it
+/// once the new bundle is registered.
+const LEGACY_BUNDLE_NAMES: [&str; 1] = ["水杉输入法（预览）.app"];
 
 #[derive(Debug)]
 pub(crate) enum InstallError {
@@ -133,7 +140,24 @@ where
     if had_previous {
         fs::remove_dir_all(&backup).map_err(|_| InstallError::Io)?;
     }
+    remove_legacy_bundles(input_methods);
     Ok(target)
+}
+
+/// Delete bundles installed under an older name, after the new one is in place and registered.
+///
+/// Best-effort on purpose: the install has already succeeded by this point, and a stale copy the
+/// user can delete themselves is a smaller problem than undoing an installation that worked. A
+/// symlink is left alone - it is not something this ever created, and following it would delete
+/// whatever it points at.
+fn remove_legacy_bundles(input_methods: &Path) {
+    for name in LEGACY_BUNDLE_NAMES {
+        let legacy = input_methods.join(name);
+        if !legacy.exists() || is_symlink(&legacy).unwrap_or(true) {
+            continue;
+        }
+        let _ = fs::remove_dir_all(&legacy);
+    }
 }
 
 /// Install a validated bundle below `input_methods`, replacing an existing
@@ -229,6 +253,37 @@ mod tests {
         fs::write(&executable, executable_contents).unwrap();
         fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
         bundle
+    }
+
+    // The bundle used to be called 水杉输入法（预览）.app and carries the same identifier, so a
+    // machine that installed one would show two entries for a single input source until the old
+    // copy went away. Installing removes it; a symlink of that name is left alone, because nothing
+    // here ever made one and following it would delete whatever it points at.
+    #[test]
+    fn installing_removes_a_bundle_left_under_the_old_name() {
+        let root = tempdir().unwrap();
+        let destination = root.path().join("Library/Input Methods");
+        fs::create_dir_all(&destination).unwrap();
+        let legacy = destination.join(LEGACY_BUNDLE_NAMES[0]);
+        fs::create_dir_all(legacy.join("Contents/MacOS")).unwrap();
+        fs::write(legacy.join("Contents/Info.plist"), "old").unwrap();
+
+        let source = fixture(root.path(), INPUT_SOURCE_BUNDLE_ID, b"new");
+        let installed = install_bundle_at(&source, &destination).unwrap();
+        assert!(installed.exists());
+        assert!(!legacy.exists(), "the old bundle is gone");
+
+        // A symlink under that name survives, and so does whatever it points at.
+        let elsewhere = root.path().join("elsewhere");
+        fs::create_dir_all(&elsewhere).unwrap();
+        std::os::unix::fs::symlink(&elsewhere, &legacy).unwrap();
+        let replacement = fixture(root.path(), INPUT_SOURCE_BUNDLE_ID, b"replacement");
+        install_bundle_at(&replacement, &destination).unwrap();
+        assert!(fs::symlink_metadata(&legacy)
+            .unwrap()
+            .file_type()
+            .is_symlink());
+        assert!(elsewhere.exists());
     }
 
     #[test]

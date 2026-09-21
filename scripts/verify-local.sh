@@ -318,10 +318,10 @@ note "compile: rust workspace"
 #
 # The name has to be the bundle tauri.macos.conf.json lists, not the CMake
 # target that produces it: platforms/macos names the target
-# MSIMEClientInputMethod and then sets OUTPUT_NAME to 水杉输入法（预览）, so the
+# MSIMEClientInputMethod and then sets OUTPUT_NAME to 水杉输入法, so the
 # guard below matched on no machine and the desktop crate was excluded from
 # every run anyone has made. Three compile errors reached develop behind that.
-desktop_resource="target/macos/水杉输入法（预览）.app"
+desktop_resource="target/macos/水杉输入法.app"
 # The bundle is not the only resource tauri.macos.conf.json points at. A checkout with the input method
 # built but the dictionary release not staged has half of them, and the build script fails on the missing
 # half rather than skipping - which reads as a broken crate instead of an unprepared checkout.
