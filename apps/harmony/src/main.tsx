@@ -638,6 +638,20 @@ function makeClient(
         text,
         request_id,
       }),
+    /**
+     * The Apple-compatible personal dictionary file.
+     *
+     * Unlike the edits beside it, this one is queued rather than written: the keyboard may be open,
+     * and the Engine's maintenance lock is not available while it is. The host writes the entries
+     * to the queue the keyboard drains at its next session start, which is why the card says 已加入
+     * 同步队列 rather than 已导入 — that is the truth on this host as it is on the Apple one.
+     */
+    importPersonal: async (text: string, request_id: string) =>
+      dictionaryReply<{ queued: boolean; pending_count: number }>({
+        operation: "import_personal",
+        text,
+        request_id,
+      }),
     export: async (
       kind: LocalDictionaryKind,
       format: Exclude<LocalDictionaryFormat, "rime" | "hans">,

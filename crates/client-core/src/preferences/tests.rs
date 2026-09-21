@@ -2047,3 +2047,41 @@ fn restoring_defaults_keeps_what_cannot_be_retyped() {
     restored.validate().expect("restored preferences validate");
     assert_eq!(restored.restored_to_defaults(), restored);
 }
+
+/// Both halves of this product can name the renderer they mean.
+///
+/// `ui_backend` is written `d2d` in the Windows factory configuration and `direct2d` by this type,
+/// so a document carrying the factory spelling was rejected rather than read - and a rejected
+/// preference document does not lose one field, it falls back wholesale. The reference also accepts
+/// `webview` and `web` for the same choice, having written both at different times.
+///
+/// Serialisation is unchanged: the aliases are read-only, so nothing here starts writing a second
+/// spelling of its own.
+#[test]
+fn ui_backend_reads_every_spelling_this_product_has_written() {
+    for (value, expected) in [
+        ("direct2d", UiBackend::Direct2d),
+        ("d2d", UiBackend::Direct2d),
+        ("webview2", UiBackend::Webview2),
+        ("webview", UiBackend::Webview2),
+        ("web", UiBackend::Webview2),
+    ] {
+        assert_eq!(
+            serde_json::from_str::<UiBackend>(&format!("\"{value}\"")).unwrap(),
+            expected,
+            "{value} should name a renderer this product understands"
+        );
+    }
+    // An unknown value is still an error rather than a silent default: the reference falls back to
+    // native for one, but it is reading a single key, while here the whole document goes with it.
+    assert!(serde_json::from_str::<UiBackend>("\"opengl\"").is_err());
+    // One spelling out, whichever ones come in.
+    assert_eq!(
+        serde_json::to_string(&UiBackend::Direct2d).unwrap(),
+        "\"direct2d\""
+    );
+    assert_eq!(
+        serde_json::to_string(&UiBackend::Webview2).unwrap(),
+        "\"webview2\""
+    );
+}

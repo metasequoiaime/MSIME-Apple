@@ -182,6 +182,14 @@ char *msime_client_skin_resource(const uint8_t *request, size_t length);
 /* JSON {directory:absolute path,id:skin id}; returns a nullable stylesheet
  * string from the manifest, after revalidating the package and path. */
 char *msime_client_skin_toolbar_stylesheet(const uint8_t *request, size_t length);
+/* The queued personal dictionary, for a host that cannot take the Engine's
+ * maintenance lock when the request arrives. Same request shape as
+ * msime_client_dictionary - {options,action} - but the operations act on
+ * <preferences_directory>/PersonalDictionary instead of the Engine, and the
+ * keyboard applies them at its next session start. Use this for import_personal
+ * in particular: "maintenance busy" is not an answer to "add these words", and
+ * the user is as likely to import with the keyboard up as with it down. */
+char *msime_client_personal_dictionary_request(const uint8_t *request, size_t length);
 /* JSON {directory:absolute state root} reads the named custom touch-keyboard
  * designs; adding action:{operation:"create"|"rename"|"update"|"delete",...}
  * applies one change first. Both answer with the whole library, because every

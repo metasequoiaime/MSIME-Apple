@@ -1075,6 +1075,11 @@ export class KeyboardSession implements HardwareKeyTarget {
       KeyboardLog.error(`host preparation unreadable: ${describeError(error)}`);
       return false;
     }
+    // Before the session exists and after the options are known: dictionary maintenance takes an
+    // exclusive lock that a live session's shared lock would block, so this is the one moment in
+    // the keyboard's life when queued personal-dictionary edits can actually be applied. A failure
+    // is not a reason to refuse to start — the queue keeps its entries and the next start retries.
+    this.drainPersonalDictionary(options);
     try {
       const created: CreateResponse = JSON.parse(client.create(options)) as CreateResponse;
       if (!created.ok) {
@@ -1089,6 +1094,30 @@ export class KeyboardSession implements HardwareKeyTarget {
       // better than driving a session whose replies we cannot read.
       KeyboardLog.error(`session reply unreadable: ${describeError(error)}`);
       return false;
+    }
+  }
+
+  /**
+   * Applies whatever the settings window queued for the personal dictionary.
+   *
+   * Words imported from a file cannot be written when they are chosen: the settings window has no
+   * way to take the Engine's maintenance lock while this process is holding a session, and telling
+   * the user "busy" would make importing a file depend on whether they happened to have the
+   * keyboard open. They are queued instead, and this is where the queue is paid.
+   *
+   * Everything here is best effort. The store keeps entries it could not apply, so a failure costs
+   * a delay rather than the import; refusing to start the keyboard over it would turn a dictionary
+   * problem into no keyboard at all.
+   */
+  private drainPersonalDictionary(options: string): void {
+    try {
+      const reply: Record<string, Object> =
+        JSON.parse(client.personalDictionarySync(options)) as Record<string, Object>;
+      if (reply['ok'] !== true) {
+        KeyboardLog.error('personal dictionary queue not applied; it will be retried');
+      }
+    } catch (error) {
+      KeyboardLog.error(`personal dictionary queue unavailable: ${describeError(error)}`);
     }
   }
 
@@ -1621,7 +1650,12 @@ export class KeyboardSession implements HardwareKeyTarget {
         return JSON.stringify(prepared);
       }
       const request: DictionaryRequest = { options: prepared.value, action: action };
-      result = client.dictionary(JSON.stringify(request));
+      // Same request shape, different store. The queued route writes the personal-dictionary file
+      // beside the preferences and is drained at the next session start; the Engine route needs
+      // the maintenance lock this method has just taken.
+      result = decision.queued
+        ? client.personalDictionaryRequest(JSON.stringify(request))
+        : client.dictionary(JSON.stringify(request));
     } catch (error) {
       KeyboardLog.error(`dictionary request unavailable: ${describeError(error)}`);
       result = JSON.stringify({ ok: false, error: 'dictionary request failed' });

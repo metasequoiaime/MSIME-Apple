@@ -82,6 +82,14 @@ export const applyOnlineCandidates: (
   source: number,
 ) => string;
 export const personalDictionarySync: (options: string) => string;
+/**
+ * `{options,action}` against the queued personal dictionary rather than the Engine.
+ *
+ * The Engine route needs the maintenance lock and so needs the keyboard not to hold a session;
+ * this one writes a queue the keyboard drains at its next session start. Used for importing a
+ * file, where "maintenance busy" is not an answer to "add these words".
+ */
+export const personalDictionaryRequest: (request: string) => string;
 export const prepareHost: (options: string) => string;
 
 export const snapshotVersion: (options: string) => string;

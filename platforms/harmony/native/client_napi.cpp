@@ -189,6 +189,7 @@ TEXT_ENTRY(AiSkinPlan, msime_client_ai_skin_plan)
 TEXT_ENTRY(Dictionary, msime_client_dictionary)
 TEXT_ENTRY(TypingStatistics, msime_client_typing_statistics)
 TEXT_ENTRY(PersonalDictionarySync, msime_client_personal_dictionary_sync)
+TEXT_ENTRY(PersonalDictionaryRequest, msime_client_personal_dictionary_request)
 TEXT_ENTRY(PrepareHost, msime_client_prepare_host)
 TEXT_ENTRY(SnapshotVersion, msime_client_snapshot_version)
 TEXT_ENTRY(CloudRequestUrl, msime_client_cloud_request_url)
@@ -662,6 +663,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("applyCloudResponse", ApplyCloudResponse),
         ENTRY("applyOnlineCandidates", ApplyOnlineCandidates),
         ENTRY("personalDictionarySync", PersonalDictionarySync),
+        ENTRY("personalDictionaryRequest", PersonalDictionaryRequest),
         ENTRY("prepareHost", PrepareHost),
         ENTRY("snapshotVersion", SnapshotVersion),
         ENTRY("snapshotPrepare", SnapshotPrepare),

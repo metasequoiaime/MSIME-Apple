@@ -4276,3 +4276,102 @@ fn published_defaults_complete_every_nested_preference_object() {
         }
     }
 }
+
+#[test]
+#[cfg(not(target_os = "android"))]
+fn importing_a_personal_dictionary_file_queues_instead_of_taking_the_engine_lock() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().to_str().unwrap().to_owned();
+    let options = json!({
+        "api_version": 1,
+        "resources": format!("{root}/resources"),
+        "user_data": format!("{root}/user"),
+        "cache": format!("{root}/cache"),
+        "dictionaries": format!("{root}/dictionaries"),
+        "preferences": msime_client_core::preferences::Preferences::default(),
+        "preferences_directory": root,
+    });
+    let file = json!({
+        "format": "msime-personal-dictionary",
+        "version": 1,
+        "entries": [
+            {"kind": "pinyin", "key": "shuishan", "value": "水杉", "weight": 100},
+            {"kind": "quickPhrase", "key": "zjd", "value": "在家等", "weight": 100},
+        ],
+    })
+    .to_string();
+    let request = json!({
+        "options": options,
+        "action": {"operation": "import_personal", "text": file, "request_id": "ui-1"},
+    })
+    .to_string();
+
+    let queued =
+        read(unsafe { msime_client_personal_dictionary_request(request.as_ptr(), request.len()) });
+    assert_eq!(queued["ok"], true);
+    assert_eq!(queued["value"]["queued"], true);
+    // The count is what the card shows the user, so it has to be the queue's own answer rather
+    // than the number of lines that were sent.
+    assert_eq!(queued["value"]["pending_count"], 2);
+
+    // The same request through the Engine route is refused, which is the whole reason the queued
+    // one exists: that route needs the maintenance lock, and a keyboard holding a session owns it.
+    let engine = read(unsafe { msime_client_dictionary(request.as_ptr(), request.len()) });
+    assert_eq!(engine["ok"], false);
+
+    // A second import adds to the queue rather than replacing it: two files imported before the
+    // keyboard next starts must both survive.
+    let second = json!({
+        "options": options,
+        "action": {
+            "operation": "import_personal",
+            "text": json!({
+                "format": "msime-personal-dictionary",
+                "version": 1,
+                "entries": [{"kind": "english", "key": "ime", "value": "IME", "weight": 100}],
+            })
+            .to_string(),
+            "request_id": "ui-2",
+        },
+    })
+    .to_string();
+    let again =
+        read(unsafe { msime_client_personal_dictionary_request(second.as_ptr(), second.len()) });
+    assert_eq!(again["value"]["pending_count"], 3);
+
+    // A file this host cannot read is refused before anything is queued, so a malformed import
+    // cannot leave the queue half-written.
+    let malformed = json!({
+        "options": options,
+        "action": {"operation": "import_personal", "text": "not json", "request_id": "ui-3"},
+    })
+    .to_string();
+    assert_eq!(
+        read(unsafe {
+            msime_client_personal_dictionary_request(malformed.as_ptr(), malformed.len())
+        })["ok"],
+        false
+    );
+
+    // Without a shared directory there is no queue to write to, and inventing one beside the
+    // resources would put the words somewhere the keyboard never looks.
+    let mut rootless = options.clone();
+    rootless
+        .as_object_mut()
+        .unwrap()
+        .remove("preferences_directory");
+    let without = json!({
+        "options": rootless,
+        "action": {"operation": "import_personal", "text": file, "request_id": "ui-4"},
+    })
+    .to_string();
+    assert_eq!(
+        read(unsafe { msime_client_personal_dictionary_request(without.as_ptr(), without.len()) })
+            ["ok"],
+        false
+    );
+    assert_eq!(
+        read(unsafe { msime_client_personal_dictionary_request(std::ptr::null(), 0) })["ok"],
+        false
+    );
+}
