@@ -7,7 +7,6 @@ import android.view.ViewGroup;
 import android.widget.TextView;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
-import androidx.fragment.app.Fragment;
 import app.msime.client.R;
 import app.msime.client.TypingStatisticsModel;
 import app.msime.client.TypingStatisticsModel.Section;
@@ -29,7 +28,7 @@ import java.util.Map;
  * that has never been written says so, because a zero and "not recording" mean different things to
  * the reader.
  */
-public final class StatisticsFragment extends Fragment {
+public final class StatisticsFragment extends HomeTabFragment {
     /** 趋势默认画 30 天；记录不足 30 天就画到最早那条。 */
     private static final int DEFAULT_TREND_DAYS = 30;
     private static final int MIN_TREND_DAYS = 7;
@@ -38,6 +37,7 @@ public final class StatisticsFragment extends Fragment {
 
     private Section section = Section.TREND;
     @Nullable private TypingStatisticsModel statistics;
+    @Nullable private String selectedDay;
     private boolean applyingState;
 
     @Override public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup parent,
@@ -84,6 +84,18 @@ public final class StatisticsFragment extends Fragment {
                 this::adopt);
         });
 
+        HeatmapView heatmap = view.findViewById(R.id.statistics_heatmap);
+        heatmap.setOnDayPicked(picked -> {
+            // Tapping the same day again, or a cell with nothing in it, returns to the total: the
+            // selection is a lens, and there has to be a way back that is not a hunt for a button.
+            selectedDay = picked == null || picked.equals(selectedDay) ? null : picked;
+            render();
+        });
+        view.findViewById(R.id.statistics_scope_clear).setOnClickListener(ignored -> {
+            selectedDay = null;
+            render();
+        });
+
         MaterialButton reset = view.findViewById(R.id.statistics_reset);
         reset.setOnClickListener(ignored -> new MaterialAlertDialogBuilder(requireContext())
             .setTitle("清除全部统计")
@@ -96,9 +108,8 @@ public final class StatisticsFragment extends Fragment {
         reload();
     }
 
-    @Override public void onResume() {
-        super.onResume();
-        // The keyboard is a separate process and has been recording while this screen was away.
+    // The keyboard is a separate process and has been recording while this screen was away.
+    @Override protected void onBecameVisible() {
         if (statistics != null) reload();
     }
 
@@ -132,9 +143,15 @@ public final class StatisticsFragment extends Fragment {
 
         String day = LocalDate.now().toString();
         today.setText(String.valueOf(statistics.count(day)));
-        total.setText(String.valueOf(statistics.total()));
+        // 选中某一天时，右边那个数字跟着分类一起换成那一天；否则它是累计。
+        boolean scoped = selectedDay != null;
+        ((TextView) view.findViewById(R.id.statistics_scope_title))
+            .setText(scoped ? readableDay(selectedDay) : "累计输入");
+        total.setText(String.valueOf(scoped ? statistics.count(selectedDay) : statistics.total()));
         notice.setVisibility(statistics.enabled() ? View.GONE : View.VISIBLE);
         notice.setText("记录已关闭。已有的计数保留在本机，新的输入不再计入。");
+        MaterialButton scope = view.findViewById(R.id.statistics_scope_clear);
+        scope.setVisibility(scoped ? View.VISIBLE : View.GONE);
 
         applyingState = true;
         MaterialSwitch enabled = view.findViewById(R.id.statistics_enabled);
@@ -158,18 +175,44 @@ public final class StatisticsFragment extends Fragment {
             int days = span <= 0 ? DEFAULT_TREND_DAYS
                 : Math.min(DEFAULT_TREND_DAYS, Math.max(MIN_TREND_DAYS, span));
             int[] series = statistics.trend(day, days);
+            TrendChart chart = view.findViewById(R.id.statistics_trend);
             ((TextView) view.findViewById(R.id.statistics_trend_title))
                 .setText("每日趋势 · 近 " + days + " 天");
-            ((TrendChart) view.findViewById(R.id.statistics_trend)).setDaily(series);
-            ((HeatmapView) view.findViewById(R.id.statistics_heatmap))
-                .setDaily(statistics.trend(day, DEFAULT_TREND_DAYS * 4));
+            chart.setDaily(series);
+            chart.setContentDescription("每日趋势，近 " + days + " 天，最高 " + peak(series) + " 字符");
+            HeatmapView heatmap = view.findViewById(R.id.statistics_heatmap);
+            int calendarDays = DEFAULT_TREND_DAYS * 4;
+            heatmap.setDaily(statistics.trend(day, calendarDays));
+            heatmap.setDays(statistics.trendDays(day, calendarDays));
+            heatmap.setSelected(selectedDay);
+            heatmap.setContentDescription(selectedDay == null
+                ? "输入日历，每天一格，点按查看单日分类"
+                : "输入日历，已选中 " + readableDay(selectedDay));
             return;
         }
-        List<TypingStatisticsModel.Slice> slices = statistics.slices(section, null);
+        List<TypingStatisticsModel.Slice> slices = statistics.slices(section, selectedDay);
         ((TextView) view.findViewById(R.id.statistics_distribution_title))
-            .setText(section.heading());
+            .setText(selectedDay == null ? section.heading()
+                : section.heading() + " · " + readableDay(selectedDay));
         ((DistributionView) view.findViewById(R.id.statistics_distribution)).setSlices(slices);
         ((TextView) view.findViewById(R.id.statistics_distribution_note)).setText(note(section));
+    }
+
+    private static int peak(int[] series) {
+        int peak = 0;
+        for (int value : series) peak = Math.max(peak, value);
+        return peak;
+    }
+
+    /** `2026-09-21` as `9 月 21 日`; the year is only worth printing when it is not this one. */
+    private static String readableDay(String day) {
+        try {
+            LocalDate date = LocalDate.parse(day);
+            String text = date.getMonthValue() + " 月 " + date.getDayOfMonth() + " 日";
+            return date.getYear() == LocalDate.now().getYear() ? text : date.getYear() + " 年 " + text;
+        } catch (java.time.format.DateTimeParseException error) {
+            return day;
+        }
     }
 
     private static String note(Section section) {

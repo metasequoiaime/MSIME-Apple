@@ -12,7 +12,6 @@ import androidx.annotation.DrawableRes;
 import androidx.annotation.NonNull;
 import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
-import androidx.fragment.app.Fragment;
 import app.msime.client.AccountIdentity;
 import app.msime.client.AppIconStyle;
 import app.msime.client.CommunityRequest;
@@ -28,7 +27,7 @@ import com.google.android.material.snackbar.Snackbar;
  * "未登录", because it is the identity the community catalogue is read with. Rows whose destination
  * needs a real account say so rather than opening an empty screen.
  */
-public final class AccountFragment extends Fragment {
+public final class AccountFragment extends HomeTabFragment {
     @Override public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup parent,
                                        @Nullable Bundle state) {
         return inflater.inflate(R.layout.page_account, parent, false);
@@ -38,12 +37,9 @@ public final class AccountFragment extends Fragment {
         render();
     }
 
-    @Override public void onResume() {
-        super.onResume();
-        // The icon may have been changed elsewhere, and the keyboard may have created its identity
-        // while this screen was in the background.
-        render();
-    }
+    // The icon may have been changed elsewhere, and the keyboard may have created its identity
+    // while this screen was in the background.
+    @Override protected void onBecameVisible() { render(); }
 
     private void render() {
         View view = getView();

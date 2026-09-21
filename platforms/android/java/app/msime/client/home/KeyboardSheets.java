@@ -275,6 +275,13 @@ public final class KeyboardSheets {
         return snapshot == null ? null : snapshot.optJSONObject("preferences");
     }
 
+    /** The theme's own press indication, resolved once so rows built in code can wear it. */
+    private static int rippleBackground(Context context) {
+        android.util.TypedValue value = new android.util.TypedValue();
+        return context.getTheme().resolveAttribute(
+            androidx.appcompat.R.attr.selectableItemBackground, value, true) ? value.resourceId : 0;
+    }
+
     private static String text(TextInputLayout field) {
         return field.getEditText() == null ? ""
             : field.getEditText().getText().toString().trim();
@@ -321,9 +328,15 @@ public final class KeyboardSheets {
         LinearLayout row = new LinearLayout(context);
         row.setOrientation(LinearLayout.HORIZONTAL);
         row.setGravity(Gravity.CENTER_VERTICAL);
-        int padding = Math.round(12 * context.getResources().getDisplayMetrics().density);
-        row.setPadding(0, padding, 0, padding);
+        float density = context.getResources().getDisplayMetrics().density;
+        int padding = Math.round(12 * density);
+        int inset = Math.round(8 * density);
+        row.setPadding(inset, padding, inset, padding);
         row.setClickable(true);
+        row.setFocusable(true);
+        // A clickable row with no background gives no sign it was pressed, which in a list of nine
+        // skins reads as the tap having missed.
+        row.setBackgroundResource(rippleBackground(context));
         row.setOnClickListener(ignored -> onPick.run());
 
         LinearLayout labels = new LinearLayout(context);

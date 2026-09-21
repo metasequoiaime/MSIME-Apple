@@ -8,6 +8,7 @@ import androidx.annotation.NonNull;
 import androidx.recyclerview.widget.RecyclerView;
 import app.msime.client.CommunityCatalog;
 import app.msime.client.CommunityRequest;
+import app.msime.client.KeyboardSkin;
 import app.msime.client.R;
 import com.google.android.material.button.MaterialButton;
 import java.util.ArrayList;
@@ -48,6 +49,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
 
     @Override public void onBindViewHolder(@NonNull Holder holder, int position) {
         CommunityCatalog.Item item = items.get(position);
+        holder.swatch.setSkin(preview(item));
         holder.name.setText(item.name());
         holder.description.setText(item.description().isEmpty()
             ? "作者没有写说明。" : item.description());
@@ -59,6 +61,26 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
         // 按下去没反应的按钮。
         holder.action.setText(installable ? "保存到皮肤库" : "暂不支持导入");
         holder.action.setOnClickListener(installable ? ignored -> onAction.accept(item) : null);
+        holder.itemView.setOnClickListener(installable ? ignored -> onAction.accept(item) : null);
+        holder.itemView.setClickable(installable);
+        holder.itemView.setContentDescription(item.name() + "，" + author(item) + "，"
+            + rating(item) + (installable ? "，点按保存到皮肤库" : "，暂不支持导入"));
+    }
+
+    /**
+     * The design to draw beside a skin's name.
+     *
+     * <p>Resolved through the same custom-skin path the keyboard renders a saved design with, so
+     * the swatch is the skin rather than an approximation of it. Anything unreadable draws nothing.
+     */
+    @androidx.annotation.Nullable
+    private static KeyboardSkin preview(CommunityCatalog.Item item) {
+        if (item.kind() != CommunityRequest.Kind.SKIN || item.payload() == null) return null;
+        try {
+            return KeyboardSkin.from("custom", false, item.payload());
+        } catch (RuntimeException error) {
+            return null;
+        }
     }
 
     private static String author(CommunityCatalog.Item item) {
@@ -80,6 +102,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
         final TextView author;
         final TextView rating;
         final MaterialButton action;
+        final SkinSwatchView swatch;
 
         Holder(@NonNull View view) {
             super(view);
@@ -88,6 +111,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
             author = view.findViewById(R.id.community_item_author);
             rating = view.findViewById(R.id.community_item_rating);
             action = view.findViewById(R.id.community_item_action);
+            swatch = view.findViewById(R.id.community_item_swatch);
         }
     }
 }

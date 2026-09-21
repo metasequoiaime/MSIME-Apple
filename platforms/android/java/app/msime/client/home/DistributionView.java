@@ -57,8 +57,31 @@ public final class DistributionView extends View {
         if (kept.size() > MAX_ROWS) kept = kept.subList(0, MAX_ROWS);
         slices = List.copyOf(kept);
         total = TypingStatisticsModel.sum(slices);
+        describe();
         requestLayout();
         invalidate();
+    }
+
+    /**
+     * Say the rows out loud.
+     *
+     * <p>Everything this view shows is drawn, so without this there is nothing here for a screen
+     * reader to read -- the chart would be a blank rectangle between two headings.
+     */
+    private void describe() {
+        if (slices.isEmpty()) {
+            setContentDescription("这一段时间还没有记录");
+            return;
+        }
+        StringBuilder text = new StringBuilder();
+        for (TypingStatisticsModel.Slice slice : slices) {
+            if (text.length() > 0) text.append('，');
+            text.append(slice.title()).append(' ').append(slice.count()).append(" 字符");
+            if (total > 0) {
+                text.append(String.format(Locale.ROOT, "，占 %.1f%%", 100.0 * slice.count() / total));
+            }
+        }
+        setContentDescription(text.toString());
     }
 
     private float dp(float value) { return value * getResources().getDisplayMetrics().density; }

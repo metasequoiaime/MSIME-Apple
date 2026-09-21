@@ -1,13 +1,17 @@
 package app.msime.client.home;
 
 import android.os.Bundle;
+import androidx.activity.OnBackPressedCallback;
 import androidx.annotation.NonNull;
+import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.core.graphics.Insets;
 import androidx.core.view.ViewCompat;
 import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.fragment.app.Fragment;
+import androidx.fragment.app.FragmentManager;
+import androidx.fragment.app.FragmentTransaction;
 import app.msime.client.CommunityRequest;
 import app.msime.client.R;
 import com.google.android.material.bottomnavigation.BottomNavigationView;
@@ -17,13 +21,22 @@ import com.google.android.material.bottomnavigation.BottomNavigationView;
  *
  * Resource preparation stays in SetupActivity; this screen does not duplicate it and never enables
  * the input method on the user's behalf.
+ *
+ * Each tab is created once and then hidden rather than replaced. Replacing tore the page down on
+ * every switch: coming back to 社区 re-fetched the listing over the network and threw away how far
+ * the user had scrolled, and 统计 forgot which of its four segments was open.
  */
 public final class HomeActivity extends AppCompatActivity {
     private static final String STATE_TAB = "home-tab";
+    private static final int FIRST_TAB = R.id.tab_keyboard;
+    private static final int[] TAB_IDS = {
+        R.id.tab_keyboard, R.id.tab_community, R.id.tab_statistics, R.id.tab_account,
+    };
 
     private BottomNavigationView tabs;
-    private int selected = R.id.tab_keyboard;
-    private CommunityRequest.Kind pendingKind;
+    private OnBackPressedCallback back;
+    private int selected = FIRST_TAB;
+    @Nullable private CommunityRequest.Kind pendingKind;
 
     @Override protected void onCreate(Bundle state) {
         super.onCreate(state);
@@ -40,13 +53,20 @@ public final class HomeActivity extends AppCompatActivity {
             return windowInsets;
         });
 
+        // Back returns to the first tab before it leaves the app, which is what a bottom bar leads
+        // the user to expect. On the first tab the callback is off and the system default runs, so
+        // leaving still gets the platform's own back animation rather than a bare finish().
+        back = new OnBackPressedCallback(false) {
+            @Override public void handleOnBackPressed() { tabs.setSelectedItemId(FIRST_TAB); }
+        };
+        getOnBackPressedDispatcher().addCallback(this, back);
+
+        if (state != null) selected = state.getInt(STATE_TAB, FIRST_TAB);
         tabs.setOnItemSelectedListener(item -> {
-            selected = item.getItemId();
-            show(pageFor(selected));
+            show(item.getItemId());
             return true;
         });
-        if (state != null) selected = state.getInt(STATE_TAB, R.id.tab_keyboard);
-        if (state == null) show(pageFor(selected));
+        show(selected);
         tabs.setSelectedItemId(selected);
     }
 
@@ -60,18 +80,40 @@ public final class HomeActivity extends AppCompatActivity {
         if (tabs != null) tabs.setSelectedItemId(itemId);
     }
 
-    /** Switch to the community tab and open it on one kind of work. */
+    /**
+     * Switch to the community tab and open it on one kind of work.
+     *
+     * <p>The kept instance is discarded for this: which kind the tab opens on is an argument, and
+     * the one on screen is showing another.
+     */
     public void openCommunity(CommunityRequest.Kind kind) {
+        FragmentManager manager = getSupportFragmentManager();
+        Fragment existing = manager.findFragmentByTag(tag(R.id.tab_community));
+        if (existing != null) manager.beginTransaction().remove(existing).commitNow();
         pendingKind = kind;
-        if (selected == R.id.tab_community) {
-            // Already there, so the tab listener will not fire; replace the page directly.
-            show(pageFor(R.id.tab_community));
-            return;
-        }
-        openTab(R.id.tab_community);
+        if (selected == R.id.tab_community) show(R.id.tab_community);
+        else openTab(R.id.tab_community);
     }
 
-    private Fragment pageFor(int itemId) {
+    private void show(int itemId) {
+        selected = itemId;
+        back.setEnabled(itemId != FIRST_TAB);
+        FragmentManager manager = getSupportFragmentManager();
+        FragmentTransaction transaction = manager.beginTransaction();
+        for (int id : TAB_IDS) {
+            Fragment page = manager.findFragmentByTag(tag(id));
+            if (id != itemId) {
+                if (page != null && !page.isHidden()) transaction.hide(page);
+            } else if (page == null) {
+                transaction.add(R.id.home_content, create(id), tag(id));
+            } else {
+                transaction.show(page);
+            }
+        }
+        transaction.commit();
+    }
+
+    private Fragment create(int itemId) {
         if (itemId == R.id.tab_community) {
             CommunityRequest.Kind kind = pendingKind;
             pendingKind = null;
@@ -82,7 +124,5 @@ public final class HomeActivity extends AppCompatActivity {
         return new KeyboardFragment();
     }
 
-    private void show(@NonNull Fragment page) {
-        getSupportFragmentManager().beginTransaction().replace(R.id.home_content, page).commit();
-    }
+    private static String tag(int itemId) { return "home-tab-" + itemId; }
 }

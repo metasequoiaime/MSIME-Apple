@@ -96,6 +96,11 @@ public final class CommunityFragment extends Fragment {
         field.setOnEditorActionListener((text, action, event) -> {
             if (action != EditorInfo.IME_ACTION_SEARCH) return false;
             search = text.getText() == null ? "" : text.getText().toString();
+            // The results are what the search was for, and the keyboard is sitting on top of them.
+            android.view.inputmethod.InputMethodManager manager =
+                requireContext().getSystemService(android.view.inputmethod.InputMethodManager.class);
+            if (manager != null) manager.hideSoftInputFromWindow(text.getWindowToken(), 0);
+            text.clearFocus();
             load(true);
             return true;
         });
