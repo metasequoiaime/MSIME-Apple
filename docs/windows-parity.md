@@ -1799,3 +1799,17 @@ if let Some(route) = launch_route_from_args(&args) { ... }
 反向验证两条路径：删掉 `cloud_ime` 那条记录，它报 `nothing here is recorded as answering this file`；把它指向一个不存在的文件，它报 `recorded as answered by ... which does not exist`。写的时候也真的被自己抓到过一次——`ime_paths` 最初写成 `system/ServerResources.h`，而那个文件在 `ipc/` 下，检查当场报红。
 
 至此四道检查从四个方向回答同一个问题，每次 `--quick` 重新回答一遍：配置能力、界面能力、发布过的功能、以及源码文件。
+
+增量记录（2026-09-21，Windows 第三十八批：组字里的两段要看得出分界）：目标起点 `f95bb51b2`。
+
+来源用 TSF 显示属性把组字分成两类：正在输入的那段是 `TF_ATTR_INPUT`，画点线下划线；已转换的那段是 `TF_ATTR_TARGET_CONVERTED`，不画下划线（`windows/src/DisplayAttribute/DisplayAttributeInfo.cpp`，颜色一律交给应用默认）。也就是说来源里「已经定下的」与「还在打的」在屏幕上是分得开的。
+
+第二十七批把半截词留进组字之后，本仓的 marked text 里也有了这两段，但整段只有一个样式——「海滩paobu」连成一条下划线，用户看不出已经选定的到哪儿为止。
+
+按 macOS 自己的惯例补上分段，而不是照搬点线：AppKit 这边的约定是**已定下的那段细下划线、正在处理的那段粗下划线**（日文输入法在 macOS 上都是这样），并给两段各自的 `NSMarkedClauseSegment` 序号，走 segment 的客户端能看见两段。权重方向与来源相反是平台惯例差异，语义一致。
+
+只在 AppKit 生效：`#if TARGET_OS_OSX`。UIKit 那边的 `UITextDocumentProxy setMarkedText:` 只收纯字符串，而 UIKit 宿主目前不持有半截词（见第三十四批的守卫），非 OSX 路径与改动前逐字节相同。
+
+两处构建细节记下来免得重查：`apple-client` 此前只链 Foundation/Security/CoreText，要加 AppKit；而 `emoji-swift-host-test` 那条 `swiftc` 命令用 `-force_load` 直接吃静态库，**拿不到 CMake 的传递链接库**，得在它自己的命令行上补。后者是 `ctest` 报 `Not Run` 而不是编译失败的那一类，容易看成无关。
+
+用例：断言两段的下划线样式与 clause 序号、以及「没有半截词时仍然是纯字符串」（不持有半截词的宿主完全不受影响）。测试里的假客户端相应把 `marked` 改成 `id` 并加 `markedString`。反向验证过（把第二段改成细下划线，第 475 行变红）。
