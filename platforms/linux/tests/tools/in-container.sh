@@ -54,9 +54,9 @@ test -x /build/stage/usr/local/bin/msime-client-dictionary
 test -x /build/stage/usr/local/bin/msime-client-cloud-dictionary
 test -x /build/stage/usr/local/bin/msime-client-cloud-clipboard
 test -x /build/stage/usr/local/bin/msime-client-voice
-test -f /build/stage/usr/local/share/ibus/component/msime-client-preview.xml
+test -f /build/stage/usr/local/share/ibus/component/msime-client.xml
 grep -q '/usr/local/etc/msime-client/runtime-options.json' \
-  /build/stage/usr/local/share/ibus/component/msime-client-preview.xml
+  /build/stage/usr/local/share/ibus/component/msime-client.xml
 python3 platforms/linux/tests/dictionary/dictionary_smoke.py /build/ibus/msime-client-dictionary /build/cargo/debug/libmsime_host_api.so /resources
 clipboard_fixture=$(mktemp -d /tmp/msime-clipboard.XXXXXX)
 trap 'rm -rf "$clipboard_fixture"' EXIT

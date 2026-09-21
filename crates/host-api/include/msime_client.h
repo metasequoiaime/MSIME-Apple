@@ -143,6 +143,12 @@ char *msime_client_snapshot_activate(uint64_t handle, const uint8_t *expected_ve
  * is optional, its members are not.
  */
 char *msime_client_default_preferences(void);
+/* 内置候选皮肤，JSON 形如
+ * {"skins":[{"id":"fluent","title":"Fluent"},…],"default":"willow_green"}。
+ * 数组顺序就是宿主的展示与循环顺序。宿主不要另存一份 id 或标题：两个 Linux 宿主曾
+ * 各存一份，于是同一个 graphite 在一边叫 Graphite、在另一边叫石墨。
+ */
+char *msime_client_builtin_skins(void);
 /* Per-key double-pinyin hint text for one profile name, as a JSON object mapping
  * an uppercase key to "initials / finals" - or to whichever side that key carries.
  * Read out of the Engine's own profile tables so a keyboard face never carries a

@@ -35,4 +35,15 @@
     <string name="desktop_open_release">打开官方发布页</string>
     <string name="desktop_copy_link">复制发布页链接</string>
     <string name="desktop_copied">链接已复制</string>
+    <string name="help_title">使用帮助</string>
+    <string name="feedback_title">反馈问题与建议</string>
+    <string name="feedback_kind">类型</string>
+    <string name="feedback_detail">描述</string>
+    <string name="feedback_detail_hint">发生了什么？</string>
+    <string name="feedback_detail_footer">发生了什么？如果和打字有关，写出你输入的编码和期望的结果最有用。</string>
+    <string name="feedback_environment">会一起附上的信息</string>
+    <string name="feedback_submit">在 GitHub 提交</string>
+    <string name="feedback_submit_footer">提交会打开 GitHub 并预填这份报告。网址长度有限，过长的描述会被截断，完整内容请用「复制报告」。</string>
+    <string name="feedback_copy">复制报告</string>
+    <string name="feedback_copied">已复制报告</string>
 </resources>

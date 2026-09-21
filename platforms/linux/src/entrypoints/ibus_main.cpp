@@ -28,9 +28,9 @@ void reload_options(OptionsWatch &watch) {
   // A later different document is always eligible for another attempt.
   watch.last_document = document;
   try {
-    msime_preview_configure(document);
+    msime_ibus_configure(document);
   } catch (...) {
-    g_warning("MSIME preview settings reload failed");
+    g_warning("MSIME settings reload failed");
   }
 }
 } // namespace
@@ -57,9 +57,9 @@ int main(int argc, char **argv) {
         static_cast<std::size_t>(file.gcount()) >= buffer.size())
       throw std::runtime_error("Cannot read configuration");
     std::string options(buffer.data(), static_cast<size_t>(file.gcount()));
-    msime_preview_configure(options);
+    msime_ibus_configure(options);
   } catch (...) {
-    std::cerr << "Cannot load preview configuration\n";
+    std::cerr << "Cannot load configuration\n";
     return 1;
   }
   ibus_init();
@@ -69,18 +69,18 @@ int main(int argc, char **argv) {
     return 1;
   }
   auto factory = ibus_factory_new(ibus_bus_get_connection(bus));
-  ibus_factory_add_engine(factory, "msime-client-preview",
-                          msime_preview_engine_get_type());
+  ibus_factory_add_engine(factory, "msime-client",
+                          msime_ibus_engine_get_type());
 #if IBUS_CHECK_VERSION(1, 5, 27)
   g_signal_connect(factory, "create-engine",
       G_CALLBACK(+[](IBusFactory *factory, const gchar *name, gpointer) -> IBusEngine * {
-        if (g_strcmp0(name, "msime-client-preview") != 0)
+        if (g_strcmp0(name, "msime-client") != 0)
           return nullptr;
         static guint64 sequence = 0;
         auto path = g_strdup_printf("/org/freedesktop/IBus/Engine/MSIME/%" G_GUINT64_FORMAT,
                                     ++sequence);
         auto engine = IBUS_ENGINE(g_object_new(
-            msime_preview_engine_get_type(), "engine-name", name,
+            msime_ibus_engine_get_type(), "engine-name", name,
             "object-path", path, "connection",
             ibus_service_get_connection(IBUS_SERVICE(factory)),
             "has-focus-id", TRUE, nullptr));
@@ -89,13 +89,13 @@ int main(int argc, char **argv) {
       }), nullptr);
 #endif
   auto component = ibus_component_new(
-      "app.msime.client.preview", "MSIME Client preview", "0.1.0",
+      "app.msime.client", "MSIME Client", "0.1.0",
       "GPL-3.0-only", "MSIME contributors",
       "https://github.com/metasequoiaime/msime", "", "");
   ibus_component_add_engine(
       component,
-      ibus_engine_desc_new("msime-client-preview", "MSIME Client Preview",
-                           "Shared client runtime preview", "zh",
+      ibus_engine_desc_new("msime-client", "MSIME Client",
+                           "Shared MSIME Linux input runtime", "zh",
                            "GPL-3.0-only", "MSIME contributors", "", "us"));
   if (!ibus_bus_register_component(bus, component)) {
     g_object_unref(component);

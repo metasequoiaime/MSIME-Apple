@@ -1125,7 +1125,7 @@ fn default_touch_row_spacing_tenths() -> u8 {
 }
 
 fn default_candidate_skin() -> String {
-    "willow_green".to_owned()
+    crate::skin::catalog::DEFAULT_SKIN.to_owned()
 }
 fn default_candidate_font_family() -> String {
     "Noto Sans SC".to_owned()
