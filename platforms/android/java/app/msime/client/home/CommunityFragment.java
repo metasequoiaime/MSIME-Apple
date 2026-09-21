@@ -29,11 +29,24 @@ import java.nio.file.Paths;
  * than the honest absence of one. Saving a skin, which is what people open this tab to do, works.
  */
 public final class CommunityFragment extends Fragment {
+    private static final String ARG_KIND = "kind";
+
     private CommunityRequest.Kind kind = CommunityRequest.Kind.SKIN;
     private CommunityAdapter adapter;
     private String search = "";
     private boolean loading;
     private boolean hasMore;
+
+    /** The tab, opened on one kind of work; a null kind opens on skins. */
+    public static CommunityFragment forKind(@Nullable CommunityRequest.Kind kind) {
+        CommunityFragment fragment = new CommunityFragment();
+        if (kind != null) {
+            Bundle arguments = new Bundle();
+            arguments.putString(ARG_KIND, kind.id());
+            fragment.setArguments(arguments);
+        }
+        return fragment;
+    }
 
     @Override public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup parent,
                                        @Nullable Bundle state) {
@@ -41,6 +54,12 @@ public final class CommunityFragment extends Fragment {
     }
 
     @Override public void onViewCreated(@NonNull View view, @Nullable Bundle state) {
+        Bundle arguments = getArguments();
+        if (arguments != null) {
+            for (CommunityRequest.Kind value : CommunityRequest.kinds()) {
+                if (value.id().equals(arguments.getString(ARG_KIND))) kind = value;
+            }
+        }
         TabLayout kinds = view.findViewById(R.id.community_kinds);
         for (CommunityRequest.Kind value : CommunityRequest.kinds()) {
             kinds.addTab(kinds.newTab().setText(value.title()));
@@ -84,8 +103,15 @@ public final class CommunityFragment extends Fragment {
         MaterialButton retry = view.findViewById(R.id.community_retry);
         retry.setOnClickListener(ignored -> load(true));
 
+        TabLayout.Tab opening = kinds.getTabAt(CommunityRequest.kinds().indexOf(kind));
+        if (opening != null && !opening.isSelected()) {
+            // Selecting the tab loads the listing through the listener; doing both would issue the
+            // first request twice.
+            opening.select();
+        } else {
+            load(true);
+        }
         updateSearchHint();
-        load(true);
     }
 
     private void updateSearchHint() {

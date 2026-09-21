@@ -21,6 +21,7 @@
                 android:gravity="center_vertical" android:orientation="horizontal" android:padding="18dp">
 
                 <com.google.android.material.imageview.ShapeableImageView
+                    android:id="@+id/account_avatar"
                     android:layout_width="56dp" android:layout_height="56dp" android:padding="12dp"
                     android:src="@drawable/ic_tab_account" android:backgroundTint="@color/forest"
                     app:tint="@color/surface"
@@ -28,12 +29,13 @@
 
                 <LinearLayout android:layout_width="0dp" android:layout_height="wrap_content"
                     android:layout_weight="1" android:layout_marginStart="14dp" android:orientation="vertical">
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                    <TextView android:id="@+id/account_title"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
                         android:text="本机账号" android:textColor="@color/ink" android:textSize="19sp"
                         android:textStyle="bold" />
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="键盘已创建匿名身份，未登录水杉账号" android:textColor="@color/text_secondary"
-                        android:textSize="13sp" />
+                    <TextView android:id="@+id/account_subtitle"
+                        android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        android:textColor="@color/text_secondary" android:textSize="13sp" />
                 </LinearLayout>
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
@@ -47,212 +49,43 @@
             android:layout_width="match_parent" android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             app:cardCornerRadius="18dp" app:cardElevation="1dp" app:cardBackgroundColor="@color/surface">
-            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:orientation="vertical">
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:padding="14dp">
-
-                <com.google.android.material.imageview.ShapeableImageView
-                    android:layout_width="36dp" android:layout_height="36dp" android:padding="8dp"
-                    android:src="@drawable/ic_feature_skin" android:backgroundTint="@color/tile_violet"
-                    app:shapeAppearanceOverlay="@style/Shape.Badge" />
-
-                <LinearLayout
-                    android:layout_width="0dp" android:layout_height="wrap_content"
-                    android:layout_weight="1" android:layout_marginStart="14dp"
-                    android:orientation="vertical">
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="App 图标" android:textColor="@color/ink" android:textSize="16sp" />
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="给主屏幕上的水杉换个颜色" android:textColor="@color/text_secondary" android:textSize="12sp" />
-                </LinearLayout>
-
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="›" android:textColor="@color/text_secondary" android:textSize="20sp" />
-            </LinearLayout>
-            </LinearLayout>
+            <LinearLayout android:id="@+id/account_personal_rows"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical" />
         </com.google.android.material.card.MaterialCardView>
+
         <TextView
             android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:layout_marginTop="24dp" android:layout_marginStart="4dp"
-            android:text="云端" android:textColor="@color/text_secondary" android:textSize="13sp" />
+            android:text="内容" android:textColor="@color/text_secondary" android:textSize="13sp" />
 
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent" android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             app:cardCornerRadius="18dp" app:cardElevation="1dp" app:cardBackgroundColor="@color/surface">
-            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:orientation="vertical">
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:padding="14dp">
-
-                <com.google.android.material.imageview.ShapeableImageView
-                    android:layout_width="36dp" android:layout_height="36dp" android:padding="8dp"
-                    android:src="@drawable/ic_feature_system" android:backgroundTint="@color/tile_green"
-                    app:shapeAppearanceOverlay="@style/Shape.Badge" />
-
-                <LinearLayout
-                    android:layout_width="0dp" android:layout_height="wrap_content"
-                    android:layout_weight="1" android:layout_marginStart="14dp"
-                    android:orientation="vertical">
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="设置同步" android:textColor="@color/ink" android:textSize="16sp" />
-                </LinearLayout>
-
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="›" android:textColor="@color/text_secondary" android:textSize="20sp" />
-            </LinearLayout>
-            <View android:layout_width="match_parent" android:layout_height="1dp"
-                android:layout_marginStart="64dp" android:background="@color/hairline" />
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:padding="14dp">
-
-                <com.google.android.material.imageview.ShapeableImageView
-                    android:layout_width="36dp" android:layout_height="36dp" android:padding="8dp"
-                    android:src="@drawable/ic_feature_dictionary" android:backgroundTint="@color/tile_sand"
-                    app:shapeAppearanceOverlay="@style/Shape.Badge" />
-
-                <LinearLayout
-                    android:layout_width="0dp" android:layout_height="wrap_content"
-                    android:layout_weight="1" android:layout_marginStart="14dp"
-                    android:orientation="vertical">
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="词包与回复模板" android:textColor="@color/ink" android:textSize="16sp" />
-                </LinearLayout>
-
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="›" android:textColor="@color/text_secondary" android:textSize="20sp" />
-            </LinearLayout>
-            <View android:layout_width="match_parent" android:layout_height="1dp"
-                android:layout_marginStart="64dp" android:background="@color/hairline" />
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:padding="14dp">
-
-                <com.google.android.material.imageview.ShapeableImageView
-                    android:layout_width="36dp" android:layout_height="36dp" android:padding="8dp"
-                    android:src="@drawable/ic_feature_scheme" android:backgroundTint="@color/tile_green"
-                    app:shapeAppearanceOverlay="@style/Shape.Badge" />
-
-                <LinearLayout
-                    android:layout_width="0dp" android:layout_height="wrap_content"
-                    android:layout_weight="1" android:layout_marginStart="14dp"
-                    android:orientation="vertical">
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="云词库" android:textColor="@color/ink" android:textSize="16sp" />
-                </LinearLayout>
-
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="›" android:textColor="@color/text_secondary" android:textSize="20sp" />
-            </LinearLayout>
-            <View android:layout_width="match_parent" android:layout_height="1dp"
-                android:layout_marginStart="64dp" android:background="@color/hairline" />
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:padding="14dp">
-
-                <com.google.android.material.imageview.ShapeableImageView
-                    android:layout_width="36dp" android:layout_height="36dp" android:padding="8dp"
-                    android:src="@drawable/ic_feature_ai" android:backgroundTint="@color/tile_amber"
-                    app:shapeAppearanceOverlay="@style/Shape.Badge" />
-
-                <LinearLayout
-                    android:layout_width="0dp" android:layout_height="wrap_content"
-                    android:layout_weight="1" android:layout_marginStart="14dp"
-                    android:orientation="vertical">
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="云剪贴板" android:textColor="@color/ink" android:textSize="16sp" />
-                </LinearLayout>
-
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="›" android:textColor="@color/text_secondary" android:textSize="20sp" />
-            </LinearLayout>
-            </LinearLayout>
+            <LinearLayout android:id="@+id/account_content_rows"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical" />
         </com.google.android.material.card.MaterialCardView>
+
         <TextView
             android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:layout_marginTop="24dp" android:layout_marginStart="4dp"
-            android:text="我发布的" android:textColor="@color/text_secondary" android:textSize="13sp" />
+            android:text="本机数据" android:textColor="@color/text_secondary" android:textSize="13sp" />
 
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent" android:layout_height="wrap_content"
             android:layout_marginTop="8dp"
             app:cardCornerRadius="18dp" app:cardElevation="1dp" app:cardBackgroundColor="@color/surface">
-            <LinearLayout android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:orientation="vertical">
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:padding="14dp">
-
-                <com.google.android.material.imageview.ShapeableImageView
-                    android:layout_width="36dp" android:layout_height="36dp" android:padding="8dp"
-                    android:src="@drawable/ic_feature_skin" android:backgroundTint="@color/tile_pink"
-                    app:shapeAppearanceOverlay="@style/Shape.Badge" />
-
-                <LinearLayout
-                    android:layout_width="0dp" android:layout_height="wrap_content"
-                    android:layout_weight="1" android:layout_marginStart="14dp"
-                    android:orientation="vertical">
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="皮肤" android:textColor="@color/ink" android:textSize="16sp" />
-                </LinearLayout>
-
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="›" android:textColor="@color/text_secondary" android:textSize="20sp" />
-            </LinearLayout>
-            <View android:layout_width="match_parent" android:layout_height="1dp"
-                android:layout_marginStart="64dp" android:background="@color/hairline" />
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:gravity="center_vertical"
-                android:orientation="horizontal"
-                android:padding="14dp">
-
-                <com.google.android.material.imageview.ShapeableImageView
-                    android:layout_width="36dp" android:layout_height="36dp" android:padding="8dp"
-                    android:src="@drawable/ic_feature_dictionary" android:backgroundTint="@color/tile_sand"
-                    app:shapeAppearanceOverlay="@style/Shape.Badge" />
-
-                <LinearLayout
-                    android:layout_width="0dp" android:layout_height="wrap_content"
-                    android:layout_weight="1" android:layout_marginStart="14dp"
-                    android:orientation="vertical">
-                    <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                        android:text="词库" android:textColor="@color/ink" android:textSize="16sp" />
-                </LinearLayout>
-
-                <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
-                    android:text="›" android:textColor="@color/text_secondary" android:textSize="20sp" />
-            </LinearLayout>
-            </LinearLayout>
+            <LinearLayout android:id="@+id/account_storage_rows"
+                android:layout_width="match_parent" android:layout_height="wrap_content"
+                android:orientation="vertical" />
         </com.google.android.material.card.MaterialCardView>
 
         <TextView
+            android:id="@+id/account_note"
             android:layout_width="match_parent" android:layout_height="wrap_content"
             android:layout_marginTop="16dp" android:layout_marginStart="4dp"
-            android:text="这些入口的页面还没有搬到 Android，点按暂时没有去处。"
             android:textColor="@color/text_secondary" android:textSize="12sp" />
     </LinearLayout>
 </androidx.core.widget.NestedScrollView>
