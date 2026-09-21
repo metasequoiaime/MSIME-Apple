@@ -74,11 +74,6 @@ Name: "{commonappdata}\metasequoiaime\webview2"; Permissions: users-modify
 Name: "{commonappdata}\metasequoiaime\webview2-settings"; Permissions: users-modify
 
 [Files]
-; Native language-bar and toolbar status icons.
-Source: "{#MySourceRoot}\app_data\icons\*"; \
-    DestDir: "{code:GetDataDir}\icons"; \
-    Flags: ignoreversion recursesubdirs createallsubdirs uninsneveruninstall
-
 ; 独立安装应用图标，供 Windows“已安装的应用”列表稳定显示。
 Source: "{#MySourceRoot}\MetasequoiaIME.ico"; \
     DestDir: "{commonpf64}\metasequoiaime"; Flags: ignoreversion

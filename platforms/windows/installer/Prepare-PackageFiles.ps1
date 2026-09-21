@@ -104,7 +104,10 @@ $iconSource = Join-Path $PSScriptRoot 'assets\icons'
 $audioSource = Join-Path $PSScriptRoot 'assets\audios'
 $pinyinTable = Join-Path $PSScriptRoot 'assets/tables/pinyin.txt'
 $helpcodeSource = Join-Path $RepoRoot (Join-Path $HelpCodeDirectory 'helpcodes')
-# 品牌标识，不是语言栏状态图标。这个目录只该有在用的图标：曾经躺着四个没人引用的旧标识（旧水彩占位图、FeatherIME、以及被 cn/en 明暗图标取代的 ImeModeOn/Off），而整个目录是随包落到用户磁盘的。
+# 品牌标识。这个目录只放 ServerResources.rc 要编译进 Server 的那一个图标。
+# 语言栏与工具栏的状态图标不在这里：它们在 tsf/assets 下，由 MetasequoiaIME.rc 编进 TSF DLL，
+# 运行时走 MAKEINTRESOURCE。这里曾经有它们的一份逐字节副本，随包装到用户磁盘、且因为
+# uninsneveruninstall 连卸载都不清除，而没有任何代码从磁盘读图标。
 $appIcon = Join-Path $iconSource 'msime.ico'
 $thirdPartyNotices = Join-Path $RepoRoot (Join-Path $NoticesDirectory 'THIRD_PARTY_NOTICES.txt')
 $collectedNotices = Join-Path $RepoRoot 'target/windows-notices/THIRD_PARTY_NOTICES.txt'
@@ -249,9 +252,7 @@ else {
 }
 
 $targetHtml = Join-Path $targetAppData 'html'
-$targetIcons = Join-Path $targetAppData 'icons'
 $targetAudios = Join-Path $targetAppData 'audios'
-Copy-DirectoryContents -Source $iconSource -Destination $targetIcons
 Copy-DirectoryContents -Source $audioSource -Destination $targetAudios
 if (Test-Path -LiteralPath $targetHtml) {
     # Remove obsolete package staging, not the user's installed files.
