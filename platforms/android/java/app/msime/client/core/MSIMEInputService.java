@@ -263,6 +263,7 @@ public final class MSIMEInputService extends InputMethodService {
     private boolean allowLearning;
     private String preferencesNotice = "";
     private String preferencesDirectory = "";
+    private long appearanceLoadGeneration;
     private String runtimeOptionsForSnapshot = "";
     private JSONObject preferencesSnapshot;
     private long preferenceSaveGeneration;
@@ -418,6 +419,79 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     /** Keep a shared picker selection and the Engine session on the same scheme after a fallback. */
+    /**
+     * Everything about this keyboard that the user chose and can see: the skin, the scheme badge,
+     * the candidate strip and the key geometry.
+     *
+     * <p>Applied for every editor, not only the ones that take the Engine. A password box, a number
+     * field and the placeholder editor the system sends first after a cold start all draw this
+     * keyboard, and drawing them in the factory skin makes it look like a different input method.
+     */
+    private void applyEditorPreferences(JSONObject preferences) throws JSONException {
+        KeyboardScheme engineScheme = KeyboardScheme.fromPreferences(
+            preferences == null ? "quanpin" : preferences.optString("scheme", "quanpin"),
+            preferences == null ? "xiaohe" : preferences.optString("shuangpin_profile", "xiaohe"),
+            preferences == null ? "twenty_six_key"
+                : preferences.optString("touch_keyboard_layout", "twenty_six_key"));
+        SchemeConfiguration schemeConfiguration = schemeConfiguration(preferences, engineScheme);
+        alignEngineSchemeWithSelection(preferences, engineScheme, schemeConfiguration);
+        enabledSchemes = schemeConfiguration.enabled();
+        selectedScheme = schemeConfiguration.selected();
+        sharedSchemePreferences = schemeConfiguration.shared();
+        skin = keyboardSkin(preferences);
+        emojiSkin = surfaceSkin(preferences, "emoji_theme");
+        handwritingSkin = surfaceSkin(preferences, "handwriting_theme");
+        localModes = preferences == null ? new JSONObject()
+            : preferences.optJSONObject("local_modes");
+        if (localModes == null) localModes = new JSONObject();
+        applyCandidateAppearance(preferences);
+        applyTouchGeometry(preferences);
+        applyVoicePreferences(preferences);
+        applyAiPreferences(preferences);
+        applyClipboardPreference(preferences);
+        applyChineseOutputPreference(preferences);
+        applyCandidateGlossPreference(preferences);
+        applyEnglishSuggestionsPreference(preferences);
+        applyCandidateTranslationPreference(preferences);
+        applyWubiCodeHintPreference(preferences);
+        wubiMixedPinyin = preferences != null
+            && preferences.optBoolean("wubi_mixed_pinyin", false);
+    }
+
+    /**
+     * Read the live preferences for an editor that has no Engine session, and repaint.
+     *
+     * <p>{@link #applyPreferencesSnapshot} cannot serve this case: it hands the snapshot to the
+     * Engine and reads the view back, which needs a session. This applies the visible half only and
+     * touches no Engine state. Failure keeps whatever is on screen -- the user asked for a text
+     * field, not for a report about preferences.
+     */
+    private void loadAppearanceWithoutSession(String directory) {
+        if (directory.isEmpty() || !new File(directory).isAbsolute()) return;
+        long generation = ++appearanceLoadGeneration;
+        try {
+            preferencesWorker.execute(() -> {
+                final String response;
+                try {
+                    response = NativeClient.loadPreferences(directory);
+                } catch (RuntimeException | LinkageError error) {
+                    return;
+                }
+                main.post(() -> {
+                    if (generation != appearanceLoadGeneration || session != 0) return;
+                    try {
+                        applyEditorPreferences(value(response).optJSONObject("preferences"));
+                        render();
+                    } catch (JSONException | LinkageError ignored) {
+                        // Unreadable preferences leave the keyboard as it is.
+                    }
+                });
+            });
+        } catch (RuntimeException ignored) {
+            // A worker shutdown just means this editor keeps the appearance it already has.
+        }
+    }
+
     private void alignEngineSchemeWithSelection(
             JSONObject preferences, KeyboardScheme engineScheme,
             SchemeConfiguration configuration) throws JSONException {
@@ -557,48 +631,35 @@ public final class MSIMEInputService extends InputMethodService {
         preferencesNotice = "";
         statisticsFailureReported = false;
         message = "直接输入";
-        if (info != null && connection != null && EditorPolicy.useEngine(info.inputType)) {
-            try {
-                File file = new File(getFilesDir(), "runtime-options.json");
-                if (file.length() > 16384) throw new IllegalArgumentException("Options too large");
-                JSONObject options = new JSONObject(new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8));
-                JSONObject preferences = options.optJSONObject("preferences");
-                KeyboardScheme engineScheme = KeyboardScheme.fromPreferences(
-                    preferences == null ? "quanpin" : preferences.optString("scheme", "quanpin"),
-                    preferences == null ? "xiaohe" : preferences.optString("shuangpin_profile", "xiaohe"),
-                    preferences == null ? "twenty_six_key"
-                        : preferences.optString("touch_keyboard_layout", "twenty_six_key"));
-                SchemeConfiguration schemeConfiguration = schemeConfiguration(preferences, engineScheme);
-                alignEngineSchemeWithSelection(preferences, engineScheme, schemeConfiguration);
-                enabledSchemes = schemeConfiguration.enabled();
-                selectedScheme = schemeConfiguration.selected();
-                sharedSchemePreferences = schemeConfiguration.shared();
-                skin = keyboardSkin(preferences);
-                emojiSkin = surfaceSkin(preferences, "emoji_theme");
-                handwritingSkin = surfaceSkin(preferences, "handwriting_theme");
-                localModes = preferences == null ? new JSONObject()
-                    : preferences.optJSONObject("local_modes");
-                if (localModes == null) localModes = new JSONObject();
-                applyCandidateAppearance(preferences);
-                applyTouchGeometry(preferences);
-                applyVoicePreferences(preferences);
-                applyAiPreferences(preferences);
-                applyClipboardPreference(preferences);
-                applyChineseOutputPreference(preferences);
-                applyCandidateGlossPreference(preferences);
-                applyEnglishSuggestionsPreference(preferences);
-                applyCandidateTranslationPreference(preferences);
-                applyWubiCodeHintPreference(preferences);
-                wubiMixedPinyin = preferences != null
-                    && preferences.optBoolean("wubi_mixed_pinyin", false);
+        // 外观和引擎是两件事。皮肤、方案角标和键高来自同一份偏好，但它们该跟着用户走，而不是跟着
+        // 这个输入框用不用引擎走：系统在冷启动后发来的第一个编辑器 inputType 是 0，密码框和数字
+        // 框也都不走引擎，把读偏好一起挡在外面，键盘就先按字段初始值画成默认绿的 26 键，等下一个
+        // 普通输入框到了才跳成用户自己的皮肤——那一跳看起来就像换了个输入法。
+        boolean engineWanted = info != null && connection != null
+            && EditorPolicy.useEngine(info.inputType);
+        try {
+            File file = new File(getFilesDir(), "runtime-options.json");
+            if (file.length() > 16384) throw new IllegalArgumentException("Options too large");
+            JSONObject options = new JSONObject(new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8));
+            JSONObject preferences = options.optJSONObject("preferences");
+            applyEditorPreferences(preferences);
+            // 那份快照是首次安装时写下的，之后再没更新过（见 Bootstrap.prepare），所以它的偏好
+            // 永远是出厂默认。有引擎会话时实时偏好会由 preferencesReloader 补上；没有会话的输入
+            // 框走不到那条路，只能自己读一次，否则键盘就一直是默认皮肤和默认方案。
+            if (!engineWanted) {
+                loadAppearanceWithoutSession(options.optString("preferences_directory", ""));
+            }
+            if (engineWanted) {
                 if (!allowLearning) options.getJSONObject("preferences").put("learning", false);
                 runtimeOptionsForSnapshot = options.toString();
                 message = "共享运行时准备中";
                 scheduleEngineStartup(runtimeOptionsForSnapshot, startGeneration);
-            } catch (Exception | LinkageError error) {
-                stop(false);
-                message = "共享运行时未就绪：仅直接输入";
             }
+        } catch (Exception | LinkageError error) {
+            stop(false);
+            // 这句说的是引擎起不来。没打算起引擎的输入框读不到偏好，只是外观退回默认，说「未就绪」
+            // 会把一个不存在的故障摆到用户面前。
+            if (engineWanted) message = "共享运行时未就绪：仅直接输入";
         }
         updateAutomaticCapitalization();
         rebuildKeyRows();
