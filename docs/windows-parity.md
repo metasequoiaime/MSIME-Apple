@@ -825,13 +825,17 @@ macOS（`shared/apple/TextClient.mm`，iOS 共用）与 Linux 两套前端改成
 
 剩下的一半（DLL 就地结束组字那条路）仍未改：它要动 `platforms/windows/tsf` 的组字缓冲，且本机只有交叉构建与原生策略用例两级证据，跑不起来也无法交互验证。
 
-增量记录（2026-09-21，把「设置项是否齐全」这个问题一次性关掉，并让它保持关着）：来源把整个配置面写在一个文件里——`installer/default_config/config.default.toml`，17 个段 178 个键——这是两边现有材料里最接近「这个产品一共能被设定哪些事」的清单。本表此前按页、按控件比过好几轮，每轮都在重复同样两类假结果：**看着缺的其实是有意改名**（`y_mode` 就是 `local_modes.temporary_english`、`cn_en_mixed_input_min_chars` 就是 `mixed_input.minimum_prefix`），**看着有的其实只是某个无关标识符里恰好含同一个词**。
+增量记录（2026-09-21，设置项映射；**这一批有一半是重复劳动，更正写在末尾**）：来源把整个配置面写在一个文件里——`installer/default_config/config.default.toml`，17 个段 178 个键——这是两边现有材料里最接近「这个产品一共能被设定哪些事」的清单。本表此前按页、按控件比过好几轮，每轮都在重复同样两类假结果：**看着缺的其实是有意改名**（`y_mode` 就是 `local_modes.temporary_english`、`cn_en_mixed_input_min_chars` 就是 `mixed_input.minimum_prefix`），**看着有的其实只是某个无关标识符里恰好含同一个词**。
 
 这一批把 178 个键逐个落到本仓的共享偏好或共享设置页上，结论是**全部有着落**：172 个对得上字段（多数是改名或改成嵌套结构），6 个明确没有目标并写明理由——4 个是来源自己的配置模板写了、它自己代码里一次都没读的死键（`enable_emoji`、`clean_mode`、`soft_keyboard.background_img`、`utility.study_english_word`，都只出现在 `config.toml` 里），1 个是来源 Server 在新旧两套会话实现之间切换的内部开关（`input.session_backend`，本仓只有一套运行时），1 个是词库目录（本仓按宿主运行时选项传，不是偏好）。
 
 把这张表写成 `scripts/test-reference-config-coverage.py` 挂进 `--quick`，两个方向都查：本仓这边的字段被改名或删掉时，对应的来源设置就成了孤儿，门禁报出来；机器上存在来源检出时（`MSIME_REFERENCE_ROOT` 或主检出旁边的同级目录），来源模板里多出来的键不在表里也报出来——**上游新增一项设置，从此会在这里变成一条失败，而不是什么都不发生**。两个方向各反向验证过。
 
 方法上记一条：这比「逐页看控件」强的地方不在于更仔细，而在于比较对象是一份**机器可读、上游自己维护的清单**，所以它能一直被验证；页面截图和控件清单只要有人改了措辞就失效。
+
+**更正（同日稍晚）**：上面写「此前只按页比过」是错的——`scripts/test-windows-config-keys.py` 早就在做「来源有而本仓没有的配置键」这一问，而且比对的是来源默认分支的**当前 tip**（180 个键），比本批用的固定提交还新。我没有先看一眼 `scripts/` 下已有哪些对来源的检查就动手，于是两道门禁在同一个方向上重复，任何上游新增设置会同时红两次。
+
+保留下来的是这一批独有的那部分：**每个来源设置对应本仓哪一个字段**，以及那个字段今天还在不在——`test-windows-config-keys.py` 比的是本仓 Windows 安装模板里的键名，答不了「共享层里是谁在答这条」。因此本批的脚本去掉了「上游多出来的键」那一半，文档里写明那一问归另一道门禁，两边不再重叠。教训写在这里而不是 commit 里：**动手加对照门禁之前，先把 `scripts/test-reference-*.py` 与 `test-windows-*.py` 列一遍**。
 
 增量记录（2026-09-21，macOS 自动补全的那一对没有告诉引擎，于是第二对书名号变成了〈〉）：按「Linux 调了哪些 FFI 而 macOS 一次都没调」这条线索查下去，`msime_client_balance_paired_punctuation_after_auto_close` 是其中一个。查完是两个缺陷，来源在同一段代码里把两件事都做了。
 

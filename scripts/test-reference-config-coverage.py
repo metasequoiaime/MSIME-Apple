@@ -1,21 +1,18 @@
 #!/usr/bin/env python3
-"""Every setting the reference ships a default for has somewhere to live here.
+"""Every setting the reference ships a default for has a field here that still exists.
 
-The reference keeps its whole configuration surface in one file - `installer/default_config/
-config.default.toml`, 178 keys across 17 sections - and that file is the closest thing either
-repository has to a list of "what this product can be told to do". Checking the two settings pages
-against each other by eye has been done several times and keeps producing the same two kinds of
-false result: a key that looks missing because it was deliberately renamed (`y_mode` is
+`test-windows-config-keys.py` already asks the other half of this question - whether the reference
+has a configuration key this repository's Windows template does not - and asks it against the tip of
+the reference's default branch. This one does not repeat that. What it adds is the mapping that
+check has no room for: which field on *this* side answers each reference setting, so a rename here
+cannot quietly orphan one.
+
+The distinction matters because the two products name almost nothing the same way. Checking the
+settings pages against each other by eye has been done several times and keeps producing the same
+two false results: a key that looks missing because it was deliberately renamed (`y_mode` is
 `local_modes.temporary_english`, `cn_en_mixed_input_min_chars` is `mixed_input.minimum_prefix`), and
-a key that looks present because some unrelated identifier happens to contain the same word.
-
-So the mapping is written down once, and this checks it two ways:
-
-- every mapped target still exists in the shared preferences or the shared settings page, so a
-  rename on this side cannot quietly orphan a reference setting;
-- when a reference checkout is available (`MSIME_REFERENCE_ROOT`, or the sibling directory this
-  repository is usually cloned next to), every key in its config template appears in the table, so a
-  setting added upstream shows up here as a failure rather than as nothing at all.
+a key that looks present because some unrelated identifier happens to contain the same word. The
+mapping is written down once, here, and every target is checked to still exist.
 
 Six keys are mapped to a reason instead of a field, written as `!kind: why`. Four are written by the
 reference's own template and read by nothing in it, one is the reference Server's internal switch
@@ -25,10 +22,8 @@ runtime option rather than a preference.
 
 from __future__ import annotations
 
-import os
 import pathlib
 import re
-import subprocess
 import sys
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
@@ -36,10 +31,6 @@ SHARED = [
     ROOT / "crates/client-core/src/preferences.rs",
     ROOT / "packages/ui/src/index.tsx",
 ]
-# The reference commit this table was built from; see docs/windows-parity.md for how it is pinned.
-REFERENCE_COMMIT = "e1d53dd8f01fd351633f08374f189157f5cb47e9"
-REFERENCE_CONFIG = "installer/default_config/config.default.toml"
-
 # reference `section.key` -> the name to look for on this side, or `!kind: why` for the ones that
 # deliberately have no target.
 MAPPING: dict[str, str] = {
@@ -228,48 +219,6 @@ def shared_text() -> str:
     return "\n".join(path.read_text(encoding="utf-8") for path in SHARED if path.is_file())
 
 
-def reference_root() -> pathlib.Path | None:
-    """Where the reference checkout is, if this machine has one.
-
-    A worktree sits somewhere else entirely, so the sibling directory is looked for next to the main
-    checkout as well as next to whichever tree this is running in.
-    """
-    configured = os.environ.get("MSIME_REFERENCE_ROOT")
-    candidates = [pathlib.Path(configured)] if configured else []
-    candidates.append(ROOT.parent / "MSIME-Windows")
-    common = subprocess.run(
-        ["git", "rev-parse", "--git-common-dir"], cwd=ROOT, capture_output=True, text=True
-    )
-    if common.returncode == 0:
-        main_tree = pathlib.Path(common.stdout.strip()).resolve().parent
-        candidates.append(main_tree.parent / "MSIME-Windows")
-    for candidate in candidates:
-        if (candidate / ".git").exists():
-            return candidate
-    return None
-
-
-def reference_keys(root: pathlib.Path) -> list[str] | None:
-    """The section.key list from the pinned commit, or None when it cannot be read."""
-    result = subprocess.run(
-        ["git", "show", f"{REFERENCE_COMMIT}:{REFERENCE_CONFIG}"],
-        cwd=root, capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        return None
-    section = None
-    keys = []
-    for line in result.stdout.splitlines():
-        line = line.strip()
-        if line.startswith("["):
-            section = line.strip("[]")
-            continue
-        match = re.match(r"^([a-z_0-9]+)\s*=", line)
-        if match and section:
-            keys.append(f"{section}.{match.group(1)}")
-    return keys
-
-
 def main() -> int:
     text = shared_text()
     if not text:
@@ -285,30 +234,20 @@ def main() -> int:
         if not re.search(rf"\b{re.escape(needle)}\b", text):
             orphaned.append(f"{key} -> {target}")
 
-    added = []
-    root = reference_root()
-    upstream = reference_keys(root) if root else None
-    if upstream:
-        added = [key for key in upstream if key not in MAPPING]
-
     for entry in orphaned:
         print(f"the shared layer no longer has the target for {entry}", file=sys.stderr)
-    for key in added:
-        print(f"the reference has a setting this table does not map: {key}", file=sys.stderr)
-    if orphaned or added:
+    if orphaned:
         print(
-            "\nA renamed field needs its entry updated; a new reference setting needs to be "
-            "migrated or given a reason.",
+            "\nA renamed field needs its entry updated. A setting the reference has *added* is "
+            "test-windows-config-keys.py's half of this question, not this one's.",
             file=sys.stderr,
         )
         return 1
 
     reasons = sum(1 for target in MAPPING.values() if target.startswith("!"))
-    checked = "and every key in the reference's template is in it" if upstream else (
-        "the reference checkout is not here, so only this side was checked")
     print(
         f"reference config coverage: {len(MAPPING)} settings mapped "
-        f"({reasons} to a reason rather than a field), {checked}"
+        f"({reasons} to a reason rather than a field), every target present"
     )
     return 0
 
