@@ -251,6 +251,9 @@ struct KeyboardView {
   @State nineKey: boolean = false;
   /** Scheme 3 is Japanese, which has its own grid rather than a pinyin one. */
   @State japanese: boolean = false;
+  /** The active kana key's live flick target; -1 means no finger is previewing a key. */
+  @State flickKeyIndex: number = -1;
+  @State flickDirection: number = DIRECTION_CENTRE;
   @State emojiGroup: string = EmojiCatalogModel.categories()[0].group;
   @State emojiItems: string[] = [];
   @State emojiRecents: string[] = [];
@@ -2802,7 +2805,7 @@ struct KeyboardView {
       ForEach([0, 1, 2], (row: number) => {
         Row({ space: this.keySpacing() }) {
           ForEach([0, 1, 2], (column: number) => {
-            this.kanaKey(this.japaneseKeys()[row * 3 + column]);
+            this.kanaKey(this.japaneseKeys()[row * 3 + column], row * 3 + column);
           }, (column: number) => `${row}:${column}:${this.faceKey()}`)
         }
         .layoutWeight(1)
@@ -2819,7 +2822,7 @@ struct KeyboardView {
       Row({ space: this.keySpacing() }) {
         this.variantKey();
         ForEach([9, 10], (index: number) => {
-          this.kanaKey(this.japaneseKeys()[index]);
+          this.kanaKey(this.japaneseKeys()[index], index);
         }, (index: number) => `${index}:${this.faceKey()}`)
       }
       .layoutWeight(1)
@@ -2875,19 +2878,28 @@ struct KeyboardView {
   }
 
   /**
-   * One kana key. The flick is read from the touch that ends it rather than from a gesture
-   * recogniser, because the direction is the whole meaning of the movement and the ported
-   * JapaneseNineKeyLayout.direction already decides it: the larger axis wins, so a diagonal never
-   * falls between two directions.
+   * One kana key. The direction is read from the same policy on every move so the user sees the
+   * target before lifting, then read once more on release for the committed value. This is the
+   * Harmony equivalent of Apple's floating flick guide without placing a popup outside the IME
+   * panel, which the system is free to clip.
    */
   @Builder
-  kanaKey($$: JapaneseKey) {
-    Column() {
+  kanaKey($$: JapaneseKey, keyIndex: number) {
+    Stack() {
       Text($$.kana[DIRECTION_CENTRE])
         .fontSize(KeyboardMetrics.KEY_FONT_SIZE)
         .fontColor(this.skin.keyForeground)
         .textAlign(TextAlign.Center)
         .width('100%')
+      if (this.flickKeyIndex === keyIndex && this.flickDirection !== DIRECTION_CENTRE) {
+        Text($$.kana[this.flickDirection])
+          .fontSize(KeyboardMetrics.KEY_FONT_SIZE)
+          .fontColor(this.skin.keyForeground)
+          .backgroundColor(this.skin.accent)
+          .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
+          .padding({ left: 10, right: 10, top: 5, bottom: 5 })
+          .accessibilityText(`滑动目标：${$$.kana[this.flickDirection]}`)
+      }
     }
     .layoutWeight(1)
     .height('100%')
@@ -2900,11 +2912,22 @@ struct KeyboardView {
       if (event.type === TouchType.Down) {
         this.flickX = event.touches[0].windowX;
         this.flickY = event.touches[0].windowY;
+        this.flickKeyIndex = keyIndex;
+        this.flickDirection = DIRECTION_CENTRE;
+      } else if (event.type === TouchType.Move) {
+        this.flickDirection = JapaneseNineKeyLayout.direction(
+          event.touches[0].windowX - this.flickX, event.touches[0].windowY - this.flickY,
+          FLICK_THRESHOLD_VP);
       } else if (event.type === TouchType.Up) {
         const direction: number = JapaneseNineKeyLayout.direction(
           event.touches[0].windowX - this.flickX, event.touches[0].windowY - this.flickY,
           FLICK_THRESHOLD_VP);
         this.sendKana($$, direction);
+        this.flickKeyIndex = -1;
+        this.flickDirection = DIRECTION_CENTRE;
+      } else if (event.type === TouchType.Cancel) {
+        this.flickKeyIndex = -1;
+        this.flickDirection = DIRECTION_CENTRE;
       }
     })
   }
