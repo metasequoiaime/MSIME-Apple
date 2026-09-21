@@ -25,6 +25,12 @@ export interface EditorTraits {
 }
 
 export class EditorPolicy {
+  /** A late editor-attribute callback must not reset text typed while the query was in flight. */
+  static appliesDelayedLanguage(composing: boolean, currentEnglish: boolean,
+                                wantedEnglish: boolean): boolean {
+    return !composing && currentEnglish !== wantedEnglish;
+  }
+
   /**
    * Whether to compose through the Engine at all. A password field must never see a composition
    * buffer, and a field that asked for no suggestions has said it does not want one.

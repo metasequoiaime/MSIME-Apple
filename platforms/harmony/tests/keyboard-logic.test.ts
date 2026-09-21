@@ -4329,6 +4329,21 @@ const EMAIL: EditorTraits = traits(true, false, false, true, false);
 const NO_SUGGESTIONS: EditorTraits = traits(true, false, false, false, true);
 const NUMERIC: EditorTraits = traits(false, false, false, false, false);
 
+group("a delayed editor callback never interrupts typing", () => {
+  check(
+    EditorPolicy.appliesDelayedLanguage(false, false, true),
+    "an idle keyboard adopts the editor's Latin override",
+  );
+  check(
+    !EditorPolicy.appliesDelayedLanguage(true, false, true),
+    "a composition typed while attributes load is not reset",
+  );
+  check(
+    !EditorPolicy.appliesDelayedLanguage(false, true, true),
+    "an unchanged mode does not issue a redundant Engine reset",
+  );
+});
+
 group("a password field never sees a composition buffer", () => {
   check(EditorPolicy.useEngine(PLAIN) === true, "prose composes through the Engine");
   check(EditorPolicy.useEngine(PASSWORD) === false, "a password never does");

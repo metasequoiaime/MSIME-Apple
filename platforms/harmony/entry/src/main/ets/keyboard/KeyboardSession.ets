@@ -1752,7 +1752,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       // be in the way. That override is the editor's, not the user's, so it is never remembered.
       const english: boolean =
         this.modeScope.mode(this.defaultEnglish) || EditorPolicy.prefersLatin(this.traits);
-      if (this.handle !== 0 && english !== this.englishMode) {
+      if (this.handle !== 0 && EditorPolicy.appliesDelayedLanguage(
+        this.composing(), this.englishMode, english)) {
         this.englishMode = english;
         this.applyView(client.setEnglishMode(this.handle, english));
       }
