@@ -104,19 +104,66 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert_eq!(cancelled.commit, None, "escape must not commit the piece");
     assert!(cancelled.view.phrase_prefix.is_empty());
 
-    // Deleting the remaining reading commits the piece rather than losing it.
+    // Backspacing the remaining reading walks back into the phrase instead of ending it: the last
+    // selection comes back, and the reading it consumed is on screen again so another word can be
+    // picked for it. This is the reference's R2, and the reason it exists is that picking the wrong
+    // word for the first half of a phrase is ordinary - the way out used to be cancelling the whole
+    // composition and typing it again.
     compose(&mut runtime)?;
     let id = leading(&runtime)?;
     let held = runtime.dispatch(Action::Select(id))?;
+    let consumed = KEYS
+        .strip_suffix(held.view.editing_text.as_str())
+        .ok_or("the engine did not leave the rest of the reading as a suffix")?
+        .to_owned();
     let mut transition = held;
+    while transition.view.editing_text.chars().count() > 1 {
+        transition = runtime.dispatch(Action::Command(Command::Backspace))?;
+        assert_eq!(
+            transition.view.phrase_prefix, LEADING,
+            "editing the reading must not disturb the held piece"
+        );
+    }
+    let back = runtime.dispatch(Action::Command(Command::Backspace))?;
+    assert_eq!(back.commit, None, "going back must not commit the piece");
+    assert!(back.view.phrase_prefix.is_empty());
+    assert_eq!(
+        back.view.editing_text, consumed,
+        "the reading the selection consumed is what comes back"
+    );
+    assert!(
+        back.view.candidates.iter().any(|c| c.text == LEADING),
+        "the word that was picked is offered again"
+    );
+
+    // Nothing is held any more, so the same key is an ordinary Backspace again and empties the
+    // composition without committing anything.
+    let mut transition = back;
     while !transition.view.editing_text.is_empty() {
         transition = runtime.dispatch(Action::Command(Command::Backspace))?;
     }
-    assert_eq!(transition.commit.as_deref(), Some(LEADING));
+    assert_eq!(transition.commit, None);
     assert!(transition.view.phrase_prefix.is_empty());
 
+    // Ctrl+Backspace with nothing before the caret deletes the selection itself and keeps its
+    // reading off the screen: the user asked to remove that piece, not to spell it again (R3).
+    compose(&mut runtime)?;
+    let id = leading(&runtime)?;
+    let held = runtime.dispatch(Action::Select(id))?;
+    let remainder = held.view.editing_text.clone();
+    runtime.dispatch(Action::Command(Command::MoveHome))?;
+    let dropped = runtime.dispatch(Action::SegmentBackspace)?;
+    assert_eq!(dropped.commit, None, "dropping a segment commits nothing");
+    assert!(dropped.view.phrase_prefix.is_empty());
+    assert_eq!(
+        dropped.view.editing_text, remainder,
+        "what was typed after the selection stays"
+    );
+    runtime.dispatch(Action::Command(Command::Cancel))?;
+
     println!(
-        "phrase progress: {LEADING} held while {remaining:?} was composed, committed as {committed}"
+        "phrase progress: {LEADING} held while {remaining:?} was composed, committed as {committed}; \
+         backspace put {consumed:?} back on screen and Ctrl+Backspace dropped the selection"
     );
     Ok(())
 }
