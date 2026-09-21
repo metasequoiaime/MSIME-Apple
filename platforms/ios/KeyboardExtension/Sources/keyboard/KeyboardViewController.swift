@@ -957,6 +957,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         KeyboardTool(title: "本地输入", symbol: "textformat.123", enabled: supportsLocalTools) { [weak self] in
           self?.showMoreToolsPage(.localInput)
         },
+        // 键盘里改得了的只有这一面板上这些。皮肤、词库、账号、统计都在应用里,而用户正打着字,没有别的路走过去。
+        KeyboardTool(title: "应用设置", symbol: "gearshape") { [weak self] in
+          guard let self else { return }
+          closeKeyboardPicker()
+          KeyboardAppLauncher.open(KeyboardAppLauncher.settingsURL, from: self)
+        },
       ]),
       KeyboardToolSection(title: "设置", kind: .toggle, columns: 2, tools: [
         // 简繁是开关而不是两张选择卡:它本来就是一个布尔值,拆成两张只是多占一行。
