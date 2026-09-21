@@ -5,6 +5,7 @@
 #include "HelpcodeDefaults.h"
 #include "NavigationBindings.h"
 #include "NativeCompose.h"
+#include "PhrasePreedit.h"
 #include "SmartPunctuationSpace.h"
 #include "WordCharacterBinding.h"
 #include "../voice/VoiceAction.h"
@@ -635,6 +636,10 @@ struct State {
     if (private_input)
       options["preferences"]["learning"] = false;
     options.erase("candidate_skin_catalog");
+    // This host draws view.phrase_prefix ahead of the reading, so a phrase assembled out of
+    // several selections stays in the composition instead of reaching the document one piece at a
+    // time. Requesting it and drawing it are one decision; see PhrasePreedit.h.
+    options["phrase_preedit"] = true;
     auto encoded = options.dump();
     auto bindings =
         msime::linux_host::NavigationBindings::read(options.at("preferences"));
@@ -3307,9 +3312,20 @@ void render(IBusEngine *engine, const Json &view) {
       std::any_of(text.begin(), text.end(),
                   [](unsigned char c) { return c < 0x20 || c > 0x7e; })))
     throw std::runtime_error("Invalid editing text");
+  // A phrase being assembled leads the reading, exactly as the reference draws
+  // `word_for_creating_word`, so the piece the user has already picked is on screen instead of
+  // being committed into the document a fragment at a time. It is prepended after the check above,
+  // which is about the reading the Engine produced: the piece is Han text and asking it to be
+  // printable ASCII would reject every phrase.
+  const auto composed = msime::linux_host::compose_phrase_preedit(
+      view.value("phrase_prefix", std::string{}), text, caret);
+  text = composed.text;
+  // IBus counts the cursor in Unicode scalars, and the piece is not ASCII.
   ibus_engine_update_preedit_text_with_mode(
       engine, ibus_text_new_from_string(text.c_str()),
-      static_cast<guint>(style == "raw" ? caret : text.size()),
+      static_cast<guint>(style == "raw"
+                             ? composed.caret_scalars
+                             : msime::linux_host::utf8_scalar_count(text)),
       style != "empty" && !text.empty(), IBUS_ENGINE_PREEDIT_CLEAR);
   const auto &candidates = view.at("candidates");
   if (candidates.empty()) {

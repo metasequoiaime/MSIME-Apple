@@ -197,6 +197,13 @@ target_compile_options(linux-diagnostic-log-test PRIVATE -Wall -Wextra -Werror)
 target_include_directories(linux-diagnostic-log-test PRIVATE src)
 target_sources(linux-diagnostic-log-test PRIVATE src/system/DiagnosticLog.cpp)
 add_test(NAME linux-diagnostic-log COMMAND linux-diagnostic-log-test)
+# The composition both front ends draw while a phrase is being assembled: the piece already picked
+# leads the reading, and the caret has to move past it in the unit each toolkit counts in - bytes
+# for fcitx5, Unicode scalars for IBus.
+add_executable(linux-phrase-preedit-test tests/core/phrase_preedit.cpp)
+target_compile_options(linux-phrase-preedit-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+target_include_directories(linux-phrase-preedit-test PRIVATE src)
+add_test(NAME linux-phrase-preedit COMMAND linux-phrase-preedit-test)
 add_executable(linux-smart-punctuation-space-test tests/core/smart_punctuation_space.cpp)
 target_compile_options(linux-smart-punctuation-space-test PRIVATE -Wall -Wextra -Werror)
 target_include_directories(linux-smart-punctuation-space-test PRIVATE src)
