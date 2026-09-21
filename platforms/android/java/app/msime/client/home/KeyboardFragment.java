@@ -29,6 +29,8 @@ public final class KeyboardFragment extends HomeTabFragment {
     @Nullable private JSONObject snapshot;
     private FeatureAdapter features;
     private boolean loaded;
+    private boolean prepared = true;
+    private boolean preparing;
 
     @Override public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup parent,
                                        @Nullable Bundle state) {
@@ -37,8 +39,15 @@ public final class KeyboardFragment extends HomeTabFragment {
 
     @Override public void onViewCreated(@NonNull View view, @Nullable Bundle state) {
         MaterialButton trial = view.findViewById(R.id.keyboard_try);
-        trial.setOnClickListener(ignored ->
-            startActivity(new Intent(requireContext(), TrialActivity.class)));
+        trial.setOnClickListener(ignored -> {
+            // Trying the keyboard before its dictionary exists is not a thing that can work, so on
+            // a fresh install this button is the step that is actually missing.
+            if (!prepared) {
+                prepare();
+                return;
+            }
+            startActivity(new Intent(requireContext(), TrialActivity.class));
+        });
 
         features = new FeatureAdapter(java.util.List.of());
         RecyclerView grid = view.findViewById(R.id.keyboard_features);
@@ -53,10 +62,32 @@ public final class KeyboardFragment extends HomeTabFragment {
     @Override protected void onBecameVisible() { reload(); }
 
     private void reload() {
-        HostTask.run(this, HostStore::loadPreferences, value -> {
-            if (value != null) snapshot = value;
+        HostTask.run(this, context -> {
+            boolean ready = HostStore.prepared(context);
+            return new Object[] {ready, ready ? HostStore.loadPreferences(context) : null};
+        }, result -> {
+            if (result != null) {
+                prepared = Boolean.TRUE.equals(result[0]);
+                if (result[1] instanceof JSONObject value) snapshot = value;
+            }
             loaded = true;
             render();
+        });
+    }
+
+    /** Unpack the built-in dictionary, which is what a fresh install is waiting on. */
+    private void prepare() {
+        if (preparing) return;
+        preparing = true;
+        render();
+        HostTask.run(this, HostStore::prepare, failure -> {
+            preparing = false;
+            View view = getView();
+            if (view != null && failure != null && !failure.isEmpty()) {
+                com.google.android.material.snackbar.Snackbar.make(view, failure,
+                    com.google.android.material.snackbar.Snackbar.LENGTH_LONG).show();
+            }
+            reload();
         });
     }
 
@@ -65,10 +96,10 @@ public final class KeyboardFragment extends HomeTabFragment {
         if (view == null) return;
         JSONObject preferences = snapshot == null ? null : snapshot.optJSONObject("preferences");
 
-        // Before the first read lands these say so, rather than naming a skin nobody chose. Once it
-        // has landed and there is still nothing, that is a different sentence: the host could not be
-        // read at all, which is not the same as a setting being unset.
-        String pending = loaded ? "读取失败" : "读取中…";
+        // Three states, and they are not the same sentence: still reading, never prepared, and
+        // prepared but unreadable. A fresh install is the second one, and calling that a failure
+        // sends the user looking for a fault instead of at the one step that is missing.
+        String pending = !loaded ? "读取中…" : prepared ? "读取失败" : "尚未准备";
         String skin = pending;
         String scheme = pending;
         if (preferences != null) {
@@ -91,9 +122,13 @@ public final class KeyboardFragment extends HomeTabFragment {
         }
         ((TextView) view.findViewById(R.id.keyboard_summary)).setText(skin + " · " + scheme);
 
+        MaterialButton trial = view.findViewById(R.id.keyboard_try);
+        trial.setEnabled(!preparing);
+        trial.setText(preparing ? "正在准备词库…" : prepared ? "试用键盘" : "准备词库");
+
         Chip look = view.findViewById(R.id.keyboard_look);
         boolean ready = isReady();
-        look.setText(ready ? "已启用" : "未启用");
+        look.setText(!prepared ? "待准备" : ready ? "已启用" : "未启用");
         look.setOnClickListener(ignored ->
             startActivity(new Intent(Settings.ACTION_INPUT_METHOD_SETTINGS)));
 
@@ -121,18 +156,18 @@ public final class KeyboardFragment extends HomeTabFragment {
     }
 
     private String keysSummary(@Nullable JSONObject preferences) {
-        if (preferences == null) return loaded ? "读取失败" : "读取中…";
+        if (preferences == null) return !loaded ? "读取中…" : prepared ? "读取失败" : "尚未准备";
         int height = preferences.optInt("touch_keyboard_height_adjustment", 0);
         return height == 0 ? "标准高度" : "高度 " + (height > 0 ? "+" : "") + height;
     }
 
     private String dictionarySummary(@Nullable JSONObject preferences) {
-        if (preferences == null) return loaded ? "读取失败" : "读取中…";
+        if (preferences == null) return !loaded ? "读取中…" : prepared ? "读取失败" : "尚未准备";
         return preferences.optBoolean("learning", true) ? "记忆新词已开" : "记忆新词已关";
     }
 
     private String aiSummary(@Nullable JSONObject preferences) {
-        if (preferences == null) return loaded ? "读取失败" : "读取中…";
+        if (preferences == null) return !loaded ? "读取中…" : prepared ? "读取失败" : "尚未准备";
         JSONObject ai = preferences.optJSONObject("ai_assistant");
         if (ai == null || !ai.optBoolean("enabled", false)) return "未启用";
         String model = ai.optString("model", "");
