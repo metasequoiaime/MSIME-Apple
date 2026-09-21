@@ -4,13 +4,21 @@ export enum CompositionBoundaryAction {
   FINISH_COMPOSITION = 'finish-composition'
 }
 
+export enum CompositionBoundary {
+  MODE_SWITCH = 'mode-switch',
+  DEACTIVATE = 'deactivate'
+}
+
 /** How a mode or panel boundary preserves text already entered into the current scheme. */
 export class CompositionBoundaryPolicy {
-  static action(composing: boolean, japanese: boolean): CompositionBoundaryAction {
+  static action(composing: boolean, japanese: boolean,
+                boundary: CompositionBoundary): CompositionBoundaryAction {
     if (!composing) {
       return CompositionBoundaryAction.NONE;
     }
-    return japanese
-      ? CompositionBoundaryAction.FINISH_COMPOSITION : CompositionBoundaryAction.COMMIT_RAW;
+    if (boundary === CompositionBoundary.DEACTIVATE || japanese) {
+      return CompositionBoundaryAction.FINISH_COMPOSITION;
+    }
+    return CompositionBoundaryAction.COMMIT_RAW;
   }
 }

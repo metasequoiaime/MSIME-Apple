@@ -171,6 +171,7 @@ import {
   BackspaceHoldPolicy,
 } from "../entry/src/main/ets/keyboard/input/BackspaceHoldPolicy";
 import {
+  CompositionBoundary,
   CompositionBoundaryAction,
   CompositionBoundaryPolicy,
 } from "../entry/src/main/ets/keyboard/input/CompositionBoundaryPolicy";
@@ -499,12 +500,18 @@ group("a held Delete never crosses from composition into committed text", () => 
 });
 
 group("composition boundaries preserve Japanese as kana", () => {
-  check(CompositionBoundaryPolicy.action(false, true) === CompositionBoundaryAction.NONE,
+  check(CompositionBoundaryPolicy.action(false, true, CompositionBoundary.DEACTIVATE) ===
+      CompositionBoundaryAction.NONE,
     "an idle boundary sends no Engine command");
-  check(CompositionBoundaryPolicy.action(true, false) === CompositionBoundaryAction.COMMIT_RAW,
+  check(CompositionBoundaryPolicy.action(true, false, CompositionBoundary.MODE_SWITCH) ===
+      CompositionBoundaryAction.COMMIT_RAW,
     "Chinese spelling keeps the established raw-commit boundary");
-  check(CompositionBoundaryPolicy.action(true, true) === CompositionBoundaryAction.FINISH_COMPOSITION,
+  check(CompositionBoundaryPolicy.action(true, true, CompositionBoundary.MODE_SWITCH) ===
+      CompositionBoundaryAction.FINISH_COMPOSITION,
     "Japanese finishes kana instead of exposing its romaji strokes");
+  check(CompositionBoundaryPolicy.action(true, false, CompositionBoundary.DEACTIVATE) ===
+      CompositionBoundaryAction.FINISH_COMPOSITION,
+    "deactivation finishes the highlighted composition before Runtime focus cancellation");
 });
 
 group("bounds handwriting points and rejects empty recognition requests", () => {

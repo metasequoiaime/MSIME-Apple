@@ -87,7 +87,7 @@ import {
 } from './input/SmartPunctuationRepeatPolicy';
 import { BackspaceHoldPolicy } from './input/BackspaceHoldPolicy';
 import {
-  CompositionBoundaryAction, CompositionBoundaryPolicy
+  CompositionBoundary, CompositionBoundaryAction, CompositionBoundaryPolicy
 } from './input/CompositionBoundaryPolicy';
 
 // Shapes of the JSON the shared C ABI answers with. Only the fields this minimal surface reads are
@@ -1556,7 +1556,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.handle === 0) {
       return this.englishMode;
     }
-    this.finishCompositionBoundary();
+    this.finishCompositionBoundary(CompositionBoundary.MODE_SWITCH);
     this.englishMode = !this.englishMode;
     // The user asked for this one, so it is the choice this application is remembered by.
     this.modeScope.remember(this.englishMode);
@@ -1571,15 +1571,15 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** Ask the host to put the keyboard away, committing whatever was being composed first. */
   dismiss(): void {
-    this.finishCompositionBoundary();
+    this.finishCompositionBoundary(CompositionBoundary.DEACTIVATE);
     if (this.onDismiss !== undefined) {
       this.onDismiss();
     }
   }
 
-  private finishCompositionBoundary(): void {
+  private finishCompositionBoundary(boundary: CompositionBoundary): void {
     const action: CompositionBoundaryAction = CompositionBoundaryPolicy.action(
-      this.composing(), this.schemeName === 'japanese');
+      this.composing(), this.schemeName === 'japanese', boundary);
     if (action === CompositionBoundaryAction.FINISH_COMPOSITION) {
       this.finishComposition();
     } else if (action === CompositionBoundaryAction.COMMIT_RAW) {
@@ -1777,6 +1777,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.clearSmartPunctuationRepeat();
     this.cancelOnlineProviders();
     if (this.handle !== 0) {
+      // Runtime focus(false) cancels whatever remains. Finish first while the old editor client is
+      // still attached, so changing fields cannot silently discard what the user just typed.
+      this.finishCompositionBoundary(CompositionBoundary.DEACTIVATE);
       this.apply(client.focus(this.handle, false));
     }
     this.inputClient = undefined;
