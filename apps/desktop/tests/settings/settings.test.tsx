@@ -23,6 +23,7 @@ import {
   aiProviderUpdate,
   type AiAssistantPreferences,
   type CustomSkinLibraryAction,
+  type FloatingToolbarPreferences,
   type HostCapabilities,
   type SavedTouchKeyboardSkin,
   type SettingsClient,
@@ -3440,7 +3441,7 @@ test("the toolbar's handwriting and voice switches follow the host that draws th
   await waitFor(() => expect(client.save).toHaveBeenCalled());
   const [, saved] = (client.save as ReturnType<typeof vi.fn>).mock.calls.at(-1) as [
     number,
-    Preferences,
+    { floating_toolbar: FloatingToolbarPreferences },
   ];
   expect(saved.floating_toolbar.handwriting).toBe(false);
   expect(saved.floating_toolbar.voice).toBe(true);
