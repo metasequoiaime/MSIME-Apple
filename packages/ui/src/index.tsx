@@ -3372,6 +3372,7 @@ export function SettingsPage({
   // standing on. Keyed off the page alone, the bar went blank the moment anyone opened one — nothing
   // lit, and no way to read where in the app you were.
   const mobileActiveTab: SettingsPageId = mobilePrimaryPageIds.includes(page) ? page : "home";
+  const untitledOnPhone: readonly SettingsPageId[] = ["home", "typing-statistics", "account"];
   const mobilePrimaryPages = mobilePrimaryPageIds.flatMap((id) => {
     const item = availablePages.find((page) => page.id === id);
     return item ? [item] : [];
@@ -3721,11 +3722,12 @@ export function SettingsPage({
           aria-labelledby="page-title"
         >
           <div className="mx-auto mt-0.5 mb-0 w-full max-w-[900px] p-3 max-phone:px-1 max-phone:py-3">
-            {/* On a phone the home page opens on its own headline, and the source shows no page
-                title above it. Hidden rather than dropped: it is what labels `main`. */}
+            {/* Three of the four tabs open on something that already names them — a headline, a
+                profile card, a row of figures — and the source prints no page title over any of
+                them. 社区 is the one that does. Hidden rather than dropped: it labels `main`. */}
             <header
               className={`mb-2 flex items-center gap-2.5 pt-0 pr-6 pb-3 pl-[0.5em] ${
-                mobilePlatform && page === "home" ? "max-phone:sr-only" : ""
+                mobilePlatform && untitledOnPhone.includes(page) ? "max-phone:sr-only" : ""
               }`}
             >
               <h1 className="m-0 text-lg font-medium" id="page-title">
