@@ -27,6 +27,25 @@ iOS 与 macOS 的同类文档是 [ios-parity.md](ios-parity.md) 和 [macos-parit
 
 这条轴的好处是它不会因为措辞不同而误报，坏处是它只看得见"页面级"的缺失：一整块没有会被抓到，一个区块里少一节不会。本轮后面两个缺口都是后者。
 
+### 更正：这条轴的基线一度取错了
+
+第一次写这一节时，差集是拿 `apps/desktop/src/core/mobile-host-services.ts`（Android 与 iOS 共用）做的，于是结论写成"只剩 `appIcon`"。那个基线漏掉了**桌面宿主提供而移动宿主不提供**的 20 个成员。把三方都算进来之后，鸿蒙没有提供的是 21 个：
+
+| 成员 | 判定 |
+| --- | --- |
+| `appIcon` | 本平台无公开 API，见下文「不迁移的」 |
+| `windowControl`、`beginWindowDrag`、`resizeWindow`、`onWindowStateChanged` | 共享页自绘标题栏与缩放把手，由 `window_chrome` 能力门控，仅桌面 |
+| `restartInputMethod`、`installInputSource`、`uninstallInputSource` | 重启输入法与安装输入源；`restart_input_method` 能力对鸿蒙为 false，后两个是 macOS 的 IMK bundle |
+| `loadMacosShuangpinKeymap`/`save…`、`loadMacosWubiAutoCommitUnique`/`save…` | macOS 存在原生 defaults 域里的四个开关 |
+| `openScreenKeyboard`、`openHandwriting`、`openVoice` | 桌面把这三个开成独立面板窗口；本宿主它们是键盘自己的面（`SURFACE_*`） |
+| `pickVoiceModelPath` | 按路径加载本地语音模型；本宿主用系统识别器或 HTTP provider |
+| `resetLearnedData` | 共享 C ABI 对移动端明确返回 `learned-data reset is unavailable on mobile` |
+| `clipboard` | 设置页里的剪贴板历史列表。**iOS 与 Android 也都不提供**——Apple 的剪贴板管理在键盘的 `KeyboardClipboardView` 里，对应本宿主的 `SURFACE_CLIPBOARD` |
+| `resolveFontFamilies` | 候选字体预览的字族解析。iOS 的 `candidate_font_controls` 为 false，根本不显示候选字体控件；本宿主与 Android 一致 |
+| `loadDefaultPreferences`、`openThirdPartyLicenses` | 「恢复默认设置」与第三方许可。**MSIME-Apple 的 iOS 上都不存在**（iOS 的「恢复默认」只作用于皮肤设计和键盘布局），属桌面功能 |
+
+**逐条核过之后，21 个里没有一个是 MSIME-Apple iOS 有而鸿蒙缺的功能。** 但原先那句"只剩 `appIcon`"是拿错基线量出来的，读者无从发现，所以把完整分类写在这里而不是改掉那句话。
+
 ## 第二次比对：中文文案（2026-09-21）
 
 抽取来源全部非测试源文件里含汉字的字符串字面量，逐条在鸿蒙宿主与共享 UI 的语料中精确检索。
@@ -91,6 +110,8 @@ iOS 与 macOS 的同类文档是 [ios-parity.md](ios-parity.md) 和 [macos-parit
 
 缺口三只有一种方法能抓到：**去数渲染侧的调用点，而不是数定义**。移植一份策略、给它写好单测、然后忘记接线，三道检查都会是绿的。
 
+这一条后来机械化了。`scripts/test-harmony-unwired-policies.py` 从导入方向问一个测试套件结构上问不出的问题——*除了测试之外，有没有东西到得了这个文件*——因为套件自己 import 那个模块，所以无论应用是否调用它，断言都会通过。它在本轮抓到两次：#3419 的原始缺陷（四份策略没接线），以及 #3435 那次合并把同一状态放回去（文件和它的测试一起消失，断言数从 1293 掉到 1289，全绿）。写好当天它还立刻抓到一处既有的：`6a865d6e8` 那次拆分把 `PreferenceStore.ts` 移进 `settings/` 却留下了旧副本，两份都没有调用方。那两条按 `known-failures.txt` 的先例记成债务而不是豁免——名字重新可达时这道检查会失败，所以名单不会烂成一串谎话。
+
 本轮之后新增的 `scripts/test-harmony-bridge-parity.py`（PR #3343）是同一类问题的机械防线——它比的是"页面会调用的桥方法"与"真正注册出去的名字"，而不是两边都有没有这个符号。它当初就是这么抓到 `customSkinLibrary` 的。
 
 ## 本轮合并的切片
@@ -116,7 +137,7 @@ iOS 与 macOS 的同类文档是 [ios-parity.md](ios-parity.md) 和 [macos-parit
 
 **先撞上的是构建。** `hvigorw assembleHap` 报 13 个 ArkTS 错误，全部来自本轮合并的几片：`develop` 处在打不出 HAP 的状态，而 `tsc`、单测、设置包构建和 `verify-local.sh --quick` 全是绿的——没有一道门禁编译 ArkTS。修复与新增的 `scripts/test-harmony-arkts-subset.py` 见 #3426。这一条比本文档记录的任何一个功能缺口都更值得记：**这一整轮的机械比对，三条轴全都不会发现目标根本构建不出来。**
 
-装机之后确认（详见 [platforms/harmony/README.md](../platforms/harmony/README.md)）：系统接受本输入法并拉起扩展进程；共享 React 界面在设备上渲染（欢迎流程、首页、词库页、账号页、社区页）；本轮新增的 C ABI 链路端到端可用（词库页显示的规格与提交号与锁文件一致）；**键盘作为系统输入法完整可用**——`nihao` → 候选 `你好` → 上屏。
+装机之后确认（详见 [platforms/harmony/README.md](../platforms/harmony/README.md)）：系统接受本输入法并拉起扩展进程；共享 React 界面在设备上渲染（欢迎流程、首页、词库页、账号页、社区页）；本轮新增的 C ABI 链路端到端可用（词库页显示的规格与提交号与锁文件一致）；**键盘作为系统输入法完整可用**——`nihao` → 候选 `你好` → 上屏，在本应用和第三方应用（华为浏览器的搜索框）里各验证过一次；回车键分别读作「前往」和「搜索」，都取自各自编辑器声明的动作，组合进行中变为「选定」。
 
 也记下一个只有真机会告诉你的操作事实：`ime -e <bundle>` 默认进 `BASIC_MODE`，而那个模式下框架不会创建面板、扩展的 ArkTS 完全不运行，且没有任何错误提示；必须 `-f`。
 
@@ -126,7 +147,7 @@ iOS 与 macOS 的同类文档是 [ios-parity.md](ios-parity.md) 和 [macos-parit
 
 仍然没有证据的：
 
-- 账号、社区、AI 服务的真实往返。本模拟器没有网络，社区页显示的是离线预览数据。
+- 账号、社区、AI 服务的真实往返。模拟器本身是联网的（浏览器能拉到实时内容与搜索联想），社区页显示离线预览数据是因为没有登录账号，不是因为没有网络——先前这里写成「没有网络」是错的。
 - `deleteBackwardSync(length)` 的单位（码点还是 UTF-16 单元）。AI 润色按码点计算，依据是本宿主退格路径的注释；替换前的重读是它的兜底，但单位错了仍然会表现为一次拒绝。
 - 读屏实际念出什么，以及 `accessibilityText` 挂在键容器上是否会被读到（而不是被里面的 `Text` 盖过）。
 - 个人词库队列是否真的在键盘下一次建立会话时被排空。

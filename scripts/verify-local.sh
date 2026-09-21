@@ -289,6 +289,14 @@ python3 scripts/test-harmony-settings-bundle.py || fail "harmony settings bundle
 note "harmony ArkTS subset"
 python3 scripts/test-harmony-arkts-subset.py || fail "harmony ArkTS subset"
 
+# A ported policy with unit tests and no call site is shipped by nobody, and a
+# test suite cannot see that: it imports the module itself. This has got through
+# twice - #3419 wrote four accessibility policies the view never attached, and
+# #3435 was a merge that put that state back, dropping the file and its tests
+# together so the assertion count merely got smaller.
+note "harmony unwired policies"
+python3 scripts/test-harmony-unwired-policies.py || fail "harmony unwired policies"
+
 note "harmony bridge parity"
 python3 scripts/test-harmony-bridge-parity.py || fail "harmony bridge parity"
 

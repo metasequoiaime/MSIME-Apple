@@ -1,5 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
+    <!-- 启动器、应用信息，以及系统输入法设置里这个键盘的名字，都取自这里。 -->
+    <string name="app_name">水杉输入法</string>
     <string name="tab_keyboard">键盘</string>
     <string name="tab_community">社区</string>
     <string name="tab_statistics">统计</string>
