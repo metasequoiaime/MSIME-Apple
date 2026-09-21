@@ -2256,3 +2256,11 @@ if let Some(route) = launch_route_from_args(&args) { ... }
 修复沿用来源 Engine 的语义，通过 `apply_engine_standalone_sentence_learning.py` 进入锁定 Engine：Generated/Fallback 没有 SQLite 行可调权重，因此选中时按 canonical quanpin 创建用户词组；仅限全拼/双拼式候选，要求完整读音与汉字数一致，最多 7 音节，并服从统一的 `learning` 开关。本仓的所有原生宿主都通过公共 Engine session 选择候选，所以来源 `663f7230` 那条绕开 Engine 的 Windows Server 旁路不复制；macOS 直接得到公共实现。
 
 `phrase_creation_dictionary` 现在覆盖三种真实词库往返：分段造词照旧可由简拼找回；独立选择来源 8/9 的整句后也能由简拼找回；关闭学习时两种选择都不写。加 overlay 前新增断言稳定失败在「直接选择来源 9 后没有存入」，应用后通过，因此测试确实覆盖本批行为而不是只证明候选本来存在。
+
+### 整句词格只接收精确读音（2026-09-22）
+
+来源 `e2a5f5f9` 修了两个互相放大的缺口：跨度查不到精确键时不应把前缀/简拼降级行塞进词格；语言模型只看汉字时还要用词条权重压住零权重的生僻读音。目标 Engine 的打分器不是来源的 KenLM：它用 `bigram.bin` / `trigram.bin` 加 `edge_log_prob`，后者已经把每条词库权重放进边分数，零权重的「卷(gun)」「而(neng)」天然比常见读音低十多个自然对数单位。因此不再叠加来源的 reading-prior 参数，避免破坏本仓已经用句集标定的 bigram/trigram 权重；真实资源打开整句 alternatives 后，`gunqi` 没有生成「卷七」，`nengfasheng` 也没有生成「而发生」。
+
+真正仍缺的是精确跨度边界。修复前真实资源把 `gun'qiu` 的「滚球/棍球」当作 `gun'qi` 的数据库命中放在最前，因为 `query_segments_keyed_flat` 在精确键为空时会扫前缀范围，而插入位置又只按汉字/音节数判断“完整命中”。`apply_engine_lattice_reading.py` 把全拼与双拼共用的词格 lookup 改为批量精确键查询，并在查询前把 `jv/jve/lue` 等 ü 的等价拼法归一到词库存法；整句门槛降到两个完整音节，插入边界改为比较 canonical key。修复后两条错误前缀候选仍作为普通低位候选保留，首位变为 fallback「滚其」，Generated alternatives 只从 `gun'qi` 的行组成（「滚起/滚气/滚奇…」）。
+
+`lattice_reading_dictionary` 用锁定发布资源同时检查默认排序和所有整句 alternatives；Engine 侧的表驱动回归还钉住两音节合并、prefix row 不得挡住 Generated，以及 `jv/lue` 精确查询归一化。公共 Engine session 是 macOS 原生宿主的唯一拼音候选通路，所以平台层无需复制词格算法。
