@@ -2109,6 +2109,7 @@ export function SettingsPage({
   const [dictionaryKind, setDictionaryKind] = useState<LocalDictionaryKind>("quick_phrase");
   const [dictionaryFormat, setDictionaryFormat] = useState<LocalDictionaryFormat>("standard");
   const phraseRequestGeneration = useRef(0);
+  const phraseListRef = useRef<HTMLUListElement>(null);
   const [windowMaximized, setWindowMaximized] = useState(false);
   const [skinPreviewThemes, setSkinPreviewThemes] = useState<
     Partial<Record<NonNullable<Preferences["candidate_skin"]>, "light" | "dark">>
@@ -2652,6 +2653,12 @@ export function SettingsPage({
     } finally {
       if (generation === phraseRequestGeneration.current) setPhraseBusy(false);
     }
+  }
+  function turnPhrasePage(offset: number) {
+    // The list is its own scrolling surface. A page turn must reveal the new
+    // page's first entry instead of preserving the previous page's bottom.
+    if (phraseListRef.current) phraseListRef.current.scrollTop = 0;
+    void loadPhrases(dictionaryKind, offset);
   }
   async function removePhrase(entry: DictionaryEntry) {
     if (!client.dictionary) return;
@@ -4661,7 +4668,11 @@ export function SettingsPage({
                             词条
                           </p>
                         ) : (
-                          <ul className={settings.phraseList}>
+                          <ul
+                            ref={phraseListRef}
+                            className={settings.phraseList}
+                            aria-label="词库查询结果"
+                          >
                             {phrases
                               .filter((entry) => entry.key.startsWith(phraseSearch))
                               .map((entry, index) => (
@@ -4705,10 +4716,7 @@ export function SettingsPage({
                             className="secondary"
                             disabled={phraseBusy || phrasePage.offset === 0}
                             onClick={() =>
-                              void loadPhrases(
-                                dictionaryKind,
-                                Math.max(0, phrasePage.offset - DICTIONARY_PAGE_SIZE),
-                              )
+                              turnPhrasePage(Math.max(0, phrasePage.offset - DICTIONARY_PAGE_SIZE))
                             }
                           >
                             上一页
@@ -4718,12 +4726,7 @@ export function SettingsPage({
                             type="button"
                             className="secondary"
                             disabled={phraseBusy || !phrasePage.hasMore}
-                            onClick={() =>
-                              void loadPhrases(
-                                dictionaryKind,
-                                phrasePage.offset + DICTIONARY_PAGE_SIZE,
-                              )
-                            }
+                            onClick={() => turnPhrasePage(phrasePage.offset + DICTIONARY_PAGE_SIZE)}
                           >
                             下一页
                           </button>

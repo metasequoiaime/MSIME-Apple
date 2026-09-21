@@ -1916,7 +1916,10 @@ test("dictionary manager pages through entries instead of loading the whole dict
   // The first page must not be followed by a second request on its own.
   expect(list).toHaveBeenCalledTimes(1);
   expect(screen.getByRole("button", { name: "上一页" })).toHaveProperty("disabled", true);
+  const results = screen.getByRole("list", { name: "词库查询结果" });
+  results.scrollTop = 480;
   fireEvent.click(screen.getByRole("button", { name: "下一页" }));
+  expect(results.scrollTop).toBe(0);
   expect(await screen.findByText("第 101–120 条")).toBeDefined();
   expect(list).toHaveBeenLastCalledWith(100, 100, "pinyin", "");
   expect(screen.getByRole("button", { name: "下一页" })).toHaveProperty("disabled", true);
