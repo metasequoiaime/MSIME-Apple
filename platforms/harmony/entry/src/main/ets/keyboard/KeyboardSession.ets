@@ -86,6 +86,9 @@ import {
   SmartPunctuationRepeatPolicy, SmartPunctuationRepeatSnapshot
 } from './input/SmartPunctuationRepeatPolicy';
 import { BackspaceHoldPolicy } from './input/BackspaceHoldPolicy';
+import {
+  CompositionBoundaryAction, CompositionBoundaryPolicy
+} from './input/CompositionBoundaryPolicy';
 
 // Shapes of the JSON the shared C ABI answers with. Only the fields this minimal surface reads are
 // declared; the responses carry considerably more.
@@ -1550,6 +1553,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.handle === 0) {
       return this.englishMode;
     }
+    this.finishCompositionBoundary();
     this.englishMode = !this.englishMode;
     // The user asked for this one, so it is the choice this application is remembered by.
     this.modeScope.remember(this.englishMode);
@@ -1564,11 +1568,19 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   /** Ask the host to put the keyboard away, committing whatever was being composed first. */
   dismiss(): void {
-    // The user typed those letters and never asked to throw them away, which is the same reason
-    // macOS commits in prepareForDeactivation.
-    this.commitRaw();
+    this.finishCompositionBoundary();
     if (this.onDismiss !== undefined) {
       this.onDismiss();
+    }
+  }
+
+  private finishCompositionBoundary(): void {
+    const action: CompositionBoundaryAction = CompositionBoundaryPolicy.action(
+      this.composing(), this.schemeName === 'japanese');
+    if (action === CompositionBoundaryAction.FINISH_COMPOSITION) {
+      this.finishComposition();
+    } else if (action === CompositionBoundaryAction.COMMIT_RAW) {
+      this.commitRaw();
     }
   }
 
