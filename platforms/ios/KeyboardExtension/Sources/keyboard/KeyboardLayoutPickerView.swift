@@ -10,9 +10,8 @@ import UIKit
 /// 任何精调手段(除了 VoiceOver 的 ±2)。现在数值常驻,两个按钮每次走 2,同一块区域仍可上下拖做粗调。
 final class KeyboardLayoutPickerView: UIView {
   private static let spacingDragScale: Double = 18
-  // 两行:第一行是恢复默认 / 高度 / 语音 / 完成,第二行是间距说明。52pt 只够一行,
-  // 加上高度控件之后第一行会一路压到第二行的文字上 —— 这是量出来的,见 KeyboardLayoutBarLayoutTests。
-  private static let barHeight: CGFloat = 62
+  // 一行:恢复默认 / 高度 / 语音 / 完成。说明和拖动时的数值不在这里 —— 它们浮在键盘中央,见 hint。
+  private static let barHeight: CGFloat = 52
   private static let heightRange: (lower: Double, upper: Double) = (-12, 48)
   /// 和 VoiceOver 的增减一步一致 —— 同一个控件不该因为用眼睛还是用手势而走不同的步长。
   private static let step: Double = 2
@@ -28,7 +27,7 @@ final class KeyboardLayoutPickerView: UIView {
   private var keySpacing: Double
   private var rowSpacing: Double
   private var height: Double
-  private let hint = UILabel()
+  private let hint = PaddedLabel()
   private let heightValue = UILabel()
   private weak var heightControl: HeightGripView?
   private var axis: Axis?
@@ -75,11 +74,22 @@ final class KeyboardLayoutPickerView: UIView {
     reset.accessibilityHint = "把间距和高度恢复成默认值"
     reset.addAction(UIAction { _ in onReset() }, for: .primaryActionTriggered)
 
+    // 说明和拖动时的数值浮在键盘中央,不占工具条。
+    //
+    // 放回条里要多一行,而条里已经有四组控件 —— 那正是上一版把第一行压到说明文字上的原因。挪出来之后
+    // 条退回一行,省下的高度还给键盘;更要紧的是数值出现在视线中央、压在正在改的东西上,而不是逼着
+    // 眼睛在键盘和顶栏之间来回切。
     hint.font = .systemFont(ofSize: 13)
-    hint.textColor = skin.keyForeground.withAlphaComponent(0.75)
+    hint.textColor = .white
     hint.textAlignment = .center
+    hint.numberOfLines = 2
     hint.adjustsFontSizeToFitWidth = true
     hint.minimumScaleFactor = 0.7
+    hint.backgroundColor = UIColor(red: 20 / 255, green: 35 / 255, blue: 29 / 255, alpha: 0.82)
+    hint.layer.cornerRadius = 12
+    hint.layer.masksToBounds = true
+    // 浮层压在键盘上,不能吃掉落在它下面的拖动。
+    hint.isUserInteractionEnabled = false
     hint.accessibilityIdentifier = "layoutAdjustHint"
     updateHint()
 
@@ -156,7 +166,7 @@ final class KeyboardLayoutPickerView: UIView {
       reset.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 12),
       // 高度占第一行的中段,间距说明退到第二行 —— 高度的数值现在常驻,说明不再需要和它抢同一行。
       heightControl.centerXAnchor.constraint(equalTo: bar.centerXAnchor),
-      heightControl.centerYAnchor.constraint(equalTo: bar.topAnchor, constant: 23),
+      heightControl.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
       heightControl.heightAnchor.constraint(equalToConstant: 32),
       heightControl.leadingAnchor.constraint(greaterThanOrEqualTo: reset.trailingAnchor, constant: 6),
       heightControl.trailingAnchor.constraint(lessThanOrEqualTo: voice.leadingAnchor, constant: -6),
@@ -164,9 +174,9 @@ final class KeyboardLayoutPickerView: UIView {
       reset.centerYAnchor.constraint(equalTo: heightControl.centerYAnchor),
       voice.trailingAnchor.constraint(equalTo: close.leadingAnchor, constant: -7),
       voice.centerYAnchor.constraint(equalTo: heightControl.centerYAnchor),
-      hint.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 10),
-      hint.trailingAnchor.constraint(equalTo: bar.trailingAnchor, constant: -10),
-      hint.bottomAnchor.constraint(equalTo: bar.bottomAnchor, constant: -6),
+      hint.centerXAnchor.constraint(equalTo: centerXAnchor),
+      hint.centerYAnchor.constraint(equalTo: centerYAnchor),
+      hint.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, multiplier: 0.78),
     ])
     updateHeightValue()
   }
@@ -254,11 +264,33 @@ final class KeyboardLayoutPickerView: UIView {
   }
 
   private func updateHint(_ value: String? = nil) {
-    hint.text = value ?? "键盘上左右拖改键距，上下拖改行间距"
+    hint.text = value ?? String(format: "键距 %.1f · 行距 %.1f\n左右拖改键距，上下拖改行间距",
+                                keySpacing, rowSpacing)
   }
 
   private static func clamp(_ value: Double, _ lower: Double, _ upper: Double) -> Double {
     min(upper, max(lower, value))
+  }
+}
+
+/// 浮层要的是一圈内边距,而 UILabel 只会把文字贴着自己的边。
+private final class PaddedLabel: UILabel {
+  private static let inset = UIEdgeInsets(top: 9, left: 16, bottom: 9, right: 16)
+
+  override func drawText(in rect: CGRect) {
+    super.drawText(in: rect.inset(by: Self.inset))
+  }
+
+  override var intrinsicContentSize: CGSize {
+    let size = super.intrinsicContentSize
+    return CGSize(width: size.width + Self.inset.left + Self.inset.right,
+                  height: size.height + Self.inset.top + Self.inset.bottom)
+  }
+
+  override func textRect(forBounds bounds: CGRect, limitedToNumberOfLines lines: Int) -> CGRect {
+    let rect = super.textRect(forBounds: bounds.inset(by: Self.inset), limitedToNumberOfLines: lines)
+    return rect.inset(by: UIEdgeInsets(top: -Self.inset.top, left: -Self.inset.left,
+                                       bottom: -Self.inset.bottom, right: -Self.inset.right))
   }
 }
 

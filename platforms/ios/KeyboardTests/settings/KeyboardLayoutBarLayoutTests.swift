@@ -23,7 +23,7 @@ final class KeyboardLayoutBarLayoutTests: XCTestCase {
     let picker = try XCTUnwrap(
       descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardLayoutPicker" })
 
-    let named = ["keyboardHeightGrip", "layoutAdjustHint", "resetKeyboardSettings",
+    let named = ["keyboardHeightGrip", "resetKeyboardSettings",
                  "voiceShortcutSwitch", "closeLayoutPicker"]
     let frames = try named.map { identifier -> (String, CGRect) in
       let view = try XCTUnwrap(
@@ -41,22 +41,35 @@ final class KeyboardLayoutBarLayoutTests: XCTestCase {
   }
 
   /// 竖着也要装得下 —— 控件可以不重叠却一起溢出条外。
-  func testTheBarIsTallEnoughForEverythingOnIt() throws {
+  func testTheBarIsTallEnoughForTheControlsOnIt() throws {
     let controller = try openLayoutPicker(width: 390)
     let picker = try XCTUnwrap(
       descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardLayoutPicker" })
-    let content = ["keyboardHeightGrip", "layoutAdjustHint"].map { identifier in
-      let view = descendants(picker).first { $0.accessibilityIdentifier == identifier }!
-      return view.convert(view.bounds, to: picker)
-    }
-    // 条本身没有标识,但它是面板里唯一一个圆角 10 的视图。
-    let bar = try XCTUnwrap(descendants(picker).first { $0.layer.cornerRadius == 10 })
-    let barFrame = bar.convert(bar.bounds, to: picker)
+    let control = try XCTUnwrap(
+      descendants(picker).first { $0.accessibilityIdentifier == "keyboardHeightGrip" })
+    let bar = try XCTUnwrap(try barView(in: picker))
 
-    for frame in content {
-      XCTAssertTrue(barFrame.insetBy(dx: 0, dy: -0.5).contains(frame),
-                    "有内容超出了工具条:\(frame) 不在 \(barFrame) 里")
-    }
+    XCTAssertTrue(bar.frame.insetBy(dx: 0, dy: -0.5).contains(control.convert(control.bounds, to: picker)),
+                  "高度控件超出了工具条")
+  }
+
+  /// 说明是浮在键盘中央的,不在条里 —— 它一旦回到条里,条就要多一行,而那正是上一版压住文字的原因。
+  func testTheHintFloatsOverTheKeyboardRatherThanSittingOnTheBar() throws {
+    let controller = try openLayoutPicker(width: 390)
+    let picker = try XCTUnwrap(
+      descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardLayoutPicker" })
+    let hint = try XCTUnwrap(
+      descendants(picker).first { $0.accessibilityIdentifier == "layoutAdjustHint" })
+    let bar = try XCTUnwrap(try barView(in: picker))
+
+    XCTAssertFalse(bar.frame.intersects(hint.convert(hint.bounds, to: picker)), "说明又回到条上了")
+    // 它压在键盘上,所以不能吃掉落在它下面的拖动。
+    XCTAssertFalse(hint.isUserInteractionEnabled)
+  }
+
+  /// 条本身没有标识,但它是面板里唯一一个圆角 10 的视图。
+  private func barView(in picker: UIView) throws -> UIView {
+    try XCTUnwrap(descendants(picker).first { $0.layer.cornerRadius == 10 })
   }
 
   private func openLayoutPicker(width: CGFloat) throws -> KeyboardViewController {
