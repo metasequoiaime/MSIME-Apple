@@ -282,7 +282,7 @@ int main(int argc, char **argv) {
         {"format_version", 1},
         {"revision", 0},
         {"preferences", options.at("preferences")}}.dump();
-    msime_preview_configure(options.dump());
+    msime_ibus_configure(options.dump());
     ibus_init();
     auto bus = g_test_dbus_new(G_TEST_DBUS_NONE);
     g_test_dbus_up(bus);
@@ -299,8 +299,8 @@ int main(int argc, char **argv) {
     require(server && client, "Private D-Bus unavailable");
     auto create_engine = [&] {
       auto created = IBUS_ENGINE(
-          g_object_new(msime_preview_engine_get_type(), "engine-name",
-                     "msime-client-preview", "object-path",
+          g_object_new(msime_ibus_engine_get_type(), "engine-name",
+                     "msime-client", "object-path",
                      "/app/msime/test/engine", "connection", server, nullptr));
       g_object_ref_sink(created);
       return created;
@@ -316,7 +316,7 @@ int main(int argc, char **argv) {
     // rather than reading a decision. Other cases in this fixture drop the
     // directory for the same reason.
     missing_emoji_options.erase("preferences_directory");
-    msime_preview_configure(missing_emoji_options.dump());
+    msime_ibus_configure(missing_emoji_options.dump());
     auto engine = create_engine();
     const char *destination = g_dbus_connection_get_unique_name(server);
     guint subscription = g_dbus_connection_signal_subscribe(
@@ -419,7 +419,7 @@ int main(int argc, char **argv) {
       std::filesystem::rename(live_directory / "next.json", live_directory / "preferences.json");
     };
     save_live_preferences(1);
-    msime_preview_configure(live_options.dump());
+    msime_ibus_configure(live_options.dump());
     engine = create_engine();
     seen = Observation{};
     invoke("FocusIn");
@@ -464,7 +464,7 @@ int main(int argc, char **argv) {
       initial["preferences"]["ime_mode_scope"] = scope;
       initial["preferences"]["keybindings"]["switch_language_shift"] = false;
       initial.erase("preferences_directory");
-      msime_preview_configure(initial.dump());
+      msime_ibus_configure(initial.dump());
       engine = create_engine();
       seen = Observation{};
       invoke("FocusIn");
@@ -534,7 +534,7 @@ int main(int argc, char **argv) {
       online["preferences"]["cloud_candidates"] = true;
       online["preferences"]["candidate_page_size"] = 9;
       online["preferences"]["ai_assistant"]["enabled"] = false;
-      msime_preview_configure(online.dump());
+      msime_ibus_configure(online.dump());
       engine = create_engine();
       seen = Observation{};
       invoke("FocusIn");
@@ -589,7 +589,7 @@ int main(int argc, char **argv) {
       provider.return_online_candidate = false;
       online["preferences"]["cloud_candidates"] = false;
       online["preferences"]["ai_assistant"]["enabled"] = true;
-      msime_preview_configure(online.dump());
+      msime_ibus_configure(online.dump());
       engine = create_engine();
       seen = Observation{};
       invoke("FocusIn");
@@ -605,7 +605,7 @@ int main(int argc, char **argv) {
       offline.erase("preferences_directory");
       offline["preferences"]["candidate_translations"] = false;
       offline["preferences"]["candidate_english_gloss"] = true;
-      msime_preview_configure(offline.dump());
+      msime_ibus_configure(offline.dump());
       engine = create_engine();
       seen = Observation{};
       invoke("FocusIn");
@@ -630,7 +630,7 @@ int main(int argc, char **argv) {
       offline.erase("preferences_directory");
       offline["preferences"]["candidate_translations"] = false;
       offline["preferences"]["candidate_english_gloss"] = false;
-      msime_preview_configure(offline.dump());
+      msime_ibus_configure(offline.dump());
       engine = create_engine();
       seen = Observation{};
       invoke("FocusIn");
@@ -657,7 +657,7 @@ int main(int argc, char **argv) {
       translated["preferences"]["translation_target_language"] = "fr";
       translated["preferences"]["candidate_page_size"] = 9;
       translated["preferences"]["candidate_translations"] = false;
-      msime_preview_configure(translated.dump());
+      msime_ibus_configure(translated.dump());
       engine = create_engine();
       seen = Observation{};
       invoke("FocusIn");
@@ -744,7 +744,7 @@ int main(int argc, char **argv) {
       learned.erase("translation_provider_socket");
       learned["preferences"]["candidate_translations"] = true;
       learned["preferences"]["translation_target_language"] = "en";
-      msime_preview_configure(learned.dump());
+      msime_ibus_configure(learned.dump());
       engine = create_engine();
       seen = Observation{};
       invoke("FocusIn");
@@ -759,7 +759,7 @@ int main(int argc, char **argv) {
       ibus_object_destroy(IBUS_OBJECT(engine));
       g_object_unref(engine);
       learned["translation_provider_socket"] = socket;
-      msime_preview_configure(learned.dump());
+      msime_ibus_configure(learned.dump());
       engine = create_engine();
       seen = Observation{};
       invoke("FocusIn");
@@ -834,7 +834,7 @@ int main(int argc, char **argv) {
                                 directory / "preferences.json");
       };
       save(1);
-      msime_preview_configure(translated.dump());
+      msime_ibus_configure(translated.dump());
       engine = create_engine();
       seen = Observation{};
       invoke("FocusIn");
@@ -943,7 +943,7 @@ int main(int argc, char **argv) {
       // Ctrl+Enter committed that single sense instead of opening the page this
       // case exists to check. Any other target language goes straight online.
       translated["preferences"]["translation_target_language"] = "ja";
-      msime_preview_configure(translated.dump());
+      msime_ibus_configure(translated.dump());
       engine = create_engine();
       seen = Observation{};
       invoke("FocusIn");
@@ -1000,7 +1000,7 @@ int main(int argc, char **argv) {
       auto clipboard = options;
       clipboard["clipboard_history_path"] = history_path.string();
       clipboard["preferences"]["clipboard_history"] = true;
-      msime_preview_configure(clipboard.dump());
+      msime_ibus_configure(clipboard.dump());
       engine = create_engine();
       seen = Observation{};
       invoke("FocusIn");
@@ -1042,7 +1042,7 @@ int main(int argc, char **argv) {
       ibus_object_destroy(IBUS_OBJECT(engine));
       g_object_unref(engine);
     }
-    msime_preview_configure(options.dump());
+    msime_ibus_configure(options.dump());
     engine = create_engine();
     seen = Observation{};
     invoke("FocusIn");
@@ -1121,12 +1121,12 @@ int main(int argc, char **argv) {
     auto relative_preferences = options;
     relative_preferences["preferences_directory"] = "relative";
     invoke("FocusOut");
-    msime_preview_configure(relative_preferences.dump());
+    msime_ibus_configure(relative_preferences.dump());
     invoke("FocusIn");
     require(!seen.clipboard_toggle_sensitive,
             "Relative preferences directory enabled the clipboard toggle");
     invoke("FocusOut");
-    msime_preview_configure(options.dump());
+    msime_ibus_configure(options.dump());
     invoke("FocusIn");
     require(seen.clipboard_toggle_sensitive,
             "Absolute preferences directory did not restore the clipboard toggle");
@@ -1357,14 +1357,14 @@ int main(int argc, char **argv) {
           // sees the injected preference depends on where the tick lands.
           disabled.erase("preferences_directory");
           disabled["preferences"]["keybindings"]["switch_language_ctrl_alt_space"] = false;
-          msime_preview_configure(disabled.dump());
+          msime_ibus_configure(disabled.dump());
           invoke("FocusIn");
         }
         require(key(IBUS_space, remaining) && !seen.input_enabled,
                 "Consumed mode chord repeat escaped after modifiers or binding changed");
         require(key(IBUS_space, remaining | IBUS_RELEASE_MASK) && !seen.input_enabled,
                 "Consumed mode chord release escaped after modifiers or binding changed");
-        msime_preview_configure(options.dump());
+        msime_ibus_configure(options.dump());
         invoke("FocusIn");
         require(!key(IBUS_space),
                 "Completed mode chord consumed the next independent Space stroke");
@@ -1418,13 +1418,13 @@ int main(int argc, char **argv) {
       const bool ctrl = modifier_key == IBUS_Control_L || modifier_key == IBUS_Control_R;
       disabled["preferences"]["keybindings"][ctrl ? "switch_language_ctrl"
                                                    : "switch_language_shift"] = false;
-      msime_preview_configure(disabled.dump());
+      msime_ibus_configure(disabled.dump());
       invoke("FocusIn");
       require(!key(modifier_key, IBUS_RELEASE_MASK) && seen.input_enabled,
               "Disabled modifier binding toggled input on release");
       require(seen.preedit_visible && seen.preedit == "nihao" && seen.committed.empty(),
               "Disabled modifier binding changed the active composition");
-      msime_preview_configure(options.dump());
+      msime_ibus_configure(options.dump());
       invoke("FocusIn");
       invoke("Reset");
     }
@@ -2588,7 +2588,7 @@ int main(int argc, char **argv) {
             "Disabled edge binding did not restore normal punctuation");
     options["preferences"]["word_character"]["enabled"] = true;
     options.erase("preferences_directory");
-    msime_preview_configure(options.dump());
+    msime_ibus_configure(options.dump());
     invoke("Set",
            g_variant_new("(ssv)", "org.freedesktop.IBus.Engine", "ContentType",
                          g_variant_new("(uu)", IBUS_INPUT_PURPOSE_FREE_FORM,
@@ -2622,7 +2622,7 @@ int main(int argc, char **argv) {
     external_skin["preferences"]["candidate_theme"] = "light";
     external_skin["preferences"]["candidate_surface_color"] = "#123456";
     external_skin["preferences"].erase("candidate_selected_color");
-    msime_preview_configure(external_skin.dump());
+    msime_ibus_configure(external_skin.dump());
     engine = create_engine();
     seen = Observation{};
     invoke("FocusIn");

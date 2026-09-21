@@ -24,14 +24,14 @@ def wait(predicate):
     raise AssertionError("Expected IBus state was not observed")
 
 
-wait(lambda: any(engine.get_name() == "msime-client-preview" for engine in bus.list_active_engines()))
+wait(lambda: any(engine.get_name() == "msime-client" for engine in bus.list_active_engines()))
 context = bus.create_input_context("msime-synthetic-editor")
 commits = []
 context.connect("commit-text", lambda _context, text: commits.append(text.get_text()))
 context.set_capabilities(IBus.Capabilite.FOCUS | IBus.Capabilite.PREEDIT_TEXT | IBus.Capabilite.LOOKUP_TABLE)
 context.focus_in()
-assert bus.set_global_engine("msime-client-preview"), "Global engine activation failed"
-wait(lambda: context.get_engine() is not None and context.get_engine().get_name() == "msime-client-preview")
+assert bus.set_global_engine("msime-client"), "Global engine activation failed"
+wait(lambda: context.get_engine() is not None and context.get_engine().get_name() == "msime-client")
 assert not context.process_key_event(ord("n"), 0, 0), "Configured English default intercepted input"
 context.property_activate("InputMode", IBus.PropState.CHECKED)
 context.property_activate("ChinesePunctuation", IBus.PropState.UNCHECKED)
@@ -48,8 +48,8 @@ context.property_activate("InputMode", IBus.PropState.UNCHECKED)
 assert not context.process_key_event(ord("n"), 0, 0)
 assert bus.set_global_engine("xkb:us::eng"), "US input source activation failed"
 wait(lambda: context.get_engine() is not None and context.get_engine().get_name() == "xkb:us::eng")
-assert bus.set_global_engine("msime-client-preview"), "Input source reactivation failed"
-wait(lambda: context.get_engine() is not None and context.get_engine().get_name() == "msime-client-preview")
+assert bus.set_global_engine("msime-client"), "Input source reactivation failed"
+wait(lambda: context.get_engine() is not None and context.get_engine().get_name() == "msime-client")
 assert not context.process_key_event(ord("n"), 0, 0), "Source switch did not restore configured English mode"
 context.property_activate("InputMode", IBus.PropState.CHECKED)
 for character in "nihao":

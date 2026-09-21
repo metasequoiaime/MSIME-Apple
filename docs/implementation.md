@@ -106,7 +106,7 @@ Rust 侧七处：`atomic_write` 在 android 上构建但 `use std::io::Write` �
 
 同时补上两道门禁，使同类问题不再等到打包才暴露：`verify-local.sh` 新增 `compile: android target` 阶段，在固定 NDK、Rust `aarch64-linux-android` 目标和 vcpkg 依赖前缀齐备时执行 `cargo check -p msime-desktop --target aarch64-linux-android`，缺任一条件则明确跳过；`check-host.sh` 增加针对这两个 API 34 方法的定向检查，并在注释中写明它只覆盖这一类，其余仍由 Gradle lint 负责。
 
-验证走到了打包：固定 NDK 28.2.13676358、固定 vcpkg `ef7dbf94` 下 `build-client-apk.sh` 产出并签名了 136 MB 的 `target/android/msime-client-preview.apk`，`apksigner verify --print-certs` 通过，包内含 `libmsime_android.so`、`libmsime_host_api.so`、`libmsime_desktop.so`、`libdigitalink.so` 与 `libc++_shared.so`。两道新门禁都实测会拦截（分别改回 `Files.readString` 与指向不存在的 NDK 验证跳过分支）。`check-host.sh` 全部通过，`scripts/verify-local.sh --quick` 通过。未执行设备安装与真机输入验收，CI 保持禁用。
+验证走到了打包：固定 NDK 28.2.13676358、固定 vcpkg `ef7dbf94` 下 `build-client-apk.sh` 产出并签名了 136 MB 的 `target/android/msime-client.apk`，`apksigner verify --print-certs` 通过，包内含 `libmsime_android.so`、`libmsime_host_api.so`、`libmsime_desktop.so`、`libdigitalink.so` 与 `libc++_shared.so`。两道新门禁都实测会拦截（分别改回 `Files.readString` 与指向不存在的 NDK 验证跳过分支）。`check-host.sh` 全部通过，`scripts/verify-local.sh --quick` 通过。未执行设备安装与真机输入验收，CI 保持禁用。
 
 ### Android 在线候选原生构建证据（2026-09-19）
 

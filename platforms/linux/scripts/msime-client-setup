@@ -1,0 +1,264 @@
+#!/usr/bin/env python3
+"""安装之后的首次配置：备齐词库、准备状态目录、说清楚接下来在哪里选中输入法。
+
+这三步此前都没有产品侧的入口。词库要么在配置阶段用 -DMSIME_ENGINE_RESOURCES 随包装好，
+要么只能在仓库检出里跑一个 Cargo 示例去取——也就是说一个只拿到安装包的用户没有任何办法
+把词库凑齐，而没有词库输入法一个候选都出不来。状态目录同样：msime-client-prepare 要两个
+绝对路径，用户得先知道该给哪两个。
+
+这里不重新实现校验和准备：词库按已安装的 desktop-dictionary.lock.json 逐个核对名称、大小
+和 SHA-256，状态交给 msime-client-prepare。下载默认不发生，必须显式 --download。
+"""
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import sys
+import tarfile
+import tempfile
+import urllib.request
+from pathlib import Path
+
+CHUNK = 1024 * 1024
+
+
+def data_home() -> Path:
+    value = os.environ.get("XDG_DATA_HOME")
+    return Path(value) if value else Path.home() / ".local/share"
+
+
+def config_home() -> Path:
+    value = os.environ.get("XDG_CONFIG_HOME")
+    return Path(value) if value else Path.home() / ".config"
+
+
+def install_prefix() -> Path:
+    """本脚本所属的安装前缀，按自身真实路径推出，支持自定义前缀。"""
+    return Path(__file__).resolve().parent.parent
+
+
+def lock_candidates(prefix: Path) -> list[Path]:
+    """已安装的词库锁文件可能在哪。显式环境变量优先。"""
+    paths = []
+    override = os.environ.get("MSIME_DICTIONARY_LOCK")
+    if override:
+        paths.append(Path(override))
+    paths.append(prefix / "share/msime-client/desktop-dictionary.lock.json")
+    for directory in os.environ.get("XDG_DATA_DIRS", "/usr/local/share:/usr/share").split(":"):
+        if directory:
+            paths.append(Path(directory) / "msime-client/desktop-dictionary.lock.json")
+    return paths
+
+
+def resource_candidates(prefix: Path) -> list[Path]:
+    """已有词库目录可能在哪，按优先级。用户自己的那份排在随包安装的后面，
+    因为随包的那份与本次安装同源。"""
+    return [
+        prefix / "share/msime-client/resources",
+        data_home() / "msime-client/resources",
+    ]
+
+
+def digest(path: Path) -> str:
+    value = hashlib.sha256()
+    with path.open("rb") as handle:
+        for block in iter(lambda: handle.read(CHUNK), b""):
+            value.update(block)
+    return value.hexdigest()
+
+
+def verify_directory(directory: Path, lock: dict) -> list[str]:
+    """锁文件与目录不符之处，逐条列出；空列表表示这份词库可用。"""
+    problems = []
+    for artifact in lock["artifacts"]:
+        name = artifact["name"]
+        path = directory / name
+        if not path.is_file():
+            problems.append(f"缺少 {name}")
+            continue
+        size = path.stat().st_size
+        if size != artifact["size"]:
+            problems.append(f"{name} 大小不符：期望 {artifact['size']}，实际 {size}")
+            continue
+        if digest(path) != artifact["sha256"]:
+            problems.append(f"{name} SHA-256 不符")
+    return problems
+
+
+def dependency_for(engine_path: str, engine_lock: dict) -> dict | None:
+    """锁里没有 URL 的那一项来自引擎源码树，找出它属于哪个已固定的依赖归档。"""
+    for dependency in engine_lock.get("dependencies", []):
+        prefix = dependency.get("path", "")
+        if prefix and engine_path.startswith(prefix + "/"):
+            return dependency
+    return None
+
+
+def fetch(url: str, destination: Path) -> None:
+    with urllib.request.urlopen(url) as response, destination.open("wb") as handle:
+        shutil.copyfileobj(response, handle)
+
+
+def download_artifacts(lock: dict, engine_lock: dict | None, directory: Path) -> None:
+    """按锁下载并校验，全部通过后才发布到目标目录。校验不过即中止，不留半份词库。"""
+    directory.mkdir(parents=True, exist_ok=True)
+    with tempfile.TemporaryDirectory(dir=directory.parent) as staging_name:
+        staging = Path(staging_name)
+        for artifact in lock["artifacts"]:
+            name = artifact["name"]
+            target = directory / name
+            if target.is_file() and digest(target) == artifact["sha256"]:
+                continue
+            staged = staging / name
+            url = artifact.get("url", "")
+            if url:
+                print(f"下载 {name}")
+                fetch(url, staged)
+            else:
+                engine_path = artifact.get("engine_path", "")
+                dependency = dependency_for(engine_path, engine_lock or {})
+                if dependency is None:
+                    raise SystemExit(
+                        f"{name} 在词库锁里没有下载地址，它来自引擎源码树 "
+                        f"({engine_path or '未记录路径'})，而本机没有可用的 engine-lock.json。"
+                        "请用 --resources 指向一份已备齐的词库目录。"
+                    )
+                print(f"取 {name}（来自 {dependency['repository']} 的固定归档）")
+                archive = staging / "dependency.tar.gz"
+                fetch(dependency["archive"], archive)
+                if digest(archive) != dependency["sha256"]:
+                    raise SystemExit(f"{dependency['repository']} 归档校验失败，已中止")
+                member_suffix = engine_path[len(dependency["path"]) + 1 :]
+                with tarfile.open(archive, "r:gz") as source:
+                    member = next(
+                        (
+                            item
+                            for item in source.getmembers()
+                            if item.isfile() and item.name.split("/", 1)[-1] == member_suffix
+                        ),
+                        None,
+                    )
+                    if member is None:
+                        raise SystemExit(f"固定归档里没有 {member_suffix}，已中止")
+                    extracted = source.extractfile(member)
+                    if extracted is None:
+                        raise SystemExit(f"无法读取归档中的 {member_suffix}，已中止")
+                    with staged.open("wb") as handle:
+                        shutil.copyfileobj(extracted, handle)
+                archive.unlink()
+            if digest(staged) != artifact["sha256"]:
+                raise SystemExit(f"{name} 校验失败，已中止；目标目录未改动")
+            staged.replace(target)
+
+
+def prepare_state(prefix: Path, resources: Path, state: Path) -> None:
+    command = prefix / "bin/msime-client-prepare"
+    if not command.is_file():
+        command = Path(shutil.which("msime-client-prepare") or "msime-client-prepare")
+    result = subprocess.run([str(command), str(resources), str(state)], check=False)
+    if result.returncode != 0:
+        raise SystemExit("准备状态目录失败，见上面的输出")
+
+
+def running(name: str) -> bool:
+    return subprocess.run(["pgrep", "-x", name], capture_output=True).returncode == 0
+
+
+def next_steps(state: Path) -> None:
+    print()
+    print(f"状态目录已就绪：{state}")
+    if running("fcitx5"):
+        print("下一步：用 fcitx5-configtool 把「MSIME」加入当前输入法组。")
+        print("  状态栏上的中英文、简繁、工具栏等入口挂在输入法状态区，需要桌面提供托盘")
+        print("  宿主；若发行版以 fcitx5 --disable notificationitem 启动，这些入口不会显示，")
+        print("  但输入本身不受影响，设置也可以从应用列表里的「水杉输入法」打开。")
+    elif running("ibus-daemon"):
+        print("下一步：ibus restart，再在输入源里选择「MSIME Client」。")
+    else:
+        print("下一步：启动 fcitx5 或 ibus，再在各自的设置里选中 MSIME。")
+    print("设置面板：msime-client-settings（需要安装时提供了桌面二进制）")
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description="水杉输入法 Linux 首次配置")
+    parser.add_argument("--resources", type=Path, help="已备齐的词库目录（绝对路径）")
+    parser.add_argument("--state", type=Path, help="要创建的状态目录，默认 $XDG_CONFIG_HOME/msime-client")
+    parser.add_argument(
+        "--download",
+        action="store_true",
+        help="允许按已安装的词库锁下载缺失词库（首次约 170 MB），默认不下载",
+    )
+    arguments = parser.parse_args()
+
+    prefix = install_prefix()
+    state = (arguments.state or config_home() / "msime-client").expanduser()
+    if not state.is_absolute():
+        raise SystemExit("状态目录必须是绝对路径")
+    if state.exists():
+        raise SystemExit(
+            f"状态目录已存在：{state}\n"
+            "msime-client-prepare 不覆盖已有目录。要重新准备请另选目录，或先自行移走这一份。"
+        )
+
+    lock_file = next((path for path in lock_candidates(prefix) if path.is_file()), None)
+    if lock_file is None:
+        raise SystemExit(
+            "找不到 desktop-dictionary.lock.json。它随安装提供；"
+            "自定义前缀可用 MSIME_DICTIONARY_LOCK 指向它。"
+        )
+    lock = json.loads(lock_file.read_text())
+
+    if arguments.resources:
+        resources = arguments.resources.expanduser()
+        if not resources.is_absolute():
+            raise SystemExit("词库目录必须是绝对路径")
+    else:
+        resources = next(
+            (path for path in resource_candidates(prefix) if verify_directory(path, lock) == []),
+            data_home() / "msime-client/resources",
+        )
+
+    problems = verify_directory(resources, lock)
+    if problems and not arguments.download:
+        print(f"词库目录不可用：{resources}", file=sys.stderr)
+        for problem in problems[:5]:
+            print(f"  {problem}", file=sys.stderr)
+        print(
+            "\n加 --download 按锁文件取回（首次约 170 MB），"
+            "或用 --resources 指向一份已备齐的目录。",
+            file=sys.stderr,
+        )
+        return 1
+    if problems:
+        engine_lock_file = next(
+            (
+                path
+                for path in (
+                    prefix / "share/msime-client/engine-lock.json",
+                    lock_file.parent / "engine-lock.json",
+                )
+                if path.is_file()
+            ),
+            None,
+        )
+        engine_lock = json.loads(engine_lock_file.read_text()) if engine_lock_file else None
+        download_artifacts(lock, engine_lock, resources)
+        remaining = verify_directory(resources, lock)
+        if remaining:
+            print("下载后仍不完整：", file=sys.stderr)
+            for problem in remaining[:5]:
+                print(f"  {problem}", file=sys.stderr)
+            return 1
+
+    print(f"词库已校验：{resources}")
+    prepare_state(prefix, resources, state)
+    next_steps(state)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
