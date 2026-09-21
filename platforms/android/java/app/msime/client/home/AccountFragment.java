@@ -14,7 +14,9 @@ import androidx.annotation.Nullable;
 import androidx.core.content.ContextCompat;
 import app.msime.client.AccountIdentity;
 import app.msime.client.AppIconStyle;
+import app.msime.client.BackendAccount;
 import app.msime.client.CommunityRequest;
+import app.msime.client.GoogleSignInFlow;
 import app.msime.client.R;
 import com.google.android.material.imageview.ShapeableImageView;
 import com.google.android.material.snackbar.Snackbar;
@@ -44,6 +46,7 @@ public final class AccountFragment extends HomeTabFragment {
         View view = getView();
         if (view == null) return;
         HostTask.run(this, AccountIdentity::subject, subject -> bind(subject == null ? "" : subject));
+        bindSignIn();
         bindIcons();
         bindContent();
         bindStorage();
@@ -58,6 +61,91 @@ public final class AccountFragment extends HomeTabFragment {
         subtitle.setText(subject.isEmpty()
             ? "本机身份读取失败"
             : "本机身份 " + AccountIdentity.shortSubject(subject));
+    }
+
+    /**
+     * 登录那一块。
+     *
+     * <p>Three states and they are not the same sentence: signed in, offered, and absent. The offer
+     * only appears when the backend says it accepts Google and this build carries a client ID --
+     * `/v1/auth/providers` answers false for a provider with no client ID configured, and a button
+     * that is certain to fail is worse than no button.
+     */
+    private void bindSignIn() {
+        View view = getView();
+        if (view == null) return;
+        LinearLayout rows = view.findViewById(R.id.account_sign_in_rows);
+        rows.removeAllViews();
+        String clientId = getString(R.string.google_server_client_id);
+        HostTask.run(this, context -> {
+            BackendAccount account = new BackendAccount(context);
+            if (account.signedIn()) return "signed-in";
+            return clientId.isEmpty() || !account.supports("google") ? "" : "offer";
+        }, state -> {
+            View current = getView();
+            if (current == null || state == null || state.isEmpty()) return;
+            LinearLayout list = current.findViewById(R.id.account_sign_in_rows);
+            list.removeAllViews();
+            if ("signed-in".equals(state)) {
+                addRow(list, R.drawable.ic_tab_account, R.color.badge_field,
+                    getString(R.string.account_signed_in), getString(R.string.account_sign_out),
+                    this::signOut);
+            } else {
+                addRow(list, R.drawable.ic_tab_account, R.color.badge_field,
+                    getString(R.string.account_sign_in_google),
+                    getString(R.string.account_sign_in_hint), this::signIn);
+            }
+        });
+    }
+
+    /** Challenge, Google, exchange -- each step off the main thread, the chooser on it. */
+    private void signIn() {
+        String clientId = getString(R.string.google_server_client_id);
+        HostTask.run(this, context -> {
+            try {
+                return new BackendAccount(context).challenge("google", null);
+            } catch (Exception | LinkageError error) {
+                return null;
+            }
+        }, challenge -> {
+            if (challenge == null) {
+                note("现在无法开始 Google 登录，请稍后再试。");
+                return;
+            }
+            GoogleSignInFlow.start(requireActivity(), clientId, challenge.nonce(),
+                java.util.concurrent.Executors.newSingleThreadExecutor(),
+                new GoogleSignInFlow.Listener() {
+                    @Override public void onToken(String idToken) {
+                        HostTask.run(AccountFragment.this, context -> {
+                            try {
+                                new BackendAccount(context).login(challenge, idToken);
+                                return "";
+                            } catch (Exception | LinkageError error) {
+                                return "登录没有完成：" + error.getMessage();
+                            }
+                        }, failure -> {
+                            if (failure == null || failure.isEmpty()) render();
+                            else note(failure);
+                        });
+                    }
+
+                    @Override public void onFailure(String message) {
+                        requireActivity().runOnUiThread(() -> note(message));
+                    }
+                });
+        });
+    }
+
+    private void signOut() {
+        HostTask.run(this, context -> {
+            new BackendAccount(context).signOut();
+            return "";
+        }, ignored -> render());
+    }
+
+    private void note(String message) {
+        View view = getView();
+        if (view != null) Snackbar.make(view, message, Snackbar.LENGTH_LONG).show();
     }
 
     private void bindIcons() {
