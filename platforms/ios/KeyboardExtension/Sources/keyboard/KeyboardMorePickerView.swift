@@ -7,11 +7,13 @@ final class KeyboardMorePickerView: UIView {
     super.init(frame: .zero)
     accessibilityIdentifier = "keyboardMorePicker"
     let skin = KeyboardSkinPreference.selected
-    backgroundColor = MetasequoiaTheme.keyboardBackground
+    // 这个面板和方案选择器都盖在同一块键盘上,所以底色取当前皮肤,不是主题里那个固定值 —— 里面的按键早就走皮肤了,只有外面这一层没有。
+    backgroundColor = skin.background
     let header = UILabel()
     header.text = title
     header.font = .systemFont(ofSize: 14, weight: .semibold)
-    header.textColor = .secondaryLabel
+    // `.secondaryLabel` 跟随系统外观而不是皮肤:浅色系统配深色皮肤时,它是深灰压在深底上。
+    header.textColor = skin.keyForeground.withAlphaComponent(0.6)
     let close = UIButton(type: .system)
     var back = UIButton.Configuration.plain()
     back.title = "返回"
@@ -64,11 +66,12 @@ final class KeyboardMorePickerView: UIView {
   }
 
   private func append(_ section: KeyboardToolSection) {
+    let skin = KeyboardSkinPreference.selected
     if let title = section.title {
       let label = UILabel()
       label.text = title
       label.font = .systemFont(ofSize: 11, weight: .medium)
-      label.textColor = .secondaryLabel
+      label.textColor = skin.keyForeground.withAlphaComponent(0.6)
       label.heightAnchor.constraint(equalToConstant: 18).isActive = true
       rows.addArrangedSubview(label)
     }

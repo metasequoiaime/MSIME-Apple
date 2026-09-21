@@ -29,27 +29,27 @@ struct SettingsView: View {
           keyboardCard
           HStack(spacing: 10) {
             NavigationLink(destination: SkinSettingsView()) {
-              quickEntry("皮肤", subtitle: skinName, symbol: "paintpalette.fill", color: .pink)
+              quickEntry("皮肤", subtitle: skinName, symbol: "paintpalette.fill")
             }.accessibilityIdentifier("skinSettingsLink")
             NavigationLink(destination: InputSettingsView()) {
-              quickEntry("输入方案", subtitle: scheme.title, symbol: "keyboard.fill", color: MetasequoiaTheme.accent)
+              quickEntry("输入方案", subtitle: scheme.title, symbol: "keyboard.fill")
             }.accessibilityIdentifier("inputSettingsLink")
             NavigationLink(destination: KeyboardLayoutSettingsView()) {
-              quickEntry("按键", subtitle: "间距与语音", symbol: "slider.horizontal.3", color: .indigo)
+              quickEntry("按键", subtitle: "间距与语音", symbol: "slider.horizontal.3")
             }.accessibilityIdentifier("keyboardLayoutLink")
           }.buttonStyle(CardPressStyle())
           HStack(spacing: 10) {
             NavigationLink(destination: DictionarySettingsView()) {
-              quickEntry("词库", subtitle: "个人词与同步", symbol: "books.vertical.fill", color: .brown)
+              quickEntry("词库", subtitle: "个人词与同步", symbol: "books.vertical.fill")
             }.accessibilityIdentifier("dictionarySettingsLink")
             NavigationLink(destination: ServiceSettingsView(kind: .ai)) {
-              quickEntry("AI", subtitle: "回复与润色", symbol: "sparkles", color: .orange)
+              quickEntry("AI", subtitle: "回复与润色", symbol: "sparkles")
             }.accessibilityIdentifier("aiSettingsLink")
             Button {
               guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
               UIApplication.shared.open(url)
             } label: {
-              quickEntry("系统设置", subtitle: "启用与完全访问", symbol: "gearshape.fill", color: .gray)
+              quickEntry("系统设置", subtitle: "启用与完全访问", symbol: "gearshape.fill")
             }.accessibilityIdentifier("openKeyboardSettingsButton")
           }.buttonStyle(CardPressStyle())
         }.padding(.horizontal, 16).padding(.bottom, 20)
@@ -110,13 +110,13 @@ struct SettingsView: View {
     }.padding(8).foregroundStyle(Color(uiColor: skin.keyForeground)).background(Color(uiColor: skin.background))
     }
   }
-  private func quickEntry(_ title: String, subtitle: String, symbol: String, color: Color) -> some View {
+  private func quickEntry(_ title: String, subtitle: String, symbol: String) -> some View {
     VStack(alignment: .leading, spacing: 7) {
       Image(systemName: symbol)
         .font(.system(size: 17, weight: .semibold))
-        .foregroundStyle(color)
+        .foregroundStyle(Color.accentColor)
         .frame(width: 34, height: 34)
-        .background(color.opacity(0.15), in: RoundedRectangle(cornerRadius: 11))
+        .background(Color.accentColor.opacity(0.15), in: RoundedRectangle(cornerRadius: 11))
       Text(title).font(.subheadline.weight(.semibold)).foregroundStyle(.primary)
       Text(subtitle).font(.system(size: 10)).foregroundStyle(.secondary).lineLimit(1)
     }.frame(maxWidth: .infinity, alignment: .leading).padding(12)

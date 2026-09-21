@@ -25,7 +25,7 @@ struct HelpView: View {
         HelpItem(term: "2. 添加水杉输入法", detail: "选择“添加新键盘”，再选择水杉输入法。")
         HelpItem(term: "3. 切换并开始输入", detail: "在输入框长按地球键，选择水杉输入法。")
         SettingsActionRow(title: "打开系统键盘设置", detail: "直接跳到“设置”里对应的位置",
-                          symbol: "gearshape.fill", color: .gray) {
+                          symbol: "gearshape.fill") {
           guard let url = URL(string: UIApplication.openSettingsURLString) else { return }
           UIApplication.shared.open(url)
         }.accessibilityIdentifier("helpOpenKeyboardSettings")
@@ -47,7 +47,7 @@ struct HelpView: View {
       Section("更多") {
         Link(destination: URL(string: "https://msime.app/docs/")!) {
           SettingsRowLabel(title: "完整文档", detail: "msime.app，在浏览器里打开",
-                           symbol: "book.fill", color: .teal)
+                           symbol: "book.fill")
         }
       }
     }
@@ -101,13 +101,12 @@ struct FeedbackView: View {
       }
       Section {
         SettingsActionRow(title: copied ? "已复制报告" : "复制报告", detail: "完整内容，贴到任何地方",
-                          symbol: copied ? "checkmark.circle.fill" : "doc.on.doc.fill",
-                          color: copied ? MetasequoiaTheme.accent : .brown) {
+                          symbol: copied ? "checkmark.circle.fill" : "doc.on.doc.fill") {
           UIPasteboard.general.string = report
           copied = true
         }.accessibilityIdentifier("feedbackCopyButton")
         SettingsActionRow(title: "在 GitHub 提交", detail: "打开浏览器并预填这份报告",
-                          symbol: "arrow.up.forward.square.fill", color: .indigo) { submit() }
+                          symbol: "arrow.up.forward.square.fill") { submit() }
           .accessibilityIdentifier("feedbackSubmitButton")
       } footer: {
         Text("提交会打开 GitHub 并预填这份报告。网址长度有限，过长的描述会被截断，完整内容请用“复制报告”。")

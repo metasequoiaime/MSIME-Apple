@@ -91,7 +91,7 @@ struct AboutView: View {
       Section {
         NavigationLink(destination: DesktopDownloadView()) {
           SettingsRowLabel(title: "电脑版下载", detail: "macOS、Windows、Linux 的安装包与指南",
-                           symbol: "desktopcomputer", color: .gray)
+                           symbol: "desktopcomputer")
         }
       } header: {
         Text("关于水杉")
@@ -101,22 +101,22 @@ struct AboutView: View {
       Section("帮助与开源") {
         NavigationLink(destination: HelpView()) {
           SettingsRowLabel(title: "使用帮助", detail: "启用键盘、输入方案、常见问题",
-                           symbol: "questionmark.circle.fill", color: MetasequoiaTheme.accent)
+                           symbol: "questionmark.circle.fill")
         }.accessibilityIdentifier("helpLink")
         NavigationLink(destination: FeedbackView()) {
           SettingsRowLabel(title: "反馈问题与建议", detail: "在应用内写，附带版本与设备信息",
-                           symbol: "bubble.left.and.bubble.right.fill", color: .orange)
+                           symbol: "bubble.left.and.bubble.right.fill")
         }.accessibilityIdentifier("feedbackLink")
         Link(destination: URL(string: "https://msime.app/")!) {
-          SettingsRowLabel(title: "官方网站", detail: "msime.app", symbol: "globe", color: .teal)
+          SettingsRowLabel(title: "官方网站", detail: "msime.app", symbol: "globe")
         }
         Link(destination: URL(string: "https://github.com/metasequoiaime/msime")!) {
-          SettingsRowLabel(title: "开源代码与许可证", detail: "GitHub", symbol: "curlybraces", color: .indigo)
+          SettingsRowLabel(title: "开源代码与许可证", detail: "GitHub", symbol: "curlybraces")
         }
       }
       Section {
         Link(destination: URL(string: "https://msime.app/privacy/")!) {
-          SettingsRowLabel(title: "隐私说明", detail: "msime.app", symbol: "hand.raised.fill", color: .purple)
+          SettingsRowLabel(title: "隐私说明", detail: "msime.app", symbol: "hand.raised.fill")
         }
       } header: {
         Text("隐私")

@@ -66,8 +66,9 @@ struct AISkinGenerationView: View {
           Text("等待揭晓").font(.caption)
         }.foregroundStyle(.white.opacity(0.95)).padding(14)
           .frame(maxWidth: .infinity).frame(height: 150)
-          .background(LinearGradient(colors: index == 1 ? [Color(red: 0.35, green: 0.30, blue: 0.56), Color(red: 0.17, green: 0.15, blue: 0.29)] :
-            [Color(red: 0.29, green: 0.52, blue: 0.44), Color(red: 0.10, green: 0.29, blue: 0.24)], startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 16))
+          // 三张卡片原先中间那张是紫的、两侧是绿的,而它们代表的是同一件还没发生的事。差别交给旋转和错位,颜色统一走品牌绿。
+          .background(LinearGradient(colors: [Color(red: 0.29, green: 0.52, blue: 0.44), Color(red: 0.10, green: 0.29, blue: 0.24)],
+                                     startPoint: .topLeading, endPoint: .bottomTrailing), in: RoundedRectangle(cornerRadius: 16))
           .overlay(RoundedRectangle(cornerRadius: 12).stroke(.white.opacity(0.25), lineWidth: 1).padding(5))
           .rotationEffect(.degrees(Double(index - 1) * 5))
           .offset(y: index == 1 ? -5 : 5)

@@ -20,12 +20,11 @@ struct CloudDictionaryApplyView: View {
       Section {
         SettingsFactRow(title: state.localVersion == nil ? "尚未获取键盘词库版本" : "已获取本地词库版本",
                         detail: state.localVersion == nil ? "在下面的输入框里打开水杉键盘" : nil,
-                        symbol: state.localVersion == nil ? "questionmark.circle.fill" : "checkmark.circle.fill",
-                        color: state.localVersion == nil ? .orange : MetasequoiaTheme.accent)
+                        symbol: state.localVersion == nil ? "questionmark.circle.fill" : "checkmark.circle.fill")
         TextField("点此打开水杉键盘", text: $probe)
           .textInputAutocapitalization(.never).autocorrectionDisabled()
         SettingsActionRow(title: "下载云词库并预览", detail: "先看清楚要替换成什么，再决定",
-                          symbol: "icloud.and.arrow.down.fill", color: .blue,
+                          symbol: "icloud.and.arrow.down.fill",
                           enabled: !busy && state.localVersion != nil && state.request?.status.active != true) { download() }
       } header: {
         Text("准备本地词库")
@@ -36,10 +35,10 @@ struct CloudDictionaryApplyView: View {
         Section {
           SettingsFactRow(title: "云端版本 \(preview.envelope.revision)",
                           detail: "\(preview.envelope.entries) 个词条 · \(preview.envelope.overlays) 条覆盖 · \(preview.envelope.positions) 个固定位置",
-                          symbol: "icloud.fill", color: .teal)
+                          symbol: "icloud.fill")
           SettingsActionRow(title: "替换本机词库", detail: "覆盖本机个人词库、学习、删除和排序记录",
                             symbol: "arrow.left.arrow.right", destructive: true, enabled: !busy) { confirming = true }
-          SettingsActionRow(title: "丢弃预览", symbol: "xmark.circle.fill", color: .gray, enabled: !busy) {
+          SettingsActionRow(title: "丢弃预览", symbol: "xmark.circle.fill", enabled: !busy) {
             self.preview = nil; expectedVersion = nil
           }
         } header: {
@@ -51,8 +50,7 @@ struct CloudDictionaryApplyView: View {
       if let request = state.request, request.accountID == accountID {
         Section {
           SettingsFactRow(title: status(request.status),
-                          symbol: request.status.active ? "clock.arrow.circlepath" : "checkmark.circle.fill",
-                          color: request.status.active ? .orange : MetasequoiaTheme.accent)
+                          symbol: request.status.active ? "clock.arrow.circlepath" : "checkmark.circle.fill")
           if request.status.active {
             SettingsActionRow(title: "取消待应用快照", symbol: "xmark.circle.fill", destructive: true) {
               do { try queue.cancel(accountID: accountID); refresh() }

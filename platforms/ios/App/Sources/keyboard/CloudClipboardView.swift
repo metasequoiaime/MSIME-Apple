@@ -34,7 +34,7 @@ struct CloudClipboardView: View {
       if enabled {
         Section {
           TextEditor(text: $text).frame(minHeight: 100).accessibilityIdentifier("cloudClipboardText")
-          SettingsActionRow(title: "上传这段文字", symbol: "arrow.up.doc.fill", color: .blue,
+          SettingsActionRow(title: "上传这段文字", symbol: "arrow.up.doc.fill",
                             enabled: canUpload) {
             run { token in
               _ = try await client.addClipboard(text, token: token)

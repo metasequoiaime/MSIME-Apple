@@ -46,7 +46,7 @@ struct CloudDictionaryView: View {
             .buttonStyle(.plain)
             .swipeActions(edge: .trailing) {
               Button("删除", role: .destructive) { deleting = entry }
-              Button("下载") { downloading = entry }.tint(.blue)
+              Button("下载") { downloading = entry }.tint(.accentColor)
             }
           }
         } else if !busy {
@@ -83,25 +83,25 @@ struct CloudDictionaryView: View {
             authorize: { try await authorizedToken(matching: userID) })) {
             CloudDictionaryRowLabel(
               title: "云端候选与排序", detail: "调整这个词库里候选的先后",
-              symbol: "list.number", color: .indigo)
+              symbol: "list.number")
           }
           NavigationLink(destination: CloudDictionaryCatalogView(kind: kind,
             authorize: { try await authorizedToken(matching: userID) })) {
             CloudDictionaryRowLabel(
               title: "完整目录", detail: "查询与批量管理全部词条",
-              symbol: "square.stack.3d.up.fill", color: .teal)
+              symbol: "square.stack.3d.up.fill")
           }
           NavigationLink(destination: CloudDictionaryApplyView(accountID: userID,
             authorize: { try await authorizedToken(matching: userID) })) {
             CloudDictionaryRowLabel(
               title: "应用到本机", detail: "把整份云词库交给本机键盘",
-              symbol: "iphone.and.arrow.forward", color: .orange)
+              symbol: "iphone.and.arrow.forward")
           }
           NavigationLink(destination: CloudDictionaryFilesView(kind: kind,
             authorize: { try await authorizedToken(matching: userID) }, imported: { try await load(offset: 0) })) {
             CloudDictionaryRowLabel(
               title: "导入与导出", detail: "用文件搬运词条",
-              symbol: "doc.badge.arrow.up.fill", color: .brown)
+              symbol: "doc.badge.arrow.up.fill")
           }
         }
       }
@@ -110,7 +110,7 @@ struct CloudDictionaryView: View {
         NavigationLink(destination: PersonalDictionaryView()) {
           CloudDictionaryRowLabel(
             title: "本机词库", detail: "查看本机词条与同步进度",
-            symbol: "iphone", color: .gray)
+            symbol: "iphone")
         }
       }
 
@@ -191,14 +191,13 @@ private struct CloudDictionaryRowLabel: View {
   let title: String
   let detail: String
   let symbol: String
-  let color: Color
 
   var body: some View {
     HStack(spacing: 12) {
       Image(systemName: symbol)
         .foregroundStyle(.white)
         .frame(width: 30, height: 30)
-        .background(color, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
+        .background(Color.accentColor, in: RoundedRectangle(cornerRadius: 7, style: .continuous))
       VStack(alignment: .leading, spacing: 2) {
         Text(title).foregroundStyle(.primary)
         Text(detail).font(.caption).foregroundStyle(.secondary)

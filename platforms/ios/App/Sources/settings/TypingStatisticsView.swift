@@ -80,7 +80,10 @@ struct TypingStatisticsView: View {
     return formatter
   }()
   private let store = TypingStatisticsStore()
-  private let colors: [Color] = [.teal, .blue, .indigo, .orange, .pink, .purple, .brown, .gray]
+  /// 扇区颜色:品牌绿的一条明度梯度,不是八个互不相干的色相。
+  ///
+  /// 原先是 `.teal .blue .indigo .orange .pink .purple .brown .gray`。图表确实需要相邻扇区能分开,但八种色相除了"彼此不同"之外什么都没说,而且这一页因此和应用其余部分不是一套配色。梯度按同一顺序排进图例,所以哪一档对应哪一项仍然读得出来。
+  private let colors: [Color] = MetasequoiaTheme.chartRamp(8)
   @State private var availability = TypingStatisticsStore.Availability.neverWritten
   // The old copy asked for Full Access unconditionally, so it said the same thing whether the
   // setting was the problem or not and carried no information. Each case here is a different
@@ -127,14 +130,14 @@ struct TypingStatisticsView: View {
   private var languageSlices: [StatisticsSlice] {
     let sources = breakdown.sources
     return [
-      StatisticsSlice(id: "chinese", title: "中文模式", count: ["quanpin", "nineKey", "shuangpin", "ziranma", "microsoft", "shoudao", "wubi"].reduce(0) { $0 + (sources[$1] ?? 0) }, color: .teal, symbol: "character.textbox"),
-      StatisticsSlice(id: "japanese", title: "日语模式", count: sources["japanese"] ?? 0, color: .pink, symbol: "character.bubble"),
-      StatisticsSlice(id: "english", title: "英文模式", count: sources["english"] ?? 0, color: .blue, symbol: "abc"),
-      StatisticsSlice(id: "local", title: "本地输入", count: sources["local"] ?? 0, color: .purple, symbol: "clock.arrow.circlepath"),
-      StatisticsSlice(id: "ai", title: "AI 润色", count: sources["ai"] ?? 0, color: .orange, symbol: "sparkles"),
-      StatisticsSlice(id: "reply", title: "高情商回复", count: sources["reply"] ?? 0, color: .mint, symbol: "bubble.left.and.bubble.right"),
-      StatisticsSlice(id: "voice", title: "语音输入", count: sources["voice"] ?? 0, color: .indigo, symbol: "waveform"),
-      StatisticsSlice(id: "unknown", title: "历史未分类", count: sources["unknown"] ?? 0, color: .gray, symbol: "questionmark.circle"),
+      StatisticsSlice(id: "chinese", title: "中文模式", count: ["quanpin", "nineKey", "shuangpin", "ziranma", "microsoft", "shoudao", "wubi"].reduce(0) { $0 + (sources[$1] ?? 0) }, color: colors[0], symbol: "character.textbox"),
+      StatisticsSlice(id: "japanese", title: "日语模式", count: sources["japanese"] ?? 0, color: colors[1], symbol: "character.bubble"),
+      StatisticsSlice(id: "english", title: "英文模式", count: sources["english"] ?? 0, color: colors[2], symbol: "abc"),
+      StatisticsSlice(id: "local", title: "本地输入", count: sources["local"] ?? 0, color: colors[3], symbol: "clock.arrow.circlepath"),
+      StatisticsSlice(id: "ai", title: "AI 润色", count: sources["ai"] ?? 0, color: colors[4], symbol: "sparkles"),
+      StatisticsSlice(id: "reply", title: "高情商回复", count: sources["reply"] ?? 0, color: colors[5], symbol: "bubble.left.and.bubble.right"),
+      StatisticsSlice(id: "voice", title: "语音输入", count: sources["voice"] ?? 0, color: colors[6], symbol: "waveform"),
+      StatisticsSlice(id: "unknown", title: "历史未分类", count: sources["unknown"] ?? 0, color: colors[7], symbol: "questionmark.circle"),
     ]
   }
 

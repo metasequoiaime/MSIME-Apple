@@ -207,7 +207,7 @@ struct CommunityPublishView: View {
             } label: {
               SettingsRowLabel(title: library.isEmpty ? "去设计一款" : "继续编辑我的皮肤",
                                detail: "在编辑器里调好，到「我的」命名保存",
-                               symbol: "paintbrush.pointed.fill", color: .pink)
+                               symbol: "paintbrush.pointed.fill")
             }
             .accessibilityIdentifier("designSkinFromPublish")
           }

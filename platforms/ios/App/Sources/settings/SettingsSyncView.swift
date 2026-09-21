@@ -53,17 +53,17 @@ struct SettingsSyncView: View {
       Section("云端") {
         SettingsFactRow(title: "云端版本",
                         detail: cloud.map { "第 \($0.revision) 版" } ?? "尚未读取",
-                        symbol: "icloud", color: .teal)
+                        symbol: "icloud")
         SettingsActionRow(title: "刷新", detail: "重新读取云端当前版本", symbol: "arrow.clockwise") {
           pending = Task { await load() }
         }
       }
       Section {
         SettingsActionRow(title: "上传本机设置", detail: "用这台手机的设置覆盖云端",
-                          symbol: "icloud.and.arrow.up", color: .blue,
+                          symbol: "icloud.and.arrow.up",
                           enabled: cloud != nil && schema != nil) { uploading = true }
         SettingsActionRow(title: "下载并应用", detail: "用云端设置覆盖这台手机",
-                          symbol: "icloud.and.arrow.down", color: .orange,
+                          symbol: "icloud.and.arrow.down",
                           enabled: cloud?.settings.isEmpty == false) { applying = true }
       } header: {
         Text("同步")

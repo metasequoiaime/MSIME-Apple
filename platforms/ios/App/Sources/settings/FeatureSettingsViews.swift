@@ -18,7 +18,7 @@ struct SkinSettingsView: View {
         NavigationLink(destination: CustomSkinEditorView()) {
           SettingsRowLabel(title: "设计我的皮肤",
                            detail: savedDesigns == 0 ? "还没有命名保存的方案" : "本机保存了 \(savedDesigns) 套方案",
-                           symbol: "paintbrush.pointed.fill", color: .pink)
+                           symbol: "paintbrush.pointed.fill")
         }.accessibilityIdentifier("customSkinEditorLink")
       }
       Section {

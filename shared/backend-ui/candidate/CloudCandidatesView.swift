@@ -44,7 +44,7 @@ struct CloudCandidatesView: View {
             }
           }
         }
-        SettingsActionRow(title: "查询云端候选", symbol: "magnifyingglass", color: .blue, enabled: !text.isEmpty) {
+        SettingsActionRow(title: "查询云端候选", symbol: "magnifyingglass", enabled: !text.isEmpty) {
           run { try await load(.init(text: text, kind: jianpin && kind == .pinyin ? "jianpin" : kind.rawValue, scheme: scheme, profile: profile, limit: 100)) }
         }
       } header: {
@@ -77,7 +77,7 @@ struct CloudCandidatesView: View {
               if kind != .quick {
                 Button("删除", role: .destructive) { action = .remove(candidate) }
                   .disabled(kind != .english && candidate.word.unicodeScalars.count <= 1)
-                Button("固定") { action = .fix(candidate) }.tint(.blue)
+                Button("固定") { action = .fix(candidate) }.tint(.accentColor)
               }
             }
           }
