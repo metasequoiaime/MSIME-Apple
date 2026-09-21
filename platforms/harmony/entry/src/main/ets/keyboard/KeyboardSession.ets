@@ -878,6 +878,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   onCandidateCount: ((count: number) => void) | undefined = undefined;
   /** Lets a desktop panel follow the widest current candidate without measuring ArkUI nodes. */
   onCandidateWidth: ((widthVp: number) => void) | undefined = undefined;
+  /** The native host owns panel geometry; the touch view reports its newly requested total height. */
+  onTouchHeight: ((heightVp: number) => void) | undefined = undefined;
   /**
    * Whether a composition is open, for the host that owns the panel.
    *
@@ -1828,6 +1830,13 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.replyResultTexts = [];
     if (this.onReplyContextChanged !== undefined) {
       this.onReplyContextChanged();
+    }
+  }
+
+  /** Resize only the phone/tablet soft-keyboard panel; desktop surfaces have separate geometry. */
+  resizeTouchKeyboard(heightVp: number): void {
+    if (!KeyboardFormFactor.isDesktop() && this.onTouchHeight !== undefined) {
+      this.onTouchHeight(heightVp);
     }
   }
 

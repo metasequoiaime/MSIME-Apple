@@ -36,6 +36,9 @@ import { CandidateSkinPolicy } from './candidate/CandidateSkinPolicy';
 import { CandidateWheelPolicy } from './candidate/CandidateWheelPolicy';
 import { KeyboardMetrics } from './KeyboardMetrics';
 import { KeyboardGeometry } from './KeyboardGeometry';
+import {
+  KeyboardLayoutDragAxis, KeyboardLayoutDragPolicy
+} from './input/KeyboardLayoutDragPolicy';
 import { NineKeyLayout, NineKey } from './input/NineKeyLayout';
 import { SpaceCursorMovement } from './input/SpaceCursorMovement';
 import {
@@ -162,6 +165,7 @@ const SCHEME_GLYPH_SIZE: number = 15;
 const SCHEME_BADGE_TEXT_SIZE: number = 9;
 // Enough tint to mark the card without drowning the glyph sitting on it.
 const SELECTED_CARD_ALPHA: number = 0.14;
+const GEOMETRY_HINT: string = '拖把手改高度，键盘上左右拖改键距、上下拖改行间距';
 
 // The skin preview is a keyboard reduced to its shape: four rows of blank caps, the last one ending
 // in the action key, which is the only place a skin's accent shows among its keys.
@@ -314,6 +318,10 @@ struct KeyboardView {
   @State polishBusy: boolean = false;
   @State polishConfigured: boolean = false;
   @State hoveredCandidate: number = -1;
+  @State geometryHint: string = GEOMETRY_HINT;
+  @State geometryKeySpacing: number = KeyboardSession.shared.preferences().keySpacingTenths;
+  @State geometryRowSpacing: number = KeyboardSession.shared.preferences().rowSpacingTenths;
+  @State geometryHeight: number = KeyboardSession.shared.preferences().heightAdjustment;
 
   private readonly letterCase: EnglishLetterCaseState = new EnglishLetterCaseState();
   private settings: KeyboardPreferences = KeyboardSession.shared.preferences();
@@ -334,6 +342,12 @@ struct KeyboardView {
   private voiceGeneration: number = 0;
   private replyGeneration: number = 0;
   private polishGeneration: number = 0;
+  private geometryStartX: number = 0;
+  private geometryStartY: number = 0;
+  private geometryBaseKeySpacing: number = 0;
+  private geometryBaseRowSpacing: number = 0;
+  private geometryBaseHeight: number = 0;
+  private geometryAxis: KeyboardLayoutDragAxis = KeyboardLayoutDragAxis.UNDECIDED;
 
   aboutToAppear(): void {
     this.english = KeyboardSession.shared.isEnglish();
@@ -398,6 +412,9 @@ struct KeyboardView {
       }
     };
     this.settings = KeyboardSession.shared.preferences();
+    this.geometryKeySpacing = this.settings.keySpacingTenths;
+    this.geometryRowSpacing = this.settings.rowSpacingTenths;
+    this.geometryHeight = this.settings.heightAdjustment;
     this.feedback = KeyboardSession.shared.feedback();
     this.traditional = KeyboardSession.shared.usesTraditional();
     this.skin = KeyboardSession.shared.skin(this.settings.skinId, this.settings.dark);
@@ -1102,17 +1119,17 @@ struct KeyboardView {
    */
   /** Tenths of a vp in the store, whole vp on screen. */
   private keySpacing(): number {
-    return this.settings.keySpacingTenths / 10;
+    return this.geometryKeySpacing / 10;
   }
 
   private rowSpacing(): number {
-    return this.settings.rowSpacingTenths / 10;
+    return this.geometryRowSpacing / 10;
   }
 
   /** The adjustment is spread across the key rows so none of them keeps a stray pixel. */
   private rowHeight(index: number): number {
     return KeyboardGeometry.adjustedRowHeight(KeyboardMetrics.ROW_HEIGHT_VP,
-      this.settings.heightAdjustment, KeyboardMetrics.KEY_ROWS, index);
+      this.geometryHeight, KeyboardMetrics.KEY_ROWS, index);
   }
 
   /**
@@ -2235,6 +2252,79 @@ struct KeyboardView {
       return;
     }
     this.settings = KeyboardSession.shared.preferences();
+    this.geometryKeySpacing = this.settings.keySpacingTenths;
+    this.geometryRowSpacing = this.settings.rowSpacingTenths;
+    this.geometryHeight = this.settings.heightAdjustment;
+    KeyboardSession.shared.resizeTouchKeyboard(KeyboardMetrics.totalHeightVp(
+      this.geometryRowSpacing, this.geometryHeight));
+  }
+
+  private beginGeometryDrag(event: TouchEvent): void {
+    this.geometryStartX = event.touches[0].windowX;
+    this.geometryStartY = event.touches[0].windowY;
+    this.geometryBaseKeySpacing = this.geometryKeySpacing;
+    this.geometryBaseRowSpacing = this.geometryRowSpacing;
+    this.geometryBaseHeight = this.geometryHeight;
+    this.geometryAxis = KeyboardLayoutDragAxis.UNDECIDED;
+  }
+
+  /** Drag over the visible keys: first movement locks the gesture to one spacing dimension. */
+  private geometrySpacingTouch(event: TouchEvent): void {
+    if (event.type === TouchType.Down) {
+      this.beginGeometryDrag(event);
+      return;
+    }
+    if (event.type === TouchType.Move) {
+      const offsetX: number = event.touches[0].windowX - this.geometryStartX;
+      const offsetY: number = event.touches[0].windowY - this.geometryStartY;
+      if (this.geometryAxis === KeyboardLayoutDragAxis.UNDECIDED) {
+        this.geometryAxis = KeyboardLayoutDragPolicy.axis(offsetX, offsetY);
+      }
+      if (this.geometryAxis === KeyboardLayoutDragAxis.KEY_SPACING) {
+        const spacing: number = KeyboardLayoutDragPolicy.keySpacing(
+          this.geometryBaseKeySpacing, offsetX);
+        if (spacing !== this.geometryKeySpacing) {
+          this.applyGeometry(spacing, this.geometryRowSpacing, this.geometryHeight);
+        }
+        this.geometryHint = `按键间距 ${KeyboardGeometry.display(spacing)}`;
+      } else {
+        const spacing: number = KeyboardLayoutDragPolicy.rowSpacing(
+          this.geometryBaseRowSpacing, offsetY);
+        if (spacing !== this.geometryRowSpacing) {
+          this.applyGeometry(this.geometryKeySpacing, spacing, this.geometryHeight);
+        }
+        this.geometryHint = `行间距 ${KeyboardGeometry.display(spacing)}`;
+      }
+      return;
+    }
+    this.geometryAxis = KeyboardLayoutDragAxis.UNDECIDED;
+    this.geometryHint = GEOMETRY_HINT;
+  }
+
+  /** Drag the toolbar grip as the keyboard's top edge; upward movement makes the panel taller. */
+  private geometryHeightTouch(event: TouchEvent): void {
+    if (event.type === TouchType.Down) {
+      this.beginGeometryDrag(event);
+      return;
+    }
+    if (event.type === TouchType.Move) {
+      const height: number = KeyboardLayoutDragPolicy.height(
+        this.geometryBaseHeight, event.touches[0].windowY - this.geometryStartY);
+      if (height !== this.geometryHeight) {
+        this.applyGeometry(this.geometryKeySpacing, this.geometryRowSpacing, height);
+      }
+      this.geometryHint = `键盘高度 ${KeyboardGeometry.displayHeight(height)}`;
+      return;
+    }
+    this.geometryHint = GEOMETRY_HINT;
+  }
+
+  /** Accessible discrete counterpart to the height grip on SDKs without adjustable actions. */
+  private adjustGeometryHeight(delta: number): void {
+    const height: number = KeyboardGeometry.heightAdjustment(
+      this.geometryHeight + delta);
+    this.applyGeometry(this.geometryKeySpacing, this.geometryRowSpacing, height);
+    this.geometryHint = `键盘高度 ${KeyboardGeometry.displayHeight(height)}`;
   }
 
   private setFeedback(settings: FeedbackSettings): void {
@@ -3335,28 +3425,48 @@ struct KeyboardView {
     .height(this.surfaceHeight())
   }
 
-  /**
-   * The three measurements that change how the keyboard is laid out.
-   *
-   * Every bound comes from KeyboardGeometry rather than being written here, so the slider cannot
-   * offer a value the store would refuse. Each change is applied and saved as it is made — there is
-   * no confirm step, because the keyboard redraws underneath and shows the result.
-   */
+  /** Transparent controls over the live keys: the thing being adjusted remains visible. */
   @Builder
   geometryFace() {
     Column() {
-      Row() {
-        Text('键盘设置')
-          .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
-          .fontColor(this.skin.keyForeground)
-          .layoutWeight(1)
+      Row({ space: 8 }) {
         Text('恢复默认')
           .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+          .fontColor('#C7473B')
+          .onClick(() => {
+            this.applyGeometry(KeyboardGeometry.DEFAULT_KEY_SPACING_TENTHS,
+              KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS,
+              KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_VP);
+            this.geometryHint = GEOMETRY_HINT;
+          })
+        Text('−')
+          .fontSize(KeyboardMetrics.KEY_FONT_SIZE)
           .fontColor(this.skin.accent)
-          .padding({ right: 12 })
-          .onClick(() => this.applyGeometry(KeyboardGeometry.DEFAULT_KEY_SPACING_TENTHS,
-            KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS,
-            KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_VP))
+          .accessibilityText('降低键盘高度')
+          .onClick(() => this.adjustGeometryHeight(-2))
+        Column({ space: 4 }) {
+          Text(this.geometryHint)
+            .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+            .fontColor(this.skin.keyForeground)
+            .opacity(0.75)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+          Divider()
+            .width(46)
+            .strokeWidth(5)
+            .color(this.skin.tintedAccent(0.45))
+        }
+        .layoutWeight(1)
+        .height('100%')
+        .justifyContent(FlexAlign.Center)
+        .alignItems(HorizontalAlign.Center)
+        .accessibilityText('键盘高度，向上或向下拖动')
+        .onTouch((event: TouchEvent): void => this.geometryHeightTouch(event))
+        Text('+')
+          .fontSize(KeyboardMetrics.KEY_FONT_SIZE)
+          .fontColor(this.skin.accent)
+          .accessibilityText('增加键盘高度')
+          .onClick(() => this.adjustGeometryHeight(2))
         Text('完成')
           .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
           .fontColor(this.skin.accent)
@@ -3364,75 +3474,24 @@ struct KeyboardView {
             this.show(SURFACE_NONE);
           })
       }
-      .width('100%')
-      .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 4)
+      .width('96%')
+      .height(52)
       .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
         right: KeyboardMetrics.CANDIDATE_PADDING_VP })
+      .backgroundColor(this.skin.keyBackground)
+      .borderRadius(10)
 
-      Scroll() {
-        Column() {
-          this.geometrySlider('按键间距',
-            KeyboardGeometry.display(this.settings.keySpacingTenths),
-            this.settings.keySpacingTenths,
-            KeyboardGeometry.MIN_KEY_SPACING_TENTHS, KeyboardGeometry.MAX_KEY_SPACING_TENTHS, 1,
-            (value: number) => this.applyGeometry(value, this.settings.rowSpacingTenths,
-              this.settings.heightAdjustment));
-          this.geometrySlider('行间距',
-            KeyboardGeometry.display(this.settings.rowSpacingTenths),
-            this.settings.rowSpacingTenths,
-            KeyboardGeometry.MIN_ROW_SPACING_TENTHS, KeyboardGeometry.MAX_ROW_SPACING_TENTHS, 1,
-            (value: number) => this.applyGeometry(this.settings.keySpacingTenths, value,
-              this.settings.heightAdjustment));
-          this.geometrySlider('键盘高度',
-            KeyboardGeometry.displayHeight(this.settings.heightAdjustment),
-            this.settings.heightAdjustment,
-            KeyboardGeometry.MIN_HEIGHT_ADJUSTMENT_VP, KeyboardGeometry.MAX_HEIGHT_ADJUSTMENT_VP, 1,
-            (value: number) => this.applyGeometry(this.settings.keySpacingTenths,
-              this.settings.rowSpacingTenths, value));
-        }
+      Blank()
         .width('100%')
-      }
-      .scrollBar(BarState.Off)
-      .width('100%')
-      .layoutWeight(1)
+        .layoutWeight(1)
+        // A nearly transparent hit target blocks keys while preserving their exact appearance.
+        .backgroundColor('#01000000')
+        .accessibilityText('键盘布局调整区域')
+        .onTouch((event: TouchEvent): void => this.geometrySpacingTouch(event))
     }
     .width('100%')
     .height(this.surfaceHeight())
-  }
-
-  @Builder
-  geometrySlider(title: string, reading: string, value: number, min: number, max: number,
-                 step: number, change: (value: number) => void) {
-    Column() {
-      Row() {
-        Text(title)
-          .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-          .fontColor(this.skin.keyForeground)
-          .layoutWeight(1)
-        Text(reading)
-          .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
-          .fontColor(this.skin.keyForeground)
-          .opacity(0.6)
-      }
-      .width('100%')
-      Slider({ value: value, min: min, max: max, step: step, style: SliderStyle.OutSet })
-        .width('100%')
-        .selectedColor(this.skin.accent)
-        .trackColor(this.skin.tintedAccent(0.2))
-        .blockColor(this.skin.keyBackground)
-        .onChange((now: number, mode: SliderChangeMode) => {
-          // Written whenever the rounded value actually moves, rather than on a particular change
-          // mode. A drag sends many events at the same rounded value, so this is quiet without
-          // depending on which mode the platform reports the finger lifting with.
-          const wanted: number = Math.round(now);
-          if (wanted !== value) {
-            change(wanted);
-          }
-        })
-    }
-    .width('100%')
-    .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
-      right: KeyboardMetrics.CANDIDATE_PADDING_VP, top: 4, bottom: 4 })
+    .alignItems(HorizontalAlign.Center)
   }
 
   /**
@@ -4051,7 +4110,12 @@ struct KeyboardView {
   @Builder
   keyFaces() {
       if (this.surface === SURFACE_GEOMETRY) {
-        this.geometryFace()
+        Stack() {
+          this.typingFace()
+          this.geometryFace()
+        }
+        .width('100%')
+        .height(this.surfaceHeight())
       } else if (this.isTools()) {
         this.toolsFace()
       } else if (this.surface === SURFACE_EXPANDED) {
@@ -4074,7 +4138,15 @@ struct KeyboardView {
         this.nineKeyHoldFace()
       } else if (this.japanese && this.surface === SURFACE_VARIANTS && !this.symbols) {
         this.variantFace()
-      } else if (this.japanese) {
+      } else {
+        this.typingFace()
+      }
+  }
+
+  /** The actual keys, shared by normal input and the transparent adjustment overlay. */
+  @Builder
+  typingFace() {
+      if (this.japanese) {
         // Including the digit layer: a grid face draws its own digits so the three columns survive.
         this.japaneseFace()
       } else if (this.scheme.touchKeyboardLayout === 'handwriting') {

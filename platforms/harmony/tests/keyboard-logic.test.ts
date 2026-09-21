@@ -9,6 +9,10 @@
 import { KeyboardGeometry } from "../entry/src/main/ets/keyboard/KeyboardGeometry";
 import { KeyboardMetrics } from "../entry/src/main/ets/keyboard/KeyboardMetrics";
 import {
+  KeyboardLayoutDragAxis,
+  KeyboardLayoutDragPolicy,
+} from "../entry/src/main/ets/keyboard/input/KeyboardLayoutDragPolicy";
+import {
   ClipboardHistoryStore,
   ClipboardHistoryItem,
   ClipboardHistoryError,
@@ -878,6 +882,37 @@ group("display strings match the Java formatting", () => {
   check(KeyboardGeometry.halfGapPixels(60, 3) === 9, "half gap rounds to whole pixels");
   check(KeyboardGeometry.halfGapPixels(60, 0) === 0, "a non-positive density yields no gap");
   check(KeyboardGeometry.halfGapPixels(60, Number.NaN) === 0, "a non-finite density yields no gap");
+});
+
+group("layout adjustment follows the first drag axis", () => {
+  check(
+    KeyboardLayoutDragPolicy.axis(20, 5) === KeyboardLayoutDragAxis.KEY_SPACING,
+    "a mostly horizontal drag adjusts key spacing",
+  );
+  check(
+    KeyboardLayoutDragPolicy.axis(5, 20) === KeyboardLayoutDragAxis.ROW_SPACING,
+    "a mostly vertical drag adjusts row spacing",
+  );
+  check(
+    KeyboardLayoutDragPolicy.axis(10, 10) === KeyboardLayoutDragAxis.ROW_SPACING,
+    "a diagonal tie follows the source's vertical preference",
+  );
+  check(
+    KeyboardLayoutDragPolicy.keySpacing(40, 18) === 50,
+    "eighteen vp moves key spacing by one visible point",
+  );
+  check(
+    KeyboardLayoutDragPolicy.rowSpacing(60, -18) === 50,
+    "row spacing uses the same scaled gesture",
+  );
+  check(
+    KeyboardLayoutDragPolicy.height(0, -12) === 12,
+    "dragging the top edge upward increases keyboard height one-for-one",
+  );
+  check(
+    KeyboardLayoutDragPolicy.height(48, -100) === KeyboardGeometry.MAX_HEIGHT_ADJUSTMENT_VP,
+    "height remains inside the shared preference bounds",
+  );
 });
 
 console.log("CandidateWrapPolicy");

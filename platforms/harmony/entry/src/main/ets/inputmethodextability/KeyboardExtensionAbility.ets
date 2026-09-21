@@ -647,6 +647,13 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
         KeyboardSession.shared.onSurfaceRequested = (surface: DesktopSurface): void => {
           this.showDesktopSurface(surface);
         };
+      } else {
+        KeyboardSession.shared.onTouchHeight = (requestedHeightVp: number): void => {
+          panel.resize(screen.width, Math.round(requestedHeightVp * this.density))
+            .catch((error: Object): void => {
+              KeyboardLog.error(`touch keyboard would not resize: ${describeError(error)}`);
+            });
+        };
       }
       if (desktop && KeyboardSession.shared.toolbarEnabled()) {
         try {
@@ -726,6 +733,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       engine.off('inputStop', this.stopped);
       inputMethodEngine.getKeyboardDelegate().off('selectionChange', this.selectionChanged);
       inputMethodEngine.getKeyboardDelegate().off('textChange', this.textChanged);
+      KeyboardSession.shared.onTouchHeight = undefined;
       return;
     }
   }
@@ -735,6 +743,7 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     engine.off('inputStop', this.stopped);
     inputMethodEngine.getKeyboardDelegate().off('selectionChange', this.selectionChanged);
     inputMethodEngine.getKeyboardDelegate().off('textChange', this.textChanged);
+    KeyboardSession.shared.onTouchHeight = undefined;
     if (this.routingKeys) {
       inputMethodEngine.getKeyboardDelegate().off('keyEvent', this.typed);
       this.routingKeys = false;
