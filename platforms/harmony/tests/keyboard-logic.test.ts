@@ -1403,6 +1403,34 @@ group("a one-shot shift is spent by the next letter", () => {
   check(state.consumeLetter() === false, "a second letter has nothing to spend");
 });
 
+group("an automatic shift and a pressed one are told apart", () => {
+  // The keyboard now applies the capitalization policy on attach and after every text change, so
+  // the two have to be distinguishable: an automatic shift is recomputed from the text and must not
+  // be spent by the letter, or a capitals-only field would produce exactly one capital; a pressed
+  // one is the user's and must survive anything arriving before the letter that spends it.
+  const automatic = new EnglishLetterCaseState();
+  check(automatic.applyAutomatic(true) === true, "applying a shift is a change");
+  check(automatic.mode() === LetterCaseMode.SHIFTED, "and leaves the face shifted");
+  check(automatic.isAutomatic() === true, "the state says the shift was not pressed");
+  check(automatic.applyAutomatic(true) === false, "recomputing the same answer redraws nothing");
+
+  const pressed = new EnglishLetterCaseState();
+  pressed.toggle(1000);
+  check(pressed.mode() === LetterCaseMode.SHIFTED, "a tap shifts");
+  check(pressed.isAutomatic() === false, "and says so");
+  check(
+    pressed.applyAutomatic(false) === true,
+    "the rule is able to clear it, which is why the caller checks isAutomatic first",
+  );
+
+  const locked = new EnglishLetterCaseState();
+  locked.toggle(1000);
+  locked.toggle(1000 + EnglishLetterCaseState.CAPS_LOCK_INTERVAL_MILLIS);
+  check(locked.mode() === LetterCaseMode.CAPS_LOCK, "a double tap locks");
+  check(locked.applyAutomatic(false) === false, "and the rule cannot unlock it");
+  check(locked.mode() === LetterCaseMode.CAPS_LOCK, "the lock stands");
+});
+
 group("a double tap inside the interval locks, a slow one does not", () => {
   const quick = new EnglishLetterCaseState();
   quick.toggle(1000);
