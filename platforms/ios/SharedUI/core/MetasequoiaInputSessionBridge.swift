@@ -942,11 +942,27 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
 
   private static func decode(_ pointer: UnsafeMutablePointer<CChar>?) throws -> Any {
     guard let pointer else { throw InputBridgeFailure.unavailable }
-    let string = String(cString: pointer)
-    msimeClientStringFree(pointer)
-    guard let data = string.data(using: .utf8),
-          let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-    else { throw InputBridgeFailure.invalidResponse }
+    // Parse the response where it already is. Going through `String(cString:)` and then
+    // `.data(using:)` copies the whole document twice - and validates its UTF-8 on the way - before
+    // the parser has seen a byte of it. Every keystroke carries a view with nine candidates, their
+    // codes and their glosses, so those copies are on the path a person feels.
+    let envelope: [String: Any]
+    do {
+      let length = strlen(pointer)
+      let parsed = try pointer.withMemoryRebound(to: UInt8.self, capacity: length) { bytes in
+        try JSONSerialization.jsonObject(
+          with: Data(bytesNoCopy: UnsafeMutableRawPointer(mutating: bytes), count: length,
+                     deallocator: .none))
+      }
+      msimeClientStringFree(pointer)
+      guard let object = parsed as? [String: Any] else { throw InputBridgeFailure.invalidResponse }
+      envelope = object
+    } catch let failure as InputBridgeFailure {
+      throw failure
+    } catch {
+      msimeClientStringFree(pointer)
+      throw InputBridgeFailure.invalidResponse
+    }
     guard envelope["ok"] as? Bool == true else {
       throw InputBridgeFailure.response(envelope["error"] as? String ?? "输入运行时调用失败")
     }

@@ -25,6 +25,22 @@ final class KeystrokeLatencyTests: XCTestCase {
     return controller
   }
 
+  /// The bridge on its own: one C ABI round trip and the parse of what comes back, with no view
+  /// work at all. What is left after this is what the keyboard itself costs.
+  func testWhatTheBridgeAloneCosts() {
+    let bridge = MetasequoiaInputSessionBridge()
+    var samples: [Double] = []
+    for _ in 0..<50 {
+      _ = bridge.cancel()
+      for letter in "nihao" {
+        let started = Date()
+        _ = bridge.handleCharacter(String(letter))
+        samples.append(Date().timeIntervalSince(started) * 1000)
+      }
+    }
+    report("bridge-character", samples)
+  }
+
   private func descendants(_ view: UIView) -> [UIView] {
     [view] + view.subviews.flatMap { descendants($0) }
   }
