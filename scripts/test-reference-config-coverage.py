@@ -18,6 +18,14 @@ Six keys are mapped to a reason instead of a field, written as `!kind: why`. Fou
 reference's own template and read by nothing in it, one is the reference Server's internal switch
 between its old and new session implementations, and one is a path this repository takes as a host
 runtime option rather than a preference.
+
+A field is also checked to be *named in the shared settings page*, not only present in the
+preferences crate. The arrangement this client is built around puts shared behaviour and its
+interface in the Tauri page, so a setting with a field and nothing on that page is supported on
+paper: it exists, it round-trips, and no user can change it. `PLATFORM_LOCAL` records the ones
+whose subject does not exist here at all. Finding this check's first entry also corrected a
+mapping - `general.candidate_arrow_navigation` pointed at the serde alias rather than at `arrows`,
+the field the page actually spells, which made a reachable setting look unreachable.
 """
 
 from __future__ import annotations
@@ -79,7 +87,10 @@ MAPPING: dict[str, str] = {
     "frequency_adjustment.linear_step": "linear_step",
     "frequency_adjustment.mode": "mode",
     "frequency_adjustment.trigger_count": "trigger_count",
-    "general.candidate_arrow_navigation": "candidate_arrow_navigation",
+    # The field is `arrows`; `candidate_arrow_navigation` is the serde alias kept for profiles
+    # written before the rename, and naming the alias here hid the fact that the page spells the
+    # field.
+    "general.candidate_arrow_navigation": "arrows",
     "general.candidate_translations": "candidate_translations",
     "general.candidate_window_diagnostic_log": "diagnostic_log",
     "general.clean_mode": "!dead: written by the reference's config template and read by nothing in it",
@@ -215,6 +226,22 @@ MAPPING: dict[str, str] = {
 }
 
 
+# Targets allowed to have no control on the shared settings page, and why. Each is a setting whose
+# subject does not exist here rather than one this client has not got round to.
+PLATFORM_LOCAL: dict[str, str] = {
+    "ui_backend": (
+        "Chooses between the reference's Direct2D surfaces and its WebView2 ones. The candidate "
+        "window, floating toolbar and input-method menu are drawn natively by each platform here, "
+        "so there is no second backend to pick."
+    ),
+}
+
+
+def page_text() -> str:
+    page = ROOT / "packages/ui/src/index.tsx"
+    return page.read_text(encoding="utf-8") if page.is_file() else ""
+
+
 def shared_text() -> str:
     return "\n".join(path.read_text(encoding="utf-8") for path in SHARED if path.is_file())
 
@@ -234,8 +261,34 @@ def main() -> int:
         if not re.search(rf"\b{re.escape(needle)}\b", text):
             orphaned.append(f"{key} -> {target}")
 
+    # And a field alone is not the setting. This client's arrangement is that shared behaviour and
+    # its interface both live in the Tauri settings page, so a reference setting with a field here
+    # and no mention at all on that page is supported on paper only. The check above is satisfied
+    # by `preferences.rs` on its own, which is exactly the state that hides such a setting.
+    #
+    # What this can see is the field's name appearing in the page's source, which is weaker than
+    # "a control is rendered for it": a type declaration alone would satisfy it. It catches the
+    # failure that actually happens - a preference added to the crate and nothing done in the page
+    # - and not a control deleted while its type stays. Reported wording says only that much.
+    unreachable = []
+    for key, target in sorted(MAPPING.items()):
+        if target.startswith("!") or target in PLATFORM_LOCAL:
+            continue
+        needle = target.split(".")[-1]
+        if not re.search(rf"\b{re.escape(needle)}\b", page_text()):
+            unreachable.append(f"{key} -> {target}")
+
     for entry in orphaned:
         print(f"the shared layer no longer has the target for {entry}", file=sys.stderr)
+    for entry in unreachable:
+        print(
+            f"{entry} has a field but its name appears nowhere in the shared settings page, so "
+            f"nothing there can be reaching it. Add the control, or record it in PLATFORM_LOCAL "
+            f"with the reason.",
+            file=sys.stderr,
+        )
+    if unreachable:
+        return 1
     if orphaned:
         print(
             "\nA renamed field needs its entry updated. A setting the reference has *added* is "
@@ -248,6 +301,10 @@ def main() -> int:
     print(
         f"reference config coverage: {len(MAPPING)} settings mapped "
         f"({reasons} to a reason rather than a field), every target present"
+    )
+    print(
+        f"  and named in the shared settings page, bar {len(PLATFORM_LOCAL)} recorded as "
+        f"platform-local"
     )
     return 0
 
