@@ -30,9 +30,14 @@ export type AccountPreferenceValue = boolean | number | string;
 export type AccountPreferenceSettings = Record<string, AccountPreferenceValue>;
 export type AccountPreferences = { revision: number; settings: AccountPreferenceSettings };
 export type AccountPreferenceField = { type: string };
+/**
+ * Named rather than written as `AccountPreferenceSchema["fields"]` at the call site: ArkTS rejects
+ * indexed access types, and a host that has to name this type has nowhere else to get it.
+ */
+export type AccountPreferenceFields = Record<string, AccountPreferenceField>;
 /** As the page reads it: camelCase, the shape the Tauri hosts hand their settings surface. */
 export type AccountPreferenceSchema = {
-  fields: Record<string, AccountPreferenceField>;
+  fields: AccountPreferenceFields;
   maximumBytes: number;
   updateMode: string;
   revisionRequired: boolean;
@@ -169,28 +174,34 @@ export function mergeAccountPreferences(
   return merged;
 }
 
-/** The local preference document, read as the loosely typed record the NAPI reply carries. */
-type Document = Record<string, unknown>;
+/**
+ * The local preference document, read as the loosely typed record the NAPI reply carries.
+ *
+ * `Object` rather than `unknown` because the HarmonyOS host compiles under the ArkTS subset, which
+ * rejects `unknown` outright — including in a cast written at the call site. The helpers below
+ * narrow it exactly as they would have.
+ */
+export type Document = Record<string, Object>;
 
-function record(value: unknown): Document | null {
+function record(value: Object | undefined): Document | null {
   return value !== null && typeof value === "object" && !Array.isArray(value)
     ? (value as Document)
     : null;
 }
 
-function member(document: Document, key: string): unknown {
+function member(document: Document, key: string): Object | undefined {
   return document[key];
 }
 
-function enumerated(value: unknown, allowed: string[], fallback: string): string {
+function enumerated(value: Object | undefined, allowed: string[], fallback: string): string {
   return typeof value === "string" && allowed.includes(value) ? value : fallback;
 }
 
-function flag(value: unknown, fallback: boolean): boolean {
+function flag(value: Object | undefined, fallback: boolean): boolean {
   return typeof value === "boolean" ? value : fallback;
 }
 
-function whole(value: unknown, fallback: number): number {
+function whole(value: Object | undefined, fallback: number): number {
   return typeof value === "number" && Number.isInteger(value) ? value : fallback;
 }
 
@@ -395,13 +406,13 @@ export function applyAccountPreferences(
   if (touchSkin !== null) preferences.touch_keyboard_skin = choose(touchSkin, TOUCH_SKINS);
   const customSkin = reader.text("platform.harmony.custom_keyboard_skin");
   if (customSkin !== null) {
-    let design: unknown;
+    let design: Object | null;
     try {
-      design = JSON.parse(customSkin);
+      design = JSON.parse(customSkin) as Object;
     } catch {
       refuse("account_invalid");
     }
-    if (record(design) === null) refuse("account_invalid");
+    if (design === null || record(design) === null) refuse("account_invalid");
     preferences.custom_touch_keyboard_skin = design;
   }
   const theme = reader.text("platform.harmony.theme");

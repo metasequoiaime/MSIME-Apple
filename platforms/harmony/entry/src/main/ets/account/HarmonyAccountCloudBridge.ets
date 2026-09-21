@@ -8,6 +8,7 @@ import { utf8Length } from '../keyboard/Utf8';
 import { KeyboardFeedbackBridge } from '../keyboard/KeyboardFeedbackBridge';
 import { HarmonyAiSkins } from './HarmonyAiSkins';
 import {
+  AccountPreferenceFields,
   AccountPreferences,
   AccountPreferenceSchema,
   AccountPreferenceSettings,
@@ -253,7 +254,7 @@ export class HarmonyAccountCloudBridge {
       return null;
     }
     return {
-      fields: fields as AccountPreferenceSchema['fields'],
+      fields: fields as AccountPreferenceFields,
       maximumBytes: maximumBytes,
       updateMode: updateMode,
       revisionRequired: revisionRequired
@@ -336,19 +337,19 @@ export class HarmonyAccountCloudBridge {
     const local = this.localDocument(stateRoot);
     if (local === null) return this.failure('account_storage');
     const values = localAccountPreferences(
-      local['preferences'] as Record<string, unknown>, this.feedbackValues(stateRoot));
+      local['preferences'] as Record<string, Object>, this.feedbackValues(stateRoot));
     const declared: AccountPreferenceSettings = {};
-    let any = false;
+    let declaredAny = false;
     for (const key of Object.keys(values)) {
       if (schema.fields[key] !== undefined) {
         declared[key] = values[key];
-        any = true;
+        declaredAny = true;
       }
     }
-    if (!any) return this.failure('account_unavailable');
+    if (!declaredAny) return this.failure('account_unavailable');
     const merged = mergeAccountPreferences(cloud, declared, schema);
     const putReply = await this.bridge.putPreferenceDocument(
-      merged as Object as Record<string, unknown>);
+      merged as Object as Record<string, Object>);
     if (putReply.error !== undefined || putReply.value === undefined) {
       return this.failure(putReply.error ?? 'account_unavailable');
     }
@@ -387,7 +388,7 @@ export class HarmonyAccountCloudBridge {
     const local = this.localDocument(stateRoot);
     if (local === null) return this.failure('account_storage');
     const applied: AppliedPreferences = applyAccountPreferences(
-      local['preferences'] as Record<string, unknown>, cloud, schema,
+      local['preferences'] as Record<string, Object>, cloud, schema,
       this.feedbackValues(stateRoot));
     const revision: number = local['revision'] as number;
     const saved: string = client.savePreferences(stateRoot, revision,
@@ -409,7 +410,7 @@ export class HarmonyAccountCloudBridge {
         }));
       if (!written) return this.failure('account_storage');
     }
-    return JSON.stringify({ ok: true, value: {} });
+    return this.success({});
   }
 
   async snapshot(actionDocument: string, resources: string, stateRoot: string): Promise<string> {
