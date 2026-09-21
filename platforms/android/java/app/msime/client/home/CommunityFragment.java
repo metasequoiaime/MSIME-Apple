@@ -123,7 +123,11 @@ public final class CommunityFragment extends Fragment {
 
     private void load(boolean fresh) {
         View view = getView();
-        if (view == null || loading) return;
+        if (view == null) return;
+        // Only paging defers to a request already in flight. A new tab or a new search must go out
+        // even mid-load, or switching tabs while the first page is arriving does nothing at all;
+        // the reply that was already on its way is discarded below by the same check.
+        if (loading && !fresh) return;
         loading = true;
         int offset = fresh ? 0 : adapter.size();
         if (fresh) {
@@ -136,14 +140,15 @@ public final class CommunityFragment extends Fragment {
         HostTask.run(this,
             context -> new CommunityCatalog(context).list(requested, term, offset),
             page -> {
+                // The tab or the search may have moved on while this page was in flight. A stale
+                // answer must not write over what the user is now looking at, and must not clear
+                // the flag belonging to the request that replaced it.
+                if (requested != kind || !term.equals(search)) return;
                 loading = false;
                 if (page == null) {
                     state(CommunityRequest.message(null, 0), true);
                     return;
                 }
-                // The tab or the search may have moved on while this page was in flight; a stale
-                // answer must not replace what the user is now looking at.
-                if (requested != kind || !term.equals(search)) return;
                 if (page.failed()) {
                     state(page.failure(), true);
                     return;
