@@ -179,6 +179,7 @@ static napi_value invalid(napi_env env, const char *message) {
 
 TEXT_ENTRY(LoadPreferences, msime_client_load_preferences)
 TEXT_ENTRY(SkinCatalog, msime_client_skin_catalog)
+TEXT_ENTRY(DictionaryManifest, msime_client_dictionary_manifest)
 TEXT_ENTRY(SkinResource, msime_client_skin_resource)
 TEXT_ENTRY(SkinToolbarStylesheet, msime_client_skin_toolbar_stylesheet)
 TEXT_ENTRY(CustomSkinLibrary, msime_client_custom_skin_library)
@@ -632,6 +633,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("hostCapabilities", HostCapabilities),
         ENTRY("loadPreferences", LoadPreferences),
         ENTRY("skinCatalog", SkinCatalog),
+        ENTRY("dictionaryManifest", DictionaryManifest),
         ENTRY("skinResource", SkinResource),
         ENTRY("skinToolbarStylesheet", SkinToolbarStylesheet),
         ENTRY("customSkinLibrary", CustomSkinLibrary),

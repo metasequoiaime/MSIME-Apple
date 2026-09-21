@@ -14,6 +14,8 @@ export const hostCapabilities: (platform: string) => string;
 
 export const loadPreferences: (directory: string) => string;
 export const skinCatalog: (directory: string) => string;
+/** Staged engine resources in; `{profile,sourceCommit}` from the packaged dictionary manifest out. */
+export const dictionaryManifest: (resources: string) => string;
 /** JSON resource request; returns a structured response containing contentType and byte values. */
 export const skinResource: (request: string) => string;
 /** JSON stylesheet request; returns a nullable stylesheet in the structured response. */

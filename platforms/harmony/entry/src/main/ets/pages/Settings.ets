@@ -412,7 +412,7 @@ struct Settings {
             this.controller.registerJavaScriptProxy(this.bridge, BRIDGE_NAME,
               ['loadPreferences', 'savePreferences', 'hostCapabilities', 'appVersion',
                 'scanSkinCatalog', 'readSkinImage', 'readSkinFont', 'readSkinToolbarCss',
-                'customSkinLibrary', 'dictionary', 'cloudDictionaryDownload',
+                'customSkinLibrary', 'dictionaryManifest', 'dictionary', 'cloudDictionaryDownload',
                 'typingStatistics', 'openExternalUrl', 'copyText',
                 'openSystemKeyboardSettings', 'listVoiceCaptureDevices', 'listFontFamilies',
                 'keyboardFeedback', 'customTranslations', 'onboardingStatus',
@@ -848,6 +848,20 @@ class SettingsBridge {
       ? JSON.stringify({ directory: this.stateDirectory })
       : `{"directory":${JSON.stringify(this.stateDirectory)},"action":${action}}`;
     return client.customSkinLibrary(request);
+  }
+
+  /**
+   * Which packaged dictionary is installed.
+   *
+   * Read from the staged engine resources rather than from the module's rawfile: staging is what
+   * verifies them against the pinned lock, and the copy the keyboard actually runs on is the one
+   * worth reporting. The page is given the two answers, never the path.
+   */
+  dictionaryManifest(): string {
+    if (this.context === undefined) {
+      return JSON.stringify({ ok: false, error: 'dictionary_manifest_unavailable' });
+    }
+    return client.dictionaryManifest(`${this.context.filesDir}/engine`);
   }
 
   /** Read only an image declared by a validated external skin manifest. */
