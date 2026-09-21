@@ -1780,7 +1780,27 @@ if let Some(route) = launch_route_from_args(&args) { ... }
 
 **候选窗锚点。** 来源 `GetCandidateLayoutCaret`：跟随光标关掉时，用本次组字会话开始时捕获的锚点（`g_candidate_session_anchor`），捕获一次后整段会话复用；跟随光标打开、或者报上来的 y 是 `INVALID_Y` 时走实时光标。macOS 的 `_candidateAnchorValid` / `_candidateAnchorCaret` 逐条相同，并且在跟随开关本身变化时重置锚点（`MSIMEValidCaret` 对应那个无效值判断）。核过，不是缺口。
 
-增量记录（2026-09-21，Windows 第三十七批：组字里的两段要看得出分界）：目标起点 `f95bb51b2`。
+增量记录（2026-09-21，Windows 第三十七批：把「完整」落到文件级的记账上）：目标起点 `ac48a74ba`。
+
+此前三道检查都是从**外面**看来源：它能被配置成什么（180 个键）、它的界面能请求什么（46 个动作）、它发布过什么（19 条 changelog bullet）。三道都答不了迁移真正要回答的那个问题——**它的源码树里还有没有东西是本仓没有对应物的**。README 的功能清单太粗（二十几条），一条「词库管理」背后是十三个文件。
+
+新增 `scripts/test-reference-source-inventory.py`，走完来源 `windows/`（TSF 文本服务）、`server/src/`（承载候选窗、工具栏、设置程序与词库的进程）和 `ui/src/`（它自研的 Direct2D 控件框架）下全部 **274 个 `.cpp`/`.h`**，每个必须以三种方式之一落地：
+
+1. 本仓有同名文件（容许两边的命名习惯差异）；
+2. `ANSWERED_BY` 指名本仓哪个文件以另一个名字答复它，**且那个路径必须存在**；
+3. `DELIBERATELY_ABSENT` 写明为什么本仓不需要答复它。
+
+三者都不沾的就是发现：一个没人记过账的文件。
+
+**当前结果：274 个全部有着落——159 个同名对上，99 个改名后对上，16 个有意没有。** 有意没有的集中在两处：来源候选窗有 Direct2D 和 WebView2 两套渲染后端，本仓只有 Direct2D（`windows_webview2` / `candidate_window_template` / `inline_protocol` / `skin_css_policy` / `ui_backend_policy` / `webview_utils` 六个文件），`ui_backend` 作为配置契约保留；以及 emoji / 颜文字 / 英文三个 `*_ime` 属于 Engine 自己的表，由共享运行时去问，不在各平台重写。另有 `serial_task_queue`——它把来源设置窗的后台工作串到一个线程上，而本仓的设置窗是 Tauri 应用，命令本来就跑在它的异步运行时上。
+
+第二条形式刻意指**路径**而不是一句话：一句「已经支持」谁都能写，而一个必须存在的路径会在本仓自己把文件删掉或改名时立刻报红。第三条形式的理由是该被怀疑着读的部分——迁移要藏起没做的事，就藏在那里——所以每条都写「用户拿到的是什么」，而不是「换了种方式处理」。
+
+反向验证两条路径：删掉 `cloud_ime` 那条记录，它报 `nothing here is recorded as answering this file`；把它指向一个不存在的文件，它报 `recorded as answered by ... which does not exist`。写的时候也真的被自己抓到过一次——`ime_paths` 最初写成 `system/ServerResources.h`，而那个文件在 `ipc/` 下，检查当场报红。
+
+至此四道检查从四个方向回答同一个问题，每次 `--quick` 重新回答一遍：配置能力、界面能力、发布过的功能、以及源码文件。
+
+增量记录（2026-09-21，Windows 第三十八批：组字里的两段要看得出分界）：目标起点 `f95bb51b2`。
 
 来源用 TSF 显示属性把组字分成两类：正在输入的那段是 `TF_ATTR_INPUT`，画点线下划线；已转换的那段是 `TF_ATTR_TARGET_CONVERTED`，不画下划线（`windows/src/DisplayAttribute/DisplayAttributeInfo.cpp`，颜色一律交给应用默认）。也就是说来源里「已经定下的」与「还在打的」在屏幕上是分得开的。
 
