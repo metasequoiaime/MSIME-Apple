@@ -78,7 +78,7 @@ public final class CommunityFragment extends Fragment {
             @Override public void onTabReselected(TabLayout.Tab tab) {}
         });
 
-        adapter = new CommunityAdapter(this::install, this::open);
+        adapter = new CommunityAdapter(this::open);
         HostTask.run(this, HostStore::loadPreferences, snapshot -> {
             // loadPreferences hands back the whole snapshot; the layout lives one level down.
             org.json.JSONObject preferences =
