@@ -1215,16 +1215,29 @@ struct KeyboardView {
     if (KeyboardFormFactor.isDesktop() && this.settings.candidateLayout === 'vertical') {
       return '100%';
     }
-    if (!KeyboardSession.shared.glossesExpected()) {
-      return '100%';
-    }
     const padding: number = KeyboardMetrics.CANDIDATE_PADDING_VP;
+    const word: number = Array.from(candidate.text).length * this.settings.candidateFontSize;
+    if (!KeyboardSession.shared.glossesExpected()) {
+      return CandidateChipWidth.chip(word, false, 0, padding);
+    }
     const column: number = CandidateChipWidth.column(this.availableWidth, 0, padding);
     if (column <= 0) {
-      return '100%';
+      return CandidateChipWidth.chip(word, false, 0, padding);
     }
-    const word: number = Array.from(candidate.text).length * this.settings.candidateFontSize;
     return CandidateChipWidth.chip(word, true, column, padding);
+  }
+
+  /** Vertical desktop rows keep glosses beside the word; every horizontal strip reserves below. */
+  private candidateUsesGlossLine(): boolean {
+    return !(KeyboardFormFactor.isDesktop() && this.settings.candidateLayout === 'vertical')
+      && KeyboardSession.shared.glossRows() > 0;
+  }
+
+  private candidateRowHeight(): number {
+    return KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP
+      + (this.candidateUsesGlossLine()
+        ? KeyboardMetrics.glossHeightVp(KeyboardSession.shared.glossRows(),
+          this.settings.candidateFontSize) : 0);
   }
 
   private expandedRows(): number[][] {
@@ -1428,12 +1441,12 @@ struct KeyboardView {
             .onClick(() => this.chooseHandwriting(candidate))
         }, (candidate: string): string => candidate)
       }
-      .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP)
+      .height(this.candidateRowHeight())
     }
     .scrollable(ScrollDirection.Horizontal)
     .scrollBar(BarState.Off)
     .width('100%')
-    .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP)
+    .height(this.candidateRowHeight())
     .align(Alignment.Start)
   }
 
@@ -1453,12 +1466,12 @@ struct KeyboardView {
             .onClick(() => KeyboardSession.shared.useEnglishSuggestion(index))
         }, (word: string, index: number) => `${index}:${word}`)
       }
-      .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP)
+      .height(this.candidateRowHeight())
     }
     .scrollable(ScrollDirection.Horizontal)
     .scrollBar(BarState.Off)
     .width('100%')
-    .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP)
+    .height(this.candidateRowHeight())
     .align(Alignment.Start)
   }
 
@@ -1497,12 +1510,12 @@ struct KeyboardView {
           }, (candidate: CandidateEntry, index: number) =>
             `${index}:${candidate.text}:${candidate.highlighted}`)
         }
-        .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP)
+        .height(this.candidateRowHeight())
       }
       .scrollable(ScrollDirection.Horizontal)
       .scrollBar(BarState.Off)
       .layoutWeight(1)
-      .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP)
+      .height(this.candidateRowHeight())
       .align(Alignment.Start)
       Text('\u2228')
         .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
@@ -1513,7 +1526,7 @@ struct KeyboardView {
         })
       }
       .width('100%')
-      .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP)
+      .height(this.candidateRowHeight())
       .onAxisEvent((event?: AxisEvent): void => {
         if (!KeyboardFormFactor.isDesktop() || !this.settings.navigation.mouseWheel
             || event === undefined) {
@@ -1536,6 +1549,41 @@ struct KeyboardView {
   private candidateDetailColor(candidate: CandidateEntry): string {
     return CandidateSkinPolicy.rowDetailColor(candidate.highlighted,
       this.candidateTextColor(), this.candidateAccentColor());
+  }
+
+  @Builder
+  candidatePrimaryLine(candidate: CandidateEntry) {
+    Row() {
+      Text(candidate.text).fontSize(this.settings.candidateFontSize)
+        .fontColor(CandidateSkinPolicy.rowTextColor(candidate.highlighted,
+          candidate.fixedPosition > 0, this.candidateTextColor(), this.candidateAccentColor()))
+      if (candidate.badge.length > 0) {
+        Text(candidate.badge).fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
+          .fontColor(this.candidateAccentColor()).opacity(0.8).padding({ left: 2 })
+      }
+      if (candidate.hint.length > 0) {
+        Text(candidate.hint).fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
+          .fontColor(this.candidateDetailColor(candidate)).opacity(0.5).padding({ left: 2 })
+      }
+      if (candidate.annotation.length > 0 && !this.candidateUsesGlossLine()) {
+        if (candidate.annotationIsTranslation) {
+          Text(candidate.annotation)
+            .fontSize(CandidateTranslationStyle.fontSize(this.settings.candidateFontSize))
+            .fontColor(this.candidateDetailColor(candidate))
+            .opacity(TRANSLATION_OPACITY)
+            .padding({ left: CandidateTranslationStyle.gap(this.settings.candidateFontSize) })
+        } else {
+          Text(candidate.annotation)
+            .fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
+            .fontColor(this.candidateDetailColor(candidate)).opacity(0.7).padding({ left: 4 })
+        }
+      } else if (candidate.annotation.length > 0 && !candidate.annotationIsTranslation) {
+        Text(candidate.annotation)
+          .fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
+          .fontColor(this.candidateDetailColor(candidate)).opacity(0.7).padding({ left: 4 })
+      }
+    }
+    .alignItems(VerticalAlign.Center)
   }
 
   /**
@@ -1567,37 +1615,26 @@ struct KeyboardView {
         Text(`${index + 1}`).fontSize(CandidateNumberFontPolicy.size(this.settings.candidateFontSize))
           .fontColor(this.candidateNumberColor()).padding({ right: 4 })
       }
-      Text(candidate.text).fontSize(this.settings.candidateFontSize)
-        .fontColor(CandidateSkinPolicy.rowTextColor(candidate.highlighted,
-          candidate.fixedPosition > 0, this.candidateTextColor(), this.candidateAccentColor()))
-      if (candidate.badge.length > 0) {
-        Text(candidate.badge).fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
-          .fontColor(this.candidateAccentColor()).opacity(0.8).padding({ left: 2 })
-      }
-      if (candidate.hint.length > 0) {
-        Text(candidate.hint).fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
-          .fontColor(this.candidateDetailColor(candidate)).opacity(0.5).padding({ left: 2 })
-      }
-      if (candidate.annotation.length > 0) {
-        // A translation has a stated appearance in the source and takes it; an Engine annotation
-        // has none in either stylesheet and keeps what it had, rather than being given the
-        // translation's on the assumption that the source meant both.
-        if (candidate.annotationIsTranslation) {
-          Text(candidate.annotation)
+      if (this.candidateUsesGlossLine()) {
+        Column() {
+          this.candidatePrimaryLine(candidate)
+          Text(candidate.annotationIsTranslation ? candidate.annotation : ' ')
             .fontSize(CandidateTranslationStyle.fontSize(this.settings.candidateFontSize))
             .fontColor(this.candidateDetailColor(candidate))
-            .opacity(TRANSLATION_OPACITY)
-            .padding({ left: CandidateTranslationStyle.gap(this.settings.candidateFontSize) })
-        } else {
-          Text(candidate.annotation)
-            .fontSize(Math.max(KEY_HINT_FONT_SIZE, this.settings.candidateFontSize - 8))
-            .fontColor(this.candidateDetailColor(candidate)).opacity(0.7).padding({ left: 4 })
+            .opacity(candidate.annotationIsTranslation ? TRANSLATION_OPACITY : 0)
+            .maxLines(1)
+            .textOverflow({ overflow: TextOverflow.Ellipsis })
+            .height(KeyboardMetrics.glossHeightVp(KeyboardSession.shared.glossRows(),
+              this.settings.candidateFontSize))
         }
+        .alignItems(HorizontalAlign.Start)
+      } else {
+        this.candidatePrimaryLine(candidate)
       }
     }.alignItems(VerticalAlign.Center)
       .accessibilityText(this.candidateLabel(candidate, index))
       .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP, right: KeyboardMetrics.CANDIDATE_PADDING_VP })
-      .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP).width(this.candidateChipWidth(candidate))
+      .height(this.candidateRowHeight()).width(this.candidateChipWidth(candidate))
       .backgroundColor(index === this.hoveredCandidate ? this.candidateHoverColor()
         : candidate.highlighted ? (this.settings.candidateSelectedColor ?? '#00000000') : '#00000000')
       .borderWidth(this.settings.candidateBorderColor === null ? 0 : 1)
@@ -1669,7 +1706,7 @@ struct KeyboardView {
       });
     }
     .width('100%')
-    .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP)
+    .height(this.candidateRowHeight())
     .justifyContent(FlexAlign.SpaceAround)
   }
 
@@ -2342,7 +2379,8 @@ struct KeyboardView {
     this.geometryHeight = this.settings.heightAdjustment;
     this.touchVoiceShortcut = this.settings.voiceShortcut;
     KeyboardSession.shared.resizeTouchKeyboard(KeyboardMetrics.totalHeightVp(
-      this.geometryRowSpacing, this.geometryHeight));
+      this.geometryRowSpacing, this.geometryHeight, KeyboardSession.shared.glossRows(),
+      this.settings.candidateFontSize));
   }
 
   private beginGeometryDrag(event: TouchEvent): void {
@@ -4164,7 +4202,7 @@ struct KeyboardView {
           left: KeyboardMetrics.ROOT_HORIZONTAL_PADDING_VP,
           right: KeyboardMetrics.ROOT_HORIZONTAL_PADDING_VP,
           top: KeyboardMetrics.ROOT_VERTICAL_PADDING_VP + KeyboardMetrics.COMPOSITION_ROW_HEIGHT_VP
-            + KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP + KeyboardMetrics.ROW_SPACING_VP
+            + this.candidateRowHeight() + KeyboardMetrics.ROW_SPACING_VP
         })
       }
     }

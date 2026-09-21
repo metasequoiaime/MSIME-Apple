@@ -39,6 +39,9 @@ import { DesktopSurface } from './DesktopSurface';
 import { CandidateAnnotationPreferencePolicy } from './candidate/CandidateAnnotationPreferencePolicy';
 import { CandidateManagementAction } from './candidate/CandidateManagementAction';
 import { CandidateGlossPolicy } from './candidate/CandidateGlossPolicy';
+import {
+  CandidateGlossLayoutPolicy, CandidateGlossProviderState
+} from './candidate/CandidateGlossLayoutPolicy';
 import { CandidatePresentationPolicy } from './candidate/CandidatePresentationPolicy';
 import {
   CandidateSkinCatalogPolicy, CandidateSkinPackage, CandidateSkinPaletteTokens, CandidateSkinDecoration
@@ -625,6 +628,12 @@ interface PreparedPreferences {
   word_character: PreparedWordCharacterPreferences;
   floating_toolbar: PreparedFloatingToolbar;
   candidate_english_gloss: boolean;
+  candidate_translations: boolean;
+  translation_target_language: string;
+  translation_secondary_language?: string | null;
+  custom_translation: TranslationProviderConfig;
+  tencent_tmt: TencentTranslationConfig;
+  niutrans: NiuTransTranslationConfig;
   /** Tenths of a vp, which is the unit the shared settings store these in. */
   touch_key_spacing_tenths: number;
   touch_row_spacing_tenths: number;
@@ -872,6 +881,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   // session builds the candidate entries itself; the view only draws what it is handed.
   private wubiCodeHint: boolean = true;
   private candidateEnglishGloss: boolean = false;
+  private candidateGlossEnabled: boolean = false;
+  private candidateGlossRows: number = 0;
   // Read before the panels are built, so a badge the user turned off is never created at all.
   private modeBadge: boolean = true;
   private resourceDirectory: string = '';
@@ -1102,6 +1113,26 @@ export class KeyboardSession implements HardwareKeyTarget {
         preferences.wubi_code_hint);
       this.candidateEnglishGloss = CandidateAnnotationPreferencePolicy.englishGloss(
         preferences.candidate_english_gloss);
+      this.candidateGlossEnabled = CandidateGlossLayoutPolicy.displays(
+        this.candidateEnglishGloss, preferences.candidate_translations);
+      const glossTargets: string[] = [preferences.translation_target_language];
+      if (preferences.translation_secondary_language !== undefined
+          && preferences.translation_secondary_language !== null
+          && !glossTargets.includes(preferences.translation_secondary_language)) {
+        glossTargets.push(preferences.translation_secondary_language);
+      }
+      const glossProviders: CandidateGlossProviderState = {
+        customEnabled: preferences.custom_translation.enabled,
+        customEndpoint: preferences.custom_translation.endpoint,
+        niuTransEnabled: preferences.niutrans.enabled,
+        niuTransAppId: preferences.niutrans.app_id,
+        niuTransApiKey: preferences.niutrans.apikey,
+        tencentEnabled: preferences.tencent_tmt.enabled,
+        tencentSecretId: preferences.tencent_tmt.secret_id,
+        tencentSecretKey: preferences.tencent_tmt.secret_key
+      };
+      this.candidateGlossRows = CandidateGlossLayoutPolicy.rows(this.candidateEnglishGloss,
+        glossTargets, preferences.candidate_translations, glossProviders);
       this.modeBadge = InputModeHudPolicy.enabled(preferences.input_mode_hud);
       this.englishSuggestionsEnabled = preferences.english_suggestions !== false;
       if (ClipboardHistoryPreferencePolicy.shouldClearHistory(this.clipboardHistoryEnabled)) {
@@ -1511,7 +1542,12 @@ export class KeyboardSession implements HardwareKeyTarget {
    * and pushes the rest along. Off means no room is kept and the chips are as wide as their words.
    */
   glossesExpected(): boolean {
-    return this.candidateEnglishGloss;
+    return this.candidateGlossRows > 0;
+  }
+
+  /** Fixed horizontal rows reserved before asynchronous candidate glosses arrive. */
+  glossRows(): number {
+    return this.candidateGlossRows;
   }
 
   /** True when the Engine is composing English rather than Chinese. */
@@ -2666,9 +2702,9 @@ export class KeyboardSession implements HardwareKeyTarget {
         hint: WubiCodeHintPolicy.hint(candidate.code, view.preedit, this.wubiCodeHint, view.scheme,
           view.local_mode, view.answered_by_pinyin_fallback),
         annotation: CandidateGlossPolicy.annotation(candidate.annotation,
-          candidate.translation ?? null, this.candidateEnglishGloss),
+          candidate.translation ?? null, this.candidateGlossEnabled),
         annotationIsTranslation: CandidateGlossPolicy.annotationIsTranslation(candidate.annotation,
-          candidate.translation ?? null, this.candidateEnglishGloss)
+          candidate.translation ?? null, this.candidateGlossEnabled)
       });
     }
     if (this.onChanged !== undefined) {
@@ -2716,9 +2752,9 @@ export class KeyboardSession implements HardwareKeyTarget {
       hint: WubiCodeHintPolicy.hint(candidate.code, view.preedit, this.wubiCodeHint, view.scheme,
         view.local_mode, view.answered_by_pinyin_fallback),
       annotation: CandidateGlossPolicy.annotation(candidate.annotation,
-        candidate.translation ?? null, this.candidateEnglishGloss),
+        candidate.translation ?? null, this.candidateGlossEnabled),
       annotationIsTranslation: CandidateGlossPolicy.annotationIsTranslation(candidate.annotation,
-        candidate.translation ?? null, this.candidateEnglishGloss)
+        candidate.translation ?? null, this.candidateGlossEnabled)
     }));
     this.onChanged({
       candidates: entries, editing: view.phrase_prefix + view.editing_text,
@@ -4174,9 +4210,9 @@ export class KeyboardSession implements HardwareKeyTarget {
         entries.push({
           text: candidate.text,
           annotation: CandidateGlossPolicy.annotation(candidate.annotation,
-            candidate.translation ?? null, this.candidateEnglishGloss),
+            candidate.translation ?? null, this.candidateGlossEnabled),
           annotationIsTranslation: CandidateGlossPolicy.annotationIsTranslation(
-            candidate.annotation, candidate.translation ?? null, this.candidateEnglishGloss)
+            candidate.annotation, candidate.translation ?? null, this.candidateGlossEnabled)
         });
       }
       return entries;

@@ -30,6 +30,10 @@ import {
 import { CandidateWrapPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateWrapPolicy";
 import { CandidateChipWidth } from "../entry/src/main/ets/keyboard/candidate/CandidateChipWidth";
 import {
+  CandidateGlossLayoutPolicy,
+  CandidateGlossProviderState,
+} from "../entry/src/main/ets/keyboard/candidate/CandidateGlossLayoutPolicy";
+import {
   KeyboardScheme,
   SchemeDefinition,
   PreferenceMapping,
@@ -2162,6 +2166,54 @@ group("a chip is as wide as its column, whether or not the gloss has arrived", (
   check(
     Number.isInteger(CandidateChipWidth.chip(30.4, true, column, 11)),
     "a chip is a whole number of layout units",
+  );
+});
+
+group("candidate gloss layout follows both independent switches before answers arrive", () => {
+  const none: CandidateGlossProviderState = {
+    customEnabled: false,
+    customEndpoint: "",
+    niuTransEnabled: false,
+    niuTransAppId: "",
+    niuTransApiKey: "",
+    tencentEnabled: false,
+    tencentSecretId: "",
+    tencentSecretKey: "",
+  };
+  check(
+    CandidateGlossLayoutPolicy.displays(true, false),
+    "the packaged English gloss switch displays its own results",
+  );
+  check(
+    CandidateGlossLayoutPolicy.displays(false, true),
+    "online translations do not depend on the packaged English gloss switch",
+  );
+  check(
+    CandidateGlossLayoutPolicy.rows(true, ["ja", "en"], false, none) === 1,
+    "an English secondary target reserves the packaged gloss line",
+  );
+  check(
+    CandidateGlossLayoutPolicy.rows(true, ["ja"], false, none) === 0,
+    "the English dictionary does not reserve a wrong-language line",
+  );
+  const custom: CandidateGlossProviderState = {
+    ...none,
+    customEnabled: true,
+    customEndpoint: "https://translation.example.invalid",
+  };
+  check(
+    CandidateGlossLayoutPolicy.rows(false, ["ja"], true, custom) === 1,
+    "a usable online provider reserves one merged Harmony gloss line",
+  );
+  const placeholder: CandidateGlossProviderState = {
+    ...none,
+    tencentEnabled: true,
+    tencentSecretId: "<secret-id>",
+    tencentSecretKey: "FAKESECRET_fixture",
+  };
+  check(
+    CandidateGlossLayoutPolicy.rows(false, ["en"], true, placeholder) === 0,
+    "placeholder credentials do not leave a permanently empty row",
   );
 });
 
@@ -4788,6 +4840,26 @@ group("the panel is as tall as what the view stacks inside it", () => {
     "four rows are separated by four gaps, not three",
   );
   check(KeyboardMetrics.totalHeightVp() > 0, "a panel given a height of zero never appears");
+  check(
+    KeyboardMetrics.totalHeightVp(70, 0, 1, 18) - KeyboardMetrics.totalHeightVp(70, 0, 0, 18) ===
+      KeyboardMetrics.glossHeightVp(1, 18),
+    "one reserved gloss row grows the panel instead of taking height from the keys",
+  );
+  check(
+    KeyboardMetrics.candidateHeightVp("horizontal", 3, true, 0, 1, 18) -
+      KeyboardMetrics.candidateHeightVp("horizontal", 3, true, 0, 0, 18) ===
+      KeyboardMetrics.glossHeightVp(1, 18),
+    "a horizontal desktop strip also reserves the asynchronous gloss row",
+  );
+  check(
+    KeyboardMetrics.candidateHeightVp("vertical", 3, true, 0, 1) ===
+      KeyboardMetrics.candidateHeightVp("vertical", 3, true, 0, 0),
+    "a vertical 2-in-1 list keeps its beside-the-candidate adaptation",
+  );
+  check(
+    KeyboardMetrics.glossHeightVp(1, 32) > KeyboardMetrics.glossHeightVp(1, 18),
+    "a large candidate font grows its gloss line instead of clipping it",
+  );
 
   // The user's settings move both, and the panel has to move with them or the bottom row is clipped.
   check(
