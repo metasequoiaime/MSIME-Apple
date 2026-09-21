@@ -2230,6 +2230,12 @@ public final class MSIMEInputService extends InputMethodService {
         return button;
     }
 
+    /** Give a control an explicit face and hand it back, for use inline where it is created. */
+    private static Button role(Button button, KeyboardKeyRole face) {
+        if (button instanceof KeyboardPressButton press) press.setKeyboardRole(face);
+        return button;
+    }
+
     private Button shortcutButton(LinearLayout row, String label,
             KeyboardShortcutIconPolicy.Icon icon, Runnable action) {
         KeyboardShortcutButton button = new KeyboardShortcutButton(this, icon);
@@ -3576,19 +3582,20 @@ public final class MSIMEInputService extends InputMethodService {
         root.setContentDescription("高情商回复键盘");
 
         LinearLayout header = new LinearLayout(this);
-        replyReplyModeButton = button(header, "帮你回", () -> {
+        replyReplyModeButton = role(button(header, "帮你回", () -> {
             replyModel.setMode(ReplyKeyboardModel.Mode.REPLY);
             clearReplyRequestReferences();
             renderReplyKeyboard();
-        });
+        }), KeyboardKeyRole.KEY);
         replyReplyModeButton.setContentDescription("帮你回模式");
-        replyPolishModeButton = button(header, "帮润色", () -> {
+        replyPolishModeButton = role(button(header, "帮润色", () -> {
             replyModel.setMode(ReplyKeyboardModel.Mode.POLISH);
             clearReplyRequestReferences();
             renderReplyKeyboard();
-        });
+        }), KeyboardKeyRole.KEY);
         replyPolishModeButton.setContentDescription("帮润色模式");
-        replyTemplateButton = button(header, "模板", this::showReplyTemplates);
+        replyTemplateButton = role(button(header, "模板", this::showReplyTemplates),
+            KeyboardKeyRole.KEY);
         replyTemplateButton.setContentDescription("回复模板");
         View spacer = new View(this);
         header.addView(spacer, new LinearLayout.LayoutParams(0,
@@ -3597,11 +3604,13 @@ public final class MSIMEInputService extends InputMethodService {
             LinearLayout.LayoutParams.MATCH_PARENT, pixels(42)));
 
         LinearLayout sourceRow = new LinearLayout(this);
-        replySourceButton = button(sourceRow, "+ 粘贴 TA 的话帮你回", this::pasteReplySource);
+        replySourceButton = role(button(sourceRow, "+ 粘贴 TA 的话帮你回", this::pasteReplySource),
+            KeyboardKeyRole.KEY);
         replySourceButton.setSingleLine(true);
         replySourceButton.setEllipsize(android.text.TextUtils.TruncateAt.END);
         replySourceButton.setContentDescription("回复源文字");
-        Button paste = button(sourceRow, "粘贴", this::pasteReplySource);
+        Button paste = role(button(sourceRow, "粘贴", this::pasteReplySource),
+            KeyboardKeyRole.KEY);
         paste.setContentDescription("粘贴回复源文字");
         paste.setLayoutParams(new LinearLayout.LayoutParams(pixels(64),
             LinearLayout.LayoutParams.MATCH_PARENT));
@@ -3630,11 +3639,11 @@ public final class MSIMEInputService extends InputMethodService {
         replyStatus.setContentDescription("回复键盘状态");
         footer.addView(replyStatus, new LinearLayout.LayoutParams(0,
             LinearLayout.LayoutParams.WRAP_CONTENT, 1));
-        Button styles = button(footer, "选风格", () -> {
+        Button styles = role(button(footer, "选风格", () -> {
             replyModel.chooseStyle();
             clearReplyRequestReferences();
             renderReplyKeyboard();
-        });
+        }), KeyboardKeyRole.KEY);
         styles.setContentDescription("重新选择回复风格");
         root.addView(footer, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, pixels(36)));
@@ -3647,8 +3656,9 @@ public final class MSIMEInputService extends InputMethodService {
         replyActions.removeAllViews();
         replyReplyModeButton.setSelected(replyModel.mode() == ReplyKeyboardModel.Mode.REPLY);
         replyPolishModeButton.setSelected(replyModel.mode() == ReplyKeyboardModel.Mode.POLISH);
-        styleButton(replyReplyModeButton, true);
-        styleButton(replyPolishModeButton, true);
+        // 键帽，不是两个常亮的实心块：选中哪个由 isSelected 决定，那才是这一对要表达的东西。
+        styleButton(replyReplyModeButton, KeyboardKeyRole.KEY, skin);
+        styleButton(replyPolishModeButton, KeyboardKeyRole.KEY, skin);
         replyTemplateButton.setEnabled(!replyModel.busy());
         replySourceButton.setText(replyModel.source().isEmpty()
             ? "+ 粘贴 TA 的话帮你回" : replyModel.source());
@@ -3658,8 +3668,9 @@ public final class MSIMEInputService extends InputMethodService {
                 for (int column = 0; column < 3; column++) {
                     int index = start + column;
                     ReplyKeyboardModel.Style style = ReplyKeyboardModel.STYLES.get(index);
-                    Button choice = button(row, style.emoji() + " " + style.label(),
-                        () -> generateReply(style.label()));
+                    // 十二个风格是一组可选项，不是十二个强调动作。
+                    Button choice = role(button(row, style.emoji() + " " + style.label(),
+                        () -> generateReply(style.label())), KeyboardKeyRole.KEY);
                     choice.setContentDescription("回复风格 " + style.label());
                     choice.setEnabled(!replyModel.busy());
                 }
@@ -3668,7 +3679,8 @@ public final class MSIMEInputService extends InputMethodService {
             }
         } else {
             for (String reply : replyModel.replies()) {
-                Button candidate = button(replyMain, reply, () -> useReply(reply));
+                Button candidate = role(button(replyMain, reply, () -> useReply(reply)),
+                    KeyboardKeyRole.KEY);
                 candidate.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
                 candidate.setContentDescription("回复候选，点按插入");
                 candidate.setMinHeight(pixels(48));
@@ -3676,28 +3688,28 @@ public final class MSIMEInputService extends InputMethodService {
                     LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
             }
         }
-        Button delete = button(replyActions, "⌫", () -> {
+        Button delete = role(button(replyActions, "⌫", () -> {
             replyModel.deleteLastCodePoint();
             clearReplyRequestReferences();
             renderReplyKeyboard();
-        });
+        }), KeyboardKeyRole.KEY);
         delete.setLayoutParams(new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
         delete.setContentDescription("删除源文字");
-        Button clear = button(replyActions, "清空", () -> {
+        Button clear = role(button(replyActions, "清空", () -> {
             replyModel.setSource("");
             clearReplyRequestReferences();
             renderReplyKeyboard();
-        });
+        }), KeyboardKeyRole.KEY);
         clear.setLayoutParams(new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
         clear.setContentDescription("清空源文字");
         if (replyModel.busy()) {
-            Button cancel = button(replyActions, "取消", () -> {
+            Button cancel = role(button(replyActions, "取消", () -> {
                 replyModel.cancel();
                 clearReplyRequestReferences();
                 renderReplyKeyboard();
-            });
+            }), KeyboardKeyRole.KEY);
             cancel.setLayoutParams(new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
             cancel.setContentDescription("取消回复生成");
