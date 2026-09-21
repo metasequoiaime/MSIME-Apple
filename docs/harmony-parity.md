@@ -139,7 +139,18 @@ iOS 与 macOS 的同类文档是 [ios-parity.md](ios-parity.md) 和 [macos-parit
 
 脚本有两张名单，区别就是全部意义所在。`ALLOWED` 是本平台永远不会调用的——它回答的那个问题 HarmonyOS 不问，每条写明是什么差异。`PENDING` 是应该接而尚未接的，写明背后的缺口**具体是什么**；诊断清楚才能进，写"还没做"不算条目。两张都是棘轮：名单上的名字一旦变得可达就报错，没上名单的新符号直接报错。`PENDING` 应当归零，`ALLOWED` 不必。
 
-当前：250 个宿主静态方法，8 条平台差异，6 条已诊断待接。
+当前：252 个宿主静态方法，11 条平台差异，**0 条待接**。
+
+六条待接的去向，逐条写明而不是让它们烂在名单上：
+
+| 符号 | 结果 |
+| --- | --- |
+| `KeyboardScheme.resolveEnabledSelection`、`mappingForRuntimeSelection` | 接上了——设置页关掉当前方案后键盘要能离开它 |
+| `JapaneseNineKeyLayout.digitBrackets` | 接上了——日语数字层第十二格从死键变成括号键 |
+| `CandidateGlossPolicy.token`、`isCurrent` | 是平台差异。移植版是 session/generation/epoch 三字段，本宿主传 `(handle, epoch)`，而 epoch 由 `TranslationPolicy.signature` 铸出、那个签名本身就带 `generation`——第三个字段在构造上已经在第二个里面了；宿主那套还多查一个 `handle != 0`，是策略看不见的。接上去等于把 generation 比两遍 |
+| `FloatingToolbarLayout.allComponents` | 是平台差异，而且**接上去是错的**。它是「全部打开」，不是本宿主的默认：准备好的工具栏记录里 `screen_keyboard` 是 false，因为鸿蒙自带屏幕键盘，默认打开会多出一个没人要的按钮 |
+
+**PENDING 归零说明的是这一类问题关闭了**——没有任何宿主静态方法只有测试到得了。它不说明移植完成了；那个问题在上面几条轴上。
 
 ## 第三次静默回退，和这次能抓住它的东西
 

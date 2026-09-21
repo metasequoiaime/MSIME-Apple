@@ -37,6 +37,13 @@ it has been diagnosed, and the diagnosis is the text. Writing "not done yet" is 
 Both are ratchets. A name on either list that becomes reachable fails the check, so neither can rot
 into a list of lies, and a symbol that appears in neither fails immediately. `PENDING` is expected to
 reach zero; `ALLOWED` is not.
+
+It is empty as of 2026-09-21. Of the six it started with, three were wired — the Japanese digit
+layer's brackets, and the pair that lets a scheme the settings page turned off be left — and three
+turned out to be platform differences once the question was answered rather than deferred, which is
+why they are in `ALLOWED` with what settled them. An empty `PENDING` says this one class is closed:
+no host static is reachable only from its own tests. It does not say the port is complete, and the
+axes in docs/harmony-parity.md are where that question lives.
 """
 import pathlib
 import re
@@ -73,6 +80,18 @@ ALLOWED: dict[str, str] = {
         "split; HarmonyOS takes the enter key type in sendKeyFunction and handles every value "
         "itself, ENTER_KEY_TYPE_NEW_LINE included. Measured on the emulator: wiring the split in "
         "replaced a working framework newline with an insertText that the editor ignored",
+    "CandidateGlossPolicy.token":
+        "a three-field staleness token, session/generation/epoch. This host threads (handle, epoch) "
+        "and mints the epoch from TranslationPolicy.signature, which itself carries the composition "
+        "generation — so the third field is already inside the second by construction, and the host "
+        "guard additionally checks handle != 0, which the policy cannot see. Threading the token "
+        "would compare the generation twice",
+    "CandidateGlossPolicy.isCurrent":
+        "the reply side of that token, unused for the same reason",
+    "FloatingToolbarLayout.allComponents":
+        "every component on. It is not this host's default and wiring it would be wrong: the "
+        "prepared toolbar record ships screen_keyboard false, because HarmonyOS has a screen "
+        "keyboard of its own, so turning this on by default would add a button nobody asked for",
     "VoiceCaptureDevicePolicy.match":
         "matches against already-built VoiceCaptureDevice values; the platform hands this host raw "
         "AudioDeviceDescriptors, which HarmonyVoiceCaptureDevices matches by stableId instead",
@@ -80,17 +99,6 @@ ALLOWED: dict[str, str] = {
 
 # Symbol -> what the gap behind it actually is. Expected to reach zero.
 PENDING: dict[str, str] = {
-    "CandidateGlossPolicy.token":
-        "the translation request threads (handle, epoch) and checks them in translationCurrent, "
-        "which is a second guard covering the same risk as the ported one; the ported token also "
-        "carries the composition generation, which here is subsumed by the request signature. Two "
-        "guards for one question, and the tested one is the unused one",
-    "CandidateGlossPolicy.isCurrent":
-        "the reply side of the same pair",
-    "FloatingToolbarLayout.allComponents":
-        "the all-on default; the toolbar reads components from preferences and the parse supplies "
-        "its own defaults, so nothing asks for this one. Which of the two is authoritative has not "
-        "been settled, and settling it is the work",
 }
 
 
