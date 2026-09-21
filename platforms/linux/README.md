@@ -44,7 +44,7 @@ msime-client-setup --download   # 允许按随装的词库锁取回缺失词库�
 
 完成正常构建后，可运行 `cpack --config <build-dir>/CPackConfig.cmake -G TGZ` 生成按 `/usr` 布局安装的归档，或在具备 Debian 打包工具的 Linux 环境运行相同命令并使用 `-G DEB` 生成 Debian 包。归档不是可任意搬移的便携包。Debian 包声明 IBus、Python 依赖，并由 `dpkg-shlibdeps` 从 ELF 文件生成共享库依赖；包中包含许可证及本构建说明。包版本取自桌面 `tauri.conf.json`，不另建版本序列。
 
-安装包不包含用户状态，不自动启用 provider 服务或切换输入法。首次使用仍需准备匹配安装环境的用户运行配置；语音录音、剪贴板、Wayland/X11 输入工具及可选模型按对应功能章节配置。未提供桌面二进制或资源的构建只打包实际配置的部分，不能视为完整产品包。
+安装包不包含用户状态，不自动启用 provider 服务或切换输入法。首次使用由随装的 `msime-client-setup` 备齐词库并准备运行配置（见上面的「安装后首次使用」）；语音录音、剪贴板、Wayland/X11 输入工具及可选模型按对应功能章节配置。未提供桌面二进制或资源的构建只打包实际配置的部分，不能视为完整产品包。
 
 ## 卸载 CMake 安装
 
@@ -138,7 +138,7 @@ IBus 属性面板还提供 `TraditionalOutput`。开启后，中文方案的候�
 
 当前 IBus 会话支持 `Ctrl+Shift+Alt+1` 到 `Ctrl+Shift+Alt+8` 删除候选页对应的可编辑词条。宿主只传递候选快照中的会话、代次和全局索引，由 Host API 校验来源和执行词库删除；没有对应候选或不可编辑候选时按键交回应用。`Ctrl+Shift+Alt+C` 清除当前输入法会话的 Engine 候选缓存并刷新当前视图，不会结束正在进行的组合。`Ctrl+Shift+Alt+R` 通过用户会话的 `ibus restart` 重启 IBus 服务，设置页也提供同一动作的按钮。
 
-`Ctrl+Shift+Alt+T` 立即退出当前 Linux IBus 预览服务进程，快捷键由宿主消费，不会停止用户正在运行的其他 IBus 服务。
+`Ctrl+Shift+Alt+T` 立即退出当前 Linux IBus 宿主进程，快捷键由宿主消费，不会停止用户正在运行的其他 IBus 服务。
 
 Windows 配置中的 `candidate_arrow_navigation` 兼容名称也会映射到共享导航的 `arrows` 开关，保证迁移配置在 Linux 上保持一致。
 
@@ -234,7 +234,7 @@ msime-client-prepare --installed /absolute/new-state
 
 `--installed` 通过 `/proc/self/exe` 的实际路径和配置时的数据目录相对位置定位同一安装前缀下的资源目录，状态目录仍必须是绝对路径且不存在。它不会修改输入法选择、启动服务或创建用户状态，只有显式执行命令才会准备新状态；未配置资源包时请继续使用显式资源目录形式。
 
-Linux 桌面设置保存时会先按 `PreferencesStore` 的 revision 规则写入 `preferences.json`，随后以原子替换同步同一 HostOptions 的 `preferences` 到 `MSIME_IBUS_OPTIONS`，或 `MSIME_CLIENT_HOST_OPTIONS` 指向的 `runtime-options.json`；未设置前者时，桌面应用也可直接用 `MSIME_IBUS_OPTIONS` 作为 HostOptions 来源。这样正在运行的 IBus 预览宿主可以通过已有文件监听接收新设置；同步失败会把保存命令报告为存储错误，避免界面误报已同步。
+Linux 桌面设置保存时会先按 `PreferencesStore` 的 revision 规则写入 `preferences.json`，随后以原子替换同步同一 HostOptions 的 `preferences` 到 `MSIME_IBUS_OPTIONS`，或 `MSIME_CLIENT_HOST_OPTIONS` 指向的 `runtime-options.json`；未设置前者时，桌面应用也可直接用 `MSIME_IBUS_OPTIONS` 作为 HostOptions 来源。这样正在运行的 IBus 宿主可以通过已有文件监听接收新设置；同步失败会把保存命令报告为存储错误，避免界面误报已同步。
 
 Linux Tauri 设置窗口也会监视同一 `PreferencesStore` 的 revision。其他窗口或 IBus 侧写入新 revision 后，未编辑的设置页自动刷新；若当前有未保存草稿，只提示外部变更并保留草稿，用户通过“重新读取”显式解决冲突。事件只携带已验证的偏好快照，不携带输入内容或凭据。
 
@@ -266,7 +266,7 @@ Linux 安装还会在 `${CMAKE_INSTALL_DATADIR}/msime-client/handwriting` 放置
 
 运行中发现并修掉一个真实的宿主缺陷：嵌套偏好对象整体可以省略（共享 `Preferences` 会给默认值），但它的成员一个都不能少。宿主把单个键补进一个 runtime-options 文档里本来没有的 `mixed_input` / `local_modes` 时，写出的是残缺对象，Host API 直接判为 invalid options document——也就是说没有配置共享偏好目录的部署里，从 IBus 菜单切一下 Emoji/颜文字混输候选或任一本地输入模式，会话就再也建不起来，该输入上下文彻底不能输入。现在这些默认值由新的 `msime_client_default_preferences` 从共享层发布，宿主据此补全缺失成员，不在 C++ 里另写一份契约。
 
-已验证 Debian bookworm arm64、IBus 1.5.27。仍需真实 GTK/Qt 编辑器、X11/Wayland 焦点与选区、panel 位置、其他架构与发行版、安装打包以及 Tauri 设置自动重读。Linux IBus 预览宿主已连接配置文件监听；不是完整 Linux 产品迁移完成。CI 保持禁用。
+已验证 Debian bookworm arm64、IBus 1.5.27 的容器链路，以及 Arch x86_64（Hyprland/Wayland、Fcitx5 5.1.22、IBus 1.5.34）上的一次真实安装：`cmake --install` 到 `/usr` 后，Fcitx5 加载 addon（日志中的 `Loaded addon msime`）、输入法出现在可用列表与当前输入法组、`msime-client-settings` 拉起的设置窗口实际映射。仍需真实 GTK/Qt 编辑器里的逐键输入与选区、panel 位置、其他架构与发行版、cpack 安装包以及 Tauri 设置自动重读。安装到系统入口不等于编辑器验收，按证据分级前者到第四级、后者仍缺。CI 保持禁用。
 
 系统行为依据 [IBus Engine API](https://ibus.github.io/docs/ibus-1.5/IBusEngine.html) 和 [IBus InputContext API](https://ibus.github.io/docs/ibus-1.5/IBusInputContext.html)。
 
