@@ -62,32 +62,14 @@
             android:textColor="@color/text_secondary"
             android:textSize="13sp" />
 
-        <LinearLayout
+        <TextView
+            android:id="@+id/community_item_author"
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
             android:layout_marginTop="12dp"
-            android:gravity="center_vertical"
-            android:orientation="horizontal">
-
-            <TextView
-                android:id="@+id/community_item_author"
-                android:layout_width="0dp"
-                android:layout_height="wrap_content"
-                android:layout_weight="1"
-                android:maxLines="1"
-                android:ellipsize="end"
-                android:textColor="@color/text_secondary"
-                android:textSize="12sp" />
-
-            <com.google.android.material.button.MaterialButton
-                android:id="@+id/community_item_action"
-                style="@style/Widget.Material3.Button.TonalButton"
-                android:layout_width="wrap_content"
-                android:layout_height="wrap_content"
-                android:minWidth="0dp"
-                android:text="保存到皮肤库"
-                android:textSize="13sp"
-                app:cornerRadius="12dp" />
-        </LinearLayout>
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp" />
     </LinearLayout>
 </com.google.android.material.card.MaterialCardView>
