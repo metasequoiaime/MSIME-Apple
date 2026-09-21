@@ -17,7 +17,7 @@ static inline BOOL MSIMECloudAppearanceCandidatePageSize(id value) {
 }
 
 static inline NSArray<NSString *> *MSIMECloudHelpcodeSchemas() {
-    return @[@"lantian", @"ziranma", @"shouyou2_0", @"shouyouplus", @"xiaohe"];
+    return @[@"lantian", @"ziranma", @"shouyou2_0", @"shouyouplus", @"xiaohe", @"jiajia"];
 }
 
 static inline NSInteger MSIMECloudHelpcodeSchemaIndex(NSUserDefaults *defaults, NSString *scheme) {

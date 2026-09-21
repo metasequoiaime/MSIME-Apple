@@ -428,7 +428,7 @@ public:
     if (!session_ || (scheme != 0 && scheme != 1) || restricted() || privateInput())
       return false;
     static constexpr std::array<const char *, 5> schemas = {
-        "lantian", "ziranma", "shouyou2_0", "shouyouplus", "xiaohe"};
+        "lantian", "ziranma", "shouyou2_0", "shouyouplus", "xiaohe", "jiajia"};
     const auto section = scheme == 1 ? "shuangpin_helpcode" : "quanpin_helpcode";
     const auto current = preferences_.value(section, Json::object()).value(
         "schema", scheme == 1 ? std::string("lantian") : std::string("ziranma"));
@@ -2756,7 +2756,8 @@ public:
     const auto value = state->preferences_.value(section, Json::object())
         .value("schema", scheme == 1 ? std::string("lantian") : std::string("ziranma"));
     const auto label = value == "lantian" ? "蓝天" : value == "ziranma" ? "自然码" :
-        value == "shouyou2_0" ? "搜狗 2.0" : value == "shouyouplus" ? "搜狗 Plus" : "小鹤";
+        value == "shouyou2_0" ? "搜狗 2.0" : value == "shouyouplus" ? "搜狗 Plus" :
+        value == "jiajia" ? "加加" : "小鹤";
     return std::string("辅助码：") + label;
   }
   std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }

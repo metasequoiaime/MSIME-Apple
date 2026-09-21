@@ -2632,7 +2632,8 @@ void publish_mode(IBusEngine *engine, bool registration) {
                                      std::pair{"ziranma", "自然码"},
                                      std::pair{"shouyou2_0", "搜狗 2.0"},
                                      std::pair{"shouyouplus", "搜狗 Plus"},
-                                     std::pair{"xiaohe", "小鹤"}}) {
+                                     std::pair{"xiaohe", "小鹤"},
+                                     std::pair{"jiajia", "加加"}}) {
     auto item = ibus_property_new(
         (std::string("HelpcodeSchema/") + value).c_str(), PROP_TYPE_RADIO,
         ibus_text_new_from_static_string(label), "",
@@ -4490,7 +4491,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     if (property_name.rfind("HelpcodeSchema/", 0) == 0) {
       const auto selected = property_name.substr(std::string("HelpcodeSchema/").size());
       if (selected != "lantian" && selected != "ziranma" && selected != "shouyou2_0" &&
-          selected != "shouyouplus" && selected != "xiaohe")
+          selected != "shouyouplus" && selected != "xiaohe" && selected != "jiajia")
         return;
       const auto active_scheme = s.scheme_override.value_or(
           configured.at("preferences").value("scheme", "quanpin"));

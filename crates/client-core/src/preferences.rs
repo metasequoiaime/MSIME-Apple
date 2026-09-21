@@ -1319,6 +1319,7 @@ pub enum HelpcodeSchema {
     Shouyou2,
     Shouyouplus,
     Xiaohe,
+    Jiajia,
 }
 
 impl HelpcodeSchema {
@@ -1329,6 +1330,7 @@ impl HelpcodeSchema {
             Self::Shouyou2 => "shouyou2_0",
             Self::Shouyouplus => "shouyouplus",
             Self::Xiaohe => "xiaohe",
+            Self::Jiajia => "jiajia",
         }
     }
 }
