@@ -2807,6 +2807,14 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         return;
     }
     if (!_activeClient || _activeClient != client || _session != session) return;
+    // The poll reads this document once a second. Applying an unchanged one costs a full pass over
+    // every preference, another trip into the Engine and a diagnostic line, a second at a time, for
+    // nothing - and it buried the log this was found in. A revision of zero predates the field and
+    // is always applied.
+    const uint64_t revision = [snapshot[@"revision"] isKindOfClass:NSNumber.class]
+        ? [snapshot[@"revision"] unsignedLongLongValue] : 0;
+    if (!_preferenceLoadState.needsApply(revision)) return;
+    _preferenceLoadState.applied(revision);
     NSDictionary *preferences = snapshot[@"preferences"];
     NSMutableDictionary *inputPreferences = [preferences isKindOfClass:NSDictionary.class] ? [preferences mutableCopy] : nil;
     id inlinePreedit = inputPreferences[@"tsf_preedit_style"];
