@@ -92,6 +92,12 @@ Apple 润色的是**选区**：用户选中一段话，点润色，面板给出�
 
 读的是暂存后的引擎资源而不是模块的 rawfile：暂存才是对着固定锁校验的那一步，键盘实际跑的那份副本才值得报告。
 
+键盘的无障碍标签接上了。此前 `KeyboardView.ets` 里 `.accessibilityText()` 出现零次，而 `LetterKeyFacePolicy.accessibilityLabel`、`EnglishLetterCaseState.accessibilityLabel/accessibilityValue`、`JapaneseVariantPolicy.accessibilityLabel` 和 `CandidateGlossPolicy.accessibilitySuffix` 都已经从来源移植过来、都有单测、也都只有它们自己的测试在调用——标签算出来了，键盘一个字也不念。读屏用户面对的是一块什么都没有的键面。
+
+键面文字越短越好，念出来往往不成词：`⇧` 是空的，`123` 是一个数，`中` 是一个字而不是一个动作。来源给每一个键都起了名字，而且名字说的是这个键会做什么，不是它显示什么。`KeyAccessibilityPolicy` 补上那四份策略没有覆盖的名字，视图现在把它们全部挂上。
+
+空格键按它将要做的事来念：组合中它选定高亮候选，看不见候选栏的用户没有别的途径知道这个键换了含义。候选念成「候选词 N：X」，还没打完的拼音接在后面念成「还需输入 …」——这是"现在就能上屏的候选"和"还得继续打的候选"之间的区别；释义后缀走已移植的 gloss 策略，它已经决定了那是念「提示」还是念「英文释义」，那个区分不该在调用点重新推一遍。
+
 反馈页附带的系统版本由本宿主填入。`os_version` 不属于 `HostCapabilities::for_platform` —— 它不是平台假设而是关于这台机器的事实，所以每个宿主自己读了再加上去；此前只有 macOS 这么做。缺它的时候页面写的是「平台：harmony」并附上 WebView 的 User-Agent，那标识的是浏览器内核，不是复现问题所需要的系统。现在从 `deviceInfo.osFullName` 取：`OpenHarmony-6.0.1.112` 去掉产品名后是 `6.0.1.112`，页面在它前面自己会写平台名，于是读作「HarmonyOS 6.0.1.112」。取不到合规的版本号就不填——这条字符串进的是用户提交的报告，要么照系统说的写，要么什么都不写。
 
 候选翻译复用共享 `translation_query` 与 `apply_translations` 代际契约。Harmony 原生边界负责把 Tencent TMT、NiuTrans 和 DeepLX 兼容自定义 provider 的签名/请求描述器及响应解析暴露给 ArkTS，网络传输仍由 Harmony HTTPS 栈完成；本地英文词典释义先在 Engine 侧解析，在线结果只补齐缺失项。多语言释义合并为有界的 ` / ` 展示文本，按 provider、目标语言和词条缓存，过期或 generation 不匹配的结果不会污染当前候选页。英文目标的成功释义通过共享 ABI 写入用户词典覆盖层，凭据只存在于当前请求内，不写日志。
