@@ -1088,6 +1088,12 @@ macOS 输入法菜单和悬浮工具栏的“检查更新…”现在优先通�
 
 本地验证：`cargo build -p msime-host-api --locked`、macOS 输入法 bundle 完整构建、`desktop-settings-launcher`/`shortcut`/`floating-toolbar-panel`/`input-menu` 四项 CTest 通过；桌面 UI TypeScript 类型检查和 Vite production build 通过，`macos-settings-routes` 两项测试通过。一次全量 UI 测试还暴露两个与本切片无关的既有断言失败（外部皮肤预览顺序、输入默认标点状态），未修改其行为；真实安装输入源、Sparkle 下载/签名和系统升级验收仍需在产品环境执行，CI 保持禁用。
 
+### macOS 无更新源时的原生反馈
+
+复核更新调用链发现，共享 About 页会正确查询本仓库的 GitHub 发行版，但输入菜单在共享设置 bundle 启动失败后回退到 Sparkle；当前 macOS bundle 没有 `SUFeedURL`，控制器因此选中空实现，用户点击后既无检查也无错误，文档却写成“保留原生更新能力”。原生控制器现在显式区分三种宿主：应用 bundle 且有 feed 时继续交给 Sparkle；应用 bundle 无 feed 时说明不能应用内检查，并只在用户确认后打开固定的官方发行页，打开失败再显示错误；测试或命令行进程不弹更新 UI。共享 Tauri 检查流程和 Windows 安装包信任信息均未改变。
+
+本地验证：`update-controller` 定向 CTest 通过；`scripts/verify-local.sh --quick` 通过并实际编译 macOS bundle；macOS 全套 130 项第一次为 129 项通过，`desktop-input-session` 的合成剪贴板进程间夹具超时，单独重跑通过。未触发真实弹窗、浏览器或更新下载，CI 保持禁用。
+
 ### macOS 候选皮肤目录入口共享 Tauri
 
 原生候选设置中的“浏览所有皮肤…”现在优先启动共享 Tauri `settings:skin` 页面，复用桌面宿主已经提供的皮肤目录扫描、受限资源读取、外部目录打开和共享偏好保存；Tauri bundle 不存在或启动失败时，仍回退到原生 `SkinSettingsView` 卡片窗口。新增 `Skin` 设置路由不会把皮肤解析、候选绘制或 Engine 状态移入 UI，两个入口继续使用同一受控皮肤目录和快照字段。
