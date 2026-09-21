@@ -403,6 +403,8 @@ async fn set_typing_statistics_enabled(
         let statistics = store
             .set_enabled(enabled)
             .map_err(|_| CommandError { code: "storage" })?;
+        #[cfg(target_os = "macos")]
+        msime_host_macos::notify_typing_statistics_enabled(enabled);
         typing_statistics_status(&store, statistics)
     })
     .await
