@@ -1329,6 +1329,8 @@ MSIME-Apple 的语音服务目录里有两个共享客户端一直没有的转�
 
 同一轮后续审计也补齐 macOS 原生备用设置窗：它现在列出 EveryAPI、Mistral 与 macOS 系统识别，使用与公共设置页相同的 endpoint/model 默认值；provider id、标题、默认值、下拉选择与保存共用一份表，避免已选的新 provider 打开窗口后显示成豆包并被保存覆盖。豆包按 WSS + token 校验且不再错误要求 HTTPS 和模型名，系统识别不要求云端字段，本地 Whisper 仍只要求可读模型文件。合成回归覆盖完整八项 provider、两个新增默认值及三类校验；未执行真实服务或钥匙串写入。
 
+原生外观设置页里的“配置语音输入…”此前仍指向保留的旧 `MSIMEVoiceSettings`，且只对一个以 `window=nil` 初始化的 controller 调 `showWindow:`，首次点击不会建窗也没有任何反馈。该入口现在与输入法菜单回退一致，动态打开同一个 `MetasequoiaVoiceProviderSettingsWindow` 并调用其 `showAndActivate`；动态路由保留是为了让不链接语音窗口的隔离设置测试继续成立。合成替身覆盖成功展示、缺少工厂和缺少展示方法三条路径，未启动 Tauri 工程或安装输入源。
+
 本地验证：`shared-voice-provider-routing` 以 `-Wall -Wextra -Werror` 编译并通过，覆盖两个新服务的默认地址、默认模型、非 websocket 判定、豆包地址改写和语言参数；`msime-client-core` 239 项、`msime-tauri-mobile-platform` 12 项 Rust 测试通过（含扩展后的凭据探测与 multipart 校验用例）；`cargo fmt --all --check` 与两个 crate 的 clippy `-D warnings` 通过；桌面 UI 套件 700 passed，失败项与 `scripts/known-failures.txt` 一致；新增 4 项 Vitest 覆盖默认值、地址改写、手填保留和 iOS 设置页选项；Linux provider 脚本的服务集合与默认值表一致性已断言。`apps/desktop/src-tauri` 的 iOS 语音配置用例已写入但未能执行：该 crate 的构建脚本要求先产出 macOS 预览 bundle，而 `cargo build -p msime-host-api` 在本机以 `can't find crate for zerofrom_derive` 失败——在未修改的 `origin/develop` 上同样失败，属既有环境债而非本次回归。未执行真实服务请求、iOS 真机或 Linux 图形桌面验收，CI 保持禁用。
 
 ### 共享 apple-bridge 词库会话租约本地测试
