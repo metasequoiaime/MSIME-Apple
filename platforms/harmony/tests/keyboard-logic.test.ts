@@ -4855,6 +4855,27 @@ group("only real image bytes are accepted as a photo", () => {
     CustomKeyboardSkin.from(document({}), huge).photo() === null,
     "an oversized photo is dropped even when it is a real PNG",
   );
+  const encoded = CustomKeyboardSkin.from(document({ photo: "iVBORw0KGgo=" }));
+  check(encoded.photo()?.length === 8, "the shared base64 photo is decoded and bounded");
+  check(
+    encoded.photoSource() === "data:image/png;base64,iVBORw0KGgo=",
+    "a validated photo becomes an ArkUI image source",
+  );
+  check(
+    CustomKeyboardSkin.from(document({ photo: "not-base64" })).photoSource() === null,
+    "invalid preference text never reaches the image decoder",
+  );
+});
+
+group("custom key treatments reach native surface values", () => {
+  const capsule = KeyboardSkin.from("custom", false,
+    CustomKeyboardSkin.from(document({ keyShape: "capsule", keyMaterial: "glass",
+      keyOpacity: 0.45, shadow: 0.3 })));
+  check(capsule.keyCornerRadius() === 999, "a capsule asks ArkUI for a pill radius");
+  check(capsule.materialTop() === "#3DFFFFFF", "glass carries a visible top highlight");
+  check(capsule.keySurfaceBackground(false).startsWith("#73"),
+    "key opacity changes only the fill alpha");
+  check(capsule.shadowColor().startsWith("#4D"), "the configured shadow reaches its ARGB colour");
 });
 
 group("the design key changes whenever the drawing would", () => {

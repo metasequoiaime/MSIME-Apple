@@ -346,6 +346,8 @@ struct KeyboardView {
     new HandwritingRecognitionQueue();
   private handwritingContext: CanvasRenderingContext2D =
     new CanvasRenderingContext2D(new RenderingContextSettings(true));
+  private skinPatternContext: CanvasRenderingContext2D =
+    new CanvasRenderingContext2D(new RenderingContextSettings(true));
   private readonly voiceRecognizer: HarmonyVoiceRecognizer = new HarmonyVoiceRecognizer();
   private voiceGeneration: number = 0;
   private replyGeneration: number = 0;
@@ -635,11 +637,14 @@ struct KeyboardView {
     .accessibilityText($$.label ?? $$.face)
     .layoutWeight(1)
     .height('100%')
-    .backgroundColor($$.emphasized ? this.skin.actionBackground : this.skin.keyBackground)
-    .borderRadius(this.skin.cornerRadius)
+    .backgroundColor(this.skin.keySurfaceBackground($$.emphasized))
+    .linearGradient({ angle: 180,
+      colors: [[this.skin.materialTop(), 0], [this.skin.materialBottom(), 1]] })
+    .borderRadius(this.skin.keyCornerRadius())
     .borderWidth(this.skin.borderWidth)
     .borderColor(this.skin.borderColor)
-    .opacity(this.skin.keyOpacity)
+    .shadow({ radius: this.skin.shadowRadius, color: this.skin.shadowColor(),
+      offsetX: 0, offsetY: this.skin.shadowOffset })
     .onClick($$.action)
   }
 
@@ -652,11 +657,14 @@ struct KeyboardView {
     .accessibilityText($$.label ?? $$.face)
     .width($$.width)
     .height('100%')
-    .backgroundColor($$.emphasized ? this.skin.actionBackground : this.skin.keyBackground)
-    .borderRadius(this.skin.cornerRadius)
+    .backgroundColor(this.skin.keySurfaceBackground($$.emphasized))
+    .linearGradient({ angle: 180,
+      colors: [[this.skin.materialTop(), 0], [this.skin.materialBottom(), 1]] })
+    .borderRadius(this.skin.keyCornerRadius())
     .borderWidth(this.skin.borderWidth)
     .borderColor(this.skin.borderColor)
-    .opacity(this.skin.keyOpacity)
+    .shadow({ radius: this.skin.shadowRadius, color: this.skin.shadowColor(),
+      offsetX: 0, offsetY: this.skin.shadowOffset })
     .onClick($$.action)
   }
 
@@ -1906,11 +1914,14 @@ struct KeyboardView {
     .accessibilityText(this.nineKeyLabel(key))
     .layoutWeight(1)
     .height('100%')
-    .backgroundColor(this.skin.keyBackground)
-    .borderRadius(this.skin.cornerRadius)
+    .backgroundColor(this.skin.keySurfaceBackground(false))
+    .linearGradient({ angle: 180,
+      colors: [[this.skin.materialTop(), 0], [this.skin.materialBottom(), 1]] })
+    .borderRadius(this.skin.keyCornerRadius())
     .borderWidth(this.skin.borderWidth)
     .borderColor(this.skin.borderColor)
-    .opacity(this.skin.keyOpacity)
+    .shadow({ radius: this.skin.shadowRadius, color: this.skin.shadowColor(),
+      offsetX: 0, offsetY: this.skin.shadowOffset })
     .onClick(() => KeyboardSession.shared.press(key.input.charCodeAt(0), false))
     .gesture(LongPressGesture().onAction(() => this.openNineKeyHold(key)))
   }
@@ -2017,10 +2028,14 @@ struct KeyboardView {
     .height('100%')
     .justifyContent(FlexAlign.Center)
     .accessibilityText(KeyAccessibilityPolicy.delete())
-    .backgroundColor(this.skin.keyBackground)
-    .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
+    .backgroundColor(this.skin.keySurfaceBackground(false))
+    .linearGradient({ angle: 180,
+      colors: [[this.skin.materialTop(), 0], [this.skin.materialBottom(), 1]] })
+    .borderRadius(this.skin.keyCornerRadius())
     .borderWidth(this.skin.borderWidth)
     .borderColor(this.skin.borderColor)
+    .shadow({ radius: this.skin.shadowRadius, color: this.skin.shadowColor(),
+      offsetX: 0, offsetY: this.skin.shadowOffset })
     .onTouch((event: TouchEvent): void => {
       if (event.type === TouchType.Down) {
         this.startBackspace();
@@ -2057,10 +2072,14 @@ struct KeyboardView {
     // What it will do, not what it is: mid-composition this key selects the highlighted candidate,
     // and a user who cannot see the candidate row has no other way to know it changed meaning.
     .accessibilityText(KeyAccessibilityPolicy.space(this.candidates.length > 0))
-    .backgroundColor(this.skin.keyBackground)
-    .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
+    .backgroundColor(this.skin.keySurfaceBackground(false))
+    .linearGradient({ angle: 180,
+      colors: [[this.skin.materialTop(), 0], [this.skin.materialBottom(), 1]] })
+    .borderRadius(this.skin.keyCornerRadius())
     .borderWidth(this.skin.borderWidth)
     .borderColor(this.skin.borderColor)
+    .shadow({ radius: this.skin.shadowRadius, color: this.skin.shadowColor(),
+      offsetX: 0, offsetY: this.skin.shadowOffset })
     .onTouch((event: TouchEvent): void => {
       const position: number = event.touches[0].windowX;
       if (event.type === TouchType.Down) {
@@ -4257,8 +4276,72 @@ struct KeyboardView {
     .onClick(action)
   }
 
+  private drawSkinPattern(): void {
+    const context: CanvasRenderingContext2D = this.skinPatternContext;
+    const width: number = 1200;
+    const height: number = 600;
+    context.clearRect(0, 0, width, height);
+    context.fillStyle = this.skin.patternColor();
+    context.strokeStyle = this.skin.patternColor();
+    if (this.skin.pattern === 1) {
+      for (let y: number = 8; y < height; y += 16) {
+        for (let x: number = 8; x < width; x += 16) context.fillRect(x, y, 2, 2);
+      }
+    } else if (this.skin.pattern === 2) {
+      context.lineWidth = 0.5;
+      context.beginPath();
+      for (let x: number = 0; x < width; x += 20) {
+        context.moveTo(x, 0); context.lineTo(x, height);
+      }
+      for (let y: number = 0; y < height; y += 20) {
+        context.moveTo(0, y); context.lineTo(width, y);
+      }
+      context.stroke();
+    } else if (this.skin.pattern === 3) {
+      context.lineWidth = 2;
+      context.beginPath();
+      for (let offset: number = -100; offset < height + width; offset += 24) {
+        context.moveTo(0, offset);
+        context.bezierCurveTo(width * 0.35, offset - 90, width * 0.65, offset + 20,
+          width, offset - 70);
+      }
+      context.stroke();
+    }
+  }
+
+  @Builder
+  skinBackdrop() {
+    Stack() {
+      if (this.skin.gradientEnd === null) {
+        Column().width('100%').height('100%').backgroundColor(this.skin.background)
+      } else {
+        Column().width('100%').height('100%').linearGradient({
+          angle: this.skin.gradientHorizontal ? 90 : 180,
+          colors: [[this.skin.background, 0], [this.skin.gradientEnd, 1]]
+        })
+      }
+      if (this.skin.photoSource !== null) {
+        Image(this.skin.photoSource)
+          .width('100%').height('100%').objectFit(ImageFit.Cover)
+          .scale({ x: 1.15, y: 1.15 })
+          .translate({ x: (this.skin.photoPosition - 0.5) * 40,
+            y: (this.skin.photoPosition - 0.5) * 24 })
+        Column().width('100%').height('100%').backgroundColor(this.skin.photoShadeColor())
+      }
+      if (this.skin.pattern !== 0) {
+        Canvas(this.skinPatternContext)
+          .id(`skin-pattern:${this.skin.key()}`)
+          .width('100%').height('100%')
+          .onReady(() => this.drawSkinPattern())
+      }
+    }
+    .width('100%')
+    .height('100%')
+  }
+
   build() {
     Stack({ alignContent: Alignment.Top }) {
+      this.skinBackdrop()
       this.keyboard()
       if (this.punctuation || this.brackets || this.managing >= 0
         || this.expandedGloss >= 0) {
@@ -4277,7 +4360,6 @@ struct KeyboardView {
       }
     }
     .width('100%')
-    .backgroundColor(this.skin.background)
   }
 
   @Builder
