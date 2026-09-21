@@ -162,6 +162,9 @@ public final class AccountFragment extends HomeTabFragment {
      * <p>词包与回复模板、社区皮肤、打字统计三行去掉了——它们只是跳到底部那三个 tab 里已有的地方；
      * 设置与词库位置说的是一个路径，没人会从这一页找它。Apple 那边这四行一个都没有，这一页要放的是
      * 别处没有的东西。
+     *
+     * <p>母版那一段还有第三行「重新查看新手引导」。Android 没有可重看的引导——启动时那段动画是个
+     * 700ms 的标，不是一趟流程，所以这一行没有对应物，空着比放一个点了没反应的入口好。
      */
     private void bindContent() {
         View view = getView();
@@ -175,6 +178,10 @@ public final class AccountFragment extends HomeTabFragment {
         addRow(rows, R.drawable.ic_feature_system, R.color.badge_field, "关于水杉",
             "版本、开源与隐私", () -> startActivity(
                 new android.content.Intent(requireContext(), AboutActivity.class)));
+        divider(rows);
+        addRow(rows, R.drawable.ic_feature_ai, R.color.badge_field, "重新查看新手引导",
+            "四步走完键盘的启用和设置", () -> startActivity(
+                new android.content.Intent(requireContext(), OnboardingActivity.class)));
     }
 
     private void showIcons() {

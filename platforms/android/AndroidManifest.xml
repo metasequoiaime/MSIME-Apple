@@ -10,6 +10,7 @@
         </activity>
         <activity android:name="app.msime.client.home.HelpActivity" android:exported="false" />
         <activity android:name="app.msime.client.home.FeedbackActivity" android:exported="false" android:windowSoftInputMode="adjustResize" />
+        <activity android:name="app.msime.client.home.OnboardingActivity" android:exported="false" />
         <activity android:name="app.msime.client.home.AboutActivity" android:exported="false" />
         <activity android:name="app.msime.client.home.DesktopDownloadActivity" android:exported="false" />
         <activity android:name="app.msime.client.home.KeyboardTryoutActivity" android:exported="false" android:windowSoftInputMode="adjustResize|stateVisible" />
