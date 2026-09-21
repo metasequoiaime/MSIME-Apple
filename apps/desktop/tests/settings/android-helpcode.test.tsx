@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { SettingsPage, type Snapshot } from "@msime/ui";
 
 afterEach(() => {
@@ -36,22 +36,35 @@ function renderSettings(platform: string, save = vi.fn().mockResolvedValue(undef
   return save;
 }
 
-async function moreSettings() {
+// The phone bar carries the source's four tabs and nothing else, so a page without a tab is a row
+// in the 键盘 tab's own list. It used to be an option in a `更多设置` dropdown seated in the bar.
+async function moreSettingsList() {
   await screen.findByRole("button", { name: "保存设置" });
-  const primary = screen.getByRole("navigation", { name: "主要功能" });
-  return within(primary).getByRole("combobox", { name: "更多设置" }) as HTMLSelectElement;
+  const heading = screen.getByRole("heading", { name: "全部设置" });
+  return [...heading.nextElementSibling!.querySelectorAll("button")];
+}
+
+async function moreSettingsTitles() {
+  const rows = await moreSettingsList();
+  return rows.map((row) => row.querySelector("strong")?.textContent ?? "");
+}
+
+async function openMoreSetting(title: string) {
+  const rows = await moreSettingsList();
+  const row = rows.find((item) => item.querySelector("strong")?.textContent === title);
+  if (!row) throw new Error(`no row for ${title}`);
+  fireEvent.click(row);
 }
 
 // The Android keyboard sends helper codes -- Shift during a quanpin or shuangpin
 // composition -- and the Engine reads the schema from these preferences, so the
 // page has to be reachable there.
-test("Android reaches the helper-code page from 更多设置", async () => {
+test("Android reaches the helper-code page from the 键盘 tab", async () => {
   renderSettings("android");
 
-  const more = await moreSettings();
-  expect(Array.from(more.options).map((option) => option.text)).toContain("辅助码");
+  expect(await moreSettingsTitles()).toContain("辅助码");
 
-  fireEvent.change(more, { target: { value: "helpcode" } });
+  await openMoreSetting("辅助码");
   expect(screen.getByRole("heading", { name: "辅助码" })).toBeTruthy();
   expect(screen.getByText(/按 Shift 再输入的字母作为辅助码/)).toBeTruthy();
 });
@@ -59,8 +72,7 @@ test("Android reaches the helper-code page from 更多设置", async () => {
 test("Android saves a helper-code schema into shared preferences", async () => {
   const save = renderSettings("android");
 
-  const more = await moreSettings();
-  fireEvent.change(more, { target: { value: "helpcode" } });
+  await openMoreSetting("辅助码");
   const schema = screen.getByRole("combobox", { name: /全拼辅助码方案/ }) as HTMLSelectElement;
   expect(schema.value).toBe("ziranma");
   fireEvent.change(schema, { target: { value: "xiaohe" } });
@@ -80,8 +92,7 @@ test("Android saves a helper-code schema into shared preferences", async () => {
 test("mobile names the candidate row rather than a window", async () => {
   renderSettings("android");
 
-  const more = await moreSettings();
-  fireEvent.change(more, { target: { value: "helpcode" } });
+  await openMoreSetting("辅助码");
   expect(screen.getByLabelText("在候选栏中显示双拼辅助码")).toBeTruthy();
   expect(screen.getByLabelText("在候选栏中显示全拼辅助码")).toBeTruthy();
   expect(screen.queryByLabelText("在候选窗口中显示双拼辅助码")).toBeNull();
@@ -91,8 +102,7 @@ test("mobile names the candidate row rather than a window", async () => {
 test("iOS keeps the helper-code page hidden", async () => {
   renderSettings("ios");
 
-  const more = await moreSettings();
-  expect(Array.from(more.options).map((option) => option.text)).not.toContain("辅助码");
+  expect(await moreSettingsTitles()).not.toContain("辅助码");
 });
 
 test("the desktop sidebar keeps the helper-code page and its window wording", async () => {
@@ -108,21 +118,19 @@ test("the desktop sidebar keeps the helper-code page and its window wording", as
 // ported, and the session calls it on every shifted key during a quanpin or shuangpin
 // composition. The page was hidden there anyway, which left a shipping feature with no way to
 // pick a schema or turn it off — the state this file's Android tests exist to prevent.
-test("HarmonyOS reaches the helper-code page from 更多设置", async () => {
+test("HarmonyOS reaches the helper-code page from the 键盘 tab", async () => {
   renderSettings("harmony");
 
-  const more = await moreSettings();
-  expect(Array.from(more.options).map((option) => option.text)).toContain("辅助码");
+  expect(await moreSettingsTitles()).toContain("辅助码");
 
-  fireEvent.change(more, { target: { value: "helpcode" } });
+  await openMoreSetting("辅助码");
   expect(screen.getByRole("heading", { name: "辅助码" })).toBeTruthy();
 });
 
 test("HarmonyOS saves a helper-code schema into shared preferences", async () => {
   const save = renderSettings("harmony");
 
-  const more = await moreSettings();
-  fireEvent.change(more, { target: { value: "helpcode" } });
+  await openMoreSetting("辅助码");
   const schema = screen.getByRole("combobox", { name: /全拼辅助码方案/ }) as HTMLSelectElement;
   expect(schema.value).toBe("ziranma");
   fireEvent.change(schema, { target: { value: "xiaohe" } });
@@ -152,8 +160,7 @@ test("the Shift explanation follows the capability, not the platform name", asyn
       }}
     />,
   );
-  const more = await moreSettings();
-  fireEvent.change(more, { target: { value: "helpcode" } });
+  await openMoreSetting("辅助码");
   expect(screen.getByText(/按 Shift\s*再输入的字母作为辅助码/)).toBeTruthy();
 });
 

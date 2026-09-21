@@ -23,6 +23,19 @@ const quickTitle = "text-[13px] font-semibold";
 const quickNote =
   "m-0 w-full overflow-hidden text-ellipsis whitespace-nowrap max-tight:text-[11px]";
 
+/**
+ * A settings page that has no tab of its own.
+ *
+ * The phone bar holds the source's four tabs and nothing more, so every other page has to be
+ * reachable from inside one of them. They land here, at the foot of the 键盘 tab, the same way the
+ * source keeps them inside its own 键盘 tab rather than growing the bar.
+ */
+export interface MoreSettingsPage {
+  id: string;
+  title: string;
+  icon: string;
+}
+
 export interface HomePageActions {
   openKeyboard?: () => Promise<void>;
   openEmojiPanel?: () => Promise<void>;
@@ -64,6 +77,7 @@ export function HomePage({
   onSelectScheme,
   onOpenChat,
   touchLayout = false,
+  morePages,
 }: {
   preferences: Preferences;
   actions?: HomePageActions;
@@ -71,6 +85,7 @@ export function HomePage({
   onOpenChat?: () => void;
   onSelectScheme?: (scheme: TouchKeyboardScheme) => void;
   touchLayout?: boolean;
+  morePages?: readonly MoreSettingsPage[];
 }) {
   const theme = useCandidatePreviewTheme(preferences.theme, preferences.screen_keyboard_theme);
   const skin = preferences.touch_keyboard_skin ?? "forest";
@@ -304,6 +319,29 @@ export function HomePage({
           </button>
         )}
       </div>
+      {morePages && morePages.length > 0 && (
+        <>
+          <h3 className="mt-1 mb-0 text-[13px] font-semibold text-muted">全部设置</h3>
+          <div className="flex flex-col gap-2">
+            {morePages.map((item) => (
+              <button
+                key={item.id}
+                type="button"
+                className={rowCard}
+                onClick={() => onOpenPage(item.id)}
+              >
+                <img src={item.icon} alt="" aria-hidden="true" className="size-[22px] shrink-0" />
+                <span className={rowBody}>
+                  <strong className={cardTitle}>{item.title}</strong>
+                </span>
+                <span className={rowChevron} aria-hidden="true">
+                  ›
+                </span>
+              </button>
+            ))}
+          </div>
+        </>
+      )}
     </section>
   );
 }

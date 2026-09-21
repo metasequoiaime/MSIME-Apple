@@ -2137,16 +2137,21 @@ test("mobile hosts use Apple-style primary navigation and retain secondary setti
   expect(within(primary).getByRole("button", { name: "键盘" })).toBeTruthy();
   expect(within(primary).getByRole("button", { name: "社区" })).toBeTruthy();
   expect(within(primary).getByRole("button", { name: "统计" })).toBeTruthy();
-  expect(within(primary).getByRole("button", { name: "账号" })).toBeTruthy();
-  const more = within(primary).getByRole("combobox", { name: "更多设置" }) as HTMLSelectElement;
-  const secondaryLabels = Array.from(more.options).map((option) => option.text);
+  // The source names this tab 我的, which is also the page's own title; the bar said 账号 against it.
+  expect(within(primary).getByRole("button", { name: "我的" })).toBeTruthy();
+  // The bar holds those four and nothing else. Every other page is a row in the 键盘 tab's list.
+  const rows = [
+    ...screen
+      .getByRole("heading", { name: "全部设置" })
+      .nextElementSibling!.querySelectorAll("button"),
+  ];
+  const secondaryLabels = rows.map((row) => row.querySelector("strong")?.textContent ?? "");
   expect(secondaryLabels).toContain("输入");
   expect(secondaryLabels).toContain("实用功能");
   expect(secondaryLabels).not.toContain("辅助码");
   expect(secondaryLabels).not.toContain("快捷键");
   expect(secondaryLabels).not.toContain("悬浮工具栏");
-  fireEvent.change(more, { target: { value: "input" } });
-  expect(more.value).toBe("input");
+  fireEvent.click(rows[secondaryLabels.indexOf("输入")]);
   expect(screen.getByRole("heading", { name: "输入" })).toBeTruthy();
 });
 
@@ -2203,8 +2208,12 @@ test("mobile settings pages follow the WebView back stack", async () => {
       />,
     );
     await screen.findByRole("button", { name: "保存设置" });
-    const more = screen.getByRole("combobox", { name: "更多设置" }) as HTMLSelectElement;
-    fireEvent.change(more, { target: { value: "input" } });
+    const rows = [
+      ...screen
+        .getByRole("heading", { name: "全部设置" })
+        .nextElementSibling!.querySelectorAll("button"),
+    ];
+    fireEvent.click(rows.find((row) => row.querySelector("strong")?.textContent === "输入")!);
     expect(window.history.state).toEqual(
       expect.objectContaining({ msimeSettings: true, page: "input" }),
     );
@@ -2267,7 +2276,9 @@ test("mobile account deep links participate in the back stack", async () => {
       />,
     );
     await screen.findByRole("button", { name: "保存设置" });
-    fireEvent.click(screen.getByRole("button", { name: "账号" }));
+    // The tab and the sidebar entry share the page's title, so reach for the one in the bar.
+    const bar = screen.getByRole("navigation", { name: "主要功能" });
+    fireEvent.click(within(bar).getByRole("button", { name: "我的" }));
     fireEvent.click(await screen.findByRole("button", { name: "关于水杉" }));
     expect(window.history.state).toEqual(
       expect.objectContaining({ msimeSettings: true, page: "about" }),

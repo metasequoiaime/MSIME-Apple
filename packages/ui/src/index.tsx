@@ -1563,6 +1563,32 @@ function message(error: unknown): string {
   return "无法访问设置，请重试。原有设置不会被自动重置。";
 }
 
+/**
+ * The 键盘 tab draws a keyboard, not the app.
+ *
+ * Its page icon is the 200 KB app logo, which is the wrong subject at 22px and is also the one asset
+ * the single-file harmony bundle declines to inline, so reusing it here would have left the first
+ * tab with a broken image.
+ */
+const keyboardTabIcon = new URL("./assets/screen-keyboard.svg", import.meta.url).href;
+
+function mobileTabIcon(id: string, icon: string): string {
+  return id === "home" ? keyboardTabIcon : icon;
+}
+
+/**
+ * What a tab is called, which is not always what its page is called.
+ *
+ * The source names these four 键盘 / 社区 / 统计 / 我的 and nothing else appears in the bar. The page
+ * titles are longer because they also head the page they open.
+ */
+function mobileTabTitle(id: string, title: string): string {
+  if (id === "home") return "键盘";
+  if (id === "typing-statistics") return "统计";
+  if (id === "account") return "我的";
+  return title;
+}
+
 type SettingsPageId = (typeof pages)[number]["id"];
 // A host can ask for the section its menu entry names. An unknown id keeps the
 // default page rather than opening an empty one.
@@ -3328,9 +3354,13 @@ export function SettingsPage({
     "typing-statistics",
     "account",
   ];
-  const mobilePrimaryPages = availablePages.filter((item) =>
-    mobilePrimaryPageIds.includes(item.id),
-  );
+  // Walked in tab order rather than filtered out of `availablePages`, which is in the order the
+  // pages happen to be declared in — that put 我的 second, and the bar read 键盘 / 我的 / 社区 / 统计
+  // against the source's 键盘 / 社区 / 统计 / 我的.
+  const mobilePrimaryPages = mobilePrimaryPageIds.flatMap((id) => {
+    const item = availablePages.find((page) => page.id === id);
+    return item ? [item] : [];
+  });
   // Physical-keyboard shortcuts and a desktop floating toolbar have no mobile
   // surface. HarmonyOS keeps its hardware shortcuts and keyboard toolbar in the
   // input-method panel, so neither is hidden there.
@@ -3608,48 +3638,28 @@ export function SettingsPage({
             padding clears the gesture inset. Hidden above phone width, where the sidebar serves. */}
         {mobilePlatform && (
           <nav
-            className="hidden max-phone:order-2 max-phone:grid max-phone:grid-cols-5 max-phone:gap-1.5 max-phone:border-t max-phone:border-edge max-phone:bg-chrome max-phone:px-2 max-phone:pt-2 max-phone:pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))]"
+            className="hidden max-phone:order-2 max-phone:grid max-phone:grid-cols-4 max-phone:gap-1.5 max-phone:border-t max-phone:border-edge max-phone:bg-chrome max-phone:px-2 max-phone:pt-2 max-phone:pb-[calc(0.5rem+env(safe-area-inset-bottom,0px))]"
             aria-label="主要功能"
           >
             {mobilePrimaryPages.map((item) => (
               <button
                 key={item.id}
                 type="button"
-                className={`min-h-[42px] min-w-0 cursor-pointer rounded-xl border bg-card text-[13px] ${
-                  page === item.id
-                    ? "border-accent font-semibold text-accent"
-                    : "border-edge text-body"
+                className={`flex min-h-[48px] min-w-0 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-xl border-0 bg-transparent px-1 py-1 text-[11px] ${
+                  page === item.id ? "font-semibold text-accent" : "text-muted"
                 }`}
                 aria-current={page === item.id ? "page" : undefined}
                 onClick={() => selectPage(item.id)}
               >
-                {item.id === "home"
-                  ? "键盘"
-                  : item.id === "typing-statistics"
-                    ? "统计"
-                    : item.id === "account"
-                      ? "账号"
-                      : item.title}
+                <img
+                  src={mobileTabIcon(item.id, item.icon)}
+                  alt=""
+                  aria-hidden="true"
+                  className={`size-[22px] ${page === item.id ? "opacity-100" : "opacity-60"}`}
+                />
+                {mobileTabTitle(item.id, item.title)}
               </button>
             ))}
-            <label className="flex min-h-[42px] min-w-0 flex-col justify-center gap-px rounded-xl border border-edge bg-card px-2 py-[3px] text-[10px] text-muted">
-              更多设置
-              <select
-                className="min-w-0 border-0 bg-transparent text-xs text-body outline-none"
-                aria-label="更多设置"
-                value={mobileSecondaryPages.some((item) => item.id === page) ? page : ""}
-                onChange={(event) => {
-                  if (event.target.value) selectPage(event.target.value as SettingsPageId);
-                }}
-              >
-                <option value="">选择页面</option>
-                {mobileSecondaryPages.map((item) => (
-                  <option key={item.id} value={item.id}>
-                    {item.title}
-                  </option>
-                ))}
-              </select>
-            </label>
           </nav>
         )}
         <nav className={settings.sidebar} aria-label="设置分类">
@@ -3712,6 +3722,15 @@ export function SettingsPage({
                 onSelectScheme={selectHomeScheme}
                 onOpenChat={client.chat ? () => selectPage("chat") : undefined}
                 touchLayout={mobilePlatform}
+                morePages={
+                  mobilePlatform
+                    ? mobileSecondaryPages.map((item) => ({
+                        id: item.id,
+                        title: item.title,
+                        icon: item.icon,
+                      }))
+                    : undefined
+                }
               />
             )}
             {(client.account || client.appIcon) && page === "account" && (

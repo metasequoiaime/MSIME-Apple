@@ -34,12 +34,17 @@ function renderSettings(platform: string) {
   );
 }
 
+// Reached from the 键盘 tab's list of the pages that have no tab of their own, which is where the
+// phone bar's `更多设置` dropdown went.
 async function handwritingPage() {
   await screen.findByRole("button", { name: "保存设置" });
-  const primary = screen.getByRole("navigation", { name: "主要功能" });
-  const more = within(primary).getByRole("combobox", { name: "更多设置" }) as HTMLSelectElement;
+  const heading = screen.getByRole("heading", { name: "全部设置" });
+  const row = [...heading.nextElementSibling!.querySelectorAll("button")].find(
+    (item) => item.querySelector("strong")?.textContent === "手写识别板",
+  );
+  if (!row) throw new Error("no row for 手写识别板");
   const { fireEvent } = await import("@testing-library/react");
-  fireEvent.change(more, { target: { value: "handwriting" } });
+  fireEvent.click(row);
   return screen.getByRole("group", { name: "手写识别板" });
 }
 
