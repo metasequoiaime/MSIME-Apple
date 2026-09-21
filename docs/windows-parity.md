@@ -789,6 +789,14 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 用例：新增 `crates/input-runtime/examples/mixed_slots.rs` 用 `ni` 这个输入（同时产出中文、英文 `ni`、emoji、颜文字，且两种联网源都可用）逐个验四种排布。
 
+增量记录（2026-09-21，把「设置项是否齐全」这个问题一次性关掉，并让它保持关着）：来源把整个配置面写在一个文件里——`installer/default_config/config.default.toml`，17 个段 178 个键——这是两边现有材料里最接近「这个产品一共能被设定哪些事」的清单。本表此前按页、按控件比过好几轮，每轮都在重复同样两类假结果：**看着缺的其实是有意改名**（`y_mode` 就是 `local_modes.temporary_english`、`cn_en_mixed_input_min_chars` 就是 `mixed_input.minimum_prefix`），**看着有的其实只是某个无关标识符里恰好含同一个词**。
+
+这一批把 178 个键逐个落到本仓的共享偏好或共享设置页上，结论是**全部有着落**：172 个对得上字段（多数是改名或改成嵌套结构），6 个明确没有目标并写明理由——4 个是来源自己的配置模板写了、它自己代码里一次都没读的死键（`enable_emoji`、`clean_mode`、`soft_keyboard.background_img`、`utility.study_english_word`，都只出现在 `config.toml` 里），1 个是来源 Server 在新旧两套会话实现之间切换的内部开关（`input.session_backend`，本仓只有一套运行时），1 个是词库目录（本仓按宿主运行时选项传，不是偏好）。
+
+把这张表写成 `scripts/test-reference-config-coverage.py` 挂进 `--quick`，两个方向都查：本仓这边的字段被改名或删掉时，对应的来源设置就成了孤儿，门禁报出来；机器上存在来源检出时（`MSIME_REFERENCE_ROOT` 或主检出旁边的同级目录），来源模板里多出来的键不在表里也报出来——**上游新增一项设置，从此会在这里变成一条失败，而不是什么都不发生**。两个方向各反向验证过。
+
+方法上记一条：这比「逐页看控件」强的地方不在于更仔细，而在于比较对象是一份**机器可读、上游自己维护的清单**，所以它能一直被验证；页面截图和控件清单只要有人改了措辞就失效。
+
 增量记录（2026-09-21，macOS 自动补全的那一对没有告诉引擎，于是第二对书名号变成了〈〉）：按「Linux 调了哪些 FFI 而 macOS 一次都没调」这条线索查下去，`msime_client_balance_paired_punctuation_after_auto_close` 是其中一个。查完是两个缺陷，来源在同一段代码里把两件事都做了。
 
 **其一：书名号的嵌套计数没有回退。** 引擎按「当前开着几个《」决定下一个 `<` 给《还是〈（`punctuation_policy.cpp` 的 `book_title_nesting_`），正常情况下用户打的 `>` 会把计数减回去。宿主自己补右符号时那次 `>` 永远不会发生，于是计数只增不减——**第二次从头打《》会得到〈〉**。来源在 `KeyHandler.cpp` 补完右符号之后紧跟着调 `BalanceNestPairAfterAutoClose(wch)`，注释写的就是这句「否则下一个 《》 退化成 〈〉」；Linux 宿主也调；macOS 从来没调过。

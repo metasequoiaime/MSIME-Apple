@@ -198,6 +198,13 @@ python3 scripts/test-settings-action-guard.py || fail "settings action guard"
 note "host dialogs"
 python3 scripts/test-no-host-dialogs.py || fail "host dialogs"
 
+# The reference ships one file with a default for every setting it has. Comparing the two settings
+# pages by eye has been done repeatedly and keeps producing the same false results in both
+# directions, so the mapping is written down and checked instead - including, when a reference
+# checkout is on the machine, that nothing new has appeared upstream without a home here.
+note "reference config coverage"
+python3 scripts/test-reference-config-coverage.py || fail "reference config coverage"
+
 # A quick phrase ends up in the candidate pipe's text field, whose size the Engine declares. The
 # limit on it was six bare literals across three crates, none attached to that header, so moving
 # the engine lock would have changed the field and nothing else.
