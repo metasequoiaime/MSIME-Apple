@@ -1867,6 +1867,8 @@ test("dictionary manager queries, edits and removes Engine entries", async () =>
   expect(list).toHaveBeenCalledWith(0, 100, "quick_phrase", "");
   fireEvent.click(screen.getByRole("button", { name: "编辑" }));
   fireEvent.change(screen.getByLabelText("短语"), { target: { value: "updated" } });
+  // The entry editor has its own 保存; 保存设置 in the footer writes the preferences document and
+  // never touches the dictionary. A rename of the footer button swept this one up with it.
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
   await waitFor(() =>
     expect(edit).toHaveBeenCalledWith(
@@ -3396,12 +3398,75 @@ test("floating toolbar settings use Windows defaults and persist independently",
       punctuation: true,
       character_set: true,
       emoji: true,
+      // This host draws no handwriting or voice button on its toolbar, so neither switch is offered
+      // here - the values ride along at their defaults.
+      handwriting: true,
       screen_keyboard: true,
+      voice: true,
       settings: true,
       scale_percent: 125,
       font_size: 28,
     },
   });
+});
+
+// The handwriting and voice buttons are this client's own additions to the toolbar and only one host
+// draws them. A switch for them anywhere else would turn off something that is not there, and having
+// no switch at all - which is how they shipped - leaves two buttons the user cannot remove.
+test("the toolbar's handwriting and voice switches follow the host that draws them", async () => {
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn().mockImplementation(async (_revision, preferences) => ({
+      ...initial,
+      revision: 8,
+      preferences,
+    })),
+    host: macosHostCapabilities as HostCapabilities,
+  };
+  render(<SettingsPage client={client} />);
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "悬浮工具栏" }));
+  const handwriting = (await screen.findByRole("checkbox", {
+    name: "手写识别板",
+  })) as HTMLInputElement;
+  const voice = screen.getByRole("checkbox", { name: "语音输入" }) as HTMLInputElement;
+  // Both buttons are on the toolbar today, so both start on: turning the switches on for the first
+  // time must not make two buttons disappear.
+  expect(handwriting.checked).toBe(true);
+  expect(voice.checked).toBe(true);
+
+  fireEvent.click(handwriting);
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await waitFor(() => expect(client.save).toHaveBeenCalled());
+  const [, saved] = (client.save as ReturnType<typeof vi.fn>).mock.calls.at(-1) as [
+    number,
+    Preferences,
+  ];
+  expect(saved.floating_toolbar.handwriting).toBe(false);
+  expect(saved.floating_toolbar.voice).toBe(true);
+});
+
+test("a host without those toolbar buttons is not offered their switches", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: {
+          ...macosHostCapabilities,
+          floating_toolbar_handwriting: false,
+          floating_toolbar_voice: false,
+        } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "悬浮工具栏" }));
+  // The rest of the component list is still there, so this is about those two and not about the
+  // section having failed to render.
+  expect(await screen.findByRole("checkbox", { name: "表情与符号" })).toBeTruthy();
+  expect(screen.queryByRole("checkbox", { name: "手写识别板" })).toBeNull();
+  expect(screen.queryByRole("checkbox", { name: "语音输入" })).toBeNull();
 });
 
 test("help, about and feedback pages expose their Windows content and actions", async () => {
@@ -4121,6 +4186,9 @@ const macosHostCapabilities = {
   floating_toolbar: true,
   floating_toolbar_appearance: true,
   floating_toolbar_components: true,
+  // Only this host's toolbar carries these two buttons, so only here are their switches offered.
+  floating_toolbar_handwriting: true,
+  floating_toolbar_voice: true,
   mode_switch_shortcuts: true,
   panel_shortcuts: true,
   number_row_selection: false,
@@ -4280,13 +4348,13 @@ const referenceOptions: { page: string; button: string; control: string; options
     page: "helpcode",
     button: "辅助码",
     control: "双拼辅助码方案",
-    options: ["蓝天小雨点", "自然码", "首右2.0", "首右plus", "小鹤"],
+    options: ["蓝天小雨点", "自然码", "首右2.0", "首右plus", "小鹤", "加加"],
   },
   {
     page: "helpcode",
     button: "辅助码",
     control: "全拼辅助码方案",
-    options: ["蓝天小雨点", "自然码", "首右2.0", "首右plus", "小鹤"],
+    options: ["蓝天小雨点", "自然码", "首右2.0", "首右plus", "小鹤", "加加"],
   },
   {
     page: "floating-toolbar",
