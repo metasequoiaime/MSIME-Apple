@@ -731,6 +731,12 @@ add_executable(candidate-hover-test tests/candidate/CandidateHoverTest.mm)
 target_compile_options(candidate-hover-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(candidate-hover-test PRIVATE "-framework AppKit")
 add_test(NAME candidate-hover COMMAND candidate-hover-test)
+# Where the candidate window goes: under the caret, flipped above it when there is no room, and
+# clamped into the display it is on - including one whose coordinates are negative.
+add_executable(candidate-placement-test tests/candidate/CandidatePlacementTest.mm)
+target_compile_options(candidate-placement-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(candidate-placement-test PRIVATE "-framework AppKit")
+add_test(NAME candidate-placement COMMAND candidate-placement-test)
 add_executable(candidate-pagination-test tests/candidate/CandidatePaginationTest.cpp)
 target_include_directories(candidate-pagination-test PRIVATE src)
 target_compile_options(candidate-pagination-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
