@@ -13,12 +13,39 @@ import org.json.JSONObject;
 
 /** Creates and persists the keyboard-only anonymous backend identity. */
 final class BackendAnonymousAccount {
+    /**
+     * The login endpoint is rate limiting; this is not a missing account.
+     *
+     * <p>Separate from the generic failure because the two want opposite handling: a rate limit
+     * clears on its own and must be waited out, while everything else is worth reporting.
+     */
+    static final class RateLimited extends IllegalStateException {
+        private static final long serialVersionUID = 1L;
+        private final long retryAfterMillis;
+
+        RateLimited(long retryAfterMillis) {
+            super("anonymous login rate limited");
+            this.retryAfterMillis = Math.max(0, retryAfterMillis);
+        }
+
+        long retryAfterMillis() { return retryAfterMillis; }
+    }
+
     private static final String ORIGIN = "https://api.msime.app";
     private static final String SESSION_STORE = "msime_anonymous_session_v1";
     private static final String CREDENTIAL_STORE = "msime_anonymous_account_v1";
     private static final int MAX_RESPONSE_BYTES = 64 * 1024;
     private static final SecureRandom RANDOM = new SecureRandom();
     private static final Object LOCK = new Object();
+    /**
+     * When the login endpoint may be asked again.
+     *
+     * <p>A 429 carries `Retry-After`, and honouring it is not politeness: every catalogue page,
+     * every search and every tab switch asks for a token, so without a gate the host answers a
+     * rate limit by immediately spending another request against it, and the window never clears.
+     * Static because the gate belongs to the endpoint, not to one instance of this class.
+     */
+    private static long nextAttemptAtMillis;
     private final AndroidAccountSessionStorage sessions;
     private final AndroidAccountSessionStorage credentials;
 
@@ -34,7 +61,11 @@ final class BackendAnonymousAccount {
                 String token = tokenFromSession(saved);
                 if (token != null) return token;
             }
+            // 身份先落盘再谈联网：账号是本机自己生成的，不需要后端点头，后端只是发令牌的。
             JSONObject identity = loadOrCreateIdentity();
+            if (System.currentTimeMillis() < nextAttemptAtMillis) {
+                throw new RateLimited(nextAttemptAtMillis - System.currentTimeMillis());
+            }
             JSONObject challenge = request("POST", "/v1/auth/challenges",
                 new JSONObject().put("provider", "anonymous")
                     .put("target", identity.getString("subject"))
@@ -72,6 +103,23 @@ final class BackendAnonymousAccount {
             return subject.matches("msime-[a-z0-9]{16}") ? subject : "";
         } catch (Exception error) {
             return "";
+        }
+    }
+
+    /**
+     * Create the device's anonymous identity if it has none, without reaching the network.
+     *
+     * <p>The identity is generated here, not issued by the backend -- a subject and a secret, both
+     * random, both device-local. So there is no reason to make it wait for a server that may be
+     * refusing requests: it exists as soon as anything asks for it.
+     */
+    String ensureSubject() {
+        synchronized (LOCK) {
+            try {
+                return loadOrCreateIdentity().getString("subject");
+            } catch (Exception | LinkageError error) {
+                return "";
+            }
         }
     }
 
@@ -126,7 +174,17 @@ final class BackendAnonymousAccount {
                 connection.setRequestProperty("Content-Type", "application/json");
                 try (OutputStream output = connection.getOutputStream()) { output.write(payload); }
             }
-            if (connection.getResponseCode() != 200) throw new IllegalStateException("anonymous account unavailable");
+            int status = connection.getResponseCode();
+            if (status == 429) {
+                // 服务端给了重试时间就按它来；没给就退一分钟，别把这件事变成一个忙等的循环。
+                long seconds = Math.max(1, Math.min(3600, connection.getHeaderFieldInt("Retry-After", 60)));
+                synchronized (LOCK) {
+                    nextAttemptAtMillis = System.currentTimeMillis() + seconds * 1000L;
+                }
+                throw new RateLimited(seconds * 1000L);
+            }
+            if (status != 200) throw new IllegalStateException(
+                "anonymous account unavailable: HTTP " + status);
             try (InputStream input = connection.getInputStream()) {
                 return new JSONObject(new String(readBounded(input), StandardCharsets.UTF_8));
             }

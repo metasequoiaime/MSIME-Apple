@@ -3447,6 +3447,8 @@ public final class MSIMEInputService extends InputMethodService {
         for (int start = 0; start < choices.size(); start += 2) {
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
+            // 卡片是小布局，没有文字基线可对齐。
+            row.setBaselineAligned(false);
             for (int slot = 0; slot < 2; slot++) {
                 int index = start + slot;
                 if (index >= choices.size()) {
@@ -4347,15 +4349,15 @@ public final class MSIMEInputService extends InputMethodService {
         if (schemePanel == null) return;
         schemePanel.removeAllViews();
         LinearLayout header = new LinearLayout(this);
-        TextView title = new TextView(this);
-        title.setText("输入方案");
-        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
-        header.addView(title, new LinearLayout.LayoutParams(0,
-            LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        // 标题去掉了：这一屏只有方案卡片，左上返回、右上设置，和母版一致。写着「输入方案」的那行
+        // 字和那颗「返回键盘」按钮，占的是卡片的位置，说的却是用户已经看见的事。
+        Button close = borderlessButton(header, "‹", this::closeSchemePicker);
+        close.setContentDescription("返回键盘");
+        // 高度写 0，不写 WRAP_CONTENT：裸 View 的默认测量在 AT_MOST 下取满可用空间，这一条
+        // 占位会把标题栏撑到整屏高，卡片区就一点高度都分不到了。
+        header.addView(new View(this), new LinearLayout.LayoutParams(0, 0, 1));
         Button settings = borderlessButton(header, "⚙", this::showFeedbackMenu);
         settings.setContentDescription("键盘设置");
-        Button close = button(header, "返回键盘", this::closeSchemePicker);
-        close.setContentDescription("返回键盘");
         schemePanel.addView(header);
         LinearLayout schemeSurface = new LinearLayout(this);
         schemeSurface.setOrientation(LinearLayout.VERTICAL);
@@ -4372,9 +4374,13 @@ public final class MSIMEInputService extends InputMethodService {
         // otherwise. Pinning it to index 2 made a single enabled scheme index past the end of
         // the list, which threw on the main thread and took the IME down with it.
         final int englishIndex = Math.min(2, schemes.size());
+        java.util.List<KeyboardSchemeCard> schemeCards = new java.util.ArrayList<>();
+        java.util.List<Boolean> cardSelection = new java.util.ArrayList<>();
         for (int start = 0; start < cardCount; start += 4) {
             LinearLayout row = new LinearLayout(this);
             row.setOrientation(LinearLayout.HORIZONTAL);
+            // 卡片是小布局，没有文字基线可对齐。
+            row.setBaselineAligned(false);
             for (int slot = 0; slot < 4; slot++) {
                 int index = start + slot;
                 if (index >= cardCount) {
@@ -4383,43 +4389,39 @@ public final class MSIMEInputService extends InputMethodService {
                     continue;
                 }
                 if (index == englishIndex) {
-                    Button card = new KeyboardPressButton(this);
-                    card.setAllCaps(false);
-                    card.setText(schemeCardText("EN", "26", "英文 26 键", schemeTint(null)));
+                    // English is a platform text mode, not a second persisted Engine scheme.
+                    KeyboardSchemeCard card = new KeyboardSchemeCard(
+                        this, "EN", "26", "英文 26 键");
                     card.setOnClickListener(ignored -> {
                         playFeedback(card);
                         selectEnglishScheme();
                     });
                     row.addView(card, new LinearLayout.LayoutParams(0, pixels(72), 1));
-                    card.setSelected(dedicatedEnglish);
                     card.setEnabled(!schemeSaving);
                     card.setContentDescription("输入方案卡片 英文 26 键");
                     if (Build.VERSION.SDK_INT >= 30)
                         card.setStateDescription(dedicatedEnglish ? "已选中" : "未选中");
-                    styleButton(card, true);
+                    schemeCards.add(card);
+                    cardSelection.add(dedicatedEnglish);
                     continue;
                 }
                 int schemeIndex = index > englishIndex ? index - 1 : index;
                 KeyboardScheme scheme = schemes.get(schemeIndex);
                 // Apple renders scheme cards with the same press-feedback surface as keys. Keep
                 // the Android-specific scheme persistence and selection guards in the callback.
-                Button card = new KeyboardPressButton(this);
-                card.setAllCaps(false);
-                card.setText(schemeCardText(scheme.glyph(), scheme.badge(), scheme.title(),
-                    schemeTint(scheme)));
+                KeyboardSchemeCard card = new KeyboardSchemeCard(
+                    this, scheme.glyph(), scheme.badge(), scheme.title());
                 card.setOnClickListener(ignored -> {
                     playFeedback(card);
                     selectKeyboardScheme(scheme);
                 });
                 row.addView(card, new LinearLayout.LayoutParams(0, pixels(72), 1));
-                card.setSelected(scheme == selectedScheme);
                 card.setEnabled(!schemeSaving);
                 card.setContentDescription("输入方案卡片 " + scheme.title());
                 if (Build.VERSION.SDK_INT >= 30)
                     card.setStateDescription(scheme == selectedScheme ? "已选中" : "未选中");
-                LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) card.getLayoutParams();
-                card.setLayoutParams(params);
-                styleButton(card, true);
+                schemeCards.add(card);
+                cardSelection.add(scheme == selectedScheme);
             }
             schemeSurface.addView(row);
         }
@@ -4443,34 +4445,14 @@ public final class MSIMEInputService extends InputMethodService {
         // leave a bare keyboard backdrop below the cards. Apply this after the recursive skin pass:
         // the picker itself remains the patterned backdrop while this inner surface follows the
         // selected skin's key material, including custom Android skins.
-        schemeSurface.setBackground(new KeyboardSkinKeyDrawable(skin,
-            Color.parseColor(skin.keyBackground()), false,
+        int cardSurface = Color.parseColor(skin.keyBackground());
+        schemeSurface.setBackground(new KeyboardSkinKeyDrawable(skin, cardSurface, false,
             getResources().getDisplayMetrics().density));
-    }
-
-    /** Keep the scheme family's visual cue on the glyph while the skin owns the card surface. */
-    private CharSequence schemeCardText(String glyph, String badge, String title, int tint) {
-        String firstLine = glyph + " " + badge;
-        SpannableString label = new SpannableString(firstLine + "\n" + title);
-        label.setSpan(new ForegroundColorSpan(tint), 0, firstLine.length(),
-            Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        return label;
-    }
-
-    private int schemeTint(KeyboardScheme scheme) {
-        if (scheme == null) return schemeColor(0x5B5BD6, 0xA7A7FF); // English text mode.
-        return switch (scheme) {
-            case QUANPIN, QUANPIN_NINE_KEY -> Color.parseColor(skin.accent());
-            case XIAOHE, ZIRANMA, MICROSOFT, SHOUDAO -> schemeColor(0x3F7DE0, 0x8AB4FF);
-            case WUBI -> schemeColor(0x9A6A3A, 0xD5A66A);
-            case JAPANESE_NINE_KEY, JAPANESE -> schemeColor(0xD65A88, 0xFF8CB2);
-            case HANDWRITING -> schemeColor(0x159A9C, 0x56D7D6);
-            case THOUGHTFUL_REPLY -> schemeColor(0xE68A2E, 0xFFB35C);
-        };
-    }
-
-    private int schemeColor(int light, int dark) {
-        return skin.dark() ? dark : light;
+        // 也必须在那一趟之后：它会把每个 TextView 重新刷成 keyForeground，卡片的强调色先上就没了。
+        int cardAccent = Color.parseColor(skin.accent());
+        for (int index = 0; index < schemeCards.size(); index++) {
+            schemeCards.get(index).paint(cardAccent, cardSurface, cardSelection.get(index));
+        }
     }
 
     private void selectEnglishScheme() {

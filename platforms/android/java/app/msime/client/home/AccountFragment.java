@@ -22,10 +22,9 @@ import com.google.android.material.snackbar.Snackbar;
 /**
  * The 我的 tab: who this device is to the backend, what the app looks like, and where content is.
  *
- * There is no sign-in on Android yet. What exists is the anonymous identity the keyboard creates on
- * its first backend request, and that is what this page shows -- naming it is more use than a bare
- * "未登录", because it is the identity the community catalogue is read with. Rows whose destination
- * needs a real account say so rather than opening an empty screen.
+ * 这台设备的身份是自己生成的，不存在登录这一步，所以这一页也不提登录。What it shows is the
+ * device's own anonymous identity -- the one the community catalogue is read with -- and the rows
+ * are the things this host can actually do with it.
  */
 public final class AccountFragment extends HomeTabFragment {
     @Override public View onCreateView(@NonNull LayoutInflater inflater, @Nullable ViewGroup parent,
@@ -49,7 +48,7 @@ public final class AccountFragment extends HomeTabFragment {
         bindContent();
         bindStorage();
         ((TextView) view.findViewById(R.id.account_note)).setText(
-            "水杉在 Android 上还没有登录入口。匿名身份只用来读取社区目录，不携带你的输入内容，也不在设备之间同步。");
+            "这个身份由本机自动生成，不需要注册或登录。它只用来读取社区目录，不携带你的输入内容，也不在设备之间同步。");
     }
 
     private void bind(String subject) {
@@ -57,8 +56,8 @@ public final class AccountFragment extends HomeTabFragment {
         if (view == null) return;
         TextView subtitle = view.findViewById(R.id.account_subtitle);
         subtitle.setText(subject.isEmpty()
-            ? "键盘还没有用到后端，因此还没有匿名身份"
-            : "匿名身份 " + AccountIdentity.shortSubject(subject));
+            ? "本机身份读取失败"
+            : "本机身份 " + AccountIdentity.shortSubject(subject));
     }
 
     private void bindIcons() {
@@ -81,10 +80,7 @@ public final class AccountFragment extends HomeTabFragment {
         divider(rows);
         addRow(rows, R.drawable.ic_feature_skin, R.color.tile_pink, "社区皮肤",
             "保存后在键盘的皮肤面板里选用", () -> openCommunity(CommunityRequest.Kind.SKIN));
-        divider(rows);
-        addRow(rows, R.drawable.ic_tab_community, R.color.tile_green, "我发布的",
-            "需要登录水杉账号，Android 上尚未提供", () -> unavailable(
-                "发布和管理作品需要登录水杉账号。Android 宿主目前只有键盘的匿名身份，没有登录入口。"));
+        // 「我发布的」那一行去掉了：它唯一的作用是告诉用户去登录一个这里不存在、也不需要的账号。
     }
 
     private void bindStorage() {
@@ -170,11 +166,6 @@ public final class AccountFragment extends HomeTabFragment {
 
     private void openTab(int tabId) {
         if (getActivity() instanceof HomeActivity home) home.openTab(tabId);
-    }
-
-    private void unavailable(String message) {
-        View view = getView();
-        if (view != null) Snackbar.make(view, message, Snackbar.LENGTH_LONG).show();
     }
 
     private void addRow(LinearLayout parent, @DrawableRes int icon, @ColorRes int tint,
