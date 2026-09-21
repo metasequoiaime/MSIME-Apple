@@ -4338,11 +4338,13 @@ public final class MSIMEInputService extends InputMethodService {
             toggleReply.setContentDescription(thoughtfulReplyEnabled()
                 ? "禁用高情商回复输入方案" : "启用高情商回复输入方案");
         }
-        TextView hint = new TextView(this);
-        hint.setText(sharedSchemePreferences
-            ? "显示的方案由共享设置管理；切换会先完成当前组词并同步当前方案"
-            : "切换会先完成当前组词，并迁移到共享输入方案设置");
-        schemeSurface.addView(hint);
+        // 共享设置在管方案时不再解释这件事：那句话说的是宿主之间怎么协作，不是用户在这一屏要
+        // 做的决定，而它占着选择器底部——列表短的时候，它比方案本身还显眼。
+        if (!sharedSchemePreferences) {
+            TextView hint = new TextView(this);
+            hint.setText("切换会先完成当前组词，并迁移到共享输入方案设置");
+            schemeSurface.addView(hint);
+        }
         applySkin();
         // Apple keeps the selectable scheme area on a filled key surface, so a short list does not
         // leave a bare keyboard backdrop below the cards. Apply this after the recursive skin pass:
