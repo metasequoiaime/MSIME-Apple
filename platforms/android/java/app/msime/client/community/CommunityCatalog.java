@@ -44,12 +44,15 @@ public final class CommunityCatalog {
 
     /** One page of the catalogue. Never throws: a failure is a page that says why. */
     public Page list(CommunityRequest.Kind kind, String search, int offset) {
-        final String token;
+        // 目录本身是公开的：不带令牌也能读到完整列表，令牌只决定 owned / my_rating 这些跟人
+        // 有关的字段。把它当成硬前提，就会在登录端点被限流（429）或暂时关闭时，把一页本来读得到
+        // 的作品报成「连不上社区」——那句话既不对，也让人去查一个没有问题的网络。
+        String token = null;
         try {
             token = new BackendAnonymousAccount(context).accessToken();
         } catch (Exception | LinkageError error) {
-            // The identity is created on first use, so this is the first thing that fails offline.
-            return new Page(List.of(), false, CommunityRequest.message(null, 0));
+            android.util.Log.i("MSIMECommunity", "Anonymous identity unavailable; listing anyway",
+                error);
         }
         HttpsURLConnection connection = null;
         try {
@@ -72,6 +75,8 @@ public final class CommunityCatalog {
                     new String(readBounded(input), StandardCharsets.UTF_8)));
             }
         } catch (Exception | LinkageError error) {
+            // 说出是哪一步断的。界面上仍然只有那一句，但把原因扔掉，下一次就还得从头猜。
+            android.util.Log.w("MSIMECommunity", "Catalogue request failed", error);
             return new Page(List.of(), false, CommunityRequest.message(null, 0));
         } finally {
             if (connection != null) connection.disconnect();

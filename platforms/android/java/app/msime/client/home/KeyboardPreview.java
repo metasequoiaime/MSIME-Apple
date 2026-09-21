@@ -51,6 +51,12 @@ public final class KeyboardPreview extends View {
         applyBackground();
     }
 
+    /** Built in code, for the community detail sheet, which has no layout of its own. */
+    public KeyboardPreview(Context context) {
+        super(context);
+        applyBackground();
+    }
+
     /**
      * Draw the user's own keyboard.
      *
