@@ -1,5 +1,7 @@
 #import "CloudCandidateRequest.h"
 
+#include "msime_client.h"
+
 @implementation MSIMECloudCandidateRequest {
     NSURL *_url;
     NSURLSessionConfiguration *_configuration;
@@ -19,7 +21,9 @@
         _configuration = [configuration copy];
         _completion = [completion copy];
         _maximumBodyBytes = 262144;
-        _timeout = 2;
+        // NSURLSession has no separate connect budget, so the total is what can be honoured here;
+        // the connect half of the shared pair is a subset of it.
+        _timeout = MSIME_CLOUD_REQUEST_TIMEOUT_MS / 1000.0;
     }
     return self;
 }
