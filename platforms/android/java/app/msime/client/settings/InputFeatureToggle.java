@@ -79,13 +79,24 @@ public enum InputFeatureToggle {
 
     public String description() { return description; }
 
+    // Plain loops rather than streams: `Stream#toList` arrived in API 34 and this host declares
+    // minSdk 28, so it compiles here and throws on most of the devices it ships to.
+
     /** The entries of one group, in declaration order. */
     public static List<InputFeatureToggle> of(Group group) {
-        return java.util.Arrays.stream(values()).filter(value -> value.group == group).toList();
+        List<InputFeatureToggle> entries = new java.util.ArrayList<>();
+        for (InputFeatureToggle value : values()) {
+            if (value.group == group) entries.add(value);
+        }
+        return List.copyOf(entries);
     }
 
     /** Every group that has at least one entry, in declaration order. */
     public static List<Group> groups() {
-        return java.util.Arrays.stream(Group.values()).filter(group -> !of(group).isEmpty()).toList();
+        List<Group> groups = new java.util.ArrayList<>();
+        for (Group group : Group.values()) {
+            if (!of(group).isEmpty()) groups.add(group);
+        }
+        return List.copyOf(groups);
     }
 }
