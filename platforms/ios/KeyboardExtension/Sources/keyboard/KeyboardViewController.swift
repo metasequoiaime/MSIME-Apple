@@ -2738,9 +2738,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     }
     if !hasComposition { applyLearningPreferences() }
     showDiagnostic(snapshot.diagnosticText)
+    // 已选的那一段领在读音前面，与来源把 word_for_creating_word 拼在读音前面是同一件事。这个宿主
+    // 没有编辑框里的组字，候选条这一行就是用户唯一能看见它的地方。
+    let composing = snapshot.phrasePrefix
+      + (inputScheme.isJapanese && !snapshot.reading.isEmpty ? snapshot.reading : snapshot.preedit)
     updateCandidateStrip(
-                         preedit: inputScheme.isJapanese && !snapshot.reading.isEmpty
-                           ? snapshot.reading : snapshot.preedit,
+                         preedit: composing,
                          candidates: snapshot.candidates,
                          candidateCodes: snapshot.candidateCodes,
                          candidateGlosses: snapshot.candidateGlosses,

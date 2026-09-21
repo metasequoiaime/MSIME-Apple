@@ -94,6 +94,11 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
   let commitText: String?
   let preedit: String
   let reading: String
+  /// 已经选中的那一段，运行时替这个宿主留在组字里而不是立刻上屏。
+  ///
+  /// 候选只吃掉部分输入时，引擎会继续组字并把选中的那一段交回来。留住它的宿主必须画出来：请求了
+  /// 却不画，用户已经选中的字既不在文档里也不在屏幕上，而组字在他按取消之前不会结束。
+  let phrasePrefix: String
   let candidates: [String]
   let candidateCodes: [String]
   let candidateGlosses: [String]
@@ -112,6 +117,7 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
   var isInLocalMode: Bool { !localMode.isEmpty && localMode != "none" }
 
   init(isHandled: Bool = false, commitText: String? = nil, preedit: String = "", reading: String = "",
+       phrasePrefix: String = "",
        candidates: [String] = [], candidateCodes: [String] = [], candidateGlosses: [String] = [],
        candidatePageCount: Int = 0, answeredByPinyinFallback: Bool = false,
        diagnosticText: String? = nil, localMode: String = "none",
@@ -120,6 +126,7 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
     self.commitText = commitText
     self.preedit = preedit
     self.reading = reading
+    self.phrasePrefix = phrasePrefix
     self.candidates = candidates
     self.candidateCodes = candidateCodes
     self.candidateGlosses = candidateGlosses
@@ -730,7 +737,12 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
   /// leaving the replay to the caller left the host drawing the nine-key layout over a 26-key
   /// engine after the first personal-dictionary refresh of a keyboard appearance.
   private func createFocusedSession() throws {
-    handle = try Self.callCreateFocused(options)
+    // 选中只吃掉部分输入的候选时，让运行时把已选的那一段留在组字里而不是立刻上屏：用户还在打后
+    // 半截，前半截已经进了文档的话，搜索框会拿半个词去搜，编辑器为它记一次撤销。键盘把它画在候选
+    // 条的读音前面，两件事必须一起做（scripts/test-phrase-preedit-hosts.py 守的就是这一半状态）。
+    var requested = options
+    requested["phrase_preedit"] = true
+    handle = try Self.callCreateFocused(requested)
     if nineKeyEnabled { _ = dispatch { msimeClientSetNineKeyMode(handle, true) } }
   }
 
@@ -930,6 +942,7 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     return MetasequoiaInputSnapshot(isHandled: value["handled"] as? Bool ?? false,
       commitText: value["commit"] as? String, preedit: view["preedit"] as? String ?? "",
       reading: view["reading"] as? String ?? "",
+      phrasePrefix: view["phrase_prefix"] as? String ?? "",
       candidates: rows.compactMap { $0["text"] as? String },
       candidateCodes: rows.map { $0["code"] as? String ?? "" },
       candidateGlosses: rows.map { $0["translation"] as? String ?? "" },

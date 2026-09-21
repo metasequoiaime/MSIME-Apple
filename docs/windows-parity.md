@@ -789,6 +789,17 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 用例：新增 `crates/input-runtime/examples/mixed_slots.rs` 用 `ni` 这个输入（同时产出中文、英文 `ni`、emoji、颜文字，且两种联网源都可用）逐个验四种排布。
 
+增量记录（2026-09-21，iOS 的半截词，外加两处「没人跑过所以没人知道」）：Android 那批末尾写「iOS 要 Xcode 真机链路，本机没有」——第三次错在同一个地方。Xcode 27 装着，模拟器开着，`platforms/ios/README.md` 里那条 `xcodebuild test` 本机就能跑（约十分钟）。跑起来之后发现两件事，都与本批要做的功能无关：
+
+1. **仓库里提交的 `MSIMEClient.xcodeproj` 是陈旧的**：后加的 `KeyboardAppLauncher.swift` 不在工程里，整套编译不过（`cannot find 'KeyboardAppLauncher' in scope`）。README 里「使用仓库中提交的 Xcode 工程」那句话据此改掉：权威来源是 `project.yml`，先 `xcodegen generate`。
+2. **`SmartPunctuationTests` 钉的是一个已经改掉的默认值**：`smart_punctuation_direct_letter` 从 2026-09-20 的「让共享路由认这两个开关」起随父开关默认打开，于是字母后的逗号保持 ASCII，而那条用例仍然断言它变成「，」。没人发现，正是因为这套用例不在 `verify-local.sh` 里，而提交的工程又编不过——两件事叠起来，等于这套用例已经有一阵子没有真正跑过了。用例按现在的默认值改正，并写明改的是哪一条默认值、为什么没人看见。
+
+顺带把跑法写清楚：**临时建一台干净模拟器再删掉**，不要用手边那台。测试宿主带 App Group，读的是共享容器里的偏好，上一次运行留下的值会改变结果——本批第一次就是在一台用过的模拟器上跑出的假失败。
+
+半截词本身：`MetasequoiaInputSnapshot` 带上 `phrase_prefix`，建会话时请求 `phrase_preedit`，候选条那一行画成「已选的那一段 + 读音」。这个宿主没有编辑框里的组字（软键盘直接上屏），候选条就是用户唯一能看见它的地方。全套 229 通过、1 跳过、0 失败（那一跳过是固定词库里没有该候选的英文释义，既有的）。
+
+至此守卫脚本记下的「留在组字里」一侧是 macOS、Linux、Android、iOS；只剩 HarmonyOS（要 DevEco 工具链）与桌面外壳（它没有候选窗，不适用）。
+
 增量记录（2026-09-21，Android 的半截词，以及本机其实一直能验 Android）：第二十七批把「半截词留在组字里」按宿主分期打开时写的理由是「Linux/Harmony/Android 本机既没有容器也没有工具链」。Linux 那一半当天已经被推翻（OrbStack 一直装着），**Android 这一半同样不成立**：固定版本的 NDK 28.2.13676358 在 `~/Library/Android/sdk/ndk` 下、两个 Rust target 都装着、vcpkg 也在——缺的只是 `target/android-deps`（`platforms/android/build-native.sh` 产出的依赖前缀），跑一次就有了。门禁此前读 `ANDROID_SDK_ROOT`/`ANDROID_HOME`，而 Android Studio 在 macOS 上两个都不设，于是那一阶段一直显示 skipped——**它要的东西全都在标准目录里躺着**。现在门禁也认那个默认位置。
 
 更要紧的是 `platforms/android/check-host.sh`：它用 SDK 的 android.jar 编译整个输入法服务（键盘、面板、二十多个策略类）并跑它们的 smoke 用例，不需要设备，本机一直能跑，却从来没进过门禁。现在挂进 `--quick`，一并跑。
