@@ -175,6 +175,41 @@ pub unsafe extern "C" fn msime_client_dictionary(request: *const u8, length: usi
     })
 }
 
+/// The queued personal dictionary, for a host that cannot take the Engine's
+/// maintenance lock when the request arrives.
+///
+/// `msime_client_dictionary` edits the Engine dictionary directly, which needs
+/// the maintenance lock and therefore needs the keyboard not to be holding a
+/// session. That is the right route for an edit made in a settings window while
+/// nothing is being typed, and the wrong one for importing a file: the user is
+/// as likely to do it with the keyboard up, and "dictionary maintenance busy"
+/// is not an answer to "please add these words".
+///
+/// The queue is the answer the Apple and Android hosts already give. Entries go
+/// into `<preferences_directory>/PersonalDictionary` and the keyboard applies
+/// them the next time it starts a session, which is the one moment it is
+/// certain no session is open. This entry point is the same dispatcher those
+/// hosts call as Rust, published for the hosts that reach this crate through
+/// the C ABI.
+/// # Safety
+/// `request` must point to `length` readable bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_personal_dictionary_request(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        // The Apple-compatible import file is bounded at 1 MiB and the request framing needs room
+        // on top of it; `personal_dictionary_request_json` applies the same ceiling itself.
+        if request.is_null() || length > 1_200_000 {
+            return Err("invalid dictionary buffer".into());
+        }
+        // SAFETY: guaranteed by the caller contract above.
+        let bytes = unsafe { std::slice::from_raw_parts(request, length) };
+        personal_dictionary_request_json(bytes)
+    })
+}
+
 /// Validate and normalize one entry without opening or changing dictionary state.
 /// Engine diagnostics are redacted because they can contain submitted text.
 /// # Safety
@@ -812,7 +847,10 @@ fn validate_entry(entry: &Entry) -> Result<(), String> {
     {
         return Err("invalid dictionary entry".into());
     }
-    if matches!(entry.kind, Kind::QuickPhrase) && entry.value.encode_utf16().count() > 199 {
+    if matches!(entry.kind, Kind::QuickPhrase)
+        && entry.value.encode_utf16().count()
+            > msime_client_core::dictionary::import::MAX_QUICK_PHRASE_UTF16
+    {
         return Err("quick phrase too long".into());
     }
     Ok(())

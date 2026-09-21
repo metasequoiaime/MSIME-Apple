@@ -74,14 +74,17 @@ inline std::string polish_prompt_for(const PolishPromptSlots &config) {
     return config.legacy.empty() ? std::string(kCleanupPrompt)
                                         : config.legacy;
   }
+  // An empty slot falls back to the cleanup preset, the same one an unset
+  // configuration gets. The reference sends that text for all three empty slots
+  // (`voice_providers.cpp`); slot two used to send the faithful preset here,
+  // which proof-reads instead of condensing - a different answer from the model
+  // for a slot the user never filled in.
   if (config.id == "custom_2")
-    return config.custom_2.empty()
-               ? std::string(kFaithfulPrompt)
-               : config.custom_2;
+    return config.custom_2.empty() ? std::string(kCleanupPrompt)
+                                   : config.custom_2;
   if (config.id == "custom_3")
-    return config.custom_3.empty()
-               ? std::string(kCleanupPrompt)
-               : config.custom_3;
+    return config.custom_3.empty() ? std::string(kCleanupPrompt)
+                                   : config.custom_3;
   // A preset is selected. A legacy prompt still overrides the built-in text,
   // so an older configuration that only ever set polish_prompt keeps working.
   if (!config.legacy.empty())

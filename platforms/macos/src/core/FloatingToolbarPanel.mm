@@ -417,12 +417,14 @@ NSMenu *CreateMetasequoiaFloatingToolbarUtilityMenu(id target)
     id fontValue = toolbar[@"font_size"] ?: @24;
     const CGFloat scale = [@[@75, @100, @125, @150] containsObject:scaleValue] ? [scaleValue doubleValue] / 100.0 : 1.0;
     const CGFloat fontSize = [@[@16, @18, @20, @22, @24, @26, @28] containsObject:fontValue] ? [fontValue doubleValue] : 24.0;
-    NSArray<NSString *> *keys = @[@"english_mode", @"punctuation", @"fullwidth", @"character_set", @"emoji", @"screen_keyboard", @"settings"];
-    NSArray<NSButton *> *optionalButtons = @[_inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _keyboardButton, _settingsButton];
+    NSArray<NSString *> *keys = @[@"english_mode", @"punctuation", @"fullwidth", @"character_set", @"emoji", @"handwriting", @"screen_keyboard", @"voice", @"settings"];
+    NSArray<NSButton *> *optionalButtons = @[_inputModeButton, _punctuationButton, _fullWidthButton, _traditionalOutputButton, _emojiButton, _handwritingButton, _keyboardButton, _voiceButton, _settingsButton];
     NSUInteger mask = 0;
-    NSUInteger count = 2; // Handwriting and voice are always present.
+    // Every button on this toolbar can now be turned off; the row can be empty.
+    NSUInteger count = 0;
     for (NSUInteger index = 0; index < keys.count; ++index) {
         id value = toolbar[keys[index]];
+        // Only the screen keyboard is off until asked for, as it is on the reference's toolbar.
         const BOOL defaultEnabled = ![keys[index] isEqualToString:@"screen_keyboard"];
         const BOOL enabled = [value isKindOfClass:NSNumber.class] ? [value boolValue] : defaultEnabled;
         if (enabled) { mask |= 1u << index; ++count; }

@@ -22,6 +22,14 @@ void MSIMEApplyTransition(NSDictionary *transition, id<MSIMETextClient> client);
 /// that do not consume shared preferences yet.
 void MSIMEApplyTransitionWithPreeditStyle(NSDictionary *transition, id<MSIMETextClient> client,
                                           MSIMEInlinePreeditStyle style);
+/// The same, carrying a closing mark the host owes the document.
+///
+/// Paired punctuation puts the caret between the two marks, and IMK has no way to move a client's
+/// insertion point. The opening mark is committed as usual and the closing one rides in the marked
+/// text after the caret until the composition ends, so what the user sees is `（|）` and then
+/// `（你好|）`. Passing nil is the ordinary case and behaves exactly as the call above.
+void MSIMEApplyTransitionWithPendingClosing(NSDictionary *transition, id<MSIMETextClient> client,
+                                            MSIMEInlinePreeditStyle style, NSString *closing);
 // UTF-16 display offset shared by marked text and the candidate preedit row.
 NSUInteger MSIMEPreeditCaretPosition(NSString *editing, NSString *preedit, id position);
 

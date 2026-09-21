@@ -31,6 +31,7 @@ import {
 } from "@msime/ui";
 import { validateGitHubRelease } from "../../../../packages/ui/src/settings/update-manifest";
 import { candidateSkinPalette } from "../../../../packages/ui/src/skin/skin-preview-palette";
+import { answerConfirm } from "../support/confirm";
 
 afterEach(cleanup);
 
@@ -157,7 +158,6 @@ test("titlebar sits above the shared sidebar and content body", async () => {
 
 test("Android fuzzy-pinyin settings preserve rules while disabled and reset explicitly", async () => {
   const save = vi.fn().mockResolvedValue(initial);
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   render(<SettingsPage client={{ load: async () => initial, save, fuzzyPinyin: true }} />);
   await screen.findByRole("button", { name: "保存设置" });
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
@@ -175,10 +175,10 @@ test("Android fuzzy-pinyin settings preserve rules while disabled and reset expl
   expect(rule.checked).toBe(true);
   expect(rule.disabled).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "重置模糊音配置" }));
-  expect(confirm).toHaveBeenCalledWith("关闭模糊音并清空所有规则？");
+  expect((await screen.findByRole("alertdialog")).textContent).toContain("所有模糊音规则会被清空");
+  await answerConfirm("confirm");
   expect(enabled.checked).toBe(false);
   expect(rule.checked).toBe(false);
-  confirm.mockRestore();
 });
 
 test("Android fuzzy-pinyin first enable seeds every rule once", async () => {
@@ -1164,7 +1164,7 @@ test("input parity controls persist cloud, translation and punctuation settings"
   // Anchored too: 重复标点转中文 names 智能标点 in its description, because the reference's wording
   // for it states the precondition rather than leaving the pair's relationship to be guessed.
   fireEvent.click(screen.getByRole("checkbox", { name: /^智能标点/ }));
-  fireEvent.change(screen.getByLabelText("标点锁定"), { target: { value: "english" } });
+  fireEvent.change(screen.getByLabelText("固定标点"), { target: { value: "english" } });
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(client.save).toHaveBeenCalledWith(7, {
@@ -1867,6 +1867,8 @@ test("dictionary manager queries, edits and removes Engine entries", async () =>
   expect(list).toHaveBeenCalledWith(0, 100, "quick_phrase", "");
   fireEvent.click(screen.getByRole("button", { name: "编辑" }));
   fireEvent.change(screen.getByLabelText("短语"), { target: { value: "updated" } });
+  // The entry editor has its own 保存; 保存设置 in the footer writes the preferences document and
+  // never touches the dictionary. A rename of the footer button swept this one up with it.
   fireEvent.click(screen.getByRole("button", { name: "保存" }));
   await waitFor(() =>
     expect(edit).toHaveBeenCalledWith(
@@ -1876,13 +1878,11 @@ test("dictionary manager queries, edits and removes Engine entries", async () =>
     ),
   );
   // Deletion is not undoable, so it asks first.
-  const confirmRemoval = vi.spyOn(window, "confirm").mockReturnValue(true);
   fireEvent.click(await screen.findByRole("button", { name: "删除" }));
+  await answerConfirm("confirm");
   await waitFor(() =>
     expect(edit).toHaveBeenCalledWith(quick, null, expect.stringMatching(/^ui-remove-/)),
   );
-  expect(confirmRemoval).toHaveBeenCalled();
-  confirmRemoval.mockRestore();
 });
 
 test("dictionary manager pages through entries instead of loading the whole dictionary", async () => {
@@ -2042,7 +2042,9 @@ test("macOS exposes its native server logger without a Windows TSF switch", asyn
   );
   fireEvent.click(screen.getByRole("button", { name: "关于" }));
   expect(await screen.findByRole("heading", { name: "关于" })).toBeDefined();
-  expect(screen.getByLabelText("Server 端日志")).toBeDefined();
+  // macOS has no Server process, so the switch is named for what it actually logs here.
+  expect(screen.getByLabelText("输入法日志")).toBeDefined();
+  expect(screen.queryByLabelText("Server 端日志")).toBeNull();
   expect(screen.queryByLabelText("TSF 端日志")).toBeNull();
   expect(screen.queryByLabelText("IBus 宿主日志")).toBeNull();
 });
@@ -2697,9 +2699,8 @@ test("screen keyboard theme and Apple skin load, save independently and reload",
   expect(preview.getAttribute("data-preview-skin")).toBe("forest");
   fireEvent.change(select, { target: { value: "follow" } });
   expect(preview.getAttribute("data-preview-theme")).toBe("light");
-  const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(true);
   fireEvent.click(screen.getByRole("button", { name: "重新读取" }));
-  confirm.mockRestore();
+  await answerConfirm("confirm");
   await waitFor(() => expect(select.value).toBe("dark"));
   expect(preview.getAttribute("data-preview-theme")).toBe("dark");
   expect(preview.getAttribute("data-preview-skin")).toBe("midnight");
@@ -3001,9 +3002,8 @@ test("toolbar theme loads, previews independently, saves and reloads", async () 
     ),
   );
   fireEvent.change(select, { target: { value: "dark" } });
-  const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(true);
   fireEvent.click(screen.getByRole("button", { name: "重新读取" }));
-  confirm.mockRestore();
+  await answerConfirm("confirm");
   await waitFor(() => expect(select.value).toBe("follow"));
 });
 
@@ -3122,9 +3122,8 @@ test("appearance preview follows drafts, skin selection and reload without savin
   fireEvent.click(screen.getByRole("button", { name: "外观" }));
   expect(preview.querySelector(".skin-wechat")).not.toBeNull();
   expect(save).not.toHaveBeenCalled();
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   fireEvent.click(screen.getByRole("button", { name: "重新读取" }));
-  confirm.mockRestore();
+  await answerConfirm("confirm");
   await waitFor(() => expect(preview.querySelectorAll(".cand")).toHaveLength(5));
   expect(preview.querySelector(".skin-willow_green")).not.toBeNull();
   expect(preview.querySelector(".pinyin")).not.toBeNull();
@@ -3399,12 +3398,75 @@ test("floating toolbar settings use Windows defaults and persist independently",
       punctuation: true,
       character_set: true,
       emoji: true,
+      // This host draws no handwriting or voice button on its toolbar, so neither switch is offered
+      // here - the values ride along at their defaults.
+      handwriting: true,
       screen_keyboard: true,
+      voice: true,
       settings: true,
       scale_percent: 125,
       font_size: 28,
     },
   });
+});
+
+// The handwriting and voice buttons are this client's own additions to the toolbar and only one host
+// draws them. A switch for them anywhere else would turn off something that is not there, and having
+// no switch at all - which is how they shipped - leaves two buttons the user cannot remove.
+test("the toolbar's handwriting and voice switches follow the host that draws them", async () => {
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn().mockImplementation(async (_revision, preferences) => ({
+      ...initial,
+      revision: 8,
+      preferences,
+    })),
+    host: macosHostCapabilities as HostCapabilities,
+  };
+  render(<SettingsPage client={client} />);
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "悬浮工具栏" }));
+  const handwriting = (await screen.findByRole("checkbox", {
+    name: "手写识别板",
+  })) as HTMLInputElement;
+  const voice = screen.getByRole("checkbox", { name: "语音输入" }) as HTMLInputElement;
+  // Both buttons are on the toolbar today, so both start on: turning the switches on for the first
+  // time must not make two buttons disappear.
+  expect(handwriting.checked).toBe(true);
+  expect(voice.checked).toBe(true);
+
+  fireEvent.click(handwriting);
+  fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
+  await waitFor(() => expect(client.save).toHaveBeenCalled());
+  const [, saved] = (client.save as ReturnType<typeof vi.fn>).mock.calls.at(-1) as [
+    number,
+    Preferences,
+  ];
+  expect(saved.floating_toolbar.handwriting).toBe(false);
+  expect(saved.floating_toolbar.voice).toBe(true);
+});
+
+test("a host without those toolbar buttons is not offered their switches", async () => {
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        host: {
+          ...macosHostCapabilities,
+          floating_toolbar_handwriting: false,
+          floating_toolbar_voice: false,
+        } as HostCapabilities,
+      }}
+    />,
+  );
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "悬浮工具栏" }));
+  // The rest of the component list is still there, so this is about those two and not about the
+  // section having failed to render.
+  expect(await screen.findByRole("checkbox", { name: "表情与符号" })).toBeTruthy();
+  expect(screen.queryByRole("checkbox", { name: "手写识别板" })).toBeNull();
+  expect(screen.queryByRole("checkbox", { name: "语音输入" })).toBeNull();
 });
 
 test("help, about and feedback pages expose their Windows content and actions", async () => {
@@ -3778,7 +3840,6 @@ test("the full-width chord row is macOS only", async () => {
 });
 
 test("restore defaults stages the host's defaults instead of writing them", async () => {
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   const save = vi.fn().mockResolvedValue({ ...initial, revision: 8 });
   // What the host hands back: settings at their defaults, the key it was told to keep still there.
   const restored = {
@@ -3802,11 +3863,11 @@ test("restore defaults stages the host's defaults instead of writing them", asyn
   );
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "恢复默认设置" }));
+  await answerConfirm("confirm");
   // Staged, not written: the page says to save, and nothing has been sent yet.
   await screen.findByText("所有设置已恢复默认，请点击保存设置。");
   expect(loadDefaultPreferences).toHaveBeenCalledOnce();
   expect(save).not.toHaveBeenCalled();
-  expect(confirm).toHaveBeenCalled();
 
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
@@ -3817,11 +3878,9 @@ test("restore defaults stages the host's defaults instead of writing them", asyn
       voice_input: expect.objectContaining({ asr_token: "kept-by-the-host" }),
     }),
   );
-  confirm.mockRestore();
 });
 
 test("restore defaults declined leaves the draft alone", async () => {
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
   const loadDefaultPreferences = vi.fn();
   render(
     <SettingsPage
@@ -3835,8 +3894,8 @@ test("restore defaults declined leaves the draft alone", async () => {
   );
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "恢复默认设置" }));
+  await answerConfirm("cancel");
   expect(loadDefaultPreferences).not.toHaveBeenCalled();
-  confirm.mockRestore();
 });
 
 test("a host without the defaults command shows no restore button", async () => {
@@ -3859,7 +3918,7 @@ test("a host without the defaults command shows no restore button", async () => 
 // repo used to keep the whole block of theme selects, does.
 // The reference window's 输入 page, in its order, same rules as the appearance one below: only the
 // sections it also has, only their relative order. The settings this client adds -- 全拼纠错, 模糊音,
-// 全角输入, 标点锁定, 英文建议 and the rest -- sit next to the reference section they belong with, so
+// 全角输入, 英文建议 and the rest -- sit next to the reference section they belong with, so
 // they are free to move without touching this list.
 // A section title is the element's own text plus a nested <small> description, so read only the
 // direct text nodes: "中文标点" has to stay distinguishable from "中文标点后按空格转换".
@@ -3931,6 +3990,7 @@ const referenceSections: { page: string; button: string; titles: string[] }[] = 
       "智能标点",
       "重复标点转中文",
       "成对标点自动补全",
+      "固定标点",
       "中英混输",
       "默认中英文",
       "中英文状态",
@@ -3984,6 +4044,75 @@ const referenceSections: { page: string; button: string; titles: string[] }[] = 
     titles: ["打开手写识别板"],
   },
   {
+    page: "voice",
+    button: "语音输入",
+    titles: [
+      // 来源的「基础设置」与「启用语音输入」在这里合成一节。
+      "语音输入",
+      // 来源：ASR API。
+      "识别服务",
+      "豆包识别选项",
+      // 来源：文本润色 API。
+      "文本润色 provider",
+      "录音时静音其他声音",
+      // 来源：语音输入快捷键。三个长按组合的键名按平台改写（Option/Command 对 Alt/Win），
+      // 所以这里只钉小节本身，键名由各自平台的用例覆盖。
+      "语音快捷键",
+    ],
+  },
+  {
+    page: "skin",
+    button: "皮肤",
+    titles: [
+      // 来源把四套内置皮肤各自做成一节；这里是一个皮肤选择器，四套在同一个卡片列表里，
+      // 所以只有「外部皮肤」是小节。皮肤本身四套都在（CandidateSkin.cpp 与皮肤页的名字）。
+      "外部皮肤",
+    ],
+  },
+  {
+    page: "dictionary",
+    button: "词库",
+    titles: [
+      // 来源分成「批量导入纯汉字词组」与「导出词库」两节；这里是一节带类别选择的词库管理，
+      // 查询、新增、编辑、导入、导出都在其中，导入说明里写明支持纯汉字自动注音。
+      "本地词库管理",
+    ],
+  },
+  {
+    page: "ai",
+    button: "AI 辅助",
+    titles: [
+      // 来源：启用 AI 联想。这里的开关还管 iOS 键盘的 AI 回复与 Android 的选中文字润色，
+      // 所以名字不按来源收窄到候选联想。
+      "启用 AI 辅助",
+      // 来源把这些放在「API 配置」一节里，这里各自成行。
+      "服务提供商",
+      "模型",
+      "接口地址",
+      "API Token",
+    ],
+  },
+  {
+    page: "shortcuts",
+    button: "快捷键",
+    titles: [
+      // 来源：中英文切换。简繁切换在来源是并列的一节，这里是这一节里的一行，且键名按平台
+      // 改写（Control 对 Ctrl），所以不在这里钉。
+      "输入模式切换",
+      "候选操作",
+      // 来源：全局快捷键。
+      "面板快捷键",
+    ],
+  },
+  {
+    page: "about",
+    button: "关于",
+    titles: [
+      // 来源另有「TSF 端日志」，那是 Windows 的 TIP 进程，按平台门控。
+      "Server 端日志",
+    ],
+  },
+  {
     page: "help",
     button: "帮助",
     titles: ["快速上手", "基本功能"],
@@ -3998,6 +4127,14 @@ test.each(referenceSections)(
         client={{
           load: vi.fn().mockResolvedValue(initial),
           save: vi.fn(),
+          // The dictionary and skin pages render their sections only once the host offers them
+          // anything to show; without these two the pages would be empty and the table would be
+          // asserting nothing about them.
+          dictionary: {
+            list: vi.fn().mockResolvedValue({ entries: [], has_more: false }),
+            edit: vi.fn(),
+          },
+          scanSkinCatalog: vi.fn().mockResolvedValue({ skins: [] }),
           // The capabilities `host_surface.rs` gives the Windows host, since these are the
           // reference's own sections: several of them are behind a capability and a bare fixture
           // would assert they are missing when the host simply never declared it.
@@ -4009,6 +4146,10 @@ test.each(referenceSections)(
             candidate_font_controls: true,
             candidate_follow_cursor: true,
             ime_mode_scope: true,
+            // `for_platform(Windows)` declares both, and the shortcut page's sections are behind
+            // them; without these the table would pass by asserting a page that rendered nothing.
+            mode_switch_shortcuts: true,
+            panel_shortcuts: true,
           } as HostCapabilities,
         }}
       />,
@@ -4018,6 +4159,100 @@ test.each(referenceSections)(
     const page = await screen.findByRole("group", { name: button });
     const present = sectionTitles(page);
     expect(titles.filter((title) => !present.includes(title))).toEqual([]);
+  },
+);
+
+/**
+ * The same sections, asked of the macOS host.
+ *
+ * The table above renders with Windows' capabilities because the sections are the reference
+ * window's. That says nothing about the host this client is migrating them to: a section behind a
+ * capability macOS does not declare, or behind a platform name, would be missing there and the
+ * assertion above would still pass. This is the same table against `for_platform(Macos)`.
+ *
+ * A section macOS legitimately does not show is named here with the reason, and an entry that stops
+ * being needed fails, so the list cannot outlive what it explains.
+ */
+/** What `host_surface.rs` answers for HostPlatform::Macos, field for field. */
+const macosHostCapabilities = {
+  platform: "macos",
+  restart_input_method: true,
+  panel_windows: true,
+  ime_mode_scope: true,
+  typing_statistics: true,
+  fuzzy_pinyin: true,
+  system_fonts: true,
+  window_chrome: true,
+  floating_toolbar: true,
+  floating_toolbar_appearance: true,
+  floating_toolbar_components: true,
+  // Only this host's toolbar carries these two buttons, so only here are their switches offered.
+  floating_toolbar_handwriting: true,
+  floating_toolbar_voice: true,
+  mode_switch_shortcuts: true,
+  panel_shortcuts: true,
+  number_row_selection: false,
+  voice_capture_devices: true,
+  candidate_font_controls: true,
+  candidate_row_colors: true,
+  candidate_selection_appearance: true,
+  candidate_follow_cursor: true,
+  input_mode_hud: true,
+  voice_commit_mode: true,
+  shuangpin_preedit: true,
+  candidate_english_font: true,
+} as HostCapabilities;
+
+const macosAbsentSections: Record<string, string> = {
+  // The Windows font row carries this note; macOS applies the family without a restart, and its
+  // font controls are the shared three (main, supplementary, English) rather than Windows' pair.
+  保存后自动应用: "a Windows-only note on its own font row",
+  // The handwriting panel needs the input method process's IMK session, and the settings window is
+  // a different process. macOS shows a card saying to open it from the toolbar or the input menu
+  // instead of a button that could not work from here.
+  打开手写识别板: "the panel is opened from the input method, not from this window",
+  // The reference answers a new user's questions as prose. macOS answers the same ones as term and
+  // description rows (`macosHelpCards`), because the three that actually come up there - how to
+  // switch to English, how to select a candidate, why the input source is missing from the menu -
+  // want to be findable rather than read through.
+  快速上手: "macOS answers the same questions as help cards",
+  // macOS runs no Server process; the same switch is 输入法日志 there, named for the focus and
+  // preference events it actually records.
+  "Server 端日志": "macOS names this 输入法日志, having no Server process",
+  基本功能: "macOS answers the same questions as help cards",
+};
+
+test.each(referenceSections)(
+  "the $page page carries the reference window's sections on macOS too",
+  async ({ button, titles }) => {
+    render(
+      <SettingsPage
+        client={{
+          load: vi.fn().mockResolvedValue(initial),
+          save: vi.fn(),
+          // What `host_surface.rs` gives HostPlatform::Macos, so a missing section is a difference
+          // in the page rather than a capability the fixture forgot to declare.
+          host: macosHostCapabilities,
+          dictionary: {
+            list: vi.fn().mockResolvedValue({ entries: [], has_more: false }),
+            edit: vi.fn(),
+          },
+          scanSkinCatalog: vi.fn().mockResolvedValue({ skins: [] }),
+        }}
+      />,
+    );
+    await settingsReady();
+    fireEvent.click(screen.getByRole("button", { name: button }));
+    const page = await screen.findByRole("group", { name: button });
+    const present = sectionTitles(page);
+    const wanted = titles.filter((title) => !(title in macosAbsentSections));
+    expect(wanted.filter((title) => !present.includes(title))).toEqual([]);
+    for (const [title, reason] of Object.entries(macosAbsentSections)) {
+      if (!titles.includes(title)) continue;
+      expect(present.includes(title), `${title} is shown on macOS after all: ${reason}`).toBe(
+        false,
+      );
+    }
   },
 );
 
@@ -4049,6 +4284,105 @@ const referenceOptions: { page: string; button: string; control: string; options
     options: ["拼音分词", "不显示"],
   },
   {
+    page: "appearance",
+    button: "外观",
+    control: "候选窗字号",
+    options: Array.from({ length: 21 }, (_, index) => String(index + 12)),
+  },
+  {
+    page: "appearance",
+    button: "外观",
+    control: "候选窗预编辑字号",
+    options: Array.from({ length: 21 }, (_, index) => String(index + 12)),
+  },
+  {
+    page: "appearance",
+    button: "外观",
+    control: "主题模式",
+    options: ["深色", "浅色", "跟随系统"],
+  },
+  {
+    page: "appearance",
+    button: "外观",
+    control: "设置界面主题",
+    options: ["跟随全局", "深色", "浅色"],
+  },
+  {
+    // This one read 跟随 where every other surface theme - and the reference - says 跟随全局.
+    page: "appearance",
+    button: "外观",
+    control: "候选窗口主题",
+    options: ["跟随全局", "深色", "浅色"],
+  },
+  {
+    page: "input",
+    button: "输入",
+    control: "双拼方案",
+    options: ["小鹤双拼", "自然码双拼", "首道双拼", "微软双拼"],
+  },
+  {
+    page: "input",
+    button: "输入",
+    control: "触发字符数",
+    options: ["1", "2", "3", "4", "5", "6", "7", "8"],
+  },
+  {
+    page: "input",
+    button: "输入",
+    control: "调频方式",
+    options: ["关闭", "一次置顶", "折半调频", "线性调频", "一次置前"],
+  },
+  {
+    page: "input",
+    button: "输入",
+    control: "触发频次(第几次上屏触发)",
+    options: ["1", "2", "3", "4", "5", "6"],
+  },
+  {
+    page: "input",
+    button: "输入",
+    control: "线性调频步长",
+    options: ["1", "2", "3", "4", "5", "6"],
+  },
+  {
+    page: "helpcode",
+    button: "辅助码",
+    control: "双拼辅助码方案",
+    options: ["蓝天小雨点", "自然码", "首右2.0", "首右plus", "小鹤", "加加"],
+  },
+  {
+    page: "helpcode",
+    button: "辅助码",
+    control: "全拼辅助码方案",
+    options: ["蓝天小雨点", "自然码", "首右2.0", "首右plus", "小鹤", "加加"],
+  },
+  {
+    page: "floating-toolbar",
+    button: "悬浮工具栏",
+    control: "工具栏缩放",
+    options: ["75%", "100%", "125%", "150%"],
+  },
+  {
+    page: "floating-toolbar",
+    button: "悬浮工具栏",
+    control: "图标尺寸",
+    options: ["16", "18", "20", "22", "24", "26", "28"],
+  },
+  {
+    // The four built-in prompts, named as the reference names them in the same table the prompts
+    // themselves were copied from. The three custom slots are this client's.
+    page: "voice",
+    button: "语音输入",
+    control: "润色方案",
+    options: ["精炼整理", "忠实校对", "中翻英", "口语整理", "自定义一", "自定义二", "自定义三"],
+  },
+  {
+    page: "input",
+    button: "输入",
+    control: "固定标点",
+    options: ["跟随中英文状态", "始终使用中文标点", "始终使用英文标点"],
+  },
+  {
     page: "input",
     button: "输入",
     control: "默认中英文",
@@ -4062,23 +4396,45 @@ const referenceOptions: { page: string; button: string; control: string; options
   },
 ];
 
-test.each(referenceOptions)(
-  "$control offers the reference window's choices",
-  async ({ button, control, options }) => {
+const optionHosts: [string, HostCapabilities][] = [
+  [
+    "windows",
+    {
+      platform: "windows",
+      floating_toolbar: true,
+      floating_toolbar_components: true,
+      floating_toolbar_appearance: true,
+      candidate_font_controls: true,
+      candidate_follow_cursor: true,
+      ime_mode_scope: true,
+      mode_switch_shortcuts: true,
+      panel_shortcuts: true,
+    } as HostCapabilities,
+  ],
+  // The same lists, asked of macOS. A choice that exists on one host and not the other is a
+  // difference in the page, and this is the layer where one hid: the candidate page sizes were
+  // 5/7/9 here and 3-9 in the reference until the host stopped rewriting them.
+  ["macos", macosHostCapabilities],
+];
+
+test.each(
+  referenceOptions.flatMap((entry) =>
+    optionHosts.map(([platform, host]) => ({ ...entry, platform, host })),
+  ),
+)(
+  "$control offers the reference window's choices on $platform",
+  async ({ button, control, options, host }) => {
     render(
       <SettingsPage
         client={{
           load: vi.fn().mockResolvedValue(initial),
           save: vi.fn(),
-          host: {
-            platform: "windows",
-            floating_toolbar: true,
-            floating_toolbar_components: true,
-            floating_toolbar_appearance: true,
-            candidate_font_controls: true,
-            candidate_follow_cursor: true,
-            ime_mode_scope: true,
-          } as HostCapabilities,
+          host,
+          dictionary: {
+            list: vi.fn().mockResolvedValue({ entries: [], has_more: false }),
+            edit: vi.fn(),
+          },
+          scanSkinCatalog: vi.fn().mockResolvedValue({ skins: [] }),
         }}
       />,
     );
@@ -4089,85 +4445,91 @@ test.each(referenceOptions)(
   },
 );
 
-test("the input page follows the reference window's order", async () => {
-  render(
-    <SettingsPage
-      client={{
-        load: vi.fn().mockResolvedValue(initial),
-        save: vi.fn(),
-        host: { platform: "windows", floating_toolbar: true } as HostCapabilities,
-      }}
-    />,
-  );
-  await settingsReady();
-  // The page starts on 外观, and a hidden fieldset is out of the accessibility tree.
-  fireEvent.click(screen.getByRole("button", { name: "输入" }));
-  const input = await screen.findByRole("group", { name: "输入" });
-  const present = sectionTitles(input);
-  const reference = [
-    "输入模式",
-    "输入方案",
-    "双拼方案",
-    "五笔方案",
-    "日语方案",
-    "翻页方式",
-    "候选词翻译",
-    "以词定字",
-    "中文标点",
-    "智能标点",
-    "重复标点转中文",
-    "成对标点自动补全",
-    "中英混输",
-    "默认中英文",
-    "中英文状态",
-    "简繁输入",
-    "云候选",
-    "拼音方案调频",
-  ];
-  const ordered = present.filter((text) => reference.includes(text));
-  // 输入方案 has a touch variant and a desktop variant; only one is ever shown, but both can be in
-  // the tree, so collapse a repeat rather than reading it as a move.
-  const collapsed = ordered.filter((title, index) => title !== ordered[index - 1]);
-  expect(collapsed).toEqual(reference.filter((title) => collapsed.includes(title)));
-  expect(collapsed.length).toBeGreaterThanOrEqual(12);
-});
+test.each(optionHosts)(
+  "the input page follows the reference window's order on %s",
+  async (_platform, host) => {
+    render(
+      <SettingsPage
+        client={{
+          load: vi.fn().mockResolvedValue(initial),
+          save: vi.fn(),
+          host,
+        }}
+      />,
+    );
+    await settingsReady();
+    // The page starts on 外观, and a hidden fieldset is out of the accessibility tree.
+    fireEvent.click(screen.getByRole("button", { name: "输入" }));
+    const input = await screen.findByRole("group", { name: "输入" });
+    const present = sectionTitles(input);
+    const reference = [
+      "输入模式",
+      "输入方案",
+      "双拼方案",
+      "五笔方案",
+      "日语方案",
+      "翻页方式",
+      "候选词翻译",
+      "以词定字",
+      "中文标点",
+      "智能标点",
+      "重复标点转中文",
+      "成对标点自动补全",
+      "中英混输",
+      "默认中英文",
+      "中英文状态",
+      "简繁输入",
+      "云候选",
+      "拼音方案调频",
+    ];
+    const ordered = present.filter((text) => reference.includes(text));
+    // 输入方案 has a touch variant and a desktop variant; only one is ever shown, but both can be in
+    // the tree, so collapse a repeat rather than reading it as a move.
+    const collapsed = ordered.filter((title, index) => title !== ordered[index - 1]);
+    expect(collapsed).toEqual(reference.filter((title) => collapsed.includes(title)));
+    expect(collapsed.length).toBeGreaterThanOrEqual(12);
+  },
+);
 
-test("the appearance page follows the reference window's order", async () => {
-  render(
-    <SettingsPage
-      client={{
-        load: vi.fn().mockResolvedValue(initial),
-        save: vi.fn(),
-        host: { platform: "windows", floating_toolbar: true } as HostCapabilities,
-      }}
-    />,
-  );
-  await settingsReady();
-  const appearance = screen.getByRole("group", { name: "外观" });
-  const present = sectionTitles(appearance);
-  const reference = [
-    "候选窗口跟随光标",
-    "候选窗主字体",
-    "候选窗字号",
-    "候选窗预编辑字号",
-    "候选文字颜色",
-    "每页候选项数量",
-    "主题模式",
-    "设置界面主题",
-    "候选窗口主题",
-    "悬浮工具栏主题",
-    "菜单主题",
-    "表情面板主题",
-    "手写识别板主题",
-    "语音输入弹出条主题",
-    "候选项排列方式",
-    "行内预编辑",
-    "候选窗预编辑",
-  ];
-  const ordered = present.filter((text) => reference.includes(text));
-  expect(ordered).toEqual(reference.filter((title) => ordered.includes(title)));
-  expect(ordered.length).toBeGreaterThanOrEqual(10);
-});
+test.each(optionHosts)(
+  "the appearance page follows the reference window's order on %s",
+  async (_platform, host) => {
+    render(
+      <SettingsPage
+        client={{
+          load: vi.fn().mockResolvedValue(initial),
+          save: vi.fn(),
+          host,
+        }}
+      />,
+    );
+    await settingsReady();
+    const appearance = screen.getByRole("group", { name: "外观" });
+    const present = sectionTitles(appearance);
+    const reference = [
+      "候选窗口跟随光标",
+      "候选窗主字体",
+      "候选窗字号",
+      "候选窗预编辑字号",
+      "候选文字颜色",
+      "每页候选项数量",
+      "主题模式",
+      "设置界面主题",
+      "候选窗口主题",
+      "悬浮工具栏主题",
+      "菜单主题",
+      "表情面板主题",
+      "手写识别板主题",
+      "语音输入弹出条主题",
+      "候选项排列方式",
+      "行内预编辑",
+      "候选窗预编辑",
+    ];
+    const ordered = present.filter((text) => reference.includes(text));
+    expect(ordered).toEqual(reference.filter((title) => ordered.includes(title)));
+    expect(ordered.length).toBeGreaterThanOrEqual(10);
+  },
+);
 
 test("macOS enables the shuangpin profile menu only under shuangpin", async () => {
   render(
@@ -4685,8 +5047,32 @@ test("cloud dictionary panel supports paging and CRUD actions", async () => {
   panel.unmount();
 });
 
+test("a cloud dictionary file is decoded the same way the local import decodes it", async () => {
+  const request = vi.fn().mockResolvedValue({});
+  render(<CloudDictionaryFilesPanel client={{ close: vi.fn(), request }} />);
+  // "你好\tni'hao\n" as GB18030, which Windows dictionary tools still write. Decoded as UTF-8
+  // it becomes replacement characters and contains no NUL, so the panel's only guard passed and
+  // a cloud dictionary of "\ufffd" was uploaded without a word of complaint.
+  const bytes = new Uint8Array([
+    0xc4, 0xe3, 0xba, 0xc3, 0x09, 0x6e, 0x69, 0x27, 0x68, 0x61, 0x6f, 0x0a,
+  ]);
+  fireEvent.change(screen.getByLabelText("选择文件"), {
+    target: { files: [new File([bytes], "gb18030.tsv")] },
+  });
+  expect(await screen.findByText("gb18030.tsv")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "确认上传到云端" }));
+  await answerConfirm("confirm");
+  await waitFor(() =>
+    expect(request).toHaveBeenCalledWith({
+      operation: "import",
+      kind: "pinyin",
+      format: "standard",
+      text: "你好\tni'hao\n",
+    }),
+  );
+});
+
 test("cloud dictionary files previews, confirms and preserves bounded import/export contracts", async () => {
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   const request = vi
     .fn()
     .mockImplementation(async (action: { operation: string; kind?: string; format?: string }) =>
@@ -4694,10 +5080,14 @@ test("cloud dictionary files previews, confirms and preserves bounded import/exp
     );
   render(<CloudDictionaryFilesPanel client={{ close: vi.fn(), request }} />);
   const file = new File(["ni\t你\n"], "words.tsv", { type: "text/tab-separated-values" });
-  fireEvent.change(screen.getByLabelText("选择 UTF-8 文件"), { target: { files: [file] } });
+  fireEvent.change(screen.getByLabelText("选择文件"), { target: { files: [file] } });
   expect(await screen.findByText("words.tsv")).toBeDefined();
   expect(request).not.toHaveBeenCalledWith(expect.objectContaining({ operation: "import" }));
   fireEvent.click(screen.getByRole("button", { name: "确认上传到云端" }));
+  expect((await screen.findByRole("alertdialog")).textContent).toContain(
+    "按“标准 TSV”导入拼音词库",
+  );
+  await answerConfirm("confirm");
   await waitFor(() =>
     expect(request).toHaveBeenCalledWith({
       operation: "import",
@@ -4715,10 +5105,8 @@ test("cloud dictionary files previews, confirms and preserves bounded import/exp
     }),
   );
   const oversized = new File(["x".repeat(65537)], "large.tsv", { type: "text/plain" });
-  fireEvent.change(screen.getByLabelText("选择 UTF-8 文件"), { target: { files: [oversized] } });
+  fireEvent.change(screen.getByLabelText("选择文件"), { target: { files: [oversized] } });
   expect(await screen.findByText("导入文件必须大于 0 且不超过 64 KiB")).toBeDefined();
-  expect(confirm).toHaveBeenCalledWith(expect.stringContaining("确认按“标准 TSV”导入"));
-  confirm.mockRestore();
 });
 
 test("cloud dictionary entries open their editor from the row on touch layouts", async () => {
@@ -4747,19 +5135,17 @@ test("cloud dictionary deletion asks for confirmation before changing the cloud 
     weight: 100,
     revision: 2,
   };
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(false);
   const request = vi.fn().mockResolvedValue({ entries: [entry], has_more: false, offset: 0 });
   render(<CloudDictionaryPanel client={{ close: vi.fn(), request }} />);
   await screen.findByText("你");
   fireEvent.click(screen.getByRole("button", { name: "删除" }));
-  expect(confirm).toHaveBeenCalledWith("确认删除云词条“你”？仅删除云端版本，本机词库不会改变。");
+  expect((await screen.findByRole("alertdialog")).textContent).toContain("“你”只会从云端删除");
+  await answerConfirm("cancel");
   expect(request).not.toHaveBeenCalledWith(expect.objectContaining({ operation: "delete" }));
-  confirm.mockRestore();
 });
 
 test("cloud dictionary panel can queue an entry for the local dictionary", async () => {
   const close = vi.fn().mockResolvedValue(undefined);
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   const entry = {
     id: "a".repeat(64),
     kind: "pinyin" as const,
@@ -4773,16 +5159,17 @@ test("cloud dictionary panel can queue an entry for the local dictionary", async
   const panel = render(<CloudDictionaryPanel client={{ close, request, downloadToLocal }} />);
   expect(await screen.findByText("你")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "下载到本机 你" }));
-  expect(confirm).toHaveBeenCalledWith("确认将云词条“你”加入本机个人词典？");
+  expect((await screen.findByRole("alertdialog")).textContent).toContain(
+    "云词条“你”会被加入本机个人词典",
+  );
+  await answerConfirm("confirm");
   await waitFor(() => expect(downloadToLocal).toHaveBeenCalledWith(entry));
   expect(screen.getByRole("status").textContent).toContain("云词条已加入本机词典队列");
-  confirm.mockRestore();
   panel.unmount();
 });
 
 test("cloud dictionary apply requires preview and explicit confirmation", async () => {
   const close = vi.fn().mockResolvedValue(undefined);
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   const request = vi.fn().mockImplementation(async (action: { operation: string }) => {
     if (action.operation === "snapshot_status") return { localVersion: "local-v1", request: null };
     if (action.operation === "snapshot_preview")
@@ -4817,20 +5204,23 @@ test("cloud dictionary apply requires preview and explicit confirmation", async 
     token: "snapshot-token",
   });
   fireEvent.click(screen.getByRole("button", { name: "替换本机词库" }));
+  expect((await screen.findByRole("alertdialog")).textContent).toContain(
+    "替换本机个人词库和学习记录",
+  );
+  await answerConfirm("confirm");
   await waitFor(() =>
     expect(request).toHaveBeenCalledWith({
       operation: "snapshot_enqueue",
       token: "snapshot-token",
     }),
   );
-  expect(confirm).toHaveBeenCalledWith(expect.stringContaining("确认用这份云端快照替换"));
   fireEvent.click(screen.getByRole("button", { name: "取消待应用快照" }));
+  await answerConfirm("confirm");
   await waitFor(() => expect(request).toHaveBeenCalledWith({ operation: "snapshot_cancel" }));
 });
 
 test("cloud dictionary snapshot backup and restore stay behind validation and confirmation", async () => {
   const close = vi.fn().mockResolvedValue(undefined);
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   const request = vi.fn().mockImplementation(async (action: { operation: string }) => {
     if (action.operation === "snapshot_export")
       return { text: '{"type":"header"}\n', filename: "snapshot.ndjson" };
@@ -4856,6 +5246,10 @@ test("cloud dictionary snapshot backup and restore stay behind validation and co
   fireEvent.change(screen.getByLabelText("选择快照恢复到云端"), { target: { files: [file] } });
   expect(await screen.findByText(/云端 revision 7/)).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "确认恢复云端词库" }));
+  expect((await screen.findByRole("alertdialog")).textContent).toContain(
+    "替换全部云端词库和排序记录",
+  );
+  await answerConfirm("confirm");
   await waitFor(() =>
     expect(request).toHaveBeenCalledWith({
       operation: "snapshot_restore",
@@ -4864,7 +5258,6 @@ test("cloud dictionary snapshot backup and restore stay behind validation and co
       revision: 12,
     }),
   );
-  expect(confirm).toHaveBeenCalledWith("确认用此快照替换全部云端词库和排序记录？");
   if (typeof URL.createObjectURL === "function")
     vi.spyOn(URL, "createObjectURL").mockReturnValue("blob:fixture");
   else
@@ -4919,7 +5312,6 @@ test("cloud dictionary catalog panel queries and edits complete directory entrie
 test("cloud candidates panel uses canonical pinyin and manages ranking and fixed positions", async () => {
   const close = vi.fn().mockResolvedValue(undefined);
   const back = vi.fn().mockResolvedValue(undefined);
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   const request = vi.fn().mockImplementation(async (action: { operation: string }) => {
     if (action.operation === "candidates")
       return {
@@ -4943,18 +5335,21 @@ test("cloud candidates panel uses canonical pinyin and manages ranking and fixed
   fireEvent.click(screen.getByRole("button", { name: "查询云端候选" }));
   expect(await screen.findByText("你好")).toBeDefined();
   fireEvent.click(screen.getByRole("button", { name: "调频" }));
+  await answerConfirm("confirm");
   await waitFor(() =>
     expect(request).toHaveBeenCalledWith(
       expect.objectContaining({ operation: "rank", code: "ni'hao", revision: 42 }),
     ),
   );
   fireEvent.click(screen.getByRole("button", { name: "固定" }));
+  await answerConfirm("confirm");
   await waitFor(() =>
     expect(request).toHaveBeenCalledWith(
       expect.objectContaining({ operation: "set_fixed_position", code: "ni'hao", position: 1 }),
     ),
   );
   fireEvent.click(screen.getByRole("button", { name: "取消固定" }));
+  await answerConfirm("confirm");
   await waitFor(() =>
     expect(request).toHaveBeenCalledWith(
       expect.objectContaining({ operation: "set_fixed_position", position: null }),
@@ -4964,11 +5359,9 @@ test("cloud candidates panel uses canonical pinyin and manages ranking and fixed
   await waitFor(() => expect(back).toHaveBeenCalledTimes(1));
   fireEvent.click(screen.getByRole("button", { name: "关闭" }));
   await waitFor(() => expect(close).toHaveBeenCalledTimes(1));
-  confirm.mockRestore();
 });
 
 test("cloud candidate rows trigger ranking and keep secondary actions grouped", async () => {
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   const candidate = { code: "nihc", canonical_pinyin: "ni'hao", word: "你好", weight: 10 };
   const request = vi.fn().mockImplementation(async (action: { operation: string }) => {
     if (action.operation === "candidates")
@@ -4983,6 +5376,7 @@ test("cloud candidate rows trigger ranking and keep secondary actions grouped", 
   fireEvent.click(screen.getByRole("button", { name: "查询云端候选" }));
   await screen.findByText("你好");
   fireEvent.click(screen.getByRole("button", { name: "调频候选 你好" }));
+  await answerConfirm("confirm");
   await waitFor(() =>
     expect(request).toHaveBeenCalledWith(
       expect.objectContaining({ operation: "rank", code: "ni'hao", word: "你好" }),
@@ -4996,8 +5390,6 @@ test("cloud candidate rows trigger ranking and keep secondary actions grouped", 
   expect(group).not.toBeNull();
   const grouped = Array.from(group.querySelectorAll("button")).map((button) => button.textContent);
   expect(grouped).toEqual(["调频", "固定", "删除"]);
-  expect(confirm).toHaveBeenCalledWith("调整此云端候选的排序？");
-  confirm.mockRestore();
 });
 
 test("saves a shuangpin profile and retains it when switching schemes", async () => {
@@ -5049,7 +5441,7 @@ test.each([
   await screen.findByRole("radio", { name: label });
   fireEvent.click(screen.getByRole("radio", { name: "日文" }));
   expect(screen.queryByRole("radio", { name: label })).toBeNull();
-  expect((screen.getByRole("radio", { name: "罗马字" }) as HTMLInputElement).checked).toBe(true);
+  expect((screen.getByRole("radio", { name: "罗马音" }) as HTMLInputElement).checked).toBe(true);
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
   expect(stored.preferences.scheme).toBe("japanese");
@@ -5058,10 +5450,10 @@ test.each([
   render(<SettingsPage client={client} />);
   await settingsReady();
   fireEvent.click(screen.getByRole("button", { name: "输入" }));
-  await screen.findByRole("radio", { name: "罗马字" });
+  await screen.findByRole("radio", { name: "罗马音" });
   fireEvent.click(screen.getByRole("radio", { name: "中文" }));
   expect((screen.getByRole("radio", { name: label }) as HTMLInputElement).checked).toBe(true);
-  expect(screen.queryByRole("radio", { name: "罗马字" })).toBeNull();
+  expect(screen.queryByRole("radio", { name: "罗马音" })).toBeNull();
 });
 
 test("saves edited preferences against the loaded revision", async () => {
@@ -5084,7 +5476,9 @@ test("saves edited preferences against the loaded revision", async () => {
   );
 });
 
-test("macOS candidate page sizes use the native 5/7/9 options and normalize legacy values", async () => {
+test("macOS offers the same candidate page sizes as every other host and keeps the saved one", async () => {
+  // These were 5, 7 and 9 - the Apple reference's set - while the host rewrote anything else to 9. The
+  // shared default is six, so the platform displayed and saved nine for a setting nobody had touched.
   const preferences = { ...initial.preferences, candidate_page_size: 6 };
   const save = vi.fn().mockImplementation(async (_revision, next) => ({
     ...initial,
@@ -5100,12 +5494,22 @@ test("macOS candidate page sizes use the native 5/7/9 options and normalize lega
   const size = (await screen.findByRole("combobox", {
     name: "每页候选项数量",
   })) as HTMLSelectElement;
-  expect(Array.from(size.options).map((option) => option.value)).toEqual(["5", "7", "9"]);
-  expect(size.value).toBe("9");
-  fireEvent.change(size, { target: { value: "7" } });
+  expect(Array.from(size.options).map((option) => option.value)).toEqual([
+    "1",
+    "2",
+    "3",
+    "4",
+    "5",
+    "6",
+    "7",
+    "8",
+    "9",
+  ]);
+  expect(size.value).toBe("6");
+  fireEvent.change(size, { target: { value: "4" } });
   fireEvent.click(screen.getByRole("button", { name: "保存设置" }));
   await screen.findByText("设置已保存。");
-  expect(save).toHaveBeenCalledWith(7, { ...preferences, candidate_page_size: 7 });
+  expect(save).toHaveBeenCalledWith(7, { ...preferences, candidate_page_size: 4 });
 });
 
 test("macOS shuangpin keymap setting loads, toggles, and saves through the native preference bridge", async () => {
@@ -5155,10 +5559,9 @@ test("conflicts preserve edits and require an explicit reload", async () => {
   expect((await screen.findByRole("alert")).textContent).toContain("其他窗口");
   expect(size.textContent).toContain("9");
   expect(client.load).toHaveBeenCalledTimes(1);
-  const confirm = vi.spyOn(window, "confirm").mockReturnValue(true);
   fireEvent.click(screen.getByRole("button", { name: "重新读取" }));
+  await answerConfirm("confirm");
   await waitFor(() => expect(size.textContent).toContain("5"));
-  confirm.mockRestore();
 });
 
 test.each(["windows", "macos", "linux"])(

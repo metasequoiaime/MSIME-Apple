@@ -1,3 +1,4 @@
+import { useConfirm } from "./core/confirm";
 import { VoiceDevicePicker, type VoiceDeviceReader } from "./voice/voice-device-picker";
 import {
   useEffect,
@@ -85,8 +86,18 @@ import {
   CommunityResourcesPage,
   type CommunityResourceClient,
 } from "./community/community-resources";
+export { useConfirm, type ConfirmRequest } from "./core/confirm";
+export { decodeDictionaryBytes, readDictionaryFile } from "./dictionary/dictionary-file";
 export {
   TypingStatisticsPage,
+  retentionChoices,
+  type StatisticsRetention,
+  activityMetrics,
+  addDays,
+  currentStreak,
+  formatActiveTime,
+  longestStreak,
+  type ActivityMetrics,
   type TypingBreakdown,
   type TypingStatistics,
   type TypingStatisticsClient,
@@ -233,7 +244,13 @@ export {
 } from "./dictionary/custom-translations";
 export type { VoiceCaptureDevice, VoiceDeviceReader } from "./voice/voice-device-picker";
 
-export type HelpcodeSchema = "lantian" | "ziranma" | "shouyou2_0" | "shouyouplus" | "xiaohe";
+export type HelpcodeSchema =
+  | "lantian"
+  | "ziranma"
+  | "shouyou2_0"
+  | "shouyouplus"
+  | "xiaohe"
+  | "jiajia";
 export type HelpcodePreferences = {
   enabled: boolean;
   schema: HelpcodeSchema;
@@ -390,6 +407,7 @@ const helpcodeSchemas: [HelpcodeSchema, string][] = [
   ["shouyou2_0", "首右2.0"],
   ["shouyouplus", "首右plus"],
   ["xiaohe", "小鹤"],
+  ["jiajia", "加加"],
 ];
 /**
  * The sidebar, in the reference window's order.
@@ -560,6 +578,10 @@ export interface HostCapabilities {
   floating_toolbar: boolean;
   floating_toolbar_appearance: boolean;
   floating_toolbar_components: boolean;
+  /** The toolbar carries a handwriting panel button, which only this client's macOS toolbar does. */
+  floating_toolbar_handwriting?: boolean;
+  /** The toolbar carries a voice input button, for the same reason. */
+  floating_toolbar_voice?: boolean;
   mode_switch_shortcuts: boolean;
   panel_shortcuts: boolean;
   number_row_selection?: boolean;
@@ -995,6 +1017,9 @@ export function describeImportResult(kind: string, result: DictionaryImportResul
   return parts.join("");
 }
 
+/** What the packaged dictionary is: the specification it was built to, and where it came from. */
+export type DictionaryManifest = { profile: string; sourceCommit: string };
+
 export interface DictionaryClient {
   list(
     offset: number,
@@ -1326,7 +1351,9 @@ export type FloatingToolbarPreferences = {
   punctuation: boolean;
   character_set: boolean;
   emoji: boolean;
+  handwriting: boolean;
   screen_keyboard: boolean;
+  voice: boolean;
   settings: boolean;
   scale_percent: 75 | 100 | 125 | 150;
   font_size: 16 | 18 | 20 | 22 | 24 | 26 | 28;
@@ -1338,31 +1365,43 @@ const defaultFloatingToolbar: FloatingToolbarPreferences = {
   punctuation: true,
   character_set: true,
   emoji: true,
+  handwriting: true,
   screen_keyboard: false,
+  voice: true,
   settings: true,
   scale_percent: 100,
   font_size: 24,
 };
+type FloatingToolbarOptionKey = keyof Pick<
+  FloatingToolbarPreferences,
+  | "english_mode"
+  | "fullwidth"
+  | "punctuation"
+  | "character_set"
+  | "emoji"
+  | "handwriting"
+  | "screen_keyboard"
+  | "voice"
+  | "settings"
+>;
+/// In the order the buttons sit on the toolbar. The third entry names the capability a host must
+/// report for the switch to be offered at all: the handwriting and voice buttons are this client's
+/// own additions and only one host draws them, so a switch for them elsewhere would turn off
+/// something that is not there.
 const floatingToolbarOptions: [
-  keyof Pick<
-    FloatingToolbarPreferences,
-    | "english_mode"
-    | "fullwidth"
-    | "punctuation"
-    | "character_set"
-    | "emoji"
-    | "screen_keyboard"
-    | "settings"
-  >,
+  FloatingToolbarOptionKey,
   string,
+  keyof Pick<HostCapabilities, "floating_toolbar_handwriting" | "floating_toolbar_voice"> | null,
 ][] = [
-  ["english_mode", "英文输入模式"],
-  ["fullwidth", "全角 / 半角"],
-  ["punctuation", "中英文标点"],
-  ["character_set", "简繁切换"],
-  ["emoji", "表情与符号"],
-  ["screen_keyboard", "屏幕键盘"],
-  ["settings", "设置"],
+  ["english_mode", "英文输入模式", null],
+  ["fullwidth", "全角 / 半角", null],
+  ["punctuation", "中英文标点", null],
+  ["character_set", "简繁切换", null],
+  ["emoji", "表情与符号", null],
+  ["handwriting", "手写识别板", "floating_toolbar_handwriting"],
+  ["screen_keyboard", "屏幕键盘", null],
+  ["voice", "语音输入", "floating_toolbar_voice"],
+  ["settings", "设置", null],
 ];
 const floatingToolbarScales: FloatingToolbarPreferences["scale_percent"][] = [75, 100, 125, 150];
 const floatingToolbarFontSizes: FloatingToolbarPreferences["font_size"][] = [
@@ -1486,6 +1525,15 @@ export interface SettingsClient {
   aiSkins?: AiSkinClient;
   /** Mobile and desktop hosts can show packaged offline English glosses without changing candidate identity. */
   candidateEnglishGloss?: boolean;
+  /**
+   * Which packaged dictionary is installed, for the dictionary page to state.
+   *
+   * A host that stages its resources into a sandbox is the only thing that knows where the
+   * manifest ended up, and the path is not something this page should be told. Absent means the
+   * host cannot answer, and the section is not drawn: a dictionary version stated wrongly is worse
+   * than one not stated at all.
+   */
+  dictionaryManifest?: () => Promise<DictionaryManifest>;
 }
 
 function message(error: unknown): string {
@@ -1549,6 +1597,69 @@ function personalDictionaryKindTitle(kind: PersonalDictionaryImportEntry["kind"]
       : kind === "quickPhrase"
         ? "快捷短语"
         : "英文";
+}
+
+/**
+ * Which dictionary is installed, as the dictionary page's first statement.
+ *
+ * The packaged dictionary is the one thing on this page the user cannot change and may well want
+ * to check: it is what every candidate comes out of, it updates with the application rather than
+ * on its own, and when something looks wrong the specification and the upstream commit are the
+ * two facts worth having.
+ *
+ * A host that cannot answer does not render this at all, rather than rendering an empty row. The
+ * manifest is packaged, so failing to read it means the installation is not what it should be —
+ * which is worth saying plainly instead of leaving a blank where a version belongs.
+ */
+function DictionaryManifestCard({ read }: { read: () => Promise<DictionaryManifest> }) {
+  const [manifest, setManifest] = useState<DictionaryManifest | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void read()
+      .then((value) => {
+        if (active) setManifest(value);
+      })
+      .catch(() => {
+        if (active) setFailed(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [read]);
+
+  if (failed) {
+    return (
+      <div className="section" role="region" aria-label="词库信息">
+        <div className="section-header">
+          <span className="section-title">
+            词库信息
+            <small>无法读取随应用安装的词库清单，请重新安装后再试。</small>
+          </span>
+        </div>
+      </div>
+    );
+  }
+  if (!manifest) return null;
+  return (
+    <div className="section" role="region" aria-label="词库信息">
+      <div className="section-header">
+        <span className="section-title">
+          词库信息
+          <small>词库保存在设备上，日常输入不需要联网；它随应用更新，不单独下载。</small>
+        </span>
+      </div>
+      <p>
+        规格 <code>{manifest.profile}</code>
+      </p>
+      <p>
+        {/* Twelve characters is what the source shows: enough to identify the build, short enough
+            to read back over the phone. */}
+        词库版本 <code>{manifest.sourceCommit.slice(0, 12)}</code>
+      </p>
+    </div>
+  );
 }
 
 // The card is shown on every mobile host, so it must not name one of them. The queue it
@@ -1755,6 +1866,7 @@ export function SettingsPage({
   initialPage?: string;
   onReplayOnboarding?: () => void;
 }) {
+  const { confirm, confirmation } = useConfirm();
   // Hosts that report capabilities are authoritative; the user-agent probe stays
   // only so a host that predates the contract keeps its current behaviour.
   const linuxPlatform = client.host ? client.host.platform === "linux" : isLinuxDesktop();
@@ -1767,9 +1879,10 @@ export function SettingsPage({
   const windowsPlatform = client.host?.platform === "windows";
   const macosPlatform = client.host?.platform === "macos";
   const nativeVoicePlatform = macosPlatform || harmonyPlatform;
-  const candidatePageSizes = macosPlatform
-    ? [5, 7, 9]
-    : Array.from({ length: 9 }, (_, index) => index + 1);
+  // One list for every host. macOS used to be given 5, 7 and 9 - the Apple reference's set - while its
+  // own normalisation rewrote anything else to 9, so the shared default of six displayed and saved as
+  // nine on that platform alone.
+  const candidatePageSizes = Array.from({ length: 9 }, (_, index) => index + 1);
   // Functional controls follow what the host declares it can do. Only the prose
   // below still varies by platform name. A host that predates the contract keeps
   // the previous Linux-only behaviour.
@@ -2301,11 +2414,7 @@ export function SettingsPage({
     setError("");
     setNotice("");
     try {
-      const preferences =
-        macosPlatform && !candidatePageSizes.includes(draft.candidate_page_size)
-          ? { ...draft, candidate_page_size: 9 }
-          : draft;
-      const value = await client.save(snapshot.revision, preferences);
+      const value = await client.save(snapshot.revision, draft);
       if (macosPlatform && client.saveMacosShuangpinKeymap && macosShuangpinKeymap !== undefined) {
         await client.saveMacosShuangpinKeymap(macosShuangpinKeymap);
       }
@@ -2370,8 +2479,14 @@ export function SettingsPage({
     }
   }
 
-  function resetTouchKeyboardSettings() {
-    if (!draft || !window.confirm("恢复屏幕键盘的高度、间距和顶部语音入口默认值？")) return;
+  async function resetTouchKeyboardSettings() {
+    if (!draft) return;
+    const confirmed = await confirm({
+      title: "恢复屏幕键盘默认值",
+      message: "高度、间距和顶部语音入口都会回到默认。",
+      confirmLabel: "恢复",
+    });
+    if (!confirmed || !draft) return;
     const next = { ...draft };
     // Delete the optional fields instead of storing the current defaults. This keeps reset
     // forward-compatible when a host changes its fallback values.
@@ -2527,11 +2642,13 @@ export function SettingsPage({
   async function removePhrase(entry: DictionaryEntry) {
     if (!client.dictionary) return;
     // Deletion is not undoable and the row is one click away from 编辑.
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm(`删除词条“${entry.value}”（${entry.key}）？此操作无法撤销。`)
-    )
-      return;
+    const confirmed = await confirm({
+      title: "删除词条",
+      message: `“${entry.value}”（${entry.key}）将被删除，此操作无法撤销。`,
+      confirmLabel: "删除",
+      danger: true,
+    });
+    if (!confirmed || !client.dictionary) return;
     setPhraseBusy(true);
     setPhraseError("");
     setPhraseNotice("");
@@ -2751,13 +2868,12 @@ export function SettingsPage({
    */
   async function restoreDefaults() {
     if (!client.loadDefaultPreferences || busy) return;
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm(
-        "把所有设置恢复为默认值？语音和翻译服务的密钥、以及词库和学习数据不会改变。恢复后需要点击保存设置才会生效。",
-      )
-    )
-      return;
+    const confirmed = await confirm({
+      title: "恢复默认设置",
+      message: "语音和翻译服务的密钥、词库和学习数据都不会改变。恢复后需要点击保存设置才会生效。",
+      confirmLabel: "恢复",
+    });
+    if (!confirmed || !client.loadDefaultPreferences || busy) return;
     setError("");
     setNotice("");
     try {
@@ -2770,13 +2886,14 @@ export function SettingsPage({
 
   async function resetLearnedData() {
     if (!client.resetLearnedData || phraseBusy) return;
-    if (
-      typeof window !== "undefined" &&
-      !window.confirm(
-        "清除所有学习数据？候选词频、用户词典和拼音学习记录将永久删除。此操作无法撤销，输入方案等设置不会改变。",
-      )
-    )
-      return;
+    const confirmed = await confirm({
+      title: "清除学习数据",
+      message:
+        "候选词频、用户词典和拼音学习记录将永久删除，此操作无法撤销。输入方案等设置不会改变。",
+      confirmLabel: "清除",
+      danger: true,
+    });
+    if (!confirmed || !client.resetLearnedData || phraseBusy) return;
     setPhraseBusy(true);
     setPhraseError("");
     setPhraseNotice("");
@@ -3366,6 +3483,7 @@ export function SettingsPage({
         }
       }}
     >
+      {confirmation}
       {/* A phone has no window to minimise, maximise, close or drag: the OS owns the frame. The host
           still exposes the window commands on mobile because the same Tauri app binary backs both, so
           the presence of a command is not the question -- the platform is. */}
@@ -4004,11 +4122,7 @@ export function SettingsPage({
                         <span className="section-title">每页候选项数量</span>
                         <select
                           aria-label="每页候选项数量"
-                          value={
-                            candidatePageSizes.includes(draft.candidate_page_size)
-                              ? draft.candidate_page_size
-                              : 9
-                          }
+                          value={draft.candidate_page_size}
                           onChange={(event) =>
                             setDraft({ ...draft, candidate_page_size: Number(event.target.value) })
                           }
@@ -4078,7 +4192,7 @@ export function SettingsPage({
                             })
                           }
                         >
-                          <option value="follow">跟随</option>
+                          <option value="follow">跟随全局</option>
                           <option value="dark">深色</option>
                           <option value="light">浅色</option>
                         </select>
@@ -4273,6 +4387,9 @@ export function SettingsPage({
                     </div>
                   </fieldset>
                   <fieldset disabled={busy} hidden={page !== "dictionary"} aria-label="词库">
+                    {client.dictionaryManifest && (
+                      <DictionaryManifestCard read={client.dictionaryManifest} />
+                    )}
                     {client.dictionary?.importPersonal && (
                       <PersonalDictionaryImportCard
                         dictionary={client.dictionary}
@@ -4840,27 +4957,29 @@ export function SettingsPage({
                             <span>中英文切换</span>
                             <span className={settings.toolbarRequiredLabel}>始终显示</span>
                           </label>
-                          {floatingToolbarOptions.map(([key, label]) => (
-                            <div key={key}>
-                              <div className="input-option-divider" />
-                              <label className="check-option">
-                                <input
-                                  type="checkbox"
-                                  checked={floatingToolbar[key]}
-                                  onChange={(event) =>
-                                    setDraft({
-                                      ...draft,
-                                      floating_toolbar: {
-                                        ...floatingToolbar,
-                                        [key]: event.target.checked,
-                                      },
-                                    })
-                                  }
-                                />
-                                <span>{label}</span>
-                              </label>
-                            </div>
-                          ))}
+                          {floatingToolbarOptions
+                            .filter(([, , capability]) => !capability || !host || host[capability])
+                            .map(([key, label]) => (
+                              <div key={key}>
+                                <div className="input-option-divider" />
+                                <label className="check-option">
+                                  <input
+                                    type="checkbox"
+                                    checked={floatingToolbar[key]}
+                                    onChange={(event) =>
+                                      setDraft({
+                                        ...draft,
+                                        floating_toolbar: {
+                                          ...floatingToolbar,
+                                          [key]: event.target.checked,
+                                        },
+                                      })
+                                    }
+                                  />
+                                  <span>{label}</span>
+                                </label>
+                              </div>
+                            ))}
                         </div>
                       </div>
                     )}
@@ -5188,11 +5307,11 @@ export function SettingsPage({
                       <div className="input-option-content">
                         <label className="radio-option">
                           <input type="radio" name="japanese-scheme" checked readOnly />
-                          <span>罗马字</span>
+                          <span>罗马音</span>
                         </label>
                       </div>
                       <div className="input-setting-description japanese-scheme-description">
-                        直接输入罗马字，提供平假名、片假名及日语词库候选
+                        直接输入罗马音，提供平假名、片假名及日语词库候选
                       </div>
                     </div>
                     <div className="section" role="group" aria-labelledby="paging-title">
@@ -5832,7 +5951,13 @@ export function SettingsPage({
                           type="button"
                           className="secondary fuzzy-pinyin-reset"
                           onClick={() => {
-                            if (window.confirm("关闭模糊音并清空所有规则？"))
+                            void confirm({
+                              title: "关闭模糊音",
+                              message: "所有模糊音规则会被清空。",
+                              confirmLabel: "关闭并清空",
+                              danger: true,
+                            }).then((confirmed) => {
+                              if (!confirmed) return;
                               setDraft({
                                 ...draft,
                                 fuzzy_pinyin: {
@@ -5841,6 +5966,7 @@ export function SettingsPage({
                                   seeded: fuzzyPinyin.seeded ?? false,
                                 },
                               });
+                            });
                           }}
                         >
                           重置模糊音配置
@@ -6008,9 +6134,11 @@ export function SettingsPage({
                     </div>
                     <div className="section">
                       <label className="section-header">
-                        <span className="section-title">标点锁定</span>
+                        <span className="section-title">
+                          固定标点<small>切换中英文时的标点形态，三者互斥</small>
+                        </span>
                         <select
-                          aria-label="标点锁定"
+                          aria-label="固定标点"
                           value={punctuationLock}
                           onChange={(event) =>
                             setDraft({
@@ -6020,9 +6148,9 @@ export function SettingsPage({
                             })
                           }
                         >
-                          <option value="follow">跟随输入模式</option>
-                          <option value="chinese">固定中文标点</option>
-                          <option value="english">固定英文标点</option>
+                          <option value="follow">跟随中英文状态</option>
+                          <option value="chinese">始终使用中文标点</option>
+                          <option value="english">始终使用英文标点</option>
                         </select>
                       </label>
                     </div>
@@ -7249,15 +7377,27 @@ export function SettingsPage({
                       <div className="section" role="group" aria-label="诊断日志">
                         <label className="section-header">
                           <span className="section-title">
-                            {linuxPlatform ? "IBus 宿主日志" : "Server 端日志"}
+                            {linuxPlatform
+                              ? "IBus 宿主日志"
+                              : macosPlatform
+                                ? "输入法日志"
+                                : "Server 端日志"}
                             <small>
                               {linuxPlatform
                                 ? "排查 IBus 宿主通信、焦点会话、菜单和输入延迟时开启。日志限量轮转，只记录状态和操作阶段，不记录按键、输入内容或候选文本。"
-                                : "排查 Server 通信和输入延迟时开启。记录慢请求阶段、候选窗、悬浮工具栏、菜单、焦点会话和通信状态，不记录按键、输入内容或候选文本。"}
+                                : macosPlatform
+                                  ? "排查焦点切换和设置加载失败时开启。记录焦点进出与偏好加载、应用、保存的结果，限量轮转，不记录按键、输入内容或候选文本。文件是应用支持目录下的 diagnostic.log，复现后可直接发送。"
+                                  : "排查 Server 通信和输入延迟时开启。记录慢请求阶段、候选窗、悬浮工具栏、菜单、焦点会话和通信状态，不记录按键、输入内容或候选文本。"}
                             </small>
                           </span>
                           <input
-                            aria-label={linuxPlatform ? "IBus 宿主日志" : "Server 端日志"}
+                            aria-label={
+                              linuxPlatform
+                                ? "IBus 宿主日志"
+                                : macosPlatform
+                                  ? "输入法日志"
+                                  : "Server 端日志"
+                            }
                             className="toggle"
                             type="checkbox"
                             checked={diagnosticLog.server}
@@ -7534,7 +7674,7 @@ export function SettingsPage({
                         type="button"
                         className="danger-text"
                         aria-label="恢复屏幕键盘默认设置"
-                        onClick={resetTouchKeyboardSettings}
+                        onClick={() => void resetTouchKeyboardSettings()}
                       >
                         恢复默认
                       </button>
@@ -8957,8 +9097,18 @@ export function SettingsPage({
                   className="secondary"
                   disabled={busy}
                   onClick={() => {
-                    if (!dirty || window.confirm("重新读取会放弃尚未保存的修改，是否继续？"))
+                    if (!dirty) {
                       void reload();
+                      return;
+                    }
+                    void confirm({
+                      title: "重新读取",
+                      message: "尚未保存的修改会被放弃。",
+                      confirmLabel: "放弃并重新读取",
+                      danger: true,
+                    }).then((confirmed) => {
+                      if (confirmed) void reload();
+                    });
                   }}
                 >
                   重新读取

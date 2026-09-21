@@ -104,7 +104,7 @@ $iconSource = Join-Path $PSScriptRoot 'assets\icons'
 $audioSource = Join-Path $PSScriptRoot 'assets\audios'
 $pinyinTable = Join-Path $PSScriptRoot 'assets/tables/pinyin.txt'
 $helpcodeSource = Join-Path $RepoRoot (Join-Path $HelpCodeDirectory 'helpcodes')
-# 品牌标识，不是语言栏状态图标。Metasequoia.ico 是旧的水彩占位图，msime.ico 与其它平台的应用图标同源。
+# 品牌标识，不是语言栏状态图标。这个目录只该有在用的图标：曾经躺着四个没人引用的旧标识（旧水彩占位图、FeatherIME、以及被 cn/en 明暗图标取代的 ImeModeOn/Off），而整个目录是随包落到用户磁盘的。
 $appIcon = Join-Path $iconSource 'msime.ico'
 $thirdPartyNotices = Join-Path $RepoRoot (Join-Path $NoticesDirectory 'THIRD_PARTY_NOTICES.txt')
 $collectedNotices = Join-Path $RepoRoot 'target/windows-notices/THIRD_PARTY_NOTICES.txt'

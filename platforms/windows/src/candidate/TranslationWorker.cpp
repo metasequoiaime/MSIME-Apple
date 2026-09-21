@@ -1,3 +1,4 @@
+#include "CandidateTranslationPolicy.h"
 #include "TranslationWorker.h"
 #include "TranslationDisplay.h"
 
@@ -479,15 +480,22 @@ TranslationWorker::translate(const Request &request,
 
     // Keep local dictionary hits and ask an online provider only for misses.
     // This mirrors the source worker's local-first merge behavior instead of
-    // treating one offline hit as a complete page.
-    std::unordered_set<std::string> translated_texts;
+    // treating one offline hit as a complete page. The rule itself is
+    // `untranslated_texts` in CandidateTranslationPolicy.h, which is where it
+    // can be read and tested without a provider, a page or a session.
+    std::vector<std::pair<std::string, std::string>> answered;
     try {
       for (const auto &entry : nlohmann::json::parse(translations))
-        if (entry.is_object() && entry.value("text", std::string{}) != "")
-          translated_texts.insert(entry.at("text").get<std::string>());
+        if (entry.is_object())
+          answered.emplace_back(entry.value("text", std::string{}),
+                                entry.value("translation", std::string{}));
     } catch (...) {
       return std::nullopt;
     }
+    std::unordered_set<std::string> translated_texts;
+    for (const auto &entry : answered)
+      if (!entry.first.empty())
+        translated_texts.insert(entry.first);
     if (plan->empty()) {
       if (translated_texts.empty())
         return std::nullopt;
@@ -534,10 +542,16 @@ TranslationWorker::translate(const Request &request,
           {"item_target_language", item.at("target_language")}}
           .dump();
     };
+    std::vector<std::string> planned;
+    for (const auto &item : *plan)
+      planned.push_back(item.at("text").get<std::string>());
+    const auto wanted = msime::windows::untranslated_texts(answered, planned);
+    const std::unordered_set<std::string> wanted_texts(wanted.begin(),
+                                                       wanted.end());
     std::vector<nlohmann::json> pending;
     for (const auto &item : *plan) {
-      if (translated_texts.find(item.at("text").get<std::string>()) !=
-          translated_texts.end())
+      if (wanted_texts.find(item.at("text").get<std::string>()) ==
+          wanted_texts.end())
         continue;
       const auto cache_id = item_cache_id(item);
       if (const auto cached = translation_cache_.find(cache_id);

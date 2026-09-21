@@ -145,6 +145,9 @@ int main() {
       require(reply.source.transition.at("commit") == (fallback ? "A" : "好"));
       require(reply.next_prefix.empty() && prefixed.selected_prefix() == "你");
       require(payload(reply) == (fallback ? u"你A" : u"你好"));
+      // Statistics count what lands in the document, so both punctuation exits
+      // carry the whole string rather than only this key's delta.
+      require(reply.committed_text == (fallback ? "你A" : "你好"));
       confirm(prefixed);
       require(prefixed.selected_prefix().empty());
     }
@@ -152,6 +155,10 @@ int main() {
     auto first = result(1, "haoma", "hao ma", "你");
     require(payload(composer.stage(first, ReplyPath::Selection)) ==
             u"haoma\t你\t你hao ma");
+    // A partial selection has put nothing in the document yet; the later
+    // reply that clears the prefix carries the whole string, and counting
+    // this one as well would count "你" twice.
+    require(!composer.pending().committed_text);
     require(composer.selected_prefix().empty());
     auto bytes = wire_bytes(*composer.pending().encoded);
     require(bytes ==
@@ -207,6 +214,7 @@ int main() {
         composer.stage(result(4, "", "", "吗"), ReplyPath::Selection);
     require(complete.encoded->packet.msg_type == FanyImeReplyType::Normal &&
             payload(complete) == u"你好吗");
+    require(complete.committed_text == "你好吗");
     confirm(composer);
     require(composer.selected_prefix().empty());
     composer.stage(first, ReplyPath::Selection);
@@ -216,6 +224,7 @@ int main() {
     require(punctuation.encoded->packet.msg_type ==
                 FanyImeReplyType::CommitExactText &&
             payload(punctuation) == u"你好吗，");
+    require(punctuation.committed_text == "你好吗，");
     confirm(composer);
     composer.stage(first, ReplyPath::Selection);
     confirm(composer);
@@ -223,11 +232,15 @@ int main() {
                  .stage(result(6, "", "", "haoma"), ReplyPath::LocalCommit,
                         false, "你haoma")
                  .encoded);
+    // No frame, but the TSF already inserted it, so it still counts.
+    require(composer.pending().committed_text == "你haoma");
     confirm(composer);
     require(composer.selected_prefix().empty());
     composer.stage(first, ReplyPath::Selection);
     confirm(composer);
     require(!composer.stage(result(0, "", ""), ReplyPath::LocalCancel).encoded);
+    // Cancelling drops the prefix without writing it anywhere.
+    require(!composer.pending().committed_text);
     confirm(composer);
     require(composer.selected_prefix().empty());
     auto stale = first;

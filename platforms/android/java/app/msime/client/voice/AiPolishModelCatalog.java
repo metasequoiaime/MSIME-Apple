@@ -153,6 +153,12 @@ public final class AiPolishModelCatalog {
     }
 
     private static String encode(String value) {
-        return URLEncoder.encode(value, StandardCharsets.UTF_8);
+        try {
+            // The Charset overload is API 33; the name overload has been there since API 1 and
+            // throws a checked exception that UTF-8 cannot actually raise.
+            return URLEncoder.encode(value, StandardCharsets.UTF_8.name());
+        } catch (java.io.UnsupportedEncodingException error) {
+            throw new IllegalStateException("UTF-8 is always supported", error);
+        }
     }
 }

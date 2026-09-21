@@ -84,7 +84,7 @@ static void MSIMERecordTypingStatistics(NSString *directory, NSString *text, msi
     if (![directory isKindOfClass:NSString.class] || !directory.isAbsolutePath ||
         ![text isKindOfClass:NSString.class] || text.length == 0) return;
     NSDateComponents *components = [NSCalendar.currentCalendar components:NSCalendarUnitYear | NSCalendarUnitMonth |
-        NSCalendarUnitDay fromDate:NSDate.date];
+        NSCalendarUnitDay | NSCalendarUnitHour fromDate:NSDate.date];
     NSString *day = [NSString stringWithFormat:@"%04ld-%02ld-%02ld", (long)components.year,
         (long)components.month, (long)components.day];
     const std::string_view sourceID = msime::mac::TypingSourceId(source);
@@ -94,7 +94,9 @@ static void MSIMERecordTypingStatistics(NSString *directory, NSString *text, msi
     NSDictionary *request = @{ @"directory": directory, @"action": @{
         @"operation": @"record", @"text": text,
         @"source": sourceString,
-        @"day": day } };
+        @"day": day,
+        // The hour axis has to come from the same calendar as the day beside it.
+        @"hour": @((long)components.hour) } };
     NSData *data = [NSJSONSerialization dataWithJSONObject:request options:0 error:nil];
     if (!data || data.length > 65536) return;
     dispatch_async(MSIMETypingStatisticsQueue(), ^{
@@ -382,6 +384,18 @@ static BOOL MSIMEPunctuationToggle(NSEvent *event) {
     const NSEventModifierFlags modifiers = NSEventModifierFlagControl | NSEventModifierFlagShift | NSEventModifierFlagOption | NSEventModifierFlagCommand;
     return event.keyCode == 47 && (event.modifierFlags & modifiers) == NSEventModifierFlagControl;
 }
+// The marks this host closes for the user, opening first. The reference keeps the same list in its
+// TIP (`GetPairedPunctuationClosing`).
+static NSArray<NSArray<NSString *> *> *MSIMEPunctuationPairs(void) {
+    static NSArray<NSArray<NSString *> *> *pairs;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        pairs = @[@[@"（", @"）"], @[@"【", @"】"], @[@"《", @"》"], @[@"“", @"”"], @[@"‘", @"’"],
+                  @[@"〈", @"〉"], @[@"「", @"」"]];
+    });
+    return pairs;
+}
+
 static BOOL MSIMEPairedPunctuationExcludedBundleIdentifier(NSString *identifier) {
     if (![identifier isKindOfClass:NSString.class]) return NO;
     return [identifier caseInsensitiveCompare:@"com.microsoft.Excel"] == NSOrderedSame;
@@ -643,6 +657,10 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     unichar _spaceConvertMark;
     __weak id _spaceConvertClient;
     msime::mac::PairedPunctuationTracker _pairedPunctuation;
+    // The closing mark this host owes the document while a pair is open. It rides in the marked
+    // text after the caret, because IMK gives an input method no way to move a client's insertion
+    // point; see MSIMEApplyTransitionWithPendingClosing.
+    NSString *_pendingPairedClosing;
     NSNumber *_typingSourceOverride;
     MSIMEModifierTap _modifierTap;
     MSIMEVoiceHoldShortcut _voiceHoldShortcut;
@@ -859,7 +877,7 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (!gloss.length) return NO;
     [(id<MSIMETextClient>)sender insertText:gloss replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
     _armedGlossColumn = 0;
-    NSDictionary *cancelled = [_session command:MSIME_CANCEL error:nil];
+    NSDictionary *cancelled = [_session command:MSIME_FINISH_COMPOSITION error:nil];
     if (cancelled) [self apply:cancelled];
     return YES;
 }
@@ -1961,9 +1979,19 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     [self ensureAppearance];
     const BOOL changed = _appearance.englishMode != enabled;
     if (enabled && !_appearance.englishMode && _session && _activeClient) {
-        NSDictionary *finished = [_session command:MSIME_FINISH_COMPOSITION error:nil];
-        if (!finished) return; // Do not hide an unsettled composition after an Engine failure.
-        [self apply:finished];
+        // Switching into English drops what was being composed rather than committing it. The
+        // reference has two different rules here and this host had copied the wrong one onto both
+        // entry points: its Shift toggle is FUNCTION_TOGGLE_IME_MODE, whose handler commits the raw
+        // keystroke buffer, while its English-mode switch (Ctrl+Shift+E) is FUNCTION_CANCEL, whose
+        // handler terminates the composition and sends nothing. Committing instead put a Chinese
+        // candidate nobody chose into the document - the user reached for English precisely because
+        // the candidates on screen were not what they wanted.
+        //
+        // The Shift tap keeps its own rule: it commits the raw letters before calling this, which
+        // leaves nothing here to cancel.
+        NSDictionary *cancelled = [_session command:MSIME_CANCEL error:nil];
+        if (!cancelled) return; // Do not hide an unsettled composition after an Engine failure.
+        [self apply:cancelled];
     }
     _appearance.englishMode = enabled;
     [self resetCandidateAnchor];
@@ -2611,7 +2639,9 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
 
 - (void)activateServer:(id)sender {
     // A newly activated IME session may target a different document/client.
-    // Never carry host-owned closings across that boundary.
+    // Never carry host-owned closings across that boundary - including one this host still owed
+    // the previous document, which cannot be written into this one.
+    _pendingPairedClosing = nil;
     _pairedPunctuation.clear();
     [_voiceOverlay dismissFailure];
     _voicePermissionToken = nil;
@@ -2713,10 +2743,24 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
 
 - (NSDictionary *)runtimeOptions { return MSIMELoadRuntimeOptions(); }
 
+// What this host asks a session for, on top of what the options file carries.
+//
+// The file is shared with hosts that render a view differently, so a behaviour this host draws is
+// requested here rather than written into it. Its own function because the session it produces is
+// built inside prepareSession, where a test would have to stand up a whole Engine to see it.
+static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
+    if (![runtimeOptions isKindOfClass:NSDictionary.class]) return nil;
+    NSMutableDictionary *requested = [runtimeOptions mutableCopy];
+    // This host draws view.phrase_prefix, so a phrase being assembled out of several selections
+    // stays in the composition instead of arriving in the document one piece at a time.
+    requested[@"phrase_preedit"] = @YES;
+    return requested;
+}
+
 - (void)prepareSession {
     if (MSIMEEnsureAnonymousAccount != nullptr) MSIMEEnsureAnonymousAccount();
     if (!_session) {
-        NSDictionary *options = [self runtimeOptions];
+        NSDictionary *options = MSIMESessionOptions([self runtimeOptions]);
         if (options) {
             _session = [[MSIMEClientSession alloc] initWithOptions:options error:nil];
             _requestedPageSize = 0;
@@ -2919,6 +2963,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
 
 - (void)deactivateServer:(id)sender {
     [[MSIMEInputModeHUDPanel sharedPanel] orderOut:nil];
+    [self flushPendingPairedClosing];
     _pairedPunctuation.clear();
     // A delayed callback from the previous client must not tear down the
     // active client's composition, panels, monitoring or pending modifier tap.
@@ -3058,6 +3103,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
         [self resetCandidateAnchor];
         _modifierTap.reset();
         _preferenceLoadState.reset();
+        [self flushPendingPairedClosing];
         _pairedPunctuation.clear();
         [self resetSmartPunctuationState];
         // Clear the previous client's marked text before accepting the new focus.
@@ -3237,9 +3283,13 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
         NSDictionary *candidate = ((NSUInteger)physicalDigit < visibleCandidates.count) ? visibleCandidates[(NSUInteger)physicalDigit] : nil;
         if ([self commitCandidateGlossColumn:_armedGlossColumn candidate:candidate client:sender]) return YES;
     }
+    const BOOL unicodeComposition = [_view[@"local_mode"] isEqual:@"unicode"];
     if (msime::mac::ShouldRoutePhysicalCandidateDigit(
-            _panel.isVisible, [_view[@"nine_key"] boolValue], [_view[@"local_mode"] isEqual:@"unicode"],
-            (event.modifierFlags & candidateDigitModifiers) != 0)) {
+            _panel.isVisible, [_view[@"nine_key"] boolValue], unicodeComposition,
+            (event.modifierFlags & candidateDigitModifiers) != 0) ||
+        msime::mac::ShouldRouteUnicodeShiftCandidateDigit(
+            _panel.isVisible, unicodeComposition,
+            (event.modifierFlags & candidateDigitModifiers) == NSEventModifierFlagShift)) {
         const int slot = msime::mac::PhysicalCandidateDigitSlot(event.keyCode);
         if (slot >= 0) {
             // The panel owns the rendered snapshot. If it is from an older
@@ -3419,12 +3469,12 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
         case 48: return NO;
         case 51: command = MSIME_BACKSPACE; break;
         case 36: case 76: command = MSIME_COMMIT_RAW; break;
-        case 53: _pairedPunctuation.clear(); command = MSIME_CANCEL; break;
+        case 53: [self flushPendingPairedClosing]; _pairedPunctuation.clear(); command = MSIME_CANCEL; break;
         case 49: command = MSIME_COMMIT_CANDIDATE; break;
         case 123: command = MSIME_MOVE_LEFT; break;
         case 124: command = MSIME_MOVE_RIGHT; break;
-        case 115: command = _panel.isVisible ? MSIME_FIRST_CANDIDATE_ON_PAGE : MSIME_MOVE_HOME; break;
-        case 119: command = _panel.isVisible ? MSIME_LAST_CANDIDATE_ON_PAGE : MSIME_MOVE_END; break;
+        case 115: command = _panel.isVisible ? MSIME_FIRST_CANDIDATE : MSIME_MOVE_HOME; break;
+        case 119: command = _panel.isVisible ? MSIME_LAST_CANDIDATE : MSIME_MOVE_END; break;
         case 117: command = MSIME_DELETE_FORWARD; break;
         case 116: if (![_appearance navigationEnabled:@"page_up_down"]) return NO; command = MSIME_PREVIOUS_PAGE; break;
         case 121: if (![_appearance navigationEnabled:@"page_up_down"]) return NO; command = MSIME_NEXT_PAGE; break;
@@ -3467,6 +3517,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
 
 - (void)commitComposition:(id)sender {
     if (sender != _activeClient || !_session) return;
+    [self flushPendingPairedClosing];
     _pairedPunctuation.clear();
     [self resetSmartPunctuationState];
     [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];
@@ -3499,6 +3550,18 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     [self apply:remaining];
 }
 
+- (void)flushPendingPairedClosing {
+    // The closing mark lives in the marked text, so inserting it replaces that range rather than
+    // adding a second one. Called wherever the composition is torn down: the pair the user opened
+    // is always closed, never dropped along with the composition that was holding it open.
+    NSString *closing = _pendingPairedClosing;
+    _pendingPairedClosing = nil;
+    if (!closing.length || !_activeClient) return;
+    [(id<MSIMETextClient>)_activeClient insertText:closing
+                                  replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+    _pairedPunctuation.push(closing.UTF8String);
+}
+
 - (void)apply:(NSDictionary *)transition {
     if (!transition || !_activeClient) return;
     const auto sourceOverride = _typingSourceOverride
@@ -3511,11 +3574,18 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
         [self persistCommittedCandidateTranslation:commitForTracking];
     if ([commitForTracking isKindOfClass:NSString.class] && commitForTracking.length)
         _armedGlossColumn = 0;
+    // The Engine commits the opening mark alone; closing the pair is this host's job, the way the
+    // Windows TIP appends its closing mark and the Linux host appends its own. What differs is the
+    // caret: those two move it back a character and IMK cannot. So the opening goes in as committed
+    // text and the closing becomes the tail of the marked text until the composition ends.
+    NSString *openedClosing = nil;
+    if ([commitForTracking isKindOfClass:NSString.class] && commitForTracking.length &&
+        _appearance.pairedPunctuation && !_pendingPairedClosing && !MSIMEPairedPunctuationExcludedHost()) {
+        for (NSArray<NSString *> *pair in MSIMEPunctuationPairs())
+            if ([commitForTracking isEqualToString:pair[0]]) { openedClosing = pair[1]; break; }
+    }
     if ([commitForTracking isKindOfClass:NSString.class] && commitForTracking.length >= 2 && _appearance.pairedPunctuation) {
-        static NSArray<NSArray<NSString *> *> *pairs;
-        static dispatch_once_t once;
-        dispatch_once(&once, ^{ pairs = @[@[@"（", @"）"], @[@"【", @"】"], @[@"《", @"》"], @[@"“", @"”"], @[@"‘", @"’"], @[@"〈", @"〉"], @[@"「", @"」"]]; });
-        for (NSArray<NSString *> *pair in pairs)
+        for (NSArray<NSString *> *pair in MSIMEPunctuationPairs())
             if ([commitForTracking hasPrefix:pair[0]] && [commitForTracking hasSuffix:pair[1]]) { _pairedPunctuation.push(pair[1].UTF8String); break; }
     }
     NSDictionary *displayTransition = transition;
@@ -3524,8 +3594,21 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
         converted[@"commit"] = MSIMEChineseOutputString(transition[@"commit"], YES);
         displayTransition = converted;
     }
-    MSIMEApplyTransitionWithPreeditStyle(displayTransition, (id<MSIMETextClient>)_activeClient,
-                                         _appearance.inlinePreeditStyle);
+    NSString *pendingClosing = _pendingPairedClosing;
+    MSIMEApplyTransitionWithPendingClosing(displayTransition, (id<MSIMETextClient>)_activeClient,
+                                           _appearance.inlinePreeditStyle, pendingClosing);
+    if (pendingClosing && [displayTransition[@"commit"] isKindOfClass:NSString.class]) {
+        // The commit took the closing mark with it, so the pair is done and a later duplicate of
+        // that mark should be skipped rather than typed twice.
+        _pairedPunctuation.push(pendingClosing.UTF8String);
+        _pendingPairedClosing = nil;
+    }
+    if (openedClosing) {
+        _pendingPairedClosing = openedClosing;
+        [(id<MSIMETextClient>)_activeClient setMarkedText:openedClosing
+                                          selectionRange:NSMakeRange(0, 0)
+                                        replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+    }
     if ([displayTransition[@"commit"] isKindOfClass:NSString.class] && [displayTransition[@"commit"] length]) {
         const auto source = sourceOverride == msime::mac::TypingSource::Unknown
             ? MSIMEResolveTypingSource(transition[@"commit_context"], previousView, MSIMEStatisticsHostOptions(_session), _appearance.englishMode)
@@ -3780,6 +3863,14 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
         label.font = preeditFont;
         NSString *editing = [_view[@"editing_text"] isKindOfClass:NSString.class] ? _view[@"editing_text"] : @"";
         label.caretIndex = MSIMEPreeditCaretPosition(editing, preedit, _view[@"caret_position"]);
+        // The chosen part of a phrase in progress is held out of the document, so the window has to
+        // show it as well; without this the reading in the window would disagree with the marked
+        // text in the client, which carries it.
+        NSString *phrase = _view[@"phrase_prefix"];
+        if ([phrase isKindOfClass:NSString.class] && phrase.length) {
+            label.stringValue = [phrase stringByAppendingString:label.stringValue];
+            label.caretIndex += phrase.length;
+        }
         label.showsCaret = [_view[@"focused"] isEqual:@YES];
         label.frame = NSMakeRect(inset, height - inset - decorationHeight - preeditHeight, width - 2 * inset, preeditHeight);
         [content addSubview:label];

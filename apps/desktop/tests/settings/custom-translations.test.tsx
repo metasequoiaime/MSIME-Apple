@@ -69,6 +69,30 @@ test("a host with nowhere to drop a file can still supply the overlay", async ()
   expect(save).toHaveBeenCalledWith("刚才\tjust now\n");
 });
 
+test("the desktop hosts get the overlay too, where the profile directory is hidden", async () => {
+  // The reference tells the user to drop the file into the profile directory. On macOS that path is
+  // inside ~/Library, which the Finder hides, so the instruction does not carry over and the page is
+  // the way in. This pins that the section is offered to a desktop host, not only to a sandboxed one.
+  const save = vi.fn().mockResolvedValue(undefined);
+  render(
+    <SettingsPage
+      initialPage="input"
+      client={{
+        load: async () => initial,
+        save: vi.fn(),
+        host: { platform: "macos" } as HostCapabilities,
+        customTranslations: { load: async () => "", save },
+      }}
+    />,
+  );
+  const field = (await screen.findByLabelText("自定义候选释义")) as HTMLTextAreaElement;
+  expect(field.value).toBe("");
+  fireEvent.change(field, { target: { value: "你好\thello\n" } });
+  fireEvent.click(screen.getByRole("button", { name: "保存自定义释义" }));
+  await screen.findByText(/已保存 1 条释义/);
+  expect(save).toHaveBeenCalledWith("你好\thello\n");
+});
+
 test("a host without the route is not offered the section", async () => {
   render(
     <SettingsPage

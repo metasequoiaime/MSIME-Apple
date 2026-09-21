@@ -86,7 +86,9 @@ impl PersonalWord {
         {
             return Err("invalid personal dictionary entry");
         }
-        if self.kind == PersonalWordKind::QuickPhrase && self.value.encode_utf16().count() > 199 {
+        if self.kind == PersonalWordKind::QuickPhrase
+            && self.value.encode_utf16().count() > super::import::MAX_QUICK_PHRASE_UTF16
+        {
             return Err("personal quick phrase is too long");
         }
         Ok(())

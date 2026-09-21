@@ -68,6 +68,16 @@ constexpr bool ShouldRoutePhysicalCandidateDigit(bool candidatePanelVisible, boo
     return candidatePanelVisible && !nineKeyMode && !unicodeMode && !modified;
 }
 
+// Unicode composition still has to let the user reach the second candidate.
+//
+// Its digits are the code point being typed, so the reference moves selection onto Shift+digit, which
+// cannot be part of one: `Shift + 数字 选其他候选` in the mode's own documentation. Without it the only
+// candidate a keyboard can commit here is the first one.
+constexpr bool ShouldRouteUnicodeShiftCandidateDigit(bool candidatePanelVisible, bool unicodeMode, bool shiftOnly)
+{
+    return candidatePanelVisible && unicodeMode && shiftOnly;
+}
+
 constexpr bool IsKeypadDecimal(unsigned short keyCode)
 {
     return keyCode == 65; // kVK_ANSI_KeypadDecimal

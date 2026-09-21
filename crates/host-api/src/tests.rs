@@ -202,6 +202,203 @@ fn surface_route_boundary_resolves_panels_and_rejects_bad_buffers() {
 }
 
 #[test]
+fn smart_punctuation_gesture_boundary_arms_and_decides_from_the_session() {
+    let dir = tempfile::tempdir().unwrap();
+    let handle = test_host_preferences(
+        dir.path(),
+        Preferences {
+            smart_punctuation: true,
+            smart_punctuation_repeat: true,
+            smart_punctuation_space_convert: true,
+            ..chinese_preferences()
+        },
+    );
+    let arm = |body: serde_json::Value| {
+        let text = body.to_string();
+        // SAFETY: the buffer outlives the call.
+        read(unsafe { msime_client_smart_punctuation_arm(handle, text.as_ptr(), text.len()) })
+    };
+    let decide = |body: serde_json::Value| {
+        let text = body.to_string();
+        // SAFETY: the buffer outlives the call.
+        read(unsafe { msime_client_smart_punctuation_decide(handle, text.as_ptr(), text.len()) })
+    };
+
+    // An ASCII mark the host committed arms the repeat gesture and nothing else.
+    let armed = arm(json!({
+        "ascii": 44, "commit": ",", "timestamp_ms": 1_000,
+        "editor_generation": 3, "auto_closed_pair": false
+    }));
+    assert_eq!(armed["ok"], true);
+    assert_eq!(armed["value"]["repeat"]["committed"], ",");
+    assert!(
+        armed["value"]["space"].is_null(),
+        "a comma is not a Chinese mark"
+    );
+
+    let repeat = armed["value"]["repeat"].clone();
+    let replaced = decide(json!({
+        "character": 44, "preceding": ",", "timestamp_ms": 1_500,
+        "editor_generation": 3, "repeat": repeat, "space": null
+    }));
+    assert_eq!(replaced["value"]["replace_with"], "，");
+    assert!(replaced["value"]["space_ascii"].is_null());
+
+    // Past the window, in another editor, or over a character that is no longer there: nothing.
+    for (timestamp, generation, preceding) in [(4_000, 3, ","), (1_500, 9, ","), (1_500, 3, "好")]
+    {
+        let answer = decide(json!({
+            "character": 44, "preceding": preceding, "timestamp_ms": timestamp,
+            "editor_generation": generation, "repeat": armed["value"]["repeat"], "space": null
+        }));
+        assert!(
+            answer["value"]["replace_with"].is_null(),
+            "{timestamp} {generation} {preceding} still replaced"
+        );
+    }
+
+    // A committed Chinese mark arms the space conversion instead.
+    let armed = arm(json!({
+        "ascii": 46, "commit": "。", "timestamp_ms": 2_000,
+        "editor_generation": 3, "auto_closed_pair": false
+    }));
+    assert!(
+        armed["value"]["repeat"].is_null(),
+        "the ASCII press never landed"
+    );
+    assert_eq!(armed["value"]["space"]["ascii"], 46);
+
+    let space = armed["value"]["space"].clone();
+    let converted = decide(json!({
+        "character": 32, "preceding": "。", "timestamp_ms": 2_100,
+        "editor_generation": 3, "repeat": null, "space": space
+    }));
+    assert_eq!(converted["value"]["space_ascii"], 46);
+    // An auto-closed pair never arms: the caret sits between the two marks.
+    let paired = arm(json!({
+        "ascii": 40, "commit": "（", "timestamp_ms": 2_000,
+        "editor_generation": 3, "auto_closed_pair": true
+    }));
+    assert!(paired["value"]["space"].is_null());
+
+    // Malformed buffers are refused, not dereferenced.
+    assert_eq!(
+        read(unsafe { msime_client_smart_punctuation_arm(handle, std::ptr::null(), 8) })["ok"],
+        false
+    );
+    let body = json!({
+        "character": 32, "preceding": "ab", "timestamp_ms": 1,
+        "editor_generation": 3, "repeat": null, "space": null
+    })
+    .to_string();
+    assert_eq!(
+        read(unsafe { msime_client_smart_punctuation_decide(handle, body.as_ptr(), body.len()) })
+            ["ok"],
+        false,
+        "preceding must be a single scalar"
+    );
+}
+
+#[test]
+fn smart_punctuation_gestures_follow_their_own_switches() {
+    let dir = tempfile::tempdir().unwrap();
+    let arm = |handle: u64, body: serde_json::Value| {
+        let text = body.to_string();
+        // SAFETY: the buffer outlives the call.
+        read(unsafe { msime_client_smart_punctuation_arm(handle, text.as_ptr(), text.len()) })
+    };
+    let comma = json!({
+        "ascii": 44, "commit": ",", "timestamp_ms": 0,
+        "editor_generation": 1, "auto_closed_pair": false
+    });
+    let period = json!({
+        "ascii": 46, "commit": "。", "timestamp_ms": 0,
+        "editor_generation": 1, "auto_closed_pair": false
+    });
+
+    // The shipped defaults are not the same for the two: repeat follows smart punctuation and is
+    // on everywhere but Windows, while space conversion is off until asked for, because it
+    // rewrites a character the user already watched land.
+    let shipped = test_host_preferences(dir.path(), chinese_preferences());
+    assert_eq!(
+        arm(shipped, comma.clone())["value"]["repeat"]["committed"],
+        ","
+    );
+    assert!(
+        arm(shipped, period.clone())["value"]["space"].is_null(),
+        "space conversion is off until it is asked for"
+    );
+
+    // Each switch answers only for its own gesture.
+    let repeat_off = test_host_preferences(
+        dir.path(),
+        Preferences {
+            smart_punctuation_repeat: false,
+            smart_punctuation_space_convert: true,
+            ..chinese_preferences()
+        },
+    );
+    assert!(arm(repeat_off, comma.clone())["value"]["repeat"].is_null());
+    assert_eq!(
+        arm(repeat_off, period.clone())["value"]["space"]["ascii"],
+        46
+    );
+
+    // Smart punctuation off is the whole family off, whatever the sub-switches say.
+    let all_off = test_host_preferences(
+        dir.path(),
+        Preferences {
+            smart_punctuation: false,
+            smart_punctuation_repeat: true,
+            smart_punctuation_space_convert: true,
+            ..chinese_preferences()
+        },
+    );
+    assert!(arm(all_off, comma)["value"]["repeat"].is_null());
+    assert!(arm(all_off, period)["value"]["space"].is_null());
+}
+
+#[test]
+fn shuangpin_key_hint_boundary_publishes_the_engine_face() {
+    let hints = |value: &str| {
+        // SAFETY: the slice outlives the call.
+        read(unsafe { msime_client_shuangpin_key_hints(value.as_ptr(), value.len()) })
+    };
+
+    let xiaohe = hints("xiaohe");
+    assert_eq!(xiaohe["ok"], true);
+    // Both units the key carries, not just the first one.
+    assert_eq!(xiaohe["value"]["K"], "ing uai");
+    // Initials and finals stay on their own side of the separator.
+    assert_eq!(xiaohe["value"]["V"], "zh / ui ü");
+    assert!(xiaohe["value"].as_object().unwrap().len() >= 26);
+
+    // Each profile answers for itself rather than for the Engine's default.
+    assert_ne!(hints("microsoft")["value"], xiaohe["value"]);
+    assert_eq!(hints("microsoft")["value"][";"], "ing");
+
+    // An unknown name yields nothing instead of mislabelling the keys.
+    for unknown in ["", "quanpin", "xiaohe-v2"] {
+        assert_eq!(
+            hints(unknown)["value"].as_object().unwrap().len(),
+            0,
+            "{unknown:?} produced hints"
+        );
+    }
+
+    // A null buffer and an oversized length are refused, not dereferenced.
+    assert_eq!(
+        read(unsafe { msime_client_shuangpin_key_hints(std::ptr::null(), 6) })["ok"],
+        false
+    );
+    let value = "xiaohe";
+    assert_eq!(
+        read(unsafe { msime_client_shuangpin_key_hints(value.as_ptr(), 4096) })["ok"],
+        false
+    );
+}
+
+#[test]
 fn host_capability_boundary_describes_each_platform() {
     let capabilities = |value: &str| {
         // SAFETY: the slice outlives the call.
@@ -923,6 +1120,430 @@ fn skin_catalog_reaches_native_presenters_without_the_settings_shell() {
 
 #[test]
 #[cfg(not(target_os = "android"))]
+fn custom_skin_library_reaches_a_c_abi_host_without_a_second_store() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().to_str().unwrap().to_owned();
+    let call = |request: String| {
+        read(unsafe { msime_client_custom_skin_library(request.as_ptr(), request.len()) })
+    };
+    let read_library = || call(json!({"directory": root}).to_string());
+    // An untouched library is an empty list rather than a failure to show.
+    assert_eq!(read_library(), json!({"ok": true, "value": []}));
+
+    let design =
+        serde_json::to_value(msime_client_core::preferences::TouchKeyboardSkinDesign::default())
+            .unwrap();
+    let created = call(
+        json!({
+            "directory": root,
+            "action": {"operation": "create", "name": "晨雾", "design": design},
+        })
+        .to_string(),
+    );
+    assert_eq!(created["ok"], true);
+    assert_eq!(created["value"][0]["name"], "晨雾");
+    // A mutation answers with the whole library, so the page redraws from one reply.
+    assert_eq!(created["value"], read_library()["value"]);
+    let id = created["value"][0]["id"].as_str().unwrap().to_owned();
+
+    // The codes are the ones the shared community pages have wording for; a host forwarding the
+    // Display text would put an English log sentence into a Chinese dialog.
+    let duplicate = call(
+        json!({
+            "directory": root,
+            "action": {"operation": "create", "name": "晨雾", "design": design},
+        })
+        .to_string(),
+    );
+    assert_eq!(duplicate["ok"], false);
+    assert_eq!(duplicate["error"], "community_skin_duplicate_name");
+    let missing = call(
+        json!({
+            "directory": root,
+            "action": {"operation": "delete", "id": "10000000-0000-4000-8000-000000000009"},
+        })
+        .to_string(),
+    );
+    assert_eq!(missing["error"], "community_not_found");
+    let blank = call(
+        json!({
+            "directory": root,
+            "action": {"operation": "rename", "id": id, "name": "   "},
+        })
+        .to_string(),
+    );
+    assert_eq!(blank["error"], "community_skin_invalid_name");
+
+    let renamed = call(
+        json!({
+            "directory": root,
+            "action": {"operation": "rename", "id": id, "name": "竹影"},
+        })
+        .to_string(),
+    );
+    assert_eq!(renamed["value"][0]["name"], "竹影");
+    assert_eq!(
+        call(json!({"directory": root, "action": {"operation": "delete", "id": id}}).to_string()),
+        json!({"ok": true, "value": []})
+    );
+
+    // A relative root and a null buffer are refused rather than resolved against whatever the
+    // process happens to have as its working directory.
+    assert_eq!(call(json!({"directory": "skins"}).to_string())["ok"], false);
+    assert_eq!(
+        read(unsafe { msime_client_custom_skin_library(std::ptr::null(), 0) })["ok"],
+        false
+    );
+    assert_eq!(call("not json".to_owned())["error"], "community_invalid");
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
+fn installing_a_community_skin_is_one_step_so_a_failed_import_ends_its_trial() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().to_str().unwrap().to_owned();
+    let install = |request: String| {
+        read(unsafe { msime_client_community_skin_install(request.as_ptr(), request.len()) })
+    };
+    let trial = |request: String| {
+        read(unsafe { msime_client_keyboard_skin_trial(request.as_ptr(), request.len()) })
+    };
+    let preferences = msime_client_core::preferences::PreferencesStore::new(directory.path());
+    let design = serde_json::to_value(msime_client_core::preferences::TouchKeyboardSkinDesign {
+        background: 0x102030,
+        ..Default::default()
+    })
+    .unwrap();
+    let id = "10000000-0000-4000-8000-000000000001";
+
+    let installed =
+        install(json!({"directory": root, "id": id, "name": "晨雾", "design": design}).to_string());
+    assert_eq!(installed["ok"], true);
+    assert_eq!(installed["value"]["skin"]["id"], id);
+    assert_eq!(installed["value"]["skin"]["name"], "晨雾");
+    assert_eq!(installed["value"]["trial"]["name"], "晨雾");
+    // The design is on the keyboard, not merely in the library: a gallery that saved a skin
+    // without wearing it would make "试用" mean nothing.
+    let applied = preferences.load().unwrap();
+    assert_eq!(
+        applied.preferences.touch_keyboard_skin,
+        msime_client_core::preferences::TouchKeyboardSkin::Custom
+    );
+    assert_eq!(
+        applied.preferences.custom_touch_keyboard_skin.background,
+        0x102030
+    );
+
+    // Declining puts the previous skin back, which is the whole reason the trial exists.
+    let trial_id = installed["value"]["trial"]["id"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+    let restored = trial(
+        json!({
+            "directory": root,
+            "action": {"operation": "finish", "id": trial_id, "keep": false},
+        })
+        .to_string(),
+    );
+    assert_eq!(restored["ok"], true);
+    let reverted = preferences.load().unwrap();
+    assert_ne!(
+        reverted.preferences.touch_keyboard_skin,
+        msime_client_core::preferences::TouchKeyboardSkin::Custom
+    );
+    // The library keeps it: declining the trial is declining to wear it now, not to own it.
+    let library = json!({"directory": root}).to_string();
+    let saved = read(unsafe { msime_client_custom_skin_library(library.as_ptr(), library.len()) });
+    assert_eq!(saved["value"][0]["id"], id);
+
+    // Recovery is safe with nothing pending, because that is exactly when it runs: at startup,
+    // before anyone knows whether the last session ended mid-trial.
+    assert_eq!(
+        trial(json!({"directory": root, "action": {"operation": "restore_pending"}}).to_string())
+            ["ok"],
+        true
+    );
+
+    assert_eq!(
+        install(
+            json!({"directory": root, "id": "not-a-uuid", "name": "x", "design": design})
+                .to_string()
+        )["error"],
+        "community_invalid"
+    );
+    assert_eq!(
+        install(json!({"directory": "skins", "id": id, "name": "x", "design": design}).to_string())
+            ["ok"],
+        false
+    );
+    assert_eq!(
+        read(unsafe { msime_client_community_skin_install(std::ptr::null(), 0) })["ok"],
+        false
+    );
+    assert_eq!(
+        read(unsafe { msime_client_keyboard_skin_trial(std::ptr::null(), 0) })["ok"],
+        false
+    );
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
+fn the_reply_library_a_keyboard_rereads_is_written_through_its_own_store() {
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory
+        .path()
+        .join("CommunityLibrary.json")
+        .to_str()
+        .unwrap()
+        .to_owned();
+    let call = |request: String| {
+        read(unsafe { msime_client_community_resource_library(request.as_ptr(), request.len()) })
+    };
+    let template = |id: &str, prompt: &str| {
+        json!({
+            "id": id,
+            "kind": "reply",
+            "name": "高情商",
+            "description": "",
+            "author": "作者",
+            "content": {"prompt": prompt},
+            "revision": 1,
+            "saves": 0,
+            "saved": true,
+            "owned": false,
+            "rating_count": 0,
+            "rating_average": 0.0,
+            "my_rating": 0,
+        })
+    };
+    let id = "10000000-0000-4000-8000-000000000001";
+
+    // An untouched library is an empty list, which is what a first run looks like.
+    assert_eq!(
+        call(json!({"file": file, "action": {"operation": "load"}}).to_string()),
+        json!({"ok": true, "value": []})
+    );
+    let saved = call(
+        json!({
+            "file": file,
+            "action": {"operation": "save_reply", "item": template(id, "换个说法")},
+        })
+        .to_string(),
+    );
+    assert_eq!(saved["ok"], true);
+    assert_eq!(saved["value"][0]["id"], id);
+    assert_eq!(saved["value"][0]["content"]["prompt"], "换个说法");
+
+    // Keeping the same template twice replaces it rather than growing the list: the id is the
+    // publication, and a second copy would show up twice in the keyboard's menu.
+    let replaced = call(
+        json!({
+            "file": file,
+            "action": {"operation": "save_reply", "item": template(id, "更客气一点")},
+        })
+        .to_string(),
+    );
+    assert_eq!(replaced["value"].as_array().unwrap().len(), 1);
+    assert_eq!(replaced["value"][0]["content"]["prompt"], "更客气一点");
+
+    // A dictionary is not a reply template. The keyboard's parser skips what it does not recognise,
+    // so a host that wrote one here would produce a library that silently lost an entry.
+    let wrong_kind = json!({
+        "file": file,
+        "action": {
+            "operation": "save_reply",
+            "item": {
+                "id": "10000000-0000-4000-8000-000000000002",
+                "kind": "dictionary",
+                "name": "词库",
+                "description": "",
+                "author": "作者",
+                "content": {"entries": [{"kind": "pinyin", "code": "ni", "word": "你", "weight": 1}]},
+                "revision": 1,
+                "saves": 0,
+                "saved": true,
+                "owned": false,
+                "rating_count": 0,
+                "rating_average": 0.0,
+                "my_rating": 0,
+            },
+        },
+    });
+    assert_eq!(
+        call(wrong_kind.to_string())["error"],
+        "community_resource_library_format"
+    );
+
+    assert_eq!(
+        call(json!({"file": file, "action": {"operation": "remove", "id": id}}).to_string()),
+        json!({"ok": true, "value": []})
+    );
+    // Forgetting something that is not there is not a failure; the page may have been showing a
+    // library another process already changed.
+    assert_eq!(
+        call(json!({"file": file, "action": {"operation": "remove", "id": id}}).to_string())["ok"],
+        true
+    );
+    assert_eq!(
+        call(json!({"file": file, "action": {"operation": "remove", "id": "nope"}}).to_string())
+            ["error"],
+        "community_invalid"
+    );
+    assert_eq!(
+        call(json!({"file": "CommunityLibrary.json", "action": {"operation": "load"}}).to_string())
+            ["ok"],
+        false
+    );
+    assert_eq!(
+        read(unsafe { msime_client_community_resource_library(std::ptr::null(), 0) })["ok"],
+        false
+    );
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
+fn ai_skin_planning_keeps_the_instruction_and_the_parser_together() {
+    let call = |request: String| {
+        read(unsafe { msime_client_ai_skin_plan(request.as_ptr(), request.len()) })
+    };
+
+    // The host does not write the instruction. It names the exact document the parser accepts, so
+    // a host composing its own would be asking for something the parser was not written against.
+    let composed = call(
+        json!({"operation": "compose", "prompt": "晨雾里的竹林", "model": "fast"}).to_string(),
+    );
+    assert_eq!(composed["ok"], true);
+    assert_eq!(composed["value"]["path"], "/v1/chat/completions");
+    assert_eq!(composed["value"]["body"]["model"], "fast");
+    assert_eq!(composed["value"]["body"]["stream"], false);
+    assert_eq!(composed["value"]["body"]["messages"][0]["role"], "system");
+    assert_eq!(
+        composed["value"]["body"]["messages"][0]["content"],
+        msime_client_core::skin::ai::AI_SKIN_SYSTEM_PROMPT
+    );
+    assert_eq!(
+        composed["value"]["body"]["messages"][1]["content"],
+        "晨雾里的竹林"
+    );
+
+    // The bounds are the ones `generate` applies before it spends anything: a prompt refused here
+    // is one the service would have refused after four requests.
+    assert_eq!(
+        call(json!({"operation": "compose", "prompt": "", "model": "fast"}).to_string())["error"],
+        "ai_skin_invalid"
+    );
+    assert_eq!(
+        call(json!({"operation": "compose", "prompt": "线\u{7}索", "model": "fast"}).to_string())
+            ["error"],
+        "ai_skin_invalid"
+    );
+    assert_eq!(
+        call(
+            json!({"operation": "compose", "prompt": "x".repeat(501), "model": "fast"}).to_string()
+        )["error"],
+        "ai_skin_invalid"
+    );
+
+    let design = |shape: &str, material: &str, accent: &str, prompt: &str| {
+        json!({
+            "name": "晨雾",
+            "description": "竹林里的薄雾",
+            "artworkPrompt": prompt,
+            "background": "#E8F0EB",
+            "keyBackground": "#FFFFFF",
+            "keyForeground": "#17251D",
+            "accent": accent,
+            "actionBackground": accent,
+            "gradientEnd": null,
+            "gradientHorizontal": false,
+            "keyShape": shape,
+            "keyMaterial": material,
+            "cornerRadius": 8,
+            "borderWidth": 0,
+            "shadow": 0.1,
+            "pattern": 0,
+            "monospaced": false,
+        })
+    };
+    let scene = |suffix: &str| {
+        format!(
+            "{}{suffix}",
+            "远山薄雾中的竹林与流水，主体靠近画面边缘，中央留白".repeat(2)
+        )
+    };
+    let answer = json!({
+        "skins": [
+            design("pebble", "raised", "#185C47", &scene("甲")),
+            design("capsule", "glass", "#1C3F6E", &scene("乙")),
+            design("ticket", "paper", "#6E2C1C", &scene("丙")),
+        ]
+    })
+    .to_string();
+    let parsed = call(json!({"operation": "parse", "text": answer}).to_string());
+    assert_eq!(parsed["ok"], true);
+    assert_eq!(parsed["value"].as_array().unwrap().len(), 3);
+    assert_eq!(parsed["value"][0]["artworkPrompt"], scene("甲"));
+    assert_eq!(parsed["value"][1]["design"]["keyShape"], "capsule");
+
+    // Three proposals that share a shape are not three skins to choose between, which is what the
+    // instruction asked the model for.
+    let same_shape = json!({
+        "skins": [
+            design("pebble", "raised", "#185C47", &scene("甲")),
+            design("pebble", "glass", "#1C3F6E", &scene("乙")),
+            design("ticket", "paper", "#6E2C1C", &scene("丙")),
+        ]
+    })
+    .to_string();
+    assert_eq!(
+        call(json!({"operation": "parse", "text": same_shape}).to_string())["error"],
+        "ai_skin_response"
+    );
+    assert_eq!(
+        call(json!({"operation": "parse", "text": "not json"}).to_string())["error"],
+        "ai_skin_response"
+    );
+
+    // A returned picture is checked by the shared client, header and all: a host that trusted the
+    // declared type would render whatever arrived under it.
+    // base64 of b"\x89PNG\r\n\x1A\nrest" and b"\xFF\xD8\xFFrest", written out so this crate does
+    // not take a base64 dependency for two fixtures.
+    let png = "iVBORw0KGgpyZXN0";
+    assert_eq!(
+        call(
+            json!({
+                "operation": "artwork",
+                "artwork": {"b64_json": png, "mime_type": "image/png", "width": 512, "height": 512},
+            })
+            .to_string()
+        )["ok"],
+        true
+    );
+    let jpeg_header_on_a_png_claim = "/9j/cmVzdA==";
+    assert_eq!(
+        call(
+            json!({
+                "operation": "artwork",
+                "artwork": {
+                    "b64_json": jpeg_header_on_a_png_claim,
+                    "mime_type": "image/png",
+                    "width": 512,
+                    "height": 512,
+                },
+            })
+            .to_string()
+        )["error"],
+        "ai_skin_response"
+    );
+    assert_eq!(
+        read(unsafe { msime_client_ai_skin_plan(std::ptr::null(), 0) })["ok"],
+        false
+    );
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
 fn skin_resource_bridge_revalidates_kind_and_package_containment() {
     let directory = tempfile::tempdir().unwrap();
     let root = directory.path().join("skins");
@@ -1096,6 +1717,25 @@ fn typing_statistics_boundary_persists_only_aggregate_counts() {
         .unwrap();
         read(unsafe { msime_client_typing_statistics(request.as_ptr(), request.len()) })
     };
+    // Statistics ship off, so a fresh directory records nothing until asked. That is the
+    // boundary's behaviour too, and it is asserted before turning them on.
+    assert_eq!(
+        call(json!({"operation": "load"}))["value"]["enabled"],
+        false
+    );
+    assert_eq!(
+        call(json!({
+            "operation": "record",
+            "text": "ignored",
+            "source": "handwriting",
+            "day": "2026-09-12",
+        }))["value"]["recorded"],
+        0
+    );
+    assert_eq!(
+        call(json!({"operation": "set_enabled", "enabled": true}))["value"]["enabled"],
+        true
+    );
     let recorded = call(json!({
         "operation": "record",
         "text": "synthetic 🌲",
@@ -1883,9 +2523,19 @@ fn contextual_punctuation_respects_editor_context_preferences_and_composition() 
         "？"
     );
 
-    // Both switches are off on the Windows baseline and in the shipped defaults, and a host that read
-    // neither converted for users who had asked for none of it.
-    let plain = test_host(dir.path());
+    // Turning the two halves off is how a user asks for none of this, and then a comma after a digit
+    // or a letter stays Chinese. They default on where the parent does - the parent's own
+    // description promises exactly this conversion - so the document says so rather than relying on
+    // a default that now points the other way.
+    let plain = test_host_preferences(
+        dir.path(),
+        Preferences {
+            smart_punctuation: true,
+            smart_punctuation_direct_digit: false,
+            smart_punctuation_direct_letter: false,
+            ..chinese_preferences()
+        },
+    );
     assert_eq!(read(msime_client_focus(plain, true))["ok"], true);
     for preceding in [u32::from('0'), u32::from('a')] {
         assert_eq!(
@@ -3625,4 +4275,177 @@ fn published_defaults_complete_every_nested_preference_object() {
             );
         }
     }
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
+fn importing_a_personal_dictionary_file_queues_instead_of_taking_the_engine_lock() {
+    let directory = tempfile::tempdir().unwrap();
+    let root = directory.path().to_str().unwrap().to_owned();
+    let options = json!({
+        "api_version": 1,
+        "resources": format!("{root}/resources"),
+        "user_data": format!("{root}/user"),
+        "cache": format!("{root}/cache"),
+        "dictionaries": format!("{root}/dictionaries"),
+        "preferences": msime_client_core::preferences::Preferences::default(),
+        "preferences_directory": root,
+    });
+    let file = json!({
+        "format": "msime-personal-dictionary",
+        "version": 1,
+        "entries": [
+            {"kind": "pinyin", "key": "shuishan", "value": "水杉", "weight": 100},
+            {"kind": "quickPhrase", "key": "zjd", "value": "在家等", "weight": 100},
+        ],
+    })
+    .to_string();
+    let request = json!({
+        "options": options,
+        "action": {"operation": "import_personal", "text": file, "request_id": "ui-1"},
+    })
+    .to_string();
+
+    let queued =
+        read(unsafe { msime_client_personal_dictionary_request(request.as_ptr(), request.len()) });
+    assert_eq!(queued["ok"], true);
+    assert_eq!(queued["value"]["queued"], true);
+    // The count is what the card shows the user, so it has to be the queue's own answer rather
+    // than the number of lines that were sent.
+    assert_eq!(queued["value"]["pending_count"], 2);
+
+    // The same request through the Engine route is refused, which is the whole reason the queued
+    // one exists: that route needs the maintenance lock, and a keyboard holding a session owns it.
+    let engine = read(unsafe { msime_client_dictionary(request.as_ptr(), request.len()) });
+    assert_eq!(engine["ok"], false);
+
+    // A second import adds to the queue rather than replacing it: two files imported before the
+    // keyboard next starts must both survive.
+    let second = json!({
+        "options": options,
+        "action": {
+            "operation": "import_personal",
+            "text": json!({
+                "format": "msime-personal-dictionary",
+                "version": 1,
+                "entries": [{"kind": "english", "key": "ime", "value": "IME", "weight": 100}],
+            })
+            .to_string(),
+            "request_id": "ui-2",
+        },
+    })
+    .to_string();
+    let again =
+        read(unsafe { msime_client_personal_dictionary_request(second.as_ptr(), second.len()) });
+    assert_eq!(again["value"]["pending_count"], 3);
+
+    // A file this host cannot read is refused before anything is queued, so a malformed import
+    // cannot leave the queue half-written.
+    let malformed = json!({
+        "options": options,
+        "action": {"operation": "import_personal", "text": "not json", "request_id": "ui-3"},
+    })
+    .to_string();
+    assert_eq!(
+        read(unsafe {
+            msime_client_personal_dictionary_request(malformed.as_ptr(), malformed.len())
+        })["ok"],
+        false
+    );
+
+    // Without a shared directory there is no queue to write to, and inventing one beside the
+    // resources would put the words somewhere the keyboard never looks.
+    let mut rootless = options.clone();
+    rootless
+        .as_object_mut()
+        .unwrap()
+        .remove("preferences_directory");
+    let without = json!({
+        "options": rootless,
+        "action": {"operation": "import_personal", "text": file, "request_id": "ui-4"},
+    })
+    .to_string();
+    assert_eq!(
+        read(unsafe { msime_client_personal_dictionary_request(without.as_ptr(), without.len()) })
+            ["ok"],
+        false
+    );
+    assert_eq!(
+        read(unsafe { msime_client_personal_dictionary_request(std::ptr::null(), 0) })["ok"],
+        false
+    );
+}
+
+#[test]
+#[cfg(not(target_os = "android"))]
+fn the_dictionary_manifest_answers_what_is_installed_or_says_it_cannot() {
+    let directory = tempfile::tempdir().unwrap();
+    let resources = directory.path();
+    let read_manifest = || {
+        let path = resources.to_str().unwrap();
+        read(unsafe { msime_client_dictionary_manifest(path.as_ptr(), path.len()) })
+    };
+    let commit = "d0dc0c2b594b5540b5de99ad12085c786410626e";
+
+    // No manifest is a refusal, not an empty answer: the file is packaged, so its absence means
+    // the installation is not what it should be.
+    assert_eq!(read_manifest()["ok"], false);
+
+    // The real shape, with every field the packaged manifest carries. Only two come back — the
+    // page is asking what is installed and where it came from, not for journal modes.
+    std::fs::write(
+        resources.join("dictionary-manifest.json"),
+        json!({
+            "manifest_version": 1,
+            "profile": "desktop",
+            "format_version": 1,
+            "engine_compatibility": {"dictionary_format": 1, "japanese_model_magic": "MSJPDT1"},
+            "source": {
+                "repository": "metasequoiaime/MSIME-Engine",
+                "path": "dictionary",
+                "commit": commit,
+                "dirty": false,
+            },
+            "sqlite_journal_mode": "delete",
+            "references": {"ECDICT": {"repository": "https://example.invalid", "commit": "b"}},
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let manifest = read_manifest();
+    assert_eq!(manifest["ok"], true);
+    assert_eq!(manifest["value"]["profile"], "desktop");
+    assert_eq!(manifest["value"]["sourceCommit"], commit);
+    assert_eq!(manifest["value"].as_object().unwrap().len(), 2);
+
+    // A commit that is not one is refused rather than shown. A version stated wrongly is worse
+    // than one not stated, which is the whole reason this reports instead of guessing.
+    for broken in [
+        json!({"profile": "desktop", "source": {"commit": "not-a-commit"}}),
+        json!({"profile": "desktop", "source": {"commit": "abc"}}),
+        json!({"profile": "", "source": {"commit": commit}}),
+        json!({"profile": "desktop"}),
+        json!({"source": {"commit": commit}}),
+    ] {
+        std::fs::write(
+            resources.join("dictionary-manifest.json"),
+            broken.to_string(),
+        )
+        .unwrap();
+        assert_eq!(read_manifest()["ok"], false, "accepted {broken}");
+    }
+    std::fs::write(resources.join("dictionary-manifest.json"), "not json").unwrap();
+    assert_eq!(read_manifest()["ok"], false);
+
+    // A relative directory is refused rather than resolved against whatever the process happens
+    // to have as its working directory.
+    let relative = "engine";
+    assert_eq!(
+        read(unsafe { msime_client_dictionary_manifest(relative.as_ptr(), relative.len()) })["ok"],
+        false
+    );
+    assert_eq!(
+        read(unsafe { msime_client_dictionary_manifest(std::ptr::null(), 0) })["ok"],
+        false
+    );
 }

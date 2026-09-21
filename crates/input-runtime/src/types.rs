@@ -79,6 +79,15 @@ pub struct View {
     pub generation: u64,
     pub focused: bool,
     pub preedit: String,
+    /// The already chosen part of a phrase still being composed, which the host draws ahead of the
+    /// editing text rather than receiving as a commit. Empty unless the host asked for it.
+    ///
+    /// It is a field of its own rather than a prefix on `editing_text` because `caret_position` is
+    /// an offset into that text, and the hosts each read it in their own string unit - the two have
+    /// agreed so far only because the editing text is ASCII. A host prepends this itself and moves
+    /// its own caret by this string's length in whatever unit it measures.
+    #[serde(default, skip_serializing_if = "String::is_empty")]
+    pub phrase_prefix: String,
     /// Engine-owned kana reading for Japanese; empty for other schemes.
     pub reading: String,
     pub editing_text: String,

@@ -77,7 +77,10 @@ endif()
 add_library(apple-client STATIC ../../shared/apple/MSIMEClientSession.mm ../../shared/apple/TextClient.mm)
 target_compile_options(apple-client PRIVATE -fobjc-arc -Wall -Wextra -Werror)
 target_include_directories(apple-client PUBLIC ../../shared/apple src ../../crates/host-api/include)
-target_link_libraries(apple-client PUBLIC "${MSIME_HOST_LIBRARY}" ${SQLITE_TARGET} "-framework Foundation" "-framework Security" "-framework CoreText")
+# AppKit for the marked text attributes: a composition carrying an already chosen phrase piece is
+# drawn as two clauses, and NSUnderlineStyle* and the marked clause attribute live there. The iOS
+# build of these same sources compiles that block out - UIKit's document proxy takes a plain string.
+target_link_libraries(apple-client PUBLIC "${MSIME_HOST_LIBRARY}" ${SQLITE_TARGET} "-framework Foundation" "-framework Security" "-framework CoreText" "-framework AppKit")
 if(TARGET shared-doubao-auth)
   # The Rust archive needs the same Apple/system dependencies in shared ABI tests.
   target_link_libraries(shared-doubao-auth PRIVATE ${SQLITE_TARGET} "-framework Foundation" "-framework Security")
@@ -170,26 +173,27 @@ endforeach()
 add_custom_command(TARGET MSIMEClientInputMethod POST_BUILD
   COMMAND "${CMAKE_COMMAND}" -E make_directory "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks"
   COMMAND "${CMAKE_COMMAND}" -E copy_if_different "${MSIME_SWIFT_BACKEND_OUTPUT}" "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks/MSIMEBackend.dylib")
-# The recognizer this host is forced to carry, and the four ggml libraries behind it.
+# The recognizer this host carries is linked in, not staged beside it.
 #
-# `MSIME_SHARED_VOICE_LOCAL_WHISPER` is set ON and FORCE above, so the input method links
-# @rpath/libwhisper.1.dylib and three libggml-*.0.dylib whether or not anyone wanted them. Only
-# MSIMEBackend and Sparkle were ever copied into Frameworks, so an installed bundle aborted at
-# launch with `Library not loaded: @rpath/libwhisper.1.dylib` — the build and the signature both
-# succeed, and the failure only appears when the app is asked to start.
+# `MSIME_SHARED_VOICE_LOCAL_WHISPER` is set ON and FORCE above, so the input method always carries
+# whisper and the four ggml libraries. They used to arrive as dylibs and be copied here, because a
+# first configure of a fresh build directory produced shared libraries - see the cache entry in
+# shared/voice/CMakeLists.txt for why that happened and why it no longer does. Without the copies an
+# installed bundle aborted at launch with `Library not loaded: @rpath/libwhisper.1.dylib`, which the
+# build and the signature both let through.
 #
-# Copied as targets rather than by file name: the versioned names carry whisper's and ggml's own
-# version numbers, and a bump would silently leave the bundle pointing at a library that is no
-# longer built.
+# Static archives cannot fail that way: there is nothing to find at runtime. The guard stays, and
+# fails the configure rather than silently shipping a bundle that will not start, if the Engine's
+# voice dependencies ever come out shared again.
 foreach(MSIME_BUNDLED_LIBRARY whisper ggml ggml-base ggml-cpu ggml-metal)
   if(TARGET ${MSIME_BUNDLED_LIBRARY})
-    add_custom_command(TARGET MSIMEClientInputMethod POST_BUILD
-      COMMAND "${CMAKE_COMMAND}" -E copy_if_different
-              "$<TARGET_FILE:${MSIME_BUNDLED_LIBRARY}>"
-              "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks/$<TARGET_FILE_NAME:${MSIME_BUNDLED_LIBRARY}>"
-      COMMAND "${CMAKE_COMMAND}" -E create_symlink
-              "$<TARGET_FILE_NAME:${MSIME_BUNDLED_LIBRARY}>"
-              "$<TARGET_BUNDLE_DIR:MSIMEClientInputMethod>/Contents/Frameworks/$<TARGET_SONAME_FILE_NAME:${MSIME_BUNDLED_LIBRARY}>")
+    get_target_property(MSIME_BUNDLED_LIBRARY_TYPE ${MSIME_BUNDLED_LIBRARY} TYPE)
+    if(MSIME_BUNDLED_LIBRARY_TYPE STREQUAL "SHARED_LIBRARY")
+      message(FATAL_ERROR
+        "${MSIME_BUNDLED_LIBRARY} came out shared; this bundle links the Engine's voice dependencies "
+        "statically and stages no dylib for them, so it would abort at launch on @rpath. "
+        "See shared/voice/CMakeLists.txt.")
+    endif()
   endif()
 endforeach()
 set(MSIME_OPTIONS_FILE "" CACHE FILEPATH "Optional development runtime configuration; never distribute this file")
@@ -277,7 +281,7 @@ add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-swift-host-test"
     -target "${CMAKE_HOST_SYSTEM_PROCESSOR}-apple-macosx${CMAKE_OSX_DEPLOYMENT_TARGET}"
     ${MSIME_EMOJI_SWIFT_HOST_SOURCES}
     -Xlinker -force_load -Xlinker "$<TARGET_FILE:apple-client>"
-    "${MSIME_HOST_LIBRARY}" -lsqlite3 -lc++ -framework Foundation -framework Security -framework CoreText
+    "${MSIME_HOST_LIBRARY}" -lsqlite3 -lc++ -framework Foundation -framework Security -framework CoreText -framework AppKit
     -o "${CMAKE_CURRENT_BINARY_DIR}/emoji-swift-host-test"
   DEPENDS ${MSIME_EMOJI_SWIFT_HOST_SOURCES} apple-client "${MSIME_HOST_LIBRARY}" VERBATIM)
 add_custom_target(emoji-swift-host-test-build ALL DEPENDS "${CMAKE_CURRENT_BINARY_DIR}/emoji-swift-host-test")
@@ -475,6 +479,10 @@ add_executable(toolbar-visibility-preferences-test tests/settings/ToolbarVisibil
 target_compile_options(toolbar-visibility-preferences-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(toolbar-visibility-preferences-test PRIVATE "-framework AppKit")
 add_test(NAME toolbar-visibility-preferences COMMAND toolbar-visibility-preferences-test)
+add_executable(scheme-round-trip-preferences-test tests/settings/SchemeRoundTripPreferencesTest.mm src/settings/AppearancePreferences.mm src/candidate/CandidateSkin.cpp src/candidate/CandidateSkinPreviewView.mm src/candidate/SkinSettingsView.mm src/settings/PreferencesWindowController.mm src/candidate/CandidateSkinAppearance.mm src/core/AISettingsWindow.mm)
+target_compile_options(scheme-round-trip-preferences-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(scheme-round-trip-preferences-test PRIVATE "-framework AppKit")
+add_test(NAME scheme-round-trip-preferences COMMAND scheme-round-trip-preferences-test)
 add_executable(local-mode-preferences-test tests/settings/LocalModePreferencesTest.mm src/settings/AppearancePreferences.mm src/candidate/CandidateSkin.cpp src/candidate/CandidateSkinPreviewView.mm src/candidate/SkinSettingsView.mm src/candidate/CandidateSkinAppearance.mm)
 target_compile_options(local-mode-preferences-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(local-mode-preferences-test PRIVATE apple-client "-framework AppKit")
@@ -680,6 +688,21 @@ add_executable(voice-polish-request-test tests/voice/VoicePolishRequestTest.mm s
 target_compile_options(voice-polish-request-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(voice-polish-request-test PRIVATE msime-voice-providers "-framework Foundation")
 add_test(NAME voice-polish-request COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/voice/voice_polish_fixture.py" "$<TARGET_FILE:voice-polish-request-test>")
+# Which prompt each slot resolves to. The request test above sends whatever it is handed; this one says what
+# that should be. The header is shared/voice's and this host ships it through HTTPVoiceRequest.mm, but its
+# only test ran in the Windows build - so a fallback that had drifted from the reference sat here unchecked.
+add_executable(shared-polish-prompt-test ../../shared/voice/tests/polish_prompt.cpp)
+target_compile_options(shared-polish-prompt-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+add_test(NAME shared-polish-prompt COMMAND shared-polish-prompt-test)
+# Which compute backends the linked-in recognizer registers. shared/voice registers this itself where its
+# own BUILD_TESTING is on; this host adds the Engine's voice tree without it, and this host is the one that
+# links those libraries statically, so the check has to exist here too. A backend the registry never hears
+# about costs nothing visible: whisper still answers, on the CPU.
+if(TARGET ggml AND NOT TARGET shared-voice-backend-registry)
+  add_executable(shared-voice-backend-registry ../../shared/voice/tests/backend_registry.cpp)
+  target_link_libraries(shared-voice-backend-registry PRIVATE ggml)
+  add_test(NAME shared-voice-backend-registry COMMAND shared-voice-backend-registry)
+endif()
 target_sources(shortcut-test PRIVATE src/cloud/TranslationCache.mm src/input/InputModeHUDPanel.mm)
 add_executable(shuangpin-keymap-input-test tests/input/ShuangpinKeymapInputTest.mm src/settings/ShuangpinKeymapPanel.mm)
 target_include_directories(shuangpin-keymap-input-test PRIVATE src ../../vendor/MSIME-Engine ../../vendor/MSIME-Engine/include)
@@ -708,12 +731,24 @@ add_executable(candidate-hover-test tests/candidate/CandidateHoverTest.mm)
 target_compile_options(candidate-hover-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(candidate-hover-test PRIVATE "-framework AppKit")
 add_test(NAME candidate-hover COMMAND candidate-hover-test)
+# Where the candidate window goes: under the caret, flipped above it when there is no room, and
+# clamped into the display it is on - including one whose coordinates are negative.
+add_executable(candidate-placement-test tests/candidate/CandidatePlacementTest.mm)
+target_compile_options(candidate-placement-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(candidate-placement-test PRIVATE "-framework AppKit")
+add_test(NAME candidate-placement COMMAND candidate-placement-test)
 add_executable(candidate-pagination-test tests/candidate/CandidatePaginationTest.cpp)
 target_include_directories(candidate-pagination-test PRIVATE src)
 target_compile_options(candidate-pagination-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 add_test(NAME candidate-pagination COMMAND candidate-pagination-test)
 # The current client host uses the host-api adapter. src/dictionary/DictionaryRuntime.mm is
 # the retained Apple snapshot adapter for MetasequoiaInputController, not this host.
+# Installing a dictionary over the one already in place. Every refusal here protects that file, and
+# the install itself must not be able to leave the user without one.
+add_executable(dictionary-installer-test tests/dictionary/DictionaryInstallerTest.mm src/dictionary/DictionaryInstaller.mm)
+target_compile_options(dictionary-installer-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(dictionary-installer-test PRIVATE "-framework Foundation" ${SQLITE_TARGET})
+add_test(NAME dictionary-installer COMMAND dictionary-installer-test)
 add_executable(dictionary-runtime-test tests/dictionary/DictionaryRuntimeTest.mm src/core/ClientDictionaryRuntime.mm)
 target_compile_options(dictionary-runtime-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_include_directories(dictionary-runtime-test PRIVATE ../../shared/apple ../../crates/host-api/include)
@@ -725,13 +760,13 @@ target_compile_options(skin-preview-test PRIVATE -fobjc-arc -Wall -Wextra -Werro
 target_link_libraries(skin-preview-test PRIVATE "-framework AppKit" "-framework CoreText")
 add_test(NAME skin-preview COMMAND skin-preview-test)
 add_executable(skin-settings-test tests/candidate/SkinSettingsTest.mm src/settings/AppearancePreferences.mm src/candidate/CandidateSkin.cpp src/candidate/CandidateSkinPreviewView.mm src/candidate/SkinSettingsView.mm src/candidate/CandidateSkinAppearance.mm src/core/ChineseTextConversion.mm)
-foreach(translation_settings_consumer MSIMEClientInputMethod toolbar-visibility-preferences-test local-mode-preferences-test shortcut-test skin-preview-test skin-settings-test)
+foreach(translation_settings_consumer MSIMEClientInputMethod toolbar-visibility-preferences-test scheme-round-trip-preferences-test local-mode-preferences-test shortcut-test skin-preview-test skin-settings-test)
   target_sources(${translation_settings_consumer} PRIVATE src/cloud/TranslationSettingsWindow.mm)
 endforeach()
-foreach(ai_settings_consumer toolbar-visibility-preferences-test local-mode-preferences-test shortcut-test skin-preview-test skin-settings-test)
+foreach(ai_settings_consumer toolbar-visibility-preferences-test scheme-round-trip-preferences-test local-mode-preferences-test shortcut-test skin-preview-test skin-settings-test)
   target_sources(${ai_settings_consumer} PRIVATE src/core/AISettingsWindow.mm)
 endforeach()
-foreach(translation_settings_consumer toolbar-visibility-preferences-test skin-preview-test skin-settings-test)
+foreach(translation_settings_consumer toolbar-visibility-preferences-test scheme-round-trip-preferences-test skin-preview-test skin-settings-test)
   target_link_libraries(${translation_settings_consumer} PRIVATE apple-client)
 endforeach()
 target_include_directories(skin-settings-test PRIVATE src)
@@ -801,6 +836,14 @@ add_test(
           "${CMAKE_CURRENT_SOURCE_DIR}/tests/settings/info_plist_usage.py"
           "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"
           "${CMAKE_CURRENT_SOURCE_DIR}/src")
+# The input source identifiers and the names the input menu shows for them live in different files, so renaming the bundle leaves the names keyed on an identifier nothing declares any more - and the menu then prints the identifier itself.
+add_test(
+  NAME info-plist-names
+  COMMAND "${Python3_EXECUTABLE}"
+          "${CMAKE_CURRENT_SOURCE_DIR}/tests/settings/info_plist_names.py"
+          "${CMAKE_CURRENT_SOURCE_DIR}/Info.plist.in"
+          "${CMAKE_CURRENT_SOURCE_DIR}/resources"
+          "${CMAKE_CURRENT_SOURCE_DIR}/../..")
 add_test(
   NAME entitlements-guard
   COMMAND "${Python3_EXECUTABLE}"
@@ -825,6 +868,11 @@ target_include_directories(candidate-selection-state-test PRIVATE src ../../vend
 target_compile_options(candidate-selection-state-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(candidate-selection-state-test PRIVATE "-framework Foundation")
 add_test(NAME candidate-selection-state COMMAND candidate-selection-state-test)
+# The page-size rules had a test file and no target: it had never been built, let alone run, which is
+# how a clamp that rewrote the shared default stayed in place.
+add_executable(candidate-page-size-test tests/candidate/CandidatePageSizeTest.cpp)
+target_compile_options(candidate-page-size-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+add_test(NAME candidate-page-size COMMAND candidate-page-size-test)
 
 add_executable(voice-wave-overlay-test tests/voice/VoiceWaveOverlayTest.mm src/voice/VoiceWaveOverlay.mm)
 target_compile_options(voice-wave-overlay-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)

@@ -503,11 +503,19 @@ pub struct Preferences {
     #[serde(default)]
     pub smart_punctuation_space_convert: bool,
     /// Keep `,` `.` `:` as ASCII when they follow a digit.
-    #[serde(default)]
+    #[serde(default = "smart_punctuation_default")]
     pub smart_punctuation_direct_digit: bool,
     /// The same after a letter. Two switches rather than one, because a
     /// version number and an English sentence want different answers.
-    #[serde(default)]
+    ///
+    /// Both follow the parent switch's default rather than being off on their
+    /// own. The reference has one switch here, and its description - which this
+    /// page shows verbatim - promises ASCII after a letter or a digit. Split
+    /// into three and with the two halves off, that switch was on out of the
+    /// box and did nothing: the sentence under it was false until the user
+    /// found two more toggles. A document that already carries the keys is
+    /// unaffected, since this answers only for one that does not.
+    #[serde(default = "smart_punctuation_default")]
     pub smart_punctuation_direct_letter: bool,
     #[serde(default = "enabled_by_default")]
     pub paired_punctuation: bool,
@@ -811,8 +819,15 @@ pub struct FloatingToolbarPreferences {
     pub character_set: bool,
     #[serde(default = "enabled_by_default")]
     pub emoji: bool,
+    /// The handwriting panel button. The reference's toolbar has no such button; this client's
+    /// macOS toolbar carries one, and until now it could not be turned off.
+    #[serde(default = "enabled_by_default")]
+    pub handwriting: bool,
     #[serde(default)]
     pub screen_keyboard: bool,
+    /// The voice input button, for the same reason as `handwriting`.
+    #[serde(default = "enabled_by_default")]
+    pub voice: bool,
     #[serde(default = "enabled_by_default")]
     pub settings: bool,
 }
@@ -835,7 +850,9 @@ impl Default for FloatingToolbarPreferences {
             punctuation: true,
             character_set: true,
             emoji: true,
+            handwriting: true,
             screen_keyboard: false,
+            voice: true,
             settings: true,
         }
     }
@@ -887,8 +904,15 @@ pub enum PreeditStyle {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum UiBackend {
+    /// `d2d` is what the Windows factory configuration writes and what the reference's own
+    /// `IsSupported` accepts, so the two halves of this product disagreed on the spelling of their
+    /// default: a document carrying it was rejected outright rather than read.
     #[default]
+    #[serde(alias = "d2d")]
     Direct2d,
+    /// The reference treats `webview` and `web` as the same choice, having written both at
+    /// different times. Reading them costs nothing and keeps a profile from resetting.
+    #[serde(alias = "webview", alias = "web")]
     Webview2,
 }
 
@@ -1182,8 +1206,8 @@ impl Default for Preferences {
             smart_punctuation: smart_punctuation_default(),
             smart_punctuation_repeat: smart_punctuation_default(),
             smart_punctuation_space_convert: false,
-            smart_punctuation_direct_digit: false,
-            smart_punctuation_direct_letter: false,
+            smart_punctuation_direct_digit: smart_punctuation_default(),
+            smart_punctuation_direct_letter: smart_punctuation_default(),
             paired_punctuation: true,
             punctuation_lock: PunctuationLock::Follow,
             navigation: NavigationPreferences::default(),
@@ -1311,6 +1335,7 @@ pub enum HelpcodeSchema {
     Shouyou2,
     Shouyouplus,
     Xiaohe,
+    Jiajia,
 }
 
 impl HelpcodeSchema {
@@ -1321,6 +1346,7 @@ impl HelpcodeSchema {
             Self::Shouyou2 => "shouyou2_0",
             Self::Shouyouplus => "shouyouplus",
             Self::Xiaohe => "xiaohe",
+            Self::Jiajia => "jiajia",
         }
     }
 }
@@ -1915,11 +1941,57 @@ impl PreferencesStore {
 }
 
 fn atomic_write(directory: &Path, path: &Path, contents: &[u8]) -> Result<(), PreferencesError> {
+    sweep_stale_temporaries(directory);
     let mut temporary = tempfile::NamedTempFile::new_in(directory)?;
     temporary.write_all(contents)?;
     temporary.as_file().sync_all()?;
     temporary.persist(path).map_err(|error| error.error)?;
     Ok(())
+}
+
+/// How long a staged write has to sit before it is considered abandoned. A staged write takes
+/// milliseconds; a day is far past anything a slow disk explains.
+const STALE_TEMPORARY_AGE: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+
+/// Remove staged writes nobody is going to finish.
+///
+/// `NamedTempFile` removes itself when it is dropped, but a process killed between creating the
+/// file and renaming it drops nothing - and the input method is stopped exactly that way every time
+/// it is reinstalled. The staged file then sits in the user's data directory forever, one per
+/// interrupted write, and nothing else ever looks at it. Two were found there on a machine running
+/// this client, holding a copy of the preferences and of the typing statistics.
+///
+/// Only files a day old are touched, and the age is what makes this safe rather than the lock: the
+/// statistics document stages its writes into this same directory under a lock of its own, so a
+/// sweep that went by name alone could delete a write that was in flight.
+fn sweep_stale_temporaries(directory: &Path) {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return;
+    };
+    let now = std::time::SystemTime::now();
+    for entry in entries.flatten() {
+        if !entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| name.starts_with(".tmp"))
+        {
+            continue;
+        }
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        if !metadata.is_file() {
+            continue;
+        }
+        let abandoned = metadata
+            .modified()
+            .ok()
+            .and_then(|modified| now.duration_since(modified).ok())
+            .is_some_and(|age| age >= STALE_TEMPORARY_AGE);
+        if abandoned {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
 }
 
 #[cfg(test)]

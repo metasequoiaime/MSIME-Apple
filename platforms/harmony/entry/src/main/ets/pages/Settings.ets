@@ -14,6 +14,7 @@ import { KeyboardLog, describeError } from '../keyboard/KeyboardLog';
 import { KeyboardSession } from '../keyboard/KeyboardSession';
 import { StagedResources } from '../keyboard/StagedResources';
 import { HarmonyAccountCloudBridge } from '../account/HarmonyAccountCloudBridge';
+import { HarmonyAiSkins } from '../account/HarmonyAiSkins';
 import { utf8Length } from '../keyboard/Utf8';
 import { niutransAuth, tencentAuthorization } from '../keyboard/CredentialCrypto';
 import { HarmonyVoiceCaptureDevices } from '../keyboard/input/HarmonyVoiceCaptureDevices';
@@ -104,6 +105,65 @@ interface VoiceCaptureDeviceReply {
 
 const BRIDGE_NAME: string = 'msimeHarmony';
 const PLATFORM: string = 'harmony';
+
+/** One AI skin request from the page: start a run, or stop the one under that id. */
+interface AiSkinAction {
+  operation: string;
+  request_id?: string;
+  prompt?: string;
+}
+
+/**
+ * The nested action documents for the two native libraries.
+ *
+ * Declared rather than written inline because ArkTS requires every object literal to name a type.
+ * They are the request shapes `msime_client_community_resource_library` and
+ * `msime_client_keyboard_skin_trial` parse, so the names say which side owns them.
+ */
+interface ResourceLibraryRemove {
+  operation: string;
+  id: string;
+}
+
+interface ResourceLibraryRequest {
+  file: string;
+  action: ResourceLibraryRemove;
+}
+
+interface SkinTrialFinish {
+  operation: string;
+  id: string;
+  keep: boolean;
+}
+
+interface SkinTrialRequest {
+  directory: string;
+  action: SkinTrialFinish;
+}
+
+/** One community resource request; only the two local library operations are handled here. */
+interface CommunityResourceAction {
+  resource_operation: string;
+  id?: string;
+  item?: Object;
+}
+
+/** One community skin request from the page; only download and finish_trial are handled here. */
+interface CommunitySkinAction {
+  community_operation: string;
+  id: string;
+  name?: string;
+  keep?: boolean;
+}
+
+interface CommunityDownloadValue {
+  design?: Object;
+}
+
+interface CommunityDownloadReply {
+  ok: boolean;
+  value?: CommunityDownloadValue;
+}
 
 interface CloudDownloadEntry {
   kind: string;
@@ -380,7 +440,7 @@ struct Settings {
             this.controller.registerJavaScriptProxy(this.bridge, BRIDGE_NAME,
               ['loadPreferences', 'savePreferences', 'hostCapabilities', 'appVersion',
                 'scanSkinCatalog', 'readSkinImage', 'readSkinFont', 'readSkinToolbarCss',
-                'dictionary', 'cloudDictionaryDownload',
+                'customSkinLibrary', 'dictionaryManifest', 'dictionary', 'cloudDictionaryDownload',
                 'typingStatistics', 'openExternalUrl', 'copyText',
                 'openSystemKeyboardSettings', 'listVoiceCaptureDevices', 'listFontFamilies',
                 'keyboardFeedback', 'customTranslations', 'onboardingStatus',
@@ -416,6 +476,7 @@ class SettingsBridge {
   private webview: web_webview.WebviewController | undefined = undefined;
   private context: common.UIAbilityContext | undefined = undefined;
   private accountBridge: HarmonyAccountCloudBridge | undefined = undefined;
+  private aiSkins: HarmonyAiSkins | undefined = undefined;
   private cloudDownloadRequest: number = 0;
 
   useWebview(controller: web_webview.WebviewController): void {
@@ -426,6 +487,7 @@ class SettingsBridge {
     this.context = context;
     this.stateDirectory = `${context.filesDir}/state`;
     this.accountBridge = new HarmonyAccountCloudBridge(context);
+    this.aiSkins = this.accountBridge.aiSkins();
     // The same copy the keyboard makes, by the same rule. The page reaches the dictionary through
     // it too, and two staging rules for one directory is how it came to hold a set matching neither.
     StagedResources.stage(`${context.resourceDir}/engine`, `${context.filesDir}/engine`,
@@ -564,11 +626,15 @@ class SettingsBridge {
   /**
    * Starts one of the asynchronous requests and answers at once.
    *
-   * A bridge method that returns a Promise never settles on this platform, so the six below could
-   * not answer the page at all: the account, the cloud dictionary and its snapshots, the AI model
-   * list, the AI test and the credential test. They are left as they are and started from here
-   * instead; the reply is delivered afterwards through `runJavaScript`, the same direction the
-   * preference-change notification already uses.
+   * A bridge method that returns a Promise never settles on this platform, so the ones below could
+   * not answer the page at all: the account, the account-backed chat, the cloud dictionary and its
+   * snapshots, the AI model list, the AI test and the credential test. They are left as they are
+   * and started from here instead; the reply is delivered afterwards through `runJavaScript`, the
+   * same direction the preference-change notification already uses.
+   *
+   * Chat is its own kind rather than another `account` caller because the page gives it a longer
+   * deadline: a completion is a model writing text, and sharing the account kind would have meant
+   * either cutting chat off early or letting a stalled profile fetch spin for two minutes.
    *
    * An unknown kind is answered rather than ignored. A page waiting on a number nobody will ever
    * send is indistinguishable from a slow network, and this one is a mistake that should say so.
@@ -582,6 +648,25 @@ class SettingsBridge {
       this.account(payload).then(deliver).catch(failed);
     } else if (kind === 'cloud_dictionary') {
       this.cloudDictionary(payload).then(deliver).catch(failed);
+    } else if (kind === 'chat') {
+      this.account(payload).then(deliver).catch(failed);
+    } else if (kind === 'settings_sync') {
+      this.settingsSync(payload).then(deliver).catch(failed);
+    } else if (kind === 'ai_skin') {
+      this.aiSkin(id, payload).then(deliver).catch((error: Object): void => {
+        KeyboardLog.error(`ai skin request failed: ${describeError(error)}`);
+        deliver(JSON.stringify({ ok: false, error: 'ai_skin_unavailable' }));
+      });
+    } else if (kind === 'community_resource') {
+      this.communityResource(payload).then(deliver).catch((error: Object): void => {
+        KeyboardLog.error(`community resource request failed: ${describeError(error)}`);
+        deliver(JSON.stringify({ ok: false, error: 'community_unavailable' }));
+      });
+    } else if (kind === 'community_skin') {
+      this.communitySkin(payload).then(deliver).catch((error: Object): void => {
+        KeyboardLog.error(`community skin request failed: ${describeError(error)}`);
+        deliver(JSON.stringify({ ok: false, error: 'community_unavailable' }));
+      });
     } else if (kind === 'cloud_dictionary_snapshot') {
       this.cloudDictionarySnapshot(payload).then(deliver).catch(failed);
     } else if (kind === 'ai_models') {
@@ -625,6 +710,189 @@ class SettingsBridge {
     } catch {
       return raw;
     }
+  }
+
+  /**
+   * AI skin generation, which is the one request that reports before it answers.
+   *
+   * Three pictures take minutes, so a run that said nothing until it finished would be
+   * indistinguishable from one that had stopped. Progress goes out on its own channel rather than
+   * as part of the reply, the same direction the preference-change notification uses, and the
+   * request id the page chose travels with it so a stale run's counter cannot drive a new one's
+   * display.
+   */
+  async aiSkin(requestId: number, actionDocument: string): Promise<string> {
+    if (this.aiSkins === undefined) {
+      return JSON.stringify({ ok: false, error: 'ai_skin_unavailable' });
+    }
+    let action: AiSkinAction;
+    try {
+      action = JSON.parse(actionDocument) as AiSkinAction;
+    } catch {
+      return JSON.stringify({ ok: false, error: 'ai_skin_invalid' });
+    }
+    const id: string = action.request_id ?? '';
+    if (action.operation === 'cancel') return this.aiSkins.cancel(id);
+    if (action.operation !== 'generate') {
+      return JSON.stringify({ ok: false, error: 'ai_skin_invalid' });
+    }
+    return await this.aiSkins.generate(id, action.prompt ?? '', (completed: number): void => {
+      this.deliverAiSkinProgress(id, completed);
+    });
+  }
+
+  private deliverAiSkinProgress(requestId: string, completed: number): void {
+    if (this.webview === undefined) return;
+    this.webview.runJavaScript(
+      `globalThis.msimeHarmonyAiSkinProgress && globalThis.msimeHarmonyAiSkinProgress(`
+      + `${JSON.stringify(requestId)}, ${completed})`)
+      .catch((error: Object): void => {
+        // A progress tick that does not arrive costs the user a moving number, not the run.
+        KeyboardLog.error(`ai skin progress not delivered: ${describeError(error)}`);
+      });
+  }
+
+  /**
+   * Community dictionaries and reply templates.
+   *
+   * Everything but the two library operations is one request to the account bridge. Keeping and
+   * forgetting a reply template are not requests at all: that library is a local file, and it is
+   * the only thing the settings surface and the keyboard process share about the community.
+   *
+   * The file sits beside the state directory rather than inside it, at `files/CommunityLibrary.json`
+   * — the same path `KeyboardSession.communityReplyTemplates` reads. The keyboard extension is given
+   * `files/state`, so a library written inside that directory would be written where the reader
+   * never looks.
+   */
+  async communityResource(actionDocument: string): Promise<string> {
+    if (this.accountBridge === undefined || this.context === undefined) {
+      return JSON.stringify({ ok: false, error: 'community_unavailable' });
+    }
+    let action: CommunityResourceAction;
+    try {
+      action = JSON.parse(actionDocument) as CommunityResourceAction;
+    } catch {
+      return JSON.stringify({ ok: false, error: 'community_invalid' });
+    }
+    const file: string = `${this.context.filesDir}/CommunityLibrary.json`;
+    if (action.resource_operation === 'store_reply') {
+      return client.communityResourceLibrary(`{"file":${JSON.stringify(file)},`
+        + `"action":{"operation":"save_reply","item":${JSON.stringify(action.item ?? null)}}}`);
+    }
+    if (action.resource_operation === 'remove_reply') {
+      const remove: ResourceLibraryRequest = {
+        file: file,
+        action: { operation: 'remove', id: action.id ?? '' } as ResourceLibraryRemove
+      };
+      return client.communityResourceLibrary(JSON.stringify(remove));
+    }
+    return this.accountBridge.request(actionDocument);
+  }
+
+  /**
+   * The community skin gallery.
+   *
+   * Browsing, rating, publishing and withdrawing are one request each and go straight to the
+   * account bridge. Downloading is the one that is not: the design has to be fetched over the
+   * system HTTPS stack and then put on the keyboard and into the library, and those two local steps
+   * are a single native call because a failed import has to end the trial it started.
+   *
+   * Finishing a trial never touches the network at all. It is the answer to 保留 or 还原 on a skin
+   * that is already applied, so it is answered from the device.
+   */
+  async communitySkin(actionDocument: string): Promise<string> {
+    if (this.accountBridge === undefined) {
+      return JSON.stringify({ ok: false, error: 'community_unavailable' });
+    }
+    let action: CommunitySkinAction;
+    try {
+      action = JSON.parse(actionDocument) as CommunitySkinAction;
+    } catch {
+      return JSON.stringify({ ok: false, error: 'community_invalid' });
+    }
+    if (action.community_operation === 'finish_trial') {
+      return this.finishSkinTrial(action);
+    }
+    if (action.community_operation !== 'download') {
+      return this.accountBridge.request(actionDocument);
+    }
+    return await this.installCommunitySkin(action);
+  }
+
+  /**
+   * Downloads one design and puts it on the keyboard.
+   *
+   * The reply shape is the shared one — `{skin, trial}` — because the page uses both: the skin to
+   * show in the library it just grew, the trial id to answer 保留 or 还原 with afterwards.
+   */
+  private async installCommunitySkin(action: CommunitySkinAction): Promise<string> {
+    if (this.accountBridge === undefined) {
+      return JSON.stringify({ ok: false, error: 'community_unavailable' });
+    }
+    const downloaded: string = await this.accountBridge.request(JSON.stringify({
+      operation: 'community_skin', community_operation: 'download', id: action.id
+    }));
+    let design: Object;
+    try {
+      const reply: CommunityDownloadReply = JSON.parse(downloaded) as CommunityDownloadReply;
+      if (!reply.ok || reply.value === undefined || reply.value.design === undefined) {
+        return downloaded.length > 0 ? downloaded
+          : JSON.stringify({ ok: false, error: 'community_unavailable' });
+      }
+      design = reply.value.design;
+    } catch {
+      return JSON.stringify({ ok: false, error: 'community_unavailable' });
+    }
+    const installed: string = client.communitySkinInstall(JSON.stringify({
+      directory: this.stateDirectory, id: action.id, name: action.name, design: design
+    }));
+    // The install wrote the preference document, so the page's copy is now the old one. Same
+    // reasoning as the settings sync: a control still showing the previous skin would refuse the
+    // next save as a conflict.
+    this.refreshPreferencesIfChanged();
+    return installed;
+  }
+
+  private finishSkinTrial(action: CommunitySkinAction): string {
+    const finish: SkinTrialRequest = {
+      directory: this.stateDirectory,
+      action: { operation: 'finish', id: action.id, keep: action.keep === true } as SkinTrialFinish
+    };
+    const reply: string = client.keyboardSkinTrial(JSON.stringify(finish));
+    this.refreshPreferencesIfChanged();
+    return reply;
+  }
+
+  /**
+   * The user's own named touch-keyboard designs.
+   *
+   * Forwarded to the shared store rather than kept here. That store already owns the file lock, the
+   * atomic replace, the twelve-item limit and the name rules; a second implementation on this host
+   * would be a second opinion about what is in the library, and the two would drift the first time
+   * either side changed a rule.
+   *
+   * The state directory comes from the host, not from the page: where the library lives is not
+   * something a WebView should be able to name.
+   */
+  customSkinLibrary(action: string): string {
+    const request: string = action.length === 0
+      ? JSON.stringify({ directory: this.stateDirectory })
+      : `{"directory":${JSON.stringify(this.stateDirectory)},"action":${action}}`;
+    return client.customSkinLibrary(request);
+  }
+
+  /**
+   * Which packaged dictionary is installed.
+   *
+   * Read from the staged engine resources rather than from the module's rawfile: staging is what
+   * verifies them against the pinned lock, and the copy the keyboard actually runs on is the one
+   * worth reporting. The page is given the two answers, never the path.
+   */
+  dictionaryManifest(): string {
+    if (this.context === undefined) {
+      return JSON.stringify({ ok: false, error: 'dictionary_manifest_unavailable' });
+    }
+    return client.dictionaryManifest(`${this.context.filesDir}/engine`);
   }
 
   /** Read only an image declared by a validated external skin manifest. */
@@ -721,6 +989,29 @@ class SettingsBridge {
     } catch {
       return JSON.stringify({ ok: false, error: 'account_invalid' });
     }
+  }
+
+  /**
+   * The settings sync, which reads and writes the same preference document this page edits.
+   *
+   * The state directory is the host's, not the page's: the page names an operation and an account,
+   * and where the document lives is not something a WebView should be able to say.
+   */
+  settingsSync(action: string): Promise<string> {
+    if (this.accountBridge === undefined) {
+      return Promise.resolve(JSON.stringify({ ok: false, error: 'account_unavailable' }));
+    }
+    return this.accountBridge.preferencesSync(action, this.stateDirectory)
+      .then((reply: string): string => {
+        // Applying is the one operation that rewrites the document under the page's feet. The
+        // page's own copy is still the one it read on the way in, so every control keeps showing
+        // the old value and the next save is refused as a conflict. Hand it the new document here
+        // rather than waiting for the window to be brought forward again — that listener exists for
+        // changes the keyboard makes, and a change this window made should not need an app switch
+        // to become visible.
+        this.refreshPreferencesIfChanged();
+        return reply;
+      });
   }
 
   cloudDictionarySnapshot(action: string): Promise<string> {

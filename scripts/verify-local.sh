@@ -136,8 +136,41 @@ else
   echo "  until then every build error below may be an artefact of the stale tree"
 fi
 
+# The pre-commit hook only ever sees the commit that introduces a marker, so a
+# marker already in HEAD is invisible to it forever. Six of them lived in
+# docs/windows-parity.md until this scan existed.
+note "conflict markers"
+python3 scripts/test-conflict-markers.py || fail "conflict markers"
+
+# Same shape as the marker scan: a symlink pointing at one machine's absolute path breaks every
+# other checkout, and the checkout it was made on is the one place it keeps working.
+note "tracked symlinks"
+python3 scripts/test-tracked-symlinks.py || fail "tracked symlinks"
+
 note "default config contracts"
 python3 scripts/test-default-config-parity.py || fail "default config contracts"
+
+# The reference's factory configuration is the most complete list of what that product can be
+# told to do. A key it has and this repository does not is a feature nobody migrated, and nothing
+# else would notice. Skips without a reference checkout beside the main worktree.
+note "windows config keys"
+python3 scripts/test-windows-config-keys.py || fail "windows config keys"
+
+# The configuration is what the reference can be told to do; this is what its interface can ask the
+# host to do. Between them they cover the capability surface from both sides.
+note "reference ui actions"
+python3 scripts/test-reference-ui-actions.py || fail "reference ui actions"
+
+# Keys and actions both miss a feature that changes behaviour without adding either. The
+# reference's changelog does not, because it is generated from its own commits.
+note "reference feature log"
+python3 scripts/test-reference-feature-log.py || fail "reference feature log"
+
+# The three checks above look at the reference from the outside - its configuration, its interface,
+# its changelog. This one walks its source tree, which is the only place a file nobody migrated can
+# still be hiding.
+note "reference source inventory"
+python3 scripts/test-reference-source-inventory.py || fail "reference source inventory"
 
 # A settings-page key the Rust document has no field for does not get dropped:
 # deny_unknown_fields fails the whole save. Cheap enough to run in --quick,
@@ -158,6 +191,46 @@ python3 scripts/test-shell-route-parity.py || fail "shell route parity"
 # where the feature does not exist and does nothing when pressed.
 note "settings action guard"
 python3 scripts/test-settings-action-guard.py || fail "settings action guard"
+
+# The action guard above checks that a button is gated on the host being able to do the thing. It
+# cannot see a button gated on a dialog the host never shows: `window.confirm` returns false with
+# nothing on screen under wry's WKWebView, so on macOS and iOS those buttons did nothing at all.
+note "host dialogs"
+python3 scripts/test-no-host-dialogs.py || fail "host dialogs"
+
+# A quick phrase ends up in the candidate pipe's text field, whose size the Engine declares. The
+# limit on it was six bare literals across three crates, none attached to that header, so moving
+# the engine lock would have changed the field and nothing else.
+note "quick phrase limit"
+python3 scripts/test-quick-phrase-limit.py || fail "quick phrase limit"
+
+# The panel and the shared contract cap strokes, points and candidates
+# separately. The panel may be stricter, never looser: past the contract the
+# user draws and recognition silently returns nothing, because the request was
+# refused before it reached a recogniser.
+note "handwriting limits"
+python3 scripts/test-handwriting-limits.py || fail "handwriting limits"
+
+# How long a cloud candidate is worth waiting for belongs to the product, but
+# each host reaches the network with its own library and can shorten it on its
+# own. Two of them had, and a dropped cloud candidate looks exactly like a query
+# that had no cloud answer.
+note "cloud request budget"
+python3 scripts/test-cloud-request-budget.py || fail "cloud request budget"
+
+# A host either holds a half-composed phrase in the composition and draws it, or
+# commits each piece as it is picked. Half of that is invisible in the worst
+# way: a host that asks for the piece to be held and draws it nowhere shows
+# nothing at all for text the user already chose.
+note "phrase preedit hosts"
+python3 scripts/test-phrase-preedit-hosts.py || fail "phrase preedit hosts"
+
+# Whether the candidate right-click actions are offered is decided on the
+# Engine's CandidateSource value, which arrives as a number this side cannot
+# name in C++. Inserting a source there shifts every later one, compiles
+# cleanly, and starts offering 删除 for cloud suggestions.
+note "candidate sources"
+python3 scripts/test-candidate-sources.py || fail "candidate sources"
 
 # The palette is most of what makes one window look like another, and this one
 # is built with Tailwind rather than by importing the source's sheet, so the two
@@ -185,12 +258,33 @@ python3 scripts/test-installer-prerequisites.py || fail "installer prerequisites
 note "windows x86 syntax"
 python3 scripts/test-windows-32bit-compile.py || fail "windows x86 syntax"
 
+# Most of the Windows tests are policy with no Win32 call in the translation
+# unit. Without Windows and without Docker they had one level of evidence - the
+# cross build linked them - and linking does not catch an assertion. Same
+# sources, host compiler, actually executed.
+note "windows tests on this host"
+python3 scripts/test-windows-native-run.py || fail "windows tests on this host"
+
 # The HarmonyOS settings window is a WebView over a generated bundle that is
 # committed to the repository and that nothing rebuilds. It drifted for
 # fifty-two commits of shared UI before anyone looked, and a stale bundle is a
 # working bundle: the window renders, it simply renders last month's UI.
 note "harmony settings bundle"
 python3 scripts/test-harmony-settings-bundle.py || fail "harmony settings bundle"
+
+# ArkTS decides what the injected bridge exposes twice - the method on the class
+# and its name in registerJavaScriptProxy - and only the second is what the page
+# sees. A name added in one place and not the other type-checks, compiles and
+# builds, then fails on a device as "not a function". It has happened once.
+# tsc accepts the whole TypeScript language; the ArkTS compiler that actually
+# builds the HAP does not. Six merged PRs left develop unable to produce a HAP -
+# thirteen errors in three .ets files - and every gate here was green. This
+# checks the two rules that can be checked without the SDK.
+note "harmony ArkTS subset"
+python3 scripts/test-harmony-arkts-subset.py || fail "harmony ArkTS subset"
+
+note "harmony bridge parity"
+python3 scripts/test-harmony-bridge-parity.py || fail "harmony bridge parity"
 
 # rendered_view is null until the first render and after every session rebuild,
 # and nlohmann's value() throws on null. A throw inside the Linux key handler is
@@ -433,8 +527,16 @@ if [ "$quick" -eq 0 ]; then
   rm -f "$wine_log"
 fi
 
+# Configured, not merely present. A configure that fails part way - this one needs a pinned
+# Sparkle, and says so with a FATAL_ERROR - still leaves the directory and its CMakeCache.txt
+# behind, so testing for either turns a skip into two failing stages on a machine that never had
+# the dependency. The generated build system is the thing that only a finished configure writes.
+macos_configured() {
+  [ -f "$MSIME_MACOS_BUILD/build.ninja" ] || [ -f "$MSIME_MACOS_BUILD/Makefile" ]
+}
+
 note "compile: macos"
-if [ -d "$MSIME_MACOS_BUILD" ]; then
+if macos_configured; then
   cmake --build "$MSIME_MACOS_BUILD" --parallel 2>&1 | grep -E "error:|symbol\(s\) not found" | head -5
   cmake --build "$MSIME_MACOS_BUILD" --parallel >/dev/null 2>&1 || fail "macos build"
 else
@@ -691,7 +793,7 @@ else
 fi
 
 note "macos tests"
-if [ -d "$MSIME_MACOS_BUILD" ]; then
+if macos_configured; then
   # The per-test lines put the reason between the dots and the ***, so this reads
   # the summary block instead: "\t 52 - local-mode-preferences (Subprocess aborted)".
   ctest --test-dir "$MSIME_MACOS_BUILD" 2>&1 |

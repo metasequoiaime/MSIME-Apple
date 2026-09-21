@@ -71,20 +71,42 @@ final class JapaneseNineKeyView: UIStackView {
 
       // The mode column fills the four-row kana grid. ABC spans two rows when the system draws
       // its own globe key below the keyboard; when the globe belongs to us, all four keys use one
-      // row each. These constraints reference only this column so UIStackView cannot stretch a
-      // sibling kana row to the whole panel.
-      let pin = { (key: UIButton, span: CGFloat) -> NSLayoutConstraint in
-        let constraint = key.heightAnchor.constraint(
-          equalTo: modes.heightAnchor, multiplier: span / 4,
-          constant: span == 2 ? -3.5 : -5.25)
+      // row each.
+      //
+      // The heights reference only this column, never a kana row: a constraint that spans the two
+      // sibling stacks looks equivalent and is not, because the engine settles it by handing every
+      // row the whole panel height.
+      //
+      // They also reference only each other, never the column. Writing each key as
+      // `modes.heightAnchor × span/4` plus a constant computes the right number and is a cycle:
+      // the child's height references the parent stack, and a `.fill` stack's height is decided by
+      // its children. The iOS 26 solver happened to settle on that single answer and iOS 27 does
+      // not - 123 came out 2.33pt taller than ^_^, and the three keys plus their gaps overflowed
+      // the column by 2pt. Saying only that the one-row keys match each other, and that the
+      // two-row key is two of them plus the gap between, leaves the total to the stack's own fill
+      // and removes the cycle.
+      //
+      // Priority stops one short of required: UIStackView compresses a hidden arranged subview to
+      // zero height at required priority, so two required constraints collide the moment the host
+      // draws its own globe.
+      let relate = { (constraint: NSLayoutConstraint) in
+        constraint.priority = .required - 1
+        constraint.isActive = true
+      }
+      let singleSpanKeys = modeKeys.enumerated().filter { $0.offset != 2 }.map(\.element)
+      for key in singleSpanKeys.dropFirst() {
+        relate(key.heightAnchor.constraint(equalTo: singleSpanKeys[0].heightAnchor))
+      }
+      let row = { (span: CGFloat) -> NSLayoutConstraint? in
+        guard modeKeys.indices.contains(2), let reference = singleSpanKeys.first else { return nil }
+        let constraint = modeKeys[2].heightAnchor.constraint(
+          equalTo: reference.heightAnchor, multiplier: span,
+          constant: span == 2 ? modes.spacing : 0)
         constraint.priority = .required - 1
         return constraint
       }
-      for (index, key) in modeKeys.enumerated() where index != 2 {
-        pin(key, 1).isActive = true
-      }
-      scriptKeyOneRow = modeKeys.indices.contains(2) ? pin(modeKeys[2], 1) : nil
-      scriptKeyTwoRows = modeKeys.indices.contains(2) ? pin(modeKeys[2], 2) : nil
+      scriptKeyOneRow = row(1)
+      scriptKeyTwoRows = row(2)
       scriptKeyTwoRows?.isActive = true
     }
     let grid = UIStackView()

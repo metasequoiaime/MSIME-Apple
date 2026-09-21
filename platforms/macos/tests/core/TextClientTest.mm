@@ -1,4 +1,5 @@
 #import "TextClient.h"
+#import <AppKit/AppKit.h>
 #import "MSIMEClientSession.h"
 #include "msime_client.h"
 #include <cassert>
@@ -7,16 +8,21 @@
 
 @interface FakeTextClient : NSObject <MSIMETextClient>
 @property(nonatomic, copy) NSString *committed;
-@property(nonatomic, copy) NSString *marked;
+// Whatever setMarkedText: was handed. A plain string for an ordinary composition, an
+// attributed one once a phrase piece leads it, which is what the clause styling needs.
+@property(nonatomic, strong) id marked;
 @property(nonatomic) NSRange selection;
 @property(nonatomic, strong) NSMutableArray<NSString *> *events;
 @property(nonatomic) NSRange documentSelection;
 @property(nonatomic, copy) NSString *following;
 @property(nonatomic, copy) NSString *document;
+- (NSString *)markedString;
 @end
 @implementation FakeTextClient
 - (void)insertText:(id)text replacementRange:(NSRange)range { assert(range.location == NSNotFound); if (!self.events) self.events = [NSMutableArray array]; [self.events addObject:@"commit"]; self.committed = text; }
 - (void)setMarkedText:(id)text selectionRange:(NSRange)selection replacementRange:(NSRange)replacement { assert(replacement.location == NSNotFound); if (!self.events) self.events = [NSMutableArray array]; [self.events addObject:@"marked"]; self.marked = text; self.selection = selection; }
+// The text without its attributes, for the assertions that only care what it says.
+- (NSString *)markedString { return [self.marked isKindOfClass:NSAttributedString.class] ? [(NSAttributedString *)self.marked string] : self.marked; }
 - (NSRange)selectedRange { return self.documentSelection; }
 - (NSAttributedString *)attributedSubstringFromRange:(NSRange)range {
     if (self.following) {
@@ -244,7 +250,7 @@ static void TestEngineEdges(FakeTextClient *client) {
             } else {
                 MSIMEApplyTransition(result, client);
                 assert([client.committed isEqual:[code isEqual:@"4e2d"] ? @"中" : @"𠀀"]);
-                assert(client.marked.length == 0);
+                assert([client.markedString length] == 0);
             }
             assert([session closeWithError:&error]);
             assert([NSFileManager.defaultManager removeItemAtPath:root error:nil]);
@@ -290,13 +296,13 @@ static void TestEnginePreedit(FakeTextClient *client) {
         assert(typed && !error && [typed[@"view"][@"editing_text"] isEqual:@"b;"]);
         assert([typed[@"view"][@"preedit"] isEqual:raw.boolValue ? @"b;" : @"bing"]);
         MSIMEApplyTransition(typed, client);
-        assert([client.marked isEqual:typed[@"view"][@"preedit"]] && client.selection.location == client.marked.length);
+        assert([client.markedString isEqual:typed[@"view"][@"preedit"]] && client.selection.location == [client.markedString length]);
         NSDictionary *punctuationView = [session setChinesePunctuationEnabled:NO error:&error];
         assert(punctuationView && !error && !punctuationView[@"view"]);
         assert([punctuationView[@"editing_text"] isEqual:@"b;"] && [punctuationView[@"preedit"] isEqual:typed[@"view"][@"preedit"]]);
         assert([punctuationView[@"generation"] isEqual:typed[@"view"][@"generation"]]);
         MSIMEApplyTransition(@{@"view":punctuationView}, client);
-        assert([client.marked isEqual:typed[@"view"][@"preedit"]]);
+        assert([client.markedString isEqual:typed[@"view"][@"preedit"]]);
         assert([session setChinesePunctuationEnabled:YES error:&error] && !error);
         preferences[@"shuangpin_preedit_uses_raw"] = @(!raw.boolValue);
         assert([[MSIMEClientSession activeHostOptions][@"preferences"][@"shuangpin_preedit_uses_raw"] isEqual:raw]);
@@ -304,19 +310,19 @@ static void TestEnginePreedit(FakeTextClient *client) {
         NSDictionary *deferred = [session updatePreferencesSnapshot:pending error:&error];
         assert([deferred[@"deferred"] isEqual:@YES] && !error);
         MSIMEApplyTransition(deferred, client);
-        assert([client.marked isEqual:typed[@"view"][@"preedit"]]);
+        assert([client.markedString isEqual:typed[@"view"][@"preedit"]]);
         NSDictionary *cancelled = [session command:MSIME_CANCEL error:&error];
         assert(cancelled && !error);
         MSIMEApplyTransition(cancelled, client);
-        assert(client.marked.length == 0 && client.selection.location == 0);
+        assert([client.markedString length] == 0 && client.selection.location == 0);
         assert([[session updatePreferencesSnapshot:pending error:&error][@"deferred"] isEqual:@NO]);
         assert([session typeASCII:'b' shift:NO error:&error]);
         NSDictionary *updated = [session typeASCII:';' shift:NO error:&error];
         assert(updated && !error);
         MSIMEApplyTransition(updated, client);
-        assert([client.marked isEqual:raw.boolValue ? @"bing" : @"b;"]);
+        assert([client.markedString isEqual:raw.boolValue ? @"bing" : @"b;"]);
         MSIMEApplyTransition([session command:MSIME_CANCEL error:&error], client);
-        assert(!error && client.marked.length == 0);
+        assert(!error && [client.markedString length] == 0);
     }
     NSError *staleError = nil;
     assert((![session updatePreferencesSnapshot:@{@"format_version": @1, @"revision": @0, @"preferences": shared[@"preferences"]} error:&staleError]));
@@ -350,7 +356,7 @@ static void TestEnginePreedit(FakeTextClient *client) {
     NSDictionary *afterRecovery = [session typeASCII:'b' shift:NO error:&error];
     assert(afterRecovery && !error && [afterRecovery[@"view"][@"editing_text"] isEqual:@"b"]);
     MSIMEApplyTransition(afterRecovery, client);
-    assert([client.marked isEqual:afterRecovery[@"view"][@"preedit"]]);
+    assert([client.markedString isEqual:afterRecovery[@"view"][@"preedit"]]);
     NSDictionary *expandedAfterRecovery = [session typeASCII:';' shift:NO error:&error];
     assert(expandedAfterRecovery && !error);
     // The last accepted preference was formatted display, not the raw startup value.
@@ -383,16 +389,16 @@ static void TestEnginePreedit(FakeTextClient *client) {
             NSDictionary *moved = [formatted command:MSIME_MOVE_LEFT error:&error];
             assert(moved && !error && [moved[@"view"][@"caret_position"] unsignedIntegerValue] == i - 1);
             MSIMEApplyTransition(moved, client);
-            assert([client.marked isEqual:@"ni'ni"] && client.selection.location == [offsets[i - 1] unsignedIntegerValue]);
+            assert([client.markedString isEqual:@"ni'ni"] && client.selection.location == [offsets[i - 1] unsignedIntegerValue]);
         }
         for (NSUInteger i = 1; i <= raw.length; ++i) {
             NSDictionary *moved = [formatted command:MSIME_MOVE_RIGHT error:&error];
             assert(moved && !error && [moved[@"view"][@"caret_position"] unsignedIntegerValue] == i);
             MSIMEApplyTransition(moved, client);
-            assert([client.marked isEqual:@"ni'ni"] && client.selection.location == [offsets[i] unsignedIntegerValue]);
+            assert([client.markedString isEqual:@"ni'ni"] && client.selection.location == [offsets[i] unsignedIntegerValue]);
         }
         MSIMEApplyTransition([formatted command:MSIME_CANCEL error:&error], client);
-        assert(!error && !client.marked.length);
+        assert(!error && ![client.markedString length]);
     }
     assert([formatted closeWithError:&error] && !error);
     assert([session setFocused:YES error:&error]);
@@ -417,16 +423,101 @@ int main() {
         TestEngineMaintenance();
         TestCustomTranslationHTTPBridge();
         TestTencentTranslationHTTPBridge();
+        // A pair the host owes the document: the closing mark is the tail of the marked text, so it
+        // stays after the caret while the composition runs, and a commit takes it with it. IMK has
+        // no caret setter, which is why the closing cannot simply be typed after the opening.
+        MSIMEApplyTransitionWithPendingClosing(
+            @{@"commit": NSNull.null, @"view": @{@"editing_text": @"ni", @"caret_position": @2}},
+            client, MSIMEInlinePreeditStylePinyin, @"）");
+        assert([client.markedString isEqual:@"ni）"] && client.selection.location == 2);
+        MSIMEApplyTransitionWithPendingClosing(
+            @{@"commit": @"你好", @"view": @{@"editing_text": @"", @"caret_position": @0}}, client,
+            MSIMEInlinePreeditStylePinyin, @"）");
+        assert([client.committed isEqual:@"你好）"]);
+        assert([client.markedString length] == 0);
+        // Nothing pending is the ordinary case, and behaves as before.
+        MSIMEApplyTransitionWithPendingClosing(
+            @{@"commit": @"你好", @"view": @{@"editing_text": @"shi", @"caret_position": @1}}, client,
+            MSIMEInlinePreeditStylePinyin, nil);
+        assert([client.committed isEqual:@"你好"] && [client.markedString isEqual:@"shi"]);
+        // An empty inline preedit still carries the mark, or the user would watch it disappear.
+        MSIMEApplyTransitionWithPendingClosing(
+            @{@"commit": NSNull.null, @"view": @{@"editing_text": @"ni", @"caret_position": @2}},
+            client, MSIMEInlinePreeditStyleEmpty, @"】");
+        assert([client.markedString isEqual:@"】"] && client.selection.location == 0);
         MSIMEApplyTransition(@{@"commit": @"你好", @"view": @{@"editing_text": @"shi", @"caret_position": @1}}, client);
         assert([client.committed isEqual:@"你好"]);
-        assert([client.marked isEqual:@"shi"] && client.selection.location == 1);
+        assert([client.markedString isEqual:@"shi"] && client.selection.location == 1);
         MSIMEApplyTransition(@{@"commit": NSNull.null, @"view": @{@"editing_text": @"", @"caret_position": @5}}, client);
-        assert([client.committed isEqual:@"你好"] && client.marked.length == 0 && client.selection.location == 0);
+        assert([client.committed isEqual:@"你好"] && [client.markedString length] == 0 && client.selection.location == 0);
+        // A phrase put together out of several selections: the piece already chosen leads the marked
+        // text instead of going to the document, and the caret sits past it. The runtime hands it
+        // over as its own field because caret_position counts into the editing text in this host's
+        // string unit, and a prefix of Chinese characters is not the same length in both.
+        MSIMEApplyTransition(@{@"view": @{@"editing_text": @"paobu", @"phrase_prefix": @"海滩",
+                                          @"caret_position": @5}}, client);
+        assert([client.markedString isEqual:@"海滩paobu"] && client.selection.location == 7);
+        // Two clauses, drawn differently: the chosen piece is settled and takes the thin underline,
+        // the reading after it is still being worked on and takes the thick one, which is the macOS
+        // convention and the same distinction the reference draws with its TSF display attributes.
+        // Run together as one stretch of underlined text, nothing says where what the user already
+        // chose ends.
+        assert([client.marked isKindOfClass:NSAttributedString.class]);
+        {
+            NSAttributedString *clauses = client.marked;
+            NSRange settled = NSMakeRange(0, 0);
+            NSRange working = NSMakeRange(0, 0);
+            NSDictionary *first = [clauses attributesAtIndex:0 effectiveRange:&settled];
+            NSDictionary *rest = [clauses attributesAtIndex:2 effectiveRange:&working];
+            assert(NSEqualRanges(settled, NSMakeRange(0, 2)));
+            assert(NSEqualRanges(working, NSMakeRange(2, 5)));
+            assert([first[NSUnderlineStyleAttributeName] isEqual:@(NSUnderlineStyleSingle)]);
+            assert([rest[NSUnderlineStyleAttributeName] isEqual:@(NSUnderlineStyleThick)]);
+            // Clause numbers, so a client that walks the segments sees two of them in order.
+            assert([first[NSMarkedClauseSegmentAttributeName] isEqual:@0]);
+            assert([rest[NSMarkedClauseSegmentAttributeName] isEqual:@1]);
+        }
+        // An ordinary composition with nothing chosen yet stays a plain string: there is only one
+        // clause, and a host that never holds a phrase piece is unaffected by any of this.
+        MSIMEApplyTransition(@{@"view": @{@"editing_text": @"paobu", @"caret_position": @2}}, client);
+        assert([client.marked isKindOfClass:NSString.class]);
+
+        // The caret inside the remaining reading moves with it.
+        MSIMEApplyTransition(@{@"view": @{@"editing_text": @"paobu", @"phrase_prefix": @"海滩",
+                                          @"caret_position": @2}}, client);
+        assert([client.markedString isEqual:@"海滩paobu"] && client.selection.location == 4);
+        // A client that asked for no inline preedit shows none of it, as the reference leaves its
+        // own prefix length at zero for that style.
+        MSIMEApplyTransitionWithPreeditStyle(@{@"view": @{@"editing_text": @"paobu",
+                                                         @"phrase_prefix": @"海滩", @"caret_position": @5}},
+                                             client, MSIMEInlinePreeditStyleEmpty);
+        assert([client.markedString length] == 0);
+        // A pair held open while a phrase is being assembled: both are tails of the same marked
+        // text, and they are on opposite sides of the caret. The closing mark stays last so the
+        // user can see what will be closed, and the chosen phrase piece stays first because it is
+        // text that is already decided - the caret belongs between them, where typing continues.
+        MSIMEApplyTransitionWithPendingClosing(
+            @{@"commit": NSNull.null, @"view": @{@"editing_text": @"paobu", @"phrase_prefix": @"海滩",
+                                                 @"caret_position": @5}},
+            client, MSIMEInlinePreeditStylePinyin, @"）");
+        assert([client.markedString isEqual:@"海滩paobu）"] && client.selection.location == 7);
+        // Finishing the phrase closes the pair with it, and the whole phrase goes to the document
+        // in one piece with the closing mark after it.
+        MSIMEApplyTransitionWithPendingClosing(
+            @{@"commit": @"海滩跑步", @"view": @{@"editing_text": @"", @"caret_position": @0}}, client,
+            MSIMEInlinePreeditStylePinyin, @"）");
+        assert([client.committed isEqual:@"海滩跑步）"] && [client.markedString length] == 0);
+
+        // Finishing the phrase sends it out in one piece; the field is gone by then.
+        MSIMEApplyTransition(@{@"commit": @"海滩跑步", @"view": @{@"editing_text": @"", @"caret_position": @0}},
+                             client);
+        assert([client.committed isEqual:@"海滩跑步"] && [client.markedString length] == 0);
+
         // Shuangpin full-pinyin display must not expose the raw key sequence.
         MSIMEApplyTransition(@{@"view": @{@"editing_text": @"b;", @"preedit": @"bing", @"caret_position": @2}}, client);
-        assert([client.marked isEqual:@"bing"] && client.selection.location == 4);
+        assert([client.markedString isEqual:@"bing"] && client.selection.location == 4);
         MSIMEApplyTransition(@{@"view": @{@"editing_text": @"nihao", @"preedit": @"ni hao", @"caret_position": @2}}, client);
-        assert([client.marked isEqual:@"ni hao"] && client.selection.location == 2);
+        assert([client.markedString isEqual:@"ni hao"] && client.selection.location == 2);
         // Every raw offset, including either side of an explicit apostrophe.
         for (NSArray *fixture in @[
             @[@"nihao", @"ni'hao", @[@0, @1, @2, @4, @5, @6]],
@@ -443,28 +534,28 @@ int main() {
             assert(offsets.count == raw.length + 1);
             for (NSUInteger offset = 0; offset <= raw.length; ++offset) {
                 MSIMEApplyTransition(@{@"view": @{@"editing_text": raw, @"preedit": display, @"caret_position": @(offset)}}, client);
-                assert([client.marked isEqual:display] && client.selection.location == [offsets[offset] unsignedIntegerValue]);
+                assert([client.markedString isEqual:display] && client.selection.location == [offsets[offset] unsignedIntegerValue]);
                 assert(client.selection.length == 0);
             }
         }
         MSIMEApplyTransition(@{@"view": @{@"editing_text": @"shi", @"preedit": @"shi", @"caret_position": @1}}, client);
-        assert([client.marked isEqual:@"shi"] && client.selection.location == 1);
+        assert([client.markedString isEqual:@"shi"] && client.selection.location == 1);
         MSIMEApplyTransition(@{@"view": @{@"editing_text": @"x", @"preedit": @"😀", @"caret_position": @1}}, client);
-        assert([client.marked isEqual:@"😀"] && client.selection.location == 2);
+        assert([client.markedString isEqual:@"😀"] && client.selection.location == 2);
         MSIMEApplyTransition(@{@"view": @{@"editing_text": @"shi", @"preedit": NSNull.null, @"caret_position": NSNull.null}}, client);
-        assert([client.marked isEqual:@"shi"] && client.selection.location == 3);
+        assert([client.markedString isEqual:@"shi"] && client.selection.location == 3);
         MSIMEApplyTransition(@{@"commit": @"合成", @"view": @{@"editing_text": @"", @"preedit": @"", @"caret_position": @0}}, client);
-        assert([client.committed isEqual:@"合成"] && client.marked.length == 0 && client.selection.location == 0);
+        assert([client.committed isEqual:@"合成"] && [client.markedString length] == 0 && client.selection.location == 0);
         assert(client.events.count >= 2 && [client.events[client.events.count - 2] isEqual:@"commit"] && [client.events.lastObject isEqual:@"marked"]);
         // The shared inline-preedit preference selects the actual marked text,
         // while preserving the display-specific caret contract.
         NSDictionary *styled = @{@"view": @{@"editing_text": @"b;", @"preedit": @"bing", @"caret_position": @1}};
         MSIMEApplyTransitionWithPreeditStyle(styled, client, MSIMEInlinePreeditStyleRaw);
-        assert([client.marked isEqual:@"b;"] && client.selection.location == 1);
+        assert([client.markedString isEqual:@"b;"] && client.selection.location == 1);
         MSIMEApplyTransitionWithPreeditStyle(styled, client, MSIMEInlinePreeditStylePinyin);
-        assert([client.marked isEqual:@"bing"] && client.selection.location == 4);
+        assert([client.markedString isEqual:@"bing"] && client.selection.location == 4);
         MSIMEApplyTransitionWithPreeditStyle(styled, client, MSIMEInlinePreeditStyleEmpty);
-        assert(client.marked.length == 0 && client.selection.location == 0);
+        assert([client.markedString length] == 0 && client.selection.location == 0);
         client.documentSelection = NSMakeRange(4, 0);
         client.following = @"】";
         assert([[MSIMETextClientFollowingCharacter(client) copy] isEqual:@"】"]);

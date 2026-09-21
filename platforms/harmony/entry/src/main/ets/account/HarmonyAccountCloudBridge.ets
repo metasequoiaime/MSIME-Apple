@@ -5,6 +5,19 @@ import client from 'libmsimeclient.so';
 import { AccountCloudBridge, AccountSessionStore, AccountTransport, AccountTransportResponse } from './AccountCloudBridge';
 import { KeyboardSession } from '../keyboard/KeyboardSession';
 import { utf8Length } from '../keyboard/Utf8';
+import { KeyboardFeedbackBridge } from '../keyboard/KeyboardFeedbackBridge';
+import { HarmonyAiSkins } from './HarmonyAiSkins';
+import {
+  AccountPreferenceFields,
+  AccountPreferences,
+  AccountPreferenceSchema,
+  AccountPreferenceSettings,
+  AppliedPreferences,
+  FeedbackValues,
+  applyAccountPreferences,
+  localAccountPreferences,
+  mergeAccountPreferences
+} from './AccountPreferencePlan';
 
 const ACCOUNT_ORIGIN: string = 'https://api.msime.app';
 
@@ -44,6 +57,12 @@ class FileSessionStore implements AccountSessionStore {
 interface SnapshotAction {
   operation: string;
   token?: string;
+}
+
+/** One settings-sync request from the page: read the schema or document, upload, or apply. */
+interface PreferenceSyncAction {
+  operation: string;
+  user_id?: string;
 }
 
 interface SnapshotRequest {
@@ -89,17 +108,19 @@ interface HttpHeaders {
 }
 
 class HarmonyTransport implements AccountTransport {
-  async request(method: string, path: string, token?: string,
-    body?: Object): Promise<AccountTransportResponse> {
+  async request(method: string, path: string, token?: string, body?: Object,
+    timeoutMs?: number): Promise<AccountTransportResponse> {
     if (!path.startsWith('/v1/') || path.includes('\\')) throw new Error('account_invalid');
     const request = http.createHttp();
     const headers: HttpHeaders = { Accept: 'application/json', 'Content-Type': 'application/json' };
     if (token !== undefined) headers.Authorization = `Bearer ${token}`;
+    // Only the read side takes the caller's budget. Connecting is connecting on every endpoint, and
+    // a chat request to an unreachable host should still fail in seconds rather than in two minutes.
     const options: http.HttpRequestOptions = {
       method: this.method(method),
       header: headers,
       connectTimeout: 30000,
-      readTimeout: 30000,
+      readTimeout: timeoutMs === undefined ? 30000 : timeoutMs,
       extraData: body === undefined ? undefined : JSON.stringify(body)
     };
     try {
@@ -157,6 +178,239 @@ export class HarmonyAccountCloudBridge {
 
   request(action: string): Promise<string> {
     return this.bridge.handle(action);
+  }
+
+  /**
+   * The AI skin runner, which shares this bridge's session rather than holding one of its own.
+   *
+   * Its four requests are authenticated as the same user the rest of the account surface is, and a
+   * sign-out has to stop a run that is in flight. A second session object would have missed that.
+   */
+  aiSkins(): HarmonyAiSkins {
+    return new HarmonyAiSkins(this.bridge);
+  }
+
+  /**
+   * The settings sync, which is the only account surface that writes to the device.
+   *
+   * It is kept here rather than in `AccountCloudBridge` because the mapping needs two things that
+   * bridge has no business holding: the local preference document, which only the shared NAPI can
+   * read and write, and the key-feedback file, which lives beside it. The bridge stays what it is —
+   * a session and a transport — and the decisions about which settings are account settings live in
+   * `AccountPreferencePlan`, where they can be tested without either.
+   */
+  async preferencesSync(actionDocument: string, stateRoot: string): Promise<string> {
+    let action: PreferenceSyncAction;
+    try {
+      action = JSON.parse(actionDocument) as PreferenceSyncAction;
+      if (typeof action.operation !== 'string') return this.failure('account_invalid');
+    } catch {
+      return this.failure('account_invalid');
+    }
+    try {
+      switch (action.operation) {
+        case 'preferences_schema':
+          return await this.preferenceSchema();
+        case 'preferences_load':
+          return await this.preferenceDocument();
+        case 'preferences_upload':
+          return await this.uploadPreferences(stateRoot);
+        case 'preferences_apply':
+          return await this.applyPreferences(String(action.user_id ?? ''), stateRoot);
+        default:
+          return this.failure('account_invalid');
+      }
+    } catch (error) {
+      return this.failure(error instanceof Error ? error.message : 'account_unavailable');
+    }
+  }
+
+  /**
+   * The schema, renamed to what the page reads.
+   *
+   * The service answers in snake_case and the shared settings surface expects camelCase — the Tauri
+   * hosts rename it on the way through, and a host that forwarded the wire shape would leave the
+   * page reading `undefined` for the byte limit and the update mode, which it then treats as a
+   * schema it cannot trust.
+   */
+  private async preferenceSchema(): Promise<string> {
+    const reply = await this.bridge.preferenceSchema();
+    if (reply.error !== undefined || reply.value === undefined) {
+      return this.failure(reply.error ?? 'account_unavailable');
+    }
+    const schema = this.schemaOf(reply.value);
+    return schema === null ? this.failure('account_unavailable')
+      : JSON.stringify({ ok: true, value: schema });
+  }
+
+  private schemaOf(document: Record<string, Object>): AccountPreferenceSchema | null {
+    const fields: Object | undefined = document['fields'];
+    const maximumBytes: Object | undefined = document['maximum_bytes'];
+    const updateMode: Object | undefined = document['update_mode'];
+    const revisionRequired: Object | undefined = document['revision_required'];
+    if (fields === undefined || fields === null || typeof fields !== 'object'
+      || typeof maximumBytes !== 'number' || typeof updateMode !== 'string'
+      || typeof revisionRequired !== 'boolean') {
+      return null;
+    }
+    return {
+      fields: fields as AccountPreferenceFields,
+      maximumBytes: maximumBytes,
+      updateMode: updateMode,
+      revisionRequired: revisionRequired
+    };
+  }
+
+  private async preferenceDocument(): Promise<string> {
+    const reply = await this.bridge.loadPreferenceDocument();
+    if (reply.error !== undefined || reply.value === undefined) {
+      return this.failure(reply.error ?? 'account_unavailable');
+    }
+    const cloud = this.cloudOf(reply.value);
+    return cloud === null ? this.failure('account_unavailable')
+      : JSON.stringify({ ok: true, value: cloud });
+  }
+
+  private cloudOf(document: Record<string, Object>): AccountPreferences | null {
+    const revision: Object | undefined = document['revision'];
+    const settings: Object | undefined = document['settings'];
+    if (typeof revision !== 'number' || settings === undefined || settings === null
+      || typeof settings !== 'object' || Array.isArray(settings)) {
+      return null;
+    }
+    return {
+      revision: revision,
+      settings: settings as AccountPreferenceSettings
+    };
+  }
+
+  /** What the local document says, read the same way the settings page reads it. */
+  private localDocument(stateRoot: string): Record<string, Object> | null {
+    try {
+      const reply: Record<string, Object> =
+        JSON.parse(client.loadPreferences(stateRoot)) as Record<string, Object>;
+      if (reply['ok'] !== true) return null;
+      const value: Record<string, Object> = reply['value'] as Record<string, Object>;
+      const preferences: Object | undefined = value['preferences'];
+      const revision: Object | undefined = value['revision'];
+      if (preferences === undefined || typeof preferences !== 'object'
+        || typeof revision !== 'number') {
+        return null;
+      }
+      return value;
+    } catch {
+      return null;
+    }
+  }
+
+  private feedbackValues(stateRoot: string): FeedbackValues {
+    const shared = KeyboardFeedbackBridge.toShared(KeyboardSession.feedbackIn(stateRoot));
+    return {
+      soundEnabled: shared.soundEnabled,
+      hapticsEnabled: shared.hapticsEnabled,
+      hapticStrength: shared.hapticStrength
+    };
+  }
+
+  /**
+   * This device's settings, written over what the account already holds.
+   *
+   * The cloud document is read first and merged into rather than replaced: it carries the fields of
+   * every other device the user has signed in from, and an upload from a phone has no business
+   * clearing what a desktop wrote. Keys the schema has not declared are dropped here rather than
+   * sent, because the service rejects the whole write for one unknown key — which would make this
+   * button fail entirely for the sake of a setting that simply has nowhere to go yet.
+   */
+  private async uploadPreferences(stateRoot: string): Promise<string> {
+    const schemaReply = await this.bridge.preferenceSchema();
+    if (schemaReply.error !== undefined || schemaReply.value === undefined) {
+      return this.failure(schemaReply.error ?? 'account_unavailable');
+    }
+    const schema = this.schemaOf(schemaReply.value);
+    if (schema === null) return this.failure('account_unavailable');
+    const cloudReply = await this.bridge.loadPreferenceDocument();
+    if (cloudReply.error !== undefined || cloudReply.value === undefined) {
+      return this.failure(cloudReply.error ?? 'account_unavailable');
+    }
+    const cloud = this.cloudOf(cloudReply.value);
+    if (cloud === null) return this.failure('account_unavailable');
+    const local = this.localDocument(stateRoot);
+    if (local === null) return this.failure('account_storage');
+    const values = localAccountPreferences(
+      local['preferences'] as Record<string, Object>, this.feedbackValues(stateRoot));
+    const declared: AccountPreferenceSettings = {};
+    let declaredAny = false;
+    for (const key of Object.keys(values)) {
+      if (schema.fields[key] !== undefined) {
+        declared[key] = values[key];
+        declaredAny = true;
+      }
+    }
+    if (!declaredAny) return this.failure('account_unavailable');
+    const merged = mergeAccountPreferences(cloud, declared, schema);
+    const putReply = await this.bridge.putPreferenceDocument(
+      merged as Object as Record<string, Object>);
+    if (putReply.error !== undefined || putReply.value === undefined) {
+      return this.failure(putReply.error ?? 'account_unavailable');
+    }
+    const updated = this.cloudOf(putReply.value);
+    return updated === null ? this.failure('account_unavailable')
+      : JSON.stringify({ ok: true, value: updated });
+  }
+
+  /**
+   * The account's settings, written onto this device.
+   *
+   * The user id the page names is checked against the session first. It is the one guard this
+   * direction needs: the page read those values under one account, and if a different one is signed
+   * in by the time the confirmation is answered, writing them replaces the user's own settings with
+   * a stranger's and nothing on this screen can put them back.
+   */
+  private async applyPreferences(userId: string, stateRoot: string): Promise<string> {
+    if (userId.length === 0 || this.bridge.currentUserId() !== userId) {
+      return this.failure('account_unauthorized');
+    }
+    const schemaReply = await this.bridge.preferenceSchema();
+    if (schemaReply.error !== undefined || schemaReply.value === undefined) {
+      return this.failure(schemaReply.error ?? 'account_unavailable');
+    }
+    const schema = this.schemaOf(schemaReply.value);
+    if (schema === null) return this.failure('account_unavailable');
+    const cloudReply = await this.bridge.loadPreferenceDocument();
+    if (cloudReply.error !== undefined || cloudReply.value === undefined) {
+      return this.failure(cloudReply.error ?? 'account_unavailable');
+    }
+    const cloud = this.cloudOf(cloudReply.value);
+    if (cloud === null) return this.failure('account_unavailable');
+    // Re-checked after the round trip: a sign-out during it invalidates the answer that just came
+    // back, and this is the last point before the write where saying so still costs nothing.
+    if (this.bridge.currentUserId() !== userId) return this.failure('account_cancelled');
+    const local = this.localDocument(stateRoot);
+    if (local === null) return this.failure('account_storage');
+    const applied: AppliedPreferences = applyAccountPreferences(
+      local['preferences'] as Record<string, Object>, cloud, schema,
+      this.feedbackValues(stateRoot));
+    const revision: number = local['revision'] as number;
+    const saved: string = client.savePreferences(stateRoot, revision,
+      JSON.stringify(applied.preferences));
+    try {
+      const reply: Record<string, Object> = JSON.parse(saved) as Record<string, Object>;
+      if (reply['ok'] !== true) return this.failure('account_storage');
+    } catch {
+      return this.failure('account_storage');
+    }
+    // The feedback file is written after the document, and its failure is reported rather than
+    // rolled back: the settings that did land are correct, and a second attempt is harmless.
+    if (applied.feedback !== null) {
+      const written = KeyboardSession.saveFeedbackIn(stateRoot,
+        KeyboardFeedbackBridge.fromShared({
+          soundEnabled: applied.feedback.soundEnabled,
+          hapticsEnabled: applied.feedback.hapticsEnabled,
+          hapticStrength: applied.feedback.hapticStrength
+        }));
+      if (!written) return this.failure('account_storage');
+    }
+    return this.success({});
   }
 
   async snapshot(actionDocument: string, resources: string, stateRoot: string): Promise<string> {

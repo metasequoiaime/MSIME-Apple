@@ -7,11 +7,13 @@ import {
   WelcomeFlowPage,
   type DictionaryClient,
   type DictionaryEntry,
+  type DictionaryManifest,
   type DictionaryImportResult,
   type HostCapabilities,
   type LocalDictionaryFormat,
   type LocalDictionaryKind,
   type Preferences,
+  type SavedTouchKeyboardSkin,
   type SkinCatalog,
   type SkinFont,
   type SkinImage,
@@ -22,6 +24,21 @@ import {
   CloudDictionaryApplyPanel,
   CloudCandidatesPanel,
   type AccountClient,
+  type AccountPreferences,
+  type AiSkinClient,
+  type AiSkinProposal,
+  type CommunityResource,
+  type CommunityResourceApplication,
+  type CommunityResourceClient,
+  type CommunityResourcePage,
+  type CommunitySkin,
+  type CommunitySkinClient,
+  type CommunitySkinDownload,
+  type CommunitySkinPage,
+  type AccountPreferenceSchema,
+  type SettingsSyncClient,
+  type ChatClient,
+  type ChatModels,
   type CloudClipboardPanelClient,
   type CloudDictionaryAction,
   type CloudDictionaryPanelClient,
@@ -61,6 +78,10 @@ interface NativeBridge {
   readSkinImage(id: string, relative: string): string;
   readSkinFont(id: string, relative: string): string;
   readSkinToolbarCss(id: string): string;
+  /** `""` reads the named designs; a serialized action applies one change first. */
+  customSkinLibrary(action: string): string;
+  /** `{profile,sourceCommit}` from the packaged dictionary manifest, or a refusal. */
+  dictionaryManifest(): string;
   appVersion(): string;
   dictionary(action: string): string;
   cloudDictionaryDownload(entry: string): string;
@@ -69,8 +90,12 @@ interface NativeBridge {
    * Starts one of the asynchronous requests and returns at once.
    *
    * A bridge method that returns a Promise never settles on this platform, so the account, the
-   * cloud dictionary and its snapshots, the AI model list, the AI test and the credential test are
-   * started by number and answered later through `msimeHarmonyBridgeReply`.
+   * account-backed chat, the cloud dictionary and its snapshots, the AI model list, the AI test and
+   * the credential test are started by number and answered later through `msimeHarmonyBridgeReply`.
+   *
+   * The caller chooses the deadline, because the kinds do not share one: a completion is a model
+   * writing text and is given the same 125 seconds the shared clients allow it, while everything
+   * else answers from a database and should report a stalled network in seconds.
    */
   startRequest(kind: string, id: number, payload: string): string;
   openExternalUrl(url: string): void;
@@ -103,6 +128,8 @@ declare global {
   var msimeHarmonyPreferencesChanged: ((reply: string) => void) | undefined;
   // eslint-disable-next-line no-var
   var msimeHarmonyBridgeReply: ((id: number, reply: string) => void) | undefined;
+  // eslint-disable-next-line no-var
+  var msimeHarmonyAiSkinProgress: ((requestId: string, completed: number) => void) | undefined;
 }
 
 /**
@@ -129,13 +156,18 @@ globalThis.msimeHarmonyBridgeReply = (id: number, reply: string) => {
   resolve(reply);
 };
 
-function bridgeRequest(native: NativeBridge, kind: string, payload: string): Promise<string> {
+function bridgeRequest(
+  native: NativeBridge,
+  kind: string,
+  payload: string,
+  timeoutMs = 30000,
+): Promise<string> {
   const id = nextBridgeRequestId++;
   return new Promise<string>((resolve, reject) => {
     const timer = setTimeout(() => {
       if (!pendingBridgeRequests.delete(id)) return;
       reject(new Error("请求超时，请重试。"));
-    }, 30000);
+    }, timeoutMs);
     pendingBridgeRequests.set(id, (reply) => {
       clearTimeout(timer);
       resolve(reply);
@@ -307,6 +339,208 @@ function accountClient(native: NativeBridge): AccountClient {
     clearExpired: async () => {
       await request({ operation: "clear_expired" });
     },
+    settingsSync: settingsSyncClient(native),
+  };
+}
+
+/**
+ * Settings sync, which is the only account surface that writes to this device.
+ *
+ * The host does the mapping, not the page: which local settings are account settings is a decision
+ * about this platform's preference document, and the page has no business holding a table of its
+ * keys. All four calls are one bridge request each.
+ *
+ * `apply` names the account the values were read under. The host checks it against the live session
+ * before and after the round trip, because a sign-out while the confirmation is on screen would
+ * otherwise write a stranger's settings over the user's own — and nothing on that screen could put
+ * them back.
+ */
+function settingsSyncClient(native: NativeBridge): SettingsSyncClient {
+  const request = <T,>(action: Record<string, unknown>): Promise<T> =>
+    bridgeRequest(native, "settings_sync", JSON.stringify(action)).then(unwrap<T>);
+  return {
+    schema: () => request<AccountPreferenceSchema>({ operation: "preferences_schema" }),
+    load: () => request<AccountPreferences>({ operation: "preferences_load" }),
+    upload: () => request<AccountPreferences>({ operation: "preferences_upload" }),
+    apply: async (userId) => {
+      await request({ operation: "preferences_apply", user_id: userId });
+    },
+  };
+}
+
+/**
+ * The account-backed assistant, which signs in with the session the host already holds.
+ *
+ * This is not the user-configured AI service on the AI page: that one carries the user's own
+ * endpoint and token and is reached through `aiAssistant`. This one has no credential to configure,
+ * which is why the page offers it only once an account exists.
+ *
+ * The completion gets its own deadline. The host allows a model 125 seconds to answer, so a page
+ * that gave up at 30 would report a timeout for a request that was about to succeed — and then the
+ * reply would arrive for a number nobody is waiting on and be dropped.
+ */
+function chatClient(native: NativeBridge): ChatClient {
+  return {
+    models: async () =>
+      unwrap<ChatModels>(
+        await bridgeRequest(
+          native,
+          "chat",
+          JSON.stringify({ operation: "chat", chat_operation: "models" }),
+        ),
+      ),
+    complete: async (messages, model) =>
+      unwrap<{ content: string }>(
+        await bridgeRequest(
+          native,
+          "chat",
+          JSON.stringify({ operation: "chat", chat_operation: "complete", messages, model }),
+          130000,
+        ),
+      ).content,
+  };
+}
+
+/**
+ * The community skin gallery.
+ *
+ * Browsing is not gated on an account: the gallery is public, and a signed-out user who could not
+ * look at it would have no way to decide whether an account is worth making. The host attaches the
+ * session when there is one, which is what turns `owned` and `my_rating` into this user's answers.
+ *
+ * `download` is the only call that is more than a request. The host fetches the design, starts a
+ * trial with it and imports it into the library in one step, and answers with both halves: the
+ * saved skin for the library the page just grew, and the trial id the page answers 保留 or 还原
+ * with afterwards.
+ */
+function communitySkinClient(native: NativeBridge): CommunitySkinClient {
+  const request = <T,>(action: Record<string, unknown>): Promise<T> =>
+    bridgeRequest(
+      native,
+      "community_skin",
+      JSON.stringify({ operation: "community_skin", ...action }),
+    ).then(unwrap<T>);
+  return {
+    list: (offset, search) =>
+      request<CommunitySkinPage>({ community_operation: "list", offset, search }),
+    detail: (id) => request<CommunitySkin>({ community_operation: "detail", id }),
+    download: (id, name) =>
+      request<CommunitySkinDownload>({ community_operation: "download", id, name }),
+    rate: async (id, stars) => {
+      await request({ community_operation: "rate", id, stars });
+    },
+    publish: async (id, name, description, design) => {
+      await request({ community_operation: "publish", id, name, description, design });
+    },
+    unpublish: async (id) => {
+      await request({ community_operation: "unpublish", id });
+    },
+    finishTrial: async (id, keep) => {
+      await request({ community_operation: "finish_trial", id, keep });
+    },
+  };
+}
+
+/**
+ * Community dictionaries and reply templates.
+ *
+ * The public list and one resource's detail read without an account, the way the skin gallery does.
+ * 我的作品 and 收藏 do not: they are questions about an account, and answering them without one
+ * would either be empty or be somebody else's.
+ *
+ * `storeReply` and `removeReply` never reach the network. They write the local file the keyboard
+ * process rereads when a reply is asked for, which is the only thing the two sides of this app
+ * share about the community — and it holds only what the user chose to keep.
+ */
+function communityResourceClient(native: NativeBridge): CommunityResourceClient {
+  const request = <T,>(action: Record<string, unknown>): Promise<T> =>
+    bridgeRequest(
+      native,
+      "community_resource",
+      JSON.stringify({ operation: "community_resource", ...action }),
+    ).then(unwrap<T>);
+  return {
+    list: (kind, scope, search, offset) =>
+      request<CommunityResourcePage>({
+        resource_operation: "list",
+        kind,
+        scope,
+        search,
+        offset,
+      }),
+    detail: (id) => request<CommunityResource>({ resource_operation: "detail", id }),
+    publish: async (id, kind, name, description, content, revision) => {
+      await request({
+        resource_operation: "publish",
+        id,
+        kind,
+        name,
+        description,
+        content,
+        revision,
+      });
+    },
+    apply: (id, resourceRevision) =>
+      request<CommunityResourceApplication>({
+        resource_operation: "apply",
+        id,
+        resource_revision: resourceRevision,
+      }),
+    save: async (id, saved) => {
+      await request({ resource_operation: "save", id, saved });
+    },
+    rate: async (id, stars) => {
+      await request({ resource_operation: "rate", id, stars });
+    },
+    unpublish: async (id) => {
+      await request({ resource_operation: "unpublish", id });
+    },
+    storeReply: async (item) => {
+      await request({ resource_operation: "store_reply", item });
+    },
+    removeReply: async (id) => {
+      await request({ resource_operation: "remove_reply", id });
+    },
+  };
+}
+
+/**
+ * AI skin generation, which is the one request that reports before it answers.
+ *
+ * Three pictures take minutes, so a run that said nothing until it finished would be
+ * indistinguishable from one that had stopped. Progress arrives on its own global, the same
+ * direction the preference-change notification uses, carrying the request id the page chose — a
+ * stale run's counter must not drive a new one's display.
+ *
+ * The deadline is the sum of what the pieces are allowed: a chat completion may take 125 seconds
+ * and each picture up to 200, and the three pictures run together. Giving this the ordinary 30
+ * would report a timeout for a run that was working.
+ */
+function aiSkinClient(native: NativeBridge): AiSkinClient {
+  return {
+    generate: (requestId, prompt) =>
+      bridgeRequest(
+        native,
+        "ai_skin",
+        JSON.stringify({ operation: "generate", request_id: requestId, prompt }),
+        360000,
+      ).then(unwrap<AiSkinProposal[]>),
+    cancel: async (requestId) => {
+      await bridgeRequest(
+        native,
+        "ai_skin",
+        JSON.stringify({ operation: "cancel", request_id: requestId }),
+      ).then(unwrap<Record<string, never>>);
+    },
+    onProgress: async (listener) => {
+      const previous = globalThis.msimeHarmonyAiSkinProgress;
+      globalThis.msimeHarmonyAiSkinProgress = (requestId: string, completed: number) => {
+        listener({ requestId, completed });
+      };
+      return () => {
+        globalThis.msimeHarmonyAiSkinProgress = previous;
+      };
+    },
   };
 }
 
@@ -404,6 +638,20 @@ function makeClient(
         operation: "import",
         kind,
         format,
+        text,
+        request_id,
+      }),
+    /**
+     * The Apple-compatible personal dictionary file.
+     *
+     * Unlike the edits beside it, this one is queued rather than written: the keyboard may be open,
+     * and the Engine's maintenance lock is not available while it is. The host writes the entries
+     * to the queue the keyboard drains at its next session start, which is why the card says 已加入
+     * 同步队列 rather than 已导入 — that is the truth on this host as it is on the Apple one.
+     */
+    importPersonal: async (text: string, request_id: string) =>
+      dictionaryReply<{ queued: boolean; pending_count: number }>({
+        operation: "import_personal",
         text,
         request_id,
       }),
@@ -534,8 +782,45 @@ function makeClient(
     fuzzyPinyin: true,
     touchKeyboardSchemes: true,
     customTouchKeyboardSkins: true,
+    // The manifest is packaged and never changes while the application runs, so this is read on
+    // demand rather than kept: the dictionary page is not a screen anyone leaves open.
+    dictionaryManifest: async () => unwrap<DictionaryManifest>(native.dictionaryManifest()),
+    // A named design can carry a bounded photo, so this is the one settings call whose payload is
+    // measured in megabytes. It still goes through the synchronous bridge: the alternative is the
+    // request-by-number channel, and a library read that has to survive a page reload is worse
+    // than a brief pause on a screen the user just opened.
+    customSkinLibrary: {
+      load: async () => unwrap<SavedTouchKeyboardSkin[]>(native.customSkinLibrary("")),
+      mutate: async (action) =>
+        unwrap<SavedTouchKeyboardSkin[]>(native.customSkinLibrary(JSON.stringify(action))),
+    },
     candidateEnglishGloss: true,
     account: accountClient(native),
+    chat: chatClient(native),
+    // The Apple home surface, adapted rather than copied. Two of its five actions exist here and
+    // three do not, and the page draws only what the host says it has.
+    //
+    // The two setup actions are this host's: 设置 opens the system input-method list, and the
+    // picker is where the second setup step happens.
+    //
+    // `openKeyboard` is deliberately absent. Android opens a separate panel window for it; this
+    // host's keyboard is an InputMethodExtensionAbility that appears when an editor asks for it,
+    // and there is no window for the settings app to open. Without the action the card falls back
+    // to the shared screen-keyboard page, which is the honest version of "show me the keyboard"
+    // here. The emoji and clipboard actions are absent for the same reason: on this host those are
+    // surfaces on the keyboard's own key faces, not windows.
+    home: {
+      openSystemKeyboardSettings: async () => native.openSystemKeyboardSettings(),
+      // The reply is unwrapped rather than ignored so a host that could not open the picker says
+      // so, which the card reports; the welcome flow's own copy of this call is the exception,
+      // because that screen has its own failure to show and nothing to add to it.
+      showInputMethodPicker: async () => {
+        unwrap<boolean>(native.showInputMethodPicker());
+      },
+    },
+    communitySkins: communitySkinClient(native),
+    communityResources: communityResourceClient(native),
+    aiSkins: aiSkinClient(native),
     openCloudClipboard: async () => openCloudClipboard(),
     openCloudDictionary: async () => openCloudDictionary(),
   };

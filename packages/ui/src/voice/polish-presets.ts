@@ -8,11 +8,16 @@ export const POLISH_PRESET_IDS = ["cleanup", "faithful", "zh2en", "casual"] as c
 export type PolishPresetId = (typeof POLISH_PRESET_IDS)[number];
 export const POLISH_CUSTOM_IDS = ["custom_1", "custom_2", "custom_3"] as const;
 
+/**
+ * The names the reference window shows for them, from the same table the prompts came out of
+ * (`PolishPromptPreset` in `voice_providers.cpp`). The prompts were copied verbatim and the names
+ * were not, so the same four presets were offered under four different words.
+ */
 export const POLISH_PRESET_NAMES: Record<PolishPresetId, string> = {
-  cleanup: "清理口语",
-  faithful: "忠实原文",
-  zh2en: "中译英",
-  casual: "自然口语",
+  cleanup: "精炼整理",
+  faithful: "忠实校对",
+  zh2en: "中翻英",
+  casual: "口语整理",
 };
 
 export const POLISH_PRESETS: Record<PolishPresetId, string> = {

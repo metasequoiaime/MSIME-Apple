@@ -170,6 +170,58 @@ else()
   target_compile_options(windows-navigation-policy PRIVATE -Wall -Wextra -Werror)
 endif()
 add_test(NAME windows-navigation-policy COMMAND windows-navigation-policy)
+add_executable(windows-typing-statistics tests/input/typing_statistics.cpp)
+target_include_directories(windows-typing-statistics PRIVATE src/input)
+target_link_libraries(windows-typing-statistics PRIVATE nlohmann_json::nlohmann_json)
+if(MSVC)
+  target_compile_options(windows-typing-statistics PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(windows-typing-statistics PRIVATE -Wall -Wextra -Werror)
+endif()
+add_test(NAME windows-typing-statistics COMMAND windows-typing-statistics)
+set_tests_properties(windows-typing-statistics PROPERTIES TIMEOUT 10)
+# Which punctuation ends the composition with the highlighted candidate. The
+# set is the reference's, character for character; one missing mark is a key
+# that quietly stops doing that, visible only while typing.
+# Which keys edit the composition at all: letters, the manual separator, the
+# Japanese long vowel, the double-pinyin ing key, Unicode digits, erase and
+# caret. Dense enough that a wrong branch is an input bug and nothing else.
+# 以词定字: which bare key takes the first or the last Han character out of the
+# highlighted word. The direction is the feature, and the bracket pair is also
+# the TSF's paging keys, so when it must not fire matters as much as when it does.
+add_executable(windows-word-character-policy tests/input/word_character_policy.cpp)
+target_include_directories(windows-word-character-policy PRIVATE src src/input src/ipc
+                           ../../vendor/MSIME-Engine/contracts ../../crates/host-api/include)
+target_link_libraries(windows-word-character-policy PRIVATE nlohmann_json::nlohmann_json)
+if(MSVC)
+  target_compile_options(windows-word-character-policy PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(windows-word-character-policy PRIVATE -Wall -Wextra -Werror)
+endif()
+add_test(NAME windows-word-character-policy COMMAND windows-word-character-policy)
+set_tests_properties(windows-word-character-policy PROPERTIES TIMEOUT 10)
+add_executable(windows-edit-policy tests/input/edit_policy.cpp)
+target_include_directories(windows-edit-policy PRIVATE src src/system src/input
+                           ../../vendor/MSIME-Engine/contracts ../../crates/host-api/include)
+target_link_libraries(windows-edit-policy PRIVATE nlohmann_json::nlohmann_json)
+if(MSVC)
+  target_compile_options(windows-edit-policy PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(windows-edit-policy PRIVATE -Wall -Wextra -Werror)
+endif()
+add_test(NAME windows-edit-policy COMMAND windows-edit-policy)
+set_tests_properties(windows-edit-policy PROPERTIES TIMEOUT 10)
+add_executable(windows-punctuation-policy tests/input/punctuation_policy.cpp)
+target_include_directories(windows-punctuation-policy PRIVATE src src/system src/input
+                           ../../vendor/MSIME-Engine/contracts ../../crates/host-api/include)
+target_link_libraries(windows-punctuation-policy PRIVATE nlohmann_json::nlohmann_json)
+if(MSVC)
+  target_compile_options(windows-punctuation-policy PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(windows-punctuation-policy PRIVATE -Wall -Wextra -Werror)
+endif()
+add_test(NAME windows-punctuation-policy COMMAND windows-punctuation-policy)
+set_tests_properties(windows-punctuation-policy PROPERTIES TIMEOUT 10)
 add_executable(windows-input-key-policy tests/input/input_key_policy.cpp)
 target_include_directories(windows-input-key-policy PRIVATE src)
 if(MSVC)
@@ -178,6 +230,18 @@ else()
   target_compile_options(windows-input-key-policy PRIVATE -Wall -Wextra -Werror)
 endif()
 add_test(NAME windows-input-key-policy COMMAND windows-input-key-policy)
+# This one existed for a while with nothing compiling it: no CMakeLists named
+# the source, so it was absent from every build and every count, the same way
+# msimeui-tests was. It passes as written.
+add_executable(windows-tsf-key-dispatch tests/input/tsf_key_dispatch.cpp)
+target_include_directories(windows-tsf-key-dispatch PRIVATE src src/system src/input)
+if(MSVC)
+  target_compile_options(windows-tsf-key-dispatch PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(windows-tsf-key-dispatch PRIVATE -Wall -Wextra -Werror)
+endif()
+add_test(NAME windows-tsf-key-dispatch COMMAND windows-tsf-key-dispatch)
+set_tests_properties(windows-tsf-key-dispatch PROPERTIES TIMEOUT 10)
 add_executable(windows-candidate-completion-policy tests/input/candidate_completion_policy.cpp)
 target_include_directories(windows-candidate-completion-policy PRIVATE src)
 if(MSVC)
@@ -384,8 +448,9 @@ else()
 endif()
 add_test(NAME windows-mode-authority COMMAND windows-mode-authority)
 set_tests_properties(windows-mode-authority PROPERTIES TIMEOUT 10)
-add_executable(windows-polish-prompt tests/voice/polish_prompt.cpp)
-target_include_directories(windows-polish-prompt PRIVATE src)
+# The presets and the slot fallbacks are shared/voice's, and so is the test now: it sat in this tree while
+# both desktop hosts shipped the header, so nothing this host's gate runs ever checked it on the other one.
+add_executable(windows-polish-prompt ../../shared/voice/tests/polish_prompt.cpp)
 if(MSVC)
   target_compile_options(windows-polish-prompt PRIVATE /W4 /WX /utf-8)
 else()
@@ -546,6 +611,43 @@ else()
 endif()
 add_test(NAME windows-dedicated-english-controller COMMAND windows-dedicated-english-controller)
 set_tests_properties(windows-dedicated-english-controller PROPERTIES TIMEOUT 30)
+# The cloud worker's queueing: it coalesces submissions inside its debounce and
+# keeps only the newest, so the test spends real time waiting past that window.
+# Which candidates the right-click actions may be offered for. All four write
+# to the user dictionary, so offering one for a candidate the Engine will refuse
+# leaves a menu item that does nothing.
+add_executable(windows-candidate-action-availability tests/candidate/candidate_action_availability.cpp)
+target_include_directories(windows-candidate-action-availability PRIVATE src/candidate)
+if(MSVC)
+  target_compile_options(windows-candidate-action-availability PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(windows-candidate-action-availability PRIVATE -Wall -Wextra -Werror)
+endif()
+add_test(NAME windows-candidate-action-availability COMMAND windows-candidate-action-availability)
+set_tests_properties(windows-candidate-action-availability PROPERTIES TIMEOUT 10)
+# Which candidates still need an online provider once the packaged glosses are
+# in. Wrong in either direction is invisible: a repeated request can leave one
+# candidate with two glosses, and a skipped one leaves a candidate blank with a
+# provider configured and reachable.
+add_executable(windows-candidate-translation-merge tests/candidate/candidate_translation_merge.cpp)
+target_include_directories(windows-candidate-translation-merge PRIVATE src/candidate)
+if(MSVC)
+  target_compile_options(windows-candidate-translation-merge PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(windows-candidate-translation-merge PRIVATE -Wall -Wextra -Werror)
+endif()
+add_test(NAME windows-candidate-translation-merge COMMAND windows-candidate-translation-merge)
+set_tests_properties(windows-candidate-translation-merge PROPERTIES TIMEOUT 10)
+add_executable(windows-cloud-candidate-worker tests/candidate/cloud_candidate_worker.cpp)
+target_link_libraries(windows-cloud-candidate-worker PRIVATE msime-windows-pump)
+target_include_directories(windows-cloud-candidate-worker PRIVATE src/candidate)
+if(MSVC)
+  target_compile_options(windows-cloud-candidate-worker PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(windows-cloud-candidate-worker PRIVATE -Wall -Wextra -Werror)
+endif()
+add_test(NAME windows-cloud-candidate-worker COMMAND windows-cloud-candidate-worker)
+set_tests_properties(windows-cloud-candidate-worker PROPERTIES TIMEOUT 60)
 target_link_libraries(windows-session-smoke PRIVATE msime-windows-pump)
 add_executable(windows-input-queue tests/input/input_queue.cpp)
 target_link_libraries(windows-input-queue PRIVATE msime-windows-input)
@@ -683,6 +785,33 @@ foreach(target msime-windows-session windows-session-smoke windows-reply-codec m
     target_compile_options(${target} PRIVATE -Wall -Wextra -Werror)
   endif()
 endforeach()
+# The clipboard store and its presentation mailbox. All three of these sat in
+# the tree with no CMakeLists naming them, so nothing compiled them and they
+# were absent from every build and every count - the same shape as the
+# msimeui-tests entry in known-failures.txt. Registered outside the WIN32-only
+# Server block below, because none of them needs the Server. Written out one by
+# one rather than generated: the name of a test source should be findable by
+# searching for it.
+add_library(msime-windows-clipboard STATIC src/clipboard/ClipboardHistory.cpp
+            src/clipboard/ClipboardPresentation.cpp)
+target_include_directories(msime-windows-clipboard PUBLIC src src/clipboard)
+target_link_libraries(msime-windows-clipboard PUBLIC nlohmann_json::nlohmann_json)
+add_executable(windows-clipboard-history tests/clipboard/clipboard_history.cpp)
+target_link_libraries(windows-clipboard-history PRIVATE msime-windows-clipboard)
+add_executable(windows-clipboard-link tests/clipboard/clipboard_link.cpp)
+target_link_libraries(windows-clipboard-link PRIVATE msime-windows-clipboard)
+add_executable(windows-clipboard-presentation tests/clipboard/clipboard_presentation.cpp)
+target_link_libraries(windows-clipboard-presentation PRIVATE msime-windows-clipboard)
+foreach(clipboard_target windows-clipboard-history windows-clipboard-link
+        windows-clipboard-presentation)
+  if(MSVC)
+    target_compile_options(${clipboard_target} PRIVATE /W4 /WX /utf-8)
+  else()
+    target_compile_options(${clipboard_target} PRIVATE -Wall -Wextra -Werror)
+  endif()
+  add_test(NAME ${clipboard_target} COMMAND ${clipboard_target})
+  set_tests_properties(${clipboard_target} PROPERTIES TIMEOUT 30)
+endforeach()
 if(WIN32)
   install(FILES installer/config.default.toml DESTINATION share/msime)
   install(DIRECTORY installer/assets/icons/ DESTINATION share/msime/icons)
@@ -697,11 +826,11 @@ if(WIN32)
     set(MSIME_SQLITE_TARGET SQLite::SQLite3)
   endif()
   add_library(msime-windows-server STATIC src/system/WindowsServer.cpp src/candidate/CandidateWindow.cpp src/candidate/CandidateFlyoutWindow.cpp src/candidate/TrayMenuWindow.cpp)
-  # src/system/server_main.cpp constructs ClipboardHistory and ClipboardMonitor, whose definitions
+  # src/entrypoints/server_main.cpp constructs ClipboardHistory and ClipboardMonitor, whose definitions
   # are out of line. Without these the Server target does not link at all.
   target_sources(msime-windows-server PRIVATE src/clipboard/ClipboardHistory.cpp src/clipboard/ClipboardMonitor.cpp)
   target_sources(msime-windows-server PRIVATE src/candidate/FloatingToolbarWindow.cpp src/system/ShellLauncher.cpp
-                 src/system/WaveOverlay.cpp src/system/WaveOverlayUtils.cpp src/voice/VoiceInputSession.cpp
+                 src/voice/WaveOverlay.cpp src/voice/WaveOverlayUtils.cpp src/voice/VoiceInputSession.cpp
                  src/voice/DoubaoAsrClient.cpp src/voice/CuePlayer.cpp src/voice/SystemAudioMuter.cpp
                  src/voice/VoiceHotkey.cpp src/input/MaintenanceHotkey.cpp src/voice/VoiceControlMessage.cpp)
   add_subdirectory(../../shared/voice shared-voice)
@@ -743,7 +872,7 @@ if(WIN32)
   endif()
   add_test(NAME windows-watchdog-help COMMAND msime-client-watchdog --help)
   set_tests_properties(windows-watchdog-help PROPERTIES TIMEOUT 5)
-  add_executable(msime-client-server src/system/server_main.cpp)
+  add_executable(msime-client-server src/entrypoints/server_main.cpp)
   # The product mark, which the toolbar loads out of the running executable.
   # Compiled into the Server itself rather than shipped beside it: an icon the
   # installer could forget to copy is an icon that silently stops appearing.
@@ -754,7 +883,7 @@ if(WIN32)
     "${CMAKE_CURRENT_LIST_DIR}/src/ipc/ServerResources.h"
     "${CMAKE_CURRENT_LIST_DIR}/installer/assets/icons/msime.ico")
   include(ServerManifest.cmake)
-  add_executable(msime-client-prepare src/system/prepare_host_main.cpp)
+  add_executable(msime-client-prepare src/entrypoints/prepare_host_main.cpp)
   target_include_directories(msime-client-prepare PRIVATE ../../crates/host-api/include)
   target_link_libraries(msime-client-prepare PRIVATE
     nlohmann_json::nlohmann_json "${MSIME_HOST_LIBRARY}")
@@ -822,6 +951,19 @@ else()
 endif()
 add_test(NAME windows-voice-control-message COMMAND windows-voice-control-message)
 
+# The keyboard hook's decisions, with no Win32 in them. The hook itself cannot
+# run off Windows, and nothing covered these rules at all - a modifier leaking
+# to the application after being used as a shortcut, or a hold that keeps
+# recording after the user let go, are one-branch mistakes.
+add_executable(windows-voice-hotkey-policy tests/voice/voice_hotkey_policy.cpp)
+target_include_directories(windows-voice-hotkey-policy PRIVATE src/voice)
+if(MSVC)
+  target_compile_options(windows-voice-hotkey-policy PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(windows-voice-hotkey-policy PRIVATE -Wall -Wextra -Werror)
+endif()
+add_test(NAME windows-voice-hotkey-policy COMMAND windows-voice-hotkey-policy)
+set_tests_properties(windows-voice-hotkey-policy PROPERTIES TIMEOUT 10)
 add_executable(windows-voice-session-epoch tests/voice/voice_session_epoch.cpp)
 target_link_libraries(windows-voice-session-epoch PRIVATE Threads::Threads)
 add_test(NAME windows-voice-session-epoch COMMAND windows-voice-session-epoch)

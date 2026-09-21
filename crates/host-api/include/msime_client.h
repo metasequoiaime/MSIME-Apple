@@ -63,6 +63,13 @@ char *msime_client_prepare_host(const uint8_t *options, size_t length);
  * profiles: xiaohe, ziranma, shoudao, microsoft. Unknown values are rejected.
  * Optional preferences_directory is bootstrap metadata for host file monitoring;
  * session creation itself does not monitor or load it.
+ * Optional phrase_preedit=true asks for a half-composed phrase to stay in the
+ * composition: picking a candidate that covers only part of the input leaves the
+ * chosen piece in view.phrase_prefix instead of committing it, and the whole
+ * phrase commits at once when the composition ends. The host must draw that
+ * field ahead of editing_text - it is separate because caret_position is an
+ * offset into editing_text in the host's own string unit. Omitted means each
+ * piece is committed as it is picked, as before.
  * The host must prepare and validate its dictionary generation before creation.
  * Creation acquires cooperative shared access to user_data and dictionaries until
  * destroy. It fails immediately while a participating maintenance writer holds
@@ -97,6 +104,21 @@ char *msime_client_create(const uint8_t *options, size_t length);
  * with the identical nonempty request ID and content.
  */
 char *msime_client_dictionary(const uint8_t *request, size_t length);
+/* Smart punctuation follow-up gestures. The host holds the snapshots: they belong
+ * to its editor, not to Engine, and a session rebuilt while the keyboard was away
+ * must not carry a gesture across the gap. The switches that gate them live in the
+ * applied preferences, so the session answers rather than the host keeping a copy.
+ * arm: {ascii, commit, timestamp_ms, editor_generation, auto_closed_pair} ->
+ *      {repeat: {ascii, committed, timestamp_ms, editor_generation}|null,
+ *       space: {chinese, ascii, editor_generation}|null}
+ * decide: {character, preceding, timestamp_ms, editor_generation, repeat, space} ->
+ *      {replace_with: "，"|null, space_ascii: 46|null}
+ * `preceding` is what the editor holds before the caret at the moment of the press;
+ * both decisions re-read it and decline when it disagrees with the arming, so a
+ * stale snapshot can never rewrite the wrong character. A non-null space_ascii means
+ * replace the preceding mark with it and swallow the space. Maximum 4096 bytes. */
+char *msime_client_smart_punctuation_arm(uint64_t handle, const uint8_t *request, size_t length);
+char *msime_client_smart_punctuation_decide(uint64_t handle, const uint8_t *request, size_t length);
 /* Pure Engine validation/normalization for one Entry object. No paths or
  * session are required and no dictionary state is changed. */
 char *msime_client_dictionary_validate(const uint8_t *request, size_t length);
@@ -121,6 +143,12 @@ char *msime_client_snapshot_activate(uint64_t handle, const uint8_t *expected_ve
  * is optional, its members are not.
  */
 char *msime_client_default_preferences(void);
+/* Per-key double-pinyin hint text for one profile name, as a JSON object mapping
+ * an uppercase key to "initials / finals" - or to whichever side that key carries.
+ * Read out of the Engine's own profile tables so a keyboard face never carries a
+ * second copy of the keymap. An unknown profile name yields an empty object
+ * rather than the default profile's hints. */
+char *msime_client_shuangpin_key_hints(const uint8_t *profile, size_t length);
 /* Load PreferencesStore from an absolute UTF-8 directory, without a session.
  * May block on disk/file lock: use a worker thread. Returns PreferencesSnapshot.
  * Missing file returns shared defaults; malformed/future files return errors.
@@ -130,9 +158,14 @@ char *msime_client_load_preferences(const uint8_t *directory, size_t length);
 /* Private aggregate typing statistics. JSON request (<=65536 bytes):
  * {directory:absolute path,action:{operation:"load"|"reset"}}
  * {directory,action:{operation:"set_enabled",enabled:bool}}
- * {directory,action:{operation:"record",text,source,day:"YYYY-MM-DD"}}.
+ * {directory,action:{operation:"set_retention",retention,day:"YYYY-MM-DD"}}
+ *   retention is forever|30d|90d|180d|365d; anything else is read as forever,
+ *   never as a shorter window. `day` is the caller's local day.
+ * {directory,action:{operation:"record",text,source,day:"YYYY-MM-DD",hour?:0-23}}.
  * Record classifies committed text in memory and persists only aggregate counts;
  * text is never returned or stored. May block on disk/file lock: use a worker.
+ * `hour` is the commit's local hour and must come from the same instant as `day`;
+ * omit it rather than guess, and the day keeps its counts with no hourly split.
  */
 char *msime_client_typing_statistics(const uint8_t *request, size_t length);
 /* Scan an absolute UTF-8 skin root and return the catalog the settings page
@@ -149,6 +182,55 @@ char *msime_client_skin_resource(const uint8_t *request, size_t length);
 /* JSON {directory:absolute path,id:skin id}; returns a nullable stylesheet
  * string from the manifest, after revalidating the package and path. */
 char *msime_client_skin_toolbar_stylesheet(const uint8_t *request, size_t length);
+/* The queued personal dictionary, for a host that cannot take the Engine's
+ * maintenance lock when the request arrives. Same request shape as
+ * msime_client_dictionary - {options,action} - but the operations act on
+ * <preferences_directory>/PersonalDictionary instead of the Engine, and the
+ * keyboard applies them at its next session start. Use this for import_personal
+ * in particular: "maintenance busy" is not an answer to "add these words", and
+ * the user is as likely to import with the keyboard up as with it down. */
+char *msime_client_personal_dictionary_request(const uint8_t *request, size_t length);
+/* JSON {directory:absolute state root} reads the named custom touch-keyboard
+ * designs; adding action:{operation:"create"|"rename"|"update"|"delete",...}
+ * applies one change first. Both answer with the whole library, because every
+ * caller redraws the list. Takes the library's file lock and rewrites it
+ * atomically: use a worker. Failures carry the shared community_* codes the
+ * settings pages already have wording for, not a Display string. */
+char *msime_client_custom_skin_library(const uint8_t *request, size_t length);
+/* JSON {directory:absolute state root,id:publication uuid,name,design}. Starts
+ * a skin trial and imports the design into the library, answering
+ * {skin,trial}. One call rather than two: the trial is what remembers the skin
+ * being replaced, so a failed import has to end it or the user wears a design
+ * that was never saved. The download itself is the caller's, because only the
+ * surrounding platform's HTTPS stack can fetch it. Writes preferences and two
+ * locked files: use a worker. */
+char *msime_client_community_skin_install(const uint8_t *request, size_t length);
+/* JSON {directory,action:{operation:"finish",id,keep}} or
+ * {operation:"restore_pending"}. Declining a trial puts the previous skin back;
+ * restore_pending is the crash recovery and is safe with no trial pending.
+ * Answers {revision} so a caller holding the document can tell whether what it
+ * is showing is still what is on disk. Writes preferences: use a worker. */
+char *msime_client_keyboard_skin_trial(const uint8_t *request, size_t length);
+/* JSON {file:absolute CommunityLibrary.json,action:{operation:"load"}} or
+ * {operation:"save_reply",item} or {operation:"remove",id}. The reply templates
+ * the user explicitly kept, which is the one thing the settings surface and the
+ * keyboard process share about the community. Every operation answers with the
+ * whole library. Takes the library's file lock: use a worker. */
+char *msime_client_community_resource_library(const uint8_t *request, size_t length);
+/* The decisions in AI skin generation, for a host whose HTTP must go through
+ * the surrounding platform and so performs the four requests itself.
+ * {operation:"compose",prompt,model} returns {path,body} carrying the shared
+ * system prompt; {operation:"parse",text} returns the three validated plans or
+ * refuses; {operation:"artwork",artwork} says whether a returned image is one
+ * this client will show. The instruction and the parser must not be separated:
+ * the prompt names the exact document the parser accepts. */
+char *msime_client_ai_skin_plan(const uint8_t *request, size_t length);
+/* Absolute staged engine resources; returns {profile,sourceCommit} from the
+ * packaged dictionary-manifest.json. Two fields only: the page is asking what
+ * dictionary is installed and where it came from, not for journal modes or
+ * third-party references. Missing or unreadable is reported, never guessed -
+ * showing the wrong dictionary version is worse than showing none. */
+char *msime_client_dictionary_manifest(const uint8_t *resources, size_t length);
 /* Read saved history only; disabled preferences return an empty entries array. */
 char *msime_client_load_clipboard_history(const uint8_t *directory, size_t length);
 /* JSON {directory,text}; removes exact saved entry, not the system clipboard. */
@@ -285,7 +367,7 @@ enum MsimeCommand {
     MSIME_BACKSPACE_SEGMENT = 12, MSIME_MOVE_LEFT_SEGMENT = 13, MSIME_MOVE_RIGHT_SEGMENT = 14,
     MSIME_NEXT_PAGE = 100, MSIME_PREVIOUS_PAGE = 101,
     MSIME_NEXT_CANDIDATE = 102, MSIME_PREVIOUS_CANDIDATE = 103,
-    MSIME_FIRST_CANDIDATE_ON_PAGE = 104, MSIME_LAST_CANDIDATE_ON_PAGE = 105
+    MSIME_FIRST_CANDIDATE = 104, MSIME_LAST_CANDIDATE = 105
 };
 char *msime_client_command(uint64_t session, uint32_t command);
 /* Re-rank the visible candidates with the settled model, once the host's typing pause elapses.
@@ -351,6 +433,13 @@ char *msime_client_ai_request_for_query(uint64_t session,
  * never log the query. The existing target_language applies to both providers.
  */
 char *msime_client_translation_query(uint64_t session);
+/* How long a cloud candidate is worth waiting for: connecting, and in total.
+ * Mirrors client-core's cloud::candidates, which took them from the reference's
+ * own request. A host must not shorten them on its own - a reply arriving after
+ * its private deadline is one the reference would have shown.
+ */
+#define MSIME_CLOUD_CONNECT_TIMEOUT_MS 2000
+#define MSIME_CLOUD_REQUEST_TIMEOUT_MS 2500
 /* Build the bounded HTTPS cloud URL for an eligible OnlineQuery. The native
  * host performs network I/O and applies the copied result separately. */
 char *msime_client_cloud_request_url(const uint8_t *query, size_t query_length);

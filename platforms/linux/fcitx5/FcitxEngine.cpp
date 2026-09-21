@@ -428,7 +428,7 @@ public:
     if (!session_ || (scheme != 0 && scheme != 1) || restricted() || privateInput())
       return false;
     static constexpr std::array<const char *, 5> schemas = {
-        "lantian", "ziranma", "shouyou2_0", "shouyouplus", "xiaohe"};
+        "lantian", "ziranma", "shouyou2_0", "shouyouplus", "xiaohe", "jiajia"};
     const auto section = scheme == 1 ? "shuangpin_helpcode" : "quanpin_helpcode";
     const auto current = preferences_.value(section, Json::object()).value(
         "schema", scheme == 1 ? std::string("lantian") : std::string("ziranma"));
@@ -1578,12 +1578,14 @@ public:
     char day[11]{};
     if (std::strftime(day, sizeof(day), "%Y-%m-%d", &local) == 0) return;
     const auto sourceId = std::string(msime::linux_host::typing_source_id(source));
-    std::thread([directory, text, sourceId, day = std::string(day)] {
+    std::thread([directory, text, sourceId, day = std::string(day),
+                 hour = local.tm_hour] {
       try {
         const auto request = Json{
             {"directory", directory},
             {"action", Json{{"operation", "record"}, {"text", text},
-                              {"source", sourceId}, {"day", day}}}}
+                              {"source", sourceId}, {"day", day},
+                              {"hour", hour}}}}
                                   .dump();
         if (auto *raw = msime_client_typing_statistics(
                 reinterpret_cast<const uint8_t *>(request.data()), request.size()))
@@ -2754,7 +2756,8 @@ public:
     const auto value = state->preferences_.value(section, Json::object())
         .value("schema", scheme == 1 ? std::string("lantian") : std::string("ziranma"));
     const auto label = value == "lantian" ? "蓝天" : value == "ziranma" ? "自然码" :
-        value == "shouyou2_0" ? "搜狗 2.0" : value == "shouyouplus" ? "搜狗 Plus" : "小鹤";
+        value == "shouyou2_0" ? "搜狗 2.0" : value == "shouyouplus" ? "搜狗 Plus" :
+        value == "jiajia" ? "加加" : "小鹤";
     return std::string("辅助码：") + label;
   }
   std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
@@ -4682,9 +4685,9 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
     case FcitxKey_Left: case FcitxKey_KP_Left: return command(MSIME_MOVE_LEFT);
     case FcitxKey_Right: case FcitxKey_KP_Right: return command(MSIME_MOVE_RIGHT);
     case FcitxKey_Home: case FcitxKey_KP_Home:
-      return command(MSIME_FIRST_CANDIDATE_ON_PAGE);
+      return command(MSIME_FIRST_CANDIDATE);
     case FcitxKey_End: case FcitxKey_KP_End:
-      return command(MSIME_LAST_CANDIDATE_ON_PAGE);
+      return command(MSIME_LAST_CANDIDATE);
     case FcitxKey_Tab: case FcitxKey_KP_Tab:
       if (navigation_.value("tab", true)) return command(shift ? MSIME_PREVIOUS_PAGE : MSIME_NEXT_PAGE);
       break;

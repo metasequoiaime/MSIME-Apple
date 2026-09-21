@@ -1,5 +1,10 @@
 #import "TextClient.h"
 
+#if TARGET_OS_OSX
+// NSUnderlineStyle* and the marked clause attribute are AppKit's, not Foundation's.
+#import <AppKit/AppKit.h>
+#endif
+
 static BOOL MSIMEPreeditSeparator(unichar character) {
     return character == '\'' || character == ' ';
 }
@@ -73,7 +78,17 @@ uint32_t MSIMETextClientPrecedingUnicodeScalar(id<MSIMETextClient> client) {
 
 void MSIMEApplyTransitionWithPreeditStyle(NSDictionary *transition, id<MSIMETextClient> client,
                                           MSIMEInlinePreeditStyle style) {
+    MSIMEApplyTransitionWithPendingClosing(transition, client, style, nil);
+}
+
+void MSIMEApplyTransitionWithPendingClosing(NSDictionary *transition, id<MSIMETextClient> client,
+                                            MSIMEInlinePreeditStyle style, NSString *closing) {
+    if (!closing.length) closing = nil;
     id commit = transition[@"commit"];
+    // A commit ends the pair: the closing mark goes in with the text it was holding open, and the
+    // caret lands after it, where the next character belongs.
+    if ([commit isKindOfClass:NSString.class] && closing)
+        commit = [(NSString *)commit stringByAppendingString:closing];
     if ([commit isKindOfClass:NSString.class]) [client insertText:commit replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
     NSDictionary *view = transition[@"view"];
     if (![view isKindOfClass:NSDictionary.class]) return;
@@ -93,7 +108,44 @@ void MSIMEApplyTransitionWithPreeditStyle(NSDictionary *transition, id<MSIMEText
         marked = @"";
         caret = 0;
     }
-    [client setMarkedText:marked selectionRange:NSMakeRange(caret, 0) replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+    // A phrase being put together out of several selections keeps the part already chosen in the
+    // composition instead of sending it to the document. It leads the marked text and the caret
+    // moves past it, the way the reference prepends word_for_creating_word to the reading and
+    // offsets the display caret by its length. The runtime hands it over separately because
+    // caret_position is an offset into the editing text in this host's own string unit.
+    NSString *phrase = view[@"phrase_prefix"];
+    NSUInteger phraseLength = 0;
+    if ([phrase isKindOfClass:NSString.class] && phrase.length && style != MSIMEInlinePreeditStyleEmpty) {
+        marked = [phrase stringByAppendingString:marked];
+        caret += phrase.length;
+        phraseLength = phrase.length;
+    }
+    // While the pair is open the closing mark is the tail of the marked text, so it stays visible and
+    // stays after the caret. A commit above has already consumed it.
+    if (closing && ![commit isKindOfClass:NSString.class]) marked = [marked stringByAppendingString:closing];
+    id displayed = marked;
+#if TARGET_OS_OSX
+    // Two clauses, drawn differently, once a phrase is being assembled: the piece already chosen is
+    // settled and the reading after it is still being typed. The reference draws the same
+    // distinction with TSF display attributes - its input clause carries a dotted underline and its
+    // converted clause none - and the macOS convention for it is the other way round in weight: the
+    // settled clause keeps a thin underline and the clause still being worked on a thick one, which
+    // is what every Japanese input method here does. Without this the two run together as one
+    // stretch of underlined text and nothing says where what the user already chose ends.
+    //
+    // AppKit only; UIKit's document proxy takes a plain string, and no UIKit host holds a phrase.
+    if (phraseLength > 0 && phraseLength < marked.length) {
+        NSMutableAttributedString *clauses = [[NSMutableAttributedString alloc] initWithString:marked];
+        [clauses addAttributes:@{NSUnderlineStyleAttributeName: @(NSUnderlineStyleSingle),
+                                 NSMarkedClauseSegmentAttributeName: @0}
+                         range:NSMakeRange(0, phraseLength)];
+        [clauses addAttributes:@{NSUnderlineStyleAttributeName: @(NSUnderlineStyleThick),
+                                 NSMarkedClauseSegmentAttributeName: @1}
+                         range:NSMakeRange(phraseLength, marked.length - phraseLength)];
+        displayed = clauses;
+    }
+#endif
+    [client setMarkedText:displayed selectionRange:NSMakeRange(caret, 0) replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
 }
 
 void MSIMEApplyTransition(NSDictionary *transition, id<MSIMETextClient> client) {

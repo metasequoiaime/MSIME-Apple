@@ -1,6 +1,6 @@
 "CFBundleDisplayName" = "Metasequoia IME (Preview)";
 "CFBundleName" = "Metasequoia IME (Preview)";
-"app.msime.client.preview.inputmethod" = "Metasequoia IME (Preview)";
-"app.msime.client.preview.inputmethod.Hans" = "Metasequoia IME (Preview)";
+"app.msime.inputmethod.MetasequoiaIME" = "Metasequoia IME (Preview)";
+"app.msime.inputmethod.MetasequoiaIME.Hans" = "Metasequoia IME (Preview)";
 "NSMicrophoneUsageDescription" = "Record speech only when voice input is started, to transcribe and insert your words.";
 "NSSpeechRecognitionUsageDescription" = "Send the recording to macOS speech recognition when the system recogniser is selected, to transcribe your words.";

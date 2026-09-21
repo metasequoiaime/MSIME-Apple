@@ -144,7 +144,7 @@ static NSString *const TranspositionKey = @"MSIMEClientAutocorrectTransposition"
 static NSString *const NeighborKey = @"MSIMEClientAutocorrectNeighbor";
 static NSString *const HelpcodeKey = @"MSIMEClientHelpcodeEnabled";
 static NSString *const HelpcodeOptionsKey = @"MSIMEClientHelpcodeOptions";
-static NSArray<NSString *> *HelpcodeSchemas() { return @[@"lantian", @"ziranma", @"shouyou2_0", @"shouyouplus", @"xiaohe"]; }
+static NSArray<NSString *> *HelpcodeSchemas() { return @[@"lantian", @"ziranma", @"shouyou2_0", @"shouyouplus", @"xiaohe", @"jiajia"]; }
 static BOOL ValidHelpcodeOption(NSString *key, id value) {
     return [key isEqual:@"schema"] ? [HelpcodeSchemas() containsObject:value] :
         ([key isEqual:@"show_in_candidate_window"] && LocalModeBoolean(value));
@@ -162,7 +162,8 @@ static NSString *const FullWidthShortcutKey = @"MSIMEClientFullWidthShortcut";
 static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled";
 static NSString *const FloatingToolbarOptionsKey = @"MSIMEClientFloatingToolbarOptions";
 static NSArray<NSString *> *FloatingToolbarComponentKeys() {
-    return @[@"english_mode", @"punctuation", @"fullwidth", @"character_set", @"emoji", @"screen_keyboard", @"settings"];
+    return @[@"english_mode", @"punctuation", @"fullwidth", @"character_set", @"emoji", @"handwriting",
+             @"screen_keyboard", @"voice", @"settings"];
 }
 static BOOL ValidToolbarScale(id value) {
     return [value isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID() &&
@@ -663,6 +664,12 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     merged[@"candidate_follow_cursor"] = @(self.candidateFollowCursor);
     merged[@"input_mode_hud"] = @(self.inputModeHUD);
     merged[@"scheme"] = self.inputScheme;
+    // Leaving for Japanese has to leave a way back. `last_chinese_scheme` is what every other host
+    // writes when the scheme changes - Fcitx5, IBus, iOS and HarmonyOS all do - and what the shared
+    // settings page reads to put the user back on 五笔 rather than 全拼. This window sets the scheme
+    // itself, Japanese included, so without this the field keeps whatever a different surface wrote
+    // and the way back points at the wrong scheme.
+    if (![self.inputScheme isEqual:@"japanese"]) merged[@"last_chinese_scheme"] = self.inputScheme;
     merged[@"shuangpin_profile"] = self.shuangpinProfile;
     merged[@"shuangpin_preedit_uses_raw"] = @(self.shuangpinPreeditUsesRaw);
     NSMutableDictionary *qh = [merged[@"quanpin_helpcode"] mutableCopy] ?: [NSMutableDictionary dictionary];
@@ -747,7 +754,9 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     toolbar[@"fullwidth"] = @(self.floatingToolbarFullWidth);
     toolbar[@"character_set"] = @(self.floatingToolbarCharacterSet);
     toolbar[@"emoji"] = @(self.floatingToolbarEmoji);
+    toolbar[@"handwriting"] = @(self.floatingToolbarHandwriting);
     toolbar[@"screen_keyboard"] = @(self.floatingToolbarScreenKeyboard);
+    toolbar[@"voice"] = @(self.floatingToolbarVoice);
     toolbar[@"settings"] = @(self.floatingToolbarSettings);
     toolbar[@"scale_percent"] = @(self.floatingToolbarScalePercent);
     toolbar[@"font_size"] = @(self.floatingToolbarFontSize);
@@ -1217,6 +1226,12 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 - (void)setFloatingToolbarCharacterSet:(BOOL)value { [self setFloatingToolbarBoolean:@"character_set" value:value]; }
 - (BOOL)floatingToolbarEmoji { return [self floatingToolbarBoolean:@"emoji" defaultValue:YES]; }
 - (void)setFloatingToolbarEmoji:(BOOL)value { [self setFloatingToolbarBoolean:@"emoji" value:value]; }
+// The handwriting panel and voice buttons, which the reference's toolbar does not have. Both default
+// on: they have been on the toolbar since it shipped, and a switch appearing must not remove them.
+- (BOOL)floatingToolbarHandwriting { return [self floatingToolbarBoolean:@"handwriting" defaultValue:YES]; }
+- (void)setFloatingToolbarHandwriting:(BOOL)value { [self setFloatingToolbarBoolean:@"handwriting" value:value]; }
+- (BOOL)floatingToolbarVoice { return [self floatingToolbarBoolean:@"voice" defaultValue:YES]; }
+- (void)setFloatingToolbarVoice:(BOOL)value { [self setFloatingToolbarBoolean:@"voice" value:value]; }
 - (BOOL)floatingToolbarScreenKeyboard { return [self floatingToolbarBoolean:@"screen_keyboard" defaultValue:NO]; }
 - (void)setFloatingToolbarScreenKeyboard:(BOOL)value { [self setFloatingToolbarBoolean:@"screen_keyboard" value:value]; }
 - (BOOL)floatingToolbarSettings { return [self floatingToolbarBoolean:@"settings" defaultValue:YES]; }
@@ -1543,7 +1558,10 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 }
 - (NSUInteger)pageSize {
     NSInteger value = _sharedPageSize ? _sharedPageSize.integerValue : [_defaults integerForKey:PageSizeKey];
-    return msime::mac::NormalizeCandidatePageSize(static_cast<NSUInteger>(MAX(0, value)));
+    // Absent reads as zero, which is not a page size. That is the unset case, and it means the shared
+    // default rather than the nearest legal number.
+    if (value <= 0) return msime::mac::kDefaultCandidatePageSize;
+    return msime::mac::NormalizeCandidatePageSize(static_cast<NSUInteger>(value));
 }
 - (void)setPageSize:(NSUInteger)value {
     _sharedPageSize = nil;
@@ -1858,8 +1876,9 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     navigationControls.orientation = NSUserInterfaceLayoutOrientationVertical;
     navigationControls.alignment = NSLayoutAttributeLeading;
     _pageSizeButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    for (NSUInteger size : {static_cast<NSUInteger>(5), static_cast<NSUInteger>(7), static_cast<NSUInteger>(9)})
-        [_pageSizeButton addItemWithTitle:[NSString stringWithFormat:@"%lu 个", (unsigned long)size]];
+    for (NSUInteger index = 0; index < msime::mac::kOfferedCandidatePageSizes; ++index)
+        [_pageSizeButton addItemWithTitle:[NSString stringWithFormat:@"%lu 个",
+            (unsigned long)msime::mac::CandidatePageSizeForOptionIndex(index)]];
     _pageSizeButton.accessibilityLabel = @"每页候选";
     _pageSizeButton.target = self;
     _pageSizeButton.action = @selector(pageSizeChanged:);
@@ -1894,8 +1913,9 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     _pairedPunctuationButton = [NSButton checkboxWithTitle:@"成对标点" target:self action:@selector(pairedPunctuationChanged:)];
     _pairedPunctuationButton.toolTip = @"自动插入并配对引号、括号等标点";
     _punctuationLockButton = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-    [_punctuationLockButton addItemsWithTitles:@[@"跟随中文标点", @"始终中文", @"始终英文"]];
-    _punctuationLockButton.accessibilityLabel = @"标点锁定";
+    [_punctuationLockButton
+        addItemsWithTitles:@[ @"跟随中英文状态", @"始终使用中文标点", @"始终使用英文标点" ]];
+    _punctuationLockButton.accessibilityLabel = @"固定标点";
     _punctuationLockButton.target = self;
     _punctuationLockButton.action = @selector(punctuationLockChanged:);
     _mixedEnglishButton = [NSButton checkboxWithTitle:@"中英混输" target:self action:@selector(mixedEnglishChanged:)];
@@ -2003,7 +2023,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 
     NSBox *punctuationCard = CardWithViews(@[
         _punctuationButton, _smartPunctuationButton, _smartPunctuationRepeatButton, _pairedPunctuationButton,
-        PreferenceRow(@"标点锁定", _punctuationLockButton),
+        PreferenceRow(@"固定标点", _punctuationLockButton),
     ], 9.0);
     punctuationCard.accessibilityLabel = @"标点输入卡片";
     NSBox *mixedCard = CardWithViews(@[
@@ -2161,7 +2181,7 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     for (NSString *scheme in @[@"quanpin", @"shuangpin"]) {
         NSString *name = [scheme isEqual:@"quanpin"] ? @"全拼" : @"双拼";
         NSPopUpButton *schemas = [[NSPopUpButton alloc] initWithFrame:NSZeroRect pullsDown:NO];
-        [schemas addItemsWithTitles:@[@"蓝天小雨点", @"自然码", @"首右2.0", @"首右plus", @"小鹤"]];
+        [schemas addItemsWithTitles:@[@"蓝天小雨点", @"自然码", @"首右2.0", @"首右plus", @"小鹤", @"加加"]];
         for (NSUInteger index = 0; index < HelpcodeSchemas().count; ++index)
             [schemas itemAtIndex:index].representedObject = HelpcodeSchemas()[index];
         schemas.identifier = scheme;

@@ -1,5 +1,6 @@
 #pragma once
 
+#include "VoiceHotkeyPolicy.h"
 #include "VoiceInputSession.h"
 
 #include <windows.h>
@@ -25,15 +26,12 @@ public:
   void refresh();
 
 private:
-  enum class HoldShortcut { None, RAlt, CtrlWin, RCtrlRAlt };
   static LRESULT CALLBACK window_proc(HWND, UINT, WPARAM, LPARAM);
   static LRESULT CALLBACK keyboard_proc(int, WPARAM, LPARAM);
   LRESULT handle_window(HWND, UINT, WPARAM, LPARAM);
-  void activate(HoldShortcut);
+  void activate(VoiceHoldShortcut);
   void reset_state();
-  bool ctrl_pressed() const;
-  bool win_pressed() const;
-  bool hold_pressed(HoldShortcut) const;
+  VoiceModifierState modifiers() const;
 
   VoiceInputSession &voice_;
   ConfigProvider config_provider_;
@@ -50,7 +48,7 @@ private:
   std::atomic<bool> cancel_posted_{false};
   std::atomic<bool> suppress_ralt_until_up_{false};
   std::atomic<bool> suppress_win_until_up_{false};
-  std::atomic<HoldShortcut> active_hold_{HoldShortcut::None};
+  std::atomic<VoiceHoldShortcut> active_hold_{VoiceHoldShortcut::None};
   bool observed_config_ = false;
   bool observed_enabled_ = true;
   bool observed_hotkey_ralt_ = true;

@@ -1,3 +1,5 @@
+import { useConfirm } from "../core/confirm";
+import { readDictionaryFile } from "../dictionary/dictionary-file";
 import { usePanelDrag } from "./use-panel-drag";
 import { useEmojiNavigation } from "../emoji/use-emoji-navigation";
 import {
@@ -2340,6 +2342,7 @@ function cloudDictionaryEntries(value: CloudDictionaryResponse) {
 }
 
 export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelClient }) {
+  const { confirm, confirmation } = useConfirm();
   const [kind, setKind] = useState<CloudDictionaryKind>("pinyin");
   const [search, setSearch] = useState("");
   const [offset, setOffset] = useState(0);
@@ -2481,22 +2484,28 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
     }, "云词条删除失败，请刷新后重试");
   }
 
-  function confirmRemove(entry: CloudDictionaryEntry) {
-    if (
-      busyRef.current ||
-      !window.confirm(`确认删除云词条“${entry.word}”？仅删除云端版本，本机词库不会改变。`)
-    )
-      return;
+  async function confirmRemove(entry: CloudDictionaryEntry) {
+    if (busyRef.current) return;
+    const confirmed = await confirm({
+      title: "删除云词条",
+      message: `“${entry.word}”只会从云端删除，本机词库不会改变。`,
+      confirmLabel: "删除",
+      danger: true,
+    });
+    // Re-checked after the answer: the dialog is not instant, and another action may have started
+    // while it was open.
+    if (!confirmed || busyRef.current) return;
     void remove(entry);
   }
 
-  function downloadToLocal(entry: CloudDictionaryEntry) {
-    if (
-      busyRef.current ||
-      !client.downloadToLocal ||
-      !window.confirm(`确认将云词条“${entry.word}”加入本机个人词典？`)
-    )
-      return;
+  async function downloadToLocal(entry: CloudDictionaryEntry) {
+    if (busyRef.current || !client.downloadToLocal) return;
+    const confirmed = await confirm({
+      title: "加入本机词典",
+      message: `云词条“${entry.word}”会被加入本机个人词典。`,
+      confirmLabel: "加入",
+    });
+    if (!confirmed || busyRef.current || !client.downloadToLocal) return;
     const download = client.downloadToLocal;
     return run(async (revision) => {
       await download(entry);
@@ -2515,6 +2524,7 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
   }
   return (
     <main className={`native-panel ${cloud.dictionaryPanel}`} aria-label="云词典">
+      {confirmation}
       <header className="native-panel-header">
         <span>水杉云词典</span>
         <button type="button" aria-label="关闭" onClick={() => void client.close()}>
@@ -2729,11 +2739,12 @@ export function CloudDictionaryPanel({ client }: { client: CloudDictionaryPanelC
 
 /** File transfer lives on its own page so the dictionary list stays focused on entries. */
 export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryPanelClient }) {
+  const { confirm, confirmation } = useConfirm();
   const [kind, setKind] = useState<CloudDictionaryKind>("pinyin");
   const [format, setFormat] = useState<CloudDictionaryFileFormat>("standard");
   const [file, setFile] = useState<{ name: string; text: string; bytes: number } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [notice, setNotice] = useState("选择 UTF-8 TSV 文件后确认上传；导出不会改变云端内容");
+  const [notice, setNotice] = useState("选择 TSV 文件后确认上传；导出不会改变云端内容");
   const [snapshotBusy, setSnapshotBusy] = useState(false);
   const [restorePreview, setRestorePreview] = useState<{
     text: string;
@@ -2777,7 +2788,13 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
     void run(async (revision) => {
       let text: string;
       try {
-        text = await selected.text();
+        // The same reader the local dictionary import uses. `File.text()` decodes as UTF-8 and
+        // nothing else, which is wrong twice over for dictionary files: a UTF-16 one came out as
+        // NULs and was refused, and a GB18030 one - which Windows tools still write - decoded to
+        // replacement characters with no NUL anywhere, so it passed the check below and uploaded
+        // a cloud dictionary of `\ufffd`. Reading it here the way the other panel does means one
+        // file behaves the same in both.
+        text = await readDictionaryFile(selected);
       } catch {
         throw new Error("invalid file");
       }
@@ -2785,24 +2802,34 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
       if (!text || text.includes("\u0000")) throw new Error("invalid file");
       setFile({ name: selected.name || "dictionary.tsv", text, bytes: selected.size });
       setNotice("文件已读取；确认后才会写入云端");
-    }, "无法读取文件，请确认是大小不超过 64 KiB 的 UTF-8 文本");
+    }, "无法读取文件，请确认是大小不超过 64 KiB 的文本词库");
   }
 
-  function importFile() {
+  async function importFile() {
     const prepared = file;
     if (!prepared || busyRef.current) return;
-    if (
-      !window.confirm(
-        `确认按“${format === "hans" ? "汉字自动注音" : format === "windows" ? "Windows TSV" : "标准 TSV"}”导入 ${kind === "pinyin" ? "拼音" : kind === "wubi" ? "五笔" : kind === "quick" ? "快捷短语" : "英文"}词库？`,
-      )
-    )
-      return;
+    const formatName =
+      format === "hans" ? "汉字自动注音" : format === "windows" ? "Windows TSV" : "标准 TSV";
+    const kindName =
+      kind === "pinyin"
+        ? "拼音"
+        : kind === "wubi"
+          ? "五笔"
+          : kind === "quick"
+            ? "快捷短语"
+            : "英文";
+    const confirmed = await confirm({
+      title: "导入词库",
+      message: `按“${formatName}”导入${kindName}词库。`,
+      confirmLabel: "导入",
+    });
+    if (!confirmed || busyRef.current) return;
     void run(async (revision) => {
       await client.request({ operation: "import", kind, format, text: prepared.text });
       if (revision !== requestRevision.current) return;
       setFile(null);
       setNotice("云词库已导入；如需影响本机输入，请另行应用到本机");
-    }, "导入失败，请检查 UTF-8 TSV 文件格式");
+    }, "导入失败，请检查 TSV 文件格式");
   }
 
   function exportDictionary() {
@@ -2887,7 +2914,14 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
 
   async function restoreSnapshot() {
     const prepared = restorePreview;
-    if (!prepared || !window.confirm("确认用此快照替换全部云端词库和排序记录？")) return;
+    if (!prepared) return;
+    const confirmed = await confirm({
+      title: "替换云端词库",
+      message: "此快照会替换全部云端词库和排序记录。",
+      confirmLabel: "替换",
+      danger: true,
+    });
+    if (!confirmed) return;
     setSnapshotBusy(true);
     try {
       const result = await client.request(
@@ -2919,6 +2953,7 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
 
   return (
     <main className={`native-panel ${cloud.dictionaryPanel}`} aria-label="云词库文件">
+      {confirmation}
       <header className="native-panel-header">
         <button
           className={cloud.dictionaryButton}
@@ -2987,7 +3022,7 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
         <section className={cloud.dictionarySection} aria-label="导入云词库">
           <h2>导入云词库</h2>
           <label className="secondary">
-            选择 UTF-8 文件
+            选择文件
             <input
               className={cloud.dictionaryInput}
               hidden
@@ -3093,6 +3128,7 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
 
 /** Apply the complete cloud snapshot through the platform's idle-boundary queue. */
 export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryPanelClient }) {
+  const { confirm, confirmation } = useConfirm();
   const [localVersion, setLocalVersion] = useState<string | null>(null);
   const [request, setRequest] = useState<CloudDictionarySnapshotRequest | null>(null);
   const [preview, setPreview] = useState<CloudDictionarySnapshotMetadata | null>(null);
@@ -3142,17 +3178,16 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
     }, "下载云词库快照失败");
   }
 
-  function enqueue() {
+  async function enqueue() {
     const token = previewToken;
-    if (
-      !token ||
-      !preview ||
-      busyRef.current ||
-      !window.confirm(
-        "确认用这份云端快照替换本机个人词库和学习记录？输入法会在下一次空闲边界应用。",
-      )
-    )
-      return;
+    if (!token || !preview || busyRef.current) return;
+    const confirmed = await confirm({
+      title: "替换本机词库",
+      message: "这份云端快照会替换本机个人词库和学习记录，输入法将在下一次空闲边界应用。",
+      confirmLabel: "替换",
+      danger: true,
+    });
+    if (!confirmed || busyRef.current) return;
     void run(async () => {
       const result = await client.request({ operation: "snapshot_enqueue", token });
       setPreview(null);
@@ -3164,8 +3199,15 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
     }, "快照入列失败，本机词库未改变");
   }
 
-  function cancel() {
-    if (busyRef.current || !window.confirm("确认取消待应用的云词库快照？")) return;
+  async function cancel() {
+    if (busyRef.current) return;
+    const confirmed = await confirm({
+      title: "取消待应用快照",
+      message: "待应用的云词库快照会被撤销。",
+      confirmLabel: "取消快照",
+      cancelLabel: "保留",
+    });
+    if (!confirmed || busyRef.current) return;
     void run(async () => {
       const result = await client.request({ operation: "snapshot_cancel" });
       setRequest(
@@ -3185,6 +3227,7 @@ export function CloudDictionaryApplyPanel({ client }: { client: CloudDictionaryP
 
   return (
     <main className={`native-panel ${cloud.dictionaryPanel}`} aria-label="应用云词库">
+      {confirmation}
       <header className="native-panel-header">
         <button
           className={cloud.dictionaryButton}
@@ -3298,6 +3341,7 @@ function cloudDictionaryCatalogEntries(value: CloudDictionaryResponse) {
 }
 
 export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionaryPanelClient }) {
+  const { confirm, confirmation } = useConfirm();
   const [kind, setKind] = useState<CloudDictionaryKind>("pinyin");
   const [code, setCode] = useState("");
   const [scheme, setScheme] = useState("pinyin");
@@ -3456,12 +3500,15 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
     }, "目录删除失败，请刷新后重试");
   }
 
-  function confirmRemove(entry: CloudDictionaryCatalogEntry) {
-    if (
-      busyRef.current ||
-      !window.confirm(`确认删除完整目录词条“${entry.word}”？仅删除云端版本，本机词库不会改变。`)
-    )
-      return;
+  async function confirmRemove(entry: CloudDictionaryCatalogEntry) {
+    if (busyRef.current) return;
+    const confirmed = await confirm({
+      title: "删除目录词条",
+      message: `完整目录词条“${entry.word}”只会从云端删除，本机词库不会改变。`,
+      confirmLabel: "删除",
+      danger: true,
+    });
+    if (!confirmed || busyRef.current) return;
     void remove(entry);
   }
 
@@ -3477,6 +3524,7 @@ export function CloudDictionaryCatalogPanel({ client }: { client: CloudDictionar
 
   return (
     <main className={`native-panel ${cloud.dictionaryPanel}`} aria-label="完整云词库目录">
+      {confirmation}
       <header className="native-panel-header">
         <button
           className={cloud.dictionaryButton}
@@ -3707,6 +3755,7 @@ function candidateMutationCode(candidate: CloudCandidate) {
 }
 
 export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelClient }) {
+  const { confirm, confirmation } = useConfirm();
   const [kind, setKind] = useState<CloudDictionaryKind>("pinyin");
   const [text, setText] = useState("");
   const [scheme, setScheme] = useState("pinyin");
@@ -3834,12 +3883,9 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
     }
   }
 
-  function confirmAction(message: string) {
-    return typeof window.confirm === "function" ? window.confirm(message) : true;
-  }
-
-  function rank(candidate: CloudCandidate) {
-    if (!query || !confirmAction("调整此云端候选的排序？")) return;
+  async function rank(candidate: CloudCandidate) {
+    if (!query) return;
+    if (!(await confirm({ title: "调整排序", message: "调整此云端候选的排序。" }))) return;
     return run(async (current) => {
       const result = await client.request({
         operation: "rank",
@@ -3861,13 +3907,15 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
     }, "云端调频失败，请刷新后重试");
   }
 
-  function remove(candidate: CloudCandidate) {
-    if (
-      !query ||
-      (kind !== "english" && Array.from(candidate.word).length <= 1) ||
-      !confirmAction("删除此云端候选？")
-    )
-      return;
+  async function remove(candidate: CloudCandidate) {
+    if (!query || (kind !== "english" && Array.from(candidate.word).length <= 1)) return;
+    const confirmed = await confirm({
+      title: "删除云端候选",
+      message: `“${candidate.word}”会从云端候选中删除。`,
+      confirmLabel: "删除",
+      danger: true,
+    });
+    if (!confirmed) return;
     return run(async (current) => {
       await client.request({
         operation: "remove_candidate",
@@ -3880,15 +3928,14 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
     }, "删除云端候选失败，请刷新后重试");
   }
 
-  function setFixed(candidate: CloudCandidate, nextPosition: number | null) {
-    if (
-      !query ||
-      !context ||
-      !confirmAction(
-        nextPosition === null ? "取消此候选的固定位置？" : `固定到第 ${nextPosition} 位？`,
-      )
-    )
-      return;
+  async function setFixed(candidate: CloudCandidate, nextPosition: number | null) {
+    if (!query || !context) return;
+    const confirmed = await confirm(
+      nextPosition === null
+        ? { title: "取消固定位置", message: `“${candidate.word}”将不再固定在某一位。` }
+        : { title: "固定位置", message: `“${candidate.word}”将固定到第 ${nextPosition} 位。` },
+    );
+    if (!confirmed) return;
     return run(async (current) => {
       await client.request({
         operation: "set_fixed_position",
@@ -3902,8 +3949,13 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
     }, "固定位置更新失败，请刷新后重试");
   }
 
-  function unfix(item: CloudFixedPosition) {
-    if (!query || !confirmAction("取消此固定位置？")) return;
+  async function unfix(item: CloudFixedPosition) {
+    if (!query) return;
+    const confirmed = await confirm({
+      title: "取消固定位置",
+      message: `“${item.word}”将不再固定在某一位。`,
+    });
+    if (!confirmed) return;
     return run(async (current) => {
       await client.request({
         operation: "set_fixed_position",
@@ -3929,6 +3981,7 @@ export function CloudCandidatesPanel({ client }: { client: CloudDictionaryPanelC
 
   return (
     <main className={`native-panel ${cloud.dictionaryPanel}`} aria-label="云端候选排序">
+      {confirmation}
       <header className="native-panel-header">
         <button
           type="button"

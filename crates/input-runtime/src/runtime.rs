@@ -35,8 +35,8 @@ pub enum Action {
     PreviousPage,
     NextCandidate,
     PreviousCandidate,
-    FirstCandidateOnPage,
-    LastCandidateOnPage,
+    FirstCandidate,
+    LastCandidate,
 }
 
 pub struct Runtime<E: InputEngine = Session> {
@@ -51,6 +51,23 @@ pub struct Runtime<E: InputEngine = Session> {
     pub(crate) snapshot_valid: bool,
     pub(crate) character_width: CharacterWidth,
     pub(crate) touch_keyboard_layout: TouchKeyboardLayout,
+    /// Whether the host draws a half-composed phrase itself instead of having it committed.
+    ///
+    /// Picking a candidate that consumes only part of the input leaves the Engine composing the
+    /// rest, and it hands back the piece that was chosen. The reference keeps that piece inside its
+    /// composition - `word_for_creating_word` is prepended to the reading and the caret is shifted
+    /// past it - and commits the phrase as one piece when the composition ends. This runtime sent
+    /// it to the document immediately, so half a phrase landed in the application while the user
+    /// was still typing the rest of it.
+    ///
+    /// Off by default because a host that does not draw [`View::phrase_prefix`] would show nothing
+    /// at all for that piece. Each host turns it on as it learns to draw it.
+    pub(crate) phrase_preedit: bool,
+    /// The piece already chosen for the phrase being composed, held back from the document.
+    ///
+    /// Non-empty only while the Engine is still composing, so a host's existing test for "is there
+    /// a composition" stays true wherever this is non-empty.
+    pub(crate) phrase_prefix: String,
     /// Recently committed text, sent to the AI provider as context.
     ///
     /// The reference sends what the user has just written so a suggestion fits
@@ -98,6 +115,10 @@ pub(crate) fn move_to_back<T>(items: &mut Vec<T>, moved: &[bool]) {
 ///
 /// A rotation rather than a swap, so the rest of the list stays as the engine ranked it: promoting
 /// one candidate is the whole change, not a reshuffle.
+fn apply_order<T: Clone>(items: &mut Vec<T>, order: &[usize]) {
+    *items = order.iter().map(|index| items[*index].clone()).collect();
+}
+
 fn rotate_to_front<T>(items: &mut [T], index: usize) {
     items[..=index].rotate_right(1);
 }
@@ -305,7 +326,22 @@ impl<E: InputEngine> Runtime<E> {
             snapshot_valid: true,
             character_width: CharacterWidth::Halfwidth,
             touch_keyboard_layout,
+            phrase_preedit: false,
+            phrase_prefix: String::new(),
         })
+    }
+
+    /// Hold a half-composed phrase in the composition instead of committing its parts.
+    ///
+    /// The host promises to draw [`View::phrase_prefix`] ahead of the editing text; see the field
+    /// for why this is the host's call. Turning it off while a phrase is held commits what is held,
+    /// because the alternative is dropping text the user already chose.
+    pub fn set_phrase_preedit(&mut self, enabled: bool) -> Option<String> {
+        self.phrase_preedit = enabled;
+        if enabled || self.phrase_prefix.is_empty() {
+            return None;
+        }
+        Some(std::mem::take(&mut self.phrase_prefix))
     }
 
     /// Attach a candidate reranker. Hosts load the model themselves, because where a model file
@@ -394,6 +430,7 @@ impl<E: InputEngine> Runtime<E> {
             generation: self.generation,
             focused: self.focused,
             preedit: self.cached.preedit.clone(),
+            phrase_prefix: self.phrase_prefix.clone(),
             reading: self.cached.reading.clone(),
             editing_text: self.cached.editing_text.clone(),
             caret_position: self.cached.caret_position,
@@ -578,13 +615,48 @@ impl<E: InputEngine> Runtime<E> {
             return Ok(false);
         }
         let page_was_full = (page + 1) * self.page_size <= len;
+        if !self.expand_cached_candidates()? {
+            return Ok(false);
+        }
+        Ok(page == last_page && !page_was_full)
+    }
+
+    /// Moving the highlight off the end of the loaded list has to release the withheld candidates
+    /// too, not only paging.
+    ///
+    /// The same cap sits behind both. A host that walks the list one candidate at a time - which is
+    /// every arrow key and every mouse wheel notch - would otherwise stop at the twenty-fourth
+    /// candidate and be unable to reach the rest of the dictionary, while pressing page-down on the
+    /// same query walks straight past it. The second condition mirrors the paging one: stepping into
+    /// the partial last page fills it first, so it is never shown short and then grown.
+    fn expand_for_next_candidate(&mut self) -> Result<(), RuntimeError> {
+        let len = self.cached.candidates.len();
+        if len == 0 {
+            return Ok(());
+        }
+        let page = self.highlighted / self.page_size;
+        let last_page = (len - 1) / self.page_size;
+        let at_last_candidate = self.highlighted + 1 == len;
+        let at_page_end = (self.highlighted + 1).is_multiple_of(self.page_size);
+        let next_is_partial_last = page + 1 == last_page && !len.is_multiple_of(self.page_size);
+        if !at_last_candidate && !(at_page_end && next_is_partial_last) {
+            return Ok(());
+        }
+        self.expand_cached_candidates()?;
+        Ok(())
+    }
+
+    /// Ask the Engine for what it held back, and re-apply the orderings the cached page carries:
+    /// the arrivals are ranked against the candidates already on screen, not appended raw.
+    fn expand_cached_candidates(&mut self) -> Result<bool, RuntimeError> {
         if !self.engine.expand_initial_candidates()? {
             return Ok(false);
         }
         self.cached = self.engine.snapshot()?;
         self.rerank();
         self.demote_runner_up_readings();
-        Ok(page == last_page && !page_was_full)
+        self.normalize_online_slots();
+        Ok(true)
     }
 
     fn advance(&mut self) -> Result<(), RuntimeError> {
@@ -615,6 +687,46 @@ impl<E: InputEngine> Runtime<E> {
         }
     }
 
+    /// Keep a chosen piece of a phrase out of the document until the phrase is done.
+    ///
+    /// Three things can happen to what the Engine hands back:
+    ///
+    /// - it picked a candidate and is still composing the rest, so the piece is held;
+    /// - something ended the composition and committed, so the held pieces lead that commit - the
+    ///   reference does the same on Enter, which commits `word_for_creating_word` together with the
+    ///   remaining raw input;
+    /// - the composition ended with nothing committed. A cancel means the user threw the whole
+    ///   thing away, so the held pieces go with it. Anything else - backspacing the remaining
+    ///   reading away is the one that happens - commits what is held rather than dropping letters
+    ///   the user chose. That is a deliberate step away from the reference, which keeps showing the
+    ///   piece with an empty reading: holding text with no composition to hang it on would make
+    ///   every host's test for "is there a composition" lie.
+    fn hold_phrase_progress(&mut self, picked: bool, discard: bool, result: &mut EngineResult) {
+        if !self.phrase_preedit {
+            return;
+        }
+        let composing = !self.cached.editing_text.is_empty();
+        if picked && result.has_commit && composing {
+            self.phrase_prefix.push_str(&result.commit);
+            result.has_commit = false;
+            result.commit = String::new();
+            return;
+        }
+        if self.phrase_prefix.is_empty() || composing {
+            return;
+        }
+        let held = std::mem::take(&mut self.phrase_prefix);
+        if discard {
+            return;
+        }
+        if result.has_commit {
+            result.commit = held + &result.commit;
+        } else {
+            result.has_commit = true;
+            result.commit = held;
+        }
+    }
+
     fn transition(&mut self, result: EngineResult) -> Transition {
         // Every commit passes through here, so this is the one place the AI
         // context has to be fed from.
@@ -642,6 +754,111 @@ impl<E: InputEngine> Runtime<E> {
     ///
     /// The candidate arrays run in parallel and every one of them has to move together. Rotating
     /// only the texts would leave each candidate wearing another's code, annotation and source.
+    /// Seat the online candidates the way the reference does.
+    ///
+    /// `candidate_selection_policy.h` writes the arrangement out:
+    ///
+    /// ```text
+    /// no cloud:    Chinese, English, AI, emoji, kaomoji
+    /// cloud:       Chinese, cloud, AI, English, emoji, kaomoji
+    /// cloud only:  Chinese, cloud, English, emoji, kaomoji
+    /// base:        Chinese, English, emoji, kaomoji
+    /// ```
+    ///
+    /// The reference applies it in its Server, on top of what the Engine returned. This client
+    /// replaced that Server with this runtime and the step did not come across, so the Engine's own
+    /// placement was what the user saw - and the two agree until an online candidate arrives.
+    /// Injecting an AI suggestion moved the English candidate from the second seat to the fourth
+    /// and put a second Chinese candidate in front of it, which is the last line of the table read
+    /// backwards.
+    ///
+    /// Only the online case is touched: with neither a cloud nor an AI candidate present the
+    /// Engine already produces the fourth line, so there is nothing to rearrange and nothing to
+    /// risk.
+    fn normalize_online_slots(&mut self) {
+        const CLOUD: u8 = 2;
+        const AI: u8 = 3;
+        const ENGLISH: u8 = 4;
+        const EMOJI: u8 = 6;
+        const KAOMOJI: u8 = 7;
+
+        let snapshot = &self.cached;
+        let count = snapshot.candidates.len();
+        if count < 2
+            || snapshot.candidate_sources.len() != count
+            || snapshot.candidate_codes.len() != count
+            || snapshot.candidate_annotations.len() != count
+            || snapshot.candidate_positions.len() != count
+            || snapshot.candidate_corrected.len() != count
+        {
+            return;
+        }
+        if !snapshot
+            .candidate_sources
+            .iter()
+            .any(|source| *source == CLOUD || *source == AI)
+        {
+            return;
+        }
+
+        let (mut locals, mut cloud, mut ai, mut english, mut emoji, mut kaomoji) = (
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+            Vec::new(),
+        );
+        for (index, source) in snapshot.candidate_sources.iter().enumerate() {
+            match *source {
+                CLOUD => cloud.push(index),
+                AI => ai.push(index),
+                ENGLISH => english.push(index),
+                EMOJI => emoji.push(index),
+                KAOMOJI => kaomoji.push(index),
+                _ => locals.push(index),
+            }
+        }
+
+        // A provider may answer with several candidates - the AI limit reaches ten - and they take
+        // their seat as a group. The reference has only one of each to place and silently drops the
+        // rest; dropping a candidate the user was offered is not an option here.
+        let mut order = Vec::with_capacity(count);
+        let mut locals = locals.into_iter();
+        order.extend(locals.next());
+        if !cloud.is_empty() {
+            order.append(&mut cloud);
+            order.append(&mut ai);
+        }
+        let mut english = english.into_iter();
+        order.extend(english.next());
+        order.append(&mut ai);
+        let mut emoji = emoji.into_iter();
+        let mut kaomoji = kaomoji.into_iter();
+        order.extend(emoji.next());
+        order.extend(kaomoji.next());
+        order.extend(locals);
+        order.extend(english);
+        order.extend(emoji);
+        order.extend(kaomoji);
+        // A permutation or nothing: a missing or repeated index would silently drop a candidate.
+        debug_assert_eq!(order.len(), count);
+        if order.len() != count {
+            return;
+        }
+        if order.iter().enumerate().all(|(seat, index)| seat == *index) {
+            return;
+        }
+
+        let snapshot = &mut self.cached;
+        apply_order(&mut snapshot.candidates, &order);
+        apply_order(&mut snapshot.candidate_codes, &order);
+        apply_order(&mut snapshot.candidate_annotations, &order);
+        apply_order(&mut snapshot.candidate_sources, &order);
+        apply_order(&mut snapshot.candidate_positions, &order);
+        apply_order(&mut snapshot.candidate_corrected, &order);
+    }
+
     fn rerank(&mut self) {
         let Some(reranker) = self.reranker.as_mut() else {
             return;
@@ -763,6 +980,7 @@ impl<E: InputEngine> Runtime<E> {
         self.cached = self.engine.snapshot()?;
         self.rerank();
         self.demote_runner_up_readings();
+        self.normalize_online_slots();
         self.snapshot_valid = true;
         if self.cached.editing_text == previous.editing_text
             && self.cached.scheme == previous.scheme
@@ -788,7 +1006,10 @@ impl<E: InputEngine> Runtime<E> {
         self.focused = false;
         let result = self.engine.command(Command::Cancel);
         self.refresh()?;
-        let result = result?;
+        let mut result = result?;
+        // Leaving the client cancels the composition, but a phrase piece being held back is text
+        // the user chose and, before it was held back, would already be in the document. Send it.
+        self.hold_phrase_progress(false, false, &mut result);
         self.focused = focused;
         // A different client is a different sentence, so context never leaks
         // from one application into another.
@@ -891,6 +1112,15 @@ impl<E: InputEngine> Runtime<E> {
         self.advance()?;
         let filled_current_page =
             matches!(action, Action::NextPage) && self.expand_for_next_page()?;
+        if matches!(action, Action::NextCandidate) {
+            self.expand_for_next_candidate()?;
+        }
+        // The last candidate means the last one there is. The Engine caps what it returns to a
+        // single-letter query and hands the rest over on request, so without this End would stop at
+        // the end of what happened to be cached and move again the next time it was pressed.
+        if matches!(action, Action::LastCandidate) {
+            self.expand_cached_candidates()?;
+        }
         let len = self.cached.candidates.len();
         let next_highlight = match &action {
             // Staying keeps the highlight exactly where it was: the page did not change, it only
@@ -905,14 +1135,14 @@ impl<E: InputEngine> Runtime<E> {
             }
             Action::NextCandidate if len > 0 => Some((self.highlighted + 1).min(len - 1)),
             Action::PreviousCandidate if len > 0 => Some(self.highlighted.saturating_sub(1)),
-            Action::FirstCandidateOnPage if len > 0 => {
-                Some((self.highlighted / self.page_size) * self.page_size)
-            }
-            Action::LastCandidateOnPage if len > 0 => Some(
-                ((self.highlighted / self.page_size) * self.page_size + self.page_size)
-                    .min(len)
-                    .saturating_sub(1),
-            ),
+            // The ends of the list, not the ends of the page. The reference's Home and End are
+            // FUNCTION_MOVE_PAGE_TOP and FUNCTION_MOVE_PAGE_BOTTOM, and its presenter answers both
+            // with SetSelection - index 0, or -1 read as Count() - 1 - which then pulls the page
+            // along to wherever that candidate sits. Every host here routes its own Home and End to
+            // this action, so all four used to stop at the edges of the page the user was already
+            // looking at, which is a keystroke that does almost nothing.
+            Action::FirstCandidate if len > 0 => Some(0),
+            Action::LastCandidate if len > 0 => Some(len - 1),
             _ => None,
         };
         if let Some(index) = next_highlight {
@@ -923,6 +1153,9 @@ impl<E: InputEngine> Runtime<E> {
             scheme: self.cached.scheme,
             local_mode: self.cached.local_mode.clone(),
         };
+        // A digit on the candidate page picks a candidate; the Engine is asked the same question as
+        // for Select, so it can begin a phrase the same way.
+        let mut selected_by_digit = false;
         let result = match action {
             Action::ResetCache => {
                 self.engine.reset_cache()?;
@@ -958,6 +1191,7 @@ impl<E: InputEngine> Runtime<E> {
                     if slot >= self.page_size || page_start + slot >= len {
                         return Ok(empty_result(true));
                     }
+                    selected_by_digit = true;
                     self.engine.select(page_start + slot)
                 })
             }
@@ -990,6 +1224,18 @@ impl<E: InputEngine> Runtime<E> {
             // A successful engine commit must survive a presentation refresh failure.
             result.diagnostic = format!("Candidate refresh failed: {error}");
         }
+        let picked = selected_by_digit
+            || matches!(
+                action,
+                Action::Select(_)
+                    | Action::SelectAnyCandidate(_)
+                    | Action::SelectEdge(..)
+                    | Action::SelectHighlighted
+            );
+        // Escape throws the whole composition away, the chosen pieces with it - the reference's
+        // _HandleCancel clears `word_for_creating_word` in the same breath.
+        let discarded = matches!(action, Action::Command(Command::Cancel));
+        self.hold_phrase_progress(picked, discarded, &mut result);
         let mut transition = self.transition(result);
         if transition.commit.is_some() {
             transition.commit_context = Some(commit_context);

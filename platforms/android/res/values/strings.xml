@@ -7,7 +7,8 @@
     <string name="keyboard_title">让输入，更像你</string>
     <string name="keyboard_subtitle">从一次顺手的表达开始</string>
     <string name="keyboard_card_title">我的键盘</string>
-    <string name="keyboard_current_look">当前外观</string>
+    <!-- The chip reports whether the system has the keyboard enabled; this is what it reads before that answer arrives. -->
+    <string name="keyboard_status_checking">检查中</string>
     <string name="keyboard_try">试用键盘</string>
     <string name="tryout_back">返回</string>
     <string name="tryout_dismiss_keyboard">收起键盘</string>

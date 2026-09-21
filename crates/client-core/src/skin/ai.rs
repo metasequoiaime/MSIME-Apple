@@ -335,7 +335,7 @@ where
                 &[
                     AiChatMessage {
                         role: "system",
-                        content: SYSTEM_PROMPT,
+                        content: AI_SKIN_SYSTEM_PROMPT,
                     },
                     AiChatMessage {
                         role: "user",
@@ -346,43 +346,7 @@ where
                 token,
             )
         })?;
-        let plans = parse(&response)?;
-        if plans
-            .iter()
-            .filter_map(|plan| plan.design.key_shape)
-            .collect::<Vec<_>>()
-            .into_iter()
-            .fold(Vec::new(), |mut values, value| {
-                if !values.contains(&value) {
-                    values.push(value);
-                }
-                values
-            })
-            .len()
-            != 3
-            || plans
-                .iter()
-                .filter_map(|plan| plan.design.key_material)
-                .collect::<Vec<_>>()
-                .into_iter()
-                .fold(Vec::new(), |mut values, value| {
-                    if !values.contains(&value) {
-                        values.push(value);
-                    }
-                    values
-                })
-                .len()
-                != 3
-            || plans
-                .iter()
-                .map(|plan| plan.artwork_prompt.as_str())
-                .collect::<BTreeSet<_>>()
-                .len()
-                != 3
-        {
-            return Err(AiSkinError::InvalidResponse);
-        }
-
+        let plans = plan_ai_skins(&response)?;
         check_cancelled(cancelled)?;
         let completed = Arc::new(std::sync::atomic::AtomicUsize::new(0));
         let user_id_ref = user_id.as_str();
@@ -461,7 +425,7 @@ where
     fn illustrate(
         &self,
         user_id: &str,
-        plan: &RawProposal,
+        plan: &AiSkinPlan,
         cancelled: &AtomicBool,
     ) -> Result<AiSkinProposal, AiSkinError> {
         check_cancelled(cancelled)?;
@@ -543,17 +507,67 @@ fn check_cancelled(cancelled: &AtomicBool) -> Result<(), AiSkinError> {
     }
 }
 
-const SYSTEM_PROMPT: &str = "你是输入法皮肤设计师。根据用户描述生成恰好三套明显不同、精致且文字清晰的键盘皮肤。只返回 JSON 对象，不要 Markdown。格式：{\"skins\":[{\"name\":\"中文名称\",\"description\":\"中文设计说明\",\"artworkPrompt\":\"原创背景场景、角色、画风和装饰，主体位于画面边缘，中央留白\",\"background\":\"#E8F0EB\",\"keyBackground\":\"#FFFFFF\",\"keyForeground\":\"#17251D\",\"accent\":\"#185C47\",\"actionBackground\":\"#185C47\",\"gradientEnd\":null,\"gradientHorizontal\":false,\"keyShape\":\"pebble\",\"keyMaterial\":\"raised\",\"cornerRadius\":8,\"borderWidth\":0,\"shadow\":0.1,\"pattern\":0,\"monospaced\":false}]}。每套必须包含所有字段。name 为 1–32 字，description 为 1–280 字，artworkPrompt 为 40–100 字。颜色为 #RRGGBB；keyShape 只能为 rounded、capsule、ticket、pebble；keyMaterial 只能为 flat、raised、glass、paper；三套造型与材质都必须不同。不要生成照片、URL、代码或外部资源；artworkPrompt 不得描述键盘、键帽、按钮、按键、布局、界面或文字设计。";
+/// The contract with the model, which is shared rather than per host.
+///
+/// It names the exact JSON shape `plan_ai_skins` then refuses anything else for, so the two have to
+/// travel together: a host that composed its own instruction would be asking for a document the
+/// parser was not written against. Hosts that cannot run the pipeline themselves - the ones whose
+/// HTTP has to go through the surrounding platform - send this verbatim and hand the answer back.
+pub const AI_SKIN_SYSTEM_PROMPT: &str = "你是输入法皮肤设计师。根据用户描述生成恰好三套明显不同、精致且文字清晰的键盘皮肤。只返回 JSON 对象，不要 Markdown。格式：{\"skins\":[{\"name\":\"中文名称\",\"description\":\"中文设计说明\",\"artworkPrompt\":\"原创背景场景、角色、画风和装饰，主体位于画面边缘，中央留白\",\"background\":\"#E8F0EB\",\"keyBackground\":\"#FFFFFF\",\"keyForeground\":\"#17251D\",\"accent\":\"#185C47\",\"actionBackground\":\"#185C47\",\"gradientEnd\":null,\"gradientHorizontal\":false,\"keyShape\":\"pebble\",\"keyMaterial\":\"raised\",\"cornerRadius\":8,\"borderWidth\":0,\"shadow\":0.1,\"pattern\":0,\"monospaced\":false}]}。每套必须包含所有字段。name 为 1–32 字，description 为 1–280 字，artworkPrompt 为 40–100 字。颜色为 #RRGGBB；keyShape 只能为 rounded、capsule、ticket、pebble；keyMaterial 只能为 flat、raised、glass、paper；三套造型与材质都必须不同。不要生成照片、URL、代码或外部资源；artworkPrompt 不得描述键盘、键帽、按钮、按键、布局、界面或文字设计。";
 
-#[derive(Clone, Debug)]
-struct RawProposal {
-    name: String,
-    description: String,
-    artwork_prompt: String,
-    design: TouchKeyboardSkinDesign,
+/// One of the three designs the model proposed, after validation and contrast repair.
+///
+/// Published because a host that cannot run `generate` itself still has to get here: it performs
+/// the chat over its own HTTP stack and needs this crate to say whether the answer is usable, and
+/// what it means. The artwork is not part of it - that is fetched per plan afterwards.
+#[derive(Clone, Debug, PartialEq, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct AiSkinPlan {
+    pub name: String,
+    pub description: String,
+    pub artwork_prompt: String,
+    pub design: TouchKeyboardSkinDesign,
 }
 
-fn parse(text: &str) -> Result<Vec<RawProposal>, AiSkinError> {
+/// The model's answer, as three usable designs or a refusal.
+///
+/// Parsing and the "three visibly different skins" rule are one step because they are one promise:
+/// the system prompt asked for three distinct shapes, materials and scene descriptions, and two
+/// proposals that differ only in a hex value are not what the user asked to choose between. Keeping
+/// the two apart let `generate` be the only caller that applied the second half.
+pub fn plan_ai_skins(text: &str) -> Result<Vec<AiSkinPlan>, AiSkinError> {
+    let plans = parse(text)?;
+    if distinct(plans.iter().filter_map(|plan| plan.design.key_shape)) != 3
+        || distinct(plans.iter().filter_map(|plan| plan.design.key_material)) != 3
+        || plans
+            .iter()
+            .map(|plan| plan.artwork_prompt.as_str())
+            .collect::<BTreeSet<_>>()
+            .len()
+            != 3
+    {
+        return Err(AiSkinError::InvalidResponse);
+    }
+    Ok(plans)
+}
+
+fn distinct<T: PartialEq>(values: impl Iterator<Item = T>) -> usize {
+    values
+        .fold(Vec::new(), |mut seen, value| {
+            if !seen.contains(&value) {
+                seen.push(value);
+            }
+            seen
+        })
+        .len()
+}
+
+/// Whether a returned image is one this client will show, rather than merely bytes.
+pub fn validate_ai_skin_artwork(artwork: &AiSkinArtwork) -> Result<(), AiSkinError> {
+    validate_artwork(artwork).map(|_| ())
+}
+
+fn parse(text: &str) -> Result<Vec<AiSkinPlan>, AiSkinError> {
     #[derive(Deserialize)]
     #[serde(deny_unknown_fields)]
     struct Response {
@@ -671,7 +685,7 @@ fn parse(text: &str) -> Result<Vec<RawProposal>, AiSkinError> {
         if !design.validate() || !has_readable_text(&design) {
             return Err(AiSkinError::InvalidResponse);
         }
-        result.push(RawProposal {
+        result.push(AiSkinPlan {
             name: source.name,
             description: source.description,
             artwork_prompt: source.artwork_prompt,

@@ -7,10 +7,9 @@ import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.RectF;
 import android.view.Gravity;
-import android.widget.Button;
 
 /** Draws an Apple-style shortcut glyph while retaining the button's text for accessibility. */
-public final class KeyboardShortcutButton extends Button {
+public final class KeyboardShortcutButton extends KeyboardPressButton {
     private final KeyboardShortcutIconPolicy.Icon icon;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Path path = new Path();
@@ -19,6 +18,7 @@ public final class KeyboardShortcutButton extends Button {
     public KeyboardShortcutButton(Context context, KeyboardShortcutIconPolicy.Icon icon) {
         super(context);
         this.icon = icon;
+        setKeyboardRole(KeyboardKeyRole.GLYPH);
         setGravity(Gravity.CENTER);
         setPadding(0, 0, 0, 0);
         paint.setStyle(Paint.Style.STROKE);
@@ -26,10 +26,19 @@ public final class KeyboardShortcutButton extends Button {
         paint.setStrokeJoin(Paint.Join.ROUND);
     }
 
+    /**
+     * The glyph's share of its touch target.
+     *
+     * <p>These marks used to sit inside a filled box, where filling the button was what made them
+     * legible. The toolbar is flat now, so the glyph is the whole control and takes the smaller size
+     * the shared design draws it at; the 44dp hit target is unchanged.
+     */
+    private static final float GLYPH_SCALE = 0.62f;
+
     @Override protected void onDraw(Canvas canvas) {
         int width = Math.max(0, getWidth() - getPaddingLeft() - getPaddingRight());
         int height = Math.max(0, getHeight() - getPaddingTop() - getPaddingBottom());
-        float size = Math.min(width, height);
+        float size = Math.min(width, height) * GLYPH_SCALE;
         if (size <= 0) return;
         int color = getCurrentTextColor();
         if (color == Color.TRANSPARENT) color = Color.WHITE;
@@ -47,6 +56,7 @@ public final class KeyboardShortcutButton extends Button {
             case VOICE -> drawVoice(canvas);
             case SKIN -> drawSkin(canvas);
             case DISMISS -> drawDismiss(canvas);
+            case GLOBE -> drawGlobe(canvas);
         }
         canvas.restore();
     }
@@ -108,6 +118,15 @@ public final class KeyboardShortcutButton extends Button {
         path.lineTo(43f, 31f);
         path.close();
         canvas.drawPath(path, paint);
+    }
+
+    /** The input-method switch: a meridian and two parallels, as every platform draws it. */
+    private void drawGlobe(Canvas canvas) {
+        canvas.drawCircle(50f, 50f, 34f, paint);
+        bounds.set(28f, 16f, 72f, 84f);
+        canvas.drawOval(bounds, paint);
+        canvas.drawLine(18f, 36f, 82f, 36f, paint);
+        canvas.drawLine(18f, 64f, 82f, 64f, paint);
     }
 
     private void drawDismiss(Canvas canvas) {

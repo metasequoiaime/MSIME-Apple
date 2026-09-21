@@ -26,6 +26,7 @@
 #include <stdexcept>
 #include <type_traits>
 #include <limits>
+#include <map>
 #include <mutex>
 #include <condition_variable>
 #include <filesystem>
@@ -38,6 +39,7 @@
 #include <unordered_set>
 #include <memory>
 #include <string_view>
+#include <vector>
 
 namespace msime {
 
@@ -787,6 +789,61 @@ rust::String normalize_full_pinyin(rust::Str input, std::size_t expected_syllabl
     source_without_delimiters.erase(std::remove(source_without_delimiters.begin(), source_without_delimiters.end(), '\''),
                                     source_without_delimiters.end());
     return without_delimiters == source_without_delimiters ? rust::String(normalized) : rust::String();
+}
+namespace {
+// The Engine spells the ü finals with a leading v because that is what the key sequence uses. A
+// person reads the hint, so show the vowel.
+std::string shuangpin_display_unit(const std::string& unit) {
+    return !unit.empty() && unit.front() == 'v' ? "ü" + unit.substr(1) : unit;
+}
+void collect_shuangpin_units(const std::unordered_map<std::string, std::string>& mapping,
+                             std::map<std::string, std::vector<std::string>>& units_by_key) {
+    for (const auto& [unit, key] : mapping) {
+        std::string upper = key;
+        std::transform(upper.begin(), upper.end(), upper.begin(),
+                       [](unsigned char character) { return static_cast<char>(std::toupper(character)); });
+        units_by_key[upper].push_back(shuangpin_display_unit(unit));
+    }
+}
+std::string join_shuangpin_units(std::vector<std::string> units) {
+    std::sort(units.begin(), units.end());
+    std::string joined;
+    for (const auto& unit : units) {
+        if (!joined.empty()) joined += " ";
+        joined += unit;
+    }
+    return joined;
+}
+} // namespace
+// Per-key double-pinyin hint text read out of the profile the session itself runs, so a keyboard
+// face never carries a second copy of the keymap that can drift from it. An unknown profile name
+// yields no hints rather than the default profile's: labelling the keys with a scheme the session
+// is not running is worse than labelling nothing.
+rust::Vec<ShuangpinKeyHint> shuangpin_key_hints(rust::Str profile) {
+    rust::Vec<ShuangpinKeyHint> hints;
+    const std::string name(profile);
+    if (name != "xiaohe" && name != "ziranma" && name != "shoudao" && name != "microsoft") return hints;
+
+    const ShuangpinProfile& source = GetShuangpinProfile(name);
+    std::map<std::string, std::vector<std::string>> initials_by_key;
+    std::map<std::string, std::vector<std::string>> finals_by_key;
+    collect_shuangpin_units(source.initials, initials_by_key);
+    collect_shuangpin_units(source.finals, finals_by_key);
+
+    for (const auto* key : {"Q", "W", "E", "R", "T", "Y", "U", "I", "O", "P", "A", "S", "D", "F",
+                            "G", "H", "J", "K", "L", "Z", "X", "C", "V", "B", "N", "M", ";"}) {
+        const std::string initials = join_shuangpin_units(initials_by_key[key]);
+        const std::string finals = join_shuangpin_units(finals_by_key[key]);
+        if (initials.empty() && finals.empty()) continue;
+        ShuangpinKeyHint hint;
+        hint.key = rust::String(key);
+        // "initials / finals" when the key carries both, otherwise whichever side it carries.
+        hint.hint = rust::String(initials.empty()   ? finals
+                                 : finals.empty()   ? initials
+                                                    : initials + " / " + finals);
+        hints.push_back(std::move(hint));
+    }
+    return hints;
 }
 EngineSnapshot EngineSession::snapshot() const {
     auto value = session_.snapshot();

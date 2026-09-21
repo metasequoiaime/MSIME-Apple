@@ -164,6 +164,13 @@ mod ffi {
         pub parent: String,
         pub title: String,
     }
+    /// One letter key of a double-pinyin face and the units it carries, already
+    /// formatted for display as `initials / finals`.
+    #[derive(Clone, Debug)]
+    pub struct ShuangpinKeyHint {
+        pub key: String,
+        pub hint: String,
+    }
     #[derive(Clone, Debug)]
     pub struct CandidateGlossInput {
         pub text: String,
@@ -223,6 +230,7 @@ mod ffi {
         ) -> Result<EngineOptions>;
         fn hanzi_to_pinyin(options: &EngineOptions, text: &str) -> String;
         fn normalize_full_pinyin(input: &str, expected_syllables: usize) -> String;
+        fn shuangpin_key_hints(profile: &str) -> Vec<ShuangpinKeyHint>;
         fn snapshot(self: &EngineSession) -> Result<EngineSnapshot>;
         fn online_query(self: &EngineSession) -> Result<OnlineQuerySnapshot>;
         fn reset_cache(self: Pin<&mut EngineSession>);
@@ -395,6 +403,14 @@ pub fn hanzi_to_pinyin(options: &EngineOptions, text: &str) -> String {
 /// syllable table. An expected Han-character count resolves ambiguous cuts.
 pub fn normalize_full_pinyin(input: &str, expected_syllables: usize) -> String {
     ffi::normalize_full_pinyin(input, expected_syllables)
+}
+
+/// Per-key double-pinyin hint text for one profile, read out of the Engine's own
+/// profile tables. A keyboard face that keeps its own copy of the keymap drifts
+/// from the scheme the session runs, so hosts ask for this instead. An unknown
+/// profile name yields no hints rather than the default profile's.
+pub fn shuangpin_key_hints(profile: &str) -> Vec<ffi::ShuangpinKeyHint> {
+    ffi::shuangpin_key_hints(profile)
 }
 
 /// Atomically add, replace, or remove one personal-dictionary entry.
@@ -1100,7 +1116,14 @@ mod tests {
     fn helpcode_settings_reach_the_real_engine() {
         let dir = tempfile::tempdir().unwrap();
         let mut value = options(dir.path());
-        for schema in ["lantian", "ziranma", "shouyou2_0", "shouyouplus", "xiaohe"] {
+        for schema in [
+            "lantian",
+            "ziranma",
+            "shouyou2_0",
+            "shouyouplus",
+            "xiaohe",
+            "jiajia",
+        ] {
             value.helpcode_schema = schema.into();
             for enabled in [false, true] {
                 value.helpcode = enabled;
@@ -1112,6 +1135,61 @@ mod tests {
         }
         value.helpcode_schema = "unknown".into();
         assert!(Session::new(&value).is_err());
+    }
+
+    /// The jiajia table this repository carries is in the shape the Engine parses.
+    ///
+    /// Five helpcode tables arrive inside the locked Engine archive and cannot rot independently of
+    /// it. This one does not: it lives in `resources/helpcodes/` and is injected by an overlay, so
+    /// it is the one that can go missing, be truncated by a bad merge, or be saved in an encoding
+    /// the Engine reads as nothing. The test above would not notice any of that - it points
+    /// `resources` at an empty directory, so it shows the scheme is registered and accepted and
+    /// would pass with no table at all.
+    ///
+    /// What it checks is the Engine's own parse rule from `HelpcodeUtils::load_helpcode_keymap`:
+    /// split at the first `=`, take two characters after it, keep the entry only when both are
+    /// `a`-`z`. An entry this rejects is silently absent at runtime rather than an error, which is
+    /// why counting them here is worth doing.
+    ///
+    /// Reading the codes the Engine would read is as far as this level goes: filtering candidates
+    /// needs a real dictionary, and these tests run against empty directories.
+    #[test]
+    fn the_carried_jiajia_table_parses_the_way_the_engine_reads_it() {
+        let table = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../resources/helpcodes/jiajia_helpcode.txt");
+        let text = std::fs::read_to_string(&table)
+            .unwrap_or_else(|error| panic!("{}: {error}", table.display()));
+
+        let mut keymap = std::collections::BTreeMap::new();
+        let mut rejected = Vec::new();
+        for line in text.lines() {
+            let Some(position) = line.find('=') else {
+                rejected.push(line);
+                continue;
+            };
+            let (character, code) = line.split_at(position);
+            let code: String = code[1..].chars().take(2).collect();
+            if position == 0
+                || code.len() != 2
+                || !code.bytes().all(|byte| byte.is_ascii_lowercase())
+            {
+                rejected.push(line);
+                continue;
+            }
+            keymap.insert(character.to_owned(), code);
+        }
+
+        assert!(
+            rejected.is_empty(),
+            "the Engine drops these silently: {:?}",
+            &rejected[..rejected.len().min(5)]
+        );
+        // Codes quoted in resources/helpcodes/NOTICE.md as coming from the alignment.
+        for (character, code) in [("好", "nz"), ("你", "de"), ("中", "ks"), ("国", "ky")] {
+            assert_eq!(keymap.get(character).map(String::as_str), Some(code));
+        }
+        // The notice records 7968 entries; a table that lost a chunk still parses.
+        assert_eq!(keymap.len(), 7968);
     }
 
     #[test]
@@ -1162,6 +1240,77 @@ mod tests {
             }
             assert_eq!(session.snapshot().unwrap().segment_raw_boundaries, expected);
         }
+    }
+
+    /// A keyboard face labels its letter keys with the units they carry. The hints
+    /// have to come from the profile the session is running, which is why this asks
+    /// the session for its profile name instead of assuming the option index and the
+    /// name agree.
+    #[test]
+    fn shuangpin_key_hints_describe_the_profile_the_session_runs() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut seen: Vec<(String, Vec<(String, String)>)> = Vec::new();
+        for profile in 0..4 {
+            let mut options = options(dir.path());
+            options.scheme = 1;
+            options.shuangpin_profile = profile;
+            let session = Session::new(&options).unwrap();
+            let name = session.snapshot().unwrap().shuangpin_profile;
+            let hints: Vec<(String, String)> = shuangpin_key_hints(&name)
+                .into_iter()
+                .map(|entry| (entry.key, entry.hint))
+                .collect();
+            assert!(
+                hints.len() >= 26,
+                "{name} labelled only {} keys",
+                hints.len()
+            );
+            for (key, hint) in &hints {
+                assert!(
+                    key.len() == 1 && ("A"..="Z").contains(&key.as_str()) || key == ";",
+                    "{name} produced a hint for {key:?}, which is not a letter key"
+                );
+                assert!(!hint.is_empty(), "{name} key {key} carries an empty hint");
+                // " / " separates initials from finals, so it appears at most once; units
+                // on the same side are separated by a space.
+                assert!(
+                    hint.matches(" / ").count() <= 1,
+                    "{name} key {key} hint {hint:?} reads as more than two sides"
+                );
+            }
+            seen.push((name, hints));
+        }
+        for (index, (name, hints)) in seen.iter().enumerate() {
+            for (other_name, other_hints) in seen.iter().skip(index + 1) {
+                assert_ne!(
+                    hints, other_hints,
+                    "{name} and {other_name} produced the same key face"
+                );
+            }
+        }
+    }
+
+    /// Xiaohe keeps two finals on K, and a host-side copy of the keymap listed only
+    /// one of them, so the key that types `guai` carried no sign of it. The hints are
+    /// read out of the Engine now; this holds that specific key to both units.
+    #[test]
+    fn shuangpin_key_hints_keep_every_unit_a_key_carries() {
+        let hints: std::collections::HashMap<String, String> = shuangpin_key_hints("xiaohe")
+            .into_iter()
+            .map(|entry| (entry.key, entry.hint))
+            .collect();
+        assert_eq!(hints.get("K").map(String::as_str), Some("ing uai"));
+        assert_eq!(hints.get("V").map(String::as_str), Some("zh / ui ü"));
+    }
+
+    /// Labelling the keys with a scheme the session is not running is worse than
+    /// labelling nothing, so an unrecognised name yields no hints at all instead of
+    /// falling back to the default profile the Engine's own lookup returns.
+    #[test]
+    fn shuangpin_key_hints_reject_an_unknown_profile() {
+        assert!(shuangpin_key_hints("").is_empty());
+        assert!(shuangpin_key_hints("xiaohe-v2").is_empty());
+        assert!(shuangpin_key_hints("quanpin").is_empty());
     }
 
     #[test]

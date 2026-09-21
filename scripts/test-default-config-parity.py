@@ -22,17 +22,19 @@ with WINDOWS_DEFAULTS.open("rb") as config_file:
 
 shared_minimum_prefix = int(mixed_input_default.group(1))
 windows_minimum_prefix = windows_defaults["general"]["cn_en_mixed_input_min_chars"]
-# Windows deliberately follows MSIME-Windows' installer baseline (5), while
-# the shared preference default remains 2 for hosts that do not use the
-# Windows installer template.
-assert windows_minimum_prefix == 5, (
-    "Windows cn_en_mixed_input_min_chars must preserve the Windows baseline: "
-    f"{windows_minimum_prefix}"
+# This asserted 5 and called it the Windows baseline. The reference's own factory configuration
+# (MSIME-Windows, installer/default_config/config.default.toml) has said 2 since the file was added
+# and has never said 5, and 2 is also the shared default - so shipping 5 here meant English
+# candidates appeared after five letters out of the box where the reference shows them after two,
+# with this assertion standing in the way of noticing.
+assert windows_minimum_prefix == shared_minimum_prefix, (
+    "Windows cn_en_mixed_input_min_chars must match the shared default "
+    f"({shared_minimum_prefix}): {windows_minimum_prefix}"
 )
 
 print(
-    "Windows mixed-input minimum prefix uses the Windows baseline: "
-    f"{windows_minimum_prefix} (shared default: {shared_minimum_prefix})"
+    "Windows mixed-input minimum prefix matches the reference and the shared default: "
+    f"{windows_minimum_prefix}"
 )
 
 voice_auth_default = re.search(
@@ -199,13 +201,49 @@ assert not any(windows_smart_punctuation.values()), (
     "Windows smart-punctuation switches must default to off: "
     f"{sorted(key for key, value in windows_smart_punctuation.items() if value)}"
 )
-for field in ("smart_punctuation_space_convert", "smart_punctuation_direct_digit",
-              "smart_punctuation_direct_letter"):
-    assert re.search(rf"#\[serde\(default\)\]\s*pub {field}: bool", core_source), (
-        f"{field} must default to off on every host, matching the template"
-    )
+# The space rewrite has no equivalent in the reference and changes a character the user already saw
+# land, so it is off until asked for. The two halves of 智能标点 follow the parent instead: the
+# reference has one switch there and this page shows its description verbatim - ASCII after a letter
+# or a digit - so halves that were off on their own left the parent on and doing nothing. Following
+# the parent keeps a fresh Windows profile with the whole family off, which is what the template
+# above ships and what this check exists for.
+assert re.search(
+    r"#\[serde\(default\)\]\s*pub smart_punctuation_space_convert: bool", core_source
+), "smart_punctuation_space_convert must default to off on every host, matching the template"
+for field in ("smart_punctuation_direct_digit", "smart_punctuation_direct_letter"):
+    assert re.search(
+        rf'#\[serde\(default = "smart_punctuation_default"\)\]\s*(?:///[^\n]*\n\s*)*pub {field}: bool',
+        core_source,
+    ), f"{field} must follow the 智能标点 default, which is off on Windows"
 
 print(
     "Windows smart punctuation is off on a fresh profile, as its template ships: "
     f"{len(windows_smart_punctuation)} switches"
 )
+
+# Statistics count what a person types, so the template and the shared default have to agree that
+# they start off. The reference says so in its own feature list, and a template that shipped them
+# on would turn them on for every fresh profile regardless of what the shared code says.
+statistics = windows_defaults["statistics"]
+assert statistics["enabled"] is False, "the statistics template must ship them off"
+assert re.search(
+    r"fn enabled_by_default\(\) -> bool \{\s*(?:///[^\n]*\n\s*)*false\s*\}",
+    (ROOT / "crates/client-core/src/typing_statistics.rs").read_text(encoding="utf-8"),
+), "the shared statistics default must be off, matching the template"
+
+# An unrecognised retention is read as forever. The template must name one the code knows, or the
+# value it ships would silently mean something other than what it says.
+retentions = {"forever", "30d", "90d", "180d", "365d"}
+assert statistics["retention"] in retentions, (
+    f"unknown statistics retention {statistics['retention']!r}; "
+    f"the shared store understands {sorted(retentions)}"
+)
+statistics_source = (ROOT / "crates/client-core/src/typing_statistics.rs").read_text(
+    encoding="utf-8"
+)
+for spelling in retentions - {"forever"}:
+    assert f'"{spelling}" =>' in statistics_source, (
+        f"the template offers {spelling} but the shared store does not parse it"
+    )
+
+print(f"Windows statistics ship off with retention {statistics['retention']!r}")

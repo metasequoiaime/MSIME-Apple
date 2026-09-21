@@ -8,14 +8,16 @@ static inline BOOL MSIMECloudAppearanceIntegerInRange(id value, NSInteger minimu
            [value doubleValue] == [value integerValue] && [value integerValue] >= minimum && [value integerValue] <= maximum;
 }
 
+// The whole range the shared preferences accept, not the three sizes this platform's window used to
+// offer: a cloud snapshot written by any other host carries the size that host allowed, and rejecting
+// it here would drop the user's appearance on the way in.
 static inline BOOL MSIMECloudAppearanceCandidatePageSize(id value) {
-    return [value isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID() &&
-           [value doubleValue] == [value integerValue] &&
-           ([(NSNumber *)value integerValue] == 5 || [(NSNumber *)value integerValue] == 7 || [(NSNumber *)value integerValue] == 9);
+    return MSIMECloudAppearanceIntegerInRange(value, (NSInteger)msime::mac::kMinimumCandidatePageSize,
+                                              (NSInteger)msime::mac::kMaximumCandidatePageSize);
 }
 
 static inline NSArray<NSString *> *MSIMECloudHelpcodeSchemas() {
-    return @[@"lantian", @"ziranma", @"shouyou2_0", @"shouyouplus", @"xiaohe"];
+    return @[@"lantian", @"ziranma", @"shouyou2_0", @"shouyouplus", @"xiaohe", @"jiajia"];
 }
 
 static inline NSInteger MSIMECloudHelpcodeSchemaIndex(NSUserDefaults *defaults, NSString *scheme) {

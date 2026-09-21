@@ -1024,6 +1024,7 @@ struct TypingStatisticsTask {
   std::string text;
   std::string source;
   std::string day;
+  int hour = 0;
 };
 
 void record_typing_statistics(IBusEngine *engine, std::string text,
@@ -1037,12 +1038,17 @@ void record_typing_statistics(IBusEngine *engine, std::string text,
   if (!now)
     return;
   gchar *formatted_day = g_date_time_format(now, "%Y-%m-%d");
+  // Read the hour from the same instant as the day, before it is released: two
+  // calls either side of midnight would file the commit under one day and the
+  // other day's hour.
+  const int hour = g_date_time_get_hour(now);
   g_date_time_unref(now);
   if (!formatted_day)
     return;
   TypingStatisticsTask request{
       directory, std::move(text),
-      std::string(msime::linux_host::typing_source_id(source)), formatted_day};
+      std::string(msime::linux_host::typing_source_id(source)), formatted_day,
+      hour};
   g_free(formatted_day);
   auto task = g_task_new(G_OBJECT(engine), nullptr, nullptr, nullptr);
   g_task_set_task_data(task, new TypingStatisticsTask(std::move(request)),
@@ -1058,7 +1064,8 @@ void record_typing_statistics(IBusEngine *engine, std::string text,
           {"action", Json{{"operation", "record"},
                             {"text", request.text},
                             {"source", request.source},
-                            {"day", request.day}}}}
+                            {"day", request.day},
+                            {"hour", request.hour}}}}
                                 .dump();
       auto *raw = msime_client_typing_statistics(
           reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size());
@@ -2625,7 +2632,8 @@ void publish_mode(IBusEngine *engine, bool registration) {
                                      std::pair{"ziranma", "自然码"},
                                      std::pair{"shouyou2_0", "搜狗 2.0"},
                                      std::pair{"shouyouplus", "搜狗 Plus"},
-                                     std::pair{"xiaohe", "小鹤"}}) {
+                                     std::pair{"xiaohe", "小鹤"},
+                                     std::pair{"jiajia", "加加"}}) {
     auto item = ibus_property_new(
         (std::string("HelpcodeSchema/") + value).c_str(), PROP_TYPE_RADIO,
         ibus_text_new_from_static_string(label), "",
@@ -4483,7 +4491,7 @@ void property_activate(IBusEngine *engine, const gchar *name, guint value) {
     if (property_name.rfind("HelpcodeSchema/", 0) == 0) {
       const auto selected = property_name.substr(std::string("HelpcodeSchema/").size());
       if (selected != "lantian" && selected != "ziranma" && selected != "shouyou2_0" &&
-          selected != "shouyouplus" && selected != "xiaohe")
+          selected != "shouyouplus" && selected != "xiaohe" && selected != "jiajia")
         return;
       const auto active_scheme = s.scheme_override.value_or(
           configured.at("preferences").value("scheme", "quanpin"));
@@ -6234,8 +6242,8 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         (key == IBUS_Home || key == IBUS_KP_Home || key == IBUS_End ||
          key == IBUS_KP_End)) {
       const auto command = (key == IBUS_Home || key == IBUS_KP_Home)
-                               ? MSIME_FIRST_CANDIDATE_ON_PAGE
-                               : MSIME_LAST_CANDIDATE_ON_PAGE;
+                               ? MSIME_FIRST_CANDIDATE
+                               : MSIME_LAST_CANDIDATE;
       handled = apply(engine, msime_client_command(s.session, command));
       return;
     }

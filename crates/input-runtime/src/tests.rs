@@ -25,6 +25,12 @@ struct Fixture {
     /// Candidates this engine holds back until asked, standing in for the Engine's cap on a
     /// single-letter query. Empty means an engine that already returns everything it has.
     withheld: Vec<String>,
+    /// Where each candidate came from, parallel to `words`. Empty means an engine answering from
+    /// the local dictionary alone, which is what most of these tests are about.
+    sources: Vec<u8>,
+    /// What is left to compose after a candidate is picked, standing in for an Engine that answered
+    /// with a candidate covering only part of the input. `None` is an engine that finishes.
+    remaining_after_select: Option<String>,
 }
 
 #[cfg(unix)]
@@ -360,7 +366,11 @@ impl InputEngine for Fixture {
                 .enumerate()
                 .map(|(index, _)| format!("({index})"))
                 .collect(),
-            candidate_sources: vec![0; self.words.len()],
+            candidate_sources: if self.sources.len() == self.words.len() {
+                self.sources.clone()
+            } else {
+                vec![0; self.words.len()]
+            },
             candidate_positions: vec![0; self.words.len()],
             candidate_corrected: vec![false; self.words.len()],
             microsoft_shuangpin: false,
@@ -398,6 +408,16 @@ impl InputEngine for Fixture {
         Ok(empty_result(true))
     }
     fn select(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
+        if let Some(remaining) = self.remaining_after_select.take() {
+            self.text = remaining;
+            self.local_mode = "none".into();
+            return Ok(EngineResult {
+                handled: true,
+                has_commit: true,
+                commit: self.words[index].clone(),
+                diagnostic: String::new(),
+            });
+        }
         self.text.clear();
         self.nine_key_spellings.clear();
         self.local_mode = "none".into();
@@ -436,6 +456,8 @@ fn runtime() -> Runtime<Fixture> {
             balanced_openings: Vec::new(),
             cache_resets: 0,
             withheld: Vec::new(),
+            sources: Vec::new(),
+            remaining_after_select: None,
         },
         5,
     )
@@ -460,6 +482,218 @@ fn auto_close_balance_accepts_only_the_book_title_opening() {
 
 // The AI context accumulator. Every host but Linux sent an empty context,
 // so AI suggestions had to guess from the pinyin alone.
+// The seating table in candidate_selection_policy.h places one candidate per provider, because the
+// reference has one of each. A provider here answers with several - the AI limit reaches ten - and
+// the first attempt at this treated everything past the first as a local candidate. That is not a
+// cosmetic mistake: a local candidate is what takes the first seat, so the second AI suggestion was
+// promoted over the first and landed on the space bar.
+#[test]
+fn several_candidates_from_one_provider_take_their_seat_as_a_group() {
+    let seated = |words: &[&str], sources: Vec<u8>| {
+        let mut runtime = Runtime::new(
+            Fixture {
+                scheme: 0,
+                dedicated_english: false,
+                nine_key: false,
+                nine_key_spellings: Vec::new(),
+                local_mode: "none".into(),
+                words: words.iter().map(|word| (*word).into()).collect(),
+                // The seating only runs on a snapshot whose parallel arrays all match, so the
+                // codes have to be as long as the words for this to exercise anything.
+                codes: (0..words.len()).map(|n| format!("code-{n}")).collect(),
+                text: String::new(),
+                snapshot_fails: false,
+                balanced_openings: Vec::new(),
+                cache_resets: 0,
+                withheld: Vec::new(),
+                sources,
+                remaining_after_select: None,
+            },
+            9,
+        )
+        .unwrap();
+        runtime.focus(true).unwrap();
+        type_key(&mut runtime)
+            .view
+            .candidates
+            .into_iter()
+            .map(|candidate| (candidate.text, candidate.annotation))
+            .collect::<Vec<_>>()
+    };
+
+    // Chinese first, then the whole AI group in the order it arrived. The annotation travels with
+    // its candidate, so it also says the parallel arrays were rotated together rather than the text
+    // alone: 本地 arrived third and keeps "(2)".
+    assert_eq!(
+        seated(&["AI 一", "AI 二", "本地"], vec![3, 3, 0]),
+        vec![
+            ("本地".to_string(), "(2)".to_string()),
+            ("AI 一".to_string(), "(0)".to_string()),
+            ("AI 二".to_string(), "(1)".to_string()),
+        ]
+    );
+    // Same for a cloud reply of more than one, and the AI group still follows the cloud group.
+    assert_eq!(
+        seated(&["云一", "云二", "AI", "本地"], vec![2, 2, 3, 0])
+            .into_iter()
+            .map(|(text, _)| text)
+            .collect::<Vec<_>>(),
+        vec!["本地", "云一", "云二", "AI"]
+    );
+    // With a cloud candidate present English sits after AI, and a second English candidate waits
+    // behind the seated ones rather than displacing anything.
+    assert_eq!(
+        seated(
+            &["AI 一", "AI 二", "英一", "英二", "云", "本地"],
+            vec![3, 3, 4, 4, 2, 0]
+        )
+        .into_iter()
+        .map(|(text, _)| text)
+        .collect::<Vec<_>>(),
+        vec!["本地", "云", "AI 一", "AI 二", "英一", "英二"]
+    );
+}
+
+// Half a phrase belongs in the composition, not in the document. Picking a candidate that covers
+// only part of the input leaves the Engine composing the rest and hands back the piece that was
+// picked; sending that piece straight out puts half a phrase into the application - a search box
+// searches for it, an editor records an undo step for it - while the user is still typing.
+#[test]
+fn a_chosen_phrase_piece_waits_for_the_rest_of_the_phrase() {
+    let start = |remaining: Option<&str>| {
+        let mut runtime = Runtime::new(
+            Fixture {
+                scheme: 0,
+                dedicated_english: false,
+                nine_key: false,
+                nine_key_spellings: Vec::new(),
+                local_mode: "none".into(),
+                words: vec!["海滩".into(), "跑步".into()],
+                codes: Vec::new(),
+                text: String::new(),
+                snapshot_fails: false,
+                balanced_openings: Vec::new(),
+                cache_resets: 0,
+                withheld: Vec::new(),
+                sources: Vec::new(),
+                remaining_after_select: remaining.map(str::to_owned),
+            },
+            5,
+        )
+        .unwrap();
+        runtime.focus(true).unwrap();
+        runtime
+    };
+    let pick = |runtime: &mut Runtime<Fixture>| {
+        let id = runtime.view().candidates[0].id;
+        runtime.dispatch(Action::Select(id)).unwrap()
+    };
+
+    // Off, which is what a host that cannot draw the piece gets: unchanged behaviour.
+    let mut runtime = start(Some("paobu"));
+    type_key(&mut runtime);
+    let held = pick(&mut runtime);
+    assert_eq!(held.commit.as_deref(), Some("海滩"));
+    assert!(held.view.phrase_prefix.is_empty());
+
+    // On: the piece is held, shown to the host separately from the editing text, and the whole
+    // phrase goes out as one commit when the composition ends.
+    let mut runtime = start(Some("paobu"));
+    runtime.set_phrase_preedit(true);
+    type_key(&mut runtime);
+    let held = pick(&mut runtime);
+    assert_eq!(held.commit, None);
+    assert_eq!(held.view.phrase_prefix, "海滩");
+    assert_eq!(held.view.editing_text, "paobu");
+    let rest = runtime.view().candidates[1].id;
+    let done = runtime.dispatch(Action::Select(rest)).unwrap();
+    assert_eq!(done.commit.as_deref(), Some("海滩跑步"));
+    assert!(done.view.phrase_prefix.is_empty());
+    assert!(done.view.editing_text.is_empty());
+
+    // Escape throws away what was chosen along with what was typed, as the reference's _HandleCancel
+    // does - it clears word_for_creating_word in the same breath as terminating the composition.
+    let mut runtime = start(Some("paobu"));
+    runtime.set_phrase_preedit(true);
+    type_key(&mut runtime);
+    pick(&mut runtime);
+    let cancelled = runtime.dispatch(Action::Command(Command::Cancel)).unwrap();
+    assert_eq!(cancelled.commit, None);
+    assert!(cancelled.view.phrase_prefix.is_empty());
+
+    // Leaving the client cancels the composition too, but there the piece goes to the document:
+    // before it was ever held back it would already be there, and a click into another window is
+    // not the user throwing the phrase away.
+    let mut runtime = start(Some("paobu"));
+    runtime.set_phrase_preedit(true);
+    type_key(&mut runtime);
+    pick(&mut runtime);
+    let blurred = runtime.focus(false).unwrap();
+    assert_eq!(blurred.commit.as_deref(), Some("海滩"));
+    assert!(blurred.view.phrase_prefix.is_empty());
+
+    // A commit that no candidate was picked for is not part of a phrase. Punctuation finishes the
+    // composition and sends the mark out with it; that commit has to read the same either way.
+    let mut plain = start(None);
+    type_key(&mut plain);
+    let expected = plain.dispatch(Action::Punctuation(b',')).unwrap().commit;
+    assert!(expected.is_some());
+    let mut runtime = start(None);
+    runtime.set_phrase_preedit(true);
+    type_key(&mut runtime);
+    let punctuated = runtime.dispatch(Action::Punctuation(b',')).unwrap();
+    assert_eq!(punctuated.commit, expected);
+    assert!(punctuated.view.phrase_prefix.is_empty());
+
+    // Turning it off with a piece in hand hands the piece back rather than dropping it.
+    let mut runtime = start(Some("paobu"));
+    runtime.set_phrase_preedit(true);
+    type_key(&mut runtime);
+    pick(&mut runtime);
+    assert_eq!(runtime.set_phrase_preedit(false).as_deref(), Some("海滩"));
+    assert!(runtime.view().phrase_prefix.is_empty());
+}
+
+// The one place this leaves the reference: there, backspacing the remaining reading away keeps the
+// chosen piece on screen with nothing after it. Holding text with no composition under it would
+// make every host's "is there a composition" test lie, so the piece is committed instead.
+#[test]
+fn a_phrase_piece_survives_the_reading_being_deleted() {
+    let mut runtime = Runtime::new(
+        Fixture {
+            scheme: 0,
+            dedicated_english: false,
+            nine_key: false,
+            nine_key_spellings: Vec::new(),
+            local_mode: "none".into(),
+            words: vec!["海滩".into(), "跑步".into()],
+            codes: Vec::new(),
+            text: String::new(),
+            snapshot_fails: false,
+            balanced_openings: Vec::new(),
+            cache_resets: 0,
+            withheld: Vec::new(),
+            sources: Vec::new(),
+            remaining_after_select: Some("p".into()),
+        },
+        5,
+    )
+    .unwrap();
+    runtime.set_phrase_preedit(true);
+    runtime.focus(true).unwrap();
+    type_key(&mut runtime);
+    let id = runtime.view().candidates[0].id;
+    let held = runtime.dispatch(Action::Select(id)).unwrap();
+    assert_eq!(held.view.phrase_prefix, "海滩");
+
+    let emptied = runtime
+        .dispatch(Action::Command(Command::Backspace))
+        .unwrap();
+    assert!(emptied.view.editing_text.is_empty());
+    assert_eq!(emptied.commit.as_deref(), Some("海滩"));
+    assert!(emptied.view.phrase_prefix.is_empty());
+}
+
 #[test]
 fn ai_context_keeps_the_recent_tail_on_a_character_boundary() {
     let mut runtime = runtime();
@@ -521,6 +755,8 @@ fn candidate_codes_follow_candidates_in_page_and_complete_snapshots() {
             balanced_openings: Vec::new(),
             cache_resets: 0,
             withheld: Vec::new(),
+            sources: Vec::new(),
+            remaining_after_select: None,
         },
         2,
     )
@@ -803,45 +1039,58 @@ fn expanded_panel_selection_accepts_only_any_candidate_from_current_generation()
 }
 
 #[test]
-fn candidate_page_edges_stay_within_the_active_page() {
+fn candidate_list_edges_reach_the_ends_of_the_whole_list() {
     let mut runtime = runtime();
     runtime.focus(true).unwrap();
     type_key(&mut runtime);
-    let first = runtime.dispatch(Action::FirstCandidateOnPage).unwrap().view;
-    assert_eq!(
-        first
-            .candidates
+    let highlighted = |view: &View| {
+        view.candidates
             .iter()
-            .find(|c| c.highlighted)
+            .find(|candidate| candidate.highlighted)
             .unwrap()
-            .text,
-        "candidate-0"
-    );
-    let last = runtime.dispatch(Action::LastCandidateOnPage).unwrap().view;
-    assert_eq!(
-        last.candidates.iter().find(|c| c.highlighted).unwrap().text,
-        "candidate-4"
-    );
+            .text
+            .clone()
+    };
+
+    // From the second page, Home goes back to the very first candidate and takes the page with it -
+    // the reference answers its Home with SetSelection(0), which readjusts the page. Stopping at the
+    // top of the page the user is already looking at is a keystroke that changes almost nothing.
     runtime.dispatch(Action::NextPage).unwrap();
-    let page_last = runtime.dispatch(Action::LastCandidateOnPage).unwrap().view;
+    let first = runtime.dispatch(Action::FirstCandidate).unwrap().view;
+    assert_eq!(highlighted(&first), "candidate-0");
+    assert_eq!(first.page, 0);
+
+    // End reaches the last candidate there is, page and all. The fixture holds twelve at a page of
+    // five, so that is the third page rather than the end of the first.
+    let last = runtime.dispatch(Action::LastCandidate).unwrap().view;
+    assert_eq!(highlighted(&last), "candidate-11");
+    assert_eq!(last.page, 2);
+    assert_eq!(last.page_count, 3);
+
+    // Pressing it again stays put rather than walking further.
+    let again = runtime.dispatch(Action::LastCandidate).unwrap().view;
+    assert_eq!(highlighted(&again), "candidate-11");
+}
+
+// The Engine caps what it returns to a short query and hands the rest over when asked. End has to
+// ask, or it lands on the last candidate that happened to be cached - and a second press would then
+// move further, which is not what an End key does.
+#[test]
+fn the_last_candidate_is_the_last_one_the_engine_has() {
+    let mut runtime = withholding_runtime(5, 4, 5);
+    runtime.focus(true).unwrap();
+    let page = type_key(&mut runtime).view;
+    assert_eq!(page.page_count, 1);
+
+    let last = runtime.dispatch(Action::LastCandidate).unwrap().view;
+    assert_eq!(last.page_count, 2);
     assert_eq!(
-        page_last
-            .candidates
+        last.candidates
             .iter()
-            .find(|c| c.highlighted)
+            .find(|candidate| candidate.highlighted)
             .unwrap()
             .text,
-        "candidate-9"
-    );
-    let page_first = runtime.dispatch(Action::FirstCandidateOnPage).unwrap().view;
-    assert_eq!(
-        page_first
-            .candidates
-            .iter()
-            .find(|c| c.highlighted)
-            .unwrap()
-            .text,
-        "candidate-5"
+        "candidate-8"
     );
 }
 
@@ -1434,6 +1683,8 @@ fn withholding_runtime(offered: usize, withheld: usize, page_size: u8) -> Runtim
             withheld: (offered..offered + withheld)
                 .map(|n| format!("candidate-{n}"))
                 .collect(),
+            sources: Vec::new(),
+            remaining_after_select: None,
         },
         page_size,
     )
@@ -1507,6 +1758,88 @@ fn expansion_that_fills_the_current_page_does_not_advance_past_it() {
     );
     // The page is no longer short, so the next request moves on as usual.
     assert_eq!(runtime.dispatch(Action::NextPage).unwrap().view.page, 1);
+}
+
+#[test]
+fn walking_the_highlight_off_the_end_reaches_candidates_the_engine_withheld() {
+    // Ten offered at five a page is two full pages, so the partial-last-page rule below never fires
+    // and this exercises the end of the list on its own. Walking down one candidate at a time - an
+    // arrow key, a wheel notch - used to stop dead on the tenth, while page-down on the same query
+    // walked past it. The cap is the Engine's single-letter limit, and selection has to release it
+    // for the same reason paging does.
+    let mut runtime = withholding_runtime(10, 8, 5);
+    runtime.focus(true).unwrap();
+    type_key(&mut runtime);
+    for _ in 0..9 {
+        runtime.dispatch(Action::NextCandidate).unwrap();
+    }
+    let last_offered = runtime.view();
+    assert_eq!(last_offered.page_count, 2);
+    let expanded = runtime.dispatch(Action::NextCandidate).unwrap().view;
+    assert_eq!(expanded.page, 2);
+    assert_eq!(expanded.page_count, 4);
+    assert_eq!(
+        expanded
+            .candidates
+            .iter()
+            .find(|candidate| candidate.highlighted)
+            .map(|candidate| candidate.text.as_str()),
+        Some("candidate-10")
+    );
+}
+
+#[test]
+fn stepping_into_the_partial_last_page_fills_it_first() {
+    // The page-down path already fills the short last page before entering it. Arriving at the same
+    // page by selection has to look the same, or the page appears short and then grows under a
+    // highlight that is already sitting in it.
+    let mut runtime = withholding_runtime(12, 8, 5);
+    runtime.focus(true).unwrap();
+    type_key(&mut runtime);
+    for _ in 0..9 {
+        runtime.dispatch(Action::NextCandidate).unwrap();
+    }
+    let entered = runtime.dispatch(Action::NextCandidate).unwrap().view;
+    assert_eq!(entered.page, 2);
+    assert_eq!(entered.candidates.len(), 5);
+    assert_eq!(
+        entered.candidates.first().map(|c| c.text.as_str()),
+        Some("candidate-10")
+    );
+}
+
+#[test]
+fn the_highlight_stops_at_the_last_candidate_once_nothing_is_withheld() {
+    // Expansion is not a wrap: when the Engine has nothing left, the selection stays where it is
+    // rather than moving or reordering the list under it.
+    let mut runtime = withholding_runtime(3, 0, 5);
+    runtime.focus(true).unwrap();
+    type_key(&mut runtime);
+    for _ in 0..2 {
+        runtime.dispatch(Action::NextCandidate).unwrap();
+    }
+    let end = runtime.dispatch(Action::NextCandidate).unwrap().view;
+    assert_eq!(end.candidates.len(), 3);
+    assert_eq!(
+        end.candidates
+            .iter()
+            .position(|candidate| candidate.highlighted),
+        Some(2)
+    );
+}
+
+#[test]
+fn walking_the_highlight_backwards_never_asks_for_more() {
+    // Only forward motion runs into the cap. Asking the Engine to expand while moving up would
+    // reorder the list the user is reading back through.
+    let mut runtime = withholding_runtime(10, 8, 5);
+    runtime.focus(true).unwrap();
+    type_key(&mut runtime);
+    for _ in 0..8 {
+        runtime.dispatch(Action::NextCandidate).unwrap();
+    }
+    runtime.dispatch(Action::PreviousCandidate).unwrap();
+    assert_eq!(runtime.view().page_count, 2);
 }
 
 #[test]

@@ -54,7 +54,7 @@ import java.io.File;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.time.LocalDate;
+import java.time.LocalDateTime;
 import java.util.concurrent.ArrayBlockingQueue;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -104,6 +104,7 @@ public final class MSIMEInputService extends InputMethodService {
     private final java.util.List<Button> candidateButtons = new java.util.ArrayList<>();
     private final java.util.List<Button> englishSuggestionButtons = new java.util.ArrayList<>();
     private LinearLayout candidatePaging;
+    private HorizontalScrollView candidatePagingScroll;
     private LinearLayout expandedCandidates;
     private ScrollView expandedCandidateScroll;
     private TextView preedit;
@@ -206,7 +207,13 @@ public final class MSIMEInputService extends InputMethodService {
         KeyboardFeedbackPreferences.HapticStrength.MEDIUM;
     private Vibrator vibrator;
     private LinearLayout keyRows;
-    private HorizontalScrollView keyboardControls;
+    /** The fixed bottom row; {@link KeyboardActionRow} decides what it carries. */
+    private LinearLayout actionRow;
+    private Button globeButton;
+    private Button deleteButton;
+    private View nineKeySidebar;
+    private String actionRowSignature = "";
+    private boolean brandPillVisible;
     private JapaneseFlickPreview japaneseFlickPreview;
     private LinearLayout shortcutBar;
     private HorizontalScrollView shortcutScroll;
@@ -462,10 +469,14 @@ public final class MSIMEInputService extends InputMethodService {
         String directory = typingStatisticsDirectory();
         if (directory.isEmpty() || text == null || text.isEmpty()) return;
         final String request;
+        // One instant for both fields: a day and an hour read separately either side of
+        // midnight would file the commit under one day and the other day's hour.
+        final LocalDateTime instant = LocalDateTime.now();
         try {
             request = new JSONObject().put("directory", directory).put("action",
                 new JSONObject().put("operation", "record").put("text", text)
-                    .put("source", source.id()).put("day", LocalDate.now().toString()))
+                    .put("source", source.id()).put("day", instant.toLocalDate().toString())
+                    .put("hour", instant.getHour()))
                 .toString();
         } catch (JSONException error) {
             reportTypingStatisticsFailure();
@@ -2207,7 +2218,7 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     private Button button(LinearLayout row, String label, Runnable action) {
-        Button button = new Button(this);
+        Button button = new KeyboardPressButton(this);
         button.setAllCaps(false);
         button.setText(label);
         styleButton(button, true);
@@ -2266,6 +2277,45 @@ public final class MSIMEInputService extends InputMethodService {
     private Button keyboardKey(String label, String description, Runnable action) {
         Button button = new KeyboardPressButton(this);
         button.setAllCaps(false);
+        button.setText(label);
+        button.setContentDescription("按键 " + description);
+        styleButton(button, false);
+        button.setOnClickListener(ignored -> {
+            playFeedback(button);
+            action.run();
+        });
+        return button;
+    }
+
+    /**
+     * A composing-only control on the candidate paging row.
+     *
+     * <p>Flat and compact rather than a cap: this row shares the candidate strip's surface, and a
+     * line of filled buttons there read as candidates the user could pick.
+     */
+    private KeyboardPressButton pagingKey(String label, String description, Runnable action) {
+        KeyboardPressButton button = new KeyboardPressButton(this);
+        button.setAllCaps(false);
+        button.setText(label);
+        button.setContentDescription(description);
+        button.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        button.setPadding(pixels(10), 0, pixels(10), 0);
+        button.setMinWidth(0);
+        button.setMinimumWidth(0);
+        button.setKeyboardRole(KeyboardKeyRole.GLYPH);
+        styleButton(button, KeyboardKeyRole.GLYPH, skin);
+        button.setOnClickListener(ignored -> {
+            playFeedback(button);
+            action.run();
+        });
+        candidatePaging.addView(button, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, pixels(34)));
+        return button;
+    }
+
+    /** A nine-key grid cap: the same key as {@link #keyboardKey}, plus room for its digit. */
+    private NineKeyDigitButton nineKeyGridKey(String label, String description, Runnable action) {
+        NineKeyDigitButton button = new NineKeyDigitButton(this);
         button.setText(label);
         button.setContentDescription("按键 " + description);
         styleButton(button, false);
@@ -2373,10 +2423,25 @@ public final class MSIMEInputService extends InputMethodService {
             getResources().getDisplayMetrics().density);
     }
 
-    private void applyKeyboardGeometry(View node) {
+    /**
+     * Whether the key spacing setting insets this control inside its row.
+     *
+     * <p>The accessibility description used to be the only marker, because every control it applied
+     * to was a key cap. The action row holds caps whose descriptions read as sentences, so the role
+     * answers first and the description remains the fallback for everything that never asked.
+     */
+    private boolean followsKeySpacing(View node) {
+        if (node instanceof KeyboardPressButton press) {
+            KeyboardKeyRole role = press.keyboardRole();
+            return role == null || role.followsKeySpacing();
+        }
         CharSequence description = node.getContentDescription();
-        if (node instanceof Button && description != null
-                && description.toString().startsWith("按键 ")
+        return node instanceof Button && description != null
+            && description.toString().startsWith("按键 ");
+    }
+
+    private void applyKeyboardGeometry(View node) {
+        if (followsKeySpacing(node)
                 && node.getLayoutParams() instanceof android.view.ViewGroup.MarginLayoutParams) {
             android.view.ViewGroup.MarginLayoutParams params =
                 (android.view.ViewGroup.MarginLayoutParams) node.getLayoutParams();
@@ -2396,6 +2461,12 @@ public final class MSIMEInputService extends InputMethodService {
         if (keyRows == null) return;
         applyKeyboardGeometry(keyRows);
         applyKeyboardHeight(keyRows);
+        // The action row is a sibling of the key rows rather than one of them -- its height is fixed
+        // so the height setting cannot squeeze 换行 -- but its caps take the same spacing.
+        if (actionRow != null) {
+            applyKeyboardGeometry(actionRow);
+            actionRow.requestLayout();
+        }
         keyRows.requestLayout();
         if (keyboardRoot != null) {
             keyboardRoot.requestLayout();
@@ -2430,9 +2501,25 @@ public final class MSIMEInputService extends InputMethodService {
 
     private void styleButton(Button button, boolean action) { styleButton(button, action, skin); }
 
-    /** `target` is the surface's own skin: the emoji and handwriting panels carry their own theme. */
     private void styleButton(Button button, boolean action, KeyboardSkin target) {
+        styleButton(button, action ? KeyboardKeyRole.ACCENT : KeyboardKeyRole.KEY, target);
+    }
+
+    /** `target` is the surface's own skin: the emoji and handwriting panels carry their own theme. */
+    private void styleButton(Button button, KeyboardKeyRole role, KeyboardSkin target) {
         boolean selected = button.isSelected();
+        // A selected control is the one thing that always wears the filled face: that is how the
+        // case key and the script toggle show they are on, whatever role they carry otherwise.
+        KeyboardKeyRole face = selected ? KeyboardKeyRole.ACCENT : role;
+        if (!face.drawsCap()) {
+            button.setBackground(null);
+            button.setTextColor(Color.parseColor(
+                face.usesAccentLabel() ? target.accent() : target.keyForeground()));
+            button.setTypeface(target.monospaced() ? Typeface.MONOSPACE : Typeface.DEFAULT);
+            button.setElevation(0);
+            return;
+        }
+        boolean action = face == KeyboardKeyRole.ACCENT;
         String background = selected ? target.accent() : action ? target.actionBackground() : target.keyBackground();
         String foreground = selected ? target.actionForeground() : action ? target.actionForeground() : target.keyForeground();
         if ("custom".equals(target.id())) {
@@ -2451,6 +2538,8 @@ public final class MSIMEInputService extends InputMethodService {
         button.setTextColor(Color.parseColor(foreground));
         if (button instanceof ShuangpinHintButton hintButton)
             hintButton.setHintColor(Color.parseColor(target.accent()));
+        if (button instanceof NineKeyDigitButton digitButton)
+            digitButton.setDigitColor(Color.parseColor(target.accent()));
         button.setTypeface(target.monospaced() ? Typeface.MONOSPACE : Typeface.DEFAULT);
         int shadowAlpha = (int) Math.round(255 * target.shadowOpacity());
         int shadowColor = Color.argb(shadowAlpha, 0, 0, 0);
@@ -2458,6 +2547,22 @@ public final class MSIMEInputService extends InputMethodService {
         button.setOutlineSpotShadowColor(shadowColor);
         button.setElevation(target.shadowOpacity() > 0
             ? pixels(Math.max(1, target.shadowRadius() + target.shadowOffset())) : 0);
+    }
+
+    /** One of the skin's colours at a fraction of its opacity. */
+    private static int fade(String color, double opacity) {
+        int value = Color.parseColor(color);
+        return Color.argb((int) Math.round(255 * Math.max(0, Math.min(1, opacity))),
+            Color.red(value), Color.green(value), Color.blue(value));
+    }
+
+    /** The outlined badge the keyboard wears while nothing is being composed. */
+    private GradientDrawable brandPillDrawable() {
+        GradientDrawable pill = new GradientDrawable();
+        pill.setColor(Color.TRANSPARENT);
+        pill.setCornerRadius(pixels(14));
+        pill.setStroke(Math.max(1, pixels(1)), fade(skin.accent(), .45));
+        return pill;
     }
 
     private GradientDrawable candidateDrawable(int color) {
@@ -2513,7 +2618,10 @@ public final class MSIMEInputService extends InputMethodService {
             boolean key = description != null && (description.toString().startsWith("按键 ")
                 || description.toString().startsWith("候选 ")
                 || description.toString().startsWith("输入方案卡片 "));
+            KeyboardKeyRole role = node instanceof KeyboardPressButton press
+                ? press.keyboardRole() : null;
             if (candidate) styleCandidateButton((Button) node);
+            else if (role != null) styleButton((Button) node, role, target);
             else styleButton((Button) node, !key, target);
             if (description != null && "恢复默认".contentEquals(description))
                 ((Button) node).setTextColor(Color.RED);
@@ -2565,10 +2673,20 @@ public final class MSIMEInputService extends InputMethodService {
         // own light/dark setting so only their faces change.
         if (emojiPanel != null) applySkinToView(emojiPanel, emojiSkin);
         if (handwritingActive() && keyRows != null) applySkinToView(keyRows, handwritingSkin);
+        applySidebarRail();
         if (preedit != null) {
-            preedit.setTextColor(candidateAppearance.text());
+            // Idle, this is the brand badge the shared design draws as an outlined pill; composing,
+            // it is the reading itself and takes the candidate strip's own type and colour.
+            preedit.setTextColor(brandPillVisible
+                ? Color.parseColor(skin.accent()) : candidateAppearance.text());
             preedit.setTypeface(candidateTypeface());
+            preedit.setTextSize(TypedValue.COMPLEX_UNIT_SP,
+                brandPillVisible ? 12 : candidatePreeditFontSize);
+            preedit.setBackground(brandPillVisible ? brandPillDrawable() : null);
+            preedit.setPadding(pixels(brandPillVisible ? 12 : 2), pixels(brandPillVisible ? 4 : 0),
+                pixels(brandPillVisible ? 12 : 2), pixels(brandPillVisible ? 4 : 0));
         }
+        if (status != null) status.setTextColor(fade(skin.accent(), .55));
         if (candidatePage != null) {
             candidatePage.setTextColor(candidateAppearance.accent());
             candidatePage.setTypeface(candidateTypeface());
@@ -2576,7 +2694,7 @@ public final class MSIMEInputService extends InputMethodService {
         if (candidatePaging != null) {
             for (int index = 0; index < candidatePaging.getChildCount(); index++) {
                 View child = candidatePaging.getChildAt(index);
-                if (child instanceof Button) styleCandidateButton((Button) child);
+                if (child instanceof Button) styleButton((Button) child, KeyboardKeyRole.GLYPH, skin);
             }
         }
         if (layoutAdjustView != null) layoutAdjustView.updateSkin(skin);
@@ -3023,8 +3141,8 @@ public final class MSIMEInputService extends InputMethodService {
             replyKeyboard.setVisibility(visible ? View.VISIBLE : View.GONE);
         if (keyRows != null)
             keyRows.setVisibility(visible ? View.GONE : View.VISIBLE);
-        if (keyboardControls != null)
-            keyboardControls.setVisibility(visible ? View.GONE : View.VISIBLE);
+        if (actionRow != null)
+            actionRow.setVisibility(visible ? View.GONE : View.VISIBLE);
     }
 
     private void invalidateReplyContext(String message) {
@@ -3227,7 +3345,7 @@ public final class MSIMEInputService extends InputMethodService {
 
         java.util.List<SkinChoice> saved = new java.util.ArrayList<>();
         try {
-            for (CustomSkinLibrary.Item item : CustomSkinLibrary.read(Path.of(preferencesDirectory))) {
+            for (CustomSkinLibrary.Item item : CustomSkinLibrary.read(java.nio.file.Paths.get(preferencesDirectory))) {
                 JSONObject design = item.design();
                 saved.add(new SkinChoice("custom", item.name(),
                     KeyboardSkin.customFixture(CustomKeyboardSkin.from(design), skin.dark()), design));
@@ -4587,13 +4705,71 @@ public final class MSIMEInputService extends InputMethodService {
             emojiShortcutButton, voiceShortcutButton, skinButton, schemeButton, dismissButton};
         for (Button button : buttons) {
             if (button.getParent() instanceof LinearLayout parent) parent.removeView(button);
-            shortcutBar.addView(button, new LinearLayout.LayoutParams(
-                pixels(44), pixels(44)));
+            LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(
+                0, pixels(44), 1);
+            params.setMarginStart(pixels(2));
+            params.setMarginEnd(pixels(2));
+            shortcutBar.addView(button, params);
+            button.setMinWidth(pixels(44));
+            button.setMinimumWidth(pixels(44));
         }
         // Traditional output and AI are persistent settings/actions in the Apple layout; keep
         // their Android controls detached from the shortcut strip rather than duplicating them.
         scriptShortcutButton.setVisibility(View.GONE);
         aiPolishShortcutButton.setVisibility(View.GONE);
+    }
+
+    private Button actionRowKey(KeyboardActionRow.Slot slot) {
+        return switch (slot) {
+            case SYMBOL_PANEL -> symbolPanelButton;
+            case LAYER -> layerButton;
+            case GLOBE -> globeButton;
+            case PUNCTUATION -> quickPunctuationButton;
+            case SPACE -> spaceButton;
+            case LANGUAGE -> languageButton;
+            case RETURN -> enterButton;
+        };
+    }
+
+    /**
+     * Lay the bottom row out for the surface on screen.
+     *
+     * <p>Every control here is a long-lived field with its own listeners and state, so the row is
+     * re-parented rather than rebuilt: a fresh set of buttons each time would drop the space key's
+     * cursor gesture and the delete key's repeat.
+     */
+    private void updateActionRow() {
+        if (actionRow == null) return;
+        int layout = displayedTouchLayout(view);
+        boolean globe = shouldOfferSwitchingToNextInputMethod();
+        // Every keystroke reaches render(), and re-parenting eight keys under the pressed one is a
+        // relayout the user can see. The row only changes when the surface does.
+        String signature = layout + ":" + globe;
+        java.util.List<KeyboardActionRow.Entry> entries =
+            KeyboardActionRow.entries(layout, globe);
+        // Visibility is re-asserted every time: the reply surface hides this row and restores it
+        // without the surface itself having changed.
+        actionRow.setVisibility(entries.isEmpty() ? View.GONE : View.VISIBLE);
+        if (signature.equals(actionRowSignature)) return;
+        actionRowSignature = signature;
+        actionRow.removeAllViews();
+        for (KeyboardActionRow.Entry entry : entries) {
+            Button key = actionRowKey(entry.slot());
+            if (key == null) continue;
+            if (key.getParent() instanceof android.view.ViewGroup parent) parent.removeView(key);
+            // 中 and 换行 are the two the shared design fills; the rest wear key caps.
+            boolean emphasized = entry.slot() == KeyboardActionRow.Slot.LANGUAGE
+                || entry.slot() == KeyboardActionRow.Slot.RETURN;
+            if (key instanceof KeyboardPressButton press)
+                press.setKeyboardRole(emphasized ? KeyboardKeyRole.ACCENT : KeyboardKeyRole.KEY);
+            key.setVisibility(View.VISIBLE);
+            actionRow.addView(key, new LinearLayout.LayoutParams(0,
+                LinearLayout.LayoutParams.MATCH_PARENT, entry.weight()));
+        }
+        // The quick punctuation key hides itself when the scheme has no punctuation to offer, and
+        // the loop above just told every slot it was visible.
+        updateQuickPunctuation();
+        applyKeyboardGeometry();
     }
 
     private void toggleSoundFromMoreTools() {
@@ -5405,6 +5581,7 @@ public final class MSIMEInputService extends InputMethodService {
         shuangpinKeyButtons.clear();
         shuangpinKeyInputs.clear();
         microsoftFinalKey = null;
+        nineKeySidebar = null;
         japaneseSpaceKey = null;
         japaneseReturnKey = null;
         japaneseSymbolsKey = null;
@@ -5459,6 +5636,10 @@ public final class MSIMEInputService extends InputMethodService {
                 if (keyboardLayer == KeyboardLayout.Layer.LETTERS) {
                     keyButton.setContentDescription(LetterKeyFacePolicy.accessibilityLabel(
                         input, chineseMode, localMode, shifted));
+                    // 字母键读作「字母 Q」而不是「按键 Q」，所以描述推导一直把它判成 action 面，
+                    // 26 键的字母因此是实心深绿的。角色说了算之后就不必靠描述去猜。
+                    if (keyButton instanceof KeyboardPressButton press)
+                        press.setKeyboardRole(KeyboardKeyRole.KEY);
                 }
                 if (keyboardLayer == KeyboardLayout.Layer.SYMBOLS) {
                     symbolKeyButtons.add(keyButton);
@@ -5474,8 +5655,30 @@ public final class MSIMEInputService extends InputMethodService {
                 row.addView(microsoftFinalKey, new LinearLayout.LayoutParams(0,
                     LinearLayout.LayoutParams.MATCH_PARENT, 1));
             }
+            // 大小写和删除属于最后一行的两端，不属于底部功能行。Leaving them in a strip below the keys
+            // is what pushed every other control out of reach of a thumb.
+            if (rowIndex == rows.size() - 1) {
+                int layout = displayedTouchLayout(view);
+                boolean symbols = keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
+                float edge = KeyboardActionRow.letterRowEdgeWeight(symbols);
+                if (KeyboardActionRow.rowsCarryCase(layout, symbols))
+                    addLetterRowEdgeKey(row, shiftButton, 0, edge);
+                if (KeyboardActionRow.rowsCarryDelete(layout, symbols))
+                    addLetterRowEdgeKey(row, deleteButton, row.getChildCount(), edge);
+            }
         }
         applyKeyboardGeometry();
+    }
+
+    /** Re-parent a long-lived control into one end of the last letter row. */
+    private void addLetterRowEdgeKey(LinearLayout row, Button key, int index, float weight) {
+        if (key == null) return;
+        if (key.getParent() instanceof android.view.ViewGroup parent) parent.removeView(key);
+        if (key instanceof KeyboardPressButton press)
+            press.setKeyboardRole(KeyboardKeyRole.KEY);
+        key.setVisibility(View.VISIBLE);
+        row.addView(key, index, new LinearLayout.LayoutParams(0,
+            LinearLayout.LayoutParams.MATCH_PARENT, weight));
     }
 
     private void addNineKey(LinearLayout parent, Button key) {
@@ -5483,6 +5686,15 @@ public final class MSIMEInputService extends InputMethodService {
         parent.addView(key, new LinearLayout.LayoutParams(
             horizontal ? 0 : LinearLayout.LayoutParams.MATCH_PARENT,
             horizontal ? LinearLayout.LayoutParams.MATCH_PARENT : 0, 1));
+    }
+
+    /** The rail behind the capless punctuation column; it is not a Button, so the skin pass misses it. */
+    private void applySidebarRail() {
+        if (nineKeySidebar == null) return;
+        GradientDrawable rail = new GradientDrawable();
+        rail.setColor(Color.parseColor(skin.sidebarBackground()));
+        rail.setCornerRadius(pixels(skin.cornerRadius()));
+        nineKeySidebar.setBackground(rail);
     }
 
     private void rebuildNineKeyRows() {
@@ -5497,10 +5709,15 @@ public final class MSIMEInputService extends InputMethodService {
         punctuation.setOrientation(LinearLayout.VERTICAL);
         for (String symbol : NineKeyLayout.punctuation()) {
             Button key = keyboardKey(symbol, "符号 " + symbol, () -> commitNineKeyLiteral(symbol));
+            // The four punctuation keys share one rail rather than wearing four caps of their own.
+            if (key instanceof KeyboardPressButton press)
+                press.setKeyboardRole(KeyboardKeyRole.PLAIN);
             punctuation.addView(key, new LinearLayout.LayoutParams(
                 LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
         }
         FrameLayout sidebar = new FrameLayout(this);
+        nineKeySidebar = sidebar;
+        applySidebarRail();
         sidebar.addView(punctuation, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
         if (nineKeySpellingScroll != null) {
@@ -5519,9 +5736,14 @@ public final class MSIMEInputService extends InputMethodService {
                 String description = NineKeyLayout.description(key, digits);
                 // On the digit layer the grid is a numeric keypad, so a tap commits the number
                 // instead of feeding it to the pinyin session.
-                Button keyButton = keyboardKey(NineKeyLayout.face(key, digits), description,
+                NineKeyDigitButton keyButton = nineKeyGridKey(
+                    NineKeyLayout.face(key, digits), description,
                     digits ? () -> commitNineKeyLiteral(NineKeyLayout.digitInput(key))
                         : () -> character(key.input()));
+                // 字母键面上印着它送进引擎的数字；数字键面本身就是那个数字，不必再印一次。
+                // 分词键送的是拼音分隔符而不是 1，所以它没有可印的数字。
+                keyButton.setDigitText(digits || !Character.isDigit(key.input())
+                    ? "" : NineKeyLayout.digitInput(key));
                 if (!digits && Character.isDigit(key.input()) && key.label().length() > 1) {
                     keyButton.setContentDescription("按键 " + description + "；长按输入数字或字母");
                     keyButton.setOnLongClickListener(ignored -> {
@@ -5969,19 +6191,38 @@ public final class MSIMEInputService extends InputMethodService {
         japaneseFlickPreview = new JapaneseFlickPreview(this);
         keyboardRoot.addView(japaneseFlickPreview, new FrameLayout.LayoutParams(
             FrameLayout.LayoutParams.MATCH_PARENT, FrameLayout.LayoutParams.MATCH_PARENT));
-        status = new TextView(this);
-        keyboard.addView(status);
         LinearLayout candidateRegion = new LinearLayout(this);
         candidateRegion.setOrientation(LinearLayout.VERTICAL);
         LinearLayout candidateHeader = new LinearLayout(this);
+        candidateHeader.setGravity(Gravity.CENTER_VERTICAL);
+        candidateHeader.setPadding(pixels(10), pixels(6), pixels(6), pixels(2));
         preedit = new TextView(this);
         preedit.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidatePreeditFontSize);
+        preedit.setMaxLines(1);
+        preedit.setEllipsize(android.text.TextUtils.TruncateAt.END);
         preedit.setOnClickListener(ignored -> {
             playFeedback(preedit);
             showLocalInputMenu();
         });
-        candidateHeader.addView(preedit, new LinearLayout.LayoutParams(0,
+        // The pill hugs its own text, so it needs a parent that bounds it: a weighted TextView would
+        // stretch the outline the whole width of the keyboard.
+        LinearLayout preeditFrame = new LinearLayout(this);
+        preeditFrame.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+        preeditFrame.addView(preedit, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
+        candidateHeader.addView(preeditFrame, new LinearLayout.LayoutParams(0,
             LinearLayout.LayoutParams.WRAP_CONTENT, 1));
+        // The host notice channel: idle it names the build, and a deferred or failed preference load
+        // is the only thing the user ever reads here. It keeps the caption weight the design gives a
+        // secondary label rather than the headline it used to be at the top of the keyboard.
+        status = new TextView(this);
+        status.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
+        status.setMaxLines(1);
+        status.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        status.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
+        status.setPadding(pixels(6), 0, pixels(2), 0);
+        candidateHeader.addView(status, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         candidatePage = new TextView(this);
         candidateHeader.addView(candidatePage, new LinearLayout.LayoutParams(
             LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
@@ -5989,12 +6230,15 @@ public final class MSIMEInputService extends InputMethodService {
         shortcutBar.setOrientation(LinearLayout.HORIZONTAL);
         shortcutBar.setGravity(Gravity.CENTER_VERTICAL);
         shortcutBar.setContentDescription("键盘快捷栏");
-        shortcutBar.setPadding(pixels(2), 0, pixels(2), 0);
+        shortcutBar.setPadding(pixels(8), 0, pixels(8), 0);
         shortcutScroll = new HorizontalScrollView(this);
         shortcutScroll.setHorizontalScrollBarEnabled(false);
         shortcutScroll.setContentDescription("键盘快捷栏");
+        shortcutScroll.setFillViewport(true);
+        // The glyphs share the width evenly instead of queueing from the left edge; the scroll view
+        // stays as the fallback for a narrow screen that cannot give each a 44dp target.
         shortcutScroll.addView(shortcutBar, new HorizontalScrollView.LayoutParams(
-            LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.MATCH_PARENT));
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.MATCH_PARENT));
         scriptShortcutButton = button(shortcutBar, "简", this::toggleChineseOutput);
         scriptShortcutButton.setContentDescription("切换到繁体");
         emojiShortcutButton = shortcutButton(shortcutBar, "☺",
@@ -6008,9 +6252,12 @@ public final class MSIMEInputService extends InputMethodService {
         replyShortcutButton = shortcutButton(shortcutBar, "回复",
             KeyboardShortcutIconPolicy.Icon.REPLY, this::showReplyKeyboard);
         replyShortcutButton.setContentDescription("生成高情商回复");
-        expandCandidates = new Button(this);
+        KeyboardPressButton expand = new KeyboardPressButton(this);
+        expand.setKeyboardRole(KeyboardKeyRole.GLYPH);
+        expandCandidates = expand;
         expandCandidates.setAllCaps(false);
         expandCandidates.setText("展开");
+        expandCandidates.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
         expandCandidates.setContentDescription("展开候选面板");
         expandCandidates.setOnClickListener(ignored -> {
             playFeedback(expandCandidates);
@@ -6065,7 +6312,12 @@ public final class MSIMEInputService extends InputMethodService {
             LinearLayout.LayoutParams.MATCH_PARENT, pixels(KeyboardGeometry.CANDIDATE_ROW_HEIGHT_DP)));
         candidatePaging = new LinearLayout(this);
         candidatePaging.setOrientation(LinearLayout.HORIZONTAL);
-        candidateRegion.addView(candidatePaging);
+        candidatePaging.setGravity(Gravity.CENTER_VERTICAL);
+        candidatePagingScroll = new HorizontalScrollView(this);
+        candidatePagingScroll.setHorizontalScrollBarEnabled(false);
+        candidatePagingScroll.setContentDescription("组词与候选控制");
+        candidatePagingScroll.addView(candidatePaging);
+        candidateRegion.addView(candidatePagingScroll);
         keyboard.addView(candidateRegion);
         // Like Apple, keep the shared candidate/shortcut strip above the reply surface. The
         // ordinary key rows and controls are hidden while this weighted child is visible.
@@ -6076,13 +6328,17 @@ public final class MSIMEInputService extends InputMethodService {
         keyRows = new LinearLayout(this);
         keyRows.setOrientation(LinearLayout.VERTICAL);
         keyboard.addView(keyRows);
-        rebuildKeyRows();
+        actionRow = new LinearLayout(this);
+        actionRow.setOrientation(LinearLayout.HORIZONTAL);
+        actionRow.setContentDescription("键盘功能行");
+        actionRowSignature = "";
+        keyboard.addView(actionRow, new LinearLayout.LayoutParams(
+            LinearLayout.LayoutParams.MATCH_PARENT,
+            pixels(KeyboardGeometry.STANDARD_ROW_HEIGHT_DP)));
+        // Staging only: every control below is created here and then moved to the row that owns it.
+        // The case and delete keys go to the last of the 26 key rows, the shortcut glyphs to the
+        // toolbar, and what the action row keeps is whatever KeyboardActionRow lists for the surface.
         LinearLayout controls = new LinearLayout(this);
-        keyboardControls = new HorizontalScrollView(this);
-        keyboardControls.setHorizontalScrollBarEnabled(false);
-        keyboardControls.addView(controls, new HorizontalScrollView.LayoutParams(
-                LinearLayout.LayoutParams.WRAP_CONTENT, LinearLayout.LayoutParams.WRAP_CONTENT));
-        keyboard.addView(keyboardControls);
         shiftButton = button(controls, "⇧", () -> {
             if (!dedicatedEnglish && session != 0 && !helpcodeCompositionEligible()) {
                 toggleInputLanguage();
@@ -6098,13 +6354,13 @@ public final class MSIMEInputService extends InputMethodService {
         shiftButton.setContentDescription("切换到英文大写");
         languageButton = button(controls, "中/英", this::toggleInputLanguage);
         languageButton.setContentDescription("切换中英文");
-        layerButton = button(controls, "符号", () -> {
+        layerButton = button(controls, "123", () -> {
             keyboardLayer = keyboardLayer == KeyboardLayout.Layer.LETTERS
                 ? KeyboardLayout.Layer.SYMBOLS : KeyboardLayout.Layer.LETTERS;
             rebuildKeyRows();
             render();
         });
-        layerButton.setContentDescription("切换符号键盘");
+        layerButton.setContentDescription("切换到数字和符号");
         symbolPanelButton = button(controls, "符", this::showSymbolPanel);
         symbolPanelButton.setContentDescription("打开符号面板");
         quickPunctuationButton = button(controls, ",", this::insertQuickPunctuation);
@@ -6112,20 +6368,19 @@ public final class MSIMEInputService extends InputMethodService {
             showQuickPunctuationMenu();
             return true;
         });
-        button(controls, "首", () -> command(6));
-        button(controls, "←", () -> command(4));
-        button(controls, "→", () -> command(5));
-        button(controls, "尾", () -> command(7));
-        Button delete = button(controls, "⌫", this::deleteFromHandwriting);
-        bindBackspaceRepeat(delete, this::deleteFromHandwriting);
-        button(controls, "删除", () -> command(8));
-        button(controls, "取消", () -> command(3));
+        deleteButton = button(controls, "⌫", this::deleteFromHandwriting);
+        // The same 按键 form the nine-key and kana grids give their own delete: the bare 删除 is the
+        // emoji panel's, and two nodes answering to it would make either one ambiguous.
+        deleteButton.setContentDescription("按键 删除");
+        bindBackspaceRepeat(deleteButton, this::deleteFromHandwriting);
         spaceButton = button(controls, "空格", this::space);
         spaceButton.setContentDescription(SPACE_CURSOR_DESCRIPTION);
         bindSpaceCursor(spaceButton);
         enterButton = button(controls, "换行", this::enter);
         enterButton.setContentDescription("换行");
-        button(controls, "切换", this::switchToNextInputMethodAfterCommit);
+        globeButton = shortcutButton(controls, "切换",
+            KeyboardShortcutIconPolicy.Icon.GLOBE, this::switchToNextInputMethodAfterCommit);
+        globeButton.setContentDescription("切换到下一个输入法");
         schemeButton = borderlessButton(controls, "方案", this::showSchemePicker);
         schemeButton.setContentDescription("选择输入方案");
         skinButton = shortcutButton(controls, "皮肤",
@@ -6139,14 +6394,11 @@ public final class MSIMEInputService extends InputMethodService {
         Button dismissButton = shortcutButton(controls, "收起",
             KeyboardShortcutIconPolicy.Icon.DISMISS, () -> requestHideSelf(0));
         dismissButton.setContentDescription("收起键盘");
-        for (int index = 0; index < controls.getChildCount(); index++) {
-            View child = controls.getChildAt(index);
-            LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) child.getLayoutParams();
-            params.width = LinearLayout.LayoutParams.WRAP_CONTENT;
-            params.weight = 0;
-            child.setLayoutParams(params);
-        }
         installShortcutBar(dismissButton);
+        // The rows are built after the controls exist: the case and delete keys are laid into the
+        // last of them, and they are the same long-lived instances the rest of the host talks to.
+        rebuildKeyRows();
+        updateActionRow();
         expandedCandidates = new LinearLayout(this);
         expandedCandidates.setOrientation(LinearLayout.VERTICAL);
         expandedCandidates.setPadding(24, 16, 24, 16);
@@ -6452,8 +6704,9 @@ public final class MSIMEInputService extends InputMethodService {
                 }
             }
         }
+        // 分页不再进这一行：candidatePage 就在它旁边，两个 1/33 挨着显示是同一件事说了两遍。
         if (status != null) status.setText(message + preferencesNotice
-            + (dedicatedEnglish ? " · 英文输入" : "") + localMode + page
+            + (dedicatedEnglish ? " · 英文输入" : "") + localMode
             + switch (letterCase.mode()) {
                 case LOWERCASE -> "";
                 case SHIFTED -> " · Shift";
@@ -6486,6 +6739,7 @@ public final class MSIMEInputService extends InputMethodService {
                 }
             }
             boolean idleTitle = idle && editingText.isEmpty();
+            brandPillVisible = idleTitle;
             String displayText = idleTitle
                 ? (dedicatedEnglish ? "英文输入" : "水杉输入法") : localModeTitle;
             preedit.setText(displayText);
@@ -6499,7 +6753,7 @@ public final class MSIMEInputService extends InputMethodService {
             exitLocalModeButton.setVisibility(localModeActive ? View.VISIBLE : View.GONE);
             exitLocalModeButton.setEnabled(localModeActive && session != 0);
             exitLocalModeButton.setContentDescription("退出本地模式");
-            styleButton(exitLocalModeButton, true);
+            styleButton(exitLocalModeButton, KeyboardKeyRole.GLYPH, skin);
         }
         boolean hasDiagnostic = InputDiagnosticPolicy.visible(diagnosticMessage);
         if (diagnosticView != null) {
@@ -6510,10 +6764,8 @@ public final class MSIMEInputService extends InputMethodService {
         }
         if (shortcutScroll != null)
             shortcutScroll.setVisibility(idle && !hasDiagnostic ? View.VISIBLE : View.GONE);
-        if (keyboardControls != null && (replyKeyboard == null
-                || replyKeyboard.getVisibility() != View.VISIBLE)) {
-            keyboardControls.setVisibility(japaneseNineKeyActive() ? View.GONE : View.VISIBLE);
-        }
+        if (replyKeyboard == null || replyKeyboard.getVisibility() != View.VISIBLE)
+            updateActionRow();
         if (candidateViewport != null)
             candidateViewport.setVisibility(!idle && !hasDiagnostic ? View.VISIBLE : View.GONE);
         updateCandidateViewportHeight();
@@ -6569,9 +6821,9 @@ public final class MSIMEInputService extends InputMethodService {
             microsoftFinalKey.setContentDescription("微软双拼 ing");
         }
         if (layerButton != null) {
-            layerButton.setText(keyboardLayer == KeyboardLayout.Layer.LETTERS ? "符号" : "字母");
-            layerButton.setContentDescription(keyboardLayer == KeyboardLayout.Layer.LETTERS
-                ? "切换符号键盘" : "切换字母键盘");
+            boolean symbols = keyboardLayer == KeyboardLayout.Layer.SYMBOLS;
+            layerButton.setText(KeyboardActionRow.layerTitle(displayedTouchLayout(view), symbols));
+            layerButton.setContentDescription(KeyboardActionRow.layerDescription(symbols));
         }
         if (symbolPanelButton != null) {
             symbolPanelButton.setEnabled(session != 0 && connection != null
@@ -6591,7 +6843,8 @@ public final class MSIMEInputService extends InputMethodService {
             shiftButton.setText(letterCase.keyText());
             shiftButton.setSelected(letterCase.usesUppercase());
             shiftButton.setActivated(letterCase.mode() == EnglishLetterCaseState.Mode.CAPS_LOCK);
-            styleButton(shiftButton, true);
+            // A key cap in the letter row, and the filled face only while it is on.
+            styleButton(shiftButton, KeyboardKeyRole.KEY, skin);
             String caseLabel = letterCase.accessibilityLabel(dedicatedEnglish || session == 0);
             String caseValue = letterCase.accessibilityValue();
             shiftButton.setContentDescription(Build.VERSION.SDK_INT >= 30
@@ -6652,8 +6905,10 @@ public final class MSIMEInputService extends InputMethodService {
         if (verticalCandidates != null) verticalCandidates.removeAllViews();
         if (candidatePaging != null) candidatePaging.removeAllViews();
         if (expandCandidates != null) expandCandidates.setVisibility(View.GONE);
-        if (candidatePaging != null)
-            candidatePaging.setVisibility(hasDiagnostic ? View.GONE : View.VISIBLE);
+        // 这一行是组词时才有意义的控制：光标在组词串里移动、翻候选页、取消这次组词。空闲时它是
+        // 十个按不出结果的按钮，占掉候选行上方一整行。
+        if (candidatePagingScroll != null)
+            candidatePagingScroll.setVisibility(idle || hasDiagnostic ? View.GONE : View.VISIBLE);
         if (view == null) {
             closeCandidatePanel();
             renderEnglishSuggestions(activeCandidates);
@@ -6690,10 +6945,18 @@ public final class MSIMEInputService extends InputMethodService {
             for (Button button : candidateButtons) button.setVisibility(View.GONE);
         }
         if (!handwriting && !directEnglishActive() && candidatePaging != null) {
-            button(candidatePaging, "上词", () -> command(103));
-            button(candidatePaging, "下词", () -> command(102));
-            button(candidatePaging, "上一页", () -> command(101));
-            button(candidatePaging, "下一页", () -> command(100));
+            // 这些键只在组词时有意义，所以它们跟着候选分页行一起出现和消失。They used to sit in the
+            // strip under the keys, where they were permanent and did nothing most of the time.
+            pagingKey("首", "组词光标移到开头", () -> command(6));
+            pagingKey("←", "组词光标左移", () -> command(4));
+            pagingKey("→", "组词光标右移", () -> command(5));
+            pagingKey("尾", "组词光标移到结尾", () -> command(7));
+            pagingKey("上词", "上一个候选", () -> command(103));
+            pagingKey("下词", "下一个候选", () -> command(102));
+            pagingKey("上一页", "上一页候选", () -> command(101));
+            pagingKey("下一页", "下一页候选", () -> command(100));
+            pagingKey("删除", "删除光标后一个字符", () -> command(8));
+            pagingKey("取消", "取消本次组词", () -> command(3));
         }
         if (hasDiagnostic) closeCandidatePanel();
         renderExpandedCandidates();

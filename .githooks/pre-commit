@@ -11,9 +11,25 @@ status=0
 # Conflict markers have reached develop before: 8f35bd20 introduced them and
 # 83336482 reverted. -G searches added/removed *content*; -S counts occurrences
 # and matches nothing useful here.
-if git diff --cached -G'^(<{7}|>{7}) ' --name-only | grep -q .; then
-  echo "conflict markers in staged changes:" >&2
-  git diff --cached -G'^(<{7}|>{7}) ' --name-only | sed 's/^/  /' >&2
+#
+# The base marker counts too. Under merge.conflictStyle diff3/zdiff3 git also
+# writes a '||||||| <ref>' line, and resolving by hand tends to delete the three
+# markers one recognises and leave that one - which is how six of them reached
+# develop in docs/windows-parity.md with this check already in place. '======='
+# stays out: it is a Markdown heading underline far more often than a marker.
+#
+# Added lines only. -G matches a regex appearing on either side of the hunk, so
+# it fires on the commit that *removes* a marker just as loudly as on the one
+# that adds it - which makes the fix for a marker impossible to commit. Walk the
+# unified diff and look at '+' lines.
+staged_markers="$(git diff --cached --unified=0 --no-color --diff-filter=ACM |
+  awk '
+    /^\+\+\+ b\// { file = substr($0, 7); next }
+    /^\+(<{7}|\|{7}|>{7})( |$)/ { print "  " file ": " substr($0, 2) }
+  ')"
+if [ -n "$staged_markers" ]; then
+  echo "conflict markers added in staged changes:" >&2
+  echo "$staged_markers" >&2
   status=1
 fi
 

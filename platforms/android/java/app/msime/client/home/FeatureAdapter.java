@@ -36,9 +36,21 @@ public final class FeatureAdapter extends RecyclerView.Adapter<FeatureAdapter.Ho
         }
     }
 
-    private final List<Feature> features;
+    private final List<Feature> features = new java.util.ArrayList<>();
 
-    public FeatureAdapter(List<Feature> features) { this.features = features; }
+    public FeatureAdapter(List<Feature> features) { this.features.addAll(features); }
+
+    /**
+     * Replace the squares in place.
+     *
+     * <p>Rather than handing the grid a new adapter on every render: that rebuilds all six views,
+     * and the page re-renders whenever it comes back into view or a sheet saves a setting.
+     */
+    public void set(List<Feature> values) {
+        features.clear();
+        features.addAll(values);
+        notifyDataSetChanged();
+    }
 
     @NonNull @Override public Holder onCreateViewHolder(@NonNull ViewGroup parent, int type) {
         return new Holder(LayoutInflater.from(parent.getContext())

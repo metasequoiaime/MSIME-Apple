@@ -1,5 +1,7 @@
 # HarmonyOS 输入宿主预览
 
+迁移对照见 [docs/harmony-parity.md](../../docs/harmony-parity.md)：用什么方法比过 MSIME-Apple、发现了什么、哪些是按平台特性裁剪而不是欠账，以及真机验收时该优先核对的几项。
+
 OpenHarmony 适配保留 ArkTS/ArkUI 应用入口与 NAPI 原生边界。共享输入算法、组合状态、配置校验和资源准备继续由 Rust Host API 与 C++ Engine 提供；`platforms/harmony/native/client_napi.cpp` 只负责 NAPI 注册和 C ABI 转发，不复制候选分页或输入状态机。
 
 Harmony 设置页暴露共享的模糊拼音规则、触摸输入方案启用列表、自定义触摸键盘皮肤设计和候选英文释义开关。这四项此前都只有键盘一侧在消费：`PreferencesStore` 里有值，键盘准备 Engine 会话时会读，但设置页从未开启对应的客户端开关，用户没有任何途径改动它们。它们各自只写共享偏好，不需要平台能力。
@@ -9,6 +11,86 @@ Harmony 设置页暴露共享的模糊拼音规则、触摸输入方案启用列
 语音输入使用 HarmonyOS Core Speech Kit 的 `speechRecognizer` 离线短语音模式。工具面板可以开始、停止或取消识别，最终文字经过长度和控制字符边界检查后通过当前 `KeyboardSession` 提交；原始音频始终留在系统服务内，不写入文件、不进入日志，也不复制到 Engine。该路径需要 `SystemCapability.AI.SpeechRecognizer` 和用户授予 `ohos.permission.MICROPHONE`，单次录音受系统 60 秒上限约束。
 
 云联想与 AI 联想复用 Engine 的 `online_query` 代际契约：Harmony NAPI 只传递有界查询和结果，ArkTS 通过系统 HTTPS 栈异步访问云候选或用户配置的 Chat Completions 服务，结果再交回 Engine 做会话、偏好和 generation 校验。请求防抖、超时、响应大小、重复候选和控制字符检查均在宿主边界完成，失败只丢弃可选展示结果，不阻塞本地输入，也不把查询或响应写入日志。
+
+共享设置页的「AI 对话」现在也由 Harmony 承载，对应 MSIME-Apple 的 `KeyboardChatView` 与 `BackendChatClient`。它与「AI」页那个用户自配的服务不是一回事：后者带着用户自己的 endpoint 和 token，而这一个用宿主已经持有的账号会话认证，所以页面只在登录后才提供它，WebView 全程看不到任何凭据。模型列表走 `/v1/models`，回复走 `/v1/chat/completions`，请求与响应的边界在 `AccountCloudBridge` 里校验，数值与 Apple 的 `BackendChatClient` 逐条对齐——16 条历史、单条 16 KB、请求体 64 KB、模型 id 200 字节、最多 33 个模型且默认模型必须在列表内。回复内容按字节设限而不按字符类别：这里的换行是内容而不是控制字符，按桥上其它校验器的规则会把每一条分段的回答都拒掉。
+
+完成请求单独走一条 `chat` 请求类型，为的是它自己的期限。一次补全是模型在写字，共享客户端给它 125 秒；与账号请求共用一条通道就只有两种结果——要么把还差一点就返回的补全提前判成超时（随后到达的回复会因为没人在等那个编号而被丢弃），要么让一次卡住的资料拉取也空转两分钟。读超时因此是每请求的，连接超时仍是统一的 30 秒：连不上就是连不上，哪个端点都一样。
+
+账号页的「设置同步」也由 Harmony 承载，对应 MSIME-Apple 的 `SettingsSyncView` 与 `IOSPreferencePlan`。账号存的不是本机那份偏好文档，而是一张键名由服务端 schema 声明的标量表，每个宿主把自己的文档映射到它认识的那个子集上——这层间接正是要点：鸿蒙手机和 iPhone 在窗口装饰、工具栏、硬件和弦上几乎没有一处相同，但它们对"用户在用哪套输入方案"、"学习开不开"是一致的。
+
+由此有两条规则。上传时丢弃 schema 未声明的键：带上一个未知键会让整次写入被拒，本机知道而服务端还不知道的设置因此只是暂时不旅行。应用时只读 schema 声明过的键，而声明过的键若带着错误的类型则整体拒绝——对未声明键保持沉默是服务端还没跟上，对已声明键的类型不一致则是双方对这个字段的含义有分歧，猜哪边对正是布尔值被写进整数设置的由来。
+
+平台那一半用 `platform.harmony.*` 而不是复用 `platform.android.*`：这是两台各有键盘的设备，共用命名空间会让鸿蒙手机覆盖掉用户安卓键盘的皮肤和键距，那不是设置同步该做的事。在服务端声明它们之前，上面那条规则生效，只有共享的 `input.*` 那一半旅行——而那一半恰好是各宿主上真正同一个产品的部分。
+
+上传前先读云端文档再合并，而不是替换：它带着用户登录过的每一台设备的字段，从手机上传没有理由清掉桌面写进去的东西。应用方向由页面报出账号 id，宿主在往返前后各核对一次当前会话——确认框还开着时的一次登出换号，会把陌生人的设置写到用户自己的设置上，而那个屏幕上没有任何东西能撤销它。写完本机文档后宿主主动把新文档推给页面，不等窗口重新切到前台：那个监听是为键盘的改动准备的，本窗口自己造成的改动不该需要切一次应用才看得见。
+
+共享皮肤页的「我的设计」也由 Harmony 承载，对应 MSIME-Apple 的 `CustomSkinEditorView` 与 `CustomKeyboardSkin`。它不是设置文档里那份 `custom_touch_keyboard_skin`（那只有一套，是当前正在用的那一套），而是最多十二套具名设计的独立文件——命名、改名、覆盖、删除。
+
+这条没有像账号那样在 ArkTS 里重写一份，而是走新的 C ABI `msime_client_custom_skin_library`：Tauri 宿主把 `CustomSkinLibraryStore` 当 Rust 直接调，只通过 C ABI 到达这个 crate 的宿主（本宿主就是）否则就得把同一个文件的锁、原子替换、名称规范化和十二条上限再实现一遍，而一个库两个 store 正是两边开始对"里面有什么"意见不一致的起点。请求不带 `action` 是读，带了就先改再读，两种都回整个库——每个调用方改完都要重画列表，只回自己那一条会让页面猜改名对排序做了什么。
+
+失败码用共享社区页面已经有措辞的那几个 `community_*`，不是 `Display` 文本：后者是写给日志的英文句子，不该出现在中文对话框里。
+
+社区皮肤页也由 Harmony 承载，对应 MSIME-Apple 的 `SkinCommunityView`、`SkinCommunityAPI` 与 `CommunitySkinTrialView`。浏览不要求登录——画廊是公开的，一个看不到画廊的未登录用户没有任何依据判断值不值得注册；有会话时才带上，那正是 `owned` 和 `my_rating` 变成"这个用户的答案"而不是"没人的答案"的原因。下载、评分、发布、下架都要求登录。
+
+id 会进 URL 路径，所以在进去之前先按形状校验：把页面给的任何字符串直接插进去，等于让页面把一个皮肤 id 变成另一个端点。失败码用 `community_*` 而不是 `account_*`——社区页面对"已达到发布上限"、"自己的作品不能评分"各有措辞，换成账号码就只剩那一句通用的。
+
+下载是唯一不止一次请求的操作：设计要经系统 HTTPS 栈取回，再装到键盘上并存进皮肤库，而后两步是一次原生调用 `msime_client_community_skin_install`。合在一起不是为了省一次跳转——试用记录正是"被换掉的是哪套皮肤"的记忆，导入失败必须把它结束掉，否则用户身上是一套从未保存、也无从还原的设计。两次调用意味着这段回滚归宿主所有，而每个拥有它的宿主都会写得略有不同。
+
+试用的结束不碰网络：保留还是还原，是对一套已经生效的皮肤的回答，由设备作答。`restore_pending` 是崩溃恢复，在没有待处理试用时调用也是安全的——它运行的时刻正是还没人知道上次会话是不是停在试用中间的时候。
+
+装完与结束试用之后宿主都会把新的偏好文档推给页面，理由与设置同步那条相同。
+
+社区页的「词库 / 回复」分类也由 Harmony 承载，对应 MSIME-Apple 的 `CommunityResourcesView` 与 `BackendCommunityResourceClient`。公开列表和单个资源的详情不要求登录，理由与皮肤画廊相同；「我的作品」和「收藏」要求登录——它们是关于某个账号的问题，没有账号时答案要么是空的，要么是别人的。
+
+资源内容按它是什么来校验：回复只有 prompt，词库是 1 到 128 条词条且没有 prompt。共享服务对其它组合是整体拒绝而不是忽略多出来的那一半，因为一个带着 prompt 的"词库"，它的作者以为自己发布的是别的东西。
+
+合并共享词库是两次请求：服务端需要知道这是合并到用户自己词库的哪个版本上，所以先读再写，读到的版本号进写请求。共享服务也是这么做的，这也是它不能做成页面自己发一次请求的原因——页面若在两次之间持有那个版本号，就是在用户随时可以离开的一个界面上持有它。
+
+回复模板的保留与移除完全不碰网络，写的是 `files/CommunityLibrary.json`，也就是 `KeyboardSession.communityReplyTemplates` 读的那个文件。它在 state 目录旁边而不是里面：键盘扩展拿到的是 `files/state`，写进那个目录的库会被写在读取方从不查看的地方。写入走新的 C ABI `msime_client_community_resource_library`，因为写它需要那个 store 的校验（reply 类型、非空 prompt、没有词条、五十条上限），而键盘解析这个格式是严格的——宿主自己写等于给一个严格解析的格式添了第二个作者。
+
+请求信封上限从 64 KB 提到 512 KB。每个操作仍各自校验自己的载荷，这一条只是解析前拦掉荒谬输入的第一道；但发布一份社区词库最多带 128 条、每条最长 1024 字符，而服务端允许 350,000 字节内容，64 KB 的信封会在本宿主上拒掉服务端本会接受的资源。
+
+AI 生成皮肤也由 Harmony 承载，对应 MSIME-Apple 的 `AISkinGenerationView` 与 `AISkinService`。`BackendAiSkinService::generate` 在 Rust 里跑完整条流水线，HTTP 归 Rust 的宿主直接用它；本宿主的设置界面走系统 HTTPS 栈，所以自己发这四类请求，把不属于传输的那部分问共享客户端：对模型说什么、回答是不是三套可用的设计、返回的图是不是这个客户端会显示的图。这跟候选那边 `aiRequestForQuery` / `parseAiResponse` 的切法是同一个。
+
+指令和解析器不能分开。系统提示词点名了解析器唯一接受的那份文档结构，所以 `compose` 把提示词一并返回，而不是让宿主自己写一份——自己写等于在向模型要一份解析器并非为之而写的文档。
+
+步骤之间的规则放在 `AiSkinRunPolicy`，请求放在 `HarmonyAiSkins`。会出问题的是规则那一半：取消要在每一步之间生效而不只在开头；一个任务失败要停掉另外两个，而不是让它们继续为一套没人会看到的方案出图；任务无论成功、失败还是被放弃都要释放——那是记在用户账号上的上游任务，设备上不会再有任何东西回去停它；进度按已完成的图片计数，因为对着屏幕等的人只关心这个数。这些都不需要网络就能测。
+
+进度单独走一条通道，不混在回复里，方向与偏好变更通知相同，并带上页面自己选的 request id：三张图要几分钟，一次从头到尾不吭声的运行和一次已经停了的运行在屏幕上没有区别；而过期运行的计数器不该去驱动新运行的显示。
+
+Apple 的首页（`KeyboardHomeView`）也由 Harmony 承载，但是按本平台裁剪而不是照抄：五个动作里这里有两个。「设置」打开系统输入法列表，选择器是安装第二步的去处，两个都是本宿主的能力。
+
+`openKeyboard` 故意不提供。Android 为它开一个独立的面板窗口；本宿主的键盘是 InputMethodExtensionAbility，编辑器要它的时候才出现，设置应用没有窗口可开。不提供这个动作时那张卡片会回落到共享的屏幕键盘页，那才是这里"让我看看键盘"的诚实版本。表情和剪贴板两个动作不提供的理由相同：在本宿主上它们是键盘自己键面上的界面，不是窗口。
+
+`registerJavaScriptProxy` 的名单现在由 `scripts/test-harmony-bridge-parity.py` 守着。ArkTS 对注入对象暴露什么有两处决定——类上的方法，和交给 `registerJavaScriptProxy` 的名字——而页面看得见的只有后者。一个名字只加了一处仍然能通过类型检查、能编译、能打包，然后在真机上以 `msimeHarmony.<name> is not a function` 的形式失败，表现是某一块功能就是不工作，而那恰好在这里谁也跑不了的那个平台上。具名皮肤库那一片就是这么漏的：方法写了，名字没注册，三道绿灯什么都没说。
+
+个人词库文件导入也由 Harmony 承载，对应 MSIME-Apple 的 `PersonalDictionaryImportView` 与 `PersonalDictionaryImport`。共享页面上的那张卡片只在宿主提供 `dictionary.importPersonal` 时出现，此前本宿主不提供。
+
+这一条走队列而不是 Engine，是这里唯一这么做的词库操作。其余操作（列表、单条编辑、导入词库文件、导出）直接取 Engine 的维护锁，那对"在设置窗口里改一个词、并盯着旁边的列表看结果"是对的。导入个人词库文件不是那种操作：用户什么时候导入由他自己决定，键盘开着的可能性和关着的一样大，而"dictionary maintenance busy"不是"请把这些词加进去"的回答。
+
+队列是 Apple 与 Android 宿主已经给出的答案：词条写进 `<preferences_directory>/PersonalDictionary`，键盘在下一次建立会话之前把它们应用掉——那是键盘一生中唯一确定没有会话开着的时刻，和 Android 在 `scheduleEngineStartup` 里选的边界是同一个。这也是卡片上写"已加入同步队列"而不是"已导入"的原因：在本宿主上那句话同样是实话。
+
+排空是尽力而为的。store 会保留没能应用的词条，失败只是推迟而不是丢失；为一个词库问题拒绝启动键盘，会把它变成"没有键盘"。
+
+`personal_dictionary_request_json` 此前只有 Tauri 宿主当 Rust 直接调，本次以 `msime_client_personal_dictionary_request` 发布给通过 C ABI 到达这个 crate 的宿主。NAPI 侧的 `personalDictionarySync`（排空那一半）本来就已经导出，只是没有人调用。
+
+键盘上的「AI 润色」也由 Harmony 承载，对应 MSIME-Apple 的 `KeyboardAIView` 与 Android 的 `aiPolishPanel`。
+
+Apple 润色的是**选区**：用户选中一段话，点润色，面板给出那一段的重写。HarmonyOS 不给输入法读取选区的能力——`InputClient` 只有 `getForwardSync`（光标前）和 `getBackwardSync`（光标后），选区只以一对下标的形式通知键盘——照抄那个手势等于画一个不知道自己在操作什么的按钮。所以这里润色的是光标前的文字，也就是用户刚打完的那段话。同一个意图，用这个平台确实提供的东西表达；在手机上它也是更自然的手势：先打，再理。
+
+请求复用 `HarmonyVoicePolisher`，那本来就是本宿主的润色器。这不是顺手：它允许重写后的段落里的换行，而旁边那个 AI 候选解析器拒绝一切控制字符——后者是给候选词用的，把一段重写过的消息送进去会让每一条分段的结果被静默丢掉。会话持有自己的润色器而不是复用识别器那一个：识别器在每次录音开始、结束或放弃时都会取消它，那对转写是对的，对用户正等着的一次重写不是。
+
+替换前会重新读一次光标前的文字并要求原文还在那里。一次润色要几秒，其间用户可以继续打字、移动光标或换个输入框；那时替换会删掉现在那里的东西，再把另一段话的重写放进去。不匹配就拒绝并说明，而不是硬替。
+
+删除长度按码点计算而不是 `String.length`。`deleteBackwardSync(length)` 的文档只写了"length of text"，两种读法对 BMP 之外的字符不一样——句中一个 emoji 是一个码点、两个 UTF-16 单元；本宿主唯一把单位钉死的地方是退格路径的注释，写的是"一个 scalar"，这里采用同一读法。这是本片唯一一个真机可能推翻的判断，而上面那次重读正是为它兜底：单位错了的代价是一次拒绝，不是一条被改坏的消息。
+
+工具面板里的入口只在配置了润色服务时可用，并随语音设置的变更通知一起重新判定——重写发到用户自己的服务，一个永远失败的卡片只会教会用户忽略这个面板。
+
+词库页的「词库信息」也由 Harmony 承载，对应 MSIME-Apple `FeatureSettingsViews` 里的那一节。随应用安装的词库带着一份清单，写明它是按哪套规格构建的、来自上游哪个提交；Apple 直接从 app bundle 里读，而把资源暂存进沙箱的宿主读不到，那个路径也不该告诉设置页。
+
+只回两个字段。清单里还有 journal 模式、格式契约和全部第三方引用，没有一条回答页面在问的那个问题——"我装的是什么，它从哪来"。读不到就报错而不是猜：把词库版本说错，比不说更糟。
+
+读的是暂存后的引擎资源而不是模块的 rawfile：暂存才是对着固定锁校验的那一步，键盘实际跑的那份副本才值得报告。
 
 候选翻译复用共享 `translation_query` 与 `apply_translations` 代际契约。Harmony 原生边界负责把 Tencent TMT、NiuTrans 和 DeepLX 兼容自定义 provider 的签名/请求描述器及响应解析暴露给 ArkTS，网络传输仍由 Harmony HTTPS 栈完成；本地英文词典释义先在 Engine 侧解析，在线结果只补齐缺失项。多语言释义合并为有界的 ` / ` 展示文本，按 provider、目标语言和词条缓存，过期或 generation 不匹配的结果不会污染当前候选页。英文目标的成功释义通过共享 ABI 写入用户词典覆盖层，凭据只存在于当前请求内，不写日志。
 
@@ -76,7 +158,32 @@ MSIME_OHOS_NDK=/absolute/openharmony/native MSIME_OHOS_DEPS="$deps" \
 
 `SPDLOG_FMT_EXTERNAL` 不能省：它让 spdlog 用上面那份 fmt 而不是自带副本，与 64 位构建的解析方式一致。
 
-仍未在 HarmonyOS 真机或模拟器上运行，因此系统输入法注册、焦点与选区、生命周期、签名、麦克风授权流程和真实编辑器验收都没有证据；构建通过不等于平台接入完成。
+## 应用图标切换：本平台没有这个能力
+
+Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是 `SettingsClient.appIcon`，本宿主不声明它，于是那个控件不出现。这不是还没接，是公开 SDK 里没有对应的 API。
+
+在 API 24 的 `command-line-tools/sdk/default/openharmony/ets` 上查过：`@ohos.bundle.bundleManager` 对外只有 `canOpenLink`、`cleanBundleCacheFilesForSelf`、`getAbilityInfo`、`getAppCloneIdentity`、`getBundleInfo*`、`getBundleNameByUid*`、`getLaunchWant*`、`getPluginBundlePathForSelf`、`getProfileBy*` 和 `getSignatureInfo`——对自身是只读的，加上链接与分身的辅助；`@ohos.bundle.shortcutManager` 只有 `getAllShortcutInfoForSelf` 和 `setShortcutVisibleForSelf`。整个 `api/` 与 `kits/` 下没有 `setAbilityEnabled`、没有 alternate/dynamic icon 的任何形式。iOS 用 `setAlternateIconName`，Android 用 activity-alias 加 `setComponentEnabledSetting`，两条路在这里都没有对应物。
+
+所以这是按平台特性裁剪，而不是欠账：能力模型的用途正是让页面不画一个保存了却什么都不做的开关。如果将来 SDK 提供了对应 API，接法是声明 `appIcon` 并在 `module.json5` 里补上备用入口 ability——那时需要的是真机验证，不是这里的接线。
+
+## 2026-09-21：首次在模拟器上跑起来
+
+在 API 21 的 `Mate 70 Pro` arm64 模拟器（DevEco 自带镜像，`hdc` 连 `127.0.0.1:5555`）上完成了一次装机运行，实测到的东西比之前所有交叉构建加起来都多。
+
+**先是构建根本过不去。** `hvigorw assembleHap` 报 13 个 ArkTS 错误，分布在三个 `.ets` 文件里，全部来自最近合并的几片。`tsc` 全过、单测全绿、设置包构建成功、`verify-local.sh --quick` 通过——没有任何一道门禁编译过 ArkTS，所以 `develop` 处在打不出 HAP 的状态而没人知道。ArkTS 是 TypeScript 的一个严格子集：不认 `unknown` 和 `any`、对象字面量必须对应已声明的类或接口、不支持索引访问类型。`scripts/test-harmony-arkts-subset.py` 现在在 `--quick` 里查前两条（纯语法、零误报）；第三条依赖类型信息——ArkTS 接受 `JSON.stringify({ ok: false, error: x })` 却拒绝里面再嵌一层字面量的同一个调用——纯文本判断要么漏要么误报两百条，两种都试过了，所以那一条明写为只有真编译器能抓。
+
+装机后确认的：
+
+- 系统识别并接受本输入法：`ime -e app.msime.client` 成功，`ime -s` 之后 `ime -g` 返回 `app.msime.client`，`app.msime.client:inputMethod` 进程被系统输入法框架拉起。
+- 共享 React 设置界面在设备上正常渲染：欢迎流程、首页（含底部导航与键盘预览）、词库页。
+- 新增 C ABI 的整条链路通了。词库页显示「规格 desktop」「词库版本 e92a9c7c64e2」，与 `resources/desktop-dictionary.lock.json` 的 `source_commit` 前十二位一致——从 `msime_client_dictionary_manifest` 经 NAPI、ArkTS 桥、`registerJavaScriptProxy` 到共享 React 卡片，每一跳都真的走通了。
+- 引擎资源暂存正常：`staged /data/storage/el2/base/haps/entry/files/engine`。第一次跑打出 `no packaged resources at /engine` 是因为漏了 `stage-resources.sh`，不是代码问题；补上 180 MB 的已验证词库后即正常。
+
+**键盘作为系统输入法在模拟器上完整跑通了。** 在社区页的搜索框里打 `nihao`，组合行显示 `nihao`，候选栏给出 `1 你好`，点选后 `你好` 进入输入框——按键经 ArkTS、NAPI、`crates/host-api` 的 C ABI、`input-runtime`、`engine-bridge` 一路到 C++ Engine 并带着随包词库返回，整条链路真的走通。回车键读的是编辑器自己的动作：搜索框上显示「前往」，组合进行中变成「选定」，组合结束又变回「前往」。
+
+**这里有一个必须写下来的操作事实：输入法要在 `FULL_EXPERIENCE_MODE` 下才会被框架驱动。** `ime -e <bundle>` 的默认是 `-b`，也就是 `BASIC_MODE`；在那个模式下 `ime -s` 会成功、`ime -g` 会报告本输入法是当前输入法、`app.msime.client:inputMethod` 进程也会起来，但编辑器获得焦点时框架打的是 `ShowKeyboardImplWithoutLock, panel not create` 与 `OnInputStart, entry is nullptr`，而本扩展的 ArkTS 一行日志都没有——`onCreate` 从未运行。表现就是键盘完全不出现，且看不出任何错误。换成 `ime -e <bundle> -f` 之后，同一次点击立刻打出 `attached to editor: pattern=0 enter=2`，面板正常呈现。做过一次对照：同一个输入框、同一次点击，华为系统输入法在我们处于 BASIC_MODE 时照常弹出，所以这不是模拟器、WebView 或该字段的问题。
+
+仍然没有证据的：账号、社区与 AI 服务的真实往返（本模拟器无网络，社区页显示的是离线预览数据）、`deleteBackwardSync(length)` 的单位、读屏实际念出的内容、个人词库队列在下一次会话启动时是否真的被排空。真机签名与麦克风授权流程同样未验。
 
 按键音与振动现在也能从设置页调整，而不只是键盘内那张卡片：共享 `mobileKeyboardFeedback` 客户端读写键盘自己的 `key-feedback.json`，两个进程共用同一份文件（这项设置属于当前设备而非账号，所以不进共享偏好）。设置页是第二个写入者，改动在键盘下次启动时生效。强度预览直接振一下。共享 DTO 把最强一档叫 `strong`，键盘自己的枚举叫 `heavy`，两边由 `KeyboardFeedbackBridge` 转换——直接赋值会写入键盘不认识的值，`KeyboardFeedback.parse` 会静默回退，表现为"保存了但手感没变"。
 

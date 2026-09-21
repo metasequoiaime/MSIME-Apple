@@ -179,11 +179,18 @@ static napi_value invalid(napi_env env, const char *message) {
 
 TEXT_ENTRY(LoadPreferences, msime_client_load_preferences)
 TEXT_ENTRY(SkinCatalog, msime_client_skin_catalog)
+TEXT_ENTRY(DictionaryManifest, msime_client_dictionary_manifest)
 TEXT_ENTRY(SkinResource, msime_client_skin_resource)
 TEXT_ENTRY(SkinToolbarStylesheet, msime_client_skin_toolbar_stylesheet)
+TEXT_ENTRY(CustomSkinLibrary, msime_client_custom_skin_library)
+TEXT_ENTRY(CommunitySkinInstall, msime_client_community_skin_install)
+TEXT_ENTRY(KeyboardSkinTrial, msime_client_keyboard_skin_trial)
+TEXT_ENTRY(CommunityResourceLibrary, msime_client_community_resource_library)
+TEXT_ENTRY(AiSkinPlan, msime_client_ai_skin_plan)
 TEXT_ENTRY(Dictionary, msime_client_dictionary)
 TEXT_ENTRY(TypingStatistics, msime_client_typing_statistics)
 TEXT_ENTRY(PersonalDictionarySync, msime_client_personal_dictionary_sync)
+TEXT_ENTRY(PersonalDictionaryRequest, msime_client_personal_dictionary_request)
 TEXT_ENTRY(PrepareHost, msime_client_prepare_host)
 TEXT_ENTRY(SnapshotVersion, msime_client_snapshot_version)
 TEXT_ENTRY(CloudRequestUrl, msime_client_cloud_request_url)
@@ -626,8 +633,14 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("hostCapabilities", HostCapabilities),
         ENTRY("loadPreferences", LoadPreferences),
         ENTRY("skinCatalog", SkinCatalog),
+        ENTRY("dictionaryManifest", DictionaryManifest),
         ENTRY("skinResource", SkinResource),
         ENTRY("skinToolbarStylesheet", SkinToolbarStylesheet),
+        ENTRY("customSkinLibrary", CustomSkinLibrary),
+        ENTRY("communitySkinInstall", CommunitySkinInstall),
+        ENTRY("keyboardSkinTrial", KeyboardSkinTrial),
+        ENTRY("communityResourceLibrary", CommunityResourceLibrary),
+        ENTRY("aiSkinPlan", AiSkinPlan),
         ENTRY("dictionary", Dictionary),
         ENTRY("savePreferences", SavePreferences),
         ENTRY("updatePreferences", UpdatePreferences),
@@ -652,6 +665,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("applyCloudResponse", ApplyCloudResponse),
         ENTRY("applyOnlineCandidates", ApplyOnlineCandidates),
         ENTRY("personalDictionarySync", PersonalDictionarySync),
+        ENTRY("personalDictionaryRequest", PersonalDictionaryRequest),
         ENTRY("prepareHost", PrepareHost),
         ENTRY("snapshotVersion", SnapshotVersion),
         ENTRY("snapshotPrepare", SnapshotPrepare),

@@ -149,6 +149,11 @@ import {
 } from "../entry/src/main/ets/keyboard/skin/CustomKeyboardSkin";
 import { DictionaryMaintenancePolicy } from "../entry/src/main/ets/keyboard/DictionaryMaintenancePolicy";
 import {
+  AiPolishPolicy,
+  MAX_POLISH_SOURCE_CHARACTERS,
+  codePointLength,
+} from "../entry/src/main/ets/keyboard/input/AiPolishPolicy";
+import {
   HandwritingStrokePolicy,
   HANDWRITING_CANVAS_SIZE,
   HANDWRITING_MAX_CANDIDATES,
@@ -167,6 +172,21 @@ import {
   AccountSessionStore,
   AccountTransport,
 } from "../entry/src/main/ets/account/AccountCloudBridge";
+import {
+  AiSkinCancelled,
+  AiSkinFailure,
+  AiSkinRun,
+  AiSkinRunner,
+  ArtworkJob,
+} from "../entry/src/main/ets/account/AiSkinRunPolicy";
+import {
+  AccountPreferenceError,
+  AccountPreferenceSchema,
+  AccountPreferences,
+  applyAccountPreferences,
+  localAccountPreferences,
+  mergeAccountPreferences,
+} from "../entry/src/main/ets/account/AccountPreferencePlan";
 import { TypingStatisticsPolicy } from "../entry/src/main/ets/keyboard/TypingStatisticsPolicy";
 import { OnlineCandidatePolicy } from "../entry/src/main/ets/keyboard/candidate/OnlineCandidatePolicy";
 import {
@@ -310,6 +330,11 @@ group("maps Harmony commits to shared typing-statistics sources", () => {
   check(
     TypingStatisticsPolicy.day(new Date(2026, 8, 19)) === "2026-09-19",
     "day keys use the native local calendar date",
+  );
+  check(
+    TypingStatisticsPolicy.hour(new Date(2026, 8, 19, 0, 30)) === 0 &&
+      TypingStatisticsPolicy.hour(new Date(2026, 8, 19, 23, 59)) === 23,
+    "hour buckets use the same local calendar as the day beside them",
   );
 });
 
@@ -463,6 +488,96 @@ group("refuses every mutation while composition is active", () => {
     check(decision.maintenance, `${operation} remains classified as maintenance`);
     check(decision.error === "dictionary maintenance busy", `${operation} reports the busy state`);
   }
+});
+
+group("importing a file is queued, so the keyboard being open cannot refuse it", () => {
+  // The user chooses when to import, and they are as likely to do it with the keyboard up as with
+  // it down. "dictionary maintenance busy" is not an answer to "add these words".
+  for (const composing of [false, true]) {
+    const decision = DictionaryMaintenancePolicy.decide("import_personal", composing);
+    check(decision.queued, `import_personal goes to the queue (composing: ${composing})`);
+    check(decision.allowed, `and is allowed (composing: ${composing})`);
+    // It writes its own file and never the Engine, so there is nothing to take a window for and
+    // nothing for a live session to be stopped over.
+    check(!decision.maintenance, `without asking for the Engine (composing: ${composing})`);
+    check(decision.error === "", `and without a refusal (composing: ${composing})`);
+  }
+  // Only this one. A single edit made in the settings window is a word the user is watching for in
+  // the list beside it; queueing that would leave the list unchanged until the keyboard next
+  // started, which looks exactly like the edit having been lost.
+  for (const operation of ["list", "edit", "import", "export", "retry", "dismiss_failure"]) {
+    check(
+      !DictionaryMaintenancePolicy.decide(operation, false).queued,
+      `${operation} still goes to the Engine`,
+    );
+  }
+});
+
+group("polishing acts on what is in front of the caret, and only if it still is", () => {
+  // HarmonyOS gives an input method no way to read a selection, so the Apple gesture — highlight,
+  // then polish — has nothing to act on here. The text before the caret is what this platform does
+  // offer, and on a phone it is also the more natural gesture: type, then tidy.
+  check(
+    AiPolishPolicy.source("今天天气不错啊") === "今天天气不错啊",
+    "the preceding text is the source",
+  );
+  // A trailing newline is the user finishing a line, not part of the sentence they want rewritten.
+  check(
+    AiPolishPolicy.source("今天天气不错啊\n\n") === "今天天气不错啊",
+    "trailing whitespace is dropped",
+  );
+  check(AiPolishPolicy.source("") === "", "an empty editor offers nothing");
+  check(AiPolishPolicy.source("   ") === "", "and neither does whitespace alone");
+  check(AiPolishPolicy.source("好") === "", "nor a fragment too short to be worth a request");
+  const long = "字".repeat(MAX_POLISH_SOURCE_CHARACTERS + 50);
+  // Bounded from the end: the sentence next to the caret is the one being written.
+  check(
+    codePointLength(AiPolishPolicy.source(long)) === MAX_POLISH_SOURCE_CHARACTERS,
+    "an overlong context is bounded",
+  );
+
+  check(!AiPolishPolicy.usable("今天天气不错", ""), "an empty rewrite is not a result");
+  check(!AiPolishPolicy.usable("今天天气不错", "   "), "and neither is whitespace");
+  check(
+    !AiPolishPolicy.usable("今天天气不错", "今天天气不错"),
+    "a rewrite identical to the source is not worth offering",
+  );
+  check(AiPolishPolicy.usable("今天天气不错", "今天天气很好。"), "a genuine rewrite is");
+  // Polish output is prose and may be written in paragraphs. This is the reason it does not go
+  // through the AI candidate parser beside it, which rejects every control character.
+  check(
+    AiPolishPolicy.usable("要点一 要点二", "1. 要点一\n2. 要点二"),
+    "a multi-line rewrite is a result, not a refusal",
+  );
+
+  const source = "今天天气不错";
+  const result = "今天天气很好。";
+  // The editor is re-read at the moment of replacing. A request takes seconds, and replacing after
+  // the user has typed would delete what they just wrote and put the rewrite of something else in.
+  const ready = AiPolishPolicy.replacement(source, result, `你好，${source}`);
+  check(ready !== null, "an unchanged editor can be replaced");
+  check(ready?.deleteCount === codePointLength(source), "deleting exactly the source");
+  check(ready?.insert === result, "and inserting the rewrite");
+  check(
+    AiPolishPolicy.replacement(source, result, `${source}后来又下雨了`) === null,
+    "text typed after the source refuses the replacement",
+  );
+  check(
+    AiPolishPolicy.replacement(source, result, "完全不同的内容") === null,
+    "and so does a different editor entirely",
+  );
+  check(AiPolishPolicy.replacement("", result, "") === null, "an empty source replaces nothing");
+
+  // Counted in code points, not UTF-16 units: an emoji is one thing the user sees deleted and two
+  // units of JavaScript string. The unit `deleteBackwardSync` takes is the one open question here,
+  // which is why the re-read above stands between a wrong answer and a corrupted message.
+  const withEmoji = "今天天气不错🙂";
+  check(withEmoji.length === 8, "the source is eight UTF-16 units");
+  check(codePointLength(withEmoji) === 7, "and seven code points");
+  check(
+    AiPolishPolicy.replacement(withEmoji, result, withEmoji)?.deleteCount === 7,
+    "the delete count follows the code points",
+  );
 });
 
 group("spacing clamps to its range and falls back on a negative", () => {
@@ -4452,6 +4567,811 @@ group("account and cloud clipboard bridge keeps secrets native", () => {
         JSON.parse(result).error === "account_invalid",
         "dictionary offsets are bounded before transport",
       );
+    });
+});
+
+/** A schema declaring everything this host maps, which is what a caught-up server would send. */
+function fullPreferenceSchema(): AccountPreferenceSchema {
+  const fields: Record<string, { type: string }> = {};
+  const declare = (keys: string[], type: string) => {
+    for (const key of keys) fields[key] = { type };
+  };
+  declare(
+    [
+      "input.schema",
+      "input.character_set",
+      "input.shuangpin_schema",
+      "input.frequency_mode",
+      "platform.harmony.keyboard_layout",
+      "platform.harmony.keyboard_skin",
+      "platform.harmony.custom_keyboard_skin",
+      "platform.harmony.theme",
+      "platform.harmony.candidate_skin",
+      "platform.harmony.haptic_strength",
+    ],
+    "string",
+  );
+  declare(
+    [
+      "input.learning",
+      "input.chinese_punctuation",
+      "input.smart_punctuation",
+      "input.paired_punctuation",
+      "input.wubi_code_hint",
+      "platform.harmony.voice_shortcut",
+      "platform.harmony.sound_enabled",
+      "platform.harmony.haptics_enabled",
+    ],
+    "boolean",
+  );
+  declare(
+    [
+      "input.frequency_trigger_count",
+      "input.frequency_linear_step",
+      "platform.harmony.touch_key_spacing_tenths",
+      "platform.harmony.touch_row_spacing_tenths",
+      "platform.harmony.keyboard_height_adjustment",
+    ],
+    "integer",
+  );
+  return { fields, maximumBytes: 64 * 1024, updateMode: "replace", revisionRequired: true };
+}
+
+const syncFeedback = { soundEnabled: true, hapticsEnabled: false, hapticStrength: "light" };
+
+group("the account settings sync maps this host's document, not another's", () => {
+  const local = {
+    scheme: "shuangpin",
+    traditional_chinese_output: true,
+    shuangpin_profile: "ziranma",
+    learning: false,
+    frequency: { mode: "linear", trigger_count: 3, linear_step: 2 },
+    chinese_punctuation: false,
+    touch_keyboard_layout: "nine_key",
+    touch_keyboard_skin: "midnight",
+    candidate_skin: "wechat",
+    touch_key_spacing_tenths: 40,
+    custom_touch_keyboard_skin: { background: 1 },
+  };
+  const values = localAccountPreferences(local, syncFeedback);
+  check(values["input.schema"] === "shuangpin", "the input schema travels");
+  check(values["input.character_set"] === "traditional", "and the character set as a word");
+  check(values["input.frequency_trigger_count"] === 3, "and the frequency numbers");
+  check(values["platform.harmony.keyboard_skin"] === "midnight", "and the touch skin");
+  // Not platform.android: the two are separate devices with separate keyboards, and sharing the
+  // namespace would let a HarmonyOS phone overwrite the skin on the user's Android keyboard.
+  check(
+    Object.keys(values).every((key) => !key.startsWith("platform.android.")),
+    "this host never writes another platform's keys",
+  );
+  check(
+    values["platform.harmony.custom_keyboard_skin"] === JSON.stringify({ background: 1 }),
+    "the custom design travels as one string, as the other hosts send it",
+  );
+  check(values["platform.harmony.haptic_strength"] === "light", "feedback comes from its own file");
+
+  // A document written by an older build is missing the keys that build did not have. Refusing to
+  // sync at all because of one absent field would help nobody.
+  const sparse = localAccountPreferences({}, syncFeedback);
+  check(sparse["input.schema"] === "quanpin", "an absent member takes the shared default");
+  check(sparse["input.learning"] === true, "including the ones that default to on");
+});
+
+group("uploading keeps what other devices wrote", () => {
+  const schema = fullPreferenceSchema();
+  const base: AccountPreferences = {
+    revision: 7,
+    settings: { "platform.ios.keyboard_skin": "rose", "input.schema": "quanpin" },
+  };
+  const merged = mergeAccountPreferences(base, { "input.schema": "wubi" }, schema);
+  check(merged.settings["input.schema"] === "wubi", "this host's value wins for its own key");
+  check(
+    merged.settings["platform.ios.keyboard_skin"] === "rose",
+    "another platform's field is kept rather than cleared",
+  );
+  check(merged.revision === 7, "the revision is the one that was read");
+
+  let refusedUnknown = false;
+  try {
+    mergeAccountPreferences(base, { "input.unknown_field": "x" }, schema);
+  } catch (error) {
+    refusedUnknown = error instanceof AccountPreferenceError && error.message === "account_invalid";
+  }
+  check(refusedUnknown, "writing a key the schema does not declare is refused, not dropped");
+
+  let refusedType = false;
+  try {
+    mergeAccountPreferences(base, { "input.learning": "yes" }, schema);
+  } catch (error) {
+    refusedType = error instanceof AccountPreferenceError && error.message === "account_invalid";
+  }
+  check(refusedType, "and so is the right key with the wrong type");
+});
+
+group("applying writes only what the schema declares", () => {
+  const schema = fullPreferenceSchema();
+  const local = { scheme: "quanpin", learning: true, frequency: { mode: "promote" } };
+  const cloud: AccountPreferences = {
+    revision: 3,
+    settings: {
+      "input.schema": "wubi",
+      "input.learning": false,
+      "input.frequency_trigger_count": 5,
+      "platform.harmony.candidate_skin": "graphite",
+    },
+  };
+  const applied = applyAccountPreferences(local, cloud, schema, syncFeedback);
+  check(applied.preferences.scheme === "wubi", "a declared string is written");
+  check(applied.preferences.learning === false, "and a declared boolean");
+  check(
+    (applied.preferences.frequency as Record<string, unknown>).trigger_count === 5,
+    "the frequency record is merged rather than replaced",
+  );
+  check(
+    (applied.preferences.frequency as Record<string, unknown>).mode === "promote",
+    "so a member the cloud said nothing about survives",
+  );
+  check(applied.preferences.candidate_skin === "graphite", "and the candidate skin is written");
+  // Nothing in the cloud document mentioned the three feedback keys, so the file is left alone
+  // rather than rewritten with whatever the defaults happen to be.
+  check(applied.feedback === null, "an untouched feedback file is not rewritten");
+
+  // A key the server has not declared yet does not travel and is not read. This is the state every
+  // platform.harmony.* key is in until the service declares it, so it has to be the quiet case.
+  const bare: AccountPreferenceSchema = {
+    fields: { "input.schema": { type: "string" } },
+    maximumBytes: 1024,
+    updateMode: "replace",
+    revisionRequired: true,
+  };
+  const partial = applyAccountPreferences(local, cloud, bare, syncFeedback);
+  check(partial.preferences.scheme === "wubi", "the declared key is still applied");
+  check(partial.preferences.learning === true, "while an undeclared one leaves the local value");
+
+  let refusedValue = false;
+  try {
+    applyAccountPreferences(
+      local,
+      { revision: 1, settings: { "input.schema": "esperanto" } },
+      schema,
+      syncFeedback,
+    );
+  } catch (error) {
+    refusedValue = error instanceof AccountPreferenceError && error.message === "account_invalid";
+  }
+  check(refusedValue, "a declared key carrying a value this host has no meaning for is refused");
+
+  let refusedMismatch = false;
+  try {
+    applyAccountPreferences(
+      local,
+      { revision: 1, settings: { "input.learning": 1 } },
+      schema,
+      syncFeedback,
+    );
+  } catch (error) {
+    refusedMismatch =
+      error instanceof AccountPreferenceError && error.message === "account_invalid";
+  }
+  check(refusedMismatch, "and a declared key arriving with the wrong type is refused, not ignored");
+
+  const withFeedback = applyAccountPreferences(
+    local,
+    { revision: 1, settings: { "platform.harmony.sound_enabled": false } },
+    schema,
+    syncFeedback,
+  );
+  check(withFeedback.feedback?.soundEnabled === false, "a feedback key is written");
+  check(
+    withFeedback.feedback?.hapticStrength === "light",
+    "and the members it did not mention keep their local values",
+  );
+});
+
+/** A runner whose answers are scripted, so the rules between the steps can be exercised alone. */
+function aiSkinRunner(overrides: Partial<AiSkinRunner> = {}): {
+  runner: AiSkinRunner;
+  created: string[];
+  deleted: string[];
+} {
+  const created: string[] = [];
+  const deleted: string[] = [];
+  const jobId = (index: number) => `${index}`.repeat(48).slice(0, 48);
+  let next = 1;
+  const plan = (suffix: string) => ({
+    name: `晨雾${suffix}`,
+    description: "说明",
+    artworkPrompt: `场景${suffix}`,
+    design: {},
+  });
+  const runner: AiSkinRunner = {
+    defaultModel: async () => "fast",
+    chat: async () => "{}",
+    plans: () => [plan("甲"), plan("乙"), plan("丙")],
+    createJob: async (artworkPrompt: string) => {
+      created.push(artworkPrompt);
+      const id = jobId(next++);
+      return { id, state: "succeeded", artwork: { b64_json: "x" } } as ArtworkJob;
+    },
+    readJob: async (id: string) => ({ id, state: "succeeded", artwork: { b64_json: "x" } }),
+    deleteJob: async (id: string) => {
+      deleted.push(id);
+    },
+    validateArtwork: () => true,
+    wait: async () => {},
+    now: () => 0,
+    ...overrides,
+  };
+  return { runner, created, deleted };
+}
+
+group("an AI skin run releases what it started, whichever way it ends", () => {
+  const { runner, created, deleted } = aiSkinRunner();
+  const run = new AiSkinRun(runner);
+  const ticks: number[] = [];
+  void run
+    .generate("晨雾里的竹林", (completed) => ticks.push(completed))
+    .then((proposals) => {
+      check(proposals.length === 3, "three illustrated designs come back");
+      check(created.length === 3, "one artwork job per plan");
+      // Every job is released. The user's account is what an abandoned upstream task is charged to,
+      // and nothing left on this device would ever go back to stop it.
+      check(deleted.length === 3, "and every one of them is released");
+      // Counted in finished pictures rather than as a fraction of the whole run: the catalog and the
+      // chat are quick and the pictures are not, so a percentage would sit still and say nothing.
+      check(
+        ticks.length === 3 && Math.max(...ticks) === 3,
+        "progress counts finished pictures, up to three",
+      );
+    });
+
+  // A run that fails partway must still release the job it had already created, and must not leave
+  // its siblings generating pictures for a set nobody will see.
+  const failingCreated: string[] = [];
+  const failing = aiSkinRunner({
+    createJob: async (artworkPrompt: string) => {
+      if (artworkPrompt === "场景乙") throw new AiSkinFailure("ai_skin_unavailable");
+      failingCreated.push(artworkPrompt);
+      return {
+        id: "a".repeat(48),
+        state: "succeeded",
+        artwork: { b64_json: "x" },
+      } as ArtworkJob;
+    },
+  });
+  const failed = new AiSkinRun(failing.runner);
+  void failed
+    .generate("晨雾", () => {})
+    .then(() => check(false, "a failing job must not resolve"))
+    .catch((error) => {
+      check(error instanceof AiSkinFailure, "the failure is reported, not swallowed");
+      check(failed.cancelled, "and the siblings are stopped");
+      check(
+        failing.deleted.length === failingCreated.length && failingCreated.length > 0,
+        "while the jobs that were created are still released",
+      );
+    });
+
+  // Cancelling before anything starts costs nothing, and has to be recognisable as a cancellation
+  // rather than as a failure — the page says different things about the two.
+  const idle = aiSkinRunner();
+  const cancelled = new AiSkinRun(idle.runner);
+  cancelled.cancel();
+  void cancelled
+    .generate("晨雾", () => {})
+    .then(() => check(false, "a cancelled run must not resolve"))
+    .catch((error) => {
+      check(error instanceof AiSkinCancelled, "cancelling is not a failure");
+      check(idle.created.length === 0, "and nothing was requested");
+    });
+
+  // A job the service never finishes is given the shared 200 seconds and then abandoned, rather
+  // than polled until the page is closed.
+  let clock = 0;
+  const slow = aiSkinRunner({
+    createJob: async () => ({ id: "b".repeat(48), state: "running" }) as ArtworkJob,
+    readJob: async (id: string) => ({ id, state: "running" }),
+    wait: async () => {
+      clock += 5000;
+    },
+    now: () => clock,
+  });
+  const stalled = new AiSkinRun(slow.runner);
+  void stalled
+    .generate("晨雾", () => {})
+    .then(() => check(false, "a stalled run must not resolve"))
+    .catch((error) => {
+      check(
+        error instanceof AiSkinFailure && error.message === "ai_skin_unavailable",
+        "a job that never finishes is abandoned",
+      );
+      check(slow.deleted.length > 0, "and released on the way out");
+    });
+
+  // The job id goes into a path, so its shape is checked before it does.
+  const forged = aiSkinRunner({
+    createJob: async () => ({ id: "../../users/me", state: "succeeded" }) as ArtworkJob,
+  });
+  void new AiSkinRun(forged.runner)
+    .generate("晨雾", () => {})
+    .then(() => check(false, "a forged job id must not resolve"))
+    .catch((error) => {
+      check(
+        error instanceof AiSkinFailure && error.message === "ai_skin_response",
+        "a job id that is not 48 hex characters never reaches a path",
+      );
+    });
+
+  // A picture the shared client will not show is a failed proposal, not one drawn with a blank.
+  const unusable = aiSkinRunner({ validateArtwork: () => false });
+  void new AiSkinRun(unusable.runner)
+    .generate("晨雾", () => {})
+    .then(() => check(false, "an unusable picture must not resolve"))
+    .catch((error) => {
+      check(
+        error instanceof AiSkinFailure && error.message === "ai_skin_response",
+        "an artwork the shared client refuses fails the proposal",
+      );
+      check(unusable.deleted.length > 0, "and its job is still released");
+    });
+});
+
+group("shared dictionaries and reply templates keep their own bounds", () => {
+  let stored: string | null = null;
+  const store: AccountSessionStore = {
+    load: () => stored,
+    save: (value) => {
+      stored = value;
+    },
+    clear: () => {
+      stored = null;
+    },
+  };
+  const calls: { method: string; path: string; token?: string; body?: Record<string, unknown> }[] =
+    [];
+  const transport: AccountTransport = {
+    request: async (method, path, token, body) => {
+      calls.push({ method, path, token, body });
+      if (path === "/v1/auth/login")
+        return {
+          status: 200,
+          body: JSON.stringify({
+            access_token: "a".repeat(64),
+            refresh_token: "b".repeat(64),
+            token_type: "Bearer",
+            expires_in: 3600,
+            user: { id: "u1", display_name: "Test", created_at: "2026-01-01" },
+          }),
+        };
+      if (path.includes("/dictionaries/quick/catalog"))
+        return { status: 200, body: '{"revision":12}' };
+      return { status: 200, body: '{"items":[],"has_more":false}' };
+    },
+  };
+  const bridge = new AccountCloudBridge(transport, store);
+  const resources = (action: Record<string, unknown>) =>
+    bridge.handle(JSON.stringify({ operation: "community_resource", ...action }));
+  const id = "10000000-0000-4000-8000-000000000001";
+
+  void resources({
+    resource_operation: "list",
+    kind: "dictionary",
+    scope: "",
+    search: "",
+    offset: 0,
+  }).then((result) => {
+    check(JSON.parse(result).ok === true, "the public list reads without an account");
+  });
+  // 我的作品 and 收藏 are questions about an account. Without one the answer is either empty or
+  // somebody else's, so the host refuses rather than asking.
+  void resources({
+    resource_operation: "list",
+    kind: "reply",
+    scope: "mine",
+    search: "",
+    offset: 0,
+  }).then((result) => {
+    check(JSON.parse(result).error === "community_unauthorized", "while a scoped list needs one");
+  });
+  void resources({
+    resource_operation: "list",
+    kind: "song",
+    scope: "",
+    search: "",
+    offset: 0,
+  }).then((result) => {
+    check(JSON.parse(result).error === "community_invalid", "an unknown kind is refused");
+  });
+
+  void bridge
+    .handle('{"operation":"login","challenge_id":"challenge","credential":"123456"}')
+    .then(() => {
+      // Applying is two requests: the server has to be told which revision of the user's own
+      // dictionary this is merging into, so the read's answer goes into the write.
+      void resources({ resource_operation: "apply", id, resource_revision: 3 }).then((result) => {
+        check(JSON.parse(result).ok === true, "applying a shared dictionary is accepted");
+        const applied = calls.find((call) => call.path.endsWith("/apply"));
+        check(
+          applied?.body?.dictionary_revision === 12,
+          "and it carries the revision the catalog just reported",
+        );
+        check(applied?.body?.resource_revision === 3, "together with the resource revision");
+      });
+
+      // A reply is a prompt and nothing else; a dictionary is entries and no prompt. The shared
+      // service refuses the other combinations rather than ignoring the extra half, because a
+      // "dictionary" carrying a prompt is a resource whose author believed it was something else.
+      void resources({
+        resource_operation: "publish",
+        id,
+        kind: "reply",
+        name: "高情商",
+        description: "",
+        content: { prompt: "换个说法" },
+        revision: 1,
+      }).then((result) => {
+        check(JSON.parse(result).ok === true, "a reply carrying only a prompt publishes");
+      });
+      void resources({
+        resource_operation: "publish",
+        id,
+        kind: "reply",
+        name: "高情商",
+        description: "",
+        content: {
+          prompt: "换个说法",
+          entries: [{ kind: "pinyin", code: "ni", word: "你", weight: 1 }],
+        },
+        revision: 1,
+      }).then((result) => {
+        check(
+          JSON.parse(result).error === "community_invalid",
+          "a reply carrying dictionary entries does not",
+        );
+      });
+      void resources({
+        resource_operation: "publish",
+        id,
+        kind: "dictionary",
+        name: "词库",
+        description: "",
+        content: { entries: [] },
+        revision: 1,
+      }).then((result) => {
+        check(JSON.parse(result).error === "community_invalid", "nor an empty dictionary");
+      });
+      void resources({
+        resource_operation: "publish",
+        id,
+        kind: "dictionary",
+        name: "词库",
+        description: "",
+        content: {
+          entries: [
+            { kind: "pinyin", code: "ni", word: "你", weight: 1 },
+            { kind: "pinyin", code: "ni", word: "你", weight: 5 },
+          ],
+        },
+        revision: 1,
+      }).then((result) => {
+        check(
+          JSON.parse(result).error === "community_invalid",
+          "nor one that lists the same word twice",
+        );
+      });
+      void resources({
+        resource_operation: "publish",
+        id,
+        kind: "dictionary",
+        name: "词库",
+        description: "",
+        content: {
+          entries: Array.from({ length: 129 }, (_, index) => ({
+            kind: "pinyin",
+            code: `code${index}`,
+            word: `词${index}`,
+            weight: 1,
+          })),
+        },
+        revision: 1,
+      }).then((result) => {
+        check(JSON.parse(result).error === "community_invalid", "nor one past 128 entries");
+      });
+
+      // 128 entries of long words is more than the 64 KB the action envelope used to allow, and
+      // the service accepts 350,000 bytes of content. A smaller envelope would have refused here
+      // what the server would have taken.
+      void resources({
+        resource_operation: "publish",
+        id,
+        kind: "dictionary",
+        name: "词库",
+        description: "",
+        content: {
+          entries: Array.from({ length: 128 }, (_, index) => ({
+            kind: "pinyin",
+            code: `code${index}`,
+            word: "词".repeat(1000),
+            weight: 1,
+          })),
+        },
+        revision: 1,
+      }).then((result) => {
+        check(JSON.parse(result).ok === true, "a full-size dictionary fits through the envelope");
+      });
+    });
+});
+
+group("the skin gallery is public to browse and signed in to change", () => {
+  let stored: string | null = null;
+  const store: AccountSessionStore = {
+    load: () => stored,
+    save: (value) => {
+      stored = value;
+    },
+    clear: () => {
+      stored = null;
+    },
+  };
+  const calls: { method: string; path: string; token?: string }[] = [];
+  let status = 200;
+  const transport: AccountTransport = {
+    request: async (method, path, token) => {
+      calls.push({ method, path, token });
+      if (path === "/v1/auth/login")
+        return {
+          status: 200,
+          body: JSON.stringify({
+            access_token: "a".repeat(64),
+            refresh_token: "b".repeat(64),
+            token_type: "Bearer",
+            expires_in: 3600,
+            user: { id: "u1", display_name: "Test", created_at: "2026-01-01" },
+          }),
+        };
+      return { status, body: '{"skins":[],"has_more":false}' };
+    },
+  };
+  const bridge = new AccountCloudBridge(transport, store);
+  const gallery = (action: Record<string, unknown>) =>
+    bridge.handle(JSON.stringify({ operation: "community_skin", ...action }));
+  const id = "10000000-0000-4000-8000-000000000001";
+
+  // Browsing signed out is the point: someone who cannot see the gallery has no way to decide
+  // whether an account is worth making.
+  void gallery({ community_operation: "list", offset: 0, search: "" }).then((result) => {
+    check(JSON.parse(result).ok === true, "the gallery is readable without an account");
+    const listed = calls.find((call) => call.path.startsWith("/v1/community/skins?"));
+    check(listed?.token === undefined, "and that request carries no token");
+  });
+  void gallery({ community_operation: "download", id }).then((result) => {
+    check(
+      JSON.parse(result).error === "community_unauthorized",
+      "but downloading needs an account",
+    );
+  });
+  void gallery({ community_operation: "rate", id, stars: 5 }).then((result) => {
+    check(JSON.parse(result).error === "community_unauthorized", "and so does rating");
+  });
+
+  // An id goes into the URL path. Interpolating whatever the page sent would let a page turn a
+  // skin id into a different endpoint, so the shape is the check.
+  void gallery({ community_operation: "detail", id: "../../users/me" }).then((result) => {
+    check(
+      JSON.parse(result).error === "community_invalid",
+      "an id that is not a uuid never reaches a path",
+    );
+  });
+  void gallery({ community_operation: "rate", id, stars: 9 }).then((result) => {
+    check(JSON.parse(result).error === "community_invalid", "a rating outside 1..5 is refused");
+  });
+  void gallery({ community_operation: "list", offset: 0, search: "x".repeat(129) }).then(
+    (result) => {
+      check(JSON.parse(result).error === "community_invalid", "and an overlong search");
+    },
+  );
+  void gallery({ community_operation: "unknown", id }).then((result) => {
+    check(JSON.parse(result).error === "community_invalid", "and an unknown operation is named");
+  });
+
+  void bridge
+    .handle('{"operation":"login","challenge_id":"challenge","credential":"123456"}')
+    .then(() => {
+      void gallery({ community_operation: "list", offset: 0, search: "森林" }).then(() => {
+        const listed = calls.filter((call) => call.path.startsWith("/v1/community/skins?")).pop();
+        check(listed?.token !== undefined, "a signed-in browse carries the session");
+        check(
+          listed?.path.includes(encodeURIComponent("森林")) === true,
+          "and the search is encoded rather than pasted into the URL",
+        );
+      });
+      void gallery({
+        community_operation: "publish",
+        id,
+        name: "  晨雾  ",
+        description: "",
+        design: {},
+      }).then((result) => {
+        check(
+          JSON.parse(result).error === "community_invalid",
+          "an untrimmed name is refused the way the shared service refuses it",
+        );
+      });
+      void gallery({
+        community_operation: "publish",
+        id,
+        name: "晨雾",
+        description: "第一行\n第二行",
+        design: {},
+      }).then((result) => {
+        // A description is prose and may be written in paragraphs; a name may not.
+        check(JSON.parse(result).ok === true, "a multi-line description is allowed");
+      });
+      void gallery({
+        community_operation: "publish",
+        id,
+        name: "晨\n雾",
+        description: "",
+        design: {},
+      }).then((result) => {
+        check(JSON.parse(result).error === "community_invalid", "while a multi-line name is not");
+      });
+
+      // The community pages decode their own vocabulary; an account_* code would arrive as the
+      // one generic sentence instead of "已达到发布上限".
+      status = 409;
+      void gallery({ community_operation: "detail", id }).then((result) => {
+        check(
+          JSON.parse(result).error === "community_conflict",
+          "a refusal carries the community code, not the account one",
+        );
+        status = 403;
+        void gallery({ community_operation: "detail", id }).then((forbidden) => {
+          check(JSON.parse(forbidden).error === "community_forbidden", "and so does a forbidden");
+          status = 200;
+        });
+      });
+    });
+});
+
+group("the account assistant answers with a model list and one reply", () => {
+  let stored: string | null = null;
+  const store: AccountSessionStore = {
+    load: () => stored,
+    save: (value) => {
+      stored = value;
+    },
+    clear: () => {
+      stored = null;
+    },
+  };
+  const calls: {
+    method: string;
+    path: string;
+    body?: Record<string, unknown>;
+    timeoutMs?: number;
+  }[] = [];
+  let models = '{"data":[{"id":"fast"},{"id":"careful"}],"default_model":"careful"}';
+  let completion = JSON.stringify({
+    choices: [{ message: { role: "assistant", content: "第一行\n第二行" } }],
+  });
+  const transport: AccountTransport = {
+    request: async (method, path, _token, body, timeoutMs) => {
+      calls.push({ method, path, body, timeoutMs });
+      if (path === "/v1/auth/login")
+        return {
+          status: 200,
+          body: JSON.stringify({
+            access_token: "a".repeat(64),
+            refresh_token: "b".repeat(64),
+            token_type: "Bearer",
+            expires_in: 3600,
+            user: { id: "u1", display_name: "Test", created_at: "2026-01-01" },
+          }),
+        };
+      if (path === "/v1/models") return { status: 200, body: models };
+      if (path === "/v1/chat/completions") return { status: 200, body: completion };
+      return { status: 404, body: "{}" };
+    },
+  };
+  const bridge = new AccountCloudBridge(transport, store);
+  const ask = (action: Record<string, unknown>) =>
+    bridge.handle(JSON.stringify({ operation: "chat", ...action }));
+
+  void ask({ chat_operation: "models" }).then((result) => {
+    check(
+      JSON.parse(result).error === "account_unauthorized",
+      "chat needs the native session, not a token from the page",
+    );
+  });
+  void bridge
+    .handle('{"operation":"login","challenge_id":"challenge","credential":"123456"}')
+    .then(() => {
+      void ask({ chat_operation: "models" }).then((result) => {
+        const reply = JSON.parse(result);
+        check(reply.ok === true, "the model catalog is accepted");
+        // The page's ChatModels is camelCase; the service answers in snake_case. Reshaping here is
+        // what keeps every host's page reading one field name.
+        check(reply.value.defaultModel === "careful", "the default model is named for the page");
+        check(
+          reply.value.data.length === 2 && reply.value.data[0].id === "fast",
+          "and the catalog keeps its order",
+        );
+      });
+      void ask({
+        chat_operation: "complete",
+        model: "careful",
+        messages: [{ role: "user", content: "你好" }],
+      }).then((result) => {
+        const reply = JSON.parse(result);
+        check(reply.ok === true, "a completion is accepted");
+        // A conversation is written in paragraphs. The bridge's other validators reject control
+        // characters, which would have refused every multi-line answer the assistant gives.
+        check(reply.value.content === "第一行\n第二行", "newlines in a reply are content");
+        const sent = calls.find((call) => call.path === "/v1/chat/completions");
+        check(sent?.body?.max_tokens === 2048, "the shared request shape is sent");
+        check(sent?.body?.stream === false, "and it does not ask for a stream");
+        check(
+          typeof sent?.timeoutMs === "number" && sent.timeoutMs === 125000,
+          "a model writing text gets the shared 125-second budget",
+        );
+        const catalog = calls.find((call) => call.path === "/v1/models");
+        check(
+          catalog?.timeoutMs === undefined,
+          "while a catalog lookup keeps the ordinary timeout",
+        );
+      });
+      void ask({
+        chat_operation: "complete",
+        model: "careful",
+        messages: [{ role: "narrator", content: "旁白" }],
+      }).then((result) => {
+        check(
+          JSON.parse(result).error === "account_invalid",
+          "an unknown role never reaches transport",
+        );
+      });
+      void ask({
+        chat_operation: "complete",
+        model: "careful",
+        messages: Array.from({ length: 17 }, () => ({ role: "user", content: "x" })),
+      }).then((result) => {
+        check(
+          JSON.parse(result).error === "account_invalid",
+          "and neither does a history past the shared limit",
+        );
+      });
+      void ask({ chat_operation: "complete", model: "careful", messages: [] }).then((result) => {
+        check(JSON.parse(result).error === "account_invalid", "nor an empty conversation");
+      });
+      void ask({ chat_operation: "unknown" }).then((result) => {
+        check(JSON.parse(result).error === "account_invalid", "an unknown chat operation is named");
+      });
+    });
+
+  // The two shapes the service could send back that must not become a visible reply: the refusal
+  // has to be distinguishable from an answer, or the page shows an empty bubble and no error.
+  void bridge
+    .handle('{"operation":"login","challenge_id":"challenge","credential":"123456"}')
+    .then(() => {
+      completion = JSON.stringify({ choices: [{ message: { role: "user", content: "回声" } }] });
+      void ask({
+        chat_operation: "complete",
+        model: "careful",
+        messages: [{ role: "user", content: "你好" }],
+      }).then((result) => {
+        check(
+          JSON.parse(result).error === "account_unavailable",
+          "a reply that is not from the assistant is refused",
+        );
+        models = '{"data":[{"id":"fast"}],"default_model":"missing"}';
+        void ask({ chat_operation: "models" }).then((catalog) => {
+          check(
+            JSON.parse(catalog).error === "account_unavailable",
+            "and a default model absent from the catalog is refused",
+          );
+        });
+      });
     });
 });
 

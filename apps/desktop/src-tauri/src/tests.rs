@@ -454,6 +454,85 @@ fn second_launch_routes_are_taken_from_explicit_arguments() {
     assert_eq!(super::launch_route_from_args(&["--other".into()]), None);
 }
 
+/// A second launch that names nothing still has to raise the window.
+///
+/// Every route this product asks for itself is explicit, so no route means a person started the
+/// application. Answering `None` there is indistinguishable from the launch being ignored: the
+/// running instance never comes forward.
+#[test]
+fn second_launch_without_a_route_activates_the_settings_window() {
+    use msime_client_core::host_surface::SurfaceRoute;
+
+    assert_eq!(
+        super::second_launch_route(&[]),
+        SurfaceRoute::Settings(None)
+    );
+    assert_eq!(
+        super::second_launch_route(&["/opt/msime/msime-desktop".into()]),
+        SurfaceRoute::Settings(None)
+    );
+    // A route that fails to parse is not a request for a different window, so it falls back the
+    // same way rather than leaving the launch with nothing to do.
+    assert_eq!(
+        super::second_launch_route(&["--route=../private".into()]),
+        SurfaceRoute::Settings(None)
+    );
+    // An explicit route still wins - this is a fallback, not an override.
+    assert_eq!(
+        super::second_launch_route(&["--route=emoji".into()]),
+        SurfaceRoute::Emoji
+    );
+}
+
+/// The pre-paint window colour is the page's own, and stays that way.
+///
+/// A window background cannot read CSS, so the two values live in Rust as well. Duplicated
+/// constants drift silently and the symptom - a one-frame flash of the wrong colour when a window
+/// opens - is the kind of thing nobody files a bug about. This reads the stylesheet and compares.
+#[test]
+fn chrome_background_matches_the_shared_stylesheet() {
+    let stylesheet = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../packages/ui/src/styles.css");
+    let text = std::fs::read_to_string(&stylesheet)
+        .unwrap_or_else(|error| panic!("{}: {error}", stylesheet.display()));
+    let declared: Vec<&str> = text
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("--chrome-bg:"))
+        .map(|value| value.trim().trim_end_matches(';'))
+        .collect();
+    // Dark first, light second, in the order the stylesheet declares its two schemes.
+    assert_eq!(
+        declared,
+        vec!["#202020", "#f3f3f3"],
+        "the stylesheet's --chrome-bg values moved; update the constants beside this test"
+    );
+
+    for (color, expected) in [
+        (super::CHROME_BACKGROUND_DARK, "#202020"),
+        (super::CHROME_BACKGROUND_LIGHT, "#f3f3f3"),
+    ] {
+        assert_eq!(
+            format!("#{:02x}{:02x}{:02x}", color.0, color.1, color.2),
+            expected
+        );
+        assert_eq!(color.3, 0xff, "an opaque window, not a translucent one");
+    }
+
+    assert_eq!(
+        super::chrome_background(Some(tauri::Theme::Dark)),
+        super::CHROME_BACKGROUND_DARK
+    );
+    assert_eq!(
+        super::chrome_background(Some(tauri::Theme::Light)),
+        super::CHROME_BACKGROUND_LIGHT
+    );
+    // No theme is the case this exists to improve on, so it takes the platform's own default.
+    assert_eq!(
+        super::chrome_background(None),
+        super::CHROME_BACKGROUND_LIGHT
+    );
+}
+
 #[test]
 fn dictionary_mutations_quiesce_but_reads_do_not() {
     assert!(super::dictionary_action_requires_quiesce(
@@ -480,7 +559,7 @@ fn macos_restart_targets_the_input_method_bundle() {
         [
             "-n",
             "-b",
-            "app.msime.client.preview.inputmethod",
+            "app.msime.inputmethod.MetasequoiaIME",
             "--args",
             "--reregister-input-source",
         ]
@@ -562,6 +641,76 @@ fn packaged_handwriting_model_only_accepts_an_existing_absolute_file() {
 }
 
 #[test]
+fn custom_translations_round_trip_through_the_user_directory() {
+    let state = tempfile::tempdir().unwrap();
+    let user = state.path().join("user");
+    // No overlay yet is the ordinary state: the page opens on an empty document rather than an error.
+    assert_eq!(
+        super::read_custom_translations_at(user.clone()).unwrap(),
+        ""
+    );
+
+    super::write_custom_translations_at(user.clone(), "你好\thello\n").unwrap();
+    assert_eq!(
+        super::read_custom_translations_at(user.clone()).unwrap(),
+        "你好\thello\n"
+    );
+    // The Engine reads this exact path; writing anywhere else would save into a file nobody opens.
+    assert!(user.join("custom_translations.txt").is_file());
+    // Nothing is left behind from the staged write.
+    assert!(!user.join("custom_translations.txt.writing").exists());
+
+    // A file written elsewhere may carry a BOM. It is an encoding marker, not part of the first source
+    // word, and leaving it in would make the page show it and save it back.
+    std::fs::write(
+        user.join("custom_translations.txt"),
+        "\u{feff}刚才\ta moment ago\n",
+    )
+    .unwrap();
+    assert_eq!(
+        super::read_custom_translations_at(user.clone()).unwrap(),
+        "刚才\ta moment ago\n"
+    );
+
+    // Emptying the document means "no overlay". An empty file would have the Engine open and read an
+    // empty set every session instead.
+    super::write_custom_translations_at(user.clone(), "  \n\t\n").unwrap();
+    assert!(!user.join("custom_translations.txt").exists());
+    assert_eq!(
+        super::read_custom_translations_at(user.clone()).unwrap(),
+        ""
+    );
+    // Emptying an already empty overlay is not an error.
+    super::write_custom_translations_at(user.clone(), "").unwrap();
+}
+
+#[test]
+fn custom_translations_refuse_documents_the_engine_could_not_read() {
+    let state = tempfile::tempdir().unwrap();
+    let user = state.path().join("user");
+    super::write_custom_translations_at(user.clone(), "你好\thello\n").unwrap();
+
+    let oversized = "a".repeat(super::CUSTOM_TRANSLATIONS_MAX_BYTES + 1);
+    assert_eq!(
+        super::write_custom_translations_at(user.clone(), &oversized)
+            .unwrap_err()
+            .code,
+        "invalid_document"
+    );
+    assert_eq!(
+        super::write_custom_translations_at(user.clone(), "你好\thello\0\n")
+            .unwrap_err()
+            .code,
+        "invalid_document"
+    );
+    // A refused save leaves the overlay that was there, rather than half of a new one.
+    assert_eq!(
+        super::read_custom_translations_at(user.clone()).unwrap(),
+        "你好\thello\n"
+    );
+}
+
+#[test]
 fn typing_statistics_status_reports_file_availability_without_content() {
     let directory = tempfile::tempdir().unwrap();
     let store = msime_client_core::typing_statistics::TypingStatisticsStore::new(directory.path());
@@ -571,16 +720,19 @@ fn typing_statistics_status_reports_file_availability_without_content() {
     let missing_json = serde_json::to_value(missing).unwrap();
     assert_eq!(missing_json["availability"], "neverWritten");
     assert!(missing_json["lastWrittenMs"].is_null());
-    assert_eq!(missing_json["statistics"]["enabled"], true);
+    // Off is what a fresh profile has, following the reference, which also ships recording off.
+    assert_eq!(missing_json["statistics"]["enabled"], false);
 
-    let disabled = store.set_enabled(false).unwrap();
-    let ready = super::typing_statistics_status(&store, disabled)
+    // Turning it on writes the file, which is what moves availability off `neverWritten` - the
+    // flag and the availability are reported from the same document but are not the same fact.
+    let enabled = store.set_enabled(true).unwrap();
+    let ready = super::typing_statistics_status(&store, enabled)
         .ok()
         .unwrap();
     let ready_json = serde_json::to_value(ready).unwrap();
     assert_eq!(ready_json["availability"], "ready");
     assert!(ready_json["lastWrittenMs"].is_number());
-    assert_eq!(ready_json["statistics"]["enabled"], false);
+    assert_eq!(ready_json["statistics"]["enabled"], true);
 }
 
 #[cfg(target_os = "linux")]

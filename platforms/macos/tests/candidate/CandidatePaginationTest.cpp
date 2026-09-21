@@ -39,6 +39,14 @@ int main() {
     require(!msime::mac::ShouldRoutePhysicalCandidateDigit(true, true, false, false), "nine-key digits reach the engine");
     require(!msime::mac::ShouldRoutePhysicalCandidateDigit(true, false, false, true), "modified digits reach the engine");
     require(!msime::mac::ShouldRoutePhysicalCandidateDigit(false, false, false, false), "hidden candidate panel does not route digits");
+    require(msime::mac::ShouldRouteUnicodeShiftCandidateDigit(true, true, true),
+            "Unicode composition selects with Shift and a digit, which its hexadecimal input cannot use");
+    require(!msime::mac::ShouldRouteUnicodeShiftCandidateDigit(true, true, false),
+            "an unshifted digit is still hexadecimal input");
+    require(!msime::mac::ShouldRouteUnicodeShiftCandidateDigit(true, false, true),
+            "outside Unicode composition a shifted digit is punctuation, not a selection");
+    require(!msime::mac::ShouldRouteUnicodeShiftCandidateDigit(false, true, true),
+            "with no candidate panel there is nothing to select");
     require(msime::mac::IsKeypadDecimal(65) && !msime::mac::IsKeypadDecimal(0), "keypad decimal mapping");
     require(msime::mac::KeypadPunctuation(65) == '.' && msime::mac::KeypadPunctuation(67) == '*' &&
                 msime::mac::KeypadPunctuation(69) == '+' && msime::mac::KeypadPunctuation(75) == '/' &&

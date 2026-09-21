@@ -161,4 +161,31 @@ final class HandwritingTests: XCTestCase {
     }
   }
   private func nodes(_ view: UIView) -> [UIView] { [view] + view.subviews.flatMap(nodes) }
+
+  /// The simulator build says it cannot recognise, rather than just doing nothing.
+  ///
+  /// ML Kit's arm64 slice is device-only, so this target draws ink and recognises nothing. That is
+  /// the honest answer and it has to be visible: silence is indistinguishable from a broken
+  /// keyboard, because the user writes a character, nothing appears, and the panel explains none
+  /// of it. On a device build this assertion does not apply — recognition is real there — so it
+  /// only runs where the fallback is compiled.
+  func testTheSimulatorPanelSaysItCannotRecognise() throws {
+    #if targetEnvironment(simulator)
+    let view = HandwritingInputView(frame: CGRect(x: 0, y: 0, width: 390, height: 200))
+    view.layoutIfNeeded()
+    let status = try XCTUnwrap(
+      nodes(view).compactMap { $0 as? UILabel }
+        .first { $0.accessibilityIdentifier == "handwritingStatus" },
+      "the fallback panel has nothing that explains why writing produces no candidates")
+    XCTAssertFalse(status.isHidden)
+    XCTAssertEqual(status.text, HandwritingInputView.unavailableMessage)
+    // It draws ink all the same: the panel is the same shape as the device one.
+    view.canvas.setTestStrokes([[CGPoint(x: 10, y: 10), CGPoint(x: 40, y: 40)]])
+    XCTAssertTrue(view.hasInk)
+    XCTAssertFalse(view.commitFirst(), "the fallback must never claim a recognition")
+    #else
+    throw XCTSkip("Device builds recognise for real; there is no fallback message to check.")
+    #endif
+  }
+
 }

@@ -128,6 +128,7 @@ async function downloadCloudEntryToLocal(
 const typingStatistics: TypingStatisticsClient = {
   load: () => invoke("load_typing_statistics"),
   setEnabled: (enabled: boolean) => invoke("set_typing_statistics_enabled", { enabled }),
+  setRetention: (retention: string) => invoke("set_typing_statistics_retention", { retention }),
   reset: () => invoke("reset_typing_statistics"),
 };
 const client: SettingsClient = {
@@ -138,6 +139,12 @@ const client: SettingsClient = {
   readSkinImage: (id, relative) => invoke("read_skin_image", { id, relative }),
   readSkinFont: (id, relative) => invoke("read_skin_font", { id, relative }),
   openSkinDirectory: () => invoke("open_skin_directory"),
+  // The reference tells the user to drop this file into the profile directory. On macOS that directory
+  // is inside ~/Library, which the Finder hides, so the page edits it instead.
+  customTranslations: {
+    load: () => invoke("read_custom_translations"),
+    save: (text) => invoke("write_custom_translations", { text }),
+  },
   load: () => {
     if (!isTauri())
       return Promise.reject(new Error("请通过客户端应用打开设置。浏览器预览不会写入本地配置。"));
@@ -476,7 +483,18 @@ function DesktopSettings() {
               host.platform === "windows" ||
               host.platform === "macos" ||
               host.platform === "ios",
-            ...(host.typing_statistics ? { typingStatistics } : {}),
+            // A file manager is only reachable on the desktop hosts; iOS and Android get the same
+            // page without the button rather than one that fails when pressed.
+            ...(host.typing_statistics
+              ? {
+                  typingStatistics: isMobileHost(host.platform)
+                    ? typingStatistics
+                    : {
+                        ...typingStatistics,
+                        openDirectory: () => invoke<void>("open_typing_statistics_directory"),
+                      },
+                }
+              : {}),
             ...(host.fuzzy_pinyin ? { fuzzyPinyin: true } : {}),
             ...(host.platform === "ios" || host.platform === "android"
               ? createMobileHostServices(host.platform, {

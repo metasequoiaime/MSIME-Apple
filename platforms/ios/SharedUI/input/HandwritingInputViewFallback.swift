@@ -30,8 +30,18 @@ final class HandwritingCanvas: UIView {
   }
 }
 
+/// The simulator build of the handwriting panel.
+///
+/// ML Kit Digital Ink ships an arm64 slice for device, not for simulator, so this target compiles
+/// the same panel without it. It draws ink and recognises nothing, which is the honest answer —
+/// but it has to *say* so. Silence here is indistinguishable from a broken keyboard: the user
+/// writes a character, nothing appears, and there is nothing on screen to explain why. The device
+/// panel carries a status line for exactly this kind of message, so this one does too, and reads
+/// the same as the upstream client's.
 final class HandwritingInputView: UIView {
   let canvas = HandwritingCanvas()
+  private let status = UILabel()
+  static let unavailableMessage = "此版本不含手写识别，请使用真机版本"
   var onResults: (([String]) -> Void)?
   var canDownload: () -> Bool = { false }
   var onInsert: ((String) -> Void)?
@@ -43,10 +53,21 @@ final class HandwritingInputView: UIView {
     super.init(frame: frame)
     accessibilityIdentifier = "handwritingInput"
     addSubview(canvas); canvas.translatesAutoresizingMaskIntoConstraints = false
+    status.text = Self.unavailableMessage
+    status.font = .systemFont(ofSize: 13)
+    status.textAlignment = .center
+    status.numberOfLines = 2
+    status.accessibilityIdentifier = "handwritingStatus"
+    status.textColor = KeyboardSkinPreference.selected.keyForeground
+    addSubview(status); status.translatesAutoresizingMaskIntoConstraints = false
     NSLayoutConstraint.activate([
       canvas.leadingAnchor.constraint(equalTo: leadingAnchor), canvas.trailingAnchor.constraint(equalTo: trailingAnchor),
       canvas.topAnchor.constraint(equalTo: topAnchor), canvas.bottomAnchor.constraint(equalTo: bottomAnchor),
-      heightAnchor.constraint(greaterThanOrEqualToConstant: 120)
+      heightAnchor.constraint(greaterThanOrEqualToConstant: 120),
+      status.centerXAnchor.constraint(equalTo: centerXAnchor),
+      status.centerYAnchor.constraint(equalTo: centerYAnchor),
+      status.leadingAnchor.constraint(greaterThanOrEqualTo: leadingAnchor, constant: 12),
+      status.trailingAnchor.constraint(lessThanOrEqualTo: trailingAnchor, constant: -12),
     ])
     canvas.acceptsInk = true
   }

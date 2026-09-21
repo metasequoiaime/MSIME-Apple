@@ -60,6 +60,10 @@ import { ClipboardHistoryPreferencePolicy } from './clipboard/ClipboardHistoryPr
 import {
   DEFAULT_VOICE_INPUT_CONFIGURATION, VoiceInputConfiguration, VoiceInputConfigurationPolicy
 } from './input/VoiceInputConfiguration';
+import {
+  AiPolishPolicy, MAX_POLISH_SOURCE_CHARACTERS, PolishReplacement
+} from './input/AiPolishPolicy';
+import { HarmonyVoicePolisher } from './input/HarmonyVoicePolisher';
 import { SmartPunctuationSpacePolicy, SmartPunctuationSpaceSnapshot, SpaceConvertDecision }
   from './input/SmartPunctuationSpacePolicy';
 import { SmartPunctuationContext } from './input/SmartPunctuationContext';
@@ -161,6 +165,7 @@ interface TypingStatisticsRecordAction {
   text: string;
   source: string;
   day: string;
+  hour: number;
 }
 
 interface TypingStatisticsRecordRequest {
@@ -784,6 +789,14 @@ export class KeyboardSession implements HardwareKeyTarget {
     thoughtfulReply: false
   };
   private voiceInput: VoiceInputConfiguration = DEFAULT_VOICE_INPUT_CONFIGURATION;
+  /**
+   * The session's own polisher, separate from the recognizer's.
+   *
+   * The recognizer cancels its polisher whenever recognition starts, stops or is abandoned, which
+   * is right for a transcript and wrong for a rewrite the user is waiting on: sharing one would let
+   * tapping the microphone silently discard a polish request that was about to answer.
+   */
+  private readonly polisher: HarmonyVoicePolisher = new HarmonyVoicePolisher();
   private aiAssistant: PreparedAiAssistant = {
     enabled: false, provider: 'deepseek', model: '', token: '', tokens: {}, endpoint: '',
     candidate_limit: 3, prompt_id: 'custom_1', prompt: '', prompt_custom_1: '',
@@ -1074,6 +1087,11 @@ export class KeyboardSession implements HardwareKeyTarget {
       KeyboardLog.error(`host preparation unreadable: ${describeError(error)}`);
       return false;
     }
+    // Before the session exists and after the options are known: dictionary maintenance takes an
+    // exclusive lock that a live session's shared lock would block, so this is the one moment in
+    // the keyboard's life when queued personal-dictionary edits can actually be applied. A failure
+    // is not a reason to refuse to start — the queue keeps its entries and the next start retries.
+    this.drainPersonalDictionary(options);
     try {
       const created: CreateResponse = JSON.parse(client.create(options)) as CreateResponse;
       if (!created.ok) {
@@ -1088,6 +1106,30 @@ export class KeyboardSession implements HardwareKeyTarget {
       // better than driving a session whose replies we cannot read.
       KeyboardLog.error(`session reply unreadable: ${describeError(error)}`);
       return false;
+    }
+  }
+
+  /**
+   * Applies whatever the settings window queued for the personal dictionary.
+   *
+   * Words imported from a file cannot be written when they are chosen: the settings window has no
+   * way to take the Engine's maintenance lock while this process is holding a session, and telling
+   * the user "busy" would make importing a file depend on whether they happened to have the
+   * keyboard open. They are queued instead, and this is where the queue is paid.
+   *
+   * Everything here is best effort. The store keeps entries it could not apply, so a failure costs
+   * a delay rather than the import; refusing to start the keyboard over it would turn a dictionary
+   * problem into no keyboard at all.
+   */
+  private drainPersonalDictionary(options: string): void {
+    try {
+      const reply: Record<string, Object> =
+        JSON.parse(client.personalDictionarySync(options)) as Record<string, Object>;
+      if (reply['ok'] !== true) {
+        KeyboardLog.error('personal dictionary queue not applied; it will be retried');
+      }
+    } catch (error) {
+      KeyboardLog.error(`personal dictionary queue unavailable: ${describeError(error)}`);
     }
   }
 
@@ -1422,6 +1464,81 @@ export class KeyboardSession implements HardwareKeyTarget {
     return this.voiceInput;
   }
 
+  /**
+   * The text before the caret, as the polish panel's starting point.
+   *
+   * Apple polishes the selection; HarmonyOS gives an input method no way to read one, so this host
+   * offers what it can read instead. See `AiPolishPolicy` for why that is the same intent rather
+   * than a lesser one.
+   */
+  polishSource(): string {
+    if (this.inputClient === undefined || this.composing()) return '';
+    try {
+      return AiPolishPolicy.source(this.inputClient.getForwardSync(MAX_POLISH_SOURCE_CHARACTERS));
+    } catch (error) {
+      KeyboardLog.error(`polish source unavailable: ${describeError(error)}`);
+      return '';
+    }
+  }
+
+  /** Whether a polish provider is configured, which is what decides if the entry is offered. */
+  polishConfigured(): boolean {
+    const config: VoiceInputConfiguration = this.voiceInput;
+    const provider: string = (config.polish_provider ?? '').trim();
+    return provider.length > 0;
+  }
+
+  /**
+   * Rewrites one piece of text through this host's polisher.
+   *
+   * The polisher is the one the voice path already uses. It is the right one and not merely a
+   * convenient one: it allows the newlines a rewritten paragraph contains, where the AI candidate
+   * parser beside it rejects every control character — that parser is for candidate words, and
+   * sending a rewritten message through it would silently drop every multi-line answer.
+   *
+   * Returns null rather than throwing. Every failure here is "no rewrite to show", and the panel
+   * has one sentence for that; distinguishing a refused endpoint from a timed-out one would give
+   * the user nothing they could act on differently.
+   */
+  async polish(text: string): Promise<string | null> {
+    if (text.length === 0) return null;
+    const generation: number = this.editorGeneration;
+    const result: string | null = await this.polisher.polish(this.voiceInput, text);
+    // The editor may have moved while the model was writing. A rewrite of text that is no longer
+    // there is not a result, and offering it would invite the user to replace the wrong thing.
+    if (generation !== this.editorGeneration) return null;
+    return result !== null && AiPolishPolicy.usable(text, result) ? result : null;
+  }
+
+  /**
+   * Puts a rewrite in place of the text it was made from.
+   *
+   * The text before the caret is read again here rather than trusted from when the panel opened:
+   * a polish request takes seconds, and anything typed in the meantime would otherwise be deleted
+   * and replaced by the rewrite of something else. A mismatch is refused and reported.
+   */
+  applyPolish(source: string, result: string): boolean {
+    if (this.inputClient === undefined || this.composing()) return false;
+    let current: string;
+    try {
+      current = this.inputClient.getForwardSync(MAX_POLISH_SOURCE_CHARACTERS);
+    } catch (error) {
+      KeyboardLog.error(`polish target unreadable: ${describeError(error)}`);
+      return false;
+    }
+    const replacement: PolishReplacement | null =
+      AiPolishPolicy.replacement(source, result, current);
+    if (replacement === null) return false;
+    try {
+      this.inputClient.deleteBackwardSync(replacement.deleteCount);
+    } catch (error) {
+      KeyboardLog.error(`polish could not replace the text: ${describeError(error)}`);
+      return false;
+    }
+    this.insertWithSource(replacement.insert, 'ai');
+    return true;
+  }
+
   voiceInputEnabled(): boolean {
     return VoiceInputConfigurationPolicy.enabled(this.voiceInput.enabled);
   }
@@ -1620,7 +1737,12 @@ export class KeyboardSession implements HardwareKeyTarget {
         return JSON.stringify(prepared);
       }
       const request: DictionaryRequest = { options: prepared.value, action: action };
-      result = client.dictionary(JSON.stringify(request));
+      // Same request shape, different store. The queued route writes the personal-dictionary file
+      // beside the preferences and is drained at the next session start; the Engine route needs
+      // the maintenance lock this method has just taken.
+      result = decision.queued
+        ? client.personalDictionaryRequest(JSON.stringify(request))
+        : client.dictionary(JSON.stringify(request));
     } catch (error) {
       KeyboardLog.error(`dictionary request unavailable: ${describeError(error)}`);
       result = JSON.stringify({ ok: false, error: 'dictionary request failed' });
@@ -3409,8 +3531,12 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   private recordTypingStatistics(text: string, source: string): void {
     if (text.length === 0 || this.stateDirectory.length === 0) return;
+    // One Date for both fields: a day and an hour read from separate instants either side of
+    // midnight would file the commit under one day and the other day's hour.
+    const instant: Date = new Date();
     const action: TypingStatisticsRecordAction = {
-      operation: 'record', text: text, source: source, day: TypingStatisticsPolicy.day(new Date())
+      operation: 'record', text: text, source: source,
+      day: TypingStatisticsPolicy.day(instant), hour: TypingStatisticsPolicy.hour(instant)
     };
     const requestDocument: TypingStatisticsRecordRequest = {
       directory: this.stateDirectory, action: action

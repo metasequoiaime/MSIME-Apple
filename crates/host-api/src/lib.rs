@@ -21,7 +21,7 @@ use msime_client_core::preferences::{
 use msime_client_core::punctuation::{
     route as punctuation_route, PunctuationContext, PunctuationRoute,
 };
-use msime_client_core::resources::{ResourceSet, ResourceStore};
+use msime_client_core::resources::{ResourceSet, ResourceStore, VerifiedMarker};
 use msime_client_core::typing_statistics::{TypingSource, TypingStatisticsStore};
 use msime_client_core::voice::doubao_frame::{
     audio_frame, decode_error_code, decode_json_frame, start_frame,
@@ -61,7 +61,8 @@ mod niutrans_translation;
 mod tencent_translation;
 pub use dictionary::{
     dictionary_request_json, msime_client_dictionary, msime_client_dictionary_validate,
-    msime_client_personal_dictionary_sync, personal_dictionary_request_json,
+    msime_client_personal_dictionary_request, msime_client_personal_dictionary_sync,
+    personal_dictionary_request_json,
 };
 mod dictionary_snapshot;
 pub use dictionary_snapshot::{
@@ -397,6 +398,13 @@ struct HostOptions {
     preferences: Preferences,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     preferences_directory: Option<String>,
+    /// The host draws a half-composed phrase itself: picking a candidate that covers only part of
+    /// the input leaves the chosen piece in `view.phrase_prefix` instead of committing it, and the
+    /// whole phrase commits at once when the composition ends. Absent means the previous behaviour,
+    /// where each piece went to the document as it was picked, because a host that does not draw
+    /// the field would otherwise show nothing for it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    phrase_preedit: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     clipboard_history_path: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -524,6 +532,37 @@ fn without_verbatim_prefix(path: std::path::PathBuf) -> std::path::PathBuf {
     path
 }
 
+/// Hash the resource set unless the last successful verification still describes what is on disk.
+///
+/// This runs at every Server start, and the desktop set is 169 MB: about half a second of SHA-256
+/// before the first keystroke can be served, repeated at every login. `VerifiedMarker` records what
+/// was verified so the repeat is skipped while the files are untouched, in the same shape
+/// `scripts/fetch_engine.py` already uses for the Engine archive.
+///
+/// The marker lives under the state root rather than beside the resources: on Windows the
+/// resources are installed under Program Files, which the Server does not get to write to.
+///
+/// Failing to write the marker is not failing to start. The next launch hashes again, which is the
+/// behaviour this function replaces, so the cost of that miss is the cost of doing nothing here.
+fn verify_resources_once(
+    resources: &std::path::Path,
+    specification: &ResourceSet,
+    state_root: &std::path::Path,
+) -> Result<(), Box<dyn std::error::Error>> {
+    let marker_path = state_root.join("verified-resources.json");
+    let current = VerifiedMarker::describe(resources, specification)?;
+    if let (Some(current), Some(recorded)) = (&current, VerifiedMarker::read(&marker_path)) {
+        if *current == recorded {
+            return Ok(());
+        }
+    }
+    ResourceStore::new(resources).verify(resources, specification)?;
+    if let Some(current) = current {
+        let _ = current.write(&marker_path);
+    }
+    Ok(())
+}
+
 pub fn prepare_host_configuration(
     resources: &std::path::Path,
     state_root: &std::path::Path,
@@ -532,8 +571,8 @@ pub fn prepare_host_configuration(
     let specification: ResourceSet = serde_json::from_str(include_str!(
         "../../../resources/desktop-dictionary.lock.json"
     ))?;
-    ResourceStore::new(&resources).verify(&resources, &specification)?;
     let state_root = std::path::absolute(state_root)?;
+    verify_resources_once(&resources, &specification, &state_root)?;
     let prepared = msime_engine_bridge::prepare_options(
         resources.to_str().ok_or("non-UTF-8 resource path")?,
         state_root
@@ -564,6 +603,7 @@ pub fn prepare_host_configuration(
                 .ok_or("non-UTF-8 state path")?
                 .to_owned(),
         ),
+        phrase_preedit: None,
         clipboard_history_path: None,
         online_provider_socket: None,
         translation_provider_socket: None,

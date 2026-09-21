@@ -1822,11 +1822,23 @@ fn smart_punctuation_sub_switches_survive_a_save() {
         "smart_punctuation_direct_letter",
     ];
 
-    // Absent from a document that predates them, and off by default: the
-    // Windows baseline ships the whole family disabled.
+    // A document that predates them reads them as their defaults, which is what the family's
+    // parent says: the two halves of 智能标点 follow it, and the space rewrite does not.
+    let following_parent = !cfg!(windows);
     let defaults = serde_json::to_value(Preferences::default()).unwrap();
-    for key in keys {
-        assert_eq!(defaults[key], serde_json::Value::Bool(false), "{key}");
+    assert_eq!(
+        defaults["smart_punctuation_space_convert"],
+        serde_json::Value::Bool(false)
+    );
+    for key in [
+        "smart_punctuation_direct_digit",
+        "smart_punctuation_direct_letter",
+    ] {
+        assert_eq!(
+            defaults[key],
+            serde_json::Value::Bool(following_parent),
+            "{key}"
+        );
     }
     let mut legacy = serde_json::to_value(PreferencesSnapshot::default()).unwrap();
     for key in keys {
@@ -1839,11 +1851,16 @@ fn smart_punctuation_sub_switches_survive_a_save() {
     fs::write(store.path(), serde_json::to_vec(&legacy).unwrap()).unwrap();
     let loaded = store.load().unwrap().preferences;
     assert!(!loaded.smart_punctuation_space_convert);
-    assert!(!loaded.smart_punctuation_direct_digit);
-    assert!(!loaded.smart_punctuation_direct_letter);
+    assert_eq!(loaded.smart_punctuation_direct_digit, following_parent);
+    assert_eq!(loaded.smart_punctuation_direct_letter, following_parent);
 
+    // One at a time, from all three off, so a key that was written into the wrong field shows up
+    // as its neighbour turning on rather than being hidden by a default that already said true.
     for (revision, key) in keys.iter().enumerate() {
         let mut value = serde_json::to_value(Preferences::default()).unwrap();
+        for other in keys {
+            value[other] = false.into();
+        }
         value[*key] = true.into();
         let saved = store
             .save(revision as u64, serde_json::from_value(value).unwrap())
@@ -1874,10 +1891,14 @@ fn smart_punctuation_first_run_follows_the_windows_baseline() {
     let defaults = Preferences::default();
     assert_eq!(defaults.smart_punctuation, expected);
     assert_eq!(defaults.smart_punctuation_repeat, expected);
-    // The three sub-switches are off everywhere, which is also the baseline.
+    // The two halves of 智能标点 follow it. The reference has no such halves - one switch there
+    // means "ASCII after a letter or a digit", which is the sentence this page shows under the
+    // parent - so with them off the parent was on out of the box and did nothing.
+    assert_eq!(defaults.smart_punctuation_direct_digit, expected);
+    assert_eq!(defaults.smart_punctuation_direct_letter, expected);
+    // Space-after-punctuation is not one of those halves: it rewrites a character the user already
+    // saw land, and the reference has no equivalent at all, so it stays off until asked for.
     assert!(!defaults.smart_punctuation_space_convert);
-    assert!(!defaults.smart_punctuation_direct_digit);
-    assert!(!defaults.smart_punctuation_direct_letter);
 
     let dir = tempfile::tempdir().unwrap();
     let store = PreferencesStore::new(dir.path());
@@ -2025,4 +2046,102 @@ fn restoring_defaults_keeps_what_cannot_be_retyped() {
     // A restore is idempotent and produces a document the store will accept.
     restored.validate().expect("restored preferences validate");
     assert_eq!(restored.restored_to_defaults(), restored);
+}
+
+/// Both halves of this product can name the renderer they mean.
+///
+/// `ui_backend` is written `d2d` in the Windows factory configuration and `direct2d` by this type,
+/// so a document carrying the factory spelling was rejected rather than read - and a rejected
+/// preference document does not lose one field, it falls back wholesale. The reference also accepts
+/// `webview` and `web` for the same choice, having written both at different times.
+///
+/// Serialisation is unchanged: the aliases are read-only, so nothing here starts writing a second
+/// spelling of its own.
+#[test]
+fn ui_backend_reads_every_spelling_this_product_has_written() {
+    for (value, expected) in [
+        ("direct2d", UiBackend::Direct2d),
+        ("d2d", UiBackend::Direct2d),
+        ("webview2", UiBackend::Webview2),
+        ("webview", UiBackend::Webview2),
+        ("web", UiBackend::Webview2),
+    ] {
+        assert_eq!(
+            serde_json::from_str::<UiBackend>(&format!("\"{value}\"")).unwrap(),
+            expected,
+            "{value} should name a renderer this product understands"
+        );
+    }
+    // An unknown value is still an error rather than a silent default: the reference falls back to
+    // native for one, but it is reading a single key, while here the whole document goes with it.
+    assert!(serde_json::from_str::<UiBackend>("\"opengl\"").is_err());
+    // One spelling out, whichever ones come in.
+    assert_eq!(
+        serde_json::to_string(&UiBackend::Direct2d).unwrap(),
+        "\"direct2d\""
+    );
+    assert_eq!(
+        serde_json::to_string(&UiBackend::Webview2).unwrap(),
+        "\"webview2\""
+    );
+}
+
+// Staged writes nobody is going to finish.
+//
+// `NamedTempFile` removes itself when dropped, but a process killed between creating the file and
+// renaming it drops nothing, and the input method is stopped exactly that way every time it is
+// reinstalled. Two such files were sitting in the data directory of a machine running this client,
+// one holding a copy of the preferences and one of the typing statistics; nothing would ever have
+// removed them.
+#[test]
+fn saving_clears_staged_writes_that_were_abandoned() {
+    use std::time::{Duration, SystemTime};
+
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    store.save(0, Preferences::default()).unwrap();
+
+    let age = |path: &std::path::Path, seconds: u64| {
+        let when = SystemTime::now() - Duration::from_secs(seconds);
+        std::fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(when))
+            .unwrap();
+    };
+
+    let abandoned = directory.path().join(".tmpAbandoned");
+    std::fs::write(&abandoned, b"{}").unwrap();
+    age(&abandoned, 48 * 60 * 60);
+
+    // A staged write from a moment ago may belong to something still running - the statistics
+    // document stages into this same directory under a lock of its own - so it is left alone.
+    let in_flight = directory.path().join(".tmpInFlight");
+    std::fs::write(&in_flight, b"{}").unwrap();
+
+    // Age alone is not the rule: a file that is not a staged write keeps its place however old it
+    // is, and so does a directory that happens to be named like one.
+    let unrelated = directory.path().join("old-export.json");
+    std::fs::write(&unrelated, b"{}").unwrap();
+    age(&unrelated, 48 * 60 * 60);
+    let directory_named_like_a_temporary = directory.path().join(".tmpDirectory");
+    std::fs::create_dir(&directory_named_like_a_temporary).unwrap();
+
+    store
+        .save(
+            1,
+            Preferences {
+                candidate_font_size: 20,
+                ..Preferences::default()
+            },
+        )
+        .unwrap();
+
+    assert!(!abandoned.exists(), "the abandoned staged write is removed");
+    assert!(in_flight.exists(), "a staged write from a moment ago stays");
+    assert!(unrelated.exists());
+    assert!(directory_named_like_a_temporary.is_dir());
+    // And the save itself did what it was asked.
+    assert_eq!(store.load().unwrap().preferences.candidate_font_size, 20);
 }

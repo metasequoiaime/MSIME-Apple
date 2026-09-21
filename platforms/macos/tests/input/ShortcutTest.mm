@@ -1,4 +1,5 @@
 #import "../../src/input/InputController.mm"
+#include "../../src/candidate/CandidatePageSize.h"
 #import "../../src/input/InputSourceRegistration.h"
 #import "../../src/candidate/SkinSettingsView.h"
 #include <cassert>
@@ -95,6 +96,9 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic, copy) NSDictionary *enginePunctuationTransition;
 @property(nonatomic) uint8_t requestedPageSize;
 @property(nonatomic) BOOL failFinish;
+// Switching into English cancels the composition rather than finishing it, so the tests that check
+// "an Engine failure must not switch the mode" have to be able to fail a cancel too.
+@property(nonatomic) BOOL failCancel;
 @property(nonatomic) NSUInteger focusCalls;
 @property(nonatomic) BOOL chinesePunctuation;
 @property(nonatomic) NSUInteger punctuationCalls;
@@ -106,6 +110,7 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic) BOOL fullwidth;
 @property(nonatomic) NSUInteger widthCalls;
 @property(nonatomic, copy) NSDictionary *finishTransition;
+@property(nonatomic, copy) NSDictionary *cancelTransition;
 @property(nonatomic) NSUInteger snapshotCalls;
 @property(nonatomic, copy) NSDictionary *lastSnapshot;
 @property(nonatomic) NSUInteger settledRerankCalls;
@@ -222,7 +227,9 @@ static void CheckMenu(NSMenu *menu, id controller) {
     self.lastCommand = command;
     if (command == MSIME_COMMIT_RAW) ++self.rawCommitCalls;
     if (self.failFinish && command == MSIME_FINISH_COMPOSITION) return nil;
+    if (self.failCancel && command == MSIME_CANCEL) return nil;
     if (self.finishTransition && command == MSIME_FINISH_COMPOSITION) return self.finishTransition;
+    if (self.cancelTransition && command == MSIME_CANCEL) return self.cancelTransition;
     if (self.rawTransition && command == MSIME_COMMIT_RAW) return self.rawTransition;
     if (self.nextTransition) return self.nextTransition;
     return @{@"handled": @YES, @"commit": @"测试", @"view": @{@"editing_text": @"", @"caret_position": @0, @"candidates": @[]}};
@@ -348,7 +355,8 @@ static void TestPageSizeCache() {
     [controller setValue:session forKey:@"session"];
     [controller syncPageSize];
     [controller syncPageSize];
-    assert(session.pageSizeCalls == 1 && session.requestedPageSize == 9);
+    // Nothing stored yet, so this is the shared default rather than the top of the range.
+    assert(session.pageSizeCalls == 1 && session.requestedPageSize == 6);
     [controller applySharedToolbarPreferences:@{@"candidate_page_size": @5}];
     // The shared snapshot changed Engine independently; a local return to 9
     // must not be skipped just because the last direct request was also 9.
@@ -556,8 +564,8 @@ static void TestIndependentAssistancePreferences() {
     for (NSString *scheme in @[@"quanpin", @"shuangpin"]) {
         NSPopUpButton *schemas = schemaControls[scheme];
         NSButton *display = displayControls[scheme];
-        NSArray *identifiers = @[@"lantian", @"ziranma", @"shouyou2_0", @"shouyouplus", @"xiaohe"];
-        assert(([schemas.itemTitles isEqual:@[@"蓝天小雨点", @"自然码", @"首右2.0", @"首右plus", @"小鹤"]]));
+        NSArray *identifiers = @[@"lantian", @"ziranma", @"shouyou2_0", @"shouyouplus", @"xiaohe", @"jiajia"];
+        assert(([schemas.itemTitles isEqual:@[@"蓝天小雨点", @"自然码", @"首右2.0", @"首右plus", @"小鹤", @"加加"]]));
         for (NSUInteger index = 0; index < identifiers.count; ++index) {
             [schemas selectItemAtIndex:index];
             [NSApp sendAction:schemas.action to:schemas.target from:schemas];
@@ -638,12 +646,13 @@ static void TestSharedInputPreferences() {
     NSPopUpButton *layout = (id)PreferenceControl(prefs, @selector(layoutChanged:));
     NSPopUpButton *font = (id)PreferenceControl(prefs, @selector(fontChanged:));
     NSPopUpButton *page = (id)PreferenceControl(prefs, @selector(pageSizeChanged:));
+    // Six is in here because it is the shared default, and this platform used to rewrite it to nine.
     for (NSUInteger size = 12; size <= 32; ++size) {
-        for (NSNumber *count in @[@5, @7, @9]) {
+        for (NSNumber *count in @[@5, @6, @7, @9]) {
             NSDictionary *candidate = @{@"candidate_layout": count.integerValue == 7 ? @"horizontal" : @"vertical", @"candidate_font_size": @(size), @"candidate_page_size": count};
             [controller applySharedToolbarPreferences:candidate];
             assert(prefs.vertical == (count.integerValue != 7) && prefs.fontSize == size && prefs.pageSize == count.unsignedIntegerValue);
-            assert(layout.indexOfSelectedItem == (NSInteger)(count.integerValue == 7 ? 0 : 1) && font.indexOfSelectedItem == (NSInteger)size - 12 && page.indexOfSelectedItem == (NSInteger)(count.integerValue == 5 ? 0 : count.integerValue == 7 ? 1 : 2));
+            assert(layout.indexOfSelectedItem == (NSInteger)(count.integerValue == 7 ? 0 : 1) && font.indexOfSelectedItem == (NSInteger)size - 12 && page.indexOfSelectedItem == (NSInteger)msime::mac::CandidatePageSizeOptionIndex(count.unsignedIntegerValue));
             for (NSString *key in candidate) assert([[prefs sharedPreferencesByMerging:candidate][key] isEqual:candidate[key]]);
         }
     }
@@ -658,11 +667,10 @@ static void TestSharedInputPreferences() {
     [NSApp sendAction:font.action to:font.target from:font];
     [page selectItemAtIndex:1];
     [NSApp sendAction:page.action to:page.target from:page];
-    // The page-size control offers 5, 7 and 9 rather than a range, so the second item is 7 - which is what
-    // the assertion on the line below has always expected of the same edit.
-    assert(!prefs.vertical && prefs.fontSize == 13 && prefs.pageSize == 7 && saves == 6);
+    // The page-size control lists the reference's three through nine, so the second item is four.
+    assert(!prefs.vertical && prefs.fontSize == 13 && prefs.pageSize == 4 && saves == 6);
     NSDictionary *candidateEdited = [prefs sharedPreferencesByMerging:@{}];
-    assert([candidateEdited[@"candidate_layout"] isEqual:@"horizontal"] && [candidateEdited[@"candidate_font_size"] isEqual:@13] && [candidateEdited[@"candidate_page_size"] isEqual:@7]);
+    assert([candidateEdited[@"candidate_layout"] isEqual:@"horizontal"] && [candidateEdited[@"candidate_font_size"] isEqual:@13] && [candidateEdited[@"candidate_page_size"] isEqual:@4]);
     [NSNotificationCenter.defaultCenter removeObserver:observer];
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
@@ -928,6 +936,50 @@ static void TestPairedPunctuationHostExclusion() {
     assert(!MSIMEPairedPunctuationExcludedBundleIdentifier(nil));
 }
 
+static void TestPairedPunctuationClosesThePair() {
+    // The Engine commits the opening mark alone - the Windows TIP and the Linux host each append
+    // their own closing mark, and this host used to append nothing at all, so the switch was on and
+    // the page promised a pair that never arrived. IMK cannot move the client's caret, so the
+    // closing mark rides in the marked text after it until the composition ends.
+    NSString *suite = [@"app.msime.test.paired." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    assert(appearance.pairedPunctuation);
+    ModeController *controller = [ModeController alloc];
+    ShortcutClient *client = [ShortcutClient new];
+    client.document = @"";
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:client forKey:@"activeClient"];
+
+    [controller apply:@{@"commit": @"（", @"view": @{@"editing_text": @"", @"caret_position": @0}}];
+    assert([client.committed isEqual:@"（"]);
+    assert([client.marked isEqual:@"）"]);
+
+    // Composing inside the pair keeps the closing mark visible and after the caret.
+    [controller apply:@{@"commit": NSNull.null, @"view": @{@"editing_text": @"ni", @"caret_position": @2}}];
+    assert([client.marked isEqual:@"ni）"]);
+
+    // Committing takes the closing mark with it, and the pair is done.
+    [controller apply:@{@"commit": @"你好", @"view": @{@"editing_text": @"", @"caret_position": @0}}];
+    assert([client.committed isEqual:@"你好）"]);
+    [controller apply:@{@"commit": @"吗", @"view": @{@"editing_text": @"", @"caret_position": @0}}];
+    assert([client.committed isEqual:@"吗"]);
+
+    // A pair left open when the composition is torn down is closed rather than dropped.
+    [controller apply:@{@"commit": @"【", @"view": @{@"editing_text": @"", @"caret_position": @0}}];
+    assert([client.marked isEqual:@"】"]);
+    [controller flushPendingPairedClosing];
+    assert([client.committed isEqual:@"】"]);
+    [controller flushPendingPairedClosing];
+    assert([client.committed isEqual:@"】"]);
+
+    // With the preference off nothing is owed, and the commit is what the Engine said.
+    appearance.pairedPunctuation = NO;
+    [controller apply:@{@"commit": @"（", @"view": @{@"editing_text": @"", @"caret_position": @0}}];
+    assert([client.committed isEqual:@"（"] && client.marked.length == 0);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 static void TestEmojiBridgeFallback() {
     ModeController *controller = [ModeController alloc];
     [controller showEmoji:nil];
@@ -1188,6 +1240,31 @@ static void TestFullWidth(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     client.committed = nil;
     assert(![controller handleEvent:ModeKey(0, 0, NO) client:client]);
     assert(client.committed == nil && control.state == NSControlStateValueOff);
+}
+
+// What this host asks a session for, on top of the options file. The file is shared with hosts that
+// render differently, so a behaviour this one draws has to be requested rather than written into it -
+// and if that request is ever dropped, nothing else here notices: a phrase being assembled would go
+// back to arriving in the document one piece at a time, which looks like ordinary typing.
+static void TestSessionOptions() {
+    assert(!MSIMESessionOptions(nil));
+    assert(!MSIMESessionOptions((NSDictionary *)@"not a dictionary"));
+
+    NSDictionary *file = @{@"api_version":@1, @"resources":@"/synthetic/resources",
+        @"preferences":@{@"scheme":@"quanpin"}};
+    NSDictionary *requested = MSIMESessionOptions(file);
+    assert([requested[@"phrase_preedit"] isEqual:@YES]);
+    // Everything the file carried is passed through untouched, including nested objects.
+    for (NSString *key in file) assert([requested[key] isEqual:file[key]]);
+    assert(requested.count == file.count + 1);
+    // The caller's dictionary is not modified: prepareSession reads preferences_directory back out
+    // of the result, and the options file dictionary is handed around elsewhere.
+    assert(!file[@"phrase_preedit"]);
+
+    // An options file that already says something about it does not get to say no: this host draws
+    // the field, and a stale file predates the behaviour entirely.
+    NSDictionary *stale = MSIMESessionOptions(@{@"api_version":@1, @"phrase_preedit":@NO});
+    assert([stale[@"phrase_preedit"] isEqual:@YES]);
 }
 
 static void TestKeypadDecimal(MSIMEAppearancePreferences *appearance) {
@@ -1727,10 +1804,12 @@ static void TestModifierTaps() {
     auto down = TapEvent(NSEventTypeFlagsChanged, 56, NSEventModifierFlagShift, 1.0);
     auto up = TapEvent(NSEventTypeFlagsChanged, 56, 0, 1.1);
     session.failFinish = YES;
+    session.failCancel = YES;
     assert(![controller handleEvent:down client:client]);
     assert([controller handleEvent:up client:client]);
     assert(!prefs.englishMode);
     session.failFinish = NO;
+    session.failCancel = NO;
     assert(![controller handleEvent:down client:client]);
     assert([controller handleEvent:up client:client]);
     assert(prefs.englishMode && [client.committed isEqual:@"测试"]);
@@ -1742,12 +1821,14 @@ static void TestModifierTaps() {
     prefs.englishMode = NO;
     session.rawTransition = @{@"handled":@YES, @"commit":@"msime",
         @"view":@{@"editing_text":@"", @"caret_position":@0, @"candidates":@[]}};
-    // After the raw commit there is no composition left, so the finish that the mode switch performs has
-    // nothing to send: the real Engine answers handled with no commit, and the fake has to say the same or
+    // After the raw commit there is no composition left, so the cancel that the mode switch performs has
+    // nothing to drop: the real Engine answers handled with no commit, and the fake has to say the same or
     // it overwrites what the raw commit just inserted.
     NSDictionary *previousFinish = session.finishTransition;
+    NSDictionary *previousCancel = session.cancelTransition;
     session.finishTransition = @{@"handled":@YES,
         @"view":@{@"editing_text":@"", @"caret_position":@0, @"candidates":@[]}};
+    session.cancelTransition = session.finishTransition;
     [controller setValue:@{@"editing_text":@"msime", @"caret_position":@5, @"candidates":@[]} forKey:@"view"];
     NSUInteger rawBefore = session.rawCommitCalls;
     assert(![controller handleEvent:TapEvent(NSEventTypeFlagsChanged, 56, NSEventModifierFlagShift, 3.0) client:client]);
@@ -1764,6 +1845,7 @@ static void TestModifierTaps() {
     assert(session.rawCommitCalls == rawBefore && prefs.englishMode);
     session.rawTransition = nil;
     session.finishTransition = previousFinish;
+    session.cancelTransition = previousCancel;
     // Hand the sequence below back the state it had before this block: English on, nothing composing.
     prefs.englishMode = YES;
     [controller setValue:nil forKey:@"view"];
@@ -2080,14 +2162,34 @@ static void TestControlOptionSpace() {
     prefs.inputModeShortcut = NO; // Independent from the legacy Shift+Space switch.
     NSEventModifierFlags flags = NSEventModifierFlagControl | NSEventModifierFlagOption;
     session.failFinish = YES;
+    session.failCancel = YES;
     panel.visible = YES;
     client.marked = @"test";
     assert([controller handleEvent:ModeKey(49, flags, NO) client:client]);
     assert(!prefs.englishMode && panel.visible && [client.marked isEqual:@"test"]);
     session.failFinish = NO;
+    session.failCancel = NO;
     assert([controller handleEvent:ModeKey(49, flags, NO) client:client]);
     assert(prefs.englishMode && !panel.visible && client.marked.length == 0);
-    assert(session.lastCommand == MSIME_FINISH_COMPOSITION && [client.committed isEqual:@"测试"]);
+    assert(session.lastCommand == MSIME_CANCEL);
+
+    // What the switch does to a composition in flight, which is the whole reason it sends a command
+    // at all. The reference's English-mode switch is FUNCTION_CANCEL and its handler terminates the
+    // composition without sending anything; committing the highlighted Chinese candidate instead -
+    // which this host used to do - puts a word nobody chose into the document, and the user reached
+    // for English precisely because the candidates on screen were wrong. The Shift tap keeps the
+    // other rule and is checked in TestModifierTaps.
+    prefs.englishMode = NO;
+    client.committed = nil;
+    client.marked = @"拼音";
+    session.lastCommand = UINT32_MAX;
+    session.nextTransition = @{@"handled":@YES,
+        @"view":@{@"editing_text":@"", @"caret_position":@0, @"candidates":@[]}};
+    [controller setValue:@{@"editing_text":@"nihao", @"caret_position":@5, @"candidates":@[]} forKey:@"view"];
+    assert([controller handleEvent:ModeKey(49, flags, NO) client:client]);
+    assert(prefs.englishMode && session.lastCommand == MSIME_CANCEL);
+    assert(client.committed.length == 0 && client.marked.length == 0);
+    session.nextTransition = nil;
     session.lastCommand = UINT32_MAX;
     assert([controller handleEvent:ModeKey(49, flags, YES) client:client]);
     assert(prefs.englishMode && session.lastCommand == UINT32_MAX);
@@ -2177,11 +2279,13 @@ static void TestInputMode(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     assert(!appearance.englishMode && session.lastCommand == MSIME_COMMIT_CANDIDATE);
     appearance.inputModeShortcut = YES;
     session.failFinish = YES;
+    session.failCancel = YES;
     panel.visible = YES;
     [controller selectEnglishMode:nil];
     [controller openCharacterPalette:nil];
     assert(!appearance.englishMode && panel.visible && controller.paletteCalls == 0);
     session.failFinish = NO;
+    session.failCancel = NO;
     client.marked = @"ceshi";
     client.committed = nil;
     [controller openCharacterPalette:nil];
@@ -3722,12 +3826,16 @@ int main(int argc, char **argv) {
         assert(!appearance.vertical && appearance.fontSize == 18);
         assert(appearance.candidateFollowCursor);
         assert(appearance.pageShortcut == 0);
-        assert(appearance.pageSize == 9);
+        // Unset is the shared default, and a number past the end is pulled to the end rather than to
+        // the top of a three-value set.
+        assert(appearance.pageSize == 6);
         assert([appearance.skinID isEqual:@"fluent"]);
         appearance.skinID = @"../invalid";
         assert([appearance.skinID isEqual:@"fluent"]);
         appearance.pageSize = 10;
         assert(appearance.pageSize == 9);
+        appearance.pageSize = 4;
+        assert(appearance.pageSize == 4);
         appearance.pageShortcut = 99;
         assert(appearance.pageShortcut == 0);
         appearance.fontSize = 99;
@@ -3756,9 +3864,10 @@ int main(int argc, char **argv) {
             assert([loaded.skinID isEqual:skinIDs[option]]);
         }
         appearance.skinID = @"fluent";
-        assert(sizeControl.numberOfItems == 3);
-        NSArray *pageSizes = @[@5, @7, @9];
-        for (NSInteger option = 0; option < 3; ++option) {
+        // The reference's set, three through nine.
+        assert(sizeControl.numberOfItems == (NSInteger)msime::mac::kOfferedCandidatePageSizes);
+        NSArray *pageSizes = @[@3, @4, @5, @6, @7, @8, @9];
+        for (NSInteger option = 0; option < (NSInteger)msime::mac::kOfferedCandidatePageSizes; ++option) {
             assert(([sizeControl.itemTitles[option] isEqual:[NSString stringWithFormat:@"%@ 个", pageSizes[option]]]));
             [sizeControl selectItemAtIndex:option];
             [NSApp sendAction:sizeControl.action to:sizeControl.target from:sizeControl];
@@ -3877,7 +3986,7 @@ int main(int argc, char **argv) {
             NSEvent *event = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:@"" charactersIgnoringModifiers:@"" isARepeat:NO keyCode:key.unsignedShortValue];
             panel.visible = YES;
             assert([controller handleEvent:event client:client]);
-            assert(session.lastCommand == (key.unsignedShortValue == 115 ? MSIME_FIRST_CANDIDATE_ON_PAGE : MSIME_LAST_CANDIDATE_ON_PAGE));
+            assert(session.lastCommand == (key.unsignedShortValue == 115 ? MSIME_FIRST_CANDIDATE : MSIME_LAST_CANDIDATE));
             panel.visible = NO;
             assert([controller handleEvent:event client:client]);
             assert(session.lastCommand == (key.unsignedShortValue == 115 ? MSIME_MOVE_HOME : MSIME_MOVE_END));
@@ -4480,6 +4589,27 @@ int main(int argc, char **argv) {
         // return value just repeats whatever the Engine answered, and here it says it handled the key.
         assert([controller handleEvent:unicodePlus client:client]);
         assert(session.lastCommand == UINT32_MAX && session.asciiCalls == 1 && session.lastASCII == '+');
+        // Selecting anything but the first candidate here is what Shift+digit is for: the unshifted
+        // digits are the code point being typed. Without it the panel shows candidates the keyboard
+        // cannot reach.
+        {
+            // The '+' above went through the Engine and left its answer in the view, so put the panel
+            // back into Unicode composition before asking about its digits.
+            [controller setValue:unicodePagingView forKey:@"view"];
+            [controller renderCandidates];
+            layoutPanel.requestedVisible = YES;
+            NSUInteger selectCallsBeforeUnicode = session.selectCalls;
+            NSUInteger asciiCallsBeforeUnicode = session.asciiCalls;
+            NSEvent *shiftedDigit = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:NSEventModifierFlagShift timestamp:0 windowNumber:0 context:nil characters:@"@" charactersIgnoringModifiers:@"2" isARepeat:NO keyCode:19];
+            assert([controller handleEvent:shiftedDigit client:client]);
+            assert(session.selectCalls == selectCallsBeforeUnicode + 1 && session.selectedIndex == 1);
+            assert(session.asciiCalls == asciiCallsBeforeUnicode);
+            // The unshifted digit stays hexadecimal input, which is the half that already worked.
+            NSEvent *plainDigit = [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0 windowNumber:0 context:nil characters:@"2" charactersIgnoringModifiers:@"2" isARepeat:NO keyCode:19];
+            assert([controller handleEvent:plainDigit client:client]);
+            assert(session.selectCalls == selectCallsBeforeUnicode + 1);
+            assert(session.asciiCalls == asciiCallsBeforeUnicode + 1 && session.lastASCII == '2');
+        }
         [controller setValue:pageView forKey:@"view"];
         [controller renderCandidates];
         appearance.pageShortcut = 0;
@@ -4779,6 +4909,7 @@ int main(int argc, char **argv) {
         TestStaleClientDeactivation();
         TestPreferenceClientGeneration();
         TestFullWidth(defaults, appearance);
+        TestSessionOptions();
         TestKeypadDecimal(appearance);
         TestKeypadOperators(appearance);
         TestSmartPunctuationPreferences();
@@ -4788,6 +4919,7 @@ int main(int argc, char **argv) {
         TestPunctuation(defaults, appearance);
         TestPairedPunctuationPreferences();
         TestPairedPunctuationHostExclusion();
+        TestPairedPunctuationClosesThePair();
         TestEmojiBridgeFallback();
         TestMixedInputPreferences();
         TestCharacterSetShortcut();

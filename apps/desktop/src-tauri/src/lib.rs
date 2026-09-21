@@ -346,6 +346,8 @@ impl DictionaryHostOptions {
 }
 
 struct SkinDirectoryState(PathBuf);
+/// The Engine's user directory: where the documents a user writes by hand live, `custom_translations.txt` among them.
+struct UserDirectoryState(PathBuf);
 struct TypingStatisticsState(TypingStatisticsStore);
 
 #[derive(serde::Serialize)]
@@ -408,6 +410,36 @@ async fn set_typing_statistics_enabled(
 }
 
 #[tauri::command]
+async fn set_typing_statistics_retention(
+    state: tauri::State<'_, TypingStatisticsState>,
+    retention: String,
+) -> Result<TypingStatisticsStatus, CommandError> {
+    let store = state.0.clone();
+    tauri::async_runtime::spawn_blocking(move || {
+        // The window counts back from the user's day, and this process is the one that knows
+        // which day that is - the same reason a recorded commit carries one.
+        let now =
+            time::OffsetDateTime::now_local().unwrap_or_else(|_| time::OffsetDateTime::now_utc());
+        let date = now.date();
+        let today = format!(
+            "{:04}-{:02}-{:02}",
+            date.year(),
+            u8::from(date.month()),
+            date.day()
+        );
+        let statistics = store
+            .set_retention(
+                msime_client_core::typing_statistics::StatisticsRetention::parse(&retention),
+                &today,
+            )
+            .map_err(|_| CommandError { code: "storage" })?;
+        typing_statistics_status(&store, statistics)
+    })
+    .await
+    .map_err(|_| CommandError { code: "storage" })?
+}
+
+#[tauri::command]
 async fn reset_typing_statistics(
     state: tauri::State<'_, TypingStatisticsState>,
 ) -> Result<TypingStatisticsStatus, CommandError> {
@@ -420,6 +452,21 @@ async fn reset_typing_statistics(
     })
     .await
     .map_err(|_| CommandError { code: "storage" })?
+}
+
+/// Reveal the folder holding the statistics file.
+///
+/// The page states that the statistics never leave this machine; this is how that claim can be
+/// checked rather than taken on trust. The host picks the folder - the webview cannot name one.
+#[tauri::command]
+async fn open_typing_statistics_directory(
+    state: tauri::State<'_, TypingStatisticsState>,
+) -> Result<(), CommandError> {
+    let root = state.0.directory().to_path_buf();
+    tauri::async_runtime::spawn_blocking(move || skin_directory::open(&root))
+        .await
+        .map_err(|_| CommandError { code: "storage" })?
+        .map_err(|code| CommandError { code })
 }
 
 fn read_skin_toolbar_stylesheet_at(
@@ -437,6 +484,83 @@ async fn read_skin_toolbar_stylesheet(
 ) -> Result<Option<String>, CommandError> {
     let root = directory.0.clone();
     tauri::async_runtime::spawn_blocking(move || read_skin_toolbar_stylesheet_at(root, &id))
+        .await
+        .map_err(|_| CommandError { code: "storage" })?
+}
+
+/// The user's own candidate glosses, as a document the settings page edits.
+///
+/// The reference has the user drop `custom_translations.txt` into the profile directory and says so in
+/// its documentation. That instruction does not survive the move to macOS, where the same directory
+/// lives under `~/Library` and the Finder hides it by default, so the overlay was reachable on paper
+/// and not in practice. The page already knows how to edit the document - it was only ever handed to
+/// HarmonyOS - so the host supplies the two ends, and the Engine keeps reading the same file.
+const CUSTOM_TRANSLATIONS_MAX_BYTES: usize = 1024 * 1024;
+
+fn custom_translations_path(user: &std::path::Path) -> PathBuf {
+    user.join("custom_translations.txt")
+}
+
+fn read_custom_translations_at(user: PathBuf) -> Result<String, CommandError> {
+    match std::fs::read(custom_translations_path(&user)) {
+        Ok(bytes) => {
+            if bytes.len() > CUSTOM_TRANSLATIONS_MAX_BYTES {
+                return Err(CommandError { code: "storage" });
+            }
+            // A UTF-8 BOM is an encoding marker the reference accepts, not part of the first source word.
+            let text = String::from_utf8(bytes).map_err(|_| CommandError { code: "storage" })?;
+            Ok(text.strip_prefix('\u{feff}').unwrap_or(&text).to_owned())
+        }
+        // No overlay yet is the ordinary state, not a failure: the page opens on an empty document.
+        Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
+        Err(_) => Err(CommandError { code: "storage" }),
+    }
+}
+
+fn write_custom_translations_at(user: PathBuf, text: &str) -> Result<(), CommandError> {
+    if text.len() > CUSTOM_TRANSLATIONS_MAX_BYTES || text.contains('\0') {
+        return Err(CommandError {
+            code: "invalid_document",
+        });
+    }
+    let path = custom_translations_path(&user);
+    // An emptied document means "no overlay". Removing the file says that; leaving an empty one
+    // behind would have the Engine open and read an empty set every session instead.
+    if text.trim().is_empty() {
+        return match std::fs::remove_file(&path) {
+            Ok(()) => Ok(()),
+            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
+            Err(_) => Err(CommandError { code: "storage" }),
+        };
+    }
+    std::fs::create_dir_all(&user).map_err(|_| CommandError { code: "storage" })?;
+    // Written beside the target and renamed, so a failure halfway through leaves the previous overlay
+    // in place rather than a truncated one the Engine would read as the whole set.
+    let staging = user.join("custom_translations.txt.writing");
+    std::fs::write(&staging, text).map_err(|_| CommandError { code: "storage" })?;
+    std::fs::rename(&staging, &path).map_err(|_| {
+        let _ = std::fs::remove_file(&staging);
+        CommandError { code: "storage" }
+    })
+}
+
+#[tauri::command]
+async fn read_custom_translations(
+    directory: tauri::State<'_, UserDirectoryState>,
+) -> Result<String, CommandError> {
+    let user = directory.0.clone();
+    tauri::async_runtime::spawn_blocking(move || read_custom_translations_at(user))
+        .await
+        .map_err(|_| CommandError { code: "storage" })?
+}
+
+#[tauri::command]
+async fn write_custom_translations(
+    directory: tauri::State<'_, UserDirectoryState>,
+    text: String,
+) -> Result<(), CommandError> {
+    let user = directory.0.clone();
+    tauri::async_runtime::spawn_blocking(move || write_custom_translations_at(user, &text))
         .await
         .map_err(|_| CommandError { code: "storage" })?
 }
@@ -630,7 +754,8 @@ struct PanelInputTarget(msime_host_macos::LaunchTarget);
 #[derive(Clone, Debug)]
 struct PanelInputTarget;
 
-#[derive(serde::Serialize)]
+// Debug so a test that unwraps a command result says which code came back rather than only that one did.
+#[derive(Debug, serde::Serialize)]
 struct CommandError {
     code: &'static str,
 }
@@ -1766,7 +1891,7 @@ fn macos_input_source_restart_args() -> [&'static str; 5] {
     [
         "-n",
         "-b",
-        "app.msime.client.preview.inputmethod",
+        "app.msime.inputmethod.MetasequoiaIME",
         "--args",
         "--reregister-input-source",
     ]
@@ -1840,8 +1965,9 @@ async fn install_input_source(app: tauri::AppHandle) -> Result<(), HostActionErr
     })?
 }
 
+// The input method writes through NSUserDefaults.standardUserDefaults, so its domain is its bundle identifier; reading any other name finds an empty - or stale - plist while the settings page reports that it saved.
 #[cfg(target_os = "macos")]
-const MACOS_INPUT_METHOD_DEFAULTS_DOMAIN: &str = "app.msime.client.preview.inputmethod";
+const MACOS_INPUT_METHOD_DEFAULTS_DOMAIN: &str = "app.msime.inputmethod.MetasequoiaIME";
 
 #[cfg(target_os = "macos")]
 const MACOS_SHUANGPIN_KEYMAP_DEFAULTS_KEY: &str = "MSIMEClientShuangpinKeymap";
@@ -2032,12 +2158,51 @@ fn windows_restart_payload() -> Vec<u8> {
         .collect()
 }
 
+/// The colour a window wears before its page has painted anything.
+///
+/// A window is on screen the moment it is created, but the webview has nothing to show until the
+/// bundle has loaded and rendered, and an empty webview is painted in the platform's default -
+/// white on Windows, whatever theme the user runs. The reference covers that gap with a themed
+/// Direct2D splash aligned to the settings frame (`settings_splash.cpp`, and one per panel). The
+/// same gap closes here by handing the window the colour the page is about to paint anyway: there
+/// is then nothing to see rather than a white flash.
+///
+/// These are `--chrome-bg` from the shared stylesheet, duplicated because a window background
+/// cannot read CSS. `chrome_background_matches_the_shared_stylesheet` fails if they drift.
+pub(crate) const CHROME_BACKGROUND_DARK: tauri::window::Color =
+    tauri::window::Color(0x20, 0x20, 0x20, 0xff);
+pub(crate) const CHROME_BACKGROUND_LIGHT: tauri::window::Color =
+    tauri::window::Color(0xf3, 0xf3, 0xf3, 0xff);
+
+/// Unknown theme takes the light colour: that is the platform default this is correcting, so a
+/// wrong guess there is no worse than doing nothing.
+pub(crate) fn chrome_background(theme: Option<tauri::Theme>) -> tauri::window::Color {
+    match theme {
+        Some(tauri::Theme::Dark) => CHROME_BACKGROUND_DARK,
+        _ => CHROME_BACKGROUND_LIGHT,
+    }
+}
+
 fn launch_route_from_args(args: &[String]) -> Option<SurfaceRoute> {
     args.iter().find_map(|argument| {
         argument
             .strip_prefix("--route=")
             .and_then(|route| SurfaceRoute::parse(route).ok())
     })
+}
+
+/// What a second launch should bring to the front.
+///
+/// Every surface this product opens for itself names one: the Windows host builds `--route=` into
+/// the command line in `ShellLauncher.cpp`, and the tray, the toolbar and the panels all go through
+/// it. So a launch *without* a route is the user starting the application themselves - the Start
+/// menu entry, a shortcut, the installed icon - and the window they meant is the settings window.
+///
+/// Doing nothing in that case is what makes a second launch look broken: the running instance stays
+/// behind whatever is in front, and the click appears to be ignored. The reference activates its
+/// existing window here rather than exiting silently.
+fn second_launch_route(args: &[String]) -> SurfaceRoute {
+    launch_route_from_args(args).unwrap_or(SurfaceRoute::Settings(None))
 }
 
 #[cfg(any(target_os = "linux", target_os = "windows"))]
@@ -3042,10 +3207,9 @@ pub fn run() {
     let builder = builder.plugin(tauri_nspanel::init());
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-        if let Some(route) = launch_route_from_args(&args) {
-            let callback_app = app.clone();
-            let _ = app.run_on_main_thread(move || activate_desktop_surface(&callback_app, route));
-        }
+        let route = second_launch_route(&args);
+        let callback_app = app.clone();
+        let _ = app.run_on_main_thread(move || activate_desktop_surface(&callback_app, route));
     }));
     #[cfg(target_os = "android")]
     let builder = builder.plugin(android_account::init());
@@ -3158,6 +3322,7 @@ pub fn run() {
             }
             app.manage(TypingStatisticsState(typing_statistics));
             app.manage(SkinDirectoryState(directory.join("skins")));
+            app.manage(UserDirectoryState(directory.join("user")));
             app.manage(preferences.clone());
             let clipboard_state = ClipboardHistoryState(Arc::new(Mutex::new(clipboard)));
             app.manage(ClipboardHistoryState(Arc::clone(&clipboard_state.0)));
@@ -3179,6 +3344,11 @@ pub fn run() {
                 }
             });
             app.manage(PanelInputState::default());
+            // Before the settings page paints. The window is declared in tauri.conf.json, so this
+            // is the first chance to colour it, and the theme is only knowable once it exists.
+            if let Some(main) = app.get_webview_window("main") {
+                let _ = main.set_background_color(Some(chrome_background(main.theme().ok())));
+            }
             #[cfg(any(target_os = "linux", target_os = "windows"))]
             {
                 let linger = DesktopSettingsLinger::default();
@@ -3404,11 +3574,15 @@ pub fn run() {
             mutate_custom_skin_library,
             load_typing_statistics,
             set_typing_statistics_enabled,
+            set_typing_statistics_retention,
             reset_typing_statistics,
+            open_typing_statistics_directory,
             scan_skin_catalog,
             read_skin_image,
             read_skin_font,
             read_skin_toolbar_stylesheet,
+            read_custom_translations,
+            write_custom_translations,
             open_skin_directory,
             test_api_credential,
             save_preferences,
