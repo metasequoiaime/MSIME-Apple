@@ -137,7 +137,8 @@ export const phraseForm = "mt-3.5 flex flex-wrap items-end gap-2.5";
 export const keyHint = "text-[11px] text-muted";
 const listRow =
   "flex items-center justify-between gap-3 border-t border-[var(--divider-color)] pt-2 [&>span:first-child]:min-w-0 [&>span:first-child]:break-anywhere [&_.secondary]:mt-0 [&_.secondary]:px-[9px] [&_.secondary]:py-1";
-export const phraseList = "mt-3.5 mb-0 flex list-none flex-col gap-2 p-0";
+export const phraseList =
+  "mt-3.5 mb-0 flex max-h-[clamp(180px,calc(100vh-350px),550px)] list-none flex-col gap-2 overflow-x-hidden overflow-y-auto p-0 [scrollbar-gutter:stable]";
 export const phraseListItem = listRow;
 export const failures =
   "mt-3.5 rounded-lg border border-edge-strong bg-raised px-3 py-2.5 [&>p]:m-0 [&>p]:text-xs [&>p]:text-danger [&>ul]:mt-2 [&>ul]:mb-0 [&>ul]:flex [&>ul]:list-none [&>ul]:flex-col [&>ul]:gap-2 [&>ul]:p-0";
