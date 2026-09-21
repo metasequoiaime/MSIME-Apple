@@ -103,6 +103,15 @@ pub struct HostCapabilities {
     /// expresses this through the IBus property menu even though it cannot
     /// draw the Windows/macOS floating window.
     pub floating_toolbar_components: bool,
+    /// The toolbar carries a button that opens the handwriting panel. The
+    /// reference's toolbar has six components and this is not one of them, so
+    /// only the host that draws the button offers the switch for it.
+    #[serde(default)]
+    pub floating_toolbar_handwriting: bool,
+    /// The toolbar carries a button that starts and stops voice input, for the
+    /// same reason as `floating_toolbar_handwriting`.
+    #[serde(default)]
+    pub floating_toolbar_voice: bool,
     /// The host consumes the shared `keybindings` preferences to switch
     /// Chinese/English and simplified/traditional mode.
     pub mode_switch_shortcuts: bool,
@@ -255,6 +264,9 @@ impl HostCapabilities {
             // emoji and screen-keyboard buttons open the same surfaces its
             // phone keyboard reaches from a key face.
             floating_toolbar_components: platform.is_desktop() || platform == HostPlatform::Harmony,
+            // Only this client's macOS toolbar draws these two.
+            floating_toolbar_handwriting: platform == HostPlatform::Macos,
+            floating_toolbar_voice: platform == HostPlatform::Macos,
             // The IBus host consumes these directly. The Windows Server now
             // mirrors them into the shared config.toml the TIP reads at
             // activation, so the toggles take effect there too. The HarmonyOS

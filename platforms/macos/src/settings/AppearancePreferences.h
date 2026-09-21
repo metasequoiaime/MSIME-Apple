@@ -103,7 +103,10 @@ FOUNDATION_EXPORT NSNotificationName const MSIMETranslationPreferencesDidSaveNot
 @property(nonatomic) BOOL floatingToolbarFullWidth;
 @property(nonatomic) BOOL floatingToolbarCharacterSet;
 @property(nonatomic) BOOL floatingToolbarEmoji;
+/// The handwriting panel and voice buttons, which only this client's toolbar has.
+@property(nonatomic) BOOL floatingToolbarHandwriting;
 @property(nonatomic) BOOL floatingToolbarScreenKeyboard;
+@property(nonatomic) BOOL floatingToolbarVoice;
 @property(nonatomic) BOOL floatingToolbarSettings;
 @property(nonatomic) NSInteger floatingToolbarScalePercent;
 @property(nonatomic) NSInteger floatingToolbarFontSize;

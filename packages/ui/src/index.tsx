@@ -578,6 +578,10 @@ export interface HostCapabilities {
   floating_toolbar: boolean;
   floating_toolbar_appearance: boolean;
   floating_toolbar_components: boolean;
+  /** The toolbar carries a handwriting panel button, which only this client's macOS toolbar does. */
+  floating_toolbar_handwriting?: boolean;
+  /** The toolbar carries a voice input button, for the same reason. */
+  floating_toolbar_voice?: boolean;
   mode_switch_shortcuts: boolean;
   panel_shortcuts: boolean;
   number_row_selection?: boolean;
@@ -1347,7 +1351,9 @@ export type FloatingToolbarPreferences = {
   punctuation: boolean;
   character_set: boolean;
   emoji: boolean;
+  handwriting: boolean;
   screen_keyboard: boolean;
+  voice: boolean;
   settings: boolean;
   scale_percent: 75 | 100 | 125 | 150;
   font_size: 16 | 18 | 20 | 22 | 24 | 26 | 28;
@@ -1359,31 +1365,43 @@ const defaultFloatingToolbar: FloatingToolbarPreferences = {
   punctuation: true,
   character_set: true,
   emoji: true,
+  handwriting: true,
   screen_keyboard: false,
+  voice: true,
   settings: true,
   scale_percent: 100,
   font_size: 24,
 };
+type FloatingToolbarOptionKey = keyof Pick<
+  FloatingToolbarPreferences,
+  | "english_mode"
+  | "fullwidth"
+  | "punctuation"
+  | "character_set"
+  | "emoji"
+  | "handwriting"
+  | "screen_keyboard"
+  | "voice"
+  | "settings"
+>;
+/// In the order the buttons sit on the toolbar. The third entry names the capability a host must
+/// report for the switch to be offered at all: the handwriting and voice buttons are this client's
+/// own additions and only one host draws them, so a switch for them elsewhere would turn off
+/// something that is not there.
 const floatingToolbarOptions: [
-  keyof Pick<
-    FloatingToolbarPreferences,
-    | "english_mode"
-    | "fullwidth"
-    | "punctuation"
-    | "character_set"
-    | "emoji"
-    | "screen_keyboard"
-    | "settings"
-  >,
+  FloatingToolbarOptionKey,
   string,
+  keyof Pick<HostCapabilities, "floating_toolbar_handwriting" | "floating_toolbar_voice"> | null,
 ][] = [
-  ["english_mode", "英文输入模式"],
-  ["fullwidth", "全角 / 半角"],
-  ["punctuation", "中英文标点"],
-  ["character_set", "简繁切换"],
-  ["emoji", "表情与符号"],
-  ["screen_keyboard", "屏幕键盘"],
-  ["settings", "设置"],
+  ["english_mode", "英文输入模式", null],
+  ["fullwidth", "全角 / 半角", null],
+  ["punctuation", "中英文标点", null],
+  ["character_set", "简繁切换", null],
+  ["emoji", "表情与符号", null],
+  ["handwriting", "手写识别板", "floating_toolbar_handwriting"],
+  ["screen_keyboard", "屏幕键盘", null],
+  ["voice", "语音输入", "floating_toolbar_voice"],
+  ["settings", "设置", null],
 ];
 const floatingToolbarScales: FloatingToolbarPreferences["scale_percent"][] = [75, 100, 125, 150];
 const floatingToolbarFontSizes: FloatingToolbarPreferences["font_size"][] = [
@@ -4939,27 +4957,29 @@ export function SettingsPage({
                             <span>中英文切换</span>
                             <span className={settings.toolbarRequiredLabel}>始终显示</span>
                           </label>
-                          {floatingToolbarOptions.map(([key, label]) => (
-                            <div key={key}>
-                              <div className="input-option-divider" />
-                              <label className="check-option">
-                                <input
-                                  type="checkbox"
-                                  checked={floatingToolbar[key]}
-                                  onChange={(event) =>
-                                    setDraft({
-                                      ...draft,
-                                      floating_toolbar: {
-                                        ...floatingToolbar,
-                                        [key]: event.target.checked,
-                                      },
-                                    })
-                                  }
-                                />
-                                <span>{label}</span>
-                              </label>
-                            </div>
-                          ))}
+                          {floatingToolbarOptions
+                            .filter(([, , capability]) => !capability || !host || host[capability])
+                            .map(([key, label]) => (
+                              <div key={key}>
+                                <div className="input-option-divider" />
+                                <label className="check-option">
+                                  <input
+                                    type="checkbox"
+                                    checked={floatingToolbar[key]}
+                                    onChange={(event) =>
+                                      setDraft({
+                                        ...draft,
+                                        floating_toolbar: {
+                                          ...floatingToolbar,
+                                          [key]: event.target.checked,
+                                        },
+                                      })
+                                    }
+                                  />
+                                  <span>{label}</span>
+                                </label>
+                              </div>
+                            ))}
                         </div>
                       </div>
                     )}

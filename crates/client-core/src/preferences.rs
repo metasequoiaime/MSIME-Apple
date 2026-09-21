@@ -819,8 +819,15 @@ pub struct FloatingToolbarPreferences {
     pub character_set: bool,
     #[serde(default = "enabled_by_default")]
     pub emoji: bool,
+    /// The handwriting panel button. The reference's toolbar has no such button; this client's
+    /// macOS toolbar carries one, and until now it could not be turned off.
+    #[serde(default = "enabled_by_default")]
+    pub handwriting: bool,
     #[serde(default)]
     pub screen_keyboard: bool,
+    /// The voice input button, for the same reason as `handwriting`.
+    #[serde(default = "enabled_by_default")]
+    pub voice: bool,
     #[serde(default = "enabled_by_default")]
     pub settings: bool,
 }
@@ -843,7 +850,9 @@ impl Default for FloatingToolbarPreferences {
             punctuation: true,
             character_set: true,
             emoji: true,
+            handwriting: true,
             screen_keyboard: false,
+            voice: true,
             settings: true,
         }
     }

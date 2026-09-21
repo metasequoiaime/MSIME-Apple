@@ -162,7 +162,8 @@ static NSString *const FullWidthShortcutKey = @"MSIMEClientFullWidthShortcut";
 static NSString *const FloatingToolbarKey = @"MSIMEClientFloatingToolbarEnabled";
 static NSString *const FloatingToolbarOptionsKey = @"MSIMEClientFloatingToolbarOptions";
 static NSArray<NSString *> *FloatingToolbarComponentKeys() {
-    return @[@"english_mode", @"punctuation", @"fullwidth", @"character_set", @"emoji", @"screen_keyboard", @"settings"];
+    return @[@"english_mode", @"punctuation", @"fullwidth", @"character_set", @"emoji", @"handwriting",
+             @"screen_keyboard", @"voice", @"settings"];
 }
 static BOOL ValidToolbarScale(id value) {
     return [value isKindOfClass:NSNumber.class] && CFGetTypeID((__bridge CFTypeRef)value) != CFBooleanGetTypeID() &&
@@ -753,7 +754,9 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
     toolbar[@"fullwidth"] = @(self.floatingToolbarFullWidth);
     toolbar[@"character_set"] = @(self.floatingToolbarCharacterSet);
     toolbar[@"emoji"] = @(self.floatingToolbarEmoji);
+    toolbar[@"handwriting"] = @(self.floatingToolbarHandwriting);
     toolbar[@"screen_keyboard"] = @(self.floatingToolbarScreenKeyboard);
+    toolbar[@"voice"] = @(self.floatingToolbarVoice);
     toolbar[@"settings"] = @(self.floatingToolbarSettings);
     toolbar[@"scale_percent"] = @(self.floatingToolbarScalePercent);
     toolbar[@"font_size"] = @(self.floatingToolbarFontSize);
@@ -1223,6 +1226,12 @@ static NSScrollView *PreferencesPage(NSString *title, NSString *summary, NSArray
 - (void)setFloatingToolbarCharacterSet:(BOOL)value { [self setFloatingToolbarBoolean:@"character_set" value:value]; }
 - (BOOL)floatingToolbarEmoji { return [self floatingToolbarBoolean:@"emoji" defaultValue:YES]; }
 - (void)setFloatingToolbarEmoji:(BOOL)value { [self setFloatingToolbarBoolean:@"emoji" value:value]; }
+// The handwriting panel and voice buttons, which the reference's toolbar does not have. Both default
+// on: they have been on the toolbar since it shipped, and a switch appearing must not remove them.
+- (BOOL)floatingToolbarHandwriting { return [self floatingToolbarBoolean:@"handwriting" defaultValue:YES]; }
+- (void)setFloatingToolbarHandwriting:(BOOL)value { [self setFloatingToolbarBoolean:@"handwriting" value:value]; }
+- (BOOL)floatingToolbarVoice { return [self floatingToolbarBoolean:@"voice" defaultValue:YES]; }
+- (void)setFloatingToolbarVoice:(BOOL)value { [self setFloatingToolbarBoolean:@"voice" value:value]; }
 - (BOOL)floatingToolbarScreenKeyboard { return [self floatingToolbarBoolean:@"screen_keyboard" defaultValue:NO]; }
 - (void)setFloatingToolbarScreenKeyboard:(BOOL)value { [self setFloatingToolbarBoolean:@"screen_keyboard" value:value]; }
 - (BOOL)floatingToolbarSettings { return [self floatingToolbarBoolean:@"settings" defaultValue:YES]; }
