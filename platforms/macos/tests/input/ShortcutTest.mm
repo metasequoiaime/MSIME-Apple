@@ -118,6 +118,7 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic, copy) NSDictionary *lastSnapshot;
 @property(nonatomic) NSUInteger settledRerankCalls;
 @property(nonatomic) NSUInteger rawCommitCalls;
+@property(nonatomic) NSUInteger commandCalls;
 @property(nonatomic, copy) NSDictionary *rawTransition;
 @end
 @implementation ShortcutSession
@@ -233,6 +234,7 @@ static void CheckMenu(NSMenu *menu, id controller) {
 }
 - (NSDictionary *)command:(uint32_t)command error:(NSError **)error {
     (void)error;
+    ++self.commandCalls;
     self.lastCommand = command;
     if (command == MSIME_COMMIT_RAW) ++self.rawCommitCalls;
     if (self.failFinish && command == MSIME_FINISH_COMPOSITION) return nil;
@@ -258,6 +260,48 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic) NSRect caret;
 @property(nonatomic, strong) NSMutableArray<NSString *> *insertions;
 @end
+
+static void TestBackspaceHoldDoesNotEscapeComposition() {
+    NSString *suite = [@"msime.backspace-hold." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *appearance = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    ShortcutSession *session = [ShortcutSession new];
+    ShortcutClient *client = [ShortcutClient new];
+    MSIMEInputController *controller = [MSIMEInputController alloc];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:@{ @"focused": @YES, @"editing_text": @"n", @"candidates": @[] } forKey:@"view"];
+    session.nextTransition = @{ @"handled": @YES, @"commit": NSNull.null,
+                                @"view": @{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] } };
+    NSEvent *(^backspace)(BOOL) = ^NSEvent *(BOOL repeat) {
+        return [NSEvent keyEventWithType:NSEventTypeKeyDown location:NSZeroPoint modifierFlags:0 timestamp:0
+                            windowNumber:0 context:nil characters:@"\b" charactersIgnoringModifiers:@"\b"
+                               isARepeat:repeat keyCode:51];
+    };
+
+    assert([controller handleEvent:backspace(NO) client:client]);
+    assert(session.commandCalls == 1 && session.lastCommand == MSIME_BACKSPACE);
+    assert([controller handleEvent:backspace(YES) client:client]);
+    assert(session.commandCalls == 1); // Repeat is swallowed without touching Engine or document text.
+
+    // Releasing and pressing Backspace again starts a new hold. With no
+    // composition it belongs to the client, so the old guard must not claim it.
+    session.nextTransition = @{ @"handled": @NO, @"commit": NSNull.null,
+                                @"view": @{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] } };
+    assert(![controller handleEvent:backspace(NO) client:client]);
+    assert(session.commandCalls == 2);
+
+    // Focus loss also ends ownership; a repeat must never carry into another
+    // text client even if AppKit delivers it after the switch.
+    [controller setValue:@YES forKey:@"backspaceHoldArmed"];
+    ShortcutClient *nextClient = [ShortcutClient new];
+    NSUInteger callsBeforeSwitch = session.commandCalls;
+    assert(![controller handleEvent:backspace(YES) client:nextClient]);
+    assert(session.commandCalls == callsBeforeSwitch + 1);
+    assert(![[controller valueForKey:@"backspaceHoldArmed"] boolValue]);
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
 @implementation ShortcutClient
 - (NSRange)selectedRange { return self.selection; }
 - (NSAttributedString *)attributedSubstringFromRange:(NSRange)range {
@@ -5344,6 +5388,7 @@ int main(int argc, char **argv) {
         TestJapaneseConversionKeys(appearance);
         TestGlossSensePage(appearance);
         TestSegmentEditingChords(appearance);
+        TestBackspaceHoldDoesNotEscapeComposition();
         TestKeypadOperators(appearance);
         TestSmartPunctuationPreferences();
         TestSharedCharacterWidth();

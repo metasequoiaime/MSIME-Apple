@@ -2290,3 +2290,11 @@ if let Some(route) = launch_route_from_args(&args) { ... }
 来源 `94df9a79` 修复的八项里，管道监听唤醒、`ERROR_FILE_NOT_FOUND` 重连、IPC 尾部填充、TSF range 克隆与同 tick 去重都属于 Windows 的 Server / DLL / TSF 形态，macOS 没有对应对象；不能为了字面一致照搬。跨平台语义是统计关闭后采集入口直接短路，不读取或分类上屏文本，也不接触传输与存储。
 
 macOS 此前每次上屏仍会计算本地日期与来源、把完整文本序列化成 JSON、投递后台队列并跨 FFI 读取统计文件，最后才在共享 store 里发现 `enabled=false`。现在 IMK 进程以默认关闭的原子位守住 `MSIMERecordTypingStatistics` 第一行：启动或激活时通过只读 FFI 从共享统计文档恢复开关，Tauri 设置进程写入成功后只用 `NSDistributedNotificationCenter` 跨进程发送一个布尔值，不发送路径、统计或输入内容。共享 store 也在构造字符分类前读取开关，守住通知与后台任务之间的竞态。关闭时不再检查、分类、序列化或排队任何上屏文本；开启时原有聚合存储路径不变。
+
+### 长按 Backspace 清空组字后不删除正文（2026-09-22）
+
+来源 `62c9f5cf` 修复的是按键所有权跨越组字终点的问题：一次 Backspace 长按从活动组字里开始，自动重复删掉最后一个预编辑字符后，后续 repeat 仍属于输入法；如果这时按“当前有没有组字”重新判断，它会落回编辑器并开始删除已经上屏的正文。
+
+macOS 原生宿主此前存在同一条可达路径。`MSIMEInputController` 把第一个 Backspace 送进共享 Engine，应用返回的空 `view`；下一次 `isARepeat` 再送 Engine时得到未处理，`handleEvent` 返回 `NO`，同一次物理按住便交给当前 `NSTextInputClient`。现在控制器在非 repeat 的 Backspace 到达时记录这次 hold 是否始于活动组字；组字已空但 hold 仍 armed 时直接吞掉 repeat，不再请求 Engine，也不让客户端收到。新的非 repeat 会重新判定，因此用户松开后再次按 Backspace 仍能正常删除正文；空 sender、客户端切换和有效的 `deactivateServer` 都清掉状态，所有权不会跨焦点泄漏。
+
+`ShortcutTest.mm` 以宿主事件序列钉住三个方向：第一键清空组字、随后 repeat 被消费且 Engine 调用数不增加、下一次新按键重新交还客户端；另验证切换文本客户端会解除 armed 状态。反向移除 repeat 栅栏时用例稳定失败在第二次 Engine 调用。实现只落在 `Info.plist` 指定的 `MSIMEInputController`；保留的旧 `MetasequoiaInputController` 不是当前产品入口，不复制一份状态机。
