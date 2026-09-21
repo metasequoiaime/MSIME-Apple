@@ -99,6 +99,18 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       }
     };
 
+  /** The editor changed its selection, invalidating everything derived from the old caret. */
+  private readonly selectionChanged: (oldBegin: number, oldEnd: number,
+                                      newBegin: number, newEnd: number) => void =
+    (_oldBegin: number, _oldEnd: number, _newBegin: number, _newEnd: number): void => {
+      KeyboardSession.shared.editorSelectionChanged();
+    };
+
+  /** The editor changed its document, either as our edit echo or independently of the keyboard. */
+  private readonly textChanged: (value: string) => void = (_value: string): void => {
+    KeyboardSession.shared.editorTextChanged();
+  };
+
   /**
    * As wide as the buttons the user left on, scaled by what they asked for.
    *
@@ -537,6 +549,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
     }
     engine.on('inputStart', this.started);
     engine.on('inputStop', this.stopped);
+    inputMethodEngine.getKeyboardDelegate().on('selectionChange', this.selectionChanged);
+    inputMethodEngine.getKeyboardDelegate().on('textChange', this.textChanged);
     // Which gestures are bound is the document's business, so the keyboard and the settings page
     // cannot disagree about what a key does. Bound before any key can arrive, on every device: a
     // keyboard may be plugged into this one later.
@@ -710,6 +724,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
       this.panel = undefined;
       engine.off('inputStart', this.started);
       engine.off('inputStop', this.stopped);
+      inputMethodEngine.getKeyboardDelegate().off('selectionChange', this.selectionChanged);
+      inputMethodEngine.getKeyboardDelegate().off('textChange', this.textChanged);
       return;
     }
   }
@@ -717,6 +733,8 @@ export default class KeyboardExtensionAbility extends InputMethodExtensionAbilit
   onDestroy(): void {
     engine.off('inputStart', this.started);
     engine.off('inputStop', this.stopped);
+    inputMethodEngine.getKeyboardDelegate().off('selectionChange', this.selectionChanged);
+    inputMethodEngine.getKeyboardDelegate().off('textChange', this.textChanged);
     if (this.routingKeys) {
       inputMethodEngine.getKeyboardDelegate().off('keyEvent', this.typed);
       this.routingKeys = false;

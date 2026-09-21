@@ -742,6 +742,10 @@ export class KeyboardSession implements HardwareKeyTarget {
   private handle: number = 0;
   private inputClient: inputMethodEngine.InputClient | undefined = undefined;
   private editorGeneration: number = 0;
+  // Editor mutations are echoed asynchronously through KeyboardDelegate.textChange. Keep the
+  // count raised until those callbacks arrive so our own commit cannot be mistaken for a host edit
+  // and finish a residual composition that the Engine deliberately left active.
+  private pendingOwnEdits: number = 0;
   private replyContextGeneration: number = 0;
   private replyResultEditorGeneration: number = -1;
   private replyResultContextGeneration: number = -1;
@@ -1688,7 +1692,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       AiPolishPolicy.replacement(source, result, current);
     if (replacement === null) return false;
     try {
-      this.inputClient.deleteBackwardSync(replacement.deleteCount);
+      this.deleteEditorBackwardSync(replacement.deleteCount);
     } catch (error) {
       KeyboardLog.error(`polish could not replace the text: ${describeError(error)}`);
       return false;
@@ -1729,6 +1733,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** The framework hands over a fresh client on every inputStart. */
   attach(inputClient: inputMethodEngine.InputClient): void {
     const editorGeneration: number = ++this.editorGeneration;
+    this.pendingOwnEdits = 0;
     this.invalidateReplyContext();
     this.clearSmartPunctuationRepeat();
     this.inputClient = inputClient;
@@ -1772,6 +1777,7 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   detach(): void {
     this.editorGeneration++;
+    this.pendingOwnEdits = 0;
     this.modeScope.deactivate();
     this.clearEnglishSuggestions();
     this.invalidateReplyContext();
@@ -1788,6 +1794,7 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   stop(): void {
     this.editorGeneration++;
+    this.pendingOwnEdits = 0;
     this.invalidateReplyContext();
     this.clearSmartPunctuationRepeat();
     this.cancelOnlineProviders();
@@ -1821,6 +1828,75 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.replyResultTexts = [];
     if (this.onReplyContextChanged !== undefined) {
       this.onReplyContextChanged();
+    }
+  }
+
+  /** Reconcile a document mutation reported by the editor with keyboard-owned edit echoes. */
+  editorTextChanged(): void {
+    this.invalidateReplyContext();
+    if (!EditorPolicy.isExternalTextChange(this.pendingOwnEdits)) {
+      this.pendingOwnEdits--;
+      if (this.onEditorChanged !== undefined) {
+        this.onEditorChanged();
+      }
+      return;
+    }
+    // A host edit may clear the field, replace the document or move text around the active
+    // composition. Commit what the user typed before the Engine's state can drift from the editor.
+    this.finishCompositionBoundary(CompositionBoundary.DEACTIVATE);
+    this.clearEnglishSuggestions();
+    this.clearSmartPunctuationRepeat();
+    this.clearSmartPunctuationSpace();
+    if (this.onEditorChanged !== undefined) {
+      this.onEditorChanged();
+    }
+  }
+
+  /** A selection move changes contextual UI but does not itself discard an active composition. */
+  editorSelectionChanged(): void {
+    this.invalidateReplyContext();
+    this.clearEnglishSuggestions();
+    if (this.onEditorChanged !== undefined) {
+      this.onEditorChanged();
+    }
+  }
+
+  /** Insert through the editor while reserving the asynchronous text-change echo it produces. */
+  private insertEditorText(text: string): void {
+    const inputClient: inputMethodEngine.InputClient | undefined = this.inputClient;
+    if (inputClient === undefined) return;
+    const generation: number = this.editorGeneration;
+    this.pendingOwnEdits++;
+    inputClient.insertText(text).catch((error: Object): void => {
+      if (generation === this.editorGeneration && this.inputClient === inputClient
+          && this.pendingOwnEdits > 0) {
+        this.pendingOwnEdits--;
+      }
+      KeyboardLog.error(`editor insertion unavailable: ${describeError(error)}`);
+    });
+  }
+
+  /** Synchronous insert variant for an atomic read/replace editor operation. */
+  private insertEditorTextSync(text: string): void {
+    if (this.inputClient === undefined) return;
+    this.pendingOwnEdits++;
+    try {
+      this.inputClient.insertTextSync(text);
+    } catch (error) {
+      this.pendingOwnEdits--;
+      throw error;
+    }
+  }
+
+  /** Delete through the editor while reserving the asynchronous text-change echo it produces. */
+  private deleteEditorBackwardSync(count: number): void {
+    if (this.inputClient === undefined) return;
+    this.pendingOwnEdits++;
+    try {
+      this.inputClient.deleteBackwardSync(count);
+    } catch (error) {
+      this.pendingOwnEdits--;
+      throw error;
     }
   }
 
@@ -1986,8 +2062,8 @@ export class KeyboardSession implements HardwareKeyTarget {
         try {
           // deleteBackwardSync(1) removes the one scalar just before the caret. The preceding
           // scalar was checked above, so a replacement cannot consume unrelated text.
-          this.inputClient.deleteBackwardSync(1);
-          this.inputClient.insertTextSync(chinese);
+          this.deleteEditorBackwardSync(1);
+          this.insertEditorTextSync(chinese);
           this.recordTypingStatistics(chinese, this.typingSource());
           this.clearSmartPunctuationRepeat();
           this.refreshEnglishSuggestions();
@@ -2021,7 +2097,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       try {
         const literal: string = FullWidthInputPolicy.output(String.fromCharCode(ascii), this.fullWidth)
           ?? String.fromCharCode(ascii);
-        this.inputClient.insertTextSync(literal);
+        this.insertEditorTextSync(literal);
         this.recordTypingStatistics(literal, this.typingSource());
         this.refreshEnglishSuggestions();
         if (this.canArmSmartPunctuationRepeat(ascii, preceding)) {
@@ -2045,7 +2121,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.editorGeneration);
     if (completion === null || this.inputClient === undefined) return;
     try {
-      this.inputClient.insertTextSync(completion.closing);
+      this.insertEditorTextSync(completion.closing);
       this.recordTypingStatistics(completion.closing, this.typingSource());
       this.refreshEnglishSuggestions();
       if (completion.opening === 0x3c) {
@@ -2115,7 +2191,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       return;
     }
     try {
-      this.inputClient.deleteBackwardSync(1);
+      this.deleteEditorBackwardSync(1);
       this.refreshEnglishSuggestions();
     } catch (error) {
       KeyboardLog.error(`editor backspace unavailable: ${describeError(error)}`);
@@ -2305,7 +2381,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       // The Engine commits simplified; whether the user wanted traditional is a host decision, the
       // same boundary the Apple and Android hosts draw.
       const output: string = this.asTraditional(commit);
-      this.inputClient.insertText(output);
+      this.insertEditorText(output);
       this.recordTypingStatistics(output, this.typingSource());
     }
     this.render(value.view);
@@ -3530,7 +3606,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.inputClient !== undefined) {
       const widened: string | null = FullWidthInputPolicy.output(text, this.fullWidth);
       const output: string = this.asTraditional(widened === null ? text : widened);
-      this.inputClient.insertText(output);
+      this.insertEditorText(output);
       this.recordTypingStatistics(output, this.typingSource());
       this.refreshEnglishSuggestions();
     }
@@ -3638,7 +3714,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       return;
     }
     try {
-      this.inputClient.deleteBackwardSync(replacement.deleteCount);
+      this.deleteEditorBackwardSync(replacement.deleteCount);
     } catch (error) {
       KeyboardLog.error(`english completion could not replace the word: ${describeError(error)}`);
       this.clearEnglishSuggestions();
@@ -3723,7 +3799,7 @@ export class KeyboardSession implements HardwareKeyTarget {
   insertWithSource(text: string, source: string): void {
     if (this.inputClient === undefined || text.length === 0) return;
     const output: string = this.asTraditional(text);
-    this.inputClient.insertText(output);
+    this.insertEditorText(output);
     this.recordTypingStatistics(output, source);
   }
 
@@ -3768,8 +3844,8 @@ export class KeyboardSession implements HardwareKeyTarget {
     const ascii: string = String.fromCharCode(snapshot.ascii);
     try {
       // The preceding scalar was just checked to be the armed mark, so this cannot eat other text.
-      this.inputClient.deleteBackwardSync(1);
-      this.inputClient.insertTextSync(ascii);
+      this.deleteEditorBackwardSync(1);
+      this.insertEditorTextSync(ascii);
       this.recordTypingStatistics(ascii, this.typingSource());
     } catch (error) {
       KeyboardLog.error(`punctuation space conversion unavailable: ${describeError(error)}`);

@@ -4344,6 +4344,17 @@ group("a delayed editor callback never interrupts typing", () => {
   );
 });
 
+group("editor change echoes preserve keyboard-owned composition", () => {
+  check(
+    !EditorPolicy.isExternalTextChange(1),
+    "a pending keyboard edit consumes its own asynchronous text-change echo",
+  );
+  check(
+    EditorPolicy.isExternalTextChange(0),
+    "a text change with no pending keyboard mutation came from the host",
+  );
+});
+
 group("a password field never sees a composition buffer", () => {
   check(EditorPolicy.useEngine(PLAIN) === true, "prose composes through the Engine");
   check(EditorPolicy.useEngine(PASSWORD) === false, "a password never does");
