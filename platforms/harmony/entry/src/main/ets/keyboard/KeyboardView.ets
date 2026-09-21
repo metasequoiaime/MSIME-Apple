@@ -148,6 +148,7 @@ const SURFACE_VOICE: string = 'voice';
 const SURFACE_REPLY: string = 'reply';
 const SURFACE_POLISH: string = 'polish';
 const SURFACE_SYMBOLS: string = 'symbols-panel';
+const SURFACE_NINE_KEY_HOLD: string = 'nine-key-hold';
 
 const TOOL_ICON_VP: number = 18;
 // Third, which is where iOS puts the English card.
@@ -267,6 +268,7 @@ struct KeyboardView {
   @State emojiSymbolParent: string = '';
   @State symbolCategory: number = 0;
   @State symbolLocked: boolean = false;
+  @State nineKeyHoldOptions: string[] = [];
   /**
    * Which surface is covering the keys, if any.
    *
@@ -720,6 +722,25 @@ struct KeyboardView {
     }
   }
 
+  private openNineKeyHold(key: NineKey): void {
+    const options: string[] = NineKeyLayout.holdOptions(key);
+    if (options.length === 0 || this.symbols) {
+      return;
+    }
+    this.nineKeyHoldOptions = options;
+    this.show(SURFACE_NINE_KEY_HOLD);
+  }
+
+  private selectNineKeyHoldOption(option: string): void {
+    if (!this.nineKeyHoldOptions.includes(option)) {
+      return;
+    }
+    this.nineKeyHoldOptions = [];
+    this.show(SURFACE_NONE);
+    KeyboardSession.shared.finishComposition();
+    KeyboardSession.shared.insert(option);
+  }
+
   private selectScheme(candidate: SchemeDefinition): void {
     // The composition belongs to the scheme that was current when it was typed; carrying it into a
     // different one would reinterpret letters that were never meant that way.
@@ -917,6 +938,9 @@ struct KeyboardView {
 
   /** Shows one surface, which closes whatever was showing. */
   private show(surface: string): void {
+    if (surface !== SURFACE_NINE_KEY_HOLD) {
+      this.nineKeyHoldOptions = [];
+    }
     if (surface !== SURFACE_REPLY) {
       this.replyGeneration += 1;
       this.replyBusy = false;
@@ -959,6 +983,12 @@ struct KeyboardView {
    */
   private nineKeyFaceOf(key: NineKey): string {
     return this.english && key.input === '\'' ? '\'' : key.label;
+  }
+
+  private nineKeyLabel(key: NineKey): string {
+    const options: string[] = NineKeyLayout.holdOptions(key);
+    return options.length === 0 ? key.description
+      : `${key.description}，长按输入 ${options.join('、')}`;
   }
 
   /** Which of the two English cards is current is the grid, English itself being common to both. */
@@ -1617,19 +1647,11 @@ struct KeyboardView {
         ForEach(this.symbols ? NineKeyLayout.digits() : NineKeyLayout.rows(), (row: NineKey[]) => {
           Row({ space: this.keySpacing() }) {
             ForEach(row, (key: NineKey) => {
-              this.flexibleKey({
-                face: this.symbols ? key.label : this.nineKeyFaceOf(key),
-                label: this.symbols ? KeyAccessibilityPolicy.symbol(key.label) : key.description,
-                size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
-                emphasized: false,
-                width: 0,
-                // A digit is inserted, not spelled: the same call the twenty-six key symbol row
-                // makes for its own digit row, rather than handing the character to the Engine
-                // where it would be read as a candidate position.
-                action: this.symbols
-                  ? () => KeyboardSession.shared.punctuation(key.input.charCodeAt(0))
-                  : () => KeyboardSession.shared.press(key.input.charCodeAt(0), false)
-              });
+              if (!this.symbols && NineKeyLayout.holdOptions(key).length > 0) {
+                this.nineKeyHoldKey(key);
+              } else {
+                this.flexibleKey(this.nineKeyKeyOptions(key));
+              }
             }, (key: NineKey) => key.input + this.faceKey())
           }
           .layoutWeight(1)
@@ -1659,6 +1681,38 @@ struct KeyboardView {
     }
     .width('100%')
     .height(this.gridHeight())
+  }
+
+  private nineKeyKeyOptions(key: NineKey): KeyOptions {
+    return {
+      face: this.symbols ? key.label : this.nineKeyFaceOf(key),
+      label: this.symbols ? KeyAccessibilityPolicy.symbol(key.label) : this.nineKeyLabel(key),
+      size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
+      emphasized: false,
+      width: 0,
+      // A digit is inserted, not spelled: the same call the twenty-six key symbol row makes for
+      // its own digit row, rather than handing it to the Engine as a candidate position.
+      action: this.symbols
+        ? () => KeyboardSession.shared.punctuation(key.input.charCodeAt(0))
+        : () => KeyboardSession.shared.press(key.input.charCodeAt(0), false)
+    };
+  }
+
+  @Builder
+  nineKeyHoldKey(key: NineKey) {
+    Column() {
+      this.keyFace(this.nineKeyKeyOptions(key))
+    }
+    .accessibilityText(this.nineKeyLabel(key))
+    .layoutWeight(1)
+    .height('100%')
+    .backgroundColor(this.skin.keyBackground)
+    .borderRadius(this.skin.cornerRadius)
+    .borderWidth(this.skin.borderWidth)
+    .borderColor(this.skin.borderColor)
+    .opacity(this.skin.keyOpacity)
+    .onClick(() => KeyboardSession.shared.press(key.input.charCodeAt(0), false))
+    .gesture(LongPressGesture().onAction(() => this.openNineKeyHold(key)))
   }
 
   /**
@@ -3836,6 +3890,47 @@ struct KeyboardView {
     .backgroundColor(this.skin.background)
   }
 
+  /** Literal digit and letters offered by a long-pressed pinyin nine-key cell. */
+  @Builder
+  nineKeyHoldFace() {
+    Column() {
+      Text('长按输入')
+        .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
+        .fontColor(this.skin.keyForeground)
+        .opacity(0.65)
+        .height(KeyboardMetrics.ROW_HEIGHT_VP)
+      Row({ space: this.keySpacing() }) {
+        ForEach(this.nineKeyHoldOptions, (option: string) => {
+          Text(option)
+            .fontSize(KeyboardMetrics.KEY_FONT_SIZE)
+            .fontColor(this.skin.keyForeground)
+            .textAlign(TextAlign.Center)
+            .layoutWeight(1)
+            .height(KeyboardMetrics.ROW_HEIGHT_VP)
+            .backgroundColor(this.skin.keyBackground)
+            .borderRadius(this.skin.cornerRadius)
+            .accessibilityText(`输入 ${option}`)
+            .onClick(() => this.selectNineKeyHoldOption(option))
+        }, (option: string) => option)
+      }
+      .width('100%')
+      .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
+        right: KeyboardMetrics.CANDIDATE_PADDING_VP })
+      Blank()
+      Text('取消')
+        .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
+        .fontColor(this.skin.accent)
+        .textAlign(TextAlign.Center)
+        .width('100%')
+        .height(this.rowHeight(3))
+        .accessibilityText('取消长按输入')
+        .onClick(() => this.show(SURFACE_NONE))
+    }
+    .width('100%')
+    .height(this.surfaceHeight())
+    .backgroundColor(this.skin.background)
+  }
+
   @Builder
   nineKeyControl(face: string, label: string, action: () => void) {
     Column() {
@@ -3934,6 +4029,8 @@ struct KeyboardView {
         this.emojiFace()
       } else if (this.surface === SURFACE_SYMBOLS) {
         this.symbolPanelFace()
+      } else if (this.surface === SURFACE_NINE_KEY_HOLD) {
+        this.nineKeyHoldFace()
       } else if (this.japanese && this.surface === SURFACE_VARIANTS && !this.symbols) {
         this.variantFace()
       } else if (this.japanese) {

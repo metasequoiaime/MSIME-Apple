@@ -710,6 +710,7 @@ enum InputCommand {
   MOVE_HOME = 6,
   MOVE_END = 7,
   DELETE_FORWARD = 8,
+  FINISH_COMPOSITION = 9,
   BACKSPACE_SEGMENT = 12,
   MOVE_LEFT_SEGMENT = 13,
   MOVE_RIGHT_SEGMENT = 14,
@@ -2099,6 +2100,11 @@ export class KeyboardSession implements HardwareKeyTarget {
   /** Commit the spelling as typed rather than any candidate. */
   commitRaw(): void {
     this.command(InputCommand.COMMIT_RAW);
+  }
+
+  /** Commit the highlighted candidate, or the reading when the scheme has no converted candidate. */
+  finishComposition(): void {
+    this.command(InputCommand.FINISH_COMPOSITION);
   }
 
   moveLeft(): void {

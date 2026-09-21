@@ -1175,6 +1175,15 @@ group("the digit layer re-labels the grid instead of handing over ten across", (
   );
 });
 
+group("a long press exposes the literal digit and letters", () => {
+  const rows: NineKey[][] = NineKeyLayout.rows();
+  check(NineKeyLayout.holdOptions(rows[0][1]).join("") === "2abc", "ABC offers 2, a, b and c");
+  check(NineKeyLayout.holdOptions(rows[2][0]).join("") === "7pqrs", "PQRS keeps all four letters");
+  check(NineKeyLayout.holdOptions(rows[0][0]).length === 0, "the word-split cell has no literal menu");
+  check(NineKeyLayout.holdOptions(NineKeyLayout.digits()[0][1]).length === 0,
+    "the digit face does not duplicate its own tap");
+});
+
 console.log("JapaneseNineKeyLayout");
 
 group("every key carries exactly five directions", () => {
