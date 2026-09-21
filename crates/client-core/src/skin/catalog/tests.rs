@@ -142,6 +142,36 @@ fn resource_reader_preserves_bytes_and_assigns_supported_content_types() {
 }
 
 #[test]
+fn stylesheet_reader_accepts_only_package_local_utf8_css() {
+    let root = tempdir().unwrap();
+    let skin = resource_package(root.path());
+    fs::create_dir_all(skin.join("styles")).unwrap();
+    fs::write(
+        skin.join("styles/imported.css"),
+        b"\xEF\xBB\xBF.imported {}",
+    )
+    .unwrap();
+    fs::write(skin.join("styles/broken.css"), [0xff, 0xfe]).unwrap();
+    fs::write(skin.join("styles/image.png"), b"not-an-image-decoder-test").unwrap();
+    assert_eq!(
+        read_stylesheet(root.path(), "sample", "styles/imported.css").unwrap(),
+        ".imported {}"
+    );
+    assert_eq!(
+        read_stylesheet(root.path(), "sample", "styles/broken.css"),
+        Err(ResourceError::InvalidEncoding)
+    );
+    assert_eq!(
+        read_stylesheet(root.path(), "sample", "styles/image.png"),
+        Err(ResourceError::UnsupportedType)
+    );
+    assert_eq!(
+        read_stylesheet(root.path(), "sample", "../outside.css"),
+        Err(ResourceError::InvalidPath)
+    );
+}
+
+#[test]
 fn resource_reader_rejects_paths_urls_and_non_asset_types() {
     let root = tempdir().unwrap();
     resource_package(root.path());

@@ -1460,7 +1460,7 @@ export interface SettingsClient {
   scanSkinCatalog?: () => Promise<SkinCatalog>;
   readSkinImage?: SkinImageReader;
   readSkinFont?: SkinFontReader;
-  readSkinToolbarCss?: (id: string) => Promise<string | null>;
+  readSkinToolbarCss?: (id: string, relative?: string) => Promise<string | null>;
   openSkinDirectory?: () => Promise<void>;
   load(): Promise<Snapshot>;
   save(revision: number, preferences: Preferences): Promise<Snapshot>;

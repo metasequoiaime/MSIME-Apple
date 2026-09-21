@@ -793,6 +793,12 @@ fn skin_image_command_contract_filters_non_images_and_paths() {
     std::fs::write(folder.join("preview.png"), [0, 1, 255]).unwrap();
     std::fs::write(folder.join("font.woff2"), [0, 1, 255]).unwrap();
     std::fs::write(folder.join("toolbar.css"), b".sample {}").unwrap();
+    std::fs::create_dir_all(folder.join("styles")).unwrap();
+    std::fs::write(
+        folder.join("styles/imported.css"),
+        b"\xEF\xBB\xBF.imported {}",
+    )
+    .unwrap();
     assert!(matches!(
         super::read_skin_toolbar_stylesheet_at(root.clone(), "sample"),
         Ok(None)
@@ -806,6 +812,14 @@ fn skin_image_command_contract_filters_non_images_and_paths() {
     assert!(
         matches!(super::read_skin_toolbar_stylesheet_at(root.clone(), "sample"), Ok(Some(css)) if css == ".sample {}")
     );
+    assert!(matches!(
+        super::read_skin_stylesheet_at(root.clone(), "sample", "styles/imported.css"),
+        Ok(css) if css == ".imported {}"
+    ));
+    assert!(super::read_skin_stylesheet_at(root.clone(), "sample", "preview.png").is_err());
+    assert!(super::read_skin_stylesheet_at(root.clone(), "sample", "../toolbar.css").is_err());
+    std::fs::write(folder.join("styles/broken.css"), [0xff, 0xfe]).unwrap();
+    assert!(super::read_skin_stylesheet_at(root.clone(), "sample", "styles/broken.css").is_err());
     let result = super::read_skin_image_at(root.clone(), "sample", "preview.png")
         .ok()
         .unwrap();
