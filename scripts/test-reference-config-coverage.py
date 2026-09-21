@@ -228,6 +228,15 @@ MAPPING: dict[str, str] = {
 
 # Targets allowed to have no control on the shared settings page, and why. Each is a setting whose
 # subject does not exist here rather than one this client has not got round to.
+# Targets whose field name is composed at run time rather than written out, so a literal search
+# cannot see the control that reaches them. The three voice polish slots are written by
+# `polish_prompt_${slot}` in the 润色提示词 textarea's onChange, which is the control for all three.
+COMPOSED_AT_RUNTIME: dict[str, str] = {
+    "polish_prompt_custom_1": "written through `polish_prompt_${slot}` by the 润色提示词 textarea",
+    "polish_prompt_custom_2": "written through `polish_prompt_${slot}` by the 润色提示词 textarea",
+    "polish_prompt_custom_3": "written through `polish_prompt_${slot}` by the 润色提示词 textarea",
+}
+
 PLATFORM_LOCAL: dict[str, str] = {
     "ui_backend": (
         "Chooses between the reference's Direct2D surfaces and its WebView2 ones. The candidate "
@@ -238,8 +247,21 @@ PLATFORM_LOCAL: dict[str, str] = {
 
 
 def page_text() -> str:
-    page = ROOT / "packages/ui/src/index.tsx"
-    return page.read_text(encoding="utf-8") if page.is_file() else ""
+    """The shared settings page, which is a directory rather than a file.
+
+    `index.tsx` holds the page, but controls are extracted into components beside it - the
+    candidate font controls, including the fallback-font editor, live in
+    `candidate/candidate-font-controls.tsx`. Reading only `index.tsx` makes every such control
+    invisible, and the first version of this check did exactly that.
+    """
+    root = ROOT / "packages/ui/src"
+    if not root.is_dir():
+        return ""
+    return "\n".join(
+        path.read_text(encoding="utf-8")
+        for path in sorted(root.rglob("*"))
+        if path.suffix in {".tsx", ".ts"} and path.is_file()
+    )
 
 
 def shared_text() -> str:
@@ -278,8 +300,38 @@ def main() -> int:
         if not re.search(rf"\b{re.escape(needle)}\b", page_text()):
             unreachable.append(f"{key} -> {target}")
 
+    # A declaration is not code. A field can be added to the page's types and defaults and then
+    # touched by nothing, which looks the same to a name search as a setting that works.
+    #
+    # This says "nothing reads or writes it", not "no control renders it", and the difference is
+    # real: deleting the fallback-font editor from its component leaves this quiet, because
+    # `candidate-font-family.ts` and `resolved-candidate-fonts.ts` still read the field for
+    # validation and font resolution. Measured, not assumed. Telling a control apart from a helper
+    # needs the JSX parsed, which is more machinery than this check is worth; what it catches is a
+    # field declared and wired to nothing at all.
+    declaration_only = []
+    page = page_text().splitlines()
+    for key, target in sorted(MAPPING.items()):
+        name = target.split(".")[-1]
+        if target.startswith("!") or target in PLATFORM_LOCAL or name in COMPOSED_AT_RUNTIME:
+            continue
+        mentions = [line for line in page if re.search(rf"\b{re.escape(name)}\b", line)]
+        if mentions and all(
+            re.fullmatch(rf"{re.escape(name)}\??:\s*[^=]+;", line.strip())
+            or re.fullmatch(rf"{re.escape(name)}:\s*.+,", line.strip())
+            for line in mentions
+        ):
+            declaration_only.append(f"{key} -> {target}")
+
     for entry in orphaned:
         print(f"the shared layer no longer has the target for {entry}", file=sys.stderr)
+    for entry in declaration_only:
+        print(
+            f"{entry} appears in the shared settings page only as a declaration or a default: "
+            f"nothing in the shared tree reads or writes it.",
+            file=sys.stderr,
+        )
+    unreachable += declaration_only
     for entry in unreachable:
         print(
             f"{entry} has a field but its name appears nowhere in the shared settings page, so "
