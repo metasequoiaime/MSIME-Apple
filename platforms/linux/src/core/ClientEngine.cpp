@@ -6,6 +6,7 @@
 #include "NavigationBindings.h"
 #include "NativeCompose.h"
 #include "PhrasePreedit.h"
+#include "JapaneseConversion.h"
 #include "SmartPunctuationSpace.h"
 #include "WordCharacterBinding.h"
 #include "../voice/VoiceAction.h"
@@ -333,6 +334,8 @@ struct State {
   msime::linux_host::NavigationBindings navigation;
   msime::linux_host::WordCharacterBinding word_character;
   msime::linux_host::PairedPunctuationTracker paired_tracker;
+  // Japanese converts with Space and commits with Enter; see core/JapaneseConversion.h.
+  msime::linux_host::JapaneseConversion japanese_conversion;
   std::string ai_context;
   void remember_commit(const std::string &text) {
     if (!focused || blocked || private_input) {
@@ -526,6 +529,7 @@ struct State {
     space_convert_mark = 0;
     space_convert_preceding.clear();
     paired_tracker.clear();
+    japanese_conversion.reset();
   }
   void open() {
     auto options = configured;
@@ -6156,6 +6160,10 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
     const bool candidate_active =
         s.view.at("candidates").is_array() && !s.view.at("candidates").empty();
     const auto local_mode = s.view.value("local_mode", std::string("none"));
+    // Japanese decides Space and Enter differently; the reading is what a conversion belongs to,
+    // and what Enter commits when no conversion was started. See core/JapaneseConversion.h.
+    const bool japanese_composition = s.view.value("scheme", 0) == 3;
+    const auto japanese_reading = s.view.value("editing_text", std::string{});
     const bool lowercase_letter =
         (key >= 'a' && key <= 'z');
     const bool uppercase_letter =
@@ -6271,6 +6279,36 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
       break;
     case IBUS_Return:
     case IBUS_KP_Enter:
+      // Japanese commits the kana, or the conversion the user stepped to with Space. Sending the
+      // raw-input command here - which every scheme used to do - commits the romaji.
+      if (japanese_composition && has_composition) {
+        using Action = msime::linux_host::JapaneseConversion::Action;
+        const auto action = s.japanese_conversion.enter(japanese_reading);
+        if (action == Action::CommitCandidate) {
+          // Select by the identity of the candidate that is on screen, the same fence Space uses
+          // below: the live view may already be a generation ahead of what the user is looking at.
+          const auto &candidates = s.view.at("candidates");
+          const auto index = s.japanese_conversion.index();
+          if (candidates.is_array() && index < candidates.size()) {
+            const auto &id = candidates[index].value("id", Json::object());
+            if (id.is_object() && id.value("session", uint64_t{0}) == s.session) {
+              handled = apply(engine, msime_client_select(
+                  s.session, id.value("generation", uint64_t{0}),
+                  id.value("index", size_t{0})));
+              if (handled) {
+                s.japanese_conversion.reset();
+                return;
+              }
+            }
+          }
+        }
+        s.japanese_conversion.reset();
+        if (action == Action::CommitReading) {
+          handled = apply(engine, msime_client_command(s.session, MSIME_COMMIT_READING));
+          if (handled)
+            return;
+        }
+      }
       command = MSIME_COMMIT_RAW;
       break;
     case IBUS_Escape:
@@ -6283,6 +6321,24 @@ gboolean process_key(IBusEngine *engine, guint key, guint keycode, guint flags) 
         commit_text(engine, "\xe3\x80\x80");
         handled = true;
         return;
+      }
+      // Japanese converts rather than committing: the first press starts the conversion and
+      // later ones step through it, which is the only way to reach the second candidate.
+      if (japanese_composition && has_composition) {
+        using Action = msime::linux_host::JapaneseConversion::Action;
+        const auto candidates = s.view.at("candidates").size();
+        const auto action = s.japanese_conversion.space(japanese_reading, candidates);
+        if (action == Action::Start) {
+          handled = true;
+          return;
+        }
+        if (action == Action::StepNext || action == Action::StepFirst) {
+          handled = apply(engine, msime_client_command(
+              s.session, action == Action::StepFirst ? MSIME_FIRST_CANDIDATE
+                                                      : MSIME_NEXT_CANDIDATE));
+          if (handled)
+            return;
+        }
       }
       // Settle Space against the candidate page most recently handed to the
       // IBus panel. Engine may have rebuilt or reordered its live view while

@@ -26,6 +26,7 @@
 #include "../src/system/DiagnosticLog.h"
 #include "../src/core/HelpcodeDefaults.h"
 #include "../src/core/PhrasePreedit.h"
+#include "../src/core/JapaneseConversion.h"
 #include "../src/system/TypingStatistics.h"
 #include <nlohmann/json.hpp>
 #include <algorithm>
@@ -273,6 +274,7 @@ public:
     last_smart_punctuation_ = 0;
     last_smart_punctuation_at_ = {};
     smart_punctuation_rejected_ = 0;
+    japanese_conversion_.reset();
     preferences_job_session_ = 0;
     preferences_snapshot_ = Json();
     preferences_save_job_ = {};
@@ -2238,6 +2240,8 @@ public:
   // Monotonic per session; see effectiveContextSnapshot().
   uint64_t applied_preferences_revision_ = 0;
   bool paired_punctuation_ = true;
+  // Japanese converts with Space and commits with Enter; see ../src/core/JapaneseConversion.h.
+  msime::linux_host::JapaneseConversion japanese_conversion_;
   bool smart_punctuation_ = true;
   bool smart_punctuation_repeat_ = true;
   bool smart_punctuation_space_convert_ = false;
@@ -4688,6 +4692,34 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
           (sym == FcitxKey_period && navigation_.value("comma_period", true)) ||
           (sym == FcitxKey_bracketright && navigation_.value("brackets", false)))
         return command(MSIME_NEXT_PAGE);
+    }
+    // Japanese converts with Space and commits the kana with Enter. Sending the Engine's
+    // raw-input command here commits the romaji, and committing the first candidate on Space
+    // leaves no way to reach the second. See ../src/core/JapaneseConversion.h.
+    if (japanese && composing &&
+        (sym == FcitxKey_Return || sym == FcitxKey_KP_Enter || sym == FcitxKey_space)) {
+      using Action = msime::linux_host::JapaneseConversion::Action;
+      const auto reading = view_.value("editing_text", std::string{});
+      const auto &candidates = view_.at("candidates");
+      if (sym == FcitxKey_space) {
+        const auto action = japanese_conversion_.space(reading, candidates.size());
+        if (action == Action::Start) return true;
+        if (action == Action::StepNext || action == Action::StepFirst)
+          return command(action == Action::StepFirst ? MSIME_FIRST_CANDIDATE
+                                                      : MSIME_NEXT_CANDIDATE);
+      } else {
+        const auto action = japanese_conversion_.enter(reading);
+        const auto index = japanese_conversion_.index();
+        japanese_conversion_.reset();
+        if (action == Action::CommitCandidate && candidates.is_array() &&
+            index < candidates.size()) {
+          const auto &id = candidates[index].value("id", Json::object());
+          if (id.is_object())
+            return apply(msime_client_select(session_, id.value("generation", uint64_t{0}),
+                                             id.value("index", size_t{0})));
+        }
+        if (action == Action::CommitReading && command(MSIME_COMMIT_READING)) return true;
+      }
     }
     switch (sym) {
     case FcitxKey_Escape: return command(MSIME_CANCEL);

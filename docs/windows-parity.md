@@ -797,7 +797,9 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 用例八条（`ShortcutTest`）：没按空格时回车发 `COMMIT_READING`、第一次空格不提交也不发命令、第二次空格发 `NEXT_CANDIDATE`、之后回车按候选身份 select 到步进到的那一条、步过末尾回到第一条、改读音后回车又变回假名、非日语方案空格与回车维持原样、日语但没有候选时空格照旧。反向验证两处（整条路由短路、把 `COMMIT_READING` 换回 `COMMIT_RAW`）都红在同一条断言上。
 
-Linux 与本仓 Windows 宿主的同一处仍未改：两边的回车都在各自的键路由里写死 `MSIME_COMMIT_RAW`，改动形状与 macOS 相同但要各自的用例，留作下一批。
+**Linux 两套前端同日补上（同一批的后半）**：决策部分抽成 `platforms/linux/src/core/JapaneseConversion.h` 一个纯状态机（空格/回车各一个入口，返回「开始转换 / 步进 / 回到首条 / 提交某条 / 提交读音 / 不接管」），IBus 与 fcitx5 各自执行结果——两者别的地方差得远（一个路由 keysym 自己画候选表，一个把候选列表交给 fcitx 面板），共享的只有这个决定。提交候选时都按**屏幕上那一条的身份** select，与 IBus 空格原有的「渲染页围栏」同一个理由：实时视图可能已经比用户看到的快一代。容器门禁 20/20（新增 `linux-japanese-conversion`，七组断言含单条候选、改读音作废、无候选不接管）。
+
+**本仓 Windows 宿主仍未改，理由具体**：它的回车分两条路——候选窗开着时 TSF 侧把回车标成 `ReplyPath::Selection`，Server 直接提交高亮候选；否则才走 `MSIME_COMMIT_RAW`。要把「没按过空格就提交假名」放进去，得先决定转换状态放在 DLL 还是 Server（两边都持有一半：一个知道候选窗是否开着，一个知道方案与组字），而这条路本机既跑不起来也无法交互验证，只有交叉构建这一级证据。留作单独一批，先记下判据。
 
 增量记录（2026-09-21，把「设置项是否齐全」这个问题一次性关掉，并让它保持关着）：来源把整个配置面写在一个文件里——`installer/default_config/config.default.toml`，17 个段 178 个键——这是两边现有材料里最接近「这个产品一共能被设定哪些事」的清单。本表此前按页、按控件比过好几轮，每轮都在重复同样两类假结果：**看着缺的其实是有意改名**（`y_mode` 就是 `local_modes.temporary_english`、`cn_en_mixed_input_min_chars` 就是 `mixed_input.minimum_prefix`），**看着有的其实只是某个无关标识符里恰好含同一个词**。
 

@@ -200,6 +200,12 @@ add_test(NAME linux-diagnostic-log COMMAND linux-diagnostic-log-test)
 # The composition both front ends draw while a phrase is being assembled: the piece already picked
 # leads the reading, and the caret has to move past it in the unit each toolkit counts in - bytes
 # for fcitx5, Unicode scalars for IBus.
+# Space converts and Enter takes what is on screen: the decision both front ends share, and the
+# reason the Engine's raw-input command cannot be what Enter sends in Japanese.
+add_executable(linux-japanese-conversion-test tests/core/japanese_conversion.cpp)
+target_compile_options(linux-japanese-conversion-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+target_include_directories(linux-japanese-conversion-test PRIVATE src)
+add_test(NAME linux-japanese-conversion COMMAND linux-japanese-conversion-test)
 add_executable(linux-phrase-preedit-test tests/core/phrase_preedit.cpp)
 target_compile_options(linux-phrase-preedit-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 target_include_directories(linux-phrase-preedit-test PRIVATE src)
