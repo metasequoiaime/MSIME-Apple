@@ -2057,6 +2057,18 @@ export function SettingsPage({
             ? "为 iPhone 与 iPad 触屏输入体验打造的开放中文输入法。"
             : "为现代 Windows 桌面体验打造的开放中文输入法。";
   const mobilePlatform = iosPlatform || androidPlatform || harmonyPlatform;
+
+  // Whether this host draws the shared panels as windows of its own — `panel_windows` is the
+  // injected projection of `host_surface::is_desktop`.
+  //
+  // The modifier-chord voice shortcuts and the voice popup bar's theme were both gated on
+  // `!androidPlatform`, so they reached every host that was not Android — including HarmonyOS and
+  // iOS, neither of which has a Ctrl, an Alt or a Win key to press or a panel window to theme. A
+  // phone was being shown `Ctrl+F9 切换语音`.
+  //
+  // Falls back to the form factor when the host answers without the flag: a partial capability
+  // record would otherwise read as "not a desktop" and hide these from Windows too.
+  const desktopPanels = host ? (host.panel_windows ?? !mobilePlatform) : true;
   const [snapshot, setSnapshot] = useState<Snapshot>();
   const [draft, setDraft] = useState<Preferences>();
   const [busy, setBusy] = useState(true);
@@ -4340,7 +4352,7 @@ export function SettingsPage({
                         </select>
                       </label>
                     </div>
-                    {!androidPlatform && (
+                    {desktopPanels && (
                       <div className="section">
                         <label className="section-header">
                           <span className="section-title">
@@ -8677,7 +8689,7 @@ export function SettingsPage({
                           )}
                       </div>
                     )}
-                    {!androidPlatform && (
+                    {desktopPanels && (
                       <div className="section">
                         <div className="section-title">
                           {linuxPlatform ? "Linux IBus 快捷键" : "语音快捷键"}

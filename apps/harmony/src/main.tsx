@@ -727,7 +727,14 @@ function makeClient(
     save: async (revision: number, preferences: Preferences) => {
       // The revision sent is the one the page read; the document carries the next. The store compares
       // the former against what is on disk and refuses the save if the keyboard moved in between.
-      const document = JSON.stringify({ revision: revision + 1, preferences });
+      //
+      // `format_version` is not optional: the C ABI parses this document as `PreferencesSnapshot`,
+      // whose field is required and which denies unknown fields, so a document without it fails to
+      // parse and comes back as `invalid preferences snapshot` — which this host maps to `format`,
+      // the "配置文件无法读取或版本较新" banner. Leaving it out meant no save on HarmonyOS had ever
+      // reached the disk: the page reported nothing, the banner sat above the fold, and
+      // preferences.json was never created. Android and Apple both send it.
+      const document = JSON.stringify({ format_version: 1, revision: revision + 1, preferences });
       return unwrap<Snapshot>(native.savePreferences(revision, document));
     },
     readAppVersion: async () => native.appVersion(),

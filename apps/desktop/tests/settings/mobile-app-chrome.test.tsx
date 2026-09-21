@@ -145,3 +145,30 @@ test("the phone navigation leads the content but is seated below it", async () =
 test("the phone breakpoint is the 600px one the layout was written for", () => {
   expect(css).toContain("--breakpoint-phone: 601px");
 });
+
+// A phone has no Ctrl, no Alt and no Win key, and no panel window to theme. Both blocks were gated
+// on `!androidPlatform` — a platform name, not a capability — so they reached every host that was
+// not Android, and HarmonyOS and iOS were both being shown `Ctrl+F9 切换语音`. Asserted for the two
+// hosts that were wrong and for one that is right, because a gate that hides it everywhere passes
+// the first half of this on its own.
+test("a phone is not offered the desktop's modifier-chord voice shortcuts", async () => {
+  for (const platform of ["harmony", "ios"]) {
+    renderSettings(platform);
+    await screen.findByRole("button", { name: "保存设置" });
+    fireEvent.click(screen.getByRole("button", { name: /全部设置/ }));
+    const list = screen.getByRole("region", { name: "全部设置" });
+    const row = [...list.querySelectorAll("button")].find(
+      (item) => item.querySelector("strong")?.textContent === "语音输入",
+    );
+    if (!row) throw new Error(`no 语音输入 row on ${platform}`);
+    fireEvent.click(row);
+    expect(screen.queryByText("语音快捷键")).toBeNull();
+    expect(screen.queryByText("语音输入弹出条主题")).toBeNull();
+    cleanup();
+  }
+
+  renderSettings("windows");
+  await screen.findByRole("button", { name: "保存设置" });
+  fireEvent.click(screen.getByRole("button", { name: "语音输入" }));
+  expect(screen.getByText("语音快捷键")).toBeTruthy();
+});
