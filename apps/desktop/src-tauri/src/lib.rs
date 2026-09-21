@@ -2166,6 +2166,20 @@ fn launch_route_from_args(args: &[String]) -> Option<SurfaceRoute> {
     })
 }
 
+/// What a second launch should bring to the front.
+///
+/// Every surface this product opens for itself names one: the Windows host builds `--route=` into
+/// the command line in `ShellLauncher.cpp`, and the tray, the toolbar and the panels all go through
+/// it. So a launch *without* a route is the user starting the application themselves - the Start
+/// menu entry, a shortcut, the installed icon - and the window they meant is the settings window.
+///
+/// Doing nothing in that case is what makes a second launch look broken: the running instance stays
+/// behind whatever is in front, and the click appears to be ignored. The reference activates its
+/// existing window here rather than exiting silently.
+fn second_launch_route(args: &[String]) -> SurfaceRoute {
+    launch_route_from_args(args).unwrap_or(SurfaceRoute::Settings(None))
+}
+
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 fn cancel_settings_linger(app: &tauri::AppHandle) {
     if let Some(state) = app.try_state::<DesktopSettingsLinger>() {
@@ -3168,10 +3182,9 @@ pub fn run() {
     let builder = builder.plugin(tauri_nspanel::init());
     #[cfg(any(target_os = "linux", target_os = "windows"))]
     let builder = builder.plugin(tauri_plugin_single_instance::init(|app, args, _cwd| {
-        if let Some(route) = launch_route_from_args(&args) {
-            let callback_app = app.clone();
-            let _ = app.run_on_main_thread(move || activate_desktop_surface(&callback_app, route));
-        }
+        let route = second_launch_route(&args);
+        let callback_app = app.clone();
+        let _ = app.run_on_main_thread(move || activate_desktop_surface(&callback_app, route));
     }));
     #[cfg(target_os = "android")]
     let builder = builder.plugin(android_account::init());
