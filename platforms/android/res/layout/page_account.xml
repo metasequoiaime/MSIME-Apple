@@ -40,6 +40,13 @@
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
+        <LinearLayout
+            android:id="@+id/account_sign_in_rows"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:orientation="vertical" />
+
         <TextView
             android:layout_width="wrap_content" android:layout_height="wrap_content"
             android:layout_marginTop="24dp" android:layout_marginStart="4dp"
@@ -53,25 +60,6 @@
                 android:layout_width="match_parent" android:layout_height="wrap_content"
                 android:orientation="vertical" />
         </com.google.android.material.card.MaterialCardView>
-
-        <TextView
-            android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:layout_marginTop="24dp" android:layout_marginStart="4dp"
-            android:text="内容" android:textColor="@color/text_secondary" android:textSize="13sp" />
-
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent" android:layout_height="wrap_content"
-            android:layout_marginTop="8dp"
-            app:cardCornerRadius="18dp" app:cardElevation="1dp" app:cardBackgroundColor="@color/surface">
-            <LinearLayout android:id="@+id/account_content_rows"
-                android:layout_width="match_parent" android:layout_height="wrap_content"
-                android:orientation="vertical" />
-        </com.google.android.material.card.MaterialCardView>
-
-        <TextView
-            android:layout_width="wrap_content" android:layout_height="wrap_content"
-            android:layout_marginTop="24dp" android:layout_marginStart="4dp"
-            android:text="本机数据" android:textColor="@color/text_secondary" android:textSize="13sp" />
 
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent" android:layout_height="wrap_content"

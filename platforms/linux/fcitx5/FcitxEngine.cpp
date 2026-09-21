@@ -4400,6 +4400,31 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
       return false;
     }
   }
+  // 裸修饰键在按下时布防，松开时才切换。这段必须排在下面那两条返回之前——「松开或修饰
+  // 键一律不处理」与「英文透传时不处理」：它本来写在后面，于是 Shift 按下每次都在那条 return 上结束，布防从未发生，松开
+  // 那一侧看到的候选状态永远是 false——四个模式快捷键里的裸 Shift 与裸 Ctrl 因此在这个
+  // 宿主上一次都没生效过，而设置页按能力位把它们全都显示着。切到英文之后同样要能切回
+  // 来，所以也不能排在「英文透传时不处理」后面；IBus 宿主一直是这么做的。
+  {
+    const bool shiftKey = sym == FcitxKey_Shift_L || sym == FcitxKey_Shift_R;
+    const bool ctrlKey = sym == FcitxKey_Control_L || sym == FcitxKey_Control_R;
+    if ((shiftKey || ctrlKey) && !event.isRelease()) {
+      const bool otherModifiers = states.testAny(fcitx::KeyStates{
+          fcitx::KeyState::Alt, fcitx::KeyState::Super, fcitx::KeyState::Hyper});
+      const bool wasDown = shiftKey ? shift_down_ : ctrl_down_;
+      if (shiftKey) shift_down_ = true;
+      if (ctrlKey) ctrl_down_ = true;
+      if (!wasDown) {
+        modifier_toggle_deadline_ =
+            std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
+        pure_shift_candidate_ = shiftKey && mode_shift_enabled_ && !otherModifiers &&
+                                !states.test(fcitx::KeyState::Ctrl);
+        pure_ctrl_candidate_ = ctrlKey && mode_ctrl_enabled_ && !otherModifiers &&
+                               !states.test(fcitx::KeyState::Shift);
+      }
+      return false;
+    }
+  }
   if (event.isRelease()) return false;
   if (!input_enabled_) return false;
   if (sym == FcitxKey_BackSpace) {
@@ -4550,23 +4575,6 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   // release and only when nothing else was typed while it was held, and so does
   // the IBus host; this host answered none of them, while the settings page
   // showed all four switches for this platform.
-  const bool shiftKey = sym == FcitxKey_Shift_L || sym == FcitxKey_Shift_R;
-  const bool ctrlKey = sym == FcitxKey_Control_L || sym == FcitxKey_Control_R;
-  const bool otherModifiers =
-      states.testAny(fcitx::KeyStates{fcitx::KeyState::Alt, fcitx::KeyState::Super,
-                                      fcitx::KeyState::Hyper});
-  if (shiftKey || ctrlKey) {
-    const bool wasDown = shiftKey ? shift_down_ : ctrl_down_;
-    if (shiftKey) shift_down_ = true;
-    if (ctrlKey) ctrl_down_ = true;
-    if (!wasDown) {
-      modifier_toggle_deadline_ =
-          std::chrono::steady_clock::now() + std::chrono::milliseconds(500);
-      pure_shift_candidate_ = shiftKey && mode_shift_enabled_ && !otherModifiers && !ctrl;
-      pure_ctrl_candidate_ = ctrlKey && mode_ctrl_enabled_ && !otherModifiers && !shift;
-    }
-    return false;
-  }
   // Any other key press means the held modifier was part of a combination.
   pure_shift_candidate_ = false;
   pure_ctrl_candidate_ = false;

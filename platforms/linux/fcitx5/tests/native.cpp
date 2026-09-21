@@ -575,6 +575,42 @@ int main(int argc, char **argv) {
       engine.keyEvent(entry, event);
       return event.accepted();
     };
+    // 四个模式快捷键里的裸修饰键：按下只是布防，松开才切换，期间打了别的键或按住太久都
+    // 不算。这一段此前没有任何覆盖，而实现被一条「松开或修饰键一律不处理」的返回挡在后
+    // 面，于是裸 Shift 在这个宿主上一次都没生效过。
+    {
+      const auto modifier = [&](fcitx::KeySym sym, bool release, fcitx::KeyStates states = fcitx::KeyStates()) {
+        fcitx::KeyEvent event(&ic, fcitx::Key(sym, states), release);
+        engine.keyEvent(entry, event);
+        return event.accepted();
+      };
+      const auto shiftHeld = fcitx::KeyStates(fcitx::KeyState::Shift);
+      require(state->input_enabled_, "bare modifier test starts in Chinese");
+      modifier(FcitxKey_Shift_L, false);
+      require(state->pure_shift_candidate_, "a bare Shift press arms the gesture");
+      require(modifier(FcitxKey_Shift_L, true, shiftHeld), "the release is consumed by the toggle");
+      require(!state->input_enabled_, "a bare Shift switches to English");
+      // 切到英文之后还要能切回来：宿主在英文透传时依然处理模式快捷键，与 IBus 一致。
+      modifier(FcitxKey_Shift_L, false);
+      modifier(FcitxKey_Shift_L, true, shiftHeld);
+      require(state->input_enabled_, "a bare Shift switches back from English passthrough");
+      // 期间打了别的键，这个 Shift 就是组合键的一半。
+      modifier(FcitxKey_Shift_L, false);
+      require(key(FcitxKey_a), "a key typed while Shift is held still reaches the session");
+      modifier(FcitxKey_Shift_L, true, shiftHeld);
+      require(state->input_enabled_, "Shift used as part of a combination does not switch");
+      require(key(FcitxKey_Escape), "cancel what the combination test composed");
+      // 按住超过 500ms 是在用修饰键，不是手势。
+      modifier(FcitxKey_Shift_L, false);
+      std::this_thread::sleep_for(std::chrono::milliseconds(600));
+      modifier(FcitxKey_Shift_L, true, shiftHeld);
+      require(state->input_enabled_, "a Shift held past the window does not switch");
+      // 裸 Ctrl 跟随自己的开关，默认关闭时不动。
+      require(!state->mode_ctrl_enabled_, "bare Ctrl is off by default");
+      modifier(FcitxKey_Control_L, false);
+      modifier(FcitxKey_Control_L, true, fcitx::KeyStates(fcitx::KeyState::Ctrl));
+      require(state->input_enabled_, "a bare Ctrl does not switch while its binding is off");
+    }
     require(key(FcitxKey_n) && key(FcitxKey_i), "composition keys");
     require(ic.inputPanel().clientPreedit().toString() == "ni", "native preedit");
     auto horizontalPage = ic.inputPanel().candidateList();
