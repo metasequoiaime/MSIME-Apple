@@ -4271,8 +4271,11 @@ public final class MSIMEInputService extends InputMethodService {
         schemeSurface.setOrientation(LinearLayout.VERTICAL);
         schemeSurface.setPadding(pixels(8), pixels(6), pixels(8), pixels(6));
         schemeSurface.setContentDescription("输入方案卡片区域");
+        // 卡面按内容高度收，不再撑满标题以下的全部空间。撑满原本是为了「短列表下面不要露出
+        // 键盘底纹」，但十三张卡片也填不满一屏，结果是一大块什么都没有的白。露出的是选择器
+        // 自己的底色，与卡片同一套配色，比那块空白好看。
         schemePanel.addView(schemeSurface, new LinearLayout.LayoutParams(
-            LinearLayout.LayoutParams.MATCH_PARENT, 0, 1));
+            LinearLayout.LayoutParams.MATCH_PARENT, LinearLayout.LayoutParams.WRAP_CONTENT));
         java.util.List<KeyboardScheme> schemes = enabledSchemes;
         int cardCount = schemes.size() + 1;
         // The English card sits third when there are enough schemes to put it there, and last
