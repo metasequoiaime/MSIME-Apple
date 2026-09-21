@@ -13,6 +13,28 @@
         android:layout_height="match_parent"
         app:layout_behavior="@string/appbar_scrolling_view_behavior" />
 
+    <!--
+      开场动画盖在内容之上，底色与窗口背景相同，所以从系统那一帧过渡过来看不出接缝。
+      系统的启动画面属性（values-v31）试过，这台设备上不生效：把背景色换成纯红之后，100 帧录像
+      里一帧红都没有，说明那个窗口根本没被用上。自己画就不必再猜系统什么时候肯画。
+    -->
+    <FrameLayout
+        android:id="@+id/home_intro"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:background="@color/mist"
+        android:clickable="true"
+        android:focusable="true">
+
+        <ImageView
+            android:id="@+id/home_intro_mark"
+            android:layout_width="128dp"
+            android:layout_height="128dp"
+            android:layout_gravity="center"
+            android:contentDescription="@string/app_name"
+            android:src="@drawable/splash_mark_animated" />
+    </FrameLayout>
+
     <com.google.android.material.bottomnavigation.BottomNavigationView
         android:id="@+id/home_tabs"
         android:layout_width="match_parent"

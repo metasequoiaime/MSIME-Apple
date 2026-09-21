@@ -11,6 +11,9 @@ import androidx.core.view.WindowCompat;
 import androidx.core.view.WindowInsetsCompat;
 import androidx.fragment.app.Fragment;
 import androidx.fragment.app.FragmentManager;
+import android.graphics.drawable.Animatable;
+import android.view.View;
+import android.widget.ImageView;
 import androidx.fragment.app.FragmentTransaction;
 import app.msime.client.CommunityRequest;
 import app.msime.client.FirstRunPreparation;
@@ -31,6 +34,9 @@ import com.google.android.material.bottomnavigation.BottomNavigationView;
 public final class HomeActivity extends AppCompatActivity {
     private static final String STATE_TAB = "home-tab";
     private static final int FIRST_TAB = R.id.tab_keyboard;
+    /** 描边动画走完再开始让位，两段加起来是这一屏停留的时间。 */
+    private static final long INTRO_HOLD_MILLIS = 700;
+    private static final long INTRO_FADE_MILLIS = 260;
     private static final int[] TAB_IDS = {
         R.id.tab_keyboard, R.id.tab_community, R.id.tab_statistics, R.id.tab_account,
     };
@@ -65,6 +71,8 @@ public final class HomeActivity extends AppCompatActivity {
         };
         getOnBackPressedDispatcher().addCallback(this, back);
 
+        playIntro(state == null);
+
         if (state != null) selected = state.getInt(STATE_TAB, FIRST_TAB);
         tabs.setOnItemSelectedListener(item -> {
             show(item.getItemId());
@@ -77,6 +85,30 @@ public final class HomeActivity extends AppCompatActivity {
         // for it: a keyboard that cannot reach the Engine is not a state worth making someone opt
         // out of. Existing configurations are reported, never overwritten.
         FirstRunPreparation.startIfNeeded(this);
+    }
+
+    /**
+     * 开场：那枚标自己写一遍，然后让开。
+     *
+     * <p>Drawn by the app rather than by the platform's splash screen. The theme attributes for it
+     * are configured and present in the APK, and on this device nothing uses them — a splash
+     * background set to pure red never appeared in a hundred recorded frames. An overlay on the
+     * same colour as the window background gives one continuous screen without depending on the
+     * system deciding to draw one.
+     *
+     * <p>Only on a first create: a rotation is not an arrival, and replaying it there would make
+     * turning the phone feel like relaunching the app.
+     */
+    private void playIntro(boolean fresh) {
+        View intro = findViewById(R.id.home_intro);
+        if (!fresh) {
+            intro.setVisibility(View.GONE);
+            return;
+        }
+        ImageView mark = findViewById(R.id.home_intro_mark);
+        if (mark.getDrawable() instanceof Animatable animatable) animatable.start();
+        intro.postDelayed(() -> intro.animate().alpha(0f).setDuration(INTRO_FADE_MILLIS)
+            .withEndAction(() -> intro.setVisibility(View.GONE)).start(), INTRO_HOLD_MILLIS);
     }
 
     @Override protected void onSaveInstanceState(@NonNull Bundle state) {

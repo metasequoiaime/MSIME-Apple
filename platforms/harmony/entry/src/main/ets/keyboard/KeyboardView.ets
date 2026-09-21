@@ -409,7 +409,6 @@ struct KeyboardView {
       // follow or it would claim a language the Engine is not composing in.
       this.english = KeyboardSession.shared.isEnglish();
       this.applyEditorFace();
-      this.applyAutomaticCase();
     };
     KeyboardSession.shared.onReplyContextChanged = (): void => {
       this.replyResults = [];
@@ -435,8 +434,6 @@ struct KeyboardView {
         this.clearDiagnosticLater();
       }
       this.english = state.english;
-      // After the text changed, which is when the caret may have arrived at a new word or sentence.
-      this.applyAutomaticCase();
       if (state.candidates.length === 0) {
         // The list belonged to a composition that no longer exists; keeping it on screen would offer
         // choices for something the user has already finished or abandoned.
@@ -514,15 +511,11 @@ struct KeyboardView {
     // uppercase letter is helpcode for the Engine, which is why the Engine is told the key was
     // shifted; with nothing composing it is only a capital, and in Chinese mode not even that.
     const held: boolean = this.caseMode !== LetterCaseMode.LOWERCASE;
-    // Read before the press, which produces the state change that recomputes the automatic shift.
-    const automatic: boolean = this.letterCase.isAutomatic();
     const shifted: boolean = KeyboardSession.shared.entersHelpcode(held)
       || (this.english && held);
     KeyboardSession.shared.press(letter.charCodeAt(0), shifted);
-    // A one-shot Shift is spent by the letter that follows it; Caps Lock is not. Neither is an
-    // automatic Shift: it is not spent but recomputed from the text, which the change this press
-    // just caused has already done. Clearing it here would give a capitals-only field one capital.
-    if (this.caseMode === LetterCaseMode.SHIFTED && !automatic) {
+    // A one-shot Shift is spent by the letter that follows it; Caps Lock is not.
+    if (this.caseMode === LetterCaseMode.SHIFTED) {
       this.letterCase.reset();
       this.caseMode = this.letterCase.mode();
     }
@@ -714,29 +707,6 @@ struct KeyboardView {
       === 'nine_key';
     KeyboardSession.shared.setNineKey(this.nineKey);
     this.show(candidate === KeyboardScheme.THOUGHTFUL_REPLY ? SURFACE_REPLY : SURFACE_NONE);
-  }
-
-  /**
-   * Shift the letter face when the editor asked for capitals and the caret is where they belong.
-   *
-   * A Shift the user pressed is theirs: EnglishLetterCaseState refuses to touch caps lock and
-   * reports whether anything changed, so this only redraws when it did. Asked on attach and after
-   * every text change, those being the two moments the answer can differ — a field that opens empty
-   * wants a capital, and so does the character after a full stop.
-   */
-  private applyAutomaticCase(): void {
-    if (!KeyboardSession.shared.capitalizes()) {
-      return;
-    }
-    // A Shift the user pressed stands until a letter spends it; only one this rule applied is its
-    // to recompute. Without this a candidate arriving between the Shift and the letter would clear
-    // the capital they asked for.
-    if (this.caseMode === LetterCaseMode.SHIFTED && !this.letterCase.isAutomatic()) {
-      return;
-    }
-    if (this.letterCase.applyAutomatic(KeyboardSession.shared.shouldShiftNextLetter())) {
-      this.caseMode = this.letterCase.mode();
-    }
   }
 
   /**

@@ -141,12 +141,14 @@ iOS 与 macOS 的同类文档是 [ios-parity.md](ios-parity.md) 和 [macos-parit
 | `keyboard/KeyboardScheme.ts` | `mappingForRuntimeSelection`、`resolveEnabledSelection`、`fromHostSelection` |
 | `keyboard/candidate/CandidateGlossPolicy.ts` | `token` |
 | `keyboard/candidate/CandidateManagementAction.ts` | `fixedPosition`、`fromMenuItemId`、`validatePosition` |
-| `keyboard/input/JapaneseNineKeyLayout.ts` | `digitBrackets` |
+| `keyboard/input/EditorPolicy.ts` | `capitalizationMode` |
+| `keyboard/input/EnglishCapitalizationPolicy.ts` | `shouldShift` |
+| `keyboard/input/JapaneseNineKeyLayout.ts` | `digitKeys`、`digitBrackets` |
 | `keyboard/input/LocalInputMode.ts` | `fromTrigger` |
 | `keyboard/input/ReturnKeyAction.ts` | `shouldPerformEditorAction` |
 | `keyboard/input/KeyAccessibilityPolicy.ts` | `scheme`、`tools` |
 
-其中 `digitKeys` 已经接上，`capitalizationMode` 与 `shouldShift` 连同 `EnglishLetterCaseState.isAutomatic()` 一起在自动大写那一片接上，剩下 14 个。剩下的不是一批可以删的死代码：`CandidateManagementAction` 的三个是长按候选菜单，`fromTrigger` 是临时本地模式，`shouldPerformEditorAction` 决定回车让不让编辑器执行它的动作。也就是说这张表读作一份按符号列出的未接线清单，逐条对回来源的断言即可。门禁要从文件粒度下沉到符号粒度，与这份清单一起做。
+其中 `digitKeys` 已经接上。剩下的不是一批可以删的死代码：`capitalizationMode` 与 `shouldShift` 合起来是自动大写（Apple 的 `EnglishCapitalizationPolicyTests` 与 `ACapitalisedStartCarriesIntoTheSuggestion`），`CandidateManagementAction` 的三个是长按候选菜单，`fromTrigger` 是临时本地模式。也就是说这张表读作一份按符号列出的未接线清单，逐条对回来源的断言即可。门禁要从文件粒度下沉到符号粒度，与这份清单一起做。
 
 ## 本轮合并的切片
 

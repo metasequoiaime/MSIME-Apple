@@ -176,16 +176,6 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 所以这是按平台特性裁剪，而不是欠账：能力模型的用途正是让页面不画一个保存了却什么都不做的开关。如果将来 SDK 提供了对应 API，接法是声明 `appIcon` 并在 `module.json5` 里补上备用入口 ability——那时需要的是真机验证，不是这里的接线。
 
-## 自动大写：两份移植好的策略终于有了调用方
-
-`EnglishCapitalizationPolicy`（句首、词首、全大写三条规则，连撇号和右引号这类不打断单词的字符都照 Java 原样处理）和 `EditorPolicy.capitalizationMode`（把平台给的模式与字段类型调和，地址框一律不大写）都是早就移植好、单测齐全、**产品侧从没有人调用**的。也就是说英文键面上的大写此前只能靠手按 Shift。
-
-接线的三段：`EditorAttribute.capitalizeMode` 读进来（`@ohos.inputMethodEngine` 的 `CapitalizeMode` 自 API 20 起提供，本工程 `compatibleSdkVersion` 是 21，因此不需要版本兜底；属性本身是可选的，拿不到就是 `none`）；`KeyboardSession.shouldShiftNextLetter()` 用 `getForwardSync` 取光标前最多 64 个字符交给策略——组合进行中不问，否则大写的是拼音而不是结果；`KeyboardView.applyAutomaticCase()` 在 attach 和每次文本变化后应用。
-
-**分清「自动的」和「用户按的」是这一片的关键，两个方向都会出错。** `EnglishLetterCaseState.isAutomatic()` 正是为此存在，同样此前无人调用。一头：`tapLetter` 原本在按键后无条件清掉 SHIFTED，若自动大写设的 Shift 也被清，全大写字段就只会给出第一个大写字母——所以现在只清用户按的那一种，自动的那种交给随后的重算。另一头：自动规则若无差别地跑，用户按下 Shift 之后、字母之前只要来一次候选刷新就会把它抹掉——所以 `applyAutomaticCase` 遇到非自动的 SHIFTED 直接返回。编辑器要求 `none` 时整条路径不动手，因为「不要大写」是在说自动规则，没在说用户刚按的那个 Shift。
-
-**证据边界：只验到了静默那一半。** 模拟器上能打开的编辑器——本应用设置页的 WebView 文本框、浏览器地址栏、浏览器搜索框——`attached to editor` 日志里一律是 `capitalize=none`；改设备名那个框会声明什么不知道，它要求先登录华为账号。所以管线确实接通（日志能打出映射后的值，说明属性读到且未抛），静默路径不回归（英文键面行为与此前一致），但**大写真正发生的那一半没有在设备上看到**，只有 1335 条断言覆盖着策略本身的三个分支。要补这一条，需要一个会声明 `SENTENCES`／`WORDS` 的编辑器。
-
 ## 每一块键面都以同一行动作键结尾
 
 `123`／`返回`、`，`、空格、中/英、回车这一行本来写在 26 键那三排字母后面，是那个 `else` 分支的一部分。于是画自己格子的三块键面——全拼九宫格、日语假名格、手写——全都没有它：没有空格键、回车无法上屏、退不出英文、也够不到数字。九宫格上唯一的出路是去点候选，而空格键上那套 `SpaceCursorMovement` 滑动移光标的逻辑在那里根本不存在。`spaceKey()` 里写着 `this.japanese ? JapaneseNineKeyActions.spaceTitle(...)` 的那个分支尤其说明问题：代码明明为日语准备了 `空白`／`改行` 两个字面，而它的唯一调用点在 `this.japanese` 为真时到不了。
