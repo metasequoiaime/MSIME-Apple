@@ -176,6 +176,16 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 所以这是按平台特性裁剪，而不是欠账：能力模型的用途正是让页面不画一个保存了却什么都不做的开关。如果将来 SDK 提供了对应 API，接法是声明 `appIcon` 并在 `module.json5` 里补上备用入口 ability——那时需要的是真机验证，不是这里的接线。
 
+## 释义到达时候选条整体右移
+
+开着释义时，候选格的宽度此前跟着内容走：联网那份是几百毫秒后陆续到的，一条到了它那一格就变宽，右边的候选整体位移——打字过程中候选一路往右挪。来源把这件事和「格子从一行变两行、候选忽高忽低」并称为同一件事的两半，解法是**先按可见宽度分格，答案回来往格子里填**（`AChipKeepsItsWidthWhateverTheGlossTurnsOutToBe`）。
+
+`CandidateChipWidth` 照搬了那套算术：可见宽度去掉格间距、再去掉一格自己的左右内边距，除以三。三格而不是四格是来源写明的理由——四格时一格只剩七十来点，`draft; draw up` 这种就得截尾，而释义截了等于没写。**候选词本身永不截断**：比一格宽的词把自己那一格撑开，列宽是带释义的格子的下限，不是词的上限。
+
+预留看的是**设置**而不是「答案到没到」——`KeyboardSession.glossesExpected()`。按到达与否来留，等于又把宽度交还给网络。
+
+**这一片只修了宽度这一半。** 另一半是来源把释义放在候选**下面**自成一行、并为此把候选条加高（`GlossTakesItsOwnLineUnderTheCandidate`、`TheKeyboardGrowsByTheRowsTheStripReserves`）。这边释义在旁边，与来源**纵向**样式表的 `margin-left: 0.65em` 一致（`CandidateTranslationStyle` 里已经照它移植过），所以纵向列表这一侧本来就对；横排要改成两行是一次看得见的改版，而模拟器现在起不来、改完没法看，所以没有在盲改的情况下动它。
+
 ## 展开候选面板里没有释义，长按也没有反应
 
 上一条把释义接到了候选条的长按菜单上。来源还有两条与之配套：`TheExpandedPanelDrawsTheSameGlossesAsTheStrip` 和 `TheExpandedPanelAnswersALongPressToo`——候选多到要展开时，那一页同样画释义、同样答应长按。

@@ -24,6 +24,7 @@ import {
   normalizeSymbolGroups,
 } from "../entry/src/main/ets/keyboard/emoji/EmojiCatalogModel";
 import { CandidateWrapPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateWrapPolicy";
+import { CandidateChipWidth } from "../entry/src/main/ets/keyboard/candidate/CandidateChipWidth";
 import {
   KeyboardScheme,
   SchemeDefinition,
@@ -1937,6 +1938,46 @@ group("offers all fixed candidate slots and checks the active one", () => {
   check(
     actions[1].position === 1 && actions[5].position === 5,
     "positions keep their one-based slot numbers",
+  );
+});
+
+group("a chip is as wide as its column, whether or not the gloss has arrived", () => {
+  // MSIME-Apple's AChipKeepsItsWidthWhateverTheGlossTurnsOutToBe. The networked glosses come back
+  // over a few hundred milliseconds; a width that follows them widens one chip at a time and pushes
+  // every candidate to its right along with it. Columns first, answers into the columns after.
+  const column = CandidateChipWidth.column(390 - 24, 6, 11);
+  check(column > 0, "a visible strip yields a column");
+
+  const waiting = CandidateChipWidth.chip(30, true, column, 11);
+  const short = CandidateChipWidth.chip(30, true, column, 11);
+  check(waiting === short, "the width does not move when the answer lands");
+
+  // The word is never cut: one wider than a column widens its own chip instead.
+  const wide = CandidateChipWidth.chip(column + 40, true, column, 11);
+  check(wide > waiting, "a word wider than a column takes the room it needs");
+  check(
+    CandidateChipWidth.content(column + 40, true, column) === column + 40,
+    "and takes it from the word, not from the column",
+  );
+
+  // Off, a chip is its word and nothing is reserved.
+  check(
+    CandidateChipWidth.content(30, false, column) === 30,
+    "with glosses off the chip is the word",
+  );
+
+  check(CandidateChipWidth.GLOSS_COLUMNS === 3, "three across, as the source counts them");
+  check(
+    CandidateChipWidth.column(0, 6, 11) === 0 && CandidateChipWidth.column(-5, 6, 11) === 0,
+    "no visible strip, no column",
+  );
+  check(
+    CandidateChipWidth.column(30, 6, 40) === 0,
+    "and padding wider than the column floors at zero rather than going negative",
+  );
+  check(
+    Number.isInteger(CandidateChipWidth.chip(30.4, true, column, 11)),
+    "a chip is a whole number of layout units",
   );
 });
 

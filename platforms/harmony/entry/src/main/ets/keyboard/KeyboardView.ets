@@ -25,6 +25,7 @@ import { JapaneseNineKeyActions } from './input/JapaneseNineKeyActions';
 import { JapaneseVariantPolicy } from './input/JapaneseVariantPolicy';
 import { CandidateManagementAction, ManagementAction } from './candidate/CandidateManagementAction';
 import { CandidateFontFamilyPolicy } from './candidate/CandidateFontFamilyPolicy';
+import { CandidateChipWidth } from './candidate/CandidateChipWidth';
 import { CandidateContextMenuPolicy, PointerAction, PointerButton }
   from './input/CandidateContextMenuPolicy';
 import { CandidateNumberFontPolicy } from './candidate/CandidateNumberFontPolicy';
@@ -1045,6 +1046,36 @@ struct KeyboardView {
    * wrap decision has to precede it. A CJK candidate is about one font size per character, which is
    * close enough to keep a row from overflowing.
    */
+  /**
+   * How wide one chip on the strip is.
+   *
+   * Only while glosses are expected, and only on the strip. There the width has to stop depending
+   * on whether the gloss has arrived: the networked ones come back over a few hundred milliseconds
+   * and a chip that widens when its answer lands pushes every candidate to its right along with it.
+   * The columns are decided from the visible width first and the answers fill them afterwards.
+   *
+   * The vertical list keeps the full width it always had — there each candidate is its own row, so
+   * a gloss arriving beside it moves nothing.
+   *
+   * Width is estimated the way the wrap policy estimates it, one font size per code point, because
+   * ArkUI reports text extent only after layout and this has to precede it.
+   */
+  private candidateChipWidth(candidate: CandidateEntry): Length {
+    if (KeyboardFormFactor.isDesktop() && this.settings.candidateLayout === 'vertical') {
+      return '100%';
+    }
+    if (!KeyboardSession.shared.glossesExpected()) {
+      return '100%';
+    }
+    const padding: number = KeyboardMetrics.CANDIDATE_PADDING_VP;
+    const column: number = CandidateChipWidth.column(this.availableWidth, 0, padding);
+    if (column <= 0) {
+      return '100%';
+    }
+    const word: number = Array.from(candidate.text).length * this.settings.candidateFontSize;
+    return CandidateChipWidth.chip(word, true, column, padding);
+  }
+
   private expandedRows(): number[][] {
     const widths: number[] = [];
     for (const candidate of this.expanded) {
@@ -1377,7 +1408,7 @@ struct KeyboardView {
     }.alignItems(VerticalAlign.Center)
       .accessibilityText(this.candidateLabel(candidate, index))
       .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP, right: KeyboardMetrics.CANDIDATE_PADDING_VP })
-      .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP).width('100%')
+      .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP).width(this.candidateChipWidth(candidate))
       .backgroundColor(index === this.hoveredCandidate ? this.candidateHoverColor()
         : candidate.highlighted ? (this.settings.candidateSelectedColor ?? '#00000000') : '#00000000')
       .borderWidth(this.settings.candidateBorderColor === null ? 0 : 1)

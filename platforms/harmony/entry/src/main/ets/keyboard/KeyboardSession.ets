@@ -1295,6 +1295,17 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.scheme, this.localMode);
   }
 
+  /**
+   * Whether a gloss is expected under the candidates, which is a setting rather than an arrival.
+   *
+   * The strip reserves room by this and not by whether an answer has come back: the networked ones
+   * land over a few hundred milliseconds, and a width that follows them widens one chip at a time
+   * and pushes the rest along. Off means no room is kept and the chips are as wide as their words.
+   */
+  glossesExpected(): boolean {
+    return this.candidateEnglishGloss;
+  }
+
   /** True when the Engine is composing English rather than Chinese. */
   isEnglish(): boolean {
     return this.englishMode;
