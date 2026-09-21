@@ -31,6 +31,29 @@ interface PlanReply {
   error?: string;
 }
 
+/**
+ * The three request shapes `msime_client_ai_skin_plan` accepts.
+ *
+ * One interface rather than three because ArkTS requires every object literal to name a declared
+ * type, and the alternative — three near-identical interfaces — would put the difference between
+ * them in their names rather than in the `operation` field that actually decides it.
+ */
+interface PlanRequest {
+  operation: string;
+  prompt?: string;
+  model?: string;
+  text?: string;
+  artwork?: Object;
+}
+
+/** An accepted reply with nothing to say, which the page reads as success. */
+interface EmptyValue {}
+
+interface SuccessReply {
+  ok: boolean;
+  value: EmptyValue;
+}
+
 interface ComposedRequest {
   path?: string;
   body?: Object;
@@ -85,7 +108,7 @@ export class HarmonyAiSkins {
       return HarmonyAiSkins.failure('ai_skin_invalid');
     }
     this.runs.get(requestId)?.cancel();
-    return JSON.stringify({ ok: true, value: {} });
+    return JSON.stringify({ ok: true, value: {} as EmptyValue } as SuccessReply);
   }
 
   /** The page's own handle, bounded so it cannot become a key of arbitrary size. */
@@ -98,7 +121,7 @@ export class HarmonyAiSkins {
     return JSON.stringify({ ok: false, error: code });
   }
 
-  private plan(request: Object): Object | null {
+  private plan(request: PlanRequest): Object | null {
     try {
       const reply: PlanReply = JSON.parse(client.aiSkinPlan(JSON.stringify(request))) as PlanReply;
       return reply.ok && reply.value !== undefined ? reply.value : null;
@@ -116,7 +139,7 @@ export class HarmonyAiSkins {
         if (reply.error !== undefined || reply.value === undefined) {
           throw new AiSkinFailure(reply.error ?? 'ai_skin_unavailable');
         }
-        const model = reply.value['default_model'];
+        const model: Object | undefined = (reply.value as Record<string, Object>)['default_model'];
         if (typeof model !== 'string' || model.length === 0 || model.length > 200) {
           throw new AiSkinFailure('ai_skin_response');
         }
@@ -125,7 +148,8 @@ export class HarmonyAiSkins {
       chat: async (prompt: string, model: string): Promise<string> => {
         // The instruction is the shared one. A host that wrote its own would be asking for a
         // document the shared parser was not written against.
-        const composed = owner.plan({ operation: 'compose', prompt: prompt, model: model });
+        const composed: Object | null =
+          owner.plan({ operation: 'compose', prompt: prompt, model: model } as PlanRequest);
         if (composed === null) throw new AiSkinFailure('ai_skin_invalid');
         const request = composed as ComposedRequest;
         if (typeof request.path !== 'string' || request.body === undefined) {
@@ -136,7 +160,7 @@ export class HarmonyAiSkins {
         if (reply.error !== undefined || reply.value === undefined) {
           throw new AiSkinFailure(reply.error ?? 'ai_skin_unavailable');
         }
-        const choices = reply.value['choices'];
+        const choices: Object | undefined = (reply.value as Record<string, Object>)['choices'];
         if (!Array.isArray(choices) || choices.length === 0) {
           throw new AiSkinFailure('ai_skin_response');
         }
@@ -150,7 +174,7 @@ export class HarmonyAiSkins {
         return content;
       },
       plans: (text: string): AiSkinPlan[] => {
-        const parsed = owner.plan({ operation: 'parse', text: text });
+        const parsed: Object | null = owner.plan({ operation: 'parse', text: text } as PlanRequest);
         if (parsed === null || !Array.isArray(parsed)) throw new AiSkinFailure('ai_skin_response');
         return parsed as AiSkinPlan[];
       },
@@ -173,7 +197,7 @@ export class HarmonyAiSkins {
         await bridge.aiSkinRequest('DELETE', `/v1/skins/jobs/${id}`);
       },
       validateArtwork: (artwork: Object): boolean =>
-        owner.plan({ operation: 'artwork', artwork: artwork }) !== null,
+        owner.plan({ operation: 'artwork', artwork: artwork } as PlanRequest) !== null,
       wait: (milliseconds: number): Promise<void> =>
         new Promise<void>((resolve: () => void): void => {
           setTimeout(resolve, milliseconds);

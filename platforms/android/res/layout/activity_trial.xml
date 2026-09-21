@@ -1,0 +1,102 @@
+<?xml version="1.0" encoding="utf-8"?>
+<LinearLayout
+    xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:app="http://schemas.android.com/apk/res-auto"
+    android:id="@+id/trial_root"
+    android:layout_width="match_parent"
+    android:layout_height="match_parent"
+    android:orientation="vertical"
+    android:background="@color/mist">
+
+    <com.google.android.material.appbar.MaterialToolbar
+        android:id="@+id/trial_toolbar"
+        android:layout_width="match_parent"
+        android:layout_height="?attr/actionBarSize"
+        android:background="@color/surface"
+        app:navigationIcon="@android:drawable/ic_menu_close_clear_cancel"
+        app:title="试用键盘"
+        app:titleCentered="true" />
+
+    <androidx.core.widget.NestedScrollView
+        android:id="@+id/trial_scroll"
+        android:layout_width="match_parent"
+        android:layout_height="0dp"
+        android:layout_weight="1"
+        android:clipToPadding="false"
+        android:padding="16dp">
+
+        <LinearLayout
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                app:cardCornerRadius="18dp"
+                app:cardElevation="0dp"
+                app:cardBackgroundColor="@color/surface">
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="18dp">
+                    <TextView
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="在这里随便打点什么"
+                        android:textColor="@color/ink"
+                        android:textSize="19sp"
+                        android:textStyle="bold" />
+                    <TextView
+                        android:id="@+id/trial_hint"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="6dp"
+                        android:textColor="@color/text_secondary"
+                        android:textSize="14sp" />
+                    <com.google.android.material.button.MaterialButton
+                        android:id="@+id/trial_action"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginTop="12dp"
+                        android:visibility="gone"
+                        app:cornerRadius="12dp" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <TextView
+                android:id="@+id/trial_counter"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:layout_marginStart="4dp"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
+        </LinearLayout>
+    </androidx.core.widget.NestedScrollView>
+
+    <com.google.android.material.textfield.TextInputLayout
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_margin="12dp"
+        android:hint="输入文字，试试皮肤、输入方案和模糊音"
+        app:boxBackgroundColor="@color/surface"
+        app:boxCornerRadiusBottomEnd="18dp"
+        app:boxCornerRadiusBottomStart="18dp"
+        app:boxCornerRadiusTopEnd="18dp"
+        app:boxCornerRadiusTopStart="18dp"
+        app:endIconMode="clear_text"
+        style="@style/Widget.Material3.TextInputLayout.FilledBox">
+
+        <com.google.android.material.textfield.TextInputEditText
+            android:id="@+id/trial_input"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:contentDescription="试用输入框"
+            android:gravity="top"
+            android:inputType="textMultiLine"
+            android:maxLines="4"
+            android:minLines="2" />
+    </com.google.android.material.textfield.TextInputLayout>
+</LinearLayout>

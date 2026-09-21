@@ -4375,3 +4375,77 @@ fn importing_a_personal_dictionary_file_queues_instead_of_taking_the_engine_lock
         false
     );
 }
+
+#[test]
+#[cfg(not(target_os = "android"))]
+fn the_dictionary_manifest_answers_what_is_installed_or_says_it_cannot() {
+    let directory = tempfile::tempdir().unwrap();
+    let resources = directory.path();
+    let read_manifest = || {
+        let path = resources.to_str().unwrap();
+        read(unsafe { msime_client_dictionary_manifest(path.as_ptr(), path.len()) })
+    };
+    let commit = "d0dc0c2b594b5540b5de99ad12085c786410626e";
+
+    // No manifest is a refusal, not an empty answer: the file is packaged, so its absence means
+    // the installation is not what it should be.
+    assert_eq!(read_manifest()["ok"], false);
+
+    // The real shape, with every field the packaged manifest carries. Only two come back — the
+    // page is asking what is installed and where it came from, not for journal modes.
+    std::fs::write(
+        resources.join("dictionary-manifest.json"),
+        json!({
+            "manifest_version": 1,
+            "profile": "desktop",
+            "format_version": 1,
+            "engine_compatibility": {"dictionary_format": 1, "japanese_model_magic": "MSJPDT1"},
+            "source": {
+                "repository": "metasequoiaime/MSIME-Engine",
+                "path": "dictionary",
+                "commit": commit,
+                "dirty": false,
+            },
+            "sqlite_journal_mode": "delete",
+            "references": {"ECDICT": {"repository": "https://example.invalid", "commit": "b"}},
+        })
+        .to_string(),
+    )
+    .unwrap();
+    let manifest = read_manifest();
+    assert_eq!(manifest["ok"], true);
+    assert_eq!(manifest["value"]["profile"], "desktop");
+    assert_eq!(manifest["value"]["sourceCommit"], commit);
+    assert_eq!(manifest["value"].as_object().unwrap().len(), 2);
+
+    // A commit that is not one is refused rather than shown. A version stated wrongly is worse
+    // than one not stated, which is the whole reason this reports instead of guessing.
+    for broken in [
+        json!({"profile": "desktop", "source": {"commit": "not-a-commit"}}),
+        json!({"profile": "desktop", "source": {"commit": "abc"}}),
+        json!({"profile": "", "source": {"commit": commit}}),
+        json!({"profile": "desktop"}),
+        json!({"source": {"commit": commit}}),
+    ] {
+        std::fs::write(
+            resources.join("dictionary-manifest.json"),
+            broken.to_string(),
+        )
+        .unwrap();
+        assert_eq!(read_manifest()["ok"], false, "accepted {broken}");
+    }
+    std::fs::write(resources.join("dictionary-manifest.json"), "not json").unwrap();
+    assert_eq!(read_manifest()["ok"], false);
+
+    // A relative directory is refused rather than resolved against whatever the process happens
+    // to have as its working directory.
+    let relative = "engine";
+    assert_eq!(
+        read(unsafe { msime_client_dictionary_manifest(relative.as_ptr(), relative.len()) })["ok"],
+        false
+    );
+    assert_eq!(
+        read(unsafe { msime_client_dictionary_manifest(std::ptr::null(), 0) })["ok"],
+        false
+    );
+}

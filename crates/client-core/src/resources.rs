@@ -257,6 +257,81 @@ fn copy_verified(
     Ok(())
 }
 
+/// A record that one resource directory was verified, so the next start need not hash it again.
+///
+/// `verify` reads every artifact to recompute its SHA-256. That is the right thing to do once,
+/// and the wrong thing to do on every launch: the desktop set is 169 MB, which costs about half a
+/// second of hashing before the first keystroke can be served, every time the Server process
+/// starts. The Engine is already handled this way - `scripts/fetch_engine.py` writes a marker
+/// naming what it prepared and skips the work when it matches - and this is the same idea for the
+/// dictionaries.
+///
+/// What the marker cannot do is replace the hashes. It records the identity of the *set* and, per
+/// file, the size and modification time the verified bytes had. A file whose size or mtime moved is
+/// re-hashed; so is one that is missing, and so is the whole set when the specification changes. A
+/// replacement crafted to keep both size and mtime would be accepted, which is the trade: the
+/// resources sit in the installation directory, so writing there already requires the privileges
+/// that hashing at launch would not have stopped anyway.
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(deny_unknown_fields)]
+pub struct VerifiedMarker {
+    /// The specification's generation digest, so a different resource set never matches.
+    pub generation: String,
+    /// Absolute path of the directory these files were verified in.
+    pub directory: String,
+    /// `(name, size, modified-nanoseconds)` per artifact, sorted by name.
+    pub files: Vec<(String, u64, u128)>,
+}
+
+impl VerifiedMarker {
+    /// Describe `directory` as it is right now, or `None` when any artifact cannot be read.
+    pub fn describe(
+        directory: &Path,
+        specification: &ResourceSet,
+    ) -> Result<Option<Self>, ResourceError> {
+        let mut files = Vec::with_capacity(specification.artifacts.len());
+        for artifact in &specification.artifacts {
+            let Ok(metadata) = fs::metadata(directory.join(&artifact.name)) else {
+                return Ok(None);
+            };
+            let Ok(modified) = metadata.modified() else {
+                return Ok(None);
+            };
+            let Ok(since_epoch) = modified.duration_since(std::time::UNIX_EPOCH) else {
+                return Ok(None);
+            };
+            files.push((
+                artifact.name.clone(),
+                metadata.len(),
+                since_epoch.as_nanos(),
+            ));
+        }
+        files.sort();
+        Ok(Some(Self {
+            generation: specification.generation()?,
+            directory: directory.to_string_lossy().into_owned(),
+            files,
+        }))
+    }
+
+    /// Read a marker previously written by [`VerifiedMarker::write`].
+    ///
+    /// A marker that is absent, unreadable or not the shape this version writes is simply a miss:
+    /// the caller hashes, and writes a fresh one.
+    pub fn read(path: &Path) -> Option<Self> {
+        serde_json::from_slice(&fs::read(path).ok()?).ok()
+    }
+
+    pub fn write(&self, path: &Path) -> Result<(), ResourceError> {
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        let encoded = serde_json::to_vec(self).map_err(|_| ResourceError::InvalidManifest)?;
+        fs::write(path, encoded)?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -360,5 +435,79 @@ mod tests {
         duplicate.name = "MSIME.DB".into();
         spec.artifacts.push(duplicate);
         assert!(spec.validate().is_err());
+    }
+
+    /// What the marker is allowed to skip, and what it must not.
+    ///
+    /// The point of recording a verification is to not hash 169 MB at every launch. The point of
+    /// recording it *this* way is that anything which could mean different bytes puts the hashing
+    /// back: a different resource set, a file that grew or shrank, a file written again, a file
+    /// that is no longer there.
+    #[test]
+    fn a_recorded_verification_only_matches_the_files_it_recorded() {
+        let directory = tempfile::tempdir().unwrap();
+        let spec = specification();
+        fs::write(directory.path().join("msime.db"), b"fixture").unwrap();
+
+        let recorded = VerifiedMarker::describe(directory.path(), &spec)
+            .unwrap()
+            .expect("every artifact is present");
+        assert_eq!(
+            VerifiedMarker::describe(directory.path(), &spec).unwrap(),
+            Some(recorded.clone()),
+            "an untouched directory describes identically, which is what lets the hashing be skipped"
+        );
+
+        // A different resource set never matches, even over the same bytes.
+        let mut other = specification();
+        other.source_commit = "b".repeat(40);
+        assert_ne!(
+            VerifiedMarker::describe(directory.path(), &other).unwrap(),
+            Some(recorded.clone()),
+            "the generation is part of the record"
+        );
+
+        // Same length, written again: the modification time moves and the record stops matching.
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        fs::write(directory.path().join("msime.db"), b"FIXTURE").unwrap();
+        assert_ne!(
+            VerifiedMarker::describe(directory.path(), &spec).unwrap(),
+            Some(recorded.clone()),
+            "a rewritten file is re-hashed even when its size is unchanged"
+        );
+
+        // A different length is caught whatever the clock did.
+        fs::write(directory.path().join("msime.db"), b"fixture-and-more").unwrap();
+        let grown = VerifiedMarker::describe(directory.path(), &spec)
+            .unwrap()
+            .expect("still present");
+        assert_ne!(grown.files[0].1, recorded.files[0].1);
+
+        // A missing artifact is not describable, so there is nothing to compare and it is hashed.
+        fs::remove_file(directory.path().join("msime.db")).unwrap();
+        assert_eq!(
+            VerifiedMarker::describe(directory.path(), &spec).unwrap(),
+            None
+        );
+    }
+
+    /// A marker that cannot be read is a miss, not a failure.
+    #[test]
+    fn an_unusable_marker_falls_back_to_hashing() {
+        let directory = tempfile::tempdir().unwrap();
+        let path = directory.path().join("verified-resources.json");
+        assert_eq!(VerifiedMarker::read(&path), None, "absent");
+        fs::write(&path, b"{ not json").unwrap();
+        assert_eq!(VerifiedMarker::read(&path), None, "unparseable");
+        fs::write(&path, br#"{"generation":"a"}"#).unwrap();
+        assert_eq!(VerifiedMarker::read(&path), None, "an older or newer shape");
+
+        let spec = specification();
+        fs::write(directory.path().join("msime.db"), b"fixture").unwrap();
+        let marker = VerifiedMarker::describe(directory.path(), &spec)
+            .unwrap()
+            .unwrap();
+        marker.write(&path).unwrap();
+        assert_eq!(VerifiedMarker::read(&path), Some(marker), "round trips");
     }
 }

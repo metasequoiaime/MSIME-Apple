@@ -100,11 +100,22 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
   let candidatePageCount: Int
   let answeredByPinyinFallback: Bool
   let diagnosticText: String?
+  /// Engine's own local-mode name, carried rather than asked for again.
+  ///
+  /// Every field below this point was already in the response this snapshot was decoded from. The
+  /// keyboard used to drop them and then call back through the C ABI for each one, which
+  /// serialises the whole view to JSON in Rust and parses it again in Swift - a keystroke was
+  /// paying for that several times over.
+  let localMode: String
+  let nineKeySpellings: [String]
+
+  var isInLocalMode: Bool { !localMode.isEmpty && localMode != "none" }
 
   init(isHandled: Bool = false, commitText: String? = nil, preedit: String = "", reading: String = "",
        candidates: [String] = [], candidateCodes: [String] = [], candidateGlosses: [String] = [],
        candidatePageCount: Int = 0, answeredByPinyinFallback: Bool = false,
-       diagnosticText: String? = nil) {
+       diagnosticText: String? = nil, localMode: String = "none",
+       nineKeySpellings: [String] = []) {
     self.isHandled = isHandled
     self.commitText = commitText
     self.preedit = preedit
@@ -115,6 +126,8 @@ struct MetasequoiaInputSnapshot: Equatable, Sendable {
     self.candidatePageCount = candidatePageCount
     self.answeredByPinyinFallback = answeredByPinyinFallback
     self.diagnosticText = diagnosticText
+    self.localMode = localMode
+    self.nineKeySpellings = nineKeySpellings
   }
 }
 
@@ -922,16 +935,34 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
       candidateGlosses: rows.map { $0["translation"] as? String ?? "" },
       candidatePageCount: max(0, (view["page_count"] as? NSNumber)?.intValue ?? 0),
       answeredByPinyinFallback: view["answered_by_pinyin_fallback"] as? Bool ?? false,
-      diagnosticText: value["diagnostic"] as? String)
+      diagnosticText: value["diagnostic"] as? String,
+      localMode: view["local_mode"] as? String ?? "none",
+      nineKeySpellings: view["nine_key_spellings"] as? [String] ?? [])
   }
 
   private static func decode(_ pointer: UnsafeMutablePointer<CChar>?) throws -> Any {
     guard let pointer else { throw InputBridgeFailure.unavailable }
-    let string = String(cString: pointer)
-    msimeClientStringFree(pointer)
-    guard let data = string.data(using: .utf8),
-          let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any]
-    else { throw InputBridgeFailure.invalidResponse }
+    // Parse the response where it already is. Going through `String(cString:)` and then
+    // `.data(using:)` copies the whole document twice - and validates its UTF-8 on the way - before
+    // the parser has seen a byte of it. Every keystroke carries a view with nine candidates, their
+    // codes and their glosses, so those copies are on the path a person feels.
+    let envelope: [String: Any]
+    do {
+      let length = strlen(pointer)
+      let parsed = try pointer.withMemoryRebound(to: UInt8.self, capacity: length) { bytes in
+        try JSONSerialization.jsonObject(
+          with: Data(bytesNoCopy: UnsafeMutableRawPointer(mutating: bytes), count: length,
+                     deallocator: .none))
+      }
+      msimeClientStringFree(pointer)
+      guard let object = parsed as? [String: Any] else { throw InputBridgeFailure.invalidResponse }
+      envelope = object
+    } catch let failure as InputBridgeFailure {
+      throw failure
+    } catch {
+      msimeClientStringFree(pointer)
+      throw InputBridgeFailure.invalidResponse
+    }
     guard envelope["ok"] as? Bool == true else {
       throw InputBridgeFailure.response(envelope["error"] as? String ?? "输入运行时调用失败")
     }

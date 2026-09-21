@@ -1,5 +1,7 @@
 # HarmonyOS 输入宿主预览
 
+迁移对照见 [docs/harmony-parity.md](../../docs/harmony-parity.md)：用什么方法比过 MSIME-Apple、发现了什么、哪些是按平台特性裁剪而不是欠账，以及真机验收时该优先核对的几项。
+
 OpenHarmony 适配保留 ArkTS/ArkUI 应用入口与 NAPI 原生边界。共享输入算法、组合状态、配置校验和资源准备继续由 Rust Host API 与 C++ Engine 提供；`platforms/harmony/native/client_napi.cpp` 只负责 NAPI 注册和 C ABI 转发，不复制候选分页或输入状态机。
 
 Harmony 设置页暴露共享的模糊拼音规则、触摸输入方案启用列表、自定义触摸键盘皮肤设计和候选英文释义开关。这四项此前都只有键盘一侧在消费：`PreferencesStore` 里有值，键盘准备 Engine 会话时会读，但设置页从未开启对应的客户端开关，用户没有任何途径改动它们。它们各自只写共享偏好，不需要平台能力。
@@ -84,6 +86,18 @@ Apple 润色的是**选区**：用户选中一段话，点润色，面板给出�
 
 工具面板里的入口只在配置了润色服务时可用，并随语音设置的变更通知一起重新判定——重写发到用户自己的服务，一个永远失败的卡片只会教会用户忽略这个面板。
 
+词库页的「词库信息」也由 Harmony 承载，对应 MSIME-Apple `FeatureSettingsViews` 里的那一节。随应用安装的词库带着一份清单，写明它是按哪套规格构建的、来自上游哪个提交；Apple 直接从 app bundle 里读，而把资源暂存进沙箱的宿主读不到，那个路径也不该告诉设置页。
+
+只回两个字段。清单里还有 journal 模式、格式契约和全部第三方引用，没有一条回答页面在问的那个问题——"我装的是什么，它从哪来"。读不到就报错而不是猜：把词库版本说错，比不说更糟。
+
+读的是暂存后的引擎资源而不是模块的 rawfile：暂存才是对着固定锁校验的那一步，键盘实际跑的那份副本才值得报告。
+
+键盘的无障碍标签接上了。此前 `KeyboardView.ets` 里 `.accessibilityText()` 出现零次，而 `LetterKeyFacePolicy.accessibilityLabel`、`EnglishLetterCaseState.accessibilityLabel/accessibilityValue`、`JapaneseVariantPolicy.accessibilityLabel` 和 `CandidateGlossPolicy.accessibilitySuffix` 都已经从来源移植过来、都有单测、也都只有它们自己的测试在调用——标签算出来了，键盘一个字也不念。读屏用户面对的是一块什么都没有的键面。
+
+键面文字越短越好，念出来往往不成词：`⇧` 是空的，`123` 是一个数，`中` 是一个字而不是一个动作。来源给每一个键都起了名字，而且名字说的是这个键会做什么，不是它显示什么。`KeyAccessibilityPolicy` 补上那四份策略没有覆盖的名字，视图现在把它们全部挂上。
+
+空格键按它将要做的事来念：组合中它选定高亮候选，看不见候选栏的用户没有别的途径知道这个键换了含义。候选念成「候选词 N：X」，还没打完的拼音接在后面念成「还需输入 …」——这是"现在就能上屏的候选"和"还得继续打的候选"之间的区别；释义后缀走已移植的 gloss 策略，它已经决定了那是念「提示」还是念「英文释义」，那个区分不该在调用点重新推一遍。
+
 候选翻译复用共享 `translation_query` 与 `apply_translations` 代际契约。Harmony 原生边界负责把 Tencent TMT、NiuTrans 和 DeepLX 兼容自定义 provider 的签名/请求描述器及响应解析暴露给 ArkTS，网络传输仍由 Harmony HTTPS 栈完成；本地英文词典释义先在 Engine 侧解析，在线结果只补齐缺失项。多语言释义合并为有界的 ` / ` 展示文本，按 provider、目标语言和词条缓存，过期或 generation 不匹配的结果不会污染当前候选页。英文目标的成功释义通过共享 ABI 写入用户词典覆盖层，凭据只存在于当前请求内，不写日志。
 
 共享设置中的“流式预编辑”现在也由 Harmony 消费：关闭时识别中的临时结果不进面板，只有最终结果才显示；此前无论该开关如何，临时结果一律显示。“结果提交策略”反过来从 Harmony 的设置页移除——Windows 在 TSF / SendInput / 粘贴之间选，macOS 在系统事件与输入会话之间选，Linux 把选择交给用户自管的服务，而键盘扩展只有输入客户端一条提交路径，三选一在这里是一个只有一种结果的控件。该判断由 `HostCapabilities::voice_commit_mode` 决定。
@@ -158,7 +172,20 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 所以这是按平台特性裁剪，而不是欠账：能力模型的用途正是让页面不画一个保存了却什么都不做的开关。如果将来 SDK 提供了对应 API，接法是声明 `appIcon` 并在 `module.json5` 里补上备用入口 ability——那时需要的是真机验证，不是这里的接线。
 
-仍未在 HarmonyOS 真机或模拟器上运行，因此系统输入法注册、焦点与选区、生命周期、签名、麦克风授权流程和真实编辑器验收都没有证据；构建通过不等于平台接入完成。
+## 2026-09-21：首次在模拟器上跑起来
+
+在 API 21 的 `Mate 70 Pro` arm64 模拟器（DevEco 自带镜像，`hdc` 连 `127.0.0.1:5555`）上完成了一次装机运行，实测到的东西比之前所有交叉构建加起来都多。
+
+**先是构建根本过不去。** `hvigorw assembleHap` 报 13 个 ArkTS 错误，分布在三个 `.ets` 文件里，全部来自最近合并的几片。`tsc` 全过、单测全绿、设置包构建成功、`verify-local.sh --quick` 通过——没有任何一道门禁编译过 ArkTS，所以 `develop` 处在打不出 HAP 的状态而没人知道。ArkTS 是 TypeScript 的一个严格子集：不认 `unknown` 和 `any`、对象字面量必须对应已声明的类或接口、不支持索引访问类型。`scripts/test-harmony-arkts-subset.py` 现在在 `--quick` 里查前两条（纯语法、零误报）；第三条依赖类型信息——ArkTS 接受 `JSON.stringify({ ok: false, error: x })` 却拒绝里面再嵌一层字面量的同一个调用——纯文本判断要么漏要么误报两百条，两种都试过了，所以那一条明写为只有真编译器能抓。
+
+装机后确认的：
+
+- 系统识别并接受本输入法：`ime -e app.msime.client` 成功，`ime -s` 之后 `ime -g` 返回 `app.msime.client`，`app.msime.client:inputMethod` 进程被系统输入法框架拉起。
+- 共享 React 设置界面在设备上正常渲染：欢迎流程、首页（含底部导航与键盘预览）、词库页。
+- 新增 C ABI 的整条链路通了。词库页显示「规格 desktop」「词库版本 e92a9c7c64e2」，与 `resources/desktop-dictionary.lock.json` 的 `source_commit` 前十二位一致——从 `msime_client_dictionary_manifest` 经 NAPI、ArkTS 桥、`registerJavaScriptProxy` 到共享 React 卡片，每一跳都真的走通了。
+- 引擎资源暂存正常：`staged /data/storage/el2/base/haps/entry/files/engine`。第一次跑打出 `no packaged resources at /engine` 是因为漏了 `stage-resources.sh`，不是代码问题；补上 180 MB 的已验证词库后即正常。
+
+仍然没有证据的：真实编辑器里的按键与候选（模拟器上尚未走到这一步）、账号/社区/AI 服务的真实往返、`deleteBackwardSync(length)` 的单位、读屏实际念出的内容、个人词库队列在下一次会话启动时是否真的被排空。真机签名、麦克风授权流程同样未验。
 
 按键音与振动现在也能从设置页调整，而不只是键盘内那张卡片：共享 `mobileKeyboardFeedback` 客户端读写键盘自己的 `key-feedback.json`，两个进程共用同一份文件（这项设置属于当前设备而非账号，所以不进共享偏好）。设置页是第二个写入者，改动在键盘下次启动时生效。强度预览直接振一下。共享 DTO 把最强一档叫 `strong`，键盘自己的枚举叫 `heavy`，两边由 `KeyboardFeedbackBridge` 转换——直接赋值会写入键盘不认识的值，`KeyboardFeedback.parse` 会静默回退，表现为"保存了但手感没变"。
 

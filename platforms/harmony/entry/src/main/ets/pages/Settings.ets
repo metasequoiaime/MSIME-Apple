@@ -113,6 +113,34 @@ interface AiSkinAction {
   prompt?: string;
 }
 
+/**
+ * The nested action documents for the two native libraries.
+ *
+ * Declared rather than written inline because ArkTS requires every object literal to name a type.
+ * They are the request shapes `msime_client_community_resource_library` and
+ * `msime_client_keyboard_skin_trial` parse, so the names say which side owns them.
+ */
+interface ResourceLibraryRemove {
+  operation: string;
+  id: string;
+}
+
+interface ResourceLibraryRequest {
+  file: string;
+  action: ResourceLibraryRemove;
+}
+
+interface SkinTrialFinish {
+  operation: string;
+  id: string;
+  keep: boolean;
+}
+
+interface SkinTrialRequest {
+  directory: string;
+  action: SkinTrialFinish;
+}
+
 /** One community resource request; only the two local library operations are handled here. */
 interface CommunityResourceAction {
   resource_operation: string;
@@ -412,7 +440,7 @@ struct Settings {
             this.controller.registerJavaScriptProxy(this.bridge, BRIDGE_NAME,
               ['loadPreferences', 'savePreferences', 'hostCapabilities', 'appVersion',
                 'scanSkinCatalog', 'readSkinImage', 'readSkinFont', 'readSkinToolbarCss',
-                'customSkinLibrary', 'dictionary', 'cloudDictionaryDownload',
+                'customSkinLibrary', 'dictionaryManifest', 'dictionary', 'cloudDictionaryDownload',
                 'typingStatistics', 'openExternalUrl', 'copyText',
                 'openSystemKeyboardSettings', 'listVoiceCaptureDevices', 'listFontFamilies',
                 'keyboardFeedback', 'customTranslations', 'onboardingStatus',
@@ -752,9 +780,11 @@ class SettingsBridge {
         + `"action":{"operation":"save_reply","item":${JSON.stringify(action.item ?? null)}}}`);
     }
     if (action.resource_operation === 'remove_reply') {
-      return client.communityResourceLibrary(JSON.stringify({
-        file: file, action: { operation: 'remove', id: action.id }
-      }));
+      const remove: ResourceLibraryRequest = {
+        file: file,
+        action: { operation: 'remove', id: action.id ?? '' } as ResourceLibraryRemove
+      };
+      return client.communityResourceLibrary(JSON.stringify(remove));
     }
     return this.accountBridge.request(actionDocument);
   }
@@ -824,10 +854,11 @@ class SettingsBridge {
   }
 
   private finishSkinTrial(action: CommunitySkinAction): string {
-    const reply: string = client.keyboardSkinTrial(JSON.stringify({
+    const finish: SkinTrialRequest = {
       directory: this.stateDirectory,
-      action: { operation: 'finish', id: action.id, keep: action.keep === true }
-    }));
+      action: { operation: 'finish', id: action.id, keep: action.keep === true } as SkinTrialFinish
+    };
+    const reply: string = client.keyboardSkinTrial(JSON.stringify(finish));
     this.refreshPreferencesIfChanged();
     return reply;
   }
@@ -848,6 +879,20 @@ class SettingsBridge {
       ? JSON.stringify({ directory: this.stateDirectory })
       : `{"directory":${JSON.stringify(this.stateDirectory)},"action":${action}}`;
     return client.customSkinLibrary(request);
+  }
+
+  /**
+   * Which packaged dictionary is installed.
+   *
+   * Read from the staged engine resources rather than from the module's rawfile: staging is what
+   * verifies them against the pinned lock, and the copy the keyboard actually runs on is the one
+   * worth reporting. The page is given the two answers, never the path.
+   */
+  dictionaryManifest(): string {
+    if (this.context === undefined) {
+      return JSON.stringify({ ok: false, error: 'dictionary_manifest_unavailable' });
+    }
+    return client.dictionaryManifest(`${this.context.filesDir}/engine`);
   }
 
   /** Read only an image declared by a validated external skin manifest. */

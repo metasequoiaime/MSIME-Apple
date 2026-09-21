@@ -75,7 +75,7 @@
                         android:id="@+id/keyboard_look"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="@string/keyboard_current_look"
+                        android:text="@string/keyboard_status_checking"
                         android:textSize="12sp"
                         app:chipBackgroundColor="@color/mist"
                         app:chipStrokeWidth="0dp"
@@ -83,6 +83,7 @@
                 </LinearLayout>
 
                 <app.msime.client.home.KeyboardPreview
+                    android:id="@+id/keyboard_preview"
                     android:layout_width="match_parent"
                     android:layout_height="210dp"
                     android:layout_marginTop="14dp" />

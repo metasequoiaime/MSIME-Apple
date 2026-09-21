@@ -1,4 +1,4 @@
-#include "emoji_panel_icons.h"
+#include "EmojiPanelIcons.h"
 
 #include "msimeui/DeviceResources.h"
 #include "msimeui/Fonts.h"

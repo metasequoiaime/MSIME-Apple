@@ -216,6 +216,14 @@ public final class KeyboardSkin {
     public String keyForeground() { return keyForeground; }
     public String accent() { return accent; }
     public String actionBackground() { return actionBackground; }
+
+    /**
+     * The rail the nine-key punctuation column sits on.
+     *
+     * <p>Those four keys wear no cap of their own, so without a rail behind them the column reads as
+     * a hole in the grid. Half the key face is what the shared design puts there.
+     */
+    public String sidebarBackground() { return alpha(keyBackground, .5); }
     public String actionForeground() { return actionForeground; }
     public double cornerRadius() { return cornerRadius; }
     public double borderWidth() { return borderWidth; }

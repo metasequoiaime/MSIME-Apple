@@ -124,7 +124,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   // In an active Quanpin or Shuangpin composition, Shift marks the next letter as Engine helpcode.
   // Idle Chinese input keeps the existing shortcut that switches to English capitalization.
   private var helpcodeCompositionEligible: Bool {
-    !visiblePreedit.isEmpty && !session.isInLocalMode
+    !visiblePreedit.isEmpty && !isInLocalMode
       && (inputScheme == .quanpin || usesShuangpin)
   }
   private var entersHelpcode: Bool {
@@ -170,6 +170,20 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   // What the last commit armed, if anything. These belong to the editor rather than to Engine:
   // a different document, a moved caret, or a session rebuilt while the keyboard was away all
   // mean the gesture is about something else, which is what the editor generation carries.
+  // The last snapshot's own answers. Every one of these was in the response the keyboard just
+  // received; asking the session again costs a full C ABI round trip per question, and the render
+  // path asks several times for every keystroke.
+  private var currentLocalMode = "none"
+  private var currentNineKeySpellings: [String] = []
+  private var appliedLayoutInputs: KeyboardLayoutInputs?
+  private var candidateGlossTimer: Timer?
+  /// Engine's local mode, as of the last snapshot.
+  ///
+  /// Every snapshot carries it, and every path that can change it renders one, so this is the
+  /// same answer the session would give. Asking the session instead costs a full C ABI round trip
+  /// - the whole view serialised to JSON and parsed back - and the keystroke path asked more than
+  /// thirty times per key before this.
+  private var isInLocalMode: Bool { !currentLocalMode.isEmpty && currentLocalMode != "none" }
   private var armedPunctuationRepeat: Any?
   private var armedSpaceConversion: Any?
   private var showsSymbols = false
@@ -317,13 +331,13 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     synchronizeInputContext()
     prepareKeyFeedback()
     synchronizePersonalDictionary(force: true)
-    snapshotWorker.tick(idle: !hasComposition && !session.isInLocalMode, fullAccess: hasFullAccess, force: true)
+    snapshotWorker.tick(idle: !hasComposition && !isInLocalMode, fullAccess: hasFullAccess, force: true)
     personalDictionaryTimer?.invalidate()
     personalDictionaryTimer = Timer.scheduledTimer(withTimeInterval: 2, repeats: true) { [weak self] _ in
       MainActor.assumeIsolated {
         guard let self else { return }
         self.synchronizePersonalDictionary(force: false)
-        self.snapshotWorker.tick(idle: !self.hasComposition && !self.session.isInLocalMode, fullAccess: self.hasFullAccess)
+        self.snapshotWorker.tick(idle: !self.hasComposition && !self.isInLocalMode, fullAccess: self.hasFullAccess)
       }
     }
   }
@@ -1048,7 +1062,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func updateSpellingStrip() {
-    let spellings = session.nineKeySpellings()
+    let spellings = currentNineKeySpellings
     while spellingButtons.count < spellings.count {
       let button = UIButton(type: .system)
       button.addAction(UIAction { [weak self, weak button] _ in
@@ -1081,7 +1095,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       button.accessibilityIdentifier = "nineKeySpelling_\(spelling)"
     }
     spellingScrollView.setContentOffset(.zero, animated: false)
-    updateKeyboardLayout()
+    updateKeyboardLayoutIfNeeded()
   }
 
   private func makeLetterRow(_ letters: [Character], includesShift: Bool) -> UIStackView {
@@ -1299,7 +1313,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       synchronizeInputSchemePreference()
       // A host setting can change while this view is open. Do not start an alphabetic composition
       // from a stale 26-key tap after switching to nine keys; local utilities still need letters.
-      if inputScheme == .nineKey && !session.isInLocalMode
+      if inputScheme == .nineKey && !isInLocalMode
         && !("2"..."9").contains(character) && character != "'" {
         return
       }
@@ -1588,11 +1602,16 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     // Shift 通过无障碍标签显示辅码状态，并把下一字母作为大写辅码交给 Engine。
     // 本地模式除外：那里敲入的就是键面上的字面字符，保持小写才不会误导用户。
     let shifted = letterCaseState != .lowercase && (!isChineseMode || entersHelpcode)
-    let usesUppercase = (isChineseMode && !session.isInLocalMode) || shifted
+    // Read once, not once per key. `isInLocalMode` looks like a property and is a full C ABI
+    // round trip: it serialises the whole view - preedit, every candidate, its codes and glosses -
+    // to JSON in Rust and parses it back in Swift. Asking for it inside the loop below made that
+    // happen twenty-seven times for every keystroke.
+    let inLocalMode = isInLocalMode
+    let usesUppercase = (isChineseMode && !inLocalMode) || shifted
     for (button, lowercase, hintLabel) in letterButtons {
       // A hint only means something while the key feeds a double-pinyin composition, so English
       // mode drops it even though the scheme underneath is unchanged.
-      let hint = isChineseMode && !session.isInLocalMode ? shuangpinKeyHints[lowercase.uppercased()] : nil
+      let hint = isChineseMode && !inLocalMode ? shuangpinKeyHints[lowercase.uppercased()] : nil
       if var configuration = button.configuration {
         configuration.title = usesUppercase ? lowercase.uppercased() : lowercase
         // The hint sits along the bottom edge, so the letter is lifted clear of it instead of
@@ -1925,7 +1944,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func showKeyboardVoice() {
     guard hasFullAccess else { showDiagnostic("语音结果需要开启键盘的“允许完全访问”。"); return }
-    guard !hasComposition, !session.isInLocalMode else { showDiagnostic("请先完成当前输入，再插入语音结果。"); return }
+    guard !hasComposition, !isInLocalMode else { showDiagnostic("请先完成当前输入，再插入语音结果。"); return }
     do {
       let store = VoiceTextHandoffStore()
       let entry = try store.read()
@@ -1963,7 +1982,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func synchronizePersonalDictionary(force: Bool) {
-    guard hasFullAccess, !hasComposition, !session.isInLocalMode, !synchronizingPersonalDictionary else { return }
+    guard hasFullAccess, !hasComposition, !isInLocalMode, !synchronizingPersonalDictionary else { return }
     let store = PersonalDictionaryStore()
     do {
       let state = try store.read()
@@ -2236,7 +2255,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func updatePreeditButton() {
     let idle = visiblePreedit.isEmpty
     let modeName = Self.localInputModes.first { $0.trigger == localModeTrigger }?.title
-    let title = session.isInLocalMode && visiblePreedit == localModeTrigger
+    let title = isInLocalMode && visiblePreedit == localModeTrigger
       ? (modeName ?? visiblePreedit)
       : (idle ? (isChineseMode ? "水杉输入法" : "英文输入") : visiblePreedit)
     if var configuration = preeditButton.configuration {
@@ -2306,7 +2325,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private var quickPunctuationSymbols: [String] {
-    guard isChineseMode, !session.isInLocalMode else { return [",", ".", "?", "!", ":", ";", "@"] }
+    guard isChineseMode, !isInLocalMode else { return [",", ".", "?", "!", ":", ";", "@"] }
     if inputScheme.isJapanese { return ["、", "。", "？", "！", "「", "」", "・"] }
     return ["，", "。", "？", "！", "、", "；", "："]
   }
@@ -2351,11 +2370,46 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     updateShortcutButtons()
   }
 
+  /// Everything `updateKeyboardLayout` branches on.
+  ///
+  /// The list has to be complete, because the layout is only rebuilt when this changes. Gating on
+  /// a subset is how a nine-key keyboard stayed on its grid after a local mode opened: the value
+  /// that moved was not in the signature, so nothing relaid out.
+  private struct KeyboardLayoutInputs: Equatable {
+    let chinese: Bool
+    let scheme: ChineseInputScheme
+    let localMode: String
+    let symbols: Bool
+    let globe: Bool
+    let hasSpellings: Bool
+    let geometry: KeyboardGeometry
+  }
+
+  private var layoutInputs: KeyboardLayoutInputs {
+    KeyboardLayoutInputs(
+      chinese: isChineseMode, scheme: inputScheme, localMode: currentLocalMode,
+      symbols: showsSymbols, globe: needsInputModeSwitchKey,
+      hasSpellings: !currentNineKeySpellings.isEmpty,
+      geometry: KeyboardLayoutPreference.geometry)
+  }
+
+  /// Rebuild the keyboard only when something it depends on moved.
+  ///
+  /// This used to run on every keystroke, from `updateSpellingStrip`. Laying the whole keyboard
+  /// out costs the same whether or not anything changed, and between two letters of the same word
+  /// nothing does.
+  private func updateKeyboardLayoutIfNeeded() {
+    let inputs = layoutInputs
+    guard appliedLayoutInputs != inputs else { return }
+    appliedLayoutInputs = inputs
+    updateKeyboardLayout()
+  }
+
   private func updateKeyboardLayout() {
     applyLayoutPreferences()
     standardRowHeights.forEach { $0.1.isActive = false }
-    microsoftFinalKey?.isHidden = !(isChineseMode && inputScheme == .microsoft && !session.isInLocalMode)
-    let kana = isChineseMode && inputScheme == .japaneseNineKey && !session.isInLocalMode
+    microsoftFinalKey?.isHidden = !(isChineseMode && inputScheme == .microsoft && !isInLocalMode)
+    let kana = isChineseMode && inputScheme == .japaneseNineKey && !isInLocalMode
     japaneseKeys?.isHidden = !kana
     japaneseKeys?.setDigits(showsSymbols)
     japaneseHeight?.constant = KeyboardLayoutPreference.rowSpacing * 3 + 4 * 44
@@ -2364,8 +2418,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     actionRow?.isHidden = kana
     japaneseGlobeButton?.isHidden = !needsInputModeSwitchKey
     japaneseKeys?.setModeColumnFull(needsInputModeSwitchKey)
-    let nineKey = isChineseMode && inputScheme == .nineKey && !session.isInLocalMode
-    let writes = isChineseMode && inputScheme == .handwriting && !showsSymbols && !session.isInLocalMode
+    let nineKey = isChineseMode && inputScheme == .nineKey && !isInLocalMode
+    let writes = isChineseMode && inputScheme == .handwriting && !showsSymbols && !isInLocalMode
     if !writes && !handwriting.isHidden { handwriting.deactivate() }
     handwriting.isHidden = !writes
     if writes { handwriting.activate() }
@@ -2377,7 +2431,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     nineKeyContainer.isHidden = !nineKey
     nineKeyRows.forEach { $0.isHidden = !nineKey }
     applyNineKeyDigitLayer(nineKeyDigits)
-    let hasSpellings = !session.nineKeySpellings().isEmpty
+    let hasSpellings = !currentNineKeySpellings.isEmpty
     spellingScrollView.isHidden = !hasSpellings
     punctuationStack.isHidden = hasSpellings
     if actionRow != nil {
@@ -2418,7 +2472,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
     symbolRowViews.forEach { $0.isHidden = !showsSymbols || kana || nineKey }
     // Chinese punctuation only appears in Chinese mode. Local utilities and dedicated English
     // input send the literal ASCII key value, so their labels must follow their insertion path.
-    let sendsChinesePunctuation = isChineseMode && !session.isInLocalMode
+    let sendsChinesePunctuation = isChineseMode && !isInLocalMode
     for face in symbolKeyFaces {
       let title = sendsChinesePunctuation ? face.chinese : face.ascii
       guard face.key.configuration?.title != title else { continue }
@@ -2660,10 +2714,12 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func render(_ snapshot: MetasequoiaInputSnapshot, source originalSource: TypingSource? = nil) {
     candidateRevision &+= 1
     let source = originalSource ?? typingSource
-    if localModeTrigger != nil && !session.isInLocalMode {
+    if localModeTrigger != nil && !isInLocalMode {
       localModeTrigger = nil
       showsSymbols = false
     }
+    currentLocalMode = snapshot.localMode
+    currentNineKeySpellings = snapshot.nineKeySpellings
     updateLetterCaseControls()
     if let commitText = snapshot.commitText {
       insertOwnText(source == .japanese ? commitText : chineseOutput(commitText), source: source)
@@ -2733,8 +2789,8 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func renderCandidateStrip() {
-    exitLocalModeButton.isHidden = !session.isInLocalMode
-    let showsCandidates = session.isInLocalMode || !visiblePreedit.isEmpty || !visibleCandidates.isEmpty || visibleDiagnostic != nil
+    exitLocalModeButton.isHidden = !isInLocalMode
+    let showsCandidates = isInLocalMode || !visiblePreedit.isEmpty || !visibleCandidates.isEmpty || visibleDiagnostic != nil
     shortcutBar.isHidden = showsCandidates
     candidateContent?.isHidden = !showsCandidates
     updatePreeditButton()
@@ -2817,7 +2873,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
 
   private func requestCandidateTranslations() {
     guard CandidateGlossPreference.enabled, CandidateTranslationPreference.onlineEnabled,
-          hasFullAccess, !inputScheme.isJapanese, !session.isInLocalMode,
+          hasFullAccess, !inputScheme.isJapanese, !isInLocalMode,
           !visibleCandidates.isEmpty else { translations.cancel(); return }
     var codes = [CandidateTranslationPreference.primary.code]
     if let secondary = CandidateTranslationPreference.secondary { codes.append(secondary.code) }
@@ -2825,7 +2881,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   }
 
   private func wubiCodeHint(code: String, typed: String) -> String {
-    guard inputScheme == .wubi, !session.isInLocalMode,
+    guard inputScheme == .wubi, !isInLocalMode,
           WubiCodeHintPreference.isEnabled else { return "" }
     return WubiCodeHintPreference.hint(
       code: code, typed: typed,
@@ -2851,7 +2907,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// still visible. A failed or missing dictionary is intentionally silent.
   private func scheduleCandidateGlosses() {
     guard CandidateGlossPreference.enabled, !inputScheme.isJapanese,
-          !session.isInLocalMode, !visibleCandidates.isEmpty,
+          !isInLocalMode, !visibleCandidates.isEmpty,
           let resources = session.candidateGlossResources(), !resources.isEmpty else {
       let hadVisibleGlosses = !visibleCandidateGlosses.isEmpty
       if candidateGlossRequestedGeneration != nil || hadVisibleGlosses {
@@ -2861,8 +2917,32 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         if hadVisibleGlosses { renderCandidateStrip() }
       }
       refreshCandidatePanelAnnotations()
+      candidateGlossTimer?.invalidate()
+      candidateGlossTimer = nil
       return
     }
+    // Ask once the typing pauses, not once per key.
+    //
+    // The request needs every candidate the query has, and reading them costs in proportion:
+    // `yi` answers with hundreds, and that one call measured 3.5ms - more than the whole rest of
+    // a keystroke. The answer is applied asynchronously and guarded by generation, so the glosses
+    // for the compositions a fast typist passes through are fetched and then thrown away. Nobody
+    // ever saw them.
+    candidateGlossTimer?.invalidate()
+    let timer = Timer(timeInterval: 0.12, repeats: false) { [weak self] _ in
+      MainActor.assumeIsolated {
+        self?.candidateGlossTimer = nil
+        self?.requestCandidateGlosses()
+      }
+    }
+    RunLoop.main.add(timer, forMode: .common)
+    candidateGlossTimer = timer
+  }
+
+  private func requestCandidateGlosses() {
+    guard CandidateGlossPreference.enabled, !inputScheme.isJapanese,
+          !isInLocalMode, !visibleCandidates.isEmpty,
+          let resources = session.candidateGlossResources(), !resources.isEmpty else { return }
     do {
       let allCandidates = try session.allCandidates()
       guard let value = allCandidates["generation"] as? NSNumber else { return }
@@ -3088,7 +3168,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// gave them none, so the press that managed an entry on the strip did nothing once the list was
   /// expanded -- and the expanded list is exactly where a rarely used entry is reached.
   func candidateMenuElements(at index: Int) -> [UIMenuElement] {
-    guard isChineseMode, !inputScheme.isJapanese, !session.isInLocalMode,
+    guard isChineseMode, !inputScheme.isJapanese, !isInLocalMode,
           visibleCandidates.indices.contains(index) else { return [] }
     let candidate = visibleCandidates[index]
     let revision = candidateRevision
@@ -3104,7 +3184,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   /// The same menu for a candidate identified the way the expanded panel holds it. Panel positions
   /// index the engine's whole answer, not the visible strip, so they cannot use the visible index.
   func candidateMenuElements(generation: UInt64, globalIndex: UInt64) -> [UIMenuElement] {
-    guard isChineseMode, !inputScheme.isJapanese, !session.isInLocalMode else { return [] }
+    guard isChineseMode, !inputScheme.isJapanese, !isInLocalMode else { return [] }
     return candidateMenuElements { [weak self] operation in
       self?.session.editCandidate(generation: generation, globalIndex: globalIndex, action: operation)
     }
@@ -3113,7 +3193,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private func candidateMenuElements(
     generation: UInt64, globalIndex: UInt64, candidate: String, offlineGloss: String
   ) -> [UIMenuElement] {
-    guard isChineseMode, !inputScheme.isJapanese, !session.isInLocalMode else { return [] }
+    guard isChineseMode, !inputScheme.isJapanese, !isInLocalMode else { return [] }
     let glosses = glossMenuElements(glosses(word: candidate, offline: offlineGloss)) { [weak self] in
       guard let self else { return false }
       guard let snapshot = try? session.allCandidates(),

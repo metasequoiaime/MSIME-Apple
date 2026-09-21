@@ -7,6 +7,7 @@ import {
   WelcomeFlowPage,
   type DictionaryClient,
   type DictionaryEntry,
+  type DictionaryManifest,
   type DictionaryImportResult,
   type HostCapabilities,
   type LocalDictionaryFormat,
@@ -79,6 +80,8 @@ interface NativeBridge {
   readSkinToolbarCss(id: string): string;
   /** `""` reads the named designs; a serialized action applies one change first. */
   customSkinLibrary(action: string): string;
+  /** `{profile,sourceCommit}` from the packaged dictionary manifest, or a refusal. */
+  dictionaryManifest(): string;
   appVersion(): string;
   dictionary(action: string): string;
   cloudDictionaryDownload(entry: string): string;
@@ -779,6 +782,9 @@ function makeClient(
     fuzzyPinyin: true,
     touchKeyboardSchemes: true,
     customTouchKeyboardSkins: true,
+    // The manifest is packaged and never changes while the application runs, so this is read on
+    // demand rather than kept: the dictionary page is not a screen anyone leaves open.
+    dictionaryManifest: async () => unwrap<DictionaryManifest>(native.dictionaryManifest()),
     // A named design can carry a bounded photo, so this is the one settings call whose payload is
     // measured in megabytes. It still goes through the synchronous bridge: the alternative is the
     // request-by-number channel, and a library read that has to survive a page reload is worse

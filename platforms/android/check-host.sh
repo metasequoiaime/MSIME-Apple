@@ -99,6 +99,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/keyboard/LocalInputModeSmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/KeyboardSchemeSmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/NineKeyLayoutSmoke.java" \
+  "$repo_root/platforms/android/tests/keyboard/KeyboardActionRowSmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/JapaneseNineKeyLayoutSmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/JapaneseNineKeyActionsSmoke.java" \
   "$repo_root/platforms/android/tests/core/JapaneseVariantPolicySmoke.java" \
@@ -118,6 +119,10 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/dictionary/ClipboardHistoryPolicySmoke.java" \
   "$repo_root/platforms/android/tests/dictionary/DictionarySnapshotQueueSmoke.java" \
   "$repo_root/platforms/android/tests/settings/DiagnosticPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/settings/TypingStatisticsModelSmoke.java" \
+  "$repo_root/platforms/android/tests/settings/InputFeatureToggleSmoke.java" \
+  "$repo_root/platforms/android/tests/community/CommunityRequestSmoke.java" \
+  "$repo_root/platforms/android/tests/settings/AppIconStyleSmoke.java" \
   "$repo_root/platforms/android/tests/settings/SmartPunctuationContextSmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/SymbolPanelModelSmoke.java"
 java -cp "$output_dir" EditorSmoke
@@ -151,6 +156,7 @@ java -cp "$output_dir" MoreToolsLayoutSmoke
 java -cp "$output_dir" LocalInputModeSmoke
 java -cp "$output_dir" KeyboardSchemeSmoke
 java -cp "$output_dir" NineKeyLayoutSmoke
+java -cp "$output_dir" KeyboardActionRowSmoke
 java -cp "$output_dir" JapaneseNineKeyLayoutSmoke
 java -cp "$output_dir" JapaneseNineKeyActionsSmoke
 java -cp "$output_dir" JapaneseVariantPolicySmoke
@@ -170,6 +176,10 @@ java -cp "$output_dir" CandidateManagementSmoke
 java -cp "$output_dir" ClipboardHistoryPolicySmoke
 java -cp "$output_dir" DictionarySnapshotQueueSmoke
 java -cp "$output_dir" DiagnosticPolicySmoke
+java -cp "$output_dir" TypingStatisticsModelSmoke
+java -cp "$output_dir" InputFeatureToggleSmoke
+java -cp "$output_dir" CommunityRequestSmoke
+java -cp "$output_dir" AppIconStyleSmoke
 java -cp "$output_dir" SmartPunctuationContextSmoke
 java -cp "$output_dir" SymbolPanelModelSmoke
 # Resources are compiled but not linked here: they reference Material's theme attributes, and linking

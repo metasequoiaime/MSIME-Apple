@@ -276,6 +276,13 @@ python3 scripts/test-harmony-settings-bundle.py || fail "harmony settings bundle
 # and its name in registerJavaScriptProxy - and only the second is what the page
 # sees. A name added in one place and not the other type-checks, compiles and
 # builds, then fails on a device as "not a function". It has happened once.
+# tsc accepts the whole TypeScript language; the ArkTS compiler that actually
+# builds the HAP does not. Six merged PRs left develop unable to produce a HAP -
+# thirteen errors in three .ets files - and every gate here was green. This
+# checks the two rules that can be checked without the SDK.
+note "harmony ArkTS subset"
+python3 scripts/test-harmony-arkts-subset.py || fail "harmony ArkTS subset"
+
 note "harmony bridge parity"
 python3 scripts/test-harmony-bridge-parity.py || fail "harmony bridge parity"
 

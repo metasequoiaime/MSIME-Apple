@@ -52,10 +52,13 @@ pub fn inflate_candidate_template(template: &str, payload: &str) -> String {
     while let Some(start) = rest.find('{') {
         result.push_str(&rest[..start]);
         let after = &rest[start + 1..];
+        // `{` digit `}` is a slot; the digit is the slot number. Anything else is literal text.
         let slot = after
-            .strip_prefix(|c: char| c.is_ascii_digit())
-            .and_then(|tail| tail.strip_prefix('}'))
-            .map(|tail| (after.as_bytes()[0] - b'0') as usize);
+            .as_bytes()
+            .first()
+            .filter(|byte| byte.is_ascii_digit())
+            .filter(|_| after.as_bytes().get(1) == Some(&b'}'))
+            .map(|byte| usize::from(byte - b'0'));
         match slot {
             Some(index) => {
                 result.push_str(fields.get(index).map(String::as_str).unwrap_or(""));

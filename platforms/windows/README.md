@@ -2,7 +2,24 @@
 
 ## Directory layout
 
-Windows platform implementation sources live under `src/` 下按 `candidate/`、`voice/`、`clipboard/`、`ipc/`、`input/` 和 `system/` 分层; `tsf/`, `msimeui/`, `tests/`, and `installer/` retain their independent protocol, UI, test, and packaging boundaries. The platform root keeps build files, scripts, manifests, and documentation.
+Windows platform implementation sources live under `src/`; `tsf/`, `msimeui/`, `tests/`, and `installer/` retain their independent protocol, UI, test, and packaging boundaries. The platform root keeps build files, scripts, manifests, and documentation.
+
+`src/` 按职责分目录，每个目录一句话说清它收什么：
+
+| 目录 | 收什么 |
+| --- | --- |
+| `entrypoints/` | Server 与 prepare-host 两个 `main`，与 `platforms/linux/src/entrypoints/` 同一约定 |
+| `ipc/` | TSF DLL ↔ Server 的命名管道：监听、握手、会话泵、回复编排与编码 |
+| `input/` | 输入队列、焦点会话、按键与编辑策略，以及打字统计的记录点 |
+| `candidate/` | 候选窗、右键菜单、悬浮工具栏、托盘菜单，以及云/AI/翻译的候选工作线程 |
+| `voice/` | 语音输入：热键、采集、识别客户端、控制协议，以及录音时的波形浮层 |
+| `clipboard/` | 剪贴板历史的采集与存储 |
+| `panels/` | emoji 与手写面板。**这三个文件目前不在任何构建里**，详见下节 |
+| `system/` | 以上都不属于的系统层：看门狗、首次运行、偏好监视、焦点网关、shell 启动、进程与管道身份 |
+
+### `panels/` 现在是什么状态
+
+`EmojiPanel.h`、`HandwritingPanel.h` 和 `EmojiPanelIcons.{h,cpp}` 不在 `CMakeLists.txt` 里，也没有任何文件 include 它们——它们不参与构建。`msimeui/demos/` 下另有一份**在构建的** `EmojiPanel`，但那是 demo，比这里这份短（163 行对 210 行），且不接 `ClipboardHistory` 与 `NativeTextInput`。所以这里这份看起来是产品级面板的在途实现，不是过期副本，因此保留并单独成目录，而不是继续混在 `system/` 里看不出状态。要接进构建时，从这里开始。
 
 当前目录以 MSIME-Windows 完整功能和既有 TSF DLL / Server 协议为迁移基线。Rust/C++ 共享会话、管道、焦点和回复编排已有跨目标/本地边界证据，但不能把 MinGW 交叉编译或 macOS 测试替代 Windows 原生运行；TSF 注册、Server/Host DLL、候选窗口、安装和真实编辑器验收仍需在 Windows 主机完成。
 
