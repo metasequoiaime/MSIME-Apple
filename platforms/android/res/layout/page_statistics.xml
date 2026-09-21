@@ -16,7 +16,6 @@
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="0dp"
             app:cardCornerRadius="18dp"
             app:cardElevation="1dp"
             app:cardBackgroundColor="@color/surface">
@@ -51,8 +50,8 @@
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="今日输入" android:textColor="@color/text_secondary" android:textSize="13sp" />
                         <TextView android:id="@+id/statistics_today" android:layout_width="wrap_content"
-                            android:layout_height="wrap_content" android:textColor="@color/forest"
-                            android:textSize="40sp" android:textStyle="bold" />
+                            android:layout_height="wrap_content" android:textColor="@color/ink"
+                            android:textSize="30sp" android:textStyle="bold" />
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="字符" android:textColor="@color/text_secondary" android:textSize="12sp" />
                     </LinearLayout>
@@ -61,13 +60,13 @@
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:gravity="end"
                         android:orientation="vertical">
-                        <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
+                        <TextView android:id="@+id/statistics_scope_title"
+                            android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="累计输入" android:textColor="@color/text_secondary" android:textSize="13sp" />
                         <TextView android:id="@+id/statistics_total" android:layout_width="wrap_content"
-                            android:layout_height="wrap_content" android:textColor="@color/forest"
-                            android:textSize="40sp" android:textStyle="bold" />
+                            android:layout_height="wrap_content" android:textColor="@color/ink"
+                            android:textSize="30sp" android:textStyle="bold" />
                         <TextView android:layout_width="wrap_content" android:layout_height="wrap_content"
                             android:text="字符" android:textColor="@color/text_secondary" android:textSize="12sp" />
                     </LinearLayout>
@@ -77,26 +76,137 @@
                     android:id="@+id/statistics_state"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_margin="8dp"
+                    android:layout_marginTop="12dp"
+                    android:padding="8dp"
                     android:textColor="@color/text_secondary"
                     android:textSize="13sp"
                     android:visibility="gone" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
+        <!-- 趋势页：折线加日历。其余三页共用下面那张占比卡。 -->
+        <LinearLayout
+            android:id="@+id/statistics_trend_section"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical">
+
+            <TextView
+                android:id="@+id/statistics_trend_title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:text="每日趋势 · 近 30 天"
+                android:textColor="@color/ink"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                app:cardCornerRadius="18dp"
+                app:cardElevation="1dp"
+                app:cardBackgroundColor="@color/surface">
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+                    <app.msime.client.home.TrendChart
+                        android:id="@+id/statistics_trend"
+                        android:layout_width="match_parent"
+                        android:layout_height="170dp" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:text="每天一格，一列一周"
+                android:textColor="@color/ink"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                app:cardCornerRadius="18dp"
+                app:cardElevation="1dp"
+                app:cardBackgroundColor="@color/surface">
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+                    <app.msime.client.home.HeatmapView
+                        android:id="@+id/statistics_heatmap"
+                        android:layout_width="match_parent"
+                        android:layout_height="130dp" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/statistics_distribution_section"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:orientation="vertical"
+            android:visibility="gone">
+
+            <TextView
+                android:id="@+id/statistics_distribution_title"
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="24dp"
+                android:textColor="@color/ink"
+                android:textSize="17sp"
+                android:textStyle="bold" />
+
+            <com.google.android.material.card.MaterialCardView
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="12dp"
+                app:cardCornerRadius="18dp"
+                app:cardElevation="1dp"
+                app:cardBackgroundColor="@color/surface">
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:orientation="vertical"
+                    android:padding="16dp">
+                    <app.msime.client.home.DistributionView
+                        android:id="@+id/statistics_distribution"
+                        android:layout_width="match_parent"
+                        android:layout_height="wrap_content" />
+                </LinearLayout>
+            </com.google.android.material.card.MaterialCardView>
+
+            <TextView
+                android:id="@+id/statistics_distribution_note"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="10dp"
+                android:layout_marginStart="4dp"
+                android:textColor="@color/text_secondary"
+                android:textSize="12sp" />
+        </LinearLayout>
+
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_marginTop="24dp"
-            android:text="每日趋势 · 近 30 天"
-            android:textColor="@color/ink"
-            android:textSize="17sp"
-            android:textStyle="bold" />
+            android:layout_marginStart="4dp"
+            android:text="记录"
+            android:textColor="@color/text_secondary"
+            android:textSize="13sp" />
 
         <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
+            android:layout_marginTop="8dp"
             app:cardCornerRadius="18dp"
             app:cardElevation="1dp"
             app:cardBackgroundColor="@color/surface">
@@ -104,40 +214,49 @@
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
                 android:orientation="vertical"
-                android:padding="16dp">
-                <app.msime.client.home.TrendChart
-                    android:id="@+id/statistics_trend"
+                android:padding="14dp">
+
+                <com.google.android.material.materialswitch.MaterialSwitch
+                    android:id="@+id/statistics_enabled"
                     android:layout_width="match_parent"
-                    android:layout_height="170dp" />
+                    android:layout_height="wrap_content"
+                    android:text="记录打字统计"
+                    android:textColor="@color/ink"
+                    android:textSize="16sp" />
+
+                <TextView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:text="保留每日明细"
+                    android:textColor="@color/ink"
+                    android:textSize="16sp" />
+
+                <com.google.android.material.chip.ChipGroup
+                    android:id="@+id/statistics_retention"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    app:singleSelection="true"
+                    app:selectionRequired="true" />
+
+                <com.google.android.material.button.MaterialButton
+                    android:id="@+id/statistics_reset"
+                    style="@style/Widget.Material3.Button.TextButton"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="8dp"
+                    android:text="清除全部统计" />
             </LinearLayout>
         </com.google.android.material.card.MaterialCardView>
 
         <TextView
-            android:layout_width="wrap_content"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="24dp"
-            android:text="每天一格，一列一周"
-            android:textColor="@color/ink"
-            android:textSize="17sp"
-            android:textStyle="bold" />
-
-        <com.google.android.material.card.MaterialCardView
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            app:cardCornerRadius="18dp"
-            app:cardElevation="1dp"
-            app:cardBackgroundColor="@color/surface">
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
-                <app.msime.client.home.HeatmapView
-                    android:id="@+id/statistics_heatmap"
-                    android:layout_width="match_parent"
-                    android:layout_height="130dp" />
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
+            android:layout_marginTop="14dp"
+            android:layout_marginStart="4dp"
+            android:text="仅统计水杉键盘提交的字符，含标点及表情，不含空格、换行和未上屏拼音。组合表情计为一个字符，删除文字不扣减。仅在本机保存分类计数，不保存输入内容。每日明细保留最近 366 个有记录的日期，累计分类持续保留。"
+            android:textColor="@color/text_secondary"
+            android:textSize="12sp" />
     </LinearLayout>
 </androidx.core.widget.NestedScrollView>
