@@ -134,6 +134,8 @@ char *msime_client_personal_dictionary_sync(const uint8_t *request, size_t lengt
  * a negative value for cancellation, truncation, or checksum failure. */
 typedef intptr_t (*msime_client_snapshot_next)(void *context, uint8_t *buffer, size_t capacity);
 char *msime_client_snapshot_version(const uint8_t *options, size_t length);
+/* Validates a complete host-private NDJSON file and returns bounded metadata only. */
+char *msime_client_snapshot_inspect(const uint8_t *path, size_t length);
 char *msime_client_snapshot_prepare(const uint8_t *request, size_t length,
                                      msime_client_snapshot_next next, void *context);
 char *msime_client_snapshot_discard(uint64_t handle);

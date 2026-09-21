@@ -1,6 +1,7 @@
 import http from '@ohos.net.http';
 import fs from '@ohos.file.fs';
 import common from '@ohos.app.ability.common';
+import util from '@ohos.util';
 import client from 'libmsimeclient.so';
 import { AccountCloudBridge, AccountSessionStore, AccountTransport, AccountTransportResponse } from './AccountCloudBridge';
 import { KeyboardSession } from '../keyboard/KeyboardSession';
@@ -73,11 +74,6 @@ interface SnapshotRequest {
   status: string;
 }
 
-interface SnapshotLine {
-  type?: string;
-  revision?: number;
-}
-
 interface SnapshotValue {
   version?: string;
   handle?: number;
@@ -99,6 +95,7 @@ interface SnapshotPrepareRequest {
   staging_root: string;
   expected_version: string;
   records: number;
+  activation_id: string;
 }
 
 interface HttpHeaders {
@@ -146,12 +143,20 @@ class HarmonyTransport implements AccountTransport {
 interface SnapshotMetadata {
   cloudRevision: number;
   sha256: string;
+  fileSha256: string;
   bytes: number;
   records: number;
   entries: number;
   overlays: number;
   positions: number;
   selections: number;
+  engineRecords: number;
+}
+
+interface SnapshotInspectReply {
+  ok: boolean;
+  value?: SnapshotMetadata;
+  error?: string;
 }
 
 /** Account and cloud clipboard state stays in the host; WebView receives only bounded DTOs. */
@@ -474,7 +479,8 @@ export class HarmonyAccountCloudBridge {
     const applied = this.tryActivate(resources, stateRoot);
     const request: SnapshotRequest | null = this.snapshotHandle === 0 ? null : {
       id: this.snapshotToken, cloudRevision: this.snapshotMetadata?.cloudRevision ?? 0,
-      expectedLocalVersion: this.snapshotExpectedVersion, fileSha256: '',
+      expectedLocalVersion: this.snapshotExpectedVersion,
+      fileSha256: this.snapshotMetadata?.fileSha256 ?? '',
       status: applied ? 'applied' : 'queued'
     };
     if (applied) {
@@ -498,8 +504,30 @@ export class HarmonyAccountCloudBridge {
     const version = this.localVersion(resources, stateRoot);
     if (result === null || version === null) return this.failure('snapshot_unavailable');
     this.snapshotExpectedVersion = version;
-    this.snapshotToken = `${Date.now()}-${Math.floor(Math.random() * 1000000)}`;
+    this.snapshotToken = util.generateRandomUUID(false);
     return this.success({ previewToken: this.snapshotToken, snapshot: result });
+  }
+
+  private inspectSnapshot(file: string): SnapshotMetadata | null {
+    try {
+      const reply: SnapshotInspectReply = JSON.parse(client.snapshotInspect(file)) as SnapshotInspectReply;
+      return reply.ok && reply.value !== undefined ? reply.value : null;
+    } catch {
+      return null;
+    }
+  }
+
+  private clearSnapshotPreview(): void {
+    try {
+      if (this.snapshotFile.length > 0 && fs.accessSync(this.snapshotFile)) fs.unlinkSync(this.snapshotFile);
+    } catch {
+      // A failed or already absent download has nothing left to remove.
+    }
+    this.snapshotToken = '';
+    this.snapshotFile = '';
+    this.snapshotExpectedVersion = '';
+    this.snapshotMetadata = undefined;
+    this.snapshotEngineRecords = 0;
   }
 
   private async downloadSnapshot(stateRoot: string): Promise<SnapshotMetadata | null> {
@@ -507,40 +535,22 @@ export class HarmonyAccountCloudBridge {
     if (response.status < 200 || response.status >= 300 || response.body.length === 0) return null;
     if (utf8Length(response.body) > 512 * 1024 * 1024) return null;
     try {
+      this.clearSnapshotPreview();
       const directory = `${stateRoot}/cloud-snapshot`;
       if (!fs.accessSync(directory)) fs.mkdirSync(directory, true);
       this.snapshotFile = `${directory}/snapshot.ndjson`;
       const handle = fs.openSync(this.snapshotFile, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
       try { fs.writeSync(handle.fd, response.body); } finally { fs.closeSync(handle); }
-      let revision = 0;
-      let records = 0;
-      let engineRecords = 0;
-      let entries = 0;
-      let overlays = 0;
-      let positions = 0;
-      let selections = 0;
-      for (const line of response.body.split('\n')) {
-        if (!line) continue;
-        const value: SnapshotLine = JSON.parse(line) as SnapshotLine;
-        if (value.type === 'header' && typeof value.revision === 'number') revision = value.revision;
-        if (value.type === 'header' || value.type === 'entry' || value.type === 'overlay' || value.type === 'position' || value.type === 'selection') records++;
-        if (value.type === 'entry') { entries++; }
-        if (value.type === 'overlay') { engineRecords++; overlays++; }
-        if (value.type === 'position') { engineRecords++; positions++; }
-        if (value.type === 'selection') { engineRecords++; selections++; }
-      }
-      this.snapshotMetadata = { cloudRevision: revision, sha256: '', bytes: response.body.length,
-        records: records, entries: entries, overlays: overlays, positions: positions, selections: selections };
-      this.snapshotEngineRecords = engineRecords;
-      if (engineRecords === 0 || revision < 0) {
-        try { if (fs.accessSync(this.snapshotFile)) fs.unlinkSync(this.snapshotFile); } catch { /* best effort cleanup */ }
-        this.snapshotFile = '';
-        this.snapshotMetadata = undefined;
-        this.snapshotEngineRecords = 0;
+      const metadata = this.inspectSnapshot(this.snapshotFile);
+      if (metadata === null) {
+        this.clearSnapshotPreview();
         return null;
       }
+      this.snapshotMetadata = metadata;
+      this.snapshotEngineRecords = metadata.engineRecords;
       return this.snapshotMetadata;
     } catch {
+      this.clearSnapshotPreview();
       return null;
     }
   }
@@ -553,18 +563,26 @@ export class HarmonyAccountCloudBridge {
     const options: Object | null = this.options(resources, stateRoot);
     if (options === null) return this.failure('snapshot_unavailable');
     try {
+      const inspected = this.inspectSnapshot(this.snapshotFile);
+      if (inspected === null || inspected.fileSha256 !== this.snapshotMetadata.fileSha256
+        || inspected.sha256 !== this.snapshotMetadata.sha256
+        || inspected.engineRecords !== this.snapshotEngineRecords) {
+        this.clearSnapshotPreview();
+        return this.failure('snapshot_invalid');
+      }
       const staging = `${this.context.cacheDir}/msime-snapshot-staging`;
       if (!fs.accessSync(staging)) fs.mkdirSync(staging, true);
       const request: SnapshotPrepareRequest = {
         options: options, staging_root: staging, expected_version: this.snapshotExpectedVersion,
-        records: this.snapshotEngineRecords
+        records: this.snapshotEngineRecords, activation_id: token
       };
       const reply: SnapshotReply = JSON.parse(client.snapshotPrepare(JSON.stringify(request), this.snapshotFile)) as SnapshotReply;
       const handle: number | undefined = reply.value?.handle;
       if (!reply.ok || typeof handle !== 'number' || handle <= 0) return this.failure('snapshot_unavailable');
       this.snapshotHandle = handle;
       return this.success({ request: { id: token, cloudRevision: this.snapshotMetadata.cloudRevision,
-        expectedLocalVersion: this.snapshotExpectedVersion, fileSha256: '', status: 'queued' } });
+        expectedLocalVersion: this.snapshotExpectedVersion,
+        fileSha256: this.snapshotMetadata.fileSha256, status: 'queued' } });
     } catch {
       return this.failure('snapshot_unavailable');
     }

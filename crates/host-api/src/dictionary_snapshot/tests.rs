@@ -4,6 +4,62 @@ fn snapshot_module_is_present() {
 }
 
 #[test]
+fn inspection_requires_the_complete_counted_snapshot_envelope() {
+    use sha2::{Digest, Sha256};
+    use std::fs;
+
+    let directory = tempfile::tempdir().unwrap();
+    let file = directory.path().join("snapshot.ndjson");
+    let lines = [
+        r#"{"type":"header","format":"msime-dictionary-snapshot","version":1,"revision":7}"#,
+        r#"{"type":"entry","data":{"id":"fixture","kind":"quick","code":"test","word":"合成","weight":1,"revision":1,"updated_at":"2026-09-01T00:00:00Z"}}"#,
+        r#"{"type":"overlay","deleted":false,"data":{"id":"fixture","kind":"quick","code":"test","word":"合成","weight":1,"revision":1,"updated_at":"2026-09-01T00:00:00Z"}}"#,
+    ];
+    let body = format!("{}\n", lines.join("\n"));
+    let digest = format!("{:x}", Sha256::digest(body.as_bytes()));
+    let footer = format!(
+        r#"{{"type":"footer","records":{},"sha256":"{}"}}"#,
+        lines.len(),
+        digest
+    );
+    let complete = format!("{body}{footer}\n");
+    fs::write(&file, &complete).unwrap();
+    let metadata = super::inspect_snapshot(&file).unwrap();
+    assert_eq!(metadata.cloud_revision, 7);
+    assert_eq!(metadata.records, 3);
+    assert_eq!(metadata.entries, 1);
+    assert_eq!(metadata.overlays, 1);
+    assert_eq!(metadata.engine_records, 1);
+    assert_eq!(metadata.bytes, complete.len() as u64);
+    assert_eq!(
+        metadata.file_sha256,
+        format!("{:x}", Sha256::digest(complete.as_bytes()))
+    );
+
+    fs::write(&file, body.as_bytes()).unwrap();
+    assert!(super::inspect_snapshot(&file).is_err());
+    fs::write(&file, complete.replace("\"records\":3", "\"records\":2")).unwrap();
+    assert!(super::inspect_snapshot(&file).is_err());
+    fs::write(&file, complete.replacen("合成", "篡改", 1)).unwrap();
+    assert!(super::inspect_snapshot(&file).is_err());
+    fs::write(&file, format!("{complete}{{}}\n")).unwrap();
+    assert!(super::inspect_snapshot(&file).is_err());
+
+    let malformed_lines = [
+        lines[0].to_owned(),
+        lines[1].to_owned(),
+        lines[2].replace("\"weight\":1", "\"weight\":2"),
+    ];
+    let malformed_body = format!("{}\n", malformed_lines.join("\n"));
+    let malformed_digest = format!("{:x}", Sha256::digest(malformed_body.as_bytes()));
+    let malformed = format!(
+        "{malformed_body}{{\"type\":\"footer\",\"records\":3,\"sha256\":\"{malformed_digest}\"}}\n"
+    );
+    fs::write(&file, malformed).unwrap();
+    assert!(super::inspect_snapshot(&file).is_err());
+}
+
+#[test]
 fn activation_swaps_all_state_roots_and_consumes_handle() {
     activation_case(false, false, 123);
     activation_case(true, false, 123);

@@ -100,6 +100,7 @@ export const personalDictionaryRequest: (request: string) => string;
 export const prepareHost: (options: string) => string;
 
 export const snapshotVersion: (options: string) => string;
+export const snapshotInspect: (file: string) => string;
 export const snapshotPrepare: (request: string, file: string) => string;
 export const snapshotDiscard: (handle: number) => string;
 export const snapshotActivate: (handle: number, expected: string) => string;
