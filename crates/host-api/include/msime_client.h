@@ -225,6 +225,12 @@ char *msime_client_community_resource_library(const uint8_t *request, size_t len
  * this client will show. The instruction and the parser must not be separated:
  * the prompt names the exact document the parser accepts. */
 char *msime_client_ai_skin_plan(const uint8_t *request, size_t length);
+/* Absolute staged engine resources; returns {profile,sourceCommit} from the
+ * packaged dictionary-manifest.json. Two fields only: the page is asking what
+ * dictionary is installed and where it came from, not for journal modes or
+ * third-party references. Missing or unreadable is reported, never guessed -
+ * showing the wrong dictionary version is worse than showing none. */
+char *msime_client_dictionary_manifest(const uint8_t *resources, size_t length);
 /* Read saved history only; disabled preferences return an empty entries array. */
 char *msime_client_load_clipboard_history(const uint8_t *directory, size_t length);
 /* JSON {directory,text}; removes exact saved entry, not the system clipboard. */

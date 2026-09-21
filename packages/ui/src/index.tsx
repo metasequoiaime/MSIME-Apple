@@ -1013,6 +1013,9 @@ export function describeImportResult(kind: string, result: DictionaryImportResul
   return parts.join("");
 }
 
+/** What the packaged dictionary is: the specification it was built to, and where it came from. */
+export type DictionaryManifest = { profile: string; sourceCommit: string };
+
 export interface DictionaryClient {
   list(
     offset: number,
@@ -1504,6 +1507,15 @@ export interface SettingsClient {
   aiSkins?: AiSkinClient;
   /** Mobile and desktop hosts can show packaged offline English glosses without changing candidate identity. */
   candidateEnglishGloss?: boolean;
+  /**
+   * Which packaged dictionary is installed, for the dictionary page to state.
+   *
+   * A host that stages its resources into a sandbox is the only thing that knows where the
+   * manifest ended up, and the path is not something this page should be told. Absent means the
+   * host cannot answer, and the section is not drawn: a dictionary version stated wrongly is worse
+   * than one not stated at all.
+   */
+  dictionaryManifest?: () => Promise<DictionaryManifest>;
 }
 
 function message(error: unknown): string {
@@ -1567,6 +1579,69 @@ function personalDictionaryKindTitle(kind: PersonalDictionaryImportEntry["kind"]
       : kind === "quickPhrase"
         ? "快捷短语"
         : "英文";
+}
+
+/**
+ * Which dictionary is installed, as the dictionary page's first statement.
+ *
+ * The packaged dictionary is the one thing on this page the user cannot change and may well want
+ * to check: it is what every candidate comes out of, it updates with the application rather than
+ * on its own, and when something looks wrong the specification and the upstream commit are the
+ * two facts worth having.
+ *
+ * A host that cannot answer does not render this at all, rather than rendering an empty row. The
+ * manifest is packaged, so failing to read it means the installation is not what it should be —
+ * which is worth saying plainly instead of leaving a blank where a version belongs.
+ */
+function DictionaryManifestCard({ read }: { read: () => Promise<DictionaryManifest> }) {
+  const [manifest, setManifest] = useState<DictionaryManifest | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let active = true;
+    void read()
+      .then((value) => {
+        if (active) setManifest(value);
+      })
+      .catch(() => {
+        if (active) setFailed(true);
+      });
+    return () => {
+      active = false;
+    };
+  }, [read]);
+
+  if (failed) {
+    return (
+      <div className="section" role="region" aria-label="词库信息">
+        <div className="section-header">
+          <span className="section-title">
+            词库信息
+            <small>无法读取随应用安装的词库清单，请重新安装后再试。</small>
+          </span>
+        </div>
+      </div>
+    );
+  }
+  if (!manifest) return null;
+  return (
+    <div className="section" role="region" aria-label="词库信息">
+      <div className="section-header">
+        <span className="section-title">
+          词库信息
+          <small>词库保存在设备上，日常输入不需要联网；它随应用更新，不单独下载。</small>
+        </span>
+      </div>
+      <p>
+        规格 <code>{manifest.profile}</code>
+      </p>
+      <p>
+        {/* Twelve characters is what the source shows: enough to identify the build, short enough
+            to read back over the phone. */}
+        词库版本 <code>{manifest.sourceCommit.slice(0, 12)}</code>
+      </p>
+    </div>
+  );
 }
 
 // The card is shown on every mobile host, so it must not name one of them. The queue it
@@ -4294,6 +4369,9 @@ export function SettingsPage({
                     </div>
                   </fieldset>
                   <fieldset disabled={busy} hidden={page !== "dictionary"} aria-label="词库">
+                    {client.dictionaryManifest && (
+                      <DictionaryManifestCard read={client.dictionaryManifest} />
+                    )}
                     {client.dictionary?.importPersonal && (
                       <PersonalDictionaryImportCard
                         dictionary={client.dictionary}

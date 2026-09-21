@@ -788,6 +788,73 @@ pub unsafe extern "C" fn msime_client_ai_skin_plan(
     })
 }
 
+/// What dictionary is installed, for the settings page to show.
+///
+/// The packaged dictionary ships with a manifest naming which specification it
+/// was built to and which upstream commit it came from. Apple's settings read
+/// it straight out of the app bundle; a host whose resources are staged into a
+/// sandbox cannot, and the path is not something a settings page should be
+/// told anyway.
+///
+/// Only two fields come back. The manifest also records journal modes, format
+/// contracts and every third-party reference, none of which answers the
+/// question the page is asking — which is "what do I have, and where did it
+/// come from". A missing or unreadable manifest is reported rather than
+/// guessed at: showing the wrong dictionary version is worse than showing
+/// none.
+/// # Safety
+/// `resources` points to `length` readable UTF-8 bytes. Null is rejected.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_dictionary_manifest(
+    resources: *const u8,
+    length: usize,
+) -> *mut c_char {
+    #[derive(Deserialize)]
+    struct Source {
+        commit: String,
+    }
+    #[derive(Deserialize)]
+    struct Manifest {
+        profile: String,
+        source: Source,
+    }
+    response(|| {
+        if resources.is_null() || length > 16384 {
+            return Err("dictionary_manifest_unavailable".into());
+        }
+        // SAFETY: guaranteed by the documented caller contract.
+        let bytes = unsafe { std::slice::from_raw_parts(resources, length) };
+        let directory =
+            std::str::from_utf8(bytes).map_err(|_| "dictionary_manifest_unavailable")?;
+        let path = Path::new(directory);
+        if !path.is_absolute() {
+            return Err("dictionary_manifest_unavailable".into());
+        }
+        // Bounded before parsing: this is a packaged file, and one that has grown to megabytes is
+        // not a manifest whatever it parses as.
+        let file = path.join("dictionary-manifest.json");
+        let text = std::fs::read_to_string(&file)
+            .ok()
+            .filter(|text| text.len() <= 1024 * 1024)
+            .ok_or("dictionary_manifest_unavailable")?;
+        let manifest: Manifest =
+            serde_json::from_str(&text).map_err(|_| "dictionary_manifest_unavailable")?;
+        if manifest.profile.is_empty()
+            || manifest.profile.len() > 64
+            || manifest.profile.chars().any(char::is_control)
+            || !manifest
+                .source
+                .commit
+                .bytes()
+                .all(|byte| byte.is_ascii_hexdigit())
+            || manifest.source.commit.len() != 40
+        {
+            return Err("dictionary_manifest_unavailable".into());
+        }
+        Ok(json!({"profile": manifest.profile, "sourceCommit": manifest.source.commit}))
+    })
+}
+
 /// Read saved clipboard history without observing or modifying the system clipboard.
 /// # Safety
 /// `directory` points to `length` readable UTF-8 bytes. Null is rejected.
