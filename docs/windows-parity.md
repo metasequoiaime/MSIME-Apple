@@ -1743,3 +1743,15 @@ if let Some(route) = launch_route_from_args(&args) { ... }
 **AI 那一半的时序。** 来源防抖 650ms、连接 2500ms、总计 8000ms，命中缓存时跳过防抖直接出；缓存键是 provider + endpoint + model + 分段拼音。macOS 的 `_aiTimer` 是 0.65 秒，`client-core/src/ai.rs` 的 descriptor 是 2500/8000，`MSIMEAICacheKey` 是同样四项，命中时也是直接 apply 不等防抖。唯一差别是本仓给缓存加了 4096 条上限而来源不清（只在 Stop 时清），方向是更严。
 
 **本批唯一真动的地方**：macOS 在建会话时额外请求 `phrase_preedit`（第二十七批加的），此前没有任何用例钉住——这个请求一旦丢了，半截词会退回逐段上屏，而那看起来就是普通打字，没有别的东西会发现。把这一步抽成 `MSIMESessionOptions` 并在 `ShortcutTest` 钉住：请求被加上、文件原有的键原样透传、不修改调用方的字典、以及「文件里写着 `phrase_preedit: false` 也不作数」——旧文件根本早于这个行为。反向验证过。
+
+增量记录（2026-09-21，Windows 第三十四批：给「半截词」的分期推广加一道守卫）：目标起点 `d49536d18`。
+
+第二十七批把「半截词留在组字里」做进共享运行时，并按宿主分期打开，本批给这个分期状态加一道静态守卫。理由是这件事**做一半会无声丢字**：宿主要是请求了 `phrase_preedit` 却不画 `view.phrase_prefix`，用户已经选中的那一段既不在文档里也不在屏幕上，而组字在他按 Esc 之前不会结束——那一段就这么没了。反过来只画不请求则是死代码。
+
+`scripts/test-phrase-preedit-hosts.py` 按宿主判定，并**把共享渲染器与宿主自身的源码分开**：Apple 的 `TextClient.mm` 同时服务 macOS 与 iOS，而这两个宿主今天不在同一边，所以「共享渲染器能画」不构成任何单个宿主的证据。当前状态被钉为：macOS 持有并绘制，Linux / Windows / HarmonyOS / Android / iOS / 桌面壳逐段上屏。
+
+两个方向都反向验证过：给 Linux 加一行请求而不加渲染会红；把 macOS 两处读取（共享渲染器与候选窗标签）同时去掉也会红——只去掉其中一处不会，因为另一处仍在画，这正是判据要的语义。
+
+第一版被注释骗过：`InputController.mm` 的注释里写着 `view.phrase_prefix`，删掉真正的读取之后守卫仍判为「在画」。改成先剥掉 `//` 与 `/* */` 再匹配——被删掉实现、只留注释，恰恰是这个守卫最该抓的形状。
+
+记下 iOS 的位置：它用的就是那份共享渲染器（`KeyboardViewController.mm` 走 `MSIMEApplyTransition`），所以接上只差会话选项里的一行；但本机跑不了 iOS 用例，不做无法验证的改动，按现状钉住。
