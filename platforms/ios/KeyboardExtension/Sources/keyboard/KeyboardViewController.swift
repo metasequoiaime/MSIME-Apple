@@ -176,6 +176,7 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
   private var currentLocalMode = "none"
   private var currentNineKeySpellings: [String] = []
   private var appliedLayoutInputs: KeyboardLayoutInputs?
+  private var candidateGlossTimer: Timer?
   /// Engine's local mode, as of the last snapshot.
   ///
   /// Every snapshot carries it, and every path that can change it renders one, so this is the
@@ -2916,8 +2917,32 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         if hadVisibleGlosses { renderCandidateStrip() }
       }
       refreshCandidatePanelAnnotations()
+      candidateGlossTimer?.invalidate()
+      candidateGlossTimer = nil
       return
     }
+    // Ask once the typing pauses, not once per key.
+    //
+    // The request needs every candidate the query has, and reading them costs in proportion:
+    // `yi` answers with hundreds, and that one call measured 3.5ms - more than the whole rest of
+    // a keystroke. The answer is applied asynchronously and guarded by generation, so the glosses
+    // for the compositions a fast typist passes through are fetched and then thrown away. Nobody
+    // ever saw them.
+    candidateGlossTimer?.invalidate()
+    let timer = Timer(timeInterval: 0.12, repeats: false) { [weak self] _ in
+      MainActor.assumeIsolated {
+        self?.candidateGlossTimer = nil
+        self?.requestCandidateGlosses()
+      }
+    }
+    RunLoop.main.add(timer, forMode: .common)
+    candidateGlossTimer = timer
+  }
+
+  private func requestCandidateGlosses() {
+    guard CandidateGlossPreference.enabled, !inputScheme.isJapanese,
+          !isInLocalMode, !visibleCandidates.isEmpty,
+          let resources = session.candidateGlossResources(), !resources.isEmpty else { return }
     do {
       let allCandidates = try session.allCandidates()
       guard let value = allCandidates["generation"] as? NSNumber else { return }

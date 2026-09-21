@@ -41,6 +41,53 @@ final class KeystrokeLatencyTests: XCTestCase {
     report("bridge-character", samples)
   }
 
+  /// A query with a great many candidates, which is the common case people type into.
+  ///
+  /// `yi` answers with hundreds. Anything on the keystroke path that walks the whole answer rather
+  /// than the nine on screen costs in proportion to it, and those are exactly the syllables a fast
+  /// typist hits most.
+  func testWhatACrowdedQueryCosts() throws {
+    let previous = InputSchemePreference.scheme
+    // Glosses ship on. Other cases in this suite turn them off and the App Group keeps that, so
+    // the default has to be restored here or this measures a configuration nobody runs.
+    let previousGloss = CandidateGlossPreference.enabled
+    defer {
+      InputSchemePreference.scheme = previous
+      CandidateGlossPreference.enabled = previousGloss
+    }
+    CandidateGlossPreference.enabled = true
+    let controller = self.controller(.quanpin)
+
+    var samples: [Double] = []
+    for _ in 0..<40 {
+      for label in ["字母 Y", "字母 I"] {
+        let button = try key(label, in: controller)
+        let started = Date()
+        button.sendActions(for: .primaryActionTriggered)
+        controller.view.layoutIfNeeded()
+        samples.append(Date().timeIntervalSince(started) * 1000)
+      }
+      let space = try key("空格", in: controller)
+      space.sendActions(for: .primaryActionTriggered)
+      controller.view.layoutIfNeeded()
+    }
+    report("crowded-query", samples)
+
+    // And the call the gloss scheduler makes on every keystroke, on its own.
+    let bridge = MetasequoiaInputSessionBridge()
+    _ = bridge.cancel()
+    _ = bridge.handleCharacter("y")
+    _ = bridge.handleCharacter("i")
+    var all: [Double] = []
+    for _ in 0..<80 {
+      let started = Date()
+      _ = try? bridge.allCandidates()
+      all.append(Date().timeIntervalSince(started) * 1000)
+    }
+    report("allCandidates(yi)", all)
+    print("GLOSS resources=\(bridge.candidateGlossResources() ?? "nil") enabled=\(CandidateGlossPreference.enabled)")
+  }
+
   private func descendants(_ view: UIView) -> [UIView] {
     [view] + view.subviews.flatMap { descendants($0) }
   }
@@ -62,7 +109,15 @@ final class KeystrokeLatencyTests: XCTestCase {
 
   func testWhatOneKeystrokeCosts() throws {
     let previous = InputSchemePreference.scheme
-    defer { InputSchemePreference.scheme = previous }
+    // Glosses ship on, and other cases in this suite turn them off into the App Group where the
+    // setting survives the run. Measuring with them off measures a configuration nobody has - it
+    // is how the gloss path's cost stayed invisible here for as long as it did.
+    let previousGloss = CandidateGlossPreference.enabled
+    defer {
+      InputSchemePreference.scheme = previous
+      CandidateGlossPreference.enabled = previousGloss
+    }
+    CandidateGlossPreference.enabled = true
 
     for scheme in [ChineseInputScheme.quanpin] {
       let controller = self.controller(scheme)
