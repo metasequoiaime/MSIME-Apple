@@ -491,6 +491,35 @@ static NSString *MSIMEChinesePunctuationForSmart(unichar character) {
     default: return nil;
     }
 }
+static unichar MSIMEASCIIForSmartChinesePunctuation(unichar character) {
+    switch (character) {
+    case 0x3002: return '.'; // 。
+    case 0xFF0C: return ','; // ，
+    case 0xFF01: return '!'; // ！
+    case 0xFF1F: return '?'; // ？
+    case 0xFF1B: return ';'; // ；
+    case 0xFF1A: return ':'; // ：
+    case 0x3001: return '/'; // 、
+    case 0x201C: case 0x201D: return '"'; // “ ”
+    case 0x2018: case 0x2019: return '\''; // ‘ ’
+    case 0x3010: return '['; // 【
+    case 0x3011: return ']'; // 】
+    case 0x300A: return '<'; // 《
+    case 0x300B: return '>'; // 》
+    case 0xFF08: return '('; // （
+    case 0xFF09: return ')'; // ）
+    default: return 0;
+    }
+}
+static BOOL MSIMESmartPunctuationSpaceKey(unichar character) {
+    switch (character) {
+    case '.': case ',': case '!': case '?': case ';': case ':': case '/':
+    case '"': case '\'': case '[': case ']': case '<': case '>': case '(': case ')':
+        return YES;
+    default:
+        return NO;
+    }
+}
 static NSString *MSIMEFullWidthSmartMark(unichar character, BOOL fullWidth) {
     if (!fullWidth) return [NSString stringWithCharacters:&character length:1];
     const unichar converted = msime::mac::FullWidthCharacter(character);
@@ -765,28 +794,47 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     const unichar mark = _spaceConvertMark;
     id armed = _spaceConvertClient;
     [self clearSmartPunctuationSpaceConversion];
-    if (!_appearance.smartPunctuation || !_appearance.smartPunctuationSpaceConvert || armed != client) return NO;
+    if (!_appearance.smartPunctuation || !_appearance.smartPunctuationSpaceConvert ||
+        _appearance.fullWidthInput || armed != client || _pendingPairedClosing.length)
+        return NO;
     if ([_view[@"editing_text"] length] ||
         ([_view[@"candidates"] isKindOfClass:NSArray.class] && [_view[@"candidates"] count]))
         return NO;
-    NSString *chinese = MSIMEChinesePunctuationForSmart(mark);
     const uint32_t preceding = MSIMETextClientPrecedingUnicodeScalar(client);
-    if (chinese.length != 1 || !preceding || [chinese characterAtIndex:0] != (unichar)preceding) return NO;
+    if (!preceding || MSIMEASCIIForSmartChinesePunctuation((unichar)preceding) != mark) return NO;
     const NSRange selected =
         [client respondsToSelector:@selector(selectedRange)] ? [client selectedRange] : NSMakeRange(NSNotFound, 0);
-    if (selected.location == NSNotFound || selected.location < chinese.length) return NO;
-    [client insertText:MSIMEFullWidthSmartMark(mark, _appearance.fullWidthInput)
-      replacementRange:NSMakeRange(selected.location - chinese.length, chinese.length)];
-    // The space itself is not ours; let it reach the Engine and the editor as it always would.
-    return NO;
+    if (selected.location == NSNotFound || selected.location < 1) return NO;
+    NSString *ascii = [NSString stringWithCharacters:&mark length:1];
+    [client insertText:ascii replacementRange:NSMakeRange(selected.location - 1, 1)];
+    // This space is the conversion gesture, not document content. Matching the
+    // reference also avoids leaving a surprising trailing blank after the user
+    // has just corrected the punctuation form.
+    return YES;
 }
 
 - (BOOL)handleSmartPunctuation:(NSEvent *)event client:(id<MSIMETextClient>)client {
-    if (event.characters.length != 1 || (event.modifierFlags & (NSEventModifierFlagShift | NSEventModifierFlagControl |
-                                                                  NSEventModifierFlagOption | NSEventModifierFlagCommand))) return NO;
+    if (event.characters.length != 1 ||
+        (event.modifierFlags & (NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagCommand)))
+        return NO;
     const unichar character = [event.characters characterAtIndex:0];
+    if (!MSIMESmartPunctuationSpaceKey(character)) return NO;
+    if (!_appearance.smartPunctuation) {
+        [self resetSmartPunctuationState];
+        [self clearSmartPunctuationSpaceConversion];
+        return NO;
+    }
+    const BOOL hasComposition = [_view[@"editing_text"] length] ||
+        ([_view[@"candidates"] isKindOfClass:NSArray.class] && [_view[@"candidates"] count]);
+    // The space gesture covers the complete source mapping, not only the
+    // comma/period/colon subset used by direct-output and repeat-to-Chinese.
+    // Arm before Engine resolves the key; the follow-up re-reads the committed
+    // Chinese mark and refuses ASCII output, paired auto-closes and moved carets.
+    if (_appearance.smartPunctuationSpaceConvert && !hasComposition) {
+        _spaceConvertMark = character;
+        _spaceConvertClient = client;
+    }
     if (!MSIMESmartPunctuationKey(character)) return NO;
-    if (!_appearance.smartPunctuation) { [self resetSmartPunctuationState]; return NO; }
     if (!_appearance.smartPunctuationRepeatToChinese || !_appearance.pairedPunctuation) {
         _lastSmartPunctuation = 0;
         _smartPunctuationRejected = NO;
@@ -810,8 +858,6 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     }
     if (_lastSmartPunctuation && _lastSmartPunctuation != character) [self resetSmartPunctuationState];
     const BOOL rejected = _smartPunctuationRejected && _rejectedSmartPunctuation == character;
-    const BOOL hasComposition = [_view[@"editing_text"] length] ||
-        ([_view[@"candidates"] isKindOfClass:NSArray.class] && [_view[@"candidates"] count]);
     uint32_t preceding = 0;
     if (hasComposition) {
         for (NSDictionary *candidate in _view[@"candidates"]) {
@@ -861,10 +907,6 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (rejected) [self resetSmartPunctuationState];
     // Falling through means the Engine takes the key and commits the Chinese mark. Note it so a space
     // arriving next can take it back; the conversion re-reads the document before touching anything.
-    if (_appearance.smartPunctuationSpaceConvert && !hasComposition) {
-        _spaceConvertMark = character;
-        _spaceConvertClient = client;
-    }
     return NO;
 }
 
@@ -2900,6 +2942,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     // the previous document, which cannot be written into this one.
     _pendingPairedClosing = nil;
     _pairedPunctuation.clear();
+    [self clearSmartPunctuationSpaceConversion];
     [_voiceOverlay dismissFailure];
     _voicePermissionToken = nil;
     _voiceHoldShortcut.reset();
@@ -3237,6 +3280,7 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     // active client's composition, panels, monitoring or pending modifier tap.
     if (!sender || sender != _activeClient) return;
     _backspaceHoldArmed = NO;
+    [self clearSmartPunctuationSpaceConversion];
     msime_macos_diagnostic_write("focus_out");
     _voicePermissionToken = nil;
     _voiceHoldShortcut.reset();
@@ -3370,7 +3414,15 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         _capsLock = capsLock;
         [self refreshFloatingToolbarState];
     }
-    if (!sender) { _voicePermissionToken = nil; [_voiceOverlay dismissFailure]; _modifierTap.reset(); _voiceHoldShortcut.reset(); _backspaceHoldArmed = NO; return NO; }
+    if (!sender) {
+        _voicePermissionToken = nil;
+        [_voiceOverlay dismissFailure];
+        _modifierTap.reset();
+        _voiceHoldShortcut.reset();
+        _backspaceHoldArmed = NO;
+        [self clearSmartPunctuationSpaceConversion];
+        return NO;
+    }
     [self ensureAppearance];
     if (sender != _activeClient) {
         [_voiceOverlay dismissFailure];
@@ -3387,6 +3439,7 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         [self flushPendingPairedClosing];
         _pairedPunctuation.clear();
         [self resetSmartPunctuationState];
+        [self clearSmartPunctuationSpaceConversion];
         _backspaceHoldArmed = NO;
         // Clear the previous client's marked text before accepting the new focus.
         [self apply:[_session setFocused:NO error:nil]];
@@ -3862,6 +3915,7 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     [self flushPendingPairedClosing];
     _pairedPunctuation.clear();
     [self resetSmartPunctuationState];
+    [self clearSmartPunctuationSpaceConversion];
     [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];
 }
 
