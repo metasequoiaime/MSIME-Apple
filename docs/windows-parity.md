@@ -2264,3 +2264,9 @@ if let Some(route) = launch_route_from_args(&args) { ... }
 真正仍缺的是精确跨度边界。修复前真实资源把 `gun'qiu` 的「滚球/棍球」当作 `gun'qi` 的数据库命中放在最前，因为 `query_segments_keyed_flat` 在精确键为空时会扫前缀范围，而插入位置又只按汉字/音节数判断“完整命中”。`apply_engine_lattice_reading.py` 把全拼与双拼共用的词格 lookup 改为批量精确键查询，并在查询前把 `jv/jve/lue` 等 ü 的等价拼法归一到词库存法；整句门槛降到两个完整音节，插入边界改为比较 canonical key。修复后两条错误前缀候选仍作为普通低位候选保留，首位变为 fallback「滚其」，Generated alternatives 只从 `gun'qi` 的行组成（「滚起/滚气/滚奇…」）。
 
 `lattice_reading_dictionary` 用锁定发布资源同时检查默认排序和所有整句 alternatives；Engine 侧的表驱动回归还钉住两音节合并、prefix row 不得挡住 Generated，以及 `jv/lue` 精确查询归一化。公共 Engine session 是 macOS 原生宿主的唯一拼音候选通路，所以平台层无需复制词格算法。
+
+### Google 解码器边界使用它认识的 ü 拼写（2026-09-22）
+
+来源 `ccbaa3a6` 指出的边界在目标 Engine 同样存在：词库与词格把小鹤 `nt` 转成 canonical `nve`，但本地 `googlepinyinime-rev` 和云候选 InputTools 只认 `nue`；原样送入会把它重新切成 `nv + e`。锁定发布资源上的修复前证据是 `ntdddswu`：数据库能给出“虐待动物”，来源 9 的 Google fallback 却是“女儿带动物”。
+
+`apply_engine_google_umlaut.py` 新增唯一的边界转换函数，按完整音节把 `nve/lve` 转成 `nue/lue`，把 `jv/jve` 等转成 `ju/jue`；词库 key、候选 canonical pinyin、缓存 key 和已提交拼音都不改。全拼/双拼整句 fallback 与全拼/双拼云查询统一在送出前调用它，手动分隔符继续保留，所以 `nu'e` 不会被拼成 `nue`。修复后同一真实资源探针不再出现错误 fallback；跨平台 `InputSession` 回归同时断言小鹤云查询发送 `nue'dai'dong'wu` 而缓存仍使用原始 `ntdddswu`。macOS 原生宿主通过公共 Engine 的 online query 与候选 session 自动获得这项行为。
