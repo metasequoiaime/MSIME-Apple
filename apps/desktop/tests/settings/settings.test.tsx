@@ -4258,6 +4258,38 @@ test.each(referenceSections)(
 );
 
 /**
+ * The reference's 反馈 page, which the section table above cannot reach.
+ *
+ * Its three channels are cards rather than sections - the reference draws them that way and so does
+ * this client - so `.section-title` finds none of them and the page would sit outside the table
+ * unnoticed. The channels are the whole point of that page: an address that quietly disappears is a
+ * user who cannot report anything.
+ *
+ * Asked of both hosts, because the page is behind no capability and a platform branch that hid it
+ * on macOS would otherwise pass here.
+ */
+test.each([
+  ["windows", { platform: "windows" } as HostCapabilities],
+  ["macos", macosHostCapabilities as HostCapabilities],
+])("the feedback page keeps the reference's channels on %s", async (_name, host) => {
+  render(
+    <SettingsPage client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn(), host }} />,
+  );
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "反馈" }));
+  const page = await screen.findByRole("group", { name: "反馈" });
+  for (const channel of ["GitHub Issues", "QQ 交流群", "Telegram 群组"]) {
+    expect(within(page).getByText(channel)).toBeTruthy();
+  }
+  // The addresses themselves, not just the headings: a card with the wrong group number is worse
+  // than no card.
+  expect(within(page).getByText("群号：829919142")).toBeTruthy();
+  expect(within(page).getByText("t.me/msimegroup")).toBeTruthy();
+  // The reference closes the page by saying what to attach to a report.
+  expect(within(page).getByText("提交问题时建议附上")).toBeTruthy();
+});
+
+/**
  * The option lists the reference window offers for a given control, value and label both.
  *
  * Section titles are pinned above; these are the choices inside them, which drifted separately --

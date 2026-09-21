@@ -269,7 +269,29 @@ python3 scripts/test-installer-prerequisites.py || fail "installer prerequisites
 # sources with the same flags under the i686 compiler, which needs no 32-bit
 # libraries because it never links.
 note "windows x86 syntax"
-python3 scripts/test-windows-32bit-compile.py || fail "windows x86 syntax"
+# Under the same lock as the cross build below, and for the same reason: this reads the compile
+# flags that build produced, and they point into the vcpkg prefix every worktree on this machine
+# shares. Another worktree reinstalling the manifest mid-read takes curl and nlohmann out from under
+# it, which arrives as "no such file" on a source that compiled a minute earlier and will compile a
+# minute later. Seen twice in one afternoon; both times the retry passed, which is exactly the shape
+# of failure that teaches people to ignore a gate.
+x86_lock=""
+if [ -n "$cross_vcpkg" ]; then
+  x86_deps="$(dirname "$cross_vcpkg")/windows-native-deps"
+  x86_lock="$x86_deps/.verify-cross-build.lock"
+  mkdir -p "$x86_deps" 2>/dev/null
+  if ! mkdir "$x86_lock" 2>/dev/null; then
+    echo "windows x86 syntax: skipped (another run holds $x86_lock)"
+    x86_lock="skipped"
+  else
+    trap 'rmdir "$x86_lock" 2>/dev/null' EXIT
+  fi
+fi
+if [ "$x86_lock" != "skipped" ]; then
+  python3 scripts/test-windows-32bit-compile.py || fail "windows x86 syntax"
+  [ -n "$x86_lock" ] && rmdir "$x86_lock" 2>/dev/null
+  trap - EXIT
+fi
 
 # Most of the Windows tests are policy with no Win32 call in the translation
 # unit. Without Windows and without Docker they had one level of evidence - the
