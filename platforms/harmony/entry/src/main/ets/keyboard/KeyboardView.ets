@@ -460,6 +460,8 @@ struct KeyboardView {
       }
     };
     KeyboardSession.shared.onChanged = (state: KeyboardState): void => {
+      const wasHandwriting: boolean = KeyboardScheme.usesHandwritingFace(
+        this.scheme, this.english, this.symbols, this.localMode);
       this.candidates = state.candidates;
       this.editing = state.editing;
       this.editingCaret = state.editingCaret;
@@ -476,6 +478,7 @@ struct KeyboardView {
         this.clearDiagnosticLater();
       }
       this.english = state.english;
+      this.clearHandwritingAfterLeaving(wasHandwriting);
       // After the text changed, which is when the caret may have arrived at a new word or sentence.
       this.applyAutomaticCase();
       if (state.candidates.length === 0) {
@@ -817,6 +820,22 @@ struct KeyboardView {
     this.show(candidate === KeyboardScheme.THOUGHTFUL_REPLY ? SURFACE_REPLY : SURFACE_NONE);
   }
 
+  private toggleSymbolLayer(): void {
+    const wasHandwriting: boolean = KeyboardScheme.usesHandwritingFace(
+      this.scheme, this.english, this.symbols, this.localMode);
+    this.symbols = !this.symbols;
+    this.clearHandwritingAfterLeaving(wasHandwriting);
+  }
+
+  private toggleTouchLanguage(): void {
+    const wasHandwriting: boolean = KeyboardScheme.usesHandwritingFace(
+      this.scheme, this.english, this.symbols, this.localMode);
+    this.english = KeyboardSession.shared.toggleLanguage();
+    this.clearHandwritingAfterLeaving(wasHandwriting);
+    this.letterCase.reset();
+    this.caseMode = this.letterCase.mode();
+  }
+
   /**
    * Shift the letter face when the editor asked for capitals and the caret is where they belong.
    *
@@ -873,6 +892,9 @@ struct KeyboardView {
    */
   private selectEnglish(nineKey: boolean): void {
     KeyboardSession.shared.cancel();
+    if (this.hasHandwritingContext()) {
+      this.clearHandwriting();
+    }
     if (nineKey) {
       const changes: Map<string, Object> =
         KeyboardSession.shared.schemeChanges(KeyboardScheme.QUANPIN_NINE_KEY);
@@ -1347,7 +1369,8 @@ struct KeyboardView {
       // candidate window has no idle state to fill, and the surfaces those icons open are reached
       // from the app on a machine that has room for it.
       if ((!KeyboardFormFactor.isDesktop() || this.desktop === DesktopSurface.SCREEN_KEYBOARD)
-          && this.scheme.touchKeyboardLayout === 'handwriting'
+          && KeyboardScheme.usesHandwritingFace(
+            this.scheme, this.english, this.symbols, this.localMode)
           && this.handwritingCandidates.length > 0) {
         // OCR results are candidates too. Putting them in this shared strip avoids stacking an
         // otherwise-idle shortcut row above a private row inside the canvas, and gives every result
@@ -1846,11 +1869,9 @@ struct KeyboardView {
         size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
         emphasized: false,
         width: KeyboardMetrics.LAYOUT_TOGGLE_WIDTH_VP,
-        action: () => {
-          this.symbols = !this.symbols;
-        }
+        action: () => this.toggleSymbolLayer()
       });
-      if (this.nineKey) {
+      if (KeyboardScheme.usesNineKeyFace(this.nineKey, this.localMode)) {
         this.fixedKey({
           face: '符',
           label: KeyAccessibilityPolicy.symbolPanel(),
@@ -1888,11 +1909,7 @@ struct KeyboardView {
         size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
         emphasized: true,
         width: KeyboardMetrics.LANGUAGE_WIDTH_VP,
-        action: () => {
-          this.english = KeyboardSession.shared.toggleLanguage();
-          this.letterCase.reset();
-          this.caseMode = this.letterCase.mode();
-        }
+        action: () => this.toggleTouchLanguage()
       });
       this.fixedKey({
         // A composition takes Return before any editor action does: the user is choosing a
@@ -2505,6 +2522,13 @@ struct KeyboardView {
     return this.handwritingBusy || this.handwritingCurrent.length > 0
       || this.handwritingStrokes.length > 0 || this.handwritingRedo.length > 0
       || this.handwritingCandidates.length > 0;
+  }
+
+  private clearHandwritingAfterLeaving(wasHandwriting: boolean): void {
+    if (wasHandwriting && !KeyboardScheme.usesHandwritingFace(
+      this.scheme, this.english, this.symbols, this.localMode) && this.hasHandwritingContext()) {
+      this.clearHandwriting();
+    }
   }
 
   private undoHandwriting(): void {
@@ -4198,9 +4222,10 @@ struct KeyboardView {
       if (this.japanese) {
         // Including the digit layer: a grid face draws its own digits so the three columns survive.
         this.japaneseFace()
-      } else if (this.scheme.touchKeyboardLayout === 'handwriting') {
+      } else if (KeyboardScheme.usesHandwritingFace(
+        this.scheme, this.english, this.symbols, this.localMode)) {
         this.handwritingFace()
-      } else if (this.nineKey) {
+      } else if (KeyboardScheme.usesNineKeyFace(this.nineKey, this.localMode)) {
         this.nineKeyFace()
       } else {
         Row({ space: this.keySpacing() }) {

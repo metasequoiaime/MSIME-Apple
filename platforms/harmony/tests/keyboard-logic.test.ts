@@ -1204,6 +1204,34 @@ group("the engine scheme id names the scheme the policies compare against", () =
   );
 });
 
+group("special touch faces yield to modes that need literal keys", () => {
+  check(
+    KeyboardScheme.usesHandwritingFace(KeyboardScheme.HANDWRITING, false, false, "none"),
+    "Chinese handwriting shows its canvas",
+  );
+  check(
+    !KeyboardScheme.usesHandwritingFace(KeyboardScheme.HANDWRITING, true, false, "none"),
+    "English leaves handwriting for alphabetic keys",
+  );
+  check(
+    !KeyboardScheme.usesHandwritingFace(KeyboardScheme.HANDWRITING, false, true, "none"),
+    "the symbol layer leaves handwriting for symbol rows",
+  );
+  check(
+    !KeyboardScheme.usesHandwritingFace(KeyboardScheme.HANDWRITING, false, false, "unicode"),
+    "a local utility leaves handwriting for literal alphabetic keys",
+  );
+  check(
+    !KeyboardScheme.usesHandwritingFace(KeyboardScheme.QUANPIN, false, false, "none"),
+    "an alphabetic scheme never borrows the handwriting canvas",
+  );
+  check(KeyboardScheme.usesNineKeyFace(true, "none"), "the saved nine-key layout keeps its grid");
+  check(
+    !KeyboardScheme.usesNineKeyFace(true, "unicode"),
+    "a local utility overrides nine-key with literal alphabetic keys",
+  );
+});
+
 group("a runtime selection that changes nothing produces no update", () => {
   check(
     KeyboardScheme.mappingForRuntimeSelection(

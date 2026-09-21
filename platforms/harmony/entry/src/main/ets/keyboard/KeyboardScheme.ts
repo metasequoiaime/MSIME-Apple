@@ -211,6 +211,18 @@ export class KeyboardScheme {
     }
   }
 
+  /** Handwriting is a Chinese typing face, not the English, symbol or local-utility keyboard. */
+  static usesHandwritingFace(scheme: SchemeDefinition, english: boolean, symbols: boolean,
+                             localMode: string): boolean {
+    return scheme.touchKeyboardLayout === 'handwriting' && !english && !symbols
+      && localMode === 'none';
+  }
+
+  /** Local utilities take literal alphabetic keys even when the saved touch layout is nine-key. */
+  static usesNineKeyFace(nineKey: boolean, localMode: string): boolean {
+    return nineKey && localMode === 'none';
+  }
+
   private static isChineseScheme(value: string | null): boolean {
     return value === 'quanpin' || value === 'shuangpin' || value === 'wubi';
   }
