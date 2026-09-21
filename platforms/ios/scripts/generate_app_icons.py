@@ -38,6 +38,9 @@ INSET = 0.74  # artwork height as a fraction of the icon; leaves the mask ~13% t
 # edge rather than as texture. The stamps are therefore replaced by one stroke on the same path,
 # at the weight the brush band carried (measured at 1024: a ~6.5 unit band over a ~5 unit core).
 FRAME_WIDTH = 5
+# The mark's own extent, measured the same way as BBOX. Only the keyboard's brand key needs it -
+# it shows the stroke without the panel around it.
+MARK_BBOX = (22.0, 9.9786, 85.9571, 99.0)
 
 # The two top-level paths of the master, in order: the dark panel and the white mark. Everything
 # else in the file is the scatter - the 164 `use` elements and the `defs` they point at.
@@ -95,6 +98,33 @@ def preview(name: str, source: Path) -> None:
     render(source, path / "Preview.png", 256)
 
 
+def keyboard_brand(staging: Path) -> None:
+    """The mark alone, black on white, for the keyboard's brand key.
+
+    That key tints one template image with the active skin's accent, so this cannot be the framed
+    artwork - it has to be a single silhouette. It was previously a separate, bolder drawing of the
+    same stroke with every corner rounded, which is what made the keyboard the one place still
+    showing the old mark. Taking the path from the master keeps them one mark.
+
+    `KeyboardViewController.brandTemplate()` inverts this and uses the result as an alpha mask, so
+    it wants no alpha channel of its own: white ground, black stroke.
+    """
+    _, mark = parts()
+    left, top, right, bottom = MARK_BBOX
+    scale = 0.9 * 110 / max(right - left, bottom - top)
+    transform = (
+        f"translate({55 - scale * (left + right) / 2:.4f} {55 - scale * (top + bottom) / 2:.4f})"
+        f" scale({scale:.6f})"
+    )
+    source = staging / "KeyboardBrand.svg"
+    source.write_text(
+        '<svg xmlns="http://www.w3.org/2000/svg" width="110" height="110" viewBox="0 0 110 110"'
+        ' fill="none">\n<rect width="110" height="110" fill="white"/>\n'
+        f'<g transform="{transform}">{mark.replace("white", "black")}</g>\n</svg>\n'
+    )
+    render(source, ROOT.parent.parent / "SharedResources/KeyboardBrand.png", 1024)
+
+
 def alternate(name: str, source: Path) -> None:
     """Explicit iPhone and iPad renditions, including the legacy-size slots."""
     path = ASSETS / f"AppIcon{name}.appiconset"
@@ -136,6 +166,7 @@ def main() -> None:
         logo = staging / "Logo.svg"
         logo.write_text(artwork(FRAME, field=None))
         render(logo, ASSETS / "MSIMELogo.imageset/logo.png", 1024)
+        keyboard_brand(staging)
 
         for name, frame in VARIANTS.items():
             source = staging / f"{name}.svg"
