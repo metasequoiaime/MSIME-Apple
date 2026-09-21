@@ -2085,3 +2085,63 @@ fn ui_backend_reads_every_spelling_this_product_has_written() {
         "\"webview2\""
     );
 }
+
+// Staged writes nobody is going to finish.
+//
+// `NamedTempFile` removes itself when dropped, but a process killed between creating the file and
+// renaming it drops nothing, and the input method is stopped exactly that way every time it is
+// reinstalled. Two such files were sitting in the data directory of a machine running this client,
+// one holding a copy of the preferences and one of the typing statistics; nothing would ever have
+// removed them.
+#[test]
+fn saving_clears_staged_writes_that_were_abandoned() {
+    use std::time::{Duration, SystemTime};
+
+    let directory = tempfile::tempdir().unwrap();
+    let store = PreferencesStore::new(directory.path());
+    store.save(0, Preferences::default()).unwrap();
+
+    let age = |path: &std::path::Path, seconds: u64| {
+        let when = SystemTime::now() - Duration::from_secs(seconds);
+        std::fs::File::options()
+            .write(true)
+            .open(path)
+            .unwrap()
+            .set_times(std::fs::FileTimes::new().set_modified(when))
+            .unwrap();
+    };
+
+    let abandoned = directory.path().join(".tmpAbandoned");
+    std::fs::write(&abandoned, b"{}").unwrap();
+    age(&abandoned, 48 * 60 * 60);
+
+    // A staged write from a moment ago may belong to something still running - the statistics
+    // document stages into this same directory under a lock of its own - so it is left alone.
+    let in_flight = directory.path().join(".tmpInFlight");
+    std::fs::write(&in_flight, b"{}").unwrap();
+
+    // Age alone is not the rule: a file that is not a staged write keeps its place however old it
+    // is, and so does a directory that happens to be named like one.
+    let unrelated = directory.path().join("old-export.json");
+    std::fs::write(&unrelated, b"{}").unwrap();
+    age(&unrelated, 48 * 60 * 60);
+    let directory_named_like_a_temporary = directory.path().join(".tmpDirectory");
+    std::fs::create_dir(&directory_named_like_a_temporary).unwrap();
+
+    store
+        .save(
+            1,
+            Preferences {
+                candidate_font_size: 20,
+                ..Preferences::default()
+            },
+        )
+        .unwrap();
+
+    assert!(!abandoned.exists(), "the abandoned staged write is removed");
+    assert!(in_flight.exists(), "a staged write from a moment ago stays");
+    assert!(unrelated.exists());
+    assert!(directory_named_like_a_temporary.is_dir());
+    // And the save itself did what it was asked.
+    assert_eq!(store.load().unwrap().preferences.candidate_font_size, 20);
+}

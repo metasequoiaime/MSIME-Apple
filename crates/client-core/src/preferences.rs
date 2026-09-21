@@ -1932,11 +1932,57 @@ impl PreferencesStore {
 }
 
 fn atomic_write(directory: &Path, path: &Path, contents: &[u8]) -> Result<(), PreferencesError> {
+    sweep_stale_temporaries(directory);
     let mut temporary = tempfile::NamedTempFile::new_in(directory)?;
     temporary.write_all(contents)?;
     temporary.as_file().sync_all()?;
     temporary.persist(path).map_err(|error| error.error)?;
     Ok(())
+}
+
+/// How long a staged write has to sit before it is considered abandoned. A staged write takes
+/// milliseconds; a day is far past anything a slow disk explains.
+const STALE_TEMPORARY_AGE: std::time::Duration = std::time::Duration::from_secs(24 * 60 * 60);
+
+/// Remove staged writes nobody is going to finish.
+///
+/// `NamedTempFile` removes itself when it is dropped, but a process killed between creating the
+/// file and renaming it drops nothing - and the input method is stopped exactly that way every time
+/// it is reinstalled. The staged file then sits in the user's data directory forever, one per
+/// interrupted write, and nothing else ever looks at it. Two were found there on a machine running
+/// this client, holding a copy of the preferences and of the typing statistics.
+///
+/// Only files a day old are touched, and the age is what makes this safe rather than the lock: the
+/// statistics document stages its writes into this same directory under a lock of its own, so a
+/// sweep that went by name alone could delete a write that was in flight.
+fn sweep_stale_temporaries(directory: &Path) {
+    let Ok(entries) = std::fs::read_dir(directory) else {
+        return;
+    };
+    let now = std::time::SystemTime::now();
+    for entry in entries.flatten() {
+        if !entry
+            .file_name()
+            .to_str()
+            .is_some_and(|name| name.starts_with(".tmp"))
+        {
+            continue;
+        }
+        let Ok(metadata) = entry.metadata() else {
+            continue;
+        };
+        if !metadata.is_file() {
+            continue;
+        }
+        let abandoned = metadata
+            .modified()
+            .ok()
+            .and_then(|modified| now.duration_since(modified).ok())
+            .is_some_and(|age| age >= STALE_TEMPORARY_AGE);
+        if abandoned {
+            let _ = std::fs::remove_file(entry.path());
+        }
+    }
 }
 
 #[cfg(test)]
