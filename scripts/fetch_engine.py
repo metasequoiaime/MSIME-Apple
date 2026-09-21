@@ -6,14 +6,23 @@ commit and SHA-256 for every archive, so this repository never needs a ``.gitmod
 recursive Git checkout in order to build. The operation is idempotent: a prepared tree carrying the
 same lock marker is left alone.
 
-Measured on 2026-09-21, and unresolved here because re-pinning a hash to whatever is served today
-would be the lock agreeing with the thing it exists to check: the Engine archive named by
-``engine-lock.json`` now hashes to ``40df62bf7c0b…`` where the lock says ``829a6cf12768…``. The
-download is stable — two fetches, same digest — and all four dependency archives in the same lock
-still verify, so this is specific to ``metasequoiaime/MSIME-Engine`` rather than a change in how
-GitHub builds tarballs. A cold checkout therefore cannot prepare the Engine at all, and the usual
-way round it is to copy a prepared ``vendor/MSIME-Engine`` from a warm one. That copy is now
-reproducible from the lock; before the overlay fix that went with this note, it was not.
+A SHA-256 over a GitHub-generated tarball is also a hash of the repository's *name*. The archive
+GitHub builds for a commit puts every file under ``<current-repo-name>-<sha>/``, so renaming the
+repository changes those bytes while changing nothing about the content. That happened on
+2026-09-21: ``MSIME-Engine`` became ``msime-engine``, the Engine archive started hashing to
+``40df62bf…`` where the lock said ``829a6cf1…``, no cold checkout could prepare the Engine, and the
+four dependency archives in the same lock kept verifying — which is what pointed at this one
+repository rather than at GitHub's tarball machinery.
+
+The lock was re-pinned only after the content was checked against the commit itself, and that order
+is the point. Re-pinning to whatever is served today would be the lock agreeing with the thing it
+exists to check; a rename is indistinguishable from a substitution until you look. What was done:
+clone the repository, resolve ``f611f2ff…``, and compare the archive's files against that commit's
+blobs by hash. 462 of 462 matched, and the only entries in the commit without a file in the archive
+were the four submodule gitlinks, which GitHub's tarballs never carry and which this lock fetches
+separately as ``dependencies``. Anyone re-pinning this again should reproduce that comparison rather
+than trust a digest that is merely stable across two downloads — stability only says the server is
+consistent, not that it is serving what the commit says.
 """
 import hashlib
 import json
