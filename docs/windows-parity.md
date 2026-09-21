@@ -2270,3 +2270,9 @@ if let Some(route) = launch_route_from_args(&args) { ... }
 来源 `ccbaa3a6` 指出的边界在目标 Engine 同样存在：词库与词格把小鹤 `nt` 转成 canonical `nve`，但本地 `googlepinyinime-rev` 和云候选 InputTools 只认 `nue`；原样送入会把它重新切成 `nv + e`。锁定发布资源上的修复前证据是 `ntdddswu`：数据库能给出“虐待动物”，来源 9 的 Google fallback 却是“女儿带动物”。
 
 `apply_engine_google_umlaut.py` 新增唯一的边界转换函数，按完整音节把 `nve/lve` 转成 `nue/lue`，把 `jv/jve` 等转成 `ju/jue`；词库 key、候选 canonical pinyin、缓存 key 和已提交拼音都不改。全拼/双拼整句 fallback 与全拼/双拼云查询统一在送出前调用它，手动分隔符继续保留，所以 `nu'e` 不会被拼成 `nue`。修复后同一真实资源探针不再出现错误 fallback；跨平台 `InputSession` 回归同时断言小鹤云查询发送 `nue'dai'dong'wu` 而缓存仍使用原始 `ntdddswu`。macOS 原生宿主通过公共 Engine 的 online query 与候选 session 自动获得这项行为。
+
+### 统计页回到前台时刷新（2026-09-22）
+
+来源 `f743cc8f` 修的是拉取式统计页的生命周期：窗口一直开着，用户切到其他程序输入再回来时，页面既没有重建也没有重新切换模块，旧数据会永久留在屏幕上。共享 React 页此前只给 `mobile=true` 的 iOS/Android 分支监听 focus 与 visibility；macOS 原生宿主承载的桌面 Tauri 页面没有这条路径，存在同样缺口。
+
+刷新协调现在属于共享 `TypingStatisticsPage`：桌面与移动端都在窗口重新聚焦、文档重新可见时刷新，并在页面挂载期间每 5 秒做一次可见性兜底。所有自动触发共用 1 秒节流与单一在途请求；超过 15 秒的请求视为失联，新请求可以接管，迟到响应不会覆盖新数据。相同 JSON 快照不提交 React 状态，卸载时清理 focus、visibility 与 interval。桌面回归用例先渲染统计页，再模拟回到前台并连续发送两次 focus，断言只读一次；移动端原有回前台用例继续通过。
