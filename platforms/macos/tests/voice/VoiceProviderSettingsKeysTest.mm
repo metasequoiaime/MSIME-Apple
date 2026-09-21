@@ -1,10 +1,33 @@
 #import "../../src/voice/VoiceProviderSettings.h"
 #import "../../src/voice/VoiceProviderSettingsKeys.h"
+#import "../../src/voice/VoiceSettingsEntry.h"
 
 #import <objc/runtime.h>
 
 #include <cassert>
 #include <cstdio>
+
+@interface VoiceSettingsEntryFixture : NSObject
+@property(class, readonly) VoiceSettingsEntryFixture *sharedController;
+@property NSUInteger presentations;
+- (void)showAndActivate;
+@end
+@implementation VoiceSettingsEntryFixture
++ (VoiceSettingsEntryFixture *)sharedController {
+    static VoiceSettingsEntryFixture *fixture;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{ fixture = [VoiceSettingsEntryFixture new]; });
+    return fixture;
+}
+- (void)showAndActivate { ++self.presentations; }
+@end
+
+@interface VoiceSettingsEntryMissingPresentationFixture : NSObject
++ (id)sharedController;
+@end
+@implementation VoiceSettingsEntryMissingPresentationFixture
++ (id)sharedController { return [NSObject new]; }
+@end
 
 // Every text field the window edits has to reach the default the input method reads. The window used to
 // write its own dictionary alone, so provider, endpoint, model and model path were stored and then ignored
@@ -102,12 +125,23 @@ static void TestEveryRuntimeProviderIsEditable()
     assert(!MSIMEVoiceASRProviderUsesService(@"local"));
 }
 
+static void TestNativeSettingsEntryUsesTheProviderWindowContract()
+{
+    VoiceSettingsEntryFixture *fixture = VoiceSettingsEntryFixture.sharedController;
+    assert(MSIMEShowVoiceSettingsWindow(VoiceSettingsEntryFixture.class));
+    assert(fixture.presentations == 1);
+    assert(!MSIMEShowVoiceSettingsWindow(Nil));
+    assert(!MSIMEShowVoiceSettingsWindow(NSObject.class));
+    assert(!MSIMEShowVoiceSettingsWindow(VoiceSettingsEntryMissingPresentationFixture.class));
+}
+
 int main()
 {
     @autoreleasepool {
         TestEveryEditableFieldHasASharedKey();
         TestSharedSettingPrefersTheSharedStoreAndToleratesJunk();
         TestEveryRuntimeProviderIsEditable();
+        TestNativeSettingsEntryUsesTheProviderWindowContract();
     }
     std::puts("macOS voice provider settings keys passed.");
     return 0;
