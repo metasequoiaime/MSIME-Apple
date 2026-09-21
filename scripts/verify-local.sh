@@ -422,6 +422,33 @@ else
   echo "skipped: no Android SDK platforms directory"
 fi
 
+# ArkTS is a strict subset of TypeScript, and the only thing that fully decides what it accepts is
+# its own compiler. `test-harmony-arkts-subset.py` catches the two classes a text scan can catch
+# without false positives; the third - a nested object literal inside a call it otherwise accepts -
+# needs types. develop has sat in a state where no HAP could be built without anyone knowing,
+# because nothing here ran that compiler. This runs it when its inputs are present: the native
+# libraries and the staged engine resources, both of which are build products, and the DevEco
+# command line tools. Seven seconds once they are.
+note "harmony arkts compile"
+harmony_hvigor=${MSIME_HVIGOR:-$HOME/command-line-tools/bin/hvigorw}
+if [ -x "$harmony_hvigor" ] && [ -d "$root/platforms/harmony/entry/libs" ] \
+  && [ -d "$root/platforms/harmony/entry/src/main/resources/resfile/engine" ] \
+  && [ -d "$root/platforms/harmony/oh_modules" ]; then
+  harmony_log="$(mktemp)"
+  if (cd "$root/platforms/harmony" && PATH="$(dirname "$harmony_hvigor"):$PATH" \
+      "$harmony_hvigor" assembleHap --no-daemon >"$harmony_log" 2>&1); then
+    echo "harmony arkts compile: the HAP builds"
+  else
+    grep -E "ERROR|error:" "$harmony_log" | head -5
+    rm -f "$harmony_log"
+    fail "harmony arkts compile"
+  fi
+  rm -f "$harmony_log"
+else
+  echo "skipped: hvigorw, staged native libraries, staged resources or oh_modules not present"
+  echo "  see platforms/harmony/README.md for the one-time setup"
+fi
+
 note "compile: linux desktop shell"
 # Same hole the android phase above exists to close, for the other target nobody
 # here compiles. `cargo check --workspace` sees one target, and the macOS run

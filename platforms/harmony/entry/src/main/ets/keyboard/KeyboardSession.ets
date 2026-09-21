@@ -123,6 +123,14 @@ export interface CandidateEntry {
 interface EngineView {
   candidates: Candidate[];
   editing_text: string;
+  /**
+   * 已经选中的那一段，运行时替这个宿主留在组字里而不是立刻上屏。
+   *
+   * 候选只吃掉部分输入时，引擎会继续组字并把选中的那一段交回来。留住它的宿主必须把它画出来：
+   * 请求了却不画，用户已经选中的字既不在文档里也不在屏幕上，而组字在他取消之前不会结束
+   * （scripts/test-phrase-preedit-hosts.py 守的就是这一半状态）。
+   */
+  phrase_prefix: string;
   /** Byte offset into `editing_text`, which for this ASCII text is also the character index. */
   caret_position: number;
   generation: number;
@@ -664,6 +672,13 @@ export interface KeyboardPreferences {
 
 interface PreparedOptions {
   preferences: PreparedPreferences;
+  /**
+   * 让运行时把已选的那一段留在组字里而不是立刻上屏。
+   *
+   * 准备宿主时不带这个字段，是这个宿主自己要求的：它会把那一段画在候选条的读音前面。请求与绘制
+   * 是一个决定，只做一半就等于把用户已经选中的字藏起来。
+   */
+  phrase_preedit?: boolean;
 }
 
 interface PrepareResponse {
@@ -971,7 +986,9 @@ export class KeyboardSession implements HardwareKeyTarget {
         KeyboardLog.error(`host preparation refused: ${prepared.error}`);
         return false;
       }
-      options = JSON.stringify(prepared.value);
+      const requested: PreparedOptions = prepared.value;
+      requested.phrase_preedit = true;
+      options = JSON.stringify(requested);
       const preferences: PreparedPreferences = prepared.value.preferences;
       this.clipboardHistoryEnabled = ClipboardHistoryPreferencePolicy.enabled(
         preferences.clipboard_history);
@@ -2311,8 +2328,9 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.onChanged !== undefined) {
       this.onChanged({
         candidates: entries,
-        editing: view.editing_text,
-        editingCaret: view.caret_position,
+        // 已选的那一段领在读音前面，与来源把 word_for_creating_word 拼在读音前面是同一件事。
+        editing: view.phrase_prefix + view.editing_text,
+        editingCaret: view.caret_position + view.phrase_prefix.length,
         spellings: view.nine_key_spellings,
         scheme: view.scheme,
         shuangpinProfile: view.shuangpin_profile,
@@ -2357,7 +2375,8 @@ export class KeyboardSession implements HardwareKeyTarget {
         candidate.translation ?? null, this.candidateEnglishGloss)
     }));
     this.onChanged({
-      candidates: entries, editing: view.editing_text, editingCaret: view.caret_position,
+      candidates: entries, editing: view.phrase_prefix + view.editing_text,
+      editingCaret: view.caret_position + view.phrase_prefix.length,
       spellings: view.nine_key_spellings,
       scheme: view.scheme, shuangpinProfile: view.shuangpin_profile, localMode: view.local_mode,
       english: view.dedicated_english, diagnostic: this.diagnostic

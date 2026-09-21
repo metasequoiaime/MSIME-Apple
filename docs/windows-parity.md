@@ -789,6 +789,16 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 用例：新增 `crates/input-runtime/examples/mixed_slots.rs` 用 `ni` 这个输入（同时产出中文、英文 `ni`、emoji、颜文字，且两种联网源都可用）逐个验四种排布。
 
+增量记录（2026-09-21，HarmonyOS 的半截词，以及本机第一次真的编了 ArkTS）：第四次在同一个地方犯错——上一批写「HarmonyOS 要 DevEco 工具链，本机没有」。DevEco Studio 装着，`ohpm` 与 `hvigorw` 在 `~/command-line-tools/bin`，OpenHarmony native SDK 在 `~/command-line-tools/sdk/default/openharmony/native`。缺的只有 `MSIME_OHOS_DEPS` 指的那个 sqlite 前缀，而 README 里就记着怎么做（下载 amalgamation、核对 sqlite.org 公布的 SHA3-256、用 NDK 交叉编译），照着走一遍十分钟。
+
+于是本机第一次完整跑通了 HarmonyOS 这条链：sqlite 前缀 → `build-native.sh arm64-v8a`（Rust/C++/NAPI 三个库）→ `stage-resources.sh` → `ohpm install` → `hvigorw assembleHap`，**BUILD SUCCESSFUL，HAP 188 MB**。
+
+**据此补上本表反复提到的那个缺口**：README 里写着「没有任何一道门禁编译过 ArkTS，所以 develop 处在打不出 HAP 的状态而没人知道」。现在 `--quick` 里多一道 `harmony arkts compile`——原生库、暂存资源与 `oh_modules` 都在时跑 `assembleHap`（七秒），缺任何一样就如实说跳过并指向 README 的一次性准备。反向验证用的正是那一类文本扫描抓不到的写法：把一个嵌套对象字面量塞进 `JSON.stringify` 的调用里，subset 门禁照样通过，ArkTS 编译器报 `10605038` 并让这一阶段变红。
+
+半截词本身：`EngineView` 带上 `phrase_prefix`，准备好的选项里请求 `phrase_preedit`，两条发布路径都把组字画成「已选的那一段 + 读音」，光标偏移跟着前缀长度走。ArkTS 的写法限制在这里是实打实的：选项对象必须是已声明的接口，所以新字段声明成可选而不是随手塞一个字面量。`platforms/harmony/tests/run.sh` 1395 条断言通过，`assembleHap` 通过。
+
+**守卫脚本现在记下的「留在组字里」一侧是 macOS、Linux、HarmonyOS、Android、iOS——五个宿主全齐。** 只剩 Windows（它的 TSF 侧自己累积前缀，本表第二十七批已记明不该打开）与桌面外壳（没有候选窗，不适用）。今天四次「本机没有 X」全部被推翻（容器、Android SDK、Xcode、DevEco），这条教训值得单独记：**先翻机器，再下结论**。
+
 增量记录（2026-09-21，iOS 的半截词，外加两处「没人跑过所以没人知道」）：Android 那批末尾写「iOS 要 Xcode 真机链路，本机没有」——第三次错在同一个地方。Xcode 27 装着，模拟器开着，`platforms/ios/README.md` 里那条 `xcodebuild test` 本机就能跑（约十分钟）。跑起来之后发现两件事，都与本批要做的功能无关：
 
 1. **仓库里提交的 `MSIMEClient.xcodeproj` 是陈旧的**：后加的 `KeyboardAppLauncher.swift` 不在工程里，整套编译不过（`cannot find 'KeyboardAppLauncher' in scope`）。README 里「使用仓库中提交的 Xcode 工程」那句话据此改掉：权威来源是 `project.yml`，先 `xcodegen generate`。
