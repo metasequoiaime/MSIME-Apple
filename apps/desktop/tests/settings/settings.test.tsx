@@ -1643,6 +1643,35 @@ test("macOS about page exposes reversible uninstall with explicit data removal",
   await waitFor(() => expect(uninstallInputSource).toHaveBeenCalledWith(true));
 });
 
+test("macOS about page moves the shared data root only after an explicit confirmation", async () => {
+  const status = vi.fn().mockResolvedValue({ path: "/synthetic/default-state", isDefault: true });
+  const pick = vi.fn().mockResolvedValue("/synthetic/second-volume/MetasequoiaIME");
+  const move = vi.fn().mockResolvedValue({
+    path: "/synthetic/second-volume/MetasequoiaIME",
+    isDefault: false,
+    retainedOldData: false,
+  });
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        dataDirectory: { status, pick, move },
+        host: { platform: "macos", panel_windows: true } as never,
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  expect(await screen.findByText("/synthetic/default-state")).toBeDefined();
+  expect(screen.getByText("（默认）")).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "选择位置…" }));
+  expect(await screen.findByText(/词库、学习记录、皮肤、剪贴板历史和设置将移动到/)).toBeDefined();
+  expect(move).not.toHaveBeenCalled();
+  await answerConfirm("confirm");
+  await waitFor(() => expect(move).toHaveBeenCalledWith());
+  expect(await screen.findByText(/数据已移动。设置窗口即将关闭/)).toBeDefined();
+});
+
 test("shortcut page reflects enabled candidate mouse-wheel paging", async () => {
   const preferences = {
     ...initial.preferences,

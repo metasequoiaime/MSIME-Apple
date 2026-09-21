@@ -122,6 +122,7 @@ ResolvedSkin ResolveSkin(std::string_view id, bool dark, const std::filesystem::
 ResolvedSkin ResolveSkin(std::string_view id, bool dark, const std::filesystem::path &skinsRoot,
                          std::string_view layout, std::string_view theme);
 std::filesystem::path DefaultSkinsRoot();
+void SetDefaultSkinsRoot(std::filesystem::path root);
 } // namespace msime::mac
 
 namespace metasequoia

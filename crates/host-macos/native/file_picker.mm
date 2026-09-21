@@ -20,6 +20,19 @@ extern "C" const char *MSIMEDefaultFilePicker(void) {
     return panel.URL.path.UTF8String;
 }
 
+extern "C" const char *MSIMEDefaultDirectoryPicker(void) {
+    NSOpenPanel *panel = [NSOpenPanel openPanel];
+    panel.canChooseDirectories = YES;
+    panel.canChooseFiles = NO;
+    panel.canCreateDirectories = YES;
+    panel.allowsMultipleSelection = NO;
+    panel.resolvesAliases = YES;
+    panel.message = @"请选择一个空文件夹存放水杉输入法的词库、学习记录和设置。";
+    panel.prompt = @"选择";
+    if ([panel runModal] != NSModalResponseOK) return nullptr;
+    return panel.URL.path.UTF8String;
+}
+
 extern "C" char *msime_macos_pick_file_with(const char *(*picker)(void)) {
     if (picker == nullptr) return nullptr;
     @autoreleasepool {
@@ -33,6 +46,11 @@ extern "C" char *msime_macos_pick_file_with(const char *(*picker)(void)) {
 extern "C" char *msime_macos_pick_file(void) {
     if (!NSThread.isMainThread) return nullptr;
     return msime_macos_pick_file_with(MSIMEDefaultFilePicker);
+}
+
+extern "C" char *msime_macos_pick_directory(void) {
+    if (!NSThread.isMainThread) return nullptr;
+    return msime_macos_pick_file_with(MSIMEDefaultDirectoryPicker);
 }
 
 extern "C" void msime_macos_free_picked_path(char *path) { free(path); }

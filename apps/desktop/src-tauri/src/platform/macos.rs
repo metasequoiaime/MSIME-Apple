@@ -11,6 +11,8 @@ pub(crate) mod macos_cloud_clipboard;
 #[cfg(target_os = "macos")]
 pub(crate) mod macos_cloud_dictionary;
 #[cfg(any(target_os = "macos", test))]
+pub(crate) mod macos_data_directory;
+#[cfg(any(target_os = "macos", test))]
 pub(crate) mod macos_handwriting;
 #[cfg(any(target_os = "macos", test))]
 pub(crate) mod macos_input_source;

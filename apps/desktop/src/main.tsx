@@ -171,6 +171,11 @@ const client: SettingsClient = {
   restartInputMethod: () => invoke("restart_input_method"),
   installInputSource: () => invoke("install_input_source"),
   uninstallInputSource: (removeUserData) => invoke("uninstall_input_source", { removeUserData }),
+  dataDirectory: {
+    status: () => invoke("data_directory_status"),
+    pick: () => invoke("pick_data_directory"),
+    move: () => invoke("move_data_directory"),
+  },
   pickVoiceModelPath: () => invoke("pick_voice_model_path"),
   windowControl: async (action) => {
     const window = getCurrentWindow();
