@@ -58,8 +58,27 @@ public enum AppIconStyle {
         return CLASSIC;
     }
 
-    /** The component to enable or disable for this style, given the host's package. */
-    public String component(String packageName) {
-        return alias.isEmpty() ? packageName + ".home.HomeActivity" : packageName + "." + alias;
+    /**
+     * The component to enable or disable for this style.
+     *
+     * <p>The launcher activity is passed in rather than derived from the package: this host's
+     * application id is `app.msime.android` while its classes live under `app.msime.client`, so
+     * composing the two produces a component the package manager has never heard of. Disabling it
+     * throws, and since every switch disables the styles it is not selecting, every switch failed.
+     *
+     * <p>The aliases are written `.MainActivityX` in the manifest, and a relative name there
+     * resolves against the namespace — `app.msime.client` — not against the application id. This
+     * class sits at that namespace's root, so its own package is the one the manifest means; the
+     * application id would produce `app.msime.android.MainActivitySky`, which does not exist.
+     *
+     * @param launcherActivity the fully qualified launcher activity, which classic *is*
+     */
+    public String component(String launcherActivity) {
+        return alias.isEmpty() ? launcherActivity : namespace() + "." + alias;
+    }
+
+    /** The namespace the manifest's relative component names resolve against. */
+    public static String namespace() {
+        return AppIconStyle.class.getPackage().getName();
     }
 }

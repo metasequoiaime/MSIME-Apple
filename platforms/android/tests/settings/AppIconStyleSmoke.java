@@ -3,7 +3,11 @@ import java.util.ArrayList;
 import java.util.List;
 
 public final class AppIconStyleSmoke {
+    // The application id. Deliberately not the namespace: this host's differ, and every component
+    // bug this file now guards against came from composing a name out of the wrong one.
     private static final String PACKAGE = "app.msime.android";
+    private static final String NAMESPACE = "app.msime.client";
+    private static final String LAUNCHER = NAMESPACE + ".home.HomeActivity";
 
     public static void main(String[] args) {
         List<AppIconStyle> all = AppIconStyle.all();
@@ -17,8 +21,8 @@ public final class AppIconStyleSmoke {
                 && !style.description().isEmpty(), "every style is named: " + style.id());
             check(!ids.contains(style.id()), "no id appears twice: " + style.id());
             ids.add(style.id());
-            String component = style.component(PACKAGE);
-            check(component.startsWith(PACKAGE + "."), "components live in this package");
+            String component = style.component(LAUNCHER);
+            check(!component.isEmpty(), "every style names a component");
             // Two styles mapping to one component means selecting either leaves the other
             // looking selected, and disabling "the rest" would disable the one just enabled.
             check(!components.contains(component), "no component is shared: " + component);
@@ -29,10 +33,25 @@ public final class AppIconStyleSmoke {
         // to turn on for it. Naming one would disable the real entry point and take the app out of
         // the launcher with no way back from the launcher.
         check(AppIconStyle.CLASSIC.alias().isEmpty(), "classic has no alias of its own");
-        check((PACKAGE + ".home.HomeActivity").equals(AppIconStyle.CLASSIC.component(PACKAGE)),
-            "classic resolves to the launcher activity");
-        check((PACKAGE + ".MainActivityForest").equals(AppIconStyle.FOREST.component(PACKAGE)),
-            "an alias resolves to its manifest name");
+
+        // Classic is whatever launcher activity the caller names, never something composed from the
+        // application id. Composing them produced `app.msime.android.home.HomeActivity`, a component
+        // the package manager has never heard of; disabling it threw, and since every switch
+        // disables the styles it is not selecting, every switch failed. The earlier version of this
+        // check asserted the composed string, so it agreed with the bug instead of catching it.
+        check(LAUNCHER.equals(AppIconStyle.CLASSIC.component(LAUNCHER)),
+            "classic is the launcher activity it was given");
+
+        // `.MainActivityX` in the manifest resolves against the namespace, not the application id.
+        // Composing it with the application id produced app.msime.android.MainActivitySky, which
+        // does not exist, so the package manager refused every switch. Both halves are asserted:
+        // the name it must have, and the name it must not.
+        check(NAMESPACE.equals(AppIconStyle.namespace()),
+            "this class sits at the namespace root the manifest's relative names resolve against");
+        check((NAMESPACE + ".MainActivityForest").equals(AppIconStyle.FOREST.component(LAUNCHER)),
+            "an alias resolves against the namespace");
+        check(!AppIconStyle.FOREST.component(LAUNCHER).startsWith(PACKAGE + "."),
+            "an alias is never composed from the application id");
         for (AppIconStyle style : all) {
             if (style == AppIconStyle.CLASSIC) continue;
             check(!style.alias().isEmpty(), "every other style has an alias: " + style.id());
