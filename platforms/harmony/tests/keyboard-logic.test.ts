@@ -167,6 +167,8 @@ import {
   HandwritingStrokePolicy,
   HANDWRITING_CANVAS_SIZE,
   HANDWRITING_MAX_CANDIDATES,
+  HANDWRITING_MAX_POINTS,
+  HANDWRITING_MAX_STROKES,
 } from "../entry/src/main/ets/keyboard/input/HandwritingStrokePolicy";
 import { KeyboardFormFactorPolicy } from "../entry/src/main/ets/keyboard/KeyboardFormFactorPolicy";
 import { SymbolPanelPolicy } from "../entry/src/main/ets/keyboard/input/SymbolPanelPolicy";
@@ -521,6 +523,10 @@ group("composition boundaries preserve Japanese as kana", () => {
 group("bounds handwriting points and rejects empty recognition requests", () => {
   const point = HandwritingStrokePolicy.point(999, -4);
   check(
+    HANDWRITING_MAX_STROKES === 64 && HANDWRITING_MAX_POINTS === 512,
+    "the Harmony canvas preserves the fixed Apple stroke and point budgets",
+  );
+  check(
     point.x === HANDWRITING_CANVAS_SIZE && point.y === 0,
     "handwriting points stay inside the canvas",
   );
@@ -529,14 +535,40 @@ group("bounds handwriting points and rejects empty recognition requests", () => 
     HandwritingStrokePolicy.canRecognize([{ points: [point] }]),
     "a bounded stroke is recognisable",
   );
+  const maximumStrokes = Array.from(
+    { length: HANDWRITING_MAX_STROKES },
+    () => ({ points: [point] }),
+  );
+  check(
+    HandwritingStrokePolicy.canRecognize(maximumStrokes),
+    "the last supported stroke is accepted",
+  );
+  check(
+    !HandwritingStrokePolicy.canRecognize([...maximumStrokes, { points: [point] }]),
+    "one stroke past the source limit is refused",
+  );
+  const maximumPoints = Array.from({ length: HANDWRITING_MAX_POINTS }, () => point);
+  check(
+    HandwritingStrokePolicy.canRecognize([{ points: maximumPoints }]),
+    "the last supported point in a stroke is accepted",
+  );
+  check(
+    !HandwritingStrokePolicy.canRecognize([{ points: [...maximumPoints, point] }]),
+    "one point past the source limit is refused",
+  );
 });
 
 group("normalizes OCR candidates without leaking control text or duplicates", () => {
   const candidates = HandwritingStrokePolicy.candidates(" 水\n水\u0000永木未未 ");
   check(candidates.join("") === "水永木未", "OCR candidates are unique and trimmed");
   check(
-    HandwritingStrokePolicy.candidates("甲乙丙丁戊己庚辛").length === HANDWRITING_MAX_CANDIDATES,
-    "OCR candidates are bounded",
+    HANDWRITING_MAX_CANDIDATES === 12,
+    "the Harmony recognizer preserves all twelve alternatives from the fixed Apple source",
+  );
+  const fullCandidateSet = "甲乙丙丁戊己庚辛壬癸子丑";
+  check(
+    HandwritingStrokePolicy.candidates(fullCandidateSet).length === HANDWRITING_MAX_CANDIDATES,
+    "OCR candidates are bounded without dropping the final four alternatives",
   );
   check(
     HandwritingStrokePolicy.candidates("甲乙丙", 0).length === 0
@@ -544,7 +576,8 @@ group("normalizes OCR candidates without leaking control text or duplicates", ()
     "zero and negative candidate limits do not leak one result",
   );
   check(
-    HandwritingStrokePolicy.candidates("甲乙丙丁戊己庚辛", 99).length === HANDWRITING_MAX_CANDIDATES,
+    HandwritingStrokePolicy.candidates(fullCandidateSet + "寅卯", 99).length ===
+      HANDWRITING_MAX_CANDIDATES,
     "custom candidate limits cannot exceed the platform cap",
   );
 });
