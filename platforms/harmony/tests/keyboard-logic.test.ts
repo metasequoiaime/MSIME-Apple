@@ -3549,8 +3549,16 @@ group("the word being completed is read backwards from the caret", () => {
   check(EnglishSuggestionPolicy.currentWord("") === "", "an empty editor has no word");
   check(EnglishSuggestionPolicy.currentWord(null) === "", "nor has an unreadable one");
   check(
-    EnglishSuggestionPolicy.currentWord("a".repeat(200)) === "",
-    "something longer than any word is refused rather than queried",
+    EnglishSuggestionPolicy.CONTEXT_CHARACTERS === 129,
+    "the editor read includes one character beyond the longest accepted word",
+  );
+  check(
+    EnglishSuggestionPolicy.currentWord("a".repeat(128)) === "a".repeat(128),
+    "the longest accepted word remains intact",
+  );
+  check(
+    EnglishSuggestionPolicy.currentWord("a".repeat(129)) === "",
+    "one letter beyond the limit is refused rather than querying its trailing suffix",
   );
 });
 

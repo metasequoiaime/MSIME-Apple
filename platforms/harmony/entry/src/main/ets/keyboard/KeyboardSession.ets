@@ -3794,7 +3794,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       return '';
     }
     try {
-      return EnglishSuggestionPolicy.currentWord(this.inputClient.getForwardSync(64));
+      return EnglishSuggestionPolicy.currentWord(
+        this.inputClient.getForwardSync(EnglishSuggestionPolicy.CONTEXT_CHARACTERS));
     } catch (error) {
       return '';
     }

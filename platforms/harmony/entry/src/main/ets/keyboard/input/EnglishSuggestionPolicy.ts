@@ -31,6 +31,8 @@ interface CompletionsReply {
 
 export class EnglishSuggestionPolicy {
   static readonly LIMIT: number = 8;
+  /** Read one past the accepted word bound so a longer word cannot masquerade as its suffix. */
+  static readonly CONTEXT_CHARACTERS: number = MAX_WORD_LENGTH + 1;
 
   /**
    * The word being typed, read backwards from the cursor.
