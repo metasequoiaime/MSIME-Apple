@@ -24,6 +24,7 @@ bool EngineSessionAdapter::parse_result(const std::string &text,
       parsed.view.session = view.value("session", uint64_t{0});
       parsed.view.preedit = view.value("preedit", "");
       parsed.view.editing_text = view.value("editing_text", "");
+      parsed.view.reading = view.value("reading", "");
       parsed.view.generation = view.value("generation", uint64_t{0});
       parsed.view.caret = view.value("caret_position", std::size_t{0});
       for (const auto &candidate : view.value("candidates", json::array())) {

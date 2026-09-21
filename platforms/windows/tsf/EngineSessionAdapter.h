@@ -15,6 +15,9 @@ struct EngineView {
   uint64_t session = 0;
   std::string preedit;
   std::string editing_text;
+  // The kana a Japanese composition converts to; empty for every other scheme. The composition
+  // shows this rather than the letters - see shared/input/CompositionDisplay.h.
+  std::string reading;
   std::vector<EngineCandidate> candidates;
   uint64_t generation = 0;
   std::size_t caret = 0;

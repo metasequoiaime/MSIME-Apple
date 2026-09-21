@@ -17,6 +17,7 @@
 #include "../HostRawCommit.h"
 #include "../HostCharacterResult.h"
 #include "../KeyboardCancellation.h"
+#include "../../../../shared/input/CompositionDisplay.h"
 #include <limits>
 
 namespace
@@ -661,7 +662,15 @@ HRESULT CMetasequoiaIME::_HandleCompositionInputWorker(_In_ CCompositionProcesso
         msime::tsf::EngineResult result;
         if (host->view(&raw, &error) && msime::tsf::EngineSessionAdapter::parse_result(raw, &result, &error))
         {
-            const auto &value = result.view.preedit;
+            // A Japanese composition is かな, not the letters that produced it: it is what the user
+            // means, what the candidates are for, and what Enter commits. The one case that keeps
+            // the letters is a caret the user moved into them, because the Engine's offset is an
+            // offset into the romaji - see shared/input/CompositionDisplay.h.
+            const auto &value = msime::input::composition_shows_reading(
+                                    result.view.reading, result.view.caret,
+                                    result.view.editing_text.size())
+                                    ? result.view.reading
+                                    : result.view.preedit;
             const int n = value.empty() ? 0 : MultiByteToWideChar(CP_UTF8, MB_ERR_INVALID_CHARS,
                                                                   value.data(), static_cast<int>(value.size()), nullptr, 0);
             hostPreedit.assign(static_cast<size_t>(n > 0 ? n : 0), L'\0');

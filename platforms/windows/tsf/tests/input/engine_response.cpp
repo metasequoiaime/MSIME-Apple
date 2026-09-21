@@ -1,4 +1,5 @@
 #include "../../EngineSessionAdapter.h"
+#include "../../../../../shared/input/CompositionDisplay.h"
 
 #include <cstdlib>
 
@@ -16,6 +17,25 @@ int main() {
       result.view.candidates[0].text != "你" ||
       result.view.candidates[0].index != 12 || !result.view.candidates[0].highlighted)
     return EXIT_FAILURE;
+  // A Japanese composition carries the kana the letters convert to. The composition shows that
+  // rather than the letters, so a parser that dropped it would leave the TIP drawing romaji with
+  // no way to tell.
+  {
+    EngineResult japanese;
+    const std::string kana =
+        R"({"ok":true,"value":{"handled":true,"commit":null,"view":{"preedit":"nihon","editing_text":"nihon","reading":"にほん","caret_position":5}}})";
+    if (!EngineSessionAdapter::parse_result(kana, &japanese, &error) ||
+        japanese.view.reading != "にほん" || japanese.view.editing_text != "nihon")
+      return EXIT_FAILURE;
+    if (!msime::input::composition_shows_reading(japanese.view.reading, japanese.view.caret,
+                                                 japanese.view.editing_text.size()))
+      return EXIT_FAILURE;
+    // Every other scheme leaves it empty, and then the letters are what there is.
+    if (!result.view.reading.empty() ||
+        msime::input::composition_shows_reading(result.view.reading, result.view.caret,
+                                                result.view.editing_text.size()))
+      return EXIT_FAILURE;
+  }
   if (EngineSessionAdapter::parse_result(
           R"({"ok":false,"error":"redacted"})", &result, &error))
     return EXIT_FAILURE;
