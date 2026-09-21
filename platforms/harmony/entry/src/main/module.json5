@@ -67,29 +67,10 @@
         "srcEntry": "./ets/entryability/EntryAbility.ets",
         "description": "$string:entry_ability_desc",
         "label": "$string:entry_ability_label",
-        // The application's own icon, not the brand path the keyboard tints with fillColor: that one is a
-        // single black shape at 24x24, and a start window scales its icon to fill, which opened the
-        // settings on a window-sized black scrawl.
-        "startWindowIcon": "$media:app_icon",
-        "startWindowBackground": "$color:start_window_background",
-        "exported": true,
-        "skills": [
-          {
-            "entities": ["entity.system.home"],
-            "actions": ["action.system.home"]
-          }
-        ]
-      }
-    ],
-    "abilities": [
-      {
-        // The keyboard is an extension and has no window of its own beyond its panel. This is where
-        // everything that is a setting rather than a keystroke lives, and on a 2in1 it is the only
-        // place: a candidate window has no key faces to reach a surface from.
-        "name": "EntryAbility",
-        "srcEntry": "./ets/entryability/EntryAbility.ets",
-        "description": "$string:entry_ability_desc",
-        "label": "$string:entry_ability_label",
+        // What the launcher draws. Without it the entry falls back to the application icon, which is
+        // the same artwork today and so hid the omission; an ability that appears on the home screen
+        // states its own.
+        "icon": "$media:app_icon",
         // The application's own icon, not the brand path the keyboard tints with fillColor: that one is a
         // single black shape at 24x24, and a start window scales its icon to fill, which opened the
         // settings on a window-sized black scrawl.
@@ -110,6 +91,10 @@
         "srcEntry": "./ets/inputmethodextability/KeyboardExtensionAbility.ets",
         "description": "$string:keyboard_ability_desc",
         "label": "$string:keyboard_ability_label",
+        // The mark the system input-method list draws next to the name, and the one the switcher
+        // shows. The module schema requires it of whichever element is mainElement, and this is it;
+        // without it the keyboard sat in that list with a name and no logo.
+        "icon": "$media:app_icon",
         "type": "inputMethod",
         "exported": true
       }

@@ -326,6 +326,7 @@ python3 scripts/test-harmony-arkts-subset.py || fail "harmony ArkTS subset"
 note "harmony unwired policies"
 python3 scripts/test-harmony-unwired-policies.py || fail "harmony unwired policies"
 python3 scripts/test-harmony-unwired-symbols.py || fail "harmony unwired symbols"
+python3 scripts/test-harmony-manifest.py || fail "harmony manifest"
 
 note "harmony bridge parity"
 python3 scripts/test-harmony-bridge-parity.py || fail "harmony bridge parity"

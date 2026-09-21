@@ -176,6 +176,20 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 所以这是按平台特性裁剪，而不是欠账：能力模型的用途正是让页面不画一个保存了却什么都不做的开关。如果将来 SDK 提供了对应 API，接法是声明 `appIcon` 并在 `module.json5` 里补上备用入口 ability——那时需要的是真机验证，不是这里的接线。
 
+## 输入法在系统列表里没有图标
+
+要把 logo 换成 Windows 那枚母版，先查了一遍各平台现状：`platforms/windows` 的三个 `.ico` 与母版**逐字节相同**，`packages/ui/src/assets/msime.svg` 与 Windows 那份源 svg 也逐字节相同，macOS 的 `.icns`、鸿蒙的 `app_icon.png`、桌面 Tauri 整套并排看下来是同一枚标同一种构图；Android 与 iOS 在 #3434 已经换过，它们那套细边框满幅是自适应图标要的形状，五种边框颜色是「可切换应用图标」这个功能本身。也就是说美术早就统一了。
+
+真正缺的不是图片，是清单里的声明。`module.json5` 的两个元素都只写了 `label` 和 `startWindowIcon`，**没有 `icon`**：
+
+- `startWindowIcon` 只管启动过渡窗，不是桌面图标，也不是输入法列表里那枚。
+- `mainElement` 是 `KeyboardExtensionAbility`，而模块 schema 对 `icon` 的说明是「若该扩展被配置为 MainElement，此标签必须配置」。它缺着，所以这个输入法在「系统设置 → 输入法」里只有名字、没有标。
+- `EntryAbility` 带 `entity.system.home`，是桌面入口，同样没声明。
+
+顺带修掉一处从 `bdb801b63`（加设置应用那次）起就存在的 `"abilities"` 整段重复：JSON 后者覆盖前者，所以前一块是一段长得和生效配置一模一样的死文本，改错地方会毫无反应也毫无线索。
+
+验证看的是打出来的包而不是源文件——`$media:` 解析不到时会被丢掉而不是报错。解包 `module.json` 后两个元素都带着 `"iconId": 16777217`，说明引用真的解析到了资源。`scripts/test-harmony-manifest.py` 现在查这三件事：模块级重复键、mainElement 有没有 icon、桌面入口有没有 icon，外加包里 `icon` 有没有对应的 `iconId`。对着改之前的清单跑，三条全报。
+
 ## 日语数字层的第十二格：从死键变成括号键
 
 假名格的第十二格是 `小゛゜`（把刚输入的假名变成小写／浊音／半浊音）。切到数字层之后键不再产生假名，这个后置修饰符就没有东西可修饰——`JapaneseVariantPolicy.enabled` 里那个 `!symbols` 让它在整个数字层恒为停用，于是那一格是死的。来源把这个空出来的格子给了括号：`setDigits(true)` 时键面变 `（）`、读作 `括弧`、始终可用，按下给出八个括号。这些括号在这套布局上没有别的落点。
