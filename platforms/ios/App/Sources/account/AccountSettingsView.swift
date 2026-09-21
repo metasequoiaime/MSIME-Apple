@@ -21,41 +21,41 @@ struct AccountSettingsView: View {
       // 皮肤编辑器的入口只留皮肤页那一个。这里原来还有一个「我的设计」指向同一个编辑器,于是同一件事在两个标签页下各有一条路。
       Section("个性化") {
         NavigationLink(destination: AppIconSettingsView()) {
-          entry("App 图标", detail: "给主屏幕上的水杉换个颜色", symbol: "app.badge", color: .purple)
+          entry("App 图标", detail: "给主屏幕上的水杉换个颜色", symbol: "app.badge")
         }.accessibilityIdentifier("accountAppIcon")
       }
 
       if signedIn {
         Section("云端") {
           NavigationLink(destination: SettingsSyncView(session: .shared, client: BackendAccountClient())) {
-            entry("设置同步", symbol: "arrow.triangle.2.circlepath", color: MetasequoiaTheme.accent)
+            entry("设置同步", symbol: "arrow.triangle.2.circlepath")
           }.accessibilityIdentifier("accountSettingsSync")
           NavigationLink(destination: CommunityResourcesAccountView()) {
-            entry("词包与回复模板", symbol: "books.vertical.fill", color: .brown)
+            entry("词包与回复模板", symbol: "books.vertical.fill")
           }.accessibilityIdentifier("accountCommunityResources")
           NavigationLink(destination: CloudDictionaryView()) {
-            entry("云词库", symbol: "character.book.closed.fill", color: .teal)
+            entry("云词库", symbol: "character.book.closed.fill")
           }.accessibilityIdentifier("accountCloudDictionary")
           NavigationLink(destination: CloudClipboardView(session: .shared, client: BackendAccountClient())) {
-            entry("云剪贴板", symbol: "doc.on.clipboard.fill", color: .orange)
+            entry("云剪贴板", symbol: "doc.on.clipboard.fill")
           }.accessibilityIdentifier("accountCloudClipboard")
         }
 
         // 「我发布的皮肤」「我发布的词库」「收藏的词库」…… 五行里有四个字是重复的,而重复的那部分正是分组本身要说的话。搬进标题,行里就只剩下真正在区分彼此的那两个字。
         Section("我发布的") {
           NavigationLink(destination: SkinCommunityView(onlyMine: true)) {
-            entry("皮肤", symbol: "paintpalette.fill", color: .pink)
+            entry("皮肤", symbol: "paintpalette.fill")
           }.accessibilityIdentifier("accountPublishedSkins")
           ForEach(CommunityResourceKind.allCases) { kind in
             NavigationLink(destination: CommunityResourcesView(kind: kind, initialScope: "mine")) {
-              entry(kind.title, symbol: kind.icon, color: color(for: kind))
+              entry(kind.title, symbol: kind.icon)
             }
           }
         }
         Section("我收藏的") {
           ForEach(CommunityResourceKind.allCases) { kind in
             NavigationLink(destination: CommunityResourcesView(kind: kind, initialScope: "saved")) {
-              entry(kind.title, symbol: "bookmark.fill", color: color(for: kind))
+              entry(kind.title, symbol: "bookmark.fill")
             }
           }
         }
@@ -65,13 +65,13 @@ struct AccountSettingsView: View {
         // Kept from this repository's own page: the desktop build is downloaded from here, and the
         // upstream account page has no equivalent entry to inherit it from.
         NavigationLink(destination: DesktopDownloadView()) {
-          entry("电脑版下载", symbol: "desktopcomputer", color: MetasequoiaTheme.accent)
+          entry("电脑版下载", symbol: "desktopcomputer")
         }.accessibilityIdentifier("desktopDownloadLink")
         NavigationLink(destination: AboutView()) {
-          entry("关于水杉", symbol: "info.circle.fill", color: MetasequoiaTheme.accent)
+          entry("关于水杉", symbol: "info.circle.fill")
         }.accessibilityIdentifier("aboutSettingsLink")
         Button { replayOnboarding = true } label: {
-          entry("重新查看新手引导", symbol: "sparkles", color: .orange)
+          entry("重新查看新手引导", symbol: "sparkles")
         }
         .buttonStyle(.plain)
         .accessibilityIdentifier("replayOnboardingLink")
@@ -91,11 +91,11 @@ struct AccountSettingsView: View {
   }
 
   /// 这一页原本有两种行:两行是 42 点的彩色图标块加副标题,其余十一行是 `Label` 的小符号。同一列表里两种尺寸、两种配色,读起来像两个应用拼在一起。所有行走这一个。
-  private func entry(_ title: String, detail: String? = nil, symbol: String, color: Color) -> some View {
+  private func entry(_ title: String, detail: String? = nil, symbol: String) -> some View {
     HStack(spacing: 12) {
       Image(systemName: symbol).font(.system(size: 15, weight: .semibold))
-        .foregroundStyle(color).frame(width: 30, height: 30)
-        .background(color.opacity(0.12), in: RoundedRectangle(cornerRadius: 9))
+        .foregroundStyle(Color.accentColor).frame(width: 30, height: 30)
+        .background(Color.accentColor.opacity(0.12), in: RoundedRectangle(cornerRadius: 9))
       VStack(alignment: .leading, spacing: 2) {
         Text(title).foregroundStyle(.primary)
         if let detail {
@@ -104,10 +104,6 @@ struct AccountSettingsView: View {
       }
     }
     .padding(.vertical, 2)
-  }
-
-  private func color(for kind: CommunityResourceKind) -> Color {
-    kind == .dictionary ? .brown : .indigo
   }
 }
 

@@ -41,12 +41,18 @@ public final class AppIcons {
             }
             return true;
         } catch (RuntimeException error) {
+            // 记下是哪个组件、为什么被拒。组件名不是用户数据，而吞掉这个原因正是上一次查不动的
+            // 原因：界面只说「系统拒绝了」，而真正的那句话在这里被扔掉了。
+            android.util.Log.w("MSIMEAppIcon",
+                "Icon switch refused for " + component(context, style), error);
             return false;
         }
     }
 
     private static ComponentName component(Context context, AppIconStyle style) {
+        // 类字面量而不是字符串：这个宿主的 applicationId（app.msime.android）与类所在的
+        // namespace（app.msime.client）不是一回事，写死的字符串要同时跟着两者走。
         return new ComponentName(context.getPackageName(),
-            style.component(context.getPackageName()));
+            style.component(HomeActivity.class.getName()));
     }
 }

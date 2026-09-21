@@ -40,15 +40,14 @@ struct BackendCommunityResourcesView: View {
           Button { selected = item } label: {
             SettingsRowLabel(title: item.name,
                              detail: "\(item.author) · 版本 \(item.revision) · \(item.saves) 人收藏",
-                             symbol: kind == .dictionary ? "character.book.closed.fill" : "text.bubble.fill",
-                             color: kind == .dictionary ? .brown : .indigo)
+                             symbol: kind == .dictionary ? "character.book.closed.fill" : "text.bubble.fill")
           }.buttonStyle(.plain)
         }
         if !busy && items.isEmpty {
           Text(search.isEmpty ? "这里还没有作品" : "没有匹配「\(search)」的作品").foregroundStyle(.secondary)
         }
         if more {
-          SettingsActionRow(title: "加载更多", symbol: "arrow.down.circle.fill", color: .gray, enabled: !busy) {
+          SettingsActionRow(title: "加载更多", symbol: "arrow.down.circle.fill", enabled: !busy) {
             load(append: true)
           }
         }

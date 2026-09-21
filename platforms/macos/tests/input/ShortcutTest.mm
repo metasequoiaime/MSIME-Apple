@@ -1300,6 +1300,163 @@ static void TestKeypadDecimal(MSIMEAppearancePreferences *appearance) {
     assert(session.punctuationASCIICalls == 2);
 }
 
+// Editing a composition by segmentation unit rather than by character. The reference's composition
+// editor gives Ctrl+Backspace and Ctrl+Left / Ctrl+Right this meaning, and both Linux front ends and
+// the Windows host route them; this host handed every Ctrl chord back to the application after
+// finishing the composition, so the three keys did nothing but commit what was being typed.
+// Ctrl+Enter on a candidate whose gloss carries several senses.
+//
+// The reference turns the highlighted candidate's gloss into a page of its senses and lets the user
+// pick one the way they pick a candidate; a single sense commits straight away. Both Linux front
+// ends follow it. This host had neither: Ctrl+Enter fell into "any Ctrl chord finishes the
+// composition and goes back to the application", so the only thing it did was commit the pinyin.
+static void TestGlossSensePage(MSIMEAppearancePreferences *appearance) {
+    ModeController *controller = [ModeController alloc];
+    ShortcutSession *session = [ShortcutSession new];
+    ShortcutClient *client = [ShortcutClient new];
+    TestCandidatePanel *panel = [TestCandidatePanel new];
+    panel.visible = YES;
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:panel forKey:@"panel"];
+    appearance.englishMode = NO;
+    appearance.candidateTranslations = YES;
+    // Committing a sense clears the composition rather than finishing it, and a cleared composition
+    // commits nothing: the stub's default transition would otherwise put its own text in behind the
+    // sense, which is exactly the bug this behaviour exists to avoid.
+    session.cancelTransition = @{ @"handled": @YES,
+                                  @"view": @{ @"editing_text": @"", @"caret_position": @0, @"candidates": @[] } };
+
+    // Committing clears the composition, which takes the panel down with it, so each case puts a
+    // fresh candidate list on screen the way the Engine would.
+    void (^compose)(NSString *) = ^(NSString *gloss) {
+        [controller setValue:@{ @"focused": @YES, @"editing_text": @"nihao", @"caret_position": @5,
+                                @"candidates": @[@{@"text": @"你好", @"highlighted": @YES, @"translation": gloss},
+                                                 @{@"text": @"泥好"}] }
+                      forKey:@"view"];
+        panel.visible = YES;
+    };
+
+    // A gloss with one sense commits it and takes the composition away with it: the sense is what
+    // the user asked for, and finishing instead would put the Chinese word in behind it.
+    compose(@"hello");
+    client.committed = nil;
+    session.lastCommand = UINT32_MAX;
+    assert([controller handleEvent:ModeKey(36, NSEventModifierFlagControl, NO) client:client]);
+    assert([client.committed isEqual:@"hello"]);
+    assert(session.lastCommand == MSIME_CANCEL);
+
+    // Several senses open the page instead. The candidates on screen are the senses, and the first
+    // one is highlighted.
+    compose(@"hello; hi; greetings");
+    client.committed = nil;
+    assert([controller handleEvent:ModeKey(36, NSEventModifierFlagControl, NO) client:client]);
+    assert(!client.committed);
+    NSArray *shown = [controller valueForKey:@"view"][@"candidates"];
+    assert(shown.count == 3);
+    assert([shown[0][@"text"] isEqual:@"hello"] && [shown[0][@"highlighted"] isEqual:@YES]);
+    assert([shown[2][@"text"] isEqual:@"greetings"]);
+
+    // A digit picks a sense by its position on the page.
+    session.lastCommand = UINT32_MAX;
+    assert([controller handleEvent:ModeKey(20, 0, NO) client:client]); // 3
+    assert([client.committed isEqual:@"greetings"]);
+    assert(session.lastCommand == MSIME_CANCEL);
+    // The page is gone afterwards, together with the composition it was drawn from.
+    assert([[controller valueForKey:@"view"][@"candidates"] count] == 0);
+
+    // Arrow keys move inside the page and space takes what is highlighted.
+    compose(@"hello; hi; greetings");
+    assert([controller handleEvent:ModeKey(36, NSEventModifierFlagControl, NO) client:client]);
+    assert([controller handleEvent:ModeKey(125, 0, NO) client:client]); // Down
+    client.committed = nil;
+    assert([controller handleEvent:ModeKey(49, 0, NO) client:client]); // Space
+    assert([client.committed isEqual:@"hi"]);
+
+    // A key the page does not claim leaves it and is routed as usual rather than being swallowed by
+    // a mode the user has forgotten about.
+    compose(@"hello; hi");
+    assert([controller handleEvent:ModeKey(36, NSEventModifierFlagControl, NO) client:client]);
+    client.committed = nil;
+    [controller handleEvent:ModeKey(0, 0, NO) client:client]; // 'a'
+    assert(!client.committed);
+    assert([[controller valueForKey:@"view"][@"candidates"][0][@"text"] isEqual:@"你好"]);
+
+    // Escape leaves the page and puts the candidates that were on screen back, without committing.
+    compose(@"hello; hi");
+    assert([controller handleEvent:ModeKey(36, NSEventModifierFlagControl, NO) client:client]);
+    client.committed = nil;
+    assert([controller handleEvent:ModeKey(53, 0, NO) client:client]);
+    assert(!client.committed);
+    assert([[controller valueForKey:@"view"][@"candidates"][0][@"text"] isEqual:@"你好"]);
+
+    // A candidate with no gloss is not a page, and the chord keeps its old meaning there.
+    [controller setValue:@{ @"focused": @YES, @"editing_text": @"nihao",
+                            @"candidates": @[@{@"text": @"你好", @"highlighted": @YES}] } forKey:@"view"];
+    panel.visible = YES;
+    client.committed = nil;
+    session.lastCommand = UINT32_MAX;
+    assert(![controller handleEvent:ModeKey(36, NSEventModifierFlagControl, NO) client:client]);
+    assert(session.lastCommand == MSIME_FINISH_COMPOSITION);
+
+    // With candidate translations turned off there is nothing to offer.
+    appearance.candidateTranslations = NO;
+    compose(@"hello; hi");
+    session.lastCommand = UINT32_MAX;
+    assert(![controller handleEvent:ModeKey(36, NSEventModifierFlagControl, NO) client:client]);
+    assert(session.lastCommand == MSIME_FINISH_COMPOSITION);
+    appearance.candidateTranslations = YES;
+}
+
+static void TestSegmentEditingChords(MSIMEAppearancePreferences *appearance) {
+    ModeController *controller = [ModeController alloc];
+    ShortcutSession *session = [ShortcutSession new];
+    ShortcutClient *client = [ShortcutClient new];
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    appearance.englishMode = NO;
+    NSDictionary *composing = @{ @"focused": @YES, @"editing_text": @"nihao", @"caret_position": @5,
+                                 @"candidates": @[@{@"text": @"你好"}] };
+    [controller setValue:composing forKey:@"view"];
+
+    for (NSArray *entry in @[@[@51, @(MSIME_BACKSPACE_SEGMENT)], @[@123, @(MSIME_MOVE_LEFT_SEGMENT)],
+                             @[@124, @(MSIME_MOVE_RIGHT_SEGMENT)]]) {
+        const unsigned short code = [entry[0] unsignedShortValue];
+        session.lastCommand = UINT32_MAX;
+        assert([controller handleEvent:ModeKey(code, NSEventModifierFlagControl, NO) client:client]);
+        assert(session.lastCommand == [entry[1] unsignedIntValue]);
+        [controller setValue:composing forKey:@"view"];
+    }
+
+    // Only the bare Ctrl chord. With anything else held the key is the application's, and this host
+    // finishes the composition on the way out rather than editing it.
+    for (NSNumber *extra in @[@(NSEventModifierFlagShift), @(NSEventModifierFlagOption),
+                              @(NSEventModifierFlagCommand)]) {
+        session.lastCommand = UINT32_MAX;
+        assert(![controller handleEvent:ModeKey(51, NSEventModifierFlagControl | extra.unsignedIntegerValue, NO)
+                                 client:client]);
+        assert(session.lastCommand == MSIME_FINISH_COMPOSITION);
+        [controller setValue:composing forKey:@"view"];
+    }
+
+    // With nothing being composed the chord stays the application's: Ctrl+Backspace deletes a word
+    // in the editor, and an input method that swallowed it would be taking a shortcut nobody gave it.
+    [controller setValue:@{ @"focused": @YES, @"editing_text": @"", @"candidates": @[] } forKey:@"view"];
+    session.lastCommand = UINT32_MAX;
+    assert(![controller handleEvent:ModeKey(51, NSEventModifierFlagControl, NO) client:client]);
+    assert(session.lastCommand == MSIME_FINISH_COMPOSITION);
+
+    // A candidate page with no editing text still counts as a composition: the pinyin has been
+    // consumed by earlier selections and the page is what is left to edit.
+    [controller setValue:@{ @"focused": @YES, @"editing_text": @"", @"candidates": @[@{@"text": @"你好"}] }
+                  forKey:@"view"];
+    session.lastCommand = UINT32_MAX;
+    assert([controller handleEvent:ModeKey(123, NSEventModifierFlagControl, NO) client:client]);
+    assert(session.lastCommand == MSIME_MOVE_LEFT_SEGMENT);
+}
+
 static void TestKeypadOperators(MSIMEAppearancePreferences *appearance) {
     ModeController *controller = [ModeController alloc];
     ShortcutSession *session = [ShortcutSession new];
@@ -5007,6 +5164,8 @@ int main(int argc, char **argv) {
         TestFullWidth(defaults, appearance);
         TestSessionOptions();
         TestKeypadDecimal(appearance);
+        TestGlossSensePage(appearance);
+        TestSegmentEditingChords(appearance);
         TestKeypadOperators(appearance);
         TestSmartPunctuationPreferences();
         TestSharedCharacterWidth();

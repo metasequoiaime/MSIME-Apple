@@ -114,6 +114,42 @@ iOS 与 macOS 的同类文档是 [ios-parity.md](ios-parity.md) 和 [macos-parit
 
 本轮之后新增的 `scripts/test-harmony-bridge-parity.py`（PR #3343）是同一类问题的机械防线——它比的是"页面会调用的桥方法"与"真正注册出去的名字"，而不是两边都有没有这个符号。它当初就是这么抓到 `customSkinLibrary` 的。
 
+## 第四次比对：来源自己的测试断言（2026-09-21）
+
+前三条轴比的都是"有没有这个东西"——页面、文案、面板、调用点。全都通过之后仍然剩下一类东西看不见：**同一个东西在两边行为不同**。文件在、接线在、测试绿，但做的事不一样。
+
+这一轮的轴是 MSIME-Apple 自己的测试套件。`platforms/ios/{KeyboardTests,ServiceTests,tests}` 与 `shared/backend/Tests` 共 232 个 `func test*`、1276 条断言，函数名本身就是行为规格。做法是把这 232 个名字读一遍，挑出属于键盘宿主（而非共享设置 UI、而非 Engine）的那些，逐个去鸿蒙侧找对应实现。
+
+`NineKeyKeyboardTests.swift` 一个文件占了 48 条，是最大的一块，所以从它查起。绝大多数能对上：`CandidateChipsNeverWrapToASecondLine` 对 `CandidateWrapPolicy`、`SpaceCursorMovementAccumulatesDistanceAndReverses` 对 `SpaceCursorMovement`、`WubiCandidatesCarryAndShowTheCodeLeftToType` 对 `WubiCodeHintPolicy`、`SchemeGridHasFourColumnsAtNarrowAndWideSizes` 在模拟器截图里就是四列，等等。
+
+对不上的是 `testLatinFieldsUseFullKeyboardAndRestoreNineKeyHeight`。鸿蒙侧 `EditorPolicy.prefersLatin` 有、也接了线，attach 时会把 Engine 切到英文；但它只改语言不改键面，`KeyboardView.onEditorChanged` 里只有 `this.english = ...` 一行。于是一个九宫格用户点进邮箱或网址框，得到的是**在 3×3 的 T9 网格上打英文**——恰恰是 Apple 那条断言刻意避免的情形。三道机械门禁都抓不到：文件在、接线在、单测绿，缺的是一个本该发生却没发生的赋值。
+
+这条轴的成本高于前三条（要读来源的测试体，不只是名字），但它是唯一能看见"行为不同"的。修法与实测记在 `platforms/harmony/README.md` 的「地址栏与密码框拿到的是整块字母键面」。
+
+同一条轴接着找到了更大的一处：`NineKeyInputAndLayoutSwitches`、`ShiftIsDiscoverableAndSwitchesToEnglishCapitalization`、`SymbolKeyOpensAPanelInsteadOfAMenu` 这些断言都默认九宫格上有一行动作键，而鸿蒙侧那一行写在 26 键分支内部，三块自绘键面全都没有它——九宫格和日语假名格没有空格、没有回车、退不出英文。`NineKeyDigitLayerKeepsTheGridInsteadOfTheTwentySixKeyRows` 和日语的 `DigitLayerKeepsTheSameThreeColumnGrid` 则对应另一处：按 `123` 会掉进十列符号排。两处一并修了，同样记在 README。
+
+## 文件可达不等于符号可达
+
+`test-harmony-unwired-policies.py` 问的是"除了测试之外有没有东西到得了这个文件"。修九宫格时发现同一个问题在方法这一层还在：`JapaneseNineKeyLayout.digitKeys()` 和 `digitBrackets()` 定义好、测试写好、产品从不调用，而因为 `JapaneseNineKeyLayout.ts` 本身被大量 import，那道门禁是绿的。
+
+按同样的判据扫了一遍宿主里的导出静态方法——声明处以外，除测试外无人引用——得到 17 个：
+
+| 文件 | 方法 |
+| --- | --- |
+| `keyboard/FloatingToolbarLayout.ts` | `allComponents` |
+| `keyboard/KeyboardGeometry.ts` | `halfGapPixels` |
+| `keyboard/KeyboardScheme.ts` | `mappingForRuntimeSelection`、`resolveEnabledSelection`、`fromHostSelection` |
+| `keyboard/candidate/CandidateGlossPolicy.ts` | `token` |
+| `keyboard/candidate/CandidateManagementAction.ts` | `fixedPosition`、`fromMenuItemId`、`validatePosition` |
+| `keyboard/input/EditorPolicy.ts` | `capitalizationMode` |
+| `keyboard/input/EnglishCapitalizationPolicy.ts` | `shouldShift` |
+| `keyboard/input/JapaneseNineKeyLayout.ts` | `digitKeys`、`digitBrackets` |
+| `keyboard/input/LocalInputMode.ts` | `fromTrigger` |
+| `keyboard/input/ReturnKeyAction.ts` | `shouldPerformEditorAction` |
+| `keyboard/input/KeyAccessibilityPolicy.ts` | `scheme`、`tools` |
+
+其中 `digitKeys` 已经接上。剩下的不是一批可以删的死代码：`capitalizationMode` 与 `shouldShift` 合起来是自动大写（Apple 的 `EnglishCapitalizationPolicyTests` 与 `ACapitalisedStartCarriesIntoTheSuggestion`），`CandidateManagementAction` 的三个是长按候选菜单，`fromTrigger` 是临时本地模式。也就是说这张表读作一份按符号列出的未接线清单，逐条对回来源的断言即可。门禁要从文件粒度下沉到符号粒度，与这份清单一起做。
+
 ## 本轮合并的切片
 
 | PR | 内容 |

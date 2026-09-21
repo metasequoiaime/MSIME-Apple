@@ -39,6 +39,16 @@ pub enum Action {
     LastCandidate,
 }
 
+/// What one selection of a phrase-in-progress can be taken back to.
+///
+/// `word_before` is the whole held phrase as it stood before the selection, not just the piece it
+/// added: the reference restores its accumulated word wholesale for the same reason - a selection
+/// that recorded nothing sits between two that did, and only the whole word puts them all back.
+pub(crate) struct PhraseSelection {
+    pub(crate) word_before: String,
+    pub(crate) reading: String,
+}
+
 pub struct Runtime<E: InputEngine = Session> {
     pub(crate) engine: E,
     pub(crate) session: u64,
@@ -68,6 +78,16 @@ pub struct Runtime<E: InputEngine = Session> {
     /// Non-empty only while the Engine is still composing, so a host's existing test for "is there
     /// a composition" stays true wherever this is non-empty.
     pub(crate) phrase_prefix: String,
+    /// One entry per selection that grew the held phrase, newest last.
+    ///
+    /// This is what lets the user go back: Backspace on the last of the reading puts the selection
+    /// that consumed it back the way it was, instead of deleting a letter and ending the
+    /// composition. The reference keeps the same stack in its Server
+    /// (`CompositionState::selection_history`) and its two rules read exactly these fields.
+    ///
+    /// A selection that consumed no reading is not recorded, because there is nothing for it to
+    /// restore - the same reason the reference refuses an empty `consumed_raw_input_with_cases`.
+    pub(crate) phrase_selections: Vec<PhraseSelection>,
     /// Recently committed text, sent to the AI provider as context.
     ///
     /// The reference sends what the user has just written so a suggestion fits
@@ -328,6 +348,7 @@ impl<E: InputEngine> Runtime<E> {
             touch_keyboard_layout,
             phrase_preedit: false,
             phrase_prefix: String::new(),
+            phrase_selections: Vec::new(),
         })
     }
 
@@ -339,8 +360,10 @@ impl<E: InputEngine> Runtime<E> {
     pub fn set_phrase_preedit(&mut self, enabled: bool) -> Option<String> {
         self.phrase_preedit = enabled;
         if enabled || self.phrase_prefix.is_empty() {
+            self.phrase_selections.clear();
             return None;
         }
+        self.phrase_selections.clear();
         Some(std::mem::take(&mut self.phrase_prefix))
     }
 
@@ -687,6 +710,77 @@ impl<E: InputEngine> Runtime<E> {
         }
     }
 
+    /// Take the last selection of a phrase-in-progress back, when the key asks for it.
+    ///
+    /// Two rules, both the reference's (`ShouldRetreatCreatingWordSelection` and
+    /// `ShouldDropCreatingWordSegment` in its `input_key_policy.h`), and both about the same
+    /// situation: the user has picked a candidate that covered part of the input, is looking at the
+    /// piece it produced, and wants it back.
+    ///
+    /// - Backspace with at most one character of reading left, the caret at its end: the key would
+    ///   otherwise delete that character and end the composition, taking the chosen piece with it.
+    ///   Instead the newest selection is undone - its reading comes back and the held phrase
+    ///   returns to what it was before it - so the user can pick again.
+    /// - Segment Backspace (Ctrl+Backspace) with nothing before the caret: the reading this key
+    ///   deletes by units has already been emptied, so it deletes the selection itself. Its reading
+    ///   is *not* restored: the user asked to remove the segment, not to edit its spelling.
+    ///
+    /// Returns `None` for every other key, which then runs as usual.
+    ///
+    /// The reference also requires a client that negotiated `CompositionRestore` and a host that is
+    /// not UILess, because its TSF side has to rebuild the composition from a reply it may not
+    /// understand. Here that condition is `phrase_preedit`: a host only turns it on once it draws
+    /// the held phrase from the view, and the view is how every host here learns the composition
+    /// changed.
+    fn retreat_phrase_selection(
+        &mut self,
+        action: &Action,
+    ) -> Result<Option<Transition>, RuntimeError> {
+        if !self.phrase_preedit || self.phrase_selections.is_empty() {
+            return Ok(None);
+        }
+        let reading = self.cached.editing_text.as_str();
+        let caret = self.cached.caret_position;
+        let restore = match action {
+            Action::Command(Command::Backspace) => {
+                if reading.chars().count() > 1 || caret != reading.len() {
+                    return Ok(None);
+                }
+                true
+            }
+            Action::SegmentBackspace => {
+                if caret != 0 {
+                    return Ok(None);
+                }
+                false
+            }
+            _ => return Ok(None),
+        };
+        let selection = self
+            .phrase_selections
+            .pop()
+            .expect("the stack was checked above");
+        self.phrase_prefix = selection.word_before;
+        if !restore {
+            // The segment is gone and its spelling with it. The reading is already empty, so the
+            // Engine has nothing to say; the view still changes, because the held phrase is
+            // shorter - or gone, which ends the composition with nothing committed.
+            self.refresh()?;
+            return Ok(Some(self.transition(empty_result(true))));
+        }
+        // Put the reading back. The reference hands its Engine the spelling directly
+        // (`set_pinyin_sequence` then `recompute_candidates`); this Engine is only reachable
+        // through the keys that built the composition, so the composition is thrown away and the
+        // spelling typed again. The user sees the same thing either way: the pinyin that selection
+        // consumed, with its candidates, and the caret at its end.
+        self.engine.command(Command::Cancel)?;
+        for byte in selection.reading.bytes() {
+            self.engine.character(byte, byte.is_ascii_uppercase())?;
+        }
+        self.refresh()?;
+        Ok(Some(self.transition(empty_result(true))))
+    }
+
     /// Keep a chosen piece of a phrase out of the document until the phrase is done.
     ///
     /// Three things can happen to what the Engine hands back:
@@ -696,17 +790,30 @@ impl<E: InputEngine> Runtime<E> {
     ///   reference does the same on Enter, which commits `word_for_creating_word` together with the
     ///   remaining raw input;
     /// - the composition ended with nothing committed. A cancel means the user threw the whole
-    ///   thing away, so the held pieces go with it. Anything else - backspacing the remaining
-    ///   reading away is the one that happens - commits what is held rather than dropping letters
-    ///   the user chose. That is a deliberate step away from the reference, which keeps showing the
-    ///   piece with an empty reading: holding text with no composition to hang it on would make
-    ///   every host's test for "is there a composition" lie.
-    fn hold_phrase_progress(&mut self, picked: bool, discard: bool, result: &mut EngineResult) {
+    ///   thing away, so the held pieces go with it. Anything else commits what is held rather than
+    ///   dropping letters the user chose. That is a deliberate step away from the reference, which
+    ///   keeps showing the piece with an empty reading: holding text with no composition to hang it
+    ///   on would make every host's test for "is there a composition" lie. Backspacing the reading
+    ///   away only reaches this with nothing to go back to: a selection that can be taken back
+    ///   takes that key first, in [`Runtime::retreat_phrase_selection`].
+    fn hold_phrase_progress(
+        &mut self,
+        picked: bool,
+        discard: bool,
+        consumed: &str,
+        result: &mut EngineResult,
+    ) {
         if !self.phrase_preedit {
             return;
         }
         let composing = !self.cached.editing_text.is_empty();
         if picked && result.has_commit && composing {
+            if !consumed.is_empty() {
+                self.phrase_selections.push(PhraseSelection {
+                    word_before: self.phrase_prefix.clone(),
+                    reading: consumed.to_owned(),
+                });
+            }
             self.phrase_prefix.push_str(&result.commit);
             result.has_commit = false;
             result.commit = String::new();
@@ -716,6 +823,7 @@ impl<E: InputEngine> Runtime<E> {
             return;
         }
         let held = std::mem::take(&mut self.phrase_prefix);
+        self.phrase_selections.clear();
         if discard {
             return;
         }
@@ -1009,7 +1117,7 @@ impl<E: InputEngine> Runtime<E> {
         let mut result = result?;
         // Leaving the client cancels the composition, but a phrase piece being held back is text
         // the user chose and, before it was held back, would already be in the document. Send it.
-        self.hold_phrase_progress(false, false, &mut result);
+        self.hold_phrase_progress(false, false, "", &mut result);
         self.focused = focused;
         // A different client is a different sentence, so context never leaks
         // from one application into another.
@@ -1153,6 +1261,14 @@ impl<E: InputEngine> Runtime<E> {
             scheme: self.cached.scheme,
             local_mode: self.cached.local_mode.clone(),
         };
+        // Going back into the phrase, before the Engine sees the key: both rules replace what the
+        // key would otherwise do.
+        if let Some(transition) = self.retreat_phrase_selection(&action)? {
+            return Ok(transition);
+        }
+        // What the reading held before the Engine saw this key. A selection that consumes part of
+        // it has to record the piece it took, and only the difference says what that was.
+        let reading_before = self.cached.editing_text.clone();
         // A digit on the candidate page picks a candidate; the Engine is asked the same question as
         // for Select, so it can begin a phrase the same way.
         let mut selected_by_digit = false;
@@ -1224,6 +1340,14 @@ impl<E: InputEngine> Runtime<E> {
             // A successful engine commit must survive a presentation refresh failure.
             result.diagnostic = format!("Candidate refresh failed: {error}");
         }
+        // The Engine takes what it used off the front of the reading, so what is gone from the
+        // front is what the selection consumed. A reading that did not simply shrink - a special
+        // mode rewriting it, a fallback replacing it - leaves nothing to restore, and that
+        // selection is recorded as unretractable rather than guessed at.
+        let consumed = reading_before
+            .strip_suffix(self.cached.editing_text.as_str())
+            .unwrap_or("")
+            .to_owned();
         let picked = selected_by_digit
             || matches!(
                 action,
@@ -1235,7 +1359,7 @@ impl<E: InputEngine> Runtime<E> {
         // Escape throws the whole composition away, the chosen pieces with it - the reference's
         // _HandleCancel clears `word_for_creating_word` in the same breath.
         let discarded = matches!(action, Action::Command(Command::Cancel));
-        self.hold_phrase_progress(picked, discarded, &mut result);
+        self.hold_phrase_progress(picked, discarded, &consumed, &mut result);
         let mut transition = self.transition(result);
         if transition.commit.is_some() {
             transition.commit_context = Some(commit_context);

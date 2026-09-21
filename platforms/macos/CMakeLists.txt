@@ -717,6 +717,12 @@ add_executable(candidate-gloss-layout-test tests/candidate/CandidateGlossLayoutT
 target_compile_options(candidate-gloss-layout-test PRIVATE -Wall -Wextra -Werror)
 target_link_libraries(candidate-gloss-layout-test PRIVATE "-framework CoreGraphics")
 add_test(NAME candidate-gloss-layout COMMAND candidate-gloss-layout-test)
+# One rule, three copies: the Windows, Linux and macOS gloss splitters compiled together and asked
+# the same questions, because a sense that stops being offered on one host looks like a dictionary
+# difference rather than a bug.
+add_executable(translation-senses-agreement-test tests/candidate/TranslationSensesAgreementTest.cpp)
+target_compile_options(translation-senses-agreement-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+add_test(NAME translation-senses-agreement COMMAND translation-senses-agreement-test)
 add_executable(candidate-row-fit-test tests/candidate/CandidateRowFitTest.cpp)
 target_compile_options(candidate-row-fit-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 add_test(NAME candidate-row-fit COMMAND candidate-row-fit-test)

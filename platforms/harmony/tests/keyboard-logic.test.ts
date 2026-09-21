@@ -1035,6 +1035,35 @@ group("the quanpin grid is three by three and sends characters, not labels", () 
   check(NineKeyLayout.punctuation().length === 4, "four punctuation marks ride alongside the grid");
 });
 
+group("the digit layer re-labels the grid instead of handing over ten across", () => {
+  // MSIME-Apple's testNineKeyDigitLayerKeepsTheGridInsteadOfTheTwentySixKeyRows: a typist who chose
+  // three columns keeps three columns, and nineKey1..nineKey9 read 1..9 rather than ABC, DEF, GHI.
+  const digits: NineKey[][] = NineKeyLayout.digits();
+  check(digits.length === 3, "still three rows");
+  for (const row of digits) {
+    check(row.length === 3, "still three keys per row");
+  }
+  const faces: string[] = digits.flat().map((key: NineKey) => key.label);
+  check(faces.join("") === "123456789", "the nine cells read 1 through 9 in order");
+  for (const key of digits.flat()) {
+    check(key.input === key.label, "a digit sends the digit it prints");
+  }
+  check(
+    NineKeyLayout.rows()[0][0].input === "'" && digits[0][0].input === "1",
+    "the first cell spells with an apostrophe and counts with a 1",
+  );
+  check(
+    NineKeyLayout.digitPunctuation().length === NineKeyLayout.punctuation().length,
+    "the sidebar keeps its four cells across the switch",
+  );
+  check(
+    NineKeyLayout.digitPunctuation().every(
+      (symbol: string) => !NineKeyLayout.punctuation().includes(symbol),
+    ),
+    "and offers marks the letter layer does not already carry",
+  );
+});
+
 console.log("JapaneseNineKeyLayout");
 
 group("every key carries exactly five directions", () => {
@@ -3961,6 +3990,18 @@ group("Latin is preferred where Chinese would only be in the way", () => {
   check(EditorPolicy.prefersLatin(PASSWORD) === true, "so are passwords");
   check(EditorPolicy.prefersLatin(NO_SUGGESTIONS) === true, "so are one-time codes");
   check(EditorPolicy.prefersLatin(PLAIN) === false, "prose is not");
+});
+
+group("an address field gets the full letter face instead of a nine-key grid", () => {
+  // MSIME-Apple's testLatinFieldsUseFullKeyboardAndRestoreNineKeyHeight: with the nine-key scheme
+  // selected, focusing an asciiCapable, email or URL field hides the grid and shows Q, and going
+  // back to an ordinary field brings 全拼 9 键 back. A grid resolves a digit sequence against a
+  // dictionary, and none of these fields holds dictionary words.
+  check(EditorPolicy.prefersFullFace(URI) === true, "a URL is spelled out, not disambiguated");
+  check(EditorPolicy.prefersFullFace(EMAIL) === true, "so is an email address");
+  check(EditorPolicy.prefersFullFace(PASSWORD) === true, "so is a password");
+  check(EditorPolicy.prefersFullFace(NO_SUGGESTIONS) === true, "so is a one-time code");
+  check(EditorPolicy.prefersFullFace(PLAIN) === false, "prose keeps whichever face the user chose");
 });
 
 group("an address is never capitalized, whatever the platform says", () => {

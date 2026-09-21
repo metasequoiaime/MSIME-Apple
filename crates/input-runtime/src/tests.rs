@@ -730,6 +730,218 @@ fn ai_context_does_not_leak_between_clients() {
     runtime.remember_commit("anything");
     assert!(runtime.ai_context.is_empty());
 }
+// An engine that models the one thing the phrase rules turn on: a selection takes its reading off
+// the front and leaves the rest, and the caret can sit somewhere other than the end.
+//
+// `Fixture` cannot express either - its `select` replaces the whole reading and its caret is always
+// at the end - and a rule about what is left in front of the caret cannot be tested against an
+// engine that has no such thing.
+struct PhraseEngine {
+    reading: String,
+    caret: usize,
+    /// How much of the reading each selection takes off the front, oldest first. A selection past
+    /// the end of this list finishes the composition.
+    consumes: Vec<usize>,
+    words: Vec<String>,
+}
+
+impl PhraseEngine {
+    fn new(consumes: Vec<usize>) -> Self {
+        Self {
+            reading: String::new(),
+            caret: 0,
+            consumes,
+            words: vec!["海滩".into(), "跑步".into()],
+        }
+    }
+}
+
+impl InputEngine for PhraseEngine {
+    fn snapshot(&self) -> Result<EngineSnapshot, RuntimeError> {
+        Ok(EngineSnapshot {
+            scheme: 0,
+            nine_key: false,
+            nine_key_spellings: Vec::new(),
+            candidate_codes: Vec::new(),
+            candidate_annotations: vec![String::new(); self.words.len()],
+            candidate_sources: vec![0; self.words.len()],
+            candidate_positions: vec![0; self.words.len()],
+            candidate_corrected: vec![false; self.words.len()],
+            microsoft_shuangpin: false,
+            shuangpin_profile: "xiaohe".into(),
+            answered_by_pinyin_fallback: false,
+            local_mode: "none".into(),
+            dedicated_english: false,
+            preedit: self.reading.clone(),
+            reading: String::new(),
+            editing_text: self.reading.clone(),
+            caret_position: self.caret.min(self.reading.len()),
+            segment_raw_boundaries: Vec::new(),
+            candidates: if self.reading.is_empty() {
+                Vec::new()
+            } else {
+                self.words.clone()
+            },
+        })
+    }
+    fn character(&mut self, value: u8, _shift: bool) -> Result<EngineResult, RuntimeError> {
+        self.reading.push(value as char);
+        self.caret = self.reading.len();
+        Ok(empty_result(true))
+    }
+    fn command(&mut self, command: Command) -> Result<EngineResult, RuntimeError> {
+        match command {
+            Command::MoveHome => self.caret = 0,
+            Command::MoveEnd => self.caret = self.reading.len(),
+            Command::Backspace => {
+                if self.caret > 0 {
+                    self.reading.remove(self.caret - 1);
+                    self.caret -= 1;
+                }
+            }
+            _ => {
+                self.reading.clear();
+                self.caret = 0;
+            }
+        }
+        Ok(empty_result(true))
+    }
+    fn select(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
+        let commit = self.words[index].clone();
+        if self.consumes.is_empty() {
+            self.reading.clear();
+        } else {
+            let consumed = self.consumes.remove(0).min(self.reading.len());
+            self.reading = self.reading.split_off(consumed);
+        }
+        self.caret = self.reading.len();
+        Ok(EngineResult {
+            handled: true,
+            has_commit: true,
+            commit,
+            diagnostic: String::new(),
+        })
+    }
+    fn finish(&mut self, index: usize) -> Result<EngineResult, RuntimeError> {
+        self.select(index)
+    }
+    fn punctuation(&mut self, _value: u8) -> Result<EngineResult, RuntimeError> {
+        Ok(empty_result(false))
+    }
+    fn select_edge(
+        &mut self,
+        index: usize,
+        _edge: CandidateEdge,
+    ) -> Result<EngineResult, RuntimeError> {
+        self.select(index)
+    }
+}
+
+// The reading is typed rather than seeded: taking focus cancels the composition, so an engine that
+// started with one would lose it before the first key of the test.
+fn phrase_runtime(reading: &str, consumes: Vec<usize>) -> Runtime<PhraseEngine> {
+    let mut runtime = Runtime::new(PhraseEngine::new(consumes), 5).unwrap();
+    runtime.set_phrase_preedit(true);
+    runtime.focus(true).unwrap();
+    for byte in reading.bytes() {
+        runtime
+            .dispatch(Action::Character {
+                value: byte,
+                shift: false,
+            })
+            .unwrap();
+    }
+    runtime
+}
+
+// Going back into a phrase that is half chosen.
+//
+// The reference has two rules for it, both in `input_key_policy.h`, and this host had neither: the
+// piece the user picked could only be finished or thrown away whole. Picking the wrong word for the
+// first half of a phrase is ordinary, and the way out of it was to cancel the composition and type
+// the whole thing again.
+#[test]
+fn the_last_selection_of_a_phrase_can_be_taken_back() {
+    // Backspace on the last character of the reading: the selection comes back instead of the
+    // composition ending. The reading it consumed is what is on screen afterwards, so the user can
+    // pick a different word for it.
+    let mut runtime = phrase_runtime("haitanp", vec![6]);
+    let id = runtime.view().candidates[0].id;
+    let held = runtime.dispatch(Action::Select(id)).unwrap();
+    assert_eq!(held.view.phrase_prefix, "海滩");
+    assert_eq!(held.view.editing_text, "p");
+
+    let back = runtime
+        .dispatch(Action::Command(Command::Backspace))
+        .unwrap();
+    assert_eq!(back.commit, None);
+    assert!(back.view.phrase_prefix.is_empty());
+    assert_eq!(back.view.editing_text, "haitan");
+    assert!(!back.view.candidates.is_empty());
+
+    // And it is a stack: only the newest selection comes back, the ones before it stay.
+    let mut runtime = phrase_runtime("haitanpaobux", vec![6, 5]);
+    let first = runtime.view().candidates[0].id;
+    runtime.dispatch(Action::Select(first)).unwrap();
+    let second = runtime.view().candidates[1].id;
+    let held = runtime.dispatch(Action::Select(second)).unwrap();
+    assert_eq!(held.view.phrase_prefix, "海滩跑步");
+    assert_eq!(held.view.editing_text, "x");
+    let back = runtime
+        .dispatch(Action::Command(Command::Backspace))
+        .unwrap();
+    assert_eq!(back.view.phrase_prefix, "海滩");
+    assert_eq!(back.view.editing_text, "paobu");
+
+    // With more than one character left the key is an ordinary Backspace: the user is editing the
+    // reading, not leaving it.
+    let mut runtime = phrase_runtime("haitanpa", vec![6]);
+    let id = runtime.view().candidates[0].id;
+    runtime.dispatch(Action::Select(id)).unwrap();
+    let edited = runtime
+        .dispatch(Action::Command(Command::Backspace))
+        .unwrap();
+    assert_eq!(edited.view.phrase_prefix, "海滩");
+    assert_eq!(edited.view.editing_text, "p");
+
+    // Nothing was ever selected, so there is nothing to go back to and Backspace stays Backspace.
+    let mut runtime = phrase_runtime("p", Vec::new());
+    let plain = runtime
+        .dispatch(Action::Command(Command::Backspace))
+        .unwrap();
+    assert!(plain.view.editing_text.is_empty());
+    assert!(plain.view.phrase_prefix.is_empty());
+}
+
+// Ctrl+Backspace with nothing before the caret deletes the selection itself, and unlike Backspace
+// it does not hand the reading back: the user asked to remove that piece of the phrase, not to
+// spell it again (the reference's PRD R3).
+#[test]
+fn a_segment_backspace_with_nothing_before_the_caret_drops_the_selection() {
+    let mut runtime = phrase_runtime("haitanpaobu", vec![6]);
+    let id = runtime.view().candidates[0].id;
+    let held = runtime.dispatch(Action::Select(id)).unwrap();
+    assert_eq!(held.view.phrase_prefix, "海滩");
+    assert_eq!(held.view.editing_text, "paobu");
+
+    runtime
+        .dispatch(Action::Command(Command::MoveHome))
+        .unwrap();
+    let dropped = runtime.dispatch(Action::SegmentBackspace).unwrap();
+    assert_eq!(dropped.commit, None);
+    assert!(dropped.view.phrase_prefix.is_empty());
+    // The reading it consumed is gone for good; what the user typed after it is untouched.
+    assert_eq!(dropped.view.editing_text, "paobu");
+
+    // With the caret anywhere else the key is the ordinary segment Backspace and reaches the
+    // Engine, which owns the unit boundaries.
+    let mut runtime = phrase_runtime("haitanpaobu", vec![6]);
+    let id = runtime.view().candidates[0].id;
+    runtime.dispatch(Action::Select(id)).unwrap();
+    let edited = runtime.dispatch(Action::SegmentBackspace).unwrap();
+    assert_eq!(edited.view.phrase_prefix, "海滩");
+}
+
 fn type_key(runtime: &mut Runtime<Fixture>) -> Transition {
     runtime
         .dispatch(Action::Character {

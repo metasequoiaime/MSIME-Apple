@@ -306,9 +306,17 @@ void persist_english_glosses(const nlohmann::json &query,
 } // namespace
 
 TranslationWorker::TranslationWorker(Completed completed)
-    : completed_(std::move(completed)) {
+    : TranslationWorker(std::move(completed), Translator{}) {}
+
+TranslationWorker::TranslationWorker(Completed completed, Translator translator)
+    : completed_(std::move(completed)), translate_(std::move(translator)) {
   if (!completed_)
     throw std::invalid_argument("Missing translation completion");
+  if (!translate_)
+    translate_ = [this](const FocusLease &lease, const std::string &query,
+                        const std::function<bool()> &cancelled) {
+      return translate(lease, query, cancelled);
+    };
   worker_ = std::thread([this] { run(); });
 }
 
@@ -363,9 +371,9 @@ bool TranslationWorker::cancelled(uint64_t serial) const noexcept {
 }
 
 std::optional<TranslationWorker::Result>
-TranslationWorker::translate(const Request &request,
+TranslationWorker::translate(const FocusLease &lease, const std::string &query_bytes,
                              const std::function<bool()> &cancelled) {
-  const auto document = query_document(request.query);
+  const auto document = query_document(query_bytes);
   if (!document || cancelled())
     return std::nullopt;
   try {
@@ -394,8 +402,7 @@ TranslationWorker::translate(const Request &request,
         single["english_gloss"] =
             query.value("english_gloss", false) && target == "en";
         const auto bytes = single.dump();
-        auto child = translate(
-            Request{request.lease, bytes, request.serial}, cancelled);
+        auto child = translate(lease, bytes, cancelled);
         if (!child)
           continue;
         try {
@@ -427,7 +434,7 @@ TranslationWorker::translate(const Request &request,
       }
       if (cancelled() || merged.empty())
         return std::nullopt;
-      return TranslationWorker::Result{request.lease, generation, merged.dump()};
+      return TranslationWorker::Result{lease, generation, merged.dump()};
     }
 
     auto translations = nlohmann::json::array().dump();
@@ -499,7 +506,7 @@ TranslationWorker::translate(const Request &request,
     if (plan->empty()) {
       if (translated_texts.empty())
         return std::nullopt;
-      return TranslationWorker::Result{request.lease, generation, translations};
+      return TranslationWorker::Result{lease, generation, translations};
     }
 
     // Translation results are valid across candidate generations. Cache each
@@ -511,7 +518,7 @@ TranslationWorker::translate(const Request &request,
         [&]() -> std::optional<TranslationWorker::Result> {
       if (translations == "[]")
         return std::nullopt;
-      return TranslationWorker::Result{request.lease, generation, translations};
+      return TranslationWorker::Result{lease, generation, translations};
     };
     const auto niutrans = query.value("niutrans", nlohmann::json(nullptr));
     const auto custom =
@@ -652,7 +659,7 @@ TranslationWorker::translate(const Request &request,
     }
     if (output.empty())
       return std::nullopt;
-    return TranslationWorker::Result{request.lease, generation, output.dump()};
+    return TranslationWorker::Result{lease, generation, output.dump()};
   } catch (...) {
     return std::nullopt;
   }
@@ -694,7 +701,7 @@ void TranslationWorker::run() noexcept {
     try {
       const auto serial = request.serial;
       const auto cancel = [this, serial] { return cancelled(serial); };
-      auto result = translate(request, cancel);
+      auto result = translate_(request.lease, request.query, cancel);
       if (result && !cancel())
         completed_(std::move(*result));
     } catch (...) {

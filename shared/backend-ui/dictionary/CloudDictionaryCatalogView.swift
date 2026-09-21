@@ -31,7 +31,7 @@ struct CloudDictionaryCatalogView: View {
             }
           }
         }
-        SettingsActionRow(title: "查询完整目录", symbol: "magnifyingglass", color: .blue,
+        SettingsActionRow(title: "查询完整目录", symbol: "magnifyingglass",
                           enabled: kind == .quick || !code.isEmpty) {
           run { try await load(query: .init(code: code, scheme: scheme, profile: profile), offset: 0) }
         }

@@ -123,7 +123,11 @@ public final class HomeActivity extends AppCompatActivity {
             else transaction.show(page);
         }
         rebuild = 0;
-        transaction.commit();
+        // 同步提交：`commit` 是排队执行的，而这个方法靠 findFragmentByTag 判断某个 tab 建过没有。
+        // 两次调用挨在一起时——onCreate 里先 show 再 setSelectedItemId 触发一次，或者快速连点
+        // 两个 tab——第二次查不到第一次还没执行的 add，于是同一个 tag 被加了两遍，两个页面一起画，
+        // 看起来就是 UI 叠在一起。保存状态之后不能同步提交，那种时候退回排队，晚一点总比崩了好。
+        if (manager.isStateSaved()) transaction.commit(); else transaction.commitNow();
     }
 
     private Fragment create(int itemId) {

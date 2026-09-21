@@ -33,12 +33,11 @@ struct PersonalDictionaryView: View {
         SettingsFactRow(title: state.pendingCount > 0 ? "\(state.pendingCount) 项等待键盘同步" : "已全部同步",
                         detail: state.snapshotDate.map { "最近同步 \($0.formatted(date: .abbreviated, time: .standard))" }
                           ?? "尚未收到键盘确认，保存的操作暂不会标记为已生效",
-                        symbol: state.pendingCount > 0 ? "clock.arrow.circlepath" : "checkmark.circle.fill",
-                        color: state.pendingCount > 0 ? .orange : MetasequoiaTheme.accent)
+                        symbol: state.pendingCount > 0 ? "clock.arrow.circlepath" : "checkmark.circle.fill")
         TextField("点此打开键盘并试打", text: $trial)
           .accessibilityIdentifier("personalDictionaryTrial")
         SettingsActionRow(title: "从文件导入词条", detail: "支持词库 JSON 文件",
-                          symbol: "square.and.arrow.down.fill", color: .brown) { importing = true }
+                          symbol: "square.and.arrow.down.fill") { importing = true }
           .accessibilityIdentifier("importPersonalDictionary")
       } header: {
         Text("键盘同步")

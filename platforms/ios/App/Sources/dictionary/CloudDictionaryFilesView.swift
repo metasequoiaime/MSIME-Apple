@@ -38,7 +38,7 @@ struct CloudDictionaryFilesView: View {
           }
         }
         SettingsActionRow(title: "选择 UTF-8 文本文件", detail: rowFormatHint,
-                          symbol: "doc.text.fill", color: .brown) { choosingSnapshot = false; choosing = true }
+                          symbol: "doc.text.fill") { choosingSnapshot = false; choosing = true }
       } header: {
         Text("导入到 \(kind.title)")
       } footer: {
@@ -49,9 +49,9 @@ struct CloudDictionaryFilesView: View {
       if let text {
         Section {
           SettingsFactRow(title: fileName, detail: "\(lines.count) 行 · \(text.utf8.count) 字节",
-                          symbol: "doc.fill", color: .teal)
+                          symbol: "doc.fill")
           ForEach(Array(lines.prefix(12).enumerated()), id: \.offset) { _, line in Text(line).font(.caption).lineLimit(3) }
-          SettingsActionRow(title: "确认上传到云端", symbol: "icloud.and.arrow.up.fill", color: .blue) { confirming = true }
+          SettingsActionRow(title: "确认上传到云端", symbol: "icloud.and.arrow.up.fill") { confirming = true }
         } header: {
           Text("导入预览")
         } footer: {
@@ -60,7 +60,7 @@ struct CloudDictionaryFilesView: View {
       }
       Section {
         SettingsActionRow(title: "导出文件", detail: "按上面选的格式导出这一类",
-                          symbol: "square.and.arrow.up.fill", color: .orange,
+                          symbol: "square.and.arrow.up.fill",
                           enabled: format != .hans) { run { try await export() } }
       } header: {
         Text("导出云端个人词条")
@@ -71,18 +71,18 @@ struct CloudDictionaryFilesView: View {
       }
       Section {
         SettingsActionRow(title: "导出完整快照", detail: "四类词库加排序记录，打包成一个文件",
-                          symbol: "archivebox.fill", color: .brown) { run { try await exportSnapshot() } }
+                          symbol: "archivebox.fill") { run { try await exportSnapshot() } }
         SettingsActionRow(title: "选择快照恢复到云端", detail: "先校验再确认，不会直接写",
-                          symbol: "arrow.uturn.backward.circle.fill", color: .indigo) {
+                          symbol: "arrow.uturn.backward.circle.fill") {
           choosingSnapshot = true; choosing = true
         }
         if let snapshot = preparedSnapshot, restoreRevision != nil {
           SettingsFactRow(title: "已校验这份快照",
                           detail: "\(snapshot.envelope.entries) 个词条 · \(snapshot.envelope.overlays) 条覆盖 · \(snapshot.envelope.positions) 个固定位置",
-                          symbol: "checkmark.seal.fill", color: MetasequoiaTheme.accent)
+                          symbol: "checkmark.seal.fill")
           SettingsActionRow(title: "恢复此快照到云端", detail: "替换全部四类云词库及排序记录",
                             symbol: "arrow.left.arrow.right", destructive: true) { confirmingRestore = true }
-          SettingsActionRow(title: "取消恢复", symbol: "xmark.circle.fill", color: .gray) {
+          SettingsActionRow(title: "取消恢复", symbol: "xmark.circle.fill") {
             preparedSnapshot = nil; restoreRevision = nil
           }
         }

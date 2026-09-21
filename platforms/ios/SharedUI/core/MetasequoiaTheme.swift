@@ -52,6 +52,23 @@ enum MetasequoiaTheme {
       ? UIColor(red: 48 / 255, green: 56 / 255, blue: 52 / 255, alpha: 1)
       : .white
   }
+
+  /// `steps` 档明度梯度,给饼图和分布条用。
+  ///
+  /// 图表要的是相邻区块能分开,不是八种色相。一条梯度既做到这一点,又不会让统计页变成整个应用里唯一一处另有配色的地方。两端在浅色下由深到浅,深色下反过来 —— 否则深色模式里最深的那一档和背景糊在一起。
+  static func chartRamp(_ steps: Int) -> [Color] {
+    let light: ((Int, Int, Int), (Int, Int, Int)) = ((24, 92, 72), (168, 210, 192))
+    let dark: ((Int, Int, Int), (Int, Int, Int)) = ((140, 205, 175), (38, 86, 70))
+    return (0..<steps).map { step in
+      let t = steps > 1 ? CGFloat(step) / CGFloat(steps - 1) : 0
+      return Color(uiColor: UIColor { traits in
+        let (from, to) = traits.userInterfaceStyle == .dark ? dark : light
+        let channel = { (a: Int, b: Int) in (CGFloat(a) + (CGFloat(b) - CGFloat(a)) * t) / 255 }
+        return UIColor(red: channel(from.0, to.0), green: channel(from.1, to.1),
+                       blue: channel(from.2, to.2), alpha: 1)
+      })
+    }
+  }
 }
 
 struct MetasequoiaMark: Shape {

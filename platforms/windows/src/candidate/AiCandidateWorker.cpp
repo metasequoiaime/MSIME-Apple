@@ -192,9 +192,17 @@ std::optional<std::string> https_post(const nlohmann::json &descriptor,
 } // namespace
 
 AiCandidateWorker::AiCandidateWorker(Completed completed)
-    : completed_(std::move(completed)) {
+    : AiCandidateWorker(std::move(completed), Fetcher{}) {}
+
+AiCandidateWorker::AiCandidateWorker(Completed completed, Fetcher fetcher)
+    : completed_(std::move(completed)), fetch_(std::move(fetcher)) {
   if (!completed_)
     throw std::invalid_argument("Missing AI candidate completion");
+  if (!fetch_)
+    fetch_ = [](const std::string &query,
+                const std::function<bool()> &cancelled) {
+      return fetch(query, cancelled);
+    };
   worker_ = std::thread([this] { run(); });
 }
 
@@ -317,7 +325,7 @@ void AiCandidateWorker::run() {
     }
     if (!cached) {
       try {
-        candidates = fetch(request.query, is_cancelled);
+        candidates = fetch_(request.query, is_cancelled);
       } catch (...) {
         failed_.store(true, std::memory_order_release);
         continue;

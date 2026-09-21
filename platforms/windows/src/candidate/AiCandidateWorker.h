@@ -29,8 +29,17 @@ public:
     std::vector<std::string> candidates;
   };
   using Completed = std::function<void(Result)>;
+  // Performs one request. `cancelled` answers true once this request has been
+  // superseded or the worker is stopping, and is polled during the transfer so
+  // a superseded request stops paying for a model call nobody is waiting for.
+  // Injected for the same reason as the cloud worker's: what goes wrong above
+  // it is queueing, debouncing and cancellation, none of which needs a network
+  // or a paid provider to exercise.
+  using Fetcher = std::function<std::vector<std::string>(
+      const std::string &, const std::function<bool()> &)>;
 
   explicit AiCandidateWorker(Completed completed);
+  AiCandidateWorker(Completed completed, Fetcher fetcher);
   ~AiCandidateWorker();
   AiCandidateWorker(const AiCandidateWorker &) = delete;
   AiCandidateWorker &operator=(const AiCandidateWorker &) = delete;
@@ -49,10 +58,11 @@ private:
   };
   void run();
   bool cancelled(uint64_t serial) const noexcept;
-  std::vector<std::string> fetch(const std::string &query,
-                                 const std::function<bool()> &cancelled);
+  static std::vector<std::string> fetch(const std::string &query,
+                                        const std::function<bool()> &cancelled);
 
   Completed completed_;
+  Fetcher fetch_;
   std::mutex mutex_;
   std::mutex join_mutex_;
   std::condition_variable wake_;

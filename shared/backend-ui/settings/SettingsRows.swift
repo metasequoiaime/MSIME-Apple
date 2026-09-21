@@ -11,15 +11,19 @@ struct SettingsRowLabel: View {
   let title: String
   var detail: String?
   let symbol: String
-  var color: Color = .accentColor
   var destructive = false
+
+  /// 图标块只有两种颜色:强调色,和表示这一行会删东西的红。
+  ///
+  /// 原先每个调用点自带一个颜色,于是同一页十几行就是十几种,粉的青的靛的棕的各来一个 —— 颜色本该说明一行的性质,这里只是让每行长得不一样,读者得先把颜色全部忽略掉才能看内容。参数一旦存在就会被填,所以这里把它删掉,而不是改成默认值。
+  private var tint: Color { destructive ? .red : .accentColor }
 
   var body: some View {
     HStack(spacing: 12) {
       Image(systemName: symbol).font(.system(size: 15, weight: .semibold))
-        .foregroundStyle(destructive ? Color.red : color)
+        .foregroundStyle(tint)
         .frame(width: 30, height: 30)
-        .background((destructive ? Color.red : color).opacity(0.12), in: RoundedRectangle(cornerRadius: 9))
+        .background(tint.opacity(0.12), in: RoundedRectangle(cornerRadius: 9))
       VStack(alignment: .leading, spacing: 2) {
         Text(title).foregroundStyle(destructive ? Color.red : Color.primary)
         if let detail {
@@ -39,14 +43,13 @@ struct SettingsActionRow: View {
   let title: String
   var detail: String?
   let symbol: String
-  var color: Color = .accentColor
   var destructive = false
   var enabled = true
   let action: () -> Void
 
   var body: some View {
     Button(action: action) {
-      SettingsRowLabel(title: title, detail: detail, symbol: symbol, color: color, destructive: destructive)
+      SettingsRowLabel(title: title, detail: detail, symbol: symbol, destructive: destructive)
     }
     .buttonStyle(.plain)
     .disabled(!enabled)
@@ -59,10 +62,9 @@ struct SettingsFactRow: View {
   let title: String
   var detail: String?
   let symbol: String
-  var color: Color = .accentColor
 
   var body: some View {
-    SettingsRowLabel(title: title, detail: detail, symbol: symbol, color: color)
+    SettingsRowLabel(title: title, detail: detail, symbol: symbol)
   }
 }
 
