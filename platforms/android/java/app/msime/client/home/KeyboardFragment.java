@@ -70,12 +70,19 @@ public final class KeyboardFragment extends Fragment {
             boolean dark = KeyboardSkin.resolveDark(
                 preferences.optString("screen_keyboard_theme", "follow"),
                 preferences.optString("theme", "system"), false);
-            skin = KeyboardSkin.from(preferences.optString("touch_keyboard_skin", "forest"), dark,
-                preferences.optJSONObject("custom_touch_keyboard_skin")).title();
-            scheme = KeyboardScheme.fromPreferences(
+            KeyboardSkin resolved = KeyboardSkin.from(
+                preferences.optString("touch_keyboard_skin", "forest"), dark,
+                preferences.optJSONObject("custom_touch_keyboard_skin"));
+            String layout = preferences.optString("touch_keyboard_layout", "twenty_six_key");
+            KeyboardScheme selected = KeyboardScheme.fromPreferences(
                 preferences.optString("scheme", "quanpin"),
-                preferences.optString("shuangpin_profile", "xiaohe"),
-                preferences.optString("touch_keyboard_layout", "twenty_six_key")).title();
+                preferences.optString("shuangpin_profile", "xiaohe"), layout);
+            skin = resolved.title();
+            scheme = selected.title();
+            // The picture is of this keyboard, not of a keyboard: a fixed nine-key grid in fixed
+            // colours under a caption naming the user's own 26-key layout contradicted itself.
+            ((KeyboardPreview) view.findViewById(R.id.keyboard_preview)).setKeyboard(
+                resolved, "nine_key".equals(layout), selected.glyph() + selected.badge());
         }
         ((TextView) view.findViewById(R.id.keyboard_summary)).setText(skin + " · " + scheme);
 
