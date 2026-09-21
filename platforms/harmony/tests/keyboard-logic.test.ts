@@ -251,6 +251,10 @@ import {
 import { PanelSurfaceAction } from "../entry/src/main/ets/keyboard/input/PanelShortcutPolicy";
 import { PreferenceRevisionPolicy } from "../entry/src/main/ets/keyboard/input/PreferenceRevisionPolicy";
 import { PreferencesErrorCode } from "../entry/src/main/ets/keyboard/settings/PreferencesErrorCode";
+import {
+  AiCatalogPage,
+  AiModelCatalogPolicy,
+} from "../entry/src/main/ets/keyboard/settings/AiModelCatalogPolicy";
 import { SkinImportPolicy } from "../entry/src/main/ets/keyboard/skin/SkinImportPolicy";
 import {
   SmartPunctuationSpacePolicy,
@@ -489,44 +493,81 @@ group("keeps desktop-only chrome off touch devices", () => {
 
 group("SymbolPanelPolicy", () => {
   const symbolCategories = SymbolPanelPolicy.categories();
-  check(symbolCategories.map((category) => category.id).join(",") === "common,chinese,english,number,network",
-    "the symbol panel keeps its stable category order");
-  check(symbolCategories.map((category) => category.symbols.length).join(",") === "30,50,40,50,30",
-    "the complete committed symbol catalog is present");
-  check(symbolCategories.every((category) => category.title.length > 0 && category.symbols.length > 0),
-    "every symbol panel category has a title and entries");
-  check(symbolCategories.every((category) => category.symbols.length <= SymbolPanelPolicy.maxSymbolsPerCategory()),
-    "the symbol panel bounds each category");
-  check(symbolCategories.every((category) => category.symbols.every((symbol) => SymbolPanelPolicy.isValidSymbol(symbol))),
-    "the symbol panel rejects no catalog symbol");
-  check(SymbolPanelPolicy.select(false).returnToKeyboard && !SymbolPanelPolicy.select(false).locked,
-    "a normal symbol tap returns to the keyboard");
-  check(!SymbolPanelPolicy.select(true).returnToKeyboard && SymbolPanelPolicy.select(true).locked,
-    "a locked symbol panel stays open for continuous input");
+  check(
+    symbolCategories.map((category) => category.id).join(",") ===
+      "common,chinese,english,number,network",
+    "the symbol panel keeps its stable category order",
+  );
+  check(
+    symbolCategories.map((category) => category.symbols.length).join(",") === "30,50,40,50,30",
+    "the complete committed symbol catalog is present",
+  );
+  check(
+    symbolCategories.every((category) => category.title.length > 0 && category.symbols.length > 0),
+    "every symbol panel category has a title and entries",
+  );
+  check(
+    symbolCategories.every(
+      (category) => category.symbols.length <= SymbolPanelPolicy.maxSymbolsPerCategory(),
+    ),
+    "the symbol panel bounds each category",
+  );
+  check(
+    symbolCategories.every((category) =>
+      category.symbols.every((symbol) => SymbolPanelPolicy.isValidSymbol(symbol)),
+    ),
+    "the symbol panel rejects no catalog symbol",
+  );
+  check(
+    SymbolPanelPolicy.select(false).returnToKeyboard && !SymbolPanelPolicy.select(false).locked,
+    "a normal symbol tap returns to the keyboard",
+  );
+  check(
+    !SymbolPanelPolicy.select(true).returnToKeyboard && SymbolPanelPolicy.select(true).locked,
+    "a locked symbol panel stays open for continuous input",
+  );
 });
 
 group("a held Delete never crosses from composition into committed text", () => {
-  check(BackspaceHoldPolicy.firstRepeat(true) === BackspaceHoldAction.CANCEL_COMPOSITION,
-    "the first repeat clears an unfinished composition as one operation");
-  check(BackspaceHoldPolicy.firstRepeat(false) === BackspaceHoldAction.DELETE,
-    "without a composition the hold keeps deleting editor text");
-  check(BackspaceHoldPolicy.deletesEditor(false), "an unhandled backspace falls through to the editor");
-  check(!BackspaceHoldPolicy.deletesEditor(true), "a handled backspace never also deletes editor text");
+  check(
+    BackspaceHoldPolicy.firstRepeat(true) === BackspaceHoldAction.CANCEL_COMPOSITION,
+    "the first repeat clears an unfinished composition as one operation",
+  );
+  check(
+    BackspaceHoldPolicy.firstRepeat(false) === BackspaceHoldAction.DELETE,
+    "without a composition the hold keeps deleting editor text",
+  );
+  check(
+    BackspaceHoldPolicy.deletesEditor(false),
+    "an unhandled backspace falls through to the editor",
+  );
+  check(
+    !BackspaceHoldPolicy.deletesEditor(true),
+    "a handled backspace never also deletes editor text",
+  );
 });
 
 group("composition boundaries preserve Japanese as kana", () => {
-  check(CompositionBoundaryPolicy.action(false, true, CompositionBoundary.DEACTIVATE) ===
+  check(
+    CompositionBoundaryPolicy.action(false, true, CompositionBoundary.DEACTIVATE) ===
       CompositionBoundaryAction.NONE,
-    "an idle boundary sends no Engine command");
-  check(CompositionBoundaryPolicy.action(true, false, CompositionBoundary.MODE_SWITCH) ===
+    "an idle boundary sends no Engine command",
+  );
+  check(
+    CompositionBoundaryPolicy.action(true, false, CompositionBoundary.MODE_SWITCH) ===
       CompositionBoundaryAction.COMMIT_RAW,
-    "Chinese spelling keeps the established raw-commit boundary");
-  check(CompositionBoundaryPolicy.action(true, true, CompositionBoundary.MODE_SWITCH) ===
+    "Chinese spelling keeps the established raw-commit boundary",
+  );
+  check(
+    CompositionBoundaryPolicy.action(true, true, CompositionBoundary.MODE_SWITCH) ===
       CompositionBoundaryAction.FINISH_COMPOSITION,
-    "Japanese finishes kana instead of exposing its romaji strokes");
-  check(CompositionBoundaryPolicy.action(true, false, CompositionBoundary.DEACTIVATE) ===
+    "Japanese finishes kana instead of exposing its romaji strokes",
+  );
+  check(
+    CompositionBoundaryPolicy.action(true, false, CompositionBoundary.DEACTIVATE) ===
       CompositionBoundaryAction.FINISH_COMPOSITION,
-    "deactivation finishes the highlighted composition before Runtime focus cancellation");
+    "deactivation finishes the highlighted composition before Runtime focus cancellation",
+  );
 });
 
 group("bounds handwriting points and rejects empty recognition requests", () => {
@@ -544,10 +585,9 @@ group("bounds handwriting points and rejects empty recognition requests", () => 
     HandwritingStrokePolicy.canRecognize([{ points: [point] }]),
     "a bounded stroke is recognisable",
   );
-  const maximumStrokes = Array.from(
-    { length: HANDWRITING_MAX_STROKES },
-    () => ({ points: [point] }),
-  );
+  const maximumStrokes = Array.from({ length: HANDWRITING_MAX_STROKES }, () => ({
+    points: [point],
+  }));
   check(
     HandwritingStrokePolicy.canRecognize(maximumStrokes),
     "the last supported stroke is accepted",
@@ -580,8 +620,8 @@ group("normalizes OCR candidates without leaking control text or duplicates", ()
     "OCR candidates are bounded without dropping the final four alternatives",
   );
   check(
-    HandwritingStrokePolicy.candidates("甲乙丙", 0).length === 0
-      && HandwritingStrokePolicy.candidates("甲乙丙", -1).length === 0,
+    HandwritingStrokePolicy.candidates("甲乙丙", 0).length === 0 &&
+      HandwritingStrokePolicy.candidates("甲乙丙", -1).length === 0,
     "zero and negative candidate limits do not leak one result",
   );
   check(
@@ -602,7 +642,10 @@ group("new handwriting stays writable while an older OCR request runs", () => {
   queue.changed();
   check(queue.request() === null, "more strokes collapse into the same pending request");
   const latest: HandwritingRecognitionTicket | null = queue.finish();
-  check(latest !== null && queue.accepts(latest), "completion immediately starts the latest canvas");
+  check(
+    latest !== null && queue.accepts(latest),
+    "completion immediately starts the latest canvas",
+  );
   check(queue.finish() === null, "the queue drains after the newest canvas is recognised");
 });
 
@@ -736,7 +779,10 @@ group("a key says what it does, not what it draws", () => {
     "and names the other direction when it is pointing back",
   );
   check(KeyAccessibilityPolicy.punctuation() === "常用标点", "the comma key names its long press");
-  check(KeyAccessibilityPolicy.symbolPanel() === "符号面板", "the compact symbol key names its panel");
+  check(
+    KeyAccessibilityPolicy.symbolPanel() === "符号面板",
+    "the compact symbol key names its panel",
+  );
 });
 
 group("every tool in the shortcut bar has a name", () => {
@@ -1338,9 +1384,14 @@ group("a long press exposes the literal digit and letters", () => {
   const rows: NineKey[][] = NineKeyLayout.rows();
   check(NineKeyLayout.holdOptions(rows[0][1]).join("") === "2abc", "ABC offers 2, a, b and c");
   check(NineKeyLayout.holdOptions(rows[2][0]).join("") === "7pqrs", "PQRS keeps all four letters");
-  check(NineKeyLayout.holdOptions(rows[0][0]).length === 0, "the word-split cell has no literal menu");
-  check(NineKeyLayout.holdOptions(NineKeyLayout.digits()[0][1]).length === 0,
-    "the digit face does not duplicate its own tap");
+  check(
+    NineKeyLayout.holdOptions(rows[0][0]).length === 0,
+    "the word-split cell has no literal menu",
+  );
+  check(
+    NineKeyLayout.holdOptions(NineKeyLayout.digits()[0][1]).length === 0,
+    "the digit face does not duplicate its own tap",
+  );
 });
 
 console.log("JapaneseNineKeyLayout");
@@ -3135,16 +3186,26 @@ group("return performs an editor action only when nothing else claimed it", () =
   check(ReturnKeyAction.title(send, false) === "发送", "the key says what it will do");
   check(ReturnKeyAction.title(send, true) === "换行", "a disabled action falls back to newline");
   check(ReturnKeyAction.title(0, false) === "换行", "an unspecified action is a newline");
-  check(ReturnKeyAction.dispatch(true, true, 0) === ReturnDispatch.COMMIT_READING,
-    "Japanese Return commits unconverted kana as its reading");
-  check(ReturnKeyAction.dispatch(true, true, 3, false) === ReturnDispatch.COMMIT_READING,
-    "visible Japanese candidates do not imply that Space started conversion");
-  check(ReturnKeyAction.dispatch(true, true, 3, true) === ReturnDispatch.COMMIT_HIGHLIGHTED,
-    "Japanese Return commits the selected conversion when candidates exist");
-  check(ReturnKeyAction.dispatch(false, true, 0) === ReturnDispatch.FINISH_COMPOSITION,
-    "a candidate-less non-Japanese composition is still finished before Return");
-  check(ReturnKeyAction.dispatch(false, false, 0) === ReturnDispatch.EDITOR,
-    "an idle Return belongs to the editor");
+  check(
+    ReturnKeyAction.dispatch(true, true, 0) === ReturnDispatch.COMMIT_READING,
+    "Japanese Return commits unconverted kana as its reading",
+  );
+  check(
+    ReturnKeyAction.dispatch(true, true, 3, false) === ReturnDispatch.COMMIT_READING,
+    "visible Japanese candidates do not imply that Space started conversion",
+  );
+  check(
+    ReturnKeyAction.dispatch(true, true, 3, true) === ReturnDispatch.COMMIT_HIGHLIGHTED,
+    "Japanese Return commits the selected conversion when candidates exist",
+  );
+  check(
+    ReturnKeyAction.dispatch(false, true, 0) === ReturnDispatch.FINISH_COMPOSITION,
+    "a candidate-less non-Japanese composition is still finished before Return",
+  );
+  check(
+    ReturnKeyAction.dispatch(false, false, 0) === ReturnDispatch.EDITOR,
+    "an idle Return belongs to the editor",
+  );
 
   // Kept as a description of the Android split rather than of this host: HarmonyOS hands the enter
   // key type to sendKeyFunction and the framework resolves it, newline included, so nothing here
@@ -4264,8 +4325,14 @@ function recordingTarget(log: string[]): HardwareKeyTarget {
     previousPage: () => log.push("previousPage"),
     nextCandidate: () => log.push("nextCandidate"),
     previousCandidate: () => log.push("previousCandidate"),
-    convertJapanese: () => { log.push("convertJapanese"); return true; },
-    commitJapanese: () => { log.push("commitJapanese"); return true; },
+    convertJapanese: () => {
+      log.push("convertJapanese");
+      return true;
+    },
+    commitJapanese: () => {
+      log.push("commitJapanese");
+      return true;
+    },
   };
 }
 
@@ -4343,10 +4410,14 @@ group("every routed hardware key reaches the method that means it", () => {
     "and moving the highlight is not paging",
   );
   check(dispatched(HardwareKeyAction.PREVIOUS_CANDIDATE)[0] === "previousCandidate", "both ways");
-  check(dispatched(HardwareKeyAction.JAPANESE_CONVERT)[0] === "convertJapanese",
-    "Japanese Space reaches conversion state");
-  check(dispatched(HardwareKeyAction.JAPANESE_COMMIT)[0] === "commitJapanese",
-    "Japanese Return reaches conversion-aware commit");
+  check(
+    dispatched(HardwareKeyAction.JAPANESE_CONVERT)[0] === "convertJapanese",
+    "Japanese Space reaches conversion state",
+  );
+  check(
+    dispatched(HardwareKeyAction.JAPANESE_COMMIT)[0] === "commitJapanese",
+    "Japanese Return reaches conversion-aware commit",
+  );
 });
 
 group("word-character keys take the end of the candidate they name", () => {
@@ -4868,13 +4939,19 @@ group("only real image bytes are accepted as a photo", () => {
 });
 
 group("custom key treatments reach native surface values", () => {
-  const capsule = KeyboardSkin.from("custom", false,
-    CustomKeyboardSkin.from(document({ keyShape: "capsule", keyMaterial: "glass",
-      keyOpacity: 0.45, shadow: 0.3 })));
+  const capsule = KeyboardSkin.from(
+    "custom",
+    false,
+    CustomKeyboardSkin.from(
+      document({ keyShape: "capsule", keyMaterial: "glass", keyOpacity: 0.45, shadow: 0.3 }),
+    ),
+  );
   check(capsule.keyCornerRadius() === 999, "a capsule asks ArkUI for a pill radius");
   check(capsule.materialTop() === "#3DFFFFFF", "glass carries a visible top highlight");
-  check(capsule.keySurfaceBackground(false).startsWith("#73"),
-    "key opacity changes only the fill alpha");
+  check(
+    capsule.keySurfaceBackground(false).startsWith("#73"),
+    "key opacity changes only the fill alpha",
+  );
   check(capsule.shadowColor().startsWith("#4D"), "the configured shadow reaches its ARGB colour");
 });
 
@@ -6859,6 +6936,83 @@ group("rewriting a reply touches only the refusals", () => {
     "an unreadable reply is forwarded",
   );
   check(PreferencesErrorCode.rewrite("null") === "null", "and so is a reply that is not a record");
+});
+
+group("AI model catalogs keep each provider's protocol and path", () => {
+  check(
+    AiModelCatalogPolicy.modelsUrl("https://api.everyapi.ai/v1/chat/completions") ===
+      "https://api.everyapi.ai/v1/models",
+    "an OpenAI-compatible chat endpoint keeps its version prefix",
+  );
+  check(
+    AiModelCatalogPolicy.modelsUrl(
+      "https://generativelanguage.googleapis.com/v1beta/openai/chat/completions",
+    ) === "https://generativelanguage.googleapis.com/v1beta/openai/models",
+    "Gemini does not get rewritten to a different API version",
+  );
+  check(
+    AiModelCatalogPolicy.modelsUrl("https://user:secret@example.test/v1/chat/completions") === null,
+    "embedded credentials are rejected",
+  );
+  check(
+    AiModelCatalogPolicy.modelsUrl("http://example.test/v1/chat/completions") === null,
+    "catalog credentials are never sent over HTTP",
+  );
+  const anthropic = "https://api.anthropic.com/v1/models";
+  check(
+    AiModelCatalogPolicy.isAnthropic("anthropic", anthropic),
+    "the Anthropic preset selects its native authentication",
+  );
+  check(
+    AiModelCatalogPolicy.pageUrl(anthropic, true, "") ===
+      "https://api.anthropic.com/v1/models?limit=1000",
+    "the first Anthropic page asks for the bounded maximum",
+  );
+  check(
+    AiModelCatalogPolicy.pageUrl(anthropic, true, "claude/first") ===
+      "https://api.anthropic.com/v1/models?limit=1000&after_id=claude%2Ffirst",
+    "the next Anthropic cursor is encoded",
+  );
+});
+
+group("AI model catalogs filter capabilities and paginate safely", () => {
+  const page: AiCatalogPage = {
+    data: [
+      { id: "chat-model", supported_endpoint_types: ["openai"] },
+      { id: "speech-model", supported_endpoint_types: ["audio-transcription"] },
+      { id: "chat-model", supported_endpoint_types: ["openai"] },
+      { id: "disabled", active: false },
+      {
+        id: "response-model",
+        supported_endpoint_types: ["openai-response"],
+        chat_completions_bridge: true,
+      },
+    ],
+    has_more: true,
+    last_id: "response-model",
+  };
+  const models: string[] = [];
+  check(AiModelCatalogPolicy.append(models, page), "a well-formed page is accepted");
+  check(
+    JSON.stringify(models) === JSON.stringify(["chat-model", "response-model"]),
+    "duplicates, inactive rows and voice-only models are removed",
+  );
+  check(
+    AiModelCatalogPolicy.nextCursor(page, true, []) === "response-model",
+    "Anthropic can continue with a fresh cursor",
+  );
+  check(
+    AiModelCatalogPolicy.nextCursor(page, false, []) === null,
+    "a non-Anthropic pagination envelope is refused",
+  );
+  check(
+    AiModelCatalogPolicy.nextCursor(page, true, ["response-model"]) === null,
+    "a repeated cursor cannot loop forever",
+  );
+  check(
+    AiModelCatalogPolicy.append([], { data: [{ id: "first" }, { id: "second" }] }, 1) === false,
+    "the aggregate model bound is enforced across pages",
+  );
 });
 
 // The account bridge deliberately models the asynchronous device HTTP API. Give its immediate

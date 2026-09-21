@@ -31,6 +31,9 @@ import { ImeEnabledState, OnboardingState, OnboardingStatePolicy }
 import { FeedbackSettings } from '../keyboard/KeyboardFeedback';
 import { VoiceCaptureDevice } from '../keyboard/input/VoiceCaptureDevicePolicy';
 import { OsVersionPolicy } from '../keyboard/input/OsVersionPolicy';
+import {
+  AiCatalogPage, AiModelCatalogPolicy
+} from '../keyboard/settings/AiModelCatalogPolicy';
 
 /** One key-feedback operation from the page: load, save or preview. */
 interface KeyboardFeedbackAction {
@@ -221,6 +224,7 @@ interface TypingStatisticsStatusReply {
 interface AiModelsRequest {
   endpoint: string;
   token: string;
+  provider: string;
 }
 
 interface AiTestRequest {
@@ -254,14 +258,6 @@ interface ApiCredentialConfig {
   doubao_enable_punc?: boolean;
   doubao_enable_ddc?: boolean;
   doubao_boosting_table_id?: string;
-}
-
-interface AiModelRow {
-  id?: string;
-}
-
-interface AiModelsDocument {
-  data?: AiModelRow[];
 }
 
 interface AiMessage {
@@ -364,6 +360,13 @@ interface CredentialHeaders {
   Accept: string;
   'Content-Type': string;
   Authorization?: string;
+}
+
+interface AiModelHeaders {
+  Accept: string;
+  Authorization?: string;
+  'x-api-key'?: string;
+  'anthropic-version'?: string;
 }
 
 interface DoubaoResponseDocument {
@@ -1091,51 +1094,65 @@ class SettingsBridge {
     let request: AiModelsRequest;
     try {
       request = JSON.parse(requestDocument) as AiModelsRequest;
-      if (typeof request.endpoint !== 'string' || typeof request.token !== 'string') {
+      if (typeof request.endpoint !== 'string' || typeof request.token !== 'string'
+        || typeof request.provider !== 'string') {
         return JSON.stringify({ ok: false, error: 'ai_models_invalid' });
       }
     } catch {
       return JSON.stringify({ ok: false, error: 'ai_models_invalid' });
     }
-    const endpoint: string | null = this.validAiEndpoint(request.endpoint);
+    const endpoint: string | null = AiModelCatalogPolicy.modelsUrl(request.endpoint);
     const token: string = request.token.trim();
     if (endpoint === null || token.length === 0 || utf8Length(token) > 16 * 1024
       || this.hasControl(token)) {
       return JSON.stringify({ ok: false, error: 'ai_invalid' });
     }
-    const modelsUrl: string = this.aiModelsUrl(endpoint);
-    const httpRequest = http.createHttp();
-    try {
-      const response: http.HttpResponse = await httpRequest.request(modelsUrl, {
-        method: http.RequestMethod.GET,
-        header: { Accept: 'application/json', Authorization: `Bearer ${token}` },
-        connectTimeout: 5000,
-        readTimeout: 15000
-      });
-      if (response.responseCode < 200 || response.responseCode >= 300
-        || typeof response.result !== 'string' || utf8Length(response.result) > 1024 * 1024) {
+    const anthropic: boolean = AiModelCatalogPolicy.isAnthropic(request.provider, endpoint);
+    const models: string[] = [];
+    const cursors: string[] = [];
+    let cursor: string = '';
+    for (let pageNumber: number = 0; pageNumber < 10; pageNumber += 1) {
+      const httpRequest = http.createHttp();
+      try {
+        const headers: AiModelHeaders = { Accept: 'application/json' };
+        if (anthropic) {
+          headers['x-api-key'] = token;
+          headers['anthropic-version'] = '2023-06-01';
+        } else {
+          headers.Authorization = `Bearer ${token}`;
+        }
+        const response: http.HttpResponse = await httpRequest.request(
+          AiModelCatalogPolicy.pageUrl(endpoint, anthropic, cursor), {
+            method: http.RequestMethod.GET,
+            header: headers,
+            connectTimeout: 5000,
+            readTimeout: 30000
+          });
+        if (response.responseCode < 200 || response.responseCode >= 300
+          || typeof response.result !== 'string' || utf8Length(response.result) > 1024 * 1024) {
+          return JSON.stringify({ ok: false, error: 'ai_models_unavailable' });
+        }
+        const document: AiCatalogPage = JSON.parse(response.result) as AiCatalogPage;
+        if (!AiModelCatalogPolicy.append(models, document)) {
+          return JSON.stringify({ ok: false, error: 'ai_models_invalid' });
+        }
+        const next: string | null = AiModelCatalogPolicy.nextCursor(document, anthropic, cursors);
+        if (next === null) return JSON.stringify({ ok: false, error: 'ai_models_invalid' });
+        if (next.length === 0) {
+          if (models.length === 0) return JSON.stringify({ ok: false, error: 'ai_models_invalid' });
+          models.sort();
+          return JSON.stringify({ ok: true, value: models });
+        }
+        cursors.push(next);
+        cursor = next;
+      } catch (error) {
+        KeyboardLog.error(`AI model list unavailable: ${describeError(error)}`);
         return JSON.stringify({ ok: false, error: 'ai_models_unavailable' });
+      } finally {
+        httpRequest.destroy();
       }
-      const document: AiModelsDocument = JSON.parse(response.result) as AiModelsDocument;
-      if (!Array.isArray(document.data)) {
-        return JSON.stringify({ ok: false, error: 'ai_models_invalid' });
-      }
-      const models: string[] = [];
-      for (const row of document.data) {
-        const id: string | undefined = row.id;
-        if (id === undefined || id.length === 0 || utf8Length(id) > 256 || this.hasControl(id)
-          || models.includes(id)) continue;
-        models.push(id);
-        if (models.length === 128) break;
-      }
-      if (models.length === 0) return JSON.stringify({ ok: false, error: 'ai_models_invalid' });
-      return JSON.stringify({ ok: true, value: models });
-    } catch (error) {
-      KeyboardLog.error(`AI model list unavailable: ${describeError(error)}`);
-      return JSON.stringify({ ok: false, error: 'ai_models_unavailable' });
-    } finally {
-      httpRequest.destroy();
     }
+    return JSON.stringify({ ok: false, error: 'ai_models_invalid' });
   }
 
   async aiTest(requestDocument: string): Promise<string> {
@@ -1209,7 +1226,8 @@ class SettingsBridge {
     if (request.service === 'ai.assistant') {
       const endpoint: string = request.config.endpoint ?? '';
       const token: string = request.config.token ?? '';
-      const modelReply: string = await this.aiModels(JSON.stringify({ endpoint, token }));
+      const provider: string = request.config.provider ?? 'custom';
+      const modelReply: string = await this.aiModels(JSON.stringify({ endpoint, token, provider }));
       const result: AiReply<string[]> = JSON.parse(modelReply) as AiReply<string[]>;
       if (!result.ok) {
         return this.credentialReply(false, '无法连接 AI 服务，请检查接口地址和 Token。');
@@ -1673,15 +1691,6 @@ class SettingsBridge {
     const authority: string = endpoint.substring(endpoint.indexOf('://') + 3).split('/')[0]
       .split('?')[0];
     return authority.length === 0 ? null : endpoint;
-  }
-
-  private aiModelsUrl(endpoint: string): string {
-    const query: number = endpoint.indexOf('?');
-    const clean: string = query >= 0 ? endpoint.substring(0, query) : endpoint;
-    const marker: string = '/v1/';
-    const index: number = clean.indexOf(marker);
-    const base: string = index >= 0 ? clean.substring(0, index) : clean.substring(0, clean.indexOf('/', 8) >= 0 ? clean.indexOf('/', 8) : clean.length);
-    return `${base}/v1/models`;
   }
 
   private validAiText(value: string, allowEmpty: boolean): boolean {
