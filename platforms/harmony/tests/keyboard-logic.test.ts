@@ -605,21 +605,22 @@ group("refuses every mutation while composition is active", () => {
   }
 });
 
-group("importing a file is queued, so the keyboard being open cannot refuse it", () => {
+group("personal imports and cloud downloads are queued while the keyboard is open", () => {
   // The user chooses when to import, and they are as likely to do it with the keyboard up as with
   // it down. "dictionary maintenance busy" is not an answer to "add these words".
-  for (const composing of [false, true]) {
-    const decision = DictionaryMaintenancePolicy.decide("import_personal", composing);
-    check(decision.queued, `import_personal goes to the queue (composing: ${composing})`);
-    check(decision.allowed, `and is allowed (composing: ${composing})`);
-    // It writes its own file and never the Engine, so there is nothing to take a window for and
-    // nothing for a live session to be stopped over.
-    check(!decision.maintenance, `without asking for the Engine (composing: ${composing})`);
-    check(decision.error === "", `and without a refusal (composing: ${composing})`);
+  for (const operation of ["import_personal", "queue_edit"]) {
+    for (const composing of [false, true]) {
+      const decision = DictionaryMaintenancePolicy.decide(operation, composing);
+      check(decision.queued, `${operation} goes to the queue (composing: ${composing})`);
+      check(decision.allowed, `and is allowed (composing: ${composing})`);
+      // It writes its own file and never the Engine, so there is nothing to take a window for and
+      // nothing for a live session to be stopped over.
+      check(!decision.maintenance, `without asking for the Engine (composing: ${composing})`);
+      check(decision.error === "", `and without a refusal (composing: ${composing})`);
+    }
   }
-  // Only this one. A single edit made in the settings window is a word the user is watching for in
-  // the list beside it; queueing that would leave the list unchanged until the keyboard next
-  // started, which looks exactly like the edit having been lost.
+  // Ordinary settings edits still go directly to the Engine: the user is watching the list beside
+  // that form, and queueing them would look exactly like the edit having been lost.
   for (const operation of ["list", "edit", "import", "export", "retry", "dismiss_failure"]) {
     check(
       !DictionaryMaintenancePolicy.decide(operation, false).queued,

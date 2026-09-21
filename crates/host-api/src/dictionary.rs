@@ -115,6 +115,11 @@ enum Operation {
         replacement: Option<Entry>,
         request_id: String,
     },
+    QueueEdit {
+        previous: Option<Entry>,
+        replacement: Option<Entry>,
+        request_id: String,
+    },
     Import {
         kind: Kind,
         format: String,
@@ -450,8 +455,8 @@ pub fn dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Value, String
                 serde_json::to_value(&report.first_failures).map_err(|error| error.to_string())?;
             Ok(result)
         }
-        Operation::ImportPersonal { .. } => {
-            Err("personal dictionary import requires the Android queue".into())
+        Operation::QueueEdit { .. } | Operation::ImportPersonal { .. } => {
+            Err("personal dictionary operation requires the mobile queue".into())
         }
         Operation::Reset => {
             let _access = DictionaryAccess::try_maintenance(
@@ -606,6 +611,11 @@ pub fn personal_dictionary_request_json(bytes: &[u8]) -> Result<serde_json::Valu
             }))
         }
         Operation::Edit {
+            previous,
+            replacement,
+            request_id,
+        }
+        | Operation::QueueEdit {
             previous,
             replacement,
             request_id,

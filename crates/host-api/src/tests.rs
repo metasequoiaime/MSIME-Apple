@@ -4358,7 +4358,7 @@ fn importing_a_personal_dictionary_file_queues_instead_of_taking_the_engine_lock
         "format": "msime-personal-dictionary",
         "version": 1,
         "entries": [
-            {"kind": "pinyin", "key": "shuishan", "value": "水杉", "weight": 100},
+            {"kind": "pinyin", "key": "shui'shan", "value": "水杉", "weight": 100},
             {"kind": "quickPhrase", "key": "zjd", "value": "在家等", "weight": 100},
         ],
     })
@@ -4401,6 +4401,65 @@ fn importing_a_personal_dictionary_file_queues_instead_of_taking_the_engine_lock
     let again =
         read(unsafe { msime_client_personal_dictionary_request(second.as_ptr(), second.len()) });
     assert_eq!(again["value"]["pending_count"], 3);
+
+    // A cloud word selected for local download uses the same durable queue, but is normalized by
+    // the Engine before it is persisted. The settings page may therefore send the cloud spelling
+    // verbatim without becoming a second author of pinyin validation rules.
+    let cloud = json!({
+        "options": options,
+        "action": {
+            "operation": "queue_edit",
+            "previous": null,
+            "replacement": {
+                "kind": "pinyin",
+                "key": "NI HAO",
+                "value": "拟好",
+                "weight": 100_000,
+            },
+            "request_id": "ui-cloud",
+        },
+    })
+    .to_string();
+    let downloaded =
+        read(unsafe { msime_client_personal_dictionary_request(cloud.as_ptr(), cloud.len()) });
+    assert_eq!(downloaded["value"]["pending_count"], 4);
+    let state: serde_json::Value = serde_json::from_slice(
+        &std::fs::read(directory.path().join("PersonalDictionary/sync.json")).unwrap(),
+    )
+    .unwrap();
+    assert_eq!(state["requests"][3]["replacement"]["key"], "ni'hao");
+
+    let invalid_cloud = json!({
+        "options": options,
+        "action": {
+            "operation": "queue_edit",
+            "previous": null,
+            "replacement": {
+                "kind": "pinyin",
+                "key": "nihao",
+                "value": "坏词",
+                "weight": 100_000,
+            },
+            "request_id": "ui-cloud-invalid",
+        },
+    })
+    .to_string();
+    assert_eq!(
+        read(unsafe {
+            msime_client_personal_dictionary_request(invalid_cloud.as_ptr(), invalid_cloud.len())
+        })["ok"],
+        false
+    );
+    assert_eq!(
+        serde_json::from_slice::<serde_json::Value>(
+            &std::fs::read(directory.path().join("PersonalDictionary/sync.json")).unwrap(),
+        )
+        .unwrap()["requests"]
+            .as_array()
+            .unwrap()
+            .len(),
+        4
+    );
 
     // A file this host cannot read is refused before anything is queued, so a malformed import
     // cannot leave the queue half-written.

@@ -982,7 +982,7 @@ class SettingsBridge {
     return this.accountBridge.request(action);
   }
 
-  /** Add one explicitly selected cloud entry through the Engine's existing maintenance boundary. */
+  /** Validate and queue one explicitly selected cloud entry for the keyboard's idle worker. */
   cloudDictionaryDownload(entryDocument: string): string {
     if (this.context === undefined) {
       return JSON.stringify({ ok: false, error: 'settings context unavailable' });
@@ -1007,7 +1007,7 @@ class SettingsBridge {
       };
       this.cloudDownloadRequest += 1;
       const request: LocalDictionaryEditRequest = {
-        operation: 'edit',
+        operation: 'queue_edit',
         previous: null,
         replacement: replacement,
         request_id: `cloud-download-${this.cloudDownloadRequest}`

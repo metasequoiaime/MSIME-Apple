@@ -4,16 +4,15 @@ const MUTATING_OPERATIONS: string[] = ["edit", "import", "retry", "dismiss_failu
 /**
  * The operations that go to the queue instead of the Engine.
  *
- * Importing a file is the one request whose timing the user chooses freely: they are as likely to
- * do it with the keyboard up as with it down, and "dictionary maintenance busy" is not an answer
- * to "add these words". The queued route writes a file the keyboard drains the next time it starts
- * a session, which is the one moment no session is open.
+ * Importing a file and downloading an explicitly selected cloud entry are requests whose timing
+ * the user chooses freely: they are as likely to do it with the keyboard up as with it down, and
+ * "dictionary maintenance busy" is not an answer to "add these words". The queued route writes a
+ * file the keyboard drains in bounded idle turns between Engine sessions.
  *
- * Only this one. An edit made in the settings window is a single word the user is watching for in
- * the list beside it, and sending that through a queue would show the list unchanged until the
- * keyboard next started — which looks exactly like the edit having been lost.
+ * Ordinary settings edits still go directly to the Engine: the user is watching the list beside
+ * that form, and sending those through a queue would leave it unchanged until an idle turn.
  */
-const QUEUED_OPERATIONS: string[] = ["import_personal"];
+const QUEUED_OPERATIONS: string[] = ["import_personal", "queue_edit"];
 
 export interface DictionaryMaintenanceDecision {
   maintenance: boolean;
