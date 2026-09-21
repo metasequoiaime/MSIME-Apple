@@ -75,7 +75,7 @@ impl PersonalWord {
                         || (self.kind == PersonalWordKind::QuickPhrase && byte.is_ascii_digit())
                 })
             }
-            PersonalWordKind::English => self.key.bytes().all(|byte| byte.is_ascii_alphabetic()),
+            PersonalWordKind::English => super::english_code_is_well_formed(&self.key),
         };
         if self.key.is_empty()
             || self.key.len() > key_limit

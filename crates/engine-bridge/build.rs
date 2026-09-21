@@ -10,6 +10,26 @@ fn prepare_engine() {
     let script = PathBuf::from("../../scripts/fetch_engine.py");
     println!("cargo:rerun-if-changed=../../engine-lock.json");
     println!("cargo:rerun-if-changed={}", script.display());
+    // And every overlay the lock names. An overlay rewrites Engine source, so editing one changes
+    // what gets compiled - but the lock file it is listed in does not change, so without this the
+    // build script does not run, the tree is not re-prepared, and the binary keeps the old rule
+    // while the source on disk shows the new one. That is how a test that should fail passes.
+    //
+    // Read by scanning rather than by parsing: a build script that parsed this would need a JSON
+    // dependency of its own, and what is wanted is one array of file names out of a file this
+    // repository writes.
+    if let Ok(lock) = std::fs::read_to_string("../../engine-lock.json") {
+        if let Some(rest) = lock.split_once("\"overlay_scripts\"").map(|(_, rest)| rest) {
+            if let Some(list) = rest
+                .split_once('[')
+                .and_then(|(_, rest)| rest.split_once(']'))
+            {
+                for name in list.0.split('"').filter(|piece| piece.ends_with(".py")) {
+                    println!("cargo:rerun-if-changed=../../{name}");
+                }
+            }
+        }
+    }
     // An offline build of a tree that is already prepared has nothing to do here, and no network to
     // do it with. Verification has already happened for that tree; it is the lock's own record.
     if std::env::var_os("MSIME_SKIP_ENGINE_FETCH").is_some() {

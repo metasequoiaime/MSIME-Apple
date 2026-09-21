@@ -922,7 +922,7 @@ IBus 一侧另有一处顺带修正：非 raw 样式此前把 `text.size()`（�
 
 **核对确认不是缺口的一项：保留用户数据。** 四张表的每一次编辑都经 `edit_personal_dictionary` 落进 `personal_journal.user_dictionary_operations`，带 `user_inserted=1`、`display` 列（英文表取词本身），删除写成 `operation='delete'`；换代时 `stage_dictionary_state` 把这张表重放进新一代。来源在设置页里手工调 `record_user_insert` / `record_upsert` 做同一件事。两边都保得住，且本仓这条路对四种类型一视同仁。
 
-**记一处引擎侧的差异，本仓改不了：英文表的「词」与「显示」不能不同。** 来源的 `english_words(word,display,weight)` 是两列各自写入，`IsAsciiWord` 只管 word，允许连字符与撇号，因此 `dont` / `don't` 这种「编码是字母、显示带撇号」的行在来源能存。本仓走引擎的个人词库路径，而引擎要求 `lowercase(value) == key` 且 key 只能是字母，于是这类行会在引擎那一步被拒（导入时按行计失败并报出行号，不是静默）。改它要动 `engine-lock.json`，影响面覆盖全部平台，照本表既有规矩单独决定，不在本批做。
+**记一处引擎侧的差异（~~本仓改不了~~ 已在 2026-09-21 做掉，见本表末尾那批；当时写的原因也是错的）：英文表的「词」与「显示」不能不同。** 来源的 `english_words(word,display,weight)` 是两列各自写入，`IsAsciiWord` 只管 word，允许连字符与撇号，因此 `dont` / `don't` 这种「编码是字母、显示带撇号」的行在来源能存。本仓走引擎的个人词库路径，而引擎要求 `lowercase(value) == key` 且 key 只能是字母，于是这类行会在引擎那一步被拒（导入时按行计失败并报出行号，不是静默）。当时写的是「改它要动 `engine-lock.json`，影响面覆盖全部平台，照本表既有规矩单独决定」——**这个理由不成立**：来源自己那份引擎里这条校验一字不差，没有更新的引擎可提；差别在来源的导入根本不走这条校验。已用第四个 overlay 做掉。
 
 验证：新增两条共享解析器用例（0 权重留在下限、相反列序被读出且标记）、一条设置页用例（`swapped` 的说明文案）、并把 `host-api/examples/dictionary_requests.rs` 这条真实引擎往返扩成「`QQ` + 权重 0 存成 `qq` + 权重 1、按 `qq` 打得出来、再用大写那条原样删掉」。反向验证三处（去掉折叠、去掉权重下限、去掉解析器的下限）各自红在对应断言上。顺带重新生成了 HarmonyOS 的设置页打包产物——共享 UI 改了文案，那个 bundle 的门禁会因此报陈旧。
 
@@ -2160,3 +2160,19 @@ if let Some(route) = launch_route_from_args(&args) { ... }
 所以 `--quick` 现在会自己找 Sparkle：找到就配置 `target/macos-isolated` 并补上 configure 唯一还缺的那半——`cargo check` 不产出静态库，先 `cargo build -p msime-host-api`。删掉构建目录重跑验证过这条分支真的会走到。**macOS 从「永远 skipped」变成每次 `--quick` 都真编译**，本批的 Swift 改动就是这么验的：产物 `MSIMEBackend.dylib` 里查得到新文案、查不到旧文案。完整套件 129 个用例通过。
 
 **三、顺带纠正上一批一句写错的话。** 上一批说「退格退回上一段选择、分段退格删掉上一段」需要 Engine 侧的选择历史与「客户端能应用回复」的协商、macOS 没有那层协商、留待单独评估。**这句是错的。** 那层协商在本仓不是 TSF 回复而是 `phrase_preedit`（`retreat_phrase_selection` 的注释就写着「Here that condition is `phrase_preedit`」），共享运行时早已实现两条规则并各有用例（61 个运行时用例通过），而 macOS 既请求了 `phrase_preedit`（`InputController.mm:2980`）也把两个键路由到了命令 12/13/14（宿主用例在 `ShortcutTest.mm:1599`）。**这两条在 macOS 上一直是活的**，原记录已就地改正。写「留待评估」之前该先查一遍共享层有没有人已经做了。
+
+### 英文词的「编码」与「词」终于可以不同（2026-09-21）
+
+对照表开头「需要所有者拍板」那一栏里的第一条，本批做掉了：**`dont` 现在能打出 `don't`**。
+
+**先把此前写错的原因纠正过来。** 第二十四批把它记成「要动 `engine-lock.json`、影响面覆盖全部平台、照规矩单独决定」。去翻来源自己那份引擎（引擎早已搬进来源仓库的 `engine/`，独立 engine 仓冻结在本仓锁的那个 commit）才发现：**那条校验在来源里一字不差**，`normalized != entry.key` 就在它自己的 `personal_dictionary.cpp` 里。没有更新的引擎可提，所以「等一个 lock 提升」等不到东西。
+
+真正的差别是**走哪扇门**：来源的 `dictionary_manager.cpp` 直接把 `word` / `display` 绑进 `english_words` 的 INSERT，再自己调 `record_user_insert` 记一笔journal，**从不经过那个校验函数**；本仓所有个人词条写入都走引擎的请求/回执路径，而正是这条路上有校验。两种做法各有代价，本仓这条给的是重试、冲突检测、换代重放与云同步——不该为一类词条在旁边另开一条写入路径。
+
+**所以改的是规则，不是通路**：第四个 overlay `scripts/apply_engine_english_display.py`，把英文分支放宽成来源 `IsAsciiWord` 的那条（编码是字母/连字符/撇号，词只要非空——非空在上面的通用边界里早就查过了）。底下的表本来就放得下：`english_words(word, display, weight)` 是两列，`apply_english` 也一直在写 display，卡住的只有一个 `if`。放宽只增不减，此前合法的条目全部照旧合法，没有任何已存词库会因此失效。
+
+**同一条规则在本仓写了五份**（导入解析器、PersonalWord 传输校验、账号校验的两处、host-api 自己的条目检查）。我先改了四处，真引擎往返就在第五处红了——`e-mail` 被 host-api 挡下，报的还是那句既不说字段也不说原因的「invalid dictionary entry」。五处现在都接到 `dictionary::english_code_is_well_formed` 一个判据上。
+
+**证据是真引擎往返，不是逻辑回归**：`host-api/examples/dictionary_requests.rs` 扩了三段——`dont`/`don't` 存得进且**按两段文本列出来**（不是折成一段）、带连字符的 `e-mail` 存得进、以及最关键的一条：Shift+Y 进临时英文后打 `dont`，候选里真的出现 `don't`。两条都能原样删掉、列表回到空。反向验证过：把 overlay 从 lock 里摘掉，红的正是「英文词可以不同于编码」那一条。
+
+**顺带修掉这套 overlay 机制自己的一个陷阱，它差点让我把反向验证做成假的。** 摘掉 overlay 后第一次重跑，用例**照样通过**——因为 `cargo` 根本没重建：`build.rs` 只把 `engine-lock.json` 和 `fetch_engine.py` 列为重建依赖，而 `fetch_engine.py` 的准备标记只含 overlay 脚本的**文件名**不含内容。两者合起来的后果是：**改了某个 overlay 的正文，树不会重做、产物不会重建，磁盘上的源码显示新规则而二进制里跑的是旧规则**。现在标记按脚本内容哈希，build.rs 也把 lock 里列出的每个 overlay 列为重建依赖（用扫描而不是解析，免得给构建脚本加一个 JSON 依赖）。验证方式是只改 overlay 正文、文件名不动，重跑后树与产物都跟上了。

@@ -60,7 +60,7 @@ impl ImportKind {
             ImportKind::QuickPhrase => key
                 .bytes()
                 .all(|byte| byte.is_ascii_lowercase() || byte.is_ascii_digit()),
-            ImportKind::English => key.bytes().all(|byte| byte.is_ascii_alphabetic()),
+            ImportKind::English => super::english_code_is_well_formed(key),
         }
     }
 }
@@ -494,11 +494,26 @@ mod tests {
             parse(ImportKind::Wubi, "windows", "abcde\t你好\n", LIMIT),
             Err(ImportError::NoUsableRows)
         );
-        // English keys are letters only. Both columns have to be unusable as a key, because a file
-        // whose columns are the other way round is read that way rather than refused.
+        // A digit is not part of an English code. Both columns have to be unusable as a key,
+        // because a file whose columns are the other way round is read that way rather than
+        // refused.
         assert_eq!(
             parse(ImportKind::English, "standard", "h3llo\th3llo\n", LIMIT),
             Err(ImportError::NoUsableRows)
+        );
+        // A hyphen and an apostrophe are, and the word beside the code is its own text: `dont`
+        // types out `don't`, which is the row the reference's own importer exists to accept.
+        assert_eq!(
+            parse_ok(
+                ImportKind::English,
+                "windows",
+                "dont\tdon't\ne-mail\te-mail\n"
+            )
+            .entries
+            .iter()
+            .map(|entry| (entry.key.as_str(), entry.value.as_str()))
+            .collect::<Vec<_>>(),
+            vec![("dont", "don't"), ("e-mail", "e-mail")]
         );
         // Quick phrase keys allow digits.
         assert_eq!(

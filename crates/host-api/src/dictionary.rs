@@ -868,7 +868,7 @@ fn validate_entry(entry: &Entry) -> Result<(), String> {
             b.is_ascii_lowercase()
                 || (matches!(entry.kind, Kind::QuickPhrase) && b.is_ascii_digit())
         }),
-        Kind::English => entry.key.bytes().all(|b| b.is_ascii_alphabetic()),
+        Kind::English => msime_client_core::dictionary::english_code_is_well_formed(&entry.key),
     };
     if entry.key.is_empty()
         || entry.key.len() > key_limit
