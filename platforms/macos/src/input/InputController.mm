@@ -663,6 +663,11 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     MSIMEAppearancePreferences *_appearance;
     BOOL _wubiCodeHintEnabled;
     BOOL _capsLock;
+    // A physical Backspace hold that began while this controller owned a
+    // composition stays ours after one repeat deletes the last preedit byte.
+    // Otherwise the next repeat falls through to the client and starts
+    // deleting document text even though the user never released the key.
+    BOOL _backspaceHoldArmed;
     NSUInteger _requestedPageSize;
     BOOL _skinShowsSelectedBar;
     NSInteger _armedGlossColumn;
@@ -3233,6 +3238,7 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     // A delayed callback from the previous client must not tear down the
     // active client's composition, panels, monitoring or pending modifier tap.
     if (!sender || sender != _activeClient) return;
+    _backspaceHoldArmed = NO;
     msime_macos_diagnostic_write("focus_out");
     _voicePermissionToken = nil;
     _voiceHoldShortcut.reset();
@@ -3366,7 +3372,7 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         _capsLock = capsLock;
         [self refreshFloatingToolbarState];
     }
-    if (!sender) { _voicePermissionToken = nil; [_voiceOverlay dismissFailure]; _modifierTap.reset(); _voiceHoldShortcut.reset(); return NO; }
+    if (!sender) { _voicePermissionToken = nil; [_voiceOverlay dismissFailure]; _modifierTap.reset(); _voiceHoldShortcut.reset(); _backspaceHoldArmed = NO; return NO; }
     [self ensureAppearance];
     if (sender != _activeClient) {
         [_voiceOverlay dismissFailure];
@@ -3383,6 +3389,7 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         [self flushPendingPairedClosing];
         _pairedPunctuation.clear();
         [self resetSmartPunctuationState];
+        _backspaceHoldArmed = NO;
         // Clear the previous client's marked text before accepting the new focus.
         [self apply:[_session setFocused:NO error:nil]];
         _activeClient = sender;
@@ -3433,10 +3440,21 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     if (event.type != NSEventTypeKeyDown) return NO;
     [_appearance lockActiveInputMode];
     if (event.keyCode == 51) {
+        const BOOL compositionActive = [_view[@"editing_text"] length] || [_view[@"candidates"] count];
+        BOOL suppressEscapedRepeat = NO;
+        if (!event.isARepeat) {
+            _backspaceHoldArmed = compositionActive;
+        } else suppressEscapedRepeat = _backspaceHoldArmed && !compositionActive;
         if (_lastSmartPunctuation) {
             _smartPunctuationRejected = YES;
             _rejectedSmartPunctuation = _lastSmartPunctuation;
             _lastSmartPunctuation = 0;
+        }
+        if (suppressEscapedRepeat) {
+            // The same hold already consumed the composition. Keep consuming
+            // its repeats locally until a fresh Backspace press re-evaluates
+            // ownership; no Engine request or document edit is needed here.
+            return YES;
         }
     } else if (_smartPunctuationRejected && event.characters.length == 1 &&
                [event.characters characterAtIndex:0] != _rejectedSmartPunctuation) {
