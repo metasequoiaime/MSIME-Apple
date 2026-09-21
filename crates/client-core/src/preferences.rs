@@ -895,8 +895,15 @@ pub enum PreeditStyle {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "snake_case")]
 pub enum UiBackend {
+    /// `d2d` is what the Windows factory configuration writes and what the reference's own
+    /// `IsSupported` accepts, so the two halves of this product disagreed on the spelling of their
+    /// default: a document carrying it was rejected outright rather than read.
     #[default]
+    #[serde(alias = "d2d")]
     Direct2d,
+    /// The reference treats `webview` and `web` as the same choice, having written both at
+    /// different times. Reading them costs nothing and keeps a profile from resetting.
+    #[serde(alias = "webview", alias = "web")]
     Webview2,
 }
 

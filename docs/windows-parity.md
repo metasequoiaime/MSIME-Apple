@@ -1823,3 +1823,20 @@ if let Some(route) = launch_route_from_args(&args) { ... }
 反向验证过：去掉翻转那一行，第 33 行立刻红。
 
 这批没有改任何行为，只是把一处「错了很显眼、却谁都没测」的地方钉住。同样的扫法剩下的 67 个文件多数是 SwiftUI 视图与窗口控制器，要 UI 夹具才谈得上验证，不在本批范围。
+
+增量记录（2026-09-21，Windows 第四十批：候选窗 WebView2 后端的可移植那一半）：目标起点 `66710ebf1`。
+
+上一批的记账里有 16 个文件记成「有意没有」，其中最大的一块是候选窗的第二套渲染后端。这一批把其中**可移植且可验证**的部分迁过来，并修正三条记错的账。
+
+**先修正三条错账。** `skin_css_policy` 被我写成「属于 WebView2 渲染器，本仓没有」——错的。它回答的是「第三方皮肤 CSS 进入 webview 文档时，里面的 URL 允许做什么」，而本仓**正在**把皮肤 CSS 送进 webview（皮肤页的工具栏预览），对应物是 `packages/ui/src/skin/skin-toolbar-css.ts`，而且比来源那版更完整：它把不受信任的样式表解析进构造样式表而不是拼接、加 `@scope`、按 `hasUnresolvedCssResource` 丢掉资源没解析成功的声明、隔离动画、并且构造样式表本身就会丢弃 `@import`。记账现在指向它。
+
+**迁过来的是文档侧的两个契约**，放共享层（`crates/client-core/src/candidate_document.rs`），因为里面没有一行是 Windows 特有的：
+
+- `SplitCandidateTemplatePayload` / `InflateCandidateTemplate`：槽 0 是编码串、槽 1–9 是当前页候选，用 `,` 连接，而颜文字里合法地含逗号，所以写入方把字面逗号转义成 ``。填充时候选不足 10 个就在**第一个未使用槽的 `<!--nAnchor-->` 处截断**——空行根本不输出，而不是输出后用 CSS 藏起来。
+- `InlineWebViewProtocolScripts`：把 schema/runtime 两个契约脚本内联进页面，并把源码里的 `</` 转义成 `<\/`——那个序列会提前闭合外层 `script` 元素，解析器不管它是不是在 JavaScript 字符串里。
+
+**一个只有动手做才会发现的细节**：整份候选窗文档（605 行）里全是 JavaScript 的花括号，拿去做 `fmt::format` 会直接抛错。被填充的其实是 `candwnd/body/` 下那个 59 行的**片段**——本仓早就把它拍平成 `*_dark.html` / `*_dark_measure.html` 贮存在 `packages/ui/src/upstream/candidate-themes/` 下了。所以除了合成模板的用例，还加了一个直接读**本仓贮存的那份片段**、用真实 payload 渲染、断言三条候选各自出现在自己的行号里、并且第 4–9 行被整段切掉的用例。此前没有任何东西读过那个文件，它悄悄漂移不会有人发现。
+
+**顺带修掉一个本仓自己内部对不上的地方。** `ui_backend_policy` 说三种拼法（`webview2` / `webview` / `web`）都算 WebView2，其余回落原生。本仓 Windows 侧根本不读这个键（它是记录在案的 RUST_ONLY 契约键），但共享的 `UiBackend` 类型**读不了本仓自己出厂配置里写的 `d2d`**：`serde` 的 `snake_case` 只认 `direct2d`。实测确认 `d2d` / `webview` / `web` 三个值都是 `unknown variant` 错误，而偏好文档解析失败不是丢一个字段、是整份回落。加上只读的 serde 别名（写出去仍然只有一种拼法），并用例钉住五种拼法都读得了、未知值仍然报错。反向验证：去掉 `d2d` 别名即报红。
+
+**没迁的是什么，说清楚。** 剩下 12 个文件里核心是 `windows_webview2.cpp`（5326 行）：WebView2 合成控制器、不抢焦点的宿主窗口、把候选数据送进文档的资源处理器。这台机器上既没有 Windows 宿主，交叉构建用的又是 MinGW，而 WebView2 SDK 是面向 MSVC 的——也就是说那 5000 行在这里**一行都编译不了、一个字节都验证不了**。按本仓的证据分级，那会是一整批只有「读起来像对的」这一级证据的代码。它是下一个增量，不是这一批能负责地合进来的东西。
