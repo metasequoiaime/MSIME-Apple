@@ -484,6 +484,55 @@ fn second_launch_without_a_route_activates_the_settings_window() {
     );
 }
 
+/// The pre-paint window colour is the page's own, and stays that way.
+///
+/// A window background cannot read CSS, so the two values live in Rust as well. Duplicated
+/// constants drift silently and the symptom - a one-frame flash of the wrong colour when a window
+/// opens - is the kind of thing nobody files a bug about. This reads the stylesheet and compares.
+#[test]
+fn chrome_background_matches_the_shared_stylesheet() {
+    let stylesheet = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../../packages/ui/src/styles.css");
+    let text = std::fs::read_to_string(&stylesheet)
+        .unwrap_or_else(|error| panic!("{}: {error}", stylesheet.display()));
+    let declared: Vec<&str> = text
+        .lines()
+        .filter_map(|line| line.trim().strip_prefix("--chrome-bg:"))
+        .map(|value| value.trim().trim_end_matches(';'))
+        .collect();
+    // Dark first, light second, in the order the stylesheet declares its two schemes.
+    assert_eq!(
+        declared,
+        vec!["#202020", "#f3f3f3"],
+        "the stylesheet's --chrome-bg values moved; update the constants beside this test"
+    );
+
+    for (color, expected) in [
+        (super::CHROME_BACKGROUND_DARK, "#202020"),
+        (super::CHROME_BACKGROUND_LIGHT, "#f3f3f3"),
+    ] {
+        assert_eq!(
+            format!("#{:02x}{:02x}{:02x}", color.0, color.1, color.2),
+            expected
+        );
+        assert_eq!(color.3, 0xff, "an opaque window, not a translucent one");
+    }
+
+    assert_eq!(
+        super::chrome_background(Some(tauri::Theme::Dark)),
+        super::CHROME_BACKGROUND_DARK
+    );
+    assert_eq!(
+        super::chrome_background(Some(tauri::Theme::Light)),
+        super::CHROME_BACKGROUND_LIGHT
+    );
+    // No theme is the case this exists to improve on, so it takes the platform's own default.
+    assert_eq!(
+        super::chrome_background(None),
+        super::CHROME_BACKGROUND_LIGHT
+    );
+}
+
 #[test]
 fn dictionary_mutations_quiesce_but_reads_do_not() {
     assert!(super::dictionary_action_requires_quiesce(
@@ -671,16 +720,19 @@ fn typing_statistics_status_reports_file_availability_without_content() {
     let missing_json = serde_json::to_value(missing).unwrap();
     assert_eq!(missing_json["availability"], "neverWritten");
     assert!(missing_json["lastWrittenMs"].is_null());
-    assert_eq!(missing_json["statistics"]["enabled"], true);
+    // Off is what a fresh profile has, following the reference, which also ships recording off.
+    assert_eq!(missing_json["statistics"]["enabled"], false);
 
-    let disabled = store.set_enabled(false).unwrap();
-    let ready = super::typing_statistics_status(&store, disabled)
+    // Turning it on writes the file, which is what moves availability off `neverWritten` - the
+    // flag and the availability are reported from the same document but are not the same fact.
+    let enabled = store.set_enabled(true).unwrap();
+    let ready = super::typing_statistics_status(&store, enabled)
         .ok()
         .unwrap();
     let ready_json = serde_json::to_value(ready).unwrap();
     assert_eq!(ready_json["availability"], "ready");
     assert!(ready_json["lastWrittenMs"].is_number());
-    assert_eq!(ready_json["statistics"]["enabled"], false);
+    assert_eq!(ready_json["statistics"]["enabled"], true);
 }
 
 #[cfg(target_os = "linux")]

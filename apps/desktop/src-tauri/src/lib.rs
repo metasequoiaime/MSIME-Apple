@@ -2158,6 +2158,31 @@ fn windows_restart_payload() -> Vec<u8> {
         .collect()
 }
 
+/// The colour a window wears before its page has painted anything.
+///
+/// A window is on screen the moment it is created, but the webview has nothing to show until the
+/// bundle has loaded and rendered, and an empty webview is painted in the platform's default -
+/// white on Windows, whatever theme the user runs. The reference covers that gap with a themed
+/// Direct2D splash aligned to the settings frame (`settings_splash.cpp`, and one per panel). The
+/// same gap closes here by handing the window the colour the page is about to paint anyway: there
+/// is then nothing to see rather than a white flash.
+///
+/// These are `--chrome-bg` from the shared stylesheet, duplicated because a window background
+/// cannot read CSS. `chrome_background_matches_the_shared_stylesheet` fails if they drift.
+pub(crate) const CHROME_BACKGROUND_DARK: tauri::window::Color =
+    tauri::window::Color(0x20, 0x20, 0x20, 0xff);
+pub(crate) const CHROME_BACKGROUND_LIGHT: tauri::window::Color =
+    tauri::window::Color(0xf3, 0xf3, 0xf3, 0xff);
+
+/// Unknown theme takes the light colour: that is the platform default this is correcting, so a
+/// wrong guess there is no worse than doing nothing.
+pub(crate) fn chrome_background(theme: Option<tauri::Theme>) -> tauri::window::Color {
+    match theme {
+        Some(tauri::Theme::Dark) => CHROME_BACKGROUND_DARK,
+        _ => CHROME_BACKGROUND_LIGHT,
+    }
+}
+
 fn launch_route_from_args(args: &[String]) -> Option<SurfaceRoute> {
     args.iter().find_map(|argument| {
         argument
@@ -3319,6 +3344,11 @@ pub fn run() {
                 }
             });
             app.manage(PanelInputState::default());
+            // Before the settings page paints. The window is declared in tauri.conf.json, so this
+            // is the first chance to colour it, and the theme is only knowable once it exists.
+            if let Some(main) = app.get_webview_window("main") {
+                let _ = main.set_background_color(Some(chrome_background(main.theme().ok())));
+            }
             #[cfg(any(target_os = "linux", target_os = "windows"))]
             {
                 let linger = DesktopSettingsLinger::default();
