@@ -1354,6 +1354,105 @@ static void TestKeypadDecimal(MSIMEAppearancePreferences *appearance) {
 // pick one the way they pick a candidate; a single sense commits straight away. Both Linux front
 // ends follow it. This host had neither: Ctrl+Enter fell into "any Ctrl chord finishes the
 // composition and goes back to the application", so the only thing it did was commit the pinyin.
+// Japanese converts with Space and commits with Enter.
+//
+// Romaji is not what the user typed; かな is. This host sent MSIME_COMMIT_RAW on Enter for every
+// scheme, which in Japanese commits `nihon` where the user meant にほん - and Space committed the
+// first conversion outright, so the second one could not be reached at all. Both are what every
+// Japanese input method does differently, and both touch hosts here already did it correctly.
+static void TestJapaneseConversionKeys(MSIMEAppearancePreferences *appearance) {
+    ModeController *controller = [ModeController alloc];
+    ShortcutSession *session = [ShortcutSession new];
+    ShortcutClient *client = [ShortcutClient new];
+    TestCandidatePanel *panel = [TestCandidatePanel new];
+    panel.visible = YES;
+    [controller setValue:appearance forKey:@"appearance"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:panel forKey:@"panel"];
+    appearance.englishMode = NO;
+
+    NSDictionary *(^composing)(NSInteger) = ^(NSInteger scheme) {
+        // The identities carry the session and generation the view is on; the host refuses any
+        // candidate whose identity does not match what is on screen.
+        return @{ @"focused": @YES, @"scheme": @(scheme), @"editing_text": @"nihon",
+                  @"caret_position": @5, @"reading": @"にほん", @"session": @4, @"generation": @7,
+                  @"candidates": @[@{ @"text": @"日本", @"highlighted": @YES,
+                                      @"id": @{ @"session": @4, @"generation": @7, @"index": @0 } },
+                                   @{ @"text": @"にほん",
+                                      @"id": @{ @"session": @4, @"generation": @7, @"index": @1 } },
+                                   @{ @"text": @"二本",
+                                      @"id": @{ @"session": @4, @"generation": @7, @"index": @2 } }] };
+    };
+    // Stepping through candidates leaves the list on screen with the highlight moved, which is
+    // what the Engine answers; a stub that dropped the candidates would take the identities the
+    // next Enter has to name.
+    session.nextTransition = @{ @"handled": @YES, @"view": composing(3) };
+
+    // Enter with no conversion started commits the reading, not the romaji.
+    [controller setValue:composing(3) forKey:@"view"];
+    session.lastCommand = UINT32_MAX;
+    assert([controller handleEvent:ModeKey(36, 0, NO) client:client]);
+    assert(session.lastCommand == MSIME_COMMIT_READING);
+
+    // Space starts the conversion instead of committing it: nothing reaches the Engine, because
+    // the first candidate is already the highlighted one.
+    [controller setValue:composing(3) forKey:@"view"];
+    session.lastCommand = UINT32_MAX;
+    NSUInteger selectsBefore = session.selectCalls;
+    assert([controller handleEvent:ModeKey(49, 0, NO) client:client]);
+    assert(session.lastCommand == UINT32_MAX && session.selectCalls == selectsBefore);
+
+    // The next press steps to the following candidate.
+    assert([controller handleEvent:ModeKey(49, 0, NO) client:client]);
+    assert(session.lastCommand == MSIME_NEXT_CANDIDATE);
+
+    // Enter now takes the candidate that was stepped to rather than the reading.
+    assert([controller handleEvent:ModeKey(36, 0, NO) client:client]);
+    assert(session.selectCalls == selectsBefore + 1);
+    assert(session.selectedGeneration == 7 && session.selectedIndex == 1);
+
+    // Stepping past the end comes back to the first candidate.
+    [controller setValue:composing(3) forKey:@"view"];
+    for (int press = 0; press < 3; ++press)
+        assert([controller handleEvent:ModeKey(49, 0, NO) client:client]);
+    session.lastCommand = UINT32_MAX;
+    assert([controller handleEvent:ModeKey(49, 0, NO) client:client]);
+    assert(session.lastCommand == MSIME_FIRST_CANDIDATE);
+
+    // Editing the reading abandons the conversion: Enter is the kana again.
+    [controller setValue:composing(3) forKey:@"view"];
+    assert([controller handleEvent:ModeKey(49, 0, NO) client:client]);
+    NSMutableDictionary *edited = [composing(3) mutableCopy];
+    edited[@"editing_text"] = @"nihong";
+    [controller setValue:edited forKey:@"view"];
+    session.lastCommand = UINT32_MAX;
+    assert([controller handleEvent:ModeKey(36, 0, NO) client:client]);
+    assert(session.lastCommand == MSIME_COMMIT_READING);
+
+    // Every other scheme keeps the keys it had: Space commits the candidate, Enter the raw input.
+    [controller setValue:composing(0) forKey:@"view"];
+    session.lastCommand = UINT32_MAX;
+    assert([controller handleEvent:ModeKey(49, 0, NO) client:client]);
+    assert(session.lastCommand == MSIME_COMMIT_CANDIDATE);
+    [controller setValue:composing(0) forKey:@"view"];
+    session.lastCommand = UINT32_MAX;
+    assert([controller handleEvent:ModeKey(36, 0, NO) client:client]);
+    assert(session.lastCommand == MSIME_COMMIT_RAW);
+
+    // A Japanese composition with no candidates leaves Space alone, and a chord is never this.
+    NSMutableDictionary *bare = [composing(3) mutableCopy];
+    bare[@"candidates"] = @[];
+    [controller setValue:bare forKey:@"view"];
+    session.lastCommand = UINT32_MAX;
+    assert([controller handleEvent:ModeKey(49, 0, NO) client:client]);
+    assert(session.lastCommand == MSIME_COMMIT_CANDIDATE);
+    [controller setValue:composing(3) forKey:@"view"];
+    session.lastCommand = UINT32_MAX;
+    [controller handleEvent:ModeKey(36, NSEventModifierFlagControl, NO) client:client];
+    assert(session.lastCommand != MSIME_COMMIT_READING);
+}
+
 static void TestGlossSensePage(MSIMEAppearancePreferences *appearance) {
     ModeController *controller = [ModeController alloc];
     ShortcutSession *session = [ShortcutSession new];
@@ -5208,6 +5307,7 @@ int main(int argc, char **argv) {
         TestFullWidth(defaults, appearance);
         TestSessionOptions();
         TestKeypadDecimal(appearance);
+        TestJapaneseConversionKeys(appearance);
         TestGlossSensePage(appearance);
         TestSegmentEditingChords(appearance);
         TestKeypadOperators(appearance);

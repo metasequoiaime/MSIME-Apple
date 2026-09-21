@@ -789,6 +789,16 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 用例：新增 `crates/input-runtime/examples/mixed_slots.rs` 用 `ni` 这个输入（同时产出中文、英文 `ni`、emoji、颜文字，且两种联网源都可用）逐个验四种排布。
 
+增量记录（2026-09-21，日语模式的回车在桌面宿主上提交的是罗马字）：顺着「哪些引擎命令没有任何宿主路由」这条线索查下去，`MSIME_COMMIT_READING`（命令 11）只有触摸宿主在用。查完发现这不是「多出来的能力没人用」，而是**桌面三家都把日语的回车做错了**。
+
+事实先摆出来，用真实引擎实测（`crates/input-runtime/examples/japanese_conversion.rs`）：日语方案下打 `nihon`，`editing_text` 是罗马字 `nihon`，`reading` 是假名 `にほん`；`CommitRaw` 提交 `"nihon"`，`CommitReading` 提交 `にほん`。而 macOS、Linux 的 IBus 宿主、本仓 Windows 宿主的回车**对所有方案一律发 `MSIME_COMMIT_RAW`**——于是日语用户按回车得到的是罗马字。空格那一侧同样错：macOS 的空格发 `MSIME_COMMIT_CANDIDATE`，直接把第一条转换上屏，用户根本够不到第二条。
+
+正确规则本仓自己就有，写在两个触摸宿主里（Android 的 `MSIMEInputService.enter`/`space`、iOS 的 `KeyboardViewController.handleReturn`）：空格是「変換」——第一次按开始转换、之后逐条步进；回车提交用户停在的那一条，没按过空格就提交假名。本批把这条规则搬到 macOS：新增 `handleJapaneseConversionKey:`，只在方案为日语、有组字、且是裸键时接管空格与回车，其余方案与带修饰键的组合一个字节都不变；编辑读音会作废正在进行的转换（与触摸宿主保留 `japaneseConversionEditingText` 是同一件事）。
+
+用例八条（`ShortcutTest`）：没按空格时回车发 `COMMIT_READING`、第一次空格不提交也不发命令、第二次空格发 `NEXT_CANDIDATE`、之后回车按候选身份 select 到步进到的那一条、步过末尾回到第一条、改读音后回车又变回假名、非日语方案空格与回车维持原样、日语但没有候选时空格照旧。反向验证两处（整条路由短路、把 `COMMIT_READING` 换回 `COMMIT_RAW`）都红在同一条断言上。
+
+Linux 与本仓 Windows 宿主的同一处仍未改：两边的回车都在各自的键路由里写死 `MSIME_COMMIT_RAW`，改动形状与 macOS 相同但要各自的用例，留作下一批。
+
 增量记录（2026-09-21，把「设置项是否齐全」这个问题一次性关掉，并让它保持关着）：来源把整个配置面写在一个文件里——`installer/default_config/config.default.toml`，17 个段 178 个键——这是两边现有材料里最接近「这个产品一共能被设定哪些事」的清单。本表此前按页、按控件比过好几轮，每轮都在重复同样两类假结果：**看着缺的其实是有意改名**（`y_mode` 就是 `local_modes.temporary_english`、`cn_en_mixed_input_min_chars` 就是 `mixed_input.minimum_prefix`），**看着有的其实只是某个无关标识符里恰好含同一个词**。
 
 这一批把 178 个键逐个落到本仓的共享偏好或共享设置页上，结论是**全部有着落**：172 个对得上字段（多数是改名或改成嵌套结构），6 个明确没有目标并写明理由——4 个是来源自己的配置模板写了、它自己代码里一次都没读的死键（`enable_emoji`、`clean_mode`、`soft_keyboard.background_img`、`utility.study_english_word`，都只出现在 `config.toml` 里），1 个是来源 Server 在新旧两套会话实现之间切换的内部开关（`input.session_backend`，本仓只有一套运行时），1 个是词库目录（本仓按宿主运行时选项传，不是偏好）。

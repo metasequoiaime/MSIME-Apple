@@ -650,6 +650,11 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     // Ctrl+Enter turns the highlighted candidate's gloss into a page of its senses. The composition
     // is untouched while that page is up - nothing was typed - so leaving it only needs the view
     // that was on screen put back, which is what `_glossSenseSavedView` holds.
+    // Japanese conversion in progress: which candidate Space has stepped to, and the reading it
+    // belongs to. A reading that has changed is a different conversion, so the pair travels
+    // together - the mobile hosts keep exactly this pair for the same reason.
+    NSNumber *_japaneseConversionIndex;
+    NSString *_japaneseConversionReading;
     NSArray<NSString *> *_glossSenses;
     NSDictionary *_glossSenseSavedView;
     NSUInteger _glossSenseCursor;
@@ -884,6 +889,76 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
 // or the arrow keys. Nothing was typed to get there, so leaving the page only has to put back the
 // view that was on screen. This host had no such page at all - Ctrl+Enter fell into "any Ctrl chord
 // finishes the composition and goes back to the application", so it committed what was being typed.
+// Space converts and Enter takes what is on screen - the way every Japanese input method works.
+//
+// Romaji is not what the user typed; かな is. The Engine keeps both (`editing_text` is the romaji,
+// `reading` the kana it converts to), and it has one command for each ending: `MSIME_COMMIT_RAW`
+// gives the romaji back and `MSIME_COMMIT_READING` gives the kana. Every desktop host here sent
+// COMMIT_RAW on Enter for every scheme, so Japanese input committed `nihon` where the user meant
+// にほん - measured against the real Engine, not inferred. The touch hosts already do this
+// correctly (`MSIMEInputService.enter` and `KeyboardViewController.handleReturn`), which is where
+// the rule below comes from.
+//
+// - Space starts the conversion rather than committing it: the first press means "convert", and
+//   further presses step through the candidates. This host committed the first candidate outright,
+//   so there was no way to reach the second.
+// - Enter commits the candidate the user stepped to, or, if they never pressed Space, the kana.
+//
+// Returns NO for every other scheme and for keys this does not claim, which then run as before.
+- (BOOL)handleJapaneseConversionKey:(NSEvent *)event client:(id)sender {
+    if (!_session || !_activeClient || event.type != NSEventTypeKeyDown) return NO;
+    if ([_view[@"scheme"] integerValue] != 3) return NO;
+    if (event.modifierFlags & (NSEventModifierFlagControl | NSEventModifierFlagOption |
+                               NSEventModifierFlagCommand | NSEventModifierFlagShift))
+        return NO;
+    NSString *reading = [_view[@"editing_text"] isKindOfClass:NSString.class] ? _view[@"editing_text"] : @"";
+    if (!reading.length) return NO;
+    NSArray *candidates = [_view[@"candidates"] isKindOfClass:NSArray.class] ? _view[@"candidates"] : @[];
+    // Editing the reading abandons the conversion that was running on the old one.
+    if (![reading isEqualToString:_japaneseConversionReading ?: @""]) {
+        _japaneseConversionIndex = nil;
+        _japaneseConversionReading = nil;
+    }
+    if (event.keyCode == 49) { // Space
+        if (!candidates.count) return NO;
+        if (!_japaneseConversionIndex) {
+            // The first press is the conversion itself. The panel already highlights the first
+            // candidate, so nothing has to move - what changes is that Enter now means "take it".
+            _japaneseConversionIndex = @0;
+            _japaneseConversionReading = [reading copy];
+            return YES;
+        }
+        const NSUInteger next = _japaneseConversionIndex.unsignedIntegerValue + 1;
+        const BOOL wraps = next >= candidates.count;
+        _japaneseConversionIndex = @(wraps ? 0 : next);
+        NSDictionary *transition = [_session command:wraps ? MSIME_FIRST_CANDIDATE : MSIME_NEXT_CANDIDATE
+                                               error:nil];
+        if (transition) [self apply:transition];
+        return YES;
+    }
+    if (event.keyCode != 36 && event.keyCode != 76) return NO; // Return, keypad Return
+    if (_japaneseConversionIndex) {
+        NSDictionary *chosen = _japaneseConversionIndex.unsignedIntegerValue < candidates.count
+            ? candidates[_japaneseConversionIndex.unsignedIntegerValue] : nil;
+        NSDictionary *identifier = chosen[@"id"];
+        _japaneseConversionIndex = nil;
+        _japaneseConversionReading = nil;
+        if (!MSIMECurrentCandidateIdentity(identifier, _view)) return NO;
+        NSDictionary *transition = [_session selectGeneration:[identifier[@"generation"] unsignedLongLongValue]
+                                                        index:[identifier[@"index"] unsignedIntegerValue]
+                                                        error:nil];
+        if (!transition) return NO;
+        [self apply:transition];
+        return YES;
+    }
+    NSDictionary *transition = [_session command:MSIME_COMMIT_READING error:nil];
+    // The Engine answers nothing for a composition it cannot read back as kana; that key then
+    // means what it always meant.
+    if (!transition || ![transition[@"handled"] boolValue]) return NO;
+    [self apply:transition];
+    return YES;
+}
+
 - (BOOL)glossSensePageActive { return _glossSenses.count > 0; }
 
 - (NSArray<NSString *> *)sensesForHighlightedCandidate {
@@ -3661,6 +3736,9 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
             return YES;
         }
     }
+    // Japanese converts with Space and commits with Enter; every other scheme keeps the mapping
+    // below. See handleJapaneseConversionKey: for why the two keys cannot be the shared ones.
+    if ([self handleJapaneseConversionKey:event client:sender]) return YES;
     switch (event.keyCode) {
         case 48: return NO;
         case 51: command = MSIME_BACKSPACE; break;
@@ -3762,6 +3840,12 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     if (!transition || !_activeClient) return;
     // An Engine answer replaces the view the sense page was drawn over, so the page goes with it.
     [self discardGlossSensePage];
+    // A commit ends the conversion it belonged to; so does a composition that has gone away.
+    if ([transition[@"commit"] isKindOfClass:NSString.class] ||
+        ![transition[@"view"][@"editing_text"] length]) {
+        _japaneseConversionIndex = nil;
+        _japaneseConversionReading = nil;
+    }
     const auto sourceOverride = _typingSourceOverride
         ? static_cast<msime::mac::TypingSource>(_typingSourceOverride.integerValue)
         : msime::mac::TypingSource::Unknown;
