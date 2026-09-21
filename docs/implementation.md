@@ -1467,6 +1467,10 @@ iOS 真机装机走的是产品宿主 `MSIMEClientApp`，不是 Tauri CLI：`bui
 
 本地验证：`msime-engine-bridge`、`msime-input-runtime`、`msime-host-api` 三个 crate 共 188 个测试通过、0 失败；C++ Engine 0.27.0 重新编译通过；`ninekey_dictionary` 探针在补齐后的资源目录上通过。证据分级到第五级的签名与安装——App 与键盘扩展以开发证书签名、装上 iPhone 17（iOS 27）、启动成功；键盘扩展的启用与真实编辑器验收由使用者在设备上进行，不在本条记录的实测范围内。CI 保持禁用。
 
+### macOS 原生 provider 设置写回共享快照
+
+原生外观页统一到 `MetasequoiaVoiceProviderSettingsWindow` 后，该窗口保存会更新输入法进程实际读取的 `MSIMEClientVoice*` 默认值，但它发出的 provider 通知此前只取消在途录音，不会走外观设置原有的 CAS 快照保存。于是共享 `preferences.json` 仍保留旧 `voice_input`，下次偏好重载可能把刚选的 provider、endpoint、model 与录音设备覆盖回去。provider 通知现在先让已在途的旧快照读取失效，在撤销录音状态后再请求 `persistAppearancePreferences`；该路径继续复用现有的合并、revision 冲突重试与失败诊断，不另写第二套配置文件事务。宿主替身回归断言每次 provider 保存恰好发起一次共享快照持久化，并验证通知前启动的旧读取不能再应用；共享语音字段映射仍由既有 `shared-voice-preferences` 用例覆盖。
+
 ### Linux 安装后的首次配置，以及组件名去掉 -preview
 
 把 Fcitx5 插件真装到一台 Arch 机器上用起来，暴露的不是代码缺陷而是产品缺口：安装完成之后没有任何产品侧的路径能把状态拼起来。词库要么在配置阶段用 `-DMSIME_ENGINE_RESOURCES` 随包装好，要么只能在仓库检出里跑 `install_resources` 示例去取——只拿到安装包的用户凑不齐词库，而没有词库一个候选都出不来；更糟的是词库锁此前只在随包提供词库时才安装，也就是最需要它的那种安装里反而没有。状态目录同样：`msime-client-prepare` 要两个绝对路径，用户得先知道该给哪两个。这些步骤此前只存在于对话和 README 的零散段落里，等于每个用户各自重做一遍。

@@ -2144,6 +2144,32 @@ static void TestPreferenceRevisionSkipsUnchangedDocuments() {
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
+@interface VoiceSettingsPersistenceController : AsyncPreferencesController
+@property(nonatomic) NSUInteger persistenceRequests;
+@end
+@implementation VoiceSettingsPersistenceController
+- (void)persistAppearancePreferences { ++self.persistenceRequests; }
+@end
+
+static void TestProviderSettingsPersistTheSharedSnapshot() {
+    VoiceSettingsPersistenceController *controller = [VoiceSettingsPersistenceController alloc];
+    ControlledPreferenceRead *read = [ControlledPreferenceRead new];
+    read.snapshot = @{@"revision":@7, @"preferences":@{@"voice_input":@{@"asr_provider":@"openai"}}};
+    controller.reads = @[read];
+    controller.appliedPreferences = [NSMutableArray array];
+    AsyncPreferenceSession *session = [AsyncPreferenceSession new];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:[ShortcutClient new] forKey:@"activeClient"];
+    [controller setValue:@"/synthetic-preferences" forKey:@"preferencesDirectory"];
+    [controller reloadPreferences];
+    assert(dispatch_semaphore_wait(read.started, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC)) == 0);
+    [controller voiceProviderSettingsChanged:nil];
+    assert(controller.persistenceRequests == 1);
+    dispatch_semaphore_signal(read.released);
+    WaitForPreferenceCompletions(controller, 1);
+    assert(controller.appliedPreferences.count == 0 && session.updates == 0);
+}
+
 // The synthetic keyboard these cases drive: a key is held between its down and its up, which is what
 // the detector now asks about instead of trusting its own record. The record can lose a release -
 // focus moves while a key is down, or the host is told about fewer event kinds - and a stale entry
@@ -5381,6 +5407,7 @@ int main(int argc, char **argv) {
         TestStaleClientDeactivation();
         TestPreferenceClientGeneration();
         TestPreferenceRevisionSkipsUnchangedDocuments();
+        TestProviderSettingsPersistTheSharedSnapshot();
         TestFullWidth(defaults, appearance);
         TestSessionOptions();
         TestKeypadDecimal(appearance);
