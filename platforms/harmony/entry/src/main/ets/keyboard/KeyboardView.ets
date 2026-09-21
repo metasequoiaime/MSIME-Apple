@@ -1338,7 +1338,14 @@ struct KeyboardView {
       // jobs, which is how iOS arranges it and why the composition line above stays reserved. A
       // candidate window has no idle state to fill, and the surfaces those icons open are reached
       // from the app on a machine that has room for it.
-      if (this.candidates.length > 0) {
+      if ((!KeyboardFormFactor.isDesktop() || this.desktop === DesktopSurface.SCREEN_KEYBOARD)
+          && this.scheme.touchKeyboardLayout === 'handwriting'
+          && this.handwritingCandidates.length > 0) {
+        // OCR results are candidates too. Putting them in this shared strip avoids stacking an
+        // otherwise-idle shortcut row above a private row inside the canvas, and gives every result
+        // a full touch target in a horizontally scrollable lane.
+        this.handwritingCandidateRow()
+      } else if (this.candidates.length > 0) {
         this.candidateRow()
       } else if (this.englishSuggestions.length > 0) {
         // The same row the candidates use. Direct English has no composition, so the strip is idle
@@ -1369,6 +1376,34 @@ struct KeyboardView {
       }
     }
     .width('100%')
+  }
+
+  /** OCR results use the shared candidate lane, but select through the recognizer rather than Engine. */
+  @Builder
+  handwritingCandidateRow() {
+    Scroll() {
+      Row({ space: this.keySpacing() }) {
+        ForEach(this.handwritingCandidates, (candidate: string) => {
+          Text(candidate)
+            .fontSize(this.settings.candidateFontSize)
+            .fontFamily(this.candidateFontFamily())
+            .fontColor(this.candidateTextColor())
+            .accessibilityText(`手写候选：${candidate}`)
+            .textAlign(TextAlign.Center)
+            .width(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP)
+            .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP)
+            .backgroundColor(this.handwritingSkin.keyBackground)
+            .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
+            .onClick(() => this.chooseHandwriting(candidate))
+        }, (candidate: string): string => candidate)
+      }
+      .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP)
+    }
+    .scrollable(ScrollDirection.Horizontal)
+    .scrollBar(BarState.Off)
+    .width('100%')
+    .height(KeyboardMetrics.CANDIDATE_ROW_HEIGHT_VP)
+    .align(Alignment.Start)
   }
 
   /** Read-only English completions, drawn where the candidates would be. */
@@ -2787,9 +2822,9 @@ struct KeyboardView {
         .id(HANDWRITING_CANVAS_ID)
         .accessibilityText('手写区域，用手指书写')
         .width('100%')
-        // Of the panel, not of the whole surface: the action row now takes the rest, and a canvas
-        // measured against the surface would push the tool row and the candidates off the bottom.
-        .height(this.gridHeight() * 0.58)
+        // Candidates now live in the shared strip above this face, so the canvas can take every bit
+        // left after the tools and an occasional status line instead of keeping their old row empty.
+        .layoutWeight(1)
         .backgroundColor(this.handwritingSkin.keyBackground)
         .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
         .borderWidth(this.handwritingSkin.borderWidth)
@@ -2797,23 +2832,6 @@ struct KeyboardView {
         .onReady(() => this.redrawHandwriting())
         .onTouch((event: TouchEvent): void => this.handwritingTouch(event))
 
-      if (this.handwritingCandidates.length > 0) {
-        Row({ space: KeyboardMetrics.KEY_SPACING_VP }) {
-          ForEach(this.handwritingCandidates, (candidate: string) => {
-            Text(candidate)
-              .fontSize(KeyboardMetrics.KEY_FONT_SIZE)
-              .fontColor(this.handwritingSkin.keyForeground)
-              .accessibilityText(`手写候选：${candidate}`)
-              .textAlign(TextAlign.Center)
-              .layoutWeight(1)
-              .padding({ top: 8, bottom: 8 })
-              .backgroundColor(this.handwritingSkin.keyBackground)
-              .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
-              .onClick(() => this.chooseHandwriting(candidate));
-          }, (candidate: string): string => candidate)
-        }
-        .width('100%')
-      }
       if (this.handwritingNotice.length > 0) {
         Text(this.handwritingNotice)
           .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
