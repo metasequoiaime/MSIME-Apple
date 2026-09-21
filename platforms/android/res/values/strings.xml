@@ -21,4 +21,18 @@
     <string name="tryout_switch_ime">当前不是水杉输入法？点此切换</string>
     <string name="preparation_running">正在准备词库，首次启动需要一点时间…</string>
     <string name="preparation_failed">词库准备失败，键盘只能直接输入。点此重试。</string>
+    <string name="about_title">关于水杉</string>
+    <string name="about_tagline">让输入更自然</string>
+    <string name="about_version">版本 %1$s (%2$s)</string>
+    <string name="about_section_msime">关于水杉</string>
+    <string name="about_msime_footer">水杉是一款开源输入法，支持多种输入方案和个性化皮肤。手机与电脑共用输入引擎，各平台提供原生输入体验。</string>
+    <string name="about_section_help">帮助与开源</string>
+    <string name="about_section_privacy">隐私</string>
+    <string name="about_privacy_footer">键盘默认离线。仅在你使用 AI 或语音时，将本次文字或录音发送到所配置的服务。账号、云同步和皮肤社区按你启用的功能联网。手写首次联网下载模型，之后在设备上识别；Google ML Kit 会发送性能及使用统计，不会上传笔迹或识别结果。</string>
+    <string name="desktop_title">电脑版下载</string>
+    <string name="desktop_headline">在电脑上，也用水杉</string>
+    <string name="desktop_subtitle">选择你的电脑系统，获取官方安装包与使用指南。</string>
+    <string name="desktop_open_release">打开官方发布页</string>
+    <string name="desktop_copy_link">复制发布页链接</string>
+    <string name="desktop_copied">链接已复制</string>
 </resources>
