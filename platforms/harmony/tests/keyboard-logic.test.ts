@@ -203,6 +203,7 @@ import {
   AccountCloudBridge,
   AccountSessionStore,
   AccountTransport,
+  AccountTransportResponse,
 } from "../entry/src/main/ets/account/AccountCloudBridge";
 import {
   AiSkinCancelled,
@@ -5446,6 +5447,161 @@ group("account and cloud clipboard bridge keeps secrets native", () => {
         "dictionary offsets are bounded before transport",
       );
     });
+});
+
+group("account access tokens rotate once and cannot outlive logout", () => {
+  const savedSession = (access: string, refresh: string, expiresAt: number) =>
+    JSON.stringify({
+      access_token: access.repeat(64),
+      refresh_token: refresh.repeat(64),
+      token_type: "Bearer",
+      expires_at: expiresAt,
+      user: { id: "synthetic-user", display_name: "Test", created_at: "2026-01-01" },
+    });
+  const refreshBody = (access: string) =>
+    JSON.stringify({
+      access_token: access.repeat(64),
+      refresh_token: "f".repeat(64),
+      token_type: "Bearer",
+      expires_in: 900,
+      user: { id: "synthetic-user", display_name: "Test", created_at: "2026-01-01" },
+    });
+
+  let stored: string | null = savedSession("a", "b", Date.now() - 1);
+  const refreshDeferred: { resolve?: (response: AccountTransportResponse) => void } = {};
+  let refreshCalls = 0;
+  const transport: AccountTransport = {
+    request: async (_method, path, token) => {
+      if (path === "/v1/auth/refresh") {
+        refreshCalls += 1;
+        return await new Promise<AccountTransportResponse>((resolve) => {
+          refreshDeferred.resolve = resolve;
+        });
+      }
+      check(token === "c".repeat(64), "authenticated work receives the rotated access token");
+      return {
+        status: 200,
+        body: '{"user":{"id":"synthetic-user","display_name":"Test","created_at":"2026-01-01"}}',
+      };
+    },
+  };
+  const store: AccountSessionStore = {
+    load: () => stored,
+    save: (value) => {
+      stored = value;
+    },
+    clear: () => {
+      stored = null;
+    },
+  };
+  const bridge = new AccountCloudBridge(transport, store);
+  void bridge.handle('{"operation":"status"}').then((reply) => {
+    check(
+      JSON.parse(reply).value.user.id === "synthetic-user",
+      "an expired access token does not erase the refreshable account",
+    );
+  });
+  const first = bridge.handle('{"operation":"profile"}');
+  const second = bridge.handle('{"operation":"profile"}');
+  check(refreshCalls === 1, "concurrent account callers share one refresh request");
+  refreshDeferred.resolve?.({ status: 200, body: refreshBody("c") });
+  void Promise.all([first, second]).then((replies) => {
+    check(
+      replies.every((reply) => JSON.parse(reply).ok === true),
+      "both callers resume after rotation",
+    );
+    check(
+      stored !== null && JSON.parse(stored).access_token === "c".repeat(64),
+      "rotated credentials replace the persisted session",
+    );
+  });
+
+  let lateStored: string | null = savedSession("d", "e", Date.now() - 1);
+  const lateDeferred: { resolve?: (response: AccountTransportResponse) => void } = {};
+  const lateBridge = new AccountCloudBridge(
+    {
+      request: async () =>
+        await new Promise<AccountTransportResponse>((resolve) => {
+          lateDeferred.resolve = resolve;
+        }),
+    },
+    {
+      load: () => lateStored,
+      save: (value) => {
+        lateStored = value;
+      },
+      clear: () => {
+        lateStored = null;
+      },
+    },
+  );
+  const late = lateBridge.handle('{"operation":"profile"}');
+  void lateBridge.handle('{"operation":"clear_expired"}').then(() => {
+    lateDeferred.resolve?.({ status: 200, body: refreshBody("f") });
+  });
+  void late.then((reply) => {
+    check(JSON.parse(reply).error === "account_cancelled", "logout rejects a late refresh result");
+    check(lateStored === null, "a late refresh cannot restore cleared storage");
+  });
+});
+
+group("a rejected account token refreshes and retries once", () => {
+  let stored: string | null = JSON.stringify({
+    access_token: "a".repeat(64),
+    refresh_token: "b".repeat(64),
+    token_type: "Bearer",
+    expires_at: Date.now() + 600000,
+    user: { id: "synthetic-user", display_name: "Test", created_at: "2026-01-01" },
+  });
+  const tokens: string[] = [];
+  let refreshCalls = 0;
+  const bridge = new AccountCloudBridge(
+    {
+      request: async (_method, path, token) => {
+        if (path === "/v1/auth/refresh") {
+          refreshCalls += 1;
+          return {
+            status: 200,
+            body: JSON.stringify({
+              access_token: "c".repeat(64),
+              refresh_token: "d".repeat(64),
+              token_type: "Bearer",
+              expires_in: 900,
+              user: {
+                id: "synthetic-user",
+                display_name: "Test",
+                created_at: "2026-01-01",
+              },
+            }),
+          };
+        }
+        tokens.push(token ?? "");
+        return token === "a".repeat(64)
+          ? { status: 401, body: "private failure" }
+          : {
+              status: 200,
+              body: '{"user":{"id":"synthetic-user","display_name":"Test","created_at":"2026-01-01"}}',
+            };
+      },
+    },
+    {
+      load: () => stored,
+      save: (value) => {
+        stored = value;
+      },
+      clear: () => {
+        stored = null;
+      },
+    },
+  );
+  void bridge.handle('{"operation":"profile"}').then((reply) => {
+    check(JSON.parse(reply).ok === true, "one unauthorized response is retried after refresh");
+    check(refreshCalls === 1, "a rejected access token rotates exactly once");
+    check(
+      JSON.stringify(tokens) === JSON.stringify(["a".repeat(64), "c".repeat(64)]),
+      "the retry uses the new token and never repeats the rejected one",
+    );
+  });
 });
 
 /** A schema declaring everything this host maps, which is what a caught-up server would send. */

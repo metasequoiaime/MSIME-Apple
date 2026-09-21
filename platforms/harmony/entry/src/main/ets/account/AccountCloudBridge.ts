@@ -35,6 +35,9 @@ type Session = {
 
 type Action = Record<string, unknown>;
 
+type CredentialReply = { token?: string; error?: string };
+type AuthorizedReply = { response?: AccountTransportResponse; error?: string };
+
 /**
  * The envelope ceiling, which is a first line rather than the real bound.
  *
@@ -258,11 +261,33 @@ function validateSession(value: unknown): value is Session {
   );
 }
 
+function sessionFromTokens(value: Action): Session | null {
+  if (
+    !validToken(value.access_token) ||
+    !validToken(value.refresh_token) ||
+    value.token_type !== "Bearer" ||
+    typeof value.expires_in !== "number" ||
+    !Number.isFinite(value.expires_in) ||
+    value.expires_in <= 0 ||
+    !validateUser(value.user)
+  ) {
+    return null;
+  }
+  return {
+    access_token: value.access_token,
+    refresh_token: value.refresh_token,
+    token_type: "Bearer",
+    expires_at: Date.now() + Math.max(1, value.expires_in) * 1000,
+    user: value.user,
+  };
+}
+
 export class AccountCloudBridge {
   private readonly transport: AccountTransport;
   private readonly store: AccountSessionStore;
   private session: Session | null = null;
   private generation = 0;
+  private refreshing: Promise<CredentialReply> | null = null;
 
   constructor(transport: AccountTransport, store: AccountSessionStore) {
     this.transport = transport;
@@ -286,7 +311,6 @@ export class AccountCloudBridge {
     try {
       switch (operation) {
         case "status":
-          if (this.session !== null && this.session.expires_at <= Date.now()) this.clearExpired();
           return success({ user: this.session?.user ?? null });
         case "providers":
           return this.requestPublic("GET", "/v1/auth/providers");
@@ -338,8 +362,7 @@ export class AccountCloudBridge {
    */
   currentUserId(): string | null {
     const session = this.session;
-    if (session === null || session.expires_at <= Date.now()) return null;
-    return session.user.id;
+    return session?.user.id ?? null;
   }
 
   /**
@@ -390,13 +413,15 @@ export class AccountCloudBridge {
 
   /** Native-only raw download used for bounded snapshot files; never exposed to the WebView. */
   async rawAuthenticated(method: string, path: string): Promise<AccountTransportResponse> {
-    const session = this.session;
-    if (session === null || session.expires_at <= Date.now()) return { status: 401, body: "" };
-    const generation = this.generation;
-    const response = await this.transport.request(method, path, session.access_token);
-    if (generation !== this.generation) return { status: 499, body: "" };
-    if (response.status === 401) this.clearExpired();
-    return response;
+    const result = await this.authorizedResponse(method, path);
+    if (result.response !== undefined) return result.response;
+    const status: number =
+      result.error === "account_cancelled"
+        ? 499
+        : result.error === "account_unauthorized"
+          ? 401
+          : 503;
+    return { status, body: "" };
   }
 
   private async requestCode(action: Action): Promise<string> {
@@ -423,32 +448,21 @@ export class AccountCloudBridge {
       !/^\d{6}$/.test(action.credential)
     )
       return error("account_invalid");
+    this.generation++;
+    this.refreshing = null;
+    const generation = this.generation;
     const response = await this.transport.request("POST", "/v1/auth/login", undefined, {
       challenge_id: action.challenge_id,
       credential: action.credential,
     });
+    if (generation !== this.generation) return error("account_cancelled");
     if (response.status < 200 || response.status >= 300) return error(mapStatus(response.status));
     const value = parseJson(response.body);
-    if (
-      value === null ||
-      !validToken(value.access_token) ||
-      !validToken(value.refresh_token) ||
-      value.token_type !== "Bearer" ||
-      typeof value.expires_in !== "number" ||
-      !validateUser(value.user)
-    ) {
-      return error("account_unavailable");
-    }
-    const session: Session = {
-      access_token: value.access_token,
-      refresh_token: value.refresh_token,
-      token_type: "Bearer",
-      expires_at: Date.now() + Math.max(1, value.expires_in) * 1000,
-      user: value.user,
-    };
+    if (value === null) return error("account_unavailable");
+    const session: Session | null = sessionFromTokens(value);
+    if (session === null) return error("account_unavailable");
     this.session = session;
     this.store.save(JSON.stringify(session));
-    this.generation++;
     return success({ user: session.user });
   }
 
@@ -705,16 +719,34 @@ export class AccountCloudBridge {
     authenticated: boolean,
     body?: Record<string, unknown>,
   ): Promise<string> {
-    const session = this.session;
-    const signedIn = session !== null && session.expires_at > Date.now();
-    if (authenticated && !signedIn) return error("community_unauthorized");
-    const generation = this.generation;
-    const token = signedIn && session !== null ? session.access_token : undefined;
-    const response = await this.transport.request(method, path, token, body);
-    if (generation !== this.generation) return error("community_cancelled");
-    if (response.status === 401 && signedIn) {
-      this.clearExpired();
-      return error("community_unauthorized");
+    let response: AccountTransportResponse;
+    if (authenticated) {
+      const result: AuthorizedReply = await this.authorizedResponse(method, path, body);
+      if (result.response === undefined) {
+        return error(
+          result.error === "account_cancelled"
+            ? "community_cancelled"
+            : result.error === "account_unauthorized"
+              ? "community_unauthorized"
+              : "community_unavailable",
+        );
+      }
+      response = result.response;
+    } else {
+      const generation: number = this.generation;
+      const currentToken: string | null = this.usableToken();
+      const credential: CredentialReply =
+        currentToken === null ? await this.credential() : { token: currentToken };
+      const token: string | undefined = credential.token;
+      response = await this.transport.request(method, path, token, body);
+      if (generation !== this.generation && credential.error !== "account_unauthorized") {
+        return error("community_cancelled");
+      }
+      // A public gallery stays public when an optional session expires. Retry without credentials
+      // rather than turning a browse into a sign-in error.
+      if ((response.status === 401 || response.status === 403) && token !== undefined) {
+        response = await this.transport.request(method, path, undefined, body);
+      }
     }
     if (response.status < 200 || response.status >= 300) {
       return error(communityStatus(response.status));
@@ -1104,22 +1136,106 @@ export class AccountCloudBridge {
     return this.response(response);
   }
 
+  /** Returns one current access token, sharing refresh-token rotation across concurrent callers. */
+  private async credential(rejectedToken?: string): Promise<CredentialReply> {
+    const usable: string | null = this.usableToken(rejectedToken);
+    if (usable !== null) return { token: usable };
+    const current = this.session;
+    if (current === null) return { error: "account_unauthorized" };
+    if (this.refreshing !== null) return await this.refreshing;
+    const generation = this.generation;
+    const flight: Promise<CredentialReply> = this.refresh(current.refresh_token, generation);
+    this.refreshing = flight;
+    try {
+      return await flight;
+    } finally {
+      if (this.refreshing === flight) this.refreshing = null;
+    }
+  }
+
+  private usableToken(rejectedToken?: string): string | null {
+    const current: Session | null = this.session;
+    if (
+      current === null ||
+      current.expires_at <= Date.now() + 30000 ||
+      rejectedToken === current.access_token
+    )
+      return null;
+    return current.access_token;
+  }
+
+  private async refresh(refreshToken: string, generation: number): Promise<CredentialReply> {
+    let response: AccountTransportResponse;
+    try {
+      response = await this.transport.request("POST", "/v1/auth/refresh", undefined, {
+        refresh_token: refreshToken,
+      });
+    } catch {
+      return { error: "account_unavailable" };
+    }
+    if (generation !== this.generation) return { error: "account_cancelled" };
+    if (response.status === 401 || response.status === 403) {
+      this.clearExpired();
+      return { error: "account_unauthorized" };
+    }
+    if (response.status < 200 || response.status >= 300) {
+      return { error: mapStatus(response.status) };
+    }
+    const value = parseJson(response.body);
+    if (value === null) return { error: "account_unavailable" };
+    const next: Session | null = sessionFromTokens(value);
+    if (next === null) return { error: "account_unavailable" };
+    if (generation !== this.generation) return { error: "account_cancelled" };
+    this.store.save(JSON.stringify(next));
+    this.session = next;
+    return { token: next.access_token };
+  }
+
+  /** Sends once with current credentials and retries one rejected token after rotation. */
+  private async authorizedResponse(
+    method: string,
+    path: string,
+    body?: Record<string, unknown>,
+    timeoutMs?: number,
+  ): Promise<AuthorizedReply> {
+    const currentToken: string | null = this.usableToken();
+    let credential: CredentialReply =
+      currentToken === null ? await this.credential() : { token: currentToken };
+    if (credential.token === undefined)
+      return { error: credential.error ?? "account_unauthorized" };
+    let token: string = credential.token;
+    let generation: number = this.generation;
+    let response: AccountTransportResponse = await this.transport.request(
+      method,
+      path,
+      token,
+      body,
+      timeoutMs,
+    );
+    if (generation !== this.generation) return { error: "account_cancelled" };
+    if (response.status !== 401 && response.status !== 403) return { response };
+    credential = await this.credential(token);
+    if (credential.token === undefined)
+      return { error: credential.error ?? "account_unauthorized" };
+    token = credential.token;
+    generation = this.generation;
+    response = await this.transport.request(method, path, token, body, timeoutMs);
+    if (generation !== this.generation) return { error: "account_cancelled" };
+    if (response.status === 401 || response.status === 403) {
+      this.clearExpired();
+      return { error: "account_unauthorized" };
+    }
+    return { response };
+  }
+
   private async authenticated(
     method: string,
     path: string,
     body?: Record<string, unknown>,
   ): Promise<string> {
-    const session = this.session;
-    if (session === null) return error("account_unauthorized");
-    const generation = this.generation;
-    if (session.expires_at <= Date.now()) return error("account_unauthorized");
-    const response = await this.transport.request(method, path, session.access_token, body);
-    if (generation !== this.generation) return error("account_cancelled");
-    if (response.status === 401 && generation === this.generation) {
-      this.clearExpired();
-      return error("account_unauthorized");
-    }
-    return this.response(response);
+    const result = await this.authorizedResponse(method, path, body);
+    if (result.response === undefined) return error(result.error ?? "account_unavailable");
+    return this.response(result.response);
   }
 
   /**
@@ -1137,22 +1253,9 @@ export class AccountCloudBridge {
     body?: Record<string, unknown>,
     timeoutMs?: number,
   ): Promise<{ value?: Action; error?: string }> {
-    const session = this.session;
-    if (session === null) return { error: "account_unauthorized" };
-    const generation = this.generation;
-    if (session.expires_at <= Date.now()) return { error: "account_unauthorized" };
-    const response = await this.transport.request(
-      method,
-      path,
-      session.access_token,
-      body,
-      timeoutMs,
-    );
-    if (generation !== this.generation) return { error: "account_cancelled" };
-    if (response.status === 401) {
-      this.clearExpired();
-      return { error: "account_unauthorized" };
-    }
+    const result = await this.authorizedResponse(method, path, body, timeoutMs);
+    if (result.response === undefined) return { error: result.error ?? "account_unavailable" };
+    const response: AccountTransportResponse = result.response;
     if (response.status < 200 || response.status >= 300)
       return { error: mapStatus(response.status) };
     const value = parseJson(response.body);
@@ -1165,16 +1268,9 @@ export class AccountCloudBridge {
     path: string,
     value: Record<string, unknown>,
   ): Promise<string> {
-    const session = this.session;
-    if (session === null) return error("account_unauthorized");
-    const generation = this.generation;
-    if (session.expires_at <= Date.now()) return error("account_unauthorized");
-    const response = await this.transport.request(method, path, session.access_token);
-    if (generation !== this.generation) return error("account_cancelled");
-    if (response.status === 401) {
-      this.clearExpired();
-      return error("account_unauthorized");
-    }
+    const result = await this.authorizedResponse(method, path);
+    if (result.response === undefined) return error(result.error ?? "account_unavailable");
+    const response: AccountTransportResponse = result.response;
     if (
       response.status < 200 ||
       response.status >= 300 ||
@@ -1196,6 +1292,7 @@ export class AccountCloudBridge {
   private clearExpired(): void {
     this.session = null;
     this.generation++;
+    this.refreshing = null;
     this.store.clear();
   }
 }
