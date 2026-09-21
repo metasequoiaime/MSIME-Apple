@@ -66,6 +66,25 @@ export class KeyAccessibilityPolicy {
     return "更多快捷设置";
   }
 
+  // The rest of the shortcut bar. These four had no name at all, which for a bar drawn entirely in
+  // icons means a screen reader announced nothing for four of its seven buttons. Each says what the
+  // button does rather than what it looks like, as the keys above do.
+  static emoji(): string {
+    return "表情与符号";
+  }
+
+  static voice(): string {
+    return "语音输入";
+  }
+
+  static geometry(): string {
+    return "键盘大小与间距";
+  }
+
+  static dismiss(): string {
+    return "收起键盘";
+  }
+
   /**
    * One candidate, numbered as it is shown.
    *

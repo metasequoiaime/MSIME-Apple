@@ -598,6 +598,29 @@ group("a key says what it does, not what it draws", () => {
     "and names the other direction when it is pointing back",
   );
   check(KeyAccessibilityPolicy.punctuation() === "常用标点", "the comma key names its long press");
+});
+
+group("every tool in the shortcut bar has a name", () => {
+  // The bar is drawn entirely in icons, so a button with no name is announced as nothing at all.
+  // Four of the seven were in that state: the policy had names for three and none for the rest.
+  const names: string[] = [
+    KeyAccessibilityPolicy.tools(),
+    KeyAccessibilityPolicy.emoji(),
+    KeyAccessibilityPolicy.voice(),
+    KeyAccessibilityPolicy.skin(),
+    KeyAccessibilityPolicy.scheme(),
+    KeyAccessibilityPolicy.geometry(),
+    KeyAccessibilityPolicy.dismiss(),
+  ];
+  check(names.length === 7, "seven buttons, seven names");
+  for (const name of names) {
+    check(name.trim().length > 0, "no button is left nameless");
+    check(
+      !/[←-⯿️\u{1F300}-\u{1FAFF}]/u.test(name),
+      "a name is words, not the glyph the button draws",
+    );
+  }
+  check(new Set(names).size === names.length, "and no two buttons answer to the same name");
 
   // Mid-composition space selects the highlighted candidate. Someone who cannot see the candidate
   // row has no other way to know the key changed meaning under them.
@@ -1401,6 +1424,34 @@ group("a one-shot shift is spent by the next letter", () => {
   check(state.consumeLetter() === true, "the letter spends it");
   check(state.mode() === LetterCaseMode.LOWERCASE, "and it falls back to lowercase");
   check(state.consumeLetter() === false, "a second letter has nothing to spend");
+});
+
+group("an automatic shift and a pressed one are told apart", () => {
+  // The keyboard now applies the capitalization policy on attach and after every text change, so
+  // the two have to be distinguishable: an automatic shift is recomputed from the text and must not
+  // be spent by the letter, or a capitals-only field would produce exactly one capital; a pressed
+  // one is the user's and must survive anything arriving before the letter that spends it.
+  const automatic = new EnglishLetterCaseState();
+  check(automatic.applyAutomatic(true) === true, "applying a shift is a change");
+  check(automatic.mode() === LetterCaseMode.SHIFTED, "and leaves the face shifted");
+  check(automatic.isAutomatic() === true, "the state says the shift was not pressed");
+  check(automatic.applyAutomatic(true) === false, "recomputing the same answer redraws nothing");
+
+  const pressed = new EnglishLetterCaseState();
+  pressed.toggle(1000);
+  check(pressed.mode() === LetterCaseMode.SHIFTED, "a tap shifts");
+  check(pressed.isAutomatic() === false, "and says so");
+  check(
+    pressed.applyAutomatic(false) === true,
+    "the rule is able to clear it, which is why the caller checks isAutomatic first",
+  );
+
+  const locked = new EnglishLetterCaseState();
+  locked.toggle(1000);
+  locked.toggle(1000 + EnglishLetterCaseState.CAPS_LOCK_INTERVAL_MILLIS);
+  check(locked.mode() === LetterCaseMode.CAPS_LOCK, "a double tap locks");
+  check(locked.applyAutomatic(false) === false, "and the rule cannot unlock it");
+  check(locked.mode() === LetterCaseMode.CAPS_LOCK, "the lock stands");
 });
 
 group("a double tap inside the interval locks, a slow one does not", () => {
@@ -2624,6 +2675,17 @@ group("return performs an editor action only when nothing else claimed it", () =
   check(ReturnKeyAction.title(send, false) === "发送", "the key says what it will do");
   check(ReturnKeyAction.title(send, true) === "换行", "a disabled action falls back to newline");
   check(ReturnKeyAction.title(0, false) === "换行", "an unspecified action is a newline");
+
+  // Kept as a description of the Android split rather than of this host: HarmonyOS hands the enter
+  // key type to sendKeyFunction and the framework resolves it, newline included, so nothing here
+  // has to choose. Measured — see the ALLOWED entry in test-harmony-unwired-symbols.py.
+  for (const action of [0, 1, 2, 3, 4, 5, 6, 7]) {
+    const newline: boolean = ReturnKeyAction.title(action, false) === "换行";
+    check(
+      ReturnKeyAction.shouldPerformEditorAction(action, false, false) === !newline,
+      "the split agrees with the face it would have drawn",
+    );
+  }
 });
 
 group("the Japanese variant key needs kana already composing", () => {

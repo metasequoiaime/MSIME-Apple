@@ -409,6 +409,7 @@ struct KeyboardView {
       // follow or it would claim a language the Engine is not composing in.
       this.english = KeyboardSession.shared.isEnglish();
       this.applyEditorFace();
+      this.applyAutomaticCase();
     };
     KeyboardSession.shared.onReplyContextChanged = (): void => {
       this.replyResults = [];
@@ -434,6 +435,8 @@ struct KeyboardView {
         this.clearDiagnosticLater();
       }
       this.english = state.english;
+      // After the text changed, which is when the caret may have arrived at a new word or sentence.
+      this.applyAutomaticCase();
       if (state.candidates.length === 0) {
         // The list belonged to a composition that no longer exists; keeping it on screen would offer
         // choices for something the user has already finished or abandoned.
@@ -511,11 +514,15 @@ struct KeyboardView {
     // uppercase letter is helpcode for the Engine, which is why the Engine is told the key was
     // shifted; with nothing composing it is only a capital, and in Chinese mode not even that.
     const held: boolean = this.caseMode !== LetterCaseMode.LOWERCASE;
+    // Read before the press, which produces the state change that recomputes the automatic shift.
+    const automatic: boolean = this.letterCase.isAutomatic();
     const shifted: boolean = KeyboardSession.shared.entersHelpcode(held)
       || (this.english && held);
     KeyboardSession.shared.press(letter.charCodeAt(0), shifted);
-    // A one-shot Shift is spent by the letter that follows it; Caps Lock is not.
-    if (this.caseMode === LetterCaseMode.SHIFTED) {
+    // A one-shot Shift is spent by the letter that follows it; Caps Lock is not. Neither is an
+    // automatic Shift: it is not spent but recomputed from the text, which the change this press
+    // just caused has already done. Clearing it here would give a capitals-only field one capital.
+    if (this.caseMode === LetterCaseMode.SHIFTED && !automatic) {
       this.letterCase.reset();
       this.caseMode = this.letterCase.mode();
     }
@@ -707,6 +714,29 @@ struct KeyboardView {
       === 'nine_key';
     KeyboardSession.shared.setNineKey(this.nineKey);
     this.show(candidate === KeyboardScheme.THOUGHTFUL_REPLY ? SURFACE_REPLY : SURFACE_NONE);
+  }
+
+  /**
+   * Shift the letter face when the editor asked for capitals and the caret is where they belong.
+   *
+   * A Shift the user pressed is theirs: EnglishLetterCaseState refuses to touch caps lock and
+   * reports whether anything changed, so this only redraws when it did. Asked on attach and after
+   * every text change, those being the two moments the answer can differ — a field that opens empty
+   * wants a capital, and so does the character after a full stop.
+   */
+  private applyAutomaticCase(): void {
+    if (!KeyboardSession.shared.capitalizes()) {
+      return;
+    }
+    // A Shift the user pressed stands until a letter spends it; only one this rule applied is its
+    // to recompute. Without this a candidate arriving between the Shift and the letter would clear
+    // the capital they asked for.
+    if (this.caseMode === LetterCaseMode.SHIFTED && !this.letterCase.isAutomatic()) {
+      return;
+    }
+    if (this.letterCase.applyAutomatic(KeyboardSession.shared.shouldShiftNextLetter())) {
+      this.caseMode = this.letterCase.mode();
+    }
   }
 
   /**
@@ -1353,30 +1383,36 @@ struct KeyboardView {
   @Builder
   shortcutBar() {
     Row() {
-      this.shortcutIcon($r('app.media.keyboard_brand'), this.isTools(), () => {
-        this.toggle(SURFACE_TOOLS);
-      });
-      this.shortcutIcon($r('app.media.tool_emoji'), this.surface === SURFACE_EMOJI, () => {
-        this.openEmojiSurface();
-      });
-      if (this.settings.voiceShortcut && this.voiceEnabled) {
-        this.shortcutText('🎙', this.surface === SURFACE_VOICE, () => {
-          this.show(SURFACE_VOICE);
-          if (!this.voiceBusy && this.voiceText.length === 0) {
-            this.startVoice();
-          }
+      this.shortcutIcon($r('app.media.keyboard_brand'), KeyAccessibilityPolicy.tools(),
+        this.isTools(), () => {
+          this.toggle(SURFACE_TOOLS);
         });
+      this.shortcutIcon($r('app.media.tool_emoji'), KeyAccessibilityPolicy.emoji(),
+        this.surface === SURFACE_EMOJI, () => {
+          this.openEmojiSurface();
+        });
+      if (this.settings.voiceShortcut && this.voiceEnabled) {
+        this.shortcutText('🎙', KeyAccessibilityPolicy.voice(),
+          this.surface === SURFACE_VOICE, () => {
+            this.show(SURFACE_VOICE);
+            if (!this.voiceBusy && this.voiceText.length === 0) {
+              this.startVoice();
+            }
+          });
       }
-      this.shortcutIcon($r('app.media.tool_skin'), this.surface === SURFACE_SKIN, () => {
-        this.toggle(SURFACE_SKIN);
-      });
-      this.shortcutIcon($r('app.media.tool_scheme'), this.surface === SURFACE_SCHEME, () => {
-        this.toggle(SURFACE_SCHEME);
-      });
-      this.shortcutIcon($r('app.media.tool_settings'), this.surface === SURFACE_GEOMETRY, () => {
-        this.toggle(SURFACE_GEOMETRY);
-      });
-      this.shortcutIcon($r('app.media.tool_dismiss'), false, () => {
+      this.shortcutIcon($r('app.media.tool_skin'), KeyAccessibilityPolicy.skin(),
+        this.surface === SURFACE_SKIN, () => {
+          this.toggle(SURFACE_SKIN);
+        });
+      this.shortcutIcon($r('app.media.tool_scheme'), KeyAccessibilityPolicy.scheme(),
+        this.surface === SURFACE_SCHEME, () => {
+          this.toggle(SURFACE_SCHEME);
+        });
+      this.shortcutIcon($r('app.media.tool_settings'), KeyAccessibilityPolicy.geometry(),
+        this.surface === SURFACE_GEOMETRY, () => {
+          this.toggle(SURFACE_GEOMETRY);
+        });
+      this.shortcutIcon($r('app.media.tool_dismiss'), KeyAccessibilityPolicy.dismiss(), false, () => {
         KeyboardSession.shared.dismiss();
       });
     }
@@ -1385,8 +1421,12 @@ struct KeyboardView {
     .justifyContent(FlexAlign.SpaceAround)
   }
 
+  /**
+   * One tool in the shortcut bar. The label is not optional here the way it is on a key: a key at
+   * least draws a character, and every one of these draws only an icon.
+   */
   @Builder
-  shortcutIcon(source: Resource, active: boolean, action: () => void) {
+  shortcutIcon(source: Resource, label: string, active: boolean, action: () => void) {
     Column() {
       Image(source)
         .width(SHORTCUT_ICON_VP)
@@ -1400,11 +1440,12 @@ struct KeyboardView {
     .layoutWeight(1)
     .height('100%')
     .justifyContent(FlexAlign.Center)
+    .accessibilityText(label)
     .onClick(action)
   }
 
   @Builder
-  shortcutText(face: string, active: boolean, action: () => void) {
+  shortcutText(face: string, label: string, active: boolean, action: () => void) {
     Column() {
       Text(face)
         .fontSize(SHORTCUT_ICON_VP - 2)
@@ -1415,6 +1456,8 @@ struct KeyboardView {
     .layoutWeight(1)
     .height('100%')
     .justifyContent(FlexAlign.Center)
+    // An emoji is a picture with a name nobody wants read out; 🎙 would be announced as "microphone".
+    .accessibilityText(label)
     .onClick(action)
   }
 
@@ -2693,6 +2736,10 @@ struct KeyboardView {
     .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
     .borderWidth(this.skin.borderWidth)
     .borderColor(this.skin.borderColor)
+    // The dimming is the whole explanation of why this key does nothing yet, and dimming is not
+    // something a screen reader conveys, so the disabled name says so in words.
+    .accessibilityText(JapaneseVariantPolicy.accessibilityLabel(
+      JapaneseVariantPolicy.enabled(this.japanese, this.symbols, this.editing.length > 0)))
     .onClick(() => {
       if (JapaneseVariantPolicy.enabled(this.japanese, this.symbols, this.editing.length > 0)) {
         this.show(SURFACE_VARIANTS);

@@ -9,6 +9,9 @@ import { CustomKeyboardSkin, CustomSkinDocument } from './skin/CustomKeyboardSki
 import { KeyboardFormFactor } from './KeyboardFormFactor';
 import { KeyboardScheme, PreferenceMapping, SchemeDefinition } from './KeyboardScheme';
 import { EditorPolicy, EditorTraits } from './input/EditorPolicy';
+import {
+  CapitalizationMode, EnglishCapitalizationPolicy
+} from './input/EnglishCapitalizationPolicy';
 import { WubiCodeHintPolicy } from './input/WubiCodeHintPolicy';
 import { KeyboardGeometry } from './KeyboardGeometry';
 import { FullWidthInputPolicy } from './input/FullWidthInputPolicy';
@@ -442,6 +445,11 @@ interface CandidateSkinImage {
 /** What every path that has no decoration to draw returns, rather than a fresh literal each time. */
 const NO_CANDIDATE_SKIN_IMAGE: CandidateSkinImage = { image: null, aspectRatio: 1 };
 
+// Enough for the sentence rule to walk back over trailing spaces and closing quotes to the mark that
+// ended the last sentence. A caret further than this from one is in the middle of a sentence by any
+// reading, and the call is made on every text change, so it stays bounded.
+const MAX_CAPITALIZATION_CONTEXT_CHARACTERS: number = 64;
+
 interface SkinResourceResponse {
   ok: boolean;
   value: SkinResourceValue;
@@ -737,6 +745,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   private traits: EditorTraits = {
     text: true, password: false, uri: false, email: false, noSuggestions: false
   };
+  /** What the attached editor asked for, already reconciled with the kind of field it is. */
+  private capitalization: CapitalizationMode = CapitalizationMode.NONE;
   private appearance: KeyboardPreferences = {
     dark: false,
     skinId: 'forest',
@@ -1185,6 +1195,69 @@ export class KeyboardSession implements HardwareKeyTarget {
     };
   }
 
+  /**
+   * Turns the platform's capitalize mode into the one the policy reasons about.
+   *
+   * Same reason traitsFor exists: the enumeration belongs to the runtime. It is optional in the
+   * attribute, and an editor that does not declare one is asking for nothing, which is also what a
+   * value this build has no name for means — the keyboard leaves the case alone rather than guessing.
+   */
+  private static capitalizationFor(
+    mode: inputMethodEngine.CapitalizeMode | undefined): CapitalizationMode {
+    if (mode === inputMethodEngine.CapitalizeMode.SENTENCES) {
+      return CapitalizationMode.SENTENCES;
+    }
+    if (mode === inputMethodEngine.CapitalizeMode.WORDS) {
+      return CapitalizationMode.WORDS;
+    }
+    if (mode === inputMethodEngine.CapitalizeMode.CHARACTERS) {
+      return CapitalizationMode.ALL_CHARACTERS;
+    }
+    return CapitalizationMode.NONE;
+  }
+
+  /**
+   * Whether the next English letter should arrive shifted.
+   *
+   * Two questions, both already ported and neither previously asked: what the editor wants, which
+   * EditorPolicy reconciles with the kind of field it is — an address is never capitalized whatever
+   * the platform says — and whether the text already there puts the caret at the start of a word or
+   * a sentence. Only English has a case to shift; Chinese composition has none, and asking while the
+   * Engine is composing would capitalize the pinyin rather than the result.
+   */
+  /**
+   * Whether this editor asks for automatic capitals at all.
+   *
+   * Separate from the question below because false here means do nothing, not shift nothing: an
+   * editor that wants no capitals has said nothing about the Shift the user pressed, and clearing it
+   * on their behalf would drop a capital they asked for.
+   */
+  capitalizes(): boolean {
+    return this.englishMode && this.capitalization !== CapitalizationMode.NONE;
+  }
+
+  shouldShiftNextLetter(): boolean {
+    if (!this.englishMode || this.capitalization === CapitalizationMode.NONE) {
+      return false;
+    }
+    if (this.capitalization === CapitalizationMode.ALL_CHARACTERS) {
+      return true;
+    }
+    if (this.inputClient === undefined || this.editing.length > 0) {
+      return false;
+    }
+    let context: string = '';
+    try {
+      context = this.inputClient.getForwardSync(MAX_CAPITALIZATION_CONTEXT_CHARACTERS);
+    } catch (error) {
+      // Without the text before the caret there is no way to tell a sentence start from the middle
+      // of one, and shifting on a guess is the more visible mistake.
+      KeyboardLog.error(`editor capitalization context unavailable: ${describeError(error)}`);
+      return false;
+    }
+    return EnglishCapitalizationPolicy.shouldShift(this.capitalization, context);
+  }
+
   /** Whether this editor should be composed through the Engine at all. */
   composes(): boolean {
     return EditorPolicy.useEngine(this.traits);
@@ -1443,7 +1516,16 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
   }
 
-  /** The return key, doing whatever this particular editor asked its return key to do. */
+  /**
+   * What Return does when no composition took it first.
+   *
+   * One call covers both halves here. Android splits them — performEditorAction for GO, SEARCH and
+   * the rest, a committed newline otherwise — and the ported ReturnKeyAction is that split. On this
+   * platform sendKeyFunction takes the enter key type itself and the framework does the right thing
+   * with every value, ENTER_KEY_TYPE_NEW_LINE included. Measured, not assumed: replacing this with
+   * the split put insertText("\n") into a WebView textarea that ignored it, and the same key with
+   * the same editor (enter=8) had produced a newline the moment before.
+   */
   submit(): void {
     if (this.inputClient !== undefined) {
       this.inputClient.sendKeyFunction(this.enterKey);
@@ -1585,10 +1667,12 @@ export class KeyboardSession implements HardwareKeyTarget {
       }
       this.enterKey = attribute.enterKeyType;
       this.traits = KeyboardSession.traitsFor(attribute.inputPattern);
+      this.capitalization = EditorPolicy.capitalizationMode(this.traits,
+        KeyboardSession.capitalizationFor(attribute.capitalizeMode));
       // Says the keyboard reached a real editor, which nothing else in the log does. Verifying that
       // on a device meant reading the window manager's avoid-area traffic to infer it.
       KeyboardLog.info(`attached to editor: pattern=${attribute.inputPattern} `
-        + `enter=${attribute.enterKeyType}`);
+        + `enter=${attribute.enterKeyType} capitalize=${this.capitalization}`);
       // Which application this editor belongs to, so the mode can be the one last chosen there.
       // Resolved with the attribute rather than at attach: the bundle name arrives with it.
       this.modeScope.activate(attribute.bundleName ?? null, this.modeScopeSetting);
@@ -3612,7 +3696,12 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.handle === 0) {
       return;
     }
-    this.apply(client.fixCandidatePosition(this.handle, this.generation, index, position));
+    // Checked here rather than trusted from the menu. Today the menu is the only caller and it only
+    // ever builds slots 1 to 5, so this throws for nobody; it is here because this is the last point
+    // before the slot becomes an argument to the Engine, and a session method is callable by
+    // anything in the host.
+    this.apply(client.fixCandidatePosition(this.handle, this.generation, index,
+      CandidateManagementAction.validatePosition(position)));
   }
 
   clearCandidatePosition(index: number): void {
