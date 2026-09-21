@@ -1840,3 +1840,13 @@ if let Some(route) = launch_route_from_args(&args) { ... }
 **顺带修掉一个本仓自己内部对不上的地方。** `ui_backend_policy` 说三种拼法（`webview2` / `webview` / `web`）都算 WebView2，其余回落原生。本仓 Windows 侧根本不读这个键（它是记录在案的 RUST_ONLY 契约键），但共享的 `UiBackend` 类型**读不了本仓自己出厂配置里写的 `d2d`**：`serde` 的 `snake_case` 只认 `direct2d`。实测确认 `d2d` / `webview` / `web` 三个值都是 `unknown variant` 错误，而偏好文档解析失败不是丢一个字段、是整份回落。加上只读的 serde 别名（写出去仍然只有一种拼法），并用例钉住五种拼法都读得了、未知值仍然报错。反向验证：去掉 `d2d` 别名即报红。
 
 **没迁的是什么，说清楚。** 剩下 12 个文件里核心是 `windows_webview2.cpp`（5326 行）：WebView2 合成控制器、不抢焦点的宿主窗口、把候选数据送进文档的资源处理器。这台机器上既没有 Windows 宿主，交叉构建用的又是 MinGW，而 WebView2 SDK 是面向 MSVC 的——也就是说那 5000 行在这里**一行都编译不了、一个字节都验证不了**。按本仓的证据分级，那会是一整批只有「读起来像对的」这一级证据的代码。它是下一个增量，不是这一批能负责地合进来的东西。
+
+增量记录（2026-09-21，Windows 第四十一批：装词库时不许出现「旧的已删、新的没到」的窗口）：接上一批的零覆盖扫描。目标起点 `1e7dbfe3c`。
+
+`DictionaryInstaller.mm` 编进 bundle、导出符号、零覆盖。它校验指纹、跑 `PRAGMA quick_check`、原子写出临时文件——到这里都很稳妥——然后 **先 `removeItemAtURL:` 删掉现有 `msime.db`，再 move 新文件**。这两步之间任何失败（磁盘满、沙箱拒绝、崩溃）都让用户**一个词库都不剩**，而且从这里恢复不了。改成 `replaceItemAtURL:`：原文件一直在，新文件提交不成功就放回去；本来就没装过的情况没有可替换的东西，move 本身就是全部操作。失败路径顺手清掉自己暂存的文件。
+
+顺带记两条：这个函数当前**没有活的调用方**（两个调用方 `DictionaryRuntime.mm` 与 `MetasequoiaInputController.mm` 都是保留的 Apple 适配器，不参与编译），所以这不是线上缺陷；但它是导出符号又编在 bundle 里，接上就会带着那个窗口，因此按缺陷修而不是按死代码放着。
+
+用例覆盖八种情形：首次安装、覆盖安装、指纹不符、文件被截断（`quick_check` 该拦的正是这种——文件头仍然有效、能打开，读到页才发现）、指纹长度不足 64（否则会与真值的前缀比较）、空指纹、源/目标不是文件 URL、源文件不存在。每一条都额外断言**已安装的那份内容没被动过**，以及临时文件没有留下。反向验证过（把指纹判断短路，第 83 行立刻红）。
+
+同批记下一处查过不是缺陷的：`CandidateFontSize.h` 与 `CandidateAppearance.h` 里的 `NormalizeCandidateFontSize` 只认 16/18/20，而来源与共享偏好接受 12–32。看着像我早前修过的「页大小 5/7/9 快照」那一类，但线上路径不走它——`AppearancePreferences.fontSize` 自己按 12–32 判，已有用例覆盖（`SkinPreviewTest` 用 12 和 32）。那两个头一个只被保留的 Apple 适配器用，另一个（`CandidateAppearance.h`）当前没有任何使用者，是拆分文件时留下的重复定义。按仓库规矩不删，记在这里，免得下一轮扫描再追一遍。

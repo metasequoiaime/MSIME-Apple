@@ -743,6 +743,12 @@ target_compile_options(candidate-pagination-test PRIVATE -Wall -Wextra -Werror -
 add_test(NAME candidate-pagination COMMAND candidate-pagination-test)
 # The current client host uses the host-api adapter. src/dictionary/DictionaryRuntime.mm is
 # the retained Apple snapshot adapter for MetasequoiaInputController, not this host.
+# Installing a dictionary over the one already in place. Every refusal here protects that file, and
+# the install itself must not be able to leave the user without one.
+add_executable(dictionary-installer-test tests/dictionary/DictionaryInstallerTest.mm src/dictionary/DictionaryInstaller.mm)
+target_compile_options(dictionary-installer-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
+target_link_libraries(dictionary-installer-test PRIVATE "-framework Foundation" ${SQLITE_TARGET})
+add_test(NAME dictionary-installer COMMAND dictionary-installer-test)
 add_executable(dictionary-runtime-test tests/dictionary/DictionaryRuntimeTest.mm src/core/ClientDictionaryRuntime.mm)
 target_compile_options(dictionary-runtime-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_include_directories(dictionary-runtime-test PRIVATE ../../shared/apple ../../crates/host-api/include)
