@@ -28,3 +28,15 @@ none.
 
 Both repositories are metasequoiaime's own and share its licence; no third-party
 distribution restriction applies to this asset.
+
+## Adaptive icons
+
+Each style also ships an `<adaptive-icon>` in `drawable-anydpi-v26`, because a
+plain bitmap gets the launcher's legacy treatment: shrunk and set on a grey
+plate the design never asked for. The background layer is the mark's own dark
+field, so what the mask cuts is that field rather than a plate.
+
+The foreground places the mark at 50% of the 108dp canvas. A circular mask shows
+only the middle 72dp, and a square fits inside that disc up to 72/√2 ≈ 51dp — the
+66dp safe zone is meant for artwork that tolerates clipping, and this mark's
+frame is the part that must not be clipped.
