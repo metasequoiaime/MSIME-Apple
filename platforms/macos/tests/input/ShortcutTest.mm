@@ -1715,6 +1715,59 @@ static void TestPreferenceClientGeneration() {
     }
 }
 
+// The poll reads the preferences document once a second, and most of those reads find exactly what
+// was applied a second ago. Applying it again walks every preference, goes back into the Engine and
+// writes a diagnostic line - once a second, for nothing. It also buried the diagnostic log under
+// `preferences_applied`, which is how it was noticed at all.
+static void TestPreferenceRevisionSkipsUnchangedDocuments() {
+    NSString *suite = [@"msime.preference-revision." stringByAppendingString:NSUUID.UUID.UUIDString];
+    NSUserDefaults *defaults = [[NSUserDefaults alloc] initWithSuiteName:suite];
+    MSIMEAppearancePreferences *prefs = [[MSIMEAppearancePreferences alloc] initWithDefaults:defaults];
+    AsyncPreferencesController *controller = [AsyncPreferencesController alloc];
+    ShortcutClient *client = [ShortcutClient new];
+    AsyncPreferenceSession *session = [AsyncPreferenceSession new];
+    NSMutableArray *reads = [NSMutableArray array];
+    // Same revision twice, then a new one, then the first revision again after a local edit.
+    for (NSArray *fixture in @[@[@7, @YES], @[@7, @YES], @[@8, @NO]]) {
+        ControlledPreferenceRead *read = [ControlledPreferenceRead new];
+        read.snapshot = @{@"revision":fixture[0], @"preferences":@{@"chinese_punctuation":fixture[1]}};
+        [reads addObject:read];
+    }
+    controller.reads = reads;
+    controller.appliedPreferences = [NSMutableArray array];
+    [controller setValue:prefs forKey:@"appearance"];
+    [controller setValue:client forKey:@"activeClient"];
+    [controller setValue:session forKey:@"session"];
+    [controller setValue:@"/synthetic-preferences" forKey:@"preferencesDirectory"];
+
+    [controller reloadPreferences];
+    assert(dispatch_semaphore_wait(controller.reads[0].started, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC)) == 0);
+    dispatch_semaphore_signal(controller.reads[0].released);
+    WaitForPreferenceCompletions(controller, 1);
+    assert(controller.appliedPreferences.count == 1 && session.updates == 1);
+
+    // The second read finds the same revision: nothing is applied and the Engine is not disturbed.
+    [controller reloadPreferences];
+    assert(dispatch_semaphore_wait(controller.reads[1].started, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC)) == 0);
+    dispatch_semaphore_signal(controller.reads[1].released);
+    WaitForPreferenceCompletions(controller, 2);
+    assert(controller.readCalls == 2);
+    assert(controller.appliedPreferences.count == 1 && session.updates == 1);
+
+    // A document that actually changed is applied.
+    [controller reloadPreferences];
+    assert(dispatch_semaphore_wait(controller.reads[2].started, dispatch_time(DISPATCH_TIME_NOW, NSEC_PER_SEC)) == 0);
+    dispatch_semaphore_signal(controller.reads[2].released);
+    WaitForPreferenceCompletions(controller, 3);
+    assert(controller.appliedPreferences.count == 2 && session.updates == 2);
+    assert([controller.appliedPreferences[1][@"chinese_punctuation"] isEqual:@NO]);
+
+    // A local edit invalidating what was applied - so a document rolled back to a revision this
+    // session already saw is applied again - is the load state's own rule, pinned next to it in
+    // preference-load-state rather than here: appearanceChanged: reaches half the controller.
+    MSIMERemoveTestPreferenceSuite(defaults, suite);
+}
+
 static void TestModifierTaps() {
     for (NSNumber *key in @[@56, @60, @59, @62]) {
         const auto code = key.unsignedShortValue;
@@ -4908,6 +4961,7 @@ int main(int argc, char **argv) {
         TestModifierTaps();
         TestStaleClientDeactivation();
         TestPreferenceClientGeneration();
+        TestPreferenceRevisionSkipsUnchangedDocuments();
         TestFullWidth(defaults, appearance);
         TestSessionOptions();
         TestKeypadDecimal(appearance);
