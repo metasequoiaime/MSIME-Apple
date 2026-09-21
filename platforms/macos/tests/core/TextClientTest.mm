@@ -461,6 +461,22 @@ int main() {
                                                          @"phrase_prefix": @"海滩", @"caret_position": @5}},
                                              client, MSIMEInlinePreeditStyleEmpty);
         assert(client.marked.length == 0);
+        // A pair held open while a phrase is being assembled: both are tails of the same marked
+        // text, and they are on opposite sides of the caret. The closing mark stays last so the
+        // user can see what will be closed, and the chosen phrase piece stays first because it is
+        // text that is already decided - the caret belongs between them, where typing continues.
+        MSIMEApplyTransitionWithPendingClosing(
+            @{@"commit": NSNull.null, @"view": @{@"editing_text": @"paobu", @"phrase_prefix": @"海滩",
+                                                 @"caret_position": @5}},
+            client, MSIMEInlinePreeditStylePinyin, @"）");
+        assert([client.marked isEqual:@"海滩paobu）"] && client.selection.location == 7);
+        // Finishing the phrase closes the pair with it, and the whole phrase goes to the document
+        // in one piece with the closing mark after it.
+        MSIMEApplyTransitionWithPendingClosing(
+            @{@"commit": @"海滩跑步", @"view": @{@"editing_text": @"", @"caret_position": @0}}, client,
+            MSIMEInlinePreeditStylePinyin, @"）");
+        assert([client.committed isEqual:@"海滩跑步）"] && client.marked.length == 0);
+
         // Finishing the phrase sends it out in one piece; the field is gone by then.
         MSIMEApplyTransition(@{@"commit": @"海滩跑步", @"view": @{@"editing_text": @"", @"caret_position": @0}},
                              client);

@@ -1755,3 +1755,9 @@ if let Some(route) = launch_route_from_args(&args) { ... }
 第一版被注释骗过：`InputController.mm` 的注释里写着 `view.phrase_prefix`，删掉真正的读取之后守卫仍判为「在画」。改成先剥掉 `//` 与 `/* */` 再匹配——被删掉实现、只留注释，恰恰是这个守卫最该抓的形状。
 
 记下 iOS 的位置：它用的就是那份共享渲染器（`KeyboardViewController.mm` 走 `MSIMEApplyTransition`），所以接上只差会话选项里的一行；但本机跑不了 iOS 用例，不做无法验证的改动，按现状钉住。
+
+增量记录（2026-09-21，Windows 第三十五批：两处新行为的交叉情形，以及候选窗锚点核对）：目标起点 `1b9e3d86d`。
+
+**成对标点与半截词同时在场。** 两者都是同一段 marked text 的尾巴/头部，而且分居光标两侧：待补的右括号必须留在最后（用户要看见将要补上的是什么），已选的半截词必须留在最前（那是已经定下来的文字），光标在两者之间——打字从那里继续。#3380 与 #3395 各自有用例，交叉情形没有。补在 `TextClientTest`：组字中断言 `海滩paobu）` 且光标在 7，结束时整条词连同右括号一次上屏。反向验证过（把前缀改成追加而不是前置，第 453 行变红）。
+
+**候选窗锚点。** 来源 `GetCandidateLayoutCaret`：跟随光标关掉时，用本次组字会话开始时捕获的锚点（`g_candidate_session_anchor`），捕获一次后整段会话复用；跟随光标打开、或者报上来的 y 是 `INVALID_Y` 时走实时光标。macOS 的 `_candidateAnchorValid` / `_candidateAnchorCaret` 逐条相同，并且在跟随开关本身变化时重置锚点（`MSIMEValidCaret` 对应那个无效值判断）。核过，不是缺口。
