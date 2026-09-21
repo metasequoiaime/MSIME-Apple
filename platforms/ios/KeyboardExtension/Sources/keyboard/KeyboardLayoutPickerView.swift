@@ -10,7 +10,9 @@ import UIKit
 /// 任何精调手段(除了 VoiceOver 的 ±2)。现在数值常驻,两个按钮每次走 2,同一块区域仍可上下拖做粗调。
 final class KeyboardLayoutPickerView: UIView {
   private static let spacingDragScale: Double = 18
-  private static let barHeight: CGFloat = 52
+  // 两行:第一行是恢复默认 / 高度 / 语音 / 完成,第二行是间距说明。52pt 只够一行,
+  // 加上高度控件之后第一行会一路压到第二行的文字上 —— 这是量出来的,见 KeyboardLayoutBarLayoutTests。
+  private static let barHeight: CGFloat = 62
   private static let heightRange: (lower: Double, upper: Double) = (-12, 48)
   /// 和 VoiceOver 的增减一步一致 —— 同一个控件不该因为用眼睛还是用手势而走不同的步长。
   private static let step: Double = 2
@@ -154,7 +156,7 @@ final class KeyboardLayoutPickerView: UIView {
       reset.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 12),
       // 高度占第一行的中段,间距说明退到第二行 —— 高度的数值现在常驻,说明不再需要和它抢同一行。
       heightControl.centerXAnchor.constraint(equalTo: bar.centerXAnchor),
-      heightControl.centerYAnchor.constraint(equalTo: bar.topAnchor, constant: 18),
+      heightControl.centerYAnchor.constraint(equalTo: bar.topAnchor, constant: 23),
       heightControl.heightAnchor.constraint(equalToConstant: 32),
       heightControl.leadingAnchor.constraint(greaterThanOrEqualTo: reset.trailingAnchor, constant: 6),
       heightControl.trailingAnchor.constraint(lessThanOrEqualTo: voice.leadingAnchor, constant: -6),
@@ -164,7 +166,7 @@ final class KeyboardLayoutPickerView: UIView {
       voice.centerYAnchor.constraint(equalTo: heightControl.centerYAnchor),
       hint.leadingAnchor.constraint(equalTo: bar.leadingAnchor, constant: 10),
       hint.trailingAnchor.constraint(equalTo: bar.trailingAnchor, constant: -10),
-      hint.bottomAnchor.constraint(equalTo: bar.bottomAnchor, constant: -5),
+      hint.bottomAnchor.constraint(equalTo: bar.bottomAnchor, constant: -6),
     ])
     updateHeightValue()
   }
