@@ -17,39 +17,17 @@ passes, the same as every other stage that depends on something not every machin
 
 from __future__ import annotations
 
-import os
 import pathlib
 import re
-import subprocess
 import sys
+
+from reference_source import reference_root, show_file
 
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 CHANGELOG = "CHANGELOG.md"
 
 
-def reference_root() -> pathlib.Path:
-    """Where the reference checkout is.
-
-    Beside the *main* worktree, not beside this one: development here happens in short-lived
-    worktrees under `~/worktrees`, so resolving against the current checkout would make this check
-    skip forever and look like it was passing. `MSIME_REFERENCE_DIR` overrides it.
-    """
-    override = os.environ.get("MSIME_REFERENCE_DIR")
-    if override:
-        return pathlib.Path(override)
-    common = subprocess.run(
-        ["git", "rev-parse", "--path-format=absolute", "--git-common-dir"],
-        cwd=ROOT,
-        capture_output=True,
-        text=True,
-    )
-    if common.returncode == 0 and common.stdout.strip():
-        main = pathlib.Path(common.stdout.strip()).parent
-        return main.parent / "MSIME-Windows"
-    return ROOT.parent / "MSIME-Windows"
-
-
-REFERENCE = reference_root()
+REFERENCE = reference_root(ROOT)
 
 # Each feature bullet the reference has shipped, and what became of it here. The text is the bullet
 # with its trailing commit links stripped, exactly as the changelog writes it.
@@ -134,35 +112,11 @@ REVIEWED: dict[str, str] = {
 
 
 def changelog_features() -> tuple[set[str], str, str] | None:
-    if not (REFERENCE / ".git").exists():
+    shown = show_file(ROOT, CHANGELOG)
+    if shown is None:
         return None
-    symref = subprocess.run(
-        ["git", "ls-remote", "--symref", "origin", "HEAD"],
-        cwd=REFERENCE,
-        capture_output=True,
-        text=True,
-        timeout=30,
-    )
-    candidates = []
-    if symref.returncode == 0:
-        match = re.search(r"^ref:\s+refs/heads/(\S+)\s+HEAD$", symref.stdout, re.M)
-        if match:
-            candidates.append(f"origin/{match.group(1)}")
-    candidates += ["origin/develop", "origin/HEAD"]
-    for ref in candidates:
-        revision = subprocess.run(
-            ["git", "rev-parse", ref], cwd=REFERENCE, capture_output=True, text=True
-        )
-        if revision.returncode != 0:
-            continue
-        sha = revision.stdout.strip()
-        shown = subprocess.run(
-            ["git", "show", f"{sha}:{CHANGELOG}"], cwd=REFERENCE, capture_output=True, text=True
-        )
-        if shown.returncode != 0:
-            continue
-        return parse(shown.stdout), ref, sha
-    return None
+    text, ref, sha = shown
+    return parse(text), ref, sha
 
 
 def parse(text: str) -> set[str]:
