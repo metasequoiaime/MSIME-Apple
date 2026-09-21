@@ -56,8 +56,7 @@ import abilityAccessCtrl from '@ohos.abilityAccessCtrl';
 import bundleManager from '@ohos.bundle.bundleManager';
 import http from '@ohos.net.http';
 import {
-  ClipboardHistoryStore, ClipboardHistoryItem, ClipboardHistoryError, ClipboardFailure,
-  MAX_FILE_BYTES
+  ClipboardHistoryStore, ClipboardHistoryItem, ClipboardHistoryError, ClipboardFailure
 } from './clipboard/ClipboardHistoryStore';
 import { ClipboardHistoryPreferencePolicy } from './clipboard/ClipboardHistoryPreferencePolicy';
 import {
@@ -186,6 +185,44 @@ interface TypingStatisticsRecordAction {
 interface TypingStatisticsRecordRequest {
   directory: string;
   action: TypingStatisticsRecordAction;
+}
+
+interface MobileClipboardAction {
+  operation: string;
+  text?: string;
+  pinned?: boolean;
+}
+
+interface MobileClipboardRequest {
+  directory: string;
+  legacy: string;
+  action: MobileClipboardAction;
+}
+
+interface NativeClipboardEntry {
+  text: string;
+  timestampMs: number;
+  pinned: boolean;
+}
+
+interface MobileClipboardValue {
+  entries: NativeClipboardEntry[];
+  captured?: boolean;
+  reason?: string | null;
+  updated?: boolean;
+  removed?: boolean;
+  cleared?: boolean;
+}
+
+interface MobileClipboardReply {
+  ok: boolean;
+  value: MobileClipboardValue;
+  error: string;
+}
+
+export interface ClipboardHistoryMutation {
+  readonly entries: ClipboardHistoryItem[];
+  readonly failure: ClipboardFailure | null;
 }
 
 // The local emoji catalog lives in others.db beside the dictionaries, so the query carries the
@@ -3091,22 +3128,48 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
   }
 
-  private clipboardFile(): string {
-    return `${this.stateDirectory}/clipboard-history.json`;
+  /** `stateRoot` is `<files>/state`; the shared mobile store owns `<files>/MSIME`. */
+  private clipboardRoot(): string {
+    const separator: number = this.stateDirectory.lastIndexOf('/');
+    return separator > 0 ? this.stateDirectory.substring(0, separator) : '';
   }
 
   private clearClipboardHistoryFile(): void {
     if (this.stateDirectory.length === 0) {
       return;
     }
-    try {
-      const handle = fs.openSync(this.clipboardFile(),
-        fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
-      fs.writeSync(handle.fd, '[]');
-      fs.closeSync(handle);
-    } catch (error) {
-      KeyboardLog.error(`clipboard history not cleared: ${describeError(error)}`);
+    const value: MobileClipboardValue | null = this.mobileClipboard({ operation: 'clear' });
+    if (value === null || value.cleared !== true) {
+      KeyboardLog.error('clipboard history not cleared');
     }
+  }
+
+  /** One locked native transaction; errors never expose clipboard contents in the log. */
+  private mobileClipboard(action: MobileClipboardAction): MobileClipboardValue | null {
+    const directory: string = this.clipboardRoot();
+    if (directory.length === 0) return null;
+    const request: MobileClipboardRequest = {
+      directory: directory, legacy: 'harmony_state', action: action
+    };
+    try {
+      const reply: MobileClipboardReply = JSON.parse(
+        client.mobileClipboardHistory(JSON.stringify(request))) as MobileClipboardReply;
+      if (!reply.ok || reply.value === undefined || reply.value === null
+        || !Array.isArray(reply.value.entries)) return null;
+      return reply.value;
+    } catch (error) {
+      KeyboardLog.error(`clipboard history unavailable: ${describeError(error)}`);
+      return null;
+    }
+  }
+
+  /** Validate and translate the native camel-case record before it reaches ArkUI. */
+  private clipboardEntries(value: MobileClipboardValue): ClipboardHistoryItem[] {
+    const rows: ClipboardHistoryItem[] = value.entries.map(
+      (entry: NativeClipboardEntry): ClipboardHistoryItem => ({
+        text: entry.text, at: entry.timestampMs, pinned: entry.pinned
+      }));
+    return ClipboardHistoryStore.parse(JSON.stringify(rows));
   }
 
   /**
@@ -3119,32 +3182,64 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (!this.clipboardHistoryAllowed()) {
       return [];
     }
-    const file: string = this.clipboardFile();
     try {
-      if (!fs.accessSync(file) || fs.statSync(file).size > MAX_FILE_BYTES) {
-        return [];
-      }
-      return ClipboardHistoryStore.parse(fs.readTextSync(file));
+      const value: MobileClipboardValue | null = this.mobileClipboard({ operation: 'load' });
+      return value === null ? [] : this.clipboardEntries(value);
     } catch (error) {
       KeyboardLog.error(`clipboard history unreadable: ${describeError(error)}`);
       return [];
     }
   }
 
-  saveClipboardHistory(items: ClipboardHistoryItem[]): boolean {
+  captureClipboardHistory(text: string): ClipboardHistoryMutation {
     if (!this.clipboardHistoryAllowed()) {
-      return false;
+      return { entries: [], failure: ClipboardFailure.INVALID_FILE };
     }
     try {
-      const document: string = ClipboardHistoryStore.serialize(items);
-      const handle = fs.openSync(this.clipboardFile(),
-        fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
-      fs.writeSync(handle.fd, document);
-      fs.closeSync(handle);
-      return true;
+      // Reuse the tested public validation and its specific user-facing failures before crossing
+      // the ABI. The native transaction repeats these checks against the persisted document.
+      ClipboardHistoryStore.add([], text, Date.now());
+      const value: MobileClipboardValue | null = this.mobileClipboard(
+        { operation: 'capture', text: text });
+      if (value === null) return { entries: [], failure: ClipboardFailure.INVALID_FILE };
+      const entries: ClipboardHistoryItem[] = this.clipboardEntries(value);
+      if (value.captured !== true) {
+        return { entries: entries, failure: value.reason === 'full'
+          ? ClipboardFailure.FULL : ClipboardFailure.INVALID_FILE };
+      }
+      return { entries: entries, failure: null };
     } catch (error) {
-      KeyboardLog.error(`clipboard history not saved: ${describeError(error)}`);
-      return false;
+      return { entries: [], failure: error instanceof ClipboardHistoryError
+        ? error.failure : ClipboardFailure.INVALID_FILE };
+    }
+  }
+
+  setClipboardPinned(text: string, pinned: boolean): ClipboardHistoryMutation {
+    return this.mutateClipboard({ operation: 'set_pinned', text: text, pinned: pinned }, 'updated');
+  }
+
+  removeClipboardHistory(text: string): ClipboardHistoryMutation {
+    return this.mutateClipboard({ operation: 'remove', text: text }, 'removed');
+  }
+
+  clearClipboardHistory(): ClipboardHistoryMutation {
+    return this.mutateClipboard({ operation: 'clear' }, 'cleared');
+  }
+
+  private mutateClipboard(action: MobileClipboardAction,
+                          flag: string): ClipboardHistoryMutation {
+    if (!this.clipboardHistoryAllowed()) {
+      return { entries: [], failure: ClipboardFailure.INVALID_FILE };
+    }
+    try {
+      const value: MobileClipboardValue | null = this.mobileClipboard(action);
+      if (value === null) return { entries: [], failure: ClipboardFailure.INVALID_FILE };
+      const succeeded: boolean = flag === 'updated' ? value.updated === true
+        : flag === 'removed' ? value.removed === true : value.cleared === true;
+      return { entries: this.clipboardEntries(value),
+        failure: succeeded ? null : ClipboardFailure.STALE };
+    } catch (error) {
+      return { entries: [], failure: ClipboardFailure.INVALID_FILE };
     }
   }
 

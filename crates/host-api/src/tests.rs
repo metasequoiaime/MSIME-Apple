@@ -1907,6 +1907,69 @@ fn mobile_clipboard_migrates_apple_history_and_uses_structured_actions() {
 }
 
 #[test]
+fn harmony_mobile_clipboard_migrates_once_and_preserves_corrupt_current_data() {
+    let directory = tempfile::tempdir().unwrap();
+    let call = |action: Value| {
+        let request = serde_json::to_vec(&json!({
+            "directory": directory.path(),
+            "legacy": "harmony_state",
+            "action": action,
+        }))
+        .unwrap();
+        read(unsafe { msime_client_mobile_clipboard_history(request.as_ptr(), request.len()) })
+    };
+    let legacy = directory.path().join("state/clipboard-history.json");
+    std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+    std::fs::write(
+        &legacy,
+        serde_json::to_vec(&json!([
+            {"text": "synthetic older", "at": 10, "pinned": false},
+            {"text": "synthetic pinned", "at": 1, "pinned": true}
+        ]))
+        .unwrap(),
+    )
+    .unwrap();
+
+    let loaded = call(json!({"operation": "load"}));
+    assert_eq!(loaded["value"]["migrated"], true);
+    assert_eq!(loaded["value"]["entries"][0]["text"], "synthetic pinned");
+    assert!(!legacy.exists());
+
+    let captured = call(json!({"operation": "capture", "text": "synthetic current"}));
+    assert_eq!(captured["value"]["captured"], true);
+    assert_eq!(captured["value"]["entries"][1]["text"], "synthetic current");
+    let shared = directory.path().join("MSIME/clipboard_history.json");
+    let corrupt = b"invalid synthetic current history";
+    std::fs::write(&shared, corrupt).unwrap();
+    let refused = call(json!({"operation": "capture", "text": "synthetic rejected"}));
+    assert_eq!(refused["ok"], false);
+    assert_eq!(std::fs::read(&shared).unwrap(), corrupt);
+}
+
+#[test]
+fn harmony_mobile_clipboard_rejects_corrupt_legacy_without_replacing_it() {
+    let directory = tempfile::tempdir().unwrap();
+    let legacy = directory.path().join("state/clipboard-history.json");
+    std::fs::create_dir_all(legacy.parent().unwrap()).unwrap();
+    let corrupt = b"invalid synthetic harmony history";
+    std::fs::write(&legacy, corrupt).unwrap();
+    let request = serde_json::to_vec(&json!({
+        "directory": directory.path(),
+        "legacy": "harmony_state",
+        "action": {"operation": "load"}
+    }))
+    .unwrap();
+    let response =
+        read(unsafe { msime_client_mobile_clipboard_history(request.as_ptr(), request.len()) });
+    assert_eq!(response["error"], "invalid legacy clipboard history");
+    assert_eq!(std::fs::read(&legacy).unwrap(), corrupt);
+    assert!(!directory
+        .path()
+        .join("MSIME/clipboard_history.json")
+        .exists());
+}
+
+#[test]
 fn mobile_clipboard_preserves_invalid_legacy_and_existing_shared_history() {
     let invalid = tempfile::tempdir().unwrap();
     let legacy = invalid.path().join("Clipboard/history.json");

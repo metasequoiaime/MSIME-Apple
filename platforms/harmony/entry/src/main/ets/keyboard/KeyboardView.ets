@@ -1,6 +1,6 @@
 import {
   KeyboardSession, KeyboardPreferences, KeyboardState, CandidateEntry, ExpandedCandidate,
-  EmojiPage, EmojiRow
+  EmojiPage, EmojiRow, ClipboardHistoryMutation
 } from './KeyboardSession';
 import { KeyboardScheme, SchemeDefinition } from './KeyboardScheme';
 import { VoiceHotkeyAction } from './input/VoiceHotkeyPolicy';
@@ -47,9 +47,7 @@ import {
 import { KeyboardLog, describeError } from './KeyboardLog';
 import { KeyboardFormFactor } from './KeyboardFormFactor';
 import { DesktopSurface } from './DesktopSurface';
-import {
-  ClipboardHistoryStore, ClipboardHistoryItem, ClipboardHistoryError
-} from './clipboard/ClipboardHistoryStore';
+import { ClipboardHistoryItem, ClipboardFailure } from './clipboard/ClipboardHistoryStore';
 import componentSnapshot from '@ohos.arkui.componentSnapshot';
 import { image } from '@kit.ImageKit';
 import { textRecognition } from '@kit.CoreVisionKit';
@@ -2232,17 +2230,7 @@ struct KeyboardView {
       return;
     }
     KeyboardSession.shared.systemClipboardText().then((text: string): void => {
-      try {
-        const updated: ClipboardHistoryItem[] =
-          ClipboardHistoryStore.add(this.clips, text, Date.now());
-        if (KeyboardSession.shared.saveClipboardHistory(updated)) {
-          this.clips = updated;
-          this.clipboardNotice = '';
-        }
-      } catch (error) {
-        this.clipboardNotice = error instanceof ClipboardHistoryError
-          ? error.failure : describeError(error);
-      }
+      this.applyClipboardMutation(KeyboardSession.shared.captureClipboardHistory(text));
     });
   }
 
@@ -2439,16 +2427,24 @@ struct KeyboardView {
     }
   }
 
-  private updateClips(updated: ClipboardHistoryItem[]): void {
+  private applyClipboardMutation(result: ClipboardHistoryMutation): void {
     if (!this.clipboardEnabled) {
       this.clips = [];
       this.clipboardNotice = '剪贴板历史已在设置中关闭';
       this.show(SURFACE_NONE);
       return;
     }
-    if (KeyboardSession.shared.saveClipboardHistory(updated)) {
-      this.clips = updated;
+    if (result.failure === null) {
+      this.clips = result.entries;
+      this.clipboardNotice = '';
+      return;
     }
+    // A stale row means another writer changed the valid document. Refresh to that exact snapshot;
+    // a corrupt/unreadable file has no trustworthy replacement, so keep what is already on screen.
+    if (result.failure === ClipboardFailure.STALE) {
+      this.clips = result.entries;
+    }
+    this.clipboardNotice = result.failure;
   }
 
   private redrawHandwriting(): void {
@@ -3816,9 +3812,8 @@ struct KeyboardView {
               this.clipboardNotice = '再次点按将删除全部历史，包括已固定的。';
               return;
             }
-            this.updateClips([]);
+            this.applyClipboardMutation(KeyboardSession.shared.clearClipboardHistory());
             this.confirmingClear = false;
-            this.clipboardNotice = '';
           })
         Text('返回')
           .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
@@ -3859,14 +3854,14 @@ struct KeyboardView {
                 .fontColor(entry.pinned ? this.skin.accent : this.skin.keyForeground)
                 .opacity(entry.pinned ? 1 : 0.55)
                 .padding({ left: 8, right: 8 })
-                .onClick(() => this.updateClips(
-                  ClipboardHistoryStore.togglePin(this.clips, entry.text)))
+                .onClick(() => this.applyClipboardMutation(
+                  KeyboardSession.shared.setClipboardPinned(entry.text, !entry.pinned)))
               Text('删除')
                 .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
                 .fontColor(this.skin.keyForeground)
                 .opacity(0.55)
-                .onClick(() => this.updateClips(
-                  ClipboardHistoryStore.remove(this.clips, entry.text)))
+                .onClick(() => this.applyClipboardMutation(
+                  KeyboardSession.shared.removeClipboardHistory(entry.text)))
             }
             .width('100%')
             .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,

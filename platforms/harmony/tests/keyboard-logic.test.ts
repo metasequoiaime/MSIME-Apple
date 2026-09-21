@@ -5058,22 +5058,6 @@ group("a clipboard history document is not trusted because we wrote it", () => {
   check(good.length === 1 && good[0].text === "a", "a sound document round-trips");
 });
 
-group("pinning and removing", () => {
-  const items = [clip("a", 100), clip("b", 200)];
-  const pinned = ClipboardHistoryStore.togglePin(items, "a");
-  check(pinned[0].text === "a" && pinned[0].pinned, "pinning moves the entry to the top");
-  check(
-    !ClipboardHistoryStore.togglePin(pinned, "a")[0].pinned ||
-      ClipboardHistoryStore.togglePin(pinned, "a")[0].text === "b",
-    "pinning again releases it",
-  );
-  check(ClipboardHistoryStore.remove(items, "a").length === 1, "removing takes one entry");
-  check(
-    ClipboardHistoryStore.remove(items, "missing").length === 2,
-    "removing something absent changes nothing",
-  );
-});
-
 group("account and cloud clipboard bridge keeps secrets native", () => {
   let stored: string | null = null;
   const store: AccountSessionStore = {
