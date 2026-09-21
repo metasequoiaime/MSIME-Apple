@@ -1900,3 +1900,11 @@ if let Some(route) = launch_route_from_args(&args) { ... }
 用例：`preference-load-state` 补上这两条规则（这个用例文件本来就有，是管代次与在途读的，本批在其后追加）；`ShortcutTest` 用受控的异步读钉住「同 revision 读两次只应用一次、Engine 只被打扰一次；revision 变了才再应用」。反向验证过。
 
 过程记一条给自己：写新用例时我用 heredoc 直接覆盖了 `PreferenceLoadStateTest.cpp`，而那个文件本来就存在——CMake 里重复的 `add_test` 让 configure 失败，于是 ctest 一直在跑**旧的二进制**，我对着陈旧结果查了好几轮。教训是加用例前先看同名文件在不在，以及 configure 失败要当成硬失败看，不能只看 ctest 的结论。
+
+增量记录（2026-09-21，Windows 第四十五批：测试往用户的偏好目录里丢垃圾）：又一条本机实证。查 Shift 那条时顺手看了一眼 `defaults domains`，发现本机堆了 5433 个 `msime.*` / `app.msime.test.*` 的偏好域。
+
+成因仓库里早就写明了：`TestPreferenceSuite.h` 的注释说 `removePersistentDomainForName:` 只清空域、**不删盘上的 plist**，所以必须走 `MSIMERemoveTestPreferenceSuite`。问题是有三个用例没走——`SchemeRoundTripPreferencesTest` 只调了 `removePersistentDomainForName:`（半个清理，文件照留）、`CandidateRowLayoutTest` 根本没清、`AppleStoredPreferencesTest` 用固定名字写了一个域也没清。三个都改成用那个助手。
+
+加 `scripts/test-preference-suite-cleanup.py` 挂进 `--quick`：macOS 用例里凡出现 `initWithSuiteName:` 的源文件，必须同时出现 `MSIMERemoveTestPreferenceSuite`；只调 `removePersistentDomainForName:` 的会被单独点名，因为那读起来像已经清理了。当前 12 个用例开域、12 个都清。
+
+本机那 5433 个文件已清掉（4222 个是 42 字节的空壳，其余是断言 abort 后留下的；`app.msime.*` 里真实的六个应用域一个没动）。
