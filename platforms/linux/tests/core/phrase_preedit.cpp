@@ -54,6 +54,18 @@ int main()
         assert(composed.caret_bytes == 6 && composed.caret_scalars == 2);
     }
 
+    // A Japanese composition shows the kana, and only while the caret is where typing leaves it.
+    {
+        using msime::linux_host::composition_shows_reading;
+        assert(composition_shows_reading("にほん", 5, 5));
+        // A caret moved into the letters keeps the letters: the offset is into the romaji.
+        assert(!composition_shows_reading("にほん", 2, 5));
+        // Every other scheme carries no reading at all.
+        assert(!composition_shows_reading("", 5, 5));
+        // A caret past the end is still the end.
+        assert(composition_shows_reading("にほん", 9, 5));
+    }
+
     // The scalar count itself, including the shapes that break a naive one: a four-byte character
     // is one, and a stray continuation byte cannot make the count exceed the length.
     assert(utf8_scalar_count("") == 0);

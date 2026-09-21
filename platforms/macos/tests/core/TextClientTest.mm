@@ -450,6 +450,28 @@ int main() {
         assert([client.markedString isEqual:@"shi"] && client.selection.location == 1);
         MSIMEApplyTransition(@{@"commit": NSNull.null, @"view": @{@"editing_text": @"", @"caret_position": @5}}, client);
         assert([client.committed isEqual:@"你好"] && [client.markedString length] == 0 && client.selection.location == 0);
+        // A Japanese composition shows the kana, which is what the user means and what Enter
+        // commits. Showing the letters that were typed leaves the composition saying `nihon` while
+        // the commit says にほん.
+        MSIMEApplyTransition(@{@"view": @{@"editing_text": @"nihon", @"reading": @"にほん",
+                                          @"caret_position": @5}}, client);
+        assert([client.markedString isEqual:@"にほん"] && client.selection.location == 3);
+        // The same in the raw inline style: there is no romaji-versus-kana choice to make here,
+        // the kana is the composition.
+        MSIMEApplyTransitionWithPendingClosing(
+            @{@"view": @{@"editing_text": @"nihon", @"reading": @"にほん", @"caret_position": @5}},
+            client, MSIMEInlinePreeditStyleRaw, nil);
+        assert([client.markedString isEqual:@"にほん"]);
+        // A caret the user moved into the middle of the letters keeps the letters on screen: the
+        // Engine's offset is into the romaji and there is no map from it into the kana, so drawing
+        // the kana here would put the caret somewhere it does not belong.
+        MSIMEApplyTransition(@{@"view": @{@"editing_text": @"nihon", @"reading": @"にほん",
+                                          @"caret_position": @2}}, client);
+        assert([client.markedString isEqual:@"nihon"] && client.selection.location == 2);
+        // Every other scheme is untouched: an empty reading is what they all carry.
+        MSIMEApplyTransition(@{@"view": @{@"editing_text": @"nihao", @"reading": @"",
+                                          @"caret_position": @5}}, client);
+        assert([client.markedString isEqual:@"nihao"]);
         // A phrase put together out of several selections: the piece already chosen leads the marked
         // text instead of going to the document, and the caret sits past it. The runtime hands it
         // over as its own field because caret_position counts into the editing text in this host's

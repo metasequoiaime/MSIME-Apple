@@ -3311,7 +3311,15 @@ void render(IBusEngine *engine, const Json &view) {
   }
   auto text = style == "pinyin" ? view.at("preedit").get<std::string>()
                                  : view.at("editing_text").get<std::string>();
-  const auto caret = view.at("caret_position").get<size_t>();
+  auto caret = view.at("caret_position").get<size_t>();
+  // A Japanese composition is かな, not the letters that produced it; see PhrasePreedit.h for the
+  // one case that keeps the letters.
+  const auto reading = view.value("reading", std::string{});
+  if (msime::linux_host::composition_shows_reading(
+          reading, caret, view.value("editing_text", std::string{}).size())) {
+    text = reading;
+    caret = reading.size();
+  }
   if (style == "raw" && (caret > text.size() ||
       std::any_of(text.begin(), text.end(),
                   [](unsigned char c) { return c < 0x20 || c > 0x7e; })))

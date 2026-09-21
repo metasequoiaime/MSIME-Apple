@@ -97,6 +97,26 @@ void MSIMEApplyTransitionWithPendingClosing(NSDictionary *transition, id<MSIMETe
     NSString *preedit = view[@"preedit"];
     if (![preedit isKindOfClass:NSString.class]) preedit = editing;
     id position = view[@"caret_position"];
+    // A Japanese composition is かな, not romaji.
+    //
+    // The Engine hands over both - `editing_text` is the letters that were typed and `reading` the
+    // kana they convert to - and every Japanese input method shows the kana: it is what the user
+    // means, what the candidates are for, and what Enter commits here. Showing the letters instead
+    // leaves the composition saying `nihon` while the commit says にほん.
+    //
+    // The exception is a caret the user has moved into the middle of the letters. The Engine's
+    // offset is into the romaji and there is no map from it into the kana - the same reason
+    // MSIMEPreeditCaretPosition refuses to guess for shuangpin - so rather than draw the caret in
+    // the wrong place, that case keeps showing what the caret belongs to. Typing never reaches it:
+    // the caret sits at the end until an arrow key moves it.
+    NSString *reading = view[@"reading"];
+    if ([reading isKindOfClass:NSString.class] && reading.length &&
+        (![position isKindOfClass:NSNumber.class] ||
+         [position unsignedIntegerValue] >= editing.length)) {
+        editing = reading;
+        preedit = reading;
+        position = @(reading.length);
+    }
     NSString *marked = preedit;
     NSUInteger caret = MSIMEPreeditCaretPosition(editing, preedit, position);
     if (style == MSIMEInlinePreeditStyleRaw) {

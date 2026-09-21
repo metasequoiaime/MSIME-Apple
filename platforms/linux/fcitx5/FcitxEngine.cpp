@@ -4254,7 +4254,13 @@ void FcitxState::render() {
   const auto editing = view_.value("editing_text", std::string());
   const auto style = preferences_.value("tsf_preedit_style", std::string("raw"));
   if (style != "empty") {
-    const auto reading = style == "pinyin" ? view_.value("preedit", editing) : editing;
+    auto reading = style == "pinyin" ? view_.value("preedit", editing) : editing;
+    // A Japanese composition is かな, not the letters that produced it; see
+    // ../src/core/PhrasePreedit.h for the one case that keeps the letters.
+    const auto kana = view_.value("reading", std::string{});
+    if (msime::linux_host::composition_shows_reading(
+            kana, view_.value("caret_position", size_t{}), editing.size()))
+      reading = kana;
     // The piece already picked for the phrase leads the reading, the way the reference draws
     // `word_for_creating_word`. fcitx5 takes the cursor as a byte offset into the string it is
     // given, which is why the offset comes from the same place the text does.
