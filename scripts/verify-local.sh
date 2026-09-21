@@ -161,6 +161,11 @@ python3 scripts/test-windows-config-keys.py || fail "windows config keys"
 note "reference ui actions"
 python3 scripts/test-reference-ui-actions.py || fail "reference ui actions"
 
+# Keys and actions both miss a feature that changes behaviour without adding either. The
+# reference's changelog does not, because it is generated from its own commits.
+note "reference feature log"
+python3 scripts/test-reference-feature-log.py || fail "reference feature log"
+
 # A settings-page key the Rust document has no field for does not get dropped:
 # deny_unknown_fields fails the whole save. Cheap enough to run in --quick,
 # and it is the pre-merge gate that would have caught it.
