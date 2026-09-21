@@ -833,6 +833,17 @@ struct KeyboardView {
     return total;
   }
 
+  /**
+   * What is left of a surface once the action row and the gap above it are taken out.
+   *
+   * The faces that draw their own keys — the two grids and handwriting — end with actionRow(), so
+   * their key area is this rather than the whole surface. Keeping the subtraction here is what makes
+   * the keyboard the same height whichever layout is showing, which is what the Apple host asserts.
+   */
+  private gridHeight(): number {
+    return this.surfaceHeight() - this.rowHeight(3) - this.rowSpacing();
+  }
+
   private isPicker(): boolean {
     return this.surface === SURFACE_SCHEME || this.surface === SURFACE_SKIN;
   }
@@ -896,6 +907,17 @@ struct KeyboardView {
       layout);
   }
 
+  /**
+   * Kana or digits, the same eleven cells either way.
+   *
+   * The digit layer keeps the grid rather than handing over to the twenty-six key symbol rows, and
+   * every one of its labels carries an empty stroke, which sendKana already treats as insert-as-is —
+   * so a digit goes in directly instead of being read as romaji.
+   */
+  private japaneseKeys(): JapaneseKey[] {
+    return this.symbols ? JapaneseNineKeyLayout.digitKeys() : JapaneseNineKeyLayout.keys();
+  }
+
   /** A symbol wears the face of what it will insert, which in Chinese is not the ASCII on the cap. */
   private symbolFace(symbol: string): string {
     const chinese: string | undefined = CHINESE_SYMBOL_FACES.get(symbol);
@@ -954,8 +976,12 @@ struct KeyboardView {
   }
 
   private faceKey(): string {
+    // The layer belongs here because the grid keeps its cells across the switch: 2 through 9 send
+    // the same characters on both layers, so without it ForEach would judge the subtrees identical
+    // and the digit layer would go on reading ABC, DEF, GHI. The twenty-six key rows never needed it
+    // because their two layers hold different characters.
     return `${this.english}:${this.caseMode}:${this.localMode}:${this.shuangpinProfile}:`
-      + `${this.engineScheme}:${this.skin.key()}`;
+      + `${this.engineScheme}:${this.symbols}:${this.skin.key()}`;
   }
 
   /**
@@ -1394,11 +1420,36 @@ struct KeyboardView {
 
   @Builder
   nineKeyFace() {
+    Column({ space: this.rowSpacing() }) {
+      this.nineKeyGrid()
+      this.actionRow()
+    }
+    .width('100%')
+    .height(this.surfaceHeight())
+  }
+
+  @Builder
+  nineKeyGrid() {
     Row({ space: this.keySpacing() }) {
       Column() {
         // One column, two jobs, exactly as the iOS sidebar does it: the readings the digits could
         // stand for while something is being spelled, and the common punctuation when nothing is.
-        if (this.spellings.length > 0) {
+        if (this.symbols) {
+          ForEach(NineKeyLayout.digitPunctuation(), (symbol: string) => {
+            Column() {
+              Text(symbol)
+                .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
+                .fontColor(this.skin.keyForeground)
+                .textAlign(TextAlign.Center)
+                .width('100%')
+            }
+            .layoutWeight(1)
+            .justifyContent(FlexAlign.Center)
+            .width('100%')
+            .accessibilityText(KeyAccessibilityPolicy.symbol(symbol))
+            .onClick(() => KeyboardSession.shared.punctuation(symbol.charCodeAt(0)))
+          }, (symbol: string) => symbol + this.faceKey())
+        } else if (this.spellings.length > 0) {
           Scroll() {
             Column() {
               ForEach(this.spellings, (spelling: string, index: number) => {
@@ -1438,15 +1489,21 @@ struct KeyboardView {
       .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
 
       Column({ space: this.rowSpacing() }) {
-        ForEach(NineKeyLayout.rows(), (row: NineKey[]) => {
+        ForEach(this.symbols ? NineKeyLayout.digits() : NineKeyLayout.rows(), (row: NineKey[]) => {
           Row({ space: this.keySpacing() }) {
             ForEach(row, (key: NineKey) => {
               this.flexibleKey({
-                face: this.nineKeyFaceOf(key),
+                face: this.symbols ? key.label : this.nineKeyFaceOf(key),
+                label: this.symbols ? KeyAccessibilityPolicy.symbol(key.label) : key.description,
                 size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
                 emphasized: false,
                 width: 0,
-                action: () => KeyboardSession.shared.press(key.input.charCodeAt(0), false)
+                // A digit is inserted, not spelled: the same call the twenty-six key symbol row
+                // makes for its own digit row, rather than handing the character to the Engine
+                // where it would be read as a candidate position.
+                action: this.symbols
+                  ? () => KeyboardSession.shared.punctuation(key.input.charCodeAt(0))
+                  : () => KeyboardSession.shared.press(key.input.charCodeAt(0), false)
               });
             }, (key: NineKey) => key.input + this.faceKey())
           }
@@ -1464,13 +1521,101 @@ struct KeyboardView {
         .layoutWeight(1)
         .width('100%')
         this.nineKeyControl('重输', () => KeyboardSession.shared.cancel());
-        this.nineKeyControl('0', () => KeyboardSession.shared.press(0x30, false));
+        // 0 is inserted on the digit layer for the same reason the other nine are, and spelled on
+        // the letter layer, where the Engine reads it as a candidate position.
+        this.nineKeyControl('0', this.symbols
+          ? () => KeyboardSession.shared.punctuation(0x30)
+          : () => KeyboardSession.shared.press(0x30, false));
       }
       .width(`${NINE_KEY_COLUMN_PERCENT}%`)
       .height('100%')
     }
     .width('100%')
-    .height(this.surfaceHeight())
+    .height(this.gridHeight())
+  }
+
+  /**
+   * The row every key face ends with: the layout toggle, a comma, space, the language key and Return.
+   *
+   * It used to be written inline at the end of the twenty-six key rows, which meant the grid faces —
+   * quanpin nine-key, the Japanese kana grid, handwriting — rendered without it and had no space
+   * key, no way to commit with Return and no way to leave English or reach the digits. The only exit
+   * from those faces was tapping a candidate. It is a builder now so that every face ends the same
+   * way, which is also how the Apple host is arranged.
+   */
+  @Builder
+  actionRow() {
+    Row({ space: this.keySpacing() }) {
+      this.fixedKey({
+        face: this.symbols ? '返回' : '123',
+        label: KeyAccessibilityPolicy.layoutToggle(this.symbols),
+        size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
+        emphasized: false,
+        width: KeyboardMetrics.LAYOUT_TOGGLE_WIDTH_VP,
+        action: () => {
+          this.symbols = !this.symbols;
+        }
+      });
+      Column() {
+        this.fixedKey({
+          face: '，',
+          label: KeyAccessibilityPolicy.punctuation(),
+          size: KeyboardMetrics.KEY_FONT_SIZE,
+          emphasized: false,
+          width: KeyboardMetrics.MODIFIER_WIDTH_VP,
+          action: () => KeyboardSession.shared.punctuation(0x2c)
+        });
+      }
+      .width(KeyboardMetrics.MODIFIER_WIDTH_VP)
+      .height('100%')
+      .gesture(LongPressGesture().onAction(() => {
+        this.managing = -1;
+        this.punctuation = true;
+      }))
+      this.spaceKey();
+      this.fixedKey({
+        // The face is the mode it is in, not the pair it toggles between: a key labelled 中/英
+        // says nothing about which one is running.
+        face: this.english ? 'En' : '中',
+        // Never the mode it is in: a label reading 中 would be the character, not the action.
+        label: KeyAccessibilityPolicy.language(),
+        size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
+        emphasized: true,
+        width: KeyboardMetrics.LANGUAGE_WIDTH_VP,
+        action: () => {
+          this.english = KeyboardSession.shared.toggleLanguage();
+          this.letterCase.reset();
+          this.caseMode = this.letterCase.mode();
+        }
+      });
+      this.fixedKey({
+        // A composition takes Return before any editor action does: the user is choosing a
+        // candidate, not submitting the field. Otherwise the key says what the field asked for,
+        // so it reads 搜索 in a search box rather than 换行 in a box that has no lines.
+        face: this.japanese
+          ? JapaneseNineKeyActions.returnTitle(this.editing.length > 0)
+          : (this.candidates.length > 0
+            ? '选定' : ReturnKeyAction.title(KeyboardSession.shared.returnAction(), false)),
+        // The face is already a whole word here — 搜索, 换行, 选定 — so the spoken name is the
+        // same word rather than a second description of it.
+        label: KeyAccessibilityPolicy.returnKey(this.japanese
+          ? JapaneseNineKeyActions.returnTitle(this.editing.length > 0)
+          : (this.candidates.length > 0
+            ? '选定' : ReturnKeyAction.title(KeyboardSession.shared.returnAction(), false))),
+        size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
+        emphasized: true,
+        width: KeyboardMetrics.RETURN_WIDTH_VP,
+        action: () => {
+          if (this.candidates.length > 0) {
+            KeyboardSession.shared.commitHighlighted();
+          } else {
+            KeyboardSession.shared.submit();
+          }
+        }
+      });
+    }
+    .width('100%')
+    .height(this.rowHeight(3))
   }
 
   /**
@@ -2207,6 +2352,18 @@ struct KeyboardView {
 
   @Builder
   handwritingFace() {
+    Column({ space: this.rowSpacing() }) {
+      this.handwritingPanel()
+      // 手写 reaches the letters through the same language key every other face uses, which is what
+      // HandwritingSchemeKeepsToolbarAndSwitchesBackToLetters asks of it.
+      this.actionRow()
+    }
+    .width('100%')
+    .height(this.surfaceHeight())
+  }
+
+  @Builder
+  handwritingPanel() {
     Column({ space: KeyboardMetrics.KEY_SPACING_VP }) {
       Row() {
         Text('手写输入')
@@ -2236,7 +2393,9 @@ struct KeyboardView {
       Canvas(this.handwritingContext)
         .id(HANDWRITING_CANVAS_ID)
         .width('100%')
-        .height(this.surfaceHeight() * 0.58)
+        // Of the panel, not of the whole surface: the action row now takes the rest, and a canvas
+        // measured against the surface would push the tool row and the candidates off the bottom.
+        .height(this.gridHeight() * 0.58)
         .backgroundColor(this.handwritingSkin.keyBackground)
         .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
         .borderWidth(this.handwritingSkin.borderWidth)
@@ -2269,7 +2428,7 @@ struct KeyboardView {
       }
     }
     .width('100%')
-    .height(this.surfaceHeight())
+    .height(this.gridHeight())
     .backgroundColor(this.handwritingSkin.background)
   }
 
@@ -2474,10 +2633,20 @@ struct KeyboardView {
   @Builder
   japaneseFace() {
     Column({ space: this.rowSpacing() }) {
+      this.japaneseGrid()
+      this.actionRow()
+    }
+    .width('100%')
+    .height(this.surfaceHeight())
+  }
+
+  @Builder
+  japaneseGrid() {
+    Column({ space: this.rowSpacing() }) {
       ForEach([0, 1, 2], (row: number) => {
         Row({ space: this.keySpacing() }) {
           ForEach([0, 1, 2], (column: number) => {
-            this.kanaKey(JapaneseNineKeyLayout.keys()[row * 3 + column]);
+            this.kanaKey(this.japaneseKeys()[row * 3 + column]);
           }, (column: number) => `${row}:${column}:${this.faceKey()}`)
         }
         .layoutWeight(1)
@@ -2486,16 +2655,22 @@ struct KeyboardView {
 
       // The last row is two kana keys and the variant key, which is where the layout puts it: there
       // are eleven kana keys, not twelve, and the twelfth cell is what 小゛゜ occupies.
+      //
+      // Through a ForEach like the rows above rather than two direct calls: kanaKey takes its key
+      // by reference, so handing it a different object does not by itself rebuild the cell, and on
+      // the digit layer these two went on reading わ and 、 while the nine above them had become
+      // digits. The identity carries faceKey, which is what actually changes.
       Row({ space: this.keySpacing() }) {
         this.variantKey();
-        this.kanaKey(JapaneseNineKeyLayout.keys()[9]);
-        this.kanaKey(JapaneseNineKeyLayout.keys()[10]);
+        ForEach([9, 10], (index: number) => {
+          this.kanaKey(this.japaneseKeys()[index]);
+        }, (index: number) => `${index}:${this.faceKey()}`)
       }
       .layoutWeight(1)
       .width('100%')
     }
     .width('100%')
-    .height(this.surfaceHeight())
+    .height(this.gridHeight())
   }
 
   /** 小假名、浊音、半浊音. Only means anything once kana have been composed, so it says so. */
@@ -3347,11 +3522,12 @@ struct KeyboardView {
         this.emojiFace()
       } else if (this.japanese && this.surface === SURFACE_VARIANTS && !this.symbols) {
         this.variantFace()
-      } else if (this.japanese && !this.symbols) {
+      } else if (this.japanese) {
+        // Including the digit layer: a grid face draws its own digits so the three columns survive.
         this.japaneseFace()
       } else if (this.scheme.touchKeyboardLayout === 'handwriting') {
         this.handwritingFace()
-      } else if (this.nineKey && !this.symbols) {
+      } else if (this.nineKey) {
         this.nineKeyFace()
       } else {
         Row({ space: this.keySpacing() }) {
@@ -3397,77 +3573,7 @@ struct KeyboardView {
         .width('100%')
         .height(this.rowHeight(2))
 
-        Row({ space: this.keySpacing() }) {
-          this.fixedKey({
-            face: this.symbols ? '返回' : '123',
-            label: KeyAccessibilityPolicy.layoutToggle(this.symbols),
-            size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
-            emphasized: false,
-            width: KeyboardMetrics.LAYOUT_TOGGLE_WIDTH_VP,
-            action: () => {
-              this.symbols = !this.symbols;
-            }
-          });
-          Column() {
-            this.fixedKey({
-              face: '，',
-              label: KeyAccessibilityPolicy.punctuation(),
-              size: KeyboardMetrics.KEY_FONT_SIZE,
-              emphasized: false,
-              width: KeyboardMetrics.MODIFIER_WIDTH_VP,
-              action: () => KeyboardSession.shared.punctuation(0x2c)
-            });
-          }
-          .width(KeyboardMetrics.MODIFIER_WIDTH_VP)
-          .height('100%')
-          .gesture(LongPressGesture().onAction(() => {
-            this.managing = -1;
-            this.punctuation = true;
-          }))
-          this.spaceKey();
-          this.fixedKey({
-            // The face is the mode it is in, not the pair it toggles between: a key labelled 中/英
-            // says nothing about which one is running.
-            face: this.english ? 'En' : '中',
-            // Never the mode it is in: a label reading 中 would be the character, not the action.
-            label: KeyAccessibilityPolicy.language(),
-            size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
-            emphasized: true,
-            width: KeyboardMetrics.LANGUAGE_WIDTH_VP,
-            action: () => {
-              this.english = KeyboardSession.shared.toggleLanguage();
-              this.letterCase.reset();
-              this.caseMode = this.letterCase.mode();
-            }
-          });
-          this.fixedKey({
-            // A composition takes Return before any editor action does: the user is choosing a
-            // candidate, not submitting the field. Otherwise the key says what the field asked for,
-            // so it reads 搜索 in a search box rather than 换行 in a box that has no lines.
-            face: this.japanese
-              ? JapaneseNineKeyActions.returnTitle(this.editing.length > 0)
-              : (this.candidates.length > 0
-                ? '选定' : ReturnKeyAction.title(KeyboardSession.shared.returnAction(), false)),
-            // The face is already a whole word here — 搜索, 换行, 选定 — so the spoken name is the
-            // same word rather than a second description of it.
-            label: KeyAccessibilityPolicy.returnKey(this.japanese
-              ? JapaneseNineKeyActions.returnTitle(this.editing.length > 0)
-              : (this.candidates.length > 0
-                ? '选定' : ReturnKeyAction.title(KeyboardSession.shared.returnAction(), false))),
-            size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
-            emphasized: true,
-            width: KeyboardMetrics.RETURN_WIDTH_VP,
-            action: () => {
-              if (this.candidates.length > 0) {
-                KeyboardSession.shared.commitHighlighted();
-              } else {
-                KeyboardSession.shared.submit();
-              }
-            }
-          });
-        }
-        .width('100%')
-        .height(this.rowHeight(3))
+        this.actionRow()
       }
   }
 }

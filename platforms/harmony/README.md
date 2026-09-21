@@ -176,6 +176,18 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 所以这是按平台特性裁剪，而不是欠账：能力模型的用途正是让页面不画一个保存了却什么都不做的开关。如果将来 SDK 提供了对应 API，接法是声明 `appIcon` 并在 `module.json5` 里补上备用入口 ability——那时需要的是真机验证，不是这里的接线。
 
+## 每一块键面都以同一行动作键结尾
+
+`123`／`返回`、`，`、空格、中/英、回车这一行本来写在 26 键那三排字母后面，是那个 `else` 分支的一部分。于是画自己格子的三块键面——全拼九宫格、日语假名格、手写——全都没有它：没有空格键、回车无法上屏、退不出英文、也够不到数字。九宫格上唯一的出路是去点候选，而空格键上那套 `SpaceCursorMovement` 滑动移光标的逻辑在那里根本不存在。`spaceKey()` 里写着 `this.japanese ? JapaneseNineKeyActions.spaceTitle(...)` 的那个分支尤其说明问题：代码明明为日语准备了 `空白`／`改行` 两个字面，而它的唯一调用点在 `this.japanese` 为真时到不了。
+
+现在这一行是 `actionRow()`，三块键面各自在末尾调用它，键面本身占 `gridHeight()`（`surfaceHeight()` 减去动作行和它上面那道缝），所以换布局不改变键盘总高——这正是 Apple 那几条 `KeyLayoutsKeepNineKeyHeight`、`EveryKanaKeyConvertsAndLayoutsKeepFullHeight` 断言的东西。手写的画布随之改成按 `gridHeight()` 取比例，否则工具行和候选会被挤出底边。
+
+**数字层保持三列。** 此前九宫格按 `123` 会掉进 26 键那排十列符号（`this.nineKey && !this.symbols` 的判断把数字层让给了 `else` 分支）。选了三列的人应当继续得到三列：`NineKeyLayout.digits()` 把同一个格子重贴成 1–9，右列的 0 照旧，侧栏换成 `@ # / -`；日语侧直接用上了早就写好却从没有人调用的 `JapaneseNineKeyLayout.digitKeys()`。数字走的是 26 键数字排同一条 `punctuation()` 插入路径，不交给 Engine，否则会被当成候选位次；日语那边 `sendKana` 对空 stroke 本来就是直接上屏，正合数字层要的“不走罗马字转换”。
+
+两处 ForEach 身份也跟着修了。`faceKey()` 现在带上 `symbols`：格子在两层之间保留同样的单元格，2–9 在字母层和数字层送出的是同一个字符，不带这一位的话 ForEach 判定子树没变，数字层会继续写着 ABC、DEF、GHI。日语最后一行原本是两次直接 `kanaKey(...)` 调用，`$$` 是按引用绑定，换一个对象并不重建单元格——实测数字层上面九格已经是数字、这两格还是 わ 和 、，所以它们也改走带 `faceKey()` 身份的 ForEach。
+
+模拟器实测（全拼 9 键→日语 9 键）：九宫格底行出现 `123 ， 空格 中 下一项`；按 `123` 后格子变 1–9、右列 0、侧栏 `@ # / -`、切换键变 `返回`，点 5 直接上屏，`返回` 回到 分词/ABC/DEF；打两下 ABC 出候选 把，回车键从 `下一项` 变 `选定`，按下后 `5把` 落进输入框。日语面底行的空格读 `空白`、回车读 `改行`（`JapaneseNineKeyActions` 的这两个字面此前不可达），变体键 小゛゜ 在没有假名时置灰；其数字层同样是三列 1–9 加 0。
+
 ## 地址栏与密码框拿到的是整块字母键面
 
 九宫格靠把一串数字拿去跟词典比对来拼字，而网址、邮箱地址、密码和一次性验证码都是词典里没有的任意文本，在那里每一次点击必须是一个确定的字符。所以这几类编辑器一律给 26 键，不管用户把布局设成了什么。这条来自 MSIME-Apple 的 `testLatinFieldsUseFullKeyboardAndRestoreNineKeyHeight`。

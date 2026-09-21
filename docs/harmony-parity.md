@@ -126,6 +126,30 @@ iOS 与 macOS 的同类文档是 [ios-parity.md](ios-parity.md) 和 [macos-parit
 
 这条轴的成本高于前三条（要读来源的测试体，不只是名字），但它是唯一能看见"行为不同"的。修法与实测记在 `platforms/harmony/README.md` 的「地址栏与密码框拿到的是整块字母键面」。
 
+同一条轴接着找到了更大的一处：`NineKeyInputAndLayoutSwitches`、`ShiftIsDiscoverableAndSwitchesToEnglishCapitalization`、`SymbolKeyOpensAPanelInsteadOfAMenu` 这些断言都默认九宫格上有一行动作键，而鸿蒙侧那一行写在 26 键分支内部，三块自绘键面全都没有它——九宫格和日语假名格没有空格、没有回车、退不出英文。`NineKeyDigitLayerKeepsTheGridInsteadOfTheTwentySixKeyRows` 和日语的 `DigitLayerKeepsTheSameThreeColumnGrid` 则对应另一处：按 `123` 会掉进十列符号排。两处一并修了，同样记在 README。
+
+## 文件可达不等于符号可达
+
+`test-harmony-unwired-policies.py` 问的是"除了测试之外有没有东西到得了这个文件"。修九宫格时发现同一个问题在方法这一层还在：`JapaneseNineKeyLayout.digitKeys()` 和 `digitBrackets()` 定义好、测试写好、产品从不调用，而因为 `JapaneseNineKeyLayout.ts` 本身被大量 import，那道门禁是绿的。
+
+按同样的判据扫了一遍宿主里的导出静态方法——声明处以外，除测试外无人引用——得到 17 个：
+
+| 文件 | 方法 |
+| --- | --- |
+| `keyboard/FloatingToolbarLayout.ts` | `allComponents` |
+| `keyboard/KeyboardGeometry.ts` | `halfGapPixels` |
+| `keyboard/KeyboardScheme.ts` | `mappingForRuntimeSelection`、`resolveEnabledSelection`、`fromHostSelection` |
+| `keyboard/candidate/CandidateGlossPolicy.ts` | `token` |
+| `keyboard/candidate/CandidateManagementAction.ts` | `fixedPosition`、`fromMenuItemId`、`validatePosition` |
+| `keyboard/input/EditorPolicy.ts` | `capitalizationMode` |
+| `keyboard/input/EnglishCapitalizationPolicy.ts` | `shouldShift` |
+| `keyboard/input/JapaneseNineKeyLayout.ts` | `digitKeys`、`digitBrackets` |
+| `keyboard/input/LocalInputMode.ts` | `fromTrigger` |
+| `keyboard/input/ReturnKeyAction.ts` | `shouldPerformEditorAction` |
+| `keyboard/input/KeyAccessibilityPolicy.ts` | `scheme`、`tools` |
+
+其中 `digitKeys` 已经接上。剩下的不是一批可以删的死代码：`capitalizationMode` 与 `shouldShift` 合起来是自动大写（Apple 的 `EnglishCapitalizationPolicyTests` 与 `ACapitalisedStartCarriesIntoTheSuggestion`），`CandidateManagementAction` 的三个是长按候选菜单，`fromTrigger` 是临时本地模式。也就是说这张表读作一份按符号列出的未接线清单，逐条对回来源的断言即可。门禁要从文件粒度下沉到符号粒度，与这份清单一起做。
+
 ## 本轮合并的切片
 
 | PR | 内容 |
