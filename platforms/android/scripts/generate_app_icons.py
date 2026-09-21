@@ -2,14 +2,15 @@
 """Render the launcher icons from the one brand artwork (brew install librsvg).
 
 The artwork lives at `apps/desktop/app-icon.svg` and is the same file the Windows client ships as
-`msime.ico`. The themes differ from the default by exactly one value - the colour of the ragged
-frame - so they are derived rather than drawn, and the same table is used on iOS.
+`msime.ico`. The themes differ from the default by exactly one value - the colour of the frame -
+so they are derived rather than drawn, and the same table is used on iOS.
 
 `classic` is rendered here alongside the themes rather than left as the Lanczos reduction of the
 `.ico` it used to be: it now needs the same field and the same inset as everything else, and two
 routes to one mark is how they drift apart.
 """
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 
@@ -23,26 +24,36 @@ VARIANTS = {"classic": FRAME, "forest": "#287B61", "sky": "#70DCF0",
             "dusk": "#A896EF", "vermilion": "#B74332"}
 DENSITIES = {"mdpi": 48, "hdpi": 72, "xhdpi": 96, "xxhdpi": 144, "xxxhdpi": 192}
 
-# The artwork is a framed portrait panel drawn for the Windows tray, where it floats on whatever is
-# behind it and so has to supply its own border. A launcher icon is the opposite case: the launcher
-# draws the container. Android masks these legacy drawables less aggressively than iOS does, but the
-# two platforms have to show one icon, so the geometry is kept identical - see the iOS script for
-# where the numbers come from.
-BBOX = (10.3125, 0.3223, 99.6875, 109.6777)
+# The artwork was drawn for the Windows tray: it floats on whatever is behind it, so it supplies its
+# own border, painted as scattered brush stamps. A launcher icon is the opposite case on both counts
+# - the launcher draws the container, and at these sizes the brush's ragged alpha reads as a smeared
+# edge. Android masks legacy drawables less aggressively than iOS does, but the two platforms have to
+# show one icon, so the geometry is identical; the iOS script is where the numbers are explained.
 INSET = 0.74
+FRAME_WIDTH = 5
+PANEL = re.compile(r'<path d="(M15 5H95V105H15V5Z)" fill="#252525"/>')
+MARK = re.compile(r'<path d="M74\.[^"]*" stroke="white"[^>]*/>')
 
 
 def artwork(frame: str) -> str:
-    left, top, right, bottom = BBOX
+    master = MASTER.read_text()
+    panel, mark = PANEL.search(master), MARK.search(master)
+    if not panel or not mark:
+        raise SystemExit(f"{MASTER} no longer has the panel and mark this script composes")
+    rect = panel.group(1)
+    half = FRAME_WIDTH / 2
+    left, top, right, bottom = 15 - half, 5 - half, 95 + half, 105 + half
     scale = INSET * 110 / (bottom - top)
     x, y = 55 - scale * (left + right) / 2, 55 - scale * (top + bottom) / 2
-    body = MASTER.read_text().split("\n", 1)[1].replace("</svg>", "")
     return (
-        '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"'
-        ' width="110" height="110" viewBox="0 0 110 110" fill="none">\n'
+        '<svg xmlns="http://www.w3.org/2000/svg" width="110" height="110" viewBox="0 0 110 110"'
+        ' fill="none">\n'
         f'<rect width="110" height="110" fill="{FIELD}"/>\n'
-        f'<g transform="translate({x:.4f} {y:.4f}) scale({scale:.6f})">\n{body}</g>\n</svg>\n'
-    ).replace(FRAME, frame)
+        f'<g transform="translate({x:.4f} {y:.4f}) scale({scale:.6f})">\n'
+        f'<path d="{rect}" fill="{FIELD}"/>\n'
+        f'<path d="{rect}" fill="none" stroke="{frame}" stroke-width="{FRAME_WIDTH}"/>\n'
+        f"{mark.group(0)}\n</g>\n</svg>\n"
+    )
 
 
 def main() -> None:

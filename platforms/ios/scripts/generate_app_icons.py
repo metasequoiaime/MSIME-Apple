@@ -3,15 +3,15 @@
 
 The artwork lives at `apps/desktop/app-icon.svg` and is the same file the Windows client ships as
 `msime.ico`; it is not duplicated here. The alternate icons differ from the default by exactly one
-value - the colour of the ragged frame - so they are derived rather than drawn, and only the
-rendered PNGs are kept. Changing the logo means replacing that one master.
+value - the colour of the frame - so they are derived rather than drawn, and only the rendered PNGs
+are kept. Changing the logo means replacing that one master.
 
-The master is transparent outside the frame, which an app icon may not be: iOS applies its own
-mask and expects an opaque square. Each rendition is therefore laid over the artwork's own dark
-field before rasterising, and inset so the mask has somewhere to bite - see INSET.
+Two things the master cannot be used for as-is, both consequences of it having been drawn for the
+Windows tray rather than for a home screen; see FRAME_WIDTH and INSET.
 """
 import json
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 
@@ -25,34 +25,53 @@ FIELD = "#252525"
 # green to be told apart at home-screen size.
 VARIANTS = {"Forest": "#287B61", "Sky": "#70DCF0", "Dusk": "#A896EF", "Vermilion": "#B74332"}
 
-# The artwork is a framed portrait panel drawn for the Windows tray, where it floats on whatever
-# is behind it and so has to supply its own border. An app icon is the opposite case: the platform
-# already draws the container, and its rounded mask cuts through anything near the edge. The frame
-# comes within 0.32 units of the top of the 110-unit canvas, so shipping the master as-is loses the
-# top and bottom of the border and leaves a broken box. Inset the whole artwork instead - the frame
-# stays whole and the mask only ever touches the field.
-BBOX = (10.3125, 0.3223, 99.6875, 109.6777)  # the master's own extent, off its 1024px rendition
+# In the tray the icon floats on whatever is behind it, so it carries its own border, and that
+# border is painted as 164 scattered brush stamps along the panel's edge. An app icon is the
+# opposite case on both counts.
+#
+# The platform draws the container and its rounded mask cuts through anything near the edge. The
+# master's frame comes within 0.32 units of the top of the 110-unit canvas, so shipping it at its
+# native extent loses the top and bottom of the border and leaves a broken box. Inset it instead.
 INSET = 0.74  # artwork height as a fraction of the icon; leaves the mask ~13% top and bottom
+# A home-screen icon is 180px, where the frame lands about four pixels wide. The brush's ragged
+# alpha and the dark gaps between stamps have nowhere to go at that width and read as a smeared
+# edge rather than as texture. The stamps are therefore replaced by one stroke on the same path,
+# at the weight the brush band carried (measured at 1024: a ~6.5 unit band over a ~5 unit core).
+FRAME_WIDTH = 5
+
+# The two top-level paths of the master, in order: the dark panel and the white mark. Everything
+# else in the file is the scatter - the 164 `use` elements and the `defs` they point at.
+PANEL = re.compile(r'<path d="(M15 5H95V105H15V5Z)" fill="#252525"/>')
+MARK = re.compile(r'<path d="M74\.[^"]*" stroke="white"[^>]*/>')
 
 
-def transform() -> str:
-    left, top, right, bottom = BBOX
-    scale = INSET * 110 / (bottom - top)
-    return (
-        f"translate({55 - scale * (left + right) / 2:.4f} {55 - scale * (top + bottom) / 2:.4f})"
-        f" scale({scale:.6f})"
-    )
+def parts() -> tuple[str, str]:
+    master = MASTER.read_text()
+    panel, mark = PANEL.search(master), MARK.search(master)
+    if not panel or not mark:
+        raise SystemExit(f"{MASTER} no longer has the panel and mark this script composes")
+    return panel.group(1), mark.group(0)
 
 
 def artwork(frame: str, field: str | None = FIELD) -> str:
-    """The master centred in a square. Without a field it keeps the master's own transparency."""
-    body = MASTER.read_text().split("\n", 1)[1].replace("</svg>", "")
+    """The mark in a crisp frame, centred in a square. Without a field it stays transparent."""
+    rect, mark = parts()
+    half = FRAME_WIDTH / 2  # the stroke straddles the path, so it widens the artwork's extent
+    left, top, right, bottom = 15 - half, 5 - half, 95 + half, 105 + half
+    scale = INSET * 110 / (bottom - top)
+    transform = (
+        f"translate({55 - scale * (left + right) / 2:.4f} {55 - scale * (top + bottom) / 2:.4f})"
+        f" scale({scale:.6f})"
+    )
     return (
-        '<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"'
-        ' width="110" height="110" viewBox="0 0 110 110" fill="none">\n'
+        '<svg xmlns="http://www.w3.org/2000/svg" width="110" height="110" viewBox="0 0 110 110"'
+        ' fill="none">\n'
         + (f'<rect width="110" height="110" fill="{field}"/>\n' if field else "")
-        + f'<g transform="{transform()}">\n{body}</g>\n</svg>\n'
-    ).replace(FRAME, frame)
+        + f'<g transform="{transform}">\n'
+        f'<path d="{rect}" fill="{FIELD}"/>\n'
+        f'<path d="{rect}" fill="none" stroke="{frame}" stroke-width="{FRAME_WIDTH}"/>\n'
+        f"{mark}\n</g>\n</svg>\n"
+    )
 
 
 def render(source: Path, destination: Path, pixels: int) -> None:
