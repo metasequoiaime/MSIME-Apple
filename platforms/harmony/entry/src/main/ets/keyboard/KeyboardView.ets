@@ -12,7 +12,7 @@ import { LetterKeyFacePolicy } from './input/LetterKeyFacePolicy';
 import { KeyAccessibilityPolicy } from './input/KeyAccessibilityPolicy';
 import { CandidateGlossPolicy } from './candidate/CandidateGlossPolicy';
 import { ShuangpinKeyHintPolicy } from './input/ShuangpinKeyHintPolicy';
-import { ReturnKeyAction } from './input/ReturnKeyAction';
+import { ReturnDispatch, ReturnKeyAction } from './input/ReturnKeyAction';
 import { InputDiagnosticPolicy } from './input/InputDiagnosticPolicy';
 import { LocalInputMode, LocalInputModeDefinition } from './input/LocalInputMode';
 import { CandidateWrapPolicy } from './candidate/CandidateWrapPolicy';
@@ -1011,6 +1011,22 @@ struct KeyboardView {
       : `${key.description}，长按输入 ${options.join('、')}`;
   }
 
+  private activateReturn(): void {
+    const dispatch: ReturnDispatch = ReturnKeyAction.dispatch(
+      this.japanese, this.editing.length > 0, this.candidates.length);
+    if (dispatch === ReturnDispatch.COMMIT_HIGHLIGHTED) {
+      KeyboardSession.shared.commitHighlighted();
+    } else if (dispatch === ReturnDispatch.COMMIT_READING) {
+      KeyboardSession.shared.commitReading();
+    } else if (dispatch === ReturnDispatch.FINISH_COMPOSITION) {
+      if (!KeyboardSession.shared.finishComposition()) {
+        KeyboardSession.shared.submit();
+      }
+    } else {
+      KeyboardSession.shared.submit();
+    }
+  }
+
   /** Which of the two English cards is current is the grid, English itself being common to both. */
   private isCurrentEnglish(nineKey: boolean): boolean {
     return this.english && this.nineKey === nineKey;
@@ -1818,13 +1834,7 @@ struct KeyboardView {
         size: KeyboardMetrics.SMALL_KEY_FONT_SIZE,
         emphasized: true,
         width: KeyboardMetrics.RETURN_WIDTH_VP,
-        action: () => {
-          if (this.candidates.length > 0) {
-            KeyboardSession.shared.commitHighlighted();
-          } else {
-            KeyboardSession.shared.submit();
-          }
-        }
+        action: () => this.activateReturn()
       });
     }
     .width('100%')

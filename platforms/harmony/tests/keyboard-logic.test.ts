@@ -73,7 +73,10 @@ import {
   SmartPunctuationRepeatSnapshot,
 } from "../entry/src/main/ets/keyboard/input/SmartPunctuationRepeatPolicy";
 import { PairedPunctuationPolicy } from "../entry/src/main/ets/keyboard/input/PairedPunctuationPolicy";
-import { ReturnKeyAction } from "../entry/src/main/ets/keyboard/input/ReturnKeyAction";
+import {
+  ReturnDispatch,
+  ReturnKeyAction,
+} from "../entry/src/main/ets/keyboard/input/ReturnKeyAction";
 import { SpaceCursorMovement } from "../entry/src/main/ets/keyboard/input/SpaceCursorMovement";
 import {
   CandidateManagementAction,
@@ -2889,6 +2892,14 @@ group("return performs an editor action only when nothing else claimed it", () =
   check(ReturnKeyAction.title(send, false) === "发送", "the key says what it will do");
   check(ReturnKeyAction.title(send, true) === "换行", "a disabled action falls back to newline");
   check(ReturnKeyAction.title(0, false) === "换行", "an unspecified action is a newline");
+  check(ReturnKeyAction.dispatch(true, true, 0) === ReturnDispatch.COMMIT_READING,
+    "Japanese Return commits unconverted kana as its reading");
+  check(ReturnKeyAction.dispatch(true, true, 3) === ReturnDispatch.COMMIT_HIGHLIGHTED,
+    "Japanese Return commits the selected conversion when candidates exist");
+  check(ReturnKeyAction.dispatch(false, true, 0) === ReturnDispatch.FINISH_COMPOSITION,
+    "a candidate-less non-Japanese composition is still finished before Return");
+  check(ReturnKeyAction.dispatch(false, false, 0) === ReturnDispatch.EDITOR,
+    "an idle Return belongs to the editor");
 
   // Kept as a description of the Android split rather than of this host: HarmonyOS hands the enter
   // key type to sendKeyFunction and the framework resolves it, newline included, so nothing here

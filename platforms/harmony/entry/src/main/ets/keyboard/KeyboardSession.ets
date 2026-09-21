@@ -714,6 +714,7 @@ enum InputCommand {
   MOVE_END = 7,
   DELETE_FORWARD = 8,
   FINISH_COMPOSITION = 9,
+  COMMIT_READING = 11,
   BACKSPACE_SEGMENT = 12,
   MOVE_LEFT_SEGMENT = 13,
   MOVE_RIGHT_SEGMENT = 14,
@@ -2118,8 +2119,13 @@ export class KeyboardSession implements HardwareKeyTarget {
   }
 
   /** Commit the highlighted candidate, or the reading when the scheme has no converted candidate. */
-  finishComposition(): void {
-    this.command(InputCommand.FINISH_COMPOSITION);
+  finishComposition(): boolean {
+    return this.command(InputCommand.FINISH_COMPOSITION);
+  }
+
+  /** Commit Japanese kana as entered, without forcing the first converted candidate. */
+  commitReading(): boolean {
+    return this.command(InputCommand.COMMIT_READING);
   }
 
   moveLeft(): void {

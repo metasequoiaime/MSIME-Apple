@@ -12,7 +12,24 @@ const NEXT: number = 5;
 const DONE: number = 6;
 const PREVIOUS: number = 7;
 
+export enum ReturnDispatch {
+  EDITOR = 'editor',
+  FINISH_COMPOSITION = 'finish-composition',
+  COMMIT_HIGHLIGHTED = 'commit-highlighted',
+  COMMIT_READING = 'commit-reading'
+}
+
 export class ReturnKeyAction {
+  static dispatch(japanese: boolean, composing: boolean, candidateCount: number): ReturnDispatch {
+    if (japanese && composing) {
+      return candidateCount > 0 ? ReturnDispatch.COMMIT_HIGHLIGHTED : ReturnDispatch.COMMIT_READING;
+    }
+    if (candidateCount > 0) {
+      return ReturnDispatch.COMMIT_HIGHLIGHTED;
+    }
+    return composing ? ReturnDispatch.FINISH_COMPOSITION : ReturnDispatch.EDITOR;
+  }
+
   static performsEditorAction(action: number, disabled: boolean): boolean {
     if (disabled) {
       return false;
