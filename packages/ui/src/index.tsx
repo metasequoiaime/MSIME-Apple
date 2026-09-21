@@ -3125,7 +3125,10 @@ export function SettingsPage({
   const localVoice = macosPlatform && voiceInput.asr_provider === "local";
   const serviceVoice = !systemVoice && !localVoice;
   const harmonyUnsupportedAsr =
-    harmonyPlatform && !["doubao", "system"].includes(String(voiceInput.asr_provider));
+    harmonyPlatform &&
+    !["doubao", "system", "openai", "siliconflow", "groq", "everyapi", "mistral"].includes(
+      String(voiceInput.asr_provider),
+    );
   const doubaoAuthMode =
     voiceInput.doubao_auth_mode ||
     (voiceInput.asr_app_key && !voiceInput.asr_app_key.startsWith("<") ? "legacy" : "api_key");
@@ -8224,7 +8227,7 @@ export function SettingsPage({
                      * cover it.
                      */}
                     {(windowsPlatform || macosPlatform || harmonyPlatform) &&
-                      ["openai", "siliconflow", "groq", "doubao"].includes(
+                      ["openai", "siliconflow", "groq", "everyapi", "mistral", "doubao"].includes(
                         voiceInput.asr_provider ?? "",
                       ) && (
                         <>

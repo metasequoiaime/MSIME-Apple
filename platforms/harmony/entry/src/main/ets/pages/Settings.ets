@@ -1445,7 +1445,7 @@ class SettingsBridge {
     const endpoint: string | null = this.validCredentialEndpoint(config.endpoint ?? '', false);
     const token: string = (config.token ?? '').trim();
     const model: string = (config.model ?? '').trim();
-    if (!['openai', 'siliconflow', 'groq'].includes(provider) || endpoint === null
+    if (!['openai', 'siliconflow', 'groq', 'everyapi', 'mistral'].includes(provider) || endpoint === null
       || !this.validCredentialSecret(token, 8192) || model.length === 0
       || utf8Length(model) > 256 || this.hasControl(model)) {
       return this.credentialReply(false, '请填写有效的 HTTPS 转写接口地址、API Key 和模型名。');

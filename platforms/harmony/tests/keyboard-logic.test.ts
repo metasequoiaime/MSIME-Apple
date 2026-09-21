@@ -255,6 +255,7 @@ import {
   AiCatalogPage,
   AiModelCatalogPolicy,
 } from "../entry/src/main/ets/keyboard/settings/AiModelCatalogPolicy";
+import { HttpAsrConfigurationPolicy } from "../entry/src/main/ets/keyboard/input/HttpAsrConfigurationPolicy";
 import { SkinImportPolicy } from "../entry/src/main/ets/keyboard/skin/SkinImportPolicy";
 import {
   SmartPunctuationSpacePolicy,
@@ -7012,6 +7013,58 @@ group("AI model catalogs filter capabilities and paginate safely", () => {
   check(
     AiModelCatalogPolicy.append([], { data: [{ id: "first" }, { id: "second" }] }, 1) === false,
     "the aggregate model bound is enforced across pages",
+  );
+});
+
+group("Harmony batch transcription accepts every shared cloud preset", () => {
+  const everyapi: VoiceInputConfiguration = {
+    ...DEFAULT_VOICE_INPUT_CONFIGURATION,
+    asr_provider: "everyapi",
+    asr_endpoint: "",
+    asr_model: "",
+    asr_token: "",
+    asr_tokens: { everyapi: "synthetic-everyapi-key" },
+  };
+  check(
+    HttpAsrConfigurationPolicy.endpoint(everyapi) ===
+      "https://api.everyapi.ai/v1/audio/transcriptions",
+    "EveryAPI resolves to its transcription endpoint",
+  );
+  check(
+    HttpAsrConfigurationPolicy.model(everyapi) === "openai/whisper-large-v3-turbo",
+    "EveryAPI resolves to its shared default model",
+  );
+  check(
+    HttpAsrConfigurationPolicy.token(everyapi) === "synthetic-everyapi-key",
+    "a provider token survives switching away and back",
+  );
+  check(HttpAsrConfigurationPolicy.valid(everyapi), "the complete EveryAPI preset can record");
+
+  const mistral: VoiceInputConfiguration = {
+    ...everyapi,
+    asr_provider: "mistral",
+    asr_tokens: { mistral: "synthetic-mistral-key" },
+  };
+  check(
+    HttpAsrConfigurationPolicy.endpoint(mistral) ===
+      "https://api.mistral.ai/v1/audio/transcriptions",
+    "Mistral resolves to its transcription endpoint",
+  );
+  check(
+    HttpAsrConfigurationPolicy.model(mistral) === "voxtral-mini-latest",
+    "Mistral resolves to its shared default model",
+  );
+  check(HttpAsrConfigurationPolicy.valid(mistral), "the complete Mistral preset can record");
+  check(
+    !HttpAsrConfigurationPolicy.valid({
+      ...mistral,
+      asr_endpoint: "https://user:secret@example.test/v1/audio/transcriptions",
+    }),
+    "embedded endpoint credentials are refused before recording",
+  );
+  check(
+    !HttpAsrConfigurationPolicy.valid({ ...mistral, asr_provider: "local" }),
+    "a provider without the HTTP adapter cannot fall through to it",
   );
 });
 

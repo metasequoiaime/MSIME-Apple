@@ -2,11 +2,11 @@ import audio from '@ohos.multimedia.audio';
 import http from '@ohos.net.http';
 import util from '@ohos.util';
 import { KeyboardLog, describeError } from '../KeyboardLog';
-import { utf8Length } from '../Utf8';
 import { VoiceRecognitionPolicy } from './VoiceRecognitionPolicy';
 import { HarmonyVoiceCaptureDevices } from './HarmonyVoiceCaptureDevices';
 import { VoiceOutcome, VoiceResponsePolicy } from './VoiceResponsePolicy';
 import { VoiceInputConfiguration } from './VoiceInputConfiguration';
+import { HttpAsrConfigurationPolicy } from './HttpAsrConfigurationPolicy';
 
 const SAMPLE_RATE: number = 16000;
 const SAMPLE_BYTES: number = 2;
@@ -17,17 +17,6 @@ const MAX_RESPONSE_BYTES: number = 1024 * 1024;
 interface AsrResponse {
   text?: string;
 }
-
-interface AsrProviderDefaults {
-  endpoint: string;
-  model: string;
-}
-
-const PROVIDER_DEFAULTS: AsrProviderDefaults[] = [
-  { endpoint: 'https://api.openai.com/v1/audio/transcriptions', model: 'whisper-1' },
-  { endpoint: 'https://api.siliconflow.cn/v1/audio/transcriptions', model: 'FunAudioLLM/SenseVoiceSmall' },
-  { endpoint: 'https://api.groq.com/openai/v1/audio/transcriptions', model: 'whisper-large-v3-turbo' }
-];
 
 export type HttpAsrResultHandler = (text: string, final: boolean) => void;
 export type HttpAsrErrorHandler = (message: string) => void;
@@ -173,8 +162,9 @@ export class HarmonyHttpAsrRecognizer {
   private currentConfig: VoiceInputConfiguration | undefined = undefined;
 
   private async send(config: VoiceInputConfiguration, wav: ArrayBuffer, token: number): Promise<void> {
-    const endpoint: string = this.endpoint(config);
-    const model: string = this.model(config);
+    const endpoint: string = HttpAsrConfigurationPolicy.endpoint(config);
+    const model: string = HttpAsrConfigurationPolicy.model(config);
+    const credential: string = HttpAsrConfigurationPolicy.token(config);
     const boundary: string = `----msime-${util.generateRandomUUID(false).replace(/-/g, '')}`;
     const body: ArrayBuffer = this.multipart(boundary, model, config.language, wav);
     const request: http.HttpRequest = http.createHttp();
@@ -185,7 +175,7 @@ export class HarmonyHttpAsrRecognizer {
         header: {
           Accept: 'application/json',
           'Content-Type': `multipart/form-data; boundary=${boundary}`,
-          Authorization: `Bearer ${config.asr_token.trim()}`
+          Authorization: `Bearer ${credential}`
         },
         connectTimeout: 5000,
         readTimeout: 60000,
@@ -280,40 +270,9 @@ export class HarmonyHttpAsrRecognizer {
     return language === 'auto' ? '' : language.slice(0, 32);
   }
 
-  private endpoint(config: VoiceInputConfiguration): string {
-    const defaults: AsrProviderDefaults | undefined = this.defaults(config.asr_provider);
-    return config.asr_endpoint.trim() || (defaults?.endpoint ?? '');
-  }
-
-  private model(config: VoiceInputConfiguration): string {
-    const defaults: AsrProviderDefaults | undefined = this.defaults(config.asr_provider);
-    return config.asr_model.trim() || (defaults?.model ?? '');
-  }
-
-  private defaults(provider: string): AsrProviderDefaults | undefined {
-    if (provider === 'openai') return PROVIDER_DEFAULTS[0];
-    if (provider === 'siliconflow') return PROVIDER_DEFAULTS[1];
-    if (provider === 'groq') return PROVIDER_DEFAULTS[2];
-    return undefined;
-  }
-
   private validConfig(config: VoiceInputConfiguration): boolean {
     this.currentConfig = config;
-    const endpoint: string = this.endpoint(config);
-    const model: string = this.model(config);
-    const token: string = config.asr_token.trim();
-    return (config.asr_provider === 'openai' || config.asr_provider === 'siliconflow'
-      || config.asr_provider === 'groq') && endpoint.startsWith('https://')
-      && utf8Length(endpoint) <= 2048 && !this.hasControl(endpoint)
-      && model.length > 0 && utf8Length(model) <= 512 && !this.hasControl(model)
-      && token.length > 0 && utf8Length(token) <= 16384 && !this.hasControl(token);
-  }
-
-  private hasControl(value: string): boolean {
-    return Array.from(value).some((character: string): boolean => {
-      const code: number = character.codePointAt(0) ?? 0;
-      return code < 0x20 || (code >= 0x7f && code <= 0x9f);
-    });
+    return HttpAsrConfigurationPolicy.valid(config);
   }
 
   private writeAscii(target: Uint8Array, offset: number, value: string): void {
