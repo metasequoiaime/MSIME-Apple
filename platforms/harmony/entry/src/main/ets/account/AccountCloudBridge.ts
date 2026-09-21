@@ -1079,16 +1079,19 @@ export class AccountCloudBridge {
         (action.position !== null && !this.boundedNumber(action.position, 1, 5))
       )
         return error("account_invalid");
+      const body: Record<string, unknown> = {
+        context: action.context,
+        code: action.code,
+        word: action.word,
+        revision: action.revision,
+      };
+      // DELETE means removing the fixed position. The service distinguishes an absent position
+      // from a JSON null, so only PUT carries this field (the fixed Apple client does the same).
+      if (action.position !== null) body.position = action.position;
       return this.authenticated(
         action.position === null ? "DELETE" : "PUT",
         "/v1/users/me/dictionary/positions",
-        {
-          context: action.context,
-          code: action.code,
-          word: action.word,
-          position: action.position,
-          revision: action.revision,
-        },
+        body,
       );
     }
     if (operation === "import") {

@@ -5449,6 +5449,52 @@ group("account and cloud clipboard bridge keeps secrets native", () => {
     });
 });
 
+group("cloud candidate mutations preserve the service protocol", () => {
+  const stored = JSON.stringify({
+    access_token: "a".repeat(64),
+    refresh_token: "b".repeat(64),
+    token_type: "Bearer",
+    expires_at: Date.now() + 600000,
+    user: { id: "synthetic-user", display_name: "Test", created_at: "2026-01-01" },
+  });
+  const calls: { method: string; body?: Record<string, unknown> }[] = [];
+  const bridge = new AccountCloudBridge(
+    {
+      request: async (method, path, _token, body) => {
+        if (path === "/v1/users/me/dictionary/positions") calls.push({ method, body });
+        return { status: 200, body: '{"revision":43}' };
+      },
+    },
+    { load: () => stored, save: () => {}, clear: () => {} },
+  );
+  const mutate = (position: number | null) =>
+    bridge.handle(
+      JSON.stringify({
+        operation: "dictionary",
+        dictionary_operation: "set_fixed_position",
+        context: "server:context",
+        code: "ni'hao",
+        word: "你好",
+        position,
+        revision: 42,
+      }),
+    );
+  void mutate(null).then((reply) => {
+    check(JSON.parse(reply).ok === true, "a fixed position can be removed");
+    check(calls[0]?.method === "DELETE", "removal uses DELETE");
+    check(calls[0]?.body?.context === "server:context", "removal preserves server context");
+    check(
+      calls[0]?.body !== undefined && !("position" in calls[0].body),
+      "removal omits position instead of serializing null",
+    );
+    void mutate(3).then((assigned) => {
+      check(JSON.parse(assigned).ok === true, "a fixed position can be assigned");
+      check(calls[1]?.method === "PUT", "assignment uses PUT");
+      check(calls[1]?.body?.position === 3, "assignment sends the requested position");
+    });
+  });
+});
+
 group("account access tokens rotate once and cannot outlive logout", () => {
   const savedSession = (access: string, refresh: string, expiresAt: number) =>
     JSON.stringify({
