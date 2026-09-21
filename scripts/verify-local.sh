@@ -200,6 +200,13 @@ python3 scripts/test-quick-phrase-limit.py || fail "quick phrase limit"
 note "handwriting limits"
 python3 scripts/test-handwriting-limits.py || fail "handwriting limits"
 
+# How long a cloud candidate is worth waiting for belongs to the product, but
+# each host reaches the network with its own library and can shorten it on its
+# own. Two of them had, and a dropped cloud candidate looks exactly like a query
+# that had no cloud answer.
+note "cloud request budget"
+python3 scripts/test-cloud-request-budget.py || fail "cloud request budget"
+
 # Whether the candidate right-click actions are offered is decided on the
 # Engine's CandidateSource value, which arrives as a number this side cannot
 # name in C++. Inserting a source there shifts every later one, compiles
