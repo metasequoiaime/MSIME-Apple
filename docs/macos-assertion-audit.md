@@ -45,7 +45,7 @@ grep -rhoE 'require\([^,]*,\s*"[^"]+"' "$ref"/platforms/macos/tests/*.mm "$ref"/
 
 ## UpdateControllerTests.mm（5 条）
 
-Sparkle 驱动就绪状态、手动检查激活 accessory UI 并转发给 Sparkle、两处缓存不得过期。目标 `core/UpdateController.mm`，本地测试目标 `update-controller`。
+Sparkle 驱动就绪状态、手动检查激活 accessory UI 并转发给 Sparkle、两处缓存不得过期。目标 `core/UpdateController.mm`，本地测试目标 `update-controller`。目标发布包当前没有 `SUFeedURL`，因此另钉住三路选择：有 feed 才启动 Sparkle；无 feed 的应用明确说明限制并在确认后打开固定官方发布页；非应用进程保持不可用。确认、取消和发布页打开失败均由替身覆盖，不在测试中打开浏览器或真实弹窗。
 
 ## 其余三个文件（6 条）
 
