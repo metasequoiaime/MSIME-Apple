@@ -2010,6 +2010,30 @@ struct KeyboardView {
     this.pendingRemoval = -1;
     this.managing = -1;
     switch (action.id) {
+      case 'INSERT_GLOSS': {
+        // The strip can be rebuilt while the menu is open, and then this index is somebody else's
+        // candidate. The source guards the same moment with a revision; here the gloss carried in
+        // the action is compared with the one the candidate has now, which answers the same
+        // question without a second counter to keep.
+        if (index < 0 || index >= this.candidates.length) {
+          return;
+        }
+        const candidate: CandidateEntry = this.candidates[index];
+        if (!candidate.annotationIsTranslation) {
+          return;
+        }
+        const current: ManagementAction | null =
+          CandidateManagementAction.glossAction(candidate.annotation);
+        if (current === null || current.title !== action.title) {
+          return;
+        }
+        // The gloss first and the composition after, which is the order macOS uses: cancelling
+        // first would let the editor see an empty composition and scroll away from the caret
+        // before the text arrives.
+        KeyboardSession.shared.insert(candidate.annotation.trim());
+        KeyboardSession.shared.cancel();
+        break;
+      }
       case 'PROMOTE':
         KeyboardSession.shared.promoteCandidate(index);
         break;
@@ -2877,11 +2901,23 @@ struct KeyboardView {
       this.managing >= 0 && this.managing < this.candidates.length
         ? this.candidates[this.managing] : null;
     const source: number = managed === null ? 0 : managed.source;
-    return CandidateManagementAction.actionsForFixedPosition(
+    const actions: ManagementAction[] = CandidateManagementAction.actionsForFixedPosition(
       managed === null ? 0 : managed.fixedPosition,
       CandidateManagementAction.candidateActionsAvailable(
         KeyboardScheme.engineSchemeName(this.engineScheme), source),
       CandidateManagementAction.hasMultipleCodePoints(managed === null ? '' : managed.text));
+    // The gloss is what the source offers here, and until now this host could show a translation
+    // without ever letting anyone type it: macOS has Option and a digit, and a touch keyboard has
+    // no modifiers to spare. Only a real translation — an Engine annotation such as a Wubi code
+    // shares the slot and is not a word.
+    if (managed !== null && managed.annotationIsTranslation) {
+      const gloss: ManagementAction | null =
+        CandidateManagementAction.glossAction(managed.annotation);
+      if (gloss !== null) {
+        return [gloss].concat(actions);
+      }
+    }
+    return actions;
   }
 
   @Builder

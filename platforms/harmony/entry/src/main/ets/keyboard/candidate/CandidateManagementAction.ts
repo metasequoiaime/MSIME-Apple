@@ -7,6 +7,9 @@
  */
 const MENU_ITEM_BASE: number = 1000;
 
+/** What fits on one menu row on a phone; a gloss is a dictionary line and can be much longer. */
+const MAX_GLOSS_TITLE_CHARACTERS: number = 24;
+
 export interface ManagementAction {
   readonly id: string;
   readonly title: string;
@@ -18,19 +21,27 @@ export interface ManagementAction {
   readonly available?: boolean;
 }
 
-function action(index: number, id: string, title: string, announcement: string,
-                confirmationRequired: boolean): ManagementAction {
+function action(
+  index: number,
+  id: string,
+  title: string,
+  announcement: string,
+  confirmationRequired: boolean,
+): ManagementAction {
   return {
-    id: id, title: title, announcement: announcement,
-    confirmationRequired: confirmationRequired, menuItemId: MENU_ITEM_BASE + index
+    id: id,
+    title: title,
+    announcement: announcement,
+    confirmationRequired: confirmationRequired,
+    menuItemId: MENU_ITEM_BASE + index,
   };
 }
 
 const ACTIONS: ManagementAction[] = [
-  action(0, 'PROMOTE', '优先显示', '已优先显示', false),
-  action(1, 'FIX_FIRST', '固定到首位', '已固定到首位', false),
-  action(2, 'CLEAR_POSITION', '取消固定', '已取消固定', false),
-  action(3, 'REMOVE', '删除词条…', '已删除词条', true)
+  action(0, "PROMOTE", "优先显示", "已优先显示", false),
+  action(1, "FIX_FIRST", "固定到首位", "已固定到首位", false),
+  action(2, "CLEAR_POSITION", "取消固定", "已取消固定", false),
+  action(3, "REMOVE", "删除词条…", "已删除词条", true),
 ];
 
 export class CandidateManagementAction {
@@ -41,9 +52,14 @@ export class CandidateManagementAction {
   static readonly REMOVE: ManagementAction = ACTIONS[3];
 
   /** Windows exposes all five fixed slots and marks the currently held slot. */
-  static actionsForFixedPosition(fixedPosition: number, available: boolean = true,
-                                  includeRemove: boolean = true): ManagementAction[] {
-    const actions: ManagementAction[] = [{ ...CandidateManagementAction.PROMOTE, available: available }];
+  static actionsForFixedPosition(
+    fixedPosition: number,
+    available: boolean = true,
+    includeRemove: boolean = true,
+  ): ManagementAction[] {
+    const actions: ManagementAction[] = [
+      { ...CandidateManagementAction.PROMOTE, available: available },
+    ];
     for (let position: number = 1; position <= 5; position++) {
       actions.push({
         id: `FIX_${position}`,
@@ -53,19 +69,19 @@ export class CandidateManagementAction {
         menuItemId: MENU_ITEM_BASE + position,
         position: position,
         checked: fixedPosition === position,
-        available: available
+        available: available,
       });
     }
     actions.push({
       ...CandidateManagementAction.CLEAR_POSITION,
       menuItemId: MENU_ITEM_BASE + 6,
-      available: available && fixedPosition > 0
+      available: available && fixedPosition > 0,
     });
     if (includeRemove) {
       actions.push({
         ...CandidateManagementAction.REMOVE,
         menuItemId: MENU_ITEM_BASE + 7,
-        available: available
+        available: available,
       });
     }
     return actions;
@@ -78,7 +94,7 @@ export class CandidateManagementAction {
 
   /** Dictionary mutations are only valid for local/user-dictionary candidates. */
   static candidateActionsAvailable(scheme: string, source: number): boolean {
-    if (scheme === 'japanese') {
+    if (scheme === "japanese") {
       return false;
     }
     return source === 0 || source === 1 || source === 4;
@@ -87,21 +103,54 @@ export class CandidateManagementAction {
   static fromMenuItemId(itemId: number): ManagementAction {
     const index: number = itemId - MENU_ITEM_BASE;
     if (index < 0 || index >= ACTIONS.length) {
-      throw new Error('Unknown candidate management action');
+      throw new Error("Unknown candidate management action");
     }
     return ACTIONS[index];
   }
 
   static fixedPosition(entry: ManagementAction): number {
     if (entry !== CandidateManagementAction.FIX_FIRST) {
-      throw new Error('Action does not fix a position');
+      throw new Error("Action does not fix a position");
     }
     return 1;
   }
 
+  /**
+   * The candidate's own gloss, offered as something to type instead of the candidate.
+   *
+   * macOS hands the translation over with Option or Control and a digit; a touch keyboard has no
+   * modifiers, so the source puts it on the candidate's long press. There it is the only thing on
+   * the menu and the title is the gloss alone — "输入" in front of it would state what the menu
+   * already says. This host's menu carries the entry-management items too, inherited from the
+   * Windows and Android side, so a bare gloss would read as one more noun among verbs and the
+   * title says what tapping it does.
+   *
+   * First in the list because it is the reason someone presses and holds a candidate that has a
+   * gloss; the management items are the reason for one that does not.
+   */
+  static glossAction(gloss: string): ManagementAction | null {
+    const text: string = gloss.trim();
+    if (text.length === 0) {
+      return null;
+    }
+    // A gloss is a dictionary line and can run long; the menu is one row on a phone.
+    const shown: string[] = Array.from(text);
+    const title: string =
+      shown.length > MAX_GLOSS_TITLE_CHARACTERS
+        ? shown.slice(0, MAX_GLOSS_TITLE_CHARACTERS - 1).join("") + "…"
+        : text;
+    return {
+      id: "INSERT_GLOSS",
+      title: `输入“${title}”`,
+      announcement: `已输入 ${text}`,
+      confirmationRequired: false,
+      menuItemId: MENU_ITEM_BASE + 8,
+    };
+  }
+
   static validatePosition(position: number): number {
     if (position < 1 || position > 5) {
-      throw new Error('Candidate position must be between 1 and 5');
+      throw new Error("Candidate position must be between 1 and 5");
     }
     return position;
   }

@@ -1940,6 +1940,47 @@ group("offers all fixed candidate slots and checks the active one", () => {
   );
 });
 
+group("a candidate with a gloss offers the gloss as something to type", () => {
+  // MSIME-Apple's TheCandidateMenuOffersToInsertTheGlossItself: macOS hands the translation over
+  // with Option and a digit, a touch keyboard has no modifiers, so it goes on the long press. Until
+  // this, the host could draw a translation under a candidate with no way to type it.
+  const gloss = CandidateManagementAction.glossAction("hello");
+  check(gloss !== null, "a gloss becomes an action");
+  check(gloss?.id === "INSERT_GLOSS", "with an id the dispatcher can tell apart");
+  check(gloss?.title.includes("hello") === true, "the title carries the gloss itself");
+  check(
+    gloss?.confirmationRequired === false,
+    "typing a word is not the kind of thing that needs confirming twice",
+  );
+  check(gloss?.announcement.includes("hello") === true, "and the announcement says what went in");
+
+  // The source's title is the bare gloss because its menu holds nothing else. This menu holds the
+  // management items too, so the title has to read as an action among actions.
+  check(gloss?.title !== "hello", "a bare noun among verbs would not read as something to tap");
+
+  check(CandidateManagementAction.glossAction("") === null, "no gloss, no action");
+  check(CandidateManagementAction.glossAction("   ") === null, "and whitespace is not a gloss");
+
+  const long = CandidateManagementAction.glossAction("x".repeat(200));
+  check(long !== null, "a long gloss still gives an action");
+  check(
+    long !== null && Array.from(long.title).length < 40,
+    "but the title is cut to something that fits one row on a phone",
+  );
+  check(
+    long?.announcement.includes("x".repeat(200)) === true,
+    "while the announcement keeps the whole thing, which is read aloud rather than laid out",
+  );
+
+  const distinct = CandidateManagementAction.actionsForFixedPosition(0).map(
+    (action: ManagementAction) => action.menuItemId,
+  );
+  check(
+    gloss !== null && !distinct.includes(gloss.menuItemId),
+    "its menu id does not collide with any management item",
+  );
+});
+
 group("limits candidate dictionary mutations to supported sources", () => {
   check(
     CandidateManagementAction.candidateActionsAvailable("quanpin", 0),
