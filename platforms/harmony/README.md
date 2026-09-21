@@ -140,6 +140,8 @@ Apple 润色的是**选区**：用户选中一段话，点润色，面板给出�
 
 `build-native.sh` 在本机已跑通（2026-09-20）：`arm64-v8a`（真机）、`x86_64`（模拟器）和 `armeabi-v7a` 三个 ABI 的 Rust/C++/NAPI 交叉构建全部成功，各产出 `libmsimeclient.so`、`libmsime_host_api.so` 和 `libc++_shared.so`；`hvigorw assembleHap` 打出的 HAP 约 25 MB，包含全部三个 `libs/<abi>/`。`msime-client-core` 对 `aarch64-unknown-linux-ohos` 的 `cargo check` 亦通过。
 
+`MSIME_OHOS_DEPS` 指的是某一个 ABI 的前缀本身（里面直接是 `lib/` 和 `include/`），不是放着各 ABI 子目录的父目录——每个 ABI 传各自那一个。脚本在找不到时会把要跑的三条命令连同它期望的绝对路径一起打出来，照抄即可，但 `sqlite3.h` 不要从 vcpkg 的 `buildtrees` 里拿：那份被 vcpkg 改过，开头 `#include "sqlite3-vcpkg-config.h"`，只复制它会在编译 Engine 时报找不到该头文件。把同名文件从 `target/tooling/vcpkg/packages/sqlite3_<triplet>/include/` 一并复制过去，并用它记录的那几个开关（`SQLITE_ENABLE_UNLOCK_NOTIFY`、`SQLITE_ENABLE_COLUMN_METADATA`、`SQLITE_OS_UNIX`）编译 `sqlite3.c`，这样与其他平台用的是同一套特性。前缀放在 worktree 之外（例如 `~/ohos-deps/<abi>`）可以避免每开一个 worktree 重建一次。
+
 32 位的 `armeabi-v7a` 需要额外一步：Engine 的 `find_package(fmt CONFIG)` 和 `find_package(spdlog CONFIG)` 会拒绝 Homebrew 的 config，因为那两份 config 带 64 位断言。两者在这里都只作头文件使用（Engine 只链接 `fmt::fmt-header-only`，并从 `spdlog::spdlog_header_only` 读取头文件目录），所以自建两份不带位宽断言的最小 config 指过去即可，无需改 Engine：
 
 ```sh
@@ -173,6 +175,14 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 在 API 24 的 `command-line-tools/sdk/default/openharmony/ets` 上查过：`@ohos.bundle.bundleManager` 对外只有 `canOpenLink`、`cleanBundleCacheFilesForSelf`、`getAbilityInfo`、`getAppCloneIdentity`、`getBundleInfo*`、`getBundleNameByUid*`、`getLaunchWant*`、`getPluginBundlePathForSelf`、`getProfileBy*` 和 `getSignatureInfo`——对自身是只读的，加上链接与分身的辅助；`@ohos.bundle.shortcutManager` 只有 `getAllShortcutInfoForSelf` 和 `setShortcutVisibleForSelf`。整个 `api/` 与 `kits/` 下没有 `setAbilityEnabled`、没有 alternate/dynamic icon 的任何形式。iOS 用 `setAlternateIconName`，Android 用 activity-alias 加 `setComponentEnabledSetting`，两条路在这里都没有对应物。
 
 所以这是按平台特性裁剪，而不是欠账：能力模型的用途正是让页面不画一个保存了却什么都不做的开关。如果将来 SDK 提供了对应 API，接法是声明 `appIcon` 并在 `module.json5` 里补上备用入口 ability——那时需要的是真机验证，不是这里的接线。
+
+## 地址栏与密码框拿到的是整块字母键面
+
+九宫格靠把一串数字拿去跟词典比对来拼字，而网址、邮箱地址、密码和一次性验证码都是词典里没有的任意文本，在那里每一次点击必须是一个确定的字符。所以这几类编辑器一律给 26 键，不管用户把布局设成了什么。这条来自 MSIME-Apple 的 `testLatinFieldsUseFullKeyboardAndRestoreNineKeyHeight`。
+
+判断写在 `EditorPolicy.prefersFullFace`，选的编辑器集合与 `prefersLatin` 相同但另起一个名字，因为问的不是同一件事——一个问用哪种语言，一个问用哪块键面。键面在每次 attach 时从方案重新算，不记住：这正是离开地址框以后网格自己回来的原因，覆盖属于编辑器而从不写回布局偏好。用户在同一个框里手动换布局则压过它，直到下一次 attach——那是指名道姓要的键面。
+
+模拟器上按 `attached to editor` 的 `pattern` 实测过一个来回（方案设为全拼 9 键）：共享设置页 AI 那一屏的「模型」是 `pattern=0`，键面是九宫格、方案标签「全拼 9 键」；紧挨着的「接口地址」声明为 `type="url"`，WebView 把它报成 `pattern=6`（`PATTERN_URI`），键面立刻变成小写 26 键、标签「英文 26 键」、空格键写 `space`；点回「模型」，`pattern=0`，九宫格和「全拼 9 键」都回来了。小写是对的：`capitalizationMode` 对 URI 返回 `NONE`，与 Apple 那条断言里 `q` 而非 `Q` 的判断一致。
 
 ## 2026-09-21：首次在模拟器上跑起来
 

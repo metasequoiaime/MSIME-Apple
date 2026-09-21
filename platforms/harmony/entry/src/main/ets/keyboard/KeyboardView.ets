@@ -401,10 +401,14 @@ struct KeyboardView {
     this.nineKey = this.scheme.touchKeyboardLayout === 'nine_key';
     this.japanese = this.scheme.engineScheme === 'japanese' && this.nineKey;
     KeyboardSession.shared.setNineKey(this.nineKey);
+    // The editor may already be attached by the time the view appears, in which case its override
+    // never produced a callback and has to be read off the session here.
+    this.applyEditorFace();
     KeyboardSession.shared.onEditorChanged = (): void => {
       // A URI or password field opens in Latin whatever the user last chose, so the face has to
       // follow or it would claim a language the Engine is not composing in.
       this.english = KeyboardSession.shared.isEnglish();
+      this.applyEditorFace();
     };
     KeyboardSession.shared.onReplyContextChanged = (): void => {
       this.replyResults = [];
@@ -703,6 +707,29 @@ struct KeyboardView {
       === 'nine_key';
     KeyboardSession.shared.setNineKey(this.nineKey);
     this.show(candidate === KeyboardScheme.THOUGHTFUL_REPLY ? SURFACE_REPLY : SURFACE_NONE);
+  }
+
+  /**
+   * Put the grid away for an editor that cannot use it, and bring it back for one that can.
+   *
+   * An address, a password or a one-time code is arbitrary text, and a grid spells by matching a
+   * digit sequence against a dictionary that will not contain it, so those fields get the full
+   * letter face however the user last set the layout. Recomputed from the scheme on every attach
+   * rather than remembered, which is what makes leaving the field restore the grid: the override is
+   * the editor's and never reaches the preference. A manual layout change made while the field is
+   * still focused outranks it until the next attach, the user having asked for that face by name.
+   */
+  private applyEditorFace(): void {
+    const grid: boolean = this.scheme.touchKeyboardLayout === 'nine_key'
+      && !KeyboardSession.shared.prefersFullFace();
+    if (grid === this.nineKey) {
+      return;
+    }
+    this.nineKey = grid;
+    // Same reason the scheme cards set this rather than waiting for the Engine: the Engine only
+    // reports Japanese once something has been typed, and the face has to change before that.
+    this.japanese = grid && this.scheme.engineScheme === 'japanese';
+    KeyboardSession.shared.setNineKey(grid);
   }
 
   /**

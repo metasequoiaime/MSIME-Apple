@@ -12,7 +12,7 @@
  * guessed. The caller translates inputPattern into these traits, which keeps this file plain
  * TypeScript and therefore testable without a device.
  */
-import { CapitalizationMode } from './EnglishCapitalizationPolicy';
+import { CapitalizationMode } from "./EnglishCapitalizationPolicy";
 
 export interface EditorTraits {
   /** The editor takes prose, as opposed to a number, phone number or date. */
@@ -39,13 +39,28 @@ export class EditorPolicy {
   }
 
   /**
+   * Whether the letter face has to be the full twenty-six keys rather than a nine-key grid.
+   *
+   * The same editors as prefersLatin, for a different reason, so the question gets its own name: a
+   * grid spells by disambiguating a digit sequence against a dictionary, and an address, a password
+   * or a one-time code is arbitrary text that no dictionary contains. There every tap has to be one
+   * unambiguous character. This is the editor's override rather than the user's, so it is applied on
+   * attach and never written back to the layout preference.
+   */
+  static prefersFullFace(traits: EditorTraits): boolean {
+    return EditorPolicy.prefersLatin(traits);
+  }
+
+  /**
    * HarmonyOS supplies a capitalize mode directly, where Android leaves it to be derived from
    * CAP_CHARACTERS, CAP_WORDS and CAP_SENTENCES flags. The platform value is honoured except where
    * the Java also overrode it: a URI or an email address is never capitalized, because the first
    * character is part of an address rather than a sentence.
    */
-  static capitalizationMode(traits: EditorTraits,
-                            platformMode: CapitalizationMode): CapitalizationMode {
+  static capitalizationMode(
+    traits: EditorTraits,
+    platformMode: CapitalizationMode,
+  ): CapitalizationMode {
     if (!traits.text || traits.uri || traits.email) {
       return CapitalizationMode.NONE;
     }

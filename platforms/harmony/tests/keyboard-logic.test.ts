@@ -3963,6 +3963,18 @@ group("Latin is preferred where Chinese would only be in the way", () => {
   check(EditorPolicy.prefersLatin(PLAIN) === false, "prose is not");
 });
 
+group("an address field gets the full letter face instead of a nine-key grid", () => {
+  // MSIME-Apple's testLatinFieldsUseFullKeyboardAndRestoreNineKeyHeight: with the nine-key scheme
+  // selected, focusing an asciiCapable, email or URL field hides the grid and shows Q, and going
+  // back to an ordinary field brings 全拼 9 键 back. A grid resolves a digit sequence against a
+  // dictionary, and none of these fields holds dictionary words.
+  check(EditorPolicy.prefersFullFace(URI) === true, "a URL is spelled out, not disambiguated");
+  check(EditorPolicy.prefersFullFace(EMAIL) === true, "so is an email address");
+  check(EditorPolicy.prefersFullFace(PASSWORD) === true, "so is a password");
+  check(EditorPolicy.prefersFullFace(NO_SUGGESTIONS) === true, "so is a one-time code");
+  check(EditorPolicy.prefersFullFace(PLAIN) === false, "prose keeps whichever face the user chose");
+});
+
 group("an address is never capitalized, whatever the platform says", () => {
   check(
     EditorPolicy.capitalizationMode(URI, CapitalizationMode.SENTENCES) === CapitalizationMode.NONE,

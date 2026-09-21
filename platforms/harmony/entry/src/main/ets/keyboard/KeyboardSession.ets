@@ -1204,6 +1204,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     return this.englishMode;
   }
 
+  /** True when the editor now attached needs the full letter face instead of a nine-key grid. */
+  prefersFullFace(): boolean {
+    return EditorPolicy.prefersFullFace(this.traits);
+  }
+
   /** Japanese romaji owns the unmodified hardware minus key; temporary R mode does not. */
   isJapanese(): boolean {
     return !this.englishMode && this.schemeName === 'japanese';
