@@ -31,11 +31,17 @@ DENSITIES = {"mdpi": 48, "hdpi": 72, "xhdpi": 96, "xxhdpi": 144, "xxxhdpi": 192}
 # show one icon, so the geometry is identical; the iOS script is where the numbers are explained.
 INSET = 0.74
 FRAME_WIDTH = 5
+# The adaptive layers. A circular mask shows only the middle 72 of the 108dp canvas, and a square
+# fits inside that disc up to 72/sqrt(2) ~= 51 -- so the mark goes at 47%, not at the 66dp safe zone,
+# which is sized for artwork that tolerates having its corners cut. This frame is what must not be.
+FOREGROUND_INSET = 0.47
+FOREGROUND_DENSITIES = {"mdpi": 108, "hdpi": 162, "xhdpi": 216,
+                        "xxhdpi": 324, "xxxhdpi": 432}
 PANEL = re.compile(r'<path d="(M15 5H95V105H15V5Z)" fill="#252525"/>')
 MARK = re.compile(r'<path d="M74\.[^"]*" stroke="white"[^>]*/>')
 
 
-def artwork(frame: str) -> str:
+def artwork(frame: str, inset: float = INSET, backdrop: bool = True) -> str:
     master = MASTER.read_text()
     panel, mark = PANEL.search(master), MARK.search(master)
     if not panel or not mark:
@@ -43,16 +49,24 @@ def artwork(frame: str) -> str:
     rect = panel.group(1)
     half = FRAME_WIDTH / 2
     left, top, right, bottom = 15 - half, 5 - half, 95 + half, 105 + half
-    scale = INSET * 110 / (bottom - top)
+    scale = inset * 110 / (bottom - top)
     x, y = 55 - scale * (left + right) / 2, 55 - scale * (top + bottom) / 2
     return (
         '<svg xmlns="http://www.w3.org/2000/svg" width="110" height="110" viewBox="0 0 110 110"'
         ' fill="none">\n'
-        f'<rect width="110" height="110" fill="{FIELD}"/>\n'
-        f'<g transform="translate({x:.4f} {y:.4f}) scale({scale:.6f})">\n'
+        + (f'<rect width="110" height="110" fill="{FIELD}"/>\n' if backdrop else '')
+        + f'<g transform="translate({x:.4f} {y:.4f}) scale({scale:.6f})">\n'
         f'<path d="{rect}" fill="{FIELD}"/>\n'
         f'<path d="{rect}" fill="none" stroke="{frame}" stroke-width="{FRAME_WIDTH}"/>\n'
         f"{mark.group(0)}\n</g>\n</svg>\n"
+    )
+
+
+def render(source: Path, pixels: int, destination: Path) -> None:
+    destination.parent.mkdir(parents=True, exist_ok=True)
+    subprocess.run(
+        ["rsvg-convert", "-w", str(pixels), "-h", str(pixels), str(source), "-o", str(destination)],
+        check=True,
     )
 
 
@@ -62,13 +76,14 @@ def main() -> None:
             source = Path(directory) / f"{name}.svg"
             source.write_text(artwork(frame))
             for density, pixels in DENSITIES.items():
-                destination = ROOT / f"res/drawable-{density}/app_icon_{name}.png"
-                destination.parent.mkdir(parents=True, exist_ok=True)
-                subprocess.run(
-                    ["rsvg-convert", "-w", str(pixels), "-h", str(pixels), str(source),
-                     "-o", str(destination)],
-                    check=True,
-                )
+                render(source, pixels, ROOT / f"res/drawable-{density}/app_icon_{name}.png")
+            # The adaptive foreground carries no field of its own: the background layer is that
+            # field, so the mask cuts through it rather than through a plate the launcher invents.
+            layer = Path(directory) / f"{name}-foreground.svg"
+            layer.write_text(artwork(frame, FOREGROUND_INSET, backdrop=False))
+            for density, pixels in FOREGROUND_DENSITIES.items():
+                render(layer, pixels,
+                       ROOT / f"res/drawable-{density}/app_icon_{name}_foreground.png")
 
 
 if __name__ == "__main__":

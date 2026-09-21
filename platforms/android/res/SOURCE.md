@@ -30,5 +30,26 @@ The dark panel and the white mark are taken from the master unchanged.
 | xxhdpi | 144 |
 | xxxhdpi | 192 |
 
+## Adaptive icons
+
+Each style also ships an `<adaptive-icon>` in `drawable-anydpi-v26`, because a plain bitmap gets the
+launcher's legacy treatment: shrunk and set on a grey plate the design never asked for. The
+background layer is `@color/app_icon_field`, the mark's own dark field, so what the mask cuts is
+that field rather than a plate.
+
+The foreground is rendered by the same script, from the same artwork, with two differences: it
+carries no field of its own — the background layer is that field — and it sits at 47% of the canvas
+rather than 74%. A circular mask shows only the middle 72 of the 108dp canvas, and a square fits
+inside that disc up to 72/√2 ≈ 51. The 66dp safe zone is sized for artwork that tolerates having its
+corners cut; this frame is the part that must not be.
+
+| Density | Foreground size |
+| --- | --- |
+| mdpi | 108 |
+| hdpi | 162 |
+| xhdpi | 216 |
+| xxhdpi | 324 |
+| xxxhdpi | 432 |
+
 Both repositories are metasequoiaime's own and share its licence; no third-party distribution
 restriction applies to this asset.
