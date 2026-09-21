@@ -16,6 +16,7 @@ import { ReturnDispatch, ReturnKeyAction } from './input/ReturnKeyAction';
 import { InputDiagnosticPolicy } from './input/InputDiagnosticPolicy';
 import { LocalInputMode, LocalInputModeDefinition } from './input/LocalInputMode';
 import { CandidateWrapPolicy } from './candidate/CandidateWrapPolicy';
+import { ExpandedCandidateLayout } from './candidate/ExpandedCandidateLayout';
 import { KeyboardFeedback, FeedbackSettings, HapticStrength } from './KeyboardFeedback';
 import { QuickPunctuationPolicy, PunctuationEntry } from './input/QuickPunctuationPolicy';
 import {
@@ -1242,9 +1243,8 @@ struct KeyboardView {
 
   private expandedRows(): number[][] {
     const widths: number[] = [];
-    for (const candidate of this.expanded) {
-      widths.push(Array.from(candidate.text).length * this.settings.candidateFontSize
-        + KeyboardMetrics.CANDIDATE_PADDING_VP * 2);
+    for (let index: number = 0; index < this.expanded.length; index++) {
+      widths.push(this.expandedCandidateWidth(index));
     }
     const assignment: number[] = CandidateWrapPolicy.rows(this.availableWidth, 0, widths);
     const rows: number[][] = [];
@@ -1255,6 +1255,13 @@ struct KeyboardView {
       rows[assignment[index]].push(index);
     }
     return rows;
+  }
+
+  private expandedCandidateWidth(index: number): number {
+    if (index < 0 || index >= this.expanded.length) return 0;
+    return ExpandedCandidateLayout.width(this.expanded[index].text, index,
+      this.settings.candidateFontSize, KeyboardMetrics.CANDIDATE_PADDING_VP,
+      this.availableWidth);
   }
 
   private letterKey(letter: string): KeyOptions {
@@ -3517,6 +3524,8 @@ struct KeyboardView {
                       .fontSize(this.settings.candidateFontSize)
                       .fontColor(this.candidateTextColor())
                       .fontFamily(this.candidateFontFamily())
+                      .maxLines(1)
+                      .textOverflow({ overflow: TextOverflow.Ellipsis })
                     // The same line the strip draws under a candidate. It used to be dropped on the
                     // way here, so the panel listed words while the strip beside it explained them.
                     if (this.expanded[index].annotation.length > 0) {
@@ -3530,9 +3539,11 @@ struct KeyboardView {
                     }
                   }
                   .alignItems(HorizontalAlign.Start)
+                  .layoutWeight(1)
                 }
                   .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
                     right: KeyboardMetrics.CANDIDATE_PADDING_VP })
+                  .width(this.expandedCandidateWidth(index))
                   .height(KeyboardMetrics.ROW_HEIGHT_VP)
                   .onClick(() => {
                     KeyboardSession.shared.chooseAny(index);

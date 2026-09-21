@@ -28,6 +28,7 @@ import {
   normalizeSymbolGroups,
 } from "../entry/src/main/ets/keyboard/emoji/EmojiCatalogModel";
 import { CandidateWrapPolicy } from "../entry/src/main/ets/keyboard/candidate/CandidateWrapPolicy";
+import { ExpandedCandidateLayout } from "../entry/src/main/ets/keyboard/candidate/ExpandedCandidateLayout";
 import { CandidateChipWidth } from "../entry/src/main/ets/keyboard/candidate/CandidateChipWidth";
 import {
   CandidateGlossLayoutPolicy,
@@ -2238,6 +2239,36 @@ group("the expanded panel offers the same gloss the strip does", () => {
   const widthOf = (text: string): number => Array.from(text).length * 20 + 8;
   check(widthOf("你好") === 48, "two CJK characters are two columns");
   check(widthOf("\u{1F600}") === 28, "and an emoji is one, not two");
+});
+
+group("expanded candidates stay on one line and inside their row", () => {
+  const available = 320 - KeyboardMetrics.ROOT_HORIZONTAL_PADDING_VP * 2;
+  const ordinary = ExpandedCandidateLayout.width(
+    "日本",
+    0,
+    18,
+    KeyboardMetrics.CANDIDATE_PADDING_VP,
+    available,
+  );
+  const long = ExpandedCandidateLayout.width(
+    "とてもながいこうほごがここにはいります",
+    6,
+    18,
+    KeyboardMetrics.CANDIDATE_PADDING_VP,
+    available,
+  );
+  check(ordinary < available, "ordinary candidates retain their natural compact width");
+  check(long === available, "one long candidate is capped to the whole visible row");
+  check(
+    ExpandedCandidateLayout.width("😀", 9, 18, 12, available) <
+      ExpandedCandidateLayout.width("😀😀", 9, 18, 12, available),
+    "width estimation counts code points rather than UTF-16 halves",
+  );
+  const assignment = CandidateWrapPolicy.rows(available, 0, [ordinary, long, ordinary]);
+  check(
+    assignment[0] === 0 && assignment[1] === 1 && assignment[2] === 2,
+    "a full-width long candidate owns one row without pushing outside it",
+  );
 });
 
 group("a candidate with a gloss offers the gloss as something to type", () => {
