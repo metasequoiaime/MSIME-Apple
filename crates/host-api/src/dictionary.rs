@@ -168,15 +168,15 @@ fn parse_personal_dictionary_import(text: &str) -> Result<Vec<PersonalWord>, Str
         return Err("invalid personal dictionary entry count".into());
     }
     let mut identities = std::collections::HashSet::new();
-    for entry in &file.entries {
-        entry
-            .validate()
-            .map_err(|_| "invalid personal dictionary entry".to_owned())?;
+    let mut entries = Vec::with_capacity(file.entries.len());
+    for entry in file.entries {
+        let entry = normalize_personal_word(entry)?;
         if !identities.insert(entry.identity()) {
             return Err("duplicate personal dictionary entry".into());
         }
+        entries.push(entry);
     }
-    Ok(file.entries)
+    Ok(entries)
 }
 
 /// Native management requests return only redacted errors.
@@ -801,9 +801,19 @@ fn personal_dictionary_error(error: PersonalDictionaryError) -> String {
 }
 
 fn personal_from_entry(entry: Entry) -> Result<PersonalWord, String> {
-    validate_entry(&entry)?;
-    Ok(PersonalWord {
+    normalize_personal_word(PersonalWord {
         kind: personal_kind(entry.kind.into()),
+        key: entry.key,
+        value: entry.value,
+        weight: entry.weight,
+    })
+}
+
+fn normalize_personal_word(word: PersonalWord) -> Result<PersonalWord, String> {
+    let entry = msime_engine_bridge::dictionary_validate(&personal_engine_entry(&word))
+        .map_err(|_| "invalid personal dictionary entry".to_owned())?;
+    Ok(PersonalWord {
+        kind: personal_kind(entry.kind),
         key: entry.key,
         value: entry.value,
         weight: entry.weight,
@@ -854,7 +864,7 @@ fn personal_to_kind(kind: PersonalWordKind) -> Kind {
 
 fn validate_entry(entry: &Entry) -> Result<(), String> {
     let key_limit = match entry.kind {
-        Kind::Pinyin => 256,
+        Kind::Pinyin => 512,
         Kind::Wubi => 4,
         Kind::QuickPhrase => 32,
         Kind::English => 64,
@@ -870,20 +880,19 @@ fn validate_entry(entry: &Entry) -> Result<(), String> {
         }),
         Kind::English => msime_client_core::dictionary::english_code_is_well_formed(&entry.key),
     };
+    let value_has_invalid_control = entry.value.chars().any(|character| {
+        character.is_control()
+            && !(matches!(entry.kind, Kind::QuickPhrase) && matches!(character, '\n' | '\t'))
+    });
     if entry.key.is_empty()
         || entry.key.len() > key_limit
         || !key_valid
         || entry.value.is_empty()
-        || entry.value.chars().any(char::is_control)
-        || entry.weight < 0
+        || entry.value.len() > 4096
+        || value_has_invalid_control
+        || !(1..=100_000_000).contains(&entry.weight)
     {
         return Err("invalid dictionary entry".into());
-    }
-    if matches!(entry.kind, Kind::QuickPhrase)
-        && entry.value.encode_utf16().count()
-            > msime_client_core::dictionary::import::MAX_QUICK_PHRASE_UTF16
-    {
-        return Err("quick phrase too long".into());
     }
     Ok(())
 }
@@ -1144,6 +1153,7 @@ mod tests {
         }"#;
         let entries = parse_personal_dictionary_import(text).unwrap();
         assert_eq!(entries.len(), 2);
+        assert_eq!(entries[0].key, "ni'hao");
         assert_eq!(entries[1].kind, PersonalWordKind::QuickPhrase);
 
         let duplicate = text.replace(
@@ -1163,7 +1173,7 @@ mod tests {
             parse_personal_dictionary_import(empty).unwrap_err(),
             "invalid personal dictionary entry count"
         );
-        let malformed = r#"{"format":"msime-personal-dictionary","version":1,"entries":[{"kind":"pinyin","key":"NI","value":"坏","weight":1}]}"#;
+        let malformed = r#"{"format":"msime-personal-dictionary","version":1,"entries":[{"kind":"pinyin","key":"nihao","value":"坏词","weight":1}]}"#;
         assert_eq!(
             parse_personal_dictionary_import(malformed).unwrap_err(),
             "invalid personal dictionary entry"
@@ -1171,6 +1181,48 @@ mod tests {
         assert_eq!(
             parse_personal_dictionary_import(&"x".repeat(1_048_577)).unwrap_err(),
             "personal dictionary file is too large"
+        );
+    }
+
+    #[test]
+    fn personal_import_normalizes_before_deduplicating_and_allows_multiline_quick_phrases() {
+        let text = r#"{
+            "format":"msime-personal-dictionary",
+            "version":1,
+            "entries":[
+                {"kind":"pinyin","key":"NI HAO","value":"拟好","weight":100000},
+                {"kind":"quickPhrase","key":"HELLO1","value":"第一行\n第二行\t末列","weight":100000}
+            ]
+        }"#;
+        let entries = parse_personal_dictionary_import(text).unwrap();
+        assert_eq!(entries[0].key, "ni'hao");
+        assert_eq!(entries[1].key, "hello1");
+        assert_eq!(entries[1].value, "第一行\n第二行\t末列");
+
+        let large = json!({
+            "format": "msime-personal-dictionary",
+            "version": 1,
+            "entries": [{
+                "kind": "quickPhrase",
+                "key": "large",
+                "value": "你好\n".repeat(300),
+                "weight": 100_000,
+            }],
+        })
+        .to_string();
+        assert_eq!(parse_personal_dictionary_import(&large).unwrap().len(), 1);
+
+        let duplicate = r#"{
+            "format":"msime-personal-dictionary",
+            "version":1,
+            "entries":[
+                {"kind":"pinyin","key":"ni hao","value":"你好","weight":1},
+                {"kind":"pinyin","key":"NI'HAO","value":"你好","weight":2}
+            ]
+        }"#;
+        assert_eq!(
+            parse_personal_dictionary_import(duplicate).unwrap_err(),
+            "duplicate personal dictionary entry"
         );
     }
 

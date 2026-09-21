@@ -143,7 +143,7 @@ test("Android personal dictionary JSON import previews and queues only after con
   expect(await screen.findByText(/已加入本机同步队列/)).not.toBeNull();
 });
 
-test("personal dictionary JSON validation keeps malformed and duplicate entries out of the preview", () => {
+test("personal dictionary JSON validation normalizes before keeping malformed and duplicate entries out", () => {
   expect(() =>
     parsePersonalDictionaryImport(
       JSON.stringify({
@@ -161,8 +161,17 @@ test("personal dictionary JSON validation keeps malformed and duplicate entries 
       JSON.stringify({
         format: "msime-personal-dictionary",
         version: 1,
-        entries: [{ kind: "pinyin", key: "NI", value: "坏", weight: 1 }],
+        entries: [{ kind: "quickPhrase", key: "BAD;CODE", value: "坏", weight: 1 }],
       }),
     ),
   ).toThrow("输入引擎规则");
+  expect(
+    parsePersonalDictionaryImport(
+      JSON.stringify({
+        format: "msime-personal-dictionary",
+        version: 1,
+        entries: [{ kind: "pinyin", key: "NI HAO", value: "拟好", weight: 1 }],
+      }),
+    )[0].key,
+  ).toBe("ni'hao");
 });
