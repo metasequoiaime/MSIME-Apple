@@ -1116,7 +1116,14 @@ mod tests {
     fn helpcode_settings_reach_the_real_engine() {
         let dir = tempfile::tempdir().unwrap();
         let mut value = options(dir.path());
-        for schema in ["lantian", "ziranma", "shouyou2_0", "shouyouplus", "xiaohe"] {
+        for schema in [
+            "lantian",
+            "ziranma",
+            "shouyou2_0",
+            "shouyouplus",
+            "xiaohe",
+            "jiajia",
+        ] {
             value.helpcode_schema = schema.into();
             for enabled in [false, true] {
                 value.helpcode = enabled;
@@ -1128,6 +1135,61 @@ mod tests {
         }
         value.helpcode_schema = "unknown".into();
         assert!(Session::new(&value).is_err());
+    }
+
+    /// The jiajia table this repository carries is in the shape the Engine parses.
+    ///
+    /// Five helpcode tables arrive inside the locked Engine archive and cannot rot independently of
+    /// it. This one does not: it lives in `resources/helpcodes/` and is injected by an overlay, so
+    /// it is the one that can go missing, be truncated by a bad merge, or be saved in an encoding
+    /// the Engine reads as nothing. The test above would not notice any of that - it points
+    /// `resources` at an empty directory, so it shows the scheme is registered and accepted and
+    /// would pass with no table at all.
+    ///
+    /// What it checks is the Engine's own parse rule from `HelpcodeUtils::load_helpcode_keymap`:
+    /// split at the first `=`, take two characters after it, keep the entry only when both are
+    /// `a`-`z`. An entry this rejects is silently absent at runtime rather than an error, which is
+    /// why counting them here is worth doing.
+    ///
+    /// Reading the codes the Engine would read is as far as this level goes: filtering candidates
+    /// needs a real dictionary, and these tests run against empty directories.
+    #[test]
+    fn the_carried_jiajia_table_parses_the_way_the_engine_reads_it() {
+        let table = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("../../resources/helpcodes/jiajia_helpcode.txt");
+        let text = std::fs::read_to_string(&table)
+            .unwrap_or_else(|error| panic!("{}: {error}", table.display()));
+
+        let mut keymap = std::collections::BTreeMap::new();
+        let mut rejected = Vec::new();
+        for line in text.lines() {
+            let Some(position) = line.find('=') else {
+                rejected.push(line);
+                continue;
+            };
+            let (character, code) = line.split_at(position);
+            let code: String = code[1..].chars().take(2).collect();
+            if position == 0
+                || code.len() != 2
+                || !code.bytes().all(|byte| byte.is_ascii_lowercase())
+            {
+                rejected.push(line);
+                continue;
+            }
+            keymap.insert(character.to_owned(), code);
+        }
+
+        assert!(
+            rejected.is_empty(),
+            "the Engine drops these silently: {:?}",
+            &rejected[..rejected.len().min(5)]
+        );
+        // Codes quoted in resources/helpcodes/NOTICE.md as coming from the alignment.
+        for (character, code) in [("好", "nz"), ("你", "de"), ("中", "ks"), ("国", "ky")] {
+            assert_eq!(keymap.get(character).map(String::as_str), Some(code));
+        }
+        // The notice records 7968 entries; a table that lost a chunk still parses.
+        assert_eq!(keymap.len(), 7968);
     }
 
     #[test]
