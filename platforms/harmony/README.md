@@ -72,6 +72,18 @@ Apple 的首页（`KeyboardHomeView`）也由 Harmony 承载，但是按本平�
 
 `personal_dictionary_request_json` 此前只有 Tauri 宿主当 Rust 直接调，本次以 `msime_client_personal_dictionary_request` 发布给通过 C ABI 到达这个 crate 的宿主。NAPI 侧的 `personalDictionarySync`（排空那一半）本来就已经导出，只是没有人调用。
 
+键盘上的「AI 润色」也由 Harmony 承载，对应 MSIME-Apple 的 `KeyboardAIView` 与 Android 的 `aiPolishPanel`。
+
+Apple 润色的是**选区**：用户选中一段话，点润色，面板给出那一段的重写。HarmonyOS 不给输入法读取选区的能力——`InputClient` 只有 `getForwardSync`（光标前）和 `getBackwardSync`（光标后），选区只以一对下标的形式通知键盘——照抄那个手势等于画一个不知道自己在操作什么的按钮。所以这里润色的是光标前的文字，也就是用户刚打完的那段话。同一个意图，用这个平台确实提供的东西表达；在手机上它也是更自然的手势：先打，再理。
+
+请求复用 `HarmonyVoicePolisher`，那本来就是本宿主的润色器。这不是顺手：它允许重写后的段落里的换行，而旁边那个 AI 候选解析器拒绝一切控制字符——后者是给候选词用的，把一段重写过的消息送进去会让每一条分段的结果被静默丢掉。会话持有自己的润色器而不是复用识别器那一个：识别器在每次录音开始、结束或放弃时都会取消它，那对转写是对的，对用户正等着的一次重写不是。
+
+替换前会重新读一次光标前的文字并要求原文还在那里。一次润色要几秒，其间用户可以继续打字、移动光标或换个输入框；那时替换会删掉现在那里的东西，再把另一段话的重写放进去。不匹配就拒绝并说明，而不是硬替。
+
+删除长度按码点计算而不是 `String.length`。`deleteBackwardSync(length)` 的文档只写了"length of text"，两种读法对 BMP 之外的字符不一样——句中一个 emoji 是一个码点、两个 UTF-16 单元；本宿主唯一把单位钉死的地方是退格路径的注释，写的是"一个 scalar"，这里采用同一读法。这是本片唯一一个真机可能推翻的判断，而上面那次重读正是为它兜底：单位错了的代价是一次拒绝，不是一条被改坏的消息。
+
+工具面板里的入口只在配置了润色服务时可用，并随语音设置的变更通知一起重新判定——重写发到用户自己的服务，一个永远失败的卡片只会教会用户忽略这个面板。
+
 候选翻译复用共享 `translation_query` 与 `apply_translations` 代际契约。Harmony 原生边界负责把 Tencent TMT、NiuTrans 和 DeepLX 兼容自定义 provider 的签名/请求描述器及响应解析暴露给 ArkTS，网络传输仍由 Harmony HTTPS 栈完成；本地英文词典释义先在 Engine 侧解析，在线结果只补齐缺失项。多语言释义合并为有界的 ` / ` 展示文本，按 provider、目标语言和词条缓存，过期或 generation 不匹配的结果不会污染当前候选页。英文目标的成功释义通过共享 ABI 写入用户词典覆盖层，凭据只存在于当前请求内，不写日志。
 
 共享设置中的“流式预编辑”现在也由 Harmony 消费：关闭时识别中的临时结果不进面板，只有最终结果才显示；此前无论该开关如何，临时结果一律显示。“结果提交策略”反过来从 Harmony 的设置页移除——Windows 在 TSF / SendInput / 粘贴之间选，macOS 在系统事件与输入会话之间选，Linux 把选择交给用户自管的服务，而键盘扩展只有输入客户端一条提交路径，三选一在这里是一个只有一种结果的控件。该判断由 `HostCapabilities::voice_commit_mode` 决定。

@@ -133,6 +133,7 @@ const SURFACE_EXPANDED: string = 'expanded';
 const SURFACE_VARIANTS: string = 'variants';
 const SURFACE_VOICE: string = 'voice';
 const SURFACE_REPLY: string = 'reply';
+const SURFACE_POLISH: string = 'polish';
 
 const TOOL_ICON_VP: number = 18;
 // Third, which is where iOS puts the English card.
@@ -281,6 +282,11 @@ struct KeyboardView {
   @State replyBusy: boolean = false;
   @State replyTemplates: CommunityReplyTemplate[] = [];
   @State replyTemplateMenu: boolean = false;
+  @State polishSource: string = '';
+  @State polishResult: string = '';
+  @State polishNotice: string = '';
+  @State polishBusy: boolean = false;
+  @State polishConfigured: boolean = false;
   @State hoveredCandidate: number = -1;
 
   private readonly letterCase: EnglishLetterCaseState = new EnglishLetterCaseState();
@@ -300,6 +306,7 @@ struct KeyboardView {
   private readonly voiceRecognizer: HarmonyVoiceRecognizer = new HarmonyVoiceRecognizer();
   private voiceGeneration: number = 0;
   private replyGeneration: number = 0;
+  private polishGeneration: number = 0;
 
   aboutToAppear(): void {
     this.english = KeyboardSession.shared.isEnglish();
@@ -316,8 +323,16 @@ struct KeyboardView {
       }
     };
     this.voiceEnabled = KeyboardSession.shared.voiceInputEnabled();
+    // Polish shares the voice settings' provider, so it is re-read on the same notification: the
+    // card would otherwise keep whatever the answer was when this view was built, and a user who
+    // had just configured a provider would still see it greyed out.
+    this.polishConfigured = KeyboardSession.shared.polishConfigured();
     KeyboardSession.shared.onVoiceInputChanged = (enabled: boolean): void => {
       this.voiceEnabled = enabled;
+      this.polishConfigured = KeyboardSession.shared.polishConfigured();
+      if (this.surface === SURFACE_POLISH && !this.polishConfigured) {
+        this.show(SURFACE_NONE);
+      }
       if (!enabled) {
         this.cancelVoice();
         if (this.surface === SURFACE_VOICE) {
@@ -792,6 +807,13 @@ struct KeyboardView {
     if (surface !== SURFACE_REPLY) {
       this.replyGeneration += 1;
       this.replyBusy = false;
+    }
+    if (surface !== SURFACE_POLISH) {
+      // Abandons a rewrite the user has walked away from. The generation is what the reply the
+      // model eventually sends is checked against, so bumping it here is what makes leaving the
+      // panel mean "never mind" rather than "show me this later, over whatever I am typing then".
+      this.polishGeneration += 1;
+      this.polishBusy = false;
     }
     this.surface = surface;
     if (surface === SURFACE_REPLY) {
@@ -1587,6 +1609,83 @@ struct KeyboardView {
         }.layoutWeight(1)
       }
       Text(this.replyNotice).fontSize(12).fontColor(this.skin.keyForeground).opacity(0.72)
+    }.width('100%').height(this.surfaceHeight())
+  }
+
+  /**
+   * Opens the polish panel over the text the user has just typed.
+   *
+   * Read when the panel opens rather than when it was last drawn: the point of the panel is to act
+   * on what is in the editor now, and a source captured earlier is the one thing here that would
+   * be quietly wrong.
+   */
+  private openPolish(): void {
+    this.polishGeneration += 1;
+    this.polishResult = '';
+    this.polishBusy = false;
+    this.polishSource = KeyboardSession.shared.polishSource();
+    this.polishNotice = this.polishSource.length === 0
+      ? '先输入一段文字，再回来润色' : '发送给 AI 重写这段文字';
+    this.show(SURFACE_POLISH);
+  }
+
+  private requestPolish(): void {
+    if (this.polishBusy || this.polishSource.length === 0) return;
+    const generation: number = ++this.polishGeneration;
+    this.polishBusy = true;
+    this.polishResult = '';
+    this.polishNotice = '正在润色…';
+    KeyboardSession.shared.polish(this.polishSource).then((result: string | null): void => {
+      if (generation !== this.polishGeneration) return;
+      this.polishBusy = false;
+      this.polishResult = result ?? '';
+      this.polishNotice = result === null
+        ? '没有可用的结果，请检查语音设置里的润色服务或重试' : '确认后替换原文';
+    });
+  }
+
+  @Builder
+  polishFace() {
+    Column({ space: this.keySpacing() }) {
+      Row() {
+        Text('AI 润色').fontSize(15).fontWeight(FontWeight.Medium)
+          .fontColor(this.skin.keyForeground).layoutWeight(1)
+        Text('完成').fontColor(this.skin.accent).onClick(() => this.show(SURFACE_NONE))
+      }.width('100%').height(28)
+      Scroll() {
+        Column({ space: this.keySpacing() }) {
+          Text(this.polishResult.length === 0 ? '待润色的文字' : '润色结果')
+            .fontSize(12).fontColor(this.skin.keyForeground).opacity(0.72)
+            .width('100%').textAlign(TextAlign.Start)
+          Text(this.polishResult.length === 0 ? this.polishSource : this.polishResult)
+            .fontSize(14).fontColor(this.skin.keyForeground).width('100%')
+            .textAlign(TextAlign.Start).padding(8).backgroundColor(this.skin.keyBackground)
+        }.width('100%')
+      }.layoutWeight(1)
+      Row({ space: this.keySpacing() }) {
+        if (this.polishResult.length === 0) {
+          Button('发送文字').enabled(!this.polishBusy && this.polishSource.length > 0)
+            .onClick(() => this.requestPolish())
+            .layoutWeight(1).height(42).backgroundColor(this.skin.keyBackground)
+            .fontColor(this.skin.keyForeground)
+        } else {
+          // Replacing is refused rather than forced when the editor has moved: the rewrite belongs
+          // to text that is no longer there, and putting it in anyway would delete something else.
+          Button('替换原文').onClick(() => {
+            if (KeyboardSession.shared.applyPolish(this.polishSource, this.polishResult)) {
+              this.show(SURFACE_NONE);
+            } else {
+              this.polishResult = '';
+              this.polishNotice = '输入位置已变化，请重新润色';
+            }
+          }).layoutWeight(1).height(42).backgroundColor(this.skin.accent)
+            .fontColor(this.skin.keyBackground)
+          Button('重新润色').enabled(!this.polishBusy).onClick(() => this.requestPolish())
+            .layoutWeight(1).height(42).backgroundColor(this.skin.keyBackground)
+            .fontColor(this.skin.keyForeground)
+        }
+      }.width('100%')
+      Text(this.polishNotice).fontSize(12).fontColor(this.skin.keyForeground).opacity(0.72)
     }.width('100%').height(this.surfaceHeight())
   }
 
@@ -2748,6 +2847,18 @@ struct KeyboardView {
                   this.show(SURFACE_VOICE);
                 });
               }
+              GridItem() {
+                // Offered only when a polish provider is configured. The rewrite goes to the
+                // user's own service, and a card that always failed would be a card that taught
+                // the user to ignore this panel.
+                this.toolCard('AI 润色', '\u2728', null, this.polishBusy,
+                  this.polishConfigured, () => {
+                    if (!this.polishConfigured) {
+                      return;
+                    }
+                    this.openPolish();
+                  });
+              }
             }
             .columnsTemplate('1fr 1fr')
             .width('100%')
@@ -3160,6 +3271,8 @@ struct KeyboardView {
         this.clipboardFace()
       } else if (this.surface === SURFACE_REPLY) {
         this.replyFace()
+      } else if (this.surface === SURFACE_POLISH) {
+        this.polishFace()
       } else if (this.surface === SURFACE_VOICE) {
         this.voiceFace()
       } else if (this.isPicker()) {
