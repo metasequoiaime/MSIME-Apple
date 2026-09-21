@@ -223,7 +223,7 @@
   }
 
   &:checked {
-    background: #8e8cd8;
+    background: var(--accent-color);
   }
 
   &:checked::after {
@@ -258,7 +258,7 @@
   }
 
   & input[type="radio"]:checked {
-    border-color: #8e8cd8;
+    border-color: var(--accent-color);
   }
 
   & input[type="radio"]:checked::after {
@@ -269,7 +269,7 @@
     width: 10px;
     height: 10px;
     border-radius: 50%;
-    background: #8e8cd8;
+    background: var(--accent-color);
     transform: translate(-50%, -50%);
   }
 
@@ -295,7 +295,7 @@
     width: 18px;
     height: 18px;
     flex-shrink: 0;
-    accent-color: #8e8cd8;
+    accent-color: var(--accent-color);
   }
 }
 @utility error {
@@ -814,7 +814,7 @@
     height: calc(var(--ftb-handle-height) * var(--ftb-scale));
     margin-right: 0;
     border-radius: calc(2px * var(--ftb-scale));
-    background: #8e8cd8;
+    background: var(--accent-color);
   }
   & .ftb-preview-host .divider {
     align-self: stretch;

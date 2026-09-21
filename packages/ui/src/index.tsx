@@ -3821,6 +3821,7 @@ export function SettingsPage({
               <ChatPage
                 client={client.chat}
                 autoFocus={iosPlatform}
+                touch={mobilePlatform}
                 onLogin={() => selectPage("account")}
               />
             )}
@@ -4808,7 +4809,12 @@ export function SettingsPage({
                   </fieldset>
                   <fieldset disabled={busy} hidden={page !== "skin"} aria-label="皮肤">
                     <div className={settings.skinIntro}>
-                      选择候选窗和悬浮工具栏使用的主题；明暗预览仅影响当前卡片，不修改设置。
+                      {/* A touch host draws a candidate row inside the keyboard and has no floating
+                          toolbar at all, so naming either here describes a window the reader cannot
+                          see. Same switch the helper-code labels already make. */}
+                      {mobilePlatform
+                        ? "选择候选栏使用的主题；明暗预览仅影响当前卡片，不修改设置。"
+                        : "选择候选窗和悬浮工具栏使用的主题；明暗预览仅影响当前卡片，不修改设置。"}
                     </div>
                     {snapshot?.candidate_skin_catalog && (
                       <div className={settings.externalMeta} role="status">
