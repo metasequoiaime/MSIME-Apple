@@ -31,6 +31,8 @@ Fcitx5 候选操作通过原生候选 Action（新版本）和输入上下文 st
 
 保留执行安装的构建目录，可用 `cmake --build <build-dir> --target uninstall` 删除该构建的 `install_manifest.txt` 中记录的程序、资源和桌面入口。卸载前先切换到其他输入法并关闭 MSIME 面板；已启用的用户 provider 服务应先停止。执行卸载所需权限与原安装相同。
 
+从带 `-preview` 后缀的旧安装升级时，先执行一次上面的卸载，或手工删除 `${CMAKE_INSTALL_DATADIR}/ibus/component/msime-client-preview.xml`。安装只写入当前的 `msime-client.xml`，不会带走改名前留下的那一份，两份并存会让 IBus 的输入法列表里同时出现新旧两项。Fcitx5 侧的 addon 与 inputmethod 配置文件名未变，不受影响。
+
 暂存安装使用相同的 `DESTDIR`，例如 `DESTDIR=/absolute/staging cmake --build <build-dir> --target uninstall`。若安装时用 `cmake --install` 的 `--prefix` 覆盖了配置前缀，使用 `cmake -DMSIME_UNINSTALL_PREFIX=/actual/prefix -P <build-dir>/uninstall.cmake`。程序文件必须位于该前缀内；前缀外的自定义绝对安装目录会使卸载在删除前中止，需要按原安装布局单独处理。
 
 卸载保留 `msime-client/runtime-options.json`、用户配置及学习数据，不递归删除目录，不修改 IBus 选择或自动停止其他进程。通过发行版包管理器安装的文件应由原包管理器卸载。
@@ -193,7 +195,7 @@ cargo run -p msime-host-api --example prepare_host --locked -- /absolute/verifie
 target/linux-ibus/msime-client-ibus /absolute/new-preview-state/runtime-options.json
 ```
 
-准备配置必须在没有会话使用该状态目录时执行。运行入口动态注册独立的 `msime-client-preview`，不安装系统组件、不修改旧 Linux 产品或自动切换用户输入法；关闭进程即结束本次注册。安装后的 component 通过 `msime-client-ibus-launcher` 启动，默认读取 `~/.config/msime-client/runtime-options.json`；也可用 `MSIME_IBUS_OPTIONS` 指向已准备好的绝对路径。launcher 按自身目录定位 Engine，支持自定义安装前缀。库与运行配置含开发路径，目前不是可分发安装包。宿主监听配置 JSON 的写入和原子替换事件；后续新焦点会话使用新配置，正在组合的会话保持原设置直到结束。
+准备配置必须在没有会话使用该状态目录时执行。运行入口动态注册独立的 `msime-client`，不安装系统组件、不修改旧 Linux 产品或自动切换用户输入法；关闭进程即结束本次注册。安装后的 component 通过 `msime-client-ibus-launcher` 启动，默认读取 `~/.config/msime-client/runtime-options.json`；也可用 `MSIME_IBUS_OPTIONS` 指向已准备好的绝对路径。launcher 按自身目录定位 Engine，支持自定义安装前缀。库与运行配置含开发路径，目前不是可分发安装包。宿主监听配置 JSON 的写入和原子替换事件；后续新焦点会话使用新配置，正在组合的会话保持原设置直到结束。
 
 安装产物提供 `msime-client-prepare`，首次准备状态无需 Cargo 或源码目录：
 

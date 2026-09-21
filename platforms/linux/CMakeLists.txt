@@ -240,7 +240,7 @@ if(MSIME_LINUX_VOICE)
  target_include_directories(msime-voice-worker-test PRIVATE src)
  add_test(NAME linux-voice-worker COMMAND msime-voice-worker-test)
 endif()
-configure_file(data/msime-client-preview.xml.in ${CMAKE_CURRENT_BINARY_DIR}/msime-client-preview.xml @ONLY)
+configure_file(data/msime-client.xml.in ${CMAKE_CURRENT_BINARY_DIR}/msime-client.xml @ONLY)
 install(TARGETS msime-client-ibus msime-client-dictionary msime-client-cloud-dictionary msime-client-cloud-clipboard msime-client-online msime-client-translation msime-client-clipboard
                 msime-client-handwriting msime-client-voice msime-client-emoji msime-client-clipboard-capture msime-client-prepare
                 RUNTIME DESTINATION "${CMAKE_INSTALL_BINDIR}")
@@ -384,7 +384,7 @@ endif()
 if(MSIME_RUNTIME_OPTIONS_FILE)
  install(FILES "${MSIME_RUNTIME_OPTIONS_FILE}" DESTINATION "${CMAKE_INSTALL_SYSCONFDIR}/msime-client" RENAME runtime-options.json)
 endif()
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/msime-client-preview.xml DESTINATION "${CMAKE_INSTALL_DATADIR}/ibus/component")
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/msime-client.xml DESTINATION "${CMAKE_INSTALL_DATADIR}/ibus/component")
 install(FILES "${MSIME_HOST_LIBRARY}" DESTINATION "${CMAKE_INSTALL_LIBDIR}/msime-client")
 file(RELATIVE_PATH MSIME_HOST_LIBRARY_RELATIVE_DIR
   "${CMAKE_INSTALL_FULL_BINDIR}" "${CMAKE_INSTALL_FULL_LIBDIR}/msime-client")

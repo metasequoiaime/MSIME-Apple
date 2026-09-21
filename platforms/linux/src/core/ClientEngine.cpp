@@ -46,7 +46,7 @@
 #include <vector>
 
 using Json = nlohmann::json;
-struct MsimePreviewEngine;
+struct MsimeIbusEngine;
 namespace {
 // 内置皮肤目录、它们的标题和默认皮肤都由共享层发布，这个宿主不存副本——IBus 与
 // Fcitx5 各存一份的那段时间里，同一个 graphite 在两边的名字就不一样。
@@ -2243,21 +2243,21 @@ void online_complete(GObject *source, GAsyncResult *result, gpointer) {
 }
 } // namespace
 
-struct MsimePreviewEngine {
+struct MsimeIbusEngine {
   IBusEngine parent;
   State *state;
 };
-struct MsimePreviewEngineClass {
+struct MsimeIbusEngineClass {
   IBusEngineClass parent;
 };
-G_DEFINE_TYPE(MsimePreviewEngine, msime_preview_engine, IBUS_TYPE_ENGINE)
+G_DEFINE_TYPE(MsimeIbusEngine, msime_ibus_engine, IBUS_TYPE_ENGINE)
 
 namespace {
 State &state(IBusEngine *engine) {
-  return *reinterpret_cast<MsimePreviewEngine *>(engine)->state;
+  return *reinterpret_cast<MsimeIbusEngine *>(engine)->state;
 }
 void clipboard_complete(GObject *source, GAsyncResult *result, gpointer) {
-  auto self = reinterpret_cast<MsimePreviewEngine *>(source);
+  auto self = reinterpret_cast<MsimeIbusEngine *>(source);
   if (!self->state)
     return;
   auto &s = *self->state;
@@ -6614,7 +6614,7 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
       +[](GObject *source, GAsyncResult *result, gpointer) {
         menu_save_pending = false;
         ++menu_status_generation;
-        auto self = reinterpret_cast<MsimePreviewEngine *>(source);
+        auto self = reinterpret_cast<MsimeIbusEngine *>(source);
         std::unique_ptr<Json> snapshot(static_cast<Json *>(
             g_task_propagate_pointer(G_TASK(result), nullptr)));
         if (!self->state) return;
@@ -6911,7 +6911,7 @@ gboolean reload_preferences(gpointer data) {
   s.preferences_loading = true;
   auto task = g_task_new(G_OBJECT(engine), nullptr,
                          +[](GObject *source, GAsyncResult *result, gpointer) {
-                           auto self = reinterpret_cast<MsimePreviewEngine *>(source);
+                           auto self = reinterpret_cast<MsimeIbusEngine *>(source);
                            std::unique_ptr<char, decltype(&msime_client_string_free)> raw(
                                static_cast<char *>(g_task_propagate_pointer(
                                    G_TASK(result), nullptr)),
@@ -6975,16 +6975,16 @@ void register_properties(IBusEngine *engine) {
   publish_mode(engine, true);
 }
 void destroy(IBusObject *object) {
-  auto self = reinterpret_cast<MsimePreviewEngine *>(object);
+  auto self = reinterpret_cast<MsimeIbusEngine *>(object);
   if (self->state && self->state->preferences_timer)
     g_source_remove(self->state->preferences_timer);
   delete self->state;
   self->state = nullptr;
-  IBUS_OBJECT_CLASS(msime_preview_engine_parent_class)->destroy(object);
+  IBUS_OBJECT_CLASS(msime_ibus_engine_parent_class)->destroy(object);
 }
 } // namespace
 
-static void msime_preview_engine_init(MsimePreviewEngine *engine) {
+static void msime_ibus_engine_init(MsimeIbusEngine *engine) {
   engine->state = new State();
   engine->state->wave_overlay_surface =
       msime::linux_host::create_wave_overlay_surface(
@@ -7002,7 +7002,7 @@ static void msime_preview_engine_init(MsimePreviewEngine *engine) {
   engine->state->preferences_timer =
       g_timeout_add(1000, reload_preferences, engine);
 }
-static void msime_preview_engine_class_init(MsimePreviewEngineClass *klass) {
+static void msime_ibus_engine_class_init(MsimeIbusEngineClass *klass) {
   auto engine = IBUS_ENGINE_CLASS(klass);
   engine->process_key_event = process_key;
   engine->property_activate = property_activate;
@@ -7065,7 +7065,7 @@ static void msime_preview_engine_class_init(MsimePreviewEngineClass *klass) {
   engine->cursor_down = [](IBusEngine *e) { page(e, MSIME_NEXT_CANDIDATE); };
   IBUS_OBJECT_CLASS(klass)->destroy = destroy;
 }
-void msime_preview_configure(const std::string &options) {
+void msime_ibus_configure(const std::string &options) {
   if (options.size() > 16384 || msime_client_abi_version() != 2)
     throw std::runtime_error("Invalid host configuration");
   auto next = Json::parse(options);
@@ -7077,7 +7077,7 @@ void msime_preview_configure(const std::string &options) {
     ++configuration_generation;
   }
 }
-void msime_preview_set_system_dark(bool dark) {
+void msime_ibus_set_system_dark(bool dark) {
   if (system_dark != dark) {
     system_dark = dark;
     ++configuration_generation;
