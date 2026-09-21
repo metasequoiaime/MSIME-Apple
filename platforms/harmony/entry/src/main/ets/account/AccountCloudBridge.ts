@@ -1,6 +1,6 @@
 import { utf8Length } from "../keyboard/Utf8";
 
-export type AccountTransportResponse = { status: number; body: string };
+export type AccountTransportResponse = { status: number; body: string; contentLength?: number };
 
 export interface AccountTransport {
   /**
@@ -70,6 +70,8 @@ const CHAT_ROLES = ["user", "assistant", "system"];
 
 /** The gallery's own bounds, matching `client-core`'s community skin service. */
 const MAX_COMMUNITY_SEARCH = 128;
+/** The fixed Apple client accepts dictionary exports up to 3 MiB. */
+export const MAX_DICTIONARY_EXPORT_BYTES = 3 * 1024 * 1024;
 
 /**
  * A publication id, checked before it is put in a path.
@@ -422,6 +424,37 @@ export class AccountCloudBridge {
           ? 401
           : 503;
     return { status, body: "" };
+  }
+
+  /** Native hosts save exports themselves so multi-megabyte text never crosses a WebView bridge. */
+  async downloadDictionary(
+    kind: unknown,
+    format: unknown,
+  ): Promise<{ body?: string; error?: string }> {
+    const acceptedKind = this.kind(kind);
+    if (
+      acceptedKind === null ||
+      typeof format !== "string" ||
+      !["standard", "windows"].includes(format)
+    )
+      return { error: "account_invalid" };
+    const result = await this.authorizedResponse(
+      "GET",
+      `/v1/users/me/dictionaries/${acceptedKind}/export?format=${format}`,
+    );
+    if (result.response === undefined) return { error: result.error ?? "account_unavailable" };
+    const response = result.response;
+    if (response.status < 200 || response.status >= 300)
+      return { error: mapStatus(response.status) };
+    const bytes = utf8Length(response.body);
+    if (
+      bytes === 0 ||
+      bytes > MAX_DICTIONARY_EXPORT_BYTES ||
+      response.body.includes("\u0000") ||
+      (response.contentLength !== undefined && response.contentLength !== bytes)
+    )
+      return { error: "account_unavailable" };
+    return { body: response.body };
   }
 
   private async requestCode(action: Action): Promise<string> {
@@ -1115,17 +1148,12 @@ export class AccountCloudBridge {
       return this.authenticated("POST", path, body);
     }
     if (operation === "export") {
-      if (
-        kind === null ||
-        !validString(action.format, 16) ||
-        !["standard", "windows"].includes(action.format)
-      )
-        return error("account_invalid");
-      return this.authenticatedRaw(
-        "GET",
-        `/v1/users/me/dictionaries/${kind}/export?format=${action.format}`,
-        { text: true, filename: `dictionary-${kind}.tsv` },
-      );
+      const downloaded = await this.downloadDictionary(action.kind, action.format);
+      if (downloaded.body === undefined) return error(downloaded.error ?? "account_unavailable");
+      return success({
+        text: downloaded.body,
+        filename: `dictionary-${kind}.tsv`,
+      });
     }
     return error("account_invalid");
   }
@@ -1264,24 +1292,6 @@ export class AccountCloudBridge {
     const value = parseJson(response.body);
     if (value === null) return { error: "account_unavailable" };
     return { value };
-  }
-
-  private async authenticatedRaw(
-    method: string,
-    path: string,
-    value: Record<string, unknown>,
-  ): Promise<string> {
-    const result = await this.authorizedResponse(method, path);
-    if (result.response === undefined) return error(result.error ?? "account_unavailable");
-    const response: AccountTransportResponse = result.response;
-    if (
-      response.status < 200 ||
-      response.status >= 300 ||
-      response.body.length === 0 ||
-      response.body.includes("\u0000")
-    )
-      return error(mapStatus(response.status));
-    return success({ ...value, text: response.body });
   }
 
   private response(response: AccountTransportResponse): string {

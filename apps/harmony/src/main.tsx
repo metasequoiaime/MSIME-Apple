@@ -577,6 +577,7 @@ function cloudDictionaryClient(
     openApply: async () => setPage("apply"),
     snapshot: true,
     snapshotNative: true,
+    exportNative: true,
     downloadToLocal: async (entry) => {
       unwrap<{ applied: boolean }>(native.cloudDictionaryDownload(JSON.stringify(entry)));
     },

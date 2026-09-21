@@ -1,6 +1,7 @@
 import http from '@ohos.net.http';
 import fs from '@ohos.file.fs';
 import common from '@ohos.app.ability.common';
+import picker from '@ohos.file.picker';
 import util from '@ohos.util';
 import client from 'libmsimeclient.so';
 import { AccountCloudBridge, AccountSessionStore, AccountTransport, AccountTransportResponse } from './AccountCloudBridge';
@@ -62,6 +63,9 @@ interface SnapshotAction {
 
 interface AccountOperation {
   operation?: string;
+  dictionary_operation?: string;
+  kind?: string;
+  format?: string;
 }
 
 interface AccountOperationReply {
@@ -142,6 +146,20 @@ interface HttpHeaders {
   'Content-Type': string;
 }
 
+/** A declared response size lets native downloads reject a connection that ended early. */
+function responseContentLength(headers: Object): number | undefined {
+  const values: Record<string, Object> = headers as Record<string, Object>;
+  const keys: string[] = Object.keys(values);
+  for (const key of keys) {
+    if (key.toLowerCase() !== 'content-length') continue;
+    const raw: Object = values[key];
+    if (typeof raw !== 'string') return -1;
+    const parsed: number = Number(raw);
+    return Number.isInteger(parsed) && parsed >= 0 ? parsed : -1;
+  }
+  return undefined;
+}
+
 class HarmonyTransport implements AccountTransport {
   async request(method: string, path: string, token?: string, body?: Object,
     timeoutMs?: number): Promise<AccountTransportResponse> {
@@ -160,7 +178,11 @@ class HarmonyTransport implements AccountTransport {
     };
     try {
       const response = await request.request(`${ACCOUNT_ORIGIN}${path}`, options);
-      return { status: response.responseCode, body: typeof response.result === 'string' ? response.result : '' };
+      return {
+        status: response.responseCode,
+        body: typeof response.result === 'string' ? response.result : '',
+        contentLength: responseContentLength(response.header)
+      };
     } finally {
       request.destroy();
     }
@@ -225,8 +247,9 @@ export class HarmonyAccountCloudBridge {
   async request(action: string): Promise<string> {
     const accountId: string | null = this.bridge.currentUserId();
     let operation: string = '';
+    let decoded: AccountOperation | undefined = undefined;
     try {
-      const decoded: AccountOperation = JSON.parse(action) as AccountOperation;
+      decoded = JSON.parse(action) as AccountOperation;
       operation = typeof decoded.operation === 'string' ? decoded.operation : '';
     } catch {
       // The account bridge reports malformed action documents.
@@ -234,6 +257,10 @@ export class HarmonyAccountCloudBridge {
     if (accountId !== null && (operation === 'logout' || operation === 'delete_account'
       || operation === 'login' || operation === 'clear_expired')) {
       if (!this.cancelQueueForAccount(accountId)) return this.failure('snapshot_unavailable');
+    }
+    if (decoded !== undefined && operation === 'dictionary'
+      && decoded.dictionary_operation === 'export') {
+      return this.exportDictionary(decoded);
     }
     const result = await this.bridge.handle(action);
     if (accountId === null || this.bridge.currentUserId() === accountId) return result;
@@ -246,6 +273,46 @@ export class HarmonyAccountCloudBridge {
       // The account bridge already owns malformed request and response reporting.
     }
     return result;
+  }
+
+  /** Download and validate privately before asking the user where the finished export should go. */
+  private async exportDictionary(action: AccountOperation): Promise<string> {
+    const kind: string = typeof action.kind === 'string' ? action.kind : '';
+    const format: string = typeof action.format === 'string' ? action.format : '';
+    const downloaded = await this.bridge.downloadDictionary(kind, format);
+    if (downloaded.body === undefined) {
+      return this.failure(downloaded.error ?? 'account_unavailable');
+    }
+    const directory: string = `${this.context.filesDir}/state/dictionary-exports`;
+    const staging: string = `${directory}/${util.generateRandomUUID(false)}.tsv`;
+    let destination: string = '';
+    try {
+      if (!fs.accessSync(directory)) fs.mkdirSync(directory, true);
+      const handle = fs.openSync(staging,
+        fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+      try { fs.writeSync(handle.fd, downloaded.body); } finally { fs.closeSync(handle); }
+      const options: picker.DocumentSaveOptions = new picker.DocumentSaveOptions();
+      options.newFileNames = [`msime-${kind}-dictionary.tsv`];
+      options.fileSuffixChoices = ['TSV|.tsv'];
+      const selected: string[] = await new picker.DocumentViewPicker(this.context).save(options);
+      if (selected.length === 0) return this.success({ saved: false });
+      destination = selected[0];
+      fs.copyFileSync(staging, destination);
+      return this.success({ saved: true });
+    } catch {
+      try {
+        if (destination.length > 0 && fs.accessSync(destination)) fs.unlinkSync(destination);
+      } catch {
+        // Refusing the export matters more than a picker URI which has already disappeared.
+      }
+      return this.failure('account_storage');
+    } finally {
+      try {
+        if (fs.accessSync(staging)) fs.unlinkSync(staging);
+      } catch {
+        // A missing staging file is already the desired postcondition.
+      }
+    }
   }
 
   private cancelQueueForAccount(accountId: string): boolean {

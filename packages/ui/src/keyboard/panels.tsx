@@ -268,6 +268,7 @@ export interface CloudDictionaryPanelClient extends PanelClient {
   request(action: CloudDictionaryAction): Promise<CloudDictionaryResponse>;
   snapshot?: boolean;
   snapshotNative?: boolean;
+  exportNative?: boolean;
   downloadToLocal?(entry: CloudDictionaryEntry): Promise<void>;
   openCatalog?(): Promise<void>;
   openCandidates?(): Promise<void>;
@@ -2837,6 +2838,10 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
     void run(async (revision) => {
       const result = await client.request({ operation: "export", kind, format });
       if (revision !== requestRevision.current) return;
+      if (client.exportNative) {
+        setNotice(result.saved === true ? "云词库已导出" : "已取消导出");
+        return;
+      }
       const text = typeof result.text === "string" ? result.text : result.content;
       if (typeof text !== "string") throw new Error("provider returned no file");
       const anchor = document.createElement("a");
