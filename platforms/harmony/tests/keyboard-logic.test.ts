@@ -161,6 +161,7 @@ import {
   HANDWRITING_CANVAS_SIZE,
   HANDWRITING_MAX_CANDIDATES,
 } from "../entry/src/main/ets/keyboard/input/HandwritingStrokePolicy";
+import { KeyboardFormFactorPolicy } from "../entry/src/main/ets/keyboard/KeyboardFormFactorPolicy";
 import {
   VoiceRecognitionPolicy,
   VOICE_MAX_TEXT,
@@ -297,6 +298,8 @@ console.log("KeyboardGeometry");
 console.log("DictionaryMaintenancePolicy");
 
 console.log("HandwritingStrokePolicy");
+
+console.log("KeyboardFormFactorPolicy");
 
 console.log("VoiceRecognitionPolicy");
 
@@ -446,6 +449,14 @@ group("voice input preference gates every Harmony entry point", () => {
   );
   check(!VoiceInputConfigurationPolicy.enabled(false), "an explicit false disables voice input");
   check(VoiceInputConfigurationPolicy.enabled(true), "an explicit true enables voice input");
+});
+
+group("keeps desktop-only chrome off touch devices", () => {
+  check(KeyboardFormFactorPolicy.isDesktop("2in1"), "a 2-in-1 gets the desktop candidate window");
+  check(!KeyboardFormFactorPolicy.isDesktop("phone"), "a phone keeps the touch keyboard");
+  check(!KeyboardFormFactorPolicy.isDesktop("tablet"), "a tablet keeps the touch keyboard");
+  check(!KeyboardFormFactorPolicy.isDesktop("default"), "an unknown form factor fails closed");
+  check(!KeyboardFormFactorPolicy.isDesktop(null), "missing device information fails closed");
 });
 
 group("bounds handwriting points and rejects empty recognition requests", () => {

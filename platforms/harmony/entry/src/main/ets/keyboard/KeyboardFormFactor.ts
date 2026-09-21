@@ -10,8 +10,9 @@
  * on every layout pass.
  */
 import deviceInfo from '@ohos.deviceInfo';
+import { KeyboardFormFactorPolicy } from './KeyboardFormFactorPolicy';
 
-const DESKTOP: boolean = deviceInfo.deviceType === deviceInfo.DeviceTypes.TYPE_2IN1;
+const DESKTOP: boolean = KeyboardFormFactorPolicy.isDesktop(deviceInfo.deviceType);
 
 export class KeyboardFormFactor {
   /** A machine whose keys are already under the user's hands, so this one draws none. */
