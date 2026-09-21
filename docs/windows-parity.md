@@ -1661,3 +1661,21 @@ Fcitx5 候选动作执行 stale 栅栏增量（2026-09-19）：CandidateAction �
 反向验证两条路径都走过：把 `statsRequest` 从表里删掉，它报 `FAIL statsRequest (settings)`；而「token 写错」这条不是模拟的——第一版把选词和关闭右键菜单分别写成了 `MSIME_SELECT` 和 `close_menu`，两个在本仓都不存在，检查当场报红，逼我去源码里找到真名 `select_candidate` 和 `CandidateFlyoutWindow`。这正是它该有的行为：映射表写得对不对，由仓库本身来判。
 
 附带一条环境结论，写进 AGENTS.md 免得下次再烧一小时：**`vendor/MSIME-Engine` 必须是真实目录，不能是符号链接。** 多个 worktree 共用一份已准备好的引擎，最自然的做法是链过去，但 `crates/engine-bridge/native/bridge.h` 用的是 `../../vendor/MSIME-Engine/common/...` 这样的相对包含，编译器得从 `vendor/MSIME-Engine` 用 `..` 爬回仓库根才能找到它——而 `..` 跨过符号链接后去的是**物理**父目录。链到 `~/.cache/...` 时它爬到了 `~/.cache/`，头文件当场没有。之前之所以侥幸没事，是因为链的目标那一侧恰好也有一个真实的 `vendor/`，`..` 爬上去正好落在它上面。省空间用硬链接复制（同一文件系统 `cp -al`）而不是 `ln -s`。
+
+增量记录（2026-09-21，Windows 第二十九批：第二次启动应该把窗口拉到前面，而不是什么都不做）：目标起点 `6b4b138ae`。
+
+上一批把上游界面动作清单核对完之后，换到**源文件层**继续找：上游 `server/src/` 共 160 个 `.cpp`/`.h`，按名字映射下来有 67 个在本仓没有同名对应物。多数是有意改名或并进 Rust（`cloud_ime` → `CloudCandidateWorker`、`tencent_tmt` → `credential/translation.rs`、`candidate_size_estimator` → `CandidateRowFit` 等），逐个看过去，真正有缺口的是 `single_instance`。
+
+上游用它守四个进程：Server、设置窗、emoji 面板、手写面板、屏幕键盘面板。本仓 Server 和 watchdog 都有对应的互斥量（`server_main.cpp`、`Watchdog.cpp`），面板这一侧是 Tauri 窗口，`open_panel_window` 本来就复用已有窗口并 `set_focus`，等价物在。**但设置窗这一侧漏了一半**：上游第二次启动时，带 `--about` 就把「打开关于」这个意图转发给已在运行的窗口，不带参数则 `SetForegroundWindow(existing)`；本仓的 single-instance 回调写成
+
+```rust
+if let Some(route) = launch_route_from_args(&args) { ... }
+```
+
+**没有 route 时整个分支被跳过，什么也不发生。**
+
+这不是个理论问题：本仓所有由产品自己拉起的界面都带 `--route=`（Windows 侧在 `ShellLauncher.cpp:35` 拼这条命令行），所以「无参数启动」这条路径**只**在用户自己点开始菜单项、快捷方式或安装后的图标时发生——也就是普通人打开设置的主要方式。表现是：设置窗已经开着但被别的窗口盖住，再点一次图标，毫无反应。
+
+改法是把 Option 从调用处消掉：新增 `second_launch_route()` 返回 `SurfaceRoute` 而不是 `Option<SurfaceRoute>`，没有显式 route 时回落到 `SurfaceRoute::Settings(None)`——那条路径本来就已经做了 `show()` + `unminimize()` + `set_focus()`，缺的只是走到它。
+
+**这里的保证来自返回类型，不是来自测试，如实记一下。** 新增的用例钉的是「回落到哪个 surface」（空参数、只有可执行文件路径、`--route=` 解析失败三种输入都回落到设置窗；显式 route 仍然优先），但它盖不住调用处——谁要是把 `if let Some(...)` 写回去，用例照样绿。真正让这个缺陷无法复发的是函数签名不再返回 `Option`，调用方没有可丢弃的东西。写守卫去检查调用处长什么样只会脆，不如把类型摆对。
