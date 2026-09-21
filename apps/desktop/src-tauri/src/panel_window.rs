@@ -123,7 +123,14 @@ pub(crate) fn open_panel_window(
             WebviewUrl::App(format!("index.html?panel={route}").into()),
         )
         .title(title);
+        // A panel is shown as soon as it is positioned, which is well before its page paints. The
+        // settings window carries the system theme, so the panel opens in the colour it is about
+        // to paint rather than in the platform's white.
+        let theme = app
+            .get_webview_window("main")
+            .and_then(|window| window.theme().ok());
         let window = builder
+            .background_color(crate::chrome_background(theme))
             .inner_size(width, height)
             .visible(false)
             .focused(false)

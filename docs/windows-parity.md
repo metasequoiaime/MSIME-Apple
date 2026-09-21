@@ -1679,3 +1679,15 @@ if let Some(route) = launch_route_from_args(&args) { ... }
 改法是把 Option 从调用处消掉：新增 `second_launch_route()` 返回 `SurfaceRoute` 而不是 `Option<SurfaceRoute>`，没有显式 route 时回落到 `SurfaceRoute::Settings(None)`——那条路径本来就已经做了 `show()` + `unminimize()` + `set_focus()`，缺的只是走到它。
 
 **这里的保证来自返回类型，不是来自测试，如实记一下。** 新增的用例钉的是「回落到哪个 surface」（空参数、只有可执行文件路径、`--route=` 解析失败三种输入都回落到设置窗；显式 route 仍然优先），但它盖不住调用处——谁要是把 `if let Some(...)` 写回去，用例照样绿。真正让这个缺陷无法复发的是函数签名不再返回 `Option`，调用方没有可丢弃的东西。写守卫去检查调用处长什么样只会脆，不如把类型摆对。
+
+增量记录（2026-09-21，Windows 第三十批：窗口在页面画出来之前是什么颜色）：目标起点 `a822b2f3c`。接上一批，继续按上游 `server/src/` 的文件名往下找。这次落在 `settings_splash` 和 `emoji_panel_splash` 上。
+
+上游为什么要写这两个文件：WebView2 窗口一创建就在屏幕上，而文档要等 bundle 加载完才有东西可画，中间那段空白由平台按默认色绘制——Windows 上是白的，不管用户用的是什么主题。它的办法是一个跟设置窗边框对齐、跟着 DWM 圆角走的 Direct2D 浮层（`SettingsSplash::Show(owner, light)` 带主题参数），在 `ContentLoading` 时撤掉；**并且在控制器创建失败、导航失败等每一条失败路径上也撤掉**，免得 WebView2 起不来时浮层永远糊在那里。
+
+本仓这边窗口在 `tauri.conf.json` 里声明，既没有 `visible: false` 也没有 `backgroundColor`，所以打开设置会先闪一下系统默认底色。适配而不是照搬：不必再糊一层浮层，直接把窗口底色设成页面**马上要画的那个颜色**——共享样式表的 `--chrome-bg`（深 `#202020`，浅 `#f3f3f3`）。这样那几帧里没有东西可看，而不是有个白框。主窗口在 `setup` 里按 `window.theme()` 设（窗口由配置创建，这是第一个能拿到主题的时机）；面板窗口在 `WebviewWindowBuilder` 上设，主题从设置窗读——上游也给面板各写了一个 splash，同一个问题。
+
+比「隐藏到页面就绪再显示」稳：那条路一旦 bundle 起不来，用户连个能关掉的窗口都没有，正是上游要在每条失败路径上撤浮层所防的事。给底色没有这个失败模式。
+
+`--chrome-bg` 现在有两份（CSS 一份、Rust 一份，窗口底色读不了 CSS）。新增用例直接读 `packages/ui/src/styles.css` 比对两个值，反向验证过：把常量改一位，用例报 `left: "#212020" right: "#202020"`。这种重复漂移起来的症状是「开窗时闪错一帧颜色」，没人会为它提 bug，所以值得一道用例盯着。
+
+顺手修掉 develop 上一处红：`typing_statistics_status_reports_file_availability_without_content` 断言新建文档 `enabled: true`，那是 #3389 跟随上游把统计默认翻成关闭之前的值。这个用例的主题是可用性上报，`enabled` 只是顺带，改成出厂默认；后半段原本设 `false`（翻转后等于没动），改成设 `true`，「开关会变」这层覆盖才还在。这种红只有在本机跑 `cargo test -p msime-desktop` 才看得见。
