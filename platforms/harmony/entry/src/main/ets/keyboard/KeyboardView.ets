@@ -322,6 +322,7 @@ struct KeyboardView {
   @State geometryKeySpacing: number = KeyboardSession.shared.preferences().keySpacingTenths;
   @State geometryRowSpacing: number = KeyboardSession.shared.preferences().rowSpacingTenths;
   @State geometryHeight: number = KeyboardSession.shared.preferences().heightAdjustment;
+  @State touchVoiceShortcut: boolean = KeyboardSession.shared.preferences().voiceShortcut;
 
   private readonly letterCase: EnglishLetterCaseState = new EnglishLetterCaseState();
   private settings: KeyboardPreferences = KeyboardSession.shared.preferences();
@@ -415,6 +416,7 @@ struct KeyboardView {
     this.geometryKeySpacing = this.settings.keySpacingTenths;
     this.geometryRowSpacing = this.settings.rowSpacingTenths;
     this.geometryHeight = this.settings.heightAdjustment;
+    this.touchVoiceShortcut = this.settings.voiceShortcut;
     this.feedback = KeyboardSession.shared.feedback();
     this.traditional = KeyboardSession.shared.usesTraditional();
     this.skin = KeyboardSession.shared.skin(this.settings.skinId, this.settings.dark);
@@ -1565,7 +1567,7 @@ struct KeyboardView {
         this.surface === SURFACE_EMOJI, () => {
           this.openEmojiSurface();
         });
-      if (this.settings.voiceShortcut && this.voiceEnabled) {
+      if (this.touchVoiceShortcut && this.voiceEnabled) {
         this.shortcutText('🎙', KeyAccessibilityPolicy.voice(),
           this.surface === SURFACE_VOICE, () => {
             this.show(SURFACE_VOICE);
@@ -2243,11 +2245,15 @@ struct KeyboardView {
   }
 
   /** All three at once: they are one decision about how the keyboard is laid out. */
-  private applyGeometry(keySpacing: number, rowSpacing: number, height: number): void {
+  private applyGeometry(keySpacing: number, rowSpacing: number, height: number,
+                        resetVoice: boolean = false): void {
     const changes: Map<string, Object> = new Map<string, Object>();
     changes.set('touch_key_spacing_tenths', KeyboardGeometry.keySpacing(keySpacing));
     changes.set('touch_row_spacing_tenths', KeyboardGeometry.rowSpacing(rowSpacing));
     changes.set('touch_keyboard_height_adjustment', KeyboardGeometry.heightAdjustment(height));
+    if (resetVoice) {
+      changes.set('touch_voice_shortcut', false);
+    }
     if (!KeyboardSession.shared.changePreferences(changes)) {
       return;
     }
@@ -2255,6 +2261,7 @@ struct KeyboardView {
     this.geometryKeySpacing = this.settings.keySpacingTenths;
     this.geometryRowSpacing = this.settings.rowSpacingTenths;
     this.geometryHeight = this.settings.heightAdjustment;
+    this.touchVoiceShortcut = this.settings.voiceShortcut;
     KeyboardSession.shared.resizeTouchKeyboard(KeyboardMetrics.totalHeightVp(
       this.geometryRowSpacing, this.geometryHeight));
   }
@@ -3436,7 +3443,7 @@ struct KeyboardView {
           .onClick(() => {
             this.applyGeometry(KeyboardGeometry.DEFAULT_KEY_SPACING_TENTHS,
               KeyboardGeometry.DEFAULT_ROW_SPACING_TENTHS,
-              KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_VP);
+              KeyboardGeometry.DEFAULT_HEIGHT_ADJUSTMENT_VP, true);
             this.geometryHint = GEOMETRY_HINT;
           })
         Text('−')
