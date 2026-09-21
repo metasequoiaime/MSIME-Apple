@@ -605,6 +605,31 @@ int main(int argc, char **argv) {
       std::this_thread::sleep_for(std::chrono::milliseconds(600));
       modifier(FcitxKey_Shift_L, true, shiftHeld);
       require(state->input_enabled_, "a Shift held past the window does not switch");
+      // 只有松开、而且 keysym 不是 Shift_L 的那条路径。xkb 的
+      // shift:both_capslock_cancel（两个 Shift 一起按切大写锁定，Omarchy 默认带着）
+      // 把 Shift 键的符号改成了 Caps_Lock，同一套布局下 Wayland 前端还只派发松开事件：
+      // 按 sym 比较永远不中，布防也从未发生，四个模式快捷键在这种机器上整个是死的。
+      // 改为按键码识别（X11 50/62 是左右 Shift），并在没有按下事件时用「松开前 500ms
+      // 内没有普通按键」代替按住时长那条判据。
+      const auto capsLockShift = [&] {
+        fcitx::KeyEvent event(&ic, fcitx::Key(FcitxKey_Caps_Lock, shiftHeld, 50), true);
+        engine.keyEvent(entry, event);
+        return event.accepted();
+      };
+      std::this_thread::sleep_for(std::chrono::milliseconds(600));
+      require(state->input_enabled_, "release-only gesture starts in Chinese");
+      require(capsLockShift(), "a release-only Shift is consumed even as Caps_Lock");
+      require(!state->input_enabled_, "a release-only Shift identified by keycode switches");
+      std::this_thread::sleep_for(std::chrono::milliseconds(600));
+      capsLockShift();
+      require(state->input_enabled_, "and switches back");
+      // 刚打完字就来的松开不算手势：那是组合键的尾巴，误切会在正常打字时换掉输入模式。
+      require(key(FcitxKey_a), "an ordinary key before the release");
+      require(key(FcitxKey_Escape), "cancel what it composed");
+      capsLockShift();
+      require(state->input_enabled_, "a release right after typing is not a gesture");
+      std::this_thread::sleep_for(std::chrono::milliseconds(600));
+
       // 裸 Ctrl 跟随自己的开关，默认关闭时不动。
       require(!state->mode_ctrl_enabled_, "bare Ctrl is off by default");
       modifier(FcitxKey_Control_L, false);

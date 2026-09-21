@@ -2217,6 +2217,21 @@ public:
     render();
     return true;
   }
+  // 裸修饰键的识别不能只看 keysym。xkb 选项会改写修饰键本身的符号：本机默认带的
+  // shift:both_capslock_cancel（两个 Shift 一起按切大写锁定）就把 Shift 键的 keysym
+  // 变成了 Caps_Lock，于是按 sym == Shift_L 比较永远不中，四个模式快捷键在这种布局下
+  // 全是死的。键码是布局无关的：X11 键码 50/62 是左右 Shift，37/105 是左右 Ctrl
+  // （evdev 键码加 8），两个条件取或。
+  static bool isShiftKey(const fcitx::KeyEvent &event) {
+    const auto sym = event.key().sym();
+    const auto code = event.key().code();
+    return sym == FcitxKey_Shift_L || sym == FcitxKey_Shift_R || code == 50 || code == 62;
+  }
+  static bool isCtrlKey(const fcitx::KeyEvent &event) {
+    const auto sym = event.key().sym();
+    const auto code = event.key().code();
+    return sym == FcitxKey_Control_L || sym == FcitxKey_Control_R || code == 37 || code == 105;
+  }
   bool key(fcitx::KeyEvent &event);
   uint64_t session_ = 0;
   Json view_ = Json::object();
@@ -2334,6 +2349,7 @@ public:
   bool pure_shift_candidate_ = false;
   bool pure_ctrl_candidate_ = false;
   bool shift_down_ = false;
+  std::chrono::steady_clock::time_point last_ordinary_key_at_{};
   bool ctrl_down_ = false;
   std::chrono::steady_clock::time_point modifier_toggle_deadline_{};
   std::shared_future<Json> voice_job_;
@@ -4368,10 +4384,17 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   // A bare modifier switches on its release, which is the half this host never
   // saw: everything below returns before looking at releases.
   {
-    const bool shiftRelease = sym == FcitxKey_Shift_L || sym == FcitxKey_Shift_R;
-    const bool ctrlRelease = sym == FcitxKey_Control_L || sym == FcitxKey_Control_R;
+    const bool shiftRelease = isShiftKey(event);
+    const bool ctrlRelease = !shiftRelease && isCtrlKey(event);
     if ((shiftRelease || ctrlRelease) && event.isRelease()) {
-      const bool candidate = shiftRelease ? pure_shift_candidate_ : pure_ctrl_candidate_;
+      // 有的前端只送来松开。同一套 xkb 选项下实测：Shift 的按下事件根本不会到达引擎，
+      // 只有松开会（Ctrl 则两者都有）。没有按下就没有布防，所以这里补一条同样严格的
+      // 判据——这次松开之前 500ms 内没有任何普通按键，说明它不是组合键的一半。宁可漏
+      // 判也不能误切：漏判只是手势没生效，误切会在用户正常打字时突然换掉输入模式。
+      const bool armed = shiftRelease ? pure_shift_candidate_ : pure_ctrl_candidate_;
+      const bool quiet = std::chrono::steady_clock::now() - last_ordinary_key_at_ >
+                         std::chrono::milliseconds(500);
+      const bool candidate = armed || (!shift_down_ && !ctrl_down_ && quiet);
       const bool enabled = shiftRelease ? mode_shift_enabled_ : mode_ctrl_enabled_;
       if (shiftRelease) {
         shift_down_ = false;
@@ -4382,8 +4405,12 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
       }
       // Held too long is a modifier being used, not a gesture; the other
       // modifiers being down says the same thing.
-      if (candidate && enabled && ic_.hasFocus() && !restricted() && !privateInput() &&
-          std::chrono::steady_clock::now() <= modifier_toggle_deadline_ &&
+      // 按住时长这条判据来自按下事件；没有按下事件时它无从谈起，改由上面的「松开前
+      // 500ms 内没有普通按键」承担同一件事，不能在这里再要求一个从未设过的截止时刻。
+      const bool within_window =
+          !armed || std::chrono::steady_clock::now() <= modifier_toggle_deadline_;
+      if (candidate && enabled && within_window && ic_.hasFocus() && !restricted() &&
+          !privateInput() &&
           !states.testAny(fcitx::KeyStates{fcitx::KeyState::Alt, fcitx::KeyState::Super,
                                           fcitx::KeyState::Hyper}) &&
           !(shiftRelease ? ctrl_down_ : shift_down_)) {
@@ -4406,8 +4433,8 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   // 宿主上一次都没生效过，而设置页按能力位把它们全都显示着。切到英文之后同样要能切回
   // 来，所以也不能排在「英文透传时不处理」后面；IBus 宿主一直是这么做的。
   {
-    const bool shiftKey = sym == FcitxKey_Shift_L || sym == FcitxKey_Shift_R;
-    const bool ctrlKey = sym == FcitxKey_Control_L || sym == FcitxKey_Control_R;
+    const bool shiftKey = isShiftKey(event);
+    const bool ctrlKey = !shiftKey && isCtrlKey(event);
     if ((shiftKey || ctrlKey) && !event.isRelease()) {
       const bool otherModifiers = states.testAny(fcitx::KeyStates{
           fcitx::KeyState::Alt, fcitx::KeyState::Super, fcitx::KeyState::Hyper});
@@ -4578,6 +4605,7 @@ bool FcitxState::key(fcitx::KeyEvent &event) {
   // Any other key press means the held modifier was part of a combination.
   pure_shift_candidate_ = false;
   pure_ctrl_candidate_ = false;
+  last_ordinary_key_at_ = std::chrono::steady_clock::now();
   if (sym == FcitxKey_space && ctrl && !shift &&
       (alt ? mode_ctrl_alt_space_enabled_ : true)) {
     if (composing) command(MSIME_COMMIT_RAW);
