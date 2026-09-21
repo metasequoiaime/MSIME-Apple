@@ -1768,6 +1768,41 @@ static void TestPreferenceRevisionSkipsUnchangedDocuments() {
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 
+// The synthetic keyboard these cases drive: a key is held between its down and its up, which is what
+// the detector now asks about instead of trusting its own record. The record can lose a release -
+// focus moves while a key is down, or the host is told about fewer event kinds - and a stale entry
+// used to refuse every tap for the rest of the session.
+static std::set<unsigned short> gHeldKeys;
+static bool SyntheticKeyHeld(unsigned short key) { return gHeldKeys.count(key) != 0; }
+
+// A key whose release never arrived. The host can simply not be told: focus moves while the key is
+// down, the application takes the release, or the event kinds the host asked for do not include it.
+// The record then holds that key forever, and before the detector checked what is actually held,
+// every tap for the rest of the session was refused - with nothing on screen to explain it.
+static void TestModifierTapSurvivesALostRelease() {
+    MSIMEModifierTap tap;
+    gHeldKeys.clear();
+    tap.setKeyHeldProbe(&SyntheticKeyHeld);
+    auto down = TapEvent(NSEventTypeFlagsChanged, 56, NSEventModifierFlagShift, 2.0);
+    auto up = TapEvent(NSEventTypeFlagsChanged, 56, 0, 2.1);
+
+    // A letter is typed and its release is never delivered.
+    gHeldKeys.insert(0);
+    assert(!tap.observe(TapEvent(NSEventTypeKeyDown, 0, 0, 1.0), true, true));
+    gHeldKeys.erase(0);
+
+    // The tap works anyway, because the key is not being held.
+    assert(!tap.observe(down, true, true));
+    assert(tap.observe(up, true, true));
+
+    // And a key that really is held still cancels it, which is the rule the record was there for.
+    gHeldKeys.insert(0);
+    assert(!tap.observe(TapEvent(NSEventTypeKeyDown, 0, 0, 3.0), true, true));
+    assert(!tap.observe(TapEvent(NSEventTypeFlagsChanged, 56, NSEventModifierFlagShift, 3.1), true, true));
+    assert(!tap.observe(TapEvent(NSEventTypeFlagsChanged, 56, 0, 3.2), true, true));
+    gHeldKeys.clear();
+}
+
 static void TestModifierTaps() {
     for (NSNumber *key in @[@56, @60, @59, @62]) {
         const auto code = key.unsignedShortValue;
@@ -1775,6 +1810,8 @@ static void TestModifierTaps() {
         auto down = TapEvent(NSEventTypeFlagsChanged, code, flag, 1.0);
         auto up = TapEvent(NSEventTypeFlagsChanged, code, 0, 1.1);
         MSIMEModifierTap tap;
+        gHeldKeys.clear();
+        tap.setKeyHeldProbe(&SyntheticKeyHeld);
         assert(!tap.observe(up, true, true)); // A release after focus acquisition cannot toggle.
         assert(!tap.observe(down, true, true));
         assert(tap.observe(up, true, true));
@@ -1803,14 +1840,18 @@ static void TestModifierTaps() {
         }
         // A held non-modifier and typing while held cancel.
         tap.reset();
+        gHeldKeys.insert(0);
         assert(!tap.observe(TapEvent(NSEventTypeKeyDown, 0, 0, 0.9), true, true));
         assert(!tap.observe(down, true, true));
         assert(!tap.observe(up, true, true));
+        gHeldKeys.erase(0);
         assert(!tap.observe(TapEvent(NSEventTypeKeyUp, 0, 0, 1.2), true, true));
         assert(!tap.observe(down, true, true));
         assert(tap.observe(up, true, true));
         assert(!tap.observe(down, true, true));
+        gHeldKeys.insert(0);
         assert(!tap.observe(TapEvent(NSEventTypeKeyDown, 0, flag, 1.02), true, true));
+        gHeldKeys.erase(0);
         assert(!tap.observe(TapEvent(NSEventTypeKeyUp, 0, flag, 1.04), true, true));
         assert(!tap.observe(up, true, true));
         assert(!tap.observe(down, true, true));
@@ -4959,6 +5000,7 @@ int main(int argc, char **argv) {
         TestInputSourceModeReset();
         TestRealSessionComposition();
         TestModifierTaps();
+        TestModifierTapSurvivesALostRelease();
         TestStaleClientDeactivation();
         TestPreferenceClientGeneration();
         TestPreferenceRevisionSkipsUnchangedDocuments();

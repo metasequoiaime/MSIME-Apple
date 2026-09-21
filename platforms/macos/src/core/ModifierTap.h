@@ -7,7 +7,15 @@
 // Engine composition remains owned by the normal host mode-switch operation.
 class MSIMEModifierTap {
 public:
-    void reset() { *this = MSIMEModifierTap{}; }
+    /// Whether a key code is being held on the keyboard right now. A test drives a synthetic
+    /// keyboard and has to answer for it; the default reads the HID system's own view.
+    using KeyHeldProbe = bool (*)(unsigned short);
+    void reset() {
+        const auto probe = held_;
+        *this = MSIMEModifierTap{};
+        held_ = probe;
+    }
+    void setKeyHeldProbe(KeyHeldProbe probe) { held_ = probe ? probe : &MSIMEModifierTap::physicallyHeld; }
     bool observe(NSEvent *event, bool shiftEnabled, bool controlEnabled) {
         const auto mask = NSEventModifierFlagShift | NSEventModifierFlagControl |
             NSEventModifierFlagOption | NSEventModifierFlagCommand | NSEventModifierFlagFunction;
@@ -32,7 +40,7 @@ public:
         const double time = event.timestamp;
         const bool sameModifier = (shift || control) && required == armedModifier_;
         const bool toggle = armed_ && sameModifier && flags == 0 &&
-            previous == required && enabled && keys_.empty() && std::isfinite(time) &&
+            previous == required && enabled && !anyKeyHeld() && std::isfinite(time) &&
             time >= pressedAt_ && time - pressedAt_ < 0.5;
         // Both sides of the same modifier form one tap, timed from the first
         // press and completed only when the last side is released.
@@ -40,7 +48,7 @@ public:
         armed_ = false;
         // No rearming while another modifier is held. Chords and interrupted
         // taps remain cancelled even after the competing modifier is released.
-        if (enabled && previous == 0 && flags == required && keys_.empty() && std::isfinite(time)) {
+        if (enabled && previous == 0 && flags == required && !anyKeyHeld() && std::isfinite(time)) {
             armed_ = true;
             armedModifier_ = required;
             pressedAt_ = time;
@@ -48,6 +56,26 @@ public:
         return toggle;
     }
 private:
+    /// Whether a key other than the modifier is being held right now.
+    ///
+    /// The set is fed by the key events this host receives, and a key-up can simply not arrive: the
+    /// user switches away with a key down, an application takes the release, or - as happened while
+    /// this was being investigated - the host asks for a narrower set of events and stops being
+    /// told about releases at all. Any of those leaves an entry behind forever, and the tap is then
+    /// refused for the rest of the session with nothing to show for it.
+    ///
+    /// So the set is checked against what is actually held, rather than trusted. The state query
+    /// reads the HID system's view of the keyboard and needs no permission; the set still decides
+    /// which keys are worth asking about, so an empty one costs nothing.
+    bool anyKeyHeld() const {
+        for (const auto key : keys_)
+            if (held_(key)) return true;
+        return false;
+    }
+    static bool physicallyHeld(unsigned short key) {
+        return CGEventSourceKeyState(kCGEventSourceStateHIDSystemState, key) != false;
+    }
+    KeyHeldProbe held_ = &MSIMEModifierTap::physicallyHeld;
     std::set<unsigned short> keys_;
     NSEventModifierFlags modifiers_ = 0;
     NSEventModifierFlags armedModifier_ = 0;

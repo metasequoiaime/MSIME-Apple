@@ -1908,3 +1908,13 @@ if let Some(route) = launch_route_from_args(&args) { ... }
 加 `scripts/test-preference-suite-cleanup.py` 挂进 `--quick`：macOS 用例里凡出现 `initWithSuiteName:` 的源文件，必须同时出现 `MSIMERemoveTestPreferenceSuite`；只调 `removePersistentDomainForName:` 的会被单独点名，因为那读起来像已经清理了。当前 12 个用例开域、12 个都清。
 
 本机那 5433 个文件已清掉（4222 个是 42 字节的空壳，其余是断言 abort 后留下的；`app.msime.*` 里真实的六个应用域一个没动）。
+
+增量记录（2026-09-21，Windows 第四十六批：单按 Shift 切不了中英文，以及它暴露的两件事）：用户报「shift 切换中英文切换不了」。本机装了带诊断的构建、按真实事件序列查完，结论分两半。
+
+**一、终端类宿主根本收不到修饰键事件，这不是本仓能修的。** IMK 里宿主会调输入法的 `recognizedEvents:` 问「你要哪些事件」，默认只有 keyDown。日志显示：在 iTerm/VS Code 这类宿主里，`activateServer` 触发了、`recognizedEvents:` **一次都没被调用**，于是系统按默认值只送 keyDown，`flagsChanged` 永远到不了，单按 Shift 在这些应用里无法实现。换到备忘录这类原生 Cocoa 宿主，`recognizedEvents:` 立刻被调用（mask=0x1400），`flagsChanged` 也正常送达。这一条按平台限制记录，不是缺陷。
+
+**二、「当前按着哪些键」的记录会永久污染，一次丢失的抬起就让 Shift 终身失效。** `MSIMEModifierTap` 用一个集合记录按下未抬起的键，用来实现「按着别的键时不算轻点」。集合只靠 keyUp 清除，而 keyUp 可以不来：焦点在按键按下时移走、宿主吃掉抬起、或者（本次排查中我自己制造的）宿主请求的事件种类里没有 keyUp。留下的那一项之后**永远**判为「还按着」，每一次 Shift 都被拒绝，而屏幕上没有任何提示。
+
+改成不信任自己的记录：集合仍然决定「要问哪些键」，是否真的按着则查 HID 的键盘状态（`CGEventSourceKeyState`，不需要任何权限）。查询做成可注入，测试用自己的合成键盘作答——测试本来就在模拟键盘，这部分也该由它模拟。原有用例相应补上「这个键此刻按着/松开」的模拟，并新增一条用例专门钉「抬起丢了之后 Shift 仍然有效，而真按着时仍然不算轻点」。反向验证过。
+
+排查过程里有两条值得记的：其一，诊断日志在偏好应用之后才配置，于是 `recognizedEvents:` 这种发生在会话建立时的调用记不下来——探针改成在 `activateServer:` 一开始就配置日志才看见真相。其二，我一度把 `NSEventMaskKeyUp` 从掩码里去掉做对照实验，结果正好触发了上面第二条，用户那次复现失败是我造成的，不是原有缺陷。
