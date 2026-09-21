@@ -504,6 +504,10 @@ static NSDictionary *decode(char *response, NSError **error) {
     if (view) _pairedPunctuationOverride = @(enabled);
     return view;
 }
+- (BOOL)balancePairedPunctuationAfterAutoClose:(uint8_t)opening error:(NSError **)error {
+    if (![self checkThreadAndHandle:error]) return NO;
+    return decode(msime_client_balance_paired_punctuation_after_auto_close(_handle, opening), error) != nil;
+}
 - (nullable NSDictionary *)setPunctuationLock:(NSString *)lock error:(NSError **)error {
     if (![self checkThreadAndHandle:error]) return nil;
     uint8_t value = 0;

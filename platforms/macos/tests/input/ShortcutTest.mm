@@ -105,6 +105,8 @@ static void CheckMenu(NSMenu *menu, id controller) {
 @property(nonatomic, copy) NSDictionary *punctuationView;
 @property(nonatomic) BOOL pairedPunctuation;
 @property(nonatomic) NSUInteger pairedPunctuationCalls;
+@property(nonatomic) NSUInteger balanceCalls;
+@property(nonatomic) uint8_t lastBalanceOpening;
 @property(nonatomic) uint8_t punctuationLock;
 @property(nonatomic) NSUInteger punctuationLockCalls;
 @property(nonatomic) BOOL fullwidth;
@@ -171,6 +173,12 @@ static void CheckMenu(NSMenu *menu, id controller) {
     self.chinesePunctuation = enabled;
     ++self.punctuationCalls;
     return self.punctuationView;
+}
+- (BOOL)balancePairedPunctuationAfterAutoClose:(uint8_t)opening error:(NSError **)error {
+    (void)error;
+    ++self.balanceCalls;
+    self.lastBalanceOpening = opening;
+    return YES;
 }
 - (NSDictionary *)setPairedPunctuationEnabled:(BOOL)enabled error:(NSError **)error {
     (void)error;
@@ -973,10 +981,46 @@ static void TestPairedPunctuationClosesThePair() {
     [controller flushPendingPairedClosing];
     assert([client.committed isEqual:@"】"]);
 
-    // With the preference off nothing is owed, and the commit is what the Engine said.
+    // Book title marks nest, so a pair this host closed has to be reported to the Engine: it counts
+    // how many 《 are open and answers 〈 inside one, and the `>` that would unwind the count is
+    // never typed here. Without the call the next pair the user opens comes back 〈〉.
+    ShortcutSession *session = [ShortcutSession new];
+    [controller setValue:session forKey:@"session"];
+    [controller apply:@{@"commit": @"（", @"view": @{@"editing_text": @"", @"caret_position": @0}}];
+    assert(session.balanceCalls == 0);
+    [controller flushPendingPairedClosing];
+    [controller apply:@{@"commit": @"《", @"view": @{@"editing_text": @"", @"caret_position": @0}}];
+    assert([client.marked isEqual:@"》"]);
+    assert(session.balanceCalls == 1 && session.lastBalanceOpening == '<');
+    [controller flushPendingPairedClosing];
+    // The inner half of the same nesting comes from the same key and unwinds the same count.
+    [controller apply:@{@"commit": @"〈", @"view": @{@"editing_text": @"", @"caret_position": @0}}];
+    assert([client.marked isEqual:@"〉"]);
+    assert(session.balanceCalls == 2 && session.lastBalanceOpening == '<');
+    [controller flushPendingPairedClosing];
+
+    // A quote key alternates in the Engine because a host without pairing needs it to. This host
+    // supplies the closing half, so the press that would have flipped it back never happens: with
+    // pairing on, a closing quote is read as the start of a fresh pair.
+    [controller apply:@{@"commit": @"”", @"view": @{@"editing_text": @"", @"caret_position": @0}}];
+    assert([client.committed isEqual:@"“"]);
+    assert([client.marked isEqual:@"”"]);
+    [controller flushPendingPairedClosing];
+    [controller apply:@{@"commit": @"’", @"view": @{@"editing_text": @"", @"caret_position": @0}}];
+    assert([client.committed isEqual:@"‘"] && [client.marked isEqual:@"’"]);
+    [controller flushPendingPairedClosing];
+
+    // With the preference off nothing is owed, the commit is what the Engine said, and the Engine
+    // is told nothing - its own alternation and nesting are what a host without pairing wants.
     appearance.pairedPunctuation = NO;
+    const NSUInteger balancedSoFar = session.balanceCalls;
     [controller apply:@{@"commit": @"（", @"view": @{@"editing_text": @"", @"caret_position": @0}}];
     assert([client.committed isEqual:@"（"] && client.marked.length == 0);
+    [controller apply:@{@"commit": @"《", @"view": @{@"editing_text": @"", @"caret_position": @0}}];
+    assert([client.committed isEqual:@"《"] && client.marked.length == 0);
+    [controller apply:@{@"commit": @"”", @"view": @{@"editing_text": @"", @"caret_position": @0}}];
+    assert([client.committed isEqual:@"”"]);
+    assert(session.balanceCalls == balancedSoFar);
     MSIMERemoveTestPreferenceSuite(defaults, suite);
 }
 

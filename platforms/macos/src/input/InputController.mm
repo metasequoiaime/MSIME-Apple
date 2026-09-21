@@ -3776,12 +3776,32 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     // Windows TIP appends its closing mark and the Linux host appends its own. What differs is the
     // caret: those two move it back a character and IMK cannot. So the opening goes in as committed
     // text and the closing becomes the tail of the marked text until the composition ends.
+    // With pairing on, every press of a quote key starts a fresh pair.
+    //
+    // The Engine alternates the quote keys - one press gives “, the next ”, because that is what a
+    // host without pairing needs. A host that supplies the closing half itself never sends the
+    // second press, so the alternation is left pointing at the closing mark and the *next* quote
+    // the user types opens with ”. The reference rewrites it at the same point and says the same
+    // thing: in paired mode every press starts a pair rather than following the toggle.
+    if (_appearance.pairedPunctuation && [commitForTracking isKindOfClass:NSString.class] &&
+        ([commitForTracking isEqualToString:@"”"] || [commitForTracking isEqualToString:@"’"]) &&
+        !_pendingPairedClosing && !MSIMEPairedPunctuationExcludedHost()) {
+        NSMutableDictionary *reopened = [transition mutableCopy];
+        commitForTracking = [commitForTracking isEqualToString:@"”"] ? @"“" : @"‘";
+        reopened[@"commit"] = commitForTracking;
+        transition = reopened;
+    }
     NSString *openedClosing = nil;
     if ([commitForTracking isKindOfClass:NSString.class] && commitForTracking.length &&
         _appearance.pairedPunctuation && !_pendingPairedClosing && !MSIMEPairedPunctuationExcludedHost()) {
         for (NSArray<NSString *> *pair in MSIMEPunctuationPairs())
             if ([commitForTracking isEqualToString:pair[0]]) { openedClosing = pair[1]; break; }
     }
+    // A pair this host closed is a pair the Engine still counts as open. Book title marks are the
+    // ones that notice: 《 inside 《 is 〈, so an unbalanced count turns the next pair the user
+    // types into 〈〉. Both halves of that nesting come from the same key, hence one call for both.
+    if (openedClosing && ([commitForTracking isEqualToString:@"《"] || [commitForTracking isEqualToString:@"〈"]))
+        [_session balancePairedPunctuationAfterAutoClose:'<' error:nil];
     if ([commitForTracking isKindOfClass:NSString.class] && commitForTracking.length >= 2 && _appearance.pairedPunctuation) {
         for (NSArray<NSString *> *pair in MSIMEPunctuationPairs())
             if ([commitForTracking hasPrefix:pair[0]] && [commitForTracking hasSuffix:pair[1]]) { _pairedPunctuation.push(pair[1].UTF8String); break; }
