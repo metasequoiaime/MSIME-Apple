@@ -625,6 +625,19 @@ else()
 endif()
 add_test(NAME windows-candidate-action-availability COMMAND windows-candidate-action-availability)
 set_tests_properties(windows-candidate-action-availability PROPERTIES TIMEOUT 10)
+# Which candidates still need an online provider once the packaged glosses are
+# in. Wrong in either direction is invisible: a repeated request can leave one
+# candidate with two glosses, and a skipped one leaves a candidate blank with a
+# provider configured and reachable.
+add_executable(windows-candidate-translation-merge tests/candidate/candidate_translation_merge.cpp)
+target_include_directories(windows-candidate-translation-merge PRIVATE src/candidate)
+if(MSVC)
+  target_compile_options(windows-candidate-translation-merge PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(windows-candidate-translation-merge PRIVATE -Wall -Wextra -Werror)
+endif()
+add_test(NAME windows-candidate-translation-merge COMMAND windows-candidate-translation-merge)
+set_tests_properties(windows-candidate-translation-merge PROPERTIES TIMEOUT 10)
 add_executable(windows-cloud-candidate-worker tests/candidate/cloud_candidate_worker.cpp)
 target_link_libraries(windows-cloud-candidate-worker PRIVATE msime-windows-pump)
 target_include_directories(windows-cloud-candidate-worker PRIVATE src/candidate)
