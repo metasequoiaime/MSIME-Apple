@@ -1925,6 +1925,14 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
         [menu addItem:item];
     }
     [menu addItem:NSMenuItem.separatorItem];
+    // The floating toolbar is one click from the language bar in the reference - the first item of
+    // its tray menu, with a tick showing the state. Here it could only be reached by opening the
+    // settings window and finding a checkbox, which is a long way round for something the user
+    // turns on and off while typing.
+    NSMenuItem *toolbar = [[NSMenuItem alloc] initWithTitle:@"悬浮工具栏" action:@selector(toggleFloatingToolbar:) keyEquivalent:@""];
+    toolbar.target = self;
+    toolbar.state = _appearance.floatingToolbarEnabled ? NSControlStateValueOn : NSControlStateValueOff;
+    [menu addItem:toolbar];
     NSMenuItem *palette = [[NSMenuItem alloc] initWithTitle:@"表情与符号…" action:@selector(openCharacterPalette:) keyEquivalent:@""];
     palette.target = self;
     [menu addItem:palette];
@@ -3254,6 +3262,17 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     (void)toolbar;
     _appearance.floatingToolbarEnabled = NO;
     [_toolbar setVisible:NO forDelegate:self];
+}
+
+// The menu item writes the same preference the settings page's checkbox writes, so the two never
+// disagree and the choice survives a restart. Showing it also needs a client: the toolbar belongs
+// to the session that is typing, and there is nothing to attach it to without one.
+- (void)toggleFloatingToolbar:(id)sender {
+    (void)sender;
+    const BOOL enabled = !_appearance.floatingToolbarEnabled;
+    _appearance.floatingToolbarEnabled = enabled;
+    if (_activeClient) [_toolbar setVisible:enabled forDelegate:self];
+    else if (!enabled) [_toolbar setVisible:NO forDelegate:self];
 }
 
 

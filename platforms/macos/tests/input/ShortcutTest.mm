@@ -49,6 +49,7 @@ static void CheckMenu(NSMenu *menu, id controller) {
     NSArray<NSString *> *actions = @[
         @"selectChineseMode:", @"selectEnglishMode:", @"toggleDedicatedEnglishMode:", @"",
         @"selectSimplifiedOutput:", @"selectTraditionalOutput:", @"",
+        @"toggleFloatingToolbar:",
         @"openCharacterPalette:", @"showEmoji:", @"showScreenKeyboard:",
         @"showAppearance:", @"showDictionary:", @"showAccount:",
         @"showCloudClipboard:", @"showCloudDictionary:", @"showHandwriting:", @"prepareDictionary:", @"",
@@ -1360,6 +1361,37 @@ static void TestKeypadDecimal(MSIMEAppearancePreferences *appearance) {
 // scheme, which in Japanese commits `nihon` where the user meant にほん - and Space committed the
 // first conversion outright, so the second one could not be reached at all. Both are what every
 // Japanese input method does differently, and both touch hosts here already did it correctly.
+// The floating toolbar is one click from the input menu, with a tick showing the state.
+//
+// The reference puts it first in the menu its language bar opens; here it could only be reached by
+// opening the settings window and finding a checkbox, which is a long way round for something the
+// user turns on and off while typing. The item writes the same preference that checkbox writes, so
+// the two cannot disagree and the choice survives a restart.
+static void TestFloatingToolbarMenuToggle(MSIMEAppearancePreferences *appearance) {
+    ModeController *controller = [ModeController alloc];
+    [controller setValue:appearance forKey:@"appearance"];
+    appearance.floatingToolbarEnabled = YES;
+
+    NSMenu *menu = [controller menu];
+    NSMenuItem *item = nil;
+    for (NSMenuItem *candidate in menu.itemArray)
+        if (candidate.action == @selector(toggleFloatingToolbar:)) { item = candidate; break; }
+    assert(item && [item.title isEqual:@"悬浮工具栏"]);
+    assert(item.state == NSControlStateValueOn);
+
+    // Choosing it turns the toolbar off, and the menu built next says so.
+    [controller toggleFloatingToolbar:item];
+    assert(!appearance.floatingToolbarEnabled);
+    NSMenuItem *again = nil;
+    for (NSMenuItem *candidate in [controller menu].itemArray)
+        if (candidate.action == @selector(toggleFloatingToolbar:)) { again = candidate; break; }
+    assert(again && again.state == NSControlStateValueOff);
+
+    // And back on, which is the same preference the settings page reads.
+    [controller toggleFloatingToolbar:again];
+    assert(appearance.floatingToolbarEnabled);
+}
+
 static void TestJapaneseConversionKeys(MSIMEAppearancePreferences *appearance) {
     ModeController *controller = [ModeController alloc];
     ShortcutSession *session = [ShortcutSession new];
@@ -2638,7 +2670,8 @@ static void TestInputMode(NSUserDefaults *defaults, MSIMEAppearancePreferences *
     CheckMenu(menu, controller);
     assert([menu itemAtIndex:0].state == NSControlStateValueOn);
     assert([menu itemAtIndex:1].state == NSControlStateValueOff);
-    assert([[menu itemAtIndex:7].title isEqual:@"表情与符号…"]);
+    assert([[menu itemAtIndex:7].title isEqual:@"悬浮工具栏"]);
+    assert([[menu itemAtIndex:8].title isEqual:@"表情与符号…"]);
     client.marked = @"ceshi";
     panel.visible = YES;
     [NSApp sendAction:[menu itemAtIndex:1].action to:controller from:[menu itemAtIndex:1]];
@@ -5307,6 +5340,7 @@ int main(int argc, char **argv) {
         TestFullWidth(defaults, appearance);
         TestSessionOptions();
         TestKeypadDecimal(appearance);
+        TestFloatingToolbarMenuToggle(appearance);
         TestJapaneseConversionKeys(appearance);
         TestGlossSensePage(appearance);
         TestSegmentEditingChords(appearance);
