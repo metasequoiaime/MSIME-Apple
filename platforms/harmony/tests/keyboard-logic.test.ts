@@ -164,6 +164,10 @@ import {
 import { KeyboardFormFactorPolicy } from "../entry/src/main/ets/keyboard/KeyboardFormFactorPolicy";
 import { SymbolPanelPolicy } from "../entry/src/main/ets/keyboard/input/SymbolPanelPolicy";
 import {
+  BackspaceHoldAction,
+  BackspaceHoldPolicy,
+} from "../entry/src/main/ets/keyboard/input/BackspaceHoldPolicy";
+import {
   VoiceRecognitionPolicy,
   VOICE_MAX_TEXT,
 } from "../entry/src/main/ets/keyboard/input/VoiceRecognitionPolicy";
@@ -476,6 +480,13 @@ group("SymbolPanelPolicy", () => {
     "a normal symbol tap returns to the keyboard");
   check(!SymbolPanelPolicy.select(true).returnToKeyboard && SymbolPanelPolicy.select(true).locked,
     "a locked symbol panel stays open for continuous input");
+});
+
+group("a held Delete never crosses from composition into committed text", () => {
+  check(BackspaceHoldPolicy.firstRepeat(true) === BackspaceHoldAction.CANCEL_COMPOSITION,
+    "the first repeat clears an unfinished composition as one operation");
+  check(BackspaceHoldPolicy.firstRepeat(false) === BackspaceHoldAction.DELETE,
+    "without a composition the hold keeps deleting editor text");
 });
 
 group("bounds handwriting points and rejects empty recognition requests", () => {

@@ -59,6 +59,7 @@ import { VoiceRecognitionPolicy } from './input/VoiceRecognitionPolicy';
 import { ReplyKeyboardPolicy, ReplyStyle } from './ReplyKeyboardPolicy';
 import { CommunityReplyTemplate } from './CommunityReplyLibraryPolicy';
 import { SymbolPanelCategory, SymbolPanelPolicy } from './input/SymbolPanelPolicy';
+import { BackspaceHoldAction, BackspaceHoldPolicy } from './input/BackspaceHoldPolicy';
 
 /**
  * The 26-key touch keyboard, laid out to the same metrics as the iOS extension in
@@ -319,6 +320,7 @@ struct KeyboardView {
   private readonly cursorDrag: SpaceCursorMovement = new SpaceCursorMovement();
   // A held Delete repeats, and letting go has to stop it, so the timer outlives the callback.
   private backspaceTimer: number = -1;
+  private backspaceRepeated: boolean = false;
   private dragged: boolean = false;
   private diagnosticTimer: number = -1;
   private pendingRemoval: number = -1;
@@ -465,7 +467,7 @@ struct KeyboardView {
     KeyboardSession.shared.onClipboardHistoryChanged = undefined;
     KeyboardSession.shared.onVoiceInputChanged = undefined;
     KeyboardSession.shared.onEditorChanged = undefined;
-    this.stopBackspace();
+    this.cancelBackspace();
     this.voiceRecognizer.shutdown();
     KeyboardSession.shared.voiceCancel();
     this.voiceGeneration = 0;
@@ -475,13 +477,22 @@ struct KeyboardView {
   }
 
   /**
-   * Holding Delete keeps deleting, which is the difference between removing a word and tapping
-   * eleven times. The first repeat waits longer than the rest so a normal tap never becomes two.
+   * A tap deletes on release. A hold clears an unfinished composition once, or repeats through the
+   * editor when there was no composition; it never crosses that boundary and eats committed text.
    */
   private startBackspace(): void {
-    this.stopBackspace();
-    KeyboardSession.shared.backspace();
+    this.cancelBackspace();
+    this.backspaceRepeated = false;
     this.backspaceTimer = setTimeout((): void => {
+      const action: BackspaceHoldAction =
+        BackspaceHoldPolicy.firstRepeat(KeyboardSession.shared.composing());
+      this.backspaceRepeated = true;
+      if (action === BackspaceHoldAction.CANCEL_COMPOSITION) {
+        this.backspaceTimer = -1;
+        KeyboardSession.shared.cancel();
+        return;
+      }
+      KeyboardSession.shared.backspace();
       this.backspaceTimer = setInterval((): void => {
         KeyboardSession.shared.backspace();
       }, BACKSPACE_REPEAT_MILLIS);
@@ -498,12 +509,21 @@ struct KeyboardView {
     }, InputDiagnosticPolicy.DISMISS_DELAY_MILLIS);
   }
 
-  private stopBackspace(): void {
+  private finishBackspace(): void {
+    const repeated: boolean = this.backspaceRepeated;
+    this.cancelBackspace();
+    if (!repeated) {
+      KeyboardSession.shared.backspace();
+    }
+  }
+
+  private cancelBackspace(): void {
     if (this.backspaceTimer !== -1) {
       clearTimeout(this.backspaceTimer);
       clearInterval(this.backspaceTimer);
       this.backspaceTimer = -1;
     }
+    this.backspaceRepeated = false;
   }
 
   /**
@@ -1836,8 +1856,10 @@ struct KeyboardView {
     .onTouch((event: TouchEvent): void => {
       if (event.type === TouchType.Down) {
         this.startBackspace();
-      } else if (event.type === TouchType.Up || event.type === TouchType.Cancel) {
-        this.stopBackspace();
+      } else if (event.type === TouchType.Up) {
+        this.finishBackspace();
+      } else if (event.type === TouchType.Cancel) {
+        this.cancelBackspace();
       }
     })
   }
