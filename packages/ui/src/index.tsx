@@ -2,6 +2,7 @@ import { useConfirm } from "./core/confirm";
 import { VoiceDevicePicker, type VoiceDeviceReader } from "./voice/voice-device-picker";
 import {
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -2035,6 +2036,13 @@ export function SettingsPage({
   const [page, setPage] = useState<SettingsPageId>(() =>
     requestedPage(initialPage ?? (client.home ? "home" : undefined)),
   );
+  const settingsContentRef = useRef<HTMLElement>(null);
+  // Every settings category shares this one scrolling surface. Reset it after
+  // the new category is committed so sidebar clicks, in-page links and mobile
+  // back navigation all open the destination at its beginning.
+  useLayoutEffect(() => {
+    if (settingsContentRef.current) settingsContentRef.current.scrollTop = 0;
+  }, [page]);
   // Mobile hosts use the WebView history stack for the system back gesture. The
   // native activity can therefore dismiss a nested page without the shared UI
   // having to know which Android/iOS navigation API is in use.
@@ -3683,6 +3691,7 @@ export function SettingsPage({
           <p className={settings.previewLabel}>客户端预览版</p>
         </nav>
         <main
+          ref={settingsContentRef}
           id="settings-content"
           className="min-h-0 min-w-0 flex-1 overflow-y-auto pt-0 pr-6 pb-0 pl-4 [scrollbar-gutter:stable] max-phone:px-2"
           aria-labelledby="page-title"
