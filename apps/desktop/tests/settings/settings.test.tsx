@@ -1886,6 +1886,88 @@ test("dictionary manager queries, edits and removes Engine entries", async () =>
   );
 });
 
+test("dictionary manager creates entries with the Windows settings default weight", async () => {
+  const edit = vi.fn().mockResolvedValue(undefined);
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn(),
+    dictionary: {
+      list: vi.fn().mockResolvedValue({ entries: [], has_more: false }),
+      edit,
+    },
+  };
+  render(<SettingsPage client={client} />);
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  fireEvent.click(await screen.findByRole("button", { name: "新增词条" }));
+  expect(screen.getByRole("spinbutton", { name: "权重" })).toHaveProperty("value", "10");
+  fireEvent.change(screen.getByRole("textbox", { name: /^编码 / }), {
+    target: { value: "fixture-code" },
+  });
+  fireEvent.change(screen.getByRole("textbox", { name: "短语" }), {
+    target: { value: "synthetic phrase" },
+  });
+  fireEvent.click(screen.getByRole("button", { name: "保存" }));
+  await waitFor(() =>
+    expect(edit).toHaveBeenCalledWith(
+      null,
+      {
+        kind: "quick_phrase",
+        key: "fixture-code",
+        value: "synthetic phrase",
+        weight: 10,
+      },
+      expect.stringMatching(/^ui-add-/),
+    ),
+  );
+});
+
+test("dictionary fallback import uses 10000 by default and preserves an explicit zero", async () => {
+  const edit = vi.fn().mockResolvedValue(undefined);
+  const client: SettingsClient = {
+    load: vi.fn().mockResolvedValue(initial),
+    save: vi.fn(),
+    dictionary: {
+      list: vi.fn().mockResolvedValue({ entries: [], has_more: false }),
+      edit,
+    },
+  };
+  render(<SettingsPage client={client} />);
+  await settingsReady();
+  fireEvent.click(screen.getByRole("button", { name: "词库" }));
+  const manager = screen.getByRole("region", { name: "快捷短语管理" });
+  fireEvent.change(within(manager).getByLabelText("导入"), {
+    target: {
+      files: [
+        new File(["synthetic default\tdefault-code\nsynthetic zero\tzero-code\t0\n"], "words.tsv"),
+      ],
+    },
+  });
+  await waitFor(() => expect(edit).toHaveBeenCalledTimes(2));
+  expect(edit).toHaveBeenNthCalledWith(
+    1,
+    null,
+    {
+      kind: "quick_phrase",
+      key: "default-code",
+      value: "synthetic default",
+      weight: 10000,
+    },
+    expect.stringMatching(/^ui-import-/),
+  );
+  expect(edit).toHaveBeenNthCalledWith(
+    2,
+    null,
+    {
+      kind: "quick_phrase",
+      key: "zero-code",
+      value: "synthetic zero",
+      weight: 0,
+    },
+    expect.stringMatching(/^ui-import-/),
+  );
+});
+
 test("dictionary manager pages through entries instead of loading the whole dictionary", async () => {
   const page = (offset: number, count: number, has_more: boolean) => ({
     entries: Array.from({ length: count }, (_, index) => ({

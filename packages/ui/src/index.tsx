@@ -2749,12 +2749,17 @@ export function SettingsPage({
         if (dictionaryFormat === "hans") throw new Error("hans format requires batch import");
         const lines = text.split(/\r?\n/).filter(Boolean);
         for (const line of lines) {
-          const [first, second, weight = "100000"] = line.split("\t");
+          const [first, second, weight = "10000"] = line.split("\t");
           if (!first || !second) continue;
           const [value, key] = dictionaryFormat === "windows" ? [second, first] : [first, second];
+          const parsedWeight = Number(weight);
+          const normalizedWeight =
+            weight.trim() !== "" && Number.isSafeInteger(parsedWeight) && parsedWeight >= 0
+              ? parsedWeight
+              : 10000;
           await client.dictionary.edit(
             null,
-            { kind: dictionaryKind, key: key.trim(), value, weight: Number(weight) || 100000 },
+            { kind: dictionaryKind, key: key.trim(), value, weight: normalizedWeight },
             requestId("ui-import"),
           );
         }
@@ -4452,7 +4457,7 @@ export function SettingsPage({
                                 setPhraseForm({
                                   key: "",
                                   value: "",
-                                  weight: 100000,
+                                  weight: 10,
                                   previous: null,
                                 })
                               }
