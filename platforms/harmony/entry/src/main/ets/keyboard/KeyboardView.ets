@@ -56,6 +56,9 @@ import {
   HandwritingPoint, HandwritingStroke, HandwritingStrokePolicy,
   HANDWRITING_CANVAS_SIZE, HANDWRITING_MAX_POINTS, HANDWRITING_MAX_STROKES
 } from './input/HandwritingStrokePolicy';
+import {
+  HandwritingRecognitionQueue, HandwritingRecognitionTicket
+} from './input/HandwritingRecognitionQueue';
 import { HarmonyVoiceRecognizer } from './input/HarmonyVoiceRecognizer';
 import { VoiceRecognitionPolicy } from './input/VoiceRecognitionPolicy';
 import { ReplyKeyboardPolicy, ReplyStyle } from './ReplyKeyboardPolicy';
@@ -159,6 +162,7 @@ const ENGLISH_CARD_POSITION: number = 2;
 // English has no entry in KeyboardScheme to take its name from, being a mode rather than a scheme.
 const ENGLISH_TITLES: string[] = ['英文 26 键', '英文 9 键'];
 const HANDWRITING_CANVAS_ID: string = 'msime-harmony-handwriting-canvas';
+const HANDWRITING_RECOGNITION_DELAY_MS: number = 550;
 const SCHEME_BADGE_VP: number = 26;
 const SCHEME_GLYPH_SIZE: number = 15;
 const SCHEME_BADGE_TEXT_SIZE: number = 9;
@@ -337,7 +341,9 @@ struct KeyboardView {
   private flickX: number = 0;
   private flickY: number = 0;
   private handwritingCurrent: HandwritingPoint[] = [];
-  private handwritingRevision: number = 0;
+  private handwritingTimer: number = -1;
+  private readonly handwritingRecognition: HandwritingRecognitionQueue =
+    new HandwritingRecognitionQueue();
   private handwritingContext: CanvasRenderingContext2D =
     new CanvasRenderingContext2D(new RenderingContextSettings(true));
   private readonly voiceRecognizer: HarmonyVoiceRecognizer = new HarmonyVoiceRecognizer();
@@ -496,6 +502,8 @@ struct KeyboardView {
     KeyboardSession.shared.onVoiceInputChanged = undefined;
     KeyboardSession.shared.onEditorChanged = undefined;
     this.cancelBackspace();
+    this.cancelHandwritingTimer();
+    this.handwritingRecognition.changed();
     this.voiceRecognizer.shutdown();
     KeyboardSession.shared.voiceCancel();
     this.voiceGeneration = 0;
@@ -2526,11 +2534,13 @@ struct KeyboardView {
   }
 
   private handwritingTouch(event: TouchEvent): void {
-    if (event.touches.length === 0 || this.handwritingBusy) {
+    if (event.touches.length === 0) {
       return;
     }
     if (event.type === TouchType.Down) {
+      this.handwritingChanged();
       this.handwritingCurrent = [this.handwritingPoint(event)];
+      this.handwritingNotice = '书写中…';
       this.redrawHandwriting();
       return;
     }
@@ -2544,7 +2554,9 @@ struct KeyboardView {
     }
     if (event.type === TouchType.Up) {
       if (this.handwritingCurrent.length > 0) {
-        this.handwritingCurrent.push(this.handwritingPoint(event));
+        if (this.handwritingCurrent.length < HANDWRITING_MAX_POINTS) {
+          this.handwritingCurrent.push(this.handwritingPoint(event));
+        }
         if (this.handwritingStrokes.length < HANDWRITING_MAX_STROKES) {
           this.handwritingStrokes = [...this.handwritingStrokes,
             { points: this.handwritingCurrent.slice() }];
@@ -2556,9 +2568,7 @@ struct KeyboardView {
       }
       this.handwritingCurrent = [];
       this.redrawHandwriting();
-      if (HandwritingStrokePolicy.canRecognize(this.handwritingStrokes)) {
-        this.recognizeHandwriting();
-      }
+      this.scheduleHandwritingRecognition();
       return;
     }
     if (event.type === TouchType.Cancel) {
@@ -2570,11 +2580,40 @@ struct KeyboardView {
     }
   }
 
+  private cancelHandwritingTimer(): void {
+    if (this.handwritingTimer >= 0) {
+      clearTimeout(this.handwritingTimer);
+      this.handwritingTimer = -1;
+    }
+  }
+
+  /** Invalidates candidates and in-flight OCR as soon as the canvas changes. */
+  private handwritingChanged(): void {
+    this.cancelHandwritingTimer();
+    this.handwritingRecognition.changed();
+    this.handwritingCandidates = [];
+  }
+
+  /** Waits for the same 550 ms pause as the Apple source before snapshotting the whole character. */
+  private scheduleHandwritingRecognition(): void {
+    this.cancelHandwritingTimer();
+    if (!HandwritingStrokePolicy.canRecognize(this.handwritingStrokes)) {
+      this.handwritingNotice = this.handwritingStrokes.length === 0
+        ? '在此手写，停笔后选字' : '笔迹过多，请撤销后重试';
+      return;
+    }
+    this.handwritingNotice = '停笔后识别…';
+    this.handwritingTimer = setTimeout((): void => {
+      this.handwritingTimer = -1;
+      const ticket: HandwritingRecognitionTicket | null = this.handwritingRecognition.request();
+      if (ticket !== null) {
+        this.recognizeHandwriting(ticket);
+      }
+    }, HANDWRITING_RECOGNITION_DELAY_MS);
+  }
+
   private clearHandwriting(): void {
-    this.handwritingRevision++;
-    // The stale recognition completion is ignored by revision. Clear its visible busy state here
-    // too, because that completion deliberately cannot mutate the replacement context in finally.
-    this.handwritingBusy = false;
+    this.handwritingChanged();
     this.handwritingStrokes = [];
     this.handwritingRedo = [];
     this.handwritingCandidates = [];
@@ -2584,8 +2623,8 @@ struct KeyboardView {
   }
 
   private hasHandwritingContext(): boolean {
-    return this.handwritingBusy || this.handwritingCurrent.length > 0
-      || this.handwritingStrokes.length > 0 || this.handwritingRedo.length > 0
+    return this.handwritingCurrent.length > 0 || this.handwritingStrokes.length > 0
+      || this.handwritingRedo.length > 0
       || this.handwritingCandidates.length > 0;
   }
 
@@ -2597,26 +2636,24 @@ struct KeyboardView {
   }
 
   private undoHandwriting(): void {
-    if (this.handwritingStrokes.length === 0 || this.handwritingBusy) {
+    if (this.handwritingStrokes.length === 0) {
       return;
     }
-    this.handwritingRevision++;
     const removed: HandwritingStroke | undefined =
       this.handwritingStrokes[this.handwritingStrokes.length - 1];
     if (removed === undefined) {
       return;
     }
+    this.handwritingChanged();
     this.handwritingStrokes = this.handwritingStrokes.slice(0, -1);
     this.handwritingRedo = [...this.handwritingRedo, removed];
     this.handwritingCandidates = [];
     this.handwritingNotice = '';
     this.redrawHandwriting();
+    this.scheduleHandwritingRecognition();
   }
 
   private deleteHandwriting(): void {
-    if (this.handwritingBusy) {
-      return;
-    }
     if (this.handwritingStrokes.length > 0) {
       this.undoHandwriting();
       return;
@@ -2628,37 +2665,48 @@ struct KeyboardView {
   }
 
   private redoHandwriting(): void {
-    if (this.handwritingRedo.length === 0 || this.handwritingBusy
+    if (this.handwritingRedo.length === 0
       || this.handwritingStrokes.length >= HANDWRITING_MAX_STROKES) {
       return;
     }
-    this.handwritingRevision++;
     const restored: HandwritingStroke | undefined = this.handwritingRedo[
       this.handwritingRedo.length - 1];
     if (restored === undefined) {
       return;
     }
+    this.handwritingChanged();
     this.handwritingRedo = this.handwritingRedo.slice(0, -1);
     this.handwritingStrokes = [...this.handwritingStrokes, restored];
     this.handwritingCandidates = [];
     this.handwritingNotice = '';
     this.redrawHandwriting();
-    this.recognizeHandwriting();
+    this.scheduleHandwritingRecognition();
   }
 
-  private recognizeHandwriting(): void {
-    if (this.handwritingBusy || !HandwritingStrokePolicy.canRecognize(this.handwritingStrokes)) {
+  private finishHandwritingRecognition(): void {
+    const next: HandwritingRecognitionTicket | null = this.handwritingRecognition.finish();
+    if (next !== null && HandwritingStrokePolicy.canRecognize(this.handwritingStrokes)) {
+      this.recognizeHandwriting(next);
       return;
     }
-    const revision: number = ++this.handwritingRevision;
+    this.handwritingBusy = false;
+  }
+
+  private recognizeHandwriting(ticket: HandwritingRecognitionTicket): void {
+    if (!HandwritingStrokePolicy.canRecognize(this.handwritingStrokes)) {
+      this.finishHandwritingRecognition();
+      return;
+    }
     this.handwritingBusy = true;
     this.handwritingNotice = '正在识别…';
     componentSnapshot.get(HANDWRITING_CANVAS_ID, (error: Object, pixelMap: image.PixelMap): void => {
       // Testing the error object itself took this branch on every successful snapshot, so every
       // stroke answered 无法读取手写画布 and nothing was ever recognised.
       if (BusinessErrorPolicy.failed(error)) {
-        this.handwritingBusy = false;
-        this.handwritingNotice = '无法读取手写画布';
+        if (this.handwritingRecognition.accepts(ticket)) {
+          this.handwritingNotice = '无法读取手写画布';
+        }
+        this.finishHandwritingRecognition();
         return;
       }
       textRecognition.init().then((ready: boolean): Promise<textRecognition.TextRecognitionResult> => {
@@ -2667,24 +2715,27 @@ struct KeyboardView {
         }
         return textRecognition.recognizeText({ pixelMap: pixelMap });
       }).then((result: textRecognition.TextRecognitionResult): void => {
-        if (revision !== this.handwritingRevision) {
+        if (!this.handwritingRecognition.accepts(ticket)) {
           return;
         }
         this.handwritingCandidates = HandwritingStrokePolicy.candidates(result.value);
         this.handwritingNotice = this.handwritingCandidates.length > 0
           ? '' : '没有识别到文字，请重写';
       }).catch((reason: Error): void => {
-        if (revision === this.handwritingRevision) {
+        if (this.handwritingRecognition.accepts(ticket)) {
           KeyboardLog.error(`handwriting recognition unavailable: ${describeError(reason)}`);
           this.handwritingCandidates = [];
           this.handwritingNotice = '手写识别服务不可用';
         }
       }).finally((): void => {
-        void textRecognition.release();
         void pixelMap.release();
-        if (revision === this.handwritingRevision) {
-          this.handwritingBusy = false;
-        }
+        // The recognizer is process-global. Do not start the queued snapshot until its previous
+        // invocation has actually released, or init() can race the outstanding release promise.
+        void textRecognition.release().then((): void => {
+          this.finishHandwritingRecognition();
+        }, (_reason: Object): void => {
+          this.finishHandwritingRecognition();
+        });
       });
     });
   }

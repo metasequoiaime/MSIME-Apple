@@ -224,6 +224,7 @@ python3 scripts/test-quick-phrase-limit.py || fail "quick phrase limit"
 # refused before it reached a recogniser.
 note "handwriting limits"
 python3 scripts/test-handwriting-limits.py || fail "handwriting limits"
+python3 scripts/test-harmony-handwriting-scheduling.py || fail "harmony handwriting scheduling"
 
 # How long a cloud candidate is worth waiting for belongs to the product, but
 # each host reaches the network with its own library and can shorten it on its

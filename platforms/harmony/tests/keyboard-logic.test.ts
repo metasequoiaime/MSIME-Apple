@@ -175,6 +175,10 @@ import {
   HANDWRITING_MAX_POINTS,
   HANDWRITING_MAX_STROKES,
 } from "../entry/src/main/ets/keyboard/input/HandwritingStrokePolicy";
+import {
+  HandwritingRecognitionQueue,
+  HandwritingRecognitionTicket,
+} from "../entry/src/main/ets/keyboard/input/HandwritingRecognitionQueue";
 import { KeyboardFormFactorPolicy } from "../entry/src/main/ets/keyboard/KeyboardFormFactorPolicy";
 import { SymbolPanelPolicy } from "../entry/src/main/ets/keyboard/input/SymbolPanelPolicy";
 import {
@@ -585,6 +589,21 @@ group("normalizes OCR candidates without leaking control text or duplicates", ()
       HANDWRITING_MAX_CANDIDATES,
     "custom candidate limits cannot exceed the platform cap",
   );
+});
+
+group("new handwriting stays writable while an older OCR request runs", () => {
+  const queue = new HandwritingRecognitionQueue();
+  queue.changed();
+  const first: HandwritingRecognitionTicket | null = queue.request();
+  check(first !== null, "the first settled canvas starts recognition");
+  queue.changed();
+  check(first !== null && !queue.accepts(first), "a new stroke invalidates the old OCR result");
+  check(queue.request() === null, "platform OCR remains serial while the old request finishes");
+  queue.changed();
+  check(queue.request() === null, "more strokes collapse into the same pending request");
+  const latest: HandwritingRecognitionTicket | null = queue.finish();
+  check(latest !== null && queue.accepts(latest), "completion immediately starts the latest canvas");
+  check(queue.finish() === null, "the queue drains after the newest canvas is recognised");
 });
 
 group("allows reads during composition without restarting the session", () => {
