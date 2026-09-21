@@ -36,6 +36,8 @@ public final class CommunityFragment extends Fragment {
     private String search = "";
     private boolean loading;
     private boolean hasMore;
+    // 详情里的预览按用户自己的布局画。读不到就按 26 键，那是默认值。
+    private boolean nineKey;
 
     /** The tab, opened on one kind of work; a null kind opens on skins. */
     public static CommunityFragment forKind(@Nullable CommunityRequest.Kind kind) {
@@ -76,7 +78,14 @@ public final class CommunityFragment extends Fragment {
             @Override public void onTabReselected(TabLayout.Tab tab) {}
         });
 
-        adapter = new CommunityAdapter(this::install);
+        adapter = new CommunityAdapter(this::install, this::open);
+        HostTask.run(this, HostStore::loadPreferences, snapshot -> {
+            // loadPreferences hands back the whole snapshot; the layout lives one level down.
+            org.json.JSONObject preferences =
+                snapshot == null ? null : snapshot.optJSONObject("preferences");
+            nineKey = preferences != null && "nine_key".equals(
+                preferences.optString("touch_keyboard_layout", "twenty_six_key"));
+        });
         RecyclerView items = view.findViewById(R.id.community_items);
         items.setLayoutManager(new LinearLayoutManager(requireContext()));
         items.setAdapter(adapter);
@@ -178,6 +187,11 @@ public final class CommunityFragment extends Fragment {
         state.setVisibility(message.isEmpty() ? View.GONE : View.VISIBLE);
         view.findViewById(R.id.community_retry)
             .setVisibility(retryable ? View.VISIBLE : View.GONE);
+    }
+
+    private void open(CommunityCatalog.Item item) {
+        CommunitySkinSheet.show(requireContext(), item, nineKey,
+            CommunitySkinSheet.installable(item) ? () -> install(item) : null);
     }
 
     private void install(CommunityCatalog.Item item) {

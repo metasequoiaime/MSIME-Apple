@@ -20,9 +20,16 @@ import java.util.function.Consumer;
 public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapter.Holder> {
     private final List<CommunityCatalog.Item> items = new ArrayList<>();
     private final Consumer<CommunityCatalog.Item> onAction;
+    private final Consumer<CommunityCatalog.Item> onOpen;
 
-    public CommunityAdapter(Consumer<CommunityCatalog.Item> onAction) {
+    /**
+     * @param onAction save this work, straight from the card
+     * @param onOpen   open the detail sheet, where the work can be seen before it is saved
+     */
+    public CommunityAdapter(Consumer<CommunityCatalog.Item> onAction,
+            Consumer<CommunityCatalog.Item> onOpen) {
         this.onAction = onAction;
+        this.onOpen = onOpen;
     }
 
     /** Replace the listing, for a new kind or a new search. */
@@ -55,16 +62,17 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
             ? "作者没有写说明。" : item.description());
         holder.author.setText(author(item));
         holder.rating.setText(rating(item));
-        boolean installable = item.kind() == CommunityRequest.Kind.SKIN && item.payload() != null;
+        boolean installable = CommunitySkinSheet.installable(item);
         holder.action.setEnabled(installable);
         // 词库和回复要先有本地词库编辑器才谈得上导入，那一页还没搬过来；这里说清楚而不是给一个
         // 按下去没反应的按钮。
         holder.action.setText(installable ? "保存到皮肤库" : "暂不支持导入");
         holder.action.setOnClickListener(installable ? ignored -> onAction.accept(item) : null);
-        holder.itemView.setOnClickListener(installable ? ignored -> onAction.accept(item) : null);
-        holder.itemView.setClickable(installable);
+        // 点卡片是看，点按钮才是存。这张卡只有一个 52dp 的色块，光看它决定不了要不要用；把整张
+        // 卡都接成「保存」，就等于要先写进皮肤库才能知道长什么样。词库和回复也能打开来看说明。
+        holder.itemView.setOnClickListener(ignored -> onOpen.accept(item));
         holder.itemView.setContentDescription(item.name() + "，" + author(item) + "，"
-            + rating(item) + (installable ? "，点按保存到皮肤库" : "，暂不支持导入"));
+            + rating(item) + "，点按查看详情");
     }
 
     /**
@@ -74,7 +82,7 @@ public final class CommunityAdapter extends RecyclerView.Adapter<CommunityAdapte
      * the swatch is the skin rather than an approximation of it. Anything unreadable draws nothing.
      */
     @androidx.annotation.Nullable
-    private static KeyboardSkin preview(CommunityCatalog.Item item) {
+    static KeyboardSkin preview(CommunityCatalog.Item item) {
         if (item.kind() != CommunityRequest.Kind.SKIN || item.payload() == null) return null;
         try {
             return KeyboardSkin.from("custom", false, item.payload());
