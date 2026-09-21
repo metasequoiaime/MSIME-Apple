@@ -221,8 +221,15 @@ public final class VoiceResultStore {
             long expires = input.readLong();
             int length = input.readInt();
             if (length < 0 || length != input.available()) throw new Failure(Reason.INVALID);
-            byte[] text = input.readNBytes(length);
-            if (text.length != length || input.read() != -1) throw new Failure(Reason.INVALID);
+            // `readNBytes` is API 33 and this host runs from API 28. `readFully` is the
+            // DataInputStream equivalent and has the same all-or-nothing contract.
+            byte[] text = new byte[length];
+            try {
+                input.readFully(text);
+            } catch (java.io.EOFException error) {
+                throw new Failure(Reason.INVALID);
+            }
+            if (input.read() != -1) throw new Failure(Reason.INVALID);
             String decoded = StandardCharsets.UTF_8.newDecoder()
                 .onMalformedInput(CodingErrorAction.REPORT)
                 .onUnmappableCharacter(CodingErrorAction.REPORT)

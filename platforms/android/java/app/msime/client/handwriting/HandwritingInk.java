@@ -79,7 +79,10 @@ public final class HandwritingInk {
     public long revision() { return revision; }
 
     public List<List<Point>> snapshot() {
-        return strokes.stream().map(List::copyOf).toList();
+        // `Stream#toList` is API 34 and this host runs from API 28.
+        List<List<Point>> copy = new java.util.ArrayList<>(strokes.size());
+        for (List<Point> stroke : strokes) copy.add(List.copyOf(stroke));
+        return List.copyOf(copy);
     }
 
     private static boolean validBounds(float width, float height) {

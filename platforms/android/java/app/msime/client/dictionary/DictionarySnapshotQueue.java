@@ -17,7 +17,6 @@ import java.nio.file.StandardCopyOption;
 import java.nio.file.StandardOpenOption;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
 import java.util.UUID;
 /** Cross-process, crash-safe handoff for one cloud dictionary snapshot.
  * Native code owns snapshot decoding, staging, and activation. This class
@@ -320,8 +319,20 @@ public final class DictionarySnapshotQueue {
                 output.write(buffer, 0, count);
             }
         }
-        if (total == 0 || !HexFormat.of().formatHex(digest.digest()).equals(expected))
+        if (total == 0 || !hex(digest.digest()).equals(expected))
             throw new Failure(Reason.INVALID);
+    }
+
+    /** Lowercase hex. `HexFormat` is API 34 and this host runs from API 28. */
+    private static String hex(byte[] bytes) {
+        char[] digits = "0123456789abcdef".toCharArray();
+        char[] out = new char[bytes.length * 2];
+        for (int index = 0; index < bytes.length; index++) {
+            int value = bytes[index] & 0xFF;
+            out[index * 2] = digits[value >>> 4];
+            out[index * 2 + 1] = digits[value & 0x0F];
+        }
+        return new String(out);
     }
 
     private Path root() throws Failure {

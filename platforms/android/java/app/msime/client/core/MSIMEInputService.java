@@ -3231,7 +3231,7 @@ public final class MSIMEInputService extends InputMethodService {
 
         java.util.List<SkinChoice> saved = new java.util.ArrayList<>();
         try {
-            for (CustomSkinLibrary.Item item : CustomSkinLibrary.read(Path.of(preferencesDirectory))) {
+            for (CustomSkinLibrary.Item item : CustomSkinLibrary.read(java.nio.file.Paths.get(preferencesDirectory))) {
                 JSONObject design = item.design();
                 saved.add(new SkinChoice("custom", item.name(),
                     KeyboardSkin.customFixture(CustomKeyboardSkin.from(design), skin.dark()), design));
