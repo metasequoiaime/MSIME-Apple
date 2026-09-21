@@ -225,6 +225,12 @@ python3 scripts/test-cloud-request-budget.py || fail "cloud request budget"
 note "phrase preedit hosts"
 python3 scripts/test-phrase-preedit-hosts.py || fail "phrase preedit hosts"
 
+# A macOS test that opens an NSUserDefaults suite writes a plist into the user's
+# Preferences directory, and emptying the domain does not delete the file. Every
+# run of a test that forgets leaves one behind, on every machine, forever.
+note "preference suite cleanup"
+python3 scripts/test-preference-suite-cleanup.py || fail "preference suite cleanup"
+
 # Whether the candidate right-click actions are offered is decided on the
 # Engine's CandidateSource value, which arrives as a number this side cannot
 # name in C++. Inserting a source there shifts every later one, compiles

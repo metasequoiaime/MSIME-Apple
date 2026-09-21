@@ -1,3 +1,4 @@
+#import "TestPreferenceSuite.h"
 // Switching to Japanese has to leave a way back to the Chinese scheme the user was on.
 //
 // The scheme the user returns to is carried in `last_chinese_scheme`, which every other host writes
@@ -37,7 +38,9 @@ int main(void)
         merged = [preferences sharedPreferencesByMerging:@{}];
         assert([merged[@"last_chinese_scheme"] isEqual:@"quanpin"]);
 
-        [defaults removePersistentDomainForName:suite];
+        // removePersistentDomainForName: empties the domain and leaves the plist on disk, so every
+        // run left one behind: 185 of them had piled up on the machine this was found on.
+        MSIMERemoveTestPreferenceSuite(defaults, suite);
     }
     return 0;
 }

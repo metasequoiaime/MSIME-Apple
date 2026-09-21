@@ -1,3 +1,4 @@
+#import "../settings/TestPreferenceSuite.h"
 // The row fit policy as the panel applies it. CandidateRowFitTest covers the arithmetic; this renders a real
 // page through the controller, because what the report was about is the frame a candidate button ends up
 // with: a page too wide for the screen used to be squeezed evenly, so the sentence at the head lost its tail
@@ -116,6 +117,7 @@ int main(void)
         assert(shorter && longer);
         assert(longer.frame.size.width > shorter.frame.size.width);
         assert(longer.frame.size.width - shorter.frame.size.width >= 2 * glyphWidth - 1.0);
+        MSIMERemoveTestPreferenceSuite(defaults, suite);
     }
     return 0;
 }
