@@ -1,6 +1,6 @@
 #pragma once
 
-#include "emoji_panel_icons.h"
+#include "EmojiPanelIcons.h"
 #include "ClipboardHistory.h"
 #include "NativeTextInput.h"
 #include "msimeui/Controls.h"

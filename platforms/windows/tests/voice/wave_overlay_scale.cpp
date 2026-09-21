@@ -1,4 +1,4 @@
-#include "../../src/system/WaveOverlayScale.h"
+#include "../../src/voice/WaveOverlayScale.h"
 #include <cassert>
 
 int main() {
