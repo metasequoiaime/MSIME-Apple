@@ -5344,6 +5344,40 @@ group("account and cloud clipboard bridge keeps secrets native", () => {
     .handle('{"operation":"login","challenge_id":"challenge","credential":"123456"}')
     .then((result) => {
       check(JSON.parse(result).ok === true && stored !== null, "login stores a native session");
+      const beforeInvalidDelete = calls.length;
+      void bridge
+        .handle(
+          JSON.stringify({
+            operation: "clipboard",
+            clipboard_operation: "delete",
+            id: "../auth/logout",
+          }),
+        )
+        .then((reply) => {
+          check(
+            JSON.parse(reply).error === "account_invalid",
+            "a path-like clipboard id is rejected locally",
+          );
+          check(
+            calls.length === beforeInvalidDelete,
+            "an invalid clipboard id never carries the session to transport",
+          );
+          void bridge
+            .handle(
+              JSON.stringify({
+                operation: "clipboard",
+                clipboard_operation: "delete",
+                id: "c".repeat(64),
+              }),
+            )
+            .then((validReply) => {
+              check(JSON.parse(validReply).ok === true, "a digest clipboard id can be deleted");
+              check(
+                calls.some((call) => call.path === `/v1/users/me/clipboard/${"c".repeat(64)}`),
+                "the validated id occupies exactly one path segment",
+              );
+            });
+        });
     });
   void bridge.handle('{"operation":"unknown"}').then((result) => {
     check(JSON.parse(result).ok === false, "unknown clipboard shape is rejected");
@@ -5354,6 +5388,20 @@ group("account and cloud clipboard bridge keeps secrets native", () => {
       check(
         JSON.parse(result).error === "account_invalid",
         "control characters never reach transport",
+      );
+    });
+  void bridge
+    .handle(
+      JSON.stringify({
+        operation: "clipboard",
+        clipboard_operation: "add",
+        text: "😀".repeat(2001),
+      }),
+    )
+    .then((result) => {
+      check(
+        JSON.parse(result).error === "account_invalid",
+        "clipboard text is bounded in UTF-16 units before transport",
       );
     });
   void bridge.handle('{"operation":"profile"}').then((result) => {

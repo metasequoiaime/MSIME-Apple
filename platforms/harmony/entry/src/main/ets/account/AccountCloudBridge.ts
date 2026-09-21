@@ -194,6 +194,11 @@ function validToken(value: unknown): value is string {
   return typeof value === "string" && value.length === 64 && /^[0-9a-f]+$/.test(value);
 }
 
+/** Account resources use digest ids; reject path-like input before attaching a session token. */
+function validResourceId(value: unknown): value is string {
+  return typeof value === "string" && value.length === 64 && /^[0-9a-f]+$/.test(value);
+}
+
 function boundedUtf8(value: unknown, maximumBytes: number): value is string {
   return typeof value === "string" && utf8Length(value) <= maximumBytes;
 }
@@ -485,11 +490,8 @@ export class AccountCloudBridge {
       return this.authenticated("POST", "/v1/users/me/clipboard", { text: action.text });
     }
     if (operation === "delete") {
-      if (!validString(action.id, 256)) return error("account_invalid");
-      return this.authenticated(
-        "DELETE",
-        `/v1/users/me/clipboard/${encodeURIComponent(action.id)}`,
-      );
+      if (!validResourceId(action.id)) return error("account_invalid");
+      return this.authenticated("DELETE", `/v1/users/me/clipboard/${action.id}`);
     }
     if (operation === "set_enabled") {
       if (typeof action.enabled !== "boolean") return error("account_invalid");
@@ -898,8 +900,7 @@ export class AccountCloudBridge {
     if (operation === "update" || operation === "delete") {
       if (
         kind === null ||
-        !validString(action.id, 64) ||
-        !/^[0-9a-f]{64}$/.test(action.id) ||
+        !validResourceId(action.id) ||
         !this.boundedNumber(action.revision, 1, 2147483647)
       )
         return error("account_invalid");
