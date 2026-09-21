@@ -149,6 +149,7 @@ import {
 } from "../entry/src/main/ets/keyboard/skin/CustomKeyboardSkin";
 import { DictionaryMaintenancePolicy } from "../entry/src/main/ets/keyboard/DictionaryMaintenancePolicy";
 import { KeyAccessibilityPolicy } from "../entry/src/main/ets/keyboard/input/KeyAccessibilityPolicy";
+import { OsVersionPolicy } from "../entry/src/main/ets/keyboard/input/OsVersionPolicy";
 import {
   AiPolishPolicy,
   MAX_POLISH_SOURCE_CHARACTERS,
@@ -579,6 +580,35 @@ group("polishing acts on what is in front of the caret, and only if it still is"
     AiPolishPolicy.replacement(withEmoji, result, withEmoji)?.deleteCount === 7,
     "the delete count follows the code points",
   );
+});
+
+group("a report says which release it came from, or says nothing", () => {
+  // The page prints the platform's own name in front of this, so the product name is dropped:
+  // "HarmonyOS 6.0.1.115" rather than "HarmonyOS OpenHarmony-6.0.1.115".
+  check(
+    OsVersionPolicy.release("OpenHarmony-6.0.1.115") === "6.0.1.115",
+    "the product name in front of the version is dropped",
+  );
+  check(
+    OsVersionPolicy.release("HarmonyOS-6.0.1.115") === "6.0.1.115",
+    "whatever that product name happens to be",
+  );
+  check(OsVersionPolicy.release("6.0.1.115") === "6.0.1.115", "a bare version is taken whole");
+  check(OsVersionPolicy.release("  6.0.1  ") === "6.0.1", "surrounding space is not part of it");
+
+  // Nothing is invented: this goes into a report a user files, so it reports what the system says
+  // or nothing at all, and the page already knows what to do with nothing.
+  check(OsVersionPolicy.release(undefined) === null, "an absent value is not a version");
+  check(OsVersionPolicy.release("") === null, "and neither is an empty one");
+  check(
+    OsVersionPolicy.release("OpenHarmony-") === null,
+    "nor a product name with nothing after it",
+  );
+  // A word is not a release however it is formatted, and putting one where a number belongs would
+  // be worse than the fallback.
+  check(OsVersionPolicy.release("OpenHarmony-release") === null, "nor a version with no digit");
+  check(OsVersionPolicy.release("x".repeat(65)) === null, "an implausibly long value is refused");
+  check(OsVersionPolicy.release("6.0\u00001") === null, "and so is one with a control character");
 });
 
 group("a key says what it does, not what it draws", () => {

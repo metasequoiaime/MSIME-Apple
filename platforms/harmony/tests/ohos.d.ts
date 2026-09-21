@@ -3,7 +3,7 @@
 // The classes under test carry no ArkUI or NAPI dependency, which is the whole reason they can run
 // under node. KeyboardLog is the exception: it is a thin shim over hilog and is compiled here so a
 // change to it is still checked, not so that it is exercised.
-declare module '@ohos.hilog' {
+declare module "@ohos.hilog" {
   const hilog: {
     info(domain: number, tag: string, format: string, ...parameters: Object[]): void;
     warn(domain: number, tag: string, format: string, ...parameters: Object[]): void;
@@ -12,8 +12,9 @@ declare module '@ohos.hilog' {
   export default hilog;
 }
 
-declare module '@ohos.deviceInfo' {
+declare module "@ohos.deviceInfo" {
   const deviceInfo: {
+    osFullName: string;
     deviceType: string;
     DeviceTypes: {
       TYPE_2IN1: string;
@@ -22,7 +23,7 @@ declare module '@ohos.deviceInfo' {
   export default deviceInfo;
 }
 
-declare module 'libmsimeclient.so' {
+declare module "libmsimeclient.so" {
   const client: {
     loadPreferences(directory: string): string;
     savePreferences(directory: string, expectedRevision: number, snapshot: string): string;
