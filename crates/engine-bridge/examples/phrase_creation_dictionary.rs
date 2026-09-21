@@ -79,6 +79,36 @@ impl Store {
         }
         Ok(composed)
     }
+
+    /// Select the whole-sentence candidate directly, without first creating a phrase prefix.
+    fn select_sentence(&self, learning: bool) -> Result<u8, Box<dyn std::error::Error>> {
+        let mut session = Session::new(&self.options(learning)?)?;
+        for character in KEYS.bytes() {
+            session.character(character, false)?;
+        }
+        let snapshot = session.snapshot()?;
+        let index = snapshot
+            .candidates
+            .iter()
+            .position(|candidate| candidate == PHRASE)
+            .ok_or_else(|| format!("the sentence was not offered: {:?}", snapshot.candidates))?;
+        let source = *snapshot
+            .candidate_sources
+            .get(index)
+            .ok_or("the sentence has no source")?;
+        // CandidateSource::Generated and CandidateSource::Fallback are 8 and 9. A packaged or
+        // already learned dictionary row would not exercise standalone sentence learning.
+        if source != 8 && source != 9 {
+            return Err(
+                format!("the sentence came from source {source}, not a generated path").into(),
+            );
+        }
+        let committed = session.select(index)?;
+        if !committed.has_commit || committed.commit != PHRASE {
+            return Err(format!("selecting the sentence committed {:?}", committed.commit).into());
+        }
+        Ok(source)
+    }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -121,6 +151,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         "a phrase was stored while learning was turned off"
     );
 
-    println!("composed phrases are stored and reachable by abbreviation");
+    // The Windows source also learns a Generated/Fallback sentence selected as one candidate,
+    // without a preceding partial selection. It is creation rather than frequency adjustment:
+    // generated rows do not exist in SQLite yet, so changing their weight cannot persist them.
+    let standalone = Store::new(&resources)?;
+    assert!(!standalone
+        .candidates(ABBREVIATION)?
+        .contains(&PHRASE.to_string()));
+    let source = standalone.select_sentence(true)?;
+    assert!(
+        standalone
+            .candidates(ABBREVIATION)?
+            .contains(&PHRASE.to_string()),
+        "the directly selected source-{source} sentence was not stored"
+    );
+
+    let standalone_forgetting = Store::new(&resources)?;
+    standalone_forgetting.select_sentence(false)?;
+    assert!(
+        !standalone_forgetting
+            .candidates(ABBREVIATION)?
+            .contains(&PHRASE.to_string()),
+        "a directly selected sentence was stored while learning was turned off"
+    );
+
+    println!("composed and standalone sentence candidates learn only when enabled");
     Ok(())
 }
