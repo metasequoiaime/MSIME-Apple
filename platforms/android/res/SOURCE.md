@@ -16,9 +16,15 @@ alpha channel so the rounded corners stay transparent:
 | xxxhdpi | 192 |
 
 `app_icon_forest`, `app_icon_sky`, `app_icon_dusk` and `app_icon_vermilion` are
-the earlier watercolour 杉 mark in four washes and are not derived from this
-source. They remain the alternate styles the 我的 tab offers; only the default
-the manifest points at is the Windows mark.
+the same mark with its border in the hue each style has always meant: green,
+blue, violet and red. Only the border carries hue — the dark body and the white
+stroke are shared — which is what makes the five read as one design rather than
+as five unrelated icons.
+
+This paragraph used to say those four were the earlier watercolour 杉 and not
+derived from this source. That stopped being true when they were replaced, and
+a provenance note that describes assets which are no longer there is worse than
+none.
 
 Both repositories are metasequoiaime's own and share its licence; no third-party
 distribution restriction applies to this asset.
