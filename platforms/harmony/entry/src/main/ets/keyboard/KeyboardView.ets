@@ -2195,6 +2195,14 @@ struct KeyboardView {
       if (HandwritingStrokePolicy.canRecognize(this.handwritingStrokes)) {
         this.recognizeHandwriting();
       }
+      return;
+    }
+    if (event.type === TouchType.Cancel) {
+      // A cancelled gesture must not become a real stroke. Harmony can cancel a Canvas touch
+      // when the system takes the gesture (for example, a panel edge swipe); keeping the partial
+      // stroke made the next pen lift recognise ink the user never finished.
+      this.handwritingCurrent = [];
+      this.redrawHandwriting();
     }
   }
 
@@ -2223,6 +2231,20 @@ struct KeyboardView {
     this.handwritingCandidates = [];
     this.handwritingNotice = '';
     this.redrawHandwriting();
+  }
+
+  private deleteHandwriting(): void {
+    if (this.handwritingBusy) {
+      return;
+    }
+    if (this.handwritingStrokes.length > 0) {
+      this.undoHandwriting();
+      return;
+    }
+    // Match the Apple handwriting panel: once the canvas is empty, its delete key is the
+    // editor's backspace rather than a no-op. This is especially useful after choosing a
+    // candidate and correcting the character immediately before the caret.
+    KeyboardSession.shared.backspace();
   }
 
   private redoHandwriting(): void {
@@ -2507,6 +2529,12 @@ struct KeyboardView {
           .fontColor(this.handwritingSkin.accent)
           .padding({ left: 12 })
           .onClick(() => this.clearHandwriting())
+        Text('⌫')
+          .fontSize(KeyboardMetrics.LANGUAGE_FONT_SIZE)
+          .fontColor(this.handwritingSkin.accent)
+          .padding({ left: 12 })
+          .accessibilityText('删除')
+          .onClick(() => this.deleteHandwriting())
       }
       .width('100%')
       .height(KeyboardMetrics.ROW_HEIGHT_VP * 3 / 4)

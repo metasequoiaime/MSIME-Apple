@@ -28,13 +28,17 @@ export class HandwritingStrokePolicy {
   }
 
   static candidates(value: string, limit: number = HANDWRITING_MAX_CANDIDATES): string[] {
+    if (!Number.isFinite(limit) || limit <= 0) {
+      return [];
+    }
+    const count: number = Math.min(Math.floor(limit), HANDWRITING_MAX_CANDIDATES);
     const output: string[] = [];
     for (const character of Array.from(value.replace(/[\u0000-\u001f\u007f]/g, ''))) {
       if (/\s/u.test(character) || output.includes(character)) {
         continue;
       }
       output.push(character);
-      if (output.length >= limit) {
+      if (output.length >= count) {
         break;
       }
     }

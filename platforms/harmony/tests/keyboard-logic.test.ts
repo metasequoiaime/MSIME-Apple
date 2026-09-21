@@ -468,6 +468,15 @@ group("normalizes OCR candidates without leaking control text or duplicates", ()
     HandwritingStrokePolicy.candidates("甲乙丙丁戊己庚辛").length === HANDWRITING_MAX_CANDIDATES,
     "OCR candidates are bounded",
   );
+  check(
+    HandwritingStrokePolicy.candidates("甲乙丙", 0).length === 0
+      && HandwritingStrokePolicy.candidates("甲乙丙", -1).length === 0,
+    "zero and negative candidate limits do not leak one result",
+  );
+  check(
+    HandwritingStrokePolicy.candidates("甲乙丙丁戊己庚辛", 99).length === HANDWRITING_MAX_CANDIDATES,
+    "custom candidate limits cannot exceed the platform cap",
+  );
 });
 
 group("allows reads during composition without restarting the session", () => {
