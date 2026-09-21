@@ -427,7 +427,9 @@ public:
     const auto scheme = view_.value("scheme", 0u);
     if (!session_ || (scheme != 0 && scheme != 1) || restricted() || privateInput())
       return false;
-    static constexpr std::array<const char *, 5> schemas = {
+    // Deduced, not counted: the sixth schema was added to this list while the length stayed at
+    // five, which is a compile error rather than something a reader spots.
+    static constexpr std::array schemas = {
         "lantian", "ziranma", "shouyou2_0", "shouyouplus", "xiaohe", "jiajia"};
     const auto section = scheme == 1 ? "shuangpin_helpcode" : "quanpin_helpcode";
     const auto current = preferences_.value(section, Json::object()).value(
