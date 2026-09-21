@@ -754,6 +754,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   // The Engine opens a session in whichever mode the preferences name, and the shared default is
   // English. Remembered here so every focus reasserts it rather than inheriting the previous editor.
   private englishMode: boolean = false;
+  /** The editor generation in which the user explicitly chose Chinese or English. */
+  private manualLanguageGeneration: number = -1;
   // Which application the mode belongs to. Windows and macOS both keep this per application by
   // default; this host used to keep one mode for every editor it was ever attached to.
   private englishSuggestionsEnabled: boolean = true;
@@ -1564,6 +1566,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     this.finishCompositionBoundary(CompositionBoundary.MODE_SWITCH);
     this.englishMode = !this.englishMode;
+    this.manualLanguageGeneration = this.editorGeneration;
     // The user asked for this one, so it is the choice this application is remembered by.
     this.modeScope.remember(this.englishMode);
     this.applyView(client.setEnglishMode(this.handle, this.englishMode));
@@ -1760,7 +1763,8 @@ export class KeyboardSession implements HardwareKeyTarget {
       const english: boolean =
         this.modeScope.mode(this.defaultEnglish) || EditorPolicy.prefersLatin(this.traits);
       if (this.handle !== 0 && EditorPolicy.appliesDelayedLanguage(
-        this.composing(), this.englishMode, english)) {
+        this.composing(), this.englishMode, english,
+        this.manualLanguageGeneration === editorGeneration)) {
         this.englishMode = english;
         this.applyView(client.setEnglishMode(this.handle, english));
       }
@@ -1779,6 +1783,7 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   detach(): void {
     this.editorGeneration++;
+    this.manualLanguageGeneration = -1;
     this.pendingOwnEdits = 0;
     this.modeScope.deactivate();
     this.clearEnglishSuggestions();

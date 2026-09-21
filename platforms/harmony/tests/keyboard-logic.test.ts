@@ -4440,6 +4440,14 @@ group("a delayed editor callback never interrupts typing", () => {
     !EditorPolicy.appliesDelayedLanguage(false, true, true),
     "an unchanged mode does not issue a redundant Engine reset",
   );
+  check(
+    !EditorPolicy.appliesDelayedLanguage(false, false, true, true),
+    "a delayed Latin preference cannot undo a manual Chinese choice in this editor",
+  );
+  check(
+    EditorPolicy.appliesDelayedLanguage(false, false, true, false),
+    "the same field preference still applies in a fresh editor generation",
+  );
 });
 
 group("editor change echoes preserve keyboard-owned composition", () => {
