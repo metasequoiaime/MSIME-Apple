@@ -1013,7 +1013,8 @@ struct KeyboardView {
 
   private activateReturn(): void {
     const dispatch: ReturnDispatch = ReturnKeyAction.dispatch(
-      this.japanese, this.editing.length > 0, this.candidates.length);
+      this.japanese, this.editing.length > 0, this.candidates.length,
+      KeyboardSession.shared.japaneseConversionActive());
     if (dispatch === ReturnDispatch.COMMIT_HIGHLIGHTED) {
       KeyboardSession.shared.commitHighlighted();
     } else if (dispatch === ReturnDispatch.COMMIT_READING) {
@@ -1025,6 +1026,14 @@ struct KeyboardView {
     } else {
       KeyboardSession.shared.submit();
     }
+  }
+
+  private activateSpace(): void {
+    if (this.japanese && this.editing.length > 0
+        && KeyboardSession.shared.convertJapanese()) {
+      return;
+    }
+    KeyboardSession.shared.press(0x20, false);
   }
 
   /** Which of the two English cards is current is the grid, English itself being common to both. */
@@ -1921,7 +1930,7 @@ struct KeyboardView {
       } else {
         this.cursorDrag.cancel();
         if (!this.dragged && event.type === TouchType.Up) {
-          KeyboardSession.shared.press(0x20, false);
+          this.activateSpace();
         }
       }
     })

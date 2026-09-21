@@ -724,8 +724,11 @@ enum InputCommand {
   NEXT_PAGE = 100,
   PREVIOUS_PAGE = 101,
   NEXT_CANDIDATE = 102,
-  PREVIOUS_CANDIDATE = 103
+  PREVIOUS_CANDIDATE = 103,
+  FIRST_CANDIDATE = 104
 }
+
+const JAPANESE_SCHEME: number = 3;
 
 /**
  * Owns the native session for the lifetime of the extension ability and turns key presses into
@@ -2140,6 +2143,44 @@ export class KeyboardSession implements HardwareKeyTarget {
     return this.command(InputCommand.COMMIT_READING);
   }
 
+  /** Space starts Japanese conversion, then advances and wraps without committing. */
+  convertJapanese(): boolean {
+    if (this.scheme !== JAPANESE_SCHEME || this.editing.length === 0
+        || this.currentCandidates.length === 0) {
+      return false;
+    }
+    if (this.japaneseConversionIndex < 0
+        || this.japaneseConversionReading !== this.editing) {
+      this.japaneseConversionIndex = 0;
+      this.japaneseConversionReading = this.editing;
+      return true;
+    }
+    const next: number = this.japaneseConversionIndex + 1;
+    const wraps: boolean = next >= this.currentCandidates.length;
+    const wanted: number = wraps ? 0 : next;
+    if (!this.command(wraps ? InputCommand.FIRST_CANDIDATE : InputCommand.NEXT_CANDIDATE)) {
+      return false;
+    }
+    this.japaneseConversionIndex = wanted;
+    return true;
+  }
+
+  /** Return commits the conversion only after Space; otherwise it preserves the kana reading. */
+  commitJapanese(): boolean {
+    if (this.scheme !== JAPANESE_SCHEME || this.editing.length === 0) {
+      return false;
+    }
+    const converted: boolean = this.japaneseConversionActive();
+    this.japaneseConversionIndex = -1;
+    this.japaneseConversionReading = '';
+    return converted ? this.command(InputCommand.SELECT_HIGHLIGHTED) : this.commitReading();
+  }
+
+  japaneseConversionActive(): boolean {
+    return this.japaneseConversionIndex >= 0
+      && this.japaneseConversionReading === this.editing;
+  }
+
   moveLeft(): void {
     this.command(InputCommand.MOVE_LEFT);
   }
@@ -2318,6 +2359,8 @@ export class KeyboardSession implements HardwareKeyTarget {
   // the table on every keystroke.
   private converter: i18n.Transliterator | undefined = undefined;
   private editing: string = '';
+  private japaneseConversionIndex: number = -1;
+  private japaneseConversionReading: string = '';
   // Where the segment keys have put the caret. Drawn by the candidate window, which is the
   // only place it is visible: the editor sees a committed string, not a composition.
   private editingCaret: number = 0;
@@ -2331,6 +2374,11 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.generation = view.generation;
     this.currentCandidates = view.candidates.slice();
     this.lastView = view;
+    if (this.japaneseConversionIndex >= 0
+        && view.editing_text !== this.japaneseConversionReading) {
+      this.japaneseConversionIndex = -1;
+      this.japaneseConversionReading = '';
+    }
     if (this.translationPage !== null) return;
     const localModeChanged: boolean = this.localMode !== view.local_mode;
     this.localMode = view.local_mode;

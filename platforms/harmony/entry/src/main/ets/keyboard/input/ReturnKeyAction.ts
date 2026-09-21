@@ -20,9 +20,11 @@ export enum ReturnDispatch {
 }
 
 export class ReturnKeyAction {
-  static dispatch(japanese: boolean, composing: boolean, candidateCount: number): ReturnDispatch {
+  static dispatch(japanese: boolean, composing: boolean, candidateCount: number,
+                  japaneseConverted: boolean = false): ReturnDispatch {
     if (japanese && composing) {
-      return candidateCount > 0 ? ReturnDispatch.COMMIT_HIGHLIGHTED : ReturnDispatch.COMMIT_READING;
+      return japaneseConverted
+        ? ReturnDispatch.COMMIT_HIGHLIGHTED : ReturnDispatch.COMMIT_READING;
     }
     if (candidateCount > 0) {
       return ReturnDispatch.COMMIT_HIGHLIGHTED;

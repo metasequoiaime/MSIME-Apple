@@ -38,6 +38,8 @@ export interface HardwareKeyTarget {
   previousPage(): void;
   nextCandidate(): void;
   previousCandidate(): void;
+  convertJapanese(): boolean;
+  commitJapanese(): boolean;
 }
 
 export class HardwareKeyDispatch {
@@ -121,6 +123,12 @@ export class HardwareKeyDispatch {
         return;
       case HardwareKeyAction.PREVIOUS_CANDIDATE:
         target.previousCandidate();
+        return;
+      case HardwareKeyAction.JAPANESE_CONVERT:
+        target.convertJapanese();
+        return;
+      case HardwareKeyAction.JAPANESE_COMMIT:
+        target.commitJapanese();
         return;
       default:
         return;

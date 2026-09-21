@@ -2607,6 +2607,16 @@ group("maps hardware composition editing commands like Windows", () => {
       .action === HardwareKeyAction.RELEASE,
     "Shift+minus stays ordinary editor punctuation in Japanese",
   );
+  check(
+    HardwareKeyRouter.route(key(2050), true, true, false, navigation, false, true).action ===
+      HardwareKeyAction.JAPANESE_CONVERT,
+    "Japanese Space starts or advances conversion without committing",
+  );
+  check(
+    HardwareKeyRouter.route(key(2054), true, true, false, navigation, false, true).action ===
+      HardwareKeyAction.JAPANESE_COMMIT,
+    "Japanese Return commits conversion state rather than raw romaji",
+  );
 });
 
 group("routes Chinese hardware punctuation without stealing editor navigation", () => {
@@ -2907,7 +2917,9 @@ group("return performs an editor action only when nothing else claimed it", () =
   check(ReturnKeyAction.title(0, false) === "换行", "an unspecified action is a newline");
   check(ReturnKeyAction.dispatch(true, true, 0) === ReturnDispatch.COMMIT_READING,
     "Japanese Return commits unconverted kana as its reading");
-  check(ReturnKeyAction.dispatch(true, true, 3) === ReturnDispatch.COMMIT_HIGHLIGHTED,
+  check(ReturnKeyAction.dispatch(true, true, 3, false) === ReturnDispatch.COMMIT_READING,
+    "visible Japanese candidates do not imply that Space started conversion");
+  check(ReturnKeyAction.dispatch(true, true, 3, true) === ReturnDispatch.COMMIT_HIGHLIGHTED,
     "Japanese Return commits the selected conversion when candidates exist");
   check(ReturnKeyAction.dispatch(false, true, 0) === ReturnDispatch.FINISH_COMPOSITION,
     "a candidate-less non-Japanese composition is still finished before Return");
@@ -4024,6 +4036,8 @@ function recordingTarget(log: string[]): HardwareKeyTarget {
     previousPage: () => log.push("previousPage"),
     nextCandidate: () => log.push("nextCandidate"),
     previousCandidate: () => log.push("previousCandidate"),
+    convertJapanese: () => { log.push("convertJapanese"); return true; },
+    commitJapanese: () => { log.push("commitJapanese"); return true; },
   };
 }
 
@@ -4101,6 +4115,10 @@ group("every routed hardware key reaches the method that means it", () => {
     "and moving the highlight is not paging",
   );
   check(dispatched(HardwareKeyAction.PREVIOUS_CANDIDATE)[0] === "previousCandidate", "both ways");
+  check(dispatched(HardwareKeyAction.JAPANESE_CONVERT)[0] === "convertJapanese",
+    "Japanese Space reaches conversion state");
+  check(dispatched(HardwareKeyAction.JAPANESE_COMMIT)[0] === "commitJapanese",
+    "Japanese Return reaches conversion-aware commit");
 });
 
 group("word-character keys take the end of the candidate they name", () => {
