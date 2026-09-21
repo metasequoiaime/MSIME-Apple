@@ -507,8 +507,16 @@ if [ "$quick" -eq 0 ]; then
   rm -f "$wine_log"
 fi
 
+# Configured, not merely present. A configure that fails part way - this one needs a pinned
+# Sparkle, and says so with a FATAL_ERROR - still leaves the directory and its CMakeCache.txt
+# behind, so testing for either turns a skip into two failing stages on a machine that never had
+# the dependency. The generated build system is the thing that only a finished configure writes.
+macos_configured() {
+  [ -f "$MSIME_MACOS_BUILD/build.ninja" ] || [ -f "$MSIME_MACOS_BUILD/Makefile" ]
+}
+
 note "compile: macos"
-if [ -d "$MSIME_MACOS_BUILD" ]; then
+if macos_configured; then
   cmake --build "$MSIME_MACOS_BUILD" --parallel 2>&1 | grep -E "error:|symbol\(s\) not found" | head -5
   cmake --build "$MSIME_MACOS_BUILD" --parallel >/dev/null 2>&1 || fail "macos build"
 else
@@ -765,7 +773,7 @@ else
 fi
 
 note "macos tests"
-if [ -d "$MSIME_MACOS_BUILD" ]; then
+if macos_configured; then
   # The per-test lines put the reason between the dots and the ***, so this reads
   # the summary block instead: "\t 52 - local-mode-preferences (Subprocess aborted)".
   ctest --test-dir "$MSIME_MACOS_BUILD" 2>&1 |

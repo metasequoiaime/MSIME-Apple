@@ -1743,3 +1743,5 @@ if let Some(route) = launch_route_from_args(&args) { ... }
 **证据强度如实记。** `helpcode_settings_reach_the_real_engine` 现在把 `jiajia` 也跑了一遍真实引擎会话，但它的 `resources` 是空临时目录——它证明的是**方案被注册并被接受**（未注册的方案会让 `Session::new` 直接失败，用例里的 `"unknown"` 就是这么断言的），不是码表内容被读到。而这套方案恰恰是唯一一张**不随锁定归档一起来**的表，也就是唯一可能丢失、被坏合并截断、或存成引擎读不出内容的编码的那张。所以另加一个用例，按引擎 `load_helpcode_keymap` 的解析规则（首个 `=` 切开、取其后两个字符、两个都必须是 `a`-`z`，否则**静默丢弃**）读本仓携带的这张表，断言条目数 7968 与通知里引用的几个码（好=nz、你=de、中=ks、国=ky），并要求没有任何一行被静默丢弃。反向验证：把 `好=nz` 改成 `好=NZ`，它报 `the Engine drops these silently: ["好=NZ"]`。
 
 真正的候选过滤在这一层验不了——那需要真实词库，而这些单元测试跑在空目录上。macOS 那几处改动本机也编不了：`platforms/macos` 的 CMake 配置要求 Sparkle 2.9.6，这台机器上没有，整场会话里 macOS 这一级都是 skipped；只对能独立编译的两个头文件做了 `-fsyntax-only`。`--quick` 全绿（其中 harmony 预构建包那道门禁又一次因为共享 UI 改动而拦下，已重新生成）。
+
+同一批里修掉一个自己踩出来的门禁坑：`scripts/verify-local.sh` 判断 macOS 那一级要不要跑，用的是「`target/macos-isolated` 目录是否存在」。我为了在本机跑 macOS 用例去 configure 了一次，因为缺 Sparkle 2.9.6 而以 `FATAL_ERROR` 失败——但 CMake 在报错之前已经写下了目录和 `CMakeCache.txt`，于是门禁认为「已配置」，随后的编译与 ctest 两级一起变红。判据改成「有没有生成出构建系统文件」（`build.ninja` / `Makefile`），那是只有走完的 configure 才会写的东西。两个方向都验过：只有 `CMakeCache.txt` 时跳过，有 `Makefile` 时才跑。
