@@ -204,6 +204,8 @@ import {
   AccountSessionStore,
   AccountTransport,
   AccountTransportResponse,
+  MAX_DICTIONARY_EXPORT_BYTES,
+  MAX_SNAPSHOT_DOWNLOAD_BYTES,
   dictionaryChangePageChanged,
 } from "../entry/src/main/ets/account/AccountCloudBridge";
 import {
@@ -5539,6 +5541,82 @@ group("cloud dictionary exports are bounded before a native host saves them", ()
       });
     });
   });
+});
+
+group("large account files use the authenticated streaming transport", () => {
+  const stored = JSON.stringify({
+    access_token: "a".repeat(64),
+    refresh_token: "b".repeat(64),
+    token_type: "Bearer",
+    expires_at: Date.now() + 600000,
+    user: { id: "synthetic-user", display_name: "Test", created_at: "2026-01-01" },
+  });
+  const downloads: { path: string; maximum: number; media: string; token: string }[] = [];
+  let response = {
+    status: 200,
+    bytes: MAX_DICTIONARY_EXPORT_BYTES,
+    contentLength: MAX_DICTIONARY_EXPORT_BYTES,
+    contentType: "text/plain",
+  };
+  const bridge = new AccountCloudBridge(
+    {
+      request: async () => ({ status: 500, body: "" }),
+      download: async (path, token, _destination, maximum, media) => {
+        downloads.push({ path, maximum, media, token });
+        return response;
+      },
+    },
+    { load: () => stored, save: () => {}, clear: () => {} },
+  );
+  void bridge
+    .downloadAuthenticated(
+      "/v1/users/me/dictionaries/quick/export?format=standard",
+      "/private/export.tsv",
+      MAX_DICTIONARY_EXPORT_BYTES,
+      "text/plain",
+    )
+    .then((downloaded) => {
+      check(
+        downloaded.bytes === MAX_DICTIONARY_EXPORT_BYTES,
+        "the full 384 MiB dictionary contract is accepted without a bridged string",
+      );
+      check(
+        downloads[0]?.maximum === MAX_DICTIONARY_EXPORT_BYTES &&
+          downloads[0]?.media === "text/plain",
+        "the native transport receives the source limit and media type",
+      );
+      response = {
+        status: 200,
+        bytes: 100,
+        contentLength: 101,
+        contentType: "application/x-ndjson",
+      };
+      void bridge
+        .downloadAuthenticated(
+          "/v1/users/me/dictionary/snapshot",
+          "/private/snapshot.ndjson",
+          MAX_SNAPSHOT_DOWNLOAD_BYTES,
+          "application/x-ndjson",
+        )
+        .then((truncated) => {
+          check(truncated.bytes === undefined, "a truncated streamed snapshot is refused");
+          const beforeInvalid = downloads.length;
+          void bridge
+            .downloadAuthenticated(
+              "/v1/users/me/dictionary/snapshot",
+              "/private/snapshot.ndjson",
+              MAX_SNAPSHOT_DOWNLOAD_BYTES + 1,
+              "application/x-ndjson",
+            )
+            .then((invalid) => {
+              check(invalid.error === "account_invalid", "download bounds stop at 512 MiB");
+              check(
+                downloads.length === beforeInvalid,
+                "an invalid streaming request never carries the session to transport",
+              );
+            });
+        });
+    });
 });
 
 group("snapshot conflict pages cannot lie about their cursor", () => {

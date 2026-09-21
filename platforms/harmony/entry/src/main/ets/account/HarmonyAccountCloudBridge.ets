@@ -5,11 +5,11 @@ import picker from '@ohos.file.picker';
 import util from '@ohos.util';
 import client from 'libmsimeclient.so';
 import {
-  AccountCloudBridge, AccountSessionStore, AccountTransport, AccountTransportResponse,
+  AccountCloudBridge, AccountDownloadResponse, AccountSessionStore, AccountTransport,
+  AccountTransportResponse, MAX_DICTIONARY_EXPORT_BYTES, MAX_SNAPSHOT_DOWNLOAD_BYTES,
   dictionaryChangePageChanged
 } from './AccountCloudBridge';
 import { KeyboardSession } from '../keyboard/KeyboardSession';
-import { utf8Length } from '../keyboard/Utf8';
 import { KeyboardFeedbackBridge } from '../keyboard/KeyboardFeedbackBridge';
 import { HarmonyAiSkins } from './HarmonyAiSkins';
 import {
@@ -149,18 +149,34 @@ interface HttpHeaders {
   'Content-Type': string;
 }
 
-/** A declared response size lets native downloads reject a connection that ended early. */
-function responseContentLength(headers: Object): number | undefined {
+interface DownloadHeaders {
+  Accept: string;
+  Authorization: string;
+  'Accept-Encoding': string;
+}
+
+function responseHeader(headers: Object, name: string): string | undefined {
   const values: Record<string, Object> = headers as Record<string, Object>;
   const keys: string[] = Object.keys(values);
   for (const key of keys) {
-    if (key.toLowerCase() !== 'content-length') continue;
+    if (key.toLowerCase() !== name) continue;
     const raw: Object = values[key];
-    if (typeof raw !== 'string') return -1;
-    const parsed: number = Number(raw);
-    return Number.isInteger(parsed) && parsed >= 0 ? parsed : -1;
+    return typeof raw === 'string' ? raw : undefined;
   }
   return undefined;
+}
+
+/** A declared response size lets native downloads reject a connection that ended early. */
+function responseContentLength(headers: Object): number | undefined {
+  const raw: string | undefined = responseHeader(headers, 'content-length');
+  if (raw === undefined) return undefined;
+  const parsed: number = Number(raw);
+  return Number.isInteger(parsed) && parsed >= 0 ? parsed : -1;
+}
+
+function responseContentType(headers: Object): string | undefined {
+  const raw: string | undefined = responseHeader(headers, 'content-type');
+  return raw === undefined ? undefined : raw.split(';')[0].trim().toLowerCase();
 }
 
 class HarmonyTransport implements AccountTransport {
@@ -187,6 +203,76 @@ class HarmonyTransport implements AccountTransport {
         contentLength: responseContentLength(response.header)
       };
     } finally {
+      request.destroy();
+    }
+  }
+
+  async download(path: string, token: string, destination: string, maximumBytes: number,
+    mediaType: string): Promise<AccountDownloadResponse> {
+    if (!path.startsWith('/v1/') || path.includes('\\') || destination.length === 0
+      || maximumBytes <= 0 || maximumBytes > MAX_SNAPSHOT_DOWNLOAD_BYTES) {
+      throw new Error('account_invalid');
+    }
+    const request = http.createHttp();
+    const headers: DownloadHeaders = {
+      Accept: mediaType,
+      Authorization: `Bearer ${token}`,
+      'Accept-Encoding': 'identity'
+    };
+    const options: http.HttpRequestOptions = {
+      method: http.RequestMethod.GET,
+      header: headers,
+      connectTimeout: 30000,
+      readTimeout: 600000
+    };
+    const handle = fs.openSync(destination,
+      fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
+    let bytes: number = 0;
+    let failed: boolean = false;
+    let contentLength: number | undefined = undefined;
+    let contentType: string | undefined = undefined;
+    const ended: Promise<void> = new Promise<void>((resolve: () => void): void => {
+      // `requestInStream` returns the status code; `dataEnd` is the SDK's explicit statement that
+      // the streamed body is complete. Waiting for both keeps the file open through the last chunk.
+      request.on('dataEnd', (): void => resolve());
+    });
+    request.on('headersReceive', (responseHeaders: Object): void => {
+      contentLength = responseContentLength(responseHeaders);
+      contentType = responseContentType(responseHeaders);
+      if (contentLength !== undefined && (contentLength < 0 || contentLength > maximumBytes)) {
+        failed = true;
+      }
+    });
+    request.on('dataReceive', (chunk: ArrayBuffer): void => {
+      const view: Uint8Array = new Uint8Array(chunk);
+      if (failed || bytes + view.byteLength > maximumBytes || view.includes(0)) {
+        failed = true;
+        return;
+      }
+      try {
+        const written: number = fs.writeSync(handle.fd, chunk);
+        if (written !== view.byteLength) {
+          failed = true;
+          return;
+        }
+        bytes += written;
+      } catch {
+        failed = true;
+      }
+    });
+    try {
+      const status: number = await request.requestInStream(`${ACCOUNT_ORIGIN}${path}`, options);
+      await ended;
+      if (status < 200 || status >= 300) {
+        return { status: status, bytes: bytes, contentLength: contentLength, contentType: contentType };
+      }
+      if (failed || bytes === 0 || contentType !== mediaType
+        || (contentLength !== undefined && contentLength !== bytes)) {
+        return { status: 503, bytes: bytes, contentLength: contentLength, contentType: contentType };
+      }
+      return { status: status, bytes: bytes, contentLength: contentLength, contentType: contentType };
+    } finally {
+      fs.closeSync(handle);
       request.destroy();
     }
   }
@@ -278,18 +364,21 @@ export class HarmonyAccountCloudBridge {
   private async exportDictionary(action: AccountOperation): Promise<string> {
     const kind: string = typeof action.kind === 'string' ? action.kind : '';
     const format: string = typeof action.format === 'string' ? action.format : '';
-    const downloaded = await this.bridge.downloadDictionary(kind, format);
-    if (downloaded.body === undefined) {
-      return this.failure(downloaded.error ?? 'account_unavailable');
+    if (!['pinyin', 'wubi', 'quick', 'english'].includes(kind)
+      || !['standard', 'windows'].includes(format)) {
+      return this.failure('account_invalid');
     }
     const directory: string = `${this.context.filesDir}/state/dictionary-exports`;
     const staging: string = `${directory}/${util.generateRandomUUID(false)}.tsv`;
     let destination: string = '';
     try {
       if (!fs.accessSync(directory)) fs.mkdirSync(directory, true);
-      const handle = fs.openSync(staging,
-        fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
-      try { fs.writeSync(handle.fd, downloaded.body); } finally { fs.closeSync(handle); }
+      const downloaded = await this.bridge.downloadAuthenticated(
+        `/v1/users/me/dictionaries/${kind}/export?format=${format}`,
+        staging, MAX_DICTIONARY_EXPORT_BYTES, 'text/plain');
+      if (downloaded.bytes === undefined) {
+        return this.failure(downloaded.error ?? 'account_unavailable');
+      }
       const options: picker.DocumentSaveOptions = new picker.DocumentSaveOptions();
       options.newFileNames = [`msime-${kind}-dictionary.tsv`];
       options.fileSuffixChoices = ['TSV|.tsv'];
@@ -650,9 +739,26 @@ export class HarmonyAccountCloudBridge {
   private async exportSnapshot(resources: string, stateRoot: string): Promise<string> {
     const result = await this.downloadSnapshot(stateRoot);
     if (result === null) return this.failure('snapshot_unavailable');
-    const answer = this.success({ saved: true, snapshot: result });
-    this.clearSnapshotPreview();
-    return answer;
+    let destination: string = '';
+    try {
+      const options: picker.DocumentSaveOptions = new picker.DocumentSaveOptions();
+      options.newFileNames = ['msime-dictionary-snapshot.ndjson'];
+      options.fileSuffixChoices = ['NDJSON|.ndjson'];
+      const selected: string[] = await new picker.DocumentViewPicker(this.context).save(options);
+      if (selected.length === 0) return this.success({ saved: false, snapshot: result });
+      destination = selected[0];
+      fs.copyFileSync(this.snapshotFile, destination);
+      return this.success({ saved: true, snapshot: result });
+    } catch {
+      try {
+        if (destination.length > 0 && fs.accessSync(destination)) fs.unlinkSync(destination);
+      } catch {
+        // The selected URI may disappear with the picker; no partial export is still the goal.
+      }
+      return this.failure('account_storage');
+    } finally {
+      this.clearSnapshotPreview();
+    }
   }
 
   private async preview(resources: string, stateRoot: string): Promise<string> {
@@ -697,16 +803,18 @@ export class HarmonyAccountCloudBridge {
   }
 
   private async downloadSnapshot(stateRoot: string): Promise<SnapshotMetadata | null> {
-    const response = await this.bridge.rawAuthenticated('GET', '/v1/users/me/dictionary/snapshot');
-    if (response.status < 200 || response.status >= 300 || response.body.length === 0) return null;
-    if (utf8Length(response.body) > 512 * 1024 * 1024) return null;
     try {
       this.clearSnapshotPreview();
       const directory = `${stateRoot}/cloud-snapshot`;
       if (!fs.accessSync(directory)) fs.mkdirSync(directory, true);
       this.snapshotFile = `${directory}/snapshot.ndjson`;
-      const handle = fs.openSync(this.snapshotFile, fs.OpenMode.CREATE | fs.OpenMode.WRITE_ONLY | fs.OpenMode.TRUNC);
-      try { fs.writeSync(handle.fd, response.body); } finally { fs.closeSync(handle); }
+      const downloaded = await this.bridge.downloadAuthenticated(
+        '/v1/users/me/dictionary/snapshot', this.snapshotFile,
+        MAX_SNAPSHOT_DOWNLOAD_BYTES, 'application/x-ndjson');
+      if (downloaded.bytes === undefined) {
+        this.clearSnapshotPreview();
+        return null;
+      }
       const metadata = this.inspectSnapshot(this.snapshotFile);
       if (metadata === null) {
         this.clearSnapshotPreview();

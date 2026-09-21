@@ -1,6 +1,12 @@
 import { utf8Length } from "../keyboard/Utf8";
 
 export type AccountTransportResponse = { status: number; body: string; contentLength?: number };
+export type AccountDownloadResponse = {
+  status: number;
+  bytes: number;
+  contentLength?: number;
+  contentType?: string;
+};
 
 export interface AccountTransport {
   /**
@@ -17,6 +23,13 @@ export interface AccountTransport {
     body?: Record<string, unknown>,
     timeoutMs?: number,
   ): Promise<AccountTransportResponse>;
+  download?(
+    path: string,
+    token: string,
+    destination: string,
+    maximumBytes: number,
+    mediaType: string,
+  ): Promise<AccountDownloadResponse>;
 }
 
 export interface AccountSessionStore {
@@ -70,8 +83,10 @@ const CHAT_ROLES = ["user", "assistant", "system"];
 
 /** The gallery's own bounds, matching `client-core`'s community skin service. */
 const MAX_COMMUNITY_SEARCH = 128;
-/** The fixed Apple client accepts dictionary exports up to 3 MiB. */
-export const MAX_DICTIONARY_EXPORT_BYTES = 3 * 1024 * 1024;
+/** Only the legacy JSON/WebView fallback is capped at 3 MiB; native files use the source limits. */
+export const MAX_BRIDGED_DICTIONARY_EXPORT_BYTES = 3 * 1024 * 1024;
+export const MAX_DICTIONARY_EXPORT_BYTES = 384 * 1024 * 1024;
+export const MAX_SNAPSHOT_DOWNLOAD_BYTES = 512 * 1024 * 1024;
 
 /**
  * A publication id, checked before it is put in a path.
@@ -450,6 +465,39 @@ export class AccountCloudBridge {
     return { status, body: "" };
   }
 
+  /** Stream a large authenticated response into a host-private file with one token retry. */
+  async downloadAuthenticated(
+    path: string,
+    destination: string,
+    maximumBytes: number,
+    mediaType: string,
+  ): Promise<{ bytes?: number; error?: string }> {
+    if (
+      !path.startsWith("/v1/") ||
+      path.includes("\\") ||
+      destination.length === 0 ||
+      !Number.isSafeInteger(maximumBytes) ||
+      maximumBytes <= 0 ||
+      maximumBytes > MAX_SNAPSHOT_DOWNLOAD_BYTES ||
+      !["text/plain", "application/x-ndjson"].includes(mediaType) ||
+      this.transport.download === undefined
+    )
+      return { error: "account_invalid" };
+    const result = await this.authorizedDownload(path, destination, maximumBytes, mediaType);
+    if (result.response === undefined) return { error: result.error ?? "account_unavailable" };
+    const response = result.response;
+    if (response.status < 200 || response.status >= 300)
+      return { error: mapStatus(response.status) };
+    if (
+      response.bytes <= 0 ||
+      response.bytes > maximumBytes ||
+      response.contentType !== mediaType ||
+      (response.contentLength !== undefined && response.contentLength !== response.bytes)
+    )
+      return { error: "account_unavailable" };
+    return { bytes: response.bytes };
+  }
+
   /** Native hosts save exports themselves so multi-megabyte text never crosses a WebView bridge. */
   async downloadDictionary(
     kind: unknown,
@@ -473,7 +521,7 @@ export class AccountCloudBridge {
     const bytes = utf8Length(response.body);
     if (
       bytes === 0 ||
-      bytes > MAX_DICTIONARY_EXPORT_BYTES ||
+      bytes > MAX_BRIDGED_DICTIONARY_EXPORT_BYTES ||
       response.body.includes("\u0000") ||
       (response.contentLength !== undefined && response.contentLength !== bytes)
     )
@@ -1275,6 +1323,53 @@ export class AccountCloudBridge {
     token = credential.token;
     generation = this.generation;
     response = await this.transport.request(method, path, token, body, timeoutMs);
+    if (generation !== this.generation) return { error: "account_cancelled" };
+    if (response.status === 401 || response.status === 403) {
+      this.clearExpired();
+      return { error: "account_unauthorized" };
+    }
+    return { response };
+  }
+
+  /** The file equivalent of `authorizedResponse`, including refresh and generation invalidation. */
+  private async authorizedDownload(
+    path: string,
+    destination: string,
+    maximumBytes: number,
+    mediaType: string,
+  ): Promise<{ response?: AccountDownloadResponse; error?: string }> {
+    const download = this.transport.download;
+    if (download === undefined) return { error: "account_unavailable" };
+    const currentToken: string | null = this.usableToken();
+    let credential: CredentialReply =
+      currentToken === null ? await this.credential() : { token: currentToken };
+    if (credential.token === undefined)
+      return { error: credential.error ?? "account_unauthorized" };
+    let token: string = credential.token;
+    let generation: number = this.generation;
+    let response: AccountDownloadResponse = await download.call(
+      this.transport,
+      path,
+      token,
+      destination,
+      maximumBytes,
+      mediaType,
+    );
+    if (generation !== this.generation) return { error: "account_cancelled" };
+    if (response.status !== 401 && response.status !== 403) return { response };
+    credential = await this.credential(token);
+    if (credential.token === undefined)
+      return { error: credential.error ?? "account_unauthorized" };
+    token = credential.token;
+    generation = this.generation;
+    response = await download.call(
+      this.transport,
+      path,
+      token,
+      destination,
+      maximumBytes,
+      mediaType,
+    );
     if (generation !== this.generation) return { error: "account_cancelled" };
     if (response.status === 401 || response.status === 403) {
       this.clearExpired();

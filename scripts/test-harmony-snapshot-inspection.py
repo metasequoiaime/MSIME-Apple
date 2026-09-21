@@ -23,6 +23,8 @@ def main() -> int:
     header = HEADER.read_text(encoding="utf-8")
     start = account.index("  private async downloadSnapshot(")
     download = account[start : account.index("\n  private async enqueue(", start)]
+    export_start = account.index("  private async exportSnapshot(")
+    export_snapshot = account[export_start : account.index("\n  private async preview(", export_start)]
 
     keyboard = (ROOT / "platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets").read_text(
         encoding="utf-8"
@@ -37,6 +39,12 @@ def main() -> int:
         "ArkTS declaration": "export const snapshotInspect:" in types,
         "queue ArkTS declaration": "export const snapshotQueue:" in types,
         "download inspection": "this.inspectSnapshot(this.snapshotFile)" in download,
+        "streamed private download": "this.bridge.downloadAuthenticated(" in download
+        and "MAX_SNAPSHOT_DOWNLOAD_BYTES" in download,
+        "stream completion wait": "request.on('dataEnd'" in account and "await ended;" in account,
+        "user-visible snapshot export": "DocumentViewPicker(this.context).save(options)"
+        in export_snapshot
+        and "fs.copyFileSync(this.snapshotFile, destination)" in export_snapshot,
         "UUID preview token": "util.generateRandomUUID(false)" in account,
         "file identity replay guard": "inspected.fileSha256 !== this.snapshotMetadata.fileSha256"
         in account,
@@ -55,6 +63,8 @@ def main() -> int:
     problems = [name for name, present in required.items() if not present]
     if "response.body.split(" in download:
         problems.append("ArkTS line parser removed")
+    if "response.body" in download or "fs.writeSync" in download:
+        problems.append("buffered snapshot download removed")
     if "client.snapshotPrepare(" in account or "snapshotHandle" in account:
         problems.append("process-local prepared handle removed from account bridge")
     if keyboard.find("this.processDictionarySnapshot(requested, stateRoot)") > keyboard.find(

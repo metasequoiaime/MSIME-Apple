@@ -2863,8 +2863,8 @@ export function CloudDictionaryFilesPanel({ client }: { client: CloudDictionaryP
     setSnapshotBusy(true);
     try {
       const result = await client.request({ operation: "snapshot_export" });
-      if (client.snapshotNative && result.saved === true) {
-        setNotice("完整云词库快照已保存");
+      if (client.snapshotNative && typeof result.saved === "boolean") {
+        setNotice(result.saved ? "完整云词库快照已导出" : "已取消导出");
         return;
       }
       const text = typeof result.text === "string" ? result.text : result.content;
