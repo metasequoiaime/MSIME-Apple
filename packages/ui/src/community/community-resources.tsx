@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { CommunitySkinsPage, type CommunitySkinClient } from "./community-skins";
+import type { CustomSkinLibraryClient } from "../keyboard/touch-keyboard-skin-design";
 import * as style from "./community-style";
 
 export type CommunityResourceKind = "dictionary" | "reply";
@@ -911,7 +912,9 @@ export function CommunityHomePage({
   initialCategory = "skin",
   initialScope = "",
   localDictionary,
+  localSkinLibrary,
   mobile = false,
+  onLogin,
 }: {
   skins: CommunitySkinClient;
   resources: CommunityResourceClient;
@@ -920,7 +923,16 @@ export function CommunityHomePage({
   initialCategory?: "skin" | CommunityResourceKind;
   initialScope?: CommunityResourceScope;
   localDictionary?: CommunityLocalDictionaryClient;
+  /**
+   * The saved designs the skin gallery publishes from.
+   *
+   * It was absent here, and this page is what a host with both skins and resources renders, so on
+   * exactly those hosts — HarmonyOS and Android — 发布我的设计 was never drawn and the publish flow
+   * had no entry point at all. The desktop path renders CommunitySkinsPage directly and was fine.
+   */
+  localSkinLibrary?: CustomSkinLibraryClient;
   mobile?: boolean;
+  onLogin?: () => void;
 }) {
   const [category, setCategory] = useState<"skin" | CommunityResourceKind>(initialCategory);
   return (
@@ -956,7 +968,9 @@ export function CommunityHomePage({
           client={skins}
           theme={theme}
           initialMine={initialMine}
+          localSkinLibrary={localSkinLibrary}
           mobile={mobile}
+          onLogin={onLogin}
         />
       ) : (
         <CommunityResourcesPage

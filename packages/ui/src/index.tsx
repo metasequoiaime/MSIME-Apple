@@ -3771,7 +3771,9 @@ export function SettingsPage({
                 initialCategory={initialCommunityCategory}
                 initialScope={initialCommunityScope}
                 localDictionary={client.dictionary}
+                localSkinLibrary={client.customSkinLibrary}
                 mobile={mobilePlatform}
+                onLogin={() => selectPage("account")}
               />
             )}
             {client.communitySkins && !client.communityResources && page === "community" && (
@@ -3782,6 +3784,7 @@ export function SettingsPage({
                 localSkinLibrary={client.customSkinLibrary}
                 initialMine={communityDestination === "published-skins"}
                 mobile={mobilePlatform}
+                onLogin={() => selectPage("account")}
               />
             )}
             {!client.communitySkins && client.communityResources && page === "community" && (

@@ -332,6 +332,78 @@ test("publishes a selected local design only after explicit rights confirmation"
   await waitFor(() => expect(screen.queryByRole("dialog", { name: "发布我的皮肤" })).toBeNull());
 });
 
+test("a download refused for want of a sign-in offers the way there", async () => {
+  // Browsing works signed out and downloading does not, so this is the first wall a new user meets.
+  // It used to say the login had expired and leave them to find the account page themselves.
+  const offered = skin("10000000-0000-4000-8000-000000000011", "需要登录的皮肤");
+  const download = vi.fn().mockRejectedValue({ code: "community_unauthorized" });
+  const onLogin = vi.fn();
+  render(
+    <CommunitySkinsPage
+      client={client({
+        list: vi.fn().mockResolvedValue({ skins: [offered], has_more: false }),
+        detail: vi.fn().mockResolvedValue(offered),
+        download,
+      })}
+      theme="light"
+      onLogin={onLogin}
+    />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: `查看皮肤 ${offered.name}` }));
+  fireEvent.click(await screen.findByRole("button", { name: "下载并试用" }));
+  fireEvent.click(await screen.findByRole("button", { name: "去登录" }));
+  expect(onLogin).toHaveBeenCalledTimes(1);
+});
+
+test("a publish refused for want of a sign-in offers the way there", async () => {
+  // MSIME-Apple's SavedSkinPublishFlow puts the sign-in form in front of the user rather than
+  // telling them to go and find it. The shared dialog cannot show a form, but it can be the one tap.
+  const local = { id: "30000000-0000-4000-8000-000000000003", name: "待发布", design };
+  const publish = vi.fn().mockRejectedValue({ code: "community_unauthorized" });
+  const onLogin = vi.fn();
+  render(
+    <CommunitySkinsPage
+      client={client({ publish })}
+      theme="light"
+      onLogin={onLogin}
+      localSkinLibrary={{
+        load: vi.fn().mockResolvedValue([local]),
+        mutate: vi.fn(),
+      }}
+    />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "发布我的设计" }));
+  fireEvent.click(await screen.findByRole("checkbox", { name: "确认拥有发布素材权利" }));
+  fireEvent.click(screen.getByRole("button", { name: "公开发布" }));
+  const go = await screen.findByRole("button", { name: "去登录" });
+  expect(onLogin).not.toHaveBeenCalled();
+  fireEvent.click(go);
+  expect(onLogin).toHaveBeenCalledTimes(1);
+  // The dialog gets out of the way, or the account page opens behind a modal nobody can see past.
+  await waitFor(() => expect(screen.queryByRole("dialog", { name: "发布我的皮肤" })).toBeNull());
+});
+
+test("only a sign-in failure offers the sign-in button", async () => {
+  const local = { id: "30000000-0000-4000-8000-000000000004", name: "冲突设计", design };
+  const publish = vi.fn().mockRejectedValue({ code: "community_conflict" });
+  render(
+    <CommunitySkinsPage
+      client={client({ publish })}
+      theme="light"
+      onLogin={vi.fn()}
+      localSkinLibrary={{
+        load: vi.fn().mockResolvedValue([local]),
+        mutate: vi.fn(),
+      }}
+    />,
+  );
+  fireEvent.click(await screen.findByRole("button", { name: "发布我的设计" }));
+  fireEvent.click(await screen.findByRole("checkbox", { name: "确认拥有发布素材权利" }));
+  fireEvent.click(screen.getByRole("button", { name: "公开发布" }));
+  await screen.findByRole("alert");
+  expect(screen.queryByRole("button", { name: "去登录" })).toBeNull();
+});
+
 test("keeps the publication id for retries but changes it when metadata changes", async () => {
   const local = { id: "30000000-0000-4000-8000-000000000002", name: "可重试设计", design };
   const publish = vi.fn().mockRejectedValue(new Error("temporary failure"));

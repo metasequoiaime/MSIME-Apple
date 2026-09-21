@@ -16,14 +16,31 @@ export const searchInput =
 export const searchSubmit =
   "rounded-[9px] border border-accent-soft-border bg-accent-strong px-4 py-2 text-white";
 
-export const heading = "flex items-start justify-between gap-4 px-0.5 py-1";
+/**
+ * Heading and actions side by side, stacking on a phone.
+ *
+ * They used to stay side by side at every width, with headingBody allowed to shrink so the actions
+ * always fit. That worked while there were two buttons; the skin gallery has three, and squeezing
+ * them in left the title wrapping one or two characters per line. Below the tight breakpoint the
+ * actions take their own row instead, which is also where they have room to be legible.
+ */
+export const heading =
+  "flex items-start justify-between gap-4 px-0.5 py-1 max-tight:flex-col max-tight:items-stretch max-tight:gap-2";
 /** The heading's left column has to be allowed to shrink or the actions get pushed off the edge. */
 export const headingBody = "min-w-0";
 export const headingTitle = "m-0 text-xl text-body";
 export const headingNote = "mt-[5px] mb-0 text-xs text-muted";
 /** Stacked on a roomy window, laid out in a row once the heading has to share a phone's width. */
+/**
+ * The actions beside the gallery heading.
+ *
+ * Wrapping matters below the tight breakpoint. There the column becomes a row so the scope switch
+ * sits next to the heading rather than under it, and the skin gallery puts a third button there —
+ * 发布我的设计. Three nowrap buttons do not fit a phone, and without a wrap the third is laid out
+ * past the right edge with nothing to scroll it into view.
+ */
 export const headingActions =
-  "flex shrink-0 grow-0 basis-auto flex-col items-end gap-2 max-tight:flex-row max-tight:items-center [&>button]:m-0 [&>button]:whitespace-nowrap";
+  "flex shrink-0 grow-0 basis-auto flex-col items-end gap-2 max-tight:flex-row max-tight:flex-wrap max-tight:items-center max-tight:justify-start [&>button]:m-0 [&>button]:whitespace-nowrap";
 /**
  * A scope switch that stays put. Two buttons fit a phone, and the skin gallery has exactly two -- the
  * stylesheet hid these below 560px for every page, which left that gallery with no way to reach 我的作品

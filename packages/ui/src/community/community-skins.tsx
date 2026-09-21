@@ -142,16 +142,29 @@ function publishMessage(error: unknown): string {
   return "暂时无法发布皮肤，请稍后重试。";
 }
 
+/** Whether a failure is the one the user can act on from here by signing in. */
+function needsSignIn(error: unknown): boolean {
+  return (
+    typeof error === "object" &&
+    error !== null &&
+    "code" in error &&
+    error.code === "community_unauthorized"
+  );
+}
+
 function CommunitySkinPublishDialog({
   client,
   library,
   onClose,
   onPublished,
+  onLogin,
 }: {
   client: CommunitySkinClient;
   library: CustomSkinLibraryClient;
   onClose: () => void;
   onPublished: () => Promise<void>;
+  /** Where to send someone who has to sign in before publishing; absent leaves the sentence alone. */
+  onLogin?: () => void;
 }) {
   const [saved, setSaved] = useState<SavedTouchKeyboardSkin[]>([]);
   const [selectedId, setSelectedId] = useState("");
@@ -160,6 +173,9 @@ function CommunitySkinPublishDialog({
   const [agreed, setAgreed] = useState(false);
   const [busy, setBusy] = useState(true);
   const [error, setError] = useState("");
+  // Kept next to the sentence because publishMessage collapses the code, and this is the one
+  // failure the dialog can do something about rather than only name.
+  const [signInRequired, setSignInRequired] = useState(false);
   const [publicationId, setPublicationId] = useState(randomPublicationId);
 
   useEffect(() => {
@@ -176,7 +192,9 @@ function CommunitySkinPublishDialog({
         }
       })
       .catch((loadError) => {
-        if (active) setError(publishMessage(loadError));
+        if (!active) return;
+        setError(publishMessage(loadError));
+        setSignInRequired(needsSignIn(loadError));
       })
       .finally(() => {
         if (active) setBusy(false);
@@ -204,11 +222,13 @@ function CommunitySkinPublishDialog({
     }
     setBusy(true);
     setError("");
+    setSignInRequired(false);
     try {
       await client.publish(publicationId, normalizedName, normalizedDescription, selected.design);
       await onPublished();
     } catch (publishError) {
       setError(publishMessage(publishError));
+      setSignInRequired(needsSignIn(publishError));
       setBusy(false);
     }
   };
@@ -237,6 +257,16 @@ function CommunitySkinPublishDialog({
         {error && (
           <p role="alert" className="error">
             {error}
+            {/* The source opens the sign-in form in place rather than telling the user to go and
+                find it, which from a modal is the difference between one tap and four. */}
+            {signInRequired && onLogin && (
+              <>
+                {" "}
+                <button type="button" className="secondary" onClick={onLogin}>
+                  去登录
+                </button>
+              </>
+            )}
           </p>
         )}
         {busy && saved.length === 0 && <p role="status">正在读取我的皮肤…</p>}
@@ -364,12 +394,15 @@ export function CommunitySkinsPage({
   localSkinLibrary,
   initialMine = false,
   mobile = false,
+  onLogin,
 }: {
   client: CommunitySkinClient;
   theme: "light" | "dark";
   localSkinLibrary?: CustomSkinLibraryClient;
   initialMine?: boolean;
   mobile?: boolean;
+  /** Where the account page is, for a publish that failed only because nobody is signed in. */
+  onLogin?: () => void;
 }) {
   const [skins, setSkins] = useState<CommunitySkin[]>([]);
   const [hasMore, setHasMore] = useState(false);
@@ -383,6 +416,20 @@ export function CommunitySkinsPage({
   const [actionNotice, setActionNotice] = useState("");
   const [mineOnly, setMineOnly] = useState(initialMine);
   const [publishOpen, setPublishOpen] = useState(false);
+  const [signInRequired, setSignInRequired] = useState(false);
+
+  /**
+   * One place to turn a failure into what the page shows.
+   *
+   * The sentence and whether a sign-in is worth offering are two answers to the same question, and
+   * every path that could fail needs both. Signed out, the gallery browses anonymously but a
+   * download does not, so this is the error a new user meets first — and it used to say the login
+   * had expired while giving no way to do anything about it.
+   */
+  const fail = (failure: unknown) => {
+    setError(communityMessage(failure));
+    setSignInRequired(needsSignIn(failure));
+  };
   const [confirmUnpublish, setConfirmUnpublish] = useState(false);
   const listGeneration = useRef(0);
   const detailGeneration = useRef(0);
@@ -405,7 +452,7 @@ export function CommunitySkinsPage({
       if (!append) activeSearch.current = query;
       setHasMore(page.has_more);
     } catch (requestError) {
-      if (generation === listGeneration.current) setError(communityMessage(requestError));
+      if (generation === listGeneration.current) fail(requestError);
     } finally {
       if (generation === listGeneration.current) setListBusy(false);
     }
@@ -445,7 +492,7 @@ export function CommunitySkinsPage({
         if (generation === detailGeneration.current) setSelected(value);
       })
       .catch((detailError) => {
-        if (generation === detailGeneration.current) setError(communityMessage(detailError));
+        if (generation === detailGeneration.current) fail(detailError);
       })
       .finally(() => {
         if (generation === detailGeneration.current) setDetailBusy(false);
@@ -461,7 +508,7 @@ export function CommunitySkinsPage({
         trialRef.current = null;
         setTrial(null);
       } catch (actionError) {
-        setError(communityMessage(actionError));
+        fail(actionError);
         setActionBusy(false);
         return;
       }
@@ -504,7 +551,7 @@ export function CommunitySkinsPage({
       setTrial(result.trial);
       setActionNotice("已下载并开始试用；关闭此页会恢复原皮肤。");
     } catch (actionError) {
-      setError(communityMessage(actionError));
+      fail(actionError);
     } finally {
       setActionBusy(false);
     }
@@ -521,7 +568,7 @@ export function CommunitySkinsPage({
       setTrial(null);
       setActionNotice(keep ? "已保留这款皮肤。" : "已恢复试用前的皮肤。");
     } catch (actionError) {
-      setError(communityMessage(actionError));
+      fail(actionError);
     } finally {
       setActionBusy(false);
     }
@@ -536,7 +583,7 @@ export function CommunitySkinsPage({
       setSelected(await client.detail(selected.id));
       setActionNotice(`已评分：${stars} 星。`);
     } catch (actionError) {
-      setError(communityMessage(actionError));
+      fail(actionError);
     } finally {
       setActionBusy(false);
     }
@@ -554,7 +601,7 @@ export function CommunitySkinsPage({
       setActionNotice("已下架这款皮肤；其他用户将无法再下载，已有本地副本不会受影响。");
       await requestList(activeSearch.current, false);
     } catch (actionError) {
-      setError(communityMessage(actionError));
+      fail(actionError);
     } finally {
       setActionBusy(false);
     }
@@ -581,6 +628,16 @@ export function CommunitySkinsPage({
         {error && (
           <p role="alert" className="error">
             {error}
+            {/* The detail view is where a signed-out download fails, so the way out belongs here
+                too rather than only on the gallery behind it. */}
+            {signInRequired && onLogin && (
+              <>
+                {" "}
+                <button type="button" className="secondary" onClick={onLogin}>
+                  去登录
+                </button>
+              </>
+            )}
           </p>
         )}
         <section className={`section ${style.detail}`}>
@@ -770,6 +827,14 @@ export function CommunitySkinsPage({
       {error && (
         <p role="alert" className="error">
           {error}
+          {signInRequired && onLogin && (
+            <>
+              {" "}
+              <button type="button" className="secondary" onClick={onLogin}>
+                去登录
+              </button>
+            </>
+          )}
         </p>
       )}
       {!listBusy && skins.filter((skin) => !mineOnly || skin.owned).length === 0 && (
@@ -809,6 +874,13 @@ export function CommunitySkinsPage({
           library={localSkinLibrary}
           onClose={() => setPublishOpen(false)}
           onPublished={publishDone}
+          onLogin={
+            onLogin &&
+            (() => {
+              setPublishOpen(false);
+              onLogin();
+            })
+          }
         />
       )}
     </div>

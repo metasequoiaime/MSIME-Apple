@@ -159,6 +159,48 @@ Swift 后端客户端。鸿蒙不跑 Swift，这些的契约都在 client-core�
 
 `AppDelegate.swift` 是 iOS UI 测试的宿主应用，不是产品代码，无对应物。
 
+## 共享 UI 覆盖检查：来源的每个 App 视图都落在 `packages/ui` 里
+
+上面的表按文件说去处，这一节按**屏幕**说，因为"公共功能和 UI 放共享层"要检查的是后者：来源 `platforms/ios/App/Sources` 的 24 个 `*View.swift`，每一个在 `packages/ui/src` 里有没有对应的东西。
+
+做法是比对中文字面量而不是文件名——两边命名体系不同，按名字查只会得出"全都缺失"。对每个视图取出它的中文字符串，看有多少条出现在共享 UI 树里：
+
+```sh
+python3 - <<'EOF'
+import pathlib, re
+src = pathlib.Path("<MSIME-Apple>/platforms/ios/App/Sources")
+ui = pathlib.Path("packages/ui/src")
+text = "\n".join(p.read_text() for p in list(ui.rglob("*.tsx")) + list(ui.rglob("*.ts")))
+han = re.compile(r'"([^"\\]*[\u4e00-\u9fff][^"\\]*)"')
+for f in sorted(src.glob("*View.swift")):
+    lits = {m.group(1).strip() for m in han.finditer(f.read_text())}
+    lits = {s for s in lits if len(s) >= 3 and "\\(" not in s}
+    print(f"{f.stem:32} {sum(1 for s in lits if s in text)}/{len(lits)}")
+EOF
+```
+
+24 个视图里 23 个命中非零，措辞不同是预期的（共享页是一整页分区，来源是一屏一个视图）。命中率低的几个查过了，都是**同一功能换了说法**，不是缺失：
+
+| 视图 | 共享层落点 |
+| --- | --- |
+| `CommunitySkinTrialView` | `community/community-skins.tsx`，含 `finishTrial` 契约与"正在试用"横幅 |
+| `WelcomeFlowView`、`OnboardingView` | `account/onboarding-page.tsx` |
+| `AccountCodeLoginView` | `account/account-page.tsx`（邮箱／手机号验证码登录） |
+| `CloudClipboardView` | `index.tsx` 的云剪贴板分区 |
+| `FuzzyPinyinSettingsView` | `index.tsx` 的模糊音分区 |
+
+只有一处按平台特性做了不同决定：`ProviderPickerView` 是带 logo、副标题和搜索框的整页列表，共享层是一个 `<select>`。服务商共 12 个（`AI_PROVIDERS`），一个 12 项的原生下拉在手机上比搜索列表更顺手，而 `<select>` 正是 WebView 的原生控件——Apple 用整页列表是 SwiftUI 在 Form 里放 logo 的权宜。
+
+唯一零命中的是 `SkinGenerationView`，它只有两条字面量——一条调试参数、一条加载提示——所以这个比法对它本来就没有信号。读它的 27 行才看得出它是什么：`SavedSkinPublishFlow`，把已保存的皮肤拿去发布，未登录则**先把登录表单摆在面前**。顺着它查下去发现了两件事，第二件比第一件严重得多。
+
+**发布入口在鸿蒙和 Android 上根本不存在。** 共享层有两条渲染路径：只有社区皮肤的宿主渲染 `CommunitySkinsPage`，皮肤和资源都有的宿主渲染 `CommunityHomePage`——而后者**没有 `localSkinLibrary` 这个 prop**。`发布我的设计` 的渲染条件恰好是 `localSkinLibrary &&`，于是在走第二条路径的两个平台上它从来没画出来过。桌面走第一条，一直是好的。prop 接通之后模拟器上按钮出现、对话框能打开。
+
+接通之后还暴露出一个布局问题：窄屏下标题与操作区并排，操作区 `shrink-0`，三个 `whitespace-nowrap` 按钮把标题挤成一行两三个字。手机上改为标题与按钮各占一行。
+
+**第二件**是那条未登录的路。共享层此前只回一句话（发布是"请先登录后再发布皮肤。"，下载是"登录已失效；仍可退出后匿名浏览。"），让用户自己去找账号页。现在这三处——画廊、详情、发布对话框——在 `community_unauthorized` 上给出"去登录"按钮，点了直接切到账号页；其他失败照旧只有说明。模拟器实测：未登录点"下载并试用"→ 错误旁出现"去登录"→ 点击 → 落到账号页的登录入口。
+
+顺带说明这个比法的边界：字面量命中是线索，不是判据。零命中可能只是这个视图没什么文案（上面这例），非零命中也不代表行为一致（行为层的证据在 [harmony-parity.md](harmony-parity.md) 的第四条轴）。它能做的是把 24 个屏幕缩到需要人读的那几个。
+
 ## 这份清单证明什么、不证明什么
 
 它证明的是「来源的每个产品源文件都有去处，且去处是写明的」，**不是**「每个函数的行为都逐字一致」。行为层的证据在 [harmony-parity.md](harmony-parity.md)：三条比对轴各自的方法与产出、四个查实并补齐的缺口、以及模拟器上从按键到候选上屏的完整验收。
