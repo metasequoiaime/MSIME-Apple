@@ -454,6 +454,36 @@ fn second_launch_routes_are_taken_from_explicit_arguments() {
     assert_eq!(super::launch_route_from_args(&["--other".into()]), None);
 }
 
+/// A second launch that names nothing still has to raise the window.
+///
+/// Every route this product asks for itself is explicit, so no route means a person started the
+/// application. Answering `None` there is indistinguishable from the launch being ignored: the
+/// running instance never comes forward.
+#[test]
+fn second_launch_without_a_route_activates_the_settings_window() {
+    use msime_client_core::host_surface::SurfaceRoute;
+
+    assert_eq!(
+        super::second_launch_route(&[]),
+        SurfaceRoute::Settings(None)
+    );
+    assert_eq!(
+        super::second_launch_route(&["/opt/msime/msime-desktop".into()]),
+        SurfaceRoute::Settings(None)
+    );
+    // A route that fails to parse is not a request for a different window, so it falls back the
+    // same way rather than leaving the launch with nothing to do.
+    assert_eq!(
+        super::second_launch_route(&["--route=../private".into()]),
+        SurfaceRoute::Settings(None)
+    );
+    // An explicit route still wins - this is a fallback, not an override.
+    assert_eq!(
+        super::second_launch_route(&["--route=emoji".into()]),
+        SurfaceRoute::Emoji
+    );
+}
+
 #[test]
 fn dictionary_mutations_quiesce_but_reads_do_not() {
     assert!(super::dictionary_action_requires_quiesce(
