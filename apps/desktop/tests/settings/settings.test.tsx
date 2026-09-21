@@ -5706,6 +5706,16 @@ test("category navigation preserves one draft and saves edits across pages", asy
   expect(client.load).toHaveBeenCalledTimes(1);
 });
 
+test("category navigation opens every shared settings page at the top", async () => {
+  render(<SettingsPage client={{ load: vi.fn().mockResolvedValue(initial), save: vi.fn() }} />);
+  await settingsReady();
+  const content = screen.getByRole("main");
+  content.scrollTop = 480;
+  fireEvent.click(screen.getByRole("button", { name: "辅助码" }));
+  expect(screen.getByRole("heading", { level: 1 }).textContent).toBe("辅助码");
+  expect(content.scrollTop).toBe(0);
+});
+
 test.each(["undo", "clear", "next stroke", "host replacement"])(
   "handwriting ignores delayed recognition after %s",
   async (action) => {
