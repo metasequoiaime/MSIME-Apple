@@ -397,7 +397,7 @@ struct KeyboardView {
       CandidateSkinPolicy.harmonySkin(this.settings.candidateSkinId, this.settings.candidateSkinBase),
       this.settings.candidateDark);
     this.scheme = this.settings.thoughtfulReply ? KeyboardScheme.THOUGHTFUL_REPLY
-      : this.resolveScheme(this.settings.layout);
+      : this.enabledScheme();
     this.nineKey = this.scheme.touchKeyboardLayout === 'nine_key';
     this.japanese = this.scheme.engineScheme === 'japanese' && this.nineKey;
     KeyboardSession.shared.setNineKey(this.nineKey);
@@ -930,6 +930,24 @@ struct KeyboardView {
   /** Which of the two English cards is current is the grid, English itself being common to both. */
   private isCurrentEnglish(nineKey: boolean): boolean {
     return this.english && this.nineKey === nineKey;
+  }
+
+  /**
+   * The scheme to open on, after the shared page's enabled list has had its say.
+   *
+   * `scheme` and `touch_keyboard_layout` are the Engine's view and resolve to whatever was last
+   * applied, whether or not the picker still offers it. Turning off the current scheme from the
+   * settings page therefore left the keyboard on it with no card to leave by. The resolution and
+   * the write-back are both ported — this reads the list, that one moves the preference.
+   */
+  private enabledScheme(): SchemeDefinition {
+    const applied: SchemeDefinition = this.resolveScheme(this.settings.layout);
+    const selected: SchemeDefinition = KeyboardScheme.resolveEnabledSelection(applied,
+      this.settings.selectedScheme,
+      KeyboardScheme.enabledFromPreferenceIds(this.settings.enabledSchemes));
+    // Reads false when nothing moved, and also when the write failed — in which case the keyboard
+    // stays where the document says it is rather than drawing a scheme that was not persisted.
+    return KeyboardSession.shared.applyRuntimeSelection(applied, selected) ? selected : applied;
   }
 
   private resolveScheme(layout: string): SchemeDefinition {

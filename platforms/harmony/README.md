@@ -176,6 +176,16 @@ Apple 的 `AppIconSettingsView` 和 Android 的同名入口在共享页面上是
 
 所以这是按平台特性裁剪，而不是欠账：能力模型的用途正是让页面不画一个保存了却什么都不做的开关。如果将来 SDK 提供了对应 API，接法是声明 `appIcon` 并在 `module.json5` 里补上备用入口 ability——那时需要的是真机验证，不是这里的接线。
 
+## 在设置页关掉当前方案，键盘要能离开它
+
+共享设置页管着「哪些输入方案出现在选择器里」。关掉键盘正在用的那一个，它从选择器里消失，而键盘照旧用着它——于是既看不见也退不出，除非随便挑另一个。来源在写入启用列表的那一刻就把当前方案归一（`DisabledSchemesAreHiddenAndCurrentSchemeFallsBack`：应用中的日语遇上只启用 `[全拼9键, 五笔]`，存下来的方案立即变成全拼9键；清空则回落到全拼）。
+
+这里不能在写入时做，页面和键盘是两个进程，页面写的是文档而不是一个正在运行的键盘。所以改在 attach 时读：`KeyboardScheme.resolveEnabledSelection` 按「共享选择 → 已应用 → 第一个启用项」定出该用哪一个，`mappingForRuntimeSelection` 决定这算不算一次移动（原地不动、以及目标是回复键盘，都返回 null），移动了才把 `scheme`／`last_chinese_scheme`／`shuangpin_profile`／`touch_keyboard_layout` 一起写回并推给 Engine。两个都是早就移植好、此前没有调用方的。
+
+`touch_keyboard_schemes.selected` 此前只被读来判断是不是回复键盘，现在整体进了设置记录：`scheme` 和 `touch_keyboard_layout` 是 Engine 的视角，它们解析出什么与选择器还提不提供它无关。
+
+**证据边界：这一条没有设备验证。** 单测覆盖了来源断言的那两种情形（已应用项不在启用列表、启用列表被清空）和写回的三种判定，五道门禁与 HAP 打包都过，但模拟器这次起不来——启动器卡在 `CheckRuntimeEnv::RunCheck() → ErrorHandler::ShowDialog` 的模态框上（`sample` 抓到的调用栈），两个实例表现一致，而本机磁盘已到 98%。清掉本 worktree 的构建产物后仍然如此。
+
 ## 快捷栏七个按钮此前对读屏全是哑的
 
 候选行下面那条工具栏整条是图标，没有一个挂了 `accessibilityText`。`KeyAccessibilityPolicy` 里有 `tools`、`skin`、`scheme` 三个名字（移植好、没人调用），另外四个连名字都没有。现在七个都有：`更多快捷设置`、`表情与符号`、`语音输入`、`切换皮肤`、`选择输入方案`、`键盘大小与间距`、`收起键盘`。`shortcutIcon`/`shortcutText` 的 label 参数不是可选的——按键至少还画着一个字符，这些只画图标。

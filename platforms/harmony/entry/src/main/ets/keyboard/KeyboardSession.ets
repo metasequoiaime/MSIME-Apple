@@ -616,6 +616,13 @@ export interface KeyboardPreferences {
   readonly layout: string;
   /** Shared touch-scheme ids enabled in the native picker, in shared declaration order. */
   readonly enabledSchemes: string[];
+  /**
+   * Which of them the shared page last chose, or null when it has never said.
+   *
+   * Read here rather than inferred from `scheme` and `layout`: those two are the Engine's view and
+   * say nothing about whether the picker still offers what they resolve to.
+   */
+  readonly selectedScheme: string | null;
   readonly candidateFollowCursor: boolean;
   readonly numberRowSelection: boolean;
   readonly navigation: HardwareNavigationPreferences;
@@ -769,6 +776,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     // Everything, which is what an absent shared list means; the prepared record narrows it.
     enabledSchemes: KeyboardScheme.SCHEMES.map(
       (candidate: SchemeDefinition): string => candidate.preferenceId),
+    selectedScheme: null,
     scheme: 'quanpin',
     shuangpinProfile: 'xiaohe',
     layout: 'twenty_six_key',
@@ -1031,6 +1039,7 @@ export class KeyboardSession implements HardwareKeyTarget {
         scheme: preferences.scheme,
         shuangpinProfile: preferences.shuangpin_profile,
         layout: preferences.touch_keyboard_layout,
+        selectedScheme: preferences.touch_keyboard_schemes?.selected ?? null,
         enabledSchemes: preferences.touch_keyboard_schemes?.enabled === undefined
           ? KeyboardScheme.SCHEMES.map((candidate: SchemeDefinition): string => candidate.preferenceId)
           : KeyboardScheme.enabledFromPreferenceIds(preferences.touch_keyboard_schemes.enabled)
@@ -3134,6 +3143,42 @@ export class KeyboardSession implements HardwareKeyTarget {
    * writer, and the value that matters is the one currently on disk. The write that follows does its
    * own load and compares revisions, so a genuine conflict is still refused rather than overwritten.
    */
+  /**
+   * Write back a scheme the enabled list moved the keyboard to, and say whether it moved.
+   *
+   * The shared settings page owns which schemes are offered. Turn off the one the keyboard is on
+   * and it vanishes from the picker while the keyboard goes on using it — there is then no way to
+   * see or leave it short of choosing something else. MSIME-Apple normalizes the stored scheme the
+   * moment the enabled list is written (DisabledSchemesAreHiddenAndCurrentSchemeFallsBack); this
+   * host reads the list at attach instead, because the page and the keyboard are separate processes
+   * and the write the page makes is to the document, not to a running keyboard.
+   *
+   * The decision stays in mappingForRuntimeSelection: whether the pair is a move at all, and that
+   * the reply keyboard is never a destination, are the two things it answers.
+   */
+  applyRuntimeSelection(applied: SchemeDefinition, selected: SchemeDefinition): boolean {
+    const current: Record<string, Object> | undefined = this.loadPreferenceDocument();
+    const mapping: PreferenceMapping | null = KeyboardScheme.mappingForRuntimeSelection(
+      applied, selected,
+      current === undefined ? null : this.text(current['last_chinese_scheme']),
+      current === undefined ? null : this.text(current['shuangpin_profile']));
+    if (mapping === null) {
+      return false;
+    }
+    const changes: Map<string, Object> = new Map<string, Object>();
+    changes.set('scheme', mapping.scheme);
+    changes.set('last_chinese_scheme', mapping.lastChineseScheme);
+    changes.set('shuangpin_profile', mapping.shuangpinProfile);
+    changes.set('touch_keyboard_layout', mapping.touchKeyboardLayout);
+    if (!this.changePreferences(changes)) {
+      return false;
+    }
+    this.useScheme(selected.engineScheme, selected.shuangpinProfile);
+    KeyboardLog.info(`scheme fell back to ${selected.preferenceId}: `
+      + `${applied.preferenceId} is no longer enabled`);
+    return true;
+  }
+
   schemeChanges(candidate: SchemeDefinition): Map<string, Object> {
     const current: Record<string, Object> | undefined = this.loadPreferenceDocument();
     const mapping: PreferenceMapping = KeyboardScheme.mapping(candidate,

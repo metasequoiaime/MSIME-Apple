@@ -944,6 +944,53 @@ group("selection prefers the shared choice, then the applied one", () => {
   );
 });
 
+group("turning off the scheme the keyboard is on moves it somewhere it can be left", () => {
+  // MSIME-Apple's DisabledSchemesAreHiddenAndCurrentSchemeFallsBack: with 日语 applied, enabling
+  // only [全拼9键, 五笔] makes the stored scheme 全拼9键. Until this was read the keyboard stayed on
+  // a scheme the picker no longer offered, so there was no card to leave by.
+  const enabled: SchemeDefinition[] = [KeyboardScheme.QUANPIN_NINE_KEY, KeyboardScheme.WUBI];
+  check(
+    KeyboardScheme.resolveEnabledSelection(KeyboardScheme.JAPANESE_NINE_KEY, null, enabled) ===
+      KeyboardScheme.QUANPIN_NINE_KEY,
+    "an applied scheme that is no longer enabled falls back to the first that is",
+  );
+  check(
+    KeyboardScheme.resolveEnabledSelection(KeyboardScheme.JAPANESE_NINE_KEY, null, []) ===
+      KeyboardScheme.QUANPIN,
+    "and emptying the list altogether lands on 全拼, as the source asserts",
+  );
+
+  // The write-back half. It is the same pair that decides whether anything moved, so the caller
+  // cannot disagree with the resolution about whether to persist.
+  check(
+    KeyboardScheme.mappingForRuntimeSelection(
+      KeyboardScheme.JAPANESE_NINE_KEY,
+      KeyboardScheme.QUANPIN_NINE_KEY,
+      "quanpin",
+      "xiaohe",
+    )?.touchKeyboardLayout === "nine_key",
+    "a move carries the layout the destination needs",
+  );
+  check(
+    KeyboardScheme.mappingForRuntimeSelection(
+      KeyboardScheme.WUBI,
+      KeyboardScheme.WUBI,
+      "wubi",
+      "xiaohe",
+    ) === null,
+    "standing still writes nothing",
+  );
+  check(
+    KeyboardScheme.mappingForRuntimeSelection(
+      KeyboardScheme.QUANPIN,
+      KeyboardScheme.THOUGHTFUL_REPLY,
+      "quanpin",
+      "xiaohe",
+    ) === null,
+    "and the reply keyboard is never a destination to be persisted as a scheme",
+  );
+});
+
 group("mapping keeps the last Chinese scheme across a Japanese switch", () => {
   const japanese: PreferenceMapping = KeyboardScheme.mapping(
     KeyboardScheme.JAPANESE,

@@ -80,14 +80,6 @@ ALLOWED: dict[str, str] = {
 
 # Symbol -> what the gap behind it actually is. Expected to reach zero.
 PENDING: dict[str, str] = {
-    "KeyboardScheme.resolveEnabledSelection":
-        "the shared picker's `selected` is parsed out of touch_keyboard_schemes and then dropped, "
-        "so disabling the current scheme from the settings page leaves the keyboard on it while the "
-        "picker stops offering it. MSIME-Apple asserts the fallback in "
-        "DisabledSchemesAreHiddenAndCurrentSchemeFallsBack",
-    "KeyboardScheme.mappingForRuntimeSelection":
-        "the other half of the same gap: once the fallback moves the scheme, the Engine has to be "
-        "told, and this is the preference mapping that tells it",
     "CandidateGlossPolicy.token":
         "the translation request threads (handle, epoch) and checks them in translationCurrent, "
         "which is a second guard covering the same risk as the ported one; the ported token also "
