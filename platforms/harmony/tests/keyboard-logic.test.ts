@@ -149,6 +149,11 @@ import {
 } from "../entry/src/main/ets/keyboard/skin/CustomKeyboardSkin";
 import { DictionaryMaintenancePolicy } from "../entry/src/main/ets/keyboard/DictionaryMaintenancePolicy";
 import {
+  AiPolishPolicy,
+  MAX_POLISH_SOURCE_CHARACTERS,
+  codePointLength,
+} from "../entry/src/main/ets/keyboard/input/AiPolishPolicy";
+import {
   HandwritingStrokePolicy,
   HANDWRITING_CANVAS_SIZE,
   HANDWRITING_MAX_CANDIDATES,
@@ -506,6 +511,73 @@ group("importing a file is queued, so the keyboard being open cannot refuse it",
       `${operation} still goes to the Engine`,
     );
   }
+});
+
+group("polishing acts on what is in front of the caret, and only if it still is", () => {
+  // HarmonyOS gives an input method no way to read a selection, so the Apple gesture — highlight,
+  // then polish — has nothing to act on here. The text before the caret is what this platform does
+  // offer, and on a phone it is also the more natural gesture: type, then tidy.
+  check(
+    AiPolishPolicy.source("今天天气不错啊") === "今天天气不错啊",
+    "the preceding text is the source",
+  );
+  // A trailing newline is the user finishing a line, not part of the sentence they want rewritten.
+  check(
+    AiPolishPolicy.source("今天天气不错啊\n\n") === "今天天气不错啊",
+    "trailing whitespace is dropped",
+  );
+  check(AiPolishPolicy.source("") === "", "an empty editor offers nothing");
+  check(AiPolishPolicy.source("   ") === "", "and neither does whitespace alone");
+  check(AiPolishPolicy.source("好") === "", "nor a fragment too short to be worth a request");
+  const long = "字".repeat(MAX_POLISH_SOURCE_CHARACTERS + 50);
+  // Bounded from the end: the sentence next to the caret is the one being written.
+  check(
+    codePointLength(AiPolishPolicy.source(long)) === MAX_POLISH_SOURCE_CHARACTERS,
+    "an overlong context is bounded",
+  );
+
+  check(!AiPolishPolicy.usable("今天天气不错", ""), "an empty rewrite is not a result");
+  check(!AiPolishPolicy.usable("今天天气不错", "   "), "and neither is whitespace");
+  check(
+    !AiPolishPolicy.usable("今天天气不错", "今天天气不错"),
+    "a rewrite identical to the source is not worth offering",
+  );
+  check(AiPolishPolicy.usable("今天天气不错", "今天天气很好。"), "a genuine rewrite is");
+  // Polish output is prose and may be written in paragraphs. This is the reason it does not go
+  // through the AI candidate parser beside it, which rejects every control character.
+  check(
+    AiPolishPolicy.usable("要点一 要点二", "1. 要点一\n2. 要点二"),
+    "a multi-line rewrite is a result, not a refusal",
+  );
+
+  const source = "今天天气不错";
+  const result = "今天天气很好。";
+  // The editor is re-read at the moment of replacing. A request takes seconds, and replacing after
+  // the user has typed would delete what they just wrote and put the rewrite of something else in.
+  const ready = AiPolishPolicy.replacement(source, result, `你好，${source}`);
+  check(ready !== null, "an unchanged editor can be replaced");
+  check(ready?.deleteCount === codePointLength(source), "deleting exactly the source");
+  check(ready?.insert === result, "and inserting the rewrite");
+  check(
+    AiPolishPolicy.replacement(source, result, `${source}后来又下雨了`) === null,
+    "text typed after the source refuses the replacement",
+  );
+  check(
+    AiPolishPolicy.replacement(source, result, "完全不同的内容") === null,
+    "and so does a different editor entirely",
+  );
+  check(AiPolishPolicy.replacement("", result, "") === null, "an empty source replaces nothing");
+
+  // Counted in code points, not UTF-16 units: an emoji is one thing the user sees deleted and two
+  // units of JavaScript string. The unit `deleteBackwardSync` takes is the one open question here,
+  // which is why the re-read above stands between a wrong answer and a corrupted message.
+  const withEmoji = "今天天气不错🙂";
+  check(withEmoji.length === 8, "the source is eight UTF-16 units");
+  check(codePointLength(withEmoji) === 7, "and seven code points");
+  check(
+    AiPolishPolicy.replacement(withEmoji, result, withEmoji)?.deleteCount === 7,
+    "the delete count follows the code points",
+  );
 });
 
 group("spacing clamps to its range and falls back on a negative", () => {
