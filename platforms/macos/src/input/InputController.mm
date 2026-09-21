@@ -6,6 +6,7 @@
 #import "../../../../shared/apple/TextClient.h"
 #include "msime_client.h"
 #import "../candidate/CandidatePlacement.h"
+#import "../candidate/CandidateGlossSenses.h"
 #import "InputSourceRegistration.h"
 #import "../core/UpdateController.h"
 #import "../core/ScreenKeyboardPanel.h"
@@ -646,6 +647,12 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     NSUInteger _requestedPageSize;
     BOOL _skinShowsSelectedBar;
     NSInteger _armedGlossColumn;
+    // Ctrl+Enter turns the highlighted candidate's gloss into a page of its senses. The composition
+    // is untouched while that page is up - nothing was typed - so leaving it only needs the view
+    // that was on screen put back, which is what `_glossSenseSavedView` holds.
+    NSArray<NSString *> *_glossSenses;
+    NSDictionary *_glossSenseSavedView;
+    NSUInteger _glossSenseCursor;
     BOOL _focusPending;
     unichar _lastSmartPunctuation;
     NSTimeInterval _lastSmartPunctuationTime;
@@ -870,6 +877,133 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     return nil;
 }
 
+// Ctrl+Enter offers the highlighted candidate's gloss as a page of its senses.
+//
+// The reference does this in its Server ("副候选框"), and both Linux front ends follow it: one sense
+// commits straight away, several become a short-lived page the user picks from with space, a digit
+// or the arrow keys. Nothing was typed to get there, so leaving the page only has to put back the
+// view that was on screen. This host had no such page at all - Ctrl+Enter fell into "any Ctrl chord
+// finishes the composition and goes back to the application", so it committed what was being typed.
+- (BOOL)glossSensePageActive { return _glossSenses.count > 0; }
+
+- (NSArray<NSString *> *)sensesForHighlightedCandidate {
+    NSDictionary *candidate = [self highlightedCandidateForGloss];
+    NSString *gloss = CandidateTranslation(candidate);
+    if (gloss.length == 0 || gloss.length > 4096) return @[];
+    const std::string utf8 = gloss.UTF8String ? gloss.UTF8String : "";
+    NSMutableArray<NSString *> *senses = [NSMutableArray array];
+    for (const auto &sense : msime::mac::candidate_gloss_senses(utf8)) {
+        NSString *text = [[NSString alloc] initWithBytes:sense.data() length:sense.size()
+                                               encoding:NSUTF8StringEncoding];
+        if (text.length) [senses addObject:text];
+    }
+    return senses;
+}
+
+// The page the panel draws while the senses are up: the same shape as an Engine view, so the
+// renderer, the placement and the skin all work unchanged.
+- (NSDictionary *)glossSenseView {
+    NSMutableArray *candidates = [NSMutableArray array];
+    const NSUInteger pageSize = MAX((NSUInteger)1, (NSUInteger)_appearance.pageSize);
+    const NSUInteger page = _glossSenseCursor / pageSize;
+    const NSUInteger start = page * pageSize;
+    for (NSUInteger index = start; index < MIN(start + pageSize, _glossSenses.count); ++index)
+        [candidates addObject:@{ @"text": _glossSenses[index],
+                                 @"highlighted": @(index == _glossSenseCursor) }];
+    NSMutableDictionary *view = [(_glossSenseSavedView ?: @{}) mutableCopy];
+    view[@"candidates"] = candidates;
+    view[@"page"] = @(page);
+    view[@"page_count"] = @((_glossSenses.count + pageSize - 1) / pageSize);
+    return view;
+}
+
+- (void)showGlossSensePage:(NSArray<NSString *> *)senses {
+    _glossSenses = senses;
+    _glossSenseCursor = 0;
+    _glossSenseSavedView = _view;
+    _armedGlossColumn = 0;
+    _view = [self glossSenseView];
+    [self renderCandidates];
+}
+
+// Dropping the page without putting anything back, for the paths that are about to replace the view
+// themselves. The saved view is a snapshot of a composition that no longer exists once the Engine
+// has answered or the client has gone away; restoring it there would put a dead candidate list on
+// screen.
+- (void)discardGlossSensePage {
+    _glossSenses = nil;
+    _glossSenseSavedView = nil;
+    _glossSenseCursor = 0;
+}
+
+- (void)leaveGlossSensePage {
+    if (!_glossSenses.count) return;
+    _glossSenses = nil;
+    _glossSenseCursor = 0;
+    if (_glossSenseSavedView) _view = _glossSenseSavedView;
+    _glossSenseSavedView = nil;
+    [self renderCandidates];
+}
+
+- (BOOL)commitGlossSenseAtIndex:(NSUInteger)index client:(id)sender {
+    if (index >= _glossSenses.count || ![sender respondsToSelector:@selector(insertText:replacementRange:)])
+        return NO;
+    NSString *sense = _glossSenses[index];
+    [self discardGlossSensePage];
+    [(id<MSIMETextClient>)sender insertText:sense replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
+    // The sense is the output; what was being composed goes away rather than following it out.
+    NSDictionary *cancelled = _session ? [_session command:MSIME_CANCEL error:nil] : nil;
+    if (cancelled) [self apply:cancelled];
+    else [self renderCandidates];
+    return YES;
+}
+
+// Every key while the page is up. Anything this does not claim closes the page and is then handled
+// as usual, so no key is swallowed by a mode the user has forgotten about.
+- (BOOL)handleGlossSenseEvent:(NSEvent *)event client:(id)sender {
+    if (!_glossSenses.count || event.type != NSEventTypeKeyDown) return NO;
+    const NSEventModifierFlags modifiers = event.modifierFlags &
+        (NSEventModifierFlagShift | NSEventModifierFlagControl | NSEventModifierFlagOption | NSEventModifierFlagCommand);
+    const NSUInteger pageSize = MAX((NSUInteger)1, (NSUInteger)_appearance.pageSize);
+    const NSUInteger count = _glossSenses.count;
+    if (modifiers == 0) {
+        const int slot = msime::mac::PhysicalCandidateDigitSlot(event.keyCode);
+        if (slot >= 0) {
+            const NSUInteger index = (_glossSenseCursor / pageSize) * pageSize + (NSUInteger)slot;
+            if (index < count && (NSUInteger)slot < pageSize) return [self commitGlossSenseAtIndex:index client:sender];
+            return YES; // A slot this page does not have stays inside the page rather than typing.
+        }
+        switch (event.keyCode) {
+            case 49: case 36: case 76: // Space and both Returns take the highlighted sense.
+                return [self commitGlossSenseAtIndex:_glossSenseCursor client:sender];
+            case 53: [self leaveGlossSensePage]; return YES;
+            case 125: case 124: // Down and right move to the next sense.
+                if (_glossSenseCursor + 1 < count) ++_glossSenseCursor;
+                _view = [self glossSenseView];
+                [self renderCandidates];
+                return YES;
+            case 126: case 123:
+                if (_glossSenseCursor > 0) --_glossSenseCursor;
+                _view = [self glossSenseView];
+                [self renderCandidates];
+                return YES;
+            case 121: // Page down.
+                _glossSenseCursor = MIN(count - 1, _glossSenseCursor + pageSize);
+                _view = [self glossSenseView];
+                [self renderCandidates];
+                return YES;
+            case 116:
+                _glossSenseCursor = _glossSenseCursor > pageSize ? _glossSenseCursor - pageSize : 0;
+                _view = [self glossSenseView];
+                [self renderCandidates];
+                return YES;
+            default: break;
+        }
+    }
+    [self leaveGlossSensePage];
+    return NO;
+}
+
 - (BOOL)commitCandidateGlossColumn:(NSInteger)column candidate:(NSDictionary *)candidate client:(id)sender {
     if (!_session || ![sender respondsToSelector:@selector(insertText:replacementRange:)] ||
         ![candidate isKindOfClass:NSDictionary.class] || column <= 0) return NO;
@@ -877,7 +1011,14 @@ static CGFloat MSIMEPreeditSlotWidth(void *) { return MSIMEPreeditCaretGap; }
     if (!gloss.length) return NO;
     [(id<MSIMETextClient>)sender insertText:gloss replacementRange:NSMakeRange(NSNotFound, NSNotFound)];
     _armedGlossColumn = 0;
-    NSDictionary *cancelled = [_session command:MSIME_FINISH_COMPOSITION error:nil];
+    // The gloss is what the user asked for, so the composition goes away rather than being
+    // committed after it: finishing commits the highlighted candidate too, which put the Chinese
+    // word into the document behind the translation - and behind the wrong word at that, since the
+    // gloss can be taken from a candidate that is not the highlighted one.
+    //
+    // The reference commits the sense and clears its state, and the Linux hosts follow it with an
+    // explicit MSIME_CANCEL after committing the text.
+    NSDictionary *cancelled = [_session command:MSIME_CANCEL error:nil];
     if (cancelled) [self apply:cancelled];
     return YES;
 }
@@ -2986,6 +3127,7 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         MSIMEVoiceProviderSocket(), _voiceGeneration);
     [self cancelCandidateTranslations];
     [self cancelCloudCandidates];
+    [self discardGlossSensePage];
     _modifierTap.reset();
     MSIMESetBackendSelectionObservation([NSNotificationCenter defaultCenter], self, @selector(handwritingCandidateSelected:), NO);
     _preferenceLoadState.reset();
@@ -3344,6 +3486,27 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     }
     if ([self convertSmartPunctuationSpace:event client:(id<MSIMETextClient>)sender]) return YES;
     if ([self handleSmartPunctuation:event client:(id<MSIMETextClient>)sender]) return YES;
+    // The sense page owns the keyboard while it is up, and hands back anything it does not claim.
+    if ([self glossSensePageActive] && [self handleGlossSenseEvent:event client:sender]) return YES;
+    // Ctrl+Enter offers the highlighted candidate's gloss: one sense commits, several open the page
+    // above. The reference and both Linux hosts do the same; here the chord used to fall through to
+    // the rule below and commit the composition instead.
+    if ((event.modifierFlags & (NSEventModifierFlagControl | NSEventModifierFlagShift |
+                                NSEventModifierFlagOption | NSEventModifierFlagCommand)) ==
+            NSEventModifierFlagControl &&
+        (event.keyCode == 36 || event.keyCode == 76) && event.type == NSEventTypeKeyDown &&
+        _appearance.candidateTranslations && _panel.isVisible) {
+        NSArray<NSString *> *senses = [self sensesForHighlightedCandidate];
+        if (senses.count == 1) {
+            NSDictionary *highlighted = [self highlightedCandidateForGloss];
+            NSMutableDictionary *single = [highlighted mutableCopy];
+            single[@"translation"] = senses.firstObject;
+            if ([self commitCandidateGlossColumn:1 candidate:single client:sender]) return YES;
+        } else if (senses.count > 1) {
+            [self showGlossSensePage:senses];
+            return YES;
+        }
+    }
     // Ctrl+Backspace deletes a segmentation unit and Ctrl+Left / Ctrl+Right move the caret by one,
     // which is what the reference's composition editor does (`IsSegmentBackspaceKey` and
     // `IsSegmentCaretKey` in its input_key_policy.h) and what both Linux front ends and the Windows
@@ -3597,6 +3760,8 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
 
 - (void)apply:(NSDictionary *)transition {
     if (!transition || !_activeClient) return;
+    // An Engine answer replaces the view the sense page was drawn over, so the page goes with it.
+    [self discardGlossSensePage];
     const auto sourceOverride = _typingSourceOverride
         ? static_cast<msime::mac::TypingSource>(_typingSourceOverride.integerValue)
         : msime::mac::TypingSource::Unknown;
