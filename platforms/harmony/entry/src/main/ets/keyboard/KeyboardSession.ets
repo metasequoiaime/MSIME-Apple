@@ -751,6 +751,16 @@ interface DictionaryRequest {
   action: DictionaryAction;
 }
 
+interface PersonalDictionarySyncValue {
+  pending_count: number;
+}
+
+interface PersonalDictionarySyncResponse {
+  ok: boolean;
+  value: PersonalDictionarySyncValue;
+  error: string;
+}
+
 /**
  * The shared command table from msime_client_command. Spelling the numbers out here keeps the call
  * sites readable and keeps the table in one place instead of scattered behind comments.
@@ -778,6 +788,7 @@ enum InputCommand {
 }
 
 const JAPANESE_SCHEME: number = 3;
+const PERSONAL_DICTIONARY_RETRY_MS: number = 2000;
 
 /**
  * Owns the native session for the lifetime of the extension ability and turns key presses into
@@ -790,6 +801,8 @@ export class KeyboardSession implements HardwareKeyTarget {
 
   private handle: number = 0;
   private inputClient: inputMethodEngine.InputClient | undefined = undefined;
+  private personalDictionarySettled: boolean = true;
+  private personalDictionaryTimer: number = -1;
   private editorGeneration: number = 0;
   // Editor mutations are echoed asynchronously through KeyboardDelegate.textChange. Keep the
   // count raised until those callbacks arrive so our own commit cannot be mistaken for a host edit
@@ -1210,7 +1223,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     // exclusive lock that a live session's shared lock would block, so this is the one moment in
     // the keyboard's life when queued personal-dictionary edits can actually be applied. A failure
     // is not a reason to refuse to start — the queue keeps its entries and the next start retries.
-    this.drainPersonalDictionary(options);
+    this.personalDictionarySettled = this.drainPersonalDictionary(options);
     try {
       const created: CreateResponse = JSON.parse(client.create(options)) as CreateResponse;
       if (!created.ok) {
@@ -1219,6 +1232,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       }
       this.handle = created.value.session;
       KeyboardLog.info(`session ${this.handle} created`);
+      this.schedulePersonalDictionaryDrain();
       return true;
     } catch (error) {
       // A response that will not parse means the ABI moved underneath us. Refusing to start is
@@ -1240,16 +1254,54 @@ export class KeyboardSession implements HardwareKeyTarget {
    * a delay rather than the import; refusing to start the keyboard over it would turn a dictionary
    * problem into no keyboard at all.
    */
-  private drainPersonalDictionary(options: string): void {
+  private drainPersonalDictionary(options: string): boolean {
     try {
-      const reply: Record<string, Object> =
-        JSON.parse(client.personalDictionarySync(options)) as Record<string, Object>;
-      if (reply['ok'] !== true) {
+      const reply: PersonalDictionarySyncResponse =
+        JSON.parse(client.personalDictionarySync(options)) as PersonalDictionarySyncResponse;
+      if (!reply.ok) {
         KeyboardLog.error('personal dictionary queue not applied; it will be retried');
+        return false;
       }
+      return reply.value.pending_count === 0;
     } catch (error) {
       KeyboardLog.error(`personal dictionary queue unavailable: ${describeError(error)}`);
+      return false;
     }
+  }
+
+  /**
+   * Continue a large import in four-entry turns while the editor is idle.
+   *
+   * The native queue deliberately limits one synchronization to four edits. Releasing the event
+   * loop between batches keeps a 128-entry import from monopolising the input method, while the
+   * composition/local-mode guards make the brief Engine-session rebuild invisible to typed text.
+   */
+  private schedulePersonalDictionaryDrain(): void {
+    if (this.personalDictionarySettled || this.personalDictionaryTimer >= 0 || this.handle === 0) {
+      return;
+    }
+    this.personalDictionaryTimer = setTimeout((): void => {
+      this.personalDictionaryTimer = -1;
+      if (this.composing() || this.isInLocalMode()) {
+        this.schedulePersonalDictionaryDrain();
+        return;
+      }
+      const attached: inputMethodEngine.InputClient | undefined = this.inputClient;
+      const english: boolean = this.englishMode;
+      const nineKey: boolean = this.nineKeyMode;
+      this.stop();
+      if (!this.start(this.resourceDirectory, this.stateDirectory, this.systemDark)) {
+        KeyboardLog.error('personal dictionary queue left the session unavailable');
+        return;
+      }
+      this.englishMode = english;
+      this.nineKeyMode = nineKey;
+      if (attached !== undefined && this.inputClient === attached) {
+        this.apply(client.focus(this.handle, true));
+        this.applyView(client.setEnglishMode(this.handle, english));
+        this.applyView(client.setNineKeyMode(this.handle, nineKey));
+      }
+    }, PERSONAL_DICTIONARY_RETRY_MS);
   }
 
   /** Whether the Engine's output is being converted to traditional. */
@@ -1855,6 +1907,10 @@ export class KeyboardSession implements HardwareKeyTarget {
     this.invalidateReplyContext();
     this.clearSmartPunctuationRepeat();
     this.cancelOnlineProviders();
+    if (this.personalDictionaryTimer >= 0) {
+      clearTimeout(this.personalDictionaryTimer);
+      this.personalDictionaryTimer = -1;
+    }
     if (this.handle !== 0) {
       client.destroy(this.handle);
       this.handle = 0;
@@ -2022,11 +2078,15 @@ export class KeyboardSession implements HardwareKeyTarget {
       }
       const request: DictionaryRequest = { options: prepared.value, action: action };
       // Same request shape, different store. The queued route writes the personal-dictionary file
-      // beside the preferences and is drained at the next session start; the Engine route needs
-      // the maintenance lock this method has just taken.
-      result = decision.queued
-        ? client.personalDictionaryRequest(JSON.stringify(request))
-        : client.dictionary(JSON.stringify(request));
+      // beside the preferences and is drained in bounded idle turns; the Engine route needs the
+      // maintenance lock this method has just taken.
+      if (decision.queued) {
+        result = client.personalDictionaryRequest(JSON.stringify(request));
+        this.personalDictionarySettled = false;
+        this.schedulePersonalDictionaryDrain();
+      } else {
+        result = client.dictionary(JSON.stringify(request));
+      }
     } catch (error) {
       KeyboardLog.error(`dictionary request unavailable: ${describeError(error)}`);
       result = JSON.stringify({ ok: false, error: 'dictionary request failed' });

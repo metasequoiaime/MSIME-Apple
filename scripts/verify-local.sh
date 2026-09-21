@@ -335,6 +335,7 @@ python3 scripts/test-harmony-unwired-policies.py || fail "harmony unwired polici
 python3 scripts/test-harmony-unwired-symbols.py || fail "harmony unwired symbols"
 python3 scripts/test-harmony-manifest.py || fail "harmony manifest"
 python3 scripts/test-harmony-snapshot-inspection.py || fail "harmony snapshot inspection"
+python3 scripts/test-harmony-personal-dictionary.py || fail "harmony personal dictionary"
 
 note "harmony bridge parity"
 python3 scripts/test-harmony-bridge-parity.py || fail "harmony bridge parity"

@@ -603,6 +603,48 @@ mod tests {
     }
 
     #[test]
+    fn large_import_yields_between_four_entry_batches_and_preserves_receipts() {
+        let root = tempfile::tempdir().unwrap();
+        let store = PersonalDictionaryStore::new(root.path());
+        let words: Vec<_> = (0..9)
+            .map(|index| word(&format!("batch{index}"), "fixture"))
+            .collect();
+        store.enqueue_import(words, "import".into()).unwrap();
+        let ids: Vec<_> = store
+            .read()
+            .unwrap()
+            .requests
+            .iter()
+            .map(|request| request.id.clone())
+            .collect();
+        let refresh_id = store.read().unwrap().refresh_id;
+        let mut applied = Vec::new();
+        for expected in [4, 8, 9] {
+            store
+                .synchronize(
+                    |request| {
+                        applied.push(request.id.clone());
+                        Ok(())
+                    },
+                    |_| {
+                        Ok(PersonalWordPage {
+                            entries: Vec::new(),
+                            has_more: false,
+                        })
+                    },
+                )
+                .unwrap();
+            assert_eq!(applied, ids[..expected]);
+            let state = store.read().unwrap();
+            assert_eq!(state.pending_count(), 9 - expected);
+            assert_eq!(
+                state.completed_refresh_id.as_deref(),
+                (expected == 9).then_some(refresh_id.as_str())
+            );
+        }
+    }
+
+    #[test]
     fn malformed_state_is_rejected_without_being_overwritten() {
         let root = tempfile::tempdir().unwrap();
         let directory = root.path();
