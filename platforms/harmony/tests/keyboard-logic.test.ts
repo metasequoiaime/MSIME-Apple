@@ -2755,6 +2755,40 @@ group("the Japanese variant key needs kana already composing", () => {
   );
 });
 
+group("on the digit layer the same cell holds the brackets instead", () => {
+  // MSIME-Apple's JapaneseNineKeyView.setDigits: the post-modifier has nothing to modify once the
+  // keys stop producing kana, so the slot goes to the brackets, which have no other home on this
+  // layout. Here the cell was simply dead — enabled() is false for the whole digit layer.
+  check(
+    JapaneseVariantPolicy.brackets(true, true) === true,
+    "the Japanese digit layer turns the cell into the bracket key",
+  );
+  check(
+    JapaneseVariantPolicy.brackets(true, false) === false,
+    "the kana layer keeps it as the variant key",
+  );
+  check(
+    JapaneseVariantPolicy.brackets(false, true) === false,
+    "and no other scheme has this cell at all",
+  );
+  check(
+    JapaneseVariantPolicy.enabled(true, true, true) === false &&
+      JapaneseVariantPolicy.brackets(true, true) === true,
+    "the two jobs never overlap, so one key can carry both",
+  );
+
+  const brackets: string[] = JapaneseNineKeyLayout.digitBrackets();
+  check(brackets.length === 8, "eight of them, as the source lists");
+  check(new Set(brackets).size === brackets.length, "and no repeats");
+  for (const bracket of brackets) {
+    check([...bracket].length === 1, "each is one character, inserted as it stands");
+  }
+  check(
+    !JapaneseVariantPolicy.bracketsLabel().includes("（）"),
+    "the spoken name is not the pair it draws, which reads as two characters",
+  );
+});
+
 console.log("Candidate and cursor policies");
 
 group("space drag accumulates whole steps and carries the remainder", () => {

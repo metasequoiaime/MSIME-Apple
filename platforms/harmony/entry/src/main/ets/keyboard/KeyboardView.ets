@@ -234,6 +234,8 @@ struct KeyboardView {
   @State localMode: string = 'none';
   @State diagnostic: string = '';
   @State punctuation: boolean = false;
+  /** The Japanese digit layer's bracket list, which shares the strip the other long presses use. */
+  @State brackets: boolean = false;
   @State managing: number = -1;
   @State feedback: FeedbackSettings = KeyboardFeedback.DEFAULTS;
   @State traditional: boolean = false;
@@ -1377,7 +1379,7 @@ struct KeyboardView {
       .borderWidth(this.settings.candidateBorderColor === null ? 0 : 1)
       .borderColor(this.candidateBorderColor()).onClick(() => KeyboardSession.shared.choose(index))
       .onHover((isHover: boolean): void => { this.hoveredCandidate = isHover ? index : -1; })
-      .gesture(LongPressGesture().onAction(() => { this.punctuation = false; this.managing = index; }))
+      .gesture(LongPressGesture().onAction(() => { this.punctuation = false; this.brackets = false; this.managing = index; }))
       // The source opens this menu with a right click on the candidate window; it has no touch
       // screen to long-press on. A 2in1 has both pointers, so it gets both gestures rather than
       // being told to hold the left button down on a candidate and wait.
@@ -1631,6 +1633,7 @@ struct KeyboardView {
       .height('100%')
       .gesture(LongPressGesture().onAction(() => {
         this.managing = -1;
+        this.brackets = false;
         this.punctuation = true;
       }))
       this.spaceKey();
@@ -2738,12 +2741,10 @@ struct KeyboardView {
   @Builder
   variantKey() {
     Column() {
-      Text('小゛゜')
+      Text(JapaneseVariantPolicy.brackets(this.japanese, this.symbols) ? '（）' : '小゛゜')
         .fontSize(KeyboardMetrics.SMALL_KEY_FONT_SIZE)
-        .fontColor(JapaneseVariantPolicy.enabled(this.japanese, this.symbols,
-          this.editing.length > 0) ? this.skin.keyForeground : this.skin.keyForeground)
-        .opacity(JapaneseVariantPolicy.enabled(this.japanese, this.symbols,
-          this.editing.length > 0) ? 1 : 0.35)
+        .fontColor(this.skin.keyForeground)
+        .opacity(this.variantKeyLive() ? 1 : 0.35)
         .textAlign(TextAlign.Center)
         .width('100%')
     }
@@ -2756,13 +2757,29 @@ struct KeyboardView {
     .borderColor(this.skin.borderColor)
     // The dimming is the whole explanation of why this key does nothing yet, and dimming is not
     // something a screen reader conveys, so the disabled name says so in words.
-    .accessibilityText(JapaneseVariantPolicy.accessibilityLabel(
-      JapaneseVariantPolicy.enabled(this.japanese, this.symbols, this.editing.length > 0)))
+    .accessibilityText(JapaneseVariantPolicy.brackets(this.japanese, this.symbols)
+      ? JapaneseVariantPolicy.bracketsLabel()
+      : JapaneseVariantPolicy.accessibilityLabel(
+        JapaneseVariantPolicy.enabled(this.japanese, this.symbols, this.editing.length > 0)))
     .onClick(() => {
+      if (JapaneseVariantPolicy.brackets(this.japanese, this.symbols)) {
+        // A strip rather than a menu: bindContextMenu does not show inside an input method panel,
+        // which is why every other long-press list on this keyboard is drawn the same way.
+        this.managing = -1;
+        this.punctuation = false;
+        this.brackets = true;
+        return;
+      }
       if (JapaneseVariantPolicy.enabled(this.japanese, this.symbols, this.editing.length > 0)) {
         this.show(SURFACE_VARIANTS);
       }
     })
+  }
+
+  /** Whether the twelfth cell does anything right now, under whichever of its two jobs it has. */
+  private variantKeyLive(): boolean {
+    return JapaneseVariantPolicy.brackets(this.japanese, this.symbols)
+      || JapaneseVariantPolicy.enabled(this.japanese, this.symbols, this.editing.length > 0);
   }
 
   /**
@@ -2875,7 +2892,20 @@ struct KeyboardView {
         .fontColor(this.skin.keyForeground)
         .opacity(0.55)
         .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP })
-      if (this.punctuation) {
+      if (this.brackets) {
+        ForEach(JapaneseNineKeyLayout.digitBrackets(), (bracket: string) => {
+          Text(bracket)
+            .fontSize(KeyboardMetrics.CANDIDATE_FONT_SIZE)
+            .fontColor(this.skin.keyForeground)
+            .padding({ left: KeyboardMetrics.CANDIDATE_PADDING_VP,
+              right: KeyboardMetrics.CANDIDATE_PADDING_VP })
+            .onClick(() => {
+              // Straight in, like every other label on this layer that carries no stroke.
+              KeyboardSession.shared.insert(bracket);
+              this.brackets = false;
+            })
+        }, (bracket: string) => bracket + this.faceKey())
+      } else if (this.punctuation) {
         ForEach(QuickPunctuationPolicy.entries(this.english, this.engineScheme, this.localMode),
           (item: PunctuationEntry) => {
             Text(item.face)
@@ -2907,6 +2937,7 @@ struct KeyboardView {
         .padding({ right: KeyboardMetrics.CANDIDATE_PADDING_VP })
         .onClick(() => {
           this.punctuation = false;
+          this.brackets = false;
           this.managing = -1;
         })
     }
@@ -3515,9 +3546,10 @@ struct KeyboardView {
   build() {
     Stack({ alignContent: Alignment.Top }) {
       this.keyboard()
-      if (this.punctuation || this.managing >= 0) {
+      if (this.punctuation || this.brackets || this.managing >= 0) {
         Column() {
-          this.overlayStrip(this.punctuation ? '常用标点' : '候选词管理')
+          this.overlayStrip(this.punctuation ? '常用标点'
+            : this.brackets ? '括弧' : '候选词管理')
         }
         .width('100%')
         .padding({

@@ -87,9 +87,6 @@ PENDING: dict[str, str] = {
         "guards for one question, and the tested one is the unused one",
     "CandidateGlossPolicy.isCurrent":
         "the reply side of the same pair",
-    "JapaneseNineKeyLayout.digitBrackets":
-        "the bracket set the Japanese digit layer offers; the layer now draws its digits but has no "
-        "affordance that reaches these eight",
     "FloatingToolbarLayout.allComponents":
         "the all-on default; the toolbar reads components from preferences and the parse supplies "
         "its own defaults, so nothing asks for this one. Which of the two is authoritative has not "
