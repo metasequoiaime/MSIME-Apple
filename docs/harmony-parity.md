@@ -13,7 +13,7 @@ iOS 与 macOS 的同类文档是 [ios-parity.md](ios-parity.md) 和 [macos-parit
 2026-09-22 延续审计使用以下不可变对象：
 
 - 来源：`metasequoiaime/MSIME-Apple` 固定提交 `b93f169839c442cfa7034f3130c3dfaac11b9467`；不读取相邻检出的未提交内容。
-- 目标：本文前三轮的历史结论仍固定在 `develop` 提交 `8011f6dda`；延续的来源测试断言审计记录到本分支 `323f37d24`。两者分开写，避免把尚未合入 `develop` 的证据倒灌成已发布状态。
+- 目标：本文前三轮的历史结论仍固定在 `develop` 提交 `8011f6dda`；延续的来源测试断言审计记录到本分支 `2e4ac1d08`。两者分开写，避免把尚未合入 `develop` 的证据倒灌成已发布状态。
 
 来源入口是该检出的 `platforms/ios/` 与 `shared/`。HarmonyOS 的对照面是 `platforms/harmony/entry/src/main/ets`、`apps/harmony/src` 与它渲染的 `packages/ui/src`——鸿蒙的设置界面就是那份共享 React 页，所以对照面必须把它算进来，只比 ArkTS 会把一整层功能误判成缺失。
 
@@ -192,9 +192,13 @@ EnglishCapitalizationPolicy.shouldShift
 | #3418 | 词库页「词库信息」 |
 | #3419 | 键盘无障碍标签接线 |
 
-延续审计在独立 worktree 中又落了十二个尚未合入 `develop` 的切片：`bbba58c92`（云快照原生完整校验）、`3a1a512bc`（云快照请求持久化）、`44e3fbbba`（个人词库按 Engine 规范化并支持多行快捷短语）、`c4de95cb5`（常驻键盘按 4 条一批持续排空个人词库）、`bc3b27c27`（个人词库证据刷新）、`d2331af9e`（云词库下载进入同一持久队列）、`d226c4adb`（常驻键盘空闲轮询新入队快照）、`a0abb25b5`（候选翻译独立门控、固定释义行及面板高度）、`889033a66`（展开候选单行且不越界）、`4b5c91de4`（手写停笔去抖及最新快照串行识别）、`20a36ae73`（关闭回复面板时作废晚到结果）与 `323f37d24`（自定义皮肤完整进入原生键盘渲染）。这些只具有源码、单元测试与本地构建证据，不继承下面 2026-09-21 那轮模拟器结论。
+延续审计在独立 worktree 中又落了十五个尚未合入 `develop` 的切片：`bbba58c92`（云快照原生完整校验）、`3a1a512bc`（云快照请求持久化）、`44e3fbbba`（个人词库按 Engine 规范化并支持多行快捷短语）、`c4de95cb5`（常驻键盘按 4 条一批持续排空个人词库）、`bc3b27c27`（个人词库证据刷新）、`d2331af9e`（云词库下载进入同一持久队列）、`d226c4adb`（常驻键盘空闲轮询新入队快照）、`a0abb25b5`（候选翻译独立门控、固定释义行及面板高度）、`889033a66`（展开候选单行且不越界）、`4b5c91de4`（手写停笔去抖及最新快照串行识别）、`20a36ae73`（关闭回复面板时作废晚到结果）、`323f37d24`（自定义皮肤完整进入原生键盘渲染）、`9e1647eb8`（按 provider 获取模型目录）、`f050483ce`（EveryAPI/Mistral 进入云端语音适配器）与 `2e4ac1d08`（云剪贴板资源 ID 本地校验）。这些只具有源码、单元测试与本地构建证据，不继承下面 2026-09-21 那轮模拟器结论。
 
 这四片来自继续读取固定 Apple 测试体。`JapaneseNineKeyTests` 暴露展开候选按内容无限增宽；`HandwritingTests` 暴露每笔后立即 OCR 且识别期间丢弃后续触摸，来源实际是 550 ms 停笔去抖；`KeyboardAITests` 暴露关闭面板只丢本地 generation、会话仍缓存晚到结果且销毁后回调未解除；`KeyboardSkinTests` 则抓到最典型的“模型和测试都在、产品没消费”：渐变、照片、图案、键帽形状/材质/阴影全被解析，真实 ArkUI 键盘只用了颜色和字体。`SkinCommunityTests` 的公开浏览、登录刷新、错误映射、搜索编码、大页上限与预览不改当前设计均落在共享 `AccountCloudBridge`、社区 React 页和原生试用存储中，本轮未发现另一处分叉。
+
+随后审计 `CustomServiceTests` 时又找到两条同类分叉。设置页把 `provider` 交给 Harmony，但原生模型目录桥完全忽略它：所有服务都按 Bearer、单页和 `/v1/models` 请求，因而 Anthropic 的 `x-api-key`/分页、Gemini 的 `/v1beta/openai/models`、EveryAPI 的能力过滤全部丢失；现在这些协议差异由 `AiModelCatalogPolicy` 明确建模。语音设置已经公开 EveryAPI 与 Mistral，键盘运行时却只允许 OpenAI、SiliconFlow、Groq，页面还把前两者显示成 Harmony 不支持；现在五个 OpenAI-compatible 批量转写 provider 共用一条经过 HTTPS、模型和分槽凭据校验的路径。`KeyboardSurfaceUITests`、`SettingsUITests` 与 `SkinUITests` 随后逐条映射到共享 React 页面、原生设置桥、皮肤库/试用存储和 ArkUI 键盘，未再发现另一条宿主行为缺口；应用内“试用键盘”和备用应用图标分别是 Apple 原生页面与 iOS 系统 API，不伪造为 Harmony/Tauri 产品入口。
+
+`BackendAccountClientTests` 另暴露一个边界不一致：词库变更已要求 64 位十六进制资源 ID，云剪贴板删除却接受任意非空字符串。它虽然经过 URL 编码，不构成路径穿越，但仍会把账户 token 带到一个本地即可判错的请求；现在两者共用同一资源 ID 校验，非法 ID 不进入 transport。其余账号断言——token 形状、状态码脱敏、搜索参数编码、字典 revision、固定 origin 与默认昵称——均已有对应实现。
 
 ## 2026-09-21 补：模拟器验收
 
@@ -217,5 +221,6 @@ EnglishCapitalizationPolicy.shouldShift
 - 读屏实际念出什么，以及 `accessibilityText` 挂在键容器上是否会被读到（而不是被里面的 `Text` 盖过）。
 - 个人词库大批导入是否在真机常驻扩展中按空闲批次持续排空，以及应用后的词条是否立即进入真实候选。共享队列已有 4/4/1 批处理、回执不重放和 Engine 规范化测试，Harmony 也有会话锁释放、组字保护、两秒续排与模式恢复的源码门禁；这里缺的是设备层证据，不再是实现路径未知。
 - 横排候选释义的第二行、设置切换后的固定高度和在线 provider 结果是否在真实 ArkUI panel 中按预期绘制。逻辑层与宿主接线门禁已覆盖，当前 worktree 没有 HAP 编译和设备画面证据。
-- 展开候选的截尾、自定义皮肤的渐变/照片/图案/键帽材质，以及连续多笔手写在真实 ArkUI/Core Vision 上的画面、触控与识别效果。当前只有 1508 条逻辑断言和宿主接线守卫，没有本轮 HAP 或设备复测。
+- 展开候选的截尾、自定义皮肤的渐变/照片/图案/键帽材质，以及连续多笔手写在真实 ArkUI/Core Vision 上的画面、触控与识别效果。当前只有 1535 条逻辑断言和宿主接线守卫，没有本轮 HAP 或设备复测。
+- Anthropic/Gemini/EveryAPI 模型目录、EveryAPI/Mistral 转写及云剪贴板删除只验证了请求策略、边界与产品接线；没有用真实凭据执行服务往返，也没有在设备上验证录音授权和 multipart 请求。
 - 真机签名与麦克风授权流程。
