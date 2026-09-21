@@ -491,6 +491,38 @@ pub fn pick_file() -> Option<String> {
     path
 }
 
+/// Ask the user for a directory and return its absolute path, or `None` when cancelled.
+/// Must run on the AppKit main thread.
+#[cfg(target_os = "macos")]
+pub fn pick_directory() -> Option<String> {
+    unsafe extern "C" {
+        fn msime_macos_pick_directory() -> *mut std::os::raw::c_char;
+        fn msime_macos_free_picked_path(path: *mut std::os::raw::c_char);
+    }
+    // SAFETY: the native side returns either null or a strdup'd UTF-8 path that this owns and frees.
+    let raw = unsafe { msime_macos_pick_directory() };
+    if raw.is_null() {
+        return None;
+    }
+    let path = unsafe { std::ffi::CStr::from_ptr(raw) }
+        .to_str()
+        .ok()
+        .map(str::to_owned);
+    unsafe { msime_macos_free_picked_path(raw) };
+    path
+}
+
+/// Stop every running instance of the separate InputMethodKit bundle before its state is moved.
+/// Must run on the AppKit main thread.
+#[cfg(target_os = "macos")]
+pub fn stop_input_method() -> bool {
+    unsafe extern "C" {
+        fn msime_macos_stop_input_method() -> bool;
+    }
+    // SAFETY: no pointers cross the boundary; native code validates the calling thread.
+    unsafe { msime_macos_stop_input_method() }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

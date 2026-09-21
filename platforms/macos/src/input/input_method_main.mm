@@ -4,6 +4,7 @@
 #import "../settings/PreferencesWindowController.h"
 #import "../settings/RuntimeOptions.h"
 #import "../settings/AppearancePreferences.h"
+#import "../candidate/CandidateSkin.h"
 #import "../voice/VoiceAudioMuter.h"
 #include <cstring>
 #include <dlfcn.h>
@@ -13,6 +14,16 @@ static bool MSIMEShouldShowPreferences(int argc, const char *argv[]) {
         if (strcmp(argv[index], "--preferences") == 0) return true;
     }
     return false;
+}
+
+static void MSIMEConfigureMovableState(void) {
+    NSDictionary *options = MSIMELoadRuntimeOptions();
+    NSString *directory = [options[@"preferences_directory"] isKindOfClass:NSString.class]
+        ? options[@"preferences_directory"] : nil;
+    if (directory.length > 0 && directory.isAbsolutePath) {
+        metasequoia::mac::SetDefaultSkinsRoot(
+            std::filesystem::path(directory.fileSystemRepresentation) / "skins");
+    }
 }
 
 int main(int argc, const char *argv[]) {
@@ -28,6 +39,7 @@ int main(int argc, const char *argv[]) {
             return status == noErr ? 0 : 1;
         }
         [NSApplication sharedApplication];
+        MSIMEConfigureMovableState();
         NSString *swiftBackend = [NSBundle.mainBundle.privateFrameworksPath stringByAppendingPathComponent:@"MSIMEBackend.dylib"];
         if (swiftBackend.length > 0 && dlopen(swiftBackend.fileSystemRepresentation, RTLD_NOW | RTLD_GLOBAL) == nullptr) return 1;
         if (MSIMEShouldShowPreferences(argc, argv)) {

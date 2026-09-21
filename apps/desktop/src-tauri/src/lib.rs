@@ -42,8 +42,8 @@ use platform::ios::ios_account;
 use platform::linux::{linux_account, linux_audio_devices, linux_process};
 #[cfg(target_os = "macos")]
 use platform::macos::{
-    macos_account, macos_cloud_clipboard, macos_cloud_dictionary, macos_handwriting,
-    macos_input_source, macos_keyboard, macos_launch, macos_panel_session,
+    macos_account, macos_cloud_clipboard, macos_cloud_dictionary, macos_data_directory,
+    macos_handwriting, macos_input_source, macos_keyboard, macos_launch, macos_panel_session,
 };
 #[cfg(windows)]
 use platform::windows::{windows_account, windows_voice};
@@ -2115,6 +2115,180 @@ async fn pick_voice_model_path(app: tauri::AppHandle) -> Result<Option<String>, 
 
 #[cfg(target_os = "macos")]
 #[tauri::command]
+async fn pick_data_directory(
+    app: tauri::AppHandle,
+    selection: tauri::State<'_, DataDirectorySelectionState>,
+) -> Result<Option<String>, HostActionError> {
+    let (send, received) = std::sync::mpsc::sync_channel(1);
+    app.run_on_main_thread(move || {
+        let _ = send.send(msime_host_macos::pick_directory());
+    })
+    .map_err(|_| HostActionError {
+        code: "data_directory_unavailable",
+    })?;
+    let chosen = received.recv().map_err(|_| HostActionError {
+        code: "data_directory_unavailable",
+    })?;
+    let path = chosen.map(PathBuf::from);
+    *selection.0.lock().map_err(|_| HostActionError {
+        code: "data_directory_unavailable",
+    })? = path.clone();
+    Ok(path.map(|path| path.to_string_lossy().into_owned()))
+}
+
+#[cfg(target_os = "macos")]
+#[derive(Default)]
+struct DataDirectorySelectionState(Mutex<Option<PathBuf>>);
+
+#[cfg(target_os = "macos")]
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DataDirectoryStatus {
+    path: String,
+    is_default: bool,
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+fn data_directory_status(
+    app: tauri::AppHandle,
+    runtime: tauri::State<'_, RuntimeOptionsState>,
+) -> Result<DataDirectoryStatus, HostActionError> {
+    let document = runtime.snapshot().map_err(|_| HostActionError {
+        code: "data_directory_unavailable",
+    })?;
+    let path = document
+        .get("preferences_directory")
+        .and_then(Value::as_str)
+        .filter(|path| PathBuf::from(path).is_absolute())
+        .ok_or(HostActionError {
+            code: "data_directory_unavailable",
+        })?;
+    let default = app.path().app_data_dir().map_err(|_| HostActionError {
+        code: "data_directory_unavailable",
+    })?;
+    Ok(DataDirectoryStatus {
+        path: path.to_owned(),
+        is_default: std::path::Path::new(path) == default,
+    })
+}
+
+#[cfg(target_os = "macos")]
+#[derive(serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+struct DataDirectoryMoveResult {
+    path: String,
+    is_default: bool,
+    retained_old_data: bool,
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
+async fn move_data_directory(
+    app: tauri::AppHandle,
+    runtime: tauri::State<'_, RuntimeOptionsState>,
+    selection: tauri::State<'_, DataDirectorySelectionState>,
+) -> Result<DataDirectoryMoveResult, HostActionError> {
+    let document = runtime.snapshot().map_err(|_| HostActionError {
+        code: "data_directory_unavailable",
+    })?;
+    let source = document
+        .get("preferences_directory")
+        .and_then(Value::as_str)
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .ok_or(HostActionError {
+            code: "data_directory_unavailable",
+        })?;
+    let resources = document
+        .get("resources")
+        .and_then(Value::as_str)
+        .map(PathBuf::from)
+        .filter(|path| path.is_absolute())
+        .ok_or(HostActionError {
+            code: "data_directory_unavailable",
+        })?;
+    let target = selection
+        .0
+        .lock()
+        .map_err(|_| HostActionError {
+            code: "data_directory_unavailable",
+        })?
+        .take()
+        .ok_or(HostActionError {
+            code: "data_directory_invalid",
+        })?;
+    let default_root = app.path().app_data_dir().map_err(|_| HostActionError {
+        code: "data_directory_unavailable",
+    })?;
+    let native_root = macos_launch::native_locator_root().map_err(|_| HostActionError {
+        code: "data_directory_unavailable",
+    })?;
+    let locators = vec![
+        default_root.join("runtime-options.json"),
+        native_root.join("runtime-options.json"),
+    ];
+
+    let (send, received) = std::sync::mpsc::sync_channel(1);
+    app.run_on_main_thread(move || {
+        let _ = send.send(msime_host_macos::stop_input_method());
+    })
+    .map_err(|_| HostActionError {
+        code: "data_directory_busy",
+    })?;
+    if !received.recv().unwrap_or(false) {
+        return Err(HostActionError {
+            code: "data_directory_busy",
+        });
+    }
+
+    let result = tauri::async_runtime::spawn_blocking(move || {
+        let is_default =
+            std::fs::canonicalize(&target).ok() == std::fs::canonicalize(&default_root).ok();
+        macos_data_directory::move_data_directory(
+            &source,
+            &target,
+            &default_root,
+            &native_root,
+            &locators,
+            |destination| {
+                let document = msime_host_api::prepare_host_configuration(&resources, destination)
+                    .map_err(|_| macos_data_directory::MoveError::Prepare)?;
+                serde_json::from_str(&document)
+                    .map_err(|_| macos_data_directory::MoveError::Prepare)
+            },
+        )
+        .map(|outcome| (target, outcome, is_default))
+    })
+    .await
+    .map_err(|_| HostActionError {
+        code: "data_directory_move_failed",
+    })?
+    .map_err(|error| HostActionError {
+        code: match error {
+            macos_data_directory::MoveError::InvalidTarget => "data_directory_invalid",
+            macos_data_directory::MoveError::TargetNotEmpty => "data_directory_not_empty",
+            macos_data_directory::MoveError::InvalidSource => "data_directory_unavailable",
+            macos_data_directory::MoveError::Copy
+            | macos_data_directory::MoveError::Prepare
+            | macos_data_directory::MoveError::Publish => "data_directory_move_failed",
+        },
+    })?;
+    let response = DataDirectoryMoveResult {
+        path: result.0.to_string_lossy().into_owned(),
+        is_default: result.2,
+        retained_old_data: result.1.retained_old_data,
+    };
+    let exit_app = app.clone();
+    std::thread::spawn(move || {
+        std::thread::sleep(std::time::Duration::from_millis(500));
+        exit_app.exit(0);
+    });
+    Ok(response)
+}
+
+#[cfg(target_os = "macos")]
+#[tauri::command]
 async fn uninstall_input_source(
     remove_user_data: bool,
     app: tauri::AppHandle,
@@ -3243,17 +3417,31 @@ pub fn run() {
             let macos_launch = {
                 let options_override = std::env::var_os("MSIME_CLIENT_HOST_OPTIONS")
                     .or_else(|| std::env::var_os("MSIME_IBUS_OPTIONS"));
+                let state_override = std::env::var_os("MSIME_CLIENT_STATE_DIR");
+                let application_directory = app.path().app_data_dir()?;
+                if options_override.is_none() && state_override.is_none() {
+                    if let Ok(native_root) = macos_launch::native_locator_root() {
+                        let _ = macos_launch::recover_default_options(
+                            &application_directory,
+                            &native_root.join("runtime-options.json"),
+                        );
+                    }
+                }
                 let resources_directory = if options_override.is_none() {
                     Some(app.path().resource_dir()?.join("EngineResources"))
                 } else {
                     None
                 };
-                macos_launch::resolve_with_resources(
-                    &app.path().app_data_dir()?,
+                let launch = macos_launch::resolve_with_resources(
+                    &application_directory,
                     resources_directory.as_deref(),
                     options_override,
-                    std::env::var_os("MSIME_CLIENT_STATE_DIR"),
-                )?
+                    state_override,
+                )?;
+                if launch.publish_native_locator {
+                    macos_launch::publish_native_options(&launch.document)?;
+                }
+                launch
             };
             #[cfg(target_os = "macos")]
             let directory = macos_launch.preferences_directory.clone();
@@ -3504,6 +3692,8 @@ pub fn run() {
                 document: Arc::new(Mutex::new(host_document)),
             });
             #[cfg(target_os = "macos")]
+            app.manage(DataDirectorySelectionState::default());
+            #[cfg(target_os = "macos")]
             if let Some(surface) = macos_keyboard::startup_panel(requested_surface_route())
                 .or_else(|| macos_panel_session::startup_panel_for_launch(requested_surface_route()))
                 .or_else(|| macos_cloud_clipboard::startup_panel(requested_surface_route()))
@@ -3632,6 +3822,12 @@ pub fn run() {
             restart_input_method,
             #[cfg(target_os = "macos")]
             install_input_source,
+            #[cfg(target_os = "macos")]
+            data_directory_status,
+            #[cfg(target_os = "macos")]
+            pick_data_directory,
+            #[cfg(target_os = "macos")]
+            move_data_directory,
             #[cfg(target_os = "macos")]
             load_macos_shuangpin_keymap,
             #[cfg(target_os = "macos")]
