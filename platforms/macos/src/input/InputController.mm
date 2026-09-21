@@ -3344,6 +3344,31 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
     }
     if ([self convertSmartPunctuationSpace:event client:(id<MSIMETextClient>)sender]) return YES;
     if ([self handleSmartPunctuation:event client:(id<MSIMETextClient>)sender]) return YES;
+    // Ctrl+Backspace deletes a segmentation unit and Ctrl+Left / Ctrl+Right move the caret by one,
+    // which is what the reference's composition editor does (`IsSegmentBackspaceKey` and
+    // `IsSegmentCaretKey` in its input_key_policy.h) and what both Linux front ends and the Windows
+    // host already route. It has to be decided before the rule below, which hands every Ctrl, Option
+    // and Command chord back to the application after finishing the composition - that rule is what
+    // left this host without segment editing.
+    //
+    // Only the bare Ctrl chord is the input method's: with Shift, Option or Command also held, or
+    // with nothing being composed, the key stays the application's.
+    if ((event.modifierFlags & (NSEventModifierFlagControl | NSEventModifierFlagShift |
+                                NSEventModifierFlagOption | NSEventModifierFlagCommand)) ==
+            NSEventModifierFlagControl &&
+        _session && _activeClient && ([_view[@"editing_text"] length] || [_view[@"candidates"] count])) {
+        uint32_t segment = UINT32_MAX;
+        if (event.keyCode == 51) segment = MSIME_BACKSPACE_SEGMENT;
+        else if (event.keyCode == 123) segment = MSIME_MOVE_LEFT_SEGMENT;
+        else if (event.keyCode == 124) segment = MSIME_MOVE_RIGHT_SEGMENT;
+        if (segment != UINT32_MAX) {
+            NSDictionary *transition = [_session command:segment error:nil];
+            // An Engine failure leaves the composition alone rather than finishing it below: the
+            // user asked to edit what is there, not to commit it.
+            if (transition) { [self apply:transition]; return YES; }
+            return YES;
+        }
+    }
     if (event.modifierFlags & (NSEventModifierFlagCommand | NSEventModifierFlagControl | NSEventModifierFlagOption)) {
         [self apply:[_session command:MSIME_FINISH_COMPOSITION error:nil]];
         return NO;
