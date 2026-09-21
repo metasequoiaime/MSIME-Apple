@@ -1157,7 +1157,8 @@
  * 放在两块之前它不在任何一段切片里，而渲染时靠特异性照样生效。（注释里也不能出现那两个锚点的
  * 字面写法——脚本是按字符串找的，写了就会把锚点抢过来。）
  */
-  [data-settings-shell][data-mobile] {
+  [data-settings-shell][data-mobile],
+  [data-onboarding-shell][data-mobile] {
     --accent-color: #185c48;
     --accent-strong: #14483a;
     --accent-soft: rgba(24, 92, 72, 0.13);

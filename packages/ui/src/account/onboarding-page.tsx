@@ -85,7 +85,15 @@ export function WelcomeFlowPage({
   };
 
   return (
-    <main className={`${onboarding.page} ${onboarding.buttons}`} aria-label="首次设置">
+    // Marked the same way the settings shell is: this page owns the whole window and renders before
+    // the shell exists, so without its own marker the first screen anyone sees is the only one still
+    // in the desktop accent.
+    <main
+      className={`${onboarding.page} ${onboarding.buttons}`}
+      aria-label="首次设置"
+      data-onboarding-shell=""
+      data-mobile=""
+    >
       <header className={onboarding.header}>
         <img src={new URL("./assets/msime.svg", import.meta.url).href} alt="" />
         <div>
