@@ -1774,7 +1774,13 @@ if let Some(route) = launch_route_from_args(&args) { ... }
 
 同一批里修掉一个自己踩出来的门禁坑：`scripts/verify-local.sh` 判断 macOS 那一级要不要跑，用的是「`target/macos-isolated` 目录是否存在」。我为了在本机跑 macOS 用例去 configure 了一次，因为缺 Sparkle 2.9.6 而以 `FATAL_ERROR` 失败——但 CMake 在报错之前已经写下了目录和 `CMakeCache.txt`，于是门禁认为「已配置」，随后的编译与 ctest 两级一起变红。判据改成「有没有生成出构建系统文件」（`build.ninja` / `Makefile`），那是只有走完的 configure 才会写的东西。两个方向都验过：只有 `CMakeCache.txt` 时跳过，有 `Makefile` 时才跑。
 
-增量记录（2026-09-21，Windows 第三十六批：把「完整」落到文件级的记账上）：目标起点 `ac48a74ba`。
+增量记录（2026-09-21，Windows 第三十六批：两处新行为的交叉情形，以及候选窗锚点核对）：目标起点 `1b9e3d86d`。
+
+**成对标点与半截词同时在场。** 两者都是同一段 marked text 的尾巴/头部，而且分居光标两侧：待补的右括号必须留在最后（用户要看见将要补上的是什么），已选的半截词必须留在最前（那是已经定下来的文字），光标在两者之间——打字从那里继续。#3380 与 #3395 各自有用例，交叉情形没有。补在 `TextClientTest`：组字中断言 `海滩paobu）` 且光标在 7，结束时整条词连同右括号一次上屏。反向验证过（把前缀改成追加而不是前置，第 453 行变红）。
+
+**候选窗锚点。** 来源 `GetCandidateLayoutCaret`：跟随光标关掉时，用本次组字会话开始时捕获的锚点（`g_candidate_session_anchor`），捕获一次后整段会话复用；跟随光标打开、或者报上来的 y 是 `INVALID_Y` 时走实时光标。macOS 的 `_candidateAnchorValid` / `_candidateAnchorCaret` 逐条相同，并且在跟随开关本身变化时重置锚点（`MSIMEValidCaret` 对应那个无效值判断）。核过，不是缺口。
+
+增量记录（2026-09-21，Windows 第三十七批：把「完整」落到文件级的记账上）：目标起点 `ac48a74ba`。
 
 此前三道检查都是从**外面**看来源：它能被配置成什么（180 个键）、它的界面能请求什么（46 个动作）、它发布过什么（19 条 changelog bullet）。三道都答不了迁移真正要回答的那个问题——**它的源码树里还有没有东西是本仓没有对应物的**。README 的功能清单太粗（二十几条），一条「词库管理」背后是十三个文件。
 
