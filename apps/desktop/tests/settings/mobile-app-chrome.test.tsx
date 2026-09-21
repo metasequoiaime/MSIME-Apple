@@ -96,7 +96,9 @@ test("the home hero image resolves to a real asset", async () => {
   const hero = home.querySelector("header img") as HTMLImageElement;
   expect(hero).toBeTruthy();
   expect(hero.src).not.toContain("/keyboard/assets/");
-  expect(hero.src).toContain("msime.svg");
+  // Either form is a resolved asset: a path to the file, or the file itself once it is small enough
+  // for the bundler to inline. What this guards against is a path that resolves to nothing.
+  expect(hero.src.includes("msime.svg") || hero.src.startsWith("data:image/svg+xml")).toBe(true);
 });
 
 // A phone's primary navigation has to stay reachable by thumb, and it is a bottom tab bar on every

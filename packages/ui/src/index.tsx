@@ -78,7 +78,7 @@ import {
   type AppIconClient,
 } from "./account/account-page";
 import { ChatPage, type ChatClient } from "./chat/chat-page";
-import { HomePage, type HomePageActions } from "./keyboard/home-page";
+import { HomePage, MoreSettingsPage, type HomePageActions } from "./keyboard/home-page";
 import { CommunitySkinsPage, type CommunitySkinClient } from "./community/community-skins";
 import { candidateSkinPalette } from "./skin/skin-preview-palette";
 import {
@@ -125,7 +125,7 @@ export {
   type ChatModel,
   type ChatModels,
 } from "./chat/chat-page";
-export { HomePage, type HomePageActions } from "./keyboard/home-page";
+export { HomePage, MoreSettingsPage, type HomePageActions } from "./keyboard/home-page";
 export {
   WelcomeFlowPage,
   type OnboardingActions,
@@ -468,6 +468,14 @@ const pages = [
     id: "floating-toolbar",
     title: "悬浮工具栏",
     icon: new URL("./assets/floating-toolbar.svg", import.meta.url).href,
+  },
+  // Mobile only, and the one page that is a list of the other pages. The phone bar carries the
+  // source's four tabs, so everything else is reached the way the source reaches it: through the
+  // 键盘 tab, down one level, into a list.
+  {
+    id: "more",
+    title: "全部设置",
+    icon: new URL("./assets/utilities.svg", import.meta.url).href,
   },
   { id: "help", title: "帮助", icon: new URL("./assets/help.svg", import.meta.url).href },
   { id: "about", title: "关于", icon: new URL("./assets/about.svg", import.meta.url).href },
@@ -1566,9 +1574,9 @@ function message(error: unknown): string {
 /**
  * The 键盘 tab draws a keyboard, not the app.
  *
- * Its page icon is the 200 KB app logo, which is the wrong subject at 22px and is also the one asset
- * the single-file harmony bundle declines to inline, so reusing it here would have left the first
- * tab with a broken image.
+ * Its page icon is the app logo, which the source does not put in the bar either — its first tab is
+ * `systemImage: "keyboard"`. Three of the four tabs would otherwise be a subject and the fourth a
+ * brand.
  */
 const keyboardTabIcon = new URL("./assets/screen-keyboard.svg", import.meta.url).href;
 
@@ -3329,11 +3337,14 @@ export function SettingsPage({
       (item.id !== "account" || Boolean(client.account || client.appIcon)) &&
       (item.id !== "chat" || Boolean(client.chat)) &&
       (item.id !== "community" || Boolean(client.communitySkins || client.communityResources)) &&
-      (item.id !== "floating-toolbar" || showFloatingToolbar),
+      (item.id !== "floating-toolbar" || showFloatingToolbar) &&
+      (item.id !== "more" || mobilePlatform),
   );
+  // The sidebar is the list this page duplicates, so it does not list it.
+  const sidebarPages = availablePages.filter((item) => item.id !== "more");
   const sidebarGroups = ((): (typeof availablePages)[] => {
-    if (!macosPlatform) return [availablePages];
-    const remaining = new Map(availablePages.map((item) => [item.id, item]));
+    if (!macosPlatform) return [sidebarPages];
+    const remaining = new Map(sidebarPages.map((item) => [item.id, item]));
     const groups = macosSidebarGroups
       .map((ids) =>
         ids.flatMap((id) => {
@@ -3357,6 +3368,10 @@ export function SettingsPage({
   // Walked in tab order rather than filtered out of `availablePages`, which is in the order the
   // pages happen to be declared in — that put 我的 second, and the bar read 键盘 / 我的 / 社区 / 统计
   // against the source's 键盘 / 社区 / 统计 / 我的.
+  // A page without a tab of its own was reached from inside the 键盘 tab, so that is the tab still
+  // standing on. Keyed off the page alone, the bar went blank the moment anyone opened one — nothing
+  // lit, and no way to read where in the app you were.
+  const mobileActiveTab: SettingsPageId = mobilePrimaryPageIds.includes(page) ? page : "home";
   const mobilePrimaryPages = mobilePrimaryPageIds.flatMap((id) => {
     const item = availablePages.find((page) => page.id === id);
     return item ? [item] : [];
@@ -3385,7 +3400,10 @@ export function SettingsPage({
       ? ["shortcuts", "floating-toolbar"]
       : ["helpcode", "shortcuts", "floating-toolbar"];
   const mobileSecondaryPages = availablePages.filter(
-    (item) => !mobilePrimaryPageIds.includes(item.id) && !mobileHiddenPageIds.includes(item.id),
+    (item) =>
+      item.id !== "more" &&
+      !mobilePrimaryPageIds.includes(item.id) &&
+      !mobileHiddenPageIds.includes(item.id),
   );
   const selectPage = (next: SettingsPageId) => {
     if (mobilePlatform && mobileHiddenPageIds.includes(next)) return;
@@ -3646,16 +3664,16 @@ export function SettingsPage({
                 key={item.id}
                 type="button"
                 className={`flex min-h-[48px] min-w-0 cursor-pointer flex-col items-center justify-center gap-0.5 rounded-xl border-0 bg-transparent px-1 py-1 text-[11px] ${
-                  page === item.id ? "font-semibold text-accent" : "text-muted"
+                  mobileActiveTab === item.id ? "font-semibold text-accent" : "text-muted"
                 }`}
-                aria-current={page === item.id ? "page" : undefined}
+                aria-current={mobileActiveTab === item.id ? "page" : undefined}
                 onClick={() => selectPage(item.id)}
               >
                 <img
                   src={mobileTabIcon(item.id, item.icon)}
                   alt=""
                   aria-hidden="true"
-                  className={`size-[22px] ${page === item.id ? "opacity-100" : "opacity-60"}`}
+                  className={`size-[22px] ${mobileActiveTab === item.id ? "opacity-100" : "opacity-60"}`}
                 />
                 {mobileTabTitle(item.id, item.title)}
               </button>
@@ -3722,15 +3740,16 @@ export function SettingsPage({
                 onSelectScheme={selectHomeScheme}
                 onOpenChat={client.chat ? () => selectPage("chat") : undefined}
                 touchLayout={mobilePlatform}
-                morePages={
-                  mobilePlatform
-                    ? mobileSecondaryPages.map((item) => ({
-                        id: item.id,
-                        title: item.title,
-                        icon: item.icon,
-                      }))
-                    : undefined
-                }
+              />
+            )}
+            {page === "more" && (
+              <MoreSettingsPage
+                pages={mobileSecondaryPages.map((item) => ({
+                  id: item.id,
+                  title: item.title,
+                  icon: item.icon,
+                }))}
+                onOpenPage={(value) => selectPage(value as SettingsPageId)}
               />
             )}
             {(client.account || client.appIcon) && page === "account" && (
@@ -3826,6 +3845,7 @@ export function SettingsPage({
               page !== "typing-statistics" &&
               page !== "account" &&
               page !== "chat" &&
+              page !== "more" &&
               page !== "community" && (
                 <form
                   onSubmit={(event) => {

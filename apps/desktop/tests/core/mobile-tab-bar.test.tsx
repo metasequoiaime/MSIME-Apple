@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { afterEach, expect, test, vi } from "vitest";
-import { cleanup, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { SettingsPage, type HostCapabilities, type Snapshot } from "@msime/ui";
 
 afterEach(cleanup);
@@ -64,7 +64,8 @@ test("every page the sidebar reaches is reachable on a phone", async () => {
 
   const sidebar = screen.getByRole("navigation", { name: "设置分类" });
   const reachable = new Set(tabs);
-  const list = screen.getByRole("heading", { name: "全部设置" }).nextElementSibling!;
+  fireEvent.click(screen.getByRole("button", { name: /全部设置/ }));
+  const list = screen.getByRole("region", { name: "全部设置" });
   for (const button of list.querySelectorAll("button")) {
     // The row is a title, a note and a chevron, so the title is the part to compare.
     reachable.add(button.querySelector("strong")?.textContent ?? "");
@@ -76,4 +77,28 @@ test("every page the sidebar reaches is reachable on a phone", async () => {
     .map((button) => button.textContent ?? "")
     .filter((title) => !reachable.has(title));
   expect(stranded).toEqual([]);
+});
+
+// Drilling into a page that has no tab does not leave the bar blank: the page was reached from the
+// 键盘 tab, so the 键盘 tab is still where you are. The source keeps its first tab selected for
+// everything its navigation stack pushes.
+test("the 键盘 tab stays lit on the pages reached from it", async () => {
+  mount();
+  await screen.findByRole("button", { name: "保存设置" });
+
+  const bar = screen.getByRole("navigation", { name: "主要功能" });
+  const keyboard = within(bar).getByRole("button", { name: "键盘" });
+  expect(keyboard.getAttribute("aria-current")).toBe("page");
+
+  fireEvent.click(screen.getByRole("button", { name: /全部设置/ }));
+  const list = screen.getByRole("region", { name: "全部设置" });
+  const row = [...list.querySelectorAll("button")].find(
+    (item) => item.querySelector("strong")?.textContent === "输入",
+  )!;
+  fireEvent.click(row);
+
+  expect(within(bar).getByRole("button", { name: "键盘" }).getAttribute("aria-current")).toBe(
+    "page",
+  );
+  expect(within(bar).getByRole("button", { name: "我的" }).getAttribute("aria-current")).toBeNull();
 });

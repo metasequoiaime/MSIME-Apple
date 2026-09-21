@@ -53,9 +53,10 @@ function singleFile(): Plugin {
       }
       // Vite inlines the assets named through `new URL(..., import.meta.url)`, but not the ones it
       // judges too large, and what it leaves behind is a path to a file this build never emits and
-      // the loop above would have deleted anyway. That is a broken image with nothing to fetch it
-      // from — the app logo, today, at the head of the home page and the onboarding page. Inline the
-      // stragglers from source so the rule that nothing is left to fetch holds for every asset.
+      // the loop above would have deleted anyway — a broken image with nothing to fetch it from. The
+      // app logo was over that line until it was redrawn, and nothing is over it today. Kept because
+      // the failure is silent: the page renders, one image is simply missing, and no build step says
+      // so. Inline the stragglers from source and the rule that nothing is left to fetch holds.
       html = html.replace(/\.\/assets\/([\w.-]+\.svg)/g, (reference, name: string) => {
         const file = join(import.meta.dirname, "../../packages/ui/src/assets", name);
         if (!existsSync(file)) return reference;

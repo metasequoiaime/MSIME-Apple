@@ -36,21 +36,25 @@ function renderSettings(platform: string, save = vi.fn().mockResolvedValue(undef
   return save;
 }
 
-// The phone bar carries the source's four tabs and nothing else, so a page without a tab is a row
-// in the 键盘 tab's own list. It used to be an option in a `更多设置` dropdown seated in the bar.
-async function moreSettingsList() {
+// The list lives on a page of its own now, reached from the 键盘 tab — the phone bar is the source's
+// four tabs and nothing else. It used to be a `更多设置` dropdown seated in the bar.
+async function moreSettingsRows() {
+  // Idempotent: the page carries no form and so no 保存设置 button, and a caller that reads the rows
+  // and then opens one would otherwise wait for a button that this page does not have.
+  const open = screen.queryByRole("region", { name: "全部设置" });
+  if (open) return [...open.querySelectorAll("button")];
   await screen.findByRole("button", { name: "保存设置" });
-  const heading = screen.getByRole("heading", { name: "全部设置" });
-  return [...heading.nextElementSibling!.querySelectorAll("button")];
+  fireEvent.click(screen.getByRole("button", { name: /全部设置/ }));
+  return [...screen.getByRole("region", { name: "全部设置" }).querySelectorAll("button")];
 }
 
 async function moreSettingsTitles() {
-  const rows = await moreSettingsList();
+  const rows = await moreSettingsRows();
   return rows.map((row) => row.querySelector("strong")?.textContent ?? "");
 }
 
 async function openMoreSetting(title: string) {
-  const rows = await moreSettingsList();
+  const rows = await moreSettingsRows();
   const row = rows.find((item) => item.querySelector("strong")?.textContent === title);
   if (!row) throw new Error(`no row for ${title}`);
   fireEvent.click(row);

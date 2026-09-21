@@ -2139,12 +2139,10 @@ test("mobile hosts use Apple-style primary navigation and retain secondary setti
   expect(within(primary).getByRole("button", { name: "统计" })).toBeTruthy();
   // The source names this tab 我的, which is also the page's own title; the bar said 账号 against it.
   expect(within(primary).getByRole("button", { name: "我的" })).toBeTruthy();
-  // The bar holds those four and nothing else. Every other page is a row in the 键盘 tab's list.
-  const rows = [
-    ...screen
-      .getByRole("heading", { name: "全部设置" })
-      .nextElementSibling!.querySelectorAll("button"),
-  ];
+  // The bar holds those four and nothing else. Every other page is a row on the 全部设置 page, one
+  // level down inside the 键盘 tab.
+  fireEvent.click(screen.getByRole("button", { name: /全部设置/ }));
+  const rows = [...screen.getByRole("region", { name: "全部设置" }).querySelectorAll("button")];
   const secondaryLabels = rows.map((row) => row.querySelector("strong")?.textContent ?? "");
   expect(secondaryLabels).toContain("输入");
   expect(secondaryLabels).toContain("实用功能");
@@ -2208,11 +2206,8 @@ test("mobile settings pages follow the WebView back stack", async () => {
       />,
     );
     await screen.findByRole("button", { name: "保存设置" });
-    const rows = [
-      ...screen
-        .getByRole("heading", { name: "全部设置" })
-        .nextElementSibling!.querySelectorAll("button"),
-    ];
+    fireEvent.click(screen.getByRole("button", { name: /全部设置/ }));
+    const rows = [...screen.getByRole("region", { name: "全部设置" }).querySelectorAll("button")];
     fireEvent.click(rows.find((row) => row.querySelector("strong")?.textContent === "输入")!);
     expect(window.history.state).toEqual(
       expect.objectContaining({ msimeSettings: true, page: "input" }),

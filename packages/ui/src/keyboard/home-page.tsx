@@ -15,6 +15,13 @@ const cardNote = "mt-1";
 // what lets the note beside it ellipsise instead of pushing the chevron off the edge.
 const rowBody = "min-w-0 flex-1";
 const rowChevron = "shrink-0 grow-0 basis-auto text-lg text-muted";
+// The pages that have no tab of their own are one grouped list, not a stack of separate cards:
+// thirteen floating cards is thirteen shadows and a screenful of gaps, and the source draws this as
+// a single inset list with a hairline between the rows.
+const listGroup = "overflow-hidden rounded-[14px] border border-edge bg-card shadow-card";
+const listRow =
+  "press-spring flex w-full items-center gap-3 px-3.5 py-[11px] text-left text-[15px] text-body hover:bg-raised active:opacity-[0.88] motion-reduce:transition-none not-first:border-t not-first:border-edge";
+
 const quickTile =
   "press-spring flex min-w-0 flex-col items-start gap-[5px] rounded-[11px] border border-edge bg-subtle p-3 text-left text-body hover:border-edge-strong hover:bg-raised active:scale-[0.96] active:opacity-[0.88] motion-reduce:transition-none max-tight:px-2 max-tight:py-2.5";
 const quickIcon =
@@ -77,7 +84,6 @@ export function HomePage({
   onSelectScheme,
   onOpenChat,
   touchLayout = false,
-  morePages,
 }: {
   preferences: Preferences;
   actions?: HomePageActions;
@@ -85,7 +91,6 @@ export function HomePage({
   onOpenChat?: () => void;
   onSelectScheme?: (scheme: TouchKeyboardScheme) => void;
   touchLayout?: boolean;
-  morePages?: readonly MoreSettingsPage[];
 }) {
   const theme = useCandidatePreviewTheme(preferences.theme, preferences.screen_keyboard_theme);
   const skin = preferences.touch_keyboard_skin ?? "forest";
@@ -269,12 +274,12 @@ export function HomePage({
           </span>
         </button>
       )}
-      <button type="button" className={rowCard} onClick={() => onOpenPage("appearance")}>
+      <button type="button" className={rowCard} onClick={() => onOpenPage("more")}>
         <span className="text-[19px] text-accent" aria-hidden="true">
           ⚙
         </span>
         <span className={rowBody}>
-          <strong className={cardTitle}>键盘设置</strong>
+          <strong className={cardTitle}>全部设置</strong>
           <small className={cardNote}>输入偏好、词库、AI 与语音</small>
         </span>
         <span className={rowChevron} aria-hidden="true">
@@ -319,29 +324,44 @@ export function HomePage({
           </button>
         )}
       </div>
-      {morePages && morePages.length > 0 && (
-        <>
-          <h3 className="mt-1 mb-0 text-[13px] font-semibold text-muted">全部设置</h3>
-          <div className="flex flex-col gap-2">
-            {morePages.map((item) => (
-              <button
-                key={item.id}
-                type="button"
-                className={rowCard}
-                onClick={() => onOpenPage(item.id)}
-              >
-                <img src={item.icon} alt="" aria-hidden="true" className="size-[22px] shrink-0" />
-                <span className={rowBody}>
-                  <strong className={cardTitle}>{item.title}</strong>
-                </span>
-                <span className={rowChevron} aria-hidden="true">
-                  ›
-                </span>
-              </button>
-            ))}
-          </div>
-        </>
-      )}
+    </section>
+  );
+}
+
+/**
+ * The pages that have no tab of their own.
+ *
+ * Reached from the 键盘 tab rather than from a fifth cell in the bar, because the source's bar is
+ * four tabs and its other pages sit one level down inside the first of them. One grouped list with
+ * a hairline between the rows, not a card per page.
+ */
+export function MoreSettingsPage({
+  pages,
+  onOpenPage,
+}: {
+  pages: readonly MoreSettingsPage[];
+  onOpenPage: (page: string) => void;
+}) {
+  return (
+    <section className="flex flex-col gap-3" aria-label="全部设置">
+      <div className={listGroup}>
+        {pages.map((item) => (
+          <button
+            key={item.id}
+            type="button"
+            className={listRow}
+            onClick={() => onOpenPage(item.id)}
+          >
+            <img src={item.icon} alt="" aria-hidden="true" className="size-[20px] shrink-0" />
+            <span className={rowBody}>
+              <strong className="block font-medium">{item.title}</strong>
+            </span>
+            <span className={rowChevron} aria-hidden="true">
+              ›
+            </span>
+          </button>
+        ))}
+      </div>
     </section>
   );
 }
