@@ -1331,6 +1331,8 @@ MSIME-Apple 的语音服务目录里有两个共享客户端一直没有的转�
 
 原生外观设置页里的“配置语音输入…”此前仍指向保留的旧 `MSIMEVoiceSettings`，且只对一个以 `window=nil` 初始化的 controller 调 `showWindow:`，首次点击不会建窗也没有任何反馈。该入口现在与输入法菜单回退一致，动态打开同一个 `MetasequoiaVoiceProviderSettingsWindow` 并调用其 `showAndActivate`；动态路由保留是为了让不链接语音窗口的隔离设置测试继续成立。合成替身覆盖成功展示、缺少工厂和缺少展示方法三条路径，未启动 Tauri 工程或安装输入源。
 
+统一后的窗口随后暴露出凭据隔离缺口：切换 provider 会直接清空输入框，保存还会把当前 ASR 与润色来源之外的 Keychain 项全部删除；同时只更新扁平 token，不更新固定 Windows 来源、共享 React 页和 Rust 配置契约共同使用的 `asr_tokens` / `polish_tokens`。现在窗口离开 provider 时先把草稿放回该 provider 的槽位，返回时恢复对应值；系统识别与本地 Whisper 不保留槽位。默认 endpoint/model 随 provider 更新，用户手填值继续保留。Keychain account 加入 provider id，避免两个 OpenAI 兼容服务共用 origin 时串用密钥；旧 account 在当前 provider 首次保存时迁移。保存只删除同一 provider 被替换的旧 origin，切换 provider 不再抹掉另一服务的密钥，并将完整槽位表交给共享快照持久化。
+
 本地验证：`shared-voice-provider-routing` 以 `-Wall -Wextra -Werror` 编译并通过，覆盖两个新服务的默认地址、默认模型、非 websocket 判定、豆包地址改写和语言参数；`msime-client-core` 239 项、`msime-tauri-mobile-platform` 12 项 Rust 测试通过（含扩展后的凭据探测与 multipart 校验用例）；`cargo fmt --all --check` 与两个 crate 的 clippy `-D warnings` 通过；桌面 UI 套件 700 passed，失败项与 `scripts/known-failures.txt` 一致；新增 4 项 Vitest 覆盖默认值、地址改写、手填保留和 iOS 设置页选项；Linux provider 脚本的服务集合与默认值表一致性已断言。`apps/desktop/src-tauri` 的 iOS 语音配置用例已写入但未能执行：该 crate 的构建脚本要求先产出 macOS 预览 bundle，而 `cargo build -p msime-host-api` 在本机以 `can't find crate for zerofrom_derive` 失败——在未修改的 `origin/develop` 上同样失败，属既有环境债而非本次回归。未执行真实服务请求、iOS 真机或 Linux 图形桌面验收，CI 保持禁用。
 
 ### 共享 apple-bridge 词库会话租约本地测试

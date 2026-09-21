@@ -12,6 +12,7 @@ FOUNDATION_EXPORT BOOL MSIMEVoiceASRProviderUsesService(NSString *provider);
 @property(nonatomic, copy) NSString *endpoint;
 @property(nonatomic, copy) NSString *model;
 @property(nonatomic, copy) NSString *token;
+@property(nonatomic, copy) NSDictionary<NSString *, NSString *> *tokenSlots;
 @property(nonatomic, copy) NSString *modelPath;
 @property(nonatomic) BOOL polishEnabled;
 @property(nonatomic, copy) NSString *polishEndpoint;
