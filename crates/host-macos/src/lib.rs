@@ -210,6 +210,20 @@ pub fn quiesce_input_sessions() {
     unsafe { msime_macos_quiesce_input_sessions() };
 }
 
+/// Tell the separate IMK process that the private aggregate-statistics opt-in changed.
+///
+/// Only the boolean crosses the process boundary. No committed text, path, or statistic is placed
+/// in the distributed notification.
+#[cfg(target_os = "macos")]
+pub fn notify_typing_statistics_enabled(enabled: bool) {
+    unsafe extern "C" {
+        fn msime_macos_notify_typing_statistics_enabled(enabled: bool);
+    }
+    // SAFETY: scalar ABI; the native function posts one per-user notification and retains no
+    // caller-owned state.
+    unsafe { msime_macos_notify_typing_statistics_enabled(enabled) };
+}
+
 /// Read the account session shared with the Swift backend Keychain store.
 #[cfg(target_os = "macos")]
 pub fn account_load() -> Result<Option<Vec<u8>>, &'static str> {

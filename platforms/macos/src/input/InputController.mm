@@ -66,6 +66,7 @@
 #include "../core/PairedPunctuation.h"
 #include "../core/TypingStatistics.h"
 #include "../core/DiagnosticLog.h"
+#include <atomic>
 
 // Implemented by the Swift backend dylib loaded by input_method_main.mm. The account provider
 // keeps credentials and transport on the Swift side; this process receives only bounded glosses.
@@ -81,7 +82,25 @@ static dispatch_queue_t MSIMETypingStatisticsQueue(void) {
     return queue;
 }
 
+static NSString * const MSIMETypingStatisticsEnabledChangedNotification =
+    @"MetasequoiaTypingStatisticsEnabledChangedNotification";
+// Privacy-preserving default: until the persisted opt-in is loaded, the capture boundary is shut.
+static std::atomic_bool MSIMETypingStatisticsEnabled{false};
+
+static void MSIMEReloadTypingStatisticsEnabled(NSString *directory) {
+    MSIMETypingStatisticsEnabled.store(false, std::memory_order_relaxed);
+    if (![directory isKindOfClass:NSString.class] || !directory.isAbsolutePath) return;
+    NSData *bytes = [directory dataUsingEncoding:NSUTF8StringEncoding];
+    if (!bytes || bytes.length > 16384) return;
+    const int32_t enabled = msime_client_typing_statistics_enabled(
+        static_cast<const uint8_t *>(bytes.bytes), bytes.length);
+    if (enabled >= 0) MSIMETypingStatisticsEnabled.store(enabled == 1, std::memory_order_relaxed);
+}
+
 static void MSIMERecordTypingStatistics(NSString *directory, NSString *text, msime::mac::TypingSource source) {
+    // Match the Windows capture contract: an opt-out does not inspect or classify committed text,
+    // allocate a request, enter the worker queue, or touch the statistics store.
+    if (!MSIMETypingStatisticsEnabled.load(std::memory_order_relaxed)) return;
     if (![directory isKindOfClass:NSString.class] || !directory.isAbsolutePath ||
         ![text isKindOfClass:NSString.class] || text.length == 0) return;
     NSDateComponents *components = [NSCalendar.currentCalendar components:NSCalendarUnitYear | NSCalendarUnitMonth |
@@ -1756,7 +1775,17 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(appearanceChanged:) name:MSIMEVoiceSettingsDidChangeNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(voiceProviderSettingsChanged:) name:MSIMEVoiceProviderSettingsDidChangeNotification object:nil];
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(accountCandidateTranslationsDidArrive:) name:@"MSIMEBackendCandidateTranslationsDidArrive" object:nil];
+    [NSDistributedNotificationCenter.defaultCenter addObserver:self
+        selector:@selector(typingStatisticsEnabledChanged:)
+        name:MSIMETypingStatisticsEnabledChangedNotification object:nil
+        suspensionBehavior:NSNotificationSuspensionBehaviorDeliverImmediately];
     _globalVoiceHotkeyMonitor = [NSEvent addGlobalMonitorForEventsMatchingMask:NSEventMaskKeyDown handler:[self globalVoiceHotkeyHandler]];
+}
+- (void)typingStatisticsEnabledChanged:(NSNotification *)notification {
+    NSNumber *enabled = [notification.userInfo[@"enabled"] isKindOfClass:NSNumber.class]
+        ? notification.userInfo[@"enabled"] : nil;
+    if (enabled) MSIMETypingStatisticsEnabled.store(enabled.boolValue, std::memory_order_relaxed);
+    else MSIMEReloadTypingStatisticsEnabled(_preferencesDirectory);
 }
 - (void (^)(NSEvent *))globalVoiceHotkeyHandler {
     __weak MSIMEInputController *weakSelf = self;
@@ -2283,6 +2312,7 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
 }
 - (void)dealloc {
     [[NSNotificationCenter defaultCenter] removeObserver:self];
+    [NSDistributedNotificationCenter.defaultCenter removeObserver:self];
     [_desktopInputSession stop]; [_httpVoiceRequest cancel]; [_doubaoVoiceRequest cancel];
     [_doubaoPolishRequest cancel]; [_livePolishRequest cancel];
 }
@@ -3008,6 +3038,9 @@ static NSDictionary *MSIMESessionOptions(NSDictionary *runtimeOptions) {
         if ([directory isKindOfClass:NSString.class] && [directory isAbsolutePath]) _preferencesDirectory = [directory copy];
     }
     if (_activeClient && _preferencesDirectory) {
+        // Activation may happen after the setting changed while the IMK process was not running.
+        // Load once here; subsequent changes arrive through the distributed notification above.
+        MSIMEReloadTypingStatisticsEnabled(_preferencesDirectory);
         [_appearance setTranslationPreferencesDirectory:_preferencesDirectory];
         [_preferencesTimer invalidate];
         __weak MSIMEInputController *weakSelf = self;
