@@ -206,6 +206,12 @@ add_executable(linux-japanese-conversion-test tests/core/japanese_conversion.cpp
 target_compile_options(linux-japanese-conversion-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 target_include_directories(linux-japanese-conversion-test PRIVATE src)
 add_test(NAME linux-japanese-conversion COMMAND linux-japanese-conversion-test)
+# One table for the two menus over one setting, because they disagreed: 首右 had been written as
+# 搜狗, which names a different company's input method.
+add_executable(linux-helpcode-schema-names-test tests/core/helpcode_schema_names.cpp)
+target_compile_options(linux-helpcode-schema-names-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
+target_include_directories(linux-helpcode-schema-names-test PRIVATE src)
+add_test(NAME linux-helpcode-schema-names COMMAND linux-helpcode-schema-names-test)
 add_executable(linux-phrase-preedit-test tests/core/phrase_preedit.cpp)
 target_compile_options(linux-phrase-preedit-test PRIVATE -Wall -Wextra -Werror -UNDEBUG)
 target_include_directories(linux-phrase-preedit-test PRIVATE src)

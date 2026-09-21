@@ -2132,3 +2132,17 @@ if let Some(route) = launch_route_from_args(&args) { ... }
 判据写进 `scripts/fetch_engine.py` 的文件头供下次照做：**对 GitHub 现生成的 tarball 取哈希，同时也是在对仓库名取哈希**；下次再遇到，要重跑这个比对，而不是看「两次下载同一个摘要」就认——稳定只说明服务端自洽，不说明它给的是那个 commit 说的东西。
 
 效果：本批这个 worktree 是冷的，`--quick` 从五条 FAIL（vendored engine、cargo check、windows cross build、pipe-only x86_64 与 i686——全是 Engine 准备不出来的下游）变成全绿。
+
+### 辅助码方案在 Linux 两个菜单里叫错了名字（2026-09-21）
+
+来源的帮助页只有六段话，其中一段是实打实的行为与名词：「辅助码方案目前支持自然码辅助码、蓝天小雨点、首右2.0、首右plus和小鹤」。照着它去数本仓的标签，发现 **Linux 的两个菜单把「首右」写成了「搜狗」**——fcitx5 状态栏的 `辅助码：搜狗 2.0`，以及 IBus 属性列表里的两个单选项。搜狗是另一家公司的输入法，这个标签等于在切换辅助码的菜单里念了一个跟该方案毫无关系的产品名。标识符 `shouyou2_0` 一路都是对的，错的只有给人看的那一行字。
+
+**为什么此前的门禁一条都没拦住：它们比的全是标识符。** 配置键、UI 动作、设定→字段映射、源文件清单，四道对照门禁看的都是 `shouyou2_0` 这种东西，而它在每一份拷贝里都正确。没有任何一道门禁看过用户读到的名字。
+
+改法按本仓既有惯例（`ShuangpinProfileNames.h` 就是这个形状）：把表收成 `platforms/linux/src/core/HelpcodeSchemaNames.h` 一份，两个前端都用它——状态栏与 IBus 属性列表本来就是同一个设定上的两个菜单，却各抄了一份表，而共享设置页抄的是第三份、且是对的。
+
+新门禁 `scripts/test-helpcode-schema-labels.py` 比的是**名字**，而且**对着来源比而不是让四份拷贝互相比**——四份一致地错正是它要抓的状态。它读来源默认分支 tip 的 `helpcode.html` 下拉项，与共享设置页、macOS 设置窗口、macOS 后端页、Linux 表四处逐条对。反向验证过：把 Linux 表改回「搜狗 2.0」立刻报 FAIL 并指名是哪一处、来源叫什么。
+
+这一批是在容器里真编译出来的，不是「逻辑回归通过」：容器门禁由 20 个用例变 21 个（新增 `linux-helpcode-schema-names`），全部通过。编译还抓出两处我写错的命名空间——`FcitxEngine.cpp` 在 `msime::fcitx_host` 里，引用 `msime::linux_host` 的表要写全限定名，两个前端各一处。**这正是此前每条 Linux 记录只写「逻辑回归通过」时漏掉的那一级证据。**
+
+顺带按同类问题扫了双拼方案名那张表（`ShuangpinProfileNames.h`）：小鹤 / 自然码 / 首道 / 微软四个都对，Linux 菜单里省掉「双拼」后缀是菜单语境的简写，不是错名，不动它。

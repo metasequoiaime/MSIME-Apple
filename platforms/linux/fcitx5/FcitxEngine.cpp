@@ -25,6 +25,7 @@
 #include "../src/core/SmartPunctuationSpace.h"
 #include "../src/system/DiagnosticLog.h"
 #include "../src/core/HelpcodeDefaults.h"
+#include "../src/core/HelpcodeSchemaNames.h"
 #include "../src/core/PhrasePreedit.h"
 #include "../src/core/JapaneseConversion.h"
 #include "../src/system/TypingStatistics.h"
@@ -2766,10 +2767,7 @@ public:
     const auto section = scheme == 1 ? "shuangpin_helpcode" : "quanpin_helpcode";
     const auto value = state->preferences_.value(section, Json::object())
         .value("schema", scheme == 1 ? std::string("lantian") : std::string("ziranma"));
-    const auto label = value == "lantian" ? "蓝天" : value == "ziranma" ? "自然码" :
-        value == "shouyou2_0" ? "搜狗 2.0" : value == "shouyouplus" ? "搜狗 Plus" :
-        value == "jiajia" ? "加加" : "小鹤";
-    return std::string("辅助码：") + label;
+    return std::string("辅助码：") + std::string(msime::linux_host::helpcode_schema_label(value));
   }
   std::string icon(fcitx::InputContext *) const override { return "input-keyboard"; }
   void activate(fcitx::InputContext *ic) override {

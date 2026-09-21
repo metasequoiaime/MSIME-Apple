@@ -205,6 +205,12 @@ python3 scripts/test-no-host-dialogs.py || fail "host dialogs"
 note "reference config coverage"
 python3 scripts/test-reference-config-coverage.py || fail "reference config coverage"
 
+# The checks above compare identifiers, and an identifier being right says nothing about the name
+# the user reads next to it: both Linux menus spelled the 首右 helpcode schemes 搜狗, which is a
+# different company's input method, and every identifier around them was correct.
+note "helpcode schema labels"
+python3 scripts/test-helpcode-schema-labels.py || fail "helpcode schema labels"
+
 # A quick phrase ends up in the candidate pipe's text field, whose size the Engine declares. The
 # limit on it was six bare literals across three crates, none attached to that header, so moving
 # the engine lock would have changed the field and nothing else.

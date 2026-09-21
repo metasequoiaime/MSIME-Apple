@@ -3,6 +3,7 @@
 #include "../clipboard/ClipboardText.h"
 #include "../system/ChineseTextConversion.h"
 #include "HelpcodeDefaults.h"
+#include "HelpcodeSchemaNames.h"
 #include "NavigationBindings.h"
 #include "NativeCompose.h"
 #include "PhrasePreedit.h"
@@ -2637,12 +2638,7 @@ void publish_mode(IBusEngine *engine, bool registration) {
       configured.at("preferences").value(active_scheme + "_helpcode", Json::object())
           .value("schema", std::string(msime::linux_host::default_helpcode_schema(
                                active_scheme))));
-  for (const auto &[value, label] : {std::pair{"lantian", "蓝天"},
-                                     std::pair{"ziranma", "自然码"},
-                                     std::pair{"shouyou2_0", "搜狗 2.0"},
-                                     std::pair{"shouyouplus", "搜狗 Plus"},
-                                     std::pair{"xiaohe", "小鹤"},
-                                     std::pair{"jiajia", "加加"}}) {
+  for (const auto &[value, label] : msime::linux_host::kHelpcodeSchemaNames) {
     auto item = ibus_property_new(
         (std::string("HelpcodeSchema/") + value).c_str(), PROP_TYPE_RADIO,
         ibus_text_new_from_static_string(label), "",
