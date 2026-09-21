@@ -569,7 +569,6 @@ final class NineKeyKeyboardTests: XCTestCase {
     let preedit = try button("preeditButton", in: controller).configuration?.title
     try button("layoutShortcut", in: controller).sendActions(for: .primaryActionTriggered)
     XCTAssertFalse(descendants(controller.view).contains { $0.accessibilityIdentifier?.hasPrefix("layoutCard-") == true })
-    let voice = try XCTUnwrap(descendants(controller.view).first { $0.accessibilityIdentifier == "voiceShortcutSwitch" } as? UISwitch)
     let height = try XCTUnwrap(
       descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardHeightGrip" })
     controller.view.layoutIfNeeded()
@@ -579,16 +578,18 @@ final class NineKeyKeyboardTests: XCTestCase {
     let adjustedHeight = try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" }).constant
     XCTAssertEqual(adjustedHeight, initialHeight + 24, accuracy: 0.5)
     XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, 24)
-    voice.isOn = true
-    voice.sendActions(for: .valueChanged)
-    XCTAssertTrue(KeyboardLayoutPreference.voiceShortcutEnabled)
     XCTAssertEqual(KeyboardLayoutPreference.keySpacing, 5)
     XCTAssertEqual(KeyboardLayoutPreference.rowSpacing, 8)
     XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, 24)
     XCTAssertEqual(try button("preeditButton", in: controller).configuration?.title, preedit)
-    voice.isOn = false
-    voice.sendActions(for: .valueChanged)
     try button("closeLayoutPicker", in: controller).sendActions(for: .primaryActionTriggered)
+    // 语音入口的开关已经不在这条工具条上了 —— 它留在应用的键盘设置页。要守住的契约没变:这个偏好
+    // 不被间距和高度牵连(上面三条刚查过),而且只有它决定顶栏那个语音按钮露不露面。
+    KeyboardLayoutPreference.voiceShortcutEnabled = true
+    controller.viewWillAppear(false)
+    XCTAssertFalse(try button("layoutVoiceShortcut", in: controller).isHidden)
+    KeyboardLayoutPreference.voiceShortcutEnabled = false
+    controller.viewWillAppear(false)
     XCTAssertTrue(try button("layoutVoiceShortcut", in: controller).isHidden)
   }
 

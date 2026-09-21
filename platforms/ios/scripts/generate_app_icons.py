@@ -165,7 +165,21 @@ def main() -> None:
         # keeps the master's transparency rather than sitting on a hard dark square.
         logo = staging / "Logo.svg"
         logo.write_text(artwork(FRAME, field=None))
-        render(logo, ASSETS / "MSIMELogo.imageset/logo.png", 1024)
+        logo_set = ASSETS / "MSIMELogo.imageset"
+        render(logo, logo_set / "logo.png", 1024)
+        # The rendering intent is part of this asset's contract with the artwork, so it is written
+        # here rather than left beside it. It used to say `template`, which keeps only the alpha
+        # channel and paints the rest in the tint colour - fine for the single-colour mark that was
+        # here before, but this artwork is a dark panel, a coloured frame and a white stroke, and
+        # all three collapsed into one black silhouette on the launch screen.
+        (logo_set / "Contents.json").write_text(
+            json.dumps(
+                {"images": [{"filename": "logo.png", "idiom": "universal"}],
+                 "info": {"author": "xcode", "version": 1},
+                 "properties": {"template-rendering-intent": "original"}},
+                indent=2,
+            ) + "\n"
+        )
         keyboard_brand(staging)
 
         for name, frame in VARIANTS.items():
