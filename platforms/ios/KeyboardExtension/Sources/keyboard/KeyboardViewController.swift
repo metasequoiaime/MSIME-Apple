@@ -3382,7 +3382,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
       keySpacing: KeyboardLayoutPreference.keySpacing,
       rowSpacing: KeyboardLayoutPreference.rowSpacing,
       height: KeyboardLayoutPreference.heightAdjustment,
-      voiceEnabled: KeyboardLayoutPreference.voiceShortcutEnabled,
       onKeySpacing: { [weak self] spacing in
         KeyboardLayoutPreference.keySpacing = spacing
         self?.applyLayoutPreferences()
@@ -3400,13 +3399,6 @@ final class KeyboardViewController: UIInputViewController, UIGestureRecognizerDe
         self?.persistTouchKeyboardGeometry()
       },
       onCommit: { [weak self] in self?.commitTouchKeyboardGeometry() },
-      // Only the shortcut bar changes shape with this setting, so it is refreshed on its own. Going
-      // through updateKeyboardLayout would rebuild the keys and drop a composition in progress.
-      onVoice: { [weak self] enabled in
-        KeyboardLayoutPreference.voiceShortcutEnabled = enabled
-        self?.updateShortcutButtons()
-        self?.commitTouchKeyboardGeometry()
-      },
       onReset: { [weak self] in
         guard let self else { return }
         KeyboardLayoutPreference.resetToDefaults()

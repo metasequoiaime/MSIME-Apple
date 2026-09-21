@@ -2,19 +2,16 @@ import UIKit
 
 /// Keyboard spacing and height are adjusted over the live keyboard rather than in an opaque form.
 ///
-/// The keyboard remains visible below the small toolbar: step or drag the height control, drag
+/// The keyboard remains visible below the small toolbar: drag the height control, drag
 /// sideways on the keyboard to change key spacing, and drag vertically to change row spacing.
 ///
-/// 高度原先只有一根 46×5pt 的把手可拖。它有两个毛病:当前值只在拖动过程中出现,想知道现在是多少就得先
-/// 改一下;而且整个 −12…48 的范围只有 60pt 的手指行程,挤在一条 52pt 的工具条上,很容易冲过头,又没有
-/// 任何精调手段(除了 VoiceOver 的 ±2)。现在数值常驻,两个按钮每次走 2,同一块区域仍可上下拖做粗调。
+/// 高度仍然靠拖,但拖的是数值本身而不是一根 46×5pt 的细条:目标大得多,而且数值常驻 —— 原先它只在拖动
+/// 过程中出现,想知道现在是多少就得先改一下。
 final class KeyboardLayoutPickerView: UIView {
   private static let spacingDragScale: Double = 18
   // 一行:恢复默认 / 高度 / 语音 / 完成。说明和拖动时的数值不在这里 —— 它们浮在键盘中央,见 hint。
   private static let barHeight: CGFloat = 52
   private static let heightRange: (lower: Double, upper: Double) = (-12, 48)
-  /// 和 VoiceOver 的增减一步一致 —— 同一个控件不该因为用眼睛还是用手势而走不同的步长。
-  private static let step: Double = 2
 
   private enum Axis { case vertical, horizontal }
 
@@ -33,12 +30,11 @@ final class KeyboardLayoutPickerView: UIView {
   private var axis: Axis?
   private var base: (key: Double, row: Double, height: Double) = (0, 0, 0)
 
-  init(keySpacing: Double, rowSpacing: Double, height: Double, voiceEnabled: Bool,
+  init(keySpacing: Double, rowSpacing: Double, height: Double,
        onKeySpacing: @escaping (Double) -> Void,
        onRowSpacing: @escaping (Double) -> Void,
        onHeight: @escaping (Double) -> Void,
        onCommit: @escaping () -> Void,
-       onVoice: @escaping (Bool) -> Void,
        onReset: @escaping () -> Void,
        onClose: @escaping () -> Void) {
     self.keySpacing = keySpacing
@@ -93,25 +89,6 @@ final class KeyboardLayoutPickerView: UIView {
     hint.accessibilityIdentifier = "layoutAdjustHint"
     updateHint()
 
-    let voiceLabel = UILabel()
-    voiceLabel.text = "语音"
-    voiceLabel.font = .systemFont(ofSize: 12, weight: .medium)
-    voiceLabel.textColor = skin.keyForeground.withAlphaComponent(0.75)
-    let voiceSwitch = UISwitch()
-    voiceSwitch.isOn = voiceEnabled
-    voiceSwitch.onTintColor = skin.accent
-    voiceSwitch.accessibilityIdentifier = "voiceShortcutSwitch"
-    voiceSwitch.accessibilityLabel = "顶部语音入口"
-    voiceSwitch.transform = CGAffineTransform(scaleX: 0.8, y: 0.8)
-    voiceSwitch.addAction(UIAction { action in
-      guard let toggle = action.sender as? UISwitch else { return }
-      onVoice(toggle.isOn)
-    }, for: .valueChanged)
-    let voice = UIStackView(arrangedSubviews: [voiceLabel, voiceSwitch])
-    voice.axis = .horizontal
-    voice.alignment = .center
-    voice.spacing = 3
-
     heightValue.font = .monospacedDigitSystemFont(ofSize: 14, weight: .medium)
     heightValue.textColor = skin.keyForeground
     heightValue.textAlignment = .center
@@ -119,41 +96,42 @@ final class KeyboardLayoutPickerView: UIView {
     heightValue.minimumScaleFactor = 0.7
     heightValue.accessibilityIdentifier = "keyboardHeightValue"
 
-    let decrease = stepButton("minus", label: "降低键盘高度", skin: skin, delta: -Self.step)
-    decrease.accessibilityIdentifier = "keyboardHeightDecrease"
-    let increase = stepButton("plus", label: "升高键盘高度", skin: skin, delta: Self.step)
-    increase.accessibilityIdentifier = "keyboardHeightIncrease"
+    let grip = UIView()
+    grip.backgroundColor = skin.accent.withAlphaComponent(0.45)
+    grip.layer.cornerRadius = 2.5
+    grip.isUserInteractionEnabled = false
+    grip.translatesAutoresizingMaskIntoConstraints = false
 
     let heightControl = HeightGripView()
     self.heightControl = heightControl
     heightControl.backgroundColor = .clear
     heightControl.accessibilityIdentifier = "keyboardHeightGrip"
     heightControl.accessibilityLabel = "键盘高度"
-    // 整块做成一个可调节元素,而不是让 VoiceOver 分别读到两个按钮:调节手势本来就是这类控件的惯用法,
-    // 而两个按钮做的是同一件事的两个方向。± 仍然留给用眼睛的人。
     heightControl.isAccessibilityElement = true
     heightControl.accessibilityTraits = .adjustable
     heightControl.onAdjust = { [weak self] delta in self?.adjustHeight(by: delta) }
     heightControl.addGestureRecognizer(
       UIPanGestureRecognizer(target: self, action: #selector(dragHeight(_:))))
 
-    let heightRow = UIStackView(arrangedSubviews: [decrease, heightValue, increase])
-    heightRow.axis = .horizontal
-    heightRow.alignment = .center
-    heightRow.spacing = 8
-    heightRow.translatesAutoresizingMaskIntoConstraints = false
-    heightControl.addSubview(heightRow)
-    // 点和拖共存:按钮照常收到点击,而落在它们身上的拖动一旦超过识别阈值,仍由 heightControl 上的
-    // pan 接手 —— 手指从「+」上往下抹一把也该改高度,不该什么都没发生。
+    // 数值本身就是把手:整块可拖,比原先那根 46×5pt 的细条好抓得多,而且不用先改一下才知道现在是多少。
+    // 下面那道横条只是在说「这里可以拖」—— 光一行文字看不出它是个控件。
+    let heightStack = UIStackView(arrangedSubviews: [heightValue, grip])
+    heightStack.axis = .vertical
+    heightStack.alignment = .center
+    heightStack.spacing = 5
+    heightStack.translatesAutoresizingMaskIntoConstraints = false
+    heightControl.addSubview(heightStack)
     NSLayoutConstraint.activate([
-      heightRow.leadingAnchor.constraint(equalTo: heightControl.leadingAnchor),
-      heightRow.trailingAnchor.constraint(equalTo: heightControl.trailingAnchor),
-      heightRow.centerYAnchor.constraint(equalTo: heightControl.centerYAnchor),
+      heightStack.leadingAnchor.constraint(equalTo: heightControl.leadingAnchor),
+      heightStack.trailingAnchor.constraint(equalTo: heightControl.trailingAnchor),
+      heightStack.centerYAnchor.constraint(equalTo: heightControl.centerYAnchor),
+      grip.widthAnchor.constraint(equalToConstant: 46),
+      grip.heightAnchor.constraint(equalToConstant: 5),
     ])
 
     addGestureRecognizer(UIPanGestureRecognizer(target: self, action: #selector(dragSpacing(_:))))
 
-    for item in [bar, close, reset, hint, voice, heightControl] {
+    for item in [bar, close, reset, hint, heightControl] {
       item.translatesAutoresizingMaskIntoConstraints = false
       addSubview(item)
     }
@@ -169,11 +147,9 @@ final class KeyboardLayoutPickerView: UIView {
       heightControl.centerYAnchor.constraint(equalTo: bar.centerYAnchor),
       heightControl.heightAnchor.constraint(equalToConstant: 32),
       heightControl.leadingAnchor.constraint(greaterThanOrEqualTo: reset.trailingAnchor, constant: 6),
-      heightControl.trailingAnchor.constraint(lessThanOrEqualTo: voice.leadingAnchor, constant: -6),
+      heightControl.trailingAnchor.constraint(lessThanOrEqualTo: close.leadingAnchor, constant: -8),
       close.centerYAnchor.constraint(equalTo: heightControl.centerYAnchor),
       reset.centerYAnchor.constraint(equalTo: heightControl.centerYAnchor),
-      voice.trailingAnchor.constraint(equalTo: close.leadingAnchor, constant: -7),
-      voice.centerYAnchor.constraint(equalTo: heightControl.centerYAnchor),
       hint.centerXAnchor.constraint(equalTo: centerXAnchor),
       hint.centerYAnchor.constraint(equalTo: centerYAnchor),
       hint.widthAnchor.constraint(lessThanOrEqualTo: widthAnchor, multiplier: 0.78),
@@ -186,23 +162,6 @@ final class KeyboardLayoutPickerView: UIView {
 
   override func accessibilityIncrement() { adjustHeight(by: 2) }
   override func accessibilityDecrement() { adjustHeight(by: -2) }
-
-  private func stepButton(_ symbol: String, label: String, skin: KeyboardSkin,
-                          delta: Double) -> UIButton {
-    let button = UIButton(type: .system)
-    var configuration = UIButton.Configuration.plain()
-    configuration.image = UIImage(systemName: symbol)
-    configuration.preferredSymbolConfigurationForImage = .init(pointSize: 13, weight: .semibold)
-    configuration.contentInsets = NSDirectionalEdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10)
-    configuration.background.backgroundColor = skin.accent.withAlphaComponent(0.12)
-    configuration.background.cornerRadius = 8
-    configuration.baseForegroundColor = skin.accent
-    button.configuration = configuration
-    button.accessibilityLabel = label
-    button.addAction(UIAction { [weak self] _ in self?.adjustHeight(by: delta) },
-                     for: .primaryActionTriggered)
-    return button
-  }
 
   private func adjustHeight(by delta: Double) {
     height = Self.clamp(height + delta, Self.heightRange.lower, Self.heightRange.upper)

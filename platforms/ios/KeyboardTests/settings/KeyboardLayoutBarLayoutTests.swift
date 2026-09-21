@@ -23,8 +23,7 @@ final class KeyboardLayoutBarLayoutTests: XCTestCase {
     let picker = try XCTUnwrap(
       descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardLayoutPicker" })
 
-    let named = ["keyboardHeightGrip", "resetKeyboardSettings",
-                 "voiceShortcutSwitch", "closeLayoutPicker"]
+    let named = ["keyboardHeightGrip", "resetKeyboardSettings", "closeLayoutPicker"]
     let frames = try named.map { identifier -> (String, CGRect) in
       let view = try XCTUnwrap(
         descendants(picker).first { $0.accessibilityIdentifier == identifier },

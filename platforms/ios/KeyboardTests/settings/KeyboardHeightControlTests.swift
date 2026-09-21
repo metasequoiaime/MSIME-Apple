@@ -29,18 +29,17 @@ final class KeyboardHeightControlTests: XCTestCase {
     XCTAssertEqual(value.text, "高度 +12")
   }
 
-  /// 点一次「+」走一档,而且键盘真的跟着变高 —— 只写进偏好不算,用户看的是键盘。
-  func testStepButtonsMoveOneNotchAndResizeTheKeyboard() throws {
+  /// 高度靠拖,而拖动在单测里没法模拟;可调节动作走的是同一个入口和同一档步长,所以用它来守这条路。
+  func testAdjustingMovesOneNotchAndResizesTheKeyboard() throws {
     KeyboardLayoutPreference.heightAdjustment = 0
     let controller = try openLayoutPicker()
     controller.view.layoutIfNeeded()
     let start = try XCTUnwrap(
       controller.view.constraints.first { $0.identifier == "keyboardHeight" }).constant
 
-    let increase = try XCTUnwrap(
-      descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardHeightIncrease" }
-        as? UIButton)
-    for _ in 0..<3 { increase.sendActions(for: .primaryActionTriggered) }
+    let control = try XCTUnwrap(
+      descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardHeightGrip" })
+    for _ in 0..<3 { control.accessibilityIncrement() }
     controller.view.layoutIfNeeded()
 
     XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, 6)
@@ -48,22 +47,18 @@ final class KeyboardHeightControlTests: XCTestCase {
       try XCTUnwrap(controller.view.constraints.first { $0.identifier == "keyboardHeight" }).constant,
       start + 6, accuracy: 0.5)
 
-    let decrease = try XCTUnwrap(
-      descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardHeightDecrease" }
-        as? UIButton)
-    decrease.sendActions(for: .primaryActionTriggered)
+    control.accessibilityDecrement()
     XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, 4)
   }
 
-  /// 下界之外再点不动。范围两端都靠 clamp 守着,而按钮本身不知道边界在哪。
-  func testSteppingStopsAtTheLowerBound() throws {
+  /// 下界之外不再动。范围两端靠 clamp 守着,而调用方不知道边界在哪。
+  func testAdjustingStopsAtTheLowerBound() throws {
     KeyboardLayoutPreference.heightAdjustment = -12
     let controller = try openLayoutPicker()
+    let control = try XCTUnwrap(
+      descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardHeightGrip" })
 
-    let decrease = try XCTUnwrap(
-      descendants(controller.view).first { $0.accessibilityIdentifier == "keyboardHeightDecrease" }
-        as? UIButton)
-    for _ in 0..<3 { decrease.sendActions(for: .primaryActionTriggered) }
+    for _ in 0..<3 { control.accessibilityDecrement() }
 
     XCTAssertEqual(KeyboardLayoutPreference.heightAdjustment, -12)
   }
