@@ -683,17 +683,19 @@ group("a key says what it does, not what it draws", () => {
 
 group("every tool in the shortcut bar has a name", () => {
   // The bar is drawn entirely in icons, so a button with no name is announced as nothing at all.
-  // Four of the seven were in that state: the policy had names for three and none for the rest.
+  // The eighth tool is conditional, but needs a stable name when the thoughtful-reply scheme adds
+  // it to the same bar.
   const names: string[] = [
     KeyAccessibilityPolicy.tools(),
     KeyAccessibilityPolicy.emoji(),
     KeyAccessibilityPolicy.voice(),
+    KeyAccessibilityPolicy.reply(),
     KeyAccessibilityPolicy.skin(),
     KeyAccessibilityPolicy.scheme(),
     KeyAccessibilityPolicy.geometry(),
     KeyAccessibilityPolicy.dismiss(),
   ];
-  check(names.length === 7, "seven buttons, seven names");
+  check(names.length === 8, "all eight possible buttons have names");
   for (const name of names) {
     check(name.trim().length > 0, "no button is left nameless");
     check(

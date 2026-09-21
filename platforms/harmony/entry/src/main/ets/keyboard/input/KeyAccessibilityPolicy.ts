@@ -70,15 +70,18 @@ export class KeyAccessibilityPolicy {
     return "更多快捷设置";
   }
 
-  // The rest of the shortcut bar. These four had no name at all, which for a bar drawn entirely in
-  // icons means a screen reader announced nothing for four of its seven buttons. Each says what the
-  // button does rather than what it looks like, as the keys above do.
+  // The rest of the shortcut bar. Each says what the button does rather than what it looks like,
+  // as the keys above do; the reply entry is conditional on its scheme but follows the same rule.
   static emoji(): string {
     return "表情与符号";
   }
 
   static voice(): string {
     return "语音输入";
+  }
+
+  static reply(): string {
+    return "生成高情商回复";
   }
 
   static geometry(): string {

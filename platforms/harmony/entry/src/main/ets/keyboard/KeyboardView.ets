@@ -1576,6 +1576,12 @@ struct KeyboardView {
             }
           });
       }
+      if (this.scheme === KeyboardScheme.THOUGHTFUL_REPLY) {
+        this.shortcutText('💬', KeyAccessibilityPolicy.reply(),
+          this.surface === SURFACE_REPLY, () => {
+            this.show(SURFACE_REPLY);
+          });
+      }
       this.shortcutIcon($r('app.media.tool_skin'), KeyAccessibilityPolicy.skin(),
         this.surface === SURFACE_SKIN, () => {
           this.toggle(SURFACE_SKIN);
@@ -2064,6 +2070,7 @@ struct KeyboardView {
                   if (KeyboardSession.shared.insertReply(reply)) {
                     this.replyResults = [];
                     this.replyNotice = '已插入，请确认发送';
+                    this.show(SURFACE_NONE);
                   } else {
                     this.replyNotice = '输入位置已变化，请重新生成';
                   }
