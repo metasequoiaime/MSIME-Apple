@@ -1703,3 +1703,15 @@ if let Some(route) = launch_route_from_args(&args) { ... }
 `--chrome-bg` 现在有两份（CSS 一份、Rust 一份，窗口底色读不了 CSS）。新增用例直接读 `packages/ui/src/styles.css` 比对两个值，反向验证过：把常量改一位，用例报 `left: "#212020" right: "#202020"`。这种重复漂移起来的症状是「开窗时闪错一帧颜色」，没人会为它提 bug，所以值得一道用例盯着。
 
 顺手修掉 develop 上一处红：`typing_statistics_status_reports_file_availability_without_content` 断言新建文档 `enabled: true`，那是 #3389 跟随上游把统计默认翻成关闭之前的值。这个用例的主题是可用性上报，`enabled` 只是顺带，改成出厂默认；后半段原本设 `false`（翻转后等于没动），改成设 `true`，「开关会变」这层覆盖才还在。这种红只有在本机跑 `cargo test -p msime-desktop` 才看得见。
+
+增量记录（2026-09-21，Windows 第三十一批：把第三十八批欠下的那条覆盖补上）：目标起点 `a26aca7e3`。
+
+2026-09-20 的第三十八批核对结论是「本地优先级实现正确、但零测试覆盖」，并写明正确做法是把合并判据抽成纯函数再钉住，同时记下**本批没有做**的理由：当时本机 Docker 已停，Windows 套件跑不起来，不做无法验证的改动。
+
+现在能验证了，而且不靠容器：`scripts/test-windows-native-run.py` 会用宿主编译器编译并**真正执行** `platforms/windows/tests/` 里不依赖 Win32 的那些源文件，纯策略头的用例正属于这一类。所以把那条判据抽进 `CandidateTranslationPolicy.h` 的 `untranslated_texts`，`TranslationWorker` 改为调用它（json 解析仍留在 worker 里），新增 `candidate_translation_merge.cpp`，quick 门禁里的原生执行数从 64 升到 65。
+
+判据本身钉了六条：已有本地释义的候选不再问云端；没有的按计划顺序全问；同一文本在计划里出现两次只问一次；**释义为空的条目不算已答**；别的文本的答案不顶替本条；计划里的空文本直接丢弃。
+
+第四条如实记为「本仓当前的生产者打不到」：共享的候选释义请求在返回前就把空释义过滤掉了（`translation.rs` 的 `filter_map`），所以 worker 那一侧看不到空释义。它是这个函数自己的契约而不是第二道防线，注释写明了，反向验证也确认这条断言在**函数被改坏时**会红（把判断改成只比文本，第 51 行立刻失败）。这已是本轮第四次遇到「纵深防御那一层看不出是否承重」的形状，处理方式与前三次一致。
+
+顺带一提：worker 本体仍只有交叉构建这一级证据（它要 curl 和 Win32，宿主上跑不起来），这一点没有变化，本批也没有声称它变了。
