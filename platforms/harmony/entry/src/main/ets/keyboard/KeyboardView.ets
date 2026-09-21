@@ -450,6 +450,11 @@ struct KeyboardView {
     KeyboardSession.shared.onReplyContextChanged = (): void => {
       this.replyResults = [];
       this.replyBusy = false;
+      // Ink and OCR results belong to the caret and editor where they were produced. Keeping them
+      // across a host text/selection change would let an old recognition result land in a new field.
+      if (this.hasHandwritingContext()) {
+        this.clearHandwriting();
+      }
       if (this.surface === SURFACE_REPLY) {
         this.replyNotice = '输入位置已变化，请重新选择回复方式';
       }
@@ -784,6 +789,9 @@ struct KeyboardView {
     // The composition belongs to the scheme that was current when it was typed; carrying it into a
     // different one would reinterpret letters that were never meant that way.
     KeyboardSession.shared.cancel();
+    if (this.hasHandwritingContext()) {
+      this.clearHandwriting();
+    }
     // Every field one scheme decides moves together, including the record of the Chinese scheme a
     // Japanese choice replaces; writing the Engine's scheme alone is what loses it.
     const changes: Map<string, Object> = KeyboardSession.shared.schemeChanges(candidate);
@@ -2482,12 +2490,21 @@ struct KeyboardView {
 
   private clearHandwriting(): void {
     this.handwritingRevision++;
+    // The stale recognition completion is ignored by revision. Clear its visible busy state here
+    // too, because that completion deliberately cannot mutate the replacement context in finally.
+    this.handwritingBusy = false;
     this.handwritingStrokes = [];
     this.handwritingRedo = [];
     this.handwritingCandidates = [];
     this.handwritingCurrent = [];
     this.handwritingNotice = '';
     this.redrawHandwriting();
+  }
+
+  private hasHandwritingContext(): boolean {
+    return this.handwritingBusy || this.handwritingCurrent.length > 0
+      || this.handwritingStrokes.length > 0 || this.handwritingRedo.length > 0
+      || this.handwritingCandidates.length > 0;
   }
 
   private undoHandwriting(): void {
