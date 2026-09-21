@@ -648,6 +648,32 @@ else()
 endif()
 add_test(NAME windows-cloud-candidate-worker COMMAND windows-cloud-candidate-worker)
 set_tests_properties(windows-cloud-candidate-worker PROPERTIES TIMEOUT 60)
+# The other two online workers, queued and cancelled the same way. Neither had a
+# line of coverage: what goes wrong in them is ordering - an answer for a prefix
+# the user has left, a paid model call spent twice on the same one, a row from a
+# provider preferences have just switched off - and none of that shows up
+# anywhere else. Both take an injectable fetcher for the same reason the cloud
+# worker does.
+add_executable(windows-ai-candidate-worker tests/candidate/ai_candidate_worker.cpp)
+target_link_libraries(windows-ai-candidate-worker PRIVATE msime-windows-pump)
+target_include_directories(windows-ai-candidate-worker PRIVATE src/candidate)
+if(MSVC)
+  target_compile_options(windows-ai-candidate-worker PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(windows-ai-candidate-worker PRIVATE -Wall -Wextra -Werror)
+endif()
+add_test(NAME windows-ai-candidate-worker COMMAND windows-ai-candidate-worker)
+set_tests_properties(windows-ai-candidate-worker PROPERTIES TIMEOUT 60)
+add_executable(windows-translation-worker tests/candidate/translation_worker.cpp)
+target_link_libraries(windows-translation-worker PRIVATE msime-windows-pump)
+target_include_directories(windows-translation-worker PRIVATE src/candidate)
+if(MSVC)
+  target_compile_options(windows-translation-worker PRIVATE /W4 /WX /utf-8)
+else()
+  target_compile_options(windows-translation-worker PRIVATE -Wall -Wextra -Werror)
+endif()
+add_test(NAME windows-translation-worker COMMAND windows-translation-worker)
+set_tests_properties(windows-translation-worker PROPERTIES TIMEOUT 60)
 target_link_libraries(windows-session-smoke PRIVATE msime-windows-pump)
 add_executable(windows-input-queue tests/input/input_queue.cpp)
 target_link_libraries(windows-input-queue PRIVATE msime-windows-input)

@@ -56,6 +56,52 @@ ARGUMENTS = {
     "core/installer_launch.cpp": ["platforms/windows/installer/msime_setup.iss"],
 }
 
+# The three online workers are the exception to "one translation unit": their
+# class bodies live in a .cpp of their own, so a test of the queueing above them
+# links that file too. Every one of those files reaches the shared host library
+# for its request building, which is why this is a named list rather than a rule
+# - linking arbitrary sources would drag the whole Windows build in. When the
+# host library has not been built here the three are skipped exactly like any
+# other source that needs more than itself.
+COMPANIONS = {
+    "candidate/cloud_candidate_worker.cpp": ["candidate/CloudCandidateWorker.cpp"],
+    "candidate/ai_candidate_worker.cpp": ["candidate/AiCandidateWorker.cpp"],
+    "candidate/translation_worker.cpp": ["candidate/TranslationWorker.cpp"],
+}
+COMPANION_LIBRARIES = ["-lcurl", "-lsqlite3"]
+COMPANION_FRAMEWORKS = [
+    "CoreFoundation",
+    "CoreText",
+    "CoreGraphics",
+    "Security",
+    "SystemConfiguration",
+]
+
+
+def host_library() -> pathlib.Path | None:
+    """The shared host library the worker sources link against, if it is built."""
+    for profile in ("debug", "release"):
+        candidate = ROOT / "target" / profile / "libmsime_host_api.a"
+        if candidate.exists():
+            return candidate
+    return None
+
+
+def companion_flags(relative: str) -> list[str] | None:
+    """Extra compiler arguments for a source that needs its class body, or None."""
+    companions = COMPANIONS.get(relative)
+    if not companions:
+        return []
+    library = host_library()
+    if library is None:
+        return None
+    flags = [str(SRC / name) for name in companions]
+    flags += [str(library), *COMPANION_LIBRARIES]
+    if sys.platform == "darwin":
+        for framework in COMPANION_FRAMEWORKS:
+            flags += ["-framework", framework]
+    return flags
+
 EXTRA_INCLUDES = ["/opt/homebrew/include", "/usr/local/include"]
 
 
@@ -93,9 +139,12 @@ def build(
     """(executable, reason). A null executable with a reason is a failure to report."""
     relative = source.relative_to(TESTS).as_posix()
     binary = workspace / relative.replace("/", "_").removesuffix(".cpp")
+    companions = companion_flags(relative)
+    if companions is None:
+        return None, ""
     # Compiling is CPU-bound and safe to do many at once.
     compiled = subprocess.run(
-        ["c++", "-std=c++20", "-w", *flags, "-o", str(binary), str(source)],
+        ["c++", "-std=c++20", "-w", *flags, "-o", str(binary), str(source), *companions],
         capture_output=True,
         text=True,
     )
