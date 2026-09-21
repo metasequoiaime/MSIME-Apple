@@ -35,6 +35,11 @@ fn inspection_requires_the_complete_counted_snapshot_envelope() {
         metadata.file_sha256,
         format!("{:x}", Sha256::digest(complete.as_bytes()))
     );
+    let staged = super::SnapshotFileRecords::open(&file)
+        .unwrap()
+        .collect::<Vec<_>>();
+    assert_eq!(staged.len(), 1, "only the overlay is an Engine record");
+    assert!(staged[0].is_ok());
 
     fs::write(&file, body.as_bytes()).unwrap();
     assert!(super::inspect_snapshot(&file).is_err());

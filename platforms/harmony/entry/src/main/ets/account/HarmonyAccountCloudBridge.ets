@@ -60,6 +60,14 @@ interface SnapshotAction {
   token?: string;
 }
 
+interface AccountOperation {
+  operation?: string;
+}
+
+interface AccountOperationReply {
+  ok?: boolean;
+}
+
 /** One settings-sync request from the page: read the schema or document, upload, or apply. */
 interface PreferenceSyncAction {
   operation: string;
@@ -72,6 +80,44 @@ interface SnapshotRequest {
   expectedLocalVersion: string;
   fileSha256: string;
   status: string;
+}
+
+interface NativeSnapshotRequest extends SnapshotRequest {
+  accountId: string;
+}
+
+interface SnapshotQueueState {
+  localVersion?: string;
+  request?: NativeSnapshotRequest | null;
+}
+
+interface SnapshotQueueReply {
+  ok: boolean;
+  value?: SnapshotQueueState;
+  error?: string;
+}
+
+interface SnapshotQueueStateAction {
+  operation: string;
+  directory: string;
+  options: Object;
+  acknowledge: boolean;
+}
+
+interface SnapshotQueueEnqueueAction {
+  operation: string;
+  directory: string;
+  source: string;
+  account_id: string;
+  cloud_revision: number;
+  expected_local_version: string;
+  file_sha256: string;
+}
+
+interface SnapshotQueueCancelAction {
+  operation: string;
+  directory: string;
+  account_id: string;
 }
 
 interface SnapshotValue {
@@ -88,14 +134,6 @@ interface SnapshotReply {
   ok: boolean;
   value: SnapshotValue;
   error?: string;
-}
-
-interface SnapshotPrepareRequest {
-  options: Object;
-  staging_root: string;
-  expected_version: string;
-  records: number;
-  activation_id: string;
 }
 
 interface HttpHeaders {
@@ -159,16 +197,19 @@ interface SnapshotInspectReply {
   error?: string;
 }
 
+interface SnapshotChanges {
+  changes?: Object[];
+}
+
 /** Account and cloud clipboard state stays in the host; WebView receives only bounded DTOs. */
 export class HarmonyAccountCloudBridge {
   private readonly bridge: AccountCloudBridge;
   private readonly context: common.UIAbilityContext;
   private snapshotFile: string = '';
   private snapshotToken: string = '';
-  private snapshotHandle: number = 0;
+  private snapshotAccountId: string = '';
   private snapshotExpectedVersion: string = '';
   private snapshotMetadata: SnapshotMetadata | undefined = undefined;
-  private snapshotEngineRecords: number = 0;
 
   constructor(context: common.UIAbilityContext) {
     this.context = context;
@@ -181,8 +222,44 @@ export class HarmonyAccountCloudBridge {
     this.bridge = new AccountCloudBridge(new HarmonyTransport(), new FileSessionStore(directory));
   }
 
-  request(action: string): Promise<string> {
-    return this.bridge.handle(action);
+  async request(action: string): Promise<string> {
+    const accountId: string | null = this.bridge.currentUserId();
+    let operation: string = '';
+    try {
+      const decoded: AccountOperation = JSON.parse(action) as AccountOperation;
+      operation = typeof decoded.operation === 'string' ? decoded.operation : '';
+    } catch {
+      // The account bridge reports malformed action documents.
+    }
+    if (accountId !== null && (operation === 'logout' || operation === 'delete_account'
+      || operation === 'login' || operation === 'clear_expired')) {
+      if (!this.cancelQueueForAccount(accountId)) return this.failure('snapshot_unavailable');
+    }
+    const result = await this.bridge.handle(action);
+    if (accountId === null || this.bridge.currentUserId() === accountId) return result;
+    try {
+      const reply: AccountOperationReply = JSON.parse(result) as AccountOperationReply;
+      if (operation.length > 0 && reply.ok === true) {
+        this.cancelQueueForAccount(accountId);
+      }
+    } catch {
+      // The account bridge already owns malformed request and response reporting.
+    }
+    return result;
+  }
+
+  private cancelQueueForAccount(accountId: string): boolean {
+    try {
+      const action: SnapshotQueueCancelAction = {
+        operation: 'cancel', directory: `${this.context.filesDir}/state/dictionary-snapshots`,
+        account_id: accountId
+      };
+      const reply: SnapshotQueueReply =
+        JSON.parse(client.snapshotQueue(JSON.stringify(action))) as SnapshotQueueReply;
+      return reply.ok;
+    } catch {
+      return false;
+    }
   }
 
   /**
@@ -434,9 +511,9 @@ export class HarmonyAccountCloudBridge {
       case 'snapshot_preview':
         return this.preview(resources, stateRoot);
       case 'snapshot_enqueue':
-        return this.enqueue(String(action.token ?? ''), resources, stateRoot);
+        return this.enqueue(String(action.token ?? ''), stateRoot);
       case 'snapshot_cancel':
-        return this.cancel();
+        return this.cancel(stateRoot);
       default:
         return this.failure('snapshot_unavailable');
     }
@@ -461,49 +538,72 @@ export class HarmonyAccountCloudBridge {
     }
   }
 
-  private localVersion(resources: string, stateRoot: string): string | null {
+  private queueDirectory(stateRoot: string): string {
+    return `${stateRoot}/dictionary-snapshots`;
+  }
+
+  private queueState(resources: string, stateRoot: string,
+    acknowledge: boolean): SnapshotQueueState | null {
     const options = this.options(resources, stateRoot);
     if (options === null) return null;
     try {
-      const reply: SnapshotReply = JSON.parse(client.snapshotVersion(JSON.stringify(options))) as SnapshotReply;
-      const version: string | undefined = reply.value?.version;
-      return reply.ok && typeof version === 'string' && /^[0-9a-f]{64}$/.test(version) ? version : null;
+      const action: SnapshotQueueStateAction = {
+        operation: 'state', directory: this.queueDirectory(stateRoot),
+        options: options, acknowledge: acknowledge
+      };
+      const reply: SnapshotQueueReply =
+        JSON.parse(client.snapshotQueue(JSON.stringify(action))) as SnapshotQueueReply;
+      return reply.ok && reply.value !== undefined ? reply.value : null;
     } catch {
       return null;
     }
   }
 
-  private async status(resources: string, stateRoot: string): Promise<string> {
-    const version = this.localVersion(resources, stateRoot);
-    if (version === null) return this.failure('snapshot_unavailable');
-    const applied = this.tryActivate(resources, stateRoot);
-    const request: SnapshotRequest | null = this.snapshotHandle === 0 ? null : {
-      id: this.snapshotToken, cloudRevision: this.snapshotMetadata?.cloudRevision ?? 0,
-      expectedLocalVersion: this.snapshotExpectedVersion,
-      fileSha256: this.snapshotMetadata?.fileSha256 ?? '',
-      status: applied ? 'applied' : 'queued'
+  private publicRequest(request: NativeSnapshotRequest | null | undefined): SnapshotRequest | null {
+    if (request === undefined || request === null) return null;
+    return {
+      id: request.id,
+      cloudRevision: request.cloudRevision,
+      expectedLocalVersion: request.expectedLocalVersion,
+      fileSha256: request.fileSha256,
+      status: request.status
     };
-    if (applied) {
-      this.snapshotHandle = 0;
-      this.snapshotToken = '';
-      this.snapshotMetadata = undefined;
-      this.snapshotEngineRecords = 0;
-      try { if (this.snapshotFile.length > 0 && fs.accessSync(this.snapshotFile)) fs.unlinkSync(this.snapshotFile); } catch { /* best effort cleanup */ }
-      this.snapshotFile = '';
+  }
+
+  private async status(resources: string, stateRoot: string): Promise<string> {
+    const state = this.queueState(resources, stateRoot, true);
+    if (state === null || typeof state.localVersion !== 'string') {
+      return this.failure('snapshot_unavailable');
     }
-    return this.success({ localVersion: version, request: request });
+    return this.success({
+      localVersion: state.localVersion,
+      request: this.publicRequest(state.request)
+    });
   }
 
   private async exportSnapshot(resources: string, stateRoot: string): Promise<string> {
     const result = await this.downloadSnapshot(stateRoot);
-    return result === null ? this.failure('snapshot_unavailable') : this.success({ saved: true, snapshot: result });
+    if (result === null) return this.failure('snapshot_unavailable');
+    const answer = this.success({ saved: true, snapshot: result });
+    this.clearSnapshotPreview();
+    return answer;
   }
 
   private async preview(resources: string, stateRoot: string): Promise<string> {
+    const accountId: string | null = this.bridge.currentUserId();
+    if (accountId === null) return this.failure('account_unauthorized');
     const result = await this.downloadSnapshot(stateRoot);
-    const version = this.localVersion(resources, stateRoot);
-    if (result === null || version === null) return this.failure('snapshot_unavailable');
-    this.snapshotExpectedVersion = version;
+    const state = this.queueState(resources, stateRoot, false);
+    if (result === null || state === null || typeof state.localVersion !== 'string') {
+      this.clearSnapshotPreview();
+      return this.failure('snapshot_unavailable');
+    }
+    if (this.bridge.currentUserId() !== accountId) {
+      this.clearSnapshotPreview();
+      return this.failure('account_cancelled');
+    }
+    this.snapshotAccountId = accountId;
+    this.snapshotExpectedVersion = state.localVersion;
     this.snapshotToken = util.generateRandomUUID(false);
     return this.success({ previewToken: this.snapshotToken, snapshot: result });
   }
@@ -524,10 +624,10 @@ export class HarmonyAccountCloudBridge {
       // A failed or already absent download has nothing left to remove.
     }
     this.snapshotToken = '';
+    this.snapshotAccountId = '';
     this.snapshotFile = '';
     this.snapshotExpectedVersion = '';
     this.snapshotMetadata = undefined;
-    this.snapshotEngineRecords = 0;
   }
 
   private async downloadSnapshot(stateRoot: string): Promise<SnapshotMetadata | null> {
@@ -547,7 +647,6 @@ export class HarmonyAccountCloudBridge {
         return null;
       }
       this.snapshotMetadata = metadata;
-      this.snapshotEngineRecords = metadata.engineRecords;
       return this.snapshotMetadata;
     } catch {
       this.clearSnapshotPreview();
@@ -555,62 +654,69 @@ export class HarmonyAccountCloudBridge {
     }
   }
 
-  private enqueue(token: string, resources: string, stateRoot: string): string {
+  private async enqueue(token: string, stateRoot: string): Promise<string> {
     if (token.length === 0 || token !== this.snapshotToken || this.snapshotFile.length === 0
-      || this.snapshotMetadata === undefined || this.snapshotExpectedVersion.length !== 64) {
+      || this.snapshotMetadata === undefined || this.snapshotExpectedVersion.length === 0
+      || this.snapshotAccountId.length === 0
+      || this.bridge.currentUserId() !== this.snapshotAccountId) {
       return this.failure('snapshot_invalid');
     }
-    const options: Object | null = this.options(resources, stateRoot);
-    if (options === null) return this.failure('snapshot_unavailable');
     try {
+      const changes = await this.bridge.rawAuthenticated('GET',
+        `/v1/users/me/dictionary/changes?after=${this.snapshotMetadata.cloudRevision}&limit=1`);
+      if (changes.status < 200 || changes.status >= 300 || changes.body.length === 0) {
+        return this.failure('snapshot_unavailable');
+      }
+      const page: SnapshotChanges = JSON.parse(changes.body) as SnapshotChanges;
+      if (!Array.isArray(page.changes)) return this.failure('snapshot_unavailable');
+      if (page.changes.length > 0 || token !== this.snapshotToken
+        || this.snapshotMetadata === undefined || this.snapshotFile.length === 0
+        || this.bridge.currentUserId() !== this.snapshotAccountId) {
+        this.clearSnapshotPreview();
+        return this.failure('snapshot_conflict');
+      }
       const inspected = this.inspectSnapshot(this.snapshotFile);
       if (inspected === null || inspected.fileSha256 !== this.snapshotMetadata.fileSha256
         || inspected.sha256 !== this.snapshotMetadata.sha256
-        || inspected.engineRecords !== this.snapshotEngineRecords) {
+        || inspected.engineRecords !== this.snapshotMetadata.engineRecords) {
         this.clearSnapshotPreview();
         return this.failure('snapshot_invalid');
       }
-      const staging = `${this.context.cacheDir}/msime-snapshot-staging`;
-      if (!fs.accessSync(staging)) fs.mkdirSync(staging, true);
-      const request: SnapshotPrepareRequest = {
-        options: options, staging_root: staging, expected_version: this.snapshotExpectedVersion,
-        records: this.snapshotEngineRecords, activation_id: token
+      const action: SnapshotQueueEnqueueAction = {
+        operation: 'enqueue', directory: this.queueDirectory(stateRoot), source: this.snapshotFile,
+        account_id: this.snapshotAccountId, cloud_revision: this.snapshotMetadata.cloudRevision,
+        expected_local_version: this.snapshotExpectedVersion,
+        file_sha256: this.snapshotMetadata.fileSha256
       };
-      const reply: SnapshotReply = JSON.parse(client.snapshotPrepare(JSON.stringify(request), this.snapshotFile)) as SnapshotReply;
-      const handle: number | undefined = reply.value?.handle;
-      if (!reply.ok || typeof handle !== 'number' || handle <= 0) return this.failure('snapshot_unavailable');
-      this.snapshotHandle = handle;
-      return this.success({ request: { id: token, cloudRevision: this.snapshotMetadata.cloudRevision,
-        expectedLocalVersion: this.snapshotExpectedVersion,
-        fileSha256: this.snapshotMetadata.fileSha256, status: 'queued' } });
+      const reply: SnapshotQueueReply =
+        JSON.parse(client.snapshotQueue(JSON.stringify(action))) as SnapshotQueueReply;
+      if (!reply.ok || reply.value === undefined) {
+        return this.failure(reply.error ?? 'snapshot_unavailable');
+      }
+      const request: SnapshotRequest | null = this.publicRequest(reply.value.request);
+      this.clearSnapshotPreview();
+      return this.success({ request: request });
     } catch {
       return this.failure('snapshot_unavailable');
     }
   }
 
-  private tryActivate(resources: string, stateRoot: string): boolean {
-    if (this.snapshotHandle === 0) return false;
-    const result = KeyboardSession.shared.snapshotActivate(this.snapshotHandle, this.snapshotExpectedVersion);
+  private cancel(stateRoot: string): string {
+    const accountId: string | null = this.bridge.currentUserId();
+    if (accountId === null) return this.failure('account_unauthorized');
     try {
-      const reply: SnapshotReply = JSON.parse(result) as SnapshotReply;
-      return reply.ok;
+      const action: SnapshotQueueCancelAction = {
+        operation: 'cancel', directory: this.queueDirectory(stateRoot), account_id: accountId
+      };
+      const reply: SnapshotQueueReply =
+        JSON.parse(client.snapshotQueue(JSON.stringify(action))) as SnapshotQueueReply;
+      if (!reply.ok || reply.value === undefined) {
+        return this.failure(reply.error ?? 'snapshot_unavailable');
+      }
+      this.clearSnapshotPreview();
+      return this.success({ request: this.publicRequest(reply.value.request) });
     } catch {
-      return false;
+      return this.failure('snapshot_unavailable');
     }
-  }
-
-  private cancel(): string {
-    if (this.snapshotHandle !== 0) {
-      try { client.snapshotDiscard(this.snapshotHandle); } catch { /* best effort cleanup */ }
-    }
-    try {
-      if (this.snapshotFile.length > 0 && fs.accessSync(this.snapshotFile)) fs.unlinkSync(this.snapshotFile);
-    } catch { /* best effort cleanup */ }
-    this.snapshotHandle = 0;
-    this.snapshotToken = '';
-    this.snapshotFile = '';
-    this.snapshotMetadata = undefined;
-    this.snapshotEngineRecords = 0;
-    return this.success({ request: null });
   }
 }

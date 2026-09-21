@@ -195,6 +195,7 @@ TEXT_ENTRY(PersonalDictionaryRequest, msime_client_personal_dictionary_request)
 TEXT_ENTRY(PrepareHost, msime_client_prepare_host)
 TEXT_ENTRY(SnapshotVersion, msime_client_snapshot_version)
 TEXT_ENTRY(SnapshotInspect, msime_client_snapshot_inspect)
+TEXT_ENTRY(SnapshotQueue, msime_client_snapshot_queue)
 TEXT_ENTRY(CloudRequestUrl, msime_client_cloud_request_url)
 TEXT_ENTRY(Create, msime_client_create)
 
@@ -672,6 +673,7 @@ static napi_value Init(napi_env env, napi_value exports) {
         ENTRY("prepareHost", PrepareHost),
         ENTRY("snapshotVersion", SnapshotVersion),
         ENTRY("snapshotInspect", SnapshotInspect),
+        ENTRY("snapshotQueue", SnapshotQueue),
         ENTRY("snapshotPrepare", SnapshotPrepare),
         ENTRY("snapshotDiscard", SnapshotDiscard),
         ENTRY("snapshotActivate", SnapshotActivate),

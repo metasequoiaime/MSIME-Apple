@@ -22,29 +22,47 @@ def main() -> int:
     types = TYPES.read_text(encoding="utf-8")
     header = HEADER.read_text(encoding="utf-8")
     start = account.index("  private async downloadSnapshot(")
-    download = account[start : account.index("\n  private enqueue(", start)]
+    download = account[start : account.index("\n  private async enqueue(", start)]
 
+    keyboard = (ROOT / "platforms/harmony/entry/src/main/ets/keyboard/KeyboardSession.ets").read_text(
+        encoding="utf-8"
+    )
     required = {
         "C ABI declaration": "msime_client_snapshot_inspect" in header,
+        "queue C ABI declaration": "msime_client_snapshot_queue" in header,
         "NAPI call": "TEXT_ENTRY(SnapshotInspect, msime_client_snapshot_inspect)" in native,
         "NAPI export": 'ENTRY("snapshotInspect", SnapshotInspect)' in native,
+        "queue NAPI call": "TEXT_ENTRY(SnapshotQueue, msime_client_snapshot_queue)" in native,
+        "queue NAPI export": 'ENTRY("snapshotQueue", SnapshotQueue)' in native,
         "ArkTS declaration": "export const snapshotInspect:" in types,
+        "queue ArkTS declaration": "export const snapshotQueue:" in types,
         "download inspection": "this.inspectSnapshot(this.snapshotFile)" in download,
-        "UUID activation id": "util.generateRandomUUID(false)" in account
-        and "activation_id: token" in account,
+        "UUID preview token": "util.generateRandomUUID(false)" in account,
         "file identity replay guard": "inspected.fileSha256 !== this.snapshotMetadata.fileSha256"
         in account,
+        "durable enqueue": "operation: 'enqueue'" in account
+        and "client.snapshotQueue(JSON.stringify(action))" in account,
+        "cloud revision replay guard": "/dictionary/changes?after=${this.snapshotMetadata.cloudRevision}&limit=1"
+        in account,
+        "idle queue worker": "this.processDictionarySnapshot(requested, stateRoot)" in keyboard
+        and "operation: 'process'" in keyboard,
     }
     problems = [name for name, present in required.items() if not present]
     if "response.body.split(" in download:
         problems.append("ArkTS line parser removed")
+    if "client.snapshotPrepare(" in account or "snapshotHandle" in account:
+        problems.append("process-local prepared handle removed from account bridge")
+    if keyboard.find("this.processDictionarySnapshot(requested, stateRoot)") > keyboard.find(
+        "client.create(options)"
+    ):
+        problems.append("durable queue worker runs before session creation")
     if problems:
         print(
             "harmony snapshot inspection: missing " + ", ".join(problems),
             file=sys.stderr,
         )
         return 1
-    print("harmony snapshot inspection: native envelope and file-identity checks are wired")
+    print("harmony snapshot inspection: native validation and durable idle queue are wired")
     return 0
 
 

@@ -1,6 +1,9 @@
 //! Native-only snapshot preparation. Staged paths stay private until a future
 //! activation transaction can own publication and session coordination.
 use super::{response, DictionaryAccess, HostOptions};
+use msime_client_core::cloud::snapshot_queue::{
+    local_version, local_version_digest, DictionarySnapshotQueue, SnapshotQueueError,
+};
 use msime_client_core::resources::{ResourceSet, ResourceStore};
 use msime_engine_bridge::{
     dictionary_state_revision, stage_dictionary_state, EngineOptions, Session, SnapshotReadError,
@@ -54,6 +57,34 @@ struct PrepareRequest {
     records: usize,
     #[serde(default)]
     activation_id: Option<String>,
+}
+
+#[derive(Deserialize)]
+#[serde(tag = "operation", rename_all = "snake_case", deny_unknown_fields)]
+enum SnapshotQueueAction {
+    State {
+        directory: String,
+        options: HostOptions,
+        #[serde(default)]
+        acknowledge: bool,
+    },
+    Enqueue {
+        directory: String,
+        source: String,
+        account_id: String,
+        cloud_revision: i64,
+        expected_local_version: String,
+        file_sha256: String,
+    },
+    Cancel {
+        directory: String,
+        account_id: String,
+    },
+    Process {
+        directory: String,
+        staging_root: String,
+        options: HostOptions,
+    },
 }
 
 #[derive(Debug, Clone, Serialize, PartialEq, Eq)]
@@ -992,6 +1023,294 @@ fn register(prepared: Prepared) -> Result<Value, &'static str> {
     let output = json!({"handle": handle, "source_version": prepared.source_version});
     entries.insert(handle, prepared);
     Ok(output)
+}
+
+fn snapshot_queue_error(error: SnapshotQueueError) -> String {
+    match error {
+        SnapshotQueueError::Unavailable => "snapshot_unavailable",
+        SnapshotQueueError::Busy => "snapshot_busy",
+        SnapshotQueueError::Invalid => "snapshot_invalid",
+        SnapshotQueueError::Conflict => "snapshot_conflict",
+    }
+    .to_owned()
+}
+
+fn snapshot_queue(directory: &str) -> Result<DictionarySnapshotQueue, String> {
+    if directory.len() > 16_384 {
+        return Err("snapshot_invalid".to_owned());
+    }
+    DictionarySnapshotQueue::new(directory).map_err(snapshot_queue_error)
+}
+
+fn durable_local_version(options: &EngineOptions) -> Result<String, &'static str> {
+    let digest = version(options)?;
+    let generation = activation_receipt(options)?;
+    local_version(generation.as_deref(), &digest).map_err(|_| "invalid snapshot local version")
+}
+
+struct SnapshotFileRecords {
+    reader: BufReader<std::fs::File>,
+    line: Vec<u8>,
+    failed: bool,
+}
+
+impl SnapshotFileRecords {
+    fn open(path: &Path) -> Result<Self, &'static str> {
+        let file = std::fs::File::open(path).map_err(|_| "snapshot file unavailable")?;
+        Ok(Self {
+            reader: BufReader::with_capacity(MAX_SNAPSHOT_LINE_BYTES, file),
+            line: Vec::with_capacity(MAX_SNAPSHOT_LINE_BYTES),
+            failed: false,
+        })
+    }
+
+    fn read_line(&mut self) -> Result<bool, SnapshotReadError> {
+        self.line.clear();
+        loop {
+            let chunk = self.reader.fill_buf().map_err(|_| SnapshotReadError)?;
+            if chunk.is_empty() {
+                return Ok(!self.line.is_empty());
+            }
+            if let Some(index) = chunk.iter().position(|byte| *byte == b'\n') {
+                if self.line.len() + index + 1 > MAX_SNAPSHOT_LINE_BYTES {
+                    return Err(SnapshotReadError);
+                }
+                self.line.extend_from_slice(&chunk[..index]);
+                self.reader.consume(index + 1);
+                return (!self.line.is_empty() && !self.line.ends_with(b"\r"))
+                    .then_some(true)
+                    .ok_or(SnapshotReadError);
+            }
+            if self.line.len() + chunk.len() >= MAX_SNAPSHOT_LINE_BYTES {
+                return Err(SnapshotReadError);
+            }
+            self.line.extend_from_slice(chunk);
+            let length = chunk.len();
+            self.reader.consume(length);
+        }
+    }
+}
+
+impl Iterator for SnapshotFileRecords {
+    type Item = Result<msime_engine_bridge::DictionaryStateRecord, SnapshotReadError>;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        if self.failed {
+            return None;
+        }
+        loop {
+            match self.read_line() {
+                Ok(false) => return None,
+                Err(error) => {
+                    self.failed = true;
+                    return Some(Err(error));
+                }
+                Ok(true) => {}
+            }
+            let kind = match parse_snapshot_object(&self.line)
+                .ok()
+                .and_then(|map| map.get("type").and_then(Value::as_str).map(str::to_owned))
+            {
+                Some(kind) => kind,
+                None => {
+                    self.failed = true;
+                    return Some(Err(SnapshotReadError));
+                }
+            };
+            match kind.as_str() {
+                "overlay" | "position" | "selection" => {
+                    return Some(record::decode(&self.line));
+                }
+                "header" | "entry" | "footer" => continue,
+                _ => {
+                    self.failed = true;
+                    return Some(Err(SnapshotReadError));
+                }
+            }
+        }
+    }
+}
+
+fn snapshot_queue_state(
+    queue: &DictionarySnapshotQueue,
+    options: HostOptions,
+    acknowledge: bool,
+) -> Result<Value, String> {
+    let options = validate_options(options).map_err(str::to_owned)?;
+    let current = durable_local_version(&options).map_err(str::to_owned)?;
+    queue
+        .publish_local_version(&current)
+        .map_err(snapshot_queue_error)?;
+    let state = if acknowledge {
+        queue.take_state()
+    } else {
+        queue.read()
+    }
+    .map_err(snapshot_queue_error)?;
+    serde_json::to_value(state).map_err(|_| "snapshot_unavailable".to_owned())
+}
+
+fn snapshot_queue_process(
+    queue: &DictionarySnapshotQueue,
+    staging_root: String,
+    options: HostOptions,
+) -> Result<Value, String> {
+    let engine_options = validate_options(options.clone()).map_err(str::to_owned)?;
+    let current = durable_local_version(&engine_options).map_err(str::to_owned)?;
+    queue
+        .publish_local_version(&current)
+        .map_err(snapshot_queue_error)?;
+    let lease = match queue.acquire_worker_lease() {
+        Ok(lease) => lease,
+        Err(SnapshotQueueError::Busy) => {
+            return serde_json::to_value(queue.read().map_err(snapshot_queue_error)?)
+                .map_err(|_| "snapshot_unavailable".to_owned());
+        }
+        Err(error) => return Err(snapshot_queue_error(error)),
+    };
+    let Some(request) = queue.claim(&lease).map_err(snapshot_queue_error)? else {
+        return serde_json::to_value(queue.read().map_err(snapshot_queue_error)?)
+            .map_err(|_| "snapshot_unavailable".to_owned());
+    };
+    if request.expected_local_version != current {
+        let _ = queue
+            .complete(request.id, &lease, &current, false, || {
+                Err(SnapshotQueueError::Conflict)
+            })
+            .map_err(snapshot_queue_error)?;
+        return serde_json::to_value(queue.read().map_err(snapshot_queue_error)?)
+            .map_err(|_| "snapshot_unavailable".to_owned());
+    }
+    let path = queue.file_path(request.id).map_err(snapshot_queue_error)?;
+    let metadata = match inspect_snapshot(&path) {
+        Ok(metadata) if metadata.file_sha256 == request.file_sha256 => metadata,
+        _ => {
+            queue
+                .fail(request.id, &lease)
+                .map_err(snapshot_queue_error)?;
+            return serde_json::to_value(queue.read().map_err(snapshot_queue_error)?)
+                .map_err(|_| "snapshot_unavailable".to_owned());
+        }
+    };
+    let raw_expected = local_version_digest(&request.expected_local_version)
+        .map_err(snapshot_queue_error)?
+        .to_owned();
+    let stream = SnapshotFileRecords::open(&path).map_err(str::to_owned)?;
+    let specification: ResourceSet = serde_json::from_str(include_str!(
+        "../../../resources/desktop-dictionary.lock.json"
+    ))
+    .map_err(|_| "snapshot resources rejected".to_owned())?;
+    let prepared = prepare(
+        PrepareRequest {
+            options,
+            staging_root,
+            expected_version: raw_expected.clone(),
+            records: metadata.engine_records,
+            activation_id: Some(request.id.to_string()),
+        },
+        &specification,
+        stream,
+    );
+    let prepared = match prepared {
+        Ok(prepared) => prepared,
+        Err(_) => {
+            let latest = durable_local_version(&engine_options).map_err(str::to_owned)?;
+            if latest != current {
+                let _ = queue
+                    .complete(request.id, &lease, &latest, false, || {
+                        Err(SnapshotQueueError::Conflict)
+                    })
+                    .map_err(snapshot_queue_error)?;
+            } else {
+                queue
+                    .fail(request.id, &lease)
+                    .map_err(snapshot_queue_error)?;
+            }
+            return serde_json::to_value(queue.read().map_err(snapshot_queue_error)?)
+                .map_err(|_| "snapshot_unavailable".to_owned());
+        }
+    };
+    let registered = register(prepared).map_err(str::to_owned)?;
+    let handle = registered
+        .get("handle")
+        .and_then(Value::as_u64)
+        .ok_or_else(|| "snapshot_unavailable".to_owned())?;
+    let mut consumed = false;
+    let completion = queue.complete(request.id, &lease, &current, false, || {
+        activate(handle, &raw_expected).map_err(|_| SnapshotQueueError::Unavailable)?;
+        consumed = true;
+        durable_local_version(&engine_options).map_err(|_| SnapshotQueueError::Unavailable)
+    });
+    if !consumed {
+        let _ = discard(handle);
+    }
+    completion.map_err(snapshot_queue_error)?;
+    serde_json::to_value(queue.read().map_err(snapshot_queue_error)?)
+        .map_err(|_| "snapshot_unavailable".to_owned())
+}
+
+fn run_snapshot_queue(action: SnapshotQueueAction) -> Result<Value, String> {
+    match action {
+        SnapshotQueueAction::State {
+            directory,
+            options,
+            acknowledge,
+        } => snapshot_queue_state(&snapshot_queue(&directory)?, options, acknowledge),
+        SnapshotQueueAction::Enqueue {
+            directory,
+            source,
+            account_id,
+            cloud_revision,
+            expected_local_version,
+            file_sha256,
+        } => {
+            let queue = snapshot_queue(&directory)?;
+            queue
+                .enqueue(
+                    Path::new(&source),
+                    &account_id,
+                    cloud_revision,
+                    &expected_local_version,
+                    &file_sha256,
+                )
+                .map_err(snapshot_queue_error)?;
+            serde_json::to_value(queue.read().map_err(snapshot_queue_error)?)
+                .map_err(|_| "snapshot_unavailable".to_owned())
+        }
+        SnapshotQueueAction::Cancel {
+            directory,
+            account_id,
+        } => {
+            let queue = snapshot_queue(&directory)?;
+            queue.cancel(&account_id).map_err(snapshot_queue_error)?;
+            serde_json::to_value(queue.take_state().map_err(snapshot_queue_error)?)
+                .map_err(|_| "snapshot_unavailable".to_owned())
+        }
+        SnapshotQueueAction::Process {
+            directory,
+            staging_root,
+            options,
+        } => snapshot_queue_process(&snapshot_queue(&directory)?, staging_root, options),
+    }
+}
+
+/// Persist, inspect, process or query the one crash-safe native snapshot queue.
+/// # Safety
+/// `request` points to `length` readable UTF-8 JSON bytes.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_snapshot_queue(
+    request: *const u8,
+    length: usize,
+) -> *mut c_char {
+    response(|| {
+        if request.is_null() || length == 0 || length > BUFFER_LIMIT {
+            return Err("snapshot_invalid".to_owned());
+        }
+        let action: SnapshotQueueAction =
+            serde_json::from_slice(unsafe { std::slice::from_raw_parts(request, length) })
+                .map_err(|_| "snapshot_invalid".to_owned())?;
+        run_snapshot_queue(action)
+    })
 }
 
 /// Inspect one host-private snapshot file without returning its contents.
