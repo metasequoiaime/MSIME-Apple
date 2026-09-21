@@ -876,7 +876,11 @@ public final class MSIMEInputService extends InputMethodService {
     private void startEngineSession(String optionsText) {
         try {
             JSONObject options = new JSONObject(optionsText);
-            view = value(NativeClient.create(optionsText));
+            // 选中只吃掉部分输入的候选时，让运行时把已选的那一段留在组字里而不是立刻上屏。这个宿主
+            // 会把它画在组字与候选条的读音前面，两件事必须一起做：请求了却不画，用户已经选中的字
+            // 既不在文档里也不在屏幕上（scripts/test-phrase-preedit-hosts.py 守的就是这一半状态）。
+            options.put("phrase_preedit", true);
+            view = value(NativeClient.create(options.toString()));
             session = view.getLong("session");
             String resources = options.optString("resources", "");
             if (new File(resources).isAbsolute()) {
@@ -1244,8 +1248,10 @@ public final class MSIMEInputService extends InputMethodService {
             // Chinese, Japanese, local-mode and handwriting commits stay canonical.
             if (fullWidthInput && dedicatedEnglish) commit = fullWidthOutput(commit);
         }
+        String composing = PhrasePreeditPolicy.composing(
+            next.optString("phrase_prefix", ""), next.getString("editing_text"));
         if (connection != null
-                && !bridge.apply(sink(typingSource()), commit, next.getString("editing_text"))) {
+                && !bridge.apply(sink(typingSource()), commit, composing)) {
             throw new JSONException("Editor rejected update");
         }
         view = next;
@@ -6836,8 +6842,11 @@ public final class MSIMEInputService extends InputMethodService {
             }
             boolean idleTitle = idle && editingText.isEmpty();
             brandPillVisible = idleTitle;
+            String phrasePrefix = view == null ? "" : view.optString("phrase_prefix", "");
             String displayText = idleTitle
-                ? (dedicatedEnglish ? "英文输入" : "水杉输入法") : localModeTitle;
+                ? (dedicatedEnglish ? "英文输入" : "水杉输入法")
+                : PhrasePreeditPolicy.title(phrasePrefix, localModeTitle,
+                                            !"none".equals(localModeKey));
             preedit.setText(displayText);
             preedit.setContentDescription(offersLocalModes ? "本地输入模式" : displayText);
             preedit.setClickable(offersLocalModes);

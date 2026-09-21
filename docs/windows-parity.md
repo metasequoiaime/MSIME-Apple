@@ -789,6 +789,14 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 用例：新增 `crates/input-runtime/examples/mixed_slots.rs` 用 `ni` 这个输入（同时产出中文、英文 `ni`、emoji、颜文字，且两种联网源都可用）逐个验四种排布。
 
+增量记录（2026-09-21，Android 的半截词，以及本机其实一直能验 Android）：第二十七批把「半截词留在组字里」按宿主分期打开时写的理由是「Linux/Harmony/Android 本机既没有容器也没有工具链」。Linux 那一半当天已经被推翻（OrbStack 一直装着），**Android 这一半同样不成立**：固定版本的 NDK 28.2.13676358 在 `~/Library/Android/sdk/ndk` 下、两个 Rust target 都装着、vcpkg 也在——缺的只是 `target/android-deps`（`platforms/android/build-native.sh` 产出的依赖前缀），跑一次就有了。门禁此前读 `ANDROID_SDK_ROOT`/`ANDROID_HOME`，而 Android Studio 在 macOS 上两个都不设，于是那一阶段一直显示 skipped——**它要的东西全都在标准目录里躺着**。现在门禁也认那个默认位置。
+
+更要紧的是 `platforms/android/check-host.sh`：它用 SDK 的 android.jar 编译整个输入法服务（键盘、面板、二十多个策略类）并跑它们的 smoke 用例，不需要设备，本机一直能跑，却从来没进过门禁。现在挂进 `--quick`，一并跑。
+
+半截词本身：Android 在建会话时请求 `phrase_preedit`，两处画出来——编辑框里的组字（已选的那一段领在读音前面）与候选条上那行标题。规则抽成 `PhrasePreeditPolicy`（本地模式有自己的标题，那时不加前缀；空值按空串处理），配 `PhrasePreeditSmoke` 七条断言，挂进 check-host.sh，反向验证过。守卫脚本现在把 Android 记在「留在组字里」那一侧。
+
+仍未打开的只剩 HarmonyOS 与 iOS：前者要 DevEco 工具链，后者的键盘扩展要 Xcode 真机链路，本机都没有。
+
 增量记录（2026-09-21，来源语言栏那个菜单逐项比，差的是「悬浮工具栏」那一条）：来源的托盘菜单在 `server/src/window/tray_menu_presenter.cpp` 里一共七项，按顺序是：悬浮工具栏（带勾的开关）、表情/符号面板、手写识别板、屏幕键盘、语音输入、设置、关于。macOS 输入法菜单是它的超集——表情与符号、水杉表情面板、屏幕键盘、候选设置、个人词典、账户状态、云剪贴板、云词典、手写输入、准备词库、检查更新、官方网站、使用帮助、关于、问题反馈、语音输入与语音设置，外加中英文与简繁的两组单选——**唯独少了第一项**：悬浮工具栏的开关。
 
 本仓这个开关此前只在设置窗口里（一个写着「显示浮动工具栏」的勾选框）。它是用户打字途中开开关关的东西，来源把它放在语言栏一点就到的位置是有道理的。现在 macOS 输入法菜单里补上同名的一条，带勾显示当前状态，写的是设置页那个勾选框写的同一个偏好——两处不会互相打架，选择也跟着偏好一起留到下次启动。

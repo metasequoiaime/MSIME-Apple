@@ -380,7 +380,15 @@ note "compile: android target"
 # Skipped rather than required: it needs the pinned NDK, the Rust Android
 # target and the vcpkg dependency prefix that platforms/android/build-native.sh
 # installs, the same way the native phases below skip when unconfigured.
-android_ndk=${MSIME_ANDROID_NDK:-${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}/ndk/28.2.13676358}
+# The SDK's default location counts as configuration too. Neither ANDROID_SDK_ROOT nor
+# ANDROID_HOME is set by the Android Studio installer on macOS, so a machine with the pinned NDK,
+# the Rust targets and the built dependency prefix still skipped this phase - which reads as "not
+# available here" when everything it needs is sitting in the standard directory.
+android_sdk=${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}
+if [ -z "$android_sdk" ] && [ -d "$HOME/Library/Android/sdk" ]; then
+  android_sdk="$HOME/Library/Android/sdk"
+fi
+android_ndk=${MSIME_ANDROID_NDK:-$android_sdk/ndk/28.2.13676358}
 case $(uname -s) in
   Darwin) android_host_tag=darwin-x86_64 ;;
   Linux) android_host_tag=linux-x86_64 ;;
@@ -400,6 +408,18 @@ if [ -n "$android_host_tag" ] && [ -x "$android_clang" ] && [ -d "$android_deps"
   [ "${PIPESTATUS[0]}" -eq 0 ] || fail "cargo check --target aarch64-linux-android"
 else
   echo "skipped: pinned NDK, aarch64-linux-android target or android-deps not present"
+fi
+
+# The Java half. `cargo check` above compiles the Rust the service calls into and says nothing about
+# the service itself, which is where most of this host lives: the input method, its keyboard, its
+# panels and two dozen policy classes with their own smoke tests. check-host.sh compiles all of it
+# against the SDK's android.jar and runs those tests, and it needs no device.
+note "android host java"
+if [ -n "$android_sdk" ] && [ -d "$android_sdk/platforms" ]; then
+  ANDROID_SDK_ROOT="$android_sdk" bash platforms/android/check-host.sh >/dev/null 2>&1     || fail "android host java"
+  echo "android host java: service, policies and smoke tests compile and pass"
+else
+  echo "skipped: no Android SDK platforms directory"
 fi
 
 note "compile: linux desktop shell"
