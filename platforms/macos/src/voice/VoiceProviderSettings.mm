@@ -6,6 +6,71 @@ NSNotificationName const MSIMEVoiceProviderSettingsDidChangeNotification = @"MSI
 
 namespace
 {
+NSArray<NSDictionary<NSString *, NSString *> *> *ProviderSpecs()
+{
+    static NSArray<NSDictionary<NSString *, NSString *> *> *specs;
+    static dispatch_once_t once;
+    dispatch_once(&once, ^{
+        specs = @[
+            @{@"id" : @"doubao", @"title" : @"豆包", @"endpoint" : @"wss://openspeech.bytedance.com/api/v3/sauc/bigmodel_async", @"model" : @""},
+            @{@"id" : @"openai", @"title" : @"OpenAI", @"endpoint" : @"https://api.openai.com/v1/audio/transcriptions", @"model" : @"whisper-1"},
+            @{@"id" : @"siliconflow", @"title" : @"SiliconFlow", @"endpoint" : @"https://api.siliconflow.cn/v1/audio/transcriptions", @"model" : @"FunAudioLLM/SenseVoiceSmall"},
+            @{@"id" : @"groq", @"title" : @"Groq", @"endpoint" : @"https://api.groq.com/openai/v1/audio/transcriptions", @"model" : @"whisper-large-v3-turbo"},
+            @{@"id" : @"everyapi", @"title" : @"EveryAPI", @"endpoint" : @"https://api.everyapi.ai/v1/audio/transcriptions", @"model" : @"openai/whisper-large-v3-turbo"},
+            @{@"id" : @"mistral", @"title" : @"Mistral · Voxtral", @"endpoint" : @"https://api.mistral.ai/v1/audio/transcriptions", @"model" : @"voxtral-mini-latest"},
+            @{@"id" : @"system", @"title" : @"macOS 系统识别", @"endpoint" : @"", @"model" : @""},
+            @{@"id" : @"local", @"title" : @"本地 Whisper", @"endpoint" : @"", @"model" : @""}
+        ];
+    });
+    return specs;
+}
+
+NSArray<NSString *> *ProviderValues(NSString *key)
+{
+    NSMutableArray<NSString *> *values = [NSMutableArray arrayWithCapacity:ProviderSpecs().count];
+    for (NSDictionary<NSString *, NSString *> *spec in ProviderSpecs())
+        [values addObject:spec[key]];
+    return [values copy];
+}
+
+NSString *ProviderValue(NSString *provider, NSString *key)
+{
+    NSString *identifier = provider.lowercaseString ?: @"";
+    for (NSDictionary<NSString *, NSString *> *spec in ProviderSpecs())
+        if ([spec[@"id"] isEqual:identifier]) return spec[key];
+    return @"";
+}
+} // namespace
+
+NSArray<NSString *> *MSIMEVoiceASRProviderIDs(void)
+{
+    return ProviderValues(@"id");
+}
+
+NSArray<NSString *> *MSIMEVoiceASRProviderTitles(void)
+{
+    return ProviderValues(@"title");
+}
+
+NSString *MSIMEVoiceASRProviderDefaultEndpoint(NSString *provider)
+{
+    return ProviderValue(provider, @"endpoint");
+}
+
+NSString *MSIMEVoiceASRProviderDefaultModel(NSString *provider)
+{
+    return ProviderValue(provider, @"model");
+}
+
+BOOL MSIMEVoiceASRProviderUsesService(NSString *provider)
+{
+    NSString *identifier = provider.lowercaseString ?: @"";
+    return [MSIMEVoiceASRProviderIDs() containsObject:identifier] &&
+           ![@[ @"system", @"local" ] containsObject:identifier];
+}
+
+namespace
+{
 NSString *const service = @"app.msime.client.voice.providers";
 NSError *Error(NSString *message)
 {
@@ -100,6 +165,12 @@ BOOL IsEndpoint(NSString *value)
     return [url.scheme.lowercaseString isEqualToString:@"https"] && url.host.length > 0 && !url.user && !url.password &&
            !url.fragment;
 }
+BOOL IsWebSocketEndpoint(NSString *value)
+{
+    NSURLComponents *url = [NSURLComponents componentsWithString:value];
+    return [url.scheme.lowercaseString isEqualToString:@"wss"] && url.host.length > 0 && !url.user && !url.password &&
+           !url.fragment;
+}
 } // namespace
 @implementation MetasequoiaVoiceProviderSettings
 // dictionaryForKey: type-checks the container and nothing inside it, and the NSString * properties
@@ -131,29 +202,15 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
     // Keep legacy cloud settings readable while matching the Windows provider contract.
     if ([rawProvider isEqualToString:@"cloud"])
         rawProvider = @"siliconflow";
-    if (rawProvider.length == 0)
+    if (![MSIMEVoiceASRProviderIDs() containsObject:rawProvider])
         rawProvider = @"doubao";
     value.provider = rawProvider;
     value.endpoint = SharedSetting(saved, @"endpoint", @"");
     value.model = SharedSetting(saved, @"model", @"");
     if (value.endpoint.length == 0)
-    {
-        if ([rawProvider isEqualToString:@"openai"])
-            value.endpoint = @"https://api.openai.com/v1/audio/transcriptions";
-        else if ([rawProvider isEqualToString:@"groq"])
-            value.endpoint = @"https://api.groq.com/openai/v1/audio/transcriptions";
-        else if ([rawProvider isEqualToString:@"siliconflow"])
-            value.endpoint = @"https://api.siliconflow.cn/v1/audio/transcriptions";
-    }
+        value.endpoint = MSIMEVoiceASRProviderDefaultEndpoint(rawProvider);
     if (value.model.length == 0)
-    {
-        if ([rawProvider isEqualToString:@"openai"])
-            value.model = @"whisper-1";
-        else if ([rawProvider isEqualToString:@"groq"])
-            value.model = @"whisper-large-v3-turbo";
-        else if ([rawProvider isEqualToString:@"siliconflow"])
-            value.model = @"FunAudioLLM/SenseVoiceSmall";
-    }
+        value.model = MSIMEVoiceASRProviderDefaultModel(rawProvider);
     value.modelPath = SharedSetting(saved, @"modelPath", @"");
     id polishEnabled = saved[@"polishEnabled"];
     value.polishEnabled =
@@ -178,9 +235,13 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
         if (![[NSFileManager defaultManager] fileExistsAtPath:self.modelPath isDirectory:&directory] || directory)
             message = @"请选择已下载的 Whisper 模型文件。";
     }
-    else if (![self.provider isEqualToString:@"cloud"] && ![self.provider isEqualToString:@"doubao"] && ![self.provider isEqualToString:@"openai"] && ![self.provider isEqualToString:@"siliconflow"] && ![self.provider isEqualToString:@"groq"])
+    else if (![MSIMEVoiceASRProviderIDs() containsObject:self.provider])
         message = @"请选择识别方式。";
-    else if (!IsEndpoint(self.endpoint) || self.model.length == 0 || self.token.length == 0)
+    else if ([self.provider isEqualToString:@"doubao"] &&
+             (!IsWebSocketEndpoint(self.endpoint) || self.token.length == 0))
+        message = @"请填写 WSS 识别地址和 API 密钥。";
+    else if (![self.provider isEqualToString:@"doubao"] && MSIMEVoiceASRProviderUsesService(self.provider) &&
+             (!IsEndpoint(self.endpoint) || self.model.length == 0 || self.token.length == 0))
         message = @"请填写 HTTPS 识别地址、模型名称和 API 密钥。";
     if (self.polishEnabled &&
         (!IsEndpoint(self.polishEndpoint) || self.polishModel.length == 0 || self.polishToken.length == 0))
@@ -280,7 +341,7 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
         window.title = @"语音输入设置";
         _provider = [[NSPopUpButton alloc] initWithFrame:NSMakeRect(150, 530, 435, 28) pullsDown:NO];
         _provider.accessibilityLabel = @"识别方式";
-        [_provider addItemsWithTitles:@[ @"豆包", @"OpenAI", @"SiliconFlow", @"Groq", @"本地 Whisper" ]];
+        [_provider addItemsWithTitles:MSIMEVoiceASRProviderTitles()];
         _provider.target = self;
         _provider.action = @selector(providerChanged:);
         [window.contentView addSubview:_provider];
@@ -323,7 +384,7 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
 - (void)showAndActivate
 {
     MetasequoiaVoiceProviderSettings *value = [MetasequoiaVoiceProviderSettings loadSettings];
-    NSArray *providerIDs = @[ @"doubao", @"openai", @"siliconflow", @"groq", @"local" ];
+    NSArray *providerIDs = MSIMEVoiceASRProviderIDs();
     NSUInteger providerIndex = [providerIDs indexOfObject:value.provider];
     [_provider selectItemAtIndex:providerIndex == NSNotFound ? 0 : providerIndex];
     _endpoint.stringValue = value.endpoint;
@@ -367,24 +428,24 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
 - (void)providerChanged:(id)sender
 {
     (void)sender;
-    NSArray *endpoints = @[ @"", @"https://api.openai.com/v1/audio/transcriptions", @"https://api.siliconflow.cn/v1/audio/transcriptions", @"https://api.groq.com/openai/v1/audio/transcriptions", @"" ];
-    NSArray *models = @[ @"", @"whisper-1", @"FunAudioLLM/SenseVoiceSmall", @"whisper-large-v3-turbo", @"" ];
-    NSUInteger index = MIN((NSUInteger)_provider.indexOfSelectedItem, endpoints.count - 1);
-    NSString *endpoint = endpoints[index];
-    NSString *model = models[index];
-    if (endpoint.length > 0) _endpoint.stringValue = endpoint;
-    if (model.length > 0) _model.stringValue = model;
+    NSArray *providerIDs = MSIMEVoiceASRProviderIDs();
+    NSUInteger index = MIN((NSUInteger)_provider.indexOfSelectedItem, providerIDs.count - 1);
+    NSString *provider = providerIDs[index];
+    _endpoint.stringValue = MSIMEVoiceASRProviderDefaultEndpoint(provider);
+    _model.stringValue = MSIMEVoiceASRProviderDefaultModel(provider);
     _token.stringValue = @"";
     [self updateEnabled:nil];
 }
 - (void)updateEnabled:(id)sender
 {
     (void)sender;
-    BOOL cloud = _provider.indexOfSelectedItem < 4;
-    _endpoint.enabled = cloud;
-    _model.enabled = cloud;
-    _token.enabled = cloud;
-    _modelPath.enabled = !cloud;
+    NSArray *providerIDs = MSIMEVoiceASRProviderIDs();
+    NSString *provider = providerIDs[MIN((NSUInteger)_provider.indexOfSelectedItem, providerIDs.count - 1)];
+    BOOL service = MSIMEVoiceASRProviderUsesService(provider);
+    _endpoint.enabled = service;
+    _model.enabled = service && ![provider isEqualToString:@"doubao"];
+    _token.enabled = service;
+    _modelPath.enabled = [provider isEqualToString:@"local"];
     BOOL polish = _polish.state == NSControlStateValueOn;
     _polishEndpoint.enabled = polish;
     _polishModel.enabled = polish;
@@ -413,7 +474,7 @@ static NSString *SharedSetting(NSDictionary *saved, NSString *key, NSString *fal
 {
     (void)sender;
     MetasequoiaVoiceProviderSettings *value = [MetasequoiaVoiceProviderSettings new];
-    NSArray *providerIDs = @[ @"doubao", @"openai", @"siliconflow", @"groq", @"local" ];
+    NSArray *providerIDs = MSIMEVoiceASRProviderIDs();
     value.provider = providerIDs[MIN((NSUInteger)_provider.indexOfSelectedItem, providerIDs.count - 1)];
     value.endpoint = _endpoint.stringValue;
     value.model = _model.stringValue;

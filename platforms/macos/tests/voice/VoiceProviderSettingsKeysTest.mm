@@ -58,11 +58,56 @@ static void TestSharedSettingPrefersTheSharedStoreAndToleratesJunk()
     assert([MSIMEVoiceProviderSharedSetting(saved, @"provider", @7, @"doubao") isEqual:@"groq"]);
 }
 
+static void TestEveryRuntimeProviderIsEditable()
+{
+    NSArray *providers = MSIMEVoiceASRProviderIDs();
+    NSArray *expected = @[ @"doubao", @"openai", @"siliconflow", @"groq", @"everyapi", @"mistral",
+                           @"system", @"local" ];
+    assert([providers isEqual:expected]);
+    assert(MSIMEVoiceASRProviderTitles().count == providers.count);
+    NSDictionary *defaults = @{
+        @"everyapi" : @[ @"https://api.everyapi.ai/v1/audio/transcriptions", @"openai/whisper-large-v3-turbo" ],
+        @"mistral" : @[ @"https://api.mistral.ai/v1/audio/transcriptions", @"voxtral-mini-latest" ]
+    };
+    for (NSString *provider in defaults) {
+        assert([MSIMEVoiceASRProviderDefaultEndpoint(provider) isEqual:defaults[provider][0]]);
+        assert([MSIMEVoiceASRProviderDefaultModel(provider) isEqual:defaults[provider][1]]);
+        MetasequoiaVoiceProviderSettings *settings = [MetasequoiaVoiceProviderSettings new];
+        settings.provider = provider;
+        settings.endpoint = defaults[provider][0];
+        settings.model = defaults[provider][1];
+        settings.token = @"synthetic-token";
+        settings.modelPath = @"";
+        settings.polishEnabled = NO;
+        assert([settings validate:nil]);
+    }
+    MetasequoiaVoiceProviderSettings *doubao = [MetasequoiaVoiceProviderSettings new];
+    doubao.provider = @"doubao";
+    doubao.endpoint = MSIMEVoiceASRProviderDefaultEndpoint(@"doubao");
+    doubao.model = @"";
+    doubao.token = @"synthetic-token";
+    doubao.modelPath = @"";
+    doubao.polishEnabled = NO;
+    assert([doubao validate:nil]);
+
+    MetasequoiaVoiceProviderSettings *system = [MetasequoiaVoiceProviderSettings new];
+    system.provider = @"system";
+    system.endpoint = @"";
+    system.model = @"";
+    system.token = @"";
+    system.modelPath = @"";
+    system.polishEnabled = NO;
+    assert([system validate:nil]);
+    assert(!MSIMEVoiceASRProviderUsesService(@"system"));
+    assert(!MSIMEVoiceASRProviderUsesService(@"local"));
+}
+
 int main()
 {
     @autoreleasepool {
         TestEveryEditableFieldHasASharedKey();
         TestSharedSettingPrefersTheSharedStoreAndToleratesJunk();
+        TestEveryRuntimeProviderIsEditable();
     }
     std::puts("macOS voice provider settings keys passed.");
     return 0;
