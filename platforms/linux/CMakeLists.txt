@@ -220,6 +220,8 @@ add_executable(linux-smart-punctuation-space-test tests/core/smart_punctuation_s
 target_compile_options(linux-smart-punctuation-space-test PRIVATE -Wall -Wextra -Werror)
 target_include_directories(linux-smart-punctuation-space-test PRIVATE src)
 add_test(NAME linux-smart-punctuation-space COMMAND linux-smart-punctuation-space-test)
+add_test(NAME linux-setup-resolution
+         COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/core/setup_resolution.py")
 add_executable(linux-candidate-skin-catalog-test tests/core/candidate_skin_catalog.cpp)
 target_compile_options(linux-candidate-skin-catalog-test PRIVATE -Wall -Wextra -Werror)
 target_include_directories(linux-candidate-skin-catalog-test PRIVATE src)
@@ -249,6 +251,17 @@ if(MSIME_LINUX_VOICE)
 endif()
 install(PROGRAMS scripts/msime-client-ibus-launcher scripts/msime-client-online-provider scripts/msime-client-voice-provider scripts/msime-client-provider-session DESTINATION "${CMAKE_INSTALL_BINDIR}")
 install(PROGRAMS scripts/msime-client-clipboard-monitor DESTINATION "${CMAKE_INSTALL_BINDIR}")
+# 安装后的首次配置入口。词库与状态目录此前没有任何产品侧的路径：词库要么在配置阶段随包
+# 装好，要么只能在仓库检出里跑一个 Cargo 示例去取，于是只拿到安装包的用户凑不齐词库，而
+# 没有词库一个候选都出不来。两份锁无条件随装，它们是这个入口据以校验和取回的依据——词库
+# 锁此前只在 MSIME_ENGINE_RESOURCES 存在时才安装，也就是最需要它的那种安装里反而没有。
+install(PROGRAMS scripts/msime-client-setup DESTINATION "${CMAKE_INSTALL_BINDIR}")
+if(NOT MSIME_ENGINE_RESOURCES)
+  install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../../resources/desktop-dictionary.lock.json"
+          DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client")
+endif()
+install(FILES "${CMAKE_CURRENT_SOURCE_DIR}/../../engine-lock.json"
+        DESTINATION "${CMAKE_INSTALL_DATADIR}/msime-client")
 set(MSIME_SYSTEMD_USER_UNIT_DIR "${CMAKE_INSTALL_DATADIR}/systemd/user" CACHE PATH "systemd user unit installation directory")
 foreach(MSIME_PROVIDER online voice clipboard)
   configure_file(data/msime-client-${MSIME_PROVIDER}.service.in

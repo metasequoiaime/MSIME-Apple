@@ -19,6 +19,25 @@ Fcitx5 候选操作通过原生候选 Action（新版本）和输入上下文 st
 
 候选页显示时，Home/End 将当前高亮移动到该页首项或末项；没有候选页时仍交给编辑器处理。
 
+## 安装后首次使用
+
+安装本身不产生任何用户状态：没有词库、没有运行配置，也不会替你选中输入法。把这三件事补齐的是随装的 `msime-client-setup`：
+
+```sh
+msime-client-setup              # 用已备齐的词库准备状态目录
+msime-client-setup --download   # 允许按随装的词库锁取回缺失词库（首次约 170 MB）
+```
+
+它按 `desktop-dictionary.lock.json` 逐个核对词库的名称、大小和 SHA-256，再调用 `msime-client-prepare` 在 `$XDG_CONFIG_HOME/msime-client`（默认 `~/.config/msime-client`）建立状态并发布 `runtime-options.json`，最后按当前跑着的是 fcitx5 还是 ibus 打印下一步。词库目录按「随包安装的 `${CMAKE_INSTALL_DATADIR}/msime-client/resources` → `$XDG_DATA_HOME/msime-client/resources`」的顺序查找，`--resources` 显式指定优先；状态目录必须尚不存在，已存在时报错而不是覆盖。校验不过就中止，不会留下半份词库。
+
+`--download` 之外不发起任何网络请求。词库锁里 `dict_pinyin.dat` 没有下载地址——它来自引擎源码树——所以该项按同样随装的 `engine-lock.json` 找到对应的固定依赖归档，校验归档摘要后只取出这一个文件，再按词库锁校验它本身。两份锁都无条件随装：此前词库锁只在配置阶段传了 `MSIME_ENGINE_RESOURCES` 时才安装，也就是最需要它的那种安装里反而没有，只拿到安装包的用户没有任何办法把词库凑齐。
+
+准备好状态后选中输入法：Fcitx5 用 `fcitx5-configtool` 把「MSIME」加入当前输入法组，IBus 执行 `ibus restart` 后在输入源里选择「MSIME Client」。
+
+**Fcitx5 的状态区入口需要桌面提供托盘宿主。** 中英文、简繁、工具栏这些动作挂在输入法状态区，由托盘（StatusNotifierItem）承载；部分发行版以 `fcitx5 --disable notificationitem` 启动，那些入口就不会出现。输入本身不受影响，设置也仍可从应用列表里的「水杉输入法」或 `msime-client-settings` 打开；要让它们显示，需要在桌面侧恢复托盘。这属于发行版与桌面的配置，输入法不代劳，也不因此改为创建脱离输入上下文的悬浮窗口。
+
+判定规则由 `tests/core/setup_resolution.py` 钉住，不需要词库也不联网：哪份词库算可用、锁里没有 URL 的那项归哪个归档、去哪里找锁和已有词库。
+
 ## 生成 Linux 安装包
 
 在 Linux 上配置构建时显式传入 `-DMSIME_ENABLE_PACKAGING=ON -DCMAKE_INSTALL_PREFIX=/usr`，并按原构建流程提供 Host API 库、可选桌面二进制和已固定来源的资源。打包构建必定包含 Fcitx5 原生插件（不受开发机上是否装有 Fcitx5 开发包影响）；若只需 IBus 开发构建，可显式传入 `-DMSIME_ENABLE_FCITX5=OFF`。打包构建不得设置 `MSIME_RUNTIME_OPTIONS_FILE`，也不得启用安装开发测试程序的 `MSIME_LINUX_VOICE`。
