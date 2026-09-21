@@ -25,6 +25,7 @@
 #include "../src/core/SmartPunctuationSpace.h"
 #include "../src/system/DiagnosticLog.h"
 #include "../src/core/HelpcodeDefaults.h"
+#include "../src/core/PhrasePreedit.h"
 #include "../src/system/TypingStatistics.h"
 #include <nlohmann/json.hpp>
 #include <algorithm>
@@ -427,10 +428,10 @@ public:
     const auto scheme = view_.value("scheme", 0u);
     if (!session_ || (scheme != 0 && scheme != 1) || restricted() || privateInput())
       return false;
-    // Deduced, not counted: the sixth schema was added to this list while the length stayed at
-    // five, which is a compile error rather than something a reader spots.
-    static constexpr std::array schemas = {
-        "lantian", "ziranma", "shouyou2_0", "shouyouplus", "xiaohe", "jiajia"};
+    // The size follows the list rather than being written twice: jiajia was added as the sixth
+    // schema and the count stayed at five, which stopped this addon compiling at all.
+    static constexpr std::array schemas = {"lantian",     "ziranma", "shouyou2_0",
+                                           "shouyouplus", "xiaohe",  "jiajia"};
     const auto section = scheme == 1 ? "shuangpin_helpcode" : "quanpin_helpcode";
     const auto current = preferences_.value(section, Json::object()).value(
         "schema", scheme == 1 ? std::string("lantian") : std::string("ziranma"));
@@ -1241,6 +1242,10 @@ public:
       preferences_["ai_assistant"]["enabled"] = false;
       options["preferences"] = preferences_;
     }
+    // This front end draws view.phrase_prefix ahead of the reading, so a phrase assembled out of
+    // several selections stays in the composition instead of reaching the document one piece at a
+    // time. Requesting it and drawing it are one decision; see core/PhrasePreedit.h.
+    options["phrase_preedit"] = true;
     const auto document = options.dump();
     view_ = response(msime_client_create(reinterpret_cast<const uint8_t *>(document.data()), document.size()));
     session_ = view_.at("session").get<uint64_t>();
@@ -4245,10 +4250,16 @@ void FcitxState::render() {
   const auto editing = view_.value("editing_text", std::string());
   const auto style = preferences_.value("tsf_preedit_style", std::string("raw"));
   if (style != "empty") {
-    const auto text = style == "pinyin" ? view_.value("preedit", editing) : editing;
-    fcitx::Text preedit(text, fcitx::TextFormatFlag::Underline);
-    if (text == editing)
-      preedit.setCursor(std::min(editing.size(), view_.value("caret_position", size_t{})));
+    const auto reading = style == "pinyin" ? view_.value("preedit", editing) : editing;
+    // The piece already picked for the phrase leads the reading, the way the reference draws
+    // `word_for_creating_word`. fcitx5 takes the cursor as a byte offset into the string it is
+    // given, which is why the offset comes from the same place the text does.
+    const auto composed = msime::linux_host::compose_phrase_preedit(
+        view_.value("phrase_prefix", std::string{}), reading,
+        view_.value("caret_position", size_t{}));
+    fcitx::Text preedit(composed.text, fcitx::TextFormatFlag::Underline);
+    if (reading == editing)
+      preedit.setCursor(static_cast<int>(composed.caret_bytes));
     if (ic_.capabilityFlags().test(fcitx::CapabilityFlag::Preedit))
       ic_.inputPanel().setClientPreedit(preedit);
     else ic_.inputPanel().setPreedit(preedit);

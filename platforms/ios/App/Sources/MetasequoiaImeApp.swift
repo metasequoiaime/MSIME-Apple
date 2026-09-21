@@ -111,6 +111,12 @@ private struct MainTabView: View {
     }
     .environmentObject(navigation)
     .tint(MetasequoiaTheme.accent)
+    // 键盘的「应用设置」发来的 msime://。不加这一条应用照样会被拉起来,但会停在上次离开的那个标签页 ——
+    // 用户是从键盘的设置面板点过来的,落点应该是设置。
+    .onOpenURL { url in
+      guard url.scheme == "msime" else { return }
+      navigation.tab = .keyboard
+    }
   }
 }
 

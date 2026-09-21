@@ -789,6 +789,30 @@ CMake 把它产出到 `bin/` 子目录，而 runner 的通配符找的是与其�
 
 用例：新增 `crates/input-runtime/examples/mixed_slots.rs` 用 `ni` 这个输入（同时产出中文、英文 `ni`、emoji、颜文字，且两种联网源都可用）逐个验四种排布。
 
+增量记录（2026-09-21，macOS 自动补全的那一对没有告诉引擎，于是第二对书名号变成了〈〉）：按「Linux 调了哪些 FFI 而 macOS 一次都没调」这条线索查下去，`msime_client_balance_paired_punctuation_after_auto_close` 是其中一个。查完是两个缺陷，来源在同一段代码里把两件事都做了。
+
+**其一：书名号的嵌套计数没有回退。** 引擎按「当前开着几个《」决定下一个 `<` 给《还是〈（`punctuation_policy.cpp` 的 `book_title_nesting_`），正常情况下用户打的 `>` 会把计数减回去。宿主自己补右符号时那次 `>` 永远不会发生，于是计数只增不减——**第二次从头打《》会得到〈〉**。来源在 `KeyHandler.cpp` 补完右符号之后紧跟着调 `BalanceNestPairAfterAutoClose(wch)`，注释写的就是这句「否则下一个 《》 退化成 〈〉」；Linux 宿主也调；macOS 从来没调过。
+
+用真实引擎把这条钉死在 `crates/input-runtime/examples/punctuation_table.rs` 里：`<` `<` `>` `>` 依次给出《〈〉》并把计数解开，而「打一个 `<` 之后宿主说自己补完了」时下一个 `<` 仍是《——不说就是〈。
+
+**其二：成对模式下引号的左右交替。** 引号只有一个物理键，引擎靠一个 toggle 交替给出“与”。宿主补右引号时，那次「本该给”」的按键不会发生，toggle 停在「下一个是右引号」，于是**用户下一次打引号得到的是”**。来源同样在这里改写：成对模式下每一次按键都开一对新的（`punctuationStr.back() == L'”' → L'“'`）。macOS 照做。
+
+落点都在 `apply:` 里补右符号那一段，开关关掉时两件事都不做（引擎自己的交替与嵌套正是没有成对补全时该有的行为）。`MSIMEClientSession` 新增 `balancePairedPunctuationAfterAutoClose:error:`（iOS 共用这个类，纯新增）。
+
+用例接在既有的成对标点整链用例后面：（不触发回退、《与〈各触发一次且带的是 `'<'`、右引号被读成新一对的开始、关掉开关后三者都恢复原样。反向验证两处（去掉回退调用、让引号改写成为空操作）分别红在各自断言上。全量 macOS `ctest` 129/129，`--quick` 通过。
+
+增量记录（2026-09-21，Linux 两套前端接上半截词的显示，并顺手接通了本机的 Linux 门禁）：第二十七批把「半截词留在组字里」做进共享运行时时只开了 macOS，理由写的是「Linux/Harmony/Android 本机既没有容器也没有工具链，盲改等于没验」。**这条理由这次不成立了**：OrbStack 本机就装着，只是守护进程没起；起来之后 `platforms/linux/build-container.sh` 整套能跑——IBus 引擎、fcitx5 插件、全部 provider 入口和单测，`verify-local.sh --quick` 里那两个一直显示 skipped 的 Linux 阶段现在真的在跑。
+
+**门禁一接上就抓到一个既有的破坏：fcitx5 插件自 `1644def60`（同日的「迁入加加辅助码，第六套方案」）起根本编不过。** 那次把 `jiajia` 加进 `cycleHelpcodeSchema` 的方案表，却把 `std::array<const char *, 5>` 的 5 留在原地，六个初始化器塞进五个位置，`-Werror` 之外这本身就是硬错误。macOS 侧同一份表有六项且有用例，所以只有 fcitx5 这一侧断了，而本机当时跑不了 Linux 构建，于是它就这么躺着。改成 `std::array schemas = {...}` 让大小跟着列表走，同一个错误不会再犯第二次。
+
+**半截词本身**：新增 `platforms/linux/src/core/PhrasePreedit.h`，把「已选的那一段拼在读音前面」连同光标换算做成一个纯函数。之所以不是一次字符串相加，是因为两套前端数光标的单位不同——fcitx5 的 `Text::setCursor` 要的是字节偏移，IBus 的 `update_preedit_text_with_mode` 要的是 Unicode 标量位置，而运行时给的 `caret_position` 是读音（ASCII）里的字节偏移，前缀却是汉字。两个都由这个函数算出来，谁也不用自己转换，而这次转换只被测一遍。
+
+IBus 一侧另有一处顺带修正：非 raw 样式此前把 `text.size()`（字节数）当成光标位置传进去，对全 ASCII 的拼音串来说两者相等，一旦串里有非 ASCII 就不再相等；现在统一用标量计数。
+
+两套前端同时开始请求 `phrase_preedit`（`scripts/test-phrase-preedit-hosts.py` 这道守卫正是要求「请求」与「绘制」成对出现，现在它把 Linux 记在「留在组字里」那一侧）。造词回退那两条规则（同日的另一批）因此在 Linux 上一并生效。
+
+验证：容器门禁 19/19（新增 `linux-phrase-preedit`），`--quick` 通过且 Linux 两个阶段不再 skipped。反向验证两处：把标量计数换成字节数、去掉光标越界的夹取，各自红在对应断言上。仍未做的是真实 Linux 桌面上的目视验收——没有 GTK/Qt 编辑器、没有 X11/Wayland 焦点，这条边界和本表其他 Linux 记录一致。Harmony 与 Android 仍未打开，它们的工具链本机确实没有。
+
 增量记录（2026-09-21，词库维护逐表字段核对，另修三处会让用户白丢词条的地方）：把「五笔/英文/快捷短语各表的字段」与「保留用户数据」两项走完。来源是 `server/src/settings/dictionary_manager.cpp` 三个表各自的 import/edit 路径，本仓是共享导入解析器 + `host-api/src/dictionary.rs` + 引擎的 `validate_personal_dictionary_entry`。
 
 **三处修掉的，都是「用户按来源的习惯操作，本仓静默拒绝」：**

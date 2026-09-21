@@ -3,6 +3,7 @@ package app.msime.client;
 import android.inputmethodservice.InputMethodService;
 import android.app.AlertDialog;
 import android.content.ClipDescription;
+import android.content.Intent;
 import android.content.ClipboardManager;
 import android.content.SharedPreferences;
 import android.content.res.Configuration;
@@ -3951,6 +3952,34 @@ public final class MSIMEInputService extends InputMethodService {
         }
     }
 
+    /**
+     * Opens the client app from the keyboard.
+     *
+     * 走包管理器要启动 Intent，而不是直接 new Intent(this, HomeActivity.class)：输入法这一侧单独编译，
+     * classpath 上没有 app.msime.client.home，引类就编不过。它同时也更对路 —— 主屏图标那四个主题是
+     * activity-alias，启动项是哪一个由当时启用的那一个决定，这里问的就是它。
+     *
+     * 输入法是 Service，不属于任何任务栈，所以必须自己起一个新任务；不带 FLAG_ACTIVITY_NEW_TASK 时
+     * 这一调用直接抛 AndroidRuntimeException。CLEAR_TOP 是为了让重复点击回到已经开着的那一份，而不是
+     * 在栈上再叠一个首页。
+     *
+     * 失败时说出来。系统可能因为后台启动限制拒掉它，而那种拒绝是静默的——不提示的话，用户看到的是
+     * 点了没反应。
+     */
+    private void openClientApp() {
+        Intent intent = getPackageManager().getLaunchIntentForPackage(getPackageName());
+        if (intent == null) {
+            Toast.makeText(this, "无法打开水杉输入法，请从主屏幕进入", Toast.LENGTH_SHORT).show();
+            return;
+        }
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_CLEAR_TOP);
+        try {
+            startActivity(intent);
+        } catch (RuntimeException error) {
+            Toast.makeText(this, "无法打开水杉输入法，请从主屏幕进入", Toast.LENGTH_SHORT).show();
+        }
+    }
+
     private void showVoiceResult() {
         if (!voiceInsertionReady()) {
             Toast.makeText(this, "请先完成当前输入，再插入语音结果", Toast.LENGTH_SHORT).show();
@@ -4898,6 +4927,13 @@ public final class MSIMEInputService extends InputMethodService {
                 true, true, () -> {
                     closeMoreTools();
                     showVoiceResult();
+                }),
+            // 键盘里改得了的只有这个面板上这些。皮肤、词库、账号、统计都在应用里，而用户正打着字，
+            // 没有别的路走过去。
+            moreToolsCard("应用设置", MoreToolsLayout.Section.TOOLS, false,
+                true, true, () -> {
+                    closeMoreTools();
+                    openClientApp();
                 }));
         appendMoreToolsSection(MoreToolsLayout.Section.SETTINGS,
             moreToolsCard("繁体输出", MoreToolsLayout.Section.SETTINGS, traditionalChineseOutput,

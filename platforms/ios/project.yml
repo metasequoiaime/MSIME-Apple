@@ -45,6 +45,15 @@ targets:
   MSIMEClientApp:
     type: application
     platform: iOS
+    # 只为了一个 URL scheme。键盘扩展里没有 UIApplication,它要打开本应用只能走一个自己注册的 scheme;
+    # 其余的键仍由 GENERATE_INFOPLIST_FILE 和下面的 INFOPLIST_KEY_* 合进来,这个文件只放它们表达不了的这一项。
+    info:
+      path: App/Resources/Info.plist
+      properties:
+        CFBundleURLTypes:
+          - CFBundleURLName: app.msime.ios
+            CFBundleTypeRole: Editor
+            CFBundleURLSchemes: [msime]
     sources:
       - path: App/Sources
       - path: App/Services
@@ -71,7 +80,6 @@ targets:
         PRODUCT_NAME: MSIMEClientApp
         CODE_SIGN_ENTITLEMENTS: App/Resources/MSIMEClientApp.entitlements
         GENERATE_INFOPLIST_FILE: YES
-        INFOPLIST_FILE: ""
         # 主屏、设置和系统的应用列表都显示这个名字。没有它时 iOS 退回 CFBundleName,也就是 PRODUCT_NAME,装出来的图标底下写的是 MSIMEClientApp。
         INFOPLIST_KEY_CFBundleDisplayName: 水杉输入法
         # LaunchScreen.storyboard 一直被编进 bundle,但没有这个键就没人指向它,启动屏等于白打包。

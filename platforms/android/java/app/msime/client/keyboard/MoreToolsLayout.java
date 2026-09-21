@@ -47,6 +47,7 @@ public final class MoreToolsLayout {
             case "剪贴板历史" -> "▤";
             case "AI 润色" -> "✦";
             case "本地输入", "返回工具" -> "⌘";
+            case "应用设置" -> "⚙";
             case "语音结果" -> "◉";
             case "繁体输出" -> "繁";
             case "全角输入" -> "Ａ";

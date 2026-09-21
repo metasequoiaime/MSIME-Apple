@@ -67,6 +67,48 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         }
     }
 
-    println!("punctuation table: 、 · …… —— 《 》 all arrive as the guide describes, and stay ASCII when Chinese punctuation is off");
+    // Book title marks nest, and a host that closes the pair itself has to say so.
+    //
+    // The Engine counts how many 《 are open: the first `<` is 《 and one inside it is 〈, which is
+    // what makes `《〈...〉》` come out right when the user types both halves. A host that draws the
+    // closing mark itself never sends the `>` that would unwind the count, so unless it says the
+    // pair is finished the *next* `<` comes back 〈 - a second pair the user typed from scratch
+    // rendered as though it were inside the first.
+    options.chinese_punctuation = true;
+    let mark =
+        |runtime: &mut Runtime<Session>, typed: u8| -> Result<String, Box<dyn std::error::Error>> {
+            Ok(runtime
+                .dispatch(Action::Punctuation(typed))?
+                .commit
+                .ok_or("the Engine committed nothing for a punctuation key")?)
+        };
+
+    let mut runtime = Runtime::new(Session::new(&options)?, 9)?;
+    runtime.set_paired_punctuation_enabled(true)?;
+    runtime.focus(true)?;
+    assert_eq!(mark(&mut runtime, b'<')?, "《");
+    assert_eq!(
+        mark(&mut runtime, b'<')?,
+        "〈",
+        "the second one is the inner pair"
+    );
+    assert_eq!(mark(&mut runtime, b'>')?, "〉");
+    assert_eq!(mark(&mut runtime, b'>')?, "》");
+    // Unwound: the next one starts a new outer pair.
+    assert_eq!(mark(&mut runtime, b'<')?, "《");
+
+    let mut runtime = Runtime::new(Session::new(&options)?, 9)?;
+    runtime.set_paired_punctuation_enabled(true)?;
+    runtime.focus(true)?;
+    assert_eq!(mark(&mut runtime, b'<')?, "《");
+    // What a host that supplied 》 itself says. Without it the next assertion is 〈.
+    runtime.balance_paired_punctuation_after_auto_close(b'<')?;
+    assert_eq!(
+        mark(&mut runtime, b'<')?,
+        "《",
+        "a pair the host closed itself must not leave the Engine counting it as open"
+    );
+
+    println!("punctuation table: 、 · …… —— 《 》 all arrive as the guide describes, stay ASCII when Chinese punctuation is off, and 《》 nesting unwinds both ways");
     Ok(())
 }

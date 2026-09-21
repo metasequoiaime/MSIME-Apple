@@ -132,23 +132,37 @@ iOS 与 macOS 的同类文档是 [ios-parity.md](ios-parity.md) 和 [macos-parit
 
 `test-harmony-unwired-policies.py` 问的是"除了测试之外有没有东西到得了这个文件"。修九宫格时发现同一个问题在方法这一层还在：`JapaneseNineKeyLayout.digitKeys()` 和 `digitBrackets()` 定义好、测试写好、产品从不调用，而因为 `JapaneseNineKeyLayout.ts` 本身被大量 import，那道门禁是绿的。
 
-按同样的判据扫了一遍宿主里的导出静态方法——声明处以外，除测试外无人引用——得到 17 个：
+扫描做成了 `scripts/test-harmony-unwired-symbols.py`，判据与文件级那道一致：除声明处和测试之外，没有东西按 `类名.方法(` 的形式引用它。写这个脚本本身踩了两次坑，都会让数字偏低：
 
-| 文件 | 方法 |
-| --- | --- |
-| `keyboard/FloatingToolbarLayout.ts` | `allComponents` |
-| `keyboard/KeyboardGeometry.ts` | `halfGapPixels` |
-| `keyboard/KeyboardScheme.ts` | `mappingForRuntimeSelection`、`resolveEnabledSelection`、`fromHostSelection` |
-| `keyboard/candidate/CandidateGlossPolicy.ts` | `token` |
-| `keyboard/candidate/CandidateManagementAction.ts` | `fixedPosition`、`fromMenuItemId`、`validatePosition` |
-| `keyboard/input/EditorPolicy.ts` | `capitalizationMode` |
-| `keyboard/input/EnglishCapitalizationPolicy.ts` | `shouldShift` |
-| `keyboard/input/JapaneseNineKeyLayout.ts` | `digitKeys`、`digitBrackets` |
-| `keyboard/input/LocalInputMode.ts` | `fromTrigger` |
-| `keyboard/input/ReturnKeyAction.ts` | `shouldPerformEditorAction` |
-| `keyboard/input/KeyAccessibilityPolicy.ts` | `scheme`、`tools` |
+- 按裸方法名 `.method(` 匹配会撞名。`CandidateGlossPolicy.isCurrent` 一直显示为已接线，只因为 `HarmonyDoubaoRecognizer` 有个同名私有方法。第一版报 14，实际 21。
+- 按"文件里第一个导出类"归属方法是错的，一个文件可以导出多个类（`ClipboardHistoryStore.ts` 导出六个），于是报出六个根本不存在的 `ClipboardHistoryError` 方法。现在按类体范围归属。
 
-其中 `digitKeys` 已经接上。剩下的不是一批可以删的死代码：`capitalizationMode` 与 `shouldShift` 合起来是自动大写（Apple 的 `EnglishCapitalizationPolicyTests` 与 `ACapitalisedStartCarriesIntoTheSuggestion`），`CandidateManagementAction` 的三个是长按候选菜单，`fromTrigger` 是临时本地模式。也就是说这张表读作一份按符号列出的未接线清单，逐条对回来源的断言即可。门禁要从文件粒度下沉到符号粒度，与这份清单一起做。
+脚本有两张名单，区别就是全部意义所在。`ALLOWED` 是本平台永远不会调用的——它回答的那个问题 HarmonyOS 不问，每条写明是什么差异。`PENDING` 是应该接而尚未接的，写明背后的缺口**具体是什么**；诊断清楚才能进，写"还没做"不算条目。两张都是棘轮：名单上的名字一旦变得可达就报错，没上名单的新符号直接报错。`PENDING` 应当归零，`ALLOWED` 不必。
+
+当前：250 个宿主静态方法，8 条平台差异，6 条已诊断待接。
+
+## 第三次静默回退，和这次能抓住它的东西
+
+`#3457`（自动大写）合进 develop 之后又整片消失了。`1d4864685 Merge branch 'develop' into feat/android-splash-screen` 把 `KeyboardSession.ets` 的冲突解成了该分支的旧侧，`#3459` 再把这个结果带回 develop。提交还在历史里（`4982e3f2f`），文件里的东西没了：`shouldShiftNextLetter`、`applyAutomaticCase`、`capitalizationFor` 全部为零，而同期的 `#3449`、`#3452` 完好。
+
+这是同一类事故的第三次（`#3419` → `#3435` → `#3457`），三次都是绿的：回退之后的树自洽，断言数只是变小一点，所有门禁照过。
+
+**这次有东西能抓住它。** 把本片新增的符号门禁拿到回退后的 develop 树上跑，它红了，点名的正是 `#3457` 接线的那两个：
+
+```
+EditorPolicy.capitalizationMode
+EnglishCapitalizationPolicy.shouldShift
+```
+
+道理很简单：一次回退把接线去掉之后，被移植的策略重新变成"有测试、没有调用方"，而这正是这道门禁问的问题。`verify-local.sh --quick` 里已经加上，所以下一次同样的合并会在推之前就红。
+
+## 来源断言会给出假阳性，只有设备能判
+
+`ReturnKeyAction.shouldPerformEditorAction` 本来在 PENDING 里，理由看着很硬：键面对不可执行的动作已经显示"换行"，而 `submit()` 无条件 `sendKeyFunction(enterKey)`，那不就是键上写着换行、按下去不换行吗。
+
+接上去之后在模拟器上一测，文本框里两个字符挤在同一行——`insertText("\n")` 被 WebView 忽略了。把改动退回原样再测同一个框（`enter=8`，即 `ENTER_KEY_TYPE_NEW_LINE`），换行**正常出现**。也就是说 `sendKeyFunction` 拿到 enter key type 之后框架自己就把换行做了，Android 需要宿主二选一的那个分叉在这里不存在。
+
+这条移到了 `ALLOWED`，理由里写的是实测而不是推断。教训是这条轴的性质：来源的断言说明**存在这样一条规则**，但不说明**这条规则该由谁实现**。平台已经实现了的，照搬过来就是回归。判据只能是设备。
 
 ## 本轮合并的切片
 

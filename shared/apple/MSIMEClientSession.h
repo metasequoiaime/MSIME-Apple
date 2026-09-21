@@ -19,6 +19,13 @@ FOUNDATION_EXPORT NSNotificationName const MSIMEClientSessionDidReplaceSnapshotN
 - (nullable NSDictionary<NSString *, id> *)setChinesePunctuationEnabled:(BOOL)enabled error:(NSError **)error;
 /// Returns a View; updates Engine paired-punctuation behavior without persisting preferences.
 - (nullable NSDictionary<NSString *, id> *)setPairedPunctuationEnabled:(BOOL)enabled error:(NSError **)error;
+/// Tell the Engine a pair this host closed on its own is finished.
+///
+/// Book title marks nest: the Engine counts how many 《 are open so that one typed inside another
+/// comes out 〈. A host that supplies 》 itself never sends the `>` that would unwind that count, so
+/// without this the next 《》 the user types degrades into 〈〉. The reference calls its own
+/// `BalanceNestPairAfterAutoClose` at the same point and for the same reason.
+- (BOOL)balancePairedPunctuationAfterAutoClose:(uint8_t)opening error:(NSError **)error;
 /// Returns a View; lock is follow, chinese, or english and maps to the Engine's 0/1/2 values.
 - (nullable NSDictionary<NSString *, id> *)setPunctuationLock:(NSString *)lock error:(NSError **)error;
 /// Returns a View (not a transition). Finish composition before changing mode.
