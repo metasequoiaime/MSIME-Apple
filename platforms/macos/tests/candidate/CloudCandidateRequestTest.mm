@@ -1,6 +1,7 @@
 #import "../../src/cloud/CloudCandidateRequest.h"
 #import "MSIMEClientSession.h"
 #include <cassert>
+#include "msime_client.h"
 
 static NSInteger ResponseStatus = 200;
 static NSUInteger ResponseBytes = 8;
@@ -188,7 +189,11 @@ int main() {
                 [request start];
                 NSURLSessionConfiguration *effective = [(NSURLSession *)[request valueForKey:@"session"] configuration];
                 assert(!effective.URLCache && !effective.HTTPCookieStorage && !effective.URLCredentialStorage);
-                assert(!effective.HTTPShouldSetCookies && effective.timeoutIntervalForResource == 2 && effective.timeoutIntervalForRequest == 2);
+                // The deadline is the shared one, not this host's own: a cloud reply that arrives
+                // inside the budget the reference allows is a candidate the user is meant to see.
+                const NSTimeInterval budget = MSIME_CLOUD_REQUEST_TIMEOUT_MS / 1000.0;
+                assert(!effective.HTTPShouldSetCookies && effective.timeoutIntervalForResource == budget &&
+                       effective.timeoutIntervalForRequest == budget);
                 Wait(^BOOL { return done; });
                 assert(calls == 1);
                 [request cancel];

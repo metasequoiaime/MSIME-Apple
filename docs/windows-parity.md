@@ -1661,3 +1661,15 @@ Fcitx5 候选动作执行 stale 栅栏增量（2026-09-19）：CandidateAction �
 反向验证两条路径都走过：把 `statsRequest` 从表里删掉，它报 `FAIL statsRequest (settings)`；而「token 写错」这条不是模拟的——第一版把选词和关闭右键菜单分别写成了 `MSIME_SELECT` 和 `close_menu`，两个在本仓都不存在，检查当场报红，逼我去源码里找到真名 `select_candidate` 和 `CandidateFlyoutWindow`。这正是它该有的行为：映射表写得对不对，由仓库本身来判。
 
 附带一条环境结论，写进 AGENTS.md 免得下次再烧一小时：**`vendor/MSIME-Engine` 必须是真实目录，不能是符号链接。** 多个 worktree 共用一份已准备好的引擎，最自然的做法是链过去，但 `crates/engine-bridge/native/bridge.h` 用的是 `../../vendor/MSIME-Engine/common/...` 这样的相对包含，编译器得从 `vendor/MSIME-Engine` 用 `..` 爬回仓库根才能找到它——而 `..` 跨过符号链接后去的是**物理**父目录。链到 `~/.cache/...` 时它爬到了 `~/.cache/`，头文件当场没有。之前之所以侥幸没事，是因为链的目标那一侧恰好也有一个真实的 `vendor/`，`..` 爬上去正好落在它上面。省空间用硬链接复制（同一文件系统 `cp -al`）而不是 `ln -s`。
+
+增量记录（2026-09-21，Windows 第二十八批：等云候选该等多久）：沿对照表「谷歌云候选与 AI 联想」一行里「超时、取消、失焦后旧结果」逐项比。目标起点 `6b4b138ae`。
+
+来源给云候选的预算写在 `cloud/cloud_request.cpp`：连接 2000ms、总计 2500ms；防抖 `kIdleDelay` 500ms。防抖本仓对得上（macOS 的 `_cloudTimer` 0.5 秒、Linux 的 `online_delay_source`）。**预算不对**：macOS 给 2 秒，本仓 Windows 宿主给连接 2000/总计 2000。也就是说一条在 2.0–2.5 秒之间返回的云候选，来源会显示，本仓丢掉——而这事在慢网上很常见，因为请求本来就要等打字停顿 500ms 之后才发。
+
+丢掉之后**看不出来**：没有云候选的查询和被超时砍掉的查询，在屏幕上长得一模一样。
+
+根因不是某个宿主写错了数，而是这个数在共享层根本没有声明：每个宿主用自己的网络库（Apple 的 NSURLSession、Windows 的 libcurl），各写各的。现在在 `client-core` 的 `cloud::candidates` 里声明一次，C 头文件里给 C++/Objective-C 宿主同一对常量，两个宿主都改读它，并加 `scripts/test-cloud-request-budget.py` 挂进 `--quick`：声明与来源的数对齐、两个宿主都读常量、且各自那个请求的初始化里不许再出现字面量。反向验证过（把 macOS 改回 2 秒，脚本两条同时变红）。
+
+一处如实记下的限制：NSURLSession 没有单独的连接超时，只有请求/资源两个。总预算 2500ms 能照搬，连接那 2000ms 是它的子集，代码注释写明了这一点，脚本也只要求 macOS 读总计那一个常量。
+
+脚本里那条「不许写字面量」的检查限定在云候选那个初始化方法内：同一个文件里翻译和 AI 的初始化各自也设 deadline，但那是在校验共享层下发的 descriptor 里声明的值（`timeout_ms`、`connect_timeout_ms`），是宿主在守约而不是自己发明数——第一版没限定范围，把这三处全报成了缺陷。
