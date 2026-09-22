@@ -3399,7 +3399,7 @@ struct KeyboardView {
     }
     .layoutWeight(1)
     .height('100%')
-    .justifyContent(FlexAlign.Center)
+    .alignContent(Alignment.Center)
     .backgroundColor(this.skin.keyBackground)
     .borderRadius(KeyboardMetrics.KEY_CORNER_VP)
     .borderWidth(this.skin.borderWidth)

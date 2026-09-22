@@ -253,7 +253,7 @@ EnglishCapitalizationPolicy.shouldShift
 
 固定 Apple `KeyboardSurfaceUITests.testReplyKeyboardPastesChoosesStyleAndInserts` 对照发现，Harmony 原有回复键面只能粘贴、选择风格并生成；缺少来源已有的“帮你回／帮润色”模式、源文字删除与清空、取消生成、换一句和重新选择风格。该切片已补入 `KeyboardView.ets`，由 `ReplyKeyboardPolicy` 生成两种不同的提示语，并通过回复上下文 generation 使取消、清空和模式切换丢弃迟到结果；模板请求继续保留自定义提示语路径。新增策略断言覆盖润色提示不误用“对方来话”提示。
 
-验证：Harmony 逻辑套件 `1596 assertions` 全部通过，Harmony TypeScript 类型检查通过，ArkTS 子集检查通过。`hvigorw assembleHap` 仍被 develop 中既有 ArkTS 错误阻断（`KeyboardSession.ets` 的 arbitrary throw、`Settings.ets` 的字段索引、既有 `isInLocalMode` 与 `StackAttribute.justifyContent`），本切片没有新增编译错误；该结果不替代 HAP 或设备验收证据。
+验证：Harmony 逻辑套件 `1596 assertions` 全部通过，Harmony TypeScript 类型检查通过，ArkTS 子集检查通过。后续完整 `hvigorw assembleHap` 确认 develop 中仍有 8 个 ArkTS 编译错误：`KeyboardSession.ets` 的 arbitrary throw、`Settings.ets` 的字段索引、既有 `isInLocalMode` 与 `StackAttribute.justifyContent`。现已分别改为规范化 `Error`、显式请求头对象、现有 local-mode 状态字段与 Stack 默认居中；带真实 `oh_modules` 类型和三 ABI 原生库的 HAP 完整打包通过。该结果证明可构建，不替代设备运行证据。
 
 ## 延续审计补记（账户形态边界）
 

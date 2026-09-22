@@ -1134,13 +1134,12 @@ class SettingsBridge {
     for (let pageNumber: number = 0; pageNumber < 10; pageNumber += 1) {
       const httpRequest = http.createHttp();
       try {
-        const headers: AiModelHeaders = { Accept: 'application/json' };
-        if (anthropic) {
-          headers['x-api-key'] = token;
-          headers['anthropic-version'] = '2023-06-01';
-        } else {
-          headers.Authorization = `Bearer ${token}`;
-        }
+        const headers: AiModelHeaders = anthropic
+          ? {
+            Accept: 'application/json', 'x-api-key': token,
+            'anthropic-version': '2023-06-01'
+          }
+          : { Accept: 'application/json', Authorization: `Bearer ${token}` };
         const response: http.HttpResponse = await httpRequest.request(
           AiModelCatalogPolicy.pageUrl(endpoint, anthropic, cursor), {
             method: http.RequestMethod.GET,
