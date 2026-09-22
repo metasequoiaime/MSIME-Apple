@@ -953,7 +953,20 @@ class SettingsBridge {
       // Unlike the platform name, the form factor is not fixed: this HAP runs on both phones and
       // 2-in-1 machines. Keep phone navigation on touch devices and give a 2-in-1 the large-screen
       // settings surface that matches its physical keyboard and candidate panel.
-      value['mobile_settings'] = !KeyboardFormFactorPolicy.isDesktop(deviceInfo.deviceType);
+      const desktop: boolean = KeyboardFormFactorPolicy.isDesktop(deviceInfo.deviceType);
+      value['mobile_settings'] = !desktop;
+      // HostCapabilities::for_platform is shared by every Harmony device, but these controls are
+      // meaningful only when the host has a physical keyboard and desktop candidate surface. Keep
+      // the form-factor projection here so a phone cannot inherit the 2-in-1 settings chrome.
+      value['panel_windows'] = desktop;
+      value['floating_toolbar'] = desktop;
+      value['floating_toolbar_appearance'] = desktop;
+      value['floating_toolbar_components'] = desktop;
+      value['mode_switch_shortcuts'] = desktop;
+      value['panel_shortcuts'] = desktop;
+      value['number_row_selection'] = desktop;
+      value['candidate_follow_cursor'] = desktop;
+      value['input_mode_hud'] = desktop;
       if (release !== null) {
         value['os_version'] = release;
       }

@@ -66,6 +66,77 @@ test("Harmony settings follow the actual phone or 2-in-1 form factor", async () 
   expect(keys).toContain("Tab");
 });
 
+test("Harmony capability chrome stays split between phone and 2-in-1", async () => {
+  const desktopCapabilities = {
+    mobile_settings: false,
+    panel_windows: true,
+    floating_toolbar: true,
+    floating_toolbar_appearance: true,
+    floating_toolbar_components: true,
+    mode_switch_shortcuts: true,
+    panel_shortcuts: true,
+    number_row_selection: true,
+    candidate_follow_cursor: true,
+    input_mode_hud: true,
+  };
+  renderSettings("harmony", {
+    ...desktopCapabilities,
+    translation_secondary_language: undefined,
+  });
+  await screen.findByRole("button", { name: "保存设置" });
+  expect(
+    screen.getByText(
+      "在系统设置中启用并选择水杉输入法，再使用实体键盘、候选窗和悬浮工具栏输入。默认是全拼输入法。",
+    ),
+  ).toBeTruthy();
+  expect(screen.getByText("为 HarmonyOS 2-in-1 桌面输入体验打造的开放中文输入法。")).toBeTruthy();
+  expect(screen.getByRole("button", { name: "悬浮工具栏" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "快捷键" }));
+  expect(screen.getByRole("group", { name: "输入模式切换快捷键" })).toBeTruthy();
+  expect(screen.getByRole("group", { name: "面板快捷键" })).toBeTruthy();
+  expect(screen.getByRole("checkbox", { name: "数字键选词" })).toBeTruthy();
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  expect(screen.getByRole("combobox", { name: "候选词翻译第二种语言" })).toBeTruthy();
+
+  cleanup();
+  renderSettings("harmony", {
+    mobile_settings: true,
+    panel_windows: false,
+    floating_toolbar: false,
+    floating_toolbar_appearance: false,
+    floating_toolbar_components: false,
+    mode_switch_shortcuts: false,
+    panel_shortcuts: false,
+    number_row_selection: false,
+    candidate_follow_cursor: false,
+    input_mode_hud: false,
+  });
+  await screen.findByRole("button", { name: "保存设置" });
+  expect(
+    screen.getByText(
+      "在系统设置中启用并选择水杉输入法，再从输入法键盘使用语音和触屏输入。默认是全拼输入法。",
+    ),
+  ).toBeTruthy();
+  expect(screen.getByText("为 HarmonyOS 触屏输入体验打造的开放中文输入法。")).toBeTruthy();
+  expect(screen.queryByRole("button", { name: "悬浮工具栏" })).toBeNull();
+  fireEvent.click(
+    within(screen.getByRole("navigation", { name: "主要功能" })).getByRole("button", {
+      name: "键盘",
+    }),
+  );
+  fireEvent.click(screen.getByRole("button", { name: /全部设置/ }));
+  fireEvent.click(
+    within(screen.getByRole("region", { name: "全部设置" })).getByRole("button", {
+      name: "快捷键",
+    }),
+  );
+  expect(screen.queryByRole("group", { name: "输入模式切换快捷键" })).toBeNull();
+  expect(screen.queryByRole("group", { name: "面板快捷键" })).toBeNull();
+  expect(screen.queryByRole("checkbox", { name: "数字键选词" })).toBeNull();
+  fireEvent.click(screen.getByRole("button", { name: "输入" }));
+  expect(screen.getByRole("combobox", { name: "候选词翻译第二种语言" })).toBeTruthy();
+});
+
 test("a desktop host keeps its window titlebar", async () => {
   renderSettings("windows");
   await screen.findByRole("button", { name: "保存设置" });

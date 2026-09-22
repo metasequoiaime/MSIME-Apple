@@ -1939,6 +1939,8 @@ export function SettingsPage({
   const iosPlatform = client.host?.platform === "ios";
   // This repository ships the HarmonyOS host too, so its release, license and issue links follow the client-hosted set rather than the Windows ones.
   const harmonyPlatform = client.host?.platform === "harmony";
+  const mobilePlatform =
+    client.host?.mobile_settings ?? (iosPlatform || androidPlatform || harmonyPlatform);
   // Ctrl+Space belongs to Windows, not to us, so only that host gets the note
   // explaining where to change it.
   const windowsPlatform = client.host?.platform === "windows";
@@ -2055,7 +2057,9 @@ export function SettingsPage({
       : macosPlatform
         ? "在系统设置的键盘输入法中启用水杉输入法，再使用系统配置的输入法切换快捷键。默认是全拼输入法。"
         : harmonyPlatform
-          ? "在系统设置中启用并选择水杉输入法，再从输入法键盘使用语音和触屏输入。默认是全拼输入法。"
+          ? mobilePlatform
+            ? "在系统设置中启用并选择水杉输入法，再从输入法键盘使用语音和触屏输入。默认是全拼输入法。"
+            : "在系统设置中启用并选择水杉输入法，再使用实体键盘、候选窗和悬浮工具栏输入。默认是全拼输入法。"
           : iosPlatform
             ? "在系统设置中启用水杉键盘，再从应用的输入源按钮切换使用。默认是全拼输入法。"
             : "安装输入法后，可以使用 Win + Space 快捷键切换到水杉输入法。默认是全拼输入法。";
@@ -2077,13 +2081,12 @@ export function SettingsPage({
       : macosPlatform
         ? "为现代 macOS 桌面体验打造的开放中文输入法。"
         : harmonyPlatform
-          ? "为 HarmonyOS 触屏输入体验打造的开放中文输入法。"
+          ? mobilePlatform
+            ? "为 HarmonyOS 触屏输入体验打造的开放中文输入法。"
+            : "为 HarmonyOS 2-in-1 桌面输入体验打造的开放中文输入法。"
           : iosPlatform
             ? "为 iPhone 与 iPad 触屏输入体验打造的开放中文输入法。"
             : "为现代 Windows 桌面体验打造的开放中文输入法。";
-  const mobilePlatform =
-    host?.mobile_settings ?? (iosPlatform || androidPlatform || harmonyPlatform);
-
   // Whether this host draws the shared panels as windows of its own — `panel_windows` is the
   // injected projection of `host_surface::is_desktop`.
   //
@@ -5609,7 +5612,7 @@ export function SettingsPage({
                           ))}
                         </select>
                       </label>
-                      {(androidPlatform || iosPlatform || macosPlatform) && (
+                      {(androidPlatform || iosPlatform || macosPlatform || harmonyPlatform) && (
                         <>
                           <div className="input-option-divider" />
                           <label className="section-header">
