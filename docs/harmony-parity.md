@@ -13,7 +13,7 @@ iOS 与 macOS 的同类文档是 [ios-parity.md](ios-parity.md) 和 [macos-parit
 2026-09-22 延续审计使用以下不可变对象：
 
 - 来源：`metasequoiaime/MSIME-Apple` 固定提交 `b93f169839c442cfa7034f3130c3dfaac11b9467`；不读取相邻检出的未提交内容。
-- 目标：本文前三轮的历史结论仍固定在 `develop` 提交 `8011f6dda`；延续的来源测试断言审计记录到本分支 `42fcb0c08`。两者分开写，避免把尚未合入 `develop` 的证据倒灌成已发布状态。
+- 目标：本文前三轮的历史结论仍固定在 `develop` 提交 `8011f6dda`；延续的来源测试断言审计记录到本分支 `3bc1506e6`。两者分开写，避免把尚未合入 `develop` 的证据倒灌成已发布状态。
 
 来源入口是该检出的 `platforms/ios/` 与 `shared/`。HarmonyOS 的对照面是 `platforms/harmony/entry/src/main/ets`、`apps/harmony/src` 与它渲染的 `packages/ui/src`——鸿蒙的设置界面就是那份共享 React 页，所以对照面必须把它算进来，只比 ArkTS 会把一整层功能误判成缺失。
 
@@ -192,7 +192,7 @@ EnglishCapitalizationPolicy.shouldShift
 | #3418 | 词库页「词库信息」 |
 | #3419 | 键盘无障碍标签接线 |
 
-延续审计在独立 worktree 中又落了十九个尚未合入 `develop` 的切片：`bbba58c92`（云快照原生完整校验）、`3a1a512bc`（云快照请求持久化）、`44e3fbbba`（个人词库按 Engine 规范化并支持多行快捷短语）、`c4de95cb5`（常驻键盘按 4 条一批持续排空个人词库）、`bc3b27c27`（个人词库证据刷新）、`d2331af9e`（云词库下载进入同一持久队列）、`d226c4adb`（常驻键盘空闲轮询新入队快照）、`a0abb25b5`（候选翻译独立门控、固定释义行及面板高度）、`889033a66`（展开候选单行且不越界）、`4b5c91de4`（手写停笔去抖及最新快照串行识别）、`20a36ae73`（关闭回复面板时作废晚到结果）、`323f37d24`（自定义皮肤完整进入原生键盘渲染）、`9e1647eb8`（按 provider 获取模型目录）、`f050483ce`（EveryAPI/Mistral 进入云端语音适配器）、`2e4ac1d08`（云剪贴板资源 ID 本地校验）、`f43571353`（账号 access token 单航班刷新与失败重试）、`84b99e7d6`（取消候选固定位置时省略 position 字段）、`3ffed6471`（云词库原生有界导出）与 `42fcb0c08`（快照冲突页游标一致性校验）。这些只具有源码、单元测试与本地构建证据，不继承下面 2026-09-21 那轮模拟器结论。
+延续审计在独立 worktree 中又落了二十四个尚未合入 `develop` 的切片：`bbba58c92`（云快照原生完整校验）、`3a1a512bc`（云快照请求持久化）、`44e3fbbba`（个人词库按 Engine 规范化并支持多行快捷短语）、`c4de95cb5`（常驻键盘按 4 条一批持续排空个人词库）、`bc3b27c27`（个人词库证据刷新）、`d2331af9e`（云词库下载进入同一持久队列）、`d226c4adb`（常驻键盘空闲轮询新入队快照）、`a0abb25b5`（候选翻译独立门控、固定释义行及面板高度）、`889033a66`（展开候选单行且不越界）、`4b5c91de4`（手写停笔去抖及最新快照串行识别）、`20a36ae73`（关闭回复面板时作废晚到结果）、`323f37d24`（自定义皮肤完整进入原生键盘渲染）、`9e1647eb8`（按 provider 获取模型目录）、`f050483ce`（EveryAPI/Mistral 进入云端语音适配器）、`2e4ac1d08`（云剪贴板资源 ID 本地校验）、`f43571353`（账号 access token 单航班刷新与失败重试）、`84b99e7d6`（取消候选固定位置时省略 position 字段）、`3ffed6471`（云词库原生保存选择器）、`42fcb0c08`（快照冲突页游标一致性校验）、`54264c7ec`（384/512 MiB 云文件流式下载和快照导出落盘）、`cdffdbd8a`（账号客户端从文件流式恢复快照）、`fb85c5cce`（C ABI 上传前重验完整文件）、`0f92c9cda`（Harmony N-API worker 上传）与 `3bc1506e6`（原生选择、预览、确认和清理流程）。这些只具有源码、单元测试与本地构建证据，不继承下面 2026-09-21 那轮模拟器结论。
 
 这四片来自继续读取固定 Apple 测试体。`JapaneseNineKeyTests` 暴露展开候选按内容无限增宽；`HandwritingTests` 暴露每笔后立即 OCR 且识别期间丢弃后续触摸，来源实际是 550 ms 停笔去抖；`KeyboardAITests` 暴露关闭面板只丢本地 generation、会话仍缓存晚到结果且销毁后回调未解除；`KeyboardSkinTests` 则抓到最典型的“模型和测试都在、产品没消费”：渐变、照片、图案、键帽形状/材质/阴影全被解析，真实 ArkUI 键盘只用了颜色和字体。`SkinCommunityTests` 的公开浏览、登录刷新、错误映射、搜索编码、大页上限与预览不改当前设计均落在共享 `AccountCloudBridge`、社区 React 页和原生试用存储中，本轮未发现另一处分叉。
 
@@ -202,7 +202,9 @@ EnglishCapitalizationPolicy.shouldShift
 
 `BackendAccountSessionTests` 随后指出 Harmony 只保存 `refresh_token` 却从不使用：access token 到期就把仍可续期的账号当成退出。现在所有受保护请求共用同一状态机：到期前 30 秒刷新、并发请求共享一次刷新、保存旋转后的 refresh token、401/403 后只刷新重试一次，并以 session generation 阻止晚到登录或刷新在退出后复活账号。公开社区浏览在可选 session 失效时退回匿名；状态查询不会清除仍可刷新的账号。
 
-固定来源的四组词典后端测试最后补上了请求语义和文件边界。候选修改原本已优先发送服务端返回的 `canonical_pinyin`，catalog 删除也已显式发送 `replacement: null`；缺口有三处：取消固定位置的 DELETE 仍携带 `position: null`，现在完全省略该字段并保留服务端 context；普通云词库导出原先把整段文本封进 JSON 送过 WebView，现在 Harmony 宿主按 3 MiB 上限、NUL 与 `Content-Length` 校验后先写沙箱临时文件，再通过系统保存选择器交付，超限或截断响应不会产生部分文件；Harmony 以完整 Engine 快照替代逐条重放 changes，这是平台适配而不是缺实现，但入队前的冲突页现在也拒绝不前进或互相矛盾的 `next`/`has_more` 游标，不能再把畸形空页当成“没有变化”。
+固定来源的四组词典后端测试最后补上了请求语义和文件边界。候选修改原本已优先发送服务端返回的 `canonical_pinyin`，catalog 删除也已显式发送 `replacement: null`；缺口有三处：取消固定位置的 DELETE 仍携带 `position: null`，现在完全省略该字段并保留服务端 context；普通云词库导出原先把整段文本封进 JSON 送过 WebView，现在 Harmony 宿主按来源的 384 MiB 上限使用 `requestInStream` 写入沙箱临时文件，等待 `dataEnd` 后再通过系统保存选择器交付，同时校验 NUL、媒体类型、`Content-Length` 与实际字节数，超限或截断响应不会产生部分文件；Harmony 以完整 Engine 快照替代逐条重放 changes，这是平台适配而不是缺实现，但入队前的冲突页现在也拒绝不前进或互相矛盾的 `next`/`has_more` 游标，不能再把畸形空页当成“没有变化”。完整快照同样按来源的 512 MiB 上限流式下载，导出会真正打开保存选择器，而不再删除唯一的私有副本后仍报告成功。
+
+同一文件页此前还藏着一个完整未接线的方向：共享 UI 会发 `snapshot_restore_preview` 与 `snapshot_restore_native`，Harmony 桥却一个都不处理；`snapshotNative: true` 又让 WebView 刻意不读文件，因此恢复必然返回 `snapshot_unavailable`。现在系统选择器只选择一份 `.ndjson`，先检查 1–512 MiB 并复制到应用私有目录，再由原生完整快照检查器验证 framing、字段、跨记录一致性、正文 checksum 与整文件 SHA-256；乐观并发 revision 与 Apple 一样取 quick catalog。确认时 N-API 在 worker 线程调用 C ABI，C ABI 紧邻上传重新检查私有文件及整文件摘要，再由 `reqwest::blocking::Body::sized` 流式 PUT，避免 512 MiB 内容进入 ArkUI 线程、WebView JSON 或整块内存。上传继承账号单航班刷新、401/403 单次重试和 session generation 作废；放弃、失败、完成或账号变化都会删除私有副本。Harmony 逻辑套件增至 1576 条断言，静态 guard 同时钉住两个 restore operation、原生 picker、异步 N-API、私有复制、上传与清理接线。
 
 ## 2026-09-21 补：模拟器验收
 
@@ -225,7 +227,7 @@ EnglishCapitalizationPolicy.shouldShift
 - 读屏实际念出什么，以及 `accessibilityText` 挂在键容器上是否会被读到（而不是被里面的 `Text` 盖过）。
 - 个人词库大批导入是否在真机常驻扩展中按空闲批次持续排空，以及应用后的词条是否立即进入真实候选。共享队列已有 4/4/1 批处理、回执不重放和 Engine 规范化测试，Harmony 也有会话锁释放、组字保护、两秒续排与模式恢复的源码门禁；这里缺的是设备层证据，不再是实现路径未知。
 - 横排候选释义的第二行、设置切换后的固定高度和在线 provider 结果是否在真实 ArkUI panel 中按预期绘制。逻辑层与宿主接线门禁已覆盖，当前 worktree 没有 HAP 编译和设备画面证据。
-- 展开候选的截尾、自定义皮肤的渐变/照片/图案/键帽材质，以及连续多笔手写在真实 ArkUI/Core Vision 上的画面、触控与识别效果。当前只有 1563 条逻辑断言和宿主接线守卫，没有本轮 HAP 或设备复测。
+- 展开候选的截尾、自定义皮肤的渐变/照片/图案/键帽材质，以及连续多笔手写在真实 ArkUI/Core Vision 上的画面、触控与识别效果。当前只有 1576 条逻辑断言和宿主接线守卫，没有本轮 HAP 或设备复测。
 - Anthropic/Gemini/EveryAPI 模型目录、EveryAPI/Mistral 转写及云剪贴板删除只验证了请求策略、边界与产品接线；没有用真实凭据执行服务往返，也没有在设备上验证录音授权和 multipart 请求。
-- 账号刷新、候选排序/固定位置、云词库导出与快照冲突检查只验证了状态机、请求形状、文件边界和产品接线；没有对真实账号服务往返，也没有设备上的系统保存选择器证据。
+- 账号刷新、候选排序/固定位置、云词库导出、快照冲突检查与本地快照恢复云端只验证了状态机、请求形状、文件边界和产品接线；没有对真实账号服务往返，也没有设备上的系统打开/保存选择器或流式上传证据。
 - 真机签名与麦克风授权流程。
