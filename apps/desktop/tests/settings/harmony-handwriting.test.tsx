@@ -20,13 +20,13 @@ const initial: Snapshot = {
   },
 };
 
-function renderSettings(platform: string) {
+function renderSettings(platform: string, host: Record<string, unknown> = {}) {
   render(
     <SettingsPage
       client={{
         load: vi.fn().mockResolvedValue(initial),
         save: vi.fn(),
-        host: { platform } as never,
+        host: { platform, ...host } as never,
         openSystemKeyboardSettings: vi.fn(),
         home: { openKeyboard: vi.fn(), openSystemKeyboardSettings: vi.fn() },
       }}
@@ -36,14 +36,20 @@ function renderSettings(platform: string) {
 
 // Reached through the 键盘 tab's 全部设置 page, which is where the phone bar's `更多设置` dropdown
 // went — the bar is the source's four tabs and nothing else.
-async function handwritingPage() {
+async function handwritingPage(mobile = true) {
   await screen.findByRole("button", { name: "保存设置" });
   const { fireEvent } = await import("@testing-library/react");
-  fireEvent.click(screen.getByRole("button", { name: /全部设置/ }));
-  const list = screen.getByRole("region", { name: "全部设置" });
-  const row = [...list.querySelectorAll("button")].find(
-    (item) => item.querySelector("strong")?.textContent === "手写识别板",
-  );
+  const list = mobile
+    ? (fireEvent.click(screen.getByRole("button", { name: /全部设置/ })),
+      screen.getByRole("region", { name: "全部设置" }))
+    : screen.getByRole("navigation", { name: "设置分类" });
+  const row = mobile
+    ? [...list.querySelectorAll("button")].find(
+        (item) => item.querySelector("strong")?.textContent === "手写识别板",
+      )
+    : [...list.querySelectorAll("button")].find(
+        (item) => item.textContent?.trim() === "手写识别板",
+      );
   if (!row) throw new Error("no row for 手写识别板");
   fireEvent.click(row);
   return screen.getByRole("group", { name: "手写识别板" });
@@ -66,8 +72,8 @@ test("the 2in1 route to the scheme picker is spelled out", async () => {
   // A 2in1 draws a candidate window with no key faces, so the picker is not where a phone user
   // would look for it. Saying "switch the scheme" without saying where would be advice nobody
   // could follow on that form factor.
-  renderSettings("harmony");
-  const page = await handwritingPage();
+  renderSettings("harmony", { mobile_settings: false, panel_windows: true });
+  const page = await handwritingPage(false);
   expect(within(page).getByText(/屏幕键盘/)).toBeTruthy();
 });
 

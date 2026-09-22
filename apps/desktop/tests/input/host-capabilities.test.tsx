@@ -290,9 +290,9 @@ test("Android candidate appearance exposes native font and color controls", asyn
     }),
   });
   await screen.findByRole("button", { name: "保存设置" });
-  expect(screen.getByLabelText("候选窗英文字体")).toBeTruthy();
-  expect(screen.getByLabelText("候选窗主字体")).toBeTruthy();
-  expect(screen.getByLabelText("候选窗字号")).toBeTruthy();
+  expect(screen.getByLabelText("候选栏英文字体")).toBeTruthy();
+  expect(screen.getByLabelText("候选栏主字体")).toBeTruthy();
+  expect(screen.getByLabelText("候选栏字号")).toBeTruthy();
   expect(screen.getByLabelText("候选强调色")).toBeTruthy();
   expect(screen.getByLabelText("候选悬停色")).toBeTruthy();
   expect(screen.getByLabelText("候选边框色")).toBeTruthy();
@@ -439,6 +439,8 @@ test("the candidate English font follows the capability rather than a list of pl
           save: vi.fn(),
           host: capabilities({
             platform: "harmony",
+            mobile_settings: false,
+            panel_windows: true,
             candidate_font_controls: true,
             candidate_english_font,
           }),
