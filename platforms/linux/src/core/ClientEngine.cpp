@@ -10,6 +10,7 @@
 #include "PhrasePreedit.h"
 #include "JapaneseConversion.h"
 #include "CandidateSkinCatalog.h"
+#include "DictionaryQuiesceLease.h"
 #include "SmartPunctuationSpace.h"
 #include "WordCharacterBinding.h"
 #include "../voice/VoiceAction.h"
@@ -562,6 +563,9 @@ struct State {
         input_enabled = *global_input_enabled;
     }
     if (session || blocked || !focused || !input_enabled)
+      return;
+    // Dictionary maintenance is running from the settings window; keys go to the application until it is done.
+    if (msime::linux_host::dictionary_quiesced(options.value("user_data", std::string{})))
       return;
     number_row_selection = number_row_override.value_or(
         options.value("preferences", Json::object()).value("number_row_selection", true));
@@ -6895,6 +6899,14 @@ void save_menu_preference(IBusEngine *engine, MenuPreference preference, Json va
 gboolean reload_preferences(gpointer data) {
   auto engine = IBUS_ENGINE(data);
   auto &s = state(engine);
+  // Release the session, and with it the shared dictionary lock, when the settings window asks for maintenance. The composition is finished first, so nothing typed is lost; open() starts a new session once the lease is gone.
+  if (s.session && msime::linux_host::dictionary_quiesced(configured.value("user_data", std::string{}))) {
+    guarded(engine, "dictionary_quiesce", [&] {
+      apply(engine, msime_client_command(s.session, MSIME_FINISH_COMPOSITION));
+      s.close();
+      clear(engine);
+    });
+  }
   // Saving is shared across contexts, but only the initiating context receives
   // the task callback. Refresh status even when preferences did not change or
   // a preference read is still in flight (including failed saves).
