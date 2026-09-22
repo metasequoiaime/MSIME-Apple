@@ -1,6 +1,6 @@
 export enum BackspaceHoldAction {
-  DELETE = 'delete',
-  CANCEL_COMPOSITION = 'cancel-composition'
+  DELETE = "delete",
+  CANCEL_COMPOSITION = "cancel-composition",
 }
 
 /** The first repeat of a held Delete must not cross from preedit into committed editor text. */

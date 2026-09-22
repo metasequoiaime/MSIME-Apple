@@ -156,9 +156,10 @@ export class CandidateManagementAction {
     }
     const text: string = gloss.trim();
     const characters: string[] = Array.from(text);
-    const title: string = characters.length > MAX_GLOSS_TITLE_CHARACTERS
-      ? characters.slice(0, MAX_GLOSS_TITLE_CHARACTERS - 1).join("") + "…"
-      : text;
+    const title: string =
+      characters.length > MAX_GLOSS_TITLE_CHARACTERS
+        ? characters.slice(0, MAX_GLOSS_TITLE_CHARACTERS - 1).join("") + "…"
+        : text;
     return { ...action, title: title };
   }
 

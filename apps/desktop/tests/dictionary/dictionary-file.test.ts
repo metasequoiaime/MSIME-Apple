@@ -64,9 +64,9 @@ describe("personal dictionary JSON", () => {
         entries: [{ kind, key: "fixture", value, weight: 100000 }],
       });
     expect(parsePersonalDictionaryImport(envelope("quickPhrase", "first\tsecond"))).toHaveLength(1);
-    expect(parsePersonalDictionaryImport(envelope("quickPhrase", "你好\n".repeat(300)))).toHaveLength(
-      1,
-    );
+    expect(
+      parsePersonalDictionaryImport(envelope("quickPhrase", "你好\n".repeat(300))),
+    ).toHaveLength(1);
     expect(() => parsePersonalDictionaryImport(envelope("english", "first\tsecond"))).toThrow();
     expect(() =>
       parsePersonalDictionaryImport(envelope("quickPhrase", "字".repeat(1_366))),

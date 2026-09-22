@@ -9,8 +9,8 @@
  * Read once: a device does not change what it is while the process is alive, and this is consulted
  * on every layout pass.
  */
-import deviceInfo from '@ohos.deviceInfo';
-import { KeyboardFormFactorPolicy } from './KeyboardFormFactorPolicy';
+import deviceInfo from "@ohos.deviceInfo";
+import { KeyboardFormFactorPolicy } from "./KeyboardFormFactorPolicy";
 
 const DESKTOP: boolean = KeyboardFormFactorPolicy.isDesktop(deviceInfo.deviceType);
 

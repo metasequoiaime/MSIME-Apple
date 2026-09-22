@@ -223,7 +223,7 @@
   }
 
   &:checked {
-    background: #8e8cd8;
+    background: var(--accent-color);
   }
 
   &:checked::after {
@@ -258,7 +258,7 @@
   }
 
   & input[type="radio"]:checked {
-    border-color: #8e8cd8;
+    border-color: var(--accent-color);
   }
 
   & input[type="radio"]:checked::after {
@@ -269,7 +269,7 @@
     width: 10px;
     height: 10px;
     border-radius: 50%;
-    background: #8e8cd8;
+    background: var(--accent-color);
     transform: translate(-50%, -50%);
   }
 
@@ -295,7 +295,7 @@
     width: 18px;
     height: 18px;
     flex-shrink: 0;
-    accent-color: #8e8cd8;
+    accent-color: var(--accent-color);
   }
 }
 @utility error {
@@ -814,7 +814,7 @@
     height: calc(var(--ftb-handle-height) * var(--ftb-scale));
     margin-right: 0;
     border-radius: calc(2px * var(--ftb-scale));
-    background: #8e8cd8;
+    background: var(--accent-color);
   }
   & .ftb-preview-host .divider {
     align-self: stretch;
@@ -1144,6 +1144,27 @@
    * at runtime. They live in the base layer rather than in `@theme` for exactly that reason: `@theme`
    * copies a value, and a copied value cannot change when the attribute does.
    */
+  /*
+ * 手机上的品牌绿。
+ *
+ * 共享 UI 继承的是 Windows 设置里那支淡紫 `#8E8CD8`，而 Apple 和 Android 两端走的是同一支
+ * `#185C48`——`platforms/android/res/values/colors.xml` 的开头就写着「The Apple app's
+ * MetasequoiaTheme, so the two platforms read as one product」。鸿蒙是唯一一个走共享 Web UI 的手机
+ * 宿主，于是三个手机平台里只有它是紫的。这里只改手机，桌面仍然是它自己的。
+ *
+ * 写在两个主题块之前，而不是文件末尾：test-settings-palette-parity.py 用两个主题各自声明的
+ * color-scheme 当锚点切片，末尾那一段整个算作浅色主题，覆盖块落在那里会被判成调色板偏离了来源。
+ * 放在两块之前它不在任何一段切片里，而渲染时靠特异性照样生效。（注释里也不能出现那两个锚点的
+ * 字面写法——脚本是按字符串找的，写了就会把锚点抢过来。）
+ */
+  [data-settings-shell][data-mobile],
+  [data-onboarding-shell][data-mobile] {
+    --accent-color: #185c48;
+    --accent-strong: #14483a;
+    --accent-soft: rgba(24, 92, 72, 0.13);
+    --accent-soft-border: rgba(24, 92, 72, 0.22);
+  }
+
   :root,
   html[data-theme="dark"] {
     color-scheme: dark;
