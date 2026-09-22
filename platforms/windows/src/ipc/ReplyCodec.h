@@ -94,9 +94,10 @@ std::vector<std::vector<uint8_t>> tsf_config_frames(const TsfLocalConfig &config
 // Caps Lock changes on its own cadence, so it gets its own frame rather than
 // resending the whole configuration on every press.
 std::vector<uint8_t> caps_lock_frame(bool enabled);
-// Encode a bounded voice composition snapshot for the TSF worker pipe. The
-// returned frames are ordered and each one has the fixed worker-packet size.
-// Generation is a voice session generation and must be non-zero.
+// Encode a voice composition snapshot for the TSF worker pipe. The shared
+// contract clips it to its snapshot cap before splitting it into ordered,
+// fixed-size worker packets. Generation is a voice session generation and
+// must be non-zero.
 std::optional<std::vector<std::vector<uint8_t>>>
 voice_composition_bytes(uint32_t message, std::wstring_view text,
                          wchar_t generation);

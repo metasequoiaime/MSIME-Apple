@@ -2009,50 +2009,32 @@ static const NSTimeInterval kSettledRerankDelay = 0.15;
     toolbar.target = self;
     toolbar.state = _appearance.floatingToolbarEnabled ? NSControlStateValueOn : NSControlStateValueOff;
     [menu addItem:toolbar];
-    NSMenuItem *palette = [[NSMenuItem alloc] initWithTitle:@"表情与符号…" action:@selector(openCharacterPalette:) keyEquivalent:@""];
-    palette.target = self;
-    [menu addItem:palette];
+
+    // Keep the system input menu for things used while typing. Account, dictionary, update and
+    // support destinations already live in the settings window; spelling every one out here made
+    // this menu taller than the screen and duplicated the settings sidebar. The four live panels
+    // remain one click away under a single tools submenu.
+    NSMenu *tools = [[NSMenu alloc] initWithTitle:@"水杉工具"];
     NSMenuItem *emoji = [[NSMenuItem alloc] initWithTitle:@"水杉表情面板…" action:@selector(showEmoji:) keyEquivalent:@""];
     emoji.target = self;
-    [menu addItem:emoji];
+    [tools addItem:emoji];
     NSMenuItem *keyboard = [[NSMenuItem alloc] initWithTitle:@"水杉屏幕键盘…" action:@selector(showScreenKeyboard:) keyEquivalent:@""];
     keyboard.target = self;
-    [menu addItem:keyboard];
-    NSMenuItem *item = [[NSMenuItem alloc] initWithTitle:@"候选设置…" action:@selector(showAppearance:) keyEquivalent:@""];
-    item.target = self;
-    [menu addItem:item];
-    NSMenuItem *dictionary = [[NSMenuItem alloc] initWithTitle:@"个人词典…" action:@selector(showDictionary:) keyEquivalent:@""];
-    dictionary.target = self;
-    [menu addItem:dictionary];
-    NSMenuItem *account = [[NSMenuItem alloc] initWithTitle:@"账户状态…" action:@selector(showAccount:) keyEquivalent:@""]; account.target = self; [menu addItem:account];
-    NSMenuItem *clipboard = [[NSMenuItem alloc] initWithTitle:@"云剪贴板…" action:@selector(showCloudClipboard:) keyEquivalent:@""]; clipboard.target = self; [menu addItem:clipboard];
-    NSMenuItem *cloudDictionary = [[NSMenuItem alloc] initWithTitle:@"云词典…" action:@selector(showCloudDictionary:) keyEquivalent:@""]; cloudDictionary.target = self; [menu addItem:cloudDictionary];
-    NSMenuItem *handwriting = [[NSMenuItem alloc] initWithTitle:@"手写输入…" action:@selector(showHandwriting:) keyEquivalent:@""]; handwriting.target = self; [menu addItem:handwriting];
-    NSMenuItem *prepare = [[NSMenuItem alloc] initWithTitle:@"准备词库…" action:@selector(prepareDictionary:) keyEquivalent:@""];
-    prepare.target = self;
-    [menu addItem:prepare];
-    [menu addItem:NSMenuItem.separatorItem];
-    NSMenuItem *updates = [[NSMenuItem alloc] initWithTitle:@"检查更新…" action:@selector(checkForUpdates:) keyEquivalent:@""];
-    updates.target = self;
-    [menu addItem:updates];
-    NSMenuItem *website = [[NSMenuItem alloc] initWithTitle:@"官方网站" action:@selector(openWebsite:) keyEquivalent:@""];
-    website.target = self;
-    [menu addItem:website];
-    NSMenuItem *help = [[NSMenuItem alloc] initWithTitle:@"使用帮助…" action:@selector(showHelp:) keyEquivalent:@""];
-    help.target = self;
-    [menu addItem:help];
-    NSMenuItem *about = [[NSMenuItem alloc] initWithTitle:@"关于水杉输入法…" action:@selector(showAbout:) keyEquivalent:@""];
-    about.target = self;
-    [menu addItem:about];
-    NSMenuItem *feedback = [[NSMenuItem alloc] initWithTitle:@"问题反馈…" action:@selector(showFeedback:) keyEquivalent:@""];
-    feedback.target = self;
-    [menu addItem:feedback];
+    [tools addItem:keyboard];
+    NSMenuItem *handwriting = [[NSMenuItem alloc] initWithTitle:@"手写输入…" action:@selector(showHandwriting:) keyEquivalent:@""];
+    handwriting.target = self;
+    [tools addItem:handwriting];
     NSMenuItem *voice = [[NSMenuItem alloc] initWithTitle:@"开始/结束语音输入" action:@selector(showVoicePanel) keyEquivalent:@""];
     voice.target = self;
-    [menu addItem:voice];
-    NSMenuItem *voiceSettings = [[NSMenuItem alloc] initWithTitle:@"语音输入设置…" action:@selector(showVoiceSettings:) keyEquivalent:@""];
-    voiceSettings.target = self;
-    [menu addItem:voiceSettings];
+    [tools addItem:voice];
+    NSMenuItem *toolsItem = [[NSMenuItem alloc] initWithTitle:@"水杉工具" action:nil keyEquivalent:@""];
+    toolsItem.submenu = tools;
+    [menu addItem:toolsItem];
+
+    [menu addItem:NSMenuItem.separatorItem];
+    NSMenuItem *settings = [[NSMenuItem alloc] initWithTitle:@"水杉输入法设置…" action:@selector(showAppearance:) keyEquivalent:@""];
+    settings.target = self;
+    [menu addItem:settings];
     return menu;
 }
 - (void)showAccount:(id)sender {

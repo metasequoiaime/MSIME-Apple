@@ -1,7 +1,6 @@
 #include "ReplyCodec.h"
 #include "ipc_negotiation.h"
 #include <array>
-#include <cstring>
 #include <iostream>
 #include <stdexcept>
 
@@ -26,6 +25,36 @@ void error(const EncodedReply &reply, ReplyError expected) {
           reply.packet.msg_type == 0);
   for (const auto c : reply.packet.candidate_string)
     require(c == 0);
+}
+FanyImeVoiceCompositionPipe::Frame
+voice_frame(const std::vector<uint8_t> &bytes, uint32_t message) {
+  require(bytes.size() == sizeof(FanyImeNamedpipeDataToTsfWorkerThread));
+  uint32_t encoded_message = 0;
+  for (size_t i = 0; i < sizeof(encoded_message); ++i)
+    encoded_message |= static_cast<uint32_t>(bytes[i]) << (8 * i);
+  require(encoded_message == message);
+  std::array<wchar_t, FanyImeVoiceCompositionPipe::kPacketChars> payload{};
+  for (size_t i = 0; i < payload.size(); ++i) {
+    const auto offset =
+        offsetof(FanyImeNamedpipeDataToTsfWorkerThread, data) + 2 * i;
+    payload[i] =
+        static_cast<wchar_t>(static_cast<uint16_t>(bytes[offset]) |
+                             (static_cast<uint16_t>(bytes[offset + 1]) << 8));
+  }
+  return FanyImeVoiceCompositionPipe::ParseFrame(payload.data());
+}
+std::wstring
+assembled_voice_text(const std::vector<std::vector<uint8_t>> &frames,
+                     uint32_t message, wchar_t generation) {
+  std::wstring text;
+  for (size_t i = 0; i < frames.size(); ++i) {
+    const auto frame = voice_frame(frames[i], message);
+    require(frame.valid && frame.generation == generation);
+    require(frame.first == (i == 0));
+    require(frame.last == (i + 1 == frames.size()));
+    text += frame.chunk;
+  }
+  return text;
 }
 } // namespace
 int main() {
@@ -117,19 +146,36 @@ int main() {
     }
     require(!worker_mode_bytes(static_cast<WorkerMode>(99)));
     {
-      const auto frames = voice_composition_bytes(
-          FanyImeWorkerReplyType::UpdateVoiceComposition, L"你好😀", 7);
+      constexpr auto update = FanyImeWorkerReplyType::UpdateVoiceComposition;
+      const auto frames = voice_composition_bytes(update, L"你好😀", 7);
       require(frames && frames->size() == 1 && frames->front().size() == 404);
-      require(frames->front()[0] == FanyImeWorkerReplyType::UpdateVoiceComposition);
-      std::array<wchar_t, FanyImeVoiceCompositionPipe::kPacketChars> payload{};
-      std::memcpy(payload.data(), frames->front().data() + 4,
-                  frames->front().size() - 4);
-      const auto parsed = FanyImeVoiceCompositionPipe::ParseFrame(payload.data());
-      require(parsed.valid && parsed.first && parsed.last && parsed.generation == 7 &&
-              parsed.chunk == L"你好😀");
-      require(!voice_composition_bytes(
-          FanyImeWorkerReplyType::UpdateVoiceComposition, L"", 0));
-      require(!voice_composition_bytes(FanyImeWorkerReplyType::PipeReady, L"x", 7));
+      const auto parsed = voice_frame(frames->front(), update);
+      require(parsed.valid && parsed.first && parsed.last &&
+              parsed.generation == 7 && parsed.chunk == L"你好😀");
+
+      const std::wstring long_text(400, L'测');
+      const auto split = voice_composition_bytes(update, long_text, 9);
+      require(split && split->size() >= 2 &&
+              assembled_voice_text(*split, update, 9) == long_text);
+
+      const std::wstring exact(FanyImeVoiceCompositionPipe::kMaxChunkChars,
+                               L'字');
+      const auto exact_frames = voice_composition_bytes(update, exact, 4);
+      require(exact_frames && exact_frames->size() == 1 &&
+              assembled_voice_text(*exact_frames, update, 4) == exact);
+
+      const std::wstring oversized(
+          FanyImeVoiceCompositionPipe::kMaxSnapshotChars + 80, L'啊');
+      const auto clipped = voice_composition_bytes(update, oversized, 2);
+      require(clipped &&
+              assembled_voice_text(*clipped, update, 2) ==
+                  oversized.substr(
+                      0, FanyImeVoiceCompositionPipe::kMaxSnapshotChars));
+
+      require(!voice_composition_bytes(update, L"", 0));
+      require(!voice_composition_bytes(update, std::wstring(L"a\0b", 3), 7));
+      require(
+          !voice_composition_bytes(FanyImeWorkerReplyType::PipeReady, L"x", 7));
     }
     for (const auto &example : std::vector<std::pair<uint64_t, std::string>>{
              {1, "1"},
