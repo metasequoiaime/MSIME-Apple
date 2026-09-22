@@ -550,8 +550,12 @@ pub fn send_key(virtual_key: u16, modifiers: Modifiers) -> bool {
 
 /// Type text the panel already holds. Surrogate pairs are delivered as the two
 /// code units the receiving control expects.
+pub fn valid_text(text: &str) -> bool {
+    !text.is_empty() && text.len() <= MAX_TEXT_BYTES && !text.chars().any(char::is_control)
+}
+
 pub fn send_text(text: &str) -> bool {
-    if text.is_empty() || text.len() > MAX_TEXT_BYTES {
+    if !valid_text(text) {
         return false;
     }
     let mut inputs = Vec::new();
@@ -803,6 +807,9 @@ mod tests {
     fn text_injection_refuses_empty_and_oversized_input() {
         assert!(!send_text(""));
         assert!(!send_text(&"a".repeat(MAX_TEXT_BYTES + 1)));
+        assert!(!valid_text("line\nfeed"));
+        assert!(!valid_text("tab\tvalue"));
+        assert!(valid_text("合成候选"));
     }
 
     #[test]

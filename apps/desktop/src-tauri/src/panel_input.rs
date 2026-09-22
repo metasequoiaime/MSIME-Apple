@@ -986,6 +986,13 @@ fn send_panel_text_windows(
     state: &tauri::State<'_, PanelInputState>,
     text: &str,
 ) -> Result<(), HostActionError> {
+    // Validate before restoring focus. An invalid panel value must not move
+    // the user's active editor or otherwise change observable state.
+    if !msime_host_windows::valid_text(text) {
+        return Err(HostActionError {
+            code: "invalid_text",
+        });
+    }
     focused_panel_target(state)?;
     msime_host_windows::send_text(text)
         .then_some(())
