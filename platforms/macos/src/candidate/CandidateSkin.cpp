@@ -1231,7 +1231,7 @@ std::filesystem::path DefaultSkinsRoot()
     {
         return {};
     }
-    return std::filesystem::path(home) / "Library" / "Application Support" / "app.msime.client.preview" / "skins";
+    return std::filesystem::path(home) / "Library" / "Application Support" / "app.msime.client" / "skins";
 }
 
 void SetDefaultSkinsRoot(std::filesystem::path root)
