@@ -85,6 +85,18 @@ fn windows_restart_payload_is_exact_utf16_without_terminator() {
 }
 
 #[test]
+fn linux_restart_targets_the_running_input_method_framework() {
+    assert_eq!(
+        super::linux_input_method_restart_command(true),
+        ("fcitx5-remote", &["-r"][..])
+    );
+    assert_eq!(
+        super::linux_input_method_restart_command(false),
+        ("ibus", &["restart"][..])
+    );
+}
+
+#[test]
 fn external_links_require_clean_https_urls() {
     for url in [
         "https://example.com/help",
