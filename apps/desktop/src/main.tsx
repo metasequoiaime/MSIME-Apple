@@ -464,7 +464,7 @@ function DesktopSettings() {
       const page = (event as CustomEvent<unknown>).detail;
       if (
         typeof page === "string" &&
-        ["home", "appearance", "dictionary", "account"].includes(page)
+        ["home", "appearance", "dictionary", "account", "about", "help", "feedback"].includes(page)
       ) {
         setInitialPage(page);
         setMobilePanel(null);
