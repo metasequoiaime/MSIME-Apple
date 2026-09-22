@@ -168,6 +168,34 @@ def running(name: str) -> bool:
     return subprocess.run(["pgrep", "-x", name], capture_output=True).returncode == 0
 
 
+def service_units(state: Path, config: Path) -> list[str]:
+    """登录后应当常驻的用户服务，对应 Windows 上随服务进程一直在的在线、语音和剪贴板功能。
+
+    在线服务按 socket 激活：没有私有配置也能提供云候选，首个请求才真正启动进程。语音 provider 启动时必须读到 voice-provider.json，没有它时激活只会反复失败，所以等用户写好配置再启用。剪贴板监视器读的是默认位置的 runtime-options.json，状态目录另选位置时它找不到配置，不启用。监视器本身只在偏好里开启剪贴板历史时才采集。
+    """
+    units = ["msime-client-online.socket"]
+    if (config / "voice-provider.json").is_file():
+        units.append("msime-client-voice.socket")
+    if state == config:
+        units.append("msime-client-clipboard.service")
+    return units
+
+
+def enable_services(units: list[str]) -> None:
+    if shutil.which("systemctl") is None:
+        print("没有 systemctl：在线和语音服务可用 msime-client-provider-session online|voice 手动启动。")
+        return
+    result = subprocess.run(
+        ["systemctl", "--user", "enable", "--now", *units], capture_output=True, text=True, check=False
+    )
+    if result.returncode == 0:
+        print("已启用用户服务：" + "、".join(units))
+    else:
+        print("启用用户服务失败，可稍后手动执行：systemctl --user enable --now " + " ".join(units), file=sys.stderr)
+        if result.stderr.strip():
+            print("  " + result.stderr.strip().splitlines()[-1], file=sys.stderr)
+
+
 def next_steps(state: Path) -> None:
     print()
     print(f"状态目录已就绪：{state}")
@@ -256,6 +284,7 @@ def main() -> int:
 
     print(f"词库已校验：{resources}")
     prepare_state(prefix, resources, state)
+    enable_services(service_units(state, config_home() / "msime-client"))
     next_steps(state)
     return 0
 

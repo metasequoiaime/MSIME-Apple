@@ -38,3 +38,44 @@ def claim_socket(path):
         os.close(lock)
         raise
 
+
+
+def inherited_socket(path):
+    """Return the listening socket systemd passed for path, or None when the provider was started directly."""
+    if os.environ.get("LISTEN_PID") != str(os.getpid()):
+        return None
+    count = os.environ.get("LISTEN_FDS")
+    # The variables name this process only; the HTTP workers the providers spawn must not believe fd 3 is theirs.
+    for name in ("LISTEN_PID", "LISTEN_FDS", "LISTEN_FDNAMES"):
+        os.environ.pop(name, None)
+    if count != "1":
+        raise ValueError("expected exactly one inherited socket")
+    listener = socket.socket(fileno=3)
+    try:
+        if (listener.family != socket.AF_UNIX or listener.type != socket.SOCK_STREAM or
+                listener.getsockname() != str(path)):
+            raise ValueError("inherited socket does not match the provider path")
+        listener.set_inheritable(False)
+    except Exception:
+        listener.close()
+        raise
+    return listener
+
+
+def open_server(server_class, path, handler):
+    """Bind the provider server, returning it with the startup lock.
+
+    Under systemd socket activation the lock is None: systemd owns the socket path, keeps it across provider restarts and removes it itself, so the provider must neither claim nor unlink it.
+    """
+    listener = inherited_socket(path)
+    if listener is not None:
+        server = server_class(str(path), handler, bind_and_activate=False)
+        server.socket.close()
+        server.socket = listener
+        return server, None
+    lock = claim_socket(path)
+    try:
+        return server_class(str(path), handler), lock
+    except Exception:
+        os.close(lock)
+        raise

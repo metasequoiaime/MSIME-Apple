@@ -1,0 +1,11 @@
+[Unit]
+Description=MSIME online candidate and translation provider socket
+
+[Socket]
+ListenStream=%t/msime-client/online.sock
+SocketMode=0600
+DirectoryMode=0700
+RemoveOnStop=true
+
+[Install]
+WantedBy=sockets.target
