@@ -4,7 +4,7 @@ import * as onboarding from "./onboarding-style";
 export type OnboardingInputScheme = "quanpin" | "nine_key";
 
 export interface OnboardingActions {
-  platform?: "android" | "ios";
+  platform?: "android" | "harmony" | "ios";
   prepareResources: () => Promise<void>;
   openSystemKeyboardSettings: () => Promise<void>;
   showInputMethodPicker: () => Promise<void>;
@@ -63,6 +63,7 @@ export function WelcomeFlowPage({
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const ios = actions.platform === "ios";
+  const harmony = actions.platform === "harmony";
 
   const run = async (operation: () => Promise<void>, next?: number) => {
     if (busy) return;
@@ -134,13 +135,17 @@ export function WelcomeFlowPage({
             <p className={onboarding.lead}>
               {ios
                 ? "在系统键盘列表中启用水杉，再回到任意输入框开始使用。"
-                : "准备好内置词库后，按下面步骤启用系统键盘。"}
+                : harmony
+                  ? "准备好内置词库后，按下面步骤在 HarmonyOS 中启用并选择水杉输入法。"
+                  : "准备好内置词库后，按下面步骤启用系统键盘。"}
             </p>
             <div className={onboarding.setupCard}>
               <SetupStep number={1} title="打开键盘设置">
                 {ios
                   ? "前往系统设置中的“通用 → 键盘 → 键盘”。"
-                  : "前往系统设置中的“语言和输入法”或“屏幕键盘”。"}
+                  : harmony
+                    ? "前往 HarmonyOS 的系统输入法设置。"
+                    : "前往系统设置中的“语言和输入法”或“屏幕键盘”。"}
               </SetupStep>
               <SetupStep number={2} title={ios ? "添加水杉键盘" : "启用水杉输入法"}>
                 {ios
@@ -176,7 +181,9 @@ export function WelcomeFlowPage({
             <p className={onboarding.note}>
               {ios
                 ? "系统设置页面由 iOS 管理，水杉不会自动启用或切换键盘。"
-                : "系统设置页面由 Android 管理，水杉不会自动启用或切换输入法。"}
+                : harmony
+                  ? "系统设置页面由 HarmonyOS 管理，水杉不会自动启用或切换输入法。"
+                  : "系统设置页面由 Android 管理，水杉不会自动启用或切换输入法。"}
             </p>
           </section>
         )}
