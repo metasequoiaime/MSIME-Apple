@@ -5378,8 +5378,11 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     /** Keep a candidate word intact; the surrounding strip/panel owns scrolling and wrapping. */
-    private void configureCandidateTextLayout(Button button) {
-        int lines = Math.max(1, candidateGlossLineCount());
+    private void configureCandidateTextLayout(Button button, boolean hasAnnotation) {
+        // Reserve extra rows only when this candidate actually carries a gloss. A globally
+        // enabled translation target is not evidence that every candidate has one; keeping the
+        // empty case single-line prevents long candidate words from wrapping inside the chip.
+        int lines = hasAnnotation ? Math.max(1, candidateGlossLineCount()) : 1;
         // A two-language gloss deliberately occupies two rows. Do not turn the whole label into
         // a single-line TextView in that case, or the second gloss is silently clipped. With no
         // gloss row the chip can scroll horizontally as one intact candidate word.
@@ -5477,7 +5480,7 @@ public final class MSIMEInputService extends InputMethodService {
         button.setText(candidateLabel("", text, annotation, highlighted));
         button.setMinLines(Math.max(1, 1 + Math.max(0, candidateGlossLineCount() - 1)));
         button.setMaxLines(Math.max(1, 1 + Math.max(0, candidateGlossLineCount() - 1)));
-        configureCandidateTextLayout(button);
+        configureCandidateTextLayout(button, !annotation.isEmpty());
         button.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidateFontSize);
         button.setSelected(highlighted);
         styleCandidateButton(button);
@@ -5503,7 +5506,7 @@ public final class MSIMEInputService extends InputMethodService {
         button.setText(candidateLabel("", text, annotation, highlighted));
         button.setMinLines(Math.max(1, 1 + Math.max(0, candidateGlossLineCount() - 1)));
         button.setMaxLines(Math.max(1, 1 + Math.max(0, candidateGlossLineCount() - 1)));
-        configureCandidateTextLayout(button);
+        configureCandidateTextLayout(button, !annotation.isEmpty());
         button.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidateFontSize);
         button.setSelected(highlighted);
         styleCandidateButton(button);
