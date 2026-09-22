@@ -36,6 +36,8 @@ API 35 arm64 专用模拟器已经覆盖原生输入、Tauri/IME 合包、共享
 
 移动端智能标点消费共享 `smart_punctuation`、`chinese_punctuation` 和 `punctuation_lock`：中文跟随模式且 Engine 空闲时，逗号、句点或冒号紧跟 ASCII 字母/数字会保留 ASCII，锁定中文或英文优先；已有组合、日语、英文和本地模式仍交给 Engine。Android 每次只从 `InputConnection` 读取光标前最多两个 UTF-16 单元并向共享策略传一个 Unicode 标量，不保存或记录编辑器文字；缺失或异常上下文安全回退到 Engine 标点。
 
+重复标点和标点后空格也由共享 Host API 决定：Android 只在当前编辑器会话内保存带 `editor_generation` 的有界 snapshot，按下下一个标点或空格时重新读取光标前标量并消费 `replace_with` / `space_ascii`；焦点、会话或编辑器变化会清空 snapshot，过期或上下文不一致时不改写文本。重复时间窗口、候选数量、组字状态和开关均不在 Android 重实现。
+
 微软双拼在字母第二行额外提供“微软双拼 ing”分词键，只有中文微软双拼普通输入时显示；它把 `;` 原样交给 Engine，由 Engine 根据当前组合决定 ing 韵母或标点语义。英文、日语、五笔和本地输入模式不显示该键。
 
 双拼键位提示由 Engine 的 profile 表通过共享 Host API 提供，Android 不维护第二份键盘映射。提示中的 ` / ` 分隔声母侧与韵母侧，同一侧的多个单位以空格分隔；因此一个键可能同时显示多个韵母（例如小鹤 `K` 的 `ing uai`）。切换双拼方案后按 profile 刷新缓存；未知方案、损坏响应或原生失败直接隐藏提示，不用其他方案的标签误标当前键盘。提示只在中文双拼、非本地模式且非 dedicated English 时显示。
