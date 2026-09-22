@@ -10,8 +10,11 @@ const initial: Snapshot = {
   revision: 1,
   preferences: {
     scheme: "quanpin",
+    shuangpin_profile: "xiaohe",
     touch_keyboard_skin: "forest",
     candidate_page_size: 5,
+    learning: true,
+    chinese_punctuation: true,
   },
 };
 
