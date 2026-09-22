@@ -440,8 +440,31 @@ function DesktopSettings() {
         setMobilePanel(null);
       }
     };
+    const onNativePanel = (event: Event) => {
+      const panel = (event as CustomEvent<unknown>).detail;
+      if (
+        typeof panel === "string" &&
+        [
+          "voice",
+          "emoji",
+          "clipboard",
+          "cloud-clipboard",
+          "cloud-dictionary",
+          "cloud-dictionary-catalog",
+          "cloud-candidates",
+          "cloud-dictionary-files",
+          "cloud-dictionary-apply",
+        ].includes(panel)
+      ) {
+        setMobilePanel(panel as NonNullable<typeof mobilePanel>);
+      }
+    };
     window.addEventListener("popstate", onPopState);
-    return () => window.removeEventListener("popstate", onPopState);
+    window.addEventListener("msime-mobile-panel", onNativePanel);
+    return () => {
+      window.removeEventListener("popstate", onPopState);
+      window.removeEventListener("msime-mobile-panel", onNativePanel);
+    };
   }, []);
   // The host menu entry that started this window names a section; resolve it
   // before mounting so the page never opens on one and then jumps.
