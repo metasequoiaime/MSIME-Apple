@@ -5377,6 +5377,13 @@ public final class MSIMEInputService extends InputMethodService {
         return label;
     }
 
+    /** Keep a candidate word intact; the surrounding strip/panel owns scrolling and wrapping. */
+    private void configureCandidateTextLayout(Button button) {
+        button.setSingleLine(true);
+        button.setEllipsize(null);
+        button.setHorizontallyScrolling(true);
+    }
+
     private String candidateAnnotation(JSONObject candidate) {
         return CandidateGlossPolicy.annotation(candidate.optString("annotation", ""),
             candidate.isNull("translation") ? "" : candidate.optString("translation", ""),
@@ -5463,6 +5470,7 @@ public final class MSIMEInputService extends InputMethodService {
         button.setText(candidateLabel((slot + 1) + " ", text, annotation, highlighted));
         button.setMinLines(Math.max(1, 1 + Math.max(0, candidateGlossLineCount() - 1)));
         button.setMaxLines(Math.max(1, 1 + Math.max(0, candidateGlossLineCount() - 1)));
+        configureCandidateTextLayout(button);
         button.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidateFontSize);
         button.setSelected(highlighted);
         styleCandidateButton(button);
@@ -5488,6 +5496,7 @@ public final class MSIMEInputService extends InputMethodService {
         button.setText(candidateLabel("", text, annotation, highlighted));
         button.setMinLines(Math.max(1, 1 + Math.max(0, candidateGlossLineCount() - 1)));
         button.setMaxLines(Math.max(1, 1 + Math.max(0, candidateGlossLineCount() - 1)));
+        configureCandidateTextLayout(button);
         button.setTextSize(TypedValue.COMPLEX_UNIT_SP, candidateFontSize);
         button.setSelected(highlighted);
         styleCandidateButton(button);
