@@ -9,6 +9,28 @@ pub extern "C" fn msime_client_abi_version() -> u32 {
     2
 }
 
+/// Convert Simplified Chinese text to Traditional Chinese with the shared OpenCC `s2t` tables.
+///
+/// Returns the converted text itself rather than the standard JSON response: hosts call this for every candidate on a page and every commit, and wrapping each string in a document only to parse it back out would put a JSON round trip on the typing path. Returns null for a null pointer, invalid UTF-8 or an interior NUL, so the caller keeps its own text.
+/// # Safety
+/// `text` points to `length` readable bytes. The returned string must be released with `msime_client_string_free`.
+#[no_mangle]
+pub unsafe extern "C" fn msime_client_simplified_to_traditional(
+    text: *const u8,
+    length: usize,
+) -> *mut c_char {
+    if text.is_null() {
+        return std::ptr::null_mut();
+    }
+    // SAFETY: guaranteed by the documented caller contract.
+    let bytes = unsafe { std::slice::from_raw_parts(text, length) };
+    let Ok(text) = std::str::from_utf8(bytes) else {
+        return std::ptr::null_mut();
+    };
+    let converted = msime_client_core::chinese_conversion::simplified_to_traditional(text);
+    CString::new(converted).map_or(std::ptr::null_mut(), CString::into_raw)
+}
+
 /// Resolve display font families using the same adapter as the shared preview.
 /// # Safety
 /// `value` points to `length` readable bytes containing a JSON string array.

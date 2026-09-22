@@ -96,11 +96,6 @@ pub fn simplified_to_traditional(text: &str) -> String {
     })
 }
 
-/// Warm the tables so the first conversion on an input path does not pay for parsing them.
-pub fn prepare_simplified_to_traditional() {
-    tables();
-}
-
 /// OpenCC's `Conversion::AppendConverted`: maximum forward match, unmatched text copied through.
 fn convert_pass(text: &str, matcher: impl Fn(&str) -> Option<(usize, &'static str)>) -> String {
     let mut output = String::with_capacity(text.len() + text.len() / 5);

@@ -1,10 +1,6 @@
-// Pin what simplified-to-traditional conversion guarantees, without pinning the mapping table.
+// Pin simplified-to-traditional conversion at the Windows host boundary.
 //
-// This host converts with LCMapStringEx(LCMAP_TRADITIONAL_CHINESE), so the mapping belongs to the
-// operating system and moves with it. Asserting particular traditional forms would be asserting a
-// Windows version, and under Wine it would assert Wine's table. What is this code's own behaviour -
-// and therefore what is worth a test - is the surrounding contract: the switch, the untouched
-// inputs, and never losing text when anything goes wrong.
+// The mapping is the shared OpenCC s2t table this repository ships (the same data the reference server loads), not an operating-system table, so concrete traditional forms are this code's own behaviour and are asserted here: in particular the one-to-many characters a character table gets wrong.
 #include "ChineseTextConversion.h"
 
 #include <iostream>
@@ -27,7 +23,7 @@ int main() {
     require(simplified_to_traditional("国家", false) == "国家");
     require(simplified_to_traditional("", false).empty());
 
-    // Empty input stays empty rather than reaching the platform call.
+    // Empty input stays empty rather than reaching the shared converter.
     require(simplified_to_traditional("", true).empty());
 
     // ASCII has no traditional form and has to survive byte for byte, including text that a
@@ -40,17 +36,12 @@ int main() {
     const std::string invalid("\xff\xfe invalid", 11);
     require(simplified_to_traditional(invalid, true) == invalid);
 
-    // Conversion never empties non-empty text. Off Windows this is the identity, which is the
-    // point: the fallback path has to be a passthrough rather than a silent drop.
-    const std::string simplified = "国家学习";
-    const auto converted = simplified_to_traditional(simplified, true);
-    require(!converted.empty());
-    // Whatever the table says, the result stays well-formed UTF-8 of the same character count.
-    size_t characters = 0;
-    for (unsigned char unit : converted)
-      if ((unit & 0xC0) != 0x80)
-        ++characters;
-    require(characters == 4);
+    // Phrase-level: 发 is 髮 in 头发 and 發 in 发展, which no character table can decide.
+    require(simplified_to_traditional("头发", true) == "頭髮");
+    require(simplified_to_traditional("发展", true) == "發展");
+    require(simplified_to_traditional("汉语输入法", true) == "漢語輸入法");
+    // Mixed text converts only the Chinese and keeps everything else in place.
+    require(simplified_to_traditional("hello 国家 😀", true) == "hello 國家 😀");
 
     std::cout << "Chinese conversion contract holds\n";
     return 0;
