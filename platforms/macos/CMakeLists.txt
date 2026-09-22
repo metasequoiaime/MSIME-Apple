@@ -280,8 +280,13 @@ set_tests_properties(emoji-host-cursor PROPERTIES LABELS "emoji-local" TIMEOUT 3
 set(MSIME_EMOJI_SWIFT_HOST_SOURCES src/backend/emoji/BackendEmojiSymbolGroups.swift src/backend/emoji/BackendEmojiCatalog.swift
   src/backend/emoji/BackendEmojiCatalogCursor.swift tests/emoji/EmojiSwiftHostTest.swift)
 list(TRANSFORM MSIME_EMOJI_SWIFT_HOST_SOURCES PREPEND "${CMAKE_CURRENT_SOURCE_DIR}/")
+# swiftc links this one itself, against apple-client, so a sanitized apple-client needs the sanitizer runtime on this link line too; CMake adds it to the ones it drives.
+set(MSIME_EMOJI_SWIFT_HOST_SANITIZE "")
+if(CMAKE_OBJCXX_FLAGS MATCHES "-fsanitize=[^ ]*address")
+  set(MSIME_EMOJI_SWIFT_HOST_SANITIZE -sanitize=address)
+endif()
 add_custom_command(OUTPUT "${CMAKE_CURRENT_BINARY_DIR}/emoji-swift-host-test"
-  COMMAND "${MSIME_XCRUN}" swiftc -Onone
+  COMMAND "${MSIME_XCRUN}" swiftc -Onone ${MSIME_EMOJI_SWIFT_HOST_SANITIZE}
     -target "${CMAKE_HOST_SYSTEM_PROCESSOR}-apple-macosx${CMAKE_OSX_DEPLOYMENT_TARGET}"
     ${MSIME_EMOJI_SWIFT_HOST_SOURCES}
     -Xlinker -force_load -Xlinker "$<TARGET_FILE:apple-client>"
