@@ -77,6 +77,7 @@ public final class MSIMEInputService extends InputMethodService {
     private static final long PERSONAL_DICTIONARY_SYNC_DELAY_MILLIS = 500;
     private static final long INPUT_VIEW_REFRESH_DELAY_MILLIS = 32;
     private static final String SCHEME_HOST_PREFERENCES = "android-keyboard-schemes";
+    private static final String INPUT_MODE_PREFERENCES = "android-input-modes";
     private static final String SELECTED_HOST_SCHEME = "selected-scheme";
     private static final String THOUGHTFUL_REPLY_ENABLED = "thoughtful-reply-enabled";
     private static final String EMOJI_RECENTS_PREFERENCES = "android-emoji-recents";
@@ -258,6 +259,10 @@ public final class MSIMEInputService extends InputMethodService {
     private Runnable diagnosticDismissTask;
     private final EnglishLetterCaseState letterCase = new EnglishLetterCaseState();
     private boolean dedicatedEnglish;
+    private String defaultImeMode = "chinese";
+    private String imeModeScope = "app";
+    private String currentEditorPackage = "";
+    private InputModeStore inputModeStore;
     private boolean fullWidthInput;
     private boolean traditionalChineseOutput;
     private int editorInputType;
@@ -436,6 +441,12 @@ public final class MSIMEInputService extends InputMethodService {
      * keyboard, and drawing them in the factory skin makes it look like a different input method.
      */
     private void applyEditorPreferences(JSONObject preferences) throws JSONException {
+        defaultImeMode = preferences != null
+            && "english".equals(preferences.optString("default_ime_mode", "chinese"))
+            ? "english" : "chinese";
+        imeModeScope = preferences != null
+            && "global".equals(preferences.optString("ime_mode_scope", "app"))
+            ? "global" : "app";
         KeyboardScheme engineScheme = KeyboardScheme.fromPreferences(
             preferences == null ? "quanpin" : preferences.optString("scheme", "quanpin"),
             preferences == null ? "xiaohe" : preferences.optString("shuangpin_profile", "xiaohe"),
@@ -615,7 +626,8 @@ public final class MSIMEInputService extends InputMethodService {
         cancelInputViewRefresh();
         long startGeneration = ++engineStartGeneration;
         cancelPersonalDictionarySynchronization();
-        if (!restarting || currentDocumentIdentifier == 0) {
+        boolean newDocument = !restarting || currentDocumentIdentifier == 0;
+        if (newDocument) {
             currentDocumentIdentifier = nextDocumentIdentifier++;
         }
         resetSpaceCursor();
@@ -626,6 +638,10 @@ public final class MSIMEInputService extends InputMethodService {
         clearSmartPunctuationSnapshots();
         bridge = new EditorBridge();
         schemeHostPreferences = getSharedPreferences(SCHEME_HOST_PREFERENCES, MODE_PRIVATE);
+        if (inputModeStore == null) {
+            inputModeStore = InputModeStore.from(
+                getSharedPreferences(INPUT_MODE_PREFERENCES, MODE_PRIVATE));
+        }
         loadKeyboardLayoutPreferences();
         sharedSchemePreferences = false;
         enabledSchemes = KeyboardScheme.enabledFromPreferenceIds(null);
@@ -633,9 +649,7 @@ public final class MSIMEInputService extends InputMethodService {
         clearEnglishSuggestions();
         keyboardLayer = KeyboardLayout.Layer.LETTERS;
         editorInputType = info == null ? 0 : info.inputType;
-        Boolean englishOverride = inputContext.englishOverride(
-            EditorPolicy.prefersLatin(editorInputType), currentDocumentIdentifier, dedicatedEnglish);
-        if (englishOverride != null) dedicatedEnglish = englishOverride;
+        currentEditorPackage = info == null || info.packageName == null ? "" : info.packageName;
         allowLearning = info != null && EditorPolicy.allowLearning(info.imeOptions);
         preferencesNotice = "";
         statisticsFailureReported = false;
@@ -652,6 +666,14 @@ public final class MSIMEInputService extends InputMethodService {
             JSONObject options = new JSONObject(new String(Files.readAllBytes(file.toPath()), StandardCharsets.UTF_8));
             JSONObject preferences = options.optJSONObject("preferences");
             applyEditorPreferences(preferences);
+            if (newDocument) {
+                boolean defaultEnglish = "english".equals(defaultImeMode);
+                dedicatedEnglish = inputModeStore.modeFor(
+                    imeModeScope, currentEditorPackage, defaultEnglish);
+            }
+            Boolean englishOverride = inputContext.englishOverride(
+                EditorPolicy.prefersLatin(editorInputType), currentDocumentIdentifier, dedicatedEnglish);
+            if (englishOverride != null) dedicatedEnglish = englishOverride;
             // 那份快照是首次安装时写下的，之后再没更新过（见 Bootstrap.prepare），所以它的偏好
             // 永远是出厂默认。有引擎会话时实时偏好会由 preferencesReloader 补上；没有会话的输入
             // 框走不到那条路，只能自己读一次，否则键盘就一直是默认皮肤和默认方案。
@@ -1187,6 +1209,10 @@ public final class MSIMEInputService extends InputMethodService {
         java.util.List<String> nextTranslationTargets = translationTargetsFrom(preferences);
         boolean nextWubiCodeHint = preferences.optBoolean("wubi_code_hint", true);
         boolean nextWubiMixedPinyin = preferences.optBoolean("wubi_mixed_pinyin", false);
+        String nextDefaultImeMode = "english".equals(
+            preferences.optString("default_ime_mode", "chinese")) ? "english" : "chinese";
+        String nextImeModeScope = "global".equals(
+            preferences.optString("ime_mode_scope", "app")) ? "global" : "app";
         KeyboardScheme nextScheme = KeyboardScheme.fromPreferences(
             preferences.optString("scheme", "quanpin"),
             preferences.optString("shuangpin_profile", "xiaohe"),
@@ -1227,6 +1253,8 @@ public final class MSIMEInputService extends InputMethodService {
         candidateTranslationTargets = nextTranslationTargets;
         wubiCodeHint = nextWubiCodeHint;
         wubiMixedPinyin = nextWubiMixedPinyin;
+        defaultImeMode = nextDefaultImeMode;
+        imeModeScope = nextImeModeScope;
         JSONObject nextView = result.getJSONObject("view");
         boolean rebuildLayout = displayedTouchLayout(view) != displayedTouchLayout(nextView);
         enabledSchemes = nextSchemeConfiguration.enabled();
@@ -2118,6 +2146,9 @@ public final class MSIMEInputService extends InputMethodService {
         try {
             JSONObject nextView = value(NativeClient.setEnglishMode(session, nextEnglish));
             dedicatedEnglish = nextEnglish;
+            if (inputModeStore != null) {
+                inputModeStore.remember(imeModeScope, currentEditorPackage, nextEnglish);
+            }
             view = nextView;
             keyboardLayer = KeyboardLayout.Layer.LETTERS;
             letterCase.reset();

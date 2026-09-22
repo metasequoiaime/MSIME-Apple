@@ -138,6 +138,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/core/InputViewRefreshPolicySmoke.java" \
   "$repo_root/platforms/android/tests/core/EditorContextSnapshotSmoke.java" \
   "$repo_root/platforms/android/tests/settings/PreferencesSmoke.java" \
+  "$repo_root/platforms/android/tests/settings/InputModeStoreSmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/KeyboardLayoutSmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/LetterKeyFacePolicySmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/ReturnKeyActionSmoke.java" \
@@ -198,6 +199,7 @@ java -cp "$output_dir" PhrasePreeditSmoke
 java -cp "$output_dir" InputViewRefreshPolicySmoke
 java -cp "$output_dir" EditorContextSnapshotSmoke
 java -cp "$output_dir" PreferencesSmoke
+java -cp "$output_dir" app.msime.client.InputModeStoreSmoke
 java -cp "$output_dir" KeyboardLayoutSmoke
 java -cp "$output_dir" LetterKeyFacePolicySmoke
 java -cp "$output_dir" ReturnKeyActionSmoke
