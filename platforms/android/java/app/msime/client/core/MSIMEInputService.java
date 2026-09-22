@@ -7312,17 +7312,18 @@ public final class MSIMEInputService extends InputMethodService {
     }
 
     /**
-     * A new Engine page must start at its first visible candidate. Keeping the old horizontal
-     * offset makes a page change look like a reordered or missing candidate list, especially when
-     * the previous page had a long sentence at the leading edge. Gloss-only redraws keep the
-     * offset because session/generation/page are unchanged.
+     * A new Engine page must start at its first visible candidate. Keeping the old scroll offset
+     * makes a page change look like a reordered or missing candidate list, especially when the
+     * previous page had a long sentence at the leading edge. Gloss-only redraws keep the offset
+     * because session/generation/page are unchanged.
      */
     private void resetCandidateScrollIfViewChanged() {
-        if (horizontalCandidateScroll == null || view == null) {
+        if (view == null) {
             candidateScrollSession = -1;
             candidateScrollGeneration = -1;
             candidateScrollPage = -1;
             if (horizontalCandidateScroll != null) horizontalCandidateScroll.scrollTo(0, 0);
+            if (verticalCandidateScroll != null) verticalCandidateScroll.scrollTo(0, 0);
             return;
         }
         long nextSession = view.optLong("session", session);
@@ -7333,7 +7334,10 @@ public final class MSIMEInputService extends InputMethodService {
         candidateScrollSession = nextSession;
         candidateScrollGeneration = nextGeneration;
         candidateScrollPage = nextPage;
-        horizontalCandidateScroll.post(() -> horizontalCandidateScroll.scrollTo(0, 0));
+        if (horizontalCandidateScroll != null)
+            horizontalCandidateScroll.post(() -> horizontalCandidateScroll.scrollTo(0, 0));
+        if (verticalCandidateScroll != null)
+            verticalCandidateScroll.post(() -> verticalCandidateScroll.scrollTo(0, 0));
     }
 
     private void renderSharedHandwritingCandidates(LinearLayout activeCandidates) {
