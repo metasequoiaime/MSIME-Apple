@@ -54,6 +54,9 @@ struct Observation {
   bool autocorrect_neighbor = false;
   bool learning_enabled = false;
   bool learning_sensitive = false;
+  int delete_surrounding_calls = 0;
+  gint delete_surrounding_offset = 0;
+  guint delete_surrounding_count = 0;
 };
 void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
             const gchar *name, GVariant *parameters, gpointer data) {
@@ -68,6 +71,12 @@ void signal(GDBusConnection *, const gchar *, const gchar *, const gchar *,
   }
   if (std::string(name) == "HideAuxiliaryText") {
     seen.auxiliary.clear();
+    return;
+  }
+  if (std::string(name) == "DeleteSurroundingText") {
+    g_variant_get(parameters, "(iu)", &seen.delete_surrounding_offset,
+                  &seen.delete_surrounding_count);
+    ++seen.delete_surrounding_calls;
     return;
   }
   if (std::string(name) != "CommitText" &&
@@ -275,6 +284,7 @@ int main(int argc, char **argv) {
     options["preferences"]["candidate_selected_color"] = "#fedcba";
     options["preferences"]["candidate_page_size"] = 2;
     options["preferences"]["default_ime_mode"] = "chinese";
+    options["preferences"]["smart_punctuation_space_convert"] = true;
     // Keep the mixed-Emoji path below explicit; the missing-field fallback is
     // checked separately before the main fixture starts.
     options["preferences"]["mixed_input"]["emoji"] = true;
@@ -1851,6 +1861,43 @@ int main(int argc, char **argv) {
     require(key('<') && key('<'), "Paired book title marks were not consumed");
     require(seen.committed == paired_book_titles + "《》《》",
             "Auto-closed book title marks left Engine nesting elevated");
+
+    // A successful punctuation-space rewrite edits the preceding mark and
+    // consumes Space. The mock editor publishes the post-commit surrounding
+    // text explicitly, just as a real IBus client does before the next key.
+    invoke("Reset");
+    seen.committed.clear();
+    auto publish_surrounding = [&](const char *value, guint cursor) {
+      auto text = ibus_text_new_from_string(value);
+      g_object_ref_sink(text);
+      invoke("SetSurroundingText",
+             g_variant_new("(vuu)",
+                           ibus_serializable_serialize(IBUS_SERIALIZABLE(text)),
+                           cursor, cursor));
+      g_object_unref(text);
+    };
+    publish_surrounding("好", 1);
+    require(key(';') && seen.committed == "；",
+            "Space-convert fixture punctuation was not committed");
+    publish_surrounding("好；", 2);
+    const auto deletes_before_space = seen.delete_surrounding_calls;
+    require(
+        key(IBUS_space) && seen.committed == "；;" &&
+            seen.delete_surrounding_calls == deletes_before_space + 1 &&
+            seen.delete_surrounding_offset == -1 &&
+            seen.delete_surrounding_count == 1,
+        "Smart punctuation rewrite did not replace the mark and consume Space");
+
+    // Auto-completed pairs are deliberately outside the gesture: rewriting
+    // only the left half would orphan the closing half.
+    publish_surrounding("好", 1);
+    require(key(IBUS_quotedbl) && seen.committed == "；;“”",
+            "Paired quote fixture was not committed");
+    publish_surrounding("好“”", 2);
+    const auto deletes_before_pair_space = seen.delete_surrounding_calls;
+    require(!key(IBUS_space) &&
+                seen.delete_surrounding_calls == deletes_before_pair_space,
+            "Space conversion rewrote an auto-completed punctuation pair");
 
     // Mixed input keeps the ordinary Chinese session while inserting the
     // fixed-resource English/Emoji candidate into the same lookup table.

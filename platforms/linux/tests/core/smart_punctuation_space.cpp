@@ -7,8 +7,12 @@
 using msime::linux_host::ascii_mark_from_text;
 using msime::linux_host::ascii_mark_text;
 using msime::linux_host::chinese_punctuation_mark;
+using msime::linux_host::is_auto_paired_opening_key;
 using msime::linux_host::is_smart_punctuation_key;
+using msime::linux_host::is_space_conversion_key;
 using msime::linux_host::repeat_conversion_matches_document;
+using msime::linux_host::smart_punctuation_ascii_mark;
+using msime::linux_host::space_conversion_ascii_text;
 using msime::linux_host::space_conversion_matches_document;
 
 int main() {
@@ -46,13 +50,39 @@ int main() {
   assert(!is_smart_punctuation_key(';') && !is_smart_punctuation_key('!') &&
          !is_smart_punctuation_key('a') && !is_smart_punctuation_key(' '));
 
-  // One mark table, read by both rewrites and both hosts.
+  // Direct smart routing remains the narrow three-key policy.
   assert(chinese_punctuation_mark(',') == "，");
   assert(chinese_punctuation_mark('.') == "。");
   assert(chinese_punctuation_mark(':') == "：");
-  assert(chinese_punctuation_mark('<') == "〈");
+  assert(chinese_punctuation_mark('<') == "《");
   assert(chinese_punctuation_mark('a').empty());
   assert(chinese_punctuation_mark(' ').empty());
+
+  // Space conversion follows the complete Windows mapping. Both halves of a
+  // quote map to the same ASCII key; braces and corner brackets are not part of
+  // the product contract.
+  const std::vector<std::pair<std::string_view, char>> conversions{
+      {"。", '.'}, {"，", ','}, {"！", '!'}, {"？", '?'}, {"；", ';'},
+      {"：", ':'}, {"、", '/'}, {"“", '"'},  {"”", '"'},  {"‘", '\''},
+      {"’", '\''}, {"【", '['}, {"】", ']'}, {"《", '<'}, {"》", '>'},
+      {"（", '('}, {"）", ')'},
+  };
+  for (const auto &[chinese, ascii] : conversions) {
+    assert(smart_punctuation_ascii_mark(chinese) == ascii);
+    assert(is_space_conversion_key(ascii));
+    assert(space_conversion_ascii_text(chinese) == std::string(1, ascii));
+  }
+  assert(smart_punctuation_ascii_mark("〈") == 0);
+  assert(smart_punctuation_ascii_mark("｛") == 0);
+  assert(!is_space_conversion_key('{'));
+  assert(space_conversion_ascii_text("x").empty());
+  assert(is_auto_paired_opening_key('"'));
+  assert(is_auto_paired_opening_key('\''));
+  assert(is_auto_paired_opening_key('('));
+  assert(is_auto_paired_opening_key('['));
+  assert(is_auto_paired_opening_key('<'));
+  assert(!is_auto_paired_opening_key(')'));
+  assert(!is_auto_paired_opening_key('/'));
 
   // Half width leaves the key alone; full width moves printable ASCII one block
   // up, which is what the host would have committed in the first place.
@@ -60,11 +90,7 @@ int main() {
   assert(ascii_mark_text('.', false) == ".");
   assert(ascii_mark_text('.', true) == "\uff0e");
   assert(ascii_mark_text(':', true) == "\uff1a");
-  // Worth stating rather than discovering: the fullwidth comma and the Chinese
-  // comma are the same codepoint, so under fullwidth output taking that mark
-  // back to ASCII changes nothing on screen. Only the full stop actually differs
-  // (U+FF0E against U+3002). This follows the source and the other hosts; it is
-  // not a shortcut taken here.
+  // Ordinary repeat routing still recognises the width Engine committed.
   assert(ascii_mark_text(',', true) == chinese_punctuation_mark(','));
   assert(ascii_mark_text('.', true) != chinese_punctuation_mark('.'));
   // Nothing outside printable ASCII has a fullwidth form to offer.
@@ -81,6 +107,9 @@ int main() {
   // gesture is guarded by the key and the window rather than by the glyph alone.
   assert(ascii_mark_from_text(",", true) == 0);
   assert(ascii_mark_from_text("，", true) == ',');
+  // Space conversion never consults the character-width mode.
+  assert(space_conversion_ascii_text("，") == ",");
+  assert(space_conversion_ascii_text("。") == ".");
 
   // The repeat check asks one question of the document: is that ASCII mark, in
   // the width the host committed it, still in front of the caret.

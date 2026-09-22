@@ -6,6 +6,23 @@
 
 namespace msime::linux_host {
 
+struct SmartPunctuationMapping {
+  std::string_view chinese;
+  char ascii;
+};
+
+// The reversible Space gesture is broader than direct smart punctuation. The
+// latter only special-cases , . : beside ASCII letters/digits; this table is
+// the Windows product's complete Chinese -> ASCII rewrite contract. Both quote
+// halves intentionally map to the same key. Auto-completed pairs are excluded
+// by the hosts before they arm the gesture.
+inline constexpr SmartPunctuationMapping kSmartPunctuationSpaceMap[] = {
+    {"。", '.'}, {"，", ','}, {"！", '!'}, {"？", '?'}, {"；", ';'},
+    {"：", ':'}, {"、", '/'}, {"“", '"'},  {"”", '"'},  {"‘", '\''},
+    {"’", '\''}, {"【", '['}, {"】", ']'}, {"《", '<'}, {"》", '>'},
+    {"（", '('}, {"）", ')'},
+};
+
 // The three keys smart punctuation routes: a mark after an ASCII letter or digit
 // stays ASCII, otherwise Engine's Chinese table converts it. Shared so the IBus
 // and Fcitx5 hosts cannot disagree about which keys those are.
@@ -18,23 +35,33 @@ inline constexpr bool is_smart_punctuation_key(char value) {
 // Chinese and the space back to ASCII read the same mapping in opposite
 // directions, and a second copy of it would be a second thing to drift.
 inline constexpr std::string_view chinese_punctuation_mark(char value) {
-  switch (value) {
-  case ',': return "，";
-  case '.': return "。";
-  case ';': return "；";
-  case ':': return "：";
-  case '!': return "！";
-  case '?': return "？";
-  case '(': return "（";
-  case ')': return "）";
-  case '[': return "【";
-  case ']': return "】";
-  case '{': return "｛";
-  case '}': return "｝";
-  case '<': return "〈";
-  case '>': return "〉";
-  default: return {};
-  }
+  for (const auto &mapping : kSmartPunctuationSpaceMap)
+    if (mapping.ascii == value)
+      return mapping.chinese;
+  return {};
+}
+
+inline constexpr char smart_punctuation_ascii_mark(std::string_view chinese) {
+  for (const auto &mapping : kSmartPunctuationSpaceMap)
+    if (mapping.chinese == chinese)
+      return mapping.ascii;
+  return 0;
+}
+
+inline constexpr bool is_space_conversion_key(char value) {
+  return !chinese_punctuation_mark(value).empty();
+}
+
+inline constexpr bool is_auto_paired_opening_key(char value) {
+  return value == '"' || value == '\'' || value == '(' || value == '[' ||
+         value == '<';
+}
+
+// Space conversion always writes literal half-width ASCII. It is a rewrite
+// gesture, not ordinary character-width output.
+inline std::string space_conversion_ascii_text(std::string_view chinese) {
+  const auto ascii = smart_punctuation_ascii_mark(chinese);
+  return ascii == 0 ? std::string{} : std::string(1, ascii);
 }
 
 // An ASCII mark as the host would commit it under the current width setting.
@@ -58,7 +85,7 @@ inline std::string ascii_mark_text(char value, bool fullwidth) {
 // keys next to the table.
 inline char ascii_mark_from_text(std::string_view text, bool fullwidth) {
   for (char value = 0x21; value <= 0x7e; ++value) {
-    if (chinese_punctuation_mark(value).empty())
+    if (!is_smart_punctuation_key(value))
       continue;
     const auto candidate = ascii_mark_text(value, fullwidth);
     if (std::string_view(candidate) == text)
