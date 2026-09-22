@@ -650,6 +650,8 @@ target_link_libraries(shortcut-test PRIVATE "-framework AudioToolbox")
 target_link_libraries(MSIMEClientInputMethod PRIVATE "-framework AudioToolbox")
 target_link_libraries(shortcut-test PRIVATE "-framework AVFoundation" "-framework Speech" "-framework CoreGraphics" "-framework CoreText" "-framework CoreAudio" "-framework UniformTypeIdentifiers")
 add_test(NAME shortcut COMMAND shortcut-test)
+# Around 25 s locally: several cases wait on real input-source and run-loop round trips, which is past the 20 s CI default.
+set_tests_properties(shortcut PROPERTIES TIMEOUT 90)
 add_test(NAME shortcut-translations COMMAND shortcut-test --translations)
 add_executable(voice-hold-shortcut-test tests/voice/VoiceHoldShortcutTest.mm)
 target_compile_options(voice-hold-shortcut-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
@@ -698,6 +700,8 @@ add_executable(voice-polish-request-test tests/voice/VoicePolishRequestTest.mm s
 target_compile_options(voice-polish-request-test PRIVATE -fobjc-arc -Wall -Wextra -Werror -UNDEBUG)
 target_link_libraries(voice-polish-request-test PRIVATE msime-voice-providers "-framework Foundation")
 add_test(NAME voice-polish-request COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/voice/voice_polish_fixture.py" "$<TARGET_FILE:voice-polish-request-test>")
+# The fixture waits out two six-second stalls and gives the run 60 s; without its own limit CI's `ctest --timeout 20` killed it on every run.
+set_tests_properties(voice-polish-request PROPERTIES TIMEOUT 65)
 # Which prompt each slot resolves to. The request test above sends whatever it is handed; this one says what
 # that should be. The header is shared/voice's and this host ships it through HTTPVoiceRequest.mm, but its
 # only test ran in the Windows build - so a fallback that had drifted from the reference sat here unchecked.

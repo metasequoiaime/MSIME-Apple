@@ -174,8 +174,9 @@ int main() {
                 const NSSize preferred = [[panel valueForKey:@"preferredSize"] sizeValue];
                 assert(preferred.width == std::ceil((422.0 + 8.0 * (size.doubleValue - 24.0)) * factor));
                 assert(preferred.height == std::ceil((size.doubleValue + 20.0) * factor));
-                assert(std::abs(inputMode.frame.size.width - (size.doubleValue + 18.0) * factor) < 0.01);
-                assert(std::abs(inputMode.frame.size.height - (size.doubleValue + 8.0) * factor) < 0.01);
+                // Every size here scales to a multiple of half a point, which is a whole pixel on a Retina screen and not on a 1x one - the CI runner's display - where AppKit rounds the first item too.
+                assert(std::abs(inputMode.frame.size.width - (size.doubleValue + 18.0) * factor) <= 1.0 / panel.backingScaleFactor);
+                assert(std::abs(inputMode.frame.size.height - (size.doubleValue + 8.0) * factor) <= 1.0 / panel.backingScaleFactor);
                 assert(std::abs(inputMode.font.pointSize - size.doubleValue * factor * 0.833) < 0.01);
                 // AppKit aligns the later stack items to backing pixels at fractional positions.
                 assert(std::abs(emoji.frame.size.width - (size.doubleValue + 18.0) * factor) <= 1.0 / panel.backingScaleFactor);

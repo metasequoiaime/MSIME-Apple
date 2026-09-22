@@ -74,8 +74,10 @@ int main(int argc, char **argv) {
         for (NSNumber *level in @[@0, @0.5, @1]) {
             [panel setInputLevel:level.floatValue];
         }
-        NSDate *until = [NSDate dateWithTimeIntervalSinceNow:0.05];
-        [NSRunLoop.currentRunLoop runUntilDate:until];
+        // Wait for the queued updates rather than for a fixed 50 ms, which a loaded CI runner can spend before the main queue gets a turn.
+        NSDate *until = [NSDate dateWithTimeIntervalSinceNow:2];
+        while ([[panel.contentView valueForKey:@"level"] floatValue] != 1 && until.timeIntervalSinceNow > 0)
+            [NSRunLoop.currentRunLoop runMode:NSDefaultRunLoopMode beforeDate:[NSDate dateWithTimeIntervalSinceNow:0.01]];
         assert([[panel.contentView valueForKey:@"level"] floatValue] == 1);
         [panel setInputLevel:1]; // A queued meter update must not revive processing UI.
         [panel setProcessing:NO];
