@@ -1675,6 +1675,43 @@ test("macOS about page moves the shared data root only after an explicit confirm
   expect(await screen.findByText(/数据已移动。设置窗口即将关闭/)).toBeDefined();
 });
 
+test("Linux about page moves the data root and says the fixed configuration stays behind", async () => {
+  const status = vi
+    .fn()
+    .mockResolvedValue({ path: "/synthetic/home/.config/msime-client", isDefault: true });
+  const pick = vi
+    .fn()
+    .mockResolvedValueOnce("/synthetic/data/msime")
+    .mockRejectedValueOnce({ code: "data_directory_picker_unavailable" });
+  const move = vi.fn().mockResolvedValue({
+    path: "/synthetic/data/msime",
+    isDefault: false,
+    retainedOldData: false,
+  });
+  render(
+    <SettingsPage
+      client={{
+        load: vi.fn().mockResolvedValue(initial),
+        save: vi.fn(),
+        dataDirectory: { status, pick, move },
+        host: { platform: "linux", panel_windows: true } as never,
+      }}
+    />,
+  );
+  fireEvent.click(screen.getByRole("button", { name: "关于" }));
+  expect(await screen.findByText("/synthetic/home/.config/msime-client")).toBeDefined();
+  expect(screen.getByRole("group", { name: "数据目录" }).textContent).toContain(
+    "凭据固定保存在 ~/.config/msime-client",
+  );
+  fireEvent.click(screen.getByRole("button", { name: "选择位置…" }));
+  await answerConfirm("confirm");
+  await waitFor(() => expect(move).toHaveBeenCalledWith());
+  expect(await screen.findByText(/数据已移动。设置窗口即将关闭/)).toBeDefined();
+  fireEvent.click(screen.getByRole("button", { name: "选择位置…" }));
+  expect(await screen.findByText(/请安装 zenity 或 kdialog/)).toBeDefined();
+  expect(move).toHaveBeenCalledTimes(1);
+});
+
 test("shortcut page reflects enabled candidate mouse-wheel paging", async () => {
   const preferences = {
     ...initial.preferences,

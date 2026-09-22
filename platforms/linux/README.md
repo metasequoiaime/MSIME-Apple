@@ -250,6 +250,8 @@ Linux 桌面设置保存时会先按 `PreferencesStore` 的 revision 规则写�
 
 Linux Tauri 设置窗口也会监视同一 `PreferencesStore` 的 revision。其他窗口或 IBus 侧写入新 revision 后，未编辑的设置页自动刷新；若当前有未保存草稿，只提示外部变更并保留草稿，用户通过“重新读取”显式解决冲突。事件只携带已验证的偏好快照，不携带输入内容或凭据。
 
+设置页「关于 → 数据目录」可以把词库、学习记录、缓存、偏好、皮肤和剪贴板历史移到另一个空目录（例如另一块磁盘）。目录用桌面自带的选择器挑选：KDE 下优先 `kdialog`，其他桌面优先 `zenity`，两者都没有时设置页提示安装。Linux 上默认状态目录 `$XDG_CONFIG_HOME/msime-client` 同时是 IBus 启动器、Fcitx5 插件、剪贴板监视服务和设置启动器读取 `runtime-options.json` 的固定位置，在线服务和语音服务也从这里读取凭据，所以移动时这个目录本身不动：`runtime-options.json` 和三个 provider 凭据文件留在原处，其余状态条目先复制到目标目录内的临时目录，再逐个 rename 到位，然后只把 `runtime-options.json` 里位于旧目录下的绝对路径改写到新目录，provider socket、模型等其他键原样保留。任一步失败都会回滚已放置的条目和 locator，原数据不动。发布成功后才删除旧目录中的这些条目；目标目录写入 `.metasequoiaime-data` 标记，以后再移走时整个目录只在确认归水杉所有时才删除，否则保留并告知用户。移回默认目录同样可行。完成后宿主重启当前输入法框架（Fcitx5 为 `ReloadConfig`，否则 `ibus restart`）让已运行的 Engine 会话立刻改用新路径，剪贴板监视服务每轮都重读 locator，无需重启；设置窗口随后关闭。
+
 安装时可使用 `cmake --install target/linux-ibus`。安装产物包含 IBus 主程序、`msime-client-online` 在线候选请求入口、`msime-client-translation` 候选翻译请求入口、`msime-client-dictionary` 个人词典请求入口、`msime-client-cloud-dictionary` 云词典请求入口、`msime-client-cloud-clipboard` 云剪贴板请求入口、`msime-client-clipboard` 剪贴板历史工具、`msime-client-handwriting` 手写识别请求入口、`msime-client-voice` 语音识别请求入口和 `msime-client-emoji` Emoji 目录请求入口；工具与主程序使用相同的安装前缀。需要预置系统配置时，在 CMake 配置阶段传入 `-DMSIME_RUNTIME_OPTIONS_FILE=/absolute/runtime-options.json`，安装到 `${CMAKE_INSTALL_SYSCONFDIR}/msime-client/runtime-options.json`。该文件必须来自已准备且匹配安装环境的状态目录，不能直接分发开发机上的私人状态。
 
 CMake 配置时可传入 `-DMSIME_EMOJI_RESOURCES=/absolute/emoji-resources`，安装会将该受信任目录复制到 `${CMAKE_INSTALL_DATADIR}/msime-client/emoji`，供 `msime-client-emoji --local` 自动发现；未提供时不会从未验证的相邻仓库或网络下载资源。
