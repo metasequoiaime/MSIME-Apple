@@ -206,6 +206,10 @@ EnglishCapitalizationPolicy.shouldShift
 
 同一文件页此前还藏着一个完整未接线的方向：共享 UI 会发 `snapshot_restore_preview` 与 `snapshot_restore_native`，Harmony 桥却一个都不处理；`snapshotNative: true` 又让 WebView 刻意不读文件，因此恢复必然返回 `snapshot_unavailable`。现在系统选择器只选择一份 `.ndjson`，先检查 1–512 MiB 并复制到应用私有目录，再由原生完整快照检查器验证 framing、字段、跨记录一致性、正文 checksum 与整文件 SHA-256；乐观并发 revision 与 Apple 一样取 quick catalog。确认时 N-API 在 worker 线程调用 C ABI，C ABI 紧邻上传重新检查私有文件及整文件摘要，再由 `reqwest::blocking::Body::sized` 流式 PUT，避免 512 MiB 内容进入 ArkUI 线程、WebView JSON 或整块内存。上传继承账号单航班刷新、401/403 单次重试和 session generation 作废；放弃、失败、完成或账号变化都会删除私有副本。Harmony 逻辑套件增至 1576 条断言，静态 guard 同时钉住两个 restore operation、原生 picker、异步 N-API、私有复制、上传与清理接线。
 
+## 延续审计补记（2026-09-22）
+
+固定 Apple 测试又补出三条边界：`e9209b62d` 要求快照恢复响应为 `application/json`；`67897470a` 让 Harmony 在重命名后重新读取规范 profile、保留 token 与过期时间更新本地缓存，并拒绝登出后的迟到响应；`d67dae230` 允许协商设置文档在 1 MiB 总上限内承载照片大小的自定义皮肤字符串。Harmony 逻辑套件现为 1590 条断言，client-core 全套为 292 个测试。以上仍只有源码、单元测试与本地构建证据。
+
 ## 2026-09-21 补：模拟器验收
 
 上面那份「证据边界」写完之后，在 API 21 的 `Mate 70 Pro` arm64 模拟器上实际跑了一遍，结论需要改写——不是因为结论错了，而是因为它们本来就只是没去跑。
@@ -227,7 +231,7 @@ EnglishCapitalizationPolicy.shouldShift
 - 读屏实际念出什么，以及 `accessibilityText` 挂在键容器上是否会被读到（而不是被里面的 `Text` 盖过）。
 - 个人词库大批导入是否在真机常驻扩展中按空闲批次持续排空，以及应用后的词条是否立即进入真实候选。共享队列已有 4/4/1 批处理、回执不重放和 Engine 规范化测试，Harmony 也有会话锁释放、组字保护、两秒续排与模式恢复的源码门禁；这里缺的是设备层证据，不再是实现路径未知。
 - 横排候选释义的第二行、设置切换后的固定高度和在线 provider 结果是否在真实 ArkUI panel 中按预期绘制。逻辑层与宿主接线门禁已覆盖，当前 worktree 没有 HAP 编译和设备画面证据。
-- 展开候选的截尾、自定义皮肤的渐变/照片/图案/键帽材质，以及连续多笔手写在真实 ArkUI/Core Vision 上的画面、触控与识别效果。当前只有 1576 条逻辑断言和宿主接线守卫，没有本轮 HAP 或设备复测。
+- 展开候选的截尾、自定义皮肤的渐变/照片/图案/键帽材质，以及连续多笔手写在真实 ArkUI/Core Vision 上的画面、触控与识别效果。当前只有 1590 条逻辑断言和宿主接线守卫，没有本轮 HAP 或设备复测。
 - Anthropic/Gemini/EveryAPI 模型目录、EveryAPI/Mistral 转写及云剪贴板删除只验证了请求策略、边界与产品接线；没有用真实凭据执行服务往返，也没有在设备上验证录音授权和 multipart 请求。
 - 账号刷新、候选排序/固定位置、云词库导出、快照冲突检查与本地快照恢复云端只验证了状态机、请求形状、文件边界和产品接线；没有对真实账号服务往返，也没有设备上的系统打开/保存选择器或流式上传证据。
 - 真机签名与麦克风授权流程。
