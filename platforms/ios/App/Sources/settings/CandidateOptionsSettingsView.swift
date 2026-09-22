@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// Pinyin typo correction, 以词定字, and what gets mixed into the Chinese candidates.
+/// Pinyin typo correction, 以词定字, cloud candidates, and what gets mixed into the Chinese candidates.
 ///
-/// Like the punctuation page, these live only in the shared preference document, nested under `quanpin`, `word_character` and `mixed_input`, so each write merges one field into its object and leaves the rest of the object as stored. The keyboard hands a change to its live session the next time it appears.
+/// Like the punctuation page, these live only in the shared preference document, nested under `quanpin`, `word_character` and `mixed_input`, so each write merges one field into its object and leaves the rest of the object as stored. Cloud candidates are the exception: an iOS-only switch in the App Group (see CloudCandidatePreference). The keyboard hands a change to its live session the next time it appears.
 struct CandidateOptionsSettingsView: View {
   @Environment(\.scenePhase) private var scenePhase
   @State private var transposition = false
@@ -12,6 +12,8 @@ struct CandidateOptionsSettingsView: View {
   @State private var emoji = false
   @State private var kaomoji = false
   @State private var wordCharacter = true
+  @AppStorage(CloudCandidatePreference.key, store: CloudCandidatePreference.defaults)
+  private var cloudCandidates = false
   @State private var saveFailed = false
 
   var body: some View {
@@ -32,6 +34,13 @@ struct CandidateOptionsSettingsView: View {
         Toggle(isOn: stored("word_character", "enabled", $wordCharacter)) {
           labelled("以词定字", "长按两个字以上的候选，可以只上屏它的首字或末字")
         }.accessibilityIdentifier("wordCharacter")
+      }
+      Section {
+        Toggle(isOn: $cloudCandidates) {
+          labelled("云候选", "输入停顿时向 Google 输入法服务查询候选，排进候选栏")
+        }.accessibilityIdentifier("cloudCandidates")
+      } footer: {
+        Text("默认关闭。开启后，正在输入的编码会发送到 Google 输入法服务；还需要在系统设置中允许键盘完全访问。")
       }
       Section {
         Toggle(isOn: stored("mixed_input", "english", $english)) {

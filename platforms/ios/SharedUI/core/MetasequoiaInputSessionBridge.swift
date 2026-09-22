@@ -76,6 +76,26 @@ private func msimeClientApplyTranslations(
   _ session: UInt64, _ generation: UInt64,
   _ translations: UnsafePointer<MSIMEByte>?, _ translationsLength: UInt
 ) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_online_query")
+private func msimeClientOnlineQuery(_ session: UInt64) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_cloud_request_url")
+private func msimeClientCloudRequestURL(_ query: UnsafePointer<MSIMEByte>?, _ queryLength: UInt) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_apply_cloud_response")
+private func msimeClientApplyCloudResponse(
+  _ session: UInt64, _ query: UnsafePointer<MSIMEByte>?, _ queryLength: UInt,
+  _ body: UnsafePointer<MSIMEByte>?, _ bodyLength: UInt
+) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_ai_request_for_query")
+private func msimeClientAIRequestForQuery(
+  _ session: UInt64, _ query: UnsafePointer<MSIMEByte>?, _ queryLength: UInt
+) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_parse_ai_response")
+private func msimeClientParseAIResponse(_ body: UnsafePointer<MSIMEByte>?, _ length: UInt, _ limit: UInt8) -> UnsafeMutablePointer<CChar>?
+@_silgen_name("msime_client_apply_online_candidates")
+private func msimeClientApplyOnlineCandidates(
+  _ session: UInt64, _ query: UnsafePointer<MSIMEByte>?, _ queryLength: UInt,
+  _ candidates: UnsafePointer<MSIMEByte>?, _ candidatesLength: UInt, _ source: UInt8
+) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_dictionary")
 private func msimeClientDictionary(_ request: UnsafePointer<MSIMEByte>?, _ length: UInt) -> UnsafeMutablePointer<CChar>?
 @_silgen_name("msime_client_snapshot_version")
@@ -248,10 +268,11 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
         // contract below. This avoids changing the selected scheme underneath
         // UIKit while a Tauri settings write is being observed.
         let applied = (self.options["preferences"] as? [String: Any]) ?? [:]
-        self.options["preferences"] = Self.hostOverrides(applyingTo: preferences)
+        let overridden = Self.hostOverrides(applyingTo: preferences)
+        self.options["preferences"] = overridden
         self.revision = max(self.revision, revision.uint64Value)
         self.documentRevision = revision.uint64Value
-        self.applyAppEditedPreferences(from: preferences, over: applied)
+        self.applyAppEditedPreferences(from: overridden, over: applied)
         completion(true)
       }
     }
@@ -266,6 +287,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     "paired_punctuation", "punctuation_lock",
     // Whole objects: the app merges single fields into them, and the document's copy is the one it wrote.
     "quanpin", "mixed_input", "quanpin_helpcode", "shuangpin_helpcode", "local_modes",
+    // Laid over the document by `hostOverrides` from the iOS switch, so a change to that switch reaches the live session too.
+    "cloud_candidates",
   ]
 
   /// Hand the reloaded app-edited fields to the session, leaving every other field as the session has it. The session queues the change behind an open composition, so this never interrupts typing.
@@ -669,6 +692,81 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     }
   }
 
+  /// The composition the cloud and AI providers could answer, as the session's JSON document, or nil when neither could.
+  ///
+  /// The document is handed back unchanged with a provider's result; the session refuses a result for a composition that has since moved on.
+  func onlineQuery() -> Data? {
+    guard handle != 0, let value = try? Self.decode(msimeClientOnlineQuery(handle)),
+          let query = value as? [String: Any],
+          let data = try? JSONSerialization.data(withJSONObject: query) else { return nil }
+    return data
+  }
+
+  /// The HTTPS cloud candidate URL the shared host builds for an eligible query.
+  static func cloudRequestURL(query: Data) -> URL? {
+    guard !query.isEmpty, query.count <= 16_384 else { return nil }
+    let value = query.withUnsafeBytes { bytes in
+      try? decode(msimeClientCloudRequestURL(bytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(query.count)))
+    }
+    guard let text = value as? String, let url = URL(string: text), url.scheme == "https" else { return nil }
+    return url
+  }
+
+  /// Hand a fetched cloud reply to the shared parser. Returns `{applied, view}`.
+  func applyCloudResponse(query: Data, body: Data) throws -> [String: Any] {
+    guard handle != 0 else { throw InputBridgeFailure.unavailable }
+    guard !query.isEmpty, query.count <= 16_384, !body.isEmpty, body.count <= 262_144 else {
+      throw InputBridgeFailure.invalidResponse
+    }
+    return try query.withUnsafeBytes { queryBytes in
+      try body.withUnsafeBytes { bodyBytes in
+        guard let dictionary = try Self.decode(msimeClientApplyCloudResponse(
+          handle, queryBytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(query.count),
+          bodyBytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(body.count))) as? [String: Any] else {
+          throw InputBridgeFailure.invalidResponse
+        }
+        return dictionary
+      }
+    }
+  }
+
+  /// The AI HTTPS request descriptor for a query, or nil when the assistant's settings no longer match it. It carries the provider credential: never log it.
+  func aiRequest(query: Data) -> [String: Any]? {
+    guard handle != 0, !query.isEmpty, query.count <= 16_384 else { return nil }
+    return query.withUnsafeBytes { bytes in
+      (try? Self.decode(msimeClientAIRequestForQuery(
+        handle, bytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(query.count)))) as? [String: Any]
+    }
+  }
+
+  /// The candidate texts in an AI reply, by the shared parser; empty when it supplies none.
+  static func parseAIResponse(_ body: Data, limit: Int) -> [String] {
+    guard !body.isEmpty, body.count <= 1_048_576, (1...10).contains(limit) else { return [] }
+    return body.withUnsafeBytes { bytes in
+      (try? decode(msimeClientParseAIResponse(
+        bytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(body.count), UInt8(limit)))) as? [String] ?? []
+    }
+  }
+
+  /// Apply one provider's candidates (cloud 0, AI 1) to the query they answer. Returns `{applied, view}`.
+  func applyOnlineCandidates(query: Data, candidates: [String], source: UInt8) throws -> [String: Any] {
+    guard handle != 0 else { throw InputBridgeFailure.unavailable }
+    let payload = try JSONSerialization.data(withJSONObject: candidates)
+    guard !query.isEmpty, query.count <= 16_384, payload.count <= 16_384, source <= 1 else {
+      throw InputBridgeFailure.invalidResponse
+    }
+    return try query.withUnsafeBytes { queryBytes in
+      try payload.withUnsafeBytes { payloadBytes in
+        guard let dictionary = try Self.decode(msimeClientApplyOnlineCandidates(
+          handle, queryBytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(query.count),
+          payloadBytes.bindMemory(to: MSIMEByte.self).baseAddress, UInt(payload.count), source)) as? [String: Any] else {
+          throw InputBridgeFailure.invalidResponse
+        }
+        return dictionary
+      }
+    }
+  }
+
   func snapshot(from value: [String: Any]) throws -> MetasequoiaInputSnapshot {
     try Self.snapshot(value)
   }
@@ -986,6 +1084,8 @@ final class MetasequoiaInputSessionBridge: @unchecked Sendable {
     // The shared preference default is English, and iOS has no setting that overrides it: the
     // 中/英 key switches modes instead. macOS compensates the same way.
     preferences["default_ime_mode"] = "chinese"
+    // Cloud candidates are opt-in on iOS; see CloudCandidatePreference. Never persisted: the shared document keeps the desktop's value.
+    preferences["cloud_candidates"] = CloudCandidatePreference.enabled
     return preferences
   }
 

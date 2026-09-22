@@ -1,0 +1,199 @@
+import Foundation
+
+/// One bounded HTTPS request for a cloud or AI candidate provider.
+struct OnlineCandidateRequest: Sendable {
+  var urlRequest: URLRequest
+  /// How long the connection may sit idle, connecting included.
+  var connectTimeout: TimeInterval
+  /// How long the whole exchange may take.
+  var timeout: TimeInterval
+  /// A reply larger than this is dropped rather than parsed.
+  var maxBytes: Int
+}
+
+protocol OnlineCandidateTransport: Sendable {
+  /// The body of a 2xx reply, or nil for anything else; an unavailable provider is an ordinary outcome, not an error.
+  func fetch(_ request: OnlineCandidateRequest) async -> Data?
+}
+
+/// HTTPS only, no redirects, no cookies or cache, and nothing kept between requests.
+struct URLSessionOnlineCandidateTransport: OnlineCandidateTransport {
+  func fetch(_ request: OnlineCandidateRequest) async -> Data? {
+    guard request.urlRequest.url?.scheme == "https" else { return nil }
+    let configuration = URLSessionConfiguration.ephemeral
+    configuration.timeoutIntervalForRequest = request.connectTimeout
+    configuration.timeoutIntervalForResource = request.timeout
+    configuration.waitsForConnectivity = false
+    configuration.urlCache = nil
+    configuration.httpCookieStorage = nil
+    let session = URLSession(configuration: configuration, delegate: RedirectRefusal(), delegateQueue: nil)
+    defer { session.invalidateAndCancel() }
+    do {
+      let (bytes, response) = try await session.bytes(for: request.urlRequest)
+      guard let http = response as? HTTPURLResponse, (200..<300).contains(http.statusCode),
+            http.expectedContentLength <= Int64(request.maxBytes) else { return nil }
+      var body = Data()
+      for try await byte in bytes {
+        guard body.count < request.maxBytes else { return nil }
+        body.append(byte)
+      }
+      return body.isEmpty ? nil : body
+    } catch {
+      return nil
+    }
+  }
+
+  /// The shared host built the URL and must be the only one choosing where the request goes; a 3xx comes back as the reply and is refused by its status.
+  private final class RedirectRefusal: NSObject, URLSessionTaskDelegate, @unchecked Sendable {
+    func urlSession(_ session: URLSession, task: URLSessionTask, willPerformHTTPRedirection response: HTTPURLResponse,
+                    newRequest request: URLRequest) async -> URLRequest? { nil }
+  }
+}
+
+/// 云候选和 AI 候选：组字停下来之后再问，不是每敲一个键都问。
+///
+/// The same flow as the Android host. The session builds every request - the cloud URL from the query, the AI descriptor with its credential - so this class only carries bytes and hands them back with the query document they answer. Engine has usually moved past that query by the time a provider replies; the session refuses a result for a composition that is no longer current, and the epoch drops a reply this keyboard has already stopped waiting for. The signature is what stops a second request for a state already asked about.
+@MainActor
+final class OnlineCandidateProvider {
+  static let quietInterval: TimeInterval = 0.35
+  /// `MSIME_CLOUD_CONNECT_TIMEOUT_MS` and `MSIME_CLOUD_REQUEST_TIMEOUT_MS`: a reply arriving after a private deadline is one the reference would have shown.
+  static let cloudTimeout: TimeInterval = 2
+  static let maxCloudResponseBytes = 256 * 1024
+  static let maxAIResponseBytes = 1024 * 1024
+
+  /// Receives the view a provider's candidates were applied to.
+  var onApplied: ((MetasequoiaInputSnapshot) -> Void)?
+  private let session: MetasequoiaInputSessionBridge
+  private let transport: any OnlineCandidateTransport
+  private var signature: String?
+  private var epoch: UInt64 = 0
+  private var debounce: Timer?
+  private var task: Task<Void, Never>?
+
+  init(session: MetasequoiaInputSessionBridge,
+       transport: any OnlineCandidateTransport = URLSessionOnlineCandidateTransport()) {
+    self.session = session
+    self.transport = transport
+  }
+
+  /// Ask again once the composition holds still, if it is one a provider could answer. `allowed` is the host's own gate: Full Access, a composition, no local mode; which schemes qualify is the Engine's call.
+  func refresh(allowed: Bool) {
+    guard allowed, let document = session.onlineQuery(), let query = Self.object(document),
+          Self.requestsCloud(query) || Self.requestsAI(query) else { cancel(); return }
+    let signature = Self.signature(query)
+    guard signature != self.signature else { return }
+    cancel()
+    self.signature = signature
+    let target = epoch
+    let timer = Timer(timeInterval: Self.quietInterval, repeats: false) { [weak self] _ in
+      MainActor.assumeIsolated {
+        guard let self, self.epoch == target else { return }
+        self.debounce = nil
+        self.task = Task { [weak self] in await self?.fetch(document: document, epoch: target) }
+      }
+    }
+    RunLoop.main.add(timer, forMode: .common)
+    debounce = timer
+  }
+
+  func cancel() {
+    debounce?.invalidate()
+    debounce = nil
+    task?.cancel()
+    task = nil
+    signature = nil
+    epoch &+= 1
+  }
+
+  private func fetch(document: Data, epoch target: UInt64) async {
+    var aiDocument = document
+    if let query = Self.object(document), Self.requestsCloud(query),
+       let url = MetasequoiaInputSessionBridge.cloudRequestURL(query: document),
+       let body = await transport.fetch(Self.cloudRequest(url)), target == epoch,
+       // Applying a cloud result advances the Engine's generation, so the AI request has to be built from the query as it stands afterwards or it arrives stale.
+       let refreshed = apply({ try self.session.applyCloudResponse(query: document, body: body) }) {
+      aiDocument = refreshed
+    }
+    guard target == epoch, let query = Self.object(aiDocument), Self.requestsAI(query),
+          let limit = Self.aiCandidateLimit(query),
+          let descriptor = session.aiRequest(query: aiDocument),
+          let request = Self.aiRequest(descriptor),
+          let body = await transport.fetch(request), target == epoch else { return }
+    let candidates = MetasequoiaInputSessionBridge.parseAIResponse(body, limit: limit)
+    guard !candidates.isEmpty else { return }
+    _ = apply { try self.session.applyOnlineCandidates(query: aiDocument, candidates: candidates, source: 1) }
+  }
+
+  /// Hand one provider's result to the session and render it. Returns the query as it stands afterwards, or nil when nothing was applied.
+  private func apply(_ call: () throws -> [String: Any]) -> Data? {
+    // Online candidates are optional; a refused or failed result leaves the current view alone.
+    guard let applied = try? call(), applied["applied"] as? Bool == true,
+          let snapshot = try? session.snapshot(from: applied) else { return nil }
+    onApplied?(snapshot)
+    return session.onlineQuery()
+  }
+
+  static func requestsCloud(_ query: [String: Any]) -> Bool {
+    query["cloud_candidates"] as? Bool == true && query["cloud_eligible"] as? Bool == true
+  }
+
+  static func requestsAI(_ query: [String: Any]) -> Bool {
+    let assistant = query["ai_assistant"] as? [String: Any]
+    return query["ai_eligible"] as? Bool == true && assistant?["enabled"] as? Bool == true
+  }
+
+  /// The assistant's candidate limit, or nil when it is outside what the shared parser accepts.
+  static func aiCandidateLimit(_ query: [String: Any]) -> Int? {
+    let limit = ((query["ai_assistant"] as? [String: Any])?["candidate_limit"] as? NSNumber)?.intValue ?? 0
+    return (1...10).contains(limit) ? limit : nil
+  }
+
+  /// Identity of one online request. The assistant's configuration counts only while it is on: a changed model or prompt has to ask again for the same composition, while a query that only advanced its generation must not.
+  static func signature(_ query: [String: Any]) -> String {
+    var assistant = ""
+    if let value = query["ai_assistant"] as? [String: Any], value["enabled"] as? Bool == true,
+       let data = try? JSONSerialization.data(withJSONObject: value, options: [.sortedKeys]) {
+      assistant = String(decoding: data, as: UTF8.self)
+    }
+    let session = (query["session_id"] as? NSNumber)?.stringValue ?? "0"
+    return [session, query["cache_key"] as? String ?? "", query["identity"] as? String ?? "",
+            String(query["cloud_candidates"] as? Bool == true), assistant].joined(separator: ":")
+  }
+
+  static func cloudRequest(_ url: URL) -> OnlineCandidateRequest {
+    var request = URLRequest(url: url)
+    request.httpMethod = "GET"
+    request.setValue("application/json", forHTTPHeaderField: "Accept")
+    return OnlineCandidateRequest(urlRequest: request, connectTimeout: cloudTimeout, timeout: cloudTimeout,
+                                  maxBytes: maxCloudResponseBytes)
+  }
+
+  /// The POST the session's descriptor describes, or nil when it is not an HTTPS POST with a JSON body.
+  static func aiRequest(_ descriptor: [String: Any]) -> OnlineCandidateRequest? {
+    guard let text = descriptor["url"] as? String, let url = URL(string: text), url.scheme == "https",
+          (descriptor["method"] as? String ?? "POST") == "POST",
+          let body = descriptor["body"], JSONSerialization.isValidJSONObject(body),
+          let payload = try? JSONSerialization.data(withJSONObject: body) else { return nil }
+    var request = URLRequest(url: url)
+    request.httpMethod = "POST"
+    request.httpBody = payload
+    for (name, value) in descriptor["headers"] as? [String: String] ?? [:] {
+      request.setValue(value, forHTTPHeaderField: name)
+    }
+    let maxBytes = min(maxAIResponseBytes, (descriptor["max_response_bytes"] as? NSNumber)?.intValue ?? maxAIResponseBytes)
+    return OnlineCandidateRequest(urlRequest: request,
+                                  connectTimeout: seconds(descriptor["connect_timeout_ms"], fallback: 2500),
+                                  timeout: seconds(descriptor["timeout_ms"], fallback: 8000),
+                                  maxBytes: max(1, maxBytes))
+  }
+
+  /// Milliseconds from the descriptor, held to the 1-10 s the Android host allows.
+  private static func seconds(_ value: Any?, fallback: Int) -> TimeInterval {
+    let milliseconds = (value as? NSNumber)?.intValue ?? fallback
+    return TimeInterval(min(10_000, max(1_000, milliseconds))) / 1000
+  }
+
+  private static func object(_ document: Data) -> [String: Any]? {
+    (try? JSONSerialization.jsonObject(with: document)) as? [String: Any]
+  }
+}
