@@ -111,6 +111,14 @@ if ! rg -q 'selectEdgeRaw' \
   echo "Android word-to-character must cross the shared Host API through JNI" >&2
   exit 1
 fi
+# Candidate paging keys are a user preference, not a fixed table: the source lets the pair be
+# chosen and this host reads the same shared `navigation` document the desktop hosts do. Keeping
+# the routing in one named policy is what stops a second, drifting key table growing in the service.
+if ! rg -q 'CandidateNavigationPolicy\.commandFor' \
+    "$repo_root/platforms/android/java/app/msime/client/core/MSIMEInputService.java"; then
+  echo "Android candidate paging must route through CandidateNavigationPolicy" >&2
+  exit 1
+fi
 # The JNI translation unit is the one place a Java declaration and a shared FFI
 # signature have to agree, and nothing else in this script reads it: a method
 # declared native in Java compiles whether or not the C++ side exists. Compiling
@@ -241,6 +249,7 @@ javac --release 17 -Xlint:all -Werror -cp "$android_jar" -d "$output_dir" \
   "$repo_root/platforms/android/tests/settings/HardwareShortcutPolicySmoke.java" \
   "$repo_root/platforms/android/tests/settings/NumberRowSelectionPolicySmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/WordCharacterPolicySmoke.java" \
+  "$repo_root/platforms/android/tests/keyboard/CandidateNavigationPolicySmoke.java" \
   "$repo_root/platforms/android/tests/candidate/CandidateTextPolicySmoke.java" \
   "$repo_root/platforms/android/tests/keyboard/SymbolPanelModelSmoke.java"
 java -cp "$output_dir" EditorSmoke
@@ -308,6 +317,7 @@ java -cp "$output_dir" HardwareKeyPolicySmoke
 java -cp "$output_dir" app.msime.client.HardwareShortcutPolicySmoke
 java -cp "$output_dir" NumberRowSelectionPolicySmoke
 java -cp "$output_dir" WordCharacterPolicySmoke
+java -cp "$output_dir" CandidateNavigationPolicySmoke
 java -cp "$output_dir" CandidateTextPolicySmoke
 java -cp "$output_dir" SymbolPanelModelSmoke
 # Resources are compiled but not linked here: they reference Material's theme attributes, and linking
