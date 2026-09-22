@@ -1338,7 +1338,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     }
     this.personalDictionaryTimer = setTimeout((): void => {
       this.personalDictionaryTimer = -1;
-      if (this.composing() || this.isInLocalMode()) {
+      if (this.composing() || this.localMode !== 'none') {
         this.schedulePersonalDictionaryDrain();
         return;
       }
@@ -1351,7 +1351,7 @@ export class KeyboardSession implements HardwareKeyTarget {
     if (this.snapshotQueueTimer >= 0 || this.handle === 0) return;
     this.snapshotQueueTimer = setTimeout((): void => {
       this.snapshotQueueTimer = -1;
-      if (this.composing() || this.isInLocalMode()) {
+      if (this.composing() || this.localMode !== 'none') {
         this.scheduleDictionarySnapshotPoll();
         return;
       }
@@ -2114,7 +2114,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.inputClient.insertTextSync(text);
     } catch (error) {
       this.pendingOwnEdits--;
-      throw error;
+      throw new Error(describeError(error));
     }
   }
 
@@ -2126,7 +2126,7 @@ export class KeyboardSession implements HardwareKeyTarget {
       this.inputClient.deleteBackwardSync(count);
     } catch (error) {
       this.pendingOwnEdits--;
-      throw error;
+      throw new Error(describeError(error));
     }
   }
 

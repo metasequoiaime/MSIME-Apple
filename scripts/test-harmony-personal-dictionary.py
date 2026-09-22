@@ -35,7 +35,10 @@ def main() -> int:
         "four-entry native batch": ".take(4)" in store,
         "idle sync before Engine session": start < drain < create,
         "two-second yield": "IDLE_DICTIONARY_RETRY_MS: number = 2000" in session,
-        "composition guard": "this.composing() || this.isInLocalMode()" in scheduler,
+        # Keep the queue out of both an active composition and a local Engine mode. The old
+        # helper name was removed from KeyboardSession; checking the actual state also lets the
+        # ArkTS compiler catch stale method calls instead of preserving one for this guard.
+        "composition and local-mode guard": "this.composing() || this.localMode !== 'none'" in scheduler,
         "Engine session release": "this.restartIdleSession('personal dictionary queue')" in scheduler,
         "mode restoration": "client.setEnglishMode" in scheduler
         and "client.setNineKeyMode" in scheduler,
