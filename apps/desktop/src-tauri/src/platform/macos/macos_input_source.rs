@@ -237,7 +237,69 @@ fn refresh_launch_services(bundle: &Path) {
         .status();
 }
 
+fn launch_services_paths_for_identifier(dump: &str, identifier: &str) -> Vec<PathBuf> {
+    let mut path = None;
+    let mut matches = Vec::new();
+    for line in dump.lines() {
+        if let Some(raw) = line.strip_prefix("path:") {
+            let raw = raw.trim();
+            let raw = raw
+                .strip_suffix(')')
+                .and_then(|raw| raw.rsplit_once(" (0x").map(|(path, _)| path))
+                .unwrap_or(raw);
+            path = Some(PathBuf::from(raw));
+        } else if line
+            .strip_prefix("identifier:")
+            .is_some_and(|value| value.trim() == identifier)
+        {
+            if let Some(path) = path.take() {
+                matches.push(path);
+            }
+        }
+    }
+    matches
+}
+
+/// Remove stale LaunchServices records for this input method before registering its replacement.
+///
+/// Each build directory is a bundle as far as LaunchServices is concerned. When a developer
+/// installs from the settings page, old worktree bundles remain registered under the same
+/// identifier and macOS presents each record as another copy of the input source. Keep the bundle
+/// being installed and unregister every competing record; missing paths are safe to unregister as
+/// well because `lsregister -u` only removes the registry entry.
+fn remove_competing_launch_services_records(bundle: &Path) {
+    if !Path::new(LSREGISTER).exists() {
+        return;
+    }
+    let Ok(output) = std::process::Command::new(LSREGISTER).arg("-dump").output() else {
+        return;
+    };
+    if !output.status.success() {
+        return;
+    }
+    let installed = bundle
+        .canonicalize()
+        .ok()
+        .unwrap_or_else(|| bundle.to_path_buf());
+    let dump = String::from_utf8_lossy(&output.stdout);
+    for stale in launch_services_paths_for_identifier(&dump, INPUT_SOURCE_BUNDLE_ID) {
+        let same_bundle = stale == bundle
+            || stale
+                .canonicalize()
+                .map(|path| path == installed)
+                .unwrap_or(false);
+        if same_bundle {
+            continue;
+        }
+        let _ = std::process::Command::new(LSREGISTER)
+            .arg("-u")
+            .arg(stale)
+            .status();
+    }
+}
+
 fn register_installed_bundle(bundle: &Path) -> Result<(), InstallError> {
+    remove_competing_launch_services_records(bundle);
     refresh_launch_services(bundle);
     let executable = bundle.join("Contents/MacOS").join(INPUT_SOURCE_EXECUTABLE);
     let status = std::process::Command::new(executable)
@@ -279,6 +341,18 @@ mod tests {
         fs::write(&executable, executable_contents).unwrap();
         fs::set_permissions(&executable, fs::Permissions::from_mode(0o755)).unwrap();
         bundle
+    }
+
+    #[test]
+    fn launch_services_parser_keeps_only_paths_for_the_requested_identifier() {
+        let dump = "path: /old/水杉输入法.app (0x10)\nidentifier:                 app.msime.inputmethod.MetasequoiaIME\npath: /other.app (0x11)\nidentifier:                 com.example.other\npath: /new/水杉输入法.app (0x12)\nidentifier:                 app.msime.inputmethod.MetasequoiaIME\n";
+        assert_eq!(
+            launch_services_paths_for_identifier(dump, INPUT_SOURCE_BUNDLE_ID),
+            vec![
+                PathBuf::from("/old/水杉输入法.app"),
+                PathBuf::from("/new/水杉输入法.app")
+            ]
+        );
     }
 
     // The bundle used to be called 水杉输入法（预览）.app and carries the same identifier, so a
