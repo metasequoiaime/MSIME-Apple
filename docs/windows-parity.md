@@ -14,7 +14,7 @@
 | 来源发布日志里的每一条 | `scripts/test-reference-feature-log.py` | 19 条全部过过一遍 |
 | 来源源码树里的每个文件 | `scripts/test-reference-source-inventory.py` | 274 个：161 个同名、101 个改名、12 个写明不需要 |
 
-**刻意与来源不同、且理由写在对应批次里的：** 候选窗、悬浮工具栏与输入法菜单本仓由各平台原生绘制（来源画在 WebView2 里），设置页与各类面板走 Tauri + 共享 React；简繁转换用系统 `LCMapStringEx` 逐字映射而非 OpenCC 词级转换（见第十六批，是否统一为词级表尚未决定）；偏好文件每次整份写出而不做三方合并。这些是「适配平台特性」的取舍，不是欠账。
+**刻意与来源不同、且理由写在对应批次里的：** 候选窗、悬浮工具栏与输入法菜单本仓由各平台原生绘制（来源画在 WebView2 里），设置页与各类面板走 Tauri + 共享 React；偏好文件每次整份写出而不做三方合并。这些是「适配平台特性」的取舍，不是欠账。
 
 **~~需要所有者拍板、本仓不单方面动的~~：这一栏 2026-09-21 清空了。** 原本列着三项引擎侧能力，理由都是「要提 `engine-lock.json`、影响面覆盖全部平台」。这个理由站不住：引擎早已搬进来源仓库，独立 engine 仓冻结在本仓锁的那个 commit，**没有更新的锁可提**，而本仓对引擎侧改动本来就有 overlay 机制（当时已经用了三次）。加加辅助码此前已由 overlay 落地；英文词的「词」与「显示」不同见本表倒数第二批；全拼备选切分见最后一批。
 
@@ -2411,3 +2411,13 @@ Windows 的安装位置、资源目录和用户状态目录可能包含中文、
 完整安装器会在提升权限下把词库、出厂配置和所有权标记写入所选 `DataDir`，但不能以安装器身份替用户执行 Host API 准备。此前 Server 的首次准备只接受“目录不存在”，所以正常安装后的第一次启动会跳过准备，随后读取不存在的 `runtime-options.json` 并退出；默认目录和自定义目录都受影响。
 
 现在保留独立 `msime-client-prepare` 的全新目录契约；生产首次启动额外允许已有且带 `.metasequoiaime-data` 所有权标记、但尚无 `runtime-options.json` 的目录，在用户上下文中完成准备。普通已有目录、已有运行时配置、文件和符号链接仍不会被接管或重建；准备失败也不覆盖并保留现有数据。回归新增安装器所有权目录的成功准备与可恢复缺失配置路径，并继续覆盖普通不完整目录和错误资源不创建状态。验证为 host 编译运行的合成首次运行测试、x64 MinGW 语法检查和 `git diff --check`；安装包、真实 Server 首次启动和 Windows 系统入口仍未在真实 Windows 上验收。
+
+### 简繁转换改为 OpenCC 词级（2026-09-23）
+
+第十六批用系统 `LCMapStringEx` 逐字映射，那条差异不再保留：逐字表解决不了一对多的字（发→發/髮、干→乾/幹、面→面/麪），「头发」会成「頭發」，与来源的 OpenCC `s2t` 输出不同，用户看得见。
+
+- 共享层：`crates/client-core/src/chinese_conversion.rs` 按 OpenCC `data/config/s2t.json` 实现（一次兼容表归一化，再一次 STPhrases ∪ 地区词派生表 → STCharacters 的最大正向匹配，完整 IDS 序列整体透传）。数据取自来源 `vendor/opencc` 子模块钉的同一提交 `26753884f1984add422f3b0249ccee8613deaff6`，登记在 `docs/third-party.md`，许可证由 `Collect-Notices.ps1` 收进 Windows 通知。
+- 边界：`msime_client_simplified_to_traditional`（`crates/host-api`）返回裸文本而非 JSON 响应，因为它在每个候选上都要调用。首次调用解析词典，release 约 4 ms，之后单次约 1 µs。
+- Windows：`platforms/windows/src/input/ChineseTextConversion.cpp` 改调这个导出；上屏、候选呈现的调用点不变。
+- 证据：用 OpenCC 在该提交构建出的 CLI 做对照，4 万行随机文本逐字节一致；Rust 单测与 host-api 边界测试；Windows 侧为交叉构建与原生用例，未在真实编辑器里验收。
+- Linux（ICU）与 macOS（`CFStringTransform`）仍是逐字转换，要统一只需改调同一个导出，本批不动。

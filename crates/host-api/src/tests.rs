@@ -434,6 +434,31 @@ fn host_capability_boundary_describes_each_platform() {
 }
 
 #[test]
+fn traditional_conversion_boundary_returns_text_or_null() {
+    let convert = |bytes: &[u8]| {
+        // SAFETY: the slice outlives the call.
+        let raw = unsafe { msime_client_simplified_to_traditional(bytes.as_ptr(), bytes.len()) };
+        if raw.is_null() {
+            return None;
+        }
+        // SAFETY: a non-null result is an owned NUL-terminated string from this library.
+        let text = unsafe { std::ffi::CStr::from_ptr(raw) }
+            .to_str()
+            .unwrap()
+            .to_owned();
+        // SAFETY: released exactly once.
+        unsafe { msime_client_string_free(raw) };
+        Some(text)
+    };
+    assert_eq!(convert("头发".as_bytes()).as_deref(), Some("頭髮"));
+    assert_eq!(convert(b"").as_deref(), Some(""));
+    assert_eq!(convert(b"\xff\xfe"), None);
+    assert_eq!(convert(b"a\0b"), None);
+    // SAFETY: null is part of the documented contract.
+    assert!(unsafe { msime_client_simplified_to_traditional(std::ptr::null(), 4) }.is_null());
+}
+
+#[test]
 fn abi_version_reports_the_surface_route_revision() {
     assert_eq!(msime_client_abi_version(), 2);
 }

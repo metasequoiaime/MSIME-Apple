@@ -31,6 +31,14 @@ foreach ($relative in @('NOTICE.md', 'LICENSE', 'dictionary/NOTICE.md', 'diction
     if (-not $content) { throw "Empty locked Engine notice: $relative" }
     $documents.Add("===== MSIME-Engine/$relative @ $pin =====`n$content`n")
 }
+# Data compiled into the shared host library rather than taken from the Engine tree.
+foreach ($relative in @('crates/client-core/data/opencc/LICENSE')) {
+    $noticePath = Join-Path $RepoRoot $relative
+    if (-not (Test-Path -LiteralPath $noticePath -PathType Leaf)) { throw "Missing repository notice: $relative" }
+    $content = Get-Content -LiteralPath $noticePath -Raw
+    if (-not $content) { throw "Empty repository notice: $relative" }
+    $documents.Add("===== OpenCC dictionaries ($relative), BYVoid/OpenCC @ 26753884f1984add422f3b0249ccee8613deaff6 =====`n$content`n")
+}
 $number = 0
 foreach ($prefix in $DependencyPrefixes) {
     $number++
