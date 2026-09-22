@@ -725,6 +725,25 @@ public:
     render();
     return true;
   }
+  bool toggleFloatingToolbar() {
+    if (!session_ || restricted() || privateInput()) return false;
+    const bool enabled = !preferences_.value("floating_toolbar", Json::object())
+                              .value("enabled", true);
+    auto snapshot = preferences_snapshot_;
+    if (!snapshot.is_object() || !snapshot.contains("revision") ||
+        !snapshot.contains("preferences")) return false;
+    snapshot["preferences"]["floating_toolbar"]["enabled"] = enabled;
+    const auto encoded = effectiveContextSnapshot(snapshot).dump();
+    view_ = response(msime_client_update_preferences(
+        session_, reinterpret_cast<const uint8_t *>(encoded.data()), encoded.size())).at("view");
+    preferences_ = snapshot.at("preferences");
+    applyContextOverrides(preferences_);
+    preferences_snapshot_ = std::move(snapshot);
+    saveNestedBooleanPreference("floating_toolbar", "enabled", enabled);
+    refreshToolbar();
+    render();
+    return true;
+  }
   bool toggleClipboardHistory() {
     if (!session_ || restricted() || privateInput()) return false;
     const bool enabled = !preferences_.value("clipboard_history", false);
@@ -3684,6 +3703,29 @@ public:
   void activate(fcitx::InputContext *) override {}
 };
 
+class FcitxToolbarEnabledAction : public fcitx::Action {
+public:
+  explicit FcitxToolbarEnabledAction(fcitx::FactoryFor<FcitxState> *factory)
+      : factory_(factory) { setCheckable(true); }
+  std::string shortText(fcitx::InputContext *) const override { return "工具栏"; }
+  std::string icon(fcitx::InputContext *) const override { return "view-restore"; }
+  bool isChecked(fcitx::InputContext *ic) const override {
+    if (!ic) return false;
+    const auto *state = ic->propertyFor(factory_);
+    return state->session_ && state->preferences_.value("floating_toolbar", Json::object())
+        .value("enabled", true);
+  }
+  void activate(fcitx::InputContext *ic) override {
+    if (!ic || !ic->hasFocus()) return;
+    try {
+      auto *state = ic->propertyFor(factory_);
+      if (state->toggleFloatingToolbar()) update(ic);
+    } catch (...) {}
+  }
+private:
+  fcitx::FactoryFor<FcitxState> *factory_;
+};
+
 class FcitxDesktopToolsAction : public fcitx::SimpleAction {
 public:
   FcitxDesktopToolsAction() {
@@ -4143,6 +4185,7 @@ public:
     desktop_tools_menu_.addAction(&about_action_);
     desktop_tools_menu_.addAction(&help_action_);
     desktop_tools_menu_.addAction(&feedback_action_);
+    desktop_tools_menu_.addAction(&toolbar_enabled_action_);
     desktop_tools_menu_.addAction(&preference_save_retry_action_);
     emoji_action_.setMenu(&emoji_menu_);
     emoji_menu_.addAction(&emoji_item1_);
@@ -4457,6 +4500,7 @@ public:
   FcitxDesktopPanelAction about_action_{&factory_, "about", "关于"};
   FcitxDesktopPanelAction help_action_{&factory_, "help", "帮助"};
   FcitxDesktopPanelAction feedback_action_{&factory_, "feedback", "反馈"};
+  FcitxToolbarEnabledAction toolbar_enabled_action_{&factory_};
   FcitxPreferenceSaveRetryAction preference_save_retry_action_{&factory_};
   fcitx::Menu emoji_menu_;
   FcitxEmojiItemAction emoji_item1_{&factory_, 0};

@@ -80,6 +80,9 @@ assert '(std::strcmp(panel_, "voice") == 0 && !state->voice_enabled_)' in source
 assert 'if (!state || state->restricted() ||' in source
 assert '!state->ensure()) return;' not in source[source.index('class FcitxDesktopPanelAction'):source.index('// The shared `floating_toolbar`')]
 assert 'state->restricted() || state->privateInput()' not in source[source.index('class FcitxDesktopPanelAction'):source.index('// The shared `floating_toolbar`')]
+assert 'toggleFloatingToolbar' in source
+assert 'saveNestedBooleanPreference("floating_toolbar", "enabled", enabled)' in source
+assert 'toolbar_enabled_action_' in source
 assert 'result.value("_socket", std::string{}) == cloud_clipboard_socket_' in source
 assert 'result.value("_generation", uint64_t{}) == cloud_clipboard_generation_' in source
 assert 'cloud_clipboard_enabled_ = result.value("enabled", true)' in source
