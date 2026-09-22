@@ -17,6 +17,73 @@ def apply(root: Path) -> None:
     registry = root / "providers/provider_registry.cpp"
     journal = root / "user_dictionary/user_dictionary_journal.cpp"
     journal_header = root / "user_dictionary/user_dictionary_journal.h"
+    session_header = root / "core/input_session.h"
+    session_composition = root / "core/input_session_composition.cpp"
+    ime_session_header = root / "core/ime_session.h"
+    wubi_scheme_header = root / "schemes/wubi_scheme.h"
+    public_session_header = root / "include/metasequoia/session.h"
+    public_session_source = root / "core/session.cpp"
+
+    replace(wubi_scheme_header, """    void set_mixed_pinyin_allowed(bool allowed);
+
+  private:
+""", """    void set_mixed_pinyin_allowed(bool allowed);
+    // Wubi table codes are complete at four letters. Mixed-pinyin input may continue beyond that,
+    // but those longer spellings are fallback queries rather than complete Wubi codes.
+    bool has_complete_code() const { return raw_input_.size() == kMaxCodeLength; }
+
+  private:
+""")
+    replace(ime_session_header, """    bool answered_by_pinyin_fallback() const
+    {
+        return state_.answered_by_pinyin_fallback;
+    }
+    const std::vector<WordItem> &get_candidates() const;
+""", """    bool answered_by_pinyin_fallback() const
+    {
+        return state_.answered_by_pinyin_fallback;
+    }
+    bool wubi_code_is_complete() const
+    {
+        return wubi_scheme_ != nullptr && wubi_scheme_->has_complete_code();
+    }
+    const std::vector<WordItem> &get_candidates() const;
+""")
+    replace(public_session_header, """    bool answered_by_pinyin_fallback = false;
+    std::string shuangpin_profile;
+""", """    bool answered_by_pinyin_fallback = false;
+    bool wubi_unique_four_code = false;
+    std::string shuangpin_profile;
+""")
+    replace(public_session_source, """    view.answered_by_pinyin_fallback = session.answered_by_pinyin_fallback();
+    view.candidate_sources.reserve(view.candidates.size());
+""", """    view.answered_by_pinyin_fallback = session.answered_by_pinyin_fallback();
+    view.wubi_unique_four_code = session.wubi_unique_four_code();
+    view.candidate_sources.reserve(view.candidates.size());
+""")
+
+    replace(session_header, """    bool is_all_complete_pure_pinyin() const;
+    bool has_active_helpcode() const;
+""", """    bool is_all_complete_pure_pinyin() const;
+    // A complete four-letter Wubi code answered by the Wubi table with exactly one candidate.
+    // Hosts decide whether to auto-commit; the Engine only reports the composition fact.
+    bool wubi_unique_four_code() const;
+    bool has_active_helpcode() const;
+""")
+    replace(session_composition, """bool InputSession::has_active_helpcode() const
+{
+""", """bool InputSession::wubi_unique_four_code() const
+{
+    if (dedicated_english_mode_ || local_input_mode_ != LocalInputMode::None)
+        return false;
+    if (!wubi_candidates_are_native() || !engine_.wubi_code_is_complete())
+        return false;
+    return candidates().size() == 1;
+}
+
+bool InputSession::has_active_helpcode() const
+{
+""")
 
     replace(provider, '#include "wubi_candidate_provider.h"\n#include "../quanpin/quanpin_query.h"',
             '#include "wubi_candidate_provider.h"\n#include "../contracts/assets/assets.h"\n#include "../core/data_path.h"\n#include "../quanpin/quanpin_query.h"\n#include "../user_dictionary/user_dictionary_journal.h"')

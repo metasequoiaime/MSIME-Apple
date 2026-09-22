@@ -116,6 +116,7 @@ mod ffi {
         pub candidate_codes: Vec<String>,
         pub scheme: u8,
         pub answered_by_pinyin_fallback: bool,
+        pub wubi_unique_four_code: bool,
         pub candidate_annotations: Vec<String>,
         pub candidate_sources: Vec<u8>,
         pub candidate_positions: Vec<u8>,
