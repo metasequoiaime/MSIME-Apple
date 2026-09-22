@@ -31,6 +31,8 @@ use panel_input::{
 };
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 use panel_input::{record_panel_typing_statistics, remember_panel_input_target};
+#[cfg(target_os = "windows")]
+use panel_input::{send_panel_key_windows, send_panel_text_windows, windows_panel_position};
 
 #[cfg(target_os = "android")]
 use platform::android::android_account;

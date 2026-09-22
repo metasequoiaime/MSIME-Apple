@@ -948,7 +948,7 @@ fn focused_panel_target(state: &tauri::State<'_, PanelInputState>) -> Result<(),
 }
 
 #[cfg(target_os = "windows")]
-fn send_panel_key_windows(
+pub(crate) fn send_panel_key_windows(
     state: &tauri::State<'_, PanelInputState>,
     request: KeyboardInputRequest,
     keyboard_panel: bool,
@@ -982,7 +982,7 @@ fn send_panel_key_windows(
 }
 
 #[cfg(target_os = "windows")]
-fn send_panel_text_windows(
+pub(crate) fn send_panel_text_windows(
     state: &tauri::State<'_, PanelInputState>,
     text: &str,
 ) -> Result<(), HostActionError> {
@@ -1003,7 +1003,7 @@ fn send_panel_text_windows(
 
 // Panels sit bottom-centered on the work area, where the native ones did.
 #[cfg(target_os = "windows")]
-fn windows_panel_position(width: f64, height: f64) -> Option<tauri::Position> {
+pub(crate) fn windows_panel_position(width: f64, height: f64) -> Option<tauri::Position> {
     msime_host_windows::work_area().map(|area| {
         let (x, y) = area.bottom_center(width, height);
         tauri::Position::Physical(tauri::PhysicalPosition::new(

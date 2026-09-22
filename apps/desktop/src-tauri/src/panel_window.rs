@@ -8,6 +8,8 @@
 use crate::panel_input::panel_position;
 #[cfg(any(target_os = "linux", target_os = "windows"))]
 use crate::panel_input::remember_panel_input_target;
+#[cfg(target_os = "windows")]
+use crate::panel_input::windows_panel_position;
 #[cfg(any(target_os = "macos", test))]
 use crate::platform::macos::macos_keyboard;
 #[cfg(target_os = "macos")]

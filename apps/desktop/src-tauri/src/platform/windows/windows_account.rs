@@ -9,6 +9,7 @@ use msime_client_core::account::{
 };
 use serde::Serialize;
 use std::sync::Arc;
+use tauri::Manager;
 
 #[derive(Serialize)]
 #[serde(rename_all = "camelCase")]
