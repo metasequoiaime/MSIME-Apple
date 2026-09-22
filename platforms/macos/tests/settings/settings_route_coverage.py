@@ -20,6 +20,7 @@ from pathlib import Path
 # like from the outside.
 NOT_ROUTED = {
     "home": "where the settings window already opens; a route to it would name the default",
+    "more": "a mobile-only index reached from the keyboard home page; desktop hosts hide it",
 }
 
 
