@@ -40,7 +40,7 @@ Engine 由 `engine-lock.json` 固定：锁文件记录 Engine 及其第三方源
 
 ## 验证
 
-CI 已由仓库所有者停用以控制费用，这是常设政策而不是临时状态。本地验证取而代之：
+GitHub Actions 负责 macOS、iOS、仓库契约、workflow 质量和依赖审查；本地验证仍作为提交前的快速反馈：
 
 ```sh
 bash scripts/verify-local.sh --quick   # 只编译，合并前的门禁

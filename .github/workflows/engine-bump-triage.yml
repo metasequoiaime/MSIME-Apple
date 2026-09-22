@@ -1,0 +1,145 @@
+name: Engine bump triage
+
+# engine-update.yml opens the engine bump; this decides whether it can merge itself.
+#
+# The rule is an allowlist, not a blocklist: the bump merges on green CI only when every file the
+# engine changed across the range is provably inert. Anything else waits for a human. A blocklist
+# would have let the utfcpp bump through, because it appears in the range as a bare submodule
+# pointer rather than as a source file.
+
+on:
+  pull_request:
+    paths:
+      - 'engine-lock.json'
+
+permissions:
+  contents: write
+  pull-requests: write
+
+jobs:
+  triage:
+    # 按 engine-update.yml 推出来的分支名判定,不按 github.actor。bump 现在用 RELEASE_PLEASE_TOKEN 开 PR,actor 就变成了那个账号而不是 github-actions[bot];继续看 actor 会让这个 job 静默跳过、bump 停在没分类的状态 —— 正是换 token 要修的那种悄悄停住。加上 head 仓库判定,保留「只有推进本仓的分支才能走到自动合并」这条原有保证。
+    if: github.event.pull_request.head.repo.full_name == github.repository && startsWith(github.head_ref, 'automation/engine-')
+    name: Classify the engine range
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      LOCK: engine-lock.json
+      ENGINE: metasequoiaime/MSIME-Engine
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      PR_URL: ${{ github.event.pull_request.html_url }}
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Resolve the engine range
+        id: range
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          set -euo pipefail
+          # The engine is an archive rather than a gitlink, so the commit under review is the one engine-lock.json names on each side.
+          base=$(git show "origin/$BASE_REF:$LOCK" | python3 -c 'import json, sys; print(json.load(sys.stdin)["commit"])')
+          head=$(python3 -c 'import json; print(json.load(open("engine-lock.json"))["commit"])')
+          echo "base=$base" >> "$GITHUB_OUTPUT"
+          echo "head=$head" >> "$GITHUB_OUTPUT"
+          echo "引擎 $base -> $head"
+
+      - name: Classify the changed files
+        id: classify
+        env:
+          BASE: ${{ steps.range.outputs.base }}
+          HEAD: ${{ steps.range.outputs.head }}
+        run: |
+          set -euo pipefail
+          base="$BASE"
+          head="$HEAD"
+          if [ "$base" = "$head" ]; then
+            echo "verdict=inert" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Fail closed on anything but a plain fast-forward. The compare API answers with an empty
+          # file list whenever head is already an ancestor of base, which the emptiness test below
+          # would otherwise read as "nothing suspicious changed" and auto-merge — silently accepting
+          # a downgrade that reverts engine source the Apple call sites depend on.
+          status=$(gh api "repos/$ENGINE/compare/$base...$head" --jq '.status')
+          echo "compare status: $status"
+          if [ "$status" != "ahead" ]; then
+            echo "verdict=review" >> "$GITHUB_OUTPUT"
+            delimiter="EOF_$(openssl rand -hex 16)"
+            {
+              echo "reason<<$delimiter"
+              echo "引擎范围不是单纯的快进（compare status: $status），需要人工确认。"
+              echo "$delimiter"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          files=$(gh api --paginate "repos/$ENGINE/compare/$base...$head" --jq '.files[].filename')
+          echo "改动文件:"
+          while IFS= read -r file; do printf '  %s\n' "$file"; done <<< "$files"
+          if [ -z "$files" ]; then
+            echo "verdict=review" >> "$GITHUB_OUTPUT"
+            delimiter="EOF_$(openssl rand -hex 16)"
+            {
+              echo "reason<<$delimiter"
+              echo "compare 没有返回任何文件，无法判定这次 bump 是否安全。"
+              echo "$delimiter"
+            } >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          # Provably inert: documentation, CI wiring, dependency manifests, licence text. Everything
+          # else - sources, build files, and bare paths such as a nested submodule pointer - needs a
+          # human. Note the trailing anchors: 'utfcpp' matches none of these patterns and so lands
+          # in review, which is the behaviour we want.
+          suspicious=$(echo "$files" | grep -vE '(^|/)[^/]+\.md$|^\.github/|^vcpkg\.json$|^vcpkg-configuration\.json$|^LICENSE$|^\.gitignore$' || true)
+
+          if [ -z "$suspicious" ]; then
+            echo "verdict=inert" >> "$GITHUB_OUTPUT"
+          else
+            echo "verdict=review" >> "$GITHUB_OUTPUT"
+            # A random delimiter: the file names come from another repository, so a path that
+            # happened to be the literal delimiter could otherwise close the block early.
+            delimiter="EOF_$(openssl rand -hex 16)"
+            {
+              echo "reason<<$delimiter"
+              echo "$suspicious"
+              echo "$delimiter"
+            } >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Enable auto-merge
+        if: steps.classify.outputs.verdict == 'inert'
+        env:
+          BASE: ${{ steps.range.outputs.base }}
+          HEAD: ${{ steps.range.outputs.head }}
+        run: |
+          set -euo pipefail
+          gh pr merge --auto --squash "$PR_URL"
+          body="$RUNNER_TEMP/engine-bump-comment.md"
+          # shellcheck disable=SC2016
+          printf '引擎 `%s` → `%s` 的改动全部落在文档、CI 配置和依赖清单里，没有源码、构建文件或嵌套 submodule 指针。已开启自动合并，CI 通过后自行合入。\n' "$BASE" "$HEAD" > "$body"
+          gh pr comment "$PR_URL" --body-file "$body"
+
+      # Every value below reaches the shell through the environment, never through ${{ }}
+      # interpolation. REASON is a list of file names from another repository: spliced into the
+      # command text, a path containing a single quote would have closed the quoting and run as a
+      # command, on a runner holding a contents:write token for this repository.
+      - name: Hold for review
+        if: steps.classify.outputs.verdict == 'review'
+        env:
+          BASE: ${{ steps.range.outputs.base }}
+          HEAD: ${{ steps.range.outputs.head }}
+          REASON: ${{ steps.classify.outputs.reason }}
+        run: |
+          set -euo pipefail
+          gh pr edit "$PR_URL" --add-label "needs-review" || true
+          body="$RUNNER_TEMP/engine-bump-comment.md"
+          # shellcheck disable=SC2016
+          printf '引擎 `%s` → `%s` 的改动里有需要人看一眼的部分，未开启自动合并：\n\n```\n%s\n```\n\n源码、`CMakeLists.txt` 或嵌套 submodule 指针的变化都可能改变行为，而前端 CI 未必覆盖得到——`helpcode_enabled()` 与 `handle_character()` 的语义变更就是这样漏过去的。\n' "$BASE" "$HEAD" "$REASON" > "$body"
+          gh pr comment "$PR_URL" --body-file "$body"

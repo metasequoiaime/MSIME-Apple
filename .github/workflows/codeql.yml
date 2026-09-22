@@ -1,0 +1,93 @@
+name: CodeQL
+on:
+  schedule:
+    # Daily at 00:00 Asia/Tokyo (UTC+09:00).
+    - cron: '0 15 * * *'
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: codeql-${{ github.event_name }}-${{ github.ref }}
+  cancel-in-progress: true
+jobs:
+  analyze:
+    name: CodeQL / ${{ matrix.language }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    permissions:
+      contents: read
+      security-events: write
+    strategy:
+      fail-fast: false
+      matrix:
+        language: [actions, c-cpp, python]
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        with:
+          languages: ${{ matrix.language }}
+          # C/C++ source analysis complements, rather than replaces, native build CI.
+          build-mode: none
+      - uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        with:
+          category: '/language:${{ matrix.language }}'
+
+  swift:
+    name: CodeQL / Swift
+    runs-on: macos-15
+    timeout-minutes: 60
+    env:
+      # The same Xcode the simulator CI and the release build use: the keyboard calls iOS 26 API, which the runner's default Xcode 16.4 (iOS 18.5 SDK) cannot compile.
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Install dependencies and Xcode generator
+        run: brew install boost fmt spdlog nlohmann-json xcodegen cocoapods
+      # The keyboard's bridge target compiles the Engine's sources, and the mobile dictionary is built by a script inside the Engine. Neither arrives with the checkout any more.
+      - name: Prepare the locked Engine archive
+        run: python3 scripts/fetch_engine.py
+      - name: Prepare the same dictionary as simulator CI
+        run: python3 platforms/ios/scripts/prepare_dictionary.py
+      - name: Generate Xcode project
+        run: |
+          mkdir -p build/ios
+          xcodegen generate --spec platforms/ios/project.yml --project build/ios --project-root .
+          pod install --deployment --project-directory=platforms/ios
+      - uses: github/codeql-action/init@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        with:
+          languages: swift
+          build-mode: manual
+      - name: Build the app and keyboard for analysis
+        # Xcode 26 builds modules explicitly: every SDK module is a separate -emit-pcm job whose output the compile jobs then read back. The CodeQL extractor replays each job with its own clang, which rejects the PCMs Xcode's clang wrote ("built from a different branch"), so nothing gets extracted. Implicit modules give each compiler its own cache, which is how the job worked under Xcode 16.4.
+        run: >-
+          xcodebuild -workspace build/ios/MetasequoiaImeIOS.xcworkspace
+          -scheme MetasequoiaImeIOS -configuration Debug -sdk iphonesimulator
+          -destination 'generic/platform=iOS Simulator'
+          -derivedDataPath build/codeql-ios CODE_SIGNING_ALLOWED=NO
+          SWIFT_ENABLE_EXPLICIT_MODULES=NO CLANG_ENABLE_EXPLICIT_MODULES=NO build
+      - uses: github/codeql-action/analyze@cdf488f595d80d6e07e03d4674febd5ab45fa938 # v4
+        with:
+          category: '/language:swift'
+      - name: Show what the Swift extractor reported
+        # The analyze step only says that no Swift was extracted; the reason sits in the extractor's diagnostics and the tracer log, which the failed-run SARIF does not expose.
+        if: ${{ failure() }}
+        run: |
+          db="$RUNNER_TEMP/codeql_databases"
+          echo '== extractor diagnostics =='
+          find "$db" -path '*diagnostic*' -name '*.jsonl' -exec cat {} + | sort | uniq -c | sort -rn | head -50
+          echo '== extractor logs =='
+          find "$db/swift/log" -type f | head -20
+          find "$db/swift/log" -type f -name '*.log' -exec tail -n 40 {} + | head -200
+          echo '== tracer: extractor invocations by mode and how they ended =='
+          grep -oE 'invocation: [^,]*extractor, args: \[-[a-z-]+' "$db/log/build-tracer.log" | sort | uniq -c
+          grep -oE 'terminated with exit code [0-9]+' "$db/log/build-tracer.log" | sort | uniq -c
+          grep -E '^\S+ \S+ ERRO' "$db/log/build-tracer.log" | cut -c1-400 | sort | uniq -c | sort -rn | head -30
+          echo '== trap dir =='
+          find "$db/swift/trap" -type f | head -5

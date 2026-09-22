@@ -26,7 +26,7 @@
 
 ## 验证与发布边界
 
-合并前执行 `bash scripts/verify-local.sh --quick`；声称功能完成前执行完整版，并把失败项与 `scripts/known-failures.txt` 对照。Rust 改动还需测试、fmt、clippy，UI 改动还需类型检查和构建。CI 按仓库所有者政策停用，不手动触发、恢复或新增 workflow。
+合并前执行 `bash scripts/verify-local.sh --quick`；声称功能完成前执行完整版，并把失败项与 `scripts/known-failures.txt` 对照。Rust 改动还需测试、fmt、clippy，UI 改动还需类型检查和构建。Pull Request 的 GitHub Actions 质量、依赖、macOS 和 iOS 检查也必须通过。
 
 平台证据必须按范围写明：源码/单元测试、跨目标或容器构建、模拟器运行、真实设备/系统入口、安装/签名和真实编辑器验收是不同层级。缺少后两层时，不得把交叉编译、静态检查或模拟器结果写成 Windows TSF、Linux 桌面、iOS 键盘扩展、Android 真机或 HarmonyOS 产品已完成。
 

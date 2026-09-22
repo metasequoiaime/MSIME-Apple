@@ -1,0 +1,436 @@
+name: Release iOS
+
+# iOS 的发布:打包 xcarchive 与 TestFlight 上传。macOS 走 release-macos.yml,两者各自触发、各自打 tag、各自出产物。
+
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing draft release tag to build and publish
+        required: false
+        type: string
+      bump_version:
+        description: Prepare and publish the next semantic version with release-please (leave tag empty)
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+jobs:
+  prepare:
+    name: Prepare release metadata
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    permissions:
+      actions: write
+      contents: write
+      issues: write
+      pull-requests: write
+    outputs:
+      should_publish: ${{ (github.event_name == 'workflow_dispatch' && !inputs.bump_version) || steps.build_release.outputs.release_created == 'true' || steps.release.outputs.release_created == 'true' || steps.finalized_release.outputs.release_created == 'true' || steps.finalized_promoted_release.outputs.release_created == 'true' }}
+      tag_name: ${{ steps.build_release.outputs.tag_name || (!inputs.bump_version && inputs.tag) || steps.finalized_promoted_release.outputs.tag_name || steps.finalized_release.outputs.tag_name || steps.release.outputs.tag_name }}
+      target_sha: ${{ steps.build_release.outputs.target_sha || steps.requested_release.outputs.target_sha || steps.promote_release_commit.outputs.target_sha || steps.finalized_release.outputs.sha || steps.release.outputs.sha }}
+      build_number: ${{ steps.build_number.outputs.value }}
+    steps:
+      - name: Validate invocation
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
+          BUMP_VERSION: ${{ inputs.bump_version }}
+        run: |
+          test "$GITHUB_REF" = refs/heads/main
+          if [[ "$GITHUB_EVENT_NAME" == workflow_dispatch ]]; then
+            if [[ "$BUMP_VERSION" == true ]]; then
+              test -z "$REQUESTED_TAG"
+            fi
+            # 这里原先还有一条 `test "$REQUESTED_PLATFORM" = both`,用来拦「platform 输入和 tag 里的前缀说的不是同一个平台」。拆成两个 workflow 之后 platform 这个输入没了,而引用留着 —— 空字符串对比 both 恒假,于是任何带 tag 或 bump_version 的手动触发都在这一步直接退出,手动发布和升版本两条路一起断掉,报错只是一行 exit 1。
+            #
+            # 平台现在由文件本身决定:release-ios.yml 只发 iOS,release-macos.yml 只发 macOS,没有可以互相矛盾的输入了。
+          fi
+      - name: Allocate build number
+        id: build_number
+        env:
+          REQUESTED_TAG: ${{ inputs.tag }}
+        run: |
+          # The build is the run number, and nothing else. It used to be three components on an offset that cleared the 1002.x line already on TestFlight and Sparkle; the counter is deliberately reset below that line, and the offset goes with it.
+          #
+          # What the reset costs, written here so the next person does not rediscover it: Sparkle compares this number -- generate-sparkle-appcast.sh passes it as --versions -- so a Mac already running 1002.71.1 is offered nothing by this line until it climbs back past 1002.71.1, and reports no error while doing it. App Store Connect judges uniqueness per marketing version and build, so a reset number only uploads once the marketing version moves up. The macOS installer also rides on this number -- package_release.sh passes it to pkgbuild --version and into InstallerDistribution.xml's pkg-ref -- so an existing install's receipt will be newer than the package offered to it; what the Installer does with that has not been tested here.
+          #
+          # The third component used to hand a rerun of the same run a distinct number. There is no third component now, so a rerun computes the number the run already used, and rerunning a release that uploaded successfully fails at the upload step against that uniqueness check. The way through is the manual tag input, not a credentials hunt.
+          build="$GITHUB_RUN_NUMBER"
+          if [[ "$REQUESTED_TAG" == *-build.* ]]; then
+            build="${REQUESTED_TAG##*-build.}"
+          fi
+          # A plain integer is what this workflow allocates. The three-component form is still accepted because tags from before the reset are still on releases, and rebuilding one of those drafts feeds its number back through here -- the same reason the tag validators still accept that shape.
+          if [[ ! "$build" =~ ^[1-9][0-9]{0,8}(\.[0-9]{1,2}\.[0-9]{1,2})?$ ]]; then
+            echo "Invalid build number: $build" >&2
+            exit 1
+          fi
+          printf 'value=%s\n' "$build" >> "$GITHUB_OUTPUT"
+      - name: Check out release automation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Create the build draft
+        if: ${{ github.event_name == 'push' || (github.event_name == 'workflow_dispatch' && !inputs.bump_version && inputs.tag == '') }}
+        id: build_release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          BUILD_NUMBER: ${{ steps.build_number.outputs.value }}
+        run: |
+          version=$(cat platforms/ios/version.txt)
+          if [[ ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Invalid platforms/ios/version.txt" >&2
+            exit 1
+          fi
+          # A build that covers one platform says so in its tag. Sharing one sequence across two
+          # products that now release apart leaves a reader scanning the list to find which entries
+          # carry the platform they run. A build covering both keeps the bare name, which reads as
+          # the complete release it is; only the promoted versions have no -build. suffix, so the
+          # two cannot be confused.
+          tag="ios-v$version-build.$BUILD_NUMBER"
+          gh release create "$tag" --target "$GITHUB_SHA" --title "$tag" --generate-notes --draft --prerelease
+          printf 'release_created=true\ntag_name=%s\ntarget_sha=%s\n' "$tag" "$GITHUB_SHA" >> "$GITHUB_OUTPUT"
+      - name: Capture existing release branch
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.bump_version) }}
+        id: release_branch_before
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_BRANCH: release-please--branches--main--components--MetasequoiaImeApple
+        run: |
+          sha=$(gh api "repos/$GH_REPO/git/matching-refs/heads/$RELEASE_BRANCH" \
+            --jq ".[] | select(.ref == \"refs/heads/$RELEASE_BRANCH\") | .object.sha")
+          if [[ ! "$sha" =~ ^[0-9a-f]{40}$ ]]; then
+            sha=0000000000000000000000000000000000000000
+          fi
+          printf 'sha=%s\n' "$sha" >> "$GITHUB_OUTPUT"
+      - name: Prepare release
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.bump_version) }}
+        id: release
+        continue-on-error: true
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
+        with:
+          target-branch: main
+          # A pull request opened with GITHUB_TOKEN is authored by github-actions[bot], and its pull_request CI run is parked in action_required until a maintainer approves it, so it expires and shows a red check. RELEASE_PLEASE_TOKEN, when set, makes the pull request come from a real account and CI runs on its own.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+      - name: Test and merge release pull request
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.bump_version) && steps.release.outputs.prs_created == 'true' }}
+        id: merge_release_pr
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_PR: ${{ steps.release.outputs.pr }}
+        run: bash platforms/macos/scripts/merge-release-pr.sh
+      - name: Promote validated release commit when pull requests are blocked
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.bump_version) && steps.release.outcome == 'failure' }}
+        id: promote_release_commit
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          RELEASE_BRANCH: release-please--branches--main--components--MetasequoiaImeApple
+          EXPECTED_PREVIOUS_RELEASE_SHA: ${{ steps.release_branch_before.outputs.sha }}
+        run: bash platforms/macos/scripts/promote-release-branch.sh
+      - name: Finalize automated release
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.bump_version) && steps.merge_release_pr.outputs.merged == 'true' }}
+        id: finalized_release
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5
+        with:
+          target-branch: main
+          # A pull request opened with GITHUB_TOKEN is authored by github-actions[bot], and its pull_request CI run is parked in action_required until a maintainer approves it, so it expires and shows a red check. RELEASE_PLEASE_TOKEN, when set, makes the pull request come from a real account and CI runs on its own.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}
+      - name: Create draft release for promoted commit
+        if: ${{ (github.event_name == 'workflow_dispatch' && inputs.bump_version) && steps.promote_release_commit.outputs.promoted == 'true' }}
+        id: finalized_promoted_release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TARGET_SHA: ${{ steps.promote_release_commit.outputs.target_sha }}
+          TAG_NAME: ${{ steps.promote_release_commit.outputs.tag_name }}
+        run: bash platforms/macos/scripts/create-promoted-release.sh
+      - name: Validate requested draft release
+        if: ${{ github.event_name == 'workflow_dispatch' && !inputs.bump_version && inputs.tag != '' }}
+        id: requested_release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG_NAME: ${{ inputs.tag }}
+        run: |
+          if [[ ! "$TAG_NAME" =~ ^(macos-|ios-)?v[0-9]+\.[0-9]+\.[0-9]+(-build\.[1-9][0-9]{0,8}(\.[0-9]{1,2}\.[0-9]{1,2})?)?$ ]]; then
+            echo "Tag must use vMAJOR.MINOR.PATCH with an optional -build.N suffix." >&2
+            exit 1
+          fi
+          release_json=$(gh release view "$TAG_NAME" --json isDraft,targetCommitish)
+          is_draft=$(jq -er .isDraft <<< "$release_json")
+          if [[ "$is_draft" != true ]]; then
+            echo "Release $TAG_NAME is not an unpublished draft." >&2
+            exit 1
+          fi
+          target=$(jq -er .targetCommitish <<< "$release_json")
+          if [[ ! "$target" =~ ^[0-9a-f]{40}$ ]]; then
+            echo "Draft release target must be an immutable full commit SHA." >&2
+            exit 1
+          fi
+          target_sha=$target
+          version=$(gh api "repos/$GH_REPO/contents/version.txt?ref=$target_sha" --jq .content | base64 --decode)
+          bare=${TAG_NAME#macos-}
+          bare=${bare#ios-}
+          if [[ "${bare%%-build.*}" != "v$version" ]]; then
+            echo "Release $TAG_NAME does not match version.txt ($version)." >&2
+            exit 1
+          fi
+          printf 'target_sha=%s\n' "$target_sha" >> "$GITHUB_OUTPUT"
+
+  publish:
+    name: Build and publish release
+    needs: prepare
+    if: ${{ needs.prepare.outputs.should_publish == 'true' }}
+    runs-on: macos-15
+    timeout-minutes: 30
+    env:
+      METASEQUOIA_BUILD_NUMBER: ${{ needs.prepare.outputs.build_number }}
+      DEVELOPER_DIR: /Applications/Xcode_26.3.app/Contents/Developer
+    permissions:
+      contents: write
+    steps:
+      - name: Check out trusted release automation
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: main
+          path: .release-automation
+          sparse-checkout: |
+            platforms/macos/resources/InstallerDistribution.xml.in
+            platforms/macos/scripts/detect-release-signing.sh
+            platforms/macos/scripts/install-release.sh
+            platforms/macos/scripts/open-settings.sh
+            platforms/macos/scripts/uninstall.sh
+            platforms/macos/scripts/pkg-postinstall.sh
+            platforms/macos/scripts/package_release.sh
+            platforms/macos/scripts/generate-sparkle-appcast.sh
+            platforms/macos/scripts/publish-release.sh
+            platforms/ios/scripts/package_ios_testflight.sh
+          persist-credentials: false
+      - name: Stage trusted release automation
+        run: |
+          install -m 0644 .release-automation/platforms/macos/resources/InstallerDistribution.xml.in "$RUNNER_TEMP/InstallerDistribution.xml.in"
+          install -m 0755 .release-automation/platforms/macos/scripts/detect-release-signing.sh "$RUNNER_TEMP/detect-release-signing.sh"
+          install -m 0755 .release-automation/platforms/macos/scripts/install-release.sh "$RUNNER_TEMP/install-release.sh"
+          install -m 0755 .release-automation/platforms/macos/scripts/open-settings.sh "$RUNNER_TEMP/open-settings.sh"
+          install -m 0755 .release-automation/platforms/macos/scripts/uninstall.sh "$RUNNER_TEMP/uninstall.sh"
+          install -m 0755 .release-automation/platforms/macos/scripts/pkg-postinstall.sh "$RUNNER_TEMP/pkg-postinstall.sh"
+          install -m 0755 .release-automation/platforms/macos/scripts/package_release.sh "$RUNNER_TEMP/package-release.sh"
+          install -m 0755 .release-automation/platforms/macos/scripts/generate-sparkle-appcast.sh "$RUNNER_TEMP/generate-sparkle-appcast.sh"
+          install -m 0755 .release-automation/platforms/macos/scripts/publish-release.sh "$RUNNER_TEMP/publish-release.sh"
+          install -m 0755 .release-automation/platforms/ios/scripts/package_ios_testflight.sh "$RUNNER_TEMP/package-ios-testflight.sh"
+      - name: Determine release signing mode
+        id: signing
+        env:
+          MACOS_DEVELOPER_ID_CERTIFICATE_BASE64: ${{ secrets.MACOS_DEVELOPER_ID_CERTIFICATE_BASE64 }}
+          MACOS_DEVELOPER_ID_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_DEVELOPER_ID_CERTIFICATE_PASSWORD }}
+          MACOS_SIGNING_KEYCHAIN_PASSWORD: ${{ secrets.MACOS_SIGNING_KEYCHAIN_PASSWORD }}
+          MACOS_NOTARY_APPLE_ID: ${{ secrets.MACOS_NOTARY_APPLE_ID }}
+          MACOS_NOTARY_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
+          MACOS_NOTARY_APP_SPECIFIC_PASSWORD: ${{ secrets.MACOS_NOTARY_APP_SPECIFIC_PASSWORD }}
+          MACOS_DEVELOPER_ID_APPLICATION: ${{ secrets.MACOS_DEVELOPER_ID_APPLICATION }}
+          MACOS_DEVELOPER_ID_INSTALLER: ${{ secrets.MACOS_DEVELOPER_ID_INSTALLER }}
+        run: exec "$RUNNER_TEMP/detect-release-signing.sh"
+      - name: Check out release tag
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ needs.prepare.outputs.target_sha }}
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Verify release tag provenance
+        run: |
+          git fetch --no-tags origin main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor HEAD refs/remotes/origin/main; then
+            echo "Release tag must point to a commit in main history." >&2
+            exit 1
+          fi
+      - name: Remove unused runner taps
+        run: if brew tap | grep -Fxq aws/tap; then brew untap aws/tap; fi
+      - name: Install dependencies
+        run: brew install boost fmt spdlog nlohmann-json xcodegen
+      - name: Fetch the locked dictionary
+        run: python3 scripts/fetch_dictionary.py
+      - name: Prepare the locked Engine archive
+        run: python3 scripts/fetch_engine.py
+      - name: Package the iOS dictionary
+        run: python3 platforms/ios/scripts/prepare_dictionary.py
+      - name: Build the unsigned iOS archive
+        env:
+          TAG_NAME: ${{ needs.prepare.outputs.tag_name }}
+        run: exec platforms/ios/scripts/package_ios_archive.sh "$TAG_NAME" dist
+      - name: Prepare App Store Connect API key for TestFlight
+        id: testflight_credentials
+        env:
+          IOS_API_KEY_BASE64: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_BASE64 }}
+          IOS_API_KEY_ID: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_ID }}
+          IOS_API_KEY_ISSUER_ID: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
+          IOS_APP_PROFILE_BASE64: ${{ secrets.IOS_APP_PROVISIONING_PROFILE_BASE64 }}
+          IOS_KEYBOARD_PROFILE_BASE64: ${{ secrets.IOS_KEYBOARD_PROVISIONING_PROFILE_BASE64 }}
+          IOS_CERTIFICATE_BASE64: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_BASE64 }}
+          IOS_CERTIFICATE_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+          IOS_KEYCHAIN_PASSWORD: ${{ secrets.MACOS_SIGNING_KEYCHAIN_PASSWORD }}
+          IOS_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
+        run: |
+          set -euo pipefail
+          skip_testflight() {
+            local reason=$1
+            printf 'enabled=false\n' >> "$GITHUB_OUTPUT"
+            {
+              echo '### TestFlight upload skipped'
+              echo "$reason"
+              echo 'The unsigned iOS artifacts remain available in this release.'
+            } >> "$GITHUB_STEP_SUMMARY"
+          }
+          if [[ -z "${IOS_API_KEY_BASE64:-}" && -z "${IOS_API_KEY_ID:-}" && -z "${IOS_API_KEY_ISSUER_ID:-}" && -z "${IOS_APP_PROFILE_BASE64:-}" && -z "${IOS_KEYBOARD_PROFILE_BASE64:-}" && -z "${IOS_CERTIFICATE_BASE64:-}" && -z "${IOS_CERTIFICATE_PASSWORD:-}" ]]; then
+            skip_testflight 'TestFlight upload skipped: App Store Connect and iOS signing secrets are not configured.'
+            exit 0
+          fi
+          if [[ -z "${IOS_API_KEY_BASE64:-}" || -z "${IOS_API_KEY_ID:-}" || -z "${IOS_API_KEY_ISSUER_ID:-}" || -z "${IOS_APP_PROFILE_BASE64:-}" || -z "${IOS_KEYBOARD_PROFILE_BASE64:-}" || -z "${IOS_CERTIFICATE_BASE64:-}" || -z "${IOS_CERTIFICATE_PASSWORD:-}" || -z "${IOS_KEYCHAIN_PASSWORD:-}" || -z "${IOS_TEAM_ID:-}" ]]; then
+            echo 'TestFlight signing is configured but its required secrets are incomplete.' >&2
+            exit 1
+          fi
+          key_path="$RUNNER_TEMP/AuthKey_${IOS_API_KEY_ID}.p8"
+          printf '%s' "$IOS_API_KEY_BASE64" | base64 -D > "$key_path"
+          chmod 600 "$key_path"
+          app_profile_path="$RUNNER_TEMP/MSIME_iOS_TestFlight.mobileprovision"
+          keyboard_profile_path="$RUNNER_TEMP/MSIME_iOS_Keyboard_TestFlight.mobileprovision"
+          printf '%s' "$IOS_APP_PROFILE_BASE64" | base64 -D > "$app_profile_path"
+          printf '%s' "$IOS_KEYBOARD_PROFILE_BASE64" | base64 -D > "$keyboard_profile_path"
+          chmod 600 "$app_profile_path" "$keyboard_profile_path"
+          ios_keychain="$RUNNER_TEMP/metasequoia-ios-signing.keychain-db"
+          ios_certificate="$RUNNER_TEMP/metasequoia-ios-distribution.p12"
+          printf '%s' "$IOS_CERTIFICATE_BASE64" | base64 -D > "$ios_certificate"
+          chmod 600 "$ios_certificate"
+          security create-keychain -p "$IOS_KEYCHAIN_PASSWORD" "$ios_keychain"
+          security set-keychain-settings -lut 21600 "$ios_keychain"
+          security unlock-keychain -p "$IOS_KEYCHAIN_PASSWORD" "$ios_keychain"
+          if ! security import "$ios_certificate" -k "$ios_keychain" -P "$IOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign; then
+            echo 'The configured iOS distribution certificate could not be imported.' >&2
+            exit 1
+          fi
+          security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "$IOS_KEYCHAIN_PASSWORD" "$ios_keychain"
+          security list-keychains -d user -s "$ios_keychain" "$RUNNER_TEMP/metasequoia-signing.keychain-db"
+          security default-keychain -s "$ios_keychain"
+          if ! security find-identity -v -p codesigning "$ios_keychain" | grep -Fq 'Apple Distribution:'; then
+            echo 'The configured iOS certificate does not contain an Apple Distribution identity with a private key.' >&2
+            exit 1
+          fi
+          if ! security cms -D -i "$app_profile_path" | plutil -extract Entitlements.application-identifier raw -o - - | grep -Fxq "${IOS_TEAM_ID}.app.msime.ios"; then
+            echo 'The iOS host provisioning profile does not match app.msime.ios.' >&2
+            exit 1
+          fi
+          if ! security cms -D -i "$app_profile_path" | plutil -extract Entitlements xml1 -o - - | plutil -convert json -o - - | jq -e -r '."com.apple.security.application-groups"[0] == "group.app.msime.ios"' >/dev/null; then
+            echo 'The iOS host provisioning profile must include group.app.msime.ios.' >&2
+            exit 1
+          fi
+          if ! security cms -D -i "$keyboard_profile_path" | plutil -extract Entitlements.application-identifier raw -o - - | grep -Fxq "${IOS_TEAM_ID}.app.msime.ios.keyboard"; then
+            echo 'The keyboard provisioning profile does not match app.msime.ios.keyboard.' >&2
+            exit 1
+          fi
+          if ! security cms -D -i "$keyboard_profile_path" | plutil -extract Entitlements xml1 -o - - | plutil -convert json -o - - | jq -e -r '."com.apple.security.application-groups"[0] == "group.app.msime.ios"' >/dev/null; then
+            echo 'The keyboard provisioning profile must include group.app.msime.ios.' >&2
+            exit 1
+          fi
+          printf 'enabled=true\nkey_path=%s\napp_profile_path=%s\nkeyboard_profile_path=%s\n' \
+            "$key_path" "$app_profile_path" "$keyboard_profile_path" >> "$GITHUB_OUTPUT"
+      - name: Upload iOS build to TestFlight
+        if: ${{ steps.testflight_credentials.outputs.enabled == 'true' }}
+        env:
+          TAG_NAME: ${{ needs.prepare.outputs.tag_name }}
+          IOS_TEAM_ID: ${{ secrets.MACOS_NOTARY_TEAM_ID }}
+          IOS_API_KEY_ID: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_ID }}
+          IOS_API_KEY_ISSUER_ID: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
+          IOS_API_KEY_PATH: ${{ steps.testflight_credentials.outputs.key_path }}
+          IOS_APP_PROFILE_PATH: ${{ steps.testflight_credentials.outputs.app_profile_path }}
+          IOS_KEYBOARD_PROFILE_PATH: ${{ steps.testflight_credentials.outputs.keyboard_profile_path }}
+          METASEQUOIA_PROJECT_ROOT: ${{ github.workspace }}
+        run: |
+          set -euo pipefail
+          export METASEQUOIA_IOS_TEAM_ID="$IOS_TEAM_ID"
+          export METASEQUOIA_IOS_AUTH_KEY_ID="$IOS_API_KEY_ID"
+          export METASEQUOIA_IOS_AUTH_KEY_ISSUER_ID="$IOS_API_KEY_ISSUER_ID"
+          export METASEQUOIA_IOS_AUTH_KEY_PATH="$IOS_API_KEY_PATH"
+          export METASEQUOIA_IOS_APP_PROVISIONING_PROFILE_PATH="$IOS_APP_PROFILE_PATH"
+          export METASEQUOIA_IOS_KEYBOARD_PROVISIONING_PROFILE_PATH="$IOS_KEYBOARD_PROFILE_PATH"
+          export METASEQUOIA_IOS_RELEASE_DIR="$GITHUB_WORKSPACE/dist"
+          exec "$RUNNER_TEMP/package-ios-testflight.sh" "$TAG_NAME"
+      # 上传只是把文件交给 App Store Connect;build 会一直停在 READY_FOR_BETA_SUBMISSION,直到有人进网站点提交。
+      # 所以外部测试者拿到的一直是某个人上次手动提交的那一版,而不是刚发的这一版。
+      #
+      # 只有主动发起的发布走这一步。每次合并产生的自动构建是 prerelease 那个意义上的构建,值得上传,
+      # 但不值得一天十几次去占 Apple 的审核配额。
+      # 上传只是把文件交给 App Store Connect;build 会一直停在那里,直到有人进网站把它分发出去。
+      # 之前每次发布传上去的 build,测试者都没看见 —— 他们停在某个人上次手动分发的那一版。
+      #
+      # 两类受众走两条路:合进 main 的构建进内部组,不需要审核,处理完就能装;主动发起的发布还要进
+      # 外部组并提交 Apple 审核,那个队列值得一次发布占一个名额,而不是一次合并占一个。
+      - name: Hand the build to its testers
+        if: ${{ steps.testflight_credentials.outputs.enabled == 'true' }}
+        env:
+          BUILD_NUMBER: ${{ needs.prepare.outputs.build_number }}
+          IOS_API_KEY_ID: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_ID }}
+          IOS_API_KEY_ISSUER_ID: ${{ secrets.IOS_APP_STORE_CONNECT_API_KEY_ISSUER_ID }}
+          IOS_API_KEY_PATH: ${{ steps.testflight_credentials.outputs.key_path }}
+          IOS_APP_ID: ${{ vars.IOS_APP_STORE_CONNECT_APP_ID }}
+          IOS_INTERNAL_GROUP: ${{ vars.IOS_TESTFLIGHT_INTERNAL_GROUP }}
+          IOS_EXTERNAL_GROUP: ${{ vars.IOS_TESTFLIGHT_EXTERNAL_GROUP }}
+          DELIBERATE: ${{ github.event_name == 'workflow_dispatch' }}
+        run: |
+          set -euo pipefail
+          if [[ "$DELIBERATE" == true ]]; then
+            group=$IOS_EXTERNAL_GROUP
+            review=--submit-review
+            missing=IOS_TESTFLIGHT_EXTERNAL_GROUP
+          else
+            group=$IOS_INTERNAL_GROUP
+            review=
+            missing=IOS_TESTFLIGHT_INTERNAL_GROUP
+          fi
+          if [[ -z "$IOS_APP_ID" || -z "$group" ]]; then
+            echo "IOS_APP_STORE_CONNECT_APP_ID and $missing must be set; the build would stay uploaded but undistributed." >&2
+            exit 1
+          fi
+          # --break-system-packages:runner 的 Homebrew Python 是 externally-managed,不加这个 pip 直接报 PEP 668 拒绝安装。没有它,每一次发布都在这里挂 —— 包已经传上去,分发那一步从来没跑到过,而 release 是建好的,所以从外面看像是成功了。
+          python3 -m pip install --quiet --disable-pip-version-check --break-system-packages 'pyjwt[crypto]==2.10.1'
+          python3 platforms/ios/scripts/submit_testflight_review.py \
+            --app "$IOS_APP_ID" \
+            --build-version "$BUILD_NUMBER" \
+            --group "$group" \
+            ${review:+$review} \
+            --key-id "$IOS_API_KEY_ID" \
+            --issuer-id "$IOS_API_KEY_ISSUER_ID" \
+            --key-path "$IOS_API_KEY_PATH"
+      - name: Revalidate draft release target
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG_NAME: ${{ needs.prepare.outputs.tag_name }}
+          TARGET_SHA: ${{ needs.prepare.outputs.target_sha }}
+        run: |
+          release_json=$(gh release view "$TAG_NAME" --repo "$GH_REPO" --json isDraft,targetCommitish)
+          test "$(jq -er .isDraft <<< "$release_json")" = true
+          test "$(jq -er .targetCommitish <<< "$release_json")" = "$TARGET_SHA"
+      - name: Upload and publish release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_REPO: ${{ github.repository }}
+          TAG_NAME: ${{ needs.prepare.outputs.tag_name }}
+          ASSET_SUFFIX: ${{ steps.signing.outputs.asset_suffix }}
+          SIGNING_ENABLED: ${{ steps.signing.outputs.signing_enabled }}
+          IOS_TESTFLIGHT_ENABLED: ${{ steps.testflight_credentials.outputs.enabled }}
+          RELEASE_MACOS: 'false'
+          RELEASE_IOS: 'true'
+          # Decides which channel the release is published into: push is an automatic per-merge build, workflow_dispatch is one somebody asked for.
+          RELEASE_TRIGGER: ${{ github.event_name }}
+        run: exec "$RUNNER_TEMP/publish-release.sh"

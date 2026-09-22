@@ -1,109 +1,51 @@
-# GitHub Actions is switched off for this repository to control cost, so nothing
-# here runs and pull requests report no checks. That is the repository owner's
-# standing policy rather than a broken setup, and it is why the merge gate is
-# `bash scripts/verify-local.sh --quick` on a contributor's own machine - see
-# ARCHITECTURE.md. The definitions are kept current so the checks are ready to
-# run if that policy ever changes; treat them as the authoritative list of what
-# a change is expected to pass.
 name: CI
+
+# 平台无关的那两样:格式与 workflow 校验、以及只读文件做断言的契约套件。macOS 与 iOS 各自搬去了 ci-macos.yml 和 ci-ios.yml —— 一个 iOS 改动没有理由把 macOS 的编译器叫起来。
+
 on:
   push:
-    branches: [develop, main]
+    branches:
+      - develop
+      - main
+    # Prose that no build step compiles. ci-docs.yml answers for the required checks on exactly this list -- the same list the two platform workflows ignore -- so a documentation-only pull request stays mergeable, and it calls contracts.yml as well: README.md, PRIVACY.md and the architecture document are asserted on by ReleaseConfigurationTests, which runs on Linux, so ignoring them here keeps the assertions and drops only the builds.
+    #
+    # LICENSE and THIRD_PARTY_NOTICES.txt stay off the list on purpose: CMake installs them into the bundle, so they are build inputs rather than prose. A new documentation file is not ignored until someone adds it here, which fails toward running CI.
+    paths-ignore:
+      - CHANGELOG.md
+      - PRIVACY.md
+      - README.en.md
+      - README.md
+      - docs/apple-platform-architecture.md
+      - docs/backend-integration.md
+      - docs/ios-distribution.md
+      - docs/plans/**
   pull_request:
+    paths-ignore:
+      - CHANGELOG.md
+      - PRIVACY.md
+      - README.en.md
+      - README.md
+      - docs/apple-platform-architecture.md
+      - docs/backend-integration.md
+      - docs/ios-distribution.md
+      - docs/plans/**
+  workflow_dispatch:
+
+  merge_group:
+
+concurrency:
+  # Keyed by event as well as branch, for the same reason ci-macos.yml is: a pull_request run on the same branch must not cancel a dispatched one. Feature branches only ever get the pull_request run (push is restricted to develop and main), so this still collapses superseded runs of the same kind.
+  group: ci-${{ github.workflow }}-${{ github.event_name }}-${{ github.event.pull_request.head.ref || github.ref_name }}
+  cancel-in-progress: true
+
 permissions:
   contents: read
+
 jobs:
-  core:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
-        with:
-          components: rustfmt, clippy
-      - run: cargo fmt --all --check
-      - run: cargo test -p msime-client-core --locked
-      - run: cargo clippy -p msime-client-core --all-targets --locked -- -D warnings
-  desktop:
-    strategy:
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
-      - uses: pnpm/action-setup@b906affcce14559ad1aafd4ab0e942779e9f58b1 # v4
-      - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
-        with:
-          node-version: '24'
-          cache: pnpm
-      - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y libwebkit2gtk-4.1-dev libappindicator3-dev librsvg2-dev patchelf
-      - run: pnpm install --frozen-lockfile
-      - run: pnpm --filter @msime/desktop test
-      - run: pnpm build
-      - run: cargo test -p msime-client-core -p msime-desktop --locked
-      - run: pnpm tauri build --debug --no-bundle
-  engine:
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-latest, macos-latest, windows-latest]
-    runs-on: ${{ matrix.os }}
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
-      - if: runner.os == 'Linux'
-        run: sudo apt-get update && sudo apt-get install -y cmake libboost-dev libfmt-dev libspdlog-dev libsqlite3-dev
-      - if: runner.os == 'macOS'
-        run: brew install boost fmt spdlog
-      - if: runner.os == 'Windows'
-        shell: pwsh
-        run: |
-          vcpkg install boost-algorithm fmt spdlog sqlite3 --triplet x64-windows-static-md --classic
-          "CMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" >> $env:GITHUB_ENV
-          "VCPKG_TARGET_TRIPLET=x64-windows-static-md" >> $env:GITHUB_ENV
-      - if: runner.os == 'macOS'
-        run: echo "CMAKE_PREFIX_PATH=$(brew --prefix)" >> "$GITHUB_ENV"
-      - run: cargo test -p msime-engine-bridge -p msime-input-runtime -p msime-host-api --locked
-      - run: cargo build -p msime-host-api --locked
-      - if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          cc -std=c11 -Wall -Wextra -Werror crates/host-api/native/native_smoke.c -Icrates/host-api/include -Ltarget/debug -lmsime_host_api -Wl,-rpath,"$PWD/target/debug" -o target/debug/native-smoke
-          native_test_dir=$(mktemp -d)
-          mkdir "$native_test_dir/resources" "$native_test_dir/user" "$native_test_dir/cache" "$native_test_dir/dictionaries"
-          target/debug/native-smoke "$native_test_dir"
-      - if: runner.os == 'macOS'
-        run: |
-          clang++ -std=c++17 -fobjc-arc -Wall -Wextra -Werror -framework Foundation shared/apple/MSIMEClientSession.mm shared/apple/tests/session_smoke.mm -Ishared/apple -Icrates/host-api/include -Ltarget/debug -lmsime_host_api -Wl,-rpath,"$PWD/target/debug" -o target/debug/apple-session-smoke
-          target/debug/apple-session-smoke
-      - if: runner.os == 'macOS'
-        run: |
-          MACOSX_DEPLOYMENT_TARGET=13.0 cargo build -p msime-host-api --locked
-          cmake -S platforms/macos -B target/macos
-          cmake --build target/macos --parallel
-          ctest --test-dir target/macos --output-on-failure
-          plutil -lint target/macos/MSIMEClientInputMethod.app/Contents/Info.plist
-      - if: runner.os != 'Windows'
-        shell: bash
-        run: |
-          if [[ "$RUNNER_OS" == "macOS" ]]; then jni_platform=darwin; jni_extension=dylib; else jni_platform=linux; jni_extension=so; fi
-          c++ -std=c++17 -shared -fPIC -Wall -Wextra -Werror platforms/android/native/client_jni.cpp -I"$JAVA_HOME/include" -I"$JAVA_HOME/include/$jni_platform" -Icrates/host-api/include -Ltarget/debug -lmsime_host_api -Wl,-rpath,"$PWD/target/debug" -o "target/debug/libmsime_android.$jni_extension"
-          javac -d target/jni-test platforms/android/java/app/msime/client/NativeClient.java platforms/android/tests/NativeSmoke.java
-          java -Djava.library.path=target/debug -cp target/jni-test NativeSmoke
-  published-dictionary:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4
-      - uses: dtolnay/rust-toolchain@6bed0761d98439e5a578e2877258200ad565ba87 # stable
-      - run: sudo apt-get update && sudo apt-get install -y cmake libboost-dev libfmt-dev libspdlog-dev libsqlite3-dev
-      - shell: bash
-        run: |
-          resource_dir=$(cargo run --quiet -p msime-client-core --example install_resources -- target/resources)
-          python3 -c 'import sys; sys.path.insert(0, "vendor/MSIME-Engine"); from contracts.dictionary.product import verify_product; verify_product(sys.argv[1])' "$resource_dir"
-          cargo run -p msime-engine-bridge --example query_dictionary -- "$resource_dir"
-          cargo run -p msime-input-runtime --example runtime_dictionary -- "$resource_dir"
-          cargo run -p msime-client-core --example install_resources -- target/resources
+  quality:
+    uses: ./.github/workflows/quality.yml
+
+  # Minutes into the run rather than after the macOS build that ctest waits for. The macOS job still runs the same suite through ctest, including the cases this one skips for want of Apple tooling.
+  contracts:
+    uses: ./.github/workflows/contracts.yml
+
